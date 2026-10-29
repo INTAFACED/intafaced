@@ -5,8 +5,17 @@ import { moduleDisabledResponse } from '@/lib/modules';
 import {
   checkCreate,
   checkMove,
+  checkRuleSave,
+  checkRuleTest,
   checkUpdate,
+  checkVoucherIssue,
+  checkVoucherList,
   createCampaign,
+  issueVoucher,
+  listVouchers,
+  listRules,
+  saveRule,
+  testRule,
   loadCampaignDetail,
   loadCampaignsDesk,
   moveCampaign,
@@ -21,6 +30,11 @@ import {
  *   POST { op: 'create', definition }                    a draft; the name is its business key
  *   POST { op: 'update', id, revision, definition }      a draft's whole definition, over the revision read
  *   POST { op: 'move', id, action, revision }            submit, approve (a second founder), activate, pause, resume, end, archive
+ *   GET ?rules=library                                   every rule name's latest revision in the library
+ *   POST { op: 'rule-test', tree, fixture }              a rule tried on a TEST fixture account; stores nothing
+ *   POST { op: 'rule-save', name, tree }                 the name's next revision in the rule library
+ *   GET ?vouchers=<campaign id>                          a voucher campaign's vouchers, each with the revision it keeps
+ *   POST { op: 'voucher-issue', campaignId, code }       a voucher under the live revision; the code is its key
  *
  * Founder-only. svc-campaigns records the founder from their own token and refuses an approval by whoever wrote or asked.
  */
@@ -48,7 +62,19 @@ export async function GET(request: Request) {
   if (disabled) return disabled;
   const session = await adminBffSession(request);
   if (session instanceof Response) return session;
-  const id = new URL(request.url).searchParams.get('id');
+  const params = new URL(request.url).searchParams;
+  if (params.get('rules') === 'library') {
+    const { status, reply } = await listRules(session);
+    return Response.json(reply, { status, headers: NO_STORE });
+  }
+  const vouchers = params.get('vouchers');
+  if (vouchers !== null) {
+    const checked = checkVoucherList({ campaignId: vouchers });
+    if (!checked.ok) return incomplete(checked.why);
+    const { status, reply } = await listVouchers(session, checked.input);
+    return Response.json(reply, { status, headers: NO_STORE });
+  }
+  const id = params.get('id');
   if (id !== null) {
     if (!ID.test(id)) return incomplete('Which campaign?');
     return Response.json(await loadCampaignDetail(session, id), { headers: NO_STORE });
@@ -79,6 +105,21 @@ export async function POST(request: Request) {
         const checked = checkMove({ id: body.id, action: body.action, revision: body.revision });
         if (!checked.ok) return incomplete(checked.why);
         return send(await moveCampaign(session, checked.input));
+      }
+      case 'rule-test': {
+        const checked = checkRuleTest({ tree: body.tree, fixture: body.fixture });
+        if (!checked.ok) return incomplete(checked.why);
+        return send(await testRule(session, checked.input));
+      }
+      case 'rule-save': {
+        const checked = checkRuleSave({ name: body.name, tree: body.tree });
+        if (!checked.ok) return incomplete(checked.why);
+        return send(await saveRule(session, checked.input));
+      }
+      case 'voucher-issue': {
+        const checked = checkVoucherIssue({ campaignId: body.campaignId, code: body.code });
+        if (!checked.ok) return incomplete(checked.why);
+        return send(await issueVoucher(session, checked.input));
       }
       default:
         return incomplete('Unknown action.');

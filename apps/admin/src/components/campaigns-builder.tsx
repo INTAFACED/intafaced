@@ -9,6 +9,7 @@ import {
   type CampaignAction,
   type CampaignDefinitionInput,
   type CampaignGate,
+  type EarningRule,
   type ParticipationRules,
 } from '@intafaced/contracts/campaigns-catalogue';
 import { formatAsOf, formatWhen } from '@/lib/as-of';
@@ -20,8 +21,11 @@ import {
   MOVES,
   PARKED_STEPS,
   STEP_LABEL,
+  baseDefinition,
   blankSentence,
-  definitionOf,
+  editedView,
+  isEditable,
+  latestRevision,
   parseRegions,
   refusalSentence,
   resumeStep,
@@ -31,6 +35,9 @@ import {
 } from '@/lib/campaigns-ops/builder-model';
 import type { Part } from '@/lib/desk/part';
 import { PartFailed, StateChip } from '@/components/campaigns-desk';
+import { RuleBuilder } from '@/components/campaigns-rule-builder';
+import { EarningRules } from '@/components/campaigns-earning-rules';
+import { CampaignVouchers } from '@/components/campaigns-vouchers';
 import './desk.css';
 
 /**
@@ -131,7 +138,7 @@ const local = (body: string): Outcome => ({
 });
 
 /** The fields one tab owns, laid over the stored definition, so a tab never blanks another tab's answers. */
-function patchFor(step: BuilderStep, f: Fields): Partial<CampaignDefinitionInput> | string | null {
+function patchFor(step: BuilderStep, f: Fields, rule: ParticipationRules['rule']): Partial<CampaignDefinitionInput> | string | null {
   switch (step) {
     case 'basics':
       return { name: f.name.trim(), type: f.type, rules: f.rules };
@@ -140,6 +147,7 @@ function patchFor(step: BuilderStep, f: Fields): Partial<CampaignDefinitionInput
       if (!regions.ok) return `"${regions.bad}" is not a two-letter region code (ISO 3166, for example DE).`;
       return {
         participation: {
+          ...(rule ? { rule } : {}),
           exclusions: f.exclusions,
           regionScope: f.regionScope,
           // A listed campaign with no region typed stays blank, and the gate refuses it by name: never "no region".
@@ -233,6 +241,12 @@ function Summary({ c }: { c: Campaign }) {
       </dd>
       <dt>Revision</dt>
       <dd data-testid="campaign-revision">Revision {c.revision}</dd>
+      <dt>Next revision</dt>
+      <dd data-testid="campaign-pending">
+        {c.pendingChange
+          ? `Revision ${c.pendingChange.revision}, ${c.pendingChange.state === 'draft' ? 'a draft not yet sent for approval' : 'waiting for another founder to approve it'} (written by ${c.pendingChange.createdBy})`
+          : 'None: an edit of a live campaign is saved here as the next revision'}
+      </dd>
       <dt>Written by</dt>
       <dd className="dk-packet">{c.createdBy}</dd>
       <dt>Approval asked by</dt>
@@ -249,7 +263,7 @@ function Summary({ c }: { c: Campaign }) {
       <dd>{c.timeZone ?? 'Not set'}</dd>
       <dt>Budget</dt>
       <dd>{c.budget ? `${c.budget.left} left of ${c.budget.limit} ${c.budget.asset}` : 'Not set'}</dd>
-      <dt>Per person limit</dt>
+      <dt>Reward per person</dt>
       <dd>{c.reward ? `${c.reward.amount} ${c.reward.asset}` : 'Not set'}</dd>
     </dl>
   );
@@ -268,7 +282,7 @@ export function CampaignBuilder({
   const [view, setView] = useState(initial);
   const [campaign, setCampaign] = useState<Campaign | null>(first);
   const [step, setStep] = useState<BuilderStep>(first ? resumeStep(first) : 'basics');
-  const [fields, setFields] = useState<Fields>(fieldsOf(first, platformTimeZone));
+  const [fields, setFields] = useState<Fields>(fieldsOf(first ? editedView(first) : null, platformTimeZone));
   const [outcome, setOutcome] = useState<Outcome | null>(null);
   const [checked, setChecked] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -300,11 +314,11 @@ export function CampaignBuilder({
     return next;
   }, []);
 
-  const editable = campaign === null || campaign.state === 'draft';
+  const editable = campaign === null || isEditable(campaign);
 
   /** Saves one tab's fields. Null when nothing was saved (refused, or a parked tab). */
   const saveTab = async (tab: BuilderStep): Promise<Campaign | null> => {
-    const patch = patchFor(tab, fields);
+    const patch = patchFor(tab, fields, campaign ? baseDefinition(campaign).participation?.rule : null);
     if (patch === null) return campaign;
     if (typeof patch === 'string') {
       setOutcome(local(patch));
@@ -314,8 +328,8 @@ export function CampaignBuilder({
       ? await postCampaignChange({
           op: 'update',
           id: campaign.id,
-          revision: campaign.revision,
-          definition: { ...definitionOf(campaign), ...patch },
+          revision: latestRevision(campaign),
+          definition: { ...baseDefinition(campaign), ...patch },
         })
       : // A new draft's time zone is left for the founder to pick, so the check names it until they do.
         await postCampaignChange({
@@ -344,9 +358,66 @@ export function CampaignBuilder({
     // The new draft's address, without a route change: the builder already holds the draft it just saved.
     if (saved && !campaign) window.history.replaceState(null, '', `/more-ops/campaigns/builder?id=${encodeURIComponent(saved.id)}`);
     if (saved && editable) {
-      setOutcome({ kind: 'done', text: `Saved as revision ${saved.revision}.` });
+      const change = saved.pendingChange;
+      setOutcome({
+        kind: 'done',
+        text: change
+          ? `Saved as revision ${change.revision}. Revision ${saved.revision} stays live until another founder approves it.`
+          : `Saved as revision ${saved.revision}.`,
+      });
       await reload(saved.id);
     }
+  };
+
+  /** Puts a library revision on the campaign's rules: the draft, or the next revision of a live campaign. */
+  const putRule = async (rule: NonNullable<ParticipationRules['rule']>) => {
+    if (!campaign) return;
+    const base = baseDefinition(campaign);
+    if (!base.participation) {
+      setOutcome(local('Set who can take part first: the rule is checked alongside the exclusions and the region list.'));
+      return;
+    }
+    setBusy(true);
+    const answer = await postCampaignChange({
+      op: 'update',
+      id: campaign.id,
+      revision: latestRevision(campaign),
+      definition: { ...base, participation: { ...base.participation, rule } },
+    });
+    if (answer.ok) {
+      setCampaign(answer.campaign);
+      setOutcome({
+        kind: 'done',
+        text: `Put ${rule.name}, revision ${rule.revision}, on the campaign as revision ${latestRevision(answer.campaign)}.`,
+      });
+      await reload(answer.campaign.id);
+    } else setOutcome(refusedFrom(answer, campaign, me));
+    setBusy(false);
+  };
+
+  /** Saves the earning rules: the draft, or the next revision of a live campaign. The tab shows a refusal itself. */
+  const saveEarning = async (earning: EarningRule[]): Promise<CampaignDeskReply> => {
+    if (!campaign)
+      return {
+        ok: false,
+        title: 'No draft yet',
+        body: 'Save the name and type first.',
+        next: 'Nothing was saved.',
+        code: null,
+        changed: 'no',
+      };
+    const answer = await postCampaignChange({
+      op: 'update',
+      id: campaign.id,
+      revision: latestRevision(campaign),
+      definition: { ...baseDefinition(campaign), earning },
+    });
+    if (answer.ok) {
+      setCampaign(answer.campaign);
+      setOutcome({ kind: 'done', text: `Saved the earning rules as revision ${latestRevision(answer.campaign)}.` });
+      await reload(answer.campaign.id);
+    }
+    return answer;
   };
 
   const checkDraft = async () => {
@@ -360,8 +431,8 @@ export function CampaignBuilder({
     setBusy(false);
   };
 
-  const move = async (c: Campaign, action: CampaignAction): Promise<CampaignDeskReply> =>
-    postCampaignChange({ op: 'move', id: c.id, action, revision: c.revision });
+  const move = async (c: Campaign, action: CampaignAction, revision = c.revision): Promise<CampaignDeskReply> =>
+    postCampaignChange({ op: 'move', id: c.id, action, revision });
 
   const askToActivate = async () => {
     if (!campaign) {
@@ -371,11 +442,12 @@ export function CampaignBuilder({
     setBusy(true);
     setOutcome(null);
     let current: Campaign | null = campaign;
-    if (campaign.state === 'draft') current = await saveTab(step);
+    if (isEditable(campaign)) current = await saveTab(step);
     if (current) {
       const read = await reload(current.id);
       const gate = read?.gate;
-      if (current.state === 'draft' && gate?.kind === 'ok' && gate.data.missing.length > 0) {
+      const asking = current.state === 'draft' || current.pendingChange !== null;
+      if (asking && gate?.kind === 'ok' && gate.data.missing.length > 0) {
         setOutcome({
           kind: 'refused',
           title: 'This draft cannot go to approval yet',
@@ -385,10 +457,10 @@ export function CampaignBuilder({
           code: gate.data.missing[0]!.code,
         });
       } else {
-        const answer = await move(current, 'submit');
+        const answer = await move(current, 'submit', latestRevision(current));
         setOutcome(
           answer.ok
-            ? { kind: 'done', text: `Asked for approval of revision ${answer.campaign.revision}. Another founder approves it.` }
+            ? { kind: 'done', text: `Asked for approval of revision ${latestRevision(answer.campaign)}. Another founder approves it.` }
             : refusedFrom(answer, current, me),
         );
         await reload(current.id);
@@ -401,7 +473,16 @@ export function CampaignBuilder({
     if (!campaign) return;
     setBusy(true);
     setOutcome(null);
-    if (action === 'approve_live') {
+    const change = campaign.pendingChange;
+    if (action === 'approve_live' && change) {
+      // A change of a live campaign goes live as it is approved: the campaign keeps its state.
+      const approved = await move(campaign, 'approve', change.revision);
+      setOutcome(
+        approved.ok
+          ? { kind: 'done', text: `Approved revision ${change.revision}. It replaces revision ${campaign.revision} as the live one.` }
+          : refusedFrom(approved, campaign, me),
+      );
+    } else if (action === 'approve_live') {
       const approved = await move(campaign, 'approve');
       if (!approved.ok) setOutcome(refusedFrom(approved, campaign, me));
       else {
@@ -470,8 +551,8 @@ export function CampaignBuilder({
         </div>
         {!editable && (
           <p className="dk-muted" data-testid="campaign-not-draft">
-            Only a draft is edited. This campaign is past draft, so its definition is read-only here; a new revision of a live campaign is
-            not built yet.
+            A draft, or an approved, scheduled, active or paused campaign, is edited. This campaign is in none of those states, so its
+            definition is read-only here.
           </p>
         )}
         <fieldset disabled={!ready || busy || saving || !editable} role="tabpanel" aria-label={STEP_LABEL[step]}>
@@ -551,6 +632,23 @@ export function CampaignBuilder({
               )}
             </>
           )}
+          {step === 'rules' && campaign && (
+            <RuleBuilder
+              campaignName={campaign.name}
+              current={editedView(campaign).participation?.rule ?? null}
+              disabled={!editable}
+              onNotice={(n) => setOutcome(n.kind === 'done' ? n : { ...n, lines: [] })}
+              onUse={(rule) => void putRule(rule)}
+            />
+          )}
+          {step === 'earning' && campaign && (
+            <EarningRules
+              rules={editedView(campaign).earning}
+              asset={editedView(campaign).reward?.asset ?? editedView(campaign).budget?.asset ?? null}
+              disabled={!editable}
+              onSave={(earning) => saveEarning(earning)}
+            />
+          )}
           {parked && (
             <section aria-label={`${STEP_LABEL[step]}: not built`} data-testid={`campaign-parked-${step}`}>
               <p>{parked.what}</p>
@@ -622,7 +720,7 @@ export function CampaignBuilder({
                   <input id="cmp-budget" inputMode="decimal" value={fields.budget} onChange={(e) => set({ budget: e.target.value })} />
                 </div>
                 <div className="adm-field">
-                  <label htmlFor="cmp-per-person">Per person limit</label>
+                  <label htmlFor="cmp-per-person">Reward per person</label>
                   <input
                     id="cmp-per-person"
                     inputMode="decimal"
@@ -633,8 +731,8 @@ export function CampaignBuilder({
               </div>
               <p className="dk-muted">
                 The budget is the most the campaign may ask the reward pot for: a limit, not a balance. Nothing is reserved or paid until a
-                customer qualifies. The per person limit is the most one customer receives from this campaign; a task campaign pays it once
-                per customer.
+                customer qualifies. The reward per person is what one customer receives from this campaign, and the most they may: a task
+                campaign pays it once per customer.
               </p>
             </>
           )}
@@ -675,6 +773,7 @@ export function CampaignBuilder({
           )}
         </section>
       </form>
+      {campaign && campaign.type === 'voucher' && campaign.state !== 'draft' && <CampaignVouchers campaign={campaign} />}
     </div>
   );
 }

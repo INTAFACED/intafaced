@@ -6,8 +6,9 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS }) => ({
     IDENTITY_URL: urlOf('identity'),
     // LOCAL TEST only, the labelled value in tooling/profiles/test-owner-values/support.json: how many comments a
     // requester may add to one request. Production stays blank and every requester comment refuses
-    // (support.comment_cap_unset) until the owner sets it.
-    SUPPORT_COMMENT_CAP: '50',
+    // (support.comment_cap_unset) until the owner sets it. `LOCAL_STACK_SUPPORT_COMMENT_CAP=off` on a start or restart
+    // leaves it blank, so that refusal can be seen in the running app too (J-support-public-09 #5).
+    ...(process.env.LOCAL_STACK_SUPPORT_COMMENT_CAP === 'off' ? {} : { SUPPORT_COMMENT_CAP: '50' }),
     // LOCAL TEST only, labelled in the same file: how many saved desk views one person, and the whole desk, may keep.
     // Production stays blank and every save refuses (support.view_cap_unset) until the owner sets them.
     SUPPORT_VIEW_PERSONAL_CAP: '20',

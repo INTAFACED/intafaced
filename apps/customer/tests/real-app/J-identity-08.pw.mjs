@@ -1,5 +1,8 @@
 import { randomBytes } from 'node:crypto';
-import { test, expect } from '@playwright/test';
+import { chromium, test, expect } from '@playwright/test';
+import { localTestDeviceState } from '../../../../tooling/scripts/local-test-device.mjs';
+import { ADMIN, founderSignIn } from './admin.mjs';
+import { fundedTrader, openDesk, reviewLimit } from './desk.mjs';
 import { signUpInBrowser, tool } from './stack.mjs';
 
 // J-identity-08, in the running app (docs/roadmap/journeys.json): I get verified and see what each level unlocks.
@@ -171,11 +174,98 @@ test(`${J} #2: guided verification resumes at the step left, a country with no d
 });
 
 test(`${J} #3: with the face check switched off the selfie is kept for manual review; a hand-off link used twice is refused`, async ({
-  page,
+  baseURL,
 }) => {
-  test.setTimeout(60_000);
-  await atVerification(page);
-  await expect(page.getByRole('heading', { name: 'Selfie and liveness' })).toBeVisible(UNBUILT);
+  test.setTimeout(90_000);
+  // A browser whose camera is Chromium's fake device, granted, as a person's would be after they allow it.
+  const browser = await chromium.launch({
+    channel: 'chromium',
+    args: ['--use-fake-device-for-media-stream', '--use-fake-ui-for-media-stream'],
+    ...(process.env.JOURNEY_CHROMIUM ? { executablePath: process.env.JOURNEY_CHROMIUM } : {}),
+  });
+  try {
+    const context = await browser.newContext({
+      baseURL,
+      permissions: ['camera'],
+      storageState: localTestDeviceState(),
+      viewport: { width: 1440, height: 900 },
+    });
+    const page = await context.newPage();
+    const { who } = await atVerification(page);
+    const selfie = page.getByTestId('verification__selfie');
+    await expect(page.getByRole('heading', { name: 'Selfie and liveness' })).toBeVisible();
+    await expect(selfie.getByTestId('verification__selfie-manual')).toHaveAttribute('data-face-check', 'not_connected');
+    // The vendor is off: the notice names both checks it does not run, and that a person reviews the capture instead.
+    await expect(selfie.getByTestId('verification__selfie-manual')).toHaveText(
+      'The automatic face match and liveness check are not connected here, so a person compares your selfie with your ID photo.',
+    );
+    await expect(selfie.getByTestId('verification__selfie-liveness')).toHaveText('No action asks for a liveness re-check.');
+
+    // Taken live on this device: no file picker is offered, and the selfie waits for a person.
+    await expect(selfie.locator('input[type="file"]')).toHaveCount(0);
+    const takeLive = async (where) => {
+      await where.getByRole('button', { name: 'Open camera' }).click();
+      const preview = where.getByLabel('Camera preview');
+      await expect(preview).toBeVisible();
+      await expect.poll(() => preview.evaluate((video) => video.videoWidth)).toBeGreaterThan(0);
+      await where.getByRole('button', { name: 'Take selfie' }).click();
+      await expect(where.getByTestId('verification__selfie-sent')).toHaveText('Selfie sent. A person compares it with your ID photo.');
+    };
+    await takeLive(selfie);
+    await expect(selfie.getByTestId('verification__selfie-latest')).toHaveAttribute('data-status', 'provided');
+    await expect(selfie.getByTestId('verification__selfie-latest')).toHaveAttribute('data-via', 'this_device');
+
+    // A one-time link for the phone, as a code and as a link, for this account only.
+    await selfie.getByRole('button', { name: 'Use my phone instead' }).click();
+    await expect(selfie.getByRole('img', { name: 'Code with the link for your phone' })).toBeVisible();
+    await expect(selfie.getByText('The link works once, only for this account, for 10 minutes.')).toBeVisible();
+    const href = await selfie.getByTestId('verification__selfie-link').getAttribute('href');
+    expect(href).toMatch(/\/verification\?handoff=[A-Za-z0-9_-]{43}$/);
+
+    // The phone is its own browser, signed in to the same account; it opens the link and takes the selfie there.
+    const phoneContext = await browser.newContext({
+      baseURL,
+      permissions: ['camera'],
+      storageState: localTestDeviceState(),
+      viewport: { width: 390, height: 844 },
+    });
+    const phone = await phoneContext.newPage();
+    await phone.goto('/login');
+    await phone.fill('input[name=identifier]', who.email);
+    await phone.fill('input[name=password]', who.password);
+    await phone.getByRole('button', { name: /^sign in$/i }).click();
+    await expect(phone).not.toHaveURL(/\/login/);
+    await phone.goto(href);
+    const onPhone = phone.getByTestId('verification__selfie');
+    await expect(onPhone.getByTestId('verification__selfie-handoff')).toHaveAttribute('data-state', 'open');
+    await takeLive(onPhone);
+    await expect(onPhone.getByTestId('verification__selfie-latest')).toHaveAttribute('data-via', 'handoff');
+    // The phone says it is done, with no refusal; the computer picks up the phone's selfie and the code leaves its screen.
+    await expect(onPhone.getByTestId('verification__selfie-handoff')).toHaveAttribute('data-state', 'done');
+    await expect(onPhone.getByRole('alert')).toHaveCount(0);
+    // Back on the computer, which still holds its own session and reads the latest selfie.
+    await expect(selfie.getByTestId('verification__selfie-latest')).toHaveAttribute('data-via', 'handoff', { timeout: 15_000 });
+    await expect(selfie.getByRole('img', { name: 'Code with the link for your phone' })).toHaveCount(0);
+    await expect(selfie.getByTestId('verification__selfie-sent')).toBeVisible();
+
+    // The same link opened again is refused in plain words, and offers no camera.
+    const again = await phoneContext.newPage();
+    await again.goto(href);
+    const refused = again.getByTestId('verification__selfie').getByTestId('verification__selfie-handoff');
+    await expect(refused).toHaveAttribute('data-state', 'used');
+    await expect(refused).toHaveText('This link was already used. Make a new one on your computer.');
+    await expect(again.getByTestId('verification__selfie').getByRole('button', { name: 'Open camera' })).toHaveCount(0);
+
+    // A link that lost characters on the way is refused as not whole, with no camera and no new phone link offered.
+    const cut = await phoneContext.newPage();
+    await cut.goto(href.slice(0, -5));
+    const broken = cut.getByTestId('verification__selfie').getByTestId('verification__selfie-handoff');
+    await expect(broken).toHaveAttribute('data-state', 'broken');
+    await expect(cut.getByTestId('verification__selfie').getByRole('button', { name: 'Open camera' })).toHaveCount(0);
+    await expect(cut.getByTestId('verification__selfie-phone')).toHaveCount(0);
+  } finally {
+    await browser.close();
+  }
 });
 
 test(`${J} #4: too many failed attempts give a typed lockout with the seconds left, or say no limit is set`, async ({ page }) => {
@@ -210,10 +300,106 @@ test(`${J} #4: too many failed attempts give a typed lockout with the seconds le
   await expect(cases).toHaveCount(2);
 });
 
-test(`${J} #5: proof of address, the risk questionnaire and tax certification, with honest refusals`, async ({ page }) => {
-  test.setTimeout(60_000);
+/** Identity restarted with the owner's proof-of-address recency rule blank, or back on the stack's TEST rule. */
+function identityPoaRule(on) {
+  const before = process.env.LOCAL_STACK_IDENTITY_POA_RULE;
+  if (on) delete process.env.LOCAL_STACK_IDENTITY_POA_RULE;
+  else process.env.LOCAL_STACK_IDENTITY_POA_RULE = 'off';
+  try {
+    tool('local-test-stack.mjs', 'restart', 'identity');
+  } finally {
+    if (before === undefined) delete process.env.LOCAL_STACK_IDENTITY_POA_RULE;
+    else process.env.LOCAL_STACK_IDENTITY_POA_RULE = before;
+  }
+}
+
+test(`${J} #5: proof of address, with honest refusals`, async ({ page }) => {
+  test.setTimeout(240_000);
   await atVerification(page);
-  await expect(page.getByRole('heading', { name: 'Proof of address' })).toBeVisible(UNBUILT);
+  const poa = page.getByRole('region', { name: 'Proof of address' });
+  // Asked for only after level Basic is approved.
+  await expect(poa.getByTestId('verification__poa-state')).toHaveText('Proof of address is asked for after level Basic is approved.');
+  await page.getByLabel('Level to request').selectOption({ label: 'Basic' });
+  await sendRequest(page);
+  tool('local-test-gates.mjs', 'verify');
+  await page.reload();
+
+  // The owner's TEST rule (90 days) and the lists for DE: what counts and what never does.
+  await expect(poa.getByTestId('verification__poa-rule')).toHaveText('Issued within the last 90 days.');
+  await expect(poa.getByTestId('verification__poa-documents')).toHaveAttribute('data-country', 'DE');
+  await expect(poa.getByTestId('verification__poa-accepted').locator('li')).toHaveText([
+    'TEST: Utility bill (gas, power, water)',
+    'TEST: Bank statement',
+  ]);
+  await expect(poa.getByTestId('verification__poa-refused').locator('li')).toHaveText(['TEST: Screenshots', 'TEST: Mobile phone bills']);
+  // A country with no list says none is published.
+  await poa.getByLabel('Country the document is from').fill('US');
+  await expect(poa.getByTestId('verification__poa-documents')).toHaveAttribute('data-published', 'false');
+  await expect(poa.getByTestId('verification__poa-documents')).toHaveText(
+    'No proof-of-address list is published for US, so a document from there is refused.',
+  );
+
+  const day = (daysAgo) => new Date(Date.now() - daysAgo * 86_400_000).toISOString().slice(0, 10);
+  const pdf = { name: 'bill.pdf', mimeType: 'application/pdf', buffer: Buffer.from('%PDF-1.4 TEST proof of address') };
+  const problem = poa.getByTestId('verification__poa-problem');
+
+  // With the owner's recency rule blank, the room says so and a send is refused with its code; nothing is stored.
+  const ruleUnset = 'No rule is published for how recent a proof of address must be, so a submission is refused.';
+  try {
+    identityPoaRule(false);
+    await page.reload();
+    await expect(poa.getByTestId('verification__poa-rule')).toHaveAttribute('data-max-age-days', '');
+    await expect(poa.getByTestId('verification__poa-rule')).toHaveText(ruleUnset);
+    await poa.getByRole('combobox', { name: 'Document' }).selectOption({ label: 'TEST: Utility bill (gas, power, water)' });
+    await poa.getByLabel('Date issued').fill(day(10));
+    await poa.getByLabel('The document', { exact: true }).setInputFiles(pdf);
+    await poa.getByRole('button', { name: 'Send proof of address' }).click();
+    await expect(problem).toHaveAttribute('data-code', 'kyc.poa_rule_unset');
+    await expect(problem).toHaveText(ruleUnset);
+    await expect(poa.getByTestId('verification__poa-sent')).toHaveCount(0);
+    await expect(poa.getByTestId('verification__poa-latest')).toHaveCount(0);
+    await page.reload();
+    await expect(poa.getByTestId('verification__poa-latest')).toHaveCount(0);
+  } finally {
+    identityPoaRule(true);
+  }
+  await page.reload();
+  await expect(poa.getByTestId('verification__poa-rule')).toHaveText('Issued within the last 90 days.');
+
+  // Too old for the rule: refused with its code, naming the rule.
+  await poa.getByLabel('Country the document is from').fill('DE');
+  await poa.getByRole('combobox', { name: 'Document' }).selectOption({ label: 'TEST: Utility bill (gas, power, water)' });
+  await poa.getByLabel('Date issued').fill(day(120));
+  await poa.getByLabel('The document', { exact: true }).setInputFiles(pdf);
+  await poa.getByRole('button', { name: 'Send proof of address' }).click();
+  await expect(problem).toHaveAttribute('data-code', 'kyc.poa_too_old');
+  await expect(problem).toHaveText('This document is older than 90 days. Send one issued within the last 90 days.');
+
+  // Recent, from another country than the residence: sent for review, and flagged for the reviewer.
+  await poa.getByLabel('Country the document is from').fill('FR');
+  await poa.getByRole('combobox', { name: 'Document' }).selectOption({ label: 'TEST: Utility bill' });
+  await poa.getByLabel('Date issued').fill(day(5));
+  await poa.getByLabel('The document', { exact: true }).setInputFiles(pdf);
+  await poa.getByRole('button', { name: 'Send proof of address' }).click();
+  await expect(poa.getByTestId('verification__poa-sent')).toContainText('Sent for review.');
+  await expect(poa.getByTestId('verification__poa-latest')).toHaveAttribute('data-status', 'submitted');
+  await expect(poa.getByTestId('verification__poa-mismatch')).toHaveText(
+    'This document is from FR, not where you live (DE), so the reviewer checks it.',
+  );
+  await expect(poa.getByTestId('verification__poa-latest')).toHaveAttribute('data-mismatch', 'true');
+  await expect(poa.getByTestId('verification__poa-one-at-a-time')).toHaveText(
+    'One document waits for review at a time. You can send another after a reviewer decides it.',
+  );
+
+  // Another document while that one waits: refused in plain words, and the one on record stays.
+  await poa.getByLabel('Country the document is from').fill('DE');
+  await poa.getByRole('combobox', { name: 'Document' }).selectOption({ label: 'TEST: Utility bill (gas, power, water)' });
+  await poa.getByLabel('Date issued').fill(day(10));
+  await poa.getByLabel('The document', { exact: true }).setInputFiles({ ...pdf, buffer: Buffer.from('%PDF-1.4 TEST another bill') });
+  await poa.getByRole('button', { name: 'Send proof of address' }).click();
+  await expect(problem).toHaveAttribute('data-code', 'kyc.poa_pending');
+  await expect(problem).toHaveText('A document is already waiting for review. You can send another after a reviewer decides it.');
+  await expect(poa.getByTestId('verification__poa-latest')).toHaveAttribute('data-mismatch', 'true');
 });
 
 test(`${J}, part of #6 (I-kyc-compliance-01): one case record with history; a reject gives a plain reason, a resubmission opens a linked case, an approval unlocks at once`, async ({
@@ -305,7 +491,163 @@ test(`${J} #6: one case record with history; an approval unlocks the mapped feat
 });
 
 test(`${J} #7: a restriction on another screen gives its reason in plain words and the next step`, async ({ page }) => {
-  test.setTimeout(60_000);
-  await atVerification(page);
-  await expect(page.getByRole('heading', { name: 'Restrictions on your account' })).toBeVisible(UNBUILT);
+  test.setTimeout(120_000);
+  const { who } = await atVerification(page);
+  const restrictions = page.getByTestId('verification__restrictions');
+  await expect(restrictions.getByRole('heading', { name: 'Restrictions on your account' })).toBeVisible();
+  await expect(restrictions.getByTestId('verification__restrictions-none')).toHaveText('Nothing is restricted on your account.');
+
+  // Compliance switches trading crypto off, two people with the stack's TEST reason (I-kyc-compliance-07).
+  expect(tool('local-test-gates.mjs', 'kyc-capability-off', who.handle, 'trade_crypto', 'compliance_hold')).toContain(
+    'switched off (compliance_hold)',
+  );
+  await page.reload();
+  // Here: Capabilities says it is switched off and why, and the restrictions section points there, saying it once.
+  const capabilities = page.getByRole('region', { name: 'Capabilities' });
+  const capability = capabilities.locator('[data-testid="verification__capability"][data-capability="trade_crypto"]');
+  await expect(capability).toContainText('Switched off');
+  await expect(capability).toContainText('TEST: this was switched off after a compliance review.');
+  await expect(restrictions.getByTestId('verification__restrictions-capabilities')).toHaveText(
+    'A capability compliance switched off is listed under Capabilities above.',
+  );
+  await expect(restrictions.getByTestId('verification__restrictions-none')).toHaveCount(0);
+
+  // On another screen, the account status: the reason in the owner's plain words, the next step, what it stops today
+  // (a new request for the level that grants it) and what it does not (orders and transfers), and that nothing lifts it.
+  await restrictions.getByRole('link', { name: 'See your account status' }).click();
+  await expect(page).toHaveURL(/\/uc\/account/);
+  const status = page.getByTestId('account-status');
+  await expect(status.getByTestId('account-status__state')).toHaveAttribute('data-state', 'restricted');
+  const off = status.locator('li[data-kind="capability_off"][data-capability="trade_crypto"]');
+  await expect(off).toContainText('Trade crypto switched off');
+  await expect(off).toContainText('TEST: this was switched off after a compliance review.');
+  await expect(off).toContainText('Next: TEST: ask Support what the review found.');
+  await expect(off).toContainText('It stops a new request for the level that grants it.');
+  await expect(off).toContainText('it does not stop your orders or transfers.');
+  await expect(off).toContainText('It cannot be switched back on.');
+  await expect(status.getByTestId('account-status__cannot').locator('li')).toHaveText([
+    'Ask for the verification level that grants a switched-off capability',
+  ]);
+
+  // Hit it: ask for Basic, the TEST level that grants trading crypto, from its own screen. Identity refuses it with its
+  // one typed code before anything is stored, and the refusal gives the reason in the owner's words and the next step.
+  await page.goto('/verification');
+  const cases = page.getByRole('region', { name: 'Case history' }).getByTestId('verification__case');
+  await expect(cases).toHaveCount(0);
+  await page.getByLabel('Level to request').selectOption({ label: 'Basic' });
+  await page.getByLabel('Country code').fill('DE');
+  await page.getByRole('button', { name: 'Review request' }).click();
+  const [reply] = await Promise.all([
+    page.waitForResponse((r) => r.url().includes('kyc.submit') && r.request().method() === 'POST'),
+    page.getByRole('button', { name: 'Submit this request' }).click(),
+  ]);
+  expect(reply.status()).toBe(409);
+  const wire = await reply.json();
+  expect((Array.isArray(wire) ? wire[0] : wire).error.data.cause.code).toBe('kyc.capability_inactive');
+  const refused = page.getByTestId('verification__capability-refused');
+  await expect(refused).toHaveAttribute('data-code', 'kyc.capability_inactive');
+  await expect(refused).toContainText(
+    'This level was refused because it grants a capability compliance switched off. The service opened no request. Switched off on your account:',
+  );
+  const why = refused.locator('li[data-kind="capability_off"][data-capability="trade_crypto"]');
+  await expect(why).toHaveCount(1);
+  await expect(why).toContainText('Trade crypto switched off');
+  await expect(why).toContainText('TEST: this was switched off after a compliance review.');
+  await expect(why).toContainText('Next: TEST: ask Support what the review found.');
+  await expect(refused.locator('li')).toHaveCount(1);
+
+  // Re-read: no case opened, trading crypto is still the one switched off, and nothing is held pending.
+  await page.reload();
+  await expect(cases).toHaveCount(0);
+  await expect(capability).toHaveAttribute('data-state', 'inactive');
+  const states = await capabilities
+    .getByTestId('verification__capability')
+    .evaluateAll((items) => items.map((li) => [li.getAttribute('data-capability'), li.getAttribute('data-state')]));
+  expect(states.filter(([, state]) => state !== 'unrequested')).toEqual([['trade_crypto', 'inactive']]);
+});
+
+// ── The platform posting freeze, as the founders' freeze desk does it (A asks, B approves, A runs) ─────────────────────
+
+const founders = { a: null, b: null };
+test.afterAll(async () => {
+  for (const key of ['a', 'b']) await founders[key]?.context().close();
+});
+async function founderPages(browser) {
+  for (const key of ['a', 'b']) {
+    if (founders[key]) continue;
+    founders[key] = await (await browser.newContext()).newPage();
+    await founderSignIn(founders[key], key);
+    await founders[key].goto(`${ADMIN}/`, { waitUntil: 'load' });
+  }
+  return founders;
+}
+
+const freezeStep = (page, body) =>
+  page.evaluate(async (payload) => {
+    const session = await (await fetch('/api/session', { cache: 'no-store' })).json();
+    const res = await fetch('/api/ledger-freeze', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-intafaced-csrf': session.csrf },
+      body: JSON.stringify(payload),
+    });
+    return { status: res.status, body: await res.json() };
+  }, body);
+
+const decode = (text) => JSON.parse(Buffer.from(text.slice('ifa1.'.length), 'base64url').toString('utf8'));
+const readFreeze = (page) => page.evaluate(async () => (await fetch('/api/ledger-freeze', { cache: 'no-store' })).json());
+
+async function setPostingFreeze(browser, frozen) {
+  const { a, b } = await founderPages(browser);
+  const record = await readFreeze(a);
+  expect(record.ok, JSON.stringify(record)).toBe(true);
+  if (record.state.frozen === frozen) return;
+  const version = record.state.version;
+  const request = frozen
+    ? { kind: 'ledger.freeze', reason: `LOCAL TEST ${J} #7 posting freeze`, version }
+    : { kind: 'ledger.unfreeze', version };
+  const confirm = frozen ? 'FREEZE LEDGER' : 'UNFREEZE LEDGER';
+  const proposed = await freezeStep(a, { step: 'propose', request, confirm });
+  expect(proposed.body.ok, JSON.stringify(proposed.body)).toBe(true);
+  const packet = decode(proposed.body.packet);
+  const approved = await freezeStep(b, { step: 'approve', request, confirm, approvalId: packet.approvalId });
+  expect(approved.body.ok, JSON.stringify(approved.body)).toBe(true);
+  const ran = await freezeStep(a, { step: 'execute', request, confirm, approvalId: packet.approvalId, operationId: packet.operationId });
+  expect(ran.body.ok, JSON.stringify(ran.body)).toBe(true);
+  expect((await readFreeze(a)).state.frozen).toBe(frozen);
+}
+
+test(`${J} #7: a platform posting freeze never reads as "your account is restricted"`, async ({ page, browser }) => {
+  test.setTimeout(240_000);
+  // A verified person with TEST USDT, so the order reaches the ledger: the freeze, not a missing level or balance, is
+  // what refuses it. The deposit is only the precondition; nothing here counts it as a step.
+  const who = await fundedTrader(page, 'kvfz', '100');
+  await openDesk(page, who);
+  try {
+    await setPostingFreeze(browser, true);
+    // On another screen, the trade desk: the order is refused as paused for everyone, never as this account's hold.
+    const sent = page.waitForResponse((r) => new URL(r.url()).pathname === '/api/v1/orders' && r.request().method() === 'POST');
+    // 10 USDT at a fixed TEST price: over the market's minimum, under the TEST balance; the book is not needed.
+    const review = await reviewLimit(page, 'buy', '10000.00', '0.001');
+    await review.getByRole('button', { name: 'Confirm buy' }).click();
+    const answer = await sent;
+    expect(answer.status()).toBe(400);
+    expect((await answer.json()).message).toBe('ledger.frozen');
+    const main = page.getByRole('main');
+    await expect(main.getByText('Orders are paused right now')).toBeVisible();
+    await expect(main.getByText("Orders can't go through at the moment, and this one wasn't placed. Try again later.")).toBeVisible();
+    await expect(main).not.toContainText(/restricted|on hold/i);
+
+    // The account status, read while the freeze is on: the account is active and nothing on it is restricted.
+    await page.goto('/uc/account');
+    const status = page.getByTestId('account-status');
+    await expect(status.getByTestId('account-status__state')).toHaveAttribute('data-state', 'active');
+    await expect(status).toContainText('Your account is active. Nothing is restricted.');
+    await expect(status.getByTestId('account-status__cannot').locator('li')).toHaveText(['Nothing']);
+
+    // And on /verification: nothing is restricted on the account.
+    await page.goto('/verification');
+    await expect(page.getByTestId('verification__restrictions-none')).toHaveText('Nothing is restricted on your account.');
+  } finally {
+    await setPostingFreeze(browser, false);
+  }
 });

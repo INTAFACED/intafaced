@@ -6,7 +6,7 @@ vi.mock('../../shared/preferences', async (original) => {
 });
 import { findRoom } from '../../app/navigation';
 import { DevelopersRoutes } from './DevelopersRoutes';
-import { ENVIRONMENTS, PROTOCOLS, SECTIONS, developersRoute, hostTable } from './developers-model';
+import { ENVIRONMENTS, PROTOCOLS, SECTIONS, connectivityOptions, developersRoute, hostTable } from './developers-model';
 
 describe('developer portal model', () => {
   it('reads the address into home, hosts, a known section or unknown', () => {
@@ -56,5 +56,27 @@ describe('developer portal pages', () => {
     const html = renderToString(<DevelopersRoutes path="/developers/no-such" />);
     expect(html).toContain('No such developer page');
     expect(html).toContain('href="/developers"');
+  });
+});
+
+describe('connectivityOptions', () => {
+  it('calls Internet available only once every protocol has a production host', () => {
+    const only = hostTable((protocol, environment) => (protocol === 'fix' && environment === 'production' ? 'fix.example' : null));
+    expect(connectivityOptions(only).find((o) => o.option === 'internet')?.state).toBe('host_unset');
+    const all = hostTable((_, environment) => (environment === 'production' ? 'api.example' : null));
+    expect(connectivityOptions(all).find((o) => o.option === 'internet')?.state).toBe('available');
+    expect(connectivityOptions(all).find((o) => o.option === 'redundant')?.state).toBe('host_unset');
+  });
+
+  it('names each endpoint host per protocol, and none for the parked options', () => {
+    const only = hostTable((protocol, environment) => (protocol === 'fix' && environment === 'production' ? 'fix.example' : null));
+    const options = connectivityOptions(only);
+    expect(options.find((o) => o.option === 'internet')?.hosts.map(({ protocol, cell }) => [protocol, cell])).toEqual([
+      ['rest', { state: 'unset' }],
+      ['websocket', { state: 'unset' }],
+      ['fix', { state: 'set', host: 'fix.example' }],
+    ]);
+    expect(options.find((o) => o.option === 'redundant')?.hosts.every((row) => row.environment === 'regional')).toBe(true);
+    expect(options.find((o) => o.option === 'colocation')?.hosts).toEqual([]);
   });
 });

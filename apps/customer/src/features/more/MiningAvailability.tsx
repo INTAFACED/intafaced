@@ -6,6 +6,7 @@ import { Read } from './common';
 import { miningCopy } from './mining-copy';
 import { miningHealth, type MiningHealth } from './mining-journey';
 import { MiningRooms } from './MiningRooms';
+import { MiningPool, MiningPoolStatus, usePoolProbe } from './MiningPool';
 import { miningDepthCopy } from './mining-depth-copy';
 import type { Resource } from '../../shared/resource';
 import './mining-availability.css';
@@ -20,6 +21,7 @@ export function Mining({ tab: first = 'Overview' }: { tab?: MiningTab }) {
   const api = useApi();
   const status = useResource((signal) => api.plain('mining', '/health', miningHealth, { signal }), 'mining-health');
   const [tab, setTab] = useState<MiningTab>(first);
+  const probe = usePoolProbe();
   const depth = miningDepthCopy.useCopy();
   return (
     <div className="more-grid">
@@ -36,6 +38,8 @@ export function Mining({ tab: first = 'Overview' }: { tab?: MiningTab }) {
           Status: depth.t('tabStatus'),
         }}
       />
+      {tab === 'Overview' ? <MiningPool probe={probe} /> : null}
+      {tab === 'Status' ? <MiningPoolStatus health={status} probe={probe} /> : null}
       {tab === 'Status' ? <MiningStatusRoom status={status} /> : <MiningRooms room={tab} health={status} />}
     </div>
   );

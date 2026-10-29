@@ -11,7 +11,6 @@ import { api } from './stack.mjs';
 // Steps that are written but not built yet fail at their first missing part, quickly (UNBUILT):
 // - #4, #10: no "claim next", no workspace address per request, no unclaim or reassign in the console (SP-tickets-09).
 // - #5: no customer card (SP-tickets-09). #7: no macros or signatures (SP-desk-02). #8: no stale-reply guard (SP-tickets-09).
-// - #6: the ticket history has no rows for priority, type and label changes (svc-support keeps them in its own log).
 // #2's blank view cap clause needs the cap blank; the stack sets owner values as TEST, so it is checked where the cap is unset.
 const J = 'J-support-public-10';
 const RUN = Date.now().toString(36);
@@ -196,8 +195,8 @@ test(`${J} #6 priority, type and labels save with one audit row each; a label wi
   const queue = await openQueue(page);
   const workspace = await openRequest(page, queue, ticket);
   const props = page.getByRole('region', { name: 'Priority, type and labels' });
-  await props.getByLabel('Priority').selectOption({ index: 1 });
-  await props.getByLabel('Type').selectOption({ index: 1 });
+  const [priority] = await props.getByLabel('Priority').selectOption({ index: 1 });
+  const [type] = await props.getByLabel('Type').selectOption({ index: 1 });
   await props.getByLabel(/^Labels/).fill(`test_${RUN} vip`);
   await props.getByRole('button', { name: 'Review changes' }).click();
   await props.getByRole('button', { name: 'Yes, save' }).click();
@@ -211,9 +210,18 @@ test(`${J} #6 priority, type and labels save with one audit row each; a label wi
     labels: ['two words'],
     clientRequestId: `${J}:${RUN}:space-label`,
   });
-  expect(refused.status).toBe(400);
-  expect(refused.text).toMatch(/support\.[a-z_]*label/);
-  expect((await desk('lead', 'query', 'get', { ticketId: ticket.id })).labels).toEqual([`test_${RUN}`, 'vip']);
+  expect([refused.status, refused.json?.error?.message], refused.text.slice(0, 300)).toEqual([400, 'support.label_invalid']);
+  // Labels are staff-only and kept beside the ticket, never on it (the owner reads the ticket), so the staff read is the one to check.
+  const saved = await desk('lead', 'query', 'ticketProperties', { ticketId: ticket.id });
+  expect(saved.labels).toEqual([`test_${RUN}`, 'vip']);
+  expect(saved.priority).toBe(priority);
+  expect(saved.ticketType).toBe(type);
+  // The history, read again from the start, still holds one row per field: the refused call wrote none.
+  await page.reload();
+  const again = await openRequest(page, page.getByRole('region', { name: 'Support queue' }), ticket);
+  const historyAgain = again.getByRole('region', { name: 'Ticket history' });
+  for (const field of [/priority/i, /type/i, /labels/i])
+    await expect(historyAgain.getByRole('row').filter({ hasText: field })).toHaveCount(1);
 });
 
 test(`${J} #7 a macro with a placeholder fills the reply draft, the signature goes on the public reply only, and nothing is sent until Send`, async ({

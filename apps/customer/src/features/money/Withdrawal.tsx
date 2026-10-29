@@ -7,6 +7,8 @@ import { Button, EmptyState, Failure, Field, Loading, Page } from '../../shared/
 import { useSession } from '../session/session';
 import { amount, date, Section } from './components';
 import { WithdrawForm } from './WithdrawForm';
+import { asksForWallet } from './withdraw-to-wallet';
+import { WalletProvider } from '../protocol/wallet/WalletProvider';
 import { INTERNAL_RAIL } from './withdraw-destination';
 import { allowlistCopy } from './withdrawal-allowlist-copy';
 import { supportedAssetsCopy } from './supported-assets-copy';
@@ -525,10 +527,19 @@ export function Withdrawal({ context, search }: { context: WithdrawalReadContext
   if (!context.current()) return <p role="status">{t('changed')}</p>;
   // The address bar names no withdrawal: this is the Withdraw page itself. The form leads; records and Find sit below it.
   const listing = requested.ok && !requested.id;
+  const toWallet = listing && asksForWallet(search);
   return (
     <Page eyebrow={t('money')} title={t('title')} description={t('description')}>
       <div className="withdrawal-page">
-        {listing && <WithdrawForm />}
+        {listing &&
+          (toWallet ? (
+            // The browser wallet's connection, mounted here only when the page is asked to fill from it.
+            <WalletProvider>
+              <WithdrawForm toWallet />
+            </WalletProvider>
+          ) : (
+            <WithdrawForm />
+          ))}
         {!requested.ok ? (
           <Lookup current={current} invalid />
         ) : requested.id ? (

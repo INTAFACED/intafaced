@@ -697,6 +697,7 @@ export function createLedgerRouter(
                 ledgerSql(ledger),
                 { actorId: ctx.principal.userId, requestId: ctx.requestId ?? null },
                 input,
+                approvals,
               );
             } catch (err) {
               throw toTrpcError(err);

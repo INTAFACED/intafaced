@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { createTestDatabase, postgresAvailable, type TestDatabase } from '@intafaced/db/testing';
 import { afterAll, beforeEach, describe, expect, it } from 'vitest';
 import type { CampaignParticipant } from '@intafaced/contracts';
-import type { CampaignDefinitionInput, ParticipationRules } from '@intafaced/contracts/campaigns-catalogue';
+import type { CampaignDefinitionInput, ParticipationRules, RuleGroup } from '@intafaced/contracts/campaigns-catalogue';
 import { CampaignService, effectiveState, eligibilityOf, participationKeyOf, reviewKeyOf, zonedClock } from './campaigns.js';
 import { CampaignsError } from './codes.js';
 
@@ -55,7 +55,8 @@ const who = (over: Partial<CampaignParticipant> = {}): CampaignParticipant => ({
   kycTier: 'basic',
   ...over,
 });
-const service = () => new CampaignService({ sql: db!.sql, timeZone: () => zone, now: () => now, participants });
+const service = () =>
+  new CampaignService({ sql: db!.sql, timeZone: () => zone, now: () => now, participants, ruleLimits: () => ({ depth: 3, size: 10 }) });
 
 async function code(p: Promise<unknown>): Promise<string> {
   const err = await p.then(
@@ -347,7 +348,8 @@ if (!db) {
       // The same approval sent again by anyone else still refuses.
       expect(await code(s.transition({ id: c.id, action: 'approve', revision: 1, actor: A }))).toBe('campaigns.second_person_required');
       expect((await s.transition({ id: c.id, action: 'activate', revision: 1, actor: A })).state).toBe('active');
-      expect(await code(s.update({ id: c.id, revision: 1, definition: full({ rules: 'changed' }), actor: A }))).toBe('campaign.not_draft');
+      // Past approval an edit is a change at the next revision, beside the live one (J-campaigns-16 #9).
+      expect((await s.update({ id: c.id, revision: 1, definition: full({ rules: 'changed' }), actor: A })).pendingChange?.revision).toBe(2);
     });
 
     it('whoever wrote the draft cannot approve it, even when someone else asked', async () => {
@@ -398,6 +400,237 @@ if (!db) {
       expect((await service().join({ campaignId: c.id, accountId: ME })).created).toBe(false);
       expect(await code(service().join({ campaignId: c.id, accountId: 'account-late' }))).toBe('campaign.not_active');
       expect((await service().catalogue(ME)).campaigns).toEqual([]);
+    });
+
+    it('an edit of a live campaign is revision n+1 beside it; a second person puts it live; joins keep their revision', async () => {
+      const s = service();
+      const c = await live();
+      expect((await s.join({ campaignId: c.id, accountId: ME })).participation.revision).toBe(1);
+      // A stale revision, a new type or a taken name refuse; the live row is untouched.
+      expect(await code(s.update({ id: c.id, revision: 2, definition: full({ rules: 'TEST v2' }), actor: A }))).toBe(
+        'campaign.revision_conflict',
+      );
+      expect(await code(s.update({ id: c.id, revision: 1, definition: full({ type: 'voucher' }), actor: A }))).toBe('campaign.type_locked');
+      const changed = await s.update({
+        id: c.id,
+        revision: 1,
+        definition: full({ rules: 'TEST v2', reward: { asset: 'USDT', amount: '12' } }),
+        actor: A,
+      });
+      expect(changed).toMatchObject({
+        revision: 1,
+        rules: 'TEST rules',
+        state: 'active',
+        pendingChange: { revision: 2, state: 'draft', createdBy: A },
+      });
+      expect(changed.pendingChange?.definition).toMatchObject({ rules: 'TEST v2', reward: { asset: 'USDT', amount: '12' } });
+      // Editing the change again is the next revision; the old one is gone.
+      const again = await s.update({
+        id: c.id,
+        revision: 2,
+        definition: full({ rules: 'TEST v3', reward: { asset: 'USDT', amount: '12' } }),
+        actor: A,
+      });
+      expect(again.pendingChange).toMatchObject({ revision: 3, state: 'draft' });
+      // A blank in the change is what the check names, and what refuses its approval request.
+      await s.update({ id: c.id, revision: 3, definition: full({ rules: 'TEST v4', budget: null }), actor: A });
+      expect((await s.validate({ id: c.id })).missing.map((m) => m.code)).toEqual(['campaigns.budget_unset']);
+      expect(await code(s.transition({ id: c.id, action: 'submit', revision: 4, actor: A }))).toBe('campaigns.budget_unset');
+      await s.update({ id: c.id, revision: 4, definition: full({ rules: 'TEST v5', reward: { asset: 'USDT', amount: '12' } }), actor: A });
+      expect(await code(s.transition({ id: c.id, action: 'approve', revision: 5, actor: B }))).toBe('campaign.invalid_transition');
+      expect((await s.transition({ id: c.id, action: 'submit', revision: 5, actor: A })).pendingChange?.state).toBe('pending_approval');
+      expect(await code(s.transition({ id: c.id, action: 'pause', revision: 5, actor: A }))).toBe('campaign.invalid_transition');
+      expect(await code(s.transition({ id: c.id, action: 'approve', revision: 5, actor: A }))).toBe('campaigns.second_person_required');
+      const out = await s.transition({ id: c.id, action: 'approve', revision: 5, actor: B });
+      expect(out).toMatchObject({
+        revision: 5,
+        rules: 'TEST v5',
+        reward: { amount: '12' },
+        state: 'active',
+        approvedBy: B,
+        pendingChange: null,
+      });
+      // The same approval again returns the campaign; my join still names revision 1; a new join takes revision 5.
+      expect((await s.transition({ id: c.id, action: 'approve', revision: 5, actor: B })).revision).toBe(5);
+      expect((await s.join({ campaignId: c.id, accountId: ME })).participation.revision).toBe(1);
+      people.set('account-new', who());
+      expect((await s.join({ campaignId: c.id, accountId: 'account-new' })).participation.revision).toBe(5);
+      const history = await db!.sql<{ revision: number; approved_by: string }[]>`
+        SELECT revision, approved_by FROM campaigns.campaign_revisions WHERE campaign_id = ${c.id} ORDER BY revision`;
+      expect(history.map((h) => [h.revision, h.approved_by])).toEqual([
+        [1, B],
+        [5, B],
+      ]);
+      // Moves on the live campaign use its live revision; archive still refuses.
+      expect(await code(s.transition({ id: c.id, action: 'archive', revision: 5, actor: A }))).toBe('campaign.archive_active');
+    });
+
+    it('a voucher keeps the revision it was issued under and its face value after the next revision is approved (T-3)', async () => {
+      const s = service();
+      const c = await live({ type: 'voucher', reward: { asset: 'USDT', amount: '5' } });
+      expect(await s.listVouchers({ campaignId: c.id })).toEqual([]);
+      const first = await s.issueVoucher({ campaignId: c.id, code: 'test-v1', actor: A });
+      expect(first).toMatchObject({ code: 'TEST-V1', revision: 1, face: { asset: 'USDT', amount: '5' }, state: 'published', issuedBy: A });
+      // The same code again is the same voucher (the business key), whoever sends it; nothing new is written.
+      expect(await s.issueVoucher({ campaignId: c.id, code: 'TEST-V1', actor: B })).toEqual(first);
+      // A change with a new reward is revision 2 beside the live one: a voucher issued meanwhile is still revision 1.
+      await s.update({ id: c.id, revision: 1, definition: full({ type: 'voucher', reward: { asset: 'USDT', amount: '7' } }), actor: A });
+      await s.transition({ id: c.id, action: 'submit', revision: 2, actor: A });
+      expect((await s.issueVoucher({ campaignId: c.id, code: 'TEST-V2', actor: A })).revision).toBe(1);
+      expect(await s.transition({ id: c.id, action: 'approve', revision: 2, actor: B })).toMatchObject({
+        revision: 2,
+        state: 'active',
+        reward: { amount: '7' },
+      });
+      // Approved: the earlier vouchers keep revision 1 and 5 USDT; a voucher issued now takes revision 2 and 7 USDT.
+      const third = await s.issueVoucher({ campaignId: c.id, code: 'TEST-V3', actor: A });
+      expect(third).toMatchObject({ revision: 2, face: { asset: 'USDT', amount: '7' } });
+      expect((await s.listVouchers({ campaignId: c.id })).map((v) => [v.code, v.revision, v.face.amount])).toEqual([
+        ['TEST-V3', 2, '7'],
+        ['TEST-V2', 1, '5'],
+        ['TEST-V1', 1, '5'],
+      ]);
+      // Replaying the first issue after the approval still returns revision 1, never re-prices it.
+      expect(await s.issueVoucher({ campaignId: c.id, code: 'TEST-V1', actor: A })).toEqual(first);
+      const audits = await db!.sql<{ n: number }[]>`
+        SELECT count(*)::int AS n FROM campaigns.audit_log WHERE action = 'campaign.voucher.issue' AND target = ${c.id}`;
+      expect(audits[0]!.n).toBe(3);
+      // An active campaign still cannot be archived.
+      expect(await code(s.transition({ id: c.id, action: 'archive', revision: 2, actor: A }))).toBe('campaign.archive_active');
+    });
+
+    it('only an approved voucher campaign that has not ended issues vouchers; a voucher names an approved revision', async () => {
+      const s = service();
+      const task = await live({ name: 'TEST task' });
+      expect(await code(s.issueVoucher({ campaignId: task.id, code: 'TEST-T1', actor: A }))).toBe('campaigns.not_voucher');
+      const draft = await s.create({ definition: full({ name: 'TEST voucher draft', type: 'voucher' }), actor: A });
+      expect(await code(s.issueVoucher({ campaignId: draft.id, code: 'TEST-D1', actor: A }))).toBe('campaign.invalid_transition');
+      expect(await code(s.issueVoucher({ campaignId: 'cmp_missing', code: 'TEST-M1', actor: A }))).toBe('campaign.unknown');
+      expect(await code(s.listVouchers({ campaignId: 'cmp_missing' }))).toBe('campaign.unknown');
+      const c = await live({ name: 'TEST voucher', type: 'voucher' });
+      now = new Date('2026-11-25T00:00:00Z');
+      expect(await code(s.issueVoucher({ campaignId: c.id, code: 'TEST-E1', actor: A }))).toBe('campaign.invalid_transition');
+      // The database holds the rule too: a voucher row naming a revision that was never approved is refused.
+      await expect(
+        db!.sql`INSERT INTO campaigns.vouchers (id, campaign_id, code, issue_key, revision, face_asset, face_amount, issued_by)
+          VALUES ('vch_x', ${c.id}, 'X1X1', 'voucher:issue:x', 9, 'USDT', '1', ${A})`,
+      ).rejects.toThrow(/vouchers_revision_fk/);
+      expect(await s.listVouchers({ campaignId: c.id })).toEqual([]);
+    });
+
+    it('an approved voucher campaign never activated issues until its end; one approved before revisions were recorded gets its record', async () => {
+      const s = service();
+      const c = await s.create({ definition: full({ name: 'TEST voucher approved', type: 'voucher' }), actor: A });
+      await s.transition({ id: c.id, action: 'submit', revision: 1, actor: A });
+      await s.transition({ id: c.id, action: 'approve', revision: 1, actor: B });
+      // As a campaign approved before campaign_revisions existed: its live revision has no record yet.
+      await db!.sql`DELETE FROM campaigns.campaign_revisions WHERE campaign_id = ${c.id}`;
+      expect(await s.issueVoucher({ campaignId: c.id, code: 'TEST-A1', actor: A })).toMatchObject({ revision: 1, face: { amount: '10' } });
+      const recorded = await db!.sql<{ submitted_by: string; approved_by: string }[]>`
+        SELECT submitted_by, approved_by FROM campaigns.campaign_revisions WHERE campaign_id = ${c.id} AND revision = 1`;
+      expect(recorded.map((r) => [r.submitted_by, r.approved_by])).toEqual([[A, B]]);
+      // Still `approved` past its end, yet ended: no voucher.
+      now = new Date('2026-11-25T00:00:00Z');
+      expect(await code(s.issueVoucher({ campaignId: c.id, code: 'TEST-A2', actor: A }))).toBe('campaign.invalid_transition');
+      expect((await s.listVouchers({ campaignId: c.id })).map((v) => v.code)).toEqual(['TEST-A1']);
+    });
+
+    it('a change goes live only on a running campaign, and only if its name is still free when it is approved', async () => {
+      const s = service();
+      const c = await live();
+      await s.update({ id: c.id, revision: 1, definition: full({ rules: 'TEST v2' }), actor: A });
+      await s.transition({ id: c.id, action: 'submit', revision: 2, actor: A });
+      // Ended while the change waited: approving it would bring the campaign back, so it refuses.
+      await s.transition({ id: c.id, action: 'end', revision: 1, actor: A });
+      expect(await code(s.transition({ id: c.id, action: 'approve', revision: 2, actor: B }))).toBe('campaign.invalid_transition');
+      expect((await s.listForOps()).find((x) => x.id === c.id)).toMatchObject({ state: 'ended', rules: 'TEST rules', revision: 1 });
+
+      const d = await live({ name: 'TEST other' });
+      await s.update({ id: d.id, revision: 1, definition: full({ name: 'TEST renamed' }), actor: A });
+      await s.transition({ id: d.id, action: 'submit', revision: 2, actor: A });
+      // Another campaign takes the name before the approval.
+      await s.create({ definition: full({ name: 'TEST renamed' }), actor: A });
+      expect(await code(s.transition({ id: d.id, action: 'approve', revision: 2, actor: B }))).toBe('campaign.name_taken');
+    });
+
+    it('a campaign that ended or waits for its first approval is not edited', async () => {
+      const s = service();
+      const c = await s.create({ definition: full(), actor: A });
+      await s.transition({ id: c.id, action: 'submit', revision: 1, actor: A });
+      expect(await code(s.update({ id: c.id, revision: 1, definition: full({ rules: 'TEST x' }), actor: A }))).toBe('campaign.not_draft');
+    });
+
+    it('the rule library keeps each save as the next revision; a campaign holds a copy and every join is checked by it', async () => {
+      const s = service();
+      const tree: RuleGroup = { kind: 'group', op: 'and', parts: [{ kind: 'condition', field: 'accountType', is: 'individual' }] };
+      const first = await s.saveRule({ name: 'TEST individuals', tree, actor: A });
+      expect(first).toMatchObject({ name: 'TEST individuals', revision: 1, createdBy: A });
+      // The same tree again is the same revision; a changed tree is the next one, under the name as first written.
+      expect((await s.saveRule({ name: 'test INDIVIDUALS', tree, actor: B })).revision).toBe(1);
+      const wider: RuleGroup = {
+        kind: 'group',
+        op: 'or',
+        parts: [...tree.parts, { kind: 'condition', field: 'kycTier', atLeast: 'full' }],
+      };
+      expect(await s.saveRule({ name: 'test individuals', tree: wider, actor: B })).toMatchObject({
+        name: 'TEST individuals',
+        revision: 2,
+      });
+      expect((await s.listRules()).map((r) => [r.name, r.revision])).toEqual([['TEST individuals', 2]]);
+      // A campaign's copy must be a library revision as stored.
+      const rule = { name: 'TEST individuals', revision: 1, tree };
+      const participation = { exclusions: [], regionScope: 'platform' as const, restrictedRegions: null };
+      expect(
+        await code(
+          s.create({
+            definition: full({ name: 'TEST forged', participation: { ...participation, rule: { ...rule, tree: wider } } }),
+            actor: A,
+          }),
+        ),
+      ).toBe('campaigns.rule_unknown');
+      const c = await live({ participation: { ...participation, rule } });
+      people.set('account-biz', who({ accountType: 'business' }));
+      expect(await code(s.join({ campaignId: c.id, accountId: 'account-biz' }))).toBe('campaigns.not_eligible');
+      expect((await s.join({ campaignId: c.id, accountId: ME })).created).toBe(true);
+      // An edit of the library never reaches the campaign's copy.
+      expect((await s.getForOps({ id: c.id })).participation?.rule?.revision).toBe(1);
+    });
+
+    it('earning rules are part of the definition: a known trigger and a formula in the grammar, one name each', async () => {
+      const s = service();
+      const rule = { name: 'TEST per fill', trigger: 'trade.fill.settled', minAmount: '10', formula: 'min(amount * 0.01, 5)' };
+      const c = await s.create({ definition: full({ earning: [rule] }), actor: A });
+      expect(c.earning).toEqual([rule]);
+      expect(
+        await code(s.update({ id: c.id, revision: 1, definition: full({ earning: [{ ...rule, formula: 'amount * * 2' }] }), actor: A })),
+      ).toBe('campaigns.formula_invalid');
+      expect(
+        await code(
+          s.update({ id: c.id, revision: 1, definition: full({ earning: [{ ...rule, trigger: 'trade.order.placed' }] }), actor: A }),
+        ),
+      ).toBe('campaigns.trigger_unknown');
+      expect(
+        await code(
+          s.update({ id: c.id, revision: 1, definition: full({ earning: [rule, { ...rule, name: 'test PER fill' }] }), actor: A }),
+        ),
+      ).toBe('campaigns.earning_rule_name_taken');
+      // A deposit rule reads only the names its trigger has.
+      expect(
+        await code(
+          s.update({
+            id: c.id,
+            revision: 1,
+            definition: full({ earning: [{ ...rule, trigger: 'pay.deposit_credit.posted', formula: 'fee' }] }),
+            actor: A,
+          }),
+        ),
+      ).toBe('campaigns.formula_invalid');
+      // A live campaign's earning rules change only through its next revision.
+      await s.transition({ id: c.id, action: 'submit', revision: 1, actor: A });
+      await s.transition({ id: c.id, action: 'approve', revision: 1, actor: B });
+      const changed = await s.update({ id: c.id, revision: 1, definition: full({ earning: [{ ...rule, formula: '2' }] }), actor: A });
+      expect(changed.earning).toEqual([rule]);
+      expect(changed.pendingChange?.definition.earning).toEqual([{ ...rule, formula: '2' }]);
     });
 
     it('a paused campaign cannot be archived either; one campaign reads by id at any age', async () => {

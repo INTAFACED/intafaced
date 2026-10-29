@@ -7,6 +7,7 @@ import {
   supportTicketEventSchema,
   supportTicketLifecycleSchema,
   supportTicketPropertiesSchema,
+  supportTicketPropertyChangeSchema,
   supportTicketSchema,
   supportViewCountsSchema,
   supportViewListSchema,
@@ -137,10 +138,11 @@ export async function loadViews(ctx: FounderCallContext, now: Date = new Date())
 }
 
 export async function loadTicket(ctx: FounderCallContext, ticketId: string, now: Date = new Date()): Promise<SupportTicketView> {
-  const [ticket, comments, events] = await Promise.all([
+  const [ticket, comments, events, propertyChanges] = await Promise.all([
     founderCall(ctx, 'support', 'get', 'GET', { ticketId }, parseWith(supportTicketSchema)),
     founderCall(ctx, 'support', 'listComments', 'GET', { ticketId, limit: 100 }, arrayOf(supportCommentSchema)),
     founderCall(ctx, 'support', 'events', 'GET', { ticketId, limit: 100 }, arrayOf(supportTicketEventSchema)),
+    founderCall(ctx, 'support', 'propertyChanges', 'GET', { ticketId, limit: 100 }, arrayOf(supportTicketPropertyChangeSchema)),
   ]);
   const detail = partFrom(
     ticket,
@@ -148,6 +150,7 @@ export async function loadTicket(ctx: FounderCallContext, ticketId: string, now:
       ticket: t,
       comments: partFrom(comments, (c) => c, LABELS),
       events: partFrom(events, (e) => e, LABELS),
+      propertyChanges: partFrom(propertyChanges, (c) => c, LABELS),
     }),
     LABELS,
   );

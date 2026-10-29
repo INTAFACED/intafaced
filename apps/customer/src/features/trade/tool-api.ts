@@ -123,6 +123,9 @@ export const otcQuoteSchema = z.object({
   lifecycle: z.string().optional(),
   acceptedAt: z.string().nullable().optional(),
   fillPrice: decimalSchema.nullable().optional(),
+  /** Deferred-settle deadline of an accepted quote; null when the owner window is blank. */
+  settleBy: z.string().nullable().optional(),
+  settleWindowMs: z.number().int().nullable().optional(),
 });
 export const otcFillSchema = z.object({
   quoteId: z.string(),

@@ -20,7 +20,10 @@ import {
   OPS_CONTROL_REASON_REQUIRED,
   OPS_CONTROL_STATE_ILLEGAL,
   defineReconciliationControlInputSchema,
+  listReconciliationControlRunsInputSchema,
+  RECONCILIATION_RUN_LIST_DEFAULT,
   reconciliationAccountSetSchema,
+  reconciliationControlRunListSchema,
   reconciliationControlRunSchema,
   reconciliationControlViewSchema,
   reconciliationScheduleSchema,
@@ -28,10 +31,13 @@ import {
   reconciliationToleranceSchema,
   runReconciliationControlInputSchema,
   updateReconciliationControlInputSchema,
+  RECONCILIATION_LIFECYCLE_MOVES,
   type DefineReconciliationControlInput,
   type ReconciliationAccountSet,
+  type ReconciliationControlRunList,
   type ReconciliationControlRunView,
   type ReconciliationControlView,
+  type ReconciliationLifecycle,
   type ReconciliationSchedule,
   type ReconciliationThreshold,
   type UpdateReconciliationControlInput,
@@ -85,7 +91,7 @@ interface ControlRow {
   builtin_key: string | null;
   template: ReconciliationControlView['template'];
   check_kind: 'replay' | 'chain' | 'netting' | 'replay_and_netting' | null;
-  state: 'draft' | 'active';
+  state: ReconciliationControlView['state'];
   explanation: string;
   labels: string[];
   schedule: ReconciliationSchedule | null;
@@ -96,6 +102,8 @@ interface ControlRow {
   account_set: ReconciliationAccountSet;
   threshold: ReconciliationThreshold | null;
   version: number;
+  /** The last resume. A period that fell due before it was paused time and is not caught up. */
+  resumed_at: Date | null;
 }
 
 interface AssetEvidence {
@@ -202,7 +210,7 @@ async function audit(
 
 const CONTROL_COLUMNS = `
   id, builtin, builtin_key, template, check_kind, state, explanation, labels, schedule, severity, period,
-  tolerance, margin, account_set, threshold, version
+  tolerance, margin, account_set, threshold, version, resumed_at
 `;
 
 async function loadControl(sql: Db, id: string, lock: boolean): Promise<ControlRow> {
@@ -295,6 +303,7 @@ export async function updateReconciliationControl(
   sql: Sql,
   actor: ControlActor,
   input: UpdateReconciliationControlInput,
+  approvals: LedgerApprovalConsumer,
 ): Promise<ReconciliationControlView> {
   const parsed = updateReconciliationControlInputSchema.parse(input);
   const who = actorOf(actor.actorId);
@@ -302,6 +311,10 @@ export async function updateReconciliationControl(
   return sql.begin(async (tx) => {
     const current = await loadControl(tx, parsed.controlId, true);
     if (current.builtin) throw new ReconciliationControlError(LEDGER_RECONCILE_BUILTIN_IMMUTABLE);
+    if (parsed.lifecycle) return moveLifecycle(tx, approvals, parsed, current, parsed.lifecycle, who, reason, actor.requestId);
+    // Retired is final. A paused control keeps its edits and is checked again when it resumes; it is not activated here.
+    if (current.state === 'retired') throw new ReconciliationControlError(OPS_CONTROL_STATE_ILLEGAL);
+    if (current.state === 'paused' && parsed.activate === true) throw new ReconciliationControlError(OPS_CONTROL_STATE_ILLEGAL);
     const schedule = parsed.schedule ?? current.schedule;
     const severity = parsed.severity ?? current.severity;
     const tolerance = parsed.tolerance ?? current.tolerance;
@@ -341,6 +354,56 @@ export async function updateReconciliationControl(
   });
 }
 
+/**
+ * Pause (active to paused), resume (paused to active, only with a complete policy) and retire (any operator state to
+ * retired, final). Each move consumes one two-founder approval bound to the control, the move and the reason at the
+ * version read under the row lock, then writes one version and one audit row; anything else is ops.control_state_illegal.
+ * The state is checked before the approval is consumed, so an illegal move does not spend it.
+ */
+async function moveLifecycle(
+  tx: Db,
+  approvals: LedgerApprovalConsumer,
+  ids: { readonly approvalId?: string; readonly operationId?: string },
+  current: ControlRow,
+  move: ReconciliationLifecycle,
+  who: string,
+  reason: string,
+  requestId: string | null,
+): Promise<ReconciliationControlView> {
+  const step = RECONCILIATION_LIFECYCLE_MOVES[move];
+  if (!step.from.includes(current.state)) throw new ReconciliationControlError(OPS_CONTROL_STATE_ILLEGAL);
+  if (move === 'resume') {
+    if (!policyReady(current)) throw new ReconciliationControlError(OPS_CONTROL_POLICY_UNSET);
+  }
+  // One-shot (no replay key): the row lock is held across the consume, and a lost reply needs a fresh approval.
+  await consumeLedgerApproval(
+    approvals,
+    ids,
+    'ledger.reconciliation_control.lifecycle',
+    'posting_reconciliation_control.lifecycle',
+    String(current.version),
+    { controlId: current.id, lifecycle: move, reason },
+  );
+  const updated = await tx<ControlRow[]>`
+    UPDATE reconciliation_controls
+       SET state = ${step.to},
+           version = version + 1,
+           updated_at = clock_timestamp(),
+           resumed_at = ${move === 'resume' ? tx`clock_timestamp()` : tx`resumed_at`}
+     WHERE id = ${current.id}
+     RETURNING ${tx.unsafe(CONTROL_COLUMNS)}
+  `;
+  const row = updated[0];
+  if (!row) throw new ReconciliationControlError(LEDGER_RECONCILE_SOURCE_UNAVAILABLE);
+  await audit(tx, row.id, who, reason, 'update', requestId, {
+    lifecycle: move,
+    from: current.state,
+    state: row.state,
+    version: row.version,
+  });
+  return toView(row);
+}
+
 export async function listReconciliationControls(sql: Sql): Promise<ReconciliationControlView[]> {
   const rows = await sql<ControlRow[]>`
     SELECT ${sql.unsafe(CONTROL_COLUMNS)}
@@ -348,6 +411,29 @@ export async function listReconciliationControls(sql: Sql): Promise<Reconciliati
      ORDER BY builtin DESC, builtin_key ASC NULLS LAST, id ASC
   `;
   return rows.map(toView);
+}
+
+/** A control's evaluations, newest first, with the count of all of them. Read-only; any state, retired included. */
+export async function listReconciliationControlRuns(sql: Sql, input: unknown): Promise<ReconciliationControlRunList> {
+  const parsed = listReconciliationControlRunsInputSchema.parse(input);
+  const control = await loadControl(sql, parsed.controlId, false);
+  const limit = parsed.limit ?? RECONCILIATION_RUN_LIST_DEFAULT;
+  // One snapshot for the count and the page, so a scheduled run landing in between cannot make them disagree. Newest by
+  // when the run started: a past-instant run reads an old instant but is still the latest evaluation.
+  const { total, rows } = await sql.begin('isolation level repeatable read', async (tx) => {
+    const [count] = await tx<Array<{ total: string }>>`
+      SELECT count(*)::text AS total FROM reconciliation_control_runs WHERE control_id = ${control.id}
+    `;
+    const page = await tx<RunRow[]>`
+      SELECT ${tx.unsafe(RUN_COLUMNS)}
+        FROM reconciliation_control_runs
+       WHERE control_id = ${control.id}
+       ORDER BY started_at DESC, id DESC
+       LIMIT ${limit}
+    `;
+    return { total: Number(count?.total ?? 0), rows: page };
+  });
+  return reconciliationControlRunListSchema.parse({ controlId: control.id, total, runs: rows.map(toRun) });
 }
 
 interface AccountHit {
@@ -888,6 +974,12 @@ async function openRun(
     parity: { asOf: 'unset' },
   };
   return sql.begin(async (tx) => {
+    // A pause or retire that committed after the caller read the control wins: no new run opens on it.
+    // FOR SHARE holds off a lifecycle move (FOR UPDATE) until this run row is in.
+    const [live] = await tx<Array<{ state: ControlRow['state'] }>>`
+      SELECT state FROM reconciliation_controls WHERE id = ${row.id} FOR SHARE
+    `;
+    if (live?.state !== 'active') throw new ReconciliationControlError(OPS_CONTROL_STATE_ILLEGAL);
     const inserted = await tx<RunRow[]>`
       INSERT INTO reconciliation_control_runs (
         control_id, operation_id, fingerprint, status, phase, error_code, as_of, read_at, margin, sources, evidence,
@@ -941,7 +1033,6 @@ export async function runReconciliationControl(
   const who = actorOf(actor.actorId);
   const reason = reasonOf(parsed.reason);
   const row = await loadControl(sql, parsed.controlId, false);
-  if (row.state !== 'active') throw new ReconciliationControlError(OPS_CONTROL_STATE_ILLEGAL);
   const [clock] = await sql<Array<{ now: Date }>>`SELECT clock_timestamp() AS now`;
   const dbNow = now ?? clock?.now;
   if (!dbNow) throw new ReconciliationControlError(LEDGER_RECONCILE_SOURCE_UNAVAILABLE);
@@ -967,8 +1058,11 @@ export async function runReconciliationControl(
   if (prior) {
     if (prior.fingerprint !== fp) throw new ReconciliationControlError('ledger.idempotency_conflict');
     if (prior.status !== 'started') return toRun(prior);
+    // A run that already opened finishes even if the control was paused or retired since: its row exists and must end.
     return resumeRun(sql, row, prior, sources, past);
   }
+  // A new run needs an active control. A stored or started run for this operation is answered above, after a pause too.
+  if (row.state !== 'active') throw new ReconciliationControlError(OPS_CONTROL_STATE_ILLEGAL);
   // operationId is the consume request id, so a retry after a lost reply is
   // `already_consumed_by_this_request` and can still insert or resume this run.
   await consumeLedgerApproval(
@@ -1079,6 +1173,8 @@ async function runScheduledPeriod(
 ): Promise<void> {
   const due = dueInstant(schedule, bounds.start);
   if (!due || at.getTime() < due.getTime()) return;
+  // A period that fell due while the control was paused is not caught up on resume.
+  if (row.resumed_at && due.getTime() < row.resumed_at.getTime()) return;
   const operationId = `${SCHEDULE_OPERATION_PREFIX}${row.id}:${bounds.start.toISOString()}`;
   const existing = await existingRun(sql, operationId);
   // A terminal row for this period is done. A started row is a crash between open and finish: resume it.
@@ -1168,6 +1264,6 @@ async function resumeScheduled(sql: Sql, row: ControlRow, existing: RunRow, sour
   await resumeRun(sql, row, existing, sources, true);
 }
 
-export async function runDueReconciliationControls(sql: Sql): Promise<void> {
-  await runDueControls(sql);
+export async function runDueReconciliationControls(sql: Sql, sources: ReconciliationSources = unsetReconciliationSources()): Promise<void> {
+  await runDueControls(sql, sources);
 }

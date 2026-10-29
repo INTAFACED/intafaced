@@ -679,6 +679,7 @@ export const reconciliationControls = ledger.table(
     accountSet: jsonb('account_set').notNull(),
     threshold: jsonb('threshold'),
     version: integer('version').notNull().default(1),
+    resumedAt: timestamp('resumed_at', { withTimezone: true, mode: 'date' }),
     definedBy: text('defined_by').notNull(),
     definedReason: text('defined_reason').notNull(),
     createdAt: createdAt(),
@@ -689,7 +690,7 @@ export const reconciliationControls = ledger.table(
       .on(t.builtinKey)
       .where(sql`builtin_key IS NOT NULL`),
     check('reconciliation_controls_template_ck', sql`template IN ('ledger_invariant', 'outside_balance', 'threshold', 'source_parity')`),
-    check('reconciliation_controls_state_ck', sql`state IN ('draft', 'active')`),
+    check('reconciliation_controls_state_ck', sql`state IN ('draft', 'active', 'paused', 'retired')`),
     check(
       'reconciliation_controls_check_kind_ck',
       sql`check_kind IS NULL OR check_kind IN ('replay', 'chain', 'netting', 'replay_and_netting')`,

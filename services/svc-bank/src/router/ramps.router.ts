@@ -1,5 +1,12 @@
 import { z } from 'zod';
-import { router, scopedProcedure } from '@intafaced/contracts';
+import {
+  BANK_SEND_DESTINATION_CALLERS,
+  bankSendDestinationInputSchema,
+  bankSendDestinationSchema,
+  router,
+  scopedProcedure,
+  serviceProcedureFor,
+} from '@intafaced/contracts';
 import { formatAmount, parseAmount } from '@intafaced/ledger-client';
 import { ONRAMP_METHODS } from '../ramps/customer-ports.js';
 import { destinationViewOutput, amountString } from './shared.js';
@@ -391,6 +398,17 @@ export function createRampsRouter(c: BankRouterContext) {
         .query(async ({ ctx, input }) =>
           guard(async () => bank.ramps.destinationReadiness({ userId: ctx.principal.userId, destinationId: input.destinationId })),
         ),
+
+      /**
+       * Whether money may be sent to one address of one asset on one network now (J-wallet-05 #6, issue #6517): asked by svc-pay
+       * before it claims a withdrawal to a wallet outside the platform, so the address book decides on the server. Service-only:
+       * `serviceProcedureFor` proves the caller is svc-pay before the input is parsed. A read; a POST only because the caller
+       * signs the body.
+       */
+      sendable: serviceProcedureFor(BANK_SEND_DESTINATION_CALLERS)
+        .input(bankSendDestinationInputSchema)
+        .output(bankSendDestinationSchema)
+        .mutation(async ({ input }) => guard(async () => bank.ramps.sendableDestination(input))),
 
       /** Remove, with the same step-up scope as saving. A withdrawal that already copied the address is not touched. */
       remove: scopedProcedure('trade:withdraw', { module: 'bank' })

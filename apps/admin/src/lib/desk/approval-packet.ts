@@ -1,5 +1,9 @@
 import { isModuleId, type ModuleId } from '@intafaced/config';
-import { reconciliationDecimalSchema } from '@intafaced/contracts/ledger-reconciliation';
+import {
+  RECONCILIATION_LIFECYCLE,
+  reconciliationDecimalSchema,
+  type ReconciliationLifecycle,
+} from '@intafaced/contracts/ledger-reconciliation';
 import { COST_AMOUNT, COST_ASSET, PERIOD, isCategory, type CostCategory } from '@/lib/venue-economics/model';
 import { METADATA_KEY } from '@/lib/ledger/account-metadata';
 import { STAFF_HOLD_AMOUNT_PATTERN, STAFF_HOLD_ASSET_PATTERN } from '@intafaced/contracts/ops-staff-holds';
@@ -54,6 +58,17 @@ export type DeskRequest =
       readonly version: string;
       readonly asOf: string;
       readonly margin: string;
+      readonly reason: string;
+    }
+  /**
+   * Pause, resume or retire one reconciliation control (svc-ledger OPS-reconciliation-02). `version` is the control version
+   * read; svc-ledger binds the control, the move and the reason to the approval at that version.
+   */
+  | {
+      readonly kind: 'ledger.reconciliation_control.lifecycle';
+      readonly controlId: string;
+      readonly version: string;
+      readonly lifecycle: ReconciliationLifecycle;
       readonly reason: string;
     }
   /**
@@ -271,6 +286,19 @@ export function readDeskRequest(raw: unknown): DeskRequest | null {
       version: raw.version,
       asOf: raw.asOf,
       margin: raw.margin,
+      reason: raw.reason,
+    };
+  }
+  if (raw.kind === 'ledger.reconciliation_control.lifecycle') {
+    if (keys !== 'controlId,kind,lifecycle,reason,version') return null;
+    if (typeof raw.controlId !== 'string' || !UUID.test(raw.controlId) || !validReason(raw.reason)) return null;
+    if (typeof raw.version !== 'string' || !CONTROL_VERSION.test(raw.version)) return null;
+    if (typeof raw.lifecycle !== 'string' || !(RECONCILIATION_LIFECYCLE as readonly string[]).includes(raw.lifecycle)) return null;
+    return {
+      kind: 'ledger.reconciliation_control.lifecycle',
+      controlId: raw.controlId,
+      version: raw.version,
+      lifecycle: raw.lifecycle as ReconciliationLifecycle,
       reason: raw.reason,
     };
   }
@@ -588,6 +616,8 @@ export function confirmPhrase(request: DeskRequest): string {
       return 'UNFREEZE LEDGER';
     case 'ledger.reconciliation_control.run':
       return `RUN CONTROL ${request.controlId.slice(0, 8)}`;
+    case 'ledger.reconciliation_control.lifecycle':
+      return `${request.lifecycle.toUpperCase()} CONTROL ${request.controlId.slice(0, 8)}`;
     case 'ledger.account_metadata.delete':
       return `DELETE KEY ${request.key}`;
     case 'market.vendor.vet':
@@ -662,6 +692,12 @@ export function describeRequest(request: DeskRequest): string {
       return request.asOf === 'now'
         ? `Run reconciliation control ${request.controlId} now ("${request.reason}"). svc-ledger stores a result row before it reads, then compares the book. Nothing posts and nothing freezes. It runs only if the control is still active at version ${request.version}.`
         : `Run reconciliation control ${request.controlId} as of ${request.asOf}, reading balances ${request.margin} seconds before that instant ("${request.reason}"). svc-ledger stores a result row before it reads, then compares the book. Nothing posts and nothing freezes. It runs only if the control is still active at version ${request.version}.`;
+    case 'ledger.reconciliation_control.lifecycle':
+      return request.lifecycle === 'pause'
+        ? `Pause reconciliation control ${request.controlId} ("${request.reason}"): the scheduler and runs on demand skip it until it is resumed. Its policy, runs and history stay. It moves only if the control is still at version ${request.version}.`
+        : request.lifecycle === 'resume'
+          ? `Resume reconciliation control ${request.controlId} ("${request.reason}"): it runs on its schedule again from now; periods that fell due while it was paused are not caught up. It moves only if the control is still at version ${request.version}.`
+          : `Retire reconciliation control ${request.controlId} ("${request.reason}"): it never runs again and cannot be edited or brought back. Its row, runs and history stay. It moves only if the control is still at version ${request.version}.`;
     case 'ledger.account_metadata.delete':
       return `Delete the metadata key "${request.key}" on ledger account ${request.accountId} ("${request.reason}"). svc-ledger records the value before and after with who asked and who approved. It is a label only: no posting, balance or transaction changes. It deletes only if the key is still at revision ${request.version}.`;
     case 'market.vendor.vet':
