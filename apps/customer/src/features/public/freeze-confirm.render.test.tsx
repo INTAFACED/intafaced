@@ -71,7 +71,8 @@ afterEach(async () => {
 describe('freeze link page', () => {
   it('spends the link only on Freeze my account, drops the token, and says the account is frozen', async () => {
     answer(ok(true));
-    await render(`/freeze/confirm?token=${TOKEN}`);
+    await render(`/freeze/confirm#token=${TOKEN}`);
+    expect(location.hash).toBe('');
     expect(location.search).toBe('');
     expect(sent).toHaveLength(0);
     expect(host.textContent).not.toContain(TOKEN);
@@ -86,7 +87,7 @@ describe('freeze link page', () => {
 
   it('a link used before shows the stored result and says nothing changed', async () => {
     answer(ok(false));
-    await render(`/freeze/confirm?token=${TOKEN}`);
+    await render(`/freeze/confirm#token=${TOKEN}`);
     await press();
     await act(async () => {
       await vi.waitFor(() => expect(host.querySelector('h1')!.textContent).toBe('This link was already used'));
@@ -97,7 +98,7 @@ describe('freeze link page', () => {
 
   it('a used link whose freeze was lifted since says the account is not frozen now', async () => {
     answer(ok(false, false));
-    await render(`/freeze/confirm?token=${TOKEN}`);
+    await render(`/freeze/confirm#token=${TOKEN}`);
     await press();
     await act(async () => {
       await vi.waitFor(() => expect(host.querySelector('h1')!.textContent).toBe('This link was already used'));
@@ -108,7 +109,7 @@ describe('freeze link page', () => {
 
   it('an unknown link is the one dead page, and a page with no token never calls the service', async () => {
     answer(refused('identity.freeze_link_invalid'));
-    await render(`/freeze/confirm?token=${TOKEN}`);
+    await render(`/freeze/confirm#token=${TOKEN}`);
     await press();
     await act(async () => {
       await vi.waitFor(() => expect(host.querySelector('h1')!.textContent).toBe('This freeze link does not work'));

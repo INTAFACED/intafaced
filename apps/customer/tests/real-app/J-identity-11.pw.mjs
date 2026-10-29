@@ -99,7 +99,7 @@ async function mailedFreezeLink(email) {
       },
       { timeout: 30_000 },
     )
-    .toMatch(/^freeze\/confirm\?token=[A-Za-z0-9_-]{40,}$/);
+    .toMatch(/^freeze\/confirm#token=[A-Za-z0-9_-]{40,}$/);
   return `/${link}`;
 }
 

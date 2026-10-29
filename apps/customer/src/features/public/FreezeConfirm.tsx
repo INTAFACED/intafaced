@@ -10,15 +10,16 @@ type Refusal = Extract<ApiResult<unknown>, { ok: false }>;
 type Done = { since: string; firstUse: boolean; frozenNow: boolean };
 
 /**
- * /freeze/confirm?token=… : the page a security notice's freeze link opens (I-account-lifecycle-08, J-identity-11 #2).
+ * /freeze/confirm#token=… : the page a security notice's freeze link opens (I-account-lifecycle-08, J-identity-11 #2).
  * No sign-in: the link is the proof. Opening the page spends nothing, so a mail scanner that fetches the link does not
- * freeze the account; the person presses Freeze my account. The token leaves the address bar once read. A link used
+ * freeze the account; the person presses Freeze my account. The token rides in the fragment, so no server log or
+ * Referer ever carries it, and it leaves the address bar once read. A link used
  * before shows the result of its first use and changes nothing. A wrong or dead link is one refusal.
  */
 export function FreezeConfirm() {
   const { t } = freezeConfirmCopy.useCopy();
   const { api } = useSession();
-  const token = useRef(new URLSearchParams(location.search).get('token')?.trim() ?? '').current;
+  const token = useRef(new URLSearchParams(location.hash.slice(1)).get('token')?.trim() ?? '').current;
   const [busy, setBusy] = useState(false);
   const [done, setDone] = useState<Done | null>(null);
   const [refusal, setRefusal] = useState<Refusal | null>(null);
@@ -26,7 +27,7 @@ export function FreezeConfirm() {
 
   useEffect(() => {
     mounted.current = true;
-    if (location.search) history.replaceState(history.state, '', location.pathname);
+    if (location.hash || location.search) history.replaceState(history.state, '', location.pathname);
     return () => {
       mounted.current = false;
     };
