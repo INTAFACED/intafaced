@@ -345,3 +345,43 @@ describe('help articles panel', () => {
     expect(failed).not.toContain('no articles are published');
   });
 });
+
+describe('a reply after someone else moved the request', () => {
+  const stale: ActionReply = {
+    ok: false,
+    refusal: { title: 'The request changed since you opened it', body: 'b', next: 'n', code: 'support.stale_ticket', changed: 'no' },
+  };
+  it('quotes the last row read, and lists the new rows with the button to read them', () => {
+    expect(buildRequest('reply', open, form({ replyBody: 'Hi' }), 7)).toEqual({
+      action: 'reply',
+      ticketId: T1,
+      body: 'Hi',
+      expectedSequence: 7,
+    });
+    const markup = html({
+      outcome: { kind: 'reply', reply: stale },
+      stale: [
+        {
+          id: '00000000-0000-4000-8000-000000000003',
+          ticketId: T1,
+          sequence: 3,
+          kind: 'status_changed',
+          actorId: U,
+          actorRole: 'operator',
+          fromStatus: 'pending',
+          toStatus: 'on_hold',
+          note: null,
+          occurredAt: '2026-10-29T12:00:00.000Z',
+        },
+      ],
+    });
+    expect(markup).toContain('data-code="support.stale_ticket"');
+    expect(markup).toContain('#3 status_changed from pending to on_hold');
+    expect(buttonTag(markup, 'I have read the changes')).not.toContain('disabled');
+  });
+  it('holds the reply back while the trail could not be read, and says why', () => {
+    const markup = html({ form: form({ replyBody: 'Hi' }), trailUnread: 'The ticket history could not be read.' });
+    expect(buttonTag(markup, 'Review reply')).toContain('disabled');
+    expect(markup).toContain('The ticket history could not be read.');
+  });
+});

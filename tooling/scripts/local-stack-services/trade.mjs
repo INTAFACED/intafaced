@@ -7,10 +7,11 @@ function testValue(name) {
   return entry.value;
 }
 
-/** The TEST desk law, with its settle window left out when the switch says so. */
+/** The TEST desk law, with its settle window or its minimum left out when the switch says so. */
 function otcDeskLaw() {
   const law = JSON.parse(testValue('TRADE_OTC_DESK_LAW'));
   if (process.env.LOCAL_STACK_TRADE_OTC_SETTLE_WINDOW === 'off') delete law.settleWindowMs;
+  if (process.env.LOCAL_STACK_TRADE_OTC_MIN_NOTIONAL === 'off') delete law.minNotional;
   return JSON.stringify(law);
 }
 
@@ -111,8 +112,16 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, TEST_FUTURES_LADDER_POLICY })
     // so the OTC journeys price, accept and settle on TEST money against the house inventory.
     // Each one blank refuses by name (services/svc-trade/src/otc/); production stays blank until the owner sets it.
     // `LOCAL_STACK_TRADE_OTC_SETTLE_WINDOW=off` on a start or restart leaves the law's settle window blank (no deferral),
-    // so its "Not set" state can be seen too (J-copy-bots-otc-24 #7).
+    // so its "Not set" state can be seen too (J-copy-bots-otc-24 #7). `LOCAL_STACK_TRADE_OTC_MIN_NOTIONAL=off` leaves the
+    // desk minimum blank, so a request refuses `trade.rfq_size_not_set` (J-copy-bots-otc-24 #4).
     TRADE_OTC_DESK_LAW: otcDeskLaw(),
     TRADE_OTC_MIDS: testValue('TRADE_OTC_MIDS'),
+    // LOCAL TEST ONLY, not an owner decision: the developer portal's hosts and data terms (J-developer-01 #2, #3, #6).
+    // `LOCAL_STACK_TRADE_DEVELOPER_HOSTS=off` or `LOCAL_STACK_TRADE_DEVELOPER_DATA_TERMS=off` on a start or restart leaves
+    // that setting blank, so its refusal can be seen too.
+    ...(process.env.LOCAL_STACK_TRADE_DEVELOPER_HOSTS === 'off' ? {} : { TRADE_DEVELOPER_HOSTS: testValue('TRADE_DEVELOPER_HOSTS') }),
+    ...(process.env.LOCAL_STACK_TRADE_DEVELOPER_DATA_TERMS === 'off'
+      ? {}
+      : { TRADE_DEVELOPER_DATA_TERMS: testValue('TRADE_DEVELOPER_DATA_TERMS') }),
   }),
 });

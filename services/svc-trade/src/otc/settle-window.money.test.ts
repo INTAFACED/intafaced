@@ -31,6 +31,8 @@ const law = (settleWindowMs: number | null): OtcDeskLaw => ({
   counterparty: 'platform',
   quoteTtlMs: 30_000,
   maxMidAgeSeconds: 86_400,
+  // A zero desk minimum is an owner value: these quotes are not held by the CB-otc-07 minimum.
+  minNotional: { USDT: 0n },
   settleWindowMs,
 });
 
