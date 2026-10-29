@@ -58,6 +58,21 @@ export interface BuybackWindowInput {
   readonly revenueWindow: { from: Date; to: Date };
 }
 
+/**
+ * True only when every setting the job refuses on is present: enabled, a
+ * quote asset, a listing symbol and the internal place secret. Says whether
+ * the job could run — not that it ran or that the book has asks.
+ */
+export function buybackJobSet(settings: {
+  readonly enabled: boolean;
+  readonly quoteAssetId: string | undefined;
+  readonly symbol: string | undefined;
+  readonly internalSecret: string | undefined;
+}): boolean {
+  const present = (value: string | undefined) => value != null && value.trim() !== '';
+  return settings.enabled && present(settings.quoteAssetId) && present(settings.symbol) && present(settings.internalSecret);
+}
+
 export async function runBuybackWindow(deps: BuybackJobDeps, input: BuybackWindowInput): Promise<BuybackRunResult> {
   if (input !== null && typeof input === 'object' && ('tokensBought' in input || 'revenueTotal' in input)) {
     throw new TokenError(

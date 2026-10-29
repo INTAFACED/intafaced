@@ -17,7 +17,7 @@ import { registerInternalBuyback } from './internal-buyback.js';
 import { defaultEmissionsTickMs, requireEmissionsTickMsForAutoTick } from './emissions-tick.js';
 import { tokenReadyHonesty } from './ready-honesty.js';
 import { readYieldDistributionCronHours, runYieldWindow } from './yield-job.js';
-import { runBuybackWindow } from './buyback-job.js';
+import { buybackJobSet, runBuybackWindow } from './buyback-job.js';
 import { createTradeIocMarketBuy } from './buyback-trade-client.js';
 import { readGovernanceParams } from './governance-close.js';
 import { registerProcessHooks, startTelemetry } from '@intafaced/telemetry';
@@ -121,6 +121,12 @@ export const appRouter = createTokenRouter(token, {
   emissionsEnabled: env.EMISSIONS_ENABLED,
   runYieldWindow: (input) => runYieldWindow(yieldJob, input),
   runBuybackWindow: (input) => runBuybackWindow(buybackJob, input),
+  buybackJobSet: buybackJobSet({
+    enabled: env.BUYBACK_JOB_ENABLED,
+    quoteAssetId: env.BUYBACK_QUOTE_ASSET,
+    symbol: env.BUYBACK_SYMBOL,
+    internalSecret: env.INTERNAL_SERVICE_SECRET,
+  }),
   approvals: actionApprovals,
 });
 export type AppRouter = typeof appRouter;

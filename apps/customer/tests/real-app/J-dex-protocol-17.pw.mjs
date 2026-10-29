@@ -14,8 +14,7 @@ import { bodyRows, tableIn } from './tables.mjs';
 //   discounts, stable-pair rule or gasless fee display (D-fees-governance-01);
 // - /dex has no swap quote with a fee line or integrator fees (D-swap-06, D-fees-governance-03);
 // - there is no maker rebate or futures cost breakdown (D-fees-governance-02), no referral code (D-fees-governance-03),
-//   no IFC stake plans (RC-dex-protocol-20), governance staking and delegation (D-fees-governance-05) or burn page
-//   (RC-dex-protocol-13);
+//   no IFC stake plans (RC-dex-protocol-20) or governance staking and delegation (D-fees-governance-05);
 // - #3's sub-account clause has no sub-account the app can make yet.
 const J = 'J-dex-protocol-17';
 const dex = dexRun(`${J}-wallet`);
@@ -172,20 +171,18 @@ test(`${J} #9 opens the burn page: stored buyback runs that add up per row; "job
   page,
 }) => {
   await person(page);
-  await page.goto('/ifc/burn');
+  await page.goto('/token/burn');
   const runs = tableIn(main(page), 'Buyback runs');
   await expect(runs).toBeVisible(UNBUILT);
-  for (const header of ['Bought', 'Burned', 'Sent to rewards'])
-    await expect(runs.getByRole('columnheader', { name: header })).toBeVisible();
-  await expect(bodyRows(runs)).not.toHaveCount(0);
+  const headers = ['Settled', 'Revenue window', 'Bought', 'Burned', 'Sent to rewards'];
+  await expect(runs.getByRole('columnheader')).toHaveText(headers);
+  // Every stored run on the page adds up: what was bought is what was burned plus what was sent to rewards.
   for (const row of await bodyRows(runs).all()) {
-    const cells = await row.getByRole('cell').allInnerTexts();
-    if (cells.length < 4) {
-      expect(cells.join(' ')).toMatch(/Job not set|Empty book/);
-      continue;
-    }
-    const [, bought, burned, rewards] = cells.map((c) => (/\d/.test(c) ? amount(c) : 0n));
+    const [bought, burned, rewards] = (await row.getByRole('cell').allInnerTexts()).slice(2).map(amount);
     expect(bought).toBe(burned + rewards);
   }
+  // The test stack runs no buyback job (BUYBACK_JOB_ENABLED is false there), so the real reading is "Job not set".
+  await expect(main(page).getByTestId('buyback-job')).toHaveText(/^Job not set: /);
+  // The stack leaves the buyback rate blank, as production does until the owner sets it.
   await expect(main(page).getByTestId('buyback-estimate')).toHaveText('No estimate: the buyback rate is not set.');
 });
