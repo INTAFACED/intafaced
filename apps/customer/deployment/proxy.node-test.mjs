@@ -118,6 +118,25 @@ test('customer proxy serves React deep links, refuses bare API paths, caches ass
       assert.equal(response.headers.get('cache-control'), 'no-store', path);
       assertSecurityHeaders(response, path);
     }
+    // The developer docs' files sit in a /developers/ folder; the folder never answers the /developers rooms themselves.
+    for (const path of ['/developers', '/developers/', '/developers/reference', '/developers/errors/auth']) {
+      const response = await fetch(origin + path, { redirect: 'manual' });
+      assert.equal(response.status, 200, path);
+      assert.equal(await response.text(), index, path);
+      assertSecurityHeaders(response, path);
+    }
+    for (const [path, type] of [
+      ['/developers/llms.txt', /^text\/plain/],
+      ['/developers/reference.md', /^text\/markdown/],
+      ['/developers/openapi.json', /^application\/json/],
+    ]) {
+      const file = await fetch(origin + path);
+      assert.equal(file.status, 200, path);
+      assert.match(file.headers.get('content-type'), type, path);
+      assert.notEqual(await file.text(), index, path);
+      assertSecurityHeaders(file, path);
+    }
+    assert.equal((await fetch(origin + '/developers/no-such-page.md')).status, 404);
     assert.equal((await fetch(origin + '/api')).status, 404);
     assert.equal((await fetch(origin + '/ws')).status, 404);
     const asset = /src="(\/assets\/[^"\s]+\.js)"/.exec(index)[1];

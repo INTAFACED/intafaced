@@ -49,6 +49,7 @@ export const ROUTE_TEMPLATES: Readonly<Record<string, RoomTemplate | NotARoom>> 
   '/developers/status': { template: 'reading' },
   '/developers/changelog': { template: 'reading' },
   '/developers/changelog/upcoming': { template: 'reading' },
+  '/developers/errors/auth': { template: 'reading' },
   '/developers/:section': { template: 'reading' },
   '/lab': { template: 'reading' },
   '/fees': { template: 'reading' },

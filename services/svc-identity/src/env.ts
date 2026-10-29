@@ -287,6 +287,14 @@ const schema = serviceEnvSchema
       IDENTITY_KYC_UPLOAD_MAX_BYTES: z.string().optional(),
       IDENTITY_KYC_UPLOAD_TYPES: z.string().optional(),
       /**
+       * Owner settings (I-kyc-compliance-11), NO DEFAULT. How many days old a proof of address may be (unset refuses
+       * every submission `kyc.poa_rule_unset`), and per country which documents count and which never do, as JSON
+       * `{"<country>": {"accepted": [{"type","label"}], "rejected": [...]}}` (a country not listed reads not published).
+       * Parsed at start; malformed stops the service.
+       */
+      IDENTITY_KYC_POA_MAX_AGE_DAYS: z.string().optional(),
+      IDENTITY_KYC_POA_TYPES_BY_COUNTRY: z.string().optional(),
+      /**
        * Owner settings (I-kyc-compliance-10), set together or not at all: how many rejected verification requests a
        * person may have inside `IDENTITY_KYC_DENIAL_WINDOW_HOURS`, and for how many hours after the last of them a new
        * request is refused `kyc.attempts_exhausted`. NO DEFAULT. All unset is no limit, and /verification says so.

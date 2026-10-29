@@ -4,7 +4,7 @@ const messages = {
   title: 'Security lock',
   body: 'Lock your account if you think someone else could get in. While it is on, your password cannot be changed or reset.',
   scope:
-    'Withdrawals, withdrawal addresses and verification: the money and verification services do not read the lock today, so it does not stop them. Freeze the account below to stop everything at once.',
+    'It also stops adding a withdrawal address and starting a send to one. Removing an address and verification do not read the lock, so it does not stop them. Freeze the account below to stop everything at once.',
   open: 'The lock is off.',
   locked: 'The lock is on since {time}.',
   lockedBySupport: 'Support turned the lock on {time}. Support cannot turn it off; only you can ask to unlock.',
@@ -38,7 +38,7 @@ export const securityLockCopy = defineCopy('account.security-lock', messages, {
     title: 'Bloqueo de seguridad',
     body: 'Bloquea tu cuenta si crees que otra persona podría entrar. Mientras está activo, tu contraseña no se puede cambiar ni restablecer.',
     scope:
-      'Retiros, direcciones de retiro y verificación: los servicios de dinero y de verificación no leen el bloqueo hoy, así que no los detiene. Congela la cuenta más abajo para detenerlo todo a la vez.',
+      'También impide añadir una dirección de retiro y empezar un envío a una. Quitar una dirección y la verificación no leen el bloqueo, así que no los detiene. Congela la cuenta más abajo para detenerlo todo a la vez.',
     open: 'El bloqueo está desactivado.',
     locked: 'El bloqueo está activo desde {time}.',
     lockedBySupport: 'Soporte activó el bloqueo {time}. Soporte no puede desactivarlo; solo tú puedes pedir el desbloqueo.',
@@ -70,7 +70,7 @@ export const securityLockCopy = defineCopy('account.security-lock', messages, {
     title: 'Verrou de sécurité',
     body: 'Verrouillez votre compte si vous pensez que quelqu’un d’autre pourrait y entrer. Tant qu’il est actif, votre mot de passe ne peut être ni changé ni réinitialisé.',
     scope:
-      'Retraits, adresses de retrait et vérification : les services d’argent et de vérification ne lisent pas le verrou aujourd’hui, il ne les arrête donc pas. Gelez le compte plus bas pour tout arrêter d’un coup.',
+      'Il empêche aussi d’ajouter une adresse de retrait et de lancer un envoi vers l’une d’elles. Retirer une adresse et la vérification ne lisent pas le verrou, il ne les arrête donc pas. Gelez le compte plus bas pour tout arrêter d’un coup.',
     open: 'Le verrou est désactivé.',
     locked: 'Le verrou est actif depuis {time}.',
     lockedBySupport:
