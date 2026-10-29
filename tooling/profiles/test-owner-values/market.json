@@ -1,0 +1,15 @@
+{
+  "label": "TEST: CX-8 rig and local test stack only. Not an owner decision and not a product default.",
+  "values": {
+    "MARKET_HOUSE_COMMISSION_BPS": {
+      "service": "market",
+      "value": "500",
+      "note": "TEST house commission on a market sale, in basis points. Not a product default."
+    },
+    "MARKET_REFUND_WINDOW_SECONDS": {
+      "service": "market",
+      "value": "3600",
+      "note": "TEST refund window: a purchase is held for an hour, and the buyer may ask for the whole amount back inside it. Not a product default."
+    }
+  }
+}

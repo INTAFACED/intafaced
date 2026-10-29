@@ -16,6 +16,12 @@ describe('fee refusals (SP-fees-vip-01)', () => {
     expect(refusalCopy('trade.fee_schedule_blank').body).toContain('Nothing was held');
   });
 
+  it('an undecided refund policy names itself, never "not switched on" (J-more-catalogue-02 #6)', () => {
+    expect(classifyRefusal('market.refund_policy_unset')).toBe('refundPolicyUnset');
+    expect(refusalCopy('market.refund_policy_unset').title).toBe('The refund policy is not decided');
+    expect(refusalCopy('market.refund_policy_unset').body).toContain('nothing moved');
+  });
+
   it('a missing product schedule, rebate recipe or minimum-fee recipe reads as not switched on', () => {
     for (const code of ['trade.fee_product_unpublished', 'trade.rebate_recipe_unavailable', 'trade.min_fee_recipe_unavailable']) {
       expect(classifyRefusal(code)).toBe('notSetUp');

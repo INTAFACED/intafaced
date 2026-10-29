@@ -48,6 +48,8 @@ const purchase = (extra = {}) => ({
   createdAt: at,
   settledAt: at,
   accessUntil: '2026-10-10T10:00:00.000Z',
+  refundWindowSeconds: null,
+  hold: null,
   ...extra,
 });
 const vendor = (extra = {}) => ({

@@ -6,7 +6,7 @@ import { useApi, useSession } from '../session/session';
 import { useResource } from '../../shared/resource';
 import { decimalSchema, displayAmount, parseAmount } from '../../shared/money';
 import { Button, Field, Panel } from '../../shared/ui';
-import { MarketPurchaseRecords } from './MarketPurchaseRecords';
+import { marketHoldSchema, MarketPurchaseRecords } from './MarketPurchaseRecords';
 import { ListingDetail, MarketFilters, SellerDirectory } from './MarketExplorer';
 import { filterListings, NO_FILTER, type ListingFilter } from './market-explorer';
 import { marketExplorerCopy } from './market-explorer-copy';
@@ -71,6 +71,8 @@ const purchaseSchema = z.object({
   createdAt: time,
   settledAt: time.nullable(),
   accessUntil: time.nullable(),
+  refundWindowSeconds: z.number().int().positive().nullable(),
+  hold: marketHoldSchema.nullable(),
 });
 function originalPurchaseOutcome(row: z.infer<typeof purchaseSchema>): ApiResult<z.infer<typeof purchaseSchema>> {
   if (row.status === 'pending') return marketRefusal('uncertain', 'market.original.purchase.is.still.pending.settlement.is');
@@ -198,13 +200,21 @@ export function Market({ mine = false, strategy = false }: { mine?: boolean; str
           : Promise.resolve({ ok: true as const, data: null }),
       `slots:${userId}:${mine}:${strategy}`,
     );
+  // Listings the buyer holds a purchase of right now: Buy again is the same purchase, so it stays off until the window ends.
+  const heldListings = new Set(
+    purchases.resource.status === 'ready' ? purchases.resource.data.filter((p) => p.hold?.state === 'held').map((p) => p.listingId) : [],
+  );
   function buy(row: z.infer<typeof listingSchema>) {
     const purchaseId = crypto.randomUUID();
+    let held = false;
     action.stage({
       title: () => copyText('market.review.purchase'),
       reference: purchaseId,
       confirm: () => copyText('market.confirm.purchase'),
-      success: () => copyText('market.purchase.outcome.received.read.its.settlement.status'),
+      success: () =>
+        held
+          ? copyText('market.held.until.the.refund.window.ends')
+          : copyText('market.purchase.outcome.received.read.its.settlement.status'),
       content: () => (
         <Details
           items={[
@@ -251,7 +261,10 @@ export function Market({ mine = false, strategy = false }: { mine?: boolean; str
             copyText('market.purchase.response.does.not.match.the.reviewed'),
           ),
         );
-        if (result.ok) return originalPurchaseOutcome(result.data);
+        if (result.ok) {
+          held = result.data.hold?.state === 'held';
+          return originalPurchaseOutcome(result.data);
+        }
         if (result.reason === 'aborted' || result.status === 401 || result.status === 403) return result;
         // The existing pending banner supplies authored recovery guidance.
         // Retain the original service explanation or transport copy descriptor.
@@ -411,21 +424,28 @@ export function Market({ mine = false, strategy = false }: { mine?: boolean; str
                             <Text k="market.archive" />
                           </Button>
                         ) : (
-                          <Button
-                            disabled={action.disabled || row.status !== 'active'}
-                            onClick={() => buy(row)}
-                            onFocus={(event) => {
-                              const target = event.currentTarget;
-                              if (!target.matches(':focus-visible')) return;
-                              const navigation = document.querySelector<HTMLElement>('.mobile-doors')?.getBoundingClientRect();
-                              if (navigation?.height && target.getBoundingClientRect().bottom > navigation.top)
-                                target.scrollIntoView({ block: 'center', inline: 'nearest', behavior: 'instant' });
-                            }}
-                            aria-label={copyText('market.buy.2', { value1: row.title })}
-                            lang="und"
-                          >
-                            {row.offerType === 'subscription' ? <Text k="market.buy.one.period" /> : <Text k="market.buy" />}
-                          </Button>
+                          <>
+                            {heldListings.has(row.id) && (
+                              <p className="muted">
+                                <Text k="market.you.own.this.held.until.the.refund.window.ends" />
+                              </p>
+                            )}
+                            <Button
+                              disabled={action.disabled || row.status !== 'active' || heldListings.has(row.id)}
+                              onClick={() => buy(row)}
+                              onFocus={(event) => {
+                                const target = event.currentTarget;
+                                if (!target.matches(':focus-visible')) return;
+                                const navigation = document.querySelector<HTMLElement>('.mobile-doors')?.getBoundingClientRect();
+                                if (navigation?.height && target.getBoundingClientRect().bottom > navigation.top)
+                                  target.scrollIntoView({ block: 'center', inline: 'nearest', behavior: 'instant' });
+                              }}
+                              aria-label={copyText('market.buy.2', { value1: row.title })}
+                              lang="und"
+                            >
+                              {row.offerType === 'subscription' ? <Text k="market.buy.one.period" /> : <Text k="market.buy" />}
+                            </Button>
+                          </>
                         )}
                       </div>
                     </article>
@@ -657,6 +677,45 @@ export function Market({ mine = false, strategy = false }: { mine?: boolean; str
           resource={purchases.resource}
           reload={purchases.reload}
           limit={limit}
+          renderRefund={(row) => (
+            <Button
+              variant="secondary"
+              disabled={action.disabled}
+              onClick={() =>
+                action.stage({
+                  title: () => copyText('market.refund.this.purchase'),
+                  confirm: () => copyText('market.refund'),
+                  success: () => copyText('market.refund.recorded.the.whole.amount.is.back'),
+                  content: () => (
+                    <>
+                      <p>
+                        <Text k="market.refund.asks.for.the.whole.amount" />
+                      </p>
+                      <Details
+                        items={[
+                          [copyText('market.price'), <MarketPrice price={row.price} assetId={row.assetId} />],
+                          [copyText('market.purchase.id'), <code lang="zxx">{row.id}</code>],
+                        ]}
+                      />
+                    </>
+                  ),
+                  run: () =>
+                    api.mutate(
+                      'market',
+                      'refundPurchase',
+                      { purchaseId: row.id },
+                      purchaseSchema.refine(
+                        (p) => p.id === row.id && p.buyerId === userId && p.price === row.price && p.hold?.state === 'refunded',
+                        copyText('market.purchase.response.does.not.match.the.reviewed'),
+                      ),
+                    ),
+                  done: purchases.reload,
+                })
+              }
+            >
+              <Text k="market.ask.for.a.refund" />
+            </Button>
+          )}
           renderCancel={(row) => (
             <Button
               variant="secondary"

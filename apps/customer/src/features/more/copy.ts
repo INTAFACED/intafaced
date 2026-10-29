@@ -456,6 +456,15 @@ const messages = {
   'market.access.cancellation.recorded': 'Access cancellation recorded',
   'market.cancel.access.for.listing': 'Cancel access for listing ',
   'market.this.does.not.issue.a.refund': '. This does not issue a refund.',
+  'market.ask.for.a.refund': 'Ask for a refund',
+  'market.purchase.id': 'Purchase',
+  'market.refund.this.purchase': 'Refund this purchase',
+  'market.refund': 'Refund',
+  'market.refund.recorded.the.whole.amount.is.back': 'Refunded: the whole amount is back in your account.',
+  'market.refund.asks.for.the.whole.amount':
+    'Ask for the whole amount back before the refund window ends. The seller is not paid for a refunded purchase.',
+  'market.held.until.the.refund.window.ends': 'Held until the refund window ends. You may ask for a refund before then.',
+  'market.you.own.this.held.until.the.refund.window.ends': 'You own this. Held until the refund window ends.',
   'moreroutes.academy': 'Academy',
   'moreroutes.learning.paths.certificates.hosted.sessions.and.programmes': 'Learning paths, certificates, hosted sessions and programmes.',
   'moreroutes.agents': 'Agents',
@@ -1395,6 +1404,15 @@ const es = {
   'market.access.cancellation.recorded': 'Cancelación de acceso registrada',
   'market.cancel.access.for.listing': 'Cancelar el acceso al listado ',
   'market.this.does.not.issue.a.refund': '. Esto no emite un reembolso.',
+  'market.ask.for.a.refund': 'Pedir un reembolso',
+  'market.purchase.id': 'Compra',
+  'market.refund.this.purchase': 'Reembolsar esta compra',
+  'market.refund': 'Reembolsar',
+  'market.refund.recorded.the.whole.amount.is.back': 'Reembolsada: el importe completo ha vuelto a tu cuenta.',
+  'market.refund.asks.for.the.whole.amount':
+    'Pide el importe completo antes de que termine el plazo de reembolso. El vendedor no cobra una compra reembolsada.',
+  'market.held.until.the.refund.window.ends': 'Retenida hasta que termine el plazo de reembolso. Puedes pedir un reembolso antes.',
+  'market.you.own.this.held.until.the.refund.window.ends': 'Ya lo tienes. Retenida hasta que termine el plazo de reembolso.',
   'moreroutes.academy': 'Academy',
   'moreroutes.learning.paths.certificates.hosted.sessions.and.programmes':
     'Itinerarios de aprendizaje, certificados, sesiones alojadas y programas.',
@@ -2357,6 +2375,16 @@ const fr = {
   'market.access.cancellation.recorded': 'Annulation de l’accès enregistrée',
   'market.cancel.access.for.listing': 'Annuler l’accès à l’offre ',
   'market.this.does.not.issue.a.refund': '. Cela n’émet aucun remboursement.',
+  'market.ask.for.a.refund': 'Demander un remboursement',
+  'market.purchase.id': 'Achat',
+  'market.refund.this.purchase': 'Rembourser cet achat',
+  'market.refund': 'Rembourser',
+  'market.refund.recorded.the.whole.amount.is.back': 'Remboursé : le montant complet est revenu sur votre compte.',
+  'market.refund.asks.for.the.whole.amount':
+    'Demandez le montant complet avant la fin du délai de remboursement. Le vendeur n’est pas payé pour un achat remboursé.',
+  'market.held.until.the.refund.window.ends':
+    'Retenu jusqu’à la fin du délai de remboursement. Vous pouvez demander un remboursement d’ici là.',
+  'market.you.own.this.held.until.the.refund.window.ends': 'Vous l’avez déjà. Retenu jusqu’à la fin du délai de remboursement.',
   'moreroutes.academy': 'Academy',
   'moreroutes.learning.paths.certificates.hosted.sessions.and.programmes':
     'Parcours d’apprentissage, certificats, sessions hébergées et programmes.',

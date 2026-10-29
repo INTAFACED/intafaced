@@ -24,6 +24,7 @@
  *   node tooling/scripts/local-test-gates.mjs risk <SYMBOL> collar=0.1|unset throttle=20|unset   change one market's limits
  *   node tooling/scripts/local-test-gates.mjs p2p        register the TEST P2P payment method (two-person approval)
  *   node tooling/scripts/local-test-gates.mjs kyb        publish the TEST business verification requirements and upload rules
+ *   node tooling/scripts/local-test-gates.mjs market-vet <vendorId>   approve one TEST seller's market application (two-person approval)
  *   node tooling/scripts/local-test-gates.mjs age <handle> <seconds>   move one TEST account's sign-up time back
  *   node tooling/scripts/local-test-gates.mjs status     read-only: what is open, who is verified
  *
@@ -714,6 +715,10 @@ async function signInPair(ctx, ops, saveSteps) {
       /** Same session as compliance: the trade desk's VIP application review also needs `admin:compliance`. */
       async complianceToken() {
         return mintOperatorToken(ctx, op, ['admin:read', 'admin:write', 'admin:compliance']);
+      },
+      /** Same session with the market operator scope svc-market's vendor vet checks (market.vet). */
+      async marketOpsToken() {
+        return mintOperatorToken(ctx, op, ['market:ops']);
       },
       /** Same session with the CRM scopes svc-ops checks before it asks identity whether the caller is a founder. */
       async crmToken() {
@@ -1897,6 +1902,37 @@ export async function grantVipTrial(ctx, { applicationId, reason, sessions = nul
   );
 }
 
+/** The hash svc-market recomputes when it consumes a vendor vet approval (services/svc-market/src/action-approval-consume.ts). */
+export function marketVetPayloadHash({ vendorId, decision, reason }) {
+  return matchingPayloadHash('market.vendor.vet', { vendorId, decision, reason });
+}
+
+/**
+ * Approve one market vendor application as two market operators do: one proposes at identity, the other approves, the
+ * first applies it (`market.vet`, MFA and `market:ops`). A journey's TEST seller applies through the app first; this is
+ * only the second person it cannot be. Returns svc-market's answer as it came, refusal included.
+ */
+export async function vetMarketVendor(ctx, { vendorId, sessions = null }) {
+  if (!/^[0-9a-f-]{36}$/i.test(String(vendorId))) throw new Error(`not a vendor id: ${vendorId}`);
+  const pair = sessions ?? (await approverSessions(ctx));
+  const body = { vendorId, decision: 'approved', reason: `${MARKERS.label}: TEST vendor approval` };
+  const ids = await twoPerson(ctx, pair, {
+    actionType: 'market.vendor.vet',
+    targetService: 'svc-market',
+    targetId: 'market.vendor.vet',
+    expectedVersion: '1',
+    payloadHash: marketVetPayloadHash(body),
+    policyVersion: MARKERS.policyVersion,
+  });
+  assertActiveLocalStack({ stateDir: ctx.paths.stateDir });
+  return ctx.edge.mutate(
+    'market',
+    'vet',
+    { ...body, approvalId: ids.approvalId, operationId: ids.operationId },
+    await pair.a.marketOpsToken(),
+  );
+}
+
 // ── 2c''. TEST fee-decay schedule for IFC holders (two-person approval) ───
 
 export const FEE_DISCOUNT_PUBLISH_ACTION = 'token.fee_discount.publish';
@@ -2686,6 +2722,13 @@ async function main() {
       }
       const r = await setPairRisk(ctx, symbol, changes);
       say(`  ${r.symbol} limits ${r.changed ? `now version ${r.version}` : 'unchanged'}: ${JSON.stringify(r.limits)}`);
+    } else if (cmd === 'market-vet') {
+      const vendorId = process.argv[3];
+      if (!vendorId) die('usage: local-test-gates.mjs market-vet <vendorId>', 2);
+      const r = await vetMarketVendor(ctx, { vendorId });
+      const vetted = data(r);
+      if (!vetted) die(`market.vet refused (${r.status}): ${refusalText(r)}`);
+      say(`  market    vendor ${vetted.vendor.id} ${vetted.vendor.status}`);
     } else if (cmd === 'age') {
       const [handle, seconds] = process.argv.slice(3);
       say(`  ${handle} signed up at ${ageAccount(ctx.secrets, handle, seconds)} (LOCAL TEST, moved back ${seconds}s)`);
@@ -2693,7 +2736,7 @@ async function main() {
       say(JSON.stringify(await status(ctx), null, 2));
     } else {
       die(
-        'usage: local-test-gates.mjs apply | operators | lifecycle | open | terms | assets | deposit-terms | withdrawal-limits | withdraw-terms | withdraw-limit <tier> <assetId> unset|test | withdraw-fee <networkId> unset|test | futures | limits | charts | chart-class <SYMBOL> <dataClass> | risk <SYMBOL> k=v... | p2p | verify | kyc-reject <handle> <reasonCode> | kyc-capability-off <handle> <capability> <reasonCode> | halt <SYMBOL> | resume <SYMBOL> | age <handle> <seconds> | status',
+        'usage: local-test-gates.mjs apply | operators | lifecycle | open | terms | assets | deposit-terms | withdrawal-limits | withdraw-terms | withdraw-limit <tier> <assetId> unset|test | withdraw-fee <networkId> unset|test | futures | limits | charts | chart-class <SYMBOL> <dataClass> | risk <SYMBOL> k=v... | p2p | verify | kyc-reject <handle> <reasonCode> | kyc-capability-off <handle> <capability> <reasonCode> | halt <SYMBOL> | resume <SYMBOL> | market-vet <vendorId> | age <handle> <seconds> | status',
         2,
       );
     }

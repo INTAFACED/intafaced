@@ -10,6 +10,26 @@ import './market-purchases.css';
 
 const id = z.string().guid();
 const time = z.string().datetime({ offset: true });
+/** A purchase held until its refund window ends: held, then refunded or released, both final. */
+export const marketHoldSchema = z.object({
+  state: z.enum(['held', 'refunded', 'released']),
+  heldAmount: decimalSchema,
+  heldAt: time,
+  windowEndsAt: time,
+  refundRequestedAt: time.nullable(),
+  refundedAt: time.nullable(),
+  refundTxId: id.nullable(),
+  releasedAt: time.nullable(),
+  releaseTxId: id.nullable(),
+});
+type StatusKey = 'statusHeld' | 'statusRefunded' | 'statusReleased' | 'statusSettled' | 'statusPending' | 'statusRejected';
+/** What a buyer reads a purchase as: a held purchase is not settled to the seller until it is released. */
+export function purchaseStatusKey(row: Pick<MarketPurchaseRecord, 'status' | 'hold'>): StatusKey {
+  if (row.hold?.state === 'held') return 'statusHeld';
+  if (row.hold?.state === 'refunded') return 'statusRefunded';
+  if (row.hold?.state === 'released') return 'statusReleased';
+  return row.status === 'settled' ? 'statusSettled' : row.status === 'pending' ? 'statusPending' : 'statusRejected';
+}
 // Mounted Market purchase rows are decimal strings and native asset identifiers.
 const purchase = z.object({
   id,
@@ -30,6 +50,8 @@ const purchase = z.object({
   createdAt: time,
   settledAt: time.nullable(),
   accessUntil: time.nullable(),
+  refundWindowSeconds: z.number().int().positive().nullable(),
+  hold: marketHoldSchema.nullable(),
 });
 export type MarketPurchaseRecord = z.infer<typeof purchase>;
 type Props = {
@@ -37,10 +59,13 @@ type Props = {
   reload: () => void;
   limit: number;
   renderCancel: (row: MarketPurchaseRecord) => ReactNode;
+  renderRefund: (row: MarketPurchaseRecord) => ReactNode;
 };
 type Fact =
   | 'purchase'
   | 'ledger'
+  | 'holdLedger'
+  | 'refundLedger'
   | 'listing'
   | 'buyer'
   | 'vendor'
@@ -57,7 +82,7 @@ export function MarketPurchaseRecords(props: Props) {
   const { userId } = useSession();
   return userId ? <OwnerRecords key={userId} userId={userId} {...props} /> : null;
 }
-function OwnerRecords({ userId, resource, reload, limit, renderCancel }: Props & { userId: string }) {
+function OwnerRecords({ userId, resource, reload, limit, renderCancel, renderRefund }: Props & { userId: string }) {
   const { Copy, t, languageFor } = copy.useCopy();
   const { hideBalances } = usePreferences();
   const [selected, setSelected] = useState<string | null>(null);
@@ -104,12 +129,12 @@ function OwnerRecords({ userId, resource, reload, limit, renderCancel }: Props &
             <>
               {rows.length ? (
                 rows.map((row) => (
-                  <article className="market-purchases-row" key={row.id}>
+                  <article className="market-purchases-row" key={row.id} aria-label={t('row', { id: row.id })}>
                     <div className="market-purchases-row-header">
                       <div>
                         <strong lang="zxx">{row.assetId}</strong>
-                        <p className="muted" lang="zxx">
-                          {row.status}
+                        <p className="muted">
+                          <Copy k={purchaseStatusKey(row)} />
                         </p>
                       </div>
                       <Button variant="secondary" aria-pressed={selected === row.id} onClick={() => setSelected(row.id)}>
@@ -121,9 +146,35 @@ function OwnerRecords({ userId, resource, reload, limit, renderCancel }: Props &
                       <span lang="zxx">{row.assetId}</span>
                     </p>
                     <Timestamp value={row.createdAt} />
+                    <dl className="market-purchases-facts">
+                      <div>
+                        <dt>
+                          <Copy k="rowPrice" />
+                        </dt>
+                        <dd className="numeric">
+                          {hideBalances ? <span aria-label={t('amountHidden')}>••••</span> : displayAmount(row.price)}{' '}
+                          <span lang="zxx">{row.assetId}</span>
+                        </dd>
+                      </div>
+                      <div>
+                        <dt>
+                          <Copy k="refundWindow" />
+                        </dt>
+                        <dd>{row.hold ? <Timestamp value={row.hold.windowEndsAt} /> : <Copy k="noRefundWindow" />}</dd>
+                      </div>
+                      <div>
+                        <dt>
+                          <Copy k="rowStatus" />
+                        </dt>
+                        <dd>
+                          <Copy k={purchaseStatusKey(row)} />
+                        </dd>
+                      </div>
+                    </dl>
                     <code className="market-purchases-reference muted" lang="zxx">
                       {row.id}
                     </code>
+                    {row.hold?.state === 'held' && renderRefund(row)}
                     {row.accessUntil && renderCancel(row)}
                   </article>
                 ))
@@ -162,6 +213,7 @@ function OwnerRecords({ userId, resource, reload, limit, renderCancel }: Props &
                   current.ledgerTxId,
                   current.settledAt,
                   current.accessUntil,
+                  current.hold?.state,
                 ])}
                 row={current}
               />
@@ -198,7 +250,10 @@ function Timestamp({ value }: { value: string }) {
 function OriginalRecord({ row }: { row: MarketPurchaseRecord }) {
   const { Copy, t } = copy.useCopy();
   const { hideBalances } = usePreferences();
-  const recorded = row.status === 'settled' && row.ledgerTxId !== null && row.settledAt !== null;
+  // A held purchase is not yet a receipt: the seller is paid only at release. A refunded one never becomes one.
+  const held = row.hold?.state === 'held';
+  const refunded = row.hold?.state === 'refunded';
+  const recorded = row.status === 'settled' && row.ledgerTxId !== null && row.settledAt !== null && !held && !refunded;
   const rejected = row.status === 'rejected' && Boolean(row.rejectionCode) && row.ledgerTxId === null && row.settledAt === null;
   function fact(label: Fact, value: ReactNode) {
     return (
@@ -214,10 +269,12 @@ function OriginalRecord({ row }: { row: MarketPurchaseRecord }) {
     <>
       <div className="market-purchases-settlement">
         <h3>
-          <Copy k={recorded ? 'recorded' : rejected ? 'rejected' : 'unconfirmed'} />
+          <Copy k={held ? 'heldTitle' : refunded ? 'refundedTitle' : recorded ? 'recorded' : rejected ? 'rejected' : 'unconfirmed'} />
         </h3>
         <p className="market-purchases-description">
-          <Copy k={recorded ? 'recordedBody' : rejected ? 'rejectedBody' : 'unconfirmedBody'} />
+          <Copy
+            k={held ? 'heldBody' : refunded ? 'refundedBody' : recorded ? 'recordedBody' : rejected ? 'rejectedBody' : 'unconfirmedBody'}
+          />
         </p>
       </div>
       <div className="market-purchases-value">
@@ -236,7 +293,9 @@ function OriginalRecord({ row }: { row: MarketPurchaseRecord }) {
       </div>
       <dl className="market-purchases-facts">
         {fact('purchase', <span lang="zxx">{row.id}</span>)}
-        {row.ledgerTxId && fact('ledger', <span lang="zxx">{row.ledgerTxId}</span>)}
+        {row.ledgerTxId && fact(row.hold ? 'holdLedger' : 'ledger', <span lang="zxx">{row.ledgerTxId}</span>)}
+        {row.hold?.releaseTxId && fact('ledger', <span lang="zxx">{row.hold.releaseTxId}</span>)}
+        {row.hold?.refundTxId && fact('refundLedger', <span lang="zxx">{row.hold.refundTxId}</span>)}
         {fact('listing', <span lang="zxx">{row.listingId}</span>)}
         {fact('originalWindow', row.accessUntil ? <Timestamp value={row.accessUntil} /> : <Copy k="noWindow" />)}
         {row.rejectionCode && fact('rejection', <span lang="zxx">{row.rejectionCode}</span>)}

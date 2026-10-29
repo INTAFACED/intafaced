@@ -64,6 +64,7 @@ export type RefusalKind =
   | 'duplicate'
   | 'notSetUp'
   | 'feeScheduleUnset'
+  | 'refundPolicyUnset'
   | 'walletPaused'
   | 'walletFee'
   | 'walletCap'
@@ -182,6 +183,8 @@ const EXACT: Readonly<Record<string, RefusalKind>> = {
 
   'ledger.insufficient_funds': 'insufficient',
   'market.insufficient_funds': 'insufficient',
+  // No refund window is decided: the purchase stays held and nothing moves; its own words, never "not switched on".
+  'market.refund_policy_unset': 'refundPolicyUnset',
   'trade.hold_uncovered': 'insufficient',
   'trade.insufficient_margin': 'insufficient',
   'trade.algo_insufficient_balance': 'insufficient',

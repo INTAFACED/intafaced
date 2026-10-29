@@ -146,6 +146,10 @@ const FIXED: Readonly<Partial<Record<RefusalKind, Words>>> = {
     title: 'Fee schedule not set',
     body: 'No trading fee is published for this market, so no order can be placed on it. Nothing was held.',
   },
+  refundPolicyUnset: {
+    title: 'The refund policy is not decided',
+    body: 'No refund window is published, so a refund cannot be asked for. Your purchase is unchanged and nothing moved.',
+  },
   chartRange: { title: 'That chart range is too long', body: 'Choose a shorter range and try again.' },
   algoSchedulerOff: {
     title: 'Scheduled orders are off',

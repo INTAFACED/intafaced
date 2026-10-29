@@ -27,6 +27,8 @@ const row = (extra = {}) => ({
   createdAt: at,
   settledAt: at,
   accessUntil: originalWindow,
+  refundWindowSeconds: null,
+  hold: null,
   ...extra,
 });
 const grant = (extra = {}) => ({ granted: true, listingId: listing, buyerId: owner, accessUntil: currentWindow, ...extra });
