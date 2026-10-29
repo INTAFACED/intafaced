@@ -176,9 +176,11 @@ test(`${J} #6 reads which data products I may use and on what terms: redistribut
   const rows = bodyRows(table);
   expect(await rows.count()).toBeGreaterThan(0);
   // A term the owner has not set reads "not set", never an invented value or a blank.
+  // One cell per term column (every header but Product).
+  const terms = (await table.getByRole('columnheader').count()) - 1;
   for (const row of await rows.all()) {
     const cells = await row.getByRole('cell').allInnerTexts();
-    expect(cells).toHaveLength(3);
+    expect(cells).toHaveLength(terms);
     const unset = (await row.getAttribute('data-terms-state')) === 'unset';
     for (const cell of cells) expect(cell.trim()).toMatch(unset ? /^not set$/ : /\S/);
   }
