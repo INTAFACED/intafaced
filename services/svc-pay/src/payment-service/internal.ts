@@ -406,6 +406,10 @@ export function railPayload(result: RailResult): Record<string, unknown> {
           ...(typeof result.raw.confirming === 'string' ? { confirming: result.raw.confirming } : {}),
         }
       : {}),
+    // Waiting for confirmations: how deep the transfer furthest from final is, and how deep it must be (J-merchant-05 #4).
+    ...(Number.isInteger(result.raw?.confirmations) && Number.isInteger(result.raw?.required) && (result.raw!.required as number) > 0
+      ? { confirmations: result.raw!.confirmations as number, required: result.raw!.required as number }
+      : {}),
   };
 }
 

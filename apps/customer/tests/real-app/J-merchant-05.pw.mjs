@@ -244,3 +244,76 @@ test(`${J} #2 opens the list: totals with their period, filters the service appl
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
   expect(refused).toEqual([]);
 });
+
+test(`${J} #4 opens one payment: facts, amounts, timeline, linked refunds and the dispute card, never the payer's instrument, a count while it waits for confirmations; an unknown or foreign id reads as not found`, async ({
+  page,
+}) => {
+  test.setTimeout(300_000);
+  const state = journey();
+  const ids = state.payments;
+  expect(ids?.refunded, `${J} #2 made the TEST payments this step reads`).toBeTruthy();
+
+  // A TEST crypto payment whose one transfer is 2 confirmations deep of the stack's 6: the page counts it while it
+  // waits, then drops the count once the transfer is final.
+  const owner = await ownerApi(state);
+  const waiting = await owner.mutate('payment.create', {
+    requestId: uuidOf(`${J}:payment:confirming:${state.merchantId}`),
+    merchantId: state.merchantId,
+    amount: '7.00',
+    assetId: 'USDT',
+    method: 'crypto',
+    railAdapter: 'crypto-native',
+    metadata: { reference: `TEST-${state.stamp}-confirming` },
+  });
+  const opened = waiting.status === 'created' ? await owner.mutate('payment.authorize', { paymentId: waiting.id }) : waiting;
+  expect(opened.railRef, 'the crypto rail gives the payment its address').toBeTruthy();
+  const tx = `j-merchant-05-confirming-${waiting.id}`;
+  tool('local-test-stack.mjs', 'chain-deposit', opened.railRef, 'USDT', '7', '2', '--tx', tx);
+  expect((await owner.mutate('payment.authorize', { paymentId: waiting.id })).status).toBe('created');
+  await signInOwner(page, journey(), `/pay/payments/${ids.refunded}`);
+  const refused = refusedPayCalls(page);
+  const summary = page.locator('section.pay-section').filter({ has: page.getByRole('heading', { name: 'Summary' }) });
+  await expect(summary).toBeVisible();
+  await expect(summary).toContainText('100.00');
+  await expect(summary.getByText('Still refundable')).toBeVisible();
+  await expect(summary).toContainText('70.00');
+  await expect(page.getByRole('heading', { name: 'Key facts' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Timeline' })).toBeVisible();
+  await expect(page.getByText('Payment created')).toBeVisible();
+  await expect(page.getByText('Money taken')).toBeVisible();
+  const refunds = page.locator('section.pay-section').filter({ has: page.getByRole('heading', { name: 'Refunds' }) });
+  await expect(refunds).toContainText('30.00');
+  // The card the payer used never shows.
+  await expect(page.locator('body')).not.toContainText('tok_ok');
+  await expect(page.locator('body')).not.toContainText('tok_decline');
+
+  // The disputed payment: the dispute card, with its status, amount and reason, and a way to it.
+  await page.goto(`/pay/payments/${ids.disputed}`);
+  const dispute = page.locator('section.pay-section').filter({ has: page.getByRole('heading', { name: 'Dispute', level: 2 }) });
+  await expect(dispute).toBeVisible();
+  await expect(dispute).toContainText('12.00');
+  await expect(dispute.getByRole('link', { name: 'Open the dispute' })).toHaveAttribute('href', /\/pay\/disputes\//);
+  await expect(page.getByText('Customer disputed the payment')).toBeVisible();
+
+  // The declined payment: one plain word for its status, and why it failed.
+  await page.goto(`/pay/payments/${ids.declined}`);
+  await expect(page.getByText('Failed', { exact: true }).first()).toBeVisible();
+  await expect(page.getByText('Why it failed:')).toBeVisible();
+  await expect(page.locator('body')).not.toContainText('tok_decline');
+
+  // The crypto payment counts its confirmations while it waits, and drops the count once the transfer is final.
+  await page.goto(`/pay/payments/${waiting.id}`);
+  await expect(page.getByTestId('payment-confirmations')).toContainText('Waiting for confirmations: 2 of 6');
+  tool('local-test-stack.mjs', 'chain-deposit', opened.railRef, 'USDT', '7', '6', '--tx', tx);
+  await owner.mutate('payment.authorize', { paymentId: waiting.id });
+  await page.reload();
+  await expect(page.getByRole('heading', { name: 'Timeline' })).toBeVisible();
+  await expect(page.getByTestId('payment-confirmations')).toHaveCount(0);
+  expect(refused).toEqual([]);
+
+  // An id that is not one, and an id of no payment of this business, both read as not found.
+  await page.goto('/pay/payments/not-an-id');
+  await expect(page.getByText('We could not find that payment.').first()).toBeVisible();
+  await page.goto(`/pay/payments/${crypto.randomUUID()}`);
+  await expect(page.getByText('We could not find that payment.').first()).toBeVisible();
+});

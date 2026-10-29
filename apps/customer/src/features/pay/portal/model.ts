@@ -252,6 +252,21 @@ export function nameHold(status: string, events: readonly PaymentEvent[]): NameH
   return typeof reason === 'string' && Object.hasOwn(NAME_HOLD_REASONS, reason) ? NAME_HOLD_REASONS[reason]! : null;
 }
 
+/**
+ * While a crypto payment waits for its transfers to be final: how deep the furthest-behind transfer is and how deep it
+ * must be, from the newest rail result. Null once the payment moved on, or when the rail said nothing about it.
+ */
+export function waitingConfirmations(status: string, events: readonly PaymentEvent[]): { seen: number; required: number } | null {
+  if (status !== 'created') return null;
+  const last = [...events].reverse().find((e) => e.event.startsWith('rail.'));
+  if (!last || last.event !== 'rail.pending') return null;
+  if ('confirmations' in last && last.confirmations) return last.confirmations;
+  const { confirmations: seen, required } = historyPayload(last);
+  return Number.isInteger(seen) && Number.isInteger(required) && (seen as number) >= 0 && (required as number) > 0
+    ? { seen: seen as number, required: required as number }
+    : null;
+}
+
 export type PayoutState = 'not_ready' | 'unknown' | 'ready' | 'awaiting_approval' | 'approved' | 'rejected' | 'paid_out' | 'failed';
 
 // ---- approvals (P31) -----------------------------------------------------------------------------------

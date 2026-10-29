@@ -323,6 +323,8 @@ export class CryptoNativeAdapter implements RailAdapter {
           // Sent but not yet final: the page must not ask the payer to send this again.
           confirming: formatAmount(confirming),
           required: this.minConfirmations,
+          // J-merchant-05 #4: the count the merchant reads while it waits, from the transfer furthest from final.
+          ...(shallow.length > 0 ? { confirmations: Math.min(...shallow.map((t) => t.confirmations)) } : {}),
           transfers: inAsset.map((t) => ({
             txHash: t.txHash,
             from: t.from,

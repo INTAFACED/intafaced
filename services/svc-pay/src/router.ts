@@ -1187,6 +1187,10 @@ export function createPayRouter(
                   amount: amountSchema.nullable(),
                   assetId: assetIdSchema.nullable(),
                   failure: payMerchantFailureSchema.nullable(),
+                  confirmations: z
+                    .object({ seen: z.number().int().min(0), required: z.number().int().min(1) })
+                    .strict()
+                    .nullable(),
                 })
                 .strict(),
             ]),

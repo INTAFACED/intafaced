@@ -496,6 +496,8 @@ const en = {
   pay_layer_merchant: 'Your own rate, {percent}%',
   pay_flatFee: ' + {flat} {asset}',
   pay_whyFailed: 'Why it failed:',
+  pay_waitingConfirmations:
+    'Waiting for confirmations: {seen} of {required}. The payment completes once the transfer is final on its network.',
   pay_heldTitle: 'Held for a name check.',
   pay_held_mismatch:
     'The bank transfer came from an account in another name than the one your customer gave. Nothing has been taken or added to your balance while it is checked.',
