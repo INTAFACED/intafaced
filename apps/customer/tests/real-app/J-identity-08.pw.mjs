@@ -189,7 +189,7 @@ test(`${J} #3: with the face check switched off the selfie is kept for manual re
       viewport: { width: 1440, height: 900 },
     });
     const page = await context.newPage();
-    await atVerification(page);
+    const { who } = await atVerification(page);
     const selfie = page.getByTestId('verification__selfie');
     await expect(page.getByRole('heading', { name: 'Selfie and liveness' })).toBeVisible();
     await expect(selfie.getByTestId('verification__selfie-manual')).toHaveAttribute('data-face-check', 'not_connected');
@@ -217,8 +217,19 @@ test(`${J} #3: with the face check switched off the selfie is kept for manual re
     const href = await selfie.getByTestId('verification__selfie-link').getAttribute('href');
     expect(href).toMatch(/\/verification\?handoff=[A-Za-z0-9_-]{43}$/);
 
-    // The phone (signed in to the same account) opens the link and takes the selfie there.
-    const phone = await context.newPage();
+    // The phone is its own browser, signed in to the same account; it opens the link and takes the selfie there.
+    const phoneContext = await browser.newContext({
+      baseURL,
+      permissions: ['camera'],
+      storageState: localTestDeviceState(),
+      viewport: { width: 390, height: 844 },
+    });
+    const phone = await phoneContext.newPage();
+    await phone.goto('/login');
+    await phone.fill('input[name=identifier]', who.email);
+    await phone.fill('input[name=password]', who.password);
+    await phone.getByRole('button', { name: /^sign in$/i }).click();
+    await expect(phone).not.toHaveURL(/\/login/);
     await phone.goto(href);
     const onPhone = phone.getByTestId('verification__selfie');
     await expect(onPhone.getByTestId('verification__selfie-handoff')).toHaveAttribute('data-state', 'open');
@@ -227,14 +238,13 @@ test(`${J} #3: with the face check switched off the selfie is kept for manual re
     // The phone says it is done, with no refusal; the computer picks up the phone's selfie and the code leaves its screen.
     await expect(onPhone.getByTestId('verification__selfie-handoff')).toHaveAttribute('data-state', 'done');
     await expect(onPhone.getByRole('alert')).toHaveCount(0);
-    // Back on the computer, which reads the latest as it comes back into view.
-    await page.bringToFront();
+    // Back on the computer, which still holds its own session and reads the latest selfie.
     await expect(selfie.getByTestId('verification__selfie-latest')).toHaveAttribute('data-via', 'handoff', { timeout: 15_000 });
     await expect(selfie.getByRole('img', { name: 'Code with the link for your phone' })).toHaveCount(0);
     await expect(selfie.getByTestId('verification__selfie-sent')).toBeVisible();
 
     // The same link opened again is refused in plain words, and offers no camera.
-    const again = await context.newPage();
+    const again = await phoneContext.newPage();
     await again.goto(href);
     const refused = again.getByTestId('verification__selfie').getByTestId('verification__selfie-handoff');
     await expect(refused).toHaveAttribute('data-state', 'used');
@@ -242,7 +252,7 @@ test(`${J} #3: with the face check switched off the selfie is kept for manual re
     await expect(again.getByTestId('verification__selfie').getByRole('button', { name: 'Open camera' })).toHaveCount(0);
 
     // A link that lost characters on the way is refused as not whole, with no camera and no new phone link offered.
-    const cut = await context.newPage();
+    const cut = await phoneContext.newPage();
     await cut.goto(href.slice(0, -5));
     const broken = cut.getByTestId('verification__selfie').getByTestId('verification__selfie-handoff');
     await expect(broken).toHaveAttribute('data-state', 'broken');
