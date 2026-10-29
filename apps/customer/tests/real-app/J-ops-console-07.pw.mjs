@@ -470,6 +470,7 @@ test.describe.serial('J-ops-console-07 reconcile the books', () => {
 
     // A retired control keeps every evaluation readable: its evaluations panel lists each run once, newest first, with
     // the total read back, and holds both runs this journey made on it (#3, then the ERROR from #5).
+    expect(state.outsideRuns, 'steps #3 and #5 each recorded their run').toHaveLength(2);
     expect(state.outsideRuns.map((r) => r.id).every(Boolean), 'steps #3 and #5 named their runs').toBe(true);
     await choose(again, state.outsideId);
     const runs = again.getByTestId('rc-runs');

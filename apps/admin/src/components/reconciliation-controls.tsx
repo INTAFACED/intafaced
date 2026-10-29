@@ -142,6 +142,8 @@ export function ReconciliationControlsView({
   const controls = list.kind === 'ready' ? list.controls : [];
   const selected = controls.find((control) => control.id === selectedId) ?? null;
   const reading = list.kind === 'loading' || (list.kind === 'ready' && list.refreshing === true);
+  // A run does not change the control's version, so each run the desk reports re-reads the evaluations panel.
+  const [runsRead, setRunsRead] = useState(0);
 
   return (
     <section className="adm-control-card rc" data-testid="reconciliation-controls" aria-labelledby="rc-heading">
@@ -211,9 +213,18 @@ export function ReconciliationControlsView({
         onChanged={onRead}
       />
 
-      <RunDesk key={selected?.id ?? 'none'} control={selected} parked={treasuryParked} userId={userId} onChanged={onRead} />
+      <RunDesk
+        key={selected?.id ?? 'none'}
+        control={selected}
+        parked={treasuryParked}
+        userId={userId}
+        onChanged={() => {
+          setRunsRead((n) => n + 1);
+          onRead();
+        }}
+      />
 
-      {selected && <RunHistory key={`runs:${selected.id}:${selected.version}`} control={selected} />}
+      {selected && <RunHistory key={`runs:${selected.id}:${selected.version}:${runsRead}`} control={selected} />}
     </section>
   );
 }
