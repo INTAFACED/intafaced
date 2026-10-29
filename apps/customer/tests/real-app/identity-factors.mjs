@@ -49,13 +49,17 @@ export async function addAuthenticator(page, totp) {
   return { secret, step };
 }
 
-/** A code from a 30-second step after `step`: identity refuses a step it has already seen. */
+/**
+ * A code from a 30-second step after `step`: identity refuses a step it has already seen. Identity accepts one step
+ * either side of its clock, so the code is the next unused step's, signed at once, as an authenticator a few seconds
+ * ahead would show it; the wait is only for a step that is used already and still more than one step ahead.
+ */
 export async function nextCode(totp, secret, step) {
   for (;;) {
-    while (Math.floor(Date.now() / 30_000) <= step) await new Promise((resolve) => setTimeout(resolve, 1000));
     const now = Math.floor(Date.now() / 30_000);
-    const code = totp(secret);
-    if (Math.floor(Date.now() / 30_000) === now) return { code, step: now };
+    const next = Math.max(now, step + 1);
+    if (next <= now + 1) return { code: totp(secret, { at: new Date(next * 30_000) }), step: next };
+    await new Promise((resolve) => setTimeout(resolve, 1000));
   }
 }
 
