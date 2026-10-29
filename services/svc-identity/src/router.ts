@@ -6,6 +6,17 @@ import { kycHistoryOutputSchema, kycReasonCodeSchema } from '@intafaced/contract
 import { kycCapabilitiesOutputSchema, kycCapabilitySchema } from '@intafaced/contracts/identity-kyc-capabilities';
 import { KycCapabilityError } from './kyc/capabilities.js';
 import { KycAttemptsError } from './kyc/attempts.js';
+import { KycProfileError, type KycProfileDesk } from './kyc/profile.js';
+import {
+  kycDocumentTypesInputSchema,
+  kycDocumentTypesSchema,
+  kycProfileDraftSchema,
+  kycProfileSaveStepInputSchema,
+  kycProfileSchema,
+  kycProfileStartInputSchema,
+  kycProfileSubmitInputSchema,
+  kycProfileUploadInputSchema,
+} from '@intafaced/contracts/identity-kyc-profile';
 import { kycAttemptsSchema } from '@intafaced/contracts/identity-kyc-attempts';
 import { z } from 'zod';
 import { router, publicProcedure, protectedProcedure, scopedProcedure, serviceProcedure, TRPCError } from '@intafaced/contracts';
@@ -168,6 +179,26 @@ export function toTrpcError(err: unknown): TRPCError {
         return new TRPCError({ code: 'BAD_REQUEST', message: err.message, cause: err });
       case 'kyc_doc.decrypt_failed':
         return new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: err.message, cause: err });
+    }
+  }
+
+  if (err instanceof KycProfileError) {
+    switch (err.code) {
+      case 'kyc.profile_unconfigured':
+      case 'kyc.profile_none':
+      case 'kyc.document_types_unset':
+      case 'kyc.upload_caps_unset':
+        return new TRPCError({ code: 'PRECONDITION_FAILED', message: err.message, cause: err });
+      case 'kyc.profile_version':
+      case 'kyc.profile_sent':
+      case 'kyc.profile_request_open':
+        return new TRPCError({ code: 'CONFLICT', message: err.message, cause: err });
+      case 'kyc.upload_too_large':
+        return new TRPCError({ code: 'PAYLOAD_TOO_LARGE', message: err.message, cause: err });
+      case 'kyc.profile_unreadable':
+        return new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: err.message, cause: err });
+      default:
+        return new TRPCError({ code: 'BAD_REQUEST', message: err.message, cause: err });
     }
   }
 
@@ -763,6 +794,8 @@ export function createIdentityRouter(
     kycRejectReasons?: KycRejectReasons;
     /** The owner's reasons for switching a capability off (I-kyc-compliance-07). Absent: every switch-off refuses. */
     kycCapabilityReasons?: KycRejectReasons;
+    /** Guided verification (I-kyc-compliance-08). Absent: every `kyc.profile.*` door refuses `kyc.profile_unconfigured`. */
+    kycProfile?: KycProfileDesk;
     /** Social sign-in. Absent means no provider is registered: every start answers `idp.social`. */
     social?: SocialSignin;
     /**
@@ -963,6 +996,11 @@ export function createIdentityRouter(
       throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'Affiliate accrual store is not configured' });
     }
     return accruals;
+  }
+
+  function requireKycProfile(): KycProfileDesk {
+    if (!options.kycProfile) throw new KycProfileError('Guided verification is not configured', 'kyc.profile_unconfigured');
+    return options.kycProfile;
   }
 
   function requireKycDocs(): KycDocumentVault {
@@ -2305,6 +2343,88 @@ export function createIdentityRouter(
             throw toTrpcError(err);
           }
         }),
+
+      /**
+       * The accepted ID types for one country from the owner's list (I-kyc-compliance-08). A country with none
+       * published reads `published: false`, never an empty list that looks like "nothing accepted".
+       */
+      documentTypes: router({
+        read: scopedProcedure('identity:read')
+          .input(kycDocumentTypesInputSchema)
+          .output(kycDocumentTypesSchema)
+          .query(({ input }) => {
+            try {
+              return requireKycProfile().documentTypes(input.country);
+            } catch (err) {
+              throw toTrpcError(err);
+            }
+          }),
+      }),
+
+      /**
+       * Guided verification (I-kyc-compliance-08, J-identity-08 #2): the caller's own draft, saved a step at a time so
+       * it resumes where it was left. No `userId` input on any door. The fields are sealed under the KYC document key;
+       * the ID photo goes to the vault under the owner's caps. `submit` opens the request through `kyc.submit`'s path.
+       */
+      profile: router({
+        read: scopedProcedure('identity:read')
+          .output(kycProfileSchema)
+          .query(async ({ ctx }) => {
+            try {
+              return await requireKycProfile().read(ctx.principal.userId);
+            } catch (err) {
+              throw toTrpcError(err);
+            }
+          }),
+        start: scopedProcedure('identity:write')
+          .input(kycProfileStartInputSchema)
+          .output(kycProfileDraftSchema)
+          .mutation(async ({ ctx, input }) => {
+            try {
+              return await requireKycProfile().start(ctx.principal.userId, input.tier);
+            } catch (err) {
+              throw toTrpcError(err);
+            }
+          }),
+        saveStep: scopedProcedure('identity:write')
+          .input(kycProfileSaveStepInputSchema)
+          .output(kycProfileDraftSchema)
+          .mutation(async ({ ctx, input }) => {
+            try {
+              return await requireKycProfile().saveStep(ctx.principal.userId, input);
+            } catch (err) {
+              throw toTrpcError(err);
+            }
+          }),
+        upload: scopedProcedure('identity:write')
+          .input(kycProfileUploadInputSchema)
+          .output(kycProfileDraftSchema)
+          .mutation(async ({ ctx, input }) => {
+            try {
+              const bytes = Buffer.from(input.bytesBase64, 'base64');
+              // Only the canonical encoding of the decoded bytes, as `kyc.storeDocument` takes it.
+              if (bytes.length === 0 || bytes.toString('base64') !== input.bytesBase64)
+                throw new TRPCError({ code: 'BAD_REQUEST', message: 'bytesBase64 is not valid base64' });
+              return await requireKycProfile().upload(ctx.principal.userId, {
+                version: input.version,
+                contentType: input.contentType,
+                bytes,
+              });
+            } catch (err) {
+              throw toTrpcError(err);
+            }
+          }),
+        submit: scopedProcedure('identity:write')
+          .input(kycProfileSubmitInputSchema)
+          .output(z.object({ recordId: z.string().uuid(), documentCheck: z.literal('not_connected') }))
+          .mutation(async ({ ctx, input }) => {
+            try {
+              return await requireKycProfile().submit(ctx.principal.userId, input.version);
+            } catch (err) {
+              throw toTrpcError(err);
+            }
+          }),
+      }),
 
       /**
        * The caller's standing against the owner's limit on rejected requests (I-kyc-compliance-10): the limit, or null

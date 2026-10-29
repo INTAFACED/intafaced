@@ -29,6 +29,7 @@ export const CAMPAIGN_REFUSAL_CODES = [
   'campaigns.rules_unset',
   'campaigns.time_frame_unset',
   'campaigns.timezone_unset',
+  'campaigns.timezone_not_platform',
   'campaigns.reward_unset',
   'campaigns.approval_required',
   'campaigns.second_person_required',
@@ -235,8 +236,10 @@ export const campaignSchema = z.object({
   rules: z.string(),
   startsAt: iso.nullable(),
   endsAt: iso.nullable(),
-  /** The platform time zone the windows are read in (an owner value); null while blank. */
+  /** The time zone the windows are read in (the platform zone, an owner value); null while it or the campaign's is blank. */
   timeZone: z.string().nullable(),
+  /** True while the builder has left the campaign's own time zone blank (activation refuses `campaigns.timezone_unset`). */
+  timeZoneBlank: z.boolean().default(false),
   windows: campaignWindowsSchema,
   participation: participationRulesSchema.nullable(),
   budget: campaignBudgetSchema.nullable(),
@@ -346,6 +349,11 @@ export const campaignDefinitionInputSchema = z
     reward: z.object({ asset: z.string().max(16), amount: z.unknown() }).nullish(),
     /** Only for a `task` campaign: anything else refuses `campaigns.tasks_invalid`. */
     tasks: campaignTasksSchema.nullish(),
+    /**
+     * The time zone the time frame is typed in. Absent: the platform zone. Null: not picked yet, which refuses activation
+     * `campaigns.timezone_unset`. In this version only the platform zone is accepted (`campaigns.timezone_not_platform`).
+     */
+    timeZone: z.string().max(64).nullish(),
   })
   .strict();
 export type CampaignDefinitionInput = z.infer<typeof campaignDefinitionInputSchema>;

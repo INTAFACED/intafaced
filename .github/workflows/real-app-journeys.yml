@@ -1,8 +1,8 @@
 # Journeys in the running app (apps/customer/tests/real-app): the local test stack built from main, the customer app
-# in Chromium, nothing mocked. Runs after merge (push to main) and on workflow_dispatch, never on pull requests, and is
-# not a required check. Main trust's post-merge job compares its steps run to run (tooling/ci/post-merge-trust.mjs), so a
-# journey that does not pass yet opens no issue; the run goes red and the summary shows the scoreboard from
-# `roadmap.mjs --progress --results`.
+# in Chromium, nothing mocked. Runs after merge (push to main), once a day on main's newest commit, and on
+# workflow_dispatch, never on pull requests, and is not a required check. Main trust's post-merge job compares its
+# steps run to run (tooling/ci/post-merge-trust.mjs), so a journey that does not pass yet opens no issue; the run goes
+# red and the summary shows the scoreboard from `roadmap.mjs --progress --results`.
 #
 # The journeys run in shards, each on its own fresh stack, and one job merges the shards' reports into the scoreboard.
 # (Failure it prevents: one job running every journey hit its 45-minute limit from 23 Oct 02:26 UTC, runs 122, 140 and
@@ -13,6 +13,12 @@ name: Real-app journeys
 
 on:
   workflow_dispatch:
+  # One full run a day on main's newest commit, even on a day nothing merges under the paths below, so a finished run
+  # is never more than about a day old (#6416). It starts about three hours before the 00:00 UTC daily line, so it has
+  # usually finished by then even when it waits behind a push run. On the same commit as the run before it, a step
+  # that flips is a flake, which Main trust's issue then says.
+  schedule:
+    - cron: '43 20 * * *'
   push:
     branches: [main]
     paths:
@@ -123,6 +129,7 @@ jobs:
         run: |
           echo "LOCAL_STACK_STATE=$RUNNER_TEMP/stack-state" >> "$GITHUB_ENV"
           echo "LOCAL_STACK_NATS_BIN=$RUNNER_TEMP/nats-server" >> "$GITHUB_ENV"
+          echo "LOCAL_STACK_ANVIL_BIN=$RUNNER_TEMP/anvil" >> "$GITHUB_ENV"
           echo "JOURNEY_REPORT=$RUNNER_TEMP/journeys/report.json" >> "$GITHUB_ENV"
           echo "JOURNEY_BLOB_DIR=$RUNNER_TEMP/journeys/blob" >> "$GITHUB_ENV"
 
@@ -164,6 +171,19 @@ jobs:
           docker cp nats-src:/usr/local/bin/nats-server "$LOCAL_STACK_NATS_BIN"
           docker rm nats-src
           chmod +x "$LOCAL_STACK_NATS_BIN"
+
+      # The stack's LOCAL TEST chain (tooling/scripts/local-test-chain.mjs): the same pinned foundry image and the same
+      # `docker run <image> "anvil ..."` form .github/actions/test-infra runs its dev chain with, behind a small launcher,
+      # since the stack starts its chain as a process. Host network, so anvil binds the loopback port the stack names.
+      # Dev only and ephemeral: TEST chain id 84532 on loopback, no fork, destroyed with the runner.
+      - name: Get an anvil launcher
+        run: |
+          docker pull ghcr.io/foundry-rs/foundry:v1.5.1
+          cat > "$LOCAL_STACK_ANVIL_BIN" <<'EOF'
+          #!/bin/sh
+          exec docker run --rm --init --network host ghcr.io/foundry-rs/foundry:v1.5.1 "anvil $*"
+          EOF
+          chmod +x "$LOCAL_STACK_ANVIL_BIN"
 
       - name: Install the browser
         run: pnpm exec playwright install --with-deps chromium

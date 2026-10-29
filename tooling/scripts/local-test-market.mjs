@@ -212,7 +212,8 @@ export const TEST_PRICES = {
   // The labelled TEST spot market with no dollar side (`local-test-gates.mjs apply` lists it). Notional is in BTC.
   'ETH/BTC': { start: '0.04', notional: '0.05' },
   // The labelled TEST perpetual (`local-test-gates.mjs futures` lists it). Its mark comes from the BTC/USDT book
-  // (TRADE_FUTURES_INDEX_SPOT_MARKETS), so its quotes walk the same series and stay inside the band around that mark.
+  // (TRADE_FUTURES_INDEX_SPOT_MARKETS), so it is quoted around that book's own mid each cycle (`quoteOrder`) and stays
+  // inside the band and the market-open slippage cap around that mark.
   // Quotes go through the futures book; no crossings by test_taker, whose account carries no futures terms.
   'BTC/USDT:USDT': { start: '65000', notional: '3000', follows: 'BTC/USDT', cross: false },
   'XAU/USD': { start: '2650', notional: '3000' },
@@ -221,6 +222,48 @@ export const TEST_PRICES = {
   'BRENT/USD': { start: '76', notional: '1500' },
   'NATGAS/USD': { start: '2.8', notional: '1500' },
 };
+/**
+ * The markets in quoting order, each with the market it is centred on (exported for tests). A market that follows
+ * another quoted in this run (`follows`, as the TEST perp follows the BTC/USDT book that marks it) comes after it and
+ * is quoted around that book's own mid, read after the leader is requoted (`bookMid`), never around a walk of its
+ * own: `history` advances only the spot walks, hundreds of steps, so a follower walking the same series from its own
+ * step count sat at an unrelated point of it, up to about 1% from the book that marks it (failure it prevents:
+ * J-derivatives-03 #9 on main runs 640 and 641, the reverse's market open found no bid within the 50 bps slippage cap
+ * of the mark and ended `closed_only`, unfilled). A follower whose leader is not quoted in this run, or that follows
+ * itself round a loop, walks on its own (`leader: null`).
+ */
+export function quoteOrder(markets, prices = TEST_PRICES) {
+  const inRun = new Set(markets.map((m) => m.symbol));
+  const followsIn = (m) => {
+    const follows = prices[m.symbol]?.follows;
+    return follows && follows !== m.symbol && inRun.has(follows) ? follows : null;
+  };
+  const out = [];
+  const placed = new Set();
+  // Each market right after the one it follows, so its leader's book is read just after that book was requoted.
+  const visit = (m, leader) => {
+    out.push({ market: m, leader });
+    placed.add(m.symbol);
+    for (const f of markets) if (!placed.has(f.symbol) && followsIn(f) === m.symbol) visit(f, m.symbol);
+  };
+  for (const m of markets) if (!placed.has(m.symbol) && !followsIn(m)) visit(m, null);
+  // What is left follows round a loop: each walks on its own.
+  for (const m of markets) if (!placed.has(m.symbol)) visit(m, null);
+  return out;
+}
+
+/** The mid of a book's best bid and best ask (a public order book answer), scaled; null when either side is empty. */
+export function bookMid(book) {
+  const bid = book?.bids?.[0]?.[0];
+  const ask = book?.asks?.[0]?.[0];
+  if (typeof bid !== 'string' || typeof ask !== 'string') return null;
+  try {
+    return (toScaled(bid) + toScaled(ask)) / 2n;
+  } catch {
+    return null;
+  }
+}
+
 const DEFAULT_SYMBOLS = ['BTC/USDT', 'BTC/USDC', 'ETH/USDT', 'ETH/USDC', 'IFC/USDT', 'ETH/BTC', 'BTC/USDT:USDT'];
 // Funded to this level by `local:fund` (real ledger deposits, LOCAL-TEST- rail refs); the taker gets a tenth.
 const FUND_TO = {
@@ -633,10 +676,22 @@ async function runLoop(opts, home) {
       startScaled: toScaled(cfg.start),
       tickScaled: m.tick,
     });
-    // Steps are saved per market symbol (below), so each market resumes its own count; a follower walks its series.
-    if (saved.seed === opts.seed && saved.steps?.[m.symbol]) walk.advance(saved.steps[m.symbol]);
+    // Steps are saved per market symbol (below), so each market resumes its own count. A follower's own walk is only
+    // its fallback, used when its leader is not quoted in this run: it resumes at its leader's saved step, where that
+    // book last stood, and its own count is never saved.
+    const from = cfg.follows ? saved.steps?.[cfg.follows] : saved.steps?.[m.symbol];
+    if (saved.seed === opts.seed && from) walk.advance(from);
     walks.set(m.symbol, walk);
-    log(`${m.symbol}: TEST PRICE reference ${cfg.start} ${m.quote}, walking from step ${walk.steps} at ${fromScaled(walk.current())}`);
+  }
+  const order = quoteOrder(markets);
+  for (const { market: m, leader } of order) {
+    const cfg = TEST_PRICES[m.symbol];
+    const walk = walks.get(m.symbol);
+    log(
+      leader
+        ? `${m.symbol}: quoted around the ${leader} book's mid each cycle`
+        : `${m.symbol}: TEST PRICE reference ${cfg.start} ${m.quote}, walking from step ${walk.steps} at ${fromScaled(walk.current())}`,
+    );
   }
 
   const runId = crypto.randomBytes(3).toString('hex');
@@ -660,9 +715,19 @@ async function runLoop(opts, home) {
 
   while (!STOP.requested) {
     cycle += 1;
-    for (const m of markets) {
-      const walk = walks.get(m.symbol);
-      const mid = walk.next();
+    /** This cycle's mid per market, so a follower whose leader's book cannot be read uses the leader's walk. */
+    const mids = new Map();
+    for (const { market: m, leader } of order) {
+      let mid;
+      if (leader) {
+        const book = await maker
+          .http('GET', `/api/v1/orderbook/${encodeURIComponent(leader)}?limit=1`, null, { auth: false })
+          .catch(() => null);
+        mid = (book?.status === 200 ? bookMid(book.json) : null) ?? mids.get(leader) ?? walks.get(m.symbol).next();
+      } else {
+        mid = walks.get(m.symbol).next();
+      }
+      mids.set(m.symbol, mid);
       const cfg = TEST_PRICES[m.symbol];
       const ladder = buildLadder({
         mid,
@@ -728,9 +793,8 @@ async function runLoop(opts, home) {
       }
     }
     fs.mkdirSync(p.runDir, { recursive: true, mode: 0o700 });
-    fs.writeFileSync(p.walkFile, JSON.stringify({ seed: opts.seed, steps: Object.fromEntries([...walks].map(([k, w]) => [k, w.steps])) }), {
-      mode: 0o600,
-    });
+    const steps = Object.fromEntries([...walks].filter(([k]) => !TEST_PRICES[k]?.follows).map(([k, w]) => [k, w.steps]));
+    fs.writeFileSync(p.walkFile, JSON.stringify({ seed: opts.seed, steps }), { mode: 0o600 });
     for (let waited = 0; waited < opts.seconds * 1000 && !STOP.requested; waited += 250) await sleep(250);
   }
   EXIT.reason ??= 'stop requested';

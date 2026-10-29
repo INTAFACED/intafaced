@@ -78,12 +78,39 @@ describe('withdrawal quotes (real Postgres)', () => {
         fee_estimate_source = EXCLUDED.fee_estimate_source, fee_estimate_amount = EXCLUDED.fee_estimate_amount`;
   }
 
+  /** The owner's rules for an asset on a network (W-withdraw-02). The default fits every amount these tests quote. */
+  async function rules(o: { minimum?: string; maximum?: string; step?: string; assetId?: string; networkId?: string } = {}) {
+    await db.sql`
+      INSERT INTO pay.withdrawal_network_rules (asset_id, network_id, minimum, maximum, step, tag, set_by)
+      VALUES (${o.assetId ?? 'USDT'}, ${o.networkId ?? 'tron-test'}, ${o.minimum ?? '0.000000000000000001'},
+              ${o.maximum ?? '1000000000'}, ${o.step ?? '0.000000000000000001'}, 'none', ${FOUNDER})
+      ON CONFLICT (asset_id, network_id) DO UPDATE SET minimum = EXCLUDED.minimum, maximum = EXCLUDED.maximum, step = EXCLUDED.step`;
+  }
+
   beforeEach(async () => {
     // Append-only tables refuse DELETE; TRUNCATE is the test reset.
     await db.sql`TRUNCATE pay.withdrawal_quotes, pay.withdrawal_quote_acceptances, pay.withdrawal_quote_policy_events RESTART IDENTITY CASCADE`;
+    await db.sql`TRUNCATE pay.withdrawal_network_rules`;
     clock = T0;
     quotes = new WithdrawalQuoteService({ sql: db.sql, now: () => clock });
     await network('tron-test', { fee: '2.5' });
+    await rules();
+  });
+
+  it('refuses an amount outside the network rules, and a pair with no rules, storing nothing', async () => {
+    await quotes.setPolicy(FOUNDER, { feeMode: 'on_top', ttlSeconds: 300 });
+    await rules({ minimum: '10', maximum: '1000', step: '0.5' });
+    expect(await code(quotes.quote(USER, ask('q1', '9.5')))).toBe('withdrawal_quote.below_minimum');
+    expect(await code(quotes.quote(USER, ask('q2', '1000.5')))).toBe('withdrawal_quote.above_maximum');
+    expect(await code(quotes.quote(USER, ask('q3', '10.25')))).toBe('withdrawal_quote.off_step');
+    expect(await rows('pay.withdrawal_quotes')).toBe('0');
+    // The edges are inside: the minimum, the maximum and a whole number of steps.
+    expect(await quotes.quote(USER, ask('q4', '10'))).toMatchObject({ amount: '10' });
+    expect(await quotes.quote(USER, ask('q5', '1000'))).toMatchObject({ amount: '1000' });
+    expect(await quotes.quote(USER, ask('q6', '10.5'))).toMatchObject({ amount: '10.5' });
+    await db.sql`TRUNCATE pay.withdrawal_network_rules`;
+    await expect(quotes.quote(USER, ask('q7', '10'))).rejects.toMatchObject({ code: 'withdrawal_network_rules.unset' });
+    expect(await rows('pay.withdrawal_quotes')).toBe('3');
   });
 
   const ask = (quoteRef: string, amount = '100', extra: Partial<{ assetId: string; networkId: string }> = {}) => ({

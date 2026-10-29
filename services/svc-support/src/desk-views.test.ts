@@ -216,6 +216,20 @@ describe('saved views (SP-desk-01)', () => {
       message: 'support.filter_invalid',
     });
   });
+
+  it('matches a category and refuses one the desk does not offer (J-support-public-10 #2)', async () => {
+    const d = await desk();
+    const trading = await d.support.createTicket({ userId: CUSTOMER, category: 'trading', subject: 'Order stuck', body: 'Please help' });
+    await d.ticket(CUSTOMER, 'Account question');
+    const queue = await d.lead.listQueue({ limit: 20, filter: { field: 'category', op: 'eq', value: 'trading' } });
+    expect(queue.status === 'ok' && queue.entries.map((row) => row.ticketId)).toEqual([trading.id]);
+    await expect(d.lead.listQueue({ limit: 20, filter: { field: 'category', op: 'eq', value: 'refunds' } })).rejects.toMatchObject({
+      message: 'support.filter_invalid',
+    });
+    await expect(d.lead.listQueue({ limit: 20, filter: { field: 'category', op: 'eq', value: null } })).rejects.toMatchObject({
+      message: 'support.filter_invalid',
+    });
+  });
 });
 
 describe('MemoryViewBook', () => {

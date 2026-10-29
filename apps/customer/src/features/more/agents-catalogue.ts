@@ -34,8 +34,11 @@ export const guardrailSchema = z
         mode: z.enum(['read', 'write']),
         requiresApproval: z.boolean(),
         maxCallsPerSession: z.number().int().nullable(),
+        /** Every refusal the runtime can return for this tool, as codes, in the order it checks them. */
+        refusals: z.array(z.string()),
       }),
     ),
+    capacityMode: z.string().nullable(),
     limits: z.object({
       maxActionsPerSession: z.number().int(),
       maxOutputTokensPerCall: z.number().int(),
@@ -45,6 +48,55 @@ export const guardrailSchema = z
     }),
   })
   .nullable();
+
+export type Guardrail = NonNullable<z.infer<typeof guardrailSchema>>;
+
+/** The stored agent list (svc-agents `agent.catalogue`): disabled agents stay in it with enabled false. */
+export const storedCatalogueSchema = z.array(
+  z.object({
+    agentId: z.string(),
+    name: z.string().nullable(),
+    purpose: z.string().nullable(),
+    enabled: z.boolean(),
+    version: z.number().int(),
+  }),
+);
+export type StoredAgent = z.infer<typeof storedCatalogueSchema>[number];
+
+/**
+ * Whether a person can use an agent now. A session agent follows its stored
+ * row, and one the deployment has not stored cannot open a session. A room
+ * agent is used inside its room; staff and unconnected agents cannot be used.
+ */
+export function agentEnabled(agent: CatalogueAgent, stored: readonly StoredAgent[]): boolean {
+  if (agent.kind === 'session') return stored.some((row) => row.agentId === agent.id && row.enabled);
+  return agent.kind === 'room';
+}
+
+export type CatalogueSort = 'catalogue' | 'name';
+export function sortCatalogue(agents: readonly CatalogueAgent[], sort: CatalogueSort, label: (id: string) => string): CatalogueAgent[] {
+  return sort === 'name' ? [...agents].sort((a, b) => label(a.id).localeCompare(label(b.id))) : [...agents];
+}
+
+/**
+ * The exact cost of each completed engine run of one task this person made with an agent,
+ * from their own action log. Empty means no run history, so no expected range.
+ */
+export function runCosts(rows: readonly ActionRow[], agentId: string, task: string): bigint[] {
+  return rows
+    .filter((row) => row.agentId === agentId && row.task === task && row.kind === 'completion' && row.status === 'executed')
+    .map((row) => parseAmount(row.cost));
+}
+export function costRange(costs: readonly bigint[]): { low: string; high: string } | null {
+  if (!costs.length) return null;
+  let low = costs[0]!,
+    high = costs[0]!;
+  for (const cost of costs) {
+    if (cost < low) low = cost;
+    if (cost > high) high = cost;
+  }
+  return { low: formatAmount(low), high: formatAmount(high) };
+}
 
 export function filterCatalogue(
   agents: readonly CatalogueAgent[],
