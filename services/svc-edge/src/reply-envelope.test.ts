@@ -29,8 +29,9 @@ afterEach(async () => {
 });
 
 /** The edge's hooks in `index.ts` order, with stand-in routes for an edge refusal and a proxied answer. */
-async function edge(options: { clock?: () => number; bodyLimit?: number; rateMax?: number } = {}) {
-  const app = Fastify({ logger: false, bodyLimit: options.bodyLimit ?? 1024, ...REQUEST_ID_OPTIONS });
+async function edge(options: { clock?: () => number; bodyLimit?: number; rateMax?: number; log?: (line: string) => void } = {}) {
+  const logger = options.log ? { level: 'warn', stream: { write: options.log } } : false;
+  const app = Fastify({ logger, bodyLimit: options.bodyLimit ?? 1024, ...REQUEST_ID_OPTIONS });
   apps.push(app);
   registerReplyEnvelope(app, options.clock);
   registerCors(app, allowlist);
@@ -38,6 +39,21 @@ async function edge(options: { clock?: () => number; bodyLimit?: number; rateMax
   await app.register(async (api) => {
     api.addContentTypeParser('application/json', { parseAs: 'buffer' }, (_req, body, done) => done(null, body));
     api.get('/api/edge-refusal', async (_req, reply) => reply.code(503).send({ error: 'Switched off', code: 'edge.module_killed' }));
+    // An uncatalogued code whose `error` is the dotted key itself, as `userCopy` renders it.
+    api.get('/api/uncatalogued', async (_req, reply) => reply.code(503).send({ error: 'edge.module_killed', code: 'edge.module_killed' }));
+    // Codes the edge sends on purpose that are not `edge.*`: never renamed.
+    api.get('/api/frozen', async (_req, reply) => reply.code(403).send({ error: 'x', code: 'account_frozen' }));
+    api.get('/api/csrf', async (_req, reply) => reply.code(403).send({ error: 'x', code: 'auth.csrf_origin_required' }));
+    // Thrown errors: Fastify's error handler serialises them with `statusCode` in the body.
+    api.get('/api/throws-url', async () => {
+      throw Object.assign(new Error('Invalid URL: http://internal-host:4001/secret'), { code: 'ERR_INVALID_URL' });
+    });
+    api.get('/api/throws-token', async () => {
+      throw Object.assign(new Error('jwt signature mismatch for kid k-17'), { code: 'token.invalid', statusCode: 401 });
+    });
+    api.get('/api/throws-edge', async () => {
+      throw Object.assign(new Error('Too many requests. Wait a moment.'), { code: 'edge.rate_limited', statusCode: 429 });
+    });
     api.get('/api/v1/orders-scope', async (_req, reply) => reply.code(403).send(scopeRefuseBody('trade', 'trade:write')));
     api.get('/api/pay/scope', async (_req, reply) => reply.code(403).send(scopeRefuseBody('pay', 'pay:write')));
     api.get('/api/quota', async (_req, reply) => reply.code(429).send(quotaRefuseBody(3)));
@@ -186,11 +202,62 @@ describe('an edge refusal under /api/*: one shape', () => {
     expect(res.json().code).toBe('edge.unsupported_media_type');
   });
 
-  it('Fastify’s own not-found under /api gains an edge code', async () => {
+  it('Fastify’s own not-found under /api gains an edge code and a catalogue sentence, not the route echo', async () => {
     const app = await edge();
     const res = await app.inject({ method: 'GET', url: '/api/not-a-route' });
     expect(res.statusCode).toBe(404);
-    expect(res.json()).toMatchObject({ code: 'edge.request_invalid', requestId: res.headers['x-request-id'] });
+    expect(res.json()).toMatchObject({
+      code: 'edge.request_invalid',
+      message: 'We could not find that.',
+      requestId: res.headers['x-request-id'],
+    });
+    expect(res.body).not.toMatch(/not-a-route/);
+    expect(res.json().statusCode).toBeUndefined();
+  });
+
+  it('a thrown 5xx with a foreign code is edge.internal_error: no statusCode, no internal words, the original only in the log', async () => {
+    const lines: string[] = [];
+    const app = await edge({ log: (line) => lines.push(line) });
+    const res = await app.inject({ method: 'GET', url: '/api/throws-url' });
+    expect(res.statusCode).toBe(500);
+    const body = res.json();
+    expect(body).toMatchObject({
+      code: 'edge.internal_error',
+      message: 'Something went wrong. Try again.',
+      error: 'Something went wrong. Try again.',
+      docs: '/developers/errors#edge.internal_error',
+      requestId: res.headers['x-request-id'],
+    });
+    expect(body.statusCode).toBeUndefined();
+    expect(res.body).not.toMatch(/ERR_INVALID_URL|internal-host|secret/);
+    const logged = lines.map((line) => JSON.parse(line) as { msg: string; original?: { code?: string; message?: string } });
+    const renamed = logged.find((entry) => entry.msg === 'edge: thrown error renamed for the client');
+    expect(renamed?.original).toEqual({ code: 'ERR_INVALID_URL', message: 'Invalid URL: http://internal-host:4001/secret' });
+  });
+
+  it('a thrown 4xx with a foreign code is edge.request_invalid; a thrown edge.* code keeps its code and words', async () => {
+    const app = await edge();
+    const token = await app.inject({ method: 'GET', url: '/api/throws-token' });
+    expect(token.statusCode).toBe(401);
+    expect(token.json()).toMatchObject({ code: 'edge.request_invalid', message: 'You do not have access to this.' });
+    expect(token.json().statusCode).toBeUndefined();
+    expect(token.body).not.toMatch(/token\.invalid|kid k-17/);
+    const edge429 = await app.inject({ method: 'GET', url: '/api/throws-edge' });
+    expect(edge429.json()).toMatchObject({ code: 'edge.rate_limited', message: 'Too many requests. Wait a moment.' });
+    expect(edge429.json().statusCode).toBeUndefined();
+  });
+
+  it('a code the edge sends on purpose is never renamed, even when it is not edge.*', async () => {
+    const app = await edge();
+    expect((await app.inject({ method: 'GET', url: '/api/frozen' })).json().code).toBe('account_frozen');
+    expect((await app.inject({ method: 'GET', url: '/api/csrf' })).json().code).toBe('auth.csrf_origin_required');
+  });
+
+  it('an uncatalogued code gets a human message, never the bare code; its older error field is left as it was', async () => {
+    const app = await edge();
+    const body = (await app.inject({ method: 'GET', url: '/api/uncatalogued' })).json();
+    expect(body.message).toBe('Something went wrong. Try again.');
+    expect(body.error).toBe('edge.module_killed');
   });
 
   it('leaves the operator plane and success bodies alone', async () => {
@@ -279,7 +346,11 @@ describe('index.ts wires the envelope', () => {
     const envelope = src.indexOf('registerReplyEnvelope(app);');
     expect(envelope).toBeGreaterThan(0);
     expect(envelope).toBeLessThan(src.indexOf('registerCors(app, cors);'));
-    expect(src.indexOf('markProxied(req);')).toBeGreaterThan(src.indexOf('const text = await response.text();'));
+    // Marked only as the service's body is sent, after every edge refusal on the way (the checkout-redirect 502).
+    const marked = src.indexOf('markProxied(req);');
+    expect(marked).toBeGreaterThan(src.indexOf("'edge: upstream redirect refused'"));
+    expect(src.indexOf('return sent.send(text);')).toBeGreaterThan(marked);
+    expect(src.slice(marked, src.indexOf('return sent.send(text);')).split('\n').length).toBeLessThanOrEqual(2);
     expect(src).toContain('[REQUEST_ID_HEADER]: String(req.id)');
   });
 });

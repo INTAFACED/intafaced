@@ -12,7 +12,7 @@ import {
   identityErrorCode,
 } from './api-key-refusal.js';
 import { scopeRefuseBody } from './gateway-plane.js';
-import { exchangeApiKeyForAccessToken, exchangeApiKeyOutcome, exchangePrincipal } from './principal-exchange.js';
+import { exchangeApiKeyOutcome, exchangePrincipal } from './principal-exchange.js';
 import { currentAuthorityTestReply } from './test-current-authority.js';
 
 /**
@@ -48,10 +48,30 @@ const identityRefusal = (status: number, intafacedCode?: string, wrapped = false
   return async () => Response.json({ error: wrapped ? { json: error } : error }, { status });
 };
 
-async function opened(json: Record<string, unknown> = {}, authority: { accountStatus?: string } = {}): Promise<typeof fetch> {
+interface AuthorityState {
+  accountStatus?: string;
+  credentialRevoked?: boolean;
+  /** The credential identity knows; a different one than the token's is `auth.credential_denied`. */
+  credentialId?: string;
+  /** Answer the authority read with this denial code directly. */
+  denial?: string;
+}
+
+async function opened(json: Record<string, unknown> = {}, authority: AuthorityState = {}): Promise<typeof fetch> {
   const issued = await issueAccessToken({ userId: USER, sessionId: SESSION, scopes: ['trade:read'], tier: 'basic', mfa: false }, tokens);
   return (async (input, init) => {
-    const reply = currentAuthorityTestReply(input, init, { expectedUserId: USER, expectedCredentialId: SESSION, ...authority });
+    if (authority.denial && String(input).endsWith('/trpc/accountControls.currentAuthority')) {
+      const subject = JSON.parse(String(init?.body)) as unknown;
+      return Response.json({
+        result: { data: { status: 'denied', subject, checkedAt: new Date().toISOString(), code: authority.denial } },
+      });
+    }
+    const reply = currentAuthorityTestReply(input, init, {
+      expectedUserId: USER,
+      expectedCredentialId: authority.credentialId ?? SESSION,
+      ...(authority.accountStatus ? { accountStatus: authority.accountStatus } : {}),
+      ...(authority.credentialRevoked ? { credentialRevoked: true } : {}),
+    });
     if (reply) return reply;
     return Response.json({ result: { data: { json: { accessToken: issued.token, ...json } } } });
   }) as typeof fetch;
@@ -82,19 +102,48 @@ describe('a presented key the edge cannot open: refused here, with its own code'
     expect((await present(viaCause)).apiKeyRefusal).toEqual(ACCOUNT_FROZEN);
   });
 
-  it('every other identity code, no code, and an unreadable 4xx body are the one denied answer', async () => {
+  it('every other verdict code on the key (restrictions, the caller’s request signature, an unknown account) is the one denied answer', async () => {
     for (const code of [
       'auth.domain_not_allowed',
+      'auth.ip_not_allowed',
       'auth.ip_allowlist_required',
+      'auth.product_outside',
+      'auth.account_required',
+      'auth.account_mismatch',
+      'auth.account_denied',
+      'auth.account_revoked',
+      'auth.sub_account_denied',
+      'auth.request_unsigned',
+      'auth.request_stale',
       'auth.request_tampered',
+      'auth.request_replay',
       'auth.not_found',
-      'something.new',
-      undefined,
+      'auth.api_key_denied',
     ]) {
-      expect((await present(identityRefusal(409, code))).apiKeyRefusal, String(code)).toEqual(API_KEY_DENIED);
+      const result = await present(identityRefusal(401, code));
+      expect(result.apiKeyRefusal, code).toEqual(API_KEY_DENIED);
+      expect(result.rejected, code).toBe('invalid');
     }
-    const garbled = async () => new Response('<html>', { status: 400 });
-    expect((await present(garbled)).apiKeyRefusal).toEqual(API_KEY_DENIED);
+  });
+
+  it('a refusal caused by the edge’s own setup is unavailable (503), never "your key is bad"', async () => {
+    const setup: Array<[string, typeof fetch]> = [
+      ['404 for a path', (async () => new Response('Not Found', { status: 404 })) as typeof fetch],
+      ['404 tRPC no such procedure', identityRefusal(404) as typeof fetch],
+      ['400 for a body the edge built (no code)', identityRefusal(400) as typeof fetch],
+      ['400 unparseable', (async () => new Response('<html>', { status: 400 })) as typeof fetch],
+      ['400 product name the edge resolved', identityRefusal(400, 'auth.product_invalid') as typeof fetch],
+      ['400 product widen', identityRefusal(400, 'auth.product_widen') as typeof fetch],
+      ['401 with no verdict code', identityRefusal(401) as typeof fetch],
+      ['401 service-auth code', identityRefusal(401, 'auth.service_unauthenticated') as typeof fetch],
+      ['403 unknown code', identityRefusal(403, 'something.new') as typeof fetch],
+    ];
+    for (const [why, fetch] of setup) {
+      const result = await present(fetch);
+      expect(result.rejected, why).toBe('unavailable');
+      expect(result.apiKeyRefusal, why).toBeUndefined();
+      expect(result.principal, why).toBeNull();
+    }
   });
 
   it('a key opened by identity but refused by the edge’s own checks: frozen status is account_frozen, the rest denied', async () => {
@@ -115,10 +164,44 @@ describe('a presented key the edge cannot open: refused here, with its own code'
     expect(unsigned.apiKeyRefusal).toEqual(API_KEY_DENIED);
   });
 
-  it('a key opened but refused by the current-authority read is denied: the edge names no reason identity did not give', async () => {
-    const result = await present(await opened({}, { accountStatus: 'frozen' }));
-    expect(result.apiKeyRefusal).toEqual(API_KEY_DENIED);
+  it('a key opened but refused by the current-authority read is named from identity’s denial code', async () => {
+    const frozen = await present(await opened({}, { accountStatus: 'frozen' }));
+    expect(frozen.apiKeyRefusal).toEqual(ACCOUNT_FROZEN);
+    expect(frozen.principal).toBeNull();
+    expect((await present(await opened({}, { accountStatus: 'closed' }))).apiKeyRefusal).toEqual(ACCOUNT_FROZEN);
+    expect((await present(await opened({}, { credentialRevoked: true }))).apiKeyRefusal).toEqual(API_KEY_REVOKED);
+    expect((await present(await opened({}, { credentialId: '44444444-4444-4444-8444-444444444444' }))).apiKeyRefusal).toEqual(
+      API_KEY_DENIED,
+    );
+    const expiredCredential = await present(await opened({}, { denial: 'auth.credential_expired' }));
+    expect(expiredCredential.apiKeyRefusal).toEqual(API_KEY_EXPIRED);
+  });
+
+  it('a key-minted token whose ownership read says revoked is edge.api_key_revoked', async () => {
+    const KID = '33333333-3333-4333-8333-333333333333';
+    const issued = await issueAccessToken(
+      { userId: USER, sessionId: KID, apiKeyId: KID, keyEnv: 'live', scopes: ['trade:read'], tier: 'basic', mfa: false },
+      tokens,
+    );
+    const fetch = (async (input, init) => {
+      const authority = currentAuthorityTestReply(input, init, { expectedUserId: USER, expectedCredentialId: KID });
+      if (authority) return authority;
+      if (String(input).endsWith(`/internal/api-keys/${KID}`)) return Response.json({ id: KID, userId: USER, revoked: true });
+      return Response.json({ result: { data: { json: { accessToken: issued.token } } } });
+    }) as typeof globalThis.fetch;
+    const result = await present(fetch);
+    expect(result.apiKeyRefusal).toEqual(API_KEY_REVOKED);
     expect(result.principal).toBeNull();
+  });
+
+  it('a session (not a key) refused by the authority read carries no key refusal', async () => {
+    const issued = await issueAccessToken({ userId: USER, sessionId: SESSION, scopes: ['trade:read'], tier: 'basic', mfa: false }, tokens);
+    const fetch = (async (input, init) =>
+      currentAuthorityTestReply(input, init, { expectedUserId: USER, expectedCredentialId: SESSION, accountStatus: 'frozen' }) ??
+      new Response('x', { status: 500 })) as typeof globalThis.fetch;
+    const result = await exchangePrincipal({ authorization: `Bearer ${issued.token}` }, { ...options, fetch });
+    expect(result.rejected).toBe('invalid');
+    expect(result.apiKeyRefusal).toBeUndefined();
   });
 
   it('an opened key that passes every check is not refused', async () => {
@@ -158,15 +241,14 @@ describe('identity not answering is not a verdict on the key', () => {
     expect(result.apiKeyRefusal).toBeUndefined();
   });
 
-  it('the null-returning exchange keeps its contract; the outcome says which failure', async () => {
-    expect(await exchangeApiKeyForAccessToken(KEY, 'http://identity.test', identityRefusal(503))).toBeNull();
-    expect(await exchangeApiKeyForAccessToken(KEY, 'http://identity.test', identityRefusal(409, 'auth.invalid_credentials'))).toBeNull();
+  it('the exchange outcome: refused only with a verdict code, unavailable otherwise', async () => {
     expect(await exchangeApiKeyOutcome(KEY, 'http://identity.test', identityRefusal(503))).toEqual({ kind: 'unavailable' });
     expect(await exchangeApiKeyOutcome(KEY, 'http://identity.test', identityRefusal(403, 'auth.api_key_revoked'))).toEqual({
       kind: 'refused',
       identityCode: 'auth.api_key_revoked',
     });
-    expect(await exchangeApiKeyOutcome(KEY, 'http://identity.test', identityRefusal(409))).toEqual({ kind: 'refused' });
+    expect(await exchangeApiKeyOutcome(KEY, 'http://identity.test', identityRefusal(409))).toEqual({ kind: 'unavailable' });
+    expect(await exchangeApiKeyOutcome(KEY, 'http://identity.test', identityRefusal(404))).toEqual({ kind: 'unavailable' });
   });
 });
 
@@ -193,7 +275,7 @@ describe('the body and the codes', () => {
         intafacedCode: refusal.intafacedCode,
         docs: `/developers/errors/auth#${refusal.code}`,
       });
-      expect(typeof body.message).toBe('string');
+      expect(body.message).toBe('You do not have access to this.');
       expect(JSON.stringify(body)).not.toContain(KEY);
     }
   });

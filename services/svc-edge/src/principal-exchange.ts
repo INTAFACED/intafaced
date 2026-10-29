@@ -14,8 +14,10 @@ import {
   ACCOUNT_FROZEN,
   API_KEY_DENIED,
   API_KEY_EXPIRED,
+  apiKeyRefusalFromAuthorityCode,
   apiKeyRefusalFromIdentityCode,
   identityErrorCode,
+  isIdentityKeyVerdict,
   type ApiKeyRefusal,
 } from './api-key-refusal.js';
 
@@ -214,49 +216,25 @@ export interface ApiKeyExchanged {
 }
 
 /**
- * The exchange's three outcomes. `unavailable` is identity not answering (network, timeout, 5xx, 408, 429, an
- * unreadable success): not a verdict on the key, so the caller is told to retry. `refused` is identity's
- * verdict, with identity's own code when its answer carried one.
+ * The exchange's three outcomes.
+ *
+ * `refused` is identity's verdict on the key: a refusal carrying one of the verdict codes
+ * (`isIdentityKeyVerdict`). `unavailable` is everything else: identity not answering (network, timeout, 5xx,
+ * 408, 429), an unreadable success, and any refusal without a verdict code — a 404 for a path, a 400 for a body
+ * the edge built, a service-authentication refusal. Those are the edge's own setup failing, not the caller's
+ * key, so the caller is told to retry (503) instead of being told its key is bad.
  */
 export type ApiKeyExchangeOutcome =
   | { readonly kind: 'opened'; readonly exchanged: ApiKeyExchanged }
-  | { readonly kind: 'refused'; readonly identityCode?: string }
+  | { readonly kind: 'refused'; readonly identityCode: string }
   | { readonly kind: 'unavailable' };
 
 /**
- * Call identity's public exchange and return the short-lived JWT.
+ * Call identity's public exchange for the short-lived JWT.
  * Named account uses `exchangeApiKeyForAccount` (bound key must match).
  * Named product uses `exchangeApiKeyForProduct` (bound key must list it).
- * Unbound / missing account+product keeps `apiKeys.exchange`. Returns null on failure
- * (`exchangeApiKeyOutcome` says which failure).
+ * Unbound / missing account+product keeps `apiKeys.exchange`.
  */
-export async function exchangeApiKeyForAccessToken(
-  key: string,
-  identityUrl: string,
-  fetchFn: typeof globalThis.fetch = globalThis.fetch,
-  origin?: string | null,
-  clientIp?: string | null,
-  accountId?: string | null,
-  product?: string | null,
-  requestSign?: RequestSignMaterial,
-  identityOwnershipSecret?: string,
-  s2s?: EdgeS2s,
-): Promise<ApiKeyExchanged | null> {
-  const outcome = await exchangeApiKeyOutcome(
-    key,
-    identityUrl,
-    fetchFn,
-    origin,
-    clientIp,
-    accountId,
-    product,
-    requestSign,
-    identityOwnershipSecret,
-    s2s,
-  );
-  return outcome.kind === 'opened' ? outcome.exchanged : null;
-}
-
 /** Identity did not answer in a way that decides anything about the key. */
 function identityUnavailable(status: number): boolean {
   return status >= 500 || status === 408 || status === 429;
@@ -324,7 +302,7 @@ export async function exchangeApiKeyOutcome(
       refusal = undefined;
     }
     const identityCode = identityErrorCode(refusal);
-    return identityCode === undefined ? { kind: 'refused' } : { kind: 'refused', identityCode };
+    return identityCode !== undefined && isIdentityKeyVerdict(identityCode) ? { kind: 'refused', identityCode } : { kind: 'unavailable' };
   }
 
   let body: unknown;
@@ -475,8 +453,8 @@ export async function exchangePrincipal(
     token = exchanged.accessToken;
   }
 
-  // From here a key has been opened by identity. Anything that still refuses it is the one denied answer:
-  // the edge cannot name a reason identity did not give.
+  // From here a key has been opened by identity. A refusal is named only from identity's own code; without
+  // one it is the one denied answer: the edge cannot name a reason identity did not give.
   const keyRefused = presentedApiKey ? { apiKeyRefusal: API_KEY_DENIED } : {};
 
   let principal: Principal;
@@ -505,7 +483,10 @@ export async function exchangePrincipal(
   // Identity answered "no" -> refuse as before. Identity could not be asked -> say so; the caller
   // answers 503 and keeps the session instead of forwarding anonymous.
   if (read.status === 'unavailable') return { headers: forward, principal: null, rejected: 'unavailable' };
-  if (read.status !== 'eligible') return { headers: forward, principal: null, rejected: 'invalid', ...keyRefused };
+  if (read.status !== 'eligible') {
+    const named = presentedApiKey ? { apiKeyRefusal: apiKeyRefusalFromAuthorityCode(read.code) } : {};
+    return { headers: forward, principal: null, rejected: 'invalid', ...named };
+  }
   const authority = read.proof;
   // Identity's current tier may have changed since this JWT was minted.
   principal = { ...principal, tier: authority.account.kycTier };

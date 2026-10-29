@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
+import { refusalCopy } from './user-copy.js';
 
 /**
  * What every reply from the front door carries (DV-errors-01, RC-developer-03).
@@ -24,10 +25,17 @@ import type { FastifyInstance, FastifyRequest } from 'fastify';
  * THE ERROR BODY — every JSON object error under `/api/*`
  *
  *   · An edge refusal (anything this process answered itself) gets `requestId`
- *     (the header's value), a `docs` link when it has none, a `message` beside
- *     the older `error` string, and an `edge.`-prefixed `code`. Framework
- *     refusals (oversize body, unsupported media type) are renamed into the
- *     `edge.` vocabulary here, so no `FST_*` code reaches a client.
+ *     (the header's value), a `docs` link when it has none, a human `message`
+ *     beside the older `error` string (never a bare code), and an `edge.` code.
+ *   · A THROWN error (Fastify's error-handler shape, with `statusCode` in the
+ *     body) whose code is not already `edge.*` is renamed: oversize body
+ *     `edge.body_too_large`, unsupported media type
+ *     `edge.unsupported_media_type`, anything else `edge.internal_error` (5xx)
+ *     or `edge.request_invalid` (4xx). Its own code and message (an
+ *     `ERR_INVALID_URL`, a `token.invalid`, a stack-ish sentence) go to the log
+ *     only, the body gets a catalogue sentence, and `statusCode` is dropped. A
+ *     code the edge sends on purpose (`account_frozen`, `PermissionDenied`,
+ *     `auth.csrf_origin_required`) is never renamed: it is not thrown.
  *   · A proxied service error gets `requestId` and nothing else. The service
  *     owns its body: its code, its message, its field list. The edge does not
  *     re-word what it did not decide, and it inserts the one field without
@@ -93,26 +101,54 @@ function nestedDocs(body: Record<string, unknown>): string | undefined {
   return typeof docs === 'string' ? docs : undefined;
 }
 
+/** A dotted code standing where a sentence should be (an uncatalogued `userCopy` renders the key itself). */
+const CODE_LIKE = /^[A-Za-z_]+(\.[A-Za-z0-9_]+)+$/;
+
+function sentence(value: unknown): value is string {
+  return typeof value === 'string' && value.trim().length > 0 && !CODE_LIKE.test(value);
+}
+
+/** What a renamed thrown error said, for the log only. */
+export interface RenamedError {
+  readonly code: string | undefined;
+  readonly message: string | undefined;
+}
+
 /** An error body the edge itself answered with: completed into the one shape. Returns the text unchanged when it is not a JSON object. */
-export function completeEdgeErrorBody(text: string, input: { requestId: string; status: number }): string {
+export function completeEdgeErrorBody(
+  text: string,
+  input: { requestId: string; status: number; onRenamed?: (original: RenamedError) => void },
+): string {
   const body = plainObject(text);
   if (!body) return text;
   const rawCode = typeof body.code === 'string' ? body.code : undefined;
+  // Fastify's error handler serialises a thrown error with `statusCode` in the body; a reply the edge
+  // sends on purpose never carries one.
+  const thrown = typeof body.statusCode === 'number';
   let code = rawCode;
-  if (rawCode?.startsWith('FST_')) {
-    code = FRAMEWORK_CODES[rawCode] ?? 'edge.request_invalid';
+  let renamed = false;
+  if (thrown && !rawCode?.startsWith('edge.')) {
+    code =
+      (rawCode !== undefined ? FRAMEWORK_CODES[rawCode] : undefined) ??
+      (input.status >= 500 ? 'edge.internal_error' : 'edge.request_invalid');
+    renamed = true;
   } else if (rawCode === undefined && (body.error === undefined || typeof body.error === 'string')) {
-    // A framework answer with no code at all (Fastify's own 500/404 shape). tRPC-shaped
-    // edge bodies (`error` is an object) keep their dialect and get no top-level code.
+    // No code at all. tRPC-shaped edge bodies (`error` is an object) keep their dialect and get no top-level code.
     code = input.status >= 500 ? 'edge.internal_error' : 'edge.request_invalid';
   }
   const out: Record<string, unknown> = { ...body };
+  if (thrown) delete out.statusCode;
   if (code !== undefined) out.code = code;
-  if (typeof out.message !== 'string' && typeof body.error === 'string') out.message = body.error;
+  if (renamed) {
+    input.onRenamed?.({ code: rawCode, message: typeof body.message === 'string' ? body.message : undefined });
+    // A thrown error's own words may describe our internals; the client gets the catalogue sentence.
+    out.message = refusalCopy(code, input.status);
+    out.error = out.message;
+  } else if (!sentence(out.message)) {
+    out.message = sentence(body.error) ? body.error : refusalCopy(code, input.status);
+  }
   if (typeof out.docs !== 'string') out.docs = nestedDocs(body) ?? docsFor(code);
   out.requestId = input.requestId;
-  // Fastify's framework shape repeats the status in the body; the wire already says it.
-  if (rawCode?.startsWith('FST_')) delete out.statusCode;
   return JSON.stringify(out);
 }
 
@@ -170,7 +206,11 @@ export function registerReplyEnvelope(app: FastifyInstance, clock: () => number 
     if (reply.statusCode >= 400 && typeof payload === 'string' && isApiPath(req.url) && isJson(reply.getHeader('content-type'))) {
       out = marked[PROXIED]
         ? stampProxiedErrorBody(payload, requestId)
-        : completeEdgeErrorBody(payload, { requestId, status: reply.statusCode });
+        : completeEdgeErrorBody(payload, {
+            requestId,
+            status: reply.statusCode,
+            onRenamed: (original) => req.log.warn({ original, status: reply.statusCode }, 'edge: thrown error renamed for the client'),
+          });
     }
     // Last, so the time covers the body work above. Never before received, even if the clock steps back.
     reply.header(SERVER_SENT_HEADER, String(Math.max(clock(), received)));

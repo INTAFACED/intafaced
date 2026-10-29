@@ -495,7 +495,6 @@ await app.register(async (api) => {
           limit: env.EDGE_RATE_LIMIT_MAX,
           resetSeconds,
           bucket: EDGE_API_KEY_RATE_BUCKET,
-          requestId: String(req.id),
         });
       }
       return reply.code(gate.status).send(gate.body);
@@ -550,8 +549,6 @@ await app.register(async (api) => {
         }
 
         const text = await response.text();
-        // From here the body is the service's: the envelope adds `requestId` to an error and changes nothing else.
-        markProxied(req);
         const forwarded: Record<string, string | string[]> = {
           ...forwardUpstreamResponseHeaders(url.pathname, response.headers),
           ...hostedCheckoutHeaders(url.pathname, response.headers),
@@ -569,6 +566,9 @@ await app.register(async (api) => {
         for (const [name, value] of Object.entries(forwarded)) {
           sent = sent.header(name, value);
         }
+        // Only now is the body the service's: the envelope adds `requestId` to an error and changes nothing else.
+        // Every refusal above this line is the edge's own and gets the full edge body.
+        markProxied(req);
         return sent.send(text);
       },
     );

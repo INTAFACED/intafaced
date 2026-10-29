@@ -1,3 +1,4 @@
+import type { AuthorityRefusalCode } from './live-authority.js';
 import { AUTH_ERRORS_DOCS } from './reply-envelope.js';
 import { userCopy } from './user-copy.js';
 
@@ -24,8 +25,21 @@ import { userCopy } from './user-copy.js';
  *     decision, in its own PR.
  *   · `edge.api_key_revoked` / `edge.api_key_expired`: only when identity says
  *     so for this exact key. Saying it to the person holding the key reveals
- *     nothing they could use: the key is dead either way.
- *   · `account_frozen`: identity says the account behind the key is frozen.
+ *     nothing they could use: the key is dead either way. TODAY identity's
+ *     exchange doors do not say so: they look a key up only among live,
+ *     unexpired rows and answer `auth.invalid_credentials` for a revoked or
+ *     expired one (svc-identity `auth-service.ts` `verifyApiKey`), so the
+ *     exchange gives `edge.api_key_denied`. The mapping is in place for the
+ *     day identity names them (pending svc-identity change). What fires now:
+ *     `edge.api_key_expired` from the edge's own expiry check on an opened key,
+ *     and `edge.api_key_revoked` when the current-authority read, after an
+ *     exchange, names the credential revoked.
+ *   · `account_frozen`: identity says the account behind the key is frozen
+ *     (the exchange's `auth.account_frozen`, the opened key's status, or the
+ *     current-authority read's denial). A freeze also revokes the account's
+ *     keys, and identity's exchange checks the key before the account, so a
+ *     frozen account's key reads `edge.api_key_denied` until that order changes
+ *     in svc-identity.
  *     Not `edge.`-prefixed on purpose: the freeze is svc-identity's state, not
  *     a gateway policy, and the catalogue names it the same wherever it comes
  *     from. The edge only reports which state applies; it never invents one.
@@ -49,6 +63,43 @@ export const API_KEY_EXPIRED: ApiKeyRefusal = { status: 401, code: 'edge.api_key
 export const ACCOUNT_FROZEN: ApiKeyRefusal = { status: 403, code: 'account_frozen', intafacedCode: 'auth.account_frozen' };
 
 /**
+ * The codes that are identity's verdict on the presented key: the key itself, the account behind it, or a
+ * restriction on the key (origin, IP, product, account binding, the merchant's request signature). Only these
+ * make a refused exchange a key refusal. Anything else identity refuses with (a 404 for a path, a 400 for a body
+ * the edge built, no code at all) is the edge's own setup failing, and is answered 503, not "your key is bad".
+ *
+ * `auth.request_*` are here on purpose: identity raises them when it checks the caller's own request signature
+ * (`x-intafaced-request-*`, DV-auth-01), so they are a verdict on what the key holder sent, and retrying a
+ * tampered request cannot help. A failed service authentication of the edge itself does not reach these codes:
+ * identity answers it `auth.invalid_credentials` (`assertEdgeSignedRequest`), which no edge can tell apart.
+ */
+const IDENTITY_KEY_VERDICTS: ReadonlySet<string> = new Set([
+  'auth.invalid_credentials',
+  'auth.api_key_denied',
+  'auth.api_key_revoked',
+  'auth.api_key_expired',
+  'auth.account_frozen',
+  'auth.not_found',
+  'auth.domain_not_allowed',
+  'auth.ip_not_allowed',
+  'auth.ip_allowlist_required',
+  'auth.product_outside',
+  'auth.account_required',
+  'auth.account_mismatch',
+  'auth.account_denied',
+  'auth.account_revoked',
+  'auth.sub_account_denied',
+  'auth.request_unsigned',
+  'auth.request_stale',
+  'auth.request_tampered',
+  'auth.request_replay',
+]);
+
+export function isIdentityKeyVerdict(code: string): boolean {
+  return IDENTITY_KEY_VERDICTS.has(code);
+}
+
+/**
  * Identity's own code for a refused exchange → the refusal. Only these three are told apart; every
  * other code, and anything unrecognised, is the one denied answer. Never echoes an upstream string.
  */
@@ -60,6 +111,25 @@ export function apiKeyRefusalFromIdentityCode(code: string | undefined): ApiKeyR
       return API_KEY_EXPIRED;
     case 'auth.account_frozen':
       return ACCOUNT_FROZEN;
+    default:
+      return API_KEY_DENIED;
+  }
+}
+
+/**
+ * The current-authority read's refusal → the refusal, for a key identity had already opened. A frozen or closed
+ * account is `account_frozen`; a revoked credential is `edge.api_key_revoked`; an expired one
+ * `edge.api_key_expired`; anything else (or no code: a refusal of the edge's own) is the one denied answer.
+ */
+export function apiKeyRefusalFromAuthorityCode(code: AuthorityRefusalCode | undefined): ApiKeyRefusal {
+  switch (code) {
+    case 'auth.account_frozen':
+      return ACCOUNT_FROZEN;
+    case 'auth.credential_revoked':
+    case 'auth.api_key_revoked':
+      return API_KEY_REVOKED;
+    case 'auth.credential_expired':
+      return API_KEY_EXPIRED;
     default:
       return API_KEY_DENIED;
   }
