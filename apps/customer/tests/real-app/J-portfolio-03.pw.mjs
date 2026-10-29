@@ -396,6 +396,13 @@ test(`${J} #5 opens Trades: one row per trade with price, total and fee, and par
       return fills.map((fill) => rowMismatch(fill, shown[fill.id])).filter(Boolean);
     })
     .toEqual([]);
+  // One row per fill (the read above keys rows by fill id, so it would hide a repeat), and its fee cell names the
+  // fee's currency or shows none.
+  for (const fill of fills) {
+    const row = table.locator(`tbody tr[data-fill="${fill.id}"]`);
+    await expect(row, `fill ${fill.id}`).toHaveCount(1);
+    await expect(row.locator('td').nth(4)).toContainText(fill.fee === null ? '—' : fill.fee.currency);
+  }
   // The sale's fills sit together under one order row that names the order type.
   const order = table.locator(`tbody tr[data-order="${partial}"]`);
   await expect(order).toHaveCount(1);
