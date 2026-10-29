@@ -39,7 +39,8 @@ test(`${J} #1 opens /developers: sections per audience with an access statement 
   // A section with no page names what it waits for, not only that nothing is published.
   await page.getByRole('link', { name: 'FIX', exact: true }).click();
   await expect(page).toHaveURL(/\/developers\/fix$/);
-  await expect(page.getByRole('main').getByRole('status')).toContainText(/waits for/i);
+  // The blocker is named by its slice id (DV-fix-01), not only "waits".
+  await expect(page.getByRole('main').getByRole('status')).toContainText(/waits for [A-Z]{2}-[a-z]+-\d{2}/i);
 });
 
 test(`${J} #2 opens the base-URL table: one row per protocol, environment and region, an unset host reads "host not set", and the regional rule waits for the owner`, async ({
@@ -90,16 +91,38 @@ test(`${J} #4 reads the REST conventions and the trading API reference index: UR
   await page.goto('/developers/rest');
   await expect(page.getByRole('heading', { name: 'REST conventions', level: 1 })).toBeVisible();
   const body = page.getByRole('main');
-  for (const rule of [/JSON/, /UTC/, /UUID/, /symbol/i, /decimal string/i]) await expect(body).toContainText(rule);
+  for (const rule of [/\/api\/v1\/orders\/:id/, /JSON/, /UTC/, /UUID/, /symbol/i, /decimal string/i])
+    await expect(body).toContainText(rule);
 
   await page.goto('/developers/reference');
   await expect(page.getByRole('heading', { name: 'API reference', level: 1 })).toBeVisible();
-  for (const product of ['Spot', 'Derivatives', 'Funding', 'Accounts']) {
-    await expect(page.getByRole('region', { name: product })).toBeVisible();
+  const product = (tag) => page.getByRole('region', { name: tag[0].toUpperCase() + tag.slice(1), exact: true });
+  // Every route in the published OpenAPI file is listed under its own product (the file's tag), by method and path.
+  const spec = await (await page.request.get('/developers/openapi.json')).json();
+  const routes = Object.entries(spec.paths).flatMap(([path, methods]) =>
+    Object.entries(methods).map(([method, operation]) => ({
+      line: `${method.toUpperCase()} ${path.replace(/\{(\w+)\}/g, ':$1')}`,
+      tag: operation.tags[0],
+    })),
+  );
+  expect(routes.length).toBeGreaterThan(0);
+  for (const { line, tag } of routes) {
+    await expect(product(tag).getByRole('rowheader', { name: line, exact: true }), line).toBeVisible();
   }
-  // The public time endpoint is one of the listed routes, under its method and path.
-  await expect(page.getByRole('main')).toContainText('GET /api/v1/time');
-  await expect(page.getByRole('main')).toContainText(/WebSocket/);
+  // Every stream in the reference's markdown variant is listed under the product its section names.
+  const markdown = await (await page.request.get('/developers/reference.md')).text();
+  const streams = markdown
+    .split(/^## /m)
+    .slice(1)
+    .flatMap((section) => {
+      const tag = section.split('\n')[0].trim().toLowerCase();
+      const table = section.split('| WebSocket stream |')[1] ?? '';
+      return [...table.matchAll(/^\| `([a-z]+)`/gm)].map(([, channel]) => ({ channel, tag }));
+    });
+  expect(streams.length).toBeGreaterThan(0);
+  for (const { channel, tag } of streams) {
+    await expect(product(tag).getByRole('rowheader', { name: channel, exact: true }), channel).toBeVisible();
+  }
 });
 
 test(`${J} #5 downloads the OpenAPI file and a collection, and opens the agent docs index: every route with scope, cost and errors; each page once with a markdown variant`, async ({
@@ -152,8 +175,13 @@ test(`${J} #6 reads which data products I may use and on what terms: redistribut
   }
   const rows = bodyRows(table);
   expect(await rows.count()).toBeGreaterThan(0);
-  // A term the owner has not set reads "not set", never an invented value.
-  for (const cell of await table.getByRole('cell').allInnerTexts()) expect(cell.trim()).not.toBe('');
+  // A term the owner has not set reads "not set", never an invented value or a blank.
+  for (const row of await rows.all()) {
+    const cells = await row.getByRole('cell').allInnerTexts();
+    expect(cells).toHaveLength(3);
+    const unset = (await row.getAttribute('data-terms-state')) === 'unset';
+    for (const cell of cells) expect(cell.trim()).toMatch(unset ? /^not set$/ : /\S/);
+  }
 });
 
 test(`${J} #7 searches the docs for something that does not exist: the empty search state`, async ({ page }) => {

@@ -9,7 +9,7 @@ import { tableIn, bodyRows } from './tables.mjs';
 // step-up (as in J-developer-03) and no keys yet. Sandbox funds are TEST and never reach the live ledger, which the steps
 // check by reading the live balance before and after.
 // Steps that are written but not built yet fail at their first missing part, quickly (UNBUILT):
-// - #1, #6: /developers/quickstart says nothing is published and has no clock check (DV-portal-03, DV-auth-01).
+// - #6: the clock check measures against the edge's fixed signing window, not an owner-set one (DV-auth-01).
 // - #2, #3: no named sandboxes at /developers/sandbox and no sandbox key with an environment rule (DV-sandbox-01).
 // - #4, #5, #8: no sandbox funds, reset cap or test values (DV-sandbox-02). The stack starts with the funding decision
 //   unset; #5 sets a TEST value with `local-test-gates.mjs sandbox-funds set` (proposed, not built).
@@ -64,7 +64,7 @@ test(`${J} #1 follows the trading quickstart: account, key, clock check, first c
   await page.getByRole('link', { name: 'Quickstart', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Quickstart', level: 1 })).toBeVisible();
   const steps = page.getByRole('list', { name: 'Quickstart steps' }).getByRole('listitem');
-  await expect(steps).toHaveCount(4, UNBUILT);
+  await expect(steps).toHaveCount(4);
   for (const [i, step] of ['account', 'key', 'clock', 'first call'].entries()) {
     await expect(steps.nth(i)).toContainText(new RegExp(step, 'i'));
   }
