@@ -6,6 +6,8 @@ import { protocolCopy } from '../copy';
 import { ADDRESS_SHAPE } from '../routes';
 import { BlockedRow } from './BlockedRow';
 import { TabList } from './TabList';
+import { useSession } from '../../session/session';
+import { useAccountTokenWatchlist } from '../watch/account-lists';
 import { tokensCopy, type TokensTranslate } from './copy';
 import { addToWatchlist, readWatchlist, removeFromWatchlist, type WatchlistWrite } from './storage';
 import '../protocol.css';
@@ -23,32 +25,86 @@ function Fact({ label, value, testId }: { label: string; value: ReactNode; testI
   );
 }
 
-function WatchButton({ address, t }: { address: string; t: TokensTranslate }) {
+function WatchToggle({
+  on,
+  note,
+  onAdd,
+  onRemove,
+  t,
+}: {
+  on: boolean;
+  note: ReactNode;
+  onAdd: () => void;
+  onRemove: () => void;
+  t: TokensTranslate;
+}) {
+  return (
+    <div className="tokens-watch">
+      {on ? (
+        <Button variant="secondary" aria-pressed="true" title={t('watchRemove')} onClick={onRemove}>
+          {t('watchOn')}
+        </Button>
+      ) : (
+        <Button variant="secondary" onClick={onAdd}>
+          {t('watchAdd')}
+        </Button>
+      )}
+      {note}
+    </div>
+  );
+}
+
+/** Signed out, the watchlist is kept in this browser. */
+function BrowserWatch({ address, t }: { address: string; t: TokensTranslate }) {
   const [list, setList] = useState<string[] | null>(() => readWatchlist());
   const [notSaved, setNotSaved] = useState(false);
   if (list === null) return <p className="muted">{t('watchUnavailable')}</p>;
-  const on = list.includes(address.toLowerCase());
   const change = (write: WatchlistWrite) => {
     if (write.ok) setList(write.list);
     else if (write.reason === 'blocked') setList(null);
     setNotSaved(!write.ok && write.reason === 'not_saved');
   };
   return (
-    <div className="tokens-watch">
-      {on ? (
-        <Button variant="secondary" aria-pressed="true" title={t('watchRemove')} onClick={() => change(removeFromWatchlist(address))}>
-          {t('watchOn')}
-        </Button>
-      ) : (
-        <Button variant="secondary" onClick={() => change(addToWatchlist(address))}>
-          {t('watchAdd')}
-        </Button>
-      )}
-      <span className="muted" role={notSaved ? 'alert' : undefined}>
-        {notSaved ? t('watchNotSaved') : t('watchNote')}
-      </span>
-    </div>
+    <WatchToggle
+      on={list.includes(address.toLowerCase())}
+      onAdd={() => change(addToWatchlist(address))}
+      onRemove={() => change(removeFromWatchlist(address))}
+      note={
+        <span className="muted" role={notSaved ? 'alert' : undefined}>
+          {notSaved ? t('watchNotSaved') : t('watchNote')}
+        </span>
+      }
+      t={t}
+    />
   );
+}
+
+/** Signed in, the watchlist is the account's own (`protocol.token-watchlist`), so it follows the person to every device. */
+function AccountWatch({ address, t }: { address: string; t: TokensTranslate }) {
+  const { list, change } = useAccountTokenWatchlist();
+  const [notSaved, setNotSaved] = useState(false);
+  if (list.status === 'loading' || list.status === 'signed-out') return null;
+  if (list.status === 'failed') return <p className="muted">{t('watchAccountFailed')}</p>;
+  const key = address.toLowerCase();
+  const write = async (apply: (items: string[]) => string[]) => setNotSaved(!(await change(apply)).ok);
+  return (
+    <WatchToggle
+      on={list.items.includes(key)}
+      onAdd={() => void write((items) => (items.includes(key) ? items : [...items, key]))}
+      onRemove={() => void write((items) => items.filter((entry) => entry !== key))}
+      note={
+        <span className="muted" role={notSaved ? 'alert' : undefined}>
+          {notSaved ? t('watchNotSaved') : t('watchNoteAccount')}
+        </span>
+      }
+      t={t}
+    />
+  );
+}
+
+function WatchButton({ address, t }: { address: string; t: TokensTranslate }) {
+  const { userId } = useSession();
+  return userId ? <AccountWatch address={address} t={t} /> : <BrowserWatch address={address} t={t} />;
 }
 
 function SectionBody({ section, t }: { section: Section; t: TokensTranslate }) {
