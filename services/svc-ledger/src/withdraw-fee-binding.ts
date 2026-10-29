@@ -74,15 +74,8 @@ export async function assertWithdrawFeeBound(ledger: FeeHoldReader, input: WireF
   if (!withdrawalId || input.idempotencyKey !== `withdraw.${step}:${withdrawalId}` || input.meta?.withdrawalId !== withdrawalId) {
     refuse('its key, its meta and the hold it moves do not name one withdrawal');
   }
-  if (input.reason === 'withdraw.held') {
-    // The ledger replays a repeated key by its entries, never its meta, so a retried hold whose fee differs from the posted one
-    // (26.5 held with no fee, then 25 + 1.5) would replay as a success while the book keeps the first meta. Refuse it instead.
-    const posted = await ledger.getTxByKey(input.idempotencyKey);
-    if (posted && posted.reason === 'withdraw.held' && feeOf(posted.meta) !== fee) {
-      refuse('a hold under this key is already posted with another fee');
-    }
-    return;
-  }
+  // A retried hold with another fee or rail than the posted one is refused by the engine's own replay (`replayMetaDiffers`).
+  if (input.reason === 'withdraw.held') return;
   const hold = await ledger.getTxByKey(`withdraw.hold:${withdrawalId}`);
   const heldFee = hold && hold.module === 'ledger' && hold.reason === 'withdraw.held' ? feeOf(hold.meta) : null;
   if (fee !== heldFee) refuse(heldFee === null ? 'its hold carried no fee' : 'it does not carry the fee its hold carried');
