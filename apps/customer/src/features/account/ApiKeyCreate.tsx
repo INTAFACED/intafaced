@@ -35,10 +35,10 @@ function ShownOnce({ made, onDone }: { made: ApiKeyCreateOutput & { key: string 
   const [copied, setCopied] = useState<'yes' | 'failed' | null>(null);
   const [href, setHref] = useState<string | null>(null);
   useEffect(() => {
-    const url = URL.createObjectURL(new Blob([environmentFile(made.key)], { type: 'text/plain' }));
+    const url = URL.createObjectURL(new Blob([environmentFile(made.key, made.signingSecret)], { type: 'text/plain' }));
     setHref(url);
     return () => URL.revokeObjectURL(url);
-  }, [made.key]);
+  }, [made.key, made.signingSecret]);
   return (
     <section data-testid="security__card" className="api-keys__secret security__card" aria-labelledby="api-key-secret">
       <h2 id="api-key-secret">{t('createdTitle')}</h2>
@@ -51,6 +51,15 @@ function ShownOnce({ made, onDone }: { made: ApiKeyCreateOutput & { key: string 
       <output data-testid="api-keys__key" className="api-keys__key" aria-label={t('createdTitle')}>
         <code lang="und">{made.key}</code>
       </output>
+      {made.signingSecret && (
+        <>
+          <h3 id="api-key-signing-secret">{t('signingTitle')}</h3>
+          <p>{t('signingOnce')}</p>
+          <output data-testid="api-keys__signing-secret" className="api-keys__key" aria-labelledby="api-key-signing-secret">
+            <code lang="und">{made.signingSecret}</code>
+          </output>
+        </>
+      )}
       <div className="api-keys__actions">
         <Button
           variant="secondary"

@@ -12,7 +12,7 @@ import { readServerClock } from '../../shared/server-clock';
 import { developersCopy } from './developers-copy';
 import { docsCopy } from './developers-docs-copy';
 import { AUDIENCES, SECTIONS, developersRoute } from './developers-model';
-import { REST_REFERENCE, SIGN_WINDOW_SECONDS, routeLine, withinWindow } from './developers-reference';
+import { REST_REFERENCE, routeLine, withinWindow } from './developers-reference';
 import { createDocsSearch } from './developers-search';
 
 const html = (path: string) =>
@@ -40,7 +40,7 @@ describe('developer portal home', () => {
   });
   it('a section without a page names the slice it waits for', () => {
     expect(text(html('/developers/errors'))).toContain('It waits for DV-errors-01');
-    expect(text(html('/developers/authentication'))).toContain('It waits for DV-auth-01');
+    expect(text(html('/developers/websocket'))).toContain('It waits for DV-websocket-01');
   });
   it('search finds pages by title or route, and finds nothing for an unknown topic', () => {
     const title = (id: string) => developersCopy.forLocale('en').t(`section_${id.replace(/-/g, '_')}` as 'section_rest');
@@ -135,16 +135,18 @@ describe('the clock check', () => {
   it('fails without an offset when the server time cannot be read', async () => {
     expect((await readServerClock(api(null, false))).ok).toBe(false);
   });
+  // A TEST window: the live one is the owner's, read from identity's published policy.
+  const WINDOW = 90;
   it('is within the window up to the signing window, either way, and outside past it', () => {
-    const edge = SIGN_WINDOW_SECONDS * 1000;
-    expect(withinWindow(edge)).toBe(true);
-    expect(withinWindow(-edge)).toBe(true);
-    expect(withinWindow(edge + 1)).toBe(false);
+    const edge = WINDOW * 1000;
+    expect(withinWindow(edge, 0, WINDOW)).toBe(true);
+    expect(withinWindow(-edge, 0, WINDOW)).toBe(true);
+    expect(withinWindow(edge + 1, 0, WINDOW)).toBe(false);
   });
   it('counts half the round trip against the window: a reading near its edge is not called within', () => {
-    const edge = SIGN_WINDOW_SECONDS * 1000;
-    expect(withinWindow(edge - 200, 800)).toBe(false);
-    expect(withinWindow(-(edge - 400), 800)).toBe(true);
+    const edge = WINDOW * 1000;
+    expect(withinWindow(edge - 200, 800, WINDOW)).toBe(false);
+    expect(withinWindow(-(edge - 400), 800, WINDOW)).toBe(true);
   });
 });
 

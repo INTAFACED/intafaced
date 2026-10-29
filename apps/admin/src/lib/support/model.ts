@@ -1,3 +1,4 @@
+import { SUPPORT_SIGNATURE_MAX } from '@intafaced/contracts/support-macros';
 import type { SupportKbAudience } from '@intafaced/contracts';
 import { KB_AUDIENCES } from './audience';
 import type { BulkChange } from './bulk';
@@ -261,6 +262,8 @@ export type SupportActionRequest =
       readonly reason: string;
     }
   | { readonly action: 'kb_unpublish'; readonly id: string; readonly baseRevision: number }
+  /** The agent's own signature, at the revision they read: 0 before their first. */
+  | { readonly action: 'signature_set'; readonly signature: string; readonly expectedRevision: number }
   | { readonly action: 'kb_audience'; readonly id: string; readonly baseRevision: number; readonly audience: SupportKbAudience };
 
 const isText = (v: unknown, max: number): v is string => typeof v === 'string' && v.trim() !== '' && v.length <= max;
@@ -427,6 +430,10 @@ export function readActionRequest(raw: Record<string, unknown>): SupportActionRe
         typeof raw.audience === 'string' &&
         (KB_AUDIENCES as readonly string[]).includes(raw.audience)
         ? { action: 'kb_audience', id: raw.id.trim(), baseRevision: raw.baseRevision, audience: raw.audience as SupportKbAudience }
+        : null;
+    case 'signature_set':
+      return Object.keys(raw).length === 3 && isText(raw.signature, SUPPORT_SIGNATURE_MAX) && isSequence(raw.expectedRevision)
+        ? { action: 'signature_set', signature: raw.signature.trim(), expectedRevision: raw.expectedRevision }
         : null;
     default:
       return null;

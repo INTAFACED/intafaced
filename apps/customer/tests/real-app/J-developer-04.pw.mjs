@@ -4,19 +4,14 @@ import { EDGE, fund, json, journeyState, staffFreeze, tool } from './stack.mjs';
 import { awayBid, signIn, signUp, verify } from './desk.mjs';
 import { PASSKEY_ORIGIN, addPasskey, virtualAuthenticator } from './identity-factors.mjs';
 import { tableIn } from './tables.mjs';
+import { blankSigningWindow, signingPolicy } from './developer.mjs';
 
 // J-developer-04, in the running app (docs/roadmap/journeys.json): sign requests and understand the errors that come
 // back. One test per step, titled "J-developer-04 #<n>". The person is a TEST account on the local stack with a passkey
 // (only such an account may hold a key, as in J-developer-03) and one live trade key made in the browser; every call
 // after that goes from the developer's own program straight to Edge, as a bot's would.
 // Steps that are written but not built yet fail at their first missing part, quickly (UNBUILT):
-// - #1, #2: /developers/authentication publishes no test vector, a trade key gets no signing secret at creation, and the
-//   timestamp window is a constant, not an owner value (DV-auth-01).
-// - #4: errors carry no request id in the body (DV-errors-01, svc-edge).
 // - #5: no catalogue of auth and permission codes at /developers/errors/auth (DV-errors-02).
-// #3 and #6 are built: svc-trade's 400 lists every bad field, and `local-test-gates.mjs posting-freeze on|off` moves
-// the ledger's posting freeze with the founder pair.
-// - #7: replies carry `x-request-id` only on rate-limit refusals, and no received or sent time (RC-developer-03).
 // #6 runs last: it freezes the account.
 const J = 'J-developer-04';
 const RUN = process.env.JOURNEY_RUN_ID ?? 'local';
@@ -52,7 +47,7 @@ const sign = (secret, parts) => createHmac('sha256', secret).update(canonical(pa
 async function call(
   method,
   path,
-  { key, secret, body, timestamp = String(Math.floor(Date.now() / 1000)), nonce = randomUUID(), tamper } = {},
+  { key, secret, body, timestamp = String(Math.floor(Date.now() / 1000)), nonce = randomUUID(), tamper, sendBody } = {},
 ) {
   const raw = body === undefined ? '' : JSON.stringify(body);
   const headers = { ...(key ? { authorization: `Bearer ${key}` } : {}), ...(raw ? { 'content-type': 'application/json' } : {}) };
@@ -61,11 +56,22 @@ async function call(
     headers['x-intafaced-request-nonce'] = nonce;
     headers['x-intafaced-request-signature'] = sign(secret, { method, path, timestamp, nonce, body: raw });
   }
-  const res = await fetch(`${EDGE}${tamper ?? path}`, { method, headers, body: raw || undefined });
+  // `tamper` sends another path and `sendBody` another body than the one signed, as a man in the middle would.
+  const sent = sendBody === undefined ? raw : JSON.stringify(sendBody);
+  const res = await fetch(`${EDGE}${tamper ?? path}`, { method, headers, body: sent || undefined });
   return { ...(await json(res)), headers: res.headers };
 }
 
 const codeOf = (reply) => reply.body?.code ?? reply.body?.error?.code;
+
+/** The account's balance as the trade key reads it, to show a refused call changed and held nothing. */
+async function balance(trade) {
+  const reply = await call('GET', '/api/v1/account/balance', trade);
+  expect(reply.status, JSON.stringify(reply.body)).toBe(200);
+  // The clock fields change on every read; the amounts must not.
+  const { serverTime, timestamp, datetime, ...amounts } = reply.body;
+  return amounts;
+}
 
 test.beforeAll(async ({ browser }) => {
   test.setTimeout(240_000);
@@ -83,43 +89,92 @@ test.afterAll(async () => {
 });
 
 test(`${J} #1 signs the published test vector: the server accepts it, and an altered request is refused as tampered`, async () => {
+  const { trade } = run.read();
+  // A trade key is shown its signing secret once, at creation, beside the key.
+  expect(trade.secret, 'a trade key is shown a signing secret once, at creation').toMatch(/^ifs_[A-Za-z0-9_-]{20,}$/);
+
+  // "signs the published test vector": this program's signer, given the vector's published parts and TEST secret,
+  // makes exactly the canonical string and signature the running service published from its own signer.
+  const { vector } = await signingPolicy();
+  const parts = { method: vector.method, path: vector.path, timestamp: vector.timestamp, nonce: vector.nonce, body: vector.body };
+  expect(canonical(parts)).toBe(vector.canonical);
+  expect(sign(vector.secret, parts)).toBe(vector.signature);
+
+  // "the server accepts it": a live request signed the same way with the key's own secret is answered.
+  const before = await balance(trade);
+
+  // "an altered request is refused as tampered": the body is changed after signing (a bigger order), and the path in
+  // a second call. Each is refused with the one tampered code, and the account reads exactly as before: nothing held.
+  const order = { symbol: 'BTC/USDT', type: 'limit', side: 'buy', amount: '0.001', price: '1', clientOrderId: `jd04-${RUN}-1` };
+  const alteredBody = await call('POST', '/api/v1/orders', { ...trade, body: order, sendBody: { ...order, amount: '1000' } });
+  const alteredPath = await call('GET', '/api/v1/account/balance', { ...trade, tamper: '/api/v1/account/balance?x=1' });
+  for (const altered of [alteredBody, alteredPath]) {
+    expect(altered.status, JSON.stringify(altered.body)).toBe(401);
+    expect(
+      codeOf(altered),
+      `Edge names a tampered request by its own code (svc-edge PR of DV-auth-01): ${JSON.stringify(altered.body)}`,
+    ).toBe('edge.request_tampered');
+  }
+  expect(await balance(trade)).toEqual(before);
+
+  // The same vector is published on the authentication page, field for field.
   await page.goto('/developers/authentication');
   await expect(page.getByRole('heading', { name: 'Authentication', level: 1 })).toBeVisible();
-  const vector = page.getByTestId('developers-sign-vector');
-  await expect(vector).toBeVisible(UNBUILT);
-  const field = async (name) => (await vector.getByTestId(`vector-${name}`).textContent())?.trim() ?? '';
-  const published = {
-    method: await field('method'),
-    path: await field('path'),
-    timestamp: await field('timestamp'),
-    nonce: await field('nonce'),
-    body: await field('body'),
-  };
-  // The vector's signature is what this program computes from the published TEST secret.
-  expect(sign(await field('secret'), published)).toBe(await field('signature'));
-
-  const { trade } = run.read();
-  expect(trade.secret, 'a trade key is shown a signing secret once, at creation').toBeTruthy();
-  const ok = await call('GET', '/api/v1/account/balance', trade);
-  expect(ok.status, JSON.stringify(ok.body)).toBe(200);
-  const tampered = await call('GET', '/api/v1/account/balance', { ...trade, tamper: '/api/v1/account/balance?x=1' });
-  expect(tampered.status).toBe(401);
-  expect(codeOf(tampered)).toMatch(/tampered/);
+  const shown = page.getByTestId('developers-sign-vector');
+  await expect(shown, 'the page shows the vector (portal PR of DV-auth-01)').toBeVisible(UNBUILT);
+  for (const name of ['method', 'path', 'timestamp', 'nonce', 'body', 'secret', 'signature']) {
+    expect((await shown.getByTestId(`vector-${name}`).textContent())?.trim(), name).toBe(vector[name]);
+  }
 });
 
 test(`${J} #2 sends a timestamp just outside the owner window: the stale code; a reused nonce gives the replay code`, async () => {
+  test.setTimeout(240_000);
   const { trade } = run.read();
   expect(trade.secret, 'a trade key is shown a signing secret once, at creation').toBeTruthy();
-  await page.goto('/developers/authentication');
-  // The window is the owner's value, published on the page in seconds.
-  const window = Number((await page.getByTestId('developers-sign-window').textContent(UNBUILT))?.match(/\d+/)?.[0]);
-  expect(window).toBeGreaterThan(0);
-  const stale = await call('GET', '/api/v1/account/balance', { ...trade, timestamp: String(Math.floor(Date.now() / 1000) - window - 5) });
-  expect(codeOf(stale)).toMatch(/stale/);
+  // The window is the owner's value; the stack runs a TEST one (tooling/profiles/test-owner-values/identity.json).
+  const { windowSeconds } = await signingPolicy();
+  expect(windowSeconds).toBe(300);
+  const now = Math.floor(Date.now() / 1000);
+  const before = await balance(trade);
+
+  // Just outside, both ways: older is stale, ahead has its own code. Just inside is still answered.
+  const stale = await call('GET', '/api/v1/account/balance', { ...trade, timestamp: String(now - windowSeconds - 5) });
+  const future = await call('GET', '/api/v1/account/balance', { ...trade, timestamp: String(now + windowSeconds + 5) });
+  expect((await call('GET', '/api/v1/account/balance', { ...trade, timestamp: String(now - windowSeconds + 30) })).status).toBe(200);
+
+  // A nonce used once is refused the second time; the first call was answered.
   const nonce = randomUUID();
   expect((await call('GET', '/api/v1/account/balance', { ...trade, nonce })).status).toBe(200);
   const replay = await call('GET', '/api/v1/account/balance', { ...trade, nonce });
-  expect(codeOf(replay)).toMatch(/replay/);
+
+  for (const [want, reply] of [
+    ['edge.request_stale', stale],
+    ['edge.request_future', future],
+    ['edge.request_replay', replay],
+  ]) {
+    expect(reply.status, JSON.stringify(reply.body)).toBe(401);
+    expect(codeOf(reply), `Edge names it by its own code (svc-edge PR of DV-auth-01): ${JSON.stringify(reply.body)}`).toBe(want);
+  }
+  expect(await balance(trade)).toEqual(before);
+
+  // A blank owner window stays blank: every signed request is refused with the typed code, never a default window.
+  blankSigningWindow(true);
+  try {
+    expect((await signingPolicy()).windowSeconds).toBeNull();
+    const unset = await call('GET', '/api/v1/account/balance', trade);
+    expect(codeOf(unset), `Edge names it by its own code (svc-edge PR of DV-auth-01): ${JSON.stringify(unset.body)}`).toBe(
+      'edge.request_window_unset',
+    );
+  } finally {
+    blankSigningWindow(false);
+  }
+  expect(await balance(trade)).toEqual(before);
+
+  // The page publishes the same window.
+  await page.goto('/developers/authentication');
+  const shown = page.getByTestId('developers-sign-window');
+  await expect(shown, 'the page shows the window (portal PR of DV-auth-01)').toBeVisible(UNBUILT);
+  expect(Number((await shown.textContent())?.match(/\d+/)?.[0])).toBe(windowSeconds);
 });
 
 test(`${J} #3 sends a request with two invalid fields: one typed body listing both, with a request id and a docs link`, async () => {
