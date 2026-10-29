@@ -47,6 +47,9 @@ describe('rounding to the tick', () => {
     expect(formatAt(65102.174999999974, 2)).toBe('65102.18');
     // A value a real distance under the half still rounds down.
     expect(formatAt(64990.0545, 2)).toBe('64990.05');
+    // Large values keep their digits: a volume is never pushed up a unit.
+    expect(formatAt(5000000.123454, 5)).toBe('5000000.12345');
+    expect(formatAt(123456789.123454, 5)).toBe('123456789.12345');
   });
 });
 

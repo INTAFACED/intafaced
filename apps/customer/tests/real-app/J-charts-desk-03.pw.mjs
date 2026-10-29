@@ -92,6 +92,8 @@ function sma(closes, period) {
   const cents = (2n * sum + BigInt(period)) / (2n * BigInt(period));
   return `${cents / 100n}.${String(cents % 100n).padStart(2, '0')}`;
 }
+/** A worked value as the legend writes it at BTC/USDT's 0.01 tick: half away from zero, the tie decided in decimal. */
+const twoDecimals = (value) => (Math.round(Number((value * 100).toPrecision(15))) / 100).toFixed(2);
 /** EMA seeded with the SMA of the first `period` closes, then a = 2 / (period + 1). */
 function ema(closes, period) {
   const a = 2 / (period + 1);
@@ -153,7 +155,7 @@ test('J-charts-desk-03 #3 adds EMA(20), Volume, MACD, Stochastic, Bollinger and 
   expect(rows.length).toBeGreaterThanOrEqual(BAR_LIMIT);
   // The legend reads the last bar. EMA(20) is worked on the closes the chart draws (quiet intervals forward-filled).
   await page.getByRole('checkbox', { name: 'Legend always shown' }).check();
-  await expectWorked(page, 'ema-1', (closes) => ema(closes, 20).toFixed(2));
+  await expectWorked(page, 'ema-1', (closes) => twoDecimals(ema(closes, 20)));
   await expect(legend(page)).not.toContainText('This market has no volume in the loaded bars.');
 });
 
