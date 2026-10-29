@@ -35,8 +35,9 @@ const POSITION_STATE: Record<CopiedPosition['status'], string> = {
   closed: 'Closed',
 };
 
-/** While a copied buy or a close is still on its way, the list is read again this often. */
+/** While a copied buy or a close is still on its way, the list is read again this often, at most this many times. */
 const SETTLING_REREAD_MS = 2_000;
+const SETTLING_REREADS = 30;
 const isZero = (amount: string) => /^0*(\.0*)?$/.test(amount);
 
 /** The follow's copied positions, each with a close of the whole position or of a part (CB-copy-09/10). */
@@ -52,9 +53,18 @@ export function CopiedPositions({ follow, api, guard }: { follow: Follow; api: R
   if (resource.status === 'ready') last.current = resource.data.positions;
   const rows = last.current;
   const settling = resource.status === 'ready' && resource.data.positions.some((p) => p.status === 'buying' || p.status === 'closing');
+  // A close whose outcome stays unknown stops the re-reads after a while; its Close sends the same order again.
+  const rereads = useRef(0);
   useEffect(() => {
-    if (!settling) return;
-    const timer = window.setTimeout(reload, SETTLING_REREAD_MS);
+    if (!settling) {
+      rereads.current = 0;
+      return;
+    }
+    if (rereads.current >= SETTLING_REREADS) return;
+    const timer = window.setTimeout(() => {
+      rereads.current += 1;
+      reload();
+    }, SETTLING_REREAD_MS);
     return () => window.clearTimeout(timer);
   }, [settling, resource, reload]);
 
@@ -62,6 +72,7 @@ export function CopiedPositions({ follow, api, guard }: { follow: Follow; api: R
     setClosing(null);
     setPart(null);
     setTooMuch(false);
+    rereads.current = 0;
     void guard
       .run(
         { kind: 'copy', id: `${follow.followId}:${position.positionId}`, symbol: position.market, operation: qty ? 'close-part' : 'close' },
@@ -90,16 +101,19 @@ export function CopiedPositions({ follow, api, guard }: { follow: Follow; api: R
       value: () => '',
       width: 200,
       cell: (r) => {
-        const off = isZero(r.open) || r.status === 'closing' || guard.busy || guard.locked;
+        const busy = guard.busy || guard.locked;
+        // A close still settling can be sent again: the service resends that same order, never a second sell.
+        const closeOff = busy || (isZero(r.open) && r.status !== 'closing');
+        const partOff = busy || isZero(r.open);
         return (
           <span className="cb-action-row">
-            <Button variant="secondary" size={32} disabled={off} onClick={() => setClosing(r)}>
+            <Button variant="secondary" size={32} disabled={closeOff} onClick={() => setClosing(r)}>
               {t('Close')}
             </Button>
             <Button
               variant="secondary"
               size={32}
-              disabled={off}
+              disabled={partOff}
               onClick={() => {
                 setAmount('');
                 setPart(r);
@@ -135,10 +149,15 @@ export function CopiedPositions({ follow, api, guard }: { follow: Follow; api: R
               <AlertDialogHeader>
                 <AlertDialogTitle>{t('Close this position?')}</AlertDialogTitle>
                 <AlertDialogDescription>
-                  {t('Sells the {amount} still open in {market} at the market price. The follow carries on.', {
-                    amount: displayAmount(closing.open),
-                    market: closing.market,
-                  })}
+                  {isZero(closing.open)
+                    ? t('The close of {amount} in {market} has not settled yet. Closing again sends that same order, never a second one.', {
+                        amount: displayAmount(closing.closing),
+                        market: closing.market,
+                      })
+                    : t('Sells the {amount} still open in {market} at the market price. The follow carries on.', {
+                        amount: displayAmount(closing.open),
+                        market: closing.market,
+                      })}
                 </AlertDialogDescription>
               </AlertDialogHeader>
               <AlertDialogFooter>

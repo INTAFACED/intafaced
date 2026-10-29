@@ -93,7 +93,7 @@ const ACTION_COPY: Record<FollowAction, { button: string; title: string; effect:
     button: 'Stop',
     title: 'Stop this follow?',
     effect:
-      'New trades stop being copied. When the leader closes a trade you copied, your copy is closed too. Nothing else is sold for you, and you can leave the leader at any time.',
+      'New trades stop being copied. While automatic copying is on, when the leader closes a trade you copied, your copy is closed too. Nothing else is sold for you, and you can leave the leader at any time.',
   },
   detach: {
     button: 'Leave leader',
@@ -280,7 +280,11 @@ export function FollowDetail({
               </DialogDescription>
             </DialogHeader>
             {isCloseOnly(follow) ? (
-              <InfoNote tone="warn">{t('Close-only: the leader’s closes still close your copied positions.')}</InfoNote>
+              <InfoNote tone="warn">
+                {copyingSwitch(follow).on
+                  ? t('Close-only: the leader’s closes still close your copied positions.')
+                  : t('Close-only: turn on automatic copying for the leader’s closes to close your copied positions.')}
+              </InfoNote>
             ) : null}
             <h3 className="cb-h3">{t('Your limits')}</h3>
             <KeyValue

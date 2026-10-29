@@ -277,6 +277,26 @@ describe('copy.closePosition on Postgres (CB-copy-10)', () => {
     });
   });
 
+  it('after the close is cancelled unfilled, closing again places the next attempt, once', async () => {
+    const box = harness();
+    const followId = await follow(box.copy);
+    const bought = await filledOrder({ followId, side: 'buy', qty: '0.5', at: '2026-10-24T08:00:01Z' });
+    const key = `copy.close:${followId}:${bought.leaderFillId}`;
+
+    const first = await box.copy.closePosition(principal, { followId, positionId: bought.orderId });
+    await db!.sql`UPDATE trade.orders SET status = 'cancelled' WHERE id = ${first.orderId}`;
+    expect((await box.copy.copiedPositions(principal, { followId })).positions[0]).toMatchObject({ open: '0.5', status: 'open' });
+
+    const second = await box.copy.closePosition(principal, { followId, positionId: bought.orderId });
+    expect(second).toMatchObject({ duplicate: false, qty: '0.5' });
+    expect(second.orderId).not.toBe(first.orderId);
+    expect(box.calls.map((c) => c.clientOrderId)).toEqual([copyCloseClientOrderId(key), copyCloseClientOrderId(`${key}#2`)]);
+
+    const again = await box.copy.closePosition(principal, { followId, positionId: bought.orderId });
+    expect(again).toMatchObject({ orderId: second.orderId, duplicate: true });
+    expect(box.calls).toHaveLength(2);
+  });
+
   it('a flatten after a filled close sells only what is still copied and open', async () => {
     const box = harness();
     const followId = await follow(box.copy);

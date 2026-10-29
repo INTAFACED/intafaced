@@ -165,7 +165,7 @@ export function sqlCopiedPositions(sql: Sql): ReadCopiedPositions {
     const targetedRows = await sql<SellRow[]>`
       SELECT c.leader_fill_id AS key, c.qty::text AS qty, coalesce(o.filled_qty, 0)::text AS filled_qty, o.status::text AS status
         FROM trade.copy_close_orders c
-        LEFT JOIN trade.orders o ON o.id::text = c.follower_order_id AND o.user_id = ${followerId}::uuid
+        LEFT JOIN trade.orders o ON o.id = c.follower_order_id::uuid AND o.user_id = ${followerId}::uuid
        WHERE c.follow_id = ${followId}
     `;
 

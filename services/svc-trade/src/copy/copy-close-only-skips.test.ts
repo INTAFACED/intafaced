@@ -70,8 +70,11 @@ class FakeClosePort implements CopyClosePort {
   readonly records = new Map<string, CopyCloseRecord>();
   readonly placed: CopyClosePlaceInput[] = [];
   readonly resumed: string[] = [];
-  async find(closeKey: string) {
-    return this.records.get(closeKey) ?? null;
+  readonly settled = new Set<string>();
+  async latest(_followId: string, closeKey: string) {
+    const attempts = [...this.records.values()].filter((r) => r.closeKey === closeKey || r.closeKey.startsWith(`${closeKey}#`));
+    const record = attempts.at(-1);
+    return record ? { record, attempts: attempts.length, settled: this.settled.has(record.closeKey) } : null;
   }
   async resume(_: Principal, record: CopyCloseRecord) {
     this.resumed.push(record.closeKey);
@@ -120,14 +123,16 @@ function setup(fills: LeaderFill[], opts: { positions?: CopiedPosition[] | null;
     ...(opts.positions === null ? {} : { copiedPositions: async () => positions }),
     ...(opts.close === null ? {} : { copyClose: opts.close ?? new FakeClosePort() }),
   });
-  const follow = async () => {
+  const follow = async (over: { maxNotionalPerOrder?: string; maxLoss?: string; fixedOrderSize?: string | null } = {}) => {
+    const fixed = over.fixedOrderSize === undefined ? '20' : over.fixedOrderSize;
     const made = await svc.follow(principal, {
       leaderId: LEADER,
       region: 'SG',
       permittedMarkets: ['BTC/USDT'],
-      maxNotionalPerOrder: '100',
+      maxNotionalPerOrder: over.maxNotionalPerOrder ?? '100',
       maxAggregateExposure: '500',
-      fixedOrderSize: '20',
+      ...(fixed === null ? {} : { fixedOrderSize: fixed }),
+      ...(over.maxLoss ? { maxLoss: over.maxLoss } : {}),
       expiresAt: '2026-12-01T00:00:00.000Z',
     });
     await svc.grantSessionKey(principal, { followId: made.followId });
@@ -166,6 +171,22 @@ describe('stop with close-only (CB-copy-09)', () => {
     await ctx.svc.stop(principal, { followId, closeOnly: true });
     expect(await ctx.svc.runMirrorSweep()).toEqual({ placed: 1, refused: 0, failed: 0 });
     expect(ctx.placed.map((p) => [p.side, p.qty])).toEqual([['sell', parseAmount('0.00044')]]);
+  });
+
+  it('a leader close is not held back by the per-order or loss limits, which bound only new opens', async () => {
+    // 45 USDT is above the 10 USDT per-order limit, and the loss on this follow cannot be read: an active follow
+    // refuses this copy; a close-only one still closes what is copied and open.
+    const fills = [fill(SELL, { side: 'sell' })];
+    const active = setup(fills);
+    const a = await active.follow({ maxNotionalPerOrder: '10', maxLoss: '5', fixedOrderSize: null });
+    expect(await active.svc.runMirrorSweep()).toEqual({ placed: 0, refused: 1, failed: 0 });
+    expect((await active.svc.skipLog(principal, { followId: a })).items.map((i) => i.reason)).toEqual(['risk_control']);
+
+    const closing = setup(fills);
+    const c = await closing.follow({ maxNotionalPerOrder: '10', maxLoss: '5', fixedOrderSize: null });
+    await closing.svc.stop(principal, { followId: c, closeOnly: true });
+    expect(await closing.svc.runMirrorSweep()).toEqual({ placed: 1, refused: 0, failed: 0 });
+    expect(closing.placed.map((p) => [p.side, p.qty])).toEqual([['sell', parseAmount('0.0003')]]);
   });
 
   it('skips a leader close with nothing copied open, by its reason, and never sells', async () => {
@@ -276,6 +297,36 @@ describe('closing one copied position (CB-copy-10)', () => {
     expect(again).toMatchObject({ orderId: 'close-1', duplicate: true });
     expect(port.placed).toHaveLength(1);
     expect(port.resumed).toEqual([`copy.close:${followId}:leader-fill-1`]);
+  });
+
+  it('after a close settles without selling everything, a new close runs under the next attempt key', async () => {
+    const port = new FakeClosePort();
+    const ctx = setup([], { close: port });
+    const followId = await ctx.follow();
+    const key = `copy.close:${followId}:leader-fill-1`;
+
+    await ctx.svc.closePosition(principal, { followId, positionId: 'buy-order-1' });
+    // The sell was cancelled unfilled: the position is open again and the key's close is settled.
+    port.settled.add(key);
+    const second = await ctx.svc.closePosition(principal, { followId, positionId: 'buy-order-1' });
+    expect(second).toMatchObject({ orderId: 'close-2', duplicate: false });
+    port.settled.add(`${key}#2`);
+    await ctx.svc.closePosition(principal, { followId, positionId: 'buy-order-1' });
+    expect(port.placed.map((p) => p.closeKey)).toEqual([key, `${key}#2`, `${key}#3`]);
+    expect(port.resumed).toEqual([]);
+  });
+
+  it('a settled close with nothing open left refuses by its typed code and places nothing', async () => {
+    const port = new FakeClosePort();
+    const ctx = setup([], { close: port });
+    const followId = await ctx.follow();
+    await ctx.svc.closePosition(principal, { followId, positionId: 'buy-order-1' });
+    port.settled.add(`copy.close:${followId}:leader-fill-1`);
+    ctx.setPositions([position({ open: 0n, status: 'closed' })]);
+    await expect(ctx.svc.closePosition(principal, { followId, positionId: 'buy-order-1' })).rejects.toMatchObject({
+      code: 'trade.copy_position_closed',
+    });
+    expect(port.placed).toHaveLength(1);
   });
 
   it('closes part by its own key, and refuses more than is open by its typed code with nothing placed', async () => {

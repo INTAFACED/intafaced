@@ -169,7 +169,7 @@ async function netMirroredLongs(sql: Sql, followId: string, followerId: string):
     SELECT m.symbol, m.base_asset, m.quote_asset, f.side, f.qty::text AS qty,
            f.fee_asset, f.fee_amount::text AS fee_amount
       FROM trade.copy_close_orders c
-      INNER JOIN trade.orders o ON o.id::text = c.follower_order_id
+      INNER JOIN trade.orders o ON o.id = c.follower_order_id::uuid
       INNER JOIN trade.fills f ON f.order_id = o.id
       INNER JOIN trade.markets m ON m.id = f.market_id
      WHERE c.follow_id = ${followId}

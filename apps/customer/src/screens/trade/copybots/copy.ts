@@ -76,6 +76,8 @@ const messages = {
   'Close this position?': 'Close this position?',
   'Close-only: the leader’s closes still close your copied positions.':
     'Close-only: the leader’s closes still close your copied positions.',
+  'Close-only: turn on automatic copying for the leader’s closes to close your copied positions.':
+    'Close-only: turn on automatic copying for the leader’s closes to close your copied positions.',
   Closed: 'Closed',
   Closing: 'Closing',
   'Copied orders': 'Copied orders',
@@ -208,8 +210,8 @@ const messages = {
   'New trades are not being copied': 'New trades are not being copied',
   'New trades stop being copied right away. Positions already open stay as they are. You can resume any time.':
     'New trades stop being copied right away. Positions already open stay as they are. You can resume any time.',
-  'New trades stop being copied. When the leader closes a trade you copied, your copy is closed too. Nothing else is sold for you, and you can leave the leader at any time.':
-    'New trades stop being copied. When the leader closes a trade you copied, your copy is closed too. Nothing else is sold for you, and you can leave the leader at any time.',
+  'New trades stop being copied. While automatic copying is on, when the leader closes a trade you copied, your copy is closed too. Nothing else is sold for you, and you can leave the leader at any time.':
+    'New trades stop being copied. While automatic copying is on, when the leader closes a trade you copied, your copy is closed too. Nothing else is sold for you, and you can leave the leader at any time.',
   'New trades will be copied again, within the limits you set.': 'New trades will be copied again, within the limits you set.',
   Newer: 'Newer',
   Next: 'Next',
@@ -405,6 +407,8 @@ const messages = {
   'The bot trades with your real balance on this market. Each slice is an ordinary order.':
     'The bot trades with your real balance on this market. Each slice is an ordinary order.',
   'The bot was created. It is in My bots.': 'The bot was created. It is in My bots.',
+  'The close of {amount} in {market} has not settled yet. Closing again sends that same order, never a second one.':
+    'The close of {amount} in {market} has not settled yet. Closing again sends that same order, never a second one.',
   'The copy was refused': 'The copy was refused',
   'The follow ends. Positions already open become yours to manage. Nothing is sold for you.':
     'The follow ends. Positions already open become yours to manage. Nothing is sold for you.',

@@ -129,7 +129,7 @@ import {
 import type { LeaderEventsPage } from './leader-events.js';
 import type { UpsertLeaderListingInput } from './leader-listing.js';
 import { CopyCloseError } from './copy-close-errors.js';
-import { copyCloseKey, type CopyClosePort } from './copy-close.js';
+import { copyCloseAttemptKey, copyCloseKey, type CopyClosePort } from './copy-close.js';
 import { copiedPositionWire, sellableInMarket, sqlCopiedPositions, type ReadCopiedPositions } from './copied-positions.js';
 import { COPY_SKIP_LOG_LIMIT, asCopySkipReason, copySkipReasonFor, isCopySkipRefusal, recordCopySkip } from './skip-log.js';
 
@@ -817,7 +817,12 @@ export class CopyService {
       now,
     });
     if (followRelationshipState(follow) === 'PAUSED') {
-      await this.skipLeaderFillsWhilePaused(this.store, follow, limit);
+      // Under the follow's lock and on a fresh read, so a resume racing the sweep never has a fill made after it
+      // logged as paused, nor the cursor moved past one it should copy.
+      await this.store.runFollowExclusive(follow.followId, async (store) => {
+        const latest = await store.getFollow(follow.followId);
+        if (latest && followRelationshipState(latest) === 'PAUSED') await this.skipLeaderFillsWhilePaused(store, latest, limit);
+      });
       return;
     }
     const fills = await this.listLeaderFillsSince!(follow.leaderId, follow.copyCursor, limit);
@@ -910,8 +915,9 @@ export class CopyService {
 
   /**
    * Close one copied position, whole or in part (CB-copy-10). Runs once per close key: the same close asked again
-   * returns the order it already placed, or places that same order again when it never reached the book. Stop, pause and
-   * leave never call this.
+   * while its order is live returns that order, or places that same order again when it never reached the book. Once
+   * that order has settled, a close of what is open again runs under the key's next attempt. Stop, pause and leave never
+   * call this.
    */
   async closePosition(principal: Principal, input: { followId: string; positionId: string; qty?: string }) {
     return this.store.runFollowExclusive(requireCopyFollowId(input.followId), async (store) => {
@@ -933,18 +939,20 @@ export class CopyService {
         if (partial <= 0n) throw new CopyCloseError('Close amount must be above zero', 'trade.copy_close_qty_invalid');
       }
 
-      const closeKey = copyCloseKey(follow.followId, position.leaderFillId, partial);
-      const prior = await this.copyClose.find(closeKey);
-      if (prior) {
-        const resumed = await this.copyClose.resume(principal, prior);
+      const baseKey = copyCloseKey(follow.followId, position.leaderFillId, partial);
+      const prior = await this.copyClose.latest(follow.followId, baseKey);
+      if (prior && !prior.settled) {
+        const resumed = await this.copyClose.resume(principal, prior.record);
         return {
           followId: follow.followId,
           positionId: position.orderId,
           orderId: resumed.orderId,
-          qty: formatAmount(prior.qty),
+          qty: formatAmount(prior.record.qty),
           duplicate: true,
         };
       }
+      // The key's last close settled (filled, cancelled, expired or rejected): what is open now is a new close.
+      const closeKey = copyCloseAttemptKey(baseKey, (prior?.attempts ?? 0) + 1);
 
       if (position.open === 0n) throw new CopyCloseError('Nothing is open on this copied position', 'trade.copy_position_closed');
       if (partial !== null && partial > position.open) {
@@ -1244,7 +1252,10 @@ export class CopyService {
     if (!closeOnly) requireNewCopyIntentAllowed(follow);
 
     const gated = { ...follow, envelope: bindEnvelopeLimits(follow.envelope, input.leaderSettings) };
-    if (gated.envelope.maxLoss !== undefined) {
+    // Close-only copies only closes, and a close lowers the loss at risk: the loss limit does not hold it back.
+    if (closeOnly) {
+      // A buy under close-only is refused as new intent once the leader fill's side is read, below.
+    } else if (gated.envelope.maxLoss !== undefined) {
       const sessionLossRaw = input.sessionLoss?.trim();
       if (!sessionLossRaw) {
         throw new CopyError(
@@ -1295,8 +1306,22 @@ export class CopyService {
     // Cap is re-checked inside claimMirrorFill under the follow exclusive lock
     // so a concurrent first-claim cannot overshoot even if this read is stale.
     const market = this.inspectMarket ? await this.inspectMarket(observation.marketId) : null;
+    // A close-only sell is sized against what is copied and open (capCloseOnlySell), not the per-order limit, so the
+    // leader's close of a position built from several copies still closes it. The bound below is the most a plan can
+    // reach: the leader's own notional, or the fixed amount.
+    const planFollow = closeOnly
+      ? {
+          ...gated,
+          envelope: {
+            ...gated.envelope,
+            maxNotionalPerOrder: [gated.envelope.maxNotionalPerOrder, observation.notional, gated.envelope.fixedOrderSize ?? 0n].reduce(
+              (a, b) => (a > b ? a : b),
+            ),
+          },
+        }
+      : gated;
     const sized = planMirror({
-      follow: gated,
+      follow: planFollow,
       observation,
       currentExposure: current,
       now: this.now(),
