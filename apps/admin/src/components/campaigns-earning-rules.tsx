@@ -10,8 +10,7 @@ import type { CampaignDeskReply } from '@/lib/campaigns-ops/builder-model';
  * Each rule names a trigger from the catalogue (an event the platform already publishes), a condition on the event's
  * amount and an incentive formula from the closed grammar. Adding or removing a rule saves the campaign's definition:
  * the draft, or the next revision of a live campaign. svc-campaigns refuses a formula outside the grammar, a trigger
- * outside the catalogue and two rules with one name, each by its code. Rewards from these rules are the next slice: until
- * then nothing is paid from them, and the tab says so.
+ * outside the catalogue and two rules with one name, each by its code, and pays each rule once per event.
  */
 
 const TRIGGERS = Object.entries(EARNING_TRIGGERS) as [EarningTrigger, (typeof EARNING_TRIGGERS)[EarningTrigger]][];
@@ -67,8 +66,9 @@ export function EarningRules({
   return (
     <section aria-label="Earning rules of this campaign" data-testid="campaign-earning">
       <p className="dk-muted">
-        Paying from these rules is not built yet (the next slice: one reward per event, kept once even if the event arrives twice). Until
-        then they are part of the campaign&apos;s definition and its revisions, and nothing is paid from them.
+        While the campaign is live, each event of a rule&apos;s trigger by a customer who joined before it gives one reward, once even if
+        the event arrives twice, paid through the reward saga. A formula that reads the event&apos;s amounts pays only for events in the
+        reward asset. No reward goes past the budget left or the customer&apos;s per person limit; a paused campaign gives none.
       </p>
       {rules.length === 0 ? (
         <p className="dk-muted">No earning rule yet.</p>
