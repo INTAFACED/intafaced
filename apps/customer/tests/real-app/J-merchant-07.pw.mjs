@@ -261,7 +261,9 @@ test(`${J} #2 reads funds moving from clearing to available: funds wait until av
   );
   await expect(balances.getByRole('link', { name: /^Available to pay out/ })).toContainText(shown);
   await expect(balances.getByRole('link', { name: /^Clearing/ })).toContainText(/0\.00\s*USDT/);
-  await expect(page.getByRole('region', { name: 'Still clearing' })).toContainText('Nothing is waiting to clear.');
+  // The Still clearing section now lists nothing: its empty line instead of the held list.
+  await expect(page.getByTestId('mn-held-none')).toHaveText('Nothing is waiting to clear.');
+  await expect(page.getByRole('region', { name: 'Still clearing' })).toHaveCount(0);
 });
 
 test(`${J} #3 reads Pricing and Fees: the tier fee table, a calculator on the live engine; a blank tier fee reads "Not set" and refuses a total; payout "not charged" when so published`, async ({
