@@ -210,8 +210,8 @@ export const SESSION_MFA_SCOPES: readonly Scope[] = ['trade:withdraw', 'admin:tr
 /**
  * Scopes a person's own session may carry and nothing delegated ever does.
  *
- * Unlike `INTERACTIVE_ONLY_SCOPES`, a scope here may be issued by default
- * (that is `SESSION_SCOPES`' call). It is kept off API keys because what it
+ * Unlike `INTERACTIVE_ONLY_SCOPES`, a scope here is issued on every person's
+ * session (`SESSION_SCOPES`). It is kept off API keys because what it
  * authorises spends the person's own money at the person's own instruction:
  * `agents:execute` runs a metered agent (OWNER 107, 29 Oct 2026: "Every
  * signed-in person may run agents from their own session, never from API keys
@@ -294,6 +294,14 @@ const SESSION_SCOPE_LIST = [
   // ambassadors and operators running rooms, not anyone with a login.
   'academy:write',
   'agents:read',
+  // Owner decision 29 Oct 2026 (OWNER 107, "Everyone, bounded"): every
+  // signed-in person may run agents from their own session. It spends their
+  // money, so it is bounded where it is spent: svc-agents refuses a run before
+  // the engine when its worst case passes the agent's stored cap, the person's
+  // own limits or their available balance, and refuses every run whose rate is
+  // unpublished (blank in production until the owner sets it). Never on an API
+  // key or a sub-account token (`PERSON_ONLY_SCOPES`).
+  'agents:execute',
   // Non-custodial, `minTier: 'none'`. §22 makes this the easy case: the
   // platform never holds a Blueprint, so there is nothing to verify anyone
   // against. `:write` runs an onboarding session or ERASES a Blueprint — both
@@ -492,12 +500,6 @@ export const WITHHELD_FROM_SESSION: Readonly<Record<Exclude<Scope, SessionScope>
   // funded card, so it needs a 2FA session and must never sit on a long-lived
   // key. `bank:read` and `bank:write` are issued; this one is not.
   'bank:card': 'Card spend authority — interactive-only step-up surface (§9, §18)',
-
-  // Running an agent spends real money: svc-agents meters model cost and
-  // settles it against the user's balance. The owner decided issuance (OWNER 107);
-  // it stays withheld until svc-agents bounds every run, in the PR that issues it.
-  'agents:execute':
-    'Metered spend. Owner decision 29 Oct 2026 (OWNER 107): every person may run agents from their own session; issued by the PR in which svc-agents bounds each run (agent cap, own limits, balance, published rate). Never on a key (PERSON_ONLY_SCOPES).',
 
   // No service exists yet (§12 Phase 5). A scope for a router that cannot be
   // called is noise in every token in the platform; these get issued by the PR
