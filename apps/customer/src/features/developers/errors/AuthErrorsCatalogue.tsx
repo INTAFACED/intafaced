@@ -3,7 +3,8 @@ import { authErrorsCopy, causeKey, fixKey } from './auth-errors-copy';
 
 /**
  * The authentication and permission catalogue (DV-errors-02): one row per refusal, drawn from the contracts list that
- * svc-edge's tests hold to what the edge sends. Each row is anchored where the edge's `docs` link points.
+ * svc-edge's tests hold to what the edge sends. Each row has its entry's anchor, which is where the edge's key and
+ * signature refusals point their `docs` link.
  */
 export function AuthErrorsCatalogue() {
   const { t } = authErrorsCopy.useCopy();

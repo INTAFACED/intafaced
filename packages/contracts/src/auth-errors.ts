@@ -8,9 +8,10 @@
  * entry the edge answers is one it sends. The one entry the edge does not answer is the missing key: the edge forwards
  * a call with no key, and the trading service answers it in its CCXT dialect.
  *
- * `anchor` is the fragment of the entry on the page. The edge links a refusal to `/developers/errors/auth#<code>`, so
- * an entry whose code is its own is anchored by it; the two `PermissionDenied` entries share a code and are anchored by
- * their `intafacedCode`.
+ * `anchor` is the fragment of the entry on the page. The edge's key and signature refusals link to
+ * `/developers/errors/auth#<code>`, so an entry whose code is its own is anchored by it. The two `PermissionDenied`
+ * entries share a code and are anchored by their `intafacedCode`; their replies link elsewhere (the scope refusal to
+ * the permission table) or carry the envelope's default link, and the trading service's missing-key reply carries none.
  */
 
 export const AUTH_ERRORS_PATH = '/developers/errors/auth' as const;
