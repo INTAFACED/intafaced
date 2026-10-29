@@ -88,6 +88,7 @@ const en = {
   code_spend_cap_exceeded: 'This run’s worst case is above one of your limits for this agent, so it did not start. Nothing was charged.',
   code_spend_above_agent_cap: 'That is above the agent’s own cap of {cap} {asset}. Enter a lower value, or raise the agent’s cap on Build.',
   code_funds_insufficient: 'Your available balance is below this run’s worst case, so it did not start.',
+  code_funds_unread: 'Your balance could not be read just now, so this run did not start. Nothing was charged; try again shortly.',
   code_price_unset: 'This run has no published rate, so it does not run. Nothing runs free.',
   code_spend_limit: 'This run would pass one of your spending limits, so it did not start. Check your limits before running again.',
   code_spend_per_call_above_session: 'The cap per call cannot be above the cap per session. Enter a lower cap per call.',
@@ -242,6 +243,8 @@ const es = {
   code_spend_above_agent_cap:
     'Eso supera el límite propio del agente de {cap} {asset}. Pon un valor menor o sube el límite del agente en Construir.',
   code_funds_insufficient: 'Tu saldo disponible es menor que el peor caso de esta ejecución, así que no empezó.',
+  code_funds_unread:
+    'No se pudo leer tu saldo en este momento, así que esta ejecución no empezó. No se cobró nada; inténtalo de nuevo en breve.',
   code_price_unset: 'Esta ejecución no tiene tarifa publicada, así que no se ejecuta. Nada se ejecuta gratis.',
   code_spend_limit:
     'Esta ejecución superaría uno de tus límites de gasto, así que no empezó. Revisa tus límites antes de volver a ejecutar.',
@@ -397,6 +400,8 @@ const fr = {
   code_spend_above_agent_cap:
     'C’est au-dessus du plafond propre de l’agent, {cap} {asset}. Saisissez une valeur plus basse, ou relevez le plafond de l’agent dans Construire.',
   code_funds_insufficient: 'Votre solde disponible est inférieur au pire cas de cette exécution ; elle n’a pas commencé.',
+  code_funds_unread:
+    'Votre solde n’a pas pu être lu pour l’instant ; cette exécution n’a pas commencé. Rien n’a été facturé ; réessayez dans un instant.',
   code_price_unset: 'Cette exécution n’a pas de tarif publié ; elle ne s’exécute pas. Rien ne tourne gratuitement.',
   code_spend_limit:
     'Cette exécution dépasserait l’une de vos limites de dépense, elle n’a donc pas démarré. Vérifiez vos limites avant de relancer.',

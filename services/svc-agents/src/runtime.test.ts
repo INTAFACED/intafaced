@@ -1,9 +1,10 @@
-import { readFileSync, readdirSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import postgres from 'postgres';
 import { assertTestDatabase, postgresAvailable } from '@intafaced/db';
-import { describe, expect, it, beforeAll, beforeEach, afterEach, afterAll } from 'vitest';
+import { describe, expect, it, vi, beforeAll, beforeEach, afterEach, afterAll } from 'vitest';
 import type { Principal } from '@intafaced/auth';
 import { createEdgeContext, encodePrincipal, signPrincipalHeader } from '@intafaced/contracts';
 import { MemoryEventBus } from '@intafaced/events';
@@ -2134,6 +2135,30 @@ if (!available) {
       expect(gate.calls()).toBe(1);
     });
 
+    it('with a spend gate, a balance that cannot be read refuses as unread before the hold and the engine, and bills 0', async () => {
+      const gate = counting(gateway);
+      const rt = new AgentRuntime(sql, gate.gateway, meter, bus, {
+        feeAssetId: 'IFC',
+        meteringEnabled: true,
+        spend: new UserSpendStore(sql),
+        funds: {
+          available: async () => {
+            throw new Error('ledger down');
+          },
+        },
+      });
+      await rt.registerAgent({ ...PROBE, agentId: 'unread-gate', limits: { ...PROBE.limits, maxSpendPerSession: '1' } });
+      const session = await rt.openSession({ userId: USER_A, agentId: 'unread-gate' });
+      const err = await rt.think({ sessionId: session.id, requestId: 'unread-gate-1', task: 'plan', messages: MESSAGES }).catch((e) => e);
+      expect(refusalCode(err)).toBe('agents.funds_unread');
+      expect(gate.calls()).toBe(0);
+      expect(await sql`SELECT 1 FROM agents.spend_reservations WHERE session_id = ${session.id}`).toHaveLength(0);
+      expect(await sql`SELECT 1 FROM agents.usage_records WHERE session_id = ${session.id}`).toHaveLength(0);
+      const log = await rt.sessionLog(session.id, 50);
+      expect(log.at(-1)).toMatchObject({ status: 'refused', refusalCode: 'agents.funds_unread' });
+      expect(await balanceOf(USER_A)).toBe('1000');
+    });
+
     it('refuses when the balance cannot be read: an unknown balance is not a covered one', async () => {
       const gate = counting(gateway);
       const rt = new AgentRuntime(sql, gate.gateway, meter, bus, {
@@ -2147,7 +2172,7 @@ if (!available) {
       });
       const session = await rt.openSession({ userId: USER_A, agentId: 'probe' });
       const err = await rt.think({ sessionId: session.id, requestId: 'unread', task: 'plan', messages: MESSAGES }).catch((e) => e);
-      expect(refusalCode(err)).toBe('agents.funds_insufficient');
+      expect(refusalCode(err)).toBe('agents.funds_unread');
       expect(gate.calls()).toBe(0);
     });
 
@@ -2345,6 +2370,65 @@ if (!available) {
 
       await expect(router.createCaller(as(USER_B)).session.detail({ sessionId: session.id })).rejects.toMatchObject({ code: 'NOT_FOUND' });
     });
+
+    it('session.detail lists a run as running while the engine has not answered, then completed; a replay is still one run', async () => {
+      const SECRET = 'an-agents-session-detail-runs-secret';
+      const edge = createEdgeContext({ secret: SECRET, serviceName: 'svc-agents' });
+      const raw = encodePrincipal({
+        sub: USER_A,
+        userId: USER_A,
+        sid: '44444444-4444-4444-8444-444444444445',
+        scopes: ['agents:read', 'agents:execute'],
+        tier: 'none',
+        mfa: false,
+        expiresAt: new Date(Date.now() + 60_000),
+      } as Principal);
+      const ctx = edge({
+        headers: {
+          'x-intafaced-principal': raw,
+          'x-intafaced-principal-sig': signPrincipalHeader(raw, SECRET, 'DE'),
+          'x-intafaced-region': 'DE',
+        },
+        id: 'req-detail-runs',
+      });
+      const dir = mkdtempSync(join(tmpdir(), 'agents-hold-'));
+      const hold = join(dir, 'engine.hold');
+      const held = new MockModelProvider({ id: 'primary', holdFile: hold });
+      const heldRuntime = new AgentRuntime(sql, new ModelGateway([held], TABLE), meter, bus, { feeAssetId: 'IFC', meteringEnabled: true });
+      const person = createAgentsRouter({ runtime: heldRuntime, gateway, meter, feeAssetId: 'IFC', sql }).createCaller(ctx);
+      const session = await person.session.open({ agentId: 'probe' });
+      try {
+        writeFileSync(hold, 'held');
+        let failed: unknown = null;
+        const running = person.run.complete({ sessionId: session.id, requestId: 'detail-runs-1', task: 'plan', messages: MESSAGES });
+        running.catch((err: unknown) => (failed = err));
+        await vi.waitFor(
+          () => {
+            expect(failed).toBeNull();
+            expect(existsSync(`${hold}.held`)).toBe(true);
+          },
+          { timeout: 5_000 },
+        );
+        // The engine is parked at its door and has not answered: the run is already on record, and nothing is used yet.
+        expect(held.callCount).toBe(1);
+        const during = await person.session.detail({ sessionId: session.id });
+        expect(during.runs).toEqual([{ requestId: 'detail-runs-1', startedAt: expect.any(String), state: 'running' }]);
+        expect(await meter.hasRequest(session.id, 'detail-runs-1')).toBe(false);
+        rmSync(hold);
+        await running;
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+      const after = await person.session.detail({ sessionId: session.id });
+      expect(after.runs).toEqual([{ requestId: 'detail-runs-1', startedAt: expect.any(String), state: 'completed' }]);
+      await expect(
+        person.run.complete({ sessionId: session.id, requestId: 'detail-runs-1', task: 'plan', messages: MESSAGES }),
+      ).rejects.toMatchObject({
+        code: 'BAD_REQUEST',
+      });
+      expect((await person.session.detail({ sessionId: session.id })).runs).toEqual(after.runs);
+      expect(held.callCount).toBe(1);
+    }, 20_000);
 
     it('session.select keeps the selected session for the person on any device; another person’s session is not found and changes nothing', async () => {
       const SECRET = 'an-agents-selected-session-secret';

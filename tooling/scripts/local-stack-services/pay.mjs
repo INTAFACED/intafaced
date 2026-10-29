@@ -44,7 +44,9 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS }) => ({
     PAY_KYB_MALWARE_SCANNER: 'local-test-eicar',
     // LOCAL-TEST screener for custodial sends (W9): answers clear, recorded as provider local-test, so J-wallet-07 #3-#5 can
     // walk an internal withdrawal. No supplier is connected anywhere else; svc-pay refuses it outside APP_ENV dev or test.
-    PAY_SCREENING_SCREENER: 'local-test',
+    // `LOCAL_STACK_PAY_SCREENER=off` on a start or restart leaves it blank, so the blank-list refusal can be seen too
+    // (J-wallet-05 #2).
+    ...(process.env.LOCAL_STACK_PAY_SCREENER === 'off' ? {} : { PAY_SCREENING_SCREENER: 'local-test' }),
     // LOCAL-TEST value (tooling/profiles/test-owner-values/pay.json): the largest product image, 500 KB.
     PAY_PRODUCT_IMAGE_MAX_BYTES: '500000',
     // LOCAL-TEST value (tooling/profiles/test-owner-values/pay.json): the largest hosted checkout logo, 100 KB.
@@ -61,5 +63,10 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS }) => ({
     // Withdrawal limits per KYC tier are enforced (D-148). The figures are LOCAL-TEST ones set by local-test-gates.mjs through
     // founderAdmin.limits.change (TEST_WITHDRAWAL_LIMITS), and a founder's override for one customer comes from identity.
     PAY_WITHDRAWAL_LIMITS: 'required',
+    // LOCAL-TEST: a TEST custody signer for TEST Ethereum only (J-wallet-05 #6), so a send out to a saved TEST wallet goes
+    // through this stack's crypto-native rail, which is the in-memory MemoryChain: no chain, no key, nothing leaves. TEST Base
+    // has none, so a send there is refused before anything is held (J-wallet-05 #7). svc-pay refuses this outside APP_ENV dev
+    // or test; no live signer exists anywhere.
+    PAY_TEST_WITHDRAW_SIGNER_NETWORKS: 'ethereum',
   }),
 });

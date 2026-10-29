@@ -1,4 +1,6 @@
+import { spawn } from 'node:child_process';
 import { readFileSync } from 'node:fs';
+import net from 'node:net';
 import path from 'node:path';
 import { test, expect } from '@playwright/test';
 import { ROOT, api, journeyState, tool } from './stack.mjs';
@@ -8,12 +10,10 @@ import { bodyRows, tableIn } from './tables.mjs';
 // J-more-catalogue-05, in the running app (docs/roadmap/journeys.json): point a miner at the pool. One test per step,
 // titled "J-more-catalogue-05 #<n>". The person is a verified TEST account on the local stack (the pool serves the
 // basic tier and up); no money moves. The miner is the
-// stack's TEST share submitter, which speaks to the pool's own share door as a rig would.
-// Steps that are written but not built yet fail at their first missing part, quickly (UNBUILT), and stay red by name:
-// - #7: no solo mode or proof-of-work refusal.
+// stack's TEST share submitter, which speaks to the pool's own share door as a rig would, with a nonce found by the
+// pool's own reference proof-of-work check against the TEST testnet parameters (never the token's live proof of work).
 const J = 'J-more-catalogue-05';
 const run = journeyState(`${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
-const UNBUILT = { timeout: 5_000 };
 // The values the stack's pool is started with: the labelled LOCAL TEST owner values, read from their own file.
 const PUBLISHED = Object.fromEntries(
   Object.entries(JSON.parse(readFileSync(path.join(ROOT, 'tooling/profiles/test-owner-values/mining-pool.json'), 'utf8')).values).map(
@@ -22,34 +22,94 @@ const PUBLISHED = Object.fromEntries(
 );
 
 /**
- * The pool restarted with nothing published (LOCAL_STACK_MINING_POOL_PUBLISHED=off), or back on its TEST values. "Off" is
- * written to its own state file before the restart, so a run cancelled while blank is put back by the next run's first
- * hook, and cleared only once the pool is published again.
+ * The pool restarted with stack-only flags (LOCAL_STACK_MINING_POOL_PUBLISHED=off for nothing published,
+ * LOCAL_STACK_MINING_POOL_POW=off for blank proof-of-work parameters, LOCAL_STACK_MINING_POOL_PROBE_TARGET for a local
+ * listener the test starts), or back on its TEST values with none. "Changed" is written to its own state file before the
+ * restart, so a run cancelled mid-step is put back by the next run's first hook, and cleared only once the pool is back.
  */
-const blank = journeyState(`${J}-blank`);
-function poolPublished(on) {
-  const before = process.env.LOCAL_STACK_MINING_POOL_PUBLISHED;
-  if (on) delete process.env.LOCAL_STACK_MINING_POOL_PUBLISHED;
-  else process.env.LOCAL_STACK_MINING_POOL_PUBLISHED = 'off';
-  if (!on) blank.write({ off: true });
+const POOL_FLAGS = ['LOCAL_STACK_MINING_POOL_PUBLISHED', 'LOCAL_STACK_MINING_POOL_POW', 'LOCAL_STACK_MINING_POOL_PROBE_TARGET'];
+const changed = journeyState(`${J}-blank`);
+function restartPool(flags = {}) {
+  const before = Object.fromEntries(POOL_FLAGS.map((key) => [key, process.env[key]]));
+  const plain = Object.keys(flags).length === 0;
+  for (const key of POOL_FLAGS) delete process.env[key];
+  Object.assign(process.env, flags);
+  if (!plain) changed.write({ off: true });
   try {
     tool('local-test-stack.mjs', 'restart', 'mining-pool');
-    if (on) blank.reset({});
+    if (plain) changed.reset({});
   } finally {
-    if (before === undefined) delete process.env.LOCAL_STACK_MINING_POOL_PUBLISHED;
-    else process.env.LOCAL_STACK_MINING_POOL_PUBLISHED = before;
+    for (const [key, value] of Object.entries(before)) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
   }
 }
+const poolPublished = (on) => restartPool(on ? {} : { LOCAL_STACK_MINING_POOL_PUBLISHED: 'off' });
 const putPoolBack = () => {
-  if (blank.read().off) poolPublished(true);
+  if (changed.read().off) restartPool();
 };
-// A step that fails or times out never reaches its own end, so the hooks publish the pool again before the next step.
+// A step that fails or times out never reaches its own end, so the hooks put the pool back before the next step.
 test.beforeAll(putPoolBack);
 test.afterEach(putPoolBack);
 
+/**
+ * A local address that takes no connection: a child process listens with a backlog of one and then blocks its only
+ * thread, so it never accepts; filler connections fill the kernel's queue, and the next connection's handshake is never
+ * answered. Checked here before use: a connect of our own must time out, not connect and not be refused.
+ */
+async function silentListener() {
+  const child = spawn(
+    process.execPath,
+    [
+      '-e',
+      `const s = require('node:net').createServer();
+       s.listen({ host: '127.0.0.1', port: 0, backlog: 1 }, () => {
+         process.stdout.write(s.address().port + '\\n');
+         setTimeout(() => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0), 50);
+       });`,
+    ],
+    { stdio: ['ignore', 'pipe', 'inherit'] },
+  );
+  const port = await new Promise((resolve, reject) => {
+    child.stdout.once('data', (chunk) => resolve(Number(String(chunk).trim())));
+    child.once('exit', (code) => reject(new Error(`silent listener exited ${code}`)));
+  });
+  await new Promise((resolve) => setTimeout(resolve, 200));
+  const fillers = Array.from({ length: 8 }, () => net.connect({ host: '127.0.0.1', port }).on('error', () => {}));
+  await new Promise((resolve) => setTimeout(resolve, 300));
+  const close = () => {
+    for (const socket of fillers) socket.destroy();
+    child.kill('SIGKILL');
+  };
+  const own = await new Promise((resolve) => {
+    const socket = net.connect({ host: '127.0.0.1', port });
+    socket.setTimeout(500);
+    const done = (kind) => {
+      socket.destroy();
+      resolve(kind);
+    };
+    socket.once('connect', () => done('connected'));
+    socket.once('timeout', () => done('timed out'));
+    socket.once('error', (err) => done(err.code));
+  });
+  if (own !== 'timed out') close();
+  expect(own, 'the silent listener takes no connection').toBe('timed out');
+  return { port, close };
+}
+
+/** A local port nothing listens on: bound by the system, then released, so a connect to it is refused. */
+async function closedPort() {
+  const server = net.createServer();
+  await new Promise((resolve) => server.listen({ host: '127.0.0.1', port: 0 }, resolve));
+  const { port } = server.address();
+  await new Promise((resolve) => server.close(resolve));
+  return port;
+}
+
 test.describe.configure({ mode: 'default' });
 
-/** The roster row whose name cell is exactly `name`, and its cells: name, weight, minimum difficulty, added. */
+/** The roster row whose name cell is exactly `name`, and its cells: name, mode, weight, minimum difficulty, added. */
 const workerRow = (table, name) => table.getByRole('row').filter({ has: table.page().getByRole('cell', { name, exact: true }) });
 const cellsOf = (row) => row.getByRole('cell');
 
@@ -133,29 +193,57 @@ test(`${J} #2 copies the pool address, the account id and the worker name: each 
 test(`${J} #3 presses the reachability test on an unreachable host: "Timed out" with a label, never a success; past the owner limit a typed limit refusal`, async ({
   page,
 }) => {
-  // The stack's TEST host is a documentation address that never answers, and the TEST wait is 1000 ms.
+  test.setTimeout(180_000);
+  // The TEST wait is 1000 ms and the TEST limit 3 presses; the press limit is counted in the pool's own process, and each
+  // restart below starts it at no press used.
   expect(PUBLISHED.MINING_PROBE_TIMEOUT_MS).toBe('1000');
-  // The press limit is counted in the pool's own process, so a fresh start makes "no press used yet" true.
-  tool('local-test-stack.mjs', 'restart', 'mining-pool');
-  await openMining(page);
+  const limit = Number(PUBLISHED.MINING_PROBE_LIMIT);
+  expect(limit).toBe(3);
   const check = page.getByRole('button', { name: 'Test the connection' });
   const result = page.getByTestId('mining-reachability');
-  const limit = Number(PUBLISHED.MINING_PROBE_LIMIT);
-  for (let press = 1; press <= limit; press += 1) {
+  const pressed = async () => {
     await check.click();
     await expect(check).toBeEnabled({ timeout: 30_000 });
+  };
+
+  // An address that never answers the handshake: "Timed out" with the measured wait, never a success.
+  const silent = await silentListener();
+  try {
+    restartPool({ LOCAL_STACK_MINING_POOL_PROBE_TARGET: `127.0.0.1:${silent.port}` });
+    await openMining(page);
+    await expect(result).toHaveAttribute('data-result', 'none');
+    await pressed();
     await expect(result).toHaveAttribute('data-result', 'timed_out');
     await expect(result).toHaveText(/^Timed out after \d+ ms: the pool address did not answer$/);
     // The measured wait is the round trip, at least the published 1000 ms.
     expect(Number((await result.textContent()).match(/after (\d+) ms/)[1])).toBeGreaterThanOrEqual(1000);
     await expect(page.getByText('Tested from the pool’s own network, not from your rig.')).toBeVisible();
     await expect(page.getByRole('alert')).toHaveCount(0);
+    await expect(page.getByText(/^Reached in/)).toHaveCount(0);
+  } finally {
+    silent.close();
   }
-  // One press past the owner limit: the typed limit refusal, and the last result stays a time-out, never a success.
-  await check.click();
-  await expect(page.getByRole('alert')).toHaveAttribute('data-code', 'mining.probe_limit_reached');
-  await expect(result).toHaveAttribute('data-result', 'timed_out');
-  await expect(page.getByText(/^Reached in/)).toHaveCount(0);
+
+  // A port nothing listens on: "Not reached", a different label from a time-out, and never a success; then one press
+  // past the owner limit is the typed limit refusal and the last result stays as it was.
+  try {
+    restartPool({ LOCAL_STACK_MINING_POOL_PROBE_TARGET: `127.0.0.1:${await closedPort()}` });
+    await page.reload();
+    await expect(result).toHaveAttribute('data-result', 'none');
+    for (let press = 1; press <= limit; press += 1) {
+      await pressed();
+      await expect(result).toHaveAttribute('data-result', 'refused');
+      await expect(result).toHaveText('Not reached: the pool address did not accept the connection');
+      await expect(page.getByRole('alert')).toHaveCount(0);
+    }
+    await check.click();
+    await expect(page.getByRole('alert')).toHaveAttribute('data-code', 'mining.probe_limit_reached');
+    await expect(result).toHaveAttribute('data-result', 'refused');
+    await expect(result).toHaveText('Not reached: the pool address did not accept the connection');
+    await expect(page.getByText(/^Reached in/)).toHaveCount(0);
+  } finally {
+    restartPool();
+  }
 });
 
 test(`${J} #4 opens /mining/status: the pool status and reachability`, async ({ page }) => {
@@ -190,8 +278,8 @@ test(`${J} #5 connects the rig Rig-A and submits a first accepted share: one wor
   await expect(bodyRows(workers)).toHaveCount(2);
   await expect(workerRow(workers, 'Rig-A')).toHaveCount(1);
   await expect(workerRow(workers, 'default')).toHaveCount(1);
-  await expect(cellsOf(workerRow(workers, 'Rig-A')).nth(1)).toHaveText('1');
-  await expect(cellsOf(workerRow(workers, 'default')).nth(1)).toHaveText('1');
+  await expect(cellsOf(workerRow(workers, 'Rig-A')).nth(2)).toHaveText('1');
+  await expect(cellsOf(workerRow(workers, 'default')).nth(2)).toHaveText('1');
 });
 
 test(`${J} #6 opens /mining/workers and sets a minimum difficulty: the list with filters and paging; difficulty set or automatic; a blank default says so`, async ({
@@ -224,7 +312,7 @@ test(`${J} #6 opens /mining/workers and sets a minimum difficulty: the list with
   await page.getByRole('searchbox', { name: 'Filter workers' }).fill('rig-a');
   await expect(bodyRows(workers)).toHaveCount(1);
   const rigA = cellsOf(workerRow(workers, 'Rig-A'));
-  await expect(rigA.nth(2)).toHaveText('Automatic');
+  await expect(rigA.nth(3)).toHaveText('Automatic');
   // The stack publishes no default difficulty, and the room says so instead of showing a number.
   await expect(page.getByTestId('mining-default-difficulty')).toHaveText('The pool has no published default difficulty.');
 
@@ -232,22 +320,132 @@ test(`${J} #6 opens /mining/workers and sets a minimum difficulty: the list with
   await page.getByRole('textbox', { name: 'Minimum difficulty' }).fill('1024');
   await page.getByRole('button', { name: 'Save', exact: true }).click();
   await expect(page.getByRole('status').filter({ hasText: 'Minimum difficulty' })).toHaveText('Minimum difficulty 1024 saved for Rig-A');
-  await expect(rigA.nth(2)).toHaveText('1024');
+  await expect(rigA.nth(3)).toHaveText('1024');
   // Read back from the pool after a fresh load: the saved minimum stays.
   await page.reload();
   await page.getByRole('searchbox', { name: 'Filter workers' }).fill('rig-a');
   await expect(bodyRows(workers)).toHaveCount(1);
-  await expect(rigA.nth(2)).toHaveText('1024');
+  await expect(rigA.nth(3)).toHaveText('1024');
   await page.getByRole('button', { name: 'Use automatic' }).click();
   await expect(page.getByRole('status').filter({ hasText: 'Rig-A' })).toHaveText('Automatic difficulty saved for Rig-A');
-  await expect(rigA.nth(2)).toHaveText('Automatic');
+  await expect(rigA.nth(3)).toHaveText('Automatic');
 });
+
+/** This account's pooled weight in the stack's one open window, as the rewards room shows it ("Your weight"). */
+async function pooledWeight(page) {
+  await page.goto('/mining/rewards');
+  const open = tableIn(page, 'Open windows');
+  await expect(bodyRows(open)).toHaveCount(1);
+  return (await cellsOf(bodyRows(open).first()).nth(1).textContent()).trim();
+}
+
+const share = (...args) => tool('local-test-stack.mjs', 'mining-share', run.read().who.email, ...args);
 
 test(`${J} #7 starts solo mining, or submits a share that fails validation: solo alongside pooled; an invalid share is refused by the proof-of-work check and a testnet flag is labelled`, async ({
   page,
 }) => {
-  await openMining(page);
-  await page.getByRole('radio', { name: 'Solo' }).check(UNBUILT);
-  await expect(page.getByRole('radio', { name: 'Pooled' })).toBeVisible();
-  await expect(page.getByText(/Testnet/)).toBeVisible();
+  test.setTimeout(180_000);
+  // Share ids are global to the pool; each attempt of this step labels its own.
+  const tag = `${run.read().tag}-${Date.now().toString(36)}`;
+  // A valid share: the submitter finds a nonce that meets the TEST target for this window, account and rig, and sends no
+  // weight; the pool accepts it. Rig-A then has a share in the open window.
+  expect(share('--worker', 'Rig-A', '--share', `jmc05-${tag}-pow-valid`)).toMatch(
+    /^accepted TEST share LOCAL-TEST-jmc05-\S+-pow-valid for miner \S+, worker Rig-A, TEST testnet proof of work, valid nonce [0-9a-f]+ /,
+  );
+  await signIn(page, run.read().who);
+  const before = await pooledWeight(page);
+
+  await page.goto('/mining/workers');
+  const workers = tableIn(page, 'Your workers');
+  await expect(page.getByRole('heading', { name: 'Pooled or solo', level: 2 })).toBeVisible();
+  const setMode = async (rig, mode) => {
+    await page.getByRole('textbox', { name: 'Rig name', exact: true }).fill(rig);
+    await page.getByRole('group', { name: 'Mode for this rig' }).getByRole('radio', { name: mode, exact: true }).check();
+    await page.getByRole('button', { name: 'Save mode' }).click();
+  };
+  // The testnet flag is labelled: the pool's own published TEST parameters, read back exactly.
+  const pow = page.getByTestId('mining-pow');
+  await expect(pow).toHaveAttribute('data-testnet', 'true');
+  await expect(pow).toHaveText(
+    `TEST testnet proof of work: ${PUBLISHED.MINING_POW_DIMENSION}×${PUBLISHED.MINING_POW_DIMENSION} matrix multiplication, at least ${PUBLISHED.MINING_POW_TARGET_BITS} leading zero bits. Testnet shares earn no credit.`,
+  );
+  expect(PUBLISHED.MINING_POW_TESTNET).toBe('true');
+  await expect(
+    page.getByText('This is the pool’s reference check of each share. It is not the token’s live proof of work, and it is not audited.'),
+  ).toBeVisible();
+
+  // Solo alongside pooled: Rig-S is saved solo and read back from the pool; Rig-A stays pooled.
+  await setMode('Rig-S', 'Solo');
+  await expect(page.getByTestId('mining-mode-status')).toHaveText('Solo saved for Rig-S');
+  await page.reload();
+  const filter = page.getByRole('searchbox', { name: 'Filter workers' });
+  await filter.fill('rig-s');
+  await expect(bodyRows(workers)).toHaveCount(1);
+  await expect(cellsOf(workerRow(workers, 'Rig-S')).nth(1)).toHaveText('Solo');
+  await filter.fill('rig-a');
+  await expect(bodyRows(workers)).toHaveCount(1);
+  await expect(cellsOf(workerRow(workers, 'Rig-A')).nth(1)).toHaveText('Pooled');
+  const rigAWeight = (await cellsOf(workerRow(workers, 'Rig-A')).nth(2).textContent()).trim();
+
+  // Rig-A has a share in the open window, so a mode change is refused by its code and the stored mode stays pooled.
+  await setMode('Rig-A', 'Solo');
+  const refused = page.getByTestId('mining-mode-refused');
+  await expect(refused).toHaveAttribute('data-code', 'mining.mode_change_in_window');
+  await expect(refused).toHaveText('Mode not changed: this rig has shares in a window that is still open.');
+  await page.reload();
+  await page.getByRole('searchbox', { name: 'Filter workers' }).fill('rig-a');
+  await expect(bodyRows(workers)).toHaveCount(1);
+  await expect(cellsOf(workerRow(workers, 'Rig-A')).nth(1)).toHaveText('Pooled');
+
+  // A solo share is stored on Rig-S and stays out of the pooled split: this account's pooled weight does not move.
+  expect(share('--worker', 'Rig-S', '--share', `jmc05-${tag}-solo`)).toContain('accepted TEST share');
+  expect(await pooledWeight(page)).toBe(before);
+  await page.goto('/mining/workers');
+  await page.getByRole('searchbox', { name: 'Filter workers' }).fill('rig-s');
+  await expect(bodyRows(workers)).toHaveCount(1);
+  await expect(cellsOf(workerRow(workers, 'Rig-S')).nth(2)).toHaveText('1');
+
+  // An invalid share (a nonce whose work misses the target) is refused by the proof-of-work check by its code, and no
+  // weight moves anywhere.
+  expect(share('--worker', 'Rig-A', '--share', `jmc05-${tag}-pow-invalid`, '--invalid-pow')).toMatch(
+    /^refused mining\.pow_invalid: TEST share LOCAL-TEST-jmc05-\S+-pow-invalid \(TEST testnet proof of work, invalid nonce [0-9a-f]+\); nothing was kept/,
+  );
+  expect(await pooledWeight(page)).toBe(before);
+  await page.goto('/mining/workers');
+  await page.getByRole('searchbox', { name: 'Filter workers' }).fill('rig-a');
+  await expect(bodyRows(workers)).toHaveCount(1);
+  await expect(cellsOf(workerRow(workers, 'Rig-A')).nth(2)).toHaveText(rigAWeight);
+
+  // A second valid pooled share does move the pooled weight, by exactly its one unit, so the two checks above are not
+  // reading a weight that never moves.
+  expect(share('--worker', 'Rig-A', '--share', `jmc05-${tag}-pow-valid-2`)).toContain('accepted TEST share');
+  expect(BigInt(await pooledWeight(page))).toBe(BigInt(before) + 1n);
+
+  // Solo credit is the service's own typed refusal.
+  await page.goto('/mining/workers');
+  const solo = page.getByTestId('mining-solo-credit');
+  await expect(solo).toHaveAttribute('data-code', 'mining.emission_unpublished');
+  await expect(solo).toHaveText('Solo credit is refused: the pool has no published reward source.');
+});
+
+test(`${J} #7 with no published proof-of-work parameters: the room says so by its code and the pool refuses work it cannot check`, async ({
+  page,
+}) => {
+  // Share ids are global to the pool; each attempt of this step labels its own.
+  const tag = `${run.read().tag}-${Date.now().toString(36)}`;
+  try {
+    restartPool({ LOCAL_STACK_MINING_POOL_POW: 'off' });
+    await openMining(page, '/mining/workers');
+    const unset = page.getByTestId('mining-pow-unset');
+    await expect(unset).toHaveAttribute('data-code', 'mining.pow_spec_unset');
+    await expect(unset).toHaveText('The pool has no published proof-of-work parameters, so it checks no work.');
+    await expect(page.getByTestId('mining-pow')).toHaveCount(0);
+    await expect(page.getByText(/testnet/i)).toHaveCount(0);
+    expect(share('--worker', 'Rig-A', '--share', `jmc05-${tag}-pow-blank`)).toMatch(/^refused mining\.pow_spec_unset: /);
+  } finally {
+    restartPool();
+  }
+  // Published again: the TEST testnet label is back.
+  await page.reload();
+  await expect(page.getByTestId('mining-pow')).toHaveAttribute('data-testnet', 'true');
 });

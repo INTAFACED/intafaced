@@ -553,7 +553,7 @@ export class AgentRuntime {
           session,
           {
             allowed: false,
-            code: 'agents.funds_insufficient',
+            code: available === null ? 'agents.funds_unread' : 'agents.funds_insufficient',
             userMessageKey: 'agents.refused.funds_insufficient',
             userMessageParams: { worstCase: formatAmount(worstCaseCost), asset: this.feeAssetId },
           },
@@ -674,12 +674,12 @@ export class AgentRuntime {
             { kind: 'completion', task: input.task },
           );
         }
-        if (err instanceof AgentError && err.code === 'agents.funds_insufficient') {
+        if (err instanceof AgentError && (err.code === 'agents.funds_insufficient' || err.code === 'agents.funds_unread')) {
           throw await this.appendRefusal(
             session,
             {
               allowed: false,
-              code: 'agents.funds_insufficient',
+              code: err.code,
               userMessageKey: err.userMessageKey,
               userMessageParams: err.userMessageParams,
             },

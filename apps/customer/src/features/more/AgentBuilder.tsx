@@ -44,6 +44,7 @@ const CODE_WORDS = {
   'agents.spend.cap_unset': 'code_spend_cap_unset',
   'agents.spend.cap_exceeded': 'code_spend_cap_exceeded',
   'agents.funds_insufficient': 'code_funds_insufficient',
+  'agents.funds_unread': 'code_funds_unread',
   'agents.price_unset': 'code_price_unset',
   'agents.spend_limit': 'code_spend_limit',
   'agents.request_id_replay': 'code_request_id_replay',

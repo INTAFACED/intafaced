@@ -26,6 +26,9 @@ export const EDGE = 'http://127.0.0.1:14500';
 export const ORIGIN = 'http://127.0.0.1:3210';
 // The stack's own rule for its state folder (LOCAL_STACK_STATE, else per user, else /var/lib as root).
 const STATE = localStackState();
+
+/** A file in the running stack's own state folder (for example the stand-in engine's hold file). */
+export const stackFile = (name) => path.join(STATE, name);
 const RUN = process.env.JOURNEY_RUN_DIR ?? '/tmp/intafaced-real-app';
 
 /** One file per journey run, so a later step (a new worker after a failure) finds the account an earlier step made. */

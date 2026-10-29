@@ -1,3 +1,4 @@
+import path from 'node:path';
 import { loadProfile } from '../owner-settings.mjs';
 
 /** One labelled TEST value from this service's profile file; a missing one names the file instead of a bare TypeError. */
@@ -7,7 +8,7 @@ function testValue(name) {
   return entry.value;
 }
 
-export default ({ c, secrets, dbUrl, urlOf, PORTS }) => ({
+export default ({ c, secrets, dbUrl, urlOf, PORTS, STATE }) => ({
   name: 'agents',
   env: () => ({
     ...c('svc-agents', PORTS.agents),
@@ -28,5 +29,8 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS }) => ({
     // The service's deterministic stand-in engine, which /ready and every route report as "sandbox": no model
     // provider is connected on a test stack and no real inference runs.
     AGENTS_PROVIDER: 'mock',
+    // While this file exists the stand-in engine parks each completion before it answers, so a journey can read the
+    // service's own record of a run the engine has not answered yet (J-agents-01 #5). Absent, it answers at once.
+    AGENTS_MOCK_HOLD_FILE: path.join(STATE, 'agents-engine.hold'),
   }),
 });
