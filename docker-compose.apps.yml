@@ -2141,6 +2141,37 @@ services:
     ports: ['3100:3100']
     healthcheck: *healthcheck
 
+  # The tester profile's seed (HM-desks-03, J-home-ia-11). OFF BY DEFAULT: it starts only under `--profile tester`, runs
+  # once (restart 'no') and exits. Its entrypoint refuses unless APP_ENV is exactly dev or test (exit 2, nothing seeded),
+  # then runs, in this order: the founder seed (init, then enrol through svc-identity's own doors) and the TEST content
+  # seed (apply, then status, which prints what it made: Home's TEST deposit, TEST notice and inbox row, and the Earn,
+  # Loans and P2P rows). Each script keeps its own guards: the founder seed enrols only through a loopback edge, so this
+  # service shares the host's network and reaches svc-edge on its published :4000; the TEST content seed refuses unless a
+  # local test stack marker with a loopback database is in LOCAL_STACK_STATE (`pnpm local:stack` writes one; a plain
+  # compose up does not, so there it refuses by name rather than seeding a database it cannot prove is local).
+  seed:
+    <<: *app
+    container_name: intafaced-seed
+    profiles: ['tester']
+    restart: 'no'
+    network_mode: host
+    command:
+      [
+        'node',
+        'tooling/scripts/local-tester-seed.mjs',
+        'local-founder-seed.mjs init',
+        'local-founder-seed.mjs enrol',
+        'local-test-seed.mjs apply',
+        'local-test-seed.mjs status',
+      ]
+    environment:
+      # Not production: the seed scripts refuse NODE_ENV=production. APP_ENV has no default (#4610).
+      NODE_ENV: development
+      APP_ENV: ${APP_ENV:?APP_ENV must be set to dev, test, staging or prod}
+      LOCAL_STACK_STATE: ${LOCAL_STACK_STATE:-/var/lib/intafaced/local-test-stack}
+    volumes:
+      - ${LOCAL_STACK_STATE:-/var/lib/intafaced/local-test-stack}:${LOCAL_STACK_STATE:-/var/lib/intafaced/local-test-stack}
+
 volumes:
   matchingjournal:
   execution-ems-journal:

@@ -6,6 +6,7 @@ import { test, expect } from '@playwright/test';
 import { founderTotp, makeContext } from '../../../../tooling/scripts/local-test-gates.mjs';
 import { FOUNDER_VAULT_NAME } from '../../../../tooling/scripts/local-test-founders.mjs';
 import { localStackState } from '../../../../tooling/scripts/local-test-state.mjs';
+import { HOME_ASSET, HOME_DEPOSIT_AMOUNT, HOME_NOTICE_TITLE } from '../../../../tooling/scripts/local-test-home.mjs';
 import { ADMIN, founderSignIn } from './admin.mjs';
 import { EDGE, ROOT } from './stack.mjs';
 
@@ -14,8 +15,6 @@ import { EDGE, ROOT } from './stack.mjs';
 // profile; the real-app run starts the same services with `pnpm local:stack`, so the steps read the compose files for the
 // seed service's wiring and run the seed's own scripts, which refuse anything but a local dev or test build.
 // Steps that are written but not built yet fail at their first missing part, quickly (UNBUILT):
-// - #1, #4: no compose file has a `seed` service under the `tester` profile (HM-desks-03), and the test-content seed makes
-//   nothing for Home (a TEST deposit, a TEST notice, an inbox row).
 // - #2: the sign-in page of a non-live build has no "Tester build" panel saying where the founder vault is.
 // - #3: nothing seeds the founder's Home, so it shows no TEST deposit, notice or inbox row.
 // - #5: the Help room does not read the host dispatch receipt (RC-home-ia-01); the check itself is built.
@@ -75,6 +74,8 @@ test(`${J} #1 the tester profile starts healthy services, and its seed service r
   const seed = seedService();
   expect(seed, `no compose file (${COMPOSE.join(', ')}) has a seed service`).not.toBeNull();
   expect(seed.block).toMatch(/profiles:\s*\[?\s*['"]?tester['"]?/);
+  // Once: it is never restarted after it exits.
+  expect(seed.block).toMatch(/^ {4}restart: 'no'$/m);
   const order = ['local-founder-seed.mjs init', 'local-founder-seed.mjs enrol', 'local-test-seed.mjs apply'].map((step) =>
     seed.block.indexOf(step),
   );
@@ -87,7 +88,12 @@ test(`${J} #1 the tester profile starts healthy services, and its seed service r
   // What it made: Home's TEST deposit, TEST notice and inbox row, beside the Earn, Loans, Convert and P2P content.
   const report = seedStatus();
   expect(report.status).toBe(0);
-  for (const made of [/deposit/i, /notice/i, /inbox/i]) expect(report.out).toMatch(made);
+  // Read back from the services for founder a: exactly one credited TEST deposit (status refuses on a second record for
+  // the seeded transfer), the published TEST notice, and exactly one deposit-credited inbox row.
+  const founder = vault().founders[0].handle;
+  expect(report.out).toContain(`  deposit  ${HOME_DEPOSIT_AMOUNT} ${HOME_ASSET} credited  ${founder}`);
+  expect(report.out).toContain(`  notice  ${HOME_NOTICE_TITLE}  published`);
+  expect(report.out).toContain(`  inbox  1 deposit-credited row  ${founder}`);
 });
 
 test(`${J} #2 the documented sign-in steps get the founder in with founder scopes, and the founder console opens`, async ({ page }) => {
@@ -155,7 +161,8 @@ test(`${J} #4 the same image started as staging or production: the seed service 
   expect(entry, 'the seed service names no script').toBeTruthy();
   for (const appEnv of ['staging', 'production']) {
     const started = run(entry, [], { APP_ENV: appEnv });
-    expect(started.status, started.out).not.toBe(0);
+    expect(started.status, started.out).toBe(2);
+    expect(started.out).toContain(`refusing: APP_ENV is "${appEnv}"`);
   }
   expect(seedStatus().out.replace(/^as of .*$/m, '')).toBe(contentBefore);
 });

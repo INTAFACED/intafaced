@@ -1,0 +1,147 @@
+/**
+ * Unit tests for local-test-home (Home's TEST deposit, notice and inbox row). A stand-in for the stack's doors: no
+ * services, no ledger. The live path is proven by J-home-ia-11 #1 on the running stack.
+ * Run: node --test tooling/scripts/local-test-home.test.mjs
+ */
+import assert from 'node:assert/strict';
+import { test } from 'node:test';
+import {
+  DEPOSIT_CREDITED_KIND,
+  HOME_ASSET,
+  HOME_DEPOSIT_AMOUNT,
+  HOME_DEPOSIT_CONFIRMATIONS,
+  HOME_DEPOSIT_LABEL,
+  HOME_NETWORK,
+  HOME_NOTICE_TITLE,
+  applyHome,
+  homeStatus,
+} from './local-test-home.mjs';
+
+const ADDRESS = '0xfounder';
+const ok = (data) => ({ status: 200, json: { result: { data } }, text: '' });
+const refused = (code) => ({ status: 400, json: { error: { data: { cause: { code } } } }, text: code });
+
+/** A stand-in stack: svc-pay credits a transfer once per tx, svc-notify files one row per credited deposit. */
+function stack({ credit = true, fileRow = true, extraRecord = false } = {}) {
+  const state = { addresses: [], deposits: new Map(), notices: [], inbox: [], deliveries: 0, drafts: 0, writes: [] };
+  const txHash = (address, label) => `tx:${address}:${label}`;
+  const home = {
+    founder: { handle: 'local_test_founder_a', token: 'tok-a' },
+    txHash,
+    now: (() => {
+      let t = 0;
+      return () => (t += 50_000);
+    })(),
+    sleep: async () => {},
+    edge: {
+      async mutate(mod, proc, input) {
+        state.writes.push(`${mod} ${proc}`);
+        if (proc === 'deposits.address') {
+          assert.deepEqual(input, { assetId: HOME_ASSET, networkId: HOME_NETWORK });
+          if (state.addresses.length === 0) state.addresses.push({ addressIndex: 0, address: ADDRESS });
+          return ok({ assetId: HOME_ASSET, networkId: HOME_NETWORK, address: ADDRESS, memo: null, qrPayload: null });
+        }
+        throw new Error(`unexpected mutate ${proc}`);
+      },
+      async query(mod, proc, input) {
+        if (proc === 'deposits.addresses.list') return ok({ items: state.addresses, cap: null, expiryDays: null });
+        if (proc === 'deposits.list') {
+          const items = [...state.deposits.values()].filter((row) => row.txHash === input.txId);
+          if (extraRecord && items.length) items.push({ ...items[0], id: 'dup' });
+          return ok({ items, total: items.length });
+        }
+        if (proc === 'notify.notices') return ok(state.notices);
+        if (proc === 'notify.list') return ok({ items: state.inbox, nextCursor: null });
+        throw new Error(`unexpected query ${proc}`);
+      },
+    },
+    chainDeposit(address, asset, amount, confirmations, label) {
+      state.deliveries += 1;
+      assert.deepEqual(
+        [asset, amount, confirmations, label],
+        [HOME_ASSET, HOME_DEPOSIT_AMOUNT, HOME_DEPOSIT_CONFIRMATIONS, HOME_DEPOSIT_LABEL],
+      );
+      const tx = txHash(address, label);
+      if (state.deposits.has(tx)) return; // the same chain event again: svc-pay recognises it
+      state.deposits.set(tx, { id: `dep-${state.deposits.size}`, txHash: tx, amount, status: credit ? 'credited' : 'held' });
+      if (credit && fileRow) state.inbox.push({ id: `n-${state.inbox.length}`, kind: DEPOSIT_CREDITED_KIND });
+    },
+    async draftNotice(input) {
+      state.drafts += 1;
+      assert.equal(input.kind, 'announcement');
+      assert.equal(input.title, HOME_NOTICE_TITLE);
+      return { id: 'notice-1', version: 1, ...input };
+    },
+    async publishNotice(row) {
+      state.notices.push({ id: row.id, title: row.title });
+      return { id: row.id };
+    },
+  };
+  return { home, state };
+}
+
+test('apply makes one credited TEST deposit, one TEST notice and waits for the one inbox row', async () => {
+  const { home, state } = stack();
+  assert.deepEqual(await applyHome(home), [
+    `home deposit: ${HOME_DEPOSIT_AMOUNT} ${HOME_ASSET} on TEST ${HOME_NETWORK} to local_test_founder_a, credited`,
+    `home notice: ${HOME_NOTICE_TITLE} published`,
+    'home inbox: 1 deposit-credited row for local_test_founder_a',
+  ]);
+  assert.equal(state.deposits.size, 1);
+  assert.equal(state.notices.length, 1);
+  assert.equal(state.inbox.length, 1);
+});
+
+test('a second apply delivers the same transfer, which makes no second deposit, notice or row', async () => {
+  const { home, state } = stack();
+  await applyHome(home);
+  const again = await applyHome(home);
+  assert.equal(state.deliveries, 2);
+  assert.equal(state.deposits.size, 1);
+  assert.equal(state.drafts, 1);
+  assert.equal(state.notices.length, 1);
+  assert.equal(state.inbox.length, 1);
+  assert.equal(again[1], `home notice: ${HOME_NOTICE_TITLE} skipped`);
+});
+
+test('a deposit that is not credited stops the seed before any notice is drafted', async () => {
+  const { home, state } = stack({ credit: false });
+  await assert.rejects(applyHome(home), { message: 'the TEST home deposit was not credited (record held)' });
+  assert.equal(state.drafts, 0);
+});
+
+test('no inbox row within the wait fails the seed by name', async () => {
+  const { home } = stack({ fileRow: false });
+  await assert.rejects(applyHome(home), { message: "founder a's inbox has 0 deposit-credited rows, not 1" });
+});
+
+test('two records for the seeded transfer fail rather than report one', async () => {
+  const { home } = stack({ extraRecord: true });
+  await assert.rejects(applyHome(home), { message: 'the TEST home deposit has 2 records, not 1' });
+});
+
+test('a refused door is reported with its code', async () => {
+  const { home } = stack();
+  home.edge.mutate = async () => refused('bank.deposit_custody_unset');
+  await assert.rejects(applyHome(home), /bank deposits\.address refused \(400\): bank\.deposit_custody_unset/);
+});
+
+test('status reads back without writing, before and after apply', async () => {
+  const { home, state } = stack();
+  assert.deepEqual(await homeStatus(home), [
+    'home:',
+    '  deposit  none  local_test_founder_a',
+    '  notice  none',
+    '  inbox  0 deposit-credited rows  local_test_founder_a',
+  ]);
+  assert.deepEqual(state.writes, []);
+  await applyHome(home);
+  state.writes = [];
+  assert.deepEqual(await homeStatus(home), [
+    'home:',
+    `  deposit  ${HOME_DEPOSIT_AMOUNT} ${HOME_ASSET} credited  local_test_founder_a`,
+    `  notice  ${HOME_NOTICE_TITLE}  published`,
+    '  inbox  1 deposit-credited row  local_test_founder_a',
+  ]);
+  assert.deepEqual(state.writes, []);
+});

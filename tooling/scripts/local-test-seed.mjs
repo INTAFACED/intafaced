@@ -29,6 +29,9 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { execFileSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
+import { applyHome, homeStatus } from './local-test-home.mjs';
 
 const SCRIPT = fileURLToPath(import.meta.url);
 const REPO = path.resolve(path.dirname(SCRIPT), '..', '..');
@@ -475,14 +478,17 @@ export async function applyAll(deps) {
   const loans = await applyLoans(deps);
   const house = await applyHouse(deps);
   const p2p = await applyP2p(deps);
+  // Home's TEST deposit, notice and inbox row need the founder pair; a stack without it seeds the rest.
+  const home = deps.home ? await applyHome(await deps.home()) : ['home: no enrolled founder pair on this stack, so Home is not seeded'];
   const lines = [
     `earn pools: created ${earn.created}, skipped ${earn.skipped}`,
     `loan products: created ${loans.created}, skipped ${loans.skipped}`,
     `house inventory: ${house.posted} assets posted on rail local-test`,
     `p2p method: ${p2p.methodId}`,
+    ...home,
     FUNDS_LABEL,
   ];
-  return { earn, loans, house, p2p, lines };
+  return { earn, loans, house, p2p, home, lines };
 }
 
 // ── Unseed (close / disable, never delete, never reverse a ledger credit) ──
@@ -607,6 +613,7 @@ export async function statusReport(deps, now = new Date()) {
     lines.push('method:');
     lines.push(`  ${method.methodId}  ${method.enabled ? 'enabled' : 'disabled'}  ${method.label}`);
   }
+  if (deps.home) lines.push(...(await homeStatus(await deps.home())));
   return lines;
 }
 
@@ -644,6 +651,59 @@ export function resolvePostgres(repo) {
     const message = err instanceof Error ? err.message : String(err);
     throw new Error(`cannot load postgres from ${pkg}: ${message}`);
   }
+}
+
+/**
+ * Home's live wiring on this stack, or null when its founder pair is not enrolled: founder a's and b's sessions through
+ * Edge (local-test-gates.mjs), and the stack's own `chain-deposit` tool for the TEST transfer. The gates refuse a state
+ * folder other than the one this seed was given, so the two always name the same stack.
+ */
+function homeDeps(plan) {
+  const vault = path.join(plan.stateDir, 'founders.json');
+  if (!fs.existsSync(vault)) return null;
+  let wired;
+  return () =>
+    (wired ??= (async () => {
+      const gates = await import('./local-test-gates.mjs');
+      const ctx = await gates.makeContext({ log: () => {} });
+      if (path.resolve(ctx.paths.stateDir) !== path.resolve(plan.stateDir)) {
+        throw new GuardError(`refusing: the gates read ${ctx.paths.stateDir}, not ${plan.stateDir}; set LOCAL_STACK_STATE to it`);
+      }
+      const pair = await gates.approverSessions(ctx);
+      if (!pair.a.op.handle?.startsWith('local_test_founder')) throw new GuardError('refusing: Home is seeded for the founder pair only');
+      // The notice desk's own four-eyes steps, as the journeys drive them (founder a drafts and publishes, b approves).
+      const notices = await import('../../apps/customer/tests/real-app/notices.mjs');
+      return {
+        edge: ctx.edge,
+        founder: { handle: pair.a.op.handle, token: pair.a.token },
+        draftNotice: (input) => notices.draftNotice(input),
+        publishNotice: (row, key) => notices.publishNotice(row, key),
+        chainDeposit(address, asset, amount, confirmations, label) {
+          execFileSync(
+            process.execPath,
+            [
+              path.join(REPO, 'tooling/scripts/local-test-stack.mjs'),
+              'chain-deposit',
+              address,
+              asset,
+              amount,
+              String(confirmations),
+              '--tx',
+              label,
+            ],
+            { cwd: REPO, env: { ...process.env, LOCAL_STACK_STATE: plan.stateDir }, stdio: ['ignore', 'pipe', 'pipe'], timeout: 60_000 },
+          );
+        },
+        txHash: chainTxHash,
+        now: () => Date.now(),
+        sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+      };
+    })());
+}
+
+/** local-test-stack.mjs chainTxHash: the same label to the same address is the same TEST transfer. */
+function chainTxHash(address, label) {
+  return `0x${createHash('sha256').update(`local-test-chain-deposit:${address}:${label}`).digest('hex')}`;
 }
 
 export async function openLocal(plan) {
@@ -685,6 +745,7 @@ export async function openLocal(plan) {
   const namesIn = (sql, names) => sql(names);
 
   return {
+    home: homeDeps(plan),
     earn,
     loans,
     instruments: {

@@ -209,6 +209,18 @@ Earn and loan reserves are funded by a labelled TEST deposit on rail `local-test
 
 Opening a loan still refuses where this stack has no price marks (see Real vs test). The Loans room can list the products below. The seed does not invent marks.
 
+### Home (the founder's tester entry)
+
+When the stack has an enrolled founder pair (`founders.json` in the state folder), `apply` also gives founder a's Home its TEST content, and `status` reads it back under `home:` without writing anything. The figures live in `tooling/scripts/local-test-home.mjs`.
+
+- A TEST deposit of 100 USDT on TEST Ethereum to founder a's own deposit address, delivered to svc-pay's chain webhook as `local-test-stack.mjs chain-deposit` delivers one (label `LOCAL-TEST-seed-home-deposit-v1`). The seed posts nothing itself: svc-pay credits it through its ledger-client recipe, keyed on the deposit. The label is fixed, so a second `apply` delivers the same chain event, which svc-pay recognises: no second deposit.
+- One inbox row, filed by svc-notify's deposit-credit consumer for that deposit. `apply` waits for it and fails unless there is exactly one.
+- One TEST announcement, "TEST · This is a test build", open for 30 days: drafted and published by founder a, approved by founder b, through the notice desk's own four-eyes doors. A published one with that title is not drafted again.
+
+### The tester profile (compose)
+
+`docker-compose.apps.yml` has a `seed` service under the `tester` profile (`docker compose --profile tester up seed`). It is off by default, runs once and exits. Its entrypoint, `tooling/scripts/local-tester-seed.mjs`, exits 2 and seeds nothing unless `APP_ENV` is exactly `dev` or `test` and `NODE_ENV` is not `production`. It then runs the founder seed (`init`, `enrol`) and this seed (`apply`, `status`), in that order, and stops at the first step that fails. Each script keeps its own guards, so on a plain compose stack, which writes no local test stack marker, the content step refuses by name; the real-app journey run seeds the `pnpm local:stack` stack with the same scripts.
+
 Earn pools (funding id `local-test-seed-<slug>`):
 
 | Name                                                              | Asset | Kind     | Term    | APR     | Reserve   |
