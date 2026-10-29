@@ -303,6 +303,30 @@ if (!available) {
       expect((await desk.read(userId)).draft).toMatchObject({ recordId: sent.recordId });
     });
 
+    it('while a send opens its request the draft is held; a refused request lets it go again', async () => {
+      const userId = await person();
+      const ready = await fill(userId);
+      let during: unknown;
+      const holding = new KycProfileDesk(db.sql, KEY, {
+        documentTypes: TYPES,
+        uploadCaps: CAPS,
+        vault,
+        submit: async () => {
+          // Another tab reads the draft and tries a new photo while the request opens.
+          const seen = (await desk.read(userId)).draft!;
+          during = await desk.upload(userId, { version: seen.version, contentType: 'image/png', bytes: PNG }).catch((e: unknown) => e);
+          throw new Error('request refused');
+        },
+      });
+      await expect(holding.submit(userId, ready.version)).rejects.toThrow('request refused');
+      expect(during).toMatchObject({ code: 'kyc.profile_version' });
+      // Let go: the draft can change and be sent again.
+      const after = (await desk.read(userId)).draft!;
+      expect(after.recordId).toBeNull();
+      const replaced = await desk.upload(userId, { version: after.version, contentType: 'image/png', bytes: PNG });
+      expect((await desk.submit(userId, replaced.version)).recordId).toEqual(expect.any(String));
+    });
+
     it('a draft changed while its request was opening is not marked sent; the request stands and a resend says so', async () => {
       const userId = await person();
       const ready = await fill(userId);
