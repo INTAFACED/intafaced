@@ -1,5 +1,7 @@
 import { z } from 'zod';
 import { accountCloseReasonCodes } from './account-controls.js';
+import { kycCapabilitySchema } from './identity-kyc-capabilities.js';
+import { kycReasonCodeSchema } from './identity-kyc-cases.js';
 
 /**
  * svc-identity `account.status.mine` (I-signin-sessions-22): what holds this account back, read from the states identity
@@ -15,9 +17,14 @@ import { accountCloseReasonCodes } from './account-controls.js';
  *   withdrawal address and starting a send to one. Removing an address and revoking a recovery key are not stopped.
  * - `trading_restricted` (founder controls, trading area): recorded by identity, but svc-trade keeps its own restriction
  *   and does not read this one, so it blocks nothing (`blocks: []`). Only staff lift it; identity keeps no start.
+ * - `capability_off` (I-kyc-compliance-17): compliance switched a KYC capability off for good, with a code from the
+ *   owner's capability reason list (`IDENTITY_KYC_CAPABILITY_REASONS`), whose words and next step travel in `owner`.
+ *   Identity refuses a new request for a level that grants it (`kyc.capability_inactive`); no service outside identity
+ *   reads capability states, so orders and transfers are not stopped by it. Nothing lifts it.
  * Staff write a restriction's reason as free text, which never reaches the customer: a restriction with no reason code
  * reads `reasonCode: null`, which the page shows as "No reason recorded". The ledger's platform-wide posting freeze is
- * never part of this shape (it has its own banner); KYC capability switch-offs are listed by `kyc.capabilities.get`.
+ * never part of this shape (it has its own banner). `state` counts only restrictions that block something: one that
+ * blocks nothing is listed, and the account still reads active.
  */
 export const ACCOUNT_ACTIONS = [
   'sign_in',
@@ -30,11 +37,19 @@ export const ACCOUNT_ACTIONS = [
   'add_recovery_keys',
   'add_withdrawal_address',
   'withdraw_to_address',
+  'request_level_with_switched_off_capability',
 ] as const;
 export const accountActionSchema = z.enum(ACCOUNT_ACTIONS);
 export type AccountAction = z.infer<typeof accountActionSchema>;
 
-export const ACCOUNT_RESTRICTION_KINDS = ['closed', 'staff_freeze', 'self_freeze', 'security_lock', 'trading_restricted'] as const;
+export const ACCOUNT_RESTRICTION_KINDS = [
+  'closed',
+  'staff_freeze',
+  'self_freeze',
+  'security_lock',
+  'trading_restricted',
+  'capability_off',
+] as const;
 export const accountRestrictionKindSchema = z.enum(ACCOUNT_RESTRICTION_KINDS);
 export type AccountRestrictionKind = z.infer<typeof accountRestrictionKindSchema>;
 
@@ -55,6 +70,8 @@ export const accountLiftSchema = z.discriminatedUnion('by', [
       availableAt: z.string().datetime({ offset: true }).nullable(),
     })
     .strict(),
+  /** Nothing lifts it (a capability compliance switched off). */
+  z.object({ by: z.literal('none') }).strict(),
   z
     .object({
       by: z.literal('owner_unlock'),
@@ -74,6 +91,16 @@ export const accountRestrictionSchema = z
     since: z.string().datetime({ offset: true }).nullable(),
     blocks: z.array(accountActionSchema),
     lift: accountLiftSchema,
+    /** For `capability_off`: which capability. Null for every other kind. */
+    capability: kycCapabilitySchema.nullable(),
+    /**
+     * For `capability_off`: the owner's code, words and next step from the capability reason list. `text` and `guidance`
+     * are null when the code is no longer on the list. Null for every other kind.
+     */
+    owner: z
+      .object({ code: kycReasonCodeSchema, text: z.string().min(1).nullable(), guidance: z.string().min(1).nullable() })
+      .strict()
+      .nullable(),
   })
   .strict();
 export type AccountRestriction = z.infer<typeof accountRestrictionSchema>;

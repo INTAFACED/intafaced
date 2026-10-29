@@ -45,6 +45,10 @@ const KNOWN: Readonly<Record<string, { title: string; body: string }>> = {
     title: 'Settlement was refused',
     body: 'The accepted quote did not settle. Your hold stays as reported; check the quote status.',
   },
+  'trade.rfq_window_passed': {
+    title: 'The settlement window has closed',
+    body: 'This accepted quote can no longer settle. Nothing was settled or held; ask for a new price.',
+  },
   'trade.rfq_already_bound': { title: 'That quote is already accepted', body: 'It can be settled, but not expired or accepted again.' },
   'trade.rfq_allocation_refused': {
     title: 'Allocation is not open',

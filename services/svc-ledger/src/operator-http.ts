@@ -10,6 +10,7 @@ import {
   OPS_CONTROL_ACTOR_UNSET,
   OPS_CONTROL_REASON_REQUIRED,
   defineReconciliationControlInputSchema,
+  listReconciliationControlRunsInputSchema,
   runReconciliationControlInputSchema,
   updateReconciliationControlInputSchema,
 } from '@intafaced/contracts/ledger-reconciliation';
@@ -36,8 +37,11 @@ import { SKEW_BOUND_UNSET, WRITES_BLOCKED_CLOCK_SKEW } from './ledger/clock-skew
 import { ReconciliationControlError } from './ledger/reconciliation-control-error.js';
 import {
   defineReconciliationControl,
+  listReconciliationControlRuns,
   listReconciliationControls,
+  type ReconciliationSources,
   runReconciliationControl,
+  unsetReconciliationSources,
   updateReconciliationControl,
 } from './ledger/reconciliation-controls.js';
 import {
@@ -221,6 +225,7 @@ export function registerOperatorHttp(
   ledger: LedgerService,
   tokens: TokenConfig,
   approvals: ActionApprovalConsumer,
+  sources: ReconciliationSources = unsetReconciliationSources(),
 ): void {
   // Also enforces MFA, because `admin:treasury` is interactive-only.
   const treasury = (principal: Principal) => requireScope(principal, 'admin:treasury');
@@ -622,6 +627,17 @@ export function registerOperatorHttp(
     }, requireControlList),
   );
 
+  // A control's evaluations, any state. A read with a body, so it travels the same way as the other control doors.
+  app.post(
+    '/operator/reconciliation/controls/runs',
+    guarded(async (_operator, body, _req, reply) => {
+      if (!controls) return reply.code(503).send(sourceUnavailable());
+      const input = listReconciliationControlRunsInputSchema.safeParse(body ?? {});
+      if (!input.success) return reply.code(400).send(invalidControl(input.error));
+      return listReconciliationControlRuns(controls, input.data);
+    }, requireControlList),
+  );
+
   app.post(
     '/operator/reconciliation/controls',
     guarded(async (operator, body, req, reply) => {
@@ -648,7 +664,7 @@ export function registerOperatorHttp(
       if (!controls) return reply.code(503).send(sourceUnavailable());
       const input = runReconciliationControlInputSchema.safeParse(body ?? {});
       if (!input.success) return reply.code(400).send(invalidControl(input.error));
-      const run = await runReconciliationControl(controls, approvals, actorOf(operator, req), input.data);
+      const run = await runReconciliationControl(controls, approvals, actorOf(operator, req), input.data, sources);
       app.log.info({ actor: operator.userId, controlId: run.controlId, status: run.status }, 'LEDGER RECONCILIATION CONTROL run');
       return run;
     }),

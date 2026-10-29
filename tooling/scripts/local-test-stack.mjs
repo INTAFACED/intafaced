@@ -37,6 +37,7 @@
  *   node tooling/scripts/local-test-stack.mjs expire-deposit-addresses <email>   TEST fixture: open extra deposit addresses expire
  *   node tooling/scripts/local-test-stack.mjs expire-staff-holds <email>   TEST fixture: open staff holds with an expiry reach it
  *   node tooling/scripts/local-test-stack.mjs age-task-progress <email> <campaignId> <days>   TEST fixture: a task campaign's counted events happened days earlier
+ *   node tooling/scripts/local-test-stack.mjs token-params   TEST fixture: svc-token's blank emission settings get the TEST profile values
  *   node tooling/scripts/local-test-stack.mjs seed-withdrawal <email> <ASSET> <amount> --state <s> --ref <label> [--count <n>] [--failure-code <code>]   TEST fixture: a withdrawal in that state, sent and failed included (or n requested ones)
  *
  * Rules this file keeps (AGENTS.md "Money"):
@@ -95,6 +96,7 @@ import {
   writeFounderPinStamp,
 } from './local-test-founders.mjs';
 import { consoleTreasuryToken, makeContext } from './local-test-gates.mjs';
+import { loadProfile } from './owner-settings.mjs';
 import {
   localStackState,
   localPgBin,
@@ -1809,7 +1811,8 @@ const AMOUNT_RE = /^\d+(\.\d+)?$/;
  * The running local stack's own database and one TEST person on it, for the fixtures below. Refuses anything but this
  * stack's database.
  */
-function localFixturePerson(who) {
+/** The running local stack's secrets, after the same marker, port and Postgres checks every fixture makes. */
+function localFixtureSecrets() {
   if (!fs.existsSync(P.marker)) fail(`refusing: marker ${P.marker} not found. Start the stack first (pnpm local:stack).`);
   const marker = readJson(P.marker);
   if (marker.kind !== 'intafaced-local-test-stack') fail('refusing: marker file is not a local test stack marker');
@@ -1817,6 +1820,11 @@ function localFixturePerson(who) {
   if (String(marker.ports?.postgres) !== String(PORTS.postgres)) fail('refusing: database is not on the local test stack port');
   if (!pgRunning()) fail('refusing: the local stack Postgres is not running. Run: pnpm local:stack');
   assertActiveLocalStack({ stateDir: STATE });
+  return secrets;
+}
+
+function localFixturePerson(who) {
+  const secrets = localFixtureSecrets();
   const found = psql(secrets, `SELECT id::text FROM identity.users WHERE email = :'who' OR id::text = :'who'`, {
     db: DB_NAME,
     user: 'svc_identity',
@@ -1829,6 +1837,47 @@ function localFixturePerson(who) {
     .filter(Boolean);
   if (found.length !== 1) fail(`no single user "${who}" in the local identity database`);
   return { secrets, userId: found[0] };
+}
+
+/**
+ * `token-params`: svc-token's emission settings get the labelled TEST values from
+ * tooling/profiles/test-owner-values/token.json (total supply, halving interval, first-epoch reward), so a journey can
+ * mint one TEST epoch through the job door and read the treasury back against the ledger (J-more-catalogue-09 #9). Only a
+ * blank column is written; a value already there is left alone. It moves no value itself: the mint is the job door's,
+ * through the ledger recipe.
+ */
+function cmdTokenParams() {
+  const secrets = localFixtureSecrets();
+  const v = (name) => {
+    const entry = loadProfile().values[name];
+    if (!entry) fail(`${name} is missing from tooling/profiles/test-owner-values/token.json`);
+    return entry.value;
+  };
+  const row = psql(
+    secrets,
+    `UPDATE token.token_params
+        SET total_supply = COALESCE(total_supply, :'supply'::numeric),
+            halving_interval = COALESCE(halving_interval, :'halving'::int),
+            emission_curve = COALESCE(emission_curve, jsonb_build_object('initialEpochReward', :'reward'::text)),
+            updated_at = now()
+      WHERE id = true
+      RETURNING total_supply::text || ' ' || halving_interval || ' ' || (emission_curve->>'initialEpochReward')`,
+    {
+      db: DB_NAME,
+      user: 'svc_token',
+      password: secrets.pgService,
+      vars: {
+        supply: v('TOKEN_PARAMS_TOTAL_SUPPLY'),
+        halving: v('TOKEN_PARAMS_HALVING_INTERVAL'),
+        reward: v('TOKEN_PARAMS_INITIAL_EPOCH_REWARD'),
+      },
+      tuples: true,
+    },
+  )
+    .trim()
+    .split('\n')[0];
+  if (!row) fail('token.token_params has no row; svc-token has not migrated yet');
+  say(`  token_params (supply, halving interval, first-epoch reward): ${row} (LOCAL TEST fixture)`);
 }
 
 function cmdAgeLinkedAccounts(args) {
@@ -2556,6 +2605,7 @@ async function runCli() {
   else if (cmd === 'chain-reorg') await cmdChainReorg(rest);
   else if (cmd === 'bank-transfer') await cmdBankTransfer(rest);
   else if (cmd === 'age-linked-accounts') cmdAgeLinkedAccounts(rest);
+  else if (cmd === 'token-params') cmdTokenParams();
   else if (cmd === 'expire-address-approvals') cmdExpireAddressApprovals(rest);
   else if (cmd === 'expire-deposit-addresses') cmdExpireDepositAddresses(rest);
   else if (cmd === 'expire-staff-holds') cmdExpireStaffHolds(rest);
