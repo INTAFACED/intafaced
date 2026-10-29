@@ -348,6 +348,8 @@ class EdgeClient {
     this.account = account;
     this.token = null;
     this.tokenAt = 0;
+    /** Called with every Edge reply's headers (history reads Edge's budget from them). */
+    this.onReply = null;
   }
   async http(method, route, body, { auth = true } = {}) {
     if (method !== 'GET') assertActiveLocalStack();
@@ -369,7 +371,8 @@ class EdgeClient {
       /* non-JSON refusal */
     }
     if (res.status === 401 && auth) this.token = null;
-    return { status: res.status, json, text, headers: res.headers };
+    this.onReply?.(res.headers);
+    return { status: res.status, json, text };
   }
   async login() {
     const res = await this.http(
@@ -835,21 +838,45 @@ export const HISTORY_EDGE_WINDOW_MS = 60_000;
 /**
  * How long `history` waits at the end so whatever runs next on the same address has at least half of Edge's budget.
  * Edge counts in fixed windows and says on each reply how much of this window is left and when it ends
- * (x-ratelimit-remaining, x-ratelimit-reset in seconds); `budget` is the last reply's, `seenAt` when it came. Half or
+ * (x-ratelimit-remaining, x-ratelimit-reset in seconds); `budget` is the latest reading (laterEdgeBudget). Half or
  * more left: no wait (run 40873067394 waited 59 s here with most of the budget unspent). Less, or headers missing:
  * wait for the window to end, and with no headers the whole window after the last request, as before.
  */
 export function historyBudgetWait({ budget, lastEdgeAt, nowMs, windowMs = HISTORY_EDGE_WINDOW_MS }) {
+  if (budget) {
+    if (budget.remaining * 2 >= budget.limit) return 0;
+    return Math.max(0, budget.endsAt - nowMs);
+  }
   if (lastEdgeAt === 0) return 0;
-  // A header Edge left out reads null, which Number() would turn into 0.
-  const read = (v) => (typeof v === 'string' && /^\d+$/.test(v.trim()) ? Number(v) : NaN);
-  const limit = read(budget?.limit);
-  const remaining = read(budget?.remaining);
-  const reset = read(budget?.resetSeconds);
-  const known = [limit, remaining, reset].every(Number.isFinite) && limit > 0;
-  if (!known) return Math.max(0, windowMs - (nowMs - lastEdgeAt));
-  if (remaining * 2 >= limit) return 0;
-  return Math.max(0, budget.seenAt + reset * 1000 - nowMs);
+  return Math.max(0, windowMs - (nowMs - lastEdgeAt));
+}
+
+/**
+ * Edge's budget as one reply's headers state it, or null when they are missing or not whole numbers (a missing header
+ * reads null, which Number() would turn into 0).
+ */
+export function readEdgeBudget(headers, seenAt) {
+  const read = (name) => {
+    const v = headers?.get?.(name);
+    return typeof v === 'string' && /^\d+$/.test(v.trim()) ? Number(v) : NaN;
+  };
+  const limit = read('x-ratelimit-limit');
+  const remaining = read('x-ratelimit-remaining');
+  const reset = read('x-ratelimit-reset');
+  if (![limit, remaining, reset].every(Number.isFinite) || limit <= 0) return null;
+  return { limit, remaining, endsAt: seenAt + reset * 1000 };
+}
+
+/**
+ * The reading that describes the most Edge has counted: replies from lanes side by side can arrive out of order, so
+ * within one window the lowest remaining wins, and a reading from a later window replaces one from an earlier window.
+ * The reset is whole seconds, so window ends within a second and a half of each other are the same window.
+ */
+export function laterEdgeBudget(prev, next) {
+  if (!next) return prev;
+  if (!prev || next.endsAt > prev.endsAt + 1500) return next;
+  if (prev.endsAt > next.endsAt + 1500) return prev;
+  return next.remaining < prev.remaining ? next : prev;
 }
 /**
  * Markets per `history` batch request. Fewer requests leave Edge's budget room, more lanes side by side keep svc-trade
@@ -944,6 +971,14 @@ async function runHistory(opts, home) {
   let nextSlot = 0;
   let lastEdgeAt = 0;
   let budget = null;
+  // Every Edge reply counts against the same address's budget (sign-in, cancels and tape reads too), so every reply
+  // refreshes the reading and the time of the last request.
+  for (const client of [maker, taker]) {
+    client.onReply = (headers) => {
+      lastEdgeAt = Date.now();
+      budget = laterEdgeBudget(budget, readEdgeBudget(headers, lastEdgeAt));
+    };
+  }
   const pace = async () => {
     const now = Date.now();
     const at = Math.max(now, nextSlot);
@@ -965,14 +1000,6 @@ async function runHistory(opts, home) {
     for (let attempt = 1; ; attempt += 1) {
       await pace();
       const r = await client.http('POST', '/api/v1/orders/batch', { orders });
-      if (r.headers?.has('x-ratelimit-remaining')) {
-        budget = {
-          limit: r.headers.get('x-ratelimit-limit'),
-          remaining: r.headers.get('x-ratelimit-remaining'),
-          resetSeconds: r.headers.get('x-ratelimit-reset'),
-          seenAt: Date.now(),
-        };
-      }
       if (r.status !== 429 || attempt >= 4) return r;
       const wait = Math.min(60, Math.max(1, Number(r.json?.retryAfterSeconds) || 5));
       log(`Edge asked to wait ${wait}s (edge.rate_limited); sending the same orders again then`);
