@@ -129,6 +129,7 @@ jobs:
         run: |
           echo "LOCAL_STACK_STATE=$RUNNER_TEMP/stack-state" >> "$GITHUB_ENV"
           echo "LOCAL_STACK_NATS_BIN=$RUNNER_TEMP/nats-server" >> "$GITHUB_ENV"
+          echo "LOCAL_STACK_ANVIL_BIN=$RUNNER_TEMP/anvil" >> "$GITHUB_ENV"
           echo "JOURNEY_REPORT=$RUNNER_TEMP/journeys/report.json" >> "$GITHUB_ENV"
           echo "JOURNEY_BLOB_DIR=$RUNNER_TEMP/journeys/blob" >> "$GITHUB_ENV"
 
@@ -170,6 +171,19 @@ jobs:
           docker cp nats-src:/usr/local/bin/nats-server "$LOCAL_STACK_NATS_BIN"
           docker rm nats-src
           chmod +x "$LOCAL_STACK_NATS_BIN"
+
+      # The stack's LOCAL TEST chain (tooling/scripts/local-test-chain.mjs): the same pinned foundry image and the same
+      # `docker run <image> "anvil ..."` form .github/actions/test-infra runs its dev chain with, behind a small launcher,
+      # since the stack starts its chain as a process. Host network, so anvil binds the loopback port the stack names.
+      # Dev only and ephemeral: TEST chain id 84532 on loopback, no fork, destroyed with the runner.
+      - name: Get an anvil launcher
+        run: |
+          docker pull ghcr.io/foundry-rs/foundry:v1.5.1
+          cat > "$LOCAL_STACK_ANVIL_BIN" <<'EOF'
+          #!/bin/sh
+          exec docker run --rm --init --network host ghcr.io/foundry-rs/foundry:v1.5.1 "anvil $*"
+          EOF
+          chmod +x "$LOCAL_STACK_ANVIL_BIN"
 
       - name: Install the browser
         run: pnpm exec playwright install --with-deps chromium
