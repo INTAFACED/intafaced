@@ -74,7 +74,7 @@ if (!(await postgresAvailable(TEST_URL))) {
     const handle = `as${process.pid}${++n}`;
     return (await auth.register({ handle, email: `${handle}@example.com`, password: PASSWORD, region: 'DE' })).userId;
   };
-  const read = async (userId: string) => accountStatusSchema.parse(await desk.read(userId));
+  const read = async (userId: string) => accountStatusSchema.parse(await desk.read(userId, 'staff'));
 
   describe('account status', () => {
     it('an active account blocks nothing: everything is in "you can still"', async () => {
@@ -113,7 +113,7 @@ if (!(await postgresAvailable(TEST_URL))) {
       expect(status.cannot).toEqual([{ action: 'create_api_key', kind: 'self_freeze' }]);
       expect(status.canStill).toContain('sign_in');
       // With no wait published, the lift time is unknown and the page says a lift refuses.
-      const unpublished = accountStatusSchema.parse(await new AccountStatusDesk(db.sql, undefined, REASONS, LEVELS).read(userId));
+      const unpublished = accountStatusSchema.parse(await new AccountStatusDesk(db.sql, undefined, REASONS, LEVELS).read(userId, 'staff'));
       expect(unpublished.restrictions[0]!.lift).toEqual({ by: 'owner_after_wait', availableAt: null });
     });
 
@@ -194,7 +194,7 @@ if (!(await postgresAvailable(TEST_URL))) {
       expect(status.restrictions.every((r) => r.since !== null)).toBe(true);
       // With no level map published, no request is refused for it: the account reads active, the switch-off still listed,
       // and asking for a level is something it can still do.
-      const unmapped = accountStatusSchema.parse(await new AccountStatusDesk(db.sql, 3600, REASONS, new Map()).read(userId));
+      const unmapped = accountStatusSchema.parse(await new AccountStatusDesk(db.sql, 3600, REASONS, new Map()).read(userId, 'staff'));
       expect(unmapped).toMatchObject({ state: 'active', cannot: [] });
       expect(unmapped.restrictions.map((r) => r.blocks)).toEqual([[], []]);
       expect(unmapped.canStill).toContain('request_level_with_switched_off_capability');
@@ -221,7 +221,7 @@ if (!(await postgresAvailable(TEST_URL))) {
       const closed = await read(own);
       expect(closed.restrictions[0]).toMatchObject({ kind: 'closed', reasonCode: 'customer_request' });
       expect(closed.restrictions[0]!.since).not.toBeNull();
-      expect(await desk.read('00000000-0000-4000-8000-000000000000')).toBeNull();
+      expect(await desk.read('00000000-0000-4000-8000-000000000000', 'staff')).toBeNull();
     });
 
     it('`mine` reads only the caller; `of` is for admin:read', async () => {

@@ -547,8 +547,9 @@ test(`${J} #7: a restriction on another screen gives its reason in plain words a
   const refused = page.getByTestId('verification__capability-refused');
   await expect(refused).toHaveAttribute('data-code', 'kyc.capability_inactive');
   await expect(refused).toContainText(
-    'This level was refused because it grants a capability compliance switched off. The service opened no request. Switched off on your account:',
+    'This level was refused because it grants a capability compliance switched off. The service opened no request.',
   );
+  await expect(refused).toContainText('Switched off on your account:');
   const why = refused.locator('li[data-kind="capability_off"][data-capability="trade_crypto"]');
   await expect(why).toHaveCount(1);
   await expect(why).toContainText('Trade crypto switched off');

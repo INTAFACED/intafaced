@@ -71,7 +71,7 @@ export class AccountStatusDesk {
    * `view: 'owner'` is the account's own read: a staff closure code other than the person's own request is not shown to
    * them (sign-in says only "closed" too), so a fraud finding is never tipped off. Staff reads see the code.
    */
-  async read(userId: string, view: 'owner' | 'staff' = 'staff'): Promise<AccountStatus | null> {
+  async read(userId: string, view: 'owner' | 'staff'): Promise<AccountStatus | null> {
     const wait = this.selfFreezeLiftWaitSeconds ?? null;
     const [[user], [freeze], [lock], [trading], capabilities] = await Promise.all([
       // A customer-closed account carries no staff code: the closure flow's finalisation is its code and its time.
