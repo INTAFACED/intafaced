@@ -34,7 +34,7 @@ import { InsufficientFundsError, formatAmount, parseAmount, recipes, type Amount
 import { BankError, type BankErrorCode } from '../errors.js';
 import type { LinkedAccountService, LinkedAccountView } from '../linked-accounts/linked-accounts.js';
 import { oneLine, signReceipt } from '../receipt-signing.js';
-import { assertSecurityLockOpen, unconfiguredSecurityLock, type SecurityLockPort } from '../security-lock.js';
+import { assertHoldsOpen, assertSecurityLockOpen, unconfiguredSecurityLock, type SecurityLockPort } from '../security-lock.js';
 import { withSessionAdvisoryLock } from '../session-lock.js';
 import type { CashOutPartner, PayoutFailure, PayoutReturn } from './payout-sim.js';
 import { RailRecordError, type RailMovement } from './rail-records.js';
@@ -420,6 +420,16 @@ export class CashOutService {
     return withSessionAdvisoryLock(this.sql, LOCK, row.id, async () => {
       let now = (await this.row(row.id))!;
       if (now.status !== 'processing') return now;
+      // The owner's self-freeze (I-account-lifecycle-08) is their emergency stop: while it is open nothing new is held
+      // and the partner is not asked to pay, a request taken before it included (the re-drive job and a replay alike).
+      // A hold already booked is only stamped, and stays held until they lift it. Asked once, before either step.
+      let frozenChecked = false;
+      const assertNotSelfFrozen = async () => {
+        if (frozenChecked) return;
+        const hold = await this.securityLock.read(now.user_id);
+        if (hold.selfFrozen) assertHoldsOpen(hold, 'a cash-out');
+        frozenChecked = true;
+      };
       if (!now.hold_ledger_tx_id) {
         const booked = await this.bookedHold(now);
         if (booked) {
@@ -433,6 +443,7 @@ export class CashOutService {
         }
       }
       if (!now.hold_ledger_tx_id) {
+        await assertNotSelfFrozen();
         let holdId: string;
         try {
           holdId = (await this.ledger.post(recipes.withdrawHold(this.withdrawal(now)))).id;
@@ -454,6 +465,7 @@ export class CashOutService {
           // The partner that priced it is gone after the hold: the hold waits, visible, for that partner's answer.
           return now;
         }
+        await assertNotSelfFrozen();
         const { payoutRef } = await this.partner.pay({
           cashOutId: now.id,
           assetId: now.asset_id,
