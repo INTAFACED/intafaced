@@ -62,6 +62,14 @@ class SigningHelperTest(unittest.TestCase):
         self.assertFalse(signatures_equal("abcd", "ab"))
         self.assertFalse(signatures_equal("zz", "zz"))
 
+    def test_holds_no_signing_window_of_its_own(self) -> None:
+        import intafaced_pay
+        from intafaced_pay import sign
+
+        source = Path(__file__).resolve().parents[1].joinpath("intafaced_pay", "sign.py").read_text()
+        self.assertNotRegex(source, r"WINDOW_SECONDS\s*=|\b300\b")
+        self.assertEqual([name for name in (*dir(intafaced_pay), *dir(sign)) if "WINDOW" in name], [])
+
 
 class PayClientTest(unittest.TestCase):
     def test_refuses_blank_config_and_numeric_amount(self) -> None:
