@@ -476,6 +476,7 @@ function toTrpcError(err: unknown): TRPCError {
       case 'trade.rfq_missing_price':
       case 'trade.otc_makers_unset':
       case 'trade.rfq_size_not_set':
+      case 'feed.market':
         return new TRPCError({ code: 'PRECONDITION_FAILED', message: err.message, cause: err });
       default:
         return new TRPCError({ code: 'BAD_REQUEST', message: err.message, cause: err });

@@ -450,13 +450,14 @@ function BaseQuantityLabel({ symbol }: { symbol: string }) {
 }
 function QuoteDesk({ tools, markets, simulation }: { tools: ToolApi; markets: Listing[]; simulation: boolean }) {
   const status = useResource((signal) => tools.otcStatus(signal), 'quote-desk');
+  const makers = useResource((signal) => tools.otcMakers(signal), 'quote-desk-providers');
   const linkedQuoteId = new URLSearchParams(location.search).get('quoteId') ?? '';
   const [existingId, setExistingId] = useState(linkedQuoteId);
   const lookupIdentity = useRef('');
   const [symbol, setSymbol] = useState(''),
     [side, setSide] = useState<'buy' | 'sell'>('buy'),
     [qty, setQty] = useState(''),
-    [makerId, setMaker] = useState(''),
+    [picked, setPicked] = useState<string[]>([]),
     [quote, setQuote] = useState<z.infer<typeof import('./tool-api').otcQuoteSchema> | null>(null),
     [bound, setBound] = useState(false),
     [loading, setLoading] = useState(false);
@@ -489,12 +490,14 @@ function QuoteDesk({ tools, markets, simulation }: { tools: ToolApi; markets: Li
     }
   }, [linkedQuoteId, simulation]);
   const requestIdentity = useRef('');
-  requestIdentity.current = JSON.stringify({ symbol, side, qty });
+  requestIdentity.current = JSON.stringify({ symbol, side, qty, picked });
   async function request() {
     const identity = requestIdentity.current;
     setLoading(true);
     const [baseAsset = '', quoteAsset = ''] = symbol.split('/');
-    const result = await tools.otcQuote({ side, baseAsset, quoteAsset, qty, ...(makerId ? { makerId } : {}) });
+    // The desk asks only providers from the owner's list (CB-otc-01); a pick the list no longer holds is dropped here.
+    const listed = makers.resource.status === 'ready' ? makers.resource.data.makers.map((m) => m.id) : [];
+    const result = await tools.otcQuote({ side, baseAsset, quoteAsset, qty, makerIds: picked.filter((id) => listed.includes(id)) });
     if (identity !== requestIdentity.current) {
       setLoading(false);
       return;
@@ -607,11 +610,32 @@ function QuoteDesk({ tools, markets, simulation }: { tools: ToolApi; markets: Li
               setQuote(null);
             }}
           />
-          <Field
-            label={<CopyText k={'makerIdentityIfDeskRoutingRequiresOne'} />}
-            value={makerId}
-            onChange={(event) => setMaker(event.target.value)}
-          />
+          <fieldset>
+            <legend>
+              <CopyText k={'otcProviders'} />
+            </legend>
+            <State value={makers}>
+              {(list) =>
+                list.published ? (
+                  list.makers.map((m) => (
+                    <label key={m.id}>
+                      <input
+                        type="checkbox"
+                        checked={picked.includes(m.id)}
+                        onChange={(event) => {
+                          setPicked(event.target.checked ? [...new Set([...picked, m.id])] : picked.filter((id) => id !== m.id));
+                          setQuote(null);
+                        }}
+                      />
+                      {m.name}
+                    </label>
+                  ))
+                ) : (
+                  <CopyText k={'otcProvidersNotSet'} />
+                )
+              }
+            </State>
+          </fieldset>
           <Button
             disabled={
               !guard.authenticated ||

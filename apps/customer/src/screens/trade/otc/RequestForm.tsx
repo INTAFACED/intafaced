@@ -56,7 +56,7 @@ interface Props {
   picked: string[];
   onPick: (picked: string[]) => void;
   /** A quote that matches what was asked for. */
-  onQuote: (quote: RfqQuote) => void;
+  onQuote: (quote: RfqQuote, providers: string[]) => void;
 }
 
 /** Ask for a firm price. There is no price field: the desk names the price (and the form says so). */
@@ -96,18 +96,19 @@ export function RequestForm({ api, writer, desk, pairs, makers, picked, onPick, 
   async function submit() {
     if (block !== null || !chosen) return;
     setMismatch(false);
+    const asked = picked;
     const result = await writer.run({
       kind: 'rfq',
       id: nonce.current,
       symbol: noteSymbol('request', chosen.symbol),
       // The pick goes as chosen, even empty or over the cap: the desk refuses it by name, and the form never guesses one.
-      call: () => api.rfqQuote({ side, baseAsset: chosen.base, quoteAsset: chosen.quote, qty, makerIds: picked }),
+      call: () => api.rfqQuote({ side, baseAsset: chosen.base, quoteAsset: chosen.quote, qty, makerIds: asked }),
     });
     if (result.kind !== 'done') return;
     const q = result.data;
     const matches = q.baseAsset === chosen.base && q.quoteAsset === chosen.quote && q.side === side && compareDecimals(q.qty, qty) === 0;
     setMismatch(!matches);
-    if (matches) onQuote(q);
+    if (matches) onQuote(q, asked);
   }
 
   return (

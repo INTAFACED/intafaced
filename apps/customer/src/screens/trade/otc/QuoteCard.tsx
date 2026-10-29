@@ -65,12 +65,12 @@ interface Props {
   quote: RfqQuote;
   readAt: number;
   now: number;
-  /** The providers picked in the request form: a re-price asks them again (CB-otc-01). */
+  /** The providers this quote asked, or the room's current pick when the room did not see it asked (a reload or a link). */
   providers: string[];
   /** Re-read the quote from the service (and release a device note if that proves the outcome). */
   onCheck: (id: string) => Promise<void>;
   /** Show a quote a write just returned; `select` opens it in place of this one (a re-price). */
-  onQuote: (quote: RfqQuote, options?: { select?: boolean }) => void;
+  onQuote: (quote: RfqQuote, options?: { select?: boolean; asked?: string[] }) => void;
 }
 
 /** One quote in full: the returned numbers, the all-in cost, the live countdown, and what may be done to it now. */
@@ -138,9 +138,13 @@ export function QuoteCard({ api, writer, quote, readAt, now, providers, onCheck,
       : []),
   ];
 
-  /** Re-price an expired quote: a new request for the same pair, side and size to the providers picked. The old quote stays expired. */
+  /**
+   * Re-price an expired quote: a new request for the same pair, side and size to the same providers (CB-otc-01): the
+   * maker that quoted in maker mode, else the providers it asked. The old quote stays expired.
+   */
   async function askAgain() {
     setMismatch(false);
+    const asked = quote.counterparty === 'maker' ? [quote.counterpartyId] : providers;
     const result = await writer.run<RfqQuote>({
       kind: 'rfq',
       id: `otc-req-${crypto.randomUUID()}`,
@@ -151,7 +155,7 @@ export function QuoteCard({ api, writer, quote, readAt, now, providers, onCheck,
           baseAsset: quote.baseAsset,
           quoteAsset: quote.quoteAsset,
           qty: quote.qty,
-          makerIds: providers,
+          makerIds: asked,
           ...(quote.counterparty === 'maker' ? { makerId: quote.counterpartyId } : {}),
         }),
     });
@@ -164,7 +168,7 @@ export function QuoteCard({ api, writer, quote, readAt, now, providers, onCheck,
       q.side === quote.side &&
       compareDecimals(q.qty, quote.qty) === 0;
     setMismatch(!matches);
-    if (matches) onQuote(q, { select: true });
+    if (matches) onQuote(q, { select: true, asked });
   }
 
   async function send(action: Confirming) {

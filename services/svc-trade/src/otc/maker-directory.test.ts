@@ -138,7 +138,7 @@ describe('selectOtcMakers', () => {
       throw new Error('expected a refusal');
     } catch (err) {
       expect(err).toBeInstanceOf(OtcError);
-      expect((err as OtcError).code).toBe('trade.otc_settle_refused');
+      expect((err as OtcError).code).toBe('feed.market');
       expect((err as OtcError).message).toContain('socket.otc-maker-routing');
       expect((err as OtcError).residual).toBe(OTC_MAKER_ROUTING_RESIDUAL);
     }
@@ -221,7 +221,7 @@ describe('OtcDeskService.quote in maker mode (CB-otc-01 request path)', () => {
   });
 
   it('an outside provider refuses by name', async () => {
-    await expect(svc(TEST_DIRECTORY_JSON).quote(principal, req('test-lp-out'))).rejects.toMatchObject({ code: 'trade.otc_settle_refused' });
+    await expect(svc(TEST_DIRECTORY_JSON).quote(principal, req('test-lp-out'))).rejects.toMatchObject({ code: 'feed.market' });
   });
 
   it('a desk request in maker mode is quoted by the one provider picked, and a makerId outside the pick refuses', async () => {
@@ -234,6 +234,33 @@ describe('OtcDeskService.quote in maker mode (CB-otc-01 request path)', () => {
     await expect(svcM.quote(principal, { ...asked, makerIds: ['test-lp-a'], makerId: 'test-lp-b' })).rejects.toMatchObject({
       code: 'trade.otc_provider_unknown',
     });
+  });
+
+  it('two providers asked with none named to quote refuses otc_provider_required before any stake read', async () => {
+    let stakeReads = 0;
+    const counted = new OtcDeskService(
+      new MemoryLedger(),
+      {
+        stakeOf: async () => {
+          stakeReads += 1;
+          return parseAmount('9999');
+        },
+      },
+      {
+        law: TEST_MAKER_LAW,
+        midSource: createObservedOtcMidSource('BTC/USDT:200', now),
+        makerDirectory: parseOtcMakerDirectoryJson(TEST_DIRECTORY_JSON),
+        now,
+      },
+    );
+    const asked = { side: 'buy' as const, baseAsset: 'BTC', quoteAsset: 'USDT', qty: '1', makerIds: ['test-lp-b', 'test-lp-c'] };
+    await expect(counted.quote(principal, asked)).rejects.toMatchObject({ code: 'trade.otc_provider_required' });
+    await expect(counted.quote(principal, { ...asked, makerId: 'test-lp-a' })).rejects.toMatchObject({
+      code: 'trade.otc_provider_unknown',
+    });
+    expect(stakeReads).toBe(0);
+    expect((await counted.quote(principal, { ...asked, makerId: 'test-lp-c' })).counterpartyId).toBe('test-lp-c');
+    expect(stakeReads).toBe(1);
   });
 
   it('a listed platform-routed provider is quoted as the counterparty', async () => {
@@ -300,7 +327,7 @@ describe('a desk request names its providers (CB-otc-01, platform counterparty)'
     const { svc, store } = desk(TEST_DIRECTORY_JSON);
     await expect(svc.quote(principal, req())).rejects.toMatchObject({ code: 'trade.otc_provider_required' });
     await expect(svc.quote(principal, req(['anyone']))).rejects.toMatchObject({ code: 'trade.otc_provider_unknown' });
-    await expect(svc.quote(principal, req(['test-lp-out']))).rejects.toMatchObject({ code: 'trade.otc_settle_refused' });
+    await expect(svc.quote(principal, req(['test-lp-out']))).rejects.toMatchObject({ code: 'feed.market' });
     expect(store.saved).toBe(0);
   });
 

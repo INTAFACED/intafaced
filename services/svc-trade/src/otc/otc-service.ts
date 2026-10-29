@@ -207,6 +207,18 @@ export class OtcDeskService {
     } else if (law.counterparty === 'maker') {
       asked = selectOtcMakers(this.makerDirectory, [input.makerId ?? '']).map((m) => m.id);
     }
+    // In maker mode the quoting maker is one of the providers asked: the one picked, or the makerId named among them.
+    // Both checks run here, before any stake read or price lookup.
+    let quotingMaker: string | undefined;
+    if (law.counterparty === 'maker') {
+      quotingMaker = (input.makerId ?? (asked.length === 1 ? asked[0]! : '')).trim();
+      if (!quotingMaker) {
+        throw new OtcError('Name the one provider that quotes: more than one was asked', 'trade.otc_provider_required');
+      }
+      if (!asked.includes(quotingMaker)) {
+        throw new OtcError(`Provider ${quotingMaker} is not one of the providers asked`, 'trade.otc_provider_unknown');
+      }
+    }
 
     // Access gate before price lookup: an unstaked caller learns nothing about
     // what the desk can price, and a mid source that costs a round trip is not
@@ -247,20 +259,7 @@ export class OtcDeskService {
     }
     const midPrice = parseOtcMidPrice(String(sourced.mid));
 
-    let counterpartyId: string;
-    if (law.counterparty === 'platform') {
-      counterpartyId = this.platformCounterpartyId;
-    } else {
-      // The quoting maker is one of the providers asked: the one picked, or the makerId named among them.
-      const makerId = (input.makerId ?? (asked.length === 1 ? asked[0]! : '')).trim();
-      if (!makerId) {
-        throw new OtcError('Maker id required when desk routes to makers — refuse rather than invent', 'trade.otc_no_reference_price');
-      }
-      if (!asked.includes(makerId)) {
-        throw new OtcError(`Provider ${makerId} is not one of the providers asked`, 'trade.otc_provider_unknown');
-      }
-      counterpartyId = makerId;
-    }
+    const counterpartyId = law.counterparty === 'platform' ? this.platformCounterpartyId : quotingMaker!;
 
     const quote = buildOtcQuote({
       quoteId: randomUUID(),
