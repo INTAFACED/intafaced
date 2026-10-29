@@ -1,4 +1,5 @@
 import { expect } from '@playwright/test';
+import { nextTotpStep } from '../../../../tooling/scripts/local-test-gates.mjs';
 import { signOutBrowser } from './stack.mjs';
 
 // Passkeys belong to the stack's relying party, `localhost` (an IP address cannot be one), so these steps use the
@@ -50,17 +51,14 @@ export async function addAuthenticator(page, totp) {
 }
 
 /**
- * A code from a 30-second step after `step`: identity refuses a step it has already seen. Identity accepts one step
- * either side of its clock, so the code is the next unused step's, signed at once, as an authenticator a few seconds
- * ahead would show it; the wait is only for a step that is used already and still more than one step ahead.
+ * A code from a 30-second step after `step`: identity refuses a step it has already seen. The step is the gates tool's
+ * `nextTotpStep` (the next unused one, never before the clock, at most one step ahead, which identity accepts), signed
+ * at once as an authenticator a few seconds ahead would show it; the wait is only while both are spent.
  */
 export async function nextCode(totp, secret, step) {
-  for (;;) {
-    const now = Math.floor(Date.now() / 30_000);
-    const next = Math.max(now, step + 1);
-    if (next <= now + 1) return { code: totp(secret, { at: new Date(next * 30_000) }), step: next };
-    await new Promise((resolve) => setTimeout(resolve, 1000));
-  }
+  let next;
+  while ((next = nextTotpStep(step, Math.floor(Date.now() / 30_000))) === null) await new Promise((resolve) => setTimeout(resolve, 1000));
+  return { code: totp(secret, { at: new Date(next * 30_000) }), step: next };
 }
 
 /** Ends this browser's sign-in without touching the passkey on its authenticator. */
