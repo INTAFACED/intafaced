@@ -386,6 +386,12 @@ export function SupportDeskView(p: DeskViewProps) {
   );
 }
 
+/** The request id an address names (`/support/<id>`), or null for the desk itself. */
+export function addressTicketId(pathname: string): string | null {
+  const match = /\/support\/([0-9a-fA-F-]{36})$/.exec(pathname);
+  return match ? match[1]! : null;
+}
+
 /** The desk's address with one request open, or with none: `/support/<id>` beside `/support`, keeping the queue's query. */
 function deskAddress(ticketId: string | null): string {
   const base = window.location.pathname.replace(/\/support(\/[^/]*)?$/, '/support');
@@ -470,9 +476,30 @@ export function SupportDesk({
     [loadOne, loadExtras],
   );
 
+  const close = useCallback(() => {
+    ticketSeq.current += 1;
+    extrasSeq.current += 1;
+    setTicketId(null);
+    setTicket(null);
+    setExtras(null);
+    setReply(null);
+    setArming(false);
+  }, []);
+
   useEffect(() => {
     if (openTicketId) open(openTicketId);
   }, [openTicketId, open]);
+
+  // Back and Forward move between requests: the open request is always the one the address names.
+  useEffect(() => {
+    const follow = () => {
+      const id = addressTicketId(window.location.pathname);
+      if (id) open(id);
+      else close();
+    };
+    window.addEventListener('popstate', follow);
+    return () => window.removeEventListener('popstate', follow);
+  }, [open, close]);
 
   async function claimNext() {
     if (lock.current) return;
@@ -527,13 +554,7 @@ export function SupportDesk({
       }}
       onClose={() => {
         window.history.pushState(null, '', deskAddress(null));
-        ticketSeq.current += 1;
-        extrasSeq.current += 1;
-        setTicketId(null);
-        setTicket(null);
-        setExtras(null);
-        setReply(null);
-        setArming(false);
+        close();
       }}
       onArm={setArming}
       onClaim={() => void claim()}

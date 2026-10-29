@@ -109,8 +109,8 @@ const BY_SUPPORT_CODE: Readonly<Record<string, Entry>> = {
   },
   'support.stale_ticket': {
     title: 'The request changed since you opened it',
-    body: 'Someone else changed this request after you read it, so your reply was not sent. The changes are listed below.',
-    next: 'Nothing was sent. Read the changes, then send your reply again if it still fits.',
+    body: 'Someone else changed this request after you read it, so your change was not made. The changes are listed below.',
+    next: 'Nothing was written. Read the changes, then send again if it still fits.',
   },
   'support.claim.queue_empty': {
     title: 'No request is waiting to be claimed',

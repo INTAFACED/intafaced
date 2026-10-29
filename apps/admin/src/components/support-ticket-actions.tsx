@@ -65,10 +65,17 @@ export function buildRequest(
   ticket: { id: string; status: string },
   form: ActionForm,
   expectedSequence?: number,
+  sent?: number,
 ): SupportActionRequest {
   const ticketId = ticket.id;
   if (kind === 'reply')
-    return { action: 'reply', ticketId, body: form.replyBody.trim(), ...(expectedSequence === undefined ? {} : { expectedSequence }) };
+    return {
+      action: 'reply',
+      ticketId,
+      body: form.replyBody.trim(),
+      ...(expectedSequence === undefined ? {} : { expectedSequence }),
+      ...(sent === undefined ? {} : { sent }),
+    };
   if (kind === 'status') {
     const note = form.statusNote.trim();
     return {
@@ -325,6 +332,8 @@ export function TicketActions({
   const [armed, setArmed] = useState<ActionKind | null>(null);
   const [busy, setBusy] = useState(false);
   const [outcome, setOutcome] = useState<TicketActionsViewProps['outcome']>(null);
+  // Replies sent from this view: moves only on a recorded reply, so a retry after "outcome not known" keeps its key.
+  const [sent, setSent] = useState(0);
   const lock = useRef(false);
 
   async function send() {
@@ -334,9 +343,12 @@ export function TicketActions({
     const kind = armed;
     try {
       if (seen === null && seenNow !== null) setSeen(seenNow);
-      const reply = await postSupportAction(buildRequest(kind, ticket, form, kind === 'escalate' ? undefined : (seenNow ?? undefined)));
+      const reply = await postSupportAction(
+        buildRequest(kind, ticket, form, kind === 'escalate' ? undefined : (seenNow ?? undefined), kind === 'reply' ? sent : undefined),
+      );
       setOutcome({ kind, reply });
       setArmed(null);
+      if (reply.ok && kind === 'reply') setSent((n) => n + 1);
       if (reply.ok) {
         setForm((f) =>
           kind === 'reply'

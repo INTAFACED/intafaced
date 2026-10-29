@@ -278,8 +278,9 @@ export async function loadBulkPolicy(ctx: FounderCallContext, now: Date = new Da
  * A reply's business key: the request, the trail row the agent read and the text. Sent again after an unknown outcome it
  * is the same key, so svc-support answers the stored reply and writes no second one; a different reply is a new key.
  */
-export function replyKey(ticketId: string, expectedSequence: number, body: string): string {
-  return `admin-reply:${ticketId}:${expectedSequence}:${createHash('sha256').update(body).digest('hex').slice(0, 32)}`;
+export function replyKey(ticketId: string, agentId: string, expectedSequence: number, sent: number, body: string): string {
+  const text = createHash('sha256').update(body).digest('hex').slice(0, 32);
+  return `admin-reply:${ticketId}:${agentId}:${expectedSequence}:${sent}:${text}`;
 }
 
 /**
@@ -301,22 +302,25 @@ export function runSupportAction(ctx: FounderCallContext, request: SupportAction
             ? {}
             : {
                 expectedSequence: request.expectedSequence,
-                clientRequestId: replyKey(request.ticketId, request.expectedSequence, request.body),
+                clientRequestId: replyKey(request.ticketId, ctx.session.userId, request.expectedSequence, request.sent ?? 0, request.body),
               }),
         },
         parseWith(supportCommentSchema),
       );
     case 'claim_next':
       return founderCall(ctx, 'support', 'claimNext', 'POST', undefined, parseWith(supportTicketSchema));
-    // The business key is the request and the trail row the person read: the same click sent twice is one change, and
-    // the next unclaim or reassign (after the trail has moved on) is a new one.
+    // The business key is the request, the person and the trail row they read: the same click sent twice is one change,
+    // and the next unclaim or reassign (after the trail has moved on) is a new one.
     case 'unclaim':
       return founderCall(
         ctx,
         'support',
         'unclaim',
         'POST',
-        { ticketId: request.ticketId, idempotencyKey: `admin-unclaim:${request.ticketId}:${request.expectedSequence}` },
+        {
+          ticketId: request.ticketId,
+          idempotencyKey: `admin-unclaim:${request.ticketId}:${ctx.session.userId}:${request.expectedSequence}`,
+        },
         parseWith(supportTicketSchema),
       );
     case 'assign':
@@ -328,7 +332,7 @@ export function runSupportAction(ctx: FounderCallContext, request: SupportAction
         {
           ticketId: request.ticketId,
           assigneeId: request.assigneeId,
-          idempotencyKey: `admin-assign:${request.ticketId}:${request.assigneeId}:${request.expectedSequence}`,
+          idempotencyKey: `admin-assign:${request.ticketId}:${ctx.session.userId}:${request.assigneeId}:${request.expectedSequence}`,
         },
         parseWith(supportTicketSchema),
       );

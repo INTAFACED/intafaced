@@ -264,3 +264,14 @@ describe('claim the next request', () => {
     expect(refused).toContain('No request is waiting to be claimed');
   });
 });
+
+describe('the address names the open request', () => {
+  it('reads the request id from /support/<id>, and nothing from the desk itself or another path', async () => {
+    const { addressTicketId } = await import('./support-desk');
+    const id = '11111111-1111-4111-8111-111111111111';
+    expect(addressTicketId(`/support/${id}`)).toBe(id);
+    expect(addressTicketId('/support')).toBeNull();
+    expect(addressTicketId('/support/not-a-request')).toBeNull();
+    expect(addressTicketId(`/crm/${id}`)).toBeNull();
+  });
+});

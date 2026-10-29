@@ -219,7 +219,14 @@ export type SupportActionRequest =
       readonly reason?: string;
     }
   | { readonly action: 'merge'; readonly ticketId: string; readonly survivorId: string; readonly reason: string }
-  | { readonly action: 'reply'; readonly ticketId: string; readonly body: string; readonly expectedSequence?: number }
+  | {
+      readonly action: 'reply';
+      readonly ticketId: string;
+      readonly body: string;
+      readonly expectedSequence?: number;
+      /** How many replies this agent has already sent from this view: the same text sent again is a new reply, a retry is not. */
+      readonly sent?: number;
+    }
   | { readonly action: 'claim_next' }
   | { readonly action: 'unclaim'; readonly ticketId: string; readonly expectedSequence: number }
   | { readonly action: 'assign'; readonly ticketId: string; readonly assigneeId: string; readonly expectedSequence: number }
@@ -292,11 +299,13 @@ export function readActionRequest(raw: Record<string, unknown>): SupportActionRe
     case 'reply':
       if (!isTicketId(raw.ticketId) || !isText(raw.body, REPLY_MAX)) return null;
       if (raw.expectedSequence !== undefined && !isSequence(raw.expectedSequence)) return null;
+      if (raw.sent !== undefined && !isSequence(raw.sent)) return null;
       return {
         action: 'reply',
         ticketId: raw.ticketId,
         body: raw.body.trim(),
         ...(raw.expectedSequence === undefined ? {} : { expectedSequence: raw.expectedSequence }),
+        ...(raw.sent === undefined ? {} : { sent: raw.sent }),
       };
     case 'claim_next':
       return Object.keys(raw).length === 1 ? { action: 'claim_next' } : null;
