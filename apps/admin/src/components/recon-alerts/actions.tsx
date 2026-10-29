@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { founderMutationHeaders } from '@/lib/founder-browser';
 import { refusalWords } from '@/lib/recon-alerts/model';
 import '../desk.css';
 
@@ -13,10 +14,17 @@ interface ApiAnswer {
 }
 
 async function post(body: Record<string, unknown>): Promise<ApiAnswer> {
+  let headers: Record<string, string>;
+  try {
+    headers = await founderMutationHeaders();
+  } catch (error) {
+    // Nothing was sent: the session nonce could not be had.
+    return { ok: false, message: error instanceof Error ? error.message : 'Your founder session is unavailable. Sign in again.' };
+  }
   try {
     const res = await fetch('/api/ledger-reconciliation/alerts', {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers,
       body: JSON.stringify(body),
     });
     return (await res.json()) as ApiAnswer;
