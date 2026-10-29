@@ -9,12 +9,12 @@ function mapError(err: unknown): never {
     throw new TRPCError({
       code: 'PRECONDITION_FAILED',
       message: userCopy(err.code),
-      // The seconds left ride the shared retry-after field, so the customer app can say how long the wait still runs.
+      // The seconds left (database clock) ride the shared retry-after field, so the customer app can say how long the wait runs.
       cause: err.availableAt
         ? {
             code: err.code,
             availableAt: err.availableAt.toISOString(),
-            details: { retryAfterSeconds: Math.max(1, Math.ceil((err.availableAt.getTime() - Date.now()) / 1000)) },
+            ...(err.secondsLeft ? { details: { retryAfterSeconds: err.secondsLeft } } : {}),
           }
         : { code: err.code },
     });

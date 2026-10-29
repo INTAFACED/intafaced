@@ -81,9 +81,10 @@ test(`${J} #4 Asking to reactivate before the wait is over is refused with the s
   await page.goto('/uc/safe');
   const card = page.getByTestId('security__card').filter({ has: page.getByRole('heading', { name: 'Freeze your account' }) });
   await card.getByLabel('Your password').fill(who.password);
+  // Taken before the click, so it is never later than the freeze the service records.
+  const frozenAt = Date.now();
   await card.getByRole('button', { name: 'Freeze my account' }).click();
   await expect(page.getByText('You froze this account').first()).toBeVisible();
-  const frozenAt = Date.now();
 
   // They sign in again and Account status names their own freeze.
   await signIn(page, who);
@@ -97,8 +98,8 @@ test(`${J} #4 Asking to reactivate before the wait is over is refused with the s
   const frozen = page.getByTestId('security__card').filter({ has: page.getByRole('heading', { name: 'You froze this account' }) });
   await frozen.getByRole('button', { name: 'Reactivate my account' }).click();
   const refusal = frozen.getByTestId('freeze__lift-refusal');
-  await expect(refusal).toHaveText(/^Too soon\. You can reactivate in \d+ seconds\.$/);
-  const left = Number((await refusal.textContent()).match(/in (\d+) seconds/)[1]);
+  await expect(refusal).toHaveText(/^Too soon\. You can reactivate in \d+ seconds?\.$/);
+  const left = Number((await refusal.textContent()).match(/in (\d+) second/)[1]);
   const elapsed = Math.ceil((Date.now() - frozenAt) / 1000);
   expect(left).toBeGreaterThanOrEqual(1);
   expect(left).toBeLessThanOrEqual(20);

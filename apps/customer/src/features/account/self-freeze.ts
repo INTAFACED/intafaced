@@ -24,7 +24,24 @@ export const LIFT_REFUSAL_KEYS: Readonly<Record<string, string>> = {
   'identity.second_factor_required': 'liftNeedsFactor',
 };
 
-/** One lift per freeze: the business key names the person and the freeze it ends, so a retry is the same request. */
+/**
+ * The wait left, in the unit a person reads: seconds under two minutes, minutes under two hours, else hours (the owner's
+ * wait is capped at 30 days). Always rounded up, so the person never comes back too early.
+ */
+export function liftWaitWords(seconds: number): {
+  key: 'liftTooSoonOneSecond' | 'liftTooSoonSeconds' | 'liftTooSoonMinutes' | 'liftTooSoonHours';
+  n: number;
+} {
+  if (seconds <= 1) return { key: 'liftTooSoonOneSecond', n: 1 };
+  if (seconds < 120) return { key: 'liftTooSoonSeconds', n: seconds };
+  if (seconds < 7200) return { key: 'liftTooSoonMinutes', n: Math.ceil(seconds / 60) };
+  return { key: 'liftTooSoonHours', n: Math.ceil(seconds / 3600) };
+}
+
+/**
+ * The step-up for a lift binds this id, so it names the person and the freeze it ends. The service keeps no reply by it:
+ * a retry after a lost answer needs a fresh confirmation, and a lift that already happened answers "not frozen".
+ */
 export function liftRequestId(userId: string, since: string): string {
   return `self-freeze-lift:${userId}:${since}`;
 }

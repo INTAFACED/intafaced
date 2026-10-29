@@ -16,6 +16,7 @@ import {
   freezeStatus,
   liftDone,
   liftRequestId,
+  liftWaitWords,
   type FreezeReason,
 } from './self-freeze';
 
@@ -84,9 +85,16 @@ export function FreezeAccount() {
       if (!mounted.current) return;
       if (!answer.ok) {
         // The step-up is asked for only once the wait has passed: the service refuses too soon before it spends one.
-        if (answer.code === 'identity.step_up_required') return setConfirming(true);
+        // Asked again after an approval was sent, the approval was refused: say so beside a fresh confirmation.
+        if (answer.code === 'identity.step_up_required') {
+          if (stepUpApprovalId) setLiftFailure(answer);
+          return setConfirming(true);
+        }
         setConfirming(false);
-        return setLiftFailure(answer);
+        setLiftFailure(answer);
+        // An unclear answer may hide a lift that happened: re-read the freeze rather than offer it again.
+        if (!answer.code || !(answer.code in LIFT_REFUSAL_KEYS || answer.code === 'identity.self_freeze_lift_too_soon')) status.reload();
+        return;
       }
       setConfirming(false);
       setNote(t('liftedNote'));
@@ -208,21 +216,22 @@ export function FreezeAccount() {
   );
 }
 
-/** A lift refusal in the card's own words: the seconds left when the service sent them, else the typed reason. */
+/** A lift refusal in the card's own words: the time left when the service sent it, else the typed reason. */
 function LiftRefusal({ failure }: { failure: Failed }) {
   const { t } = copy.useCopy();
+  let words: string | null = null;
   if (failure.code === 'identity.self_freeze_lift_too_soon') {
-    return (
-      <p className="notice" role="alert" data-testid="freeze__lift-refusal">
-        {failure.retryAfterSeconds ? t('liftTooSoonSeconds', { seconds: failure.retryAfterSeconds }) : t('liftTooSoon')}
-      </p>
-    );
+    const wait = failure.retryAfterSeconds ? liftWaitWords(failure.retryAfterSeconds) : null;
+    words = wait ? t(wait.key, { n: wait.n }) : t('liftTooSoon');
+  } else if (failure.code === 'identity.step_up_required') {
+    words = t('liftApprovalRefused');
+  } else if (failure.code && LIFT_REFUSAL_KEYS[failure.code]) {
+    words = t(LIFT_REFUSAL_KEYS[failure.code] as 'liftWaitUnset');
   }
-  const key = failure.code ? LIFT_REFUSAL_KEYS[failure.code] : undefined;
-  if (!key) return <Failure result={failure} />;
+  if (words === null) return <Failure result={failure} />;
   return (
     <p className="notice" role="alert" data-testid="freeze__lift-refusal">
-      {t(key as 'liftWaitUnset')}
+      {words}
     </p>
   );
 }
