@@ -615,7 +615,7 @@ export async function insertGovernanceProposal(
       if (!saved) throw new TokenError('Proposal could not be stored', 'token.proposal_not_found');
       // Voting power is fixed here, in the same transaction as the proposal:
       // a crash leaves neither, and stake moved later cannot change it.
-      await sealSnapshot(tx, { proposalId: saved.id, takenAt: input.now, byUser: await input.snapshot(tx) });
+      await sealSnapshot(tx, { proposalId: saved.id, takenAt: saved.created_at, byUser: await input.snapshot(tx) });
       const card = await loadProposalRow(tx, saved.id);
       if (!card) throw new TokenError('Proposal could not be reloaded', 'token.proposal_not_found');
       return card;

@@ -158,7 +158,7 @@ describe('MC-token-03 voting power and voting types', () => {
     await fundStake(USER_B, '2000');
     const proposal = await create('fixed');
     expect(proposal.snapshot).toMatchObject({ count: 2, total: amt('3000') });
-    expect(await token.proposalPower(proposal.id, USER_A)).toMatchObject({ power: amt('1000'), reason: null, takenAt: NOW });
+    expect(await token.proposalPower(proposal.id, USER_A)).toMatchObject({ power: amt('1000'), reason: null, takenAt: proposal.createdAt });
 
     // Stake opened after creation: zero power, with the reason, and no ballot.
     await fundStake(USER_C, '5000');
@@ -203,8 +203,8 @@ describe('MC-token-03 voting power and voting types', () => {
     });
     const history = await token.votingPowerHistory(USER_A, 10);
     expect(history).toEqual([
-      { proposalId: second.id, title: 'Second', takenAt: LATER, power: amt('1500') },
-      { proposalId: first.id, title: 'Proposal h1', takenAt: NOW, power: amt('1000') },
+      { proposalId: second.id, title: 'Second', takenAt: second.createdAt, power: amt('1500') },
+      { proposalId: first.id, title: 'Proposal h1', takenAt: first.createdAt, power: amt('1000') },
     ]);
     expect(await token.votingPowerHistory(USER_B, 10)).toEqual([]);
     expect(await codeOf(token.votingPowerHistory(USER_A, undefined))).toBe('token.history_list_limit_unset');
