@@ -81,6 +81,11 @@
       "value": "{\"selectCap\": 3, \"makers\": [{\"id\": \"house\", \"name\": \"House desk (TEST)\", \"route\": \"platform\"}, {\"id\": \"test-lp-1\", \"name\": \"TEST provider 1\", \"route\": \"outside\"}, {\"id\": \"test-lp-2\", \"name\": \"TEST provider 2\", \"route\": \"outside\"}, {\"id\": \"test-lp-3\", \"name\": \"TEST provider 3\", \"route\": \"outside\"}]}",
       "note": "TEST provider list for the quote desk: the house desk (the platform prices it) and three TEST outside providers, which refuse by name until outside routing exists, with at most 3 picked per request (J-copy-bots-otc-24 #2 picks four and is refused). Not real providers."
     },
+    "TRADE_OTC_CONVERT_BOUNDS": {
+      "service": "trade",
+      "value": "{\"convert\": {\"minQty\": \"0.1\", \"maxQty\": \"5\"}}",
+      "note": "TEST size range for a conversion at the desk price: 0.1 to 5 BTC, so J-copy-bots-otc-24 #9 converts 0.2 inside it, and blank it refuses trade.convert_bounds_not_set. One-click buy is left out, so it reads not set."
+    },
     "TRADE_OTC_MIDS": {
       "service": "trade",
       "value": "BTC/USDT:65000",

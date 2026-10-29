@@ -15,7 +15,7 @@ import { fundedTrader, signIn, signUp } from './desk.mjs';
 // own record of the quote (rfq.get through Edge) and the ledger balance, not only the screen. Every request asks the
 // providers it picks from the owner's TEST provider list (CB-otc-01); the steps after #2 ask the house desk.
 // Steps that are written but not built yet fail at their first missing part, quickly (UNBUILT):
-// - #5: no RFQ board grouped by status (CB-otc-02); #9: Convert has no OTC price (CB-otc-12).
+// - #5: no RFQ board grouped by status (CB-otc-02).
 const J = 'J-copy-bots-otc-24';
 const run = journeyState(`${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
 const UNBUILT = { timeout: 5_000 };
@@ -591,13 +591,100 @@ test(`${J} #8 expiry then re-price: the old quote stays expired, a new one exist
   expect(await balances()).toEqual(before);
 });
 
-test(`${J} #9 convert at the desk price: price and settle time shown, an unpublished bound refuses`, async ({ page }) => {
+/** The large-conversion panel on /convert. */
+const otcConvert = (page) => page.getByRole('region', { name: 'Large conversions at the desk price' });
+
+/** The owner's size range for a conversion at the desk price (`otc.convertBounds`), as the trader reads it. */
+async function convertBounds(client) {
+  const read = await client.get('/api/trade/trpc/otc.convertBounds');
+  expect(read.status, JSON.stringify(read.body).slice(0, 300)).toBe(200);
+  return read.body.result.data.convert;
+}
+
+/** svc-trade restarted with the convert size range blank, or back on the stack's TEST range. */
+const tradeConvertBounds = (on) => tradeSwitch('LOCAL_STACK_TRADE_OTC_CONVERT_BOUNDS', on);
+
+/** Asks the panel for the desk price on `quantity` BTC and returns the service's answer to `otc.convertQuote`. */
+async function askConvert(page, quantity) {
+  const answer = page.waitForResponse((res) => res.url().includes('otc.convertQuote'));
+  await otcConvert(page).getByRole('textbox', { name: 'Desk amount' }).fill(quantity);
+  await otcConvert(page).getByRole('button', { name: 'Get desk price' }).click();
+  return [await (await answer).json()].flat()[0];
+}
+
+/** A shown amount ("65,130.5 USDT") as exact 1e-18 units. */
+const shown = (text) => units(String(text).replace(/[^\d.]/g, ''));
+
+test(`${J} #9 Convert at the desk price: the range, the quoted price and the settle time are the desk's own, and a blank range refuses`, async ({
+  page,
+}) => {
+  test.setTimeout(240_000);
+  const me = await api(run.read().who);
   await signIn(page, run.read().who);
-  await page.goto('/convert');
-  await page
-    .getByRole('textbox', { name: /Amount/ })
-    .first()
-    .fill('0.5', UNBUILT);
-  await expect(page.getByTestId('convert-otc-price')).toContainText(/OTC price/, UNBUILT);
-  await expect(page.getByTestId('convert-otc-price')).toContainText(/Settles/);
+  await page.goto('/trade/convert');
+  const panel = otcConvert(page);
+  await expect(panel).toBeVisible();
+  // Only pairs on the desk's asset list are offered; BTC/USDT is the one the stack prices (its one TEST mid).
+  await panel.getByRole('combobox', { name: 'Desk pair' }).click();
+  await page.getByRole('option', { name: 'BTC/USDT', exact: true }).click();
+  await expect(panel.getByRole('combobox', { name: 'Desk pair' })).toContainText('BTC/USDT');
+
+  // The size range on the page is the one the desk publishes, read back.
+  const range = await convertBounds(me);
+  expect(range).not.toBeNull();
+  const rangeText = await panel.getByTestId('convert-otc-range').textContent();
+  const [, min, max] = /^Desk size range:(\S+) to (\S+) BTC$/.exec(rangeText ?? '') ?? [];
+  expect([shown(min), shown(max)]).toEqual([units(range.minQty), units(range.maxQty)]);
+
+  // A size inside the range (and inside what the account holds after #7) is priced by the desk. The price on the page is
+  // the one the service recorded for that quote, and the settle time is the desk's published window.
+  const before = await balances();
+  const priced = await askConvert(page, '0.2');
+  const answer = priced.result.data;
+  expect([answer.flow, answer.side, answer.baseAsset, answer.quoteAsset, answer.qty]).toEqual(['convert', 'buy', 'BTC', 'USDT', '0.2']);
+  const recorded = await rfq(answer.quoteId);
+  expect(recorded.lifecycle).toBe('open');
+  expect(recorded.quotedPrice).toBe(answer.quotedPrice);
+  const price = panel.getByTestId('convert-otc-price');
+  await expect(price).toBeVisible();
+  expect(shown(await price.getByTestId('convert-otc-quoted').textContent())).toBe(units(recorded.quotedPrice));
+  await expect(price.getByTestId('convert-otc-quoted')).toHaveText(/ USDT$/);
+  const windowMs = Number(await publishedWindow());
+  expect(windowMs).toBeGreaterThan(0);
+  expect(answer.settleWindowMs).toBe(windowMs);
+  await expect(price.getByTestId('convert-otc-settles')).toHaveText(`Settles within ${windowMs / 1000} s of confirming.`);
+  expect(await balances()).toEqual(before);
+
+  // Confirming binds that price and settles it once: the ledger moves by exactly the recorded fill.
+  await price.getByRole('button', { name: 'Convert at this price' }).click();
+  await expect(panel.getByTestId('convert-otc-done')).toContainText('Converted and settled');
+  const settled = await rfq(answer.quoteId);
+  expect(settled.lifecycle).toBe('settled');
+  expect(settled.fillPrice).toBe(answer.quotedPrice);
+  const after = await balances();
+  expect(held(after, 'BTC') - held(before, 'BTC')).toBe(units(settled.qty));
+  expect(held(before, 'USDT') - held(after, 'USDT')).toBe(units(settled.userNotional));
+
+  // The range left blank: the page says "Not set", a request refuses with its one code, no quote is kept and nothing moves.
+  try {
+    tradeConvertBounds(false);
+    expect(await convertBounds(me)).toBeNull();
+    await page.goto('/trade/convert');
+    await panel.getByRole('combobox', { name: 'Desk pair' }).click();
+    await page.getByRole('option', { name: 'BTC/USDT', exact: true }).click();
+    await expect(panel.getByTestId('convert-otc-range')).toHaveText(
+      'Desk size range:Not setThe desk has no size range for conversions, so a request refuses.',
+    );
+    const quotesBefore = (await listedQuotes(me)).length;
+    const balancesBefore = await balances();
+    const refused = await askConvert(page, '0.2');
+    expect(refused.error?.data?.cause?.code).toBe('trade.convert_bounds_not_set');
+    await expect(panel.getByText('Desk size range not set')).toBeVisible();
+    await expect(panel.getByTestId('convert-otc-price')).toHaveCount(0);
+    expect((await listedQuotes(me)).length).toBe(quotesBefore);
+    expect(await balances()).toEqual(balancesBefore);
+  } finally {
+    tradeConvertBounds(true);
+  }
+  expect(await convertBounds(me)).toEqual(range);
 });
