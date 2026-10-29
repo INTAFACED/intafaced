@@ -30,7 +30,7 @@ import { createHttpNavigatorTradeDataPort } from './navigator/trade-data-http-po
 import { createHttpNavigatorIdentitySessionPort } from './navigator/identity-session-http-port.js';
 import { tradeTickerPrices } from './portfolio-agent/trade-prices.js';
 import { createAgentsRouter, type AgentsRouter } from './router.js';
-import { parseReasons } from './oplog/routes.js';
+import { parseReasons, purgeExpiredTranscripts } from './oplog/routes.js';
 import { registerProcessHooks, startTelemetry } from '@intafaced/telemetry';
 
 // §9 — register the TracerProvider before the first span is created.
@@ -279,9 +279,21 @@ app.log.info(
   'svc-agents ready',
 );
 
+// Kept transcripts past their expiry go on a timer of their own, off the engine call's transaction, and whatever
+// retention is now: a row kept under an earlier retention still leaves at its own expiry.
+const purgeTranscripts = () =>
+  purgeExpiredTranscripts(sql).then(
+    (purged) => purged > 0 && app.log.info({ purged }, 'svc-agents purged expired transcripts'),
+    (err: unknown) => app.log.error({ err }, 'svc-agents transcript purge failed'),
+  );
+await purgeTranscripts();
+const transcriptPurge = setInterval(() => void purgeTranscripts(), 60 * 60 * 1000);
+transcriptPurge.unref();
+
 for (const signal of ['SIGTERM', 'SIGINT'] as const) {
   process.once(signal, () => {
     void (async () => {
+      clearInterval(transcriptPurge);
       // Draining, not dropping: an in-flight settlement finishes before exit.
       await app.close();
       await bus.close();

@@ -1232,7 +1232,6 @@ export function estimateInputTokens(system: string | undefined, messages: readon
  * so nothing outlives the retention the owner set when it was written.
  */
 async function keepTranscript(tx: Sql, actionId: string, userId: string, text: string, days: number): Promise<void> {
-  await tx`DELETE FROM agents.agent_transcripts WHERE expires_at <= now()`;
   await tx`
     INSERT INTO agents.agent_transcripts (action_id, user_id, text, expires_at)
     VALUES (${actionId}, ${userId}, ${text}, now() + make_interval(days => ${days}))

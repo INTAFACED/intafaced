@@ -19,7 +19,8 @@ export type OpsLogRefusalCode =
   | 'agents.ops_actions_limit_unset'
   | 'agents.transcript_retention_unset'
   | 'agents.transcript_not_kept'
-  | 'agents.action_not_found';
+  | 'agents.action_not_found'
+  | 'agents.log_read_request_reused';
 
 export class OpsLogRefusal extends Error {
   constructor(readonly code: OpsLogRefusalCode) {
@@ -73,6 +74,7 @@ const STATUS: Record<OpsLogRefusalCode, TRPCError['code']> = {
   'agents.transcript_retention_unset': 'PRECONDITION_FAILED',
   'agents.transcript_not_kept': 'NOT_FOUND',
   'agents.action_not_found': 'NOT_FOUND',
+  'agents.log_read_request_reused': 'CONFLICT',
 };
 
 async function guard<T>(fn: () => Promise<T>): Promise<T> {
@@ -95,7 +97,10 @@ type ReadKind = 'actions' | 'export' | 'transcript';
 export const logReadKey = (kind: ReadKind, operatorId: string, requestId: string): string =>
   `agents:logread:${kind}:${operatorId}:${requestId}`;
 
-/** Writes the read's audit row (once per key) and re-reads how many rows carry its key. */
+/**
+ * Writes the read's audit row (once per key) and re-reads how many rows carry its key. A key already written for a
+ * different customer, reason, filter or action is refused, so a reused request id never reads without its own row.
+ */
 async function recordRead(
   tx: Sql,
   read: {
@@ -116,8 +121,16 @@ async function recordRead(
             ${read.actionId}, ${read.rowCount})
     ON CONFLICT (business_key) DO NOTHING
   `;
-  const [row] = await tx<{ n: number }[]>`SELECT count(*)::int AS n FROM agents.agent_log_reads WHERE business_key = ${key}`;
-  return row?.n ?? 0;
+  const rows = await tx<{ subject_id: string; reason: string; filter: Record<string, string>; action_id: string | null }[]>`
+    SELECT subject_id, reason, filter, action_id FROM agents.agent_log_reads WHERE business_key = ${key}
+  `;
+  const same = (row: (typeof rows)[number]): boolean =>
+    row.subject_id === read.subjectId &&
+    row.reason === read.reason &&
+    row.action_id === read.actionId &&
+    JSON.stringify(Object.entries(row.filter).sort()) === JSON.stringify(Object.entries(read.filter).sort());
+  if (!rows.every(same)) throw new OpsLogRefusal('agents.log_read_request_reused');
+  return rows.length;
 }
 
 interface ActionRow {
@@ -154,12 +167,15 @@ async function readActions(
   return { rows: rows.slice(0, limit), more: rows.length > limit };
 }
 
+const TOOL_MAX = 120;
+const TOOLS_LISTED = 200;
+
 const readInput = z.object({
   userId: z.string().min(1).max(64),
   /** Optional so a missing reason reaches its named refusal, not a schema error. */
   reason: z.string().max(200).optional(),
   outcome: z.enum(OUTCOMES).optional(),
-  tool: z.string().min(1).max(120).optional(),
+  tool: z.string().min(1).max(TOOL_MAX).optional(),
   requestId: z.string().min(8).max(200),
 });
 
@@ -188,7 +204,11 @@ const filterOf = (input: z.infer<typeof readInput>): Record<string, string> => (
   ...(input.tool ? { tool: input.tool } : {}),
 });
 
-const csvCell = (value: string): string => (/[",\n\r]/.test(value) ? `"${value.replaceAll('"', '""')}"` : value);
+/** A cell a spreadsheet would run as a formula (a customer's own task string can start with `=`) is read as text. */
+const csvCell = (raw: string): string => {
+  const value = /^[=+\-@\t\r]/.test(raw) ? `'${raw}` : raw;
+  return /[",\n\r]/.test(value) ? `"${value.replaceAll('"', '""')}"` : value;
+};
 
 /** The export file: a header, then one line per row, in the order shown. No prompt or answer text. */
 export function actionsCsv(rows: readonly z.infer<typeof actionView>[]): string {
@@ -228,10 +248,12 @@ export function opsLogRouter(sql: Sql | undefined, settings: OpsLogSettings) {
           const limit = assertLimit(settings);
           return transaction(sqlOf(sql), async (tx) => {
             const { rows, more } = await readActions(tx, input.userId, input, limit);
+            // The filter offers only names it accepts back, and a bounded list of them.
             const tools = await tx<{ tool: string }[]>`
               SELECT DISTINCT coalesce(tool, task) AS tool FROM agents.agent_actions
-               WHERE user_id = ${input.userId} AND coalesce(tool, task) IS NOT NULL
+               WHERE user_id = ${input.userId} AND length(coalesce(tool, task)) BETWEEN 1 AND ${TOOL_MAX}
                ORDER BY 1
+               LIMIT ${TOOLS_LISTED}
             `;
             const auditRows = await recordRead(tx, {
               kind: 'actions',
@@ -341,4 +363,10 @@ export function opsLogRouter(sql: Sql | undefined, settings: OpsLogSettings) {
 function assertReasonsSet(settings: OpsLogSettings): readonly string[] {
   if (settings.reasons === null) throw new OpsLogRefusal('agents.log_read_reason_unset');
   return settings.reasons;
+}
+
+/** Deletes every kept transcript past its expiry, whatever retention is now. Returns how many went. */
+export async function purgeExpiredTranscripts(sql: Sql): Promise<number> {
+  const gone = await sql`DELETE FROM agents.agent_transcripts WHERE expires_at <= now()`;
+  return gone.count;
 }

@@ -53,9 +53,10 @@ export async function resolveCustomer(ctx: FounderCallContext, ref: CustomerRefe
     const exact = result.data.rows.find((row) => row.handle?.toLowerCase() === ref.value.toLowerCase());
     if (exact) return { kind: 'ok', userId: exact.id };
     cursor = result.data.nextCursor;
-    if (!cursor) break;
+    if (!cursor) return { kind: 'refused', code: 'admin.agents_log_customer_not_found', status: 404 };
   }
-  return { kind: 'refused', code: 'admin.agents_log_customer_not_found', status: 404 };
+  // More accounts start with this handle than the desk pages through: the account id finds the one meant.
+  return { kind: 'refused', code: 'admin.agents_log_handle_too_common', status: 409 };
 }
 
 export function refusalOf(result: Exclude<FounderCallResult<unknown>, { kind: 'ok' }>): { kind: 'refused'; code: string; status: number } {

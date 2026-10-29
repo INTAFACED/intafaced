@@ -23,7 +23,7 @@ import { UserSpendStore } from './spend/store.js';
 import { hashAction } from './fleet/audit.js';
 import { createAgentsRouter } from './router.js';
 import type { AgentsRouterDeps } from './router.js';
-import type { OpsLogSettings } from './oplog/routes.js';
+import { actionsCsv, purgeExpiredTranscripts, type OpsLogSettings } from './oplog/routes.js';
 
 /**
  * svc-agents — the fleet runtime end to end.
@@ -2729,6 +2729,46 @@ if (!available) {
       // Past its expiry the text is never read.
       await sql`UPDATE agents.agent_transcripts SET stored_at = now() - interval '2 days', expires_at = now() - interval '1 day' WHERE action_id = ${ranId}`;
       await expect(open(ranId, 'ops-log:t:expired')).rejects.toMatchObject({ message: 'agents.transcript_not_kept' });
+    });
+
+    it('refuses a request id reused for another customer, reason or filter, and returns nothing for it', async () => {
+      await history();
+      const read = { userId: USER_A, reason: REASONS[0], requestId: 'ops-log:reuse:1' };
+      await opsLog().actions(read);
+      for (const reused of [{ userId: USER_B }, { reason: REASONS[1] }, { outcome: 'refused' as const }]) {
+        await expect(opsLog().actions({ ...read, ...reused })).rejects.toMatchObject({
+          code: 'CONFLICT',
+          message: 'agents.log_read_request_reused',
+        });
+      }
+      // The same read retried is still the one row.
+      expect((await opsLog().actions(read)).auditRows).toBe(1);
+      const audit = await sql`SELECT subject_id, reason FROM agents.agent_log_reads`;
+      expect(audit).toEqual([{ subject_id: USER_A, reason: REASONS[0] }]);
+    });
+
+    it('writes a cell a spreadsheet would run as a formula as text in the export', () => {
+      const row = { occurredAt: '2026-10-29T00:00:00.000Z', kind: 'completion', outcome: 'refused' as const, inputDigest: null, id: 'a' };
+      const csv = actionsCsv([
+        { ...row, tool: '=HYPERLINK("https://example.invalid","x")', refusalCode: 'agents.refused.task_not_allowed' },
+        { ...row, tool: '+1', refusalCode: '@x' },
+      ]);
+      expect(csv.split('\n').slice(1, 3)).toEqual([
+        `2026-10-29T00:00:00.000Z,"'=HYPERLINK(""https://example.invalid"",""x"")",Refused,agents.refused.task_not_allowed,,a`,
+        `2026-10-29T00:00:00.000Z,'+1,Refused,'@x,,a`,
+      ]);
+    });
+
+    it('purges every kept transcript past its expiry, on its own and whatever retention is now', async () => {
+      const { ranId } = await history();
+      expect(await purgeExpiredTranscripts(sql)).toBe(0);
+      await sql`UPDATE agents.agent_transcripts SET stored_at = now() - interval '2 days', expires_at = now() - interval '1 day' WHERE action_id = ${ranId}`;
+      // An engine call with retention 0 keeps nothing and leaves the purge to the timer.
+      const session = await runtime.openSession({ userId: USER_A, agentId: 'probe' });
+      await runtime.think({ sessionId: session.id, requestId: 'ops-log-purge', task: 'plan', messages: MESSAGES });
+      expect((await sql`SELECT 1 FROM agents.agent_transcripts`).length).toBe(1);
+      expect(await purgeExpiredTranscripts(sql)).toBe(1);
+      expect((await sql`SELECT 1 FROM agents.agent_transcripts`).length).toBe(0);
     });
 
     it('needs admin:read, and an audit row is never rewritten', async () => {

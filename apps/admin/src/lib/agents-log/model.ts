@@ -33,7 +33,8 @@ export type AgentsLogAction =
   | { readonly action: 'transcript'; readonly actionId: string; readonly reason: string | null; readonly requestId: string };
 
 const REQUEST_ID = /^[A-Za-z0-9:_-]{8,200}$/;
-const TOOL = /^[A-Za-z0-9._:-]{1,120}$/;
+/** Any name svc-agents lists in the Tool filter: up to 120 characters, no control characters. */
+const TOOL = /^[^\p{Cc}]{1,120}$/u;
 
 const text = (value: unknown, max: number): string | null =>
   typeof value === 'string' && value.trim() !== '' && value.length <= max ? value.trim() : null;

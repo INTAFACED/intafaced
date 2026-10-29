@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { customerReference, OUTCOME_WORD, OUTCOMES, type Outcome } from '@/lib/agents-log/model';
 
 /**
@@ -46,6 +46,8 @@ const WORDS: Record<string, string> = {
   'agents.transcript_not_kept': 'This action’s text was not kept: retention was off when it ran, or it has expired.',
   'agents.action_not_found': 'svc-agents has no such action.',
   'admin.agents_log_customer_not_found': 'No account has this handle.',
+  'admin.agents_log_handle_too_common': 'Too many accounts start with this handle to find it here. Use the account id.',
+  'agents.log_read_request_reused': 'This request was already used for a different read. Search again.',
   'admin.agents_log_customer_invalid': 'Type the customer’s whole handle or their account id.',
 };
 
@@ -72,6 +74,9 @@ export function AgentsLogDesk({
   const [transcript, setTranscript] = useState<Transcript | null>(null);
   const [transcriptProblem, setTranscriptProblem] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [exportNote, setExportNote] = useState<string | null>(null);
+  // Only the latest read fills the table: an earlier filter's answer that lands late is dropped.
+  const latest = useRef(0);
 
   async function post(body: Record<string, unknown>): Promise<{ ok: true; data: unknown } | { ok: false; code: string }> {
     const response = await fetch('/api/agents-log', {
@@ -86,9 +91,11 @@ export function AgentsLogDesk({
   }
 
   async function read(who: string, filter: { outcome: Outcome | ''; tool: string }) {
+    const mine = ++latest.current;
     setBusy(true);
     setTranscript(null);
     setTranscriptProblem(null);
+    setExportNote(null);
     const answer = await post({
       action: 'actions',
       customer: who,
@@ -97,6 +104,7 @@ export function AgentsLogDesk({
       tool: filter.tool,
       requestId: requestId('actions'),
     });
+    if (mine !== latest.current) return;
     setBusy(false);
     if (!answer.ok) {
       setPage(null);
@@ -115,7 +123,8 @@ export function AgentsLogDesk({
       setProblem(say(answer.code));
       return;
     }
-    const { csv } = answer.data as { csv: string };
+    const { csv, rows, more } = answer.data as { csv: string; rows: number; more: boolean };
+    setExportNote(more ? `The file holds the first ${rows} matching rows; more match. Narrow the filter to export the rest.` : null);
     const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
     const link = document.createElement('a');
     link.href = url;
@@ -227,10 +236,15 @@ export function AgentsLogDesk({
                 ))}
               </select>
             </label>
-            <button type="button" className="adm-btn" onClick={() => void exportRows()}>
+            <button type="button" className="adm-btn" onClick={() => void exportRows()} disabled={busy}>
               Export CSV
             </button>
           </div>
+          {exportNote && (
+            <p className="dk-muted" role="status">
+              {exportNote}
+            </p>
+          )}
           <section aria-label="Agent actions for this customer">
             {page.items.length === 0 ? (
               <p className="dk-muted">No agent action matches this search.</p>
