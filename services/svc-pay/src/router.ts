@@ -11,7 +11,6 @@ import type { WithdrawalQuoteService } from './withdrawals/quotes/service.js';
 import {
   networkIdSchema,
   readWithdrawalNetworkRules,
-  refuseTaglessRequired,
   refuseWithdrawalTag,
   WithdrawalNetworkRuleError,
   withdrawalNetworkRulesSchema,
@@ -2225,7 +2224,6 @@ export function createPayRouter(
             // J-wallet-05 #1: a tag is refused by name before anything is claimed or held. A send inside the platform uses no
             // network, so no network's rule applies to it.
             if (tag !== undefined) await refuseWithdrawalTag(portalSql, input.assetId, internal ? undefined : input.networkId);
-            else if (!internal && input.networkId) await refuseTaglessRequired(portalSql, input.assetId, input.networkId);
             return toWithdrawalOut(
               internal
                 ? await userMoney.withdrawInternal(request)
@@ -2725,7 +2723,6 @@ export function toTrpcError(err: unknown): unknown {
       case 'pay.product_archived':
       /** The request is well-formed; the platform has no way to carry a tag on that network. */
       case 'pay.withdrawal_tag_unsupported':
-      case 'pay.withdrawal_tag_required':
         return 'PRECONDITION_FAILED' as const;
       case 'pay.invalid_transition':
       case 'pay.payout_recovery_conflict':

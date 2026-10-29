@@ -1,6 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { Principal } from '@intafaced/auth';
-import type { Sql } from 'postgres';
 import { createEdgeContext, encodePrincipal, signPrincipalHeader } from '@intafaced/contracts';
 import { createPayRouter } from '../../router.js';
 import type { PayService } from '../../payment-service.js';
@@ -36,23 +35,7 @@ function signed() {
 
 const rails = new RailRegistry([new CardSandboxAdapter({ secret: 'pay-tag-router-test-rail-secret-at-least-32', toleranceSeconds: 300 })]);
 
-/** A stand-in pay database that answers the rules read with one published pair, whose tag rule is `tag`. */
-function rulesSql(tag: 'none' | 'required') {
-  const row = {
-    asset_id: 'USDT',
-    network_id: 'stellar',
-    minimum: '1',
-    maximum: '1000',
-    step: '0.01',
-    tag,
-    version: 1,
-    set_by: USER,
-    set_at: new Date(),
-  };
-  return (async () => [row]) as unknown as Sql;
-}
-
-function caller(portalSql: Sql | null = null) {
+function caller() {
   const money = { withdraw: vi.fn(), withdrawInternal: vi.fn(), platformDestination: vi.fn(async () => ({ kind: 'external' })) };
   const gate = { assertDirectAllowed: vi.fn(async () => undefined) };
   const api = createPayRouter(
@@ -64,7 +47,7 @@ function caller(portalSql: Sql | null = null) {
     undefined,
     null,
     undefined,
-    portalSql,
+    null,
     null,
     null,
     gate,
@@ -117,23 +100,5 @@ describe('withdrawal.create with a tag', () => {
       await expect(api.withdrawal.create(beside)).rejects.toMatchObject({ code: 'BAD_REQUEST' });
     }
     expect(money.withdraw).not.toHaveBeenCalled();
-  });
-
-  it('refuses a send with no tag on a network that requires one, before anything is claimed or held', async () => {
-    const { api, money } = caller(rulesSql('required'));
-    await expect(api.withdrawal.create({ ...input, railId: 'crypto-native', networkId: 'stellar', quoteRef: 'q-1' })).rejects.toMatchObject(
-      {
-        code: 'PRECONDITION_FAILED',
-        cause: expect.objectContaining({ code: 'pay.withdrawal_tag_required' }),
-      },
-    );
-    expect(money.withdraw).not.toHaveBeenCalled();
-  });
-
-  it('lets a send with no tag through on a network that takes none', async () => {
-    const { api, money } = caller(rulesSql('none'));
-    money.withdraw.mockRejectedValueOnce(new Error('stop here'));
-    await expect(api.withdrawal.create({ ...input, railId: 'crypto-native', networkId: 'stellar', quoteRef: 'q-1' })).rejects.toBeDefined();
-    expect(money.withdraw).toHaveBeenCalledTimes(1);
   });
 });

@@ -14,7 +14,7 @@ import type { PayService } from '../../payment-service.js';
 import { CardSandboxAdapter } from '../../rails/card-sandbox.js';
 import { RailRegistry } from '../../rails/registry.js';
 import type { UserMoneyService } from '../../user-money-service.js';
-import { amountOutsideRules, refuseTaglessRequired, refuseWithdrawalTag, withdrawalNetworkRuleDualReasons } from './service.js';
+import { amountOutsideRules, refuseWithdrawalTag, withdrawalNetworkRuleDualReasons } from './service.js';
 import { parseAmount } from '@intafaced/ledger-client';
 
 /**
@@ -233,16 +233,6 @@ describe('withdrawal network rules (real Postgres)', () => {
     expect((await tagOn('stellar')).code).toBe('pay.withdrawal_tag_unsupported');
     // No database: refused as unwired, never let through.
     expect((await refused(refuseWithdrawalTag(null, 'USDT', 'ethereum'))).code).toBe('withdrawal_network_rules.unwired');
-  });
-
-  it('refuses a send with no tag on a network that requires one, and lets one on a network that takes none (J-wallet-05 #1)', async () => {
-    expect((await refused(refuseTaglessRequired(db.sql, 'USDT', 'ethereum'))).code).toBe('withdrawal_network_rules.unset');
-    await nr().save({ ...input(), ...approval });
-    await expect(refuseTaglessRequired(db.sql, 'USDT', 'ethereum')).resolves.toBeUndefined();
-    await nr().save({ ...input({ networkId: 'stellar', tag: 'required' }), ...approval });
-    const required = await refused(refuseTaglessRequired(db.sql, 'USDT', 'stellar'));
-    expect(required.code).toBe('pay.withdrawal_tag_required');
-    expect(required.message).toContain('stellar needs a tag or memo');
   });
 
   it('keeps the audit trail append-only', async () => {

@@ -418,8 +418,6 @@ export type PayErrorCode =
   | 'pay.withdrawal_tag_not_taken'
   /** A send names a tag on a network that takes one: svc-pay keeps no tag for a send, so it is refused, never dropped. */
   | 'pay.withdrawal_tag_unsupported'
-  /** A send names no tag on a network whose rules require one: refused before anything is held, never sent without it. */
-  | 'pay.withdrawal_tag_required'
   | 'pay.wallet_fee_unset'
   | 'pay.wallet_cap_unset'
   | 'pay.wallet_forbidden'

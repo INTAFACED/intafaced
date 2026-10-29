@@ -229,7 +229,7 @@ const en = {
   sFeeMode: 'A withdrawal with its fee taken out of the amount is refused, so nothing was held.',
   sTagNotTaken: 'This network takes no tag or memo, so a send with one is refused. Nothing was held.',
   sTagUnsupported: 'A send with a tag or memo on this network is refused, so nothing was held.',
-  sTagRequired: 'This network needs a tag or memo, and a send with one is refused, so nothing was held.',
+  sTagRequired: 'This network needs a tag or memo, and sends from here cannot carry one, so there is no quote and nothing was held.',
   sFeeUnbound: 'The fee for this withdrawal didn’t match what is held, so it was stopped. Our team has been alerted.',
   aEyebrow: 'Money',
   aTitle: 'Withdrawal addresses',
@@ -638,7 +638,8 @@ const es = {
   sFeeMode: 'Un retiro con la comisión descontada del importe se rechaza, así que no se retuvo nada.',
   sTagNotTaken: 'Esta red no admite etiqueta ni memo, así que un envío con uno se rechaza. No se retuvo nada.',
   sTagUnsupported: 'Un envío con etiqueta o memo en esta red se rechaza, así que no se retuvo nada.',
-  sTagRequired: 'Esta red exige etiqueta o memo, y un envío con uno se rechaza, así que no se retuvo nada.',
+  sTagRequired:
+    'Esta red exige etiqueta o memo, y los envíos desde aquí no pueden llevarlo, así que no hay cotización y no se retuvo nada.',
   sFeeUnbound: 'La comisión de este retiro no coincidía con lo retenido, así que se detuvo. Nuestro equipo ha sido avisado.',
   aEyebrow: 'Dinero',
   aTitle: 'Direcciones de retiro',
@@ -1052,7 +1053,8 @@ const fr = {
   sFeeMode: 'Un retrait dont les frais sont déduits du montant est refusé, donc rien n’a été retenu.',
   sTagNotTaken: 'Ce réseau n’accepte ni tag ni mémo, donc un envoi qui en porte un est refusé. Rien n’a été retenu.',
   sTagUnsupported: 'Un envoi avec un tag ou un mémo sur ce réseau est refusé, donc rien n’a été retenu.',
-  sTagRequired: 'Ce réseau exige un tag ou un mémo, et un envoi qui en porte un est refusé, donc rien n’a été retenu.',
+  sTagRequired:
+    'Ce réseau exige un tag ou un mémo, et les envois d’ici ne peuvent pas en porter, donc il n’y a pas de devis et rien n’a été retenu.',
   sFeeUnbound: 'Les frais de ce retrait ne correspondaient pas à ce qui est retenu, donc il a été arrêté. Notre équipe a été prévenue.',
   aEyebrow: 'Argent',
   aTitle: 'Adresses de retrait',

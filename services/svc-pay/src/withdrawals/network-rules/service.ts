@@ -213,26 +213,6 @@ export async function refuseWithdrawalTag(sql: Sql | null, assetId: string, netw
   );
 }
 
-/**
- * J-wallet-05 #1, the other half: a send out of the platform that names no tag, on a network whose rules require one, is
- * refused `pay.withdrawal_tag_required` before the claim, because the receiving wallet would lose a send without its memo.
- * Every client is held to it, not only the Withdraw form. A pair with no rules refuses `withdrawal_network_rules.unset`, never
- * a guess. With no pay database there is no rule to read and no quote to accept, so the send refuses at its quote instead.
- */
-export async function refuseTaglessRequired(sql: Sql | null, assetId: string, networkId: string): Promise<void> {
-  if (!sql) return;
-  const rules = await readWithdrawalNetworkRules(sql, assetId, networkId);
-  if (rules.tag === 'required') {
-    throw new PayError(
-      `${networkId} needs a tag or memo, and no send keeps one, so it is refused; nothing was held`,
-      'pay.withdrawal_tag_required',
-      {
-        networkId,
-      },
-    );
-  }
-}
-
 /** The customer's read of one pair's rules. A pair with no row refuses `withdrawal_network_rules.unset`. */
 export async function readWithdrawalNetworkRules(sql: Sql, assetId: string, networkId: string): Promise<WithdrawalNetworkRules> {
   const [row] = await sql<Row[]>`SELECT * FROM pay.withdrawal_network_rules WHERE asset_id = ${assetId} AND network_id = ${networkId}`;
