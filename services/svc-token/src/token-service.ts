@@ -512,6 +512,12 @@ export interface ProposalTally {
   voterCount: number;
 }
 
+/** The vote rule as read now: a minimum, or the code every vote is refused with. */
+export interface VoteRuleState {
+  minPower: Amount | null;
+  code: TokenError['code'] | null;
+}
+
 export interface ProposalDetail extends ProposalRecord {
   tally: ProposalTally;
   /** Per-choice totals and ranking for a non-basic type. Null on `basic`. */
@@ -2940,8 +2946,19 @@ export class TokenService {
   }
 
   /** The signed account's voting power on one proposal, fixed at creation. Zero carries its reason. */
-  async proposalPower(proposalId: string, userId: string): Promise<ProposalPower> {
-    return readProposalPower(this.sql, proposalId, userId);
+  async proposalPower(proposalId: string, userId: string): Promise<ProposalPower & { rule: VoteRuleState }> {
+    const power = await readProposalPower(this.sql, proposalId, userId);
+    return { ...power, rule: this.voteRuleState() };
+  }
+
+  /** Who may vote, as the pane shows it: the minimum, or the typed code a vote would be refused with. Never a default. */
+  voteRuleState(): VoteRuleState {
+    try {
+      return { minPower: parseVoteRule(this.options.voteRule ?? process.env.TOKEN_VOTE_RULE).minPower, code: null };
+    } catch (err) {
+      if (err instanceof TokenError) return { minPower: null, code: err.code };
+      throw err;
+    }
   }
 
   /** The signed account's stored voting power, one row per proposal snapshot, newest first. */

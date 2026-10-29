@@ -1245,6 +1245,10 @@ export function createTokenRouter(token: TokenService, options: TokenRouterOptio
             power: z.string(),
             reason: z.enum(['no_stake_at_creation', 'not_measured']).nullable(),
             takenAt: z.string().nullable(),
+            /** Who may vote: the minimum power, or the typed code every vote is refused with. */
+            rule: z.object({ minPower: z.string().nullable(), code: z.string().nullable() }),
+            /** The signed-vote door. Always the typed unavailable reply until a wallet link exists. */
+            signing: z.object({ available: z.literal(false), code: z.literal('token.signed_vote_unavailable') }),
           }),
         )
         .query(async ({ ctx, input }) =>
@@ -1252,7 +1256,13 @@ export function createTokenRouter(token: TokenService, options: TokenRouterOptio
             const userId = ctx.principal.userId;
             if (!userId) throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Principal required' });
             const power = await token.proposalPower(input.proposalId, userId);
-            return { ...power, power: formatAmount(power.power), takenAt: power.takenAt?.toISOString() ?? null };
+            return {
+              ...power,
+              power: formatAmount(power.power),
+              takenAt: power.takenAt?.toISOString() ?? null,
+              rule: { minPower: power.rule.minPower === null ? null : formatAmount(power.rule.minPower), code: power.rule.code },
+              signing: { available: false as const, code: 'token.signed_vote_unavailable' as const },
+            };
           }),
         ),
       history: scopedProcedure('token:read', { module: 'token' })

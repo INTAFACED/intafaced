@@ -167,6 +167,7 @@ describe('MC-token-03 voting power and voting types', () => {
       power: 0n,
       reason: 'no_stake_at_creation',
       takenAt: null,
+      rule: { minPower: 0n, code: null },
     });
     expect(await codeOf(token.castVote({ proposalId: proposal.id, userId: USER_C, choice: 'for', now: LATER }))).toBe(
       'token.no_voting_weight',
@@ -223,6 +224,8 @@ describe('MC-token-03 voting power and voting types', () => {
       expect(await codeOf(spaces.castVote({ proposalId: proposal.id, userId: USER_A, choice: 'for', now: NOW }))).toBe(
         'token.vote_rule_unset',
       );
+      expect(blank.voteRuleState()).toEqual({ minPower: null, code: 'token.vote_rule_unset' });
+      expect((await blank.proposalPower(proposal.id, USER_A)).rule).toEqual({ minPower: null, code: 'token.vote_rule_unset' });
     } finally {
       if (saved === undefined) delete process.env.TOKEN_VOTE_RULE;
       else process.env.TOKEN_VOTE_RULE = saved;
@@ -238,6 +241,7 @@ describe('MC-token-03 voting power and voting types', () => {
     expect(await codeOf(ruled.castVote({ proposalId: proposal.id, userId: USER_A, choice: 'for', now: NOW }))).toBe(
       'token.vote_rule_not_met',
     );
+    expect((await ruled.proposalPower(proposal.id, USER_A)).rule).toEqual({ minPower: amt('1500'), code: null });
     // Stake added after creation does not lift A over the rule.
     await fundStake(USER_A, '1000');
     expect(await codeOf(ruled.castVote({ proposalId: proposal.id, userId: USER_A, choice: 'for', now: NOW }))).toBe(
