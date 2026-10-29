@@ -15,7 +15,8 @@ import { tableIn } from './tables.mjs';
 // - #3: svc-trade's 400 lists every bad field with a docs link; #3 needs svc-edge request ids (branch developer-edge-errors).
 // - #4: errors carry no request id in the body (DV-errors-01, svc-edge).
 // - #5: no catalogue of auth and permission codes at /developers/errors/auth (DV-errors-02).
-// - #6: no stack tool turns the platform posting freeze on and off (`local-test-gates.mjs posting-freeze`, proposed).
+// - #6: svc-trade refuses a money call 503 posting_frozen; the stack tool that turns the freeze on and off
+//   (`local-test-gates.mjs posting-freeze on|off`) is on branch developer-gates-posting-freeze.
 // - #7: replies carry `x-request-id` only on rate-limit refusals, and no received or sent time (RC-developer-03).
 // #6 runs last: it freezes the account.
 const J = 'J-developer-04';
@@ -207,6 +208,8 @@ test(`${J} #6 calls from a frozen account, then a money call during the platform
     const order = { symbol: 'BTC/USDT', type: 'limit', side: 'buy', amount: '0.001', price: '1', clientOrderId: `jd04-${RUN}-6` };
     const money = await call('POST', '/api/v1/orders', { ...trade, body: order });
     expect(money.body?.intafacedCode, JSON.stringify(money.body)).toBe('posting_frozen');
+    // Temporary and safe to resend under the same client order id, so the retry-with-backoff status.
+    expect(money.status, JSON.stringify(money.body)).toBe(503);
     expect((await call('GET', '/api/v1/account/balance', trade)).status).toBe(200);
   } catch (error) {
     failed = error;

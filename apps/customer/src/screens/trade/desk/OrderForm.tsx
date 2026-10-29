@@ -519,8 +519,10 @@ function SideForm({
           setFailure(previewFailure(result.preview, context, market.tickSize));
         }
       }
-    } else if (result.reason === 'uncertain') {
+    } else if (result.reason === 'uncertain' && !isLedgerFrozen(result)) {
       // The order may have reached the service. Keep the marker: the desk looks it up and blocks new orders until then.
+      // Not for the posting freeze: its 503 is a typed refusal made before anything was held, so it falls through to
+      // the refusal below (orders paused), and the same order is safe to send again once the freeze lifts.
       if (mounted.current) setReview(null);
       onPlaced();
       requestCheck();

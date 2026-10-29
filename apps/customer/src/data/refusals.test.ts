@@ -6,20 +6,22 @@ import { classifyRefusal } from './refusal-codes';
 import { refusalCopy } from './refusals';
 
 describe('the platform posting freeze on the trade API (DV-errors-02)', () => {
-  it('a REST refusal with intafacedCode posting_frozen gets the same on-hold copy as ledger.frozen', async () => {
+  it('a REST refusal with intafacedCode posting_frozen gets the orders-paused copy, not the account-on-hold one', async () => {
     const api = createApiClient({
       fetch: async () =>
         new Response(
-          JSON.stringify({ code: 'ExchangeError', message: 'Ledger posting is frozen: TEST freeze', intafacedCode: 'posting_frozen' }),
-          { status: 400 },
+          JSON.stringify({ code: 'OnMaintenance', message: 'Ledger posting is frozen: TEST freeze', intafacedCode: 'posting_frozen' }),
+          { status: 503 },
         ),
     });
     const result = await api.rest('/orders', z.unknown(), { method: 'POST', body: { symbol: 'BTC/USDT' } });
-    expect(result).toMatchObject({ ok: false, code: 'posting_frozen' });
+    expect(result).toMatchObject({ ok: false, code: 'posting_frozen', status: 503 });
     const code = result.ok ? '' : (result.code ?? '');
-    expect(classifyRefusal(code)).toBe('accountOnHold');
-    expect(refusalCopy(code)).toEqual(refusalCopy('ledger.frozen'));
-    expect(refusalCopy(code).title).toBe('Your account is on hold');
+    expect(classifyRefusal(code)).toBe('ordersPaused');
+    expect(refusalCopy(code)).toEqual(refusalCopy('trade.orders_paused'));
+    expect(refusalCopy(code).title).toBe('Orders are paused right now');
+    // The account freeze is a different thing and keeps its own copy.
+    expect(classifyRefusal('ledger.frozen')).toBe('accountOnHold');
   });
 });
 
@@ -227,7 +229,7 @@ describe('classifyRefusal', () => {
       ['trade.convert_price_moved', 'priceMoved'],
       ['trade.convert_quote_expired', 'quoteExpired'],
       ['ledger.frozen', 'accountOnHold'],
-      ['posting_frozen', 'accountOnHold'],
+      ['posting_frozen', 'ordersPaused'],
       ['mfa.required', 'stepUp'],
       ['auth.mfa_required', 'mfaRequired'],
       ['bank.prices_unavailable', 'pricesDown'],

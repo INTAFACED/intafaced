@@ -1159,6 +1159,28 @@ test('fee line: this order’s rate and role from the check, and the listed pair
   await expect(buyForm(page)).toContainText('Your rates: maker 0.08% · taker 0.12%');
 });
 
+test('the platform posting freeze: a 503 posting_frozen is a refusal, not an unknown outcome; orders are paused, nothing rests, Buy works again', async ({
+  page,
+}) => {
+  const m = await mount(page);
+  await ready(page);
+  m.exchange.opts.placeMode = {
+    status: 503,
+    json: { code: 'OnMaintenance', message: 'Ledger posting is frozen: TEST freeze', intafacedCode: 'posting_frozen' },
+  };
+  await fillBuy(page, { price: '63999.9', amount: '0.0001' });
+  await openReview(page);
+  await page.getByRole('alertdialog').getByRole('button', { name: 'Confirm buy' }).click();
+  await expect(buyForm(page)).toContainText('Orders are paused right now');
+  await expect(buyForm(page)).toContainText("this one wasn't placed");
+  await expect(page.getByRole('button', { name: /Data status/ })).toContainText('Orders paused');
+  await expect(page.getByText('No open orders.')).toBeVisible();
+  // Not kept as an order that may have gone through: no pending marker, and Buy is not blocked.
+  expect(await page.evaluate(() => localStorage.getItem('trade-pending:00000000-0000-4000-8000-000000000001'))).toBeNull();
+  await expect(buyButton(page)).toBeEnabled();
+  expect(m.requests('POST', 'orders')).toHaveLength(1);
+});
+
 test('a frozen ledger: the service refuses the order with a generic error; the desk says orders are paused, nothing rests, Buy works again', async ({
   page,
 }) => {

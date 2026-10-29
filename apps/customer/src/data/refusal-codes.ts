@@ -149,8 +149,6 @@ const EXACT: Readonly<Record<string, RefusalKind>> = {
   'trade.identity_unavailable': 'tryAgain',
   'trade.account_restricted': 'accountOnHold',
   'ledger.frozen': 'accountOnHold',
-  // The trade API's name for a money call refused by svc-ledger's platform posting freeze (DV-errors-02).
-  posting_frozen: 'accountOnHold',
   'ledger.freeze': 'accountOnHold',
   'ledger.freeze_attributed': 'accountOnHold',
   'bank.space_locked': 'accountOnHold',
@@ -227,6 +225,8 @@ const EXACT: Readonly<Record<string, RefusalKind>> = {
   'trade.fee_ifc_index_unset': 'notSetUp',
   'trade.fee_ifc_discount_unavailable': 'tryAgain',
   'trade.orders_paused': 'ordersPaused',
+  // svc-ledger's platform posting freeze, as the trade API names it (DV-errors-02): every order is paused, not this account.
+  posting_frozen: 'ordersPaused',
   'trade.below_min_notional': 'belowMinimum',
   'trade.below_min_qty': 'belowMinimum',
 

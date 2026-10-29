@@ -65,12 +65,16 @@ export function refusalFailure(code: string | null | undefined, context: Refusal
  * A failed API call as words. A typed refusal (4xx with a code, or 401) gets its copy; a call that never reached
  * the service, timed out or came back unreadable is `network`: for a read that means "nothing was changed".
  */
-/** The service's answer to a frozen ledger (its useful code is only in the message). */
-export const isLedgerFrozen = (result: { message?: string }): boolean => result.message === 'ledger.frozen';
+/**
+ * The service's answer to the platform posting freeze: the trade API's `posting_frozen` (503, temporary, nothing
+ * held), or the ledger's own code where it arrives only as the message.
+ */
+export const isLedgerFrozen = (result: { message?: string; code?: string }): boolean =>
+  result.code === 'posting_frozen' || result.message === 'ledger.frozen';
 
 export function failureOf(result: Extract<ApiResult<unknown>, { ok: false }>, context: RefusalContext): Failure {
-  // The trade service reports a frozen ledger as a generic exchange error (`ExchangeError`, intafacedCode `LedgerError`) and
-  // keeps the useful code only in its message, so that one message is read as a code. It is never shown.
+  // The platform posting freeze: orders are paused for everyone, not this account. The trade API names it
+  // `posting_frozen`; an older reply carried the ledger's code only in its message, which is read as a code, never shown.
   if (isLedgerFrozen(result)) return refusalFailure('trade.orders_paused', context);
   if (result.reason === 'unauthorized') return refusalFailure('auth.required', context);
   if (result.code) return refusalFailure(result.code, context);

@@ -1,6 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import type { Preview } from '../../../features/trade/trade-api';
-import { asReplacement, failureOf, previewFailure, previewIsOrderable, previewRefusalCode, refusalFailure } from './preview';
+import {
+  asReplacement,
+  failureOf,
+  previewFailure,
+  previewIsOrderable,
+  previewRefusalCode,
+  refusalFailure,
+  isLedgerFrozen,
+} from './preview';
 
 const preview = (extra: Partial<Preview> = {}): Preview => ({
   symbol: 'BTC/USDT',
@@ -120,6 +128,17 @@ describe('refusal words', () => {
     const failure = failureOf({ ok: false, reason: 'error', message: 'ledger.frozen', code: 'ExchangeError', status: 400 }, {});
     expect(failure).toMatchObject({ kind: 'refusal', copy: { title: 'Orders are paused right now' } });
     expect(JSON.stringify(failure)).not.toMatch(/ledger|LedgerError/i);
+    // The trade API's own code for the platform posting freeze, on its 503 (a POST 5xx reads as uncertain), is paused too.
+    const posting = {
+      ok: false as const,
+      reason: 'uncertain' as const,
+      message: 'Ledger posting is frozen',
+      code: 'posting_frozen',
+      status: 503,
+    };
+    expect(isLedgerFrozen(posting)).toBe(true);
+    expect(failureOf(posting, {})).toMatchObject({ kind: 'refusal', copy: { title: 'Orders are paused right now' } });
+    expect(isLedgerFrozen({ message: 'Ledger posting is frozen', code: 'ExchangeError' })).toBe(false);
     // Any other LedgerError stays the generic refusal.
     expect(failureOf({ ok: false, reason: 'error', message: 'ledger.other', code: 'ExchangeError', status: 400 }, {})).toMatchObject({
       copy: { title: "This can't be done right now" },
