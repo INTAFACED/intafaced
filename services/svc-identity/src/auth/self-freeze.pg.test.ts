@@ -5,6 +5,7 @@ import { afterAll, describe, expect, it } from 'vitest';
 import { postgresAvailable, rewriteSchemaSql, type TestDb } from '@intafaced/db';
 import { MemoryEventBus } from '@intafaced/events';
 import { SESSION_SCOPES } from '@intafaced/auth';
+import { selfFreezeStateSchema } from '@intafaced/contracts';
 import { createTestDb } from '../fixture-truncate.testkit.js';
 import { AuthService } from './auth-service.js';
 import type { FactorActor } from './factor-gate.js';
@@ -126,6 +127,18 @@ if (!available) {
       await expect(
         auth.createApiKey({ userId: u.userId, name: 'k', scopes: ['identity:read'], grantorScopes: SESSION_SCOPES }),
       ).rejects.toMatchObject({ code: 'identity.account_frozen_self' });
+    });
+
+    it('reads to other services as frozen with its start while open, unfrozen after the lift, and null for an unknown user', async () => {
+      const u = await person();
+      const before = await auth.selfFreezeState(u.userId);
+      expect(selfFreezeStateSchema.parse(before)).toEqual({ userId: u.userId, frozen: false, since: null });
+      const done = await auth.selfFreeze({ userId: u.userId, actor: me, reason: 'compromise', password: PASSWORD });
+      const during = selfFreezeStateSchema.parse(await auth.selfFreezeState(u.userId));
+      expect(during).toEqual({ userId: u.userId, frozen: true, since: done.since.toISOString() });
+      await db.sql`UPDATE account_self_freezes SET state = 'lifted', lifted_at = now() WHERE user_id = ${u.userId}`;
+      expect(selfFreezeStateSchema.parse(await auth.selfFreezeState(u.userId))).toEqual({ userId: u.userId, frozen: false, since: null });
+      expect(await auth.selfFreezeState('00000000-0000-4000-8000-000000000000')).toBeNull();
     });
 
     it('leaves other people untouched', async () => {
