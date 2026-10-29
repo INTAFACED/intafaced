@@ -49,7 +49,7 @@ describe('desk asset list in the desk law (CB-otc-11)', () => {
 
 describe('a desk request is for an asset on the list (CB-otc-11)', () => {
   const now = () => new Date('2026-10-22T03:00:00.000Z');
-  const principal = { userId: '00000000-0000-4000-8000-000000000001' } as Principal;
+  const principal = { userId: '00000000-0000-4000-8000-000000000001', tier: 'basic' } as Principal;
   const LAW: Extract<OtcDeskLaw, { published: true }> = {
     published: true,
     spreadBps: 50,
@@ -60,6 +60,7 @@ describe('a desk request is for an asset on the list (CB-otc-11)', () => {
     // A zero desk minimum is an owner value: these quotes are not held by the CB-otc-07 minimum.
     minNotional: { USDT: 0n },
     assets: ['BTC'],
+    minTier: 'basic',
   };
   class CountingStore extends MemoryOtcQuoteStore {
     saved = 0;

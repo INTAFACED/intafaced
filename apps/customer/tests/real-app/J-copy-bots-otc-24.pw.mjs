@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { test, expect } from '@playwright/test';
 import { approverSessions, makeContext, setFeeDiscountSchedule } from '../../../../tooling/scripts/local-test-gates.mjs';
-import { api, fromUnits, fund, journeyState, toUnits, tool } from './stack.mjs';
+import { api, fromUnits, fund, journeyState, signOutBrowser, toUnits, tool } from './stack.mjs';
 import { fundedTrader, signIn, signUp } from './desk.mjs';
 
 // J-copy-bots-otc-24, in the running app (docs/roadmap/journeys.json): ask the quote desk at /otc for a firm price on a
@@ -15,7 +15,6 @@ import { fundedTrader, signIn, signUp } from './desk.mjs';
 // own record of the quote (rfq.get through Edge) and the ledger balance, not only the screen. Every request asks the
 // providers it picks from the owner's TEST provider list (CB-otc-01); the steps after #2 ask the house desk.
 // Steps that are written but not built yet fail at their first missing part, quickly (UNBUILT):
-// - #3 no verification-level gate (CB-otc-08).
 // - #5: no RFQ board grouped by status (CB-otc-02); #9: Convert has no OTC price (CB-otc-12).
 const J = 'J-copy-bots-otc-24';
 const run = journeyState(`${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
@@ -341,15 +340,75 @@ test(`${J} #2 one provider over the published cap: refused trade.otc_provider_ca
   expect(await me.balances()).toEqual(before);
 });
 
-test(`${J} #3 unverified account: the level gate refuses before any price`, async ({ page }) => {
-  test.setTimeout(180_000);
-  const unverified = await signUp(page, 'ou');
-  await signIn(page, unverified);
+test(`${J} #3 account below the desk level: refused trade.otc_level_insufficient naming both levels, nothing kept`, async ({ page }) => {
+  test.setTimeout(240_000);
+  // The desk's own level, read back from the service, not a tier this file chose.
+  const status = await deskStatus(await api(run.read().who));
+  expect(status.minTier).toBe('full');
+  expect(/(?:^| )minTier=(\S+)/.exec(status.statusLine)?.[1]).toBe(status.minTier);
+
+  // A fresh account verified at Basic only: trade opens at Basic, so the request reaches the desk, which wants Full.
+  // (An account with no verification at all is refused earlier by the trade product's own gate, denied.kyc_required.)
+  const below = await signUp(page, 'ob');
+  await page.goto('/verification');
+  await page.getByLabel('Level to request').selectOption({ label: 'Basic' });
+  await page.getByLabel('Country code').fill('DE');
+  await page.getByRole('button', { name: 'Review request' }).click();
+  await page.getByRole('button', { name: 'Submit this request' }).click();
+  await expect(page.getByText('Your reviewed request')).toBeVisible();
+  tool('local-test-gates.mjs', 'verify');
+  const gates = tool('local-test-gates.mjs', 'status');
+  const tiers = JSON.parse(gates.slice(gates.indexOf('{'))).accounts.find((a) => a.handle === below.handle)?.tiers;
+  expect(tiers).toContain('basic');
+  expect(tiers).not.toContain('full');
+  await signOutBrowser(page.context());
+
+  // TEST USDT on the account, so a hold or a posting would show in its balances.
+  expect(fund(below.email, 'USDT', '50000').tx).toBeTruthy();
+  const them = await api(below);
+  const before = await them.balances();
+  const quotes = await listedQuotes(them);
+
+  await signIn(page, below);
   await page.goto('/otc');
-  await request(page).getByRole('textbox', { name: 'Quantity' }).fill('0.5', UNBUILT);
-  await page.getByRole('button', { name: 'Request price' }).click(UNBUILT);
-  await expect(page.getByRole('alert')).toContainText('verification level', UNBUILT);
+  await expect(desk(page)).toBeVisible();
+  // The room names the level before anything is typed.
+  await expect(desk(page)).toContainText('Verification levelFull and above');
+  // A size and provider the house desk prices for the verified trader in #6, so only the level can refuse it.
+  expect(await askRefused(page, '0.5')).toBe('trade.otc_level_insufficient');
+  await expect(page.getByText('trade.otc_level_insufficient')).toBeVisible();
+  await expect(
+    page.getByText(`The desk prices for ${status.minTier} verification and above. Your account is at basic.`, { exact: false }),
+  ).toBeVisible();
   await expect(card(page)).toHaveCount(0);
+
+  // Re-read after the refusal: no quote was recorded and nothing moved or was held.
+  expect(await listedQuotes(them)).toEqual(quotes);
+  expect(await them.balances()).toEqual(before);
+});
+
+test(`${J} #3 level unpublished: even a verified account is refused trade.otc_level_unset, nothing kept`, async ({ page }) => {
+  test.setTimeout(300_000);
+  const me = await api(run.read().who);
+  try {
+    tradeSwitch('LOCAL_STACK_TRADE_OTC_MIN_TIER', false);
+    const status = await deskStatus(me);
+    expect(status.minTier).toBeNull();
+    expect(/(?:^| )minTier=(\S+)/.exec(status.statusLine)?.[1]).toBe('unset');
+    const before = await me.balances();
+    const quotes = await listedQuotes(me);
+    await openOtc(page);
+    await expect(desk(page)).toContainText('Verification levelNot set');
+    expect(await askRefused(page, '0.5')).toBe('trade.otc_level_unset');
+    await expect(page.getByText('trade.otc_level_unset')).toBeVisible();
+    await expect(page.getByText('The desk has no verification level set, so a request cannot be sent.', { exact: false })).toBeVisible();
+    await expect(card(page)).toHaveCount(0);
+    expect(await listedQuotes(me)).toEqual(quotes);
+    expect(await me.balances()).toEqual(before);
+  } finally {
+    tradeSwitch('LOCAL_STACK_TRADE_OTC_MIN_TIER', true);
+  }
+  expect((await deskStatus(me)).minTier).toBe('full');
 });
 
 test(`${J} #4 size under the published minimum: refused trade.rfq_below_minimum, the message carries that minimum`, async ({ page }) => {
