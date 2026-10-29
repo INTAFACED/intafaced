@@ -94,6 +94,8 @@ test(`${J} #2 sets a per-call, a per-session and a per-period cap: the lower of 
   await expect(limits(page).getByTestId('effective-per-session')).toHaveText('0.01 USDT applies');
   await expect(field(/^Per session/)).toHaveValue('0.02');
   const before = await ledgerBalances(agents.account());
+  await session(page).getByRole('button', { name: 'Open a session' }).click();
+  await expect(session(page).getByText('Session open:')).toBeVisible();
   await session(page)
     .getByRole('textbox', { name: /^Ask the agent/ })
     .fill('TEST question');
