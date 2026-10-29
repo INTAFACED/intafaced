@@ -30,6 +30,7 @@ import { createHttpNavigatorTradeDataPort } from './navigator/trade-data-http-po
 import { createHttpNavigatorIdentitySessionPort } from './navigator/identity-session-http-port.js';
 import { tradeTickerPrices } from './portfolio-agent/trade-prices.js';
 import { createAgentsRouter, type AgentsRouter } from './router.js';
+import { parseReasons } from './oplog/routes.js';
 import { registerProcessHooks, startTelemetry } from '@intafaced/telemetry';
 
 // §9 — register the TracerProvider before the first span is created.
