@@ -1,7 +1,7 @@
 import { randomBytes } from 'node:crypto';
 import path from 'node:path';
 import { test, expect } from '@playwright/test';
-import { ROOT, fund, mailedCodes, mailedLines, nextMailedCode, signUpInBrowser } from './stack.mjs';
+import { ROOT, api, fund, mailedCodes, mailedLines, nextMailedCode, signUpInBrowser, toUnits } from './stack.mjs';
 import { verify } from './desk.mjs';
 import { PASSKEY_ORIGIN, addAuthenticator, addPasskey, virtualAuthenticator } from './identity-factors.mjs';
 
@@ -264,6 +264,38 @@ function founders() {
   return founderSessions;
 }
 
+let treasuryToken;
+/**
+ * What the ledger itself holds free for `userId` (its `available` accounts at `user:<id>`), in units per asset, read
+ * at svc-ledger's operator account search with the console's TEST treasury credential (founder a, second factor). A
+ * frozen owner cannot sign in, so their balances are read as an operator reads them.
+ */
+async function ledgerFree(userId) {
+  const { gates, ctx } = await founders();
+  treasuryToken ??= await gates.consoleTreasuryToken(ctx, { ttlSeconds: 900 });
+  expect(treasuryToken, 'the stack has no enrolled founder pair').toBeTruthy();
+  const res = await fetch(`${ctx.url('ledger')}/operator/accounts?prefix=${encodeURIComponent(`user:${userId}`)}`, {
+    headers: { authorization: `Bearer ${treasuryToken}` },
+  });
+  const text = await res.text();
+  expect(res.status, text).toBe(200);
+  const page = JSON.parse(text);
+  expect(page.nextCursor, 'one page holds every account of one owner').toBeNull();
+  const free = {};
+  for (const row of page.accounts) {
+    if (row.address !== `user:${userId}` || row.kind !== 'available') continue;
+    free[row.assetId] = (free[row.assetId] ?? 0n) + toUnits(row.balance);
+  }
+  return free;
+}
+
+/** The free balance per asset the customer's own API answers, in units. */
+async function apiFree(client) {
+  const out = {};
+  for (const [asset, b] of Object.entries(await client.balances())) out[asset] = toUnits(b.free);
+  return out;
+}
+
 /** One identity call as a member of Support (founder `a` or `b` of the local stack), answering its data or its refusal. */
 async function support(kind, procedure, input, founder = 'a') {
   const { ctx, sessions } = await founders();
@@ -442,6 +474,8 @@ test.describe('recovery keys', () => {
     await expect(heirSetupPage).not.toHaveURL(/\/login/);
     await verify(heirSetupPage, heir);
     await heirSetup.close();
+    const heirApi = await api(heir);
+    const heirBefore = await apiFree(heirApi);
     expect(fund(owner.email, 'USDT', '125').tx).toBeTruthy();
     expect(fund(owner.email, 'BTC', '0.02').tx).toBeTruthy();
     // Two staff confirm a death notice on the owner (RC-identity-02). Recording it changes nothing; without a second
@@ -458,6 +492,10 @@ test.describe('recovery keys', () => {
     });
     expect(recorded.data, recorded.text).toMatchObject({ status: 'received', userId: ownerId });
     const { noticeId } = recorded.data;
+    // Before the claim, the ledger holds exactly the funded amounts free on the owner.
+    const ownerBefore = await ledgerFree(ownerId);
+    expect(ownerBefore.USDT).toBe(toUnits('125'));
+    expect(ownerBefore.BTC).toBe(toUnits('0.02'));
     const alone = await support('mutate', 'deathNotice.confirm', { noticeId, approvalId: 'apr-none' });
     expect(alone.text).toContain('identity.death_notice_approval_required');
     const { gates, ctx, sessions } = await founders();
@@ -501,11 +539,21 @@ test.describe('recovery keys', () => {
     await expect(moved).not.toContainText('Refused');
     await expect(heirPage.getByText('Nothing is left to move.')).toBeVisible();
     await expect(heirPage.getByText(/^Claimed /)).toBeVisible();
+    // The ledger, not the page: the heir gained exactly 125 USDT and 0.02 BTC, and the owner holds nothing free.
+    const heirAfter = await apiFree(heirApi);
+    expect(heirAfter.USDT ?? 0n).toBe((heirBefore.USDT ?? 0n) + toUnits('125'));
+    expect(heirAfter.BTC ?? 0n).toBe((heirBefore.BTC ?? 0n) + toUnits('0.02'));
+    const ownerAfter = await ledgerFree(ownerId);
+    expect(ownerAfter.USDT ?? 0n).toBe(0n);
+    expect(ownerAfter.BTC ?? 0n).toBe(0n);
     // Claiming again moves nothing twice.
     await heirPage.getByLabel('Recovery key 1').fill(keys[0]);
     await heirPage.getByLabel('Recovery key 2').fill(keys[1]);
     await heirPage.getByRole('button', { name: 'Sign and claim' }).click();
     await expect(heirPage.getByText('Nothing new to move. Everything free was moved already.')).toBeVisible({ timeout: 20_000 });
+    // The second claim moved nothing, by balance: both sides read exactly what they read after the first.
+    expect(await apiFree(heirApi)).toEqual(heirAfter);
+    expect(await ledgerFree(ownerId)).toEqual(ownerAfter);
     await heirContext.close();
   });
 });
