@@ -139,6 +139,99 @@ describe('header search: where a page lives and the Help group', () => {
     expect(host.textContent).toContain('Help articles are hidden: no limit for the number of results is set.');
   });
 
+  it('counts a submitted search that found nothing once, with no words or session in the call, and Enter opens Help', async () => {
+    fetcher.mockImplementation(async (url: string) =>
+      String(url).includes('/api/v1/markets')
+        ? new Response(JSON.stringify([]), { status: 200 })
+        : String(url).includes('home.config')
+          ? new Response(
+              JSON.stringify({ result: { data: { workListCap: null, workListOrder: null, searchResultCap: null, revision: 0 } } }),
+              {
+                status: 200,
+              },
+            )
+          : new Response('{}', { status: 503 }),
+    );
+    await mount();
+    await type('zzqx nothing here');
+    expect(host.textContent).toContain('No results for "zzqx nothing here"');
+    await press('Enter', input());
+    expect(window.location.pathname).toBe('/support');
+    // Reopened on the same words (the panel unmounts on close): still one count.
+    await act(async () => input().focus());
+    await type('zzqx nothing');
+    await type('zzqx nothing here');
+    expect(panel()).not.toBeNull();
+    expect(host.textContent).toContain('No results for "zzqx nothing here"');
+    await press('Enter', input());
+    const misses = fetcher.mock.calls.filter(([url]) => String(url).includes('navMetrics.searchMiss'));
+    expect(misses).toHaveLength(1);
+    const [url, init] = misses[0] as [string, RequestInit];
+    expect(url).not.toContain('zzqx');
+    expect(String(init.body ?? '')).not.toContain('zzqx');
+    expect(JSON.parse(String(init.body))).toEqual({ kind: 'search_miss' });
+    expect(new Headers(init.headers).has('authorization')).toBe(false);
+  });
+
+  it('counts a miss once "No results" has stood for a moment, without Enter, and not the words passed while typing', async () => {
+    fetcher.mockImplementation(async (url: string) =>
+      String(url).includes('/api/v1/markets')
+        ? new Response(JSON.stringify([]), { status: 200 })
+        : String(url).includes('home.config')
+          ? new Response(
+              JSON.stringify({ result: { data: { workListCap: null, workListOrder: null, searchResultCap: null, revision: 0 } } }),
+              { status: 200 },
+            )
+          : new Response('{}', { status: 503 }),
+    );
+    const misses = () => fetcher.mock.calls.filter(([url]) => String(url).includes('navMetrics.searchMiss'));
+    await mount();
+    await type('zzqx');
+    await type('zzqx nothing');
+    expect(misses()).toHaveLength(0);
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 1_400)));
+    expect(misses()).toHaveLength(1);
+    await press('Enter', input());
+    expect(misses()).toHaveLength(1);
+  });
+
+  it('counts a one-letter search that found nothing, which Help is not asked about', async () => {
+    fetcher.mockImplementation(async (url: string) =>
+      String(url).includes('/api/v1/markets') ? new Response(JSON.stringify([]), { status: 200 }) : new Response('{}', { status: 503 }),
+    );
+    await mount();
+    await type('ζ');
+    expect(host.textContent).toContain('No results for "ζ"');
+    await press('Enter', input());
+    expect(fetcher.mock.calls.filter(([url]) => String(url).includes('navMetrics.searchMiss'))).toHaveLength(1);
+  });
+
+  it('counts nothing while a group failed to answer, since it may have found something', async () => {
+    fetcher.mockImplementation(async (url: string) =>
+      String(url).includes('/api/v1/markets') ? new Response(JSON.stringify([]), { status: 200 }) : new Response('{}', { status: 503 }),
+    );
+    await mount();
+    await type('zzqx nothing here');
+    expect(host.textContent).toContain('Help articles did not load.');
+    await press('Enter', input());
+    expect(fetcher.mock.calls.filter(([url]) => String(url).includes('navMetrics.searchMiss'))).toHaveLength(0);
+  });
+
+  it('does not count a search where Help found an article', async () => {
+    helpCap = 3;
+    await mount();
+    await type('zzqx nothing here');
+    await press('Enter', input());
+    expect(fetcher.mock.calls.filter(([url]) => String(url).includes('navMetrics.searchMiss'))).toHaveLength(0);
+  });
+
+  it('does not count a search that found something', async () => {
+    await mount();
+    await type('earn');
+    await press('Enter', input());
+    expect(fetcher.mock.calls.filter(([url]) => String(url).includes('navMetrics.searchMiss'))).toHaveLength(0);
+  });
+
   it('opens on "/" outside a field, but a "/" typed into a field stays a character', async () => {
     await mount();
     expect(panel()).toBeNull();
