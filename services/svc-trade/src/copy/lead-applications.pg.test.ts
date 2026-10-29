@@ -74,8 +74,8 @@ describe('lead applications', () => {
       code: 'trade.copy_lead_application_open',
     });
     await expect(desk.apply(customer(ALICE), { displayName: '   ' })).rejects.toMatchObject({ code: 'trade.copy_lead_name_invalid' });
-    const [{ n }] = await sql()<Array<{ n: number }>>`SELECT count(*)::int AS n FROM trade.copy_lead_applications`;
-    expect(n).toBe(1);
+    const [count] = await sql()<Array<{ n: number }>>`SELECT count(*)::int AS n FROM trade.copy_lead_applications`;
+    expect(count!.n).toBe(1);
     expect(await desk.mine(customer(ALICE))).toMatchObject({ applicationId: first.applicationId, state: 'submitted' });
     expect(await desk.mine(customer(BOB))).toBeNull();
   });
@@ -108,7 +108,8 @@ describe('lead applications', () => {
     const criteria = await desk.setCriteria(founder(FOUNDER_A), { minTrackRecordDays: 30, clientRequestId: 'crit-1' });
     expect(criteria.minTrackRecordDays).toBe(30);
     await desk.setCriteria(founder(FOUNDER_A), { minTrackRecordDays: 30, clientRequestId: 'crit-1' });
-    const [{ n: rows }] = await sql()<Array<{ n: number }>>`SELECT count(*)::int AS n FROM trade.copy_lead_criteria`;
+    const [criteriaCount] = await sql()<Array<{ n: number }>>`SELECT count(*)::int AS n FROM trade.copy_lead_criteria`;
+    const rows = criteriaCount!.n;
     expect(rows).toBe(1);
 
     fileApproval(approvals, a.applicationId, 'TEST lead a', 30, 'appr-1');
