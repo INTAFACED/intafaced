@@ -1,0 +1,10 @@
+{
+  "label": "TEST: CX-8 rig and local test stack only. Not an owner decision and not a product default.",
+  "values": {
+    "MARKET_HOUSE_COMMISSION_BPS": {
+      "service": "market",
+      "value": "100",
+      "note": "TEST house commission of 1% on a Market sale, so a journey can list and buy, and the commission leg posts. Blank in production refuses market.commission_not_configured."
+    }
+  }
+}

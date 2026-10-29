@@ -497,9 +497,13 @@ describe('MC-token-01 governance home', () => {
             return { ok: false as const, err };
           },
         );
+        // Wait on a clock, not a poll count. Reaching the stake lock takes several round trips (and on a busy
+        // runner a fresh pool connection), which a fixed count of fast polls can outrun. A create that does not
+        // wait settles first, which ends the loop and fails below with its outcome.
         let saw = false;
-        for (let i = 0; i < 80 && !saw && settled === null; i += 1) {
-          for (let step = 0; step < 5; step += 1) await new Promise((resolve) => setImmediate(resolve));
+        const deadline = Date.now() + 20_000;
+        while (!saw && settled === null && Date.now() < deadline) {
+          await new Promise((resolve) => setTimeout(resolve, 10));
           const rows = await tx<Array<{ n: number }>>`
             SELECT count(*)::int AS n
               FROM pg_stat_activity

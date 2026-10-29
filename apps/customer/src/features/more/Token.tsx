@@ -11,6 +11,8 @@ import { EmissionEpoch, TokenHoldings } from './TokenHoldings';
 import { Details, Limit, Read, Select, presentActionFailure, useAction } from './common';
 import { governanceCopy as G } from './token-governance-copy';
 import { GovernanceDelegation, GovernanceProposals, GovernanceSpace, GovernanceTreasury } from './GovernanceRoom';
+import { BuybackRuns } from './BuybackRuns';
+import { buybackRunsCopy } from './buyback-runs-copy';
 import {
   ChoiceBallot,
   ChoiceTallyView,
@@ -227,8 +229,8 @@ function proposalDetailSchema(id: string) {
     }
   });
 }
-export type TokenTab = 'Staking' | 'Governance' | 'Economy';
-/** `tab`: the section an address such as /token/economy opens on. */
+export type TokenTab = 'Staking' | 'Governance' | 'Economy' | 'Burn';
+/** `tab`: the section an address such as /token/economy or /token/burn opens on. */
 export function Token({ tab: first }: { tab?: TokenTab } = {}) {
   const { hideBalances } = usePreferences();
   const api = useApi(),
@@ -266,8 +268,13 @@ export function Token({ tab: first }: { tab?: TokenTab } = {}) {
   return (
     <div className="more-grid">
       <Tabs
-        items={['Staking', 'Governance', 'Economy']}
-        labels={{ Staking: copyText('token.staking'), Governance: copyText('token.governance'), Economy: copyText('token.economy') }}
+        items={['Staking', 'Governance', 'Economy', 'Burn']}
+        labels={{
+          Staking: copyText('token.staking'),
+          Governance: copyText('token.governance'),
+          Economy: copyText('token.economy'),
+          Burn: buybackRunsCopy.t('tab'),
+        }}
         value={tab}
         onChange={(value) => setTab(value as TokenTab)}
         label={copyText('token.token.sections')}
@@ -376,7 +383,7 @@ export function Token({ tab: first }: { tab?: TokenTab } = {}) {
           <GovernanceDelegation />
           <GovernanceTreasury />
         </div>
-      ) : (
+      ) : tab === 'Burn' ? (
         <div className="more-columns">
           <Panel title={copyText('token.recorded.burn')}>
             <Read resource={burned.resource} retry={burned.reload}>
@@ -389,6 +396,10 @@ export function Token({ tab: first }: { tab?: TokenTab } = {}) {
               )}
             </Read>
           </Panel>
+          <BuybackRuns />
+        </div>
+      ) : (
+        <div className="more-columns">
           <EmissionEpoch />
           <Panel title={copyText('token.economy.boundaries')}>
             <p>
