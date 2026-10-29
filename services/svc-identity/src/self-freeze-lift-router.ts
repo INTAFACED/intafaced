@@ -9,7 +9,14 @@ function mapError(err: unknown): never {
     throw new TRPCError({
       code: 'PRECONDITION_FAILED',
       message: userCopy(err.code),
-      cause: err.availableAt ? { code: err.code, availableAt: err.availableAt.toISOString() } : { code: err.code },
+      // The seconds left (database clock) ride the shared retry-after field, so the customer app can say how long the wait runs.
+      cause: err.availableAt
+        ? {
+            code: err.code,
+            availableAt: err.availableAt.toISOString(),
+            ...(err.secondsLeft ? { details: { retryAfterSeconds: err.secondsLeft } } : {}),
+          }
+        : { code: err.code },
     });
   }
   return toSecurityStepUpTrpc(err);
