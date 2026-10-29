@@ -10,6 +10,7 @@ import {
   CALL_COST,
   REST_REFERENCE,
   SIGN_WINDOW_SECONDS,
+  STREAM_DOOR_PATH,
   STREAM_REFERENCE,
   openApiDocument,
   permissionTable,
@@ -82,14 +83,46 @@ describe('the published route list matches what the services really mount', () =
       ).toBe(true);
   });
 
-  it('lists every contract stream with its privacy', () => {
-    const block = contract.slice(contract.indexOf('export const WS_CHANNELS'), contract.indexOf('export type WsChannel'));
-    const channels = [...block.matchAll(/^\s+(\w+): \{ private: (true|false)/gm)].map((match) => ({
-      channel: match[1],
-      private: match[2] === 'true',
-    }));
-    expect(channels.length).toBeGreaterThan(0);
-    expect(STREAM_REFERENCE.map(({ channel, private: isPrivate }) => ({ channel, private: isPrivate }))).toEqual(channels);
+  it('lists every channel svc-ws serves, door by door, each once, with its privacy and its door path', () => {
+    /** The quoted names in `export const <name> ... = [...]`, or the one in `export const <name> = '...'`. */
+    const served = (file: string, name: string) => {
+      const match = new RegExp(`export const ${name}\\b[^=]*= (\\[[^\\]]*\\]|'[^']*')`).exec(repo(`services/svc-ws/src/${file}`));
+      expect(match, `${name} in ${file}`).not.toBeNull();
+      return [...match![1]!.matchAll(/'([^']+)'/g)].map((quoted) => quoted[1]!);
+    };
+    const marketPath = served('ws/gateway.ts', 'STREAM_PATH')[0];
+    const doors = {
+      market: { channels: served('ws/gateway.ts', 'STREAM_CHANNELS'), path: marketPath, private: false },
+      mux: {
+        channels: [...served('mux/protocol.ts', 'MUX_CHANNELS'), ...served('mux/protocol.ts', 'FUTURES_MARK_PREFIX')],
+        path: marketPath,
+        private: false,
+      },
+      private: {
+        channels: served('private/gateway.ts', 'PRIVATE_CHANNELS'),
+        path: served('private/gateway.ts', 'PRIVATE_STREAM_PATH')[0],
+        private: true,
+      },
+      'drop-copy': {
+        channels: served('drop-copy/hub.ts', 'DROP_COPY_CHANNEL'),
+        path: served('drop-copy/gateway.ts', 'DROP_COPY_STREAM_PATH')[0],
+        private: true,
+      },
+    };
+    const expected = Object.entries(doors).flatMap(([door, entry]) =>
+      entry.channels.map((channel) => ({ door, channel, private: entry.private })),
+    );
+    expect(expected).toHaveLength(11);
+    expect(STREAM_REFERENCE.map(({ door, channel, private: isPrivate }) => ({ door, channel, private: isPrivate }))).toEqual(expected);
+    expect(STREAM_DOOR_PATH).toEqual(Object.fromEntries(Object.entries(doors).map(([door, entry]) => [door, entry.path])));
+    // Each stream sits under the product svc-ws gives it (`STREAM_PRODUCTS`, served on every `/streams` entry).
+    const products = /export const STREAM_PRODUCTS\b[^=]*= \{([^}]*)\}/.exec(repo('services/svc-ws/src/stream-inventory.ts'));
+    expect(products, 'STREAM_PRODUCTS in stream-inventory.ts').not.toBeNull();
+    const productOf = Object.fromEntries([...products![1]!.matchAll(/'([^']+)': '([^']+)'/g)].map((m) => [m[1]!, m[2]!]));
+    expect(Object.keys(productOf)).toEqual(expected.map(({ door, channel }) => `${door} ${channel}`));
+    expect(STREAM_REFERENCE.map(({ door, channel, product }) => `${door} ${channel} ${product}`)).toEqual(
+      Object.entries(productOf).map(([key, product]) => `${key} ${product}`),
+    );
   });
 
   it('states the scope rule, the call cost and the signing window the edge enforces', () => {

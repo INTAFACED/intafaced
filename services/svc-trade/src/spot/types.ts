@@ -567,6 +567,10 @@ export type TradeErrorCode =
   | 'trade.otc_already_settled'
   | 'trade.otc_settle_refused'
   | 'trade.rfq_missing_size'
+  /** CB-otc-07: the owner has not set the desk minimum for this quote asset; the request refuses. */
+  | 'trade.rfq_size_not_set'
+  /** CB-otc-07: the request's notional at the reference mid is below the owner's desk minimum. */
+  | 'trade.rfq_below_minimum'
   | 'trade.rfq_missing_price'
   | 'trade.rfq_already_bound'
   | 'trade.rfq_allocation_refused'

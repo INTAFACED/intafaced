@@ -104,8 +104,38 @@ const BY_SUPPORT_CODE: Readonly<Record<string, Entry>> = {
   },
   'support.not_lead': {
     title: 'Only a lead can do that',
-    body: 'Setting another person’s availability, and making or changing desk groups, need the lead role. Anyone on the staff list can set their own availability.',
+    body: 'Giving a request to someone else, setting another person’s availability, and making or changing desk groups need the lead role. Anyone on the staff list can set their own availability.',
     next: 'Nothing was changed.',
+  },
+  'support.stale_ticket': {
+    title: 'The request changed since you opened it',
+    body: 'Someone else changed this request after you read it, so your change was not made. The changes are listed below.',
+    next: 'Nothing was written. Read the changes, then send again if it still fits.',
+  },
+  'support.claim.queue_empty': {
+    title: 'No request is waiting to be claimed',
+    body: 'svc-support has no open or waiting request without an owner that you may see.',
+    next: 'Nothing was claimed. Read the queue again later.',
+  },
+  'support.claim.already_claimed': {
+    title: 'Someone else already holds this request',
+    body: 'svc-support gives a request to one person at a time, and another person claimed it first.',
+    next: 'Nothing was changed. Read the request again to see who holds it.',
+  },
+  'support.release.not_assignee': {
+    title: 'Only the person holding the request can unclaim it',
+    body: 'svc-support lets only the request’s owner hand it back to the queue. A lead can give it to someone else instead.',
+    next: 'Nothing was changed.',
+  },
+  'support.release.not_queueable': {
+    title: 'This request cannot go back to the queue',
+    body: 'Only an open or waiting request can be handed back.',
+    next: 'Nothing was changed. Read the request again to see its status.',
+  },
+  'support.assign.not_queueable': {
+    title: 'This request cannot be given to someone',
+    body: 'Only an open or waiting request can be given to a person.',
+    next: 'Nothing was changed. Read the request again to see its status.',
   },
   'support.group_unknown': {
     title: 'No such group',
@@ -179,8 +209,8 @@ export function explainSupportFailure(result: FounderCallFailure<unknown>): Refu
   switch (result.kind) {
     case 'forbidden': {
       const staffCode = supportCodeOf(result.refusal.message, result.refusal.code);
-      if (staffCode === 'support.not_staff' || staffCode === 'support.not_lead')
-        return { ...BY_SUPPORT_CODE[staffCode]!, code: staffCode, changed: 'no' };
+      // A refusal svc-support names (not a lead, not the request's owner) is that refusal, not a missing permission.
+      if (staffCode && BY_SUPPORT_CODE[staffCode]) return { ...BY_SUPPORT_CODE[staffCode], code: staffCode, changed: 'no' };
       if (result.refusal.status === 401) return explainRefusal('admin.session_required', 401, false);
       return {
         title: SUPPORT_OPS_FORBIDDEN,

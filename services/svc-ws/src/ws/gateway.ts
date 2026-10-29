@@ -113,7 +113,9 @@ function probeWithinBound(probe: Promise<NativeL3Probe>, boundMs: number): Promi
 
 export const STREAM_PATH = '/stream';
 
-export type StreamChannel = 'depth' | 'trades';
+/** The channels `/stream?market=<id>&channel=` serves; `parseChannel` accepts exactly these. */
+export const STREAM_CHANNELS = ['depth', 'trades'] as const;
+export type StreamChannel = (typeof STREAM_CHANNELS)[number];
 
 export interface WebSocketGatewayOptions {
   readonly server: Server;
@@ -200,10 +202,10 @@ function reject(socket: Duplex, status: number, message: string): void {
   socket.destroy();
 }
 
-function parseChannel(raw: string | null): StreamChannel | null {
-  if (raw === null || raw === '' || raw === 'depth') return 'depth';
-  if (raw === 'trades') return 'trades';
-  return null;
+/** `null` = unknown (caller 400s). Omitted or empty = `depth`. */
+export function parseChannel(raw: string | null): StreamChannel | null {
+  if (raw === null || raw === '') return 'depth';
+  return (STREAM_CHANNELS as readonly string[]).includes(raw) ? (raw as StreamChannel) : null;
 }
 
 export function createWebSocketGateway(options: WebSocketGatewayOptions): WebSocketGateway {

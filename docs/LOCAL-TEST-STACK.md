@@ -41,7 +41,7 @@ Helpers also check that this folder's Postgres and recorded services still own t
 
 Real: the code. Identity, Ledger, Trade, Matching, Pay, Bank and Edge are the repository's own services, running their own migrations against a real Postgres and a real NATS JetStream. Funds move only through the ledger (`packages/ledger-client` recipes into `svc-ledger`); amounts are decimal strings on the wire.
 
-Test: the money. `local:fund` posts a `deposit` recipe on rail `local-test` with reference `LOCAL-TEST-<timestamp>-<id>`, so every entry is labelled. It refuses unless the marker file exists and the database is `127.0.0.1` on the stack's port. No bank, card, chain or exchange feed is connected. Prices, bank cards, on-chain Pay, WebSocket (`/ws` returns 503) and loans' price marks are unavailable. Background money jobs in Bank (scheduled transfers, auto-invest, interest, loan accrual) are switched off.
+Test: the money. `local:fund` posts a `deposit` recipe on rail `local-test` with reference `LOCAL-TEST-<timestamp>-<id>`, so every entry is labelled. It refuses unless the marker file exists and the database is `127.0.0.1` on the stack's port. No bank, card, chain or exchange feed is connected. Prices, bank cards, on-chain Pay and loans' price marks are unavailable. WebSocket `/ws` reaches the stack's own svc-ws (`GET /ws/streams` lists its streams); its owner limits are blank, so each stream door refuses by its own `ws.*_unset` code, and `LOCAL_STACK_WS_UPSTREAM=off` on a start or restart of `customer` leaves `/ws` blank (503 `ws.upstream_unset`). Background money jobs in Bank (scheduled transfers, auto-invest, interest, loan accrual) are switched off.
 
 Placeholders the services refuse to boot without (no owner-published value exists): reconcile cadence, rate limits, Pay checkout limits (from `.env.example`), Bank `LOAN_QUOTE_ASSET_ID=USDT` and batch sizes `1` (jobs off), Matching snapshot cadence `0` (off). They are local-test values, not product decisions. Edge's kill-state file is written once as an explicit all-on list; without it Edge halts every module.
 
@@ -121,7 +121,7 @@ The `Try it` workflow (Actions, Try it, Run workflow) boots this stack on GitHub
   - a button for the two TEST operators to approve waiting verification requests;
   - a once-per-account TEST USDT credit, through `local:fund` with a business key per email.
 - **Not on the link:**
-  - live streams (no svc-ws, as in the journeys run);
+  - live streams (the gate passes no WebSocket upgrade);
   - the founder console;
   - passkeys (their relying party is localhost);
   - anything that needs a partner.
@@ -208,6 +208,18 @@ Undo is `unseed`. It closes matching earn pools and loan products and disables t
 Earn and loan reserves are funded by a labelled TEST deposit on rail `local-test` into a fixed TEST funder, then moved into each reserve. The funder id is `00000000-0000-4000-8000-00000000c0de`. It is a labelled local TEST funder, not a person. Each deposit uses `recipes.deposit` with rail ref `LOCAL-TEST-seed-funder-<slug>-v1`. A repeat of that deposit is a ledger no-op. Earn moves the balance with `recipes.earnPoolFund` from that funder's available balance (funding id `local-test-seed-<slug>`). The USDT loan reserve uses slug `loan-reserve-USDT` and `recipes.loanReserveFund` (funding id `local-test-seed-loan-reserve-USDT`, amount `1000000`). House inventory does not use the funder. It is credited from rail `local-test` straight into the house market-maker account.
 
 Opening a loan still refuses where this stack has no price marks (see Real vs test). The Loans room can list the products below. The seed does not invent marks.
+
+### Home (the founder's tester entry)
+
+When the stack has an enrolled founder pair (`founders.json` in the state folder), `apply` also gives founder a's Home its TEST content, and `status` reads it back under `home:` without writing anything. The figures live in `tooling/scripts/local-test-home.mjs`.
+
+- A TEST deposit of 100 USDT on TEST Ethereum to founder a's own deposit address, delivered to svc-pay's chain webhook as `local-test-stack.mjs chain-deposit` delivers one (label `LOCAL-TEST-seed-home-deposit-v1`). The seed posts nothing itself: svc-pay credits it through its ledger-client recipe, keyed on the deposit. The label is fixed, so a second `apply` delivers the same chain event, which svc-pay recognises: no second deposit.
+- One inbox row, filed by svc-notify's deposit-credit consumer for that deposit. `apply` waits for it and fails unless there is exactly one.
+- One TEST announcement, "TEST · This is a test build", open for 30 days: drafted and published by founder a, approved by founder b, through the notice desk's own four-eyes doors. A published one with that title is not drafted again.
+
+### The tester profile (compose)
+
+`docker-compose.apps.yml` has a `seed` service under the `tester` profile (`docker compose --profile tester up seed`). It is off by default, runs once and exits. Its entrypoint, `tooling/scripts/local-tester-seed.mjs`, exits 2 and seeds nothing unless `APP_ENV` is exactly `dev` or `test` and `NODE_ENV` is not `production`. It then runs the founder seed (`init`, `enrol`) and this seed (`apply`, `status`), in that order, and stops at the first step that fails. Each script keeps its own guards, so on a plain compose stack, which writes no local test stack marker, the content step refuses by name; the real-app journey run seeds the `pnpm local:stack` stack with the same scripts.
 
 Earn pools (funding id `local-test-seed-<slug>`):
 

@@ -15,6 +15,8 @@ import type { LimitOverride } from './identity-override.js';
  * `broadcast`, ...) counts toward the limit until someone decides it should not,
  * which fails closed. The window runs on `updated_at`, not `created_at`: reopening
  * a failed claim resets it, so an old reference retried today counts as today.
+ *
+ * Each withdrawal counts what left the balance: its amount and the quoted network fee its hold carries (J-wallet-05 #6).
  */
 export const WITHDRAWAL_STATES_NOT_COUNTED = ['failed', 'canceled'] as const;
 
@@ -37,7 +39,7 @@ export async function usedInWindow(
   query: { userId: string; assetId: string; exceptClientRef?: string; windowSeconds?: number },
 ): Promise<Amount> {
   const rows = await q<Array<{ used: string }>>`
-    SELECT COALESCE(SUM(amount), 0)::text AS used
+    SELECT COALESCE(SUM(amount + COALESCE(fee, 0)), 0)::text AS used
       FROM pay.withdrawals
      WHERE user_id = ${query.userId} AND asset_id = ${query.assetId}
        AND status::text NOT IN ${q([...WITHDRAWAL_STATES_NOT_COUNTED])}

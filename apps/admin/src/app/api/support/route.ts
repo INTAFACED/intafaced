@@ -17,6 +17,7 @@ import {
   loadGroups,
   loadStaff,
   loadRatingSummary,
+  loadCustomerCard,
   loadTicketLifecycle,
   loadTicketProperties,
   loadViews,
@@ -27,14 +28,14 @@ import type { FounderCallFailure } from '@/lib/desk/founder-call';
 
 /**
  * Support desk BFF: the operator queue, one ticket (with its case file and rating), the help articles, and the desk's
- * writes: claim, reply, set status, escalate, publish and unpublish an article.
+ * writes: claim, unclaim, reassign, reply, set status, escalate, publish and unpublish an article.
  *
  * Runs as the signed-in founder: svc-support takes the operator id from the verified session, so a claim is recorded
  * against the founder who made it and cannot be made on anyone else's behalf. Every procedure is `support:ops`; if
  * founder sign-in does not carry it, svc-support answers 403 and the desk says that (admin-BACKEND-NEEDS.md).
  *
- * There is no unclaim or reassign: svc-support has none. That is why a claim needs a second click in the page. Every other
- * write needs one too: a reply cannot be unsent, a closed ticket stays closed, an escalation's case file is immutable, and
+ * A claim holds the request until its holder unclaims it or a lead gives it to someone else (svc-support refuses both to
+ * anyone else), and it still takes a second click in the page. Every other write needs one too: a reply cannot be unsent, a closed ticket stays closed, an escalation's case file is immutable, and
  * a published article changes what customers read. No write here moves money, and none needs a second approver.
  */
 
@@ -77,6 +78,11 @@ export async function GET(request: Request) {
     const id = url.searchParams.get('id');
     if (!isTicketId(id)) return Response.json({ code: 'admin.support_ticket_id' }, { status: 400, headers: NO_STORE });
     return Response.json(await loadTicketProperties(session, id), { headers: NO_STORE });
+  }
+  if (url.searchParams.get('view') === 'customer') {
+    const id = url.searchParams.get('id');
+    if (!isTicketId(id)) return Response.json({ code: 'admin.support_ticket_id' }, { status: 400, headers: NO_STORE });
+    return Response.json(await loadCustomerCard(session, id), { headers: NO_STORE });
   }
   if (url.searchParams.get('view') === 'lifecycle') {
     const id = url.searchParams.get('id');
@@ -190,11 +196,13 @@ const targetOf = (request: SupportActionRequest) =>
           ? request.batchKey
           : request.action === 'view_save'
             ? `view:${request.name}`
-            : request.action === 'merge'
-              ? `${request.ticketId}->${request.survivorId}`
-              : 'ticketId' in request
-                ? request.ticketId
-                : request.id;
+            : request.action === 'merge' || request.action === 'assign'
+              ? `${request.ticketId}->${request.action === 'merge' ? request.survivorId : request.assigneeId}`
+              : request.action === 'claim_next'
+                ? 'queue'
+                : 'ticketId' in request
+                  ? request.ticketId
+                  : request.id;
 
 function statusOf(failure: FounderCallFailure<unknown>): number {
   if (failure.kind === 'forbidden') return failure.refusal.status === 401 ? 401 : 403;
@@ -225,9 +233,16 @@ async function writeAction(session: Session, raw: Record<string, unknown>) {
       action: request.action,
       summary: summaryOf(request, result.data),
       ...(request.action === 'bulk' ? { results: result.data } : {}),
+      // The claimed request is the page's next address: the id, holder and status come from svc-support's answer.
+      ...(request.action === 'claim_next' ? claimedOf(result.data) : {}),
     },
     { headers: NO_STORE },
   );
+}
+
+function claimedOf(data: unknown) {
+  const t = data as { id: string; assigneeId: string | null; status: string };
+  return { ticketId: t.id, assigneeId: t.assigneeId, status: t.status };
 }
 
 function audienceWords(audience: unknown): string {
@@ -242,6 +257,12 @@ function summaryOf(request: SupportActionRequest, data: unknown): string {
   switch (request.action) {
     case 'reply':
       return 'svc-support recorded your reply on the ticket.';
+    case 'claim_next':
+      return `svc-support gave you the next request; it is now ${String(d.status)} and yours.`;
+    case 'unclaim':
+      return `svc-support released the request back to the queue; it is now ${String(d.status)} with no assignee.`;
+    case 'assign':
+      return `svc-support says the request is now assigned to ${String(d.assigneeId)}.`;
     case 'merge':
       return `svc-support merged the request: ${String(d.commentsMoved)} messages and ${String(d.attachmentsMoved)} files now sit under the surviving request, and the duplicate is closed.`;
     case 'status':
