@@ -129,6 +129,20 @@ describe('recipe-gate', () => {
     ).toThrow(expect.objectContaining({ code: RECIPE_REQUIRED_CODE }));
   });
 
+  it('accepts a withdrawal settle with its quoted fee leg, and only to houseFees', () => {
+    const w = { userId: USER, assetId: 'USDT', amount: amt('25'), fee: amt('1.5'), rail: 'crypto-native', withdrawalId: 'w1:0' };
+    for (const post of [recipes.withdrawHold(w), recipes.withdrawSettle(w), recipes.withdrawReverse(w)]) {
+      expect(() => assertKnownRecipePost(toWire(post))).not.toThrow();
+    }
+    const settle = toWire(recipes.withdrawSettle(w));
+    // The fee leg sent to another person instead of the house fee pot is not a recipe.
+    const stolen = {
+      ...settle,
+      entries: settle.entries.map((e) => (e.account.ownerType === 'house' ? { ...e, account: userAvailable(USER2, 'USDT') } : e)),
+    };
+    expect(() => assertKnownRecipePost(stolen)).toThrow(expect.objectContaining({ code: RECIPE_REQUIRED_CODE }));
+  });
+
   it('accepts feeCharge with a caller-chosen reason', () => {
     expect(() =>
       assertKnownRecipePost(

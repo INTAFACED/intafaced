@@ -1,6 +1,7 @@
 import { expect } from '@playwright/test';
 import { approverSessions, makeContext, refusalText } from '../../../../tooling/scripts/local-test-gates.mjs';
-import { DEVICE_KEY, EDGE, ORIGIN, api, bestPrices } from './stack.mjs';
+import { DEVICE_KEY, EDGE, ORIGIN, api, bestPrices, toUnits } from './stack.mjs';
+import { signIn } from './desk.mjs';
 
 // The copy journeys' other actors: the operator who lists a leader (the stack's TEST founder, through svc-trade's own
 // operator door, as the founder console would), and the leader's own orders on the real book.
@@ -41,20 +42,140 @@ export async function listLeader(who, displayName, { marketMode = 'spot', tenure
   return ref;
 }
 
-/** One IOC order of `who` that takes the best price on the book, so it fills at once against the TEST market maker. */
+/**
+ * One IOC order of `who` that fills in full at once against the TEST market maker, at the best price only, so it is a
+ * single fill (the copy driver copies each lead fill on its own). It waits until the best level holds the whole amount.
+ * An IOC that met nothing because the maker requoted between the read and the order is sent again under a new key; a
+ * refused order or a part fill throws, since either would change the trades the journey reads.
+ */
 export async function takeBest(who, side, amount, clientOrderId, symbol = 'BTC/USDT') {
-  const { bid, ask } = await bestPrices(symbol);
-  const res = await (
-    await api(who)
-  ).post('/api/v1/orders', {
-    symbol,
-    type: 'limit',
-    side,
-    amount,
-    price: side === 'buy' ? ask : bid,
-    timeInForce: 'IOC',
-    clientOrderId,
-  });
-  expect(res.status, JSON.stringify(res.body).slice(0, 300)).toBeLessThan(300);
-  return res.body;
+  const client = await api(who);
+  for (let attempt = 0; ; attempt += 1) {
+    let level;
+    await expect
+      .poll(
+        async () => {
+          const { body } = await bestPrices(symbol);
+          level = (side === 'buy' ? body.asks : body.bids)[0];
+          return toUnits(level[1]) >= toUnits(amount);
+        },
+        { timeout: 15_000, message: `the best ${side === 'buy' ? 'ask' : 'bid'} on ${symbol} never held ${amount}` },
+      )
+      .toBe(true);
+    const res = await client.post('/api/v1/orders', {
+      symbol,
+      type: 'limit',
+      side,
+      amount,
+      price: level[0],
+      timeInForce: 'IOC',
+      clientOrderId: attempt === 0 ? clientOrderId : `${clientOrderId}-r${attempt}`,
+    });
+    expect(res.status, JSON.stringify(res.body).slice(0, 300)).toBeLessThan(300);
+    let order = res.body;
+    expect(order.id, `the order reply has no id: ${JSON.stringify(order).slice(0, 300)}`).toBeTruthy();
+    await expect
+      .poll(
+        async () => {
+          const read = await client.get(`/api/v1/orders/${order.id}?symbol=${encodeURIComponent(symbol)}`);
+          if (read.status === 200) order = read.body;
+          return order.status;
+        },
+        { timeout: 15_000, message: `${side} ${amount} ${symbol} stayed open` },
+      )
+      .not.toBe('open');
+    const filled = toUnits(order.filled ?? '0');
+    if (filled === toUnits(amount)) return order;
+    if (filled > 0n || order.status === 'rejected' || attempt === 2)
+      throw new Error(`${side} ${amount} ${symbol} at ${level[0]} filled ${order.filled ?? '0'}: ${JSON.stringify(order).slice(0, 300)}`);
+    await new Promise((resolve) => setTimeout(resolve, 1_000));
+  }
 }
+
+/**
+ * A lead's fill that followers copy: `takeBest`, then 15 s for the copy driver's sweep before anyone looks. On the stack
+ * (27 Oct) a follower's page loaded within a few seconds of the lead's fill left the copy planned but never placed, and the
+ * driver moved past it (#6556); read after the sweep, every copy was there. Copying itself is J-copy-bots-otc-01 #8's to prove.
+ */
+export async function leadFill(who, side, amount, clientOrderId, symbol = 'BTC/USDT') {
+  const body = await takeBest(who, side, amount, clientOrderId, symbol);
+  await new Promise((resolve) => setTimeout(resolve, 15_000));
+  return body;
+}
+
+/** The copied orders once the list has loaded: either a row with a market or the empty state shows first. */
+export async function copiedOrdersLoaded(detail) {
+  const table = detail.getByRole('table', { name: 'Copied orders' });
+  await expect(
+    table
+      .locator('tbody tr')
+      .filter({ hasText: /\w\/\w|No copied orders/ })
+      .first(),
+  ).toBeVisible();
+  return copiedOrders(detail);
+}
+
+/** A permission end a week ahead, in the datetime-local box's own format. */
+export function weekAhead() {
+  const when = new Date(Date.now() + 7 * 24 * 3600_000);
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${when.getFullYear()}-${pad(when.getMonth() + 1)}-${pad(when.getDate())}T${pad(when.getHours())}:${pad(when.getMinutes())}`;
+}
+
+/** Start copying from `leaderRef`'s page on `page` up to the limits step: country DE and the given markets picked. */
+export async function wizardAtLimits(page, leaderRef, markets = ['BTC/USDT']) {
+  await page.goto(`/trade/copy/${leaderRef}`);
+  await page.getByRole('button', { name: 'Start copying' }).click();
+  const wizard = page.getByRole('dialog');
+  await wizard.getByLabel('Your country').fill('DE');
+  await wizard.getByRole('button', { name: 'Next' }).click();
+  for (const market of markets) await wizard.getByText(market, { exact: true }).click();
+  await wizard.getByRole('button', { name: 'Next' }).click();
+  return wizard;
+}
+
+/**
+ * `who` follows the leader `leaderRef` from its lead page, as J-copy-bots-otc-01 does on screen: country DE, the given
+ * markets (BTC/USDT unless named), the given limits, and Start copying (which also turns automatic copying on). Returns
+ * the follow id.
+ *
+ * The follow is made on a page of its own, closed after, so the test's page stays where it was. A lead fill to copy
+ * goes through `leadFill`, which waits out the copy driver's sweep (#6556).
+ */
+export async function followOnScreen(page, who, leaderRef, { perOrder = '50', total = '200', fixed = '20', markets } = {}) {
+  const context = await page.context().browser().newContext({ baseURL: ORIGIN });
+  try {
+    const own = await context.newPage();
+    await signIn(own, who);
+    const wizard = await wizardAtLimits(own, leaderRef, markets);
+    await wizard.getByLabel('Most per order (USDT)').fill(perOrder);
+    await wizard.getByLabel('Most in total (USDT)').fill(total);
+    await wizard.getByLabel('Fixed amount per copied order (USDT)').fill(fixed);
+    await wizard.getByLabel('Permission ends').fill(weekAhead());
+    await wizard.getByRole('button', { name: 'Next' }).click();
+    const answer = own.waitForResponse((res) => res.url().includes('copy.follow'));
+    await wizard.getByRole('button', { name: 'Start copying' }).click();
+    const res = await answer;
+    expect(res.status(), (await res.text()).slice(0, 300)).toBe(200);
+    await expect(own).toHaveURL(/tab=follows/);
+    return (await res.json()).result.data.followId;
+  } finally {
+    await context.close();
+  }
+}
+
+/** Opens My follows and the follow with the leader `leaderRef`; returns its detail dialog. */
+export async function openFollow(page, leaderRef) {
+  await page.goto('/trade/copy?tab=follows');
+  const row = page.getByRole('grid', { name: 'My follows' }).getByRole('rowgroup').nth(1).getByRole('row').filter({ hasText: leaderRef });
+  await row.first().getByRole('button', { name: 'Manage' }).click();
+  return page.getByRole('dialog');
+}
+
+/** The follow's copied orders as the detail dialog lists them (rows, without the empty row). */
+export const copiedOrders = (detail) =>
+  detail
+    .getByRole('table', { name: 'Copied orders' })
+    .locator('tbody tr:not([data-slot="table-empty-row"])')
+    // Rows with a market only: while the list loads, its placeholder rows have none.
+    .filter({ hasText: /\w\/\w/ });
