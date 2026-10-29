@@ -17,7 +17,7 @@ const en = {
   youPay: 'You pay',
   youReceive: 'You receive',
   chooseToken: 'Choose a token',
-  noTokens: 'No tokens to list: the token list comes from the pools on {network}, and no pool reader is connected in this build.',
+  noTokens: 'No tokens to list: the token list comes from the pools on {network}, and the pool reader is not built in this build.',
   amountIn: 'Amount you pay',
   amountHint: 'In whole tokens, for example 25 or 0.5.',
   routeOptions: 'Route options',
@@ -29,7 +29,7 @@ const en = {
   needsTokens: 'Choose the token you pay and the token you receive.',
   sameToken: 'Choose two different tokens.',
   needsAmount: 'Enter an amount above zero.',
-  needsQuote: 'A swap needs a quote from the pools, and no pool reader is connected in this build.',
+  needsQuote: 'A swap needs a quote from the pools, and the pool reader is not built in this build.',
 } as const;
 
 export const swapCopy = defineCopy('customer.protocol.swap', en);

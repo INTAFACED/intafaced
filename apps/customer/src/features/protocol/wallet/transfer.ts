@@ -1,11 +1,11 @@
-import { APP_CHAIN_ID } from './eip1193';
+import { ADDRESS, APP_CHAIN_ID } from './eip1193';
+import { PermitRefused, toBaseUnits as permitBaseUnits } from './permit';
 
 /**
  * Pure rules for the wallet room's Send, Receive and Scan sections. Nothing here reaches a network: the panels ask the
  * person's own wallet for anything that needs one (a contract check, a token check, the send itself).
  */
 
-const ADDRESS = /^0x[0-9a-fA-F]{40}$/;
 /** A name a name service would answer for (`alice.eth`, `shop.base.eth`): labels joined by dots, no spaces. */
 const NAME = /^(?!0x)[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?)+$/i;
 
@@ -27,17 +27,16 @@ export const sameAddress = (a: string | null | undefined, b: string | null | und
 export const lastFour = (address: string) => address.slice(-4).toLowerCase();
 
 /**
- * A decimal amount as whole base units (`1.5` with 18 decimals is 1500000000000000000n). Null when it is not a positive
- * decimal with at most `decimals` places. Never goes through a JavaScript number.
+ * A decimal amount as whole base units, through the same parser the permit uses (no JavaScript number, trailing zeros
+ * allowed, at most a uint256). Null when it is not a positive amount with at most `decimals` places.
  */
 export function toBaseUnits(amount: string, decimals: number): bigint | null {
-  const text = amount.trim();
-  const match = /^(\d{1,30})(?:\.(\d+))?$/.exec(text);
-  if (!match) return null;
-  const fraction = match[2] ?? '';
-  if (fraction.length > decimals) return null;
-  const units = BigInt(match[1]!) * 10n ** BigInt(decimals) + BigInt((fraction + '0'.repeat(decimals)).slice(0, decimals) || '0');
-  return units > 0n ? units : null;
+  try {
+    return permitBaseUnits(amount, decimals);
+  } catch (error) {
+    if (error instanceof PermitRefused) return null;
+    throw error;
+  }
 }
 
 /** An answer to `decimals()` (one 32-byte word, at most 255): what a token contract gives and a plain wallet does not. */

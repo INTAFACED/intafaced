@@ -50,12 +50,19 @@ export function ScanPanel() {
       });
     if (scanned.kind === 'connect') return setOutcome({ kind: 'connect', uri: scanned.uri });
     if (!scanned.token) {
+      // Only a connected wallet on the app's network can say whether the address is a token; without one nothing is guessed.
+      if (wallet.status !== 'connected' || wallet.guard?.ok !== true)
+        return setOutcome({ kind: 'alert', message: t('scanNeedsWallet', { network: networkLabel(APP_CHAIN_ID).name }) });
       setOutcome({ kind: 'reading' });
       if (isTokenDecimals(await wallet.call(scanned.address, DECIMALS_CALL))) return navigate(`/dex/tokens/${scanned.address}`);
     }
     const query = new URLSearchParams({ to: scanned.address, ...(scanned.token ? { token: scanned.token } : {}) });
     navigate(`/wallet/send?${query.toString()}`);
   };
+
+  // The camera loop reads through the latest `read`, so a wallet connected while the camera runs is the one asked.
+  const latestRead = useRef(read);
+  latestRead.current = read;
 
   useEffect(() => {
     if (camera !== 'on' || !Detector) return;
@@ -64,8 +71,10 @@ export function ScanPanel() {
     const detector = new Detector({ formats: ['qr_code'] });
     void (async () => {
       try {
-        stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
-        if (stopped || !video.current) return;
+        const opened = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+        stream = opened;
+        // Stopped while the browser was still asking: release the camera it just gave.
+        if (stopped || !video.current) return opened.getTracks().forEach((track) => track.stop());
         video.current.srcObject = stream;
         await video.current.play();
         while (!stopped && video.current) {
@@ -73,7 +82,7 @@ export function ScanPanel() {
           if (first?.rawValue) {
             setCamera('off');
             setText(first.rawValue);
-            void read(first.rawValue);
+            void latestRead.current(first.rawValue);
             return;
           }
           await new Promise((resolve) => setTimeout(resolve, 300));
@@ -86,8 +95,6 @@ export function ScanPanel() {
       stopped = true;
       stream?.getTracks().forEach((track) => track.stop());
     };
-    // read is rebuilt each render; the loop only needs the first code it sees.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [camera, Detector]);
 
   return (

@@ -27,8 +27,10 @@ describe('toBaseUnits', () => {
     expect(toBaseUnits('0.000000000000000001', 18)).toBe(1n);
     expect(toBaseUnits('123456789.123456789123456789', 18)).toBe(123456789123456789123456789n);
     expect(toBaseUnits('2.5', 6)).toBe(2_500_000n);
+    expect(toBaseUnits('1.000000000000000000000', 18)).toBe(10n ** 18n);
   });
   it('refuses zero, too many places, signs and junk', () => {
+    expect(toBaseUnits(`${2n ** 256n}`, 0)).toBeNull();
     for (const bad of ['0', '0.0', '1.0000001', '-1', '1e3', '', '.5', '1,000'])
       expect(toBaseUnits(bad, bad === '1.0000001' ? 6 : 18)).toBeNull();
   });

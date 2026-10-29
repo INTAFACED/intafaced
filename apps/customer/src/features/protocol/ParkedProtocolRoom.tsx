@@ -495,13 +495,7 @@ export function ParkedProtocolRoom({ slug, subPath }: { slug: Slug; subPath?: st
       </Panel>
     );
   else if (tab === 'audit') body = auditPanel;
-  else if (slug === 'dex' && tab === 'swap')
-    body = (
-      <>
-        <SwapForm />
-        <QuoteDesk api={api} t={t} />
-      </>
-    );
+  else if (slug === 'dex' && tab === 'swap') body = <SwapForm />;
   else if (slug === 'dex' && tab === 'pools')
     body = (
       <Panel title={t('poolsTitle')}>
@@ -528,6 +522,7 @@ export function ParkedProtocolRoom({ slug, subPath }: { slug: Slug; subPath?: st
     body = (
       <>
         {venuePanel}
+        <QuoteDesk api={api} t={t} />
         <SupportedNetworksPanel t={t} chain={chainRef} />
       </>
     );

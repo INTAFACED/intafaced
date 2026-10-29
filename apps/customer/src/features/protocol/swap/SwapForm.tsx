@@ -55,14 +55,20 @@ export function SwapForm({ tokens = [] }: { tokens?: readonly SwapToken[] }) {
         ? t('needsTokens')
         : tokenIn === tokenOut
           ? t('sameToken')
-          : !/^\d{1,30}(\.\d{1,18})?$/.test(amount.trim()) || /^0*(\.0*)?$/.test(amount.trim())
+          : // The shape only: the token's own decimal places are checked against the quote.
+            !/^\d{1,30}(\.\d+)?$/.test(amount.trim()) || /^0*(\.0*)?$/.test(amount.trim())
             ? t('needsAmount')
             : t('needsQuote');
 
   const tokenSelect = (id: string, label: string, value: string, set: (value: string) => void) => (
     <label className="field">
       <span id={id}>{label}</span>
-      <select value={value} onChange={(event) => set(event.target.value)} aria-labelledby={id} aria-describedby={ids.note}>
+      <select
+        value={value}
+        onChange={(event) => set(event.target.value)}
+        aria-labelledby={id}
+        aria-describedby={tokens.length === 0 ? ids.note : undefined}
+      >
         <option value="">{t('chooseToken')}</option>
         {tokens.map((token) => (
           <option key={token.address} value={token.address}>

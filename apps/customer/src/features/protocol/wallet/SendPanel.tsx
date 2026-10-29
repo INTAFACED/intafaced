@@ -39,7 +39,11 @@ export function SendPanel({ to: prefilledTo = '', token: askedToken = '' }: { to
   const [token, setToken] = useState('');
   const [amount, setAmount] = useState('');
   const [to, setTo] = useState(prefilledTo);
-  useEffect(() => setTo(prefilledTo), [prefilledTo]);
+  // A new pre-filled address (another scanned code) replaces the old one and closes any review of the old one.
+  useEffect(() => {
+    setTo(prefilledTo);
+    setReviewing(false);
+  }, [prefilledTo]);
   const [problem, setProblem] = useState<string | null>(null);
   const [reviewing, setReviewing] = useState(false);
   const [typed, setTyped] = useState('');
@@ -51,9 +55,11 @@ export function SendPanel({ to: prefilledTo = '', token: askedToken = '' }: { to
   const destination = readDestination(to);
   const units = native ? toBaseUnits(amount, native.decimals) : null;
   const ready = wallet.status === 'connected' && wallet.address !== null && wallet.guard?.ok === true;
-  const canReview = ready && destination.kind === 'address';
+  // A code that asked for a token this list does not hold is never paid in another currency instead.
+  const canReview = ready && destination.kind === 'address' && !askedToken;
   const edit = (set: (value: string) => void) => (event: { target: { value: string } }) => {
     set(event.target.value);
+    setReviewing(false);
     setProblem(null);
     setOutcome({ kind: 'idle' });
   };

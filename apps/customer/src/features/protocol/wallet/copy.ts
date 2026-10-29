@@ -136,12 +136,13 @@ const en = {
   // Send
   sendTitle: 'Send',
   sendNote:
-    'Your wallet sends this itself, on {network}. It does not pass through your exchange account and nothing here can reverse it once it is on the network.',
+    'Your wallet sends this itself, on {network}. It does not pass through your exchange account and nothing here can reverse it after it reaches the network.',
   sendToken: 'Token',
   sendTokenChoose: 'Choose a token',
   sendNative: '{symbol} (the network’s own currency)',
-  sendTokenListNote: 'Only the network’s own currency is listed: no token list is connected for this network in this build.',
-  sendTokenAsked: 'The code asked for the token {token}, which this list does not hold. Nothing is chosen for you.',
+  sendTokenListNote: 'Only the network’s own currency is listed: the token list for this network is not built in this build.',
+  sendTokenAsked:
+    'The code asked for the token {token}, which this list does not hold, so it cannot be paid from here. It is never paid in another currency instead.',
   sendAmount: 'Amount',
   sendAmountHint: 'In whole units, for example 0.25.',
   sendTo: 'To',
@@ -149,7 +150,7 @@ const en = {
   sendReview: 'Review',
   sendInvalidTo: 'This is not an address or a name.',
   sendNameUnresolved: 'Name not resolved',
-  sendNameWhy: 'No name service is connected in this build, so names cannot be turned into addresses. Paste the address instead.',
+  sendNameWhy: 'Name lookup is not built in this build, so a name cannot be turned into an address. Paste the address instead.',
   sendSelf: 'You cannot send to your own wallet.',
   sendAmountInvalid: 'Enter an amount above zero with at most {decimals} decimal places.',
   sendChooseToken: 'Choose the token to send.',
@@ -188,6 +189,7 @@ const en = {
   scanPaste: 'Or paste what the code holds',
   scanRead: 'Read',
   scanReading: 'Asking your wallet what this address is…',
+  scanNeedsWallet: 'Connect a wallet on {network} first: it is what tells a token from a wallet address.',
   scanUnknown: 'Not recognised',
   scanOtherNetwork: 'This code is for another network (chain {chain}). This wallet room works on {network}.',
   connectTitle2: 'Connect to this app?',
