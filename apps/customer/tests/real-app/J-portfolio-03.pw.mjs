@@ -255,9 +255,15 @@ test(`${J} #3 reads a traded order: its lines share one row, a cancelled order i
   const price = fromUnits(((toUnits(ask) - toUnits('0.01')) / 10n ** 16n) * 10n ** 16n);
   await page.goto(deskPath('BTC/USDT'));
   await reviewLimit(page, 'sell', price, '0.002');
+  // The sheet closes before the order call answers, so the order is read back from the desk's own answer, by its id.
+  const answer = page.waitForResponse((r) => new URL(r.url()).pathname === '/api/v1/orders' && r.request().method() === 'POST');
   await confirm(page, 'sell');
-  const sell = (await openOrders(who)).find((o) => o.side === 'sell');
-  expect(sell).toBeTruthy();
+  const res = await answer;
+  expect(res.status(), await res.text()).toBeLessThan(300);
+  const placed = await res.json();
+  expect(placed).toMatchObject({ side: 'sell', status: 'open', price, amount: '0.002' });
+  const sell = (await openOrders(who)).find((o) => o.id === placed.id);
+  expect(sell).toMatchObject({ id: placed.id, side: 'sell', price, amount: '0.002' });
   const other = await api(otherTrader());
   const open = async () => (await openOrders(who)).find((o) => o.id === sell.id);
   // Each round buys 0.001 of the sale at its price. The market maker may have quoted asks under it since, and those

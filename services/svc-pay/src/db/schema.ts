@@ -476,6 +476,14 @@ export const withdrawals = pay.table(
      * NULL on a row held before that: its dispatch history is unknown, so it is never cancelled.
      */
     dispatchJournaled: boolean('dispatch_journaled'),
+    /**
+     * A send out of the platform (J-wallet-05 #6, issue #6517): the network it goes on, the fee quote the person accepted and
+     * that quote's fee, which rides the hold, the settle and every reverse of this withdrawal. All NULL on a send inside the
+     * platform and on rows from before; all set on a quoted send (`withdrawals_quoted_send_ck`).
+     */
+    networkId: text('network_id'),
+    quoteRef: text('quote_ref'),
+    fee: amount('fee'),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },

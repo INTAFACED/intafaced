@@ -8,10 +8,16 @@
  */
 
 import { randomUUID } from 'node:crypto';
-import { parseAmount, type Amount, type LedgerClient } from '@intafaced/ledger-client';
+import { formatAmount, parseAmount, type Amount, type LedgerClient } from '@intafaced/ledger-client';
 import type { Principal } from '@intafaced/auth';
 import { otcSettleIdsFor } from '../spot/ids.js';
-import { otcDeskLawStatusLine, requirePublishedOtcDeskLaw, type OtcDeskLaw, UNPUBLISHED_OTC_DESK_LAW } from './desk-law.js';
+import {
+  otcDeskLawStatusLine,
+  otcMinNotionalFor,
+  requirePublishedOtcDeskLaw,
+  type OtcDeskLaw,
+  UNPUBLISHED_OTC_DESK_LAW,
+} from './desk-law.js';
 import { logRefusalSpec } from '../refusal-spec-log.js';
 import { OTC_DESK_LAW_RESIDUAL, OtcError, RFQ_ALLOCATION_RESIDUAL, RFQ_GIVE_UP_RESIDUAL } from './errors.js';
 import { otcMakerRoutingStatus, OTC_MAKER_ROUTING_RESIDUAL } from './maker-routing.js';
@@ -148,12 +154,18 @@ export class OtcDeskService {
       throw new OtcError('One-click buy only buys; use convert to sell', 'trade.convert_flow_side_refused');
     }
     assertOtcConvertBounds(this.convertBounds, input.flow, parseRequiredOtcSize(input.qty));
-    const quote = await this.quote(principal, {
-      side: input.side,
-      baseAsset: input.baseAsset,
-      quoteAsset: input.quoteAsset,
-      qty: input.qty,
-    });
+    const quote = await this.quote(
+      principal,
+      {
+        side: input.side,
+        baseAsset: input.baseAsset,
+        quoteAsset: input.quoteAsset,
+        qty: input.qty,
+      },
+      // Convert and one-click buy are sized by their own owner bounds (CB-otc-12), checked above; the RFQ desk minimum
+      // (CB-otc-07) is for desk requests only.
+      { deskMinimum: false },
+    );
     return { flow: input.flow, ...quote };
   }
 
@@ -167,9 +179,21 @@ export class OtcDeskService {
       /** Maker id when counterparty mode is maker. */
       makerId?: string;
     },
+    options: { deskMinimum: boolean } = { deskMinimum: true },
   ) {
     const law = requirePublishedOtcDeskLaw(this.law);
     const qty = parseRequiredOtcSize(input.qty);
+
+    // CB-otc-07: a desk request in a quote asset with no published minimum refuses on the law alone, before any stake
+    // read or price lookup. The minimum itself is checked once the quote is priced, below.
+    let minNotional: Amount | null = null;
+    if (options.deskMinimum) {
+      const asset = normalizeOtcAsset(input.quoteAsset);
+      minNotional = asset == null ? null : otcMinNotionalFor(law, asset);
+      if (asset != null && minNotional == null) {
+        throw new OtcError(`The desk minimum for ${asset} requests is not set — the request refuses`, 'trade.rfq_size_not_set');
+      }
+    }
 
     // CB-otc-01: in maker mode the maker comes from the owner provider list, not
     // free text. A blank list, an unknown provider or an outside provider refuses
@@ -244,6 +268,12 @@ export class OtcDeskService {
       now: this.now(),
       quoteTtlMs: law.quoteTtlMs,
     });
+
+    // CB-otc-07: the minimum holds on what the customer trades (the notional after the disclosed spread), so a sell
+    // never fills below it. Checked before the quote is saved, so a refused request records nothing.
+    if (minNotional != null && quote.userNotional < minNotional) {
+      throw new OtcError(`Below the desk minimum of ${formatAmount(minNotional)} ${quoteAsset}`, 'trade.rfq_below_minimum');
+    }
 
     await this.store.saveOpen(quote);
     return presentOtcQuote(quote);

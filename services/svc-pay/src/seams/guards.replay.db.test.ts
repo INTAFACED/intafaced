@@ -658,68 +658,25 @@ describe('guard seams: lock order, replay flag, refund and user-money withdrawal
     });
   });
 
-  describe('customer wallet gate counts the real holds (pay.withdrawals)', () => {
-    const live = (cap: string): WalletPublish => ({
-      ...failClosedWalletPublish('live'),
-      withdrawEnabled: () => true,
-      withdrawalCap: () => cap,
-      networkFee: () => '0.1',
-      coolingHours: 1,
-      storedDestination: () => ({ ref: BANK.ref, updatedAt: new Date('2026-01-01T00:00:00.000Z') }),
-    });
-    const available = async () => (await ledger.balance(userAvailable(USER, 'USDT'))).amount;
+  describe('the wallet cap read counts the real holds (pay.withdrawals), fee included', () => {
+    const live = (cap: string): WalletPublish => ({ ...failClosedWalletPublish(), withdrawalCap: () => cap });
 
-    it('an existing held row of 0.6 against a cap of 1 refuses a fresh 0.5: no new row, available unchanged', async () => {
-      const wallet = new WalletPay({
-        publish: live('1'),
-        openHolds: openWithdrawalHolds(sql),
-        allowlist: { has: () => true },
-        now: () => new Date('2026-10-18T00:00:00.000Z'),
-      });
-      const money = new UserMoneyService(sql, ledger, rails, { operatorCreditRails: ['card-sandbox'], wallet });
-      await money.credit({
-        userId: USER,
-        assetId: 'USDT',
-        amount: amt('100'),
-        rail: 'card-sandbox',
-        railRef: 'psp_cap',
-        creditedBy: OPERATOR,
-      });
+    it('a held 0.6 carrying a 0.1 fee against a cap of 1 leaves 0.3; a finished or another asset row is not counted', async () => {
+      const wallet = new WalletPay({ publish: live('1'), openHolds: openWithdrawalHolds(sql) });
+      await sql`INSERT INTO pay.withdrawals (user_id, asset_id, amount, rail, destination, client_ref, status, network_id, quote_ref, fee)
+        VALUES (${USER}, 'USDT', 0.6, 'crypto-native', ${sql.json(DEST as never)}, 'existing-hold', 'held', 'ethereum', 'q-held', 0.1)`;
+      await sql`INSERT INTO pay.withdrawals (user_id, asset_id, amount, rail, destination, client_ref, status, rail_ref)
+        VALUES (${USER}, 'USDT', 0.2, 'card-sandbox', ${sql.json(BANK as never)}, 'sent-one', 'sent', 'po_sent')`;
       await sql`INSERT INTO pay.withdrawals (user_id, asset_id, amount, rail, destination, client_ref, status)
-        VALUES (${USER}, 'USDT', 0.6, 'card-sandbox', ${sql.json(BANK as never)}, 'existing-hold', 'held')`;
-      const before = await available();
-      await expect(
-        money.withdraw({
-          userId: USER,
-          assetId: 'USDT',
-          amount: amt('0.5'),
-          rail: 'card-sandbox',
-          destination: BANK,
-          clientRef: 'fresh-ask',
-        }),
-      ).rejects.toMatchObject({ code: 'pay.wallet_over_cap' });
-      expect(await sql`SELECT 1 FROM pay.withdrawals`).toHaveLength(1);
-      expect(await available()).toBe(before);
+        VALUES (${USER}, 'ETH', 0.5, 'card-sandbox', ${sql.json(BANK as never)}, 'other-asset', 'pending')`;
+      expect(await openWithdrawalHolds(sql)(USER, 'USDT')).toBe(amt('0.7'));
+      expect(await wallet.remainingCap(USER, 'USDT')).toBe('0.3');
+      expect(await sql`SELECT 1 FROM pay.withdrawals`).toHaveLength(3);
     });
 
     it('a blank cap refuses pay.wallet_cap_unset', async () => {
-      const wallet = new WalletPay({
-        publish: { ...live('1'), withdrawalCap: () => '  ' },
-        openHolds: openWithdrawalHolds(sql),
-        allowlist: { has: () => true },
-        now: () => new Date('2026-10-18T00:00:00.000Z'),
-      });
-      const money = new UserMoneyService(sql, ledger, rails, { operatorCreditRails: ['card-sandbox'], wallet });
-      await expect(
-        money.withdraw({
-          userId: USER,
-          assetId: 'USDT',
-          amount: amt('0.5'),
-          rail: 'card-sandbox',
-          destination: BANK,
-          clientRef: 'blank-cap',
-        }),
-      ).rejects.toMatchObject({ code: 'pay.wallet_cap_unset' });
+      const wallet = new WalletPay({ publish: { ...live('1'), withdrawalCap: () => '  ' }, openHolds: openWithdrawalHolds(sql) });
+      await expect(wallet.remainingCap(USER, 'USDT')).rejects.toMatchObject({ code: 'pay.wallet_cap_unset' });
     });
   });
 

@@ -2,7 +2,7 @@
 // local:fund refuses outside its own stack, and the script never supplies a sanctions list.
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
-import { request as httpRequest } from 'node:http';
+import { createServer as createHttpServer, request as httpRequest } from 'node:http';
 import { createServer } from 'node:net';
 import {
   existsSync,
@@ -38,12 +38,18 @@ const script = resolve(here, 'local-test-stack.mjs');
   assert.deepEqual(waitsOf('ledger'), []);
   assert.ok(waitsOf('matching').includes('ledger'), 'matching waits for the ledger');
   assert.ok(waitsOf('identity').includes('ledger'), 'identity waits for the ledger');
+  // Every service but svc-ws, which is not behind the edge: the Customer server proxies /ws to it directly.
   assert.deepEqual(
     waitsOf('edge').sort(),
     defs
       .map((d) => d.name)
-      .filter((n) => n !== 'edge')
+      .filter((n) => n !== 'edge' && n !== 'ws')
       .sort(),
+  );
+  const wsPort = `:${defs.find((d) => d.name === 'ws').env.HTTP_PORT}`;
+  assert.ok(
+    !Object.values(defs.find((d) => d.name === 'edge').env).some((value) => String(value).includes(wsPort)),
+    'the edge names no svc-ws port',
   );
   // Only services listed earlier are waited for, so the order can never deadlock.
   for (const def of defs) {
@@ -631,22 +637,25 @@ console.log('local-test-stack: customer folder override checks passed');
   console.log('local-test-stack: market supervision checks passed');
 }
 
-// /ws names the missing upstream. The upgrade body is the same JSON, not an empty 503.
+// /ws: blank CUSTOMER_WS_URL names the missing upstream (the upgrade body is the same JSON, not an empty 503); set, the
+// Customer server proxies /ws/* to it with the prefix stripped, HTTP and WebSocket upgrade alike.
 {
-  const home = mkdtempSync(join(tmpdir(), 'local-test-stack-ws-'));
-  const port = await new Promise((ok) => {
-    const probe = createServer();
-    probe.listen(0, '127.0.0.1', () => {
-      const address = probe.address();
-      const pt = typeof address === 'object' && address ? address.port : 0;
-      probe.close(() => ok(pt));
+  const freePort = () =>
+    new Promise((ok) => {
+      const probe = createServer();
+      probe.listen(0, '127.0.0.1', () => {
+        const address = probe.address();
+        const pt = typeof address === 'object' && address ? address.port : 0;
+        probe.close(() => ok(pt));
+      });
     });
-  });
-  const server = spawn(process.execPath, [script, '__serve-customer', String(port)], {
-    env: { ...process.env, HOME: home, CUSTOMER_WS_URL: 'ws://127.0.0.1:4014' },
-    stdio: 'ignore',
-  });
-  try {
+  const serve = async (wsUrl) => {
+    const home = mkdtempSync(join(tmpdir(), 'local-test-stack-ws-'));
+    const port = await freePort();
+    const server = spawn(process.execPath, [script, '__serve-customer', String(port)], {
+      env: { ...process.env, HOME: home, CUSTOMER_WS_URL: wsUrl },
+      stdio: 'ignore',
+    });
     const get = async (path) => {
       for (let i = 0; i < 50; i++) {
         try {
@@ -658,18 +667,12 @@ console.log('local-test-stack: customer folder override checks passed');
       }
       throw new Error('throwaway server did not answer');
     };
-    const http = await get('/ws/stream');
-    assert.equal(http.status, 503);
-    const body = JSON.parse(http.text);
-    assert.equal(body.code, 'ws.upstream_unset');
-    assert.equal(body.key, 'CUSTOMER_WS_URL');
-    assert.match(body.message, /CUSTOMER_WS_URL is not wired/);
-    const upgrade = await new Promise((resolve, reject) => {
-      const req = httpRequest(
-        {
+    const upgrade = (path) =>
+      new Promise((resolve, reject) => {
+        const req = httpRequest({
           host: '127.0.0.1',
           port,
-          path: '/ws/stream',
+          path,
           method: 'GET',
           headers: {
             Host: `127.0.0.1:${port}`,
@@ -678,25 +681,95 @@ console.log('local-test-stack: customer folder override checks passed');
             'Sec-WebSocket-Version': '13',
             'Sec-WebSocket-Key': 'dGhlIHNhbXBsZSBub25jZQ==',
           },
-        },
-        (res) => {
+        });
+        // The first bytes after the 101 may already be in `head`, so read them there before waiting on the socket.
+        req.on('upgrade', (res, socket, head) => {
+          const done = (chunk) => {
+            socket.destroy();
+            resolve({ status: res.statusCode, text: chunk.toString('utf8') });
+          };
+          if (head.length) done(head);
+          else socket.once('data', done);
+        });
+        req.on('response', (res) => {
           const chunks = [];
           res.on('data', (chunk) => chunks.push(chunk));
           res.on('end', () => resolve({ status: res.statusCode, text: Buffer.concat(chunks).toString('utf8') }));
-        },
-      );
-      req.on('error', reject);
-      req.end();
-    });
+        });
+        req.on('error', reject);
+        req.end();
+      });
+    const stop = () => {
+      server.kill('SIGTERM');
+      rmSync(home, { recursive: true, force: true });
+    };
+    return { get, upgrade, stop };
+  };
+
+  const blank = await serve('');
+  try {
+    const http = await blank.get('/ws/stream');
+    assert.equal(http.status, 503);
+    const body = JSON.parse(http.text);
+    assert.equal(body.code, 'ws.upstream_unset');
+    assert.equal(body.key, 'CUSTOMER_WS_URL');
+    assert.match(body.message, /CUSTOMER_WS_URL is not wired/);
+    const upgrade = await blank.upgrade('/ws/stream');
     assert.equal(upgrade.status, 503);
     assert.equal(upgrade.text.length > 0, true);
     const upgradeBody = JSON.parse(upgrade.text);
     assert.equal(upgradeBody.key, 'CUSTOMER_WS_URL');
     assert.equal(upgradeBody.code, 'ws.upstream_unset');
-    console.log('local-test-stack: /ws refusal names CUSTOMER_WS_URL');
+    console.log('local-test-stack: blank /ws refusal names CUSTOMER_WS_URL');
   } finally {
-    server.kill('SIGTERM');
-    rmSync(home, { recursive: true, force: true });
+    blank.stop();
+  }
+
+  // A stand-in upstream that answers each request with the path it saw, and upgrades /stream by writing one frame-free line.
+  const seen = [];
+  const upstream = createHttpServer((req, res) => {
+    seen.push(req.url);
+    res.writeHead(200, { 'content-type': 'application/json' });
+    res.end(JSON.stringify({ path: req.url }));
+  });
+  upstream.on('upgrade', (req, socket) => {
+    seen.push(`upgrade ${req.url}`);
+    if (req.url.endsWith('&channel=chunked')) {
+      socket.end(
+        'HTTP/1.1 400 Bad Request\r\nConnection: close\r\nTransfer-Encoding: chunked\r\n\r\n3\r\nbad\r\n8\r\n chunked\r\n0\r\n\r\n',
+      );
+      return;
+    }
+    if (req.url !== '/stream?market=BTC-USDT') {
+      socket.end('HTTP/1.1 400 Bad Request\r\nConnection: close\r\nContent-Length: 11\r\n\r\nbad channel');
+      return;
+    }
+    socket.write('HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n\r\n');
+    socket.write(`hello ${req.url}`);
+  });
+  await new Promise((ok) => upstream.listen(0, '127.0.0.1', ok));
+  const wired = await serve(`http://127.0.0.1:${upstream.address().port}`);
+  try {
+    const http = await wired.get('/ws/streams');
+    assert.equal(http.status, 200);
+    assert.deepEqual(JSON.parse(http.text), { path: '/streams' });
+    const upgraded = await wired.upgrade('/ws/stream?market=BTC-USDT');
+    assert.deepEqual(upgraded, { status: 101, text: 'hello /stream?market=BTC-USDT' });
+    const refused = await wired.upgrade('/ws/stream?market=BTC-USDT&channel=balance');
+    assert.deepEqual(refused, { status: 400, text: 'bad channel' });
+    // A chunked refusal reaches the client whole, not as a chunked frame Node has already undone.
+    const chunked = await wired.upgrade('/ws/stream?market=BTC-USDT&channel=chunked');
+    assert.deepEqual(chunked, { status: 400, text: 'bad chunked' });
+    assert.deepEqual(seen, [
+      '/streams',
+      'upgrade /stream?market=BTC-USDT',
+      'upgrade /stream?market=BTC-USDT&channel=balance',
+      'upgrade /stream?market=BTC-USDT&channel=chunked',
+    ]);
+    console.log('local-test-stack: wired /ws proxies HTTP and upgrades with the prefix stripped');
+  } finally {
+    wired.stop();
+    upstream.close();
   }
 }
 

@@ -85,6 +85,8 @@ const PUBLISHED: OtcDeskLaw = {
   counterparty: 'platform',
   quoteTtlMs: 60_000,
   maxMidAgeSeconds: 60,
+  // A zero desk minimum is an owner value: these quotes are not held by the CB-otc-07 minimum.
+  minNotional: { USDT: 0n },
 };
 
 /** Pair map only — `asOf` is bound to the desk clock inside `buildDesk`. */
