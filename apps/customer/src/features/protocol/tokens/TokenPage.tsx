@@ -155,10 +155,14 @@ const CHART_HEIGHT = 200;
 
 /** One SVG candle per minute with a swap, in the other token of the pair. Every candle carries its own minute. */
 function CandleChart({ pair, data, t }: { pair: PageData['pairs'][number]; data: PageData; t: TokensTranslate }) {
-  const label = t('priceChartOf', { token: data.token.symbol || shortAddress(data.token.address), other: pair.other.symbol });
+  const label = t('priceChartOf', {
+    token: data.token.symbol || shortAddress(data.token.address),
+    other: pair.other.symbol,
+    fee: percentFromBps(pair.feeBps).replace(/^\+/, ''),
+  });
   if (pair.candles.length === 0)
     return (
-      <figure role="img" aria-label={label} className="tokens-chart">
+      <figure role="img" aria-label={label} className="tokens-chart" data-pool={pair.pool}>
         <figcaption>{t('chartEmpty')}</figcaption>
       </figure>
     );
@@ -170,7 +174,7 @@ function CandleChart({ pair, data, t }: { pair: PageData['pairs'][number]; data:
   const y = (price: string) => Number(((top - scaled(price)) * BigInt(CHART_HEIGHT - 20)) / range) + 10;
   const step = CHART_WIDTH / pair.candles.length;
   return (
-    <figure role="img" aria-label={label} className="tokens-chart">
+    <figure role="img" aria-label={label} className="tokens-chart" data-pool={pair.pool}>
       <svg viewBox={`0 0 ${CHART_WIDTH} ${CHART_HEIGHT}`} className="tokens-candles" aria-hidden="true">
         {pair.candles.map((candle, i) => {
           const up = scaled(candle.close) >= scaled(candle.open);

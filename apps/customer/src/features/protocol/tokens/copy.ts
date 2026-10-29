@@ -101,7 +101,7 @@ const en = {
   tab_holders: 'Holders',
   tab_trades: 'Trades',
   priceChart: 'Price chart: this token is in no pool',
-  priceChartOf: 'Price chart: {token} in {other}',
+  priceChartOf: 'Price chart: {token} in {other}, {fee} fee pool',
   chartEmpty: 'No candles: no swap of this token is on record in this pool.',
   chartNoPool: 'No candles: this token is in no pool.',
   chartCaption: 'One-minute candles, price in {other}: {count} candle(s).',
