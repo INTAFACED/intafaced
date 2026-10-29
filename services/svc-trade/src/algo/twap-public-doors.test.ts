@@ -84,7 +84,7 @@ type TwapHarness = {
  * clock / liquidity. Children go through placeChild (ordinary order port) —
  * never invent fills on the parent.
  */
-function makeTwapTrade(opts: { liquidity?: boolean; mark?: boolean; algoEnabled?: boolean } = {}): TwapHarness {
+function makeTwapTrade(opts: { liquidity?: boolean; mark?: boolean; algoEnabled?: boolean; belowTier?: boolean } = {}): TwapHarness {
   let t = 1_700_000_000_000;
   const placed: TwapHarness['placed'] = [];
   const store = new MemoryTwapParentStore();
@@ -138,6 +138,9 @@ function makeTwapTrade(opts: { liquidity?: boolean; mark?: boolean; algoEnabled?
     ): Promise<TwapParent> {
       if (!algoEnabled) {
         throw new TradeError('algo execution is disabled by the operator kill-switch', 'trade.algo_disabled');
+      }
+      if (opts.belowTier) {
+        throw new TradeError('Verification "full" is required to create a bot', 'trade.bots_verification_insufficient');
       }
       const kind = (input.kind ?? 'twap').toLowerCase();
       if (kind !== 'twap') {
@@ -511,6 +514,23 @@ describe('D26-P1-T4 public doors — TWAP children pause overdue no fake fills',
     });
     expect(res.statusCode).toBe(400);
     expect(res.body.error?.message ?? '').toMatch(/kill-switch/);
+    await app.close();
+  });
+
+  it('a caller below the bot verification level is refused 403 with its code, and no child is placed', async () => {
+    const harness = makeTwapTrade({ belowTier: true });
+    const app = await mount(harness.trade);
+    const res = await post(app, 'algo.createTwap', {
+      symbol: SYMBOL,
+      side: 'buy',
+      totalQty: '0.004',
+      durationMs: 8_000,
+      sliceIntervalMs: 2_000,
+      clientAlgoId: 'below-tier',
+    });
+    expect(res.statusCode).toBe(403);
+    expect(JSON.stringify(res.body)).toContain('trade.bots_verification_insufficient');
+    expect(harness.placed).toHaveLength(0);
     await app.close();
   });
 });

@@ -4,6 +4,7 @@ import {
   MAX_SLICES,
   algoClientId,
   buildLadder,
+  createBlocker,
   defaultIntervalMs,
   findGroup,
   matchesPrefix,
@@ -21,6 +22,7 @@ import {
 import { blotterCsv, buildBlotter, filterBlotter, inAlgoWindow } from './blotter';
 import { TEST_BATCH, TEST_ORDERS, TEST_WINDOWS } from './fixtures';
 import { roomWords } from '../rooms/refusals';
+import { execCopy } from './copy';
 
 const draft: PlanDraft = {
   kind: 'twap',
@@ -36,6 +38,20 @@ const draft: PlanDraft = {
   participationBps: null,
   startMs: 1_000,
 };
+
+describe('create blocker', () => {
+  it('with the scheduler off the form refuses with its reason', () => {
+    expect(createBlocker(false, true)).toBe('Scheduler off block');
+    expect(execCopy.t('Scheduler off block')).toMatch(/slice scheduler is off/);
+  });
+
+  it('an unread scheduler state blocks too; a closed market blocks only once the scheduler runs', () => {
+    expect(createBlocker(null, true)).toBe('Scheduler unknown');
+    expect(createBlocker(false, false)).toBe('Scheduler off block');
+    expect(createBlocker(true, false)).toBe('Market closed block');
+    expect(createBlocker(true, true)).toBeNull();
+  });
+});
 
 describe('schedule plan', () => {
   it('plans ceil(duration / interval) slices and puts the remainder on the last', () => {

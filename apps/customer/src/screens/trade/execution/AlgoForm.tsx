@@ -13,6 +13,7 @@ import { useLast, type ExecMarket } from './data';
 import {
   DURATION_PRESETS,
   algoClientId,
+  createBlocker,
   defaultIntervalMs,
   newNonce,
   planSchedule,
@@ -132,14 +133,8 @@ export function AlgoForm({
   );
 
   const clientAlgoId = algoClientId(nonce);
-  const blocker =
-    policy.status !== 'ready'
-      ? t('Scheduler unknown')
-      : !policy.data.capability.jobsEnabled
-        ? t('Scheduler off block')
-        : !market?.open
-          ? t('Market closed block')
-          : null;
+  const blockerKey = createBlocker(policy.status === 'ready' ? policy.data.capability.jobsEnabled : null, market?.open === true);
+  const blocker = blockerKey ? t(blockerKey) : null;
   const immature = policy.status === 'ready' && policy.data.immatureKinds.includes(form.kind);
   const problemWord = (p: PlanProblem) => t(`Plan problem ${p}`, { max: '500' });
   const general = problems.find((p) => p === 'tooManySlices' || p === 'sliceTooSmall' || p === 'sliceBelowMin');

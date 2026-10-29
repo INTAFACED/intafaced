@@ -12,6 +12,20 @@ import type { Pending } from '../buy/write-lock';
 
 export type Side = 'buy' | 'sell';
 
+/* ------------------------------------------------------------------ create blocker */
+
+export type CreateBlocker = 'Scheduler unknown' | 'Scheduler off block' | 'Market closed block';
+
+/**
+ * Why the schedule form cannot be sent, as its copy key, or null. An unread policy or a stopped slice scheduler blocks
+ * first: a schedule created then would sit active and place nothing.
+ */
+export function createBlocker(jobsEnabled: boolean | null, marketOpen: boolean): CreateBlocker | null {
+  if (jobsEnabled === null) return 'Scheduler unknown';
+  if (!jobsEnabled) return 'Scheduler off block';
+  return marketOpen ? null : 'Market closed block';
+}
+
 /* ------------------------------------------------------------------ client ids */
 
 /** A short random token that names one intent. It is made once per intent, so a re-send reuses the same ids. */
