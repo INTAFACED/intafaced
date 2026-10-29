@@ -308,6 +308,7 @@ export const ROUTE_TEMPLATES: Readonly<Record<string, RoomTemplate | NotARoom>> 
   '/chain/blocks/:height': { template: 'record-list' },
   '/chain/tx/:hash': { template: 'record-list' },
   '/chain/address/:address': { template: 'monitor' },
+  '/chain/watchlist': { template: 'record-list' },
   '/chain/validators': { template: 'record-list' },
   '/chain/validators/:validatorId': { template: 'monitor' },
   '/chain/audit': { template: 'reading' },

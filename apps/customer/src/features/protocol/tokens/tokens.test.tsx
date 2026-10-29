@@ -5,6 +5,11 @@ vi.mock('../../../shared/preferences', async (original) => {
   const real = await original<typeof import('../../../shared/preferences')>();
   return { ...real, usePreferences: () => real.currentPreferences() };
 });
+const session = {
+  userId: null as string | null,
+  api: { query: () => new Promise(() => undefined), mutate: () => new Promise(() => undefined) },
+};
+vi.mock('../../session/session', () => ({ useSession: () => session, useApi: () => session.api }));
 import { addToWatchlist, DEFAULT_WINDOW, readWatchlist, readWindow, removeFromWatchlist, saveWindow } from './storage';
 import { TokenPage } from './TokenPage';
 import { STABLECOINS_UNSET, STOCKS_BLOCKER, TokensRoom } from './TokensRoom';
@@ -37,6 +42,13 @@ describe('Tokens room storage', () => {
     expect(addToWatchlist(TOKEN)).toEqual({ ok: true, list: [TOKEN] });
     expect(readWatchlist()).toEqual([TOKEN]);
     expect(removeFromWatchlist(TOKEN)).toEqual({ ok: true, list: [] });
+  });
+  it('reads a damaged saved list as empty, not as blocked storage, so a token can still be added', () => {
+    const storage = memoryStorage();
+    storage.setItem('intafaced.tokens.watchlist', '{not json');
+    vi.stubGlobal('window', { localStorage: storage });
+    expect(readWatchlist()).toEqual([]);
+    expect(addToWatchlist(TOKEN)).toEqual({ ok: true, list: [TOKEN] });
   });
   it('tells a failed write apart from blocked storage, and keeps the list as it was', () => {
     const storage = memoryStorage();
