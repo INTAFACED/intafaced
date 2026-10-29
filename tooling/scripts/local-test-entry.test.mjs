@@ -1,9 +1,9 @@
-// The tester entry's outbox reading, without a stack. Run: node --test tooling/scripts/local-tester-entry.test.mjs
+// The tester entry's outbox reading, without a stack. Run: node --test tooling/scripts/local-test-entry.test.mjs
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
-import { mailedTo, waitingDeviceCode } from './local-tester-entry.mjs';
+import { deviceCodesMailedTo, waitingDeviceCode } from './local-test-entry.mjs';
 
 const A = 'local-test-founder-a@local-test.invalid';
 const NOW = new Date('2026-10-29T17:00:00.000Z');
@@ -17,12 +17,15 @@ const OUTBOX = [
   '',
 ].join('\n');
 
-test('reads only the purpose and address asked for, oldest first', () => {
+test('reads only device codes to the address asked for, in any case, oldest first', () => {
   assert.deepEqual(
-    mailedTo(OUTBOX, 'new-device-code', A).map((m) => m.code),
+    deviceCodesMailedTo(OUTBOX, A).map((m) => m.code),
     ['111111', '222222'],
   );
-  assert.equal(mailedTo(OUTBOX, 'email-confirm', A)[0].link, 'confirm-email?token=abc');
+  assert.deepEqual(
+    deviceCodesMailedTo(OUTBOX, ` ${A.toUpperCase()} `).map((m) => m.code),
+    ['111111', '222222'],
+  );
 });
 
 test('the waiting device code is the newest one that has not expired, else none', () => {
@@ -32,9 +35,9 @@ test('the waiting device code is the newest one that has not expired, else none'
 });
 
 test('refuses a bad command before touching anything', () => {
-  const run = spawnSync(process.execPath, [fileURLToPath(new URL('./local-tester-entry.mjs', import.meta.url)), 'code', 'c'], {
+  const run = spawnSync(process.execPath, [fileURLToPath(new URL('./local-test-entry.mjs', import.meta.url)), 'code', 'c'], {
     encoding: 'utf8',
   });
   assert.equal(run.status, 2);
-  assert.match(run.stderr, /usage: node tooling\/scripts\/local-tester-entry\.mjs code\|device a\|b/);
+  assert.match(run.stderr, /usage: node tooling\/scripts\/local-test-entry\.mjs code\|device a\|b/);
 });

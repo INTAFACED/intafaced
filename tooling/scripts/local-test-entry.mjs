@@ -3,8 +3,8 @@
  * How a tester signs in to a local test build as a LOCAL TEST founder (J-home-ia-11 #2), with no injected cookie or
  * device: the steps the customer sign-in page's "Tester build" panel names.
  *
- *   node tooling/scripts/local-tester-entry.mjs code a|b     a one-time sign-in code for founder a or b
- *   node tooling/scripts/local-tester-entry.mjs device a|b   the device code identity mailed to that founder for a new browser
+ *   node tooling/scripts/local-test-entry.mjs code a|b     a one-time sign-in code for founder a or b
+ *   node tooling/scripts/local-test-entry.mjs device a|b   the device code identity mailed to that founder for a new browser
  *
  * The handle and password are in the stack's founders.json. Signing in on a browser identity has not seen asks for a
  * device code, which identity mails only to a confirmed address, so `code` first confirms the founder's address once
@@ -17,30 +17,33 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { FOUNDER_VAULT_NAME } from './local-test-founders.mjs';
 import { approverSessions, founderSignIns, founderTotp, makeContext } from './local-test-gates.mjs';
+import { readLatestEmailConfirmToken } from './local-test-state.mjs';
 
 /** The stack identity's LOCAL-TEST mail file (tooling/scripts/local-stack-services/identity.mjs). */
 export const OUTBOX_NAME = 'email-outbox.log';
 const CONFIRM_WAIT_MS = 20_000;
 
 /**
- * The LOCAL-TEST mail lines for `purpose` to `email` in `text`, oldest first, as { expires, code, link }. Only the
- * fields identity's local-outbox writes (services/svc-identity/src/auth/local-mail.ts) are read.
+ * The LOCAL-TEST new-device-code lines to `email` in `text` (services/svc-identity/src/auth/local-mail.ts), oldest first,
+ * as { expires, code }. The address is matched as local-test-state.mjs matches a confirm link: trimmed, any case.
  */
-export function mailedTo(text, purpose, email) {
-  const wanted = String(email).replace(/\s+/g, '');
-  return String(text)
+export function deviceCodesMailedTo(text, email) {
+  const want = String(email ?? '')
+    .trim()
+    .toLowerCase();
+  return String(text ?? '')
     .split('\n')
-    .filter((line) => line.startsWith('LOCAL-TEST ') && line.includes(` purpose=${purpose} `) && line.includes(` email=${wanted} `))
+    .filter((line) => line.startsWith('LOCAL-TEST ') && line.includes(' purpose=new-device-code '))
+    .filter((line) => /(?:^|\s)email=(\S+)/.exec(line)?.[1].toLowerCase() === want)
     .map((line) => ({
-      expires: /\bexpires=(\S+)/.exec(line)?.[1] ?? null,
-      code: /\bcode=(\d{6})\b/.exec(line)?.[1] ?? null,
-      link: /\blink=(\S+)/.exec(line)?.[1] ?? null,
+      expires: /(?:^|\s)expires=(\S+)/.exec(line)?.[1] ?? null,
+      code: /(?:^|\s)code=(\d{6})(?:\s|$)/.exec(line)?.[1] ?? null,
     }));
 }
 
 /** The newest device code in `text` for `email` that has not expired at `now`, or null. */
 export function waitingDeviceCode(text, email, now = new Date()) {
-  const live = mailedTo(text, 'new-device-code', email).filter((m) => m.code && m.expires && Date.parse(m.expires) > now.getTime());
+  const live = deviceCodesMailedTo(text, email).filter((m) => m.code && m.expires && Date.parse(m.expires) > now.getTime());
   return live.at(-1) ?? null;
 }
 
@@ -50,8 +53,9 @@ const outbox = (ctx) => {
 };
 
 function founderOf(ctx, key) {
-  if (key !== 'a' && key !== 'b') throw new Error('usage: local-tester-entry.mjs code|device a|b');
-  const vault = JSON.parse(readFileSync(path.join(ctx.paths.stateDir, FOUNDER_VAULT_NAME), 'utf8'));
+  if (key !== 'a' && key !== 'b') throw new Error('usage: local-test-entry.mjs code|device a|b');
+  const file = path.join(ctx.paths.stateDir, FOUNDER_VAULT_NAME);
+  const vault = existsSync(file) ? JSON.parse(readFileSync(file, 'utf8')) : null;
   const founder = founderSignIns(vault).find((f) => f.key === key);
   if (!founder) throw new Error(`the founder pair in ${FOUNDER_VAULT_NAME} is not enrolled yet: start the local test stack first`);
   return founder;
@@ -63,17 +67,21 @@ export async function confirmFounderAddress(ctx, key) {
   const token = (await approverSessions(ctx))[key].token;
   const me = await ctx.edge.query('identity', 'me', undefined, token);
   if (me.status !== 200) throw new Error(`identity me refused (${me.status})`);
+  const verified = async () => (await ctx.edge.query('identity', 'me', undefined, token)).json?.result?.data?.emailVerified === true;
   if (me.json?.result?.data?.emailVerified === true) return 'already confirmed';
-  const seen = mailedTo(outbox(ctx), 'email-confirm', founder.email).length;
+  const before = readLatestEmailConfirmToken(outbox(ctx), founder.email);
   const asked = await ctx.edge.mutate('identity', 'auth.requestEmailConfirmation', {}, token);
   if (asked.status !== 200) throw new Error(`identity refused the confirmation email (${asked.status}): ${asked.text.slice(0, 300)}`);
   const until = Date.now() + CONFIRM_WAIT_MS;
-  let mail;
-  while (!(mail = mailedTo(outbox(ctx), 'email-confirm', founder.email)[seen])) {
-    if (Date.now() > until) throw new Error(`no confirmation email reached ${OUTBOX_NAME} for ${founder.handle}`);
+  let confirmToken;
+  while ((confirmToken = readLatestEmailConfirmToken(outbox(ctx), founder.email)) === before) {
+    // Identity answers without mailing an address that is already confirmed, so another run may have got there first.
+    if (Date.now() > until) {
+      if (await verified()) return 'already confirmed';
+      throw new Error(`no confirmation email reached ${OUTBOX_NAME} for ${founder.handle}`);
+    }
     await new Promise((resolve) => setTimeout(resolve, 250));
   }
-  const confirmToken = new URL(`/${mail.link}`, 'http://local.invalid').searchParams.get('token');
   const confirmed = await ctx.edge.mutate('identity', 'auth.confirmEmail', { token: confirmToken });
   if (confirmed.status !== 200) throw new Error(`identity refused the confirmation (${confirmed.status}): ${confirmed.text.slice(0, 300)}`);
   return 'confirmed';
@@ -82,7 +90,7 @@ export async function confirmFounderAddress(ctx, key) {
 async function main() {
   const [cmd, key] = process.argv.slice(2);
   if ((cmd !== 'code' && cmd !== 'device') || (key !== 'a' && key !== 'b')) {
-    console.error('usage: node tooling/scripts/local-tester-entry.mjs code|device a|b');
+    console.error('usage: node tooling/scripts/local-test-entry.mjs code|device a|b');
     process.exit(2);
   }
   const ctx = await makeContext({ log: () => {}, shareSessions: true });
