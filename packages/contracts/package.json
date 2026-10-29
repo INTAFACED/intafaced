@@ -198,6 +198,10 @@
       "types": "./dist/bank-value-history.d.ts",
       "default": "./dist/bank-value-history.js"
     },
+    "./agents-own": {
+      "types": "./dist/agents-own.d.ts",
+      "default": "./dist/agents-own.js"
+    },
     "./p2p-delist": {
       "types": "./dist/p2p-delist.d.ts",
       "default": "./dist/p2p-delist.js"

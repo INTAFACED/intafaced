@@ -51,6 +51,18 @@ Internal tRPC (§1). Every log query is scoped to `ctx.principal.userId` — an 
 | `usage.settleSession` | `admin:write`    | `{ sessionId }`                            | settles every open / sealed-unbilled window. Idempotent     |
 | `log.mine`            | `agents:read`    | `{ limit }`                                | **the user-visible log** (§8.2)                             |
 
+### Agents a person builds (AG-builder-01)
+
+| Procedure       | Scope                 | Input                                              | Output                                                    |
+| --------------- | --------------------- | -------------------------------------------------- | --------------------------------------------------------- |
+| `own.catalogue` | `agents:read`         | —                                                  | the templates and the addable tools, money tools marked   |
+| `own.create`    | `agents:read`, person | `{ template, createKey }`                          | a new draft; a retried `createKey` returns the same draft |
+| `own.save`      | `agents:read`, person | `{ id, name, instructions, tools, perSessionCap }` | the draft, or a refusal code (`agents.own.*`)             |
+| `own.get`       | `agents:read`, person | `{ id }`                                           | the caller's own draft and what blocks publishing it      |
+| `own.list`      | `agents:read`, person | `{ limit }`                                        | the caller's own agents, newest first                     |
+
+"Person" is the signed-in session itself (`identity:write`, no `kid` or `sub_account`), as for spend limits. A draft's tools come only from `src/own/catalog.ts`; a tool that moves money is offered so it can be refused (`agents.own.money_tool`) and is never stored, and a blank per-session cap stays blank (`agents.spend.cap_unset` blocks publishing). Building an agent moves no value. Table: `own_agents` (migration `0005`).
+
 `requestId` on `run.complete` is supplied by the caller and is the anti-double-bill handle: a client that retries after a timeout reuses it.
 
 ### Metered agent runs
