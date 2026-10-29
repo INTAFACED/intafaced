@@ -104,7 +104,10 @@ export function createWithdrawalLimitGuards(deps: WithdrawalLimitGuardDeps): Par
       const { limit } = await limitInForce(source, side, ctx.assetId, ctx.tx);
       const used = await usedInWindow(ctx.tx, { userId: ctx.userId, assetId: ctx.assetId, exceptClientRef: ctx.clientRef });
       const allowance = allowanceOf(limit, used);
-      if (compare(ctx.amount, limit.perTx) > 0 || compare(ctx.amount, allowance.left24h) > 0) {
+      // The per-withdrawal figure is what one withdrawal may send (the amount); the rolling figure counts what leaves the
+      // balance, so a send's quoted fee counts there with every earlier one's (J-wallet-05 #6).
+      const leaves = ctx.amount + (ctx.fee ?? 0n);
+      if (compare(ctx.amount, limit.perTx) > 0 || compare(leaves, allowance.left24h) > 0) {
         throw new PayGuardRefusal(GUARD_WITHDRAWAL_LIMIT_EXCEEDED, 'refused', {
           perTx: formatAmount(limit.perTx),
           rolling24h: formatAmount(allowance.left24h),
