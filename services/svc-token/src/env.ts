@@ -138,6 +138,18 @@ const schema = serviceEnvSchema
       TOKEN_PROPOSAL_LIMIT: z.string().optional(),
 
       /**
+       * Who may take part in a launch. NO DEFAULT. Blank is `launch.eligibility_unset`.
+       * The least identity verification: `none`, `basic`, `full` or `institutional`.
+       */
+      TOKEN_LAUNCH_MIN_KYC_TIER: z.string().optional(),
+
+      /**
+       * Regions that may not take part in a launch: two-letter codes, comma separated, or `none`.
+       * NO DEFAULT. Blank is `launch.eligibility_unset`.
+       */
+      TOKEN_LAUNCH_RESTRICTED_REGIONS: z.string().optional(),
+
+      /**
        * Identity issuer for operator treasury consume (distributeRevenue /
        * recordBuyback). Blank / unset → those doors refuse
        * (`action_approval.identity_unwired`). HMAC jobs do not call identity.

@@ -26,5 +26,9 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS }) => ({
     // LOCAL_STACK_TOKEN_PROPOSER_RULE=off restarts the lane with the rule blank, so a journey can show its refusal.
     ...(process.env.LOCAL_STACK_TOKEN_PROPOSER_RULE === 'off' ? {} : { TOKEN_PROPOSER_RULE: testValue('TOKEN_PROPOSER_RULE') }),
     TOKEN_PROPOSAL_LIMIT: testValue('TOKEN_PROPOSAL_LIMIT'),
+    // Who may take part in a launch: the labelled TEST rule (basic verification, no barred region), so a launch journey
+    // shows the requirements list instead of the unset refusal. Production leaves both blank and refuses.
+    TOKEN_LAUNCH_MIN_KYC_TIER: testValue('TOKEN_LAUNCH_MIN_KYC_TIER'),
+    TOKEN_LAUNCH_RESTRICTED_REGIONS: testValue('TOKEN_LAUNCH_RESTRICTED_REGIONS'),
   }),
 });
