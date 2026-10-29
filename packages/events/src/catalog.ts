@@ -271,7 +271,7 @@ export const ledgerReconciliationFailed = defineEvent(
  * An incomplete reconciliation run: Postgres or the connection failed before a
  * verdict. Emitted on every such run, including the one that freezes posting
  * after N consecutive failures (`reconcile_unproven`, D-128). Not a drift.
- * No subscriber is wired; the freeze itself does not depend on this event.
+ * svc-ops stores each one as a platform incident (OPS-reconciliation-04); the freeze itself does not depend on it.
  */
 export const ledgerReconciliationRunFailed = defineEvent(
   'ledger',
@@ -1968,13 +1968,6 @@ export const WIRING_SOCKETS = [
       'svc-ledger publishes when snapshot and replay disagree, but the freeze it triggers is performed by svc-ledger itself in-process — the event is the external announcement, not the mechanism. It stays unconsumed until the alerting path (§4.2 "pages the operator") is built, and the freeze does not depend on that path existing.',
   },
   {
-    event: 'ledgerReconciliationRunFailed',
-    missing: 'subscriber',
-    class: 'A',
-    reason:
-      'svc-ledger publishes on every incomplete reconciliation run, including the run that freezes after N consecutive failures. The halt is the posting_freeze row, written in-process. Nothing in this repo subscribes, and the freeze does not depend on a subscriber existing.',
-  },
-  {
     event: 'coreOpsAlertRuleUpdated',
     missing: 'publisher',
     class: 'A',
@@ -2074,24 +2067,10 @@ export const WIRING_SOCKETS = [
   },
   {
     event: 'coreOpsReconciliationAlertOpened',
-    missing: 'publisher',
-    class: 'A',
-    reason:
-      'Declared by the OPS-reconciliation-04 events PR. svc-ops publishes it from its outbox when the reconciliation alert transitions land (svc-ops PR, next). The alert is a durable row that /alerts reads.',
-  },
-  {
-    event: 'coreOpsReconciliationAlertOpened',
     missing: 'subscriber',
     class: 'A',
     reason:
       'No other service needs it yet: the alert is a durable svc-ops row that /alerts reads, and nothing outside svc-ops is promised a reaction. The subject exists so audit and a later consumer can follow without polling.',
-  },
-  {
-    event: 'coreOpsReconciliationAlertUpdated',
-    missing: 'publisher',
-    class: 'A',
-    reason:
-      'Declared by the OPS-reconciliation-04 events PR. svc-ops publishes it from its outbox when the reconciliation alert transitions land (svc-ops PR, next). The alert is a durable row that /alerts reads.',
   },
   {
     event: 'coreOpsReconciliationAlertUpdated',
@@ -2102,24 +2081,10 @@ export const WIRING_SOCKETS = [
   },
   {
     event: 'coreOpsReconciliationAlertResolved',
-    missing: 'publisher',
-    class: 'A',
-    reason:
-      'Declared by the OPS-reconciliation-04 events PR. svc-ops publishes it from its outbox when the reconciliation alert transitions land (svc-ops PR, next). The alert is a durable row that /alerts reads.',
-  },
-  {
-    event: 'coreOpsReconciliationAlertResolved',
     missing: 'subscriber',
     class: 'A',
     reason:
       'No other service needs it yet: the alert is a durable svc-ops row that /alerts reads, and nothing outside svc-ops is promised a reaction. The subject exists so audit and a later consumer can follow without polling.',
-  },
-  {
-    event: 'coreOpsReconciliationAlertAccepted',
-    missing: 'publisher',
-    class: 'A',
-    reason:
-      'Declared by the OPS-reconciliation-04 events PR. svc-ops publishes it from its outbox when the reconciliation alert transitions land (svc-ops PR, next). The alert is a durable row that /alerts reads.',
   },
   {
     event: 'coreOpsReconciliationAlertAccepted',

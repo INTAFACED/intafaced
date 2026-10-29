@@ -1,7 +1,9 @@
 import { expect, test } from '@playwright/test';
+import { spawnSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
+import path from 'node:path';
 import { ADMIN, founderSignIn } from './admin.mjs';
-import { ORIGIN, fund, journeyState, signUpInBrowser, tool } from './stack.mjs';
+import { ORIGIN, ROOT, api, fund, journeyState, signUpInBrowser, tool } from './stack.mjs';
 
 // J-ops-console-07: reconcile the books on the founder console's /ledger page. Steps 1-4 (OPS-reconciliation-01): define a
 // control, set its policy and dynamic account set, run it now with two founders, and run it at a past instant. Define, change
@@ -9,10 +11,25 @@ import { ORIGIN, fund, journeyState, signUpInBrowser, tool } from './stack.mjs';
 // journey stops there with that blocker named. Steps 5-6 (OPS-reconciliation-02): a PASS, a FAIL and an ERROR run with
 // per-asset evidence, and pause, resume and retire a control. Steps 7-8 (OPS-reconciliation-03): svc-ops raises one alert per
 // control, failing asset and period from the ledger's settled evaluations, on the console's /ledger/alerts room. Steps 9-10
-// wait for OPS-reconciliation-04 and refuse at once.
+// (OPS-reconciliation-04): resolve as fixed with booked ledger transaction ids and accept with two founders; a repeat failure
+// reopens, a passing run resolves, an ERROR run is a platform alert, and a run-failed event delivered twice is stored once.
 
 const tag = randomUUID().slice(0, 8);
-const state = { a: null, b: null, thresholdId: null, outsideId: null, outsideRuns: [], floorId: null, pairId: null };
+const state = {
+  a: null,
+  b: null,
+  thresholdId: null,
+  outsideId: null,
+  outsideRuns: [],
+  floorId: null,
+  pairId: null,
+  // #9 and #10: the customer-USDT floor that is resolved, reopens and passes, its alert and payer; the USDC floor accepted.
+  fixId: null,
+  fixAlertId: null,
+  fixPayer: null,
+  acceptId: null,
+  acceptAlert: null,
+};
 const runId = (answer) => answer.match(/Run ([0-9a-f-]{36}): /)?.[1] ?? null;
 
 async function openLedger(page) {
@@ -237,7 +254,7 @@ async function openAlerts(page) {
   return room;
 }
 
-/** The alert rows of one control, as {id, asset, state, occurrences, periodStart}, read from a fresh room. */
+/** The alert rows of one control, as {id, asset, state, occurrences, periodStart, cause, team}, read from a fresh room. */
 async function alertsOf(page, controlId) {
   const room = await openAlerts(page);
   return room.locator(`[data-testid="alert-row"][data-control-id="${controlId}"]`).evaluateAll((rows) =>
@@ -247,6 +264,8 @@ async function alertsOf(page, controlId) {
       state: r.getAttribute('data-state'),
       occurrences: Number(r.getAttribute('data-occurrences')),
       periodStart: r.getAttribute('data-period-start'),
+      cause: r.getAttribute('data-cause'),
+      team: r.getAttribute('data-team'),
     })),
   );
 }
@@ -254,15 +273,27 @@ async function alertsOf(page, controlId) {
 /** Waits until svc-ops shows `want(rows)` true for a control's alerts, and returns those rows. */
 async function awaitAlerts(page, controlId, want, message) {
   let rows = [];
-  await expect
+  let lastError = null;
+  const poll = expect
     .poll(
       async () => {
-        rows = await alertsOf(page, controlId);
+        // A ledger restart leaves svc-ops' read unavailable for a tick or two; that is retried, never read as "no alert".
+        try {
+          rows = await alertsOf(page, controlId);
+          lastError = null;
+        } catch (error) {
+          lastError = error;
+          return false;
+        }
         return want(rows);
       },
       { message, timeout: 150_000, intervals: [5_000] },
     )
     .toBe(true);
+  await poll.catch((error) => {
+    if (lastError) error.message += `\nLast read of the alerts room: ${lastError.message}`;
+    throw error;
+  });
   return rows;
 }
 
@@ -272,6 +303,73 @@ async function openAlert(page, alertId) {
   const detail = page.getByTestId('alert-detail');
   await expect(detail).toBeVisible({ timeout: 30_000 });
   return detail;
+}
+
+/** One alert's detail: its resolve form refuses or resolves with these transaction ids; returns the detail page. */
+async function resolveWith(page, alertId, txIds, note = '') {
+  const detail = await openAlert(page, alertId);
+  const form = detail.getByTestId('alert-resolve');
+  await form.getByLabel('Corrective transaction ids').fill(txIds.join(', '));
+  if (note) await form.getByLabel('Resolution note (optional)').fill(note);
+  await form.getByTestId('alert-resolve-submit').click();
+  return detail;
+}
+
+/**
+ * The accept desk's propose step sent straight to the console's route with the note as given, the way the desk sends it. The
+ * desk holds its button for a note under 12 characters, so a blank note can only be shown refused this way.
+ */
+async function proposeAccept(page, alertId, evidenceHash, reason) {
+  return page.evaluate(
+    async ({ alertId, evidenceHash, reason, confirm }) => {
+      const session = await (await fetch('/api/session', { cache: 'no-store' })).json();
+      const res = await fetch('/api/ledger-reconciliation/alerts/accept', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'x-intafaced-csrf': session.csrf },
+        body: JSON.stringify({
+          step: 'propose',
+          request: { kind: 'ops.reconciliation_alert.accept', alertId, evidenceHash, reason },
+          confirm,
+        }),
+        cache: 'no-store',
+      });
+      const text = await res.text();
+      try {
+        return { status: res.status, body: JSON.parse(text) };
+      } catch {
+        return { status: res.status, body: text };
+      }
+    },
+    { alertId, evidenceHash, reason, confirm: `ACCEPT ALERT ${alertId.slice(0, 8)}` },
+  );
+}
+
+/**
+ * Delivers one `ledger.reconciliation_run.failed` envelope to the stack's bus twice, under two message ids so the stream keeps
+ * both, as a redelivery after a lost acknowledgement reaches svc-ops. The stack's ledger raises this only when its platform
+ * reconcile run cannot finish, which no TEST step can cause, so the journey sends a LOCAL TEST one (its run id says so).
+ */
+function deliverRunFailedTwice(key) {
+  const code = `
+    import { connect } from 'nats';
+    import { buildEnvelope, encodeEnvelope } from './dist/index.js';
+    const env = buildEnvelope(
+      'ledgerReconciliationRunFailed',
+      { errorCode: 'ledger.reconcile_source_unavailable', phase: 'snapshot', consecutiveIncomplete: 1, runId: 'LOCAL TEST ' + process.env.EVENT_KEY },
+      'ledger',
+      { idempotencyKey: process.env.EVENT_KEY },
+    );
+    const nc = await connect({ servers: process.env.NATS_URL });
+    const js = nc.jetstream();
+    for (const n of [1, 2]) await js.publish(env.subject, encodeEnvelope(env), { msgID: env.idempotencyKey + ':delivery:' + n });
+    await nc.drain();`;
+  const r = spawnSync(process.execPath, ['--input-type=module', '-e', code], {
+    cwd: path.join(ROOT, 'packages', 'events'),
+    env: { ...process.env, NATS_URL: 'nats://127.0.0.1:14232', EVENT_KEY: key },
+    encoding: 'utf8',
+    timeout: 60_000,
+  });
+  if (r.status !== 0) throw new Error(`delivering the run-failed event twice failed: ${(r.stderr || r.stdout).slice(0, 500)}`);
 }
 
 test.describe.serial('J-ops-console-07 reconcile the books', () => {
@@ -456,6 +554,82 @@ test.describe.serial('J-ops-console-07 reconcile the books', () => {
       state.outsideRuns.push({ id: runId(error), status: 'ERROR' });
     } finally {
       ledgerOutside(false);
+    }
+  });
+
+  test('J-ops-console-07 #5 the evidence is the ledger’s: one customer’s two assets at a past instant and now, stored as shown', async ({
+    browser,
+  }) => {
+    test.setTimeout(600_000);
+    const { a } = await founders(browser);
+    // A fresh TEST customer is the whole account set, so every observed figure is known from outside the evaluator: the
+    // amounts this step funds, and the customer's own balance as the ledger answers their balance read.
+    const who = { handle: `ops07e${tag}`, email: `ops07e-${tag}@local-test.invalid`, password: `Ops07e-${tag}-Test!pass` };
+    await signUpInBrowser(await (await browser.newContext({ baseURL: ORIGIN })).newPage(), who);
+    const session = await api(who);
+    expect(fund(who.email, 'USDT', '2.5').tx, 'the USDT credit is a booked ledger transaction').toMatch(/^[0-9a-f-]{36}$/);
+    // The past instant is the next whole minute after the USDT credit and before the USDC one.
+    const instant = new Date(Math.ceil((Date.now() + 1_000) / 60_000) * 60_000);
+    await a.waitForTimeout(Math.max(0, instant.getTime() - Date.now()) + 2_000);
+    expect(fund(who.email, 'USDC', '3').tx, 'the USDC credit is a booked ledger transaction').toMatch(/^[0-9a-f-]{36}$/);
+    const balances = await session.balances();
+    expect(scaled(balances.USDT?.total ?? 'unset'), 'the customer holds the USDT credited').toBe(scaled('2.5'));
+    expect(scaled(balances.USDC?.total ?? 'unset'), 'the customer holds the USDC credited').toBe(scaled('3'));
+
+    const section = await openLedger(a);
+    await requireTreasury(section);
+    const ownId = await define(section, {
+      template: 'threshold',
+      explanation: `LOCAL TEST one customer two assets ${tag}`,
+      fill: async (form) => {
+        await form.getByLabel('Asset', { exact: true }).fill('');
+        await form.getByLabel('Owner type').selectOption('user');
+        await form.getByLabel('Owner id starts with').fill(session.userId);
+        await form.getByLabel('Threshold bound').selectOption('min');
+        await form.getByLabel(/^Threshold by asset/).fill('USDC=0, USDT=0');
+        await setPolicy(form, { tolerance: '0' });
+      },
+    });
+    try {
+      // At the past instant (margin 0) the ledger held the USDT credit and not yet the USDC one.
+      const past = await twoFounderRun(ownId, { instant: instant.toISOString().slice(0, 16), margin: '0' });
+      expect(past).toMatch(/Run [0-9a-f-]{36}: PASS\./);
+      expect(past).toContain(`balances read at ${instant.toISOString()} (margin 0 s)`);
+      expect(scaled(evidence(past, 'USDT').observed)).toBe(scaled('2.5'));
+      expect(scaled(evidence(past, 'USDC').observed)).toBe(0n);
+
+      // Now: both credits, each equal to the customer's balance as the ledger answers it.
+      const now = await twoFounderRun(ownId);
+      expect(now).toMatch(/Run [0-9a-f-]{36}: PASS\./);
+      for (const [asset, total] of [
+        ['USDT', '2.5'],
+        ['USDC', '3'],
+      ]) {
+        const shown = evidence(now, asset);
+        expect(scaled(shown.observed), `${asset} observed is the customer's ledger balance`).toBe(scaled(balances[asset].total));
+        expect(scaled(shown.observed)).toBe(scaled(total));
+        expect(shown.expected).toBe('0');
+        expect(scaled(shown.difference)).toBe(scaled(total));
+        expect(shown.tolerance).toBe('0');
+      }
+
+      // Both runs are stored as shown: a fresh read of the control's evaluations has each one's status and evidence.
+      const again = await openLedger(a);
+      await choose(again, ownId);
+      const runs = again.getByTestId('rc-runs');
+      await expect(runs.getByTestId('rc-runs-count')).toContainText('showing 2 of 2 evaluations', { timeout: 30_000 });
+      for (const [answer, assets] of [
+        [past, ['USDT', 'USDC']],
+        [now, ['USDT', 'USDC']],
+      ]) {
+        const stored = runs.locator(`[data-testid="rc-run-row"][data-run-id="${runId(answer)}"]`);
+        await expect(stored).toHaveAttribute('data-status', 'PASS');
+        const text = (await stored.innerText()).replace(/\s+/g, ' ');
+        for (const asset of assets)
+          expect(evidence(text, asset), `${asset} evidence is stored as the run showed it`).toEqual(evidence(answer, asset));
+      }
+    } finally {
+      await lifecycle(ownId, 'retire', 'Retired');
     }
   });
 
@@ -708,11 +882,247 @@ test.describe.serial('J-ops-console-07 reconcile the books', () => {
     }
   });
 
-  for (const [n, slice] of [
-    [9, 'OPS-reconciliation-04'],
-    [10, 'OPS-reconciliation-04'],
-  ])
-    test(`J-ops-console-07 #${n} waits for ${slice}`, () => {
-      throw new Error(`step #${n} is not built yet: ${slice}`);
+  test('J-ops-console-07 #9 resolve as fixed names booked ledger transactions; accepting needs a note and two founders and freezes the evidence', async ({
+    browser,
+  }) => {
+    test.setTimeout(900_000);
+    const { a, b } = await founders(browser);
+    const section = await openLedger(a);
+    await requireTreasury(section);
+
+    // A floor over every customer's USDT, set 5 above what the book holds now, so it fails until 5 USDT more is deposited.
+    state.fixId = await define(section, {
+      template: 'threshold',
+      explanation: `LOCAL TEST customer USDT floor ${tag}`,
+      fill: async (form) => {
+        await form.getByLabel('Owner type').selectOption('user');
+        await form.getByLabel('Threshold bound').selectOption('min');
+        await form.getByLabel(/^Threshold by asset/).fill('USDT=0');
+        await setPolicy(form, { tolerance: '0' });
+      },
     });
+    try {
+      await expect(row(section, state.fixId).getByTestId('rc-state')).toHaveText('Active');
+      const probe = await twoFounderRun(state.fixId);
+      expect(probe).toMatch(/Run [0-9a-f-]{36}: PASS\./);
+      const held = scaled(evidence(probe, 'USDT').observed);
+      const floor = held + 5n * 10n ** 18n;
+      const floorText = `${floor / 10n ** 18n}.${(floor % 10n ** 18n).toString().padStart(18, '0')}`.replace(/\.?0+$/, '');
+      const update = await openLedger(a);
+      await choose(update, state.fixId);
+      const form = update.getByTestId('rc-form-update');
+      await form.getByLabel(/^Threshold by asset/).fill(`USDT=${floorText}`);
+      await form.getByLabel(/^Why/).fill(`LOCAL TEST J-ops-console-07 raise floor ${tag}`);
+      await form.getByRole('button', { name: 'Save changes' }).click();
+      await expect(form.getByTestId('rc-saved')).toBeVisible({ timeout: 30_000 });
+
+      const fail = await twoFounderRun(state.fixId);
+      expect(fail).toMatch(/Run [0-9a-f-]{36}: FAIL\./);
+      expect(scaled(evidence(fail, 'USDT').difference)).toBe(held - floor);
+      const [opened] = await awaitAlerts(a, state.fixId, (rows) => rows.length === 1, 'svc-ops opens the customer floor’s alert');
+      expect(opened).toMatchObject({ asset: 'USDT', state: 'open', occurrences: 1, cause: 'fail', team: 'finance' });
+      state.fixAlertId = opened.id;
+
+      // A transaction id the ledger never booked is refused by name, and the alert stays open.
+      const unknown = randomUUID();
+      const refused = await resolveWith(a, opened.id, [unknown]);
+      await expect(refused.getByTestId('alert-refused-code')).toHaveText('ops.resolve_transaction_not_found', { timeout: 30_000 });
+      await expect(refused.getByTestId('alert-refused-detail')).toContainText(unknown);
+      await expect(await openAlert(a, opened.id)).toHaveAttribute('data-state', 'open');
+
+      // The corrective booking: a TEST deposit of 2 USDT to a new customer, posted through the ledger's deposit recipe. (The
+      // reversal desk that books a true reversal is J-ops-console-05, not on this stack; any booked transaction id is what svc-ops
+      // checks.) 2 is short of the 5 the floor wants, so the next run fails again (#10).
+      state.fixPayer = { handle: `ops07f${tag}`, email: `ops07f-${tag}@local-test.invalid`, password: `Ops07f-${tag}-Test!pass` };
+      await signUpInBrowser(await (await browser.newContext({ baseURL: ORIGIN })).newPage(), state.fixPayer);
+      const booked = fund(state.fixPayer.email, 'USDT', '2');
+      expect(booked.tx, `the deposit names its ledger transaction: ${booked.out}`).toMatch(/^[0-9a-f-]{36}$/);
+      const resolved = await resolveWith(a, opened.id, [booked.tx.toUpperCase()], `LOCAL TEST fixed by deposit ${tag}`);
+      await expect(resolved).toHaveAttribute('data-state', 'resolved', { timeout: 30_000 });
+      const record = resolved.getByTestId('alert-resolved');
+      await expect(record).toHaveAttribute('data-resolution', 'fixed');
+      await expect(record.getByTestId('alert-resolved-tx')).toHaveCount(1);
+      await expect(record.getByTestId('alert-resolved-tx')).toHaveAttribute('data-tx-id', booked.tx.toLowerCase());
+      const resolvedEntry = resolved.locator('[data-testid="timeline-entry"][data-kind="resolved"]');
+      await expect(resolvedEntry).toHaveCount(1);
+      await expect(resolvedEntry.getByTestId('timeline-tx')).toHaveAttribute('data-tx-id', booked.tx.toLowerCase());
+      // A resolved alert offers no second resolution and no acceptance.
+      await expect(resolved.getByTestId('alert-resolve-why')).toBeVisible();
+
+      // Accept: a USDC floor over the USDT account set fails on a total of 0 at every run, the same figures each time.
+      const desk = await openLedger(a);
+      state.acceptId = await define(desk, {
+        template: 'threshold',
+        explanation: `LOCAL TEST USDC floor to accept ${tag}`,
+        fill: async (f) => {
+          await f.getByLabel('Threshold bound').selectOption('min');
+          await f.getByLabel(/^Threshold by asset/).fill(`USDC=${HIGH_FLOOR}`);
+          await setPolicy(f, { tolerance: '0' });
+        },
+      });
+      expect(await twoFounderRun(state.acceptId)).toMatch(/Run [0-9a-f-]{36}: FAIL\./);
+      const [toAccept] = await awaitAlerts(a, state.acceptId, (rows) => rows.length === 1, 'svc-ops opens the USDC floor’s alert');
+      expect(toAccept).toMatchObject({ asset: 'USDC', state: 'open', cause: 'fail', team: 'finance' });
+      const before = await openAlert(a, toAccept.id);
+      const evidenceHash = (await before.getByTestId('alert-evidence-hash').innerText()).trim();
+      expect(evidenceHash).toMatch(/^[0-9a-f]{64}$/);
+      const evidenceText = await before.getByTestId('alert-evidence').innerText();
+
+      // A blank note is refused before any approval is made.
+      const blank = await proposeAccept(a, toAccept.id, evidenceHash, '');
+      expect(blank.status, JSON.stringify(blank)).toBe(400);
+      expect(blank.body.refusal?.code, JSON.stringify(blank)).toBe('ops.resolve_note_required');
+
+      // A asks with a note; A approving their own packet is refused and the alert stays open.
+      const phrase = `ACCEPT ALERT ${toAccept.id.slice(0, 8)}`;
+      const accept = before.getByTestId('alert-accept');
+      await accept.getByLabel(/^Acceptance note/).fill(`LOCAL TEST accepted discrepancy ${tag}`);
+      await accept.getByLabel(/to confirm$/).fill(phrase);
+      await accept.getByRole('button', { name: 'Ask a second founder to approve the acceptance' }).click();
+      await expect(accept.getByTestId('packet-made')).toBeVisible({ timeout: 60_000 });
+      const packetText = (await accept.getByLabel('Request packet').inputValue()).trim();
+      const alone = await consoleStep(a, '/api/ledger-reconciliation/alerts/accept', packetText, 'approve', phrase);
+      expect(alone.body.ok, JSON.stringify(alone)).toBe(false);
+      expect(alone.body.refusal?.code, JSON.stringify(alone)).toBe('action_approval.same_person');
+      await expect(await openAlert(a, toAccept.id)).toHaveAttribute('data-state', 'open');
+
+      // B approves the same packet on their own console, then A runs it: accepted, at the hash both read.
+      const approver = (await openAlert(b, toAccept.id)).getByTestId('alert-accept');
+      await approver.getByLabel('Request packet').fill(packetText);
+      await expect(approver.getByTestId('packet-summary')).toContainText(toAccept.id);
+      await approver.getByLabel(/to approve or run it$/).fill(phrase);
+      await approver.getByRole('button', { name: 'Approve this request' }).click();
+      await expect(approver.getByTestId('step-reply')).toContainText('Approved.', { timeout: 30_000 });
+      const runner = (await openAlert(a, toAccept.id)).getByTestId('alert-accept');
+      await runner.getByLabel('Request packet').fill(packetText);
+      await runner.getByLabel(/to approve or run it$/).fill(phrase);
+      await runner.getByRole('button', { name: 'Run the approved request' }).click();
+      await expect(runner.getByTestId('step-reply')).toContainText('The service answered', { timeout: 60_000 });
+
+      const accepted = await openAlert(a, toAccept.id);
+      await expect(accepted).toHaveAttribute('data-state', 'accepted');
+      const stamp = accepted.getByTestId('alert-accepted');
+      await expect(stamp).toHaveAttribute('data-evidence-hash', evidenceHash);
+      const [by, approvedBy] = [await stamp.getAttribute('data-requested-by'), await stamp.getAttribute('data-approved-by')];
+      expect(by && approvedBy && by !== approvedBy, `two different founders: ${by} and ${approvedBy}`).toBe(true);
+      await expect(accepted.getByTestId('alert-evidence')).toHaveText(evidenceText);
+      await expect(accepted.locator('[data-testid="timeline-entry"][data-kind="accepted"]')).toHaveCount(1);
+      state.acceptAlert = {
+        id: toAccept.id,
+        evidenceHash,
+        evidenceText,
+        occurrences: Number(await accepted.getAttribute('data-occurrences')),
+      };
+    } catch (err) {
+      // #10 retires these; when this step fails first, retire them here so scheduled runs do not keep failing on them.
+      for (const id of [state.fixId, state.acceptId].filter(Boolean)) await lifecycle(id, 'retire', 'Retired').catch(() => undefined);
+      state.fixId = state.acceptId = null;
+      throw err;
+    }
+  });
+
+  test('J-ops-console-07 #10 a repeat failure reopens, a passing run resolves, an ERROR run is a platform alert, and an event received twice applies once', async ({
+    browser,
+  }) => {
+    test.setTimeout(900_000);
+    if (!state.fixId || !state.fixAlertId || !state.acceptId || !state.acceptAlert) throw new Error('step #9 left no alerts');
+    const { a } = await founders(browser);
+    let errorId;
+    try {
+      // The same failure after the fix: the resolved alert reopens (no second alert), its count rises and the acknowledgement
+      // and resolution are cleared on the alert while the timeline keeps them.
+      expect(await twoFounderRun(state.fixId)).toMatch(/Run [0-9a-f-]{36}: FAIL\./);
+      const reopened = await awaitAlerts(
+        a,
+        state.fixId,
+        (rows) => rows.length > 1 || rows[0]?.occurrences === 2,
+        'svc-ops reopens the resolved alert on the repeat failure',
+      );
+      expect(reopened, 'the repeat reopens the same alert, opening nothing new').toHaveLength(1);
+      expect(reopened[0]).toMatchObject({ id: state.fixAlertId, state: 'open', occurrences: 2 });
+      const reread = await openAlert(a, state.fixAlertId);
+      await expect(reread.getByTestId('alert-resolved')).toHaveCount(0);
+      const kinds = await reread.getByTestId('timeline-entry').evaluateAll((els) => els.map((el) => el.getAttribute('data-kind')));
+      expect(kinds.filter((k) => k !== 'acknowledged' && k !== 'snoozed')).toEqual(
+        expect.arrayContaining(['opened', 'resolved', 'reopened']),
+      );
+      expect(kinds.filter((k) => k === 'reopened')).toHaveLength(1);
+
+      // The accepted alert is frozen: the same failure again changes nothing on it and opens no new alert.
+      expect(await twoFounderRun(state.acceptId)).toMatch(/Run [0-9a-f-]{36}: FAIL\./);
+      const fixedRun = await twoFounderRun(state.fixId);
+      expect(fixedRun).toMatch(/Run [0-9a-f-]{36}: FAIL\./);
+      // svc-ops reads evaluations in order: once the later fix-floor run is counted, the accept run before it was read too.
+      await awaitAlerts(a, state.fixId, (rows) => rows[0]?.occurrences === 3, 'svc-ops counts the later run');
+      const frozen = await alertsOf(a, state.acceptId);
+      expect(frozen, 'no new alert beside the accepted one').toHaveLength(1);
+      expect(frozen[0]).toMatchObject({ id: state.acceptAlert.id, state: 'accepted', occurrences: state.acceptAlert.occurrences });
+      const still = await openAlert(a, state.acceptAlert.id);
+      await expect(still.getByTestId('alert-accepted')).toHaveAttribute('data-evidence-hash', state.acceptAlert.evidenceHash);
+      await expect(still.getByTestId('alert-evidence')).toHaveText(state.acceptAlert.evidenceText);
+
+      // The rest of the 5 USDT arrives: the next run passes and resolves the reopened alert by itself, naming that run.
+      fund(state.fixPayer.email, 'USDT', '3');
+      const pass = await twoFounderRun(state.fixId);
+      expect(pass).toMatch(/Run [0-9a-f-]{36}: PASS\./);
+      expect(evidence(pass, 'USDT').difference).toBe('0');
+      await awaitAlerts(a, state.fixId, (rows) => rows[0]?.state === 'resolved', 'svc-ops resolves the alert on the passing run');
+      const auto = (await openAlert(a, state.fixAlertId)).getByTestId('alert-resolved');
+      await expect(auto).toHaveAttribute('data-resolution', 'auto');
+      await expect(auto).toHaveAttribute('data-by', 'auto');
+      await expect(auto).toHaveAttribute('data-passing-run-id', runId(pass));
+      await expect(auto.getByTestId('alert-resolved-tx')).toHaveCount(0);
+
+      // A run that cannot finish: an outside-balance control read from an address nothing answers is ERROR. svc-ops raises
+      // one platform alert for it, never a finance alert, and it offers no resolve or accept.
+      const section = await openLedger(a);
+      errorId = await define(section, {
+        template: 'outside_balance',
+        explanation: `LOCAL TEST outside balance ERROR ${tag}`,
+        fill: (f) => setPolicy(f, { tolerance: '0' }),
+      });
+      try {
+        ledgerOutside(true);
+        expect(await twoFounderRun(errorId)).toMatch(/Run [0-9a-f-]{36}: ERROR\./);
+      } finally {
+        ledgerOutside(false);
+      }
+      const [platform] = await awaitAlerts(a, errorId, (rows) => rows.length > 0, 'svc-ops raises the ERROR run’s alert');
+      const errorRows = await alertsOf(a, errorId);
+      expect(errorRows, 'one alert for the ERROR run, and no finance alert').toHaveLength(1);
+      expect(platform).toMatchObject({ state: 'open', cause: 'error', team: 'platform', asset: '' });
+      const errorDetail = await openAlert(a, platform.id);
+      await expect(errorDetail).toHaveAttribute('data-team', 'platform');
+      await expect(errorDetail.getByTestId('alert-team')).toHaveText('Platform team: the run could not finish');
+      await expect(errorDetail.getByTestId('alert-error')).toHaveAttribute('data-code', 'ledger.reconcile_source_unavailable');
+      await expect(errorDetail.getByTestId('alert-error')).toHaveAttribute('data-phase', 'outside');
+      await expect(errorDetail.getByTestId('alert-resolve-submit')).toBeDisabled();
+      await expect(errorDetail.getByTestId('alert-accept').getByRole('button', { name: 'Accept unavailable' })).toBeDisabled();
+
+      // The ledger's own run-failed event, delivered twice: svc-ops, attached to the bus, stores it once.
+      const eventKey = `ledger:reconciliation-run-failed:local-test-${tag}`;
+      deliverRunFailedTwice(eventKey);
+      let incidents;
+      await expect
+        .poll(
+          async () => {
+            const room = await openAlerts(a);
+            incidents = room.getByTestId('platform-incidents');
+            return incidents.locator(`[data-testid="platform-incident"][data-event-key="${eventKey}"]`).count();
+          },
+          { message: 'svc-ops stores the delivered run-failed event', timeout: 60_000, intervals: [3_000] },
+        )
+        .toBe(1);
+      await expect(incidents).toHaveAttribute('data-bus', 'attached');
+      // A later look still shows it once: the second delivery was applied as the same incident, not lost in flight.
+      const later = (await openAlerts(a)).locator(`[data-testid="platform-incident"][data-event-key="${eventKey}"]`);
+      await expect(later).toHaveCount(1);
+      await expect(later).toHaveAttribute('data-error-code', 'ledger.reconcile_source_unavailable');
+      await expect(later).toHaveAttribute('data-phase', 'snapshot');
+    } finally {
+      // Retire every TEST control this step and #9 made, so scheduled runs do not keep failing on them.
+      for (const id of [state.fixId, state.acceptId, errorId].filter(Boolean))
+        await lifecycle(id, 'retire', 'Retired').catch(() => undefined);
+    }
+  });
 });
