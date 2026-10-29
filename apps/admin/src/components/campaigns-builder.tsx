@@ -1,7 +1,6 @@
 'use client';
 
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
 import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import {
   CAMPAIGN_TYPES,
@@ -264,7 +263,6 @@ export function CampaignBuilder({
   platformTimeZone: string | null;
   me: string;
 }) {
-  const router = useRouter();
   const first = initial?.campaign.kind === 'ok' ? initial.campaign.data : null;
   const [view, setView] = useState(initial);
   const [campaign, setCampaign] = useState<Campaign | null>(first);
@@ -273,6 +271,7 @@ export function CampaignBuilder({
   const [outcome, setOutcome] = useState<Outcome | null>(null);
   const [checked, setChecked] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [saving, setSaving] = useState(false);
   // True once the form answers typing: a value typed or a button pressed before then would be lost.
   const [ready, setReady] = useState(false);
   useEffect(() => setReady(true), []);
@@ -326,18 +325,18 @@ export function CampaignBuilder({
   const next = async (event: FormEvent) => {
     event.preventDefault();
     const from = step;
-    // The next tab opens at once; a refused save brings the founder back to the tab it came from.
-    setStep(nextStep(from));
     setOutcome(null);
-    setBusy(true);
+    // While the tab saves, no tab is selected: the next one opens only once the draft holds what this one asked.
+    setSaving(true);
     const saved = editable ? await saveTab(from) : campaign;
-    if (!saved) setStep(from);
-    else if (!campaign) router.replace(`/more-ops/campaigns/builder?id=${encodeURIComponent(saved.id)}`);
-    else {
+    if (saved) setStep(nextStep(from));
+    setSaving(false);
+    // The new draft's address, without a route change: the builder already holds the draft it just saved.
+    if (saved && !campaign) window.history.replaceState(null, '', `/more-ops/campaigns/builder?id=${encodeURIComponent(saved.id)}`);
+    if (saved && editable) {
       setOutcome({ kind: 'done', text: `Saved as revision ${saved.revision}.` });
       await reload(saved.id);
     }
-    setBusy(false);
   };
 
   const checkDraft = async () => {
@@ -439,19 +438,19 @@ export function CampaignBuilder({
       {view?.campaign.kind === 'failed' && (
         <PartFailed title="Campaign unavailable" message={view.campaign.message} code={view.campaign.code} />
       )}
-      <OutcomeBox outcome={outcome} />
       {campaign && <Summary c={campaign} />}
 
       <form onSubmit={(e) => void next(e)} aria-label="Campaign builder" data-testid={`campaign-step-${step}`}>
+        <OutcomeBox outcome={outcome} />
         <div role="tablist" aria-label="Builder steps" className="dk-row" data-testid="campaign-steps">
           {BUILDER_STEPS.map((s) => (
             <button
               key={s}
               type="button"
               role="tab"
-              aria-selected={s === step}
+              aria-selected={!saving && s === step}
               className="adm-btn"
-              data-active={s === step}
+              data-active={!saving && s === step}
               disabled={!ready || (!campaign && s !== 'basics')}
               onClick={() => setStep(s)}
             >
@@ -465,7 +464,7 @@ export function CampaignBuilder({
             not built yet.
           </p>
         )}
-        <fieldset disabled={!ready || busy || !editable} role="tabpanel" aria-label={STEP_LABEL[step]}>
+        <fieldset disabled={!ready || busy || saving || !editable} role="tabpanel" aria-label={STEP_LABEL[step]}>
           {step === 'basics' && (
             <>
               <div className="adm-field">

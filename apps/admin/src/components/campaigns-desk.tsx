@@ -1,7 +1,6 @@
 'use client';
 
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
 import { useCallback, useState } from 'react';
 import type { Campaign, CampaignState } from '@intafaced/contracts/campaigns-catalogue';
 import { Chip, type ChipTone } from '@/components/chip';
@@ -95,7 +94,9 @@ function AllCampaigns({ rows }: { rows: readonly Campaign[] }) {
             {rows.map((c) => (
               <tr key={c.id} data-testid="campaign-row" data-campaign-id={c.id}>
                 <td>
-                  <Link href={builderHref(c)}>{c.name}</Link>
+                  {/* A full page load: the builder starts from the stored draft, and a client route change would leave the
+                      router's announcement standing as a second alert beside the builder's own. */}
+                  <a href={builderHref(c)}>{c.name}</a>
                 </td>
                 <td>{c.type}</td>
                 <td>
@@ -168,7 +169,6 @@ export function CampaignsDeskScreen({
   loading: boolean;
   onRefresh: () => void;
 }) {
-  const router = useRouter();
   const [tab, setTab] = useState<(typeof DESK_TABS)[number]>('campaigns');
   const rows = view && view.campaigns.kind === 'ok' ? view.campaigns.data : null;
   return (
@@ -183,7 +183,12 @@ export function CampaignsDeskScreen({
         </div>
       </div>
       <div className="dk-row">
-        <button type="button" className="adm-btn" data-variant="primary" onClick={() => router.push('/more-ops/campaigns/builder')}>
+        <button
+          type="button"
+          className="adm-btn"
+          data-variant="primary"
+          onClick={() => window.location.assign('/more-ops/campaigns/builder')}
+        >
           New campaign
         </button>
         <Link href="/more-ops/campaigns/waves">Waitlist waves</Link>
