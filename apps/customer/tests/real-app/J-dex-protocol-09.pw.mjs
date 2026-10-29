@@ -1,16 +1,17 @@
 import { test, expect } from '@playwright/test';
 import { signIn, signUp } from './desk.mjs';
-import { signOutBrowser } from './stack.mjs';
+import { EDGE, ORIGIN, signOutBrowser } from './stack.mjs';
 import { tableIn, bodyRows } from './tables.mjs';
+import { createPublicClient, createWalletClient, encodeFunctionData, http, parseAbi } from 'viem';
+import { generatePrivateKey, privateKeyToAccount } from 'viem/accounts';
+import { TOKEN_A, fundOnTestChain, testChain } from './dex.mjs';
 
 // J-dex-protocol-09, in the running app (docs/roadmap/journeys.json): explore the chain signed out: blocks,
 // transactions, addresses, contracts and pools. One test per step, titled "J-dex-protocol-09 #<n>". The explorer is
 // read only and holds no funds; step 6 signs in to keep a private watch and checks a second account cannot read it.
-// Steps that are written but not built yet fail at their first missing part, quickly (UNBUILT):
-// - The stack publishes no node and starts no indexer reader for the explorer, so blocks, transactions, addresses,
-//   pools and contracts have no rows: every step from #2 on waits on that (D-explorer-01 to -07).
-// - #1: Chain home has no latest-blocks list and no INTACHAIN "not launched" line (D-explorer-07).
-// - #6: no private watch with a tag and note; #9: no pool fee fields; #11: no token info update with owner proof.
+// Steps that are written but not built yet fail at their first missing part, quickly (UNBUILT). The stack's TEST chain
+// (anvil, chain 84532) and the indexer reading it give #1 to #3 real blocks and transactions; the journey mines what it
+// needs there (a reorg, a decodable call, failed calls) rather than relying on what other journeys left on the chain.
 // The explorer's TEST network is Base Sepolia; the hashes and addresses below are well-formed but name nothing on it.
 // A step passes only on rows read from a chain: an empty table, an unknown hash or a blocked row fails it (OWNER 114),
 // so #1, #4 and #10 wait on the stack's TEST networks and the indexer like the rest.
@@ -20,6 +21,16 @@ const UNKNOWN_TX = `0x${'ab'.repeat(32)}`;
 const ADDRESS = '0x52908400098527886E0F7030069857D2E4169EE7';
 
 test.describe.configure({ mode: 'default' });
+
+// A journey before this one may have shut the TEST chain's gate (J-dex-protocol-01 does, for its "node unreachable"
+// steps) and reopened it: wait until the indexer reads the chain again, so step 1 is not judged on that window.
+test.beforeAll(async () => {
+  const input = encodeURIComponent(JSON.stringify({ chainId: testChain().chainId }));
+  await expect(async () => {
+    const res = await fetch(`${EDGE}/api/indexer/trpc/explorer.blocks.list?input=${input}`, { headers: { origin: ORIGIN } });
+    expect(res.status).toBe(200);
+  }).toPass({ timeout: 30_000 });
+});
 
 const main = (page) => page.getByRole('main');
 const search = (page) => page.getByRole('searchbox', { name: /Search by address, transaction or block/ });
@@ -57,21 +68,118 @@ test(`${J} #1 opens Chain home: latest blocks and transactions for the test netw
   await expect(main(page)).not.toContainText(/INTACHAIN mainnet/i);
 });
 
+/**
+ * Mines one call to the TEST token on the stack's TEST chain, from a fresh TEST key funded for gas, checks it ended with
+ * `status` and returns its hash. The gas is set so the node does not refuse a failing call at estimate time: the point is
+ * a failed transaction in a block.
+ */
+async function minedTx(data, status = 'reverted') {
+  const chain = testChain();
+  expect(chain.chain, 'the stack runs no TEST chain, so no transaction can be mined').toBe('running');
+  const account = privateKeyToAccount(generatePrivateKey());
+  fundOnTestChain(account.address);
+  const viemChain = {
+    id: chain.chainId,
+    name: 'TEST chain',
+    nativeCurrency: { name: 'TEST ETH', symbol: 'ETH', decimals: 18 },
+    rpcUrls: { default: { http: [chain.gateUrl] } },
+  };
+  const wallet = createWalletClient({ account, chain: viemChain, transport: http(chain.gateUrl) });
+  const reader = createPublicClient({ chain: viemChain, transport: http(chain.gateUrl) });
+  const hash = await wallet.sendTransaction({ to: TOKEN_A.address, data, gas: 200_000n });
+  const receipt = await reader.waitForTransactionReceipt({ hash });
+  expect(receipt.status).toBe(status);
+  return hash;
+}
+
+/** Searches a hash from Chain home and opens the transaction from the search answer. */
+async function openTxBySearch(page, hash) {
+  await page.goto('/chain');
+  await search(page).fill(hash);
+  await search(page).press('Enter');
+  await page.getByRole('list', { name: 'Networks searched' }).getByRole('link', { name: 'Open transaction' }).click();
+}
+
+/** One JSON-RPC call to the stack's TEST chain gate. */
+async function chainRpc(method, params = []) {
+  const response = await fetch(testChain().gateUrl, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }),
+  });
+  const body = await response.json();
+  if (body.error) throw new Error(`${method}: ${JSON.stringify(body.error)}`);
+  return body.result;
+}
+
+/**
+ * Reorgs out the TEST chain's newest block after the explorer has read it, and returns its height and hash. Interval
+ * mining is paused for the few seconds this takes, so no new block lands between the read and the reorg, and restored
+ * after. The replacement block carries a different transaction, so its hash differs.
+ */
+async function reorgedBlock(page) {
+  expect(testChain().chain, 'the stack runs no TEST chain, so no block can be reorged').toBe('running');
+  const interval = await chainRpc('anvil_getIntervalMining');
+  await chainRpc('evm_setIntervalMining', [0]);
+  try {
+    await chainRpc('evm_mine');
+    const block = await chainRpc('eth_getBlockByNumber', ['latest', false]);
+    const height = String(Number(block.number));
+    // Read by the explorer first: the block is listed under its height before it is replaced.
+    await expect(async () => {
+      await page.goto('/chain/blocks');
+      await expect(tableIn(page, 'Blocks').getByRole('link', { name: height, exact: true })).toBeVisible({ timeout: 1_000 });
+    }).toPass({ timeout: 20_000 });
+    const self = privateKeyToAccount(generatePrivateKey()).address;
+    await chainRpc('anvil_reorg', [1, [[{ from: '0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266', to: self, value: '0x1' }, 0]]]);
+    const replaced = await chainRpc('eth_getBlockByNumber', [block.number, false]);
+    expect(replaced.hash).not.toBe(block.hash);
+    await chainRpc('evm_mine');
+    return { height, hash: block.hash };
+  } finally {
+    await chainRpc('evm_setIntervalMining', [interval]);
+  }
+}
+
 test(`${J} #2 opens the blocks list and a block: rows down from the finalized height with its marker and as-of time, a reorged block badged, a missing block named, and the gas tracker`, async ({
   page,
 }) => {
+  const orphan = await reorgedBlock(page);
   await page.goto('/chain/blocks');
   const table = tableIn(page, 'Blocks');
   const rows = bodyRows(table);
   await expect(rows.first()).toBeVisible(UNBUILT);
-  const heights = (await table.getByRole('rowheader').allInnerTexts()).map((text) => Number(text.replace(/\D/g, '')));
+  // A row is headed by its height; a reorged row adds its badge and hash after it.
+  const heights = (await table.getByRole('rowheader').allInnerTexts()).map((text) => Number(text.replace(/\D.*$/s, '')));
   expect(heights).toEqual([...heights].sort((a, b) => b - a));
-  await expect(main(page)).toContainText(/Finalized at block \d+/);
+  const finalized = Number((await main(page).getByTestId('blocks-finalized').textContent())?.match(/Finalized at block (\d+)/)?.[1]);
+  expect(finalized).toBeGreaterThan(0);
+  // Rows run down from the head: every row at or below the finalized height is marked Finalized, every row above it not.
+  for (const row of await rows.all()) {
+    const height = Number((await row.getByRole('rowheader').innerText()).replace(/\D.*$/s, ''));
+    if (await row.getAttribute('data-orphaned')) await expect(row).toContainText('Off the chain');
+    else await expect(row).toContainText(height <= finalized ? 'Finalized' : 'Not final yet');
+  }
+  // The reorged block stays listed at its height, badged with the reason, next to the block that replaced it.
+  await expect(async () => {
+    await page.goto('/chain/blocks');
+    const reorged = bodyRows(tableIn(page, 'Blocks'))
+      .filter({ hasText: `Reorged: ` })
+      .filter({ hasText: orphan.hash.slice(0, 10) });
+    await expect(reorged.getByRole('rowheader')).toContainText(new RegExp(`^${orphan.height} Reorged: \\S`), { timeout: 1_000 });
+    await expect(tableIn(page, 'Blocks').getByRole('link', { name: orphan.height, exact: true })).toBeVisible({ timeout: 1_000 });
+  }).toPass({ timeout: 20_000 });
   await expect(main(page)).toContainText(/as of \d{1,2}:\d{2}/);
-  await expect(page.getByRole('region', { name: 'Gas tracker' })).toBeVisible();
-  await (await firstLink(page, 'Blocks', /^\d+$/)).click();
-  await expect(main(page).getByRole('heading', { level: 1 })).toHaveText(/^Block \d+$/);
+  const gas = page.getByRole('region', { name: 'Gas tracker' });
+  await expect(gas.getByTestId('gas-base-fee')).toHaveText(/^[\d.]+ gwei$/);
+  await expect(gas.getByTestId('gas-used-share')).toHaveText(/^\d+ of \d+ \([\d.]+%\)$/);
+  const opened = await firstLink(page, 'Blocks', /^\d+$/);
+  const height = await opened.innerText();
+  await opened.click();
+  await expect(main(page).getByRole('heading', { level: 1 })).toHaveText(`Block ${height}`);
+  await expect(tableIn(page, 'Transactions in this block')).toBeVisible();
   await page.goto('/chain/blocks/999999999999');
+  await expect(main(page).getByRole('heading', { level: 1 })).toHaveText('Block 999999999999');
   await expect(main(page)).toContainText('No such block on this network');
 });
 
@@ -83,15 +191,38 @@ test(`${J} #3 searches a transaction hash: status, decoded input with named argu
   await search(page).press('Enter');
   await expect(main(page)).toContainText('Not found on this network');
 
-  await page.goto('/chain');
-  await (await firstLink(page, 'Latest transactions', /^0x[0-9a-f]{4}/)).click();
-  await expect(main(page).getByTestId('tx-status')).toHaveText(/Success|Reverted|Pending/);
-  await expect(page.getByRole('region', { name: 'Input' })).toContainText(/\w+\s*:/);
+  // The hash is searched, not clicked. The journey mines its own call so the answer never depends on what else the
+  // chain holds: an approve on the TEST token, whose input decodes against the token's interface and which logs Approval.
+  const approve = encodeFunctionData({
+    abi: parseAbi(['function approve(address spender, uint256 amount)']),
+    functionName: 'approve',
+    args: [ADDRESS, 7n],
+  });
+  await openTxBySearch(page, await minedTx(approve, 'success'));
+  await expect(main(page).getByTestId('tx-status')).toHaveText('Success');
+  const input = page.getByRole('region', { name: 'Input' });
+  await expect(input.getByTestId('tx-input-method')).toHaveText('approve');
+  // Decoded means every argument named, each with a value.
+  const args = input.getByTestId('tx-input-args').locator('dt');
+  expect(await args.count()).toBe(2);
+  for (const name of await args.allInnerTexts()) expect(name).toMatch(/^[a-zA-Z_]\w* \w+$/);
+  for (const value of await input.getByTestId('tx-input-args').locator('dd').allInnerTexts()) expect(value.trim()).not.toBe('');
   await page.getByRole('tab', { name: 'Logs' }).click();
-  await expect(page.getByRole('tabpanel', { name: 'Logs' })).toBeVisible();
-  if ((await main(page).getByTestId('tx-status').textContent()) === 'Reverted') {
-    await expect(main(page).getByTestId('tx-revert-reason')).toHaveText(/\w+|No reason returned/);
-  }
+  await expect(page.getByRole('tabpanel', { name: 'Logs' })).toContainText(/Log \d+/);
+
+  // A reverted one shows the error its contract returned: an expired permit on the TEST token reverts PermitExpired().
+  const permit = encodeFunctionData({
+    abi: parseAbi(['function permit(address owner,address spender,uint256 value,uint256 deadline,uint8 v,bytes32 r,bytes32 s)']),
+    functionName: 'permit',
+    args: [ADDRESS, ADDRESS, 1n, 0n, 27, `0x${'0'.repeat(64)}`, `0x${'0'.repeat(64)}`],
+  });
+  await openTxBySearch(page, await minedTx(permit));
+  await expect(main(page).getByTestId('tx-status')).toHaveText('Reverted');
+  await expect(main(page).getByTestId('tx-revert-reason')).toHaveText('PermitExpired');
+  // A call the token has no function for reverts with no data at all: that one reads "No reason returned".
+  await openTxBySearch(page, await minedTx('0xdeadbeef'));
+  await expect(main(page).getByTestId('tx-status')).toHaveText('Reverted');
+  await expect(main(page).getByTestId('tx-revert-reason')).toHaveText('No reason returned');
 });
 
 test(`${J} #4 pastes a 40-hex address into search: the address page is the top result, and two tokens sharing a symbol are both listed`, async ({

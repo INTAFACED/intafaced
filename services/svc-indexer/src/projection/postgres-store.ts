@@ -478,12 +478,8 @@ export class PostgresProjectionStore implements ProjectionStore {
           )
       `;
 
-      const orphans = await tx`
-        DELETE FROM blocks
-        WHERE chain_id = ${this.chainId} AND status = 'orphaned' AND height <= ${throughHeight}
-      `;
-
-      return levels.count + positions.count + orphans.count;
+      // Orphaned block rows stay (see `ProjectionStore.prune`).
+      return levels.count + positions.count;
     }) as Promise<number>;
   }
 

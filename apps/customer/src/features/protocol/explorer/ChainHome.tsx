@@ -4,40 +4,13 @@ import { useApi } from '../../session/session';
 import { usePreferences } from '../../../shared/preferences';
 import { useResource } from '../../../shared/resource';
 import type { ApiResult } from '../../../shared/api';
-import { Button, DataTable, EmptyState, Loading, Panel } from '../../../shared/ui';
-import { isServiceNotConnected, KNOWN_NETWORKS, networkLabel } from '../blockers';
+import { Button, DataTable, Loading, Panel } from '../../../shared/ui';
+import { KNOWN_NETWORKS, networkLabel } from '../blockers';
 import type { ChainRef } from '../NetworkPanels';
 import { explorerCopy, type ExplorerTranslate } from './copy';
 import { createExplorerApi, isNotFound, type ExplorerApi, type ExplorerBlocksPage, type ExplorerTx } from './explorer-api';
+import { BlockerNote, NoteRow, refusalWords, short, TxTable } from './pages';
 import { classifyQuery, pathFor, type ExplorerQuery } from './search';
-
-type Failure = Extract<ApiResult<unknown>, { ok: false }>;
-
-/** Why the indexer gave no answer, in words. A gateway with no indexer behind it says so instead of a raw code. */
-function refusalWords(failure: Failure, t: ExplorerTranslate): string {
-  if (isServiceNotConnected(failure.code)) return t('reasonIndexerNotConnected');
-  if (failure.code === 'edge.upstream_unavailable') return t('reasonIndexerNoAnswer');
-  return failure.message;
-}
-
-const short = (hex: string) => `${hex.slice(0, 10)}…${hex.slice(-6)}`;
-
-/** A table row that holds only a note: why the table is empty, or that it is loading. */
-function NoteRow({ span, children }: { span: number; children: ReactNode }) {
-  return (
-    <tr>
-      <td colSpan={span}>{children}</td>
-    </tr>
-  );
-}
-function BlockerNote({ title, action }: { title: string; action?: ReactNode }) {
-  return (
-    <div role="status" data-blocker="indexer">
-      <EmptyState title={title} />
-      {action}
-    </div>
-  );
-}
 
 /**
  * Chain home (D-explorer-07): the explorer search, the latest blocks and transactions on the network the indexer reads,
@@ -51,7 +24,6 @@ export function ChainHome({ chain }: { chain: ChainRef }) {
   const api = useMemo(() => createExplorerApi(transport), [transport]);
   const chainId = chain.status === 'ready' ? chain.chainId : null;
   const network = chainId === null ? null : networkLabel(chainId).name;
-  const txHeaders = [t('hdrHash'), t('hdrFrom'), t('hdrTo'), t('hdrStatus')];
   return (
     <>
       <p className="explorer-intachain" data-testid="chain-intachain">
@@ -60,11 +32,7 @@ export function ChainHome({ chain }: { chain: ChainRef }) {
       <ExplorerSearch api={api} chain={chain} t={t} />
       <LatestBlocks api={api} chain={chain} locale={renderedLocale} t={t} />
       <Panel title={t('latestTxs')}>
-        <DataTable label={t('latestTxs')} headers={txHeaders}>
-          <NoteRow span={txHeaders.length}>
-            <BlockerNote title={t('txsNoList')} />
-          </NoteRow>
-        </DataTable>
+        <TxTable api={api} chain={chain} label={t('latestTxs')} emptyWords={t('txsNone', { network: network ?? '' })} t={t} />
       </Panel>
     </>
   );

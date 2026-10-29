@@ -220,6 +220,15 @@ describe('svc-indexer · PostgresProjectionStore PG-hard', () => {
         [1, h(0x61), true],
         [0, h(0x60), false],
       ]);
+
+      // A prune through the orphan's height keeps it listed: the explorer shows a reorged block for good.
+      await store.prune(1);
+      const afterPrune = await store.explorerBlocks({ limit: 10 });
+      expect(afterPrune.map((r) => [r.height, r.hash, r.orphaned !== null])).toEqual([
+        [1, h(0x62), false],
+        [1, h(0x61), true],
+        [0, h(0x60), false],
+      ]);
     });
 
     it('D-explorer-01: header facts stored with the block; DB paging and lookup; FK holds', async () => {
