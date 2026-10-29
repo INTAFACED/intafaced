@@ -1,0 +1,21 @@
+# Developers
+
+> Connect to Intafaced from your own code. Pick the audience that fits you, then the section you need.
+
+## Pages
+
+- [Developers](/developers/index.md): Connect to Intafaced from your own code. Pick the audience that fits you, then the section you need.
+- [Base addresses](/developers/hosts.md): Where each protocol is reached, in production, in the sandbox and by region.
+- [REST conventions](/developers/rest.md): How every trading REST route is shaped, so a client written once works on all of them.
+- [API reference](/developers/reference.md): Every trading REST route and WebSocket stream, under its product, with the permission a key needs. A route marked public also answers without a key.
+- [Permissions](/developers/permissions.md): Which permission a key needs for each route. On /api/v1 a key needs trade:read to read and trade:write for anything else; a key without it is refused with scope.denied and a link to this page.
+- [Machine-readable specs](/developers/openapi.md): The same routes as files a program reads: an OpenAPI 3 description, a request collection and an index of these pages for assistants. Each lists the permission, the cost of a call and the refusals.
+- [Quickstart](/developers/quickstart.md): From nothing to a first call in four steps.
+- [Connectivity](/developers/connectivity.md): How to reach the API, and how to keep your clock in step with it.
+- [Market data terms](/developers/data-terms.md): Which market data products you may use, and on what terms.
+
+## Files
+
+- [OpenAPI](/developers/openapi.json): Every call costs 1 from the rate-limit bucket; no route weighs more.
+- [Collection](/developers/collection.json): Neither file names a server, because no host is set. The base addresses page shows each host the owner sets.
+

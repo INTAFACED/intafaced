@@ -82,6 +82,12 @@ export const rooms: readonly Room[] = [
     area: 'public',
   },
   {
+    path: '/developers/errors/auth',
+    title: 'Authentication and permission errors',
+    description: 'Codes a refused key or token carries',
+    area: 'public',
+  },
+  {
     path: '/developers/:section',
     title: 'Developer section',
     description: 'One section of the developer portal',

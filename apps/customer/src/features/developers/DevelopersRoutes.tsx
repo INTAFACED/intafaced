@@ -1,5 +1,18 @@
+import { useState, type FormEvent } from 'react';
 import { developersCopy } from './developers-copy';
-import { AUDIENCES, ENVIRONMENTS, PROTOCOLS, SECTIONS, developersRoute, hostTable, sectionById, type Audience } from './developers-model';
+import { searchDocs } from './developers-search';
+import { ConnectivityPage, DataTermsPage, OpenApiPage, PermissionsPage, QuickstartPage, ReferencePage, RestPage } from './DocsPages';
+import {
+  AUDIENCES,
+  ENVIRONMENTS,
+  PROTOCOLS,
+  SECTIONS,
+  developersRoute,
+  hostTable,
+  sectionById,
+  type Audience,
+  type Section,
+} from './developers-model';
 import { ChangelogPage, UpcomingPage } from './ChangelogPages';
 import { StatusPage } from './StatusPage';
 import { AppsRoom } from './apps/AppsRoom';
@@ -17,6 +30,7 @@ export function DevelopersRoutes({ path }: { path: string }) {
   if (route.kind === 'changelog') return <ChangelogPage />;
   if (route.kind === 'upcoming') return <UpcomingPage />;
   if (route.kind === 'apps') return <AppsRoom />;
+  if (route.kind === 'errors-auth') return <ErrorsAuth />;
   if (route.kind === 'section') return <SectionPage id={route.id} />;
   if (route.kind === 'unknown' && path.split(/[?#]/)[0]!.replace(/\/+$/, '') !== '/developers') return <Unknown />;
   return <Home />;
@@ -34,6 +48,7 @@ function Home() {
         <h2 id="dev-access">{t('accessTitle')}</h2>
         <p>{t('accessBody')}</p>
       </section>
+      <DocsSearch />
       <section className="pub-card" aria-labelledby="dev-hosts">
         <h2 id="dev-hosts">{t('hostsTitle')}</h2>
         <p>{t('hostsLead')}</p>
@@ -45,13 +60,14 @@ function Home() {
         <section className="pub-card" key={audience} aria-labelledby={`dev-${audience}`}>
           <h2 id={`dev-${audience}`}>{t(`audience_${audience}` as const)}</h2>
           <p className="muted">{t(`audience_${audience}_note` as const)}</p>
+          <p data-testid="developers-access">{t(`access_${audience}` as const)}</p>
           <ul>
             {SECTIONS.filter((section) => section.audience === audience).map((section) => (
               <li key={section.id}>
                 <a className="text-link" href={`/developers/${section.id}`}>
                   {t(sectionKey(section.id))}
                 </a>{' '}
-                <span className="muted">{section.published ? t('published') : t('unpublished')}</span>
+                <span className="muted">{sectionState(section, t)}</span>
               </li>
             ))}
           </ul>
@@ -113,11 +129,21 @@ function Hosts() {
 function SectionPage({ id }: { id: string }) {
   const { t } = developersCopy.useCopy();
   const section = sectionById(id)!;
+  const title = t(sectionKey(id));
+  if (section.page) {
+    if (id === 'rest') return <RestPage title={title} />;
+    if (id === 'reference') return <ReferencePage title={title} />;
+    if (id === 'permissions') return <PermissionsPage title={title} />;
+    if (id === 'openapi') return <OpenApiPage title={title} />;
+    if (id === 'quickstart') return <QuickstartPage title={title} />;
+    if (id === 'connectivity') return <ConnectivityPage title={title} hostsOpen={t('hostsOpen')} />;
+    if (id === 'data-terms') return <DataTermsPage />;
+  }
   const audience: Audience = section.audience;
   return (
     <div className="pub-page" data-testid={`developers-${id}`}>
       <header className="pub-heading">
-        <h1>{t(sectionKey(id))}</h1>
+        <h1>{title}</h1>
         <p className="muted">
           {t('sectionFor')} {t(`audience_${audience}` as const)}
         </p>
@@ -128,11 +154,79 @@ function SectionPage({ id }: { id: string }) {
             {t('sectionOpenPublished')} ↗
           </a>
         ) : (
-          <p>{t('unpublished')}</p>
+          <p>{section.waitsFor ? t('waitsForBody', { slice: section.waitsFor }) : t('unpublished')}</p>
         )}
       </section>
       <a className="text-link" href="/developers">
         ← {t('back')}
+      </a>
+    </div>
+  );
+}
+
+type PortalCopy = ReturnType<typeof developersCopy.useCopy>['t'];
+
+function sectionState(section: Section, t: PortalCopy): string {
+  if (section.page) return t('pageHere');
+  if (section.published) return t('published');
+  return section.waitsFor ? t('waitsFor', { slice: section.waitsFor }) : t('unpublished');
+}
+
+/** Searches the portal's own page titles and the routes the reference lists; nothing leaves the browser. */
+function DocsSearch() {
+  const { t } = developersCopy.useCopy();
+  const [draft, setDraft] = useState('');
+  const [query, setQuery] = useState('');
+  const submit = (event: FormEvent) => {
+    event.preventDefault();
+    setQuery(draft.trim());
+  };
+  const results = query ? searchDocs(query, (id) => t(sectionKey(id)), t('hostsTitle')) : [];
+  return (
+    <section className="pub-card" aria-labelledby="dev-search">
+      <h2 id="dev-search">{t('searchTitle')}</h2>
+      <form role="search" className="pub-form" onSubmit={submit}>
+        <input type="search" aria-label={t('searchLabel')} value={draft} onChange={(event) => setDraft(event.target.value)} />
+        <button type="submit" className="button">
+          {t('searchButton')}
+        </button>
+      </form>
+      {query && results.length === 0 ? <p role="status">{t('searchEmpty', { query })}</p> : null}
+      {results.length ? (
+        <nav aria-label={t('searchMatches', { query })}>
+          <ul>
+            {results.map((result) => (
+              <li key={result.href}>
+                <a className="text-link" href={result.href}>
+                  {result.title}
+                </a>
+              </li>
+            ))}
+          </ul>
+        </nav>
+      ) : null}
+    </section>
+  );
+}
+
+function ErrorsAuth() {
+  const { t } = developersCopy.useCopy();
+  return (
+    <div className="pub-page" data-testid="developers-errors-auth">
+      <header className="pub-heading">
+        <h1>{t('errorsAuthTitle')}</h1>
+        <p className="muted">
+          {t('sectionFor')} {t('audience_exchange')}
+        </p>
+      </header>
+      <section className="pub-notice" role="status">
+        <p>{t('errorsAuthBody')}</p>
+        <a className="text-link" href="/developers/permissions">
+          {t('errorsAuthPermissions')} →
+        </a>
+      </section>
+      <a className="text-link" href="/developers/errors">
+        ← {t('section_errors')}
       </a>
     </div>
   );
