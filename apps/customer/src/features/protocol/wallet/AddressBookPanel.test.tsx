@@ -104,9 +104,17 @@ afterEach(() => {
   host.remove();
 });
 
+const sheetButton = (name: string) =>
+  [...(host.querySelector('[data-sheet="sign"]')?.querySelectorAll('button') ?? [])].find((b) => b.textContent === name);
+
 describe('address book section', () => {
-  it('opens the book with one signature, reads it once, and saves a contact into the Contacts table', async () => {
+  it('shows the sign sheet first, signs once after Continue, reads once, and saves a contact into the Contacts table', async () => {
     await mount('book');
+    await settle();
+    // The plain-words sheet comes before the wallet is asked anything.
+    expect(host.querySelector('[data-sheet="sign"]')?.textContent).toContain('sign in');
+    expect(asked).not.toContain('personal_sign');
+    await act(async () => sheetButton('Continue in wallet')!.click());
     await settle();
     await settle();
     expect(asked.filter((m) => m === 'personal_sign')).toHaveLength(1);
@@ -131,8 +139,20 @@ describe('address book section', () => {
     expect(host.querySelector('[role="alert"]')?.textContent).toBe('This address is already in your address book.');
   });
 
+  it('cancelling the sheet asks the wallet nothing and leaves the book closed with plain words', async () => {
+    await mount('book');
+    await settle();
+    await act(async () => sheetButton('Cancel')!.click());
+    await settle();
+    expect(asked).not.toContain('personal_sign');
+    expect(procedures).toEqual(['walletSession.challenge']);
+    expect(host.querySelector('[data-book-closed]')?.textContent).toBe('You cancelled the sign-in. Your address book stays closed.');
+  });
+
   it('refuses a malformed address before asking anything', async () => {
     await mount('book');
+    await settle();
+    await act(async () => sheetButton('Continue in wallet')!.click());
     await settle();
     const before = procedures.length;
     await act(async () => {

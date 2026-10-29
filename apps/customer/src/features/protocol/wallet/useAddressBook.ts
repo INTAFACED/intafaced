@@ -1,4 +1,4 @@
-import { useCallback, useMemo } from 'react';
+import { useCallback, useMemo, useRef } from 'react';
 import { ADDRESS_BOOK_LABEL_MAX, WALLET_GROUP_NAME_MAX } from '@intafaced/contracts/protocol-address-book';
 import type { ApiResult } from '../../../shared/api';
 import { useApi } from '../../session/session';
@@ -11,21 +11,23 @@ export type BookFailure = Exclude<SessionResult, { ok: true }> | { ok: false; ki
 export type BookOutcome<T> = { ok: true; data: T } | BookFailure;
 
 /**
- * Runs one address book call with this wallet's session, opening one (one signature) when there is none. A session the
+ * Runs one address book call with this wallet's session, opening one (one signature, after the sign sheet) when there is none. A session the
  * service no longer accepts is forgotten and opened again once.
  */
 export function useAddressBook() {
   const wallet = useWallet();
   const transport = useApi();
   const api: AddressBookApi = useMemo(() => createAddressBookApi(transport), [transport]);
-  const provider = wallet.status === 'connected' ? wallet.connected?.provider : undefined;
-  const address = wallet.status === 'connected' ? wallet.address : null;
+  const address = wallet.status === 'connected' && wallet.connected ? wallet.address : null;
+  // `wallet.sign` is a new function on most renders; read it through a ref so a call never re-runs the page's reads.
+  const sign = useRef(wallet.sign);
+  sign.current = wallet.sign;
 
   const run = useCallback(
     async <T>(work: (api: AddressBookApi, session: string) => Promise<ApiResult<T>>): Promise<BookOutcome<T>> => {
-      if (!provider || !address) return { ok: false, kind: 'no_wallet' };
+      if (!address) return { ok: false, kind: 'no_wallet' };
       for (let attempt = 0; ; attempt++) {
-        const session = await walletSession(api, { provider, address });
+        const session = await walletSession(api, { address, sign: (request) => sign.current(request) });
         if (!session.ok) return session;
         const result = await work(api, session.token);
         if (result.ok) return { ok: true, data: result.data };
@@ -36,7 +38,7 @@ export function useAddressBook() {
         return { ok: false, kind: 'refused', code: result.code, message: result.message };
       }
     },
-    [api, provider, address],
+    [api, address],
   );
   return { run, address };
 }

@@ -4,7 +4,7 @@ import type { ApiClient } from '../../../shared/api';
 import { matchWeb3Route, walletGroupPath } from '../routes';
 import { createAddressBookApi, forgetWalletSession, resetWalletSessions, walletSession } from './address-book-api';
 import { walletCopy } from './copy';
-import type { Eip1193Provider } from './eip1193';
+import type { SignRequest, SignResult } from './eip1193';
 import { bookMessage } from './useAddressBook';
 
 const ADDR = '0x1111111111111111111111111111111111111111';
@@ -23,18 +23,14 @@ function fakeApi(answers: Record<string, (input: unknown) => unknown>) {
   } as unknown as ApiClient;
   return { api: createAddressBookApi(client), sent };
 }
-function fakeWallet(sign: () => Promise<unknown> = async () => '0xsigned') {
-  const asked: string[] = [];
-  const provider: Eip1193Provider = {
-    request: async ({ method }) => {
-      asked.push(method);
-      if (method === 'eth_chainId') return '0x14a34';
-      if (method === 'eth_accounts') return [ADDR];
-      if (method === 'personal_sign') return sign();
-      throw new Error(`unexpected ${method}`);
-    },
+/** The wallet provider's `sign`: in the app it shows the plain-words sheet, then asks the wallet. */
+function fakeWallet(answer: () => Promise<SignResult> = async () => ({ status: 'signed', signature: '0xsigned' })) {
+  const asked: SignRequest[] = [];
+  const sign = async (request: SignRequest) => {
+    asked.push(request);
+    return answer();
   };
-  return { provider, asked };
+  return { sign, asked };
 }
 const later = new Date(Date.now() + 3_600_000).toISOString();
 const ok = { 'walletSession.challenge': () => ({ ok: true, data: { message: 'm', challenge: 'c', expiresAt: later } }) };
@@ -47,36 +43,34 @@ describe('wallet session for the address book', () => {
       ...ok,
       'walletSession.open': () => ({ ok: true, data: { session: 's1', address: ADDR, expiresAt: later } }),
     });
-    const { provider, asked } = fakeWallet();
-    const [a, b] = await Promise.all([walletSession(api, { provider, address: ADDR }), walletSession(api, { provider, address: ADDR })]);
+    const { sign, asked } = fakeWallet();
+    const [a, b] = await Promise.all([walletSession(api, { sign, address: ADDR }), walletSession(api, { sign, address: ADDR })]);
     expect(a).toEqual({ ok: true, token: 's1' });
     expect(b).toEqual({ ok: true, token: 's1' });
-    expect(asked.filter((m) => m === 'personal_sign')).toHaveLength(1);
+    expect(asked).toHaveLength(1);
+    expect(asked[0]).toEqual({ kind: 'message', message: 'm' });
     expect(sent.map((s) => s.procedure)).toEqual(['walletSession.challenge', 'walletSession.open']);
     // The page's own origin goes with the challenge; a wallet-session refusal never signs the person out.
     expect(sent[0]!.input).toEqual({ address: ADDR, origin: window.location.origin });
     expect(sent[0]!.keepSessionFor).toContain('protocol.wallet_session_invalid');
     forgetWalletSession(ADDR);
-    await walletSession(api, { provider, address: ADDR });
-    expect(asked.filter((m) => m === 'personal_sign')).toHaveLength(2);
+    await walletSession(api, { sign, address: ADDR });
+    expect(asked).toHaveLength(2);
   });
 
   it('a session about to expire is opened again', async () => {
     const soon = new Date(Date.now() + 30_000).toISOString();
     const { api } = fakeApi({ ...ok, 'walletSession.open': () => ({ ok: true, data: { session: 's', address: ADDR, expiresAt: soon } }) });
-    const { provider, asked } = fakeWallet();
-    await walletSession(api, { provider, address: ADDR });
-    await walletSession(api, { provider, address: ADDR });
-    expect(asked.filter((m) => m === 'personal_sign')).toHaveLength(2);
+    const { sign, asked } = fakeWallet();
+    await walletSession(api, { sign, address: ADDR });
+    await walletSession(api, { sign, address: ADDR });
+    expect(asked).toHaveLength(2);
   });
 
   it('a cancelled signature, a refused challenge and a refused signature open nothing and are not remembered', async () => {
-    const reject = Object.assign(new Error('User rejected the request.'), { code: 4001 });
     const { api: a1, sent: s1 } = fakeApi({ ...ok });
     const rejected = await walletSession(a1, {
-      provider: fakeWallet(async () => {
-        throw reject;
-      }).provider,
+      sign: fakeWallet(async () => ({ status: 'rejected' })).sign,
       address: ADDR,
     });
     expect(rejected).toEqual({ ok: false, kind: 'rejected' });
@@ -85,7 +79,7 @@ describe('wallet session for the address book', () => {
     const { api: a2 } = fakeApi({
       'walletSession.challenge': () => ({ ok: false, reason: 'error', message: 'x', code: 'protocol.wallet_session_unset' }),
     });
-    expect(await walletSession(a2, { provider: fakeWallet().provider, address: ADDR })).toMatchObject({
+    expect(await walletSession(a2, { sign: fakeWallet().sign, address: ADDR })).toMatchObject({
       ok: false,
       kind: 'refused',
       code: 'protocol.wallet_session_unset',
@@ -95,10 +89,10 @@ describe('wallet session for the address book', () => {
       ...ok,
       'walletSession.open': () => ({ ok: false, reason: 'forbidden', message: 'x', code: 'protocol.wallet_signature_not_owner' }),
     });
-    const { provider, asked } = fakeWallet();
-    expect(await walletSession(a3, { provider, address: ADDR })).toMatchObject({ code: 'protocol.wallet_signature_not_owner' });
-    await walletSession(a3, { provider, address: ADDR });
-    expect(asked.filter((m) => m === 'personal_sign')).toHaveLength(2);
+    const { sign, asked } = fakeWallet();
+    expect(await walletSession(a3, { sign, address: ADDR })).toMatchObject({ code: 'protocol.wallet_signature_not_owner' });
+    await walletSession(a3, { sign, address: ADDR });
+    expect(asked).toHaveLength(2);
   });
 });
 

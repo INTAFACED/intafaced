@@ -12,7 +12,7 @@ import {
   type ProtocolWalletGroup,
 } from '@intafaced/contracts/protocol-address-book';
 import type { ApiClient, ApiResult } from '../../../shared/api';
-import { runSignRequest, type Eip1193Provider } from './eip1193';
+import type { SignRequest, SignResult } from './eip1193';
 
 export type AddressBook = ProtocolAddressBook;
 export type Contact = ProtocolContact;
@@ -73,12 +73,12 @@ export function resetWalletSessions(): void {
 }
 
 /**
- * The session for `address`: the remembered one while it lasts, else a new one. Asks the wallet to sign the service's
- * sign-in message directly (it moves nothing and grants nothing; the wallet shows its full text and the page's domain).
+ * The session for `address`: the remembered one while it lasts, else a new one. The sign-in message goes through
+ * `sign`, the wallet provider's own path: the plain-words sheet first, then the wallet, only after the person continues.
  */
 export function walletSession(
   api: AddressBookApi,
-  wallet: { provider: Eip1193Provider; address: string },
+  wallet: { address: string; sign: (request: SignRequest) => Promise<SignResult> },
   now: () => number = Date.now,
 ): Promise<SessionResult> {
   const key = wallet.address.toLowerCase();
@@ -95,7 +95,7 @@ export function walletSession(
     });
     const challenge = await api.challenge({ address: wallet.address, origin: window.location.origin });
     if (!challenge.ok) return refused(challenge);
-    const signed = await runSignRequest(wallet.provider, wallet.address, { kind: 'message', message: challenge.data.message });
+    const signed = await wallet.sign({ kind: 'message', message: challenge.data.message });
     if (signed.status === 'rejected') return { ok: false, kind: 'rejected' };
     if (signed.status !== 'signed')
       return {

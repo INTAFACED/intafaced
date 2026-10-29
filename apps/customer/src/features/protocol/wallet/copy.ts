@@ -210,7 +210,7 @@ const en = {
     'Your contacts and wallet groups are kept by us for this wallet address only. To open them, your wallet signs a sign-in message that proves you own this address. It moves no funds and grants no permission.',
   bookSigning: 'Asking your wallet to sign in to your address book…',
   bookLoading: 'Opening your address book…',
-  bookRejected: 'You cancelled the sign-in in your wallet. Your address book stays closed.',
+  bookRejected: 'You cancelled the sign-in. Your address book stays closed.',
   bookSignIn: 'Sign in to the address book',
   bookUnset: 'The address book is switched off in this build: its sign-in settings are not published.',
   bookOriginUnlisted: 'The address book does not open on this web address.',

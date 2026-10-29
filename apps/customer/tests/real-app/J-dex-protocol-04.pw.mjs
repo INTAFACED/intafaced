@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { test, expect } from '@playwright/test';
-import { TOKEN_A, UNBUILT, connectWallet, dexRun, walletSection } from './dex.mjs';
+import { TOKEN_A, UNBUILT, connectWallet, continueSignIn, dexRun, walletSection } from './dex.mjs';
 import { fundedTrader, signIn } from './desk.mjs';
 
 // J-dex-protocol-04, in the running app (docs/roadmap/journeys.json): send and receive tokens, use a claim link and scan
@@ -34,6 +34,7 @@ test(`${J} starts: a TEST wallet with TEST tokens and one address book entry`, a
   dex.start();
   await connectWallet(page, dex, { tokens: [TOKEN_A] });
   await walletSection(page, 'Address book');
+  await continueSignIn(page);
   const book = page.getByRole('form', { name: 'Add a contact' });
   await book.getByRole('textbox', { name: /^Label/ }).fill('TEST friend');
   await book.getByRole('textbox', { name: /^Address/ }).fill(FRIEND);
@@ -83,6 +84,7 @@ test(`${J} #3 saves the address in the address book and groups two wallets: the 
 }) => {
   await connectWallet(page, dex, { tokens: [TOKEN_A] });
   await walletSection(page, 'Address book');
+  await continueSignIn(page);
   await expect(
     page.getByRole('region', { name: 'Contacts' }).getByRole('table').getByRole('row').filter({ hasText: 'TEST friend' }),
   ).toContainText(FRIEND);
