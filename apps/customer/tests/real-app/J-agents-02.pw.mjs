@@ -9,14 +9,14 @@ import { api, toUnits, tool } from './stack.mjs';
 // TEST USDT and an agent of the person's own. Per-call, per-session and per-period caps reserve before the engine is
 // called; a refused run bills 0 and leaves no hold; charges equal sealed windows. Push and email delivery of an alert
 // show their vendor notice (vendor.push, vendor.email); the in-app inbox row is written regardless.
-// #1-#5 run on the agent's Limits, Test and Usage pages (AG-spend-01). Still unbuilt, failing at their first missing
-// part within UNBUILT: usage alerts and the hard monthly limit (AG-usage-03, #6), and usage by agent, day and task
-// (AG-usage-02, #7).
+// #1-#5 and #7 run on the agent's Limits, Test and Usage pages (AG-spend-01, AG-usage-02). Still unbuilt, failing at its
+// first missing part within UNBUILT: usage alerts and the hard monthly limit (AG-usage-03, #6).
 // Numbers: the agent's own cap is 1 USDT per session; the person sets 0.012 per call, 0.02 per session and 5 a month.
 // One run's worst case on the stack's test engine is just over 0.01024 USDT (2048 output tokens at 5 per million, plus
 // its input at 1 per million), so one fits the per-call cap and two together pass the per-session cap.
-// Not checkable on this stack yet: #7's blank-rate refusal, since the stack publishes a rate for every task; it can be
-// once the founder console can change a route's rate (J-agents-20).
+// #7's blank-rate refusal is not reachable on this stack, which publishes a LOCAL TEST rate for every task; it is proven
+// in services/svc-agents/src/own/usage-day.test.ts, and here once the founder console can change a route's rate
+// (J-agents-20).
 const J = 'J-agents-02';
 const agents = agentsRun(J);
 
@@ -426,15 +426,78 @@ test(`${J} #6 sets a soft alert and a hard limit for the month: one inbox row at
   await expect(main(page).getByRole('alert')).toContainText('agents.usage.hard_limit_reached');
 });
 
-test(`${J} #7 opens usage by agent, day and task: totals match the sum of the sealed windows; a blank rate refuses the run with the rate named`, async ({
-  page,
-}) => {
-  await openOwnAgent(page, agents, 'Usage');
-  const usage = tableIn(main(page), 'Usage by day and task');
-  await expect(usage).toBeVisible(UNBUILT);
-  const sealed = tableIn(main(page), 'Usage windows');
+test(`${J} #7 opens usage by agent, day and task: totals match the sum of sealed windows`, async ({ page }) => {
+  test.setTimeout(240_000);
+  // A fourth TEST person with 1 USDT and two agents of their own, each run once in a session that is then closed.
+  const user = await fundedTrader(page, 'ag02d', '1');
+  const funded = await ledgerBalances(user);
+  const SECOND = 'TEST second helper';
+  await ownAgentWithLimits(page, user);
+  await runAndClose(page);
+  await createOwnAgent(page, { name: SECOND });
+  await page.goto('/agents');
+  await main(page).getByRole('link', { name: SECOND, exact: true }).click();
+  await pages(page).getByRole('button', { name: 'Limits', exact: true }).click();
+  await limits(page)
+    .getByRole('textbox', { name: /^Per call/ })
+    .fill('0.012');
+  await limits(page)
+    .getByRole('textbox', { name: /^Per session/ })
+    .fill('0.02');
+  await limits(page)
+    .getByRole('textbox', { name: /^Per month/ })
+    .fill('5');
+  await limits(page).getByRole('button', { name: 'Save limits' }).click();
+  await expect(limits(page).getByRole('status')).toHaveText('Limits saved.');
+  await runAndClose(page);
+
   // Exact sums in scaled units, never floats: each cell is a decimal string such as "0.00012345 USDT".
-  const sum = async (table, id) =>
-    (await table.getByTestId(id).allInnerTexts()).reduce((total, text) => total + toUnits(text.replace(/ USDT$/, '')), 0n);
-  expect(await sum(usage, 'usage-cost')).toBe(await sum(sealed, 'window-cost'));
+  const units = (text) => toUnits(text.replace(/ USDT$/, ''));
+  const sum = async (cells) => (await cells.allInnerTexts()).reduce((total, text) => total + units(text), 0n);
+  const today = new Date().toISOString().slice(0, 10);
+  let total = 0n;
+  for (const name of [OWN_AGENT, SECOND]) {
+    await page.goto('/agents');
+    await main(page).getByRole('link', { name, exact: true }).click();
+    await pages(page).getByRole('button', { name: 'Usage', exact: true }).click();
+    const sealed = tableIn(main(page), 'Usage windows');
+    await expect(sealed.getByRole('row')).toHaveCount(2);
+    await expect(sealed).toContainText('Settled');
+    const usage = tableIn(main(page), 'Usage by agent, day and task');
+    // The usage view lists every agent the person built, by name, and nothing else.
+    const rows = usage.locator('tbody tr');
+    expect(new Set(await rows.locator('td:nth-child(1)').allInnerTexts())).toEqual(new Set([OWN_AGENT, SECOND]));
+    const mine = rows.filter({ has: page.getByRole('cell', { name, exact: true }) });
+    await expect(mine).toHaveCount(1);
+    await expect(mine.getByRole('cell').nth(1)).toHaveText(today);
+    await expect(mine.getByRole('cell').nth(2)).toHaveText('own.run');
+    await expect(mine.getByRole('cell').nth(3)).toHaveText('1');
+    // This agent's row is exactly the sum of its sealed windows, and is more than nothing.
+    const windows = await sum(sealed.getByTestId('window-cost'));
+    expect(windows).toBeGreaterThan(0n);
+    expect(await sum(mine.getByTestId('usage-cost'))).toBe(windows);
+    total += windows;
+  }
+  // Together the rows are exactly what the two agents' sealed windows add up to.
+  expect(await sum(tableIn(main(page), 'Usage by agent, day and task').getByTestId('usage-cost'))).toBe(total);
+  // What the usage view adds up to is what the ledger charged the person: the funded balance less the two windows.
+  const after = await ledgerBalances(user);
+  expect(toUnits(funded.USDT.total) - toUnits(after.USDT.total)).toBe(total);
+  expect(toUnits(funded.USDT.free) - toUnits(after.USDT.free)).toBe(total);
+  // The step's last clause, a blank rate refusing the run with the rate named, cannot be reached here: this stack
+  // publishes a LOCAL TEST rate for every task. It is proven against real Postgres and a real-balance ledger in
+  // services/svc-agents/src/own/usage-day.test.ts ("a blank rate").
 });
+
+/** Opens a session on the agent's page, runs it once and closes it, so its one window seals and is charged. */
+async function runAndClose(page) {
+  await session(page).getByRole('button', { name: 'Open a session' }).click();
+  await expect(session(page).getByText('Session open:')).toBeVisible();
+  await session(page)
+    .getByRole('textbox', { name: /^Ask the agent/ })
+    .fill('TEST question');
+  await session(page).getByRole('button', { name: 'Run', exact: true }).click();
+  await expect(session(page).getByRole('region', { name: 'Reply' })).toBeVisible();
+  await session(page).getByRole('button', { name: 'Close session' }).click();
+  await expect(session(page).getByText('Session closed. Its usage is paid.')).toBeVisible();
+}

@@ -15,6 +15,7 @@ import {
   ownAgentSchema,
   ownAgentSessionClosedSchema,
   ownAgentSessionSchema,
+  ownAgentUsageDaySchema,
   ownAgentUsageWindowSchema,
   type OwnAgent,
   type OwnAgentCatalogue,
@@ -713,10 +714,57 @@ function Usage({ agent }: { agent: OwnAgent }) {
           )}
         </Read>
       </Panel>
-      <Panel title={t('page_Usage')}>
-        <p role="note">{t('parked_Usage')}</p>
-      </Panel>
+      <UsageByDay />
     </>
+  );
+}
+
+/**
+ * Usage by agent, day and task: every agent the person built, each row the exact sum of that agent's sealed windows on
+ * one UTC day, so an agent's rows add up to its sealed windows above.
+ */
+function UsageByDay() {
+  const api = useApi();
+  const { t } = agentBuilderCopy.useCopy();
+  const days = useResource(
+    (signal) => api.query('agents', 'own.usageByDay', undefined, z.array(ownAgentUsageDaySchema), { signal }),
+    'own-usage-by-day',
+  );
+  return (
+    <Panel title={t('byDayTitle')} role="region" aria-label={t('byDayTitle')}>
+      <p className="muted">{t('byDayNote')}</p>
+      <Read resource={days.resource} retry={days.reload}>
+        {(rows) => (
+          <>
+            <table>
+              <thead>
+                <tr>
+                  <th scope="col">{t('byDayAgent')}</th>
+                  <th scope="col">{t('byDayDay')}</th>
+                  <th scope="col">{t('byDayTask')}</th>
+                  <th scope="col">{t('byDayWindows')}</th>
+                  <th scope="col">{t('byDayCost')}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((row) => (
+                  <tr key={`${row.agentId}:${row.day}:${row.task}:${row.assetId}`} data-agent-id={row.agentId}>
+                    <td>{row.agentName || t('untitled')}</td>
+                    <td>{row.day}</td>
+                    <td>
+                      <code lang="zxx">{row.task}</code>
+                    </td>
+                    <td>{row.windows}</td>
+                    <td data-testid="usage-cost">{money(row.amount, row.assetId)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            {rows.length === 0 ? <p className="muted">{t('byDayEmpty')}</p> : null}
+          </>
+        )}
+      </Read>
+    </Panel>
   );
 }
 

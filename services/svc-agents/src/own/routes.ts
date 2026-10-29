@@ -8,6 +8,7 @@ import {
   ownAgentSchema,
   ownAgentSessionClosedSchema,
   ownAgentSessionSchema,
+  ownAgentUsageDaySchema,
   ownAgentUsageWindowSchema,
   router,
   scopedProcedure,
@@ -19,7 +20,7 @@ import { parseGuardrail, type Guardrail } from '../fleet/guardrails.js';
 import { executeProcedure } from '../procedures.js';
 import { RefusedError, type AgentRuntime } from '../runtime.js';
 import { assertPersonSetsLimits } from '../spend/routes.js';
-import { OWN_TEMPLATE_IDS, OWN_TEMPLATES, OWN_TOOLS, OwnAgentRefusal } from './catalog.js';
+import { OWN_AGENTS_MAX, OWN_TEMPLATE_IDS, OWN_TEMPLATES, OWN_TOOLS, OwnAgentRefusal } from './catalog.js';
 import { OwnLimitsStore, readOwnCaps } from './limits.js';
 import { OwnAgentStore, type OwnAgentView } from './store.js';
 
@@ -336,6 +337,25 @@ export function ownRouter(sql: Sql | undefined, run?: OwnRunDeps) {
             amount: w.amount === null ? null : formatAmount(w.amount),
             openedAt: w.openedAt.toISOString(),
           }));
+        });
+      }),
+
+    /**
+     * The sealed usage of every agent the person built, by agent, UTC day and task. Each row is the exact sum of the
+     * sealed windows it covers, so an agent's rows add up to the amounts its Usage windows show.
+     */
+    usageByDay: scopedProcedure('agents:read', { module: 'agents', person: true })
+      .output(z.array(ownAgentUsageDaySchema))
+      .query(({ ctx }) => {
+        assertPersonSetsLimits(ctx.principal);
+        return guard(async () => {
+          const agents = await storeOf(sql).list(ctx.principal.userId, OWN_AGENTS_MAX);
+          const names = new Map(agents.map((agent) => [ownSessionAgentId(agent.id), agent]));
+          const rows = await runDepsOf(run).runtime.usageByDayOf(ctx.principal.userId, [...names.keys()]);
+          return rows.map((row) => {
+            const agent = names.get(row.agentId)!;
+            return { ...row, agentId: agent.id, agentName: agent.name, amount: formatAmount(row.amount) };
+          });
         });
       }),
   });

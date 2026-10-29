@@ -54,3 +54,11 @@ describe('agent builder tab labels', () => {
     },
   );
 });
+
+describe('a blank rate', () => {
+  it.each(['en', 'es', 'fr'] as const)('%s names the rate the refused run is billed at and that nothing runs free', (locale) => {
+    const words = agentBuilderCopy.forLocale(locale).t('code_price_unset');
+    expect(words).toContain('own.run');
+    expect(words).toMatch({ en: /Nothing runs free/, es: /Nada se ejecuta gratis/, fr: /Rien ne tourne gratuitement/ }[locale]);
+  });
+});

@@ -16,7 +16,7 @@ import {
 } from './fleet/guardrails.js';
 import { digestOfText, type ModelGateway } from './gateway/gateway.js';
 import type { RouteDef } from './gateway/routing.js';
-import { type SettlementResult, type UsageMeter, type UsageWindowView } from './metering/meter.js';
+import { type SettlementResult, type UsageMeter, type UsageDayView, type UsageWindowView } from './metering/meter.js';
 import { meteringOffSettlementStub, shouldMeterUsage } from './metering/product-law.js';
 import { usageCost } from './metering/pricing.js';
 import type { TokenUsage } from './providers/provider.js';
@@ -1148,6 +1148,10 @@ export class AgentRuntime {
   /** The usage windows of one agent's sessions of a person's, newest first (see `UsageMeter.windowsOf`). */
   async usageWindowsOf(userId: string, agentId: string, limit: number): Promise<UsageWindowView[]> {
     return this.meter.windowsOf(userId, agentId, limit);
+  }
+
+  async usageByDayOf(userId: string, agentIds: readonly string[]): Promise<UsageDayView[]> {
+    return this.meter.usageByDay(userId, agentIds);
   }
 
   /** Settle every open window of a session. Used when a session closes. */
