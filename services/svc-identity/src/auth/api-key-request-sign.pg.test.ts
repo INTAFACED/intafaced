@@ -13,7 +13,6 @@ import { PlaceDoor } from './place-door.js';
 import { rotateApiKey } from './rotate-api-key.js';
 import {
   ApiKeyRequestSignError,
-  REQUEST_SIGN_WINDOW_SECONDS,
   canonicalRequest,
   decideApiKeyExchange,
   hashBody,
@@ -41,6 +40,9 @@ const tokenConfig = {
   refreshTtlSeconds: 2_592_000,
 };
 
+/** The TEST owner window the stack runs with (tooling/profiles/test-owner-values/identity.json). */
+const WINDOW = 300;
+
 const available = await postgresAvailable(URL);
 
 if (!available) {
@@ -57,7 +59,7 @@ if (!available) {
   const rank = new RankService(db.sql, bus);
   const auth = new AuthService(db.sql, bus, rank, tokenConfig, undefined, undefined, undefined, undefined, 25);
   const encKey = randomBytes(32);
-  installApiKeyRequestSignExchange(auth, db.sql, encKey);
+  installApiKeyRequestSignExchange(auth, db.sql, encKey, WINDOW);
   const door = new PlaceDoor(db.sql);
   await rank.seedTiers();
 
@@ -172,29 +174,40 @@ if (!available) {
         encKey,
       );
       const secret = enabled.signingSecret!;
-      await expect(decideApiKeyExchange(db.sql, created.key, undefined, new Date(), encKey)).resolves.toEqual({
+      await expect(decideApiKeyExchange(db.sql, created.key, undefined, new Date(), encKey, WINDOW)).resolves.toEqual({
         ok: false,
         reason: 'unsigned',
       });
-      await expect(auth.exchangeApiKey(created.key)).rejects.toMatchObject({ code: 'auth.invalid_credentials' });
+      await expect(auth.exchangeApiKey(created.key)).rejects.toMatchObject({ code: 'auth.request_unsigned' });
 
-      const stale = signed(secret, 'nonce-stale-1', '{"amount":"1.10"}', -(REQUEST_SIGN_WINDOW_SECONDS + 5));
-      await expect(decideApiKeyExchange(db.sql, created.key, stale, new Date(), encKey)).resolves.toEqual({ ok: false, reason: 'stale' });
+      const stale = signed(secret, 'nonce-stale-1', '{"amount":"1.10"}', -(WINDOW + 5));
+      await expect(decideApiKeyExchange(db.sql, created.key, stale, new Date(), encKey, WINDOW)).resolves.toEqual({ ok: false, reason: 'stale' });
+      await expect(requestSignAls.run(stale, () => auth.exchangeApiKey(created.key))).rejects.toMatchObject({
+        code: 'auth.request_stale',
+      });
 
       const good = signed(secret, 'nonce-fresh-1');
       const tampered = { ...good, bodyHash: hashBody('{"amount":"9.99"}') };
-      await expect(decideApiKeyExchange(db.sql, created.key, tampered, new Date(), encKey)).resolves.toEqual({
+      await expect(decideApiKeyExchange(db.sql, created.key, tampered, new Date(), encKey, WINDOW)).resolves.toEqual({
         ok: false,
         reason: 'tampered',
+      });
+      await expect(requestSignAls.run(tampered, () => auth.exchangeApiKey(created.key))).rejects.toMatchObject({
+        code: 'auth.request_tampered',
+      });
+      // A blank owner window refuses the same fresh, valid request and consumes no nonce.
+      await expect(decideApiKeyExchange(db.sql, created.key, good, new Date(), encKey, null)).resolves.toEqual({
+        ok: false,
+        reason: 'window_unset',
       });
 
       await expect(requestSignAls.run(good, () => auth.exchangeApiKey(created.key))).resolves.toMatchObject({
         userId: owner.userId,
         requireSignature: true,
       });
-      await expect(decideApiKeyExchange(db.sql, created.key, good, new Date(), encKey)).resolves.toEqual({ ok: false, reason: 'replay' });
+      await expect(decideApiKeyExchange(db.sql, created.key, good, new Date(), encKey, WINDOW)).resolves.toEqual({ ok: false, reason: 'replay' });
       await expect(requestSignAls.run(good, () => auth.exchangeApiKey(created.key))).rejects.toMatchObject({
-        code: 'auth.invalid_credentials',
+        code: 'auth.request_replay',
       });
     });
 
@@ -211,12 +224,12 @@ if (!available) {
         },
         encKey,
       );
-      await expect(decideApiKeyExchange(db.sql, created.key, undefined, new Date(), encKey)).resolves.toEqual({
+      await expect(decideApiKeyExchange(db.sql, created.key, undefined, new Date(), encKey, WINDOW)).resolves.toEqual({
         ok: false,
         reason: 'ip_allowlist_required',
       });
       await bindApiKeyIpAllowlist(db.sql, owner.userId, created.id, ['203.0.113.10']);
-      await expect(decideApiKeyExchange(db.sql, created.key, undefined, new Date(), encKey)).resolves.toMatchObject({ ok: true });
+      await expect(decideApiKeyExchange(db.sql, created.key, undefined, new Date(), encKey, WINDOW)).resolves.toMatchObject({ ok: true });
     });
 
     it('deletes nonces older than the window when a new nonce is stored', async () => {
@@ -232,13 +245,13 @@ if (!available) {
         },
         encKey,
       );
-      const old = new Date(Date.now() - (REQUEST_SIGN_WINDOW_SECONDS + 30) * 1000);
+      const old = new Date(Date.now() - (WINDOW + 30) * 1000);
       await db.sql`
         INSERT INTO api_key_request_nonces (key_id, nonce, seen_at, expires_at)
         VALUES (${created.id}, ${'nonce-old-01'}, ${old}, ${old})
       `;
       const fresh = signed(enabled.signingSecret!, 'nonce-new-01');
-      await expect(decideApiKeyExchange(db.sql, created.key, fresh, new Date(), encKey)).resolves.toMatchObject({ ok: true });
+      await expect(decideApiKeyExchange(db.sql, created.key, fresh, new Date(), encKey, WINDOW)).resolves.toMatchObject({ ok: true });
       const left = await db.sql<Array<{ nonce: string }>>`
         SELECT nonce FROM api_key_request_nonces WHERE key_id = ${created.id} ORDER BY nonce
       `;
@@ -269,16 +282,16 @@ if (!available) {
         bodyHash,
         signature: signRequest(enabled.signingSecret!, canonicalRequest({ method, path, timestamp: String(signedAt), nonce, bodyHash })),
       };
-      await expect(decideApiKeyExchange(db.sql, created.key, material, serverNow, encKey)).resolves.toMatchObject({ ok: true });
+      await expect(decideApiKeyExchange(db.sql, created.key, material, serverNow, encKey, WINDOW)).resolves.toMatchObject({ ok: true });
       for (const delta of [301, 400, 540]) {
         const later = new Date(serverNow.getTime() + delta * 1000);
-        await expect(decideApiKeyExchange(db.sql, created.key, material, later, encKey)).resolves.toEqual({
+        await expect(decideApiKeyExchange(db.sql, created.key, material, later, encKey, WINDOW)).resolves.toEqual({
           ok: false,
           reason: 'replay',
         });
       }
       const staleAt = new Date(serverNow.getTime() + 541 * 1000);
-      await expect(decideApiKeyExchange(db.sql, created.key, material, staleAt, encKey)).resolves.toEqual({
+      await expect(decideApiKeyExchange(db.sql, created.key, material, staleAt, encKey, WINDOW)).resolves.toEqual({
         ok: false,
         reason: 'stale',
       });
@@ -296,13 +309,13 @@ if (!available) {
       );
       for (const entry of ['0.0.0.0/0', '::/0']) {
         await db.sql`UPDATE api_keys SET ip_allowlist = ${[entry]} WHERE id = ${created.id}`;
-        await expect(decideApiKeyExchange(db.sql, created.key, undefined, new Date(), encKey)).resolves.toEqual({
+        await expect(decideApiKeyExchange(db.sql, created.key, undefined, new Date(), encKey, WINDOW)).resolves.toEqual({
           ok: false,
           reason: 'ip_allowlist_required',
         });
       }
       await db.sql`UPDATE api_keys SET ip_allowlist = ${['203.0.113.10', '0.0.0.0/0']} WHERE id = ${created.id}`;
-      await expect(decideApiKeyExchange(db.sql, created.key, undefined, new Date(), encKey)).resolves.toMatchObject({ ok: true });
+      await expect(decideApiKeyExchange(db.sql, created.key, undefined, new Date(), encKey, WINDOW)).resolves.toMatchObject({ ok: true });
     });
 
     it('refuses an unsigned call on a rotated key and returns a new secret once', async () => {
@@ -323,16 +336,17 @@ if (!available) {
       );
       expect(rotated.signingSecret?.startsWith('ifs_')).toBe(true);
       expect(rotated.signingSecret).not.toBe(enabled.signingSecret);
-      await expect(decideApiKeyExchange(db.sql, rotated.key, undefined, new Date(), encKey)).resolves.toEqual({
+      await expect(decideApiKeyExchange(db.sql, rotated.key, undefined, new Date(), encKey, WINDOW)).resolves.toEqual({
         ok: false,
         reason: 'ip_allowlist_required',
       });
       await db.sql`UPDATE api_keys SET ip_allowlist = ${['203.0.113.10']} WHERE id = ${rotated.id}`;
-      await expect(decideApiKeyExchange(db.sql, rotated.key, undefined, new Date(), encKey)).resolves.toEqual({
+      await expect(decideApiKeyExchange(db.sql, rotated.key, undefined, new Date(), encKey, WINDOW)).resolves.toEqual({
         ok: false,
         reason: 'unsigned',
       });
-      await expect(auth.exchangeApiKey(created.key)).rejects.toMatchObject({ code: 'auth.invalid_credentials' });
+      // The rotated-away key is dead, and its holder is told so (DV-errors-02).
+      await expect(auth.exchangeApiKey(created.key)).rejects.toMatchObject({ code: 'auth.api_key_revoked' });
       const flags = await db.sql<
         Array<{ require_signature: boolean; require_non_empty_ip_allowlist: boolean; request_signing_secret: string }>
       >`
@@ -360,16 +374,16 @@ if (!available) {
       expect(rotated.signingSecret.startsWith('ifs_')).toBe(true);
       expect(rotated.signingSecret).not.toBe(oldSecret);
       const oldMaterial = signed(oldSecret, 'nonce-old-sec');
-      await expect(decideApiKeyExchange(db.sql, created.key, oldMaterial, new Date(), encKey)).resolves.toEqual({
+      await expect(decideApiKeyExchange(db.sql, created.key, oldMaterial, new Date(), encKey, WINDOW)).resolves.toEqual({
         ok: false,
         reason: 'tampered',
       });
-      await expect(decideApiKeyExchange(db.sql, created.key, undefined, new Date(), encKey)).resolves.toEqual({
+      await expect(decideApiKeyExchange(db.sql, created.key, undefined, new Date(), encKey, WINDOW)).resolves.toEqual({
         ok: false,
         reason: 'unsigned',
       });
       const fresh = signed(rotated.signingSecret, 'nonce-new-sec');
-      await expect(decideApiKeyExchange(db.sql, created.key, fresh, new Date(), encKey)).resolves.toMatchObject({ ok: true });
+      await expect(decideApiKeyExchange(db.sql, created.key, fresh, new Date(), encKey, WINDOW)).resolves.toMatchObject({ ok: true });
       const row = await db.sql<Array<{ require_signature: boolean; request_signing_secret: string }>>`
         SELECT require_signature, request_signing_secret FROM api_keys WHERE id = ${created.id}
       `;
@@ -482,6 +496,55 @@ if (!available) {
         releaseClaim();
         auth.useMerchantEmailInviteClaimer(undefined);
       }
+    });
+
+    it('names a too-new timestamp apart from a stale one', async () => {
+      const owner = await register();
+      const created = await mint(owner.userId);
+      const enabled = await setApiKeyRequestSigning(db.sql, owner.userId, created.id, { requireSignature: true }, encKey);
+      const ahead = signed(enabled.signingSecret!, 'nonce-ahead-1', '{"amount":"1.10"}', WINDOW + 5);
+      await expect(decideApiKeyExchange(db.sql, created.key, ahead, new Date(), encKey, WINDOW)).resolves.toEqual({
+        ok: false,
+        reason: 'future',
+      });
+      await expect(requestSignAls.run(ahead, () => auth.exchangeApiKey(created.key))).rejects.toMatchObject({
+        code: 'auth.request_future',
+      });
+    });
+
+    it('keeps signing on for a key that places orders unless the owner makes it optional', async () => {
+      const owner = await register();
+      const created = await auth.createApiKey({
+        userId: owner.userId,
+        name: 'trader',
+        scopes: ['trade:read', 'trade:write'],
+        grantorScopes: ['trade:read', 'trade:write'],
+      });
+      await setApiKeyRequestSigning(db.sql, owner.userId, created.id, { requireSignature: true }, encKey);
+      await expect(
+        setApiKeyRequestSigning(db.sql, owner.userId, created.id, { requireSignature: false }, encKey),
+      ).rejects.toMatchObject({ reason: 'auth.signing_required' });
+      const [still] = await db.sql<Array<{ require_signature: boolean }>>`SELECT require_signature FROM api_keys WHERE id = ${created.id}`;
+      expect(still!.require_signature).toBe(true);
+      await expect(
+        setApiKeyRequestSigning(db.sql, owner.userId, created.id, { requireSignature: false }, encKey, true),
+      ).resolves.toMatchObject({ requireSignature: false, signingSecret: null });
+    });
+
+    it('names a revoked or ended key, and a frozen account, only to the holder of the full key', async () => {
+      const owner = await register();
+      const gone = await mint(owner.userId);
+      await auth.revokeApiKey(owner.userId, gone.id);
+      await expect(auth.exchangeApiKey(gone.key)).rejects.toMatchObject({ code: 'auth.api_key_revoked' });
+      const ended = await mint(owner.userId);
+      await db.sql`UPDATE api_keys SET expires_at = now() - interval '1 minute' WHERE id = ${ended.id}`;
+      await expect(auth.exchangeApiKey(ended.key)).rejects.toMatchObject({ code: 'auth.api_key_expired' });
+      // A key that matches no row says nothing about any real key.
+      await expect(auth.exchangeApiKey(`${gone.key.slice(0, -4)}zzzz`)).rejects.toMatchObject({ code: 'auth.invalid_credentials' });
+      const live = await mint(owner.userId);
+      await auth.freezeIdentity(owner.userId);
+      await expect(auth.exchangeApiKey(live.key)).rejects.toMatchObject({ code: 'auth.account_frozen' });
+      await expect(auth.exchangeApiKey(gone.key)).rejects.toMatchObject({ code: 'auth.account_frozen' });
     });
   });
 }

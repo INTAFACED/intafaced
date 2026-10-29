@@ -28,6 +28,7 @@ export const API_KEY_CREATE_REFUSALS = [
   'identity.key_cap_unset',
   'identity.key_cap_reached',
   'identity.key_request_conflict',
+  'identity.key_signing_unset',
 ] as const;
 export type ApiKeyCreateRefusal = (typeof API_KEY_CREATE_REFUSALS)[number];
 
@@ -79,6 +80,11 @@ export const apiKeyCreateOutputSchema = z
     record: apiKeyRecordSchema,
     /** The key, in this reply only. Null when this reply answers a repeat of the same request id. */
     key: z.string().nullable(),
+    /**
+     * The key's request-signing secret, in this reply only (DV-auth-01). A key that may place orders (`trade:write`)
+     * signs every request by default, so it is minted with one. Null for a key that does not sign, and on a repeat.
+     */
+    signingSecret: z.string().nullable(),
     replayed: z.boolean(),
   })
   .strict();
@@ -114,6 +120,41 @@ export const apiKeyScopeEntrySchema = z
   .strict();
 export type ApiKeyScopeEntry = z.infer<typeof apiKeyScopeEntrySchema>;
 export const apiKeyScopesOutputSchema = z.object({ scopes: z.array(apiKeyScopeEntrySchema).max(200) }).strict();
+
+/** The scope that makes a key sign its requests by default: a key that may place orders (DV-auth-01). */
+export const API_KEY_SIGNED_BY_DEFAULT_SCOPE = 'trade:write';
+
+/** The request-signing scheme's name, the first line of every canonical request. */
+export const REQUEST_SIGN_VERSION = 'INTAFACED-REQ-V1';
+
+/**
+ * The published request-signing policy (`apiKeys.signingPolicy`, public). `windowSeconds` is the owner's timestamp
+ * window: how far a request's signed time may be from the server's, either way. Null while the owner has not set it,
+ * and then every signed request refuses `auth.request_window_unset`. `vector` is one request signed with a published
+ * TEST secret, computed by the service's own signer, so a developer can check their signer against it.
+ */
+export const requestSigningVectorSchema = z
+  .object({
+    method: z.string(),
+    path: z.string(),
+    timestamp: z.string(),
+    nonce: z.string(),
+    body: z.string(),
+    bodySha256: z.string(),
+    secret: z.string(),
+    canonical: z.string(),
+    signature: z.string(),
+  })
+  .strict();
+export const requestSigningPolicySchema = z
+  .object({
+    version: z.literal(REQUEST_SIGN_VERSION),
+    windowSeconds: z.number().int().min(1).nullable(),
+    headers: z.object({ timestamp: z.string(), nonce: z.string(), signature: z.string() }).strict(),
+    vector: requestSigningVectorSchema,
+  })
+  .strict();
+export type RequestSigningPolicy = z.infer<typeof requestSigningPolicySchema>;
 
 /** FNV-1a, 64 bits: a short stable digest, so a request id stays well under 200 characters. */
 function digest(text: string): string {

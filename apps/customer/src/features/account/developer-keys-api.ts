@@ -92,6 +92,7 @@ const REFUSALS = new Set<string>([
   'identity.key_name_taken',
   'identity.key_expiry_invalid',
   'identity.key_cap_unset',
+  'identity.key_signing_unset',
   'identity.key_cap_reached',
   'identity.key_request_conflict',
   'identity.delegated_refused',
@@ -105,6 +106,7 @@ export function createRefusal(result: Extract<ApiResult<unknown>, { ok: false }>
 }
 
 /** A small text file a program can load, built in the browser from the reply and never stored. */
-export function environmentFile(key: string): string {
-  return `# API key for your program. Keep this file out of source control.\nINTAFACED_API_KEY=${key}\n`;
+export function environmentFile(key: string, signingSecret?: string | null): string {
+  const signing = signingSecret ? `INTAFACED_API_SIGNING_SECRET=${signingSecret}\n` : '';
+  return `# API key for your program. Keep this file out of source control.\nINTAFACED_API_KEY=${key}\n${signing}`;
 }

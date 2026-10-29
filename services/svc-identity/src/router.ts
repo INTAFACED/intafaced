@@ -386,6 +386,7 @@ export function toTrpcError(err: unknown): TRPCError {
     case 'auth.domain_not_allowed':
     case 'auth.request_unsigned':
     case 'auth.request_stale':
+    case 'auth.request_future':
     case 'auth.request_tampered':
     case 'auth.request_replay':
     case 'auth.ip_allowlist_required':
@@ -466,6 +467,11 @@ export function toTrpcError(err: unknown): TRPCError {
     case 'auth.totp_key_missing':
       // Server misconfiguration — enrol cannot write plaintext. Ops must set IDENTITY_TOTP_SECRET_KEY.
       return new TRPCError({ code: 'PRECONDITION_FAILED', message: err.message, cause: err });
+    case 'auth.edge_unauthenticated':
+      // Not a verdict on the developer's key: the service forwarding request material is not the edge.
+      return new TRPCError({ code: 'UNAUTHORIZED', message: err.message, cause: err });
+    case 'auth.api_key_expired':
+      return new TRPCError({ code: 'UNAUTHORIZED', message, cause: err });
     case 'auth.api_key_denied':
     case 'auth.api_key_revoked':
     case 'auth.session_denied':
@@ -488,6 +494,9 @@ export function toTrpcError(err: unknown): TRPCError {
     case 'auth.payee_email_unconfirmed':
     case 'auth.payee_phone_unverified':
     case 'auth.payee_phone_unset':
+      return new TRPCError({ code: 'PRECONDITION_FAILED', message, cause: err });
+    case 'auth.request_window_unset':
+      // The owner has not set the signing window: no signed request can be judged fresh, for any key.
       return new TRPCError({ code: 'PRECONDITION_FAILED', message, cause: err });
     case 'auth.step_up_required':
     case 'auth.step_up_expired':

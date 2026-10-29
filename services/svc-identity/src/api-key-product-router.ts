@@ -48,9 +48,12 @@ function toProductTrpc(err: unknown): never {
       err.code === 'auth.domain_not_allowed' ||
       err.code === 'auth.request_unsigned' ||
       err.code === 'auth.request_stale' ||
+      err.code === 'auth.request_future' ||
       err.code === 'auth.request_tampered' ||
       err.code === 'auth.request_replay' ||
-      err.code === 'auth.ip_allowlist_required'
+      err.code === 'auth.ip_allowlist_required' ||
+      err.code === 'auth.api_key_expired' ||
+      err.code === 'auth.edge_unauthenticated'
     ) {
       throw new TRPCError({ code: 'UNAUTHORIZED', message, cause: err });
     }

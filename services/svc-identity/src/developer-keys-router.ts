@@ -29,6 +29,7 @@ const STATUS: Record<DeveloperKeyError['code'], TRPCError['code']> = {
   'identity.key_cap_unset': 'PRECONDITION_FAILED',
   'identity.key_cap_reached': 'PRECONDITION_FAILED',
   'identity.key_request_conflict': 'CONFLICT',
+  'identity.key_signing_unset': 'PRECONDITION_FAILED',
 };
 
 function refused(err: unknown): never {

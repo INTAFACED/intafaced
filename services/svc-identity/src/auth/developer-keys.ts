@@ -9,16 +9,22 @@
  *
  * The request id is the business key. A repeat answers with the stored record and no secret, with no second factor
  * (it reveals only what the list already shows); the same id with a different key asked for refuses.
+ *
+ * A key that may place orders (`trade:write`) signs every request by default (DV-auth-01): it is minted with
+ * `require_signature` on and a signing secret sealed at rest, in the same transaction, and the secret is shown once
+ * beside the key. With no sealing key configured such a create refuses `identity.key_signing_unset` before the factor
+ * is spent; there is never a moment the key exists unsigned.
  */
 import { createHash } from 'node:crypto';
 import type { Sql } from 'postgres';
 import { FOUNDER_DESK_SCOPES, INTERACTIVE_ONLY_SCOPES, SCOPES, expandScopes, isPayStepUpScope, isScope, type Scope } from '@intafaced/auth';
 import type { ApiKeyCreateInput, ApiKeyCreateOutput, ApiKeyList, ApiKeyRecord, ApiKeyScopeEntry } from '@intafaced/contracts/api-keys';
-import { API_KEY_NAME_MAX } from '@intafaced/contracts/api-keys';
+import { API_KEY_NAME_MAX, API_KEY_SIGNED_BY_DEFAULT_SCOPE } from '@intafaced/contracts/api-keys';
 import type { KycTier, PayStepUpFactorProof } from './auth-service.js';
 import { bindApiKeyIpAllowlist } from './auth-service-ip.js';
 import { normalizeIp } from './api-key-ip.js';
 import { guardedApiKeyAction, type ApiKeyFactorGate } from './api-key-fresh-factor.js';
+import { issueSigningSecret, sealSigningSecret } from './api-key-request-sign.js';
 import { MintApiKeyPasskeyError, requireVerifiedPasskey } from './mint-api-key-passkey.js';
 
 export type DeveloperKeyRefusal =
@@ -32,7 +38,8 @@ export type DeveloperKeyRefusal =
   | 'identity.key_expiry_invalid'
   | 'identity.key_cap_unset'
   | 'identity.key_cap_reached'
-  | 'identity.key_request_conflict';
+  | 'identity.key_request_conflict'
+  | 'identity.key_signing_unset';
 
 export class DeveloperKeyError extends Error {
   constructor(
@@ -180,8 +187,15 @@ export type DeveloperKeysDeps = {
    * verifies the passkey on its way in); the mint itself checks it again.
    */
   mayMint?: (userId: string, factor: 'passkey' | 'other' | 'none') => Promise<void>;
+  /** Seals a signing key's secret at rest (`API_KEY_SIGNING_ENC_KEY`). Null or absent: a signing key refuses. */
+  signingEncKey?: Buffer | null;
   now?: () => Date;
 };
+
+/** Whether a key with these scopes signs every request by default. */
+export function signsByDefault(scopes: readonly string[]): boolean {
+  return expandScopes(scopes).has(API_KEY_SIGNED_BY_DEFAULT_SCOPE);
+}
 
 type Caller = { userId: string; sid: string; kid?: string | undefined; sub_account?: string | undefined; scopes: readonly string[] };
 
@@ -202,7 +216,7 @@ async function replayOf(sql: Sql, userId: string, requestId: string, fingerprint
   if (row.fingerprint !== fingerprint) {
     throw new DeveloperKeyError('This request id was already used for a different key', 'identity.key_request_conflict');
   }
-  return { record: toRecord(row), key: null, replayed: true };
+  return { record: toRecord(row), key: null, signingSecret: null, replayed: true };
 }
 
 class SameRequestRace extends Error {}
@@ -244,6 +258,10 @@ export async function createDeveloperKey(
     if (twin) return twin;
     throw err;
   }
+  const signs = signsByDefault(checked.scopes);
+  if (signs && !deps.signingEncKey) {
+    throw new DeveloperKeyError('Keys that place orders sign every request, and signing is not set up', 'identity.key_signing_unset');
+  }
   await deps.mayMint?.(caller.userId, !input.factorProof ? 'none' : 'webauthn' in input.factorProof ? 'passkey' : 'other');
   try {
     return await guardedApiKeyAction(
@@ -269,6 +287,15 @@ export async function createDeveloperKey(
           mode: 'live',
         });
         if (checked.ips.length > 0) await bindApiKeyIpAllowlist(tx, caller.userId, minted.id, checked.ips);
+        let signingSecret: string | null = null;
+        if (signs) {
+          signingSecret = issueSigningSecret();
+          await tx`
+            UPDATE api_keys
+            SET require_signature = true, request_signing_secret = ${sealSigningSecret(deps.signingEncKey ?? null, signingSecret)}
+            WHERE id = ${minted.id} AND user_id = ${caller.userId}
+          `;
+        }
         const recorded = await tx<Array<{ key_id: string }>>`
           INSERT INTO api_key_create_requests (user_id, request_id, key_id, fingerprint)
           VALUES (${caller.userId}, ${input.requestId}, ${minted.id}, ${checked.fingerprint})
@@ -281,7 +308,7 @@ export async function createDeveloperKey(
           SELECT id, name, key_prefix, mode, scopes, ip_allowlist, require_signature, created_at, expires_at, last_used_at, revoked
           FROM api_keys WHERE id = ${minted.id}
         `;
-        return { record: toRecord(rows[0]!), key: minted.key, replayed: false };
+        return { record: toRecord(rows[0]!), key: minted.key, signingSecret, replayed: false };
       },
     );
   } catch (err) {

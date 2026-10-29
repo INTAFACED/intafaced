@@ -120,7 +120,8 @@ import { installLimitFeeTierDualControl } from './rank/limit-fee-tier.js';
 import { requestMetaAls } from './auth/request-meta.js';
 import { installApiKeyIpExchange, requestIpAls } from './auth/auth-service-ip.js';
 import { installRefreshCookieHooks } from './auth/refresh-cookie.js';
-import { installApiKeyRequestSignExchange } from './auth/api-key-request-sign.js';
+import { installApiKeyRequestSignExchange, parseRequestSignWindow } from './auth/api-key-request-sign.js';
+import { createRequestSigningPolicyRouter } from './request-signing-policy-router.js';
 import { createApiKeyRequestSignRouter } from './api-key-request-sign-router.js';
 import { createDeveloperKeysRouter } from './developer-keys-router.js';
 import { parseApiKeyCapByTier, passkeyMintRule } from './auth/developer-keys.js';
@@ -194,6 +195,8 @@ if (env.IDENTITY_BREACHED_PASSWORDS_FILE) {
 // Request-signing secrets must not sit plaintext in prod or staging.
 assertSigningEncKey(env);
 const signingEncKey = parseTotpSecretKey(env.API_KEY_SIGNING_ENC_KEY);
+// The owner's signing window (DV-auth-01). Blank stays null: every signed request refuses `auth.request_window_unset`.
+const requestSignWindowSeconds = parseRequestSignWindow(env.IDENTITY_REQUEST_SIGN_WINDOW_SECONDS);
 
 const sql = postgres(env.DATABASE_URL, {
   max: env.DATABASE_POOL_MAX,
@@ -498,7 +501,7 @@ installPasskeyMintRefuse(auth, sql);
 auth.usePasskeyLimit(env.PASSKEY_MAX_PER_ACCOUNT);
 installFourEyes();
 installApiKeyAttribution(auth);
-installApiKeyRequestSignExchange(auth, sql, signingEncKey);
+installApiKeyRequestSignExchange(auth, sql, signingEncKey, requestSignWindowSeconds);
 
 const stepUpStore = new SqlCustomerStepUpStore(sql);
 const actionApprovals = new ActionApprovalService(
@@ -644,7 +647,8 @@ export const appRouter = mergeRouters(
   }),
   createClosureOpsRouter(sql),
   createApiKeyIpRouter(sql, auth, auth),
-  createApiKeyRequestSignRouter(sql, auth, signingEncKey),
+  createApiKeyRequestSignRouter(sql, auth, signingEncKey, env.API_KEY_SIGNING_OPTIONAL.trim() === 'true'),
+  createRequestSigningPolicyRouter(requestSignWindowSeconds),
   createApiKeyOriginRouter(sql, auth, auth),
   createApiKeyAccountRouter(sql, auth, auth),
   createApiKeyRotateRouter(sql, auth, auth, signingEncKey),
@@ -656,6 +660,7 @@ export const appRouter = mergeRouters(
     kycTier: (userId, executor) => auth.kycTier(userId, executor),
     capByTier: parseApiKeyCapByTier(env.IDENTITY_API_KEYS_MAX_BY_TIER),
     mayMint: passkeyMintRule(sql),
+    signingEncKey,
   }),
   createGrantsRouter(sql),
   createSessionRevokeAllRouter(sql),
