@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { signIn, signUp } from './desk.mjs';
-import { signOutBrowser } from './stack.mjs';
+import { api, signOutBrowser } from './stack.mjs';
 import { tableIn, bodyRows } from './tables.mjs';
 
 // J-dex-protocol-09, in the running app (docs/roadmap/journeys.json): explore the chain signed out: blocks,
@@ -10,7 +10,7 @@ import { tableIn, bodyRows } from './tables.mjs';
 // - The stack publishes no node and starts no indexer reader for the explorer, so blocks, transactions, addresses,
 //   pools and contracts have no rows: every step from #2 on waits on that (D-explorer-01 to -07).
 // - #1: Chain home has no latest-blocks list and no INTACHAIN "not launched" line (D-explorer-07).
-// - #6: no private watch with a tag and note; #9: no pool fee fields; #11: no token info update with owner proof.
+// - #9: no pool fee fields; #11: no token info update with owner proof.
 // The explorer's TEST network is Base Sepolia; the hashes and addresses below are well-formed but name nothing on it.
 // A step passes only on rows read from a chain: an empty table, an unknown hash or a blocked row fails it (OWNER 114),
 // so #1, #4 and #10 wait on the stack's TEST networks and the indexer like the rest.
@@ -133,37 +133,73 @@ test(`${J} #6 adds a watch with a tag and a private note: listed for this person
   page,
 }) => {
   test.setTimeout(180_000);
+  const watched = { address: ADDRESS.toLowerCase(), tag: 'TEST cold wallet', note: 'TEST note' };
+  /** The account's own stored watches, read through identity's preferences door with that account's own sign-in. */
+  const storedWatches = async (client) => {
+    const input = encodeURIComponent(JSON.stringify({ namespace: 'protocol.address-watches' }));
+    const { status, body } = await client.get(`/api/identity/trpc/preferences.get?input=${input}`);
+    expect(status).toBe(200);
+    return body.result.data;
+  };
+  const watchButton = page.getByRole('button', { name: 'Watch this address' });
+  const add = async () => {
+    await watchButton.click();
+    const dialog = page.getByRole('dialog', { name: 'Watch this address' });
+    await dialog.getByRole('textbox', { name: 'Tag' }).fill(watched.tag);
+    await dialog.getByRole('textbox', { name: 'Private note' }).fill(watched.note);
+    await dialog.getByRole('button', { name: 'Save' }).click();
+    await expect(dialog).toBeHidden();
+  };
+
   const who = await signUp(page, 'cx');
   await signIn(page, who);
+  const whoApi = await api(who);
   await page.goto(`/chain/address/${ADDRESS}`);
-  await expect(main(page)).toContainText('This explorer holds no funds', UNBUILT);
-  const add = async () => {
-    await page.getByRole('button', { name: 'Watch this address' }).click();
-    const dialog = page.getByRole('dialog', { name: 'Watch this address' });
-    await dialog.getByRole('textbox', { name: 'Tag' }).fill('TEST cold wallet');
-    await dialog.getByRole('textbox', { name: 'Private note' }).fill('TEST note');
-    await dialog.getByRole('button', { name: 'Save' }).click();
-  };
+  // the page says the explorer holds no funds
+  await expect(main(page)).toContainText('This explorer holds no funds');
+  // The button is enabled only once the account's list is read, so every check below runs on a loaded page.
+  await expect(watchButton).toBeEnabled();
+  expect(await storedWatches(whoApi)).toEqual({ namespace: 'protocol.address-watches', version: 0, value: null });
+
+  // adds a watch with a tag and a private note
   await add();
+  await expect(main(page)).toContainText(`You watch this address as “${watched.tag}”.`);
+  await expect(main(page)).toContainText(`Your note: ${watched.note}`);
+  const first = await storedWatches(whoApi);
+  expect(first).toEqual({ namespace: 'protocol.address-watches', version: 1, value: [watched] });
+
+  // listed for this person
   await page.goto('/chain/watchlist');
   const rows = bodyRows(tableIn(page, 'Your watched addresses'));
   await expect(rows).toHaveCount(1);
-  await expect(rows.first()).toContainText('TEST cold wallet');
-  // The owner reads the note back, so the other account's empty page below proves privacy, not a dropped note.
-  await expect(rows.first()).toContainText('TEST note');
+  await expect(rows.first()).toContainText(watched.tag);
+  await expect(rows.first()).toContainText(watched.note);
+
+  // adding again changes nothing: the stored record keeps its version and value, and the list still has one row
   await page.goto(`/chain/address/${ADDRESS}`);
-  await expect(main(page)).toContainText('TEST note');
+  await expect(watchButton).toBeEnabled();
+  // The save is sent, and identity answers it stored at the version it already had.
+  const saved = page.waitForResponse((res) => res.url().includes('/api/identity/trpc/preferences.set'));
   await add();
+  expect((await (await saved).json()).result.data).toEqual({ ...first, outcome: 'stored' });
+  await expect(main(page)).toContainText(`You watch this address as “${watched.tag}”.`);
+  await expect(main(page)).toContainText(`Your note: ${watched.note}`);
+  expect(await storedWatches(whoApi)).toEqual(first);
   await page.goto('/chain/watchlist');
   await expect(rows).toHaveCount(1);
-  await expect(rows.first()).toContainText('TEST note');
 
+  // another account cannot read it, so it is listed for this person only
   await signOutBrowser(page.context());
   const other = await signUp(page, 'cy');
   await signIn(page, other);
+  expect(await storedWatches(await api(other))).toEqual({ namespace: 'protocol.address-watches', version: 0, value: null });
   await page.goto(`/chain/address/${ADDRESS}`);
-  await expect(main(page)).not.toContainText('TEST note');
+  await expect(watchButton).toBeEnabled();
+  await expect(main(page)).toContainText('This explorer holds no funds');
+  await expect(main(page)).not.toContainText(watched.note);
+  await expect(main(page)).not.toContainText(watched.tag);
   await page.goto('/chain/watchlist');
+  await expect(main(page)).toContainText('You are not watching any address.');
   await expect(bodyRows(tableIn(page, 'Your watched addresses'))).toHaveCount(0);
 });
 
