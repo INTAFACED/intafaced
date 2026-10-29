@@ -12,7 +12,7 @@ const en = {
   windowRange: '{from} to {to}',
   noRuns: 'No buyback run has settled.',
   latest: 'The latest {limit} settled runs, newest first. Times are UTC.',
-  jobUnset: 'Job not set: the buyback job is missing a setting or the rate it needs, or cannot place its buy yet, so it does not run.',
+  jobUnset: 'Job not set: the buyback job is missing a setting or the rate it needs, or has no trade place to buy on, so it does not run.',
   jobSet: 'Job set: the buyback job has every setting and the rate it needs. A run shows here once it settles.',
   estimateUnset: 'No estimate: the buyback rate is not set.',
   estimateInvalid: 'No estimate: the stored buyback rate cannot be read.',
@@ -33,7 +33,7 @@ const es = {
   noRuns: 'Ninguna recompra se ha liquidado.',
   latest: 'Las últimas {limit} recompras liquidadas, de la más reciente a la más antigua. Horas en UTC.',
   jobUnset:
-    'Tarea sin configurar: a la tarea de recompra le falta un ajuste o la tasa que necesita, o aún no puede colocar su compra, así que no se ejecuta.',
+    'Tarea sin configurar: a la tarea de recompra le falta un ajuste o la tasa que necesita, o no tiene un mercado donde colocar su compra, así que no se ejecuta.',
   jobSet:
     'Tarea configurada: la tarea de recompra tiene todos los ajustes y la tasa que necesita. Una recompra aparece aquí cuando se liquida.',
   estimateUnset: 'Sin estimación: la tasa de recompra no está fijada.',
@@ -55,7 +55,7 @@ const fr = {
   noRuns: 'Aucun rachat n’a été réglé.',
   latest: 'Les {limit} derniers rachats réglés, du plus récent au plus ancien. Heures en UTC.',
   jobUnset:
-    'Tâche non configurée : il manque à la tâche de rachat un réglage ou le taux nécessaire, ou elle ne peut pas encore passer son achat, elle ne s’exécute donc pas.',
+    'Tâche non configurée : il manque à la tâche de rachat un réglage ou le taux nécessaire, ou elle n’a pas de marché où passer son achat, elle ne s’exécute donc pas.',
   jobSet: 'Tâche configurée : la tâche de rachat a tous les réglages et le taux nécessaires. Un rachat apparaît ici une fois réglé.',
   estimateUnset: 'Pas d’estimation : le taux de rachat n’est pas fixé.',
   estimateInvalid: 'Pas d’estimation : le taux de rachat enregistré est illisible.',

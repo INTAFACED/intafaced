@@ -182,13 +182,20 @@ test(`${J} #9 opens the burn page: stored buyback runs that add up per row; "job
   const read = await (await api(who)).get(`/api/token/trpc/buybackRuns?input=${encodeURIComponent(JSON.stringify({ limit: 50 }))}`);
   expect(read.status, JSON.stringify(read.body).slice(0, 300)).toBe(200);
   const service = read.body.result.data;
-  // The test stack runs no buyback job and the trade place is unpublished, so the service reads "job not set", no
-  // stored run and a blank rate; the page shows exactly those readings, never an invented row.
+  // The page shows exactly the service's stored runs, newest first, and each row adds up: bought = burned + sent to
+  // rewards, in exact amounts, equal to the service's own row.
+  await expect(bodyRows(runs)).toHaveCount(service.runs.length);
+  const rows = await bodyRows(runs).all();
+  for (const [i, run] of service.runs.entries()) {
+    const [, , bought, burned, rewards] = (await rows[i].getByRole('cell').allInnerTexts()).map((c, n) => (n < 2 ? c : amount(c)));
+    expect([bought, burned, rewards]).toEqual([toUnits(run.bought), toUnits(run.burned), toUnits(run.toRewards)]);
+    expect(bought).toBe(burned + rewards);
+  }
+  await expect(main(page).getByText('No buyback run has settled.', { exact: true })).toHaveCount(service.runs.length === 0 ? 1 : 0);
+  // The test stack runs no buyback job and its trade place is unpublished, so the service reads "job not set" and a
+  // blank rate; the page shows those readings, never an invented estimate.
   expect(service.job).toBe('unset');
   expect(service.rate).toBeNull();
-  expect(service.runs).toHaveLength(0);
-  await expect(bodyRows(runs)).toHaveCount(0);
-  await expect(main(page).getByText('No buyback run has settled.', { exact: true })).toBeVisible();
   await expect(main(page).getByTestId('buyback-job')).toHaveText(/^Job not set: /);
   await expect(main(page).getByTestId('buyback-estimate')).toHaveText('No estimate: the buyback rate is not set.');
   // The step's core clause is stored runs that add up per row, and "empty book" as a job reading. Neither can be read
