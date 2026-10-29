@@ -12,7 +12,7 @@ import { tableIn, bodyRows } from './tables.mjs';
 // - The Web3 nav has no Tokens room: no Trending, New listings, Top traded, brief, screeners or watchlist
 //   (D-portfolio-wallet-06, -07, D-launch-listing-02, -04), and the stack publishes no node or indexer for token data.
 // - A token page (/dex/tokens/:address) names its indexer blocker and shows no price, trust tier, tabs or quick ticket.
-// A step passes only on rows read from the chain: an empty list or a blocked row fails it (OWNER 114), so #1, #3 and #6
+// A step passes only on rows read from the chain: an empty list or a blocked row fails it (OWNER 114), so #1, #3, #5 and #6
 // wait on the stack's TEST chain and a token reader like the rest.
 const J = 'J-dex-protocol-07';
 const UNBUILT = { timeout: 5_000 };
@@ -117,8 +117,27 @@ test(`${J} #5 reads the trust tier and the organic score: "unknown" with a note 
   await page.goto(`/dex/tokens/${TOKEN}`);
   const trust = page.getByRole('region', { name: 'Trust' });
   await expect(trust).toBeVisible(UNBUILT);
-  await expect(trust.getByTestId('token-trust-tier')).toHaveText(/unknown|low|medium|high/i);
-  await expect(trust.getByTestId('token-organic-score')).toHaveText(/Not scored|\d+/);
+  // A token with no history on the TEST chain: its tier is "unknown" and a note says why, never another tier.
+  await expect(trust.getByTestId('token-trust-tier')).toHaveText(/^unknown$/i);
+  await expect(trust.getByTestId('token-trust-note')).toContainText(/no history/i);
+  // The stack publishes no organic-score inputs, so the score is "Not scored", never a number.
+  await expect(trust.getByTestId('token-organic-score')).toHaveText('Not scored');
+  // With no lock and no vesting on record, the suspicious flags name both.
+  const flags = trust.getByRole('list', { name: 'Suspicious flags' }).getByRole('listitem');
+  await expect(flags.filter({ hasText: /No LP lock/ })).toHaveCount(1);
+  await expect(flags.filter({ hasText: /No vesting/ })).toHaveCount(1);
+
+  // A token named like a better-trusted one is masked in the list and, on its page, shows the banner and its full address.
+  await openTokens(page);
+  const masked = tokenRows(page)
+    .filter({ has: page.getByTestId('token-symbol-masked') })
+    .first();
+  await expect(masked).toBeVisible(UNBUILT);
+  await masked.getByRole('link').first().click();
+  await expect(page.getByRole('alert').filter({ hasText: /May be impersonating .+/ })).toBeVisible();
+  const address = page.url().match(/0x[0-9a-fA-F]{40}/)?.[0];
+  expect(address).toMatch(/^0x[0-9a-fA-F]{40}$/);
+  await expect(page.getByRole('main')).toContainText(address, { ignoreCase: true });
 });
 
 test(`${J} #6 opens the pairs, holders and trades tabs: candles at the swap times, volume equal to the swaps, holders summing to supply less burned`, async ({
