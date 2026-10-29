@@ -112,6 +112,13 @@ test(`${J} #3 Signing in again after freezing lands on a typed "frozen by you" p
   expect(read.status).toBe(200);
   expect(read.body.result.data.state).toBe('frozen_self');
   expect(read.body.result.data.restrictions.map((restriction) => restriction.kind)).toEqual(['self_freeze']);
+  // What the page says the freeze stops is exactly what identity's guard refuses for it.
+  const stops = await frozen
+    .getByTestId('frozen-by-you__stops')
+    .locator('li')
+    .evaluateAll((items) => items.map((li) => li.getAttribute('data-action')));
+  expect(stops).toEqual(read.body.result.data.restrictions[0].blocks);
+  expect(stops.length).toBeGreaterThan(0);
 
   // The lift path: Security holds the reactivation for this freeze.
   await frozen.getByRole('button', { name: 'Reactivate in Security' }).click();

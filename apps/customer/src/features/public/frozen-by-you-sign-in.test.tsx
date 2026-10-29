@@ -130,6 +130,13 @@ describe('signing in to an account its owner froze', () => {
     expect(page()!.querySelector('[data-testid="frozen-by-you__lift"]')!.getAttribute('data-lift')).toBe('liftAt');
     expect(page()!.textContent).toContain('You can reactivate it yourself from');
     expect(host.querySelector('.failure')).toBeNull();
+    // What the freeze stops comes from identity's answer, and the session landing is never read as an interruption.
+    expect(
+      Array.from(page()!.querySelectorAll('[data-testid="frozen-by-you__stops"] li')).map((li) => li.getAttribute('data-action')),
+    ).toEqual(['create_api_key']);
+    expect(page()!.textContent).toContain('Create API keys');
+    expect(host.querySelector('.public-auth-feedback')).toBeNull();
+    expect(host.querySelector('form')).toBeNull();
     expect(location.pathname).toBe('/login');
     await act(async () => buttonNamed('Reactivate in Security')!.click());
     expect(location.pathname).toBe('/uc/safe');
@@ -146,13 +153,50 @@ describe('signing in to an account its owner froze', () => {
     expect(location.pathname).toBe('/money');
   });
 
+  it('turns to "reactivate now" when the wait ends while the page is open', async () => {
+    answer(() => frozenSelf(new Date(Date.now() + 1_500).toISOString()));
+    await signIn();
+    await act(async () => {
+      await vi.waitFor(() => expect(page()).not.toBeNull());
+    });
+    const lift = () => page()!.querySelector('[data-testid="frozen-by-you__lift"]')!.getAttribute('data-lift');
+    expect(lift()).toBe('liftAt');
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 1_800));
+    });
+    expect(lift()).toBe('liftNow');
+  });
+
+  it('a person who leaves while the status is read is not moved on when it answers', async () => {
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => (release = resolve));
+    answer(active);
+    const plain = fetcher.getMockImplementation()!;
+    fetcher.mockImplementation(async (url: string, init?: RequestInit) => {
+      if (String(url).includes('accountStatus.mine')) await held;
+      return plain(url, init);
+    });
+    await signIn();
+    expect(host.querySelector('form')).toBeNull();
+    await act(async () => {
+      history.pushState(null, '', '/help');
+      window.dispatchEvent(new PopStateEvent('popstate'));
+    });
+    await act(async () => {
+      release();
+      await held;
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    });
+    expect(location.pathname).toBe('/help');
+  });
+
   it('says reactivation is refused when the owner set no wait', async () => {
     answer(() => frozenSelf(null));
     await signIn();
     await act(async () => {
       await vi.waitFor(() => expect(page()).not.toBeNull());
     });
-    expect(page()!.textContent).toContain('No waiting time is set for lifting a freeze, so reactivation is refused.');
+    expect(page()!.textContent).toContain('Reactivation is refused: no waiting time is set for lifting a freeze, so it cannot open.');
   });
 
   it('an active account moves on at once', async () => {

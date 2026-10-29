@@ -197,11 +197,20 @@ export function AuthForm({ register }: { register: boolean }) {
   }, []);
   // Once the new session is in place: an account its owner froze lands on that freeze, named with its lift path; any
   // other answer, a failed read included, goes where the sign-in was headed (identity still refuses what the freeze stops).
+  // A sign-in whose session has gone, or a person who has moved on while it was read, drops the landing instead.
   useEffect(() => {
-    if (!landing || !userId) return;
+    if (!landing) return;
+    if (!userId) {
+      setLanding(null);
+      return;
+    }
     const controller = new AbortController();
     void api.query('identity', 'accountStatus.mine', undefined, accountStatusSchema, { signal: controller.signal }).then((status) => {
       if (controller.signal.aborted) return;
+      if (location.href !== landing.url) {
+        setLanding(null);
+        return;
+      }
       const freeze = status.ok ? status.data.restrictions.find((restriction) => restriction.kind === 'self_freeze') : undefined;
       setLanding(null);
       if (freeze) setFrozenByYou({ freeze, next: landing.next, url: landing.url });
@@ -393,8 +402,11 @@ export function AuthForm({ register }: { register: boolean }) {
           const { recoveryCodesLeft, ...session } = answer.data;
           const next = original.invite ? `/invite?token=${encodeURIComponent(original.invite)}` : original.destination;
           if (recoveryCodesLeft === undefined) {
+            // A new account has no freeze; a sign-in first asks account status whether its owner froze it. That read
+            // happens after this attempt is over, so the session landing is not read as an interruption.
+            running.current = null;
+            abort.current = null;
             commit(session);
-            // A new account has no freeze; a sign-in first asks account status whether its owner froze it.
             if (kind === 'register') navigate(next, true);
             else setLanding({ next, url: original.url });
           } else {
@@ -614,7 +626,7 @@ export function AuthForm({ register }: { register: boolean }) {
           </p>
         )}
         <p role="status" aria-live="polite">
-          {pending && activeRecord ? <Copy k="pending" /> : null}
+          {(pending && activeRecord) || landing ? <Copy k="pending" /> : null}
         </p>
         {ownFreeze ? (
           <FrozenByYou
@@ -625,7 +637,12 @@ export function AuthForm({ register }: { register: boolean }) {
         ) : spentCode ? (
           <RecoveryCodeUsed
             left={spentCode.left}
-            onContinue={() => navigate(spentCode.next, true)}
+            onContinue={() => {
+              // Past the spent code, a sign-in still asks whether its owner froze the account.
+              setRecoveryUsed(null);
+              if (register) navigate(spentCode.next, true);
+              else setLanding({ next: spentCode.next, url: location.href });
+            }}
             onSecurity={() => navigate('/uc/safe', true)}
           />
         ) : (
@@ -638,7 +655,7 @@ export function AuthForm({ register }: { register: boolean }) {
             </div>
           </>
         )}
-        {spentCode || ownFreeze ? null : lostAuthenticator ? (
+        {spentCode || ownFreeze || landing ? null : lostAuthenticator ? (
           <MfaReset identifier={identifier} onBack={() => setLostAuthenticator(false)} />
         ) : waitingDevice ? (
           <DeviceApproval
@@ -646,8 +663,10 @@ export function AuthForm({ register }: { register: boolean }) {
             onSignedIn={() => {
               const next = inviteToken ? `/invite?token=${encodeURIComponent(inviteToken)}` : destination;
               // The second step spent a recovery code before this browser was approved: say so now.
-              if (waitingDevice.recoveryCodesLeft === undefined) navigate(next, true);
-              else setRecoveryUsed({ left: waitingDevice.recoveryCodesLeft, next, url: location.href });
+              if (waitingDevice.recoveryCodesLeft !== undefined)
+                setRecoveryUsed({ left: waitingDevice.recoveryCodesLeft, next, url: location.href });
+              else if (register) navigate(next, true);
+              else setLanding({ next, url: location.href });
             }}
             onCancel={() => setResult(null)}
           />
