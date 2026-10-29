@@ -23,19 +23,40 @@ import { fileURLToPath } from 'node:url';
 const here = dirname(fileURLToPath(import.meta.url));
 const script = resolve(here, 'local-test-stack.mjs');
 
-// Start waves: the core three first, edge alone and last, every other service in one wave between them.
+// Start order: a service waits for every earlier service its env names (matching checks resting-order holds against
+// the ledger as it boots), edge waits for every service, and services that call nothing start at once.
 {
-  const { startWaves, localTestServiceEnvs } = await import('./local-test-stack.mjs');
+  const { startDependencies, localTestServiceEnvs } = await import('./local-test-stack.mjs');
   const defs = localTestServiceEnvs();
-  const names = defs.map((d) => d.name);
-  const waves = startWaves(defs).map((w) => w.map((d) => d.name));
-  assert.deepEqual(waves[0], ['ledger', 'identity', 'matching']);
-  assert.deepEqual(waves.at(-1), ['edge']);
-  assert.equal(waves.length, 3);
-  assert.deepEqual(waves.flat().sort(), [...names].sort());
+  const envOf = (d) => d.env;
+  const waitsOf = (name) =>
+    startDependencies(
+      defs,
+      defs.find((d) => d.name === name),
+      envOf,
+    ).map((d) => d.name);
+  assert.deepEqual(waitsOf('ledger'), []);
+  assert.ok(waitsOf('matching').includes('ledger'), 'matching waits for the ledger');
+  assert.ok(waitsOf('identity').includes('ledger'), 'identity waits for the ledger');
   assert.deepEqual(
-    startWaves([{ name: 'ops' }]).map((w) => w.map((d) => d.name)),
-    [['ops']],
+    waitsOf('edge').sort(),
+    defs
+      .map((d) => d.name)
+      .filter((n) => n !== 'edge')
+      .sort(),
+  );
+  // Only services listed earlier are waited for, so the order can never deadlock.
+  for (const def of defs) {
+    for (const dep of startDependencies(defs, def, envOf)) assert.ok(defs.indexOf(dep) < defs.indexOf(def));
+  }
+  // A port is matched whole: 1450 is not 14501.
+  const a = { name: 'a', env: { HTTP_PORT: '14501' } };
+  const b = { name: 'b', env: { HTTP_PORT: '14502', A_URL: 'http://127.0.0.1:1450' } };
+  assert.deepEqual(startDependencies([a, b], b, envOf), []);
+  const b2 = { name: 'b', env: { HTTP_PORT: '14502', A_URL: 'http://127.0.0.1:14501/x' } };
+  assert.deepEqual(
+    startDependencies([a, b2], b2, envOf).map((d) => d.name),
+    ['a'],
   );
 }
 

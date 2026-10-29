@@ -604,28 +604,42 @@ function gitHead() {
   return r.stdout.trim();
 }
 
-function pnpmFailed(label, logPath, status) {
-  const tail = fs.readFileSync(logPath, 'utf8').split('\n').slice(-25).join('\n');
-  fail(`${label} failed (exit ${status}). Log: ${logPath}\n${tail}`);
+/** Runs `pnpm args` with its output in logs/<label>.log; `spawner` is spawnSync or spawn. */
+function pnpmRun(spawner, args, label, extraEnv) {
+  const logPath = path.join(P.logs, `${label}.log`);
+  const fd = fs.openSync(logPath, 'w', 0o600);
+  const result = spawner('pnpm', args, { cwd: REPO, env: { ...baseEnv(), ...extraEnv }, stdio: ['ignore', fd, fd] });
+  const failed = (status) => {
+    const tail = fs.readFileSync(logPath, 'utf8').split('\n').slice(-25).join('\n');
+    fail(`${label} failed (exit ${status}). Log: ${logPath}\n${tail}`);
+  };
+  return { fd, result, failed };
 }
 
 function runPnpm(args, label, extraEnv = {}) {
-  const logPath = path.join(P.logs, `${label}.log`);
-  const fd = fs.openSync(logPath, 'w', 0o600);
-  const r = spawnSync('pnpm', args, { cwd: REPO, env: { ...baseEnv(), ...extraEnv }, stdio: ['ignore', fd, fd] });
+  const { fd, result: r, failed } = pnpmRun(spawnSync, args, label, extraEnv);
   fs.closeSync(fd);
-  if (r.status !== 0) pnpmFailed(label, logPath, r.status);
+  if (r.status !== 0) failed(r.status);
 }
+
+// pnpm runs still going when the script exits early (one side-by-side run failed): stopped with it, never orphaned.
+const livePnpm = new Set();
+process.on('exit', () => {
+  for (const child of livePnpm) child.kill('SIGTERM');
+});
 
 /** runPnpm without blocking, so several can run side by side. */
 function runPnpmAsync(args, label, extraEnv = {}) {
-  const logPath = path.join(P.logs, `${label}.log`);
-  const fd = fs.openSync(logPath, 'w', 0o600);
+  const { fd, result: child, failed } = pnpmRun(spawn, args, label, extraEnv);
+  livePnpm.add(child);
   return new Promise((resolve) => {
-    const child = spawn('pnpm', args, { cwd: REPO, env: { ...baseEnv(), ...extraEnv }, stdio: ['ignore', fd, fd] });
+    let finished = false;
     const done = (status) => {
+      if (finished) return;
+      finished = true;
+      livePnpm.delete(child);
       fs.closeSync(fd);
-      if (status !== 0) pnpmFailed(label, logPath, status);
+      if (status !== 0) failed(status);
       resolve();
     };
     child.on('error', () => done(-1));
@@ -921,9 +935,10 @@ const EDGE_ABSENT = {
 };
 
 /**
- * The services the stack starts, in start order. Each service's env lives in its own file,
- * tooling/scripts/local-stack-services/<name>.mjs, so a slice changes only its service's file.
- * Every file gets the same wiring helpers below; a new service adds its file and one line here.
+ * The services the stack starts. A service listed before one it calls starts first (startDependencies); the order
+ * says nothing else. Each service's env lives in its own file, tooling/scripts/local-stack-services/<name>.mjs, so a
+ * slice changes only its service's file. Every file gets the same wiring helpers below; a new service adds its file
+ * and one line here.
  */
 const SERVICES = [
   ledger,
@@ -955,17 +970,34 @@ const SERVICES = [
 ];
 
 /**
- * SERVICES in start waves: ledger, identity and matching (the first three of the old one-by-one order) first, edge
- * (always last) last, and the rest side by side between them, so edge still opens its doors only once every upstream
- * answers. Each service takes one to three seconds to answer /health; one after another they took about 36 seconds.
+ * Which services `def` waits for: every service before it in `defs` (SERVICES order) whose port its env names. One by
+ * one, each service started only once every service before it answered; it still starts only once those it calls
+ * answer, and the rest start side by side (one after another they took about 36 seconds). A service named later in
+ * SERVICES was never up when it booted, and still is not waited for.
  */
-const FIRST_WAVE = ['ledger', 'identity', 'matching'];
-const LAST_WAVE = ['edge'];
-export function startWaves(defs) {
-  const first = defs.filter((d) => FIRST_WAVE.includes(d.name));
-  const last = defs.filter((d) => LAST_WAVE.includes(d.name));
-  const middle = defs.filter((d) => !first.includes(d) && !last.includes(d));
-  return [first, middle, last].filter((w) => w.length > 0);
+export function startDependencies(defs, def, envOf = (d) => d.env()) {
+  const port = (d) => String(envOf(d).HTTP_PORT);
+  const values = Object.values(envOf(def)).map(String);
+  const before = defs.slice(0, defs.indexOf(def));
+  return before.filter((d) => {
+    const named = new RegExp(`:${port(d)}(?![0-9])`);
+    return values.some((v) => named.test(v));
+  });
+}
+
+/** Starts every service once the services it waits for (startDependencies) answer, the rest side by side. */
+async function startServices(defs) {
+  const envs = new Map(defs.map((d) => [d, d.env()]));
+  const envOf = (d) => envs.get(d);
+  const started = new Map();
+  for (const def of defs) {
+    const waits = startDependencies(defs, def, envOf).map((d) => started.get(d));
+    started.set(
+      def,
+      Promise.all(waits).then(() => startNodeService(def)),
+    );
+  }
+  await Promise.all(started.values());
 }
 
 function serviceDefs(secrets) {
@@ -1281,7 +1313,7 @@ async function serveAdmin(port = PORTS.admin) {
   server.listen(port, HOST);
 }
 
-/** Every Node service this script runs, in start order (Edge last). */
+/** Every Node service this script runs, in SERVICES order (Edge last). */
 function serviceNames() {
   return serviceDefs(PLAN_SECRETS).map((d) => d.name);
 }
@@ -1415,7 +1447,7 @@ async function cmdStart(flags) {
   }
   // Academy's env points at the video store, so `--only academy` starts it too.
   if (!only || only.includes('video-store') || only.includes('academy')) await startVideoStore(secrets);
-  for (const wave of startWaves(wanted)) await Promise.all(wave.map(startNodeService));
+  await startServices(wanted);
   try {
     await ensureLocalTestFounders();
     if (!only || only.includes('ops')) await pinOpsFounders();
