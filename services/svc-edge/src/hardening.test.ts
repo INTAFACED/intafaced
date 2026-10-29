@@ -1,5 +1,6 @@
 import Fastify, { type FastifyInstance } from 'fastify';
 import { afterEach, describe, expect, it } from 'vitest';
+import { REQUEST_ID_HEADER, REQUEST_ID_OPTIONS, registerReplyEnvelope } from './reply-envelope.js';
 import { registerCors, type OriginAllowlist } from './cors.js';
 import {
   EDGE_API_KEY_RATE_BUCKET,
@@ -50,7 +51,7 @@ function expectCountedCapacity(
   expect(Number(header(res, RATE_LIMIT_HEADER.reset))).toBeGreaterThan(0);
   expect(header(res, RATE_LIMIT_HEADER.bucket)).toBe(expected.bucket);
   expect(String(header(res, RATE_LIMIT_HEADER.cost))).toBe(String(EDGE_RATE_COST));
-  expect(header(res, RATE_LIMIT_HEADER.requestId)).toEqual(expect.any(String));
+  expect(header(res, REQUEST_ID_HEADER)).toEqual(expect.any(String));
 }
 
 function expectNoCapacityClaim(res: { headers: Record<string, unknown> }): void {
@@ -69,9 +70,10 @@ const allowlist: OriginAllowlist = {
   summary: 'test',
 };
 
-/** The same two registrations `index.ts` performs, in the same order. */
+/** The registrations `index.ts` performs, in the same order (the envelope owns the request id). */
 async function buildApp(config: Partial<RateLimitConfig> = {}): Promise<FastifyInstance> {
-  const app = Fastify({ logger: false });
+  const app = Fastify({ logger: false, ...REQUEST_ID_OPTIONS });
+  registerReplyEnvelope(app);
   registerCors(app, allowlist);
   await registerSecurityHeaders(app);
   await registerRateLimit(app, {
@@ -117,7 +119,7 @@ describe('rate limit', () => {
       cost: EDGE_RATE_COST,
     });
     expect(third.json().retryAfterSeconds).toBeGreaterThan(0);
-    expect(third.json().requestId).toEqual(expect.any(String));
+    expect(third.json().requestId).toBe(third.headers[REQUEST_ID_HEADER]);
     expectCountedCapacity(third, { remaining: 0, limit: 2, bucket: EDGE_IP_RATE_BUCKET });
     expect(third.headers[RATE_LIMIT_HEADER.retryAfter]).toBeDefined();
   });
@@ -231,8 +233,9 @@ describe('rate-limit disclosure stamps', () => {
         return headers[name];
       },
     };
-    stampRateLimitDisclosure(reply, 'req-off');
-    expect(headers[RATE_LIMIT_HEADER.requestId]).toBe('req-off');
+    stampRateLimitDisclosure(reply);
+    // The request id is the envelope's, not a capacity claim of this helper.
+    expect(headers[REQUEST_ID_HEADER]).toBeUndefined();
     expect(headers[RATE_LIMIT_HEADER.remaining]).toBeUndefined();
     expect(headers[RATE_LIMIT_HEADER.bucket]).toBeUndefined();
     expect(headers[RATE_LIMIT_HEADER.cost]).toBeUndefined();
@@ -252,9 +255,8 @@ describe('rate-limit disclosure stamps', () => {
       limit: 300,
       resetSeconds: 12,
       bucket: EDGE_API_KEY_RATE_BUCKET,
-      requestId: 'req-key',
     });
-    stampRateLimitDisclosure(reply, 'req-key');
+    stampRateLimitDisclosure(reply);
     expect(headers[RATE_LIMIT_HEADER.remaining]).toBe(0);
     expect(headers[RATE_LIMIT_HEADER.bucket]).toBe(EDGE_API_KEY_RATE_BUCKET);
     expect(headers[RATE_LIMIT_HEADER.cost]).toBe(EDGE_RATE_COST);

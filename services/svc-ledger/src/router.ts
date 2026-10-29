@@ -50,6 +50,7 @@ import { RECIPE_REQUIRED_CODE, assertKnownRecipePost } from './recipe-gate.js';
 import { MAKER_REBATE_UNBOUND_CODE, assertMakerRebateBound } from './maker-rebate-binding.js';
 import { CAMPAIGN_LOCK_UNBOUND_CODE, assertCampaignLockBound } from './campaign-lock-binding.js';
 import { WITHDRAW_RETURN_UNBOUND_CODE, assertWithdrawReturnBound } from './withdraw-return-binding.js';
+import { WITHDRAW_FEE_UNBOUND_CODE, assertWithdrawFeeBound } from './withdraw-fee-binding.js';
 import { statementPnlFromThisBook, statementPnlInputSchema, statementPnlResultSchema } from './ledger/statement-pnl.js';
 import {
   operatorOwnerBalances,
@@ -150,7 +151,8 @@ function toTrpcError(err: unknown): TRPCError {
       err.code === RECIPE_REQUIRED_CODE ||
       err.code === MAKER_REBATE_UNBOUND_CODE ||
       err.code === CAMPAIGN_LOCK_UNBOUND_CODE ||
-      err.code === WITHDRAW_RETURN_UNBOUND_CODE)
+      err.code === WITHDRAW_RETURN_UNBOUND_CODE ||
+      err.code === WITHDRAW_FEE_UNBOUND_CODE)
   ) {
     return new TRPCError({ code: 'BAD_REQUEST', message: err.message, cause: err });
   }
@@ -270,6 +272,7 @@ export function createLedgerRouter(
           await assertMakerRebateBound(ledger, input);
           await assertCampaignLockBound(ledger, input);
           await assertWithdrawReturnBound(ledger, input);
+          await assertWithdrawFeeBound(ledger, input, caller);
           const entries: EntryInput[] = input.entries.map((e) => ({
             account: e.account,
             direction: e.direction,

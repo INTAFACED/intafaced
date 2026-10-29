@@ -16,8 +16,10 @@ import {
   above,
   createWithdrawSend,
   quoteCovers,
+  rulesProblem,
   sendRefusalKey,
   type WithdrawLimits,
+  type WithdrawNetworkRules,
   type WithdrawQuote,
   type WithdrawSend,
 } from './withdraw-send';
@@ -255,16 +257,29 @@ export function WithdrawForm() {
     `withdraw-limits:${asset}:${answered}`,
   );
   const limit = limits.resource.status === 'ready' ? limits.resource.data : null;
+  // The owner's rules for this asset on this network (W-withdraw-02): read before any fee, so an amount they refuse is never quoted.
+  const networkRules = useResource(
+    async (signal): Promise<ApiResult<WithdrawNetworkRules>> =>
+      asset && network ? createWithdrawSend(api).networkRules(asset, network, signal) : { ok: false, reason: 'not_supported', message: '' },
+    `withdraw-network-rules:${asset}:${network}`,
+  );
+  const rules = networkRules.resource.status === 'ready' ? networkRules.resource.data : null;
 
   const check = checkAmount(amount, available);
   const overLimit = check === 'ok' && limit !== null && above(amount, limit.maxNow);
+  const outsideRules = check === 'ok' && rules !== null ? rulesProblem(amount, rules) : null;
   // While balances load there is nothing to say yet; once they fail or come back empty the amount cannot be judged.
   const problem =
     check in AMOUNT_ERROR && !(check === 'unknown' && held.resource.status === 'loading')
       ? t(AMOUNT_ERROR[check as keyof typeof AMOUNT_ERROR])
       : overLimit
         ? t('fOverLimit', { amount: displayAmount(limit?.maxNow), asset })
-        : undefined;
+        : outsideRules && rules
+          ? t(outsideRules, {
+              amount: displayAmount(outsideRules === 'nrBelow' ? rules.minimum : outsideRules === 'nrAbove' ? rules.maximum : rules.step),
+              asset,
+            })
+          : undefined;
   const shown = (value: string) => (hideBalances ? '••••' : displayAmount(value));
   const words = (failure: Failed) => {
     const key = sendRefusalKey(failure.code);
@@ -307,8 +322,19 @@ export function WithdrawForm() {
   const terms = { assetId: asset, networkId: network, amount };
   const current = quote.status === 'ready' && quoteCovers(quote.quote, terms, now) ? quote.quote : null;
   const debitTooMuch = current !== null && available !== null && above(current.totalDebit, available);
-  const canQuote = !insideNow && check === 'ok' && !overLimit && Boolean(asset && network) && quote.status !== 'busy';
-  const canSendOut = !insideNow && chosen !== null && current !== null && !debitTooMuch && check === 'ok' && !overLimit && limit !== null;
+  // A send out needs the network's rules, an amount inside them, and a network that takes no tag (a send carries none).
+  const rulesAllow = rules !== null && rules.tag === 'none' && outsideRules === null;
+  const canQuote = !insideNow && check === 'ok' && !overLimit && rulesAllow && Boolean(asset && network) && quote.status !== 'busy';
+  const canSendOut =
+    !insideNow &&
+    chosen !== null &&
+    current !== null &&
+    !debitTooMuch &&
+    check === 'ok' &&
+    !overLimit &&
+    // A send whose answer was lost is finished on its own terms, so svc-pay answers for its reference whatever the rules read now.
+    (rulesAllow || resumingOut) &&
+    limit !== null;
 
   /** Any change to what would be sent drops the quote in hand, so a fee is never shown for other terms. */
   const change = (apply: () => void) => {
@@ -491,6 +517,37 @@ export function WithdrawForm() {
               </select>
               <small id="withdraw-network-why">{t('fNetworkWhy')}</small>
             </label>
+          )}
+          {!insideNow && asset && network && (
+            <div className="bd-stack" data-testid="withdraw-network-rules">
+              <strong>{t('nrTitle')}</strong>
+              {networkRules.resource.status === 'loading' ? (
+                <Loading />
+              ) : networkRules.resource.status === 'failed' ? (
+                <p className="failure" role="status">
+                  {words(networkRules.resource.failure)}
+                </p>
+              ) : (
+                <>
+                  <p>{t(networkRules.resource.data.tag === 'none' ? 'nrNoTag' : 'nrTagRequired')}</p>
+                  <dl className="bd-facts">
+                    {(
+                      [
+                        ['nrMinimum', networkRules.resource.data.minimum],
+                        ['nrMaximum', networkRules.resource.data.maximum],
+                        ['nrStep', networkRules.resource.data.step],
+                      ] as const
+                    ).map(([label, value]) => (
+                      <Fact key={label} label={t(label)}>
+                        <span className="numeric" lang="und">
+                          {displayAmount(value)} {asset}
+                        </span>
+                      </Fact>
+                    ))}
+                  </dl>
+                </>
+              )}
+            </div>
           )}
           <fieldset className="bd-stack">
             <legend className="bd-subhead">{t('fWhere')}</legend>

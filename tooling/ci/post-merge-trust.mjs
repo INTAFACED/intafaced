@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 /**
  * POST-MERGE TRUST: what Main trust does when a post-merge check on main finishes (workflow: main-trust.yml).
- * It only reads runs and opens, comments on or closes issues. It never blocks a merge and never runs on a schedule.
+ * It only reads runs and opens, comments on or closes issues. It never blocks a merge and never runs on a schedule of its
+ * own; it does compare Real-app journeys' daily scheduled run on main like a push run.
  *
  * Order-path CX-8 and Customer Money browser checks (whole-run checks):
  *   red after a green, first attempt   re-run the failed jobs once
@@ -156,6 +157,19 @@ export function commitLines(commits, max = 30) {
   return lines;
 }
 
+/**
+ * The "breaking commit" lines of a break issue. Two runs on the same commit (the daily scheduled journeys run, or a
+ * manual run) have no commit between them: then the break is not a code change, and the issue says so.
+ */
+export function breakingCommitLines(commits, url) {
+  if (commits.length === 0)
+    return ['No commit changed between these runs, so no commit broke it: the step is flaky or something outside the code changed.'];
+  return [
+    commits.length === 1 ? 'The breaking commit:' : `The breaking commit is one of these ${commits.length} ([compare](${url})):`,
+    ...commitLines(commits),
+  ];
+}
+
 // ── GitHub API ────────────────────────────────────────────────────────────
 const API = 'https://api.github.com';
 async function gh(method, path, body, { alreadyRunningOk = false } = {}) {
@@ -203,7 +217,7 @@ async function earlierRuns(repo, workflowId, runId, createdAt, want) {
   const { json } = await gh('GET', `/repos/${repo}/actions/workflows/${workflowId}/runs?branch=main&status=completed&per_page=100`);
   const runs = (json?.workflow_runs ?? [])
     // A pull request from a fork's own `main` branch reports head_branch "main" too; only main's own runs count.
-    .filter((r) => r.id !== Number(runId) && r.created_at < createdAt && (r.event === 'push' || r.event === 'workflow_dispatch'))
+    .filter((r) => r.id !== Number(runId) && r.created_at < createdAt && ['push', 'workflow_dispatch', 'schedule'].includes(r.event))
     .sort((a, b) => (a.created_at < b.created_at ? 1 : -1));
   const out = [];
   let lookups = 0;
@@ -303,8 +317,7 @@ async function wholeRunCheck(ctx) {
     const body = [
       `\`${name}\` failed twice on \`${sha.slice(0, 10)}\` (the failed jobs were re-run once): [run ${runId}](${runUrl}). It passed on \`${prev.head_sha.slice(0, 10)}\` ([run ${prev.id}](${prev.html_url})).`,
       '',
-      commits.length === 1 ? 'The breaking commit:' : `The breaking commit is one of these ${commits.length} ([compare](${url})):`,
-      ...commitLines(commits),
+      ...breakingCommitLines(commits, url),
       ...outsideCause(name),
       '',
       '_Opened by tooling/ci/post-merge-trust.mjs. Nothing is skipped or blocked; fix or revert the commit._',
@@ -425,8 +438,7 @@ async function journeysCheck(ctx) {
       const body = [
         `${steps.join(', ')} passed on \`${olderRun.head_sha.slice(0, 10)}\` ([run ${olderRun.id}](${olderRun.html_url})), then failed on \`${prevRun.head_sha.slice(0, 10)}\` ([run ${prevRun.id}](${prevRun.html_url})) and again on \`${sha.slice(0, 10)}\` ([run ${runId}](${runUrl})).`,
         '',
-        commits.length === 1 ? 'The breaking commit:' : `The breaking commit is one of these ${commits.length} ([compare](${url})):`,
-        ...commitLines(commits),
+        ...breakingCommitLines(commits, url),
         '',
         `<!-- steps: ${steps.join(', ')} -->`,
         '_Opened by tooling/ci/post-merge-trust.mjs. It closes itself when these steps pass again._',
@@ -577,7 +589,9 @@ function selfTest() {
     '- … 1 older commits (see the compare link)',
     'long ranges are cut',
   );
-  console.log('✓ post-merge-trust --self-test OK (26 fixtures)');
+  eq(breakingCommitLines([], 'u')[0].startsWith('No commit changed between these runs'), true, 'same commit: no breaking commit named');
+  eq(breakingCommitLines([c('a'.repeat(40), 'x')], 'u'), ['The breaking commit:', '- `aaaaaaaaaa` x'], 'one breaking commit');
+  console.log('✓ post-merge-trust --self-test OK (28 fixtures)');
 }
 
 async function main() {
