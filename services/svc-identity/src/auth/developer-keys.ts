@@ -383,19 +383,27 @@ export async function getDeveloperKey(deps: DeveloperKeysDeps, userId: string, k
 }
 
 /**
- * Code points a reason may hold: anything but control characters and the bidirectional overrides and isolates, which
- * could make the list show a reason other than the one stored. Joiners and variation selectors stay, so emoji do.
- * The length counts code points, as the contract's schema and the database check do.
+ * Code points a reason may not hold: control characters and invisible format characters (`\p{Cf}`: bidi overrides and
+ * isolates, zero-width spaces, byte-order marks, direction marks, tag characters), which could make the list show a
+ * reason other than the one stored. The zero-width joiner and non-joiner stay, so emoji sequences and Persian words are
+ * whole, and so do variation selectors (`\p{Mn}`).
  */
-const REASON = new RegExp(`^[^\\p{Cc}\\u202A-\\u202E\\u2066-\\u2069]{1,${API_KEY_REVOKE_REASON_MAX}}$`, 'u');
+const REASON_FORBIDDEN = /(?![‌‍])[\p{Cc}\p{Cf}]/u;
+/** At least one code point a reader can see: not whitespace, a joiner or a mark on its own. */
+const REASON_VISIBLE = /[^\s‌‍\p{Mn}\p{Me}]/u;
 
-/** The person's reason, trimmed; blank is no reason. Control characters, bidi controls or too long refuse. */
+/**
+ * The person's reason, trimmed. Blank is no reason, and so is a reason of only invisible characters (joiners,
+ * selectors, hidden format characters, spaces): nothing a reader could see is stored, and the revoke goes ahead. Over
+ * 200 code points (as the contract's schema and the database check count) or a forbidden character among visible text
+ * refuses.
+ */
 export function checkRevokeReason(raw: string | undefined): string | null {
   const reason = raw?.trim() ?? '';
-  if (reason === '') return null;
-  if (!REASON.test(reason)) {
+  if (!REASON_VISIBLE.test(reason.replace(new RegExp(REASON_FORBIDDEN.source, 'gu'), ''))) return null;
+  if ([...reason].length > API_KEY_REVOKE_REASON_MAX || REASON_FORBIDDEN.test(reason)) {
     throw new DeveloperKeyError(
-      `Use a reason of at most ${API_KEY_REVOKE_REASON_MAX} characters, with no control characters`,
+      `Use a reason of at most ${API_KEY_REVOKE_REASON_MAX} visible characters, with no control or hidden characters`,
       'identity.key_revoke_reason_invalid',
     );
   }

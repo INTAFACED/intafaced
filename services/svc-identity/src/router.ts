@@ -115,6 +115,7 @@ import { createSubAccountDeleteProcedures, subAccountDeleteToTrpc } from './sub-
 import { SubAccountDeleteError, type SubAccountDeleteService } from './sub-accounts/sub-account-delete.js';
 import { type SubAccountEditService } from './sub-accounts/sub-account-edit.js';
 import { createSubAccountEditProcedures } from './sub-accounts/sub-account-edit-router.js';
+import { revokeCauseOf } from './auth/revoke-all-api-keys.js';
 
 /**
  * svc-identity's API (§4.1).
@@ -2814,7 +2815,9 @@ export function createIdentityRouter(
       revoke: scopedProcedure('identity:write')
         .input(z.object({ keyId: z.string().guid() }))
         .output(z.object({ revoked: z.boolean() }))
-        .mutation(async ({ ctx, input }) => ({ revoked: await auth.revokeApiKey(ctx.principal.userId, input.keyId) })),
+        .mutation(async ({ ctx, input }) => ({
+          revoked: await auth.revokeApiKey(ctx.principal.userId, input.keyId, revokeCauseOf(ctx.principal)),
+        })),
     }),
 
     /**

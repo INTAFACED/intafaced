@@ -19,6 +19,9 @@ import { checkRevokeReason, parseApiKeyCapByTier, parseApiKeyIdleExpirySeconds }
 import { createIdentityRouter } from '../router.js';
 import { createDeveloperKeysRouter } from '../developer-keys-router.js';
 import { createApiKeyExpireRouter } from '../api-key-expire-router.js';
+import { createApiKeyRevokeAllRouter } from '../api-key-revoke-all-router.js';
+import { createGrantsRouter } from '../grants-router.js';
+import { createPanicRevokeRouter } from '../panic-revoke-router.js';
 import { revokeAllApiKeys } from './revoke-all-api-keys.js';
 import { createTestDb } from '../fixture-truncate.testkit.js';
 import { RankService } from '../rank/rank-service.js';
@@ -53,6 +56,23 @@ describe('the revoke reason', () => {
     // A person at a computer: woman, zero-width joiner, laptop. A heart with a variation selector. A zero-width non-joiner.
     for (const good of ['rotated \u{1F469}‍\u{1F4BB}', 'thanks ❤️', 'zw‌nj']) {
       expect(checkRevokeReason(good)).toBe(good);
+    }
+    // A Persian word ("I want") needs its zero-width non-joiner.
+    expect(checkRevokeReason('می‌خواهم')).toBe('می‌خواهم');
+  });
+
+  it('refuses hidden format characters among visible text, and treats a reason of only invisible characters as none', () => {
+    const at = (...points: number[]) => String.fromCodePoint(...points);
+    // Zero-width space, byte-order mark, left-to-right mark, a tag letter.
+    for (const hidden of [at(0x200b), at(0xfeff), at(0x200e), at(0xe0041)]) {
+      expect(() => checkRevokeReason(`TEST ${hidden}rotated`), JSON.stringify(hidden)).toThrow(
+        expect.objectContaining({ code: 'identity.key_revoke_reason_invalid' }),
+      );
+      expect(checkRevokeReason(hidden), JSON.stringify(hidden)).toBeNull();
+    }
+    // Joiners, a variation selector and spaces on their own say nothing: no reason, and the revoke still goes ahead.
+    for (const invisible of [at(0x200d), at(0x200c, 0x200d), at(0xfe0f), ` ${at(0x200d, 0xfe0f)} `, at(0x200b, 0x200d)]) {
+      expect(checkRevokeReason(invisible), JSON.stringify(invisible)).toBeNull();
     }
   });
 
@@ -133,6 +153,9 @@ if (!available) {
       },
     }),
     createApiKeyExpireRouter(db.sql, auth),
+    createGrantsRouter(db.sql),
+    createApiKeyRevokeAllRouter(db.sql),
+    createPanicRevokeRouter(db.sql),
   );
 
   async function register() {
@@ -448,6 +471,68 @@ if (!available) {
       const c = await caller(s);
       expect((await c.developerKeys.get({ keyId: undone.id })).key).toMatchObject({ revokedBy: 'system', revokeReason: null });
       expect((await c.developerKeys.get({ keyId: kept.id })).key).toMatchObject({ revokedBy: 'support', revokeReason: null });
+    });
+  });
+
+  describe('a key or sub-account that revokes a sibling key', () => {
+    /** The same person as a sub-account principal (the doors below only look at whether one is present). */
+    async function asSubAccount(session: { userId: string; sessionId: string; accessToken: string }) {
+      const base = await verifyAccessToken(session.accessToken, tokenConfig);
+      const { token } = await issueAccessToken(
+        {
+          userId: session.userId,
+          sessionId: session.sessionId,
+          scopes: [...base.scopes],
+          tier: 'none',
+          mfa: false,
+          subAccountId: randomUUID(),
+        },
+        tokenConfig,
+      );
+      return appRouter.createCaller({
+        principal: await verifyAccessToken(token, tokenConfig),
+        service: null,
+        region: 'DE',
+        requestId: 'r',
+      });
+    }
+
+    it('apiKeys.revoke and grants.revoke still work, and record delegate instead of "you"', async () => {
+      const s = await register();
+      const holder = await makeKey(s, 'bot-holder');
+      const [a, b, c, d] = [await makeKey(s, 'a'), await makeKey(s, 'b'), await makeKey(s, 'c'), await makeKey(s, 'd')];
+      const asKey = await caller(s, holder.id);
+      const asSub = await asSubAccount(s);
+      expect(await asKey.apiKeys.revoke({ keyId: a.id })).toEqual({ revoked: true });
+      expect(await asSub.apiKeys.revoke({ keyId: b.id })).toEqual({ revoked: true });
+      expect(await asKey.grants.revoke({ keyId: c.id })).toMatchObject({ revoked: true, alreadyRevoked: false });
+      expect(await asSub.grants.revoke({ keyId: d.id })).toMatchObject({ revoked: true, alreadyRevoked: false });
+      const person = await caller(s);
+      for (const key of [a, b, c, d]) {
+        expect((await person.developerKeys.get({ keyId: key.id })).key, key.name).toMatchObject({ revokedBy: 'delegate' });
+      }
+      // The person's own revoke through the same doors still reads "you".
+      const e = await makeKey(s, 'e');
+      const f = await makeKey(s, 'f');
+      await person.apiKeys.revoke({ keyId: e.id });
+      await person.grants.revoke({ keyId: f.id });
+      expect((await person.developerKeys.get({ keyId: e.id })).key.revokedBy).toBe('owner');
+      expect((await person.developerKeys.get({ keyId: f.id })).key.revokedBy).toBe('owner');
+    });
+
+    it('revoke-all and panic from a key record delegate too', async () => {
+      const s = await register();
+      const holder = await makeKey(s, 'bot-holder');
+      const other = await makeKey(s, 'bot-other');
+      await (await caller(s, holder.id)).revokeAllApiKeys({ userId: s.userId });
+      const person = await caller(s);
+      for (const key of [holder, other]) expect((await person.developerKeys.get({ keyId: key.id })).key.revokedBy).toBe('delegate');
+
+      const t = await register();
+      const tHolder = await makeKey(t, 'bot-holder');
+      await (await caller(t, tHolder.id)).panicRevoke({ userId: t.userId });
+      const [row] = await db.sql<Array<{ revoked_cause: string }>>`SELECT revoked_cause FROM api_keys WHERE id = ${tHolder.id}`;
+      expect(row!.revoked_cause).toBe('delegate');
     });
   });
 }

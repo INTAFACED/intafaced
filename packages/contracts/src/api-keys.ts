@@ -59,12 +59,12 @@ export type ApiKeyCreateInput = z.infer<typeof apiKeyCreateInputSchema>;
 
 /**
  * Why a key stopped working before its end date, as the service recorded it at the revoke: the person revoked it
- * (`owner`), the account was frozen (`account_freeze`, by the person or by staff), an operator revoked this one key
+ * (`owner`), one of the account's API keys or sub-accounts revoked it (`delegate`), the account was frozen (`account_freeze`, by the person or by staff), an operator revoked this one key
  * (`operator`), the account was closed (`account_closed`), our team revoked it during an account recovery
  * (`support`), or the service undid a key it made but never handed over (`system`, a create or rotation that failed
  * part-way). Null on a key revoked before causes were recorded.
  */
-export const API_KEY_REVOKED_BY = ['owner', 'account_freeze', 'operator', 'account_closed', 'support', 'system'] as const;
+export const API_KEY_REVOKED_BY = ['owner', 'delegate', 'account_freeze', 'operator', 'account_closed', 'support', 'system'] as const;
 export type ApiKeyRevokedBy = (typeof API_KEY_REVOKED_BY)[number];
 /** Longest reason the person may give when they revoke their own key, in code points (as the service and database count). */
 export const API_KEY_REVOKE_REASON_MAX = 200;
