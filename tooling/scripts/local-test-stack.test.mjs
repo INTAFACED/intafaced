@@ -127,6 +127,7 @@ const script = resolve(here, 'local-test-stack.mjs');
   const bank = envs.find((service) => service.name === 'bank');
   const pay = envs.find((service) => service.name === 'pay');
   assert.equal(bank.env.PAY_URL, `http://127.0.0.1:${pay.env.HTTP_PORT}`);
+  assert.match(pay.env.PAY_TEST_RAIL_RECORDS_DIR, /\/test-rail-records$/);
   console.log('local-test-stack: bank reads deposit custody from the stack svc-pay');
 }
 
