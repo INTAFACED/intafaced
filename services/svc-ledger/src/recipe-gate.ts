@@ -853,6 +853,25 @@ function samplePosts(): Array<{ name: RecipeName; post: PostRequest }> {
       name: 'marketPremiumPlacement',
       post: recipes.marketPremiumPlacement({ placementId: 'pl1', listingId: 'l1', vendorUserId: U, assetId: 'USDT', amount: AMT }),
     },
+    {
+      name: 'marketPurchaseHold',
+      post: recipes.marketPurchaseHold({ purchaseId: 'mh1', listingId: 'l1', buyerId: U, assetId: 'USDT', amount: AMT }),
+    },
+    {
+      name: 'marketPurchaseRefund',
+      post: recipes.marketPurchaseRefund({
+        ...{ purchaseId: 'mh1', listingId: 'l1', buyerId: U, assetId: 'USDT', amount: AMT },
+        refundNo: 1,
+      }),
+    },
+    {
+      name: 'marketPurchaseRelease',
+      post: recipes.marketPurchaseRelease({
+        ...{ purchaseId: 'mh1', listingId: 'l1', buyerId: U, assetId: 'USDT', amount: AMT },
+        vendorUserId: U2,
+        commissionBps: 0,
+      }),
+    },
     ...extraShapePosts(),
   ];
 }
@@ -886,6 +905,14 @@ function extraShapePosts(): Array<{ name: RecipeName; post: PostRequest }> {
         vendorUserId: U2,
         assetId: 'USDT',
         price: QUOTE,
+        commissionBps: 10,
+      }),
+    },
+    {
+      name: 'marketPurchaseRelease',
+      post: recipes.marketPurchaseRelease({
+        ...{ purchaseId: 'mh1', listingId: 'l1', buyerId: U, assetId: 'USDT', amount: AMT },
+        vendorUserId: U2,
         commissionBps: 10,
       }),
     },
