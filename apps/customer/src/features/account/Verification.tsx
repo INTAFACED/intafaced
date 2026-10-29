@@ -237,7 +237,7 @@ export function Verification() {
               local,
               ...(answer.ok ? { row: { ...answer.data } } : {}),
               ...(lockout && answer.retryAfterSeconds ? { retryAfterSeconds: answer.retryAfterSeconds } : {}),
-              ...(!answer.ok && answer.code === 'kyc.capability_inactive' ? { capabilityOff: true } : {}),
+              ...(!answer.ok && answer.status === 409 && answer.code === 'kyc.capability_inactive' ? { capabilityOff: true } : {}),
               refused: !answer.ok,
               retained,
             },

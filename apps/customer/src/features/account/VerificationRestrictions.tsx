@@ -72,28 +72,46 @@ export function VerificationRestrictions({ recordsKey }: { recordsKey: string })
 
 /**
  * I-kyc-compliance-07 and -17 (J-identity-08 #7): a request for a level that grants a switched-off capability was
- * refused (`kyc.capability_inactive`). Says so where the person hit it, with each switched-off capability that stops a
- * request, in the owner's words and with the next step, read fresh from identity's account status.
+ * refused (`kyc.capability_inactive`). Says so where the person hit it, then lists what compliance switched off on the
+ * account that stops a request, in the owner's words and with the next step, read fresh from identity's account status.
+ * The level map is not published to this screen, so the list is what is switched off, not a claim about which one.
  */
 export function VerificationCapabilityRefused({ recordsKey }: { recordsKey: string }) {
   const { api, userId } = useSession();
   const { Copy } = copy.useCopy();
   const { resource, reload } = useResource(
-    (signal) => api.query('identity', 'accountStatus.mine', undefined, accountStatusSchema, { signal }),
+    (signal) =>
+      userId
+        ? api.query('identity', 'accountStatus.mine', undefined, accountStatusSchema, { signal })
+        : Promise.resolve({ ok: true as const, data: null }),
     `verification-capability-refused:${userId}:${recordsKey}`,
   );
+  const body = () => {
+    if (resource.status === 'loading') return <Loading />;
+    if (resource.status === 'failed')
+      return resource.failure.code === 'identity.delegated_refused' ? (
+        <p>
+          <Copy k="delegated" />
+        </p>
+      ) : (
+        <Failure result={resource.failure} retry={reload} />
+      );
+    const stops = (resource.data?.restrictions ?? []).filter((r) => r.kind === 'capability_off' && r.blocks.length > 0);
+    // Lifted or remapped since the refusal: point to where capabilities are read, never an empty list.
+    return stops.length > 0 ? (
+      <RestrictionList restrictions={stops} />
+    ) : (
+      <p>
+        <Copy k="capabilitiesAbove" />
+      </p>
+    );
+  };
   return (
     <div data-testid="verification__capability-refused" data-code="kyc.capability_inactive">
       <p>
         <Copy k="capabilityRefused" />
       </p>
-      {resource.status === 'loading' ? (
-        <Loading />
-      ) : resource.status === 'failed' ? (
-        <Failure result={resource.failure} retry={reload} />
-      ) : (
-        <RestrictionList restrictions={resource.data.restrictions.filter((r) => r.kind === 'capability_off' && r.blocks.length > 0)} />
-      )}
+      {body()}
     </div>
   );
 }
