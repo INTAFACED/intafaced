@@ -231,6 +231,7 @@ export const ROUTE_TEMPLATES: Readonly<Record<string, RoomTemplate | NotARoom>> 
   '/market/strategy': { template: 'flow' },
   '/academy': { template: 'catalogue' },
   '/agents': { template: 'catalogue' },
+  '/agents/team': { template: 'settings' },
   '/quant': { template: 'desk' },
   '/quant/sandbox': { template: 'desk' },
   '/quant/studio': { template: 'desk' },
