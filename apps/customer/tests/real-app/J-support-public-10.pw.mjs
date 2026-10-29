@@ -351,7 +351,8 @@ test(`${J} #7 a macro with a placeholder fills the reply draft, the signature go
   // The next reply's draft starts again from the signature.
   await expect(draft).toHaveValue(`\n\n${signature}`);
 
-  // The signature goes on the public reply only: a status reason is stored as written, without it.
+  // A status reason is stored as written, without the signature. This is not the proof of "public reply only", which is
+  // measured against an internal note below.
   const reason = `TEST ${J} #7 hold`;
   await actions.getByLabel('New status').selectOption('on_hold');
   await actions.getByLabel(/^Reason/).fill(reason);
