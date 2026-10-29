@@ -51,11 +51,12 @@ export const docsCopy = defineCopy(
       'This table lists every trading REST route, each once. The live inventory, GET /api/v1/routes, lists the same routes with who may call each and the scopes a key needs; a route marked as needing futures matching is mounted only while futures orders go through matching.',
     // Permissions
     permissionsLead:
-      'Which permission a key needs for each route. On /api/v1 a key needs trade:read to read and trade:write for anything else; a staff route also needs admin:read. A key without the scope is refused with scope.denied and a link to this page.',
+      'Which permission a key needs for each route. On /api/v1 a key needs trade:read to read and trade:write for anything else; a staff route also needs admin:read, which only a staff session holds, so no key can call one. A key without the scope is refused with scope.denied and a link to this page.',
     permissionsTable: 'Permissions and endpoints',
     colScope: 'Permission',
     colEndpoints: 'Endpoints',
     neverOnKey: 'Never on a key: withdrawing is interactive only and no route takes it.',
+    neverOnKeyStaff: 'Never on a key: only a staff session holds it, so a key is refused on these staff routes.',
     // OpenAPI and collection
     openapiLead:
       'The same routes as files a program reads: an OpenAPI 3 description, a request collection and an index of these pages for assistants. Each lists the permission, the cost of a call and the refusals.',
@@ -213,11 +214,12 @@ export const docsCopy = defineCopy(
       referenceMore:
         'Esta tabla lista cada ruta REST de trading, una vez cada una. El inventario en vivo, GET /api/v1/routes, lista las mismas rutas con quién puede llamar a cada una y los permisos que necesita una clave; una ruta marcada como dependiente del matching de futuros solo está montada mientras las órdenes de futuros pasan por el matching.',
       permissionsLead:
-        'Qué permiso necesita una clave para cada ruta. En /api/v1 una clave necesita trade:read para leer y trade:write para todo lo demás; una ruta de personal también necesita admin:read. Una clave sin el permiso se rechaza con scope.denied y un enlace a esta página.',
+        'Qué permiso necesita una clave para cada ruta. En /api/v1 una clave necesita trade:read para leer y trade:write para todo lo demás; una ruta de personal también necesita admin:read, que solo tiene una sesión de personal, así que ninguna clave puede llamarla. Una clave sin el permiso se rechaza con scope.denied y un enlace a esta página.',
       permissionsTable: 'Permisos y endpoints',
       colScope: 'Permiso',
       colEndpoints: 'Endpoints',
       neverOnKey: 'Nunca en una clave: retirar es solo interactivo y ninguna ruta lo acepta.',
+      neverOnKeyStaff: 'Nunca en una clave: solo lo tiene una sesión de personal, así que una clave se rechaza en estas rutas de personal.',
       openapiLead:
         'Las mismas rutas como archivos que lee un programa: una descripción OpenAPI 3, una colección de peticiones y un índice de estas páginas para asistentes. Cada uno lista el permiso, el coste de una llamada y los rechazos.',
       openapiDownload: 'Descargar el archivo OpenAPI',
@@ -376,11 +378,13 @@ export const docsCopy = defineCopy(
       referenceMore:
         'Ce tableau liste chaque route REST de trading, une fois chacune. L’inventaire en direct, GET /api/v1/routes, liste les mêmes routes avec qui peut appeler chacune et les autorisations dont une clé a besoin ; une route marquée comme dépendant du matching des contrats à terme n’est montée que lorsque les ordres à terme passent par le matching.',
       permissionsLead:
-        'L’autorisation dont une clé a besoin pour chaque route. Sur /api/v1, une clé a besoin de trade:read pour lire et de trade:write pour tout le reste ; une route réservée au personnel demande aussi admin:read. Une clé sans l’autorisation est refusée avec scope.denied et un lien vers cette page.',
+        'L’autorisation dont une clé a besoin pour chaque route. Sur /api/v1, une clé a besoin de trade:read pour lire et de trade:write pour tout le reste ; une route réservée au personnel demande aussi admin:read, que seule une session du personnel détient : aucune clé ne peut l’appeler. Une clé sans l’autorisation est refusée avec scope.denied et un lien vers cette page.',
       permissionsTable: 'Autorisations et endpoints',
       colScope: 'Autorisation',
       colEndpoints: 'Endpoints',
       neverOnKey: 'Jamais sur une clé : le retrait est uniquement interactif et aucune route ne le prend.',
+      neverOnKeyStaff:
+        'Jamais sur une clé : seule une session du personnel la détient, donc une clé est refusée sur ces routes du personnel.',
       openapiLead:
         'Les mêmes routes en fichiers qu’un programme lit : une description OpenAPI 3, une collection de requêtes et un index de ces pages pour les assistants. Chacun liste l’autorisation, le coût d’un appel et les refus.',
       openapiDownload: 'Télécharger le fichier OpenAPI',

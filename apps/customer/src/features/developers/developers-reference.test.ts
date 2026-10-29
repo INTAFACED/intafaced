@@ -8,9 +8,11 @@ vi.mock('../../shared/preferences', async (original) => {
 import { DOCS_PAGES, llmsTxt, markdownOf } from './developers-markdown';
 import {
   CALL_COST,
+  NEVER_ON_A_KEY,
   REST_REFERENCE,
   STREAM_DOOR_PATH,
   STREAM_REFERENCE,
+  neverOnAKeyTable,
   openApiDocument,
   permissionTable,
   requestCollection,
@@ -252,16 +254,35 @@ describe('the machine-readable files', () => {
     }
   });
 
-  it('permission table: one row per key scope; each key route under its method scope once, staff routes also under admin:read', () => {
+  it('permission table: one row per scope a key can hold, each key-callable route under its method scope once', () => {
     const rows = permissionTable();
-    expect(rows.map((row) => row.scope)).toEqual(['trade:read', 'trade:write', 'admin:read']);
-    expect([...rows[0]!.routes, ...rows[1]!.routes]).toEqual(
-      expect.arrayContaining(REST_REFERENCE.filter((route) => route.access !== 'internal')),
-    );
-    expect(rows[0]!.routes.length + rows[1]!.routes.length).toBe(REST_REFERENCE.filter((route) => route.access !== 'internal').length);
-    expect(rows[2]!.routes.map(routeLine)).toEqual(['GET /api/v1/admin/orders/open', 'GET /api/v1/admin/fees']);
+    const staff = ['GET /api/v1/admin/orders/open', 'GET /api/v1/admin/fees'];
+    const keyCallable = REST_REFERENCE.filter((route) => route.access !== 'internal' && !staff.includes(routeLine(route)));
+    expect(rows.map((row) => row.scope)).toEqual(['trade:read', 'trade:write']);
+    expect([...rows[0]!.routes, ...rows[1]!.routes].map(routeLine).sort()).toEqual(keyCallable.map(routeLine).sort());
     expect(rows[1]!.routes.map(routeLine)).toContain('POST /api/v1/orders');
     expect(rows.flatMap((row) => row.routes).map(routeLine)).not.toContain('POST /api/v1/outcomes/settle');
+  });
+
+  it('a scope no key can hold is never offered to a key: admin:read and trade:withdraw read "Never on a key"', () => {
+    // The interactive-only list, read from packages/auth itself: a scope the page says no key holds must be on it.
+    const source = repo('packages/auth/src/scopes.ts');
+    const list = source.slice(source.indexOf('export const INTERACTIVE_ONLY_SCOPES'));
+    const interactiveOnly = [...list.slice(0, list.indexOf('];')).matchAll(/'([a-z]+:[a-z]+)'/g)].map((match) => match[1]);
+    expect([...NEVER_ON_A_KEY].filter((scope) => !interactiveOnly.includes(scope))).toEqual([]);
+    // Every scope a route takes is either one a key can hold (a key row) or on the never-on-a-key list.
+    const routeScopes = [...new Set(REST_REFERENCE.flatMap((route) => scopesOf(route)))].sort();
+    const keyRows = permissionTable().map((row) => row.scope as string);
+    expect(routeScopes.filter((scope) => interactiveOnly.includes(scope)).sort()).toEqual(
+      routeScopes.filter((scope) => !keyRows.includes(scope)).sort(),
+    );
+    expect(neverOnAKeyTable().map((row) => ({ scope: row.scope, routes: row.routes.map(routeLine) }))).toEqual([
+      { scope: 'admin:read', routes: ['GET /api/v1/admin/orders/open', 'GET /api/v1/admin/fees'] },
+      { scope: 'trade:withdraw', routes: [] },
+    ]);
+    const permissions = markdownOf(DOCS_PAGES.find((page) => page.slug === 'permissions')!);
+    expect(permissions).toMatch(/\| `admin:read` +\| Never on a key: only a staff session holds it/);
+    expect(permissions).toMatch(/\| `trade:withdraw` +\| Never on a key: withdrawing is interactive only/);
   });
 
   /**

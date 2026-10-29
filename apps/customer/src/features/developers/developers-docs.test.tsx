@@ -80,6 +80,13 @@ describe('developer docs pages', () => {
     const write = page.slice(page.indexOf('data-scope="trade:write"'), page.indexOf('data-scope="admin:read"'));
     expect(write).toContain('POST /api/v1/orders');
     expect(write).not.toContain('GET /api/v1/');
+    // admin:read is never offered to a key: its row says so and holds the staff routes no key can call.
+    const staff = page.slice(page.indexOf('data-scope="admin:read"'), page.indexOf('data-scope="trade:withdraw"'));
+    expect(staff).toContain('data-never-on-key=""');
+    expect(staff).toContain('Never on a key: only a staff session holds it');
+    expect(staff).toContain('GET /api/v1/admin/orders/open');
+    const read = page.slice(page.indexOf('data-scope="trade:read"'), page.indexOf('data-scope="trade:write"'));
+    expect(read).not.toContain('/api/v1/admin/');
   });
   it('the specs page links the two downloads and the docs index', () => {
     const page = html('/developers/openapi');

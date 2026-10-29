@@ -11,7 +11,7 @@ import { connectivityEndpointsLabel, connectivityStateLabel, dataTermLabel } fro
 import { AUDIENCES, DATA_PRODUCTS, DATA_TERMS, SECTIONS, connectivityOptions, hostRows, type Section } from './developers-model';
 import {
   CALL_COST,
-  NEVER_ON_A_KEY,
+  neverOnAKeyTable,
   PRODUCTS,
   REST_REFERENCE,
   STREAM_DOOR_PATH,
@@ -148,7 +148,12 @@ export const DOCS_PAGES: readonly DocsPage[] = [
           [docs('colScope'), docs('colEndpoints')],
           [
             ...permissionTable().map((row) => [code(row.scope), row.routes.map((route) => code(routeLine(route))).join(', ')]),
-            ...NEVER_ON_A_KEY.map((scope) => [code(scope), docs('neverOnKey')]),
+            ...neverOnAKeyTable().map((row) => [
+              code(row.scope),
+              row.routes.length > 0
+                ? `${docs('neverOnKeyStaff')} ${row.routes.map((route) => code(routeLine(route))).join(', ')}`
+                : docs('neverOnKey'),
+            ]),
           ],
         ),
       ].join('\n\n'),

@@ -923,16 +923,28 @@ export const STREAM_REFERENCE: readonly Stream[] = [
 export const streamName = (stream: Pick<Stream, 'channel'>) =>
   stream.channel.endsWith('.') ? `${stream.channel}<symbol>` : stream.channel;
 
-/** Scopes that never reach a key (`INTERACTIVE_ONLY_SCOPES` in packages/auth): withdrawing is not reachable from the API. */
-export const NEVER_ON_A_KEY = ['trade:withdraw'] as const;
+/**
+ * Scopes that never reach a key (`INTERACTIVE_ONLY_SCOPES` in packages/auth). admin:read is held only by a staff session,
+ * so a key is refused on every staff route; withdrawing is not reachable from the API at all.
+ */
+export const NEVER_ON_A_KEY = ['admin:read', 'trade:withdraw'] as const;
+const neverOnAKey = (route: RestRoute) => scopesOf(route).some((scope) => (NEVER_ON_A_KEY as readonly string[]).includes(scope));
 
 export const routeLine = (route: Pick<RestRoute, 'method' | 'path'>) => `${route.method} ${route.path}`;
 
-/** The permission-to-endpoint table: one row per scope with every route a key needs it for. */
+/** The permission-to-endpoint table: one row per scope a key can hold, with every route a key with it may call. */
 export function permissionTable(): { scope: Scope; routes: RestRoute[] }[] {
-  return (['trade:read', 'trade:write', 'admin:read'] as const).map((scope) => ({
+  return (['trade:read', 'trade:write'] as const).map((scope) => ({
     scope,
-    routes: REST_REFERENCE.filter((route) => scopesOf(route).includes(scope)),
+    routes: REST_REFERENCE.filter((route) => !neverOnAKey(route) && scopesOf(route).includes(scope)),
+  }));
+}
+
+/** The scopes no key holds, each with the routes that need it: the staff routes for admin:read, none for withdrawing. */
+export function neverOnAKeyTable(): { scope: (typeof NEVER_ON_A_KEY)[number]; routes: RestRoute[] }[] {
+  return NEVER_ON_A_KEY.map((scope) => ({
+    scope,
+    routes: REST_REFERENCE.filter((route) => (scopesOf(route) as readonly string[]).includes(scope)),
   }));
 }
 
