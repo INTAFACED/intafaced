@@ -40,7 +40,7 @@ import { runMerchantWatchSession } from './merchant/session-run.js';
 import type { PayMetricsPort } from './merchant/pay-metrics-port.js';
 import type { SpotTickersPort } from './scanner/spot-tickers-port.js';
 import type { CopyLeaderFixturesPort } from './copy-intel/live-leader-fixtures-port.js';
-import { serialiseGuardrail } from './fleet/guardrails.js';
+import { REFUSAL_CODES, serialiseGuardrail, toolRefusalCodes } from './fleet/guardrails.js';
 import { draftTicketComment } from './support-agent/comment-draft.js';
 import { supportGrounded } from './support-agent/grounded.js';
 import { supportTierGate } from './support-agent/tier-gate.js';
@@ -522,8 +522,12 @@ export function createAgentsRouter(deps: AgentsRouterDeps) {
                   mode: z.enum(['read', 'write']),
                   requiresApproval: z.boolean(),
                   maxCallsPerSession: z.number().int().nullable(),
+                  /** Every refusal the runtime can return for this tool under this guardrail, in check order. */
+                  refusals: z.array(z.enum(REFUSAL_CODES)),
                 }),
               ),
+              /** The permission mode the agent runs under; null when the guardrail names none, which refuses live writes. */
+              capacityMode: z.string().nullable(),
               limits: z.object({
                 maxActionsPerSession: z.number().int(),
                 maxOutputTokensPerCall: z.number().int(),
@@ -553,7 +557,9 @@ export function createAgentsRouter(deps: AgentsRouterDeps) {
                 mode: t.mode,
                 requiresApproval: t.requiresApproval,
                 maxCallsPerSession: t.maxCallsPerSession ?? null,
+                refusals: toolRefusalCodes(guardrail, t),
               })),
+              capacityMode: guardrail.capacityMode ?? null,
               limits: {
                 maxActionsPerSession: guardrail.limits.maxActionsPerSession,
                 maxOutputTokensPerCall: guardrail.limits.maxOutputTokensPerCall,
