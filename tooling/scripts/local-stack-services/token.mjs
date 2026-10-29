@@ -19,9 +19,12 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS }) => ({
     EMISSIONS_AUTO_TICK: 'false',
     YIELD_JOB_ENABLED: 'false',
     BUYBACK_JOB_ENABLED: 'false',
+    // A TEST one-second epoch, so a journey can mint one TEST epoch through the job door on every run.
+    EMISSIONS_EPOCH_MS: testValue('EMISSIONS_EPOCH_MS'),
     // Who may open a proposal, and how many: the labelled TEST values, so a governance journey meets the rule instead
     // of the unset refusal. Production leaves both blank and refuses with their typed codes.
-    TOKEN_PROPOSER_RULE: testValue('TOKEN_PROPOSER_RULE'),
+    // LOCAL_STACK_TOKEN_PROPOSER_RULE=off restarts the lane with the rule blank, so a journey can show its refusal.
+    ...(process.env.LOCAL_STACK_TOKEN_PROPOSER_RULE === 'off' ? {} : { TOKEN_PROPOSER_RULE: testValue('TOKEN_PROPOSER_RULE') }),
     TOKEN_PROPOSAL_LIMIT: testValue('TOKEN_PROPOSAL_LIMIT'),
   }),
 });

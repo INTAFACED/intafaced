@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { randomUUID } from 'node:crypto';
-import { api, fund, journeyState } from './stack.mjs';
+import { api, fund, journeyState, tool } from './stack.mjs';
 import { signIn, signUp, verify } from './desk.mjs';
 import { tableIn, bodyRows } from './tables.mjs';
 
@@ -12,9 +12,12 @@ import { tableIn, bodyRows } from './tables.mjs';
 // tooling/profiles/test-owner-values/token.json), and opens one proposal now and one draft with a future opening time.
 // So the space holds proposals in two states, and my stake is from before they were created. The space is shared with
 // every other run, so each run's proposals carry a run nonce and the list is read through that search.
-// Step 4's "a blank rule gives its own code" cannot be shown here: this stack runs with the TEST rule set for every
-// journey. svc-token's own tests prove it (governance-home.test.ts), so step 4 fails on that clause, by name, until the
-// stack can run a token lane with the rule blank.
+// Step 4's "a blank rule gives its own code" restarts the token lane with the rule unset
+// (LOCAL_STACK_TOKEN_PROPOSER_RULE=off), reads the refusal, then restarts it with the TEST rule, in a try/finally.
+// Step 9 mints one TEST epoch through svc-token's job door (the ledger's mint recipe, TEST IFC into the rewards engine)
+// after `local-test-stack.mjs token-params` writes the labelled TEST emission settings into the blank columns, so the
+// treasury holds a figure the test can compare with the ledger. Nothing on this stack buys back, distributes or burns IFC
+// (the buyback and yield jobs are off), so those figures are the missing ones.
 // Steps 6 and 7 are not built (MC-token-03: power fixed at creation and its history, approval, weighted and ranked
 // ballots, the signed vote), so they fail at their first missing part, quickly (UNBUILT).
 const J = 'J-more-catalogue-09';
@@ -59,6 +62,53 @@ async function staker(page, prefix, funded, stake) {
   expect(staked.status, JSON.stringify(staked.body).slice(0, 300)).toBe(200);
   expect(data(staked)).toMatchObject({ amount: stake, status: 'active' });
   return { who, client };
+}
+
+/** Restarts the token lane with the TEST proposer rule (`on`) or with it unset, as identity's restarts do (J-identity-08). */
+function proposerRule(on) {
+  const before = process.env.LOCAL_STACK_TOKEN_PROPOSER_RULE;
+  if (on) delete process.env.LOCAL_STACK_TOKEN_PROPOSER_RULE;
+  else process.env.LOCAL_STACK_TOKEN_PROPOSER_RULE = 'off';
+  try {
+    tool('local-test-stack.mjs', 'restart', 'token');
+  } finally {
+    if (before === undefined) delete process.env.LOCAL_STACK_TOKEN_PROPOSER_RULE;
+    else process.env.LOCAL_STACK_TOKEN_PROPOSER_RULE = before;
+  }
+}
+
+/** A canonical decimal string as 18-decimal scaled bigint, so sums and differences never pass through a JS number. */
+function units(value) {
+  expect(value, `${value} is not a decimal string`).toMatch(/^-?\d+(\.\d{1,18})?$/);
+  const [whole, frac = ''] = value.replace('-', '').split('.');
+  const scaled = BigInt(whole) * 10n ** 18n + BigInt(frac.padEnd(18, '0'));
+  return value.startsWith('-') ? -scaled : scaled;
+}
+
+/** A house account's balance as the ledger itself holds it, through a signed service read. */
+async function ledgerBalance(ctx, ownerId) {
+  const raw = JSON.stringify({ ownerType: 'house', ownerId, assetId: 'IFC', kind: 'available' });
+  const res = await fetch(`${ctx.url('ledger')}/trpc/balance`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', ...ctx.contracts.serviceAuthHeadersForBody('svc-token', ctx.secrets.internal, raw) },
+    body: raw,
+  });
+  const text = await res.text();
+  expect(res.status, text.slice(0, 300)).toBe(200);
+  return JSON.parse(text).amount;
+}
+
+/** One TEST emission epoch through svc-token's signed job door; the ledger's mint recipe credits the rewards engine. */
+async function mintTestEpoch(ctx) {
+  const raw = JSON.stringify({});
+  const res = await fetch(`${ctx.url('token')}/internal/emissions/mint-next`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', ...ctx.contracts.serviceAuthHeadersForBody('svc-token', ctx.secrets.internal, raw) },
+    body: raw,
+  });
+  const text = await res.text();
+  expect(res.status, text.slice(0, 300)).toBe(200);
+  return JSON.parse(text);
 }
 
 /** A `datetime-local` value `ms` from now, in this machine's zone, as the browser's field takes it. */
@@ -208,10 +258,29 @@ test(`${J} #4 Creates a proposal below the proposer rule: The panel says why bef
   expect(causeOf(await refused.json())).toEqual({ code: 'token.proposal_not_allowed' });
   await expect(form.getByRole('alert')).toHaveText('Refused: your stake is below the proposer rule. Nothing was saved.');
   expect(await listed(client, { q: title })).toEqual([]);
-  // "A blank rule gives its own code" cannot be shown on this stack: svc-token reads the rule from its env, and the stack
-  // sets the TEST rule for every journey. Proved only by svc-token's unit tests, so this step stays red until the stack
-  // can run a token lane with the rule blank.
-  expect(null, 'blank proposer rule: no token lane with TOKEN_PROPOSER_RULE unset on this stack').toBe('token.proposer_rule_unset');
+  // A blank rule gives its own code: the token lane restarts with the rule unset, and the same account's submit is refused
+  // with token.proposer_rule_unset, not the stake refusal. Nothing is written. The TEST rule is back afterwards.
+  const blankTitle = `TEST ${nonce} blank rule`;
+  const before = await listed(client, { q: nonce });
+  try {
+    proposerRule(false);
+    expect((await home(client)).proposal).toEqual({ code: 'token.proposer_rule_unset', minStake: null });
+    await page.reload();
+    await page.getByRole('button', { name: 'New proposal' }).click();
+    await expect(form.getByRole('note')).toHaveText('The proposer rule is not set, so the token service refuses every new proposal.');
+    await form.getByLabel('Kind').selectOption({ label: 'Grant' });
+    await form.getByRole('textbox', { name: 'Title' }).fill(blankTitle);
+    const blankAnswer = page.waitForResponse((r) => r.url().includes('/api/token/trpc/createProposal'));
+    await form.getByRole('button', { name: 'Submit proposal' }).click();
+    const blank = await blankAnswer;
+    expect(blank.status()).toBe(412);
+    expect(causeOf(await blank.json())).toEqual({ code: 'token.proposer_rule_unset' });
+    await expect(form.getByRole('alert')).toHaveText('Refused: the proposer rule is not set. Nothing was saved.');
+    expect(await listed(client, { q: nonce })).toEqual(before);
+  } finally {
+    proposerRule(true);
+  }
+  expect((await home(client)).proposal).toEqual(access);
 });
 
 test(`${J} #5 Creates a proposal with a future opening time: It stays draft and can be edited before voting`, async ({ page }) => {
@@ -303,22 +372,35 @@ test(`${J} #9 Opens the treasury panel: Each figure equals the token service rea
   page,
 }) => {
   const client = await api(run.read().who);
+  const gates = await import('../../../../tooling/scripts/local-test-gates.mjs');
+  const ctx = await gates.makeContext({ log: () => {} });
+  const treasuryRead = async () => {
+    const res = await client.get('/api/token/trpc/treasury');
+    expect(res.status, JSON.stringify(res.body).slice(0, 300)).toBe(200);
+    return data(res);
+  };
+  // A TEST treasury through the ledger: the labelled TEST emission settings, then one epoch minted through the job door.
+  tool('local-test-stack.mjs', 'token-params');
+  const before = await treasuryRead();
+  const engineBefore = await ledgerBalance(ctx, 'rewards-engine');
+  await page.waitForTimeout(1_100); // the stack's TEST epoch is one second long
+  const mint = await mintTestEpoch(ctx);
+  expect(units(mint.minted) > 0n, `minted ${mint.minted}`).toBe(true);
+  expect(units(await ledgerBalance(ctx, 'rewards-engine')) - units(engineBefore)).toBe(units(mint.minted));
+
   await openGovernance(page);
   const treasury = page.getByRole('region', { name: 'Treasury' });
-  await expect(treasury.getByTestId('treasury-burns')).toBeVisible();
-  const read = await client.get('/api/token/trpc/treasury');
-  expect(read.status).toBe(200);
-  const view = data(read);
-  const shown = (value) => value ?? 'not reported';
-  await expect(treasury.getByTestId('treasury-minted')).toHaveText(shown(view.minted));
-  await expect(treasury.getByTestId('treasury-burns')).toHaveText(/^0(\.0+)?$/.test(view.burned) ? 'none recorded' : view.burned);
-  await expect(treasury.getByTestId('treasury-burns')).not.toHaveText(/^0(\.0+)?$/);
-  await expect(treasury.getByTestId('treasury-bought')).toHaveText(shown(view.bought));
-  await expect(treasury.getByTestId('treasury-to-rewards')).toHaveText(shown(view.toRewards));
-  await expect(treasury.getByTestId('treasury-distributed')).toHaveText(shown(view.distributed));
-  await expect(treasury.getByTestId('treasury-last-buyback')).toHaveText(
-    view.lastBuyback
-      ? `${view.lastBuyback.bought} bought, ${view.lastBuyback.burned} burned, ${view.lastBuyback.toRewards} to rewards, on ${view.lastBuyback.executedAt}`
-      : 'not reported',
-  );
+  const view = await treasuryRead();
+  // Minted: the service's figure grew by exactly what the ledger credited.
+  expect(units(view.minted) - units(before.minted ?? '0')).toBe(units(mint.minted));
+  await expect(treasury.getByTestId('treasury-minted')).toHaveText(view.minted);
+  // Burned is the ledger's burn account, and nothing on this stack burns IFC: zero reads "none recorded", never "0".
+  expect(view.burned).toBe(await ledgerBalance(ctx, 'burn'));
+  expect(units(view.burned)).toBe(0n);
+  await expect(treasury.getByTestId('treasury-burns')).toHaveText('none recorded');
+  // Missing figures: no buyback has settled and no yield was paid on this stack, so the service reports none.
+  expect(view).toMatchObject({ bought: null, toRewards: null, distributed: null, lastBuyback: null });
+  for (const id of ['treasury-bought', 'treasury-to-rewards', 'treasury-distributed', 'treasury-last-buyback']) {
+    await expect(treasury.getByTestId(id)).toHaveText('not reported');
+  }
 });
