@@ -6,10 +6,13 @@ import {
   campaignSchema,
   campaignTransitionInputSchema,
   campaignUpdateInputSchema,
+  campaignVoucherSchema,
   ruleLibraryEntrySchema,
   ruleLibrarySaveInputSchema,
   ruleTestInputSchema,
   ruleTestResultSchema,
+  voucherIssueInputSchema,
+  voucherListInputSchema,
   type Campaign,
   type CampaignAction,
   type CampaignDefinitionInput,
@@ -173,4 +176,20 @@ export async function saveRule(ctx: FounderCallContext, input: unknown) {
 
 export async function listRules(ctx: FounderCallContext) {
   return ruleReply(await founderCall(ctx, 'campaigns', 'ops.rules.library.list', 'GET', undefined, readRuleList));
+}
+
+// ── Vouchers (CM-vouchers-coupons-01, CM-campaign-types-01 T-3; J-campaigns-16 #9) ────────────────────────────────
+
+const readVoucher = parseWith(campaignVoucherSchema);
+const readVoucherList = parseWith(campaignVoucherSchema.array());
+
+export const checkVoucherList = check(voucherListInputSchema, 'Which campaign?');
+export const checkVoucherIssue = check(voucherIssueInputSchema, 'A voucher code is 4 to 32 letters, digits or hyphens.');
+
+export async function listVouchers(ctx: FounderCallContext, input: unknown) {
+  return ruleReply(await founderCall(ctx, 'campaigns', 'ops.campaigns.vouchers.list', 'GET', input, readVoucherList));
+}
+
+export async function issueVoucher(ctx: FounderCallContext, input: unknown) {
+  return ruleReply(await founderCall(ctx, 'campaigns', 'ops.campaigns.vouchers.issue', 'POST', input, readVoucher));
 }
