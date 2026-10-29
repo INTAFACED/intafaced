@@ -2514,6 +2514,10 @@ export async function tradingRestrict(ctx, handle, action) {
   if (!user || !user.email.endsWith('@local-test.invalid')) throw new Error(`trading-restrict: ${handle} is not a journey account`);
   const { founderChangeHash } = await load('packages/contracts/dist/founder-change-hash.js');
   const pair = await approverSessions(ctx);
+  // Two different people, or the approval proves nothing (as `twoPerson`, which uses the approval role's tokens).
+  const who = (s) => s.op?.handle ?? s.op?.email ?? null;
+  if (who(pair.a) === null || who(pair.a) === who(pair.b))
+    throw new Error('trading-restrict needs two different operators: the proposer and the approver must differ');
   const token = await pair.a.tradeOpsToken();
   const reason = `LOCAL TEST journey trading ${action}`;
   const change = (expectedVersion, approvalId) =>

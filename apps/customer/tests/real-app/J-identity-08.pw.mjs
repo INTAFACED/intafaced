@@ -604,11 +604,13 @@ test(`${J} #7: a trading restriction refuses a new order on the desk by name, ke
   // One resting order from before the restriction: the restriction must leave it in place and cancellable.
   await order();
   await confirm(page, 'buy');
+  await expect.poll(async () => (await openOrders(who)).length, { timeout: 20_000 }).toBe(1);
   const [earlier] = await openOrders(who);
   expect(earlier?.id).toBeTruthy();
   const client = await api(who);
   const usdtBefore = (await client.balances()).USDT;
 
+  let lifted = false;
   try {
     // A trade-ops operator restricts this account's trading at identity, with a second person's approval.
     expect(tool('local-test-gates.mjs', 'trading-restrict', who.handle, 'restrict')).toMatch(/OK .* trading restrict: changed/);
@@ -654,6 +656,7 @@ test(`${J} #7: a trading restriction refuses a new order on the desk by name, ke
 
     // Lifted, again with two people: the same order goes through and rests.
     expect(tool('local-test-gates.mjs', 'trading-restrict', who.handle, 'restore')).toMatch(/OK .* trading restore: changed/);
+    lifted = true;
     await page.goto('/uc/account');
     await expect(status.getByTestId('account-status__state')).toHaveAttribute('data-state', 'active');
     await page.goto(deskPath());
@@ -663,7 +666,14 @@ test(`${J} #7: a trading restriction refuses a new order on the desk by name, ke
     expect((await accepted).status()).toBeLessThan(300);
     await expect.poll(async () => (await openOrders(who)).length, { timeout: 20_000 }).toBe(1);
   } finally {
-    tool('local-test-gates.mjs', 'trading-restrict', who.handle, 'restore');
+    // Lift it if the test stopped before its own lift, without hiding the first failure behind a second one.
+    if (!lifted) {
+      try {
+        tool('local-test-gates.mjs', 'trading-restrict', who.handle, 'restore');
+      } catch (error) {
+        console.warn(`J-identity-08 #7: the lift after a failure failed too: ${error}`);
+      }
+    }
   }
 });
 

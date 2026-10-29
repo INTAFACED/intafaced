@@ -162,6 +162,29 @@ describe.runIf(Boolean(url))('durable identity operation decisions', () => {
     expect(await decisions.decide(grant(intent()), 'svc-trade')).toMatchObject({ status: 'granted' });
   });
 
+  it('an armed futures stop still fires its reduce-only order under the trading restriction; an auto-invest buy does not', async () => {
+    const userId = target.principal!.userId;
+    await db.sql`INSERT INTO trading_restrictions (user_id, restricted, version) VALUES (${userId}, true, 1)`;
+    const standing = (ownerService: 'svc-bank' | 'svc-trade'): IdentityOperationIntent => ({
+      businessId: `${ownerService}:${randomUUID()}`,
+      payloadHash: 'sha256:' + 'a'.repeat(64),
+      operation: { service: 'svc-trade', kind: 'order.place', userId },
+      authority: { kind: 'standing_instruction', instructionId: randomUUID(), ownerService },
+    });
+    const stop = standing('svc-trade');
+    expect(await decisions.decide(grant(stop), 'svc-trade')).toMatchObject({ status: 'granted', intent: stop });
+    expect(await decisions.decide(grant(standing('svc-bank')), 'svc-trade')).toMatchObject({
+      status: 'cancelled',
+      code: 'trade.account_restricted',
+    });
+    // A freeze still stops the stop as well, as before the restriction existed.
+    expect((await change('restrict', '0')).outcome).toBe('changed');
+    expect(await decisions.decide(grant(standing('svc-trade')), 'svc-trade')).toMatchObject({
+      status: 'cancelled',
+      code: 'auth.account_frozen',
+    });
+  });
+
   it('a freeze outranks the trading restriction, and a bad credential never learns of it', async () => {
     const userId = target.principal!.userId;
     await db.sql`INSERT INTO trading_restrictions (user_id, restricted, version) VALUES (${userId}, true, 1)`;

@@ -116,9 +116,12 @@ export class OperationIdentityDecisions {
           const [clock] = await tx<Array<{ at: Date }>>`SELECT clock_timestamp() AS at`;
           const decidedAt = clock!.at.toISOString();
           if (refusal === null && credentialExpiry !== null && credentialExpiry <= clock!.at) refusal = 'auth.credential_denied';
-          // Founder controls' trading restriction (`FounderControls.changeTrading`, under the same founder lock): every
-          // fresh svc-trade operation adds exposure, so each is refused while it holds. Earlier grants stay, as on a freeze.
-          if (refusal === null && intent.operation.service === 'svc-trade') {
+          // Founder controls' trading restriction (`FounderControls.changeTrading`, under the same founder lock): a fresh
+          // svc-trade operation adds exposure, so each is refused while it holds. Earlier grants stay, as on a freeze. The
+          // one exception is a futures stop or take-profit the customer armed in svc-trade: it fires one reduce-only order,
+          // which only cuts exposure. An svc-bank schedule (auto-invest) buys, so it is refused like any other order.
+          const reduceOnly = intent.authority.kind === 'standing_instruction' && intent.authority.ownerService === 'svc-trade';
+          if (refusal === null && intent.operation.service === 'svc-trade' && !reduceOnly) {
             const [trading] = await tx<Array<{ restricted: boolean }>>`
             SELECT restricted FROM trading_restrictions WHERE user_id = ${intent.operation.userId} FOR SHARE
           `;
