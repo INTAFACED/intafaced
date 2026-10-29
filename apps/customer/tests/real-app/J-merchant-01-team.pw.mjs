@@ -20,6 +20,8 @@ async function everyRoomOpens(page) {
   const onConsole = (msg) => msg.type() === 'error' && errors.push(msg.text());
   page.on('console', onConsole);
   await page.goto('/pay/merchant');
+  await expect(page.locator('main h1').first()).toBeVisible();
+  await expect(page.locator('nav a[href^="/pay/"]').first()).toBeVisible();
   const visited = new Set();
   const queue = await navRooms(page);
   while (queue.length) {
