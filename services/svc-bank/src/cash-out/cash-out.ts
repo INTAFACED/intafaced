@@ -241,6 +241,13 @@ export class CashOutService {
       if (row.status !== 'processing' || !row.hold_ledger_tx_id || !row.payout_ref || !row.payout_rail) {
         throw new BankError(`This cash-out is ${row.status} and cannot be marked paid`, 'bank.ramp_conflict');
       }
+      // A TEST stand-in records what it paid in its own words first: if the post then fails, the rail shows the gap.
+      await this.partner!.record?.({
+        key: `${cashOutWithdrawalId(row.id)}:paid`,
+        direction: 'out',
+        assetId: row.asset_id,
+        amount: parseAmount(row.amount),
+      });
       const settled = await this.ledger.post(recipes.withdrawSettle(this.withdrawal(row)));
       return this.moved(
         row.id,
@@ -297,6 +304,12 @@ export class CashOutService {
       if (back <= 0n || back > parseAmount(row.amount)) {
         throw new BankError('What came back must be above zero and no more than was paid out', 'bank.ramp_invalid_amount');
       }
+      await this.partner!.record?.({
+        key: `${cashOutWithdrawalId(row.id)}:returned`,
+        direction: 'in',
+        assetId: row.asset_id,
+        amount: back,
+      });
       const credited = await this.ledger.post(
         recipes.deposit({
           userId: row.user_id,

@@ -5,13 +5,22 @@
  * TEST_DATABASE_URL. Does not start Docker.
  */
 import { createHash, randomUUID } from 'node:crypto';
-import { readdirSync, readFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { Principal } from '@intafaced/auth';
 import { createEdgeContext, encodePrincipal, signPrincipalHeader } from '@intafaced/contracts';
 import { createTestDatabase, type TestDatabase } from '@intafaced/db';
-import { MemoryLedger, parseAmount, railBoundary, recipes, userAvailable, withdrawalHoldAccount } from '@intafaced/ledger-client';
+import {
+  MemoryLedger,
+  formatAmount,
+  parseAmount,
+  railBoundary,
+  recipes,
+  userAvailable,
+  withdrawalHoldAccount,
+} from '@intafaced/ledger-client';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { memoryLedgerHistory } from '../analytics/ledger-history.js';
 import { createBankServices } from '../bank-service.js';
@@ -21,6 +30,7 @@ import { createBankRouter } from '../router.js';
 import type { SecurityLockPort } from '../security-lock.js';
 import { CashOutService, cashOutWithdrawalId } from './cash-out.js';
 import { PAYOUT_SIM_RAIL, payoutSim, type CashOutPartner } from './payout-sim.js';
+import { RailRecordError } from './rail-records.js';
 
 const SECRET = 'bank-cash-out-payout-edge-secret-long-enough';
 const RECEIPTS = 'bank-cash-out-receipt-secret-long-enough';
@@ -401,6 +411,62 @@ describe('cash out that pays out, with the TEST payout stand-in (J-bank-03 #4/#5
         await refused(services(null).cashOut.returned(requestId, { amount: '5', assetId: 'USDT', reason: 'bank.payout_returned_by_bank' })),
       ).toBe('rail.bank');
       expect(ledger.journal()).toHaveLength(posts + 1);
+    });
+
+    it("with its records folder, the stand-in's own word on its rail matches the payout rail boundary; a failed payout records nothing", async () => {
+      const dir = join(mkdtempSync(join(tmpdir(), 'bank-payout-records-')), 'test-rail-records');
+      const recording = payoutSim(
+        { label: 'TEST payout stand-in', payouts: [{ asset: 'USDT', currency: 'EUR', rate: '0.9', fee: '1.5' }] },
+        dir,
+      );
+      const cashOut = services(recording).cashOut;
+      const id = await usable();
+      const { requestId: paidOut } = await start(id, '20');
+      const { requestId: notPaid } = await start(id, '4');
+      await cashOut.complete(paidOut);
+      await cashOut.complete(paidOut);
+      await cashOut.returned(paidOut, { amount: '5', assetId: 'USDT', reason: 'bank.payout_returned_by_bank' });
+      await cashOut.returned(paidOut, { amount: '5', assetId: 'USDT', reason: 'bank.payout_returned_by_bank' });
+      await cashOut.fail(notPaid, 'bank.payout_rejected');
+
+      const records = readFileSync(join(dir, 'payout-sim.jsonl'), 'utf8')
+        .split('\n')
+        .filter(Boolean)
+        .map((line) => JSON.parse(line) as { label: string; key: string; direction: string; assetId: string; amount: string });
+      expect(records.map(({ label, key, direction, assetId, amount }) => [label, key, direction, assetId, amount])).toEqual([
+        ['TEST', `${cashOutWithdrawalId(paidOut)}:paid`, 'out', 'USDT', '20'],
+        ['TEST', `${cashOutWithdrawalId(paidOut)}:returned`, 'in', 'USDT', '5'],
+      ]);
+      // The rail's own total, in the ledger's signed form for its boundary (out positive, in negative), against the ledger.
+      const said = records.reduce((sum, r) => sum + (r.direction === 'in' ? -1n : 1n) * parseAmount(r.amount), 0n);
+      expect(formatAmount(said)).toBe('15');
+      expect((await ledger.balance(railBoundary(PAYOUT_SIM_RAIL, 'USDT'))).amount).toBe(said);
+    });
+
+    it('a record the stand-in cannot write stops the answer before anything is posted', async () => {
+      const dir = join(mkdtempSync(join(tmpdir(), 'bank-payout-records-')), 'test-rail-records');
+      const recording = payoutSim(
+        { label: 'TEST payout stand-in', payouts: [{ asset: 'USDT', currency: 'EUR', rate: '0.9', fee: '1.5' }] },
+        dir,
+      );
+      const id = await usable();
+      const { requestId } = await start(id, '10');
+      // The rail already says otherwise about this payout: it would contradict itself, so nothing settles.
+      mkdirSync(dir, { recursive: true });
+      const line = {
+        label: 'TEST',
+        rail: 'payout-sim',
+        key: `${cashOutWithdrawalId(requestId)}:paid`,
+        direction: 'out',
+        assetId: 'USDT',
+        amount: '9',
+      };
+      writeFileSync(join(dir, 'payout-sim.jsonl'), `${JSON.stringify({ ...line, at: new Date().toISOString() })}\n`);
+      const posts = ledger.journal().length;
+      await expect(services(recording).cashOut.complete(requestId)).rejects.toThrow(RailRecordError);
+      expect(ledger.journal()).toHaveLength(posts);
+      expect(await held(requestId)).toBe(parseAmount('10'));
+      expect((await services(recording).cashOut.list(ADA, 10)).find((r) => r.requestId === requestId)?.status).toBe('processing');
     });
 
     it('an answer for no cash-out is not found', async () => {

@@ -28,6 +28,24 @@ describe('the cash-out payout stand-in', () => {
     expect(cashOutPartnerFor('payout-sim', CATALOGUE, { APP_ENV: 'test' })?.label).toBe('TEST payout stand-in');
   });
 
+  it('keeps its own TEST records only in an explicit dev or test process, at an absolute path; unset, it keeps none', () => {
+    expect(cashOutPartnerFor('payout-sim', CATALOGUE, { APP_ENV: 'test' })?.record).toBeUndefined();
+    expect(cashOutPartnerFor('payout-sim', CATALOGUE, { APP_ENV: 'test' }, '/var/lib/stack/test-rail-records')?.record).toBeTypeOf(
+      'function',
+    );
+    // Refused whatever the setting: a records folder outside dev or test, under NODE_ENV=production, or not absolute.
+    for (const [setting, env, dir] of [
+      ['none', {}, '/var/lib/stack/test-rail-records'],
+      ['payout-sim', { APP_ENV: 'production' }, '/var/lib/stack/test-rail-records'],
+      ['none', { APP_ENV: 'dev', NODE_ENV: 'production' }, '/var/lib/stack/test-rail-records'],
+      ['payout-sim', { APP_ENV: 'dev' }, 'test-rail-records'],
+    ] as const) {
+      expect(() => cashOutPartnerFor(setting, CATALOGUE, env, dir)).toThrow(
+        expect.objectContaining({ code: 'bank.payout_sim_records_outside_dev_test' }),
+      );
+    }
+  });
+
   it('refuses to start over a blank, unlabelled, zero-rate, oversized, duplicated or out-of-shape catalogue', () => {
     for (const bad of [
       undefined,

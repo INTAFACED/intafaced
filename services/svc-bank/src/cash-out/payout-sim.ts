@@ -1,6 +1,8 @@
+import path from 'node:path';
 import { z } from 'zod';
 import { isExplicitDevOrTest } from '@intafaced/config';
 import { formatAmount, mul, parseAmount, sub } from '@intafaced/ledger-client';
+import { railRecorder, type RailMovement } from './rail-records.js';
 
 /**
  * THE CASH-OUT PAYOUT STAND-IN, AND IT IS A TEST FIXTURE (J-bank-03 #4/#5).
@@ -14,7 +16,9 @@ import { formatAmount, mul, parseAmount, sub } from '@intafaced/ledger-client';
  * signed calls (`/internal/jobs/payout-sim/*`), which the journey makes as the partner would. Value moves only through
  * the ledger's withdraw and deposit recipes against its own TEST rail boundary (`payout-sim`). Chosen in a process whose
  * raw `APP_ENV` is not exactly `dev` or `test`, or with `NODE_ENV=production`, the service refuses to start, and so it
- * does over a blank or unreadable catalogue.
+ * does over a blank or unreadable catalogue. With `BANK_PAYOUT_SIM_RECORDS_DIR` set (the stack sets it), the stand-in
+ * also keeps its own TEST record of each payout it paid and each amount that came back (`rail-records.ts`), which the
+ * stack's outside source reads for rail `payout-sim`; set in any other process, the service refuses to start.
  */
 export const PAYOUT_PARTNER_SETTINGS = ['none', 'payout-sim'] as const;
 export type PayoutPartnerSetting = (typeof PAYOUT_PARTNER_SETTINGS)[number];
@@ -69,6 +73,8 @@ export interface CashOutPartner {
   price(assetId: string, amount: bigint): PayoutPrice | null;
   /** Take one payout. The cash-out id is the partner's idempotency key: the same id is the same payout. */
   pay(order: { cashOutId: string; assetId: string; amount: string }): Promise<{ payoutRef: string }>;
+  /** LOCAL TEST: the stand-in's own record of a movement on its rail, written before the ledger posts it. Absent: none. */
+  record?(movement: RailMovement): Promise<void>;
 }
 
 /** The typed catalogue, or null when it is blank, not JSON, not labelled TEST or not in shape. */
@@ -93,9 +99,10 @@ export function parsePayoutSim(json: string | undefined): PayoutSimCatalogue | n
   return parsed.data;
 }
 
-/** The stand-in over one typed catalogue. */
-export function payoutSim(catalogue: PayoutSimCatalogue): CashOutPartner {
+/** The stand-in over one typed catalogue, keeping its TEST records in `recordsDir` when one is given. */
+export function payoutSim(catalogue: PayoutSimCatalogue, recordsDir?: string): CashOutPartner {
   return {
+    ...(recordsDir ? { record: railRecorder(recordsDir, PAYOUT_SIM_RAIL) } : {}),
     label: catalogue.label,
     rail: PAYOUT_SIM_RAIL,
     price(assetId, amount) {
@@ -120,7 +127,7 @@ export function payoutSim(catalogue: PayoutSimCatalogue): CashOutPartner {
 /** Why the service will not start with the stand-in chosen. */
 export class PayoutSimRefusedError extends Error {
   constructor(
-    readonly code: 'bank.payout_sim_outside_dev_test' | 'bank.payout_sim_catalogue_unreadable',
+    readonly code: 'bank.payout_sim_outside_dev_test' | 'bank.payout_sim_catalogue_unreadable' | 'bank.payout_sim_records_outside_dev_test',
     message: string,
   ) {
     super(message);
@@ -130,15 +137,24 @@ export class PayoutSimRefusedError extends Error {
 
 /**
  * Total over the closed setting. `none` is no partner. `payout-sim` is the stand-in only in an explicit dev or test
- * process with a readable TEST catalogue, and throws at boot otherwise: `env` is the RAW process env.
+ * process with a readable TEST catalogue, and throws at boot otherwise: `env` is the RAW process env. A records folder
+ * is a LOCAL TEST path: given in any other process, or not absolute, the service refuses to start whatever the setting.
  */
 export function cashOutPartnerFor(
   setting: PayoutPartnerSetting,
   catalogueJson: string | undefined,
   env: { readonly APP_ENV?: string; readonly NODE_ENV?: string },
+  recordsDir?: string,
 ): CashOutPartner | null {
+  const devOrTest = isExplicitDevOrTest(env.APP_ENV) && env.NODE_ENV !== 'production';
+  if (recordsDir !== undefined && (!devOrTest || !path.isAbsolute(recordsDir))) {
+    throw new PayoutSimRefusedError(
+      'bank.payout_sim_records_outside_dev_test',
+      "BANK_PAYOUT_SIM_RECORDS_DIR is the local-test stack's records folder; it is an absolute path and is set only with APP_ENV exactly dev or test.",
+    );
+  }
   if (setting !== 'payout-sim') return null;
-  if (!isExplicitDevOrTest(env.APP_ENV) || env.NODE_ENV === 'production') {
+  if (!devOrTest) {
     throw new PayoutSimRefusedError(
       'bank.payout_sim_outside_dev_test',
       'BANK_PAYOUT_PARTNER=payout-sim is a local-test stand-in that pays nobody; it runs only with APP_ENV exactly dev or test.',
@@ -151,5 +167,5 @@ export function cashOutPartnerFor(
       'BANK_PAYOUT_PARTNER=payout-sim needs BANK_PAYOUT_SIM_JSON: a catalogue labelled TEST, in shape (see cash-out/payout-sim.ts).',
     );
   }
-  return payoutSim(catalogue);
+  return payoutSim(catalogue, recordsDir);
 }
