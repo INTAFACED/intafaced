@@ -1,4 +1,4 @@
-import { mulBps, sub, type Amount } from '../money.js';
+import { formatAmount, mulBps, sub, type Amount } from '../money.js';
 import type { AccountRef, EntryInput, PostRequest } from '../types.js';
 import { InvalidEntryError } from '../types.js';
 import {
@@ -182,6 +182,29 @@ export interface WithdrawInput {
   amount: Amount;
   rail: string;
   withdrawalId: string;
+  /**
+   * The network fee the person was quoted for this withdrawal (W-withdraw-04, J-wallet-05 #6), in the same asset, charged on
+   * top of `amount`. Absent means no fee leg: a withdrawal held without one settles and reverses without one. When present it
+   * must be above zero (a stated zero fee is no leg, never a zero-amount entry), and the same fee must ride the hold, the
+   * settle and the reverse of one withdrawal, so what leaves the balance is exactly the quote's total debit.
+   */
+  fee?: Amount;
+}
+
+/** What one withdrawal holds: the amount sent plus its fee, when there is one. */
+function withdrawTotal(input: WithdrawInput): Amount {
+  if (input.fee === undefined) return input.amount;
+  requirePositive('withdrawal fee', input.fee);
+  return input.amount + input.fee;
+}
+
+/** `meta.fee` on a withdrawal post that carries a fee, so the journal says which part was the fee. */
+function withdrawMeta(input: WithdrawInput): Record<string, string> {
+  return {
+    rail: input.rail,
+    withdrawalId: input.withdrawalId,
+    ...(input.fee === undefined ? {} : { fee: formatAmount(input.fee) }),
+  };
 }
 
 /**
@@ -209,17 +232,18 @@ export function marketMakerSeedFund(input: {
   };
 }
 
-/** Step 1: funds leave `available` and sit in `hold` while the rail works. */
+/** Step 1: funds leave `available` and sit in `hold` while the rail works. With a fee, the hold is the amount plus the fee. */
 export function withdrawHold(input: WithdrawInput): PostRequest {
   requirePositive('withdrawal amount', input.amount);
+  const total = withdrawTotal(input);
   return {
     idempotencyKey: `withdraw.hold:${input.withdrawalId}`,
     module: 'ledger',
     reason: 'withdraw.held',
-    meta: { rail: input.rail, withdrawalId: input.withdrawalId },
+    meta: withdrawMeta(input),
     entries: [
-      credit(userAvailable(input.userId, input.assetId), input.amount),
-      debit(withdrawalHoldAccount(input.userId, input.assetId, input.withdrawalId), input.amount),
+      credit(userAvailable(input.userId, input.assetId), total),
+      debit(withdrawalHoldAccount(input.userId, input.assetId, input.withdrawalId), total),
     ],
   };
 }
@@ -227,17 +251,21 @@ export function withdrawHold(input: WithdrawInput): PostRequest {
 /** Step 2a: the rail confirmed. Value leaves the book. */
 export function withdrawSettle(input: WithdrawInput): PostRequest {
   requirePositive('withdrawal amount', input.amount);
+  const total = withdrawTotal(input);
   return {
     idempotencyKey: `withdraw.settle:${input.withdrawalId}`,
     module: 'ledger',
     reason: 'withdraw.settled',
-    meta: { rail: input.rail, withdrawalId: input.withdrawalId },
+    meta: withdrawMeta(input),
     // Draws on THIS withdrawal's hold. Before P0-3 this credited the user's one
     // shared hold account, so a settle could consume value an open order had
     // reserved — balanced books, unfunded order, no record of which.
+    // With a fee the whole hold is drawn in the same posting: the amount goes to the rail, the fee to houseFees(pay), so no
+    // crash can leave the fee sitting in a hold whose withdrawal is already sent.
     entries: [
-      credit(withdrawalHoldAccount(input.userId, input.assetId, input.withdrawalId), input.amount),
+      credit(withdrawalHoldAccount(input.userId, input.assetId, input.withdrawalId), total),
       debit(railBoundary(input.rail, input.assetId), input.amount),
+      ...(input.fee === undefined ? [] : [debit(houseFees('pay', input.assetId), input.fee)]),
     ],
   };
 }
@@ -245,14 +273,16 @@ export function withdrawSettle(input: WithdrawInput): PostRequest {
 /** Step 2b: the rail failed. The reversal path is defined, not improvised. */
 export function withdrawReverse(input: WithdrawInput): PostRequest {
   requirePositive('withdrawal amount', input.amount);
+  const total = withdrawTotal(input);
   return {
     idempotencyKey: `withdraw.reverse:${input.withdrawalId}`,
     module: 'ledger',
     reason: 'withdraw.reversed',
-    meta: { rail: input.rail, withdrawalId: input.withdrawalId },
+    meta: withdrawMeta(input),
+    // Nothing was sent, so the fee goes back with the amount: the whole hold returns to available.
     entries: [
-      credit(withdrawalHoldAccount(input.userId, input.assetId, input.withdrawalId), input.amount),
-      debit(userAvailable(input.userId, input.assetId), input.amount),
+      credit(withdrawalHoldAccount(input.userId, input.assetId, input.withdrawalId), total),
+      debit(userAvailable(input.userId, input.assetId), total),
     ],
   };
 }
