@@ -436,7 +436,14 @@ function Detail({ id, current }: { id: string; current: () => boolean }) {
         ),
       ],
       [t('attempts'), <span lang="und">{record.attempts}</span>],
-      [t('failureCode'), record.failureCode === null ? t('none') : t(failureWords({ ...record, failureCode: record.failureCode }))],
+      [
+        t('failureCode'),
+        record.failureCode === null
+          ? t('none')
+          : failureWords(record.status, record.failureCode)
+              .map((key) => t(key))
+              .join(' '),
+      ],
       [t('created'), <time dateTime={record.createdAt}>{date(record.createdAt)}</time>],
     ];
   }

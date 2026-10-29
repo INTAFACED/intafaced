@@ -436,8 +436,11 @@ test(`${J} #8 watches the status: requested, held, broadcast and settled in plai
   }
 
   // A failed withdrawal says what went wrong in a sentence, never as its code.
-  const failed = seedWithdrawal(who, 'failed', '1', `${tag}-failed`, '--failure-code', 'rail.rejected');
+  const failed = seedWithdrawal(who, 'failed', '1', `${tag}-failed`, '--failure-code', 'rail.refused');
   await page.goto(`/uc/withdraw?withdrawalId=${failed}`);
   await expect(page.getByTestId('withdrawal-status')).toHaveText('Failed', { timeout: 30_000 });
-  await expect(page.getByTestId('withdrawal-facts')).not.toContainText('rail.rejected');
+  await expect(page.getByTestId('withdrawal-facts')).toContainText(
+    'The network refused this withdrawal. Nothing was sent, and any amount held for it went back to your available balance.',
+  );
+  await expect(page.getByTestId('withdrawal-facts')).not.toContainText('rail.refused');
 });

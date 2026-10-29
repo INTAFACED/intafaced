@@ -2235,6 +2235,9 @@ async function cmdSeedWithdrawal(rawArgs) {
       { id, outcome, tx: outcome === 'accepted' ? txRef : '' },
     );
   }
+  // A failed seed starts from a fresh row: a reference already seeded in another state is refused, never turned into failed.
+  if (state === 'failed' && stored !== 'pending' && stored !== 'failed')
+    fail(`--ref ${ref} already names a withdrawal that is ${stored}, not failed; use a new --ref`, 2);
   if (state === 'failed' && stored !== 'failed') {
     // The rail refused it: the code stamped while held, the hold reversed under the same attempt, then the row failed with its
     // attempt advanced, as `withdraw` finishes a refusal. A reused reference whose send was not refused is refused here.
@@ -2278,6 +2281,8 @@ async function cmdSeedWithdrawal(rawArgs) {
     // A failed row's attempt has advanced past the refused one, so its own attempt has no journal row.
     failed: journal === 'none' && storedCode === failureCode ? 'failed' : undefined,
   }[nowStored];
+  if (state === 'failed' && nowStored === 'failed' && storedCode !== failureCode)
+    fail(`--ref ${ref} already names a withdrawal that failed with ${storedCode || 'no code'}, not ${failureCode}; use a new --ref`, 2);
   if (reached !== state) fail(`--ref ${ref} already names a withdrawal that is ${reached ?? nowStored}, not ${state}; use a new --ref`, 2);
   say(`TEST withdrawal (LOCAL TEST, not real money)`);
   say(`  withdrawal ${id}`);

@@ -77,14 +77,14 @@ const en = {
   railRef: 'Method reference',
   attempts: 'Attempts',
   failureCode: 'What went wrong',
-  failRefused: 'The network refused this withdrawal. The amount went back to your available balance.',
-  failRoute: 'This way of sending wasn’t available, so nothing was sent. The amount went back to your available balance.',
-  failNotSent: 'This withdrawal couldn’t be completed. The amount went back to your available balance.',
+  failRefused: 'The network refused this withdrawal.',
+  failRoute: 'This way of sending wasn’t available when it was tried.',
+  failDropped: 'The network dropped this withdrawal before it went through.',
+  failOther: 'This withdrawal couldn’t be sent. Support can tell you why: give them its ID.',
+  failBack: 'Nothing was sent, and any amount held for it went back to your available balance.',
   failCanceled: 'You cancelled this withdrawal. Nothing was sent.',
-  failHeld:
-    'A send of this withdrawal was refused. The amount stays held until that is finished, then goes back to your available balance.',
-  failOther:
-    'This withdrawal couldn’t be sent, and the amount went back to your available balance. Support can tell you why: give them its ID.',
+  failChecking:
+    'A send of this withdrawal ran into a problem that is being checked. The amount stays held until it is sent or goes back to your balance.',
   none: 'Not recorded',
   unavailable: 'New withdrawal unavailable',
   unavailableNote:
@@ -439,12 +439,14 @@ const es = {
   railRef: 'Referencia del método',
   attempts: 'Intentos',
   failureCode: 'Qué salió mal',
-  failRefused: 'La red rechazó este retiro. El importe volvió a tu saldo disponible.',
-  failRoute: 'Esta forma de envío no estaba disponible, así que no se envió nada. El importe volvió a tu saldo disponible.',
-  failNotSent: 'Este retiro no se pudo completar. El importe volvió a tu saldo disponible.',
+  failRefused: 'La red rechazó este retiro.',
+  failRoute: 'Esta forma de envío no estaba disponible cuando se intentó.',
+  failDropped: 'La red descartó este retiro antes de que se completara.',
+  failOther: 'Este retiro no se pudo enviar. Soporte puede decirte por qué: dales su ID.',
+  failBack: 'No se envió nada, y lo que estaba retenido para él volvió a tu saldo disponible.',
   failCanceled: 'Cancelaste este retiro. No se envió nada.',
-  failHeld: 'Se rechazó un envío de este retiro. El importe sigue retenido hasta que se cierre y luego vuelve a tu saldo disponible.',
-  failOther: 'Este retiro no se pudo enviar y el importe volvió a tu saldo disponible. Soporte puede decirte por qué: dales su ID.',
+  failChecking:
+    'Un envío de este retiro tuvo un problema que se está revisando. El importe sigue retenido hasta que se envíe o vuelva a tu saldo.',
   none: 'Sin registrar',
   unavailable: 'Nuevo retiro no disponible',
   unavailableNote:
@@ -802,13 +804,14 @@ const fr = {
   railRef: 'Référence du mode',
   attempts: 'Tentatives',
   failureCode: 'Ce qui s’est passé',
-  failRefused: 'Le réseau a refusé ce retrait. Le montant est revenu sur ton solde disponible.',
-  failRoute: 'Ce moyen d’envoi n’était pas disponible, donc rien n’a été envoyé. Le montant est revenu sur ton solde disponible.',
-  failNotSent: 'Ce retrait n’a pas pu aboutir. Le montant est revenu sur ton solde disponible.',
+  failRefused: 'Le réseau a refusé ce retrait.',
+  failRoute: 'Ce moyen d’envoi n’était pas disponible au moment de l’essai.',
+  failDropped: 'Le réseau a abandonné ce retrait avant qu’il n’aboutisse.',
+  failOther: 'Ce retrait n’a pas pu être envoyé. Le support peut te dire pourquoi : donne-lui son ID.',
+  failBack: 'Rien n’a été envoyé, et ce qui était retenu pour lui est revenu sur ton solde disponible.',
   failCanceled: 'Tu as annulé ce retrait. Rien n’a été envoyé.',
-  failHeld: 'Un envoi de ce retrait a été refusé. Le montant reste retenu jusqu’à la clôture, puis revient sur ton solde disponible.',
-  failOther:
-    'Ce retrait n’a pas pu être envoyé et le montant est revenu sur ton solde disponible. Le support peut te dire pourquoi : donne-lui son ID.',
+  failChecking:
+    'Un envoi de ce retrait a rencontré un problème en cours de vérification. Le montant reste retenu jusqu’à son envoi ou son retour sur ton solde.',
   none: 'Non enregistré',
   unavailable: 'Nouveau retrait indisponible',
   unavailableNote:
