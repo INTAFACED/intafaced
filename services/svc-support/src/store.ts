@@ -68,6 +68,11 @@ export type AddCommentInput = {
    * owner value left blank: a new requester comment refuses `cap_unset`. Operators pass none.
    */
   userCap?: number | null;
+  /**
+   * The last trail row (`sequence`) the writer had read. A newer row written by someone else refuses `stale` (an account read changes nothing and does not count), checked
+   * under the ticket lock after a replay, and nothing is written. Absent: no check (the customer's own replies).
+   */
+  expectedSequence?: number;
 };
 
 /**
@@ -90,7 +95,8 @@ export type AddCommentResult =
       /** True when the key was used before: the first comment, nothing written now. */
       readonly replay?: boolean;
     }
-  | { readonly status: 'refuse'; readonly reason: 'not_found' | 'terminal' | 'cap_unset' | 'cap_reached' | 'idempotency_conflict' };
+  | { readonly status: 'refuse'; readonly reason: 'not_found' | 'terminal' | 'cap_unset' | 'cap_reached' | 'idempotency_conflict' }
+  | { readonly status: 'refuse'; readonly reason: 'stale'; readonly newer: readonly SupportTicketEvent[] };
 
 /** What a comment's key holds: the comment it made and what it was asked to say. */
 type CommentReceipt = { fingerprint: string; comment: SupportComment };
@@ -120,7 +126,18 @@ export type AppendEventInput = {
  */
 export type SetStatusResult =
   | { readonly status: 'ok'; readonly ticket: SupportTicket }
-  | { readonly status: 'refuse'; readonly reason: 'not_found' | 'illegal_transition' | 'same_status' | 'settle' };
+  | { readonly status: 'refuse'; readonly reason: 'not_found' | 'illegal_transition' | 'same_status' | 'settle' }
+  | { readonly status: 'refuse'; readonly reason: 'stale'; readonly newer: readonly SupportTicketEvent[] };
+
+/**
+ * The trail rows after `expectedSequence` written by someone other than `actorId`, oldest first: what makes a write that
+ * names `expectedSequence` stale. An account read (`grounding_read`) changes nothing and does not count.
+ */
+export function newerByOthers(events: readonly SupportTicketEvent[], expectedSequence: number, actorId: string): SupportTicketEvent[] {
+  return events
+    .filter((row) => row.sequence > expectedSequence && row.actorId !== actorId && row.kind !== 'grounding_read')
+    .sort((a, b) => a.sequence - b.sequence);
+}
 
 /**
  * Case file + escalated trail, or a refusal that wrote neither.
@@ -134,6 +151,8 @@ export type SetStatusInput = {
   status: SupportTicketStatus;
   operatorId: string;
   note?: string | null;
+  /** As on a comment: a newer trail row by someone else refuses `stale`, under the ticket lock, and nothing is written. */
+  expectedSequence?: number;
 };
 
 /** A merge of a duplicate request (the source) into the one that stays (the survivor). One per source. */
@@ -483,7 +502,7 @@ function settlementRefusal(input: {
   category: SupportTicket['category'];
   note?: string | null;
   reasons: readonly SupportCaseFile['reason'][];
-}): SetStatusResult | null {
+}): { readonly status: 'refuse'; readonly reason: 'settle' } | null {
   const settle = checkSupportSettlement({
     toStatus: input.toStatus,
     category: input.category,
@@ -750,6 +769,22 @@ function assertPersistable(
  * Takes the transaction handle rather than `this.sql` so a caller physically
  * cannot write the audit row outside the transaction it belongs to.
  */
+/** `newerByOthers` read inside a transaction that already holds the ticket's row lock. */
+async function pgNewerByOthers(
+  tx: TransactionSql,
+  ticketId: string,
+  expectedSequence: number,
+  actorId: string,
+): Promise<SupportTicketEvent[]> {
+  const rows = await tx<PgEvent[]>`
+    SELECT id, ticket_id, sequence, kind, actor_id, actor_role, from_status, to_status, note, occurred_at
+    FROM support.ticket_events
+    WHERE ticket_id = ${ticketId} AND sequence > ${expectedSequence} AND actor_id <> ${actorId} AND kind <> 'grounding_read'
+    ORDER BY sequence ASC
+  `;
+  return rows.map(eventFromPg);
+}
+
 async function insertEvent(
   tx: TransactionSql,
   input: {
@@ -937,6 +972,10 @@ export class MemorySupportStore implements SupportStore {
     if (ticket.status === 'closed' && input.authorRole === 'user') {
       return { status: 'refuse', reason: 'terminal' };
     }
+    if (input.expectedSequence !== undefined) {
+      const newer = newerByOthers(this.events.get(input.ticketId) ?? [], input.expectedSequence, input.authorId);
+      if (newer.length > 0) return { status: 'refuse', reason: 'stale', newer };
+    }
     if (input.userCap === null && input.authorRole === 'user') return { status: 'refuse', reason: 'cap_unset' };
     if (input.userCap !== undefined && input.userCap !== null && input.authorRole === 'user') {
       const mine = (this.comments.get(input.ticketId) ?? []).filter((c) => c.authorRole === 'user').length;
@@ -1075,6 +1114,10 @@ export class MemorySupportStore implements SupportStore {
   async setStatus(input: SetStatusInput): Promise<SetStatusResult> {
     const ticket = this.tickets.get(input.ticketId);
     if (!ticket) return { status: 'refuse', reason: 'not_found' };
+    if (input.expectedSequence !== undefined) {
+      const newer = newerByOthers(this.events.get(input.ticketId) ?? [], input.expectedSequence, input.operatorId);
+      if (newer.length > 0) return { status: 'refuse', reason: 'stale', newer };
+    }
 
     const reasons = (this.cases.get(input.ticketId) ?? []).map((file) => file.reason);
     const settle = settlementRefusal({
@@ -1712,6 +1755,11 @@ export class PostgresSupportStore implements SupportStore {
       if (existing.status === 'closed' && input.authorRole === 'user') {
         return { status: 'refuse', reason: 'terminal' };
       }
+      if (input.expectedSequence !== undefined) {
+        // A status move or claim takes this same ticket lock first, so none can land between this read and the insert below.
+        const newer = await pgNewerByOthers(tx, input.ticketId, input.expectedSequence, input.authorId);
+        if (newer.length > 0) return { status: 'refuse', reason: 'stale', newer };
+      }
       if (input.userCap === null && input.authorRole === 'user') return { status: 'refuse', reason: 'cap_unset' };
       if (input.userCap !== undefined && input.userCap !== null && input.authorRole === 'user') {
         const counted = await tx<{ n: number }[]>`
@@ -1920,6 +1968,11 @@ export class PostgresSupportStore implements SupportStore {
       const from = current[0]?.status;
       const category = current[0]?.category;
       if (!from || !category) return { status: 'refuse', reason: 'not_found' };
+      if (input.expectedSequence !== undefined) {
+        // Under the ticket lock taken above: no comment, claim or status move lands between this read and the update.
+        const newer = await pgNewerByOthers(tx, input.ticketId, input.expectedSequence, input.operatorId);
+        if (newer.length > 0) return { status: 'refuse', reason: 'stale', newer };
+      }
 
       const reasonRows = await tx<{ reason: SupportCaseFile['reason'] }[]>`
         SELECT reason FROM support.case_files WHERE ticket_id = ${input.ticketId}

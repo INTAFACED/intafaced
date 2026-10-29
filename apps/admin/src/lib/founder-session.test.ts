@@ -399,8 +399,9 @@ describe('founder admin session security boundaries', () => {
     });
   });
 
-  it("reads identity's new-device refusal as the shared tRPC formatter sends it: prose message, code in data.cause", async () => {
-    const waiting = { flowId: USER_ID, secret: 's'.repeat(43), expiresAt: '2026-10-10T12:10:00.000Z', mailed: true };
+  it("reads identity's typed code from the formatter's `data.cause.code`, beside a message in prose", async () => {
+    // The body svc-identity's auth.login sends a browser it has not seen (the shared errorFormatter in packages/contracts).
+    const waiting = { flowId: USER_ID, secret: 's'.repeat(43), expiresAt: '2026-10-10T12:10:00.000Z', mailed: false };
     const body = {
       error: {
         message: 'This device has not been used to sign in to this account before. Approve it to continue.',
@@ -432,7 +433,8 @@ describe('founder admin session security boundaries', () => {
     expect(upstreamCodeOf({ error: { message: 'That code is not valid.', data: { cause: { code: 'auth.code_invalid' } } } })).toBe(
       'auth.code_invalid',
     );
-    expect(upstreamCodeOf({ error: { message: 'x', data: { cause: { code: 'Free text here' } } } })).toBeNull();
+    // Free text in the cause is not a code either.
+    expect(upstreamCodeOf({ error: { data: { cause: { code: 'refused for user 3faadae7' } } } })).toBeNull();
   });
 
   it('never forwards free text from a service as a code', () => {
