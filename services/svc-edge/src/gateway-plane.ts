@@ -111,11 +111,41 @@ export function sandboxOf(principal: Principal | null): boolean {
   return principal?.key_env === 'sandbox';
 }
 
+export type KeyEnvironment = 'live' | 'sandbox';
+
+/**
+ * Doors with a sandbox backing. Only pay has one (its card-sandbox rail); trade has no sandbox book, so a sandbox key
+ * at a trade door is refused rather than served from live.
+ */
+export const SANDBOX_BACKED_DOORS: ReadonlySet<GatewayDoor> = new Set<GatewayDoor>(['pay']);
+
+/** `EDGE_SANDBOX_HOSTS` (comma list of Host header values) as a set. Blank: no sandbox host, so every sandbox key refuses. */
+export function parseSandboxHosts(raw: string | undefined): ReadonlySet<string> {
+  return new Set(
+    (raw ?? '')
+      .split(',')
+      .map((h) => h.trim().toLowerCase())
+      .filter(Boolean),
+  );
+}
+
+/** The environment a request addresses, from its Host header. Anything not named a sandbox host is live. */
+export function hostEnvironment(host: string | null | undefined, sandboxHosts: ReadonlySet<string>): KeyEnvironment {
+  const h = (host ?? '').trim().toLowerCase();
+  return h && sandboxHosts.has(h) ? 'sandbox' : 'live';
+}
+
+/** Edge vocabulary, the same shape as the quota refusal: a sentence and one code. */
+export function envMismatchBody(): Record<string, unknown> {
+  return { error: userCopy('env.mismatch'), code: 'env.mismatch' };
+}
+
 /**
  * Decide whether an API-key caller may pass this door.
  *
- * Anonymous and interactive sessions return allow — they are not this plane.
- * Paths other than trade/pay return allow — there is no "data" door yet.
+ * Anonymous callers and interactive sessions skip the scope and quota checks — they are not this plane — but a
+ * session at a sandbox host is refused like any live principal there. Paths other than trade/pay return allow —
+ * there is no "data" door yet.
  */
 export function decideGateway(input: {
   pathname: string;
@@ -125,16 +155,31 @@ export function decideGateway(input: {
   now: number;
   max: number;
   windowMs: number;
+  /** The request's Host header. */
+  host?: string | null;
+  /** Parsed `EDGE_SANDBOX_HOSTS`. Empty: no sandbox host. */
+  sandboxHosts?: ReadonlySet<string>;
 }): GatewayDecision {
   const door = doorForPath(input.pathname);
   const sandbox = sandboxOf(input.principal);
   if (!door) return { allow: true, sandbox };
 
-  const kid = input.principal?.kid;
-  if (!kid) return { allow: true, sandbox };
-
   const verb = input.method.toUpperCase();
   if (verb === 'OPTIONS') return { allow: true, sandbox };
+
+  // Environment first, before any scope or quota work. The key's environment is fixed at creation and read from the
+  // verified principal; a session is live. The request's environment is its host. They must match, and a sandbox key
+  // is only served by a door with a sandbox backing, never from live.
+  if (input.principal) {
+    const keyEnv: KeyEnvironment = sandbox ? 'sandbox' : 'live';
+    const hostEnv = hostEnvironment(input.host, input.sandboxHosts ?? new Set());
+    if (keyEnv !== hostEnv || (keyEnv === 'sandbox' && !SANDBOX_BACKED_DOORS.has(door))) {
+      return { allow: false, status: 403, body: envMismatchBody() };
+    }
+  }
+
+  const kid = input.principal?.kid;
+  if (!kid) return { allow: true, sandbox };
 
   const needed = requiredScopeFor(door, verb);
   if (!hasScope(input.principal!.scopes, needed)) {

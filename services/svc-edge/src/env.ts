@@ -190,6 +190,15 @@ const schema = baseEnvSchema
       EDGE_RATE_LIMIT_WINDOW_MS: z.coerce.number().int().min(1000).max(3_600_000),
 
       /**
+       * Host header values (comma list, e.g. `sandbox.example:443`) that address the sandbox environment. A key's
+       * environment is fixed at creation; a request whose host names the other environment is refused `env.mismatch`
+       * before any scope work (gateway-plane.ts). Read from the raw Host header, never X-Forwarded-Host.
+       *
+       * No default: blank means no sandbox host, so every sandbox key is refused at every door. Owner value.
+       */
+      EDGE_SANDBOX_HOSTS: z.string().optional(),
+
+      /**
        * Who may set `X-Forwarded-For`, passed straight to Fastify's `trustProxy`.
        *
        * UNSET IS THE SAFE DEFAULT AND THE USELESS ONE, and both halves matter.
