@@ -227,6 +227,8 @@ test(`${J} #3: with the face check switched off the selfie is kept for manual re
     // The phone says it is done, with no refusal; the computer picks up the phone's selfie and the code leaves its screen.
     await expect(onPhone.getByTestId('verification__selfie-handoff')).toHaveAttribute('data-state', 'done');
     await expect(onPhone.getByRole('alert')).toHaveCount(0);
+    // Back on the computer, which reads the latest as it comes back into view.
+    await page.bringToFront();
     await expect(selfie.getByTestId('verification__selfie-latest')).toHaveAttribute('data-via', 'handoff', { timeout: 15_000 });
     await expect(selfie.getByRole('img', { name: 'Code with the link for your phone' })).toHaveCount(0);
     await expect(selfie.getByTestId('verification__selfie-sent')).toBeVisible();

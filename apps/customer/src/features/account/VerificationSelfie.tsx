@@ -125,9 +125,17 @@ export function VerificationSelfie({ recordsKey, disabled }: { recordsKey: strin
     setLinkExpired(false);
     const poll = window.setInterval(() => reloadRef.current(), PHONE_POLL_MS);
     const expiry = window.setTimeout(() => setLinkExpired(true), Math.max(0, Date.parse(handoff.expiresAt) - Date.now()));
+    // A browser slows timers on a page in the background; coming back to the computer reads the latest at once.
+    const back = () => {
+      if (document.visibilityState === 'visible') reloadRef.current();
+    };
+    document.addEventListener('visibilitychange', back);
+    window.addEventListener('focus', back);
     return () => {
       window.clearInterval(poll);
       window.clearTimeout(expiry);
+      document.removeEventListener('visibilitychange', back);
+      window.removeEventListener('focus', back);
     };
   }, [handoff]);
 
