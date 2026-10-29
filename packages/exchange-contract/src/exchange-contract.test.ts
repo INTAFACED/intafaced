@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { parseSymbol, formatSymbol, symbolsEqual, SymbolError } from './symbols.js';
 import {
   createOrderRequestSchema,
+  positiveDecimal,
   orderBookSchema,
   balancesSchema,
   decimal,
@@ -171,6 +172,34 @@ describe('order validation at the boundary', () => {
       }).success,
     ).toBe(true);
     expect(createOrderRequestSchema.safeParse({ ...base, type: 'stop', stopPrice: '0.000000000000000001' }).success).toBe(true);
+  });
+
+  it('names a bad amount, price or stopPrice even when another field has already failed (one refusal, every field)', () => {
+    const result = createOrderRequestSchema.safeParse({ ...base, type: 'limit', side: 'sideways', amount: '-1', price: '0' });
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      const byField = new Map(result.error.issues.map((issue) => [String(issue.path[0]), issue.message]));
+      expect([...byField.keys()].sort()).toEqual(['amount', 'price', 'side']);
+      expect(byField.get('amount')).toBe('amount must be a positive decimal string');
+      expect(byField.get('price')).toBe('price must be a positive decimal string');
+    }
+    const stop = createOrderRequestSchema.safeParse({ ...base, type: 'stop', side: 'sideways', stopPrice: '-5' });
+    expect(stop.success).toBe(false);
+    if (!stop.success) expect(stop.error.issues.map((issue) => issue.path[0]).sort()).toEqual(['side', 'stopPrice']);
+    // A sign failure does not stop the cross-field checks: a negative amount on a priceless limit names both.
+    const both = createOrderRequestSchema.safeParse({ ...base, type: 'limit', amount: '-1' });
+    expect(both.success).toBe(false);
+    if (!both.success) {
+      expect(both.error.issues.map((issue) => [issue.path[0], issue.message])).toEqual([
+        ['amount', 'amount must be a positive decimal string'],
+        ['price', 'a limit order requires a price'],
+      ]);
+    }
+  });
+
+  it('exports the positive-decimal check it uses, by characters only', () => {
+    for (const ok of ['1', '0.000000000000000001', '010']) expect(positiveDecimal(ok), ok).toBe(true);
+    for (const bad of ['0', '0.0', '000', '-0', '-1']) expect(positiveDecimal(bad), bad).toBe(false);
   });
 
   it('carries the typed self-trade mode, tag and request deadline and refuses a malformed one', () => {

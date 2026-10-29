@@ -4,6 +4,7 @@ import type { RefusalView } from '@/lib/desk/refusal-copy';
 import type { SupportMergePreview } from '@intafaced/contracts';
 import { readMergePreview } from './merge';
 import type { SupportActionRequest } from './model';
+import { EMPTY_QUERY, queueQueryString, type QueueQuery } from './queue-query';
 import type {
   SupportKbView,
   SupportLifecycleView,
@@ -13,6 +14,7 @@ import type {
   SupportGroupsView,
   SupportStaffView,
   SupportTicketView,
+  SupportViewsView,
   TicketExtrasView,
 } from './types';
 
@@ -20,9 +22,19 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value && typeof value === 'object' && !Array.isArray(value));
 }
 
-export async function fetchQueue(signal?: AbortSignal): Promise<SupportQueueView | null> {
+export async function fetchQueue(query: QueueQuery = EMPTY_QUERY, signal?: AbortSignal): Promise<SupportQueueView | null> {
+  // `view` names the part of the desk asked for here, so a saved view's id travels as `savedView`.
+  const params = new URLSearchParams(queueQueryString(query));
+  const saved = params.get('view');
+  params.delete('view');
+  if (saved) params.set('savedView', saved);
+  const search = params.toString();
   try {
-    const res = await fetch('/api/support', { cache: 'no-store', credentials: 'same-origin', ...(signal ? { signal } : {}) });
+    const res = await fetch(search ? `/api/support?${search}` : '/api/support', {
+      cache: 'no-store',
+      credentials: 'same-origin',
+      ...(signal ? { signal } : {}),
+    });
     if (!res.ok) return null;
     const body: unknown = await res.json();
     return isRecord(body) && typeof body.asOf === 'string' && isRecord(body.queue) ? (body as unknown as SupportQueueView) : null;
@@ -218,6 +230,19 @@ export async function fetchGroups(signal?: AbortSignal): Promise<SupportGroupsVi
   }
 }
 
+export async function fetchViews(signal?: AbortSignal): Promise<SupportViewsView | null> {
+  try {
+    const res = await fetch('/api/support?view=views', { cache: 'no-store', credentials: 'same-origin', ...(signal ? { signal } : {}) });
+    if (!res.ok) return null;
+    const body: unknown = await res.json();
+    return isRecord(body) && typeof body.asOf === 'string' && isRecord(body.list) && isRecord(body.counts)
+      ? (body as unknown as SupportViewsView)
+      : null;
+  } catch {
+    return null;
+  }
+}
+
 export async function fetchKb(signal?: AbortSignal): Promise<SupportKbView | null> {
   try {
     const res = await fetch('/api/support?view=kb', { cache: 'no-store', credentials: 'same-origin', ...(signal ? { signal } : {}) });
@@ -246,6 +271,7 @@ const ACTIONS: readonly string[] = [
   'kb_publish',
   'kb_unpublish',
   'kb_audience',
+  'view_save',
 ];
 
 /** Strict reader: anything that is not exactly a known answer is "outcome not known", never a success. */
