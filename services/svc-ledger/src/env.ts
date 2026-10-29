@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { reconciliationRailSchema } from '@intafaced/contracts/ledger-reconciliation';
 import { parseClockSkewBoundMs } from './ledger/clock-skew.js';
 import { resolveIdempotencyConflictMode } from './idempotency-conflict-mode.js';
 import { authEnvSchema, internalServiceEnvSchema, loadEnv, s2sEnvSchema, serviceEnvSchema } from '@intafaced/config';
@@ -147,6 +148,35 @@ function isOutsideSnapshotUrl(value: string): boolean {
 
 export const env = loadEnv(schema);
 export type Env = typeof env;
+
+const RAIL_STATEMENT_KEY = /^LEDGER_RECONCILE_RAIL_([A-Z0-9_]+)_URL$/;
+
+/**
+ * Per-rail outside statement URLs (OPS-reconciliation-04): `LEDGER_RECONCILE_RAIL_<RAIL>_URL`, RAIL upper-cased with `-` as
+ * `_` (`crypto-native` reads `LEDGER_RECONCILE_RAIL_CRYPTO_NATIVE_URL`). Owner values with no default: a blank one leaves
+ * that rail's outside side unset. A name that is not a rail id, or a URL that is not https (plain http only for a loopback
+ * host), refuses boot rather than being ignored.
+ */
+export function railStatementUrlsFrom(source: Record<string, string | undefined>): Map<string, string> {
+  const urls = new Map<string, string>();
+  for (const [key, value] of Object.entries(source)) {
+    const match = RAIL_STATEMENT_KEY.exec(key);
+    if (!match || value === undefined || value === '') continue;
+    const rail = match[1]!.toLowerCase().replaceAll('_', '-');
+    if (!reconciliationRailSchema.safeParse(rail).success) throw new Error(`${key}: not a rail id`);
+    let ok = false;
+    try {
+      ok = isOutsideSnapshotUrl(value);
+    } catch {
+      ok = false;
+    }
+    if (!ok) throw new Error(`${key}: must be https (plain http only for a loopback host)`);
+    urls.set(rail, value);
+  }
+  return urls;
+}
+
+export const railStatementUrls: ReadonlyMap<string, string> = railStatementUrlsFrom(process.env);
 
 /** Parsed owner bound. Blank stays null; a bad string refuses boot rather than becoming a number. */
 export const clockSkewBoundMs: number | null = parseClockSkewBoundMs(env.LEDGER_CLOCK_SKEW_BOUND_MS);

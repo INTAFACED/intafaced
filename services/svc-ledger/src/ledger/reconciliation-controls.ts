@@ -13,6 +13,7 @@ import {
   LEDGER_RECONCILE_ASOF_INVALID,
   LEDGER_RECONCILE_BUILTIN_IMMUTABLE,
   LEDGER_RECONCILE_CONTROL_NOT_FOUND,
+  LEDGER_RECONCILE_RAIL_SOURCE_UNSET,
   LEDGER_RECONCILE_SOURCE_UNAVAILABLE,
   OPS_CONTROL_MARGIN_UNSET,
   OPS_CONTROL_POLICY_UNSET,
@@ -64,7 +65,8 @@ export interface SnapshotRead {
 }
 
 export interface ReconciliationSources {
-  outsideBalance(readAt: Date): Promise<SnapshotRead>;
+  /** With `rail`, that rail's own outside statement; without, the whole outside book. */
+  outsideBalance(readAt: Date, rail?: string): Promise<SnapshotRead>;
   parity(readAt: Date): Promise<SnapshotRead>;
 }
 
@@ -466,6 +468,7 @@ async function accountsInSet(sql: Db, accountSet: ReconciliationAccountSet, read
   return sql<AccountHit[]>`
     SELECT id, asset_id FROM accounts
      WHERE ${existedAt(sql, readAt)}
+       ${accountSet.rail ? sql`AND owner_type = 'treasury'::owner_type AND owner_id = ${`rail:${accountSet.rail}`}` : sql``}
        ${accountSet.ownerType ? sql`AND owner_type = ${accountSet.ownerType}::owner_type` : sql``}
        ${prefix ? sql`AND owner_id LIKE ${prefix} ESCAPE '\\'` : sql``}
        ${accountSet.kind ? sql`AND kind = ${accountSet.kind}::account_kind` : sql``}
@@ -852,9 +855,11 @@ async function judge(
   }
 
   const outsideTemplate = row.template === 'outside_balance';
+  // A control over one rail's boundary reads that rail's statement only.
+  const rail = accountSet.mode === 'query' ? accountSet.rail : undefined;
   let read: SnapshotRead;
   try {
-    read = outsideTemplate ? await sources.outsideBalance(readAt) : await sources.parity(readAt);
+    read = outsideTemplate ? await sources.outsideBalance(readAt, rail) : await sources.parity(readAt);
   } catch {
     read = { kind: 'unavailable' };
   }
@@ -888,7 +893,7 @@ async function judge(
     return {
       status: 'UNSET',
       phase: side,
-      errorCode: '',
+      errorCode: outsideTemplate && rail !== undefined ? LEDGER_RECONCILE_RAIL_SOURCE_UNSET : '',
       assets,
       outsideSide: outsideTemplate ? 'unset' : 'not_applicable',
       sources: emptySources,
