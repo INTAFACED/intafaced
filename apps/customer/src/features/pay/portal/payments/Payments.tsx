@@ -441,8 +441,7 @@ export function PaymentDetailView({
                 )}
                 {waiting && (
                   <p className="pp-callout" role="note" data-testid="payment-confirmations">
-                    {t('pay_waitingConfirmations', { seen: waiting.seen, required: waiting.required })} {t('pay_asOf')}{' '}
-                    <DateTime value={waiting.asOf} />
+                    {t('pay_waitingConfirmations', { seen: waiting.seen, required: waiting.required })} <DateTime value={waiting.asOf} />
                   </p>
                 )}
                 {held && (

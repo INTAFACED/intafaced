@@ -178,17 +178,21 @@ export async function listPaymentAttempts(svc: PayServiceInternal, paymentId: st
 
 /**
  * While a crypto payment waits for its transfers to be final: the depth from its newest pending rail result, and when
- * that result was recorded (J-merchant-05 #4). Null when no pending result carried a count. The caller shows it only
- * while the payment is still `created`.
+ * that result was recorded (J-merchant-05 #4). Null when no pending result carried a count, or once the payment is no
+ * longer `created`.
  */
 export async function paymentConfirmations(
   svc: PayServiceInternal,
   paymentId: string,
 ): Promise<{ seen: number; required: number; asOf: string } | null> {
   const [row] = await svc.sql<Array<{ payload: Record<string, unknown> | null; ts: Date }>>`
-    SELECT payload, ts FROM pay.payment_events
-     WHERE payment_id = ${paymentId} AND event = 'rail.pending'
-     ORDER BY seq DESC
+    SELECT e.payload, e.ts
+      FROM pay.payment_events e
+      JOIN pay.payments p ON p.id = e.payment_id
+     WHERE e.payment_id = ${paymentId} AND e.event = 'rail.pending'
+       -- Only while the payment still waits: once it is authorized, captured or failed, a count would read as waiting.
+       AND p.status = 'created'
+     ORDER BY e.seq DESC
      LIMIT 1
   `;
   const depth = row ? confirmationDepth(row.payload) : null;

@@ -4598,7 +4598,9 @@ describe('svc-pay money PG-hard', { timeout: 30_000 }, () => {
 
       chain.setConfirmations(address, 6, '0xshallow');
       await deliver('evt-final');
-      expect((await pay.getPayment(paymentId)).status).not.toBe('created');
+      expect(['authorized', 'captured']).toContain((await pay.getPayment(paymentId)).status);
+      // Final: the payment no longer waits, so the last pending count is not read as waiting.
+      expect(await pay.paymentConfirmations(paymentId)).toBeNull();
     });
 
     it('books nothing when a part is reorganised away between authorize and capture, and books once when it is back', async () => {
