@@ -35,7 +35,7 @@ async function strangerPays(page, handle, amount) {
   await page.getByRole('textbox', { name: 'Handle' }).press('Tab');
   await page.getByLabel(/Amount/).fill(amount);
   await page.getByRole('button', { name: 'Review' }).click();
-  await page.getByRole('dialog').getByRole('button', { name: /^Send/ }).click();
+  await page.getByRole('alertdialog').getByRole('button', { name: /^Send/ }).click();
   await expect(page.getByRole('status').first()).toBeVisible({ timeout: 30_000 });
   // A refusal is an alert: the send went through only if none shows.
   await expect(page.getByRole('alert')).toHaveCount(0);
@@ -152,7 +152,7 @@ test(`${J} #3 turns discoverability off: handle search finds nothing for others,
     ).toHaveCount(0, UNBUILT);
     await page.getByLabel(/Amount/).fill('1');
     await page.getByRole('button', { name: 'Review' }).click({ timeout: 15_000 });
-    await page.getByRole('dialog').getByRole('button', { name: /^Send/ }).click({ timeout: 15_000 });
+    await page.getByRole('alertdialog').getByRole('button', { name: /^Send/ }).click({ timeout: 15_000 });
     await expect(page.getByRole('status').first()).toBeVisible({ timeout: 30_000 });
     await expect(page.getByRole('alert')).toHaveCount(0);
     await expect.poll(async () => toUnits((await usdt(me)).free) - before, { timeout: 30_000 }).toBe(toUnits('1'));
