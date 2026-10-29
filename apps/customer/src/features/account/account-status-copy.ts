@@ -29,6 +29,7 @@ export const accountStatusCopy = defineCopy('account.status', {
   restrictionsOnAccount: 'Restrictions on your account',
   noRestrictions: 'Nothing is restricted on your account.',
   capabilitiesAbove: 'A capability compliance switched off is listed under Capabilities above.',
+  capabilityRefused: 'This level was refused. It grants a capability compliance switched off, so no request was opened.',
   delegated: 'Your account status is read from the main account. Sign in to it to see it.',
   seeStatus: 'See your account status',
   liftWait: 'You can lift it yourself from {time}, with a fresh confirmation.',

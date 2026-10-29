@@ -69,3 +69,31 @@ export function VerificationRestrictions({ recordsKey }: { recordsKey: string })
     </section>
   );
 }
+
+/**
+ * I-kyc-compliance-07 and -17 (J-identity-08 #7): a request for a level that grants a switched-off capability was
+ * refused (`kyc.capability_inactive`). Says so where the person hit it, with each switched-off capability that stops a
+ * request, in the owner's words and with the next step, read fresh from identity's account status.
+ */
+export function VerificationCapabilityRefused({ recordsKey }: { recordsKey: string }) {
+  const { api, userId } = useSession();
+  const { Copy } = copy.useCopy();
+  const { resource, reload } = useResource(
+    (signal) => api.query('identity', 'accountStatus.mine', undefined, accountStatusSchema, { signal }),
+    `verification-capability-refused:${userId}:${recordsKey}`,
+  );
+  return (
+    <div data-testid="verification__capability-refused" data-code="kyc.capability_inactive">
+      <p>
+        <Copy k="capabilityRefused" />
+      </p>
+      {resource.status === 'loading' ? (
+        <Loading />
+      ) : resource.status === 'failed' ? (
+        <Failure result={resource.failure} retry={reload} />
+      ) : (
+        <RestrictionList restrictions={resource.data.restrictions.filter((r) => r.kind === 'capability_off' && r.blocks.length > 0)} />
+      )}
+    </div>
+  );
+}

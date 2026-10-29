@@ -528,6 +528,40 @@ test(`${J} #7: a restriction on another screen gives its reason in plain words a
   await expect(status.getByTestId('account-status__cannot').locator('li')).toHaveText([
     'Ask for the verification level that grants a switched-off capability',
   ]);
+
+  // Hit it: ask for Basic, the TEST level that grants trading crypto, from its own screen. Identity refuses it with its
+  // one typed code before anything is stored, and the refusal gives the reason in the owner's words and the next step.
+  await page.goto('/verification');
+  const cases = page.getByRole('region', { name: 'Case history' }).getByTestId('verification__case');
+  await expect(cases).toHaveCount(0);
+  await page.getByLabel('Level to request').selectOption({ label: 'Basic' });
+  await page.getByLabel('Country code').fill('DE');
+  await page.getByRole('button', { name: 'Review request' }).click();
+  const [reply] = await Promise.all([
+    page.waitForResponse((r) => r.url().includes('kyc.submit') && r.request().method() === 'POST'),
+    page.getByRole('button', { name: 'Submit this request' }).click(),
+  ]);
+  expect(reply.status()).toBe(409);
+  const wire = await reply.json();
+  expect((Array.isArray(wire) ? wire[0] : wire).error.data.cause.code).toBe('kyc.capability_inactive');
+  const refused = page.getByTestId('verification__capability-refused');
+  await expect(refused).toHaveAttribute('data-code', 'kyc.capability_inactive');
+  await expect(refused).toContainText('This level was refused. It grants a capability compliance switched off, so no request was opened.');
+  const why = refused.locator('li[data-kind="capability_off"][data-capability="trade_crypto"]');
+  await expect(why).toHaveCount(1);
+  await expect(why).toContainText('Trade crypto switched off');
+  await expect(why).toContainText('TEST: this was switched off after a compliance review.');
+  await expect(why).toContainText('Next: TEST: ask Support what the review found.');
+  await expect(refused.locator('li')).toHaveCount(1);
+
+  // Re-read: no case opened, trading crypto is still the one switched off, and nothing is held pending.
+  await page.reload();
+  await expect(cases).toHaveCount(0);
+  await expect(capability).toHaveAttribute('data-state', 'inactive');
+  const states = await capabilities
+    .getByTestId('verification__capability')
+    .evaluateAll((items) => items.map((li) => [li.getAttribute('data-capability'), li.getAttribute('data-state')]));
+  expect(states.filter(([, state]) => state !== 'unrequested')).toEqual([['trade_crypto', 'inactive']]);
 });
 
 // ── The platform posting freeze, as the founders' freeze desk does it (A asks, B approves, A runs) ─────────────────────

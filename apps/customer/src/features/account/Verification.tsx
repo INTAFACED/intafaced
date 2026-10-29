@@ -8,7 +8,7 @@ import { verificationCopy as copy } from './verification-copy';
 import { VerificationLadder } from './VerificationLadder';
 import { VerificationCases } from './VerificationCases';
 import { VerificationCapabilities } from './VerificationCapabilities';
-import { VerificationRestrictions } from './VerificationRestrictions';
+import { VerificationCapabilityRefused, VerificationRestrictions } from './VerificationRestrictions';
 import { VerificationAttempts } from './VerificationAttempts';
 import { VerificationGuided } from './VerificationGuided';
 import { VerificationProofOfAddress } from './VerificationProofOfAddress';
@@ -42,6 +42,8 @@ type Known = {
   refused: boolean;
   /** Set when the refusal was the attempt limit: the seconds the service said were left. */
   retryAfterSeconds?: number;
+  /** Set when the level grants a capability compliance switched off (`kyc.capability_inactive`). */
+  capabilityOff?: boolean;
   retained: boolean;
   finalized?: boolean;
 };
@@ -235,6 +237,7 @@ export function Verification() {
               local,
               ...(answer.ok ? { row: { ...answer.data } } : {}),
               ...(lockout && answer.retryAfterSeconds ? { retryAfterSeconds: answer.retryAfterSeconds } : {}),
+              ...(!answer.ok && answer.code === 'kyc.capability_inactive' ? { capabilityOff: true } : {}),
               refused: !answer.ok,
               retained,
             },
@@ -410,6 +413,8 @@ export function Verification() {
                       <Copy k="replyBoundary" />
                     </p>
                   </>
+                ) : receipt.capabilityOff ? (
+                  <VerificationCapabilityRefused recordsKey={receipt.local.requestId} />
                 ) : receipt.retryAfterSeconds ? (
                   <p>
                     <Copy k="refusedLocked" params={{ seconds: String(receipt.retryAfterSeconds) }} />
