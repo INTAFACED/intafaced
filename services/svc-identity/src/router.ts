@@ -7,6 +7,13 @@ import { kycCapabilitiesOutputSchema, kycCapabilitySchema } from '@intafaced/con
 import { KycCapabilityError } from './kyc/capabilities.js';
 import { KycAttemptsError } from './kyc/attempts.js';
 import { KycProfileError, type KycProfileDesk } from './kyc/profile.js';
+import { KycPoaError, type KycPoaDesk } from './kyc/proof-of-address.js';
+import {
+  kycPoaReadInputSchema,
+  kycPoaReadSchema,
+  kycPoaSubmissionSchema,
+  kycPoaSubmitInputSchema,
+} from '@intafaced/contracts/identity-kyc-poa';
 import {
   kycDocumentTypesInputSchema,
   kycDocumentTypesSchema,
@@ -135,6 +142,14 @@ import { createSubAccountEditProcedures } from './sub-accounts/sub-account-edit-
  * before any consumer is touched (§15.2).
  */
 
+/** Only the canonical encoding of non-empty bytes, as `kyc.storeDocument` takes it; anything else refuses BAD_REQUEST. */
+function canonicalBase64(raw: string): Buffer {
+  const bytes = Buffer.from(raw, 'base64');
+  if (bytes.length === 0 || bytes.toString('base64') !== raw)
+    throw new TRPCError({ code: 'BAD_REQUEST', message: 'bytesBase64 is not valid base64' });
+  return bytes;
+}
+
 export function toTrpcError(err: unknown): TRPCError {
   // Already shaped for the wire — do not re-wrap.
   if (err instanceof TRPCError) return err;
@@ -179,6 +194,20 @@ export function toTrpcError(err: unknown): TRPCError {
         return new TRPCError({ code: 'BAD_REQUEST', message: err.message, cause: err });
       case 'kyc_doc.decrypt_failed':
         return new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: err.message, cause: err });
+    }
+  }
+
+  if (err instanceof KycPoaError) {
+    switch (err.code) {
+      case 'kyc.poa_not_requested':
+      case 'kyc.poa_rule_unset':
+      case 'kyc.poa_types_unset':
+      case 'kyc.poa_unconfigured':
+        return new TRPCError({ code: 'PRECONDITION_FAILED', message: err.message, cause: err });
+      case 'kyc.poa_pending':
+        return new TRPCError({ code: 'CONFLICT', message: err.message, cause: err });
+      default:
+        return new TRPCError({ code: 'BAD_REQUEST', message: err.message, cause: err });
     }
   }
 
@@ -805,6 +834,8 @@ export function createIdentityRouter(
     kycCapabilityReasons?: KycRejectReasons;
     /** Guided verification (I-kyc-compliance-08). Absent: every `kyc.profile.*` door refuses `kyc.profile_unconfigured`. */
     kycProfile?: KycProfileDesk;
+    /** Proof of address (I-kyc-compliance-11). Absent: every `kyc.proofOfAddress.*` door refuses `kyc.poa_unconfigured`. */
+    kycPoa?: KycPoaDesk;
     /** Social sign-in. Absent means no provider is registered: every start answers `idp.social`. */
     social?: SocialSignin;
     /**
@@ -1005,6 +1036,11 @@ export function createIdentityRouter(
       throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'Affiliate accrual store is not configured' });
     }
     return accruals;
+  }
+
+  function requireKycPoa(): KycPoaDesk {
+    if (!options.kycPoa) throw new KycPoaError('Proof of address is not configured', 'kyc.poa_unconfigured');
+    return options.kycPoa;
   }
 
   function requireKycProfile(): KycProfileDesk {
@@ -2354,6 +2390,46 @@ export function createIdentityRouter(
         }),
 
       /**
+       * Proof of address (I-kyc-compliance-11, J-identity-08 #5): asked for after level Basic is approved. `read` gives
+       * the owner's recency rule and the accepted and refused documents for a country; `submit` stores the file in the
+       * vault under the photo caps and the submission for review. No `userId` input on the customer doors.
+       */
+      proofOfAddress: router({
+        read: scopedProcedure('identity:read')
+          .input(kycPoaReadInputSchema)
+          .output(kycPoaReadSchema)
+          .query(async ({ ctx, input }) => {
+            try {
+              return await requireKycPoa().read(ctx.principal.userId, input.country);
+            } catch (err) {
+              throw toTrpcError(err);
+            }
+          }),
+        submit: scopedProcedure('identity:write')
+          .input(kycPoaSubmitInputSchema)
+          .output(kycPoaSubmissionSchema)
+          .mutation(async ({ ctx, input }) => {
+            try {
+              const bytes = canonicalBase64(input.bytesBase64);
+              const { bytesBase64: _bytes, ...rest } = input;
+              return await requireKycPoa().submit(ctx.principal.userId, { ...rest, bytes });
+            } catch (err) {
+              throw toTrpcError(err);
+            }
+          }),
+        listFor: scopedProcedure('admin:compliance')
+          .input(z.object({ userId: z.string().uuid(), limit: z.number().int().min(1).max(50) }).strict())
+          .output(z.object({ submissions: z.array(kycPoaSubmissionSchema) }))
+          .query(async ({ input }) => {
+            try {
+              return { submissions: await requireKycPoa().listFor(input.userId, input.limit) };
+            } catch (err) {
+              throw toTrpcError(err);
+            }
+          }),
+      }),
+
+      /**
        * The accepted ID types for one country from the owner's list (I-kyc-compliance-08). A country with none
        * published reads `published: false`, never an empty list that looks like "nothing accepted".
        */
@@ -2410,10 +2486,7 @@ export function createIdentityRouter(
           .output(kycProfileDraftSchema)
           .mutation(async ({ ctx, input }) => {
             try {
-              const bytes = Buffer.from(input.bytesBase64, 'base64');
-              // Only the canonical encoding of the decoded bytes, as `kyc.storeDocument` takes it.
-              if (bytes.length === 0 || bytes.toString('base64') !== input.bytesBase64)
-                throw new TRPCError({ code: 'BAD_REQUEST', message: 'bytesBase64 is not valid base64' });
+              const bytes = canonicalBase64(input.bytesBase64);
               return await requireKycProfile().upload(ctx.principal.userId, {
                 version: input.version,
                 contentType: input.contentType,

@@ -88,3 +88,41 @@ describe('the chosen control', () => {
     expect(html).toContain('ops.control_state_illegal');
   });
 });
+
+describe('pause, resume and retire on screen', () => {
+  const list = (state: 'active' | 'paused' | 'retired') => ({
+    list: { kind: 'ready' as const, controls: [controlView({ state })], readAt: '2026-10-24T06:00:00.000Z' },
+    selectedId: CONTROL_ID,
+  });
+  it('an active control offers pause and retire, not resume, as a two-founder request', () => {
+    const html = render(list('active'));
+    expect(html).toContain('data-testid="rc-lifecycle"');
+    expect(html).toContain('data-testid="rc-lifecycle-move"');
+    expect(html).toContain('<option value="pause" selected="">Pause</option>');
+    expect(html).toContain('<option value="retire">Retire</option>');
+    expect(html).not.toContain('value="resume"');
+    expect(html).toContain('Ask a second founder to approve: pause');
+    expect(html).toContain('PAUSE CONTROL');
+  });
+  it('a paused control says so, offers resume, and its run is held', () => {
+    const html = render(list('paused'));
+    expect(html).toContain('<td data-testid="rc-state">Paused</td>');
+    expect(html).toContain('<option value="resume" selected="">Resume</option>');
+    expect(html).toContain('A paused control runs nothing (ops.control_state_illegal). Resume it first.');
+  });
+  it('a retired control is final: no change form, no lifecycle step, and its run is held', () => {
+    const html = render(list('retired'));
+    expect(html).toContain('<td data-testid="rc-state">Retired</td>');
+    expect(html).toContain('data-testid="rc-retired"');
+    expect(html).not.toContain('data-testid="rc-form-update"');
+    expect(html).not.toContain('data-testid="rc-lifecycle-move"');
+    expect(html).not.toMatch(/(PAUSE|RESUME|RETIRE) CONTROL/);
+    expect(html).toContain('A retired control has no pause, resume or retire step (ops.control_state_illegal).');
+    expect(html).toContain('A retired control runs nothing');
+  });
+  it('parked, the step stays on screen and sends nothing', () => {
+    const html = render({ ...list('active'), treasuryParked: PARKED });
+    expect(html).toContain('data-testid="rc-lifecycle"');
+    expect(html).toContain('Pause, resume or retire unavailable');
+  });
+});

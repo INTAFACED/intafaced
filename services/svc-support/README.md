@@ -98,7 +98,8 @@ as not found on every operator door. `SUPPORT_ALL_GROUPS_ROLES` (comma separated
 A lead can add themselves to any group, so group scope limits agents, not leads.
 Agent-set priority, type and labels (`setProperties`, `ticketProperties`) live in `ticket_properties`
 beside the ticket, never on it: the ticket owner reads the ticket and must not see them. Each change
-is logged in `ticket_property_log`; `listQueue` takes a `label` filter.
+is logged in `ticket_property_log`, which staff read with `propertyChanges` (one entry per field changed,
+oldest first; the console shows them in the ticket history); `listQueue` takes a `label` filter.
 A ticket can be put `on_hold` by an agent, with a reason (the status note, shown in the owner's history).
 On hold leaves the queue; a customer reply on `pending` or `on_hold` puts it back to `open` with one trail
 row. `ticket_lifecycle` (beside the ticket) keeps who it waits on, when the first public reply went out

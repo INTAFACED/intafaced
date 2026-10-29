@@ -2218,6 +2218,10 @@ async function cmdSeedWithdrawal(rawArgs) {
     });
     if (!res.ok) fail(`ledger refused the TEST ${recipe} (${res.status}): ${(await res.text()).slice(0, 400)}`);
   };
+  // A failed seed starts from a fresh row: a reference already seeded in another state is refused before anything is
+  // posted or journalled, never turned into failed.
+  if (state === 'failed' && stored !== 'pending' && stored !== 'failed')
+    fail(`--ref ${ref} already names a withdrawal that is ${stored}, not failed; use a new --ref`, 2);
   if (state !== 'requested' && stored === 'pending') {
     // The hold first, as `withdraw` posts it: funds leave available for a hold that names this withdrawal and attempt 0.
     await post('withdrawHold', 'LOCAL TEST withdrawal hold, not real money');
@@ -2236,9 +2240,6 @@ async function cmdSeedWithdrawal(rawArgs) {
       { id, outcome, tx: outcome === 'accepted' ? txRef : '' },
     );
   }
-  // A failed seed starts from a fresh row: a reference already seeded in another state is refused, never turned into failed.
-  if (state === 'failed' && stored !== 'pending' && stored !== 'failed')
-    fail(`--ref ${ref} already names a withdrawal that is ${stored}, not failed; use a new --ref`, 2);
   if (state === 'failed' && stored !== 'failed') {
     // The rail refused it: the code stamped while held, the hold reversed under the same attempt, then the row failed with its
     // attempt advanced, as `withdraw` finishes a refusal. A reused reference whose send was not refused is refused here.

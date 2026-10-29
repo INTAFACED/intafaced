@@ -421,6 +421,39 @@ export const supportTicketPropertiesSchema = z.object({
 });
 export type SupportTicketProperties = z.infer<typeof supportTicketPropertiesSchema>;
 
+/**
+ * One field an agent changed on a ticket's properties, read from svc-support's property log (staff only). A save that
+ * changed priority and labels is two of these, with the same `logId`, operator, reason and time.
+ */
+const propertyChangeBase = {
+  logId: z.string().regex(/^[0-9]+$/),
+  ticketId: z.string().guid(),
+  setBy: z.string(),
+  reason: z.string().nullable(),
+  setAt: z.string().datetime(),
+};
+export const supportTicketPropertyChangeSchema = z.discriminatedUnion('field', [
+  z.object({
+    ...propertyChangeBase,
+    field: z.literal('priority'),
+    from: supportTicketPrioritySchema.nullable(),
+    to: supportTicketPrioritySchema.nullable(),
+  }),
+  z.object({
+    ...propertyChangeBase,
+    field: z.literal('type'),
+    from: supportTicketTypeSchema.nullable(),
+    to: supportTicketTypeSchema.nullable(),
+  }),
+  z.object({
+    ...propertyChangeBase,
+    field: z.literal('labels'),
+    from: z.array(supportLabelSchema).max(SUPPORT_LABELS_MAX),
+    to: z.array(supportLabelSchema).max(SUPPORT_LABELS_MAX),
+  }),
+]);
+export type SupportTicketPropertyChange = z.infer<typeof supportTicketPropertyChangeSchema>;
+
 /** Which agent-set properties a customer reads on their own request (SP-tickets-04). The owner chooses; blank refuses. */
 export const SUPPORT_CUSTOMER_PROPERTIES = ['priority', 'type'] as const;
 export type SupportCustomerProperty = (typeof SUPPORT_CUSTOMER_PROPERTIES)[number];

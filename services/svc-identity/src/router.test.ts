@@ -25,6 +25,7 @@ import { KycCaseError, parseKycRejectReasons } from './kyc/cases.js';
 import { KycCapabilityError } from './kyc/capabilities.js';
 import { KycAttemptsError } from './kyc/attempts.js';
 import { KycProfileError, type KycProfileDesk } from './kyc/profile.js';
+import { KycPoaError, type KycPoaDesk } from './kyc/proof-of-address.js';
 
 /**
  * The tRPC boundary for KYC and step-up.
@@ -684,6 +685,56 @@ describe('kyc.reject names a reason from the owner list (I-kyc-compliance-01)', 
     expect(checked).toEqual([[RECORD, { reasonCode: 'document_unreadable', customerNote: null, noteVisible: false }]]);
     expect(consumed).toEqual([]);
     expect(stub.calls.filter((c) => c.method === 'rejectKycRecord')).toHaveLength(0);
+  });
+});
+
+describe('kyc.proofOfAddress (I-kyc-compliance-11)', () => {
+  it('without the desk every door refuses kyc.poa_unconfigured', async () => {
+    const api = await caller(['identity:read']);
+    const err = await api.kyc.proofOfAddress.read({}).catch((e: unknown) => e);
+    expect(codeOf(err)).toBe('PRECONDITION_FAILED');
+    expect((err as { cause?: { code?: string } }).cause?.code).toBe('kyc.poa_unconfigured');
+  });
+
+  it('a second document while one waits for review refuses as a conflict with its code', async () => {
+    const desk = {
+      async submit() {
+        throw new KycPoaError('waiting', 'kyc.poa_pending');
+      },
+    } as unknown as KycPoaDesk;
+    const caller = createIdentityRouter(stub.auth, stub.rank, { kycPoa: desk }).createCaller(await ctx(['identity:write']));
+    const input = { type: 'utility_bill', country: 'DE', issuedOn: '2026-01-01', contentType: 'application/pdf', bytesBase64: 'AQID' };
+    const refused = await caller.kyc.proofOfAddress.submit(input).catch((e: unknown) => e);
+    expect(codeOf(refused)).toBe('CONFLICT');
+    expect((refused as { cause?: { code?: string } }).cause?.code).toBe('kyc.poa_pending');
+  });
+
+  it('submits for the caller only; listFor is behind admin:compliance; refusals keep their codes', async () => {
+    const seen: unknown[][] = [];
+    const desk = {
+      async submit(...args: unknown[]) {
+        seen.push(args);
+        throw new KycPoaError('too old', 'kyc.poa_too_old', { maxAgeDays: 90 });
+      },
+      async listFor() {
+        return [];
+      },
+    } as unknown as KycPoaDesk;
+    const make = async (scopes: string[]) => createIdentityRouter(stub.auth, stub.rank, { kycPoa: desk }).createCaller(await ctx(scopes));
+    const input = { type: 'utility_bill', country: 'DE', issuedOn: '2026-01-01', contentType: 'application/pdf', bytesBase64: 'AQID' };
+    const refused = await (await make(['identity:write'])).kyc.proofOfAddress.submit(input).catch((e: unknown) => e);
+    expect(codeOf(refused)).toBe('BAD_REQUEST');
+    expect((refused as { cause?: { code?: string } }).cause?.code).toBe('kyc.poa_too_old');
+    expect(seen[0]![0]).toBe(USER);
+    expect(
+      codeOf(
+        await (await make(['identity:write'])).kyc.proofOfAddress.submit({ ...input, userId: OPERATOR } as never).catch((e: unknown) => e),
+      ),
+    ).toBe('BAD_REQUEST');
+    expect(
+      codeOf(await (await make(['identity:read'])).kyc.proofOfAddress.listFor({ userId: USER, limit: 5 }).catch((e: unknown) => e)),
+    ).toBe('FORBIDDEN');
+    expect(await (await make(['admin:compliance'])).kyc.proofOfAddress.listFor({ userId: USER, limit: 5 })).toEqual({ submissions: [] });
   });
 });
 

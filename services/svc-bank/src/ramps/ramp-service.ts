@@ -65,6 +65,9 @@ import {
   type ApprovalMailPort,
 } from './address-approval.js';
 import { unconfiguredTrustedDevices, type TrustedDevicePort } from './trusted-devices.js';
+import { sendableDestination } from './send-destination.js';
+import type { BankSendDestination, BankSendDestinationInput } from '@intafaced/contracts';
+import { DestinationFraudList, fraudAddressKey, refuseFraudListed, type DestinationFraudListPort } from './fraud-list.js';
 import {
   BANK_ADDRESS_BOOK_CAP_ENV,
   destKindForRamp,
@@ -276,6 +279,8 @@ export interface RampServiceOptions {
   addressApprovalLinkMinutes?: string;
   /** Identity's trusted devices, for approval from another device (omitted, every such approval refuses unavailable). */
   trustedDevices?: TrustedDevicePort;
+  /** The destination fraud list (W-withdraw-03). Defaults to the bank's own table. */
+  fraudList?: DestinationFraudListPort;
 }
 
 export class RampService {
@@ -296,6 +301,8 @@ export class RampService {
   private readonly approvalMail: ApprovalMailPort;
   private readonly addressApprovalLinkMinutes: string | undefined;
   private readonly trustedDevices: TrustedDevicePort;
+  /** The owner's destination fraud list: read by the address book, written by compliance's desk door. */
+  readonly fraudList: DestinationFraudListPort;
 
   constructor(
     private readonly sql: Sql,
@@ -323,6 +330,7 @@ export class RampService {
     this.approvalMail = options.approvalMail ?? unconfiguredApprovalMail();
     this.addressApprovalLinkMinutes = options.addressApprovalLinkMinutes;
     this.trustedDevices = options.trustedDevices ?? unconfiguredTrustedDevices();
+    this.fraudList = options.fraudList ?? new DestinationFraudList(sql);
   }
 
   private approvalDeps(): AddressApprovalDeps {
@@ -363,6 +371,7 @@ export class RampService {
       proofs: this.walletProofs,
       securityLock: this.securityLock,
       approvalLinks: this.approvalLinks,
+      fraudList: this.fraudList,
     };
   }
 
@@ -397,6 +406,8 @@ export class RampService {
   /** Persist a user withdraw dest (IBAN/IFSC/EVM) so a later offramp has a real ref. Refused while the security lock holds. */
   async setWithdrawDestination(input: { userId: string; kind: string; ref: string; label?: string }) {
     await assertSecurityLockOpen(this.securityLock, input.userId, 'changing a withdrawal address');
+    // An address on the owner's fraud list is never stored as the withdrawal address (W-withdraw-03), on any network.
+    if (await this.fraudList.isListed(null, input.ref)) refuseFraudListed();
     return this.destinations.persist(input);
   }
 
@@ -411,7 +422,7 @@ export class RampService {
   }
 
   /** Whether an address would be taken as typed: its checksum, and any saved entry it shows like but is not. */
-  checkDestination(input: { userId: string; ref: string }): Promise<DestinationCheck> {
+  checkDestination(input: { userId: string; ref: string; network?: string }): Promise<DestinationCheck> {
     return checkDestination(this.customerDeps(), input);
   }
 
@@ -441,6 +452,14 @@ export class RampService {
   /** Whether money may be sent to one saved address now, or what stands in the way first (W-withdraw-09). Read-only. */
   destinationReadiness(input: { userId: string; destinationId: string }): Promise<DestinationReadiness> {
     return destinationReadiness(this.customerDeps(), input);
+  }
+
+  /**
+   * Whether money may be sent to one address of one asset on one network now (J-wallet-05 #6), asked by svc-pay before it
+   * claims a withdrawal to a wallet outside the platform. Read-only.
+   */
+  sendableDestination(input: BankSendDestinationInput): Promise<BankSendDestination> {
+    return sendableDestination(this.customerDeps(), input);
   }
 
   /** Mail a single-use link that approves one new address (W-withdraw-09). Says until when it works; never that it arrived. */
@@ -627,7 +646,20 @@ export class RampService {
       }
     }
     const coolingHours = requireOfframpCoolingHours(this.ownerOfframpCoolingHoursRaw());
+    // A new send never goes to, and never stores, an address on the owner's fraud list (W-withdraw-03): checked before the
+    // offered address is stored and before the claim. Only a send already claimed under this id TO THAT SAME ADDRESS carries
+    // on (a settled one answers as before, a held one is not left held), so a listing made after the claim strands nothing;
+    // a reused id naming a listed address it was not claimed with is refused like a new send, before anything is stored
+    // (the security lock's rule above).
+    const sameAs = (a: string, b: string) => fraudAddressKey(a) === fraudAddressKey(b);
+    const resumesWith = async (ref: string) => {
+      const claimedTo = await this.offrampClaimedTo(input.offrampId, input.userId);
+      return claimedTo !== null && sameAs(ref, claimedTo);
+    };
+    const offered = input.destinationRef?.trim();
+    if (offered && (await this.fraudList.isListed(null, offered)) && !(await resumesWith(offered))) refuseFraudListed();
     const dest = await this.resolveWithdrawDestination(input.userId, input.kind, input.destinationRef);
+    if ((await this.fraudList.isListed(dest.network, dest.ref)) && !(await resumesWith(dest.ref))) refuseFraudListed();
     assertOfframpDestCoolingElapsed(coolingHours, dest.updatedAt);
 
     return withMoneySpan(
