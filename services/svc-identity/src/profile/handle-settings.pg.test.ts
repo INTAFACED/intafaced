@@ -11,6 +11,7 @@ import { AuthService } from '../auth/auth-service.js';
 import { RankService } from '../rank/rank-service.js';
 import { createIdentityRouter } from '../router.js';
 import { SavedRecipientService } from '../saved-recipients.js';
+import { sqlBusinessDirectory } from '../business-directory.js';
 import { createHandleRouter } from './handle-router.js';
 import { HandleSettingsService } from './handle-settings.js';
 
@@ -112,7 +113,7 @@ if (!available) {
       expect(await api.handle.get()).toMatchObject({ handle: 'rule_maker', changesUsed: 0, changeCap: CAP, changesLeft: CAP });
     });
 
-    it('changes the handle, counts it, writes the audit, and releases the old one', async () => {
+    it('changes the handle, counts it, writes the audit, and retires the old one from everyone else', async () => {
       const me = await signUp('old_name');
       const api = await as(me);
       const after = await api.handle.change({ handle: '@new_name', fromHandle: 'old_name' });
@@ -123,10 +124,20 @@ if (!available) {
       expect(audit).toEqual([{ event: 'changed', old_handle: 'old_name', new_handle: 'new_name' }]);
       // A retry of the same change after a lost reply is the same answer, not a second change.
       expect(await api.handle.change({ handle: 'new_name', fromHandle: 'old_name' })).toEqual(after);
+      // A retry that differs only in case is still the same retry: handles are citext.
+      expect(await api.handle.change({ handle: 'new_name', fromHandle: 'OLD_NAME' })).toEqual(after);
+      // The old handle is never handed to anyone else, by a change or by sign-up, whatever its case.
       const other = await signUp('somebody_else');
-      expect(await (await as(other)).handle.change({ handle: 'old_name', fromHandle: 'somebody_else' })).toMatchObject({
-        handle: 'old_name',
+      expect(await refusal((await as(other)).handle.change({ handle: 'Old_Name', fromHandle: 'somebody_else' }))).toMatchObject({
+        trpc: 'CONFLICT',
+        code: 'identity.handle_taken',
       });
+      await expect(signUp('old_name')).rejects.toMatchObject({ code: 'auth.handle_taken' });
+      // Its owner may take it back, which un-retires it and retires the one given up.
+      expect(await api.handle.change({ handle: 'old_name', fromHandle: 'new_name' })).toMatchObject({ handle: 'old_name', changesUsed: 2 });
+      const retired = await db.sql<Array<{ handle: string }>>`
+        SELECT handle::text AS handle FROM retired_handles WHERE user_id = ${me.userId}`;
+      expect(retired.map((r) => r.handle)).toEqual(['new_name']);
     });
 
     it('refuses a taken handle, whatever its case, and a stale fromHandle', async () => {
@@ -167,6 +178,17 @@ if (!available) {
       expect(await api.handle.get()).toMatchObject({ changeCap: null, changesLeft: null, changesUsed: 0 });
     });
 
+    it('refuses a change and a discoverability switch while a security lock holds', async () => {
+      const me = await signUp('locked_one');
+      const api = await as(me);
+      await db.sql`
+        INSERT INTO account_security_locks (user_id, set_by, set_by_user_id) VALUES (${me.userId}, 'self', ${me.userId})`;
+      expect(await refusal(api.handle.change({ handle: 'locked_two', fromHandle: 'locked_one' }))).toMatchObject({
+        code: 'identity.security_locked',
+      });
+      expect(await refusal(api.handle.setDiscoverable({ discoverable: false }))).toMatchObject({ code: 'identity.security_locked' });
+    });
+
     it('refuses an API key and a revoked session', async () => {
       const me = await signUp('key_holder');
       const keyed = router.createCaller(await ctxOf(me, { apiKeyId: '55555555-5555-4555-8555-555555555555' }));
@@ -201,7 +223,11 @@ if (!available) {
         code: 'identity.recipient_unknown',
       });
 
+      // The business payee directory gives the same miss.
+      expect(await sqlBusinessDirectory(db.sql).findActiveByHandle('shy_person')).toBeNull();
+
       expect(await mine.handle.setDiscoverable({ discoverable: true })).toMatchObject({ discoverable: true });
+      expect(await sqlBusinessDirectory(db.sql).findActiveByHandle('shy_person')).toMatchObject({ userId: me.userId });
       expect(await theirs.users.resolveHandle({ handle: 'shy_person' })).toMatchObject({ found: true, userId: me.userId });
       const audit = await db.sql<Array<{ event: string }>>`
         SELECT event FROM handle_audit WHERE user_id = ${me.userId} ORDER BY created_at, id`;

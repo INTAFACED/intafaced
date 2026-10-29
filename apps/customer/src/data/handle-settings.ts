@@ -18,7 +18,7 @@ export const handleSettingsSchema = z.object({
 });
 export type HandleSettings = z.infer<typeof handleSettingsSchema>;
 
-/** The refusal codes the service sends for a change, each naming the rule or state that refused it. */
+/** The refusal codes the service sends for a change or a switch, each naming the rule or state that refused it. */
 export const HANDLE_CHANGE_CODES = [
   'identity.handle_characters',
   'identity.handle_length',
@@ -27,6 +27,10 @@ export const HANDLE_CHANGE_CODES = [
   'identity.handle_changed_elsewhere',
   'identity.handle_change_cap_unset',
   'identity.handle_change_cap_reached',
+  'identity.security_locked',
+  'identity.delegated_refused',
+  'identity.session_not_live',
+  'auth.account_frozen',
 ] as const;
 export type HandleChangeCode = (typeof HANDLE_CHANGE_CODES)[number];
 
@@ -48,5 +52,6 @@ export async function changeHandle(api: ApiClient, input: { handle: string; from
 
 export async function setHandleDiscoverable(api: ApiClient, discoverable: boolean): Promise<HandleSettingsOutcome> {
   const result = await api.mutate('identity', 'handle.setDiscoverable', { discoverable }, handleSettingsSchema);
-  return result.ok ? { kind: 'ok', settings: result.data } : { kind: 'failed' };
+  if (result.ok) return { kind: 'ok', settings: result.data };
+  return known(result.code) ? { kind: 'refused', code: result.code } : { kind: 'failed' };
 }

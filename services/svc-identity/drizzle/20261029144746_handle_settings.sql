@@ -4,7 +4,8 @@
 -- handle_discoverable defaults true: every account was findable by exact handle before this column, and turning it
 -- off is the owner's own choice. handle_changes counts changes since sign-up; the cap itself is an owner setting
 -- (IDENTITY_HANDLE_CHANGE_MAX), never stored here. handle_audit keeps one row per change, written in the same
--- transaction as the change.
+-- transaction as the change. retired_handles holds every handle given up in a change: it is never handed to another
+-- account (sign-up and a change refuse it as taken), so an old QR code or link can never reach a stranger.
 --
 -- Reversal: 20261029144746_handle_settings.down.sql
 
@@ -27,3 +28,9 @@ CREATE TABLE IF NOT EXISTS "identity"."handle_audit" (
 );
 
 CREATE INDEX IF NOT EXISTS "handle_audit_user_idx" ON "identity"."handle_audit" ("user_id", "created_at");
+
+CREATE TABLE IF NOT EXISTS "identity"."retired_handles" (
+  "handle"      citext PRIMARY KEY,
+  "user_id"     uuid NOT NULL REFERENCES "identity"."users"("id"),
+  "retired_at"  timestamptz NOT NULL DEFAULT now()
+);

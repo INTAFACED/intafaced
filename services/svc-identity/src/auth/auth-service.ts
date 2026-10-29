@@ -82,6 +82,7 @@ import {
   type LoginCodeDeps,
   type LoginCodePolicy,
 } from './login-code.js';
+import { handleRetiredByOther, lockHandleClaim } from '../profile/handle-settings.js';
 import { queueServiceMail } from './service-mail.js';
 import { queuePasswordChangedNotice } from './password-changed-notice.js';
 import { queueFactorChangedNotice } from './factor-changed-notice.js';
@@ -1205,6 +1206,10 @@ export class AuthService {
 
   /** The user, profile and rank rows of a new account, inside the caller's transaction. */
   private async insertNewUser(tx: Sql, input: RegisterInput, passwordHash: string): Promise<string> {
+    // A handle someone gave up in a change is never handed out again (PP-send-request-03); the claim lock is shared with
+    // a handle change, so the check below sees settled rows.
+    await lockHandleClaim(tx, input.handle);
+    if (await handleRetiredByOther(tx, input.handle, null)) throw new AuthError('That handle is taken', 'auth.handle_taken');
     const clash = await tx<
       Array<{ handle: string; email: string }>
     >`SELECT handle, email FROM users WHERE handle = ${input.handle} OR email = ${input.email}`;

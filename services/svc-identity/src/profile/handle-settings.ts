@@ -15,8 +15,9 @@
  * - The signed-in owner only, on a live session, never an API key or a sub-account, and never while a security lock
  *   holds. Every change writes an audit row in the same transaction.
  *
- * The old handle is released at once: a contact who saved it is looked up again before a send (Pay's own rule), so a
- * handle that moved to someone else is caught there.
+ * - Retired handles: a handle given up in a change is never handed to anyone else (`retired_handles`), so an old QR
+ *   code, payment link or saved contact can never reach a stranger who claimed it. Its owner may take it back. Sign-up
+ *   and a change claim a handle under the same per-handle advisory lock, so a race cannot slip a retired handle through.
  */
 import type { Sql } from 'postgres';
 import { transaction } from '@intafaced/db';
@@ -50,6 +51,23 @@ export class HandleSettingsError extends Error {
 export const HANDLE_MIN = 3;
 export const HANDLE_MAX = 32;
 const HANDLE_CHARS = /^[a-zA-Z0-9_]+$/;
+
+/**
+ * Hold the per-handle claim lock for the rest of the transaction. Sign-up and a handle change both take it before they
+ * check and write a handle, so "retired?" and "taken?" are answered against settled rows.
+ */
+export async function lockHandleClaim(tx: Sql, handle: string): Promise<void> {
+  await tx`SELECT pg_advisory_xact_lock(hashtext(${'identity.handle:' + handle.toLowerCase()}))`;
+}
+
+/** True when `handle` was given up by an account other than `userId` (null: any account, for sign-up). */
+export async function handleRetiredByOther(tx: Sql, handle: string, userId: string | null): Promise<boolean> {
+  const rows = await tx<Array<{ one: number }>>`
+    SELECT 1 AS one FROM retired_handles
+     WHERE handle = ${handle} AND (${userId}::uuid IS NULL OR user_id <> ${userId}::uuid) LIMIT 1
+  `;
+  return rows.length > 0;
+}
 
 /**
  * The handle the owner asked for, or the rule it breaks. A single leading "@" is how the screen shows a handle, so it is
@@ -114,6 +132,10 @@ export class HandleSettingsService {
       return await transaction(this.sql, async (tx) => {
         await this.requireLive(tx, actor);
         await assertNotSecurityLocked(tx, actor.userId);
+        // Both handles, in one order, so two swaps between the same pair cannot deadlock.
+        const current = await tx<Array<{ handle: string }>>`SELECT handle::text AS handle FROM users WHERE id = ${actor.userId}`;
+        const claims = [...new Set([next, current[0]?.handle ?? next].map((h) => h.toLowerCase()))].sort();
+        for (const claim of claims) await lockHandleClaim(tx, claim);
         const rows = await tx<Row[]>`
           SELECT handle::text AS handle, handle_discoverable, handle_changes, status
             FROM users WHERE id = ${actor.userId} FOR UPDATE
@@ -121,9 +143,11 @@ export class HandleSettingsService {
         const row = rows[0];
         if (!row) throw new HandleSettingsError('auth.not_found', 'No such account');
         if (row.status !== 'active') throw new HandleSettingsError('auth.account_frozen', 'Account is unavailable');
-        // A retry of a change that already landed: the same answer, not a second change.
-        if (row.handle === next && input.fromHandle !== next) return this.view(row);
-        if (row.handle !== input.fromHandle) {
+        // Handles are citext: case never makes two handles. A retry of a change that already landed (the stored handle
+        // is exactly the one asked for, and the caller still names the one before it) answers the same, not a second change.
+        const same = (a: string, b: string) => a.toLowerCase() === b.toLowerCase();
+        if (row.handle === next && !same(input.fromHandle, row.handle)) return this.view(row);
+        if (!same(row.handle, input.fromHandle)) {
           throw new HandleSettingsError('identity.handle_changed_elsewhere', 'Your handle was changed somewhere else');
         }
         if (next === row.handle) throw new HandleSettingsError('identity.handle_unchanged', 'That is already your handle');
@@ -134,15 +158,21 @@ export class HandleSettingsService {
             { used: row.handle_changes, cap },
           );
         }
-        const taken = await tx<Array<{ id: string }>>`
-          SELECT id FROM users WHERE handle = ${next} AND id <> ${actor.userId} LIMIT 1
-        `;
-        if (taken[0]) throw new HandleSettingsError('identity.handle_taken', 'That handle is taken');
+        // Another account's retired handle is taken for good; saying "taken" leaks nothing a sign-up would not.
+        if (await handleRetiredByOther(tx, next, actor.userId)) {
+          throw new HandleSettingsError('identity.handle_taken', 'That handle is taken');
+        }
         const updated = await tx<Row[]>`
           UPDATE users
              SET handle = ${next}, handle_changes = handle_changes + 1, updated_at = now()
            WHERE id = ${actor.userId}
           RETURNING handle::text AS handle, handle_discoverable, handle_changes, status
+        `;
+        // Taking one's own old handle back un-retires it; the handle given up now is retired to this account.
+        await tx`DELETE FROM retired_handles WHERE handle = ${next} AND user_id = ${actor.userId}`;
+        await tx`
+          INSERT INTO retired_handles (handle, user_id) VALUES (${row.handle}, ${actor.userId})
+          ON CONFLICT (handle) DO NOTHING
         `;
         await tx`
           INSERT INTO handle_audit (user_id, session_id, event, old_handle, new_handle)
@@ -151,7 +181,7 @@ export class HandleSettingsService {
         return this.view(updated[0]!);
       });
     } catch (err) {
-      // Two people racing for one handle: the unique index decides, and the loser hears it is taken.
+      // Backstop: the unique index on users.handle decides any race the lock did not, and the loser hears it is taken.
       if ((err as { code?: string }).code === '23505') throw new HandleSettingsError('identity.handle_taken', 'That handle is taken');
       throw err;
     }
@@ -161,6 +191,7 @@ export class HandleSettingsService {
     this.assertOwner(actor);
     return transaction(this.sql, async (tx) => {
       await this.requireLive(tx, actor);
+      await assertNotSecurityLocked(tx, actor.userId);
       const rows = await tx<Row[]>`
         SELECT handle::text AS handle, handle_discoverable, handle_changes, status
           FROM users WHERE id = ${actor.userId} FOR UPDATE

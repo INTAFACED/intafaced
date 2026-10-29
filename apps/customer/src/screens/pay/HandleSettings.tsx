@@ -35,7 +35,7 @@ export function HandleSettings({ handle, onRenamed }: { handle: string; onRename
   const [saving, setSaving] = useState(false);
   const [refusal, setRefusal] = useState<{ code: HandleChangeCode | 'failed'; tried: string } | null>(null);
   const [toggling, setToggling] = useState(false);
-  const [toggleFailed, setToggleFailed] = useState(false);
+  const [toggleFailed, setToggleFailed] = useState<HandleChangeCode | 'failed' | null>(null);
   const inputId = useId();
   const switchLabelId = useId();
   const switchHintId = useId();
@@ -50,9 +50,23 @@ export function HandleSettings({ handle, onRenamed }: { handle: string; onRename
   }, [api, revision]);
 
   const settings = loaded.status === 'ready' ? loaded.settings : null;
+  // The service's answer wins over the handle the screen first read: a change made in another tab shows here, and the
+  // next change names the handle that is really there.
+  const current = settings?.handle ?? handle;
+  useEffect(() => {
+    if (settings && settings.handle !== handle) onRenamed(settings.handle);
+  }, [settings, handle, onRenamed]);
 
   function refusalText(code: HandleChangeCode | 'failed', tried: string): string {
     switch (code) {
+      case 'identity.security_locked':
+        return payCopy.t('Handle security locked');
+      case 'identity.delegated_refused':
+        return payCopy.t('Handle delegated');
+      case 'auth.account_frozen':
+        return payCopy.t('Handle account frozen');
+      case 'identity.session_not_live':
+        return payCopy.t('Sign in again');
       case 'identity.handle_characters':
         return payCopy.t('Handle rule characters');
       case 'identity.handle_length':
@@ -80,7 +94,7 @@ export function HandleSettings({ handle, onRenamed }: { handle: string; onRename
     const tried = draft;
     setSaving(true);
     setRefusal(null);
-    const outcome = await changeHandle(api, { handle: tried, fromHandle: handle });
+    const outcome = await changeHandle(api, { handle: tried, fromHandle: current });
     setSaving(false);
     if (outcome.kind === 'ok') {
       setLoaded({ status: 'ready', settings: outcome.settings });
@@ -97,11 +111,11 @@ export function HandleSettings({ handle, onRenamed }: { handle: string; onRename
   async function toggle(next: boolean) {
     if (toggling) return;
     setToggling(true);
-    setToggleFailed(false);
+    setToggleFailed(null);
     const outcome = await setHandleDiscoverable(api, next);
     setToggling(false);
     if (outcome.kind === 'ok') setLoaded({ status: 'ready', settings: outcome.settings });
-    else setToggleFailed(true);
+    else setToggleFailed(outcome.kind === 'refused' ? outcome.code : 'failed');
   }
 
   const left =
@@ -132,13 +146,13 @@ export function HandleSettings({ handle, onRenamed }: { handle: string; onRename
             {payCopy.t('Find me label')}
           </span>
           <span className="pay-hint" id={switchHintId}>
-            {settings?.discoverable === false ? payCopy.t('Find me off') : payCopy.t('Find me on')}
+            {settings === null ? payCopy.t('Checking handle') : settings.discoverable ? payCopy.t('Find me on') : payCopy.t('Find me off')}
           </span>
         </div>
         <Switch
           aria-labelledby={switchLabelId}
           aria-describedby={switchHintId}
-          checked={settings?.discoverable ?? true}
+          checked={settings?.discoverable ?? false}
           disabled={settings === null || toggling}
           onCheckedChange={(next) => void toggle(next)}
           data-testid="handle-discoverable"
@@ -146,7 +160,7 @@ export function HandleSettings({ handle, onRenamed }: { handle: string; onRename
       </div>
       {toggleFailed ? (
         <p className="pay-problem" role="alert">
-          {payCopy.t('Find me failed')}
+          {toggleFailed === 'failed' ? payCopy.t('Find me failed') : refusalText(toggleFailed, current)}
         </p>
       ) : null}
 
@@ -159,7 +173,7 @@ export function HandleSettings({ handle, onRenamed }: { handle: string; onRename
           size={40}
           disabled={settings === null}
           onClick={() => {
-            setDraft(handle);
+            setDraft(current);
             setRefusal(null);
             setOpen(true);
           }}

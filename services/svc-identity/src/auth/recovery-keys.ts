@@ -247,8 +247,12 @@ export class RecoveryKeys {
     );
     return transaction(this.sql, async (tx) => {
       await check(tx);
+      // A handle its owner hid (PP-send-request-03) is the same miss as an unknown one, unless it is already this plan's heir.
       const [heir] = await tx<Array<{ id: string }>>`
-        SELECT id FROM users WHERE handle = ${handle} AND status = 'active' LIMIT 1`;
+        SELECT id FROM users
+         WHERE handle = ${handle} AND status = 'active'
+           AND (handle_discoverable OR id IN (SELECT heir_user_id FROM recovery_plans WHERE user_id = ${principal.userId}))
+         LIMIT 1`;
       if (!heir) throw new RecoveryKeyError('identity.recovery_heir_unknown');
       if (heir.id === principal.userId) throw new RecoveryKeyError('identity.recovery_heir_self');
       await tx`
