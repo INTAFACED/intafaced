@@ -26,7 +26,7 @@ describe.runIf(Boolean(process.env.TEST_DATABASE_URL))('OPS migration schema own
       expect(privileges).toMatchObject({ database_create: false, schema_create: true });
       await migrateOutreach(service);
       await migrateOutreach(service);
-      expect(await service`SELECT name FROM ops.crm_migrations`).toHaveLength(22);
+      expect(await service`SELECT name FROM ops.crm_migrations`).toHaveLength(23);
       expect(await service`SELECT id FROM ops.crm_erasure_intents`).toHaveLength(0);
     } finally {
       await service?.end();

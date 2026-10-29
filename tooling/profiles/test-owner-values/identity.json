@@ -36,6 +36,11 @@
       "value": "{\"DE\":[{\"type\":\"passport\",\"label\":\"TEST: Passport\",\"originalRequired\":true},{\"type\":\"national_id\",\"label\":\"TEST: National ID card\",\"originalRequired\":true}],\"US\":[{\"type\":\"passport\",\"label\":\"TEST: Passport\",\"originalRequired\":true},{\"type\":\"drivers_license\",\"label\":\"TEST: Driver's license\",\"originalRequired\":true}]}",
       "note": "TEST: accepted ID types for DE and US only, so another country reads not published (J-identity-08 #2)."
     },
+    "IDENTITY_REQUEST_SIGN_WINDOW_SECONDS": {
+      "service": "identity",
+      "value": "300",
+      "note": "LOCAL TEST ONLY, not an owner decision: a five-minute request-signing timestamp window, so a request signed 305 seconds ago is stale and the clock check passes inside it (J-developer-04 #2, J-developer-02 #6)."
+    },
     "IDENTITY_KYC_UPLOAD_MAX_BYTES": {
       "service": "identity",
       "value": "262144",
