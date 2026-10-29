@@ -5,7 +5,7 @@
  * never defaulted. Blank / unpublished → refuse-closed.
  */
 
-import { parseAmount, type Amount } from '@intafaced/ledger-client';
+import { formatAmount, parseAmount, type Amount } from '@intafaced/ledger-client';
 import { logRefusalSpec } from '../refusal-spec-log.js';
 import { OTC_DESK_LAW_RESIDUAL, OtcError } from './errors.js';
 
@@ -138,5 +138,5 @@ export function otcDeskLawStatusLine(law: OtcDeskLaw): string {
     logRefusalSpec('trade.otc_desk_law_blank');
     return 'published=0 residual=otc_desk_law_unset';
   }
-  return `published=1 spreadBps=${law.spreadBps} counterparty=${law.counterparty} ttlMs=${law.quoteTtlMs} maxMidAgeSeconds=${law.maxMidAgeSeconds} settleWindowMs=${law.settleWindowMs ?? 'unset'}`;
+  return `published=1 spreadBps=${law.spreadBps} counterparty=${law.counterparty} ttlMs=${law.quoteTtlMs} maxMidAgeSeconds=${law.maxMidAgeSeconds} settleWindowMs=${law.settleWindowMs ?? 'unset'} minStake=${formatAmount(law.minStake)}`;
 }

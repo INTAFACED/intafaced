@@ -97,16 +97,27 @@ export type ConnectivityState = 'available' | 'host_unset' | 'parked_hardware';
  * three protocols. A low-latency path and colocation need a physical
  * cross-connect and rack space we do not own, so they stay parked on the `hardware` blocker.
  */
-export function connectivityOptions(rows: readonly HostRow[] = hostTable()): { option: ConnectivityOption; state: ConnectivityState }[] {
-  const set = (environment: Environment) =>
-    PROTOCOLS.every((protocol) =>
-      rows.some((row) => row.protocol === protocol && row.environment === environment && row.cell.state === 'set'),
+export function connectivityOptions(
+  rows: readonly HostRow[] = hostTable(),
+): { option: ConnectivityOption; state: ConnectivityState; hosts: HostRow[] }[] {
+  // The hosts an option's endpoint line names, one per protocol, in the base-address table's order.
+  const hosts = (environment: Environment) =>
+    PROTOCOLS.map(
+      (protocol) =>
+        rows.find((row) => row.protocol === protocol && row.environment === environment) ?? {
+          protocol,
+          environment,
+          cell: { state: 'unset' } as HostCell,
+        },
     );
+  const state = (named: HostRow[]): ConnectivityState => (named.every((row) => row.cell.state === 'set') ? 'available' : 'host_unset');
+  const production = hosts('production');
+  const regional = hosts('regional');
   return [
-    { option: 'internet', state: set('production') ? 'available' : 'host_unset' },
-    { option: 'redundant', state: set('regional') ? 'available' : 'host_unset' },
-    { option: 'low_latency', state: 'parked_hardware' },
-    { option: 'colocation', state: 'parked_hardware' },
+    { option: 'internet', state: state(production), hosts: production },
+    { option: 'redundant', state: state(regional), hosts: regional },
+    { option: 'low_latency', state: 'parked_hardware', hosts: [] },
+    { option: 'colocation', state: 'parked_hardware', hosts: [] },
   ];
 }
 
