@@ -20,7 +20,11 @@ export async function rigShare({ host, port, login, pow, start, invalid, timeout
     buffered += chunk;
     let at = buffered.indexOf('\n');
     while (at !== -1) {
-      inbox.push(JSON.parse(buffered.slice(0, at)));
+      try {
+        inbox.push(JSON.parse(buffered.slice(0, at)));
+      } catch {
+        failure ??= new Error('the miner door sent a line that is not JSON');
+      }
       buffered = buffered.slice(at + 1);
       at = buffered.indexOf('\n');
     }
@@ -36,6 +40,8 @@ export async function rigShare({ host, port, login, pow, start, invalid, timeout
   });
   const timer = setTimeout(() => {
     failure ??= new Error(`the miner door at ${host}:${port} did not answer in ${timeoutMs} ms`);
+    // Also ends a connect that never completes.
+    socket.destroy(failure);
     wake?.();
   }, timeoutMs);
   const next = async (match) => {

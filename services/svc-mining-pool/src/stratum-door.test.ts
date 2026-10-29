@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { parseRigUser, readStratumTerms, stratumSession, stratumWindowId, type StratumDoorDeps } from './stratum-door.js';
+import {
+  parseRigUser,
+  readStratumTerms,
+  stratumSession,
+  stratumWindowEndsAt,
+  stratumWindowId,
+  type StratumDoorDeps,
+} from './stratum-door.js';
 
 const ALICE = '11111111-1111-4111-8111-111111111111';
 const TERMS: NodeJS.ProcessEnv = {
@@ -29,6 +36,11 @@ describe('miner door terms and user names', () => {
     expect(stratumWindowId(60, 0)).toBe('stratum:60:0');
     expect(stratumWindowId(60, 59_999)).toBe('stratum:60:0');
     expect(stratumWindowId(60, 60_000)).toBe('stratum:60:1');
+    expect(stratumWindowEndsAt('stratum:60:0')).toBe(60_000);
+    expect(stratumWindowEndsAt('stratum:604800:2948')).toBe(2949 * 604800 * 1000);
+    for (const other of ['LOCAL-TEST-unpaid-window', 'stratum:0:1', 'stratum:60:', 'stratum:60:1:2']) {
+      expect(stratumWindowEndsAt(other), other).toBeNull();
+    }
   });
 
   it('a user name is <account id>.<worker name> fitting the published pattern; no worker name is the default worker', () => {
@@ -36,6 +48,10 @@ describe('miner door terms and user names', () => {
     expect(parseRigUser(`${ALICE}.TEST.Rig-A`, pattern)).toEqual({ minerId: ALICE, workerName: 'Rig-A' });
     expect(parseRigUser(ALICE, pattern)).toEqual({ minerId: ALICE, workerName: 'default' });
     expect(parseRigUser(`${ALICE}.Rig-A`, {})).toEqual({ minerId: ALICE, workerName: 'Rig-A' });
+    // Every {worker} holds the same rig name, as the room fills them all.
+    const twice = { MINING_WORKER_NAME_PATTERN: '{worker}.{worker}' };
+    expect(parseRigUser(`${ALICE}.Rig-A.Rig-A`, twice)).toEqual({ minerId: ALICE, workerName: 'Rig-A' });
+    expect(() => parseRigUser(`${ALICE}.Rig-A.Rig-B`, twice)).toThrow(expect.objectContaining({ code: 'mining.worker_name_invalid' }));
     for (const [raw, env, code] of [
       [`${ALICE}.Rig-A`, pattern, 'mining.worker_name_invalid'],
       [`${ALICE}.TEST.`, pattern, 'mining.worker_name_invalid'],
@@ -51,11 +67,26 @@ describe('miner door terms and user names', () => {
 });
 
 describe('miner door session without a database', () => {
-  const session = (env: NodeJS.ProcessEnv) => {
+  const session = (env: NodeJS.ProcessEnv, clock = { at: 0 }) => {
     const sent: unknown[] = [];
-    const deps = { sql: null as never, env, terms: readStratumTerms(TERMS), now: () => 0 } satisfies StratumDoorDeps;
+    const deps = { sql: null as never, env, terms: readStratumTerms(TERMS), now: () => clock.at } satisfies StratumDoorDeps;
     return { sent, handle: stratumSession(deps, (line) => sent.push(JSON.parse(line))) };
   };
+
+  it('when a window ends, renew sends each authorized rig the new window job, and nothing before it ends', async () => {
+    const clock = { at: 0 };
+    const { sent, handle } = session({ MINING_POW_DIMENSION: '8', MINING_POW_TARGET_BITS: '8', MINING_POW_TESTNET: 'true' }, clock);
+    await handle(JSON.stringify({ id: 1, method: 'mining.authorize', params: [`${ALICE}.Rig-A`] }));
+    expect(sent).toHaveLength(2);
+    clock.at = 604800 * 1000 - 1;
+    handle.renew();
+    expect(sent).toHaveLength(2);
+    clock.at = 604800 * 1000;
+    handle.renew();
+    expect(sent).toHaveLength(3);
+    expect(sent[2]).toMatchObject({ id: null, method: 'mining.notify' });
+    expect((sent[2] as { params: unknown[] }).params[0]).toBe('stratum:604800:1');
+  });
 
   it('blank proof-of-work parameters refuse authorize with mining.pow_spec_unset and send no job', async () => {
     const { sent, handle } = session({});

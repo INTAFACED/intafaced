@@ -381,19 +381,17 @@ test(`${J} #6 opens /mining/workers and sets a minimum difficulty: the list with
 });
 
 /**
- * This account's pooled weight in the open window that holds its work, as the rewards room shows it ("Your weight"). The
- * rig's shares all fall in the miner door's one current window, so exactly one open window holds this account's work
- * (others the stack holds are other accounts' and weigh 0 here).
+ * This account's pooled weight across the open windows, as the rewards room shows it ("Your weight" summed). The rig's
+ * shares fall in the miner door's current window, so this is one window's weight unless a run crosses a window's end;
+ * rows of windows that hold only other accounts' work weigh 0 here.
  */
 async function pooledWeight(page) {
   await page.goto('/mining/rewards');
   const open = tableIn(page, 'Open windows');
   await expect(bodyRows(open).first()).toBeVisible();
-  const mine = (await bodyRows(open).evaluateAll((rows) => rows.map((row) => row.querySelectorAll('td')[1].textContent.trim()))).filter(
-    (weight) => !/^0(\.0+)?$/.test(weight),
-  );
-  expect(mine).toHaveLength(1);
-  return mine[0];
+  const weights = await bodyRows(open).evaluateAll((rows) => rows.map((row) => row.querySelectorAll('td')[1].textContent.trim()));
+  for (const weight of weights) expect(weight).toMatch(/^\d+$/);
+  return String(weights.reduce((sum, weight) => sum + BigInt(weight), 0n));
 }
 
 const share = (...args) => tool('local-test-stack.mjs', 'mining-share', run.read().who.email, ...args);

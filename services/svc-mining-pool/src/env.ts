@@ -18,6 +18,8 @@ const LIMIT_MAX = 10_000;
 const WINDOW_MAX_MS = 86_400_000;
 const TIMEOUT_MAX_MS = 30_000;
 /** Bounds of the pool's reference proof-of-work parameters (`pow.ts`). */
+/** The asset a miner-door window is filed under. */
+export const STRATUM_ASSET_PATTERN = /^[A-Z0-9][A-Z0-9_-]{0,31}$/;
 export const POW_DIMENSION_MIN = 2;
 export const POW_DIMENSION_MAX = 64;
 export const POW_TARGET_BITS_MAX = 32;
@@ -147,12 +149,7 @@ export const miningPublishSchema = z.object({
    * Asset a miner-door window is mined for.
    * NO DEFAULT. Blank leaves the door closed (`mining.stratum_unset`).
    */
-  MINING_STRATUM_ASSET_ID: blankAsAbsent(
-    z
-      .string()
-      .regex(/^[A-Z0-9][A-Z0-9_-]{0,31}$/)
-      .optional(),
-  ),
+  MINING_STRATUM_ASSET_ID: blankAsAbsent(z.string().regex(STRATUM_ASSET_PATTERN).optional()),
 });
 
 /** A whole share difficulty as published: digits, no leading zero, below 10^38. Blank is null; anything else is invalid. */

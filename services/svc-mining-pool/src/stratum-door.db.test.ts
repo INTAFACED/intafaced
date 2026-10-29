@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import { connect, type AddressInfo, type Server, type Socket } from 'node:net';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createTestDatabase, type TestDatabase } from '@intafaced/db';
+import { runEpochPayoutTick } from './epoch-jobs.js';
 import { failingPow, grindPow, type PowSpec } from './pow.js';
 import { MiningReadStore } from './reads.js';
 import { startStratumDoor, stratumWindowId } from './stratum-door.js';
@@ -170,11 +171,37 @@ describe('miner door on a real socket', () => {
     socket.destroy();
   });
 
-  it('a line past the limit closes the connection', async () => {
-    const { socket } = await rig(port);
-    const closed = new Promise<void>((resolve) => socket.once('close', () => resolve()));
-    socket.write('x'.repeat(5_000));
-    await closed;
-    expect(socket.destroyed).toBe(true);
+  it('a line past the limit closes the connection, also when it follows a complete line in the same write', async () => {
+    for (const write of ['x'.repeat(5_000), `\n${'x'.repeat(5_000)}`]) {
+      const { socket } = await rig(port);
+      const closed = new Promise<void>((resolve) => socket.once('close', () => resolve()));
+      socket.write(write);
+      await closed;
+      expect(socket.destroyed).toBe(true);
+    }
+  });
+
+  it('the payout tick leaves the door window rigs are mining in alone, and settles it only once its time is over', async () => {
+    const { socket, call, next } = await rig(port);
+    await call(1, 'mining.authorize', [`${ALICE}.TEST.Rig-A`]);
+    const job = await next();
+    const windowId = job.params![0] as string;
+    const nonce = grindPow(SPEC, Buffer.from(job.params![1] as string, 'hex'));
+    expect(await call(2, 'mining.submit', [`${ALICE}.TEST.Rig-A`, windowId, nonce])).toMatchObject({ result: true });
+    const ledger = { post: vi.fn() };
+    const status = async () =>
+      (await db.sql<{ status: string }[]>`SELECT status FROM mining_pool.windows WHERE window_id = ${windowId}`)[0]!.status;
+
+    expect(await runEpochPayoutTick({ sql: db.sql, ledger, now: () => clock })).toEqual({ paid: [], refused: [] });
+    expect(await status()).toBe('open');
+    // Still open, so the rig's next share in the same window is kept.
+    const second = grindPow(SPEC, Buffer.from(job.params![1] as string, 'hex'), Number.parseInt(nonce, 16) + 1);
+    expect(await call(3, 'mining.submit', [`${ALICE}.TEST.Rig-A`, windowId, second])).toMatchObject({ result: true });
+
+    // Once the window's time is over, the tick settles it: testnet work earns no credit and nothing posts.
+    await expect(runEpochPayoutTick({ sql: db.sql, ledger, now: () => clock + 604800 * 1000 })).rejects.toThrow('mining.testnet_no_credit');
+    expect(await status()).toBe('no_credit');
+    expect(ledger.post).not.toHaveBeenCalled();
+    socket.destroy();
   });
 });

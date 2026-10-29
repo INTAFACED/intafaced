@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { createServer, type Server, type Socket } from 'node:net';
 import type { Sql } from 'postgres';
-import { publishedText, publishedInt, publishedPort, WORKER_PATTERN_MAX } from './env.js';
+import { publishedText, publishedInt, publishedPort, STRATUM_ASSET_PATTERN, WORKER_PATTERN_MAX } from './env.js';
 import { MiningError } from './errors.js';
 import { POW_SPEC_UNSET, powHeader, publishedPowSpec } from './pow.js';
 import { ingestRigShare } from './submit-share.js';
@@ -37,9 +37,10 @@ export const JOB_STALE = 'mining.job_stale';
 
 /** One line of the protocol, in bytes. A longer line closes the connection. */
 export const LINE_MAX = 4_096;
+/** Lines one connection may have waiting; past this the door stops reading it until they are handled. */
+export const PENDING_MAX = 16;
 export const WINDOW_SECONDS_MIN = 60;
 export const WINDOW_SECONDS_MAX = 2_678_400;
-const ASSET = /^[A-Z0-9][A-Z0-9_-]{0,31}$/;
 const ACCOUNT = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 
 export type StratumTerms = { readonly port: number; readonly windowSeconds: number; readonly assetId: string };
@@ -52,13 +53,23 @@ export function readStratumTerms(env: NodeJS.ProcessEnv): StratumTerms {
   if (port === null || port === 'invalid' || windowSeconds === null || windowSeconds === 'invalid' || assetId === null) {
     throw new MiningError('The miner door is not published', STRATUM_UNSET);
   }
-  if (assetId === 'invalid' || !ASSET.test(assetId)) throw new MiningError('The miner door is not published', STRATUM_UNSET);
+  if (assetId === 'invalid' || !STRATUM_ASSET_PATTERN.test(assetId))
+    throw new MiningError('The miner door is not published', STRATUM_UNSET);
   return { port: Number(port), windowSeconds, assetId };
 }
 
 /** The window a share made at `nowMs` belongs to: fixed-length windows counted from the Unix epoch, named with their length. */
 export function stratumWindowId(windowSeconds: number, nowMs: number): string {
   return `stratum:${windowSeconds}:${Math.floor(nowMs / 1000 / windowSeconds)}`;
+}
+
+const DOOR_WINDOW = /^stratum:([1-9]\d{0,7}):(\d{1,12})$/;
+
+/** When a miner-door window ends (ms since the epoch), or null for a window the door did not name. */
+export function stratumWindowEndsAt(windowId: string): number | null {
+  const match = DOOR_WINDOW.exec(windowId);
+  if (!match) return null;
+  return (Number(match[2]) + 1) * Number(match[1]) * 1000;
 }
 
 function escapeRegExp(text: string): string {
@@ -80,9 +91,11 @@ export function parseRigUser(raw: unknown, env: NodeJS.ProcessEnv): { minerId: s
   const pattern = publishedText(env.MINING_WORKER_NAME_PATTERN, WORKER_PATTERN_MAX, false);
   let name = worker;
   if (typeof pattern === 'string' && pattern.includes('{worker}')) {
-    const [before, after] = pattern.split('{worker}', 2) as [string, string];
-    const match = new RegExp(`^${escapeRegExp(before)}(.+)${escapeRegExp(after)}$`).exec(worker);
-    if (!match) throw new MiningError('The worker name does not fit the published pattern', WORKER_NAME_INVALID);
+    // Every `{worker}` holds the same rig name, as the room fills them all.
+    const match = new RegExp(`^${pattern.split('{worker}').map(escapeRegExp).join('(.+)')}$`).exec(worker);
+    if (!match || match.slice(2).some((part) => part !== match[1])) {
+      throw new MiningError('The worker name does not fit the published pattern', WORKER_NAME_INVALID);
+    }
     name = match[1]!;
   }
   if (!WORKER_NAME.test(name)) throw new MiningError('The worker name is not a rig name', WORKER_NAME_INVALID);
@@ -122,7 +135,13 @@ export function stratumSession(deps: StratumDoorDeps, send: (line: string) => vo
     send(JSON.stringify({ id: null, method: 'mining.notify', params: [jobId, header, spec.dimension, spec.targetBits, spec.testnet] }));
   };
 
-  return async function handle(line: string): Promise<void> {
+  /** A new job for every rig whose job is no longer the current window's (the pool's answer to a window ending). */
+  const renew = () => {
+    const current = stratumWindowId(deps.terms.windowSeconds, now());
+    for (const rig of rigs.values()) if (rig.jobId !== current) notify(rig);
+  };
+
+  const handle = async function handle(line: string): Promise<void> {
     let request: { id: unknown; method: unknown; params: unknown };
     try {
       request = JSON.parse(line) as typeof request;
@@ -171,10 +190,15 @@ export function stratumSession(deps: StratumDoorDeps, send: (line: string) => vo
       reply({ id, result: null, error: refusal(error) });
     }
   };
+  return Object.assign(handle, { renew });
 }
 
-/** The TCP listener. Lines are handled one at a time per connection, in order. */
+/**
+ * The TCP listener. Lines are handled one at a time per connection, in order, and the door stops reading a connection
+ * while `PENDING_MAX` of its lines wait. When a window ends, every rig on the connection gets the new window's job.
+ */
 export function startStratumDoor(deps: StratumDoorDeps, host: string): Server {
+  const now = deps.now ?? Date.now;
   const server = createServer((socket: Socket) => {
     socket.setEncoding('utf8');
     const handle = stratumSession(deps, (line) => {
@@ -182,12 +206,29 @@ export function startStratumDoor(deps: StratumDoorDeps, host: string): Server {
     });
     let buffered = '';
     let queue = Promise.resolve();
+    let pending = 0;
+    let boundary: NodeJS.Timeout | undefined;
+    const atNextWindow = () => {
+      const windowMs = deps.terms.windowSeconds * 1000;
+      boundary = setTimeout(
+        () => {
+          queue = queue.then(() => {
+            try {
+              handle.renew();
+            } catch {
+              // Parameters withdrawn mid-window: the next submit refuses by its own code.
+            }
+          });
+          atNextWindow();
+        },
+        // A timer holds at most 2^31 - 1 ms; a longer window wakes early, and renew sends nothing until it ends.
+        Math.min(windowMs - (now() % windowMs), 2_147_483_647),
+      );
+      boundary.unref();
+    };
+    atNextWindow();
     socket.on('data', (chunk: string) => {
       buffered += chunk;
-      if (Buffer.byteLength(buffered) > LINE_MAX && !buffered.includes('\n')) {
-        socket.destroy();
-        return;
-      }
       let at = buffered.indexOf('\n');
       while (at !== -1) {
         const line = buffered.slice(0, at).trim();
@@ -196,10 +237,21 @@ export function startStratumDoor(deps: StratumDoorDeps, host: string): Server {
           socket.destroy();
           return;
         }
-        if (line) queue = queue.then(() => handle(line));
+        if (line) {
+          pending += 1;
+          if (pending >= PENDING_MAX) socket.pause();
+          queue = queue
+            .then(() => handle(line))
+            .then(() => {
+              pending -= 1;
+              if (pending < PENDING_MAX && !socket.destroyed) socket.resume();
+            });
+        }
         at = buffered.indexOf('\n');
       }
+      if (Buffer.byteLength(buffered) > LINE_MAX) socket.destroy();
     });
+    socket.on('close', () => clearTimeout(boundary));
     socket.on('error', () => socket.destroy());
   });
   server.listen(deps.terms.port, host);

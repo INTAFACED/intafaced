@@ -10,7 +10,16 @@ import { MiningError } from './errors.js';
 import { resolveJob, type JobSource } from './job-source.js';
 import { planPplns, type PplnsInput, type PplnsPlan, type PplnsShare } from './pplns.js';
 import { createHash } from 'node:crypto';
-import { POW_INVALID, POW_MISSING, POW_SPEC_UNSET, POW_WEIGHT_FROM_CLIENT, powHeader, powValid, publishedPowSpec } from './pow.js';
+import {
+  POW_INVALID,
+  POW_MISSING,
+  POW_SPEC_UNSET,
+  POW_WEIGHT_FROM_CLIENT,
+  hashLengthPrefixed,
+  powHeader,
+  powValid,
+  publishedPowSpec,
+} from './pow.js';
 import { recordShareRejection } from './share-rejections.js';
 import { persistBlankRewardShares, persistWindowShares, readStoredEpoch, workerNameOf, PG_UNAVAILABLE } from './window-store.js';
 
@@ -168,6 +177,7 @@ export type RigShare = {
  * the miner door never takes work it cannot check.
  */
 export async function ingestRigShare(sql: Sql, env: NodeJS.ProcessEnv, share: RigShare): Promise<void> {
+  // Checked here, not only in checkedWork: with no published parameters a share without a nonce would be kept unchecked.
   if (publishedPowSpec(env) === null) throw new MiningError('Proof-of-work parameters are not published', POW_SPEC_UNSET);
   const nonce = typeof share.powNonce === 'string' ? share.powNonce : '';
   const shareId = `stratum:${prefixedHash([share.windowId, share.minerId, share.workerName, nonce])}`;
@@ -184,14 +194,7 @@ export async function ingestRigShare(sql: Sql, env: NodeJS.ProcessEnv, share: Ri
 }
 
 function prefixedHash(parts: readonly string[]): string {
-  const hash = createHash('sha256');
-  for (const part of parts) {
-    const bytes = Buffer.from(part, 'utf8');
-    const length = Buffer.alloc(4);
-    length.writeUInt32BE(bytes.length);
-    hash.update(length).update(bytes);
-  }
-  return hash.digest('hex');
+  return hashLengthPrefixed(createHash('sha256'), parts).digest('hex');
 }
 
 /**
