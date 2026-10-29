@@ -1,14 +1,16 @@
 import { useState } from 'react';
+import { useDebouncedValue } from '../pay/portal/payments/use-debounced';
 import { useApi } from '../session/session';
 import { usePreferences } from '../../shared/preferences';
 import { displayAmount } from '../../shared/money';
 import { useResource } from '../../shared/resource';
 import { stamp } from '../../screens/money/time';
-import { Button, DataTable, EmptyState, Field, Loading, Panel } from '../../shared/ui';
+import { Button, DataTable, EmptyState, Failure, Field, Loading, Panel } from '../../shared/ui';
 import { Read, Select } from './common';
 import { DisabledAction, Journey, StatRow, type JourneyStep } from './depth-kit';
 import { dependencyReading, MINING_STEPS, poolVerdict, type MiningHealth } from './mining-journey';
 import { miningDepthCopy } from './mining-depth-copy';
+import { miningWorkersCopy } from './mining-workers-copy';
 import {
   bpsToPercent,
   minerShares,
@@ -20,6 +22,8 @@ import {
   sumByAsset,
   sumWeights,
   WINDOW_MINUTES,
+  WORKER_PAGE,
+  workerDifficulty,
   type MinerShares,
   type MinerWorkers,
   type PayoutPage,
@@ -27,11 +31,13 @@ import {
   type PoolTerms,
   type WindowMinutes,
 } from './mining-reads';
+import type { ApiResult } from '../../shared/api';
 import type { Resource } from '../../shared/resource';
 
 type Room = 'Overview' | 'Workers' | 'Shares' | 'Rewards';
 type Health = { resource: Resource<MiningHealth>; reload: () => void };
 type Read<T> = { resource: Resource<T>; reload: () => void };
+type Failed = Extract<ApiResult<unknown>, { ok: false }>;
 type Translate = ReturnType<typeof miningDepthCopy.useCopy>['t'];
 
 export function MiningRooms({ room, health }: { room: Room; health: Health }) {
@@ -114,25 +120,64 @@ export function MiningRooms({ room, health }: { room: Room; health: Health }) {
 function Workers() {
   const api = useApi();
   const [minutes, setMinutes] = useState<WindowMinutes>(60);
+  const [filter, setFilter] = useState('');
+  const [cursor, setCursor] = useState<string | null>(null);
+  // The box shows every key; the service is read once the typing pauses.
+  const name = useDebouncedValue(filter);
+  const input = { windowMinutes: minutes, limit: WORKER_PAGE, ...(name ? { name } : {}), ...(cursor ? { cursor } : {}) };
   const read = useResource(
-    (signal) => api.query('mining', 'workers.mine', { windowMinutes: minutes }, minerWorkers, { signal }),
-    `mining-workers:${minutes}`,
+    (signal) => api.query('mining', 'workers.mine', input, minerWorkers, { signal }),
+    `mining-workers:${minutes}:${name}:${cursor ?? ''}`,
   );
-  return <WorkersView read={read} minutes={minutes} onMinutes={setMinutes} />;
+  const setDifficulty = (workerId: string, minDifficulty: string | null) =>
+    api.mutate('mining', 'workers.setDifficulty', { workerId, minDifficulty }, workerDifficulty);
+  return (
+    <WorkersView
+      read={read}
+      minutes={minutes}
+      onMinutes={(next) => {
+        setCursor(null);
+        setMinutes(next);
+      }}
+      filter={filter}
+      onFilter={(next) => {
+        setCursor(null);
+        setFilter(next);
+      }}
+      paged={cursor !== null}
+      onPage={setCursor}
+      onSetDifficulty={setDifficulty}
+    />
+  );
 }
 
 export function WorkersView({
   read,
   minutes,
   onMinutes,
+  filter = '',
+  onFilter = () => undefined,
+  paged = false,
+  onPage = () => undefined,
+  onSetDifficulty,
 }: {
   read: Read<MinerWorkers>;
   minutes: WindowMinutes;
   onMinutes: (minutes: WindowMinutes) => void;
+  filter?: string;
+  onFilter?: (filter: string) => void;
+  /** True when the roster shows a page after the first. */
+  paged?: boolean;
+  /** A cursor for the next page, or null for the first. */
+  onPage?: (cursor: string | null) => void;
+  onSetDifficulty?: (workerId: string, minDifficulty: string | null) => Promise<ApiResult<{ id: string; minDifficulty: string | null }>>;
 }) {
   const { Copy, t } = miningDepthCopy.useCopy();
+  const w = miningWorkersCopy.useCopy().t;
   const { timeZone } = usePreferences();
   const [name, setName] = useState('');
+  // Held here, outside the roster read, so the saved line survives the reload that follows a save.
+  const [saving, setSaving] = useState<SaveState>({ status: 'idle' });
   return (
     <div className="more-columns">
       <Panel title={t('workersRegister')}>
@@ -152,33 +197,149 @@ export function WorkersView({
           onChange={(value) => onMinutes(WINDOW_MINUTES.find((option) => String(option) === value) ?? 60)}
           options={WINDOW_MINUTES.map((option) => ({ value: String(option), label: t(`window_${option}`) }))}
         />
+        <Field
+          type="search"
+          label={w('filterWorkers')}
+          hint={w('filterHint')}
+          value={filter}
+          maxLength={64}
+          onChange={(event) => onFilter(event.target.value.replace(/[^A-Za-z0-9_-]/g, ''))}
+        />
         <Read resource={read.resource} retry={read.reload}>
-          {(data) =>
-            data.workers.length === 0 ? (
-              <EmptyState title={<Copy k="workersEmpty" />}>
-                <Copy k="workersEmptyBody" />
-              </EmptyState>
-            ) : (
-              <>
-                <DataTable headers={[t('rosterName'), t('rosterWeight'), t('rosterAdded')]} label={t('workersRoster')}>
+          {(data) => (
+            <>
+              <p data-testid="mining-default-difficulty">
+                {data.defaultDifficulty !== null
+                  ? w('defaultDifficulty', { n: data.defaultDifficulty })
+                  : data.defaultDifficultyReason === 'mining.default_difficulty_invalid'
+                    ? w('defaultInvalid')
+                    : w('defaultUnset')}
+              </p>
+              {data.workers.length === 0 ? (
+                filter ? (
+                  <EmptyState title={w('noMatch')} />
+                ) : (
+                  <EmptyState title={<Copy k="workersEmpty" />}>
+                    <Copy k="workersEmptyBody" />
+                  </EmptyState>
+                )
+              ) : (
+                <DataTable
+                  headers={[t('rosterName'), t('rosterWeight'), w('rosterMinDifficulty'), t('rosterAdded')]}
+                  label={t('workersRoster')}
+                >
                   {data.workers.map((worker) => (
                     <tr key={worker.id}>
                       <td lang="und">{worker.name}</td>
                       <td className="numeric">{worker.hashrate === null ? t('rosterNoShares') : displayAmount(worker.hashrate)}</td>
+                      <td className="numeric">{worker.minDifficulty === null ? w('automatic') : worker.minDifficulty}</td>
                       <td>{stamp(worker.createdAt, timeZone)}</td>
                     </tr>
                   ))}
                 </DataTable>
-                <p className="muted">
-                  <Copy k="workersNote" />
-                </p>
-                <p className="muted">{t('asOf', { time: stamp(data.asOf, timeZone) })}</p>
-              </>
+              )}
+              <div className="actions">
+                {paged ? (
+                  <Button variant="secondary" onClick={() => onPage(null)}>
+                    {w('firstPage')}
+                  </Button>
+                ) : null}
+                {data.nextCursor !== null ? (
+                  <Button variant="secondary" onClick={() => onPage(data.nextCursor)}>
+                    {w('nextPage')}
+                  </Button>
+                ) : null}
+              </div>
+              <p className="muted">
+                <Copy k="workersNote" />
+              </p>
+              <p className="muted">{t('asOf', { time: stamp(data.asOf, timeZone) })}</p>
+            </>
+          )}
+        </Read>
+      </Panel>
+      <Panel title={w('difficultyTitle')}>
+        <Read resource={read.resource} retry={read.reload}>
+          {(data) =>
+            data.workers.length === 0 ? (
+              <p className="muted">{w('noWorkerToSet')}</p>
+            ) : (
+              <DifficultyForm workers={data.workers} onSet={onSetDifficulty} onSaved={read.reload} state={saving} onState={setSaving} />
             )
           }
         </Read>
+        <p role="status" className="muted">
+          {saving.status === 'busy'
+            ? w('saving')
+            : saving.status === 'saved'
+              ? saving.n === null
+                ? w('savedAutomatic', { worker: saving.worker })
+                : w('savedSet', { n: saving.n, worker: saving.worker })
+              : ''}
+        </p>
+        {saving.status === 'failed' ? <Failure result={saving.failure} /> : null}
+        <p className="muted">{w('difficultyNote')}</p>
       </Panel>
     </div>
+  );
+}
+
+const DIFFICULTY = /^[1-9]\d{0,37}$/;
+type SaveState =
+  { status: 'idle' } | { status: 'busy' } | { status: 'saved'; worker: string; n: string | null } | { status: 'failed'; failure: Failed };
+
+function DifficultyForm({
+  workers,
+  onSet,
+  onSaved,
+  state,
+  onState: setState,
+}: {
+  workers: MinerWorkers['workers'];
+  onSet?: (workerId: string, minDifficulty: string | null) => Promise<ApiResult<{ id: string; minDifficulty: string | null }>>;
+  onSaved: () => void;
+  state: SaveState;
+  onState: (state: SaveState) => void;
+}) {
+  const w = miningWorkersCopy.useCopy().t;
+  const [picked, setPicked] = useState(workers[0]?.id ?? '');
+  const [value, setValue] = useState('');
+  const worker = workers.find((row) => row.id === picked) ?? workers[0];
+  const invalid = value !== '' && !DIFFICULTY.test(value);
+  async function save(minDifficulty: string | null) {
+    if (!worker || !onSet) return;
+    setState({ status: 'busy' });
+    const result = await onSet(worker.id, minDifficulty);
+    if (!result.ok) return setState({ status: 'failed', failure: result });
+    setState({ status: 'saved', worker: worker.name, n: result.data.minDifficulty });
+    onSaved();
+  }
+  return (
+    <>
+      <Select
+        label={w('difficultyWorker')}
+        value={worker?.id ?? ''}
+        onChange={setPicked}
+        options={workers.map((row) => ({ value: row.id, label: row.name }))}
+      />
+      <Field
+        label={w('difficultyField')}
+        hint={w('difficultyHint')}
+        error={invalid ? w('difficultyInvalid') : undefined}
+        inputMode="numeric"
+        value={value}
+        maxLength={38}
+        onChange={(event) => setValue(event.target.value.replace(/\D/g, ''))}
+      />
+      <div className="actions">
+        <Button disabled={!onSet || state.status === 'busy' || value === '' || invalid} onClick={() => void save(value)}>
+          {w('save')}
+        </Button>
+        <Button variant="secondary" disabled={!onSet || state.status === 'busy'} onClick={() => void save(null)}>
+          {w('useAutomatic')}
+        </Button>
+      </div>
+    </>
   );
 }
 
