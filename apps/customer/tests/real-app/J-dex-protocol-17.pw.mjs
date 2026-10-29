@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test';
 import { TOKEN_A, TOKEN_B, UNBUILT, connectWallet, dexRun } from './dex.mjs';
 import { fundedTrader, signIn } from './desk.mjs';
-import { fund, toUnits } from './stack.mjs';
+import { api, fund, toUnits } from './stack.mjs';
 import { bodyRows, tableIn } from './tables.mjs';
 
 // J-dex-protocol-17, in the running app (docs/roadmap/journeys.json): see what I pay, what I get back, and stake IFC to
@@ -16,6 +16,7 @@ import { bodyRows, tableIn } from './tables.mjs';
 // - there is no maker rebate or futures cost breakdown (D-fees-governance-02), no referral code (D-fees-governance-03),
 //   no IFC stake plans (RC-dex-protocol-20) or governance staking and delegation (D-fees-governance-05);
 // - #3's sub-account clause has no sub-account the app can make yet.
+// - #9's stored runs and empty-book reading need a buyback run that can settle; the job cannot place its buy yet.
 const J = 'J-dex-protocol-17';
 const dex = dexRun(`${J}-wallet`);
 const account = dexRun(J);
@@ -170,19 +171,30 @@ test(`${J} #8 stakes governance tokens and delegates the vote: a cooldown before
 test(`${J} #9 opens the burn page: stored buyback runs that add up per row; "job not set" or "empty book" as real readings; no estimate when the rate is blank`, async ({
   page,
 }) => {
-  await person(page);
+  const who = await person(page);
   await page.goto('/token/burn');
   const runs = tableIn(main(page), 'Buyback runs');
   await expect(runs).toBeVisible(UNBUILT);
   const headers = ['Recorded', 'Revenue window', 'Bought', 'Burned', 'Sent to rewards'];
   await expect(runs.getByRole('columnheader')).toHaveText(headers);
   await expect(main(page)).toContainText('The latest 50 settled runs, newest first.');
-  // No run can settle on this stack: the job is not set and its trade place is unpublished. So the real reading is an
-  // empty record, never an invented row. That each stored row adds up is refused at the service and the page schema.
+  // The page's readings are compared with the token service's own read, not with the page alone.
+  const read = await (await api(who)).get(`/api/token/trpc/buybackRuns?input=${encodeURIComponent(JSON.stringify({ limit: 50 }))}`);
+  expect(read.status, JSON.stringify(read.body).slice(0, 300)).toBe(200);
+  const service = read.body.result.data;
+  // The test stack runs no buyback job and the trade place is unpublished, so the service reads "job not set", no
+  // stored run and a blank rate; the page shows exactly those readings, never an invented row.
+  expect(service.job).toBe('unset');
+  expect(service.rate).toBeNull();
+  expect(service.runs).toHaveLength(0);
   await expect(bodyRows(runs)).toHaveCount(0);
   await expect(main(page).getByText('No buyback run has settled.', { exact: true })).toBeVisible();
-  // The test stack runs no buyback job (BUYBACK_JOB_ENABLED is false there), so the real reading is "Job not set".
   await expect(main(page).getByTestId('buyback-job')).toHaveText(/^Job not set: /);
-  // The stack leaves the buyback rate blank, as production does until the owner sets it.
   await expect(main(page).getByTestId('buyback-estimate')).toHaveText('No estimate: the buyback rate is not set.');
+  // The step's core clause is stored runs that add up per row, and "empty book" as a job reading. Neither can be read
+  // on this stack until a TEST run can settle, so the step stays red by name rather than green on blank states.
+  expect(
+    await bodyRows(runs).count(),
+    'BLOCKED (buyback_job_unset): the buyback job cannot place its buy (the trade place is unpublished), so no run is stored to add up per row and no empty-book reading exists',
+  ).toBeGreaterThan(0);
 });
