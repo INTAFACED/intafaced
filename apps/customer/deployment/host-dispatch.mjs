@@ -83,9 +83,30 @@ async function get(fetchImpl, origin, path, timeoutMs, { anyStatus = false } = {
 
 const notServed = (role, origin, why) => ({ role, host: origin, result: hostCode('not_served'), detail: why });
 
-async function checkApex(fetchImpl, origin, timeoutMs) {
-  const got = await get(fetchImpl, origin, '/', timeoutMs);
+/** What the apex build publishes at APEX_DESCRIPTOR_PATH, as the customer build publishes /customer-deployment.json. */
+export const APEX_DESCRIPTOR_PATH = '/apex-deployment.json';
+export const APEX_PRODUCT = 'intafaced-apex';
+
+/**
+ * The apex serves its own build: its index mounts neither the customer app (#root) nor the invitation site (#app), and
+ * its descriptor names the apex product. A descriptor marked `test` is the local stack's stand-in, accepted only in
+ * LOCAL TEST mode.
+ */
+async function checkApex(fetchImpl, origin, timeoutMs, localTest) {
+  const wrong = (detail) => ({ role: 'apex', host: origin, result: hostCode('apex_wrong_build'), detail });
+  const index = await get(fetchImpl, origin, '/', timeoutMs);
+  if (index.failed) return notServed('apex', origin, index.failed);
+  if (/id=["'](root|app)["']/.test(index.body)) return wrong('the apex host is serving the customer or invitation index');
+  const got = await get(fetchImpl, origin, APEX_DESCRIPTOR_PATH, timeoutMs, { anyStatus: true });
   if (got.failed) return notServed('apex', origin, got.failed);
+  let descriptor;
+  try {
+    descriptor = got.status >= 200 && got.status <= 299 ? JSON.parse(got.body) : null;
+  } catch {
+    descriptor = null;
+  }
+  if (descriptor?.product !== APEX_PRODUCT) return wrong('the apex host publishes no apex descriptor');
+  if (descriptor.test === true && !localTest) return wrong('the apex descriptor is the local test stand-in');
   return { role: 'apex', host: origin, result: 'served', buildId: buildIdOf(got.body) };
 }
 
@@ -200,7 +221,7 @@ export async function runHostDispatch({
     hosts = refused;
   } else {
     hosts = await Promise.all([
-      checkApex(fetchImpl, origins.apex, timeoutMs),
+      checkApex(fetchImpl, origins.apex, timeoutMs, localTest),
       checkApp(fetchImpl, origins.app, timeoutMs),
       checkJoin(fetchImpl, origins.join, timeoutMs),
     ]);

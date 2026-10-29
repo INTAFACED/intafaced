@@ -23,7 +23,8 @@
  *   -notify, -agents, -blueprint, -quant, -execution, -tax, -campaigns) · svc-ops (the outreach intake and CRM) ·
  *   svc-protocol (the Web3 rooms' read side; no chain node) · svc-ws (the streams behind /ws) ·
  *   svc-edge · a small Customer static server + reverse proxy on http://127.0.0.1:3210 · the same
- *   for the public invitation site (apps/invitation) on http://127.0.0.1:3220 · the founder console
+ *   for the public invitation site (apps/invitation) on http://127.0.0.1:3220 · a TEST apex stand-in page on
+ *   http://127.0.0.1:3260 (the host check's apex; the real apex is deployed outside this repo) · the founder console
  *   (apps/admin, a production Next build) on http://127.0.0.1:3100
  *
  *   pnpm local:stack plan                 print services, ports and Edge wiring; changes nothing
@@ -60,6 +61,7 @@ import path from 'node:path';
 import { createRequire } from 'node:module';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { apiSecurityHeaders, securityHeaders } from '../../apps/customer/deployment/render-security-headers.mjs';
+import { APEX_DESCRIPTOR_PATH, APEX_PRODUCT } from '../../apps/customer/deployment/host-dispatch.mjs';
 import { marketStatus } from './local-test-market.mjs';
 import { serveVideoStore } from './local-video-store.mjs';
 import academy from './local-stack-services/academy.mjs';
@@ -132,6 +134,7 @@ const P = {
   invitationDist: path.join(REPO, 'apps', 'invitation', 'dist'),
   customerDistFile: path.join(STATE, 'customer-dist.json'),
   hostReceipt: path.join(STATE, 'host-dispatch.json'),
+  apexDist: path.join(STATE, 'apex-test'),
   cspViolations: path.join(STATE, 'csp-violations.jsonl'),
   admin: path.join(REPO, 'apps', 'admin'),
   adminBuildId: path.join(REPO, 'apps', 'admin', '.next', 'BUILD_ID'),
@@ -173,6 +176,8 @@ const PORTS = {
   ws: 14523,
   customer: 3210,
   invitation: 3220,
+  // LOCAL TEST stand-in for the apex host (the host check); the real apex site is not in this repo.
+  apex: 3260,
   admin: 3100,
 };
 const HOST = '127.0.0.1';
@@ -182,6 +187,7 @@ const CUSTOMER_ORIGIN = `http://${HOST}:${PORTS.customer}`;
 const CUSTOMER_LOCALHOST_ORIGIN = `http://localhost:${PORTS.customer}`;
 const ADMIN_ORIGIN = `http://${HOST}:${PORTS.admin}`;
 const INVITATION_ORIGIN = `http://${HOST}:${PORTS.invitation}`;
+const APEX_ORIGIN = `http://${HOST}:${PORTS.apex}`;
 const DB_NAME = 'intafaced_local_test';
 const DB_ADMIN = 'local_test_admin';
 // One Postgres schema + one login role (svc_<schema>) per service that owns tables.
@@ -1245,6 +1251,32 @@ async function startInvitation() {
   await waitHealthy('invitation', url, pid, 20_000);
 }
 
+/**
+ * LOCAL TEST: the apex host's stand-in, a TEST page and an apex descriptor marked `test` written to the state folder on
+ * every start. The real apex (the marketing site) is built and deployed outside this repo, so this stack has no apex
+ * build to serve; the host check accepts a `test` descriptor only in its LOCAL TEST mode.
+ */
+function writeApexStandIn() {
+  fs.mkdirSync(P.apexDist, { recursive: true });
+  const descriptor = { product: APEX_PRODUCT, schemaVersion: 1, test: true };
+  fs.writeFileSync(path.join(P.apexDist, APEX_DESCRIPTOR_PATH.slice(1)), `${JSON.stringify(descriptor, null, 2)}\n`);
+  fs.writeFileSync(
+    path.join(P.apexDist, 'index.html'),
+    '<!doctype html><html lang="en"><head><meta charset="utf-8"><title>TEST apex stand-in</title></head>' +
+      "<body><main><h1>TEST apex stand-in</h1><p>This machine's local test stack. No deployment is shown.</p></main></body></html>\n",
+  );
+}
+
+async function startApex() {
+  const procs = readProcs();
+  const url = `${APEX_ORIGIN}/`;
+  writeApexStandIn();
+  if (ownedAlive(procs.apex) && (await httpGet(url, 2000)).status === 200) return;
+  if (await portOpen(PORTS.apex)) fail(`port ${PORTS.apex} (apex) is in use by a process this script did not start`);
+  const pid = startProc('apex', [process.execPath, SCRIPT, '__serve-apex'], baseEnv(), REPO);
+  await waitHealthy('apex', url, pid, 20_000);
+}
+
 /** The founder console's env: the four settings apps/admin needs to sign founders in on a local http origin. */
 function adminEnv(secrets) {
   return {
@@ -1376,6 +1408,13 @@ async function healthTable({ gateMarket = false } = {}) {
     procs.invitation?.pid ?? '-',
     invitation.status === 200 && invitation.text.includes(BANNER_TEXT) ? 'ok (banner on)' : `DOWN (${invitation.status})`,
   ]);
+  const apex = await httpGet(`${APEX_ORIGIN}/`, 2500);
+  rows.push([
+    'apex',
+    PORTS.apex,
+    procs.apex?.pid ?? '-',
+    apex.status === 200 && apex.text.includes(BANNER_TEXT) ? 'ok (TEST)' : `DOWN (${apex.status})`,
+  ]);
   const admin = await httpGet(`${ADMIN_ORIGIN}/login`, 4000);
   rows.push(['admin', PORTS.admin, procs.admin?.pid ?? '-', admin.status === 200 ? 'ok' : `DOWN (${admin.status})`]);
   // The test market maker is not a service of the stack, but its prices freeze silently when it dies (it did, twice).
@@ -1393,7 +1432,7 @@ function onlyFlag(flags) {
   const at = flags.indexOf('--only');
   if (at === -1) return null;
   const names = (flags[at + 1] ?? '').split(',').filter(Boolean);
-  const known = [...serviceNames(), 'video-store', 'customer', 'invitation', 'admin'];
+  const known = [...serviceNames(), 'video-store', 'customer', 'invitation', 'apex', 'admin'];
   const bad = names.filter((n) => !known.includes(n));
   if (names.length === 0 || bad.length)
     fail(`--only needs a comma list of: ${known.join(', ')}${bad.length ? ` (unknown: ${bad.join(', ')})` : ''}`, 2);
@@ -1470,7 +1509,8 @@ async function cmdStart(flags) {
     fail('customer build missing; run with --rebuild');
   if (!only || only.includes('customer')) await startCustomer();
   if (!only || only.includes('invitation')) await startInvitation();
-  if (!only || only.includes('customer') || only.includes('invitation')) await checkLocalTestHosts();
+  if (!only || only.includes('apex')) await startApex();
+  if (!only || HOST_SITES.some((name) => only.includes(name))) await checkLocalTestHosts();
   if (!only || only.includes('admin')) await startAdmin(secrets);
   ensureMarket();
   say('');
@@ -1522,10 +1562,10 @@ function ensureMarket() {
 
 async function cmdStop(names = []) {
   const procs = readProcs();
-  const order = ['admin', 'invitation', 'customer', ...serviceNames().reverse(), 'video-store', 'nats'];
+  const order = ['admin', 'apex', 'invitation', 'customer', ...serviceNames().reverse(), 'video-store', 'nats'];
   const only = names.length ? names : null;
   // A TEST host receipt never outlives the sites it says are served (checkLocalTestHosts writes it again on start).
-  if (!only || only.includes('customer') || only.includes('invitation')) fs.rmSync(P.hostReceipt, { force: true });
+  if (!only || HOST_SITES.some((name) => only.includes(name))) fs.rmSync(P.hostReceipt, { force: true });
   let bad = false;
   for (const name of order) {
     if (only && !only.includes(name)) continue;
@@ -1595,7 +1635,7 @@ function cmdPlan(flags) {
 
 /** Stop the named services (plain stop, leaves Postgres and the rest alone), then start whatever is not running. */
 async function cmdRestart(names) {
-  const known = [...serviceNames(), 'video-store', 'customer', 'invitation', 'admin'];
+  const known = [...serviceNames(), 'video-store', 'customer', 'invitation', 'apex', 'admin'];
   const bad = names.filter((n) => !known.includes(n));
   if (names.length === 0 || bad.length)
     fail(`restart needs service names from: ${known.join(', ')}${bad.length ? ` (unknown: ${bad.join(', ')})` : ''}`, 2);
@@ -1615,18 +1655,21 @@ const customerWsUpstream = () => (process.env.LOCAL_STACK_WS_UPSTREAM === 'off' 
 
 // ── LOCAL TEST hosts ────────────────────────────────────────────────────────
 
+/** The sites the host check reads; starting or stopping any of them checks again or drops the receipt. */
+const HOST_SITES = ['customer', 'invitation', 'apex'];
+
 /** Where the Customer app reads the host dispatch receipt (apps/customer/src/features/public/host-dispatch.ts). */
 const HOST_RECEIPT_PATH = '/host-dispatch.json';
 
 /**
  * The apex, app and join hosts on this machine: TEST stand-ins on loopback, made from this stack's own ports and never
- * an owner value. The invitation site stands in for the apex (this stack serves no separate apex site) and is the join
- * host; the Customer server is the app host. `LOCAL_STACK_HOSTS=off` on a start or restart leaves all three unset, so a
+ * an owner value. The apex is the stack's TEST apex page (writeApexStandIn), the invitation site is the join host and the
+ * Customer server is the app host. `LOCAL_STACK_HOSTS=off` on a start or restart leaves all three unset, so a
  * journey can see the typed refusal.
  */
 export function localTestHosts(env = process.env) {
   if (env.LOCAL_STACK_HOSTS === 'off') return {};
-  return { INTAFACED_APEX_HOST: INVITATION_ORIGIN, INTAFACED_APP_HOST: CUSTOMER_ORIGIN, INTAFACED_JOIN_HOST: INVITATION_ORIGIN };
+  return { INTAFACED_APEX_HOST: APEX_ORIGIN, INTAFACED_APP_HOST: CUSTOMER_ORIGIN, INTAFACED_JOIN_HOST: INVITATION_ORIGIN };
 }
 
 /**
@@ -1699,10 +1742,14 @@ export function customerSecurityHeaders() {
   return securityHeaders({ mediaSrc: `'self' blob: ${urlOf('video-store')}`, reportUri: CSP_REPORT_PATH });
 }
 
-/** The two static sites this stack serves, each with `/api/*` passed to Edge. The invitation site has no folder override. */
+/**
+ * The static sites this stack serves. The Customer and invitation sites pass `/api/*` to Edge; the TEST apex page has no
+ * api. Only the Customer site has a folder override.
+ */
 const SITES = {
   customer: { label: 'Customer', origin: CUSTOMER_ORIGIN, dist: () => activeCustomerDist(), headers: () => customerSecurityHeaders() },
   invitation: { label: 'invitation', origin: INVITATION_ORIGIN, dist: () => ({ dir: P.invitationDist, error: null }), headers: () => ({}) },
+  apex: { label: 'apex', origin: APEX_ORIGIN, dist: () => ({ dir: P.apexDist, error: null }), headers: () => ({}), noApi: true },
 };
 
 /** One CSP report body (application/csp-report or reports+json) as the rows csp-violations.jsonl keeps. */
@@ -1797,7 +1844,8 @@ function serveCustomer(port = PORTS.customer, site = SITES.customer) {
       });
       return;
     }
-    if (p === '/api' || p === '/ws') return send(res, 404, 'text/plain; charset=utf-8', 'not found');
+    if (p === '/api' || p === '/ws' || (site.noApi && p.startsWith('/api/')))
+      return send(res, 404, 'text/plain; charset=utf-8', 'not found');
     if (p.startsWith('/ws/')) {
       if (!wsUpstream) return send(res, 503, 'application/json', JSON.stringify(WS_UPSTREAM_REFUSAL));
       const up = http.request(
@@ -2955,6 +3003,7 @@ async function runCli() {
   if (cmd === '__serve-customer')
     serveCustomer(Number(rest[0]) || PORTS.customer); // the port argument is for tests only
   else if (cmd === '__serve-invitation') serveCustomer(PORTS.invitation, SITES.invitation);
+  else if (cmd === '__serve-apex') serveCustomer(PORTS.apex, SITES.apex);
   else if (cmd === '__serve-admin') await serveAdmin();
   else if (cmd === '__serve-video-store')
     serveVideoStore({

@@ -1,4 +1,5 @@
 import { execFileSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { existsSync, mkdtempSync, readFileSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -22,7 +23,8 @@ const J = 'J-home-ia-11';
 const STATE = localStackState();
 const COMPOSE = ['docker-compose.yml', 'docker-compose.apps.yml'];
 const OUTBOX = path.join(STATE, OUTBOX_NAME);
-// The stack's invitation site, which stands in for the apex and is the join host on this stack (localTestHosts).
+// The stack's TEST apex page, its invitation site (the join host) and the Customer server (the app host): localTestHosts.
+const APEX = 'http://127.0.0.1:3260';
 const INVITATION = 'http://127.0.0.1:3220';
 
 test.describe.configure({ mode: 'default' });
@@ -255,6 +257,13 @@ test(`${J} #4 the same image started as staging or production: the seed service 
 const restartCustomer = (env = {}) =>
   run('tooling/scripts/local-test-stack.mjs', ['restart', 'customer'], { LOCAL_STACK_HOSTS: '', ...env });
 const HOST_RECEIPT = path.join(STATE, 'host-dispatch.json');
+// The host check's build id: the first 16 hex of the sha256 of what the host served (host-dispatch.mjs).
+const buildIdOf = (body) => createHash('sha256').update(body).digest('hex').slice(0, 16);
+/** The Customer build the stack serves: a saved folder override (customer-dist), else this checkout's own build. */
+function customerDist() {
+  const saved = path.join(STATE, 'customer-dist.json');
+  return existsSync(saved) ? JSON.parse(readFileSync(saved, 'utf8')).path : path.join(ROOT, 'apps', 'customer', 'dist');
+}
 
 /** The receipt the Customer server publishes at /host-dispatch.json, or null when it answers with anything but JSON. */
 async function publishedReceipt(page) {
@@ -296,13 +305,33 @@ test(`${J} #5 the apex, app and join hosts are checked: a receipt of three serve
   for (const appEnv of ['staging', 'production']) {
     const refused = run(check, ['--local-test', '--out', local], {
       APP_ENV: appEnv,
-      INTAFACED_APEX_HOST: INVITATION,
+      INTAFACED_APEX_HOST: APEX,
       INTAFACED_APP_HOST: CUSTOMER,
       INTAFACED_JOIN_HOST: INVITATION,
     });
     expect(refused.status, refused.out).toBe(2);
     expect(refused.out).toContain('host dispatch (TEST): all (not checked) host.local_test_refused');
     expect(existsSync(local)).toBe(false);
+  }
+
+  // On the stack's own sites: one host dark and two served names only the dark one; an apex serving the join site's
+  // build is the wrong build, not served.
+  const oneOff = [
+    [{ INTAFACED_APEX_HOST: 'http://127.0.0.1:9' }, ['host.not_served', 'served', 'served']],
+    [{ INTAFACED_APP_HOST: 'http://127.0.0.1:9' }, ['served', 'host.not_served', 'served']],
+    [{ INTAFACED_APEX_HOST: INVITATION }, ['host.apex_wrong_build', 'served', 'served']],
+  ];
+  for (const [change, results] of oneOff) {
+    const hosts = { INTAFACED_APEX_HOST: APEX, INTAFACED_APP_HOST: CUSTOMER, INTAFACED_JOIN_HOST: INVITATION, ...change };
+    const checked = run(check, ['--local-test', '--out', local], { APP_ENV: 'test', ...hosts });
+    expect(checked.status, checked.out).toBe(1);
+    const got = JSON.parse(readFileSync(local, 'utf8'));
+    expect(got).toMatchObject({ status: 'refused', test: true });
+    expect(got.hosts.map((host) => [host.role, host.host, host.result])).toEqual([
+      ['apex', hosts.INTAFACED_APEX_HOST, results[0]],
+      ['app', hosts.INTAFACED_APP_HOST, results[1]],
+      ['join', hosts.INTAFACED_JOIN_HOST, results[2]],
+    ]);
   }
 
   // The blank case on the stack: restarted with its TEST hosts unset, the check names each host's typed refusal, the
@@ -330,7 +359,7 @@ test(`${J} #5 the apex, app and join hosts are checked: a receipt of three serve
 
   // The pass: a TEST receipt in which the apex, app and join hosts are each served, read back from what the Customer
   // server publishes and from the Help room, row by row, with its TEST label.
-  const want = { apex: INVITATION, app: CUSTOMER, join: INVITATION };
+  const want = { apex: APEX, app: CUSTOMER, join: INVITATION };
   const served = await publishedReceipt(page);
   expect(served, 'the Customer server published no host dispatch receipt').not.toBeNull();
   expect(served).toMatchObject({ schemaVersion: 1, status: 'served', test: true });
@@ -338,6 +367,18 @@ test(`${J} #5 the apex, app and join hosts are checked: a receipt of three serve
     Object.entries(want).map(([role, host]) => [role, host, 'served']),
   );
   expect(JSON.parse(readFileSync(HOST_RECEIPT, 'utf8'))).toEqual(served);
+  // Each build id is the stack's own build: the apex stand-in's descriptor and the Customer descriptor as built on disk,
+  // and the invitation index as served at /join, which loads the invitation build's own assets.
+  const buildIds = Object.fromEntries(served.hosts.map((host) => [host.role, host.buildId]));
+  expect(buildIds.apex).toBe(buildIdOf(readFileSync(path.join(STATE, 'apex-test', 'apex-deployment.json'))));
+  expect(buildIds.app).toBe(buildIdOf(readFileSync(path.join(customerDist(), 'customer-deployment.json'))));
+  const join = await page.request.get(`${INVITATION}/join`);
+  const joinBody = await join.text();
+  expect(buildIds.join).toBe(buildIdOf(joinBody));
+  const builtAssets = readFileSync(path.join(ROOT, 'apps', 'invitation', 'dist', 'index.html'), 'utf8').match(/\/assets\/[^"']+/g);
+  expect(builtAssets?.length, 'the invitation build references its assets').toBeGreaterThan(0);
+  for (const asset of builtAssets) expect(joinBody).toContain(asset);
+  expect(new Set(Object.values(buildIds)).size, 'three distinct builds').toBe(3);
   await page.goto('/help');
   await expect(page.getByTestId('host-dispatch')).toBeVisible();
   await expect(page.getByTestId('host-dispatch-test')).toHaveText('TEST');

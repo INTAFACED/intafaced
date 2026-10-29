@@ -1,4 +1,5 @@
 import { test } from 'node:test';
+import { createHash } from 'node:crypto';
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
 import { spawn, spawnSync } from 'node:child_process';
@@ -12,6 +13,8 @@ const script = fileURLToPath(new URL('./host-dispatch.mjs', import.meta.url));
 const customerIndex = '<!doctype html><html><body><div id="root"></div></body></html>';
 const inviteIndex = '<!doctype html><html><body><div id="app"></div></body></html>';
 const descriptor = JSON.stringify({ product: 'intafaced-customer', frontend: 'react', transport: 'same-origin', schemaVersion: 1 });
+const apexDescriptor = JSON.stringify({ product: 'intafaced-apex', schemaVersion: 1 });
+const apexStandIn = JSON.stringify({ product: 'intafaced-apex', schemaVersion: 1, test: true });
 const edgeError = (path) => JSON.stringify([{ error: { message: 'No procedure', code: -32004, data: { code: 'NOT_FOUND', path } } }]);
 
 const listen = (server) => new Promise((resolve) => server.listen(0, '127.0.0.1', () => resolve(server.address().port)));
@@ -53,7 +56,7 @@ async function stubs(handlers) {
 }
 
 const healthy = {
-  apex: () => [200, 'marketing'],
+  apex: (path) => (path === '/apex-deployment.json' ? [200, apexDescriptor] : [200, '<!doctype html><main>marketing</main>']),
   app: (path) => (path === '/customer-deployment.json' ? [200, descriptor] : [200, customerIndex]),
   join: (path) => (path.startsWith('/api/ops/trpc/') ? [404, edgeError(path.slice('/api/ops/trpc/'.length))] : [200, inviteIndex]),
 };
@@ -108,6 +111,39 @@ test('the join host answering with the customer index is host.join_wrong_build',
     assert.equal(ok, false);
     assert.equal(hosts.find((host) => host.role === 'join').result, 'host.join_wrong_build');
     assert.equal(hosts.find((host) => host.role === 'app').result, 'served');
+  });
+});
+
+test('the apex host is host.apex_wrong_build unless it serves its own build', async () => {
+  const cases = [
+    ['serving the join index', () => [200, inviteIndex]],
+    ['serving the customer index', () => [200, customerIndex]],
+    ['with no apex descriptor', (path) => (path === '/apex-deployment.json' ? [404, 'not found'] : [200, 'marketing'])],
+    ['with the customer descriptor', (path) => (path === '/apex-deployment.json' ? [200, descriptor] : [200, 'marketing'])],
+    ['with the local test stand-in descriptor', (path) => (path === '/apex-deployment.json' ? [200, apexStandIn] : [200, 'marketing'])],
+  ];
+  for (const [label, apex] of cases) {
+    await withRun({ ...healthy, apex }, undefined, async ({ run }) => {
+      const { ok, hosts } = await run();
+      assert.equal(ok, false, label);
+      assert.equal(hosts.find((host) => host.role === 'apex').result, 'host.apex_wrong_build', label);
+      assert.deepEqual(
+        hosts.filter((host) => host.role !== 'apex').map((host) => host.result),
+        ['served', 'served'],
+        label,
+      );
+    });
+  }
+});
+
+test('each served build id is the hash of what that host served: the apex and app descriptors, the join index', async () => {
+  await withRun(healthy, undefined, async ({ run }) => {
+    const { hosts } = await run();
+    const id = (body) => createHash('sha256').update(body).digest('hex').slice(0, 16);
+    assert.deepEqual(
+      hosts.map((host) => host.buildId),
+      [id(apexDescriptor), id(descriptor), id(inviteIndex)],
+    );
   });
 });
 
@@ -303,8 +339,10 @@ async function withLoopback(handlers, assertions) {
   }
 }
 
+const standInApex = (path) => (path === '/apex-deployment.json' ? [200, apexStandIn] : [200, '<!doctype html><main>TEST</main>']);
+
 test('LOCAL TEST: three served loopback sites write a receipt marked test, with each host and its result', async () => {
-  await withLoopback(healthy, async ({ env, receiptFile }) => {
+  await withLoopback({ ...healthy, apex: standInApex }, async ({ env, receiptFile }) => {
     const { ok, written } = await runHostDispatch({ env, receiptFile, localTest: true, timeoutMs: 2000 });
     assert.equal(ok, true);
     assert.equal(written, true);
