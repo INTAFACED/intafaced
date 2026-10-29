@@ -117,14 +117,17 @@ if (!available) {
 
     it('a retake replaces a selfie nobody has decided, row and frame; a decided one is kept', async () => {
       const userId = await person();
+      const REVIEWER = await person();
       const first = await desk.submit(userId, { contentType: 'image/jpeg', bytes: JPEG });
       const second = await desk.submit(userId, { contentType: 'image/jpeg', bytes: JPEG });
       expect((await desk.listFor(userId, 10)).map((s) => s.id)).toEqual([second.id]);
       expect(await docs(userId)).toBe(1);
-      await expect(desk.decide({ selfieId: first.id, decision: 'accepted', reviewerId: userId })).rejects.toMatchObject({
+      await expect(
+        desk.decide({ selfieId: first.id, decision: 'accepted', reviewerId: REVIEWER, approvalParties: [] }),
+      ).rejects.toMatchObject({
         code: 'kyc.selfie_unknown',
       });
-      await desk.decide({ selfieId: second.id, decision: 'rejected', reviewerId: userId });
+      await desk.decide({ selfieId: second.id, decision: 'rejected', reviewerId: REVIEWER, approvalParties: [] });
       const third = await desk.submit(userId, { contentType: 'image/jpeg', bytes: JPEG });
       expect((await desk.listFor(userId, 10)).map((s) => [s.id, s.status])).toEqual([
         [third.id, 'provided'],
@@ -138,12 +141,21 @@ if (!available) {
       const reviewer = await person();
       const selfie = await desk.submit(userId, { contentType: 'image/jpeg', bytes: JPEG });
       expect(await desk.assertDecidable(selfie.id, 'accepted')).toBe(userId);
-      const decided = await desk.decide({ selfieId: selfie.id, decision: 'accepted', reviewerId: reviewer });
+      const decided = await desk.decide({ selfieId: selfie.id, decision: 'accepted', reviewerId: reviewer, approvalParties: [] });
       expect(decided).toMatchObject({ id: selfie.id, status: 'accepted', decidedAt: expect.any(String) });
-      expect(await desk.decide({ selfieId: selfie.id, decision: 'accepted', reviewerId: reviewer })).toEqual(decided);
+      expect(await desk.decide({ selfieId: selfie.id, decision: 'accepted', reviewerId: reviewer, approvalParties: [] })).toEqual(decided);
       await expect(desk.assertDecidable(selfie.id, 'rejected')).rejects.toMatchObject({ code: 'kyc.selfie_decided' });
-      await expect(desk.decide({ selfieId: selfie.id, decision: 'rejected', reviewerId: reviewer })).rejects.toMatchObject({
+      await expect(
+        desk.decide({ selfieId: selfie.id, decision: 'rejected', reviewerId: reviewer, approvalParties: [] }),
+      ).rejects.toMatchObject({
         code: 'kyc.selfie_decided',
+      });
+      // Nobody decides their own, whether as the reviewer or as a party to the approval.
+      const mine = await desk.submit(reviewer, { contentType: 'image/jpeg', bytes: JPEG });
+      await expect(
+        desk.decide({ selfieId: mine.id, decision: 'accepted', reviewerId: userId, approvalParties: [reviewer] }),
+      ).rejects.toMatchObject({
+        code: 'auth.kyc_self_review',
       });
       expect((await desk.read(userId)).latest).toMatchObject({ status: 'accepted' });
     });

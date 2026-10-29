@@ -29,6 +29,7 @@ import type {
 import type { KycProfileUploadCaps } from '@intafaced/contracts/identity-kyc-profile';
 import type { KycDocumentVault } from './document-store.js';
 import { assertWithinUploadCaps } from './profile.js';
+import { assertNotOwnKyc } from '../auth/auth-service.js';
 
 export type KycSelfieErrorCode =
   | 'kyc.selfie_type'
@@ -205,12 +206,19 @@ export class KycSelfieDesk {
   /**
    * A person's decision after comparing the selfie with the ID photo. Once only: the same decision again returns the
    * stored one, the other refuses `kyc.selfie_decided`. A replaced selfie is gone and refuses `kyc.selfie_unknown`.
+   * Nobody decides their own: the reviewer and the approval's two parties are checked again under the row lock.
    */
-  async decide(input: { selfieId: string; decision: KycSelfieDecision; reviewerId: string }): Promise<KycSelfieForCompliance> {
+  async decide(input: {
+    selfieId: string;
+    decision: KycSelfieDecision;
+    reviewerId: string;
+    approvalParties: readonly string[];
+  }): Promise<KycSelfieForCompliance> {
     return await transaction(this.sql, async (tx) => {
       const [row] = await tx<ComplianceRow[]>`
         SELECT id, user_id, document_id, via, status, created_at, decided_at FROM kyc_selfies WHERE id = ${input.selfieId} FOR UPDATE`;
       if (!row) throw new KycSelfieError('That selfie is not known', 'kyc.selfie_unknown');
+      assertNotOwnKyc(row.user_id, [input.reviewerId, ...input.approvalParties]);
       if (row.status === input.decision) return toComplianceView(row);
       if (row.status !== 'provided') throw new KycSelfieError('That selfie was already decided', 'kyc.selfie_decided');
       const [updated] = await tx<ComplianceRow[]>`

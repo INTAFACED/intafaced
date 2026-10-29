@@ -818,7 +818,9 @@ describe('kyc.selfie (I-kyc-compliance-09)', () => {
     expect(codeOf(await (await caller(['identity:write'])).kyc.selfie.decide(input).catch((e: unknown) => e))).toBe('FORBIDDEN');
     expect(await (await make()).kyc.selfie.decide(input)).toMatchObject({ status: 'accepted', captureCheck: 'not_checked' });
     expect(hashes).toEqual([identityActionPayloadHash('kyc.selfie.decide', { selfieId: SELFIE, decision: 'accepted' })]);
-    expect(decided).toEqual([{ selfieId: SELFIE, decision: 'accepted', reviewerId: OPERATOR }]);
+    expect(decided).toEqual([
+      { selfieId: SELFIE, decision: 'accepted', reviewerId: OPERATOR, approvalParties: ['requester', CONFIRM_KYC] },
+    ]);
   });
 });
 

@@ -2534,11 +2534,16 @@ export function createIdentityRouter(
                 parties?.requesterId,
                 parties?.approverId,
               ]);
-              await consumePrivileged(ctx.principal.userId, input, 'kyc.selfie.decide', {
+              const consumed = await consumePrivileged(ctx.principal.userId, input, 'kyc.selfie.decide', {
                 selfieId: input.selfieId,
                 decision: input.decision,
               });
-              return await desk.decide({ selfieId: input.selfieId, decision: input.decision, reviewerId: ctx.principal.userId });
+              return await desk.decide({
+                selfieId: input.selfieId,
+                decision: input.decision,
+                reviewerId: ctx.principal.userId,
+                approvalParties: [consumed.requesterId, consumed.approverId],
+              });
             } catch (err) {
               throw toTrpcError(err);
             }
