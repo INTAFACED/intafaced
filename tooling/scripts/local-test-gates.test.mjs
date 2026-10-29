@@ -46,6 +46,9 @@ import {
   nextTotpStep,
   TOTP_SKEW_STEPS,
   EDGE_AUTHORITY_CACHE_MAX_MS,
+  POSTING_FREEZE_REASON,
+  postingFreezePlan,
+  postingFreezeProposal,
 } from './local-test-gates.mjs';
 import { draftFounderVault } from './local-test-founders.mjs';
 import { TEST_SPOT_LISTINGS, localTestDatabaseUrl } from './seed-spot-test-listing.mjs';
@@ -96,8 +99,8 @@ try {
 
   // Guard 5: every CLI command refuses (exit 1) with no marker.
   const nothing = mkdtempSync(join(tmpdir(), 'local-test-gates-none-'));
-  for (const cmd of ['apply', 'operators', 'lifecycle', 'open', 'verify', 'status']) {
-    const r = run(nothing, [cmd]);
+  for (const cmd of ['apply', 'operators', 'lifecycle', 'open', 'verify', 'status', ['posting-freeze', 'on'], ['posting-freeze', 'off']]) {
+    const r = run(nothing, [cmd].flat());
     assert.equal(r.status, 1, `${cmd}: ${r.stderr}`);
     assert.match(r.stderr, /refusing: state directory .* not found/);
   }
@@ -520,5 +523,65 @@ assert.equal(
   EDGE_AUTHORITY_CACHE_MAX_MS,
   "the gates wait exactly as long as Edge's authority cache can hold a session's tier",
 );
+
+// The platform posting freeze. svc-ledger's `ledgerActionPayloadHash` is TypeScript that imports
+// @intafaced/contracts, so this plain-node test cannot import it without a build; the pins below check only the
+// parts that decide whether an approval is consumable (the hash recipe, the action types and targets, the freeze
+// reason as the one hashed field, the version binding, the founder audience), not the surrounding text.
+const ledgerConsume = readFileSync(resolve(here, '../../services/svc-ledger/src/ledger/action-approval-consume.ts'), 'utf8');
+assert.ok(ledgerConsume.includes('JSON.stringify({ actionType, ...fields })'), 'ledger hash recipe changed');
+assert.ok(ledgerConsume.includes("`sha256:${createHash('sha256')"), 'ledger hash prefix changed');
+const ledgerOperator = readFileSync(resolve(here, '../../services/svc-ledger/src/operator-http.ts'), 'utf8').replace(/\s+/g, ' ');
+assert.ok(
+  ledgerOperator.includes("'ledger.freeze', 'posting_freeze', prior.changedAtPrecise, { reason: parsed.reason, }"),
+  'freeze consume changed',
+);
+assert.ok(ledgerOperator.includes("'ledger.unfreeze', 'posting_unfreeze', prior.changedAtPrecise, {}"), 'unfreeze consume changed');
+const audience = readFileSync(resolve(here, '../../services/svc-identity/src/auth/action-approval-audience.ts'), 'utf8');
+const founderLevel = /FOUNDER_LEVEL_ACTION_TYPES[^=]*=\s*\[([^\]]*)\]/.exec(audience)?.[1] ?? '';
+assert.ok(founderLevel.includes("'ledger.freeze'") && founderLevel.includes("'ledger.unfreeze'"), 'the freeze verbs are founder-level');
+// The same hash svc-ledger computes, by behaviour: sha256 over { actionType, ...fields } in that order.
+const version = '2026-10-29 05:00:00.123456+00';
+const on = postingFreezeProposal(true, version);
+assert.deepEqual(
+  [on.actionType, on.targetService, on.targetId, on.expectedVersion, on.policyVersion],
+  ['ledger.freeze', 'svc-ledger', 'posting_freeze', version, 'local-test:v1'],
+);
+assert.equal(on.payloadHash, sha({ actionType: 'ledger.freeze', reason: POSTING_FREEZE_REASON.trim() }));
+const off = postingFreezeProposal(false, version);
+assert.deepEqual([off.actionType, off.targetId, off.expectedVersion], ['ledger.unfreeze', 'posting_unfreeze', version]);
+assert.equal(off.payloadHash, sha({ actionType: 'ledger.unfreeze' }));
+assert.throws(() => postingFreezeProposal(true, undefined), /freeze version/);
+assert.throws(() => postingFreezeProposal(false, ''), /freeze version/);
+// svc-ledger wants a reason of 12 to 500 characters after trimming; the freeze carries the LOCAL TEST label.
+assert.ok(POSTING_FREEZE_REASON.trim().length >= 12 && POSTING_FREEZE_REASON.length <= 500);
+assert.ok(POSTING_FREEZE_REASON.startsWith(MARKERS.label));
+// Planning, from the record founder A reads, before anyone else signs in.
+const ours = { frozen: true, reason: POSTING_FREEZE_REASON, actor: 'f-a', version };
+const open0 = { frozen: false, reason: null, actor: null, version };
+assert.deepEqual(postingFreezePlan(open0, false), { action: 'skip' });
+assert.deepEqual(postingFreezePlan(ours, true), { action: 'skip' });
+assert.deepEqual(postingFreezePlan(open0, true), { action: 'run' });
+assert.deepEqual(postingFreezePlan(ours, false), { action: 'run' });
+// A freeze this tool did not set is refused both ways: `off` never lifts it, `on` never reports it as its own.
+const foreignState = { frozen: true, reason: 'reconciliation mismatch on USDT', actor: 'reconciliation', version };
+for (const want of [true, false]) {
+  const plan = postingFreezePlan(foreignState, want);
+  assert.equal(plan.action, 'refuse', `foreign freeze, ${want ? 'on' : 'off'}`);
+  assert.match(plan.why, /reconciliation mismatch on USDT.*reconciliation/);
+}
+// No state, or a change with no version to bind the approval to, refuses before any second sign-in.
+assert.equal(postingFreezePlan(null, true).action, 'refuse');
+assert.equal(postingFreezePlan({ reason: null }, true).action, 'refuse');
+assert.match(postingFreezePlan({ ...open0, version: undefined }, true).why, /version/);
+assert.match(postingFreezePlan({ ...ours, version: '' }, false).why, /version/);
+assert.deepEqual(postingFreezePlan({ ...open0, version: undefined }, false), { action: 'skip' });
+// Usage is checked before the stack is: a bad or missing on|off exits 2 without reading any marker.
+for (const args of [['posting-freeze'], ['posting-freeze', 'maybe']]) {
+  const r = spawnSync(process.execPath, [script, ...args], { env: { ...process.env, HOME: tmpdir() }, encoding: 'utf8' });
+  assert.equal(r.status, 2, r.stderr);
+  assert.match(r.stderr, /usage: local-test-gates\.mjs posting-freeze on\|off/);
+  assert.doesNotMatch(r.stderr, /refusing/);
+}
 
 console.log('local-test-gates: marker, builder, hash and planning checks passed');
