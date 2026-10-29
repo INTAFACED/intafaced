@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { notifyCopy } from './copy';
 import type { Notification } from './notify-api';
-import { describe as describeNotification, linkFor, whenLabel, type NotifyMarket } from './notify-view';
+import { carriesFigure, describe as describeNotification, linkFor, whenLabel, type NotifyMarket } from './notify-view';
 
 const BTC_ID = '0f7bf12e-3e49-4ad6-920f-25dc5c39e860';
 const markets = new Map<string, NotifyMarket>([[BTC_ID, { id: BTC_ID, base: 'BTC', quote: 'USDT' }]]);
@@ -116,5 +116,18 @@ describe('whenLabel', () => {
   it('then shows the date in the picked zone, and "—" for an unreadable time', () => {
     expect(whenLabel('2026-10-10T23:30:00Z', now, 'UTC+8', copy)).toBe('11 Oct, 07:30 UTC+8');
     expect(whenLabel('not a date', now, 'device', copy)).toBe('—');
+  });
+});
+
+describe('carriesFigure', () => {
+  it('is true for a row that names an amount or a quantity', () => {
+    expect(carriesFigure({ params: { asset: 'USDT', amount: '100' } })).toBe(true);
+    expect(carriesFigure({ params: { qty: '0.5' } })).toBe(true);
+  });
+  it('is false for a row with no figure, or a figure that is not a decimal', () => {
+    expect(carriesFigure({ params: {} })).toBe(false);
+    expect(carriesFigure({ params: { amount: '' } })).toBe(false);
+    expect(carriesFigure({ params: { amount: 100 } })).toBe(false);
+    expect(carriesFigure({ params: { amount: 'lots' } })).toBe(false);
   });
 });
