@@ -189,10 +189,10 @@ export interface WithdrawalNetworkRuleServiceDeps {
  * `pay.withdrawal_tag_not_taken`, and so does a send that names no network (a send inside the platform has no tag). On a
  * network that takes one it refuses `pay.withdrawal_tag_unsupported`: no withdrawal row keeps a tag yet, so sending without
  * it would lose the money at the receiving wallet. A pair with no rules refuses `withdrawal_network_rules.unset`. Runs before
- * the send is asked of anything else, so nothing is claimed or held.
+ * the claim, so nothing is claimed or held.
  */
 export async function refuseWithdrawalTag(sql: Sql | null, assetId: string, networkId: string | undefined): Promise<never> {
-  if (!networkId) throw new PayError('A send inside the platform takes no tag or memo; nothing was held', 'pay.withdrawal_tag_not_taken');
+  if (!networkId) throw new PayError('A send with no network takes no tag or memo; nothing was held', 'pay.withdrawal_tag_not_taken');
   if (!sql) throw new WithdrawalNetworkRuleError('withdrawal_network_rules.unwired', 'withdrawal rules need the pay database');
   const rules = await readWithdrawalNetworkRules(sql, assetId, networkId);
   if (rules.tag === 'none') {

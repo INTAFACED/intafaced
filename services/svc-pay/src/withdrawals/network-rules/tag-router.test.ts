@@ -64,13 +64,12 @@ const input = {
 };
 
 describe('withdrawal.create with a tag', () => {
-  it('refuses a tag by name and asks no guard, rail or ledger', async () => {
-    const { api, money, gate } = caller();
+  it('refuses a tag by name before anything is claimed or held', async () => {
+    const { api, money } = caller();
     await expect(api.withdrawal.create({ ...input, destination: { ...input.destination, tag: '12345' } })).rejects.toMatchObject({
+      code: 'BAD_REQUEST',
       cause: expect.objectContaining({ code: 'pay.withdrawal_tag_not_taken' }),
     });
-    expect(gate.assertDirectAllowed).not.toHaveBeenCalled();
-    expect(money.platformDestination).not.toHaveBeenCalled();
     expect(money.withdraw).not.toHaveBeenCalled();
     expect(money.withdrawInternal).not.toHaveBeenCalled();
   });
@@ -79,7 +78,18 @@ describe('withdrawal.create with a tag', () => {
     const { api, money, gate } = caller();
     money.withdraw.mockRejectedValueOnce(new Error('stop here'));
     await expect(api.withdrawal.create(input)).rejects.toBeDefined();
-    expect(gate.assertDirectAllowed).toHaveBeenCalledWith(expect.objectContaining({ destination: input.destination }));
-    expect(money.withdraw).toHaveBeenCalledWith(expect.objectContaining({ destination: input.destination }));
+    const [gateCall] = gate.assertDirectAllowed.mock.calls[0] as unknown as [{ destination: object }];
+    const [sent] = money.withdraw.mock.calls[0] as unknown as [{ destination: object }];
+    expect(gateCall.destination).toEqual(input.destination);
+    expect(gateCall.destination).not.toHaveProperty('tag');
+    expect(sent.destination).toEqual(input.destination);
+    expect(sent.destination).not.toHaveProperty('tag');
+  });
+
+  it('refuses a memo under any other key instead of stripping it', async () => {
+    const { api, money } = caller();
+    const memo = { ...input, destination: { ...input.destination, memo: '12345' } } as unknown as typeof input;
+    await expect(api.withdrawal.create(memo)).rejects.toMatchObject({ code: 'BAD_REQUEST' });
+    expect(money.withdraw).not.toHaveBeenCalled();
   });
 });

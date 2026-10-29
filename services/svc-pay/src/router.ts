@@ -2162,8 +2162,11 @@ export function createPayRouter(
             assetId: assetIdSchema,
             amount: amountSchema,
             railId: z.string().min(1),
-            /** A tag or memo, when the sender names one: refused by name (J-wallet-05 #1), never silently dropped. */
-            destination: z.object({ kind: z.string().min(1), ref: z.string().min(1), tag: z.string().min(1).max(128).optional() }),
+            /**
+             * A tag or memo, when the sender names one: refused by name (J-wallet-05 #1), never silently dropped. Strict, so a
+             * memo under any other key is refused as a bad request instead of stripped.
+             */
+            destination: z.object({ kind: z.string().min(1), ref: z.string().min(1), tag: z.string().min(1).max(64).optional() }).strict(),
             /**
              * REQUIRED, not optional. A timed-out request that is retried
              * without one opens a second withdrawal, and a second withdrawal is
@@ -2186,9 +2189,7 @@ export function createPayRouter(
         .output(withdrawalView)
         .mutation(({ ctx, input }) =>
           wrap(async () => {
-            // J-wallet-05 #1: a tag is refused by name before anything else is asked, so nothing is claimed or held.
             const { tag, ...destination } = input.destination;
-            if (tag !== undefined) await refuseWithdrawalTag(portalSql, input.assetId, input.networkId);
             // A withdrawal the user's policy sends to approvers (or a reference that already names a request) is refused
             // here with `withdrawal_approval.required`: the direct door never sends what approvers have not approved.
             await withdrawalApprovals?.assertDirectAllowed({
@@ -2215,6 +2216,9 @@ export function createPayRouter(
             const internal =
               input.railId === INTERNAL_RAIL ||
               (await userMoney.platformDestination(ctx.principal.userId, destination)).kind !== 'external';
+            // J-wallet-05 #1: a tag is refused by name before anything is claimed or held. A send inside the platform uses no
+            // network, so no network's rule applies to it.
+            if (tag !== undefined) await refuseWithdrawalTag(portalSql, input.assetId, internal ? undefined : input.networkId);
             return toWithdrawalOut(
               internal
                 ? await userMoney.withdrawInternal(request)
@@ -2712,6 +2716,8 @@ export function toTrpcError(err: unknown): unknown {
       case 'pay.chargeback_outcome_busy':
       case 'pay.price_archived':
       case 'pay.product_archived':
+      /** The request is well-formed; the platform has no way to carry a tag on that network. */
+      case 'pay.withdrawal_tag_unsupported':
         return 'PRECONDITION_FAILED' as const;
       case 'pay.invalid_transition':
       case 'pay.payout_recovery_conflict':
