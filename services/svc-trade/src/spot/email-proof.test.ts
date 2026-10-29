@@ -148,6 +148,7 @@ describe('OTC accept', () => {
         maxMidAgeSeconds: 60,
         // A zero desk minimum is an owner value: these quotes are not held by the CB-otc-07 minimum.
         minNotional: { USDT: 0n },
+        assets: ['BTC'],
       },
       midSource: createObservedOtcMidSource('BTC/USDT:200', () => now),
       now: () => now,

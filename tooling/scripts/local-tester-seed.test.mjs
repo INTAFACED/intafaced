@@ -54,14 +54,19 @@ test('a dev build runs every step in order, each with only its own flag, and pas
       ['local-founder-seed.mjs', 'init'],
       ['local-founder-seed.mjs', 'enrol'],
       ['local-test-seed.mjs', 'apply', '--state', '/tmp/stack'],
+      ['local-test-seed.mjs', 'home', '--state', '/tmp/stack'],
       ['local-test-seed.mjs', 'status', '--state', '/tmp/stack'],
     ],
   );
-  assert.equal(w.calls[0].env.INTAFACED_LOCAL_FOUNDER, '1');
-  assert.equal(w.calls[0].env.LOCAL_TEST, undefined);
-  assert.equal(w.calls[2].env.LOCAL_TEST, '1');
-  assert.equal(w.calls[2].env.INTAFACED_LOCAL_FOUNDER, undefined);
-  assert.equal(w.lines.at(-1), 'seed: done (4 steps)');
+  for (const call of w.calls.slice(0, 2)) {
+    assert.equal(call.env.INTAFACED_LOCAL_FOUNDER, '1');
+    assert.equal(call.env.LOCAL_TEST, undefined);
+  }
+  for (const call of w.calls.slice(2)) {
+    assert.equal(call.env.LOCAL_TEST, '1');
+    assert.equal(call.env.INTAFACED_LOCAL_FOUNDER, undefined);
+  }
+  assert.equal(w.lines.at(-1), 'seed: done (5 steps)');
   assert.deepEqual(Object.keys(STEPS), [...DEFAULT_STEPS]);
 });
 
