@@ -264,16 +264,14 @@ function founders() {
   return founderSessions;
 }
 
-let treasuryToken;
 /**
  * What the ledger itself holds free for `userId` (its `available` accounts at `user:<id>`), in units per asset, read
- * at svc-ledger's operator account search with the console's TEST treasury credential (founder a, second factor). A
+ * at svc-ledger's operator account search with founder a's session (second factor) carrying `admin:treasury`. A
  * frozen owner cannot sign in, so their balances are read as an operator reads them.
  */
 async function ledgerFree(userId) {
-  const { gates, ctx } = await founders();
-  treasuryToken ??= (await gates.consoleTreasuryToken(ctx, { ttlSeconds: 900 }))?.token;
-  expect(treasuryToken, 'the stack has no enrolled founder pair').toBeTruthy();
+  const { ctx, sessions } = await founders();
+  const treasuryToken = await sessions.a.treasuryToken();
   const res = await fetch(`${ctx.url('ledger')}/operator/accounts?prefix=${encodeURIComponent(`user:${userId}`)}`, {
     headers: { authorization: `Bearer ${treasuryToken}` },
   });
@@ -476,6 +474,7 @@ test.describe('recovery keys', () => {
     await heirSetup.close();
     const heirApi = await api(heir);
     const heirBefore = await apiFree(heirApi);
+    const heirLedgerBefore = await ledgerFree(heirApi.userId);
     expect(fund(owner.email, 'USDT', '125').tx).toBeTruthy();
     expect(fund(owner.email, 'BTC', '0.02').tx).toBeTruthy();
     // Two staff confirm a death notice on the owner (RC-identity-02). Recording it changes nothing; without a second
@@ -539,13 +538,16 @@ test.describe('recovery keys', () => {
     await expect(moved).not.toContainText('Refused');
     await expect(heirPage.getByText('Nothing is left to move.')).toBeVisible();
     await expect(heirPage.getByText(/^Claimed /)).toBeVisible();
-    // The ledger, not the page: the heir gained exactly 125 USDT and 0.02 BTC, and the owner holds nothing free.
+    // Balances, not the page: the heir gained exactly 125 USDT and 0.02 BTC, read both from their own API and from the
+    // ledger, and the ledger holds nothing free on the owner in any asset.
     const heirAfter = await apiFree(heirApi);
     expect(heirAfter.USDT ?? 0n).toBe((heirBefore.USDT ?? 0n) + toUnits('125'));
     expect(heirAfter.BTC ?? 0n).toBe((heirBefore.BTC ?? 0n) + toUnits('0.02'));
+    const heirLedgerAfter = await ledgerFree(heirApi.userId);
+    expect(heirLedgerAfter.USDT ?? 0n).toBe((heirLedgerBefore.USDT ?? 0n) + toUnits('125'));
+    expect(heirLedgerAfter.BTC ?? 0n).toBe((heirLedgerBefore.BTC ?? 0n) + toUnits('0.02'));
     const ownerAfter = await ledgerFree(ownerId);
-    expect(ownerAfter.USDT ?? 0n).toBe(0n);
-    expect(ownerAfter.BTC ?? 0n).toBe(0n);
+    for (const [asset, units] of Object.entries(ownerAfter)) expect(units, `owner's free ${asset}`).toBe(0n);
     // Claiming again moves nothing twice.
     await heirPage.getByLabel('Recovery key 1').fill(keys[0]);
     await heirPage.getByLabel('Recovery key 2').fill(keys[1]);
@@ -553,6 +555,7 @@ test.describe('recovery keys', () => {
     await expect(heirPage.getByText('Nothing new to move. Everything free was moved already.')).toBeVisible({ timeout: 20_000 });
     // The second claim moved nothing, by balance: both sides read exactly what they read after the first.
     expect(await apiFree(heirApi)).toEqual(heirAfter);
+    expect(await ledgerFree(heirApi.userId)).toEqual(heirLedgerAfter);
     expect(await ledgerFree(ownerId)).toEqual(ownerAfter);
     await heirContext.close();
   });
