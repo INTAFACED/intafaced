@@ -1,6 +1,6 @@
 /**
  * Founder desks that svc-ops owns: custody posture, joint-restore watermarks,
- * alert acknowledgement.
+ * idempotency keys.
  *
  * Blank config refuses with a typed code. This module does not invent a
  * balance, a key, an alert, or a completed restore.
@@ -15,8 +15,6 @@ import {
   type ActionApprovalConsumeInput,
 } from '@intafaced/contracts';
 import {
-  OPS_ALERT_PROBE_UNCONFIGURED,
-  OPS_ALERT_SOURCE_UNCONFIGURED,
   OPS_APPROVAL_MISSING,
   OPS_APPROVAL_NOT_FOUNDERS,
   OPS_APPROVAL_UNWIRED,
@@ -88,21 +86,6 @@ export function restoreWatermarksRead(url: string | null | undefined, rows: read
     watermarks: { stamped: rows.length > 0, rows: [...rows] },
     restored: false as const,
   };
-}
-
-export interface AlertSourcePosture {
-  readonly configured: boolean;
-  readonly probed: false;
-  readonly code: typeof OPS_ALERT_SOURCE_UNCONFIGURED | typeof OPS_ALERT_PROBE_UNCONFIGURED;
-}
-
-export function alertSourcePosture(url: string | null | undefined): AlertSourcePosture {
-  if (!configuredUrl(url)) return { configured: false, probed: false, code: OPS_ALERT_SOURCE_UNCONFIGURED };
-  return { configured: true, probed: false, code: OPS_ALERT_PROBE_UNCONFIGURED };
-}
-
-export function alertList(url: string | null | undefined, asOf: string) {
-  return { asOf, source: alertSourcePosture(url), alerts: null, acknowledged: null };
 }
 
 const KEY_MIN = 8;

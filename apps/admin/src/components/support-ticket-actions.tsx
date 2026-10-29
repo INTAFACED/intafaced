@@ -8,11 +8,13 @@ import { fetchMacroApply, fetchMacros, postSupportAction, type ActionReply, type
 import type { SupportMacrosView } from '@/lib/support/types';
 import {
   ESCALATION_REASONS,
+  INTERNAL_NOTE_MAX,
   NOTE_MAX,
   REPLY_MAX,
   SUMMARY_MAX,
   allowedNextStatuses,
   escalateGate,
+  internalNoteGate,
   replyGate,
   statusGate,
   type ActionGate,
@@ -23,7 +25,7 @@ import { lastSequence, newerByOthers, trailWords } from '@/lib/support/trail';
 import { ActionOutcome, ConfirmStep, Failed } from './support-action-parts';
 
 /**
- * TICKET ACTIONS — reply, set status, escalate.
+ * TICKET ACTIONS — reply, internal note, set status, escalate.
  *
  * A macro (SP-desk-02) is filled from this request by svc-support and only goes into the reply draft: nothing is sent
  * until the agent sends. A placeholder svc-support could not fill stays in the draft as written, and svc-support refuses
@@ -31,16 +33,26 @@ import { ActionOutcome, ConfirmStep, Failed } from './support-action-parts';
  * so the agent sees exactly what the customer gets; nothing is added on send, and a status reason or an escalation's
  * summary never carries it.
  *
+ * An internal note (SP-tickets-05) is written in its own draft, which starts empty: it never carries the signature or a
+ * macro. svc-support keeps it from the customer, and it changes neither the ticket's status nor its clocks. A retry
+ * after "outcome not known" sends the same key, so it is the same note.
+ *
  * Every control is on the page whatever the founder's permissions are. svc-support is the judge: when it answers
  * forbidden, the page says "Your console session does not have support operations permission" and nothing is
  * changed or shown as done. Each send needs a second click, and the buttons are off while a send is in progress, so a
  * double click cannot send twice. A dropped connection is "outcome not known", never "failed" or "done".
  */
 
-export type ActionKind = 'reply' | 'status' | 'escalate' | 'signature';
+export type ActionKind = 'reply' | 'note' | 'status' | 'escalate' | 'signature';
+
+/** What the composer writes: a public reply the customer sees, or an internal note only staff see. */
+export type ComposeMode = 'reply' | 'note';
 
 export interface ActionForm {
   readonly replyBody: string;
+  readonly compose: ComposeMode;
+  /** The internal note's own draft: it starts empty, with no signature. */
+  readonly noteBody: string;
   readonly statusNext: string;
   readonly statusNote: string;
   readonly escReason: EscalationReason;
@@ -53,6 +65,8 @@ export interface ActionForm {
 
 export const emptyForm = (ticket: { status: string }): ActionForm => ({
   replyBody: '',
+  compose: 'reply',
+  noteBody: '',
   statusNext: allowedNextStatuses(ticket.status)[0] ?? '',
   statusNote: '',
   escReason: 'other',
@@ -91,6 +105,11 @@ export function buildRequest(
       ...(expectedSequence === undefined ? {} : { expectedSequence }),
       ...(sent === undefined ? {} : { sent }),
     };
+  if (kind === 'note') {
+    // The key is (ticket, agent, row read, notes sent, text): the trail must have been read to write one.
+    if (expectedSequence === undefined || sent === undefined) throw new Error('An internal note needs the trail row it was written from.');
+    return { action: 'note', ticketId, body: form.noteBody.trim(), expectedSequence, sent };
+  }
   if (kind === 'status') {
     const note = form.statusNote.trim();
     return {
@@ -122,6 +141,8 @@ export interface TicketActionsViewProps {
   readonly onSend: () => void;
   /** Rows someone else wrote since the agent last read the trail, shown when a reply is refused as stale. */
   readonly stale?: readonly SupportTicketEvent[];
+  /** Why a note cannot be keyed (the ticket's comments could not be read); null when it can. */
+  readonly notesUnread?: string | null;
   /** Why the reply cannot be checked for changes (the trail could not be read); null when it can. */
   readonly trailUnread?: string | null;
   /** The agent has read the changes: the next reply is checked from the latest row. */
@@ -197,6 +218,10 @@ export function TicketActionsView(p: TicketActionsViewProps) {
         : signatureText === signed.signature
           ? { ok: false, why: 'This is already your signature.' }
           : { ok: true };
+  const noteGate = internalNoteGate(form.noteBody, p.busy);
+  const unkeyed = p.trailUnread ?? p.notesUnread ?? null;
+  const note: ActionGate = noteGate.ok && unkeyed ? { ok: false, why: unkeyed } : noteGate;
+  const writingNote = form.compose === 'note';
   const chosen = effectiveStatus(ticket, form);
   const status = statusGate(ticket, chosen, form.statusNote, p.busy);
   const escalate = escalateGate(ticket, form.escSummary, p.busy);
@@ -204,49 +229,98 @@ export function TicketActionsView(p: TicketActionsViewProps) {
   const editing = p.armed !== null;
   return (
     <section className="dk-stack" aria-label="Ticket actions" data-testid="ticket-actions">
-      <h4>Reply to the customer</h4>
-      <MacroPicker p={p} disabled={p.busy || editing} />
-      {p.macros && (p.macros.macros.kind !== 'ok' || p.macros.signature.kind !== 'ok') && (
-        <button type="button" className="adm-btn" disabled={p.busy} onClick={() => p.onMacrosRead?.()}>
-          Read the macros and your signature again
-        </button>
-      )}
-      <div className="adm-field">
-        <label htmlFor="sd-reply">Your reply</label>
-        <textarea
-          id="sd-reply"
-          className="adm-textarea"
-          rows={4}
-          maxLength={REPLY_MAX}
-          value={form.replyBody}
-          disabled={p.busy || editing}
-          onChange={(e) => p.onField({ replyBody: e.target.value })}
-        />
-      </div>
-      {unfilled.length > 0 && (
-        <p className="dk-why" data-testid="reply-unfilled">
-          {`Fill in or remove ${unfilled.map((name) => `{{${name}}}`).join(', ')}: the desk holds no value for it on this request, and svc-support sends no reply that still holds one.`}
-        </p>
-      )}
-      {p.armed === 'reply' ? (
-        <ConfirmStep
-          title="Send this reply?"
-          consequence="The customer sees it on their request exactly as written above. A reply cannot be unsent."
-          confirmLabel="Yes, send the reply"
-          busy={p.busy}
-          onConfirm={p.onSend}
-          onCancel={() => p.onArm(null)}
-        />
+      <h4>Reply to the customer, or note it for the desk</h4>
+      <fieldset className="dk-row" aria-label="What you are writing" disabled={p.busy || editing}>
+        <label>
+          <input type="radio" name="sd-compose" value="reply" checked={!writingNote} onChange={() => p.onField({ compose: 'reply' })} />{' '}
+          Public reply (the customer sees it)
+        </label>
+        <label>
+          <input type="radio" name="sd-compose" value="note" checked={writingNote} onChange={() => p.onField({ compose: 'note' })} />{' '}
+          Internal note (staff only)
+        </label>
+      </fieldset>
+      {writingNote ? (
+        <>
+          <p className="dk-why" data-testid="note-no-macro">
+            Macros and your signature fill public replies only, so a note is written as it is.
+          </p>
+          <div className="adm-field" data-visibility="internal">
+            <label htmlFor="sd-note">Your internal note</label>
+            <textarea
+              id="sd-note"
+              className="adm-textarea"
+              rows={4}
+              maxLength={INTERNAL_NOTE_MAX}
+              value={form.noteBody}
+              disabled={p.busy || editing}
+              onChange={(e) => p.onField({ noteBody: e.target.value })}
+            />
+          </div>
+          {p.armed === 'note' ? (
+            <ConfirmStep
+              title="Add this internal note?"
+              consequence="Only the desk sees it; the customer never does. It does not change the status, and a note cannot be removed."
+              confirmLabel="Yes, add the note"
+              busy={p.busy}
+              onConfirm={p.onSend}
+              onCancel={() => p.onArm(null)}
+            />
+          ) : (
+            <Gated
+              gate={editing ? { ok: false, why: 'Finish or cancel the step above first.' } : note}
+              label="Review note"
+              onClick={() => p.onArm('note')}
+            />
+          )}
+        </>
       ) : (
-        <Gated
-          gate={editing ? { ok: false, why: 'Finish or cancel the step above first.' } : reply}
-          label="Review reply"
-          onClick={() => p.onArm('reply')}
-        />
+        <>
+          <MacroPicker p={p} disabled={p.busy || editing} />
+          {p.macros && (p.macros.macros.kind !== 'ok' || p.macros.signature.kind !== 'ok') && (
+            <button type="button" className="adm-btn" disabled={p.busy} onClick={() => p.onMacrosRead?.()}>
+              Read the macros and your signature again
+            </button>
+          )}
+          <div className="adm-field">
+            <label htmlFor="sd-reply">Your reply</label>
+            <textarea
+              id="sd-reply"
+              className="adm-textarea"
+              rows={4}
+              maxLength={REPLY_MAX}
+              value={form.replyBody}
+              disabled={p.busy || editing}
+              onChange={(e) => p.onField({ replyBody: e.target.value })}
+            />
+          </div>
+          {unfilled.length > 0 && (
+            <p className="dk-why" data-testid="reply-unfilled">
+              {`Fill in or remove ${unfilled.map((name) => `{{${name}}}`).join(', ')}: the desk holds no value for it on this request, and svc-support sends no reply that still holds one.`}
+            </p>
+          )}
+          {p.armed === 'reply' ? (
+            <ConfirmStep
+              title="Send this reply?"
+              consequence="The customer sees it on their request exactly as written above. A reply cannot be unsent."
+              confirmLabel="Yes, send the reply"
+              busy={p.busy}
+              onConfirm={p.onSend}
+              onCancel={() => p.onArm(null)}
+            />
+          ) : (
+            <Gated
+              gate={editing ? { ok: false, why: 'Finish or cancel the step above first.' } : reply}
+              label="Review reply"
+              onClick={() => p.onArm('reply')}
+            />
+          )}
+        </>
       )}
       <ActionOutcome reply={outcome('reply')} testId="reply-outcome">
         <StaleChanges p={p} kind="reply" />
       </ActionOutcome>
+      <ActionOutcome reply={outcome('note')} testId="note-outcome" />
 
       <div className="adm-field">
         <label htmlFor="sd-signature">Your signature (put into your public reply drafts only)</label>
@@ -462,12 +536,15 @@ export function TicketActions({
   ticket,
   events,
   userId,
+  notesRead,
   onDone,
 }: {
   ticket: SupportTicket;
   /** The trail as last read: a reply quotes the last row the agent has read, and svc-support refuses it if someone moved on since. */
   events: Part<readonly SupportTicketEvent[]>;
   userId: string;
+  /** The internal notes on the ticket as last read, by anyone; null when the comments could not be read. */
+  notesRead: number | null;
   onDone: () => void;
 }) {
   const [form, setForm] = useState<ActionForm>(() => emptyForm(ticket));
@@ -480,6 +557,11 @@ export function TicketActions({
   const [outcome, setOutcome] = useState<TicketActionsViewProps['outcome']>(null);
   // Replies sent from this view: moves only on a recorded reply, so a retry after "outcome not known" keeps its key.
   const [sent, setSent] = useState(0);
+  // A note's key counts the notes already on the ticket when the agent began, plus those sent from this view: a note
+  // adds no trail row, so the same text again (now, or after reopening the ticket) is still a new key.
+  const [noteBase, setNoteBase] = useState<number | null>(notesRead);
+  const notesBefore = noteBase ?? notesRead;
+  const [notesSent, setNotesSent] = useState(0);
   const [macros, setMacros] = useState<SupportMacrosView | null>(null);
   const [macroReply, setMacroReply] = useState<MacroApplyReply | null>(null);
   const [macrosRead, setMacrosRead] = useState(0);
@@ -532,6 +614,7 @@ export function TicketActions({
     const kind = armed;
     try {
       if (seen === null && seenNow !== null) setSeen(seenNow);
+      if (noteBase === null && notesRead !== null) setNoteBase(notesRead);
       const read = macros?.signature.kind === 'ok' ? macros.signature.data : undefined;
       const reply = await postSupportAction(
         buildRequest(
@@ -539,22 +622,25 @@ export function TicketActions({
           ticket,
           form,
           kind === 'escalate' || kind === 'signature' ? undefined : (seenNow ?? undefined),
-          kind === 'reply' ? sent : undefined,
+          kind === 'reply' ? sent : kind === 'note' && notesBefore !== null ? notesBefore + notesSent : undefined,
           read,
         ),
       );
       setOutcome({ kind, reply });
       setArmed(null);
       if (reply.ok && kind === 'reply') setSent((n) => n + 1);
+      if (reply.ok && kind === 'note') setNotesSent((n) => n + 1);
       if (reply.ok) {
         setForm((f) =>
           kind === 'reply'
             ? { ...f, replyBody: signatureBlock(signature) }
-            : kind === 'escalate'
-              ? { ...f, escSummary: '', escCited: '' }
-              : kind === 'signature'
-                ? { ...f, signatureDraft: null }
-                : { ...f, statusNote: '' },
+            : kind === 'note'
+              ? { ...f, noteBody: '' }
+              : kind === 'escalate'
+                ? { ...f, escSummary: '', escCited: '' }
+                : kind === 'signature'
+                  ? { ...f, signatureDraft: null }
+                  : { ...f, statusNote: '' },
         );
       }
       // A signature write (done or not) is read back from svc-support before it goes into the next draft.
@@ -587,6 +673,11 @@ export function TicketActions({
       onMacro={(id) => void applyMacro(id)}
       onMacrosRead={() => setMacrosRead((n) => n + 1)}
       stale={seenNow === null ? [] : newerByOthers(rows, seenNow, userId)}
+      notesUnread={
+        notesBefore === null
+          ? 'The comments on this ticket could not be read, so a note cannot be told apart from one already sent. Read the ticket again first.'
+          : null
+      }
       trailUnread={
         seenNow === null
           ? 'The ticket history could not be read, so a change by someone else cannot be checked. Read the ticket again first.'

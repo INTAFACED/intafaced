@@ -99,6 +99,10 @@ svc-bank checking whether an account is frozen has no user's request behind it, 
 
 svc-ops keeps the reconciliation alert store, so it must see every finished evaluation, including ones run by the schedule with no person behind them. Rule 2 does not fit (no user request), and no event carries evaluations today (rule 3). It is a named service call (rule 4) on svc-ledger's service port, `reconciliationEvaluations`, with svc-ops alone in `LEDGER_DOOR_CALLERS`, svc-ledger's existing callers list for its doors (the pattern `feeRevenue` and `restoreWatermark` already use), and a door test that refuses every other caller. It answers reconciliation results only (status, the two sides per asset, period and severity), never an account balance or an entry, and no account list, so it is not the ledger read rule 5 keeps posters away from; 3.7's "no other new read door" stays true for balances, balance lists and history. A later event for evaluations (rule 3) may replace the door.
 
+### 3.13 OPS-reconciliation-04 corrective transaction check for svc-ops (yes, one named ledger door; added 2026-10-29)
+
+Resolving a reconciliation alert as fixed names the corrective ledger transactions, and an id that names no transaction is refused. svc-ops cannot read svc-ledger's tables, and `txById` is a READERS door that rule 5 keeps svc-ops off, since it answers entries. So it is a named service call (rule 4), `transactionsExist`, with svc-ops alone in `LEDGER_DOOR_CALLERS` and a door test that refuses every other caller. It takes at most 20 ids and answers which of them are booked: ids only, no amount, account or entry, so it is not the ledger read rule 5 keeps posters away from, and 3.7's "no other new read door" stays true for balances, balance lists and history.
+
 ## Consequences
 
 - No new S2S identity and no new holder of the shared secret.
