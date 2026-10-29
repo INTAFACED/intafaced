@@ -73,13 +73,23 @@
     },
     "TRADE_OTC_DESK_LAW": {
       "service": "trade",
-      "value": "{\"published\": true, \"spreadBps\": 20, \"minStake\": \"100\", \"counterparty\": \"platform\", \"quoteTtlMs\": 60000, \"maxMidAgeSeconds\": 86400, \"settleWindowMs\": 60000}",
-      "note": "TEST quote desk law: 20 bps disclosed spread, a 100 IFC stake floor (J-copy-bots-otc-24 stakes it; one below it is refused), the platform as counterparty, a 60 s firm quote so a journey sees one expire, a reference price trusted for one day (the stack's boot-stamped TEST mid), and a 60 s window to settle an accepted quote so a journey sees one close."
+      "value": "{\"published\": true, \"spreadBps\": 20, \"minStake\": \"100\", \"counterparty\": \"platform\", \"quoteTtlMs\": 60000, \"maxMidAgeSeconds\": 86400, \"settleWindowMs\": 60000, \"minNotional\": {\"USDT\": \"1000\"}}",
+      "note": "TEST quote desk law: 20 bps disclosed spread, a 100 IFC stake floor (J-copy-bots-otc-24 stakes it; one below it is refused), the platform as counterparty, a 60 s firm quote so a journey sees one expire, a reference price trusted for one day (the stack's boot-stamped TEST mid), a 60 s window to settle an accepted quote so a journey sees one close, and a 1000 USDT desk minimum per request (J-copy-bots-otc-24 #4 asks below it and is refused)."
     },
     "TRADE_OTC_MIDS": {
       "service": "trade",
       "value": "BTC/USDT:65000",
       "note": "TEST reference price for the quote desk: the TEST BTC/USDT book's start price on the local stack, stamped at boot. Not a market price."
+    },
+    "TRADE_DEVELOPER_HOSTS": {
+      "service": "trade",
+      "value": "{\"rest\":{\"production\":\"api.local-test.test\",\"sandbox\":\"api.sandbox.local-test.test\"},\"websocket\":{\"production\":\"ws.local-test.test\",\"sandbox\":\"ws.sandbox.local-test.test\"},\"fix\":{\"production\":\"fix.local-test.test:9878\",\"sandbox\":\"fix.sandbox.local-test.test:9878\"}}",
+      "note": "LOCAL TEST ONLY, not an owner decision: production and sandbox hosts under the reserved .test domain; regional is left out so its rows read host not set (J-developer-01 #2, #3)."
+    },
+    "TRADE_DEVELOPER_DATA_TERMS": {
+      "service": "trade",
+      "value": "{\"ticker\":{\"entitlement\":\"TEST: any visitor, no account\",\"redistribution\":\"TEST: allowed with attribution\",\"retention\":\"TEST: no limit\",\"privacy\":\"TEST: no personal data\",\"commercial\":\"TEST: free\"},\"depth_l1\":{\"entitlement\":\"TEST: any visitor, no account\",\"redistribution\":\"TEST: allowed with attribution\",\"retention\":\"TEST: no limit\",\"privacy\":\"TEST: no personal data\",\"commercial\":\"TEST: free\"},\"depth_l2\":{\"entitlement\":\"TEST: signed-in account\",\"redistribution\":\"TEST: not allowed\",\"retention\":\"TEST: 24 hours\",\"privacy\":\"TEST: no personal data\",\"commercial\":\"TEST: free\"},\"candles\":{\"entitlement\":\"TEST: any visitor, no account\",\"redistribution\":\"TEST: allowed with attribution\",\"retention\":\"TEST: no limit\",\"privacy\":\"TEST: no personal data\",\"commercial\":\"TEST: free\"},\"trades\":{\"entitlement\":\"TEST: signed-in account\",\"redistribution\":\"TEST: not allowed\",\"retention\":\"TEST: 30 days\",\"privacy\":\"TEST: no personal data\",\"commercial\":\"TEST: free\"}}",
+      "note": "LOCAL TEST ONLY, not an owner decision: data terms for five products; index is left out so its row reads not set (J-developer-01 #6)."
     }
   }
 }
