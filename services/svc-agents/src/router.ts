@@ -675,6 +675,17 @@ export function createAgentsRouter(deps: AgentsRouterDeps) {
                 chargeKey: z.string().nullable(),
               }),
             ),
+            /**
+             * Each run of the session by its request id, oldest first. The run's claim commits before the engine is
+             * called, so a run the engine has not answered reads `running`; one whose usage is recorded reads `completed`.
+             */
+            runs: z.array(
+              z.object({
+                requestId: z.string(),
+                startedAt: z.string(),
+                state: z.enum(['running', 'completed']),
+              }),
+            ),
           }),
         )
         .query(({ ctx, input }) =>
@@ -696,6 +707,14 @@ export function createAgentsRouter(deps: AgentsRouterDeps) {
                WHERE session_id = ${session.id}
                ORDER BY opened_at, window_id
             `;
+            const runs = await sql<Array<{ request_id: string; claimed_at: Date; recorded: boolean }>>`
+              SELECT c.request_id, c.claimed_at,
+                     EXISTS (SELECT 1 FROM agents.usage_records u
+                              WHERE u.session_id = c.session_id AND u.request_id = c.request_id) AS recorded
+                FROM agents.think_claims c
+               WHERE c.session_id = ${session.id}
+               ORDER BY c.claimed_at, c.request_id
+            `;
             return {
               session: {
                 id: session.id,
@@ -713,6 +732,11 @@ export function createAgentsRouter(deps: AgentsRouterDeps) {
                 state: row.sealed_at === null ? ('open' as const) : row.charge_tx_id ? ('settled' as const) : ('unpaid' as const),
                 amount: row.charged_amount === null ? null : formatAmount(parseAmount(row.charged_amount)),
                 chargeKey: row.charge_key,
+              })),
+              runs: runs.map((run) => ({
+                requestId: run.request_id,
+                startedAt: run.claimed_at.toISOString(),
+                state: run.recorded ? ('completed' as const) : ('running' as const),
               })),
             };
           }),

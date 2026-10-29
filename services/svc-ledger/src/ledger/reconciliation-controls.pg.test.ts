@@ -28,6 +28,8 @@ import { ReconciliationControlError } from './reconciliation-control-error.js';
 import {
   defineReconciliationControl,
   listReconciliationControlRuns,
+  listReconciliationEvaluations,
+  RECONCILIATION_EVALUATION_SETTLE_SECONDS,
   listReconciliationControls,
   runDueReconciliationControls,
   runReconciliationControl,
@@ -821,6 +823,97 @@ async function ctx(scopes: string[], mfa: boolean): Promise<Context> {
     } finally {
       await server.close();
     }
+  });
+
+  it('feeds settled evaluations oldest first to svc-ops: a cursor never hands a row back, started and unsettled runs wait', async () => {
+    const owner = 'abcdefab-8888-4888-8888-';
+    const defined = await defineReconciliationControl(db.sql, actor, {
+      template: 'outside_balance',
+      accountSet: { mode: 'query', assetId: 'USDT', ownerIdPrefix: owner },
+      schedule: { cadence: 'daily', hour: 0, minute: 0 },
+      severity: 'critical',
+      tolerance: { default: '0' },
+      reason: REASON,
+      activate: true,
+    });
+    const runs = [];
+    for (let i = 0; i < 5; i++) {
+      runs.push(
+        await runReconciliationControl(
+          db.sql,
+          approvals,
+          actor,
+          { controlId: defined.id, reason: REASON, approvalId: `appr-feed-${i}`, operationId: nextOp() },
+          reconciliationSourcesFrom(undefined),
+        ),
+      );
+    }
+    const [first, second, started, open, fresh] = runs.map((r) => r!.id);
+    // A microsecond apart, older than every other run in this database: the cursor must keep the microseconds.
+    await db.sql`UPDATE reconciliation_control_runs SET finished_at = '2020-01-01T00:00:00.000001Z' WHERE id = ${first!}`;
+    await db.sql`UPDATE reconciliation_control_runs SET finished_at = '2020-01-01T00:00:00.000002Z' WHERE id = ${second!}`;
+    await db.sql`UPDATE reconciliation_control_runs SET status = 'started', finished_at = '2020-01-01T00:00:00.000003Z' WHERE id = ${started!}`;
+    await db.sql`UPDATE reconciliation_control_runs SET finished_at = NULL WHERE id = ${open!}`;
+    // Inside the settle window however slow the runner: stamped an hour ahead.
+    await db.sql`UPDATE reconciliation_control_runs SET finished_at = clock_timestamp() + interval '1 hour' WHERE id = ${fresh!}`;
+
+    const page1 = await listReconciliationEvaluations(db.sql, { after: null, limit: 1 });
+    expect(page1.evaluations).toHaveLength(1);
+    expect(page1.evaluations[0]).toMatchObject({
+      run: { id: first, controlId: defined.id, status: 'UNSET' },
+      finishedAt: '2020-01-01T00:00:00.000001Z',
+      severity: { status: 'set', value: 'critical' },
+    });
+    expect(page1.evaluations[0]!.run).not.toHaveProperty('accounts');
+    expect(page1.next).toEqual({ finishedAt: '2020-01-01T00:00:00.000001Z', id: first });
+
+    const page2 = await listReconciliationEvaluations(db.sql, { after: page1.next, limit: 1 });
+    expect(page2.evaluations.map((e) => e.run.id)).toEqual([second]);
+    expect(page2.next).toEqual({ finishedAt: '2020-01-01T00:00:00.000002Z', id: second });
+
+    // Everything after the second: the started row, the unfinished row and the run finished just now are not there.
+    const rest = await listReconciliationEvaluations(db.sql, { after: page2.next, limit: 500 });
+    const restIds = rest.evaluations.map((e) => e.run.id);
+    expect(restIds).not.toContain(first);
+    expect(restIds).not.toContain(second);
+    expect(restIds).not.toContain(started);
+    expect(restIds).not.toContain(open);
+    expect(restIds).not.toContain(fresh);
+    expect(rest.evaluations.every((e) => e.run.status !== 'started')).toBe(true);
+    const order = rest.evaluations.map((e) => `${e.finishedAt}|${e.run.id}`);
+    expect(order).toEqual([...order].sort());
+
+    // Past the settle window, the fresh run is fed exactly once; an empty page keeps the cursor where it was.
+    await db.sql`UPDATE reconciliation_control_runs SET finished_at = clock_timestamp() - make_interval(secs => ${RECONCILIATION_EVALUATION_SETTLE_SECONDS + 1}) WHERE id = ${fresh!}`;
+    const settled = await listReconciliationEvaluations(db.sql, { after: page2.next, limit: 500 });
+    expect(settled.evaluations.filter((e) => e.run.id === fresh)).toHaveLength(1);
+    const drained = await listReconciliationEvaluations(db.sql, { after: settled.next, limit: 500 });
+    expect(drained.evaluations.map((e) => e.run.id)).not.toContain(fresh);
+    const empty = await listReconciliationEvaluations(db.sql, {
+      after: { finishedAt: '2999-01-01T00:00:00.000000Z', id: first! },
+      limit: 5,
+    });
+    expect(empty).toEqual({ evaluations: [], next: { finishedAt: '2999-01-01T00:00:00.000000Z', id: first } });
+
+    await expect(listReconciliationEvaluations(db.sql, { after: null, limit: 501 })).rejects.toMatchObject({ name: 'ZodError' });
+    await expect(listReconciliationEvaluations(db.sql, { after: { finishedAt: 'yesterday', id: first! }, limit: 5 })).rejects.toMatchObject(
+      {
+        name: 'ZodError',
+      },
+    );
+    await expect(listReconciliationEvaluations(db.sql, { limit: 5, extra: 1 })).rejects.toMatchObject({ name: 'ZodError' });
+
+    // A stored run the contract cannot read is the ledger's fault: a plain error (a 500 on the door), never a ZodError (a 400).
+    await db.sql`UPDATE reconciliation_control_runs SET sources = '{}'::jsonb WHERE id = ${first!}`;
+    try {
+      const broken = await listReconciliationEvaluations(db.sql, { after: null, limit: 1 }).catch((err: unknown) => err);
+      expect(broken).toBeInstanceOf(Error);
+      expect((broken as Error).name).toBe('Error');
+      expect((broken as Error).message).toBe('reconciliation evaluation feed: a stored run does not fit the contract');
+    } finally {
+      await db.sql`UPDATE reconciliation_control_runs SET sources = ${db.sql.json(runs[0]!.sources)} WHERE id = ${first!}`;
+    }
+    expect((await listReconciliationEvaluations(db.sql, { after: null, limit: 1 })).evaluations[0]!.run.id).toBe(first);
   });
 
   it('keeps an outside snapshot with no as-of unset rather than the ledger time', async () => {
