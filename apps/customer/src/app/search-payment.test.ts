@@ -49,12 +49,12 @@ describe('header search: a merchant payment by id (J-home-ia-02 #7)', () => {
     expect(calls[0]?.slice(0, 3)).toEqual(['pay', 'payment.get', { paymentId: ID }]);
   });
 
-  it('reads not found and refused as none, so it never says whose payment an id is', async () => {
+  it("reads svc-pay's not found as none (it answers another owner's payment the same way)", async () => {
     await expect(findPayment(api(refused(404, 'NOT_FOUND')).client, ID, signal)).resolves.toEqual({ status: 'none' });
-    await expect(findPayment(api(refused(403, 'FORBIDDEN')).client, ID, signal)).resolves.toEqual({ status: 'none' });
   });
 
-  it('reads a gateway refusal, an unwired route or a lost answer as failed, never as none', async () => {
+  it('reads a refusal with a blocker, a gateway refusal, an unwired route or a lost answer as failed, never as none', async () => {
+    await expect(findPayment(api(refused(403, 'FORBIDDEN')).client, ID, signal)).resolves.toEqual({ status: 'failed' });
     await expect(findPayment(api(refused(404)).client, ID, signal)).resolves.toEqual({ status: 'failed' });
     await expect(findPayment(api(refused(403, 'edge.screening_unset')).client, ID, signal)).resolves.toEqual({ status: 'failed' });
     await expect(findPayment(api(refused(503)).client, ID, signal)).resolves.toEqual({ status: 'failed' });

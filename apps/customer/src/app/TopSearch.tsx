@@ -38,7 +38,8 @@ const typingTarget = (target: EventTarget | null) =>
   target instanceof HTMLElement && (target.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName));
 
 /**
- * Header search (UI-SPEC 3.1): coins, markets, pages and Help articles. Ctrl or Cmd K, or `/` outside a field, opens the results. Enter on a coin opens its page;
+ * Header search (UI-SPEC 3.1): coins, markets, pages and Help articles, and in a Business profile a merchant payment by its full id
+ * (svc-pay `payment.get`, with the session). Ctrl or Cmd K, or `/` outside a field, opens the results. Enter on a coin opens its page;
  * Enter on a market opens the desk in Pro and the coin page in Simple.
  * The markets come from the shared data layer (useMarkets). TODO(B1): swap the hand-built list to the kit Autocomplete.
  */
@@ -171,8 +172,8 @@ function SearchData({
   const ownerCap = useHelpResultCap(open);
   const help = useHelpSearch(props.query, open, helpCap === undefined ? ownerCap : helpCap);
   // Merchant payments are searched only from a Business profile, by a full payment id (J-home-ia-02 #7).
-  const { session, mode } = useSession();
-  const payment = usePaymentSearch(props.query, open && Boolean(session) && mode === 'Business');
+  const { session, mode, profiles } = useSession();
+  const payment = usePaymentSearch(props.query, open && session && mode === 'Business' ? profiles.active : null);
   // The last search counted as a miss outlives the panel, so closing and reopening on the same words counts it once.
   const counted = useRef<string | null>(null);
   return open ? <SearchPanel {...props} help={help} payment={payment} source={markets} tickers={tickers} counted={counted} /> : null;
@@ -399,7 +400,7 @@ function SearchPanel({
           );
         })}
       </ul>
-      {!rows.some((row) => row.group !== 'Help') && settled && (
+      {!rows.some((row) => row.group !== 'Help') && settled && payment.status !== 'failed' && (
         <p className="tb-empty" role="status">
           {t('No results for "{query}"', { query })}
         </p>
