@@ -68,7 +68,7 @@ import bank from './local-stack-services/bank.mjs';
 import blueprint from './local-stack-services/blueprint.mjs';
 import edge from './local-stack-services/edge.mjs';
 import execution from './local-stack-services/execution.mjs';
-import identity from './local-stack-services/identity.mjs';
+import identity, { confirmLocalFounderEmails } from './local-stack-services/identity.mjs';
 import ledger from './local-stack-services/ledger.mjs';
 import market from './local-stack-services/market.mjs';
 import matching from './local-stack-services/matching.mjs';
@@ -1196,6 +1196,7 @@ async function ensureLocalTestFounders() {
     await restartIdentity();
   }
   if (!foundersEnrolled(readVault())) fail('local test founder pair did not enrol');
+  await confirmLocalFounderEmails({ STATE, marker, edgeUrl, say });
 }
 
 /** svc-ops reads the founder pair at start. When it started before the pair was enrolled, or with another pair, restart it. */
