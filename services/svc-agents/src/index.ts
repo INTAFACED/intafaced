@@ -141,6 +141,7 @@ const runtime = new AgentRuntime(sql, gateway, meter, bus, {
   spend,
   // The person's available balance, read from the ledger before each metered run (OWNER 107).
   funds: { available: async (userId, assetId) => (await ledger.balance(userAvailable(userId, assetId))).amount },
+  transcriptRetentionDays: env.AGENTS_TRANSCRIPT_RETENTION_DAYS ?? null,
 });
 
 // Upsert product guardrails before the listener opens — openSession binds from
@@ -196,6 +197,11 @@ const appRouter = createAgentsRouter({
   meter,
   feeAssetId: env.AGENTS_FEE_ASSET_ID,
   meteringEnabled: env.AGENTS_METERING_ENABLED,
+  opsLog: {
+    reasons: parseReasons(env.AGENTS_LOG_READ_REASONS),
+    limit: env.AGENTS_OPS_ACTIONS_LIMIT ?? null,
+    retentionDays: env.AGENTS_TRANSCRIPT_RETENTION_DAYS ?? null,
+  },
   ...(loadCoachGrounding ? { loadCoachGrounding } : {}),
   ...(supportDesk ? { supportDesk } : {}),
   ...(spotTickersPort ? { spotTickersPort } : {}),

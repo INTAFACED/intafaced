@@ -63,6 +63,7 @@ import { listSessions } from './ops/ops-sessions.js';
 import { engineForTasks, engineOfAdapter, routeIsMetered, type RouteDef, type RouteEngine } from './gateway/routing.js';
 import { spendRouter } from './spend/routes.js';
 import { ownRouter } from './own/routes.js';
+import { opsLogRouter, parseReasons, type OpsLogSettings } from './oplog/routes.js';
 
 /**
  * The internal tRPC surface (§1: "Fastify + tRPC (internal) / REST (public)").
@@ -292,6 +293,8 @@ async function guard<T>(fn: () => Promise<T>): Promise<T> {
 
 export interface AgentsRouterDeps {
   readonly runtime: AgentRuntime;
+  /** The owner's values for the operator agent log. Absent, every value is blank and each read refuses its code. */
+  readonly opsLog?: OpsLogSettings;
   readonly gateway: ModelGateway;
   readonly meter: UsageMeter;
   readonly feeAssetId: string;
@@ -4190,6 +4193,7 @@ export function createAgentsRouter(deps: AgentsRouterDeps) {
 
     /** Agents a person builds for themselves (AG-builder-01). Building moves no value. */
     own: ownRouter(sql, { runtime, feeAssetId }),
+    opsLog: opsLogRouter(sql, deps.opsLog ?? { reasons: null, limit: null, retentionDays: null }),
   });
 }
 
