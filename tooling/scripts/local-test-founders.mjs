@@ -15,6 +15,7 @@ import { randomBytes } from 'node:crypto';
 import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { GuardError, enrolFounderAccounts, generateInvites, randomPassword } from './local-founder-seed.mjs';
+import { readLatestEmailConfirmToken } from './local-test-state.mjs';
 
 export { GuardError };
 
@@ -324,6 +325,79 @@ export function planFounderIdentityRestart({ enrolled, stamp, vault }) {
     stamp.phantomUserId === env.IDENTITY_FOUNDER_PHANTOM_USER_ID,
   );
   return { restartBeforeEnrol: false, restartToPin: !idsApplied };
+}
+
+/** The LOCAL-TEST email-confirm lines identity has written for `email` so far, oldest first. */
+function confirmLines(outboxPath, email) {
+  if (!existsSync(outboxPath)) return [];
+  return readFileSync(outboxPath, 'utf8')
+    .split('\n')
+    .filter((line) => line.includes('purpose=email-confirm') && line.includes(` email=${email} `));
+}
+
+/**
+ * Confirms each enrolled founder's email address the way its owner would, once: sign in (`signIn(founder)` returns an
+ * access token), ask identity for the link (`auth.requestEmailConfirmation`), take the new line identity "mails" to this
+ * stack's outbox file and confirm with its token (`auth.confirmEmail`). Nothing writes `email_verified_at` directly. A
+ * confirmed address is what lets identity's new-device check mail a founder the code that approves a new browser
+ * (docs/LOCAL-TEST-STACK.md, Founder console; J-ops-console-01 #1). Each founder is marked `emailConfirmed` in the vault
+ * only after identity says so, so a run that stops halfway confirms the rest on the next start.
+ */
+export async function confirmFounderEmails({
+  stateDir,
+  marker,
+  edgeUrl: requestedEdge,
+  signIn,
+  fetchImpl = fetch,
+  waitMs = 10_000,
+  sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+  log = () => {},
+}) {
+  const { vaultPath, edgeUrl } = assertLocalTestFounderTarget({ marker, stateDir, edgeUrl: requestedEdge });
+  const outboxPath = path.join(stateDir, 'email-outbox.log');
+  const vault = JSON.parse(readFileSync(vaultPath, 'utf8'));
+  assertVaultShape(vault);
+  for (const f of vault.founders) {
+    if (f.emailConfirmed === true || !f.userId || f.totpConfirmed !== true) continue;
+    const token = await signIn(f);
+    const call = async (procedure, input) => {
+      const res = await fetchImpl(`${edgeUrl}/api/identity/trpc/${procedure}`, {
+        method: input === undefined ? 'GET' : 'POST',
+        headers: {
+          accept: 'application/json',
+          authorization: `Bearer ${token}`,
+          ...(input === undefined ? {} : { 'content-type': 'application/json' }),
+        },
+        ...(input === undefined ? {} : { body: JSON.stringify(input) }),
+        redirect: 'error',
+        signal: AbortSignal.timeout(15_000),
+      });
+      const body = await res.json().catch(() => null);
+      if (res.status < 200 || res.status >= 300) {
+        const code = body?.error?.data?.cause?.code ?? body?.error?.data?.intafacedCode ?? `http.${res.status}`;
+        throw new GuardError(`${f.key}: identity refused ${procedure} (${code})`);
+      }
+      return body?.result?.data;
+    };
+    if ((await call('me'))?.emailVerified !== true) {
+      const seen = confirmLines(outboxPath, f.email).length;
+      await call('auth.requestEmailConfirmation', {});
+      const until = Date.now() + waitMs;
+      let line;
+      while (!(line = confirmLines(outboxPath, f.email)[seen])) {
+        if (Date.now() >= until) throw new GuardError(`${f.key}: no LOCAL-TEST confirm link reached ${outboxPath} for ${f.email}`);
+        await sleep(250);
+      }
+      const confirmToken = readLatestEmailConfirmToken(line, f.email);
+      if (!confirmToken) throw new GuardError(`${f.key}: the LOCAL-TEST confirm line for ${f.email} has no token`);
+      await call('auth.confirmEmail', { token: confirmToken });
+      if ((await call('me'))?.emailVerified !== true) throw new GuardError(`${f.key}: identity did not confirm ${f.email}`);
+    }
+    f.emailConfirmed = true;
+    writePrivate(vaultPath, `${JSON.stringify(vault, null, 2)}\n`);
+    log(`  founders: ${f.key}'s email address is confirmed`);
+  }
+  return vault;
 }
 
 /**
