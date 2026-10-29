@@ -21,6 +21,26 @@ async function capabilities(page) {
   return response.json();
 }
 
+/** svc-ws's live stream inventory, read from the running stack through the Customer server's `/ws` upstream. */
+async function streamInventory(page) {
+  const response = await page.request.get('/ws/streams');
+  expect(response.ok(), await response.text()).toBe(true);
+  return (await response.json()).streams;
+}
+
+/** The Customer server restarted with its WebSocket upstream blank, or back on the stack's svc-ws. */
+function wsUpstream(on) {
+  const before = process.env.LOCAL_STACK_WS_UPSTREAM;
+  if (on) delete process.env.LOCAL_STACK_WS_UPSTREAM;
+  else process.env.LOCAL_STACK_WS_UPSTREAM = 'off';
+  try {
+    tool('local-test-stack.mjs', 'restart', 'customer');
+  } finally {
+    if (before === undefined) delete process.env.LOCAL_STACK_WS_UPSTREAM;
+    else process.env.LOCAL_STACK_WS_UPSTREAM = before;
+  }
+}
+
 /** svc-trade's published developer values (`hosts`, `regional-rule` or `data-terms`), read through the edge the way the page reads them. */
 async function published(page, kind) {
   const response = await page.request.get(`/api/trade/developer-portal/${kind}`);
@@ -294,33 +314,48 @@ test(`${J} #4 reads the REST conventions and the trading API reference index: UR
   }
   // And every route the reference lists sits under the product its file names.
   for (const [line, tag] of tagOf) await expect(product(tag).getByRole('rowheader', { name: line, exact: true }), line).toBeVisible();
-  // Every stream in the reference's markdown variant is listed under the product its section names.
-  const markdown = await (await page.request.get('/developers/reference.md')).text();
-  const streams = markdown
-    .split(/^## /m)
-    .slice(1)
-    .flatMap((section) => {
-      const tag = section.split('\n')[0].trim().toLowerCase();
-      const table = section.split('| WebSocket stream |')[1] ?? '';
-      return [...table.matchAll(/^\| `([a-z]+)`/gm)].map(([, channel]) => ({ channel, tag }));
-    });
-  expect(streams.length).toBeGreaterThan(0);
-  for (const { channel, tag } of streams) {
-    await expect(product(tag).getByRole('rowheader', { name: channel, exact: true }), channel).toBeVisible();
+  // Every stream svc-ws serves, read from its own inventory on the running stack (GET /ws/streams through the Customer
+  // server, as nginx routes it), is listed exactly once, inside the product section the inventory names, under its door,
+  // with its door path and its permission; and the reference lists no stream the inventory does not, in any section.
+  const liveStreams = await streamInventory(page);
+  expect(liveStreams.length).toBeGreaterThan(0);
+  const rows = page.getByRole('main').locator('tr[data-stream-door]');
+  await expect(rows).toHaveCount(liveStreams.length);
+  for (const tag of new Set(liveStreams.map((stream) => stream.product))) {
+    await expect(product(tag).locator('tr[data-stream-door]'), tag).toHaveCount(liveStreams.filter((s) => s.product === tag).length);
   }
-
-  // The streams half stays red until a running service publishes its channel inventory: the live inventory lists routes
-  // only, and the local stack has no WebSocket upstream (ws.upstream_unset). When `streams` arrives, it is compared here.
-  const { streams: liveStreams } = await capabilities(page);
+  for (const stream of liveStreams) {
+    const row = product(stream.product).locator(`tr[data-stream-door="${stream.door}"][data-stream-channel="${stream.channel}"]`);
+    const name = `${stream.product} ${stream.door} ${stream.channel}`;
+    await expect(row, name).toHaveCount(1);
+    await expect(row.getByRole('rowheader'), name).toHaveText(stream.channel.endsWith('.') ? `${stream.channel}<symbol>` : stream.channel);
+    await expect(row.getByRole('cell').first(), name).toContainText(stream.path);
+    await expect(row.getByRole('cell').last(), name).toHaveText(stream.access === 'private' ? 'your own data; trade:read' : 'public');
+  }
+  // The stack sets no multiplexed idle window (owner-unpublished), so that door is listed down with its typed code and
+  // every other door is up.
   expect(
-    liveStreams,
-    'BLOCKED: no running service publishes its stream inventory (GET /api/v1/capabilities has no streams; the stack has no WebSocket upstream, ws.upstream_unset)',
-  ).toBeDefined();
-  for (const { channel } of liveStreams)
-    expect(
-      streams.map((stream) => stream.channel),
-      channel,
-    ).toContain(channel);
+    liveStreams.map(({ door, mounted, refusal }) => [door, mounted, refusal ?? null]),
+    JSON.stringify(liveStreams),
+  ).toEqual(liveStreams.map(({ door }) => (door === 'mux' ? ['mux', false, 'ws.mux_idle_unset'] : [door, true, null])));
+
+  // With the Customer server's WebSocket upstream blank, the inventory refuses with its typed code, and the reference
+  // still lists every stream; restored, the inventory reads back the same.
+  wsUpstream(false);
+  try {
+    const refused = await page.request.get('/ws/streams');
+    expect(refused.status()).toBe(503);
+    expect(await refused.json()).toEqual({
+      code: 'ws.upstream_unset',
+      key: 'CUSTOMER_WS_URL',
+      message: 'CUSTOMER_WS_URL is not wired. The Customer server has no WebSocket upstream.',
+    });
+    await page.goto('/developers/reference');
+    await expect(page.getByRole('main').locator('tr[data-stream-door]')).toHaveCount(liveStreams.length);
+  } finally {
+    wsUpstream(true);
+  }
+  expect(await streamInventory(page)).toEqual(liveStreams);
 });
 
 test(`${J} #5 downloads the OpenAPI file and a collection, and opens the agent docs index: every route with scope, cost and errors; each page once with a markdown variant`, async ({

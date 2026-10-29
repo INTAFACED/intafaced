@@ -2144,6 +2144,46 @@ services:
     ports: ['3100:3100']
     healthcheck: *healthcheck
 
+  # The tester profile's seed (HM-desks-03, J-home-ia-11). OFF BY DEFAULT: it starts only under `--profile tester`, runs
+  # once (restart 'no') and exits. Its entrypoint refuses unless APP_ENV is exactly dev or test (exit 2, nothing seeded),
+  # then runs, in this order: the founder seed (init, then enrol through svc-identity's own doors) and the TEST content
+  # seed (apply, then status, which prints what it made: Home's TEST deposit, TEST notice and inbox row, and the Earn,
+  # Loans and P2P rows), stopping at the first step that fails. Each script keeps its own guards: the founder seed enrols
+  # only through a loopback edge, so this service shares the host's network and reaches svc-edge on its published :4000
+  # once it is healthy; the TEST content seed refuses unless a local test stack marker with a loopback database is in
+  # LOCAL_STACK_STATE. KNOWN GAP on a plain compose stack: identity reads the founder invites at boot from the host's
+  # .env.founder.local (`pnpm local:founder init` before `up`), while this container's `init` writes its own copy inside
+  # the container, so `enrol` here is refused by identity, and compose writes no stack marker, so the content step would
+  # refuse too. The run stops with that refusal and creates nothing. `pnpm local:stack` runs the same scripts and seeds.
+  seed:
+    <<: *app
+    container_name: intafaced-seed
+    profiles: ['tester']
+    restart: 'no'
+    network_mode: host
+    depends_on:
+      svc-edge:
+        condition: service_healthy
+      svc-identity:
+        condition: service_healthy
+    command:
+      [
+        'node',
+        'tooling/scripts/local-tester-seed.mjs',
+        'local-founder-seed.mjs init',
+        'local-founder-seed.mjs enrol',
+        'local-test-seed.mjs apply',
+        'local-test-seed.mjs status',
+      ]
+    environment:
+      # APP_ENV comes from the shared service env, with no default (#4610); the entrypoint refuses all but dev or test.
+      <<: *service-env
+      # Not production: the seed scripts refuse NODE_ENV=production.
+      NODE_ENV: development
+      LOCAL_STACK_STATE: ${LOCAL_STACK_STATE:-/var/lib/intafaced/local-test-stack}
+    volumes:
+      - ${LOCAL_STACK_STATE:-/var/lib/intafaced/local-test-stack}:${LOCAL_STACK_STATE:-/var/lib/intafaced/local-test-stack}
+
 volumes:
   matchingjournal:
   execution-ems-journal:
