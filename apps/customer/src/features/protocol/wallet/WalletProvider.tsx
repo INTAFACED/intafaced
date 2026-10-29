@@ -65,6 +65,8 @@ export interface WalletApi extends WalletState {
   sign(request: SignRequest): Promise<SignResult>;
   /** A read-only `eth_call` through the connected wallet's own network connection. Resolves null when it cannot answer. */
   call(to: string, data: string): Promise<string | null>;
+  /** The code at `address` through the wallet's own network connection: '0x' for a plain wallet, null when it cannot answer. */
+  code(address: string): Promise<string | null>;
   /** "Disconnect on idle": minutes chosen by the person; null means never. A convenience, not a security control. */
   idleMinutes: number | null;
   setIdleMinutes(minutes: number | null): void;
@@ -83,6 +85,7 @@ const empty: WalletApi = {
   switchNetwork: async () => undefined,
   sign: async () => ({ status: 'failed', reason: 'not_connected', message: 'No wallet is connected.' }),
   call: async () => null,
+  code: async () => null,
   idleMinutes: null,
   setIdleMinutes: () => undefined,
 };
@@ -266,6 +269,19 @@ export function WalletProvider({ children, discovery = true }: { children: React
     [connected],
   );
 
+  const code = useCallback(
+    async (target: string): Promise<string | null> => {
+      if (!connected) return null;
+      try {
+        const result = await connected.provider.request({ method: 'eth_getCode', params: [target, 'latest'] });
+        return typeof result === 'string' && /^0x([0-9a-fA-F]{2})*$/.test(result) ? result : null;
+      } catch {
+        return null;
+      }
+    },
+    [connected],
+  );
+
   const api: WalletApi = {
     status,
     wallets,
@@ -279,6 +295,7 @@ export function WalletProvider({ children, discovery = true }: { children: React
     switchNetwork,
     sign,
     call,
+    code,
     idleMinutes,
     setIdleMinutes,
   };

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';
+import { SwapForm } from './swap/SwapForm';
 import { navigate } from '../../app/location';
 import { useApi } from '../session/session';
 import { usePreferences } from '../../shared/preferences';
@@ -494,7 +495,13 @@ export function ParkedProtocolRoom({ slug, subPath }: { slug: Slug; subPath?: st
       </Panel>
     );
   else if (tab === 'audit') body = auditPanel;
-  else if (slug === 'dex' && tab === 'swap') body = <QuoteDesk api={api} t={t} />;
+  else if (slug === 'dex' && tab === 'swap')
+    body = (
+      <>
+        <SwapForm />
+        <QuoteDesk api={api} t={t} />
+      </>
+    );
   else if (slug === 'dex' && tab === 'pools')
     body = (
       <Panel title={t('poolsTitle')}>
