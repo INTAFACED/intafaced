@@ -102,9 +102,44 @@ const BY_SUPPORT_CODE: Readonly<Record<string, Entry>> = {
     body: 'The request that stays must be a different request from the duplicate.',
     next: 'Nothing was changed. Paste the id of the other request.',
   },
+  'support.macro_not_found': {
+    title: 'No such macro',
+    body: 'svc-support has no macro with that id: a lead may have changed the list since it was read.',
+    next: 'Nothing was put into your draft. Read the macros again and choose one.',
+  },
+  'support.macro_placeholder_blank': {
+    title: 'A placeholder is still unfilled',
+    body: 'The text still holds a placeholder such as {{requester.name}}, and the desk holds no value for it.',
+    next: 'Nothing was sent or saved. Fill it in by hand or remove it, then try again.',
+  },
+  'support.macro_placeholder_unknown': {
+    title: 'That placeholder does not exist',
+    body: 'A macro may name only {{requester.name}}, {{ticket.id}} and {{agent.name}}.',
+    next: 'Nothing was saved. Remove or correct the placeholder.',
+  },
+  'support.macro_revision_stale': {
+    title: 'It changed since you read it',
+    body: 'Someone saved a newer version first.',
+    next: 'Nothing was saved. Read it again, then make your change.',
+  },
+  'support.shortcode_taken': {
+    title: 'That shortcode is taken',
+    body: 'Another macro already has this shortcode.',
+    next: 'Nothing was saved. Choose another shortcode.',
+  },
+  'support.shortcode_too_short': {
+    title: 'That shortcode is too short',
+    body: 'It is shorter than the desk’s minimum length.',
+    next: 'Nothing was saved. Use a longer shortcode.',
+  },
+  'support.shortcode_rule_unset': {
+    title: 'The shortcode rule is not set',
+    body: 'The minimum shortcode length has not been set for this desk, so no macro can be saved.',
+    next: 'Nothing was saved. The owner sets the minimum first.',
+  },
   'support.not_lead': {
     title: 'Only a lead can do that',
-    body: 'Giving a request to someone else, setting another person’s availability, and making or changing desk groups need the lead role. Anyone on the staff list can set their own availability.',
+    body: 'Giving a request to someone else, setting another person’s availability, making or changing desk groups, and writing macros need the lead role. Anyone on the staff list can set their own availability.',
     next: 'Nothing was changed.',
   },
   'support.stale_ticket': {
