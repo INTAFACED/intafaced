@@ -1,19 +1,13 @@
 import { test, expect } from '@playwright/test';
 import { UNBUILT, agentCard, agentSection, agentsRun, openAgents, openNavigatorSession, tableIn } from './agents.mjs';
 import { signIn } from './desk.mjs';
+import { api, fromUnits, toUnits } from './stack.mjs';
 
 // J-agents-01, in the running app (docs/roadmap/journeys.json): find an agent, check what it may do, and run it once.
 // One test per step, titled "J-agents-01 #<n>", run in order on one verified TEST account funded with TEST USDT. The
 // usage window settles once as a ledger fee charge equal to the stated window cost; a retried request id charges once.
-// What is built: the catalogue (search, the "How it is used" filter, a card per agent), the detail panel (guardrail and
-// a Tools table of name, access and approval), the published routing prices and the "Review agent session" sheet.
-// Steps that are written but not built yet fail at their first missing part, quickly (UNBUILT):
-// - #1: the catalogue has no sort and no status on each card;
-// - #2: there is no compare;
-// - #3: the Tools table names no inputs, outputs or refusal reasons;
-// - #4: there is no estimate;
-// - #5 to #7: opening a session is refused for a standard account ("Scope "agents:execute" is required"), so nothing
-//   runs, closes or reaches the session history.
+// The run uses the stack's TEST rate card (tooling/profiles/test-owner-values/agents.json) and the service's sandbox
+// engine; #5 to #7 check its cost against the published rate and the ledger's own balances, read through Edge.
 // Not checkable on this stack: #1's empty state (the stack publishes five agents) and #2's ineligible agent (the TEST
 // account is eligible for every customer agent). J-agents-14 #7 checks a disabled agent's card.
 const J = 'J-agents-01';
@@ -129,50 +123,187 @@ test(`${J} #4 reads the rate card and asks for an estimate: the published rate, 
   await expect(estimate).toContainText('No expected range yet: this agent has no run history.');
 });
 
+/** One agents query or mutation through Edge as the run's account, on its own sign-in: `{ status, body }`. */
+async function agentsCall(procedure, input, method = 'POST') {
+  const door = await api(agents.account());
+  return method === 'GET'
+    ? door.get(`/api/agents/trpc/${procedure}${input === undefined ? '' : `?input=${encodeURIComponent(JSON.stringify(input))}`}`)
+    : door.post(`/api/agents/trpc/${procedure}`, input);
+}
+
+/** The exact cost the service's rate card puts on `usage` for `task`: each token count times its published rate per
+ * million, rounded up once at the ledger's last place (services/svc-agents/src/metering/pricing.ts). */
+async function rateCardCost(task, usage) {
+  const routes = await agentsCall('routes.list', undefined, 'GET');
+  expect(routes.status).toBe(200);
+  const route = routes.body.result.data.find((row) => row.task === task && row.capability === 'complete');
+  expect(route, `the stack publishes a rate for ${task}`).toBeTruthy();
+  const MILLION = 1_000_000n;
+  const part = (tokens, rate) => (BigInt(tokens) * toUnits(rate) + MILLION - 1n) / MILLION;
+  return { cost: part(usage.inputTokens, route.inputPerMillion) + part(usage.outputTokens, route.outputPerMillion), route };
+}
+
+/** The account's ledger balances, every asset, as the ledger answers them. */
+const ledgerBalances = async () => (await api(agents.account())).balances();
+
 test(`${J} #5 presses Run and confirms the spend ceiling: a run row before the engine; the reply and its exact cost; one request id twice is one run and one charge`, async ({
   page,
 }) => {
   const sessionId = await openNavigatorSession(page, agents);
   agents.run.write({ sessionId });
+  const before = await ledgerBalances();
   const ask = workspace(page).getByRole('textbox', { name: /^Ask the agent/ });
   await ask.fill('Where do I place a limit order?');
+
+  // The run request is held at the browser until the row is checked: the row exists before the service, and so the
+  // engine, is called at all.
+  let release;
+  const held = new Promise((resolve) => (release = resolve));
+  let sent = 0;
+  await page.route('**/api/agents/trpc/run.complete', async (route) => {
+    sent += 1;
+    if (sent === 1) await held;
+    await route.continue();
+  });
+  const answered = page.waitForResponse((res) => res.url().endsWith('/api/agents/trpc/run.complete'));
   await workspace(page).getByRole('button', { name: 'Run' }).click();
   const ceiling = page.getByRole('dialog', { name: 'Confirm the spend ceiling' });
   await expect(ceiling).toContainText('1 USDT');
   await ceiling.getByRole('button', { name: 'Run up to 1 USDT' }).click();
   const runs = tableIn(workspace(page), 'Runs');
-  await expect(runs.getByRole('row').nth(1)).toContainText(/Running|Completed/);
-  await expect(workspace(page).getByRole('region', { name: 'Reply' })).not.toBeEmpty({ timeout: 60_000 });
-  await expect(runs.getByRole('row').nth(1).getByTestId('run-cost')).toHaveText(/^\d+(\.\d+)? USDT$/);
+  const row = runs.getByRole('row').nth(1);
+  await expect(row).toContainText('Running');
+  await expect.poll(() => sent).toBe(1);
+  release();
+
+  const first = await answered;
+  expect(first.status()).toBe(200);
+  const run = (await first.json()).result.data;
+  const requestId = JSON.parse(first.request().postData()).requestId;
+  // The reply is the engine's own answer to this request.
+  await expect(workspace(page).getByRole('region', { name: 'Reply' }).getByTestId('more-body')).toHaveText(run.text, { timeout: 60_000 });
+  expect(run.text.trim()).not.toBe('');
+  // Its exact cost: the reported usage at the published rate, to the last place, shown on the row as the service billed it.
+  const { cost } = await rateCardCost(run.action.task, run);
+  expect(run.metered).toBe(true);
+  expect(toUnits(run.cost)).toBe(cost);
+  expect(cost > 0n).toBe(true);
+  await expect(row).toContainText('Completed');
+  await expect(row).toContainText(requestId);
+  await expect(row.getByTestId('run-cost')).toHaveText(`${fromUnits(cost)} USDT`);
+  agents.run.write({
+    sessionId,
+    requestId,
+    task: run.action.task,
+    inputTokens: run.inputTokens,
+    outputTokens: run.outputTokens,
+    cost: run.cost,
+  });
 
   // Sending the same request again (a retry after a lost answer) returns the first run and charges once.
-  await runs.getByRole('row').nth(1).getByRole('button', { name: 'Send again' }).click();
+  const again = page.waitForResponse((res) => res.url().endsWith('/api/agents/trpc/run.complete'));
+  await row.getByRole('button', { name: 'Send again' }).click();
+  const second = await again;
+  expect(JSON.parse(second.request().postData()).requestId).toBe(requestId);
+  expect(second.status()).toBe(400);
+  expect((await second.json()).error.data.cause.code).toBe('agents.request_id_replay');
   await expect(runs.getByRole('row')).toHaveCount(2);
   await expect(workspace(page).getByRole('status')).toContainText('Same request: the first run is shown and nothing was charged again.');
+  // One charge: the session's usage is the one run's cost, its open window holds that cost once, and the ledger has
+  // not moved yet (the window settles when it closes).
+  const usage = await agentsCall('usage.current', { sessionId }, 'GET');
+  expect(usage.status).toBe(200);
+  expect(toUnits(usage.body.result.data.sessionTotal)).toBe(cost);
+  expect(toUnits(usage.body.result.data.pending)).toBe(cost);
+  expect(await ledgerBalances()).toEqual(before);
+  await page.unroute('**/api/agents/trpc/run.complete');
 });
 
 test(`${J} #6 closes the session: open windows settle once; a closed session refuses further actions`, async ({ page }) => {
-  // The session #5 ran, with its usage window still open.
+  // The session #5 ran, with its usage window still open. A request this agent may not run is refused and logged first,
+  // so the history #7 reads has a refusal in it; it bills nothing.
+  const { cost } = agents.run.read();
+  if (!cost) throw new Error(`${J} #5 recorded no run cost, so this step has no window to settle`);
+  const beforeRefusal = await ledgerBalances();
+  const refused = await agentsCall('run.complete', {
+    sessionId: ranSession(),
+    requestId: `${ranSession()}:not-allowed`,
+    task: 'support.reply',
+    messages: [{ role: 'user', content: 'TEST' }],
+  });
+  expect(refused.status).toBe(403);
+  expect(refused.body.error.message).toBe('agents.refused.task_not_allowed');
+  // The refusal held and billed nothing: the ledger is as it was and the session's usage is still the one run.
+  expect(await ledgerBalances()).toEqual(beforeRefusal);
+  const usage = await agentsCall('usage.current', { sessionId: ranSession() }, 'GET');
+  expect(usage.status).toBe(200);
+  expect(toUnits(usage.body.result.data.sessionTotal)).toBe(toUnits(cost));
+  expect(toUnits(usage.body.result.data.pending)).toBe(toUnits(cost));
+
+  const before = await ledgerBalances();
   const selected = await selectRanSession(page);
   await selected.getByRole('button', { name: 'Close session' }).click();
   await expect(selected.getByRole('status')).toContainText('Session closed. Usage settled.');
-  await expect(tableIn(selected, 'Usage windows').getByRole('row').filter({ hasText: 'Settled' })).toHaveCount(1);
-  // Closing again settles nothing more, and the session takes no new request.
+  // One window, settled on its charge key for exactly the run's cost.
+  const windows = tableIn(selected, 'Usage windows');
+  await expect(windows.getByRole('row')).toHaveCount(2);
+  const settled = windows.getByRole('row').filter({ hasText: 'Settled' });
+  await expect(settled).toHaveCount(1);
+  await expect(settled.getByTestId('window-cost')).toHaveText(`${cost} USDT`);
+  await expect(settled.getByTestId('charge-key')).toHaveText(/^agent\.usage:\S+$/);
+  // The ledger moved once, by the window's cost, as a fee from the account's USDT; nothing else moved.
+  const after = await ledgerBalances();
+  expect(toUnits(before.USDT.total) - toUnits(after.USDT.total)).toBe(toUnits(cost));
+  expect(toUnits(before.USDT.free) - toUnits(after.USDT.free)).toBe(toUnits(cost));
+  expect(after.USDT.used).toBe(before.USDT.used);
+  expect({ ...after, USDT: undefined }).toEqual({ ...before, USDT: undefined });
+
+  // Closing again settles nothing more, and the closed session takes no new request.
   await expect(selected.getByRole('button', { name: 'Close session' })).toHaveCount(0);
   await expect(selected).toContainText('This session is closed.');
+  const closeAgain = await agentsCall('session.close', { sessionId: ranSession() });
+  expect(closeAgain.status).toBe(200);
+  expect(closeAgain.body.result.data.status).toBe('closed');
+  const afterRun = await agentsCall('run.complete', {
+    sessionId: ranSession(),
+    requestId: `${ranSession()}:after-close`,
+    task: agents.run.read().task,
+    messages: [{ role: 'user', content: 'TEST' }],
+  });
+  expect(afterRun.status).toBe(400);
+  expect(afterRun.body.error.data.cause.code).toBe('agents.session_closed');
+  expect(await ledgerBalances()).toEqual(after);
 });
 
 test(`${J} #7 opens session history: the run with exact usage, refusal codes as words and no prompt text; the selection survives a reload and another device`, async ({
   page,
   browser,
 }) => {
+  const { inputTokens, outputTokens, cost } = agents.run.read();
+  if (cost === undefined) throw new Error(`${J} #5 recorded no run, so this step has no usage to read`);
+  // A newer session, so the one #5 ran is not simply the newest: what is shown below is the person's own selection.
+  const newer = await agentsCall('session.open', { agentId: 'navigator' });
+  expect(newer.status).toBe(200);
+
   const selected = await selectRanSession(page);
-  await expect(selected.getByRole('term').filter({ hasText: 'Session usage accrued' })).toBeVisible();
-  await expect(selected).toContainText(ranSession());
+  const history = selected.getByRole('list', { name: 'Agent audit activity' });
+  const engine = history.getByRole('listitem').filter({ hasText: 'Engine response · Executed' });
+  await expect(engine).toHaveCount(1);
+  const usage = async (item) => ({
+    input: await item.getByRole('definition').nth(0).innerText(),
+    output: await item.getByRole('definition').nth(1).innerText(),
+    cost: await item.getByRole('definition').nth(2).innerText(),
+  });
+  expect(await usage(engine)).toEqual({ input: String(inputTokens), output: String(outputTokens), cost });
+  // The refusal #6 caused, in words and with its code.
+  const refusal = history.getByRole('listitem').filter({ hasText: 'Refused' });
+  await expect(refusal).toContainText('This agent may not run that task agents.task_not_allowed');
   await expect(selected).not.toContainText('Where do I place a limit order?');
+
   await page.reload();
   await agentSection(page, 'Sessions');
-  await expect(selected.getByRole('term').filter({ hasText: 'Session usage accrued' })).toBeVisible();
+  await expect(selected.getByRole('code')).toHaveText(ranSession());
+  await expect(engine).toHaveCount(1);
 
   const other = await browser.newContext();
   try {
@@ -180,9 +311,17 @@ test(`${J} #7 opens session history: the run with exact usage, refusal codes as 
     await signIn(device, agents.account());
     await device.goto('/agents');
     await agentSection(device, 'Sessions');
-    await expect(
-      device.getByRole('region', { name: 'Selected session' }).getByRole('term').filter({ hasText: 'Session usage accrued' }),
-    ).toBeVisible();
+    const there = device.getByRole('main').getByRole('region', { name: 'Selected session' });
+    await expect(there.getByRole('code')).toHaveText(ranSession());
+    expect(
+      await usage(
+        there.getByRole('list', { name: 'Agent audit activity' }).getByRole('listitem').filter({ hasText: 'Engine response · Executed' }),
+      ),
+    ).toEqual({
+      input: String(inputTokens),
+      output: String(outputTokens),
+      cost,
+    });
   } finally {
     await other.close();
   }

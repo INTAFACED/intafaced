@@ -36,6 +36,8 @@ export interface SpendGate {
     assetId: string;
     amount: string;
     now?: Date;
+    /** The agent's stored cap per session: what applies when the person set no limits of their own. */
+    agentCap?: string | null;
   }): Promise<SpendReservationView>;
   commitIn(tx: Sql, input: { userId: string; reservationKey: string; amount: string }): Promise<SpendReservationView>;
   release(input: { userId: string; reservationKey: string }): Promise<SpendReservationView>;

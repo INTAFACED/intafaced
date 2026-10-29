@@ -76,6 +76,16 @@ export interface AgentRuntimeOptions {
    * alone. When set, a run with no user limit refuses before the provider.
    */
   readonly spend?: SpendGate;
+  /**
+   * The person's available balance in the fee asset, read before the engine is called. Absent only in tests that do
+   * not exercise funds; production wires the ledger's balance read.
+   */
+  readonly funds?: { available(userId: string, assetId: string): Promise<Amount> };
+}
+
+/** The agent's own stored cap per session, as the spend hold takes it. */
+function agentCapOf(guardrail: Guardrail): string | null {
+  return guardrail.limits.maxSpendPerSession === null ? null : formatAmount(guardrail.limits.maxSpendPerSession);
 }
 
 export interface SessionRecord {
@@ -181,6 +191,7 @@ export class AgentRuntime {
   private readonly feeAssetId: string;
   private readonly meteringEnabled: boolean;
   private readonly spend: SpendGate | null;
+  private readonly funds: AgentRuntimeOptions['funds'] | null;
 
   constructor(
     private readonly sql: Sql,
@@ -193,6 +204,7 @@ export class AgentRuntime {
     this.feeAssetId = options.feeAssetId;
     this.meteringEnabled = options.meteringEnabled ?? false;
     this.spend = options.spend ?? null;
+    this.funds = options.funds ?? null;
   }
 
   // ── Agent definitions ──────────────────────────────────────────────────────
@@ -402,9 +414,24 @@ export class AgentRuntime {
 
     const maxOutputTokens =
       input.maxOutputTokens === undefined ? route.maxOutputTokens : Math.min(input.maxOutputTokens, route.maxOutputTokens);
+    // A route with no published rate never runs: nothing invents a price (OWNER 107). Refused before the guardrail, the
+    // hold and the engine, and logged so the person can read why.
+    const price = route.price;
+    if (!price) {
+      throw await this.appendRefusal(
+        session,
+        {
+          allowed: false,
+          code: 'agents.price_unset',
+          userMessageKey: 'agents.refused.price_unset',
+          userMessageParams: { task: input.task },
+        },
+        { kind: 'completion', task: input.task },
+      );
+    }
     const worstCaseCost = usageCost(
       { inputTokens: estimateInputTokens(input.system, input.messages), outputTokens: maxOutputTokens },
-      route.price,
+      price,
     );
 
     // 2 · Guardrail, before anything is called.
@@ -422,6 +449,30 @@ export class AgentRuntime {
 
     if (!decision.allowed) {
       throw await this.appendRefusal(session, decision, { kind: 'completion', task: input.task });
+    }
+
+    // 2a · Funds. A run whose worst case the person's available balance cannot cover does not start (OWNER 107): the
+    //      charge settles later, and a window nobody can pay is the outcome this check exists to prevent. A read that
+    //      fails refuses too — an unknown balance is not a covered one.
+    if (this.funds && shouldMeterUsage(session.metered, this.meteringEnabled) && worstCaseCost > 0n) {
+      let available: Amount | null;
+      try {
+        available = await this.funds.available(session.userId, this.feeAssetId);
+      } catch {
+        available = null;
+      }
+      if (available === null || available < worstCaseCost) {
+        throw await this.appendRefusal(
+          session,
+          {
+            allowed: false,
+            code: 'agents.funds_insufficient',
+            userMessageKey: 'agents.refused.funds_insufficient',
+            userMessageParams: { worstCase: formatAmount(worstCaseCost), asset: this.feeAssetId },
+          },
+          { kind: 'completion', task: input.task },
+        );
+      }
     }
 
     // 2b · Request-id replay must not re-enter the engine free of charge.
@@ -472,6 +523,7 @@ export class AgentRuntime {
           reservationKey,
           assetId: this.feeAssetId,
           amount: formatAmount(worstCaseCost),
+          agentCap: agentCapOf(session.guardrail),
         });
         // A committed hold is a metered replay. Metering-off must not invent
         // agents.request_id_replay (D26-P1-A6).
@@ -506,6 +558,7 @@ export class AgentRuntime {
             reservationKey,
             assetId: this.feeAssetId,
             amount: formatAmount(worstCaseCost),
+            agentCap: agentCapOf(session.guardrail),
           });
         }
         // One hold does not authorize a second provider call. A crashed hold
@@ -567,7 +620,7 @@ export class AgentRuntime {
     }
 
     const usage = completion.result.usage;
-    const cost = usageCost(usage, route.price);
+    const cost = usageCost(usage, price);
 
     // 4 · Meter and audit together.
     //
@@ -650,7 +703,7 @@ export class AgentRuntime {
             providerId: completion.result.providerId,
             model: route.model,
             usage,
-            price: route.price,
+            price,
           });
           recorded = result.recorded;
           window = result.windowId;
