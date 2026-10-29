@@ -170,8 +170,10 @@ export class DestinationFraudList implements DestinationFraudListPort {
   async set(change: FraudListingChange): Promise<FraudListing & { replayed: boolean }> {
     const network = fraudNetworkKey(change.network);
     const address = fraudAddressKey(change.address);
-    if (address.length === 0 || address.length > 256 || /\s/.test(address)) {
-      throw new BankError('The address must be 1 to 256 characters with no spaces', 'bank.validation_failed');
+    // Every crypto address the bank stores is an EVM address (`assertPersistableWithdrawDestination`), so a listing in any other
+    // shape (or with `0X`) would be stored and match nothing: refused instead.
+    if (!/^0x[0-9a-f]{40}$/.test(address)) {
+      throw new BankError('A listed address must be an EVM address: 0x followed by 40 letters a to f or digits', 'bank.validation_failed');
     }
     const reason = change.reason.trim();
     if (reason.length < 10) {

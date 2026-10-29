@@ -120,8 +120,10 @@ describe('destination fraud list (W-withdraw-03)', () => {
   });
 
   beforeEach(async () => {
-    // The history refuses DELETE, so a clean slate is a TRUNCATE (which the row trigger does not see).
+    // The history refuses DELETE and TRUNCATE; a clean slate for the test switches its triggers off around the TRUNCATE.
+    await sql`ALTER TABLE bank.destination_fraud_list_history DISABLE TRIGGER USER`;
     await sql`TRUNCATE bank.destination_fraud_list_history, bank.destination_fraud_list, bank.user_withdraw_destinations CASCADE`;
+    await sql`ALTER TABLE bank.destination_fraud_list_history ENABLE TRIGGER USER`;
   });
 
   function services(): BankServices {
@@ -316,6 +318,54 @@ describe('destination fraud list (W-withdraw-03)', () => {
     ).rejects.toMatchObject({ code: 'bank.destination_fraud_listed' });
     expect(await sql`SELECT 1 FROM bank.ramp_offramps WHERE user_id = ${CUSTOMER}`).toHaveLength(0);
     expect(await sql`SELECT 1 FROM bank.user_withdraw_destinations WHERE lower(ref) = ${LISTED}`).toHaveLength(0);
+  });
+
+  it('a reused send id naming a listed address it was not claimed with is refused before the address is stored', async () => {
+    const bank = services();
+    await list(bank, deskApprovals(), { network: '*', address: LISTED, listed: true, expectedRevision: 0 });
+    const claimed = randomUUID();
+    await sql`
+      INSERT INTO bank.ramp_offramps (id, user_id, asset_id, amount, kind, rail, destination_ref, client_ref)
+      VALUES (${claimed}::uuid, ${CUSTOMER}, 'USDT', 1, 'crypto', 'crypto-ledger', ${CLEAN}, 'TEST-claimed-send')`;
+    await expect(
+      bank.ramps.offramp({
+        offrampId: claimed,
+        userId: CUSTOMER,
+        assetId: 'USDT',
+        amount: 1n,
+        kind: 'crypto',
+        destinationRef: LISTED,
+        clientRef: 'TEST-claimed-send',
+      }),
+    ).rejects.toMatchObject({ code: 'bank.destination_fraud_listed' });
+    expect(await sql`SELECT 1 FROM bank.user_withdraw_destinations WHERE lower(ref) = ${LISTED}`).toHaveLength(0);
+    expect((await sql`SELECT destination_ref FROM bank.ramp_offramps WHERE id = ${claimed}::uuid`)[0]?.destination_ref).toBe(CLEAN);
+  });
+
+  it('the legacy withdrawal-address door refuses a listed address, in any case, and stores nothing', async () => {
+    const bank = services();
+    await list(bank, deskApprovals(), { network: 'ethereum', address: LISTED, listed: true, expectedRevision: 0 });
+    for (const ref of [LISTED, LISTED.toUpperCase().replace('0X', '0x')]) {
+      await expect(bank.ramps.setWithdrawDestination({ userId: CUSTOMER, kind: 'crypto', ref })).rejects.toMatchObject({
+        code: 'bank.destination_fraud_listed',
+      });
+    }
+    expect(await sql`SELECT 1 FROM bank.user_withdraw_destinations WHERE lower(ref) = ${LISTED}`).toHaveLength(0);
+    await expect(bank.ramps.setWithdrawDestination({ userId: CUSTOMER, kind: 'crypto', ref: CLEAN })).resolves.toBeTruthy();
+  });
+
+  it('refuses a listing that is not an EVM address, since it would be stored and match nothing', async () => {
+    const bank = services();
+    for (const address of ['not-an-address', `0X${LISTED.slice(2)}`, `${LISTED}00`]) {
+      await expect(list(bank, deskApprovals(), { network: '*', address, listed: true, expectedRevision: 0 })).rejects.toMatchObject({
+        code: 'BAD_REQUEST',
+      });
+    }
+    expect(await sql`SELECT 1 FROM bank.destination_fraud_list`).toHaveLength(0);
+  });
+
+  it('the history refuses a TRUNCATE as well as edits', async () => {
+    await expect(sql`TRUNCATE bank.destination_fraud_list_history`).rejects.toThrow(/append-only/);
   });
 
   it('a list that cannot be read refuses the save rather than assuming the address is safe', async () => {

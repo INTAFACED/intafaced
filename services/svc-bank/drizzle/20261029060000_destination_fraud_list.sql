@@ -54,3 +54,8 @@ DROP TRIGGER IF EXISTS "destination_fraud_list_history_append_only_trg" ON "bank
 CREATE TRIGGER "destination_fraud_list_history_append_only_trg"
   BEFORE UPDATE OR DELETE ON "bank"."destination_fraud_list_history"
   FOR EACH ROW EXECUTE FUNCTION "bank"."destination_fraud_list_history_append_only"();
+-- A TRUNCATE is a statement, which the row trigger above does not see: refuse it too.
+DROP TRIGGER IF EXISTS "destination_fraud_list_history_no_truncate_trg" ON "bank"."destination_fraud_list_history";
+CREATE TRIGGER "destination_fraud_list_history_no_truncate_trg"
+  BEFORE TRUNCATE ON "bank"."destination_fraud_list_history"
+  FOR EACH STATEMENT EXECUTE FUNCTION "bank"."destination_fraud_list_history_append_only"();
