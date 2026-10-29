@@ -12,6 +12,7 @@ import { Dividends } from './Dividends';
 import { OAuthConsent } from './OAuthConsent';
 import { ApiKeys } from './ApiKeys';
 import { ApiKeyCreate } from './ApiKeyCreate';
+import { ApiKeyDetail, keyIdFromPath } from './ApiKeyDetail';
 import './account.css';
 
 export function AccountRoutes({ path }: { path: string }) {
@@ -29,6 +30,8 @@ function AccountRooms({ path }: { path: string }) {
   if (clean === '/uc/safe') return <Security />;
   if (clean === '/uc/safe/api-keys') return <ApiKeys />;
   if (clean === '/uc/safe/api-keys/new') return <ApiKeyCreate />;
+  const keyId = keyIdFromPath(path);
+  if (keyId) return <ApiKeyDetail key={keyId} keyId={keyId} />;
   if (clean === '/verification') return <Verification />;
   if (clean === '/notifications') return <Notifications />;
   if (clean === '/identbusiness') return <BusinessVerification />;
