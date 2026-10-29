@@ -1,4 +1,4 @@
-import { useEffect, useId, useMemo, useState, type FormEvent } from 'react';
+import { useEffect, useId, useMemo, useState, type FormEvent, type ReactNode } from 'react';
 import { navigate } from '../../../app/location';
 import { useApi } from '../../session/session';
 import { usePreferences } from '../../../shared/preferences';
@@ -13,15 +13,31 @@ import { classifyQuery, pathFor, type ExplorerQuery } from './search';
 
 type Failure = Extract<ApiResult<unknown>, { ok: false }>;
 
-/** Why the indexer gave no answer, in words. A gateway that has no indexer behind it says so instead of a raw code. */
+/** Why the indexer gave no answer, in words. A gateway with no indexer behind it says so instead of a raw code. */
 function refusalWords(failure: Failure, t: ExplorerTranslate): string {
   if (isServiceNotConnected(failure.code)) return t('reasonIndexerNotConnected');
   if (failure.code === 'edge.upstream_unavailable') return t('reasonIndexerNoAnswer');
   return failure.message;
 }
 
-const clock = (seconds: number) => new Date(seconds * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 const short = (hex: string) => `${hex.slice(0, 10)}…${hex.slice(-6)}`;
+
+/** A table row that holds only a note: why the table is empty, or that it is loading. */
+function NoteRow({ span, children }: { span: number; children: ReactNode }) {
+  return (
+    <tr>
+      <td colSpan={span}>{children}</td>
+    </tr>
+  );
+}
+function BlockerNote({ title, action }: { title: string; action?: ReactNode }) {
+  return (
+    <div role="status" data-blocker="indexer">
+      <EmptyState title={title} />
+      {action}
+    </div>
+  );
+}
 
 /**
  * Chain home (D-explorer-07): the explorer search, the latest blocks and transactions on the network the indexer reads,
@@ -30,79 +46,88 @@ const short = (hex: string) => `${hex.slice(0, 10)}…${hex.slice(-6)}`;
  */
 export function ChainHome({ chain }: { chain: ChainRef }) {
   const { language } = usePreferences();
-  const { t } = explorerCopy.forLocale(language);
+  const { t, renderedLocale } = explorerCopy.forLocale(language);
   const transport = useApi();
   const api = useMemo(() => createExplorerApi(transport), [transport]);
   const chainId = chain.status === 'ready' ? chain.chainId : null;
   const network = chainId === null ? null : networkLabel(chainId).name;
+  const txHeaders = [t('hdrHash'), t('hdrFrom'), t('hdrTo'), t('hdrStatus')];
   return (
     <>
       <p className="explorer-intachain" data-testid="chain-intachain">
         {network ? t('intachainLine', { network }) : t('intachainLineUnknown')}
       </p>
-      <ExplorerSearch api={api} chainId={chainId} chain={chain} t={t} />
-      <LatestBlocks api={api} chain={chain} t={t} />
+      <ExplorerSearch api={api} chain={chain} t={t} />
+      <LatestBlocks api={api} chain={chain} locale={renderedLocale} t={t} />
       <Panel title={t('latestTxs')}>
-        <DataTable label={t('latestTxs')} headers={[t('hdrHash'), t('hdrFrom'), t('hdrTo'), t('hdrStatus')]}>
-          <tr>
-            <td colSpan={4}>
-              <div role="status" data-blocker="indexer">
-                <EmptyState title={t('txsNoList')} />
-              </div>
-            </td>
-          </tr>
+        <DataTable label={t('latestTxs')} headers={txHeaders}>
+          <NoteRow span={txHeaders.length}>
+            <BlockerNote title={t('txsNoList')} />
+          </NoteRow>
         </DataTable>
       </Panel>
     </>
   );
 }
 
-function LatestBlocks({ api, chain, t }: { api: ExplorerApi; chain: ChainRef; t: ExplorerTranslate }) {
+function LatestBlocks({ api, chain, locale, t }: { api: ExplorerApi; chain: ChainRef; locale: string; t: ExplorerTranslate }) {
   const chainId = chain.status === 'ready' ? chain.chainId : null;
   const blocks = useResource<ExplorerBlocksPage | null>(
     (signal) => (chainId === null ? Promise.resolve({ ok: true, data: null }) : api.latestBlocks(chainId, signal)),
     `explorer:blocks:${chainId ?? 'none'}`,
   );
   const headers = [t('hdrBlock'), t('hdrTime'), t('hdrTxs'), t('hdrGas')];
-  const note = (title: string) => (
-    <tr>
-      <td colSpan={headers.length}>
-        <div role="status" data-blocker="indexer">
-          <EmptyState title={title} />
-        </div>
-      </td>
-    </tr>
-  );
-  let body;
+  const when = (date: Date) => date.toLocaleString(locale, { dateStyle: 'medium', timeStyle: 'short' });
+  const { resource } = blocks;
+  let body: ReactNode;
   let asOf: string | null = null;
-  if (chain.status === 'failed') body = note(t('blocksChainUnknown'));
-  else if (chain.status === 'loading' || blocks.resource.status === 'loading')
+  if (chain.status === 'failed')
     body = (
-      <tr>
-        <td colSpan={headers.length}>
-          <Loading label={t('latestBlocks')} />
-        </td>
-      </tr>
+      <NoteRow span={headers.length}>
+        <BlockerNote title={t('blocksChainUnknown')} />
+      </NoteRow>
     );
-  else if (blocks.resource.status === 'failed') body = note(t('blocksRefused', { reason: refusalWords(blocks.resource.failure, t) }));
-  else if (!blocks.resource.data || blocks.resource.data.rows.length === 0) body = note(t('blocksNone'));
+  else if (chain.status === 'loading' || resource.status === 'loading')
+    body = (
+      <NoteRow span={headers.length}>
+        <Loading label={t('latestBlocks')} />
+      </NoteRow>
+    );
+  else if (resource.status === 'failed')
+    body = (
+      <NoteRow span={headers.length}>
+        <BlockerNote
+          title={t('blocksRefused', { reason: refusalWords(resource.failure, t) })}
+          action={
+            <Button variant="secondary" onClick={blocks.reload}>
+              {t('retry')}
+            </Button>
+          }
+        />
+      </NoteRow>
+    );
+  else if (!resource.data || resource.data.rows.length === 0)
+    body = (
+      <NoteRow span={headers.length}>
+        <BlockerNote title={t('blocksNone', { network: networkLabel(chainId).name })} />
+      </NoteRow>
+    );
   else {
-    asOf = blocks.resource.data.asOf;
-    body = blocks.resource.data.rows.map((row) => (
+    asOf = resource.data.asOf;
+    body = resource.data.rows.map((row) => (
       <tr key={`${row.height}:${row.hash}`}>
         <th scope="row">
-          <a
-            href={`/chain/blocks/${row.height}`}
-            onClick={(event) => {
-              event.preventDefault();
-              navigate(`/chain/blocks/${row.height}`);
-            }}
-          >
-            {row.height}
-          </a>
-          {row.orphaned && <span className="badge">{t('blockOrphaned', { reason: row.orphaned.reason })}</span>}
+          {/* A height opens the canonical block, so a reorged row shows its height and hash without a link to another block. */}
+          {row.orphaned ? (
+            <>
+              {row.height} <span className="badge">{t('blockOrphaned', { reason: row.orphaned.reason })}</span>{' '}
+              <span className="muted">{short(row.hash)}</span>
+            </>
+          ) : (
+            <a href={`/chain/blocks/${row.height}`}>{row.height}</a>
+          )}
         </th>
-        <td>{clock(row.timestamp)}</td>
+        <td>{when(new Date(row.timestamp * 1000))}</td>
         <td className="numeric">{row.txCount}</td>
         <td className="numeric">{row.gasUsed}</td>
       </tr>
@@ -110,9 +135,7 @@ function LatestBlocks({ api, chain, t }: { api: ExplorerApi; chain: ChainRef; t:
   }
   return (
     <Panel title={t('latestBlocks')}>
-      {asOf && (
-        <p className="muted">{t('blocksAsOf', { time: new Date(asOf).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) })}</p>
-      )}
+      {asOf && <p className="muted">{t('blocksAsOf', { time: when(new Date(asOf)) })}</p>}
       <DataTable label={t('latestBlocks')} headers={headers}>
         {body}
       </DataTable>
@@ -138,10 +161,12 @@ type NetworkAnswer =
  * up on every network this explorer knows, and each network says Found, Not found or why it was not checked. Text that
  * is none of these would be a token name, and there is no token list to search, so the box says so instead of guessing.
  */
-function ExplorerSearch({ api, chainId, chain, t }: { api: ExplorerApi; chainId: number | null; chain: ChainRef; t: ExplorerTranslate }) {
+function ExplorerSearch({ api, chain, t }: { api: ExplorerApi; chain: ChainRef; t: ExplorerTranslate }) {
+  const chainId = chain.status === 'ready' ? chain.chainId : null;
   const [text, setText] = useState('');
-  const [searched, setSearched] = useState<string | null>(null);
-  const [lookup, setLookup] = useState<{ hash: string; chainId: number; result: ApiResult<ExplorerTx> } | null>(null);
+  // Each search is its own attempt, so searching the same hash again asks the indexer again.
+  const [searched, setSearched] = useState<{ hash: string; attempt: number } | null>(null);
+  const [lookup, setLookup] = useState<{ attempt: number; chainId: number; result: ApiResult<ExplorerTx> } | null>(null);
   const listId = useId();
   const query = classifyQuery(text);
 
@@ -149,8 +174,8 @@ function ExplorerSearch({ api, chainId, chain, t }: { api: ExplorerApi; chainId:
   useEffect(() => {
     if (searched === null || chainId === null) return;
     const controller = new AbortController();
-    void api.tx(chainId, searched, controller.signal).then((result) => {
-      if (!controller.signal.aborted) setLookup({ hash: searched, chainId, result });
+    void api.tx(chainId, searched.hash, controller.signal).then((result) => {
+      if (!controller.signal.aborted) setLookup({ attempt: searched.attempt, chainId, result });
     });
     return () => controller.abort();
   }, [api, searched, chainId]);
@@ -163,7 +188,7 @@ function ExplorerSearch({ api, chainId, chain, t }: { api: ExplorerApi; chainId:
           if (chainId === null) return { ...network, state: 'not_checked', reason: t('reasonChainUnknown') };
           if (network.chainId !== chainId)
             return { ...network, state: 'not_checked', reason: t('reasonOtherNetwork', { network: networkLabel(chainId).name }) };
-          if (!lookup || lookup.hash !== searched || lookup.chainId !== chainId) return { ...network, state: 'checking' };
+          if (!lookup || lookup.attempt !== searched.attempt || lookup.chainId !== chainId) return { ...network, state: 'checking' };
           const { result } = lookup;
           if (result.ok) return { ...network, state: 'found', tx: result.data };
           if (isNotFound(result.code)) return { ...network, state: 'not_found' };
@@ -173,12 +198,13 @@ function ExplorerSearch({ api, chainId, chain, t }: { api: ExplorerApi; chainId:
   function open() {
     const path = pathFor(query);
     if (path) navigate(path);
-    else if (query.kind === 'tx') setSearched(query.value);
+    else if (query.kind === 'tx') setSearched((last) => ({ hash: query.value, attempt: (last?.attempt ?? 0) + 1 }));
   }
   function submit(event: FormEvent) {
     event.preventDefault();
     open();
   }
+  const hasResults = query.kind !== 'empty' && query.kind !== 'text';
 
   return (
     <Panel title={t('homeTitle')}>
@@ -188,7 +214,7 @@ function ExplorerSearch({ api, chainId, chain, t }: { api: ExplorerApi; chainId:
           aria-label={t('searchLabel')}
           placeholder={t('searchPlaceholder')}
           value={text}
-          aria-controls={listId}
+          {...(hasResults ? { 'aria-controls': listId } : {})}
           onChange={(event) => {
             setText(event.target.value);
             setSearched(null);
@@ -208,15 +234,7 @@ function ExplorerSearch({ api, chainId, chain, t }: { api: ExplorerApi; chainId:
               {network.state === 'found' && (
                 <>
                   {t('networkFound', { network: network.name, status: network.tx.status })}{' '}
-                  <a
-                    href={`/chain/tx/${network.tx.hash}`}
-                    onClick={(event) => {
-                      event.preventDefault();
-                      navigate(`/chain/tx/${network.tx.hash}`);
-                    }}
-                  >
-                    {t('openTx')}
-                  </a>
+                  <a href={`/chain/tx/${network.tx.hash}`}>{t('openTx')}</a>
                 </>
               )}
               {network.state === 'not_found' && t('networkNotFound', { network: network.name })}

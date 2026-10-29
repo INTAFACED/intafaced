@@ -36,8 +36,10 @@ describe('Chain home', () => {
     };
     const html = renderToStaticMarkup(<ChainHome chain={ready84532} />);
     expect(html).toContain('aria-label="Latest blocks"');
-    expect(html.indexOf('>12<')).toBeLessThan(html.indexOf('>11<'));
-    expect(html).toContain('Reorged: replaced by a heavier branch');
+    expect(html.indexOf('href="/chain/blocks/12"')).toBeGreaterThan(-1);
+    expect(html.indexOf('href="/chain/blocks/12"')).toBeLessThan(html.indexOf('Reorged: replaced by a heavier branch'));
+    // A reorged row never links by height, which would open the canonical block instead.
+    expect(html).not.toContain('href="/chain/blocks/11"');
     expect(html).toMatch(/data-testid="chain-intachain"[^>]*>INTACHAIN: not launched\. Blocked: [^<]+Base Sepolia test network/);
     expect(html).not.toMatch(/INTACHAIN mainnet|INTACHAIN is live/i);
     expect(html).toContain('aria-label="Search by address, transaction or block"');
@@ -49,9 +51,15 @@ describe('Chain home', () => {
     };
     const html = renderToStaticMarkup(<ChainHome chain={ready84532} />);
     expect(html).toContain('No blocks listed: the indexer service is not running here');
+    expect(html).toMatch(/<button[^>]*>Try again<\/button>/);
     expect(html).toContain('aria-label="Latest transactions"');
     expect(html).toContain('The indexer has no list of recent transactions');
     expect(html).not.toMatch(/<td[^>]*>\s*0\s*<\/td>/);
+  });
+  it('with an empty answer it names the network it asked about, never zero blocks', () => {
+    answers['explorer:blocks:84532'] = { status: 'ready', data: { rows: [], nextCursor: null, asOf: '2026-10-29T05:00:00.000Z' } };
+    const html = renderToStaticMarkup(<ChainHome chain={ready84532} />);
+    expect(html).toContain('The indexer lists no blocks on Base Sepolia test network.');
   });
   it('with no confirmed network it lists no blocks and names no network on the INTACHAIN line', () => {
     const html = renderToStaticMarkup(
