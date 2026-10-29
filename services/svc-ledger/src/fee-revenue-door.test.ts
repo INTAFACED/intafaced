@@ -10,10 +10,10 @@ import type { LedgerService } from './service.js';
 
 const SHARED = 'ledger-shared-internal-secret-32chars!';
 /**
- * svc-ops' doors: its three reads (fee revenue, the restore watermark and the reconciliation evaluation feed), and its
- * staff hold posts with the read of their own keys (ADR 2026-10-22 3.7).
+ * svc-ops' doors: its four reads (fee revenue, the restore watermark, the reconciliation evaluation feed and which
+ * transaction ids exist), and its staff hold posts with the read of their own keys (ADR 2026-10-22 3.7).
  */
-const OPS_DOORS = ['feeRevenue', 'restoreWatermark', 'reconciliationEvaluations', 'post', 'txByKey'];
+const OPS_DOORS = ['feeRevenue', 'restoreWatermark', 'reconciliationEvaluations', 'transactionsExist', 'post', 'txByKey'];
 const WINDOW = { from: '2026-10-01T00:00:00.000Z', to: '2026-11-01T00:00:00.000Z' };
 
 function pair() {
