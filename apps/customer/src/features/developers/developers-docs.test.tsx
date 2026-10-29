@@ -94,20 +94,20 @@ describe('developer docs pages', () => {
     expect(page).toContain('data-testid="developers-clock-check"');
     expect(page).toContain('Check my clock');
   });
-  it('connectivity: unset hosts read host not set, colocation is parked on hardware', () => {
+  it('connectivity names the parked options and their hardware blocker at once; the host options wait for the read', () => {
     const page = html('/developers/connectivity');
-    const row = (key: string) =>
-      text(page.slice(page.indexOf(`data-option="${key}"`), page.indexOf('</tr>', page.indexOf(`data-option="${key}"`))));
-    expect(row('internet')).toContain('host not set');
-    expect(row('redundant')).toContain('host not set');
-    expect(row('colocation')).toMatch(/Parked.*hardware/);
+    expect(page).toContain('Connectivity options');
+    expect(page.match(/data-option="[a-z_]+"/g)).toEqual(['data-option="low_latency"', 'data-option="colocation"']);
+    expect(page.match(/data-option-state="[a-z_]+"/g)).toEqual([
+      'data-option-state="parked_hardware"',
+      'data-option-state="parked_hardware"',
+    ]);
     expect(page).toContain('data-testid="developers-time-probe"');
   });
-  it('data terms: every product, every term not set, and what they wait for', () => {
+  it('data terms reads the published terms before it draws a product', () => {
     const page = html('/developers/data-terms');
-    expect(page.match(/data-terms-state="unset"/g)).toHaveLength(6);
-    expect(page.match(/<td>not set<\/td>/g)).toHaveLength(30);
-    expect(text(page)).toContain('RC-developer-05');
+    expect(page).toContain('Market data products and their terms');
+    expect(page).not.toContain('data-terms-state=');
   });
   it('the auth error catalogue address says what it waits for and links the permission table', () => {
     const page = html('/developers/errors/auth');

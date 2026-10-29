@@ -74,6 +74,7 @@ export const DOCS_PAGES: readonly DocsPage[] = [
           ]),
         ),
         portal('hostsRegional'),
+        portal('hostsStaticNote'),
       ].join('\n\n'),
   },
   {
@@ -197,6 +198,7 @@ export const DOCS_PAGES: readonly DocsPage[] = [
             ].join('; '),
           ]),
         ),
+        portal('hostsStaticNote'),
         `## ${docs('timeTitle')}`,
         `${docs('timeLead')} ${docs('clockHow')}`,
       ].join('\n\n'),
@@ -208,7 +210,7 @@ export const DOCS_PAGES: readonly DocsPage[] = [
     body: () =>
       [
         docs('dataTermsLead'),
-        docs('dataTermsWaits'),
+        portal('termsStaticNote'),
         table(
           [docs('colProduct'), ...DATA_TERMS.map((term) => dataTermLabel(docs, term))],
           DATA_PRODUCTS.map((product) => [docs(`product_${product}`), ...DATA_TERMS.map(() => docs('termUnset'))]),

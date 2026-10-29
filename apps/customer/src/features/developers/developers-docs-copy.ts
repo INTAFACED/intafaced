@@ -111,8 +111,7 @@ export const docsCopy = defineCopy(
     // Data terms
     dataTermsLead: 'Which market data products you may use, and on what terms.',
     dataTermsTable: 'Market data products and their terms',
-    dataTermsWaits:
-      'No term is published yet: each one reads not set until the owner sets it. The terms wait for the owner’s data terms and their read in the market service (RC-developer-05).',
+    dataTermsWaits: 'No term is published yet: each one reads not set until the owner sets it.',
     colProduct: 'Product',
     colEntitlement: 'Entitlement',
     colRedistribution: 'Redistribution',
@@ -232,8 +231,7 @@ export const docsCopy = defineCopy(
         'Las llamadas firmadas llevan una marca de tiempo. Mantén tu reloj con una fuente de hora de red estándar y compruébalo aquí.',
       dataTermsLead: 'Qué productos de datos de mercado puedes usar y en qué condiciones.',
       dataTermsTable: 'Productos de datos de mercado y sus condiciones',
-      dataTermsWaits:
-        'Todavía no hay ninguna condición publicada: cada una dice no definido hasta que el propietario la defina. Las condiciones esperan a las del propietario y a su lectura en el servicio de mercado (RC-developer-05).',
+      dataTermsWaits: 'Todavía no hay ninguna condición publicada: cada una dice no definido hasta que el propietario la defina.',
       colProduct: 'Producto',
       colEntitlement: 'Derecho de acceso',
       colRedistribution: 'Redistribución',
@@ -352,8 +350,7 @@ export const docsCopy = defineCopy(
       timeLead: 'Les appels signés portent un horodatage. Gardez votre horloge sur une source de temps réseau standard et vérifiez-la ici.',
       dataTermsLead: 'Les produits de données de marché que vous pouvez utiliser, et à quelles conditions.',
       dataTermsTable: 'Produits de données de marché et leurs conditions',
-      dataTermsWaits:
-        'Aucune condition n’est encore publiée : chacune indique non défini jusqu’à ce que le propriétaire la définisse. Les conditions attendent celles du propriétaire et leur lecture dans le service de marché (RC-developer-05).',
+      dataTermsWaits: 'Aucune condition n’est encore publiée : chacune indique non défini jusqu’à ce que le propriétaire la définisse.',
       colProduct: 'Produit',
       colEntitlement: 'Droit d’accès',
       colRedistribution: 'Redistribution',
