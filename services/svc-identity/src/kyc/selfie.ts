@@ -114,8 +114,12 @@ export class KycSelfieDesk {
     if (!ttl) throw new KycSelfieError('No hand-off link life is set, so a phone hand-off is refused', 'kyc.handoff_unset');
     const token = randomBytes(32).toString('base64url');
     return await transaction(this.sql, async (tx) => {
-      // The newest link replaces the account's unused ones, and a used one whose selfie was replaced goes with them.
-      await tx`DELETE FROM kyc_selfie_handoffs WHERE user_id = ${userId} AND (used_at IS NULL OR selfie_id IS NULL)`;
+      // The newest link replaces the account's unused ones: each still open is expired now, so a phone holding one is
+      // told it expired rather than that it is unknown. Links already over, and used ones whose selfie was replaced, go.
+      await tx`
+        DELETE FROM kyc_selfie_handoffs
+        WHERE user_id = ${userId} AND ((used_at IS NULL AND expires_at <= now()) OR (used_at IS NOT NULL AND selfie_id IS NULL))`;
+      await tx`UPDATE kyc_selfie_handoffs SET expires_at = now() WHERE user_id = ${userId} AND used_at IS NULL AND expires_at > now()`;
       const [row] = await tx<Array<{ expires_at: Date }>>`
         INSERT INTO kyc_selfie_handoffs (token_sha256, user_id, expires_at)
         VALUES (${tokenHash(token)}, ${userId}, now() + make_interval(secs => ${ttl}))
@@ -160,19 +164,36 @@ export class KycSelfieDesk {
     let replaced: string[] = [];
     let view: KycSelfie;
     try {
-      view = await transaction(this.sql, async (tx) => {
-        if (handoff) this.assertUsable(await this.handoff(tx, userId, handoff, true));
-        const gone = await tx<Array<{ document_id: string }>>`
-          DELETE FROM kyc_selfies WHERE user_id = ${userId} AND status = 'provided' RETURNING document_id`;
-        replaced = gone.map((r) => r.document_id);
-        const [row] = await tx<Row[]>`
-          INSERT INTO kyc_selfies (user_id, document_id, via)
-          VALUES (${userId}, ${stored.id}, ${handoff ? 'handoff' : 'this_device'})
-          RETURNING id, via, status, created_at`;
-        if (handoff)
-          await tx`UPDATE kyc_selfie_handoffs SET used_at = now(), selfie_id = ${row!.id} WHERE token_sha256 = ${tokenHash(handoff)}`;
-        return toView(row!);
-      });
+      view = await transaction(
+        this.sql,
+        async (tx) => {
+          // One send per person at a time: the next one waits here and then sees this one's row, so it replaces it instead
+          // of failing on the one-undecided index. Read committed, so each statement after the lock sees what committed.
+          await tx`SELECT pg_advisory_xact_lock(hashtext('kyc-selfie'), hashtext(${userId}::text))`;
+          if (handoff) this.assertUsable(await this.handoff(tx, userId, handoff, true));
+          const gone = await tx<Array<{ document_id: string }>>`
+            DELETE FROM kyc_selfies WHERE user_id = ${userId} AND status = 'provided' RETURNING document_id`;
+          // A frame compliance has bound to a verification record stays in the vault; only the selfie row is replaced.
+          const ids = gone.map((r) => r.document_id);
+          const bound = ids.length
+            ? new Set(
+                (
+                  await tx<Array<{ provider_ref: string }>>`
+                    SELECT provider_ref FROM kyc_records WHERE user_id = ${userId} AND provider_ref = ANY(${ids}::text[])`
+                ).map((r) => r.provider_ref),
+              )
+            : new Set<string>();
+          replaced = ids.filter((id) => !bound.has(id));
+          const [row] = await tx<Row[]>`
+            INSERT INTO kyc_selfies (user_id, document_id, via)
+            VALUES (${userId}, ${stored.id}, ${handoff ? 'handoff' : 'this_device'})
+            RETURNING id, via, status, created_at`;
+          if (handoff)
+            await tx`UPDATE kyc_selfie_handoffs SET used_at = now(), selfie_id = ${row!.id} WHERE token_sha256 = ${tokenHash(handoff)}`;
+          return toView(row!);
+        },
+        { isolation: 'read committed' },
+      );
     } catch (err) {
       await vault.deleteFor(stored.id, { kind: 'owner', userId }).catch(() => undefined);
       throw err;

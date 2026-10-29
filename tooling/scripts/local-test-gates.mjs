@@ -12,7 +12,7 @@
  *   node tooling/scripts/local-test-gates.mjs terms      publish TEST personal transfer limits (two-person approval)
  *   node tooling/scripts/local-test-gates.mjs assets     publish TEST supported assets and networks (two-person approval)
  *   node tooling/scripts/local-test-gates.mjs deposit-terms   publish TEST crypto deposit networks and terms in svc-pay (two-person approval)
- *   node tooling/scripts/local-test-gates.mjs withdraw-terms  publish TEST withdrawal limits, the fee quote policy and the network rules in svc-pay
+ *   node tooling/scripts/local-test-gates.mjs withdraw-terms  publish TEST withdrawal limits, the fee quote policy and the network rules in svc-pay, and list the TEST fraud address in svc-bank
  *   node tooling/scripts/local-test-gates.mjs futures    list the TEST perpetual, publish TEST derivatives terms and quiz
  *   node tooling/scripts/local-test-gates.mjs halt <SYMBOL>    halt one book in matching (two-person approval)
  *   node tooling/scripts/local-test-gates.mjs resume <SYMBOL>  resume a halted book (two-person approval)
@@ -1350,6 +1350,76 @@ export async function publishWithdrawQuotePolicy(ctx) {
 }
 
 /**
+ * LOCAL TEST destination fraud list (svc-bank `ops.setDestinationFraudListing`, W-withdraw-03), not an owner list: one TEST
+ * address on every network, so J-wallet-05 #2 can watch the address book refuse it. The address is a made-up pattern
+ * (`0x7e57…fa1d`), not anyone's wallet. Nothing else is listed on the stack.
+ */
+export const TEST_FRAUD_LIST = Object.freeze([
+  Object.freeze({
+    network: '*',
+    address: '0x7e5700000000000000000000000000000000fa1d',
+    reason: 'LOCAL TEST: J-wallet-05 #2 fraud-listed address',
+  }),
+]);
+export const SET_FRAUD_LISTING_ACTION = 'bank.ops.setDestinationFraudListing';
+
+/** The fields svc-bank binds a fraud listing's approval to (`fraudListingFields` in services/svc-bank/src/ramps/fraud-list.ts). */
+export function fraudListingFields({ network, address, listed, expectedRevision, reason }) {
+  const key = /^0x[0-9a-fA-F]{40}$/.test(address) ? address.toLowerCase() : address;
+  return {
+    network: network === '*' ? '*' : network.toLowerCase(),
+    address: key,
+    listed: String(listed),
+    revision: String(expectedRevision + 1),
+    reason: reason.trim(),
+  };
+}
+
+/** List the TEST fraud address through compliance's door, with the second founder's approval. A listed address is left alone. */
+export async function publishTestFraudList(ctx) {
+  const sessions = await approverSessions(ctx);
+  const out = [];
+  for (const want of TEST_FRAUD_LIST) {
+    const what = `fraud list ${want.address} on ${want.network}`;
+    const read = await ctx.edge.query(
+      'bank',
+      'ops.destinationFraudList',
+      { limit: 50, address: want.address },
+      await sessions.a.complianceToken(),
+    );
+    const entries = data(read)?.entries;
+    if (!Array.isArray(entries)) throw new Error(`bank ops.destinationFraudList refused (${read.status}): ${refusalText(read)}`);
+    const key = fraudListingFields({ ...want, listed: true, expectedRevision: 0 });
+    const row = entries.find((e) => e.network === key.network && e.address === key.address) ?? null;
+    if (row?.listed) {
+      out.push({ what, status: 'already listed' });
+      continue;
+    }
+    const change = {
+      network: want.network,
+      address: want.address,
+      listed: true,
+      expectedRevision: row ? row.revision : 0,
+      reason: want.reason,
+    };
+    const ids = await twoPerson(ctx, sessions, {
+      actionType: SET_FRAUD_LISTING_ACTION,
+      targetService: 'svc-bank',
+      targetId: SET_FRAUD_LISTING_ACTION,
+      expectedVersion: '1',
+      payloadHash: bankPayloadHash(SET_FRAUD_LISTING_ACTION, fraudListingFields(change)),
+      policyVersion: MARKERS.policyVersion,
+    });
+    assertActiveLocalStack({ stateDir: ctx.paths.stateDir });
+    const res = await ctx.edge.mutate('bank', 'ops.setDestinationFraudListing', { ...change, ...ids }, await sessions.a.complianceToken());
+    if (data(res)?.listed !== true) throw new Error(`bank ops.setDestinationFraudListing refused (${res.status}): ${refusalText(res)}`);
+    out.push({ what, status: 'listed', approvalId: ids.approvalId });
+    ctx.log(`${what}: listed as fraud (${MARKERS.label}); approval ${ids.approvalId}`);
+  }
+  return out;
+}
+
+/**
  * LOCAL TEST withdrawal rules per asset and network (svc-pay `founderAdmin.withdrawalNetworkRules`, W-withdraw-02), not owner
  * values: for every TEST deposit pair, a minimum of 1, a maximum of 1000 (the TEST per-withdrawal limit) and a step of 0.01, and
  * no tag (the TEST networks are EVM chains, which take none). With no rules a pair's quotes refuse `withdrawal_network_rules.unset`,
@@ -2393,6 +2463,7 @@ async function main() {
       for (const r of await publishWithdrawalLimits(ctx)) say(`  withdraw  ${r.what}: ${r.status}`);
       for (const r of await publishWithdrawQuotePolicy(ctx)) say(`  withdraw  ${r.what}: ${r.status}`);
       for (const r of await publishWithdrawNetworkRules(ctx)) say(`  withdraw  ${r.what}: ${r.status}`);
+      for (const r of await publishTestFraudList(ctx)) say(`  withdraw  ${r.what}: ${r.status}`);
     } else if (cmd === 'halt' || cmd === 'resume') {
       const symbol = process.argv[3];
       if (!symbol) die(`usage: local-test-gates.mjs ${cmd} <SYMBOL>, for example ETH/USDT`, 2);

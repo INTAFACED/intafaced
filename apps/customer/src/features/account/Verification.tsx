@@ -642,7 +642,8 @@ export function Verification() {
         ) : (
           <>
             {offeredTiers.length > 0 && <VerificationGuided tier={chosenTier} disabled={blocked} onSent={reload} />}
-            <VerificationSelfie recordsKey={casesKey} disabled={blocked} />
+            {/* Not the request form's hold either: a selfie is part of the request, so a lockout does not stop it. */}
+            <VerificationSelfie recordsKey={casesKey} disabled={!userId || !api.canWrite()} />
             {/* Not the request form's hold: an attempts lockout or a pending request does not stop proof of address. */}
             <VerificationProofOfAddress recordsKey={casesKey} disabled={!userId || !api.canWrite()} />
             <VerificationCapabilities recordsKey={casesKey} />

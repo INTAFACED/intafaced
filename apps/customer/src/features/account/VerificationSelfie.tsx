@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   kycSelfieHandoffCheckSchema,
   kycSelfieHandoffSchema,
@@ -60,15 +60,39 @@ function PhoneCode({ value, label, failed }: { value: string; label: string; fai
   );
 }
 
-/** One frame from the live camera as a JPEG. */
-function grab(video: HTMLVideoElement): Promise<Blob | null> {
-  const canvas = document.createElement('canvas');
-  canvas.width = video.videoWidth;
-  canvas.height = video.videoHeight;
-  const context = canvas.getContext('2d');
-  if (!context || !canvas.width || !canvas.height) return Promise.resolve(null);
-  context.drawImage(video, 0, 0, canvas.width, canvas.height);
-  return new Promise((resolve) => canvas.toBlob(resolve, 'image/jpeg', 0.85));
+/** Photo types a canvas can write, in the order the page tries them against the published types. */
+const FRAME_TYPES = ['image/jpeg', 'image/webp', 'image/png'] as const;
+/** Smaller and plainer frames, tried in turn until one fits the published size limit. */
+const FRAME_STEPS = [
+  { scale: 1, quality: 0.85 },
+  { scale: 1, quality: 0.7 },
+  { scale: 0.75, quality: 0.7 },
+  { scale: 0.5, quality: 0.7 },
+  { scale: 0.5, quality: 0.5 },
+] as const;
+
+/** The first published photo type a canvas can write, or null when none of them is one. */
+function frameType(contentTypes: readonly string[]): string | null {
+  return FRAME_TYPES.find((type) => contentTypes.includes(type)) ?? null;
+}
+
+/** One frame from the live camera in `type`, made smaller until it fits `maxBytes`; the last try is returned when none fits. */
+async function grab(video: HTMLVideoElement, type: string, maxBytes: number): Promise<Blob | null> {
+  if (!video.videoWidth || !video.videoHeight) return null;
+  let frame: Blob | null = null;
+  for (const step of FRAME_STEPS) {
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.round(video.videoWidth * step.scale);
+    canvas.height = Math.round(video.videoHeight * step.scale);
+    const context = canvas.getContext('2d');
+    if (!context) return null;
+    context.drawImage(video, 0, 0, canvas.width, canvas.height);
+    frame = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, type, step.quality));
+    // A browser that cannot write `type` hands back a PNG; that is not the type the page asked for.
+    if (!frame || frame.type !== type) return null;
+    if (frame.size <= maxBytes) return frame;
+  }
+  return frame;
 }
 
 /**
@@ -91,12 +115,21 @@ export function VerificationSelfie({ recordsKey, disabled }: { recordsKey: strin
   /** On the computer: the latest selfie's id when the phone link was made, so a newer one from the phone shows. */
   const [before, setBefore] = useState<string | null>(null);
   const [linkExpired, setLinkExpired] = useState(false);
-  const [handoff, setHandoff] = useState<KycSelfieHandoff | null>(null);
+  /** The phone link and when it runs out on this device's clock: its arrival plus the published lifetime. */
+  const [handoff, setHandoff] = useState<(KycSelfieHandoff & { until: number }) | null>(null);
   const [stream, setStream] = useState<MediaStream | null>(null);
   const [busy, setBusy] = useState(false);
   const [problem, setProblem] = useState<Problem | null>(null);
   const [sent, setSent] = useState<KycSelfie | null>(null);
   const video = useRef<HTMLVideoElement | null>(null);
+  // A callback ref, so a preview drawn again after the camera opened still gets the stream.
+  const preview = useCallback(
+    (element: HTMLVideoElement | null) => {
+      video.current = element;
+      if (element && stream && element.srcObject !== stream) element.srcObject = stream;
+    },
+    [stream],
+  );
   const last = useRef<KycSelfieRead | null>(null);
   if (resource.status === 'ready') last.current = resource.data;
   // `reload` is a new function each render; the phone poll reads the latest through this ref so it keeps one timer.
@@ -119,12 +152,12 @@ export function VerificationSelfie({ recordsKey, disabled }: { recordsKey: strin
     return () => controller.abort();
   }, [api, token, userId, checks]);
 
-  // On the computer, while the phone link is on screen: re-read the latest selfie, and say when the link runs out.
+  // On the computer, while the phone link is on screen and can still be used: re-read the latest selfie, and say when
+  // the link runs out. Once it has run out the phone cannot send, so the reading stops.
   useEffect(() => {
-    if (!handoff) return;
-    setLinkExpired(false);
+    if (!handoff || linkExpired) return;
     const poll = window.setInterval(() => reloadRef.current(), PHONE_POLL_MS);
-    const expiry = window.setTimeout(() => setLinkExpired(true), Math.max(0, Date.parse(handoff.expiresAt) - Date.now()));
+    const expiry = window.setTimeout(() => setLinkExpired(true), Math.max(0, handoff.until - Date.now()));
     // A browser slows timers on a page in the background; coming back to the computer reads the latest at once.
     const back = () => {
       if (document.visibilityState === 'visible') reloadRef.current();
@@ -137,13 +170,10 @@ export function VerificationSelfie({ recordsKey, disabled }: { recordsKey: strin
       document.removeEventListener('visibilitychange', back);
       window.removeEventListener('focus', back);
     };
-  }, [handoff]);
+  }, [handoff, linkExpired]);
 
-  // The camera is released when the page closes it, sends, or goes away.
-  useEffect(() => {
-    if (video.current && stream) video.current.srcObject = stream;
-    return () => stream?.getTracks().forEach((track) => track.stop());
-  }, [stream]);
+  // The camera is released when the page closes it, sends, is refused, or goes away.
+  useEffect(() => () => stream?.getTracks().forEach((track) => track.stop()), [stream]);
 
   const data = resource.status === 'ready' ? resource.data : last.current;
   const caps = data?.uploadCaps ?? null;
@@ -155,10 +185,12 @@ export function VerificationSelfie({ recordsKey, disabled }: { recordsKey: strin
   useEffect(() => {
     if (!fromPhone) return;
     setHandoff(null);
+    setStream(null);
     setSent(fromPhone);
   }, [fromPhone]);
 
   const refused = (result: Refusal) => {
+    setStream(null);
     switch (result.code) {
       case 'kyc.handoff_used':
         return setLink('used');
@@ -194,17 +226,17 @@ export function VerificationSelfie({ recordsKey, disabled }: { recordsKey: strin
     setBusy(true);
     setProblem(null);
     try {
-      const frame = await grab(video.current);
+      const type = frameType(caps.contentTypes);
+      if (!type) return setProblem({ kind: 'copy', text: t('wrongType', { types: caps.contentTypes.join(', ') }) });
+      const frame = await grab(video.current, type, caps.maxBytes);
       if (!frame) return setProblem({ kind: 'copy', text: t('cameraRefused') });
-      if (!caps.contentTypes.includes('image/jpeg'))
-        return setProblem({ kind: 'copy', text: t('wrongType', { types: caps.contentTypes.join(', ') }) });
       if (frame.size > caps.maxBytes)
         return setProblem({ kind: 'copy', text: t('tooLarge', { size: String(kib(frame.size)), kib: String(kib(caps.maxBytes)) }) });
       const bytesBase64 = await base64Of(frame);
       const answer = await api.mutate(
         'identity',
         'kyc.selfie.submit',
-        { contentType: 'image/jpeg', bytesBase64, ...(viaLink && token ? { handoff: token } : {}) },
+        { contentType: type, bytesBase64, ...(viaLink && token ? { handoff: token } : {}) },
         kycSelfieSchema,
       );
       if (!answer.ok) return refused(answer);
@@ -223,9 +255,11 @@ export function VerificationSelfie({ recordsKey, disabled }: { recordsKey: strin
     try {
       const answer = await api.mutate('identity', 'kyc.selfie.handoff.start', undefined, kycSelfieHandoffSchema);
       if (!answer.ok) return refused(answer);
+      const lifetime = data?.handoffTtlSeconds ? data.handoffTtlSeconds * 1000 : Date.parse(answer.data.expiresAt) - Date.now();
       setBefore(data?.latest?.id ?? null);
       setSent(null);
-      setHandoff(answer.data);
+      setLinkExpired(false);
+      setHandoff({ ...answer.data, until: Date.now() + lifetime });
     } finally {
       setBusy(false);
     }
@@ -272,7 +306,7 @@ export function VerificationSelfie({ recordsKey, disabled }: { recordsKey: strin
             <div className="verification__selfie-camera">
               {stream ? (
                 <>
-                  <video ref={video} autoPlay muted playsInline aria-label={t('cameraLabel')} />
+                  <video ref={preview} autoPlay muted playsInline aria-label={t('cameraLabel')} />
                   <div className="verification__selfie-actions">
                     <Button type="button" disabled={disabled || busy} onClick={() => void take()}>
                       <Copy k={busy ? 'sending' : 'take'} />
@@ -324,7 +358,7 @@ export function VerificationSelfie({ recordsKey, disabled }: { recordsKey: strin
                     <p className="muted" data-testid="verification__selfie-link-until">
                       <Copy
                         k="phoneUntil"
-                        params={{ time: new Date(handoff.expiresAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) }}
+                        params={{ time: new Date(handoff.until).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) }}
                       />
                     </p>
                   </>

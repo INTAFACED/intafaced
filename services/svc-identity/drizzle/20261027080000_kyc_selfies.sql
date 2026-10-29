@@ -15,6 +15,8 @@ CREATE TABLE IF NOT EXISTS "identity"."kyc_selfies" (
   CHECK (("status" = 'provided') = ("decided_at" IS NULL))
 );
 CREATE INDEX IF NOT EXISTS "kyc_selfies_user_idx" ON "identity"."kyc_selfies" ("user_id", "created_at" DESC);
+-- At most one selfie per person waits for a person to compare it: a retake replaces it (the desk serialises sends).
+CREATE UNIQUE INDEX IF NOT EXISTS "kyc_selfies_provided_once" ON "identity"."kyc_selfies" ("user_id") WHERE "status" = 'provided';
 
 CREATE TABLE IF NOT EXISTS "identity"."kyc_selfie_handoffs" (
   "token_sha256" text PRIMARY KEY CHECK ("token_sha256" ~ '^[0-9a-f]{64}$'),

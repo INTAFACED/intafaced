@@ -136,6 +136,13 @@ if (!available) {
       expect(await docs(userId)).toBe(2);
     });
 
+    it('two sends at the same moment leave one undecided selfie and one frame', async () => {
+      const userId = await person();
+      await Promise.all(Array.from({ length: 8 }, () => desk.submit(userId, { contentType: 'image/jpeg', bytes: JPEG })));
+      expect((await desk.listFor(userId, 10)).map((s) => s.status)).toEqual(['provided']);
+      expect(await docs(userId)).toBe(1);
+    });
+
     it('a person decides a selfie once: the same decision again returns it, the other refuses', async () => {
       const userId = await person();
       const reviewer = await person();
@@ -164,7 +171,11 @@ if (!available) {
       const userId = await person();
       const old = await desk.startHandoff(userId);
       const fresh = await desk.startHandoff(userId);
-      await expect(desk.checkHandoff(userId, old.token)).rejects.toMatchObject({ code: 'kyc.handoff_unknown' });
+      // A replaced link is expired, so the phone holding it says so, and it cannot be used.
+      expect(await desk.checkHandoff(userId, old.token)).toMatchObject({ state: 'expired' });
+      await expect(desk.submit(userId, { contentType: 'image/jpeg', bytes: JPEG, handoff: old.token })).rejects.toMatchObject({
+        code: 'kyc.handoff_expired',
+      });
       expect(await desk.checkHandoff(userId, fresh.token)).toMatchObject({ state: 'open' });
       await desk.submit(userId, { contentType: 'image/jpeg', bytes: JPEG, handoff: fresh.token });
       // A used link stays while its selfie does, so the phone can still say it was used.
@@ -172,6 +183,18 @@ if (!available) {
       expect(await desk.checkHandoff(userId, fresh.token)).toMatchObject({ state: 'used' });
       const [links] = await db.sql<Array<{ n: number }>>`SELECT count(*)::int AS n FROM kyc_selfie_handoffs WHERE user_id = ${userId}`;
       expect(links!.n).toBe(2);
+    });
+
+    it('a retake keeps a frame compliance bound to a verification record', async () => {
+      const userId = await person();
+      await desk.submit(userId, { contentType: 'image/jpeg', bytes: JPEG });
+      const [{ documentId }] = (await desk.listFor(userId, 1)) as [{ documentId: string }];
+      await db.sql`INSERT INTO kyc_records (user_id, tier, jurisdiction, provider_ref, status) VALUES (${userId}, 'basic', 'DE', ${documentId}, 'pending')`;
+      await desk.submit(userId, { contentType: 'image/jpeg', bytes: JPEG });
+      expect((await desk.listFor(userId, 10)).map((s) => s.status)).toEqual(['provided']);
+      expect(await docs(userId)).toBe(2);
+      const [kept] = await db.sql<Array<{ n: number }>>`SELECT count(*)::int AS n FROM kyc_documents WHERE id = ${documentId}`;
+      expect(kept!.n).toBe(1);
     });
 
     it('refuses a file that is not a photo, or over the caps, and stores nothing', async () => {
