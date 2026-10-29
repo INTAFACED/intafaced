@@ -29,8 +29,8 @@ function refuseSubAccount(ctx: Context): void {
  * own (`accountStatus`) so it shares no file with the `account.*` change doors.
  */
 export function createAccountStatusRouter(desk: AccountStatusDesk) {
-  const read = async (userId: string) => {
-    const status = await desk.read(userId);
+  const read = async (userId: string, view: 'owner' | 'staff') => {
+    const status = await desk.read(userId, view);
     if (!status) throw new TRPCError({ code: 'NOT_FOUND', message: 'Account not found', cause: { code: 'auth.not_found' } });
     return status;
   };
@@ -40,14 +40,14 @@ export function createAccountStatusRouter(desk: AccountStatusDesk) {
         .output(accountStatusSchema)
         .query(({ ctx }) => {
           refuseSubAccount(ctx);
-          return read(ctx.principal.userId);
+          return read(ctx.principal.userId, 'owner');
         }),
       of: scopedProcedure('admin:read', { person: true })
         .input(z.object({ userId: z.string().guid() }).strict())
         .output(accountStatusSchema)
         .query(({ ctx, input }) => {
           refuseNonOperator(ctx);
-          return read(input.userId);
+          return read(input.userId, 'staff');
         }),
     }),
   });
