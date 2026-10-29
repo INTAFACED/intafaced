@@ -81,6 +81,11 @@
       "value": "20",
       "note": "A locked-out second-step reset completes twenty seconds after its mailed code is confirmed, so the journey sees the waiting time, a stop from a signed-in session, and a reset that completes (J-identity-05 #2, #3)."
     },
+    "IDENTITY_SELF_FREEZE_LIFT_WAIT_SECONDS": {
+      "service": "identity",
+      "value": "20",
+      "note": "A person's own freeze can be lifted twenty seconds after it was applied, so the journey sees a too-soon refusal with the seconds left and then a lift after step-up (J-identity-11 #4)."
+    },
     "IDENTITY_SUPPORT_RECOVERY_LINK_TTL_SECONDS": {
       "service": "identity",
       "value": "1800",

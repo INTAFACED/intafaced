@@ -26,4 +26,11 @@ describe('roomWords: a write that may have gone through is never called unchange
     expect(roomWords({ code: 'trade.scale_child_refused' }).title).toBe('The ladder was not placed');
     expect(roomWords({ code: 'trade.scale_rollback_incomplete' }).body).toContain('still open');
   });
+  it('shows the desk minimum the service names on a below-minimum refusal, and plain words when it is not set', () => {
+    const below = roomWords({ reason: 'error', code: 'trade.rfq_below_minimum', message: 'Below the desk minimum of 1000 USDT' });
+    expect(below.title).toBe('Below the desk minimum');
+    expect(below.body).toBe('Below the desk minimum of 1000 USDT. Ask for a larger size; nothing was priced or held.');
+    expect(below.code).toBe('trade.rfq_below_minimum');
+    expect(roomWords({ reason: 'error', code: 'trade.rfq_size_not_set' }).title).toBe('The desk minimum is not set');
+  });
 });
