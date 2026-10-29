@@ -27,6 +27,8 @@ interface Row {
   lang?: string;
 }
 const perGroup = 8;
+/** How long "No results" stands before the miss is counted, so the words passed while typing are not counted. */
+const MISS_SETTLE_MS = 1_200;
 
 const isMac = typeof navigator !== 'undefined' && /mac|iphone|ipad/i.test(navigator.platform);
 
@@ -257,19 +259,28 @@ function SearchPanel({
     return [...coins, ...markets, ...pages, ...helpList];
   }, [source, tickers, pages, helpList, layoutMode, query, signedIn]);
 
-  // A submitted search (Enter) that found nothing is counted once for the founders. Nothing found means every group
-  // answered: the markets answered (even with none listed) and Help gave its articles or has no limit set; "Open Help" alone is not a result. The
-  // call carries no words and no session (no bearer), and is never retried.
+  // A search that found nothing is counted once for the founders: when "No results" has stood for a moment (so the
+  // words typed on the way are not counted), or at once on Enter. Nothing found means every group answered: the markets
+  // answered (even with none listed) and Help gave its articles or has no limit set; "Open Help" alone is not a result.
+  // The call carries only its kind, no words and no session (no bearer), and is never retried.
   const counted = useRef<string | null>(null);
   const found = rows.some((row) => row.key !== 'help:all');
   const settled = !loading && help.status !== 'loading' && words.length > 0;
   const answered = (source.status === 'ready' || source.status === 'empty') && (help.status === 'ready' || help.status === 'unset');
+  const missed = !found && settled && answered;
+  const missKey = words.join(' ');
   function countMiss() {
-    const key = words.join(' ');
-    if (counted.current === key) return;
-    counted.current = key;
-    void api.mutate('notify', 'navMetrics.searchMiss', undefined, z.unknown(), { bearer: '' }).catch(() => undefined);
+    if (counted.current === missKey) return;
+    counted.current = missKey;
+    void api.mutate('notify', 'navMetrics.searchMiss', { kind: 'search_miss' }, z.unknown(), { bearer: '' }).catch(() => undefined);
   }
+  useEffect(() => {
+    if (!missed) return;
+    const timer = setTimeout(countMiss, MISS_SETTLE_MS);
+    return () => clearTimeout(timer);
+    // countMiss reads only missKey and refs.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [missed, missKey]);
 
   function choose(row: Row | undefined) {
     if (!row) return;
@@ -287,7 +298,7 @@ function SearchPanel({
     } else if (event.key === 'Enter') {
       event.preventDefault();
       // Nothing found: the miss is counted, and Enter opens the active row as always (Open Help).
-      if (!found && settled && answered) countMiss();
+      if (missed) countMiss();
       choose(rows[Math.min(active, rows.length - 1)]);
     }
   }

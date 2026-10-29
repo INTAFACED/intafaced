@@ -11,17 +11,20 @@ const unconfigured = () =>
   new TRPCError({ code: 'PRECONDITION_FAILED', message: `${NAV_METRICS_STORAGE_UNCONFIGURED} — navigation counts are not stored here` });
 
 /**
- * `navMetrics.searchMiss`: the customer app's header search found nothing for a submitted search. Public (a signed-out
- * search counts too) and takes no input, so nothing about the person or the words can reach the count.
+ * `navMetrics.searchMiss`: the customer app's header search found nothing. Public (a signed-out search counts too), and
+ * its only input is the kind, held strict, so nothing about the person or the words can reach the count.
  * `navMetrics.searchMisses`: the founders' read, per UTC day over a window they name, marked as a lower bound.
  */
 export function navMetricsRouter(store: NavMetricStore | undefined, now: () => Date = () => new Date()) {
   return router({
-    searchMiss: publicProcedure.output(z.object({ counted: z.literal(true) })).mutation(async () => {
-      if (!store) throw unconfigured();
-      await store.count('search_miss', now());
-      return { counted: true as const };
-    }),
+    searchMiss: publicProcedure
+      .input(z.object({ kind: z.literal('search_miss') }).strict())
+      .output(z.object({ counted: z.literal(true) }))
+      .mutation(async () => {
+        if (!store) throw unconfigured();
+        await store.count('search_miss', now());
+        return { counted: true as const };
+      }),
     searchMisses: scopedProcedure('admin:read', { module: 'notify' })
       .input(z.object({ days: z.number().int().min(1).max(NAV_METRIC_DAYS_MAX).optional() }).optional())
       .output(

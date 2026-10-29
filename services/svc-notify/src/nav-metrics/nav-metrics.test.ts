@@ -27,28 +27,32 @@ function signed(scopes: string[]) {
   });
 }
 
+const MISS = { kind: 'search_miss' } as const;
 const at = (iso: string) => () => new Date(iso);
 
 describe('navigation counts: header search misses (HM-navigation-04)', () => {
   it('counts a miss from anyone, signed in or not, per UTC day, and keeps nothing else', async () => {
     const store = new MemoryNavMetricStore();
     const late = navMetricsRouter(store, at('2026-10-27T23:59:59Z'));
-    await expect(late.createCaller(await anonymous()).searchMiss()).resolves.toEqual({ counted: true });
-    await late.createCaller(await signed(['notify:read'])).searchMiss();
+    await expect(late.createCaller(await anonymous()).searchMiss(MISS)).resolves.toEqual({ counted: true });
+    await late.createCaller(await signed(['notify:read'])).searchMiss(MISS);
     await navMetricsRouter(store, at('2026-10-28T00:00:00Z'))
       .createCaller(await anonymous())
-      .searchMiss();
+      .searchMiss(MISS);
     expect(await store.read('search_miss', '2026-10-01', '2026-10-31')).toEqual([
       { day: '2026-10-27', count: 2 },
       { day: '2026-10-28', count: 1 },
     ]);
   });
 
-  it('takes no input, so neither the words nor the person can reach the count', async () => {
-    const caller = navMetricsRouter(new MemoryNavMetricStore()).createCaller(await anonymous());
-    await expect((caller.searchMiss as (input: unknown) => Promise<unknown>)({ query: 'secret words' })).resolves.toEqual({
-      counted: true,
-    });
+  it('takes only its kind, so neither the words nor the person can reach the count', async () => {
+    const store = new MemoryNavMetricStore();
+    const caller = navMetricsRouter(store).createCaller(await anonymous());
+    const loose = caller.searchMiss as (input: unknown) => Promise<unknown>;
+    await expect(loose({ kind: 'search_miss', query: 'secret words' })).rejects.toMatchObject({ code: 'BAD_REQUEST' });
+    await expect(loose({ kind: 'other' })).rejects.toMatchObject({ code: 'BAD_REQUEST' });
+    await expect(loose(undefined)).rejects.toMatchObject({ code: 'BAD_REQUEST' });
+    expect(await store.read('search_miss', '2000-01-01', '2100-01-01')).toEqual([]);
   });
 
   it('lets founders read a window they name, marked a lower bound, and refuses a blank window', async () => {
@@ -74,7 +78,7 @@ describe('navigation counts: header search misses (HM-navigation-04)', () => {
 
   it('says counts are not kept when there is no store, never a count of zero', async () => {
     const router = navMetricsRouter(undefined);
-    await expect(router.createCaller(await anonymous()).searchMiss()).rejects.toThrow('notify.nav_metrics_storage_unconfigured');
+    await expect(router.createCaller(await anonymous()).searchMiss(MISS)).rejects.toThrow('notify.nav_metrics_storage_unconfigured');
     await expect(router.createCaller(await signed(['admin:read'])).searchMisses({ days: 1 })).rejects.toThrow(
       'notify.nav_metrics_storage_unconfigured',
     );
