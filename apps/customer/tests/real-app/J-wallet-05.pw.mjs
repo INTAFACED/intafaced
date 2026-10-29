@@ -5,22 +5,28 @@ import { signIn, signUp, verify } from './desk.mjs';
 import { addAuthenticator, nextCode } from './identity-factors.mjs';
 
 // J-wallet-05, in the running app (docs/roadmap/journeys.json): I withdraw crypto. One test per step, titled
-// "J-wallet-05 #<n>", run in order on one verified TEST account with an authenticator app, TEST 300 USDT, and one saved
-// wallet approved by its emailed link and past its cooling-off (the wait is stood in for by `local-test-stack.mjs
-// age-addresses`). The fee, the quote lifetime and the limits are the TEST withdrawal terms the stack's founders publish
-// in svc-pay (`local-test-gates.mjs withdraw-terms`): a fixed 1.5 network fee on TEST Ethereum and TEST Base, the fee on
-// top, a 90-second quote, and USDT limits of 1000 a withdrawal and 5000 a day for verified accounts.
+// "J-wallet-05 #<n>", run in order on one verified TEST account with an authenticator app, TEST 300 USDT, and two saved
+// wallets, one on TEST Ethereum and one on TEST Base, each approved by its emailed link and past its cooling-off (the wait is
+// stood in for by `local-test-stack.mjs age-addresses`). The fee, the quote lifetime and the limits are the TEST withdrawal
+// terms the stack's founders publish in svc-pay (`local-test-gates.mjs withdraw-terms`): a fixed 1.5 network fee on TEST
+// Ethereum and TEST Base, the fee on top, a 90-second quote, USDT limits of 1000 a withdrawal and 5000 a day for verified
+// accounts (the day counts the fee), and a TEST custody policy that lets a TEST send out on the crypto-native rail through.
+// The stack's svc-pay has a TEST custody signer for TEST Ethereum only (`PAY_TEST_WITHDRAW_SIGNER_NETWORKS`), sending through
+// the in-memory MemoryChain; TEST Base has none, which is what #7 meets. #6 and #4's two parallel sends run after #7, which
+// needs the balance still at 300.
 // Steps that are written but not built yet fail at their first missing part, quickly (UNBUILT):
 // - #1: svc-pay has no minimum, maximum, step or tag catalogue per network, and the stack publishes none.
 // - #2's fraud list: nothing screens a destination against one, and the stack lists no TEST address (FRAUD_LISTED).
-// - #6, #4's two parallel sends: svc-pay has no custody signer for any network, so every send out is refused before a claim.
-//   They run after #7, which needs the balance still at 300.
 // - #8: a failed withdrawal can't be seeded on the stack yet, so its failure sentence has no row to read.
 // #5 (travel rule) and the sanctions clause of #2 wait for launch (owner decision 2026-10-27, no compliance work until then).
 const J = 'J-wallet-05';
 const run = journeyState(`${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
 const ADDRESS = '0x52908400098527886E0F7030069857D2E4169EE7';
 const LABEL = 'TEST send wallet';
+// A second saved wallet, on TEST Base, where no custody signer is connected (#7). Another address than ADDRESS, so #1's
+// "not in your address book" check of ADDRESS on TEST Base still holds.
+const BASE_ADDRESS = '0x8ba1f109551bd432803012645ac136ddd64dba72';
+const BASE_LABEL = 'TEST Base wallet';
 // The address the stack's TEST fraud list is to hold (the list itself is not built yet).
 const FRAUD_LISTED = '0x7e5700000000000000000000000000000000fa1d';
 const UNBUILT = { timeout: 5_000 };
@@ -111,14 +117,15 @@ const pick = (page, name) => form(page).getByRole('combobox', { name: new RegExp
 const amountBox = (page) => form(page).getByRole('textbox', { name: /^Amount/ });
 const confirmSend = (page) => page.getByRole('button', { name: 'Confirm and send' });
 
-/** Opens Withdraw with USDT on its default network, the saved TEST wallet chosen and `amount` typed. */
-async function fillSend(page, amount) {
+/** Opens Withdraw with USDT on its default network (or on TEST Base), the saved TEST wallet there chosen and `amount` typed. */
+async function fillSend(page, amount, { base = false } = {}) {
   await page.goto('/uc/withdraw');
   await page.mouse.move(0, 600);
   await pick(page, 'Asset').selectOption('USDT');
   await expect(pick(page, 'Network')).toHaveValue('ethereum');
+  if (base) await pick(page, 'Network').selectOption('base');
   const saved = pick(page, 'Saved address');
-  const ready = `${LABEL} · 0x5290…9EE7 · Ready to use`;
+  const ready = base ? `${BASE_LABEL} · 0x8ba1…ba72 · Ready to use` : `${LABEL} · 0x5290…9EE7 · Ready to use`;
   await expect(saved.locator('option', { hasText: LABEL })).toHaveText(ready);
   await saved.selectOption({ label: ready });
   await amountBox(page).fill(amount);
@@ -133,6 +140,41 @@ async function approvalLink(email, seen) {
 }
 
 const stepUp = (page) => page.getByRole('dialog', { name: 'Confirm it’s you' });
+
+/** Saves `address` on `network` for USDT, then approves it by its emailed link, opened and confirmed in another browser. */
+async function saveAndApprove(page, browser, who, label, network, address) {
+  await page.goto('/uc/withdraw/address');
+  const add = page.getByRole('form', { name: 'Add an address' });
+  await add.getByRole('textbox', { name: /^Label/ }).fill(label);
+  await add.getByRole('combobox', { name: /^Asset/ }).selectOption('USDT');
+  await add.getByRole('combobox', { name: /^Network/ }).selectOption(network);
+  await add.getByRole('textbox', { name: /^Address/ }).fill(address);
+  await add.getByRole('button', { name: 'Save address' }).click();
+  await confirmItsMe(page);
+  await expect(page.getByText(`${label} was saved to your address book.`)).toBeVisible();
+
+  const seen = mailedLines(who.email, 'withdraw-address-approval').length;
+  const row = page.locator('tbody tr', { hasText: label });
+  await row.getByRole('button', { name: 'Withdraw to this address' }).click();
+  await page.getByTestId('address-use').getByRole('button', { name: 'Email me an approval link' }).click();
+  const link = await approvalLink(who.email, seen);
+  const other = await browser.newContext();
+  try {
+    const away = await other.newPage();
+    await away.goto(link);
+    await away.getByRole('link', { name: 'Sign in' }).last().click();
+    await away.fill('input[name=totp]', await freshCode());
+    await away.fill('input[name=identifier]', who.email);
+    await away.fill('input[name=password]', who.password);
+    await away.getByRole('button', { name: /^sign in$/i }).click();
+    await expect(away).toHaveURL(/\/approveAddress$/);
+    await away.getByTestId('approve-address').getByRole('button', { name: 'Approve' }).click();
+    await confirmItsMe(away);
+    await expect(away.getByRole('heading', { name: 'Address approved' })).toBeVisible();
+  } finally {
+    await other.close();
+  }
+}
 
 /** Gets the fee for the send `fillSend` set up and opens the step-up, with the next authenticator code typed in. */
 async function readyToConfirm(page, amount) {
@@ -174,43 +216,19 @@ test(`${J} starts: a verified TEST account with 300 USDT, a second factor and a 
   run.reset({ account: who, secret, step });
   expect(fund(who.email, 'USDT', '300').tx).toBeTruthy();
 
-  await page.goto('/uc/withdraw/address');
-  const add = page.getByRole('form', { name: 'Add an address' });
-  await add.getByRole('textbox', { name: /^Label/ }).fill(LABEL);
-  await add.getByRole('combobox', { name: /^Asset/ }).selectOption('USDT');
-  await add.getByRole('combobox', { name: /^Network/ }).selectOption('ethereum');
-  await add.getByRole('textbox', { name: /^Address/ }).fill(ADDRESS);
-  await add.getByRole('button', { name: 'Save address' }).click();
-  await confirmItsMe(page);
-  await expect(page.getByText(`${LABEL} was saved to your address book.`)).toBeVisible();
-
-  // A new address waits for approval by its emailed link, opened in another browser (J-wallet-04 #5).
-  const seen = mailedLines(who.email, 'withdraw-address-approval').length;
-  const row = page.locator('tbody tr', { hasText: LABEL });
-  await row.getByRole('button', { name: 'Withdraw to this address' }).click();
-  await page.getByTestId('address-use').getByRole('button', { name: 'Email me an approval link' }).click();
-  const link = await approvalLink(who.email, seen);
-  const other = await browser.newContext();
-  try {
-    const away = await other.newPage();
-    await away.goto(link);
-    await away.getByRole('link', { name: 'Sign in' }).last().click();
-    await away.fill('input[name=totp]', await freshCode());
-    await away.fill('input[name=identifier]', who.email);
-    await away.fill('input[name=password]', who.password);
-    await away.getByRole('button', { name: /^sign in$/i }).click();
-    await expect(away).toHaveURL(/\/approveAddress$/);
-    await away.getByTestId('approve-address').getByRole('button', { name: 'Approve' }).click();
-    await confirmItsMe(away);
-    await expect(away.getByRole('heading', { name: 'Address approved' })).toBeVisible();
-  } finally {
-    await other.close();
+  // Two wallets, each saved and then approved by its emailed link opened in another browser (J-wallet-04 #5).
+  for (const [label, network, address] of [
+    [LABEL, 'ethereum', ADDRESS],
+    [BASE_LABEL, 'base', BASE_ADDRESS],
+  ]) {
+    await saveAndApprove(page, browser, who, label, network, address);
   }
 
   // The cooling-off runs from the approval; the LOCAL TEST clock moves it past its end.
-  expect(tool('local-test-stack.mjs', 'age-addresses', who.email, '25')).toContain('1 saved address(es)');
+  expect(tool('local-test-stack.mjs', 'age-addresses', who.email, '25')).toContain('2 saved address(es)');
   await page.reload();
   await expect(page.locator('tbody tr', { hasText: LABEL })).toContainText('Ready to use');
+  await expect(page.locator('tbody tr', { hasText: BASE_LABEL })).toContainText('Ready to use');
 });
 
 test(`${J} #1 opens Withdraw and picks asset and network: the default network with its tag rule, minimum, maximum and step from the catalogue, and a changed network checks the address again`, async ({
@@ -323,7 +341,8 @@ test(`${J} #7 confirms with a fresh step-up while no signer is connected: refuse
 }) => {
   test.setTimeout(240_000);
   await signInWithCode(page);
-  await fillSend(page, '25');
+  // TEST Base has no custody signer on the stack; TEST Ethereum's TEST signer is what #6 and #4 use.
+  await fillSend(page, '25', { base: true });
   await page.getByRole('button', { name: 'Get the fee' }).click();
   await expect(page.getByTestId('withdraw-review')).toContainText('Leaves your balance26.5 USDT');
   await confirmSend(page).click();
