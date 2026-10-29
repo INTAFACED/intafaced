@@ -52,3 +52,24 @@
   text-transform: none;
   letter-spacing: 0;
 }
+
+/* The wallet room's address code: a scanner needs dark on light in every theme. */
+.protocol-qr {
+  inline-size: 100%;
+  max-inline-size: 13rem;
+  padding: var(--if-space-2);
+  border-radius: var(--if-r-md);
+  background: white; /* look-drift-allow: a QR code needs fixed dark-on-light contrast for scanners in every theme */
+  color: black; /* look-drift-allow: a QR code needs fixed dark-on-light contrast for scanners in every theme */
+  line-height: 0;
+}
+.protocol-qr svg {
+  display: block;
+  inline-size: 100%;
+  block-size: auto;
+}
+.protocol-scan video {
+  inline-size: 100%;
+  max-inline-size: 20rem;
+  border-radius: var(--if-r-md);
+}

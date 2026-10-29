@@ -37,6 +37,20 @@ describe('rounding to the tick', () => {
     expect(roundToDecimals(1.005, 2)).toBe(1.01);
     expect(formatAt(0.0000001, 8)).toBe('0.00000010');
   });
+
+  it('rounds a true half up at chart prices, where the binary mean falls just under it', () => {
+    // 19 x 64990.07 + 64991.17 = 1299802.50, a mean of exactly 64990.125; the binary sum gives 64990.124999999985.
+    const closes = [...Array.from({ length: 19 }, () => 64990.07), 64991.17];
+    expect(formatAt(sma(closes, 20).at(-1)!, 2)).toBe('64990.13');
+    // Means of 20 two-decimal closes as the binary sum gives them, for a true 64990.055 and 65102.175.
+    expect(formatAt(64990.05499999998, 2)).toBe('64990.06');
+    expect(formatAt(65102.174999999974, 2)).toBe('65102.18');
+    // A value a real distance under the half still rounds down.
+    expect(formatAt(64990.0545, 2)).toBe('64990.05');
+    // Large values keep their digits: a volume is never pushed up a unit.
+    expect(formatAt(5000000.123454, 5)).toBe('5000000.12345');
+    expect(formatAt(123456789.123454, 5)).toBe('123456789.12345');
+  });
 });
 
 describe('moving averages', () => {
