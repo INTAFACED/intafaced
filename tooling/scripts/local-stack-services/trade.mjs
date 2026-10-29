@@ -102,9 +102,17 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, TEST_FUTURES_LADDER_POLICY })
     TRADE_COPY_JURISDICTION_LAW: testValue('TRADE_COPY_JURISDICTION_LAW'),
     TRADE_COPY_METRIC_DEFINITIONS: testValue('TRADE_COPY_METRIC_DEFINITIONS'),
     TRADE_COPY_MIN_TIER: testValue('TRADE_COPY_MIN_TIER'),
+    // LOCAL TEST, not an owner decision: the lowest tier that may create a bot. Blank refuses every bot
+    // (trade.bots_verification_level_not_set, algo/bots-verification.ts), which a unit test keeps proving.
+    TRADE_BOTS_VERIFICATION_LEVEL: testValue('TRADE_BOTS_VERIFICATION_LEVEL'),
     // LOCAL TEST, not an owner decision: the copy driver places each copy as the follower, so J-copy-bots-otc-01 #8
     // sees a first copied trade on TEST money. Production leaves it off until the owner turns copy placing on.
     TRADE_COPY_PLACE_MIRROR: 'on',
+    // LOCAL TEST, not an owner decision: the TWAP slice scheduler runs, so a bot made on the stack is a live schedule on
+    // TEST money. With it off every create refuses trade.algo_jobs_disabled (algo/jobs-gate.ts), which unit tests keep
+    // proving. Production leaves it off until an operator turns it on.
+    // LOCAL_STACK_TRADE_ALGO_JOBS=off restarts trade with it off, so J-copy-bots-otc-23 #2 sees the scheduler-off refusal.
+    TRADE_ALGO_JOBS_ENABLED: process.env.LOCAL_STACK_TRADE_ALGO_JOBS === 'off' ? 'off' : 'on',
     // LOCAL TEST, not owner decisions: the quote desk's law and its reference price, read from the labelled TEST profile
     // so the OTC journeys price, accept and settle on TEST money against the house inventory.
     // Each one blank refuses by name (services/svc-trade/src/otc/); production stays blank until the owner sets it.
@@ -115,5 +123,12 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, TEST_FUTURES_LADDER_POLICY })
     TRADE_OTC_DESK_LAW: otcDeskLaw(),
     TRADE_OTC_MAKER_DIRECTORY: otcMakerDirectory(),
     TRADE_OTC_MIDS: testValue('TRADE_OTC_MIDS'),
+    // LOCAL TEST ONLY, not an owner decision: the developer portal's hosts and data terms (J-developer-01 #2, #3, #6).
+    // `LOCAL_STACK_TRADE_DEVELOPER_HOSTS=off` or `LOCAL_STACK_TRADE_DEVELOPER_DATA_TERMS=off` on a start or restart leaves
+    // that setting blank, so its refusal can be seen too.
+    ...(process.env.LOCAL_STACK_TRADE_DEVELOPER_HOSTS === 'off' ? {} : { TRADE_DEVELOPER_HOSTS: testValue('TRADE_DEVELOPER_HOSTS') }),
+    ...(process.env.LOCAL_STACK_TRADE_DEVELOPER_DATA_TERMS === 'off'
+      ? {}
+      : { TRADE_DEVELOPER_DATA_TERMS: testValue('TRADE_DEVELOPER_DATA_TERMS') }),
   }),
 });

@@ -2,6 +2,7 @@ import { readdirSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { test, expect } from '@playwright/test';
 import { tableIn, bodyRows } from './tables.mjs';
+import { tool } from './stack.mjs';
 
 // J-developer-01, in the running app (docs/roadmap/journeys.json): a signed-out developer reads the portal at /developers
 // and finds where to start. One test per step, titled "J-developer-01 #<n>". Nothing here needs an account or money.
@@ -19,6 +20,39 @@ async function capabilities(page) {
   expect(response.ok(), await response.text()).toBe(true);
   return response.json();
 }
+
+/** svc-trade's published developer values (`hosts` or `data-terms`), read through the edge the way the page reads them. */
+async function published(page, kind) {
+  const response = await page.request.get(`/api/trade/developer-portal/${kind}`);
+  expect(response.status(), await response.text()).toBe(200);
+  return response.json();
+}
+
+/** The one refusal svc-trade answers while that developer value is blank. */
+async function refusedBlank(page, kind, code) {
+  const response = await page.request.get(`/api/trade/developer-portal/${kind}`);
+  expect(response.status(), await response.text()).toBe(503);
+  expect((await response.json()).code).toBe(code);
+}
+
+/**
+ * Restart svc-trade with one developer value blank (`HOSTS` or `DATA_TERMS`), or with both TEST values back (null).
+ * tooling/scripts/local-stack-services/trade.mjs leaves a value out when `LOCAL_STACK_TRADE_DEVELOPER_<name>=off`.
+ */
+function tradeDeveloperValues(blank) {
+  const names = ['LOCAL_STACK_TRADE_DEVELOPER_HOSTS', 'LOCAL_STACK_TRADE_DEVELOPER_DATA_TERMS'];
+  const before = names.map((name) => process.env[name]);
+  for (const name of names) delete process.env[name];
+  if (blank) process.env[`LOCAL_STACK_TRADE_DEVELOPER_${blank}`] = 'off';
+  try {
+    tool('local-test-stack.mjs', 'restart', 'trade');
+  } finally {
+    names.forEach((name, index) => (before[index] === undefined ? delete process.env[name] : (process.env[name] = before[index])));
+  }
+}
+
+const PROTOCOL_NAMES = { rest: 'REST', websocket: 'WebSocket', fix: 'FIX' };
+const ENVIRONMENT_NAMES = { production: 'Production', sandbox: 'Sandbox', regional: 'Regional' };
 
 async function liveInventory(page) {
   const { routes } = await capabilities(page);
@@ -92,17 +126,31 @@ test(`${J} #2 opens the base-URL table: one row per protocol, environment and re
   await expect(page.getByRole('heading', { name: 'Base addresses', level: 1 })).toBeVisible();
   const rows = bodyRows(page.getByRole('table'));
   await expect(rows).toHaveCount(9);
-  for (const protocol of ['REST', 'WebSocket', 'FIX']) {
-    for (const environment of ['Production', 'Sandbox', 'Regional']) {
-      const row = rows.filter({ has: page.getByRole('cell', { name: protocol, exact: true }) }).filter({
-        has: page.getByRole('cell', { name: environment, exact: true }),
-      });
-      await expect(row).toHaveCount(1);
-      // The owner has published no host, so the row says "host not set" and no address is guessed.
-      await expect(row).toHaveAttribute('data-host-state', 'unset');
-      await expect(row).toContainText('host not set');
-      await expect(row.getByRole('code')).toHaveCount(0);
-    }
+  const rowOf = (protocol, environment) =>
+    rows.filter({ has: page.getByRole('cell', { name: PROTOCOL_NAMES[protocol], exact: true }) }).filter({
+      has: page.getByRole('cell', { name: ENVIRONMENT_NAMES[environment], exact: true }),
+    });
+  // The stack's TEST hosts (tooling/profiles/test-owner-values/trade.json) publish production and sandbox and leave
+  // regional out, so both kinds of row are on this page. Each set row shows the service's host exactly.
+  const { hosts } = await published(page, 'hosts');
+  expect(hosts.filter((row) => row.host === null).map((row) => `${row.protocol} ${row.environment}`)).toEqual([
+    'rest regional',
+    'websocket regional',
+    'fix regional',
+  ]);
+  for (const { protocol, environment, host } of hosts.filter((row) => row.host !== null)) {
+    const row = rowOf(protocol, environment);
+    await expect(row).toHaveCount(1);
+    await expect(row).toHaveAttribute('data-host-state', 'set');
+    await expect(row.getByRole('code')).toHaveText(host);
+  }
+  // An unset host reads "host not set" and no address is guessed.
+  for (const { protocol, environment } of hosts.filter((row) => row.host === null)) {
+    const row = rowOf(protocol, environment);
+    await expect(row).toHaveCount(1);
+    await expect(row).toHaveAttribute('data-host-state', 'unset');
+    await expect(row.getByRole('cell').nth(2)).toHaveText('host not set');
+    await expect(row.getByRole('code')).toHaveCount(0);
   }
   await expect(page.getByText('The regional host rule is stated here once the owner sets it.')).toBeVisible();
 });
@@ -113,23 +161,65 @@ test(`${J} #3 opens the connectivity options: internet and redundant endpoints w
   await page.goto('/developers/connectivity');
   await expect(page.getByRole('heading', { name: 'Connectivity', level: 1 })).toBeVisible();
   const options = tableIn(page, 'Connectivity options');
-  // Each endpoint names its host for every protocol. The owner has published no host, so every one reads "host not set"
-  // with no address written or guessed, and neither endpoint claims Available.
-  for (const option of ['Internet', 'Redundant endpoint']) {
-    const row = options.getByRole('row', { name: new RegExp(option) });
-    const hosts = row.getByRole('list', { name: option, exact: true }).getByRole('listitem');
-    await expect(hosts).toHaveCount(3);
-    for (const [index, protocol] of ['REST', 'WebSocket', 'FIX'].entries()) {
-      const host = hosts.nth(index);
-      await expect(host).toHaveAttribute('data-protocol', protocol.toLowerCase());
-      await expect(host).toHaveAttribute('data-host-state', 'unset');
-      await expect(host).toHaveText(`${protocol}: host not set`);
-      await expect(host.getByRole('code')).toHaveCount(0);
-    }
-    await expect(row).not.toContainText('Available');
+  const OPTION_KEYS = { Internet: 'internet', 'Redundant endpoint': 'redundant', Colocation: 'colocation' };
+  const endpoint = (option) => options.locator(`tbody tr[data-option="${OPTION_KEYS[option]}"]`);
+  const endpointHosts = (option) => endpoint(option).getByRole('list', { name: option, exact: true }).getByRole('listitem');
+  // Each endpoint names its host for every protocol, read back from svc-trade and compared exactly. The stack's TEST
+  // hosts publish every production host, so Internet is Available with them; regional is left out, so the redundant
+  // endpoint reads "host not set" for each protocol with no address written or guessed.
+  const { hosts } = await published(page, 'hosts');
+  const production = ['rest', 'websocket', 'fix'].map((protocol) =>
+    hosts.find((row) => row.protocol === protocol && row.environment === 'production'),
+  );
+  expect(production.map((row) => row.host === null)).toEqual([false, false, false]);
+  await expect(endpoint('Internet')).toHaveAttribute('data-option-state', 'available');
+  await expect(endpoint('Internet').getByRole('cell').nth(0)).toHaveText('Available');
+  await expect(endpointHosts('Internet')).toHaveCount(3);
+  for (const [index, { protocol, host }] of production.entries()) {
+    const item = endpointHosts('Internet').nth(index);
+    await expect(item).toHaveAttribute('data-protocol', protocol);
+    await expect(item).toHaveAttribute('data-host-state', 'set');
+    await expect(item).toHaveText(`${PROTOCOL_NAMES[protocol]}: ${host}`);
+    await expect(item.getByRole('code')).toHaveText(host);
   }
-  await expect(options.getByRole('row', { name: /Colocation/ })).toContainText('Parked');
-  await expect(options.getByRole('row', { name: /Colocation/ })).toContainText(/hardware/i);
+  const redundantUnset = async () => {
+    await expect(endpointHosts('Redundant endpoint')).toHaveCount(3);
+    for (const [index, protocol] of ['rest', 'websocket', 'fix'].entries()) {
+      const item = endpointHosts('Redundant endpoint').nth(index);
+      await expect(item).toHaveAttribute('data-protocol', protocol);
+      await expect(item).toHaveAttribute('data-host-state', 'unset');
+      await expect(item).toHaveText(`${PROTOCOL_NAMES[protocol]}: host not set`);
+      await expect(item.getByRole('code')).toHaveCount(0);
+    }
+    await expect(endpoint('Redundant endpoint')).toHaveAttribute('data-option-state', 'host_unset');
+    await expect(endpoint('Redundant endpoint')).not.toContainText('Available');
+  };
+  expect(hosts.filter((row) => row.environment === 'regional').map((row) => row.host)).toEqual([null, null, null]);
+  await redundantUnset();
+  await expect(page.getByTestId('developers-connectivity-unset')).toHaveCount(0);
+  await expect(endpoint('Colocation')).toContainText('Parked');
+  await expect(endpoint('Colocation')).toContainText(/hardware/i);
+
+  // With the owner's hosts blank, svc-trade refuses with its one code, the page says so with that code, and both
+  // endpoints read "host not set" for every protocol.
+  try {
+    tradeDeveloperValues('HOSTS');
+    await refusedBlank(page, 'hosts', 'trade.developer_hosts_unset');
+    await page.reload();
+    await expect(page.getByTestId('developers-connectivity-unset')).toHaveAttribute('data-code', 'trade.developer_hosts_unset');
+    await expect(page.getByTestId('developers-connectivity-unset')).toHaveText(
+      'No API host is published yet, so every host reads host not set.',
+    );
+    await expect(endpoint('Internet')).toHaveAttribute('data-option-state', 'host_unset');
+    await expect(endpointHosts('Internet')).toHaveText(['REST: host not set', 'WebSocket: host not set', 'FIX: host not set']);
+    await expect(endpoint('Internet').getByRole('code')).toHaveCount(0);
+    await expect(endpoint('Internet')).not.toContainText('Available');
+    await redundantUnset();
+  } finally {
+    tradeDeveloperValues(null);
+  }
+  await page.reload();
+  await expect(endpoint('Internet')).toHaveAttribute('data-option-state', 'available');
 
   await page.getByRole('button', { name: 'Check my clock' }).click();
   const probe = page.getByTestId('developers-time-probe');
@@ -301,16 +391,51 @@ test(`${J} #6 reads which data products I may use and on what terms: redistribut
     await expect(table.getByRole('columnheader', { name: column })).toBeVisible();
   }
   const rows = bodyRows(table);
-  expect(await rows.count()).toBeGreaterThan(0);
-  // A term the owner has not set reads "not set", never an invented value or a blank.
-  // One cell per term column (every header but Product).
-  const terms = (await table.getByRole('columnheader').count()) - 1;
-  for (const row of await rows.all()) {
-    const cells = await row.getByRole('cell').allInnerTexts();
-    expect(cells).toHaveLength(terms);
-    const unset = (await row.getAttribute('data-terms-state')) === 'unset';
-    for (const cell of cells) expect(cell.trim()).toMatch(unset ? /^not set$/ : /\S/);
+  const PRODUCTS = ['ticker', 'depth_l1', 'depth_l2', 'candles', 'trades', 'index'];
+  const TERMS = ['entitlement', 'redistribution', 'retention', 'privacy', 'commercial'];
+  await expect(table.getByRole('columnheader')).toHaveText([
+    'Product',
+    'Entitlement',
+    'Redistribution',
+    'Retention',
+    'Privacy',
+    'Commercial terms',
+  ]);
+  await expect(rows).toHaveCount(PRODUCTS.length);
+  const rowOf = (product) => table.locator(`tbody tr[data-product="${product}"]`);
+  // Each product's terms, read back from svc-trade and compared cell by cell. The stack's TEST terms publish five
+  // products and leave index out, so a set row and an unset one are both on this page.
+  const { products } = await published(page, 'data-terms');
+  expect(products.map((row) => row.product)).toEqual(PRODUCTS);
+  expect(products.filter((row) => row.terms === null).map((row) => row.product)).toEqual(['index']);
+  for (const { product, terms } of products.filter((row) => row.terms !== null)) {
+    await expect(rowOf(product)).toHaveAttribute('data-terms-state', 'set');
+    await expect(rowOf(product).getByRole('cell')).toHaveText(TERMS.map((term) => terms[term]));
   }
+  // A term the owner has not set reads "not set", never an invented value or a blank.
+  const unsetRow = async (product) => {
+    await expect(rowOf(product)).toHaveAttribute('data-terms-state', 'unset');
+    await expect(rowOf(product).getByRole('cell')).toHaveText(TERMS.map(() => 'not set'));
+  };
+  await unsetRow('index');
+  await expect(page.getByTestId('developers-data-terms-unset')).toHaveCount(0);
+
+  // With the owner's terms blank, svc-trade refuses with its one code, the page says so with that code, and every
+  // product reads "not set" for every term.
+  try {
+    tradeDeveloperValues('DATA_TERMS');
+    await refusedBlank(page, 'data-terms', 'trade.developer_data_terms_unset');
+    await page.reload();
+    await expect(page.getByTestId('developers-data-terms-unset')).toHaveAttribute('data-code', 'trade.developer_data_terms_unset');
+    await expect(page.getByTestId('developers-data-terms-unset')).toHaveText(
+      'No term is published yet: each one reads not set until the owner sets it.',
+    );
+    for (const product of PRODUCTS) await unsetRow(product);
+  } finally {
+    tradeDeveloperValues(null);
+  }
+  await page.reload();
+  await expect(rowOf('ticker')).toHaveAttribute('data-terms-state', 'set');
 });
 
 test(`${J} #7 searches the docs for something that does not exist: the empty search state`, async ({ page }) => {

@@ -279,6 +279,16 @@ describe('payment detail (P07)', () => {
     expect(out).toContain('Copy');
     expectPlain(out);
   });
+  it('counts confirmations while an open payment waits for them, with their as-of, and not once it has moved on (J-merchant-05 #4)', () => {
+    const confirmations = { seen: 2, required: 6, asOf: '2026-10-14T09:00:40.000Z' };
+    const waiting = view({ payment: ready(payment({ status: 'created', confirmations })) });
+    expect(waiting).toContain('data-testid="payment-confirmations"');
+    expect(waiting).toContain('Waiting for confirmations: 2 of 6,');
+    expect(waiting).toContain('as of');
+    const moved = view({ payment: ready(payment({ status: 'captured', confirmations })) });
+    expect(moved).not.toContain('payment-confirmations');
+    expect(view()).not.toContain('payment-confirmations');
+  });
   it('never prints the payer’s instrument or a rail’s internals', () => {
     const out = view();
     expect(out).not.toContain('tok_TEST_must_never_show');

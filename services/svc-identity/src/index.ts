@@ -127,7 +127,7 @@ import { installRefreshCookieHooks } from './auth/refresh-cookie.js';
 import { installApiKeyRequestSignExchange } from './auth/api-key-request-sign.js';
 import { createApiKeyRequestSignRouter } from './api-key-request-sign-router.js';
 import { createDeveloperKeysRouter } from './developer-keys-router.js';
-import { parseApiKeyCapByTier, passkeyMintRule } from './auth/developer-keys.js';
+import { parseApiKeyCapByTier, parseApiKeyIdleExpirySeconds, passkeyMintRule } from './auth/developer-keys.js';
 import { installApiKeyProductExchange, requestProductAls } from './auth/auth-service-product.js';
 import { installApiKeyAccountExchange } from './auth/bind-api-key-account.js';
 import { bootKycVault } from './kyc/boot-vault.js';
@@ -672,13 +672,14 @@ export const appRouter = mergeRouters(
   createApiKeyOriginRouter(sql, auth, auth),
   createApiKeyAccountRouter(sql, auth, auth),
   createApiKeyRotateRouter(sql, auth, auth, signingEncKey),
-  createApiKeyExpireRouter(sql),
+  createApiKeyExpireRouter(sql, auth),
   createApiKeyRevokeAllRouter(sql),
   createDeveloperKeysRouter({
     sql,
     gate: auth,
     kycTier: (userId, executor) => auth.kycTier(userId, executor),
     capByTier: parseApiKeyCapByTier(env.IDENTITY_API_KEYS_MAX_BY_TIER),
+    idleExpirySeconds: parseApiKeyIdleExpirySeconds(env.IDENTITY_API_KEY_IDLE_EXPIRY_SECONDS),
     mayMint: passkeyMintRule(sql),
   }),
   createGrantsRouter(sql),

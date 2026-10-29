@@ -18,6 +18,7 @@ export const moneyApi = ({ query, mutate }: PortalTools) => ({
   },
   settlement: (settlementId: string, signal?: AbortSignal) => query('settlement.get', { settlementId }, p.settlementSchema, signal),
   control: (merchantId: string, signal?: AbortSignal) => query('merchantControl.get', { merchantId }, p.controlProfileSchema, signal),
+  reserve: (merchantId: string, signal?: AbortSignal) => query('merchantControl.reserve', { merchantId }, m.reserveViewSchema, signal),
   usage: (merchantId: string, signal?: AbortSignal) => query('merchantControl.usage', { merchantId }, p.usageSchema, signal),
   pricingPreview: (input: { merchantId: string; assetCode: string; amount: string; monthlyVolume?: string; conversion?: boolean }) =>
     query('merchantControl.pricing.preview', input, p.quoteSchema),

@@ -43,7 +43,7 @@ export async function mintApiKeyWithOriginAllowlist(
     const bound = await bindApiKeyOriginAllowlist(sql, input.userId, minted.id, next);
     return { ...minted, originAllowlist: bound.originAllowlist };
   } catch (err) {
-    await minter.revokeApiKey(input.userId, minted.id);
+    await minter.revokeApiKey(input.userId, minted.id, 'system');
     throw err;
   }
 }

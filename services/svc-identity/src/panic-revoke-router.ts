@@ -2,7 +2,7 @@ import { z } from 'zod';
 import { router, scopedProcedure, TRPCError } from '@intafaced/contracts';
 import type { Sql } from 'postgres';
 import { panicRevoke, PanicRevokeError } from './auth/panic-revoke.js';
-import { RevokeAllApiKeysError } from './auth/revoke-all-api-keys.js';
+import { RevokeAllApiKeysError, revokeCauseOf } from './auth/revoke-all-api-keys.js';
 import { RevokeAllSessionsError } from './auth/revoke-all-sessions.js';
 
 /**
@@ -23,7 +23,7 @@ export function createPanicRevokeRouter(sql: Sql) {
       )
       .mutation(async ({ ctx, input }) => {
         try {
-          return await panicRevoke(sql, ctx.principal.userId, input.userId);
+          return await panicRevoke(sql, ctx.principal.userId, input.userId, revokeCauseOf(ctx.principal));
         } catch (err) {
           if (err instanceof PanicRevokeError || err instanceof RevokeAllApiKeysError || err instanceof RevokeAllSessionsError) {
             throw new TRPCError({ code: 'BAD_REQUEST', message: err.message, cause: err });

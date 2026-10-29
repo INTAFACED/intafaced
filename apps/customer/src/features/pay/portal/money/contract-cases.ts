@@ -22,6 +22,7 @@ export const moneyContract: ContractPart = {
     { method: 'approvalPage', run: (p) => p.approvalPage(M, { status: 'pending' }, undefined) },
     { method: 'refundablePayments', run: (p) => p.refundablePayments(M, '') },
     { method: 'control', run: (p) => p.control(M) },
+    { method: 'reserve', run: (p) => p.reserve(M) },
     { method: 'usage', run: (p) => p.usage(M) },
     { method: 'pricingPreview', run: (p) => p.pricingPreview({ merchantId: M, assetCode: 'USDT', amount: '100' }) },
     { method: 'approvals', run: (p) => p.approvals(M, '') },
