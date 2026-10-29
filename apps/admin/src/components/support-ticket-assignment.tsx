@@ -33,11 +33,7 @@ export function TicketAssignmentView(p: TicketAssignmentViewProps) {
   const mine = t.assigneeId !== null && t.assigneeId.toLowerCase() === p.userId.toLowerCase();
   const roster = p.staff?.roster.kind === 'ok' ? p.staff.roster.data : [];
   const sameAsNow = t.assigneeId !== null && p.target.toLowerCase() === t.assigneeId.toLowerCase();
-  const why = !isTicketId(p.target)
-    ? 'Choose who should hold it.'
-    : sameAsNow
-      ? 'That person already holds it.'
-      : null;
+  const why = !isTicketId(p.target) ? 'Choose who should hold it.' : sameAsNow ? 'That person already holds it.' : null;
   return (
     <section className="dk-stack" aria-label="Who holds this request" data-testid="ticket-assignment">
       <h4>Who holds it</h4>

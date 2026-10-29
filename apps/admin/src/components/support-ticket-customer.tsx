@@ -35,7 +35,7 @@ export function TicketCustomerView({
     <section className="dk-stack" aria-label="Customer" data-testid="ticket-customer">
       <h4>Customer</h4>
       <dl className="dk-kv">
-        <dt>Account id</dt>
+        <dt>Customer account id</dt>
         <dd>
           <span className="dk-packet" title={userId}>
             {shortId(userId)}
@@ -69,7 +69,9 @@ export function TicketCustomerView({
         <dt>Related order</dt>
         <dd>
           <strong data-testid="customer-related-order">none</strong>{' '}
-          <span className="dk-muted">A request carries no order link in svc-support; an order the customer names is in the conversation.</span>
+          <span className="dk-muted">
+            A request carries no order link in svc-support; an order the customer names is in the conversation.
+          </span>
         </dd>
       </dl>
       {account && account.kind === 'failed' && <Failed name="Account state" part={account} />}

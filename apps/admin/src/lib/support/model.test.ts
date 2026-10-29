@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   allowedNextStatuses,
+  assignmentKey,
   claimGate,
   escalateGate,
   formatAge,
@@ -227,5 +228,39 @@ describe('the rating reader', () => {
     expect(readRatingResult({ ...ok, note: 3 })).toBeNull();
     expect(readRatingResult({ ...ok, userId: 'x' })).toBeNull();
     expect(readRatingResult('5')).toBeNull();
+  });
+});
+
+describe('unclaim and reassign requests', () => {
+  const T = '11111111-1111-4111-8111-111111111111';
+  const P = '22222222-2222-4222-8222-222222222222';
+  const at = '2026-10-29T12:00:00.000Z';
+  it('read exactly a ticket, a person and a business key', () => {
+    const key = assignmentKey('unclaim', T, at);
+    expect(key).toBe(`unclaim:${T}:at-${Date.parse(at)}`);
+    expect(readActionRequest({ action: 'unclaim', ticketId: T, idempotencyKey: key })).toEqual({
+      action: 'unclaim',
+      ticketId: T,
+      idempotencyKey: key,
+    });
+    const assign = assignmentKey('assign', T, at, P);
+    expect(readActionRequest({ action: 'assign', ticketId: T, assigneeId: P, idempotencyKey: assign })).toEqual({
+      action: 'assign',
+      ticketId: T,
+      assigneeId: P,
+      idempotencyKey: assign,
+    });
+  });
+  it('the same move on a ticket that changed since is a new key', () => {
+    expect(assignmentKey('unclaim', T, at)).not.toBe(assignmentKey('unclaim', T, '2026-10-29T12:00:01.000Z'));
+    expect(assignmentKey('assign', T, at, P)).not.toBe(assignmentKey('assign', T, at, T));
+  });
+  it('refuses a missing or malformed key, ticket or person', () => {
+    expect(readActionRequest({ action: 'unclaim', ticketId: T })).toBeNull();
+    expect(readActionRequest({ action: 'unclaim', ticketId: T, idempotencyKey: 'short' })).toBeNull();
+    expect(readActionRequest({ action: 'unclaim', ticketId: T, idempotencyKey: 'has a space in it' })).toBeNull();
+    expect(readActionRequest({ action: 'unclaim', ticketId: 'nope', idempotencyKey: 'unclaim:abcdefgh' })).toBeNull();
+    expect(readActionRequest({ action: 'assign', ticketId: T, assigneeId: 'lead', idempotencyKey: 'assign:abcdefgh' })).toBeNull();
+    expect(readActionRequest({ action: 'assign', ticketId: T, idempotencyKey: 'assign:abcdefgh' })).toBeNull();
   });
 });

@@ -159,6 +159,25 @@ describe('the queue', () => {
   it('no read says so', () => {
     expect(render({ queue: null })).toContain('Nothing is shown rather than a guess');
   });
+  it('offers "Claim the next request" only when the page wires it, and shows its refusal', () => {
+    expect(render()).not.toContain('Claim the next request');
+    expect(render({ onClaimNext: () => undefined })).toMatch(/<button[^>]*>Claim the next request<\/button>/);
+    const refused = render({
+      onClaimNext: () => undefined,
+      nextRefusal: {
+        ok: false,
+        refusal: {
+          title: 'Nothing to claim',
+          body: 'svc-support says no open or waiting request is free',
+          next: 'n',
+          code: null,
+          changed: 'no',
+        },
+      },
+    });
+    expect(refused).toContain('data-testid="claim-next-reply"');
+    expect(refused).toContain('Nothing to claim');
+  });
 });
 
 describe('a ticket', () => {
@@ -189,15 +208,22 @@ describe('a ticket', () => {
     expect(logDown).toContain('Priority, type and label changes unavailable');
     expect(logDown).toContain('opened');
   });
+  it('reads the customer card and offers unclaim or reassign inside the ticket', () => {
+    const html = open();
+    expect(html).toContain('aria-label="Customer"');
+    expect(html).toContain('data-testid="customer-related-order">none<');
+    expect(html).toContain('aria-label="Who holds this request"');
+    expect(html).toContain('>Assign to</label>');
+  });
   it('labels the customer as an account id and says why no handle is shown', () => {
     const html = open();
     expect(html).toContain('<dt>Customer account id</dt>');
     expect(html).toContain('No handle: svc-identity has no operator read that names an account from its id (back-end need 47).');
   });
-  it('an unowned ticket can be claimed, after a second click that says there is no release', () => {
+  it('an unowned ticket can be claimed, after a second click that says how it is let go', () => {
     expect(open()).toContain('Claim this ticket');
     const armed = open({ arming: true });
-    expect(armed).toContain('svc-support has no release or reassign');
+    expect(armed).toContain('It becomes yours until you unclaim it or a support lead gives it to someone else.');
     expect(armed).toContain('Yes, claim it');
   });
   it('a ticket someone else owns cannot be claimed, and says why', () => {

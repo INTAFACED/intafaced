@@ -1,6 +1,5 @@
 import Link from 'next/link';
 import { requireFounderPage } from '@/lib/founder-page';
-import { requireModulePage } from '@/lib/module-page-guard';
 import { SupportDesk } from '@/components/support-desk';
 import { KbPanel } from '@/components/support-kb-panel';
 import { GroupsPanel } from '@/components/support-groups-panel';
@@ -13,7 +12,7 @@ import { queueQueryString, readQueueQuery } from '@/lib/support/queue-query';
  * same desk with that request open. The first paint is svc-support's own answer, with the time it was read; when the
  * founder session lacks the support-staff permission the desk says so instead of showing an empty queue, and every
  * control stays on the page. The address carries the queue's filter, search and saved view (`?filter=field:value`,
- * `?q=`, `?view=<id>`).
+ * `?q=`, `?view=<id>`). Each page calls `requireModulePage('support')` itself, before this.
  */
 export async function SupportDeskPage({
   searchParams,
@@ -22,7 +21,6 @@ export async function SupportDeskPage({
   searchParams: Record<string, string | string[] | undefined>;
   openTicketId?: string;
 }) {
-  requireModulePage('support');
   const founder = await requireFounderPage();
   const query = readQueueQuery(searchParams);
   const [initial, kb, staff, groups] = await Promise.all([
