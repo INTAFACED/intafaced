@@ -8,14 +8,12 @@ import { followOnScreen, listLeader } from './copy.mjs';
 
 // J-copy-bots-otc-13, in the running app (docs/roadmap/journeys.json): support finds a customer's follows, bots and OTC
 // quotes and reads the module numbers, on the founder console. One test per step, titled "J-copy-bots-otc-13 #<n>", run
-// in order. #2 makes the customer: a verified TEST account following a TEST leader once, with two TEST bots made through
+// in order; #1 is two tests, the live read and a blank-window restart of svc-trade. #2 makes the customer: a verified TEST account following a TEST leader once, with two TEST bots made through
 // its own algo door, stopped once looked up. The founder signs in with the lookup scope; the stack has no support agent
 // without it, so #3 uses a founder session whose scope list leaves lookup out (`local-test-gates.mjs scoped-session`).
-// #4 makes a real failed settlement: a TEST quote accepted and left past the desk's settle window, then listed with its
-// saga key while the service's own record of the quote stays bound.
-// Steps that are written but not built yet fail at their first missing part, quickly (UNBUILT):
-// - #2: the local stack's founder session carries no lookup scope until identity's founder scope list names it.
-// - #3: the stack has no scoped founder session until `local-test-gates.mjs scoped-session` lands.
+// #4 makes a real failed settlement (a TEST quote accepted and left past the desk's settle window), a settled quote and
+// an open quote, and reads each back on the desk by its id.
+// A room that is not there fails at its heading, quickly (UNBUILT).
 const J = 'J-copy-bots-otc-13';
 const ONE = toUnits('1');
 const run = journeyState(`${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
@@ -37,15 +35,68 @@ async function moduleRoom(page) {
   await expect(page.getByRole('heading', { name: 'Copy, bots and OTC', level: 1 })).toBeVisible(UNBUILT);
 }
 
-test(`${J} #1 opens the module metrics: counts with their window and as-of time; a failed source reads "Could not load", never zero`, async ({
-  page,
-}) => {
+const COUNTS = ['Active copiers', 'Active bots', 'Quotes requested in the window', 'Quotes settled in the window'];
+const STAMP = String.raw`\d{4}-\d\d-\d\d \d\d:\d\d:\d\d`;
+
+/** The value the metrics region shows beside one label. */
+function metricValue(metrics, label) {
+  return metrics
+    .locator('[data-slot="key-value-row"]')
+    .filter({ has: metrics.page().locator('dt').getByText(label, { exact: true }) })
+    .locator('dd');
+}
+
+/** One cell (by column index) of the row whose id cell reads `id` exactly. */
+function cellOf(table, id, column) {
+  return table
+    .locator('tbody tr')
+    .filter({ has: table.page().getByText(id, { exact: true }) })
+    .locator('td')
+    .nth(column);
+}
+
+/** svc-trade restarted with its metrics window blank (`off`), or back on the stack's TEST window. */
+function tradeMetricsWindow(on) {
+  const name = 'LOCAL_STACK_TRADE_OPS_METRICS_WINDOW';
+  const before = process.env[name];
+  if (on) delete process.env[name];
+  else process.env[name] = 'off';
+  try {
+    tool('local-test-stack.mjs', 'restart', 'trade');
+  } finally {
+    if (before === undefined) delete process.env[name];
+    else process.env[name] = before;
+  }
+}
+
+test(`${J} #1 opens the module metrics: counts with their window and as-of time`, async ({ page }) => {
   run.reset({});
   await moduleRoom(page);
   const metrics = page.getByRole('region', { name: 'Module metrics' });
-  await expect(metrics).toContainText(/Active copiers\s*(\d+|Could not load)/);
-  await expect(metrics).toContainText(/As of \d/);
-  await expect(metrics).toContainText(/Window/);
+  await expect(metrics.getByText('Module metrics could not be read')).toHaveCount(0);
+  for (const label of COUNTS) await expect(metricValue(metrics, label)).toHaveText(/^\d+$/);
+  // The stack's TEST window is 86400 s (tooling/profiles/test-owner-values/trade.json), which the room reads as 1 day.
+  await expect(metricValue(metrics, 'Window')).toHaveText(new RegExp(`^1 day, ${STAMP} to ${STAMP} UTC$`));
+  await expect(metricValue(metrics, 'As of')).toHaveText(new RegExp(`^${STAMP} UTC$`));
+  await expect(metrics).toContainText(new RegExp(`As of ${STAMP} UTC, over the last 1 day\\.`));
+});
+
+test(`${J} #1 a failed source reads "Could not load", never zero`, async ({ page }) => {
+  test.setTimeout(300_000);
+  tradeMetricsWindow(false);
+  try {
+    await moduleRoom(page);
+    const metrics = page.getByRole('region', { name: 'Module metrics' });
+    await expect(metrics.getByText('Module metrics could not be read')).toBeVisible();
+    await expect(metrics.locator('[data-slot="empty-state-code"]')).toHaveText('trade.ops_metrics_window_not_set');
+    for (const label of COUNTS) {
+      await expect(metricValue(metrics, label)).toHaveText('Could not load');
+      await expect(metricValue(metrics, label)).not.toHaveText(/^0$/);
+    }
+    await expect(metricValue(metrics, 'Window')).toHaveText('Not read');
+  } finally {
+    tradeMetricsWindow(true);
+  }
 });
 
 test(`${J} #2 looks up a customer with one follow and two bots: listed with their statuses`, async ({ page, browser }) => {
@@ -55,7 +106,8 @@ test(`${J} #2 looks up a customer with one follow and two bots: listed with thei
   const leaderRef = await listLeader(leader, `Journey Lookup ${tag}`);
   const customer = await fundedTrader(page, 'jcc13', '1000');
   await signIn(page, customer);
-  await followOnScreen(page, customer, leaderRef, { perOrder: '20', total: '40', fixed: '10' });
+  const followId = await followOnScreen(page, customer, leaderRef, { perOrder: '20', total: '40', fixed: '10' });
+  expect(followId).toBeTruthy();
   // Two bots through the customer's own algo door. A buy limit must sit at or over the ask (the slice price band); a
   // whole number 1% over it.
   const { ask } = await bestPrices();
@@ -82,9 +134,13 @@ test(`${J} #2 looks up a customer with one follow and two bots: listed with thei
     await moduleRoom(desk);
     await desk.getByRole('searchbox', { name: 'Find a customer' }).fill(customer.email);
     await desk.getByRole('searchbox', { name: 'Find a customer' }).press('Enter');
-    await expect(desk.getByRole('table', { name: 'Follows' }).locator('tbody tr')).toHaveCount(1);
-    await expect(desk.getByRole('table', { name: 'Follows' })).toContainText('Active');
-    await expect(desk.getByRole('table', { name: 'Bots' }).locator('tbody tr')).toHaveCount(2);
+    // Each row read back by its own id, with its status as the room shows it.
+    const follows = desk.getByRole('table', { name: 'Follows', exact: true });
+    await expect(follows.locator('tbody tr')).toHaveCount(1);
+    await expect(cellOf(follows, followId, 1)).toHaveText('Active');
+    const listed = desk.getByRole('table', { name: 'Bots', exact: true });
+    await expect(listed.locator('tbody tr')).toHaveCount(2);
+    for (const botId of bots) await expect(cellOf(listed, botId, 3)).toHaveText('active');
     await desk.context().close();
   } finally {
     // Their slices buy on TEST money until stopped, so the journey stops both once looked up, pass or fail.
@@ -146,7 +202,7 @@ test(`${J} #4 opens the quote desk list: open and settled RFQs with statuses; a 
 }) => {
   test.setTimeout(300_000);
   // A real failed settlement: a TEST quote over the desk's minimum, accepted, then left past its settle-by time.
-  const trader = await fundedTrader(page, 'jco13', '2000');
+  const trader = await fundedTrader(page, 'jco13', '6000');
   const me = await api(trader);
   await stakeReadable(me);
   await stakeToDeskFloor(trader, me);
@@ -154,32 +210,50 @@ test(`${J} #4 opens the quote desk list: open and settled RFQs with statuses; a 
   expect(makers.status, JSON.stringify(makers.body).slice(0, 300)).toBe(200);
   const house = makers.body.result.data.makers.find((m) => m.route === 'platform');
   expect(house, JSON.stringify(makers.body).slice(0, 300)).toBeTruthy();
-  const quoted = await me.post('/api/trade/trpc/rfq.quote', {
-    side: 'buy',
-    baseAsset: 'BTC',
-    quoteAsset: 'USDT',
-    qty: '0.02',
-    makerIds: [house.id],
-  });
-  expect(quoted.status, JSON.stringify(quoted.body).slice(0, 300)).toBe(200);
-  const quoteId = quoted.body.result.data.quoteId;
-  const accepted = await me.post('/api/trade/trpc/rfq.accept', { quoteId });
-  expect(accepted.status, JSON.stringify(accepted.body).slice(0, 300)).toBe(200);
-  const read = async () => {
+  const ask = async () => {
+    const quoted = await me.post('/api/trade/trpc/rfq.quote', {
+      side: 'buy',
+      baseAsset: 'BTC',
+      quoteAsset: 'USDT',
+      qty: '0.02',
+      makerIds: [house.id],
+    });
+    expect(quoted.status, JSON.stringify(quoted.body).slice(0, 300)).toBe(200);
+    return quoted.body.result.data.quoteId;
+  };
+  const acceptQuote = async (quoteId) => {
+    const accepted = await me.post('/api/trade/trpc/rfq.accept', { quoteId });
+    expect(accepted.status, JSON.stringify(accepted.body).slice(0, 300)).toBe(200);
+  };
+  const read = async (quoteId) => {
     const got = await me.get(`/api/trade/trpc/rfq.get?input=${encodeURIComponent(JSON.stringify({ quoteId }))}`);
     expect(got.status, JSON.stringify(got.body).slice(0, 300)).toBe(200);
     return got.body.result.data;
   };
-  const bound = await read();
+  const quoteId = await ask();
+  await acceptQuote(quoteId);
+  const bound = await read(quoteId);
   expect(bound.lifecycle).toBe('bound');
   expect(bound.settleBy).toBeTruthy();
   await page.waitForTimeout(Math.max(0, Date.parse(bound.settleBy) - Date.now()) + 1_000);
+  // A settled quote: asked, accepted and settled now, inside its window.
+  const settledId = await ask();
+  await acceptQuote(settledId);
+  const settle = await me.post('/api/trade/trpc/otc.settle', { quoteId: settledId });
+  expect(settle.status, JSON.stringify(settle.body).slice(0, 300)).toBe(200);
+  expect((await read(settledId)).lifecycle).toBe('settled');
+  // An open quote: asked and left alone, read inside its time to live.
+  const openId = await ask();
+  expect((await read(openId)).lifecycle).toBe('open');
 
   await moduleRoom(page);
   await page.getByRole('tab', { name: 'Quote desk' }).click();
-  await expect(page.getByRole('table', { name: 'Quotes' })).toBeVisible();
+  const quotes = page.getByRole('table', { name: 'Quotes', exact: true });
+  await expect(cellOf(quotes, openId, 3)).toHaveText('open');
+  await expect(cellOf(quotes, settledId, 3)).toHaveText('settled');
+  await expect(cellOf(quotes, quoteId, 3)).toHaveText('bound');
   const exceptions = page.getByRole('table', { name: 'Settlement exceptions' });
   await expect(exceptions.locator('tbody tr', { hasText: `otc.settle:${quoteId}` })).toHaveCount(1);
   // Listing it changed nothing: the service's own record of the quote is still bound at the same price, not settled.
-  expect(await read()).toEqual(bound);
+  expect(await read(quoteId)).toEqual(bound);
 });
