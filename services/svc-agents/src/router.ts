@@ -337,6 +337,20 @@ export interface AgentsRouterDeps {
   readonly portfolioPrices?: PortfolioPriceSource | null;
 }
 
+/**
+ * Running an agent spends the person's money, so only the person runs one (OWNER 107): their own signed-in session,
+ * never an API key (`agents:execute` is interactive-only in packages/auth), a sub-account or delegated token, or a
+ * service forwarding their principal.
+ */
+function executeProcedure() {
+  return scopedProcedure('agents:execute', { module: 'agents', person: true }).use(({ ctx, next }) => {
+    if (ctx.principal.kid || ctx.principal.sub_account) {
+      throw new TRPCError({ code: 'FORBIDDEN', message: 'agents.execute_person_only' });
+    }
+    return next();
+  });
+}
+
 export function createAgentsRouter(deps: AgentsRouterDeps) {
   const {
     runtime,
@@ -481,8 +495,9 @@ export function createAgentsRouter(deps: AgentsRouterDeps) {
               task: z.string(),
               maxOutputTokens: z.number().int(),
               capability: z.enum(['complete', 'stream', 'embed']),
-              inputPerMillion: z.string(),
-              outputPerMillion: z.string(),
+              /** Null when this deployment publishes no rate for the task: it refuses every run (agents.price_unset). */
+              inputPerMillion: z.string().nullable(),
+              outputPerMillion: z.string().nullable(),
               assetId: z.string(),
               engine: z.enum(['sandbox', 'live', 'unknown']),
               metered: z.boolean(),
@@ -496,8 +511,8 @@ export function createAgentsRouter(deps: AgentsRouterDeps) {
               task: route.task,
               maxOutputTokens: route.maxOutputTokens,
               capability: route.capability,
-              inputPerMillion: formatAmount(route.price.inputPerMillion),
-              outputPerMillion: formatAmount(route.price.outputPerMillion),
+              inputPerMillion: route.price ? formatAmount(route.price.inputPerMillion) : null,
+              outputPerMillion: route.price ? formatAmount(route.price.outputPerMillion) : null,
               assetId: feeAssetId,
               engine: flagged.engine,
               metered: flagged.metered,
@@ -599,7 +614,7 @@ export function createAgentsRouter(deps: AgentsRouterDeps) {
     }),
 
     session: router({
-      open: scopedProcedure('agents:execute', { module: 'agents' })
+      open: executeProcedure()
         .input(z.object({ agentId: z.string().min(1) }))
         .output(sessionOutput)
         .mutation(({ ctx, input }) =>
@@ -617,7 +632,7 @@ export function createAgentsRouter(deps: AgentsRouterDeps) {
           }),
         ),
 
-      close: scopedProcedure('agents:execute', { module: 'agents' })
+      close: executeProcedure()
         .input(z.object({ sessionId: z.string().guid() }))
         .output(sessionOutput)
         .mutation(({ ctx, input }) =>
@@ -706,7 +721,7 @@ export function createAgentsRouter(deps: AgentsRouterDeps) {
        * handle: a client that retries after a timeout reuses it, and the
        * usage is counted once no matter how many times the request arrives.
        */
-      complete: scopedProcedure('agents:execute', { module: 'agents' })
+      complete: executeProcedure()
         .input(
           z.object({
             sessionId: z.string().guid(),
@@ -1340,7 +1355,7 @@ export function createAgentsRouter(deps: AgentsRouterDeps) {
        *
        * A mutation, not a query: it opens a session and writes audit rows.
        */
-      runSession: scopedProcedure('agents:execute', { module: 'agents' })
+      runSession: executeProcedure()
         .input(
           z.object({
             plane: z.enum(['live', 'dark']),
@@ -1985,7 +2000,7 @@ export function createAgentsRouter(deps: AgentsRouterDeps) {
        *
        * A mutation, not a query: it opens a session and writes audit rows.
        */
-      runSession: scopedProcedure('agents:execute', { module: 'agents' })
+      runSession: executeProcedure()
         .input(
           z.object({
             plane: z.enum(['live', 'dark']),
@@ -2633,7 +2648,7 @@ export function createAgentsRouter(deps: AgentsRouterDeps) {
        *
        * A mutation, not a query: it opens a session and writes audit rows.
        */
-      runSession: scopedProcedure('agents:execute', { module: 'agents' })
+      runSession: executeProcedure()
         .input(
           z.object({
             plane: z.enum(['live', 'dark']),
@@ -3139,7 +3154,7 @@ export function createAgentsRouter(deps: AgentsRouterDeps) {
        * refuses before any session opens (unbilled). Never invents fee share.
        * Ok presentation is always a directory — never returns-ranked.
        */
-      runSession: scopedProcedure('agents:execute', { module: 'agents' })
+      runSession: executeProcedure()
         .input(
           z.object({
             plane: z.enum(['live', 'dark']),
@@ -3425,7 +3440,7 @@ export function createAgentsRouter(deps: AgentsRouterDeps) {
        * Dark pay plane refuses before any session opens (unbilled).
        * Live requires PayMetricsPort; request-body points are not live truth.
        */
-      runSession: scopedProcedure('agents:execute', { module: 'agents' })
+      runSession: executeProcedure()
         .input(
           z.object({
             plane: z.enum(['live', 'dark']),
@@ -4016,7 +4031,7 @@ export function createAgentsRouter(deps: AgentsRouterDeps) {
      * withdraw, no withdrawal credential. A later grant is a separate act.
      */
     marketplace: router({
-      install: scopedProcedure('agents:execute', { module: 'agents' })
+      install: executeProcedure()
         .input(
           z.object({
             packageId: z.string().min(1).max(64),

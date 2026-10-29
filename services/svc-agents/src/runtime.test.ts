@@ -9,7 +9,7 @@ import { createEdgeContext, encodePrincipal, signPrincipalHeader } from '@intafa
 import { MemoryEventBus } from '@intafaced/events';
 import { MemoryLedger, formatAmount, parseAmount as amt, recipes, houseFees, userAvailable } from '@intafaced/ledger-client';
 import { ModelGateway } from './gateway/gateway.js';
-import { parseRoutingTable, type RoutingTable } from './gateway/routing.js';
+import { parseRoutingTable, unpricedTable, type RoutingTable } from './gateway/routing.js';
 import { UsageMeter, chargeKeyFor } from './metering/meter.js';
 import { usageCost, windowCost } from './metering/pricing.js';
 import { MockModelProvider, mockUsage } from './providers/mock.js';
@@ -360,7 +360,7 @@ if (!available) {
       expect(result.metered).toBe(true);
 
       const expected = windowCost([
-        { inputTokens: BigInt(usage.inputTokens), outputTokens: BigInt(usage.outputTokens), price: route.price },
+        { inputTokens: BigInt(usage.inputTokens), outputTokens: BigInt(usage.outputTokens), price: route.price! },
       ]);
       expect(expected).toBeGreaterThan(0n);
 
@@ -386,7 +386,7 @@ if (!available) {
         messages: [{ role: 'user', content: 'And how do I unstake?' }],
       });
 
-      const price = a.route.price;
+      const price = a.route.price!;
       const expected = windowCost([
         {
           inputTokens: BigInt(a.usage.inputTokens + b.usage.inputTokens),
@@ -420,7 +420,7 @@ if (!available) {
       expect(rows).toHaveLength(1);
 
       const settlement = await runtime.settleWindow(session.id, first.windowId!);
-      expect(settlement.amount).toBe(usageCost(first.usage, first.route.price));
+      expect(settlement.amount).toBe(usageCost(first.usage, first.route.price!));
       expect(await houseOf()).toBe(formatAmount(settlement.amount));
       expect(ledger.totalsByAsset().IFC).toBe('0');
     });
@@ -430,7 +430,7 @@ if (!available) {
       const gate = gateComplete(gateway, 'first');
       const local = meteredRuntime(gate.gateway);
       const { route, usage } = expectedUsage('plan');
-      const expected = usageCost(usage, route.price);
+      const expected = usageCost(usage, route.price!);
       expect(expected).toBeGreaterThan(0n);
 
       const first = local.think({ sessionId: session.id, requestId: 'overlap-same', task: 'plan', messages: MESSAGES });
@@ -481,7 +481,7 @@ if (!available) {
 
       // Manually seal with a known positive amount and NO charge_tx_id — the
       // state a process death between seal and post produces.
-      const expected = usageCost(call.usage, call.route.price);
+      const expected = usageCost(call.usage, call.route.price!);
       expect(expected).toBeGreaterThan(0n);
       await sql`
         UPDATE agents.usage_windows
@@ -987,7 +987,7 @@ if (!available) {
 
     it('a charge that lands exactly on the ceiling commits its real cost', async () => {
       const { route, usage } = expectedUsage('quick', MESSAGES, 1);
-      const expected = usageCost(usage, route.price);
+      const expected = usageCost(usage, route.price!);
       expect(expected).toBeGreaterThan(0n);
       await runtime.registerAgent({
         ...PROBE,
@@ -1014,7 +1014,7 @@ if (!available) {
 
     it('overlapping thinks that each fit alone do not both commit past the ceiling', async () => {
       const { route, usage } = expectedUsage('quick', MESSAGES, 1);
-      const expected = usageCost(usage, route.price);
+      const expected = usageCost(usage, route.price!);
       expect(expected).toBeGreaterThan(0n);
       await runtime.registerAgent({
         ...PROBE,
@@ -1065,7 +1065,7 @@ if (!available) {
       const gate = gateComplete(gateway, 'both');
       const local = meteredRuntime(gate.gateway);
       const { route, usage } = expectedUsage('plan');
-      const expected = usageCost(usage, route.price);
+      const expected = usageCost(usage, route.price!);
 
       const left = local.think({ sessionId: session.id, requestId: 'null-a', task: 'plan', messages: MESSAGES });
       const right = local.think({ sessionId: session.id, requestId: 'null-b', task: 'plan', messages: MESSAGES });
@@ -1103,7 +1103,7 @@ if (!available) {
     it('holds the route worst case, commits the real cost once, and refuses a second call that would pass the cap', async () => {
       const store = new UserSpendStore(sql);
       const route = TABLE.routes.find((row) => row.task === 'quick')!;
-      const worst = usageCost({ inputTokens: estimateInputTokens(undefined, MESSAGES), outputTokens: 1 }, route.price);
+      const worst = usageCost({ inputTokens: estimateInputTokens(undefined, MESSAGES), outputTokens: 1 }, route.price!);
       const cap = formatAmount(worst);
       await store.set({
         userId: USER_A,
@@ -1146,10 +1146,10 @@ if (!available) {
       // claim stuck, so the same request id can never be retired.
       const store = new UserSpendStore(sql);
       const route = TABLE.routes.find((row) => row.task === 'plan')!;
-      const worst = usageCost({ inputTokens: estimateInputTokens(undefined, MESSAGES), outputTokens: route.maxOutputTokens }, route.price);
+      const worst = usageCost({ inputTokens: estimateInputTokens(undefined, MESSAGES), outputTokens: route.maxOutputTokens }, route.price!);
       const { usage } = expectedUsage('plan');
       const inflatedUsage = { inputTokens: usage.inputTokens, outputTokens: usage.outputTokens + 1_000_000 };
-      const inflated = usageCost(inflatedUsage, route.price);
+      const inflated = usageCost(inflatedUsage, route.price!);
       expect(inflated).toBeGreaterThan(worst);
       const cap = formatAmount(worst);
       await store.set({
@@ -1201,7 +1201,7 @@ if (!available) {
 
     function overCapGateway(): { gateway: ModelGateway; worst: bigint; cap: string } {
       const route = TABLE.routes.find((row) => row.task === 'plan')!;
-      const worst = usageCost({ inputTokens: estimateInputTokens(undefined, MESSAGES), outputTokens: route.maxOutputTokens }, route.price);
+      const worst = usageCost({ inputTokens: estimateInputTokens(undefined, MESSAGES), outputTokens: route.maxOutputTokens }, route.price!);
       const { usage } = expectedUsage('plan');
       const inflatedUsage = { inputTokens: usage.inputTokens, outputTokens: usage.outputTokens + 1_000_000 };
       const wrapped = Object.create(gateway) as ModelGateway;
@@ -1337,9 +1337,9 @@ if (!available) {
       // call still fits under a cap that the first call already spent.
       const store = new UserSpendStore(sql);
       const route = TABLE.routes.find((row) => row.task === 'plan')!;
-      const worst = usageCost({ inputTokens: estimateInputTokens(undefined, MESSAGES), outputTokens: route.maxOutputTokens }, route.price);
+      const worst = usageCost({ inputTokens: estimateInputTokens(undefined, MESSAGES), outputTokens: route.maxOutputTokens }, route.price!);
       const { usage } = expectedUsage('plan');
-      const cost = usageCost(usage, route.price);
+      const cost = usageCost(usage, route.price!);
       expect(cost).toBeGreaterThan(0n);
       expect(cost).toBeLessThan(worst);
       await store.set({
@@ -1386,7 +1386,7 @@ if (!available) {
       // The next call needs its own hold, decided against the committed total.
       const store = new UserSpendStore(sql);
       const route = TABLE.routes.find((row) => row.task === 'plan')!;
-      const worst = usageCost({ inputTokens: estimateInputTokens(undefined, MESSAGES), outputTokens: route.maxOutputTokens }, route.price);
+      const worst = usageCost({ inputTokens: estimateInputTokens(undefined, MESSAGES), outputTokens: route.maxOutputTokens }, route.price!);
       const cap = formatAmount(worst);
       await store.set({
         userId: USER_A,
@@ -1422,7 +1422,7 @@ if (!available) {
       ).rejects.toMatchObject({ refusal: { code: 'agents.spend_limit' } });
       expect(provider.callCount).toBe(before + 1);
       const { usage } = expectedUsage('plan');
-      const cost = usageCost(usage, route.price);
+      const cost = usageCost(usage, route.price!);
       const rows = await sql<Array<{ status: string; committed: string | null }>>`
         SELECT status, committed_amount::text AS committed
           FROM agents.spend_reservations
@@ -1473,7 +1473,7 @@ if (!available) {
       expect(second.cost).toBe(0n);
       expect(provider.callCount).toBe(before + 2);
       const { usage, route } = expectedUsage('plan');
-      const cost = usageCost(usage, route.price);
+      const cost = usageCost(usage, route.price!);
       const rows = await sql<Array<{ reservation_key: string; status: string; committed: string | null }>>`
         SELECT reservation_key, status, committed_amount::text AS committed
           FROM agents.spend_reservations
@@ -1491,7 +1491,7 @@ if (!available) {
     it('an in-flight hold does not authorize another provider call when a new one does not fit', async () => {
       const store = new UserSpendStore(sql);
       const route = TABLE.routes.find((row) => row.task === 'plan')!;
-      const worst = usageCost({ inputTokens: estimateInputTokens(undefined, MESSAGES), outputTokens: route.maxOutputTokens }, route.price);
+      const worst = usageCost({ inputTokens: estimateInputTokens(undefined, MESSAGES), outputTokens: route.maxOutputTokens }, route.price!);
       const cap = formatAmount(worst);
       await store.set({
         userId: USER_A,
@@ -1891,7 +1891,7 @@ if (!available) {
       const ok = await flakyRuntime.think({ sessionId: session.id, requestId: 'same-request', task: 'plan', messages: MESSAGES });
       const settlement = await flakyRuntime.settleWindow(session.id, ok.windowId!);
 
-      expect(settlement.amount).toBe(usageCost(ok.usage, ok.route.price));
+      expect(settlement.amount).toBe(usageCost(ok.usage, ok.route.price!));
       expect(await houseOf()).toBe(formatAmount(settlement.amount));
       expect(ledger.totalsByAsset().IFC).toBe('0');
       expect(ledger.reconcile()).toEqual({ ok: true });
@@ -1918,7 +1918,7 @@ if (!available) {
       const ok = await runtime.think({ sessionId: session.id, requestId: 'r-2', task: 'plan', messages: MESSAGES });
       const settlement = await runtime.settleWindow(session.id, ok.windowId!);
 
-      expect(settlement.amount).toBe(usageCost(ok.usage, ok.route.price));
+      expect(settlement.amount).toBe(usageCost(ok.usage, ok.route.price!));
       expect(ledger.totalsByAsset().IFC).toBe('0');
     });
   });
@@ -1978,9 +1978,10 @@ if (!available) {
       } as Principal;
     }
 
-    function doorsSigned(p: Principal = doorsPrincipal()) {
+    /** The person's own request; `asService` adds the svc-agents caller name the settle doors require. Run doors refuse a service (OWNER 107). */
+    function doorsSigned(p: Principal = doorsPrincipal(), asService = false) {
       const raw = encodePrincipal(p);
-      return {
+      const signed = {
         ...doorsEdge({
           headers: {
             'x-intafaced-principal': raw,
@@ -1989,8 +1990,8 @@ if (!available) {
           },
           id: 'req-doors',
         }),
-        service: 'svc-agents' as const,
       };
+      return asService ? { ...signed, service: 'svc-agents' as const } : signed;
     }
 
     function routerDeps(rt: AgentRuntime): AgentsRouterDeps {
@@ -2055,7 +2056,8 @@ if (!available) {
       expect(call.windowId).not.toBeNull();
 
       const off = new AgentRuntime(sql, gateway, meter, bus, { feeAssetId: 'IFC', meteringEnabled: false });
-      const caller = createAgentsRouter(routerDeps(off)).createCaller(doorsSigned());
+      const caller = createAgentsRouter(routerDeps(off)).createCaller(doorsSigned(doorsPrincipal(), true));
+      const person = createAgentsRouter(routerDeps(off)).createCaller(doorsSigned());
 
       const settle = await caller.usage.settle({ sessionId: session.id, windowId: call.windowId! });
       expect(settle).toMatchObject({ amount: '0', settled: false, assetId: 'IFC' });
@@ -2063,13 +2065,164 @@ if (!available) {
       const settleAll = await caller.usage.settleSession({ sessionId: session.id });
       expect(settleAll.settlements.every((s) => s.settled === false && s.amount === '0')).toBe(true);
 
-      const closed = await caller.session.close({ sessionId: session.id });
+      const closed = await person.session.close({ sessionId: session.id });
       expect(closed.status).toBe('closed');
 
       expect(await balanceOf(USER_A)).toBe('1000');
       expect(await houseOf()).toBe('0');
       const stillOpen = await meter.openWindows(session.id);
       expect(stillOpen).toContain(call.windowId!);
+    });
+  });
+
+  describe('OWNER 107 — a run starts only when it can be paid for, priced and run by the person', () => {
+    /** Counts how often the engine is reached through a gateway. */
+    function counting(inner: ModelGateway) {
+      let calls = 0;
+      const wrapped = Object.create(inner) as ModelGateway;
+      wrapped.complete = async (task: string, request: Parameters<ModelGateway['complete']>[1]) => {
+        calls += 1;
+        return inner.complete(task, request);
+      };
+      return { gateway: wrapped, calls: () => calls };
+    }
+    const refusalCode = (err: unknown) => (err instanceof RefusedError ? err.refusal.code : String(err));
+
+    it('refuses a task with no published rate before the engine, and logs the refusal', async () => {
+      const blank = counting(new ModelGateway([provider], unpricedTable(TABLE)));
+      const rt = new AgentRuntime(sql, blank.gateway, meter, bus, { feeAssetId: 'IFC', meteringEnabled: true });
+      const session = await rt.openSession({ userId: USER_A, agentId: 'probe' });
+      const err = await rt.think({ sessionId: session.id, requestId: 'blank-rate', task: 'plan', messages: MESSAGES }).catch((e) => e);
+      expect(refusalCode(err)).toBe('agents.price_unset');
+      expect(blank.calls()).toBe(0);
+      const log = await rt.sessionLog(session.id, 50);
+      expect(log.at(-1)).toMatchObject({ status: 'refused', refusalCode: 'agents.price_unset' });
+      expect(await balanceOf(USER_A)).toBe('1000');
+    });
+
+    it('refuses a run whose worst case the available balance cannot cover, before the hold and the engine', async () => {
+      const route = TABLE.routes.find((r) => r.task === 'plan')!;
+      const worst = usageCost({ inputTokens: estimateInputTokens(undefined, MESSAGES), outputTokens: route.maxOutputTokens }, route.price!);
+      const gate = counting(gateway);
+      const spend = new UserSpendStore(sql);
+      const below = formatAmount(worst - 1n);
+      const rt = new AgentRuntime(sql, gate.gateway, meter, bus, {
+        feeAssetId: 'IFC',
+        meteringEnabled: true,
+        spend,
+        funds: { available: async () => amt(below) },
+      });
+      await rt.registerAgent({ ...PROBE, agentId: 'capped', limits: { ...PROBE.limits, maxSpendPerSession: '1' } });
+      const session = await rt.openSession({ userId: USER_A, agentId: 'capped' });
+      const err = await rt.think({ sessionId: session.id, requestId: 'poor-1', task: 'plan', messages: MESSAGES }).catch((e) => e);
+      expect(refusalCode(err)).toBe('agents.funds_insufficient');
+      expect(gate.calls()).toBe(0);
+      const holds = await sql`SELECT 1 FROM agents.spend_reservations WHERE session_id = ${session.id}`;
+      expect(holds).toHaveLength(0);
+      const usage = await sql`SELECT 1 FROM agents.usage_records WHERE session_id = ${session.id}`;
+      expect(usage).toHaveLength(0);
+
+      // Exactly the worst case is enough.
+      const enough = new AgentRuntime(sql, gate.gateway, meter, bus, {
+        feeAssetId: 'IFC',
+        meteringEnabled: true,
+        spend,
+        funds: { available: async () => worst },
+      });
+      const ok = await enough.think({ sessionId: session.id, requestId: 'poor-2', task: 'plan', messages: MESSAGES });
+      expect(ok.metered).toBe(true);
+      expect(gate.calls()).toBe(1);
+    });
+
+    it('refuses when the balance cannot be read: an unknown balance is not a covered one', async () => {
+      const gate = counting(gateway);
+      const rt = new AgentRuntime(sql, gate.gateway, meter, bus, {
+        feeAssetId: 'IFC',
+        meteringEnabled: true,
+        funds: {
+          available: async () => {
+            throw new Error('ledger down');
+          },
+        },
+      });
+      const session = await rt.openSession({ userId: USER_A, agentId: 'probe' });
+      const err = await rt.think({ sessionId: session.id, requestId: 'unread', task: 'plan', messages: MESSAGES }).catch((e) => e);
+      expect(refusalCode(err)).toBe('agents.funds_insufficient');
+      expect(gate.calls()).toBe(0);
+    });
+
+    it('a person with no limits of their own runs under the agent’s cap, held across runs at once', async () => {
+      const route = TABLE.routes.find((r) => r.task === 'plan')!;
+      const worst = usageCost({ inputTokens: estimateInputTokens(undefined, MESSAGES), outputTokens: route.maxOutputTokens }, route.price!);
+      const spend = new UserSpendStore(sql);
+      // A cap that one worst case fits under and two do not.
+      const cap = formatAmount(worst + worst / 2n);
+      await runtime.registerAgent({ ...PROBE, agentId: 'pair', limits: { ...PROBE.limits, maxSpendPerSession: cap } });
+      const session = await runtime.openSession({ userId: USER_A, agentId: 'pair' });
+      const first = await spend.reserve({
+        userId: USER_A,
+        sessionId: session.id,
+        reservationKey: 'pair-1',
+        assetId: 'IFC',
+        amount: formatAmount(worst),
+        agentCap: cap,
+      });
+      expect(first.status).toBe('held');
+      await expect(
+        spend.reserve({
+          userId: USER_A,
+          sessionId: session.id,
+          reservationKey: 'pair-2',
+          assetId: 'IFC',
+          amount: formatAmount(worst),
+          agentCap: cap,
+        }),
+      ).rejects.toMatchObject({ code: 'agents.spend_limit' });
+      // Without the agent's cap, a person with no limits is refused as before.
+      await expect(
+        spend.reserve({ userId: USER_A, sessionId: session.id, reservationKey: 'pair-3', assetId: 'IFC', amount: '0.000001' }),
+      ).rejects.toMatchObject({ code: 'agents.spend_limit_unset' });
+
+      const rt = new AgentRuntime(sql, gateway, meter, bus, { feeAssetId: 'IFC', meteringEnabled: true, spend });
+      const freshSession = await rt.openSession({ userId: USER_B, agentId: 'pair' });
+      const ran = await rt.think({ sessionId: freshSession.id, requestId: 'pair-run', task: 'plan', messages: MESSAGES });
+      expect(ran.metered).toBe(true);
+    });
+
+    it('the run doors take only the person: a delegated token or a service on the request is refused', async () => {
+      const SECRET = 'an-agents-owner-107-person-doors-secret';
+      const edge = createEdgeContext({ secret: SECRET, serviceName: 'svc-agents' });
+      const signed = (extra: Partial<Principal> = {}) => {
+        const raw = encodePrincipal({
+          sub: USER_A,
+          userId: USER_A,
+          sid: '33333333-3333-4333-8333-333333333333',
+          scopes: ['agents:read', 'agents:execute'],
+          tier: 'none',
+          mfa: false,
+          expiresAt: new Date(Date.now() + 60_000),
+          ...extra,
+        } as Principal);
+        return edge({
+          headers: {
+            'x-intafaced-principal': raw,
+            'x-intafaced-principal-sig': signPrincipalHeader(raw, SECRET, 'DE'),
+            'x-intafaced-region': 'DE',
+          },
+          id: 'req-owner-107',
+        });
+      };
+      const router = createAgentsRouter({ runtime, gateway, meter, feeAssetId: 'IFC' });
+      expect((await router.createCaller(signed()).session.open({ agentId: 'probe' })).status).toBe('open');
+      for (const ctx of [
+        signed({ kid: '66666666-6666-4666-8666-666666666666' }),
+        signed({ sub_account: '77777777-7777-4777-8777-777777777777' }),
+        { ...signed(), service: 'svc-trade' as const },
+      ]) {
+        await expect(router.createCaller(ctx as ReturnType<typeof signed>).session.open({ agentId: 'probe' })).rejects.toMatchObject({
+          code: 'FORBIDDEN',
+        });
+      }
     });
   });
 }

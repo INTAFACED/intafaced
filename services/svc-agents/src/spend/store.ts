@@ -217,6 +217,11 @@ export class UserSpendStore implements SpendGate {
     assetId: string;
     amount: string;
     now?: Date;
+    /**
+     * The agent's own stored cap per session. A person who has set no limits of their own runs under this cap alone
+     * (OWNER 107); absent, a person with no limits is refused, as before.
+     */
+    agentCap?: string | null;
   }): Promise<SpendReservationView> {
     const amount = parseSpendAmount(input.amount, 'reservation');
     const assetId = input.assetId?.trim() ?? '';
@@ -243,10 +248,11 @@ export class UserSpendStore implements SpendGate {
           throw new AgentError(`No session ${input.sessionId}`, 'agents.session_not_found', 'agents.refused.session_closed');
         }
         const limit = await readLimit(tx, input.userId);
-        if (!limit) {
+        const agentCap = input.agentCap ? parseSpendAmount(input.agentCap, 'agent cap') : null;
+        if (!limit && agentCap === null) {
           throw new AgentError('User spend limit is unset', 'agents.spend_limit_unset', 'agents.refused.spend_limit_unset');
         }
-        if (limit.asset_id !== assetId) {
+        if (limit && limit.asset_id !== assetId) {
           throw new AgentError(
             `Reservation asset ${assetId} does not match the spend limit asset ${limit.asset_id}`,
             'agents.spend_limit_invalid',
@@ -275,18 +281,24 @@ export class UserSpendStore implements SpendGate {
           return viewReservation(prior, true);
         }
 
-        const start = periodStart(limit.period, now);
         const sessionUsed = await summed(tx, input.userId, input.sessionId, null);
-        const periodUsed = await summed(tx, input.userId, null, start);
-        const decision = decideReservation({
-          perCall: parseAmount(limit.per_call),
-          perSession: parseAmount(limit.per_session),
-          perPeriod: parseAmount(limit.per_period),
-          sessionUsed,
-          periodUsed,
-          amount,
-        });
-        if (!decision.ok) throw spendLimit(decision.cap, assetId, decision.scope);
+        if (limit) {
+          const start = periodStart(limit.period, now);
+          const periodUsed = await summed(tx, input.userId, null, start);
+          const decision = decideReservation({
+            perCall: parseAmount(limit.per_call),
+            perSession: parseAmount(limit.per_session),
+            perPeriod: parseAmount(limit.per_period),
+            sessionUsed,
+            periodUsed,
+            amount,
+          });
+          if (!decision.ok) throw spendLimit(decision.cap, assetId, decision.scope);
+        } else if (agentCap !== null && sessionUsed + amount > agentCap) {
+          // No limits of the person's own: the agent's cap holds every run of the session, held ones included, so two
+          // runs at once cannot both fit under it.
+          throw spendLimit(agentCap, assetId, 'session');
+        }
 
         if (prior?.status === 'released') {
           const updated = await tx<ReservationRow[]>`
