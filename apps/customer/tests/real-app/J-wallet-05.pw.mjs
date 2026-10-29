@@ -6,26 +6,28 @@ import { addAuthenticator, nextCode } from './identity-factors.mjs';
 import { TEST_WITHDRAW_NETWORK_RULES } from '../../../../tooling/scripts/local-test-gates.mjs';
 
 // J-wallet-05, in the running app (docs/roadmap/journeys.json): I withdraw crypto. One test per step, titled
-// "J-wallet-05 #<n>", run in order on one verified TEST account with an authenticator app, TEST 300 USDT, and one saved
-// wallet approved by its emailed link and past its cooling-off (the wait is stood in for by `local-test-stack.mjs
-// age-addresses`). The fee, the quote lifetime and the limits are the TEST withdrawal terms the stack's founders publish
-// in svc-pay (`local-test-gates.mjs withdraw-terms`): a fixed 1.5 network fee on TEST Ethereum and TEST Base, the fee on
-// top, a 90-second quote, and USDT limits of 1000 a withdrawal and 5000 a day for verified accounts.
-// Steps that are written but not built yet fail at their first missing part, quickly (UNBUILT):
-// - #6, #4's two parallel sends: svc-pay has no custody signer for any network, so every send out is refused before a claim.
-//   They run after #7, which needs the balance still at 300.
-// - #2's sanctions clause: svc-bank has no destination sanctions list yet, so the stack has no listed address to read.
-//   It stays in the step (OWNER 88: the blank-sanctions-list refusal stays, it blocks nothing). The list is owner content and
-//   is never written in this repo: the stack hands the test one address from it, and a blank list refuses every save (proven
-//   in svc-bank's own tests, since this journey needs a saved address).
+// "J-wallet-05 #<n>", run in order on one verified TEST account with an authenticator app, TEST 300 USDT, and two saved
+// wallets, one on TEST Ethereum and one on TEST Base, each approved by its emailed link and past its cooling-off (the wait is
+// stood in for by `local-test-stack.mjs age-addresses`). The fee, the quote lifetime and the limits are the TEST withdrawal
+// terms the stack's founders publish in svc-pay (`local-test-gates.mjs withdraw-terms`): a fixed 1.5 network fee on TEST
+// Ethereum and TEST Base, the fee on top, a 90-second quote, USDT limits of 1000 a withdrawal and 5000 a day for verified
+// accounts (the day counts the fee), and a TEST custody policy that lets a TEST send out on the crypto-native rail through.
+// The stack's svc-pay has a TEST custody signer for TEST Ethereum only (`PAY_TEST_WITHDRAW_SIGNER_NETWORKS`), sending through
+// the in-memory MemoryChain; TEST Base has none, which is what #7 meets. #6 and #4's two parallel sends run after #7, which
+// needs the balance still at 300.
+// #2's sanctions clause stays in the step and fails by name: no sanctions screening provider is set for destinations, which
+// is the owner's call, and a blank list is never filled in here (product law). The rest of #2 runs before it.
 // #5 (travel rule) waits for launch (owner decision 2026-10-27).
 const J = 'J-wallet-05';
 const run = journeyState(`${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
 const ADDRESS = '0x52908400098527886E0F7030069857D2E4169EE7';
 const LABEL = 'TEST send wallet';
+// A second saved wallet, on TEST Base, where no custody signer is connected (#7). Another address than ADDRESS, so #1's
+// "not in your address book" check of ADDRESS on TEST Base still holds.
+const BASE_ADDRESS = '0x8ba1f109551bd432803012645ac136ddd64dba72';
+const BASE_LABEL = 'TEST Base wallet';
 // The address the stack's TEST fraud list holds (svc-bank, listed by `local-test-gates.mjs withdraw-terms`, W-withdraw-03).
 const FRAUD_LISTED = '0x7e5700000000000000000000000000000000fa1d';
-const UNBUILT = { timeout: 5_000 };
 
 test.describe.configure({ mode: 'default' });
 
@@ -57,6 +59,19 @@ async function signInWithCode(page) {
   await expect(page).not.toHaveURL(/\/login/);
 }
 
+/** svc-pay restarted with no sanctions screener (the blank list), or back on the stack's local-test screener. */
+function payScreener(on) {
+  const before = process.env.LOCAL_STACK_PAY_SCREENER;
+  if (on) delete process.env.LOCAL_STACK_PAY_SCREENER;
+  else process.env.LOCAL_STACK_PAY_SCREENER = 'off';
+  try {
+    tool('local-test-stack.mjs', 'restart', 'pay');
+  } finally {
+    if (before === undefined) delete process.env.LOCAL_STACK_PAY_SCREENER;
+    else process.env.LOCAL_STACK_PAY_SCREENER = before;
+  }
+}
+
 /** Answers the "Confirm it's you" dialog with the next authenticator code. */
 async function confirmItsMe(page) {
   const dialog = page.getByRole('dialog', { name: 'Confirm it’s you' });
@@ -84,7 +99,27 @@ async function customerApi() {
     const res = await fetch(`${EDGE}${route}`, { headers: { origin: ORIGIN, authorization: `Bearer ${token}` } });
     return { status: res.status, body: await res.json() };
   };
+  const post = async (route, body, bearer = token) => {
+    const res = await fetch(`${EDGE}${route}`, {
+      method: 'POST',
+      headers: { origin: ORIGIN, 'content-type': 'application/json', authorization: `Bearer ${bearer}` },
+      body: JSON.stringify(body),
+    });
+    return { status: res.status, body: await res.json().catch(() => null) };
+  };
   return {
+    /** A send straight to svc-pay with the given token: the session's own unless a step-up token is passed. */
+    create: (body, bearer) => post('/api/pay/trpc/withdrawal.create', body, bearer),
+    /** A fee quote straight from svc-pay. */
+    quote: (body) => post('/api/pay/trpc/withdrawal.quote', body),
+    /** An address-book save straight to svc-bank with the given step-up token. */
+    saveAddress: (body, bearer) => post('/api/bank/trpc/ramps.destinations.save', body, bearer),
+    /** "Confirm it's you" by API: the five-minute token that alone may send. */
+    async stepUp() {
+      const { status, body } = await post('/api/identity/trpc/auth.stepUp', { totpCode: await freshCode() });
+      if (status !== 200) throw new Error(`step-up refused: ${status} ${JSON.stringify(body).slice(0, 300)}`);
+      return body.result.data;
+    },
     async available(asset) {
       const { status, body } = await get('/api/v1/account/balance');
       if (status !== 200) throw new Error(`balance read refused: ${status}`);
@@ -113,15 +148,16 @@ const pick = (page, name) => form(page).getByRole('combobox', { name: new RegExp
 const amountBox = (page) => form(page).getByRole('textbox', { name: /^Amount/ });
 const confirmSend = (page) => page.getByRole('button', { name: 'Confirm and send' });
 
-/** Opens Withdraw with USDT on its default network, the saved TEST wallet chosen and `amount` typed. */
-async function fillSend(page, amount) {
+/** Opens Withdraw with USDT on its default network (or on TEST Base), the saved TEST wallet there chosen and `amount` typed. */
+async function fillSend(page, amount, { base = false } = {}) {
   await page.goto('/uc/withdraw');
   await page.mouse.move(0, 600);
   await pick(page, 'Asset').selectOption('USDT');
   await expect(pick(page, 'Network')).toHaveValue('ethereum');
+  if (base) await pick(page, 'Network').selectOption('base');
   const saved = pick(page, 'Saved address');
-  const ready = `${LABEL} · 0x5290…9EE7 · Ready to use`;
-  await expect(saved.locator('option', { hasText: LABEL })).toHaveText(ready);
+  const ready = base ? `${BASE_LABEL} · 0x8ba1…ba72 · Ready to use` : `${LABEL} · 0x5290…9EE7 · Ready to use`;
+  await expect(saved.locator('option', { hasText: base ? BASE_LABEL : LABEL })).toHaveText(ready);
   await saved.selectOption({ label: ready });
   await amountBox(page).fill(amount);
 }
@@ -135,6 +171,41 @@ async function approvalLink(email, seen) {
 }
 
 const stepUp = (page) => page.getByRole('dialog', { name: 'Confirm it’s you' });
+
+/** Saves `address` on `network` for USDT, then approves it by its emailed link, opened and confirmed in another browser. */
+async function saveAndApprove(page, browser, who, label, network, address) {
+  await page.goto('/uc/withdraw/address');
+  const add = page.getByRole('form', { name: 'Add an address' });
+  await add.getByRole('textbox', { name: /^Label/ }).fill(label);
+  await add.getByRole('combobox', { name: /^Asset/ }).selectOption('USDT');
+  await add.getByRole('combobox', { name: /^Network/ }).selectOption(network);
+  await add.getByRole('textbox', { name: /^Address/ }).fill(address);
+  await add.getByRole('button', { name: 'Save address' }).click();
+  await confirmItsMe(page);
+  await expect(page.getByText(`${label} was saved to your address book.`)).toBeVisible();
+
+  const seen = mailedLines(who.email, 'withdraw-address-approval').length;
+  const row = page.locator('tbody tr', { hasText: label });
+  await row.getByRole('button', { name: 'Withdraw to this address' }).click();
+  await page.getByTestId('address-use').getByRole('button', { name: 'Email me an approval link' }).click();
+  const link = await approvalLink(who.email, seen);
+  const other = await browser.newContext();
+  try {
+    const away = await other.newPage();
+    await away.goto(link);
+    await away.getByRole('link', { name: 'Sign in' }).last().click();
+    await away.fill('input[name=totp]', await freshCode());
+    await away.fill('input[name=identifier]', who.email);
+    await away.fill('input[name=password]', who.password);
+    await away.getByRole('button', { name: /^sign in$/i }).click();
+    await expect(away).toHaveURL(/\/approveAddress$/);
+    await away.getByTestId('approve-address').getByRole('button', { name: 'Approve' }).click();
+    await confirmItsMe(away);
+    await expect(away.getByRole('heading', { name: 'Address approved' })).toBeVisible();
+  } finally {
+    await other.close();
+  }
+}
 
 /** Gets the fee for the send `fillSend` set up and opens the step-up, with the next authenticator code typed in. */
 async function readyToConfirm(page, amount) {
@@ -151,7 +222,7 @@ async function readyToConfirm(page, amount) {
 async function sendOut(page, amount) {
   await readyToConfirm(page, amount);
   await stepUp(page).getByRole('button', { name: 'Confirm' }).click();
-  await expect(page.getByTestId('withdraw-outcome')).toContainText('Withdrawal recorded', UNBUILT);
+  await expect(page.getByTestId('withdraw-outcome')).toContainText('Withdrawal recorded', { timeout: 30_000 });
 }
 
 /** A withdrawal written straight into svc-pay in `state` by the stack (as J-wallet-06 does); returns its id. */
@@ -176,43 +247,19 @@ test(`${J} starts: a verified TEST account with 300 USDT, a second factor and a 
   run.reset({ account: who, secret, step });
   expect(fund(who.email, 'USDT', '300').tx).toBeTruthy();
 
-  await page.goto('/uc/withdraw/address');
-  const add = page.getByRole('form', { name: 'Add an address' });
-  await add.getByRole('textbox', { name: /^Label/ }).fill(LABEL);
-  await add.getByRole('combobox', { name: /^Asset/ }).selectOption('USDT');
-  await add.getByRole('combobox', { name: /^Network/ }).selectOption('ethereum');
-  await add.getByRole('textbox', { name: /^Address/ }).fill(ADDRESS);
-  await add.getByRole('button', { name: 'Save address' }).click();
-  await confirmItsMe(page);
-  await expect(page.getByText(`${LABEL} was saved to your address book.`)).toBeVisible();
-
-  // A new address waits for approval by its emailed link, opened in another browser (J-wallet-04 #5).
-  const seen = mailedLines(who.email, 'withdraw-address-approval').length;
-  const row = page.locator('tbody tr', { hasText: LABEL });
-  await row.getByRole('button', { name: 'Withdraw to this address' }).click();
-  await page.getByTestId('address-use').getByRole('button', { name: 'Email me an approval link' }).click();
-  const link = await approvalLink(who.email, seen);
-  const other = await browser.newContext();
-  try {
-    const away = await other.newPage();
-    await away.goto(link);
-    await away.getByRole('link', { name: 'Sign in' }).last().click();
-    await away.fill('input[name=totp]', await freshCode());
-    await away.fill('input[name=identifier]', who.email);
-    await away.fill('input[name=password]', who.password);
-    await away.getByRole('button', { name: /^sign in$/i }).click();
-    await expect(away).toHaveURL(/\/approveAddress$/);
-    await away.getByTestId('approve-address').getByRole('button', { name: 'Approve' }).click();
-    await confirmItsMe(away);
-    await expect(away.getByRole('heading', { name: 'Address approved' })).toBeVisible();
-  } finally {
-    await other.close();
+  // Two wallets, each saved and then approved by its emailed link opened in another browser (J-wallet-04 #5).
+  for (const [label, network, address] of [
+    [LABEL, 'ethereum', ADDRESS],
+    [BASE_LABEL, 'base', BASE_ADDRESS],
+  ]) {
+    await saveAndApprove(page, browser, who, label, network, address);
   }
 
   // The cooling-off runs from the approval; the LOCAL TEST clock moves it past its end.
-  expect(tool('local-test-stack.mjs', 'age-addresses', who.email, '25')).toContain('1 saved address(es)');
+  expect(tool('local-test-stack.mjs', 'age-addresses', who.email, '25')).toContain('2 saved address(es)');
   await page.reload();
   await expect(page.locator('tbody tr', { hasText: LABEL })).toContainText('Ready to use');
+  await expect(page.locator('tbody tr', { hasText: BASE_LABEL })).toContainText('Ready to use');
 });
 
 test(`${J} #1 opens Withdraw and picks asset and network: the default network with its tag rule, minimum, maximum and step from the catalogue, and a changed network checks the address again`, async ({
@@ -259,7 +306,8 @@ test(`${J} #1 opens Withdraw and picks asset and network: the default network wi
 test(`${J} #2 picks the saved address or pastes one: a mistyped address is refused before any call, and an address on the fraud list is refused by name with nothing held, and so is a sanctioned address`, async ({
   page,
 }) => {
-  test.setTimeout(180_000);
+  // Two svc-pay restarts (screener off, then back on) take most of a minute each.
+  test.setTimeout(480_000);
   await signInWithCode(page);
   const writes = [];
   page.on('request', (request) => {
@@ -285,27 +333,47 @@ test(`${J} #2 picks the saved address or pastes one: a mistyped address is refus
   const refusal = add.getByRole('alert');
   await expect(refusal.or(stepUp(page))).toBeVisible();
   if (await stepUp(page).isVisible()) await confirmItsMe(page);
-  await expect(refusal).toContainText(/fraud/i);
+  await expect(refusal).toHaveText('This address is on our fraud list, so it can’t be saved. Nothing was saved.');
   await expect(page.locator('tbody tr', { hasText: 'TEST fraud-listed wallet' })).toHaveCount(0);
 
-  // The sanctions clause: an address on the destination sanctions list is refused by name and never saved.
-  const sanctioned = tool('local-test-gates.mjs', 'sanctioned-destination').trim();
-  expect(sanctioned).toMatch(/^0x[0-9a-fA-F]{40}$/);
-  await add.getByRole('textbox', { name: /^Label/ }).fill('TEST sanctioned wallet');
-  await add.getByRole('combobox', { name: /^Asset/ }).selectOption('USDT');
-  await add.getByRole('combobox', { name: /^Network/ }).selectOption('ethereum');
-  await add.getByRole('textbox', { name: /^Address/ }).fill(sanctioned);
-  await add.getByRole('button', { name: 'Save address' }).click();
-  await expect(refusal.or(stepUp(page))).toBeVisible();
-  if (await stepUp(page).isVisible()) await confirmItsMe(page);
-  await expect(refusal).toContainText(/sanction/i, UNBUILT);
-  await expect(page.locator('tbody tr', { hasText: 'TEST sanctioned wallet' })).toHaveCount(0);
+  // The screen may refuse on its pre-check; the bank itself refuses the save with its typed code, even with a fresh step-up.
   const api = await customerApi();
+  const listed = await api.saveAddress(
+    { assetId: 'USDT', network: 'ethereum', ref: FRAUD_LISTED, label: 'TEST fraud-listed wallet' },
+    (await api.stepUp()).accessToken,
+  );
+  expect(listed.body?.error?.data?.cause?.code).toBe('bank.destination_fraud_listed');
   expect(toUnits(await api.available('USDT'))).toBe(toUnits('300'));
   expect(await api.withdrawals()).toEqual([]);
+
+  // The blank-list half: with no screener set, svc-pay refuses a send to the saved, ready address with its typed code before
+  // anything is held. svc-pay is put back on the stack's local-test screener afterwards, so #6 and #4 can still send.
+  try {
+    payScreener(false);
+    await fillSend(page, '25');
+    await page.getByRole('button', { name: 'Get the fee' }).click();
+    await expect(page.getByTestId('withdraw-review')).toContainText('Leaves your balance26.5 USDT');
+    const answered = page.waitForResponse((res) => res.url().includes('/api/pay/trpc/withdrawal.create'));
+    await confirmSend(page).click();
+    await confirmItsMe(page);
+    const refused = await (await answered).json();
+    expect(refused?.error?.data?.cause?.code, JSON.stringify(refused).slice(0, 400)).toBe('pay.guard_screening_unavailable');
+    const outcome = page.getByTestId('withdraw-outcome');
+    await expect(outcome).toContainText('Not sent');
+    await expect(outcome).toContainText('Nothing was sent: no sanctions screening service is connected, and every send needs one.');
+    await expect(outcome).toContainText('Nothing was sent and nothing is held. Your available balance is 300 USDT.');
+    expect(toUnits(await api.available('USDT'))).toBe(toUnits('300'));
+    expect(await api.withdrawals()).toEqual([]);
+  } finally {
+    payScreener(true);
+  }
+
+  // The sanctions clause: an address on the destination sanctions list is refused by name and never saved. No screening
+  // provider is set for destinations, and a blank list is never filled in with invented entries, so the clause fails here.
+  throw new Error("#2's sanctions clause: sanctions screening provider not set: the owner's call");
 });
 
-test(`${J} #3 reads the fee quote: fee, what arrives and the total debit as exact decimals, and an expired quote must be got again`, async ({
+test(`${J} #3 reads the fee quote: fee, what arrives and the total debit as exact decimals, an expired quote must be got again, and a blank fee is a refusal`, async ({
   page,
 }) => {
   test.setTimeout(240_000);
@@ -337,6 +405,27 @@ test(`${J} #3 reads the fee quote: fee, what arrives and the total debit as exac
   await page.getByRole('button', { name: 'Get the fee' }).click();
   await expect(review).toContainText('Leaves your balance27.5 USDT');
   await expect(confirmSend(page)).toBeEnabled();
+
+  // A blank fee is a refusal: TEST Ethereum's fee is cleared through the founders' own door for this clause only, and put
+  // back in the finally. The page names it in words, svc-pay answers one typed code, and nothing is quoted or held.
+  const api = await customerApi();
+  try {
+    tool('local-test-gates.mjs', 'withdraw-fee', 'ethereum', 'unset');
+    await amountBox(page).fill('25');
+    await page.getByRole('button', { name: 'Get the fee' }).click();
+    await expect(page.getByText('No fee is set for this network, so nothing can be sent on it.')).toBeVisible();
+    await expect(fee).not.toContainText('1.5 USDT');
+    await expect(page.getByRole('button', { name: 'Review withdrawal' })).toBeDisabled();
+    await expect(confirmSend(page)).toHaveCount(0);
+    const blank = await api.quote({ quoteRef: `${J}-blank-fee-${Date.now()}`, assetId: 'USDT', networkId: 'ethereum', amount: '25' });
+    expect(blank.body?.error?.data?.cause?.code, JSON.stringify(blank.body).slice(0, 400)).toBe('pay.fee_unset');
+    expect(toUnits(await api.available('USDT'))).toBe(toUnits('300'));
+    expect(await api.withdrawals()).toEqual([]);
+  } finally {
+    tool('local-test-gates.mjs', 'withdraw-fee', 'ethereum', 'test');
+  }
+  await page.getByRole('button', { name: 'Get the fee' }).click();
+  await expect(fee).toContainText('1.5 USDT');
 });
 
 test(`${J}, part of #4 reads the limit line: what the account's level may send now, per withdrawal and in 24 hours`, async ({ page }) => {
@@ -348,17 +437,68 @@ test(`${J}, part of #4 reads the limit line: what the account's level may send n
   );
 });
 
+test(`${J} #4 a blank limit refuses and holds nothing`, async ({ page }) => {
+  test.setTimeout(300_000);
+  await signInWithCode(page);
+  const api = await customerApi();
+  // The account's level (full) and USDT: the stack's TEST limit is cleared to unset through the founders' own door for this
+  // step only, and put back in the finally, so every other step still meets the TEST figures.
+  try {
+    tool('local-test-gates.mjs', 'withdraw-limit', 'full', 'USDT', 'unset');
+    await fillSend(page, '25');
+    // The limit line says in words that no limit is set, and nothing can be reviewed, so nothing can be confirmed.
+    await expect(page.getByTestId('withdraw-limit').locator('p')).toHaveText(
+      'No withdrawal limit is set for your account level and this asset, so nothing can be sent.',
+    );
+    await page.getByRole('button', { name: 'Get the fee' }).click();
+    await expect(page.getByTestId('withdraw-fee')).toContainText('1.5 USDT');
+    // With the fee in hand the send still cannot be reviewed: no limit, no confirm.
+    await expect(page.getByRole('button', { name: 'Review withdrawal' })).toBeDisabled();
+    await expect(confirmSend(page)).toHaveCount(0);
+    // svc-pay itself refuses a send that skips the page: one exact typed code, with a real quote and a fresh step-up.
+    const quoteRef = `${J}-blank-limit-quote-${Date.now()}`;
+    const quoted = await api.quote({ quoteRef, assetId: 'USDT', networkId: 'ethereum', amount: '25' });
+    expect(quoted.status, JSON.stringify(quoted.body).slice(0, 400)).toBe(200);
+    const refused = await api.create(
+      {
+        assetId: 'USDT',
+        amount: '25',
+        railId: 'crypto-native',
+        networkId: 'ethereum',
+        quoteRef,
+        destination: { kind: 'crypto', ref: ADDRESS },
+        clientRef: `${J}-blank-limit-${Date.now()}`,
+      },
+      (await api.stepUp()).accessToken,
+    );
+    expect(refused.body?.error?.data?.cause?.code, JSON.stringify(refused.body).slice(0, 400)).toBe('pay.guard_withdrawal_limit_unset');
+    // Nothing held, nothing recorded.
+    expect(toUnits(await api.available('USDT'))).toBe(toUnits('300'));
+    expect(await api.withdrawals()).toEqual([]);
+  } finally {
+    tool('local-test-gates.mjs', 'withdraw-limit', 'full', 'USDT', 'test');
+  }
+  // Back to the TEST figures: the limit line reads them again.
+  await fillSend(page, '25');
+  await expect(page.getByTestId('withdraw-limit')).toContainText('You can send up to 1,000 USDT now');
+});
+
 test(`${J} #7 confirms with a fresh step-up while no signer is connected: refused by name, nothing held, the balance still reads 300`, async ({
   page,
 }) => {
   test.setTimeout(240_000);
   await signInWithCode(page);
-  await fillSend(page, '25');
+  // TEST Base has no custody signer on the stack; TEST Ethereum's TEST signer is what #6 and #4 use.
+  await fillSend(page, '25', { base: true });
   await page.getByRole('button', { name: 'Get the fee' }).click();
   await expect(page.getByTestId('withdraw-review')).toContainText('Leaves your balance26.5 USDT');
   await confirmSend(page).click();
   await expect(page.getByRole('dialog', { name: 'Confirm it’s you' })).toContainText('Sending money out needs a fresh confirmation.');
+  const answered = page.waitForResponse((res) => res.url().includes('/api/pay/trpc/withdrawal.create'));
   await confirmItsMe(page);
+  // svc-pay refuses with the one typed code for a network with no signer.
+  const refused = await (await answered).json();
+  expect(refused?.error?.data?.cause?.code, JSON.stringify(refused).slice(0, 400)).toBe('pay.wallet_withdraw_unavailable');
 
   const outcome = page.getByTestId('withdraw-outcome');
   await expect(outcome).toContainText('Not sent');
@@ -379,8 +519,32 @@ test(`${J} #7 confirms with a fresh step-up while no signer is connected: refuse
 test(`${J} #6 reviews and confirms with a fresh step-up: no code keeps Confirm shut, a wrong one is refused in words, and neither sends anything; then one withdrawal, a success panel naming it, and its record`, async ({
   page,
 }) => {
-  test.setTimeout(240_000);
+  test.setTimeout(600_000);
   await signInWithCode(page);
+  const api = await customerApi();
+  // A missing step-up is a typed refusal: the signed-in session alone may not send, it lacks `trade:withdraw`.
+  const send = {
+    assetId: 'USDT',
+    amount: '25',
+    railId: 'crypto-native',
+    networkId: 'ethereum',
+    quoteRef: 'J-wallet-05-no-quote',
+    destination: { kind: 'crypto', ref: ADDRESS },
+    clientRef: `${J}-no-step-up`,
+  };
+  const unstepped = await api.create(send);
+  expect(unstepped.status, JSON.stringify(unstepped.body)).toBe(403);
+  expect(unstepped.body?.error?.data?.code).toBe('FORBIDDEN');
+  expect(unstepped.body?.error?.message).toContain('trade:withdraw');
+  // An expired step-up is refused too: its token lives five minutes, and once past that it sends nothing.
+  const elevated = await api.stepUp();
+  expect(Date.parse(elevated.expiresAt) - Date.now()).toBeLessThanOrEqual(300_000);
+  await page.waitForTimeout(Math.max(0, Date.parse(elevated.expiresAt) - Date.now()) + 2_000);
+  const expired = await api.create({ ...send, clientRef: `${J}-expired-step-up` }, elevated.accessToken);
+  expect(expired.status, JSON.stringify(expired.body)).toBe(401);
+  expect(await api.withdrawals()).toEqual([]);
+  expect(toUnits(await api.available('USDT'))).toBe(toUnits('300'));
+
   await fillSend(page, '25');
   await page.getByRole('button', { name: 'Get the fee' }).click();
   await expect(page.getByTestId('withdraw-review')).toContainText('Leaves your balance26.5 USDT');
@@ -392,17 +556,18 @@ test(`${J} #6 reviews and confirms with a fresh step-up: no code keeps Confirm s
   await code.fill('000000');
   await dialog.getByRole('button', { name: 'Confirm' }).click();
   await expect(dialog).toContainText('That code didn’t match. Check your authenticator app and try again.');
-  const api = await customerApi();
   expect(await api.withdrawals()).toEqual([]);
 
   await code.fill(await freshCode());
   await dialog.getByRole('button', { name: 'Confirm' }).click();
   const outcome = page.getByTestId('withdraw-outcome');
-  await expect(outcome).toContainText('Withdrawal recorded', UNBUILT);
+  await expect(outcome).toContainText('Withdrawal recorded', { timeout: 30_000 });
   const [made] = await api.withdrawals();
   expect(made?.id).toBeTruthy();
   await expect(outcome).toContainText(`Withdrawal ${made.id} is recorded.`);
   expect(await api.withdrawals()).toHaveLength(1);
+  // One withdrawal: 25 out with the 1.5 fee on top, so the balance reads 273.5.
+  expect(toUnits(await api.available('USDT'))).toBe(toUnits('273.5'));
   await outcome.getByRole('link', { name: 'See this withdrawal' }).click();
   await expect(page.getByText(made.id).first()).toBeVisible();
 });
@@ -427,9 +592,39 @@ test(`${J} #4 two withdrawals sent at once that together pass the 24-hour limit:
     await signInWithCode(other);
     const api = await customerApi();
     const before = (await api.withdrawals()).length;
+    const availableBefore = toUnits(await api.available('USDT'));
     await readyToConfirm(page, each);
     await readyToConfirm(other, each);
-    await Promise.all([page, other].map((tab) => stepUp(tab).getByRole('button', { name: 'Confirm' }).click()));
+    const answers = [page, other].map((tab) => tab.waitForResponse((res) => res.url().includes('/api/pay/trpc/withdrawal.create')));
+    // Each tab passes its own step-up, one after the other: a code from an earlier 30-second step than one already used is
+    // refused, so the two can't verify in either order. Each send then waits in its browser until both are made, and the two
+    // go to svc-pay together.
+    const isCreate = (url) => url.href.includes('/api/pay/trpc/withdrawal.create');
+    let release;
+    const bothMade = new Promise((resolve) => (release = resolve));
+    let made = 0;
+    for (const tab of [page, other]) {
+      await tab.route(isCreate, async (route) => {
+        if (++made === 2) release();
+        await bothMade;
+        await route.continue();
+      });
+    }
+    // readyToConfirm typed each tab's code, the second from a later step, so neither send is held for long once it is made
+    // and both quotes are still live (90 seconds) when they reach svc-pay.
+    for (const tab of [page, other]) {
+      const sent = tab.waitForRequest((req) => isCreate(new URL(req.url())));
+      await stepUp(tab).getByRole('button', { name: 'Confirm' }).click();
+      await sent;
+    }
+    // svc-pay answers one send and refuses the other with the one typed code for a limit that would be passed.
+    const bodies = await Promise.all(answers.map(async (answer) => (await answer).json()));
+    const codes = bodies.map((body) => body?.error?.data?.cause?.code ?? null);
+    expect(
+      codes.filter((c) => c === null),
+      JSON.stringify(bodies).slice(0, 600),
+    ).toHaveLength(1);
+    expect(codes.filter((c) => c !== null)).toEqual(['pay.guard_withdrawal_limit_exceeded']);
     const states = await Promise.all(
       [page, other].map(async (tab) => {
         const outcome = tab.getByTestId('withdraw-outcome');
@@ -440,6 +635,8 @@ test(`${J} #4 two withdrawals sent at once that together pass the 24-hour limit:
     expect(states.filter((state) => state === 'refused')).toHaveLength(1);
     expect(states.filter((state) => state !== 'refused' && state !== 'unknown')).toHaveLength(1);
     expect(await api.withdrawals()).toHaveLength(before + 1);
+    // Exactly one amount and its 1.5 fee left the available balance; the refused one held nothing.
+    expect(toUnits(await api.available('USDT'))).toBe(availableBefore - toUnits(each) - toUnits('1.5'));
   } finally {
     await otherContext.close();
   }

@@ -266,9 +266,11 @@ const REFUSALS = [
   'task_not_allowed',
   'output_limit',
   'spend_limit',
+  'price_unset',
+  'funds_insufficient',
 ] as const;
 /** A refusal code as words; a code this screen does not know is shown as the code itself. */
-function refusalWords(code: string): string {
+export function refusalWords(code: string): string {
   const name = code.replace(/^agents\./, '');
   return (REFUSALS as readonly string[]).includes(name) ? agentsCatalogueCopy.t(`refusal_${name as (typeof REFUSALS)[number]}`) : code;
 }

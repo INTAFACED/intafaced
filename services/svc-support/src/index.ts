@@ -14,6 +14,7 @@ import { SqlKbLibraryBook } from './kb-library.js';
 import { createIdentityApprovalClient } from './action-approval-consume.js';
 import { SqlGroupBook } from './desk-groups.js';
 import { SqlViewBook } from './desk-views.js';
+import { DeskMacros, SqlMacroBook } from './desk-macros.js';
 import { SqlPropertiesBook } from './desk-properties.js';
 import { SqlLifecycleBook } from './ticket-lifecycle.js';
 import { JetStreamEventBus } from '@intafaced/events';
@@ -98,6 +99,16 @@ await sql`SELECT 1 FROM support.request_definitions LIMIT 1`.catch(() => {
 });
 await sql`SELECT 1 FROM support.kb_library_log LIMIT 1`.catch(() => {
   throw new Error('support.kb_library_log is missing — apply migration 0032 before starting svc-support');
+});
+
+await sql`SELECT shortcode, title FROM support.desk_macros LIMIT 1`.catch(() => {
+  throw new Error('support.desk_macros is missing — apply migration 20261029161000_desk_macros before starting svc-support');
+});
+await sql`SELECT 1 FROM support.desk_macro_log LIMIT 1`.catch(() => {
+  throw new Error('support.desk_macro_log is missing — apply migration 20261029161000_desk_macros before starting svc-support');
+});
+await sql`SELECT 1 FROM support.staff_signatures LIMIT 1`.catch(() => {
+  throw new Error('support.staff_signatures is missing — apply migration 20261029161000_desk_macros before starting svc-support');
 });
 
 await sql`SELECT 1 FROM support.rating_requests LIMIT 1`.catch(() => {
@@ -194,6 +205,7 @@ const appRouter = createSupportRouter(
   new SqlHelpCentreBook(sql),
   new SqlKbLibraryBook(sql),
   new RequestForms(new SqlFormsStore(sql), { forms: env.SUPPORT_FORM_CAP ?? null, fields: env.SUPPORT_FIELD_CAP ?? null }),
+  new DeskMacros(new SqlMacroBook(sql), support, env.SUPPORT_MACRO_SHORTCODE_MIN ?? null),
 );
 const edgeContext = createEdgeContext({
   secret: env.EDGE_PRINCIPAL_SECRET,

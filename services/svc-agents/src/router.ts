@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { envScreeningList, SHIPPED_BUSINESS_BLOCKS } from '@intafaced/config';
 import { router, publicProcedure, scopedProcedure, TRPCError, forwardedPrincipalHeaders } from '@intafaced/contracts';
-import { formatAmount } from '@intafaced/ledger-client';
+import { formatAmount, parseAmount } from '@intafaced/ledger-client';
 import type { Sql } from 'postgres';
 import { AgentError, assertOpsSessionsLimit, assertSessionLogPageLimit, assertSessionMineLimit, assertUserLogPageLimit } from './errors.js';
 import { requireSettleService } from './settle-hmac.js';
@@ -262,6 +262,8 @@ function toActionOutput(action: AuditedAction) {
  * own words. `intafacedCode` lets a client branch on the machine code.
  */
 function toTRPCError(err: unknown): TRPCError {
+  // Already decided (an ownership check's NOT_FOUND): passed on, never reworded as an engine outage.
+  if (err instanceof TRPCError) return err;
   if (err instanceof AgentError) {
     const code =
       err.code === 'agents.refused' || err.code === 'agents.spend_limit' || err.code === 'agents.spend_limit_unset'
@@ -335,6 +337,33 @@ export interface AgentsRouterDeps {
   readonly portfolioLedger?: HoldingsLedger | null;
   /** Platform prices. Absent → portfolio.plan stays port_dark. Null price → portfolio.price_unset. */
   readonly portfolioPrices?: PortfolioPriceSource | null;
+}
+
+/**
+ * Running an agent spends the person's money, so only the person runs one (OWNER 107): their own signed-in session,
+ * never an API key (`agents:execute` is interactive-only in packages/auth), a sub-account or delegated token, or a
+ * service forwarding their principal.
+ */
+function executeProcedure() {
+  return scopedProcedure('agents:execute', { module: 'agents', person: true }).use(({ ctx, next }) => {
+    if (ctx.principal.kid || ctx.principal.sub_account) {
+      throw new TRPCError({ code: 'FORBIDDEN', message: 'agents.execute_person_only' });
+    }
+    return next();
+  });
+}
+
+/**
+ * The person's own choice of which session their history shows: a write to their own state, so a key, a sub-account
+ * or a service forwarding their principal does not make it, even with `agents:read`.
+ */
+function personReadProcedure() {
+  return scopedProcedure('agents:read', { module: 'agents', person: true }).use(({ ctx, next }) => {
+    if (ctx.principal.kid || ctx.principal.sub_account) {
+      throw new TRPCError({ code: 'FORBIDDEN', message: 'agents.select_person_only' });
+    }
+    return next();
+  });
 }
 
 export function createAgentsRouter(deps: AgentsRouterDeps) {
@@ -481,8 +510,9 @@ export function createAgentsRouter(deps: AgentsRouterDeps) {
               task: z.string(),
               maxOutputTokens: z.number().int(),
               capability: z.enum(['complete', 'stream', 'embed']),
-              inputPerMillion: z.string(),
-              outputPerMillion: z.string(),
+              /** Null when this deployment publishes no rate for the task: it refuses every run (agents.price_unset). */
+              inputPerMillion: z.string().nullable(),
+              outputPerMillion: z.string().nullable(),
               assetId: z.string(),
               engine: z.enum(['sandbox', 'live', 'unknown']),
               metered: z.boolean(),
@@ -496,8 +526,8 @@ export function createAgentsRouter(deps: AgentsRouterDeps) {
               task: route.task,
               maxOutputTokens: route.maxOutputTokens,
               capability: route.capability,
-              inputPerMillion: formatAmount(route.price.inputPerMillion),
-              outputPerMillion: formatAmount(route.price.outputPerMillion),
+              inputPerMillion: route.price ? formatAmount(route.price.inputPerMillion) : null,
+              outputPerMillion: route.price ? formatAmount(route.price.outputPerMillion) : null,
               assetId: feeAssetId,
               engine: flagged.engine,
               metered: flagged.metered,
@@ -599,7 +629,7 @@ export function createAgentsRouter(deps: AgentsRouterDeps) {
     }),
 
     session: router({
-      open: scopedProcedure('agents:execute', { module: 'agents' })
+      open: executeProcedure()
         .input(z.object({ agentId: z.string().min(1) }))
         .output(sessionOutput)
         .mutation(({ ctx, input }) =>
@@ -617,7 +647,7 @@ export function createAgentsRouter(deps: AgentsRouterDeps) {
           }),
         ),
 
-      close: scopedProcedure('agents:execute', { module: 'agents' })
+      close: executeProcedure()
         .input(z.object({ sessionId: z.string().guid() }))
         .output(sessionOutput)
         .mutation(({ ctx, input }) =>
@@ -636,6 +666,128 @@ export function createAgentsRouter(deps: AgentsRouterDeps) {
               openedAt: session.openedAt.toISOString(),
               closedAt: session.closedAt?.toISOString() ?? null,
             };
+          }),
+        ),
+
+      /**
+       * One of the caller's own sessions: its state and every usage window with what it was charged. Open windows have
+       * no amount yet; a sealed window with no ledger transaction is unpaid and is retried on its charge key.
+       */
+      detail: scopedProcedure('agents:read', { module: 'agents' })
+        .input(z.object({ sessionId: z.string().guid() }))
+        .output(
+          z.object({
+            session: sessionOutput,
+            assetId: z.string(),
+            windows: z.array(
+              z.object({
+                windowId: z.string(),
+                openedAt: z.string(),
+                state: z.enum(['open', 'unpaid', 'settled']),
+                amount: z.string().nullable(),
+                chargeKey: z.string().nullable(),
+              }),
+            ),
+            /**
+             * Each run of the session by its request id, oldest first. The run's claim commits before the engine is
+             * called, so a run the engine has not answered reads `running`; one whose usage is recorded reads `completed`.
+             */
+            runs: z.array(
+              z.object({
+                requestId: z.string(),
+                startedAt: z.string(),
+                state: z.enum(['running', 'completed']),
+              }),
+            ),
+          }),
+        )
+        .query(({ ctx, input }) =>
+          guard(async () => {
+            const session = await ownedSession(input.sessionId, ctx.principal.userId);
+            if (!sql) throw new Error('agents sql is unset');
+            const rows = await sql<
+              Array<{
+                window_id: string;
+                opened_at: Date;
+                sealed_at: Date | null;
+                charged_amount: string | null;
+                charge_key: string | null;
+                charge_tx_id: string | null;
+              }>
+            >`
+              SELECT window_id, opened_at, sealed_at, charged_amount::text, charge_key, charge_tx_id
+                FROM agents.usage_windows
+               WHERE session_id = ${session.id}
+               ORDER BY opened_at, window_id
+            `;
+            const runs = await sql<Array<{ request_id: string; claimed_at: Date; recorded: boolean }>>`
+              SELECT c.request_id, c.claimed_at,
+                     EXISTS (SELECT 1 FROM agents.usage_records u
+                              WHERE u.session_id = c.session_id AND u.request_id = c.request_id) AS recorded
+                FROM agents.think_claims c
+               WHERE c.session_id = ${session.id}
+               ORDER BY c.claimed_at, c.request_id
+            `;
+            return {
+              session: {
+                id: session.id,
+                agentId: session.agentId,
+                guardrailVersion: session.guardrailVersion,
+                status: session.status,
+                metered: session.metered,
+                openedAt: session.openedAt.toISOString(),
+                closedAt: session.closedAt?.toISOString() ?? null,
+              },
+              assetId: feeAssetId,
+              windows: rows.map((row) => ({
+                windowId: row.window_id,
+                openedAt: row.opened_at.toISOString(),
+                state: row.sealed_at === null ? ('open' as const) : row.charge_tx_id ? ('settled' as const) : ('unpaid' as const),
+                amount: row.charged_amount === null ? null : formatAmount(parseAmount(row.charged_amount)),
+                chargeKey: row.charge_key,
+              })),
+              runs: runs.map((run) => ({
+                requestId: run.request_id,
+                startedAt: run.claimed_at.toISOString(),
+                state: run.recorded ? ('completed' as const) : ('running' as const),
+              })),
+            };
+          }),
+        ),
+
+      /**
+       * The session the caller last selected in their history, kept by the service so the choice survives a reload and
+       * another device. Null when they have selected none.
+       */
+      selected: scopedProcedure('agents:read', { module: 'agents' })
+        .output(z.object({ sessionId: z.string().guid(), agentId: z.string() }).nullable())
+        .query(({ ctx }) =>
+          guard(async () => {
+            if (!sql) throw new Error('agents sql is unset');
+            const [row] = await sql<Array<{ session_id: string; agent_id: string }>>`
+              SELECT s.id AS session_id, s.agent_id
+                FROM agents.selected_sessions sel
+                JOIN agents.agent_sessions s ON s.id = sel.session_id AND s.user_id = sel.user_id
+               WHERE sel.user_id = ${ctx.principal.userId}
+            `;
+            return row ? { sessionId: row.session_id, agentId: row.agent_id } : null;
+          }),
+        ),
+
+      /** Selects one of the caller's own sessions for their history; someone else's session is not found. */
+      select: personReadProcedure()
+        .input(z.object({ sessionId: z.string().guid() }))
+        .output(z.object({ sessionId: z.string().guid(), agentId: z.string() }))
+        .mutation(({ ctx, input }) =>
+          guard(async () => {
+            const session = await ownedSession(input.sessionId, ctx.principal.userId);
+            if (!sql) throw new Error('agents sql is unset');
+            await sql`
+              INSERT INTO agents.selected_sessions (user_id, session_id)
+              VALUES (${ctx.principal.userId}, ${session.id})
+              ON CONFLICT (user_id) DO UPDATE SET session_id = EXCLUDED.session_id, updated_at = now()
+            `;
+            return { sessionId: session.id, agentId: session.agentId };
           }),
         ),
 
@@ -706,7 +858,7 @@ export function createAgentsRouter(deps: AgentsRouterDeps) {
        * handle: a client that retries after a timeout reuses it, and the
        * usage is counted once no matter how many times the request arrives.
        */
-      complete: scopedProcedure('agents:execute', { module: 'agents' })
+      complete: executeProcedure()
         .input(
           z.object({
             sessionId: z.string().guid(),
@@ -1340,7 +1492,7 @@ export function createAgentsRouter(deps: AgentsRouterDeps) {
        *
        * A mutation, not a query: it opens a session and writes audit rows.
        */
-      runSession: scopedProcedure('agents:execute', { module: 'agents' })
+      runSession: executeProcedure()
         .input(
           z.object({
             plane: z.enum(['live', 'dark']),
@@ -1985,7 +2137,7 @@ export function createAgentsRouter(deps: AgentsRouterDeps) {
        *
        * A mutation, not a query: it opens a session and writes audit rows.
        */
-      runSession: scopedProcedure('agents:execute', { module: 'agents' })
+      runSession: executeProcedure()
         .input(
           z.object({
             plane: z.enum(['live', 'dark']),
@@ -2633,7 +2785,7 @@ export function createAgentsRouter(deps: AgentsRouterDeps) {
        *
        * A mutation, not a query: it opens a session and writes audit rows.
        */
-      runSession: scopedProcedure('agents:execute', { module: 'agents' })
+      runSession: executeProcedure()
         .input(
           z.object({
             plane: z.enum(['live', 'dark']),
@@ -3139,7 +3291,7 @@ export function createAgentsRouter(deps: AgentsRouterDeps) {
        * refuses before any session opens (unbilled). Never invents fee share.
        * Ok presentation is always a directory — never returns-ranked.
        */
-      runSession: scopedProcedure('agents:execute', { module: 'agents' })
+      runSession: executeProcedure()
         .input(
           z.object({
             plane: z.enum(['live', 'dark']),
@@ -3425,7 +3577,7 @@ export function createAgentsRouter(deps: AgentsRouterDeps) {
        * Dark pay plane refuses before any session opens (unbilled).
        * Live requires PayMetricsPort; request-body points are not live truth.
        */
-      runSession: scopedProcedure('agents:execute', { module: 'agents' })
+      runSession: executeProcedure()
         .input(
           z.object({
             plane: z.enum(['live', 'dark']),
@@ -4016,7 +4168,7 @@ export function createAgentsRouter(deps: AgentsRouterDeps) {
      * withdraw, no withdrawal credential. A later grant is a separate act.
      */
     marketplace: router({
-      install: scopedProcedure('agents:execute', { module: 'agents' })
+      install: executeProcedure()
         .input(
           z.object({
             packageId: z.string().min(1).max(64),

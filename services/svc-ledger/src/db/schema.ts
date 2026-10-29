@@ -777,6 +777,9 @@ export const reconciliationControlRuns = ledger.table(
       .on(t.operationId)
       .where(sql`operation_id IS NOT NULL`),
     index('reconciliation_control_runs_control_idx').on(t.controlId, t.periodStart),
+    index('reconciliation_control_runs_finished_idx')
+      .on(t.finishedAt, t.id)
+      .where(sql`finished_at IS NOT NULL`),
     check('reconciliation_control_runs_status_ck', sql`status IN ('started', 'PASS', 'FAIL', 'ERROR', 'UNSET')`),
     check('reconciliation_control_runs_margin_ck', sql`margin = 'unset' OR margin ~ '^[0-9]+([.][0-9]{1,18})?$'`),
     check('reconciliation_control_runs_outside_ck', sql`outside_side IN ('unset', 'snapshot', 'unavailable', 'not_applicable')`),

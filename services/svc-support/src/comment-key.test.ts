@@ -177,3 +177,23 @@ describe("the owner's comment cap per request", () => {
     expect(await support.listComments({ userId: CUSTOMER, ticketId: t.id, limit: 50 })).toHaveLength(1);
   });
 });
+
+describe('a reply still holding a macro placeholder (SP-desk-02)', () => {
+  it('the team cannot send it: support.macro_placeholder_blank, nothing stored; the requester may type braces', async () => {
+    const { customer, agent, ticket } = desk(5);
+    const t = await ticket();
+    const team = await agent();
+    expect(await code(team.comment({ ticketId: t.id, body: 'Hi {{requester.name}}, about your request.' }))).toBe(
+      'support.macro_placeholder_blank',
+    );
+    expect(await code(team.comment({ ticketId: t.id, body: 'Hi {{ agent.name }}' }))).toBe('support.macro_placeholder_blank');
+    const me = await customer();
+    expect((await me.listComments({ ticketId: t.id, limit: 50 })).map((c) => c.body)).toEqual([]);
+    await me.comment({ ticketId: t.id, body: 'TEST {{requester.name}}' });
+    expect(await team.comment({ ticketId: t.id, body: 'Hi, about your request.' })).toMatchObject({ authorRole: 'operator' });
+    expect((await me.listComments({ ticketId: t.id, limit: 50 })).map((c) => c.body)).toEqual([
+      'TEST {{requester.name}}',
+      'Hi, about your request.',
+    ]);
+  });
+});

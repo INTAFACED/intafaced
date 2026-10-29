@@ -124,6 +124,17 @@ exists) sets one or more from the revision it read, with a reason; `null` clears
 append-only in `contact_channel_log` under `support.contact:r<revision>`; the same change replayed returns the
 stored state (it already applied) and a different change from a stale revision refuses `support.contact_revision_stale`.
 
+Macros and signatures (SP-desk-02): `macros` lists the desk's shared macros and `macroApply` fills one from a request
+without writing anything (any agent, `support:ops`). `macroSave` (`support:ops`, staff lead only, until the
+`support:admin` scope exists) is desk configuration, so it uses the same `actor.role !== 'lead'` check and the same
+`support.not_lead` code as `setContactChannels` and `setAttachmentSettings`. A body may use only the closed placeholder
+list `SUPPORT_MACRO_PLACEHOLDERS` in `packages/contracts` (today only `{{ticket.id}}` is filled; a placeholder the desk cannot fill stays as written and
+is named); an unknown one refuses `support.macro_placeholder_unknown` on save. A reply still holding a placeholder
+refuses `support.macro_placeholder_blank` on send. A shortcode below the owner-set minimum refuses
+`support.shortcode_too_short`, a blank minimum `support.shortcode_rule_unset`. `signature` and `signatureSet` read
+and write the caller's own signature, from the revision read; the console puts it in a public reply's draft as it is
+composed, and the service adds nothing on send.
+
 Awaiting reply: `awaitingMine` (`support:read`) answers how many of the caller's own open requests wait on their reply and
 which has waited longest, as a count and one pointer (no list, so no page size). The ticket the owner reads still never carries
 `waitingOn`; a resolved or closed request waits on nobody.

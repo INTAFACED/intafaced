@@ -229,3 +229,31 @@ describe('the rating reader', () => {
     expect(readRatingResult('5')).toBeNull();
   });
 });
+
+describe('the owner changes and the stale check', () => {
+  it('reads claim-next, unclaim, assign and a reply that quotes the row it read; nothing else rides along', () => {
+    expect(readActionRequest({ action: 'claim_next' })).toEqual({ action: 'claim_next' });
+    expect(readActionRequest({ action: 'claim_next', ticketId: T1 })).toBeNull();
+    expect(readActionRequest({ action: 'unclaim', ticketId: T1, expectedSequence: 4 })).toEqual({
+      action: 'unclaim',
+      ticketId: T1,
+      expectedSequence: 4,
+    });
+    expect(readActionRequest({ action: 'unclaim', ticketId: T1 })).toBeNull();
+    expect(readActionRequest({ action: 'assign', ticketId: T1, assigneeId: U, expectedSequence: 0 })).toEqual({
+      action: 'assign',
+      ticketId: T1,
+      assigneeId: U,
+      expectedSequence: 0,
+    });
+    expect(readActionRequest({ action: 'assign', ticketId: T1, assigneeId: 'someone', expectedSequence: 0 })).toBeNull();
+    expect(readActionRequest({ action: 'reply', ticketId: T1, body: 'Hi', expectedSequence: 2 })).toEqual({
+      action: 'reply',
+      ticketId: T1,
+      body: 'Hi',
+      expectedSequence: 2,
+    });
+    expect(readActionRequest({ action: 'reply', ticketId: T1, body: 'Hi', expectedSequence: -1 })).toBeNull();
+    expect(readActionRequest({ action: 'reply', ticketId: T1, body: 'Hi', expectedSequence: 1.5 })).toBeNull();
+  });
+});

@@ -317,6 +317,10 @@
     "./campaigns-catalogue": {
       "types": "./dist/campaigns-catalogue.d.ts",
       "default": "./dist/campaigns-catalogue.js"
+    },
+    "./support-macros": {
+      "types": "./dist/support-macros.d.ts",
+      "default": "./dist/support-macros.js"
     }
   },
   "scripts": {

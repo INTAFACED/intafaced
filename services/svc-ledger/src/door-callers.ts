@@ -41,6 +41,8 @@ export const LEDGER_DOOR_CALLERS = {
   feeRevenue: ['svc-ops'],
   /** svc-ops reads the chain tip for the joint restore. */
   restoreWatermark: ['svc-ops'],
+  /** svc-ops reads finished reconciliation evaluations for its alert store (OPS-reconciliation-03). */
+  reconciliationEvaluations: ['svc-ops'],
   portfolio: [],
   statementPnl: [],
   reportExport: [],
