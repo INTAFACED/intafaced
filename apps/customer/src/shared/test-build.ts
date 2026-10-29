@@ -5,6 +5,13 @@
  */
 export const TEST_BUILD_META = 'intafaced-build';
 
-export function isTestBuild(doc: Pick<Document, 'querySelector'> | undefined = globalThis.document): boolean {
-  return doc?.querySelector(`meta[name="${TEST_BUILD_META}"]`)?.getAttribute('content') === 'test';
+const read = (doc: Pick<Document, 'querySelector'> | undefined): boolean =>
+  doc?.querySelector(`meta[name="${TEST_BUILD_META}"]`)?.getAttribute('content') === 'test';
+
+let served: boolean | undefined;
+
+/** The tag is fixed when the page is served, so the page's own answer is read once. */
+export function isTestBuild(doc?: Pick<Document, 'querySelector'>): boolean {
+  if (doc) return read(doc);
+  return (served ??= read(globalThis.document));
 }

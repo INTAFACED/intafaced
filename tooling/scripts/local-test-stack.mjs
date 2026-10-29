@@ -1357,7 +1357,9 @@ async function healthTable({ gateMarket = false } = {}) {
     'customer',
     PORTS.customer,
     procs.customer?.pid ?? '-',
-    cust.status === 200 && cust.text.includes(BANNER_TEXT) ? 'ok (banner on)' : `DOWN (${cust.status})`,
+    cust.status === 200 && cust.text.includes(BANNER_TEXT) && cust.text.includes(TEST_BUILD_META_HTML)
+      ? 'ok (banner on)'
+      : `DOWN (${cust.status}${cust.status === 200 ? ', no TEST banner or test-build tag' : ''})`,
   ]);
   const invitation = await httpGet(`${INVITATION_ORIGIN}/`, 2500);
   rows.push([

@@ -52,8 +52,7 @@ export function NotificationRow({
         ) : null}
       </span>
       <span className="nf-meta">
-        {/* On a test build every amount is TEST money, so a row that names one says so. */}
-        {isTestBuild() && carriesFigure(item) ? <StatusTag data-testid="nf-test" status="pending" label={copy.t('TEST')} /> : null}
+        <TestFigureTag item={item} />
         <time dateTime={item.createdAt} title={fullTime(item.createdAt, timeZone, now)}>
           {label}
         </time>
@@ -84,6 +83,14 @@ export function NotificationRow({
       {inner}
     </button>
   );
+}
+
+/** On a test build every amount is TEST money, so a notification that names one says so (inbox and delivery log). */
+export function TestFigureTag({ item }: { item: Pick<Notification, 'params'> }) {
+  const copy = notifyCopy.useCopy();
+  return isTestBuild() && carriesFigure(item) ? (
+    <StatusTag data-testid="nf-test" data-status="test" status="pending" label={copy.t('TEST')} />
+  ) : null;
 }
 
 /** The failure state shared by the popover and the page: refused words from the data layer, or "Couldn't load" with Try again. */

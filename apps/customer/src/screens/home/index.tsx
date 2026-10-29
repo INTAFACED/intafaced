@@ -15,7 +15,6 @@ import {
   refusalCopy,
   Skeleton,
   StateBlock,
-  StatusTag,
   useActivity,
   useFavorites,
   useMarkets,
@@ -49,7 +48,7 @@ import { HomeNotices } from './Notices';
 import { useHomeLayout } from './tiles-data';
 import { shownTiles } from './tiles';
 import { savePreferences, usePreferences } from '../../shared/preferences';
-import { isTestBuild } from '../../shared/test-build';
+import { TestBuildTag } from './TestBuildTag';
 import { useSession } from '../../features/session/session';
 
 // Pro Home carries Trade's client; Simple Home (the default) does not load it.
@@ -142,12 +141,6 @@ function HoldingsSkeleton() {
       ))}
     </section>
   );
-}
-
-/** On a test build every balance is TEST money, so the total says so (AGENTS.md product law: TEST figures carry TEST). */
-function TestBuildTag() {
-  const { t } = homeCopy.useCopy();
-  return isTestBuild() ? <StatusTag data-testid="home-total-test" status="pending" label={t('TEST')} /> : null;
 }
 
 function Balance({ portfolio, hidden }: { portfolio: Loadable<HomePortfolio>; hidden: boolean }) {

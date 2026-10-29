@@ -37,6 +37,7 @@ import {
   type HomePortfolio,
 } from './deps';
 import { InfoTip } from './InfoTip';
+import { TestBuildTag } from './TestBuildTag';
 import { IN_PANEL, STATE_IN_COLUMN } from './panel';
 import { proCopy } from './pro-copy';
 import { MarketsTable } from '../trade/markets/MarketsTable';
@@ -287,6 +288,7 @@ function Summary({
           <div data-testid="hp-total__figure" className="hp-total__figure">
             {/* The balance call answered with no assets, so zero is correct here and only here. */}
             <HeroNumber value="0.00" decimals={2} prefix="$" unit="USD" size="hero-pro" hidden={hidden} />
+            <TestBuildTag />
           </div>
           <p data-testid="hp-total__note" className="hp-total__note">
             {t('No crypto yet')}
@@ -312,6 +314,7 @@ function Summary({
         {label}
         <div data-testid="hp-total__figure" className="hp-total__figure">
           <TotalFigure data={data} displayCurrency={displayCurrency} hidden={hidden} pro />
+          <TestBuildTag />
         </div>
         <TotalUnitNote data={data} displayCurrency={displayCurrency} hidden={hidden} className="hp-total__note" testId="hp-total__note" />
         <div className="hp-total__change">
