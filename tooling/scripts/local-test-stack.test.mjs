@@ -38,12 +38,18 @@ const script = resolve(here, 'local-test-stack.mjs');
   assert.deepEqual(waitsOf('ledger'), []);
   assert.ok(waitsOf('matching').includes('ledger'), 'matching waits for the ledger');
   assert.ok(waitsOf('identity').includes('ledger'), 'identity waits for the ledger');
+  // Every service but svc-ws, which is not behind the edge: the Customer server proxies /ws to it directly.
   assert.deepEqual(
     waitsOf('edge').sort(),
     defs
       .map((d) => d.name)
-      .filter((n) => n !== 'edge')
+      .filter((n) => n !== 'edge' && n !== 'ws')
       .sort(),
+  );
+  const wsPort = `:${defs.find((d) => d.name === 'ws').env.HTTP_PORT}`;
+  assert.ok(
+    !Object.values(defs.find((d) => d.name === 'edge').env).some((value) => String(value).includes(wsPort)),
+    'the edge names no svc-ws port',
   );
   // Only services listed earlier are waited for, so the order can never deadlock.
   for (const def of defs) {
