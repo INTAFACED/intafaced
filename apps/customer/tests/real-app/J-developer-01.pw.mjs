@@ -127,10 +127,13 @@ test(`${J} #4 reads the REST conventions and the trading API reference index: UR
   }
   await expect(body).toContainText('/api/v1/ticker/BTC%2FUSDT');
   // Any market the running stack lists is named in that format.
-  const markets = await page.request.get('/api/v1/markets');
+  // The list takes an explicit window (a blank one refuses with trade.markets_limit_unset), so ask for the published maximum.
+  const markets = await page.request.get('/api/v1/markets?limit=500');
   expect(markets.ok(), await markets.text()).toBe(true);
-  const listed = await markets.json();
-  for (const market of Array.isArray(listed) ? listed : (listed.markets ?? [])) expect(market.symbol).toMatch(SYMBOL);
+  // The stack lists its default markets (BTC/USDT, ETH/USDT and others), so the list is never empty here.
+  const listedMarkets = await markets.json();
+  expect(Array.isArray(listedMarkets) && listedMarkets.length > 0, JSON.stringify(listedMarkets).slice(0, 200)).toBe(true);
+  for (const market of listedMarkets) expect(market.symbol).toMatch(SYMBOL);
 
   await page.goto('/developers/reference');
   await expect(page.getByRole('heading', { name: 'API reference', level: 1 })).toBeVisible();
@@ -224,12 +227,10 @@ test(`${J} #5 downloads the OpenAPI file and a collection, and opens the agent d
   // The stack answers a missing file with the app shell, so a 200 alone proves nothing: the file itself must come back.
   expect(indexText).not.toMatch(/<!doctype html/i);
   await page.goto('/developers');
-  const written = await page
-    .getByRole('main')
-    .getByRole('listitem')
-    .filter({ hasText: 'Page in this portal' })
-    .getByRole('link')
-    .evaluateAll((links) => links.map((link) => link.getAttribute('href')));
+  // evaluateAll does not wait, so wait for the rendered list first.
+  const portalLinks = page.getByRole('main').getByRole('listitem').filter({ hasText: 'Page in this portal' }).getByRole('link');
+  await expect(portalLinks.first()).toBeVisible();
+  const written = await portalLinks.evaluateAll((links) => links.map((link) => link.getAttribute('href')));
   const livePages = ['/developers/status', '/developers/changelog'];
   for (const href of livePages) {
     expect(written).toContain(href);
