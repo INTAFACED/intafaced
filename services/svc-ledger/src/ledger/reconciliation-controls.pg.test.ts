@@ -16,6 +16,7 @@ import {
   OPS_CONTROL_STATE_ILLEGAL,
   LEDGER_RECONCILE_ASOF_INVALID,
   LEDGER_RECONCILE_BUILTIN_IMMUTABLE,
+  LEDGER_RECONCILE_CONTROL_NOT_FOUND,
   LEDGER_RECONCILE_SOURCE_UNAVAILABLE,
   updateReconciliationControlInputSchema,
 } from '@intafaced/contracts/ledger-reconciliation';
@@ -26,6 +27,7 @@ import { withJournalGuardsOff } from '../db/journal-guards.testkit.js';
 import { ReconciliationControlError } from './reconciliation-control-error.js';
 import {
   defineReconciliationControl,
+  listReconciliationControlRuns,
   listReconciliationControls,
   runDueReconciliationControls,
   runReconciliationControl,
@@ -33,6 +35,7 @@ import {
   type ReconciliationSources,
   type SnapshotRead,
 } from './reconciliation-controls.js';
+import { reconciliationSourcesFrom } from './reconciliation-sources.js';
 import type { LedgerService } from '../service.js';
 
 // PG-hard: no skip. A run without a database fails instead of reporting a silent absence.
@@ -745,6 +748,81 @@ async function ctx(scopes: string[], mfa: boolean): Promise<Context> {
     ).rejects.toMatchObject({ code: 'ledger.idempotency_conflict' });
   });
 
+  it('reads the outside snapshot over HTTP: matching is PASS, an unreadable source is ERROR, and every evaluation stays listed after retire', async () => {
+    const owner = 'abcdefab-7777-4777-8777-';
+    await insertAccount(`${owner}000000000001`);
+    const defined = await defineReconciliationControl(db.sql, actor, {
+      template: 'outside_balance',
+      accountSet: { mode: 'query', assetId: 'USDT', ownerIdPrefix: owner },
+      schedule: { cadence: 'daily', hour: 0, minute: 0 },
+      severity: 'warning',
+      tolerance: { default: '0' },
+      reason: REASON,
+      activate: true,
+    });
+    const asked: string[] = [];
+    const server = Fastify();
+    server.get('/snapshot', async (req) => {
+      asked.push(String((req.query as { asOf?: string }).asOf));
+      return { source: 'rail', asOf: '2026-01-01T00:00:00.000Z', balances: [{ assetId: 'USDT', amount: '0' }] };
+    });
+    server.get('/broken', async () => ({ source: 'rail', balances: 'no' }));
+    server.get('/future', async () => ({ source: 'rail', asOf: '2999-01-01T00:00:00.000Z', balances: [{ assetId: 'USDT', amount: '0' }] }));
+    server.get('/moved', async (_req, reply) => reply.redirect('/snapshot'));
+    const base = await server.listen({ port: 0, host: '127.0.0.1' });
+    const run = (sources: ReconciliationSources) =>
+      runReconciliationControl(
+        db.sql,
+        approvals,
+        actor,
+        { controlId: defined.id, reason: REASON, approvalId: 'appr-outside', operationId: nextOp() },
+        sources,
+      );
+    try {
+      const pass = await run(reconciliationSourcesFrom(`${base}/snapshot`));
+      expect(pass).toMatchObject({ status: 'PASS', outsideSide: 'snapshot', sources: { outside: { asOf: '2026-01-01T00:00:00.000Z' } } });
+      expect(asked).toEqual([pass.readAt]);
+
+      // Not a snapshot, dated after the instant asked for, a redirect, a 404, and a closed port: each is ERROR with the
+      // typed code, never PASS.
+      const unreadable = [`${base}/broken`, `${base}/future`, `${base}/moved`, `${base}/missing`, 'http://127.0.0.1:9/closed'];
+      const errors = [];
+      for (const url of unreadable) errors.push(await run(reconciliationSourcesFrom(url)));
+      for (const error of errors) {
+        expect(error).toMatchObject({
+          status: 'ERROR',
+          phase: { status: 'set', value: 'outside' },
+          errorCode: { status: 'set', value: LEDGER_RECONCILE_SOURCE_UNAVAILABLE },
+          outsideSide: 'unavailable',
+          assets: [],
+        });
+      }
+      // No URL: the outside side is unset, as before.
+      expect((await run(reconciliationSourcesFrom(undefined))).status).toBe('UNSET');
+
+      await updateReconciliationControl(
+        db.sql,
+        actor,
+        { controlId: defined.id, reason: REASON, lifecycle: 'retire', approvalId: 'appr-retire', operationId: nextOp() },
+        approvals,
+      );
+      const listed = await listReconciliationControlRuns(db.sql, { controlId: defined.id });
+      expect(listed.total).toBe(7);
+      // Newest first by when each run started: the unset run was the last one.
+      expect(listed.runs.map((r) => r.status)).toEqual(['UNSET', 'ERROR', 'ERROR', 'ERROR', 'ERROR', 'ERROR', 'PASS']);
+      expect(new Set(listed.runs.map((r) => r.id)).size).toBe(7);
+      expect(listed.runs.map((r) => r.id)).toEqual(expect.arrayContaining([pass.id, ...errors.map((e) => e.id)]));
+      const two = await listReconciliationControlRuns(db.sql, { controlId: defined.id, limit: 2 });
+      expect(two).toMatchObject({ total: 7 });
+      expect(two.runs).toEqual(listed.runs.slice(0, 2));
+      await expect(listReconciliationControlRuns(db.sql, { controlId: '00000000-0000-4000-8000-00000000abcd' })).rejects.toMatchObject({
+        code: LEDGER_RECONCILE_CONTROL_NOT_FOUND,
+      });
+    } finally {
+      await server.close();
+    }
+  });
+
   it('keeps an outside snapshot with no as-of unset rather than the ledger time', async () => {
     const defined = await defineReconciliationControl(db.sql, actor, {
       template: 'outside_balance',
@@ -846,8 +924,65 @@ async function ctx(scopes: string[], mfa: boolean): Promise<Context> {
     });
     expect(run.statusCode).toBe(200);
     expect(run.json()).toMatchObject({ controlId, status: 'PASS' });
+    const runs = await app.inject({ method: 'POST', url: '/operator/reconciliation/controls/runs', headers, payload: { controlId } });
+    expect(runs.statusCode).toBe(200);
+    expect(runs.json()).toMatchObject({ controlId, total: 1, runs: [{ id: (run.json() as { id: string }).id, status: 'PASS' }] });
+    const compliance = await issueAccessToken(
+      { userId: ACTOR, sessionId: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc', scopes: ['admin:compliance'], tier: 'basic', mfa: false },
+      authConfig,
+    );
+    const read = await app.inject({
+      method: 'POST',
+      url: '/operator/reconciliation/controls/runs',
+      headers: { authorization: `Bearer ${compliance.token}` },
+      payload: { controlId },
+    });
+    expect(read.statusCode).toBe(200);
+    const badRuns = await app.inject({
+      method: 'POST',
+      url: '/operator/reconciliation/controls/runs',
+      headers,
+      payload: { controlId: 'x' },
+    });
+    expect(badRuns.statusCode).toBe(400);
     const anonymous = await app.inject({ method: 'GET', url: '/operator/reconciliation/controls' });
     expect(anonymous.statusCode).toBe(401);
+    const anonymousRuns = await app.inject({ method: 'POST', url: '/operator/reconciliation/controls/runs', payload: { controlId } });
+    expect(anonymousRuns.statusCode).toBe(401);
+    await app.close();
+  });
+
+  it('runs on the operator port with the outside source it was given: unreadable is ERROR', async () => {
+    const app = Fastify({ logger: false });
+    registerOperatorHttp(
+      app,
+      { sql: db.sql } as unknown as LedgerService,
+      authConfig,
+      approvals,
+      reconciliationSourcesFrom('http://127.0.0.1:9/closed'),
+    );
+    await app.ready();
+    const treasury = await issueAccessToken(
+      { userId: ACTOR, sessionId: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc', scopes: ['admin:treasury'], tier: 'basic', mfa: true },
+      authConfig,
+    );
+    const defined = await defineReconciliationControl(db.sql, actor, {
+      template: 'outside_balance',
+      accountSet: { mode: 'query', assetId: 'USDT' },
+      schedule: { cadence: 'daily', hour: 0, minute: 0 },
+      severity: 'info',
+      tolerance: { default: '0' },
+      reason: REASON,
+      activate: true,
+    });
+    const run = await app.inject({
+      method: 'POST',
+      url: '/operator/reconciliation/controls/run',
+      headers: { authorization: `Bearer ${treasury.token}` },
+      payload: { controlId: defined.id, reason: REASON, approvalId: 'appr-http-outside', operationId: nextOp() },
+    });
+    expect(run.statusCode).toBe(200);
+    expect(run.json()).toMatchObject({ status: 'ERROR', errorCode: { status: 'set', value: LEDGER_RECONCILE_SOURCE_UNAVAILABLE } });
     await app.close();
   });
 }

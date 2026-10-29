@@ -21,9 +21,16 @@ export const minerWorkers = z.object({
       createdAt: z.string(),
       hashrate: decimal.nullable(),
       hashrateReason: z.string().nullable(),
+      minDifficulty: decimal.nullable(),
     }),
   ),
+  defaultDifficulty: decimal.nullable(),
+  defaultDifficultyReason: z.string().nullable(),
+  nextCursor: z.string().nullable(),
 });
+/** One page of the worker roster. */
+export const WORKER_PAGE = 20;
+export const workerDifficulty = z.object({ id: z.string(), minDifficulty: decimal.nullable() });
 export type MinerWorkers = z.infer<typeof minerWorkers>;
 
 export const minerShares = z.object({

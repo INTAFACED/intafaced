@@ -44,6 +44,13 @@ export type PricingSnapshot = z.infer<typeof pricingSnapshotSchema>;
 export const paymentSchema = basePaymentSchema.extend({
   pricingSnapshot: pricingSnapshotSchema.nullable().optional(),
   failure: failureSchema.nullable().optional(),
+  /** payment.get only: while an open payment waits for confirmations (svc-pay router `payment.get`). */
+  // Mirrors payPaymentConfirmationsSchema (packages/contracts/src/pay-merchant-reads.ts); the root contracts entry pulls node code into the browser bundle.
+  confirmations: z
+    .object({ seen: z.number().int().min(0), required: z.number().int().min(1), asOf: timestamp })
+    .strict()
+    .nullable()
+    .optional(),
 });
 export const settlementSchema = baseSettlementSchema.extend({
   createdAt: timestamp.nullable().optional(),

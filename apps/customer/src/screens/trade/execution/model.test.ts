@@ -4,6 +4,8 @@ import {
   MAX_SLICES,
   algoClientId,
   buildLadder,
+  CREATE_BLOCKER_CODE,
+  createBlocker,
   defaultIntervalMs,
   findGroup,
   matchesPrefix,
@@ -21,6 +23,7 @@ import {
 import { blotterCsv, buildBlotter, filterBlotter, inAlgoWindow } from './blotter';
 import { TEST_BATCH, TEST_ORDERS, TEST_WINDOWS } from './fixtures';
 import { roomWords } from '../rooms/refusals';
+import { execCopy } from './copy';
 
 const draft: PlanDraft = {
   kind: 'twap',
@@ -36,6 +39,26 @@ const draft: PlanDraft = {
   participationBps: null,
   startMs: 1_000,
 };
+
+describe('create blocker', () => {
+  it('with the scheduler off the form refuses with its reason', () => {
+    expect(createBlocker({ createEnabled: true, jobsEnabled: false }, true)).toBe('Scheduler off block');
+    expect(execCopy.t('Scheduler off block')).toMatch(/slice scheduler is off/);
+  });
+
+  it('an unread policy or creating switched off blocks too; a closed market blocks only once the scheduler runs', () => {
+    expect(createBlocker(null, true)).toBe('Scheduler unknown');
+    // Each blocker names the service's own refusal code; an unread policy was answered nothing, so names none.
+    expect(CREATE_BLOCKER_CODE['Scheduler off block']).toBe('trade.algo_jobs_disabled');
+    expect(CREATE_BLOCKER_CODE['Create off block']).toBe('trade.algo_disabled');
+    expect(CREATE_BLOCKER_CODE['Market closed block']).toBe('trade.market_closed');
+    expect(CREATE_BLOCKER_CODE['Scheduler unknown']).toBeUndefined();
+    expect(createBlocker({ createEnabled: false, jobsEnabled: true }, true)).toBe('Create off block');
+    expect(createBlocker({ createEnabled: true, jobsEnabled: false }, false)).toBe('Scheduler off block');
+    expect(createBlocker({ createEnabled: true, jobsEnabled: true }, false)).toBe('Market closed block');
+    expect(createBlocker({ createEnabled: true, jobsEnabled: true }, true)).toBeNull();
+  });
+});
 
 describe('schedule plan', () => {
   it('plans ceil(duration / interval) slices and puts the remainder on the last', () => {
