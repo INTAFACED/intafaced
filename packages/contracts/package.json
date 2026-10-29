@@ -198,6 +198,10 @@
       "types": "./dist/protocol-watch-preferences.d.ts",
       "default": "./dist/protocol-watch-preferences.js"
     },
+    "./protocol-listing": {
+      "types": "./dist/protocol-listing.d.ts",
+      "default": "./dist/protocol-listing.js"
+    },
     "./ledger-reconciliation": {
       "types": "./dist/ledger-reconciliation.d.ts",
       "default": "./dist/ledger-reconciliation.js"

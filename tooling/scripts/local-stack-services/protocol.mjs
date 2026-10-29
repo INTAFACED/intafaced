@@ -21,5 +21,8 @@ export default ({ c, secrets, dbUrl, PORTS, UNUSED }) => ({
     PROTOCOL_REPRESENTATION_VERSION: 'TEST-1',
     PROTOCOL_REPRESENTATION_TEXT:
       "TEST representation, not counsel's wording: I am not located in, or acting for anyone in, a region where this service is not available.",
+    // LOCAL TEST only (same profile): how long a contract ownership challenge stays signable. Blank in production refuses
+    // protocol.listing.challenge_ttl_unset and no challenge is issued.
+    PROTOCOL_LISTING_CHALLENGE_TTL_SECONDS: 'TEST:300',
   }),
 });

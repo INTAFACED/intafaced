@@ -45,3 +45,11 @@
   display: flex;
   gap: var(--if-space-3);
 }
+
+.tokens-room .tokens-challenge {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  padding: var(--if-space-3);
+  border: 1px solid var(--if-line);
+  border-radius: var(--if-r-md);
+}

@@ -10,6 +10,11 @@
       "service": "protocol",
       "value": "TEST representation, not counsel's wording: I am not located in, or acting for anyone in, a region where this service is not available.",
       "note": "TEST wording only. Counsel writes the real text; blank in production refuses compliance.representation_unset."
+    },
+    "PROTOCOL_LISTING_CHALLENGE_TTL_SECONDS": {
+      "service": "protocol",
+      "value": "TEST:300",
+      "note": "TEST lifetime of a contract ownership challenge. Blank in production refuses protocol.listing.challenge_ttl_unset."
     }
   }
 }

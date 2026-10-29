@@ -5,6 +5,7 @@ import { usePreferences } from '../../../shared/preferences';
 import { protocolCopy } from '../copy';
 import { ADDRESS_SHAPE } from '../routes';
 import { BlockedRow } from './BlockedRow';
+import { InfoUpdate } from './InfoUpdate';
 import { TabList } from './TabList';
 import { useSession } from '../../session/session';
 import { useAccountTokenWatchlist, type ListWrite } from '../watch/account-lists';
@@ -191,7 +192,14 @@ export function TokenPage({ address }: { address: string | undefined }) {
             <span className="badge protocol-pill">{room('bannerPill')}</span>
           </>
         }
-        actions={valid ? <WatchButton address={address} t={t} /> : undefined}
+        actions={
+          valid ? (
+            <>
+              <WatchButton address={address} t={t} />
+              <InfoUpdate token={address} t={t} />
+            </>
+          ) : undefined
+        }
       >
         {valid ? (
           <>

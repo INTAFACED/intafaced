@@ -191,6 +191,12 @@ const schema = serviceEnvSchema.merge(edgeEnvSchema).merge(
     PROTOCOL_REPRESENTATION_TEXT: blankIsUnset(z.string().max(4000).optional()),
 
     /**
+     * How long a contract ownership challenge stays signable, in seconds (D-launch-listing-01). The owner's setting, no
+     * default: blank refuses `protocol.listing.challenge_ttl_unset`. `TEST:<seconds>` only on the local test stack.
+     */
+    PROTOCOL_LISTING_CHALLENGE_TTL_SECONDS: z.string().default(''),
+
+    /**
      * Gas tracker percentiles and history length (D-explorer-01). No default.
      * Blank or malformed refuses `protocol.gasPrice` with `protocol.gas_percentiles_unset`.
      * TEST fixtures may pass `10,50,90` and a block count; this schema does not.
