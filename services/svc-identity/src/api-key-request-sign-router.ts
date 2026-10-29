@@ -4,6 +4,7 @@ import type { Sql } from 'postgres';
 import { AuthError, assertDelegateCannotGrant } from './auth/auth-service.js';
 import { optionalFactorProof, guardedApiKeyAction, type ApiKeyFactorGate } from './auth/api-key-fresh-factor.js';
 import { ApiKeyRequestSignError, rotateSigningSecret, setApiKeyRequestSigning } from './auth/api-key-request-sign.js';
+import { signsByDefault } from './auth/api-key-signs-by-default.js';
 
 /**
  * Top-level opt-in (not nested under apiKeys) so mergeRouters cannot replace
@@ -17,7 +18,10 @@ function mapSignError(err: unknown): never {
   if (err instanceof ApiKeyRequestSignError && err.reason === 'auth.not_found') {
     throw new TRPCError({ code: 'NOT_FOUND', message: err.message, cause: err });
   }
-  if (err instanceof ApiKeyRequestSignError && (err.reason === 'auth.not_configured' || err.reason === 'auth.signature_not_required')) {
+  if (
+    err instanceof ApiKeyRequestSignError &&
+    (err.reason === 'auth.not_configured' || err.reason === 'auth.signature_not_required' || err.reason === 'auth.signing_required')
+  ) {
     throw new TRPCError({ code: 'PRECONDITION_FAILED', message: err.message, cause: err });
   }
   if (err instanceof ApiKeyRequestSignError && err.reason === 'auth.signing_change_unset') {
@@ -26,7 +30,13 @@ function mapSignError(err: unknown): never {
   throw err;
 }
 
-export function createApiKeyRequestSignRouter(sql: Sql, gate: ApiKeyFactorGate, encKey: Buffer | null = null) {
+export function createApiKeyRequestSignRouter(
+  sql: Sql,
+  gate: ApiKeyFactorGate,
+  encKey: Buffer | null = null,
+  /** The owner's `API_KEY_SIGNING_OPTIONAL`: false keeps signing required on a key that may place orders. */
+  signingOptional = false,
+) {
   return router({
     setApiKeyRequestSigning: scopedProcedure('identity:write')
       .input(
@@ -60,11 +70,23 @@ export function createApiKeyRequestSignRouter(sql: Sql, gate: ApiKeyFactorGate, 
                 requireNonEmptyIpAllowlist: input.requireNonEmptyIpAllowlist,
               },
               encKey,
+              signingOptional,
             );
           // Turning signing on can reveal a secret: that needs a fresh factor. Turning it off, or leaving the
           // flag out, reveals nothing and stays one click: an omitted flag keeps the stored flag and secret
           // (see setApiKeyRequestSigning), so it can never issue a secret or enable signing.
-          if (input.requireSignature !== true) return await set(sql);
+          // While the owner allows a key that places orders to turn signing off, turning it off is guarded too:
+          // the key is weaker after it (DV-auth-01). A key's scopes never change, and an unknown key is guarded
+          // (the write then answers not found).
+          const placesOrders = async () => {
+            const rows = await sql<Array<{ scopes: string[] }>>`
+              SELECT scopes FROM api_keys WHERE id = ${input.keyId} AND user_id = ${ctx.principal.userId}
+            `;
+            return rows[0] ? signsByDefault(rows[0].scopes) : true;
+          };
+          const guarded =
+            input.requireSignature === true || (input.requireSignature === false && signingOptional && (await placesOrders()));
+          if (!guarded) return await set(sql);
           return await guardedApiKeyAction(
             gate,
             ctx.principal,

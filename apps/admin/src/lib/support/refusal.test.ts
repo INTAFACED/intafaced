@@ -44,6 +44,7 @@ describe('svc-support’s typed refusals', () => {
     ['support.macro_placeholder_blank', 'A placeholder is still unfilled'],
     ['support.macro_placeholder_unknown', 'That placeholder does not exist'],
     ['support.macro_revision_stale', 'It changed since you read it'],
+    ['support.note_empty', 'The note is empty'],
     ['support.shortcode_taken', 'That shortcode is taken'],
     ['support.shortcode_too_short', 'That shortcode is too short'],
     ['support.shortcode_rule_unset', 'The shortcode rule is not set'],

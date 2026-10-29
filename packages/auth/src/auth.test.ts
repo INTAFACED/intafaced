@@ -502,6 +502,10 @@ describe('a validly-signed token with the wrong claims shape', () => {
 describe('agents:execute never sits on an API key (OWNER 107, 29 Oct 2026)', () => {
   it('is refused on a key even from a session that holds it, and an API key cannot exercise it', () => {
     expect(PERSON_ONLY_SCOPES).toContain('agents:execute');
+    expect(SESSION_SCOPES).toContain('agents:execute');
+    expect(() => assertDelegatableScopes(['agents:read', 'agents:execute'], [...SESSION_SCOPES])).toThrow(
+      /cannot be granted to an API key/,
+    );
     expect(() => assertKeyScopesAllowed(['agents:execute'])).toThrow(/cannot be granted to an API key/);
     expect(() => assertDelegatableScopes(['agents:read', 'agents:execute'], ['agents:read', 'agents:execute'])).toThrow(
       /cannot be granted to an API key/,

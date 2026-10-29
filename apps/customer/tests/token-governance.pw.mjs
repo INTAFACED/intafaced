@@ -1,6 +1,7 @@
 import { test, expect } from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
 import { readFileSync, mkdirSync, writeFileSync } from 'node:fs';
+import { installTestWallet } from './real-app/test-wallet.mjs';
 
 const output = process.env.TOKEN_GOVERNANCE_EVIDENCE || '/tmp/intafaced-token-governance';
 mkdirSync(output, { recursive: true });
@@ -81,6 +82,8 @@ async function network(context, page, baseURL) {
     future.on('pageerror', (error) => calls.newTabErrors.push(error.message));
   });
   context.on('request', (request) => calls.requests.push({ method: request.method(), url: request.url() }));
+  // Every vote is signed: a TEST browser wallet signs the service's vote message.
+  await installTestWallet(page, { chainId: 1 });
   await context.routeWebSocket('**', (socket) => socket.close());
   await context.route('**/api/**', async (route) => {
     const request = route.request(),
@@ -99,7 +102,7 @@ async function network(context, page, baseURL) {
     if (request.method() !== 'GET') {
       calls.writes.push({ procedure, input, authorization: request.headers().authorization });
       if (procedure === 'castVote') {
-        expect(input).toEqual({ proposalId: first, choice: state.choice });
+        expect(input).toEqual({ proposalId: first, choice: state.choice, signature: expect.stringMatching(/^0x[0-9a-f]{130}$/) });
         if (state.outcome === 'abort') return route.abort('failed');
         if (state.outcome === 'unknown')
           return route.fulfill({
@@ -116,6 +119,7 @@ async function network(context, page, baseURL) {
           choice: state.choice,
           weight: state.responseWeight,
           castAt: new Date().toISOString(),
+          signedBy: `0x${'cd'.repeat(20)}`,
         };
         if (state.outcome === 'wrong-proposal') receipt.proposalId = second;
         if (state.outcome === 'wrong-actor') receipt.userId = anotherActor;
@@ -197,6 +201,16 @@ async function network(context, page, baseURL) {
       return reply(value);
     }
     if (procedure === 'stakeOf') return reply({ staked: state.stake });
+    if (procedure === 'voteMessage') return reply({ message: JSON.stringify({ purpose: 'TEST vote', ...input, userId: state.actor }) });
+    if (procedure === 'votingPower.ofProposal')
+      return reply({
+        proposalId: input.proposalId,
+        power: state.stake,
+        reason: state.stake === '0' ? 'no_stake_at_creation' : null,
+        takenAt: state.stake === '0' ? null : proposal.createdAt,
+        rule: { minPower: '0', code: null },
+        signing: { required: true, available: true, code: null },
+      });
     if (procedure === 'accessOf') return reply({ staked: '40.75', tier: 'flex', feeDiscountBps: 0 });
     if (procedure === 'listStakes' || procedure === 'webauthn.list') return reply([]);
     if (procedure === 'burnedSupply') return reply({ burned: '0' });
