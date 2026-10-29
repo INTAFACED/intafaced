@@ -158,6 +158,85 @@ describe('lead applications', () => {
     expect(await desk.leads(reader())).toEqual([]);
     const [row] = await sql()<Array<{ status: string }>>`SELECT status FROM trade.copy_lead_applications WHERE id = ${a.applicationId}`;
     expect(row?.status).toBe('awaiting_second');
+
+    // A founder files a new approval for the criteria in force; it replaces the stale one, and only it is consumed.
+    fileApproval(approvals, a.applicationId, 'TEST lead a', 30, 'appr-2');
+    expect(await desk.propose(founder(FOUNDER_A), { applicationId: a.applicationId, approvalId: 'appr-2' })).toMatchObject({
+      status: 'awaiting_second',
+      approvalId: 'appr-2',
+    });
+    await expect(
+      desk.approve(founder(FOUNDER_B), { applicationId: a.applicationId, approvalId: 'appr-1', operationId: 'op-appr-1' }),
+    ).rejects.toMatchObject({ code: 'trade.copy_lead_application_decided' });
+    expect(
+      await desk.approve(founder(FOUNDER_B), { applicationId: a.applicationId, approvalId: 'appr-2', operationId: 'op-appr-2' }),
+    ).toMatchObject({ status: 'approved', approvalId: 'appr-2' });
+  });
+
+  it('refuses an approval already spent elsewhere: nobody is listed on it', async () => {
+    const { desk, approvals } = harness();
+    const a = await desk.apply(customer(ALICE), { displayName: 'TEST lead a' });
+    await desk.setCriteria(founder(FOUNDER_A), { minTrackRecordDays: 30, clientRequestId: 'crit-1' });
+    fileApproval(approvals, a.applicationId, 'TEST lead a', 30, 'appr-1');
+    // Spent by another consumer before this desk confirms it.
+    const payload = payloadHash(
+      leadApprovalPayload({ applicationId: a.applicationId, displayName: 'TEST lead a', minTrackRecordDays: 30 }),
+    );
+    const spent = await approvals.consume({
+      approvalId: 'appr-1',
+      actionType: COPY_LEAD_APPROVE_ACTION,
+      targetId: a.applicationId,
+      expectedVersion: 'pending',
+      payloadHash: payload,
+      operationId: 'op-appr-1',
+    });
+    expect(spent.ok).toBe(true);
+    await desk.propose(founder(FOUNDER_A), { applicationId: a.applicationId, approvalId: 'appr-1' });
+    await expect(
+      desk.approve(founder(FOUNDER_B), { applicationId: a.applicationId, approvalId: 'appr-1', operationId: 'op-appr-1' }),
+    ).rejects.toMatchObject({ code: 'approval_reused' });
+    expect(await desk.leads(reader())).toEqual([]);
+    expect(await desk.mine(customer(ALICE))).toMatchObject({ state: 'submitted' });
+  });
+
+  it('never lists again someone already in the leader directory, so a suspension stands', async () => {
+    const { desk, approvals } = harness();
+    const directory = sqlLeaderDirectory(sql(), { now, feeShareLaw: { published: false } });
+    // ALICE applies, then an operator lists and suspends her directly in the directory.
+    const a = await desk.apply(customer(ALICE), { displayName: 'TEST lead a' });
+    const listed = await directory.upsertListing(founder(FOUNDER_A), {
+      clientRequestId: 'op-list-alice',
+      leaderUserId: ALICE,
+      displayName: 'TEST lead a',
+      recordKind: 'self_reported',
+      state: 'listed',
+    });
+    await directory.setLeaderState(founder(FOUNDER_A), {
+      leaderRef: listed.leaderRef,
+      state: 'suspended',
+      reason: 'TEST suspension',
+      clientRequestId: 'op-suspend-alice',
+    });
+    await desk.setCriteria(founder(FOUNDER_A), { minTrackRecordDays: 30, clientRequestId: 'crit-1' });
+    fileApproval(approvals, a.applicationId, 'TEST lead a', 30, 'appr-1');
+    await desk.propose(founder(FOUNDER_A), { applicationId: a.applicationId, approvalId: 'appr-1' });
+    await expect(
+      desk.approve(founder(FOUNDER_B), { applicationId: a.applicationId, approvalId: 'appr-1', operationId: 'op-appr-1' }),
+    ).rejects.toMatchObject({ code: 'trade.copy_lead_already_leading' });
+    expect(await desk.leads(reader())).toEqual([expect.objectContaining({ leaderRef: listed.leaderRef, state: 'suspended' })]);
+
+    // BOB is in the directory without an application: applying refuses, and nothing is written.
+    await directory.upsertListing(founder(FOUNDER_A), {
+      clientRequestId: 'op-list-bob',
+      leaderUserId: BOB,
+      displayName: 'TEST lead b',
+      recordKind: 'self_reported',
+      state: 'listed',
+    });
+    await expect(desk.apply(customer(BOB), { displayName: 'TEST lead b' })).rejects.toMatchObject({
+      code: 'trade.copy_lead_already_leading',
+    });
+    expect(await desk.mine(customer(BOB))).toBeNull();
   });
 
   it('rejects with a reason the applicant reads; a decided application stays decided; applying again waits on the unset wait', async () => {

@@ -1716,7 +1716,8 @@ export function createTradeRouter(
 
       /** Apply to lead (CB-copy-12). One open application per person; the same submit again answers it. */
       applyToLead: scopedProcedure('trade:write', { module: 'trade' })
-        .input(z.object({ displayName: z.string().min(1).max(200) }))
+        // A blank name reaches the desk, which refuses it with its own code, so the room can say what to fix.
+        .input(z.object({ displayName: z.string().max(200) }))
         .mutation(({ ctx, input }) => lead((desk) => desk.apply(ctx.principal, input))),
 
       /** The caller's newest lead application, or null. */

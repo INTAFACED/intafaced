@@ -21,7 +21,9 @@ import { ok, refused, type Outcome } from '@/lib/trade-ops/outcome';
  *   POST { action: 'read' }                                 the queue oldest first, the criteria, the leads, the audit
  *   POST { action: 'criteria', minTrackRecordDays }         set the lead criteria (a founder's setting, audited)
  *   POST { action: 'approve', applicationId }               founder A: file the approval and mark the application
- *                                                           waiting for a second founder
+ *                                                           waiting for a second founder; on a waiting application,
+ *                                                           a new approval replaces one that expired or no longer
+ *                                                           matches the criteria
  *   POST { action: 'confirm', applicationId }               founder B: approve it in identity, then list the lead
  *   POST { action: 'reject', applicationId, reason }        reject; the applicant reads the reason
  *   POST { action: 'suspend', leaderRef, reason }           suspend a listed lead (audited with the reason)
@@ -95,8 +97,8 @@ async function handler(ctx: TradeCtx, body: Record<string, unknown>): Promise<Ou
   const payload = { applicationId, displayName: application.displayName, minTrackRecordDays: days };
 
   if (action === 'approve') {
-    if (application.status !== 'pending')
-      return refused('trade.copy_lead_application_decided', 'This application already has an approval filed or is decided.', 409);
+    if (application.status !== 'pending' && application.status !== 'awaiting_second')
+      return refused('trade.copy_lead_application_decided', 'This application is decided.', 409);
     const filed = await fileLeadApproval(ctx, payload);
     if (filed.kind !== 'ok') return filed;
     return proposeLead(ctx, { applicationId, approvalId: filed.data.approvalId });

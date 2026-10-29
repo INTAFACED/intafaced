@@ -7,10 +7,9 @@ import { tableIn, bodyRows } from './tables.mjs';
 // J-copy-bots-otc-10, in the running app (docs/roadmap/journeys.json): vet lead applications and pooled masters in the
 // founder console. One test per step, titled "J-copy-bots-otc-10 #<n>". Founders A and B are the stack's LOCAL TEST founder
 // pair (admin.mjs); an approval needs both. The applicants are TEST accounts that apply through the customer app.
-// Steps that are written but not built yet fail at their first missing part, quickly (UNBUILT):
-// - The console has no copy-trading desk at /trade-ops/copy: no applications queue, two-founder approval, rejection,
-//   suspension, pooled masters, whitelists, takeovers or levels (CB-ops-01, CB-copy-12, CB-copy-pro-share-03, -06, -09, -11).
-// - The customer app has no lead application at /copy/lead/apply, so the queue has no applicant (CB-copy-12).
+// The lead criteria are owner values kept append-only, so #2 (criteria blank) holds on a fresh stack, as each CI shard is;
+// a second local run on the same stack needs a fresh one. Pooled masters, whitelists, takeovers and levels are parked
+// views with their honest empty or unset state (CB-copy-pro-share-03, -06, -09, -11).
 const J = 'J-copy-bots-otc-10';
 const run = journeyState(`${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
 const UNBUILT = { timeout: 5_000 };

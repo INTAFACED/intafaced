@@ -36,7 +36,7 @@ import { OutcomeNotice } from './outcome-notice';
  * Founders vet who may lead copy trading (CB-ops-01, CB-copy-12): the applications queue oldest first, the lead
  * criteria, an approval that needs a second founder before the lead is listed, a rejection whose reason the applicant
  * reads, and suspending a listed lead, every step in the audit. Pooled masters, whitelists, takeovers and levels have
- * their views here with the honest state: none of them is built in svc-trade yet, and their owner values are not set.
+ * their views here with the honest state: none of them is built in svc-trade, and their owner values are not set.
  */
 
 const utc = (iso: string) => iso.replace('T', ' ').slice(0, 19);
@@ -133,6 +133,18 @@ export function CopyDesk({ initial, userId }: { initial: Outcome<LeadDeskRead>; 
               onClick={() => void act(`confirm:${a.id}`, { action: 'confirm', applicationId: a.id }, 'Approved and listed')}
             >
               Confirm approval
+            </Button>
+          ) : null}
+          {a.status === 'awaiting_second' ? (
+            <Button
+              size={28}
+              variant="secondary"
+              shape="rounded"
+              loading={busy === `refile:${a.id}`}
+              disabled={busy !== null}
+              onClick={() => void act(`refile:${a.id}`, { action: 'approve', applicationId: a.id }, 'Sent for a second founder')}
+            >
+              File approval again
             </Button>
           ) : null}
           <Button
@@ -260,7 +272,7 @@ export function CopyDesk({ initial, userId }: { initial: Outcome<LeadDeskRead>; 
                 columns={auditColumns}
                 rows={desk.audit}
                 getRowId={(r) => r.id}
-                emptyState={<p className="p-4 text-sm text-fg-2">Nothing has been decided on this desk yet.</p>}
+                emptyState={<p className="p-4 text-sm text-fg-2">Nothing has been decided on this desk.</p>}
               />
             </section>
           ) : null}
@@ -268,8 +280,8 @@ export function CopyDesk({ initial, userId }: { initial: Outcome<LeadDeskRead>; 
 
         <TabsPanel value="pooled" className="flex flex-col gap-3 pt-4">
           <p className="text-sm text-fg-2">
-            A pooled master runs one pool that followers join. Pools are not built in svc-trade yet (CB-copy-pro-share-03), so no one can
-            apply to run one and nothing here can be approved.
+            A pooled master runs one pool that followers join. Pools are not built in svc-trade (CB-copy-pro-share-03), so no one can apply
+            to run one and nothing here can be approved.
           </p>
           <section aria-label="Master applications">
             <Table<{ id: string }>
@@ -283,7 +295,7 @@ export function CopyDesk({ initial, userId }: { initial: Outcome<LeadDeskRead>; 
               ]}
               rows={[]}
               getRowId={(r) => r.id}
-              emptyState={<p className="p-4 text-sm text-fg-2">No master applications: pools are not built yet.</p>}
+              emptyState={<p className="p-4 text-sm text-fg-2">No master applications: pools are not built.</p>}
             />
           </section>
         </TabsPanel>
@@ -293,7 +305,7 @@ export function CopyDesk({ initial, userId }: { initial: Outcome<LeadDeskRead>; 
             density="dense"
             items={[
               { label: 'Batch limit', value: 'Not set by the owner.' },
-              { label: 'Whitelists', value: 'None: pool whitelists are not built yet (CB-copy-pro-share-06), so none can be added.' },
+              { label: 'Whitelists', value: 'None: pool whitelists are not built (CB-copy-pro-share-06), so none can be added.' },
             ]}
           />
         </TabsPanel>
@@ -311,7 +323,7 @@ export function CopyDesk({ initial, userId }: { initial: Outcome<LeadDeskRead>; 
               ]}
               rows={[]}
               getRowId={(r) => r.id}
-              emptyState={<p className="p-4 text-sm text-fg-2">No takeovers: pools are not built yet.</p>}
+              emptyState={<p className="p-4 text-sm text-fg-2">No takeovers: pools are not built.</p>}
             />
           </section>
         </TabsPanel>
@@ -320,7 +332,7 @@ export function CopyDesk({ initial, userId }: { initial: Outcome<LeadDeskRead>; 
           <KeyValue
             density="dense"
             items={[
-              { label: 'Levels', value: 'None: lead levels are not built yet (CB-copy-pro-share-11).' },
+              { label: 'Levels', value: 'None: lead levels are not built (CB-copy-pro-share-11).' },
               { label: 'Ratio', value: 'Maximum ratio: not set by the platform.' },
             ]}
           />

@@ -107,8 +107,17 @@ export function LeadApplyRoom() {
           action: { label: t('tryAgain'), href: '/copy/lead/apply' },
         },
       };
-    return refusal ? { kind: 'ready', partial: { missing: refusal } } : { kind: 'ready' };
-  }, [userId, mine.resource, refusal, t]);
+    if (refusal) return { kind: 'ready', partial: { missing: refusal } };
+    // After a rejection, applying again waits on the platform's waiting period, which is not set: refused by name.
+    if (current?.state === 'rejected')
+      return {
+        kind: 'ready',
+        partial: {
+          missing: { variant: 'refused', title: t('waitTitle'), body: t('waitBody'), reference: 'trade.copy_lead_reapply_wait_unset' },
+        },
+      };
+    return { kind: 'ready' };
+  }, [userId, mine.resource, refusal, current?.state, t]);
 
   return (
     <FlowTemplate
@@ -124,11 +133,7 @@ export function LeadApplyRoom() {
               {t('approved', { name: current.displayName })} <a href="/trade/copy">{t('openCopy')}</a>
             </p>
           ) : null}
-          {current?.state === 'rejected' ? (
-            <p>
-              {t('rejected', { name: current.displayName, reason: current.reason ?? '' })} {t('applyAgain')}
-            </p>
-          ) : null}
+          {current?.state === 'rejected' ? <p>{t('rejected', { name: current.displayName, reason: current.reason ?? '' })}</p> : null}
           {canApply ? (
             <form aria-label={t('title')} onSubmit={(e) => void apply(e)}>
               <Field label={t('nameLabel')} hint={t('nameHint')}>

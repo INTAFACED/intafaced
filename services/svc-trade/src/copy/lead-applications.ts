@@ -184,6 +184,9 @@ export class LeadDesk {
         return mine(latest);
       }
       if (latest?.status === 'approved') throw new CopyError('You already lead', 'trade.copy_lead_already_leading');
+      // A person already in the leader directory (listed, suspended or delisted there) is not listed again by an
+      // application: an approval would overwrite that record and could undo a suspension.
+      if (await this.inDirectory(tx, userId)) throw new CopyError('You already lead', 'trade.copy_lead_already_leading');
       // How long a rejected person waits before applying again is the owner's to set, and it is not set: blank refuses.
       if (latest?.status === 'rejected') {
         throw new CopyError('The wait before applying again is not set by the platform', 'trade.copy_lead_reapply_wait_unset');
@@ -257,7 +260,11 @@ export class LeadDesk {
     return this.deps.sql.begin(async (tx) => {
       const row = await this.locked(tx, input.applicationId);
       if (row.status === 'awaiting_second' && row.approval_id === approvalId) return view(row);
-      if (row.status !== 'pending') throw new CopyError(`The application is ${row.status}`, 'trade.copy_lead_application_decided');
+      // A waiting application takes a newly filed approval in place of the old one (it expired, or the criteria
+      // changed so the old one no longer matches); the confirm then consumes only the new one.
+      if (row.status !== 'pending' && row.status !== 'awaiting_second') {
+        throw new CopyError(`The application is ${row.status}`, 'trade.copy_lead_application_decided');
+      }
       const now = this.deps.now();
       const [next] = await tx<ApplicationRow[]>`
         UPDATE trade.copy_lead_applications
@@ -303,25 +310,23 @@ export class LeadDesk {
       if (row.proposed_by && row.proposed_by.trim().toLowerCase() === principal.userId.trim().toLowerCase()) {
         throw new TradeOpsError('approval_mismatch', 'The founder who approved first cannot confirm. A second founder must.');
       }
-      let approverId: string;
-      try {
-        ({ approverId } = await consumeApproval(this.deps.approvals, {
-          approvalId,
-          actionType: COPY_LEAD_APPROVE_ACTION,
-          targetId: row.id,
-          expectedVersion: 'pending',
-          payloadHash: payloadHash(
-            leadApprovalPayload({ applicationId: row.id, displayName: row.display_name, minTrackRecordDays: criteria.minTrackRecordDays }),
-          ),
-          operationId: input.operationId,
-        }));
-      } catch (err) {
-        // Consumed by an earlier confirm that stopped before it recorded the decision. The approval is bound to this
-        // application (identity checked it when it was consumed, and one approval belongs to one application here), so
-        // finish the decision; the founder confirming now is not the proposer (checked above).
-        if (!(err instanceof TradeOpsError) || err.code !== 'approval_reused') throw err;
-        approverId = principal.userId;
+      // Someone already in the directory is not listed again; the one exception is this application's own listing,
+      // written by an earlier confirm that stopped before it recorded the decision.
+      if (await this.inDirectory(tx, row.user_id, `copy-lead-approve:${row.id}`)) {
+        throw new CopyError('The applicant is already in the leader directory', 'trade.copy_lead_already_leading');
       }
+      // Identity answers a retry of this same confirm (same operation) with the approval it consumed; any other use of
+      // the approval is refused there, so a spent approval never lists anyone here.
+      const { approverId } = await consumeApproval(this.deps.approvals, {
+        approvalId,
+        actionType: COPY_LEAD_APPROVE_ACTION,
+        targetId: row.id,
+        expectedVersion: 'pending',
+        payloadHash: payloadHash(
+          leadApprovalPayload({ applicationId: row.id, displayName: row.display_name, minTrackRecordDays: criteria.minTrackRecordDays }),
+        ),
+        operationId: input.operationId,
+      });
       // The listing is idempotent on the application: a retry after a crash lists the same leader once.
       const listed = await this.deps.directory.upsertListing(principal, {
         clientRequestId: `copy-lead-approve:${row.id}`,
@@ -425,6 +430,16 @@ export class LeadDesk {
       subject: r.subject,
       reason: r.reason,
     }));
+  }
+
+  /** Whether the person has a leader directory record, other than one written under the request id `except`. */
+  private async inDirectory(tx: TransactionSql, userId: string, except?: string): Promise<boolean> {
+    const [row] = await tx<Array<{ leader_ref: string }>>`
+      SELECT l.leader_ref FROM trade.copy_leader_listings l
+      WHERE l.leader_user_id = ${userId}
+        AND NOT EXISTS (SELECT 1 FROM trade.copy_leader_ops_requests r WHERE r.client_request_id = ${except ?? ''})
+      LIMIT 1`;
+    return row !== undefined;
   }
 
   private async locked(tx: TransactionSql, applicationId: string): Promise<ApplicationRow> {

@@ -226,6 +226,25 @@ const COPY: Readonly<Record<string, Words>> = {
     title: 'Trading fees aren’t available',
     body: 'The fee lookup is not connected, so the fee line is empty. Nothing was charged.',
   },
+  'trade.copy_lead_application_open': {
+    title: 'Your application is already in',
+    body: 'One application is open at a time. Founders will decide it; nothing new was sent.',
+  },
+  'trade.copy_lead_already_leading': {
+    title: 'You already lead',
+    body: 'You are in the leader directory, so there is nothing to apply for.',
+  },
+  'trade.copy_lead_name_invalid': { title: 'Check the name', body: 'Use a display name of 1 to 80 characters.' },
+  'trade.copy_lead_reapply_wait_unset': {
+    title: 'Applying again is closed',
+    body: 'Applying again waits on a waiting period the platform has not set.',
+  },
+  'trade.copy_lead_criteria_unset': {
+    title: 'Lead approvals are closed',
+    body: 'The criteria a lead must meet are not set, so no application can be approved.',
+  },
+  'trade.copy_lead_application_decided': { title: 'That application is decided', body: 'Read it again to see the decision.' },
+  'trade.copy_lead_application_not_found': { title: 'That application wasn’t found', body: 'Read the page again.' },
 };
 
 const DEVICE: Readonly<Record<string, Words>> = {
