@@ -10,6 +10,9 @@ const networkId = z.string().regex(/^[a-z0-9]+(-[a-z0-9]+)*$/);
 /** The caller's own business key for one quote, kept across a retry so a retry reads the same quote. */
 const quoteRef = z.string().regex(/^[A-Za-z0-9:_.-]{1,64}$/);
 const clientRef = z.string().min(1).max(64);
+/** The quote reference and network id a send names (J-wallet-05 #6), the same shapes a quote is stored under. */
+export const sendQuoteRefSchema = quoteRef;
+export const sendNetworkIdSchema = networkId;
 
 export const FEE_MODES = ['on_top', 'deducted'] as const;
 export type FeeMode = (typeof FEE_MODES)[number];

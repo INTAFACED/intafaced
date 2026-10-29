@@ -18,7 +18,8 @@ export class SessionRefusal extends Error {
 
 const REFUSALS: Record<string, string> = {
   'auth.code_invalid': 'That code is not right. Check the latest email and try again.',
-  'auth.too_many_attempts': 'Too many wrong codes. Start over to sign in again.',
+  // Sign-in and the emailed device code both answer this, so it names neither.
+  'auth.too_many_attempts': 'Too many wrong attempts. Wait, then start over to sign in again.',
   'auth.code_expired': 'That code has expired. Start over to get a new one.',
   'auth.device_authorisation_pending':
     'This browser is still waiting for approval. Enter the emailed code, or approve it from a founder session on a trusted device.',

@@ -6,7 +6,9 @@ import { test, expect } from '@playwright/test';
 import { founderTotp, makeContext } from '../../../../tooling/scripts/local-test-gates.mjs';
 import { FOUNDER_VAULT_NAME } from '../../../../tooling/scripts/local-test-founders.mjs';
 import { localStackState } from '../../../../tooling/scripts/local-test-state.mjs';
-import { ADMIN, founderSignIn } from './admin.mjs';
+import { deviceCodesMailedTo, OUTBOX_NAME } from '../../../../tooling/scripts/local-test-entry.mjs';
+import { HOME_ASSET, HOME_DEPOSIT_AMOUNT, HOME_NOTICE_TITLE } from '../../../../tooling/scripts/local-test-home.mjs';
+import { ADMIN, assertAdminUp } from './admin.mjs';
 import { EDGE, ROOT } from './stack.mjs';
 
 // J-home-ia-11, in the running app (docs/roadmap/journeys.json): I bring up a test build and sign in as a founder (tester
@@ -14,16 +16,14 @@ import { EDGE, ROOT } from './stack.mjs';
 // profile; the real-app run starts the same services with `pnpm local:stack`, so the steps read the compose files for the
 // seed service's wiring and run the seed's own scripts, which refuse anything but a local dev or test build.
 // Steps that are written but not built yet fail at their first missing part, quickly (UNBUILT):
-// - #1, #4: no compose file has a `seed` service under the `tester` profile (HM-desks-03), and the test-content seed makes
-//   nothing for Home (a TEST deposit, a TEST notice, an inbox row).
 // - #2: the sign-in page of a non-live build has no "Tester build" panel saying where the founder vault is.
-// - #3: nothing seeds the founder's Home, so it shows no TEST deposit, notice or inbox row.
 // - #5: the Help room does not read the host dispatch receipt (RC-home-ia-01); the check itself is built.
 const J = 'J-home-ia-11';
 const UNBUILT = { timeout: 5_000 };
 // The stack's own rule for its state folder (LOCAL_STACK_STATE, else per user, else /var/lib as root).
 const STATE = localStackState();
 const COMPOSE = ['docker-compose.yml', 'docker-compose.apps.yml'];
+const OUTBOX = path.join(STATE, OUTBOX_NAME);
 
 test.describe.configure({ mode: 'default' });
 
@@ -57,6 +57,18 @@ function run(script, args, env) {
   }
 }
 
+/** The documented tester step (tooling/scripts/local-test-entry.mjs) for founder a: the one value it prints after `label`. */
+function entry(cmd, label) {
+  const done = run('tooling/scripts/local-test-entry.mjs', [cmd, 'a'], { LOCAL_TEST: '1' });
+  expect(done.status, done.out).toBe(0);
+  const value = new RegExp(`${label}: (\\d{6})`).exec(done.out)?.[1];
+  expect(value, done.out).toBeTruthy();
+  return value;
+}
+
+/** How many device codes identity has mailed to `email` in the stack's LOCAL-TEST outbox. */
+const deviceMails = (email) => deviceCodesMailedTo(existsSync(OUTBOX) ? readFileSync(OUTBOX, 'utf8') : '', email).length;
+
 /** What the test-content seed says it has made on this stack. */
 const seedStatus = () => run('tooling/scripts/local-test-seed.mjs', ['status', '--state', STATE], { LOCAL_TEST: '1' });
 
@@ -75,6 +87,8 @@ test(`${J} #1 the tester profile starts healthy services, and its seed service r
   const seed = seedService();
   expect(seed, `no compose file (${COMPOSE.join(', ')}) has a seed service`).not.toBeNull();
   expect(seed.block).toMatch(/profiles:\s*\[?\s*['"]?tester['"]?/);
+  // Once: it is never restarted after it exits.
+  expect(seed.block).toMatch(/^ {4}restart: 'no'$/m);
   const order = ['local-founder-seed.mjs init', 'local-founder-seed.mjs enrol', 'local-test-seed.mjs apply'].map((step) =>
     seed.block.indexOf(step),
   );
@@ -87,7 +101,12 @@ test(`${J} #1 the tester profile starts healthy services, and its seed service r
   // What it made: Home's TEST deposit, TEST notice and inbox row, beside the Earn, Loans, Convert and P2P content.
   const report = seedStatus();
   expect(report.status).toBe(0);
-  for (const made of [/deposit/i, /notice/i, /inbox/i]) expect(report.out).toMatch(made);
+  // Read back from the services for founder a: exactly one credited TEST deposit (status refuses on a second record for
+  // the seeded transfer), the published TEST notice, and exactly one deposit-credited inbox row.
+  const founder = vault().founders[0].handle;
+  expect(report.out).toContain(`  deposit  ${HOME_DEPOSIT_AMOUNT} ${HOME_ASSET} credited  ${founder}`);
+  expect(report.out).toContain(`  notice  ${HOME_NOTICE_TITLE}  published`);
+  expect(report.out).toContain(`  inbox  1 deposit-credited row  ${founder}`);
 });
 
 test(`${J} #2 the documented sign-in steps get the founder in with founder scopes, and the founder console opens`, async ({ page }) => {
@@ -103,10 +122,35 @@ test(`${J} #2 the documented sign-in steps get the founder in with founder scope
     for (const secret of [founder.password, founder.totpSecret].filter(Boolean)) expect(text).not.toContain(secret);
   }
 
-  // Following those steps: the founder signs in to the console with password and code, and it opens on a founder page.
-  await founderSignIn(page, 'a');
-  await expect(page).toHaveURL(new RegExp(`^${ADMIN}/(?!login)`));
+  // Following those steps in a browser identity has never seen, with no cookie or device put in by the test: the founder
+  // signs in to the console with password and a one-time code, identity asks for this browser to be authorised and mails a
+  // device code to the founder's address, and the founder enters it.
+  // (The run's customer-app device cookie, scoped to the customer's identity path, never reaches the console.)
+  test.setTimeout(180_000);
+  await assertAdminUp();
+  expect(await page.context().cookies(new URL('/', ADMIN).href)).toEqual([]);
+  const founder = vault().founders[0];
+  await page.goto(`${ADMIN}/login`);
+  await page.getByLabel('Email or handle').fill(founder.handle);
+  await page.getByLabel('Password').fill(founder.password);
+  await page.getByLabel('Authenticator or recovery code').fill(entry('code', 'one-time code'));
+  const mailed = deviceMails(founder.email);
+  await page.locator('button[type=submit]').click();
+  await expect(page.getByRole('heading', { name: 'Authorise this browser' })).toBeVisible({ timeout: 20_000 });
+  // This sign-in's own code, never an older one still in the outbox.
+  await expect.poll(() => deviceMails(founder.email), { timeout: 15_000 }).toBeGreaterThan(mailed);
+  await page.getByLabel('Device code from the email').fill(entry('device', 'device code for \\S+'));
+  await page.getByRole('button', { name: 'Approve this browser' }).click();
+  await page.waitForURL((url) => !url.pathname.startsWith('/login'), { timeout: 30_000 });
   await expect(page.getByRole('main')).toBeVisible();
+
+  // Founder scopes: the console reads the founder directory with this session, a door svc-ops opens only to a founder
+  // session's ops scopes, and its session bar names this founder by the directory's own name.
+  const owners = await page.request.get(`${ADMIN}/api/crm?view=owners`);
+  expect(owners.status()).toBe(200);
+  const name = (await owners.json()).owners.find((owner) => owner.userId === founder.userId)?.displayName;
+  expect(name).toMatch(/^(Nitro|Phantom)$/);
+  await expect(page.locator(`.adm-session > span[title="${founder.userId}"]`)).toHaveText(name);
 });
 
 test(`${J} #3 the founder's Home shows a TEST deposit in the total, a TEST notice and one inbox row, each labelled TEST`, async ({
@@ -121,13 +165,32 @@ test(`${J} #3 the founder's Home shows a TEST deposit in the total, a TEST notic
   await page.getByRole('button', { name: /^sign in$/i }).click();
   await expect(page).toHaveURL(/\/home$/);
 
-  // The total holds the seeded deposit and says it is TEST money.
-  await expect(page.getByTestId('home-total').first()).toContainText('TEST', UNBUILT);
-  // One TEST notice, drafted by one founder and published by the other.
-  await expect(page.getByTestId('home-notice').filter({ hasText: 'TEST' })).toHaveCount(1, UNBUILT);
-  // One inbox row, filed by the real deposit-credit consumer.
+  // What the seed made for founder a, read back from the services (status writes nothing).
+  const status = seedStatus();
+  expect(status.status, status.out).toBe(0);
+  const made = /^ {2}deposit {2}(\S+) (\S+) credited {2}(\S+)$/m.exec(status.out);
+  expect(made, `the seed reports no credited Home deposit:\n${status.out}`).not.toBeNull();
+  const [, amount, asset, holder] = made;
+  expect(holder).toBe(founder.handle);
+  const notice = /^ {2}notice {2}(.+) {2}published$/m.exec(status.out)?.[1];
+  expect(notice, `the seed reports no published Home notice:\n${status.out}`).toBeTruthy();
+  // The deposit is founder a's only holding, a stablecoin Home counts as cash at its dollar amount, so the total is exactly
+  // that figure, not zero, and says it is TEST money.
+  const [whole, fraction = ''] = amount.split('.');
+  const dollars = `$${whole}.${`${fraction}00`.slice(0, 2)}`;
+  const total = page.getByTestId('home-total').first();
+  await expect(total.getByRole('img', { name: dollars, exact: true })).toBeVisible();
+  await expect(total.getByTestId('home-total-test')).toHaveText('TEST');
+  // The deposit itself is on Home, once.
+  await expect(page.getByTestId('home-activity__row').filter({ hasText: `+${amount} ${asset}` })).toHaveCount(1);
+  // One TEST notice, the one the seed published (drafted by one founder and published by the other).
+  await expect(page.getByTestId('home-notice').filter({ hasText: notice })).toHaveCount(1);
+  expect(notice).toContain('TEST');
+  // One inbox row for that deposit, filed by the real deposit-credit consumer, and it says TEST beside the amount.
   await page.goto('/notifications');
-  await expect(page.getByTestId('nf-row').filter({ hasText: 'TEST' })).toHaveCount(1, UNBUILT);
+  const row = page.getByTestId('nf-row').filter({ hasText: `${amount} ${asset}` });
+  await expect(row).toHaveCount(1);
+  await expect(row.getByTestId('nf-test')).toHaveText('TEST');
 });
 
 test(`${J} #4 the same image started as staging or production: the seed service exits with an error and creates nothing`, async () => {
@@ -155,7 +218,8 @@ test(`${J} #4 the same image started as staging or production: the seed service 
   expect(entry, 'the seed service names no script').toBeTruthy();
   for (const appEnv of ['staging', 'production']) {
     const started = run(entry, [], { APP_ENV: appEnv });
-    expect(started.status, started.out).not.toBe(0);
+    expect(started.status, started.out).toBe(2);
+    expect(started.out).toContain(`refusing: APP_ENV is "${appEnv}"`);
   }
   expect(seedStatus().out.replace(/^as of .*$/m, '')).toBe(contentBefore);
 });

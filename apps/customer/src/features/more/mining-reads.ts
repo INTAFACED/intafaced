@@ -22,6 +22,7 @@ export const minerWorkers = z.object({
       hashrate: decimal.nullable(),
       hashrateReason: z.string().nullable(),
       minDifficulty: decimal.nullable(),
+      mode: z.enum(['pooled', 'solo']),
     }),
   ),
   defaultDifficulty: decimal.nullable(),
@@ -32,6 +33,17 @@ export const minerWorkers = z.object({
 export const WORKER_PAGE = 20;
 export const workerDifficulty = z.object({ id: z.string(), minDifficulty: decimal.nullable() });
 export type MinerWorkers = z.infer<typeof minerWorkers>;
+export const WORKER_MODES = ['pooled', 'solo'] as const;
+export type WorkerMode = (typeof WORKER_MODES)[number];
+export const workerMode = z.object({ id: z.string(), name: z.string(), mode: z.enum(WORKER_MODES) });
+/** The pool's proof-of-work parameters: a TEST testnet set, or blank with its code. A mainnet set is never served. */
+export const powSpec = z.discriminatedUnion('status', [
+  z.object({ status: z.literal('published'), dimension: z.number().int(), targetBits: z.number().int(), testnet: z.literal(true) }),
+  z.object({ status: z.literal('unset'), code: z.literal('mining.pow_spec_unset') }),
+]);
+export type PowSpec = z.infer<typeof powSpec>;
+export const MODE_CHANGE_IN_WINDOW = 'mining.mode_change_in_window';
+export const EMISSION_UNPUBLISHED = 'mining.emission_unpublished';
 
 export const minerShares = z.object({
   asOf: z.string(),
