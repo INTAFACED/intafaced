@@ -84,13 +84,17 @@ test(`${J} #4 Asking to reactivate before the wait is over is refused with the s
   // Taken before the click, so it is never later than the freeze the service records.
   const frozenAt = Date.now();
   await card.getByRole('button', { name: 'Freeze my account' }).click();
-  await expect(page.getByText('You froze this account').first()).toBeVisible();
+  // The freeze ends this session too: the room shows the frozen card until its next read finds the session gone, then
+  // drops to signed out. Either is the answer; Account status below proves the freeze after a fresh sign-in.
+  await expect(
+    page.getByRole('heading', { name: 'You froze this account' }).or(page.getByRole('heading', { name: 'Sign in to continue' })),
+  ).toBeVisible();
 
   // They sign in again and Account status names their own freeze.
   await signIn(page, who);
   await page.goto('/uc/account');
   const status = page.getByTestId('account-status');
-  await expect(status.getByTestId('account-status__state')).toHaveAttribute('data-state', 'restricted');
+  await expect(status.getByTestId('account-status__state')).toHaveAttribute('data-state', 'frozen_self');
   await expect(status.getByTestId('account-status__restrictions').locator('li[data-kind="self_freeze"]')).toHaveCount(1);
 
   // Too soon: the service refuses with the whole seconds left, and no confirmation is asked for.
