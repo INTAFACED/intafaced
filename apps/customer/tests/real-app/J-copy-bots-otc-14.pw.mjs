@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { api, journeyState, toUnits } from './stack.mjs';
+import { api, bestPrices, journeyState, toUnits } from './stack.mjs';
 
 const ONE = toUnits('1');
 import { fundedTrader, signIn, signUp } from './desk.mjs';
@@ -10,7 +10,6 @@ import { fundedTrader, signIn, signUp } from './desk.mjs';
 // own order, which the steps read from the ledger.
 // Steps that are written but not built yet fail at their first missing part, quickly (UNBUILT):
 // - svc-trade has no grid bot: no wizard, plan, levels, range pause, metrics or withdrawal (CB-bots-02, -05, -10).
-// - #1: the Bots hub has no per-type status and no My bots from the server (CB-bots-01).
 const J = 'J-copy-bots-otc-14';
 const run = journeyState(`${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
 const UNBUILT = { timeout: 5_000 };
@@ -40,15 +39,89 @@ test(`${J} starts: a verified TEST account with 1000 USDT`, async ({ page }) => 
 test(`${J} #1 opens Bots: the hub with one status and one link per bot type, each refusal in words; My bots from the server even in a new browser`, async ({
   page,
 }) => {
+  // A bot this person started elsewhere: made through the service, never in this browser, which is new and holds nothing.
+  const me = await api(run.read().who);
+  const { ask } = await bestPrices();
+  const made = await me.post('/api/trade/trpc/algo.createTwap', {
+    symbol: 'BTC/USDT',
+    side: 'buy',
+    totalQty: '0.001',
+    durationMs: 3_600_000,
+    sliceIntervalMs: 600_000,
+    // A buy limit must sit at or over the ask (the slice price band); a whole number 1% over it.
+    limitPrice: String((toUnits(ask) * 101n) / 100n / ONE + 1n),
+    clientAlgoId: `${J}-hub-${Date.now().toString(36)}`,
+    kind: 'twap',
+  });
+  expect(made.status, JSON.stringify(made.body).slice(0, 300)).toBe(200);
+  const botId = made.body.result.data.id;
+  try {
+    await hub(page, botId);
+  } finally {
+    // Its slices would hold USDT while the grid steps measure the reserve, so the journey stops it, pass or fail.
+    const stopped = await me.post('/api/trade/trpc/algo.cancel', { algoId: botId });
+    expect(stopped.status, JSON.stringify(stopped.body).slice(0, 300)).toBe(200);
+  }
+});
+
+// The two types with no engine yet, each with the exact words its row and its own room give (BotsRoom NOT_BUILT).
+// No service is called for them, so there is no typed code to match: the refusal is these words, read exactly.
+const NOT_READY = {
+  'Spot grid': 'No grid service exists. Nothing is simulated.',
+  'Recurring buy (DCA)': 'No recurring-order service exists. Use Convert for a single trade.',
+};
+
+const myAlgoIds = async () => {
+  const { status, body } = await (
+    await api(run.read().who)
+  ).get(`/api/trade/trpc/algo.list?input=${encodeURIComponent(JSON.stringify({ limit: 500 }))}`);
+  expect(status, JSON.stringify(body).slice(0, 300)).toBe(200);
+  // The whole list in one read (the service's most), so a bot made now can't hide on a later page.
+  expect(body.result.data.nextCursor).toBeNull();
+  return body.result.data.rows.map((row) => row.id).sort();
+};
+
+async function hub(page, botId) {
   await openBots(page);
   const types = page.getByRole('list', { name: 'Bot types' }).getByRole('listitem');
   await expect(types.first()).toBeVisible(UNBUILT);
+  // The statuses settle once the service's bot policy answers: until then the live types read "Checking".
+  await expect(types.getByTestId('bot-type-status').filter({ hasText: /^Checking$/ })).toHaveCount(0);
+  await expect(types.filter({ hasText: 'Time-weighted (TWAP)' }).getByTestId('bot-type-status')).toHaveText(/^Available\b/);
+  const statuses = {};
   for (const type of await types.all()) {
+    // One link and one status per type, each type once.
     await expect(type.getByRole('link')).toHaveCount(1);
-    await expect(type.getByTestId('bot-type-status')).toHaveText(/Available|Not available: .+/);
+    const name = (await type.getByRole('link').innerText()).trim();
+    expect(statuses, `${name} is listed twice`).not.toHaveProperty([name]);
+    statuses[name] = (await type.getByTestId('bot-type-status').innerText()).trim();
   }
-  await expect(page.getByRole('region', { name: 'My bots' })).toBeVisible();
-});
+  // Each refusal in words: exactly the not-ready types refuse, each with its own reason; every other type is available.
+  for (const [name, reason] of Object.entries(NOT_READY)) expect(statuses[name]).toBe(`Not available: ${reason}`);
+  const others = Object.entries(statuses).filter(([name]) => !(name in NOT_READY));
+  expect(others.length).toBeGreaterThan(0);
+  for (const [name, status] of others) expect(status, name).toMatch(/^Available\b/);
+  expect(Object.values(statuses).filter((status) => status.startsWith('Not available')).length).toBe(Object.keys(NOT_READY).length);
+
+  // Following a refused type's link shows the same reason in its room, offers no form, and creates nothing.
+  const before = await myAlgoIds();
+  await page.getByRole('list', { name: 'Bot types' }).getByRole('link', { name: 'Spot grid', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'Spot grid', level: 1 })).toBeVisible();
+  await expect(page.getByText('Not available', { exact: true })).toBeVisible();
+  await expect(page.getByText(NOT_READY['Spot grid'], { exact: true })).toBeVisible();
+  await expect(page.locator('form')).toHaveCount(0);
+  expect(await myAlgoIds()).toEqual(before);
+  await page.getByRole('button', { name: 'Back to Bots' }).click();
+  await expect(page.getByRole('heading', { name: 'Bots', level: 1 })).toBeVisible();
+
+  // This bot's own row, found by its id, so another TWAP BTC/USDT on the account can't stand in for it.
+  const row = page
+    .getByRole('region', { name: 'My bots' })
+    .getByRole('row')
+    .filter({ has: page.locator(`a[href*="bot=${botId}"]`) });
+  await expect(row.getByRole('link')).toHaveText('TWAP BTC/USDT');
+  await expect(row).toContainText('Running');
+}
 
 test(`${J} #2 opens the grid wizard below the owner's verification level: refused as verification insufficient, and no bot written`, async ({
   page,
