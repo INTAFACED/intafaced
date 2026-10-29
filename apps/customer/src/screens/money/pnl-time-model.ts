@@ -72,6 +72,17 @@ export function firstActivity(book: LotBookAnswer): string | null {
 }
 
 /**
+ * What a range's start is read from besides the clock: a key that changes only when one of them does. A preset other than
+ * `all` reads neither the zone nor the first trade, so the lot book arriving or the zone loading never moves its start
+ * (and never starts a fresh read of the same range).
+ */
+export function rangeInputs(ask: RangeAsk, offset: number, first: string | null): string {
+  if (ask.kind === 'custom') return `${offset}`;
+  if (ask.kind === 'preset' && ask.range === 'all') return `${offset}|${first ?? ''}`;
+  return '';
+}
+
+/**
  * The `from` and `to` sent to the service. A preset ends now (no `to`); a custom range runs from the start of its first
  * day to the end of its last, in the customer's zone (the service ends it at now if that is later). Null: nothing to ask
  * (a refused link, or `all` on a book with nothing in it).

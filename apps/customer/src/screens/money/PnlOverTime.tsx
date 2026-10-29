@@ -14,6 +14,7 @@ import {
   offsetMinutes,
   rangeFromQuery,
   rangeKey,
+  rangeInputs,
   resolveRange,
   type Breakdown,
   type PnlOverTime,
@@ -245,7 +246,9 @@ export function PnlOverTimeCards({ book, search, hidden }: { book: LotBook; sear
   const ask = useMemo(() => parsed, [askKey]);
   const first = firstActivity(book);
   // Read the clock only when the range changes, so a preset's start stays put while the page is open.
-  const range = useMemo(() => resolveRange(ask, Date.now(), offset, first), [ask, offset, first]);
+  const inputs = rangeInputs(ask, offset, first);
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- kept by what the range reads: a preset's start moves for nothing else
+  const range = useMemo(() => resolveRange(ask, Date.now(), offset, first), [ask, inputs]);
   const result = usePnlOverTime(range === null ? null : { ...range, utcOffsetMinutes: offset });
 
   let body;

@@ -8,6 +8,7 @@ import {
   lineChart,
   pnlLinePoints,
   rangeFromQuery,
+  rangeInputs,
   rangeKey,
   rangeSearch,
   resolveRange,
@@ -67,6 +68,17 @@ describe('resolveRange', () => {
     });
     expect(resolveRange({ kind: 'preset', range: 'all' }, NOW, 0, null)).toBeNull();
     expect(resolveRange({ kind: 'invalid' }, NOW, 0, null)).toBeNull();
+  });
+
+  it('keeps a preset start put when only the first trade or the zone arrives, and moves All and custom ranges with them', () => {
+    const day = { kind: 'preset', range: '1D' } as const;
+    const all = { kind: 'preset', range: 'all' } as const;
+    const custom = { kind: 'custom', fromDay: '2026-10-01', toDay: '2026-10-02' } as const;
+    expect(rangeInputs(day, 0, null)).toBe(rangeInputs(day, 480, '2026-10-05T03:00:00.000Z'));
+    expect(rangeInputs(all, 0, null)).not.toBe(rangeInputs(all, 0, '2026-10-05T03:00:00.000Z'));
+    expect(rangeInputs(all, 0, '2026-10-05T03:00:00.000Z')).not.toBe(rangeInputs(all, 480, '2026-10-05T03:00:00.000Z'));
+    expect(rangeInputs(custom, 0, null)).toBe(rangeInputs(custom, 0, '2026-10-05T03:00:00.000Z'));
+    expect(rangeInputs(custom, 0, null)).not.toBe(rangeInputs(custom, 480, null));
   });
 
   it('reads the zone the customer picked, else the device', () => {

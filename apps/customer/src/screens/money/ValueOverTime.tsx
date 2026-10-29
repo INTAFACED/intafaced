@@ -2,7 +2,7 @@ import { useMemo, type ReactNode } from 'react';
 import { moneyCopy } from './copy';
 import { Amount, Skeleton, StateBlock, fmtUsd, refusalCopy } from './deps';
 import { useValueOverTime } from './pnl-source';
-import { offsetMinutes, rangeFromQuery, rangeKey, resolveRange } from './pnl-time-model';
+import { offsetMinutes, rangeFromQuery, rangeKey, rangeInputs, resolveRange } from './pnl-time-model';
 import { INTERVAL_COPY, LINE_H, RangePicker, TimeLine } from './time-line';
 import { stamp } from './time';
 import {
@@ -188,7 +188,9 @@ export function ValueOverTimeCards({
   // eslint-disable-next-line react-hooks/exhaustive-deps -- kept by the range alone: `view=` or `by=` keeps the same read
   const ask = useMemo(() => parsed, [askKey]);
   // Read the clock only when the range changes, so a preset's start stays put while the page is open.
-  const range = useMemo(() => resolveRange(ask, Date.now(), offset, first), [ask, offset, first]);
+  const inputs = rangeInputs(ask, offset, first);
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- kept by what the range reads: a preset's start moves for nothing else
+  const range = useMemo(() => resolveRange(ask, Date.now(), offset, first), [ask, inputs]);
   const result = useValueOverTime(range);
   const points = useMemo(() => (result.status === 'ready' ? valueLine(result.data.points) : []), [result]);
 
