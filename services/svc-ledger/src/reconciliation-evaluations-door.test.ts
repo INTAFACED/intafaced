@@ -20,7 +20,7 @@ function pair() {
   };
 }
 
-async function mount(asked: unknown[]) {
+async function mount(asked: unknown[], fault?: Error) {
   const callers: ServiceName[] = ['svc-ops', 'svc-bank'];
   const keys = callers.map((svc) => ({ svc, ...pair() }));
   const keyring: Keyring = keys.map((k) => ({ kid: `${k.svc}.a`, svc: k.svc, use: 's2s' as const, x: k.x }));
@@ -30,6 +30,7 @@ async function mount(asked: unknown[]) {
     reconciliationEvaluations: async (input: unknown) => {
       // The service method parses its own input, as LedgerService.reconciliationEvaluations does.
       asked.push(reconciliationEvaluationFeedInputSchema.parse(input));
+      if (fault) throw fault;
       return FEED;
     },
   } as unknown as LedgerService;
@@ -99,6 +100,15 @@ describe('reconciliationEvaluations door', () => {
     expect((await m.send('svc-ops', { after: null, limit: 501 })).statusCode).toBe(400);
     expect((await m.send('svc-ops', { after: { ...CURSOR, finishedAt: '2026-10-29' }, limit: 5 })).statusCode).toBe(400);
     expect(asked).toEqual([]);
+    await m.app.close();
+  });
+
+  it('answers 500, not 400, when the ledger cannot read its own stored run', async () => {
+    const asked: unknown[] = [];
+    const m = await mount(asked, new Error('reconciliation evaluation feed: a stored run does not fit the contract'));
+    const res = await m.send('svc-ops', { after: null, limit: 5 });
+    expect(res.statusCode).toBe(500);
+    expect(res.json()).toEqual({ message: 'Ledger request failed' });
     await m.app.close();
   });
 });

@@ -440,10 +440,11 @@ export async function listReconciliationControlRuns(sql: Sql, input: unknown): P
 }
 
 /**
- * How long a finished run waits before the evaluation feed shows it. finishRun is one autocommit UPDATE, so its commit
- * lands well inside this; a reader past a cursor therefore never misses a row finished just behind it.
+ * How long a finished run waits before the evaluation feed shows it. finishRun is one autocommit UPDATE stamped with
+ * clock_timestamp(), so its commit lands well inside this; a commit stalled past it could sort behind a reader's cursor,
+ * which is why the reader's write is idempotent by run id and it may re-read from an earlier cursor.
  */
-export const RECONCILIATION_EVALUATION_SETTLE_SECONDS = 5;
+export const RECONCILIATION_EVALUATION_SETTLE_SECONDS = 30;
 
 /**
  * Every finished evaluation after the cursor, oldest first by (finished_at, id): the feed svc-ops reads to keep one alert
@@ -472,16 +473,20 @@ export async function listReconciliationEvaluations(sql: Sql, input: unknown): P
      ORDER BY r.finished_at ASC, r.id ASC
      LIMIT ${parsed.limit}
   `;
-  const evaluations = rows.map((row) => ({
-    run: toRun(row),
-    finishedAt: row.finished_iso,
-    severity: setOrUnset(row.severity),
-  }));
-  const last = rows.at(-1);
-  return reconciliationEvaluationFeedSchema.parse({
-    evaluations,
-    next: last ? { finishedAt: last.finished_iso, id: last.id } : after,
-  });
+  // A stored run the contract no longer reads is this service's fault, never the caller's: a 500, not a 400.
+  try {
+    const evaluations = rows.map((row) => {
+      const { accounts: _accounts, ...run } = toRun(row);
+      return { run, finishedAt: row.finished_iso, severity: setOrUnset(row.severity) };
+    });
+    const last = rows.at(-1);
+    return reconciliationEvaluationFeedSchema.parse({
+      evaluations,
+      next: last ? { finishedAt: last.finished_iso, id: last.id } : after,
+    });
+  } catch (err) {
+    throw new Error('reconciliation evaluation feed: a stored run does not fit the contract', { cause: err });
+  }
 }
 
 interface AccountHit {
@@ -932,6 +937,10 @@ function toRun(row: RunRow): ReconciliationControlRunView {
 const RUN_COLUMNS = `
   id, control_id, status, phase, error_code, as_of, read_at, margin, sources, evidence, outside_side, period_start, period_end
 `;
+/** The same columns read through the alias `r`, for a join. */
+const RUN_COLUMNS_AS_R = RUN_COLUMNS.split(',')
+  .map((column) => `r.${column.trim()}`)
+  .join(', ');
 
 function isUniqueViolation(err: unknown, depth = 0): boolean {
   if (!err || typeof err !== 'object' || depth > 3) return false;

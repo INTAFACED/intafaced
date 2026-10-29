@@ -200,6 +200,12 @@ export type RunReconciliationControlInput = z.infer<typeof runReconciliationCont
 
 const unsetSchema = z.object({ status: z.literal('unset') }).strict();
 
+/** A control's severity: set to one of the severities, or blank. */
+const reconciliationSeveritySetSchema = z.union([
+  unsetSchema,
+  z.object({ status: z.literal('set'), value: z.enum(RECONCILIATION_SEVERITIES) }).strict(),
+]);
+
 export const reconciliationControlViewSchema = z
   .object({
     id: z.string().uuid(),
@@ -219,7 +225,7 @@ export const reconciliationControlViewSchema = z
         })
         .strict(),
     ]),
-    severity: z.union([unsetSchema, z.object({ status: z.literal('set'), value: z.enum(RECONCILIATION_SEVERITIES) }).strict()]),
+    severity: reconciliationSeveritySetSchema,
     tolerance: z.union([
       unsetSchema,
       z
@@ -314,7 +320,8 @@ export type ReconciliationControlRunList = z.infer<typeof reconciliationControlR
 /**
  * OPS-reconciliation-03: every finished evaluation, oldest first, for svc-ops' alert store. A service door (svc-ops
  * alone) read with a cursor on (finishedAt, id). A run only shows once it has been finished for a settle window, so a
- * reader that has passed a cursor never misses a row committed just behind it.
+ * reader that has passed a cursor does not miss a row committed just behind it; a reader keeps its own write idempotent
+ * by run id, so re-reading from an earlier cursor is safe.
  */
 export const RECONCILIATION_EVALUATION_FEED_MAX = 500;
 export const reconciliationEvaluationCursorSchema = z
@@ -331,10 +338,11 @@ export const reconciliationEvaluationFeedInputSchema = z
 export type ReconciliationEvaluationFeedInput = z.infer<typeof reconciliationEvaluationFeedInputSchema>;
 export const reconciliationEvaluationSchema = z
   .object({
-    run: reconciliationControlRunSchema,
+    /** The run as `controls.runs` shows it, without the account list: an alert keys on the control, asset and period. */
+    run: reconciliationControlRunSchema.omit({ accounts: true }),
     finishedAt: z.string().datetime({ offset: true }),
-    /** The control's severity when the feed was read. A blank one stays blank. */
-    severity: z.union([unsetSchema, z.object({ status: z.literal('set'), value: z.enum(RECONCILIATION_SEVERITIES) }).strict()]),
+    /** The control's severity when the feed is read (a run does not store it). A blank one stays blank. */
+    severity: reconciliationSeveritySetSchema,
   })
   .strict();
 export type ReconciliationEvaluation = z.infer<typeof reconciliationEvaluationSchema>;

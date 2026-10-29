@@ -200,12 +200,12 @@ export class LedgerService implements LedgerClient, ScheduledReconcileLedger {
     return this.engine.feeRevenue(range);
   }
 
-  /** The ledger's position for the joint restore. A read; same no-span reasoning as `history`. */
   /** Finished reconciliation evaluations after a cursor, for svc-ops' alert store (OPS-reconciliation-03). A read. */
   async reconciliationEvaluations(input: unknown): Promise<ReconciliationEvaluationFeed> {
     return listReconciliationEvaluations(this.sql, input);
   }
 
+  /** The ledger's position for the joint restore. A read; same no-span reasoning as `history`. */
   async restoreWatermark(): Promise<RestoreWatermarkRead> {
     const at = await this.engine.restoreWatermark();
     return {
