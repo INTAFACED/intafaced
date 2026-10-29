@@ -6,7 +6,7 @@ import { createPublicClient, getAddress, http, parseAbi } from 'viem';
 import { chainRecordPath, GATE_URL, TEST_CHAIN_ID } from '../../../../tooling/scripts/local-test-chain.mjs';
 import { signIn, signUp } from './desk.mjs';
 import { testChain, TOKEN_A, TOKEN_B } from './dex.mjs';
-import { fromUnits, ROOT, toUnits } from './stack.mjs';
+import { api, fromUnits, ROOT, toUnits } from './stack.mjs';
 import { installTestWallet } from './test-wallet.mjs';
 import { tableIn } from './tables.mjs';
 
@@ -501,7 +501,24 @@ test(`${J} #7 creates a watchlist while signed out, then signs in: it persists i
   const who = await signUp(page, 'tw');
   await signIn(page, who);
   await openTokens(page);
-  await expect(page.getByRole('dialog', { name: /Import your watchlist/ })).toBeVisible();
+  // The offer names the token this browser watched, and only it.
+  const offer = page.getByRole('dialog', { name: /Import your watchlist/ });
+  await expect(offer).toBeVisible();
+  await expect(offer).toContainText('kept 1 token(s)');
+  await expect(offer.getByRole('listitem')).toHaveCount(1);
+  await expect(offer.getByRole('listitem')).toHaveText(new RegExp(`^${TOKEN}$`, 'i'));
+  // Before the import the account's own list does not hold it; importing fills the account's list with it.
+  const account = await api(who);
+  const watched = async () => {
+    const input = encodeURIComponent(JSON.stringify({ namespace: 'protocol.token-watchlist' }));
+    const res = await account.get(`/api/identity/trpc/preferences.get?input=${input}`);
+    expect(res.status, JSON.stringify(res.body).slice(0, 300)).toBe(200);
+    return (res.body.result.data.value ?? []).map((entry) => String(entry).toLowerCase());
+  };
+  expect(await watched()).not.toContain(TOKEN.toLowerCase());
+  await offer.getByRole('button', { name: 'Import' }).click();
+  await expect(offer).toBeHidden();
+  expect(await watched()).toEqual([TOKEN.toLowerCase()]);
 });
 
 test(`${J} #8 opens the stocks screener with no asset registered: an empty state with its blocker, not a made-up list`, async ({
