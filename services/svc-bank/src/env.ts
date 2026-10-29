@@ -399,6 +399,13 @@ const schema = serviceEnvSchema
       BANK_ACCOUNT_TERMS_JSON: z.string().optional(),
 
       /**
+       * Owner-published risk wording for staking-style earn pools as JSON (BK-earn-04): `{ "slashing": "<text>",
+       * "ownership": "<text>" }`, what slashing means for a saver and who owns a staked saving. NO DEFAULT. Blank / unset / not in shape → `earn.riskDisclosure` refuses
+       * `bank.earn_risk_wording_unset` and the pool page says the wording is not published, never that there is no risk.
+       */
+      BANK_EARN_RISK_WORDING_JSON: z.string().optional(),
+
+      /**
        * Owner-published currencies an account may hold, comma separated asset ids ("USDT,USDC,BTC"). NO DEFAULT. Blank /
        * unset → adding a currency refuses `bank.account_currencies_unset`; an asset not on the list refuses
        * `bank.asset_unknown`. Removing a currency needs no list.

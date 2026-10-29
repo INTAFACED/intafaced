@@ -117,14 +117,15 @@ The occurrences that were written off are in the **response**, not merely in the
 
 ### `earn`
 
-| Procedure              | Scope        | Purpose                                                                                                                                                                                                                         |
-| ---------------------- | ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `earn.pools`           | `bank:read`  | Open flexible and fixed pools; refuses `bank.earn_rate_unset` when none are configured                                                                                                                                          |
-| `earn.deposit`         | `bank:write` | Open a position                                                                                                                                                                                                                 |
-| `earn.withdraw`        | `bank:write` | Close a position; fixed terms enforced                                                                                                                                                                                          |
-| `earn.setAutoRenew`    | `bank:write` | A fixed-term saving's auto-renew choice: the next term starts when this one ends                                                                                                                                                |
-| `earn.positions`       | `bank:read`  | The user's open positions                                                                                                                                                                                                       |
-| `earn.interestHistory` | `bank:read`  | The caller's interest from one pool, a row per paid day (date, that day's rate, their payout, ledger tx), and the sum of every paid day (J-bank-07 #5). Page size required; blank refuses `bank.earn_interest_list_limit_unset` |
+| Procedure              | Scope        | Purpose                                                                                                                                                                                                                                                                                  |
+| ---------------------- | ------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `earn.pools`           | `bank:read`  | Open flexible and fixed pools; refuses `bank.earn_rate_unset` when none are configured                                                                                                                                                                                                   |
+| `earn.deposit`         | `bank:write` | Open a position                                                                                                                                                                                                                                                                          |
+| `earn.withdraw`        | `bank:write` | Close a position; fixed terms enforced. In a staking-style pool (`unbondingDays`, BK-earn-04) the first take back needs `unbond: true`, starts the unbonding by the bank's clock and moves nothing (without it: `bank.unbond_not_confirmed`; while unbonding: `bank.position_unbonding`) |
+| `earn.setAutoRenew`    | `bank:write` | A fixed-term saving's auto-renew choice: the next term starts when this one ends                                                                                                                                                                                                         |
+| `earn.positions`       | `bank:read`  | The user's open positions, with `staking` (staked, unbonding, unbonded), `unbondsAt` and the pool's `unbondingDays`                                                                                                                                                                      |
+| `earn.riskDisclosure`  | `bank:read`  | The owner's staking risk wording (`BANK_EARN_RISK_WORDING_JSON`: `slashing`, `ownership`); blank or out of shape refuses `bank.earn_risk_wording_unset`, never "no risk"                                                                                                                 |
+| `earn.interestHistory` | `bank:read`  | The caller's interest from one pool, a row per paid day (date, that day's rate, their payout, ledger tx), and the sum of every paid day (J-bank-07 #5). Page size required; blank refuses `bank.earn_interest_list_limit_unset`                                                          |
 
 ### `loans` — **built.** Collateralised borrow over the ledger (§8.1)
 
@@ -268,26 +269,28 @@ BANK_SEND_FIELD_RULES_JSON=    # owner-published purpose / source-of-funds / ref
 
 ### `ops` — operator only
 
-| Procedure                  | Scope            | Purpose                                                               |
-| -------------------------- | ---------------- | --------------------------------------------------------------------- |
-| `ops.runDueTransfers`      | `admin:treasury` | Fire every due standing order                                         |
-| `ops.accrueInterest`       | `admin:treasury` | One day's earn interest, one pool or all                              |
-| `ops.fundPool`             | `admin:treasury` | Move bank revenue into a pool's reserve                               |
-| `ops.fundLoanReserve`      | `admin:treasury` | Top up the debt-asset reserve loans draw from                         |
-| `ops.accrueLoanInterest`   | `admin:treasury` | Capitalise loan interest (no ledger post; unique per loan/day)        |
-| `ops.runRiskSweep`         | `admin:treasury` | Mark open loans; margin-call and liquidate past grace                 |
-| `ops.resumePendingLoans`   | `admin:treasury` | Re-drive loans stuck between collateral lock and principal draw       |
-| `ops.resumePendingEarn`    | `admin:treasury` | Re-drive earn deposits stuck pending after ledger post                |
-| `ops.renewEarnTerms`       | `admin:treasury` | Start the next term of ended fixed-term savings with auto-renew on    |
-| `ops.abandonPendingLoan`   | `admin:treasury` | Give up on a pending loan and return collateral                       |
-| `ops.adjustLoanInterest`   | `admin:treasury` | Four-eyes interest correction: a new signed row with its reason       |
-| `ops.cardAuthorize`        | `admin:treasury` | The authorisation "webhook" — decide, and hold if the answer is yes   |
-| `ops.cardCapture`          | `admin:treasury` | The merchant took this much; the remainder of the hold goes back      |
-| `ops.cardReverse`          | `admin:treasury` | The authorisation expired or was voided; the whole hold goes back     |
-| `ops.cardResumeSettlement` | `admin:treasury` | Re-drive a claimed card capture/reversal that never reached ledger    |
-| `ops.fundCashbackPot`      | `admin:treasury` | Sweep bank revenue into the pot cashback is paid from                 |
-| `ops.creditOnramp`         | `admin:treasury` | Crypto ledger-half on-ramp credit (never user-callable)               |
-| `ops.runAutoInvest`        | `admin:treasury` | Fire due auto-invest rules (threshold sweeps; DCA when convert wired) |
+| Procedure                  | Scope            | Purpose                                                                                                                                 |
+| -------------------------- | ---------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
+| `ops.runDueTransfers`      | `admin:treasury` | Fire every due standing order                                                                                                           |
+| `ops.accrueInterest`       | `admin:treasury` | One day's earn interest, one pool or all                                                                                                |
+| `ops.fundPool`             | `admin:treasury` | Move bank revenue into a pool's reserve                                                                                                 |
+| `ops.fundLoanReserve`      | `admin:treasury` | Top up the debt-asset reserve loans draw from                                                                                           |
+| `ops.accrueLoanInterest`   | `admin:treasury` | Capitalise loan interest (no ledger post; unique per loan/day)                                                                          |
+| `ops.runRiskSweep`         | `admin:treasury` | Mark open loans; margin-call and liquidate past grace                                                                                   |
+| `ops.resumePendingLoans`   | `admin:treasury` | Re-drive loans stuck between collateral lock and principal draw                                                                         |
+| `ops.resumePendingEarn`    | `admin:treasury` | Re-drive earn deposits stuck pending after ledger post                                                                                  |
+| `ops.renewEarnTerms`       | `admin:treasury` | Start the next term of ended fixed-term savings with auto-renew on                                                                      |
+| `ops.setEarnPoolStatus`    | `admin:treasury` | Four-eyes: close a pool to new savings or open it again, keyed `pool-status:<poolId>:<revision>`; unchanged or stale spends no approval |
+| `ops.releaseUnbondedEarn`  | job (svc-bank)   | Pay back staking-style savings whose unbonding ended, through `earnWithdraw`; a second run releases nothing                             |
+| `ops.abandonPendingLoan`   | `admin:treasury` | Give up on a pending loan and return collateral                                                                                         |
+| `ops.adjustLoanInterest`   | `admin:treasury` | Four-eyes interest correction: a new signed row with its reason                                                                         |
+| `ops.cardAuthorize`        | `admin:treasury` | The authorisation "webhook" — decide, and hold if the answer is yes                                                                     |
+| `ops.cardCapture`          | `admin:treasury` | The merchant took this much; the remainder of the hold goes back                                                                        |
+| `ops.cardReverse`          | `admin:treasury` | The authorisation expired or was voided; the whole hold goes back                                                                       |
+| `ops.cardResumeSettlement` | `admin:treasury` | Re-drive a claimed card capture/reversal that never reached ledger                                                                      |
+| `ops.fundCashbackPot`      | `admin:treasury` | Sweep bank revenue into the pot cashback is paid from                                                                                   |
+| `ops.creditOnramp`         | `admin:treasury` | Crypto ledger-half on-ramp credit (never user-callable)                                                                                 |
+| `ops.runAutoInvest`        | `admin:treasury` | Fire due auto-invest rules (threshold sweeps; DCA when convert wired)                                                                   |
 
 These jobs are deliberately **not user-callable**: a user who can trigger "run every due transfer" or the risk sweep chooses when other people's money moves (or when their collateral is sold). `admin:treasury` is interactive-only (§4.1), so it can never be held by a long-lived API key.
 
@@ -446,6 +449,10 @@ Holding a database transaction open across the ledger call is a deliberate cost:
 **Interest: claim the UTC day, post, record.** `YYYY-MM-DD` UTC is both the idempotency day and the eligibility boundary. A position must be open before `00:00:00.000Z` for that day; a scheduler running late cannot pay a full day to a position opened after midnight. If the reserve cannot cover the day, **nothing moves** and the claim rolls back so the day is re-runnable the moment the pool is funded. That is the loud failure §8.1 needs — a pool that cannot pay its advertised rate is an operator problem today, not a shortfall discovered at maturity.
 
 **No configured pool means no configured rate, not zero yield.** `earn.pools` and the all-pools accrual door refuse `bank.earn_rate_unset` instead of returning an empty success that makes an unconfigured deployment look live. Individual pool operations still resolve the named pool and use only its stored operator-set APR; svc-bank has no default APR and invents none.
+
+**A closed pool still pays what it holds (BK-earn-04).** Closing a pool (`ops.setEarnPoolStatus`, approved by a second person and appended to `bank.earn_pool_status_changes`) refuses new deposits with `bank.pool_closed`; the savings already in it keep accruing and can be taken back. The status change reads and sets neither freeze. The change runs under the pool's row lock and checks unchanged and stale revisions before it spends the approval, so two concurrent closes record one change and spend one approval.
+
+**Unbonding moves no money until it ends.** A staking-style pool's take back sets `unbonding_started_at` and `unbonds_at` from the server's clock; from the first UTC day after that the saving earns nothing. The release (`ops.releaseUnbondedEarn`, or a take back after the end) is the ordinary `earnWithdraw` keyed `bank.earn.withdraw:<positionId>`, so a retry or a second run pays nothing twice. There is no new posting.
 
 **Interest is paid to `available`, never added to the principal.** Compounding would mean writing a new principal figure every day, and a money column that changes daily is a running total wearing a different name.
 

@@ -269,6 +269,10 @@ export const earnPools = bank.table(
     /** Policy floor on a single deposit. Null is a blank limit; an omitted floor is not zero. */
     minDeposit: amount('min_deposit'),
     status: poolStatusEnum('status').notNull().default('open'),
+    /** Staking-style (BK-earn-04): days a saving taken back unbonds before it is released. Null: no unbonding. Flexible only. */
+    unbondingDays: integer('unbonding_days'),
+    /** How many approved status changes the pool has had (`earn_pool_status_changes`). */
+    statusRevision: integer('status_revision').notNull().default(0),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },
@@ -305,6 +309,10 @@ export const earnPositions = bank.table(
     closedAt: tstz('closed_at'),
     /** The saver's choice to start a new term when a fixed-term saving ends (BK-earn-03). Fixed-term only. */
     autoRenew: boolean('auto_renew').notNull().default(false),
+    /** When the saver asked a staking-style saving to unbond (BK-earn-04). Written once. */
+    unbondingStartedAt: tstz('unbonding_started_at'),
+    /** When that unbonding ends and the saving can be released. Set with `unbondingStartedAt`. */
+    unbondsAt: tstz('unbonds_at'),
     createdAt: createdAt(),
   },
   (t) => [
@@ -402,6 +410,28 @@ export const earnRenewals = bank.table(
     createdAt: createdAt(),
   },
   (t) => [primaryKey({ columns: [t.positionId, t.term] })],
+);
+
+/**
+ * ONE APPROVED STATUS CHANGE OF AN EARN POOL (BK-earn-04) — append-only, one row per (pool, revision).
+ *
+ * The key is the change's business key `pool-status:<poolId>:<revision>`: two approvals for the same revision change
+ * the pool once. A status is a pool-level pause on new savings; it is not an account or posting freeze.
+ */
+export const earnPoolStatusChanges = bank.table(
+  'earn_pool_status_changes',
+  {
+    poolId: uuid('pool_id')
+      .notNull()
+      .references(() => earnPools.id),
+    revision: integer('revision').notNull(),
+    status: poolStatusEnum('status').notNull(),
+    previousStatus: poolStatusEnum('previous_status').notNull(),
+    reason: text('reason').notNull(),
+    approvalId: text('approval_id').notNull(),
+    createdAt: createdAt(),
+  },
+  (t) => [primaryKey({ columns: [t.poolId, t.revision] })],
 );
 
 // ═════════════════════════════════════════════════════════════════════════════
@@ -1766,6 +1796,7 @@ export const schema = {
   interestAccruals,
   earnRateChanges,
   earnRenewals,
+  earnPoolStatusChanges,
   loanProducts,
   loans,
   loanCollateralEvents,

@@ -22,6 +22,7 @@ const pool = {
   rateBands: null,
   commissionBps: null,
   capacity: null,
+  unbondingDays: null,
 };
 const position = {
   id: positionId,
@@ -36,6 +37,8 @@ const position = {
   autoRenew: false,
   renewals: 0,
   nextPayoutOn: '2026-01-03',
+  unbondsAt: null,
+  unbondingDays: null,
 };
 const reply = (r, data) => r.fulfill({ json: { result: { data } } }),
   failed = (r) => r.fulfill({ status: 503, json: { error: 'Unavailable', message: 'Current read failed.' } });
@@ -81,7 +84,11 @@ async function setup(page, options = {}) {
       proc = new URL(r.request().url()).pathname.split('/').pop();
     state.writes.push({ proc, body });
     if (state.uncertain) return r.fulfill({ status: 503, json: { error: 'Unavailable', message: 'Original outcome unavailable.' } });
-    if (proc === 'earn.withdraw') return reply(r, state.withdrawResponse || { positionId: body.positionId, principal: position.principal });
+    if (proc === 'earn.withdraw')
+      return reply(
+        r,
+        state.withdrawResponse || { positionId: body.positionId, principal: position.principal, status: 'closed', unbondsAt: null },
+      );
     if (proc === 'earn.deposit') return reply(r, { positionId: body.positionId, maturesAt: null });
     return reply(r, {
       id: positionId,
@@ -113,6 +120,8 @@ for (const mismatch of ['position', 'principal'])
     state.withdrawResponse = {
       positionId: mismatch === 'position' ? poolId : positionId,
       principal: mismatch === 'principal' ? '999' : position.principal,
+      status: 'closed',
+      unbondsAt: null,
     };
     await page.getByRole('button', { name: 'Review withdrawal', exact: true }).click();
     await page.getByRole('dialog').getByRole('button', { name: 'Confirm', exact: true }).click();

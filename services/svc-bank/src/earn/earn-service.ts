@@ -17,7 +17,7 @@ import { BankError, type BankErrorCode } from '../errors.js';
 import { RecipientStateUnavailableError, type RecipientStatePort } from '../recipient-state.js';
 import { assertEarnPoolsListLimit } from '../catalog-list-limit.js';
 import { assertEarnInterestListLimit, assertEarnPositionsListLimit } from '../owner-list-limit.js';
-import { assertEarnRenewBatchLimit, assertEarnResumePendingLimit } from '../job-batch-limit.js';
+import { assertEarnReleaseBatchLimit, assertEarnRenewBatchLimit, assertEarnResumePendingLimit } from '../job-batch-limit.js';
 import { stakePrincipalForAccrual } from './accrue-principal.js';
 import { accrualBoundary, accrualDate, dailyInterest, planAccrual, type AccruingPosition } from './interest.js';
 import { withMoneySpan } from '../tracing.js';
@@ -52,10 +52,24 @@ export interface PoolRecord {
   termDays: number | null;
   minDeposit: Amount;
   status: 'open' | 'closed';
+  /** Staking-style (BK-earn-04): days a saving taken back unbonds before it is released. Null: no unbonding. */
+  unbondingDays: number | null;
+  /** How many approved status changes the pool has had; the next one is this plus one (`setPoolStatus`). */
+  statusRevision: number;
 }
 
 /** Where a saving stands in the daily accrual (`EarnService.accrualStates`). */
-export type AccrualState = 'waiting' | 'accruing' | 'pool_closed' | 'below_unit';
+export type AccrualState = 'waiting' | 'accruing' | 'unbonding' | 'below_unit';
+
+/** A staking-style saving's place in unbonding (BK-earn-04), judged by the bank's clock. */
+export type StakingState = 'staked' | 'unbonding' | 'unbonded';
+
+/** The staking state of a saving in a pool that unbonds; null for a pool without unbonding. Server time only. */
+export function stakingState(position: Pick<PositionRecord, 'unbondsAt'>, unbondingDays: number | null, now: Date): StakingState | null {
+  if (unbondingDays === null) return null;
+  if (position.unbondsAt === null) return 'staked';
+  return position.unbondsAt > now ? 'unbonding' : 'unbonded';
+}
 
 /** A saving's accrual state, payout schedule and renewed terms (`EarnService.accrualStates`). */
 export interface PositionStanding {
@@ -63,6 +77,10 @@ export interface PositionStanding {
   accrual: AccrualState;
   nextPayoutOn: string | null;
   renewals: number;
+  /** Staking-style pools only (BK-earn-04): staked, unbonding or unbonded by the bank's clock; null elsewhere. */
+  staking: StakingState | null;
+  /** The pool's unbonding period (BK-earn-04); null when the pool pays back at once. */
+  unbondingDays: number | null;
 }
 
 export interface PositionRecord {
@@ -77,6 +95,10 @@ export interface PositionRecord {
   status: 'pending' | 'active' | 'closed';
   /** A fixed-term saving the saver asked to renew for another term when this one ends (BK-earn-03). */
   autoRenew: boolean;
+  /** When the saver asked a staking-style saving to unbond (BK-earn-04); null while it is staked. */
+  unbondingStartedAt: Date | null;
+  /** When that unbonding ends and the bank releases the saving to the main balance. */
+  unbondsAt: Date | null;
 }
 
 interface PoolRow {
@@ -88,6 +110,8 @@ interface PoolRow {
   term_days: number | null;
   min_deposit: string;
   status: 'open' | 'closed';
+  unbonding_days: number | null;
+  status_revision: number;
 }
 
 interface PositionRow {
@@ -100,6 +124,8 @@ interface PositionRow {
   matures_at: Date | null;
   status: 'pending' | 'active' | 'closed';
   auto_renew: boolean;
+  unbonding_started_at: Date | null;
+  unbonds_at: Date | null;
 }
 
 function toPool(row: PoolRow): PoolRecord {
@@ -112,6 +138,8 @@ function toPool(row: PoolRow): PoolRecord {
     termDays: row.term_days,
     minDeposit: parseAmount(row.min_deposit),
     status: row.status,
+    unbondingDays: row.unbonding_days ?? null,
+    statusRevision: Number(row.status_revision ?? 0),
   };
 }
 
@@ -127,6 +155,8 @@ function toPosition(row: PositionRow): PositionRecord {
     status: row.status,
     // Strictly true: a row read without the column is not renewing.
     autoRenew: row.auto_renew === true,
+    unbondingStartedAt: row.unbonding_started_at ?? null,
+    unbondsAt: row.unbonds_at ?? null,
   };
 }
 
@@ -143,6 +173,27 @@ export interface EarnServiceOptions {
    * account's saving is not relocked. Unset = no saving renews, and the job names `bank.recipient_check_unset`.
    */
   accounts?: RecipientStatePort;
+  /**
+   * The owner's published risk wording for staking-style pools (`BANK_EARN_RISK_WORDING_JSON`, BK-earn-04), raw JSON
+   * `{ "slashing": "...", "ownership": "..." }`. No default: blank or not in shape refuses `bank.earn_risk_wording_unset`, and the pool page
+   * says the wording is not published, never that there is no risk.
+   */
+  riskWording?: string | undefined;
+}
+
+/** What one run of the release job did (BK-earn-04): the savings it paid back, and the ones it left with the reason. */
+export interface ReleaseReport {
+  released: Array<{ positionId: string; principal: Amount }>;
+  skipped: Array<{ positionId: string; code: BankErrorCode }>;
+}
+
+/** One approved pool status change (BK-earn-04), as `setPoolStatus` recorded it. */
+export interface PoolStatusChange {
+  poolId: string;
+  status: 'open' | 'closed';
+  previousStatus: 'open' | 'closed';
+  revision: number;
+  approvedBy: string;
 }
 
 /** What one run of the renewal job did: the terms each saving started, and the savings it left with the reason. */
@@ -205,6 +256,7 @@ export class EarnService {
   private readonly nativeAssetId: string;
   private readonly supplyGate: EarnServiceOptions['supplyGate'];
   private readonly accounts: EarnServiceOptions['accounts'];
+  private readonly riskWording: EarnServiceOptions['riskWording'];
 
   constructor(
     private readonly sql: Sql,
@@ -214,6 +266,7 @@ export class EarnService {
     this.nativeAssetId = options.nativeAssetId;
     this.supplyGate = options.supplyGate;
     this.accounts = options.accounts;
+    this.riskWording = options.riskWording;
   }
 
   // ── Pools ──────────────────────────────────────────────────────────────────
@@ -231,27 +284,39 @@ export class EarnService {
     aprBps: number;
     termDays?: number | null;
     minDeposit?: Amount;
+    /** Staking-style: days a saving taken back unbonds (BK-earn-04). Flexible pools only. */
+    unbondingDays?: number | null;
   }): Promise<PoolRecord> {
     this.assertEarnable(input.assetId);
     const termDays = input.kind === 'fixed' ? (input.termDays ?? null) : null;
     const minDeposit = formatAmount(input.minDeposit ?? 0n);
+    const unbondingDays = input.unbondingDays ?? null;
+    if (
+      unbondingDays !== null &&
+      (input.kind !== 'flexible' || !Number.isInteger(unbondingDays) || unbondingDays < 1 || unbondingDays > 365)
+    ) {
+      throw new BankError(
+        'Only a flexible pool unbonds, for 1 to 365 days: a fixed term already has its own lock',
+        'bank.pool_terms_invalid',
+      );
+    }
 
     return transaction(
       this.sql,
       async (tx) => {
         const rows = await tx<Array<PoolRow & { created_at: Date }>>`
-          INSERT INTO bank.earn_pools (id, asset_id, kind, name, apr_bps, term_days, min_deposit)
+          INSERT INTO bank.earn_pools (id, asset_id, kind, name, apr_bps, term_days, min_deposit, unbonding_days)
           VALUES (
             ${input.id ?? tx`gen_random_uuid()`}, ${input.assetId}, ${input.kind}, ${input.name}, ${input.aprBps},
-            ${termDays}, ${minDeposit}::numeric
+            ${termDays}, ${minDeposit}::numeric, ${unbondingDays}
           )
           ON CONFLICT (id) DO NOTHING
-          RETURNING id, asset_id, kind, name, apr_bps, term_days, min_deposit, status, created_at
+          RETURNING id, asset_id, kind, name, apr_bps, term_days, min_deposit, status, unbonding_days, status_revision, created_at
         `;
         const made = rows[0];
         if (!made) {
           const existing = await tx<PoolRow[]>`
-            SELECT id, asset_id, kind, name, apr_bps, term_days, min_deposit, status
+            SELECT id, asset_id, kind, name, apr_bps, term_days, min_deposit, status, unbonding_days, status_revision
               FROM bank.earn_pools WHERE id = ${input.id!}
           `;
           const pool = existing[0] ? toPool(existing[0]) : null;
@@ -266,7 +331,8 @@ export class EarnService {
             pool.kind !== input.kind ||
             pool.name !== input.name ||
             pool.termDays !== termDays ||
-            pool.minDeposit !== parseAmount(minDeposit)
+            pool.minDeposit !== parseAmount(minDeposit) ||
+            pool.unbondingDays !== unbondingDays
           ) {
             throw new BankError(`Pool ${input.id} already exists on different terms; a new pool needs a new id`, 'bank.pool_conflict');
           }
@@ -287,7 +353,7 @@ export class EarnService {
 
   async pool(poolId: string): Promise<PoolRecord> {
     const rows = await this.sql<PoolRow[]>`
-      SELECT id, asset_id, kind, name, apr_bps, term_days, min_deposit, status
+      SELECT id, asset_id, kind, name, apr_bps, term_days, min_deposit, status, unbonding_days, status_revision
         FROM bank.earn_pools WHERE id = ${poolId}
     `;
     const row = rows[0];
@@ -299,12 +365,12 @@ export class EarnService {
     const page = assertEarnPoolsListLimit(limit);
     const rows = assetId
       ? await this.sql<PoolRow[]>`
-          SELECT id, asset_id, kind, name, apr_bps, term_days, min_deposit, status
+          SELECT id, asset_id, kind, name, apr_bps, term_days, min_deposit, status, unbonding_days, status_revision
             FROM bank.earn_pools WHERE asset_id = ${assetId} AND status = 'open' ORDER BY apr_bps DESC
             LIMIT ${page}
         `
       : await this.sql<PoolRow[]>`
-          SELECT id, asset_id, kind, name, apr_bps, term_days, min_deposit, status
+          SELECT id, asset_id, kind, name, apr_bps, term_days, min_deposit, status, unbonding_days, status_revision
             FROM bank.earn_pools WHERE status = 'open' ORDER BY asset_id ASC, apr_bps DESC
             LIMIT ${page}
         `;
@@ -314,11 +380,17 @@ export class EarnService {
     return rows.map(toPool);
   }
 
-  /** Job work set — every open pool. Not a catalog page; accrueAll is not milled as a dump. */
-  private async openPoolsForAccrual(): Promise<PoolRecord[]> {
+  /**
+   * Job work set — every open pool, and every closed pool that still holds savings: a pool closed to new savings keeps
+   * paying the ones it has (BK-earn-04). Not a catalog page; accrueAll is not milled as a dump.
+   */
+  private async poolsForAccrual(): Promise<PoolRecord[]> {
     const rows = await this.sql<PoolRow[]>`
-      SELECT id, asset_id, kind, name, apr_bps, term_days, min_deposit, status
-        FROM bank.earn_pools WHERE status = 'open' ORDER BY asset_id ASC, apr_bps DESC
+      SELECT id, asset_id, kind, name, apr_bps, term_days, min_deposit, status, unbonding_days, status_revision
+        FROM bank.earn_pools pl
+       WHERE pl.status = 'open'
+          OR EXISTS (SELECT 1 FROM bank.earn_positions p WHERE p.pool_id = pl.id AND p.status = 'active')
+       ORDER BY asset_id ASC, apr_bps DESC
     `;
     if (rows.length === 0) {
       throw new BankError('No earn rates are configured', 'bank.earn_rate_unset');
@@ -594,7 +666,7 @@ export class EarnService {
   async resumePending(limit?: number): Promise<Array<{ positionId: string; outcome: 'completed' | 'failed'; reason?: string }>> {
     const batch = assertEarnResumePendingLimit(limit);
     const rows = await this.sql<PositionRow[]>`
-      SELECT id, pool_id, user_id, asset_id, principal, opened_at, matures_at, status, auto_renew
+      SELECT id, pool_id, user_id, asset_id, principal, opened_at, matures_at, status, auto_renew, unbonding_started_at, unbonds_at
         FROM bank.earn_positions
        WHERE status = 'pending'
        ORDER BY opened_at ASC
@@ -633,7 +705,7 @@ export class EarnService {
 
   async position(positionId: string): Promise<PositionRecord> {
     const rows = await this.sql<PositionRow[]>`
-      SELECT id, pool_id, user_id, asset_id, principal, opened_at, matures_at, status, auto_renew
+      SELECT id, pool_id, user_id, asset_id, principal, opened_at, matures_at, status, auto_renew, unbonding_started_at, unbonds_at
         FROM bank.earn_positions WHERE id = ${positionId}
     `;
     const row = rows[0];
@@ -645,7 +717,7 @@ export class EarnService {
   async positionsInPool(userId: string, poolId: string, limit?: number): Promise<PositionRecord[]> {
     const page = assertEarnPositionsListLimit(limit);
     const rows = await this.sql<PositionRow[]>`
-      SELECT id, pool_id, user_id, asset_id, principal, opened_at, matures_at, status, auto_renew
+      SELECT id, pool_id, user_id, asset_id, principal, opened_at, matures_at, status, auto_renew, unbonding_started_at, unbonds_at
         FROM bank.earn_positions WHERE user_id = ${userId} AND pool_id = ${poolId} AND status = 'active'
        ORDER BY opened_at DESC
        LIMIT ${page}
@@ -677,7 +749,8 @@ export class EarnService {
    * (BK-earn-03, crypto-credit-earn-044), by position id. A day pays the positions opened before it began
    * (`accrueInner`), so a position first earns on the UTC day after it opened: `accruesFrom` is that day's midnight.
    *
-   * - `pool_closed`: the pool is closed, and the daily job pays only open pools (`openPoolsForAccrual`).
+   * - `unbonding`: the saver asked a staking-style saving to unbond (BK-earn-04). The day it was asked still pays, as it
+   *   began staked; no later day does (`accrueInner`). A pool closed to new savings keeps paying the ones it has.
    * - `below_unit`: a day's interest on it at the pool's rate rounds down to nothing, so no day pays it (`planAccrual`).
    * - `waiting`: its first full UTC day has not begun, and no day that counted it has been paid.
    * - `accruing`: its first day has begun, or the bank already paid a day that counted it (a day on or after its first,
@@ -685,7 +758,7 @@ export class EarnService {
    *
    * The bank pays interest once a UTC day, to the main balance, so nothing compounds. `nextPayoutOn` is the first day
    * from today, and from the position's first day, that the bank has not yet paid its pool; null when no day pays it
-   * (`pool_closed`, `below_unit`). `renewals` counts the terms auto-renew started.
+   * (`below_unit`, or an unbonding saving whose last day is paid). `renewals` counts the terms auto-renew started.
    */
   async accrualStates(positions: readonly PositionRecord[], now: Date = new Date()): Promise<Map<string, PositionStanding>> {
     const out = new Map<string, PositionStanding>();
@@ -693,8 +766,8 @@ export class EarnService {
     const poolIds = [...new Set(positions.map((position) => position.poolId))];
     // A day is done once it posted, or was recorded with nothing to post; a claim still holding a plan is not.
     const [poolRows, paid, renewals] = await Promise.all([
-      this.sql<Array<{ id: string; apr_bps: string; status: 'open' | 'closed' }>>`
-        SELECT id, apr_bps, status FROM bank.earn_pools WHERE id = ANY(${poolIds}::uuid[])
+      this.sql<Array<{ id: string; apr_bps: string; unbonding_days: number | null }>>`
+        SELECT id, apr_bps, unbonding_days FROM bank.earn_pools WHERE id = ANY(${poolIds}::uuid[])
       `,
       this.sql<Array<{ pool_id: string; last: string }>>`
         SELECT pool_id, max(accrual_date)::text AS last FROM bank.interest_accruals
@@ -707,7 +780,7 @@ export class EarnService {
          GROUP BY position_id
       `,
     ]);
-    const pools = new Map(poolRows.map((row) => [row.id, { aprBps: Number(row.apr_bps), status: row.status }]));
+    const pools = new Map(poolRows.map((row) => [row.id, { aprBps: Number(row.apr_bps), unbondingDays: row.unbonding_days }]));
     const lastPaid = new Map(paid.map((row) => [row.pool_id, row.last]));
     const renewed = new Map(renewals.map((row) => [row.position_id, row.count]));
     const first = (position: PositionRecord) => new Date(accrualBoundary(position.openedAt).getTime() + DAY_MS);
@@ -733,18 +806,27 @@ export class EarnService {
       const pool = pools.get(position.poolId)!;
       const accruesFrom = first(position);
       let accrual: AccrualState;
-      if (pool.status !== 'open') accrual = 'pool_closed';
-      else if (dailyInterest(position.principal, pool.aprBps) === 0n) accrual = 'below_unit';
+      if (dailyInterest(position.principal, pool.aprBps) === 0n) accrual = 'below_unit';
+      else if (position.unbondingStartedAt !== null) accrual = 'unbonding';
       else accrual = position.status === 'active' && (now >= accruesFrom || paidAhead.has(position.id)) ? 'accruing' : 'waiting';
       let nextPayoutOn: string | null = null;
-      if (accrual === 'waiting' || accrual === 'accruing') {
+      if (accrual !== 'below_unit') {
         const last = lastPaid.get(position.poolId);
         // ISO dates order as strings: the latest of the first day, today and the day after the last one paid.
         const days = [accrualDate(accruesFrom), today];
         if (last) days.push(accrualDate(new Date(Date.parse(`${last}T00:00:00Z`) + DAY_MS)));
         nextPayoutOn = days.sort().at(-1)!;
+        // An unbonding saving's last paid day is the one it was asked on; past that, no day pays it.
+        if (position.unbondingStartedAt !== null && nextPayoutOn > accrualDate(position.unbondingStartedAt)) nextPayoutOn = null;
       }
-      out.set(position.id, { accruesFrom, accrual, nextPayoutOn, renewals: renewed.get(position.id) ?? 0 });
+      out.set(position.id, {
+        accruesFrom,
+        accrual,
+        nextPayoutOn,
+        renewals: renewed.get(position.id) ?? 0,
+        staking: stakingState(position, pool.unbondingDays, now),
+        unbondingDays: pool.unbondingDays,
+      });
     }
     return out;
   }
@@ -752,7 +834,7 @@ export class EarnService {
   async positionsOf(userId: string, limit?: number): Promise<PositionRecord[]> {
     const page = assertEarnPositionsListLimit(limit);
     const rows = await this.sql<PositionRow[]>`
-      SELECT id, pool_id, user_id, asset_id, principal, opened_at, matures_at, status, auto_renew
+      SELECT id, pool_id, user_id, asset_id, principal, opened_at, matures_at, status, auto_renew, unbonding_started_at, unbonds_at
         FROM bank.earn_positions WHERE user_id = ${userId} AND status = 'active' ORDER BY opened_at DESC
        LIMIT ${page}
     `;
@@ -816,17 +898,26 @@ export class EarnService {
    * post. The ledger's idempotency key would catch the double-post anyway, but
    * relying on the last line of defence for ordinary correctness is how the last
    * line stops being one.
+   *
+   * A saving in a staking-style pool (BK-earn-04) is taken back in two steps. The first asks it to unbond and moves no
+   * money: the saver confirms it (`unbond: true`, else `bank.unbond_not_confirmed`), and the bank writes when the
+   * unbonding started and ends, once (the same request again returns it unchanged). Before that end, a plain take back
+   * refuses `bank.position_unbonding`. From that end, by the bank's clock, the saving is released through the same
+   * withdraw recipe as any other (`releaseUnbonded` does it for every saving due). The pool's status plays no part: a
+   * pool closed to new savings still lets the ones it has go.
    */
-  async withdraw(positionId: string, now: Date = new Date()): Promise<PositionRecord> {
-    return withMoneySpan('bank.earn.withdraw', { operation: 'earn-withdraw', positionId }, async () => this.withdrawInner(positionId, now));
+  async withdraw(positionId: string, now: Date = new Date(), options: { unbond?: boolean } = {}): Promise<PositionRecord> {
+    return withMoneySpan('bank.earn.withdraw', { operation: 'earn-withdraw', positionId }, async () =>
+      this.withdrawInner(positionId, now, options.unbond === true),
+    );
   }
 
-  private async withdrawInner(positionId: string, now: Date): Promise<PositionRecord> {
+  private async withdrawInner(positionId: string, now: Date, unbond: boolean): Promise<PositionRecord> {
     return transaction(
       this.sql,
       async (tx) => {
         const rows = await tx<PositionRow[]>`
-          SELECT id, pool_id, user_id, asset_id, principal, opened_at, matures_at, status, auto_renew
+          SELECT id, pool_id, user_id, asset_id, principal, opened_at, matures_at, status, auto_renew, unbonding_started_at, unbonds_at
             FROM bank.earn_positions WHERE id = ${positionId} FOR UPDATE
         `;
         const row = rows[0];
@@ -840,6 +931,29 @@ export class EarnService {
         }
         if (row.matures_at && row.matures_at > now) {
           throw new BankError(`Fixed-term position is locked until ${row.matures_at.toISOString()}`, 'bank.position_locked');
+        }
+        const pools = await tx<Array<{ unbonding_days: number | null }>>`
+          SELECT unbonding_days FROM bank.earn_pools WHERE id = ${row.pool_id}
+        `;
+        const unbondingDays = pools[0]?.unbonding_days ?? null;
+        if (unbondingDays !== null && row.unbonds_at === null) {
+          if (!unbond) {
+            throw new BankError(
+              `This saving unbonds for ${unbondingDays} days before it is paid back; confirm the unbonding to start it`,
+              'bank.unbond_not_confirmed',
+            );
+          }
+          const unbondsAt = new Date(now.getTime() + unbondingDays * DAY_MS);
+          await tx`
+            UPDATE bank.earn_positions SET unbonding_started_at = ${now}, unbonds_at = ${unbondsAt}
+             WHERE id = ${positionId} AND unbonds_at IS NULL
+          `;
+          return { ...toPosition(row), unbondingStartedAt: now, unbondsAt };
+        }
+        if (row.unbonds_at !== null && row.unbonds_at > now) {
+          // The same request again is the one already made.
+          if (unbond) return toPosition(row);
+          throw new BankError(`This saving is unbonding until ${row.unbonds_at.toISOString()}`, 'bank.position_unbonding');
         }
 
         const recorded = parseAmount(row.principal);
@@ -866,6 +980,118 @@ export class EarnService {
     );
   }
 
+  /**
+   * The release job (BK-earn-04): every staking-style saving whose unbonding ended by `at` is paid back to the main
+   * balance through the withdraw recipe, keyed `bank.earn.withdraw:<positionId>`, so a run that fires twice, or two
+   * runs at once, release once. A saving that fails is reported with its code and left for the next run; one cannot
+   * stop the rest. `limit` is how many one run tries. Blank refuses, never a default.
+   */
+  async releaseUnbonded(input: { at?: Date; poolId?: string; limit?: number }): Promise<ReleaseReport> {
+    const at = input.at ?? new Date();
+    const limit = assertEarnReleaseBatchLimit(input.limit);
+    const due = await this.sql<Array<{ id: string }>>`
+      SELECT id FROM bank.earn_positions
+       WHERE status = 'active' AND unbonds_at IS NOT NULL AND unbonds_at <= ${at}
+         ${input.poolId ? this.sql`AND pool_id = ${input.poolId}` : this.sql``}
+       ORDER BY unbonds_at ASC, id ASC
+       LIMIT ${limit}
+    `;
+    const report: ReleaseReport = { released: [], skipped: [] };
+    for (const { id } of due) {
+      try {
+        const closed = await this.withdraw(id, at);
+        report.released.push({ positionId: id, principal: closed.principal });
+      } catch (err) {
+        // Taken back by its saver since the list was read: nothing left to release.
+        if (err instanceof BankError && err.code === 'bank.position_closed') continue;
+        report.skipped.push({ positionId: id, code: err instanceof BankError ? err.code : 'bank.earn_release_failed' });
+      }
+    }
+    return report;
+  }
+
+  /**
+   * An approved change of a pool's status (BK-earn-04): closed takes no new savings, open takes them again. It is a
+   * pool-level pause only — the savings it holds keep accruing and can be taken back, and it neither reads nor sets
+   * an account freeze or the posting freeze.
+   *
+   * `revision` is the pool's next status revision, and the change's business key is `pool-status:<poolId>:<revision>`
+   * (one `earn_pool_status_changes` row). The pool row is locked first; an unchanged status refuses
+   * `bank.pool_status_unchanged` and a revision that is not the next one refuses `bank.pool_status_stale`, both before
+   * `approve` spends the second person. Two changes sent at once queue on the lock, so the second finds the revision
+   * taken and refuses without spending its approval. Not retried: a retry after the approval was spent would spend it
+   * again.
+   */
+  async setPoolStatus(input: {
+    poolId: string;
+    status: 'open' | 'closed';
+    reason: string;
+    revision: number;
+    /** Spends the second person's approval; called only once every check has passed. */
+    approve: () => Promise<{ approvalId: string; approverId: string }>;
+  }): Promise<PoolStatusChange> {
+    return transaction(
+      this.sql,
+      async (tx) => {
+        const rows = await tx<Array<{ status: 'open' | 'closed'; status_revision: number; name: string }>>`
+          SELECT status, status_revision, name FROM bank.earn_pools WHERE id = ${input.poolId} FOR UPDATE
+        `;
+        const pool = rows[0];
+        if (!pool) throw new BankError(`Pool ${input.poolId} not found`, 'bank.pool_not_found');
+        if (pool.status === input.status) {
+          throw new BankError(`Pool "${pool.name}" is already ${input.status}`, 'bank.pool_status_unchanged');
+        }
+        const next = Number(pool.status_revision) + 1;
+        if (input.revision !== next) {
+          throw new BankError(
+            `Pool "${pool.name}" is at status revision ${pool.status_revision}; this change must be revision ${next}`,
+            'bank.pool_status_stale',
+          );
+        }
+        const approval = await input.approve();
+        await tx`
+          INSERT INTO bank.earn_pool_status_changes (pool_id, revision, status, previous_status, reason, approval_id)
+          VALUES (${input.poolId}, ${input.revision}, ${input.status}, ${pool.status}, ${input.reason}, ${approval.approvalId})
+        `;
+        await tx`
+          UPDATE bank.earn_pools SET status = ${input.status}, status_revision = ${input.revision}, updated_at = now()
+           WHERE id = ${input.poolId}
+        `;
+        return {
+          poolId: input.poolId,
+          status: input.status,
+          previousStatus: pool.status,
+          revision: input.revision,
+          approvedBy: approval.approverId,
+        };
+      },
+      { isolation: 'read committed', maxAttempts: 1 },
+    );
+  }
+
+  /**
+   * The owner's risk wording for staking-style pools (BK-earn-04): what slashing means for a saver and who owns
+   * a staked saving. Blank, or not `{ "slashing": "<text>", "ownership": "<text>" }`, refuses `bank.earn_risk_wording_unset`: nothing here says a pool carries no risk.
+   */
+  riskDisclosure(): { slashing: string; ownership: string } {
+    const unset = () =>
+      new BankError('The owner has not published the staking risk wording (BANK_EARN_RISK_WORDING_JSON)', 'bank.earn_risk_wording_unset');
+    const raw = this.riskWording?.trim();
+    if (!raw) throw unset();
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(raw);
+    } catch {
+      throw unset();
+    }
+    const wording = parsed as { slashing?: unknown; ownership?: unknown } | null;
+    const text = (value: unknown) => (typeof value === 'string' && value.trim() !== '' ? value.trim() : null);
+    const slashing = text(wording?.slashing);
+    const ownership = text(wording?.ownership);
+    if (!slashing || !ownership) throw unset();
+    return { slashing, ownership };
+  }
+
   // ── Fixed-term auto-renew (BK-earn-03, crypto-credit-earn-057) ─────────────
 
   /**
@@ -879,7 +1105,7 @@ export class EarnService {
       this.sql,
       async (tx) => {
         const rows = await tx<PositionRow[]>`
-          SELECT id, pool_id, user_id, asset_id, principal, opened_at, matures_at, status, auto_renew
+          SELECT id, pool_id, user_id, asset_id, principal, opened_at, matures_at, status, auto_renew, unbonding_started_at, unbonds_at
             FROM bank.earn_positions WHERE id = ${positionId} FOR UPDATE
         `;
         const row = rows[0];
@@ -984,7 +1210,7 @@ export class EarnService {
       this.sql,
       async (tx) => {
         const rows = await tx<PositionRow[]>`
-          SELECT id, pool_id, user_id, asset_id, principal, opened_at, matures_at, status, auto_renew
+          SELECT id, pool_id, user_id, asset_id, principal, opened_at, matures_at, status, auto_renew, unbonding_started_at, unbonds_at
             FROM bank.earn_positions WHERE id = ${positionId} FOR UPDATE
         `;
         const row = rows[0];
@@ -1131,12 +1357,14 @@ export class EarnService {
         // starts earning on the next day; a late cron cannot grant it a full
         // day's yield.
         //
-        // Eligibility (who, which pool, opened before the day) is the table.
+        // Eligibility (who, which pool, opened before the day, not yet unbonding when it began) is the table. A saving
+        // that started unbonding before the day began earns nothing more (BK-earn-04).
         // The money is the ledger earn stake pot. If the recorded principal
         // disagrees with that pot, refuse — a stale column must not size yield.
         const positions = await tx<Array<{ id: string; user_id: string; principal: string }>>`
           SELECT id, user_id, principal FROM bank.earn_positions
            WHERE pool_id = ${pool.id} AND status = 'active' AND opened_at < ${boundary}
+             AND (unbonding_started_at IS NULL OR unbonding_started_at >= ${boundary})
            ORDER BY id ASC
         `;
 
@@ -1289,7 +1517,7 @@ export class EarnService {
   }
 
   /**
-   * Every open pool accrues for the day. The job's entry point.
+   * Every open pool, and every closed pool that still holds savings, accrues for the day. The job's entry point.
    *
    * Isolation is deliberate: an underfunded pool is a loud operator problem for
    * THAT pool (`bank.pool_underfunded` still throws from `accrue` when called
@@ -1300,7 +1528,7 @@ export class EarnService {
    * their stored plans, and reported alongside today's results.
    */
   async accrueAll(at: Date = new Date(), daysPerYear?: number): Promise<AccrueAllReport> {
-    const pools = await this.openPoolsForAccrual();
+    const pools = await this.poolsForAccrual();
     const results: AccrualResult[] = [];
     const failures: AccrueAllReport['failures'] = [];
     await this.resumeEarlierAccruals(accrualDate(at), results, failures);

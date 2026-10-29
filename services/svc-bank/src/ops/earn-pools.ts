@@ -20,6 +20,11 @@ type ConsumeOpsApproval = (
   actionType: string,
   fields: Record<string, string>,
 ) => Promise<string>;
+type ConsumeOpsApprovalPair = (
+  input: { approvalId?: string | null; operationId?: string | null },
+  actionType: string,
+  fields: Record<string, string>,
+) => Promise<{ approvalId: string; approverId: string }>;
 
 const amountString = z.string().regex(/^\d+(\.\d{1,18})?$/, 'amount must be an unsigned decimal string (max 18dp)');
 /** `apr_bps` is numeric(8,0): the column's own bound, not a product limit. */
@@ -27,6 +32,7 @@ const rateBps = z.number().int().min(0).max(99_999_999);
 
 export const CREATE_EARN_POOL_ACTION = 'bank.ops.createEarnPool';
 export const SET_EARN_POOL_RATE_ACTION = 'bank.ops.setEarnPoolRate';
+export const SET_EARN_POOL_STATUS_ACTION = 'bank.ops.setEarnPoolStatus';
 
 const poolInput = z.object({
   poolId: z.string().guid(),
@@ -39,6 +45,8 @@ const poolInput = z.object({
   aprBps: rateBps,
   termDays: z.number().int().min(1).max(3650).nullable(),
   minDeposit: amountString,
+  /** Staking-style (BK-earn-04): days a saving taken back unbonds. Flexible only; omit or null for no unbonding. */
+  unbondingDays: z.number().int().min(1).max(365).nullish(),
 });
 
 export type CreateEarnPoolInput = z.infer<typeof poolInput>;
@@ -53,6 +61,8 @@ export function createEarnPoolFields(input: CreateEarnPoolInput): Record<string,
     aprBps: String(input.aprBps),
     termDays: input.termDays === null ? '' : String(input.termDays),
     minDeposit: formatAmount(parseAmount(input.minDeposit)),
+    // Only a pool that unbonds names it, so the fields of every other pool hash as they always did.
+    ...(input.unbondingDays == null ? {} : { unbondingDays: String(input.unbondingDays) }),
   };
 }
 
@@ -68,6 +78,20 @@ export function setEarnPoolRateFields(input: SetEarnPoolRateInput): Record<strin
   return { poolId: input.poolId, rateBps: String(input.rateBps), reason: input.reason.trim() };
 }
 
+const statusInput = z.object({
+  poolId: z.string().guid(),
+  status: z.enum(['open', 'closed']),
+  reason: z.string().trim().min(3).max(300),
+  /** The pool's next status revision (its current one plus one): the change's key `pool-status:<poolId>:<revision>`. */
+  revision: z.number().int().min(1).max(2_147_483_647),
+});
+
+export type SetEarnPoolStatusInput = z.infer<typeof statusInput>;
+
+export function setEarnPoolStatusFields(input: SetEarnPoolStatusInput): Record<string, string> {
+  return { poolId: input.poolId, status: input.status, reason: input.reason.trim(), revision: String(input.revision) };
+}
+
 const approval = { approvalId: z.string().max(128).nullish(), operationId: z.string().max(128).nullish() };
 
 export function createEarnPoolProcedure(bank: BankServices, consumeOpsApproval: ConsumeOpsApproval, guard: Guard) {
@@ -81,6 +105,7 @@ export function createEarnPoolProcedure(bank: BankServices, consumeOpsApproval: 
         termDays: z.number().int().nullable(),
         minDeposit: amountString,
         status: z.enum(['open', 'closed']),
+        unbondingDays: z.number().int().nullable(),
         approvedBy: z.string(),
       }),
     )
@@ -93,6 +118,9 @@ export function createEarnPoolProcedure(bank: BankServices, consumeOpsApproval: 
         if (input.kind === 'flexible' && input.termDays !== null) {
           throw new BankError('A flexible pool has no term', 'bank.pool_terms_invalid');
         }
+        if (input.kind === 'fixed' && input.unbondingDays != null) {
+          throw new BankError('Only a flexible pool unbonds: a fixed term already has its own lock', 'bank.pool_terms_invalid');
+        }
         const approvedBy = await consumeOpsApproval(input, CREATE_EARN_POOL_ACTION, createEarnPoolFields(input));
         const pool = await bank.earn.createPool({
           id: input.poolId,
@@ -102,6 +130,7 @@ export function createEarnPoolProcedure(bank: BankServices, consumeOpsApproval: 
           aprBps: input.aprBps,
           termDays: input.termDays,
           minDeposit: parseAmount(input.minDeposit),
+          unbondingDays: input.unbondingDays ?? null,
         });
         return {
           poolId: pool.id,
@@ -110,6 +139,7 @@ export function createEarnPoolProcedure(bank: BankServices, consumeOpsApproval: 
           termDays: pool.termDays,
           minDeposit: formatAmount(pool.minDeposit),
           status: pool.status,
+          unbondingDays: pool.unbondingDays,
           approvedBy,
         };
       }),
@@ -154,6 +184,37 @@ export function setEarnPoolRateProcedure(bank: BankServices, consumeOpsApproval:
           effectiveAt: changed.effectiveAt.toISOString(),
           approvedBy,
         };
+      }),
+    );
+}
+
+/**
+ * Close a pool to new savings, or open it again (BK-earn-04, J-bank-08 #6): treasury with a second person, bound to the
+ * pool, the status, the reason and the revision. The savings a closed pool holds keep accruing and can be taken back.
+ * The unchanged and stale checks run under the pool's row lock before the approval is spent (`EarnService.setPoolStatus`).
+ */
+export function setEarnPoolStatusProcedure(bank: BankServices, consumeOpsApprovalPair: ConsumeOpsApprovalPair, guard: Guard) {
+  return scopedProcedure('admin:treasury')
+    .input(statusInput.extend(approval))
+    .output(
+      z.object({
+        poolId: z.string().guid(),
+        status: z.enum(['open', 'closed']),
+        previousStatus: z.enum(['open', 'closed']),
+        revision: z.number().int(),
+        approvedBy: z.string(),
+      }),
+    )
+    .mutation(({ input }) =>
+      guard(async () => {
+        const fields = setEarnPoolStatusFields(input);
+        return bank.earn.setPoolStatus({
+          poolId: input.poolId,
+          status: input.status,
+          reason: fields.reason!,
+          revision: input.revision,
+          approve: () => consumeOpsApprovalPair(input, SET_EARN_POOL_STATUS_ACTION, fields),
+        });
       }),
     );
 }

@@ -17,6 +17,9 @@ const messages = {
   automationDisabled: 'Automated deposits are disabled by current Bank configuration. Existing instructions remain available below.',
   unavailableHistory: 'This list shows active positions only. Pending and closed positions and earned interest aren’t available here.',
   refresh: 'Refresh',
+  stakingOnPool: 'This pool is staking-style: taking it back starts unbonding, so it is done on the pool’s own page.',
+  unbondingOnPool: 'Unbonding: it comes back to your main balance on {date}. The pool’s own page shows where it stands.',
+  openPool: 'Open the pool',
 } as const;
 
 const es = {
@@ -42,6 +45,9 @@ const es = {
   unavailableHistory:
     'Esta lista solo muestra posiciones activas. Las posiciones pendientes y cerradas y los intereses ganados no están disponibles aquí.',
   refresh: 'Actualizar',
+  stakingOnPool: 'Este fondo es tipo staking: retirarlo inicia la desvinculación, así que se hace en la página del fondo.',
+  unbondingOnPool: 'Desvinculando: vuelve a tu saldo principal el {date}. La página del fondo muestra en qué punto está.',
+  openPool: 'Abrir el fondo',
 } as const;
 const fr = {
   description:
@@ -66,5 +72,8 @@ const fr = {
   unavailableHistory:
     'Cette liste ne montre que les positions actives. Les positions en attente ou clôturées et les intérêts gagnés ne sont pas disponibles ici.',
   refresh: 'Actualiser',
+  stakingOnPool: 'Ce fonds est de type staking : reprendre lance le déblocage, cela se fait donc sur la page du fonds.',
+  unbondingOnPool: 'En déblocage : revient sur ton solde principal le {date}. La page du fonds montre où elle en est.',
+  openPool: 'Ouvrir le fonds',
 } as const;
 export const earnCopy = defineCopy('customer.money.earn', messages, { es, fr });

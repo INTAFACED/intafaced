@@ -199,6 +199,8 @@ export interface BankServiceOptions {
   accountDetails?: AccountDetailsOptions;
   /** Owner-published base-tier account terms as JSON (`BANK_ACCOUNT_TERMS_JSON`). No default: blank refuses. */
   accountTerms?: string | undefined;
+  /** Owner-published staking risk wording as JSON (`BANK_EARN_RISK_WORDING_JSON`, BK-earn-04). No default: blank refuses. */
+  earnRiskWording?: string | undefined;
   /** Owner-published currencies an account may hold (`BANK_ACCOUNT_CURRENCIES`). No default: blank refuses an add. */
   accountCurrencies?: string | undefined;
   /** Owner-published number of live named spaces per account (`BANK_SPACE_LIMIT`). No default: blank refuses a create. */
@@ -309,6 +311,7 @@ export function createBankServices(sql: Sql, ledger: LedgerClient, history: Ledg
     nativeAssetId: options.nativeAssetId ?? 'IFC',
     supplyGate: assetPauses,
     accounts: options.recipients,
+    riskWording: options.earnRiskWording,
   });
   const analytics = new SpendAnalytics(spaces, history);
   const portfolio = new PortfolioService(ledger, spaces, {

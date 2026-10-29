@@ -35,6 +35,18 @@ export type BankErrorCode =
   | 'bank.fixed_pool_rate_locked'
   /** A rate change that names the rate already in force records nothing. */
   | 'bank.pool_rate_unchanged'
+  /** A pool status change that names the status already in force records nothing, and spends no approval (BK-earn-04). */
+  | 'bank.pool_status_unchanged'
+  /** A pool status change whose revision is not the pool's next one: another change landed first (BK-earn-04). */
+  | 'bank.pool_status_stale'
+  /** A take back from a staking-style pool that did not confirm the unbonding it starts (BK-earn-04). */
+  | 'bank.unbond_not_confirmed'
+  /** A plain take back of a saving that is still unbonding; it is released when the unbonding ends (BK-earn-04). */
+  | 'bank.position_unbonding'
+  /** The owner has not published the staking risk wording (`BANK_EARN_RISK_WORDING_JSON`), or it is not in shape. */
+  | 'bank.earn_risk_wording_unset'
+  /** A release of an ended unbonding failed for a reason without its own code; the next run tries again. */
+  | 'bank.earn_release_failed'
   | 'bank.pool_underfunded'
   /**
    * No open pool carries an operator-configured APR for the requested earn
@@ -602,6 +614,7 @@ export type BankErrorCode =
    */
   | 'bank.earn_resume_pending_limit_unset'
   | 'bank.earn_renew_batch_limit_unset'
+  | 'bank.earn_release_batch_limit_unset'
   | 'bank.loan_resume_pending_limit_unset'
   | 'bank.loan_accrue_batch_limit_unset'
   | 'bank.transfer_due_limit_unset'
