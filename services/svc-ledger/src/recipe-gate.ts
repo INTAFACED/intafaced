@@ -54,6 +54,16 @@ const S3 = 'ffffffff-ffff-4fff-8fff-ffffffffffff';
 const AMT = parseAmount('10');
 const MARKET_HELD = { purchaseId: 'mh1', listingId: 'l1', buyerId: U, assetId: 'USDT', amount: AMT };
 const QUOTE = parseAmount('100');
+const BUYBACK_FILL = {
+  fillId: 'bf1',
+  makerId: U2,
+  makerOrderId: 'mo',
+  takerOrderId: 'bo1',
+  baseAsset: 'IFC',
+  quoteAsset: 'USDT',
+  qty: AMT,
+  quoteAmount: QUOTE,
+};
 const CAMPAIGN_REWARD_KEY = `task:${S1}:${U}:once`;
 
 const VARIABLE_REASON_RECIPES: ReadonlySet<RecipeName> = new Set(['feeCharge', 'rewardPay']);
@@ -875,6 +885,18 @@ function samplePosts(): Array<{ name: RecipeName; post: PostRequest }> {
         commissionBps: 0,
       }),
     },
+    {
+      name: 'buybackOrderHold',
+      post: recipes.buybackOrderHold({ orderId: 'bo1', quoteAsset: 'USDT', amount: AMT }),
+    },
+    {
+      name: 'buybackOrderHoldRelease',
+      post: recipes.buybackOrderHoldRelease({ orderId: 'bo1', quoteAsset: 'USDT', amount: AMT }),
+    },
+    {
+      name: 'buybackTakerFill',
+      post: recipes.buybackTakerFill({ ...BUYBACK_FILL, makerFeeBps: 10 }),
+    },
     ...extraShapePosts(),
   ];
 }
@@ -898,6 +920,7 @@ function extraShapePosts(): Array<{ name: RecipeName; post: PostRequest }> {
     { name: 'tradeFill', post: recipes.tradeFill({ ...fill, makerFeeBps: 0, takerFeeBps: 10 }) },
     { name: 'marketMakerMakerFill', post: recipes.marketMakerMakerFill({ ...fill, makerFeeBps: 10, takerFeeBps: 0 }) },
     { name: 'marketMakerMakerFill', post: recipes.marketMakerMakerFill({ ...fill, makerFeeBps: 0, takerFeeBps: 10 }) },
+    { name: 'buybackTakerFill', post: recipes.buybackTakerFill({ ...BUYBACK_FILL, makerFeeBps: 0 }) },
     { name: 'marketMakerMakerFill', post: recipes.marketMakerMakerFill({ ...fill, makerFeeBps: 10, takerFeeBps: 10 }) },
     {
       name: 'marketPurchase',

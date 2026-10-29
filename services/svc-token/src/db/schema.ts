@@ -38,7 +38,16 @@ export const proposalKindEnum = token.enum('proposal_kind', ['listing', 'fee_par
  * returns `token.governance_execute_unwired` and does not move value. A future
  * `opens_at` stays `draft` until `openDueProposals` moves it to `open`.
  */
-export const proposalStatusEnum = token.enum('proposal_status', ['draft', 'open', 'passed', 'rejected', 'executed', 'cancelled']);
+export const proposalStatusEnum = token.enum('proposal_status', [
+  'draft',
+  'open',
+  'passed',
+  'rejected',
+  'executed',
+  'cancelled',
+  /** A non-basic voting type closed: only its ranking is stored until the owner decides what such a result means. */
+  'closed_ranked',
+]);
 
 /** Abstains are recorded, not omitted — quorum maths needs to see them. */
 export const voteChoiceEnum = token.enum('vote_choice', ['for', 'against', 'abstain']);
@@ -231,6 +240,20 @@ export const proposals = token.table(
     revision: integer('revision').notNull().default(1),
     ordinal: integer('ordinal'),
     spaceId: text('space_id'),
+    /** `basic` (for/against/abstain) or one of the multi-choice types in `ballot-tally.ts`. */
+    votingType: text('voting_type').notNull().default('basic'),
+    /** Choice labels for a non-basic type, in index order. Null on `basic`. */
+    choices: jsonb('choices'),
+    /**
+     * Seal of the voting power measured when the proposal was created: how
+     * many snapshot rows, their total (the quorum electorate) and a sha256 of
+     * the sorted rows. Null on proposals from before the snapshot.
+     */
+    snapshotCount: integer('snapshot_count'),
+    snapshotTotal: amount('snapshot_total'),
+    snapshotHash: text('snapshot_hash'),
+    /** Choice indices, best first, written when a non-basic proposal closes. */
+    ranking: jsonb('ranking'),
   },
   (t) => [
     /**
@@ -304,8 +327,17 @@ export const governanceVotes = token.table(
      * from before this column; close refuses those rather than reading live pots.
      */
     eligibleStake: amount('eligible_stake'),
-    choice: voteChoiceEnum('choice').notNull(),
+    /** for/against/abstain on `basic` only. Null when `ballot` holds the vote; a non-basic abstain is `{ kind: 'abstain' }` there. */
+    choice: voteChoiceEnum('choice'),
+    /** A non-basic ballot as validated data (`ballot-tally.ts`). Exactly one of choice or ballot is set. */
+    ballot: jsonb('ballot'),
     castAt: tstz('cast_at').notNull().defaultNow(),
+    /** The linked wallet whose signature identity checked (lower-case). Null only on votes from before signed votes. */
+    signedBy: text('signed_by'),
+    /** The EIP-191 signature over the vote's message (`vote-signature.ts`), kept so the vote can be re-checked. */
+    signature: text('signature'),
+    /** The exact message the signature covers, as svc-token built it from the request. Null only on votes from before signed votes. */
+    signedMessage: text('signed_message'),
   },
   (t) => [
     /** The tally reads every vote for one proposal — this is that scan. */
@@ -313,6 +345,25 @@ export const governanceVotes = token.table(
     /** One ballot per member per proposal. The anti-ballot-stuffing rule. */
     uniqueIndex('governance_votes_one_per_user_idx').on(t.proposalId, t.userId),
   ],
+);
+
+/**
+ * Voting power per account, measured from the stake pots when a proposal is
+ * created (MC-token-03). A ballot's weight is this row, never a client value
+ * and never a later read: stake opened after creation has no row (power zero),
+ * and an unstake after creation does not change it. Never spendable.
+ */
+export const governanceSnapshots = token.table(
+  'governance_snapshots',
+  {
+    proposalId: text('proposal_id')
+      .notNull()
+      .references(() => proposals.id),
+    userId: text('user_id').notNull(),
+    power: amount('power').notNull(),
+    takenAt: tstz('taken_at').notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.proposalId, t.userId] }), index('governance_snapshots_user_idx').on(t.userId, t.takenAt)],
 );
 
 /**

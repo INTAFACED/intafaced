@@ -1,13 +1,14 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { AuthError, type Principal } from '@intafaced/auth';
 import { ConvertHistoryError } from './convert-history.js';
+import { privateRead } from '../route-inventory.js';
 
 export function attachConvertExportRoute(
   app: FastifyInstance,
   convertExport: ((principal: Principal, query: { from?: string; to?: string }) => Promise<string>) | undefined,
   requirePrincipal: (req: FastifyRequest, reply: FastifyReply) => Principal | null,
 ): void {
-  app.get<{ Querystring: { from?: string; to?: string } }>('/api/v1/convert/export', async (req, reply) => {
+  app.get<{ Querystring: { from?: string; to?: string } }>('/api/v1/convert/export', privateRead, async (req, reply) => {
     const principal = requirePrincipal(req, reply);
     if (!principal) return;
     if (!convertExport) {

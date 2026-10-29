@@ -9,7 +9,8 @@ import { fundedTrader, signIn, signUp } from './desk.mjs';
 // local stack, verified and funded with TEST USDT through the real ledger; accept binds the quoted price and size,
 // settle posts once and expiry moves nothing, which the steps check against the ledger balance.
 // The region-block clause of #1 and the settlement name-match clause of #3 are compliance gates and wait for launch
-// prep (owner decision 2026-10-27); the level gate of #3 stays (identity verification).
+// prep (owner decision 2026-10-27); the level gate of #3 stays (identity verification). The region block has its own
+// #1 test, red by name with that blocker until it is built.
 // The stack publishes a TEST desk law (tooling/profiles/test-owner-values/trade.json): a 60 s firm quote and a 60 s
 // window to settle an accepted one, so #7 and #8 watch both run out on the real clock. Each step checks the service's
 // own record of the quote (rfq.get through Edge) and the ledger balance, not only the screen. Every request asks the
@@ -155,6 +156,14 @@ async function stake(who, client, amount) {
   await expect.poll(() => stakedOf(client)).toBe(amount);
 }
 
+/**
+ * A TEST account registered in `region`. Not built: the stack has no way to register an account in a region yet, and
+ * region gates wait for launch prep (owner decision 2026-10-27), so this fails by that name.
+ */
+async function signUpIn(page, region) {
+  throw new Error(`no TEST account can be registered in ${region} yet: region gates wait for launch prep (owner decision 2026-10-27)`);
+}
+
 async function openOtc(page) {
   await signIn(page, run.read().who);
   await page.goto('/otc');
@@ -279,6 +288,41 @@ test(`${J} #1 asset list unpublished: "Not set" on the strip, the ask refuses tr
     tradeSwitch('LOCAL_STACK_TRADE_OTC_ASSETS', true);
   }
   expect((await deskStatus(me)).assets).toEqual(['BTC']);
+});
+
+// BLOCKED: compliance gates wait for launch prep (owner decision 2026-10-27). This test stays red, by this name, until
+// the desk publishes the regions it refuses (CB-otc-21); it fails at that first missing part, quickly.
+test(`${J} #1 region block (BLOCKED until launch prep, owner decision 2026-10-27): the desk publishes the regions it refuses, and an account in one is refused, nothing kept`, async ({
+  page,
+}) => {
+  test.setTimeout(120_000);
+  const me = await api(run.read().who);
+  const status = await deskStatus(me);
+  // The service's own list of refused regions is what the strip must show; a desk with none publishes an empty list,
+  // never a missing field.
+  expect(
+    status,
+    'the desk publishes no region block list: compliance gates wait for launch prep (owner decision 2026-10-27)',
+  ).toHaveProperty('blockedRegions');
+  expect(Array.isArray(status.blockedRegions)).toBe(true);
+  expect(status.blockedRegions.length, 'a region block proves a refusal only with a region on the list').toBeGreaterThan(0);
+
+  await openOtc(page);
+  const regions = desk(page).getByRole('region', { name: 'Regions the desk refuses' });
+  await expect(regions.getByRole('listitem')).toHaveText(status.blockedRegions, UNBUILT);
+
+  // An account registered in a refused region asks for a size the house desk prices in #6: only the region can refuse it.
+  const blocked = await signUpIn(page, status.blockedRegions[0]);
+  const client = await api(blocked);
+  const before = await client.balances();
+  const quotes = await listedQuotes(client);
+  await page.goto('/otc');
+  expect(await askRefused(page, '0.5')).toBe('trade.otc_region_blocked');
+  await expect(page.getByText('trade.otc_region_blocked')).toBeVisible();
+  await expect(card(page)).toHaveCount(0);
+  // Re-read after the refusal: no quote was recorded and nothing moved or was held.
+  expect(await listedQuotes(client)).toEqual(quotes);
+  expect(await client.balances()).toEqual(before);
 });
 
 test(`${J} #2 blank provider list: the room says so, the ask refuses trade.otc_makers_unset, no quote is kept`, async ({ page }) => {
