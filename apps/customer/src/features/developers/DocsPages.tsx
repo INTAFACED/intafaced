@@ -11,10 +11,12 @@ import {
   PRODUCTS,
   REST_REFERENCE,
   SIGN_WINDOW_SECONDS,
+  STREAM_DOOR_PATH,
   STREAM_REFERENCE,
   permissionTable,
   routeLine,
   scopeFor,
+  streamName,
   withinWindow,
   type Product,
 } from './developers-reference';
@@ -103,15 +105,19 @@ export function ReferencePage({ title }: { title: string }) {
                   <thead>
                     <tr>
                       <th scope="col">{t('colStream')}</th>
+                      <th scope="col">{t('colDoor')}</th>
                       <th scope="col">{t('colPermission')}</th>
                     </tr>
                   </thead>
                   <tbody>
                     {streams.map((stream) => (
-                      <tr key={stream.channel}>
+                      <tr key={`${stream.door} ${stream.channel}`} data-stream-door={stream.door} data-stream-channel={stream.channel}>
                         <th scope="row">
-                          <code>{stream.channel}</code>
+                          <code>{streamName(stream)}</code>
                         </th>
+                        <td>
+                          {t(`door_${stream.door}`)} <code>{STREAM_DOOR_PATH[stream.door]}</code>
+                        </td>
                         <td>{stream.private ? t('privateStream', { scope: 'trade:read' }) : t('publicStream')}</td>
                       </tr>
                     ))}
@@ -123,6 +129,7 @@ export function ReferencePage({ title }: { title: string }) {
         );
       })}
       <p className="muted">{t('referenceMore')}</p>
+      <p className="muted">{t('streamsLive')}</p>
     </Page>
   );
 }
