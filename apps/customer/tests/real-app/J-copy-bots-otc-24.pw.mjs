@@ -1,6 +1,7 @@
+import { createHash } from 'node:crypto';
 import { test, expect } from '@playwright/test';
 import { approverSessions, makeContext, setFeeDiscountSchedule } from '../../../../tooling/scripts/local-test-gates.mjs';
-import { api, fund, journeyState, tool } from './stack.mjs';
+import { api, fromUnits, fund, journeyState, toUnits, tool } from './stack.mjs';
 import { fundedTrader, signIn, signUp } from './desk.mjs';
 
 // J-copy-bots-otc-24, in the running app (docs/roadmap/journeys.json): ask the quote desk at /otc for a firm price on a
@@ -69,6 +70,34 @@ async function publishedWindow() {
   return /settleWindowMs=(\d+|unset)/.exec(desk.body.result.data.statusLine)?.[1];
 }
 
+/** The desk's stake floor as its status line publishes it (`minStake=<decimal>`). */
+async function publishedMinStake(client) {
+  const desk = await client.get('/api/trade/trpc/otc.deskStatus');
+  return /(?:^| )minStake=(\S+)/.exec(desk.body.result.data.statusLine)?.[1];
+}
+
+/** svc-token's own record of what the account has staked, as the account reads it. */
+async function stakedOf(client) {
+  const read = await client.get('/api/token/trpc/stakeOf');
+  expect(read.status, JSON.stringify(read.body).slice(0, 300)).toBe(200);
+  return read.body.result.data.staked;
+}
+
+/**
+ * Stakes `amount` TEST IFC for the account through svc-token's own stake door, funded first through the ledger. The
+ * deposit ref and the stake id are business keys for this account and amount, so a retried step neither funds nor
+ * stakes twice.
+ */
+async function stake(who, client, amount) {
+  const hex = createHash('sha256').update(`${J}:stake:${who.email}:${amount}`).digest('hex');
+  expect(fund(who.email, 'IFC', amount, `${J}-stake-${hex.slice(0, 16)}`).tx).toBeTruthy();
+  // Name-based (version 5) uuid from the business key.
+  const stakeId = `${hex.slice(0, 8)}-${hex.slice(8, 12)}-5${hex.slice(13, 16)}-8${hex.slice(17, 20)}-${hex.slice(20, 32)}`;
+  const staked = await client.post('/api/token/trpc/stake', { amount, tier: 'flex', stakeId });
+  expect(staked.status, JSON.stringify(staked.body).slice(0, 300)).toBe(200);
+  await expect.poll(() => stakedOf(client)).toBe(amount);
+}
+
 async function openOtc(page) {
   await signIn(page, run.read().who);
   await page.goto('/otc');
@@ -102,13 +131,60 @@ async function stakeReadable(who) {
   });
 }
 
-test(`${J} starts: a verified TEST account with 50000 USDT`, async ({ page }) => {
+test(`${J} starts: a verified TEST account with 50000 USDT, staked to the desk's tier`, async ({ page }) => {
   test.setTimeout(180_000);
   const who = await fundedTrader(page, 'ot', '50000');
+  // Start the file again before anything can fail, so no later step reads an earlier run's account.
+  run.reset({ who });
   await stakeReadable(who);
+  const client = await api(who);
+  // The desk's own floor, read back, not a number this file chose; the stack publishes a non-zero TEST floor.
+  const floor = await publishedMinStake(client);
+  expect(toUnits(floor)).toBeGreaterThan(0n);
+  // Staked exactly to the floor (read back from svc-token inside stake()): at the tier, so the desk prices for this
+  // account (#6 to #8 ask it).
+  await stake(who, client, floor);
   // The desk is the counterparty and sells from the house inventory: TEST BTC for the one 0.5 BTC settle in #7.
   fund('house', 'BTC', '1');
-  run.reset({ who });
+  run.write({ floor });
+});
+
+test(`${J} starts: below the desk's tier the price request is refused with trade.otc_stake_gate and records nothing`, async ({ page }) => {
+  test.setTimeout(180_000);
+  const { floor } = run.read();
+  const below = await fundedTrader(page, 'ob', '50000');
+  const me = await api(below);
+  // Exactly one IFC under the floor, so the gate is tested near its edge, not only at zero.
+  const short = fromUnits(toUnits(floor) - 10n ** 18n);
+  expect(toUnits(short)).toBeGreaterThan(0n);
+  await stake(below, me, short);
+  const before = await me.balances();
+  // The account's quotes as svc-trade records them (rfq.list), over a window around this step.
+  const window = { from: new Date(Date.now() - 3_600_000).toISOString(), to: new Date(Date.now() + 3_600_000).toISOString(), limit: 50 };
+  const listed = async () => {
+    const read = await me.get(`/api/trade/trpc/rfq.list?input=${encodeURIComponent(JSON.stringify(window))}`);
+    expect(read.status, JSON.stringify(read.body).slice(0, 300)).toBe(200);
+    return read.body.result.data.rows;
+  };
+  expect(await listed()).toEqual([]);
+
+  await signIn(page, below);
+  await page.goto('/otc');
+  await expect(desk(page)).toBeVisible();
+  const answer = page.waitForResponse((res) => res.url().includes('rfq.quote'));
+  await request(page).getByRole('combobox', { name: 'Pair' }).click();
+  await page.getByRole('option', { name: 'BTC/USDT', exact: true }).click();
+  await request(page).getByRole('textbox', { name: 'Quantity' }).fill('0.5');
+  await page.getByRole('button', { name: 'Request price' }).click();
+  const refused = await (await answer).json();
+  expect([refused].flat()[0].error.data.cause.code).toBe('trade.otc_stake_gate');
+  await expect(page.getByText('trade.otc_stake_gate')).toBeVisible();
+  await expect(card(page)).toHaveCount(0);
+
+  // Re-read after the refusal: no quote was recorded for the account and nothing moved or was held.
+  expect(await listed()).toEqual([]);
+  expect(await me.balances()).toEqual(before);
+  expect(await stakedOf(me)).toBe(short);
 });
 
 test(`${J} #1 opens OTC: the overview and the owner's asset list, "Not set" when blank`, async ({ page }) => {
