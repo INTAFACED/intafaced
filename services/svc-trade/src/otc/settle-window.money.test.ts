@@ -34,7 +34,7 @@ const law = (settleWindowMs: number | null): OtcDeskLaw => ({
   settleWindowMs,
 });
 
-async function boundDesk(settleWindowMs: number | null, ledger: LedgerClient & { journal(): unknown[] } = new MemoryLedger()) {
+async function boundDesk(settleWindowMs: number | null, ledger: MemoryLedger = new MemoryLedger()) {
   await ledger.post(recipes.marketMakerSeedFund({ assetId: 'BTC', amount: parseAmount('5'), seedId: 'otc-window-btc' }));
   await ledger.post(recipes.deposit({ userId: USER, assetId: 'USDT', amount: parseAmount('5000'), rail: 'test', railRef: 'otc-window-u' }));
   const clock = { now: new Date('2026-10-29T12:00:00.000Z') };

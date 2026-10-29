@@ -94,7 +94,7 @@ const messages = {
   'Phase open-late':
     'This quote’s time is up on this device’s clock. The desk may not have recorded that, so re-read it before doing anything.',
   'Phase bound':
-    'Accepted, not settled: the price is bound and nothing has moved yet; settle to complete. Accepting again shows the original fill, not a new one.',
+    'Accepted, not settled: the price is bound and nothing has moved; settle to complete. Accepting again shows the original fill, not a new one.',
   'Phase settled': 'Settled. The trade is complete.',
   'Phase expired': 'Expired. It holds nothing; ask for a new price.',
   'Phase unknown': 'The desk reports a stage this screen doesn’t recognise, so no action is offered. Check status to read it again.',
