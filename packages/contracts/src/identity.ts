@@ -293,6 +293,33 @@ export const trustedDeviceStateSchema = z
   })
   .strict();
 export type TrustedDeviceState = z.infer<typeof trustedDeviceStateSchema>;
+/**
+ * Whether a message was signed by a wallet linked to an account (`POST /internal/wallet-signatures/verify`, service
+ * credentials). Identity holds the links (`wallet_identities`, made by a signed EIP-4361 challenge), so a service that
+ * needs a person's wallet signature on its own message asks here instead of keeping a copy. Identity recovers the signer
+ * from an EIP-191 `personal_sign` signature over `message` exactly as sent; it stores nothing and decides nothing else.
+ * - `linked`: the signer is a wallet linked to `userId` (`address`, lower-case).
+ * - `no_wallet`: the account has no linked wallet, so nothing it signs can be checked.
+ * - `not_linked`: the signature is readable but its signer is not one of the account's wallets.
+ * - `invalid`: no signer can be recovered from the signature.
+ * The caller words its own message and binds what it means (its record, the person) into it.
+ */
+export const WALLET_SIGNATURE_VERIFY_PATH = '/internal/wallet-signatures/verify' as const;
+export const walletSignatureVerifyRequestSchema = z
+  .object({
+    userId: z.string().guid(),
+    message: z.string().min(1).max(4096),
+    signature: z.string().regex(/^0x[0-9a-fA-F]{130}$/),
+  })
+  .strict();
+export type WalletSignatureVerifyRequest = z.infer<typeof walletSignatureVerifyRequestSchema>;
+export const walletSignatureVerifySchema = z.discriminatedUnion('state', [
+  z.object({ state: z.literal('linked'), address: z.string().regex(/^0x[0-9a-f]{40}$/) }).strict(),
+  z.object({ state: z.literal('no_wallet') }).strict(),
+  z.object({ state: z.literal('not_linked') }).strict(),
+  z.object({ state: z.literal('invalid') }).strict(),
+]);
+export type WalletSignatureVerify = z.infer<typeof walletSignatureVerifySchema>;
 /** The step-up door for an unlock request (see `CUSTOMER_STEP_UP_DOORS`). Locking needs none: it only takes power away. */
 export const SECURITY_LOCK_UNLOCK_STEP_UP_SCOPE = 'identity.step_up.security_lock_unlock' as const;
 export const SECURITY_LOCK_UNLOCK_STEP_UP_PURPOSE = 'account.securityLock.unlock' as const;
