@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { approverSessions, makeContext, setFeeDiscountSchedule } from '../../../../tooling/scripts/local-test-gates.mjs';
-import { api, fund, journeyState } from './stack.mjs';
+import { api, fund, journeyState, tool } from './stack.mjs';
 import { fundedTrader, signIn, signUp } from './desk.mjs';
 
 // J-copy-bots-otc-24, in the running app (docs/roadmap/journeys.json): ask the quote desk at /otc for a firm price on a
@@ -48,6 +48,25 @@ async function accept(page, quote) {
   await quote.getByRole('button', { name: 'Accept', exact: true }).click();
   await dialog(page).getByRole('button', { name: 'Accept at this price' }).click();
   await expect(quote.getByTestId('phase-line')).toContainText('Accepted, not settled');
+}
+
+/** svc-trade restarted with the desk's settle window blank, or back on the stack's TEST window. */
+function tradeSettleWindow(on) {
+  const before = process.env.LOCAL_STACK_TRADE_OTC_SETTLE_WINDOW;
+  if (on) delete process.env.LOCAL_STACK_TRADE_OTC_SETTLE_WINDOW;
+  else process.env.LOCAL_STACK_TRADE_OTC_SETTLE_WINDOW = 'off';
+  try {
+    tool('local-test-stack.mjs', 'restart', 'trade');
+  } finally {
+    if (before === undefined) delete process.env.LOCAL_STACK_TRADE_OTC_SETTLE_WINDOW;
+    else process.env.LOCAL_STACK_TRADE_OTC_SETTLE_WINDOW = before;
+  }
+}
+
+/** The desk's settle window in ms as its status line publishes it, or 'unset'. */
+async function publishedWindow() {
+  const desk = await (await api(run.read().who)).get('/api/trade/trpc/otc.deskStatus');
+  return /settleWindowMs=(\d+|unset)/.exec(desk.body.result.data.statusLine)?.[1];
 }
 
 async function openOtc(page) {
@@ -165,7 +184,7 @@ test(`${J} #6 accepts a quote: bound (accepted, not settled) at the quoted price
 test(`${J} #7 settles later inside the deferral window: one settlement posts with its key; after the window it is refused; a blank window reads "Not set"`, async ({
   page,
 }) => {
-  test.setTimeout(240_000);
+  test.setTimeout(420_000);
   await openOtc(page);
   // One quote accepted now and left past its window, one accepted and settled later inside it.
   const late = await ask(page);
@@ -177,8 +196,8 @@ test(`${J} #7 settles later inside the deferral window: one settlement posts wit
 
   const bound = await rfq(soonId);
   const me = await api(run.read().who);
-  const desk = await me.get('/api/trade/trpc/otc.deskStatus');
-  const windowMs = Number(/settleWindowMs=(\d+)/.exec(desk.body.result.data.statusLine)?.[1]);
+  const windowMs = Number(await publishedWindow());
+  expect(windowMs).toBeGreaterThan(0);
   expect(Date.parse(bound.settleBy) - Date.parse(bound.acceptedAt)).toBe(windowMs);
   expect(bound.settleWindowMs).toBe(windowMs);
 
@@ -213,6 +232,34 @@ test(`${J} #7 settles later inside the deferral window: one settlement posts wit
   await expect(page.getByText('trade.rfq_window_passed')).toBeVisible();
   expect((await rfq(lateId)).lifecycle).toBe('bound');
   expect(await balances()).toEqual(after);
+
+  // A blank window: the desk offers no deferral. The card reads "Not set" and names the quote's own expiry as the
+  // deadline; a settle after that expiry is refused with its code and nothing moves.
+  try {
+    tradeSettleWindow(false);
+    expect(await publishedWindow()).toBe('unset');
+    await page.goto('/otc');
+    const blank = await ask(page);
+    const blankId = await blank.getAttribute('data-quote-id');
+    await accept(page, blank);
+    const blankBound = await rfq(blankId);
+    expect(blankBound.settleWindowMs).toBeNull();
+    expect(blankBound.settleBy).toBe(blankBound.expiresAt);
+    await expect(blank.getByTestId('settle-by')).toHaveText(
+      /^Not set: no deferral, settle by the quote expiry \d{2} [A-Z][a-z]{2}, \d{2}:\d{2}/,
+    );
+    const beforeBlank = await balances();
+    await page.waitForTimeout(Math.max(0, Date.parse(blankBound.expiresAt) - Date.now()) + 1_000);
+    await page.goto(`/otc?quoteId=${blankId}`);
+    await card(page).getByRole('button', { name: 'Settle', exact: true }).click();
+    await dialog(page).getByRole('button', { name: 'Settle now' }).click();
+    await expect(page.getByText('trade.rfq_window_passed')).toBeVisible();
+    expect((await rfq(blankId)).lifecycle).toBe('bound');
+    expect(await balances()).toEqual(beforeBlank);
+  } finally {
+    tradeSettleWindow(true);
+  }
+  expect(await publishedWindow()).toBe(String(windowMs));
 });
 
 test(`${J} #8 lets a quote expire, then re-prices it: the old quote stays expired, a new RFQ exists, and balances are unchanged by the expiry`, async ({
