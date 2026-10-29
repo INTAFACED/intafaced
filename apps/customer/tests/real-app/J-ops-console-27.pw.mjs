@@ -5,7 +5,7 @@ import { confirm, deskPath, previewed, reviewSheet, signIn, signUp, verify } fro
 import { addAuthenticator, nextCode } from './identity-factors.mjs';
 import { ADMIN, founderSignIn } from './admin.mjs';
 
-// J-ops-console-27, in the running app (docs/roadmap/journeys.json): the money loop. One fresh customer signs up, passes
+// J-ops-console-27, in the running app (its step table lands in docs/roadmap/journeys.json): the money loop. One fresh customer signs up, passes
 // TEST verification, deposits on the TEST chain, buys on the desk, pays a person, cashes out, withdraws, and every cent
 // reconciles. One test per step, titled "J-ops-console-27 #<n>", run in order on that one TEST account (#5's recipient
 // is a second fresh account). Nothing is funded by hand: the only money in is #3's TEST chain transfer, delivered to
@@ -76,8 +76,12 @@ async function confirmItsMe(page) {
   return dialog;
 }
 
-/** `who`'s own API through Edge, with a session of its own (not the browser's): REST reads and tRPC by service. */
-async function client(who = state().who, secret = state().secret) {
+/**
+ * `who`'s own API through Edge, with a session of its own (not the browser's): REST reads and tRPC by service. The run's
+ * own customer signs in with its authenticator once #6 has set one up; anyone else (#5's recipient) with a password only.
+ */
+async function client(who = state().who) {
+  const secret = who.email === state().who.email ? state().secret : undefined;
   const login = await fetch(`${EDGE}/api/identity/trpc/auth.login`, {
     method: 'POST',
     headers: { origin: ORIGIN, 'content-type': 'application/json' },
@@ -136,7 +140,10 @@ test(`${J} #2 passes TEST verification: identity reads the account as fully veri
   // Signed in again, the app no longer asks for verification.
   await signIn(page, who);
   await page.goto(deskPath());
-  await page.getByRole('textbox', { name: 'Amount' }).first().fill(BUY_BTC);
+  // svc-trade answers the desk's market preview for this account (200, where an unverified one is refused), and once that
+  // answer is in, the desk gives no verification reason. The buy itself waits for funds (#3).
+  await page.locator('[role=tab]', { hasText: /^Market$/ }).click();
+  await previewed(page, () => page.getByRole('textbox', { name: 'Amount' }).first().fill(BUY_BTC));
   await expect(page.locator('#dk-reason-buy')).not.toContainText('Verify your identity first');
 });
 
@@ -197,6 +204,14 @@ test(`${J} #4 buys ${BUY_BTC} BTC on the desk: a real matching-engine fill, and 
   await page.goto(deskPath());
   await expect(page.getByRole('button', { name: 'Buy BTC' })).toBeVisible();
   await bestPrices();
+  // The closed orders this account had before, so the order read back is the one this step placed.
+  const closedBuys = async () => {
+    const closed = await api.get(`/api/v1/orders/closed?symbol=${encodeURIComponent('BTC/USDT')}&limit=50`);
+    expect(closed.ok, JSON.stringify(closed.body)).toBe(true);
+    const list = Array.isArray(closed.data) ? closed.data : (closed.data.orders ?? closed.data.items ?? []);
+    return list.filter((o) => o.side === 'buy' && o.status === 'closed');
+  };
+  const earlier = new Set((await closedBuys()).map((o) => o.id));
   await page.locator('[role=tab]', { hasText: /^Market$/ }).click();
   await previewed(page, () => page.getByRole('textbox', { name: 'Amount' }).first().fill(BUY_BTC));
   await page.getByRole('button', { name: 'Buy BTC' }).click();
@@ -208,9 +223,9 @@ test(`${J} #4 buys ${BUY_BTC} BTC on the desk: a real matching-engine fill, and 
   await expect
     .poll(
       async () => {
-        const closed = await api.get(`/api/v1/orders/closed?symbol=${encodeURIComponent('BTC/USDT')}&limit=10`);
-        const list = closed.ok ? (Array.isArray(closed.data) ? closed.data : (closed.data.orders ?? closed.data.items ?? [])) : [];
-        order = list.find((o) => o.side === 'buy' && o.status === 'closed');
+        const placed = (await closedBuys()).filter((o) => !earlier.has(o.id));
+        expect(placed.length).toBeLessThanOrEqual(1);
+        order = placed[0];
         return order?.id ?? null;
       },
       { timeout: 20_000 },
@@ -247,7 +262,7 @@ test(`${J} #5 pays a person TEST ${PAY} ${ASSET}: the recipient is credited and 
   run.write({ recipient });
   const { who } = state();
   const sender = await client();
-  const them = await client(recipient, undefined);
+  const them = await client(recipient);
   const before = { sender: total(await sender.balances(), ASSET), recipient: total(await them.balances(), ASSET) };
   expect(before.recipient).toBe(0n);
 
@@ -376,7 +391,11 @@ test(`${J} #7 withdraws TEST ${WITHDRAW} ${ASSET} on the TEST chain with the sta
   await confirmItsMe(page);
   await expect(page.getByText(`${WALLET_LABEL} was saved to your address book.`)).toBeVisible();
   const links = () =>
-    mailedLines(who.email, 'withdraw-address-approval').map((line) => `/${/link=(approveAddress\?token=\S+)/.exec(line)?.[1]}`);
+    mailedLines(who.email, 'withdraw-address-approval').map((line) => {
+      const link = /link=(approveAddress\?token=\S+)/.exec(line)?.[1];
+      if (!link) throw new Error(`an address-approval mail with no approval link: ${line}`);
+      return `/${link}`;
+    });
   const seen = links().length;
   await page.locator('tbody tr', { hasText: WALLET_LABEL }).getByRole('button', { name: 'Withdraw to this address' }).click();
   await page.getByTestId('address-use').getByRole('button', { name: 'Email me an approval link' }).click();
@@ -466,6 +485,9 @@ test(`${J} #8 reconciles to the cent: the ledger read back for the customer on e
 // The founders' side of #8, on the console's /ledger desk (the J-ops-console-07 run path): one outside_balance control per
 // asset the customer holds, defined by founder A and run once a second founder approves.
 const founders = {};
+test.afterAll(async () => {
+  for (const page of Object.values(founders)) await page.context().close();
+});
 async function founder(browser, which) {
   founders[which] ??= await browser.newContext().then(async (context) => {
     const page = await context.newPage();
