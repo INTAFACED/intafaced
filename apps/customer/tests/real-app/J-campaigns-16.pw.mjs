@@ -45,7 +45,26 @@ test(`${J} #1 opens the campaigns desk with none: the overview with honest empty
   await openDesk(page);
   const overview = page.getByRole('region', { name: 'Overview' });
   await expect(overview).toBeVisible();
-  for (const figure of await overview.getByRole('definition').all()) await expect(figure).toHaveText(/^(\d[\d.,]*|None yet|Not set)$/);
+  // No sample number: each figure is the count of the campaigns the desk lists in that state, and a state with none says
+  // "None yet". A stack with no campaign shows every figure as none, and the overview says so.
+  const states = await campaigns(page)
+    .getByTestId('campaign-state')
+    .evaluateAll((chips) => chips.map((c) => c.dataset.state));
+  const count = (...these) => states.filter((s) => these.includes(s)).length;
+  const expected = [
+    ['Campaigns', states.length],
+    ['Drafts', count('draft')],
+    ['Waiting for approval', count('pending_approval')],
+    ['Approved, not live yet', count('approved')],
+    ['Live or scheduled', count('scheduled', 'active', 'paused')],
+    ['Ended', count('ended', 'closed')],
+  ];
+  await expect(overview.getByRole('term')).toHaveText(expected.map(([label]) => label));
+  await expect(overview.getByRole('definition')).toHaveText(expected.map(([, n]) => (n === 0 ? 'None yet' : String(n))));
+  if (states.length === 0) {
+    await expect(overview.getByTestId('campaigns-overview-empty')).toHaveText(/^No campaign exists yet\./);
+    await expect(page.getByTestId('campaigns-all')).toContainText('No campaign yet.');
+  }
 });
 
 test(`${J} #2 starts the builder, leaves and returns: the draft resumes at the same step, and a second draft leaves the first listed`, async ({
@@ -139,13 +158,31 @@ test(`${J} #4 builds a rule with nested AND and OR, tests it on a fixture accoun
 test(`${J} #5 defines participation exclusions and a region list: a blank region list refuses activation`, async ({ page }) => {
   await openDraft(page);
   await builder(page).getByRole('tab', { name: 'Who can take part' }).click(UNBUILT);
-  await expect(page.getByRole('group', { name: 'Exclusions' })).toBeVisible();
+  const exclusions = page.getByRole('group', { name: 'Exclusions' });
+  await exclusions.getByRole('checkbox', { name: 'Business accounts' }).check();
+  await builder(page).getByRole('radio', { name: 'Every region except a restricted list' }).check();
+  await builder(page).getByRole('textbox', { name: 'Restricted regions' }).fill('');
+  await builder(page).getByRole('button', { name: 'Next' }).click();
+  await expect(builder(page).getByRole('tab', { name: 'Rules', exact: true })).toHaveAttribute('aria-selected', 'true');
+  // The blank region list refuses activation by its own code.
   await page.getByRole('button', { name: 'Ask to activate' }).click();
-  await expect(builder(page).getByRole('alert')).toContainText('The region list is not set');
+  await expect(
+    builder(page).getByRole('alert').getByRole('listitem').filter({ hasText: 'The region list is not set (campaigns.region_list_unset)' }),
+  ).toHaveCount(1);
+  await expect(page.getByTestId('campaign-state')).not.toHaveText('Waiting for approval');
   // The step defines the region list too, so the draft can go live in #7.
+  await builder(page).getByRole('tab', { name: 'Who can take part' }).click();
   await builder(page).getByRole('textbox', { name: 'Restricted regions' }).fill('KP');
   await builder(page).getByRole('button', { name: 'Next' }).click();
   await expect(builder(page).getByRole('tab', { name: 'Rules', exact: true })).toHaveAttribute('aria-selected', 'true');
+  // Both are saved on the draft: a fresh load shows them.
+  await page.reload();
+  await builder(page).getByRole('tab', { name: 'Who can take part' }).click();
+  await expect(exclusions.getByRole('checkbox', { name: 'Business accounts' })).toBeChecked();
+  await expect(exclusions.getByRole('checkbox', { name: 'Institutional accounts' })).not.toBeChecked();
+  await expect(builder(page).getByRole('textbox', { name: 'Restricted regions' })).toHaveValue('KP');
+  await builder(page).getByRole('button', { name: 'Check the draft' }).click();
+  await expect(page.getByRole('list', { name: 'Still missing' })).not.toContainText('Region list');
 });
 
 test(`${J} #6 adds an earning rule with a trigger, condition and fixed incentive: one intent per event; a formula outside the grammar and an unknown trigger refuse`, async ({
@@ -198,13 +235,22 @@ test(`${J} #7 sets the time frame, budget and limits and requests activation: ea
 }) => {
   await openDraft(page);
   await page.getByRole('button', { name: 'Ask to activate' }).click(UNBUILT);
-  await expect(builder(page).getByRole('alert')).toContainText(/campaigns\.\w+_unset/);
+  // Each blank of this step is its own line with its own code.
+  const blanks = builder(page).getByRole('alert').getByRole('listitem');
+  for (const line of [
+    'The budget is not set (campaigns.budget_unset)',
+    'The time frame is not set (campaigns.time_frame_unset)',
+    'The time zone is not set (campaigns.timezone_unset)',
+    'The reward per person is not set (campaigns.reward_unset)',
+  ])
+    await expect(blanks.filter({ hasText: line })).toHaveCount(1);
+  await expect(page.getByTestId('campaign-state')).toHaveText('Draft');
   await builder(page).getByRole('tab', { name: 'Budget and time' }).click();
   await builder(page).getByLabel('Starts').fill('2026-11-01T00:00');
   await builder(page).getByLabel('Ends').fill('2026-11-30T23:59');
   await builder(page).getByRole('combobox', { name: 'Time zone' }).selectOption('UTC');
   await builder(page).getByRole('textbox', { name: 'Budget, USDT' }).fill('100');
-  await builder(page).getByRole('textbox', { name: 'Per person limit' }).fill('1');
+  await builder(page).getByRole('textbox', { name: 'Reward per person' }).fill('1');
   await page.getByRole('button', { name: 'Ask to activate' }).click();
   await expect(page.getByTestId('campaign-state')).toHaveText('Waiting for approval');
 });
@@ -221,7 +267,16 @@ test(`${J} #8 the requester tries to approve and a second founder approves: the 
   await campaigns(second).getByRole('link', { name: draftName(), exact: true }).click();
   await second.getByRole('button', { name: 'Approve' }).click();
   await expect(second.getByRole('status')).toContainText(/Approved revision \d+/);
+  const approved = Number((await second.getByRole('status').textContent())?.match(/Approved revision (\d+)/)?.[1]);
   await second.context().close();
+  // The approval is of that revision only: an edit after it is the next revision, a draft, and the approved one stays.
+  await page.reload();
+  await expect(page.getByTestId('campaign-revision')).toHaveText(`Revision ${approved}`);
+  await builder(page).getByRole('tab', { name: 'Budget and time' }).click();
+  await builder(page).getByRole('textbox', { name: 'Budget, USDT' }).fill('90');
+  await builder(page).getByRole('button', { name: 'Next' }).click();
+  await expect(page.getByTestId('campaign-pending')).toContainText(`Revision ${approved + 1}, a draft`);
+  await expect(page.getByTestId('campaign-revision')).toHaveText(`Revision ${approved}`);
 });
 
 test(`${J} #9 edits the active campaign: a new revision; earlier vouchers keep the old one; archiving an active campaign is refused`, async ({
@@ -232,7 +287,7 @@ test(`${J} #9 edits the active campaign: a new revision; earlier vouchers keep t
   const live = (await page.getByTestId('campaign-revision').textContent()) ?? '';
   // The edit is the next revision beside the live one, which stays live until another founder approves it.
   await builder(page).getByRole('tab', { name: 'Budget and time' }).click();
-  await builder(page).getByRole('textbox', { name: 'Per person limit' }).fill('2');
+  await builder(page).getByRole('textbox', { name: 'Reward per person' }).fill('2');
   await builder(page).getByRole('button', { name: 'Next' }).click();
   await expect(page.getByTestId('campaign-pending')).toContainText(/Revision \d+, a draft/);
   await expect(page.getByTestId('campaign-revision')).toHaveText(live);
@@ -243,7 +298,22 @@ test(`${J} #9 edits the active campaign: a new revision; earlier vouchers keep t
 test(`${J} #10 opens the calendar: all campaigns by time`, async ({ page }) => {
   await openDesk(page);
   await page.getByRole('tab', { name: 'Calendar' }).click(UNBUILT);
-  await expect(page.getByRole('grid', { name: 'Campaign calendar' })).toBeVisible();
+  const calendar = page.getByRole('grid', { name: 'Campaign calendar' });
+  await expect(calendar).toBeVisible();
+  // The journey's campaign is there with the time frame #7 set, and every campaign is in order of its start.
+  const entry = calendar.getByTestId('campaign-calendar-entry').filter({ hasText: draftName() });
+  await expect(entry.getByRole('gridcell')).toHaveText([
+    '1 Nov 2026, 00:00:00 UTC',
+    '30 Nov 2026, 23:59:00 UTC',
+    draftName(),
+    /Approved|Scheduled|Active/,
+  ]);
+  const starts = await calendar
+    .getByTestId('campaign-calendar-entry')
+    .evaluateAll((rows) => rows.map((r) => Date.parse(r.cells[0].textContent.replace(',', ''))));
+  expect(starts.length).toBeGreaterThan(0);
+  expect(starts.every(Number.isFinite)).toBe(true);
+  expect(starts).toEqual([...starts].sort((a, b) => a - b));
 });
 
 // #6's other half: the rule pays one reward per event. The journey's own draft only goes live on its start date, so this
