@@ -131,6 +131,7 @@ export async function payApiOf(who, kept) {
   const totp = (await import(path.join(ROOT, 'services/svc-identity/dist/auth/totp.js'))).totp;
   const next = await nextCode(totp, who.secret, who.step);
   kept(next.step);
+  // A refusal keeps its status and whole body, so a step can read the service's code past the message.
   const send = async (route, body, token) => {
     const res = await fetch(`${EDGE}${route}`, {
       method: body === undefined ? 'GET' : 'POST',
@@ -144,7 +145,8 @@ export async function payApiOf(who, kept) {
     } catch {
       /* the body is kept as text for the error */
     }
-    if (!res.ok || !json?.result) throw new Error(`${route} refused: ${res.status} ${text.slice(0, 400)}`);
+    if (!res.ok || !json?.result)
+      throw Object.assign(new Error(`${route} refused: ${res.status} ${text.slice(0, 400)}`), { status: res.status, body: text });
     return json.result.data;
   };
   const login = await fetch(`${EDGE}/api/identity/trpc/auth.login`, {

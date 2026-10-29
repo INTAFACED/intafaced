@@ -218,11 +218,17 @@ test(`${J} #2 reads funds moving from clearing to available: funds wait until av
   const sendCode = await nextCode(owner.totp, owner.secret, payCode.step);
   run.write({ owner: saved({ ...owner, step: sendCode.step }) });
   const payer = await api.steppedUp(merchantId, ['pay:payout'], sendCode.code);
-  await expect(
-    payer.mutate('merchantControl.approvals.request', { merchantId, settlementId: waiting.id, railId: 'crypto-native' }),
-  ).rejects.toThrow(/refused: 412 .*"code":"pay\.payout_clearing_pending"/);
-  await expect(payer.mutate('settlement.payout', { settlementId: waiting.id, railId: 'crypto-native' })).rejects.toThrow(
-    /refused: 412 .*"code":"pay\.payout_clearing_pending"/,
+  const refusalOf = (call) =>
+    call.then(
+      () => 'not refused',
+      (err) => ({ status: err.status, code: err.body?.includes('"code":"pay.payout_clearing_pending"') }),
+    );
+  const clearingRefusal = { status: 412, code: true };
+  expect(
+    await refusalOf(payer.mutate('merchantControl.approvals.request', { merchantId, settlementId: waiting.id, railId: 'crypto-native' })),
+  ).toEqual(clearingRefusal);
+  expect(await refusalOf(payer.mutate('settlement.payout', { settlementId: waiting.id, railId: 'crypto-native' }))).toEqual(
+    clearingRefusal,
   );
   // Read again: nothing moved, the window still waits and no payout was asked for or sent.
   expect(await snapshot()).toEqual(before);
