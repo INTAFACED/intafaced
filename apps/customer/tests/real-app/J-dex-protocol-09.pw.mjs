@@ -128,10 +128,14 @@ test(`${J} #6 adds a watch with a tag and a private note: listed for this person
   const rows = bodyRows(tableIn(page, 'Your watched addresses'));
   await expect(rows).toHaveCount(1);
   await expect(rows.first()).toContainText('TEST cold wallet');
+  // The owner reads the note back, so the other account's empty page below proves privacy, not a dropped note.
+  await expect(rows.first()).toContainText('TEST note');
   await page.goto(`/chain/address/${ADDRESS}`);
+  await expect(main(page)).toContainText('TEST note');
   await add();
   await page.goto('/chain/watchlist');
   await expect(rows).toHaveCount(1);
+  await expect(rows.first()).toContainText('TEST note');
 
   await signOutBrowser(page.context());
   const other = await signUp(page, 'cy');

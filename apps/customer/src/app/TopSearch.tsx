@@ -7,12 +7,13 @@ import { assetName, homeCopy } from '../screens/home/copy';
 import { navigate } from './location';
 import { coinHref, roomTitle, roomDescription, roomPath, searchRooms } from './navigation';
 import { useHelpResultCap, useHelpSearch, type HelpState } from './search-help';
+import { paymentHref, usePaymentSearch, type PaymentState } from './search-payment';
 import { ShellIcon } from './icons';
 import { shellCopy } from './shell-copy';
 import { usePreferences } from '../shared/preferences';
 import { isUsdQuote, listings } from '../screens/home/select';
 
-type Group = 'Coins' | 'Markets' | 'Pages' | 'Help';
+type Group = 'Payments' | 'Coins' | 'Markets' | 'Pages' | 'Help';
 interface Row {
   key: string;
   group: Group;
@@ -37,7 +38,8 @@ const typingTarget = (target: EventTarget | null) =>
   target instanceof HTMLElement && (target.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName));
 
 /**
- * Header search (UI-SPEC 3.1): coins, markets, pages and Help articles. Ctrl or Cmd K, or `/` outside a field, opens the results. Enter on a coin opens its page;
+ * Header search (UI-SPEC 3.1): coins, markets, pages and Help articles, and in a Business profile a merchant payment by its full id
+ * (svc-pay `payment.get`, with the session). Ctrl or Cmd K, or `/` outside a field, opens the results. Enter on a coin opens its page;
  * Enter on a market opens the desk in Pro and the coin page in Simple.
  * The markets come from the shared data layer (useMarkets). TODO(B1): swap the hand-built list to the kit Autocomplete.
  */
@@ -160,14 +162,21 @@ export function TopSearch({ compact, helpCap }: { compact?: boolean; helpCap?: n
  * Loads the listed markets and the owner's help result cap once, after the first use, and keeps them for the session.
  * A `helpCap` given by the caller (tests, previews) stands in for the owner's value.
  */
-function SearchData({ open, helpCap, ...props }: Omit<PanelProps, 'help'> & { open: boolean; helpCap: number | null | undefined }) {
+function SearchData({
+  open,
+  helpCap,
+  ...props
+}: Omit<PanelProps, 'help' | 'payment'> & { open: boolean; helpCap: number | null | undefined }) {
   const markets = useMarkets();
   const tickers = useTickers();
   const ownerCap = useHelpResultCap(open);
   const help = useHelpSearch(props.query, open, helpCap === undefined ? ownerCap : helpCap);
+  // Merchant payments are searched only from a Business profile, by a full payment id (J-home-ia-02 #7).
+  const { session, mode, profiles } = useSession();
+  const payment = usePaymentSearch(props.query, open && session && mode === 'Business' ? profiles.active : null);
   // The last search counted as a miss outlives the panel, so closing and reopening on the same words counts it once.
   const counted = useRef<string | null>(null);
-  return open ? <SearchPanel {...props} help={help} source={markets} tickers={tickers} counted={counted} /> : null;
+  return open ? <SearchPanel {...props} help={help} payment={payment} source={markets} tickers={tickers} counted={counted} /> : null;
 }
 
 interface PanelProps {
@@ -175,6 +184,7 @@ interface PanelProps {
   query: string;
   pages: Row[];
   help: HelpState;
+  payment: PaymentState;
   layoutMode: 'simple' | 'pro';
   active: number;
   setActive: (index: number) => void;
@@ -188,6 +198,7 @@ function SearchPanel({
   query,
   pages,
   help,
+  payment,
   layoutMode,
   active,
   setActive,
@@ -214,6 +225,21 @@ function SearchPanel({
   const words = query.toLowerCase().trim().split(/\s+/).filter(Boolean);
   const loading = source.status === 'loading';
   const api = useApi();
+  const paymentList = useMemo<Row[]>(
+    () =>
+      payment.status === 'ready'
+        ? [
+            {
+              key: `payment:${payment.payment.id}`,
+              group: 'Payments',
+              label: payment.payment.id,
+              hint: `${payment.payment.amount} ${payment.payment.assetId}`,
+              href: paymentHref(payment.payment.id),
+            },
+          ]
+        : [],
+    [payment],
+  );
   const helpList = useMemo<Row[]>(() => {
     if (help.status === 'idle') return [];
     const articles =
@@ -231,7 +257,7 @@ function SearchPanel({
     return [...articles, { key: 'help:all', group: 'Help', label: t('Open Help'), hint: '', href: '/support' }];
   }, [help, query, t]);
   const rows = useMemo(() => {
-    if (source.status !== 'ready') return [...pages, ...helpList];
+    if (source.status !== 'ready') return [...paymentList, ...pages, ...helpList];
     const listed = source.data.filter((market) => market.orderable);
     const fits = (text: string) => words.every((word) => text.toLowerCase().includes(word));
     const coins = listings(listed)
@@ -263,8 +289,8 @@ function SearchPanel({
         price: priceOf(market),
         href: coinHref(market.base, layoutMode, market.symbol, signedIn),
       }));
-    return [...coins, ...markets, ...pages, ...helpList];
-  }, [source, tickers, pages, helpList, layoutMode, query, signedIn]);
+    return [...paymentList, ...coins, ...markets, ...pages, ...helpList];
+  }, [source, tickers, pages, helpList, paymentList, layoutMode, query, signedIn]);
 
   // A search that found nothing is counted once for the founders: when "No results" has stood for a moment (so the
   // words typed on the way are not counted), or at once on Enter. Nothing found means every group answered: the markets
@@ -272,10 +298,11 @@ function SearchPanel({
   // "Open Help" alone is not a result. A group that failed to answer leaves it unknown, so nothing is counted.
   // The call carries only its kind, no words and no session (no bearer), and is never retried.
   const found = rows.some((row) => row.key !== 'help:all');
-  const settled = !loading && help.status !== 'loading' && words.length > 0;
+  const settled = !loading && help.status !== 'loading' && payment.status !== 'loading' && words.length > 0;
   const answered =
     (source.status === 'ready' || source.status === 'empty') &&
-    (help.status === 'ready' || help.status === 'unset' || help.status === 'idle');
+    (help.status === 'ready' || help.status === 'unset' || help.status === 'idle') &&
+    payment.status !== 'failed';
   const missed = !found && settled && answered;
   const missKey = words.join(' ');
   function countMiss() {
@@ -319,7 +346,7 @@ function SearchPanel({
     };
   });
 
-  const groups: Group[] = ['Coins', 'Markets', 'Pages', 'Help'];
+  const groups: Group[] = ['Payments', 'Coins', 'Markets', 'Pages', 'Help'];
   let index = -1;
   return (
     <div data-testid="tb-search-panel" className="tb-popover tb-search-panel" role="presentation">
@@ -373,9 +400,19 @@ function SearchPanel({
           );
         })}
       </ul>
-      {!rows.some((row) => row.group !== 'Help') && settled && (
+      {!rows.some((row) => row.group !== 'Help') && settled && payment.status !== 'failed' && (
         <p className="tb-empty" role="status">
           {t('No results for "{query}"', { query })}
+        </p>
+      )}
+      {payment.status === 'loading' && (
+        <p className="tb-empty" role="status">
+          {t('Looking up the payment')}
+        </p>
+      )}
+      {payment.status === 'failed' && (
+        <p className="tb-empty" role="status">
+          {t('The payment lookup did not load.')}
         </p>
       )}
       {loading && !rows.length && (

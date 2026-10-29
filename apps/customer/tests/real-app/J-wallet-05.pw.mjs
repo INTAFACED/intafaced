@@ -11,17 +11,14 @@ import { addAuthenticator, nextCode } from './identity-factors.mjs';
 // in svc-pay (`local-test-gates.mjs withdraw-terms`): a fixed 1.5 network fee on TEST Ethereum and TEST Base, the fee on
 // top, a 90-second quote, and USDT limits of 1000 a withdrawal and 5000 a day for verified accounts.
 // Steps that are written but not built yet fail at their first missing part, quickly (UNBUILT):
-// - #1: svc-pay has no minimum, maximum, step or tag catalogue per network, and the stack publishes none.
-// - #2's fraud list: nothing screens a destination against one, and the stack lists no TEST address (FRAUD_LISTED).
 // - #6, #4's two parallel sends: svc-pay has no custody signer for any network, so every send out is refused before a claim.
 //   They run after #7, which needs the balance still at 300.
-// - #8: a failed withdrawal can't be seeded on the stack yet, so its failure sentence has no row to read.
 // #5 (travel rule) and the sanctions clause of #2 wait for launch (owner decision 2026-10-27, no compliance work until then).
 const J = 'J-wallet-05';
 const run = journeyState(`${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
 const ADDRESS = '0x52908400098527886E0F7030069857D2E4169EE7';
 const LABEL = 'TEST send wallet';
-// The address the stack's TEST fraud list is to hold (the list itself is not built yet).
+// The address the stack's TEST fraud list holds (svc-bank, listed by `local-test-gates.mjs withdraw-terms`, W-withdraw-03).
 const FRAUD_LISTED = '0x7e5700000000000000000000000000000000fa1d';
 const UNBUILT = { timeout: 5_000 };
 
@@ -233,7 +230,7 @@ test(`${J} #1 opens Withdraw and picks asset and network: the default network wi
 
   // The network's own rules, as the catalogue publishes them for TEST Ethereum: no tag, and a minimum, maximum and step.
   const rules = page.getByTestId('withdraw-network-rules');
-  await expect(rules).toBeVisible(UNBUILT);
+  await expect(rules).toBeVisible();
   await expect(rules).toContainText('This network takes no tag or memo.');
   for (const rule of ['Minimum', 'Maximum', 'Step']) await expect(rules).toContainText(new RegExp(`${rule}\\D*[\\d.,]+ USDT`));
   await expect(form(page).getByRole('textbox', { name: /^(Tag|Memo)/ })).toHaveCount(0);
@@ -268,7 +265,7 @@ test(`${J} #2 picks the saved address or pastes one: a mistyped address is refus
   const refusal = add.getByRole('alert');
   await expect(refusal.or(stepUp(page))).toBeVisible();
   if (await stepUp(page).isVisible()) await confirmItsMe(page);
-  await expect(refusal).toContainText(/fraud/i, UNBUILT);
+  await expect(refusal).toContainText(/fraud/i);
   await expect(page.locator('tbody tr', { hasText: 'TEST fraud-listed wallet' })).toHaveCount(0);
   const api = await customerApi();
   expect(toUnits(await api.available('USDT'))).toBe(toUnits('300'));
@@ -437,8 +434,11 @@ test(`${J} #8 watches the status: requested, held, broadcast and settled in plai
   }
 
   // A failed withdrawal says what went wrong in a sentence, never as its code.
-  const failed = seedWithdrawal(who, 'failed', '1', `${tag}-failed`, '--failure-code', 'rail.rejected');
+  const failed = seedWithdrawal(who, 'failed', '1', `${tag}-failed`, '--failure-code', 'rail.refused');
   await page.goto(`/uc/withdraw?withdrawalId=${failed}`);
   await expect(page.getByTestId('withdrawal-status')).toHaveText('Failed', { timeout: 30_000 });
-  await expect(page.getByTestId('withdrawal-facts')).not.toContainText('rail.rejected');
+  await expect(page.getByTestId('withdrawal-facts')).toContainText(
+    'The network refused this withdrawal. Nothing was sent, and any amount held for it went back to your available balance.',
+  );
+  await expect(page.getByTestId('withdrawal-facts')).not.toContainText('rail.refused');
 });

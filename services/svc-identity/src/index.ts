@@ -2,6 +2,7 @@ import { parseKycRequirementsByLevel, parseKycReviewHoursByLevel } from './kyc/l
 import { parseKycRejectReasons, relayKycCaseEvents } from './kyc/cases.js';
 import { parseKycCapabilitiesByLevel } from './kyc/capabilities.js';
 import { parseKycAttemptLimit } from './kyc/attempts.js';
+import { KycProfileDesk, parseKycDocumentTypes, parseKycUploadCaps } from './kyc/profile.js';
 import { readFileSync } from 'node:fs';
 import { resolve as resolvePath } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -465,6 +466,13 @@ const ledger = env.LEDGER_URL ? createLedgerClient(env.LEDGER_URL, env.INTERNAL_
  * (not a silent missing store). Never invent a key. Live vendor webhook remains Class X.
  */
 const vault = bootKycVault(sql, env.IDENTITY_KYC_DOC_KEY);
+// Guided verification (I-kyc-compliance-08): drafts sealed under the same key; the photo goes to the vault.
+const kycProfile = new KycProfileDesk(sql, parseKycDocKey(env.IDENTITY_KYC_DOC_KEY), {
+  documentTypes: parseKycDocumentTypes(env.IDENTITY_KYC_DOCUMENT_TYPES_BY_COUNTRY),
+  uploadCaps: parseKycUploadCaps(env),
+  vault: vault?.kycDocs,
+  submit: (input) => auth.submitKyc(input),
+});
 // Staff-edited customer details (J-ops-console-04 #9) are encrypted under the same key; unset, every details door refuses.
 const customerDetails = new CustomerDetailsDesk(sql, founderControls, parseKycDocKey(env.IDENTITY_KYC_DOC_KEY));
 // Customer limit overrides (J-ops-console-04 #12) under the owner's IDENTITY_LIMIT_OVERRIDE_POLICY; unset, every set refuses.
@@ -608,6 +616,7 @@ export const appRouter = mergeRouters(
     },
     kycRejectReasons: parseKycRejectReasons(env.IDENTITY_KYC_REJECT_REASONS),
     kycCapabilityReasons: parseKycRejectReasons(env.IDENTITY_KYC_CAPABILITY_REASONS, 'IDENTITY_KYC_CAPABILITY_REASONS'),
+    kycProfile,
     social,
     referral,
     share,

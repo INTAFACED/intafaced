@@ -6,7 +6,7 @@ import {
   type CurrentAuthorityResult,
 } from '@intafaced/contracts';
 import { identityCallHeaders, type EdgeS2s } from './s2s.js';
-import { ApiKeyOwnershipUnavailableError, assertIdentityApiKeyLive } from './api-key-revoked.js';
+import { ApiKeyOwnershipUnavailableError, ApiKeyRevokedError, assertIdentityApiKeyLive } from './api-key-revoked.js';
 import { assertApiKeyIp, optionalIpAllowlist } from './api-key-ip.js';
 import { assertApiKeyOrigin, optionalOriginAllowlist } from './api-key-origin.js';
 import { assertApiKeyProduct, optionalProductScopes } from './api-key-product.js';
@@ -47,7 +47,16 @@ export type EdgeAuthorityOptions = {
  *   answer). The caller must NOT forward anonymous and must NOT sign the user out: 503, retry.
  */
 export type AuthorityRead =
-  { readonly status: 'eligible'; readonly proof: Eligible } | { readonly status: 'refused' } | { readonly status: 'unavailable' };
+  | { readonly status: 'eligible'; readonly proof: Eligible }
+  | { readonly status: 'refused'; readonly code?: AuthorityRefusalCode }
+  | { readonly status: 'unavailable' };
+
+/**
+ * Why identity refused, when identity said so: its `denied` code, or `auth.api_key_revoked` from the key
+ * ownership read. Absent when the refusal is the edge's own (a key restriction, an unconfigured read).
+ * It is identity's verdict, carried so a refused key can be named (`api-key-refusal.ts`); it never widens access.
+ */
+export type AuthorityRefusalCode = Extract<CurrentAuthorityResult, { status: 'denied' }>['code'] | 'auth.api_key_revoked';
 
 const REFUSED = { status: 'refused' } as const;
 const UNAVAILABLE = { status: 'unavailable' } as const;
@@ -57,7 +66,10 @@ export const AUTHORITY_POSITIVE_CACHE_MAX_MS = 1000;
 const STRICT_TIMEOUT_MS = 3000;
 const AUTHORITY_BUDGET_MS = 5000;
 
-type Shared = { status: 'eligible'; proof: Eligible; metadata: unknown } | { status: 'refused' } | { status: 'unavailable' };
+type Shared =
+  | { status: 'eligible'; proof: Eligible; metadata: unknown }
+  | { status: 'refused'; code?: AuthorityRefusalCode }
+  | { status: 'unavailable' };
 
 const inFlight = new Map<string, Promise<Shared>>();
 const positive = new Map<string, { until: number; value: Extract<Shared, { status: 'eligible' }> }>();
@@ -127,7 +139,8 @@ export async function readEdgeAuthority(principal: Principal, options: EdgeAutho
       positive.delete(key);
     }
   }
-  if (shared.status !== 'eligible') return shared.status === 'refused' ? REFUSED : UNAVAILABLE;
+  if (shared.status === 'refused') return shared.code ? { status: 'refused', code: shared.code } : REFUSED;
+  if (shared.status !== 'eligible') return UNAVAILABLE;
 
   const proof = shared.proof;
   if (Date.parse(proof.leaseExpiresAt) <= Date.now()) return UNAVAILABLE;
@@ -211,6 +224,7 @@ async function fetchShared(
       }
       const parsed = currentAuthorityResultSchema.safeParse((envelope as { result?: { data?: unknown } } | null)?.result?.data);
       if (!parsed.success) return UNAVAILABLE;
+      if (parsed.data.status === 'denied') return { status: 'refused', code: parsed.data.code };
       if (parsed.data.status !== 'eligible') return REFUSED;
       const proof = parsed.data;
       if (JSON.stringify(proof.subject) !== body) return REFUSED;
@@ -228,7 +242,10 @@ async function fetchShared(
             fetch: guardedFetch,
           });
         } catch (err) {
-          return err instanceof ApiKeyOwnershipUnavailableError || controller.signal.aborted ? UNAVAILABLE : REFUSED;
+          if (err instanceof ApiKeyOwnershipUnavailableError || controller.signal.aborted) return UNAVAILABLE;
+          return err instanceof ApiKeyRevokedError && err.code === 'auth.api_key_revoked'
+            ? { status: 'refused', code: 'auth.api_key_revoked' }
+            : REFUSED;
         }
       }
       if (performance.now() - started >= AUTHORITY_BUDGET_MS || Date.parse(proof.leaseExpiresAt) <= Date.now()) return UNAVAILABLE;

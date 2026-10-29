@@ -327,7 +327,7 @@ describe('business categories', () => {
     expect(consumedApproval).toBe(1);
   });
 
-  it('new payments follow the class: prohibited takes nothing, a blank reserve takes nothing, the rest take crypto-native only', async () => {
+  it('new payments follow the class: prohibited takes nothing, a blank reserve takes nothing, permissionless takes crypto-native only', async () => {
     const service = new CategoryPolicyService(db.sql, approvals);
     const guard = createCategoryGuards({ sql: db.sql }).beforePaymentAdmit!;
     const admit = (railAdapter: string, extra: Partial<Parameters<typeof guard>[0]> = {}) =>

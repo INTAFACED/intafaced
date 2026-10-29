@@ -23,26 +23,22 @@ type Header =
   | 'hdr_amount'
   | 'hdr_validator'
   | 'hdr_stake';
-type What = 'what_pool' | 'what_position' | 'what_token' | 'what_block' | 'what_tx' | 'what_address' | 'what_validator';
+type What = 'what_pool' | 'what_position' | 'what_block' | 'what_tx' | 'what_validator';
 
 /** The table a finished page will show. Headers only: a page that waits on a blocker has no rows to invent. */
 const HEADERS: Record<PendingPage, readonly Header[]> = {
   poolNew: ['hdr_pair', 'hdr_liquidity'],
   poolDetail: ['hdr_pair', 'hdr_liquidity', 'hdr_time'],
   positionDetail: ['hdr_pool', 'hdr_range', 'hdr_liquidity'],
-  tokenDetail: ['hdr_token', 'hdr_pool', 'hdr_price'],
   blockDetail: ['hdr_block', 'hdr_time', 'hdr_status'],
   txDetail: ['hdr_hash', 'hdr_from', 'hdr_to', 'hdr_status'],
-  addressDetail: ['hdr_hash', 'hdr_time', 'hdr_amount'],
   validatorDetail: ['hdr_validator', 'hdr_stake', 'hdr_status'],
 };
 const WHAT: Partial<Record<PendingPage, What>> = {
   poolDetail: 'what_pool',
   positionDetail: 'what_position',
-  tokenDetail: 'what_token',
   blockDetail: 'what_block',
   txDetail: 'what_tx',
-  addressDetail: 'what_address',
   validatorDetail: 'what_validator',
 };
 const ROOM_KEY = { dex: 'roomDex', chain: 'roomChain', protocol: 'roomProtocol', wallet: 'roomWallet' } as const;

@@ -232,6 +232,13 @@ describe('header search: where a page lives and the Help group', () => {
     expect(fetcher.mock.calls.filter(([url]) => String(url).includes('navMetrics.searchMiss'))).toHaveLength(0);
   });
 
+  it('never looks up a payment id outside a Business profile', async () => {
+    await mount();
+    await type('042f94a7-5249-42de-8db9-c71db25a5fa0');
+    expect(fetcher.mock.calls.filter(([url]) => String(url).includes('payment.get'))).toHaveLength(0);
+    expect(host.textContent).not.toContain('Payments');
+  });
+
   it('opens on "/" outside a field, but a "/" typed into a field stays a character', async () => {
     await mount();
     expect(panel()).toBeNull();

@@ -5,6 +5,7 @@ import { AdminSessionError, adminSessionErrorResponse } from '@/lib/founder-sess
 import { explainRefusal } from '@/lib/desk/refusal-copy';
 import { bulkSummary, type BulkRow } from '@/lib/support/bulk';
 import { isTicketId, readActionRequest, type SupportActionRequest } from '@/lib/support/model';
+import { readQueueQuery } from '@/lib/support/queue-query';
 import { SUPPORT_OPS_FORBIDDEN, SUPPORT_OPS_FORBIDDEN_BODY, explainSupportFailure } from '@/lib/support/refusal';
 import {
   claimTicket,
@@ -18,6 +19,7 @@ import {
   loadRatingSummary,
   loadTicketLifecycle,
   loadTicketProperties,
+  loadViews,
   previewMerge,
   runSupportAction,
 } from '@/lib/support/server';
@@ -94,7 +96,12 @@ export async function GET(request: Request) {
     });
   }
   if (url.searchParams.get('view') === 'kb') return Response.json(await loadKb(session), { headers: NO_STORE });
-  return Response.json(await loadQueue(session), { headers: NO_STORE });
+  if (url.searchParams.get('view') === 'views') return Response.json(await loadViews(session), { headers: NO_STORE });
+  // The queue, narrowed by `filter`, `q` or `savedView` (a saved view's id; `view` names the part of the desk asked for).
+  const query = readQueueQuery({
+    get: (name) => url.searchParams.get(name === 'view' ? 'savedView' : name),
+  });
+  return Response.json(await loadQueue(session, query), { headers: NO_STORE });
 }
 
 export async function POST(request: Request) {
@@ -181,11 +188,13 @@ const targetOf = (request: SupportActionRequest) =>
         ? request.groupId
         : request.action === 'bulk'
           ? request.batchKey
-          : request.action === 'merge'
-            ? `${request.ticketId}->${request.survivorId}`
-            : 'ticketId' in request
-              ? request.ticketId
-              : request.id;
+          : request.action === 'view_save'
+            ? `view:${request.name}`
+            : request.action === 'merge'
+              ? `${request.ticketId}->${request.survivorId}`
+              : 'ticketId' in request
+                ? request.ticketId
+                : request.id;
 
 function statusOf(failure: FounderCallFailure<unknown>): number {
   if (failure.kind === 'forbidden') return failure.refusal.status === 401 ? 401 : 403;
@@ -247,6 +256,8 @@ function summaryOf(request: SupportActionRequest, data: unknown): string {
       return Array.isArray(data) ? bulkSummary(data as BulkRow[]) : 'svc-support answered the bulk change.';
     case 'properties':
       return 'svc-support recorded the new priority, type and labels on the ticket.';
+    case 'view_save':
+      return `svc-support saved the view "${String(d.name)}"${d.shared === true ? ', shared with the team' : ', for you only'}.`;
     case 'escalate':
       return `svc-support filed the case file with ${Array.isArray(d.citations) ? d.citations.length : 'its'} citations.`;
     case 'kb_publish':

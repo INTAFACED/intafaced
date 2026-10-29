@@ -8,6 +8,13 @@ import { AllowlistError, allowlistToTrpcError } from './withdrawals/allowlist/er
 import { quoteInputSchema, quoteViewSchema } from './withdrawals/quotes/schemas.js';
 import { RETURN_REASON_CODES } from './withdrawals/returns/schemas.js';
 import type { WithdrawalQuoteService } from './withdrawals/quotes/service.js';
+import {
+  networkIdSchema,
+  readWithdrawalNetworkRules,
+  WithdrawalNetworkRuleError,
+  withdrawalNetworkRulesSchema,
+  withdrawalNetworkRuleToTrpcError,
+} from './withdrawals/network-rules/service.js';
 import { z } from 'zod';
 import type { Sql } from 'postgres';
 import { AuthError, hasScope, requireMfa } from '@intafaced/auth';
@@ -2397,6 +2404,22 @@ export function createPayRouter(
           }),
         ),
 
+      /**
+       * The owner's rules for sending one asset on one network (W-withdraw-02): the minimum, maximum and step of one withdrawal
+       * and whether the network takes a tag or memo. `trade:read`, read before any fee. A pair the owner has not published refuses
+       * `withdrawal_network_rules.unset`; nothing is filled in.
+       */
+      networkRules: scopedProcedure('trade:read')
+        .input(z.object({ assetId: assetIdSchema, networkId: networkIdSchema }).strict())
+        .output(withdrawalNetworkRulesSchema)
+        .query(({ input }) =>
+          wrap(async () => {
+            if (!portalSql)
+              throw new WithdrawalNetworkRuleError('withdrawal_network_rules.unwired', 'withdrawal rules need the pay database');
+            return readWithdrawalNetworkRules(portalSql, input.assetId, input.networkId);
+          }),
+        ),
+
       estimateFee: scopedProcedure('trade:read')
         .input(z.object({ assetId: assetIdSchema, chain: z.string().min(1), address: z.string().min(1) }))
         .output(z.object({ fee: amountSchema, assetId: assetIdSchema, address: z.string(), sent: z.literal(false) }))
@@ -2529,6 +2552,7 @@ export function toTrpcError(err: unknown): unknown {
   // Payout of a merchant who already has a rolling reserve. NOT_IMPLEMENTED, message is the code.
   if (err instanceof ControlError) return controlToTrpcError(err);
   if (err instanceof WithdrawalQuoteError) return withdrawalQuoteToTrpcError(err);
+  if (err instanceof WithdrawalNetworkRuleError) return withdrawalNetworkRuleToTrpcError(err);
   if (err instanceof WithdrawalApprovalError) return withdrawalApprovalToTrpcError(err);
   if (err instanceof AllowlistError) return allowlistToTrpcError(err);
   if (err instanceof DualControlError || err instanceof ActionApprovalConsumeError) {
