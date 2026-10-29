@@ -65,6 +65,8 @@ import {
   type ApprovalMailPort,
 } from './address-approval.js';
 import { unconfiguredTrustedDevices, type TrustedDevicePort } from './trusted-devices.js';
+import { sendableDestination } from './send-destination.js';
+import type { BankSendDestination, BankSendDestinationInput } from '@intafaced/contracts';
 import {
   BANK_ADDRESS_BOOK_CAP_ENV,
   destKindForRamp,
@@ -441,6 +443,14 @@ export class RampService {
   /** Whether money may be sent to one saved address now, or what stands in the way first (W-withdraw-09). Read-only. */
   destinationReadiness(input: { userId: string; destinationId: string }): Promise<DestinationReadiness> {
     return destinationReadiness(this.customerDeps(), input);
+  }
+
+  /**
+   * Whether money may be sent to one address of one asset on one network now (J-wallet-05 #6), asked by svc-pay before it
+   * claims a withdrawal to a wallet outside the platform. Read-only.
+   */
+  sendableDestination(input: BankSendDestinationInput): Promise<BankSendDestination> {
+    return sendableDestination(this.customerDeps(), input);
   }
 
   /** Mail a single-use link that approves one new address (W-withdraw-09). Says until when it works; never that it arrived. */
