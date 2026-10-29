@@ -3,6 +3,7 @@ import { test, expect } from '@playwright/test';
 import { DEVICE_KEY, EDGE, ORIGIN, ROOT, fund, journeyState, mailedLines, toUnits, tool } from './stack.mjs';
 import { signIn, signUp, verify } from './desk.mjs';
 import { addAuthenticator, nextCode } from './identity-factors.mjs';
+import { TEST_WITHDRAW_NETWORK_RULES } from '../../../../tooling/scripts/local-test-gates.mjs';
 
 // J-wallet-05, in the running app (docs/roadmap/journeys.json): I withdraw crypto. One test per step, titled
 // "J-wallet-05 #<n>", run in order on one verified TEST account with an authenticator app, TEST 300 USDT, and two saved
@@ -14,7 +15,9 @@ import { addAuthenticator, nextCode } from './identity-factors.mjs';
 // The stack's svc-pay has a TEST custody signer for TEST Ethereum only (`PAY_TEST_WITHDRAW_SIGNER_NETWORKS`), sending through
 // the in-memory MemoryChain; TEST Base has none, which is what #7 meets. #6 and #4's two parallel sends run after #7, which
 // needs the balance still at 300.
-// #5 (travel rule) and the sanctions clause of #2 wait for launch (owner decision 2026-10-27, no compliance work until then).
+// #2's sanctions clause stays in the step and fails by name: no sanctions screening provider is set for destinations, which
+// is the owner's call, and a blank list is never filled in here (product law). The rest of #2 runs before it.
+// #5 (travel rule) waits for launch (owner decision 2026-10-27).
 const J = 'J-wallet-05';
 const run = journeyState(`${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
 const ADDRESS = '0x52908400098527886E0F7030069857D2E4169EE7';
@@ -248,11 +251,26 @@ test(`${J} #1 opens Withdraw and picks asset and network: the default network wi
   const rules = page.getByTestId('withdraw-network-rules');
   await expect(rules).toBeVisible();
   await expect(rules).toContainText('This network takes no tag or memo.');
-  for (const rule of ['Minimum', 'Maximum', 'Step']) await expect(rules).toContainText(new RegExp(`${rule}\\D*[\\d.,]+ USDT`));
+  // Each figure is the one the stack's founders published (TEST_WITHDRAW_NETWORK_RULES: 1, 1000 and 0.01), compared as a
+  // number so a grouped or zero-padded display of the same value still matches, and any other value fails.
+  const figure = (text) =>
+    text
+      .replace(/,/g, '')
+      .replace(/(\.\d*?)0+$/, '$1')
+      .replace(/\.$/, '');
+  for (const [rule, want] of [
+    ['Minimum', TEST_WITHDRAW_NETWORK_RULES.minimum],
+    ['Maximum', TEST_WITHDRAW_NETWORK_RULES.maximum],
+    ['Step', TEST_WITHDRAW_NETWORK_RULES.step],
+  ]) {
+    const shown = (await rules.textContent()).match(new RegExp(`${rule}\\D*?([\\d.,]+) USDT`));
+    expect(shown, `${rule} is shown`).not.toBeNull();
+    expect(figure(shown[1]), `${rule} is the catalogue's TEST ${want} USDT`).toBe(figure(want));
+  }
   await expect(form(page).getByRole('textbox', { name: /^(Tag|Memo)/ })).toHaveCount(0);
 });
 
-test(`${J} #2 picks the saved address or pastes one: a mistyped address is refused before any call, and an address on the fraud list is refused by name with nothing held`, async ({
+test(`${J} #2 picks the saved address or pastes one: a mistyped address is refused before any call, and an address on the fraud list is refused by name with nothing held, and so is a sanctioned address`, async ({
   page,
 }) => {
   test.setTimeout(180_000);
@@ -283,9 +301,14 @@ test(`${J} #2 picks the saved address or pastes one: a mistyped address is refus
   if (await stepUp(page).isVisible()) await confirmItsMe(page);
   await expect(refusal).toContainText(/fraud/i);
   await expect(page.locator('tbody tr', { hasText: 'TEST fraud-listed wallet' })).toHaveCount(0);
+
   const api = await customerApi();
   expect(toUnits(await api.available('USDT'))).toBe(toUnits('300'));
   expect(await api.withdrawals()).toEqual([]);
+
+  // The sanctions clause: an address on the destination sanctions list is refused by name and never saved. No screening
+  // provider is set for destinations, and a blank list is never filled in with invented entries, so the clause fails here.
+  throw new Error("#2's sanctions clause: sanctions screening provider not set: the owner's call");
 });
 
 test(`${J} #3 reads the fee quote: fee, what arrives and the total debit as exact decimals, and an expired quote must be got again`, async ({
