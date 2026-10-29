@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it } from 'vitest';
 import type { Sql } from 'postgres';
 import { createEdgeContext } from '@intafaced/contracts';
 import type { LedgerClient } from '@intafaced/ledger-client';
@@ -74,7 +74,11 @@ async function readyEntry(over: Partial<typeof entry> = {}, hours = '24') {
 describe('whether money may be sent to an address on a network now', () => {
   it('answers ready for a saved, approved entry past its cooling-off on that network, whatever the letter case', async () => {
     const { service, saved } = await readyEntry();
-    await expect(service.sendableDestination(ask)).resolves.toMatchObject({ state: 'ready', destinationId: saved.destinationId });
+    await expect(service.sendableDestination(ask)).resolves.toEqual({
+      state: 'ready',
+      destinationId: saved.destinationId,
+      coolingOffEndsAt: null,
+    });
     await expect(service.sendableDestination({ ...ask, ref: ADDRESS.toLowerCase(), assetId: 'usdt' })).resolves.toMatchObject({
       state: 'ready',
       destinationId: saved.destinationId,
@@ -101,6 +105,9 @@ describe('whether money may be sent to an address on a network now', () => {
   it('does not match an entry saved with a tag, since a send carries none', async () => {
     const { service } = await readyEntry({ tag: 'memo-1' });
     await expect(service.sendableDestination(ask)).resolves.toMatchObject({ state: 'not_saved' });
+    // Nor does it count as saved on another network: switching networks would still find no tagless entry.
+    const tagged = await readyEntry({ tag: 'memo-1', network: 'base' });
+    await expect(tagged.service.sendableDestination(ask)).resolves.toMatchObject({ state: 'not_saved' });
   });
 
   it('answers approval_pending for a saved entry not approved yet', async () => {
@@ -160,6 +167,10 @@ describe('the sendable door', () => {
       .createCaller({ ...edge({ headers: {}, id: 'req-1' }), service } as never)
       .ramps.destinations.sendable(input as never);
 
+  beforeEach(() => {
+    answers.length = 0;
+  });
+
   it('answers svc-pay', async () => {
     await expect(call('svc-pay')).resolves.toMatchObject({ state: 'ready' });
     expect(answers).toEqual([ask]);
@@ -168,7 +179,7 @@ describe('the sendable door', () => {
   it('serves svc-pay only: another service is forbidden and no service is unauthorized', async () => {
     await expect(call('svc-tax')).rejects.toMatchObject({ code: 'FORBIDDEN' });
     await expect(call(null)).rejects.toMatchObject({ code: 'UNAUTHORIZED' });
-    expect(answers).toHaveLength(1);
+    expect(answers).toHaveLength(0);
   });
 
   it('refuses an input with a field it does not name', async () => {

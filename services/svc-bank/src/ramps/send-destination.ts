@@ -11,7 +11,7 @@ import { destinationReadiness, type CustomerRampDeps } from './customer-ramps.js
  * - The entry must be of the same asset, on the same network, for the same address. An EVM address matches whatever its
  *   letter case (the case is a checksum, not part of the address); any other address must match exactly. A send carries no
  *   tag or memo, so an entry saved with one is not a match: sending without it could lose the money.
- * - The same address saved for the asset on another network only is `other_network`; not saved for the asset at all is
+ * - The same address saved for the asset on another network only, without a tag, is `other_network`; not saved for the asset at all is
  *   `not_saved`.
  * - A match answers the book's own readiness (`destinationReadiness`): the security lock first, then blocked, waiting for
  *   approval, no published cooling-off, a cooling-off still running, or ready. A lock that cannot be read throws, and the
@@ -32,11 +32,14 @@ export async function sendableDestination(
   );
   const match = saved.find((row) => row.network === network && row.tag === null);
   if (!match) {
-    const elsewhere = saved.some((row) => row.network !== network);
+    // Only an entry a tagless send could use counts as saved elsewhere: one saved with a tag never matches on any network.
+    const elsewhere = saved.some((row) => row.network !== network && row.tag === null);
     return { state: elsewhere ? 'other_network' : 'not_saved', destinationId: null, coolingOffEndsAt: null };
   }
   const ready = await destinationReadiness(deps, { userId: input.userId, destinationId: match.destinationId }, now);
-  return { state: ready.state, destinationId: ready.destinationId, coolingOffEndsAt: ready.coolingOffEndsAt };
+  // The contract names an end only for a cooling-off still running; a ready entry's past end is not sent.
+  const coolingOffEndsAt = ready.state === 'cooling' ? ready.coolingOffEndsAt : null;
+  return { state: ready.state, destinationId: ready.destinationId, coolingOffEndsAt };
 }
 
 function addressMatcher(ref: string): (saved: string) => boolean {
