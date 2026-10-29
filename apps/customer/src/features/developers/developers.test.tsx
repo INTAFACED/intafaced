@@ -67,4 +67,16 @@ describe('connectivityOptions', () => {
     expect(connectivityOptions(all).find((o) => o.option === 'internet')?.state).toBe('available');
     expect(connectivityOptions(all).find((o) => o.option === 'redundant')?.state).toBe('host_unset');
   });
+
+  it('names each endpoint host per protocol, and none for the parked options', () => {
+    const only = hostTable((protocol, environment) => (protocol === 'fix' && environment === 'production' ? 'fix.example' : null));
+    const options = connectivityOptions(only);
+    expect(options.find((o) => o.option === 'internet')?.hosts.map(({ protocol, cell }) => [protocol, cell])).toEqual([
+      ['rest', { state: 'unset' }],
+      ['websocket', { state: 'unset' }],
+      ['fix', { state: 'set', host: 'fix.example' }],
+    ]);
+    expect(options.find((o) => o.option === 'redundant')?.hosts.every((row) => row.environment === 'regional')).toBe(true);
+    expect(options.find((o) => o.option === 'colocation')?.hosts).toEqual([]);
+  });
 });

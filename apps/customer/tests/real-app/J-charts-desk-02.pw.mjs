@@ -56,9 +56,12 @@ test(`${J} #1 opens a chart on a live market: a Real-time chip with its age, the
   const owner = await ownerValues(BTC);
   expect(owner.dataClass).toBe('real_time');
   expect(owner.delayedBoundarySeconds).toBeGreaterThan(0);
-  // A live market has traded inside the boundary; the test waits for that trade rather than changing the market.
+  // A live market has traded inside the boundary; the test waits for that trade rather than changing the market. The
+  // TEST maker crosses BTC/USDT every sixth loop cycle, about 96 s apart and more under load (run 701 saw a gap over
+  // 136 s, which a 90 s wait missed; #6638), so the wait spans more than two such gaps.
+  test.setTimeout(300_000);
   await expect
-    .poll(async () => (Date.now() - (await newestTradeMs(BTC))) / 1000, { timeout: 90_000, intervals: [2_000] })
+    .poll(async () => (Date.now() - (await newestTradeMs(BTC))) / 1000, { timeout: 240_000, intervals: [2_000] })
     .toBeLessThanOrEqual(owner.delayedBoundarySeconds);
   await openChart(page);
   await expect(chip(page)).toHaveAttribute('data-status', 'live', { timeout: 30_000 });
