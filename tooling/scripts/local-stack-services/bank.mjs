@@ -1,3 +1,4 @@
+import path from 'node:path';
 import { loadProfile } from '../owner-settings.mjs';
 
 /** One labelled TEST value from this service's profile file; a missing one names the file instead of a bare TypeError. */
@@ -23,7 +24,7 @@ function depositCustody(urlOf) {
   throw new Error(`LOCAL_STACK_BANK_DEPOSIT_CUSTODY is "${asked}"; leave it unset for custody connected, or set it to off.`);
 }
 
-export default ({ c, secrets, dbUrl, urlOf, PORTS }) => ({
+export default ({ c, secrets, dbUrl, urlOf, PORTS, STATE }) => ({
   name: 'bank',
   env: () => ({
     ...c('svc-bank', PORTS.bank),
@@ -103,6 +104,9 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS }) => ({
     // partner's signed job calls, which only a test makes here. Value moves to and from its own TEST rail boundary.
     BANK_PAYOUT_PARTNER: 'payout-sim',
     BANK_PAYOUT_SIM_JSON: testValue('BANK_PAYOUT_SIM_JSON'),
+    // The stand-in keeps its own TEST record of rail payout-sim in the stack's records folder (read by
+    // local-test-rail-records.mjs), so a reconciliation compares that rail with its own word, not the ledger's.
+    BANK_PAYOUT_SIM_RECORDS_DIR: path.join(STATE, 'test-rail-records'),
     // LOCAL TEST stand-in for a direct debit scheme (BK-xfer-11; no network, pays nobody, refused under live posture): its
     // TEST creditors set up mandates and present collections only through the signed job doors, as J-bank-06 #4 does.
     BANK_DD_SCHEME: 'dd-sim',

@@ -3,6 +3,7 @@ import type { Sql } from 'postgres';
 import { transaction } from '@intafaced/db';
 import { parseAmount, type Amount } from '@intafaced/ledger-client';
 import { AgentError } from '../errors.js';
+import { windowCost, type UsageGroup } from '../metering/pricing.js';
 import type { SpendGate, SpendLimitView, SpendPeriod, SpendReservationView } from './gate.js';
 import { canonicalAmount, decideReservation, parseSpendAmount, parseSpendLimitInput, periodStart, type SpendScope } from './limits.js';
 
@@ -88,6 +89,48 @@ async function readLimit(tx: Sql, userId: string): Promise<LimitRow | null> {
      WHERE user_id = ${userId}
   `;
   return rows[0] ?? null;
+}
+
+/**
+ * What the person already owes or has on hold: usage in every window of theirs not yet charged (sealed or not), plus
+ * every hold still held in this asset. A held run has no usage row yet, and a committed one is in its window, so the
+ * two never count one run twice. Usage is metered in the one fee asset, so its windows count for that asset.
+ */
+async function exposure(tx: Sql, userId: string, assetId: string): Promise<Amount> {
+  const usage = await tx<
+    Array<{ session_id: string; window_id: string; input_tokens: string; output_tokens: string; in_price: string; out_price: string }>
+  >`
+    SELECT r.session_id::text AS session_id, r.window_id,
+           SUM(r.input_tokens)::text  AS input_tokens,
+           SUM(r.output_tokens)::text AS output_tokens,
+           r.input_price_per_million  AS in_price,
+           r.output_price_per_million AS out_price
+      FROM agents.usage_records r
+      JOIN agents.usage_windows w ON w.session_id = r.session_id AND w.window_id = r.window_id
+      JOIN agents.agent_sessions s ON s.id = r.session_id
+     WHERE s.user_id = ${userId} AND w.charge_tx_id IS NULL
+     GROUP BY r.session_id, r.window_id, r.input_price_per_million, r.output_price_per_million
+  `;
+  const windows = new Map<string, UsageGroup[]>();
+  for (const r of usage) {
+    const key = `${r.session_id}:${r.window_id}`;
+    const groups = windows.get(key) ?? [];
+    groups.push({
+      inputTokens: BigInt(r.input_tokens ?? '0'),
+      outputTokens: BigInt(r.output_tokens ?? '0'),
+      price: { inputPerMillion: parseAmount(r.in_price), outputPerMillion: parseAmount(r.out_price) },
+    });
+    windows.set(key, groups);
+  }
+  let owed = 0n;
+  for (const groups of windows.values()) owed += windowCost(groups);
+
+  const held = await tx<Array<{ total: string }>>`
+    SELECT COALESCE(SUM(amount), 0)::text AS total
+      FROM agents.spend_reservations
+     WHERE user_id = ${userId} AND asset_id = ${assetId} AND status = 'held'
+  `;
+  return owed + parseAmount(held[0]?.total ?? '0');
 }
 
 async function summed(tx: Sql, userId: string, sessionId: string | null, periodStartAt: Date | null): Promise<Amount> {
@@ -217,6 +260,14 @@ export class UserSpendStore implements SpendGate {
     assetId: string;
     amount: string;
     now?: Date;
+    /**
+     * The agent's own stored cap per session. A person who has set no limits of their own runs under this cap alone
+     * (OWNER 107); absent, a person with no limits is refused, as before. Set, it also caps a person whose own
+     * limit is higher: the lower of the two applies.
+     */
+    agentCap?: string | null;
+    /** The person's available balance, read under this reservation's lock (see `SpendGate.reserve`). */
+    funds?: () => Promise<Amount | null>;
   }): Promise<SpendReservationView> {
     const amount = parseSpendAmount(input.amount, 'reservation');
     const assetId = input.assetId?.trim() ?? '';
@@ -243,10 +294,11 @@ export class UserSpendStore implements SpendGate {
           throw new AgentError(`No session ${input.sessionId}`, 'agents.session_not_found', 'agents.refused.session_closed');
         }
         const limit = await readLimit(tx, input.userId);
-        if (!limit) {
+        const agentCap = input.agentCap ? parseSpendAmount(input.agentCap, 'agent cap') : null;
+        if (!limit && agentCap === null) {
           throw new AgentError('User spend limit is unset', 'agents.spend_limit_unset', 'agents.refused.spend_limit_unset');
         }
-        if (limit.asset_id !== assetId) {
+        if (limit && limit.asset_id !== assetId) {
           throw new AgentError(
             `Reservation asset ${assetId} does not match the spend limit asset ${limit.asset_id}`,
             'agents.spend_limit_invalid',
@@ -275,18 +327,46 @@ export class UserSpendStore implements SpendGate {
           return viewReservation(prior, true);
         }
 
-        const start = periodStart(limit.period, now);
         const sessionUsed = await summed(tx, input.userId, input.sessionId, null);
-        const periodUsed = await summed(tx, input.userId, null, start);
-        const decision = decideReservation({
-          perCall: parseAmount(limit.per_call),
-          perSession: parseAmount(limit.per_session),
-          perPeriod: parseAmount(limit.per_period),
-          sessionUsed,
-          periodUsed,
-          amount,
-        });
-        if (!decision.ok) throw spendLimit(decision.cap, assetId, decision.scope);
+        if (limit) {
+          const start = periodStart(limit.period, now);
+          const periodUsed = await summed(tx, input.userId, null, start);
+          const decision = decideReservation({
+            perCall: parseAmount(limit.per_call),
+            perSession: parseAmount(limit.per_session),
+            perPeriod: parseAmount(limit.per_period),
+            sessionUsed,
+            periodUsed,
+            amount,
+          });
+          if (!decision.ok) throw spendLimit(decision.cap, assetId, decision.scope);
+        }
+        if (agentCap !== null && sessionUsed + amount > agentCap) {
+          // The agent's cap holds every run of the session, held ones included, so two runs at once cannot both fit
+          // under it. It applies whether or not the person set limits of their own: the lower of the two wins.
+          throw spendLimit(agentCap, assetId, 'session');
+        }
+
+        if (input.funds) {
+          // Funds are read under the same per-user lock as the caps, after what is already owed, so two runs at once
+          // cannot both count one balance. Owed first, balance second: a charge that settles in between can only make
+          // this refuse, never admit too much. A read that fails refuses — an unknown balance is not a covered one.
+          const owed = await exposure(tx, input.userId, assetId);
+          let available: Amount | null;
+          try {
+            available = await input.funds();
+          } catch {
+            available = null;
+          }
+          if (available === null || available - owed < amount) {
+            throw new AgentError(
+              `Available balance does not cover ${canonicalAmount(amount)} ${assetId} after ${canonicalAmount(owed)} owed`,
+              'agents.funds_insufficient',
+              'agents.refused.funds_insufficient',
+              { worstCase: canonicalAmount(amount), asset: assetId },
+            );
+          }
+        }
 
         if (prior?.status === 'released') {
           const updated = await tx<ReservationRow[]>`

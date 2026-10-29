@@ -23,11 +23,16 @@ import {
 import { writeRestrictionAudit } from '../admin/common.js';
 import { currentTradingRestrictApprovals, tradingRestrictGate, tradingRestrictRequiresApproval } from '../admin/trading-restrict.js';
 
+/**
+ * A refusal from trading controls. A restriction is named by its owner: `trade.desk_restricted` is this service's
+ * own (`accountControls`, target trading), `trade.account_restricted` is identity's, which account status lists.
+ */
 export class TradingControlError extends Error {
   constructor(
     readonly code:
       | 'authority.unavailable'
       | 'trade.account_restricted'
+      | 'trade.desk_restricted'
       | 'operation.conflict'
       | 'auth.credential_denied'
       | 'auth.account_frozen'
@@ -360,7 +365,7 @@ export class TradingControls implements TradingAdmissionPort {
             return old;
           }
           if (!this.identity) throw new TradingControlError('authority.unavailable');
-          if ((await this.loadState(tx, userId)).restricted) throw new TradingControlError('trade.account_restricted');
+          if ((await this.loadState(tx, userId)).restricted) throw new TradingControlError('trade.desk_restricted');
           const authority = await buildAuthority(tx, userId);
           const intent = identityOperationIntentSchema.parse({ operation, businessId, payloadHash, authority });
           await tx`INSERT INTO trade.operation_intents(user_id, business_id, intent, payload, identity_requested)
@@ -384,10 +389,12 @@ export class TradingControls implements TradingAdmissionPort {
           const admission = await this.finalize(tx, row.intent, decision);
           // A known cancellation is terminal owner evidence. Commit it before refusing
           // the caller, so restart/retry cannot turn the same intent into a new grant.
-          let refusal: 'auth.account_frozen' | 'trade.account_restricted' | 'auth.credential_denied' = 'auth.credential_denied';
+          // Each restriction is refused by its owner's code: identity's (shown on account status) or this service's own.
+          let refusal: 'auth.account_frozen' | 'trade.account_restricted' | 'trade.desk_restricted' | 'auth.credential_denied' =
+            'auth.credential_denied';
           if (decision.status === 'cancelled' && decision.code === 'auth.account_frozen') refusal = 'auth.account_frozen';
-          else if (restricted || (decision.status === 'cancelled' && decision.code === 'trade.account_restricted'))
-            refusal = 'trade.account_restricted';
+          else if (decision.status === 'cancelled' && decision.code === 'trade.account_restricted') refusal = 'trade.account_restricted';
+          else if (restricted) refusal = 'trade.desk_restricted';
           return { admission, refusal };
         },
         { isolation: 'read committed' },

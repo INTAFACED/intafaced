@@ -1,19 +1,22 @@
 /**
- * The developer portal's published values (J-developer-01 #2, #3, #6): the API hosts per protocol and environment, and
- * the market data terms per product. Both are the owner's to publish; nothing here holds a default.
+ * The developer portal's published values (J-developer-01 #2, #3, #6): the API hosts per protocol and environment, the
+ * rule for the regional hosts, and the market data terms per product. All three are the owner's to publish; nothing
+ * here holds a default.
  *
  *   GET /developer-portal/hosts       (through the edge: /api/trade/developer-portal/hosts)
  *   GET /developer-portal/data-terms  (through the edge: /api/trade/developer-portal/data-terms)
+ *   GET /developer-portal/regional-rule (through the edge: /api/trade/developer-portal/regional-rule)
  *
  * Plain JSON, signed-out readable. Blank setting → 503 with its one code (`trade.developer_hosts_unset`,
- * `trade.developer_data_terms_unset`). A published setting answers every row, with `null` where the owner left that
- * host or product out. A malformed setting stops the service at boot instead of serving a guess.
+ * `trade.developer_data_terms_unset`, `trade.developer_regional_rule_unset`). A published hosts or data terms setting
+ * answers every row, with `null` where the owner left that host or product out; a published rule answers its text. A malformed setting stops the service at boot instead of serving a guess.
  */
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 
 export const DEVELOPER_HOSTS_PATH = '/developer-portal/hosts';
 export const DEVELOPER_DATA_TERMS_PATH = '/developer-portal/data-terms';
+export const DEVELOPER_REGIONAL_RULE_PATH = '/developer-portal/regional-rule';
 
 export const DEVELOPER_PROTOCOLS = ['rest', 'websocket', 'fix'] as const;
 export const DEVELOPER_ENVIRONMENTS = ['production', 'sandbox', 'regional'] as const;
@@ -22,6 +25,8 @@ export const DATA_TERMS = ['entitlement', 'redistribution', 'retention', 'privac
 
 export const DEVELOPER_HOSTS_UNSET = 'trade.developer_hosts_unset';
 export const DEVELOPER_DATA_TERMS_UNSET = 'trade.developer_data_terms_unset';
+export const DEVELOPER_REGIONAL_RULE_UNSET = 'trade.developer_regional_rule_unset';
+const REGIONAL_RULE_MAX = 1000;
 
 /** A host name with an optional port (1 to 65535), lower case; never a scheme or a path. */
 const HOST = /^(?=.{1,253}(?::\d{1,5})?$)[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)*(?::\d{1,5})?$/;
@@ -83,9 +88,20 @@ export function parseDataTerms(raw: string): DataTermsRow[] | null {
   return DATA_PRODUCTS.map((product) => ({ product, terms: terms[product] ?? null }));
 }
 
+/** `TRADE_DEVELOPER_REGIONAL_RULE`: blank → null; else the owner's text, trimmed. Too long stops boot. */
+export function parseRegionalRule(raw: string): string | null {
+  const rule = raw.trim();
+  if (rule === '') return null;
+  if ([...rule].length > REGIONAL_RULE_MAX) {
+    throw new Error(`TRADE_DEVELOPER_REGIONAL_RULE is malformed: longer than ${REGIONAL_RULE_MAX} characters`);
+  }
+  return rule;
+}
+
 export interface DeveloperPortalDeps {
   hosts: DeveloperHostRow[] | null;
   dataTerms: DataTermsRow[] | null;
+  regionalRule: string | null;
 }
 
 export function registerDeveloperPortalRest(app: FastifyInstance, deps: DeveloperPortalDeps): void {
@@ -100,5 +116,11 @@ export function registerDeveloperPortalRest(app: FastifyInstance, deps: Develope
       return reply.code(503).send({ code: DEVELOPER_DATA_TERMS_UNSET, message: 'The market data terms are not published yet.' });
     }
     return reply.code(200).send({ products: deps.dataTerms });
+  });
+  app.get(DEVELOPER_REGIONAL_RULE_PATH, async (_req, reply) => {
+    if (deps.regionalRule === null) {
+      return reply.code(503).send({ code: DEVELOPER_REGIONAL_RULE_UNSET, message: 'The regional host rule is not published yet.' });
+    }
+    return reply.code(200).send({ rule: deps.regionalRule });
   });
 }

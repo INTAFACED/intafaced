@@ -27,6 +27,7 @@ import {
   TEST_P2P_FIELDS,
   applyAll,
   applyEarn,
+  applyHomeContent,
   applyHouse,
   applyLoans,
   applyP2p,
@@ -845,6 +846,44 @@ test('status after apply names the TEST rows and the house balances it read back
   assert.match(text, new RegExp(P2P_LABEL.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
   assert.match(text, /BTC {2}100/);
   assert.match(text, /USDT {2}5000000/);
+});
+
+test('apply never asks for the founder pair, so it makes no Home content and leaves the notice board alone', async () => {
+  const { deps } = world();
+  let asked = 0;
+  deps.home = async () => {
+    asked += 1;
+    return null;
+  };
+  const report = await applyAll(deps);
+  assert.equal(asked, 0);
+  assert.doesNotMatch(report.lines.join('\n'), /home/);
+});
+
+test('home without an enrolled founder pair fails by name and makes nothing', async () => {
+  const { deps } = world();
+  deps.home = async () => null;
+  await assert.rejects(applyHomeContent(deps), {
+    message: 'home: no enrolled founder pair on this stack, so Home cannot be seeded (run local-founder-seed.mjs enrol)',
+  });
+});
+
+test('home takes a notice window in whole minutes, for home only, up to the 30-day default', () => {
+  assert.deepEqual(parseArgs(['home', '--notice-minutes', '6', '--state', '/x']), {
+    command: 'home',
+    operands: [],
+    noticeMinutes: 6,
+    stateDir: '/x',
+  });
+  assert.equal(parseArgs(['home', '--notice-minutes', String(30 * 24 * 60)]).noticeMinutes, 30 * 24 * 60);
+  for (const bad of ['0', '-1', '1.5', '6m', String(30 * 24 * 60 + 1)]) {
+    assert.throws(() => parseArgs(['home', '--notice-minutes', bad]), {
+      name: 'GuardError',
+      message: /--notice-minutes needs a whole number/,
+    });
+  }
+  assert.throws(() => parseArgs(['home', '--notice-minutes']), /--notice-minutes needs a whole number/);
+  assert.throws(() => parseArgs(['apply', '--notice-minutes', '6']), /--notice-minutes is for home only/);
 });
 
 test('money tables are decimal strings and the seed does not touch service trees', () => {

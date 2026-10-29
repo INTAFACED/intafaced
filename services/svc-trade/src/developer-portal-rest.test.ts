@@ -7,30 +7,45 @@ import Fastify from 'fastify';
 import {
   DEVELOPER_DATA_TERMS_PATH,
   DEVELOPER_HOSTS_PATH,
+  DEVELOPER_REGIONAL_RULE_PATH,
   parseDataTerms,
   parseDeveloperHosts,
+  parseRegionalRule,
   registerDeveloperPortalRest,
 } from './developer-portal-rest.js';
 
 const TERMS = { entitlement: 'e', redistribution: 'r', retention: 'k', privacy: 'p', commercial: 'c' };
 
-async function served(hostsRaw: string, termsRaw: string) {
+async function served(hostsRaw: string, termsRaw: string, ruleRaw = '') {
   const app = Fastify();
-  registerDeveloperPortalRest(app, { hosts: parseDeveloperHosts(hostsRaw), dataTerms: parseDataTerms(termsRaw) });
+  registerDeveloperPortalRest(app, {
+    hosts: parseDeveloperHosts(hostsRaw),
+    dataTerms: parseDataTerms(termsRaw),
+    regionalRule: parseRegionalRule(ruleRaw),
+  });
   await app.ready();
   const hosts = await app.inject({ method: 'GET', url: DEVELOPER_HOSTS_PATH });
   const terms = await app.inject({ method: 'GET', url: DEVELOPER_DATA_TERMS_PATH });
+  const rule = await app.inject({ method: 'GET', url: DEVELOPER_REGIONAL_RULE_PATH });
   await app.close();
-  return { hosts, terms };
+  return { hosts, terms, rule };
 }
 
 describe('developer portal values', () => {
   it('blank settings refuse 503 with their one code each', async () => {
-    const { hosts, terms } = await served('', '  ');
+    const { hosts, terms, rule } = await served('', '  ', ' \n ');
     expect(hosts.statusCode).toBe(503);
     expect(hosts.json().code).toBe('trade.developer_hosts_unset');
     expect(terms.statusCode).toBe(503);
     expect(terms.json().code).toBe('trade.developer_data_terms_unset');
+    expect(rule.statusCode).toBe(503);
+    expect(rule.json().code).toBe('trade.developer_regional_rule_unset');
+  });
+
+  it('a published regional rule answers its own text, trimmed', async () => {
+    const { rule } = await served('', '', '  Regional hosts serve accounts in their region.  ');
+    expect(rule.statusCode).toBe(200);
+    expect(rule.json()).toEqual({ rule: 'Regional hosts serve accounts in their region.' });
   });
 
   it('a published setting answers all nine hosts and all six products, null where left out', async () => {
@@ -64,5 +79,8 @@ describe('developer portal values', () => {
     expect(() => parseDataTerms(JSON.stringify({ ticker: { ...TERMS, retention: ' ' } }))).toThrow(/malformed/);
     expect(() => parseDataTerms(JSON.stringify({ ticker: { entitlement: 'e' } }))).toThrow(/malformed/);
     expect(() => parseDataTerms(JSON.stringify({ ticker: { ...TERMS, extra: 'x' } }))).toThrow(/malformed/);
+    expect(() => parseRegionalRule('x'.repeat(1001))).toThrow(/TRADE_DEVELOPER_REGIONAL_RULE is malformed/);
+    expect(parseRegionalRule('x'.repeat(1000))).toBe('x'.repeat(1000));
+    expect(parseRegionalRule('\u{1F310}'.repeat(1000))).toBe('\u{1F310}'.repeat(1000));
   });
 });

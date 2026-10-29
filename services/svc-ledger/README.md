@@ -65,13 +65,17 @@ Each door on the service port names the services that may call it (`src/door-cal
 
 `POST /trpc/feeRevenue` takes a half-open ISO window (`from` inclusive, `to` exclusive) and answers, for each asset with a fee movement in it, the fees collected (debits to `fees:*` house accounts), the fees returned (credits out of them) and the signed net, as decimal strings. It reads sums over those accounts and nothing else: no user account, no insurance fund, no entries. An asset with no movement is absent, never a zero row. It is a READ with no path into `post()`.
 
-The door names one caller, svc-ops (`src/door-callers.ts`), which uses it for the venue unit-economics report. Besides it, svc-ops is named on `restoreWatermark`, `reconciliationEvaluations`, and `post` and `txByKey` for its staff holds; `fee-revenue-door.test.ts` proves every other door refuses it.
+The door names one caller, svc-ops (`src/door-callers.ts`), which uses it for the venue unit-economics report. Besides it, svc-ops is named on `restoreWatermark`, `reconciliationEvaluations`, `transactionsExist`, and `post` and `txByKey` for its staff holds; `fee-revenue-door.test.ts` proves every other door refuses it.
 
 ### `reconciliationEvaluations` — every finished reconciliation evaluation, for svc-ops' alerts
 
 `POST /trpc/reconciliationEvaluations` takes `{ after: { finishedAt, id } | null, limit }` (`limit` 1 to 500) and answers the finished evaluations after the cursor, oldest first by `(finishedAt, id)`, each with the control's severity as it is now, and `next`, the cursor to read from next (the last row returned, or the one asked for when none was). A run still `started` is left out, and so is one finished less than 30 seconds ago, so a run committed just behind a reader's cursor is not skipped. The cursor's `finishedAt` carries microseconds: keep it as the string the door returned, never as a JavaScript `Date`, or the last row comes back on every read. A reader keeps its own write idempotent by run id, so it may re-read from an earlier cursor. The run omits its account list. A stored run that no longer fits the contract answers 500, never 400. It is a READ with no path into `post()`.
 
 The door names one caller, svc-ops (`src/door-callers.ts`), which keeps one alert per control, failing asset and period from it (OPS-reconciliation-03). `reconciliation-evaluations-door.test.ts` proves other callers are refused.
+
+### `transactionsExist` — which named transaction ids are booked, for svc-ops resolving an alert
+
+`POST /trpc/transactionsExist` takes `{ txIds }` (1 to 20 UUIDs) and answers `{ found }`: the asked ids that name a booked transaction, lowercase, in the order asked, each once. svc-ops alone may call it (`src/door-callers.ts`); it checks the corrective transactions an operator names when resolving a reconciliation alert as fixed (OPS-reconciliation-04). It answers ids only, never an amount, account or entry. A malformed id or an extra key answers 400. It is a READ with no path into `post()`.
 
 ### `holdingsHistory` — what one customer holds now, and how it moved
 

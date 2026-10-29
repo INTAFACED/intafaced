@@ -12,7 +12,7 @@ import { readServerClock } from '../../shared/server-clock';
 import { developersCopy } from './developers-copy';
 import { docsCopy } from './developers-docs-copy';
 import { AUDIENCES, SECTIONS, developersRoute } from './developers-model';
-import { REST_REFERENCE, SIGN_WINDOW_SECONDS, routeLine, withinWindow } from './developers-reference';
+import { REST_REFERENCE, routeLine, withinWindow } from './developers-reference';
 import { createDocsSearch } from './developers-search';
 
 const html = (path: string) =>
@@ -40,7 +40,7 @@ describe('developer portal home', () => {
   });
   it('a section without a page names the slice it waits for', () => {
     expect(text(html('/developers/errors'))).toContain('It waits for DV-errors-01');
-    expect(text(html('/developers/authentication'))).toContain('It waits for DV-auth-01');
+    expect(text(html('/developers/websocket'))).toContain('It waits for DV-websocket-01');
   });
   it('search finds pages by title or route, and finds nothing for an unknown topic', () => {
     const title = (id: string) => developersCopy.forLocale('en').t(`section_${id.replace(/-/g, '_')}` as 'section_rest');
@@ -77,9 +77,16 @@ describe('developer docs pages', () => {
   it('the permission table has a row per key scope, with POST /api/v1/orders under trade:write', () => {
     const page = html('/developers/permissions');
     expect(page).toContain('aria-label="Permissions and endpoints"');
-    const write = page.slice(page.indexOf('data-scope="trade:write"'), page.indexOf('data-scope="trade:withdraw"'));
+    const write = page.slice(page.indexOf('data-scope="trade:write"'), page.indexOf('data-scope="admin:read"'));
     expect(write).toContain('POST /api/v1/orders');
     expect(write).not.toContain('GET /api/v1/');
+    // admin:read is never offered to a key: its row says so and holds the staff routes no key can call.
+    const staff = page.slice(page.indexOf('data-scope="admin:read"'), page.indexOf('data-scope="trade:withdraw"'));
+    expect(staff).toContain('data-never-on-key=""');
+    expect(staff).toContain('Never on a key: only a staff session holds it');
+    expect(staff).toContain('GET /api/v1/admin/orders/open');
+    const read = page.slice(page.indexOf('data-scope="trade:read"'), page.indexOf('data-scope="trade:write"'));
+    expect(read).not.toContain('/api/v1/admin/');
   });
   it('the specs page links the two downloads and the docs index', () => {
     const page = html('/developers/openapi');
@@ -135,16 +142,18 @@ describe('the clock check', () => {
   it('fails without an offset when the server time cannot be read', async () => {
     expect((await readServerClock(api(null, false))).ok).toBe(false);
   });
+  // A TEST window: the live one is the owner's, read from identity's published policy.
+  const WINDOW = 90;
   it('is within the window up to the signing window, either way, and outside past it', () => {
-    const edge = SIGN_WINDOW_SECONDS * 1000;
-    expect(withinWindow(edge)).toBe(true);
-    expect(withinWindow(-edge)).toBe(true);
-    expect(withinWindow(edge + 1)).toBe(false);
+    const edge = WINDOW * 1000;
+    expect(withinWindow(edge, 0, WINDOW)).toBe(true);
+    expect(withinWindow(-edge, 0, WINDOW)).toBe(true);
+    expect(withinWindow(edge + 1, 0, WINDOW)).toBe(false);
   });
   it('counts half the round trip against the window: a reading near its edge is not called within', () => {
-    const edge = SIGN_WINDOW_SECONDS * 1000;
-    expect(withinWindow(edge - 200, 800)).toBe(false);
-    expect(withinWindow(-(edge - 400), 800)).toBe(true);
+    const edge = WINDOW * 1000;
+    expect(withinWindow(edge - 200, 800, WINDOW)).toBe(false);
+    expect(withinWindow(-(edge - 400), 800, WINDOW)).toBe(true);
   });
 });
 
