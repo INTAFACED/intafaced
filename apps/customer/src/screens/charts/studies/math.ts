@@ -35,10 +35,17 @@ export function sourceValue(candle: Candle, source: SourceName): number {
 
 export const sourceSeries = (bars: readonly Candle[], source: SourceName): number[] => bars.map((bar) => sourceValue(bar, source));
 
-/** Round half away from zero to `digits` decimals. */
+/**
+ * Round half away from zero to `digits` decimals. A value worked in binary arithmetic lands a little under a true half
+ * (the mean of 20 closes, 64990.055, sums to 64990.05499999998), so the nudge that lifts it back over the half grows with
+ * the value: a fixed 1e-9 is under one unit in the last place once the scaled value passes a few million, and the legend
+ * then showed 64990.05 where the formula gives 64990.06. 1e-13 of the value is far above that error and far below the
+ * gap between a real value and the half (a mean of two-decimal prices is never nearer to it than 0.05 of the last digit).
+ */
 export function roundToDecimals(value: number, digits: number): number {
   const factor = 10 ** digits;
-  const rounded = Math.round(Math.abs(value) * factor + 1e-9) / factor;
+  const scaled = Math.abs(value) * factor;
+  const rounded = Math.round(scaled + Math.max(1e-9, scaled * 1e-13)) / factor;
   return value < 0 ? -rounded : rounded;
 }
 
