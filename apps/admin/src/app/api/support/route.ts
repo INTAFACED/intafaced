@@ -12,6 +12,8 @@ import {
   claimTicket,
   loadBulkPolicy,
   loadCustomerCard,
+  loadMacros,
+  applyMacro,
   loadKb,
   loadQueue,
   loadTicket,
@@ -61,6 +63,7 @@ export async function GET(request: Request) {
     if (!isTicketId(id)) return Response.json({ code: 'admin.support_ticket_id' }, { status: 400, headers: NO_STORE });
     return Response.json(await loadTicketExtras(session, id), { headers: NO_STORE });
   }
+  if (url.searchParams.get('view') === 'macros') return Response.json(await loadMacros(session), { headers: NO_STORE });
   if (url.searchParams.get('view') === 'customer') {
     const id = url.searchParams.get('id');
     if (!isTicketId(id)) return Response.json({ code: 'admin.support_ticket_id' }, { status: 400, headers: NO_STORE });
@@ -124,6 +127,7 @@ export async function POST(request: Request) {
     return adminSessionErrorResponse(error instanceof AdminSessionError ? error : new AdminSessionError('admin.json_required', 400));
   }
   if (raw.action === 'claim_next') return claimNext(session);
+  if (raw.action === 'macro_apply') return macroApply(session, raw);
   if (raw.action !== 'claim') return writeAction(session, raw);
   if (!isTicketId(raw.ticketId)) {
     return Response.json(
@@ -175,6 +179,26 @@ export async function POST(request: Request) {
 }
 
 type Session = Exclude<Awaited<ReturnType<typeof adminBffSession>>, Response>;
+
+/** Fill one macro for one request: the draft comes back for the reply box, and nothing is sent to the customer. */
+async function macroApply(session: Session, raw: Record<string, unknown>) {
+  const key = raw.clientRequestId;
+  if (!isTicketId(raw.ticketId) || !isTicketId(raw.macroId) || typeof key !== 'string' || key.length < 8 || key.length > 200) {
+    return Response.json(INVALID, { status: 400, headers: NO_STORE });
+  }
+  const result = await applyMacro(session, { ticketId: raw.ticketId, macroId: raw.macroId, clientRequestId: key });
+  console.warn(
+    JSON.stringify({
+      audit: 'admin.support_macro_apply',
+      at: new Date().toISOString(),
+      founder: session.session.userId,
+      target: `${raw.ticketId}:${raw.macroId}`,
+      outcome: result.kind,
+    }),
+  );
+  if (result.kind === 'ok') return Response.json({ ok: true, draft: result.data.draft }, { headers: NO_STORE });
+  return Response.json({ ok: false, refusal: explainSupportFailure(result) }, { status: statusOf(result), headers: NO_STORE });
+}
 
 /** Claim the request svc-support ranks first; the answer names it, so the page can open it at its own address. */
 async function claimNext(session: Session) {
@@ -230,15 +254,19 @@ const targetOf = (request: SupportActionRequest) =>
         ? request.groupId
         : request.action === 'bulk'
           ? request.batchKey
-          : request.action === 'assign'
-            ? `${request.ticketId}->${request.assigneeId}`
-            : request.action === 'view_save'
-              ? `view:${request.name}`
-              : request.action === 'merge'
-                ? `${request.ticketId}->${request.survivorId}`
-                : 'ticketId' in request
-                  ? request.ticketId
-                  : request.id;
+          : request.action === 'macro_save'
+            ? `macro:${request.shortcode}`
+            : request.action === 'signature_set'
+              ? 'self'
+              : request.action === 'assign'
+                ? `${request.ticketId}->${request.assigneeId}`
+                : request.action === 'view_save'
+                  ? `view:${request.name}`
+                  : request.action === 'merge'
+                    ? `${request.ticketId}->${request.survivorId}`
+                    : 'ticketId' in request
+                      ? request.ticketId
+                      : request.id;
 
 function statusOf(failure: FounderCallFailure<unknown>): number {
   if (failure.kind === 'forbidden') return failure.refusal.status === 401 ? 401 : 403;
@@ -300,6 +328,10 @@ function summaryOf(request: SupportActionRequest, data: unknown): string {
       return Array.isArray(data) ? bulkSummary(data as BulkRow[]) : 'svc-support answered the bulk change.';
     case 'properties':
       return 'svc-support recorded the new priority, type and labels on the ticket.';
+    case 'macro_save':
+      return `svc-support saved the macro "${String(d.title)}" (${String(d.shortcode)})${d.shared === true ? ', shared with the desk' : ', for you only'}.`;
+    case 'signature_set':
+      return d.signature === null ? 'svc-support cleared your signature.' : 'svc-support saved your signature.';
     case 'unclaim':
       return 'svc-support says the ticket is back in the queue with nobody on it.';
     case 'assign':

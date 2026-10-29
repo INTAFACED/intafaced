@@ -31,6 +31,11 @@
       "value": "20",
       "note": "Shared desk views the desk may keep, for the same journey. Not an owner decision."
     },
+    "SUPPORT_MACRO_SHORTCODE_MIN": {
+      "service": "support",
+      "value": "2",
+      "note": "The shortest macro shortcode, so J-support-public-10 #7 can save a TEST macro. Not an owner decision."
+    },
     "SUPPORT_FEEDBACK_RATE_LIMIT": {
       "service": "support",
       "value": "5",

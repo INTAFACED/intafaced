@@ -245,6 +245,14 @@ export type SupportActionRequest =
       readonly reason: string;
     }
   | { readonly action: 'unclaim'; readonly ticketId: string; readonly idempotencyKey: string }
+  | {
+      readonly action: 'macro_save';
+      readonly title: string;
+      readonly shortcode: string;
+      readonly body: string;
+      readonly shared: boolean;
+    }
+  | { readonly action: 'signature_set'; readonly signature: string | null }
   | { readonly action: 'assign'; readonly ticketId: string; readonly assigneeId: string; readonly idempotencyKey: string }
   | { readonly action: 'kb_unpublish'; readonly id: string; readonly baseRevision: number }
   | { readonly action: 'kb_audience'; readonly id: string; readonly baseRevision: number; readonly audience: SupportKbAudience };
@@ -258,6 +266,13 @@ const isIdempotencyKey = (v: unknown): v is string => typeof v === 'string' && v
  * Business keys for the hand-overs: one per ticket state, so a retried click is the same hand-over and a later one,
  * after the ticket moved on, is a new one.
  */
+/** One apply of one macro to one request in the state it was read: a retried pick records one use. */
+export const macroApplyKey = (ticket: { id: string; updatedAt: string }, macroId: string): string =>
+  `apply:${ticket.id}:${macroId}:${ticket.updatedAt}`;
+
+/** The reply as sent: the agent's signature, when there is one, closes every public reply. */
+export const withSignature = (body: string, signature: string | null): string => (signature ? `${body.trimEnd()}\n\n${signature}` : body);
+
 export const unclaimKey = (ticket: { id: string; updatedAt: string }): string => `unclaim:${ticket.id}:${ticket.updatedAt}`;
 export const assignKey = (ticket: { id: string; updatedAt: string }, assigneeId: string): string =>
   `assign:${ticket.id}:${assigneeId.toLowerCase()}:${ticket.updatedAt}`;
@@ -284,6 +299,18 @@ function readBulkChange(raw: unknown): BulkChange | null {
  */
 export function readActionRequest(raw: Record<string, unknown>): SupportActionRequest | null {
   switch (raw.action) {
+    case 'macro_save':
+      return isText(raw.title, 120) &&
+        typeof raw.shortcode === 'string' &&
+        raw.shortcode.length <= 32 &&
+        isText(raw.body, REPLY_MAX) &&
+        typeof raw.shared === 'boolean'
+        ? { action: 'macro_save', title: raw.title.trim(), shortcode: raw.shortcode.trim(), body: raw.body, shared: raw.shared }
+        : null;
+    case 'signature_set':
+      return raw.signature === null || (typeof raw.signature === 'string' && raw.signature.length <= 1000)
+        ? { action: 'signature_set', signature: raw.signature as string | null }
+        : null;
     case 'unclaim':
       return isTicketId(raw.ticketId) && isIdempotencyKey(raw.idempotencyKey)
         ? { action: 'unclaim', ticketId: raw.ticketId, idempotencyKey: raw.idempotencyKey }

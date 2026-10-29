@@ -5,6 +5,7 @@ import { SupportDesk } from '@/components/support-desk';
 import { KbPanel } from '@/components/support-kb-panel';
 import { GroupsPanel } from '@/components/support-groups-panel';
 import { StaffPanel } from '@/components/support-staff-panel';
+import { MacrosPanel } from '@/components/support-macros-panel';
 import { loadGroups, loadKb, loadQueue, loadStaff } from '@/lib/support/server';
 import { queueQueryString, readQueueQuery } from '@/lib/support/queue-query';
 
@@ -31,6 +32,7 @@ export default async function SupportPage({ searchParams }: { searchParams: Prom
         <Link href="/support/settings">Contact details for the help centre</Link>
       </p>
       <StaffPanel initial={staff} />
+      <MacrosPanel />
       <GroupsPanel initial={groups} />
       <KbPanel initial={kb} />
     </SupportDesk>

@@ -43,6 +43,8 @@ import {
 } from '@intafaced/contracts';
 import { MemoryContactBook, type ContactBook } from './contact-channels.js';
 import { contactProcedures } from './contact-router.js';
+import { DarkHandleSource, MemoryMacroBook, type HandleSource, type MacroBook } from './desk-macros.js';
+import { macroProcedures } from './macros-router.js';
 import type { AttachmentMeta } from './store.js';
 import { attachmentProcedures } from './attachment-router.js';
 import { MemoryAttachmentSettingsBook, type AttachmentSettingsBook } from './attachment-settings.js';
@@ -210,6 +212,9 @@ export function createSupportRouter(
   helpCentre: HelpCentreBook = new MemoryHelpCentreBook(),
   kbLibrary: KbLibraryBook = new MemoryKbLibraryBook(),
   forms: RequestForms = new RequestForms(new MemoryFormsStore(), { forms: null, fields: null }),
+  macros: MacroBook = new MemoryMacroBook(),
+  handles: HandleSource = new DarkHandleSource(),
+  macroShortcodeMin: number | null = null,
 ) {
   const helpCentreOpen = helpCentreGate(helpCentre);
   return router({
@@ -220,6 +225,7 @@ export function createSupportRouter(
     ...requestFormProcedures(forms, support),
     ...kbFeedbackProcedures(support, mapError, helpCentreOpen),
     ...kbLibraryProcedures(kbLibrary, support, helpCentreOpen, mapError),
+    ...macroProcedures(macros, handles, support, macroShortcodeMin, mapError),
 
     deskPolicy: publicProcedure.query(() => describeSupportDeskPolicy(internalServiceSecret ?? null)),
 

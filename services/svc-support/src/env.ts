@@ -86,6 +86,11 @@ const schema = serviceEnvSchema
       SUPPORT_VIEW_PERSONAL_CAP: z.preprocess((v) => (v === '' ? undefined : v), z.coerce.number().int().min(0).optional()),
       SUPPORT_VIEW_SHARED_CAP: z.preprocess((v) => (v === '' ? undefined : v), z.coerce.number().int().min(0).optional()),
       /**
+       * The shortest macro shortcode (SP-desk-02). Blank is unset: every macro save refuses support.shortcode_rule_unset
+       * and names the setting. Never defaulted.
+       */
+      SUPPORT_MACRO_SHORTCODE_MIN: z.preprocess((v) => (v === '' ? undefined : v), z.coerce.number().int().min(1).max(32).optional()),
+      /**
        * Which agent-set properties a customer reads on their own request (SP-tickets-04): a comma list of `priority` and
        * `type`, or `none`. Blank reads unset and shows the customer neither. Never defaulted.
        */

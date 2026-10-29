@@ -219,6 +219,14 @@ test(`${J} #6 priority, type and labels save with one audit row each; a label wi
 test(`${J} #7 a macro with a placeholder fills the reply draft, the signature goes on the public reply only, and nothing is sent until Send`, async ({
   page,
 }) => {
+  // The lead keeps a shared TEST macro with a placeholder and a TEST signature (SP-desk-02; the stack's shortcode minimum is TEST).
+  await desk('lead', 'mutation', 'macrosSave', {
+    title: `TEST greeting ${RUN}`,
+    shortcode: `t${RUN}`,
+    body: `TEST Hello {{requester.name}}, we are looking at request {{ticket.id}}.`,
+    shared: true,
+  });
+  await desk('lead', 'mutation', 'staffSetSignature', { signature: 'TEST Lead A, support desk' });
   const ticket = await request(`TEST macro ${RUN}`);
   const queue = await openQueue(page);
   const workspace = await openRequest(page, queue, ticket);

@@ -12,6 +12,9 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS }) => ({
     // Production stays blank and every save refuses (support.view_cap_unset) until the owner sets them.
     SUPPORT_VIEW_PERSONAL_CAP: '20',
     SUPPORT_VIEW_SHARED_CAP: '20',
+    // LOCAL TEST only, labelled in the same file: the shortest macro shortcode. Production stays blank and every macro
+    // save refuses (support.shortcode_rule_unset) until the owner sets it.
+    SUPPORT_MACRO_SHORTCODE_MIN: '2',
     // LOCAL TEST only, labelled in the same file: how many help-answer votes one account or browser may cast per window.
     // Production stays blank and every vote refuses (support.feedback_rate_limit_unset) until the owner sets both.
     SUPPORT_FEEDBACK_RATE_LIMIT: '5',

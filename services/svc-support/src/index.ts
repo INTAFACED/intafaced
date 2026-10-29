@@ -3,6 +3,7 @@ import { edgeTrustFromEnv } from '@intafaced/config';
 import { createEdgeContext, s2sFromEnv } from '@intafaced/contracts';
 import { env } from './env.js';
 import { createAccountStateClient } from './account-state.js';
+import { SqlMacroBook, createHandleClient } from './desk-macros.js';
 import { createTicketOrderClient, DarkTicketOrderSource } from './ticket-order.js';
 import { createSupportHttpApp } from './http-app.js';
 import { SqlContactBook } from './contact-channels.js';
@@ -194,6 +195,10 @@ const appRouter = createSupportRouter(
   new SqlHelpCentreBook(sql),
   new SqlKbLibraryBook(sql),
   new RequestForms(new SqlFormsStore(sql), { forms: env.SUPPORT_FORM_CAP ?? null, fields: env.SUPPORT_FIELD_CAP ?? null }),
+  new SqlMacroBook(sql),
+  // A macro's requester and agent names are read from svc-identity per apply, like the account state.
+  createHandleClient(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET, s2sKey),
+  env.SUPPORT_MACRO_SHORTCODE_MIN ?? null,
 );
 const edgeContext = createEdgeContext({
   secret: env.EDGE_PRINCIPAL_SECRET,

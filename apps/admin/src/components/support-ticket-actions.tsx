@@ -1,8 +1,9 @@
 'use client';
 
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { SupportTicket, SupportTicketEvent } from '@intafaced/contracts';
-import { postSupportAction, type ActionReply } from '@/lib/support/browser';
+import { fetchMacros, postMacroApply, postSupportAction, type ActionReply } from '@/lib/support/browser';
+import type { SupportMacro } from '@/lib/support/types';
 import {
   ESCALATION_REASONS,
   NOTE_MAX,
@@ -14,6 +15,8 @@ import {
   statusGate,
   type ActionGate,
   type EscalationReason,
+  macroApplyKey,
+  withSignature,
   type SupportActionRequest,
 } from '@/lib/support/model';
 import { ActionOutcome, ConfirmStep } from './support-action-parts';
@@ -90,6 +93,18 @@ export interface TicketActionsViewProps {
   readonly onField: (patch: Partial<ActionForm>) => void;
   readonly onArm: (kind: ActionKind | null) => void;
   readonly onSend: () => void;
+  /**
+   * The macro picker and the agent's signature. `macros` is null while unread or refused (`why` says which); `signature`
+   * is undefined while unread. Absent when the page offers neither.
+   */
+  readonly macros?: {
+    readonly list: readonly SupportMacro[] | null;
+    readonly why: string | null;
+    readonly signature: string | null | undefined;
+    readonly onPick: (macroId: string) => void;
+    readonly picking: boolean;
+    readonly pickReply: ActionReply | null;
+  };
   /** A reply refused as stale: what changed since it was opened (null while it is read again), and the "read" step. */
   readonly stale?: { readonly changes: readonly string[] | null; readonly onRead: () => void } | null;
 }
@@ -129,6 +144,27 @@ export function TicketActionsView(p: TicketActionsViewProps) {
   return (
     <section className="dk-stack" aria-label="Ticket actions" data-testid="ticket-actions">
       <h4>Reply to the customer</h4>
+      {p.macros && (
+        <div className="adm-field">
+          <label htmlFor="sd-macro">Macro</label>
+          <select
+            id="sd-macro"
+            value=""
+            disabled={p.busy || editing || p.macros.picking || !p.macros.list}
+            onChange={(e) => e.target.value !== '' && p.macros!.onPick(e.target.value)}
+          >
+            <option value="">{p.macros.list?.length === 0 ? 'No macros yet' : 'Choose a macro to fill the draft'}</option>
+            {(p.macros.list ?? []).map((m) => (
+              <option key={m.id} value={m.id}>
+                {m.title} ({m.shortcode}){m.shared ? '' : ', yours'}
+              </option>
+            ))}
+          </select>
+          {p.macros.why && <span className="dk-why">{p.macros.why}</span>}
+          <span className="dk-muted">A macro only fills the draft below. Nothing is sent until you send it.</span>
+        </div>
+      )}
+      {p.macros?.pickReply && !p.macros.pickReply.ok && <ActionOutcome reply={p.macros.pickReply} testId="macro-outcome" />}
       <div className="adm-field">
         <label htmlFor="sd-reply">Your reply</label>
         <textarea
@@ -141,6 +177,15 @@ export function TicketActionsView(p: TicketActionsViewProps) {
           onChange={(e) => p.onField({ replyBody: e.target.value })}
         />
       </div>
+      {p.macros && (
+        <p className="dk-muted" data-testid="reply-signature">
+          {p.macros.signature === undefined
+            ? 'Reading your signature…'
+            : p.macros.signature === null
+              ? 'You have no signature, so the reply is sent as written. Set one under “Macros and your signature”.'
+              : `Your signature closes the reply when you send it: “${p.macros.signature}”.`}
+        </p>
+      )}
       {p.armed === 'reply' ? (
         <ConfirmStep
           title="Send this reply?"
@@ -318,6 +363,42 @@ export function TicketActions({
   // The last history row this agent has read: from when the request was opened, or "I have read the changes".
   const [seen, setSeen] = useState<number | null>(() => (events === null ? null : lastSequence(events)));
   const [stale, setStale] = useState(false);
+  const [macros, setMacros] = useState<readonly SupportMacro[] | null>(null);
+  const [macrosWhy, setMacrosWhy] = useState<string | null>(null);
+  const [signature, setSignature] = useState<string | null | undefined>(undefined);
+  const [picking, setPicking] = useState(false);
+  const [pickReply, setPickReply] = useState<ActionReply | null>(null);
+
+  useEffect(() => {
+    let live = true;
+    void fetchMacros().then((m) => {
+      if (!live) return;
+      if (!m) return setMacrosWhy('The macros could not be read.');
+      if (m.list.kind === 'ok') setMacros(m.list.data.macros);
+      else setMacrosWhy(m.list.message);
+      // An unread signature is not "none": the reply then goes without one and the page says so.
+      setSignature(m.signature.kind === 'ok' ? m.signature.data : null);
+    });
+    return () => {
+      live = false;
+    };
+  }, []);
+
+  async function pick(macroId: string) {
+    if (lock.current) return;
+    lock.current = true;
+    setPicking(true);
+    setPickReply(null);
+    try {
+      const result = await postMacroApply({ ticketId: ticket.id, macroId, clientRequestId: macroApplyKey(ticket, macroId) });
+      if (result.ok)
+        setForm((f) => ({ ...f, replyBody: f.replyBody.trim() === '' ? result.draft : `${f.replyBody.trimEnd()}\n\n${result.draft}` }));
+      else setPickReply(result);
+    } finally {
+      lock.current = false;
+      setPicking(false);
+    }
+  }
   const [armed, setArmed] = useState<ActionKind | null>(null);
   const [busy, setBusy] = useState(false);
   const [outcome, setOutcome] = useState<TicketActionsViewProps['outcome']>(null);
@@ -329,7 +410,10 @@ export function TicketActions({
     setBusy(true);
     const kind = armed;
     try {
-      const reply = await postSupportAction(buildRequest(kind, ticket, form, seen));
+      const built = buildRequest(kind, ticket, form, seen);
+      const reply = await postSupportAction(
+        built.action === 'reply' ? { ...built, body: withSignature(built.body, signature ?? null) } : built,
+      );
       setOutcome({ kind, reply });
       setStale(kind === 'reply' && !reply.ok && reply.refusal.code === 'support.comment_stale');
       setArmed(null);
@@ -362,6 +446,7 @@ export function TicketActions({
         if (!busy) setArmed(kind);
       }}
       onSend={() => void send()}
+      macros={{ list: macros, why: macrosWhy, signature, onPick: (id) => void pick(id), picking, pickReply }}
       stale={
         stale
           ? {

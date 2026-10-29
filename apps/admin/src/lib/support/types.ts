@@ -74,6 +74,25 @@ export interface SupportCustomerView {
   readonly relatedOrderId: string | null;
 }
 
+/** One macro as svc-support lists it. */
+export interface SupportMacro {
+  readonly id: string;
+  readonly ownerId: string;
+  readonly shared: boolean;
+  readonly title: string;
+  readonly shortcode: string;
+  readonly body: string;
+  readonly placeholders: readonly string[];
+  readonly updatedAt: string;
+}
+
+export interface SupportMacrosView {
+  readonly asOf: string;
+  /** `shortcodeMin` is the owner's shortest shortcode, or null while it is not set (every save then refuses). */
+  readonly list: Part<{ readonly macros: readonly SupportMacro[]; readonly shortcodeMin: number | null }>;
+  readonly signature: Part<string | null>;
+}
+
 export interface SupportViewsView {
   readonly asOf: string;
   readonly meId: string;

@@ -21,6 +21,7 @@ import { QUEUE_PAGE, readQueueResult, readRatingResult, type SupportActionReques
 import { EMPTY_QUERY, isQueryEmpty, type QueueQuery } from './queue-query';
 import { readBulkPolicy, readBulkResults } from './bulk';
 import { readMergePreview } from './merge';
+import { readMacroList } from './macros';
 import { readRatingSummary } from './ratings';
 import { readDeskScope, readGroup, readGroups } from './groups';
 import { readStaffMember, readStaffPolicy, readStaffRoster } from './staff';
@@ -34,6 +35,7 @@ import type {
   SupportGroupsView,
   SupportStaffView,
   SupportCustomerView,
+  SupportMacrosView,
   SupportTicketView,
   SupportViewsView,
   TicketExtrasView,
@@ -193,6 +195,30 @@ export async function claimNextTicket(
 export async function loadCustomerCard(ctx: FounderCallContext, ticketId: string, now: Date = new Date()): Promise<SupportCustomerView> {
   const state = await founderCall(ctx, 'support', 'accountState', 'GET', { ticketId }, parseWith(supportAccountGroundingSchema));
   return { asOf: now.toISOString(), account: partFrom(state, (s) => s, LABELS), relatedOrderId: null };
+}
+
+/** The macros this founder may use, and their own signature. Two reads, each its own part. */
+export async function loadMacros(ctx: FounderCallContext, now: Date = new Date()): Promise<SupportMacrosView> {
+  const [list, signature] = await Promise.all([
+    founderCall(ctx, 'support', 'macrosList', 'GET', undefined, readMacroList),
+    founderCall(ctx, 'support', 'staffSignature', 'GET', undefined, (raw) => {
+      const s = (raw as { signature?: unknown } | null)?.signature;
+      return s === null || typeof s === 'string' ? { signature: s } : null;
+    }),
+  ]);
+  return {
+    asOf: now.toISOString(),
+    list: partFrom(list, (l) => l, LABELS),
+    signature: partFrom(signature, (s) => s.signature, LABELS),
+  };
+}
+
+/** Fill one macro for one request. svc-support returns the draft and records the use; nothing is sent. */
+export function applyMacro(ctx: FounderCallContext, input: { ticketId: string; macroId: string; clientRequestId: string }) {
+  return founderCall(ctx, 'support', 'macrosApply', 'POST', input, (raw) => {
+    const draft = (raw as { draft?: unknown } | null)?.draft;
+    return typeof draft === 'string' ? { draft } : null;
+  });
 }
 
 export function claimTicket(
@@ -410,6 +436,19 @@ export function runSupportAction(ctx: FounderCallContext, request: SupportAction
           ...(request.reason ? { reason: request.reason } : {}),
         },
         (raw) => readBulkResults(raw, { batchKey: request.batchKey, ticketIds: request.ticketIds }),
+      );
+    case 'macro_save':
+      return founderCall(
+        ctx,
+        'support',
+        'macrosSave',
+        'POST',
+        { title: request.title, shortcode: request.shortcode, body: request.body, shared: request.shared },
+        (raw) => (raw && typeof raw === 'object' ? raw : null),
+      );
+    case 'signature_set':
+      return founderCall(ctx, 'support', 'staffSetSignature', 'POST', { signature: request.signature }, (raw) =>
+        raw && typeof raw === 'object' ? raw : null,
       );
     case 'unclaim':
       return founderCall(

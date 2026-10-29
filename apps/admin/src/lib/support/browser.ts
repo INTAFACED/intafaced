@@ -14,6 +14,7 @@ import type {
   SupportGroupsView,
   SupportStaffView,
   SupportCustomerView,
+  SupportMacrosView,
   SupportTicketView,
   SupportViewsView,
   TicketExtrasView,
@@ -277,6 +278,55 @@ export async function postClaimNext(): Promise<ClaimReply> {
   }
 }
 
+export async function fetchMacros(signal?: AbortSignal): Promise<SupportMacrosView | null> {
+  try {
+    const res = await fetch('/api/support?view=macros', { cache: 'no-store', credentials: 'same-origin', ...(signal ? { signal } : {}) });
+    if (!res.ok) return null;
+    const body: unknown = await res.json();
+    return isRecord(body) && typeof body.asOf === 'string' && isRecord(body.list) && isRecord(body.signature)
+      ? (body as unknown as SupportMacrosView)
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+export type MacroDraftReply = { readonly ok: true; readonly draft: string } | Extract<ClaimReply, { ok: false }>;
+
+/** Fill one macro for one request. The draft only fills the reply box; sending stays the agent's step. */
+export async function postMacroApply(input: { ticketId: string; macroId: string; clientRequestId: string }): Promise<MacroDraftReply> {
+  let headers: Record<string, string>;
+  try {
+    headers = await founderMutationHeaders();
+  } catch (error) {
+    return {
+      ok: false,
+      refusal: {
+        title: 'Nothing was sent',
+        body: error instanceof Error ? error.message : 'Your founder session could not be confirmed.',
+        next: 'Sign in again, then repeat the step.',
+        code: null,
+        changed: 'no',
+      },
+    };
+  }
+  try {
+    const res = await fetch('/api/support', {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ action: 'macro_apply', ...input }),
+      cache: 'no-store',
+      credentials: 'same-origin',
+    });
+    const body: unknown = await res.json().catch(() => null);
+    if (isRecord(body) && body.ok === true && typeof body.draft === 'string') return { ok: true, draft: body.draft };
+    const read = readClaimReply(body);
+    return read.ok ? UNKNOWN : read;
+  } catch {
+    return UNKNOWN;
+  }
+}
+
 export async function fetchViews(signal?: AbortSignal): Promise<SupportViewsView | null> {
   try {
     const res = await fetch('/api/support?view=views', { cache: 'no-store', credentials: 'same-origin', ...(signal ? { signal } : {}) });
@@ -321,6 +371,8 @@ const ACTIONS: readonly string[] = [
   'view_save',
   'unclaim',
   'assign',
+  'macro_save',
+  'signature_set',
 ];
 
 /** Strict reader: anything that is not exactly a known answer is "outcome not known", never a success. */

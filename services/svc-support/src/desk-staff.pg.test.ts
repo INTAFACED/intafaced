@@ -6,6 +6,7 @@ import { afterAll, beforeEach, describe, expect, it } from 'vitest';
 import { createTestDatabase, postgresAvailable, type TestDatabase } from '@intafaced/db';
 import { SqlGroupBook, deskCanSee } from './desk-groups.js';
 import { SqlPropertiesBook } from './desk-properties.js';
+import { MacroError, SqlMacroBook } from './desk-macros.js';
 import { SqlStaffBook } from './desk-staff.js';
 import { SqlLifecycleBook } from './ticket-lifecycle.js';
 import { PostgresSupportStore } from './store.js';
@@ -147,6 +148,31 @@ if (!url) {
         ['priority', 'high', null, null, '2026-10-20T09:31:00.000Z'],
       ]);
       await expect(db.sql`UPDATE support.ticket_properties SET priority = 'critical' WHERE ticket_id = ${ticket.id}`).rejects.toThrow();
+    });
+
+    it('keeps macros unique per scope, records a use once, and one signature per person (SP-desk-02)', async () => {
+      const store = new PostgresSupportStore(db.sql);
+      const book = new SqlMacroBook(db.sql);
+      const ticket = await store.createTicket({ userId: USER, category: 'account', subject: 'Macro', body: 'Please look' });
+      const at = '2026-10-29T06:30:00.000Z';
+      const shared = await book.create({ ownerId: LEAD, shared: true, title: 'Hello', shortcode: 'hi', body: 'Hi {{requester.name}}', at });
+      expect(shared).toMatchObject({ shared: true, shortcode: 'hi', placeholders: ['requester.name'] });
+      await expect(book.create({ ownerId: AGENT, shared: true, title: 'Again', shortcode: 'hi', body: 'x', at })).rejects.toBeInstanceOf(
+        MacroError,
+      );
+      const mine = await book.create({ ownerId: AGENT, shared: false, title: 'Mine', shortcode: 'hi', body: 'x', at });
+      expect((await book.listVisible(LEAD)).map((m) => m.id)).toEqual([shared.id]);
+      expect((await book.listVisible(AGENT)).map((m) => m.id).sort()).toEqual([shared.id, mine.id].sort());
+      const use = { macroId: shared.id, ticketId: ticket.id, by: LEAD, clientRequestId: 'apply-0001', at };
+      await book.recordUse(use);
+      await book.recordUse(use);
+      expect(await db.sql`SELECT 1 FROM support.macro_uses WHERE macro_id = ${shared.id}`).toHaveLength(1);
+      expect(await book.setSignature({ userId: LEAD, signature: 'Lead A', at })).toBe('Lead A');
+      expect(await book.setSignature({ userId: LEAD, signature: 'Lead A, support', at })).toBe('Lead A, support');
+      expect(await book.signatureOf(LEAD)).toBe('Lead A, support');
+      await book.setSignature({ userId: LEAD, signature: null, at });
+      expect(await book.signatureOf(LEAD)).toBeNull();
+      await expect(db.sql`UPDATE support.macros SET scope_key = 'shared' WHERE id = ${mine.id}`).rejects.toThrow();
     });
 
     it('rejects an availability outside online, busy and offline in the database', async () => {
