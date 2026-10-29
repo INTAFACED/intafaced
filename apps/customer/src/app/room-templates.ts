@@ -29,6 +29,7 @@ export const ROUTE_TEMPLATES: Readonly<Record<string, RoomTemplate | NotARoom>> 
   '/confirm-email': { template: 'flow' },
   '/cannot-sign-in': { template: 'flow' },
   '/recover-account': { template: 'flow' },
+  '/freeze/confirm': { template: 'flow' },
   '/help': { template: 'reading' },
   '/helpdetail': { template: 'reading' },
   '/help/category/:id': { template: 'reading' },

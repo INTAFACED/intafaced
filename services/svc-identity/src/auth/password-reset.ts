@@ -60,6 +60,8 @@ export interface PasswordResetMail {
     readonly antiPhishingCode?: string;
     /** A plain line naming what a service mail is about (`POST /internal/mail`), for example the address to approve. */
     readonly detail?: string;
+    /** The one-time freeze link's token, on security notices only (`freeze-link.ts`). A secret, like `code`. */
+    readonly freezeToken?: string;
   }): Promise<void>;
 }
 

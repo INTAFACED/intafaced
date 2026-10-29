@@ -1,7 +1,8 @@
 import { randomBytes } from 'node:crypto';
 import path from 'node:path';
 import { test, expect } from '@playwright/test';
-import { ROOT, api, signOutBrowser, signUpInBrowser } from './stack.mjs';
+import { ROOT, api, mailedLines, signOutBrowser, signUpInBrowser } from './stack.mjs';
+import { keyHolder, makeKey, withKey } from './developer.mjs';
 import { addAuthenticator, nextCode } from './identity-factors.mjs';
 
 // J-identity-11, in the running app (docs/roadmap/journeys.json): I freeze my own account and later reactivate it.
@@ -84,6 +85,80 @@ test(`${J} #1 Account status lists what I can still do and what I cannot; an act
   await expect(lock).toContainText('It holds until you ask to unlock it in Security.');
   await expect(status.getByTestId('account-status__cannot').locator('li')).toHaveText(ACTIONS.slice(3));
   await expect(status.getByTestId('account-status__can').locator('li')).toHaveText(['Sign in', 'Trade', 'Create API keys']);
+});
+
+/** The freeze link on the newest security notice mailed to `email`, as the path the mail links to. */
+async function mailedFreezeLink(email) {
+  let link = null;
+  await expect
+    .poll(
+      () => {
+        const lines = mailedLines(email, 'factor-changed').filter((line) => / freeze=/.test(line));
+        link = lines.length ? /\bfreeze=(\S+)/.exec(lines.at(-1))[1] : null;
+        return link;
+      },
+      { timeout: 30_000 },
+    )
+    .toMatch(/^freeze\/confirm\?token=[A-Za-z0-9_-]{40,}$/);
+  return `/${link}`;
+}
+
+/** The bank's withdrawal guard, asked as the address form asks it before any code: may this person add this address? */
+const WITHDRAW_TO = '0x52908400098527886E0F7030069857D2E4169EE7';
+const withdrawalCheck = (session) =>
+  session.get(`/api/bank/trpc/ramps.destinations.check?input=${encodeURIComponent(JSON.stringify({ ref: WITHDRAW_TO }))}`);
+const refusalOf = (res) => res.body?.error?.data?.intafacedCode ?? res.body?.error?.data?.cause?.code ?? null;
+
+test(`${J} #2 Freeze my account from the mailed link: no session and no key remain, the link used twice shows the stored result, a withdrawal is refused`, async ({
+  browser,
+}) => {
+  test.setTimeout(240_000);
+  // A verified person with a passkey (only such an account holds an API key) and a live key. Adding the passkey is a
+  // security change, so identity mails the "your sign-in methods changed" notice, and that notice carries the link.
+  const { page, who } = await keyHolder(browser, 'jl');
+  const key = await makeKey(page, { name: 'freeze-me', preset: 'Read only' });
+  const session = await api(who);
+  const STATUS = '/api/identity/trpc/accountStatus.mine';
+  expect((await session.get(STATUS)).status).toBe(200);
+  expect((await withKey(key, { path: '/api/identity/trpc/developerKeys.list' })).status).toBe(200);
+  // Before the freeze the withdrawal guard lets this person go on to the address form.
+  const open = await withdrawalCheck(session);
+  expect(open.status, JSON.stringify(open.body).slice(0, 300)).toBe(200);
+  expect(open.body.result.data.address).toBe('ok');
+
+  // "This was not me": the person opens the link from the notice in a browser that is not signed in.
+  const link = await mailedFreezeLink(who.email);
+  const mailbox = await (await browser.newContext()).newPage();
+  await mailbox.goto(link);
+  await expect(mailbox.getByRole('heading', { level: 1 })).toHaveText('Freeze your account');
+  // Opening the page spent nothing: the account still reads active.
+  expect((await session.get(STATUS)).body.result.data.state).toBe('active');
+  await mailbox.getByRole('button', { name: 'Freeze my account' }).click();
+  await expect(mailbox.getByRole('heading', { level: 1 })).toHaveText('Your account is frozen');
+  const first = await mailbox.getByTestId('freeze-link-result').locator('time').getAttribute('datetime');
+  expect(Number.isNaN(Date.parse(first))).toBe(false);
+
+  // No session and no key remain: the sign-in made before the freeze, the key, and the browser's own session all refuse.
+  expect((await session.get(STATUS)).status).toBe(401);
+  expect((await withKey(key, { path: '/api/identity/trpc/developerKeys.list' })).status).toBe(401);
+  await page.goto('/uc/safe');
+  await expect(page.getByRole('heading', { name: 'Sign in to continue' })).toBeVisible();
+
+  // The same link again shows the result stored at its first use, and changes nothing.
+  await mailbox.goto(link);
+  await mailbox.getByRole('button', { name: 'Freeze my account' }).click();
+  await expect(mailbox.getByRole('heading', { level: 1 })).toHaveText('This link was already used');
+  await expect(mailbox.getByTestId('freeze-link-result')).toHaveAttribute('data-first-use', 'false');
+  await expect(mailbox.getByTestId('freeze-link-result').locator('time')).toHaveAttribute('datetime', first);
+
+  // Signed in again, the account reads frozen by its owner since that moment, and the bank's withdrawal guard refuses.
+  const again = await api(who);
+  const status = (await again.get(STATUS)).body.result.data;
+  expect(status.state).toBe('frozen_self');
+  expect(status.restrictions.map((restriction) => restriction.kind)).toEqual(['self_freeze']);
+  const refused = await withdrawalCheck(again);
+  expect(refused.status).toBe(412);
+  expect(refusalOf(refused)).toBe('bank.account_frozen_self');
 });
 
 test(`${J} #3 Signing in again after freezing lands on a typed "frozen by you" page with the lift path, not a generic error`, async ({

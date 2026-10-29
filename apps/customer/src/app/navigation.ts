@@ -40,6 +40,13 @@ export const rooms: readonly Room[] = [
   { path: '/confirm-email', title: 'Confirm email', description: 'Prove your email address', area: 'public', hidden: true },
   { path: '/cannot-sign-in', title: 'Cannot sign in', description: 'Ask Support to recover your account', area: 'public', hidden: true },
   { path: '/recover-account', title: 'Recover account', description: 'Use the recovery link Support sent', area: 'public', hidden: true },
+  {
+    path: '/freeze/confirm',
+    title: 'Freeze account',
+    description: 'Use the freeze link from a security notice',
+    area: 'public',
+    hidden: true,
+  },
   { path: '/help', title: 'Help centre', description: 'Find answers and contact support', area: 'public', returnAfterSignIn: true },
   { path: '/helplist', title: 'Help centre', description: 'Published help', area: 'public', alias: '/help', returnAfterSignIn: true },
   { path: '/helpdetail', title: 'Help article', description: 'Published guidance', area: 'public', hidden: true, returnAfterSignIn: true },
