@@ -29,6 +29,8 @@ const CODE_WORDS = {
   'agents.own.cap_invalid': 'code_own_cap_invalid',
   'agents.own.template_unknown': 'code_own_template_unknown',
   'agents.own.not_found': 'code_own_not_found',
+  'agents.own.text_invalid': 'code_own_text_invalid',
+  'agents.own.too_many': 'code_own_too_many',
   'agents.own.name_unset': 'code_own_name_unset',
   'agents.spend.cap_unset': 'code_spend_cap_unset',
 } as const;
@@ -274,7 +276,25 @@ function ProtectionCheck({ agent }: { agent: OwnAgent }) {
   );
 }
 
-const PAGES = ['Build', 'Limits', 'Test', 'Usage', 'Identity', 'Sharing'] as const;
+const PAGES = [
+  'Build',
+  'Limits',
+  'Rules',
+  'Permissions',
+  'Test',
+  'Runs',
+  'Evaluations',
+  'Usage',
+  'Analytics',
+  'Allowance',
+  'Access',
+  'Schedules',
+  'Triggers',
+  'Memory',
+  'Privacy',
+  'Identity',
+  'Sharing',
+] as const;
 
 /** /agents/<id>: one of the person's own agents, on its pages. */
 export function OwnAgentPage({ id }: { id: string }) {

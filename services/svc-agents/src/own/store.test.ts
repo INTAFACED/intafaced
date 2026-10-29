@@ -7,6 +7,7 @@ import type { Principal } from '@intafaced/auth';
 import { createEdgeContext, encodePrincipal, signPrincipalHeader } from '@intafaced/contracts';
 import { assertTestDatabase, postgresAvailable } from '@intafaced/db';
 import { createAgentsRouter, type AgentsRouterDeps } from '../router.js';
+import { OWN_AGENTS_MAX } from './catalog.js';
 
 const URL = process.env.TEST_DATABASE_URL_AGENTS ?? 'postgres://svc_agents:svc_agents@localhost:5433/intafaced_test';
 const here = dirname(fileURLToPath(import.meta.url));
@@ -21,7 +22,7 @@ const OTHER = '22222222-2222-4222-8222-222222222222';
 const SECRET = 'an-agents-own-agent-test-secret-of-32-plus-chars';
 const edgeContext = createEdgeContext({ secret: SECRET, serviceName: 'svc-agents' });
 
-function callerFor(userId: string, scopes: string[], extra: { kid?: string } = {}) {
+function callerFor(userId: string, scopes: string[], extra: { kid?: string; service?: string } = {}) {
   const principal = {
     sub: userId,
     userId,
@@ -33,7 +34,7 @@ function callerFor(userId: string, scopes: string[], extra: { kid?: string } = {
     ...(extra.kid ? { kid: extra.kid } : {}),
   } as Principal;
   const raw = encodePrincipal(principal);
-  return edgeContext({
+  const ctx = edgeContext({
     headers: {
       'x-intafaced-principal': raw,
       'x-intafaced-principal-sig': signPrincipalHeader(raw, SECRET, 'DE'),
@@ -41,6 +42,7 @@ function callerFor(userId: string, scopes: string[], extra: { kid?: string } = {
     },
     id: 'req-own',
   });
+  return extra.service ? { ...ctx, service: extra.service } : ctx;
 }
 
 const available = await postgresAvailable(URL);
@@ -143,6 +145,44 @@ if (!available) {
     await expect(delegated.own.get({ id })).rejects.toMatchObject({ code: 'FORBIDDEN' });
     const readOnly = router.createCaller(callerFor(USER, ['agents:read']));
     await expect(readOnly.own.create({ template: 'blank', createKey: 'picker:read' })).rejects.toMatchObject({ code: 'FORBIDDEN' });
+  });
+
+  it('a service forwarding the person cannot read their drafts: the instructions are theirs alone', async () => {
+    const { id } = await person.own.create({ template: 'blank', createKey: 'picker:service' });
+    const forwarded = router.createCaller(callerFor(USER, ['agents:read', 'identity:write'], { service: 'svc-support' }));
+    await expect(forwarded.own.get({ id })).rejects.toMatchObject({ code: 'FORBIDDEN' });
+    await expect(forwarded.own.list({ limit: 10 })).rejects.toMatchObject({ code: 'FORBIDDEN' });
+    await expect(forwarded.own.create({ template: 'blank', createKey: 'picker:service-2' })).rejects.toMatchObject({ code: 'FORBIDDEN' });
+    expect((await person.own.list({ limit: 10 })).map((a) => a.id)).toEqual([id]);
+  });
+
+  it('refuses a NUL in the name or instructions with its code, and stores nothing from the refused save', async () => {
+    const { id } = await person.own.create({ template: 'service-starter', createKey: 'picker:nul' });
+    const base = { id, name: 'TEST helper', instructions: '', tools: [] as string[], perSessionCap: '1' };
+    await expect(person.own.save({ ...base, name: 'TEST\u0000helper' })).rejects.toMatchObject({
+      code: 'BAD_REQUEST',
+      message: 'agents.own.text_invalid',
+    });
+    await expect(person.own.save({ ...base, instructions: 'a\u0000b' })).rejects.toMatchObject({
+      code: 'BAD_REQUEST',
+      message: 'agents.own.text_invalid',
+    });
+    expect(await person.own.get({ id })).toMatchObject({ name: '', instructions: '', perSessionCap: null, version: 1 });
+  });
+
+  it('keeps at most the limit of agents per person: the next create refuses, a retried key still returns its draft', async () => {
+    const created = await Promise.all(
+      Array.from({ length: OWN_AGENTS_MAX }, (_, n) => person.own.create({ template: 'blank', createKey: `picker:many-${n}` })),
+    );
+    expect(new Set(created.map((a) => a.id)).size).toBe(OWN_AGENTS_MAX);
+    await expect(person.own.create({ template: 'blank', createKey: 'picker:one-too-many' })).rejects.toMatchObject({
+      code: 'BAD_REQUEST',
+      message: 'agents.own.too_many',
+    });
+    expect((await person.own.create({ template: 'blank', createKey: 'picker:many-0' })).id).toBe(created[0]!.id);
+    expect((await person.own.list({ limit: 200 })).length).toBe(OWN_AGENTS_MAX);
+    // The limit is per person: someone else still builds.
+    await expect(other.own.create({ template: 'blank', createKey: 'picker:other' })).resolves.toMatchObject({ state: 'draft' });
   });
 
   it('refuses a template it does not offer', async () => {

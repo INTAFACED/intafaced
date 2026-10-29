@@ -56,6 +56,10 @@ export const RESERVED_NAMES: readonly string[] = [
 
 export const NAME_MAX = 64;
 export const INSTRUCTIONS_MAX = 4000;
+/** How many agents one person may keep; a create past it refuses rather than filling the table. */
+export const OWN_AGENTS_MAX = 50;
+/** Postgres cannot store a NUL in text, so it refuses here with its reason instead of failing the write. */
+const NUL = /\u0000/;
 
 export type OwnRefusalCode =
   | 'agents.own.money_tool'
@@ -65,7 +69,9 @@ export type OwnRefusalCode =
   | 'agents.own.instructions_too_long'
   | 'agents.own.cap_invalid'
   | 'agents.own.template_unknown'
-  | 'agents.own.not_found';
+  | 'agents.own.not_found'
+  | 'agents.own.text_invalid'
+  | 'agents.own.too_many';
 
 export class OwnAgentRefusal extends Error {
   constructor(
@@ -88,6 +94,7 @@ export type DraftFields = { name: string; instructions: string; tools: string[];
 
 /** Checks a draft as the person wrote it; refuses the first thing it cannot store, with its reason. */
 export function validateDraft(input: DraftInput): DraftFields {
+  if (NUL.test(input.name) || NUL.test(input.instructions)) throw new OwnAgentRefusal('agents.own.text_invalid');
   const name = input.name.trim();
   if (name.length > NAME_MAX) throw new OwnAgentRefusal('agents.own.name_too_long', { limit: String(NAME_MAX) });
   if (RESERVED_NAMES.includes(name.toLowerCase())) throw new OwnAgentRefusal('agents.own.reserved_name', { name });

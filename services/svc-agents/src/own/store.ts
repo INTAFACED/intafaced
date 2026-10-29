@@ -1,6 +1,7 @@
 import type { Sql } from 'postgres';
 import { formatAmount, parseAmount } from '@intafaced/ledger-client';
 import {
+  OWN_AGENTS_MAX,
   OWN_TEMPLATES,
   OwnAgentRefusal,
   protectionFindings,
@@ -68,18 +69,24 @@ export class OwnAgentStore {
   /** One draft per create key: a retried create returns the draft the first one made. */
   async create(ownerId: string, template: OwnTemplate, createKey: string): Promise<OwnAgentView> {
     const tools = OWN_TEMPLATES[template].tools;
-    const inserted = await this.sql<Row[]>`
-      INSERT INTO agents.own_agents (owner_id, template, tools, create_key)
-      VALUES (${ownerId}, ${template}, ${this.sql.json([...tools])}, ${createKey})
-      ON CONFLICT (owner_id, create_key) DO NOTHING
-      RETURNING ${this.sql.unsafe(COLUMNS)}
-    `;
-    if (inserted[0]) return view(inserted[0]);
-    const existing = await this.sql<Row[]>`
-      SELECT ${this.sql.unsafe(COLUMNS)} FROM agents.own_agents WHERE owner_id = ${ownerId} AND create_key = ${createKey}
-    `;
-    if (!existing[0]) throw new Error('own agent create key conflicted but no row was found');
-    return view(existing[0]);
+    return this.sql.begin(async (tx) => {
+      // One create at a time per person, so the count below cannot be raced past the limit.
+      await tx`SELECT pg_advisory_xact_lock(hashtext(${'agents.own:' + ownerId}))`;
+      const existing = await tx<Row[]>`
+        SELECT ${tx.unsafe(COLUMNS)} FROM agents.own_agents WHERE owner_id = ${ownerId} AND create_key = ${createKey}
+      `;
+      if (existing[0]) return view(existing[0]);
+      const counted = await tx<{ count: number }[]>`
+        SELECT count(*)::int AS count FROM agents.own_agents WHERE owner_id = ${ownerId}
+      `;
+      if (counted[0]!.count >= OWN_AGENTS_MAX) throw new OwnAgentRefusal('agents.own.too_many', { limit: String(OWN_AGENTS_MAX) });
+      const inserted = await tx<Row[]>`
+        INSERT INTO agents.own_agents (owner_id, template, tools, create_key)
+        VALUES (${ownerId}, ${template}, ${tx.json([...tools])}, ${createKey})
+        RETURNING ${tx.unsafe(COLUMNS)}
+      `;
+      return view(inserted[0]!);
+    });
   }
 
   async save(ownerId: string, id: string, input: DraftInput): Promise<OwnAgentView> {

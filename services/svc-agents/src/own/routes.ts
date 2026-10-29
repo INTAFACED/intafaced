@@ -66,7 +66,7 @@ export function ownRouter(sql: Sql | undefined) {
         return guard(() => storeOf(sql).save(ctx.principal.userId, id, draft));
       }),
 
-    get: scopedProcedure('agents:read', { module: 'agents' })
+    get: scopedProcedure('agents:read', { module: 'agents', person: true })
       .input(z.object({ id: z.string().min(1).max(64) }))
       .output(ownAgentSchema)
       .query(({ ctx, input }) => {
@@ -74,7 +74,7 @@ export function ownRouter(sql: Sql | undefined) {
         return guard(() => storeOf(sql).get(ctx.principal.userId, input.id));
       }),
 
-    list: scopedProcedure('agents:read', { module: 'agents' })
+    list: scopedProcedure('agents:read', { module: 'agents', person: true })
       .input(z.object({ limit: z.number().int().min(1).max(200) }))
       .output(z.array(ownAgentSchema))
       .query(({ ctx, input }) => {
