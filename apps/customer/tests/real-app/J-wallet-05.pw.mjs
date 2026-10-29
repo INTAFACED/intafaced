@@ -125,6 +125,12 @@ async function customerApi() {
       if (status !== 200) throw new Error(`balance read refused: ${status}`);
       return body.balances[asset]?.free ?? '0';
     },
+    /** One withdrawal as svc-pay's `withdrawal.get` answers it, with the state the person is shown (`customerStatus`). */
+    async withdrawal(withdrawalId) {
+      const { status, body } = await get(`/api/pay/trpc/withdrawal.get?input=${encodeURIComponent(JSON.stringify({ withdrawalId }))}`);
+      if (status !== 200) throw new Error(`withdrawal read refused: ${status}`);
+      return body.result.data;
+    },
     async withdrawals(limit = 10) {
       const { status, body } = await get(`/api/pay/trpc/withdrawal.history?input=${encodeURIComponent(JSON.stringify({ limit }))}`);
       if (status !== 200) throw new Error(`withdrawal history refused: ${status}`);
@@ -683,15 +689,23 @@ test(`${J} #8 watches the status: requested, held, broadcast and settled in plai
       expect(found, `svc-pay has withdrawal ${id}`).toBeTruthy();
       return found;
     };
-    /** The withdrawal's page, read between two reads of svc-pay's record: it shows the record's state, in its word. */
+    /**
+     * The withdrawal's page, read between two reads of svc-pay's record: it shows a state the record held in that time
+     * (the one read before, the one read after, or a step between them on the way to Settled), in its word.
+     */
     const look = async (tab, id) => {
-      const before = (await record(id)).status;
+      const before = (await api.withdrawal(id)).customerStatus;
       await tab.goto(`/uc/withdraw?withdrawalId=${id}`);
       const status = tab.getByTestId('withdrawal-status');
       await expect(status).toBeVisible({ timeout: 15_000 });
       const shown = { state: await status.getAttribute('data-status'), text: (await status.textContent())?.trim() };
-      const after = (await record(id)).status;
-      expect([before, after], `the page reads ${shown.state} while svc-pay read ${before}, then ${after}`).toContain(shown.state);
+      const after = (await api.withdrawal(id)).customerStatus;
+      const [from, to, at] = [before, after, shown.state].map((state) => order.indexOf(state));
+      const between = from >= 0 && to >= 0 && from <= at && at <= to;
+      expect(
+        between || [before, after].includes(shown.state),
+        `the page reads ${shown.state} while svc-pay read ${before}, then ${after}`,
+      ).toBe(true);
       expect(shown.text, `${shown.state} in its word`).toBe(word[shown.state]);
       return shown.state;
     };
@@ -773,7 +787,7 @@ test(`${J} #8 watches the status: requested, held, broadcast and settled in plai
   await signIn(page, who);
   expect(fund(who.email, 'USDT', '100').tx).toBeTruthy();
   const tag = `jw05-${who.handle}-r${testInfo.retry}`;
-  const words = { requested: 'Requested', held: 'Held', broadcast: 'Broadcast', sent: 'Settled' };
+  const words = { requested: word.requested, held: word.held, broadcast: word.broadcast, sent: word.settled };
   const ids = Object.fromEntries(Object.keys(words).map((state) => [state, seedWithdrawal(who, state, '1', `${tag}-${state}`)]));
 
   await page.goto('/uc/withdraw');

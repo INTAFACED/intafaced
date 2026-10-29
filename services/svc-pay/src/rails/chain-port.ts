@@ -103,15 +103,6 @@ export type ChainSendLookup =
   | { readonly state: 'unknown' };
 
 /**
- * In-memory chain — the reference implementation of the port.
- *
- * The same role `MemoryLedger` plays for the ledger: not a toy, but an
- * executable specification of what the adapter is entitled to assume. Confirm
- * depth, idempotent broadcast, and "a transfer that has not landed is null" are
- * all modelled here, so an adapter that behaves correctly against this one
- * behaves correctly against a chain.
- */
-/**
  * Dev and test only (J-wallet-05 #8): how the in-memory chain paces a send, so a real send can be watched on its page.
  * `sendDelayMs` waits after the send is recorded (broadcast) and before it answers, as a real node waits for its
  * confirmations. `refuseAmount` refuses, before anything is recorded, every send of exactly that amount, as a node refuses a
@@ -135,6 +126,15 @@ export class ChainSendRefusedError extends Error {
   }
 }
 
+/**
+ * In-memory chain — the reference implementation of the port.
+ *
+ * The same role `MemoryLedger` plays for the ledger: not a toy, but an
+ * executable specification of what the adapter is entitled to assume. Confirm
+ * depth, idempotent broadcast, and "a transfer that has not landed is null" are
+ * all modelled here, so an adapter that behaves correctly against this one
+ * behaves correctly against a chain.
+ */
 export class MemoryChain implements CryptoChainPort {
   constructor(private readonly pace: MemoryChainPace = {}) {}
 

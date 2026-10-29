@@ -575,8 +575,8 @@ export function defaultChainFor(
   return enforced ? new UnconfiguredChain() : new MemoryChain(pace);
 }
 
-/** The longest TEST wait a send may be given: long enough to watch, short of any request timeout. */
-export const MEMORY_CHAIN_MAX_SEND_DELAY_MS = 20_000;
+/** The longest TEST wait a send may be given: long enough to watch, and under svc-edge's 15-second upstream timeout. */
+export const MEMORY_CHAIN_MAX_SEND_DELAY_MS = 12_000;
 
 /**
  * The in-memory chain's TEST pace (J-wallet-05 #8): `PAY_TEST_CHAIN_SEND_DELAY_MS` (whole milliseconds, at most
