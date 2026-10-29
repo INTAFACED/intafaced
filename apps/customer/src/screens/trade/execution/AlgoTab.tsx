@@ -86,7 +86,7 @@ export function AlgoTab({
   }
 
   const selectedRow = parents.status === 'ready' ? (parents.data.find((r) => r.id === selected) ?? null) : null;
-  const off = policy.status === 'ready' && !policy.data.capability.jobsEnabled;
+  const capability = policy.status === 'ready' ? policy.data.capability : null;
 
   return (
     <div className="grid gap-4 lg:grid-cols-[360px_minmax(0,1fr)]">
@@ -100,7 +100,8 @@ export function AlgoTab({
         onCheck={(id) => void check(id)}
       />
       <div className="flex min-w-0 flex-col gap-3">
-        {off ? <Why>{t('Scheduler off banner')}</Why> : null}
+        {capability && !capability.createEnabled ? <Why>{t('Create off banner')}</Why> : null}
+        {capability && !capability.jobsEnabled ? <Why>{t('Scheduler off banner')}</Why> : null}
         <div className="flex flex-wrap items-end gap-2">
           <Field label={t('Open by id')} hint={t('Any schedule id you have, for example from another device')} className="min-w-64 flex-1">
             <Input
