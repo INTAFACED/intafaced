@@ -1194,30 +1194,32 @@ async function ensureLocalTestFounders() {
   }
   if (!foundersEnrolled(readVault())) fail('local test founder pair did not enrol');
   // A founder's address is confirmed like anyone's, so a new browser in the console is mailed its approval code.
-  const ctx = await makeContext({ log: () => {} });
-  await confirmFounderEmails({
-    stateDir: STATE,
-    marker,
-    edgeUrl,
-    log: say,
-    signIn: async (f) => {
-      const res = await fetch(`${edgeUrl}/api/identity/trpc/auth.login`, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({
+  // Only a console sign-in from a new browser needs it, so a failure here is named and the stack still starts.
+  let ctx;
+  try {
+    await confirmFounderEmails({
+      stateDir: STATE,
+      marker,
+      edgeUrl,
+      log: say,
+      signIn: async (f) => {
+        ctx ??= await makeContext({ log: () => {} });
+        const login = await ctx.edge.mutate('identity', 'auth.login', {
           identifier: f.handle,
           password: f.password,
           totpCode: await founderTotp(ctx, f.key, f.totpSecret),
           deviceKey: LOCAL_TEST_DEVICE_KEY,
-        }),
-        signal: AbortSignal.timeout(15_000),
-      });
-      const body = await res.json().catch(() => null);
-      const token = body?.result?.data?.accessToken;
-      if (!res.ok || typeof token !== 'string') fail(`founder ${f.key} could not sign in to confirm their email (${res.status})`);
-      return token;
-    },
-  });
+        });
+        const token = login.json?.result?.data?.accessToken;
+        if (typeof token !== 'string') throw new Error(`founder ${f.key} could not sign in to confirm their email (${login.status})`);
+        return token;
+      },
+    });
+  } catch (err) {
+    say(
+      `  founders: email addresses not confirmed, so a new browser in the console gets no mailed code: ${err instanceof Error ? err.message : err}`,
+    );
+  }
 }
 
 /** svc-ops reads the founder pair at start. When it started before the pair was enrolled, or with another pair, restart it. */
