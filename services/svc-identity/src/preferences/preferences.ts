@@ -1,6 +1,7 @@
 /**
  * Per-user preferences. get and set touch only the caller's row.
- * ifVersion is compare-and-set. A replay of the same client id returns the first result.
+ * ifVersion is compare-and-set. A replay of the same client id returns the first result. Setting the value the record
+ * already holds, at its current version, is stored as it stands: nothing is written, the version stays, and no receipt is kept.
  *
  * A receipt keeps only what a replay needs: the outcome and the version (the value of a replayed set is the value the request
  * carried, which the fingerprint already matched). Receipts older than RECEIPT_RETENTION_DAYS are pruned on the account's next
@@ -235,6 +236,11 @@ export async function setPreferences(
         version: currentVersion,
         value: currentValue,
       };
+    } else if (current && stableJson(value) === stableJson(currentValue)) {
+      // Saving what the record already holds changes nothing: no write, the record keeps its version, and no receipt is
+      // kept, so a client whose request id names only the version it read can still send its next change under that id.
+      // Sending this request again is the same no-op, or a conflict once the record has moved on.
+      return { outcome: 'stored', namespace, version: currentVersion, value: currentValue } as StoredResult;
     } else {
       // A refusal here stores no receipt, so the same request can be sent again once the cap allows it.
       try {
