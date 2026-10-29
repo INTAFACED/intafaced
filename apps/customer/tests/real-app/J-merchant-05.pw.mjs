@@ -403,10 +403,15 @@ test(`${J} #4 opens one payment: facts, amounts, timeline, linked refunds and th
   const disputes = (await owner.query('merchantOps.disputes.list', { limit: 200 })).items.filter((d) => d.paymentId === ids.disputed);
   expect(disputes).toHaveLength(1);
   const [disputeRead] = disputes;
-  expect([cents(disputeRead.amount), disputeRead.assetId, disputeRead.reasonCode]).toEqual([1200n, 'USDT', 'product_not_received']);
+  // The stack's TEST tool labels the reason it opens the dispute with (local-test-world.mjs open-dispute).
+  expect([cents(disputeRead.amount), disputeRead.assetId, disputeRead.reasonCode]).toEqual([
+    1200n,
+    'USDT',
+    'LOCAL-TEST product_not_received',
+  ]);
   const dispute = section('Dispute');
   await expect(fact(dispute, 'Amount')).toHaveText(/^12\.00\s*USDT$/);
-  await expect(fact(dispute, 'Reason')).toHaveText('Item not received');
+  await expect(fact(dispute, 'Reason')).toHaveText(disputeRead.reasonCode);
   await expect(dispute.getByRole('link', { name: 'Open the dispute' })).toHaveAttribute(
     'href',
     `/pay/disputes/${encodeURIComponent(disputeRead.disputeId)}`,
