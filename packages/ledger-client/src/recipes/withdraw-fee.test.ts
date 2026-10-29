@@ -3,6 +3,7 @@ import { houseFees, railBoundary, userAvailable, withdrawalHoldAccount } from '.
 import { MemoryLedger } from '../memory-ledger.js';
 import { formatAmount, parseAmount as amt } from '../money.js';
 import { InvalidEntryError } from '../types.js';
+import { IDEMPOTENCY_CONFLICT_CODE } from '../client.js';
 import { recipes, type WithdrawInput } from './index.js';
 
 /**
@@ -69,6 +70,18 @@ describe('a withdrawal with its quoted fee', () => {
     }
     expect(await bal(houseFees('pay', 'USDT'))).toBe('1.5');
     expect(await bal(userAvailable(USER, 'USDT'))).toBe('273.5');
+  });
+
+  it('a retried hold with another fee or rail than the posted one is a conflict, not a replay', async () => {
+    const w = withFee('w-8:0');
+    await ledger.post(recipes.withdrawHold({ ...w, amount: amt('26.5'), fee: undefined }));
+    await expect(ledger.post(recipes.withdrawHold(w))).rejects.toMatchObject({ code: IDEMPOTENCY_CONFLICT_CODE });
+    await expect(ledger.post(recipes.withdrawHold({ ...w, amount: amt('26.5'), fee: undefined, rail: 'bank-sepa' }))).rejects.toMatchObject(
+      {
+        code: IDEMPOTENCY_CONFLICT_CODE,
+      },
+    );
+    expect(await bal(withdrawalHoldAccount(USER, 'USDT', 'w-8:0'))).toBe('26.5');
   });
 
   it('without a fee each step is exactly the fee-less recipe it was before', () => {
