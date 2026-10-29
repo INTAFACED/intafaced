@@ -89,6 +89,12 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, TEST_FUTURES_LADDER_POLICY })
     TRADE_COPY_JURISDICTION_LAW: testValue('TRADE_COPY_JURISDICTION_LAW'),
     TRADE_COPY_METRIC_DEFINITIONS: testValue('TRADE_COPY_METRIC_DEFINITIONS'),
     TRADE_COPY_MIN_TIER: testValue('TRADE_COPY_MIN_TIER'),
+    // LOCAL TEST, not owner decisions: the TWAP slice scheduler runs and the bot verification level is the labelled TEST
+    // one, so the execution journey (J-copy-bots-otc-23) places children on TEST money. Blank, the level refuses every
+    // create with trade.bots_verification_level_not_set and the scheduler stays off (services/svc-trade/src/env.ts).
+    TRADE_BOTS_VERIFICATION_LEVEL: testValue('TRADE_BOTS_VERIFICATION_LEVEL'),
+    TRADE_ALGO_JOBS_ENABLED: testValue('TRADE_ALGO_JOBS_ENABLED'),
+    TRADE_ALGO_JOBS_INTERVAL_MS: testValue('TRADE_ALGO_JOBS_INTERVAL_MS'),
     // LOCAL TEST, not an owner decision: the copy driver places each copy as the follower, so J-copy-bots-otc-01 #8
     // sees a first copied trade on TEST money. Production leaves it off until the owner turns copy placing on.
     TRADE_COPY_PLACE_MIRROR: 'on',
