@@ -12,6 +12,8 @@ import { tableIn, bodyRows } from './tables.mjs';
 // - The Web3 nav has no Tokens room: no Trending, New listings, Top traded, brief, screeners or watchlist
 //   (D-portfolio-wallet-06, -07, D-launch-listing-02, -04), and the stack publishes no node or indexer for token data.
 // - A token page (/dex/tokens/:address) names its indexer blocker and shows no price, trust tier, tabs or quick ticket.
+// A step passes only on rows read from the chain: an empty list or a blocked row fails it (OWNER 114), so #1, #3 and #6
+// wait on the stack's TEST chain and a token reader like the rest.
 const J = 'J-dex-protocol-07';
 const UNBUILT = { timeout: 5_000 };
 const TOKEN = '0x4200000000000000000000000000000000000006';
@@ -33,6 +35,8 @@ test(`${J} #1 opens Tokens and the Trending tab: rows by growth for the window w
   await openTokens(page);
   await page.getByRole('tab', { name: 'Trending' }).click();
   await expect(page.getByRole('link', { name: 'How trending is worked out' })).toBeVisible();
+  // An empty list proves no order: Trending must list tokens read from the chain before their order counts.
+  await expect(tokenRows(page).first()).toBeVisible(UNBUILT);
   const growth = await tableIn(page, 'Tokens').getByTestId('token-growth').allInnerTexts();
   const values = growth.map((text) => Number(text.replace(/[^\d.-]/g, '')));
   expect(values).toEqual([...values].sort((a, b) => b - a));
@@ -80,7 +84,17 @@ test(`${J} #3 opens the market brief and the stablecoin screener: a brief or "No
   // The owner has listed no stablecoins on the stack, so the screener refuses with that reason.
   await expect(page.getByRole('tabpanel', { name: 'Stablecoins' })).toContainText('The stablecoin list is not set');
   await page.getByRole('tab', { name: 'Leaderboard' }).click();
-  await expect(page.getByRole('tabpanel', { name: 'Leaderboard' }).getByRole('columnheader', { name: /Realised/ })).toBeVisible();
+  const board = page.getByRole('tabpanel', { name: 'Leaderboard' });
+  await expect(board.getByRole('columnheader', { name: /Realised/ })).toBeVisible();
+  // A header over a blocked row ranks nobody: the board lists wallets, each with its realised result from its trades.
+  const ranked = bodyRows(tableIn(page, 'Leaderboard'));
+  await expect(ranked.first()).toBeVisible(UNBUILT);
+  await expect(ranked.first().getByTestId('leaderboard-realised')).toHaveText(/-?\$?[\d,.]+/);
+  await ranked
+    .first()
+    .getByRole('link', { name: /^0x[0-9a-fA-F]{4}/ })
+    .click();
+  await expect(tableIn(page, 'Trades')).toBeVisible();
 });
 
 test(`${J} #4 opens a token page: price, liquidity in token amounts, fees and growth; market cap "Not available" with no supply source; a USD price with its as-of time`, async ({
@@ -114,10 +128,35 @@ test(`${J} #6 opens the pairs, holders and trades tabs: candles at the swap time
     await page.getByRole('tab', { name: tab }).click(UNBUILT);
     await expect(page.getByRole('tabpanel', { name: tab })).toBeVisible();
   }
+  // Blocked tables prove nothing: each tab must list what the chain holds for this token, and the figures must agree.
+  await page.getByRole('tab', { name: 'Trades' }).click();
+  const trades = bodyRows(tableIn(page.getByRole('tabpanel', { name: 'Trades' }), 'Trades'));
+  await expect(trades.first()).toBeVisible(UNBUILT);
+  const swapTimes = await trades.getByRole('time').evaluateAll((items) => items.map((t) => t.getAttribute('datetime')));
+  const traded = (await trades.getByTestId('trade-amount').allInnerTexts()).map((t) => toUnits(t.replace(/[^\d.]/g, '')));
+
   await page.getByRole('tab', { name: 'Pairs' }).click();
-  await expect(page.getByRole('tabpanel', { name: 'Pairs' }).getByRole('img', { name: /Price chart/ })).toBeVisible();
+  const pairs = page.getByRole('tabpanel', { name: 'Pairs' });
+  const chart = pairs.getByRole('img', { name: /Price chart/ });
+  await expect(chart).toBeVisible();
+  // Every candle opens at a time a swap happened, so the chart draws no price nobody traded at.
+  const candles = await chart.getByTestId('candle').evaluateAll((items) => items.map((c) => c.getAttribute('data-time')));
+  expect(candles.length).toBeGreaterThan(0);
+  for (const at of candles) expect(swapTimes).toContain(at);
+  const volumes = (await bodyRows(tableIn(pairs, 'Pairs')).getByTestId('pair-volume').allInnerTexts()).map((t) =>
+    toUnits(t.replace(/[^\d.]/g, '')),
+  );
+  expect(volumes.reduce((a, b) => a + b, 0n)).toBe(traded.reduce((a, b) => a + b, 0n));
+
   await page.getByRole('tab', { name: 'Holders' }).click();
-  await expect(page.getByRole('tabpanel', { name: 'Holders' })).toContainText(/supply less burned/i);
+  const holders = page.getByRole('tabpanel', { name: 'Holders' });
+  await expect(holders).toContainText(/supply less burned/i);
+  const held = (await bodyRows(tableIn(holders, 'Holders')).getByTestId('holder-amount').allInnerTexts()).map((t) =>
+    toUnits(t.replace(/[^\d.]/g, '')),
+  );
+  expect(held.length).toBeGreaterThan(0);
+  const circulating = toUnits(((await holders.getByTestId('supply-less-burned').textContent()) ?? '').replace(/[^\d.]/g, ''));
+  expect(held.reduce((a, b) => a + b, 0n)).toBe(circulating);
 });
 
 test(`${J} #7 creates a watchlist while signed out, then signs in: it persists in the browser and is offered for import on sign-in`, async ({

@@ -12,6 +12,8 @@ import { tableIn, bodyRows } from './tables.mjs';
 // - #1: Chain home has no latest-blocks list and no INTACHAIN "not launched" line (D-explorer-07).
 // - #6: no private watch with a tag and note; #9: no pool fee fields; #11: no token info update with owner proof.
 // The explorer's TEST network is Base Sepolia; the hashes and addresses below are well-formed but name nothing on it.
+// A step passes only on rows read from a chain: an empty table, an unknown hash or a blocked row fails it (OWNER 114),
+// so #1, #4 and #10 wait on the stack's TEST networks and the indexer like the rest.
 const J = 'J-dex-protocol-09';
 const UNBUILT = { timeout: 5_000 };
 const UNKNOWN_TX = `0x${'ab'.repeat(32)}`;
@@ -36,6 +38,17 @@ test(`${J} #1 opens Chain home: latest blocks and transactions for the test netw
   await expect(main(page).getByRole('heading', { level: 1 })).toBeVisible();
   await expect(tableIn(page, 'Latest blocks')).toBeVisible(UNBUILT);
   await expect(tableIn(page, 'Latest transactions')).toBeVisible();
+  // Empty tables show no network: both must list what the test network holds, newest block first.
+  await expect(bodyRows(tableIn(page, 'Latest blocks')).first()).toBeVisible(UNBUILT);
+  const heights = (await tableIn(page, 'Latest blocks').getByRole('rowheader').allInnerTexts()).map((text) =>
+    Number(text.replace(/\D/g, '')),
+  );
+  expect(heights).toEqual([...heights].sort((a, b) => b - a));
+  await expect(
+    tableIn(page, 'Latest transactions')
+      .getByRole('link', { name: /^0x[0-9a-f]{4}/ })
+      .first(),
+  ).toBeVisible(UNBUILT);
   const intachain = main(page).getByTestId('chain-intachain');
   await expect(intachain).toContainText('INTACHAIN');
   await expect(intachain).toContainText('not launched');
@@ -90,9 +103,16 @@ test(`${J} #4 pastes a 40-hex address into search: the address page is the top r
   await expect(results.first()).toContainText('Address');
   await search(page).fill('TEST');
   const tokens = results.filter({ hasText: 'Token' });
-  // Tokens are told apart by address, never merged by symbol.
-  const addresses = await tokens.evaluateAll((items) => items.map((item) => item.getAttribute('data-address')));
+  // Tokens are told apart by address, never merged by symbol: at least two listed tokens share a symbol, each its own row.
+  await expect.poll(() => tokens.count(), UNBUILT).toBeGreaterThan(1);
+  const listed = await tokens.evaluateAll((items) =>
+    items.map((item) => [item.getAttribute('data-symbol'), item.getAttribute('data-address')]),
+  );
+  const addresses = listed.map(([, address]) => address);
+  expect(addresses.every(Boolean)).toBe(true);
   expect(new Set(addresses).size).toBe(addresses.length);
+  const symbols = listed.map(([symbol]) => symbol);
+  expect(symbols.some((symbol, i) => symbol && symbols.indexOf(symbol) !== i)).toBe(true);
 });
 
 test(`${J} #5 opens the address page: summary, transactions, holdings with unpriced ones counted, internal transactions or "trace unavailable", and a past balance or "not indexed before block N"`, async ({
@@ -195,12 +215,21 @@ test(`${J} #9 reads the pool's fee fields: as the contract holds them, no third 
 test(`${J} #10 searches a hash that exists on two networks: both are listed, and a network that did not answer reads "not checked" with its reason`, async ({
   page,
 }) => {
+  // An unknown hash reads "Not found" everywhere and proves nothing about two networks: the hash searched is one the
+  // stack's two test networks both hold (the same signed deploy sent to each), read from the first network's list.
   await page.goto('/chain');
-  await search(page).fill(UNKNOWN_TX, UNBUILT);
+  const link = tableIn(page, 'Latest transactions')
+    .getByRole('link', { name: /^0x[0-9a-f]{4}/ })
+    .first();
+  await expect(link).toBeVisible(UNBUILT);
+  const hash = (await link.getAttribute('href'))?.match(/0x[0-9a-fA-F]{64}/)?.[0];
+  expect(hash).toMatch(/^0x[0-9a-fA-F]{64}$/);
+  await search(page).fill(hash);
   await search(page).press('Enter');
   const networks = page.getByRole('list', { name: 'Networks searched' }).getByRole('listitem');
   await expect.poll(() => networks.count()).toBeGreaterThan(1);
   for (const network of await networks.all()) await expect(network).toContainText(/Found|Not found|not checked: .+/);
+  await expect.poll(() => networks.filter({ hasText: /: Found/ }).count()).toBeGreaterThan(1);
 });
 
 test(`${J} #11 requests a token info update with the token owner's signature: the proof is stored; a replayed challenge, a non-owner and an ownerless token each refuse with their own reason`, async ({
