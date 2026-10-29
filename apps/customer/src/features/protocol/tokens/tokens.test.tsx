@@ -43,6 +43,13 @@ describe('Tokens room storage', () => {
     expect(readWatchlist()).toEqual([TOKEN]);
     expect(removeFromWatchlist(TOKEN)).toEqual({ ok: true, list: [] });
   });
+  it('reads a damaged saved list as empty, not as blocked storage, so a token can still be added', () => {
+    const storage = memoryStorage();
+    storage.setItem('intafaced.tokens.watchlist', '{not json');
+    vi.stubGlobal('window', { localStorage: storage });
+    expect(readWatchlist()).toEqual([]);
+    expect(addToWatchlist(TOKEN)).toEqual({ ok: true, list: [TOKEN] });
+  });
   it('tells a failed write apart from blocked storage, and keeps the list as it was', () => {
     const storage = memoryStorage();
     storage.setItem('intafaced.tokens.watchlist', JSON.stringify([TOKEN]));

@@ -40,13 +40,20 @@ export function saveWindow(value: TokenWindow): void {
 export function readWatchlist(): string[] | null {
   const storage = store();
   if (!storage) return null;
+  let raw: string | null;
   try {
-    const parsed: unknown = JSON.parse(storage.getItem(WATCHLIST_KEY) ?? '[]');
+    raw = storage.getItem(WATCHLIST_KEY);
+  } catch {
+    return null;
+  }
+  // A damaged saved list is not blocked storage: it reads as empty, and the next save writes a clean one.
+  try {
+    const parsed: unknown = JSON.parse(raw ?? '[]');
     return Array.isArray(parsed)
       ? parsed.filter((entry): entry is string => typeof entry === 'string' && /^0x[0-9a-f]{40}$/.test(entry))
       : [];
   } catch {
-    return null;
+    return [];
   }
 }
 
