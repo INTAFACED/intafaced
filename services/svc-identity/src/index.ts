@@ -90,6 +90,8 @@ import { createLimitFeeTierRouter } from './limit-fee-tier-router.js';
 import { SavedRecipientService } from './saved-recipients.js';
 import { createSavedRecipientsRouter } from './saved-recipients.router.js';
 import { createHandleRouter } from './profile/handle-router.js';
+import { createPayQrRouter } from './profile/pay-qr-router.js';
+import { PayQrService, payQrKeyFromEnv } from './profile/pay-qr.js';
 import { HandleSettingsService } from './profile/handle-settings.js';
 import { createOrgRouter } from './org-router.js';
 import { createEnrollPasskeyRouter } from './enroll-passkey-router.js';
@@ -719,6 +721,7 @@ export const appRouter = mergeRouters(
   createLimitFeeTierRouter(sql, rank, actionApprovals),
   createSavedRecipientsRouter(new SavedRecipientService(sql)),
   createHandleRouter(new HandleSettingsService(sql, env.IDENTITY_HANDLE_CHANGE_MAX ?? null)),
+  createPayQrRouter(new PayQrService(sql, payQrKeyFromEnv(env.IDENTITY_PAY_QR_KEY, process.env.APP_ENV))),
   createOrgRouter(sql, dmaHierarchyLaw),
   createEnrollPasskeyRouter(
     sql,

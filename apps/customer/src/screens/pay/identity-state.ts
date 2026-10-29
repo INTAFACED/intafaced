@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { fetchMe, type ApiClient } from './deps';
+import { fetchMe, fetchMyPayQr, type ApiClient, type PayQrOutcome } from './deps';
 
 /**
  * What this server can do about handles, read once per screen:
@@ -38,5 +38,28 @@ export function useIdentity(api: ApiClient, userId: string | null): IdentityStat
   if (state.value === 'error') return { status: 'error', retry: () => setRevision((n) => n + 1) };
   if (state.value.status === 'handles')
     return { ...state.value, renamed: (handle: string) => setState({ key, value: { status: 'handles', handle } }) };
+  return state.value;
+}
+
+/**
+ * The caller's own signed pay code (PP-send-request-11), read once the screen knows who they are. `unset` is the
+ * owner's signing key not yet set (`identity.qr_key_unset`): the QR code is refused and the link carries no code.
+ */
+export type PayQrState = { kind: 'loading' } | Exclude<PayQrOutcome, { kind: 'failed' }> | { kind: 'failed'; retry: () => void };
+
+export function usePayQr(api: ApiClient, userId: string | null): PayQrState {
+  const [revision, setRevision] = useState(0);
+  const [state, setState] = useState<{ key: string; value: PayQrOutcome | null }>({ key: '', value: null });
+  const key = `${userId}:${revision}`;
+  useEffect(() => {
+    if (!userId) return;
+    const controller = new AbortController();
+    void fetchMyPayQr(api, controller.signal).then((outcome) => {
+      if (!controller.signal.aborted) setState({ key, value: outcome });
+    });
+    return () => controller.abort();
+  }, [api, userId, key]);
+  if (!userId || state.key !== key || state.value === null) return { kind: 'loading' };
+  if (state.value.kind === 'failed') return { kind: 'failed', retry: () => setRevision((n) => n + 1) };
   return state.value;
 }

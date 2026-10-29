@@ -29,6 +29,7 @@ import {
   recordSent,
   refusalCopy,
   resolveHandle,
+  resolvePayQr,
   cleanHandle,
   Select,
   SelectContent,
@@ -237,6 +238,36 @@ function SendForm({
     }
   }
 
+  /**
+   * A scanned pay code (PP-send-request-11): the service says who it pays, by account id, even when their handle can't
+   * be found. A code that does not verify is refused, and nothing in the link is trusted in its place.
+   */
+  async function scan(payload: string) {
+    const mine = ++lookup.current.id;
+    lookup.current.controller?.abort();
+    const controller = new AbortController();
+    lookup.current.controller = controller;
+    setTo('');
+    setRecipient({ kind: 'checking' });
+    const outcome = await resolvePayQr(api, payload, controller.signal);
+    if (lookup.current.id !== mine || controller.signal.aborted) return;
+    switch (outcome.kind) {
+      case 'found':
+        if (outcome.self || outcome.userId.toLowerCase() === userId.toLowerCase())
+          return setRecipient({ kind: 'problem', text: payCopy.t('That is you') });
+        setTo(byHandle ? outcome.handle : outcome.userId);
+        return setRecipient({ kind: 'found', userId: outcome.userId, handle: byHandle ? outcome.handle : null });
+      case 'invalid':
+        return setRecipient({ kind: 'problem', text: personal.t('qrInvalid') });
+      case 'payeeUnavailable':
+        return setRecipient({ kind: 'problem', text: personal.t('qrPayeeUnavailable') });
+      case 'unset':
+        return setRecipient({ kind: 'problem', text: personal.t('qrUnset') });
+      case 'failed':
+        return setRecipient({ kind: 'problem', text: personal.t('qrFailedSend') });
+    }
+  }
+
   /** A person paid before. A handle is looked up again, so a handle that moved to someone else is caught. */
   function pickContact(contact: Contact) {
     lookup.current.id += 1;
@@ -288,7 +319,9 @@ function SendForm({
     lookup.current.id += 1;
     lookup.current.controller?.abort();
     lookup.current.controller = null;
-    if (prefill.kind === 'handle' && byHandle) {
+    if (prefill.qr) {
+      void scan(prefill.qr);
+    } else if (prefill.kind === 'handle' && byHandle) {
       setTo(prefill.to);
       void check(prefill.to);
     } else if (prefill.kind === 'accountId') {
