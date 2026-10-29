@@ -74,9 +74,26 @@ describe('rooms with no backing service', () => {
           asOf: '2026-10-18T03:00:00.000Z',
           windowMinutes: 60,
           workers: [
-            { id: 'w1', name: 'rig-a', createdAt: '2026-10-10T08:00:00.000Z', hashrate: '12345678901234567890', hashrateReason: null },
-            { id: 'w2', name: 'rig-b', createdAt: '2026-10-11T08:00:00.000Z', hashrate: null, hashrateReason: 'no_shares_in_window' },
+            {
+              id: 'w1',
+              name: 'rig-a',
+              createdAt: '2026-10-10T08:00:00.000Z',
+              hashrate: '12345678901234567890',
+              hashrateReason: null,
+              minDifficulty: '512',
+            },
+            {
+              id: 'w2',
+              name: 'rig-b',
+              createdAt: '2026-10-11T08:00:00.000Z',
+              hashrate: null,
+              hashrateReason: 'no_shares_in_window',
+              minDifficulty: null,
+            },
           ],
+          defaultDifficulty: null,
+          defaultDifficultyReason: 'mining.default_difficulty_unset',
+          nextCursor: 'c1',
         },
       },
       reload: () => undefined,
@@ -87,10 +104,60 @@ describe('rooms with no backing service', () => {
     expect(html).toContain('No accepted shares in this window');
     expect(html).not.toMatch(/H\/s|hashes per second\b(?!,)/);
     expect(html).not.toContain('no_shares_in_window');
+    // Opens /mining/workers and sets a minimum difficulty: the set minimum, "Automatic" where none, and a blank default says so.
+    expect(html).toMatch(/<td class="numeric">512<\/td>/);
+    expect(html).toMatch(/<td class="numeric">Automatic<\/td>/);
+    expect(html).toContain('The pool has no published default difficulty.');
+    expect(html).toContain('type="search"');
+    expect(html).toContain('Next page');
+    expect(html).not.toContain('First page');
+    expect(html).toContain('Minimum difficulty');
+    expect(html).toContain('does not apply it to the jobs it sends');
+  });
+  it('Mining workers show a published default difficulty, a refused one by name, and paging back', () => {
+    const data = (defaultDifficulty: string | null, defaultDifficultyReason: string | null) => ({
+      resource: {
+        status: 'ready' as const,
+        data: {
+          asOf: '2026-10-18T03:00:00.000Z',
+          windowMinutes: 60,
+          workers: [],
+          defaultDifficulty,
+          defaultDifficultyReason,
+          nextCursor: null,
+        },
+      },
+      reload: () => undefined,
+    });
+    const set = renderToStaticMarkup(<WorkersView read={data('1024', null)} minutes={60} onMinutes={() => undefined} paged />);
+    expect(set).toContain('Default difficulty for a worker with no minimum: 1024');
+    expect(set).toContain('First page');
+    expect(set).not.toContain('Next page');
+    const invalid = renderToStaticMarkup(
+      <WorkersView read={data(null, 'mining.default_difficulty_invalid')} minutes={60} onMinutes={() => undefined} />,
+    );
+    expect(invalid).toContain('not a whole number, so none is shown');
+    expect(invalid).not.toContain('The pool has no published default difficulty.');
+    expect(invalid).not.toContain('Default difficulty for a worker with no minimum');
+    const none = renderToStaticMarkup(
+      <WorkersView read={data(null, 'mining.default_difficulty_unset')} minutes={60} onMinutes={() => undefined} filter="zzz" />,
+    );
+    expect(none).toContain('No worker name matches this filter');
+    expect(none).not.toContain('You have no workers yet');
   });
   it('Mining workers say so when the pool lists none', () => {
     const read = {
-      resource: { status: 'ready' as const, data: { asOf: '2026-10-18T03:00:00.000Z', windowMinutes: 60, workers: [] } },
+      resource: {
+        status: 'ready' as const,
+        data: {
+          asOf: '2026-10-18T03:00:00.000Z',
+          windowMinutes: 60,
+          workers: [],
+          defaultDifficulty: null,
+          defaultDifficultyReason: 'mining.default_difficulty_unset',
+          nextCursor: null,
+        },
+      },
       reload: () => undefined,
     };
     expect(renderToStaticMarkup(<WorkersView read={read} minutes={60} onMinutes={() => undefined} />)).toContain('You have no workers yet');

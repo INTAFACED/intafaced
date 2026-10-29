@@ -380,18 +380,39 @@ export const REST_REFERENCE: readonly RestRoute[] = [
   },
 ];
 
-export type Stream = { channel: string; product: Product; private: boolean };
+/** svc-ws's four doors: one market per socket, many channels on one socket, the account's own lifecycle, and the drop copy. */
+export const STREAM_DOORS = ['market', 'mux', 'private', 'drop-copy'] as const;
+export type StreamDoor = (typeof STREAM_DOORS)[number];
+export const STREAM_DOOR_PATH: Readonly<Record<StreamDoor, string>> = {
+  market: '/stream',
+  mux: '/stream',
+  private: '/private/stream',
+  'drop-copy': '/drop-copy/stream',
+};
 
-/** `WS_CHANNELS` in the contract, by product. A private channel carries only the signed-in principal's own data. */
+export type Stream = { door: StreamDoor; channel: string; product: Product; private: boolean };
+
+/**
+ * Every channel svc-ws serves, by door and product, as its live inventory (`GET /ws/streams`) lists them. A private
+ * channel carries only the signed-in principal's own data. `futures.mark.` takes a listing symbol after it.
+ */
 export const STREAM_REFERENCE: readonly Stream[] = [
-  { channel: 'orderbook', product: 'spot', private: false },
-  { channel: 'trades', product: 'spot', private: false },
-  { channel: 'ticker', product: 'spot', private: false },
-  { channel: 'ohlcv', product: 'spot', private: false },
-  { channel: 'orders', product: 'spot', private: true },
-  { channel: 'positions', product: 'derivatives', private: true },
-  { channel: 'balance', product: 'accounts', private: true },
+  { door: 'market', channel: 'depth', product: 'spot', private: false },
+  { door: 'market', channel: 'trades', product: 'spot', private: false },
+  { door: 'mux', channel: 'book', product: 'spot', private: false },
+  { door: 'mux', channel: 'trades', product: 'spot', private: false },
+  { door: 'mux', channel: 'ticker', product: 'spot', private: false },
+  { door: 'mux', channel: 'candles', product: 'spot', private: false },
+  { door: 'mux', channel: 'futures.mark.', product: 'derivatives', private: false },
+  { door: 'private', channel: 'orders', product: 'spot', private: true },
+  { door: 'private', channel: 'fills', product: 'spot', private: true },
+  { door: 'private', channel: 'positions', product: 'derivatives', private: true },
+  { door: 'drop-copy', channel: 'drop_copy', product: 'accounts', private: true },
 ];
+
+/** How a stream is named on the page: the channel, with the symbol placeholder where it takes one. */
+export const streamName = (stream: Pick<Stream, 'channel'>) =>
+  stream.channel.endsWith('.') ? `${stream.channel}<symbol>` : stream.channel;
 
 /** Scopes that never reach a key (`INTERACTIVE_ONLY_SCOPES` in packages/auth): withdrawing is not reachable from the API. */
 export const NEVER_ON_A_KEY = ['trade:withdraw'] as const;

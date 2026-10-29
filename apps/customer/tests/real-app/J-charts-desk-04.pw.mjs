@@ -113,12 +113,15 @@ test('J-charts-desk-04 #5 adds a higher-timeframe study: the study at a coarser 
     .selectOption('1h');
   await page.getByRole('button', { name: 'Apply' }).click();
   // The study reads only the hourly bars that end by the chart's last 15m bar (no look-ahead past the chart). In the last
-  // quarter of an hour that includes the forming hour, which ends with the forming 15m bar. Worked from the public routes.
-  const quarter = await candles('15m', 1);
-  const chartEnd = Number(quarter[quarter.length - 1][0]) + 900_000;
-  const hourly = await candles('1h', 240);
-  const closed = hourly.filter((bar) => Number(bar[0]) + 3_600_000 <= chartEnd).length;
-  await expect(row(page, 'htf-sma-1')).toContainText(`Higher bars read: ${closed}`);
+  // quarter of an hour that includes the forming hour, which ends with the forming 15m bar. Worked from the public routes
+  // at the moment of each check: a bar that closes while the test runs changes the count on the page and on the route.
+  await expect(async () => {
+    const quarter = await candles('15m', 1);
+    const chartEnd = Number(quarter[quarter.length - 1][0]) + 900_000;
+    const hourly = await candles('1h', 240);
+    const closed = hourly.filter((bar) => Number(bar[0]) + 3_600_000 <= chartEnd).length;
+    await expect(row(page, 'htf-sma-1')).toContainText(`Higher bars read: ${closed}`, { timeout: 2_000 });
+  }).toPass({ timeout: 30_000 });
 });
 
 test('J-charts-desk-04 #6 adds open interest, funding and an on-chain series: each is refused by name on a spot market, nothing drawn', async ({

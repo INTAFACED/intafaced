@@ -52,6 +52,7 @@ const S1 = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc';
 const S2 = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd';
 const S3 = 'ffffffff-ffff-4fff-8fff-ffffffffffff';
 const AMT = parseAmount('10');
+const MARKET_HELD = { purchaseId: 'mh1', listingId: 'l1', buyerId: U, assetId: 'USDT', amount: AMT };
 const QUOTE = parseAmount('100');
 const CAMPAIGN_REWARD_KEY = `task:${S1}:${U}:once`;
 
@@ -853,6 +854,27 @@ function samplePosts(): Array<{ name: RecipeName; post: PostRequest }> {
       name: 'marketPremiumPlacement',
       post: recipes.marketPremiumPlacement({ placementId: 'pl1', listingId: 'l1', vendorUserId: U, assetId: 'USDT', amount: AMT }),
     },
+    {
+      name: 'marketPurchaseHold',
+      post: recipes.marketPurchaseHold(MARKET_HELD),
+    },
+    {
+      name: 'marketPurchaseRefund',
+      post: recipes.marketPurchaseRefund({
+        ...MARKET_HELD,
+        refundNo: 1,
+      }),
+    },
+    {
+      name: 'marketPurchaseRelease',
+      post: recipes.marketPurchaseRelease({
+        ...MARKET_HELD,
+        heldAmount: AMT,
+        refundedAmount: 0n,
+        vendorUserId: U2,
+        commissionBps: 0,
+      }),
+    },
     ...extraShapePosts(),
   ];
 }
@@ -886,6 +908,16 @@ function extraShapePosts(): Array<{ name: RecipeName; post: PostRequest }> {
         vendorUserId: U2,
         assetId: 'USDT',
         price: QUOTE,
+        commissionBps: 10,
+      }),
+    },
+    {
+      name: 'marketPurchaseRelease',
+      post: recipes.marketPurchaseRelease({
+        ...MARKET_HELD,
+        heldAmount: AMT,
+        refundedAmount: 0n,
+        vendorUserId: U2,
         commissionBps: 10,
       }),
     },

@@ -48,7 +48,7 @@ The full slice specs (behaviour, tests, failure cases, references) live in the p
 
 ### Journey map
 
-Done is defined by 459 journeys (3029 steps) in `modules/<module>/acceptance/journeys.md`; a journey is finished when its browser test passes on the real stack built from main. Order 1 is a module's first usable journey, and lane queues take its slices first. 33 steps still need a capability no slice covers yet.
+Done is defined by 460 journeys (3037 steps) in `modules/<module>/acceptance/journeys.md`; a journey is finished when its browser test passes on the real stack built from main. Order 1 is a module's first usable journey, and lane queues take its slices first. 33 steps still need a capability no slice covers yet.
 
 | Module         | Journeys | Order 1 | Order 2 | Order 3 | Steps | Steps with no slice |
 | -------------- | -------- | ------- | ------- | ------- | ----- | ------------------- |
@@ -66,9 +66,9 @@ Done is defined by 459 journeys (3029 steps) in `modules/<module>/acceptance/jou
 | campaigns      | 20       | 4       | 9       | 7       | 123   | 0                   |
 | cex-spot       | 20       | 2       | 13      | 5       | 169   | 0                   |
 | more-catalogue | 20       | 5       | 10      | 5       | 127   | 1                   |
+| ops-console    | 20       | 4       | 13      | 3       | 176   | 7                   |
 | support-public | 20       | 4       | 11      | 5       | 161   | 4                   |
 | charts-desk    | 19       | 1       | 10      | 8       | 120   | 0                   |
-| ops-console    | 19       | 3       | 13      | 3       | 168   | 7                   |
 | developer      | 18       | 4       | 9       | 5       | 116   | 0                   |
 | algo-dev       | 16       | 1       | 8       | 7       | 104   | 0                   |
 | portfolio      | 16       | 2       | 9       | 5       | 93    | 3                   |
@@ -115,12 +115,12 @@ A lane is one service, or one app area, so two lanes never edit the same files. 
 | svc-academy                   | 60     | 3            | 0                     | 19                    | 3             |
 | svc-trade futures             | 56     | 10           | 0                     | 9                     | 0             |
 | svc-agents                    | 49     | 2            | 0                     | 8                     | 3             |
-| svc-ops                       | 42     | 11           | 4                     | 0                     | 12            |
+| svc-ops                       | 42     | 11           | 4                     | 1                     | 12            |
 | svc-notify                    | 39     | 15           | 3                     | 11                    | 1             |
 | svc-support                   | 36     | 7            | 2                     | 10                    | 3             |
 | svc-pay wallet                | 32     | 9            | 14                    | 9                     | 6             |
 | svc-quant                     | 31     | 4            | 0                     | 9                     | 0             |
-| ledger                        | 25     | 9            | 7                     | 2                     | 3             |
+| ledger                        | 25     | 9            | 7                     | 4                     | 3             |
 | svc-matching                  | 21     | 2            | 4                     | 2                     | 3             |
 | svc-execution                 | 20     | 3            | 5                     | 0                     | 13            |
 | customer: trade               | 19     | 1            | 3                     | 4                     | 1             |

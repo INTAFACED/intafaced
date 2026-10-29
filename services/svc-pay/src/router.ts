@@ -5,7 +5,7 @@ import { ELIGIBILITY_REASONS } from './withdrawals/eligibility.js';
 import { WithdrawalQuoteError, withdrawalQuoteToTrpcError } from './withdrawals/quotes/errors.js';
 import { WithdrawalApprovalError, withdrawalApprovalToTrpcError } from './withdrawals/approvals/errors.js';
 import { AllowlistError, allowlistToTrpcError } from './withdrawals/allowlist/errors.js';
-import { quoteInputSchema, quoteViewSchema } from './withdrawals/quotes/schemas.js';
+import { quoteInputSchema, quoteViewSchema, sendNetworkIdSchema, sendQuoteRefSchema } from './withdrawals/quotes/schemas.js';
 import { RETURN_REASON_CODES } from './withdrawals/returns/schemas.js';
 import type { WithdrawalQuoteService } from './withdrawals/quotes/service.js';
 import {
@@ -30,6 +30,7 @@ import {
   payMerchantFailureSchema,
   payPageSchema,
   payPaymentAttemptSchema,
+  payPaymentConfirmationsSchema,
   payPaymentListInputSchema,
   payPaymentListSummarySchema,
   payPricingSnapshotViewSchema,
@@ -243,6 +244,10 @@ const withdrawalView = z.object({
   customerStatus: z.enum(WITHDRAWAL_STATUSES),
   /** Whether `withdrawal.cancel` would cancel it now. False whenever the answer is not proven. */
   cancellable: z.boolean(),
+  /** The network a send out of the platform went on (J-wallet-05 #6); null on a send inside the platform or an older row. */
+  networkId: z.string().nullable(),
+  /** The quoted network fee its hold carries on top of `amount`; null when it carries none. */
+  fee: amountSchema.nullable(),
 });
 
 type PaymentViewOut = z.infer<typeof paymentView>;
@@ -1122,7 +1127,13 @@ export function createPayRouter(
 
       get: ownMerchantRead()
         .input(z.object({ paymentId: z.string().guid() }))
-        .output(paymentView.extend({ attempts: z.array(payPaymentAttemptSchema) }))
+        .output(
+          paymentView.extend({
+            attempts: z.array(payPaymentAttemptSchema),
+            /** While the payment is open and its rail waits for confirmations: how deep, how deep it must be, as of when. */
+            confirmations: payPaymentConfirmationsSchema.nullable(),
+          }),
+        )
         .query(({ ctx, input }) =>
           wrap(async () => {
             // Fetched, then checked, then returned. The row has to be read to
@@ -1131,9 +1142,12 @@ export function createPayRouter(
             // the caller has the object. Attempts are read only after that.
             const payment = await pay.getPayment(input.paymentId);
             const audience = await assertPaymentRead(ctx.principal.userId, input.paymentId, payment.merchantId);
-            const attempts = await pay.listPaymentAttempts(input.paymentId);
+            const [attempts, confirmations] = await Promise.all([
+              pay.listPaymentAttempts(input.paymentId),
+              payment.status === 'created' ? pay.paymentConfirmations(input.paymentId) : null,
+            ]);
             const body = await paymentOut(payment, audience, false);
-            return { ...body, attempts };
+            return { ...body, attempts, confirmations };
           }),
         ),
 
@@ -2156,6 +2170,15 @@ export function createPayRouter(
              * cancel; there is no cancelling a payout.
              */
             clientRef: z.string().min(1).max(64),
+            /**
+             * J-wallet-05 #6 (issue #6517): a send to a wallet outside the platform names the network it goes on and the fee
+             * quote the person accepted (`withdrawal.quote`). Both are required there: no network has no custody signer
+             * (`pay.wallet_withdraw_unavailable`) and no quote refuses `withdrawal_quote.required`, before anything is claimed.
+             * The quote is accepted under `clientRef` inside the claim and its fee rides the hold. A send inside the platform
+             * (W-withdraw-14) takes neither: it has no network fee.
+             */
+            networkId: sendNetworkIdSchema.optional(),
+            quoteRef: sendQuoteRefSchema.optional(),
           }),
         )
         .output(withdrawalView)
@@ -2188,7 +2211,9 @@ export function createPayRouter(
               input.railId === INTERNAL_RAIL ||
               (await userMoney.platformDestination(ctx.principal.userId, input.destination)).kind !== 'external';
             return toWithdrawalOut(
-              internal ? await userMoney.withdrawInternal(request) : await userMoney.withdraw({ ...request, rail: input.railId }),
+              internal
+                ? await userMoney.withdrawInternal(request)
+                : await userMoney.withdraw({ ...request, rail: input.railId, networkId: input.networkId, quoteRef: input.quoteRef }),
             );
           }),
         ),
@@ -2481,6 +2506,8 @@ function toWithdrawalOut(row: WithdrawalRecord): WithdrawalViewOut {
     createdAt: row.createdAt.toISOString(),
     customerStatus: shownStatus(row.status, row.failureCode, row.journal),
     cancellable: isCancellable(row.status, row.failureCode, row.journal, row.dispatchJournaled),
+    networkId: row.networkId ?? null,
+    fee: row.fee == null ? null : formatAmount(row.fee),
   };
 }
 
@@ -2703,7 +2730,14 @@ export function toTrpcError(err: unknown): unknown {
       case 'pay.withdrawal_history_unwired':
       case 'pay.withdrawal_eligibility_unwired':
       case 'pay.internal_settlement_unwired':
+      case 'pay.withdrawal_destination_cooling':
+      case 'pay.withdrawal_destination_cooling_unset':
+      case 'pay.withdrawal_destination_unapproved':
+      case 'pay.withdrawal_destination_unavailable':
+      case 'pay.withdrawal_fee_unbound':
         return 'PRECONDITION_FAILED' as const;
+      case 'pay.withdrawal_destination_locked':
+        return 'FORBIDDEN' as const;
       case 'pay.withdrawal_not_found':
       case 'pay.wallet_not_found':
         return 'NOT_FOUND' as const;

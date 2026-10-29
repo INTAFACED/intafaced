@@ -589,6 +589,26 @@ const BY_CODE: Readonly<Record<string, Entry>> = {
     next: 'Tell engineering: the vault key or the stored document is damaged.',
     changed: 'unknown',
   },
+  'kyc.selfie_unconfigured': {
+    title: 'Identity’s selfie step is switched off',
+    body: 'The selfie step is not configured on this deployment, so no selfie can be taken, listed or decided. Nothing was changed.',
+    next: 'Ask engineering to switch on identity’s selfie step.',
+  },
+  'kyc.selfie_unknown': {
+    title: 'Identity holds no such selfie',
+    body: 'The selfie is not there any more: the person may have taken a new one, which replaces a selfie nobody has decided. Nothing was decided.',
+    next: 'Read the account’s selfies again and decide the one that waits; that needs a new request.',
+  },
+  'kyc.selfie_decided': {
+    title: 'This selfie was already decided',
+    body: 'A selfie is decided once. Identity kept the decision it already holds and refused this one.',
+    next: 'Read the account’s selfies again to see the decision on record.',
+  },
+  'auth.kyc_self_review': {
+    title: 'Nobody may decide their own verification',
+    body: 'Identity refused because you, or a founder on the approval, are the person this verification belongs to. Nothing was decided.',
+    next: 'Two other founders ask for and approve the decision.',
+  },
   'action_approval.consume_failed': {
     title: 'Identity refused to release the approval',
     body: 'Most often the second founder has not approved yet, or the approval expired. The command was not run.',

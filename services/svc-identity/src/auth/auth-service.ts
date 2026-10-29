@@ -24,6 +24,7 @@ import type { KycCapabilitiesOutput, KycCapability } from '@intafaced/contracts/
 import { assertAttemptsLeft, readKycAttempts, type KycAttemptLimit } from '../kyc/attempts.js';
 import type { KycAttempts } from '@intafaced/contracts/identity-kyc-attempts';
 import type { KycCase } from '@intafaced/contracts/identity-kyc-cases';
+import type { ApiKeyRevokedBy } from '@intafaced/contracts/api-keys';
 import type {
   AccountState,
   CampaignParticipant,
@@ -471,7 +472,7 @@ export type PayStepUpGrant = {
 export type ApiKeyActionScope = {
   readonly tx: Sql;
   createApiKey: (input: Parameters<AuthService['createApiKey']>[0]) => ReturnType<AuthService['createApiKey']>;
-  revokeApiKey: (userId: string, keyId: string) => Promise<boolean>;
+  revokeApiKey: (userId: string, keyId: string, cause?: ApiKeyRevokedBy) => Promise<boolean>;
 };
 
 export type PayStepUpFactorProof =
@@ -2145,7 +2146,7 @@ export class AuthService {
       const made = await tx<Array<{ since: Date }>>`
         INSERT INTO account_self_freezes (user_id, reason) VALUES (${input.userId}, ${input.reason}) RETURNING since`;
       await tx`UPDATE sessions SET revoked = true WHERE user_id = ${input.userId} AND revoked = false`;
-      await tx`UPDATE api_keys SET revoked = true WHERE user_id = ${input.userId} AND revoked = false`;
+      await tx`UPDATE api_keys SET revoked = true, revoked_at = now(), revoked_cause = 'account_freeze' WHERE user_id = ${input.userId} AND revoked = false`;
       return { reason: input.reason, since: made[0]!.since, changed: true };
     });
     if (result.changed) await syncNavigatorSessionsClosedForUser(this.sql, input.userId);
@@ -2605,9 +2606,14 @@ export class AuthService {
     return { accessToken, expiresAt, userId: verified.userId, keyId: verified.keyId, scopes: verified.scopes, mode: verified.mode };
   }
 
-  async revokeApiKey(userId: string, keyId: string, executor?: Sql): Promise<boolean> {
+  /**
+   * Revoke one key, recording why: `owner` (the person, also a rotation's old key) unless the caller says otherwise,
+   * `system` when a create or rotation undoes a key it made but never handed over.
+   */
+  async revokeApiKey(userId: string, keyId: string, cause: ApiKeyRevokedBy = 'owner', executor?: Sql): Promise<boolean> {
     const result = await (executor ??
-      this.sql)`UPDATE api_keys SET revoked = true WHERE id = ${keyId} AND user_id = ${userId} AND revoked = false`;
+      this
+        .sql)`UPDATE api_keys SET revoked = true, revoked_at = now(), revoked_cause = ${cause} WHERE id = ${keyId} AND user_id = ${userId} AND revoked = false`;
     return result.count > 0;
   }
 
@@ -3439,7 +3445,7 @@ export class AuthService {
         const scope: ApiKeyActionScope = {
           tx: tx as unknown as Sql,
           createApiKey: (create) => this.createApiKey({ ...create, executor: tx as unknown as Sql }),
-          revokeApiKey: (userId, keyId) => this.revokeApiKey(userId, keyId, tx as unknown as Sql),
+          revokeApiKey: (userId, keyId, cause) => this.revokeApiKey(userId, keyId, cause, tx as unknown as Sql),
         };
         const result = await run(scope);
         await tx`
@@ -3493,7 +3499,7 @@ export class AuthService {
       >`UPDATE sub_accounts SET revoked = true WHERE parent_user_id = ${userId} AND revoked = false RETURNING id`;
       const revokedKeys = await tx<
         Array<{ id: string }>
-      >`UPDATE api_keys SET revoked = true WHERE user_id = ${userId} AND revoked = false RETURNING id`;
+      >`UPDATE api_keys SET revoked = true, revoked_at = now(), revoked_cause = 'account_freeze' WHERE user_id = ${userId} AND revoked = false RETURNING id`;
       return { userId, status: 'frozen' as const, subAccountsRevoked: revokedRows.length, apiKeysRevoked: revokedKeys.length };
     });
     await syncNavigatorSessionsClosedForUser(this.sql, userId);

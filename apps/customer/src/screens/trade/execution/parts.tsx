@@ -72,9 +72,9 @@ export function Gate<T>({
 }
 
 /** The sentence that says why a control is off, right beside it. */
-export function Why({ children }: { children: ReactNode }) {
+export function Why({ children, code }: { children: ReactNode; code?: string }) {
   return (
-    <p role="note" className="m-0 text-sm text-warn">
+    <p role="note" data-code={code} className="m-0 text-sm text-warn">
       {children}
     </p>
   );

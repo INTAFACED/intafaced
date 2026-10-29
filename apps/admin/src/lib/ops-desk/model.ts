@@ -43,6 +43,9 @@ function cellOf(column: Column, source: Record<string, unknown>): Cell | null {
   if (column.mustBe !== undefined && value !== column.mustBe) return null;
   switch (column.kind) {
     case 'text':
+      if (typeof value !== 'string') return null;
+      if (!column.words) return make(value);
+      return Object.hasOwn(column.words, value) ? { ...make(value), words: column.words[value]! } : null;
     case 'amount':
       return typeof value === 'string' ? make(value) : null;
     case 'int':
@@ -160,6 +163,7 @@ export function formatCell(cell: Cell): string {
 /** What the screen prints for a cell: formatCell, with a time in the shared UTC form and a service code in words. The CSV export keeps formatCell's exact values. */
 export function displayCell(cell: Cell): string {
   if (cell.kind === 'time' && typeof cell.value === 'string') return formatWhen(cell.value);
+  if (cell.kind === 'text' && cell.words !== undefined) return cell.words;
   if (cell.kind === 'text' && typeof cell.value === 'string') return codeWords(cell.value);
   return formatCell(cell);
 }

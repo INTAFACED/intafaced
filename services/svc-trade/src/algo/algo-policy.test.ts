@@ -2,7 +2,7 @@
  * Unit card — consolidated trade.algo policy honesty door
  * 1. Promise: TWAP product path, jobs default OFF, cancel_incomplete park, VWAP/POV immature refuse
  * 2. Break: describeAlgoPolicy omits capability or cancel / volume immature law
- * 3. Done bar: router mounts algo.policy → describeAlgoPolicy()
+ * 3. Done bar: router mounts algo.policy → trade.algoPolicy(), with the service's own flags
  * 4. Class N
  * 5. Paths: svc-trade/src/algo/algo-policy.ts, router.ts
  */
@@ -11,6 +11,12 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
+import { MemoryEventBus } from '@intafaced/events';
+import { MemoryLedger } from '@intafaced/ledger-client';
+import type { Sql } from 'postgres';
+import { TradeService } from '../controls/test-admission.js';
+import { createTradeRouter } from '../router.js';
+import { PUBLISHED_TEST_FEE_SCHEDULE, READY_MARKET_LIFECYCLE, StubMatching, StubPerks } from '../spot/testing.js';
 import { presentAlgoCapabilityNote } from './algo-capability.js';
 import {
   ALGO_CANCEL_INCOMPLETE_CODE,
@@ -57,7 +63,31 @@ describe('describeAlgoPolicy — trade.algo honesty door', () => {
 });
 
 describe('algo.policy route (trade.algo honesty door)', () => {
-  it('router mounts describeAlgoPolicy on algo.policy', () => {
-    expect(routerSource).toMatch(/policy:\s*publicProcedure\.query\(\(\)\s*=>\s*describeAlgoPolicy\(\)\)/);
+  const sql = {} as Sql;
+  const service = (options: { algoEnabled?: boolean; algoJobsEnabled?: boolean }) =>
+    new TradeService(sql, new MemoryLedger(), new StubMatching(), new StubPerks(), new MemoryEventBus('svc-trade'), {
+      feeSchedule: PUBLISHED_TEST_FEE_SCHEDULE,
+      marketLifecycle: READY_MARKET_LIFECYCLE,
+      ...options,
+    });
+  const policyOf = (trade: TradeService) =>
+    createTradeRouter(trade)
+      .createCaller({ principal: null } as never)
+      .algo.policy();
+
+  it('router mounts the service policy on algo.policy', () => {
+    expect(routerSource).toMatch(/policy:\s*publicProcedure\.query\(\(\)\s*=>\s*trade\.algoPolicy\(\)\)/);
+  });
+
+  it('reports the scheduler the service was started with, not the shipped default', async () => {
+    const on = await policyOf(service({ algoJobsEnabled: true }));
+    expect(on.capability.jobsEnabled).toBe(true);
+    expect(on.capability.jobsDefault).toBe(false);
+    const off = await policyOf(service({}));
+    expect(off.capability.jobsEnabled).toBe(false);
+    expect(off.capability.createEnabled).toBe(true);
+    const killed = await policyOf(service({ algoEnabled: false, algoJobsEnabled: true }));
+    expect(killed.capability.createEnabled).toBe(false);
+    expect(killed.capability.jobsEnabled).toBe(true);
   });
 });
