@@ -400,7 +400,7 @@ test(`${J} #4 opens one payment: facts, amounts, timeline, linked refunds and th
   await page.goto(`/pay/payments/${ids.disputed}`);
   await showsItsStatus(ids.disputed, 'disputed');
   // The dispute card is the service's one dispute on this payment: its amount, its reason and a way to it by its id.
-  const disputes = (await owner.query('merchantOps.disputes.list', {})).items.filter((d) => d.paymentId === ids.disputed);
+  const disputes = (await owner.query('merchantOps.disputes.list', { limit: 200 })).items.filter((d) => d.paymentId === ids.disputed);
   expect(disputes).toHaveLength(1);
   const [disputeRead] = disputes;
   expect([cents(disputeRead.amount), disputeRead.assetId, disputeRead.reasonCode]).toEqual([1200n, 'USDT', 'product_not_received']);
