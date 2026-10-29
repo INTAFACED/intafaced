@@ -1068,6 +1068,26 @@ app.get<{ Params: { userId: string } }>('/internal/security-lock/:userId', async
 });
 
 /**
+ * The owner's self-freeze (I-account-lifecycle-08), `selfFreezeStateSchema`. A service that moves money out or changes a
+ * withdrawal address reads it per request and refuses while `frozen` is true; it keeps no copy. Service credentials only.
+ * Unknown user → 404, which the caller refuses on. A read error is a 500, which the caller also refuses on.
+ */
+app.get<{ Params: { userId: string } }>('/internal/self-freeze/:userId', async (req, reply) => {
+  if (serviceOfRequest(req, env.INTERNAL_SERVICE_SECRET, env.INTERNAL_SERVICE_BODY_BIND, doorS2s).service === null) {
+    return reply.code(401).send({ error: 'service credentials required', code: 'identity.unauthenticated' });
+  }
+  const userId = req.params.userId;
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(userId)) {
+    return reply.code(404).send({ error: 'account not found', code: 'identity.account_not_found' });
+  }
+  const state = await auth.selfFreezeState(userId);
+  if (!state) {
+    return reply.code(404).send({ error: 'account not found', code: 'identity.account_not_found' });
+  }
+  return state;
+});
+
+/**
  * The limit override in force now for one customer, rail and asset (J-ops-console-04 #12), `accountLimitOverrideReadSchema`.
  * The service that enforces the limit reads it per request and keeps no copy; `override: null` means the base limit
  * applies. Service credentials only. A rail or asset identity does not recognise → 400 `identity.limit_query_invalid`; an
