@@ -12,6 +12,7 @@ import {
 } from '@intafaced/contracts/identity-kyc-profile';
 import { z } from 'zod';
 import type { ApiResult } from '../../shared/api';
+import { base64Of, kib } from '../../shared/file-base64';
 import { useSession } from '../session/session';
 import { useResource } from '../../shared/resource';
 import { Button, Failure, Field, Loading } from '../../shared/ui';
@@ -21,17 +22,6 @@ type Tier = KycProfileDraft['tier'];
 type Refusal = Extract<ApiResult<unknown>, { ok: false }>;
 type Problem = { kind: 'copy'; text: string } | { kind: 'failure'; result: Refusal };
 const sentSchema = z.object({ recordId: z.string().uuid(), documentCheck: z.literal('not_connected') });
-const kib = (bytes: number) => Math.ceil(bytes / 1024);
-
-/** Reads a file as canonical base64 without its data-URL prefix. */
-function base64Of(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onerror = () => reject(reader.error);
-    reader.onload = () => resolve(String(reader.result).replace(/^data:[^,]*,/, ''));
-    reader.readAsDataURL(file);
-  });
-}
 
 /**
  * I-kyc-compliance-08 (J-identity-08 #2): guided verification on /verification. Six steps with progress; each save
@@ -43,10 +33,9 @@ function base64Of(file: File): Promise<string> {
 export function VerificationGuided({ tier, disabled, onSent }: { tier: Tier; disabled: boolean; onSent: () => void }) {
   const { api, userId } = useSession();
   const { t, Copy } = copy.useCopy();
-  const [revision, setRevision] = useState(0);
   const { resource, reload } = useResource(
     (signal) => api.query('identity', 'kyc.profile.read', undefined, kycProfileSchema, { signal }),
-    `verification-guided:${userId}:${revision}`,
+    `verification-guided:${userId}`,
   );
   const [view, setView] = useState<number | null>(null);
   const [busy, setBusy] = useState(false);
@@ -56,23 +45,20 @@ export function VerificationGuided({ tier, disabled, onSent }: { tier: Tier; dis
   function refused(result: Refusal, caps: KycProfileUploadCaps | null) {
     switch (result.code) {
       case 'kyc.profile_version':
+      case 'kyc.profile_sent':
+      case 'kyc.profile_none':
         setProblem({ kind: 'copy', text: t('changed') });
-        setRevision((n) => n + 1);
-        return;
+        return reload();
       case 'kyc.upload_too_large':
         return setProblem({ kind: 'copy', text: caps ? t('overCap', { kib: String(kib(caps.maxBytes)) }) : t('capsUnset') });
       case 'kyc.upload_type':
         return setProblem({ kind: 'copy', text: caps ? t('wrongType', { types: caps.contentTypes.join(', ') }) : t('capsUnset') });
       case 'kyc.upload_caps_unset':
         return setProblem({ kind: 'copy', text: t('capsUnset') });
-      case 'kyc.profile_sent':
-      case 'kyc.profile_none':
-        setProblem({ kind: 'copy', text: t('changed') });
-        setRevision((n) => n + 1);
-        return;
       case 'kyc.profile_request_open':
         return setProblem({ kind: 'copy', text: t('requestOpen') });
       case 'kyc.document_types_unset':
+        return setProblem({ kind: 'copy', text: t('typesUnset') });
       case 'kyc.document_type_unlisted':
         return setProblem({ kind: 'copy', text: t('typeUnlisted') });
       case 'kyc.profile_incomplete':
@@ -84,11 +70,12 @@ export function VerificationGuided({ tier, disabled, onSent }: { tier: Tier; dis
     }
   }
 
-  async function run(call: () => Promise<ApiResult<KycProfileDraft>>, caps: KycProfileUploadCaps | null) {
+  /** One call to the service; on success the page reads the draft again, and `done` runs with the answer. */
+  async function run<T>(call: () => Promise<ApiResult<T>>, caps: KycProfileUploadCaps | null, done?: () => void) {
     setBusy(true);
     setProblem(null);
     try {
-      let answer: ApiResult<KycProfileDraft>;
+      let answer: ApiResult<T>;
       try {
         answer = await call();
       } catch {
@@ -97,7 +84,8 @@ export function VerificationGuided({ tier, disabled, onSent }: { tier: Tier; dis
       }
       if (!answer.ok) return refused(answer, caps);
       setView(null);
-      setRevision((n) => n + 1);
+      reload();
+      done?.();
     } finally {
       setBusy(false);
     }
@@ -114,7 +102,7 @@ export function VerificationGuided({ tier, disabled, onSent }: { tier: Tier; dis
           <Failure result={resource.failure} retry={reload} />
         </>
       );
-    const { draft, uploadCaps, documentCheck } = resource.data;
+    const { draft, unreadableDraft, uploadCaps, documentCheck } = resource.data;
     const open = draft && !draft.recordId ? draft : null;
     if (!open)
       return (
@@ -122,6 +110,11 @@ export function VerificationGuided({ tier, disabled, onSent }: { tier: Tier; dis
           {draft?.recordId && sent && (
             <p role="status" data-testid="verification__guided-sent">
               <Copy k="sent" />
+            </p>
+          )}
+          {unreadableDraft && (
+            <p data-testid="verification__guided-unreadable">
+              <Copy k="draftUnreadable" />
             </p>
           )}
           {documentCheck === 'not_connected' && (
@@ -211,19 +204,16 @@ export function VerificationGuided({ tier, disabled, onSent }: { tier: Tier; dis
               uploadCaps,
             )
           }
-          onSend={async () => {
-            setBusy(true);
-            setProblem(null);
-            try {
-              const answer = await api.mutate('identity', 'kyc.profile.submit', { version: open.version }, sentSchema);
-              if (!answer.ok) return refused(answer, uploadCaps);
-              setSent(true);
-              setRevision((n) => n + 1);
-              onSent();
-            } finally {
-              setBusy(false);
-            }
-          }}
+          onSend={() =>
+            void run(
+              () => api.mutate('identity', 'kyc.profile.submit', { version: open.version }, sentSchema),
+              uploadCaps,
+              () => {
+                setSent(true);
+                onSent();
+              },
+            )
+          }
         />
       </div>
     );
@@ -276,7 +266,7 @@ function GuidedStep({
   const country = (f.residence ?? '').toUpperCase();
   const types = useResource(
     (signal) =>
-      step === 'document' && country
+      (step === 'document' || step === 'review') && country
         ? api.query('identity', 'kyc.documentTypes.read', { country }, kycDocumentTypesSchema, { signal })
         : Promise.resolve({ ok: true as const, data: { country: country || 'XX', published: false, types: [] } }),
     `verification-guided-types:${step}:${country}`,
@@ -399,9 +389,13 @@ function GuidedStep({
           event.preventDefault();
           if (!file) return;
           // The owner's caps, before anything is sent; the service checks them again.
-          if (file.size > caps.maxBytes)
-            return onProblem({ kind: 'copy', text: t('tooLarge', { size: String(kib(file.size)), kib: String(kib(caps.maxBytes)) }) });
-          if (!caps.contentTypes.includes(file.type))
+          const tooLarge =
+            kib(file.size) === kib(caps.maxBytes)
+              ? t('tooLargeBytes', { size: String(file.size), max: String(caps.maxBytes) })
+              : t('tooLarge', { size: String(kib(file.size)), kib: String(kib(caps.maxBytes)) });
+          if (file.size === 0) return onProblem({ kind: 'copy', text: t('emptyFile') });
+          if (file.size > caps.maxBytes) return onProblem({ kind: 'copy', text: tooLarge });
+          if (!caps.contentTypes.includes(file.type.toLowerCase()))
             return onProblem({ kind: 'copy', text: t('wrongType', { types: caps.contentTypes.join(', ') }) });
           onUpload(file);
         }}
@@ -438,7 +432,11 @@ function GuidedStep({
     [t('legalNameField'), f.legalName],
     [t('localNameField'), f.localName],
     [t('dateOfBirthField'), f.dateOfBirth],
-    [t('documentTypeField'), f.documentType],
+    // The owner's label for the country, as chosen in step 3; the code itself only if the list cannot be read.
+    [
+      t('documentTypeField'),
+      (types.status === 'ready' && types.data.types.find((row) => row.type === f.documentType)?.label) || f.documentType,
+    ],
     [t('documentNumberField'), f.documentNumber],
     [t('addressLineField'), f.addressLine],
     [t('cityField'), f.city],
