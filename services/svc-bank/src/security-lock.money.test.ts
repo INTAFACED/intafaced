@@ -48,11 +48,17 @@ const registry = memoryWithdrawNetworks([
 ]);
 const entry = { userId: USER, assetId: 'USDT', network: 'erc20', ref: ADDRESS, label: 'TEST cold wallet' };
 
-function identityAnswering(answer: () => Response | Promise<Response>) {
+const freezeBody = (over: Record<string, unknown> = {}) => ({ userId: USER, frozen: false, since: null, ...over });
+
+/** Identity answering both reads: `answer` for the security lock, `freeze` for the self-freeze. */
+function identityAnswering(
+  answer: () => Response | Promise<Response>,
+  freeze: () => Response | Promise<Response> = () => json(freezeBody()),
+) {
   const asked: string[] = [];
   const fetchFn = (async (url: string | URL) => {
     asked.push(String(url));
-    return answer();
+    return String(url).includes('/internal/self-freeze/') ? freeze() : answer();
   }) as typeof globalThis.fetch;
   return { asked, fetchFn };
 }
@@ -75,8 +81,23 @@ describe('the identity security lock port', () => {
       json(lockBody({ unlockRequestedAt: '2026-10-24T07:00:00.000Z', unlocksAt: UNLOCKS_AT })),
     );
     const port = createIdentitySecurityLock('http://identity.test/', SECRET, fetchFn, silentLog);
-    await expect(port.read(USER)).resolves.toEqual({ locked: true, unlocksAt: UNLOCKS_AT });
-    expect(asked).toEqual([`http://identity.test/internal/security-lock/${USER}`]);
+    await expect(port.read(USER)).resolves.toEqual({ locked: true, unlocksAt: UNLOCKS_AT, selfFrozen: false });
+    expect(asked.sort()).toEqual([
+      `http://identity.test/internal/security-lock/${USER}`,
+      `http://identity.test/internal/self-freeze/${USER}`,
+    ]);
+  });
+
+  it("reads the owner's self-freeze beside the lock", async () => {
+    const { fetchFn } = identityAnswering(
+      () => json(lockBody({ locked: false, lockedAt: null, setBy: null })),
+      () => json(freezeBody({ frozen: true, since: '2026-10-29T20:00:00.000Z' })),
+    );
+    await expect(createIdentitySecurityLock('http://identity.test', SECRET, fetchFn, silentLog).read(USER)).resolves.toEqual({
+      locked: false,
+      unlocksAt: null,
+      selfFrozen: true,
+    });
   });
 
   it('reads an open lock as open', async () => {
@@ -84,6 +105,7 @@ describe('the identity security lock port', () => {
     await expect(createIdentitySecurityLock('http://identity.test', SECRET, fetchFn, silentLog).read(USER)).resolves.toEqual({
       locked: false,
       unlocksAt: null,
+      selfFrozen: false,
     });
   });
 
@@ -102,6 +124,24 @@ describe('the identity security lock port', () => {
     ],
   ])('refuses as unavailable on %s, never as "no lock"', async (_case, answer) => {
     const { fetchFn } = identityAnswering(answer);
+    await expect(createIdentitySecurityLock('http://identity.test', SECRET, fetchFn, silentLog).read(USER)).rejects.toMatchObject({
+      code: 'bank.security_lock_unavailable',
+    });
+  });
+
+  it.each([
+    ['a 404', () => json({ code: 'identity.account_not_found' }, 404)],
+    ['a 500', () => json({ error: 'boom' }, 500)],
+    ['a body outside the schema', () => json({ userId: USER, frozen: 'yes' })],
+    ['an answer about another user', () => json(freezeBody({ userId: OTHER }))],
+    [
+      'no answer at all',
+      () => {
+        throw new TypeError('fetch failed');
+      },
+    ],
+  ])('refuses as unavailable when the self-freeze read gives %s, never as "not frozen"', async (_case, freeze) => {
+    const { fetchFn } = identityAnswering(() => json(lockBody({ locked: false, lockedAt: null, setBy: null })), freeze);
     await expect(createIdentitySecurityLock('http://identity.test', SECRET, fetchFn, silentLog).read(USER)).rejects.toMatchObject({
       code: 'bank.security_lock_unavailable',
     });
@@ -134,6 +174,15 @@ describe('the address book while the security lock holds', () => {
     await expect(service.checkDestination({ userId: USER, ref: ADDRESS })).rejects.toMatchObject({ code: 'bank.security_locked' });
     await expect(service.setWithdrawDestination({ userId: USER, kind: 'crypto', ref: EVM })).rejects.toMatchObject({
       code: 'bank.security_locked',
+    });
+    expect(await destinations.list(USER)).toEqual([]);
+  });
+
+  it('refuses adding an address while the owner froze the account, and the book is unchanged', async () => {
+    const { service, destinations } = ramps(memorySecurityLock({ [USER]: { locked: false, unlocksAt: null, selfFrozen: true } }));
+    await expect(service.saveDestination(entry)).rejects.toMatchObject({ code: 'bank.account_frozen_self' });
+    await expect(service.setWithdrawDestination({ userId: USER, kind: 'crypto', ref: EVM })).rejects.toMatchObject({
+      code: 'bank.account_frozen_self',
     });
     expect(await destinations.list(USER)).toEqual([]);
   });
@@ -360,6 +409,12 @@ describe('a crypto withdrawal while the security lock holds (money)', () => {
   it('refuses bank.security_locked before any row or hold, and the balance stays whole', async () => {
     lock.set(USER, LOCKED);
     await expect(send()).rejects.toMatchObject({ code: 'bank.security_locked' });
+    await nothingMoved();
+  });
+
+  it('refuses bank.account_frozen_self while the owner froze the account, before any row or hold', async () => {
+    lock.set(USER, { locked: false, unlocksAt: null, selfFrozen: true });
+    await expect(send()).rejects.toMatchObject({ code: 'bank.account_frozen_self' });
     await nothingMoved();
   });
 

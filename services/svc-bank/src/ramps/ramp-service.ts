@@ -637,8 +637,10 @@ export class RampService {
     // or a resume, not a new send: it carries on, so a settled one answers as before and a held one is not left held.
     // Only with the address it was claimed with: an offered address is stored before the claim's terms are checked, so a
     // replay naming another one would change the withdrawal address, and that waits for the lock like any change does.
-    // Identity unreachable refuses every send, replays included: it cannot say whether the lock holds.
-    if ((await this.securityLock.read(input.userId)).locked) {
+    // Identity unreachable refuses every send, replays included: it cannot say whether the lock holds. The owner's
+    // self-freeze (I-account-lifecycle-08) follows the same rule, refused as `bank.account_frozen_self`.
+    const hold = await this.securityLock.read(input.userId);
+    if (hold.locked || hold.selfFrozen) {
       const claimedTo = await this.offrampClaimedTo(input.offrampId, input.userId);
       const offered = input.destinationRef?.trim();
       if (claimedTo === null || (offered && offered !== claimedTo)) {
