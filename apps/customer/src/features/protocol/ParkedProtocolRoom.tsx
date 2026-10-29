@@ -23,6 +23,8 @@ import {
 } from './blockers';
 import { protocolCopy as copy } from './copy';
 import { ContractsPanel, type ChainRef, NetworkPanel, SupportedNetworksPanel } from './NetworkPanels';
+import { ChainHome } from './explorer/ChainHome';
+import './explorer/explorer.css';
 import './protocol.css';
 
 type Translate = ReturnType<typeof copy.forLocale>['t'];
@@ -444,6 +446,7 @@ export function ParkedProtocolRoom({ slug, subPath }: { slug: Slug; subPath?: st
   if (slug === 'chain' && tab === 'status')
     body = (
       <>
+        <ChainHome chain={chainRef} />
         {chainStatusPanel}
         <NetworkPanel chain={chainRef} t={t} />
       </>
