@@ -44,6 +44,9 @@ import {
   taskProgressInputSchema,
   taskProgressSchema,
   type CampaignRefusalCode,
+  campaignVoucherSchema,
+  voucherIssueInputSchema,
+  voucherListInputSchema,
 } from '@intafaced/contracts/campaigns-catalogue';
 import type { CampaignService } from './campaigns.js';
 import { CampaignsError } from './codes.js';
@@ -101,6 +104,7 @@ const STATUS: Record<CampaignsRefusalCode | CampaignRefusalCode, TRPCError['code
   'campaigns.budget_asset_mismatch': 'PRECONDITION_FAILED',
   'campaigns.funding_unknown': 'NOT_FOUND',
   'campaigns.funding_reference_taken': 'CONFLICT',
+  'campaigns.not_voucher': 'CONFLICT',
   'owner.decision': 'PRECONDITION_FAILED',
   'campaigns.window_unset': 'PRECONDITION_FAILED',
   'campaigns.timezone_unset': 'BAD_REQUEST',
@@ -350,6 +354,30 @@ export function createCampaignsRouter(drops: DropService, campaigns: CampaignSer
               mapError(err);
             }
           }),
+        vouchers: router({
+          /** A voucher campaign's vouchers, each with the revision and face value it was issued under. */
+          list: opsProcedure
+            .input(voucherListInputSchema)
+            .output(z.array(campaignVoucherSchema))
+            .query(async ({ input }) => {
+              try {
+                return await campaigns.listVouchers(input);
+              } catch (err) {
+                mapError(err);
+              }
+            }),
+          /** Publishes one voucher under the live revision; the same code again returns it. */
+          issue: opsProcedure
+            .input(voucherIssueInputSchema)
+            .output(campaignVoucherSchema)
+            .mutation(async ({ ctx, input }) => {
+              try {
+                return await campaigns.issueVoucher({ ...input, actor: ctx.principal!.userId });
+              } catch (err) {
+                mapError(err);
+              }
+            }),
+        }),
       }),
       rules: router({
         /** Tries a tree on a TEST fixture account: every failing condition by its place. Reads no account, stores nothing. */
