@@ -151,6 +151,13 @@ test(`${J} #9 edits the active campaign: a new revision; earlier vouchers keep t
 }) => {
   await openDraft(page);
   await expect(page.getByTestId('campaign-revision')).toHaveText(/Revision \d+/, UNBUILT);
+  const live = (await page.getByTestId('campaign-revision').textContent()) ?? '';
+  // The edit is the next revision beside the live one, which stays live until another founder approves it.
+  await builder(page).getByRole('tab', { name: 'Budget and time' }).click();
+  await builder(page).getByRole('textbox', { name: 'Per person limit' }).fill('2');
+  await builder(page).getByRole('button', { name: 'Next' }).click();
+  await expect(page.getByTestId('campaign-pending')).toContainText(/Revision \d+, a draft/);
+  await expect(page.getByTestId('campaign-revision')).toHaveText(live);
   await page.getByRole('button', { name: 'Archive' }).click();
   await expect(builder(page).getByRole('alert')).toContainText('An active campaign cannot be archived');
 });

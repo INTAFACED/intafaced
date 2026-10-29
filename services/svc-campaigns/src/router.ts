@@ -59,6 +59,8 @@ const STATUS: Record<CampaignsRefusalCode | CampaignRefusalCode, TRPCError['code
   'campaign.not_active': 'CONFLICT',
   'campaign.outside_window': 'CONFLICT',
   'campaign.archive_active': 'CONFLICT',
+  'campaign.type_locked': 'CONFLICT',
+  'campaigns.budget_below_drawn': 'CONFLICT',
   'campaigns.budget_unset': 'PRECONDITION_FAILED',
   'campaigns.number_on_wire': 'BAD_REQUEST',
   'campaigns.rules_unset': 'PRECONDITION_FAILED',

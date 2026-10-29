@@ -24,6 +24,8 @@ export const CAMPAIGN_REFUSAL_CODES = [
   'campaign.not_active',
   'campaign.outside_window',
   'campaign.archive_active',
+  'campaign.type_locked',
+  'campaigns.budget_below_drawn',
   'campaigns.budget_unset',
   'campaigns.number_on_wire',
   'campaigns.rules_unset',
@@ -251,6 +253,14 @@ export const campaignSchema = z.object({
   approvedBy: z.string().nullable(),
   createdAt: iso,
   updatedAt: iso,
+  /**
+   * An edit of a campaign past approval (ENGINE LC-5): revision n+1, waiting beside the live revision until a second
+   * person approves it. Joins and rewards keep the revision they were made under. Null when there is none.
+   */
+  pendingChange: z
+    .lazy(() => campaignChangeSchema)
+    .nullable()
+    .default(null),
 });
 export type Campaign = z.infer<typeof campaignSchema>;
 
@@ -357,6 +367,17 @@ export const campaignDefinitionInputSchema = z
   })
   .strict();
 export type CampaignDefinitionInput = z.infer<typeof campaignDefinitionInputSchema>;
+
+/** A change of a live campaign: its revision, where it is, who wrote and asked, and the definition it would put live. */
+export const campaignChangeSchema = z.object({
+  revision: z.number().int().positive(),
+  state: z.enum(['draft', 'pending_approval']),
+  createdBy: z.string(),
+  submittedBy: z.string().nullable(),
+  definition: campaignDefinitionInputSchema,
+  updatedAt: iso,
+});
+export type CampaignChange = z.infer<typeof campaignChangeSchema>;
 
 export const campaignUpdateInputSchema = z
   .object({ id, revision: z.number().int().positive(), definition: campaignDefinitionInputSchema })

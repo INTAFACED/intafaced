@@ -121,17 +121,56 @@ export const blankSentence = (m: CampaignGate['missing'][number]) =>
  */
 export function refusalSentence(code: string | null, campaign: Campaign | null, me: string | null): string | null {
   switch (code) {
-    case 'campaigns.second_person_required':
+    case 'campaigns.second_person_required': {
+      const change = campaign?.pendingChange;
+      if (change && me && change.submittedBy === me) return 'You asked for this, so another founder must approve it.';
+      if (change && me && change.createdBy === me) return 'You wrote this revision, so another founder must approve it.';
       if (campaign && me && campaign.submittedBy === me) return 'You asked for this, so another founder must approve it.';
       if (campaign && me && campaign.createdBy === me) return 'You wrote this draft, so another founder must approve it.';
       return 'This revision was approved by another founder, or you wrote or asked for it: another founder must approve it.';
+    }
     case 'campaign.archive_active':
       return 'An active campaign cannot be archived. A scheduled one counts as active, because customers already see it: end it first.';
     case 'campaign.not_draft':
-      return 'Only a draft is edited. Changing a campaign that is past draft (a new revision of a live campaign) is not built yet.';
+      return 'A campaign that waits for its first approval, or has ended, is not edited.';
+    case 'campaign.type_locked':
+      return 'A live campaign keeps its type. Start a new campaign for another type.';
+    case 'campaigns.budget_below_drawn':
+      return 'The budget cannot drop below what rewards already draw from it.';
     default:
       return null;
   }
+}
+
+/** States past approval whose definition is changed by a new revision beside the live one (ENGINE LC-5). */
+export const REVISABLE_STATES: readonly CampaignState[] = ['approved', 'scheduled', 'active', 'paused'];
+
+/** Whether the builder may save a tab: a draft is edited in place, a live campaign through a new revision. */
+export const isEditable = (c: Campaign) => c.state === 'draft' || REVISABLE_STATES.includes(c.state);
+
+/** The revision an edit or a move of the definition is read at: the open change's, else the campaign's. */
+export const latestRevision = (c: Campaign) => c.pendingChange?.revision ?? c.revision;
+
+/** What a tab's save lays its fields over: the open change, else the stored definition. */
+export const baseDefinition = (c: Campaign): CampaignDefinitionInput => c.pendingChange?.definition ?? definitionOf(c);
+
+/** The campaign as the builder edits it: an open change's definition over the live row, so its fields show the change. */
+export function editedView(c: Campaign): Campaign {
+  const d = c.pendingChange?.definition;
+  if (!d) return c;
+  const amount = (raw: unknown) => (typeof raw === 'string' ? raw : '');
+  return {
+    ...c,
+    name: d.name,
+    rules: d.rules ?? '',
+    startsAt: d.startsAt ?? null,
+    endsAt: d.endsAt ?? null,
+    timeZoneBlank: d.timeZone === null,
+    windows: { weekdays: d.weekdays ?? null, hours: d.hours ?? null },
+    participation: d.participation ?? null,
+    budget: d.budget ? { asset: d.budget.asset, limit: amount(d.budget.limit), left: c.budget?.left ?? amount(d.budget.limit) } : null,
+    reward: d.reward ? { asset: d.reward.asset, amount: amount(d.reward.amount) } : null,
+  };
 }
 
 /** Where a draft resumes: the first tab with a blank the founder fills there, else the last. Parked tabs are skipped. */

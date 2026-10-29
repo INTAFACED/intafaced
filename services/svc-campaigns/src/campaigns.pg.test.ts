@@ -347,7 +347,8 @@ if (!db) {
       // The same approval sent again by anyone else still refuses.
       expect(await code(s.transition({ id: c.id, action: 'approve', revision: 1, actor: A }))).toBe('campaigns.second_person_required');
       expect((await s.transition({ id: c.id, action: 'activate', revision: 1, actor: A })).state).toBe('active');
-      expect(await code(s.update({ id: c.id, revision: 1, definition: full({ rules: 'changed' }), actor: A }))).toBe('campaign.not_draft');
+      // Past approval an edit is a change at the next revision, beside the live one (J-campaigns-16 #9).
+      expect((await s.update({ id: c.id, revision: 1, definition: full({ rules: 'changed' }), actor: A })).pendingChange?.revision).toBe(2);
     });
 
     it('whoever wrote the draft cannot approve it, even when someone else asked', async () => {
@@ -398,6 +399,76 @@ if (!db) {
       expect((await service().join({ campaignId: c.id, accountId: ME })).created).toBe(false);
       expect(await code(service().join({ campaignId: c.id, accountId: 'account-late' }))).toBe('campaign.not_active');
       expect((await service().catalogue(ME)).campaigns).toEqual([]);
+    });
+
+    it('an edit of a live campaign is revision n+1 beside it; a second person puts it live; joins keep their revision', async () => {
+      const s = service();
+      const c = await live();
+      expect((await s.join({ campaignId: c.id, accountId: ME })).participation.revision).toBe(1);
+      // A stale revision, a new type or a taken name refuse; the live row is untouched.
+      expect(await code(s.update({ id: c.id, revision: 2, definition: full({ rules: 'TEST v2' }), actor: A }))).toBe(
+        'campaign.revision_conflict',
+      );
+      expect(await code(s.update({ id: c.id, revision: 1, definition: full({ type: 'voucher' }), actor: A }))).toBe('campaign.type_locked');
+      const changed = await s.update({
+        id: c.id,
+        revision: 1,
+        definition: full({ rules: 'TEST v2', reward: { asset: 'USDT', amount: '12' } }),
+        actor: A,
+      });
+      expect(changed).toMatchObject({
+        revision: 1,
+        rules: 'TEST rules',
+        state: 'active',
+        pendingChange: { revision: 2, state: 'draft', createdBy: A },
+      });
+      expect(changed.pendingChange?.definition).toMatchObject({ rules: 'TEST v2', reward: { asset: 'USDT', amount: '12' } });
+      // Editing the change again is the next revision; the old one is gone.
+      const again = await s.update({
+        id: c.id,
+        revision: 2,
+        definition: full({ rules: 'TEST v3', reward: { asset: 'USDT', amount: '12' } }),
+        actor: A,
+      });
+      expect(again.pendingChange).toMatchObject({ revision: 3, state: 'draft' });
+      // A blank in the change is what the check names, and what refuses its approval request.
+      await s.update({ id: c.id, revision: 3, definition: full({ rules: 'TEST v4', budget: null }), actor: A });
+      expect((await s.validate({ id: c.id })).missing.map((m) => m.code)).toEqual(['campaigns.budget_unset']);
+      expect(await code(s.transition({ id: c.id, action: 'submit', revision: 4, actor: A }))).toBe('campaigns.budget_unset');
+      await s.update({ id: c.id, revision: 4, definition: full({ rules: 'TEST v5', reward: { asset: 'USDT', amount: '12' } }), actor: A });
+      expect(await code(s.transition({ id: c.id, action: 'approve', revision: 5, actor: B }))).toBe('campaign.invalid_transition');
+      expect((await s.transition({ id: c.id, action: 'submit', revision: 5, actor: A })).pendingChange?.state).toBe('pending_approval');
+      expect(await code(s.transition({ id: c.id, action: 'pause', revision: 5, actor: A }))).toBe('campaign.invalid_transition');
+      expect(await code(s.transition({ id: c.id, action: 'approve', revision: 5, actor: A }))).toBe('campaigns.second_person_required');
+      const out = await s.transition({ id: c.id, action: 'approve', revision: 5, actor: B });
+      expect(out).toMatchObject({
+        revision: 5,
+        rules: 'TEST v5',
+        reward: { amount: '12' },
+        state: 'active',
+        approvedBy: B,
+        pendingChange: null,
+      });
+      // The same approval again returns the campaign; my join still names revision 1; a new join takes revision 5.
+      expect((await s.transition({ id: c.id, action: 'approve', revision: 5, actor: B })).revision).toBe(5);
+      expect((await s.join({ campaignId: c.id, accountId: ME })).participation.revision).toBe(1);
+      people.set('account-new', who());
+      expect((await s.join({ campaignId: c.id, accountId: 'account-new' })).participation.revision).toBe(5);
+      const history = await db!.sql<{ revision: number; approved_by: string }[]>`
+        SELECT revision, approved_by FROM campaigns.campaign_revisions WHERE campaign_id = ${c.id} ORDER BY revision`;
+      expect(history.map((h) => [h.revision, h.approved_by])).toEqual([
+        [1, B],
+        [5, B],
+      ]);
+      // Moves on the live campaign use its live revision; archive still refuses.
+      expect(await code(s.transition({ id: c.id, action: 'archive', revision: 5, actor: A }))).toBe('campaign.archive_active');
+    });
+
+    it('a campaign that ended or waits for its first approval is not edited', async () => {
+      const s = service();
+      const c = await s.create({ definition: full(), actor: A });
+      await s.transition({ id: c.id, action: 'submit', revision: 1, actor: A });
+      expect(await code(s.update({ id: c.id, revision: 1, definition: full({ rules: 'TEST x' }), actor: A }))).toBe('campaign.not_draft');
     });
 
     it('a paused campaign cannot be archived either; one campaign reads by id at any age', async () => {
