@@ -60,6 +60,20 @@ const rowValue = (scope, label) =>
     .filter({ has: scope.page().locator('dt', { hasText: label }) })
     .locator('dd');
 
+/**
+ * The best bid and ask once the market maker quotes both sides again: a spread within 1% (the maker's own is about
+ * 12 bps), so the touch is the market and not another journey's order resting far from it.
+ */
+async function makerQuote() {
+  const until = Date.now() + 20_000;
+  for (;;) {
+    const touch = await bestPrices();
+    if ((toUnits(touch.ask) - toUnits(touch.bid)) * 100n <= toUnits(touch.ask)) return touch;
+    if (Date.now() >= until) throw new Error(`no two-sided maker quote within 20 s: bid ${touch.bid}, ask ${touch.ask}`);
+    await new Promise((resolve) => setTimeout(resolve, 500));
+  }
+}
+
 test(`${J} #1 opens order history and filters by side, state and date: matching rows only, paged without repeats`, async ({ page }) => {
   // Signing up, verifying and placing the starting orders takes most of a minute before the history is opened.
   test.setTimeout(180_000);
@@ -246,6 +260,9 @@ test(`${J} #4 reads the fills of a partly filled order, then cancel gives back e
   }
   expect(partlyFilled(part), `a partly filled order to read, not ${part.status} with ${part.filled} filled`).toBe(true);
   run.write({ partial: order.id, partialPrice: price });
+  // The sales above took every bid down to 1% under the market; until the maker's next cycle the best bid can be
+  // another journey's resting bid far under it, which moves the price band for whatever trades next on this stack.
+  await makerQuote();
 
   await signIn(page, who);
   await page.goto(`/trade/orders/${order.id}`);
@@ -298,29 +315,13 @@ test(`${J} #5 opens a fill's detail: price, amount, maker or taker, fee rate, fe
 
 test(`${J} #6 a stop that fired says why: its stop price, the price that reached it and when, and the slippage`, async ({ page }) => {
   const who = account();
-  // #4 sold every bid down to 1% under the best bid, so until the market maker's next cycle (8 s) the best bid can be
-  // another journey's resting bid far under the market. The price band is 10% around the middle of the best bid and
-  // ask, so with such a bid a limit 2% over the ask is refused (trade.price_band, runs 631, 634, 637 and 640 on main):
-  // price only once the maker's two-sided quote is back, its spread well inside 1%.
-  let touch;
-  await expect
-    .poll(
-      async () => {
-        touch = await bestPrices();
-        return (toUnits(touch.ask) - toUnits(touch.bid)) * 100n <= toUnits(touch.ask);
-      },
-      { timeout: 20_000 },
-    )
-    .toBe(true);
-  const { bid, ask } = touch;
-  // A buy stop-limit at the best bid fires when a trade prints at or above it. Another TEST trader lifts the ask to make
-  // that trade; the stop's limit sits above it, so the order fills once it reaches the book. The stop is at the bid,
-  // not the ask: the maker puts its new ladder up before it takes the old one down, so when its price walks down the
-  // lift can print at a new ask under the ask just read, and a stop there never fired (run 642 on main). Every ask
-  // stays at or above the bid it was read with: the book cannot cross, and one walk step (12 bps) is no more than the
-  // spread. If the last trade is already at or above the bid, the engine fires the stop on arrival with that price.
+  // A buy stop-limit at the best ask fires when a trade prints at or above it. Another TEST trader lifts the ask to make
+  // that trade; the stop's limit sits above it, so the order fills once it reaches the book. Priced from the maker's
+  // two-sided quote: the price band is 10% around the middle of the best bid and ask, so with a far bid on top (left
+  // by #4's sales) a limit 2% over the ask was refused trade.price_band (runs 631, 634, 637 and 640 on main).
+  const { ask } = await makerQuote();
   const tick = toUnits('0.01');
-  const stopPrice = bid;
+  const stopPrice = ask;
   const limit = fromUnits(((toUnits(ask) * 102n) / 100n / tick) * tick);
   const order = await place(who, { type: 'stop_limit', side: 'buy', amount: '0.001', price: limit, stopPrice, timeInForce: 'GTC' }, 'stop');
   expect(order).toMatchObject({ type: 'stop_limit', stopPrice });
