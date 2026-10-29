@@ -407,7 +407,17 @@ export class UserSpendStore implements SpendGate {
           } catch {
             available = null;
           }
-          if (available === null || available - owed < amount) {
+          if (available === null) {
+            // The message key stays the funds one: the run is refused for funds not shown to cover it. The code says
+            // the balance was not read, so the person is told that, not that they are short.
+            throw new AgentError(
+              `Available balance could not be read to cover ${canonicalAmount(amount)} ${assetId}`,
+              'agents.funds_unread',
+              'agents.refused.funds_insufficient',
+              { worstCase: canonicalAmount(amount), asset: assetId },
+            );
+          }
+          if (available - owed < amount) {
             throw new AgentError(
               `Available balance does not cover ${canonicalAmount(amount)} ${assetId} after ${canonicalAmount(owed)} owed`,
               'agents.funds_insufficient',
