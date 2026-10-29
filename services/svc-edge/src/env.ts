@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { baseEnvSchema, edgeEnvSchema, httpEnvSchema, loadEnv, otelEnvSchema, s2sEnvSchema } from '@intafaced/config';
+import { sandboxHostsValid } from './gateway-plane.js';
 
 /**
  * svc-edge environment.
@@ -196,7 +197,9 @@ const schema = baseEnvSchema
        *
        * No default: blank means no sandbox host, so every sandbox key is refused at every door. Owner value.
        */
-      EDGE_SANDBOX_HOSTS: z.string().optional(),
+      EDGE_SANDBOX_HOSTS: z.string().optional().refine(sandboxHostsValid, {
+        message: 'EDGE_SANDBOX_HOSTS takes host[:port] entries only: no scheme, path, space or wildcard',
+      }),
 
       /**
        * Who may set `X-Forwarded-For`, passed straight to Fastify's `trustProxy`.

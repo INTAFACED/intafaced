@@ -11,7 +11,9 @@ import {
   decideGateway,
   doorForPath,
   envMismatchBody,
+  envMismatchCodeOf,
   hostEnvironment,
+  normalizeHost,
   parseSandboxHosts,
   quotaRefuseBody,
   requiredScopeFor,
@@ -160,21 +162,46 @@ describe('api.gateway plane', () => {
       expect(decided.allow).toBe(false);
       if (decided.allow) return;
       expect(decided.status).toBe(403);
-      expect(decided.body).toEqual(envMismatchBody());
-      expect(decided.body.code).toBe('env.mismatch');
-      expect(typeof decided.body.error).toBe('string');
-      expect(decided.body.error).not.toBe('env.mismatch');
+      expect(envMismatchCodeOf(decided.body)).toBe('env.mismatch');
     };
     const sandboxPay = principal({ key_env: 'sandbox', scopes: ['pay:read', 'pay:write'] });
 
-    it('parses the host list trimmed and case-folded; blank is no sandbox host', () => {
-      expect([...SANDBOX_HOSTS]).toEqual(['sandbox.example:443', 'localhost:14500']);
+    it('parses the host list trimmed, case-folded and default port dropped; blank is no sandbox host', () => {
+      expect([...SANDBOX_HOSTS]).toEqual(['sandbox.example', 'localhost:14500']);
       expect(parseSandboxHosts(undefined).size).toBe(0);
       expect(parseSandboxHosts(' , ').size).toBe(0);
       expect(hostEnvironment('LOCALHOST:14500', SANDBOX_HOSTS)).toBe('sandbox');
       expect(hostEnvironment('127.0.0.1:14500', SANDBOX_HOSTS)).toBe('live');
       expect(hostEnvironment(undefined, SANDBOX_HOSTS)).toBe('live');
       expect(hostEnvironment('', SANDBOX_HOSTS)).toBe('live');
+    });
+
+    it('one spelling per host: a trailing root dot and a default port name the same environment', () => {
+      expect(normalizeHost(' Sandbox.Example.:443 ')).toBe('sandbox.example');
+      expect(normalizeHost('sandbox.example:80')).toBe('sandbox.example');
+      expect(normalizeHost('sandbox.example:8443')).toBe('sandbox.example:8443');
+      expect(normalizeHost('[::1]:443')).toBe('[::1]');
+      expect(normalizeHost('[::1]:8080')).toBe('[::1]:8080');
+      for (const host of ['sandbox.example', 'sandbox.example.', 'SANDBOX.EXAMPLE:443', 'sandbox.example.:443']) {
+        expect(hostEnvironment(host, SANDBOX_HOSTS)).toBe('sandbox');
+      }
+      expect(hostEnvironment('sandbox.example:8443', SANDBOX_HOSTS)).toBe('live');
+      expect(hostEnvironment('sandbox.example.evil', SANDBOX_HOSTS)).toBe('live');
+    });
+
+    it('each door refuses in its own dialect, all carrying env.mismatch', () => {
+      expect(envMismatchBody('trade')).toMatchObject({ code: 'PermissionDenied', intafacedCode: 'env.mismatch' });
+      expect(envMismatchBody('pay')).toMatchObject({
+        error: { data: { code: 'FORBIDDEN', httpStatus: 403, intafacedCode: 'env.mismatch' } },
+      });
+      const edgeBody = envMismatchBody(null);
+      expect(edgeBody.code).toBe('env.mismatch');
+      expect(typeof edgeBody.error).toBe('string');
+      expect(edgeBody.error).not.toBe('env.mismatch');
+      const sandboxTrader = principal({ key_env: 'sandbox', scopes: ['trade:read'] });
+      expect(decide(sandboxTrader, '127.0.0.1:14500', '/api/v1/account/balance')).toMatchObject({ body: envMismatchBody('trade') });
+      expect(decide(sandboxPay, '127.0.0.1:14500')).toMatchObject({ body: envMismatchBody('pay') });
+      expect(decide(sandboxPay, '127.0.0.1:14500', '/api/identity/trpc/apiKeys.list')).toMatchObject({ body: envMismatchBody(null) });
     });
 
     it('a sandbox key at the live host is env.mismatch, at both doors', () => {
@@ -253,9 +280,22 @@ describe('api.gateway plane', () => {
       expect(decide(session, '127.0.0.1:14500').allow).toBe(true);
     });
 
-    it('anonymous callers and non-door paths are not touched by the rule', () => {
+    it('anonymous callers are not touched by the rule', () => {
       expect(decide(null, 'localhost:14500').allow).toBe(true);
-      expect(decide(sandboxPay, '127.0.0.1:14500', '/api/identity/trpc/apiKeys.list').allow).toBe(true);
+      expect(decide(null, 'localhost:14500', '/api/identity/trpc/auth.login', 'POST').allow).toBe(true);
+    });
+
+    it('the rule holds off the trade/pay doors too: only the pay door serves a sandbox key', () => {
+      const path = '/api/identity/trpc/apiKeys.list';
+      expectMismatch(decide(sandboxPay, '127.0.0.1:14500', path));
+      expectMismatch(decide(sandboxPay, 'localhost:14500', path));
+      expectMismatch(decide(principal({ key_env: 'live', scopes: ['pay:read'] }), 'localhost:14500', path));
+      expectMismatch(decide(principal({ kid: undefined, key_env: undefined, scopes: [] }), 'localhost:14500', path));
+      expect(decide(principal({ key_env: 'live', scopes: ['pay:read'] }), '127.0.0.1:14500', path)).toEqual({
+        allow: true,
+        sandbox: false,
+      });
+      expect(decide(principal({ kid: undefined, key_env: undefined, scopes: [] }), '127.0.0.1:14500', path).allow).toBe(true);
     });
 
     it('CORS preflight is not refused (it carries no credentials)', () => {

@@ -115,37 +115,82 @@ export type KeyEnvironment = 'live' | 'sandbox';
 
 /**
  * Doors with a sandbox backing. Only pay has one (its card-sandbox rail); trade has no sandbox book, so a sandbox key
- * at a trade door is refused rather than served from live.
+ * at a trade door is refused rather than served from live. Any other path has no sandbox backing either.
  */
 export const SANDBOX_BACKED_DOORS: ReadonlySet<GatewayDoor> = new Set<GatewayDoor>(['pay']);
+
+/** One `EDGE_SANDBOX_HOSTS` entry: a host name, IPv4 or bracketed IPv6, an optional port. No scheme, path or wildcard. */
+export const SANDBOX_HOST_ENTRY = /^(\[[0-9a-f:.]+\]|[a-z0-9-]+(\.[a-z0-9-]+)*\.?)(:\d{1,5})?$/i;
+
+/** True when every comma-separated entry of `EDGE_SANDBOX_HOSTS` is a `SANDBOX_HOST_ENTRY`. Blank is valid. */
+export function sandboxHostsValid(raw: string | undefined): boolean {
+  return (raw ?? '')
+    .split(',')
+    .map((h) => h.trim())
+    .filter(Boolean)
+    .every((h) => SANDBOX_HOST_ENTRY.test(h));
+}
+
+/**
+ * A Host header value in one spelling: trimmed, case-folded, a trailing root dot dropped and a default port (80, 443)
+ * dropped, so `Sandbox.Example.:443` and `sandbox.example` name the same environment.
+ */
+export function normalizeHost(raw: string | null | undefined): string {
+  const h = (raw ?? '').trim().toLowerCase();
+  const m = /^(\[[^\]]*\]|[^:]*)(?::(\d+))?$/.exec(h);
+  if (!m) return h;
+  const name = m[1]!.replace(/\.$/, '');
+  const port = m[2];
+  return port && port !== '80' && port !== '443' ? `${name}:${port}` : name;
+}
 
 /** `EDGE_SANDBOX_HOSTS` (comma list of Host header values) as a set. Blank: no sandbox host, so every sandbox key refuses. */
 export function parseSandboxHosts(raw: string | undefined): ReadonlySet<string> {
   return new Set(
     (raw ?? '')
       .split(',')
-      .map((h) => h.trim().toLowerCase())
+      .map((h) => normalizeHost(h))
       .filter(Boolean),
   );
 }
 
 /** The environment a request addresses, from its Host header. Anything not named a sandbox host is live. */
 export function hostEnvironment(host: string | null | undefined, sandboxHosts: ReadonlySet<string>): KeyEnvironment {
-  const h = (host ?? '').trim().toLowerCase();
+  const h = normalizeHost(host);
   return h && sandboxHosts.has(h) ? 'sandbox' : 'live';
 }
 
-/** Edge vocabulary, the same shape as the quota refusal: a sentence and one code. */
-export function envMismatchBody(): Record<string, unknown> {
+const ENV_MISMATCH_MESSAGE = 'This key belongs to the other environment';
+
+/**
+ * The refusal in the dialect of the door it happens at, like the scope refusal: CCXT PermissionDenied on trade, tRPC
+ * FORBIDDEN on pay, the edge's own `{ error, code }` anywhere else. All three carry `env.mismatch`.
+ */
+export function envMismatchBody(door: GatewayDoor | null): Record<string, unknown> {
+  if (door === 'trade') {
+    return { code: 'PermissionDenied', message: ENV_MISMATCH_MESSAGE, intafacedCode: 'env.mismatch' };
+  }
+  if (door === 'pay') {
+    return {
+      error: { message: ENV_MISMATCH_MESSAGE, data: { code: 'FORBIDDEN', httpStatus: 403, intafacedCode: 'env.mismatch' } },
+    };
+  }
   return { error: userCopy('env.mismatch'), code: 'env.mismatch' };
 }
 
+/** The `env.mismatch` code read from any of the three refusal bodies. */
+export function envMismatchCodeOf(body: Record<string, unknown>): string | undefined {
+  const error = body.error as { data?: { intafacedCode?: string } } | undefined;
+  return (body.intafacedCode as string | undefined) ?? error?.data?.intafacedCode ?? (body.code as string | undefined);
+}
+
 /**
- * Decide whether an API-key caller may pass this door.
+ * Decide whether a caller may pass.
  *
- * Anonymous callers and interactive sessions skip the scope and quota checks — they are not this plane — but a
- * session at a sandbox host is refused like any live principal there. Paths other than trade/pay return allow —
- * there is no "data" door yet.
+ * The environment rule runs first for every principal on every path (CORS preflight aside): the key's environment,
+ * fixed at creation, against the host's. A session is live, so a session at a sandbox host is refused too. Then API
+ * keys at the trade/pay doors take the scope and quota checks; anonymous callers and sessions skip those (they are
+ * not this plane), and paths other than trade/pay pass — there is no "data" door yet.
  */
 export function decideGateway(input: {
   pathname: string;
@@ -162,8 +207,6 @@ export function decideGateway(input: {
 }): GatewayDecision {
   const door = doorForPath(input.pathname);
   const sandbox = sandboxOf(input.principal);
-  if (!door) return { allow: true, sandbox };
-
   const verb = input.method.toUpperCase();
   if (verb === 'OPTIONS') return { allow: true, sandbox };
 
@@ -173,10 +216,11 @@ export function decideGateway(input: {
   if (input.principal) {
     const keyEnv: KeyEnvironment = sandbox ? 'sandbox' : 'live';
     const hostEnv = hostEnvironment(input.host, input.sandboxHosts ?? new Set());
-    if (keyEnv !== hostEnv || (keyEnv === 'sandbox' && !SANDBOX_BACKED_DOORS.has(door))) {
-      return { allow: false, status: 403, body: envMismatchBody() };
+    if (keyEnv !== hostEnv || (sandbox && !(door && SANDBOX_BACKED_DOORS.has(door)))) {
+      return { allow: false, status: 403, body: envMismatchBody(door) };
     }
   }
+  if (!door) return { allow: true, sandbox };
 
   const kid = input.principal?.kid;
   if (!kid) return { allow: true, sandbox };
