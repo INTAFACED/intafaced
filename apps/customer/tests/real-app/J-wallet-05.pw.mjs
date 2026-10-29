@@ -12,7 +12,6 @@ import { addAuthenticator, nextCode } from './identity-factors.mjs';
 // top, a 90-second quote, and USDT limits of 1000 a withdrawal and 5000 a day for verified accounts.
 // Steps that are written but not built yet fail at their first missing part, quickly (UNBUILT):
 // - #1: svc-pay has no minimum, maximum, step or tag catalogue per network, and the stack publishes none.
-// - #2's fraud list: nothing screens a destination against one, and the stack lists no TEST address (FRAUD_LISTED).
 // - #6, #4's two parallel sends: svc-pay has no custody signer for any network, so every send out is refused before a claim.
 //   They run after #7, which needs the balance still at 300.
 // - #8: a failed withdrawal can't be seeded on the stack yet, so its failure sentence has no row to read.
@@ -21,7 +20,7 @@ const J = 'J-wallet-05';
 const run = journeyState(`${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
 const ADDRESS = '0x52908400098527886E0F7030069857D2E4169EE7';
 const LABEL = 'TEST send wallet';
-// The address the stack's TEST fraud list is to hold (the list itself is not built yet).
+// The address the stack's TEST fraud list holds (svc-bank, listed by `local-test-gates.mjs withdraw-terms`, W-withdraw-03).
 const FRAUD_LISTED = '0x7e5700000000000000000000000000000000fa1d';
 const UNBUILT = { timeout: 5_000 };
 

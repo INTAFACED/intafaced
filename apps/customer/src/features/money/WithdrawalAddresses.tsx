@@ -590,7 +590,8 @@ export function draftProblems(draft: Draft, assets: readonly WithdrawAsset[]) {
  * The add form. Saving needs a fresh confirmation (`trade:withdraw`): the code buys one token, used for this save only.
  * Before the code is asked for, the bank checks the address (`ramps.destinations.check`, W-withdraw-03): a mixed-case
  * address whose checksum does not match is refused at the field, and one that starts and ends like a saved address but
- * is not (address poisoning) shows a warning that must be ticked before it can be saved. The bank checks both again on save.
+ * is not (address poisoning) shows a warning that must be ticked before it can be saved, and an address on the owner's
+ * fraud list for that network is refused at the form, before any code is asked for. The bank checks all three again on save.
  */
 function AddForm({ onSaved }: { onSaved: () => void }) {
   const { t } = withdrawalCopy.useCopy();
@@ -651,7 +652,7 @@ function AddForm({ onSaved }: { onSaved: () => void }) {
     setChecking(true);
     setCheckProblem(null);
     try {
-      const answer = await api.query('bank', 'ramps.destinations.check', { ref }, destinationCheckSchema);
+      const answer = await api.query('bank', 'ramps.destinations.check', { ref, network: input.network }, destinationCheckSchema);
       if (typed.current !== ref) return;
       if (!answer.ok) {
         setCheckProblem(moneyRefusalWords(answer.code) ?? t('aCheckFailed'));
@@ -660,6 +661,10 @@ function AddForm({ onSaved }: { onSaved: () => void }) {
       if (answer.data.address !== 'ok') {
         setChecksumBad(answer.data.address === 'checksum_mismatch');
         if (answer.data.address === 'invalid') setCheckProblem(t('aAddressBad'));
+        return;
+      }
+      if (answer.data.fraudListed) {
+        setCheckProblem(t('aFraudListed'));
         return;
       }
       if (answer.data.lookalike) {
@@ -789,9 +794,10 @@ function AddForm({ onSaved }: { onSaved: () => void }) {
           why={t('aSaveWhy')}
           run={async (token) => {
             const answer = await api.mutate('bank', 'ramps.destinations.save', input, destinationSchema, { bearer: token });
-            // The two address refusals in the customer's own words; the check above makes them rare.
+            // The three address refusals in the customer's own words; the check above makes them rare.
             if (!answer.ok && answer.code === 'bank.address_lookalike') return { ...answer, message: t('aLookalikeRefused') };
             if (!answer.ok && answer.code === 'bank.address_checksum_mismatch') return { ...answer, message: t('aAddressChecksum') };
+            if (!answer.ok && answer.code === 'bank.destination_fraud_listed') return { ...answer, message: t('aFraudListed') };
             // The security lock's refusals in the customer's words; any other refusal keeps the bank's own sentence.
             return !answer.ok && lockRefusal(answer.code) ? { ...answer, message: moneyRefusalWords(answer.code)! } : answer;
           }}

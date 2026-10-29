@@ -21,6 +21,7 @@ import type { OnrampStandIn } from './onramp-sim.js';
 import { ownershipOf, type Ownership, type WalletProofStore } from './wallet-ownership.js';
 import { assertSecurityLockOpen, type SecurityLockPort } from '../security-lock.js';
 import { openApprovalLinks, type ApprovalLinkStore } from './address-approval.js';
+import type { DestinationFraudListPort } from './fraud-list.js';
 
 /**
  * Customer-callable quote and destination procedures.
@@ -50,6 +51,8 @@ export interface CustomerRampDeps {
   securityLock: SecurityLockPort;
   /** Emailed approval links for new addresses (W-withdraw-09), so the book can say a link is out and until when. */
   approvalLinks: ApprovalLinkStore;
+  /** The owner's destination fraud list (W-withdraw-03): a listed address is never saved, and a saved one reads blocked. */
+  fraudList: DestinationFraudListPort;
 }
 
 interface QuoteRow {
@@ -446,18 +449,28 @@ export type DestinationCheck = {
   address: 'ok' | 'invalid' | 'checksum_mismatch';
   /** The saved entry this address shows like but is not (address poisoning), or null. */
   lookalike: { destinationId: string; label: string | null; refMasked: string } | null;
+  /** On the owner's fraud list for `network` (or every network): `save` refuses it. Only asked when a network is given. */
+  fraudListed: boolean;
 };
 
 /** Read-only: the same address rules `saveDestination` applies, answered as data so the form can warn before step-up. */
-export async function checkDestination(deps: CustomerRampDeps, input: { userId: string; ref: string }): Promise<DestinationCheck> {
+export async function checkDestination(
+  deps: CustomerRampDeps,
+  input: { userId: string; ref: string; network?: string },
+): Promise<DestinationCheck> {
   // Asked first, so a locked account is told before the form asks for a confirmation code; `save` asks again.
   await assertSecurityLockOpen(deps.securityLock, input.userId, 'adding a withdrawal address');
   const ref = input.ref.trim();
-  if (!isEvmAddressRef(ref)) return { address: 'invalid', lookalike: null };
-  const near = lookalikeOf(ref, await deps.destinations.list(input.userId));
+  if (!isEvmAddressRef(ref)) return { address: 'invalid', lookalike: null, fraudListed: false };
+  const [saved, fraudListed] = await Promise.all([
+    deps.destinations.list(input.userId),
+    input.network === undefined ? false : deps.fraudList.isListed(input.network, ref),
+  ]);
+  const near = lookalikeOf(ref, saved);
   return {
     address: evmChecksumMatches(ref) ? 'ok' : 'checksum_mismatch',
     lookalike: near ? { destinationId: near.destinationId, label: near.label, refMasked: maskRef(near.ref) } : null,
+    fraudListed,
   };
 }
 
@@ -484,6 +497,13 @@ export async function saveDestination(
       row.ref.toLowerCase() === entry.ref.toLowerCase() &&
       (row.tag ?? '') === (entry.tag ?? ''),
   );
+  // A listed address is refused before anything is stored, even as a replay of an entry saved before it was listed.
+  if (await deps.fraudList.isListed(entry.network, entry.ref)) {
+    throw new BankError(
+      'This address is on the fraud list, so it cannot be saved to your address book. Nothing was saved',
+      'bank.destination_fraud_listed',
+    );
+  }
   if (same) return viewWithOwnership(deps, book.userId, same);
   await assertSecurityLockOpen(deps.securityLock, book.userId, 'adding a withdrawal address');
   // An address that shows like a saved one but is not is saved only when the customer has said they checked it.
@@ -542,6 +562,8 @@ export async function destinationReadiness(
   const base = { destinationId: row.destinationId, coolingOffEndsAt: null, lockUnlocksAt: null, approvalLinkExpiresAt: null };
   if (lock.locked) return { ...base, state: 'locked', lockUnlocksAt: lock.unlocksAt };
   if (row.state === 'blocked' || row.state === 'archived') return { ...base, state: 'blocked' };
+  // Listed as fraud after it was saved: nothing may be sent to it.
+  if (await deps.fraudList.isListed(row.network ?? '', row.ref)) return { ...base, state: 'blocked' };
   if (row.state === 'pending') {
     const links = await openApprovalLinks({ links: deps.approvalLinks, now: () => now }, input.userId);
     return { ...base, state: 'approval_pending', approvalLinkExpiresAt: links.get(row.destinationId) ?? null };

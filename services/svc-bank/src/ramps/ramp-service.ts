@@ -65,6 +65,7 @@ import {
   type ApprovalMailPort,
 } from './address-approval.js';
 import { unconfiguredTrustedDevices, type TrustedDevicePort } from './trusted-devices.js';
+import { DestinationFraudList, type DestinationFraudListPort } from './fraud-list.js';
 import {
   BANK_ADDRESS_BOOK_CAP_ENV,
   destKindForRamp,
@@ -276,6 +277,8 @@ export interface RampServiceOptions {
   addressApprovalLinkMinutes?: string;
   /** Identity's trusted devices, for approval from another device (omitted, every such approval refuses unavailable). */
   trustedDevices?: TrustedDevicePort;
+  /** The destination fraud list (W-withdraw-03). Defaults to the bank's own table. */
+  fraudList?: DestinationFraudListPort;
 }
 
 export class RampService {
@@ -296,6 +299,8 @@ export class RampService {
   private readonly approvalMail: ApprovalMailPort;
   private readonly addressApprovalLinkMinutes: string | undefined;
   private readonly trustedDevices: TrustedDevicePort;
+  /** The owner's destination fraud list: read by the address book, written by compliance's desk door. */
+  readonly fraudList: DestinationFraudListPort;
 
   constructor(
     private readonly sql: Sql,
@@ -323,6 +328,7 @@ export class RampService {
     this.approvalMail = options.approvalMail ?? unconfiguredApprovalMail();
     this.addressApprovalLinkMinutes = options.addressApprovalLinkMinutes;
     this.trustedDevices = options.trustedDevices ?? unconfiguredTrustedDevices();
+    this.fraudList = options.fraudList ?? new DestinationFraudList(sql);
   }
 
   private approvalDeps(): AddressApprovalDeps {
@@ -363,6 +369,7 @@ export class RampService {
       proofs: this.walletProofs,
       securityLock: this.securityLock,
       approvalLinks: this.approvalLinks,
+      fraudList: this.fraudList,
     };
   }
 
@@ -411,7 +418,7 @@ export class RampService {
   }
 
   /** Whether an address would be taken as typed: its checksum, and any saved entry it shows like but is not. */
-  checkDestination(input: { userId: string; ref: string }): Promise<DestinationCheck> {
+  checkDestination(input: { userId: string; ref: string; network?: string }): Promise<DestinationCheck> {
     return checkDestination(this.customerDeps(), input);
   }
 
