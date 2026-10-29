@@ -57,6 +57,9 @@ type CopyKey =
   | 'spendLimit'
   | 'fundsInsufficient'
   | 'replay'
+  | 'replayBody'
+  | 'runInProgress'
+  | 'runInProgressBody'
   | 'scopeUnset'
   | 'personOnly'
   | 'unknownRefusal';
@@ -69,7 +72,8 @@ const REFUSALS: Readonly<Record<string, { title: CopyKey; body?: CopyKey }>> = {
   'agents.price_unset': { title: 'priceUnset' },
   'agents.spend_limit': { title: 'spendLimit' },
   'agents.funds_insufficient': { title: 'fundsInsufficient' },
-  'agents.request_id_replay': { title: 'replay' },
+  'agents.request_id_replay': { title: 'replay', body: 'replayBody' },
+  'agents.run_in_progress': { title: 'runInProgress', body: 'runInProgressBody' },
   'agents.execute_scope_unset': { title: 'scopeUnset' },
   'agents.execute_person_only': { title: 'personOnly' },
 };
@@ -114,13 +118,20 @@ export function AcademyCoach({ lessonSlug }: { lessonSlug?: string }) {
 
   async function send(text: string) {
     setAsked({ kind: 'loading' });
-    const requestId = await requestIdFor(lessonSlug, text);
-    const res = await api.mutate(
-      'agents',
-      'coach.runSession',
-      { question: text, requestId, ...(lessonSlug ? { lessonSlug } : {}) },
-      coachResult,
-    );
+    let res: Awaited<ReturnType<typeof api.mutate<CoachResult>>>;
+    try {
+      const requestId = await requestIdFor(lessonSlug, text);
+      res = await api.mutate(
+        'agents',
+        'coach.runSession',
+        { question: text, requestId, ...(lessonSlug ? { lessonSlug } : {}) },
+        coachResult,
+      );
+    } catch {
+      // The question may or may not have reached the Coach: re-checking resends the same request id.
+      setAsked({ kind: 'uncertain', question: text });
+      return;
+    }
     if (res.ok) setAsked({ kind: 'done', result: res.data });
     else if (res.reason === 'uncertain' || res.reason === 'aborted') setAsked({ kind: 'uncertain', question: text });
     else if (res.reason === 'forbidden') setAsked({ kind: 'done', result: { status: 'refused', code: res.code ?? res.message } });

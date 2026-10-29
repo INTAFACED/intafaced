@@ -245,8 +245,7 @@ const script = resolve(here, 'local-test-stack.mjs');
   assert.equal(profile.AGENTS_COACH_ROUTE.service, 'agents');
   assert.equal(coachRoute.task, 'coach.answer');
   assert.deepEqual(coachRoute.price, { inputPerMillion: '0', outputPerMillion: '0' }, 'the TEST Coach route bills 0');
-  const routesOf = () =>
-    JSON.parse(localTestServiceEnvs().find((service) => service.name === 'agents').env.AGENTS_ROUTING_TABLE).routes;
+  const routesOf = () => JSON.parse(localTestServiceEnvs().find((service) => service.name === 'agents').env.AGENTS_ROUTING_TABLE).routes;
   assert.deepEqual(routesOf(), [...baseRoutes, coachRoute]);
   process.env.LOCAL_STACK_AGENTS_COACH_ROUTE = 'off';
   try {

@@ -21,7 +21,6 @@ import { AgentError } from '../errors.js';
 import { parseGuardrail, type Guardrail } from '../fleet/guardrails.js';
 import { digestOfText, type ModelGateway } from '../gateway/gateway.js';
 import { engineOfAdapter, type RouteEngine } from '../gateway/routing.js';
-import type { SettlementResult } from '../metering/meter.js';
 import { RefusedError, type AgentRuntime } from '../runtime.js';
 import { runCoachSession, type CoachCatalogItem, type CoachGrounding } from './grounded-session.js';
 
@@ -42,7 +41,14 @@ export type CoachRefusalCode =
   | 'agents.price_unset'
   | 'agents.spend_limit'
   | 'agents.funds_insufficient'
-  | 'agents.request_id_replay';
+  | 'agents.request_id_replay'
+  | 'agents.run_in_progress';
+
+/**
+ * A running row younger than this is another request's live run, never a crashed one: well past the upstream model
+ * call's own timeout (providers/upstream.ts), so a run still inside it is left alone.
+ */
+export const COACH_RUN_LEASE_MS = 300_000;
 
 export const COACH_REFUSAL_CODES: readonly CoachRefusalCode[] = [
   'agents.advice_forbidden',
@@ -53,6 +59,7 @@ export const COACH_REFUSAL_CODES: readonly CoachRefusalCode[] = [
   'agents.spend_limit',
   'agents.funds_insufficient',
   'agents.request_id_replay',
+  'agents.run_in_progress',
 ];
 
 /** What the run billed, read back from its settlements. `unpaid` keeps the code the ledger refused with. */
@@ -144,7 +151,8 @@ export function stemsOf(text: string): Set<string> {
         break;
       }
     }
-    if (stem.endsWith('e') && stem.length > 3) stem = stem.slice(0, -1);
+    // "entries" and "entry" meet at "entr".
+    if ((stem.endsWith('e') || stem.endsWith('y')) && stem.length > 3) stem = stem.slice(0, -1);
     out.add(stem);
   }
   return out;
@@ -207,6 +215,7 @@ export type CoachRunRow = {
   readonly nextLesson: CoachCatalogItem | null;
   readonly engine: RouteEngine | null;
   readonly billedAmount: string | null;
+  readonly createdAt: Date;
 };
 
 export interface CoachRunStore {
@@ -217,7 +226,9 @@ export interface CoachRunStore {
     userId: string,
     requestId: string,
     answered: { answer: string; citations: readonly CoachCatalogItem[]; nextLesson: CoachCatalogItem | null; engine: RouteEngine },
-  ): Promise<void>;
+  ): Promise<boolean>;
+  /** What the ledger accepted for the session's sealed windows: the sum of charges that carry a ledger answer. */
+  charged(sessionId: string): Promise<Amount>;
   settled(userId: string, requestId: string, billedAmount: string): Promise<void>;
   lost(userId: string, requestId: string): Promise<void>;
   /** Removes a running row whose run refused before anything was metered, so the same id may run again. */
@@ -236,6 +247,7 @@ type RowShape = {
   next_lesson: CoachCatalogItem | null;
   engine: RouteEngine | null;
   billed_amount: string | null;
+  created_at: Date;
 };
 
 export function createCoachRunStore(sql: Sql): CoachRunStore {
@@ -243,7 +255,7 @@ export function createCoachRunStore(sql: Sql): CoachRunStore {
     async find(userId, requestId) {
       const rows = await sql<RowShape[]>`
         SELECT user_id, request_id, session_id, run_key, question_digest, status, answer, citations, next_lesson, engine,
-               billed_amount::text AS billed_amount
+               billed_amount::text AS billed_amount, created_at
           FROM agents.coach_runs
          WHERE user_id = ${userId} AND request_id = ${requestId}
       `;
@@ -262,6 +274,7 @@ export function createCoachRunStore(sql: Sql): CoachRunStore {
         engine: row.engine,
         // numeric(38,18) reads back padded; the stored amount is the same decimal string the fresh answer returned.
         billedAmount: row.billed_amount === null ? null : formatAmount(parseAmount(row.billed_amount)),
+        createdAt: row.created_at,
       };
     },
     async claim(row) {
@@ -274,7 +287,7 @@ export function createCoachRunStore(sql: Sql): CoachRunStore {
       return inserted.length === 1;
     },
     async answer(userId, requestId, answered) {
-      await sql`
+      const updated = await sql`
         UPDATE agents.coach_runs
            SET status = 'answered', answer = ${answered.answer},
                citations = ${sql.json(answered.citations as never)},
@@ -282,6 +295,15 @@ export function createCoachRunStore(sql: Sql): CoachRunStore {
                engine = ${answered.engine}, answered_at = now()
          WHERE user_id = ${userId} AND request_id = ${requestId} AND status = 'running'
       `;
+      return updated.count === 1;
+    },
+    async charged(sessionId) {
+      const rows = await sql<Array<{ total: string }>>`
+        SELECT coalesce(sum(charged_amount), 0)::text AS total
+          FROM agents.usage_windows
+         WHERE session_id = ${sessionId} AND charge_tx_id IS NOT NULL
+      `;
+      return parseAmount(rows[0]!.total);
     },
     async settled(userId, requestId, billedAmount) {
       await sql`
@@ -315,6 +337,8 @@ export type CoachRunDeps = {
   readonly loadGrounding: () => Promise<CoachGrounding>;
   /** True when the engine call under (session, request id) was metered — the meter's own record. */
   readonly metered: (sessionId: string, requestId: string) => Promise<boolean>;
+  /** The clock for the running-row lease. Defaults to `Date.now`. */
+  readonly now?: () => number;
 };
 
 export type CoachRunInput = {
@@ -353,17 +377,18 @@ function errorCode(err: unknown): string {
   return 'agents.settlement_failed';
 }
 
-/** Settles the run's session and closes it. A ledger refusal leaves the window unpaid on its charge key. */
+/**
+ * Settles the run's session and closes it. A ledger refusal leaves the window unpaid on its charge key and the session
+ * open, so the next ask with the same request id settles it. The billed amount is read back from the session's sealed
+ * windows, not from this call's settlements: a retry after a crash past the post still shows what was charged.
+ */
 async function settleRun(deps: CoachRunDeps, userId: string, requestId: string, sessionId: string): Promise<CoachCharge> {
-  let results: SettlementResult[];
   try {
-    results = await deps.runtime.settleSession(sessionId);
+    await deps.runtime.settleSession(sessionId);
   } catch (err) {
     return { state: 'unpaid', code: errorCode(err) };
   }
-  let total: Amount = 0n;
-  for (const result of results) total += result.amount;
-  const billedAmount = formatAmount(total);
+  const billedAmount = formatAmount(await deps.store.charged(sessionId));
   await deps.runtime.closeSession(sessionId);
   await deps.store.settled(userId, requestId, billedAmount);
   return { state: 'settled', billedAmount };
@@ -387,8 +412,9 @@ function answeredFrom(row: CoachRunRow, assetId: string, charge: CoachCharge, re
 /**
  * Answer one question, or refuse it with a typed code.
  *
- * Order: advice and own-holdings asks, an empty curriculum, no Coach model, a topic the curriculum does not cover — all
- * before any session opens, so they bill nothing. Then the stored run for this request id, then a new metered run.
+ * Order: advice and own-holdings asks and an empty curriculum; then the stored run for this request id; then no Coach
+ * model and a topic the curriculum does not cover. All of these come before any session opens, so they bill nothing.
+ * Then a new metered run.
  */
 export async function runCoachAnswer(deps: CoachRunDeps, input: CoachRunInput): Promise<CoachRunResult> {
   const question = input.question.trim();
@@ -406,14 +432,10 @@ export async function runCoachAnswer(deps: CoachRunDeps, input: CoachRunInput): 
     // library_import_pending is the licensed library, which this run does not cite: it grounds on the spine alone.
   }
 
-  const engine = engineFor(deps);
-  if (engine === null) return { status: 'refused', code: 'agents.coach_engine_unavailable' };
-
-  const citations = citeLessons(question, grounding.items);
-  if (citations.length === 0) return { status: 'not_covered', citations: [] };
-
   const questionDigest = digestOfText(`${input.lessonSlug ?? ''}\n${question}`);
 
+  // The stored run comes before the engine and curriculum checks: an answer already given (and billed) is returned
+  // even when the route or the lessons changed since.
   const stored = await deps.store.find(input.userId, input.requestId);
   if (stored) {
     // One request id is one question. The same id with another question is a replay, never a second answer.
@@ -425,6 +447,10 @@ export async function runCoachAnswer(deps: CoachRunDeps, input: CoachRunInput): 
           : ({ state: 'settled', billedAmount: stored.billedAmount } as const);
       return answeredFrom(stored, deps.feeAssetId, charge, true);
     }
+    // Another request with this id is still inside its run: leave its session and row alone.
+    if (stored.status === 'running' && (deps.now?.() ?? Date.now()) - stored.createdAt.getTime() < COACH_RUN_LEASE_MS) {
+      return { status: 'refused', code: 'agents.run_in_progress' };
+    }
     // A run that stopped before its answer was stored. Whatever it metered settles once, on its own charge key.
     await settleRun(deps, input.userId, input.requestId, stored.sessionId);
     if (stored.status === 'lost' || (await deps.metered(stored.sessionId, input.requestId))) {
@@ -434,6 +460,12 @@ export async function runCoachAnswer(deps: CoachRunDeps, input: CoachRunInput): 
     }
     await deps.store.drop(input.userId, input.requestId);
   }
+
+  const engine = engineFor(deps);
+  if (engine === null) return { status: 'refused', code: 'agents.coach_engine_unavailable' };
+
+  const citations = citeLessons(question, grounding.items);
+  if (citations.length === 0) return { status: 'not_covered', citations: [] };
 
   const session = await deps.runtime.openSession({ userId: input.userId, agentId: COACH_AGENT_ID });
   const runKey = coachRunKey(session.id, input.requestId);
@@ -463,16 +495,19 @@ export async function runCoachAnswer(deps: CoachRunDeps, input: CoachRunInput): 
   } catch (err) {
     const code = refusalOf(err);
     const metered = await deps.metered(session.id, input.requestId).catch(() => true);
-    await settleRun(deps, input.userId, input.requestId, session.id);
     if (metered) await deps.store.lost(input.userId, input.requestId);
     else await deps.store.drop(input.userId, input.requestId);
+    // Settling is bookkeeping here: its own failure leaves the window for the next settle and never hides the refusal.
+    await settleRun(deps, input.userId, input.requestId, session.id).catch(() => undefined);
     if (code) return { status: 'refused', code };
     throw err;
   }
 
   const nextLesson = nextLessonOf(grounding.items, input.lessonSlug, citations);
-  await deps.store.answer(input.userId, input.requestId, { answer: text, citations, nextLesson, engine });
+  const kept = await deps.store.answer(input.userId, input.requestId, { answer: text, citations, nextLesson, engine });
   const charge = await settleRun(deps, input.userId, input.requestId, session.id);
+  // The row left `running` under this run (a recovery past the lease took it): the stored state is the answer.
+  if (!kept) return { status: 'refused', code: 'agents.request_id_replay' };
   return {
     status: 'answered',
     answer: text,

@@ -24,12 +24,15 @@ const coach = (page) => page.getByRole('main').getByRole('region', { name: 'Coac
 const dataOf = (body) => body?.result?.data?.json ?? body?.result?.data;
 
 /** Opens the lesson, asks the Coach `question` in its panel, and returns the answer region with the service's answer. */
-async function ask(page, question) {
+const COST_MISSING = 'The Coach has no route on this deployment, so every question is refused.';
+
+/** Asks once the cost line has read the Coach route: its figures when routed, the missing-route line when not. */
+async function ask(page, question, costLine = (panel) => panel.getByTestId('coach-cost')) {
   await signIn(page, agents.account());
   await page.goto(LESSON);
   await expect(page.getByRole('main').getByRole('heading', { name: 'Risk first', level: 2 })).toBeVisible();
   const panel = coach(page);
-  await expect(panel.getByTestId('coach-cost')).toBeVisible();
+  await expect(costLine(panel)).toBeVisible();
   await panel.getByRole('textbox', { name: /^Ask the Coach/ }).fill(question);
   const reply = page.waitForResponse((res) => res.url().includes('coach.runSession') && res.request().method() === 'POST');
   await panel.getByRole('button', { name: 'Ask' }).click();
@@ -109,8 +112,9 @@ test(`${J} #4 runs the Coach with no model set: a refusal that the Coach engine 
   test.setTimeout(240_000);
   coachRoute(false);
   try {
-    const { answer, status, body } = await ask(page, 'TEST: explain drawdown');
-    await expect(coach(page).getByText('The Coach has no route on this deployment, so every question is refused.')).toBeVisible();
+    const { answer, status, body } = await ask(page, 'TEST: explain drawdown', (panel) => panel.getByText(COST_MISSING));
+    await expect(coach(page).getByText(COST_MISSING)).toBeVisible();
+    await expect(coach(page).getByTestId('coach-cost')).toHaveCount(0);
     expect(status).toBe(200);
     expect(dataOf(body)).toEqual({ status: 'refused', code: 'agents.coach_engine_unavailable' });
     const alert = coach(page).getByRole('alert');

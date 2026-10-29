@@ -110,7 +110,8 @@ describe('Academy Coach panel (J-agents-17)', () => {
   it.each([
     ['agents.advice_forbidden', 'The Coach does not give financial advice.'],
     ['agents.coach_engine_unavailable', 'The Coach engine is unavailable on this deployment.'],
-    ['agents.request_id_replay', 'This question was already asked and its answer could not be stored'],
+    ['agents.request_id_replay', 'Ask in different words to get a new answer.'],
+    ['agents.run_in_progress', 'The Coach is still answering this question.'],
   ])('maps the typed refusal %s to its words and shows the code', async (code, words) => {
     answers = [{ ok: true, data: { status: 'refused', code } }];
     const { host, ask, done } = await mount();

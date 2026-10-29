@@ -3921,9 +3921,7 @@ export function createAgentsRouter(deps: AgentsRouterDeps) {
               .string()
               .regex(/^[a-z0-9-]{1,128}$/)
               .optional(),
-            requestId: z
-              .string()
-              .regex(/^[A-Za-z0-9:_-]{8,200}$/),
+            requestId: z.string().regex(/^[A-Za-z0-9:_-]{8,200}$/),
           }),
         )
         .output(

@@ -12,7 +12,14 @@ import { ModelGateway } from '../gateway/gateway.js';
 import { parseRoutingTable } from '../gateway/routing.js';
 import { UsageMeter } from '../metering/meter.js';
 import { AgentRuntime } from '../runtime.js';
-import { COACH_TASK, coachAgentGuardrail, createCoachRunStore, runCoachAnswer, type CoachRunDeps } from './coach-run.js';
+import {
+  COACH_RUN_LEASE_MS,
+  COACH_TASK,
+  coachAgentGuardrail,
+  createCoachRunStore,
+  runCoachAnswer,
+  type CoachRunDeps,
+} from './coach-run.js';
 
 /**
  * The Coach run on real Postgres, the real runtime and the real meter (RC-agents-02). The ledger is `MemoryLedger`, the
@@ -116,8 +123,9 @@ if (!available) {
     await sql.end({ timeout: 5 });
   });
 
-  function deps(store = createCoachRunStore(sql)): CoachRunDeps {
+  function deps(store = createCoachRunStore(sql), now = () => Date.now()): CoachRunDeps {
     return {
+      now,
       runtime,
       gateway,
       store,
@@ -170,10 +178,15 @@ if (!available) {
       await expect(ask(deps(crashing))).rejects.toThrow('crash before the answer was stored');
       expect(await house()).toBe('0');
 
-      expect(await ask(deps())).toEqual({ status: 'refused', code: 'agents.request_id_replay' });
+      // Inside the lease the running row may be a live run: the retry touches nothing.
+      expect(await ask(deps())).toEqual({ status: 'refused', code: 'agents.run_in_progress' });
+      expect(await house()).toBe('0');
+
+      const later = () => Date.now() + COACH_RUN_LEASE_MS + 1;
+      expect(await ask(deps(undefined, later))).toEqual({ status: 'refused', code: 'agents.request_id_replay' });
       const charged = await house();
       expect(amt(charged) > 0n).toBe(true);
-      expect(await ask(deps())).toEqual({ status: 'refused', code: 'agents.request_id_replay' });
+      expect(await ask(deps(undefined, later))).toEqual({ status: 'refused', code: 'agents.request_id_replay' });
       expect(await house()).toBe(charged);
 
       const rows = await windows();

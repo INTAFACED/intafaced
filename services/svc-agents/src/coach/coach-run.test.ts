@@ -9,12 +9,14 @@ import { RefusedError } from '../runtime.js';
 import { looksLikeAdvice, type CoachCatalogItem, type CoachGrounding } from './grounded-session.js';
 import {
   COACH_AGENT_ID,
+  COACH_RUN_LEASE_MS,
   COACH_TASK,
   asksForAdvice,
   citeLessons,
   coachAgentGuardrail,
   coachRunKey,
   nextLessonOf,
+  stemsOf,
   runCoachAnswer,
   type CoachRunDeps,
   type CoachRunRow,
@@ -45,6 +47,9 @@ const SIZE_ASK = 'TEST: why does position size matter more than entry?';
 class MemoryStore implements CoachRunStore {
   readonly rows = new Map<string, CoachRunRow>();
   failAnswer = false;
+  /** What the session's sealed windows charged, as `agents.usage_windows` would sum it. */
+  chargedAmount = 0n;
+  now = () => Date.now();
   private key = (userId: string, requestId: string) => `${userId}:${requestId}`;
   async find(userId: string, requestId: string) {
     return this.rows.get(this.key(userId, requestId)) ?? null;
@@ -59,17 +64,24 @@ class MemoryStore implements CoachRunStore {
       nextLesson: null,
       engine: null,
       billedAmount: null,
+      createdAt: new Date(this.now()),
     });
     return true;
   }
   async answer(userId: string, requestId: string, answered: Parameters<CoachRunStore['answer']>[2]) {
     if (this.failAnswer) throw new Error('crash before the answer was stored');
     const row = this.rows.get(this.key(userId, requestId))!;
+    if (row.status !== 'running') return false;
     this.rows.set(this.key(userId, requestId), { ...row, status: 'answered', ...answered });
+    return true;
+  }
+  async charged() {
+    return this.chargedAmount;
   }
   async settled(userId: string, requestId: string, billedAmount: string) {
-    const row = this.rows.get(this.key(userId, requestId))!;
-    this.rows.set(this.key(userId, requestId), { ...row, billedAmount });
+    // An UPDATE: a dropped row stays dropped.
+    const row = this.rows.get(this.key(userId, requestId));
+    if (row) this.rows.set(this.key(userId, requestId), { ...row, billedAmount });
   }
   async lost(userId: string, requestId: string) {
     const row = this.rows.get(this.key(userId, requestId))!;
@@ -159,6 +171,8 @@ class FakeRuntime {
 function harness(options: { routed?: boolean; providerRegistered?: boolean; grounding?: CoachGrounding } = {}) {
   const runtime = new FakeRuntime();
   const store = new MemoryStore();
+  const clock = { at: Date.parse('2026-10-29T12:00:00.000Z') };
+  store.now = () => clock.at;
   const provider = new MockModelProvider({ id: 'primary' });
   const routes =
     options.routed === false ? [] : [{ task: COACH_TASK, providerId: 'primary', model: 'test-engine', maxOutputTokens: 1024, price: null }];
@@ -172,8 +186,13 @@ function harness(options: { routed?: boolean; providerRegistered?: boolean; grou
     feeAssetId: 'USDT',
     loadGrounding: async () => options.grounding ?? GROUNDING,
     metered: async (sessionId, requestId) => runtime.metered.has(`${sessionId}:${requestId}`),
+    now: () => clock.at,
   };
-  return { runtime, store, deps };
+  /** Moves the clock past the running-row lease, as a retry long after a crash would see it. */
+  const pastLease = () => {
+    clock.at += COACH_RUN_LEASE_MS + 1;
+  };
+  return { runtime, store, deps, pastLease };
 }
 
 const ask = (deps: CoachRunDeps, question: string, requestId = 'coach:req:0001', lessonSlug = 'foundations-risk-first') =>
@@ -328,11 +347,18 @@ describe('coach run — a metered run', () => {
 
 describe('coach run — crash and posting freeze', () => {
   it('a crash after the engine ran settles the metered usage once on its own charge key and never re-runs the engine', async () => {
-    const { runtime, store, deps } = harness();
+    const { runtime, store, deps, pastLease } = harness();
     store.failAnswer = true;
     await expect(ask(deps, SIZE_ASK)).rejects.toThrow('crash before the answer was stored');
     store.failAnswer = false;
 
+    // Inside the lease the row may still be a live run: the retry leaves its session alone.
+    expect(await ask(deps, SIZE_ASK)).toEqual({ status: 'refused', code: 'agents.run_in_progress' });
+    expect(runtime.settles).toEqual([]);
+    expect(runtime.closes).toEqual([]);
+    expect((await store.find(USER, 'coach:req:0001'))?.status).toBe('running');
+
+    pastLease();
     expect(await ask(deps, SIZE_ASK)).toEqual({ status: 'refused', code: 'agents.request_id_replay' });
     expect(await ask(deps, SIZE_ASK)).toEqual({ status: 'refused', code: 'agents.request_id_replay' });
 
@@ -345,7 +371,7 @@ describe('coach run — crash and posting freeze', () => {
   });
 
   it('a crash before the engine ran leaves nothing metered, so the retry runs on a fresh session', async () => {
-    const { runtime, store, deps } = harness();
+    const { runtime, store, deps, pastLease } = harness();
     await store.claim({
       userId: USER,
       requestId: 'coach:req:0001',
@@ -353,6 +379,7 @@ describe('coach run — crash and posting freeze', () => {
       runKey: coachRunKey(SESSION_IDS[1]!, 'coach:req:0001'),
       questionDigest: (await import('../gateway/gateway.js')).digestOfText(`foundations-risk-first\n${SIZE_ASK}`),
     });
+    pastLease();
     const result = await ask(deps, SIZE_ASK);
     expect(result.status).toBe('answered');
     expect(runtime.settles[0]).toBe(SESSION_IDS[1]);
@@ -376,6 +403,51 @@ describe('coach run — crash and posting freeze', () => {
     expect(runtime.thinks).toHaveLength(1);
     expect([...runtime.charged]).toEqual([`agents:usage:${SESSION_IDS[0]}:w1`]);
     expect((await store.find(USER, 'coach:req:0001'))?.billedAmount).toBe('0');
+  });
+});
+
+describe('coach run — stored runs and their readback', () => {
+  it('a stored answer is returned on a retry even after the Coach route is gone', async () => {
+    const { runtime, deps } = harness();
+    const first = await ask(deps, SIZE_ASK);
+    const unrouted = {
+      ...deps,
+      gateway: { ...deps.gateway, routingTable: { routes: [] } as unknown as CoachRunDeps['gateway']['routingTable'] },
+    };
+    expect(await ask(unrouted, SIZE_ASK)).toEqual({ ...first, replayed: true });
+    expect(await ask(unrouted, 'TEST: explain drawdown', 'coach:req:0002')).toEqual({
+      status: 'refused',
+      code: 'agents.coach_engine_unavailable',
+    });
+    expect(runtime.thinks).toHaveLength(1);
+  });
+
+  it('the billed amount is what the session’s sealed windows charged, read back on settle', async () => {
+    const { store, deps } = harness();
+    store.chargedAmount = 105_000_000_000_000_000n;
+    const result = await ask(deps, SIZE_ASK);
+    expect(result).toMatchObject({ status: 'answered', charge: { state: 'settled', billedAmount: '0.105' } });
+    expect((await store.find(USER, 'coach:req:0001'))?.billedAmount).toBe('0.105');
+  });
+
+  it('a run whose row was taken over past the lease returns a replay, not a second answer', async () => {
+    const { runtime, store, deps } = harness();
+    const answer = store.answer.bind(store);
+    store.answer = async (userId, requestId, answered) => {
+      await store.lost(userId, requestId);
+      return answer(userId, requestId, answered);
+    };
+    expect(await ask(deps, SIZE_ASK)).toEqual({ status: 'refused', code: 'agents.request_id_replay' });
+    expect((await store.find(USER, 'coach:req:0001'))?.status).toBe('lost');
+    expect(runtime.settles).toEqual([SESSION_IDS[0]]);
+    expect(runtime.closes).toEqual([SESSION_IDS[0]]);
+  });
+
+  it('plural and singular share a stem', () => {
+    expect([...stemsOf('entries')]).toEqual([...stemsOf('entry')]);
+    expect(citeLessons('TEST: when do entries go wrong?', SPINE)).toEqual([
+      { slug: 'foundations-invalidation-first', title: 'Invalidation before entry' },
+    ]);
   });
 });
 
