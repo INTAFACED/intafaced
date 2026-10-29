@@ -258,6 +258,12 @@ const schema = serviceEnvSchema
       BANK_PAYOUT_PARTNER: z.enum(PAYOUT_PARTNER_SETTINGS).default('none'),
       /** The payout stand-in's TEST catalogue (assets, pay currency, rate, fee). Read only with `payout-sim`. */
       BANK_PAYOUT_SIM_JSON: z.string().optional(),
+      /**
+       * LOCAL TEST: the stack's records folder, where the payout stand-in keeps its own record of rail `payout-sim`
+       * (`cash-out/rail-records.ts`). Unset or blank, nothing is written. Set in a process whose raw `APP_ENV` is not
+       * exactly `dev` or `test`, or not absolute, the service refuses to start.
+       */
+      BANK_PAYOUT_SIM_RECORDS_DIR: z.string().optional(),
 
       /**
        * MONEY-OUT STEP-UP (ADR 2026-10-14-money-out-step-up, phase 1). `off` | `required`.

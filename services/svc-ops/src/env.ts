@@ -83,10 +83,10 @@ export const opsEnvSchema = baseEnvSchema
       BANK_URL: blankAsAbsent(z.string().url().optional()),
       PAY_URL: blankAsAbsent(z.string().url().optional()),
       /**
-       * Alert source. Blank → alerts.list names ops.alert_source_unconfigured.
-       * A set URL is not probed and acknowledge still refuses.
+       * How often a still-failing reconciliation alert may notify again, in seconds (OPS-reconciliation-03).
+       * Blank → nothing is re-sent and each repeat names ops.alert_repeat_unset; the alert still counts. Never invented.
        */
-      OPS_ALERT_SOURCE_URL: blankAsAbsent(z.string().url().optional()),
+      OPS_RECON_ALERT_REPEAT_SECONDS: blankAsAbsent(z.coerce.number().int().positive().optional()),
       /**
        * How long a recorded heartbeat may age before it is overdue, in seconds.
        * Blank → heartbeatStatus reports ops.heartbeat_window_unset and overdue stays null. Never invented.

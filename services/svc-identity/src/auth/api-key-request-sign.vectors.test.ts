@@ -5,6 +5,9 @@ import { describe, expect, it } from 'vitest';
 import {
   assessRequestSignature as identityAssess,
   canonicalRequest as identityCanonical,
+  hashBody,
+  parseRequestSignWindow,
+  requestSigningPolicy,
   signRequest as identitySign,
   type RequestSignMaterial,
 } from './api-key-request-sign.js';
@@ -86,6 +89,7 @@ describe('identity and edge sign the same canonical request', () => {
       material: good,
       now: NOW,
       keyId: KEY,
+      windowSeconds: 300,
     };
     expect(await identityAssess({ ...input, nonceStore: store })).toEqual(
       await edge.assessRequestSignature({ ...input, nonceStore: edgeStore }),
@@ -114,5 +118,52 @@ describe('identity and edge sign the same canonical request', () => {
     };
     await identityAssess({ ...input, nonceStore: replayStore });
     expect(await identityAssess({ ...input, nonceStore: replayStore })).toEqual({ ok: false, reason: 'replay' });
+  });
+
+  it('refuses every signed request while the owner window is blank', async () => {
+    const store = { consume: () => true };
+    const material0 = material('cd'.repeat(32), '00'.repeat(32));
+    expect(
+      await identityAssess({
+        requireSignature: true,
+        secret: SECRET,
+        material: material0,
+        now: NOW,
+        keyId: KEY,
+        nonceStore: store,
+        windowSeconds: null,
+      }),
+    ).toEqual({ ok: false, reason: 'window_unset' });
+  });
+
+  it('publishes a TEST vector the edge signer reproduces, and the owner window as set', async () => {
+    const edge = await loadEdge();
+    const policy = requestSigningPolicy(300);
+    expect(policy.windowSeconds).toBe(300);
+    expect(requestSigningPolicy(null).windowSeconds).toBeNull();
+    const v = policy.vector;
+    expect(v.secret).toContain('TEST');
+    expect(v.bodySha256).toBe(hashBody(v.body));
+    const canonical = edge.canonicalRequest({
+      method: v.method,
+      path: v.path,
+      timestamp: v.timestamp,
+      nonce: v.nonce,
+      bodyHash: v.bodySha256,
+    });
+    expect(v.canonical).toBe(canonical);
+    expect(v.canonical.split('\n')).toEqual(['INTAFACED-REQ-V1', 'POST', v.path, v.timestamp, v.nonce, v.bodySha256]);
+    expect(v.signature).toBe(edge.signRequest(v.secret, canonical));
+    expect(v.signature).toMatch(/^[0-9a-f]{64}$/);
+  });
+
+  it('reads the owner window as whole seconds, blank as unset, and refuses anything else', () => {
+    expect(parseRequestSignWindow(undefined)).toBeNull();
+    expect(parseRequestSignWindow('  ')).toBeNull();
+    expect(parseRequestSignWindow('300')).toBe(300);
+    expect(parseRequestSignWindow('3600')).toBe(3600);
+    for (const bad of ['0', '3601', '-5', '1.5', '5m', '1e3']) {
+      expect(() => parseRequestSignWindow(bad)).toThrow(/IDENTITY_REQUEST_SIGN_WINDOW_SECONDS/);
+    }
   });
 });

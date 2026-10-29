@@ -23,6 +23,7 @@ import {
   type Guardrail,
 } from './agents-catalogue';
 import { agentsCatalogueCopy } from './agents-catalogue-copy';
+import { MadeAgents } from './AgentBuilder';
 import { downloadCsv, toCsv } from './depth-csv';
 import { usePreferences } from '../../shared/preferences';
 
@@ -163,6 +164,7 @@ export function AgentsCatalogue({
       <Panel title={t('detailTitle')}>
         {chosen ? <AgentDetail agent={chosen} onSession={onSession} /> : <p className="muted">{t('pickAgent')}</p>}
       </Panel>
+      <MadeAgents />
       <MyAgents log={log} reload={reload} />
     </div>
   );
@@ -264,9 +266,11 @@ const REFUSALS = [
   'task_not_allowed',
   'output_limit',
   'spend_limit',
+  'price_unset',
+  'funds_insufficient',
 ] as const;
 /** A refusal code as words; a code this screen does not know is shown as the code itself. */
-function refusalWords(code: string): string {
+export function refusalWords(code: string): string {
   const name = code.replace(/^agents\./, '');
   return (REFUSALS as readonly string[]).includes(name) ? agentsCatalogueCopy.t(`refusal_${name as (typeof REFUSALS)[number]}`) : code;
 }

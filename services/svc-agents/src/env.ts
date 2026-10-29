@@ -204,6 +204,11 @@ const schema = serviceEnvSchema
        * accident cannot spend money.
        */
       AGENTS_PROVIDER: z.enum(['mock', 'upstream']).default('mock'),
+      /**
+       * TEST stand-in only: a file whose presence parks the mock engine's completions (`MockProviderOptions.holdFile`).
+       * Read only when AGENTS_PROVIDER is mock; an upstream engine never parks.
+       */
+      AGENTS_MOCK_HOLD_FILE: z.string().trim().min(1).optional(),
 
       // ── Upstream shape ───────────────────────────────────────────────────────
       AGENTS_UPSTREAM_BASE_URL: z.string().url().optional(),

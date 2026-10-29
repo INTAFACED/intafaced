@@ -6,7 +6,6 @@ from intafaced_pay.payment_links_page import PayPaymentLinkPage, payment_link_pa
 from intafaced_pay.payments_page import PayPaymentPage, payment_page_from_response
 from intafaced_pay.sign import (
     REQUEST_SIGN_VERSION,
-    REQUEST_SIGN_WINDOW_SECONDS,
     sign_pay_request,
     signatures_equal,
 )
@@ -18,7 +17,6 @@ __all__ = [
     "PayPaymentLinkPage",
     "PayPaymentPage",
     "REQUEST_SIGN_VERSION",
-    "REQUEST_SIGN_WINDOW_SECONDS",
     "payment_link_page_from_response",
     "payment_page_from_response",
     "sign_pay_request",

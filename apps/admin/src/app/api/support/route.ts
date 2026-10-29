@@ -274,6 +274,8 @@ function summaryOf(request: SupportActionRequest, data: unknown): string {
   switch (request.action) {
     case 'reply':
       return 'svc-support recorded your reply on the ticket.';
+    case 'note':
+      return 'svc-support recorded your internal note. The customer does not see it.';
     case 'claim_next':
       return `svc-support gave you the next request; it is now ${String(d.status)} and yours.`;
     case 'unclaim':

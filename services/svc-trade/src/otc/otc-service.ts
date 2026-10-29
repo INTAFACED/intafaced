@@ -124,12 +124,15 @@ export class OtcDeskService {
       published: this.law.published === true,
       statusLine: otcDeskLawStatusLine(this.law),
       residual: this.law.published === true ? null : OTC_DESK_LAW_RESIDUAL,
+      /** CB-otc-11: the base assets the desk quotes, as the owner published them; null is blank ("Not set"). */
+      assets: this.law.published === true ? (this.law.assets ?? null) : null,
       /** SOCKET §13 — platform settle real; maker route refuse-closed. */
       makerRouting: otcMakerRoutingStatus(),
       /** SOCKET §13 — boot map age-gates unless venue observation source is installed. */
       midFeed: this.midFeedWiring ?? (this.liveObservationFeed ? otcMidFeedStatus(true) : describeOtcPolicy().bootMidFeedWiring),
       residuals: {
         deskLaw: this.law.published === true ? null : OTC_DESK_LAW_RESIDUAL,
+        assets: this.law.published === true && this.law.assets?.length ? null : OTC_DESK_LAW_RESIDUAL,
         makerRouting: OTC_MAKER_ROUTING_RESIDUAL,
         midFeed: this.midFeedWiring?.residual ?? (this.liveObservationFeed ? null : OTC_MID_FEED_RESIDUAL),
       },
@@ -195,6 +198,18 @@ export class OtcDeskService {
       if (asset != null && minNotional == null) {
         throw new OtcError(`The desk minimum for ${asset} requests is not set — the request refuses`, 'trade.rfq_size_not_set');
       }
+    }
+
+    // CB-otc-11: the desk quotes only the base assets the owner listed, for a desk request, a convert and a one-click buy
+    // alike, as the overview says. A blank list refuses every one of them. An unusable asset id is left to the pair check
+    // below, which refuses it as no usable pair.
+    if (!law.assets?.length) {
+      throw new OtcError('The desk asset list is not set — the request refuses', 'trade.otc_assets_unset', OTC_DESK_LAW_RESIDUAL);
+    }
+    const listedBase = normalizeOtcAsset(input.baseAsset);
+    if (listedBase != null && !law.assets.includes(listedBase)) {
+      const list = law.assets.length <= 10 ? law.assets.join(', ') : `${law.assets.length} assets`;
+      throw new OtcError(`${listedBase} is not on the desk's asset list (${list})`, 'trade.otc_asset_unlisted');
     }
 
     // CB-otc-01: the providers come from the owner's list, never free text. A desk request always names them: a blank
