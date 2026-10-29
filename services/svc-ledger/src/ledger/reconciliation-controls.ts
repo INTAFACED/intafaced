@@ -68,14 +68,17 @@ export interface SnapshotRead {
 }
 
 export interface ReconciliationSources {
-  /** With `rail`, that rail's own outside statement; without, the whole outside book. */
-  outsideBalance(readAt: Date, rail?: string): Promise<SnapshotRead>;
+  /** The whole outside book. */
+  outsideBalance(readAt: Date): Promise<SnapshotRead>;
+  /** One rail's own outside statement. A separate method, so no source can answer a rail control with the whole book. */
+  railStatement(readAt: Date, rail: string): Promise<SnapshotRead>;
   parity(readAt: Date): Promise<SnapshotRead>;
 }
 
 export function unsetReconciliationSources(): ReconciliationSources {
   return {
     outsideBalance: async () => ({ kind: 'unset' }),
+    railStatement: async () => ({ kind: 'unset' }),
     parity: async () => ({ kind: 'unset' }),
   };
 }
@@ -908,7 +911,11 @@ async function judge(
   const rail = accountSet.mode === 'query' ? accountSet.rail : undefined;
   let read: SnapshotRead;
   try {
-    read = outsideTemplate ? await sources.outsideBalance(readAt, rail) : await sources.parity(readAt);
+    read = !outsideTemplate
+      ? await sources.parity(readAt)
+      : rail !== undefined
+        ? await sources.railStatement(readAt, rail)
+        : await sources.outsideBalance(readAt);
   } catch {
     read = { kind: 'unavailable' };
   }
@@ -949,7 +956,11 @@ async function judge(
     };
   }
   const expected = new Map<string, Amount>();
-  for (const balance of read.balances ?? []) expected.set(balance.assetId, parseAmount(balance.amount));
+  // A control scoped to one asset judges that asset alone: a statement that also lists others is not left UNSET by them.
+  const onlyAsset = accountSet.mode === 'query' ? accountSet.assetId : undefined;
+  for (const balance of read.balances ?? []) {
+    if (onlyAsset === undefined || balance.assetId === onlyAsset) expected.set(balance.assetId, parseAmount(balance.amount));
+  }
   const nextSources: ReconciliationControlRunView['sources'] = {
     ...emptySources,
     // A snapshot that names no as-of stays unset: its age is unknown, and the ledger's time is not its time.

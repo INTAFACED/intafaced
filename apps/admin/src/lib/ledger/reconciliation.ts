@@ -258,6 +258,8 @@ function contractWhy(error: {
   if (!issue) return 'The contract refused this control.';
   const where = issue.path.map(String).join('.');
   if (where === 'reason') return 'Write the reason first (12 to 500 characters).';
+  if (where === 'accountSet.rail')
+    return 'Rail boundary names its own accounts: leave owner type and owner id blank, and kind blank or available.';
   if (issue.message === 'ops.control_policy_unset')
     return `${where === 'accountSet' ? 'Account set' : where || 'Policy'}: ops.control_policy_unset. Name at least one account or one account filter.`;
   return `${where || 'Control'}: ${issue.message}`;

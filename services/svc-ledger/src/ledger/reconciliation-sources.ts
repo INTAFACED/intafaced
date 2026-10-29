@@ -54,31 +54,30 @@ export function reconciliationSourcesFrom(
   const unset = unsetReconciliationSources();
   return {
     parity: unset.parity,
-    outsideBalance: async (readAt: Date, rail?: string): Promise<SnapshotRead> => {
-      const asOf = readAt.toISOString();
-      if (rail !== undefined) {
-        const url = railStatementUrls.get(rail);
-        if (!url) return { kind: 'unset' };
-        return readOutside(
-          url,
-          { rail, asOf },
-          readAt,
-          (body) => {
-            const statement = railStatementSchema.safeParse(body);
-            return statement.success && statement.data.rail === rail ? statement.data : null;
-          },
-          fetchImpl,
-          timeoutMs,
-        );
-      }
+    outsideBalance: async (readAt: Date): Promise<SnapshotRead> => {
       if (!outsideSnapshotUrl) return { kind: 'unset' };
       return readOutside(
         outsideSnapshotUrl,
-        { asOf },
+        { asOf: readAt.toISOString() },
         readAt,
         (body) => {
           const snapshot = railBalanceSnapshotSchema.safeParse(body);
           return snapshot.success ? snapshot.data : null;
+        },
+        fetchImpl,
+        timeoutMs,
+      );
+    },
+    railStatement: async (readAt: Date, rail: string): Promise<SnapshotRead> => {
+      const url = railStatementUrls.get(rail);
+      if (!url) return { kind: 'unset' };
+      return readOutside(
+        url,
+        { rail, asOf: readAt.toISOString() },
+        readAt,
+        (body) => {
+          const statement = railStatementSchema.safeParse(body);
+          return statement.success && statement.data.rail === rail ? statement.data : null;
         },
         fetchImpl,
         timeoutMs,

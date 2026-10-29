@@ -50,6 +50,8 @@ describe('LEDGER_RECONCILE_RAIL_<RAIL>_URL', () => {
       { LEDGER_RECONCILE_RAIL_TEST_URL: 'ftp://rails.example/statement' },
       { LEDGER_RECONCILE_RAIL_TEST_URL: 'not a url' },
       { LEDGER_RECONCILE_RAIL_9TEST_URL: 'https://rails.example/statement' },
+      { 'LEDGER_RECONCILE_RAIL_crypto-native_URL': 'https://rails.example/statement' },
+      { LEDGER_RECONCILE_RAIL__URL: 'https://rails.example/statement' },
     ])
       await expect(loadWith(rails)).rejects.toThrow(/LEDGER_RECONCILE_RAIL_/);
   });

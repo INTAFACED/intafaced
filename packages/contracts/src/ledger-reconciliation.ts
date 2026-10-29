@@ -107,7 +107,10 @@ const queryAccountSetSchema = z
     mode: z.literal('query'),
     ownerType: ownerTypeSchema.optional(),
     ownerIdPrefix: z.string().trim().min(1).max(128).optional(),
-    /** One rail's boundary: treasury accounts whose owner id is exactly `rail:<rail>`. Excludes ownerType and ownerIdPrefix. */
+    /**
+     * One rail's boundary: treasury accounts whose owner id is exactly `rail:<rail>`. Excludes ownerType and ownerIdPrefix,
+     * and a kind other than `available` (a boundary account is always `available`).
+     */
     rail: reconciliationRailSchema.optional(),
     kind: accountKindSchema.optional(),
     purpose: z.string().max(128).optional(),
@@ -115,7 +118,10 @@ const queryAccountSetSchema = z
   })
   .strict()
   .superRefine((value, ctx) => {
-    if (value.rail !== undefined && (value.ownerType !== undefined || value.ownerIdPrefix !== undefined)) {
+    if (
+      value.rail !== undefined &&
+      (value.ownerType !== undefined || value.ownerIdPrefix !== undefined || (value.kind !== undefined && value.kind !== 'available'))
+    ) {
       ctx.addIssue({ code: z.ZodIssueCode.custom, message: OPS_CONTROL_POLICY_UNSET, path: ['rail'] });
     }
     const predicated =

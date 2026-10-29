@@ -149,7 +149,7 @@ function isOutsideSnapshotUrl(value: string): boolean {
 export const env = loadEnv(schema);
 export type Env = typeof env;
 
-const RAIL_STATEMENT_KEY = /^LEDGER_RECONCILE_RAIL_([A-Z0-9_]+)_URL$/;
+const RAIL_STATEMENT_KEY = /^LEDGER_RECONCILE_RAIL_(.*)_URL$/i;
 
 /**
  * Per-rail outside statement URLs (OPS-reconciliation-04): `LEDGER_RECONCILE_RAIL_<RAIL>_URL`, RAIL upper-cased with `-` as
@@ -162,8 +162,9 @@ export function railStatementUrlsFrom(source: Record<string, string | undefined>
   for (const [key, value] of Object.entries(source)) {
     const match = RAIL_STATEMENT_KEY.exec(key);
     if (!match || value === undefined || value === '') continue;
+    // Only the canonical spelling maps back to a rail id; anything else (lower case, a dash, an empty rail) refuses boot.
     const rail = match[1]!.toLowerCase().replaceAll('_', '-');
-    if (!reconciliationRailSchema.safeParse(rail).success) throw new Error(`${key}: not a rail id`);
+    if (!/^[A-Z0-9_]+$/.test(match[1]!) || !reconciliationRailSchema.safeParse(rail).success) throw new Error(`${key}: not a rail id`);
     let ok = false;
     try {
       ok = isOutsideSnapshotUrl(value);

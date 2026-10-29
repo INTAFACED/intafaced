@@ -197,6 +197,7 @@ async function ctx(scopes: string[], mfa: boolean): Promise<Context> {
         return unset;
       },
       parity: async () => ({ kind: 'unset' }),
+      railStatement: async () => ({ kind: 'unset' }),
     };
     const run = await runReconciliationControl(
       db.sql,
@@ -908,7 +909,16 @@ async function ctx(scopes: string[], mfa: boolean): Promise<Context> {
     server.get('/statement', async (req) => {
       const query = req.query as { rail?: string; asOf?: string };
       asked.push(query);
-      return { source: 'rail', rail: query.rail, asOf: '2026-01-01T00:00:00.000Z', balances: [{ assetId: 'USDT', amount }] };
+      // The statement lists every asset on the rail; the control is scoped to USDT and judges USDT alone.
+      return {
+        source: 'rail',
+        rail: query.rail,
+        asOf: '2026-01-01T00:00:00.000Z',
+        balances: [
+          { assetId: 'USDT', amount },
+          { assetId: 'BTC', amount: '-3' },
+        ],
+      };
     });
     server.get('/book', async () => ({ source: 'rail', asOf: '2026-01-01T00:00:00.000Z', balances: [{ assetId: 'USDT', amount: '-7' }] }));
     const base = await server.listen({ port: 0, host: '127.0.0.1' });
@@ -948,18 +958,20 @@ async function ctx(scopes: string[], mfa: boolean): Promise<Context> {
       await server.close();
     }
 
-    // A rail names its boundary itself: an owner type or owner id prefix beside it is refused.
-    await expect(
-      defineReconciliationControl(db.sql, actor, {
-        template: 'outside_balance',
-        accountSet: { mode: 'query', rail: 'recon-rail', ownerType: 'user' },
-        schedule: { cadence: 'daily', hour: 0, minute: 0 },
-        severity: 'critical',
-        tolerance: { default: '0' },
-        reason: REASON,
-        activate: true,
-      } as never),
-    ).rejects.toThrow();
+    // A rail names its boundary itself: an owner type, an owner id prefix or a kind other than available beside it is refused.
+    for (const clash of [{ ownerType: 'user' }, { ownerIdPrefix: 'rail:' }, { kind: 'hold' }]) {
+      await expect(
+        defineReconciliationControl(db.sql, actor, {
+          template: 'outside_balance',
+          accountSet: { mode: 'query', rail: 'recon-rail', ...clash },
+          schedule: { cadence: 'daily', hour: 0, minute: 0 },
+          severity: 'critical',
+          tolerance: { default: '0' },
+          reason: REASON,
+          activate: true,
+        } as never),
+      ).rejects.toThrow();
+    }
   });
 
   it('refuses an operator run in the scheduled operation-id space', async () => {
@@ -1152,6 +1164,7 @@ async function ctx(scopes: string[], mfa: boolean): Promise<Context> {
     const sources: ReconciliationSources = {
       outsideBalance: async () => ({ kind: 'snapshot', balances: [{ assetId: 'USDT', amount: '0' }] }),
       parity: async () => ({ kind: 'unset' }),
+      railStatement: async () => ({ kind: 'unset' }),
     };
     const run = await runReconciliationControl(
       db.sql,
