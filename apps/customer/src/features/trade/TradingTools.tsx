@@ -489,15 +489,21 @@ function QuoteDesk({ tools, markets, simulation }: { tools: ToolApi; markets: Li
       void lookup(linkedQuoteId);
     }
   }, [linkedQuoteId, simulation]);
+  // A provider the owner's list no longer holds is dropped from the pick, so the request asks only what is shown ticked.
+  const listed = makers.resource.status === 'ready' ? makers.resource.data.makers.map((m) => m.id).join('\n') : null;
+  useEffect(() => {
+    if (listed == null) return;
+    const ids = listed.split('\n');
+    setPicked((current) => (current.every((id) => ids.includes(id)) ? current : current.filter((id) => ids.includes(id))));
+  }, [listed]);
   const requestIdentity = useRef('');
   requestIdentity.current = JSON.stringify({ symbol, side, qty, picked });
   async function request() {
     const identity = requestIdentity.current;
     setLoading(true);
     const [baseAsset = '', quoteAsset = ''] = symbol.split('/');
-    // The desk asks only providers from the owner's list (CB-otc-01); a pick the list no longer holds is dropped here.
-    const listed = makers.resource.status === 'ready' ? makers.resource.data.makers.map((m) => m.id) : [];
-    const result = await tools.otcQuote({ side, baseAsset, quoteAsset, qty, makerIds: picked.filter((id) => listed.includes(id)) });
+    // The pick holds only providers on the owner's list (CB-otc-01): it is pruned whenever the list changes, below.
+    const result = await tools.otcQuote({ side, baseAsset, quoteAsset, qty, makerIds: picked });
     if (identity !== requestIdentity.current) {
       setLoading(false);
       return;
@@ -643,7 +649,8 @@ function QuoteDesk({ tools, markets, simulation }: { tools: ToolApi; markets: Li
               !symbol ||
               !positive(qty) ||
               status.resource.status !== 'ready' ||
-              !status.resource.data.published
+              !status.resource.data.published ||
+              makers.resource.status !== 'ready'
             }
             onClick={request}
           >

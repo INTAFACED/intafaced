@@ -54,6 +54,10 @@ const KNOWN: Readonly<Record<string, { title: string; body: string }>> = {
     body: 'The desk has no provider list, so a request cannot be sent. Nothing was priced or held.',
   },
   'trade.otc_provider_required': { title: 'Pick a provider', body: 'Pick at least one provider to ask. Nothing was priced or held.' },
+  'trade.otc_provider_unknown': {
+    title: 'Provider not on the list',
+    body: "A provider picked is not on the desk's provider list. Pick again from the list; nothing was priced or held.",
+  },
   'trade.rfq_size_not_set': {
     title: 'The desk minimum is not set',
     body: 'The desk cannot price a request in this asset until its minimum size is published. Nothing was priced or held.',

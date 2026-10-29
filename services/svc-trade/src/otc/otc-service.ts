@@ -213,7 +213,8 @@ export class OtcDeskService {
     if (law.counterparty === 'maker') {
       quotingMaker = (input.makerId ?? (asked.length === 1 ? asked[0]! : '')).trim();
       if (!quotingMaker) {
-        throw new OtcError('Name the one provider that quotes: more than one was asked', 'trade.otc_provider_required');
+        // More than one asked and none named: on a maker desk one provider quotes, so the limit is one.
+        throw new OtcError(`At most 1 provider can quote one request on this desk (got ${asked.length})`, 'trade.otc_provider_cap');
       }
       if (!asked.includes(quotingMaker)) {
         throw new OtcError(`Provider ${quotingMaker} is not one of the providers asked`, 'trade.otc_provider_unknown');

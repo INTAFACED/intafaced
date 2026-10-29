@@ -236,7 +236,7 @@ describe('OtcDeskService.quote in maker mode (CB-otc-01 request path)', () => {
     });
   });
 
-  it('two providers asked with none named to quote refuses otc_provider_required before any stake read', async () => {
+  it('two providers asked with none named to quote refuses naming the limit of one, before any stake read', async () => {
     let stakeReads = 0;
     const counted = new OtcDeskService(
       new MemoryLedger(),
@@ -254,7 +254,10 @@ describe('OtcDeskService.quote in maker mode (CB-otc-01 request path)', () => {
       },
     );
     const asked = { side: 'buy' as const, baseAsset: 'BTC', quoteAsset: 'USDT', qty: '1', makerIds: ['test-lp-b', 'test-lp-c'] };
-    await expect(counted.quote(principal, asked)).rejects.toMatchObject({ code: 'trade.otc_provider_required' });
+    await expect(counted.quote(principal, asked)).rejects.toMatchObject({
+      code: 'trade.otc_provider_cap',
+      message: 'At most 1 provider can quote one request on this desk (got 2)',
+    });
     await expect(counted.quote(principal, { ...asked, makerId: 'test-lp-a' })).rejects.toMatchObject({
       code: 'trade.otc_provider_unknown',
     });

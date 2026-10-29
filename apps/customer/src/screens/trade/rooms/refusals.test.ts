@@ -44,5 +44,12 @@ describe('roomWords: a write that may have gone through is never called unchange
     expect(over.code).toBe('trade.otc_provider_cap');
     expect(roomWords({ reason: 'error', code: 'trade.otc_makers_unset' }).title).toBe('No providers set');
     expect(roomWords({ reason: 'error', code: 'trade.otc_provider_required' }).title).toBe('Pick a provider');
+    const unknown = roomWords({
+      reason: 'error',
+      code: 'trade.otc_provider_unknown',
+      message: 'Provider test-lp-9 is not in the provider list',
+    });
+    expect(unknown.title).toBe('Provider not on the list');
+    expect(unknown.body).not.toContain('test-lp-9');
   });
 });
