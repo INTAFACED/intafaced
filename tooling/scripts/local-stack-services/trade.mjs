@@ -106,6 +106,9 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, TEST_FUTURES_LADDER_POLICY })
     // LOCAL TEST, not an owner decision: the lowest tier that may create a bot. Blank refuses every bot
     // (trade.bots_verification_level_not_set, algo/bots-verification.ts), which a unit test keeps proving.
     TRADE_BOTS_VERIFICATION_LEVEL: testValue('TRADE_BOTS_VERIFICATION_LEVEL'),
+    // LOCAL TEST, not an owner decision: the window the operator module counts quotes in. Blank refuses the metrics read
+    // (trade.ops_metrics_window_not_set, admin/copy-bots-otc.ts), which a unit test keeps proving.
+    TRADE_OPS_METRICS_WINDOW_SECONDS: testValue('TRADE_OPS_METRICS_WINDOW_SECONDS'),
     // LOCAL TEST, not an owner decision: the copy driver places each copy as the follower, so J-copy-bots-otc-01 #8
     // sees a first copied trade on TEST money. Production leaves it off until the owner turns copy placing on.
     TRADE_COPY_PLACE_MIRROR: 'on',

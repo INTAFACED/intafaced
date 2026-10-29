@@ -71,6 +71,11 @@
       "value": "full",
       "note": "TEST verification level for creating a bot: full, the level the journeys verify to, so an unverified account is refused (trade.bots_verification_insufficient)."
     },
+    "TRADE_OPS_METRICS_WINDOW_SECONDS": {
+      "service": "trade",
+      "value": "86400",
+      "note": "TEST window for the operator module counts of quotes requested and settled. Blank refuses trade.ops_metrics_window_not_set."
+    },
     "TRADE_OTC_DESK_LAW": {
       "service": "trade",
       "value": "{\"published\": true, \"spreadBps\": 20, \"minStake\": \"100\", \"counterparty\": \"platform\", \"quoteTtlMs\": 60000, \"maxMidAgeSeconds\": 86400, \"settleWindowMs\": 60000, \"minNotional\": {\"USDT\": \"1000\"}, \"assets\": [\"BTC\"]}",
