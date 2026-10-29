@@ -78,10 +78,14 @@ test(`${J} #1 opens Money: zero per asset with "No money yet" for a new business
   const api = await ownerApi();
   const paid = await paidCardPayment(api, merchantId, { key: `${J}:payment:clearing:${merchantId}`, amount: '40.00' });
   expect(paid.status).toBe('captured');
-  await page.reload();
+  // The balances follow the payment's events, so the page is read again until the payment shows.
   const balances = page.getByRole('group', { name: /Balances at a glance/ });
+  await expect(async () => {
+    await page.reload();
+    await expect(balances).toBeVisible({ timeout: 3_000 });
+  }).toPass({ timeout: 60_000 });
   await expect(balances.getByRole('link', { name: /^Clearing/ })).toContainText(/40(\.0+)?\s*USDT/);
-  await expect(balances.getByRole('link', { name: /^Available to pay out/ })).toContainText(/\b0(\.0+)?\s*USDT/);
+  await expect(balances.getByRole('link', { name: /^Available to pay out/ })).toContainText(/Now\s*0(\.0+)?\s*USDT/);
   const all = page.getByRole('table', { name: 'All balances' });
   await expect(all.getByRole('row', { name: /USDT/ })).toContainText(/0(\.0+)?\s*USDT/);
   const reserve = page.getByRole('region', { name: 'Reserve' });
