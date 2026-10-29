@@ -26,36 +26,43 @@ test('J-ops-console-01 #1 a founder follows the runbook on a clean browser and s
   await assertAdminUp();
   // The journey config starts each browser as the stack's trusted TEST browser; this one is cleared to a clean browser.
   const clean = await browser.newContext();
-  await clean.clearCookies();
-  const page = await clean.newPage();
-  expect(await clean.cookies()).toEqual([]);
-  const ctx = await makeContext({ log: () => {} });
-  const founder = JSON.parse(readFileSync(path.join(ctx.paths.stateDir, FOUNDER_VAULT_NAME), 'utf8')).founders[0];
-  await page.goto(`${ADMIN}/login`);
-  await page.getByLabel('Email or handle').fill(founder.handle ?? founder.email);
-  await page.getByLabel('Password').fill(founder.password);
-  await page.getByLabel('Authenticator or recovery code').fill(await founderTotp(ctx, 'a', founder.totpSecret));
-  const seen = mailedCodes(founder.email, 'new-device-code').length;
-  await page.locator('button[type=submit]').click();
-  // The right password and second factor on a new browser are not yet a session: the console asks for the device code.
-  await expect(page.getByRole('heading', { name: 'Authorise this browser' })).toBeVisible({ timeout: 15_000 });
-  await expect(page).toHaveURL(/\/login/);
-  await page.getByLabel('Device code from the email').fill(await nextMailedCode(founder.email, seen, 20_000, 'new-device-code'));
-  await page.getByRole('button', { name: 'Approve this browser' }).click();
-  await page.waitForURL((url) => !url.pathname.startsWith('/login'), { timeout: 30_000 });
-  // The session bar names the founder who signed in: its span carries their own id, and once the console's founder
-  // directory is read it shows that founder's configured name. ("Founder" is only the placeholder before that read, so
-  // a check on it raced the read, #6652.) The name is read back from the same directory the bar reads.
-  const owners = await page.request.get(`${ADMIN}/api/crm?view=owners`);
-  expect(owners.status()).toBe(200);
-  const name = (await owners.json()).owners.find((owner) => owner.userId === founder.userId)?.displayName;
-  expect(name).toMatch(/^(Nitro|Phantom)$/);
-  await expect(page.locator(`.adm-session > span[title="${founder.userId}"]`)).toHaveText(name);
-  await expect(page.getByRole('button', { name: 'Sign out' }).or(page.getByRole('link', { name: 'Sign out' }))).toBeVisible();
-  // The browser it approved is now trusted: its session is the founder's own, read back from the console.
-  const session = await page.request.get(`${ADMIN}/api/session`);
-  expect(session.status()).toBe(200);
-  expect((await session.json()).userId).toBe(founder.userId);
+  try {
+    await clean.clearCookies();
+    const page = await clean.newPage();
+    expect(await clean.cookies()).toEqual([]);
+    const ctx = await makeContext({ log: () => {} });
+    const founder = JSON.parse(readFileSync(path.join(ctx.paths.stateDir, FOUNDER_VAULT_NAME), 'utf8')).founders.find((f) => f.key === 'a');
+    expect(founder?.totpConfirmed, 'founder a has enrolled their authenticator (pnpm local:stack enrols the pair)').toBe(true);
+    expect(founder.totpSecret).toBeTruthy();
+    await page.goto(`${ADMIN}/login`);
+    await page.getByLabel('Email or handle').fill(founder.handle ?? founder.email);
+    await page.getByLabel('Password').fill(founder.password);
+    await page.getByLabel('Authenticator or recovery code').fill(await founderTotp(ctx, 'a', founder.totpSecret));
+    const seen = mailedCodes(founder.email, 'new-device-code').length;
+    await page.locator('button[type=submit]').click();
+    // The right password and second factor on a new browser are not yet a session: the console asks for the device code.
+    await expect(page.getByRole('heading', { name: 'Authorise this browser' })).toBeVisible({ timeout: 15_000 });
+    await expect(page).toHaveURL(/\/login/);
+    await page.getByLabel('Device code from the email').fill(await nextMailedCode(founder.email, seen, 20_000, 'new-device-code'));
+    await page.getByRole('button', { name: 'Approve this browser' }).click();
+    await page.waitForURL((url) => !url.pathname.startsWith('/login'), { timeout: 30_000 });
+    // The session bar names the founder who signed in: its span carries their own id, and once the console's founder
+    // directory is read it shows that founder's configured name. ("Founder" is only the placeholder before that read, so
+    // a check on it raced the read, #6652.) The name is read back from the same directory the bar reads.
+    const owners = await page.request.get(`${ADMIN}/api/crm?view=owners`);
+    expect(owners.status()).toBe(200);
+    const name = (await owners.json()).owners.find((owner) => owner.userId === founder.userId)?.displayName;
+    expect(name).toMatch(/^(Nitro|Phantom)$/);
+    await expect(page.locator(`.adm-session > span[title="${founder.userId}"]`)).toHaveText(name);
+    await expect(page.locator(`.adm-session > span[title="${founder.userId}"]`)).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Sign out' }).or(page.getByRole('link', { name: 'Sign out' }))).toBeVisible();
+    // The browser it approved is now trusted: its session is the founder's own, read back from the console.
+    const session = await page.request.get(`${ADMIN}/api/session`);
+    expect(session.status()).toBe(200);
+    expect((await session.json()).userId).toBe(founder.userId);
+  } finally {
+    await clean.close();
+  }
 });
 
 test('J-ops-console-01 #5 each of the five desks shows all eight common sections, and a section with no source names its blocker', async ({

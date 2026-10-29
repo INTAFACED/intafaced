@@ -4,13 +4,14 @@
  */
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { appendFileSync, existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync } from 'node:fs';
+import { appendFileSync, existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 import { base32Encode, totpNow } from './local-founder-seed.mjs';
 import {
   DOCKER_EDGE_PORT,
+  confirmFounderEmails,
   GuardError,
   LOCAL_TEST_FOUNDERS,
   assertLocalTestFounderTarget,
@@ -335,7 +336,7 @@ function fakeEdge(outbox) {
   const error = (status, code, intafacedCode) => ({ status, json: async () => ({ error: { data: { code, intafacedCode } } }) });
   const fetchImpl = async (url, init) => {
     const proc = new URL(url).pathname.split('/').pop();
-    const body = JSON.parse(init.body);
+    const body = init.body ? JSON.parse(init.body) : {};
     const token = init.headers.authorization?.replace('Bearer ', '');
     calls.push({ proc, url });
     if (proc === 'auth.registerFounder') {
@@ -345,7 +346,9 @@ function fakeEdge(outbox) {
     }
     const user = users.get(token?.replace('tok-', ''));
     if (!user) return error(401, 'UNAUTHORIZED');
+    if (proc === 'me') return reply({ userId: user.id, emailVerified: user.emailVerified === true });
     if (proc === 'auth.requestEmailConfirmation') {
+      if (user.mailDown) return reply({ accepted: true });
       // Identity "mails" the link to the stack's outbox file; only the token in it confirms the address.
       user.confirmToken = `ct-${user.id}`;
       appendFileSync(
@@ -355,7 +358,14 @@ function fakeEdge(outbox) {
       return reply({ accepted: true });
     }
     if (proc === 'auth.confirmEmail') {
-      if (body.token !== user.confirmToken) return error(400, 'BAD_REQUEST', 'auth.token_invalid');
+      // The shared tRPC formatter sends identity's typed code in data.cause, with prose in the message.
+      if (body.token !== user.confirmToken)
+        return {
+          status: 400,
+          json: async () => ({
+            error: { message: 'That link is not valid.', data: { code: 'BAD_REQUEST', cause: { code: 'auth.email_confirm_invalid' } } },
+          }),
+        };
       user.emailVerified = true;
       return reply({ userId: user.id });
     }
@@ -411,23 +421,7 @@ test('enrol talks only to the test stack edge and writes no Docker founder file'
     });
     assert.deepEqual(
       edge.calls.map((c) => c.proc),
-      [
-        'auth.registerFounder',
-        'auth.requestEmailConfirmation',
-        'auth.confirmEmail',
-        'totp.enrol',
-        'totp.confirm',
-        'auth.registerFounder',
-        'auth.requestEmailConfirmation',
-        'auth.confirmEmail',
-        'totp.enrol',
-        'totp.confirm',
-      ],
-    );
-    // Each founder's address is confirmed through the mailed link, as its owner would, so a new browser can be mailed a code.
-    assert.deepEqual(
-      [...edge.users.values()].map((u) => u.emailVerified),
-      [true, true],
+      ['auth.registerFounder', 'totp.enrol', 'totp.confirm', 'auth.registerFounder', 'totp.enrol', 'totp.confirm'],
     );
     assert.ok(edge.calls.every((c) => c.url.startsWith('http://127.0.0.1:14500/api/identity/trpc/')));
     assert.deepEqual(
@@ -454,5 +448,90 @@ test('enrol talks only to the test stack edge and writes no Docker founder file'
   } finally {
     rmSync(stateDir, { recursive: true, force: true });
     rmSync(repo, { recursive: true, force: true });
+  }
+});
+
+test('email backfill confirms each enrolled founder through the mailed link, saves the flag and resumes', async () => {
+  const stateDir = tmp();
+  const outbox = join(stateDir, 'email-outbox.log');
+  const vaultPath = join(stateDir, 'founders.json');
+  const opts = { stateDir, marker: marker(), edgeUrl: 'http://127.0.0.1:14500', log() {} };
+  try {
+    ensureFounderVaultDraft({ ...opts, now: new Date('2026-10-17T00:00:00Z'), rand: seeded() });
+    const edge = fakeEdge(outbox);
+    await enrolTestStackFounders({ ...opts, fetchImpl: edge.fetchImpl, now: () => edge.clock.t });
+    const signIn = async (f) => `tok-${f.userId}`;
+    await assert.rejects(confirmFounderEmails({ ...opts, marker: marker(4000), edgeUrl: 'http://127.0.0.1:4000', signIn }), /4000/);
+
+    // A link that never reaches the outbox stops the run, and nothing is marked confirmed.
+    const [a, b] = [...edge.users.values()];
+    a.mailDown = true;
+    edge.calls.length = 0;
+    await assert.rejects(
+      confirmFounderEmails({ ...opts, signIn, fetchImpl: edge.fetchImpl, waitMs: 0, sleep: async () => {} }),
+      /a: no LOCAL-TEST confirm link reached .* for local-test-founder-a/,
+    );
+    assert.deepEqual(
+      JSON.parse(readFileSync(vaultPath, 'utf8')).founders.map((f) => f.emailConfirmed),
+      [undefined, undefined],
+    );
+    a.mailDown = false;
+
+    // An address already confirmed (a stack from before this backfill) is only read back, then flagged.
+    b.emailVerified = true;
+    edge.calls.length = 0;
+    const vault = await confirmFounderEmails({ ...opts, signIn, fetchImpl: edge.fetchImpl });
+    assert.deepEqual(
+      edge.calls.map((c) => c.proc),
+      ['me', 'auth.requestEmailConfirmation', 'auth.confirmEmail', 'me', 'me'],
+    );
+    assert.deepEqual([a.emailVerified, b.emailVerified], [true, true]);
+    assert.deepEqual(
+      vault.founders.map((f) => f.emailConfirmed),
+      [true, true],
+    );
+    assert.deepEqual(
+      JSON.parse(readFileSync(vaultPath, 'utf8')).founders.map((f) => f.emailConfirmed),
+      [true, true],
+    );
+    assert.ok(edge.calls.every((c) => c.url.startsWith('http://127.0.0.1:14500/api/identity/trpc/')));
+
+    // Once flagged, a restart signs no one in and calls nothing.
+    edge.calls.length = 0;
+    let signedIn = 0;
+    await confirmFounderEmails({ ...opts, signIn: async () => (signedIn += 1), fetchImpl: edge.fetchImpl });
+    assert.equal(signedIn, 0);
+    assert.deepEqual(edge.calls, []);
+  } finally {
+    rmSync(stateDir, { recursive: true, force: true });
+  }
+});
+
+test("email backfill names identity's typed code when the mailed token is refused", async () => {
+  const stateDir = tmp();
+  const outbox = join(stateDir, 'email-outbox.log');
+  const opts = { stateDir, marker: marker(), edgeUrl: 'http://127.0.0.1:14500', log() {} };
+  try {
+    ensureFounderVaultDraft({ ...opts, now: new Date('2026-10-17T00:00:00Z'), rand: seeded() });
+    const edge = fakeEdge(outbox);
+    await enrolTestStackFounders({ ...opts, fetchImpl: edge.fetchImpl, now: () => edge.clock.t });
+    const tampered = async (url, init) => {
+      const res = await edge.fetchImpl(url, init);
+      if (url.endsWith('auth.requestEmailConfirmation')) {
+        const lines = readFileSync(outbox, 'utf8').split('\n');
+        writeFileSync(outbox, lines.map((l) => l.replace(/token=ct-/, 'token=forged-')).join('\n'));
+      }
+      return res;
+    };
+    await assert.rejects(
+      confirmFounderEmails({ ...opts, signIn: async (f) => `tok-${f.userId}`, fetchImpl: tampered }),
+      /a: identity refused auth\.confirmEmail \(auth\.email_confirm_invalid\)/,
+    );
+    assert.deepEqual(
+      [...edge.users.values()].map((u) => u.emailVerified),
+      [undefined, undefined],
+    );
+  } finally {
+    rmSync(stateDir, { recursive: true, force: true });
   }
 });

@@ -343,9 +343,6 @@ export async function enrolFounderAccounts({
   fetchImpl = fetch,
   log = console.log,
   vaultLabel = FOUNDER_VAULT_PATH,
-  // Runs once for each account this run creates, with that account's first session (`call(procedure, input)`), before
-  // its second factor. The local test stack confirms the founder's email address here.
-  afterRegister,
 }) {
   const startEnrolment = async (f, accessToken) => {
     const started = await call(edge, 'totp.enrol', {}, accessToken, fetchImpl);
@@ -400,7 +397,6 @@ export async function enrolFounderAccounts({
       f.userId = session.userId;
       save();
       log(`${f.key}: founder account created`);
-      if (afterRegister) await afterRegister(f, (procedure, input) => call(edge, procedure, input, session.accessToken, fetchImpl));
     }
     if (!f.totpSecret) await startEnrolment(f, session.accessToken);
     try {

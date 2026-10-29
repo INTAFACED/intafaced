@@ -86,6 +86,7 @@ import token from './local-stack-services/token.mjs';
 import trade from './local-stack-services/trade.mjs';
 import {
   FOUNDER_VAULT_NAME,
+  confirmFounderEmails,
   enrolledFounderPair,
   ensureFounderVaultDraft,
   enrolTestStackFounders,
@@ -95,7 +96,8 @@ import {
   readFounderPinStamp,
   writeFounderPinStamp,
 } from './local-test-founders.mjs';
-import { consoleTreasuryToken, makeContext } from './local-test-gates.mjs';
+import { consoleTreasuryToken, founderTotp, makeContext } from './local-test-gates.mjs';
+import { LOCAL_TEST_DEVICE_KEY } from './local-test-device.mjs';
 import { loadProfile } from './owner-settings.mjs';
 import {
   localStackState,
@@ -1191,6 +1193,31 @@ async function ensureLocalTestFounders() {
     await restartIdentity();
   }
   if (!foundersEnrolled(readVault())) fail('local test founder pair did not enrol');
+  // A founder's address is confirmed like anyone's, so a new browser in the console is mailed its approval code.
+  const ctx = await makeContext({ log: () => {} });
+  await confirmFounderEmails({
+    stateDir: STATE,
+    marker,
+    edgeUrl,
+    log: say,
+    signIn: async (f) => {
+      const res = await fetch(`${edgeUrl}/api/identity/trpc/auth.login`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          identifier: f.handle,
+          password: f.password,
+          totpCode: await founderTotp(ctx, f.key, f.totpSecret),
+          deviceKey: LOCAL_TEST_DEVICE_KEY,
+        }),
+        signal: AbortSignal.timeout(15_000),
+      });
+      const body = await res.json().catch(() => null);
+      const token = body?.result?.data?.accessToken;
+      if (!res.ok || typeof token !== 'string') fail(`founder ${f.key} could not sign in to confirm their email (${res.status})`);
+      return token;
+    },
+  });
 }
 
 /** svc-ops reads the founder pair at start. When it started before the pair was enrolled, or with another pair, restart it. */
