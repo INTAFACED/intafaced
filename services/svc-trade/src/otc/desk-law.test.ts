@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import { parseAmount } from '@intafaced/ledger-client';
-import { parseOtcDeskLawJson, requirePublishedOtcDeskLaw, UNPUBLISHED_OTC_DESK_LAW, otcDeskLawStatusLine } from './desk-law.js';
+import {
+  otcDeskLawStatusLine,
+  otcMinNotionalFor,
+  parseOtcDeskLawJson,
+  requirePublishedOtcDeskLaw,
+  UNPUBLISHED_OTC_DESK_LAW,
+} from './desk-law.js';
 import { OTC_DESK_LAW_RESIDUAL, OtcError } from './errors.js';
 
 describe('parseOtcDeskLawJson', () => {
@@ -137,5 +143,55 @@ describe('requirePublishedOtcDeskLaw', () => {
       }),
     );
     expect(/(?:^| )minStake=(\S+)/.exec(otcDeskLawStatusLine(law))?.[1]).toBe('100.5');
+  });
+
+  it('status line publishes the desk minimum per quote asset, and "unset" when it is left out', () => {
+    const base = { published: true, spreadBps: 25, minStake: '1', counterparty: 'platform', quoteTtlMs: 15_000, maxMidAgeSeconds: 60 };
+    const set = parseOtcDeskLawJson(JSON.stringify({ ...base, minNotional: { usdt: '1000', EUR: '900.5' } }));
+    expect(/(?:^| )minNotional=(\S+)/.exec(otcDeskLawStatusLine(set))?.[1]).toBe('EUR:900.5,USDT:1000');
+    expect(/(?:^| )minNotional=(\S+)/.exec(otcDeskLawStatusLine(parseOtcDeskLawJson(JSON.stringify(base))))?.[1]).toBe('unset');
+  });
+});
+
+describe('desk minimum (CB-otc-07)', () => {
+  const base = { published: true, spreadBps: 25, minStake: '1', counterparty: 'platform', quoteTtlMs: 15_000, maxMidAgeSeconds: 60 };
+  const published = (minNotional: unknown) => {
+    const law = parseOtcDeskLawJson(JSON.stringify({ ...base, minNotional }));
+    if (!law.published) throw new Error('expected published law');
+    return law;
+  };
+
+  it("reads each quote asset's minimum, upper-cased; an asset left out is blank", () => {
+    const law = published({ usdt: '1000' });
+    expect(otcMinNotionalFor(law, 'USDT')).toBe(parseAmount('1000'));
+    expect(otcMinNotionalFor(law, 'EUR')).toBeNull();
+  });
+
+  it('left out or null is blank for every asset, never a default size', () => {
+    const law = parseOtcDeskLawJson(JSON.stringify(base));
+    if (!law.published) throw new Error('expected published law');
+    expect(otcMinNotionalFor(law, 'USDT')).toBeNull();
+    expect(otcMinNotionalFor(published(null), 'USDT')).toBeNull();
+  });
+
+  it('a malformed minimum refuses at boot with trade.otc_desk_law_blank', () => {
+    for (const bad of [
+      '1000',
+      ['1000'],
+      { USDT: 1000 },
+      { USDT: '' },
+      { USDT: '-1' },
+      { USDT: 'x' },
+      { 'BTC/USDT': '1' },
+      { usdt: '1', USDT: '2' },
+    ]) {
+      try {
+        published(bad);
+        expect.unreachable(`should refuse ${JSON.stringify(bad)}`);
+      } catch (err) {
+        expect(err).toBeInstanceOf(OtcError);
+        expect((err as OtcError).code).toBe('trade.otc_desk_law_blank');
+      }
+    }
   });
 });

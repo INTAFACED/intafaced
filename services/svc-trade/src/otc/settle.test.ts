@@ -14,6 +14,8 @@ const published: OtcDeskLaw = {
   counterparty: 'platform',
   quoteTtlMs: 30_000,
   maxMidAgeSeconds: 60,
+  // A zero desk minimum is an owner value: these quotes are not held by the CB-otc-07 minimum.
+  minNotional: { USDT: 0n },
 };
 
 const publishedMaker: OtcDeskLaw = {

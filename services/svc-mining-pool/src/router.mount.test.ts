@@ -54,6 +54,7 @@ function reads(): MiningReads & { myWorkers: ReturnType<typeof vi.fn> } {
   return {
     myWorkers: vi.fn(async () => ({ asOf: '2026-01-01T00:00:00.000Z', windowMinutes: 60, workers: [], nextCursor: null })),
     setWorkerDifficulty: vi.fn(),
+    setWorkerMode: vi.fn(),
     listWorkers: vi.fn(async () => ({ asOf: '2026-01-01T00:00:00.000Z', workers: [], nextCursor: null })),
     myShares: vi.fn(),
     opsShares: vi.fn(),

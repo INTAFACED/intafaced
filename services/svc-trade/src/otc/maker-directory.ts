@@ -13,7 +13,6 @@
 
 import { OtcError } from './errors.js';
 import { OTC_MAKER_ROUTING_RESIDUAL, OTC_MAKER_ROUTING_SOCKET } from './maker-routing.js';
-import { logRefusalSpec } from '../refusal-spec-log.js';
 
 export type OtcMakerRoute = 'platform' | 'outside';
 
@@ -134,10 +133,10 @@ export function selectOtcMakers(directory: OtcMakerDirectory, makerIds: readonly
     const maker = byId.get(id);
     if (!maker) throw new OtcError(`Provider ${id} is not in the provider list`, 'trade.otc_provider_unknown');
     if (maker.route === 'outside') {
-      logRefusalSpec('trade.otc_settle_refused');
+      // An outside provider is the NotConnected `feed.market` class from the allowlist, never a code of the desk's own.
       throw new OtcError(
         `Provider ${id} is outside the platform — ${OTC_MAKER_ROUTING_SOCKET} refuses until the owner routes it`,
-        'trade.otc_settle_refused',
+        'feed.market',
         OTC_MAKER_ROUTING_RESIDUAL,
       );
     }

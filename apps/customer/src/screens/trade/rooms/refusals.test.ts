@@ -26,4 +26,30 @@ describe('roomWords: a write that may have gone through is never called unchange
     expect(roomWords({ code: 'trade.scale_child_refused' }).title).toBe('The ladder was not placed');
     expect(roomWords({ code: 'trade.scale_rollback_incomplete' }).body).toContain('still open');
   });
+  it('shows the desk minimum the service names on a below-minimum refusal, and plain words when it is not set', () => {
+    const below = roomWords({ reason: 'error', code: 'trade.rfq_below_minimum', message: 'Below the desk minimum of 1000 USDT' });
+    expect(below.title).toBe('Below the desk minimum');
+    expect(below.body).toBe('Below the desk minimum of 1000 USDT. Ask for a larger size; nothing was priced or held.');
+    expect(below.code).toBe('trade.rfq_below_minimum');
+    expect(roomWords({ reason: 'error', code: 'trade.rfq_size_not_set' }).title).toBe('The desk minimum is not set');
+  });
+  it('shows the provider cap the service names, and plain words for a blank provider list or no pick (CB-otc-01)', () => {
+    const over = roomWords({
+      reason: 'error',
+      code: 'trade.otc_provider_cap',
+      message: 'At most 3 providers can be picked for one request (got 4)',
+    });
+    expect(over.title).toBe('Too many providers');
+    expect(over.body).toBe('At most 3 providers can be picked for one request (got 4). Pick fewer; nothing was priced or held.');
+    expect(over.code).toBe('trade.otc_provider_cap');
+    expect(roomWords({ reason: 'error', code: 'trade.otc_makers_unset' }).title).toBe('No providers set');
+    expect(roomWords({ reason: 'error', code: 'trade.otc_provider_required' }).title).toBe('Pick a provider');
+    const unknown = roomWords({
+      reason: 'error',
+      code: 'trade.otc_provider_unknown',
+      message: 'Provider test-lp-9 is not in the provider list',
+    });
+    expect(unknown.title).toBe('Provider not on the list');
+    expect(unknown.body).not.toContain('test-lp-9');
+  });
 });

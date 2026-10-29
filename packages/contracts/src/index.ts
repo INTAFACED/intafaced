@@ -110,6 +110,8 @@ export * from './status-subscriptions.js';
 export * from './support-bulk.js';
 export * from './support-merge.js';
 export * from './support-survey.js';
+export * from './support-macros.js';
+export * from './support-workspace.js';
 export * from './merchant-descriptor.js';
 export * from './preview-refusal.js';
 export * from './academy-articles.js';

@@ -87,6 +87,7 @@ import { registerPromoRest } from './spot/promo-rest.js';
 import { registerSpotOrderPreviewRest } from './spot/order-preview-rest.js';
 import { registerFeeTierRest } from './spot/fee-tier-rest.js';
 import { registerVipRest } from './spot/vip-rest.js';
+import { parseDataTerms, parseDeveloperHosts, registerDeveloperPortalRest } from './developer-portal-rest.js';
 import { VipApplicationStore, parseVipProofKey } from './spot/vip-applications.js';
 import { assertMakerRebatesPayable, parseFeeScheduleJson } from './spot/fee-schedule.js';
 import { feeScheduleAt } from './spot/fee-schedule-store.js';
@@ -1140,6 +1141,10 @@ registerInternalFundingRate(app, {
 registerFundingHistory(app, {
   marketBySymbol: (symbol) => trade.marketBySymbol(symbol),
   historyForMarket: async (marketId) => fundingHistory.list(marketId),
+});
+registerDeveloperPortalRest(app, {
+  hosts: parseDeveloperHosts(env.TRADE_DEVELOPER_HOSTS),
+  dataTerms: parseDataTerms(env.TRADE_DEVELOPER_DATA_TERMS),
 });
 registerMarketLifecycleRoutes(app, {
   internalSecret: env.INTERNAL_SERVICE_SECRET,

@@ -456,7 +456,9 @@ await app.register(async (api) => {
     // refresh path, so anonymous forwarding only told the bot "authentication required", the same words as
     // sending no key (`api-key-refusal.ts`).
     if (exchanged.apiKeyRefusal) {
-      req.log.info({ code: exchanged.apiKeyRefusal.code, path: url.pathname }, 'edge: api key refused');
+      // A 503 refusal (the owner's signing window is blank) is a platform setup gap, not a bad key: warn.
+      const level = exchanged.apiKeyRefusal.status >= 500 ? 'warn' : 'info';
+      req.log[level]({ code: exchanged.apiKeyRefusal.code, path: url.pathname }, 'edge: api key refused');
       markAuthOutcome(req, 'refused');
       return reply.code(exchanged.apiKeyRefusal.status).send(apiKeyRefusalBody(exchanged.apiKeyRefusal));
     }
