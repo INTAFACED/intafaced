@@ -1,8 +1,9 @@
 /**
  * Spot grid bot errors (CB-bots-02, CB-bots-10; J-copy-bots-otc-14).
  *
- * The wire carries only `data.cause.code`, so a refusal that names a field names it in its code
- * (`trade.grid_lower_price_required`) as well as in its message. Codes are stable for wire mapping.
+ * Codes are the spec's where it names one (CB-bots-02: `trade.bots_grid_bounds_not_set`,
+ * `trade.bots_grid_count_out_of_range`; CB-bots-10: `trade.bots_verification_*`). A refusal that names a field
+ * names it in its message ("Lower price is required"), which the wire carries with the code. Codes are stable for wire mapping.
  */
 
 export type GridErrorCode =
@@ -10,13 +11,12 @@ export type GridErrorCode =
   | 'trade.grid_request_conflict'
   | 'trade.grid_market_not_found'
   | 'trade.grid_market_not_spot'
-  | 'trade.grid_lower_price_required'
-  | 'trade.grid_upper_price_required'
+  | 'trade.bots_grid_bounds_not_set'
   | 'trade.grid_investment_required'
   | 'trade.grid_count_required'
   | 'trade.grid_bounds_inverted'
   | 'trade.grid_count_range_not_set'
-  | 'trade.grid_count_out_of_range'
+  | 'trade.bots_grid_count_out_of_range'
   | 'trade.grid_spacing_below_tick'
   | 'trade.grid_level_below_minimum'
   | 'trade.grid_mark_unavailable'

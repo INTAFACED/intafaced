@@ -182,6 +182,11 @@ const LEADER_FILL_MISSING = 'Leader fill not found — refuse rather than invent
 
 export interface CopyServiceOptions {
   feeShareLaw?: CopyFeeShareLaw;
+  /**
+   * What the follower's grid bots still reserve of one asset (grid/store.ts sumUnusedReserves). Read under the same
+   * reserve lock a grid create takes, so a follow and a grid never both fit the same balance. Omitted → none.
+   */
+  gridUnusedReserves?: (userId: string, asset: string) => Promise<Amount>;
   /** Owner's verification level for copying (TRADE_COPY_MIN_TIER). Omitted → every startFollow refuses. */
   minTier?: CopyTier | null;
   jurisdictionLaw?: CopyJurisdictionLaw;
@@ -326,6 +331,7 @@ export class CopyService {
   private readonly metricDefinitions: CopyMetricDefinitions;
   private readonly minTier: CopyTier | null;
   private readonly readResultFigure: ((follow: CopyFollow) => Promise<{ figure: Amount | null; missing: string | null }>) | null;
+  private readonly gridUnusedReserves: (userId: string, asset: string) => Promise<Amount>;
 
   constructor(
     private readonly ledger: LedgerClient,
@@ -347,6 +353,7 @@ export class CopyService {
     this.sql = options.sql ?? null;
     this.lookupMark = options.lookupMark ?? null;
     this.readResultFigure = options.readResultFigure ?? null;
+    this.gridUnusedReserves = options.gridUnusedReserves ?? (async () => 0n);
     // Read like TRADE_COPY_PLACE_MIRROR above; env.ts declares it. Invalid JSON fails boot.
     this.metricDefinitions = options.metricDefinitions ?? UNPUBLISHED_COPY_METRIC_DEFINITIONS;
     this.minTier = options.minTier ?? null;
@@ -604,9 +611,16 @@ export class CopyService {
     } catch {
       throw new CopyError('Copy envelope caps must be valid decimal amounts', 'trade.copy_envelope_invalid');
     }
-    const free = freeSpotBalance(await this.ledger.balances('user', principal.userId), asset);
-    // A quick refusal before admission; the same check runs again under the follower's reserve lock in the save.
-    assertReserveFits({ amount, asset, free, reservedElsewhere: await this.store.sumUnusedReserves(principal.userId, asset) });
+    const free = async () => freeSpotBalance(await this.ledger.balances('user', principal.userId), asset);
+    const gridUnused = () => this.gridUnusedReserves(principal.userId, asset);
+    // A quick refusal before admission; the same check runs again under the follower's reserve lock in the save, with
+    // the balance and the grid reserves read again after whatever held the lock before.
+    assertReserveFits({
+      amount,
+      asset,
+      free: await free(),
+      reservedElsewhere: (await this.store.sumUnusedReserves(principal.userId, asset)) + (await gridUnused()),
+    });
     return this.follow(principal, input, {
       followId,
       leaderId,
@@ -617,8 +631,8 @@ export class CopyService {
         assertReserveFits({
           amount: follow.reserve!.amount,
           asset,
-          free,
-          reservedElsewhere: await store.sumUnusedReserves(principal.userId, asset),
+          free: await free(),
+          reservedElsewhere: (await store.sumUnusedReserves(principal.userId, asset)) + (await gridUnused()),
         });
       },
     });

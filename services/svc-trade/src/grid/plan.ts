@@ -33,7 +33,7 @@ export interface GridPlan {
   readonly levels: readonly GridLevelPlan[];
 }
 
-function floorTo(value: Amount, step: Amount): Amount {
+export function floorTo(value: Amount, step: Amount): Amount {
   if (step <= 0n) return value;
   return (value / step) * step;
 }
@@ -50,7 +50,7 @@ export function planGrid(input: {
     throw new GridError('Lower price must be below upper price', 'trade.grid_bounds_inverted');
   }
   if (!Number.isInteger(count) || count < GRID_COUNT_FLOOR) {
-    throw new GridError(`Grids must be at least ${GRID_COUNT_FLOOR}`, 'trade.grid_count_out_of_range');
+    throw new GridError(`Grids must be at least ${GRID_COUNT_FLOOR}`, 'trade.bots_grid_count_out_of_range');
   }
   const steps = BigInt(count - 1);
   const slice = investment / BigInt(count);
@@ -79,8 +79,8 @@ export function planGrid(input: {
 }
 
 /** Levels a fresh or resumed grid buys at: strictly below the mark. */
-export function levelsBelowMark(plan: GridPlan, mark: Amount): readonly GridLevelPlan[] {
-  return plan.levels.filter((level) => level.price < mark);
+export function levelsBelowMark(levels: readonly GridLevelPlan[], mark: Amount): readonly GridLevelPlan[] {
+  return levels.filter((level) => level.price < mark);
 }
 
 /** The range pause: the mark outside the bounds places no new buys. */

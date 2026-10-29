@@ -385,7 +385,10 @@ const placeFollowerOrder: PlaceFollowerOrderPort = async (principal, input) => {
   );
   return { orderId: order.id };
 };
+// The grid's reserve rows: a copy follow subtracts them, as a grid create subtracts the follows' (one reserve lock).
+const gridStore = new SqlGridStore(sql);
 const copy = new CopyService(ledger, {
+  gridUnusedReserves: (userId, asset) => gridStore.sumUnusedReserves(userId, asset),
   accountAdmission: tradingControls,
   feeShareLaw: copyFeeShareLaw,
   jurisdictionLaw: copyJurisdictionLaw,
@@ -477,7 +480,7 @@ trade.bindCopyMirrorFill((notice) => copy.observeFollowerFill(notice));
 // The spot grid bot (CB-bots-02, -05, -10): its reserve and level rows are svc-trade's own; its orders go through the
 // trade service's place path as delegated children of the bot's admitted start.
 const grid = new GridService({
-  store: new SqlGridStore(sql),
+  store: gridStore,
   policy: loadGridPolicy(process.env),
   verification: () => botVerification,
   marketBySymbol: (symbol) => trade.marketBySymbol(symbol),
@@ -488,7 +491,7 @@ const grid = new GridService({
   placeLevel: (principal, input, botId) => trade.placeGridLevel(principal, input, botId),
   findOrder: (orderId) => trade.findOrder(orderId),
   cancelOrder: (principal, orderId) => trade.cancelOrder(principal, orderId),
-  fillsForOrder: (principal, orderId) => trade.fillsForOrder(principal, orderId, 500),
+  fillsForOrder: (principal, orderId) => trade.everyFillOfOrder(principal, orderId),
 });
 const tradeOpsApprovals = currentTradingRestrictApprovals() ?? identityApprovalBook(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET, outS2s);
 export const appRouter = createTradeRouter(

@@ -11,7 +11,10 @@
 -- stays as the record.
 --
 -- grid_bot_orders: each level order the bot placed, keyed by the trade order's clientOrderId. A filled sell carries
--- its pair's profit net of fees.
+-- its pair's profit net of fees; a sell that ended part filled reads partial and carries none.
+--
+-- A stopped or failed bot whose reserve row is not released is still winding down: the tick cancels its open orders,
+-- then releases the reserve.
 
 CREATE TABLE IF NOT EXISTS "trade"."grid_bots" (
   "bot_id"            text PRIMARY KEY,
@@ -36,7 +39,7 @@ CREATE TABLE IF NOT EXISTS "trade"."grid_bots" (
   CONSTRAINT "grid_bots_bounds_ck" CHECK ("lower_price" > 0 AND "lower_price" < "upper_price"),
   CONSTRAINT "grid_bots_count_ck" CHECK ("grid_count" >= 2),
   CONSTRAINT "grid_bots_investment_ck" CHECK ("investment" > 0),
-  CONSTRAINT "grid_bots_status_ck" CHECK ("status" IN ('running', 'paused_range', 'initialization_failed', 'stopped'))
+  CONSTRAINT "grid_bots_status_ck" CHECK ("status" IN ('initializing', 'running', 'paused_range', 'initialization_failed', 'stopped'))
 );
 
 CREATE INDEX IF NOT EXISTS "grid_bots_user_idx" ON "trade"."grid_bots" ("user_id", "created_at" DESC);
@@ -68,14 +71,14 @@ CREATE TABLE IF NOT EXISTS "trade"."grid_bot_orders" (
   "order_id"        text NOT NULL,
   "price"           numeric(38, 18) NOT NULL,
   "qty"             numeric(38, 18) NOT NULL,
-  "order_hold"     numeric(38, 18) NOT NULL,
+  "order_hold"      numeric(38, 18) NOT NULL,
   "status"          text NOT NULL,
   "pair_profit"     numeric(38, 18),
   "placed_at"       timestamptz NOT NULL,
   "closed_at"       timestamptz,
   CONSTRAINT "grid_bot_orders_pair_uq" UNIQUE ("bot_id", "level_index", "side", "cycle"),
   CONSTRAINT "grid_bot_orders_side_ck" CHECK ("side" IN ('buy', 'sell')),
-  CONSTRAINT "grid_bot_orders_status_ck" CHECK ("status" IN ('open', 'filled', 'cancelled')),
+  CONSTRAINT "grid_bot_orders_status_ck" CHECK ("status" IN ('open', 'filled', 'partial', 'cancelled')),
   CONSTRAINT "grid_bot_orders_profit_ck" CHECK ("pair_profit" IS NULL OR ("side" = 'sell' AND "status" = 'filled')),
   CONSTRAINT "grid_bot_orders_key_ck" CHECK ("client_order_id" LIKE 'grid:' || "bot_id" || ':%')
 );

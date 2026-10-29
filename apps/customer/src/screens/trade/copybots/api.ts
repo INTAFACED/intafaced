@@ -133,7 +133,7 @@ export const gridBotSchema = z.object({
   upperPrice: decimalSchema,
   gridCount: z.number(),
   investment: decimalSchema,
-  status: z.enum(['running', 'paused_range', 'initialization_failed', 'stopped']),
+  status: z.enum(['initializing', 'running', 'paused_range', 'initialization_failed', 'stopped']),
   statusReason: z.string().nullable(),
   reserve: z.object({ key: z.string(), asset: z.string(), amount: decimalSchema, releasedAt: z.string().nullable() }).nullable(),
   levels: z.array(
@@ -155,7 +155,7 @@ export const gridBotSchema = z.object({
       price: decimalSchema,
       qty: decimalSchema,
       holdAmount: decimalSchema,
-      status: z.enum(['open', 'filled', 'cancelled']),
+      status: z.enum(['open', 'filled', 'partial', 'cancelled']),
       pairProfit: signedDecimalSchema.nullable(),
     }),
   ),

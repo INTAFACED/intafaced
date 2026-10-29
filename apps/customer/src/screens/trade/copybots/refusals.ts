@@ -309,13 +309,9 @@ const GRID: Readonly<Record<string, Words>> = {
     title: 'That market isn’t open for spot trading',
     body: 'Choose an open spot market. Nothing was created.',
   },
-  'trade.grid_lower_price_required': {
-    title: 'Enter a Lower price',
-    body: 'Lower price is required and must be above zero. Nothing was created.',
-  },
-  'trade.grid_upper_price_required': {
-    title: 'Enter an Upper price',
-    body: 'Upper price is required and must be above zero. Nothing was created.',
+  'trade.bots_grid_bounds_not_set': {
+    title: 'Enter both bounds',
+    body: 'Lower price and Upper price are both required and must be above zero. Nothing was created.',
   },
   'trade.grid_investment_required': {
     title: 'Enter an Investment',
@@ -330,7 +326,7 @@ const GRID: Readonly<Record<string, Words>> = {
     title: 'The allowed grid count isn’t set',
     body: 'The platform hasn’t set how many grid levels a bot may use, so no grid bot can start. Nothing was created.',
   },
-  'trade.grid_count_out_of_range': {
+  'trade.bots_grid_count_out_of_range': {
     title: 'Grids is out of range',
     body: 'Choose a grid count inside the allowed range shown under the field. Nothing was created.',
   },

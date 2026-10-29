@@ -1652,6 +1652,11 @@ export class TradeService {
     return reads.fillsForOrder(this.internal, principal, orderId, limit);
   }
 
+  /** Every fill of one owned order (the grid bot's fee and pair sums). */
+  async everyFillOfOrder(principal: Principal, orderId: string): Promise<FillRecord[]> {
+    return reads.everyFillOfOrder(this.internal, principal, orderId);
+  }
+
   async findOrder(orderId: string): Promise<OrderRecord | null> {
     const rows = await this.sql<OrderRow[]>`SELECT * FROM trade.orders WHERE id = ${orderId}`;
     const row = rows[0];

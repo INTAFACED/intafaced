@@ -9,6 +9,10 @@ export interface GridStore {
   listBots(userId: string): Promise<GridBot[]>;
   /** Bots the tick drives: running or paused on range. */
   listLiveBots(): Promise<GridBot[]>;
+  /** Stopped or failed bots whose reserve is not released yet: an order of theirs may still be open. */
+  listWindingDown(): Promise<GridBot[]>;
+  /** Bots still initializing whose status was last written before `before`: a create that stopped part way. */
+  listStaleInitializing(before: Date): Promise<GridBot[]>;
   /**
    * Write the bot and its reserve together. `check` runs first, under the owner's reserve lock for the asset and inside
    * the same transaction, so two creates cannot both fit the same balance. A bot id already present writes nothing and
@@ -19,16 +23,20 @@ export interface GridStore {
     reserve: GridReserve,
     check: (unused: Amount) => Promise<void>,
   ): Promise<{ created: boolean; bot: GridBot }>;
-  setStatus(botId: string, status: GridStatus, reason: string | null, at: Date): Promise<void>;
+  /** Writes only while the bot's status is one of `from`, so a tick never undoes a stop. True when it wrote. */
+  setStatus(botId: string, status: GridStatus, reason: string | null, at: Date, from: readonly GridStatus[]): Promise<boolean>;
   getReserve(botId: string): Promise<GridReserve | null>;
   releaseReserve(botId: string, at: Date): Promise<void>;
   /** Unreleased grid reserves of one owner and asset, less what each bot's open buys already hold. */
   sumUnusedReserves(userId: string, asset: string): Promise<Amount>;
   /** Insert once by clientOrderId; a second save of the same key keeps the first row. */
   saveOrder(order: GridOrder): Promise<GridOrder>;
-  closeOrder(clientOrderId: string, status: 'filled' | 'cancelled', pairProfit: Amount | null, at: Date): Promise<void>;
+  closeOrder(clientOrderId: string, status: ClosedStatus, pairProfit: Amount | null, at: Date): Promise<void>;
   listOrders(botId: string): Promise<GridOrder[]>;
 }
+
+type ClosedStatus = Exclude<GridOrder['status'], 'open'>;
+const WINDING_DOWN: readonly GridStatus[] = ['stopped', 'initialization_failed'];
 
 /** Same advisory key copy follows lock (copy/follow-store.ts), so a grid create and a follow create serialise. */
 export const reserveLockKey = (userId: string, asset: string): string => `copy.reserve:${userId}:${asset}`;
@@ -53,6 +61,12 @@ export class MemoryGridStore implements GridStore {
   async listLiveBots() {
     return [...this.bots.values()].filter((b) => b.status === 'running' || b.status === 'paused_range');
   }
+  async listStaleInitializing(before: Date) {
+    return [...this.bots.values()].filter((b) => b.status === 'initializing' && b.updatedAt < before);
+  }
+  async listWindingDown() {
+    return [...this.bots.values()].filter((b) => WINDING_DOWN.includes(b.status) && this.reserves.get(b.botId)?.releasedAt === null);
+  }
   async createWithReserve(bot: GridBot, reserve: GridReserve, check: (unused: Amount) => Promise<void>) {
     const existing = this.bots.get(bot.botId);
     if (existing) return { created: false, bot: existing };
@@ -61,9 +75,11 @@ export class MemoryGridStore implements GridStore {
     this.reserves.set(bot.botId, reserve);
     return { created: true, bot };
   }
-  async setStatus(botId: string, status: GridStatus, reason: string | null, at: Date) {
+  async setStatus(botId: string, status: GridStatus, reason: string | null, at: Date, from: readonly GridStatus[]) {
     const bot = this.bots.get(botId);
-    if (bot) this.bots.set(botId, { ...bot, status, statusReason: reason, updatedAt: at });
+    if (!bot || !from.includes(bot.status)) return false;
+    this.bots.set(botId, { ...bot, status, statusReason: reason, updatedAt: at });
+    return true;
   }
   async getReserve(botId: string) {
     return this.reserves.get(botId) ?? null;
@@ -86,7 +102,7 @@ export class MemoryGridStore implements GridStore {
     this.orders.set(order.clientOrderId, order);
     return order;
   }
-  async closeOrder(clientOrderId: string, status: 'filled' | 'cancelled', pairProfit: Amount | null, at: Date) {
+  async closeOrder(clientOrderId: string, status: ClosedStatus, pairProfit: Amount | null, at: Date) {
     const o = this.orders.get(clientOrderId);
     if (o && o.status === 'open') this.orders.set(clientOrderId, { ...o, status, pairProfit, closedAt: at });
   }
@@ -238,6 +254,24 @@ export class SqlGridStore implements GridStore {
     return rows.map(botFromRow);
   }
 
+  async listStaleInitializing(before: Date) {
+    const rows = await this.sql.unsafe<BotRow[]>(
+      `SELECT ${BOT_COLUMNS} FROM grid_bots WHERE status = 'initializing' AND updated_at < $1 ORDER BY created_at, bot_id`,
+      [before],
+    );
+    return rows.map(botFromRow);
+  }
+
+  async listWindingDown() {
+    const rows = await this.sql.unsafe<BotRow[]>(
+      `SELECT ${BOT_COLUMNS} FROM grid_bots
+        WHERE status IN ('stopped', 'initialization_failed')
+          AND bot_id IN (SELECT bot_id FROM grid_bot_reserves WHERE released_at IS NULL)
+        ORDER BY created_at, bot_id`,
+    );
+    return rows.map(botFromRow);
+  }
+
   async createWithReserve(bot: GridBot, reserve: GridReserve, check: (unused: Amount) => Promise<void>) {
     return (await this.sql.begin(async (tx) => {
       const store = new SqlGridStore(tx as unknown as Sql);
@@ -263,8 +297,12 @@ export class SqlGridStore implements GridStore {
     })) as { created: boolean; bot: GridBot };
   }
 
-  async setStatus(botId: string, status: GridStatus, reason: string | null, at: Date) {
-    await this.sql`UPDATE grid_bots SET status = ${status}, status_reason = ${reason}, updated_at = ${at} WHERE bot_id = ${botId}`;
+  async setStatus(botId: string, status: GridStatus, reason: string | null, at: Date, from: readonly GridStatus[]) {
+    const rows = await this.sql`
+      UPDATE grid_bots SET status = ${status}, status_reason = ${reason}, updated_at = ${at}
+       WHERE bot_id = ${botId} AND status = ANY(${from as GridStatus[]}::text[])
+      RETURNING bot_id`;
+    return rows.length > 0;
   }
 
   async getReserve(botId: string) {
@@ -302,7 +340,7 @@ export class SqlGridStore implements GridStore {
     return orderFromRow(rows[0]!);
   }
 
-  async closeOrder(clientOrderId: string, status: 'filled' | 'cancelled', pairProfit: Amount | null, at: Date) {
+  async closeOrder(clientOrderId: string, status: ClosedStatus, pairProfit: Amount | null, at: Date) {
     await this.sql`
       UPDATE grid_bot_orders
          SET status = ${status}, pair_profit = ${pairProfit === null ? null : formatAmount(pairProfit)}, closed_at = ${at}

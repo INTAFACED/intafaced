@@ -9,8 +9,11 @@
  * 5. the trading admission for `strategy.start` with business id `grid:<botId>`;
  * 6. the bot and its reserve in one transaction, under the owner's reserve lock;
  * 7. a buy on every level below the mark, each through the trade service's own place path as a delegated
- *    `algo.child` of the bot, clientOrderId `grid:<botId>:<level>:b<cycle>`. If any level fails, the placed levels
- *    are cancelled, the reserve is released and the bot reads initialization_failed.
+ *    `algo.child` of the bot, clientOrderId `grid:<botId>:<level>:b<cycle>`. If any level fails, the bot reads
+ *    initialization_failed, the levels it placed are cancelled and then the reserve is released.
+ *
+ * A replay of the same key and body answers what the first call answered: a failed start refuses again, and a live bot
+ * first places any level the first call did not reach (a crash after the save), under the same clientOrderIds.
  *
  * Quote only: the bot never needs base to start. A filled buy places a sell one level up for what the buy delivered
  * net of its base fee; a filled sell closes the pair, and its profit is the sell's quote less fees less the buy's quote
@@ -18,6 +21,14 @@
  * any step is picked up by the next tick with the same clientOrderIds.
  *
  * Range pause: while the mark is outside the bounds no new buy is placed; open orders stay and may still fill.
+ *
+ * Stop and a failed start wind the bot down: every order it has open, and the next order id of each level (a place
+ * that reached the engine but whose row was never saved), is cancelled; the reserve is released once none is left
+ * open. A cancel that fails keeps the reserve held, and each tick tries the wind-down again. Status writes are
+ * conditional on the status read, so a tick never brings back a bot that was stopped while it ran.
+ *
+ * A sell that ends part filled reads partial: its pair is not closed, it states no profit, and the base it did not sell
+ * stays in the owner's balance.
  *
  * Nothing here moves value: every hold, fill and release is the trade service's order path through the ledger recipes.
  */
@@ -29,7 +40,8 @@ import { captureAlgoPlaceGrant, principalFromAlgoGrant } from '../algo/durable-p
 import type { PlaceOrderInput } from '../spot/trade-service.js';
 import type { FillRecord, Market, OrderRecord } from '../spot/types.js';
 import { GridError } from './errors.js';
-import { levelsBelowMark, markInRange, planGrid, type GridLevelPlan } from './plan.js';
+import { orderIdFor } from '../spot/ids.js';
+import { floorTo, levelsBelowMark, markInRange, planGrid, type GridLevelPlan } from './plan.js';
 import type { GridPolicy } from './policy.js';
 import type { GridStore } from './store.js';
 import {
@@ -59,6 +71,7 @@ export interface GridPorts {
   placeLevel(principal: Principal, input: PlaceOrderInput, botId: string): Promise<OrderRecord>;
   findOrder(orderId: string): Promise<OrderRecord | null>;
   cancelOrder(principal: Principal, orderId: string): Promise<unknown>;
+  /** Every fill of one order (not a page), so fees and proceeds are summed whole. */
   fillsForOrder(principal: Principal, orderId: string): Promise<FillRecord[]>;
   now?: () => Date;
 }
@@ -166,10 +179,27 @@ export function markOf(depth: Awaited<ReturnType<GridPorts['depth']>>): Amount |
   return (parseAmount(bid) + parseAmount(ask)) / 2n;
 }
 
-const floorTo = (value: Amount, step: Amount): Amount => (step > 0n ? (value / step) * step : value);
 const TERMINAL: ReadonlySet<OrderRecord['status']> = new Set(['filled', 'cancelled', 'rejected', 'expired']);
+const LIVE: readonly GridStatus[] = ['running', 'paused_range'];
+const isLive = (status: GridStatus) => LIVE.includes(status);
+/** Statuses a stop or a failed start may leave: a live bot, or one whose create is still placing. */
+const STOPPABLE: readonly GridStatus[] = ['initializing', ...LIVE];
+/** A create that has not finished placing after this long stopped part way; the tick takes the bot over. */
+const INITIALIZING_STALE_MS = 120_000;
+const INITIALIZATION_FAILED = 'The grid could not place its levels; nothing is left running';
+
+/** A level order id the bot may hold with no row of its own: the next buy of a level, or the sell of a bought pair. */
+interface OrderSlot {
+  readonly clientOrderId: string;
+  readonly levelIndex: number;
+  readonly side: 'buy' | 'sell';
+  readonly cycle: number;
+}
 
 export class GridService {
+  /** Bots this process is driving now, so a replay and the tick never place the same level order at once. */
+  private readonly driving = new Set<string>();
+
   constructor(private readonly ports: GridPorts) {}
 
   private now(): Date {
@@ -194,8 +224,8 @@ export class GridService {
     const already = await this.ports.store.findBot(botId);
     if (already) return this.sameRequest(already, hash);
 
-    const lower = positiveAmount(input.lowerPrice, 'trade.grid_lower_price_required', 'Lower price');
-    const upper = positiveAmount(input.upperPrice, 'trade.grid_upper_price_required', 'Upper price');
+    const lower = positiveAmount(input.lowerPrice, 'trade.bots_grid_bounds_not_set', 'Lower price');
+    const upper = positiveAmount(input.upperPrice, 'trade.bots_grid_bounds_not_set', 'Upper price');
     if (!(lower < upper)) throw new GridError('Lower price must be below upper price', 'trade.grid_bounds_inverted');
     const investment = positiveAmount(input.investment, 'trade.grid_investment_required', 'Investment');
     const count = input.gridCount;
@@ -203,7 +233,7 @@ export class GridService {
     const range = this.ports.policy.countRange;
     if (!range) throw new GridError('The platform has not set how many grids a bot may use', 'trade.grid_count_range_not_set');
     if (!Number.isInteger(count) || count < range.min || count > range.max) {
-      throw new GridError(`Grids must be from ${range.min} to ${range.max}`, 'trade.grid_count_out_of_range', {
+      throw new GridError(`Grids must be from ${range.min} to ${range.max}`, 'trade.bots_grid_count_out_of_range', {
         field: 'Grids',
         min: String(range.min),
         max: String(range.max),
@@ -220,10 +250,11 @@ export class GridService {
     if (mark === null) throw new GridError(`${market.symbol} has no bid and ask to place a grid around`, 'trade.grid_mark_unavailable');
 
     const asset = market.quoteAsset;
-    const free = await this.ports.freeBalance(principal.userId, asset);
-    const copyUnused = await this.ports.copyUnusedReserves(principal.userId, asset);
-    const fits = (gridUnused: Amount) => {
-      const left = free - copyUnused - gridUnused;
+    // Free quote less every other reserve. The save runs this again under the owner's reserve lock, where a copy follow
+    // or another grid create of the same asset waits its turn, so the balance and both reserve sums are read after them.
+    const fits = async (gridUnused: Amount) => {
+      const free = await this.ports.freeBalance(principal.userId, asset);
+      const left = free - (await this.ports.copyUnusedReserves(principal.userId, asset)) - gridUnused;
       if (investment > left) {
         throw new GridError(
           `Investment ${formatAmount(investment)} ${asset} is more than the ${formatAmount(left > 0n ? left : 0n)} ${asset} free`,
@@ -235,8 +266,8 @@ export class GridService {
         );
       }
     };
-    // A quick refusal before admission; the same check runs again under the reserve lock in the save.
-    fits(await this.ports.store.sumUnusedReserves(principal.userId, asset));
+    // A quick refusal before admission.
+    await fits(await this.ports.store.sumUnusedReserves(principal.userId, asset));
 
     const grant = captureAlgoPlaceGrant(principal);
     await this.ports.admitStart(principal, gridBusinessId(botId), {
@@ -263,7 +294,7 @@ export class GridService {
       gridCount: count,
       investment,
       levels: plan.levels,
-      status: markInRange(lower, upper, mark) ? 'running' : 'paused_range',
+      status: markInRange(lower, upper, mark) ? 'initializing' : 'paused_range',
       statusReason: null,
       placeGrant: grant,
       createdAt: at,
@@ -278,40 +309,53 @@ export class GridService {
       heldAt: at,
       releasedAt: null,
     };
-    const saved = await this.ports.store.createWithReserve(bot, reserve, async (gridUnused) => fits(gridUnused));
+    const saved = await this.ports.store.createWithReserve(bot, reserve, fits);
     if (!saved.created) return this.sameRequest(saved.bot, hash);
 
-    if (bot.status === 'running') {
+    if (bot.status === 'initializing') {
       try {
         await this.placeMissingBuys(principal, bot, market, mark, []);
       } catch (error) {
         await this.failInitialization(principal, bot, error);
       }
+      // A stop that landed while the levels were placed wins: what was placed is cancelled.
+      if (!(await this.ports.store.setStatus(botId, 'running', null, this.now(), ['initializing']))) {
+        await this.windDown(principal, await this.stored(botId));
+      }
     }
-    return this.view(botId);
+    return this.view(await this.stored(botId));
+  }
+
+  private async stored(botId: string): Promise<GridBot> {
+    const bot = await this.ports.store.findBot(botId);
+    if (!bot) throw new GridError('Grid bot not found', 'trade.grid_not_found');
+    return bot;
   }
 
   private async sameRequest(bot: GridBot, hash: string): Promise<GridBotView> {
     if (bot.requestHash !== hash) {
       throw new GridError('This request key already made a different grid bot', 'trade.grid_request_conflict');
     }
-    return this.view(bot.botId);
+    if (bot.status === 'initialization_failed') {
+      throw new GridError(INITIALIZATION_FAILED, 'trade.grid_initialization_failed', {
+        reason: bot.statusReason ?? 'trade.grid_initialization_failed',
+      });
+    }
+    // A bot still initializing is being placed by the first press (or the tick takes it over once stale): never twice.
+    if (isLive(bot.status)) await this.tick(bot);
+    return this.view(await this.stored(bot.botId));
   }
 
   private async failInitialization(principal: Principal, bot: GridBot, error: unknown): Promise<never> {
     const reason = (error as { code?: string })?.code ?? 'trade.grid_initialization_failed';
-    for (const order of await this.ports.store.listOrders(bot.botId)) {
-      if (order.status !== 'open') continue;
-      try {
-        await this.ports.cancelOrder(principal, order.orderId);
-        await this.ports.store.closeOrder(order.clientOrderId, 'cancelled', null, this.now());
-      } catch {
-        // Left open in the row; the stopped-bot sweep in tickAll cancels it again.
-      }
+    // The status first: no tick places for it from here, and a wind-down that cannot finish now is retried by the tick.
+    await this.ports.store.setStatus(bot.botId, 'initialization_failed', reason, this.now(), STOPPABLE);
+    try {
+      await this.windDown(principal, bot);
+    } catch {
+      // The reserve stays held; the tick's wind-down pass tries again.
     }
-    await this.ports.store.setStatus(bot.botId, 'initialization_failed', reason, this.now());
-    await this.ports.store.releaseReserve(bot.botId, this.now());
-    throw new GridError('The grid could not place its levels; nothing is left running', 'trade.grid_initialization_failed', { reason });
+    throw new GridError(INITIALIZATION_FAILED, 'trade.grid_initialization_failed', { reason });
   }
 
   /** One buy per level strictly below the mark that has no open order, never on the top level (it has no level above). */
@@ -322,8 +366,7 @@ export class GridService {
     mark: Amount,
     orders: readonly GridOrder[],
   ): Promise<void> {
-    const plan = { slice: bot.investment / BigInt(bot.gridCount), levels: bot.levels };
-    for (const level of levelsBelowMark(plan, mark)) {
+    for (const level of levelsBelowMark(bot.levels, mark)) {
       if (level.index === bot.gridCount - 1) continue;
       const atLevel = orders.filter((o) => o.levelIndex === level.index);
       if (atLevel.some((o) => o.status === 'open')) continue;
@@ -368,94 +411,203 @@ export class GridService {
   async get(principal: Principal, botId: string): Promise<GridBotView> {
     const bot = await this.ports.store.findBot(botId);
     if (!bot || bot.userId !== principal.userId) throw new GridError('Grid bot not found', 'trade.grid_not_found');
-    return this.view(botId);
+    return this.view(bot);
   }
 
   async list(principal: Principal): Promise<GridBotView[]> {
     const bots = await this.ports.store.listBots(principal.userId);
-    return Promise.all(bots.map((b) => this.view(b.botId)));
+    return Promise.all(bots.map((b) => this.view(b)));
   }
 
-  /** Stop: cancel every open level order, release the reserve. Base already bought stays in the owner's balance. */
+  /**
+   * Stop: nothing new is placed, every open level order is cancelled, then the reserve is released. Base already bought
+   * stays in the owner's balance. A second stop, or a stop of a failed start, runs the wind-down again.
+   */
   async stop(principal: Principal, botId: string): Promise<GridBotView> {
     const bot = await this.ports.store.findBot(botId);
     if (!bot || bot.userId !== principal.userId) throw new GridError('Grid bot not found', 'trade.grid_not_found');
-    if (bot.status === 'stopped' || bot.status === 'initialization_failed') return this.view(botId);
-    await this.ports.store.setStatus(botId, 'stopped', 'owner_stop', this.now());
-    await this.cancelOpen(principal, bot);
-    await this.ports.store.releaseReserve(botId, this.now());
-    return this.view(botId);
+    await this.ports.store.setStatus(botId, 'stopped', 'owner_stop', this.now(), STOPPABLE);
+    await this.windDown(principal, bot);
+    return this.view(await this.stored(botId));
   }
 
-  private async cancelOpen(principal: Principal, bot: GridBot): Promise<void> {
-    for (const order of await this.ports.store.listOrders(bot.botId)) {
-      if (order.status !== 'open') continue;
-      await this.ports.cancelOrder(principal, order.orderId);
-      await this.ports.store.closeOrder(order.clientOrderId, 'cancelled', null, this.now());
-    }
-  }
-
-  /** One pass over every live bot. A failing bot is recorded on its row and does not stop the others. */
-  async tickAll(): Promise<void> {
-    for (const bot of await this.ports.store.listLiveBots()) {
+  /**
+   * Cancel every order the bot has, or may have, open; release the reserve once none is left open. Besides the bot's
+   * own open rows it reads back the next order id of each level, so a place that reached the engine but whose row was
+   * never saved is found and cancelled too. A filled buy places no sell here: its base stays the owner's.
+   */
+  private async windDown(principal: Principal, bot: GridBot): Promise<void> {
+    const orders = await this.ports.store.listOrders(bot.botId);
+    let left = 0;
+    for (const order of orders.filter((o) => o.status === 'open')) {
       try {
-        await this.tick(bot);
-      } catch (error) {
-        const reason = (error as { code?: string })?.code ?? 'trade.grid_tick_failed';
-        await this.ports.store.setStatus(bot.botId, bot.status, reason, this.now());
+        if (!(await this.closeOne(principal, bot, order))) left += 1;
+      } catch {
+        left += 1;
       }
     }
+    for (const slot of this.unsavedSlots(bot, orders)) {
+      try {
+        const record = await this.ports.findOrder(orderIdFor(bot.userId, bot.marketId, slot.clientOrderId));
+        if (!record) continue;
+        const order = await this.ports.store.saveOrder({
+          ...slot,
+          botId: bot.botId,
+          orderId: record.id,
+          price: record.price ?? 0n,
+          qty: record.qty,
+          holdAmount: record.holdAmount,
+          status: 'open',
+          pairProfit: null,
+          placedAt: this.now(),
+          closedAt: null,
+        });
+        if (order.status === 'open' && !(await this.closeOne(principal, bot, order))) left += 1;
+      } catch {
+        left += 1;
+      }
+    }
+    if (left === 0) await this.ports.store.releaseReserve(bot.botId, this.now());
   }
 
-  async tick(bot: GridBot): Promise<void> {
+  /** Cancel one open level order and record how it ended. False while the trade service still reports it open. */
+  private async closeOne(principal: Principal, bot: GridBot, order: GridOrder): Promise<boolean> {
+    let record = await this.ports.findOrder(order.orderId);
+    if (!record) return true;
+    if (!TERMINAL.has(record.status)) {
+      await this.ports.cancelOrder(principal, order.orderId);
+      record = await this.ports.findOrder(order.orderId);
+    }
+    if (!record || !TERMINAL.has(record.status)) return false;
+    await this.settle(principal, bot, null, order, record);
+    return true;
+  }
+
+  /** Each level's next buy, and the sell of each bought pair, that has no row. */
+  private unsavedSlots(bot: GridBot, orders: readonly GridOrder[]): OrderSlot[] {
+    const saved = new Set(orders.map((o) => o.clientOrderId));
+    const slots: OrderSlot[] = [];
+    for (const level of bot.levels) {
+      if (level.index === bot.gridCount - 1) continue;
+      const buys = orders.filter((o) => o.levelIndex === level.index && o.side === 'buy');
+      slots.push({ clientOrderId: '', levelIndex: level.index, side: 'buy', cycle: buys.length });
+      for (const buy of buys)
+        if (buy.status !== 'cancelled') slots.push({ clientOrderId: '', levelIndex: level.index, side: 'sell', cycle: buy.cycle });
+    }
+    return slots
+      .map((s) => ({ ...s, clientOrderId: gridClientOrderId(bot.botId, s.levelIndex, s.side, s.cycle) }))
+      .filter((s) => !saved.has(s.clientOrderId));
+  }
+
+  private tickPrincipal(bot: GridBot): Principal {
     const now = this.now();
-    const principal = principalFromAlgoGrant({
+    return principalFromAlgoGrant({
       userId: bot.userId,
       grant: bot.placeGrant,
       expiresAt: new Date(now.getTime() + TICK_AUTHORITY_MS),
       now,
     });
+  }
+
+  /**
+   * One pass over every live bot, then over every bot still winding down. A failing bot is recorded on its row (only
+   * while its status is still the one read) and does not stop the others.
+   */
+  async tickAll(): Promise<void> {
+    // A create that stopped part way (a crash, a lost connection): running from here, so this pass places what it missed.
+    const stale = new Date(this.now().getTime() - INITIALIZING_STALE_MS);
+    for (const bot of await this.ports.store.listStaleInitializing(stale)) {
+      await this.ports.store.setStatus(bot.botId, 'running', null, this.now(), ['initializing']);
+    }
+    for (const bot of await this.ports.store.listLiveBots()) {
+      try {
+        await this.tick(bot);
+      } catch (error) {
+        const reason = (error as { code?: string })?.code ?? 'trade.grid_tick_failed';
+        await this.ports.store.setStatus(bot.botId, bot.status, reason, this.now(), [bot.status]);
+      }
+    }
+    for (const bot of await this.ports.store.listWindingDown()) {
+      try {
+        await this.windDown(this.tickPrincipal(bot), bot);
+      } catch {
+        // The reserve stays held; the next pass tries again.
+      }
+    }
+  }
+
+  async tick(bot: GridBot): Promise<void> {
+    // Already being driven in this process (the tick and a replay at once): that pass places what is missing.
+    if (this.driving.has(bot.botId)) return;
+    this.driving.add(bot.botId);
+    const principal = this.tickPrincipal(bot);
+    try {
+      await this.drive(principal, bot);
+    } finally {
+      try {
+        // A stop that landed while this tick ran: what the tick placed meanwhile is cancelled, as the stop cancelled the rest.
+        const after = await this.ports.store.findBot(bot.botId);
+        if (after && !isLive(after.status)) await this.windDown(principal, after);
+      } finally {
+        this.driving.delete(bot.botId);
+      }
+    }
+  }
+
+  private async drive(principal: Principal, bot: GridBot): Promise<void> {
     const market = await this.ports.marketBySymbol(bot.symbol);
     if (!market) throw new GridError(`Market ${bot.symbol} not found`, 'trade.grid_market_not_found');
 
     for (const order of await this.ports.store.listOrders(bot.botId)) {
-      if (order.status === 'open') await this.settleOrder(principal, bot, market, order);
+      if (order.status !== 'open') continue;
+      const record = await this.ports.findOrder(order.orderId);
+      if (record && TERMINAL.has(record.status)) await this.settle(principal, bot, market, order, record);
     }
 
     const mark = markOf(await this.ports.depth(market.id));
     if (mark === null) return;
     if (!markInRange(bot.lowerPrice, bot.upperPrice, mark)) {
-      if (bot.status !== 'paused_range') await this.ports.store.setStatus(bot.botId, 'paused_range', 'mark_outside_range', this.now());
+      if (bot.status !== 'paused_range') {
+        await this.ports.store.setStatus(bot.botId, 'paused_range', 'mark_outside_range', this.now(), ['running']);
+      }
       return;
     }
-    if (bot.status !== 'running') await this.ports.store.setStatus(bot.botId, 'running', null, this.now());
+    if (bot.status !== 'running' && !(await this.ports.store.setStatus(bot.botId, 'running', null, this.now(), ['paused_range']))) {
+      return;
+    }
     await this.placeMissingBuys(principal, bot, market, mark, await this.ports.store.listOrders(bot.botId));
   }
 
-  /** Read one open level order back from the trade service and act on a terminal one. */
-  private async settleOrder(principal: Principal, bot: GridBot, market: Market, order: GridOrder): Promise<void> {
-    const record = await this.ports.findOrder(order.orderId);
-    if (!record || !TERMINAL.has(record.status)) return;
+  /**
+   * Record how one level order the trade service reports terminal ended. With `market` (a live tick) a filled buy first
+   * places its sell one level up; a crash between the two re-places the same clientOrderId, which is the same order.
+   */
+  private async settle(principal: Principal, bot: GridBot, market: Market | null, order: GridOrder, record: OrderRecord): Promise<void> {
     if (record.filledQty === 0n) {
       await this.ports.store.closeOrder(order.clientOrderId, 'cancelled', null, this.now());
       return;
     }
     const fills = await this.ports.fillsForOrder(principal, order.orderId);
     if (order.side === 'buy') {
-      // Sell first, then close the buy: a crash between them re-places the same clientOrderId, which is the same order.
-      const baseFee = fills.filter((f) => f.feeAsset === market.baseAsset).reduce((a, f) => a + f.feeAmount, 0n);
-      const qty = floorTo(record.filledQty - baseFee, market.lotSize);
       const above = bot.levels[order.levelIndex + 1];
-      if (above && qty > 0n && qty >= market.minQty) {
-        await this.placeAndRecord(principal, bot, market, bot.levels[order.levelIndex]!, 'sell', order.cycle, above.price, qty);
+      if (market && above) {
+        const baseFee = fills.filter((f) => f.feeAsset === bot.baseAsset).reduce((a, f) => a + f.feeAmount, 0n);
+        const qty = floorTo(record.filledQty - baseFee, market.lotSize);
+        if (qty > 0n && qty >= market.minQty) {
+          await this.placeAndRecord(principal, bot, market, bot.levels[order.levelIndex]!, 'sell', order.cycle, above.price, qty);
+        }
       }
       await this.ports.store.closeOrder(order.clientOrderId, 'filled', null, this.now());
+      return;
+    }
+    if (record.filledQty < record.qty) {
+      await this.ports.store.closeOrder(order.clientOrderId, 'partial', null, this.now());
       return;
     }
     const buy = (await this.ports.store.listOrders(bot.botId)).find(
       (o) => o.levelIndex === order.levelIndex && o.side === 'buy' && o.cycle === order.cycle,
     );
-    const profit = buy ? await this.pairProfit(principal, market, buy, fills) : null;
+    const profit = buy ? await this.pairProfit(principal, bot, buy, fills) : null;
     await this.ports.store.closeOrder(order.clientOrderId, 'filled', profit, this.now());
   }
 
@@ -463,18 +615,17 @@ export class GridService {
    * Quote received by the sell net of its quote fee, less the quote the buy spent and its quote fee. Null when a leg's
    * fee was taken in a third asset: that profit cannot be stated in the quote asset without a price, so it is not guessed.
    */
-  private async pairProfit(principal: Principal, market: Market, buy: GridOrder, sellFills: FillRecord[]): Promise<Amount | null> {
+  private async pairProfit(principal: Principal, bot: GridBot, buy: GridOrder, sellFills: FillRecord[]): Promise<Amount | null> {
     const buyFills = await this.ports.fillsForOrder(principal, buy.orderId);
-    const known = (f: FillRecord) => f.feeAmount === 0n || f.feeAsset === market.baseAsset || f.feeAsset === market.quoteAsset;
+    const known = (f: FillRecord) => f.feeAmount === 0n || f.feeAsset === bot.baseAsset || f.feeAsset === bot.quoteAsset;
     if (![...buyFills, ...sellFills].every(known)) return null;
-    const quoteFee = (fills: FillRecord[]) => fills.filter((f) => f.feeAsset === market.quoteAsset).reduce((a, f) => a + f.feeAmount, 0n);
+    const quoteFee = (fills: FillRecord[]) => fills.filter((f) => f.feeAsset === bot.quoteAsset).reduce((a, f) => a + f.feeAmount, 0n);
     const quote = (fills: FillRecord[]) => fills.reduce((a, f) => a + f.quoteAmount, 0n);
     return quote(sellFills) - quoteFee(sellFills) - (quote(buyFills) + quoteFee(buyFills));
   }
 
-  private async view(botId: string): Promise<GridBotView> {
-    const bot = await this.ports.store.findBot(botId);
-    if (!bot) throw new GridError('Grid bot not found', 'trade.grid_not_found');
+  private async view(bot: GridBot): Promise<GridBotView> {
+    const botId = bot.botId;
     const orders = await this.ports.store.listOrders(botId);
     const reserve = await this.ports.store.getReserve(botId);
     const closed = orders.filter((o) => o.side === 'sell' && o.status === 'filled' && o.pairProfit !== null);

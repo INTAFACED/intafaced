@@ -73,10 +73,43 @@ const NOT_READY = {
   'Recurring buy (DCA)': 'No recurring-order service exists. Use Convert for a single trade.',
 };
 
+/** My bots' words for each algo state (BotDetail BOT_WORD). */
+const STATE_WORD = { active: 'Running', paused: 'Paused', halted: 'Halted', cancelled: 'Stopped', completed: 'Finished' };
+
+async function readAs(who, path, input) {
+  const { status, body } = await (await api(who)).get(read(path, input));
+  return { status, body };
+}
+
+/**
+ * What each type's status must read, from the service's own answers: the algo kinds from `algo.policy`, the grid from
+ * `bots.grid.setup` (answered, or refused with its typed code), paper strategies and DCA from what they are.
+ */
+async function expectedStatuses(who) {
+  const policy = await readAs(who, '/api/trade/trpc/algo.policy');
+  expect(policy.status, JSON.stringify(policy.body).slice(0, 300)).toBe(200);
+  const { capability, immatureKinds } = policy.body.result.data;
+  const algo = (kind) =>
+    !capability.createEnabled
+      ? 'Not available: New bots can’t be created right now'
+      : immatureKinds.includes(kind)
+        ? 'Available. Volume history is still short. A slice may be refused when it is due.'
+        : 'Available';
+  const setup = await readAs(who, `${GRID}.setup`);
+  // The stack sets the owner's level and count range, so the setup read answers; a refusal here is a red, by its code.
+  expect(setup.status, `bots.grid.setup refused ${codeOf(setup.body)}`).toBe(200);
+  return {
+    'Time-weighted (TWAP)': algo('twap'),
+    'Volume-weighted (VWAP)': algo('vwap'),
+    'Participation (POV)': algo('pov'),
+    'Spot grid': 'Available',
+    'Recurring buy (DCA)': `Not available: ${NOT_READY['Recurring buy (DCA)']}`,
+    'Strategy from Quant Studio': 'Available on paper only',
+  };
+}
+
 const myAlgoIds = async () => {
-  const { status, body } = await (
-    await api(run.read().who)
-  ).get(`/api/trade/trpc/algo.list?input=${encodeURIComponent(JSON.stringify({ limit: 500 }))}`);
+  const { status, body } = await readAs(run.read().who, '/api/trade/trpc/algo.list', { limit: 500 });
   expect(status, JSON.stringify(body).slice(0, 300)).toBe(200);
   // The whole list in one read (the service's most), so a bot made now can't hide on a later page.
   expect(body.result.data.nextCursor).toBeNull();
@@ -84,12 +117,12 @@ const myAlgoIds = async () => {
 };
 
 async function hub(page, botId) {
+  const who = run.read().who;
   await openBots(page);
   const types = page.getByRole('list', { name: 'Bot types' }).getByRole('listitem');
   await expect(types.first()).toBeVisible(UNBUILT);
   // The statuses settle once the service's bot policy answers: until then the live types read "Checking".
   await expect(types.getByTestId('bot-type-status').filter({ hasText: /^Checking$/ })).toHaveCount(0);
-  await expect(types.filter({ hasText: 'Time-weighted (TWAP)' }).getByTestId('bot-type-status')).toHaveText(/^Available\b/);
   const statuses = {};
   for (const type of await types.all()) {
     // One link and one status per type, each type once.
@@ -98,12 +131,8 @@ async function hub(page, botId) {
     expect(statuses, `${name} is listed twice`).not.toHaveProperty([name]);
     statuses[name] = (await type.getByTestId('bot-type-status').innerText()).trim();
   }
-  // Each refusal in words: exactly the not-ready types refuse, each with its own reason; every other type is available.
-  for (const [name, reason] of Object.entries(NOT_READY)) expect(statuses[name]).toBe(`Not available: ${reason}`);
-  const others = Object.entries(statuses).filter(([name]) => !(name in NOT_READY));
-  expect(others.length).toBeGreaterThan(0);
-  for (const [name, status] of others) expect(status, name).toMatch(/^Available\b/);
-  expect(Object.values(statuses).filter((status) => status.startsWith('Not available')).length).toBe(Object.keys(NOT_READY).length);
+  // Every type exactly once, each status the one the service's own answers call for, each refusal in its words.
+  expect(statuses).toEqual(await expectedStatuses(who));
 
   // Following a refused type's link shows the same reason in its room, offers no form, and creates nothing.
   const before = await myAlgoIds();
@@ -116,13 +145,31 @@ async function hub(page, botId) {
   await page.getByRole('button', { name: 'Back to Bots' }).click();
   await expect(page.getByRole('heading', { name: 'Bots', level: 1 })).toBeVisible();
 
-  // This bot's own row, found by its id, so another TWAP BTC/USDT on the account can't stand in for it.
-  const row = page
-    .getByRole('region', { name: 'My bots' })
+  // My bots is the service's list: the same ids, each with its state's word, and nothing else. This browser is new, so
+  // the bot made through the service above can only come from that read.
+  const listed = await readAs(who, '/api/trade/trpc/algo.list', { limit: 50 });
+  expect(listed.status, JSON.stringify(listed.body).slice(0, 300)).toBe(200);
+  const want = Object.fromEntries(listed.body.result.data.rows.map((r) => [r.id, STATE_WORD[r.status]]));
+  expect(Object.keys(want)).toContain(botId);
+  const table = page.getByRole('grid', { name: 'My bots', exact: true });
+  await expect(table.locator('a[href*="bot="]')).toHaveCount(Object.keys(want).length);
+  const shown = {};
+  for (const row of await table
     .getByRole('row')
-    .filter({ has: page.locator(`a[href*="bot=${botId}"]`) });
+    .filter({ has: page.locator('a[href*="bot="]') })
+    .all()) {
+    const href = await row.locator('a[href*="bot="]').getAttribute('href');
+    const id = new URLSearchParams(href.split('?')[1]).get('bot');
+    shown[id] = (
+      await row
+        .getByRole('gridcell')
+        .filter({ hasText: /^(Running|Paused|Halted|Stopped|Finished|Unknown state)$/ })
+        .innerText()
+    ).trim();
+  }
+  expect(shown).toEqual(want);
+  const row = table.getByRole('row').filter({ has: page.locator(`a[href*="bot=${botId}"]`) });
   await expect(row.getByRole('link')).toHaveText('TWAP BTC/USDT');
-  await expect(row).toContainText('Running');
 }
 
 // ── The grid's own door, read through Edge as the person ─────────────────────────────────────────────────────────────
@@ -281,16 +328,16 @@ test(`${J} #4 enters bounds left blank, then one grid, then twenty: the first tw
   const gridsBefore = await gridList(who);
   await openGrid(page);
   const field = (name) => wizard(page).getByRole('textbox', { name });
-  await field('Investment, USDT').fill('200');
+  await field('Investment').fill('200');
   await field('Grids').fill('20');
 
   // Bounds left blank: refused naming Lower price, and nothing written.
   const blank = await pressCreate(page);
   expect(blank.status, JSON.stringify(blank.body).slice(0, 300)).toBe(400);
-  expect(codeOf(blank.body)).toBe('trade.grid_lower_price_required');
+  expect(codeOf(blank.body)).toBe('trade.bots_grid_bounds_not_set');
   // The wire carries the typed code and the service's own words, which name the field.
   expect(blank.body.error.message).toBe('Lower price is required');
-  await expect(wizard(page).getByText('Enter a Lower price', { exact: true })).toBeVisible();
+  await expect(wizard(page).getByText('Enter both bounds', { exact: true })).toBeVisible();
   expect(await gridList(who)).toEqual(gridsBefore);
 
   // The range sits round the book's mid with the mid halfway between levels 10 and 11, half a percent from each,
@@ -307,7 +354,7 @@ test(`${J} #4 enters bounds left blank, then one grid, then twenty: the first tw
   await field('Grids').fill('1');
   const one = await pressCreate(page);
   expect(one.status, JSON.stringify(one.body).slice(0, 300)).toBe(400);
-  expect(codeOf(one.body)).toBe('trade.grid_count_out_of_range');
+  expect(codeOf(one.body)).toBe('trade.bots_grid_count_out_of_range');
   expect(one.body.error.message).toBe('Grids must be from 2 to 100');
   await expect(wizard(page).getByText('Grids is out of range', { exact: true })).toBeVisible();
   expect(await gridList(who)).toEqual(gridsBefore);

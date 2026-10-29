@@ -159,6 +159,41 @@ describe('SqlGridStore (shared test postgres)', () => {
     expect((await store.listOrders(BOT)).map((o) => o.status)).toEqual(['filled']);
   });
 
+  it('a part filled order closes as partial with no profit', async () => {
+    await store.createWithReserve(bot(), reserve(), async () => {});
+    await store.saveOrder(buy());
+    await store.closeOrder(buy().clientOrderId, 'partial', null, AT);
+    expect((await store.listOrders(BOT)).map((o) => [o.status, o.pairProfit])).toEqual([['partial', null]]);
+  });
+
+  it('a status writes only from the statuses named, so a stop is never undone', async () => {
+    await store.createWithReserve(bot(), reserve(), async () => {});
+    expect(await store.setStatus(BOT, 'stopped', 'owner_stop', AT, ['running', 'paused_range'])).toBe(true);
+    expect(await store.setStatus(BOT, 'paused_range', 'mark_outside_range', AT, ['running'])).toBe(false);
+    expect(await store.setStatus(BOT, 'running', null, AT, ['paused_range'])).toBe(false);
+    const read = (await store.findBot(BOT))!;
+    expect([read.status, read.statusReason]).toEqual(['stopped', 'owner_stop']);
+  });
+
+  it('a stopped bot winds down until its reserve is released; a live one never does', async () => {
+    await store.createWithReserve(bot(), reserve(), async () => {});
+    expect(await store.listWindingDown()).toEqual([]);
+    await store.setStatus(BOT, 'stopped', 'owner_stop', AT, ['running']);
+    expect((await store.listWindingDown()).map((b) => b.botId)).toEqual([BOT]);
+    await store.releaseReserve(BOT, AT);
+    expect(await store.listWindingDown()).toEqual([]);
+  });
+
+  it('a bot initializing is stale only once its status was written before the cut-off, and only while initializing', async () => {
+    await store.createWithReserve({ ...bot(), status: 'initializing', updatedAt: AT }, reserve(), async () => {});
+    expect(await store.listStaleInitializing(AT)).toEqual([]);
+    const later = new Date(AT.getTime() + 1);
+    expect((await store.listStaleInitializing(later)).map((b) => b.botId)).toEqual([BOT]);
+    expect(await store.listLiveBots()).toEqual([]);
+    expect(await store.setStatus(BOT, 'running', null, AT, ['initializing'])).toBe(true);
+    expect(await store.listStaleInitializing(later)).toEqual([]);
+  });
+
   it('pair profit is only for a filled sell', async () => {
     await store.createWithReserve(bot(), reserve(), async () => {});
     await store.saveOrder(buy());

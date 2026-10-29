@@ -31,12 +31,14 @@ import { AccountBadge, Freshness, InfoNote, ModeNav, PendingBanner, RefusalNote,
 
 /** A grid bot's state in words, the same in the room and in My bots. */
 export const GRID_WORD: Record<GridBot['status'], string> = {
+  initializing: 'Starting',
   running: 'Bot running',
   paused_range: 'Paused: the price is outside the range',
   initialization_failed: 'Could not start',
   stopped: 'Stopped',
 };
 export const GRID_TONE: Record<GridBot['status'], BadgeTone> = {
+  initializing: 'neutral',
   running: 'lime',
   paused_range: 'warn',
   initialization_failed: 'warn',
@@ -225,8 +227,8 @@ function GridWizard({
                 },
               ]}
             />
-            <Field label={t('Investment, USDT')}>
-              <Input kind="decimal" value={investment} onValueChange={setInvestment} precision={8} trailing={market?.quote ?? 'USDT'} />
+            <Field label={t('Investment')}>
+              <Input kind="decimal" value={investment} onValueChange={setInvestment} precision={8} trailing={market?.quote ?? ''} />
             </Field>
             <Field label={t('Grids')}>
               <Input kind="decimal" value={grids} onValueChange={setGrids} precision={0} />
@@ -314,7 +316,7 @@ function GridDetail({
     {
       id: 'status',
       header: t('State'),
-      value: (o) => (o.status === 'open' ? t('Open') : o.status === 'filled' ? t('Filled') : t('Cancelled')),
+      value: (o) => ({ open: t('Open'), filled: t('Filled'), partial: t('Part filled'), cancelled: t('Cancelled') })[o.status],
     },
   ];
 

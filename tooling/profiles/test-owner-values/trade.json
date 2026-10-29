@@ -84,7 +84,7 @@
     "TRADE_GRID_COUNT_MIN": {
       "service": "trade",
       "value": "2",
-      "note": "TEST lowest grid count a spot grid bot may use: 2, the structural floor (two levels to trade between), so a count of 1 is refused (trade.grid_count_out_of_range)."
+      "note": "TEST lowest grid count a spot grid bot may use: 2, the structural floor (two levels to trade between), so a count of 1 is refused (trade.bots_grid_count_out_of_range)."
     },
     "TRADE_GRID_COUNT_MAX": {
       "service": "trade",

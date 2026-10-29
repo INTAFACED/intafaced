@@ -151,7 +151,6 @@ const messages = {
   'If you stop, new copies stop at once. Positions already open stay yours until you close them.':
     'If you stop, new copies stop at once. Positions already open stay yours until you close them.',
   Investment: 'Investment',
-  'Investment, USDT': 'Investment, USDT',
   'It halted so you can check it': 'It halted so you can check it',
   Kind: 'Kind',
   Language: 'Language',
@@ -283,6 +282,7 @@ const messages = {
     'Paper strategies use pretend money. Their results are not live performance and are never shown as such.',
   'Paper: no money moves': 'Paper: no money moves',
   'Paper: not live performance': 'Paper: not live performance',
+  'Part filled': 'Part filled',
   'Participation (POV)': 'Participation (POV)',
   Pause: 'Pause',
   'Pause this bot?': 'Pause this bot?',

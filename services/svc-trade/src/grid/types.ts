@@ -3,12 +3,14 @@ import type { AlgoPlaceGrant } from '../algo/durable-principal.js';
 import type { GridLevelPlan } from './plan.js';
 
 /**
+ * initializing: create is placing the first levels; the tick leaves it alone so the two never place the same order at once.
  * running: places buys below the mark and sells one level above each filled buy.
  * paused_range: the mark left the bounds; no new buy is placed (open orders stay and may still fill).
- * initialization_failed: a level could not be placed at create; placed levels were cancelled and the reserve released.
+ * initialization_failed: a level could not be placed at create; placed levels are cancelled and the reserve released.
  * stopped: the owner stopped it; nothing new is placed.
+ * A stopped or failed bot whose reserve is not yet released is still winding down: the tick cancels what is left open.
  */
-export type GridStatus = 'running' | 'paused_range' | 'initialization_failed' | 'stopped';
+export type GridStatus = 'initializing' | 'running' | 'paused_range' | 'initialization_failed' | 'stopped';
 
 export interface GridBot {
   readonly botId: string;
@@ -48,7 +50,8 @@ export interface GridReserve {
   readonly releasedAt: Date | null;
 }
 
-export type GridOrderStatus = 'open' | 'filled' | 'cancelled';
+/** partial: a sell that ended with only part of its quantity filled. Its pair is not closed and states no profit. */
+export type GridOrderStatus = 'open' | 'filled' | 'partial' | 'cancelled';
 
 /** One level order. A level's buy and the sell one level above it share a cycle; a closed sell closes the pair. */
 export interface GridOrder {
