@@ -18,6 +18,11 @@ export const algoParentSchema = algoSchema.extend({
   startedAt: z.string().nullable().optional(),
   nextDueAt: z.string().nullable().optional(),
   scheduleStretchReason: z.string().nullable().optional(),
+  randomSeed: z.number().int().nullable().optional(),
+  triggerPrice: decimalSchema.nullable().optional(),
+  triggeredAt: z.string().nullable().optional(),
+  awaitingTrigger: z.boolean().optional(),
+  plannedSliceQtys: z.array(decimalSchema).optional(),
 });
 export type AlgoParent = z.infer<typeof algoParentSchema>;
 export type AlgoProgress = z.infer<typeof algoProgressSchema>;
@@ -44,6 +49,8 @@ export const deskStatusSchema = z.object({
   published: z.boolean(),
   statusLine: z.string(),
   residual: z.string().nullable().optional(),
+  /** CB-otc-11: the base assets the desk quotes; null when the owner left the list blank. */
+  assets: z.array(z.string()).nullable().optional(),
   makerRouting: z.object({ published: z.boolean(), residual: z.string().nullable().optional() }).optional(),
   midFeed: z.object({ wiring: z.string(), published: z.boolean(), residual: z.string().nullable().optional() }).optional(),
 });
@@ -119,7 +126,20 @@ export interface CreateTwapInput {
   clientAlgoId: string;
   limitPrice?: string;
   participationBps?: number;
+  /** TWAP only: random slice sizes fixed by this seed. */
+  randomSeed?: number;
+  /** TWAP only: the schedule waits until the mark reaches this price. */
+  triggerPrice?: string;
 }
+
+export interface PreviewSizesInput {
+  symbol: string;
+  totalQty: string;
+  durationMs: number;
+  sliceIntervalMs: number;
+  randomSeed?: number;
+}
+export const previewSizesSchema = z.object({ sliceQtys: z.array(decimalSchema) });
 
 export interface BatchOrder {
   symbol: string;
@@ -147,6 +167,7 @@ export function createRoomApi(api: ApiClient) {
     algoPolicy: (signal?: AbortSignal) => api.query('trade', 'algo.policy', undefined, algoPolicySchema, { signal }),
     algoCreate: (input: CreateTwapInput) => api.mutate('trade', 'algo.createTwap', input, algoParentSchema),
     algoGet: (algoId: string, signal?: AbortSignal) => api.query('trade', 'algo.get', { algoId }, algoParentSchema, { signal }),
+    algoPreviewSizes: (input: PreviewSizesInput) => api.query('trade', 'algo.previewTwapSizes', input, previewSizesSchema),
     algoProgress: (algoId: string, signal?: AbortSignal) => api.query('trade', 'algo.progress', { algoId }, algoProgressSchema, { signal }),
     algoAction: (action: 'pause' | 'resume' | 'cancel', algoId: string) =>
       api.mutate('trade', `algo.${action}`, { algoId }, algoParentSchema),

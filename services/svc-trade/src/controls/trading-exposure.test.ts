@@ -126,7 +126,7 @@ describe('Real exposure paths use owner admission (isolated PostgreSQL)', () => 
     const input = order();
     const placed = await trade.placeOrder(principalFor(user), input);
     await controls.change(context(), command());
-    await expect(trade.placeOrder(principalFor(user), order())).rejects.toMatchObject({ code: 'trade.account_restricted' });
+    await expect(trade.placeOrder(principalFor(user), order())).rejects.toMatchObject({ code: 'trade.desk_restricted' });
     const raised = await trade.amendOrder(principalFor(user), placed.id, { qty: amt('2') });
     expect(raised).toMatchObject({ accepted: false, code: 'NOT_AMENDABLE', reasonCode: 'trade.amend_qty_up' });
     expect(matching.amended).toHaveLength(0);
@@ -157,7 +157,7 @@ describe('Real exposure paths use owner admission (isolated PostgreSQL)', () => 
     await controls.change(context(), command());
     const before = ledger.journal().length;
     await expect(trade.convertExecute(principalFor(user), { quoteId: quote.quoteId })).rejects.toMatchObject({
-      code: 'trade.account_restricted',
+      code: 'trade.desk_restricted',
     });
     expect(ledger.journal()).toHaveLength(before);
   });
@@ -226,14 +226,14 @@ describe('Real exposure paths use owner admission (isolated PostgreSQL)', () => 
     await controls.change(context(), command());
     const before = ledger.journal().length;
     await expect(positions.open({ ...input, clientOpenId: 'second' }, principalFor(user))).rejects.toMatchObject({
-      code: 'trade.account_restricted',
+      code: 'trade.desk_restricted',
     });
     await expect(
       positions.setLeverage(
         { userId: user, symbol, positionId: placed.id!, leverage: amt('3'), clientAdjustmentId: 'increase' },
         principalFor(user),
       ),
-    ).rejects.toMatchObject({ code: 'trade.account_restricted' });
+    ).rejects.toMatchObject({ code: 'trade.desk_restricted' });
     expect(ledger.journal()).toHaveLength(before);
     expect((await positions.close(user, placed.id!)).status).toBe('closed');
   });
@@ -308,7 +308,7 @@ describe('Real exposure paths use owner admission (isolated PostgreSQL)', () => 
     });
     await controls.change(context(), command());
     await expect(trade.placeCopyMirror(principalFor(user), order(), follow.followId)).rejects.toMatchObject({
-      code: 'trade.account_restricted',
+      code: 'trade.desk_restricted',
     });
     expect(matching.submitted).toHaveLength(0);
     const restored = { ...command(), action: 'restore' as const, expectedVersion: '1' };

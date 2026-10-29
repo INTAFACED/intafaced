@@ -33,6 +33,7 @@ const law = (settleWindowMs: number | null): OtcDeskLaw => ({
   maxMidAgeSeconds: 86_400,
   // A zero desk minimum is an owner value: these quotes are not held by the CB-otc-07 minimum.
   minNotional: { USDT: 0n },
+  assets: ['BTC'],
   settleWindowMs,
 });
 

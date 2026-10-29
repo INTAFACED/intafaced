@@ -9,6 +9,7 @@ import { createEdgeContext, type EdgeRequest } from '@intafaced/contracts';
 import type { GreeksAdapter, VanillaEuropeanInput } from '@intafaced/greeks-adapter';
 import { GREEKS_WHAT_IF_PATH, whatIfVanillaGreeks } from './what-if.js';
 import type { EdgeTrust } from '../edge-trust.js';
+import { privateWrite } from '../route-inventory.js';
 
 export { GREEKS_WHAT_IF_PATH };
 
@@ -28,7 +29,7 @@ function sendError(reply: FastifyReply, status: number, code: string, message: s
 export function registerGreeksWhatIfRest(app: FastifyInstance, deps: GreeksWhatIfRestDeps): void {
   const edgeContext = createEdgeContext({ secret: deps.edgeSecret, ...deps.edgeTrust, serviceName: deps.serviceName });
 
-  app.post(GREEKS_WHAT_IF_PATH, async (req, reply) => {
+  app.post(GREEKS_WHAT_IF_PATH, privateWrite, async (req, reply) => {
     const edgeReq: EdgeRequest = { headers: req.headers as Record<string, string | string[] | undefined>, id: req.id };
     const principal = edgeContext(edgeReq).principal;
     if (!principal) return sendError(reply, 401, 'trade.unauthenticated', 'signed principal required');
