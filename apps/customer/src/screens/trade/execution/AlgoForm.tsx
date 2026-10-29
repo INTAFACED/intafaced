@@ -3,7 +3,7 @@
  * off the room says so and does not make the call (a schedule created now would sit active and place nothing).
  */
 import { useEffect, useMemo, useState } from 'react';
-import { Badge, Button, Field, Input, KeyValue, SegmentedControl, fmtAmount, fmtPrice, type Loadable } from '../rooms/ui';
+import { Badge, Button, Checkbox, Field, Input, KeyValue, SegmentedControl, fmtAmount, fmtPrice, type Loadable } from '../rooms/ui';
 import { useNow, useRoomApi } from '../rooms/read';
 import { rememberId } from '../rooms/store';
 import type { RoomWriter } from '../rooms/write';
@@ -17,7 +17,9 @@ import {
   createBlocker,
   defaultIntervalMs,
   newNonce,
+  parseSeed,
   planSchedule,
+  triggerProblem,
   wholeNumber,
   type PlanProblem,
   type Side,
@@ -34,6 +36,11 @@ export interface AlgoFormValues {
   total: string;
   limit: string;
   pov: string;
+  /** TWAP only: random slice sizes fixed by `seed`. */
+  random: boolean;
+  seed: string;
+  /** TWAP only: blank starts at once; a price makes the schedule wait for the market to reach it. */
+  trigger: string;
 }
 
 export const FORM_DEFAULTS: AlgoFormValues = {
@@ -46,6 +53,9 @@ export const FORM_DEFAULTS: AlgoFormValues = {
   total: '',
   limit: '',
   pov: '1000',
+  random: false,
+  seed: '',
+  trigger: '',
 };
 
 /** The numbers of an existing schedule as form values: schedules are never edited, a new one is made from them. */
@@ -61,10 +71,16 @@ export function valuesFrom(parent: AlgoParent): AlgoFormValues {
     total: parent.totalQty,
     limit: parent.limitPrice ?? '',
     pov: String(parent.participationBps ?? 1000),
+    random: parent.randomSeed != null,
+    seed: parent.randomSeed != null ? String(parent.randomSeed) : '',
+    trigger: parent.triggerPrice ?? '',
   };
 }
 
 const DUPLICATE = /already exists|duplicate/i;
+
+/** The service's slice sizes for a random TWAP, read when the review opens; confirm waits for them. */
+type SizesRead = { state: 'off' } | { state: 'loading' } | { state: 'ready'; sizes: string[] } | { state: 'refused'; code?: string };
 
 export function AlgoForm({
   markets,
@@ -91,6 +107,7 @@ export function AlgoForm({
   const [nonce, setNonce] = useState(newNonce);
   const [review, setReview] = useState(false);
   const [duplicate, setDuplicate] = useState(false);
+  const [sizes, setSizes] = useState<SizesRead>({ state: 'off' });
   const set = <K extends keyof AlgoFormValues>(key: K, value: AlgoFormValues[K]) => setForm((f) => ({ ...f, [key]: value }));
 
   // A schedule cannot be edited, so "create new with these numbers" starts a new intent with a new id.
@@ -139,10 +156,33 @@ export function AlgoForm({
   const immature = policy.status === 'ready' && policy.data.immatureKinds.includes(form.kind);
   const problemWord = (p: PlanProblem) => t(`Plan problem ${p}`, { max: '500' });
   const general = problems.find((p) => p === 'tooManySlices' || p === 'sliceTooSmall' || p === 'sliceBelowMin');
-  const canReview = plan !== null && blocker === null && writer.signedIn;
+  const twap = form.kind === 'twap';
+  const seed = twap && form.random ? parseSeed(form.seed) : null;
+  const seedBad = twap && form.random && seed === null;
+  const triggerBad = twap && triggerProblem(form.trigger);
+  const trigger = twap && !triggerBad && form.trigger.trim() ? form.trigger.trim() : null;
+  const canReview = plan !== null && blocker === null && writer.signedIn && !seedBad && !triggerBad;
+  const sizesBlock = seed !== null && sizes.state !== 'ready';
+
+  async function openReview() {
+    setReview(true);
+    if (seed === null || !market) {
+      setSizes({ state: 'off' });
+      return;
+    }
+    setSizes({ state: 'loading' });
+    const answer = await room.algoPreviewSizes({
+      symbol: market.symbol,
+      totalQty: form.total,
+      durationMs: durationMs!,
+      sliceIntervalMs: intervalMs!,
+      randomSeed: seed,
+    });
+    setSizes(answer.ok ? { state: 'ready', sizes: answer.data.sliceQtys } : { state: 'refused', code: answer.code });
+  }
 
   async function send() {
-    if (!plan || !market) return;
+    if (!plan || !market || sizesBlock) return;
     setDuplicate(false);
     const result = await writer.run({
       kind: 'algo',
@@ -159,6 +199,8 @@ export function AlgoForm({
           clientAlgoId,
           ...(form.limit.trim() ? { limitPrice: form.limit.trim() } : {}),
           ...(form.kind === 'pov' ? { participationBps: povBps! } : {}),
+          ...(seed !== null ? { randomSeed: seed } : {}),
+          ...(trigger !== null ? { triggerPrice: trigger } : {}),
         });
         if (!answer.ok && DUPLICATE.test(answer.message)) setDuplicate(true);
         return answer;
@@ -185,11 +227,13 @@ export function AlgoForm({
           value: String(plan.slices),
           hint: t('Every {seconds} s', { seconds: String(Math.round(intervalMs! / 1000)) }),
         },
-        {
-          label: t('Size per slice'),
-          value: `${fmtAmount(plan.perSlice, { places: amountPlaces })} ${market?.base ?? ''}`,
-          hint: t('Last slice takes the remainder: {size}', { size: fmtAmount(plan.lastSlice, { places: amountPlaces }) }),
-        },
+        seed !== null
+          ? { label: t('Size per slice'), value: t('Random sizes', { seed: String(seed) }) }
+          : {
+              label: t('Size per slice'),
+              value: `${fmtAmount(plan.perSlice, { places: amountPlaces })} ${market?.base ?? ''}`,
+              hint: t('Last slice takes the remainder: {size}', { size: fmtAmount(plan.lastSlice, { places: amountPlaces }) }),
+            },
         {
           label: t('Limit price'),
           value: form.limit.trim() ? fmtPrice(form.limit, market?.tickSize) : t('No limit, slices go in at the market'),
@@ -207,6 +251,7 @@ export function AlgoForm({
         { label: t('Held now'), value: t('Nothing'), hint: t('Each slice holds funds only when it is placed') },
         { label: t('Ends about'), value: when(plan.endsAt) },
         { label: t('Request id'), value: clientAlgoId, mono: true },
+        ...(trigger !== null ? [{ label: t('Trigger price'), value: fmtPrice(trigger, market?.tickSize) }] : []),
       ]
     : [];
 
@@ -320,6 +365,29 @@ export function AlgoForm({
           density="dense"
         />
       </Field>
+      {twap ? (
+        <>
+          <label className="flex items-center gap-2 text-sm text-fg">
+            <Checkbox checked={form.random} onCheckedChange={(v) => set('random', v === true)} />
+            <span>{t('Random slice sizes')}</span>
+          </label>
+          {form.random ? (
+            <Field label={t('Seed')} hint={t('Seed hint')} error={seedBad && form.seed.trim() ? t('Seed problem') : undefined}>
+              <Input aria-label={t('Seed')} value={form.seed} onValueChange={(v) => set('seed', v.replace(/\D/g, ''))} density="dense" />
+            </Field>
+          ) : null}
+          <Field label={t('Start when the price reaches')} hint={t('Trigger hint')} error={triggerBad ? t('Trigger problem') : undefined}>
+            <Input
+              kind="decimal"
+              aria-label={t('Start when the price reaches')}
+              value={form.trigger}
+              onValueChange={(v) => set('trigger', v)}
+              precision={placesFor(market?.tickSize)}
+              density="dense"
+            />
+          </Field>
+        </>
+      ) : null}
       <Field label={t('Request id')} hint={t('Made once for this request, so a re-send cannot create a second schedule')}>
         <Input aria-label={t('Request id')} value={clientAlgoId} readOnly density="dense" />
       </Field>
@@ -337,7 +405,7 @@ export function AlgoForm({
           </Button>
         </div>
       ) : null}
-      <Button size={40} fullWidth disabled={!canReview || writer.busy || writer.note.state !== 'none'} onClick={() => setReview(true)}>
+      <Button size={40} fullWidth disabled={!canReview || writer.busy || writer.note.state !== 'none'} onClick={() => void openReview()}>
         {t('Review schedule')}
       </Button>
       <ConfirmDialog
@@ -347,9 +415,22 @@ export function AlgoForm({
         rows={rows}
         confirmLabel={t('Create schedule')}
         busy={writer.busy}
+        confirmDisabled={sizesBlock}
         onConfirm={() => void send()}
         onCancel={() => setReview(false)}
-      />
+      >
+        {seed === null ? null : sizes.state === 'ready' ? (
+          <ol aria-label={t('Slice sizes')} className="m-0 flex list-decimal flex-col gap-1 ps-5 text-sm text-fg">
+            {sizes.sizes.map((size, i) => (
+              <li key={i}>{`${fmtAmount(size, { places: amountPlaces })} ${market?.base ?? ''}`}</li>
+            ))}
+          </ol>
+        ) : sizes.state === 'refused' ? (
+          <Why code={sizes.code}>{t('Slice sizes refused')}</Why>
+        ) : (
+          <p className="m-0 text-sm text-fg-2">{t('Slice sizes loading')}</p>
+        )}
+      </ConfirmDialog>
     </section>
   );
 }

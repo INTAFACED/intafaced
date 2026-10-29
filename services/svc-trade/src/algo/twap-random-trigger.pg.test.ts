@@ -106,7 +106,13 @@ describe('TWAP random sizes and trigger in the parent store (shared test postgre
     MARKET = market.id;
   });
 
-  const plan = planTwapSlices({ totalQty: parseAmount('0.003'), durationMs: 300_000, sliceIntervalMs: 30_000, lotSize: LOT, randomSeed: 2310 }).slices;
+  const plan = planTwapSlices({
+    totalQty: parseAmount('0.003'),
+    durationMs: 300_000,
+    sliceIntervalMs: 30_000,
+    lotSize: LOT,
+    randomSeed: 2310,
+  }).slices;
 
   it('reads back the seed, the trigger, its direction and the planned sizes', async () => {
     const store = new SqlTwapParentStore(sql);
@@ -143,8 +149,8 @@ describe('TWAP random sizes and trigger in the parent store (shared test postgre
   it('the table refuses a trigger with no direction and a seed on another kind', async () => {
     const store = new SqlTwapParentStore(sql);
     await expect(store.save({ parent: parent({ triggerAbove: null }), plan })).rejects.toThrow(/algo_parents_random_trigger_ck/);
-    await expect(store.save({ parent: parent({ kind: 'pov', participationBps: 100, triggerPrice: null, triggerAbove: null }), plan })).rejects.toThrow(
-      /algo_parents_random_trigger_ck/,
-    );
+    await expect(
+      store.save({ parent: parent({ kind: 'pov', participationBps: 100, triggerPrice: null, triggerAbove: null }), plan }),
+    ).rejects.toThrow(/algo_parents_random_trigger_ck/);
   });
 });

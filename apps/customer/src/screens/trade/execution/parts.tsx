@@ -126,16 +126,21 @@ export function ConfirmDialog({
   confirmLabel,
   busy = false,
   tone = 'primary',
+  confirmDisabled = false,
   onConfirm,
   onCancel,
+  children,
 }: {
   open: boolean;
   title: string;
   description: string;
   rows: readonly ConfirmRow[];
+  /** Extra content under the rows, such as a list the rows cannot hold. */
+  children?: ReactNode;
   confirmLabel: string;
   busy?: boolean;
   tone?: 'primary' | 'secondary';
+  confirmDisabled?: boolean;
   onConfirm: () => void;
   onCancel: () => void;
 }) {
@@ -148,11 +153,12 @@ export function ConfirmDialog({
           <AlertDialogDescription>{description}</AlertDialogDescription>
         </AlertDialogHeader>
         <KeyValue density="dense" items={rows.map((r) => ({ label: r.label, value: r.value, hint: r.hint, mono: r.mono }))} />
+        {children}
         <AlertDialogFooter>
           <Button variant="secondary" size={40} disabled={busy} onClick={onCancel}>
             {t('Go back')}
           </Button>
-          <Button variant={tone} size={40} loading={busy} autoFocus onClick={onConfirm}>
+          <Button variant={tone} size={40} loading={busy} disabled={confirmDisabled} autoFocus onClick={onConfirm}>
             {confirmLabel}
           </Button>
         </AlertDialogFooter>

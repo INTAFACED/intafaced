@@ -94,7 +94,9 @@ function planRandomSlices(totalQty: Amount, n: number, lotSize: Amount, seed: nu
   const share = weights.map((w) => (spare * w) / weightSum);
   let left = spare - share.reduce((a, q) => a + q, 0n);
   // Largest remainder first; ties go to the earlier slice.
-  const order = weights.map((w, i) => ({ i, rem: (spare * w) % weightSum })).sort((a, b) => (a.rem === b.rem ? a.i - b.i : a.rem > b.rem ? -1 : 1));
+  const order = weights
+    .map((w, i) => ({ i, rem: (spare * w) % weightSum }))
+    .sort((a, b) => (a.rem === b.rem ? a.i - b.i : a.rem > b.rem ? -1 : 1));
   for (const { i } of order) {
     if (left === 0n) break;
     share[i] = share[i]! + 1n;

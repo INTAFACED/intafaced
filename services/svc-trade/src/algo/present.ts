@@ -18,11 +18,17 @@ export function nextSliceAtIso(status: AlgoStatus, nextDueAt: Date | null): stri
 }
 
 export function presentScheduleHonesty(
-  parent: { readonly status: AlgoStatus; readonly nextDueAt: Date; readonly triggerPrice?: Amount | null; readonly triggeredAt?: Date | null },
+  parent: {
+    readonly status: AlgoStatus;
+    readonly nextDueAt: Date;
+    readonly triggerPrice?: Amount | null;
+    readonly triggeredAt?: Date | null;
+  },
   scheduler: AlgoSchedulerView,
 ): { nextSliceAt: string | null; scheduler: AlgoSchedulerView } {
   // A schedule waiting for its trigger price has no next slice time until the price is reached.
-  if (awaitingTrigger({ triggerPrice: parent.triggerPrice ?? null, triggeredAt: parent.triggeredAt ?? null })) return { nextSliceAt: null, scheduler };
+  if (awaitingTrigger({ triggerPrice: parent.triggerPrice ?? null, triggeredAt: parent.triggeredAt ?? null }))
+    return { nextSliceAt: null, scheduler };
   return { nextSliceAt: nextSliceAtIso(parent.status, parent.nextDueAt), scheduler };
 }
 

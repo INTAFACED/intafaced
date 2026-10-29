@@ -245,6 +245,18 @@ export function AlgoDetail({ row, onClone }: { row: ParentRead; onClone: (parent
           { label: t('Halt reason'), value: halt ? t('Halt: {reason}', { reason: halt.text }) : null, hint: halt?.code ?? undefined },
           { label: t('Stretch reason'), value: stretch?.text ?? null, hint: stretch?.code ?? undefined },
           {
+            label: t('Trigger price'),
+            value: parent.triggerPrice
+              ? parent.awaitingTrigger
+                ? t('Waiting for the trigger price')
+                : parent.triggeredAt
+                  ? t('Triggered at', { when: when(parent.triggeredAt) ?? parent.triggeredAt })
+                  : null
+              : null,
+            hint: parent.triggerPrice ?? undefined,
+          },
+          { label: t('Slice sizes'), value: parent.randomSeed != null ? t('Random sizes', { seed: String(parent.randomSeed) }) : null },
+          {
             label: t('Filled so far'),
             value: done === null ? null : `${fmtAmount(done)} / ${fmtAmount(parent.totalQty)}`,
             hint: t('Counts only fills of the child orders'),

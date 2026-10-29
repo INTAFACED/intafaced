@@ -156,9 +156,11 @@ describe('a TWAP that waits for its trigger price', () => {
 
   it('refuses a trigger or seed on a kind other than TWAP, and a non-positive trigger', () => {
     const { engine } = makeEngine({ value: '50' });
-    expect(refusal(() => engine.create(USER, input({ kind: 'pov', participationBps: 100, triggerPrice: parseAmount('1'), triggerAbove: true }), LOT))).toBe(
-      'trade.algo_invalid_schedule',
-    );
+    expect(
+      refusal(() =>
+        engine.create(USER, input({ kind: 'pov', participationBps: 100, triggerPrice: parseAmount('1'), triggerAbove: true }), LOT),
+      ),
+    ).toBe('trade.algo_invalid_schedule');
     expect(refusal(() => engine.create(USER, input({ triggerPrice: 0n, triggerAbove: true }), LOT))).toBe('trade.algo_invalid_schedule');
   });
 });
