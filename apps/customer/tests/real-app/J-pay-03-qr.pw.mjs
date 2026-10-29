@@ -131,7 +131,7 @@ test(`${J} #3 QR: with the signing key blank, Receive refuses the QR code and a 
     await signIn(page, payer);
     const url = new URL(signed);
     await page.goto(`${url.pathname}${url.search}`);
-    await expect(page.getByRole('alert')).toContainText('Pay codes aren’t set up yet');
+    await expect(page.getByRole('alert')).toContainText('Pay codes are off');
     await expect(page.getByTestId('recipient-found')).toHaveCount(0);
     expect(await record(payee)).toEqual(before);
   } finally {
