@@ -281,10 +281,10 @@ function TicketBody({ detail, ...p }: { detail: TicketDetail } & DeskViewProps) 
       {detail.propertyChanges?.kind === 'failed' && <Failed name="Priority, type and labels history" part={detail.propertyChanges} />}
 
       <TicketExtras extras={p.extras} loading={p.loadingExtras} />
-      <TicketFiles key={t.id} ticketId={t.id} />
-      <TicketLifecycle key={t.id} ticket={t} />
-      <TicketProperties key={t.id} ticket={t} onDone={p.onActionDone} />
-      <TicketMerge key={t.id} ticket={t} onDone={p.onActionDone} />
+      <TicketFiles key={`files-${t.id}`} ticketId={t.id} />
+      <TicketLifecycle key={`life-${t.id}`} ticket={t} />
+      <TicketProperties key={`props-${t.id}`} ticket={t} onDone={p.onActionDone} />
+      <TicketMerge key={`merge-${t.id}`} ticket={t} onDone={p.onActionDone} />
       <TicketActions ticket={t} onDone={p.onActionDone} />
     </>
   );
