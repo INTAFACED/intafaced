@@ -151,6 +151,7 @@ describe('tokenPage', () => {
       { from: W2, to: W1, value: 50n },
     ],
     1_000n,
+    100n,
   );
 
   it('states liquidity in token amounts, volume equal to the sum of swaps, and one candle per traded minute', () => {
@@ -195,17 +196,25 @@ describe('tokenPage', () => {
 });
 
 describe('holdersFrom', () => {
+  const transfers = [
+    { from: ZERO, to: W1, value: 600n },
+    { from: ZERO, to: W2, value: 400n },
+    { from: W1, to: DEAD, value: 100n },
+    { from: W2, to: W1, value: 50n },
+    { from: W2, to: ZERO, value: 50n },
+  ];
+
+  it('takes a burn that already lowered the supply off once, not twice', () => {
+    // A standard burn: totalSupply fell to 950 and the zero address holds nothing; the dead address holds 100.
+    const h = holdersFrom(transfers, 950n, 100n);
+    expect(h.burned).toBe('100');
+    expect(h.supplyLessBurned).toBe('850');
+    expect(h.list.reduce((s, x) => s + BigInt(x.amount), 0n).toString()).toBe(h.supplyLessBurned);
+  });
+
   it('folds transfers into balances whose sum is supply less burned', () => {
-    const h = holdersFrom(
-      [
-        { from: ZERO, to: W1, value: 600n },
-        { from: ZERO, to: W2, value: 400n },
-        { from: W1, to: DEAD, value: 100n },
-        { from: W2, to: W1, value: 50n },
-        { from: W2, to: ZERO, value: 50n },
-      ],
-      1_000n,
-    );
+    // A token whose transfers to the zero address stay in its supply: the chain shows both burn addresses holding.
+    const h = holdersFrom(transfers, 1_000n, 150n);
     expect(h.burned).toBe('150');
     expect(h.supplyLessBurned).toBe('850');
     expect(h.list).toEqual([
@@ -221,14 +230,22 @@ describe('holdersFrom', () => {
       to: `0x${(i + 1).toString(16).padStart(40, '0')}` as Address,
       value: 1n,
     }));
-    expect(() => holdersFrom(transfers, BigInt(MAX_HOLDERS + 1))).toThrow(TokensReadError);
+    expect(() => holdersFrom(transfers, BigInt(MAX_HOLDERS + 1), 0n)).toThrow(TokensReadError);
     try {
-      holdersFrom(transfers, BigInt(MAX_HOLDERS + 1));
+      holdersFrom(transfers, BigInt(MAX_HOLDERS + 1), 0n);
     } catch (err) {
       expect((err as TokensReadError).code).toBe(TOKENS_READ_TOO_LARGE);
     }
   });
 });
+
+/** A decimal string as an exact 1e18-scaled bigint, so money is compared without a `number`. */
+function scaledOf(value: string): bigint {
+  const negative = value.startsWith('-');
+  const [whole = '0', fraction = ''] = (negative ? value.slice(1) : value).split('.');
+  const units = BigInt(whole) * 10n ** 18n + BigInt(fraction.padEnd(18, '0'));
+  return negative ? -units : units;
+}
 
 describe('leaderboard', () => {
   it('realises a sell against the average cost of what the wallet bought, and each row equals the sum of its trades', () => {
@@ -238,8 +255,8 @@ describe('leaderboard', () => {
     expect(w1.trades.map((t) => t.realised)).toEqual([null, '5']);
     expect(w1.realised).toBe('5');
     for (const row of board.rows) {
-      const sum = row.trades.reduce((s, t) => s + (t.realised === null ? 0n : BigInt(Math.round(Number(t.realised) * 1e6))), 0n);
-      expect(BigInt(Math.round(Number(row.realised) * 1e6))).toBe(sum);
+      const sum = row.trades.reduce((s, t) => s + (t.realised === null ? 0n : scaledOf(t.realised)), 0n);
+      expect(scaledOf(row.realised)).toBe(sum);
     }
   });
 

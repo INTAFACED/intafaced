@@ -4,7 +4,9 @@ import { navigate } from '../../../app/location';
 import { Button, DataTable, EmptyState, Failure, Page, Panel } from '../../../shared/ui';
 import { useResource } from '../../../shared/resource';
 import { createProtocolApi } from '../api';
-import { usePreferences } from '../../../shared/preferences';
+import { currentPreferences, usePreferences } from '../../../shared/preferences';
+import { dec } from '../../../data/decimal';
+import { clockTime, stamp } from '../../../screens/money/time';
 import { protocolCopy } from '../copy';
 import { ADDRESS_SHAPE } from '../routes';
 import { TabList } from './TabList';
@@ -143,12 +145,7 @@ function WatchButton({ address, t }: { address: string; t: TokensTranslate }) {
 type PageData = TokenPageData;
 
 /** A decimal string as a bigint scaled by 1e18, for drawing only: chart geometry never goes through a `number` price. */
-function scaled(value: string): bigint {
-  const negative = value.startsWith('-');
-  const [whole = '0', fraction = ''] = (negative ? value.slice(1) : value).split('.');
-  const units = BigInt(whole) * 10n ** 18n + BigInt((fraction + '0'.repeat(18)).slice(0, 18) || '0');
-  return negative ? -units : units;
-}
+const scaled = (value: string): bigint => dec(value) ?? 0n;
 
 const CHART_WIDTH = 600;
 const CHART_HEIGHT = 200;
@@ -157,7 +154,7 @@ const CHART_HEIGHT = 200;
 function CandleChart({ pair, data, t }: { pair: PageData['pairs'][number]; data: PageData; t: TokensTranslate }) {
   const label = t('priceChartOf', {
     token: data.token.symbol || shortAddress(data.token.address),
-    other: pair.other.symbol,
+    other: pair.other.symbol || t('noSymbol'),
     fee: percentFromBps(pair.feeBps).replace(/^\+/, ''),
   });
   if (pair.candles.length === 0)
@@ -189,7 +186,9 @@ function CandleChart({ pair, data, t }: { pair: PageData['pairs'][number]; data:
           );
         })}
       </svg>
-      <figcaption className="muted">{t('chartCaption', { other: pair.other.symbol, count: pair.candles.length })}</figcaption>
+      <figcaption className="muted">
+        {t('chartCaption', { other: pair.other.symbol || t('noSymbol'), count: pair.candles.length })}
+      </figcaption>
     </figure>
   );
 }
@@ -222,8 +221,8 @@ function SectionBody({ section, data, t }: { section: Section; data: PageData; t
                 </th>
                 <td>{percentFromBps(pair.feeBps).replace(/^\+/, '')}</td>
                 <td>
-                  {exactUnits(pair.reserve, token.decimals)} {token.symbol} · {exactUnits(pair.reserveOther, pair.other.decimals)}{' '}
-                  {pair.other.symbol}
+                  {exactUnits(pair.reserve, token.decimals)} {token.symbol || t('noSymbol')} ·{' '}
+                  {exactUnits(pair.reserveOther, pair.other.decimals)} {pair.other.symbol || t('noSymbol')}
                 </td>
                 <td>
                   <span data-testid="pair-volume" data-units={pair.volume}>
@@ -307,7 +306,7 @@ function SectionBody({ section, data, t }: { section: Section; data: PageData; t
         data.trades.map((trade) => (
           <tr key={`${trade.tx}:${trade.logIndex}`} data-tx={trade.tx}>
             <td>
-              <time dateTime={isoTime(trade.time)}>{new Date(trade.time * 1000).toLocaleString()}</time>
+              <time dateTime={isoTime(trade.time)}>{stamp(isoTime(trade.time), currentPreferences().timeZone)}</time>
             </td>
             <td>{trade.side === 'buy' ? t('sideBuy') : t('sideSell')}</td>
             <td>
@@ -316,7 +315,7 @@ function SectionBody({ section, data, t }: { section: Section; data: PageData; t
               </span>
             </td>
             <td>
-              {exactUnits(trade.amountOther, trade.other.decimals)} {trade.other.symbol}
+              {exactUnits(trade.amountOther, trade.other.decimals)} {trade.other.symbol || t('noSymbol')}
             </td>
             <td title={trade.wallet}>{shortAddress(trade.wallet)}</td>
           </tr>
@@ -341,14 +340,18 @@ function TokenFacts({ data, t }: { data: PageData; t: TokensTranslate }) {
         <p className="muted">
           <time data-testid="token-as-of" dateTime={isoTime(data.asOf)}>
             {t('asOfTime', {
-              time: new Date(data.asOf * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false }),
+              time: clockTime(data.asOf * 1000, currentPreferences().timeZone),
               block: data.blockNumber,
             })}
           </time>
         </p>
         {!data.listed && <p role="status">{t('notListed')}</p>}
         <dl className="protocol-facts">
-          <Fact label={t('factPrice')} value={data.price === null ? t('noPrice') : `${data.price} ${quote.symbol}`} testId="token-price" />
+          <Fact
+            label={t('factPrice')}
+            value={data.price === null ? t('noPrice') : `${data.price} ${quote.symbol || t('noSymbol')}`}
+            testId="token-price"
+          />
           <Fact
             label={t('factPriceUsd')}
             value={
@@ -366,15 +369,15 @@ function TokenFacts({ data, t }: { data: PageData; t: TokensTranslate }) {
                 <ul className="tokens-plain">
                   {data.pairs.map((pair) => (
                     <li key={pair.pool} data-testid="token-liquidity">
-                      {exactUnits(pair.reserve, data.token.decimals)} {data.token.symbol} ·{' '}
-                      {exactUnits(pair.reserveOther, pair.other.decimals)} {pair.other.symbol}
+                      {exactUnits(pair.reserve, data.token.decimals)} {data.token.symbol || t('noSymbol')} ·{' '}
+                      {exactUnits(pair.reserveOther, pair.other.decimals)} {pair.other.symbol || t('noSymbol')}
                     </li>
                   ))}
                 </ul>
               )
             }
           />
-          <Fact label={t('factFees')} value={`${data.feesPaid} ${quote.symbol}`} testId="token-fees" />
+          <Fact label={t('factFees')} value={`${data.feesPaid} ${quote.symbol || t('noSymbol')}`} testId="token-fees" />
           <Fact
             label={t('factGrowth24h')}
             value={data.growthBps24h === null ? t('noPrice') : percentFromBps(data.growthBps24h)}

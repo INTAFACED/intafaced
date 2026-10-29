@@ -6,7 +6,9 @@ import { useResource } from '../../../shared/resource';
 import { useApi } from '../../session/session';
 import { createProtocolApi } from '../api';
 import { ADDRESS_SHAPE } from '../routes';
-import { usePreferences } from '../../../shared/preferences';
+import { currentPreferences, usePreferences } from '../../../shared/preferences';
+import { compareDecimal as compareDecimals } from '../../../data/decimal';
+import { clockTime, stamp } from '../../../screens/money/time';
 import { protocolCopy } from '../copy';
 import { ImportWatchlist } from './ImportWatchlist';
 import { TabList } from './TabList';
@@ -30,22 +32,8 @@ function useProtocol() {
   return useMemo(() => createProtocolApi(transport), [transport]);
 }
 
-/** Decimal strings compared without a `number`: by sign, then whole part and fraction as digits. */
-export function compareDecimal(a: string, b: string): number {
-  const split = (value: string) => {
-    const negative = value.startsWith('-');
-    const [whole = '0', fraction = ''] = (negative ? value.slice(1) : value).split('.');
-    return { negative, whole, fraction };
-  };
-  const x = split(a);
-  const y = split(b);
-  if (x.negative !== y.negative) return x.negative ? -1 : 1;
-  const width = Math.max(x.fraction.length, y.fraction.length);
-  const left = x.whole.padStart(80, '0') + x.fraction.padEnd(width, '0');
-  const right = y.whole.padStart(80, '0') + y.fraction.padEnd(width, '0');
-  const order = left < right ? -1 : left > right ? 1 : 0;
-  return x.negative ? -order : order;
-}
+/** Decimal strings compared without a `number` (the app's own decimal helper); an unreadable one sorts as equal. */
+export const compareDecimal = (a: string, b: string): number => compareDecimals(a, b) ?? 0;
 
 /**
  * The rows a tab shows, in its order. Trending ranks by growth over the window, so a token with no price (and so no
@@ -134,7 +122,7 @@ function TokenList({
     const shown = rowsFor(tab, tokens, query);
     asOf = (
       <p className="muted" data-testid="tokens-as-of" data-block={blockNumber}>
-        {t('asOfBlock', { block: blockNumber, time: new Date(resource.data.asOf * 1000).toLocaleTimeString() })}{' '}
+        {t('asOfBlock', { block: blockNumber, time: clockTime(resource.data.asOf * 1000, currentPreferences().timeZone) })}{' '}
         {t('pricesIn', { symbol: quote.symbol })}
       </p>
     );
@@ -169,7 +157,7 @@ function TokenList({
             </td>
             <td>
               <time data-testid="token-listed-at" dateTime={isoTime(row.listedAt)}>
-                {new Date(row.listedAt * 1000).toLocaleString()}
+                {stamp(isoTime(row.listedAt), currentPreferences().timeZone)}
               </time>
             </td>
           </tr>
@@ -218,7 +206,7 @@ function WalletTrades({ row, quote, t }: { row: BoardRow; quote: TokensLeaderboa
         {row.trades.map((trade) => (
           <tr key={`${trade.tx}:${trade.logIndex}`}>
             <td>
-              <time dateTime={isoTime(trade.time)}>{new Date(trade.time * 1000).toLocaleString()}</time>
+              <time dateTime={isoTime(trade.time)}>{stamp(isoTime(trade.time), currentPreferences().timeZone)}</time>
             </td>
             <td>{trade.token.symbol || shortAddress(trade.token.address)}</td>
             <td>{trade.side === 'buy' ? t('sideBuy') : t('sideSell')}</td>

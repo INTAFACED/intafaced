@@ -118,12 +118,15 @@ class Market {
   readonly byAddress = new Map<string, TokenBasics>();
   readonly poolsOf = new Map<string, PoolRecord[]>();
   readonly syncsOf = new Map<string, SyncLog[]>();
+  readonly poolAt = new Map<string, PoolRecord>();
+  private readonly priceNow = new Map<string, bigint | null>();
 
   constructor(
     readonly snap: MarketSnapshot,
     readonly quote: TokenBasics,
   ) {
     for (const t of snap.tokens) this.byAddress.set(lower(t.address), t);
+    for (const p of snap.pools) this.poolAt.set(lower(p.pool), p);
     for (const p of snap.pools)
       for (const side of [p.token0, p.token1]) {
         const list = this.poolsOf.get(lower(side)) ?? [];
@@ -174,6 +177,12 @@ class Market {
    * that has a pool with the quote token. The pools are chosen by today's depth, so a window compares like with like.
    */
   price(token: string, time: number | null = null): bigint | null {
+    if (time !== null) return this.priceAt(token, time);
+    if (!this.priceNow.has(lower(token))) this.priceNow.set(lower(token), this.priceAt(token, null));
+    return this.priceNow.get(lower(token))!;
+  }
+
+  private priceAt(token: string, time: number | null): bigint | null {
     if (same(token, this.quote.address)) return SCALE;
     const direct = this.deepest(token, this.quote.address);
     if (direct) return this.pairPrice(direct, token, time);
@@ -209,7 +218,7 @@ class Market {
 
   /** This token's side of one swap: how much of it moved, and whether the trader bought it (it left the pool). */
   side(swap: SwapLog, token: string): { side: 'buy' | 'sell'; amount: bigint; other: Address; amountOther: bigint } | null {
-    const pool = this.snap.pools.find((p) => same(p.pool, swap.pool));
+    const pool = this.poolAt.get(lower(swap.pool));
     if (!pool) return null;
     const isToken0 = same(pool.token0, token);
     if (!isToken0 && !same(pool.token1, token)) return null;
@@ -274,14 +283,16 @@ export function tokensList(snap: MarketSnapshot, quote: TokenBasics, window: Tok
   return { blockNumber: snap.blockNumber.toString(), asOf: snap.asOf, quote, window, tokens };
 }
 
-/** Every Transfer of the token folded into balances. Mints come from the zero address and debit nobody. */
-export function holdersFrom(transfers: TransferLog[], totalSupply: bigint): TokenPageData['holders'] {
+/**
+ * Every Transfer of the token folded into balances. Mints come from the zero address and debit nobody. `burned` is what
+ * the burn addresses hold on the chain at the same block, so holders sum to `totalSupply - burned`.
+ */
+export function holdersFrom(transfers: TransferLog[], totalSupply: bigint, burned: bigint): TokenPageData['holders'] {
   const balances = new Map<string, bigint>();
   for (const t of transfers) {
     if (!same(t.from, ZERO)) balances.set(lower(t.from), (balances.get(lower(t.from)) ?? 0n) - t.value);
     balances.set(lower(t.to), (balances.get(lower(t.to)) ?? 0n) + t.value);
   }
-  const burned = (balances.get(ZERO) ?? 0n) + (balances.get(DEAD) ?? 0n);
   const list = [...balances.entries()]
     .filter(([holder, amount]) => amount > 0n && holder !== ZERO && holder !== DEAD)
     .sort((a, b) => (a[1] === b[1] ? 0 : a[1] > b[1] ? -1 : 1));

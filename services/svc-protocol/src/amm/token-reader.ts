@@ -1,8 +1,8 @@
-import { parseAbiItem, type Address, type Hex, type PublicClient } from 'viem';
+import { parseAbiItem, type Address, type PublicClient } from 'viem';
 import type { TokenBasics, TokenPageData } from '@intafaced/contracts';
 import { TOKENS_READ_TOO_LARGE } from '@intafaced/contracts';
 import { classifyChainError } from '../chain/availability.js';
-import { listPairs, type PairsChain } from './pairs.js';
+import { listPairs, PAIRS_READ_LIMIT, type PairsChain } from './pairs.js';
 import { holdersFrom, MAX_LOGS, TokensReadError, type MarketSnapshot, type PoolRecord, type SwapLog, type SyncLog } from './tokens.js';
 
 const poolCreated = parseAbiItem(
@@ -13,18 +13,23 @@ const swap = parseAbiItem(
   'event Swap(address indexed sender, uint256 amount0In, uint256 amount1In, uint256 amount0Out, uint256 amount1Out, address indexed to)',
 );
 const transfer = parseAbiItem('event Transfer(address indexed from, address indexed to, uint256 value)');
-const totalSupplyAbi = [
+const erc20Abi = [
   { type: 'function', name: 'totalSupply', stateMutability: 'view', inputs: [], outputs: [{ type: 'uint256' }] },
+  { type: 'function', name: 'balanceOf', stateMutability: 'view', inputs: [{ type: 'address' }], outputs: [{ type: 'uint256' }] },
 ] as const;
+/** Burn addresses: what they hold is out of circulation but may still count in `totalSupply`. */
+const BURN_ADDRESSES = ['0x0000000000000000000000000000000000000000', '0x000000000000000000000000000000000000dEaD'] as const;
+/** How many block reads go to the node at once. */
+const RPC_BATCH = 16;
 
 /** The log reads the token pages need, on top of the pool reads. Every one is a read; nothing here can sign. */
 export interface TokenLogsChain extends PairsChain {
   poolCreatedLogs(factory: Address, toBlock: bigint): Promise<{ pool: Address; block: bigint; index: number }[]>;
-  poolLogs(pools: Address[], toBlock: bigint): Promise<{ syncs: Omit<SyncLog, 'time'>[]; swaps: Omit<SwapLog, 'time' | 'wallet'>[] }>;
+  poolLogs(pools: Address[], toBlock: bigint): Promise<{ syncs: Omit<SyncLog, 'time'>[]; swaps: Omit<SwapLog, 'time'>[] }>;
   blockTimes(blocks: bigint[]): Promise<Map<bigint, number>>;
-  signers(txs: Hex[]): Promise<Map<string, Address>>;
   transferLogs(token: Address, toBlock: bigint): Promise<{ from: Address; to: Address; value: bigint }[]>;
   totalSupply(token: Address, blockNumber: bigint): Promise<bigint>;
+  balanceOf(token: Address, holder: Address, blockNumber: bigint): Promise<bigint>;
 }
 
 const tooLarge = (count: number) => {
@@ -37,6 +42,7 @@ const tooLarge = (count: number) => {
 
 /** `TokenLogsChain` over the service's read-only `PublicClient`, looked up per read. A failed read refuses with its chain code. */
 export function tokenLogsChain(pairs: PairsChain, client: () => PublicClient, rpcUrl: () => string): TokenLogsChain {
+  const blockTime = new Map<bigint, number>();
   const read = async <T>(what: string, fn: () => Promise<T>): Promise<T> => {
     try {
       return await fn();
@@ -82,32 +88,27 @@ export function tokenLogsChain(pairs: PairsChain, client: () => PublicClient, rp
             amount1In: log.args.amount1In!,
             amount0Out: log.args.amount0Out!,
             amount1Out: log.args.amount1Out!,
+            // The account the pool paid is the trader: a router or a bundler signs, but pays out to it.
+            wallet: log.args.to!,
           })),
         };
       }),
     blockTimes: (blocks) =>
       read('blockTimes', async () => {
-        const unique = [...new Set(blocks)];
-        const times = await Promise.all(
-          unique.map((blockNumber) =>
-            client()
-              .getBlock({ blockNumber })
-              .then((b) => Number(b.timestamp)),
-          ),
-        );
-        return new Map(unique.map((block, i) => [block, times[i]!]));
-      }),
-    signers: (txs) =>
-      read('signers', async () => {
-        const unique = [...new Set(txs)];
-        const froms = await Promise.all(
-          unique.map((hash) =>
-            client()
-              .getTransaction({ hash })
-              .then((tx) => tx.from),
-          ),
-        );
-        return new Map(unique.map((hash, i) => [hash.toLowerCase(), froms[i]!]));
+        // A block's time never changes, so each is read once per process, a few at a time.
+        const missing = [...new Set(blocks)].filter((block) => !blockTime.has(block));
+        for (let i = 0; i < missing.length; i += RPC_BATCH) {
+          const batch = missing.slice(i, i + RPC_BATCH);
+          const times = await Promise.all(
+            batch.map((blockNumber) =>
+              client()
+                .getBlock({ blockNumber })
+                .then((b) => Number(b.timestamp)),
+            ),
+          );
+          batch.forEach((block, j) => blockTime.set(block, times[j]!));
+        }
+        return new Map(blocks.map((block) => [block, blockTime.get(block)!]));
       }),
     transferLogs: (token, toBlock) =>
       read('transferLogs', async () => {
@@ -116,13 +117,23 @@ export function tokenLogsChain(pairs: PairsChain, client: () => PublicClient, rp
         return logs.map((log) => ({ from: log.args.from!, to: log.args.to!, value: log.args.value! }));
       }),
     totalSupply: (token, blockNumber) =>
-      read('totalSupply', () => client().readContract({ address: token, abi: totalSupplyAbi, functionName: 'totalSupply', blockNumber })),
+      read('totalSupply', () => client().readContract({ address: token, abi: erc20Abi, functionName: 'totalSupply', blockNumber })),
+    balanceOf: (token, holder, blockNumber) =>
+      read('balanceOf', () =>
+        client().readContract({ address: token, abi: erc20Abi, functionName: 'balanceOf', args: [holder], blockNumber }),
+      ),
   };
 }
 
 /** Every pool, its history and its tokens at one block. */
 export async function readMarket(chain: TokenLogsChain, factory: Address, block: bigint): Promise<MarketSnapshot> {
   const [pairs, created] = await Promise.all([listPairs(chain, factory, block), chain.poolCreatedLogs(factory, block)]);
+  // The pairs read stops at PAIRS_READ_LIMIT pools; past that, a list would answer from part of the market, so refuse.
+  if (created.length > PAIRS_READ_LIMIT)
+    throw new TokensReadError(
+      TOKENS_READ_TOO_LARGE,
+      `${created.length} pools is more than this read takes (${PAIRS_READ_LIMIT}); the indexer must project them.`,
+    );
   const createdBy = new Map(created.map((c) => [c.pool.toLowerCase(), c]));
   const listedPools = pairs.pools.map((p) => p.pool as Address);
   const logs = await chain.poolLogs(listedPools, block);
@@ -132,7 +143,6 @@ export async function readMarket(chain: TokenLogsChain, factory: Address, block:
     ...logs.syncs.map((s) => s.block),
     ...logs.swaps.map((s) => s.block),
   ]);
-  const signers = await chain.signers(logs.swaps.map((s) => s.tx));
   const pools: PoolRecord[] = pairs.pools.map((p) => {
     const made = createdBy.get(p.pool.toLowerCase());
     return {
@@ -152,7 +162,7 @@ export async function readMarket(chain: TokenLogsChain, factory: Address, block:
     tokens: pairs.tokens as TokenBasics[],
     pools,
     syncs: logs.syncs.map((s) => ({ ...s, time: times.get(s.block)! })),
-    swaps: logs.swaps.map((s) => ({ ...s, time: times.get(s.block)!, wallet: signers.get(s.tx.toLowerCase())! })),
+    swaps: logs.swaps.map((s) => ({ ...s, time: times.get(s.block)! })),
   };
 }
 
@@ -176,8 +186,33 @@ export function marketReader(chain: TokenLogsChain) {
   };
 }
 
-/** One token's holders at the snapshot's block, from every Transfer it emitted. */
-export async function readHolders(chain: TokenLogsChain, token: Address, block: bigint): Promise<TokenPageData['holders']> {
-  const [transfers, supply] = await Promise.all([chain.transferLogs(token, block), chain.totalSupply(token, block)]);
-  return holdersFrom(transfers, supply);
+/**
+ * One token's holders at a block, from every Transfer it emitted; burned is what the burn addresses hold on the chain
+ * (a burn that already lowered `totalSupply` is not taken off again). The last few reads are kept, since a block's
+ * holders never change.
+ */
+export function holdersReader(chain: TokenLogsChain) {
+  const kept = new Map<string, Promise<TokenPageData['holders']>>();
+  return (token: Address, block: bigint): Promise<TokenPageData['holders']> => {
+    const key = `${token.toLowerCase()}:${block}`;
+    let answer = kept.get(key);
+    if (!answer) {
+      answer = Promise.all([
+        chain.transferLogs(token, block),
+        chain.totalSupply(token, block),
+        ...BURN_ADDRESSES.map((holder) => chain.balanceOf(token, holder, block)),
+      ]).then(([transfers, supply, ...burned]) =>
+        holdersFrom(
+          transfers,
+          supply,
+          burned.reduce((a, b) => a + b, 0n),
+        ),
+      );
+      kept.set(key, answer);
+      answer.catch(() => kept.delete(key));
+      if (kept.size > HOLDERS_KEPT) kept.delete(kept.keys().next().value!);
+    }
+    return answer;
+  };
 }
+const HOLDERS_KEPT = 32;

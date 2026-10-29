@@ -13,7 +13,7 @@ import {
 } from '@intafaced/contracts';
 import { isZeroAddress } from '../chain/availability.js';
 import { leaderboard, tokenPage, tokensList, TokensReadError } from './tokens.js';
-import { marketReader, readHolders, type TokenLogsChain } from './token-reader.js';
+import { holdersReader, marketReader, type TokenLogsChain } from './token-reader.js';
 
 export interface TokensRouterDeps {
   chain: TokenLogsChain;
@@ -32,6 +32,7 @@ export interface TokensRouterDeps {
  */
 export function createTokensRouter(deps: TokensRouterDeps) {
   const readMarket = marketReader(deps.chain);
+  const readHolders = holdersReader(deps.chain);
 
   async function context() {
     const factory = deps.factory();
@@ -84,7 +85,7 @@ export function createTokensRouter(deps: TokensRouterDeps) {
             address,
             ...(await deps.chain.tokenBasics(address)),
           };
-          return tokenPage(snap, quote, token, await readHolders(deps.chain, address, snap.blockNumber));
+          return tokenPage(snap, quote, token, await readHolders(address, snap.blockNumber));
         }),
       ),
     leaderboard: publicJurisdictionProcedure('protocol', 'protocol')
