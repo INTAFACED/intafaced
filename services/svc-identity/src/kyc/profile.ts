@@ -62,6 +62,20 @@ export type KycDocumentTypeList = ReadonlyMap<string, KycDocumentTypes['types']>
  */
 const UPLOAD_MAX_BYTES = 760 * 1024;
 const TYPE_ROW = /^[a-z][a-z0-9_]{1,63}$/;
+
+/**
+ * One row of an owner's per-country list (`{"type", "label", ...}`): a well-formed type not seen before in that country
+ * and a label of 1 to 120 characters. Shared by the ID-type and proof-of-address lists; a bad row stops the service.
+ */
+export function parseListedRow(setting: string, country: string, row: unknown, seen: Set<string>): { type: string; label: string } {
+  const r = (row && typeof row === 'object' ? row : {}) as { type?: unknown; label?: unknown };
+  if (typeof r.type !== 'string' || !TYPE_ROW.test(r.type) || seen.has(r.type))
+    throw new Error(`${setting}: ${country} has a missing, malformed or repeated type`);
+  if (typeof r.label !== 'string' || r.label.trim() === '' || r.label.length > 120)
+    throw new Error(`${setting}: ${country} ${r.type} needs a label of 1 to 120 characters`);
+  seen.add(r.type);
+  return { type: r.type, label: r.label };
+}
 const CONTENT_TYPE = /^[a-z]+\/[a-z0-9.+-]+$/;
 
 /** The owner's accepted ID types per country. Unset is none published anywhere; malformed stops the service. */
@@ -83,15 +97,10 @@ export function parseKycDocumentTypes(raw: string | undefined): KycDocumentTypeL
     out.set(
       country,
       rows.map((row: unknown) => {
-        const r = row as { type?: unknown; label?: unknown; originalRequired?: unknown };
-        if (typeof r.type !== 'string' || !TYPE_ROW.test(r.type) || seen.has(r.type))
-          throw new Error(`${setting}: ${country} has a missing, malformed or repeated type`);
-        if (typeof r.label !== 'string' || r.label.trim() === '' || r.label.length > 120)
-          throw new Error(`${setting}: ${country} ${r.type} needs a label of 1 to 120 characters`);
-        if (typeof r.originalRequired !== 'boolean')
-          throw new Error(`${setting}: ${country} ${r.type} needs originalRequired true or false`);
-        seen.add(r.type);
-        return { type: r.type, label: r.label, originalRequired: r.originalRequired };
+        const { type, label } = parseListedRow(setting, country, row, seen);
+        const originalRequired = (row as { originalRequired?: unknown }).originalRequired;
+        if (typeof originalRequired !== 'boolean') throw new Error(`${setting}: ${country} ${type} needs originalRequired true or false`);
+        return { type, label, originalRequired };
       }),
     );
   }
@@ -113,6 +122,20 @@ export function parseKycUploadCaps(env: {
   const contentTypes = [...new Set(types.split(',').map((t) => t.trim().toLowerCase()))];
   if (contentTypes.some((t) => !CONTENT_TYPE.test(t))) throw new Error('IDENTITY_KYC_UPLOAD_TYPES must be a comma list of content types');
   return { maxBytes, contentTypes };
+}
+
+/**
+ * The owner's file caps, shared by the ID photo and proof of address: unset refuses, then the content type must be
+ * listed and the decoded bytes within the cap. Returns the content type as stored (lower case).
+ */
+export function assertWithinUploadCaps(caps: KycProfileUploadCaps | null, rawContentType: string, bytes: Buffer): string {
+  if (!caps) throw new KycProfileError('No size and type limits are published for documents', 'kyc.upload_caps_unset');
+  const contentType = rawContentType.trim().toLowerCase();
+  if (!caps.contentTypes.includes(contentType))
+    throw new KycProfileError('That file type is not accepted', 'kyc.upload_type', { contentTypes: caps.contentTypes });
+  if (bytes.length === 0 || bytes.length > caps.maxBytes)
+    throw new KycProfileError(`The file is over the ${caps.maxBytes}-byte limit`, 'kyc.upload_too_large', { maxBytes: caps.maxBytes });
+  return contentType;
 }
 
 const EMPTY: KycProfileFields = kycProfileFieldsSchema.parse({
@@ -323,13 +346,7 @@ export class KycProfileDesk {
   /** Stores the ID photo in the vault, then the draft refers to it and moves on to review. */
   async upload(userId: string, input: { version: number; contentType: string; bytes: Buffer }): Promise<KycProfileDraft> {
     this.requireKey();
-    const caps = this.settings.uploadCaps;
-    if (!caps) throw new KycProfileError('No size and type limits are published for ID photos', 'kyc.upload_caps_unset');
-    const contentType = input.contentType.trim().toLowerCase();
-    if (!caps.contentTypes.includes(contentType))
-      throw new KycProfileError('That file type is not accepted', 'kyc.upload_type', { contentTypes: caps.contentTypes });
-    if (input.bytes.length === 0 || input.bytes.length > caps.maxBytes)
-      throw new KycProfileError(`The file is over the ${caps.maxBytes}-byte limit`, 'kyc.upload_too_large', { maxBytes: caps.maxBytes });
+    const contentType = assertWithinUploadCaps(this.settings.uploadCaps, input.contentType, input.bytes);
     const vault = this.settings.vault;
     if (!vault) throw new KycProfileError('The document vault is not configured', 'kyc.profile_unconfigured');
     const hash = this.fingerprint('upload', input.version, { contentType, sha256: createHash('sha256').update(input.bytes).digest('hex') });
