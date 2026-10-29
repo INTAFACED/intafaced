@@ -10,7 +10,7 @@ const TO = `0x${'2'.repeat(40)}` as const;
 // InsufficientOut()
 const INSUFFICIENT_OUT = '0xbe664d40';
 
-function stubClient(trace: () => Promise<unknown>): PublicClient {
+function stubClient(trace: () => Promise<unknown>, rawReceipt: object = { status: '0x0' }): PublicClient {
   return {
     getTransaction: async () => ({
       hash: HASH,
@@ -33,7 +33,7 @@ function stubClient(trace: () => Promise<unknown>): PublicClient {
       contractAddress: null,
     }),
     request: async ({ method }: { method: string }) => {
-      if (method === 'eth_getTransactionReceipt') return { status: '0x0' };
+      if (method === 'eth_getTransactionReceipt') return rawReceipt;
       if (method === 'debug_traceTransaction') return trace();
       throw new Error(`unexpected ${method}`);
     },
@@ -50,6 +50,28 @@ describe('readBlockTransactions · revert reason from the node trace', () => {
     );
     expect(tx?.status).toBe('failed');
     expect(tx?.revertReason).toBe('InsufficientOut');
+  });
+
+  it('makes a chain-chosen reason storable: a NUL from the receipt or the trace never reaches Postgres', async () => {
+    const noTrace = async () => {
+      throw new Error('not traced');
+    };
+    const [fromReceipt] = await readBlockTransactions(
+      stubClient(noTrace, { status: '0x0', revertReason: 'a\u0000b' }),
+      [HASH],
+      BLOCK,
+      'rpc',
+    );
+    expect(fromReceipt?.revertReason).toBe('a b');
+    // Error(string) carrying "x\u0000y"
+    const data = '0x08c379a0' + '20'.padStart(64, '0') + '3'.padStart(64, '0') + '780079'.padEnd(64, '0');
+    const [fromTrace] = await readBlockTransactions(
+      stubClient(async () => ({ output: data })),
+      [HASH],
+      BLOCK,
+      'rpc',
+    );
+    expect(fromTrace?.revertReason).toBe('x y');
   });
 
   it('keeps no reason when the contract returned none', async () => {

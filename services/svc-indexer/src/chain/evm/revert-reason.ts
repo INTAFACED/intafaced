@@ -46,6 +46,24 @@ const KNOWN_ERRORS = parseAbi([
 /** Stored in place of a reason when the node refused to trace the transaction. A code, not words: the page words it. */
 export const TRACE_NOT_READ = 'indexer.trace_unavailable';
 
+/** Longest reason kept, in characters; a longer one is cut and ends with an ellipsis. */
+export const REASON_MAX_CHARS = 256;
+
+/**
+ * A chain-supplied reason made safe to store and show. The message is attacker-chosen: a NUL byte would make Postgres
+ * refuse the row and hold the block back forever, so control characters become spaces, a lone surrogate becomes U+FFFD
+ * and the length is capped. `null` when nothing readable is left.
+ */
+export function storableReason(text: string): string | null {
+  const clean = text
+    .replace(/[\u0000-\u001f\u007f]/g, ' ')
+    .replace(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g, '\uFFFD')
+    .trim();
+  if (clean === '') return null;
+  const chars = Array.from(clean);
+  return chars.length <= REASON_MAX_CHARS ? clean : `${chars.slice(0, REASON_MAX_CHARS - 1).join('')}…`;
+}
+
 /** Revert data to the words the transaction page shows. `null` when the contract returned nothing. */
 export function revertReasonFromData(data: string | null | undefined): string | null {
   if (typeof data !== 'string' || !/^0x([0-9a-fA-F]{2})*$/.test(data) || data.length <= 2) return null;
@@ -53,8 +71,7 @@ export function revertReasonFromData(data: string | null | undefined): string | 
   try {
     const decoded = decodeErrorResult({ abi: KNOWN_ERRORS, data: data as Hex });
     if (decoded.errorName === 'Error') {
-      const message = String(decoded.args?.[0] ?? '').trim();
-      return message === '' ? 'Error with an empty message' : message;
+      return storableReason(String(decoded.args?.[0] ?? '')) ?? 'Error with an empty message';
     }
     if (decoded.errorName === 'Panic') return `Panic(0x${(decoded.args?.[0] as bigint).toString(16)})`;
     return decoded.errorName;
@@ -85,6 +102,6 @@ export function traceReason(trace: unknown): string | null {
   const { output, error } = trace as { output?: unknown; error?: unknown };
   const fromData = revertReasonFromData(typeof output === 'string' ? output : null);
   if (fromData !== null) return fromData;
-  if (typeof error === 'string' && error.trim() !== '' && !/^execution reverted$/i.test(error.trim())) return error.trim();
-  return null;
+  if (typeof error !== 'string' || /^execution reverted$/i.test(error.trim())) return null;
+  return storableReason(error);
 }
