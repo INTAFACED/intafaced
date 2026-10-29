@@ -1,8 +1,13 @@
 -- intafaced:destructive — reversal of 20261029145500_governance_voting_types.sql. Drops the voting-power snapshots, choice lists and ballots. A stored ballot without a basic choice makes the NOT NULL fail rather than deleting the vote.
 -- Reverse of 20261029145500. No amount or rate is rewritten.
--- Postgres cannot remove an enum value safely; 'closed_ranked' stays in the enum, and its rows go back to 'closed' so the older code reads them.
+-- Postgres cannot remove an enum value safely, so 'closed_ranked' stays in the enum. The older code has no status for a
+-- ranked close and no verdict was taken, so a stored one refuses the reversal rather than being relabelled.
 
-UPDATE "token"."proposals" SET "status" = 'closed' WHERE "status" = 'closed_ranked';
+DO $$ BEGIN
+  IF EXISTS (SELECT 1 FROM "token"."proposals" WHERE "status" = 'closed_ranked') THEN
+    RAISE EXCEPTION 'token.proposals holds closed_ranked rows; the older code cannot read them';
+  END IF;
+END $$;
 
 ALTER TABLE "token"."governance_votes" DROP CONSTRAINT IF EXISTS "governance_votes_choice_or_ballot_check";
 ALTER TABLE "token"."governance_votes" ALTER COLUMN "choice" SET NOT NULL;
