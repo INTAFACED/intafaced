@@ -212,7 +212,7 @@ export const TEST_PRICES = {
   // The labelled TEST spot market with no dollar side (`local-test-gates.mjs apply` lists it). Notional is in BTC.
   'ETH/BTC': { start: '0.04', notional: '0.05' },
   // The labelled TEST perpetual (`local-test-gates.mjs futures` lists it). Its mark comes from the BTC/USDT book
-  // (TRADE_FUTURES_INDEX_SPOT_MARKETS), so it is quoted around that book's own mid each cycle (`cycleMids`) and stays
+  // (TRADE_FUTURES_INDEX_SPOT_MARKETS), so it is quoted around that book's own mid each cycle (`quoteOrder`) and stays
   // inside the band and the market-open slippage cap around that mark.
   // Quotes go through the futures book; no crossings by test_taker, whose account carries no futures terms.
   'BTC/USDT:USDT': { start: '65000', notional: '3000', follows: 'BTC/USDT', cross: false },
