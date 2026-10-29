@@ -2,7 +2,7 @@ import { readdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import postgres from 'postgres';
-import { afterAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { assertTestDatabase, postgresAvailable } from '@intafaced/db';
 import { PostgresSupportStore } from './store.js';
 
@@ -11,26 +11,40 @@ import { PostgresSupportStore } from './store.js';
  * the cap is counted under the ticket lock, so two comments at once cannot both pass it.
  */
 
-const URL = process.env.TEST_DATABASE_URL_SUPPORT ?? 'postgres://svc_support:svc_support@localhost:5433/intafaced_test';
+const ADMIN_URL = process.env.TEST_DATABASE_URL_SUPPORT_ADMIN ?? 'postgres://127.0.0.1:5432/postgres';
 const here = dirname(fileURLToPath(import.meta.url));
 const migrationsDir = join(here, '..', 'drizzle');
+const database = `svc_support_commentkey_${process.pid}_${Math.random().toString(36).slice(2, 10)}_test`;
 const USER = '5c0e0e00-1111-4111-8111-111111111111';
 
-const available = await postgresAvailable(URL);
-const sql = available ? postgres(URL, { max: 4, onnotice: () => undefined }) : null;
-
-if (available && sql) {
-  await assertTestDatabase(sql, 'svc-support comment-key.pg.test');
-  await sql.unsafe(`CREATE SCHEMA IF NOT EXISTS support`).catch(() => undefined);
-  for (const file of readdirSync(migrationsDir)
-    .filter((f) => f.endsWith('.sql') && !f.endsWith('.down.sql'))
-    .sort()) {
-    await sql.unsafe(readFileSync(join(migrationsDir, file), 'utf8')).catch(() => undefined);
-  }
+if (database === 'intafaced_test' || !database.endsWith('_test') || !/^[a-z0-9_]+$/.test(database)) {
+  throw new Error(`refusing database name ${database}`);
 }
 
+const available = await postgresAvailable(ADMIN_URL);
+const admin = available ? postgres(ADMIN_URL, { max: 1, onnotice: () => undefined }) : null;
+let sql: postgres.Sql | null = null;
+let created = false;
+
+beforeAll(async () => {
+  if (!admin) return;
+  await admin.unsafe(`CREATE DATABASE "${database}"`);
+  created = true;
+  const url = new URL(ADMIN_URL);
+  url.pathname = `/${database}`;
+  sql = postgres(url.toString(), { max: 4, onnotice: () => undefined });
+  await assertTestDatabase(sql, 'svc-support comment-key.pg.test');
+  await sql.unsafe('CREATE SCHEMA IF NOT EXISTS support');
+  const files = readdirSync(migrationsDir)
+    .filter((f) => f.endsWith('.sql') && !f.endsWith('.down.sql'))
+    .sort();
+  for (const f of files) await sql.unsafe(readFileSync(join(migrationsDir, f), 'utf8'));
+});
+
 afterAll(async () => {
-  if (sql) await sql.end({ timeout: 5 });
+  await sql?.end({ timeout: 5 });
+  if (created) await admin?.unsafe(`DROP DATABASE IF EXISTS "${database}" WITH (FORCE)`);
+  await admin?.end({ timeout: 5 });
 });
 
 describe.skipIf(!available)('comment key and cap on Postgres', () => {

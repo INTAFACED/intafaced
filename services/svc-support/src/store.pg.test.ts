@@ -11,7 +11,14 @@ import { PostgresSupportStore } from './store.js';
  * property. Memory cannot prove two workers racing the same row.
  */
 
-const URL = process.env.TEST_DATABASE_URL_SUPPORT ?? 'postgres://svc_support:svc_support@localhost:5433/intafaced_test';
+// Per-run database as in kb-audience.pg.test.ts: a file sharing intafaced_test with another file that replays
+// migrations sees the other's half-applied triggers and truncates (#6713). The name ends in _test and is never
+// intafaced_test.
+const ADMIN_URL = process.env.TEST_DATABASE_URL_SUPPORT_ADMIN ?? 'postgres://127.0.0.1:5432/postgres';
+const database = `svc_support_store_${process.pid}_${Math.random().toString(36).slice(2, 10)}_test`;
+if (database === 'intafaced_test' || !database.endsWith('_test') || !/^[a-z0-9_]+$/.test(database)) {
+  throw new Error(`refusing database name ${database}`);
+}
 const here = dirname(fileURLToPath(import.meta.url));
 const MIGRATION = readFileSync(join(here, '..', 'drizzle', '0000_support_init.sql'), 'utf8');
 const MIGRATION_0001 = readFileSync(join(here, '..', 'drizzle', '0001_support_audit_and_case_file.sql'), 'utf8');
@@ -30,8 +37,12 @@ const USER = '11111111-1111-4111-8111-111111111111';
 const OP_A = '33333333-3333-4333-8333-333333333333';
 const OP_B = '44444444-4444-4444-8444-444444444444';
 
-const available = await postgresAvailable(URL);
-const sql = available ? postgres(URL, { max: 4, onnotice: () => undefined }) : null;
+const available = await postgresAvailable(ADMIN_URL);
+const admin = available ? postgres(ADMIN_URL, { max: 1, onnotice: () => undefined }) : null;
+if (admin) await admin.unsafe(`CREATE DATABASE "${database}"`);
+const databaseUrl = new URL(ADMIN_URL);
+databaseUrl.pathname = `/${database}`;
+const sql = admin ? postgres(databaseUrl.toString(), { max: 4, onnotice: () => undefined }) : null;
 
 if (available && sql) {
   await assertTestDatabase(sql, 'svc-support store.pg.test');
@@ -57,6 +68,10 @@ if (available && sql) {
 
 afterAll(async () => {
   if (sql) await sql.end({ timeout: 5 });
+  if (admin) {
+    await admin.unsafe(`DROP DATABASE IF EXISTS "${database}" WITH (FORCE)`);
+    await admin.end({ timeout: 5 });
+  }
 });
 
 describe.skipIf(!available)('PostgresSupportStore — durable desk', () => {
