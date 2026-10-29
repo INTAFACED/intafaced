@@ -203,7 +203,11 @@ const messages = {
   'Confirm iceberg body':
     'The book shows the display size at your limit. Each time it fills, the next part of the same size is shown, until the total is done. The whole total is held now.',
   'Iceberg placed': 'Iceberg placed. It rests on the house order book.',
-  'Iceberg check found {status}': 'Checked: the iceberg was placed and is {status}.',
+  'Iceberg check resting': 'Checked: the iceberg was placed and rests on the book.',
+  'Iceberg check filled': 'Checked: the iceberg was placed and has filled.',
+  'Iceberg check cancelled': 'Checked: the iceberg was placed and has since ended without filling in full (cancelled or expired).',
+  'Iceberg check refused': 'Checked: the iceberg was refused, so nothing rests on the book.',
+  'Iceberg check unresolved': 'Checked: the iceberg exists but its outcome is still being settled. Open your orders to follow it.',
   'Iceberg check none': 'Checked: no order has that request id, so nothing was placed.',
   'Made once for this request, so a re-send cannot place a second order':
     'Made once for this request, so a re-send cannot place a second order',

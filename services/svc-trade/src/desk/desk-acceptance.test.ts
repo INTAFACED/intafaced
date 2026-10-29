@@ -996,7 +996,7 @@ describe('desk acceptance (shared test postgres)', () => {
     await app.close();
   });
 
-  function icebergDoor(): ReturnType<typeof Fastify> {
+  function icebergDoor(replaced: unknown[] = []): ReturnType<typeof Fastify> {
     const app = Fastify();
     registerPrivateRest(app, {
       edgeSecret: SECRET,
@@ -1008,6 +1008,10 @@ describe('desk acceptance (shared test postgres)', () => {
       marketById: (marketId: string) => trade.marketById(marketId),
       lifecycleForMarket: (market: Market) => READY_MARKET_LIFECYCLE.snapshot(market),
       placeOrder: (principal: Principal, input: PlaceOrderInput) => trade.placeOrder(principal, input),
+      replaceOrder: async (...args: unknown[]) => {
+        replaced.push(args);
+        throw new Error('the replace saga must not be reached');
+      },
     } as unknown as PrivateRestDeps);
     return app;
   }
@@ -1075,6 +1079,46 @@ describe('desk acceptance (shared test postgres)', () => {
     expect(answers.map((a) => a.statusCode).sort()).toEqual([201, 409]);
     expect(answers.find((a) => a.statusCode === 409)!.json().intafacedCode).toBe(TRADE_ICEBERG_SYMBOL_CAP);
     expect((await aliceOrders()).filter((o) => o.status === 'open' || o.status === 'pending')).toHaveLength(1);
+    await app.close();
+  });
+
+  it('answers two sends of the same iceberg at once with the one order, not a cap refusal', async () => {
+    await fund(ALICE, 'USDT', '5000');
+    const app = icebergDoor();
+    const headers = signedHeaders();
+    const answers = await Promise.all(
+      [1, 2].map(() => app.inject({ method: 'POST', url: '/api/v1/orders', headers, payload: iceberg('ice-twice') })),
+    );
+    expect(answers.map((a) => a.statusCode)).toEqual([201, 201]);
+    expect(answers[0]!.json().id).toBe(answers[1]!.json().id);
+    expect(answers.map((a) => a.json().displayQty)).toEqual(['1', '1']);
+    expect((await aliceOrders()).map((o) => o.client_order_id)).toEqual(['ice-twice']);
+    await app.close();
+  });
+
+  it('refuses an iceberg on an order replacement and leaves the original resting', async () => {
+    await fund(ALICE, 'USDT', '5000');
+    const replaced: unknown[] = [];
+    const app = icebergDoor(replaced);
+    const headers = signedHeaders();
+    const plain = { symbol: 'BTC/USDT', type: 'limit', side: 'buy', amount: '3', price: '100', clientOrderId: 'plain-to-replace' };
+    const original = await app.inject({ method: 'POST', url: '/api/v1/orders', headers, payload: plain });
+    expect(original.statusCode).toBe(201);
+    const before = await aliceOrders();
+    const balance = (await ledger.balance(userAvailable(ALICE, 'USDT'))).amount;
+    for (const extra of [{ displayQty: '1' }, { iceberg: true }]) {
+      const answer = await app.inject({
+        method: 'POST',
+        url: `/api/v1/orders/${original.json().id}/replace`,
+        headers,
+        payload: { ...plain, clientOrderId: 'plain-replaced', ...extra },
+      });
+      expect(answer.statusCode).toBe(400);
+      expect(answer.json().intafacedCode).toBe(TRADE_ICEBERG_DISPLAY_INVALID);
+    }
+    expect(replaced).toEqual([]);
+    expect(await aliceOrders()).toEqual(before);
+    expect((await ledger.balance(userAvailable(ALICE, 'USDT'))).amount).toBe(balance);
     await app.close();
   });
 

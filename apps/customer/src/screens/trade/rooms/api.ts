@@ -160,6 +160,13 @@ export function createRoomApi(api: ApiClient) {
     greeks: (input: GreeksInput, signal?: AbortSignal) =>
       api.rest('/greeks/what-if', greeksSchema, { method: 'POST', body: input, signal }),
     placeBatch: (orders: BatchOrder[]) => api.rest('/orders/batch', batchSchema, { method: 'POST', body: { orders } }),
+    /** One of the account's orders by its request id; `trade.order_not_found` when no order was made with it. */
+    orderByClientId: (clientOrderId: string, symbol: string) =>
+      api.rest(
+        `/orders/by-client-id/${encodeURIComponent(clientOrderId)}`,
+        icebergAnswerSchema.extend({ executionOutcome: z.unknown().nullable().optional() }),
+        { query: { symbol } },
+      ),
     placeIceberg: (order: IcebergOrder) =>
       api.rest('/orders', icebergAnswerSchema, { method: 'POST', body: { ...order, type: 'limit', timeInForce: 'GTC' } }),
   };

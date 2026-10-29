@@ -10,7 +10,7 @@ import { useRoomApi } from '../rooms/read';
 import { useRoomWriter } from '../rooms/write';
 import { useOpenOrders, useRefreshPrivate } from '../desk/data';
 import { execCopy } from './copy';
-import { useTradeApi, type ExecMarket } from './data';
+import type { ExecMarket } from './data';
 import { buildBlotter } from './blotter';
 import { icebergClientId, newNonce, ownsNote, reviewIceberg, type IcebergProblem, type Side } from './model';
 import { BlotterTable, useCancelFlow } from './OrdersView';
@@ -27,7 +27,6 @@ export function IcebergTab({ markets }: { markets: readonly ExecMarket[] }) {
   const [confirming, setConfirming] = useState(false);
   const [note, setNote] = useState<string | null>(null);
   const room = useRoomApi();
-  const trade = useTradeApi();
   const writer = useRoomWriter();
   const open = useOpenOrders();
   const refresh = useRefreshPrivate();
@@ -64,6 +63,16 @@ export function IcebergTab({ markets }: { markets: readonly ExecMarket[] }) {
   }
 
   /** The note holds `ice-<nonce>` and the market, so a check works after a reload. A note from another screen is never released here. */
+  /** `executionOutcome` is set while the order is not settled (its hold or its engine answer is still unknown). */
+  function icebergCheckWords(status: string, unsettled: boolean): string {
+    if (unsettled) return t('Iceberg check unresolved');
+    if (status === 'rejected') return t('Iceberg check refused');
+    if (status === 'open') return t('Iceberg check resting');
+    if (status === 'closed') return t('Iceberg check filled');
+    if (status === 'canceled' || status === 'expired') return t('Iceberg check cancelled');
+    return t('Iceberg check unresolved');
+  }
+
   async function checkPending(id: string) {
     if (writer.note.state === 'pending' && !ownsNote('iceberg', writer.note.pending)) {
       setNote(t('Check in another room'));
@@ -71,15 +80,14 @@ export function IcebergTab({ markets }: { markets: readonly ExecMarket[] }) {
     }
     const symbol = writer.note.state === 'pending' ? writer.note.pending.symbol : (market?.symbol ?? '');
     if (!symbol) return;
-    const [openRead, closedRead] = await Promise.all([trade.orders('open', symbol, 500), trade.orders('closed', symbol, 500)]);
-    if (!openRead.ok || !closedRead.ok) {
+    const read = await room.orderByClientId(id, symbol);
+    if (!read.ok && read.code !== 'trade.order_not_found') {
       setNote(t('Could not check, try again'));
       return;
     }
-    const found = [...openRead.data, ...closedRead.data].find((o) => o.clientOrderId === id);
     writer.resolve(id);
     setNonce(newNonce());
-    setNote(found ? t('Iceberg check found {status}', { status: found.status }) : t('Iceberg check none'));
+    setNote(read.ok ? icebergCheckWords(read.data.status, read.data.executionOutcome != null) : t('Iceberg check none'));
     refresh();
   }
 

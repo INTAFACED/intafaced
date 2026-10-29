@@ -15,11 +15,35 @@ export interface IcebergDisplayStore {
   remember(orderId: string, userId: string, displayQty: string): Promise<void>;
   read(orderId: string): Promise<string | null>;
   /**
-   * Runs `place` (the placement and its `remember`) only while this account has no other live iceberg on the market,
-   * and holds out every other new iceberg of the account on that market until `place` settles. Otherwise refuses
-   * `trade.iceberg_symbol_cap` and places nothing.
+   * Runs `place` (the placement and its `remember`) only while this account has no other live iceberg on the market;
+   * otherwise refuses `trade.iceberg_symbol_cap` and places nothing. The account's own order under `clientOrderId` never
+   * counts against it, so a re-send of the same request reaches placement and gets its first answer back.
    */
-  oneLivePerMarket<T>(userId: string, marketId: string, symbol: string, place: () => Promise<T>): Promise<T>;
+  oneLivePerMarket<T>(
+    slot: { userId: string; marketId: string; symbol: string; clientOrderId: string | null },
+    place: () => Promise<T>,
+  ): Promise<T>;
+}
+
+/**
+ * New icebergs of one account on one market take turns in this process, so the count each one reads already sees the
+ * one placed before it. Waiting holds no database connection: placement needs the pool, and a lock held on a pooled
+ * connection while placement waits for another would let a burst of requests take every connection and stall the
+ * service. Across processes the cap is best effort, the same as `TRADE_MAX_OPEN_ORDERS`.
+ */
+function turnsByKey(): <T>(key: string, run: () => Promise<T>) => Promise<T> {
+  const tails = new Map<string, Promise<unknown>>();
+  return async (key, run) => {
+    const before = tails.get(key) ?? Promise.resolve();
+    const mine = before.catch(() => undefined).then(run);
+    const tail = mine.catch(() => undefined);
+    tails.set(key, tail);
+    try {
+      return await mine;
+    } finally {
+      if (tails.get(key) === tail) tails.delete(key);
+    }
+  };
 }
 
 function symbolCap(symbol: string): TradeError {
@@ -92,6 +116,7 @@ export async function attachIcebergDisplay(
 }
 
 export function sqlIcebergDisplay(sql: Sql): IcebergDisplayStore {
+  const turn = turnsByKey();
   return {
     async remember(orderId, userId, displayQty) {
       await sql`
@@ -107,51 +132,37 @@ export function sqlIcebergDisplay(sql: Sql): IcebergDisplayStore {
       const raw = rows[0]?.display_qty;
       return raw == null ? null : formatAmount(parseAmount(raw));
     },
-    async oneLivePerMarket(userId, marketId, symbol, place) {
-      // A session lock on one pinned connection: two new icebergs of one account on one market take turns, and a crash
-      // drops the connection and with it the lock. The check reads the orders the peaks belong to, so a cancelled,
-      // filled or refused iceberg frees the slot without any release step.
-      const connection = await sql.reserve();
-      const key = `iceberg-slot:${userId}:${marketId}`;
-      let locked = false;
-      try {
-        await connection`SELECT pg_advisory_lock(hashtext(${key}))`;
-        locked = true;
-        const live = await connection<Array<{ n: number }>>`
+    async oneLivePerMarket(slot, place) {
+      return turn(`${slot.userId}:${slot.marketId}`, async () => {
+        // The orders the peaks belong to decide: a cancelled, filled or refused iceberg frees the slot with no release step.
+        const live = await sql<Array<{ n: number }>>`
           SELECT count(*)::int AS n
           FROM order_iceberg_display d
           JOIN orders o ON o.id = d.order_id
-          WHERE d.user_id = ${userId} AND o.user_id = ${userId} AND o.market_id = ${marketId}
-            AND o.status::text IN ${connection([...LIVE_STATUSES])}
+          WHERE d.user_id = ${slot.userId} AND o.user_id = ${slot.userId} AND o.market_id = ${slot.marketId}
+            AND o.client_order_id IS DISTINCT FROM ${slot.clientOrderId}
+            AND o.status::text IN ${sql([...LIVE_STATUSES])}
         `;
-        if ((live[0]?.n ?? 0) > 0) throw symbolCap(symbol);
-        return await place();
-      } finally {
-        try {
-          if (locked) await connection`SELECT pg_advisory_unlock(hashtext(${key}))`;
-        } finally {
-          connection.release();
-        }
-      }
+        if ((live[0]?.n ?? 0) > 0) throw symbolCap(slot.symbol);
+        return place();
+      });
     },
   };
 }
 
-/** `liveOn` lists the account's live order ids on a market; without it no order counts as live. */
-export function memoryIcebergDisplay(opts: { liveOn?: (userId: string, marketId: string) => readonly string[] } = {}): IcebergDisplayStore {
+/** `liveOn` lists the account's live orders on a market (id and client order id); without it no order counts as live. */
+export function memoryIcebergDisplay(
+  opts: { liveOn?: (userId: string, marketId: string) => ReadonlyArray<{ id: string; clientOrderId: string }> } = {},
+): IcebergDisplayStore {
   const byId = new Map<string, string>();
-  const turns = new Map<string, Promise<unknown>>();
+  const turn = turnsByKey();
   return {
-    async oneLivePerMarket(userId, marketId, symbol, place) {
-      const key = `${userId}:${marketId}`;
-      const run = (turns.get(key) ?? Promise.resolve())
-        .catch(() => undefined)
-        .then(async () => {
-          if ((opts.liveOn?.(userId, marketId) ?? []).some((id) => byId.has(id))) throw symbolCap(symbol);
-          return place();
-        });
-      turns.set(key, run);
-      return run;
+    async oneLivePerMarket(slot, place) {
+      return turn(`${slot.userId}:${slot.marketId}`, async () => {
+        const live = opts.liveOn?.(slot.userId, slot.marketId) ?? [];
+        if (live.some((o) => byId.has(o.id) && o.clientOrderId !== slot.clientOrderId)) throw symbolCap(slot.symbol);
+        return place();
+      });
     },
     async remember(orderId, _userId, displayQty) {
       if (!byId.has(orderId)) byId.set(orderId, displayQty);

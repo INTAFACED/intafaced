@@ -87,8 +87,8 @@ const KNOWN: Readonly<Record<string, { title: string; body: string }>> = {
     body: 'You already have a live iceberg on this market. Cancel it or let it fill before placing another. Nothing was placed.',
   },
   'trade.iceberg_display_invalid': {
-    title: 'The display size is not valid',
-    body: 'The display size must be smaller than the total and a whole number of the market amount step. Nothing was placed.',
+    title: 'This iceberg cannot be placed',
+    body: 'An iceberg is a limit order on a market open for orders, with a display size above zero, smaller than the total and a whole number of the market amount step. A request id already used for another order cannot be reused. Nothing was placed.',
   },
   'trade.algo_not_found': { title: "We couldn't find that schedule", body: 'Check the schedule id. You can only open your own schedules.' },
   'trade.options_settlement_law_unset': {

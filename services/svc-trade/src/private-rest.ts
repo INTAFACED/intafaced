@@ -2887,11 +2887,12 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
     }
 
     try {
-      const prior =
-        displayQty && deps.findClientOrder
-          ? await deps.findClientOrder(principal, { symbol: input.symbol, marketId: input.marketId, clientOrderId: input.clientOrderId })
-          : null;
       const place = async (): Promise<OrderRecord> => {
+        // Read inside the account's turn on the market, so a re-send racing its first request finds the order that won.
+        const prior =
+          displayQty && deps.findClientOrder
+            ? await deps.findClientOrder(principal, { symbol: input.symbol, marketId: input.marketId, clientOrderId: input.clientOrderId })
+            : null;
         let order: OrderRecord;
         try {
           order = await deps.placeOrder(principal, input);
@@ -2925,10 +2926,18 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
         }
         return order;
       };
-      // A new iceberg takes the account's one slot on its market; a replay of an existing one keeps the slot it holds.
+      // A new iceberg takes the account's one slot on its market; a re-send of the same request keeps the slot it holds.
       const order =
-        displayQty && deps.icebergDisplay && icebergMarketId && prior == null
-          ? await deps.icebergDisplay.oneLivePerMarket(principal.userId, icebergMarketId, parsed.data.symbol, place)
+        displayQty && deps.icebergDisplay && icebergMarketId
+          ? await deps.icebergDisplay.oneLivePerMarket(
+              {
+                userId: principal.userId,
+                marketId: icebergMarketId,
+                symbol: parsed.data.symbol,
+                clientOrderId: input.clientOrderId ?? null,
+              },
+              place,
+            )
           : await place();
       const stored = deps.icebergDisplay ? await deps.icebergDisplay.read(order.id) : displayQty;
       const market = await deps.marketById(order.marketId);
@@ -3157,6 +3166,16 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
       // Replace has no stop door: a raw stopPx would reach the engine with no stored trigger.
       if (hasRawStopPx(req.body)) {
         throw new TradeError('a stop cannot be set on an order replacement', TRADE_STOP_TRIGGER_INVALID);
+      }
+      // An iceberg is placed only through the create door, which keeps its peak and its one slot per market.
+      if (
+        readRawDisplayQty(req.body) !== undefined ||
+        (req.body !== null && typeof req.body === 'object' && Object.hasOwn(req.body, 'iceberg'))
+      ) {
+        throw new TradeError(
+          'an iceberg cannot be set on an order replacement; cancel it and place the new iceberg',
+          TRADE_ICEBERG_DISPLAY_INVALID,
+        );
       }
       // The original is cancelled before the replacement is placed; a trailing stop that could then be refused for want
       // of a mark would leave the customer with neither order.
