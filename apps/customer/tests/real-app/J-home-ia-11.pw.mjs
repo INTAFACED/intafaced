@@ -6,8 +6,9 @@ import { test, expect } from '@playwright/test';
 import { founderTotp, makeContext } from '../../../../tooling/scripts/local-test-gates.mjs';
 import { FOUNDER_VAULT_NAME } from '../../../../tooling/scripts/local-test-founders.mjs';
 import { localStackState } from '../../../../tooling/scripts/local-test-state.mjs';
+import { deviceCodesMailedTo, OUTBOX_NAME } from '../../../../tooling/scripts/local-test-entry.mjs';
 import { HOME_ASSET, HOME_DEPOSIT_AMOUNT, HOME_NOTICE_TITLE } from '../../../../tooling/scripts/local-test-home.mjs';
-import { ADMIN } from './admin.mjs';
+import { ADMIN, assertAdminUp } from './admin.mjs';
 import { EDGE, ROOT } from './stack.mjs';
 
 // J-home-ia-11, in the running app (docs/roadmap/journeys.json): I bring up a test build and sign in as a founder (tester
@@ -23,6 +24,7 @@ const UNBUILT = { timeout: 5_000 };
 // The stack's own rule for its state folder (LOCAL_STACK_STATE, else per user, else /var/lib as root).
 const STATE = localStackState();
 const COMPOSE = ['docker-compose.yml', 'docker-compose.apps.yml'];
+const OUTBOX = path.join(STATE, OUTBOX_NAME);
 
 test.describe.configure({ mode: 'default' });
 
@@ -56,9 +58,17 @@ function run(script, args, env) {
   }
 }
 
-/** The documented tester step (tooling/scripts/local-test-entry.mjs) for founder a: its printed output. */
-const entry = (cmd) =>
-  execFileSync(process.execPath, [path.join(ROOT, 'tooling/scripts/local-test-entry.mjs'), cmd, 'a'], { cwd: ROOT, encoding: 'utf8' });
+/** The documented tester step (tooling/scripts/local-test-entry.mjs) for founder a: the one value it prints after `label`. */
+function entry(cmd, label) {
+  const done = run('tooling/scripts/local-test-entry.mjs', [cmd, 'a'], { LOCAL_TEST: '1' });
+  expect(done.status, done.out).toBe(0);
+  const value = new RegExp(`${label}: (\\d{6})`).exec(done.out)?.[1];
+  expect(value, done.out).toBeTruthy();
+  return value;
+}
+
+/** How many device codes identity has mailed to `email` in the stack's LOCAL-TEST outbox. */
+const deviceMails = (email) => deviceCodesMailedTo(existsSync(OUTBOX) ? readFileSync(OUTBOX, 'utf8') : '', email).length;
 
 /** What the test-content seed says it has made on this stack. */
 const seedStatus = () => run('tooling/scripts/local-test-seed.mjs', ['status', '--state', STATE], { LOCAL_TEST: '1' });
@@ -117,15 +127,20 @@ test(`${J} #2 the documented sign-in steps get the founder in with founder scope
   // signs in to the console with password and a one-time code, identity asks for this browser to be authorised and mails a
   // device code to the founder's address, and the founder enters it.
   // (The run's customer-app device cookie, scoped to the customer's identity path, never reaches the console.)
-  expect(await page.context().cookies(`${ADMIN}/`)).toEqual([]);
+  test.setTimeout(180_000);
+  await assertAdminUp();
+  expect(await page.context().cookies(new URL('/', ADMIN).href)).toEqual([]);
   const founder = vault().founders[0];
   await page.goto(`${ADMIN}/login`);
   await page.getByLabel('Email or handle').fill(founder.handle);
   await page.getByLabel('Password').fill(founder.password);
-  await page.getByLabel('Authenticator or recovery code').fill(/one-time code: (\d{6})/.exec(entry('code'))[1]);
+  await page.getByLabel('Authenticator or recovery code').fill(entry('code', 'one-time code'));
+  const mailed = deviceMails(founder.email);
   await page.locator('button[type=submit]').click();
   await expect(page.getByRole('heading', { name: 'Authorise this browser' })).toBeVisible({ timeout: 20_000 });
-  await page.getByLabel('Device code from the email').fill(/device code for \S+: (\d{6})/.exec(entry('device'))[1]);
+  // This sign-in's own code, never an older one still in the outbox.
+  await expect.poll(() => deviceMails(founder.email), { timeout: 15_000 }).toBeGreaterThan(mailed);
+  await page.getByLabel('Device code from the email').fill(entry('device', 'device code for \\S+'));
   await page.getByRole('button', { name: 'Approve this browser' }).click();
   await page.waitForURL((url) => !url.pathname.startsWith('/login'), { timeout: 30_000 });
   await expect(page.getByRole('main')).toBeVisible();

@@ -22,6 +22,7 @@ import { readLatestEmailConfirmToken } from './local-test-state.mjs';
 /** The stack identity's LOCAL-TEST mail file (tooling/scripts/local-stack-services/identity.mjs). */
 export const OUTBOX_NAME = 'email-outbox.log';
 const CONFIRM_WAIT_MS = 20_000;
+const DEVICE_WAIT_MS = 10_000;
 
 /**
  * The LOCAL-TEST new-device-code lines to `email` in `text` (services/svc-identity/src/auth/local-mail.ts), oldest first,
@@ -101,7 +102,12 @@ async function main() {
     // Last, after the sign-ins above, so no local tool spends this step before the tester does.
     console.log(`one-time code: ${await founderTotp(ctx, key, founder.totpSecret)} (about 30 seconds; a used code never works twice)`);
   } else {
-    const waiting = waitingDeviceCode(outbox(ctx), founder.email);
+    // Identity's mail relay writes the line just after the sign-in answers, so a code that is not there yet is waited for.
+    const until = Date.now() + DEVICE_WAIT_MS;
+    let waiting;
+    while (!(waiting = waitingDeviceCode(outbox(ctx), founder.email)) && Date.now() < until) {
+      await new Promise((resolve) => setTimeout(resolve, 250));
+    }
     if (!waiting) {
       console.error(`no device code is waiting for ${founder.handle}: sign in on the new browser first, then run this again`);
       process.exit(1);

@@ -134,9 +134,9 @@ The `Try it` workflow (Actions, Try it, Run workflow) boots this stack on GitHub
 
 **Signing in as a tester (J-home-ia-11 #2).** A browser identity has not seen gets "Authorise this browser" after the password and second factor, and identity mails that browser's device code only to a confirmed address. The steps, with no cookie or device put in by hand:
 
-1. `node tooling/scripts/local-test-entry.mjs code a` (or `b`). The first time, it confirms that founder's `@local-test.invalid` address through identity's own doors (it asks for the confirmation link and opens the one the stack's LOCAL-TEST outbox, `email-outbox.log` in the state folder, received). Then it prints the founder's next one-time sign-in code, good for about 30 seconds.
+1. `node tooling/scripts/local-test-entry.mjs code a` (or `b`). The first time, it confirms that founder's `@local-test.invalid` address through identity's own doors (it asks for the confirmation link and opens the one the stack's LOCAL-TEST outbox, `email-outbox.log` in the state folder, received). Then it prints the founder's next one-time sign-in code. Run it just before you sign in: the code lasts at most about 30 seconds, less when it is the step after the current one, and each run signs both founders in, so a code refused as used means run it again.
 2. At http://127.0.0.1:3100/login, enter the founder's handle and password from `founders.json` and that code.
-3. On "Authorise this browser", run `node tooling/scripts/local-test-entry.mjs device a` and enter the device code it prints (the newest unexpired one identity mailed to that founder). The console opens.
+3. On "Authorise this browser", run `node tooling/scripts/local-test-entry.mjs device a` and enter the device code it prints (the newest unexpired one identity mailed to that founder; it waits up to 10 seconds for the mail). The console opens.
 
 Neither command prints a password or a second-factor secret, and both refuse anything but the active local test stack. Test: `node --test tooling/scripts/local-test-entry.test.mjs`.
 
