@@ -1,6 +1,8 @@
 import { randomBytes } from 'node:crypto';
 import { chromium, test, expect } from '@playwright/test';
 import { localTestDeviceState } from '../../../../tooling/scripts/local-test-device.mjs';
+import { ADMIN, founderSignIn } from './admin.mjs';
+import { fundedTrader, openDesk, reviewLimit } from './desk.mjs';
 import { signUpInBrowser, tool } from './stack.mjs';
 
 // J-identity-08, in the running app (docs/roadmap/journeys.json): I get verified and see what each level unlocks.
@@ -526,4 +528,87 @@ test(`${J} #7: a restriction on another screen gives its reason in plain words a
   await expect(status.getByTestId('account-status__cannot').locator('li')).toHaveText([
     'Ask for a verification level that includes a switched-off capability',
   ]);
+});
+
+// ── The platform posting freeze, as the founders' freeze desk does it (A asks, B approves, A runs) ─────────────────────
+
+const founders = { a: null, b: null };
+async function founderPages(browser) {
+  for (const key of ['a', 'b']) {
+    if (founders[key]) continue;
+    founders[key] = await (await browser.newContext()).newPage();
+    await founderSignIn(founders[key], key);
+    await founders[key].goto(`${ADMIN}/`, { waitUntil: 'load' });
+  }
+  return founders;
+}
+
+const freezeStep = (page, body) =>
+  page.evaluate(async (payload) => {
+    const session = await (await fetch('/api/session', { cache: 'no-store' })).json();
+    const res = await fetch('/api/ledger-freeze', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-intafaced-csrf': session.csrf },
+      body: JSON.stringify(payload),
+    });
+    return { status: res.status, body: await res.json() };
+  }, body);
+
+const decode = (text) => JSON.parse(Buffer.from(text.slice('ifa1.'.length), 'base64url').toString('utf8'));
+const readFreeze = (page) => page.evaluate(async () => (await fetch('/api/ledger-freeze', { cache: 'no-store' })).json());
+
+async function setPostingFreeze(browser, frozen) {
+  const { a, b } = await founderPages(browser);
+  const record = await readFreeze(a);
+  expect(record.ok, JSON.stringify(record)).toBe(true);
+  if (record.state.frozen === frozen) return;
+  const version = record.state.version;
+  const request = frozen
+    ? { kind: 'ledger.freeze', reason: `LOCAL TEST ${J} #7 posting freeze`, version }
+    : { kind: 'ledger.unfreeze', version };
+  const confirm = frozen ? 'FREEZE LEDGER' : 'UNFREEZE LEDGER';
+  const proposed = await freezeStep(a, { step: 'propose', request, confirm });
+  expect(proposed.body.ok, JSON.stringify(proposed.body)).toBe(true);
+  const packet = decode(proposed.body.packet);
+  const approved = await freezeStep(b, { step: 'approve', request, confirm, approvalId: packet.approvalId });
+  expect(approved.body.ok, JSON.stringify(approved.body)).toBe(true);
+  const ran = await freezeStep(a, { step: 'execute', request, confirm, approvalId: packet.approvalId, operationId: packet.operationId });
+  expect(ran.body.ok, JSON.stringify(ran.body)).toBe(true);
+  expect((await readFreeze(a)).state.frozen).toBe(frozen);
+}
+
+test(`${J} #7: a platform posting freeze never reads as "your account is restricted"`, async ({ page, browser }) => {
+  test.setTimeout(240_000);
+  // A verified person with TEST USDT, so the order reaches the ledger: the freeze, not a missing level or balance, is
+  // what refuses it. The deposit is only the precondition; nothing here counts it as a step.
+  const who = await fundedTrader(page, 'kvfz', '100');
+  await openDesk(page, who);
+  try {
+    await setPostingFreeze(browser, true);
+    // On another screen, the trade desk: the order is refused as paused for everyone, never as this account's hold.
+    const sent = page.waitForResponse((r) => new URL(r.url()).pathname === '/api/v1/orders' && r.request().method() === 'POST');
+    // 10 USDT at a fixed TEST price: over the market's minimum, under the TEST balance; the book is not needed.
+    const review = await reviewLimit(page, 'buy', '10000.00', '0.001');
+    await review.getByRole('button', { name: 'Confirm buy' }).click();
+    const answer = await sent;
+    expect(answer.status()).toBe(400);
+    expect((await answer.json()).message).toBe('ledger.frozen');
+    const main = page.getByRole('main');
+    await expect(main.getByText('Orders are paused right now')).toBeVisible();
+    await expect(main.getByText("Orders can't go through at the moment, and this one wasn't placed. Try again later.")).toBeVisible();
+    await expect(main).not.toContainText(/restricted|on hold/i);
+
+    // The account status, read while the freeze is on: the account is active and nothing on it is restricted.
+    await page.goto('/uc/account');
+    const status = page.getByTestId('account-status');
+    await expect(status.getByTestId('account-status__state')).toHaveAttribute('data-state', 'active');
+    await expect(status).toContainText('Your account is active. Nothing is restricted.');
+    await expect(status.getByTestId('account-status__cannot').locator('li')).toHaveText(['Nothing']);
+
+    // And on /verification: nothing is restricted on the account.
+    await page.goto('/verification');
+    await expect(page.getByTestId('verification__restrictions-none')).toHaveText('Nothing is restricted on your account.');
+  } finally {
+    await setPostingFreeze(browser, false);
+  }
 });
