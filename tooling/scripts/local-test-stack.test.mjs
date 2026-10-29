@@ -107,6 +107,20 @@ const script = resolve(here, 'local-test-stack.mjs');
   console.log('local-test-stack: bank BK-xfer-07 TEST values come from the bank profile');
 }
 
+// The token process carries the TEST proposer rule and proposal limit from the token profile, verbatim, so a governance
+// journey meets the rule instead of the unset refusal.
+{
+  const { localTestServiceEnvs } = await import('./local-test-stack.mjs');
+  const { loadProfile } = await import('./owner-settings.mjs');
+  const token = localTestServiceEnvs().find((service) => service.name === 'token');
+  const profile = loadProfile().values;
+  for (const name of ['TOKEN_PROPOSER_RULE', 'TOKEN_PROPOSAL_LIMIT']) {
+    assert.equal(profile[name]?.service, 'token', `${name} is not in the token profile`);
+    assert.equal(token.env[name], profile[name].value, `token env ${name} differs from the token profile`);
+  }
+  console.log('local-test-stack: token governance TEST values come from the token profile');
+}
+
 // The global-send stand-in is chosen on this stack only, and its TEST catalogue and send-field rules come from the bank
 // profile verbatim, so no corridor, rate or reference length is typed anywhere else.
 {
