@@ -190,7 +190,9 @@ function BotsHub({ path }: { path: string }) {
     `bots-open:${openId ?? 'none'}`,
     openId !== null && openId === refusedId ? null : 10_000,
   );
-  const openRefused = opened.data !== null && !opened.data.algo && opened.data.failure !== null;
+  // Only the service's own answer about this ID (a 4xx) stops the poll; a network error or a 5xx keeps reading.
+  const openFailure = opened.data !== null && !opened.data.algo ? opened.data.failure : null;
+  const openRefused = openFailure !== null && openFailure.status !== undefined && openFailure.status >= 400 && openFailure.status < 500;
   useEffect(() => {
     setRefusedId(openRefused ? openId : null);
   }, [openRefused, openId]);

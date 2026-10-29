@@ -64,17 +64,56 @@ test(`${J} #1 opens Bots: the hub with one status and one link per bot type, eac
   }
 });
 
+// The two types with no engine yet, each with the exact words its row and its own room give (BotsRoom NOT_BUILT).
+// No service is called for them, so there is no typed code to match: the refusal is these words, read exactly.
+const NOT_READY = {
+  'Spot grid': 'No grid service exists. Nothing is simulated.',
+  'Recurring buy (DCA)': 'No recurring-order service exists. Use Convert for a single trade.',
+};
+
+const myAlgoIds = async () => {
+  const { status, body } = await (
+    await api(run.read().who)
+  ).get(`/api/trade/trpc/algo.list?input=${encodeURIComponent(JSON.stringify({ limit: 500 }))}`);
+  expect(status, JSON.stringify(body).slice(0, 300)).toBe(200);
+  // The whole list in one read (the service's most), so a bot made now can't hide on a later page.
+  expect(body.result.data.nextCursor).toBeNull();
+  return body.result.data.rows.map((row) => row.id).sort();
+};
+
 async function hub(page, botId) {
   await openBots(page);
   const types = page.getByRole('list', { name: 'Bot types' }).getByRole('listitem');
   await expect(types.first()).toBeVisible(UNBUILT);
-  expect(await types.count()).toBeGreaterThan(1);
+  // The statuses settle once the service's bot policy answers: until then the live types read "Checking".
+  await expect(types.getByTestId('bot-type-status').filter({ hasText: /^Checking$/ })).toHaveCount(0);
+  await expect(types.filter({ hasText: 'Time-weighted (TWAP)' }).getByTestId('bot-type-status')).toHaveText(/^Available\b/);
+  const statuses = {};
   for (const type of await types.all()) {
-    // One link and one status per type; a type that can't be used says why, in words, never a bare code.
+    // One link and one status per type, each type once.
     await expect(type.getByRole('link')).toHaveCount(1);
-    await expect(type.getByTestId('bot-type-status')).toHaveText(/^(Available.*|Not available: [A-Z].+)$/);
-    await expect(type.getByTestId('bot-type-status')).not.toContainText(/\b[a-z]+\.[a-z_]+\b|\b[a-z]+_[a-z_]+\b/);
+    const name = (await type.getByRole('link').innerText()).trim();
+    expect(statuses, `${name} is listed twice`).not.toHaveProperty([name]);
+    statuses[name] = (await type.getByTestId('bot-type-status').innerText()).trim();
   }
+  // Each refusal in words: exactly the not-ready types refuse, each with its own reason; every other type is available.
+  for (const [name, reason] of Object.entries(NOT_READY)) expect(statuses[name]).toBe(`Not available: ${reason}`);
+  const others = Object.entries(statuses).filter(([name]) => !(name in NOT_READY));
+  expect(others.length).toBeGreaterThan(0);
+  for (const [name, status] of others) expect(status, name).toMatch(/^Available\b/);
+  expect(Object.values(statuses).filter((status) => status.startsWith('Not available')).length).toBe(Object.keys(NOT_READY).length);
+
+  // Following a refused type's link shows the same reason in its room, offers no form, and creates nothing.
+  const before = await myAlgoIds();
+  await page.getByRole('list', { name: 'Bot types' }).getByRole('link', { name: 'Spot grid', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'Spot grid', level: 1 })).toBeVisible();
+  await expect(page.getByText('Not available', { exact: true })).toBeVisible();
+  await expect(page.getByText(NOT_READY['Spot grid'], { exact: true })).toBeVisible();
+  await expect(page.locator('form')).toHaveCount(0);
+  expect(await myAlgoIds()).toEqual(before);
+  await page.getByRole('button', { name: 'Back to Bots' }).click();
+  await expect(page.getByRole('heading', { name: 'Bots', level: 1 })).toBeVisible();
+
   // This bot's own row, found by its id, so another TWAP BTC/USDT on the account can't stand in for it.
   const row = page
     .getByRole('region', { name: 'My bots' })
