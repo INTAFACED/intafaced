@@ -11,6 +11,7 @@
  *   node tooling/scripts/local-test-gates.mjs terms      publish TEST personal transfer limits (two-person approval)
  *   node tooling/scripts/local-test-gates.mjs assets     publish TEST supported assets and networks (two-person approval)
  *   node tooling/scripts/local-test-gates.mjs deposit-terms   publish TEST crypto deposit networks and terms in svc-pay (two-person approval)
+ *   node tooling/scripts/local-test-gates.mjs withdraw-limit <tier> <asset> unset|test  clear one TEST withdrawal limit, or put it back
  *   node tooling/scripts/local-test-gates.mjs withdraw-terms  publish TEST withdrawal limits, the fee quote policy, the network rules and the custody policy in svc-pay, and list the TEST fraud address in svc-bank
  *   node tooling/scripts/local-test-gates.mjs futures    list the TEST perpetual, publish TEST derivatives terms and quiz
  *   node tooling/scripts/local-test-gates.mjs halt <SYMBOL>    halt one book in matching (two-person approval)
@@ -1577,6 +1578,39 @@ export async function publishWithdrawalLimits(ctx) {
   return out;
 }
 
+/**
+ * One TEST withdrawal limit cleared to unset, or put back to the TEST figures, through the same founders' door: a journey step's
+ * own change (J-wallet-05 #4, a blank limit refuses). Only the TEST tiers and coins; the published TEST figures are untouched.
+ */
+export async function setWithdrawalLimit(ctx, tier, assetId, value) {
+  const assets = new Set(TEST_DEPOSIT_TERMS.map((t) => t.assetId));
+  if (!TEST_WITHDRAWAL_LIMITS.tiers.includes(tier) || !assets.has(assetId))
+    throw new Error(`withdraw-limit refuses ${tier} ${assetId}: only the TEST tiers and coins can be changed`);
+  if (value !== 'unset' && value !== 'test') throw new Error(`withdraw-limit takes unset or test, not ${value}`);
+  const limit = value === 'unset' ? null : { perTx: TEST_WITHDRAWAL_LIMITS.perTx, rolling24h: TEST_WITHDRAWAL_LIMITS.rolling24h };
+  const sessions = await approverSessions(ctx);
+  const listed = await ctx.edge.query('pay', 'founderAdmin.limits.list', {}, sessions.a.token);
+  if (!Array.isArray(data(listed))) throw new Error(`pay limits.list refused (${listed.status}): ${refusalText(listed)}`);
+  const row = data(listed).find((r) => r.tier === tier && r.assetId === assetId) ?? null;
+  const what = `withdrawal limit ${tier} ${assetId}`;
+  if (JSON.stringify(row?.limit ?? null) === JSON.stringify(limit)) return { what, status: `already ${value}` };
+  const change = {
+    tier,
+    assetId,
+    limit,
+    expectedVersion: row ? row.version : null,
+    reason: `${MARKERS.label}: TEST withdrawal limit ${value}`,
+  };
+  const r = await payFounderSave(ctx, sessions, {
+    preview: 'founderAdmin.limits.preview',
+    previewInput: change,
+    save: 'founderAdmin.limits.change',
+    input: change,
+    what,
+  });
+  return { what, status: value === 'unset' ? 'cleared to unset' : 'back to the TEST figures', approvalId: r.approvalId };
+}
+
 // ── 2d. Pair price band and open-order cap (two-person approval) ────────────
 
 /**
@@ -2513,6 +2547,11 @@ async function main() {
       for (const r of await publishWithdrawNetworkRules(ctx)) say(`  withdraw  ${r.what}: ${r.status}`);
       for (const r of await publishWithdrawCustodyPolicy(ctx)) say(`  withdraw  ${r.what}: ${r.status}`);
       for (const r of await publishTestFraudList(ctx)) say(`  withdraw  ${r.what}: ${r.status}`);
+    } else if (cmd === 'withdraw-limit') {
+      const [tier, assetId, value] = process.argv.slice(3);
+      if (!tier || !assetId || !value) die('usage: local-test-gates.mjs withdraw-limit <tier> <assetId> unset|test', 2);
+      const r = await setWithdrawalLimit(ctx, tier, assetId, value);
+      say(`  withdraw  ${r.what}: ${r.status}`);
     } else if (cmd === 'halt' || cmd === 'resume') {
       const symbol = process.argv[3];
       if (!symbol) die(`usage: local-test-gates.mjs ${cmd} <SYMBOL>, for example ETH/USDT`, 2);
@@ -2559,7 +2598,7 @@ async function main() {
       say(JSON.stringify(await status(ctx), null, 2));
     } else {
       die(
-        'usage: local-test-gates.mjs apply | operators | lifecycle | open | terms | assets | deposit-terms | withdrawal-limits | withdraw-terms | futures | limits | charts | chart-class <SYMBOL> <dataClass> | risk <SYMBOL> k=v... | p2p | verify | kyc-reject <handle> <reasonCode> | halt <SYMBOL> | resume <SYMBOL> | age <handle> <seconds> | status',
+        'usage: local-test-gates.mjs apply | operators | lifecycle | open | terms | assets | deposit-terms | withdrawal-limits | withdraw-terms | withdraw-limit <tier> <assetId> unset|test | futures | limits | charts | chart-class <SYMBOL> <dataClass> | risk <SYMBOL> k=v... | p2p | verify | kyc-reject <handle> <reasonCode> | halt <SYMBOL> | resume <SYMBOL> | age <handle> <seconds> | status',
         2,
       );
     }

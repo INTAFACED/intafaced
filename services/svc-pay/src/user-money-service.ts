@@ -708,6 +708,13 @@ export class UserMoneyService {
           }
           const fresh = !priorClaim || priorClaim.status === 'failed';
           if (fresh) this.refuseFreshWithdrawal(adapter);
+          // A failed row reopens as a new attempt, so its send out is asked again here, under the lock: the preflight may
+          // have seen it held or pending and skipped the signer and the address book, and the address may have been
+          // fraud-listed, or the security lock turned on, since its first attempt.
+          if (this.sendOut && priorClaim?.status === 'failed') {
+            this.sendOut.assertSigner(input);
+            await this.sendOut.assertDestination(input);
+          }
 
           let claimed = await this.claimWithdrawal(input, connection, fresh, options.stopAfterHold === true);
 

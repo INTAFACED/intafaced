@@ -414,6 +414,20 @@ describe('a send out of the platform: signer, saved address, quote and fee (real
       expect(await held(sent, 1)).toBe(0n);
     });
 
+    it('a failed attempt reopened on the same reference asks the address book again: fraud-listed since, it refuses and holds nothing', async () => {
+      const service = money();
+      await quote('q-1');
+      chain.failNextBroadcast(new ChainNotConfiguredError('send'));
+      expect(await codeOf(send(service, 'w-1', 'q-1'))).toBe('pay.rail_failed');
+      book.set('ethereum', { state: 'blocked', destinationId: null, coolingOffEndsAt: null });
+      asked.length = 0;
+      expect(await codeOf(send(service, 'w-1', 'q-1'))).toBe('pay.withdrawal_destination_blocked');
+      expect(asked.length).toBeGreaterThan(0);
+      expect(await available()).toBe('300');
+      expect(await feePot()).toBe('0');
+      expect(await rows()).toMatchObject([{ status: 'failed', attempts: 1 }]);
+    });
+
     it('a dropped send reversed by the custody desk gives back amount and fee', async () => {
       const service = money();
       await quote('q-1');
