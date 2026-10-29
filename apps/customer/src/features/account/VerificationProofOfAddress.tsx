@@ -142,6 +142,11 @@ export function VerificationProofOfAddress({ recordsKey, disabled }: { recordsKe
             />
           </p>
         )}
+        {latest?.status === 'submitted' && (
+          <p className="muted" data-testid="verification__poa-replaces">
+            <Copy k="replaces" />
+          </p>
+        )}
         <form
           className="form-stack"
           onSubmit={(event) => {

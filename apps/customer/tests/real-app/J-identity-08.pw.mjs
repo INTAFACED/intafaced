@@ -253,6 +253,7 @@ test(`${J} #5: proof of address, with honest refusals`, async ({ page }) => {
   await poa.getByRole('button', { name: 'Send proof of address' }).click();
   await expect(poa.getByTestId('verification__poa-sent')).toContainText('Sent for review.');
   await expect(poa.getByTestId('verification__poa-latest')).toHaveAttribute('data-status', 'submitted');
+  await expect(poa.getByTestId('verification__poa-replaces')).toHaveText('Sending another document replaces the one waiting for review.');
 
   // From another country than the residence: sent, and flagged for the reviewer.
   await poa.getByLabel('Country the document is from').fill('FR');
