@@ -50,7 +50,6 @@ import { describeFuturesPolicy } from './futures/futures-policy.js';
 import { isPremarket } from './futures/premarket.js';
 import { describeOptionsPolicy } from './spot/options-policy.js';
 import { describeOtcPolicy } from './otc/otc-policy.js';
-import { describeAlgoPolicy } from './algo/algo-policy.js';
 import { convertHistoryProcedures } from './convert/convert-history-router.js';
 import { convertHistoryTrpcError } from './convert/convert-history.js';
 import { deskTrpcError } from './desk/errors.js';
@@ -476,6 +475,7 @@ export function toTrpcError(err: unknown): TRPCError {
       case 'trade.rfq_give_up_refused':
       case 'trade.rfq_missing_price':
       case 'trade.otc_makers_unset':
+      case 'trade.rfq_size_not_set':
         return new TRPCError({ code: 'PRECONDITION_FAILED', message: err.message, cause: err });
       default:
         return new TRPCError({ code: 'BAD_REQUEST', message: err.message, cause: err });
@@ -545,6 +545,9 @@ export function toTrpcError(err: unknown): TRPCError {
       case 'trade.paper_fill_refused':
       // RC-identity-01: the person proves their email, then retries.
       case 'trade.email_proof_required':
+      // Below the bot verification level, or no level published: 403, as on the REST door (ccxt-errors.ts).
+      case 'trade.bots_verification_insufficient':
+      case 'trade.bots_verification_level_not_set':
         return new TRPCError({ code: 'FORBIDDEN', message: err.message, cause: err });
       // Identity could not answer the email-proof read; nothing moved, try again.
       case 'trade.identity_unavailable':
@@ -1301,7 +1304,8 @@ export function createTradeRouter(
      * Parent holds no value; progress is sum of child fills only.
      */
     algo: router({
-      policy: publicProcedure.query(() => describeAlgoPolicy()),
+      // The flags this service was started with, so the room shows whether slices are placed (CB-order-controls-03 #1).
+      policy: publicProcedure.query(() => trade.algoPolicy()),
       ...algoDeskProcedures(trade),
 
       createTwap: scopedProcedure('trade:write', { module: 'trade' })

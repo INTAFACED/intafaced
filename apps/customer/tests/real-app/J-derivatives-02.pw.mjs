@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { api, fromUnits, fund, journeyState, toUnits, tool } from './stack.mjs';
+import { api, bestPrices, fromUnits, fund, journeyState, toUnits, tool } from './stack.mjs';
 import { fundedTrader, signIn } from './desk.mjs';
 
 // J-derivatives-02, in the running app (docs/roadmap/journeys.json): size a trade and check its risk before opening it.
@@ -599,17 +599,45 @@ test(`${J} #8 previews while the dynamic price range is wider than usual: the ba
   await expect.poll(async () => (await preview()).body.band?.reason).toBe('price_range_unset');
   expect((await preview()).body.band).toMatchObject({ fraction: '0.05', staticFraction: '0.05', source: 'static', max: null });
 
+  // The premium is the futures book's mid away from the mark (the BTC/USDT spot book's mid). The TEST market maker
+  // quotes both books round the same mid, so on its own the premium is there only for the moment between its two
+  // requotes (#6664: run 712 saw none in 120 s). This step makes it on the book instead: a TEST bid 1 USDT above the
+  // maker's best bid becomes the best bid and lifts the futures mid by 0.5 USDT, 50 price steps, while it rests. The
+  // maker quotes 6 bps either side of the mid and its walk moves at most 12 bps a cycle, so its next ask meets the bid
+  // only on the largest down step; nothing else trades the TEST perp (one worker). When the bid is no longer the best
+  // (the maker moved up past it, or it filled) it is re-placed, and it is cancelled in the `finally`.
+  let lean = null;
+  const leanOnTheBook = async () => {
+    const { bid } = await bestPrices(SYMBOL, 1);
+    if (lean && bid === lean.price) return;
+    if (lean) await me.delete(`/api/v1/futures/orders/${encodeURIComponent(lean.id)}`);
+    const price = fromUnits(toUnits(bid) + 100n * tick);
+    const placed = await me.post('/api/v1/futures/orders', {
+      symbol: SYMBOL,
+      side: 'buy',
+      type: 'limit',
+      price,
+      amount: SIZE,
+      leverage: LEVERAGE,
+      marginMode: 'isolated',
+      clientOrderId: `${J}-8-lean-${Date.now()}`,
+      confirmTier: 4,
+    });
+    expect(placed.status, JSON.stringify(placed.body)).toBe(200);
+    expect(placed.body).toMatchObject({ status: 'open', limitPrice: price, filledQty: '0' });
+    lean = { id: placed.body.orderId, price };
+  };
+
   try {
     tool('local-test-gates.mjs', 'risk', SYMBOL, ...RANGE);
-    // The TEST perp is quoted on the spot book's prices, so its premium over the mark is small and comes and goes as
-    // the market maker quotes the two books: about half the time the futures mid sits a step away from the mark. While
-    // it does, the band in force is the static band plus that premium. Each check below reads one preview, so its
-    // band and its verdict belong together.
+    // While the bid rests the band in force is the static band plus the premium. Each check below reads one preview,
+    // so its band and its verdict belong together.
     const dynamic = async (body) => {
       let res = null;
       await expect
         .poll(
           async () => {
+            await leanOnTheBook();
             res = await preview(body);
             return res.body.band?.source;
           },
@@ -629,12 +657,12 @@ test(`${J} #8 previews while the dynamic price range is wider than usual: the ba
     // A limit between the usual edge and the wider one is inside the band in force.
     const inside = await dynamic({ type: 'limit', limitPrice: wide.band.high });
     const usualHigh = toUnits(inside.markPrice) + (toUnits(inside.markPrice) * 5n) / 100n;
-    if (toUnits(inside.band.high) - tick > usualHigh) {
-      const between = fromUnits(((usualHigh + toUnits(inside.band.high)) / 2n / tick) * tick);
-      const check = await dynamic({ type: 'limit', limitPrice: between });
-      expect(toUnits(between) > usualHigh && toUnits(between) <= toUnits(check.band.high)).toBe(true);
-      expect(check.refusals.map((r) => r.code)).not.toContain('trade.futures_price_outside_band');
-    }
+    // The bid's premium is 0.5 USDT, so the wider edge sits 50 price steps past the usual one.
+    expect(toUnits(inside.band.high) - tick > usualHigh).toBe(true);
+    const between = fromUnits(((usualHigh + toUnits(inside.band.high)) / 2n / tick) * tick);
+    const check = await dynamic({ type: 'limit', limitPrice: between });
+    expect(toUnits(between) > usualHigh && toUnits(between) <= toUnits(check.band.high)).toBe(true);
+    expect(check.refusals.map((r) => r.code)).not.toContain('trade.futures_price_outside_band');
 
     // The review shows the band at its current width, and says it is wider than usual and why.
     await desk(page);
@@ -647,6 +675,7 @@ test(`${J} #8 previews while the dynamic price range is wider than usual: the ba
     await expect
       .poll(
         async () => {
+          await leanOnTheBook();
           await ticket.getByRole('button', { name: 'Review', exact: true }).click();
           await expect(ticket.getByText('Price band', { exact: true })).toBeVisible();
           return wider.isVisible();
@@ -686,6 +715,7 @@ test(`${J} #8 previews while the dynamic price range is wider than usual: the ba
     expect(refused.body.error).toBe('trade.futures_price_outside_band');
     expect(await me.balances()).toEqual(before);
   } finally {
+    if (lean) await me.delete(`/api/v1/futures/orders/${encodeURIComponent(lean.id)}`);
     tool('local-test-gates.mjs', 'risk', SYMBOL, ...UNSET);
   }
   // With the range cleared, the static band is in force again.

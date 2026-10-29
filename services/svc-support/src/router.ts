@@ -40,6 +40,7 @@ import {
   supportViewListSchema,
   supportViewSaveInputSchema,
   supportViewSchema,
+  supportExpectedSequenceSchema,
 } from '@intafaced/contracts';
 import { MemoryContactBook, type ContactBook } from './contact-channels.js';
 import { contactProcedures } from './contact-router.js';
@@ -93,6 +94,7 @@ function mapError(err: unknown): never {
     if (
       err.code === 'support.claim.not_queueable' ||
       err.code === 'support.claim.invalid_operator' ||
+      err.code === 'support.claim.queue_empty' ||
       // A lifecycle move that is not available from where the ticket is now,
       // and an escalation that cites nothing, are both "the state you are
       // asking from does not permit this" rather than a malformed request.
@@ -163,6 +165,7 @@ function mapError(err: unknown): never {
     if (
       err.code === 'support.idempotency_conflict' ||
       err.code === 'support.view_revision_stale' ||
+      err.code === 'support.stale_ticket' ||
       err.code === 'support.group_member_duplicate' ||
       err.code === 'support.group_name_taken'
     ) {
@@ -394,6 +397,8 @@ export function createSupportRouter(
           body: z.string().min(1).max(10_000),
           /** The caller's key: sent again after a lost reply it answers the first comment and writes no second one. */
           clientRequestId: z.string().min(1).max(200).optional(),
+          /** The last trail row (`sequence`) the writer read: a newer row by someone else refuses `support.stale_ticket`. */
+          expectedSequence: supportExpectedSequenceSchema.optional(),
         }),
       )
       .output(supportCommentSchema)
@@ -406,6 +411,7 @@ export function createSupportRouter(
             body: input.body,
             asOperator,
             ...(input.clientRequestId !== undefined ? { clientRequestId: input.clientRequestId } : {}),
+            ...(input.expectedSequence !== undefined ? { expectedSequence: input.expectedSequence } : {}),
           });
         } catch (err) {
           mapError(err);
@@ -448,6 +454,8 @@ export function createSupportRouter(
           /** Optional short reason, recorded on the trail row. Not required, so
            *  no existing caller breaks; recorded when supplied. */
           note: z.string().min(1).max(500).optional(),
+          /** The last trail row (`sequence`) the operator read: a newer row by someone else refuses `support.stale_ticket`. */
+          expectedSequence: supportExpectedSequenceSchema.optional(),
         }),
       )
       .output(supportTicketSchema)
@@ -459,6 +467,7 @@ export function createSupportRouter(
             ticketId: input.ticketId,
             status: input.status,
             note: input.note,
+            ...(input.expectedSequence !== undefined ? { expectedSequence: input.expectedSequence } : {}),
           });
         } catch (err) {
           mapError(err);
@@ -1088,6 +1097,18 @@ export function createSupportRouter(
         }
       }),
 
+    /** Claim the queue's next request; an empty queue refuses with `support.claim.queue_empty`. No money. */
+    claimNext: scopedProcedure('support:ops')
+      .output(supportTicketSchema)
+      .mutation(async ({ ctx }) => {
+        try {
+          requireSupportOps(ctx.principal!);
+          return await support.claimNext(ctx.principal!.userId);
+        } catch (err) {
+          mapError(err);
+        }
+      }),
+
     /** Counts across the whole queue, not one page. */
     queueMetrics: scopedProcedure('support:ops')
       .output(
@@ -1256,6 +1277,8 @@ export function createSupportRouter(
           labels: z.array(z.string().max(200)).max(200).optional(),
           reason: z.string().min(1).max(500).optional(),
           clientRequestId: z.string().min(1).max(200),
+          /** The last trail row (`sequence`) the operator read: a newer row by someone else refuses `support.stale_ticket`. */
+          expectedSequence: supportExpectedSequenceSchema.optional(),
         }),
       )
       .output(supportTicketPropertiesSchema)

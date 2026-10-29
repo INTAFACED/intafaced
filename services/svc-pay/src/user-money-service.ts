@@ -69,6 +69,9 @@ import type { RailRegistry } from './rails/registry.js';
 import { assertRailMayMoveValue, type ValueMovementPolicy } from './rails/posture.js';
 import { withMoneySpan, withRailSpan } from './tracing.js';
 import { railRetryWhileRequested, supportLabel, type ChainReader, type WalletAttempt, type WalletPay } from './wallet/wallet-pay.js';
+import { acceptQuoteForSend, type SendOutDoor } from './withdrawals/send-out/door.js';
+import { refuseIfFeeUnbound } from './withdrawals/send-out/fee-unbound.js';
+import { WithdrawalQuoteError } from './withdrawals/quotes/errors.js';
 
 /**
  * USER MONEY IN AND OUT (§4.2 `deposit` / `withdraw`).
@@ -132,6 +135,14 @@ export interface WithdrawalRecord {
   failureCode: string | null;
   status: 'pending' | 'held' | 'sent' | 'failed';
   createdAt: Date;
+  /**
+   * A send out of the platform (J-wallet-05 #6): the network it goes on, the quote the person accepted, and that quote's fee,
+   * which rides the hold, the settle and every reverse of this withdrawal. All null on a send inside the platform and on rows
+   * from before quotes were taken.
+   */
+  networkId: string | null;
+  quoteRef: string | null;
+  fee: Amount | null;
   /** The current attempt's dispatch journal outcome, when the read joined it (W-withdraw-07). Undefined: not read. */
   journal?: DispatchJournal;
   /** Moved into `held` under the journalling code. Undefined: not read. */
@@ -163,6 +174,9 @@ interface WithdrawalRow {
   failure_code: string | null;
   status: WithdrawalRecord['status'];
   created_at: Date;
+  network_id?: string | null;
+  quote_ref?: string | null;
+  fee?: string | null;
   /** Present only on reads that join the current attempt's journal row. */
   journal?: DispatchJournal;
   dispatch_journaled?: boolean | null;
@@ -216,11 +230,18 @@ export interface UserMoneyOptions {
   readonly haltStore?: PayHaltStore;
 
   /**
-   * Customer wallet rules (slice S38). Omitted in tests that exercise the rail
-   * state machine on its own. When set, a fresh withdrawal is refused here,
-   * before a hold, while the published withdraw feature is not live.
+   * Customer wallet reads (slice S38): the fee estimate and the remaining cap behind `withdrawal.estimateFee` and
+   * `withdrawal.remainingCap`. It no longer gates a send: `sendOut` does, with the real sources.
    */
   readonly wallet?: WalletPay;
+
+  /**
+   * The door for a send out of the platform (J-wallet-05 #6, issue #6517): a custody signer for the send's network, a quote
+   * named, and an address svc-bank's book holds for that asset and network, approved and past its cooling-off, all checked
+   * before anything is claimed; the quote is then accepted inside the claim. Omitted in tests that exercise the rail state
+   * machine on its own: a send then carries the quote it names into the claim and nothing else is asked.
+   */
+  readonly sendOut?: SendOutDoor;
 
   /** Used when a support read falls through to `pay.withdrawal_rail_attempts`. Down leaves the label unknown. */
   readonly chainReader?: ChainReader;
@@ -254,7 +275,7 @@ export interface UserMoneyOptions {
 export function openWithdrawalHolds(sql: Sql): (userId: string, assetId: string) => Promise<Amount> {
   return async (userId, assetId) => {
     const rows = await sql<Array<{ total: string }>>`
-      SELECT coalesce(sum(amount), 0)::text AS total FROM pay.withdrawals
+      SELECT coalesce(sum(amount + coalesce(fee, 0)), 0)::text AS total FROM pay.withdrawals
        WHERE user_id = ${userId} AND asset_id = ${assetId} AND status IN ('pending', 'held')
     `;
     return parseAmount(rows[0]?.total ?? '0');
@@ -267,6 +288,7 @@ export class UserMoneyService {
   private readonly guards: PayGuards;
   private readonly haltStore: PayHaltStore | undefined;
   private readonly wallet: WalletPay | undefined;
+  private readonly sendOut: SendOutDoor | undefined;
   private readonly chainReader: ChainReader;
   private readonly withdrawalLimits: WithdrawalLimitReader | undefined;
   private readonly withdrawalHistory: WithdrawalHistory | undefined;
@@ -285,6 +307,7 @@ export class UserMoneyService {
     this.guards = options.claimGuards ? composeGuards(options.guards ?? NOOP_GUARDS, options.claimGuards) : (options.guards ?? NOOP_GUARDS);
     this.haltStore = options.haltStore;
     this.wallet = options.wallet;
+    this.sendOut = options.sendOut;
     this.chainReader = options.chainReader ?? { confirm: async () => 'down' };
     this.withdrawalLimits = options.withdrawalLimits;
     this.withdrawalHistory = options.withdrawalHistory;
@@ -558,6 +581,10 @@ export class UserMoneyService {
     rail: string;
     destination: { kind: string; ref: string };
     clientRef: string;
+    /** The network a send out of the platform goes on (J-wallet-05 #6). */
+    networkId?: string | null;
+    /** The fee quote the person accepted for it. */
+    quoteRef?: string | null;
     keyEnv?: 'sandbox';
   }): Promise<RailAdapter> {
     if (input.amount <= 0n) throw new PayError('Withdrawal amount must be positive', 'pay.invalid_amount');
@@ -577,18 +604,10 @@ export class UserMoneyService {
         'pay.withdrawal_platform_address',
       );
     }
-    if (this.wallet) {
-      if (freshAsk) {
-        await this.wallet.assertCustomerWithdrawal({
-          userId: input.userId,
-          assetId: input.assetId,
-          network: input.rail,
-          amount: input.amount,
-          clientRef: input.clientRef,
-          typedAddress: input.destination.ref,
-        });
-      }
-    }
+    // J-wallet-05 #7: a send out of the platform on a network with no custody signer (or naming none, or on another rail) is
+    // refused here, before the rail is resolved and before anything is claimed or held. A held or sent retry is not asked
+    // again: it finishes the original withdrawal.
+    if (this.sendOut && freshAsk) this.sendOut.assertSigner(input);
     if (input.keyEnv === 'sandbox') {
       refuseSandboxLive(
         recipes.withdrawHold({
@@ -623,6 +642,9 @@ export class UserMoneyService {
       }
       throw err;
     }
+    // J-wallet-05 #6: the address must be in svc-bank's book for this asset on this network, approved and past its
+    // cooling-off. Asked last, after every local check, and still before anything is claimed.
+    if (this.sendOut && freshAsk) await this.sendOut.assertDestination(input);
     return adapter;
   }
 
@@ -652,6 +674,9 @@ export class UserMoneyService {
       rail: string;
       destination: { kind: string; ref: string };
       clientRef: string;
+      /** The network a send out of the platform goes on, and the fee quote accepted for it (J-wallet-05 #6). */
+      networkId?: string | null;
+      quoteRef?: string | null;
       /** A sandbox API key cannot debit a live balance. */
       keyEnv?: 'sandbox';
     },
@@ -683,6 +708,13 @@ export class UserMoneyService {
           }
           const fresh = !priorClaim || priorClaim.status === 'failed';
           if (fresh) this.refuseFreshWithdrawal(adapter);
+          // A failed row reopens as a new attempt, so its send out is asked again here, under the lock: the preflight may
+          // have seen it held or pending and skipped the signer and the address book, and the address may have been
+          // fraud-listed, or the security lock turned on, since its first attempt.
+          if (this.sendOut && priorClaim?.status === 'failed') {
+            this.sendOut.assertSigner(input);
+            await this.sendOut.assertDestination(input);
+          }
 
           let claimed = await this.claimWithdrawal(input, connection, fresh, options.stopAfterHold === true);
 
@@ -727,12 +759,15 @@ export class UserMoneyService {
           // hold. Different money/destination still conflicts there.
 
           const attempt = claimed.attempts;
+          // The fee comes from the stored row, never from this request: every attempt, retry and recovery posts the fee the
+          // claim accepted, so the hold, the settle and a reverse always carry the same one (svc-ledger refuses any other).
           const ledgerInput = {
             userId: claimed.userId,
             assetId: claimed.assetId,
             amount: claimed.amount,
             rail: claimed.rail,
             withdrawalId: `${claimed.id}:${attempt}`,
+            ...feeLeg(claimed),
           };
 
           // ── Phase 1: the ledger. Funds leave `available` for a hold that names
@@ -749,6 +784,7 @@ export class UserMoneyService {
             try {
               await postPayLedger(this.ledger, recipes.withdrawHold(ledgerInput));
             } catch (error) {
+              refuseIfFeeUnbound(error, claimed.id, 'hold');
               throw new PayError(
                 `Withdrawal ledger outcome is unknown; original claim remains pending: ${error instanceof Error ? error.message : 'ledger error'}`,
                 'pay.ledger_outcome_unknown',
@@ -904,6 +940,8 @@ export class UserMoneyService {
           try {
             await postPayLedger(this.ledger, recipes.withdrawSettle(ledgerInput));
           } catch (error) {
+            // A fee the ledger refuses is a definite refusal, never an unknown outcome retried forever after the rail sent.
+            refuseIfFeeUnbound(error, claimed.id, 'settle');
             throw new PayError(
               `Withdrawal ledger outcome is unknown; accepted rail receipt remains held: ${error instanceof Error ? error.message : 'ledger error'}`,
               'pay.ledger_outcome_unknown',
@@ -952,9 +990,9 @@ export class UserMoneyService {
    *
    * The claim is the ordinary one (`claimWithdrawal`, rail `internal`), so every withdrawal guard still runs in its
    * transaction: approvals, the allowlist, screening, the limits, the merchant controls and the halts. Three checks belong
-   * to sends that leave custody and skip this rail: the wallet door (`preflightWithdrawal`: stored chain destination,
-   * network fee, travel rule, cooling, cap on holds), the custody transaction policy (nothing is signed) and treasury
-   * exposure (nothing leaves). A frozen account is refused by svc-bank, which asks identity whether the sender can send.
+   * to sends that leave custody and skip this rail: the send-out door (`sendOut`: a custody signer, a named fee quote, and
+   * an address in svc-bank's book approved and past its cooling-off), the custody transaction policy (nothing is signed)
+   * and treasury exposure (nothing leaves). A frozen account is refused by svc-bank, which asks identity whether the sender can send.
    *
    * ONE SEND PER WITHDRAWAL. svc-bank's key is the withdrawal row's own id (`withdraw:<id>`), and the row is unique per
    * person and client reference, so a retry after a lost answer is the same send and posts once.
@@ -1145,6 +1183,8 @@ export class UserMoneyService {
       rail: string;
       destination: { kind: string; ref: string };
       clientRef: string;
+      networkId?: string | null;
+      quoteRef?: string | null;
     },
     connection: Sql,
     fresh: boolean,
@@ -1154,22 +1194,51 @@ export class UserMoneyService {
       // Seam: before the claim row is written, in the claim's own transaction, so
       // a refusal leaves no claim, hold or ledger entry. The advisory lock held by
       // `withdraw` serialises one (userId, clientRef), so this read cannot race.
-      await this.guards.beforeUserMoneyWithdrawal({ tx, ...input, stopAfterHold, replay: await this.classifyWithdrawal(tx, input) });
-      if (fresh) await this.assertNotHeldFromPurchase(tx, input);
+      // J-wallet-05 #6 (issue #6517): a quoted send accepts its quote here, in the transaction that writes its row, before the
+      // guards so they can count its fee: a refusal anywhere in the claim (a guard, the purchase hold check) rolls the
+      // acceptance back with it. Only the first claim of a client reference accepts; every later call (a retry, a recovery,
+      // a failed row's next attempt) keeps the fee its row already stores.
+      const quoteRef = input.quoteRef ?? null;
+      const networkId = quoteRef === null ? null : (input.networkId ?? null);
+      const [prior] = await tx<Array<{ fee: string | null }>>`
+          SELECT fee FROM pay.withdrawals WHERE user_id = ${input.userId} AND client_ref = ${input.clientRef}
+        `;
+      let fee: Amount | null = prior?.fee == null ? null : parseAmount(prior.fee);
+      if (!prior && quoteRef !== null) {
+        if (networkId === null) {
+          throw new WithdrawalQuoteError('withdrawal_quote.terms_differ', 'a quoted withdrawal names the network its quote is for');
+        }
+        fee = (await acceptQuoteForSend(tx, { ...input, networkId, quoteRef }, new Date())).fee;
+      }
+      // The limit guard counts what leaves the balance (amount and fee) against the rolling window.
+      await this.guards.beforeUserMoneyWithdrawal({
+        tx,
+        ...input,
+        ...(fee !== null && fee > 0n ? { fee } : {}),
+        stopAfterHold,
+        replay: await this.classifyWithdrawal(tx, input),
+      });
+      // The purchase hold check counts what the hold will take: the amount and its fee.
+      if (fresh) await this.assertNotHeldFromPurchase(tx, { ...input, amount: input.amount + (fee ?? 0n) });
 
-      const inserted = await tx<WithdrawalRow[]>`
-          INSERT INTO pay.withdrawals (user_id, asset_id, amount, rail, destination, client_ref, status)
+      // A client reference that already has a row is never inserted again: its stored fee must not be mixed with this
+      // request's quote and network (the row's check constraint would refuse it raw). The comparison below answers it.
+      const inserted = prior
+        ? []
+        : await tx<WithdrawalRow[]>`
+          INSERT INTO pay.withdrawals (user_id, asset_id, amount, rail, destination, client_ref, status, network_id, quote_ref, fee)
           VALUES (
             ${input.userId}, ${input.assetId}, ${formatAmount(input.amount)}::numeric, ${input.rail},
-            ${tx.json(input.destination as never)}, ${input.clientRef}, 'pending'
+            ${tx.json(input.destination as never)}, ${input.clientRef}, 'pending',
+            ${networkId}, ${quoteRef}, ${fee === null ? null : formatAmount(fee)}::numeric
           )
           ON CONFLICT ("user_id", "client_ref") DO NOTHING
-          RETURNING id, user_id, asset_id, amount, rail, destination, client_ref, rail_ref, attempts, failure_code, status, created_at
+          RETURNING id, user_id, asset_id, amount, rail, destination, client_ref, rail_ref, attempts, failure_code, status, created_at, network_id, quote_ref, fee
         `;
       if (inserted[0]) return toWithdrawal(inserted[0]);
 
       const rows = await tx<WithdrawalRow[]>`
-          SELECT id, user_id, asset_id, amount, rail, destination, client_ref, rail_ref, attempts, failure_code, status, created_at
+          SELECT id, user_id, asset_id, amount, rail, destination, client_ref, rail_ref, attempts, failure_code, status, created_at, network_id, quote_ref, fee
             FROM pay.withdrawals WHERE user_id = ${input.userId} AND client_ref = ${input.clientRef} FOR UPDATE
         `;
       const existing = toWithdrawal(rows[0]!);
@@ -1179,7 +1248,10 @@ export class UserMoneyService {
         existing.amount !== input.amount ||
         existing.rail !== input.rail ||
         existing.destination.kind !== input.destination.kind ||
-        existing.destination.ref !== input.destination.ref;
+        existing.destination.ref !== input.destination.ref ||
+        // A retry names the same quote and network as the claim, so it can never ride another fee.
+        existing.quoteRef !== quoteRef ||
+        existing.networkId !== networkId;
       if (mismatch) {
         throw new PayError(
           `Client reference "${input.clientRef}" already names a withdrawal of ` +
@@ -1344,9 +1416,15 @@ export class UserMoneyService {
       amount: claimed.amount,
       rail: claimed.rail,
       withdrawalId: `${claimed.id}:${attempt}`,
+      ...feeLeg(claimed),
     };
     assertStoredTransition('held', 'failed');
-    await postPayLedger(this.ledger, recipes.withdrawReverse(ledgerInput));
+    try {
+      await postPayLedger(this.ledger, recipes.withdrawReverse(ledgerInput));
+    } catch (error) {
+      refuseIfFeeUnbound(error, claimed.id, 'reverse');
+      throw error;
+    }
     await connection`
         UPDATE pay.withdrawals
            SET status = 'failed', attempts = attempts + 1,
@@ -1372,14 +1450,14 @@ export class UserMoneyService {
    */
   async cancelWithdrawal(input: { userId: string; withdrawalId: string }): Promise<CanceledWithdrawal> {
     const [found] = await this.sql<WithdrawalRow[]>`
-      SELECT id, user_id, asset_id, amount, rail, destination, client_ref, rail_ref, attempts, failure_code, status, created_at
+      SELECT id, user_id, asset_id, amount, rail, destination, client_ref, rail_ref, attempts, failure_code, status, created_at, network_id, quote_ref, fee
         FROM pay.withdrawals WHERE id = ${input.withdrawalId} AND user_id = ${input.userId}
     `;
     // Another account's id reads the same as no id.
     if (!found) throw new PayError('No such withdrawal', 'pay.withdrawal_not_found');
     return withPayoutLock(this.sql, `withdraw:${JSON.stringify([input.userId, found.client_ref])}`, async (connection) => {
       const [row] = await connection<WithdrawalRow[]>`
-        SELECT id, user_id, asset_id, amount, rail, destination, client_ref, rail_ref, attempts, failure_code, status, created_at,
+        SELECT id, user_id, asset_id, amount, rail, destination, client_ref, rail_ref, attempts, failure_code, status, created_at, network_id, quote_ref, fee,
                dispatch_journaled
           FROM pay.withdrawals WHERE id = ${input.withdrawalId}
       `;
@@ -1452,9 +1530,11 @@ export class UserMoneyService {
               amount: current.amount,
               rail: current.rail,
               withdrawalId: holdKey,
+              ...feeLeg(current),
             }),
           );
         } catch (error) {
+          refuseIfFeeUnbound(error, current.id, 'reverse');
           throw new PayError(
             `Withdrawal ledger outcome is unknown; the withdrawal stays ${current.status}: ${error instanceof Error ? error.message : 'ledger error'}`,
             'pay.ledger_outcome_unknown',
@@ -1481,13 +1561,13 @@ export class UserMoneyService {
    */
   async reverseDroppedWithdrawal(input: { withdrawalId: string; expectedAttempt: number }): Promise<WithdrawalRecord> {
     const [found] = await this.sql<WithdrawalRow[]>`
-      SELECT id, user_id, asset_id, amount, rail, destination, client_ref, rail_ref, attempts, failure_code, status, created_at
+      SELECT id, user_id, asset_id, amount, rail, destination, client_ref, rail_ref, attempts, failure_code, status, created_at, network_id, quote_ref, fee
         FROM pay.withdrawals WHERE id = ${input.withdrawalId}
     `;
     if (!found) throw new PayError('No such withdrawal', 'pay.withdrawal_not_found');
     return withPayoutLock(this.sql, `withdraw:${JSON.stringify([found.user_id, found.client_ref])}`, async (connection) => {
       const [row] = await connection<WithdrawalRow[]>`
-        SELECT id, user_id, asset_id, amount, rail, destination, client_ref, rail_ref, attempts, failure_code, status, created_at
+        SELECT id, user_id, asset_id, amount, rail, destination, client_ref, rail_ref, attempts, failure_code, status, created_at, network_id, quote_ref, fee
           FROM pay.withdrawals WHERE id = ${input.withdrawalId}
       `;
       const current = toWithdrawal(row!);
@@ -1533,9 +1613,11 @@ export class UserMoneyService {
             amount: current.amount,
             rail: current.rail,
             withdrawalId: `${current.id}:${current.attempts}`,
+            ...feeLeg(current),
           }),
         );
       } catch (error) {
+        refuseIfFeeUnbound(error, current.id, 'reverse');
         throw new PayError(
           `Withdrawal ledger outcome is unknown; the withdrawal stays held: ${error instanceof Error ? error.message : 'ledger error'}`,
           'pay.ledger_outcome_unknown',
@@ -1572,7 +1654,7 @@ export class UserMoneyService {
    */
   async supportReadWithdrawal(withdrawalId: string, ownerUserId: string) {
     const rows = await this.sql<WithdrawalRow[]>`
-      SELECT id, user_id, asset_id, amount, rail, destination, client_ref, rail_ref, attempts, failure_code, status, created_at
+      SELECT id, user_id, asset_id, amount, rail, destination, client_ref, rail_ref, attempts, failure_code, status, created_at, network_id, quote_ref, fee
         FROM pay.withdrawals WHERE id = ${withdrawalId}
     `;
     const row = rows[0];
@@ -1603,7 +1685,7 @@ export class UserMoneyService {
   async getWithdrawal(withdrawalId: string): Promise<WithdrawalRecord> {
     const rows = await this.sql<WithdrawalRow[]>`
       SELECT w.id, w.user_id, w.asset_id, w.amount, w.rail, w.destination, w.client_ref, w.rail_ref, w.attempts, w.failure_code,
-             w.status, w.created_at, w.dispatch_journaled, a.outcome AS journal
+             w.status, w.created_at, w.network_id, w.quote_ref, w.fee, w.dispatch_journaled, a.outcome AS journal
         FROM pay.withdrawals w
         LEFT JOIN pay.withdrawal_rail_attempts a ON a.withdrawal_id = w.id AND a.attempt = w.attempts
        WHERE w.id = ${withdrawalId}
@@ -1617,7 +1699,7 @@ export class UserMoneyService {
     const page = assertWithdrawalListLimit(limit);
     const rows = await this.sql<WithdrawalRow[]>`
       SELECT w.id, w.user_id, w.asset_id, w.amount, w.rail, w.destination, w.client_ref, w.rail_ref, w.attempts, w.failure_code,
-             w.status, w.created_at, w.dispatch_journaled, a.outcome AS journal
+             w.status, w.created_at, w.network_id, w.quote_ref, w.fee, w.dispatch_journaled, a.outcome AS journal
         FROM pay.withdrawals w
         LEFT JOIN pay.withdrawal_rail_attempts a ON a.withdrawal_id = w.id AND a.attempt = w.attempts
        WHERE w.user_id = ${userId} ORDER BY w.created_at DESC LIMIT ${page}
@@ -1681,7 +1763,7 @@ export class UserMoneyService {
     if (held.heldAmount === 0n) return;
     const available = await this.availableBalance(input.userId, input.assetId);
     const [claimed] = await tx<Array<{ total: string }>>`
-      SELECT coalesce(sum(amount), 0)::text AS total FROM pay.withdrawals
+      SELECT coalesce(sum(amount + coalesce(fee, 0)), 0)::text AS total FROM pay.withdrawals
        WHERE user_id = ${input.userId} AND asset_id = ${input.assetId} AND status = 'pending'
     `;
     const free = available - held.heldAmount - parseAmount(claimed?.total ?? '0');
@@ -1739,9 +1821,21 @@ function toWithdrawal(row: WithdrawalRow): WithdrawalRecord {
     failureCode: row.failure_code,
     status: row.status,
     createdAt: row.created_at,
+    networkId: row.network_id ?? null,
+    quoteRef: row.quote_ref ?? null,
+    fee: row.fee == null ? null : parseAmount(row.fee),
     ...('journal' in row ? { journal: row.journal ?? null } : {}),
     ...('dispatch_journaled' in row ? { dispatchJournaled: row.dispatch_journaled ?? null } : {}),
   };
+}
+
+/**
+ * The fee leg a withdrawal's posts carry: the fee stored on its row when the claim accepted a quote, and nothing otherwise
+ * (a send inside the platform, or a row from before quotes). A zero fee is no leg. Read only from the row, so a hold, its
+ * settle and its reverse can never disagree.
+ */
+function feeLeg(withdrawal: Pick<WithdrawalRecord, 'fee'>): { fee?: Amount } {
+  return withdrawal.fee !== null && withdrawal.fee > 0n ? { fee: withdrawal.fee } : {};
 }
 
 function refuseSandboxLive(request: PostRequest): void {

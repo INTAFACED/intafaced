@@ -14,10 +14,12 @@ import {
   NEVER_ON_A_KEY,
   PRODUCTS,
   REST_REFERENCE,
+  STREAM_DOOR_PATH,
   STREAM_REFERENCE,
   permissionTable,
   routeLine,
   scopeFor,
+  streamName,
 } from './developers-reference';
 
 const portal = developersCopy.forLocale('en').t;
@@ -72,6 +74,7 @@ export const DOCS_PAGES: readonly DocsPage[] = [
           ]),
         ),
         portal('hostsRegional'),
+        portal('hostsStaticNote'),
       ].join('\n\n'),
   },
   {
@@ -115,9 +118,10 @@ export const DOCS_PAGES: readonly DocsPage[] = [
             ...(streams.length
               ? [
                   table(
-                    [docs('colStream'), docs('colPermission')],
+                    [docs('colStream'), docs('colDoor'), docs('colPermission')],
                     streams.map((stream) => [
-                      code(stream.channel),
+                      code(streamName(stream)),
+                      `${docs(`door_${stream.door}`)} ${code(STREAM_DOOR_PATH[stream.door])}`,
                       stream.private ? docs('privateStream', { scope: 'trade:read' }) : docs('publicStream'),
                     ]),
                   ),
@@ -126,6 +130,7 @@ export const DOCS_PAGES: readonly DocsPage[] = [
           ];
         }),
         docs('referenceMore'),
+        docs('streamsLive'),
       ].join('\n\n'),
   },
   {
@@ -181,12 +186,19 @@ export const DOCS_PAGES: readonly DocsPage[] = [
         docs('connectivityLead'),
         table(
           [docs('colOption'), docs('colStatus'), docs('colEndpoints2')],
-          connectivityOptions().map(({ option, state }) => [
+          connectivityOptions().map(({ option, state, hosts }) => [
             docs(`option_${option}`),
             connectivityStateLabel(docs, state),
-            connectivityEndpointsLabel(docs, option),
+            [
+              connectivityEndpointsLabel(docs, option),
+              ...hosts.map(
+                ({ protocol, cell }) =>
+                  `${portal(`protocol_${protocol}`)}: ${cell.state === 'set' ? code(cell.host) : portal('hostUnset')}`,
+              ),
+            ].join('; '),
           ]),
         ),
+        portal('hostsStaticNote'),
         `## ${docs('timeTitle')}`,
         `${docs('timeLead')} ${docs('clockHow')}`,
       ].join('\n\n'),
@@ -198,7 +210,7 @@ export const DOCS_PAGES: readonly DocsPage[] = [
     body: () =>
       [
         docs('dataTermsLead'),
-        docs('dataTermsWaits'),
+        portal('termsStaticNote'),
         table(
           [docs('colProduct'), ...DATA_TERMS.map((term) => dataTermLabel(docs, term))],
           DATA_PRODUCTS.map((product) => [docs(`product_${product}`), ...DATA_TERMS.map(() => docs('termUnset'))]),

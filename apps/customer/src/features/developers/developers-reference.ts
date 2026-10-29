@@ -11,8 +11,9 @@
  *   for a read and `trade:write` for anything else on `/api/v1`), and `EDGE_RATE_COST` in `services/svc-edge/src/hardening.ts`
  *   (every counted request costs 1; there are no per-route weights).
  *
- * The private routes svc-trade mounts beyond the contract table (position and statement doors) are listed by the live
- * inventory, `GET /api/v1/capabilities`, which is itself on this list.
+ * - svc-trade's live inventory, `CCXT_CAPABILITY_MATRIX` in `services/svc-trade/src/ccxt-capability-matrix.ts`, served at
+ *   `GET /api/v1/capabilities`: every route in it is here, the position, order and statement doors beyond the contract
+ *   table included. Where the inventory names a read scope on a POST, the edge's rule above is what a key meets.
  */
 
 export type Product = 'general' | 'spot' | 'derivatives' | 'funding' | 'accounts';
@@ -151,6 +152,54 @@ export const REST_REFERENCE: readonly RestRoute[] = [
   { name: 'fetchOrder', method: 'GET', path: '/api/v1/orders/:id', product: 'spot', anonymous: false, summary: 'One order' },
   { name: 'fetchOpenOrders', method: 'GET', path: '/api/v1/orders/open', product: 'spot', anonymous: false, summary: 'Open orders' },
   { name: 'fetchClosedOrders', method: 'GET', path: '/api/v1/orders/closed', product: 'spot', anonymous: false, summary: 'Closed orders' },
+  {
+    name: 'previewOrder',
+    method: 'POST',
+    path: '/api/v1/orders/preview',
+    product: 'spot',
+    anonymous: false,
+    summary: 'What an order would hold and cost, and why it would be refused, without placing it',
+  },
+  {
+    name: 'batchAmendOrders',
+    method: 'POST',
+    path: '/api/v1/orders/batch-amend',
+    product: 'spot',
+    anonymous: false,
+    summary: 'Amend several open orders one by one, with a result for each',
+  },
+  {
+    name: 'batchCancelOrders',
+    method: 'POST',
+    path: '/api/v1/orders/batch-cancel',
+    product: 'spot',
+    anonymous: false,
+    summary: 'Cancel several orders by id one by one, with a result for each',
+  },
+  {
+    name: 'massCancelOrders',
+    method: 'POST',
+    path: '/api/v1/markets/:marketId/orders/mass-cancel',
+    product: 'spot',
+    anonymous: false,
+    summary: 'Cancel the caller’s open orders in one market',
+  },
+  {
+    name: 'cancelAllOrdersAfter',
+    method: 'POST',
+    path: '/api/v1/orders/cancel-all-after',
+    product: 'spot',
+    anonymous: false,
+    summary: 'Arm or disarm the switch that cancels every open order after a timeout',
+  },
+  {
+    name: 'fetchCancelAllAfter',
+    method: 'GET',
+    path: '/api/v1/orders/cancel-all-after',
+    product: 'spot',
+    anonymous: false,
+    summary: 'Whether the cancel-all switch is armed, and the timeouts allowed',
+  },
   // Derivatives
   {
     name: 'fetchFundingRate',
@@ -170,6 +219,94 @@ export const REST_REFERENCE: readonly RestRoute[] = [
     summary: 'Order types, time in force and flags per futures market',
   },
   { name: 'fetchPositions', method: 'GET', path: '/api/v1/positions', product: 'derivatives', anonymous: false, summary: 'Open positions' },
+  {
+    name: 'fetchClosedPositions',
+    method: 'GET',
+    path: '/api/v1/positions/closed',
+    product: 'derivatives',
+    anonymous: false,
+    summary: 'Closed and liquidated positions',
+  },
+  {
+    name: 'fetchPosition',
+    method: 'GET',
+    path: '/api/v1/positions/:id',
+    product: 'derivatives',
+    anonymous: false,
+    summary: 'One position',
+  },
+  {
+    name: 'fetchPositionMarginCall',
+    method: 'GET',
+    path: '/api/v1/positions/:id/margin-call',
+    product: 'derivatives',
+    anonymous: false,
+    summary: 'The margin call open on one position',
+  },
+  {
+    name: 'openPosition',
+    method: 'POST',
+    path: '/api/v1/positions',
+    product: 'derivatives',
+    anonymous: false,
+    summary: 'Open an isolated futures position at the mark, with the leverage named',
+  },
+  {
+    name: 'closePositionQuantity',
+    method: 'POST',
+    path: '/api/v1/positions/:id/close',
+    product: 'derivatives',
+    anonymous: false,
+    summary: 'Close a position, in full or in part',
+  },
+  {
+    name: 'closePosition',
+    method: 'DELETE',
+    path: '/api/v1/positions/:id',
+    product: 'derivatives',
+    anonymous: false,
+    summary: 'Mounted to refuse a cancel-shaped close; a position closes through its close route',
+  },
+  {
+    name: 'addIsolatedMargin',
+    method: 'POST',
+    path: '/api/v1/positions/margin',
+    product: 'derivatives',
+    anonymous: false,
+    summary: 'Add collateral to an isolated position',
+  },
+  {
+    name: 'reduceIsolatedMargin',
+    method: 'POST',
+    path: '/api/v1/positions/margin/reduce',
+    product: 'derivatives',
+    anonymous: false,
+    summary: 'Take excess collateral out of an isolated position',
+  },
+  {
+    name: 'fetchAdlDisclosure',
+    method: 'GET',
+    path: '/api/v1/futures/adl-disclosure',
+    product: 'derivatives',
+    anonymous: false,
+    summary: 'The auto-deleveraging disclosure, and whether this account has acknowledged it',
+  },
+  {
+    name: 'ackAdlDisclosure',
+    method: 'POST',
+    path: '/api/v1/futures/adl-disclosure/ack',
+    product: 'derivatives',
+    anonymous: false,
+    summary: 'Acknowledge the current auto-deleveraging disclosure',
+  },
+  {
+    name: 'fetchAdlDisclosureEvents',
+    method: 'GET',
+    path: '/api/v1/futures/adl-events',
+    product: 'derivatives',
+    anonymous: false,
+    summary: 'Auto-deleveraging events disclosed to this account',
+  },
   {
     name: 'setLeverage',
     method: 'POST',
@@ -213,20 +350,73 @@ export const REST_REFERENCE: readonly RestRoute[] = [
     anonymous: false,
     summary: 'The account’s own fills',
   },
+  {
+    name: 'fetchLedger',
+    method: 'GET',
+    path: '/api/v1/ledger',
+    product: 'accounts',
+    anonymous: false,
+    summary: 'The account’s balance changes, newest first',
+  },
+  {
+    name: 'createStatementExport',
+    method: 'POST',
+    path: '/api/v1/statements',
+    product: 'accounts',
+    anonymous: false,
+    summary: 'Ask for a statement of orders, trades and balance changes over a finished range',
+  },
+  {
+    name: 'fetchStatementExport',
+    method: 'GET',
+    path: '/api/v1/statements/:id',
+    product: 'accounts',
+    anonymous: false,
+    summary: 'One statement request and its state',
+  },
+  {
+    name: 'fetchStatementExportFile',
+    method: 'GET',
+    path: '/api/v1/statements/:id/file',
+    product: 'accounts',
+    anonymous: false,
+    summary: 'A finished statement as a CSV file',
+  },
 ];
 
-export type Stream = { channel: string; product: Product; private: boolean };
+/** svc-ws's four doors: one market per socket, many channels on one socket, the account's own lifecycle, and the drop copy. */
+export const STREAM_DOORS = ['market', 'mux', 'private', 'drop-copy'] as const;
+export type StreamDoor = (typeof STREAM_DOORS)[number];
+export const STREAM_DOOR_PATH: Readonly<Record<StreamDoor, string>> = {
+  market: '/stream',
+  mux: '/stream',
+  private: '/private/stream',
+  'drop-copy': '/drop-copy/stream',
+};
 
-/** `WS_CHANNELS` in the contract, by product. A private channel carries only the signed-in principal's own data. */
+export type Stream = { door: StreamDoor; channel: string; product: Product; private: boolean };
+
+/**
+ * Every channel svc-ws serves, by door and product, as its live inventory (`GET /ws/streams`) lists them. A private
+ * channel carries only the signed-in principal's own data. `futures.mark.` takes a listing symbol after it.
+ */
 export const STREAM_REFERENCE: readonly Stream[] = [
-  { channel: 'orderbook', product: 'spot', private: false },
-  { channel: 'trades', product: 'spot', private: false },
-  { channel: 'ticker', product: 'spot', private: false },
-  { channel: 'ohlcv', product: 'spot', private: false },
-  { channel: 'orders', product: 'spot', private: true },
-  { channel: 'positions', product: 'derivatives', private: true },
-  { channel: 'balance', product: 'accounts', private: true },
+  { door: 'market', channel: 'depth', product: 'spot', private: false },
+  { door: 'market', channel: 'trades', product: 'spot', private: false },
+  { door: 'mux', channel: 'book', product: 'spot', private: false },
+  { door: 'mux', channel: 'trades', product: 'spot', private: false },
+  { door: 'mux', channel: 'ticker', product: 'spot', private: false },
+  { door: 'mux', channel: 'candles', product: 'spot', private: false },
+  { door: 'mux', channel: 'futures.mark.', product: 'derivatives', private: false },
+  { door: 'private', channel: 'orders', product: 'spot', private: true },
+  { door: 'private', channel: 'fills', product: 'spot', private: true },
+  { door: 'private', channel: 'positions', product: 'derivatives', private: true },
+  { door: 'drop-copy', channel: 'drop_copy', product: 'accounts', private: true },
 ];
+
+/** How a stream is named on the page: the channel, with the symbol placeholder where it takes one. */
+export const streamName = (stream: Pick<Stream, 'channel'>) =>
+  stream.channel.endsWith('.') ? `${stream.channel}<symbol>` : stream.channel;
 
 /** Scopes that never reach a key (`INTERACTIVE_ONLY_SCOPES` in packages/auth): withdrawing is not reachable from the API. */
 export const NEVER_ON_A_KEY = ['trade:withdraw'] as const;

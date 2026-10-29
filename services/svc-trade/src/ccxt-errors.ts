@@ -283,6 +283,8 @@ const TRADE_ERROR_MAP: Record<TradeErrorCode, Arm> = {
   'trade.otc_quote_missing': { ccxt: 'OrderNotFound', status: 404 },
   'trade.otc_already_settled': { ccxt: 'InvalidOrder', status: 409 },
   'trade.rfq_missing_size': { ccxt: 'InvalidOrder', status: 400 },
+  'trade.rfq_size_not_set': { ccxt: 'OnMaintenance', status: 503 },
+  'trade.rfq_below_minimum': { ccxt: 'InvalidOrder', status: 400 },
   'trade.rfq_missing_price': { ccxt: 'InvalidOrder', status: 400 },
   'trade.rfq_already_bound': { ccxt: 'InvalidOrder', status: 409 },
   'trade.rfq_allocation_refused': { ccxt: 'OnMaintenance', status: 503 },

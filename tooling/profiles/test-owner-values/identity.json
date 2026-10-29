@@ -81,6 +81,11 @@
       "value": "20",
       "note": "A locked-out second-step reset completes twenty seconds after its mailed code is confirmed, so the journey sees the waiting time, a stop from a signed-in session, and a reset that completes (J-identity-05 #2, #3)."
     },
+    "IDENTITY_SELF_FREEZE_LIFT_WAIT_SECONDS": {
+      "service": "identity",
+      "value": "20",
+      "note": "A person's own freeze can be lifted twenty seconds after it was applied, so the journey sees a too-soon refusal with the seconds left and then a lift after step-up (J-identity-11 #4)."
+    },
     "IDENTITY_SUPPORT_RECOVERY_LINK_TTL_SECONDS": {
       "service": "identity",
       "value": "1800",
@@ -210,6 +215,11 @@
       "service": "identity",
       "value": "../../tooling/profiles/test-owner-values/identity-breached-passwords.sha1",
       "note": "A one-entry TEST breached-password list (TEST-breached-password-0001), so J-identity-03 #3 sees a breached password refused by name. A relative path is read from the services/svc-identity folder."
+    },
+    "IDENTITY_API_KEY_IDLE_EXPIRY_SECONDS": {
+      "service": "identity",
+      "value": "7776000",
+      "note": "LOCAL TEST ONLY, not an owner decision: a 90 day idle period, so the key detail shows a set idle expiry (J-developer-03 #9). No dormant sweep is built, so it ends no key; blank shows `not set` (developer-keys-detail tests)."
     }
   }
 }

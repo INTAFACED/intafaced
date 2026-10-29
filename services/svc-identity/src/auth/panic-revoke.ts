@@ -29,10 +29,11 @@ export async function panicRevoke(
   sql: Sql,
   principalUserId: string | null | undefined,
   namedUserId: string | null | undefined,
+  cause: 'owner' | 'delegate' = 'owner',
 ): Promise<{ userId: string; keysRevoked: number; sessionsRevoked: number }> {
   const named = requirePanicUserId(namedUserId);
   const principal = requirePanicUserId(principalUserId);
-  const keys = await revokeAllApiKeys(sql, principal, named);
+  const keys = await revokeAllApiKeys(sql, principal, named, cause);
   const sessions = await revokeAllSessions(sql, principal, named);
   return { userId: named, keysRevoked: keys.revoked, sessionsRevoked: sessions.revoked };
 }

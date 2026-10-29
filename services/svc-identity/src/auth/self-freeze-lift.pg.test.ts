@@ -8,7 +8,7 @@ import { createTestDb } from '../fixture-truncate.testkit.js';
 import { AuthService } from './auth-service.js';
 import type { FactorActor } from './factor-gate.js';
 import { RankService } from '../rank/rank-service.js';
-import { SelfFreezeLift } from './self-freeze-lift.js';
+import { SelfFreezeLift, type SelfFreezeLiftError } from './self-freeze-lift.js';
 
 function testDatabaseUrl(): string {
   const raw = process.env.TEST_DATABASE_URL?.trim();
@@ -104,9 +104,12 @@ if (!(await postgresAvailable(TEST_URL))) {
 
     it('assertDue refuses too soon without writing, and passes once due or with nothing open', async () => {
       const userId = await frozenPerson();
-      await expect(new SelfFreezeLift(db.sql, 3600).assertDue(userId)).rejects.toMatchObject({
-        code: 'identity.self_freeze_lift_too_soon',
-      });
+      const soon = await new SelfFreezeLift(db.sql, 3600).assertDue(userId).catch((err: unknown) => err);
+      expect(soon).toMatchObject({ code: 'identity.self_freeze_lift_too_soon' });
+      // The seconds left come from the database clock that decided "too soon", not the app's.
+      const left = (soon as SelfFreezeLiftError).secondsLeft!;
+      expect(left).toBeGreaterThan(3500);
+      expect(left).toBeLessThanOrEqual(3600);
       expect(await auth.selfFreezeStatus(userId)).toMatchObject({ frozen: true });
       await expect(new SelfFreezeLift(db.sql, 0).assertDue(userId)).resolves.toBeUndefined();
       expect(await auth.selfFreezeStatus(userId)).toMatchObject({ frozen: true });

@@ -68,8 +68,8 @@ export const PROTOCOLS: readonly Protocol[] = ['rest', 'websocket', 'fix'];
 export const ENVIRONMENTS: readonly Environment[] = ['production', 'sandbox', 'regional'];
 
 /**
- * What the portal knows of a host. No read for the owner's host settings is connected, so every row is `unset`: the table
- * shows `host not set` and no address is written down or guessed. A published host would arrive as `{ state: 'set', host }`.
+ * What the portal knows of a host: `{ state: 'set', host }` where svc-trade publishes it (developers-values.ts), else
+ * `unset`, which the table shows as `host not set`; no address is written down or guessed.
  */
 export type HostCell = { state: 'unset' } | { state: 'set'; host: string };
 
@@ -97,20 +97,31 @@ export type ConnectivityState = 'available' | 'host_unset' | 'parked_hardware';
  * three protocols. A low-latency path and colocation need a physical
  * cross-connect and rack space we do not own, so they stay parked on the `hardware` blocker.
  */
-export function connectivityOptions(rows: readonly HostRow[] = hostTable()): { option: ConnectivityOption; state: ConnectivityState }[] {
-  const set = (environment: Environment) =>
-    PROTOCOLS.every((protocol) =>
-      rows.some((row) => row.protocol === protocol && row.environment === environment && row.cell.state === 'set'),
+export function connectivityOptions(
+  rows: readonly HostRow[] = hostTable(),
+): { option: ConnectivityOption; state: ConnectivityState; hosts: HostRow[] }[] {
+  // The hosts an option's endpoint line names, one per protocol, in the base-address table's order.
+  const hosts = (environment: Environment) =>
+    PROTOCOLS.map(
+      (protocol) =>
+        rows.find((row) => row.protocol === protocol && row.environment === environment) ?? {
+          protocol,
+          environment,
+          cell: { state: 'unset' } as HostCell,
+        },
     );
+  const state = (named: HostRow[]): ConnectivityState => (named.every((row) => row.cell.state === 'set') ? 'available' : 'host_unset');
+  const production = hosts('production');
+  const regional = hosts('regional');
   return [
-    { option: 'internet', state: set('production') ? 'available' : 'host_unset' },
-    { option: 'redundant', state: set('regional') ? 'available' : 'host_unset' },
-    { option: 'low_latency', state: 'parked_hardware' },
-    { option: 'colocation', state: 'parked_hardware' },
+    { option: 'internet', state: state(production), hosts: production },
+    { option: 'redundant', state: state(regional), hosts: regional },
+    { option: 'low_latency', state: 'parked_hardware', hosts: [] },
+    { option: 'colocation', state: 'parked_hardware', hosts: [] },
   ];
 }
 
-/** The market data products the terms table lists (RC-developer-05). No term is read yet, so each reads `not set`. */
+/** The market data products the terms table lists (RC-developer-05). A term svc-trade does not publish reads `not set`. */
 export const DATA_PRODUCTS = ['ticker', 'depth_l1', 'depth_l2', 'candles', 'trades', 'index'] as const;
 export const DATA_TERMS = ['entitlement', 'redistribution', 'retention', 'privacy', 'commercial'] as const;
 

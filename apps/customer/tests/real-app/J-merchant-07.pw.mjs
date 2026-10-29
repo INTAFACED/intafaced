@@ -2,7 +2,15 @@ import path from 'node:path';
 import { test, expect } from '@playwright/test';
 import { ROOT, journeyState, tool } from './stack.mjs';
 import { forgetSession, nextCode } from './identity-factors.mjs';
-import { businessReadyPerson, openBusiness, signInWithCode, verifiedBusiness } from './merchant.mjs';
+import {
+  businessReadyPerson,
+  openBusiness,
+  paidCardPayment,
+  payApiOf,
+  refusedPayCalls,
+  signInWithCode,
+  verifiedBusiness,
+} from './merchant.mjs';
 import { tableIn } from './tables.mjs';
 
 // J-merchant-07, in the running app (docs/roadmap/journeys.json): see the business's money and ask for a payout. One test
@@ -12,8 +20,6 @@ import { tableIn } from './tables.mjs';
 // Steps that are written but not built yet fail at their first missing part, quickly (UNBUILT):
 // - The stack cannot post a TEST settlement to a business (`local-test-world.mjs merchant-settlement <merchantId>`,
 //   proposed), so #2 and #6 to #8 have no settlement to pay out (M-money-out-05).
-// - #1: Balances has no at-a-glance group with Clearing and Available to pay out, and no reserve card labelled
-//   "recorded, not withheld" (M-money-out-01).
 // - #3: the stack publishes no pricing schedule for a TEST business, so Pricing shows no fee table and the calculator
 //   is off (`local-test-world.mjs merchant-pricing`, proposed).
 // - #2: no clearing-to-available view (RC-merchant-10); #4: no payout schedule or rules (M-money-out-03,
@@ -41,6 +47,12 @@ async function signInOwner(page, destination) {
   return { ...who, totp };
 }
 
+/** The owner's own pay API through Edge; the code's time step is kept for the next sign-in. */
+async function ownerApi() {
+  const state = journey();
+  return payApiOf(state.owner, (step) => run.write({ owner: { ...state.owner, step } }));
+}
+
 /** The TEST settlement the stack posts to the business, read back as its row on Settlements. */
 function postedSettlement() {
   const { merchantId } = journey();
@@ -57,12 +69,60 @@ test(`${J} #1 opens Money: zero per asset with "No money yet" for a new business
   await verifiedBusiness(page, owner, merchantId);
   run.reset({ owner: saved(owner), merchantId });
   await signInOwner(page, '/pay/money');
+  const refused = refusedPayCalls(page);
   await expect(page.getByRole('heading', { name: 'Balances', level: 1 })).toBeVisible();
-  await expect(page.getByRole('heading', { name: /No (money|balance) yet/ })).toBeVisible();
-  const balances = page.getByRole('group', { name: /Balances at a glance/ });
-  await expect(balances).toContainText('Clearing', UNBUILT);
-  await expect(balances).toContainText('Available to pay out');
+  await expect(page.getByText('No money yet')).toBeVisible();
+  await expect(page.getByRole('group', { name: /Balances at a glance/ })).toHaveCount(0);
+  // The reserve card is there before the first payment too.
   await expect(page.getByRole('region', { name: 'Reserve' })).toContainText('recorded, not withheld');
+
+  // A TEST card payment, paid: it is captured, so it waits in clearing until a settlement makes it available.
+  const api = await ownerApi();
+  const paid = await paidCardPayment(api, merchantId, { key: `${J}:payment:clearing:${merchantId}`, amount: '40.00' });
+  expect(paid.status).toBe('captured');
+  // The balances follow the payment's events, so the page is read again until the payment shows.
+  const balances = page.getByRole('group', { name: /Balances at a glance/ });
+  await expect(async () => {
+    await page.reload();
+    await expect(balances).toBeVisible({ timeout: 3_000 });
+  }).toPass({ timeout: 60_000 });
+  await expect(balances.getByRole('link', { name: /^Clearing/ })).toContainText(/40(\.0+)?\s*USDT/);
+  await expect(balances.getByRole('link', { name: /^Available to pay out/ })).toContainText(/Now\s*0(\.0+)?\s*USDT/);
+  // Every asset the business holds, once, with its two figures: USDT only, 0.00 available and 40.00 clearing.
+  const all = page.getByRole('region', { name: 'All balances' });
+  await expect(all.getByRole('rowgroup').last().getByRole('row')).toHaveCount(1);
+  await expect(all.getByRole('rowgroup').last().getByRole('row').getByRole('cell')).toHaveText(['USDT', '0.00 USDT', '40.00 USDT']);
+  const reserve = page.getByRole('region', { name: 'Reserve' });
+  await expect(reserve).toContainText('recorded, not withheld');
+  await expect(reserve).toContainText('No reserve rule is set for your account.');
+  expect(refused).toEqual([]);
+
+  // A balance the page cannot read says so, and never reads as zero: with the ledger stopped the service refuses the
+  // read with its code, and the page shows the refusal and no figure. Started again, the same 40.00 is back.
+  const snapshot = () => api.query('merchantMetrics.snapshot', { merchantId, window: { kind: 'preset', preset: 'rolling_30d' } });
+  expect((await snapshot()).balances).toEqual([
+    { assetCode: 'USDT', clearing: expect.stringMatching(/^40(\.0+)?$/), available: expect.stringMatching(/^0(\.0+)?$/) },
+  ]);
+  try {
+    tool('local-test-stack.mjs', 'stop', 'ledger');
+    await expect(snapshot()).rejects.toThrow(/refused: 503 .*pay\.metrics_balance_unavailable/);
+    await page.reload();
+    // The refusal the page shows is the balance read's own (pay.metrics_balance_unavailable), not some other failure.
+    await expect(page.getByTestId('failure').filter({ hasText: 'We can’t show your balances right now.' })).toHaveCount(1);
+    await expect(page.getByRole('region', { name: 'Reserve' })).toContainText('recorded, not withheld');
+    await expect(page.getByRole('group', { name: /Balances at a glance/ })).toHaveCount(0);
+    await expect(page.getByRole('region', { name: 'All balances' })).toHaveCount(0);
+    await expect(page.getByText('Available to pay out')).toHaveCount(0);
+    await expect(page.getByText('No money yet')).toHaveCount(0);
+    await expect(page.locator('main')).not.toContainText(/\b0\.00 USDT/);
+  } finally {
+    // `start` brings back only what is down; `restart` refuses a just-stopped process the system has not reaped yet.
+    tool('local-test-stack.mjs', 'start');
+  }
+  await expect(async () => {
+    await page.reload();
+    await expect(balances.getByRole('link', { name: /^Clearing/ })).toContainText('40.00 USDT', { timeout: 3_000 });
+  }).toPass({ timeout: 60_000 });
 });
 
 test(`${J} #2 reads funds moving from clearing to available: funds wait until available, and a payout of clearing money is refused without moving it`, async ({

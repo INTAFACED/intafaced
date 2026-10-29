@@ -1,7 +1,9 @@
 import { randomBytes } from 'node:crypto';
 import { chromium, test, expect } from '@playwright/test';
 import { localTestDeviceState } from '../../../../tooling/scripts/local-test-device.mjs';
-import { signUpInBrowser, tool } from './stack.mjs';
+import { ADMIN, founderSignIn } from './admin.mjs';
+import { fundedTrader, openDesk, reviewLimit } from './desk.mjs';
+import { api, signUpInBrowser, tool } from './stack.mjs';
 
 // J-identity-08, in the running app (docs/roadmap/journeys.json): I get verified and see what each level unlocks.
 // Starts signed in at level none on /verification. Tests titled "J-identity-08 #<n>" prove a whole step; the others
@@ -254,6 +256,29 @@ test(`${J} #3: with the face check switched off the selfie is kept for manual re
     await expect(refused).toHaveText('This link was already used. Make a new one on your computer.');
     await expect(again.getByTestId('verification__selfie').getByRole('button', { name: 'Open camera' })).toHaveCount(0);
 
+    // The service itself refuses the used link, not only the page: a selfie sent straight to identity with it is refused
+    // with its one typed code, and a re-read shows the phone's selfie is still the latest, so no second selfie was stored.
+    const own = await api(who);
+    const handoff = new URL(href, baseURL).searchParams.get('handoff');
+    const readLatest = async () => {
+      const { status, body } = await own.get('/api/identity/trpc/kyc.selfie.read');
+      expect(status).toBe(200);
+      return body.result.data.latest;
+    };
+    const kept = await readLatest();
+    expect(kept).toMatchObject({ via: 'handoff', status: 'provided' });
+    const checked = await own.get(
+      `/api/identity/trpc/kyc.selfie.handoff.check?input=${encodeURIComponent(JSON.stringify({ token: handoff }))}`,
+    );
+    expect(checked.status).toBe(200);
+    expect(checked.body.result.data.state).toBe('used');
+    // A 1x1 PNG: a photo the owner's upload caps accept, so the only thing wrong with this send is the link.
+    const png = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
+    const reused = await own.post('/api/identity/trpc/kyc.selfie.submit', { contentType: 'image/png', bytesBase64: png, handoff });
+    expect(reused.status).toBe(409);
+    expect(reused.body.error.data.cause.code).toBe('kyc.handoff_used');
+    expect(await readLatest()).toEqual(kept);
+
     // A link that lost characters on the way is refused as not whole, with no camera and no new phone link offered.
     const cut = await phoneContext.newPage();
     await cut.goto(href.slice(0, -5));
@@ -489,7 +514,166 @@ test(`${J} #6: one case record with history; an approval unlocks the mapped feat
 });
 
 test(`${J} #7: a restriction on another screen gives its reason in plain words and the next step`, async ({ page }) => {
-  test.setTimeout(60_000);
-  await atVerification(page);
-  await expect(page.getByRole('heading', { name: 'Restrictions on your account' })).toBeVisible(UNBUILT);
+  test.setTimeout(120_000);
+  const { who } = await atVerification(page);
+  const restrictions = page.getByTestId('verification__restrictions');
+  await expect(restrictions.getByRole('heading', { name: 'Restrictions on your account' })).toBeVisible();
+  await expect(restrictions.getByTestId('verification__restrictions-none')).toHaveText('Nothing is restricted on your account.');
+
+  // Compliance switches trading crypto off, two people with the stack's TEST reason (I-kyc-compliance-07).
+  expect(tool('local-test-gates.mjs', 'kyc-capability-off', who.handle, 'trade_crypto', 'compliance_hold')).toContain(
+    'switched off (compliance_hold)',
+  );
+  await page.reload();
+  // Here: Capabilities says it is switched off and why, and the restrictions section points there, saying it once.
+  const capabilities = page.getByRole('region', { name: 'Capabilities' });
+  const capability = capabilities.locator('[data-testid="verification__capability"][data-capability="trade_crypto"]');
+  await expect(capability).toContainText('Switched off');
+  await expect(capability).toContainText('TEST: this was switched off after a compliance review.');
+  await expect(restrictions.getByTestId('verification__restrictions-capabilities')).toHaveText(
+    'A capability compliance switched off is listed under Capabilities above.',
+  );
+  await expect(restrictions.getByTestId('verification__restrictions-none')).toHaveCount(0);
+
+  // On another screen, the account status: the reason in the owner's plain words, the next step, what it stops today
+  // (a new request for the level that grants it) and what it does not (orders and transfers), and that nothing lifts it.
+  await restrictions.getByRole('link', { name: 'See your account status' }).click();
+  await expect(page).toHaveURL(/\/uc\/account/);
+  const status = page.getByTestId('account-status');
+  await expect(status.getByTestId('account-status__state')).toHaveAttribute('data-state', 'restricted');
+  const off = status.locator('li[data-kind="capability_off"][data-capability="trade_crypto"]');
+  await expect(off).toContainText('Trade crypto switched off');
+  await expect(off).toContainText('TEST: this was switched off after a compliance review.');
+  await expect(off).toContainText('Next: TEST: ask Support what the review found.');
+  await expect(off).toContainText('It stops a new request for the level that grants it.');
+  await expect(off).toContainText('it does not stop your orders or transfers.');
+  await expect(off).toContainText('It cannot be switched back on.');
+  await expect(status.getByTestId('account-status__cannot').locator('li')).toHaveText([
+    'Ask for the verification level that grants a switched-off capability',
+  ]);
+
+  // Hit it: ask for Basic, the TEST level that grants trading crypto, from its own screen. Identity refuses it with its
+  // one typed code before anything is stored, and the refusal gives the reason in the owner's words and the next step.
+  await page.goto('/verification');
+  const cases = page.getByRole('region', { name: 'Case history' }).getByTestId('verification__case');
+  await expect(cases).toHaveCount(0);
+  await page.getByLabel('Level to request').selectOption({ label: 'Basic' });
+  await page.getByLabel('Country code').fill('DE');
+  await page.getByRole('button', { name: 'Review request' }).click();
+  const [reply] = await Promise.all([
+    page.waitForResponse((r) => r.url().includes('kyc.submit') && r.request().method() === 'POST'),
+    page.getByRole('button', { name: 'Submit this request' }).click(),
+  ]);
+  expect(reply.status()).toBe(409);
+  const wire = await reply.json();
+  expect((Array.isArray(wire) ? wire[0] : wire).error.data.cause.code).toBe('kyc.capability_inactive');
+  const refused = page.getByTestId('verification__capability-refused');
+  await expect(refused).toHaveAttribute('data-code', 'kyc.capability_inactive');
+  await expect(refused).toContainText(
+    'This level was refused because it grants a capability compliance switched off. The service opened no request.',
+  );
+  // The heading names the list it introduces, so it sits only above a list that has entries.
+  const list = refused.getByRole('list', { name: 'Switched off on your account:' });
+  await expect(list).toHaveCount(1);
+  const why = list.locator('li[data-kind="capability_off"][data-capability="trade_crypto"]');
+  await expect(why).toHaveCount(1);
+  await expect(why).toContainText('Trade crypto switched off');
+  await expect(why).toContainText('TEST: this was switched off after a compliance review.');
+  await expect(why).toContainText('Next: TEST: ask Support what the review found.');
+  await expect(refused.locator('li')).toHaveCount(1);
+
+  // Re-read: no case opened, trading crypto is still the one switched off, and nothing is held pending.
+  await page.reload();
+  await expect(cases).toHaveCount(0);
+  await expect(capability).toHaveAttribute('data-state', 'inactive');
+  const states = await capabilities
+    .getByTestId('verification__capability')
+    .evaluateAll((items) => items.map((li) => [li.getAttribute('data-capability'), li.getAttribute('data-state')]));
+  expect(states.filter(([, state]) => state !== 'unrequested')).toEqual([['trade_crypto', 'inactive']]);
+});
+
+// ── The platform posting freeze, as the founders' freeze desk does it (A asks, B approves, A runs) ─────────────────────
+
+const founders = { a: null, b: null };
+test.afterAll(async () => {
+  for (const key of ['a', 'b']) await founders[key]?.context().close();
+});
+async function founderPages(browser) {
+  for (const key of ['a', 'b']) {
+    if (founders[key]) continue;
+    founders[key] = await (await browser.newContext()).newPage();
+    await founderSignIn(founders[key], key);
+    await founders[key].goto(`${ADMIN}/`, { waitUntil: 'load' });
+  }
+  return founders;
+}
+
+const freezeStep = (page, body) =>
+  page.evaluate(async (payload) => {
+    const session = await (await fetch('/api/session', { cache: 'no-store' })).json();
+    const res = await fetch('/api/ledger-freeze', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-intafaced-csrf': session.csrf },
+      body: JSON.stringify(payload),
+    });
+    return { status: res.status, body: await res.json() };
+  }, body);
+
+const decode = (text) => JSON.parse(Buffer.from(text.slice('ifa1.'.length), 'base64url').toString('utf8'));
+const readFreeze = (page) => page.evaluate(async () => (await fetch('/api/ledger-freeze', { cache: 'no-store' })).json());
+
+async function setPostingFreeze(browser, frozen) {
+  const { a, b } = await founderPages(browser);
+  const record = await readFreeze(a);
+  expect(record.ok, JSON.stringify(record)).toBe(true);
+  if (record.state.frozen === frozen) return;
+  const version = record.state.version;
+  const request = frozen
+    ? { kind: 'ledger.freeze', reason: `LOCAL TEST ${J} #7 posting freeze`, version }
+    : { kind: 'ledger.unfreeze', version };
+  const confirm = frozen ? 'FREEZE LEDGER' : 'UNFREEZE LEDGER';
+  const proposed = await freezeStep(a, { step: 'propose', request, confirm });
+  expect(proposed.body.ok, JSON.stringify(proposed.body)).toBe(true);
+  const packet = decode(proposed.body.packet);
+  const approved = await freezeStep(b, { step: 'approve', request, confirm, approvalId: packet.approvalId });
+  expect(approved.body.ok, JSON.stringify(approved.body)).toBe(true);
+  const ran = await freezeStep(a, { step: 'execute', request, confirm, approvalId: packet.approvalId, operationId: packet.operationId });
+  expect(ran.body.ok, JSON.stringify(ran.body)).toBe(true);
+  expect((await readFreeze(a)).state.frozen).toBe(frozen);
+}
+
+test(`${J} #7: a platform posting freeze never reads as "your account is restricted"`, async ({ page, browser }) => {
+  test.setTimeout(240_000);
+  // A verified person with TEST USDT, so the order reaches the ledger: the freeze, not a missing level or balance, is
+  // what refuses it. The deposit is only the precondition; nothing here counts it as a step.
+  const who = await fundedTrader(page, 'kvfz', '100');
+  await openDesk(page, who);
+  try {
+    await setPostingFreeze(browser, true);
+    // On another screen, the trade desk: the order is refused as paused for everyone, never as this account's hold.
+    const sent = page.waitForResponse((r) => new URL(r.url()).pathname === '/api/v1/orders' && r.request().method() === 'POST');
+    // 10 USDT at a fixed TEST price: over the market's minimum, under the TEST balance; the book is not needed.
+    const review = await reviewLimit(page, 'buy', '10000.00', '0.001');
+    await review.getByRole('button', { name: 'Confirm buy' }).click();
+    const answer = await sent;
+    expect(answer.status()).toBe(400);
+    expect((await answer.json()).message).toBe('ledger.frozen');
+    const main = page.getByRole('main');
+    await expect(main.getByText('Orders are paused right now')).toBeVisible();
+    await expect(main.getByText("Orders can't go through at the moment, and this one wasn't placed. Try again later.")).toBeVisible();
+    await expect(main).not.toContainText(/restricted|on hold/i);
+
+    // The account status, read while the freeze is on: the account is active and nothing on it is restricted.
+    await page.goto('/uc/account');
+    const status = page.getByTestId('account-status');
+    await expect(status.getByTestId('account-status__state')).toHaveAttribute('data-state', 'active');
+    await expect(status).toContainText('Your account is active. Nothing is restricted.');
+    await expect(status.getByTestId('account-status__cannot').locator('li')).toHaveText(['Nothing']);
+
+    // And on /verification: nothing is restricted on the account.
+    await page.goto('/verification');
+    await expect(page.getByTestId('verification__restrictions-none')).toHaveText('Nothing is restricted on your account.');
+  } finally {
+    await setPostingFreeze(browser, false);
+  }
 });
