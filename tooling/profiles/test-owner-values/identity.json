@@ -220,6 +220,11 @@
       "service": "identity",
       "value": "7776000",
       "note": "LOCAL TEST ONLY, not an owner decision: a 90 day idle period, so the key detail shows a set idle expiry (J-developer-03 #9). No dormant sweep is built, so it ends no key; blank shows `not set` (developer-keys-detail tests)."
+    },
+    "IDENTITY_TRADING_RESTRICT_REQUIRES_APPROVAL": {
+      "service": "identity",
+      "value": "true",
+      "note": "TEST: a trade-ops operator can restrict one account's trading with a second person's approval, so J-identity-08 #7 can show a restricted trade refused by name and accepted again after the lift."
     }
   }
 }

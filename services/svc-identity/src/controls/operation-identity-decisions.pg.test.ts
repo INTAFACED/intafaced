@@ -136,6 +136,43 @@ describe.runIf(Boolean(url))('durable identity operation decisions', () => {
     expect(await decisions.decide(grant(intent()), 'svc-trade')).toMatchObject({ status: 'cancelled', code: 'auth.account_frozen' });
   });
 
+  it("refuses every fresh trading operation under identity's trading restriction, keeps earlier grants, and grants again once lifted", async () => {
+    const userId = target.principal!.userId;
+    const before = intent();
+    const original = await decisions.decide(grant(before), 'svc-trade');
+    expect(original).toMatchObject({ status: 'granted' });
+    const bot = await decisions.decide(grant(intent('strategy.start')), 'svc-trade');
+    expect(bot).toMatchObject({ status: 'granted' });
+    await db.sql`INSERT INTO trading_restrictions (user_id, restricted, version) VALUES (${userId}, true, 1)`;
+    expect(await decisions.decide(grant(before), 'svc-trade')).toEqual(original);
+    const during = intent();
+    const refused = await decisions.decide(grant(during), 'svc-trade');
+    expect(refused).toMatchObject({ status: 'cancelled', code: 'trade.account_restricted', intent: during });
+    expect(await decisions.decide(grant(intent('strategy.start')), 'svc-trade')).toMatchObject({ code: 'trade.account_restricted' });
+    // A bot's or a copy's child order is fresh exposure too, even under a parent granted before the restriction.
+    const child: IdentityOperationIntent = {
+      ...intent(),
+      operation: { service: 'svc-trade', kind: 'algo.child', userId },
+      authority: { kind: 'delegation', parentGrantId: (bot as { grantId: string }).grantId },
+    };
+    expect(await decisions.decide(grant(child), 'svc-trade')).toMatchObject({ status: 'cancelled', code: 'trade.account_restricted' });
+    await db.sql`UPDATE trading_restrictions SET restricted = false, version = 2 WHERE user_id = ${userId}`;
+    // The refusal is that intent's tombstone; a new intent is decided afresh.
+    expect(await decisions.decide(grant(during), 'svc-trade')).toEqual(refused);
+    expect(await decisions.decide(grant(intent()), 'svc-trade')).toMatchObject({ status: 'granted' });
+  });
+
+  it('a freeze outranks the trading restriction, and a bad credential never learns of it', async () => {
+    const userId = target.principal!.userId;
+    await db.sql`INSERT INTO trading_restrictions (user_id, restricted, version) VALUES (${userId}, true, 1)`;
+    const stale = intent();
+    await db.sql`UPDATE sessions SET revoked = true WHERE id = ${target.principal!.sid}`;
+    expect(await decisions.decide(grant(stale), 'svc-trade')).toMatchObject({ status: 'cancelled', code: 'auth.credential_denied' });
+    await db.sql`UPDATE sessions SET revoked = false WHERE id = ${target.principal!.sid}`;
+    expect((await change('restrict', '0')).outcome).toBe('changed');
+    expect(await decisions.decide(grant(intent()), 'svc-trade')).toMatchObject({ status: 'cancelled', code: 'auth.account_frozen' });
+  });
+
   it('restore does not renew revoked original credentials or cancelled intents', async () => {
     const input = intent();
     await change('restrict', '0');

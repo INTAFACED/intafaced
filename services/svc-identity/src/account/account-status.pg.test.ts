@@ -148,13 +148,18 @@ if (!(await postgresAvailable(TEST_URL))) {
       expect((await read(userId)).state).toBe('active');
     });
 
-    it('a staff trading restriction is listed with no reason on file, and blocks nothing it does not enforce', async () => {
+    it('a staff trading restriction is listed with no reason on file, and blocks trading, which identity refuses', async () => {
       const userId = await person();
       await db.sql`INSERT INTO trading_restrictions (user_id, restricted, version) VALUES (${userId}, true, 1)`;
       const status = await read(userId);
-      // svc-trade does not read identity's record, so "you cannot" stays empty and trading stays in "you can still".
-      expect(status).toMatchObject({ state: 'active', reasonCode: null, cannot: [], canStill: EVERY });
-      expect(status.restrictions[0]!.blocks).toEqual([]);
+      // OperationIdentityDecisions.decide cancels every fresh svc-trade operation while it holds.
+      expect(status).toMatchObject({
+        state: 'restricted',
+        reasonCode: null,
+        cannot: [{ action: 'trade', kind: 'trading_restricted' }],
+        canStill: EVERY.filter((a) => a !== 'trade'),
+      });
+      expect(status.restrictions[0]!.blocks).toEqual(['trade']);
       expect(status.restrictions[0]).toMatchObject({ kind: 'trading_restricted', lift: { by: 'staff' } });
       expect(status.restrictions[0]!.since).toBeNull();
       await db.sql`UPDATE trading_restrictions SET restricted = false WHERE user_id = ${userId}`;

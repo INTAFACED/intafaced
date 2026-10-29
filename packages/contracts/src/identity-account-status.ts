@@ -15,8 +15,9 @@ import { kycReasonCodeSchema } from './identity-kyc-cases.js';
  * - `security_lock` (the owner's or support's lock): password and sign-in method changes, password and second-factor
  *   resets, adding recovery keys or changing their plan, and support recovery refuse here; svc-bank refuses adding a
  *   withdrawal address and starting a send to one. Removing an address and revoking a recovery key are not stopped.
- * - `trading_restricted` (founder controls, trading area): recorded by identity, but svc-trade keeps its own restriction
- *   and does not read this one, so it blocks nothing (`blocks: []`). Only staff lift it; identity keeps no start.
+ * - `trading_restricted` (founder controls, trading area): identity cancels every fresh svc-trade operation (placing or
+ *   enlarging an order, starting a bot, a bot's or a copy's child order) with `trade.account_restricted`, so it blocks
+ *   `trade`. Cancelling an order is not an admission and goes on. Only staff lift it; identity keeps no start.
  * - `capability_off` (I-kyc-compliance-17): compliance switched a KYC capability off for good, with a code from the
  *   owner's capability reason list (`IDENTITY_KYC_CAPABILITY_REASONS`), whose words and next step travel in `owner`.
  *   Identity refuses a new request for a level that grants it (`kyc.capability_inactive`); no service outside identity

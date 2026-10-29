@@ -2,7 +2,7 @@ import { randomBytes } from 'node:crypto';
 import { chromium, test, expect } from '@playwright/test';
 import { localTestDeviceState } from '../../../../tooling/scripts/local-test-device.mjs';
 import { ADMIN, founderSignIn } from './admin.mjs';
-import { fundedTrader, openDesk, reviewLimit } from './desk.mjs';
+import { confirm, deskPath, fundedTrader, openDesk, openOrders, reviewLimit } from './desk.mjs';
 import { api, signUpInBrowser, tool } from './stack.mjs';
 
 // J-identity-08, in the running app (docs/roadmap/journeys.json): I get verified and see what each level unlocks.
@@ -590,6 +590,78 @@ test(`${J} #7: a restriction on another screen gives its reason in plain words a
     .getByTestId('verification__capability')
     .evaluateAll((items) => items.map((li) => [li.getAttribute('data-capability'), li.getAttribute('data-state')]));
   expect(states.filter(([, state]) => state !== 'unrequested')).toEqual([['trade_crypto', 'inactive']]);
+});
+
+test(`${J} #7: a trading restriction refuses a new order on the desk by name, keeps cancel and money, and the lift lets it through`, async ({
+  page,
+}) => {
+  test.setTimeout(240_000);
+  // A verified person with TEST USDT, so only the restriction can refuse the order. The deposit is the precondition.
+  const who = await fundedTrader(page, 'kvtr', '100');
+  await openDesk(page, who);
+  const order = () => reviewLimit(page, 'buy', '10000.00', '0.001');
+  const sends = () => page.waitForResponse((r) => new URL(r.url()).pathname === '/api/v1/orders' && r.request().method() === 'POST');
+  // One resting order from before the restriction: the restriction must leave it in place and cancellable.
+  await order();
+  await confirm(page, 'buy');
+  const [earlier] = await openOrders(who);
+  expect(earlier?.id).toBeTruthy();
+  const client = await api(who);
+  const held = (await client.balances()).USDT;
+
+  try {
+    // A trade-ops operator restricts this account's trading at identity, with a second person's approval.
+    expect(tool('local-test-gates.mjs', 'trading-restrict', who.handle, 'restrict')).toMatch(/OK .* trading restrict: changed/);
+
+    // On another screen, the trade desk: a new order is refused by name before anything is held.
+    await page.reload();
+    const sent = sends();
+    const review = await order();
+    await review.getByRole('button', { name: 'Confirm buy' }).click();
+    const answer = await sent;
+    expect(answer.status()).toBe(400);
+    expect((await answer.json()).message).toBe('trade.account_restricted');
+    const main = page.getByRole('main');
+    await expect(main.getByText('Trading is on hold on your account')).toBeVisible();
+    await expect(
+      main.getByText(
+        "New orders can't be placed, and this one wasn't. You can still cancel orders and move money. Contact support to find out why.",
+      ),
+    ).toBeVisible();
+    // Re-read: the one earlier order is all that rests, and the ledger holds exactly what it held before the refusal.
+    expect((await openOrders(who)).map((o) => o.id)).toEqual([earlier.id]);
+    expect((await client.balances()).USDT).toEqual(held);
+
+    // The account status names it, what it stops and what it does not.
+    await main.getByRole('link', { name: 'See your account status' }).click();
+    await expect(page).toHaveURL(/\/uc\/account/);
+    const status = page.getByTestId('account-status');
+    await expect(status.getByTestId('account-status__state')).toHaveAttribute('data-state', 'restricted');
+    const restriction = status.locator('li[data-kind="trading_restricted"]');
+    await expect(restriction).toContainText('Trading restricted');
+    await expect(restriction).toContainText(
+      'It stops new orders, larger orders, new bots and copied trades. You can still cancel an order.',
+    );
+    await expect(status.getByTestId('account-status__cannot').locator('li')).toHaveText(['Trade']);
+
+    // Cancel still works while it holds: the earlier order is cancelled and its hold released.
+    const cancel = await client.delete(`/api/v1/orders/${earlier.id}?symbol=${encodeURIComponent('BTC/USDT')}`);
+    expect(cancel.status, JSON.stringify(cancel.body)).toBe(200);
+    await expect.poll(async () => (await openOrders(who)).length, { timeout: 20_000 }).toBe(0);
+
+    // Lifted, again with two people: the same order goes through and rests.
+    expect(tool('local-test-gates.mjs', 'trading-restrict', who.handle, 'restore')).toMatch(/OK .* trading restore: changed/);
+    await page.goto('/uc/account');
+    await expect(status.getByTestId('account-status__state')).toHaveAttribute('data-state', 'active');
+    await page.goto(deskPath());
+    const accepted = sends();
+    await order();
+    await confirm(page, 'buy');
+    expect((await accepted).status()).toBeLessThan(300);
+    await expect.poll(async () => (await openOrders(who)).length, { timeout: 20_000 }).toBe(1);
+  } finally {
+    tool('local-test-gates.mjs', 'trading-restrict', who.handle, 'restore');
+  }
 });
 
 // ── The platform posting freeze, as the founders' freeze desk does it (A asks, B approves, A runs) ─────────────────────

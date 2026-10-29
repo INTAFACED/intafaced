@@ -35,9 +35,9 @@ const BLOCKS = {
     'add_withdrawal_address',
     'withdraw_to_address',
   ],
-  // Founder controls, trading area: recorded here, but svc-trade keeps its own restriction table and reads nothing of
-  // this one, so it blocks nothing; the page says so rather than claim trading stops.
-  trading_restricted: [],
+  // Founder controls, trading area: `OperationIdentityDecisions.decide` cancels every fresh svc-trade operation (placing
+  // or enlarging an order, starting a bot, a bot's or a copy's child order) with `trade.account_restricted`.
+  trading_restricted: ['trade'],
   // KYC capability switched off: identity refuses a request for the level whose own list grants it (`assertRequestable`,
   // `kyc.capability_inactive`), so it blocks only while the owner's level map grants it somewhere; no service outside
   // identity reads capability states, so orders and transfers go on.

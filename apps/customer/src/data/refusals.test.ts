@@ -207,7 +207,7 @@ describe('classifyRefusal', () => {
       ['trade.convert_price_moved', 'priceMoved'],
       ['trade.convert_quote_expired', 'quoteExpired'],
       ['ledger.frozen', 'platformPaused'],
-      ['trade.account_restricted', 'accountOnHold'],
+      ['trade.account_restricted', 'tradingOnHold'],
       ['bank.space_locked', 'spaceLocked'],
       ['mfa.required', 'stepUp'],
       ['auth.mfa_required', 'mfaRequired'],
