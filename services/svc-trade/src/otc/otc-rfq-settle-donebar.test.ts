@@ -26,6 +26,7 @@ const law: OtcDeskLaw = {
   maxMidAgeSeconds: 30,
   // A zero desk minimum is an owner value: these quotes are not held by the CB-otc-07 minimum.
   minNotional: { USDT: 0n },
+  assets: ['BTC'],
 };
 
 describe('D26-P1-T2 OTC RFQ stake fail-closed settle', () => {

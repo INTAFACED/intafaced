@@ -37,6 +37,7 @@ import { oneLine, signReceipt } from '../receipt-signing.js';
 import { assertSecurityLockOpen, unconfiguredSecurityLock, type SecurityLockPort } from '../security-lock.js';
 import { withSessionAdvisoryLock } from '../session-lock.js';
 import type { CashOutPartner, PayoutFailure, PayoutReturn } from './payout-sim.js';
+import { RailRecordError, type RailMovement } from './rail-records.js';
 
 export interface CashOutAsk {
   readonly assetId: string;
@@ -149,6 +150,9 @@ const CASH_OUT_RECEIPT_INFO = 'bank.cash-out.receipt.v1';
 /** The withdrawal id every ledger post of one cash-out is keyed by. */
 export const cashOutWithdrawalId = (id: string) => `cash-out:${id}`;
 
+/** The business key of a TEST stand-in's record that it paid a cash-out out. */
+const paidKey = (id: string) => `${cashOutWithdrawalId(id)}:paid`;
+
 export class CashOutService {
   private readonly partner: CashOutPartner | null;
   private readonly securityLock: SecurityLockPort;
@@ -241,6 +245,13 @@ export class CashOutService {
       if (row.status !== 'processing' || !row.hold_ledger_tx_id || !row.payout_ref || !row.payout_rail) {
         throw new BankError(`This cash-out is ${row.status} and cannot be marked paid`, 'bank.ramp_conflict');
       }
+      // A TEST stand-in records what it paid in its own words first: if the post then fails, the rail shows the gap.
+      await this.onRail({
+        key: paidKey(row.id),
+        direction: 'out',
+        assetId: row.asset_id,
+        amount: parseAmount(row.amount),
+      });
       const settled = await this.ledger.post(recipes.withdrawSettle(this.withdrawal(row)));
       return this.moved(
         row.id,
@@ -258,6 +269,10 @@ export class CashOutService {
       if (row.status === 'failed' && row.failure_code === reason) return row;
       if (row.status !== 'processing' || !row.payout_rail) {
         throw new BankError(`This cash-out is ${row.status} and cannot be marked failed`, 'bank.ramp_conflict');
+      }
+      // A TEST stand-in that already recorded this payout as paid cannot also say it failed: the settle is retried instead.
+      if (await this.partner!.records?.has(paidKey(row.id))) {
+        throw new BankError('The payout stand-in already recorded this cash-out as paid; say paid again', 'bank.ramp_conflict');
       }
       // The ledger, not the row, says whether it was held: a hold it booked whose answer was lost is given back too.
       const reversed = (await this.bookedHold(row)) ? await this.ledger.post(recipes.withdrawReverse(this.withdrawal(row))) : null;
@@ -297,6 +312,12 @@ export class CashOutService {
       if (back <= 0n || back > parseAmount(row.amount)) {
         throw new BankError('What came back must be above zero and no more than was paid out', 'bank.ramp_invalid_amount');
       }
+      await this.onRail({
+        key: `${cashOutWithdrawalId(row.id)}:returned`,
+        direction: 'in',
+        assetId: row.asset_id,
+        amount: back,
+      });
       const credited = await this.ledger.post(
         recipes.deposit({
           userId: row.user_id,
@@ -455,6 +476,16 @@ export class CashOutService {
       }
       return view(await act(row));
     });
+  }
+
+  /** A TEST stand-in's own record of a movement on its rail; one the rail already contradicts is a conflict, nothing posted. */
+  private async onRail(movement: RailMovement): Promise<void> {
+    try {
+      await this.partner!.records?.record(movement);
+    } catch (err) {
+      if (err instanceof RailRecordError && err.conflict) throw new BankError(err.message, 'bank.ramp_conflict');
+      throw err;
+    }
   }
 
   /** Update one request that is still in `from`, returning the row as it now is. Anything else is a conflict. */

@@ -97,6 +97,15 @@ async function network(context, page, baseURL, extra = {}) {
     if (procedure === 'getProposal')
       return reply({ ...proposal, tally: { forWeight: '1', againstWeight: '0', abstainWeight: '0', totalWeight: '1', voterCount: 1 } });
     if (procedure === 'stakeOf') return reply({ staked: state.stake });
+    if (procedure === 'votingPower.ofProposal')
+      return reply({
+        proposalId: input.proposalId,
+        power: state.stake,
+        reason: state.stake === '0' ? 'no_stake_at_creation' : null,
+        takenAt: state.stake === '0' ? null : proposal.createdAt,
+        rule: { minPower: '0', code: null },
+        signing: { required: true, available: true, code: null },
+      });
     if (procedure === 'accessOf') return reply({ staked: '40.75', tier: 'flex', feeDiscountBps: 0 });
     if (procedure === 'burnedSupply') return reply({ burned: '0' });
     if (['log.mine', 'session.log'].includes(procedure)) return reply([logRow]);
@@ -369,10 +378,7 @@ test('Token authored current-stake refusal stays English and preserves original 
   await dialog.getByRole('button', { name: 'Cast vote', exact: true }).click();
   const refusal = page
     .locator('.failure')
-    .getByText(
-      'A positive current stake estimate is required before reviewing a vote. The service still decides the authoritative cast-time weight.',
-      { exact: true },
-    );
+    .getByText('You had no voting power when this proposal was created, so you cannot vote on it.', { exact: true });
   await expect(refusal).toBeVisible();
   expect(await refusal.evaluate((node) => node.closest('[lang]')?.getAttribute('lang'))).toBe('en');
   await expect(page.locator('.token-proposal-body')).toContainText(originalDescription);

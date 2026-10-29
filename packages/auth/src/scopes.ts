@@ -75,6 +75,11 @@ export const SCOPES = [
   'support:read',
   'support:write',
   'support:ops',
+  // Support desk lookup: an agent reads one customer's records in another
+  // module (copy follows, bots, quotes), read only. Separate from `support:ops`,
+  // which also works the queue, articles and forms: reading a customer's records
+  // is its own authority, so an agent can hold one without the other.
+  'support:lookup',
 
   // Tax export — read-only lot packs over the caller's own ledger books.
   'tax:read',
@@ -149,7 +154,8 @@ export function hasScope(granted: readonly string[], required: Scope): boolean {
  *      These also require 2FA on the session (`SESSION_MFA_SCOPES`).
  *      Merchant refund and payout are D-145, not this list.
  *   2. Founder or operator desk authority (`admin:read`, `admin:write`,
- *      `admin:compliance`, `admin:treasury`, `support:ops`, `market:ops`).
+ *      `admin:compliance`, `admin:treasury`, `support:ops`, `support:lookup`,
+ *      `market:ops`).
  *      A founder session used to be able to copy `admin:write`, `admin:read`
  *      and `support:ops` onto an API key, and a session that held
  *      `admin:compliance` or `market:ops` could do the same. A long-lived key
@@ -177,6 +183,7 @@ export const INTERACTIVE_ONLY_SCOPES: readonly Scope[] = [
   'admin:write',
   'admin:compliance',
   'support:ops',
+  'support:lookup',
   'market:ops',
   'campaigns:ops',
 ];
@@ -401,6 +408,7 @@ export const FOUNDER_SESSION_SCOPE_ALLOWLIST = [
   'admin:compliance',
   'market:ops',
   'support:ops',
+  'support:lookup',
   'campaigns:ops',
 ] as const satisfies readonly Scope[];
 
@@ -510,6 +518,7 @@ export const WITHHELD_FROM_SESSION: Readonly<Record<Exclude<Scope, SessionScope>
   // Support operator actions (assign/resolve). Users get support:read/write on
   // session; ops is staff-only.
   'support:ops': 'Operator scope — support desk staff actions',
+  'support:lookup': 'Operator scope — support desk read of one customer’s records, staff-only',
 
   // Marketplace operator actions (vetting a vendor application). Users get
   // market:read/write on session; deciding is staff-only. An applicant who could

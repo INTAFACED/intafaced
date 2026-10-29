@@ -25,6 +25,7 @@ export const STEPS = Object.freeze({
   'local-founder-seed.mjs init': { script: 'local-founder-seed.mjs', args: ['init'], flag: 'INTAFACED_LOCAL_FOUNDER' },
   'local-founder-seed.mjs enrol': { script: 'local-founder-seed.mjs', args: ['enrol'], flag: 'INTAFACED_LOCAL_FOUNDER' },
   'local-test-seed.mjs apply': { script: 'local-test-seed.mjs', args: ['apply'], flag: 'LOCAL_TEST', state: true },
+  'local-test-seed.mjs home': { script: 'local-test-seed.mjs', args: ['home'], flag: 'LOCAL_TEST', state: true },
   'local-test-seed.mjs status': { script: 'local-test-seed.mjs', args: ['status'], flag: 'LOCAL_TEST', state: true },
 });
 export const DEFAULT_STEPS = Object.freeze(Object.keys(STEPS));
