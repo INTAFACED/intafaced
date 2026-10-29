@@ -95,6 +95,7 @@ describe('readMarket shaping what token contracts say about themselves', () => {
     const snap = await readMarket(chain, POOL, 9n);
     expect(snap.tokens.map((t) => t.address)).toEqual([TOKEN, PLAIN]);
     expect(snap.pools.map((p) => p.pool)).toEqual([P1]);
+    expect(snap.unsupported).toEqual([HUGE.toLowerCase()]);
     expect(asked.at(-1)).toEqual([P1]);
   });
 

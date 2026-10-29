@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Address } from 'viem';
-import { createEdgeContext, TOKEN_NOT_LISTED } from '@intafaced/contracts';
+import { createEdgeContext, TOKEN_NOT_LISTED, TOKEN_UNSUPPORTED } from '@intafaced/contracts';
 import { createProtocolRouter, type ProtocolRouterDeps } from '../router.js';
 import { createTokensRouter } from './tokens-router.js';
 import type { TokenLogsChain } from './token-reader.js';
@@ -84,5 +84,36 @@ describe('protocol.tokens.page for an address in no pool', () => {
       message: expect.stringMatching(new RegExp(`^${TOKEN_NOT_LISTED.replace('.', '\\.')}: `)),
     });
     expect(holderReads).toEqual([]);
+  });
+});
+
+describe('protocol.tokens with a token claiming more decimals than the pages take', () => {
+  const QUOTE = '0x00000000000000000000000000000000000b0b00' as Address;
+  const POOL = '0x00000000000000000000000000000000000000b1' as Address;
+  const tokensWith = (decimalsOf: (token: Address) => number) =>
+    createTokensRouter({
+      chain: {
+        headBlock: async () => 9n,
+        factoryPools: async () => [POOL],
+        poolSnapshot: async () => ({ token0: TOKEN, token1: QUOTE, feeBps: 30, reserve0: 1n, reserve1: 1n, blockTimestampLast: 0 }),
+        tokenBasics: async (token: Address) => ({ name: 'T', symbol: 'T', decimals: decimalsOf(token) }),
+        poolCreatedLogs: async () => [],
+        poolLogs: async () => ({ syncs: [], swaps: [] }),
+        blockTimes: async (blocks: bigint[]) => new Map(blocks.map((b) => [b, 100])),
+      } as unknown as TokenLogsChain,
+      factory: () => FACTORY as Address,
+      quoteToken: () => QUOTE,
+      toTrpcError: (err) => err as never,
+    }).createCaller(anonymous());
+  const unsupported = expect.stringMatching(new RegExp(`^${TOKEN_UNSUPPORTED.replace('.', '\\.')}: `));
+
+  it('refuses its page by that code, not as a token in no pool', async () => {
+    const tokens = tokensWith((token) => (token.toLowerCase() === TOKEN.toLowerCase() ? 77 : 18));
+    await expect(tokens.page({ address: TOKEN })).rejects.toMatchObject({ code: 'PRECONDITION_FAILED', message: unsupported });
+  });
+
+  it('refuses every read by that code when it is the quote token', async () => {
+    const tokens = tokensWith((token) => (token.toLowerCase() === QUOTE.toLowerCase() ? 77 : 18));
+    await expect(tokens.list({ window: '1h' })).rejects.toMatchObject({ code: 'PRECONDITION_FAILED', message: unsupported });
   });
 });

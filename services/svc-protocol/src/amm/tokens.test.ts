@@ -145,6 +145,19 @@ describe('normaliseName', () => {
   });
 });
 
+describe('normaliseName with lookalike letters', () => {
+  it('reads Cyrillic letters drawn like Latin ones as those Latin letters', () => {
+    // "TESTA" with Cyrillic Т, Е, Т and А: nothing in it is Latin but the S.
+    expect(normaliseName('\u0422\u0415S\u0422\u0410')).toBe('testa');
+  });
+
+  it('reads a Greek capital by the Latin capital it is drawn like', () => {
+    // E, Greek Tau, Greek Eta: drawn as ETH. Greek Upsilon, F, I: drawn as YFI.
+    expect(normaliseName('E\u03a4\u0397')).toBe('eth');
+    expect(normaliseName('\u03a5FI')).toBe('yfi');
+  });
+});
+
 describe('tokenPage', () => {
   const holders = holdersFrom(
     [
@@ -227,7 +240,7 @@ describe('holdersFrom', () => {
     expect(h.list.reduce((s, x) => s + BigInt(x.amount), 0n).toString()).toBe(h.supplyLessBurned);
   });
 
-  it('refuses a holder list its own Transfer logs do not add up to, so an emitted log cannot invent holders', () => {
+  it('refuses a holder list its own Transfer logs do not add up to, so emitted logs cannot claim more than the supply', () => {
     // A contract can emit any Transfer it likes: these claim 400 more than its supply less burned.
     const forged = [...transfers, { from: ZERO, to: W3, value: 400n }];
     const refused = (() => {

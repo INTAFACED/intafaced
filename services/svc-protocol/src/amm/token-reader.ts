@@ -101,8 +101,18 @@ export function tokenLogsChain(pairs: PairsChain, client: () => PublicClient, rp
       }),
     blockTimes: (blocks) =>
       read('blockTimes', async () => {
-        // A block's time never changes, so each is read once per process, a few at a time.
-        const missing = [...new Set(blocks)].filter((block) => !blockTime.has(block));
+        // A block's time never changes, so each is kept per process and read a few at a time. The answer is built from
+        // its own copy, so another read dropping old entries cannot take a block out from under it; a hit moves to the
+        // back, so the blocks still asked for are the last to go.
+        const answer = new Map<bigint, number>();
+        for (const block of blocks) {
+          const time = blockTime.get(block);
+          if (time === undefined) continue;
+          answer.set(block, time);
+          blockTime.delete(block);
+          blockTime.set(block, time);
+        }
+        const missing = [...new Set(blocks)].filter((block) => !answer.has(block));
         for (let i = 0; i < missing.length; i += RPC_BATCH) {
           const batch = missing.slice(i, i + RPC_BATCH);
           const times = await Promise.all(
@@ -112,9 +122,11 @@ export function tokenLogsChain(pairs: PairsChain, client: () => PublicClient, rp
                 .then((b) => Number(b.timestamp)),
             ),
           );
-          batch.forEach((block, j) => blockTime.set(block, times[j]!));
+          batch.forEach((block, j) => {
+            answer.set(block, times[j]!);
+            blockTime.set(block, times[j]!);
+          });
         }
-        const answer = new Map(blocks.map((block) => [block, blockTime.get(block)!]));
         for (const block of blockTime.keys()) {
           if (blockTime.size <= BLOCK_TIMES_KEPT) break;
           blockTime.delete(block);
@@ -140,6 +152,12 @@ export function tokenLogsChain(pairs: PairsChain, client: () => PublicClient, rp
 const BIDI_CONTROLS = /[\u200e\u200f\u202a-\u202e\u2066-\u2069]/gu;
 const cut = (text: string) => [...text.replace(BIDI_CONTROLS, '')].slice(0, TOKEN_TEXT_LIMIT).join('');
 
+/** A token as the pages show it, or null when it claims more decimals than the wire takes. */
+export function shapeToken<T extends TokenBasics>(token: T): T | null {
+  if (!Number.isInteger(token.decimals) || token.decimals < 0 || token.decimals > MAX_DECIMALS) return null;
+  return { ...token, name: cut(token.name), symbol: cut(token.symbol) };
+}
+
 /** Every pool, its history and its tokens at one block. */
 export async function readMarket(chain: TokenLogsChain, factory: Address, block: bigint): Promise<MarketSnapshot> {
   const [pairs, created] = await Promise.all([listPairs(chain, factory, block), chain.poolCreatedLogs(factory, block)]);
@@ -152,9 +170,9 @@ export async function readMarket(chain: TokenLogsChain, factory: Address, block:
   const createdBy = new Map(created.map((c) => [c.pool.toLowerCase(), c]));
   // A token's own contract says its name, symbol and decimals, so a hostile one is shaped here rather than refusing the
   // whole list: decimals past what the wire takes leave the token and its pools out; a long name or symbol is cut.
-  const tokens = (pairs.tokens as TokenBasics[])
-    .filter((t) => Number.isInteger(t.decimals) && t.decimals >= 0 && t.decimals <= MAX_DECIMALS)
-    .map((t) => ({ ...t, name: cut(t.name), symbol: cut(t.symbol) }));
+  const shaped = (pairs.tokens as TokenBasics[]).map((t) => ({ token: t, shaped: shapeToken(t) }));
+  const tokens = shaped.flatMap((t) => (t.shaped ? [t.shaped] : []));
+  const unsupported = shaped.filter((t) => !t.shaped).map((t) => t.token.address.toLowerCase());
   const kept = new Set(tokens.map((t) => t.address.toLowerCase()));
   const listed = pairs.pools.filter((p) => kept.has(p.token0.toLowerCase()) && kept.has(p.token1.toLowerCase()));
   const listedPools = listed.map((p) => p.pool as Address);
@@ -182,6 +200,7 @@ export async function readMarket(chain: TokenLogsChain, factory: Address, block:
     blockNumber: block,
     asOf: times.get(block)!,
     tokens,
+    unsupported,
     pools,
     syncs: logs.syncs.map((s) => ({ ...s, time: times.get(s.block)! })),
     swaps: logs.swaps.map((s) => ({ ...s, time: times.get(s.block)! })),

@@ -5,6 +5,7 @@ import {
   TOKENS_HOLDERS_INCONSISTENT,
   TOKENS_READ_TOO_LARGE,
   TOKEN_NOT_LISTED,
+  TOKEN_UNSUPPORTED,
   TRUST_CRITERIA_UNSET,
   type TokenBasics,
   type TokenListRow,
@@ -74,6 +75,8 @@ export interface MarketSnapshot {
   blockNumber: bigint;
   asOf: number;
   tokens: TokenBasics[];
+  /** Tokens in the factory's pools left out because they claim more decimals than the wire takes, lowercased. */
+  unsupported?: string[];
   pools: PoolRecord[];
   syncs: SyncLog[];
   swaps: SwapLog[];
@@ -81,7 +84,7 @@ export interface MarketSnapshot {
 
 export class TokensReadError extends Error {
   constructor(
-    readonly code: typeof TOKENS_READ_TOO_LARGE | typeof TOKENS_HOLDERS_INCONSISTENT | typeof TOKEN_NOT_LISTED,
+    readonly code: typeof TOKENS_READ_TOO_LARGE | typeof TOKENS_HOLDERS_INCONSISTENT | typeof TOKEN_NOT_LISTED | typeof TOKEN_UNSUPPORTED,
     message: string,
   ) {
     super(`${code}: ${message}`);
@@ -111,11 +114,12 @@ export function reservePrice(baseReserve: bigint, baseDecimals: number, quoteRes
 /**
  * Cyrillic and Greek letters drawn like a Latin one, after case folding. Not the full Unicode confusables table: the
  * letters a copied ticker or name is most often made of: Cyrillic а в с ԁ е һ н і ј к ӏ м о р ԛ ѕ т у х, then Greek
- * α β ε η ι κ ν ο ρ τ υ χ ω.
+ * α β ε η ι κ ν ο ρ τ υ χ ω. A Greek letter is read by its capital, since tickers are written in capitals: Η as H,
+ * Ν as N, Υ as Y.
  */
 const LOOKALIKE_LETTERS =
   '\u0430\u0432\u0441\u0501\u0435\u04bb\u043d\u0456\u0458\u043a\u04cf\u043c\u043e\u0440\u051b\u0455\u0442\u0443\u0445\u03b1\u03b2\u03b5\u03b7\u03b9\u03ba\u03bd\u03bf\u03c1\u03c4\u03c5\u03c7\u03c9';
-const AS_LATIN = 'abcdehhijklmopqstyxabeniknoptuxw';
+const AS_LATIN = 'abcdehhijklmopqstyxabehiknoptyxw';
 const CONFUSABLE = new Map([...LOOKALIKE_LETTERS].map((ch, i) => [ch, AS_LATIN[i]!]));
 
 /** Name or symbol as a reader sees it: NFKC, invisible characters and spaces dropped, case folded, lookalike letters read as Latin. */

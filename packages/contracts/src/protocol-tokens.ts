@@ -14,6 +14,8 @@ export const TOKENS_READ_TOO_LARGE = 'protocol.tokens_read_too_large' as const;
 export const TOKENS_HOLDERS_INCONSISTENT = 'protocol.tokens_holders_inconsistent' as const;
 /** A token page is read only for a token in one of the factory's pools. */
 export const TOKEN_NOT_LISTED = 'protocol.token_not_listed' as const;
+/** The token claims more decimals than the pages take, so it is left out with its pools. */
+export const TOKEN_UNSUPPORTED = 'protocol.token_unsupported' as const;
 
 const units = z.string().regex(/^(0|[1-9][0-9]*)$/);
 /** A decimal with at most 18 places, possibly negative. */
