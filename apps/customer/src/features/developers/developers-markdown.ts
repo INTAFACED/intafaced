@@ -14,10 +14,12 @@ import {
   NEVER_ON_A_KEY,
   PRODUCTS,
   REST_REFERENCE,
+  STREAM_DOOR_PATH,
   STREAM_REFERENCE,
   permissionTable,
   routeLine,
   scopeFor,
+  streamName,
 } from './developers-reference';
 
 const portal = developersCopy.forLocale('en').t;
@@ -116,9 +118,10 @@ export const DOCS_PAGES: readonly DocsPage[] = [
             ...(streams.length
               ? [
                   table(
-                    [docs('colStream'), docs('colPermission')],
+                    [docs('colStream'), docs('colDoor'), docs('colPermission')],
                     streams.map((stream) => [
-                      code(stream.channel),
+                      code(streamName(stream)),
+                      `${docs(`door_${stream.door}`)} ${code(STREAM_DOOR_PATH[stream.door])}`,
                       stream.private ? docs('privateStream', { scope: 'trade:read' }) : docs('publicStream'),
                     ]),
                   ),
@@ -127,6 +130,7 @@ export const DOCS_PAGES: readonly DocsPage[] = [
           ];
         }),
         docs('referenceMore'),
+        docs('streamsLive'),
       ].join('\n\n'),
   },
   {

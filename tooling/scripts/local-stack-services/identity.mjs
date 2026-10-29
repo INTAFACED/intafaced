@@ -1,11 +1,46 @@
 import { loadProfile } from '../owner-settings.mjs';
 import path from 'node:path';
+import { confirmFounderEmails } from '../local-test-founders.mjs';
+import { founderTotp, makeContext } from '../local-test-gates.mjs';
+import { LOCAL_TEST_DEVICE_KEY } from '../local-test-device.mjs';
 
 /** One labelled TEST value from this service's profile file; a missing one names the file instead of a bare TypeError. */
 function testValue(name) {
   const entry = loadProfile().values[name];
   if (!entry) throw new Error(`${name} is missing from tooling/profiles/test-owner-values/identity.json.`);
   return entry.value;
+}
+
+/**
+ * LOCAL TEST ONLY. A founder's address is confirmed like anyone's, so a new browser in the console is mailed its approval
+ * code. Only a console sign-in from a new browser needs it, so a failure is named and the stack still starts.
+ */
+export async function confirmLocalFounderEmails({ STATE, marker, edgeUrl, say }) {
+  let ctx;
+  try {
+    await confirmFounderEmails({
+      stateDir: STATE,
+      marker,
+      edgeUrl,
+      log: say,
+      signIn: async (f) => {
+        ctx ??= await makeContext({ log: () => {} });
+        const login = await ctx.edge.mutate('identity', 'auth.login', {
+          identifier: f.handle,
+          password: f.password,
+          totpCode: await founderTotp(ctx, f.key, f.totpSecret),
+          deviceKey: LOCAL_TEST_DEVICE_KEY,
+        });
+        const token = login.json?.result?.data?.accessToken;
+        if (typeof token !== 'string') throw new Error(`founder ${f.key} could not sign in to confirm their email (${login.status})`);
+        return token;
+      },
+    });
+  } catch (err) {
+    say(
+      `  founders: email addresses not confirmed, so a new browser in the console gets no mailed code: ${err instanceof Error ? err.message : err}`,
+    );
+  }
 }
 
 export default ({ c, secrets, dbUrl, urlOf, PORTS, STATE, CUSTOMER_LOCALHOST_ORIGIN, identityFounderEnv }) => ({

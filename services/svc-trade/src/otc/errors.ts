@@ -32,7 +32,9 @@ export type OtcErrorCode =
   | 'trade.otc_makers_unset'
   | 'trade.otc_provider_required'
   | 'trade.otc_provider_cap'
-  | 'trade.otc_provider_unknown';
+  | 'trade.otc_provider_unknown'
+  /** NotConnected (allowlisted blocker class): a provider routed to an outside venue the platform has no feed for. */
+  | 'feed.market';
 
 export class OtcError extends Error {
   constructor(

@@ -41,6 +41,7 @@ import {
   type SupportTicketProperties,
   type SupportTicketPropertyChange,
   type SupportTicketType,
+  supportMacroUnfilled,
 } from '@intafaced/contracts';
 import type {
   CreateTicketInput,
@@ -755,6 +756,10 @@ export class SupportService implements SupportContract {
         ticketId: input.ticketId,
         asOperator: input.asOperator,
       });
+      // SP-desk-02: a macro placeholder whose value was blank for this request is never sent, blank or as written.
+      if (input.asOperator && supportMacroUnfilled(input.body).length > 0) {
+        throw new SupportError('the reply still holds a placeholder to fill', 'support.macro_placeholder_blank');
+      }
       const result = await this.store.addComment({
         ticketId: input.ticketId,
         authorId: input.userId,

@@ -36,12 +36,14 @@ describe('D26-P1-T2 OTC RFQ stake fail-closed settle', () => {
 
     let now = new Date('2026-08-12T05:00:00.000Z');
     const svc = new OtcDeskService(ledger, new FixedOtcStake(parseAmount('1000')), {
+      // The house desk is the one provider these requests ask (CB-otc-01).
+      makerDirectory: { published: true, makers: [{ id: 'house', name: 'House desk', route: 'platform' }], selectCap: 1 },
       law,
       midSource: createObservedOtcMidSource('BTC/USDT:1000', () => now),
       now: () => now,
     });
 
-    const quote = await svc.quote(principal, { side: 'buy', baseAsset: 'BTC', quoteAsset: 'USDT', qty: '1' });
+    const quote = await svc.quote(principal, { side: 'buy', baseAsset: 'BTC', quoteAsset: 'USDT', qty: '1', makerIds: ['house'] });
     expect(quote.midPrice).toBe('1000');
     expect(quote.spreadBps).toBe(50);
 
@@ -57,11 +59,15 @@ describe('D26-P1-T2 OTC RFQ stake fail-closed settle', () => {
   it('stake gate refuses before any quote is priced', async () => {
     let now = new Date('2026-08-12T05:00:00.000Z');
     const svc = new OtcDeskService(new MemoryLedger(), new FixedOtcStake(parseAmount('1')), {
+      // The house desk is the one provider these requests ask (CB-otc-01).
+      makerDirectory: { published: true, makers: [{ id: 'house', name: 'House desk', route: 'platform' }], selectCap: 1 },
       law,
       midSource: createObservedOtcMidSource('BTC/USDT:1000', () => now),
       now: () => now,
     });
-    await expect(svc.quote(principal, { side: 'buy', baseAsset: 'BTC', quoteAsset: 'USDT', qty: '1' })).rejects.toMatchObject({
+    await expect(
+      svc.quote(principal, { side: 'buy', baseAsset: 'BTC', quoteAsset: 'USDT', qty: '1', makerIds: ['house'] }),
+    ).rejects.toMatchObject({
       code: 'trade.otc_stake_gate',
     });
   });
@@ -70,11 +76,15 @@ describe('D26-P1-T2 OTC RFQ stake fail-closed settle', () => {
     const observedAt = new Date('2026-08-12T05:00:00.000Z');
     const now = new Date('2026-08-12T05:01:00.000Z'); // 60s > 30s
     const svc = new OtcDeskService(new MemoryLedger(), new FixedOtcStake(parseAmount('1000')), {
+      // The house desk is the one provider these requests ask (CB-otc-01).
+      makerDirectory: { published: true, makers: [{ id: 'house', name: 'House desk', route: 'platform' }], selectCap: 1 },
       law,
       midSource: createObservedOtcMidSource('BTC/USDT:1000', () => observedAt),
       now: () => now,
     });
-    await expect(svc.quote(principal, { side: 'buy', baseAsset: 'BTC', quoteAsset: 'USDT', qty: '1' })).rejects.toMatchObject({
+    await expect(
+      svc.quote(principal, { side: 'buy', baseAsset: 'BTC', quoteAsset: 'USDT', qty: '1', makerIds: ['house'] }),
+    ).rejects.toMatchObject({
       code: 'trade.otc_no_reference_price',
     });
   });
