@@ -355,6 +355,24 @@ export const reconciliationEvaluationFeedSchema = z
   .strict();
 export type ReconciliationEvaluationFeed = z.infer<typeof reconciliationEvaluationFeedSchema>;
 
+/**
+ * OPS-reconciliation-04: which of a few ledger transaction ids exist, for svc-ops resolving an alert as fixed with the
+ * corrective transactions an operator names. A service door (svc-ops alone). It answers ids only: no amounts, accounts
+ * or entries, so it is not a ledger read of balances or history.
+ */
+export const LEDGER_TRANSACTIONS_EXIST_MAX = 20;
+export const ledgerTransactionsExistInputSchema = z
+  .object({ txIds: z.array(z.string().guid()).min(1).max(LEDGER_TRANSACTIONS_EXIST_MAX) })
+  .strict();
+export type LedgerTransactionsExistInput = z.infer<typeof ledgerTransactionsExistInputSchema>;
+export const ledgerTransactionsExistSchema = z
+  .object({
+    /** The asked ids that name a booked transaction, in the order asked, each once. */
+    found: z.array(z.string().guid()),
+  })
+  .strict();
+export type LedgerTransactionsExist = z.infer<typeof ledgerTransactionsExistSchema>;
+
 /** What a rail snapshot must look like when a partner has one. Amounts are decimal strings. */
 export const railBalanceSnapshotSchema = z
   .object({

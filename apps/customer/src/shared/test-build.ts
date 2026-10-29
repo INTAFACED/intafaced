@@ -1,7 +1,9 @@
 /**
  * Whether this page was served by a test build. The local test stack serves the app with its TEST banner,
  * `<div id="local-test-stack-banner">` (tooling/scripts/local-test-stack.mjs, BANNER_HTML); a live build serves none.
- * It only ever adds a TEST label to money a test build shows, so a missing banner hides nothing.
+ * It adds a TEST label to money a test build shows, and the sign-in page's Tester build panel, which names files and
+ * commands only (never a password, a second-factor secret or a code): a missing banner hides nothing, and a forged one
+ * reveals nothing.
  */
 export const TEST_BUILD_BANNER_ID = 'local-test-stack-banner';
 

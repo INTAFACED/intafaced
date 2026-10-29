@@ -73,3 +73,22 @@ export async function signWithBrowserWallet(
     return REJECTED.has(code as number) ? { status: 'rejected' } : { status: 'failed' };
   }
 }
+
+export type TextSigned =
+  { status: 'signed'; address: string; signature: string } | { status: 'none' } | { status: 'rejected' } | { status: 'failed' };
+
+/** Have the browser's wallet sign one exact text (EIP-191 personal_sign). The key stays in the wallet. */
+export async function signTextWithBrowserWallet(message: string, found?: Eip1193Provider | null): Promise<TextSigned> {
+  const provider = found ?? (await findBrowserWallet());
+  if (!provider) return { status: 'none' };
+  try {
+    const address = firstAddress(await provider.request({ method: 'eth_requestAccounts' }));
+    if (!address) return { status: 'failed' };
+    const signature = await provider.request({ method: 'personal_sign', params: [utf8Hex(message), address] });
+    if (typeof signature !== 'string' || !/^0x[0-9a-fA-F]{130}$/.test(signature)) return { status: 'failed' };
+    return { status: 'signed', address: address.toLowerCase(), signature };
+  } catch (error) {
+    const code = typeof error === 'object' && error !== null ? (error as { code?: unknown }).code : undefined;
+    return REJECTED.has(code as number) ? { status: 'rejected' } : { status: 'failed' };
+  }
+}

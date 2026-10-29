@@ -259,6 +259,7 @@ export class ControlService {
         founderThresholds: [...tier.founderThresholds].map(([assetCode, amount]) => ({ assetCode, amount: fmt(amount) })),
         approvalTtlSeconds: tier.approvalTtlSeconds,
         merchantVisible: row.merchant_visible,
+        payoutFee: tier.payoutFee,
         version: tier.version.toString(),
         merchants: Number(row.merchants),
       };
@@ -331,6 +332,29 @@ export class ControlService {
     if (rows.length === 0) return { status: 'not_configured', ownTierId: null };
     if (rows.length > 64) throw new ControlError('pay.control_invalid', 'tier catalogue exceeds the response bound');
     const archetypes = ['psp', 'broker', 'gaming', 'standard'] as const;
+    // Each tier's own processing fees: the live rules of the tier pricing layer. A tier with none publishes no fee.
+    const feeRows = await this.sql<Array<Parameters<typeof toRule>[0]>>`
+      SELECT * FROM pay.control_pricing_rules
+       WHERE layer = 'tier' AND superseded_at IS NULL AND scope_id = ANY(${this.sql.array(rows.map((row) => row.id))}::text[])
+       ORDER BY scope_id, asset_code
+    `;
+    const feesOf = (tierId: string) =>
+      feeRows
+        .filter((row) => row.scope_id === tierId)
+        .map(toRule)
+        .map((rule) => ({
+          assetCode: rule.assetCode,
+          bands: rule.bands.map((b) => ({
+            fromAmount: fmt(b.fromAmount),
+            feeBps: b.feeBps,
+            flatFee: b.flatFee === null ? null : fmt(b.flatFee),
+          })),
+          spreadBps: rule.spreadBps,
+          roundingBeneficiary: rule.roundingBeneficiary,
+          minFee: rule.minFee === null ? null : fmt(rule.minFee),
+          maxFee: rule.maxFee === null ? null : fmt(rule.maxFee),
+          version: rule.version.toString(),
+        }));
     const tiers = rows.map((row) => {
       const tier = toTier(row);
       if (!(archetypes as readonly string[]).includes(tier.archetype)) {
@@ -342,6 +366,8 @@ export class ControlService {
         archetype: tier.archetype,
         caps: [...tier.caps],
         reserve: tier.reserve ? { rollingReserveBps: tier.reserve.bps, holdDays: tier.reserve.holdDays } : null,
+        fees: feesOf(tier.id),
+        payoutFee: tier.payoutFee,
         version: tier.version.toString(),
       });
       if (!summary.success) throw new ControlError('pay.control_invalid', 'tier is unreadable');
