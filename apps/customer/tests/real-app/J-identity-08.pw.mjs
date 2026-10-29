@@ -1,5 +1,6 @@
 import { randomBytes } from 'node:crypto';
-import { test, expect } from '@playwright/test';
+import { chromium, test, expect } from '@playwright/test';
+import { localTestDeviceState } from '../../../../tooling/scripts/local-test-device.mjs';
 import { signUpInBrowser, tool } from './stack.mjs';
 
 // J-identity-08, in the running app (docs/roadmap/journeys.json): I get verified and see what each level unlocks.
@@ -171,11 +172,95 @@ test(`${J} #2: guided verification resumes at the step left, a country with no d
 });
 
 test(`${J} #3: with the face check switched off the selfie is kept for manual review; a hand-off link used twice is refused`, async ({
-  page,
+  baseURL,
 }) => {
-  test.setTimeout(60_000);
-  await atVerification(page);
-  await expect(page.getByRole('heading', { name: 'Selfie and liveness' })).toBeVisible(UNBUILT);
+  test.setTimeout(90_000);
+  // A browser whose camera is Chromium's fake device, granted, as a person's would be after they allow it.
+  const browser = await chromium.launch({
+    channel: 'chromium',
+    args: ['--use-fake-device-for-media-stream', '--use-fake-ui-for-media-stream'],
+    ...(process.env.JOURNEY_CHROMIUM ? { executablePath: process.env.JOURNEY_CHROMIUM } : {}),
+  });
+  try {
+    const context = await browser.newContext({
+      baseURL,
+      permissions: ['camera'],
+      storageState: localTestDeviceState(),
+      viewport: { width: 1440, height: 900 },
+    });
+    const page = await context.newPage();
+    const { who } = await atVerification(page);
+    const selfie = page.getByTestId('verification__selfie');
+    await expect(page.getByRole('heading', { name: 'Selfie and liveness' })).toBeVisible();
+    await expect(selfie.getByTestId('verification__selfie-manual')).toHaveAttribute('data-face-check', 'not_connected');
+    await expect(selfie.getByTestId('verification__selfie-manual')).toContainText('a person compares your selfie with your ID photo');
+    await expect(selfie.getByTestId('verification__selfie-liveness')).toHaveText('No action asks for a liveness re-check.');
+
+    // Taken live on this device: no file picker is offered, and the selfie waits for a person.
+    await expect(selfie.locator('input[type="file"]')).toHaveCount(0);
+    const takeLive = async (where) => {
+      await where.getByRole('button', { name: 'Open camera' }).click();
+      const preview = where.getByLabel('Camera preview');
+      await expect(preview).toBeVisible();
+      await expect.poll(() => preview.evaluate((video) => video.videoWidth)).toBeGreaterThan(0);
+      await where.getByRole('button', { name: 'Take selfie' }).click();
+      await expect(where.getByTestId('verification__selfie-sent')).toHaveText('Selfie sent. A person compares it with your ID photo.');
+    };
+    await takeLive(selfie);
+    await expect(selfie.getByTestId('verification__selfie-latest')).toHaveAttribute('data-status', 'provided');
+    await expect(selfie.getByTestId('verification__selfie-latest')).toHaveAttribute('data-via', 'this_device');
+
+    // A one-time link for the phone, as a code and as a link, for this account only.
+    await selfie.getByRole('button', { name: 'Use my phone instead' }).click();
+    await expect(selfie.getByRole('img', { name: 'Code with the link for your phone' })).toBeVisible();
+    await expect(selfie.getByText('The link works once, only for this account, for 10 minutes.')).toBeVisible();
+    const href = await selfie.getByTestId('verification__selfie-link').getAttribute('href');
+    expect(href).toMatch(/\/verification\?handoff=[A-Za-z0-9_-]{43}$/);
+
+    // The phone is its own browser, signed in to the same account; it opens the link and takes the selfie there.
+    const phoneContext = await browser.newContext({
+      baseURL,
+      permissions: ['camera'],
+      storageState: localTestDeviceState(),
+      viewport: { width: 390, height: 844 },
+    });
+    const phone = await phoneContext.newPage();
+    await phone.goto('/login');
+    await phone.fill('input[name=identifier]', who.email);
+    await phone.fill('input[name=password]', who.password);
+    await phone.getByRole('button', { name: /^sign in$/i }).click();
+    await expect(phone).not.toHaveURL(/\/login/);
+    await phone.goto(href);
+    const onPhone = phone.getByTestId('verification__selfie');
+    await expect(onPhone.getByTestId('verification__selfie-handoff')).toHaveAttribute('data-state', 'open');
+    await takeLive(onPhone);
+    await expect(onPhone.getByTestId('verification__selfie-latest')).toHaveAttribute('data-via', 'handoff');
+    // The phone says it is done, with no refusal; the computer picks up the phone's selfie and the code leaves its screen.
+    await expect(onPhone.getByTestId('verification__selfie-handoff')).toHaveAttribute('data-state', 'done');
+    await expect(onPhone.getByRole('alert')).toHaveCount(0);
+    // Back on the computer, which still holds its own session and reads the latest selfie.
+    await expect(selfie.getByTestId('verification__selfie-latest')).toHaveAttribute('data-via', 'handoff', { timeout: 15_000 });
+    await expect(selfie.getByRole('img', { name: 'Code with the link for your phone' })).toHaveCount(0);
+    await expect(selfie.getByTestId('verification__selfie-sent')).toBeVisible();
+
+    // The same link opened again is refused in plain words, and offers no camera.
+    const again = await phoneContext.newPage();
+    await again.goto(href);
+    const refused = again.getByTestId('verification__selfie').getByTestId('verification__selfie-handoff');
+    await expect(refused).toHaveAttribute('data-state', 'used');
+    await expect(refused).toHaveText('This link was already used. Make a new one on your computer.');
+    await expect(again.getByTestId('verification__selfie').getByRole('button', { name: 'Open camera' })).toHaveCount(0);
+
+    // A link that lost characters on the way is refused as not whole, with no camera and no new phone link offered.
+    const cut = await phoneContext.newPage();
+    await cut.goto(href.slice(0, -5));
+    const broken = cut.getByTestId('verification__selfie').getByTestId('verification__selfie-handoff');
+    await expect(broken).toHaveAttribute('data-state', 'broken');
+    await expect(cut.getByTestId('verification__selfie').getByRole('button', { name: 'Open camera' })).toHaveCount(0);
+    await expect(cut.getByTestId('verification__selfie-phone')).toHaveCount(0);
+  } finally {
+    await browser.close();
+  }
 });
 
 test(`${J} #4: too many failed attempts give a typed lockout with the seconds left, or say no limit is set`, async ({ page }) => {
@@ -210,10 +295,70 @@ test(`${J} #4: too many failed attempts give a typed lockout with the seconds le
   await expect(cases).toHaveCount(2);
 });
 
-test(`${J} #5: proof of address, the risk questionnaire and tax certification, with honest refusals`, async ({ page }) => {
-  test.setTimeout(60_000);
+test(`${J} #5: proof of address, with honest refusals`, async ({ page }) => {
+  test.setTimeout(120_000);
   await atVerification(page);
-  await expect(page.getByRole('heading', { name: 'Proof of address' })).toBeVisible(UNBUILT);
+  const poa = page.getByRole('region', { name: 'Proof of address' });
+  // Asked for only after level Basic is approved.
+  await expect(poa.getByTestId('verification__poa-state')).toHaveText('Proof of address is asked for after level Basic is approved.');
+  await page.getByLabel('Level to request').selectOption({ label: 'Basic' });
+  await sendRequest(page);
+  tool('local-test-gates.mjs', 'verify');
+  await page.reload();
+
+  // The owner's TEST rule (90 days) and the lists for DE: what counts and what never does.
+  await expect(poa.getByTestId('verification__poa-rule')).toHaveText('Issued within the last 90 days.');
+  await expect(poa.getByTestId('verification__poa-documents')).toHaveAttribute('data-country', 'DE');
+  await expect(poa.getByTestId('verification__poa-accepted').locator('li')).toHaveText([
+    'TEST: Utility bill (gas, power, water)',
+    'TEST: Bank statement',
+  ]);
+  await expect(poa.getByTestId('verification__poa-refused').locator('li')).toHaveText(['TEST: Screenshots', 'TEST: Mobile phone bills']);
+  // A country with no list says none is published.
+  await poa.getByLabel('Country the document is from').fill('US');
+  await expect(poa.getByTestId('verification__poa-documents')).toHaveAttribute('data-published', 'false');
+  await expect(poa.getByTestId('verification__poa-documents')).toHaveText(
+    'No proof-of-address list is published for US, so a document from there is refused.',
+  );
+
+  // Too old for the rule: refused, naming it.
+  const day = (daysAgo) => new Date(Date.now() - daysAgo * 86_400_000).toISOString().slice(0, 10);
+  const pdf = { name: 'bill.pdf', mimeType: 'application/pdf', buffer: Buffer.from('%PDF-1.4 TEST proof of address') };
+  await poa.getByLabel('Country the document is from').fill('DE');
+  await poa.getByRole('combobox', { name: 'Document' }).selectOption({ label: 'TEST: Utility bill (gas, power, water)' });
+  await poa.getByLabel('Date issued').fill(day(120));
+  await poa.getByLabel('The document', { exact: true }).setInputFiles(pdf);
+  await poa.getByRole('button', { name: 'Send proof of address' }).click();
+  await expect(poa.getByTestId('verification__poa-problem')).toHaveText(
+    'This document is older than 90 days. Send one issued within the last 90 days.',
+  );
+
+  // Recent, from another country than the residence: sent for review, and flagged for the reviewer.
+  await poa.getByLabel('Country the document is from').fill('FR');
+  await poa.getByRole('combobox', { name: 'Document' }).selectOption({ label: 'TEST: Utility bill' });
+  await poa.getByLabel('Date issued').fill(day(5));
+  await poa.getByLabel('The document', { exact: true }).setInputFiles(pdf);
+  await poa.getByRole('button', { name: 'Send proof of address' }).click();
+  await expect(poa.getByTestId('verification__poa-sent')).toContainText('Sent for review.');
+  await expect(poa.getByTestId('verification__poa-latest')).toHaveAttribute('data-status', 'submitted');
+  await expect(poa.getByTestId('verification__poa-mismatch')).toHaveText(
+    'This document is from FR, not where you live (DE), so the reviewer checks it.',
+  );
+  await expect(poa.getByTestId('verification__poa-latest')).toHaveAttribute('data-mismatch', 'true');
+  await expect(poa.getByTestId('verification__poa-one-at-a-time')).toHaveText(
+    'One document waits for review at a time. You can send another after a reviewer decides it.',
+  );
+
+  // Another document while that one waits: refused in plain words, and the one on record stays.
+  await poa.getByLabel('Country the document is from').fill('DE');
+  await poa.getByRole('combobox', { name: 'Document' }).selectOption({ label: 'TEST: Utility bill (gas, power, water)' });
+  await poa.getByLabel('Date issued').fill(day(10));
+  await poa.getByLabel('The document', { exact: true }).setInputFiles({ ...pdf, buffer: Buffer.from('%PDF-1.4 TEST another bill') });
+  await poa.getByRole('button', { name: 'Send proof of address' }).click();
+  await expect(poa.getByTestId('verification__poa-problem')).toHaveText(
+    'A document is already waiting for review. You can send another after a reviewer decides it.',
+  );
+  await expect(poa.getByTestId('verification__poa-latest')).toHaveAttribute('data-mismatch', 'true');
 });
 
 test(`${J}, part of #6 (I-kyc-compliance-01): one case record with history; a reject gives a plain reason, a resubmission opens a linked case, an approval unlocks at once`, async ({

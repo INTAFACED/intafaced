@@ -46,6 +46,21 @@
       "value": "image/jpeg,image/png,application/pdf",
       "note": "TEST: the ID photo may be JPEG, PNG or PDF (J-identity-08 #2)."
     },
+    "IDENTITY_KYC_POA_MAX_AGE_DAYS": {
+      "service": "identity",
+      "value": "90",
+      "note": "TEST: a proof of address may be at most 90 days old (J-identity-08 #5)."
+    },
+    "IDENTITY_KYC_POA_TYPES_BY_COUNTRY": {
+      "service": "identity",
+      "value": "{\"DE\":{\"accepted\":[{\"type\":\"utility_bill\",\"label\":\"TEST: Utility bill (gas, power, water)\"},{\"type\":\"bank_statement\",\"label\":\"TEST: Bank statement\"}],\"rejected\":[{\"type\":\"screenshot\",\"label\":\"TEST: Screenshots\"},{\"type\":\"mobile_bill\",\"label\":\"TEST: Mobile phone bills\"}]},\"FR\":{\"accepted\":[{\"type\":\"utility_bill\",\"label\":\"TEST: Utility bill\"}],\"rejected\":[]}}",
+      "note": "TEST: accepted and refused proof-of-address documents for DE and FR only (J-identity-08 #5)."
+    },
+    "IDENTITY_KYC_HANDOFF_TTL_SECONDS": {
+      "service": "identity",
+      "value": "600",
+      "note": "TEST: a phone hand-off link for the selfie lasts ten minutes (J-identity-08 #3)."
+    },
     "IDENTITY_KYC_MAX_DENIALS": {
       "service": "identity",
       "value": "2",
