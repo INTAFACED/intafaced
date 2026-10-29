@@ -232,6 +232,8 @@ export function toTrpcError(err: unknown): TRPCError {
       case 'kyc.poa_types_unset':
       case 'kyc.poa_unconfigured':
         return new TRPCError({ code: 'PRECONDITION_FAILED', message: err.message, cause: err });
+      case 'kyc.poa_pending':
+        return new TRPCError({ code: 'CONFLICT', message: err.message, cause: err });
       default:
         return new TRPCError({ code: 'BAD_REQUEST', message: err.message, cause: err });
     }

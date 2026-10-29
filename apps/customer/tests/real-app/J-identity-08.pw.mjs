@@ -333,21 +333,30 @@ test(`${J} #5: proof of address, with honest refusals`, async ({ page }) => {
     'This document is older than 90 days. Send one issued within the last 90 days.',
   );
 
-  // Recent: sent for review.
-  await poa.getByLabel('Date issued').fill(day(10));
-  await poa.getByRole('button', { name: 'Send proof of address' }).click();
-  await expect(poa.getByTestId('verification__poa-sent')).toContainText('Sent for review.');
-  await expect(poa.getByTestId('verification__poa-latest')).toHaveAttribute('data-status', 'submitted');
-  await expect(poa.getByTestId('verification__poa-replaces')).toHaveText('Sending another document replaces the one waiting for review.');
-
-  // From another country than the residence: sent, and flagged for the reviewer.
+  // Recent, from another country than the residence: sent for review, and flagged for the reviewer.
   await poa.getByLabel('Country the document is from').fill('FR');
   await poa.getByRole('combobox', { name: 'Document' }).selectOption({ label: 'TEST: Utility bill' });
   await poa.getByLabel('Date issued').fill(day(5));
   await poa.getByLabel('The document', { exact: true }).setInputFiles(pdf);
   await poa.getByRole('button', { name: 'Send proof of address' }).click();
+  await expect(poa.getByTestId('verification__poa-sent')).toContainText('Sent for review.');
+  await expect(poa.getByTestId('verification__poa-latest')).toHaveAttribute('data-status', 'submitted');
   await expect(poa.getByTestId('verification__poa-mismatch')).toHaveText(
     'This document is from FR, not where you live (DE), so the reviewer checks it.',
+  );
+  await expect(poa.getByTestId('verification__poa-latest')).toHaveAttribute('data-mismatch', 'true');
+  await expect(poa.getByTestId('verification__poa-one-at-a-time')).toHaveText(
+    'One document waits for review at a time. You can send another after a reviewer decides it.',
+  );
+
+  // Another document while that one waits: refused in plain words, and the one on record stays.
+  await poa.getByLabel('Country the document is from').fill('DE');
+  await poa.getByRole('combobox', { name: 'Document' }).selectOption({ label: 'TEST: Utility bill (gas, power, water)' });
+  await poa.getByLabel('Date issued').fill(day(10));
+  await poa.getByLabel('The document', { exact: true }).setInputFiles({ ...pdf, buffer: Buffer.from('%PDF-1.4 TEST another bill') });
+  await poa.getByRole('button', { name: 'Send proof of address' }).click();
+  await expect(poa.getByTestId('verification__poa-problem')).toHaveText(
+    'A document is already waiting for review. You can send another after a reviewer decides it.',
   );
   await expect(poa.getByTestId('verification__poa-latest')).toHaveAttribute('data-mismatch', 'true');
 });

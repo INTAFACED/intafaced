@@ -16,6 +16,6 @@ CREATE TABLE IF NOT EXISTS "identity"."kyc_poa_submissions" (
   "created_at"       timestamptz NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS "kyc_poa_submissions_user_idx" ON "identity"."kyc_poa_submissions" ("user_id", "created_at" DESC);
--- One submission per person waits for a reviewer: a new document replaces the pending one (svc-identity, under a lock).
-CREATE UNIQUE INDEX IF NOT EXISTS "kyc_poa_submissions_one_pending" ON "identity"."kyc_poa_submissions"
-  ("user_id") WHERE "status" = 'submitted';
+-- One pending submission per document: two identical sends at once insert one row (the other finds it).
+CREATE UNIQUE INDEX IF NOT EXISTS "kyc_poa_submissions_pending_once" ON "identity"."kyc_poa_submissions"
+  ("user_id", "type", "country", "issued_on", "file_sha256") WHERE "status" = 'submitted';
