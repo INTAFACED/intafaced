@@ -1,10 +1,11 @@
 import type { MouseEvent } from 'react';
 import { Award, Bell, CircleCheck, CircleX, ShieldCheck, type LucideIcon } from 'lucide-react';
 import { usePreferences } from '../../shared/preferences';
-import { navigate, refusalCopy, StateBlock } from './deps';
+import { isTestBuild } from '../../shared/test-build';
+import { navigate, refusalCopy, StateBlock, StatusTag } from './deps';
 import { notifyCopy } from './copy';
 import type { Notification } from './notify-api';
-import { describe, fullTime, linkFor, whenLabel, type NotifyIcon, type NotifyMarket } from './notify-view';
+import { carriesFigure, describe, fullTime, linkFor, whenLabel, type NotifyIcon, type NotifyMarket } from './notify-view';
 import type { InboxState } from './use-notifications';
 
 const ICONS: Record<NotifyIcon, LucideIcon> = { fill: CircleCheck, ended: CircleX, verified: ShieldCheck, rank: Award, bell: Bell };
@@ -51,6 +52,8 @@ export function NotificationRow({
         ) : null}
       </span>
       <span className="nf-meta">
+        {/* On a test build every amount is TEST money, so a row that names one says so. */}
+        {isTestBuild() && carriesFigure(item) ? <StatusTag data-testid="nf-test" status="pending" label={copy.t('TEST')} /> : null}
         <time dateTime={item.createdAt} title={fullTime(item.createdAt, timeZone, now)}>
           {label}
         </time>

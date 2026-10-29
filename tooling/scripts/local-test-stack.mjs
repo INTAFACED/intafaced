@@ -1630,9 +1630,15 @@ const BANNER_HTML =
   `font:600 12px/1 ui-sans-serif,system-ui,-apple-system,'Segoe UI',sans-serif;letter-spacing:.04em;text-align:center;` +
   `pointer-events:none;user-select:none">${BANNER_TEXT}</div>`;
 
+/** Tells the app it is a test build, so it labels its money TEST (apps/customer/src/shared/test-build.ts). */
+export const TEST_BUILD_META_HTML = '<meta name="intafaced-build" content="test">';
+
+export function withTestBuildMarks(html) {
+  return html.replace(/<head([^>]*)>/i, (m) => `${m}${TEST_BUILD_META_HTML}`).replace(/<body([^>]*)>/i, (m) => `${m}${BANNER_HTML}`);
+}
+
 function indexWithBanner(dist) {
-  const html = fs.readFileSync(path.join(dist, 'index.html'), 'utf8');
-  return html.replace(/<body([^>]*)>/i, (m) => `${m}${BANNER_HTML}`);
+  return withTestBuildMarks(fs.readFileSync(path.join(dist, 'index.html'), 'utf8'));
 }
 
 /** What nginx's /api/ location adds to Edge's answers (security-headers-api.conf). */
