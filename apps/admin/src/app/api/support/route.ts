@@ -8,8 +8,10 @@ import { isTicketId, readActionRequest, type SupportActionRequest } from '@/lib/
 import { readQueueQuery } from '@/lib/support/queue-query';
 import { SUPPORT_OPS_FORBIDDEN, SUPPORT_OPS_FORBIDDEN_BODY, explainSupportFailure } from '@/lib/support/refusal';
 import {
+  claimNextTicket,
   claimTicket,
   loadBulkPolicy,
+  loadCustomerCard,
   loadKb,
   loadQueue,
   loadTicket,
@@ -58,6 +60,11 @@ export async function GET(request: Request) {
     const id = url.searchParams.get('id');
     if (!isTicketId(id)) return Response.json({ code: 'admin.support_ticket_id' }, { status: 400, headers: NO_STORE });
     return Response.json(await loadTicketExtras(session, id), { headers: NO_STORE });
+  }
+  if (url.searchParams.get('view') === 'customer') {
+    const id = url.searchParams.get('id');
+    if (!isTicketId(id)) return Response.json({ code: 'admin.support_ticket_id' }, { status: 400, headers: NO_STORE });
+    return Response.json(await loadCustomerCard(session, id), { headers: NO_STORE });
   }
   if (url.searchParams.get('view') === 'merge') {
     const id = url.searchParams.get('id');
@@ -116,6 +123,7 @@ export async function POST(request: Request) {
   } catch (error) {
     return adminSessionErrorResponse(error instanceof AdminSessionError ? error : new AdminSessionError('admin.json_required', 400));
   }
+  if (raw.action === 'claim_next') return claimNext(session);
   if (raw.action !== 'claim') return writeAction(session, raw);
   if (!isTicketId(raw.ticketId)) {
     return Response.json(
@@ -168,6 +176,40 @@ export async function POST(request: Request) {
 
 type Session = Exclude<Awaited<ReturnType<typeof adminBffSession>>, Response>;
 
+/** Claim the request svc-support ranks first; the answer names it, so the page can open it at its own address. */
+async function claimNext(session: Session) {
+  const result = await claimNextTicket(session);
+  console.warn(
+    JSON.stringify({
+      audit: 'admin.support_claim_next',
+      at: new Date().toISOString(),
+      founder: session.session.userId,
+      ticketId: result.kind === 'ok' ? result.data.id : null,
+      outcome: result.kind,
+    }),
+  );
+  if (result.kind === 'ok') {
+    const t = result.data;
+    return Response.json({ ok: true, ticketId: t.id, assigneeId: t.assigneeId, status: t.status }, { headers: NO_STORE });
+  }
+  if (result.kind === 'empty') {
+    return Response.json(
+      {
+        ok: false,
+        refusal: {
+          title: 'Nothing is waiting',
+          body: 'svc-support says no open or waiting request is unclaimed, so nothing was claimed.',
+          next: 'Refresh the queue later.',
+          code: 'support.queue_empty',
+          changed: 'no',
+        },
+      },
+      { status: 409, headers: NO_STORE },
+    );
+  }
+  return Response.json({ ok: false, refusal: explainSupportFailure(result) }, { status: statusOf(result), headers: NO_STORE });
+}
+
 const INVALID = {
   ok: false,
   refusal: {
@@ -188,13 +230,15 @@ const targetOf = (request: SupportActionRequest) =>
         ? request.groupId
         : request.action === 'bulk'
           ? request.batchKey
-          : request.action === 'view_save'
-            ? `view:${request.name}`
-            : request.action === 'merge'
-              ? `${request.ticketId}->${request.survivorId}`
-              : 'ticketId' in request
-                ? request.ticketId
-                : request.id;
+          : request.action === 'assign'
+            ? `${request.ticketId}->${request.assigneeId}`
+            : request.action === 'view_save'
+              ? `view:${request.name}`
+              : request.action === 'merge'
+                ? `${request.ticketId}->${request.survivorId}`
+                : 'ticketId' in request
+                  ? request.ticketId
+                  : request.id;
 
 function statusOf(failure: FounderCallFailure<unknown>): number {
   if (failure.kind === 'forbidden') return failure.refusal.status === 401 ? 401 : 403;
@@ -256,6 +300,10 @@ function summaryOf(request: SupportActionRequest, data: unknown): string {
       return Array.isArray(data) ? bulkSummary(data as BulkRow[]) : 'svc-support answered the bulk change.';
     case 'properties':
       return 'svc-support recorded the new priority, type and labels on the ticket.';
+    case 'unclaim':
+      return 'svc-support says the ticket is back in the queue with nobody on it.';
+    case 'assign':
+      return `svc-support says the ticket is now with ${typeof d.assigneeId === 'string' ? d.assigneeId.slice(0, 8) : 'the person you chose'}.`;
     case 'view_save':
       return `svc-support saved the view "${String(d.name)}"${d.shared === true ? ', shared with the team' : ', for you only'}.`;
     case 'escalate':

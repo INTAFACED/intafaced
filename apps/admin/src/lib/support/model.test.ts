@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import {
   allowedNextStatuses,
+  assignKey,
+  unclaimKey,
   claimGate,
   escalateGate,
   formatAge,
@@ -227,5 +229,22 @@ describe('the rating reader', () => {
     expect(readRatingResult({ ...ok, note: 3 })).toBeNull();
     expect(readRatingResult({ ...ok, userId: 'x' })).toBeNull();
     expect(readRatingResult('5')).toBeNull();
+  });
+});
+
+describe('hand-over requests (J-support-public-10 #10)', () => {
+  const T = '22222222-2222-4222-8222-222222222222';
+  const A = '44444444-4444-4444-8444-444444444444';
+  it('reads unclaim and assign with a business key tied to the ticket state, and nothing looser', () => {
+    const ticket = { id: T, updatedAt: '2026-10-29T05:00:00.000Z' };
+    expect(unclaimKey(ticket)).toBe(`unclaim:${T}:2026-10-29T05:00:00.000Z`);
+    expect(assignKey(ticket, A.toUpperCase())).toBe(`assign:${T}:${A}:2026-10-29T05:00:00.000Z`);
+    expect(readActionRequest({ action: 'unclaim', ticketId: T, idempotencyKey: unclaimKey(ticket) })).toEqual({
+      action: 'unclaim',
+      ticketId: T,
+      idempotencyKey: unclaimKey(ticket),
+    });
+    expect(readActionRequest({ action: 'assign', ticketId: T, assigneeId: 'me', idempotencyKey: assignKey(ticket, A) })).toBeNull();
+    expect(readActionRequest({ action: 'unclaim', ticketId: T, idempotencyKey: 'short' })).toBeNull();
   });
 });

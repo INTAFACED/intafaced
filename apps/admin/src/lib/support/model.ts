@@ -244,11 +244,23 @@ export type SupportActionRequest =
       readonly filter: FilterClause;
       readonly reason: string;
     }
+  | { readonly action: 'unclaim'; readonly ticketId: string; readonly idempotencyKey: string }
+  | { readonly action: 'assign'; readonly ticketId: string; readonly assigneeId: string; readonly idempotencyKey: string }
   | { readonly action: 'kb_unpublish'; readonly id: string; readonly baseRevision: number }
   | { readonly action: 'kb_audience'; readonly id: string; readonly baseRevision: number; readonly audience: SupportKbAudience };
 
 const isText = (v: unknown, max: number): v is string => typeof v === 'string' && v.trim() !== '' && v.length <= max;
 const isKey = (v: unknown): v is string => isText(v, 200);
+/** svc-support's bound on an unclaim or assign key. */
+const isIdempotencyKey = (v: unknown): v is string => typeof v === 'string' && v.length >= 8 && v.length <= 200;
+
+/**
+ * Business keys for the hand-overs: one per ticket state, so a retried click is the same hand-over and a later one,
+ * after the ticket moved on, is a new one.
+ */
+export const unclaimKey = (ticket: { id: string; updatedAt: string }): string => `unclaim:${ticket.id}:${ticket.updatedAt}`;
+export const assignKey = (ticket: { id: string; updatedAt: string }, assigneeId: string): string =>
+  `assign:${ticket.id}:${assigneeId.toLowerCase()}:${ticket.updatedAt}`;
 
 function readBulkChange(raw: unknown): BulkChange | null {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
@@ -272,6 +284,14 @@ function readBulkChange(raw: unknown): BulkChange | null {
  */
 export function readActionRequest(raw: Record<string, unknown>): SupportActionRequest | null {
   switch (raw.action) {
+    case 'unclaim':
+      return isTicketId(raw.ticketId) && isIdempotencyKey(raw.idempotencyKey)
+        ? { action: 'unclaim', ticketId: raw.ticketId, idempotencyKey: raw.idempotencyKey }
+        : null;
+    case 'assign':
+      return isTicketId(raw.ticketId) && isTicketId(raw.assigneeId) && isIdempotencyKey(raw.idempotencyKey)
+        ? { action: 'assign', ticketId: raw.ticketId, assigneeId: raw.assigneeId, idempotencyKey: raw.idempotencyKey }
+        : null;
     case 'view_save': {
       const clause = clauseOf(raw.filter);
       const filter = clause ? parseFilterText(`${clause.field}:${clause.value}`) : null;

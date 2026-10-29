@@ -13,6 +13,7 @@ import type {
   SupportQueueView,
   SupportGroupsView,
   SupportStaffView,
+  SupportCustomerView,
   SupportTicketView,
   SupportViewsView,
   TicketExtrasView,
@@ -230,6 +231,52 @@ export async function fetchGroups(signal?: AbortSignal): Promise<SupportGroupsVi
   }
 }
 
+export async function fetchCustomerCard(id: string, signal?: AbortSignal): Promise<SupportCustomerView | null> {
+  try {
+    const res = await fetch(`/api/support?view=customer&id=${encodeURIComponent(id)}`, {
+      cache: 'no-store',
+      credentials: 'same-origin',
+      ...(signal ? { signal } : {}),
+    });
+    if (!res.ok) return null;
+    const body: unknown = await res.json();
+    return isRecord(body) && typeof body.asOf === 'string' && isRecord(body.account) ? (body as unknown as SupportCustomerView) : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Claim the request svc-support ranks first. Never throws; the reply names the ticket claimed, or why none was. */
+export async function postClaimNext(): Promise<ClaimReply> {
+  let headers: Record<string, string>;
+  try {
+    headers = await founderMutationHeaders();
+  } catch (error) {
+    return {
+      ok: false,
+      refusal: {
+        title: 'Nothing was sent',
+        body: error instanceof Error ? error.message : 'Your founder session could not be confirmed.',
+        next: 'Sign in again, then repeat the step.',
+        code: null,
+        changed: 'no',
+      },
+    };
+  }
+  try {
+    const res = await fetch('/api/support', {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ action: 'claim_next' }),
+      cache: 'no-store',
+      credentials: 'same-origin',
+    });
+    return readClaimReply(await res.json().catch(() => null));
+  } catch {
+    return UNKNOWN;
+  }
+}
+
 export async function fetchViews(signal?: AbortSignal): Promise<SupportViewsView | null> {
   try {
     const res = await fetch('/api/support?view=views', { cache: 'no-store', credentials: 'same-origin', ...(signal ? { signal } : {}) });
@@ -272,6 +319,8 @@ const ACTIONS: readonly string[] = [
   'kb_unpublish',
   'kb_audience',
   'view_save',
+  'unclaim',
+  'assign',
 ];
 
 /** Strict reader: anything that is not exactly a known answer is "outcome not known", never a success. */

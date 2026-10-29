@@ -1,4 +1,5 @@
 import type {
+  SupportAccountGrounding,
   SupportTicketPropertyChange,
   SupportViewList,
   SupportTicketLifecycle,
@@ -64,6 +65,13 @@ export interface SupportQueueView {
   readonly query?: QueueQuery;
   readonly view?: QueueViewRef | null;
   readonly refused?: QueueRefusal;
+}
+
+/** The customer card on one ticket. `relatedOrderId` is null when the request names no order. */
+export interface SupportCustomerView {
+  readonly asOf: string;
+  readonly account: Part<SupportAccountGrounding>;
+  readonly relatedOrderId: string | null;
 }
 
 export interface SupportViewsView {

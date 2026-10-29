@@ -161,10 +161,10 @@ describe('a ticket', () => {
     expect(html).toContain('<dt>Customer account id</dt>');
     expect(html).toContain('No handle: svc-identity has no operator read that names an account from its id (back-end need 47).');
   });
-  it('an unowned ticket can be claimed, after a second click that says there is no release', () => {
+  it('an unowned ticket can be claimed, after a second click that says how it leaves you', () => {
     expect(open()).toContain('Claim this ticket');
     const armed = open({ arming: true });
-    expect(armed).toContain('svc-support has no release or reassign');
+    expect(armed).toContain('until you unclaim it or a support lead reassigns it');
     expect(armed).toContain('Yes, claim it');
   });
   it('a ticket someone else owns cannot be claimed, and says why', () => {
@@ -232,5 +232,39 @@ describe('ticket history with property changes (J-support-public-10 #6)', () => 
     expect(rows.map((r) => r.what).slice(-2)).toEqual(['priority none → low', 'labels none → test_x, vip']);
     expect(rows.at(-2)).toMatchObject({ sequence: null, note: 'Triage' });
     expect(rows[0]?.sequence).toBe(1);
+  });
+});
+
+describe('customer card (J-support-public-10 #5)', () => {
+  it('says unread, never active, when the account state was not read, and none for a request that names no order', async () => {
+    const { CustomerCardView } = await import('./support-ticket-handover');
+    const html = renderToStaticMarkup(
+      <CustomerCardView
+        card={{
+          asOf: '2026-10-17T03:00:00.000Z',
+          account: { kind: 'ok', data: { status: 'unread', reason: 'plane_dark' } },
+          relatedOrderId: null,
+        }}
+        loading={false}
+      />,
+    );
+    expect(html).toContain('data-testid="customer-account-state">unread<');
+    expect(html).not.toContain('>active<');
+    expect(html).toContain('data-testid="customer-related-order">none<');
+  });
+
+  it('says unread when svc-support refused the read', async () => {
+    const { CustomerCardView } = await import('./support-ticket-handover');
+    const html = renderToStaticMarkup(
+      <CustomerCardView
+        card={{
+          asOf: '2026-10-17T03:00:00.000Z',
+          account: { kind: 'failed', message: 'down', code: null, notBuilt: false, forbidden: false },
+          relatedOrderId: null,
+        }}
+        loading={false}
+      />,
+    );
+    expect(html).toContain('data-testid="customer-account-state">unread<');
   });
 });

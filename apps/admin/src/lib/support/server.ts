@@ -1,5 +1,6 @@
 import 'server-only';
 import {
+  supportAccountGroundingSchema,
   supportCaseFileSchema,
   supportCommentSchema,
   supportKbArticleSchema,
@@ -32,6 +33,7 @@ import type {
   SupportQueueView,
   SupportGroupsView,
   SupportStaffView,
+  SupportCustomerView,
   SupportTicketView,
   SupportViewsView,
   TicketExtrasView,
@@ -155,6 +157,42 @@ export async function loadTicket(ctx: FounderCallContext, ticketId: string, now:
     LABELS,
   );
   return { asOf: now.toISOString(), detail };
+}
+
+/**
+ * Claim the request svc-support ranks first. svc-support's `next` only peeks, so another agent can claim the same one
+ * between the peek and the claim; that claim is refused and the next one is tried, a few times at most. `empty` is
+ * svc-support's own answer that nothing is waiting.
+ */
+export async function claimNextTicket(
+  ctx: FounderCallContext,
+  tries = 3,
+): Promise<FounderCallResult<ReturnType<typeof supportTicketSchema.parse>> | { readonly kind: 'empty' }> {
+  let last: FounderCallResult<ReturnType<typeof supportTicketSchema.parse>> | null = null;
+  for (let i = 0; i < tries; i += 1) {
+    const next = await founderCall(ctx, 'support', 'next', 'GET', undefined, (raw) => {
+      if (raw === null) return { ticketId: null };
+      const id = (raw as { ticketId?: unknown } | null)?.ticketId;
+      return typeof id === 'string' ? { ticketId: id } : null;
+    });
+    if (next.kind !== 'ok') return next;
+    if (next.data.ticketId === null) return { kind: 'empty' };
+    last = await claimTicket(ctx, next.data.ticketId);
+    // Taken by someone else in between: try the next one. Anything else is the answer.
+    if (!(last.kind === 'refused' && /^support\.claim\.(already_claimed|not_queueable)$/.test(last.refusal.code ?? last.refusal.message)))
+      return last;
+  }
+  return last!;
+}
+
+/**
+ * The customer card: the account's state as svc-identity says it through svc-support (the read is recorded on the
+ * ticket's history), and the order the request is about. A request names no order today (its form has no order field),
+ * so the related order is "none" from the ticket itself, never a guess.
+ */
+export async function loadCustomerCard(ctx: FounderCallContext, ticketId: string, now: Date = new Date()): Promise<SupportCustomerView> {
+  const state = await founderCall(ctx, 'support', 'accountState', 'GET', { ticketId }, parseWith(supportAccountGroundingSchema));
+  return { asOf: now.toISOString(), account: partFrom(state, (s) => s, LABELS), relatedOrderId: null };
 }
 
 export function claimTicket(
@@ -368,6 +406,24 @@ export function runSupportAction(ctx: FounderCallContext, request: SupportAction
           ...(request.reason ? { reason: request.reason } : {}),
         },
         (raw) => readBulkResults(raw, { batchKey: request.batchKey, ticketIds: request.ticketIds }),
+      );
+    case 'unclaim':
+      return founderCall(
+        ctx,
+        'support',
+        'unclaim',
+        'POST',
+        { ticketId: request.ticketId, idempotencyKey: request.idempotencyKey },
+        parseWith(supportTicketSchema),
+      );
+    case 'assign':
+      return founderCall(
+        ctx,
+        'support',
+        'assign',
+        'POST',
+        { ticketId: request.ticketId, assigneeId: request.assigneeId, idempotencyKey: request.idempotencyKey },
+        parseWith(supportTicketSchema),
       );
     case 'view_save':
       return founderCall(
