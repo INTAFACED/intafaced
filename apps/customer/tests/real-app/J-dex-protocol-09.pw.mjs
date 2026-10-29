@@ -55,7 +55,8 @@ test(`${J} #1 opens Chain home: latest blocks and transactions for the test netw
   // Newest first is only shown by two rows or more; the TEST chain mines every few seconds, so the list has them.
   await expect.poll(() => tableIn(page, 'Latest blocks').getByRole('rowheader').count(), UNBUILT).toBeGreaterThan(1);
   const heights = (await tableIn(page, 'Latest blocks').getByRole('rowheader').allInnerTexts()).map((text) =>
-    Number(text.replace(/\D/g, '')),
+    // The height is the header's leading digits; a reorged row's header goes on with its badge and hash.
+    Number(text.replace(/\D.*$/s, '')),
   );
   expect(new Set(heights).size).toBe(heights.length);
   expect(heights).toEqual([...heights].sort((a, b) => b - a));
@@ -206,11 +207,12 @@ test(`${J} #3 searches a transaction hash: status, decoded input with named argu
   await expect(main(page).getByTestId('tx-status')).toHaveText('Success');
   const input = page.getByRole('region', { name: 'Input' });
   await expect(input.getByTestId('tx-input-method')).toHaveText('approve');
-  // Decoded means every argument named, each with a value.
-  const args = input.getByTestId('tx-input-args').locator('dt');
-  expect(await args.count()).toBe(2);
-  for (const name of await args.allInnerTexts()) expect(name).toMatch(/^[a-zA-Z_]\w* \w+$/);
-  for (const value of await input.getByTestId('tx-input-args').locator('dd').allInnerTexts()) expect(value.trim()).not.toBe('');
+  // Decoded means every argument named with its type (the TEST token's own `approve(address spender, uint256 amount)`)
+  // and read back as the values this journey mined: ADDRESS and 7.
+  const args = input.getByTestId('tx-input-args');
+  await expect(args.locator('dt')).toHaveText(['spender address', 'amount uint256']);
+  const values = await args.locator('dd').allInnerTexts();
+  expect(values.map((value) => value.trim().toLowerCase())).toEqual([ADDRESS.toLowerCase(), '7']);
   await page.getByRole('tab', { name: 'Logs' }).click();
   await expect(page.getByRole('tabpanel', { name: 'Logs' })).toContainText(/Log \d+/);
 
