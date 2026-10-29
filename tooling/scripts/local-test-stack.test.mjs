@@ -240,6 +240,28 @@ const script = resolve(here, 'local-test-stack.mjs');
   console.log('local-test-stack: token governance TEST values come from the token profile');
 }
 
+// The agents process routes the TEST Coach task on the stand-in engine at the profile's TEST route, verbatim, and
+// LOCAL_STACK_AGENTS_COACH_ROUTE=off drops only that route, so a journey can restart the lane to show "no Coach model".
+{
+  const { localTestServiceEnvs } = await import('./local-test-stack.mjs');
+  const { loadProfile } = await import('./owner-settings.mjs');
+  const profile = loadProfile().values;
+  const coachRoute = JSON.parse(profile.AGENTS_COACH_ROUTE.value);
+  const baseRoutes = JSON.parse(profile.AGENTS_ROUTING_TABLE.value).routes;
+  assert.equal(profile.AGENTS_COACH_ROUTE.service, 'agents');
+  assert.equal(coachRoute.task, 'coach.answer');
+  assert.deepEqual(coachRoute.price, { inputPerMillion: '0', outputPerMillion: '0' }, 'the TEST Coach route bills 0');
+  const routesOf = () => JSON.parse(localTestServiceEnvs().find((service) => service.name === 'agents').env.AGENTS_ROUTING_TABLE).routes;
+  assert.deepEqual(routesOf(), [...baseRoutes, coachRoute]);
+  process.env.LOCAL_STACK_AGENTS_COACH_ROUTE = 'off';
+  try {
+    assert.deepEqual(routesOf(), baseRoutes, 'the off switch must drop the Coach route and keep every other route');
+  } finally {
+    delete process.env.LOCAL_STACK_AGENTS_COACH_ROUTE;
+  }
+  console.log('local-test-stack: agents TEST Coach route comes from the agents profile, and its off switch drops it');
+}
+
 // The global-send stand-in is chosen on this stack only, and its TEST catalogue and send-field rules come from the bank
 // profile verbatim, so no corridor, rate or reference length is typed anywhere else.
 {
