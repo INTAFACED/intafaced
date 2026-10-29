@@ -48,6 +48,11 @@ export default async function LedgerOpsPage({ searchParams }: { searchParams: Pr
       <p>
         <Link href="/restore">Joint restore</Link>
       </p>
+      <p>
+        <Link href="/ledger/alerts" data-testid="recon-alerts-link">
+          Reconciliation alerts
+        </Link>
+      </p>
     </div>
   );
 }

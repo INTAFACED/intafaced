@@ -2,7 +2,7 @@ import { randomBytes } from 'node:crypto';
 import { chromium, test, expect } from '@playwright/test';
 import { localTestDeviceState } from '../../../../tooling/scripts/local-test-device.mjs';
 import { ADMIN, founderSignIn } from './admin.mjs';
-import { fundedTrader, openDesk, reviewLimit } from './desk.mjs';
+import { free, fundedTrader, held, openDesk, openOrders, reviewLimit } from './desk.mjs';
 import { api, signUpInBrowser, tool } from './stack.mjs';
 
 // J-identity-08, in the running app (docs/roadmap/journeys.json): I get verified and see what each level unlocks.
@@ -648,6 +648,9 @@ test(`${J} #7: a platform posting freeze never reads as "your account is restric
   // what refuses it. The deposit is only the precondition; nothing here counts it as a step.
   const who = await fundedTrader(page, 'kvfz', '100');
   await openDesk(page, who);
+  const client = await api(who);
+  const before = await client.balances();
+  const restingBefore = (await openOrders(who)).map((o) => o.id);
   try {
     await setPostingFreeze(browser, true);
     // On another screen, the trade desk: the order is refused as paused for everyone, never as this account's hold.
@@ -662,6 +665,19 @@ test(`${J} #7: a platform posting freeze never reads as "your account is restric
     await expect(main.getByText('Orders are paused right now')).toBeVisible();
     await expect(main.getByText("Orders can't go through at the moment, and this one wasn't placed. Try again later.")).toBeVisible();
     await expect(main).not.toContainText(/restricted|on hold/i);
+
+    // Re-read: the refused order moved nothing. Free and held USDT are what they were, the same orders rest, and no
+    // order, open or closed, carries the refused request's client id.
+    const clientOrderId = answer.request().postDataJSON()?.clientOrderId;
+    expect(clientOrderId, 'the desk sends a client order id').toBeTruthy();
+    const after = await client.balances();
+    expect(free(after, 'USDT')).toBe(free(before, 'USDT'));
+    expect(held(after, 'USDT')).toBe(held(before, 'USDT'));
+    expect((await openOrders(who)).map((o) => o.id)).toEqual(restingBefore);
+    expect((await openOrders(who)).filter((o) => o.clientOrderId === clientOrderId)).toEqual([]);
+    const closed = await client.get(`/api/v1/orders/closed?symbol=${encodeURIComponent('BTC/USDT')}&limit=100`);
+    expect(closed.status, JSON.stringify(closed.body)).toBe(200);
+    expect(closed.body.filter((o) => o.clientOrderId === clientOrderId)).toEqual([]);
 
     // The account status, read while the freeze is on: the account is active and nothing on it is restricted.
     await page.goto('/uc/account');
