@@ -136,6 +136,13 @@ if (!available) {
       expect(await docs(userId)).toBe(2);
     });
 
+    it('two sends at the same moment leave one undecided selfie and one frame', async () => {
+      const userId = await person();
+      await Promise.all(Array.from({ length: 8 }, () => desk.submit(userId, { contentType: 'image/jpeg', bytes: JPEG })));
+      expect((await desk.listFor(userId, 10)).map((s) => s.status)).toEqual(['provided']);
+      expect(await docs(userId)).toBe(1);
+    });
+
     it('a person decides a selfie once: the same decision again returns it, the other refuses', async () => {
       const userId = await person();
       const reviewer = await person();
