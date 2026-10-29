@@ -7,6 +7,13 @@ function testValue(name) {
   return entry.value;
 }
 
+/** The TEST desk law, with its settle window left out when the switch says so. */
+function otcDeskLaw() {
+  const law = JSON.parse(testValue('TRADE_OTC_DESK_LAW'));
+  if (process.env.LOCAL_STACK_TRADE_OTC_SETTLE_WINDOW === 'off') delete law.settleWindowMs;
+  return JSON.stringify(law);
+}
+
 export default ({ c, secrets, dbUrl, urlOf, PORTS, TEST_FUTURES_LADDER_POLICY }) => ({
   name: 'trade',
   env: () => ({
@@ -98,5 +105,12 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, TEST_FUTURES_LADDER_POLICY })
     // LOCAL TEST, not an owner decision: the copy driver places each copy as the follower, so J-copy-bots-otc-01 #8
     // sees a first copied trade on TEST money. Production leaves it off until the owner turns copy placing on.
     TRADE_COPY_PLACE_MIRROR: 'on',
+    // LOCAL TEST, not owner decisions: the quote desk's law and its reference price, read from the labelled TEST profile
+    // so the OTC journeys price, accept and settle on TEST money against the house inventory.
+    // Each one blank refuses by name (services/svc-trade/src/otc/); production stays blank until the owner sets it.
+    // `LOCAL_STACK_TRADE_OTC_SETTLE_WINDOW=off` on a start or restart leaves the law's settle window blank (no deferral),
+    // so its "Not set" state can be seen too (J-copy-bots-otc-24 #7).
+    TRADE_OTC_DESK_LAW: otcDeskLaw(),
+    TRADE_OTC_MIDS: testValue('TRADE_OTC_MIDS'),
   }),
 });

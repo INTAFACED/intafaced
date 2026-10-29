@@ -39,6 +39,7 @@ import {
   type SupportAwaitingMine,
   type SupportTicketLifecycle,
   type SupportTicketProperties,
+  type SupportTicketPropertyChange,
   type SupportTicketType,
 } from '@intafaced/contracts';
 import type {
@@ -1585,6 +1586,17 @@ export class SupportService implements SupportContract {
     await this.assertDeskVisible(input.operatorId, input.ticketId);
     if (!(await this.store.findById(input.ticketId))) throw ticketNotFound();
     return this.properties.get(input.ticketId);
+  }
+
+  /**
+   * What agents changed on a ticket's priority, type and labels, oldest first: one entry per field per save, with
+   * who, why and when (SP-tickets-04). Staff only, like the properties themselves; the ticket's own trail stays the
+   * owner's view.
+   */
+  async listTicketPropertyChanges(input: { operatorId: string; ticketId: string; limit: number }): Promise<SupportTicketPropertyChange[]> {
+    await this.assertDeskVisible(input.operatorId, input.ticketId);
+    if (!(await this.store.findById(input.ticketId))) throw ticketNotFound();
+    return this.properties.changes(input.ticketId, input.limit);
   }
 
   /**

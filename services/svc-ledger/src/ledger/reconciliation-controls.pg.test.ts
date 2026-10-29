@@ -13,13 +13,15 @@ import { createTestDb, rewriteSchemaSql, type TestDb } from '@intafaced/db/testi
 import {
   OPS_CONTROL_MARGIN_UNSET,
   OPS_CONTROL_POLICY_UNSET,
+  OPS_CONTROL_STATE_ILLEGAL,
   LEDGER_RECONCILE_ASOF_INVALID,
   LEDGER_RECONCILE_BUILTIN_IMMUTABLE,
   LEDGER_RECONCILE_SOURCE_UNAVAILABLE,
+  updateReconciliationControlInputSchema,
 } from '@intafaced/contracts/ledger-reconciliation';
 import { createLedgerRouter } from '../router.js';
 import { registerOperatorHttp } from '../operator-http.js';
-import { stubApprovalConsumer, type ActionApprovalConsumer } from './action-approval-consume.js';
+import { ledgerActionPayloadHash, stubApprovalConsumer, type ActionApprovalConsumer } from './action-approval-consume.js';
 import { withJournalGuardsOff } from '../db/journal-guards.testkit.js';
 import { ReconciliationControlError } from './reconciliation-control-error.js';
 import {
@@ -98,7 +100,7 @@ async function ctx(scopes: string[], mfa: boolean): Promise<Context> {
       reason: REASON,
     });
     await expect(
-      updateReconciliationControl(db.sql, actor, { controlId: defined.id, reason: REASON, activate: true }),
+      updateReconciliationControl(db.sql, actor, { controlId: defined.id, reason: REASON, activate: true }, approvals),
     ).rejects.toMatchObject({ code: OPS_CONTROL_POLICY_UNSET });
     const draft = (await listReconciliationControls(db.sql)).find((control) => control.id === defined.id);
     expect(draft?.state).toBe('draft');
@@ -118,11 +120,16 @@ async function ctx(scopes: string[], mfa: boolean): Promise<Context> {
       { status: 'set', value: 'replay' },
     ]);
     await expect(
-      updateReconciliationControl(db.sql, actor, {
-        controlId: '11111111-1111-4111-8111-111111111111',
-        reason: REASON,
-        explanation: 'remove the built-in',
-      }),
+      updateReconciliationControl(
+        db.sql,
+        actor,
+        {
+          controlId: '11111111-1111-4111-8111-111111111111',
+          reason: REASON,
+          explanation: 'remove the built-in',
+        },
+        approvals,
+      ),
     ).rejects.toMatchObject({ code: LEDGER_RECONCILE_BUILTIN_IMMUTABLE });
   });
 
@@ -136,7 +143,7 @@ async function ctx(scopes: string[], mfa: boolean): Promise<Context> {
       threshold: { bound: 'min', byAsset: { USDT: '0' } },
       reason: REASON,
     });
-    const active = await updateReconciliationControl(db.sql, actor, { controlId: defined.id, reason: REASON, activate: true });
+    const active = await updateReconciliationControl(db.sql, actor, { controlId: defined.id, reason: REASON, activate: true }, approvals);
     expect(active.state).toBe('active');
     expect(active.schedule).toMatchObject({ status: 'set', period: 'iso_week' });
     const first = await insertAccount('abcdeaaa-1111-4111-8111-000000000001');
@@ -442,6 +449,251 @@ async function ctx(scopes: string[], mfa: boolean): Promise<Context> {
       SELECT status, phase, error_code FROM reconciliation_control_runs WHERE id = ${opened[0]!.id}
     `;
     expect(resumed[0]).toEqual({ status: 'ERROR', phase: 'accounts', error_code: LEDGER_RECONCILE_SOURCE_UNAVAILABLE });
+  });
+
+  it('pauses, resumes and retires a control: paused and retired run nothing, retired is final', async () => {
+    const defined = await defineReconciliationControl(db.sql, actor, {
+      template: 'threshold',
+      accountSet: { mode: 'query', ownerIdPrefix: 'abcdeaaa-3333-4333-8333-' },
+      schedule: { cadence: 'hourly', minute: 0 },
+      severity: 'warning',
+      tolerance: { default: '0' },
+      threshold: { bound: 'min', byAsset: { USDT: '0' } },
+      reason: REASON,
+    });
+    const id = defined.id;
+    const runCount = async () =>
+      Number(
+        (await db.sql<Array<{ n: string }>>`SELECT count(*)::text AS n FROM reconciliation_control_runs WHERE control_id = ${id}`)[0]!.n,
+      );
+    const run = () =>
+      runReconciliationControl(db.sql, approvals, actor, { controlId: id, reason: REASON, approvalId: 'appr-life', operationId: nextOp() });
+    const move = (lifecycle: 'pause' | 'resume' | 'retire') =>
+      updateReconciliationControl(
+        db.sql,
+        actor,
+        { controlId: id, reason: REASON, lifecycle, approvalId: 'appr-move', operationId: nextOp() },
+        approvals,
+      );
+
+    // A draft cannot be paused or resumed; a lifecycle move travels alone.
+    await expect(move('pause')).rejects.toMatchObject({ code: OPS_CONTROL_STATE_ILLEGAL });
+    await expect(move('resume')).rejects.toMatchObject({ code: OPS_CONTROL_STATE_ILLEGAL });
+    await expect(
+      updateReconciliationControl(
+        db.sql,
+        actor,
+        { controlId: id, reason: REASON, lifecycle: 'pause', activate: true, approvalId: 'appr-move', operationId: nextOp() },
+        approvals,
+      ),
+    ).rejects.toThrow(OPS_CONTROL_STATE_ILLEGAL);
+    await updateReconciliationControl(db.sql, actor, { controlId: id, reason: REASON, activate: true }, approvals);
+
+    const paused = await move('pause');
+    expect(paused.state).toBe('paused');
+    await expect(run()).rejects.toMatchObject({ code: OPS_CONTROL_STATE_ILLEGAL });
+    await runDueReconciliationControls(db.sql);
+    expect(await runCount()).toBe(0);
+    // A paused control takes edits and stays paused; it is not activated by an update.
+    const edited = await updateReconciliationControl(db.sql, actor, { controlId: id, reason: REASON, severity: 'critical' }, approvals);
+    expect(edited).toMatchObject({ state: 'paused', severity: { status: 'set', value: 'critical' } });
+    await expect(
+      updateReconciliationControl(db.sql, actor, { controlId: id, reason: REASON, activate: true }, approvals),
+    ).rejects.toMatchObject({
+      code: OPS_CONTROL_STATE_ILLEGAL,
+    });
+    await expect(move('pause')).rejects.toMatchObject({ code: OPS_CONTROL_STATE_ILLEGAL });
+
+    const resumed = await move('resume');
+    expect(resumed.state).toBe('active');
+    // The hours that fell due while it was paused are not caught up on resume.
+    await runDueReconciliationControls(db.sql);
+    expect(await runCount()).toBe(0);
+    expect((await run()).status).toBe('PASS');
+    expect(await runCount()).toBe(1);
+
+    const retired = await move('retire');
+    expect(retired.state).toBe('retired');
+    await expect(run()).rejects.toMatchObject({ code: OPS_CONTROL_STATE_ILLEGAL });
+    for (const lifecycle of ['pause', 'resume', 'retire'] as const) {
+      await expect(move(lifecycle)).rejects.toMatchObject({ code: OPS_CONTROL_STATE_ILLEGAL });
+    }
+    await expect(
+      updateReconciliationControl(db.sql, actor, { controlId: id, reason: REASON, explanation: 'revive' }, approvals),
+    ).rejects.toMatchObject({
+      code: OPS_CONTROL_STATE_ILLEGAL,
+    });
+    await runDueReconciliationControls(db.sql);
+    // Retired keeps its row, its one run and its history.
+    expect(await runCount()).toBe(1);
+    expect((await db.sql<Array<{ state: string }>>`SELECT state FROM reconciliation_controls WHERE id = ${id}`)[0]?.state).toBe('retired');
+    const audit = await db.sql<Array<{ detail: { lifecycle?: string; from?: string; state?: string } }>>`
+      SELECT detail FROM reconciliation_control_audit WHERE control_id = ${id} AND detail ? 'lifecycle' ORDER BY id
+    `;
+    expect(audit.map((row) => [row.detail.lifecycle, row.detail.from, row.detail.state])).toEqual([
+      ['pause', 'active', 'paused'],
+      ['resume', 'paused', 'active'],
+      ['retire', 'active', 'retired'],
+    ]);
+  });
+
+  it('refuses a lifecycle move on a built-in control, and retires a draft', async () => {
+    const [builtin] = await db.sql<Array<{ id: string }>>`SELECT id FROM reconciliation_controls WHERE builtin LIMIT 1`;
+    await expect(
+      updateReconciliationControl(
+        db.sql,
+        actor,
+        { controlId: builtin!.id, reason: REASON, lifecycle: 'pause', approvalId: 'appr-move', operationId: nextOp() },
+        approvals,
+      ),
+    ).rejects.toMatchObject({ code: LEDGER_RECONCILE_BUILTIN_IMMUTABLE });
+    const draft = await defineReconciliationControl(db.sql, actor, {
+      template: 'threshold',
+      accountSet: { mode: 'query', assetId: 'USDT' },
+      reason: REASON,
+    });
+    const retired = await updateReconciliationControl(
+      db.sql,
+      actor,
+      { controlId: draft.id, reason: REASON, lifecycle: 'retire', approvalId: 'appr-move', operationId: nextOp() },
+      approvals,
+    );
+    expect(retired.state).toBe('retired');
+  });
+
+  it('binds a lifecycle move to two founders: the control, the move and the reason at the version read', async () => {
+    const defined = await defineReconciliationControl(db.sql, actor, {
+      template: 'threshold',
+      accountSet: { mode: 'query', ownerIdPrefix: 'abcdeaaa-4444-4444-8444-' },
+      schedule: { cadence: 'hourly', minute: 0 },
+      severity: 'warning',
+      tolerance: { default: '0' },
+      threshold: { bound: 'min', byAsset: { USDT: '0' } },
+      reason: REASON,
+    });
+    const active = await updateReconciliationControl(db.sql, actor, { controlId: defined.id, reason: REASON, activate: true }, approvals);
+    // Without the approval ids the move is refused before it reads anything.
+    expect(updateReconciliationControlInputSchema.safeParse({ controlId: defined.id, reason: REASON, lifecycle: 'pause' }).success).toBe(
+      false,
+    );
+    expect(
+      updateReconciliationControlInputSchema.safeParse({
+        controlId: defined.id,
+        reason: REASON,
+        severity: 'info',
+        approvalId: 'a',
+        operationId: 'o',
+      }).success,
+    ).toBe(false);
+    // An identity that refuses leaves the control as it was.
+    const refusing: ActionApprovalConsumer = {
+      async consume() {
+        throw new Error('identity refused');
+      },
+    };
+    await expect(
+      updateReconciliationControl(
+        db.sql,
+        actor,
+        { controlId: defined.id, reason: REASON, lifecycle: 'pause', approvalId: 'appr-no', operationId: nextOp() },
+        refusing,
+      ),
+    ).rejects.toThrow('identity refused');
+    expect((await db.sql<Array<{ state: string }>>`SELECT state FROM reconciliation_controls WHERE id = ${defined.id}`)[0]?.state).toBe(
+      'active',
+    );
+    const seen: Array<Parameters<ActionApprovalConsumer['consume']>[0]> = [];
+    const recording: ActionApprovalConsumer = {
+      async consume(input) {
+        seen.push(input);
+        return approvals.consume(input);
+      },
+    };
+    const paused = await updateReconciliationControl(
+      db.sql,
+      actor,
+      { controlId: defined.id, reason: REASON, lifecycle: 'pause', approvalId: 'appr-yes', operationId: 'op-life-yes' },
+      recording,
+    );
+    expect(paused.state).toBe('paused');
+    expect(seen).toEqual([
+      {
+        approvalId: 'appr-yes',
+        operationId: 'op-life-yes',
+        payloadHash: ledgerActionPayloadHash('ledger.reconciliation_control.lifecycle', {
+          controlId: defined.id,
+          lifecycle: 'pause',
+          reason: REASON,
+        }),
+        targetService: 'svc-ledger',
+        targetId: 'posting_reconciliation_control.lifecycle',
+        expectedVersion: String(active.version),
+      },
+    ]);
+    // An illegal move is refused before identity is asked, so it spends no approval.
+    await expect(
+      updateReconciliationControl(
+        db.sql,
+        actor,
+        { controlId: defined.id, reason: REASON, lifecycle: 'pause', approvalId: 'appr-again', operationId: nextOp() },
+        recording,
+      ),
+    ).rejects.toMatchObject({ code: OPS_CONTROL_STATE_ILLEGAL });
+    expect(seen).toHaveLength(1);
+  });
+
+  it('opens no run on a control paused after it was read, and still finishes a run that had opened', async () => {
+    const defined = await defineReconciliationControl(db.sql, actor, {
+      template: 'threshold',
+      accountSet: { mode: 'query', ownerIdPrefix: 'abcdeaaa-5555-4555-8555-' },
+      schedule: { cadence: 'hourly', minute: 0 },
+      severity: 'warning',
+      tolerance: { default: '0' },
+      threshold: { bound: 'min', byAsset: { USDT: '0' } },
+      reason: REASON,
+    });
+    const id = defined.id;
+    await updateReconciliationControl(db.sql, actor, { controlId: id, reason: REASON, activate: true }, approvals);
+    // The pause commits while the run is between its read and its insert (here: while identity answers).
+    const pausing: ActionApprovalConsumer = {
+      async consume(input) {
+        await db.sql`UPDATE reconciliation_controls SET state = 'paused', version = version + 1 WHERE id = ${id}`;
+        return approvals.consume(input);
+      },
+    };
+    await expect(
+      runReconciliationControl(db.sql, pausing, actor, { controlId: id, reason: REASON, approvalId: 'appr-race', operationId: nextOp() }),
+    ).rejects.toMatchObject({ code: OPS_CONTROL_STATE_ILLEGAL });
+    expect(
+      (await db.sql<Array<{ n: string }>>`SELECT count(*)::text AS n FROM reconciliation_control_runs WHERE control_id = ${id}`)[0]!.n,
+    ).toBe('0');
+
+    // A run that opened before the pause is answered on retry, not stranded.
+    await db.sql`UPDATE reconciliation_controls SET state = 'active', version = version + 1 WHERE id = ${id}`;
+    const operationId = nextOp();
+    const first = await runReconciliationControl(db.sql, approvals, actor, {
+      controlId: id,
+      reason: REASON,
+      approvalId: 'appr-done',
+      operationId,
+    });
+    await db.sql`UPDATE reconciliation_controls SET state = 'paused', version = version + 1 WHERE id = ${id}`;
+    const again = await runReconciliationControl(db.sql, approvals, actor, {
+      controlId: id,
+      reason: REASON,
+      approvalId: 'appr-done',
+      operationId,
+    });
+    expect(again).toEqual(first);
+    await db.sql`UPDATE reconciliation_control_runs SET status = 'started' WHERE id = ${first.id}`;
+    const resumed = await runReconciliationControl(db.sql, approvals, actor, {
+      controlId: id,
+      reason: REASON,
+      approvalId: 'appr-done',
+      operationId,
+    });
+    expect(resumed.id).toBe(first.id);
+    expect(resumed.status).not.toBe('started');
   });
 
   it('catches a cached balance the entries do not explain, on a run now', async () => {

@@ -82,6 +82,53 @@ test(`${J} part of #1 a new owner adds the business address before verification,
   expect(refused).toEqual([]);
 });
 
+test(`${J} #1 the owner fills the business step and opens the account at the published starting fee; the business and the application draft are saved by the service and survive leaving, a fresh sign-in included`, async ({
+  page,
+}) => {
+  test.setTimeout(240_000);
+  const owner = await businessReadyPerson(page, 'mbd', '/pay/onboarding');
+
+  await page.goto('/pay/onboarding/business');
+  await page.getByLabel('Legal business name *').fill('TEST Draft Ltd');
+  await page.getByLabel('Country code *').fill('DE');
+  await page.getByLabel('Type of business *').fill('online shop');
+  await page.getByLabel('Contact email *').fill(owner.email);
+  // The stack publishes a TEST starting fee, so the first step opens the account instead of refusing it.
+  await expect(page.getByText('Opening new accounts isn’t possible here')).toHaveCount(0);
+  const created = page.waitForResponse((r) => r.url().includes('merchant.create') && r.request().method() === 'POST');
+  await page.getByRole('button', { name: 'Create my account' }).click();
+  const review = page.getByRole('dialog');
+  await expect(review.locator('dt', { hasText: 'Starting fee' }).locator('+ dd')).not.toHaveText(/^(Not published)?$/);
+  await review.getByRole('button', { name: 'Create my account' }).click();
+  const sent = await (await created).json();
+  const merchantId = (Array.isArray(sent) ? sent[0] : sent).result.data.id;
+  await expect(page.getByText('Your merchant account exists.')).toBeVisible();
+  // Before the account exists the person holds no business grant, so the check starts here, as in the steps below.
+  const refused = refusedPayCalls(page);
+
+  const app = await startApplication(page, 'Private company');
+  const company = app.getByRole('region', { name: 'Company details' });
+  await company.getByLabel('Registered legal name *').fill('TEST Draft Ltd');
+  await company.getByRole('button', { name: 'Save' }).click();
+  await expect(company.getByRole('status')).toHaveText('Saved.');
+  await expect(company).toContainText('Saved, not finished');
+
+  // Leaving: back to the personal home, then a sign-out with the browser's storage cleared, then a fresh sign-in.
+  // Calls a signed-out page makes are refused, as they should be, so the check is split around the sign-out.
+  await page.goto('/home');
+  expect(refused).toEqual([]);
+  await forgetSession(page);
+  await signInWithCode(page, owner, '/pay/onboarding/business');
+  const refusedAfter = refusedPayCalls(page);
+  await expect(page.getByTestId('pp-mono').filter({ hasText: merchantId })).toBeVisible();
+  await page.goto('/pay/onboarding/verification');
+  const back = app.getByRole('region', { name: 'Company details' });
+  await expect(back).toContainText('Saved, not finished');
+  await expect(back.getByLabel('Registered legal name *')).toHaveValue('TEST Draft Ltd');
+  await expect(app.getByRole('list', { name: 'Still needed' })).toContainText('Company details');
+  expect(refusedAfter).toEqual([]);
+});
+
 test(`${J} part of #6 the owner reads the published merchant terms and accepts them before going live`, async ({ page }) => {
   test.setTimeout(240_000);
   const owner = await businessReadyPerson(page, 'mtc', '/pay/onboarding');

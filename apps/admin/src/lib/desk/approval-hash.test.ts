@@ -61,6 +61,22 @@ describe('payload hash equals the owning service’s own function', () => {
       expectedVersion: '3',
     });
   });
+  it('ledger.reconciliation_control.lifecycle binds the control, the move and the reason, at the control version', () => {
+    const controlId = '0b4f6c2e-1111-4222-8333-444455556666';
+    const reason = 'LOCAL TEST pause while the rail is down';
+    for (const lifecycle of ['pause', 'resume', 'retire'] as const) {
+      const request = { kind: 'ledger.reconciliation_control.lifecycle', controlId, version: '4', lifecycle, reason } as const;
+      expect(payloadHashFor(request)).toBe(
+        ledgerActionPayloadHash('ledger.reconciliation_control.lifecycle', { controlId, lifecycle, reason }),
+      );
+      expect(proposeInputFor(request)).toMatchObject({
+        actionType: 'ledger.reconciliation_control.lifecycle',
+        targetService: 'svc-ledger',
+        targetId: 'posting_reconciliation_control.lifecycle',
+        expectedVersion: '4',
+      });
+    }
+  });
   it('ledger.account_metadata.delete binds the account, key and reason as svc-ledger does, at the key’s revision', () => {
     const request = {
       kind: 'ledger.account_metadata.delete',
