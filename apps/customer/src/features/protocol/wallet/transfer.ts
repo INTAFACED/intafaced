@@ -90,3 +90,9 @@ export const nativeCurrency = (chainId: number = APP_CHAIN_ID) => (Object.hasOwn
 
 /** Hex for a transaction value. */
 export const toHexValue = (units: bigint) => `0x${units.toString(16)}`;
+
+/** ERC-20 `transfer(to, amount)` calldata: the token contract moves the person's own tokens to `to`. */
+export function transferCalldata(to: string, units: bigint): string {
+  const word = (hex: string) => hex.padStart(64, '0');
+  return `0xa9059cbb${word(to.slice(2).toLowerCase())}${word(units.toString(16))}`;
+}

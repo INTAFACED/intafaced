@@ -190,7 +190,8 @@ test(`${J} #8 signs the swap in the wallet: submitted, confirming, filled; the c
   for (const term of ['You paid', 'You received', 'Network fee'])
     await expect(card.getByRole('term').filter({ hasText: term })).toBeVisible();
   await expect(card.getByRole('link', { name: 'Swap event' })).toBeVisible();
-  expect(wallet.requests.length).toBeGreaterThan(0);
+  // The swap was sent by the wallet itself (the TEST wallet keeps sent transactions in `sends`, signatures in `requests`).
+  expect(wallet.sends.length).toBeGreaterThan(0);
 });
 
 test(`${J} #9 retries after the price moved: failed with the reason in a sentence, no automatic retry, a new quote needed`, async ({

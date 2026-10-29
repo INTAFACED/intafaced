@@ -144,9 +144,10 @@ const en = {
   sendToken: 'Token',
   sendTokenChoose: 'Choose a token',
   sendNative: '{symbol} (the network’s own currency)',
-  sendTokenListNote: 'Only the network’s own currency is listed: the token list for this network is not built in this build.',
+  sendTokenListPools: 'The network’s own currency and the tokens its pools trade are listed.',
+  sendTokenListNote: 'Only the network’s own currency is listed: the network’s pools could not be read just now.',
   sendTokenAsked:
-    'The code asked for the token {token}, which this list does not hold, so it cannot be paid from here. It is never paid in another currency instead.',
+    'The code asked for the token {token}, which the network’s pools do not trade, so it cannot be paid from here. It is never paid in another currency instead.',
   sendAmount: 'Amount',
   sendAmountHint: 'In whole units, for example 0.25.',
   sendTo: 'To',
