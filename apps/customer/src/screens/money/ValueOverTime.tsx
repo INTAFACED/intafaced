@@ -187,8 +187,10 @@ export function ValueOverTimeCards({
   const askKey = rangeKey(parsed);
   // eslint-disable-next-line react-hooks/exhaustive-deps -- kept by the range alone: `view=` or `by=` keeps the same read
   const ask = useMemo(() => parsed, [askKey]);
-  // Read the clock only when the range changes, so a preset's start stays put while the page is open.
-  const range = useMemo(() => resolveRange(ask, Date.now(), offset, first), [ask, offset, first]);
+  // Read the clock only when the range changes, so a preset's start stays put while the page is open, also when the lot
+  // book (`first`) or the zone lands after the first read.
+  const now = useMemo(() => Date.now(), [ask]);
+  const range = useMemo(() => resolveRange(ask, now, offset, first), [ask, now, offset, first]);
   const result = useValueOverTime(range);
   const points = useMemo(() => (result.status === 'ready' ? valueLine(result.data.points) : []), [result]);
 
