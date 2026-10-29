@@ -3,6 +3,7 @@ import { navigate } from '../../../app/location';
 import { useApi } from '../../session/session';
 import { usePreferences } from '../../../shared/preferences';
 import { useResource } from '../../../shared/resource';
+import { useDebouncedValue } from '../../pay/portal/payments/use-debounced';
 import type { ApiResult } from '../../../shared/api';
 import { Button, DataTable, Loading, Panel } from '../../../shared/ui';
 import { KNOWN_NETWORKS, networkLabel } from '../blockers';
@@ -253,16 +254,18 @@ function TokenResults({
   t: ExplorerTranslate;
 }) {
   const chainId = chain.status === 'ready' ? chain.chainId : null;
-  const fits = Array.from(symbol).length <= SYMBOL_MAX_CHARS;
+  // One read per pause in typing, not per key.
+  const settled = useDebouncedValue(symbol);
+  const fits = Array.from(settled).length <= SYMBOL_MAX_CHARS;
   const tokens = useResource(
     (signal) =>
-      chainId === null || !fits ? Promise.resolve({ ok: true as const, data: null }) : api.tokensBySymbol(chainId, symbol, signal),
-    `explorer:tokens:${chainId ?? 'none'}:${symbol}`,
+      chainId === null || !fits ? Promise.resolve({ ok: true as const, data: null }) : api.tokensBySymbol(chainId, settled, signal),
+    `explorer:tokens:${chainId ?? 'none'}:${settled}`,
   );
   if (chain.status === 'failed') return <p className="muted">{t('tokensChainUnknown')}</p>;
   const network = chainId === null ? '' : networkLabel(chainId).name;
   const { resource } = tokens;
-  if (chain.status === 'loading' || resource.status === 'loading')
+  if (chain.status === 'loading' || settled !== symbol || resource.status === 'loading')
     return <p className="muted">{t('tokensSearching', { network: network || '…' })}</p>;
   if (resource.status === 'failed') return <p className="muted">{t('tokensRefused', { reason: refusalWords(resource.failure, t) })}</p>;
   const rows: readonly ExplorerToken[] = resource.data?.rows ?? [];

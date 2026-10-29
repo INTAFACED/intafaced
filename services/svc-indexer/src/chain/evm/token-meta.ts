@@ -7,25 +7,31 @@ import type { ChainToken } from '../source.js';
  * D-explorer-03. What a token contract says about itself: `symbol()`, `name()`, `decimals()`, read once per contract at
  * the block where the indexer first sees it emit an ERC-20 Transfer.
  *
- * The node's answer decides: a call that reverts or names no such function is the contract not answering, stored as
- * null, never a guessed symbol. A failure in transit refuses the block, so it is read again.
+ * The node's answer decides: a call that reverts (no such function) is the contract not answering, stored as null,
+ * never a guessed symbol. Any other failure refuses the block, so it is read again.
  */
 
 const SELECTOR = { symbol: '0x95d89b41', name: '0x06fdde03', decimals: '0x313ce567' } as const;
 
-/** Longest symbol and name kept. The contract chooses them, so they are cleaned and capped like a revert reason. */
-const SYMBOL_MAX_CHARS = 32;
+/** Longest symbol and name kept, in characters (code points). The contract chooses them, so they are cleaned and capped. */
+export const SYMBOL_MAX_CHARS = 32;
 const NAME_MAX_CHARS = 64;
 
 /** Cached answers kept per process before the cache starts again; a contract is only re-read, never lost. */
 const CACHE_MAX = 10_000;
 
-/** A JSON-RPC error answer (a revert is code 3 or a negative code): the contract did not answer the call. */
-function isCallRefused(err: unknown): boolean {
+/**
+ * The call reverted: the contract has no such function or refused it, which is its answer. Only a revert counts (code 3,
+ * or a node that words it "execution reverted" under another code). A busy, limited or lagging node is not the
+ * contract's answer, so it throws and the block is read again rather than storing a lasting null.
+ */
+export function isCallReverted(err: unknown): boolean {
   let current = err;
   for (let depth = 0; current !== undefined && current !== null && depth < 12; depth += 1) {
-    const { code } = current as { code?: unknown };
-    if (typeof code === 'number' && Number.isInteger(code) && (code < 0 || code === 3)) return true;
+    const { code, message, details } = current as { code?: unknown; message?: unknown; details?: unknown };
+    if (code === 3) return true;
+    if (typeof code === 'number' && [message, details].some((text) => typeof text === 'string' && /execution reverted/i.test(text)))
+      return true;
     current = (current as { cause?: unknown }).cause;
   }
   return false;
@@ -71,28 +77,26 @@ export class TokenMetaReader {
 
   /** Every one of `addresses`, read at `height` unless already read. Order follows `addresses`. */
   async read(addresses: readonly string[], height: number): Promise<ChainToken[]> {
-    const out: ChainToken[] = [];
-    for (const raw of addresses) {
-      const address = raw.toLowerCase();
-      let token = this.#known.get(address);
-      if (!token) {
-        const [symbol, name, decimals] = [
-          await this.#call(address, SELECTOR.symbol, height),
-          await this.#call(address, SELECTOR.name, height),
-          await this.#call(address, SELECTOR.decimals, height),
-        ];
-        token = {
-          address,
-          symbol: symbol === null ? null : decodeTokenText(symbol, SYMBOL_MAX_CHARS),
-          name: name === null ? null : decodeTokenText(name, NAME_MAX_CHARS),
-          decimals: decimals === null ? null : decodeTokenDecimals(decimals),
-        };
-        if (this.#known.size >= CACHE_MAX) this.#known.clear();
-        this.#known.set(address, token);
-      }
-      out.push(token);
-    }
-    return out;
+    return Promise.all(addresses.map((raw) => this.#one(raw.toLowerCase(), height)));
+  }
+
+  async #one(address: string, height: number): Promise<ChainToken> {
+    const known = this.#known.get(address);
+    if (known) return known;
+    const [symbol, name, decimals] = await Promise.all([
+      this.#call(address, SELECTOR.symbol, height),
+      this.#call(address, SELECTOR.name, height),
+      this.#call(address, SELECTOR.decimals, height),
+    ]);
+    const token = {
+      address,
+      symbol: symbol === null ? null : decodeTokenText(symbol, SYMBOL_MAX_CHARS),
+      name: name === null ? null : decodeTokenText(name, NAME_MAX_CHARS),
+      decimals: decimals === null ? null : decodeTokenDecimals(decimals),
+    };
+    if (this.#known.size >= CACHE_MAX) this.#known.clear();
+    this.#known.set(address, token);
+    return token;
   }
 
   async #call(to: string, data: string, height: number): Promise<string | null> {
@@ -103,7 +107,7 @@ export class TokenMetaReader {
       });
       return typeof answer === 'string' ? answer : null;
     } catch (err) {
-      if (isCallRefused(err)) return null;
+      if (isCallReverted(err)) return null;
       throw classifyChainError(err, `tokenMeta(${to})`, this.rpcUrl);
     }
   }

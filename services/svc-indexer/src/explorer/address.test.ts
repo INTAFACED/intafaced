@@ -183,4 +183,11 @@ describe('indexer.explorer.tokens.bySymbol', () => {
       userCopy(INDEXER_EXPLORER_LIST_LIMIT_UNSET),
     );
   });
+
+  it('counts the symbol limit in characters, so 32 emoji pass and a 33-character symbol is refused', async () => {
+    const read = await caller();
+    await expect(read.explorer.tokens.bySymbol({ chainId: CHAIN_ID, symbol: '\u{1F600}'.repeat(32) })).resolves.toMatchObject({ rows: [] });
+    await expect(read.explorer.tokens.bySymbol({ chainId: CHAIN_ID, symbol: 'X'.repeat(33) })).rejects.toThrow();
+    await expect(read.explorer.tokens.bySymbol({ chainId: CHAIN_ID, symbol: '   ' })).rejects.toThrow();
+  });
 });

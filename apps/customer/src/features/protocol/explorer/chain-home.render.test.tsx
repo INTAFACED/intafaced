@@ -85,6 +85,10 @@ describe('Chain home search', () => {
     expect(options.map((o) => o.getAttribute('data-address'))).toEqual([one, two]);
     expect(options.map((o) => o.getAttribute('data-symbol'))).toEqual(['SAME', 'same']);
     await search('NOPE');
+    // Typing again waits for a pause before reading, and never shows the last symbol's tokens meanwhile.
+    expect(host.querySelector('[data-kind="token"]')).toBeNull();
+    expect(host.textContent).toContain('Looking for tokens with this symbol on Base Sepolia test network…');
+    await act(() => new Promise((resolve) => setTimeout(resolve, 350)));
     expect(host.textContent).toContain('No token on Base Sepolia test network has the symbol “NOPE”.');
     expect(host.querySelector('[data-kind="token"]')).toBeNull();
   });

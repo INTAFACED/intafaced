@@ -1,6 +1,6 @@
 import { createPublicClient, defineChain, http } from 'viem';
 import type { Address, Hex, PublicClient } from 'viem';
-import { assertValidBlock, type ChainBlock, type ChainHead, type ChainSource } from '../source.js';
+import { assertValidBlock, type ChainBlock, type ChainHead, type ChainSource, type ChainToken } from '../source.js';
 import { decodeVenueLogs, type RawLog } from './decode.js';
 import { ChainUnavailableError, classifyChainError, isBlockNotFound, isZeroAddress } from './availability.js';
 import { lookupExplorerTx, readBlockTransactions, transactionHashes } from './explorer-txs.js';
@@ -403,6 +403,17 @@ export class EvmChainSource implements ChainSource {
    * what the last sync pass saw: the question it answers is "how stale is this
    * projection RIGHT NOW", and a cached answer to that is a contradiction.
    */
+  /** What token contracts say about themselves, read at the chain's head (the D-explorer-03 backfill). */
+  async readTokenMeta(addresses: readonly string[]): Promise<{ height: number; tokens: ChainToken[] }> {
+    let height: number;
+    try {
+      height = Number(await this.client.getBlockNumber());
+    } catch (err) {
+      throw classifyChainError(err, 'tokenMeta(head)', this.rpcUrl);
+    }
+    return { height, tokens: await this.#tokens.read(addresses, height) };
+  }
+
   async probe(): Promise<EvmChainProbe> {
     const base = { kind: 'evm' as const, rpcUrl: this.rpcUrl, venue: this.venue };
     try {

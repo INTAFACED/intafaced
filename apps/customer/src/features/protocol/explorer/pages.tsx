@@ -374,7 +374,7 @@ export function BlockPage({ height }: { height: number }) {
           />
         </Panel>
         <Panel title={t('blockTxs')}>
-          <TxTable api={api} chain={chain} label={t('blockTxs')} blockHash={row.hash} emptyWords={t('blockTxsNone')} t={t} />
+          <TxTable key={row.hash} api={api} chain={chain} label={t('blockTxs')} blockHash={row.hash} emptyWords={t('blockTxsNone')} t={t} />
         </Panel>
       </>
     );

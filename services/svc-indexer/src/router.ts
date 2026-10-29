@@ -1,3 +1,4 @@
+import { SYMBOL_MAX_CHARS } from './chain/evm/token-meta.js';
 import { z } from 'zod';
 import { formatAmount } from '@intafaced/ledger-client/money';
 import { publicJurisdictionProcedure, publicProcedure, router, TRPCError } from '@intafaced/contracts';
@@ -544,7 +545,17 @@ export function createIndexerRouter(deps: IndexerRouterDeps) {
          * so two tokens sharing a symbol are both listed. `more` is true when the owner window cut the list.
          */
         bySymbol: publicJurisdictionProcedure('indexer', 'protocol')
-          .input(z.object({ chainId: z.number().int(), symbol: z.string().trim().min(1).max(32) }))
+          .input(
+            z.object({
+              chainId: z.number().int(),
+              // Counted in characters, as token-meta stores them, so a stored symbol can always be searched.
+              symbol: z
+                .string()
+                .trim()
+                .min(1)
+                .refine((symbol) => Array.from(symbol).length <= SYMBOL_MAX_CHARS),
+            }),
+          )
           .output(z.object({ rows: z.array(tokenSchema.extend({ chainId: z.number().int() })), more: z.boolean(), asOf: z.string() }))
           .query(async ({ input }) => {
             try {

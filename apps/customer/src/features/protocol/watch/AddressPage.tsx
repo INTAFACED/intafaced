@@ -171,7 +171,7 @@ export function AddressPage({ address }: { address: string | undefined }) {
         </Panel>
       </section>
       <Panel title={t('transactions')}>
-        <AddressTxs address={address} />
+        <AddressTxs key={address} address={address} />
       </Panel>
       <section aria-label={t('holdings')}>
         <Panel title={t('holdings')}>

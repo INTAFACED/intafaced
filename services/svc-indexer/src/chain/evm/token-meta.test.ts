@@ -1,6 +1,6 @@
 import { encodeAbiParameters, stringToHex } from 'viem';
 import { describe, expect, it } from 'vitest';
-import { decodeTokenDecimals, decodeTokenText, TokenMetaReader } from './token-meta.js';
+import { decodeTokenDecimals, decodeTokenText, isCallReverted, TokenMetaReader } from './token-meta.js';
 
 const abiString = (text: string) => encodeAbiParameters([{ type: 'string' }], [text]);
 
@@ -51,6 +51,15 @@ describe('TokenMetaReader', () => {
     expect(calls).toHaveLength(3);
   });
 
+  it('refuses the block when the node is busy rather than the contract reverting, so it is read again', async () => {
+    const client = {
+      request: async () => {
+        throw Object.assign(new Error('limit exceeded'), { code: -32005 });
+      },
+    };
+    await expect(new TokenMetaReader(client as never, 'http://node.test').read([TOKEN], 1)).rejects.toThrow();
+  });
+
   it('refuses the block on a failure in transit, so it is read again', async () => {
     const client = {
       request: async () => {
@@ -58,5 +67,21 @@ describe('TokenMetaReader', () => {
       },
     };
     await expect(new TokenMetaReader(client as never, 'http://node.test').read([TOKEN], 1)).rejects.toThrow();
+  });
+});
+
+describe('isCallReverted', () => {
+  it('takes only a revert as the contract answering, anywhere in the cause chain', () => {
+    expect(isCallReverted({ code: 3 })).toBe(true);
+    expect(isCallReverted({ name: 'CallExecutionError', cause: { code: -32000, message: 'execution reverted' } })).toBe(true);
+    expect(isCallReverted({ cause: { code: -32603, details: 'Execution reverted: no data' } })).toBe(true);
+  });
+
+  it('does not store a busy, limited or lagging node as a lasting no-answer', () => {
+    expect(isCallReverted({ code: -32005, message: 'limit exceeded' })).toBe(false);
+    expect(isCallReverted({ code: -32603, message: 'internal error' })).toBe(false);
+    expect(isCallReverted({ code: -32000, message: 'header not found' })).toBe(false);
+    expect(isCallReverted({ code: -1, message: 'unknown' })).toBe(false);
+    expect(isCallReverted({ name: 'HttpRequestError', status: 403 })).toBe(false);
   });
 });

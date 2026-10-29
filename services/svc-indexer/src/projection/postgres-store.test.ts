@@ -592,6 +592,16 @@ describe('svc-indexer · PostgresProjectionStore PG-hard', () => {
         { log_index: 0, amount: (2n ** 200n).toString(), to_address: me },
         { log_index: 1, amount: '5', to_address: other },
       ]);
+
+      // A token whose transfers were stored before its metadata was read is found and read once; the first answer sticks.
+      await db.sql`DELETE FROM explorer_tokens`;
+      expect(await store.explorerTokensUnread(10)).toEqual([tokenA]);
+      await store.writeExplorerTokenFacts([{ address: tokenA, symbol: 'LATE', name: 'Read later', decimals: 18 }], 2);
+      await store.writeExplorerTokenFacts([{ address: tokenA, symbol: 'AGAIN', name: null, decimals: null }], 3);
+      expect(await store.explorerTokensUnread(10)).toEqual([]);
+      expect(await store.explorerTokensBySymbol({ symbol: 'late', limit: 10 })).toEqual([
+        { address: tokenA, symbol: 'LATE', name: 'Read later', decimals: 18 },
+      ]);
     });
 
     it('refuses parent mismatch and height gaps without moving head', async () => {

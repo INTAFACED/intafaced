@@ -7,6 +7,7 @@ import {
   positiveAmountOf,
   type BookSide,
   type ChainBlock,
+  type ChainToken,
   type ChainTx,
   type ChainTxLog,
   type TakerSide,
@@ -279,6 +280,25 @@ export class PostgresProjectionStore implements ProjectionStore {
       LIMIT ${q.limit + 1}
     `;
     return rows.map((r) => ({ address: r.address, symbol: r.symbol, name: r.name, decimals: r.decimals }));
+  }
+
+  /** Token contracts with indexed transfers and no stored metadata (D-explorer-03 backfill). */
+  async explorerTokensUnread(limit: number): Promise<string[]> {
+    const rows = await this.sql<Array<{ token: string }>>`
+      SELECT DISTINCT t.token FROM explorer_transfers t
+      WHERE t.chain_id = ${this.chainId}
+        AND NOT EXISTS (SELECT 1 FROM explorer_tokens k WHERE k.chain_id = t.chain_id AND k.address = t.token)
+      ORDER BY t.token
+      LIMIT ${limit}
+    `;
+    return rows.map((r) => r.token);
+  }
+
+  /** Stores what token contracts said at `height`. A contract already stored keeps its first answer. */
+  async writeExplorerTokenFacts(tokens: readonly ChainToken[], height: number): Promise<void> {
+    await this.sql.begin(async (tx) => {
+      await insertExplorerTokens(tx, this.chainId, tokens, height);
+    });
   }
 
   /** First mempool sight. A repeat keeps the original time. */
@@ -967,10 +987,14 @@ async function writeExplorerTxs(sql: TransactionSql, chainId: number, block: Cha
 
 /** D-explorer-03. A token's first answers stick: a contract read again later does not overwrite them. */
 async function writeExplorerTokens(sql: TransactionSql, chainId: number, block: ChainBlock): Promise<void> {
-  for (const token of block.tokens ?? []) {
+  await insertExplorerTokens(sql, chainId, block.tokens ?? [], block.height);
+}
+
+async function insertExplorerTokens(sql: TransactionSql, chainId: number, tokens: readonly ChainToken[], height: number): Promise<void> {
+  for (const token of tokens) {
     await sql`
       INSERT INTO explorer_tokens (chain_id, address, symbol, name, decimals, read_at_height)
-      VALUES (${chainId}, ${token.address.toLowerCase()}, ${token.symbol}, ${token.name}, ${token.decimals}, ${block.height})
+      VALUES (${chainId}, ${token.address.toLowerCase()}, ${token.symbol}, ${token.name}, ${token.decimals}, ${height})
       ON CONFLICT (chain_id, address) DO NOTHING
     `;
   }
