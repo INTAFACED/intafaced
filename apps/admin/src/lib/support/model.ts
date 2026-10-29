@@ -3,6 +3,7 @@ import { KB_AUDIENCES } from './audience';
 import type { BulkChange } from './bulk';
 import { readGroupActionRequest, type GroupActionRequest } from './groups';
 import { readStaffAvailabilityRequest, type StaffAvailabilityRequest } from './staff';
+import { clauseOf, parseFilterText, type FilterClause } from './queue-query';
 import type { QueueEntry, QueueRead, SupportRating, TicketStatus } from './types';
 
 /**
@@ -171,6 +172,8 @@ export type TicketType = (typeof TICKET_TYPES)[number];
 export const LABEL_PATTERN = /^[A-Za-z0-9_-]{1,64}$/;
 export const LABELS_MAX = 20;
 export const REASON_MAX = 500;
+/** svc-support's bound on a view name (`supportViewSaveInputSchema`). */
+export const VIEW_NAME_MAX = 80;
 
 /** Labels typed as text, separated by commas, spaces or new lines. Repeats collapse; order is kept. */
 export function parseLabels(text: string): string[] {
@@ -234,6 +237,13 @@ export type SupportActionRequest =
       readonly category?: string;
       readonly tags?: readonly string[];
     }
+  | {
+      readonly action: 'view_save';
+      readonly name: string;
+      readonly shared: boolean;
+      readonly filter: FilterClause;
+      readonly reason: string;
+    }
   | { readonly action: 'kb_unpublish'; readonly id: string; readonly baseRevision: number }
   | { readonly action: 'kb_audience'; readonly id: string; readonly baseRevision: number; readonly audience: SupportKbAudience };
 
@@ -262,6 +272,12 @@ function readBulkChange(raw: unknown): BulkChange | null {
  */
 export function readActionRequest(raw: Record<string, unknown>): SupportActionRequest | null {
   switch (raw.action) {
+    case 'view_save': {
+      const clause = clauseOf(raw.filter);
+      const filter = clause ? parseFilterText(`${clause.field}:${clause.value}`) : null;
+      if (!filter || !isText(raw.name, VIEW_NAME_MAX) || typeof raw.shared !== 'boolean' || !isText(raw.reason, REASON_MAX)) return null;
+      return { action: 'view_save', name: raw.name.trim(), shared: raw.shared, filter, reason: raw.reason.trim() };
+    }
     case 'reply':
       return isTicketId(raw.ticketId) && isText(raw.body, REPLY_MAX)
         ? { action: 'reply', ticketId: raw.ticketId, body: raw.body.trim() }

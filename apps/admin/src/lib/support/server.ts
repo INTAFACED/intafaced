@@ -8,11 +8,15 @@ import {
   supportTicketLifecycleSchema,
   supportTicketPropertiesSchema,
   supportTicketSchema,
+  supportViewCountsSchema,
+  supportViewListSchema,
+  supportViewSchema,
 } from '@intafaced/contracts';
 import { founderCall, parseWith, type FounderCallContext, type FounderCallResult } from '@/lib/desk/founder-call';
 import { partFrom, type PartLabels } from '@/lib/desk/part';
 import { SUPPORT_OPS_FORBIDDEN, SUPPORT_OPS_FORBIDDEN_BODY } from './refusal';
 import { QUEUE_PAGE, readQueueResult, readRatingResult, type SupportActionRequest } from './model';
+import { EMPTY_QUERY, isQueryEmpty, type QueueQuery } from './queue-query';
 import { readBulkPolicy, readBulkResults } from './bulk';
 import { readMergePreview } from './merge';
 import { readRatingSummary } from './ratings';
@@ -28,6 +32,7 @@ import type {
   SupportGroupsView,
   SupportStaffView,
   SupportTicketView,
+  SupportViewsView,
   TicketExtrasView,
 } from './types';
 
@@ -58,9 +63,67 @@ const arrayOf =
     return out;
   };
 
-export async function loadQueue(ctx: FounderCallContext, now: Date = new Date()): Promise<SupportQueueView> {
-  const result = await founderCall(ctx, 'support', 'listQueue', 'GET', { limit: QUEUE_PAGE }, (raw) => readQueueResult(raw, QUEUE_PAGE));
-  return { asOf: now.toISOString(), queue: partFrom(result, (d) => d, LABELS) };
+const readQueuePage = (raw: unknown) => readQueueResult(raw, QUEUE_PAGE);
+
+/** svc-support names its refusal in the cause, or as the whole message. */
+const refusalCode = (r: { code: string | null; message: string }): string | null =>
+  r.code ?? (/^support\.[a-z_.]+$/.test(r.message) ? r.message : null);
+
+/**
+ * The queue, narrowed by the address's filter, search or saved view (SP-desk-01). svc-support judges the filter: when it
+ * refuses one, the page shows that refusal by name beside the plain queue, never an empty list that reads as "none".
+ */
+export async function loadQueue(
+  ctx: FounderCallContext,
+  query: QueueQuery = EMPTY_QUERY,
+  now: Date = new Date(),
+): Promise<SupportQueueView> {
+  const asOf = now.toISOString();
+  const plain = () => founderCall(ctx, 'support', 'listQueue', 'GET', { limit: QUEUE_PAGE }, readQueuePage);
+  if (isQueryEmpty(query)) return { asOf, queue: partFrom(await plain(), (d) => d, LABELS), query };
+
+  let filter: unknown = query.filter ?? undefined;
+  let view: SupportQueueView['view'] = null;
+  if (query.viewId) {
+    const views = await founderCall(ctx, 'support', 'viewsList', 'GET', {}, parseWith(supportViewListSchema));
+    const found = views.kind === 'ok' ? (views.data.views.find((v) => v.id === query.viewId) ?? null) : null;
+    if (!found) {
+      const code = views.kind === 'ok' ? 'admin.support_view_not_found' : views.kind;
+      return { asOf, queue: partFrom(await plain(), (d) => d, LABELS), query, refused: { what: 'view', code, field: null } };
+    }
+    view = { id: found.id, name: found.name, shared: found.shared, ownerId: found.ownerId, mine: found.ownerId === ctx.session.userId };
+    filter = found.filter;
+  }
+  const input = { limit: QUEUE_PAGE, ...(filter !== undefined ? { filter } : {}), ...(query.q ? { q: query.q } : {}) };
+  const result = await founderCall(ctx, 'support', 'listQueue', 'GET', input, readQueuePage);
+  if (result.kind === 'refused') {
+    return {
+      asOf,
+      queue: partFrom(await plain(), (d) => d, LABELS),
+      query,
+      view,
+      refused: {
+        what: query.filter && !view ? 'filter' : view ? 'view' : 'search',
+        code: refusalCode(result.refusal),
+        field: query.filter?.field ?? null,
+      },
+    };
+  }
+  return { asOf, queue: partFrom(result, (d) => d, LABELS), query, view };
+}
+
+/** The saved views this founder may open, with one count each. Two reads, each its own part. */
+export async function loadViews(ctx: FounderCallContext, now: Date = new Date()): Promise<SupportViewsView> {
+  const [list, counts] = await Promise.all([
+    founderCall(ctx, 'support', 'viewsList', 'GET', {}, parseWith(supportViewListSchema)),
+    founderCall(ctx, 'support', 'viewsCounts', 'GET', {}, parseWith(supportViewCountsSchema)),
+  ]);
+  return {
+    asOf: now.toISOString(),
+    meId: ctx.session.userId,
+    list: partFrom(list, (l) => l, LABELS),
+    counts: partFrom(counts, (c) => c.counts, LABELS),
+  };
 }
 
 export async function loadTicket(ctx: FounderCallContext, ticketId: string, now: Date = new Date()): Promise<SupportTicketView> {
@@ -292,6 +355,15 @@ export function runSupportAction(ctx: FounderCallContext, request: SupportAction
           ...(request.reason ? { reason: request.reason } : {}),
         },
         (raw) => readBulkResults(raw, { batchKey: request.batchKey, ticketIds: request.ticketIds }),
+      );
+    case 'view_save':
+      return founderCall(
+        ctx,
+        'support',
+        'viewsSave',
+        'POST',
+        { name: request.name, expectedRevision: 0, shared: request.shared, filter: request.filter, reason: request.reason },
+        parseWith(supportViewSchema),
       );
     case 'kb_publish':
       return founderCall(
