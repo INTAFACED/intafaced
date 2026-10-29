@@ -1,6 +1,7 @@
 import type { Sql } from 'postgres';
 import { formatAmount, parseAmount, type Amount } from '@intafaced/ledger-client';
 import { WithdrawalQuoteError } from './errors.js';
+import { amountOutsideRules, readWithdrawalNetworkRules } from '../network-rules/service.js';
 import type { AcceptInput, AdminQuoteView, FeeMode, ListInput, PolicyView, QuoteInput, QuoteView, SetPolicyInput } from './schemas.js';
 
 /**
@@ -17,6 +18,10 @@ import type { AcceptInput, AdminQuoteView, FeeMode, ListInput, PolicyView, Quote
  * other terms is a conflict. `accept` marks a quote used by one client reference, once and before it expires, so the
  * terms a customer accepted are the terms the withdrawal keeps. The withdrawal door does not call `accept` yet: posting
  * the fee leg with the hold needs a ledger recipe that carries one (named ledger-owner job X-6).
+ *
+ * The amount must fit the owner's rules for the asset on the network (W-withdraw-02, `network-rules/service.ts`): at least the
+ * minimum, at most the maximum, a whole number of steps. A pair with no rules refuses `withdrawal_network_rules.unset`, so no
+ * quote is ever stored for an amount the network's rules refuse.
  */
 export interface WithdrawalQuoteServiceDeps {
   readonly sql: Sql;
@@ -113,6 +118,14 @@ export class WithdrawalQuoteService {
     if (amount <= 0n) throw new WithdrawalQuoteError('withdrawal_quote.amount_invalid', 'the amount must be above zero');
 
     const { fee, source, registryVersion } = await this.networkFee(input);
+    const outside = amountOutsideRules(await readWithdrawalNetworkRules(this.deps.sql, input.assetId, input.networkId), amount);
+    if (outside) {
+      const why = { below_minimum: 'below the minimum', above_maximum: 'above the maximum', off_step: 'not a whole number of steps' };
+      throw new WithdrawalQuoteError(
+        `withdrawal_quote.${outside}`,
+        `the amount is ${why[outside]} for ${input.assetId} on ${input.networkId}`,
+      );
+    }
     const net: Amount = policy.feeMode === 'deducted' ? amount - fee : amount;
     if (net <= 0n) {
       throw new WithdrawalQuoteError('withdrawal_quote.fee_exceeds_amount', 'the fee is not below the amount, so nothing would arrive');

@@ -8,8 +8,21 @@ import { matchPath } from '../../app/path-match';
 export type Web3Room = 'dex' | 'chain' | 'protocol' | 'wallet';
 /** What a not-yet-built route waits on: our own indexer reader, the wallet connection, or the INTACHAIN network. */
 export type PendingBlocker = 'indexer' | 'wallet' | 'chain';
-export type PendingPage =
-  'poolNew' | 'poolDetail' | 'positionDetail' | 'tokenDetail' | 'blockDetail' | 'txDetail' | 'addressDetail' | 'validatorDetail';
+export type PendingPage = 'poolNew' | 'poolDetail' | 'positionDetail' | 'blockDetail' | 'txDetail' | 'validatorDetail';
+
+/** The wallet room's sections, each at its own path so Back returns to the section the person left. */
+export const WALLET_SECTIONS = {
+  overview: '/wallet',
+  activity: '/wallet/activity',
+  send: '/wallet/send',
+  receive: '/wallet/receive',
+  scan: '/wallet/scan',
+  approvals: '/wallet/approvals',
+  sessionKeys: '/wallet/session-keys',
+  accounts: '/wallet/accounts',
+  safety: '/wallet/safety',
+} as const;
+export type WalletSection = keyof typeof WALLET_SECTIONS;
 
 export interface Web3Route {
   path: string;
@@ -17,13 +30,18 @@ export interface Web3Route {
   /** An existing tab of the room (`SUBNAV`); the tab room renders it. */
   tab?: string;
   /** The wallet room, opened on this section. */
-  wallet?: 'overview' | 'activity';
+  wallet?: WalletSection;
+  /** The Tokens room, or one token's page by its address. */
+  tokens?: 'list' | 'detail';
+  /** An address page, or the account's watched addresses. */
+  explorer?: 'address' | 'watchlist';
   pending?: { page: PendingPage; blocker: PendingBlocker; param?: { name: string; shape: RegExp } };
 }
 
 const digits = /^\d{1,20}$/;
 const txHash = /^0x[0-9a-fA-F]{64}$/;
-const address = /^0x[0-9a-fA-F]{40}$/;
+/** A 20-byte hex address, the shape every address route and the token page accept. */
+export const ADDRESS_SHAPE = /^0x[0-9a-fA-F]{40}$/;
 const id = /^[A-Za-z0-9_.:-]{1,128}$/;
 
 /** Specific routes sit before the parameter routes that could swallow them (`/dex/pools/new` before `/dex/pools/:poolId`). */
@@ -38,14 +56,10 @@ export const WEB3_ROUTES: readonly Web3Route[] = [
     room: 'dex',
     pending: { page: 'positionDetail', blocker: 'wallet', param: { name: 'positionId', shape: id } },
   },
-  {
-    path: '/dex/tokens/:address',
-    room: 'dex',
-    pending: { page: 'tokenDetail', blocker: 'indexer', param: { name: 'address', shape: address } },
-  },
+  { path: '/dex/tokens', room: 'dex', tokens: 'list' },
+  { path: '/dex/tokens/:address', room: 'dex', tokens: 'detail' },
   { path: '/dex/venue', room: 'dex', tab: 'venue' },
-  { path: '/wallet', room: 'wallet', wallet: 'overview' },
-  { path: '/wallet/activity', room: 'wallet', wallet: 'activity' },
+  ...(Object.entries(WALLET_SECTIONS) as [WalletSection, string][]).map(([wallet, path]) => ({ path, room: 'wallet' as const, wallet })),
   { path: '/chain', room: 'chain', tab: 'status' },
   { path: '/chain/blocks', room: 'chain', tab: 'blocks' },
   {
@@ -54,11 +68,8 @@ export const WEB3_ROUTES: readonly Web3Route[] = [
     pending: { page: 'blockDetail', blocker: 'indexer', param: { name: 'height', shape: digits } },
   },
   { path: '/chain/tx/:hash', room: 'chain', pending: { page: 'txDetail', blocker: 'indexer', param: { name: 'hash', shape: txHash } } },
-  {
-    path: '/chain/address/:address',
-    room: 'chain',
-    pending: { page: 'addressDetail', blocker: 'indexer', param: { name: 'address', shape: address } },
-  },
+  { path: '/chain/address/:address', room: 'chain', explorer: 'address' },
+  { path: '/chain/watchlist', room: 'chain', explorer: 'watchlist' },
   { path: '/chain/validators', room: 'chain', tab: 'validators' },
   {
     path: '/chain/validators/:validatorId',

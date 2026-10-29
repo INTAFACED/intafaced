@@ -13,6 +13,7 @@ import { supportedAssetsCopy } from './supported-assets-copy';
 import { useSupportedAssets } from './supported-assets-reads';
 import { approvalCopy } from './withdrawal-approval-copy';
 import { withdrawalCopy } from './withdrawal-copy';
+import { failureWords } from './withdrawal-failure';
 import {
   createWithdrawalReads,
   requestedWithdrawal,
@@ -435,7 +436,14 @@ function Detail({ id, current }: { id: string; current: () => boolean }) {
         ),
       ],
       [t('attempts'), <span lang="und">{record.attempts}</span>],
-      [t('failureCode'), record.failureCode === null ? t('none') : <span lang="und">{record.failureCode}</span>],
+      [
+        t('failureCode'),
+        record.failureCode === null
+          ? t('none')
+          : failureWords(record.status, record.failureCode)
+              .map((key) => t(key))
+              .join(' '),
+      ],
       [t('created'), <time dateTime={record.createdAt}>{date(record.createdAt)}</time>],
     ];
   }

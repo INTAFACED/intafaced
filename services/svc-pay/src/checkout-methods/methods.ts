@@ -73,7 +73,9 @@ export async function rulesOf(sql: Sql, merchantId: string, rails: MethodRails):
  * - the business never saved its methods and the payer named a method, or the platform has only one (the default offers
  *   what the platform can take, which routing already decides). With several connected and none named, the default
  *   offer decides as a saved one does: crypto for a crypto payment and a bank transfer for a fiat one (J-merchant-04
- *   step 6), or the payer chooses;
+ *   step 6), or the payer chooses. When the business's category limits its rails (`categoryLimited`; `rails` then holds
+ *   only the ones it allows), the default offer decides even for one: a USDT link opens on crypto, and a EUR link with
+ *   no method left for EUR refuses `pay.checkout_no_method` rather than open a crypto payment for euros;
  * - the platform has no connected method at all (the open refuses by the name of that operator gap);
  * - there is no country, no currency, or no link that can still be paid (the open refuses those by name further on).
  * A country that is not two letters, where the offer decides, refuses as a missing country.
@@ -84,6 +86,7 @@ export async function checkoutMethodFor(
   rails: MethodRails,
   input: { linkToken: string; geoCountry?: string; assetId?: string; amount?: Amount; method?: string },
   now: Date,
+  options: { categoryLimited?: boolean } = {},
 ): Promise<string | undefined> {
   const country = input.geoCountry?.trim().toUpperCase();
   if (!country) return input.method;
@@ -98,7 +101,7 @@ export async function checkoutMethodFor(
   const currency = link?.currency ?? input.assetId;
   if (!link || !currency) return input.method;
   const saved = await savedRulesOf(sql, link.merchant_id);
-  if (!saved && (input.method !== undefined || rails.size < 2)) return input.method;
+  if (!saved && (input.method !== undefined || (rails.size < 2 && !options.categoryLimited))) return input.method;
   const rules = saved ?? defaultRules(rails);
   // A country the offer cannot read must not skip the business's rules: routing would take it under a '*' profile.
   if (!/^[A-Z]{2}$/.test(country)) {

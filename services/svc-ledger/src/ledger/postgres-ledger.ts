@@ -9,6 +9,7 @@ import {
   formatAmount,
   hashTx,
   postFingerprint,
+  replayMetaDiffers,
   signedDelta,
   IDEMPOTENCY_CONFLICT_CODE,
   type IdempotencyConflictOptions,
@@ -785,7 +786,7 @@ export class PostgresLedger implements LedgerClient {
    * keep the old behaviour (nothing to compare against).
    */
   private replayOf(claimed: { tx: LedgerTx; fingerprint: string | null }, request: PostRequest): LedgerTx {
-    if (claimed.fingerprint !== null && claimed.fingerprint !== postFingerprint(request)) {
+    if ((claimed.fingerprint !== null && claimed.fingerprint !== postFingerprint(request)) || replayMetaDiffers(claimed.tx.meta, request)) {
       if ((this.options.idempotencyConflict ?? 'refuse') === 'refuse') {
         throw new LedgerError(
           `Idempotency key ${request.idempotencyKey} already booked a different movement; a retry must carry the same body`,

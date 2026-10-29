@@ -9,11 +9,9 @@ import { api } from './stack.mjs';
 // founder A, the support lead; founder B is a second agent (help-centre.mjs appoints both). A TEST customer sends the
 // requests through its own support API, and reads the answers in the customer app.
 // Steps that are written but not built yet fail at their first missing part, quickly (UNBUILT):
-// - Every step: a founder's console sign-in does not carry `support:ops`, so the desk at /support says the queue is
-//   unavailable instead of listing it (apps/admin/src/lib/support/server.ts).
-// - #2, #3: no saved views, filters or search on the queue (SP-desk-01).
 // - #4, #10: no "claim next", no workspace address per request, no unclaim or reassign in the console (SP-tickets-09).
 // - #5: no customer card (SP-tickets-09). #7: no macros or signatures (SP-desk-02). #8: no stale-reply guard (SP-tickets-09).
+// - #6: the ticket history has no rows for priority, type and label changes (svc-support keeps them in its own log).
 // #2's blank view cap clause needs the cap blank; the stack sets owner values as TEST, so it is checked where the cap is unset.
 const J = 'J-support-public-10';
 const RUN = Date.now().toString(36);
@@ -28,6 +26,8 @@ test.beforeAll(async ({ browser }) => {
   const page = await browser.newPage();
   customer = await signUp(page, 'sq10');
   await page.close();
+  // Founder A is the desk's lead and founder B its agent before any step runs (help-centre.mjs appoints both on first use).
+  await desk('agent', 'query', 'staffList', undefined);
 });
 
 /** The customer sends one request through its own support API; returns the stored ticket. */
@@ -67,7 +67,8 @@ const rowOf = (queue, subject) => queue.getByRole('row').filter({ hasText: subje
 /** Opens a request from the queue in its workspace. */
 async function openRequest(page, queue, ticket) {
   await rowOf(queue, ticket.subject).getByRole('button', { name: 'Open' }).click();
-  const workspace = page.getByRole('region', { name: 'Ticket' });
+  // Exact: "Ticket history", "Ticket actions" and "Files on this ticket" are regions inside it.
+  const workspace = page.getByRole('region', { name: 'Ticket', exact: true });
   await expect(workspace).toBeVisible();
   return workspace;
 }
@@ -137,9 +138,11 @@ test(`${J} #2 a filter by field saves as a view and is shared: list and count ag
 
   // A field the queue does not have is refused by name, and the list stays as it was.
   await page.goto(`${ADMIN}/support`);
+  await expect(queue.getByRole('row').filter({ hasNotText: 'Subject' }).first()).toBeVisible();
   const before = await queue.getByRole('row').filter({ hasNotText: 'Subject' }).count();
   await page.goto(`${ADMIN}/support?filter=${encodeURIComponent('nosuchfield:x')}`);
-  await expect(page.getByRole('alert')).toContainText('nosuchfield');
+  // Scoped to the page body: Next's route announcer is a second, empty alert outside it.
+  await expect(page.getByRole('main').getByRole('alert')).toContainText('nosuchfield');
   await expect(queue.getByRole('row').filter({ hasNotText: 'Subject' })).toHaveCount(before);
 });
 
