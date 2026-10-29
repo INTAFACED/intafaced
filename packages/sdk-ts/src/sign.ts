@@ -4,13 +4,13 @@
  * INTAFACED-REQ-V1, UTF-8, no trailing newline:
  *   version, method, absolute path (plus query), unix seconds, nonce, body sha256.
  *
- * The server window is 300 seconds. This helper does not invent a second TTL.
+ * The server holds each timestamp to the owner's signing window, published at
+ * /developers/authentication; while the window is unset every signed request is
+ * refused (auth.request_window_unset). This helper sets no window of its own.
  */
 import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 
 export const REQUEST_SIGN_VERSION = 'INTAFACED-REQ-V1';
-/** Server acceptance window, in seconds. Specified by the signing option. */
-export const REQUEST_SIGN_WINDOW_SECONDS = 300;
 
 export const REQUEST_TIMESTAMP_HEADER = 'x-intafaced-request-timestamp';
 export const REQUEST_NONCE_HEADER = 'x-intafaced-request-nonce';

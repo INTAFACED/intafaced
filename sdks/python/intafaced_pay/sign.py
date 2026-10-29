@@ -1,7 +1,9 @@
 """Merchant request signing helper. Same canonical string the edge verifies.
 
-INTAFACED-REQ-V1, UTF-8, no trailing newline. The server window is 300 seconds.
-This helper does not invent a second TTL.
+INTAFACED-REQ-V1, UTF-8, no trailing newline. The server holds each timestamp to
+the owner's signing window, published at /developers/authentication; while the
+window is unset every signed request is refused (auth.request_window_unset).
+This helper sets no window of its own.
 """
 
 from __future__ import annotations
@@ -12,7 +14,6 @@ import re
 import secrets
 
 REQUEST_SIGN_VERSION = "INTAFACED-REQ-V1"
-REQUEST_SIGN_WINDOW_SECONDS = 300
 REQUEST_TIMESTAMP_HEADER = "x-intafaced-request-timestamp"
 REQUEST_NONCE_HEADER = "x-intafaced-request-nonce"
 REQUEST_SIGNATURE_HEADER = "x-intafaced-request-signature"
