@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { ADMIN, founderSignIn } from './admin.mjs';
-import { journeyState, signOutBrowser } from './stack.mjs';
+import { api, journeyState, signOutBrowser } from './stack.mjs';
 import { fundedTrader, signIn } from './desk.mjs';
 import { tableIn, bodyRows } from './tables.mjs';
 
@@ -50,6 +50,40 @@ test(`${J} starts: a TEST trader applies to lead in the customer app`, async ({ 
   run.write({ rejectWho: await apply(page, reject) });
 });
 
+/** The desk's own server route, from a console page signed in as a founder, with its CSRF token: { status, body }. */
+async function deskCall(page, body) {
+  return page.evaluate(async (input) => {
+    const session = await (await fetch('/api/session', { cache: 'no-store' })).json();
+    const res = await fetch('/api/trade-ops/copy', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-intafaced-csrf': session.csrf },
+      body: JSON.stringify(input),
+    });
+    return { status: res.status, body: await res.json().catch(() => null) };
+  }, body);
+}
+
+/** svc-trade's lead desk as the console reads it: { queue: { applications, criteria }, leads, audit }. */
+async function readDesk(page) {
+  const { status, body } = await deskCall(page, { action: 'read' });
+  expect(status, JSON.stringify(body).slice(0, 300)).toBe(200);
+  return body.data;
+}
+
+/** This run's application under `name`, as svc-trade holds it now, or undefined once it is decided. */
+const applicationOf = (desk, name) => desk.queue.applications.find((a) => a.displayName === name);
+
+/** The desk's answer to the action it posts while `act` runs: { status, body }. */
+async function answerTo(page, action, act) {
+  const [res] = await Promise.all([
+    page.waitForResponse((r) => r.url().endsWith('/api/trade-ops/copy') && r.request().postDataJSON()?.action === action),
+    act(),
+  ]);
+  return { status: res.status(), body: await res.json() };
+}
+
+const codeOf = (body) => body?.error?.data?.cause?.code;
+
 async function openDesk(page, founder = 'a') {
   await founderSignIn(page, founder);
   await page.goto(`${ADMIN}/trade-ops/copy`);
@@ -58,17 +92,36 @@ async function openDesk(page, founder = 'a') {
 
 test(`${J} #1 opens the applications queue: oldest first, and with none the empty state`, async ({ page }) => {
   await openDesk(page);
-  await expect(queue(page).or(page.getByText('No applications waiting'))).toBeVisible();
+  // This run applied A, then B: both wait in the queue, A first, and the whole queue is oldest first.
+  const desk = await readDesk(page);
+  const a = applicationOf(desk, state('approve'));
+  const b = applicationOf(desk, state('reject'));
+  expect([a?.status, b?.status]).toEqual(['pending', 'pending']);
+  expect(Date.parse(a.appliedAt)).toBeLessThan(Date.parse(b.appliedAt));
+  const names = await bodyRows(queue(page)).evaluateAll((rows) => rows.map((r) => r.textContent ?? ''));
+  const at = (name) => names.findIndex((text) => text.includes(name));
+  expect(at(state('approve')), "this run's first applicant is in the queue").toBeGreaterThanOrEqual(0);
+  expect(at(state('approve'))).toBeLessThan(at(state('reject')));
   const times = await queue(page)
     .getByTestId('applied-at')
     .evaluateAll((items) => items.map((t) => t.getAttribute('datetime')));
+  expect(times).toHaveLength(names.length);
   expect(times).toEqual([...times].sort());
+  expect(times).toEqual(desk.queue.applications.map((x) => x.appliedAt));
 });
 
 test(`${J} #2 approves an application whose criteria are blank: refused naming the criteria`, async ({ page }) => {
   await openDesk(page);
-  await rowOf(queue(page), state('approve')).getByRole('button', { name: 'Approve' }).click();
+  expect((await readDesk(page)).queue.criteria, 'the lead criteria are blank on this stack').toBeNull();
+  const answer = await answerTo(page, 'approve', () =>
+    rowOf(queue(page), state('approve')).getByRole('button', { name: 'Approve' }).click(),
+  );
+  expect([answer.status, answer.body.code]).toEqual([412, 'trade.copy_lead_criteria_unset']);
   await expect(page.getByRole('alert').filter({ hasText: 'The lead criteria are not set' })).toBeVisible();
+  // Nothing was filed: the application still waits as it was, and no lead is listed under its name.
+  const desk = await readDesk(page);
+  expect(applicationOf(desk, state('approve'))).toMatchObject({ status: 'pending', approvalId: null });
+  expect(desk.leads.filter((l) => l.displayName === state('approve'))).toEqual([]);
 });
 
 test(`${J} #3 approves with the criteria set, as one founder: pending until the second confirms; the listing exists only after both`, async ({
@@ -84,14 +137,24 @@ test(`${J} #3 approves with the criteria set, as one founder: pending until the 
   const row = rowOf(queue(page), state('approve'));
   await row.getByRole('button', { name: 'Approve' }).click();
   await expect(row).toContainText('Waiting for a second founder');
-  await page.getByRole('tab', { name: 'Leads' }).click();
-  await expect(rowOf(tableIn(page, 'Leads'), state('approve'))).toHaveCount(0);
+  // Founder A cannot confirm their own approval: no control is offered, and the desk's route refuses it by code.
+  await expect(row.getByRole('button', { name: 'Confirm approval' })).toHaveCount(0);
+  const waiting = applicationOf(await readDesk(page), state('approve'));
+  expect(waiting.status).toBe('awaiting_second');
+  const own = await deskCall(page, { action: 'confirm', applicationId: waiting.id });
+  expect([own.status, own.body.code]).toEqual([409, 'action_approval.same_person']);
+  const afterOwn = await readDesk(page);
+  expect(applicationOf(afterOwn, state('approve'))?.status).toBe('awaiting_second');
+  expect(afterOwn.leads.filter((l) => l.displayName === state('approve'))).toEqual([]);
   const second = await (await browser.newContext()).newPage();
   await openDesk(second, 'b');
   await rowOf(queue(second), state('approve')).getByRole('button', { name: 'Confirm approval' }).click();
   await expect(second.getByRole('status').filter({ hasText: 'Approved and listed' })).toBeVisible();
   await second.getByRole('tab', { name: 'Leads' }).click();
   await expect(rowOf(tableIn(second, 'Leads'), state('approve'))).toContainText('Listed');
+  const listed = await readDesk(second);
+  expect(applicationOf(listed, state('approve'))).toBeUndefined();
+  expect(listed.leads.filter((l) => l.displayName === state('approve')).map((l) => l.state)).toEqual(['listed']);
   await second.context().close();
 });
 
@@ -108,7 +171,15 @@ test(`${J} #4 rejects with a reason: the applicant sees it and may apply again a
   await page.goto('/copy/lead/apply');
   await expect(page.getByText(reason)).toBeVisible();
   await expect(page.getByText('waits on a waiting period the platform has not set')).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Apply to lead' })).toHaveCount(0);
+  // svc-trade refuses a new application by the wait's code, and the applicant's application is still the rejected one.
+  const applicant = await api(state('rejectWho'));
+  const again = await applicant.post('/api/trade/trpc/copy.applyToLead', { displayName: `${state('reject')} again` });
+  expect(codeOf(again.body), JSON.stringify(again.body).slice(0, 300)).toBe('trade.copy_lead_reapply_wait_unset');
+  // "May apply again after the owner's wait": the wait is the owner's and unset, so this clause cannot pass yet.
+  await expect(
+    page.getByRole('button', { name: 'Apply to lead' }),
+    "UNSET: the owner's wait before a rejected applicant may apply again is not set (trade.copy_lead_reapply_wait_unset)",
+  ).toBeVisible(UNBUILT);
 });
 
 test(`${J} #5 suspends a lead: the state changes once, with an audit row showing the reason`, async ({ page }) => {
@@ -122,12 +193,24 @@ test(`${J} #5 suspends a lead: the state changes once, with an audit row showing
   await page.getByRole('dialog').getByRole('button', { name: 'Suspend' }).click();
   await expect(lead).toContainText('Suspended');
   await expect(lead.getByRole('button', { name: 'Suspend' })).toHaveCount(0);
+  // A second suspend is refused by its code and changes nothing: the lead stays suspended, with one audit row.
+  const ref = (await readDesk(page)).leads.find((l) => l.displayName === state('approve')).leaderRef;
+  const again = await deskCall(page, { action: 'suspend', leaderRef: ref, reason: `${reason} again` });
+  expect([again.status, again.body.code]).toEqual([409, 'trade_ops.copy_lead_suspended']);
+  const desk = await readDesk(page);
+  expect(desk.leads.filter((l) => l.leaderRef === ref).map((l) => l.state)).toEqual(['suspended']);
+  expect(desk.audit.filter((r) => r.reason?.startsWith(reason)).map((r) => r.reason)).toEqual([reason]);
   await page.getByRole('tab', { name: 'Audit' }).click();
   await expect(tableIn(page, 'Audit').getByRole('row', { name: new RegExp(reason) })).toHaveCount(1);
 });
 
 test(`${J} #6 opens pooled masters and the pool whitelist: master applications, and whitelists with the batch limit`, async ({ page }) => {
   await openDesk(page);
+  // The tables must come from a service: pools are not built, so nothing reads master applications or whitelists.
+  expect(
+    (await readDesk(page)).pooledMasters,
+    'UNBUILT: CB-copy-pro-share-03 pooled master applications are read from no service',
+  ).toBeDefined();
   await page.getByRole('tab', { name: 'Pooled masters' }).click();
   await expect(tableIn(page, 'Master applications')).toBeVisible();
   await page.getByRole('tab', { name: 'Whitelists' }).click();
@@ -138,6 +221,10 @@ test(`${J} #7 opens the takeover and level views: takeovers per pool and day; le
   page,
 }) => {
   await openDesk(page);
+  expect(
+    (await readDesk(page)).takeovers,
+    'UNBUILT: CB-copy-pro-share-09 takeovers per pool and day are read from no service',
+  ).toBeDefined();
   await page.getByRole('tab', { name: 'Takeovers' }).click();
   await expect(tableIn(page, 'Takeovers')).toBeVisible();
   await page.getByRole('tab', { name: 'Levels' }).click();
