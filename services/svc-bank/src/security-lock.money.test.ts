@@ -345,6 +345,17 @@ describe('whether a saved address can be used now', () => {
     });
   });
 
+  it('reads a self-frozen account as locked with no end, so the address is not ready', async () => {
+    const clock = { now: new Date(Date.now() - 25 * HOUR) };
+    const { service, lock, destinations } = at(clock);
+    const saved = await approved(service('24'), destinations);
+    lock.set(USER, { locked: false, unlocksAt: null, selfFrozen: true });
+    await expect(service('24').destinationReadiness({ userId: USER, destinationId: saved.destinationId })).resolves.toMatchObject({
+      state: 'locked',
+      lockUnlocksAt: null,
+    });
+  });
+
   it('does not answer for an address that is someone else’s or not in the book', async () => {
     const clock = { now: new Date() };
     const { service, destinations } = at(clock);
@@ -434,6 +445,16 @@ describe('a crypto withdrawal while the security lock holds (money)', () => {
     expect(ledger.journal()).toHaveLength(posted);
     // A new send under another id is refused.
     await expect(send()).rejects.toMatchObject({ code: 'bank.security_locked' });
+    expect(ledger.journal()).toHaveLength(posted);
+  });
+
+  it('refuses even a replay of a send claimed before the owner froze the account, and posts nothing more', async () => {
+    const id = randomUUID();
+    const first = await send(id);
+    expect(first.status).toBe('settled');
+    const posted = ledger.journal().length;
+    lock.set(USER, { locked: false, unlocksAt: null, selfFrozen: true });
+    await expect(send(id)).rejects.toMatchObject({ code: 'bank.account_frozen_self' });
     expect(ledger.journal()).toHaveLength(posted);
   });
 

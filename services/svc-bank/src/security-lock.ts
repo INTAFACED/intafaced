@@ -27,8 +27,21 @@ export interface SecurityLockState {
   locked: boolean;
   /** When the lock ends, fixed by identity when the owner asked to unlock; null while no unlock is asked for. */
   unlocksAt: string | null;
-  /** The owner froze the account themselves (I-account-lifecycle-08). Absent reads as not frozen (test ports only). */
-  selfFrozen?: boolean;
+  /** The owner froze the account themselves (I-account-lifecycle-08). */
+  selfFrozen: boolean;
+}
+
+/** Refuses on a state already read: `bank.account_frozen_self` first, then `bank.security_locked`. */
+export function assertHoldsOpen(state: SecurityLockState, action: string): void {
+  if (state.selfFrozen) {
+    throw new BankError(`The owner froze this account, so ${action} is refused until the freeze is lifted`, 'bank.account_frozen_self');
+  }
+  if (state.locked) {
+    throw new BankError(
+      `The account's security lock is on, so ${action} is refused until it ends${state.unlocksAt ? ` (${state.unlocksAt})` : ''}`,
+      'bank.security_locked',
+    );
+  }
 }
 
 export interface SecurityLockPort {
@@ -36,18 +49,10 @@ export interface SecurityLockPort {
   read(userId: string): Promise<SecurityLockState>;
 }
 
-/** Refuses `bank.security_locked` while the owner's lock holds. Call it before anything is written. */
+/** Reads both holds and refuses while either is on (`assertHoldsOpen`). Call it before anything is written. */
 export async function assertSecurityLockOpen(port: SecurityLockPort, userId: string, action: string): Promise<SecurityLockState> {
   const lock = await port.read(userId);
-  if (lock.selfFrozen) {
-    throw new BankError(`The owner froze this account, so ${action} is refused until the freeze is lifted`, 'bank.account_frozen_self');
-  }
-  if (lock.locked) {
-    throw new BankError(
-      `The account's security lock is on, so ${action} is refused until it ends${lock.unlocksAt ? ` (${lock.unlocksAt})` : ''}`,
-      'bank.security_locked',
-    );
-  }
+  assertHoldsOpen(lock, action);
   return lock;
 }
 
@@ -135,24 +140,27 @@ export function createIdentitySecurityLock(
 }
 
 /** An in-memory lock for tests: anyone not listed is unlocked. `failWith` makes every ask throw (identity down). */
-export function memorySecurityLock(locked: Readonly<Record<string, SecurityLockState>> = {}): SecurityLockPort & {
-  set(userId: string, state: SecurityLockState): void;
+type MemoryLockInput = Omit<SecurityLockState, 'selfFrozen'> & { selfFrozen?: boolean };
+
+export function memorySecurityLock(locked: Readonly<Record<string, MemoryLockInput>> = {}): SecurityLockPort & {
+  set(userId: string, state: MemoryLockInput): void;
   failWith(error: BankError | null): void;
   readonly asked: string[];
 } {
-  const table = new Map<string, SecurityLockState>(Object.entries(locked));
+  const full = (state: MemoryLockInput): SecurityLockState => ({ ...state, selfFrozen: state.selfFrozen ?? false });
+  const table = new Map<string, SecurityLockState>(Object.entries(locked).map(([id, state]) => [id, full(state)]));
   let failure: BankError | null = null;
   const asked: string[] = [];
   return {
     asked,
-    set: (userId, state) => void table.set(userId, state),
+    set: (userId, state) => void table.set(userId, full(state)),
     failWith: (error) => {
       failure = error;
     },
     async read(userId) {
       asked.push(userId);
       if (failure) throw failure;
-      return table.get(userId) ?? { locked: false, unlocksAt: null };
+      return table.get(userId) ?? { locked: false, unlocksAt: null, selfFrozen: false };
     },
   };
 }

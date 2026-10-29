@@ -15,7 +15,7 @@ import {
 import { BankError } from '../errors.js';
 import { assertOfframpsListLimit, assertOnrampsListLimit } from '../owner-list-limit.js';
 import { BANK_OFFRAMP_COOLING_HOURS_ENV, assertOfframpDestCoolingElapsed, requireOfframpCoolingHours } from '../offramp-cooling.js';
-import { assertSecurityLockOpen, unconfiguredSecurityLock, type SecurityLockPort } from '../security-lock.js';
+import { assertHoldsOpen, assertSecurityLockOpen, unconfiguredSecurityLock, type SecurityLockPort } from '../security-lock.js';
 import { withSessionAdvisoryLock } from '../session-lock.js';
 import { withMoneySpan } from '../tracing.js';
 import { emptyPayFiatRampPort, resolvePayFiatRailId, assertEmptyRailsCannotLookLive, type PayFiatRampPort } from './pay-fiat-adapter.js';
@@ -638,14 +638,14 @@ export class RampService {
     // Only with the address it was claimed with: an offered address is stored before the claim's terms are checked, so a
     // replay naming another one would change the withdrawal address, and that waits for the lock like any change does.
     // Identity unreachable refuses every send, replays included: it cannot say whether the lock holds. The owner's
-    // self-freeze (I-account-lifecycle-08) follows the same rule, refused as `bank.account_frozen_self`.
+    // self-freeze (I-account-lifecycle-08) is stricter: it is their emergency stop, so nothing carries on while it is
+    // open, a send claimed before it included (a held one stays held until they lift it): `bank.account_frozen_self`.
     const hold = await this.securityLock.read(input.userId);
-    if (hold.locked || hold.selfFrozen) {
+    if (hold.selfFrozen) assertHoldsOpen(hold, 'a withdrawal');
+    if (hold.locked) {
       const claimedTo = await this.offrampClaimedTo(input.offrampId, input.userId);
       const offered = input.destinationRef?.trim();
-      if (claimedTo === null || (offered && offered !== claimedTo)) {
-        await assertSecurityLockOpen(this.securityLock, input.userId, 'a withdrawal');
-      }
+      if (claimedTo === null || (offered && offered !== claimedTo)) assertHoldsOpen(hold, 'a withdrawal');
     }
     const coolingHours = requireOfframpCoolingHours(this.ownerOfframpCoolingHoursRaw());
     // A new send never goes to, and never stores, an address on the owner's fraud list (W-withdraw-03): checked before the
