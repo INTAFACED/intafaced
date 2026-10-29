@@ -27,11 +27,13 @@ const en = {
   reserveUnset: 'Not set. A business in this category can’t go live without it.',
   documentsLabel: 'Extra documents you’ll send',
   noDocuments: 'None',
-  class_permissionless: 'Standard',
+  class_standard: 'Standard',
+  class_permissionless: 'Crypto only',
   class_restricted: 'High risk',
   class_prohibited: 'Not taken',
+  rule_standard: 'Card, crypto and bank transfer payments. No extra documents.',
   rule_permissionless: 'Crypto payments only. No extra documents.',
-  rule_restricted: 'Crypto payments only (no card payments), extra documents and a reserve.',
+  rule_restricted: 'No card payments (crypto and bank transfer only), extra documents and a reserve.',
   rule_prohibited: 'INTAFACED doesn’t take this kind of business: every payment and checkout is refused.',
   allCategories: 'Every category',
 
@@ -42,7 +44,7 @@ const en = {
   rLocked: 'Your business is verified, so the category can’t be changed here. Ask INTAFACED support to change it.',
   rProhibited: 'INTAFACED doesn’t take payments for this kind of business.',
   rReserveUnset: 'This category has no reserve set, so payments can’t be taken.',
-  rRailRefused: 'Your business category allows crypto payments only.',
+  rRailRefused: 'Your business category doesn’t take this way to pay.',
 } as const;
 
 export const categoryCopy = defineCopy('pay.portal.settings.category', en);

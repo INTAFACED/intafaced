@@ -20,11 +20,16 @@ const draftName = () => run.read().name ?? 'TEST task campaign (made in #2)';
 
 test.describe.configure({ mode: 'default' });
 
+// The builder's answers are read inside it: the console's route announcer is a second alert on every page.
 const builder = (page) => page.getByRole('form', { name: 'Campaign builder' });
 const campaigns = (page) => tableIn(page, 'Campaigns');
 
+/** Pages already signed in: each sign-in waits for a fresh one-time code (up to 30 s), so a page signs in once. */
+const signedIn = new WeakSet();
+
 async function openDesk(page, founder = 'a') {
-  await founderSignIn(page, founder);
+  if (!signedIn.has(page)) await founderSignIn(page, founder);
+  signedIn.add(page);
   await page.goto(`${ADMIN}/more-ops/campaigns`);
   await expect(page.getByRole('heading', { name: 'Campaigns', level: 1 })).toBeVisible(UNBUILT);
 }
@@ -76,7 +81,7 @@ test(`${J} #4 builds a rule with nested AND and OR, tests it on a fixture accoun
   page,
 }) => {
   await openDraft(page);
-  await builder(page).getByRole('tab', { name: 'Rules' }).click();
+  await builder(page).getByRole('tab', { name: 'Rules', exact: true }).click();
   const rule = page.getByRole('group', { name: 'Rule' });
   await rule.getByRole('button', { name: 'Add an AND group' }).click(UNBUILT);
   await rule.getByRole('button', { name: 'Add an OR group' }).click();
@@ -91,7 +96,11 @@ test(`${J} #5 defines participation exclusions and a region list: a blank region
   await builder(page).getByRole('tab', { name: 'Who can take part' }).click(UNBUILT);
   await expect(page.getByRole('group', { name: 'Exclusions' })).toBeVisible();
   await page.getByRole('button', { name: 'Ask to activate' }).click();
-  await expect(page.getByRole('alert')).toContainText('The region list is not set');
+  await expect(builder(page).getByRole('alert')).toContainText('The region list is not set');
+  // The step defines the region list too, so the draft can go live in #7.
+  await builder(page).getByRole('textbox', { name: 'Restricted regions' }).fill('KP');
+  await builder(page).getByRole('button', { name: 'Next' }).click();
+  await expect(builder(page).getByRole('tab', { name: 'Rules', exact: true })).toHaveAttribute('aria-selected', 'true');
 });
 
 test(`${J} #6 adds an earning rule with a trigger, condition and fixed incentive: one intent per event; a formula outside the grammar and an unknown trigger refuse`, async ({
@@ -111,7 +120,7 @@ test(`${J} #7 sets the time frame, budget and limits and requests activation: ea
 }) => {
   await openDraft(page);
   await page.getByRole('button', { name: 'Ask to activate' }).click(UNBUILT);
-  await expect(page.getByRole('alert')).toContainText(/campaign\.\w+_unset/);
+  await expect(builder(page).getByRole('alert')).toContainText(/campaigns\.\w+_unset/);
   await builder(page).getByRole('tab', { name: 'Budget and time' }).click();
   await builder(page).getByLabel('Starts').fill('2026-11-01T00:00');
   await builder(page).getByLabel('Ends').fill('2026-11-30T23:59');
@@ -128,7 +137,7 @@ test(`${J} #8 the requester tries to approve and a second founder approves: the 
 }) => {
   await openDraft(page);
   await page.getByRole('button', { name: 'Approve' }).click(UNBUILT);
-  await expect(page.getByRole('alert')).toContainText('You asked for this, so another founder must approve it.');
+  await expect(builder(page).getByRole('alert')).toContainText('You asked for this, so another founder must approve it.');
   const second = await (await browser.newContext()).newPage();
   await openDesk(second, 'b');
   await campaigns(second).getByRole('link', { name: draftName(), exact: true }).click();
@@ -143,7 +152,7 @@ test(`${J} #9 edits the active campaign: a new revision; earlier vouchers keep t
   await openDraft(page);
   await expect(page.getByTestId('campaign-revision')).toHaveText(/Revision \d+/, UNBUILT);
   await page.getByRole('button', { name: 'Archive' }).click();
-  await expect(page.getByRole('alert')).toContainText('An active campaign cannot be archived');
+  await expect(builder(page).getByRole('alert')).toContainText('An active campaign cannot be archived');
 });
 
 test(`${J} #10 opens the calendar: all campaigns by time`, async ({ page }) => {

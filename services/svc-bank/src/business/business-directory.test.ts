@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, onTestFinished, vi } from 'vitest';
 import { serviceAuthHeadersForBody } from '@intafaced/contracts';
 import {
   BUSINESS_DIRECTORY_HANDLES_PATH,
@@ -50,6 +50,10 @@ describe('business directory', () => {
   });
 
   it('reads identity and treats a missing route as unset', async () => {
+    // The signed headers carry a whole-second timestamp: one clock for the code and the check, so a second boundary between
+    // them can't fail the comparison (issue #6598).
+    vi.useFakeTimers({ now: new Date('2026-10-29T06:00:00.500Z'), toFake: ['Date'] });
+    onTestFinished(() => void vi.useRealTimers());
     const fetchFn = vi.fn(async (url: string, init: RequestInit) => {
       const body = String(init.body);
       expect(init.headers).toMatchObject(serviceAuthHeadersForBody('svc-bank', SECRET, body));

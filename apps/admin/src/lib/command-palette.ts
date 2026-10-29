@@ -44,6 +44,7 @@ const SUB_PAGES: readonly { readonly href: string; readonly label: string; reado
   { href: '/more-ops/mining', label: 'Mining desk', keywords: ['pool', 'shares', 'workers'] },
   { href: '/more-ops/predict', label: 'Predict desk', keywords: ['prediction'] },
   { href: '/more-ops/venue-economics', label: 'Venue unit economics', keywords: ['cost'] },
+  { href: '/more-ops/campaigns', label: 'Campaigns desk', keywords: ['campaign', 'builder', 'promotion', 'calendar'] },
   { href: '/more-ops/campaigns/waves', label: 'Waitlist waves', keywords: ['waitlist', 'campaigns', 'invite'] },
   { href: '/protocol-ops/listing', label: 'Protocol: pool and market control', keywords: ['delist', 'hide'] },
   { href: '/trade-ops/markets', label: 'Trade: markets', keywords: ['symbol', 'listing'] },
