@@ -15,7 +15,7 @@ const en = {
   summaryBalance: 'Balance',
   notRead: 'Not read',
   notAvailable: 'Not available',
-  summaryBlocked: 'Balance and account kind are not read: the indexer has no balance reader for addresses yet.',
+  summaryBlocked: 'Balance and account kind are not read: the indexer has no balance reader for addresses.',
   transactions: 'Transactions',
   holdings: 'Holdings',
   holdingsBlocked: 'No holding is listed: this build has no indexer reader for token balances.',
