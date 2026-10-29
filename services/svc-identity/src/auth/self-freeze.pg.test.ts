@@ -169,7 +169,7 @@ if (!available) {
       const email = `${u.handle}@example.com`;
       const m = await notice(u.userId, email, 'password-changed');
       expect(m.freezeToken).toMatch(/^[A-Za-z0-9_-]{40,}$/);
-      expect(localMailLine(m)).toContain(`freeze=freeze/confirm?token=${m.freezeToken}`);
+      expect(localMailLine(m)).toContain(`freeze=freeze/confirm#token=${m.freezeToken}`);
       expect((await notice(u.userId, email, 'password-reset')).freezeToken).toBeUndefined();
       const stored = await db.sql<Array<{ token_hash: string }>>`SELECT token_hash FROM self_freeze_links WHERE user_id = ${u.userId}`;
       expect(stored).toHaveLength(1);
@@ -214,13 +214,20 @@ if (!available) {
       expect(await auth.selfFreezeStatus(u.userId)).toMatchObject({ frozen: false });
     });
 
-    it('a link stops working once the account moved to another address, except the notice of that change', async () => {
+    it('a link dies when the address moves, never comes back, and the change notice to the old address works until the next move', async () => {
       const u = await person();
-      const email = `${u.handle}@example.com`;
-      const plain = await mintFreezeLink(db.sql, { userId: u.userId, email, purpose: 'password-changed' });
-      const change = await mintFreezeLink(db.sql, { userId: u.userId, email, purpose: 'email-change-notice' });
-      await db.sql`UPDATE users SET email = ${`moved-${u.handle}@example.com`} WHERE id = ${u.userId}`;
+      const first = `${u.handle}@example.com`;
+      const moved = `moved-${u.handle}@example.com`;
+      const plain = await mintFreezeLink(db.sql, { userId: u.userId, email: first, purpose: 'password-changed' });
+      await db.sql`UPDATE users SET email = ${moved} WHERE id = ${u.userId}`;
       await expect(auth.redeemFreezeLink({ token: plain! })).rejects.toMatchObject({ code: FREEZE_LINK_INVALID });
+      // The notice of that change goes to the old address, after the change: its link is bound to the new one.
+      const change = await mintFreezeLink(db.sql, { userId: u.userId, email: first, purpose: 'email-change-notice' });
+      // Moving back to the first address does not revive the first link: the change notice deleted it.
+      await db.sql`UPDATE users SET email = ${first} WHERE id = ${u.userId}`;
+      await expect(auth.redeemFreezeLink({ token: plain! })).rejects.toMatchObject({ code: FREEZE_LINK_INVALID });
+      await expect(auth.redeemFreezeLink({ token: change! })).rejects.toMatchObject({ code: FREEZE_LINK_INVALID });
+      await db.sql`UPDATE users SET email = ${moved} WHERE id = ${u.userId}`;
       expect(await auth.selfFreezeStatus(u.userId)).toMatchObject({ frozen: false });
       await expect(auth.redeemFreezeLink({ token: change! })).resolves.toMatchObject({ firstUse: true, changed: true });
     });

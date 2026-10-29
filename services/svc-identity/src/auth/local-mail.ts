@@ -45,7 +45,7 @@ export function localMailLine(message: LocalMailMessage): string {
   // The anti-phishing code goes on the end of the line it rides on; letters and digits only, by its own rule.
   const stamp = message.antiPhishingCode ? ` anti_phishing=${message.antiPhishingCode.replace(/[^A-Za-z0-9]/g, '')}` : '';
   // A security notice's "this was not me" link (freeze-link.ts) rides on the notice line, before the stamp.
-  const freeze = message.freezeToken ? ` freeze=freeze/confirm?token=${encodeURIComponent(message.freezeToken)}` : '';
+  const freeze = message.freezeToken ? ` freeze=freeze/confirm#token=${encodeURIComponent(message.freezeToken)}` : '';
   return localMailBody(message).replace(/\n$/, `${freeze}${stamp}\n`);
 }
 
