@@ -134,10 +134,13 @@ test(`${J} #3 turns discoverability off: handle search finds nothing for others,
     const before = toUnits((await usdt(me)).free);
     const url = new URL(link);
     await page.goto(`${url.pathname}${url.search}`);
-    await expect(page.getByRole('alert')).toHaveCount(0);
+    // The payee is looked up once the link fills it in; a miss is an alert, and the scan must not miss.
+    await expect(page.getByRole('textbox', { name: 'Handle' })).toHaveValue(me.handle);
+    await expect(page.locator('#pay-to-status')).not.toBeEmpty();
+    await expect(page.getByRole('alert'), 'the QR link opens Send on this account').toHaveCount(0);
     await page.getByLabel(/Amount/).fill('1');
-    await page.getByRole('button', { name: 'Review' }).click();
-    await page.getByRole('dialog').getByRole('button', { name: /^Send/ }).click();
+    await page.getByRole('button', { name: 'Review' }).click({ timeout: 15_000 });
+    await page.getByRole('dialog').getByRole('button', { name: /^Send/ }).click({ timeout: 15_000 });
     await expect(page.getByRole('status').first()).toBeVisible({ timeout: 30_000 });
     await expect(page.getByRole('alert')).toHaveCount(0);
     await expect.poll(async () => toUnits((await usdt(me)).free) - before, { timeout: 30_000 }).toBe(toUnits('1'));
