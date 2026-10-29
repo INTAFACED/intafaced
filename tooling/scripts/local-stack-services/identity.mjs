@@ -85,6 +85,7 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, STATE, CUSTOMER_LOCALHOST_ORI
       ? {}
       : { IDENTITY_KYC_POA_MAX_AGE_DAYS: testValue('IDENTITY_KYC_POA_MAX_AGE_DAYS') }),
     IDENTITY_KYC_POA_TYPES_BY_COUNTRY: testValue('IDENTITY_KYC_POA_TYPES_BY_COUNTRY'),
+    IDENTITY_KYC_HANDOFF_TTL_SECONDS: testValue('IDENTITY_KYC_HANDOFF_TTL_SECONDS'),
     IDENTITY_KYC_MAX_DENIALS: testValue('IDENTITY_KYC_MAX_DENIALS'),
     IDENTITY_KYC_DENIAL_WINDOW_HOURS: testValue('IDENTITY_KYC_DENIAL_WINDOW_HOURS'),
     IDENTITY_KYC_LOCKOUT_HOURS: testValue('IDENTITY_KYC_LOCKOUT_HOURS'),
@@ -124,6 +125,9 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, STATE, CUSTOMER_LOCALHOST_ORI
     // create in the developer room with identity.key_cap_unset). Three live keys per account on this stack, so
     // J-developer-03 can show the fourth refused.
     IDENTITY_API_KEYS_MAX_BY_TIER: 'none=3,basic=3,full=3,institutional=3',
+    // LOCAL TEST idle period for API keys (J-developer-03 #9), labelled in the same profile, never an owner decision: the
+    // key detail shows it; no dormant sweep is built, so it ends no key. Blank shows `not set`.
+    IDENTITY_API_KEY_IDLE_EXPIRY_SECONDS: testValue('IDENTITY_API_KEY_IDLE_EXPIRY_SECONDS'),
     // LOCAL TEST account tiers (J-ops-console-04 #11), labelled TEST, never an owner decision: the owner has published no
     // tiers (blank refuses every move with identity.account_tiers_unset). TEST Premier leaves its monthly fee blank on
     // purpose, so the console shows a tier that cannot be assigned (identity.tier_terms_unset).

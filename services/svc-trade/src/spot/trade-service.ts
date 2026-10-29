@@ -36,6 +36,7 @@ import { queryTakerVolumeFromFills } from './candles.js';
 import { listAlgoParents, type AlgoListQuery } from '../algo/algo-list.js';
 import { type AlgoResult } from '../algo/algo-result.js';
 import { type AlgoSchedulerView } from '../algo/scheduler-heartbeat.js';
+import { describeAlgoPolicy, type AlgoPolicySummary } from '../algo/algo-policy.js';
 import { listOptionsCatalogue, type OptionsCatalogueQuery } from './options-catalogue.js';
 import {
   optionsExercises as optionsExercisesDoor,
@@ -1761,6 +1762,11 @@ export class TradeService {
   /** Derived child-fill result. Does not write. Does not put money on the parent. */
   async algoResult(principal: Principal, parentId: string): Promise<AlgoResult> {
     return twap.algoResult(this.internal, principal, parentId);
+  }
+
+  /** The public algo policy with this service's own create and scheduler flags. Reads nothing. */
+  algoPolicy(): AlgoPolicySummary {
+    return describeAlgoPolicy({ createEnabled: this.algoEnabled, jobsEnabled: this.algoJobsEnabled });
   }
 
   /** Heartbeat read. Selects only. */

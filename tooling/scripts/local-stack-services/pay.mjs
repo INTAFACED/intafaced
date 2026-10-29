@@ -26,7 +26,9 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS }) => ({
     PAY_LINK_DEFAULT_TTL_DAYS: '30',
     PAY_LINK_MAX_TTL_DAYS: '365',
     // LOCAL-TEST value, not INTAFACED pricing. 250 bps is a labelled stand-in so the local portal can show a fee. The product stays unset wherever this variable is absent.
-    PAY_MERCHANT_STARTER_FEE_BPS: '250',
+    // `LOCAL_STACK_PAY_STARTER_FEE=off` on a start or restart leaves it blank, so the refusal to open an account can be seen
+    // too (J-merchant-02 #1).
+    ...(process.env.LOCAL_STACK_PAY_STARTER_FEE === 'off' ? {} : { PAY_MERCHANT_STARTER_FEE_BPS: '250' }),
     // LOCAL-TEST merchant terms (tooling/profiles/test-owner-values/pay.json), so go-live can show and accept them. svc-pay refuses a TEST version outside APP_ENV dev or test.
     PAY_MERCHANT_TERMS_VERSION: 'TEST-merchant-terms-1',
     PAY_MERCHANT_TERMS_URL: 'https://terms.example/TEST-merchant-terms-1',

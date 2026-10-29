@@ -210,13 +210,18 @@ test(`${J} #6 priority, type and labels save with one audit row each; a label wi
     labels: ['two words'],
     clientRequestId: `${J}:${RUN}:space-label`,
   });
-  expect(refused.status).toBe(400);
-  expect(refused.text).toMatch(/support\.[a-z_]*label/);
+  expect([refused.status, refused.json?.error?.message], refused.text.slice(0, 300)).toEqual([400, 'support.label_invalid']);
   // Labels are staff-only and kept beside the ticket, never on it (the owner reads the ticket), so the staff read is the one to check.
   const saved = await desk('lead', 'query', 'ticketProperties', { ticketId: ticket.id });
   expect(saved.labels).toEqual([`test_${RUN}`, 'vip']);
   expect(saved.priority).toBe(priority);
   expect(saved.ticketType).toBe(type);
+  // The history, read again from the start, still holds one row per field: the refused call wrote none.
+  await page.reload();
+  const again = await openRequest(page, page.getByRole('region', { name: 'Support queue' }), ticket);
+  const historyAgain = again.getByRole('region', { name: 'Ticket history' });
+  for (const field of [/priority/i, /type/i, /labels/i])
+    await expect(historyAgain.getByRole('row').filter({ hasText: field })).toHaveCount(1);
 });
 
 test(`${J} #7 a macro with a placeholder fills the reply draft, the signature goes on the public reply only, and nothing is sent until Send`, async ({

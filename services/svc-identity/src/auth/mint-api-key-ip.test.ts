@@ -15,8 +15,8 @@ function makeMinter() {
       created.push(input);
       return { id: 'k1', key: 'ifk_live_secret', prefix: 'ifk_live', mode: input.mode ?? 'live' };
     },
-    async revokeApiKey(_userId, keyId) {
-      revoked.push(keyId);
+    async revokeApiKey(_userId, keyId, cause) {
+      revoked.push(cause ? `${keyId}:${cause}` : keyId);
       return true;
     },
   };
@@ -59,11 +59,11 @@ describe('mintApiKeyWithIpAllowlist', () => {
     expect(apiKeyIpAllowed(minted.ipAllowlist, '198.51.100.9')).toBe(true);
   });
 
-  it('revokes the minted key if bind fails', async () => {
+  it('revokes the minted key if bind fails, as a key the service never handed over', async () => {
     const { minter, revoked } = makeMinter();
     await expect(mintApiKeyWithIpAllowlist(minter, fakeSql([]), { ...base, ips: ['203.0.113.10'] })).rejects.toMatchObject({
       code: 'auth.not_found',
     });
-    expect(revoked).toEqual(['k1']);
+    expect(revoked).toEqual(['k1:system']);
   });
 });

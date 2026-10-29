@@ -45,6 +45,14 @@ const KNOWN: Readonly<Record<string, { title: string; body: string }>> = {
     title: 'Settlement was refused',
     body: 'The accepted quote did not settle. Your hold stays as reported; check the quote status.',
   },
+  'trade.rfq_window_passed': {
+    title: 'The settlement window has closed',
+    body: 'This accepted quote can no longer settle. Nothing was settled or held; ask for a new price.',
+  },
+  'trade.rfq_size_not_set': {
+    title: 'The desk minimum is not set',
+    body: 'The desk cannot price a request in this asset until its minimum size is published. Nothing was priced or held.',
+  },
   'trade.rfq_already_bound': { title: 'That quote is already accepted', body: 'It can be settled, but not expired or accepted again.' },
   'trade.rfq_allocation_refused': {
     title: 'Allocation is not open',
@@ -148,6 +156,13 @@ export function roomWords(input: RefusalInput): Words {
   if (code) {
     const known = KNOWN[code];
     if (known) return { ...known, code: refusalSupportCode(code) };
+    // The desk names its own minimum in the sentence (CB-otc-07), so the customer sees the number to ask above.
+    if (code === 'trade.rfq_below_minimum')
+      return {
+        title: 'Below the desk minimum',
+        body: `${input.message?.trim().replace(/\.$/, '') || 'This request is below the desk minimum'}. Ask for a larger size; nothing was priced or held.`,
+        code: refusalSupportCode(code),
+      };
     if (code.startsWith('trade.greeks_')) return { ...KNOWN['trade.greeks_native_unlinked']!, code: refusalSupportCode(code) };
     const shared = refusalCopy(code);
     // A trade.* code nobody here has words for keeps the service's own sentence, so the real blocker is never replaced by a generic line.

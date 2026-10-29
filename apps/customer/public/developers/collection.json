@@ -196,6 +196,75 @@
             "header": [{ "key": "Authorization", "value": "Bearer {{apiKey}}" }],
             "url": { "raw": "{{baseUrl}}/api/v1/orders/closed", "host": ["{{baseUrl}}"], "path": ["api", "v1", "orders", "closed"] }
           }
+        },
+        {
+          "name": "previewOrder",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Authorization", "value": "Bearer {{apiKey}}" }],
+            "url": { "raw": "{{baseUrl}}/api/v1/orders/preview", "host": ["{{baseUrl}}"], "path": ["api", "v1", "orders", "preview"] }
+          }
+        },
+        {
+          "name": "batchAmendOrders",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Authorization", "value": "Bearer {{apiKey}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/orders/batch-amend",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "orders", "batch-amend"]
+            }
+          }
+        },
+        {
+          "name": "batchCancelOrders",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Authorization", "value": "Bearer {{apiKey}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/orders/batch-cancel",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "orders", "batch-cancel"]
+            }
+          }
+        },
+        {
+          "name": "massCancelOrders",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Authorization", "value": "Bearer {{apiKey}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/markets/:marketId/orders/mass-cancel",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "markets", ":marketId", "orders", "mass-cancel"],
+              "variable": [{ "key": "marketId", "value": "" }]
+            }
+          }
+        },
+        {
+          "name": "cancelAllOrdersAfter",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Authorization", "value": "Bearer {{apiKey}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/orders/cancel-all-after",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "orders", "cancel-all-after"]
+            }
+          }
+        },
+        {
+          "name": "fetchCancelAllAfter",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{apiKey}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/orders/cancel-all-after",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "orders", "cancel-all-after"]
+            }
+          }
         }
       ]
     },
@@ -233,6 +302,130 @@
             "method": "GET",
             "header": [{ "key": "Authorization", "value": "Bearer {{apiKey}}" }],
             "url": { "raw": "{{baseUrl}}/api/v1/positions", "host": ["{{baseUrl}}"], "path": ["api", "v1", "positions"] }
+          }
+        },
+        {
+          "name": "fetchClosedPositions",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{apiKey}}" }],
+            "url": { "raw": "{{baseUrl}}/api/v1/positions/closed", "host": ["{{baseUrl}}"], "path": ["api", "v1", "positions", "closed"] }
+          }
+        },
+        {
+          "name": "fetchPosition",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{apiKey}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/positions/:id",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "positions", ":id"],
+              "variable": [{ "key": "id", "value": "" }]
+            }
+          }
+        },
+        {
+          "name": "fetchPositionMarginCall",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{apiKey}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/positions/:id/margin-call",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "positions", ":id", "margin-call"],
+              "variable": [{ "key": "id", "value": "" }]
+            }
+          }
+        },
+        {
+          "name": "openPosition",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Authorization", "value": "Bearer {{apiKey}}" }],
+            "url": { "raw": "{{baseUrl}}/api/v1/positions", "host": ["{{baseUrl}}"], "path": ["api", "v1", "positions"] }
+          }
+        },
+        {
+          "name": "closePositionQuantity",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Authorization", "value": "Bearer {{apiKey}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/positions/:id/close",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "positions", ":id", "close"],
+              "variable": [{ "key": "id", "value": "" }]
+            }
+          }
+        },
+        {
+          "name": "closePosition",
+          "request": {
+            "method": "DELETE",
+            "header": [{ "key": "Authorization", "value": "Bearer {{apiKey}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/positions/:id",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "positions", ":id"],
+              "variable": [{ "key": "id", "value": "" }]
+            }
+          }
+        },
+        {
+          "name": "addIsolatedMargin",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Authorization", "value": "Bearer {{apiKey}}" }],
+            "url": { "raw": "{{baseUrl}}/api/v1/positions/margin", "host": ["{{baseUrl}}"], "path": ["api", "v1", "positions", "margin"] }
+          }
+        },
+        {
+          "name": "reduceIsolatedMargin",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Authorization", "value": "Bearer {{apiKey}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/positions/margin/reduce",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "positions", "margin", "reduce"]
+            }
+          }
+        },
+        {
+          "name": "fetchAdlDisclosure",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{apiKey}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/futures/adl-disclosure",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "futures", "adl-disclosure"]
+            }
+          }
+        },
+        {
+          "name": "ackAdlDisclosure",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Authorization", "value": "Bearer {{apiKey}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/futures/adl-disclosure/ack",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "futures", "adl-disclosure", "ack"]
+            }
+          }
+        },
+        {
+          "name": "fetchAdlDisclosureEvents",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{apiKey}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/futures/adl-events",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "futures", "adl-events"]
+            }
           }
         },
         {
@@ -287,6 +480,48 @@
             "method": "GET",
             "header": [{ "key": "Authorization", "value": "Bearer {{apiKey}}" }],
             "url": { "raw": "{{baseUrl}}/api/v1/account/trades", "host": ["{{baseUrl}}"], "path": ["api", "v1", "account", "trades"] }
+          }
+        },
+        {
+          "name": "fetchLedger",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{apiKey}}" }],
+            "url": { "raw": "{{baseUrl}}/api/v1/ledger", "host": ["{{baseUrl}}"], "path": ["api", "v1", "ledger"] }
+          }
+        },
+        {
+          "name": "createStatementExport",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Authorization", "value": "Bearer {{apiKey}}" }],
+            "url": { "raw": "{{baseUrl}}/api/v1/statements", "host": ["{{baseUrl}}"], "path": ["api", "v1", "statements"] }
+          }
+        },
+        {
+          "name": "fetchStatementExport",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{apiKey}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/statements/:id",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "statements", ":id"],
+              "variable": [{ "key": "id", "value": "" }]
+            }
+          }
+        },
+        {
+          "name": "fetchStatementExportFile",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{apiKey}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/statements/:id/file",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "statements", ":id", "file"],
+              "variable": [{ "key": "id", "value": "" }]
+            }
           }
         }
       ]

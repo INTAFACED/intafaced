@@ -1546,6 +1546,11 @@ export class PayService {
     return paymentReads.listPaymentAttempts(this.internal, paymentId);
   }
 
+  /** J-merchant-05 #4: the newest pending rail result's confirmation count, with when it was recorded. */
+  async paymentConfirmations(paymentId: string): Promise<{ seen: number; required: number; asOf: string } | null> {
+    return paymentReads.paymentConfirmations(this.internal, paymentId);
+  }
+
   async paymentFacts(paymentId: string): Promise<{ pricingSnapshot: StoredPricingSnapshot | null; failure: MerchantFailure | null }> {
     return paymentReads.paymentFacts(this.internal, paymentId);
   }

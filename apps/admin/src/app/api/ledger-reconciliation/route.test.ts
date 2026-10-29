@@ -115,6 +115,12 @@ describe('POST /api/ledger-reconciliation', () => {
       { action: 'define', body: { ...define, accountSet: { mode: 'query' } } },
       { action: 'delete', body: define },
       { action: 'define', body: define, extra: true },
+      // Pause, resume and retire are two-founder: never through this one-founder door, with or without approval ids.
+      { action: 'update', body: { controlId: CONTROL_ID, reason: 'LOCAL TEST pause the control', lifecycle: 'pause' } },
+      {
+        action: 'update',
+        body: { controlId: CONTROL_ID, reason: 'LOCAL TEST pause the control', lifecycle: 'pause', approvalId: 'a', operationId: 'o' },
+      },
     ]) {
       expect((await post(body)).status).toBe(400);
     }

@@ -385,6 +385,24 @@ const en = {
   aOwnVerified: 'Ownership proved · until {time}',
   aOwnPending: 'Ownership proof waiting for a signature',
   aOwnExpired: 'Ownership proof expired',
+  wTitle: 'Withdraw to my Web3 wallet',
+  wLabel: 'Your wallet',
+  wChecking: 'Asking your wallet for its address…',
+  wConnect: 'Connect a wallet to use it. With no wallet connected, nothing is filled.',
+  wConnectTo: 'Connect {name}',
+  wOpen: 'Open Wallet',
+  wGone: 'Your wallet disconnected, so its address was cleared and nothing was sent. Connect it again to use it.',
+  wOn: 'Your wallet is on {network}.',
+  wOnUnknown: 'Your wallet is on a network this page does not recognise.',
+  wOnNone: 'Your wallet reported no network.',
+  wHeld: 'The form holds the terms of a send whose answer was not received, until it is answered.',
+  wFilled: 'The address is filled from your connected wallet. Press Edit to change it.',
+  wNetworkSaved: 'The network is the one you saved this wallet on.',
+  wNetworkPick:
+    'The network list does not say which chain each network is, so the network is not filled from your wallet: choose the one your wallet uses. Money sent on another network can be lost.',
+  wEdited: 'You can change the address now. Money still goes only to a saved address that is ready.',
+  wEdit: 'Edit',
+  wSave: 'Save this wallet in your address book',
 } as const;
 
 const es = {
@@ -775,6 +793,24 @@ const es = {
   aOwnVerified: 'Titularidad demostrada · hasta {time}',
   aOwnPending: 'Prueba de titularidad pendiente de firma',
   aOwnExpired: 'Prueba de titularidad caducada',
+  wTitle: 'Retirar a mi cartera Web3',
+  wLabel: 'Tu cartera',
+  wChecking: 'Pidiendo la dirección a tu cartera…',
+  wConnect: 'Conecta una cartera para usarlo. Sin una cartera conectada, no se rellena nada.',
+  wConnectTo: 'Conectar {name}',
+  wOpen: 'Abrir Cartera',
+  wGone: 'Tu cartera se desconectó, así que se borró su dirección y no se envió nada. Vuelve a conectarla para usarla.',
+  wOn: 'Tu cartera está en {network}.',
+  wOnUnknown: 'Tu cartera está en una red que esta página no reconoce.',
+  wOnNone: 'Tu cartera no indicó ninguna red.',
+  wHeld: 'El formulario mantiene las condiciones de un envío cuya respuesta no llegó, hasta que se responda.',
+  wFilled: 'La dirección se rellena desde tu cartera conectada. Pulsa Editar para cambiarla.',
+  wNetworkSaved: 'La red es la que usaste al guardar esta cartera.',
+  wNetworkPick:
+    'La lista de redes no indica qué cadena es cada red, así que la red no se rellena desde tu cartera: elige la que usa tu cartera. El dinero enviado por otra red puede perderse.',
+  wEdited: 'Ahora puedes cambiar la dirección. El dinero solo se envía a una dirección guardada que esté lista.',
+  wEdit: 'Editar',
+  wSave: 'Guardar esta cartera en tu libreta',
 } as const;
 
 const fr = {
@@ -1169,6 +1205,24 @@ const fr = {
   aOwnVerified: 'Propriété prouvée · jusqu’au {time}',
   aOwnPending: 'Preuve de propriété en attente de signature',
   aOwnExpired: 'Preuve de propriété expirée',
+  wTitle: 'Retirer vers mon portefeuille Web3',
+  wLabel: 'Ton portefeuille',
+  wChecking: 'Demande de l’adresse à ton portefeuille…',
+  wConnect: 'Connecte un portefeuille pour l’utiliser. Sans portefeuille connecté, rien n’est rempli.',
+  wConnectTo: 'Connecter {name}',
+  wOpen: 'Ouvrir Portefeuille',
+  wGone: 'Ton portefeuille s’est déconnecté : son adresse a été effacée et rien n’a été envoyé. Reconnecte-le pour l’utiliser.',
+  wOn: 'Ton portefeuille est sur {network}.',
+  wOnUnknown: 'Ton portefeuille est sur un réseau que cette page ne reconnaît pas.',
+  wOnNone: 'Ton portefeuille n’a indiqué aucun réseau.',
+  wHeld: 'Le formulaire garde les conditions d’un envoi dont la réponse n’est pas arrivée, jusqu’à ce qu’elle arrive.',
+  wFilled: 'L’adresse vient de ton portefeuille connecté. Appuie sur Modifier pour la changer.',
+  wNetworkSaved: 'Le réseau est celui sur lequel tu as enregistré ce portefeuille.',
+  wNetworkPick:
+    'La liste des réseaux n’indique pas quelle chaîne est chaque réseau : le réseau n’est donc pas rempli depuis ton portefeuille. Choisis celui qu’utilise ton portefeuille. De l’argent envoyé sur un autre réseau peut être perdu.',
+  wEdited: 'Tu peux maintenant changer l’adresse. L’argent ne part que vers une adresse enregistrée et prête.',
+  wEdit: 'Modifier',
+  wSave: 'Enregistrer ce portefeuille dans ton carnet',
 } as const;
 
 export const withdrawalCopy = defineCopy('customer.money.withdrawals', en, { es, fr });
