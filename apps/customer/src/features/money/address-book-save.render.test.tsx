@@ -272,6 +272,26 @@ describe('checking the address before the confirmation (W-withdraw-03)', () => {
     expect(mutate).not.toHaveBeenCalled();
   });
 
+  it('drops a look-alike tick when the network changes, and checks the address again on the new network', async () => {
+    query.mockResolvedValueOnce({
+      ok: true,
+      data: { address: 'ok', lookalike: { destinationId: '11111111-1111-4111-8111-111111111111', label: null, refMasked: '0x5290…9EE7' } },
+    });
+    query.mockResolvedValueOnce({ ok: true, data: { address: 'ok', lookalike: null, fraudListed: true } });
+    await mount();
+    await type('Label', 'New wallet');
+    await type('Asset', 'USDT');
+    await type('Address', GOOD);
+    await submit(addForm());
+    await act(async () => tick().click());
+    await type('Network', 'ethereum');
+    expect(document.querySelector('[data-testid="address-lookalike"]')).toBeNull();
+    await submit(addForm());
+    expect(query.mock.calls[1]![2]).toEqual({ ref: GOOD, network: 'ethereum' });
+    expect(addForm().querySelector('[role="alert"]')?.textContent).toContain('on our fraud list');
+    expect(document.querySelector('input[name="withdraw-stepup-code"]')).toBeNull();
+  });
+
   it('puts a fraud-list refusal on save in the customer’s words', async () => {
     mint.mockResolvedValue({ ok: true, data: { accessToken: 'one-use', expiresAt: '2026-10-23T01:10:00Z' } });
     mutate.mockResolvedValue({

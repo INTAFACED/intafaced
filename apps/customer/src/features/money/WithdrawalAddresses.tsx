@@ -607,7 +607,7 @@ function AddForm({ onSaved }: { onSaved: () => void }) {
   const [lookalike, setLookalike] = useState<NonNullable<DestinationCheck['lookalike']> | null>(null);
   const [checked, setChecked] = useState(false);
   const [untickedShown, setUntickedShown] = useState(false);
-  // The address as typed now, so a check answered after the field changed is dropped, not applied to the new address.
+  // The address and network as typed now, so a check answered after either changed is dropped, not applied to the new pair.
   const typed = useRef('');
   if (networks.resource.status === 'loading') return <Loading />;
   if (networks.resource.status === 'failed') return <Failure result={networks.resource.failure} retry={networks.reload} />;
@@ -620,9 +620,9 @@ function AddForm({ onSaved }: { onSaved: () => void }) {
   const set = (patch: Partial<Draft>) => {
     setSaved(null);
     setCheckProblem(null);
-    if (patch.address !== undefined) {
-      // A new address is a new check: the old warning and tick do not carry over.
-      typed.current = patch.address.trim();
+    if (patch.address !== undefined || patch.network !== undefined) {
+      // A new address or network is a new check (the fraud list is per network): the old warning and tick do not carry over.
+      typed.current = `${(patch.address ?? draft.address).trim()}|${patch.network ?? draft.network}`;
       setChecksumBad(false);
       setLookalike(null);
       setChecked(false);
@@ -649,11 +649,13 @@ function AddForm({ onSaved }: { onSaved: () => void }) {
       return;
     }
     const ref = input.ref;
+    const asked = `${ref}|${input.network}`;
+    typed.current = asked;
     setChecking(true);
     setCheckProblem(null);
     try {
       const answer = await api.query('bank', 'ramps.destinations.check', { ref, network: input.network }, destinationCheckSchema);
-      if (typed.current !== ref) return;
+      if (typed.current !== asked) return;
       if (!answer.ok) {
         setCheckProblem(moneyRefusalWords(answer.code) ?? t('aCheckFailed'));
         return;
@@ -673,7 +675,7 @@ function AddForm({ onSaved }: { onSaved: () => void }) {
       }
       setConfirming(true);
     } catch {
-      if (typed.current === ref) setCheckProblem(t('aCheckFailed'));
+      if (typed.current === asked) setCheckProblem(t('aCheckFailed'));
     } finally {
       setChecking(false);
     }

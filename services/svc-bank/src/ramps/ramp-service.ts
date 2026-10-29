@@ -65,7 +65,7 @@ import {
   type ApprovalMailPort,
 } from './address-approval.js';
 import { unconfiguredTrustedDevices, type TrustedDevicePort } from './trusted-devices.js';
-import { DestinationFraudList, type DestinationFraudListPort } from './fraud-list.js';
+import { DestinationFraudList, refuseFraudListed, type DestinationFraudListPort } from './fraud-list.js';
 import {
   BANK_ADDRESS_BOOK_CAP_ENV,
   destKindForRamp,
@@ -634,7 +634,16 @@ export class RampService {
       }
     }
     const coolingHours = requireOfframpCoolingHours(this.ownerOfframpCoolingHoursRaw());
+    // A new send never goes to, and never stores, an address on the owner's fraud list (W-withdraw-03): checked before the
+    // offered address is stored and before the claim. A send already claimed under this id carries on (a settled one answers
+    // as before, a held one is not left held), so a listing made after the claim strands nothing.
+    const refuseListedIfFresh = async () => {
+      if ((await this.offrampClaimedTo(input.offrampId, input.userId)) === null) refuseFraudListed();
+    };
+    const offered = input.destinationRef?.trim();
+    if (offered && (await this.fraudList.isListed(null, offered))) await refuseListedIfFresh();
     const dest = await this.resolveWithdrawDestination(input.userId, input.kind, input.destinationRef);
+    if (await this.fraudList.isListed(dest.network, dest.ref)) await refuseListedIfFresh();
     assertOfframpDestCoolingElapsed(coolingHours, dest.updatedAt);
 
     return withMoneySpan(

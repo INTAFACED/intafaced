@@ -31,8 +31,11 @@ export const SET_FRAUD_LISTING_ACTION = 'bank.ops.setDestinationFraudListing';
 
 /** What the address book asks of the list. */
 export interface DestinationFraudListPort {
-  /** Whether `ref` is listed on `network` or on every network. Throws `bank.destination_fraud_list_unreadable` when unknown. */
-  isListed(network: string, ref: string): Promise<boolean>;
+  /**
+   * Whether `ref` is listed on `network` or on every network. A null network (an entry stored without one) matches a listing on
+   * any network, since the network it would be sent on is not known. Throws `bank.destination_fraud_list_unreadable` when unknown.
+   */
+  isListed(network: string | null, ref: string): Promise<boolean>;
 }
 
 export interface FraudListing {
@@ -110,6 +113,14 @@ function toListing(row: ListRow): FraudListing {
   };
 }
 
+/** The address-book and send refusal for a listed address. Nothing was saved or sent. */
+export function refuseFraudListed(): never {
+  throw new BankError(
+    'This address is on the fraud list, so it cannot be saved or sent to. Nothing was saved or sent',
+    'bank.destination_fraud_listed',
+  );
+}
+
 function unreadable(): BankError {
   // The database detail is not a customer message; the code says enough to try again later.
   return new BankError(
@@ -121,13 +132,13 @@ function unreadable(): BankError {
 export class DestinationFraudList implements DestinationFraudListPort {
   constructor(private readonly sql: Sql) {}
 
-  async isListed(network: string, ref: string): Promise<boolean> {
+  async isListed(network: string | null, ref: string): Promise<boolean> {
     const key = fraudAddressKey(ref);
-    const networks = [ANY_NETWORK, network.trim().toLowerCase()];
+    const networks = network === null ? null : [ANY_NETWORK, network.trim().toLowerCase()];
     try {
       const rows = await this.sql<Array<{ listed: boolean }>>`
         SELECT listed FROM bank.destination_fraud_list
-         WHERE address_key = ${key} AND network = ANY(${networks}) AND listed
+         WHERE address_key = ${key} AND (${networks}::text[] IS NULL OR network = ANY(${networks}::text[])) AND listed
          LIMIT 1
       `;
       return rows.length > 0;
@@ -136,11 +147,14 @@ export class DestinationFraudList implements DestinationFraudListPort {
     }
   }
 
-  /** Every address that has ever been on the list, listed ones first. */
-  async list(): Promise<FraudListing[]> {
+  /** Addresses that have ever been on the list (one address's rows when `address` is given), listed ones first, at most `limit`. */
+  async list(limit: number, address?: string): Promise<FraudListing[]> {
+    const key = address === undefined ? null : fraudAddressKey(address);
     const rows = await this.sql<ListRow[]>`
       SELECT network, address_key, listed, revision, reason, approved_by, updated_at
-        FROM bank.destination_fraud_list ORDER BY listed DESC, network, address_key
+        FROM bank.destination_fraud_list
+       WHERE (${key}::text IS NULL OR address_key = ${key})
+       ORDER BY listed DESC, network, address_key LIMIT ${limit}
     `;
     return rows.map(toListing);
   }
@@ -172,9 +186,13 @@ export class DestinationFraudList implements DestinationFraudListPort {
     const revision = change.expectedRevision + 1;
 
     const prior = await this.history(this.sql, network, address, revision);
-    if (prior) return this.replay(prior, change.listed, reason);
-
     const current = await this.state(network, address);
+    // A retry replays only while its revision is still the current one; a later change makes it stale, not true.
+    if (prior) {
+      if (current.revision !== revision) throw this.conflict(network, address, change.expectedRevision, current.revision);
+      return this.replay(prior, change.listed, reason);
+    }
+
     if (current.revision !== change.expectedRevision) throw this.conflict(network, address, change.expectedRevision, current.revision);
 
     const { requesterId, approverId } = await change.consume();
@@ -274,6 +292,7 @@ export function memoryFraudList(listed: Array<{ network: string; address: string
   return {
     async isListed(network, ref) {
       const key = fraudAddressKey(ref);
+      if (network === null) return [...keys].some((k) => k.endsWith(`|${key}`));
       return keys.has(`${ANY_NETWORK}|${key}`) || keys.has(`${network.trim().toLowerCase()}|${key}`);
     },
   };
@@ -291,20 +310,24 @@ const listing = z.object({
   updatedAt: z.string().nullable(),
 });
 
-/** Desk read: every address ever listed, and one address's history when asked (with its own limit; blank is not 50). */
+/**
+ * Desk read: addresses ever listed (or one address's rows), at most `limit`, and one address's history when asked, with its
+ * own limit. Neither page size has a default (blank is not 50).
+ */
 export function destinationFraudListProcedure(list: () => DestinationFraudList, guard: Guard) {
   return scopedProcedure('admin:read')
     .input(
       z
         .object({
+          limit: z.number().int().min(1).max(500),
+          address: z.string().min(1).max(256).optional(),
           historyFor: z
             .object({ network: z.string().min(1).max(32), address: z.string().min(1).max(256) })
             .strict()
             .optional(),
           historyLimit: z.number().int().min(1).max(200).optional(),
         })
-        .strict()
-        .optional(),
+        .strict(),
     )
     .output(
       z.object({
@@ -318,12 +341,12 @@ export function destinationFraudListProcedure(list: () => DestinationFraudList, 
     )
     .query(({ input }) =>
       guard(async () => {
-        if (input?.historyFor !== undefined && input.historyLimit === undefined) {
+        if (input.historyFor !== undefined && input.historyLimit === undefined) {
           throw new BankError('historyLimit is required with historyFor; blank is not 50', 'bank.validation_failed');
         }
         const service = list();
-        const entries = await service.list();
-        const history = input?.historyFor
+        const entries = await service.list(input.limit, input.address);
+        const history = input.historyFor
           ? await service.historyOf(input.historyFor.network, input.historyFor.address, input.historyLimit!)
           : [];
         return { entries, history };
@@ -370,12 +393,14 @@ export function setDestinationFraudListingProcedure(
     );
 }
 
-/** The fields the approval is bound to, normalised so the desk and the stack's tools hash the same change. */
-export function fraudListingFields(input: { network: string; address: string; listed: boolean; expectedRevision: number }) {
+/** The fields the approval is bound to (the reason too), normalised so the desk and the stack's tools hash the same change. */
+export function fraudListingFields(input: { network: string; address: string; listed: boolean; expectedRevision: number; reason: string }) {
   return {
     network: fraudNetworkKey(input.network),
     address: fraudAddressKey(input.address),
     listed: String(input.listed),
     revision: String(input.expectedRevision + 1),
+    // The approver approves the reason the history keeps, not only the change.
+    reason: input.reason.trim(),
   };
 }

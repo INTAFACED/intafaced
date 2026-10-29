@@ -14,14 +14,21 @@ describe('destination fraud list keys', () => {
     expect(() => fraudNetworkKey('eth net')).toThrow(/not a network id/);
   });
 
-  it('binds an approval to the normalised change and the next revision', () => {
+  it('binds an approval to the normalised change, the next revision and the reason', () => {
     expect(
-      fraudListingFields({ network: 'Base', address: '0xABCDEF0123456789ABCDEF0123456789ABCDEF01', listed: true, expectedRevision: 2 }),
+      fraudListingFields({
+        network: 'Base',
+        address: '0xABCDEF0123456789ABCDEF0123456789ABCDEF01',
+        listed: true,
+        expectedRevision: 2,
+        reason: ' TEST: reported scam ',
+      }),
     ).toEqual({
       network: 'base',
       address: '0xabcdef0123456789abcdef0123456789abcdef01',
       listed: 'true',
       revision: '3',
+      reason: 'TEST: reported scam',
     });
   });
 

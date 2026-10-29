@@ -20,6 +20,7 @@ import { createBankRouter } from '../router.js';
 import { memorySecurityLock } from '../security-lock.js';
 import { DestinationFraudList, fraudChangeKey, fraudListingFields, SET_FRAUD_LISTING_ACTION } from './fraud-list.js';
 import { memoryWithdrawNetworks } from './withdraw-networks.js';
+import { CRYPTO_LEDGER_PROGRAMME } from './rails.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const drizzle = join(here, '../..', 'drizzle');
@@ -68,7 +69,7 @@ function deskApprovals() {
     get consumed() {
       return consumed;
     },
-    issue(change: { network: string; address: string; listed: boolean; expectedRevision: number }) {
+    issue(change: { network: string; address: string; listed: boolean; expectedRevision: number; reason: string }) {
       const approvalId = randomUUID();
       issued.set(approvalId, bankActionPayloadHash(SET_FRAUD_LISTING_ACTION, fraudListingFields(change)));
       return { approvalId, operationId: randomUUID() };
@@ -138,7 +139,13 @@ describe('destination fraud list (W-withdraw-03)', () => {
     return createBankServices(sql, new MemoryLedger(), memoryLedgerHistory(new MemoryLedger()), {
       nativeAssetId: 'IFC',
       recipients: memoryRecipientState(),
-      ramps: { securityLock: memorySecurityLock(), withdrawNetworks: memoryWithdrawNetworks([asset]), addressBookCap: '5' },
+      ramps: {
+        securityLock: memorySecurityLock(),
+        withdrawNetworks: memoryWithdrawNetworks([asset]),
+        addressBookCap: '5',
+        programme: CRYPTO_LEDGER_PROGRAMME,
+        offrampCoolingHours: '0',
+      },
     });
   }
 
@@ -151,7 +158,7 @@ describe('destination fraud list (W-withdraw-03)', () => {
     return caller(bank, OFFICER, ['admin:compliance'], approvals).ops.setDestinationFraudListing({
       ...change,
       reason,
-      ...approvals.issue(change),
+      ...approvals.issue({ ...change, reason }),
     });
   }
 
@@ -165,7 +172,7 @@ describe('destination fraud list (W-withdraw-03)', () => {
 
   it('starts empty: nothing is listed and the address book saves any valid address', async () => {
     const bank = services();
-    expect(await caller(bank, OFFICER, ['admin:read']).ops.destinationFraudList()).toEqual({ entries: [], history: [] });
+    expect(await caller(bank, OFFICER, ['admin:read']).ops.destinationFraudList({ limit: 50 })).toEqual({ entries: [], history: [] });
     expect(await customer(bank).ramps.destinations.check({ ref: LISTED, network: 'ethereum' })).toMatchObject({ fraudListed: false });
     await expect(customer(bank).ramps.destinations.save(entry(LISTED))).resolves.toMatchObject({ state: 'pending' });
   });
@@ -229,6 +236,7 @@ describe('destination fraud list (W-withdraw-03)', () => {
     await expect(customer(bank).ramps.destinations.save(entry(LISTED))).resolves.toMatchObject({ state: 'pending' });
 
     const desk = await caller(bank, OFFICER, ['admin:read']).ops.destinationFraudList({
+      limit: 50,
       historyFor: { network: '*', address: LISTED.toUpperCase().replace('0X', '0x') },
       historyLimit: 10,
     });
@@ -255,6 +263,11 @@ describe('destination fraud list (W-withdraw-03)', () => {
     await expect(list(bank, approvals, { ...change, listed: false })).rejects.toMatchObject({
       cause: expect.objectContaining({ code: 'bank.ops_revision_conflict' }),
     });
+    // Once a later change lands, the old retry is stale: it conflicts rather than reporting a state that is no longer true.
+    await list(bank, approvals, { ...change, listed: false, expectedRevision: 1 }, 'TEST: report withdrawn after review');
+    await expect(
+      caller(bank, OFFICER, ['admin:compliance'], approvals).ops.setDestinationFraudListing({ ...change, reason: REASON }),
+    ).rejects.toMatchObject({ cause: expect.objectContaining({ code: 'bank.ops_revision_conflict' }) });
   });
 
   it('needs compliance and a matching approval; a short reason and a read-only desk change nothing', async () => {
@@ -265,18 +278,44 @@ describe('destination fraud list (W-withdraw-03)', () => {
       caller(bank, OFFICER, ['admin:read'], approvals).ops.setDestinationFraudListing({
         ...change,
         reason: REASON,
-        ...approvals.issue(change),
+        ...approvals.issue({ ...change, reason: REASON }),
       }),
     ).rejects.toMatchObject({ code: 'FORBIDDEN' });
     await expect(list(bank, approvals, change, 'too short')).rejects.toMatchObject({
       cause: expect.objectContaining({ code: 'bank.ops_reason_too_short' }),
     });
-    const wrong = approvals.issue({ ...change, address: CLEAN });
-    await expect(
-      caller(bank, OFFICER, ['admin:compliance'], approvals).ops.setDestinationFraudListing({ ...change, reason: REASON, ...wrong }),
-    ).rejects.toBeTruthy();
-    expect(await new DestinationFraudList(sql).list()).toEqual([]);
+    // An approval for another address, or for this change with another reason, is not this change's approval.
+    for (const wrong of [
+      approvals.issue({ ...change, address: CLEAN, reason: REASON }),
+      approvals.issue({ ...change, reason: 'TEST: some other reason' }),
+    ]) {
+      await expect(
+        caller(bank, OFFICER, ['admin:compliance'], approvals).ops.setDestinationFraudListing({ ...change, reason: REASON, ...wrong }),
+      ).rejects.toMatchObject({ code: 'PRECONDITION_FAILED' });
+    }
+    expect(await new DestinationFraudList(sql).list(50)).toEqual([]);
     expect(await sql`SELECT 1 FROM bank.destination_fraud_list_history`).toHaveLength(0);
+  });
+
+  it('a send to a listed address is refused before anything is claimed or held, and an entry with no network matches any listing', async () => {
+    const bank = services();
+    await list(bank, deskApprovals(), { network: 'ethereum', address: LISTED, listed: true, expectedRevision: 0 });
+    const list2 = new DestinationFraudList(sql);
+    expect(await list2.isListed(null, LISTED)).toBe(true);
+    expect(await list2.isListed('base', LISTED)).toBe(false);
+    await expect(
+      bank.ramps.offramp({
+        offrampId: randomUUID(),
+        userId: CUSTOMER,
+        assetId: 'USDT',
+        amount: 1n,
+        kind: 'crypto',
+        destinationRef: LISTED,
+        clientRef: 'TEST-fraud-send',
+      }),
+    ).rejects.toMatchObject({ code: 'bank.destination_fraud_listed' });
+    expect(await sql`SELECT 1 FROM bank.ramp_offramps WHERE user_id = ${CUSTOMER}`).toHaveLength(0);
+    expect(await sql`SELECT 1 FROM bank.user_withdraw_destinations WHERE lower(ref) = ${LISTED}`).toHaveLength(0);
   });
 
   it('a list that cannot be read refuses the save rather than assuming the address is safe', async () => {

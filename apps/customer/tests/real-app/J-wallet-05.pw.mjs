@@ -267,7 +267,7 @@ test(`${J} #2 picks the saved address or pastes one: a mistyped address is refus
   const refusal = add.getByRole('alert');
   await expect(refusal.or(stepUp(page))).toBeVisible();
   if (await stepUp(page).isVisible()) await confirmItsMe(page);
-  await expect(refusal).toContainText(/fraud/i, UNBUILT);
+  await expect(refusal).toContainText(/fraud/i);
   await expect(page.locator('tbody tr', { hasText: 'TEST fraud-listed wallet' })).toHaveCount(0);
   const api = await customerApi();
   expect(toUnits(await api.available('USDT'))).toBe(toUnits('300'));

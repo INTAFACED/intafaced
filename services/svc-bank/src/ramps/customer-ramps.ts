@@ -485,7 +485,8 @@ export async function saveDestination(
   const { confirmLookalike, lookalikeOf: _caller, ...book } = input;
   const entry = assertBookEntry(book);
   await assertWithdrawNetwork(deps.networks, entry.assetId, entry.network);
-  const saved = await deps.destinations.list(book.userId);
+  // Independent reads, asked together: the book, and whether the address is on the fraud list.
+  const [saved, fraudListed] = await Promise.all([deps.destinations.list(book.userId), deps.fraudList.isListed(entry.network, entry.ref)]);
   // The same entry again is a replay of a save already made, answered as before. Anything new is not added while the
   // owner's security lock holds (W-withdraw-09), read from identity before anything is stored.
   const same = saved.find(
@@ -498,7 +499,7 @@ export async function saveDestination(
       (row.tag ?? '') === (entry.tag ?? ''),
   );
   // A listed address is refused before anything is stored, even as a replay of an entry saved before it was listed.
-  if (await deps.fraudList.isListed(entry.network, entry.ref)) {
+  if (fraudListed) {
     throw new BankError(
       'This address is on the fraud list, so it cannot be saved to your address book. Nothing was saved',
       'bank.destination_fraud_listed',
@@ -562,8 +563,8 @@ export async function destinationReadiness(
   const base = { destinationId: row.destinationId, coolingOffEndsAt: null, lockUnlocksAt: null, approvalLinkExpiresAt: null };
   if (lock.locked) return { ...base, state: 'locked', lockUnlocksAt: lock.unlocksAt };
   if (row.state === 'blocked' || row.state === 'archived') return { ...base, state: 'blocked' };
-  // Listed as fraud after it was saved: nothing may be sent to it.
-  if (await deps.fraudList.isListed(row.network ?? '', row.ref)) return { ...base, state: 'blocked' };
+  // Listed as fraud after it was saved: nothing may be sent to it. An entry with no network matches a listing on any network.
+  if (await deps.fraudList.isListed(row.network, row.ref)) return { ...base, state: 'blocked' };
   if (row.state === 'pending') {
     const links = await openApprovalLinks({ links: deps.approvalLinks, now: () => now }, input.userId);
     return { ...base, state: 'approval_pending', approvalLinkExpiresAt: links.get(row.destinationId) ?? null };
