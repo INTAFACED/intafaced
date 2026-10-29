@@ -66,10 +66,15 @@
       "value": "full",
       "note": "TEST verification level for copying: full, the level the journeys verify to, so an unverified account is refused."
     },
+    "TRADE_BOTS_VERIFICATION_LEVEL": {
+      "service": "trade",
+      "value": "full",
+      "note": "TEST verification level for creating a bot: full, the level the journeys verify to, so an unverified account is refused (trade.bots_verification_insufficient)."
+    },
     "TRADE_OTC_DESK_LAW": {
       "service": "trade",
-      "value": "{\"published\": true, \"spreadBps\": 20, \"minStake\": \"0\", \"counterparty\": \"platform\", \"quoteTtlMs\": 60000, \"maxMidAgeSeconds\": 86400, \"settleWindowMs\": 60000}",
-      "note": "TEST quote desk law: 20 bps disclosed spread, no stake floor, the platform as counterparty, a 60 s firm quote so a journey sees one expire, a reference price trusted for one day (the stack's boot-stamped TEST mid), and a 60 s window to settle an accepted quote so a journey sees one close."
+      "value": "{\"published\": true, \"spreadBps\": 20, \"minStake\": \"100\", \"counterparty\": \"platform\", \"quoteTtlMs\": 60000, \"maxMidAgeSeconds\": 86400, \"settleWindowMs\": 60000}",
+      "note": "TEST quote desk law: 20 bps disclosed spread, a 100 IFC stake floor (J-copy-bots-otc-24 stakes it; one below it is refused), the platform as counterparty, a 60 s firm quote so a journey sees one expire, a reference price trusted for one day (the stack's boot-stamped TEST mid), and a 60 s window to settle an accepted quote so a journey sees one close."
     },
     "TRADE_OTC_MIDS": {
       "service": "trade",

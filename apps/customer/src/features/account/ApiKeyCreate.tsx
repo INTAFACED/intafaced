@@ -4,7 +4,7 @@ import type { ApiResult } from '../../shared/api';
 import { useResource } from '../../shared/resource';
 import { Button, Failure, Field, Loading } from '../../shared/ui';
 import { useSession } from '../session/session';
-import { apiKeysCopy as copy, type ApiKeysCopyKey } from './api-keys-copy';
+import { apiKeysCopy as copy, type ApiKeysCopyKey, type ApiKeysPlainKey } from './api-keys-copy';
 import { KeySafety } from './ApiKeys';
 import {
   createDeveloperKey,
@@ -99,7 +99,7 @@ export function ApiKeyCreate() {
   const [preset, setPreset] = useState<Preset>('custom');
   const [ticked, setTicked] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
-  const [refusal, setRefusal] = useState<Exclude<ApiKeysCopyKey, 'capUsed'> | null>(null);
+  const [refusal, setRefusal] = useState<ApiKeysPlainKey | null>(null);
   const [failure, setFailure] = useState<Extract<ApiResult<unknown>, { ok: false }> | null>(null);
   const [made, setMade] = useState<(ApiKeyCreateOutput & { key: string }) | null>(null);
   const mounted = useRef(true);

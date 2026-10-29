@@ -17,6 +17,8 @@ export const WAVE_RELEASE_TARGET = 'waitlist.wave.release';
 export const DEPOSIT_ADDRESS_UNFREEZE = 'pay.deposit_address_unfreeze';
 /** The verb svc-identity binds a KYC document read to (`kyc.getDocument`). */
 export const KYC_DOCUMENT_GET = 'kyc.doc.get';
+/** The verb svc-identity binds a selfie decision to (`kyc.selfie.decide`). */
+export const KYC_SELFIE_DECIDE = 'kyc.selfie.decide';
 
 /**
  * How a console request becomes an identity approval, and how the target service recomputes the same hash.
@@ -148,6 +150,9 @@ export function payloadHashFor(request: DeskRequest): string {
     // svc-identity `consumePrivileged(…, 'kyc.doc.get', { documentId })`: { targetId: 'kyc.doc.get', documentId }.
     case 'identity.kyc_document.open':
       return shaIdentity(KYC_DOCUMENT_GET, { documentId: request.documentId });
+    // svc-identity `consumePrivileged(…, 'kyc.selfie.decide', { selfieId, decision })`, in this order.
+    case 'identity.kyc_selfie.decide':
+      return shaIdentity(KYC_SELFIE_DECIDE, { selfieId: request.selfieId, decision: request.decision });
     // svc-identity `waitlist.waves.release`: { targetId: 'waitlist.wave.release', wave, size }, in this order.
     case 'campaigns.waitlist.wave_release':
       return shaIdentity(WAVE_RELEASE_TARGET, { wave: request.wave, size: request.size });
@@ -359,6 +364,16 @@ export function proposeInputFor(request: DeskRequest): ProposeInput {
         actionType: KYC_DOCUMENT_GET,
         targetService: 'svc-identity',
         targetId: KYC_DOCUMENT_GET,
+        expectedVersion: '1',
+        payloadHash,
+        policyVersion: 'v1',
+      };
+    // svc-identity consumes a selfie decision against its own verb as the target id, at version 1.
+    case 'identity.kyc_selfie.decide':
+      return {
+        actionType: KYC_SELFIE_DECIDE,
+        targetService: 'svc-identity',
+        targetId: KYC_SELFIE_DECIDE,
         expectedVersion: '1',
         payloadHash,
         policyVersion: 'v1',
