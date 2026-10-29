@@ -36,7 +36,13 @@ export function voteMessage(input: { proposalId: string; userId: string; choice?
                 ? { kind: 'pick', choices: [...input.ballot.choices] }
                 : { kind: 'split', parts: input.ballot.parts.map((part) => ({ choice: part.choice, bps: part.bps })) },
         };
-  return JSON.stringify({ purpose: 'INTAFACED governance vote', proposalId: input.proposalId, userId: input.userId, ...vote });
+  return JSON.stringify({
+    purpose: 'INTAFACED governance vote',
+    origin: 'svc-token',
+    proposalId: input.proposalId,
+    userId: input.userId,
+    ...vote,
+  });
 }
 
 const FETCH_MS = 3_000;

@@ -50,6 +50,9 @@ export function snapshotHash(rows: ReadonlyArray<{ userId: string; power: Amount
   return createHash('sha256').update(lines).digest('hex');
 }
 
+/** Rows per snapshot INSERT: 4 bind parameters each, far below Postgres's limit of 65535 per statement. */
+export const SNAPSHOT_INSERT_CHUNK = 5000;
+
 /**
  * Writes one row per account with active stake and seals the proposal.
  * Runs on the creation transaction, so a crash leaves neither the proposal
@@ -61,16 +64,18 @@ export async function sealSnapshot(
 ): Promise<{ count: number; total: Amount; hash: string }> {
   const rows = [...input.byUser.entries()].filter(([, power]) => power > 0n).map(([userId, power]) => ({ userId, power }));
   if (rows.length > 0) {
-    // One statement for every account, so the creation transaction holds its stake locks for one round-trip.
-    const values = rows.map((row) => ({
-      proposal_id: input.proposalId,
-      user_id: row.userId,
-      power: formatAmount(row.power),
-      taken_at: input.takenAt,
-    }));
-    await tx`
-      INSERT INTO token.governance_snapshots ${tx(values, 'proposal_id', 'user_id', 'power', 'taken_at')}
-    `;
+    // Few statements on the creation transaction; each chunk stays under Postgres's 65535 bind parameters (4 per row).
+    for (let start = 0; start < rows.length; start += SNAPSHOT_INSERT_CHUNK) {
+      const values = rows.slice(start, start + SNAPSHOT_INSERT_CHUNK).map((row) => ({
+        proposal_id: input.proposalId,
+        user_id: row.userId,
+        power: formatAmount(row.power),
+        taken_at: input.takenAt,
+      }));
+      await tx`
+        INSERT INTO token.governance_snapshots ${tx(values, 'proposal_id', 'user_id', 'power', 'taken_at')}
+      `;
+    }
   }
   const total = rows.reduce((sum, row) => sum + row.power, 0n);
   const hash = snapshotHash(rows);

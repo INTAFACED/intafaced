@@ -1116,19 +1116,6 @@ export function createTokenRouter(token: TokenService, options: TokenRouterOptio
         }),
       ),
 
-    /**
-     * The exact text the signed account's wallet signs for this vote (`voteMessage`), so the browser signs the bytes the
-     * service checks. Reads nothing and stores nothing; castVote validates the vote itself.
-     */
-    voteMessage: scopedProcedure('token:read', { module: 'token' })
-      .input(z.object({ proposalId: proposalIdWire, choice: voteChoice.optional(), ballot: ballotWire.optional() }))
-      .output(z.object({ message: z.string() }))
-      .query(({ ctx, input }) => {
-        const userId = ctx.principal.userId;
-        if (!userId) throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Principal required' });
-        return { message: voteMessage({ proposalId: input.proposalId, userId, choice: input.choice, ballot: input.ballot }) };
-      }),
-
     castVote: scopedProcedure('token:stake', { module: 'token' })
       .input(
         z.object({
@@ -1182,6 +1169,19 @@ export function createTokenRouter(token: TokenService, options: TokenRouterOptio
           };
         }),
       ),
+
+    /**
+     * The exact text the signed account's wallet signs for this vote (`voteMessage`), so the browser signs the bytes the
+     * service checks. Reads nothing and stores nothing; castVote validates the vote itself.
+     */
+    voteMessage: scopedProcedure('token:read', { module: 'token' })
+      .input(z.object({ proposalId: proposalIdWire, choice: voteChoice.optional(), ballot: ballotWire.optional() }))
+      .output(z.object({ message: z.string() }))
+      .query(({ ctx, input }) => {
+        const userId = ctx.principal.userId;
+        if (!userId) throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Principal required' });
+        return { message: voteMessage({ proposalId: input.proposalId, userId, choice: input.choice, ballot: input.ballot }) };
+      }),
 
     listProposals: scopedProcedure('token:read')
       .input(

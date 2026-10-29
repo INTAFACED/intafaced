@@ -161,19 +161,28 @@ test(`${J} starts: signed in; a governance space with proposals in two states; I
 });
 
 test(`${J} #1 Opens /token/governance: The space card, follow, filters and an empty state when no proposals`, async ({ page }) => {
-  const { nonce } = run.read();
+  const { who, nonce } = run.read();
+  const client = await api(who);
+  // The space card draws what the token service's governance read says: not followed yet, so the press is Follow.
+  const read = await home(client);
+  expect(read).toMatchObject({ spaceId: expect.any(String), following: false });
   await openGovernance(page);
   await expect(space(page)).toBeVisible();
   await expect(space(page)).toContainText('IFC token holders');
-  await expect(space(page).getByRole('button', { name: 'Follow', exact: true })).toBeVisible();
+  const follow = space(page).getByRole('button', { name: 'Follow', exact: true });
+  await expect(follow).toBeVisible();
+  await expect(follow).toHaveAttribute('aria-pressed', String(read.following));
   await expect(page.getByRole('combobox', { name: 'Status' })).toBeVisible();
   await expect(page.getByRole('combobox', { name: 'Kind' })).toBeVisible();
   await expect(search(page)).toBeVisible();
-  // No proposal in the space answers this run's empty search: the list says so and draws no rows.
+  // The space starts with proposals (this journey's start state), so the list draws rows that equal the service read.
+  await search(page).fill(nonce);
+  await expect(bodyRows(proposals(page))).toHaveCount((await listed(client, { q: nonce })).length);
+  // When no proposal answers, the list says so and draws no rows; the service read is empty too.
   await search(page).fill(`${nonce}none`);
   await expect(page.getByText('No proposals match these filters')).toBeVisible();
   await expect(page.getByRole('region', { name: 'Proposals', exact: true })).toHaveCount(0);
-  expect(await listed(await api(run.read().who), { q: `${nonce}none` })).toEqual([]);
+  expect(await listed(client, { q: `${nonce}none` })).toEqual([]);
 });
 
 test(`${J} #2 Follows the space, twice: The follow persists; the second follow changes nothing`, async ({ page, browser }) => {
@@ -500,6 +509,7 @@ test(`${J} #7 Casts a vote on an approval, weighted or ranked ballot: A ballot w
   await expect(ballot.getByRole('region', { name: 'Message to sign' }).locator('pre')).toHaveText(message);
   expect(JSON.parse(message)).toEqual({
     purpose: 'INTAFACED governance vote',
+    origin: 'svc-token',
     proposalId: ballots.weighted,
     userId: client.userId,
     ballot: split(60, 40),
@@ -587,9 +597,26 @@ test(`${J} #7 Casts a vote on an approval, weighted or ranked ballot: A ballot w
 });
 
 test(`${J} #8 Presses Delegate: The refusal naming the Protocol blocker; no row written`, async ({ page }) => {
-  const { who, proposer } = run.read();
+  const { who, proposer, openId } = run.read();
   const client = await api(who);
-  const target = (await api(proposer)).userId;
+  const delegatee = await api(proposer);
+  const target = delegatee.userId;
+  // What a delegation would change: each side's voting power on a proposal, and each side's power history.
+  const state = async () => {
+    const read = async (c, path, input) => {
+      const res = await c.get(`/api/token/trpc/${path}${trpcInput(input)}`);
+      expect(res.status, JSON.stringify(res.body).slice(0, 300)).toBe(200);
+      return data(res);
+    };
+    return {
+      mine: await read(client, 'votingPower.ofProposal', { proposalId: openId }),
+      theirs: await read(delegatee, 'votingPower.ofProposal', { proposalId: openId }),
+      myHistory: await read(client, 'votingPower.history', { limit: 50 }),
+      theirHistory: await read(delegatee, 'votingPower.history', { limit: 50 }),
+    };
+  };
+  const before = await state();
+  expect(before.mine.power).toBe('100');
   await openGovernance(page);
   const panel = page.getByRole('region', { name: 'Delegation' });
   await expect(panel.getByTestId('delegation-state')).toContainText('Delegation waits for the INTACHAIN launch');
@@ -605,6 +632,7 @@ test(`${J} #8 Presses Delegate: The refusal naming the Protocol blocker; no row 
   const after = await client.get('/api/token/trpc/delegation');
   expect(after.status).toBe(200);
   expect(data(after)).toEqual({ delegateeUserId: null, blocker: 'no_chain_service' });
+  expect(await state()).toEqual(before);
 });
 
 test(`${J} #9 Opens the treasury panel: Each figure equals the token service read; missing figures say "not reported"; "none recorded" for burns, not zero`, async ({

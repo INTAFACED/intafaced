@@ -8,11 +8,11 @@ const SIGNATURE = `0x${'ab'.repeat(65)}`;
 describe('voteMessage', () => {
   it('binds the proposal, the person and the vote, with keys in one order whatever order the ballot arrived in', () => {
     expect(voteMessage({ proposalId: 'p-1', userId: USER, choice: 'for' })).toBe(
-      `{"purpose":"INTAFACED governance vote","proposalId":"p-1","userId":"${USER}","choice":"for"}`,
+      `{"purpose":"INTAFACED governance vote","origin":"svc-token","proposalId":"p-1","userId":"${USER}","choice":"for"}`,
     );
     const split = { kind: 'split' as const, parts: [{ bps: 4000, choice: 1 } as { choice: number; bps: number }] };
     expect(voteMessage({ proposalId: 'p-1', userId: USER, ballot: split })).toBe(
-      `{"purpose":"INTAFACED governance vote","proposalId":"p-1","userId":"${USER}","ballot":{"kind":"split","parts":[{"choice":1,"bps":4000}]}}`,
+      `{"purpose":"INTAFACED governance vote","origin":"svc-token","proposalId":"p-1","userId":"${USER}","ballot":{"kind":"split","parts":[{"choice":1,"bps":4000}]}}`,
     );
     const pick = voteMessage({ proposalId: 'p-1', userId: USER, ballot: { kind: 'pick', choices: [2, 0] } });
     expect(pick).not.toBe(voteMessage({ proposalId: 'p-1', userId: USER, ballot: { kind: 'pick', choices: [0, 2] } }));

@@ -2833,7 +2833,9 @@ export class TokenService {
     }
     const now = input.now ?? new Date();
     const signature = input.signature.toLowerCase();
-    const signedBy = await this.voteSigner(input, signature);
+    // The message as signed: the stored ballot below is canonical and may differ in order from the request.
+    const signedMessage = voteMessage(input);
+    const signedBy = await this.voteSigner(input.userId, signedMessage, signature);
 
     return transaction(
       this.sql,
@@ -2883,18 +2885,13 @@ export class TokenService {
 
         // Use `tx` — outer `this.sql` while FOR UPDATE is held deadlocks the pool.
         const seal = sealFromRow(proposal);
-        let weight: Amount;
-        let eligible: Amount;
-        if (seal) {
-          const power = await readSealedSnapshot(tx, input.proposalId, seal);
-          weight = power.get(input.userId) ?? 0n;
-          eligible = seal.total;
-        } else {
-          // Before snapshots: weight and electorate are one ledger read.
-          const snap = await this.snapshotActiveStake(tx);
-          weight = snap.byUser.get(input.userId) ?? 0n;
-          eligible = snap.total;
+        // A proposal from before snapshots has no power fixed at creation, so it is never weighed by today's stake.
+        if (!seal) {
+          throw new TokenError('No voting power was fixed when this proposal was created', 'token.governance_snapshot_missing');
         }
+        const power = await readSealedSnapshot(tx, input.proposalId, seal);
+        const weight = power.get(input.userId) ?? 0n;
+        const eligible = seal.total;
         if (weight <= 0n) {
           throw new TokenError('No voting power on this proposal — voting weight is zero', 'token.no_voting_weight');
         }
@@ -2917,12 +2914,12 @@ export class TokenService {
             }>
           >`
             INSERT INTO token.governance_votes (
-              id, proposal_id, user_id, weight, eligible_stake, choice, ballot, cast_at, signed_by, signature
+              id, proposal_id, user_id, weight, eligible_stake, choice, ballot, cast_at, signed_by, signature, signed_message
             )
             VALUES (
               ${voteId}, ${input.proposalId}, ${input.userId},
               ${formatAmount(weight)}::numeric, ${formatAmount(eligible)}::numeric,
-              ${choice}, ${ballot === null ? null : tx.json(ballot as never)}, ${now}, ${signedBy}, ${signature}
+              ${choice}, ${ballot === null ? null : tx.json(ballot as never)}, ${now}, ${signedBy}, ${signature}, ${signedMessage}
             )
             RETURNING id, proposal_id, user_id, weight, choice, ballot, cast_at, signed_by
           `;
@@ -2951,14 +2948,11 @@ export class TokenService {
   }
 
   /** The linked wallet that signed this vote's message, or the typed refusal. Asked before any lock is taken. */
-  private async voteSigner(
-    input: { proposalId: string; userId: string; choice?: VoteChoice; ballot?: Ballot },
-    signature: string,
-  ): Promise<string> {
+  private async voteSigner(userId: string, message: string, signature: string): Promise<string> {
     const port = this.options.voteSignatures;
     const unavailable = (why: string) => new TokenError(`Signed votes cannot be checked: ${why}`, SIGNED_VOTE_UNAVAILABLE);
     if (!port) throw unavailable('the identity service is not configured');
-    const answer = await port.verify({ userId: input.userId, message: voteMessage(input), signature });
+    const answer = await port.verify({ userId, message, signature });
     if (answer === null) throw unavailable('the identity service did not answer');
     switch (answer.state) {
       case 'linked':
@@ -2979,12 +2973,12 @@ export class TokenService {
     return { ...power, rule: this.voteRuleState() };
   }
 
-  /** Who may vote, as the pane shows it: the minimum, or the typed code a vote would be refused with. Never a default. */
   /** Whether a signed vote can be checked at all: false when no identity is configured. A linked wallet is identity's to say. */
   signedVotesConfigured(): boolean {
     return this.options.voteSignatures !== undefined;
   }
 
+  /** Who may vote, as the pane shows it: the minimum, or the typed code a vote would be refused with. Never a default. */
   voteRuleState(): VoteRuleState {
     try {
       return { minPower: parseVoteRule(this.options.voteRule ?? process.env.TOKEN_VOTE_RULE).minPower, code: null };

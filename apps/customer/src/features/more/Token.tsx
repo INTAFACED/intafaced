@@ -688,7 +688,7 @@ function Proposal({ id, action, ballot }: { id: string; action: ReturnType<typeo
                   proposalId={id}
                   votingType={p.votingType}
                   choices={p.choices}
-                  open={activeWindow(p, now) && !action.disabled && canWeigh}
+                  open={activeWindow(p, now) && !action.disabled && !blocked && canWeigh}
                   power={power}
                   outcome={ballotOutcome}
                   onOutcome={setBallotOutcome}

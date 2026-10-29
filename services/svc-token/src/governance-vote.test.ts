@@ -9,7 +9,7 @@ import { MemoryEventBus } from '@intafaced/events';
 import { MemoryLedger, parseAmount as amt, recipes } from '@intafaced/ledger-client';
 import { DEFAULT_BUYBACK_PARAMS } from './economics/buyback.js';
 import { DEFAULT_EMISSION_PARAMS } from './economics/emission.js';
-import { parseVoteRule, snapshotHash } from './governance-vote.js';
+import { parseVoteRule, readSealedSnapshot, sealSnapshot, snapshotHash } from './governance-vote.js';
 import { TokenError, TokenService, type TokenServiceOptions } from './token-service.js';
 import { voteMessage } from './vote-signature.js';
 import { TEST_VOTE_SIGNATURE, TEST_VOTE_SIGNER, testVoteSignatures } from './vote-signature.testkit.js';
@@ -329,11 +329,67 @@ describe('MC-token-03 voting power and voting types', () => {
     expect(identity.asked).toEqual([
       { userId: USER_A, message: voteMessage({ proposalId: proposal.id, userId: USER_A, choice: 'for' }), signature: TEST_VOTE_SIGNATURE },
     ]);
-    const [row] = await sql<Array<{ signed_by: string; signature: string }>>`
-      SELECT signed_by, signature FROM token.governance_votes WHERE proposal_id = ${proposal.id}
+    const [row] = await sql<Array<{ signed_by: string; signature: string; signed_message: string }>>`
+      SELECT signed_by, signature, signed_message FROM token.governance_votes WHERE proposal_id = ${proposal.id}
     `;
-    expect(row).toEqual({ signed_by: TEST_VOTE_SIGNER, signature: TEST_VOTE_SIGNATURE });
+    expect(row).toEqual({
+      signed_by: TEST_VOTE_SIGNER,
+      signature: TEST_VOTE_SIGNATURE,
+      signed_message: voteMessage({ proposalId: proposal.id, userId: USER_A, choice: 'for' }),
+    });
   });
+
+  it('stores the message exactly as signed, though the stored ballot is put in choice order', async () => {
+    await fundStake(USER_A, '1000');
+    const proposal = await create('as-signed', { votingType: 'weighted', choices: ['Yes', 'No'] });
+    const ballot = {
+      kind: 'split' as const,
+      parts: [
+        { choice: 1, bps: 2500 },
+        { choice: 0, bps: 7500 },
+      ],
+    };
+    await token.castVote({ signature: TEST_VOTE_SIGNATURE, proposalId: proposal.id, userId: USER_A, ballot, now: NOW });
+    const [row] = await sql<Array<{ ballot: unknown; signed_message: string }>>`
+      SELECT ballot, signed_message FROM token.governance_votes WHERE proposal_id = ${proposal.id}
+    `;
+    expect(row!.ballot).toEqual({
+      kind: 'split',
+      parts: [
+        { choice: 0, bps: 7500 },
+        { choice: 1, bps: 2500 },
+      ],
+    });
+    expect(row!.signed_message).toBe(voteMessage({ proposalId: proposal.id, userId: USER_A, ballot }));
+  });
+
+  it('refuses a vote on a proposal from before snapshots with token.governance_snapshot_missing, never weighing live stake', async () => {
+    await fundStake(USER_A, '1000');
+    const proposal = await create('unsealed');
+    await sql`DELETE FROM token.governance_snapshots WHERE proposal_id = ${proposal.id}`;
+    await sql`
+      UPDATE token.proposals SET snapshot_count = NULL, snapshot_total = NULL, snapshot_hash = NULL WHERE id = ${proposal.id}
+    `;
+    expect(
+      await codeOf(token.castVote({ signature: TEST_VOTE_SIGNATURE, proposalId: proposal.id, userId: USER_A, choice: 'for', now: NOW })),
+    ).toBe('token.governance_snapshot_missing');
+    expect(await votesOn(proposal.id)).toEqual([]);
+  });
+
+  it('seals a snapshot of more accounts than one statement can bind (4 parameters a row, 65535 at most)', async () => {
+    const proposalId = crypto.randomUUID();
+    await sql`
+      INSERT INTO token.proposals (id, kind, body, status, opens_at, closes_at)
+      VALUES (${proposalId}, 'fee_param', ${sql.json({ title: 'Many stakers' })}, 'open', ${OPENS}, ${CLOSES})
+    `;
+    const byUser = new Map<string, bigint>();
+    for (let i = 0; i < 17_000; i += 1) byUser.set(`00000000-0000-4000-8000-${String(i).padStart(12, '0')}`, amt('1'));
+    const seal = await sql.begin((tx) => sealSnapshot(tx as unknown as Sql, { proposalId, takenAt: NOW, byUser }));
+    expect(seal.count).toBe(17_000);
+    expect(seal.total).toBe(amt('17000'));
+    const stored = await readSealedSnapshot(sql, proposalId, seal);
+    expect(stored.size).toBe(17_000);
+  }, 60_000);
 
   it('refuses a ballot when the stored power no longer matches its seal', async () => {
     await fundStake(USER_A, '1000');

@@ -59,7 +59,7 @@ export const TOKEN_REFUSAL_COPY = {
   'token.proposal_list_limit_unset': 'The proposal list size is not set.',
   'token.stakes_list_limit_unset': 'The stake list size is not set.',
   'token.governance_quorum_unset': 'The vote threshold is not set.',
-  'token.governance_snapshot_missing': 'This vote has no eligible-stake record, so it cannot be closed.',
+  'token.governance_snapshot_missing': 'This proposal has no voting power record, so it cannot be voted on or closed.',
   'token.governance_execute_unwired': 'This proposal can be counted, but it cannot be carried out yet.',
   'token.staking_asset_unpublished': 'The staking asset is not published.',
   'token.stake_tier_unknown': 'That stake term is not one this service offers.',

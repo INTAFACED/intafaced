@@ -336,6 +336,8 @@ export const governanceVotes = token.table(
     signedBy: text('signed_by'),
     /** The EIP-191 signature over the vote's message (`vote-signature.ts`), kept so the vote can be re-checked. */
     signature: text('signature'),
+    /** The exact message the signature covers, as svc-token built it from the request. Null only on votes from before signed votes. */
+    signedMessage: text('signed_message'),
   },
   (t) => [
     /** The tally reads every vote for one proposal — this is that scan. */
