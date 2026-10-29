@@ -5,6 +5,12 @@
 
 ALTER TABLE "mining_pool"."shares" ADD COLUMN IF NOT EXISTS "pow_nonce" text;
 ALTER TABLE "mining_pool"."shares" ADD COLUMN IF NOT EXISTS "solo" boolean NOT NULL DEFAULT false;
+-- Work checked under a testnet proof-of-work set, stamped when it is stored: a window holding any of it earns no credit,
+-- whatever the settings say later.
+ALTER TABLE "mining_pool"."shares" ADD COLUMN IF NOT EXISTS "testnet" boolean NOT NULL DEFAULT false;
+-- A window of testnet work is closed with no credit ('no_credit'): it never pays, and its rigs may change mode again.
+ALTER TABLE "mining_pool"."windows" DROP CONSTRAINT IF EXISTS "windows_status_ck";
+ALTER TABLE "mining_pool"."windows" ADD CONSTRAINT "windows_status_ck" CHECK ("status" IN ('open', 'paid', 'no_credit'));
 CREATE UNIQUE INDEX IF NOT EXISTS "shares_window_worker_nonce_uidx"
   ON "mining_pool"."shares" ("window_id", "worker_id", "pow_nonce")
   WHERE "pow_nonce" IS NOT NULL;

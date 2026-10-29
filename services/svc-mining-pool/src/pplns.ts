@@ -1,7 +1,7 @@
 import { formatAmount, mulBps, parseAmount, type Amount } from '@intafaced/ledger-client';
 
 /** `workerName` labels the rig that sent the share; it never changes who is paid (`minerId`). */
-export type PplnsShare = { shareId: string; minerId: string; weight: bigint; workerName?: string; powNonce?: string };
+export type PplnsShare = { shareId: string; minerId: string; weight: bigint; workerName?: string; powNonce?: string; testnet?: boolean };
 export type PplnsInput = { windowId: string; epoch?: number; assetId: string; reward: string; feeBps: number; shares: PplnsShare[] };
 export type Payout = { minerId: string; amount: string };
 export type PplnsPlan = { windowId: string; assetId: string; gross: string; fee: string; net: string; retained: string; payouts: Payout[] };

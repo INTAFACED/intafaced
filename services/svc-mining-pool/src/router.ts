@@ -9,7 +9,7 @@ import { assertListLimit, assertWindowMinutes } from './list-limit.js';
 import { readPoolOverview } from './overview.js';
 import { readPoolTerms } from './pool-terms.js';
 import { dialPool, ProbeRateLimit, runProbe, type Dial } from './probe.js';
-import { POW_SPEC_UNSET, powSpecBlank, readPowSpec } from './pow.js';
+import { POW_SPEC_UNSET, publishedPowSpec } from './pow.js';
 import type { MiningReadStore } from './reads.js';
 
 const decimal = z.string().regex(/^(0|[1-9]\d*)(\.\d+)?$/);
@@ -39,6 +39,7 @@ const shareWindow = z.object({
   windowId: z.string(),
   acceptedCount: z.number().int().nonnegative(),
   rejectedCount: z.number().int().nonnegative(),
+  soloCount: z.number().int().nonnegative(),
   acceptedWeight: decimal.nullable(),
 });
 
@@ -236,7 +237,7 @@ export function createMiningRouter(
               z.object({
                 windowId: z.string(),
                 assetId: z.string(),
-                status: z.enum(['open', 'paid']),
+                status: z.enum(['open', 'paid', 'no_credit']),
                 reward: money.nullable(),
                 feeBps: z.number().int().nullable(),
                 shareCount: z.number().int().nonnegative(),
@@ -387,9 +388,8 @@ export function createMiningRouter(
       )
       .query(() => {
         try {
-          const env = envOf();
-          if (powSpecBlank(env)) return { status: 'unset' as const, code: POW_SPEC_UNSET };
-          const spec = readPowSpec(env);
+          const spec = publishedPowSpec(envOf());
+          if (spec === null) return { status: 'unset' as const, code: POW_SPEC_UNSET };
           return { status: 'published' as const, dimension: spec.dimension, targetBits: spec.targetBits, testnet: spec.testnet };
         } catch (err) {
           fail(err);

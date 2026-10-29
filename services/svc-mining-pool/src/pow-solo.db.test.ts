@@ -98,12 +98,12 @@ describe('mining proof of work and solo mode', () => {
   const good = (workerName: string, minerId = ALICE, start = 0) => grindPow(SPEC, powHeader(WINDOW, minerId, workerName), start);
   const bad = (workerName: string, minerId = ALICE) => failingPow(SPEC, powHeader(WINDOW, minerId, workerName));
   const router = (env: NodeJS.ProcessEnv = POW) => createMiningRouter(new MiningReadStore(db.sql, null), undefined, { env });
-  const shares = () => db.sql`SELECT share_id, weight::text AS weight, pow_nonce, solo FROM mining_pool.shares ORDER BY share_id`;
+  const shares = () => db.sql`SELECT share_id, weight::text AS weight, pow_nonce, solo, testnet FROM mining_pool.shares ORDER BY share_id`;
 
   it('a valid share is stored at weight 1 with its nonce; the pool never takes a weight from the rig', async () => {
     const nonce = good('Rig-A');
     expect(await post(work('s-good', 'Rig-A', nonce))).toMatchObject({ status: 200 });
-    expect(await shares()).toEqual([{ share_id: 's-good', weight: '1', pow_nonce: nonce, solo: false }]);
+    expect(await shares()).toEqual([{ share_id: 's-good', weight: '1', pow_nonce: nonce, solo: false, testnet: true }]);
     const weighed = work('s-weighed', 'Rig-A', good('Rig-A', ALICE, Number.parseInt(nonce, 16) + 1));
     weighed.shares[0] = { ...weighed.shares[0]!, weight: '1000' } as (typeof weighed.shares)[0];
     expect(await post(weighed)).toEqual({ status: 409, body: { accepted: false, error: 'mining.pow_weight_from_client' } });
@@ -122,9 +122,34 @@ describe('mining proof of work and solo mode', () => {
     expect(await post(batch)).toEqual({ status: 409, body: { accepted: false, error: 'mining.pow_invalid' } });
     expect(await post(batch)).toEqual({ status: 409, body: { accepted: false, error: 'mining.pow_invalid' } });
     expect(await shares()).toEqual([]);
-    expect(await db.sql`SELECT idempotency_key, window_id, miner_id, reason_code FROM mining_pool.share_rejections`).toEqual([
-      { idempotency_key: 'pow-invalid:s-bad', window_id: WINDOW, miner_id: ALICE, reason_code: 'mining.pow_invalid' },
+    const rejections = () =>
+      db.sql`SELECT idempotency_key, window_id, miner_id, reason_code FROM mining_pool.share_rejections ORDER BY window_id`;
+    expect(await rejections()).toEqual([
+      {
+        idempotency_key: expect.stringMatching(/^pow-invalid:[0-9a-f]{64}$/),
+        window_id: WINDOW,
+        miner_id: ALICE,
+        reason_code: 'mining.pow_invalid',
+      },
     ]);
+    // The same share id failing in another window is that window's own refusal, never a key conflict.
+    const elsewhere = {
+      ...batch,
+      windowId: 'w-pow-2',
+      shares: [{ shareId: 's-bad', minerId: ALICE, workerName: 'Rig-A', powNonce: failingPow(SPEC, powHeader('w-pow-2', ALICE, 'Rig-A')) }],
+    };
+    expect(await post(elsewhere)).toEqual({ status: 409, body: { accepted: false, error: 'mining.pow_invalid' } });
+    const both = await rejections();
+    expect(both.map((row) => [row.window_id, row.reason_code])).toEqual([
+      [WINDOW, 'mining.pow_invalid'],
+      ['w-pow-2', 'mining.pow_invalid'],
+    ]);
+    expect(both[0]!.idempotency_key).not.toBe(both[1]!.idempotency_key);
+    // A long share id still names its refusal: the key is a fixed-length hash of the window, account, rig and share.
+    const long = { ...batch, shares: [{ shareId: 's'.repeat(300), minerId: ALICE, workerName: 'Rig-A', powNonce: bad('Rig-A') }] };
+    expect(await post(long)).toEqual({ status: 409, body: { accepted: false, error: 'mining.pow_invalid' } });
+    expect(await rejections()).toHaveLength(3);
+    await db.sql`DELETE FROM mining_pool.share_rejections`;
     // Work ground for another rig or account is not this rig's work.
     expect((await post(work('s-moved', 'Rig-A', good('Rig-B')))).body).toEqual({ accepted: false, error: 'mining.pow_invalid' });
     expect((await post(work('s-other', 'Rig-A', good('Rig-A', BOB)))).body).toEqual({ accepted: false, error: 'mining.pow_invalid' });
@@ -141,7 +166,7 @@ describe('mining proof of work and solo mode', () => {
     const nonce = good('Rig-A');
     expect((await post(work('s-1', 'Rig-A', nonce))).status).toBe(200);
     expect(await post(work('s-2', 'Rig-A', nonce))).toEqual({ status: 409, body: { accepted: false, error: 'mining.share_duplicate' } });
-    expect(await shares()).toEqual([{ share_id: 's-1', weight: '1', pow_nonce: nonce, solo: false }]);
+    expect(await shares()).toEqual([{ share_id: 's-1', weight: '1', pow_nonce: nonce, solo: false, testnet: true }]);
   });
 
   it('blank parameters: work refuses mining.pow_spec_unset and stores nothing; a share without work goes on as before', async () => {
@@ -152,7 +177,7 @@ describe('mining proof of work and solo mode', () => {
     expect(await shares()).toEqual([]);
     const legacy = { windowId: WINDOW, assetId: 'IFC', shares: [{ shareId: 's-legacy', minerId: ALICE, weight: '4' }] };
     expect((await post(legacy, {})).status).toBe(200);
-    expect(await shares()).toEqual([{ share_id: 's-legacy', weight: '4', pow_nonce: null, solo: false }]);
+    expect(await shares()).toEqual([{ share_id: 's-legacy', weight: '4', pow_nonce: null, solo: false, testnet: false }]);
   });
 
   it('a partial set refuses mining.pow_spec_unset and a mainnet set refuses audit.external, before anything is stored', async () => {
@@ -245,18 +270,52 @@ describe('mining proof of work and solo mode', () => {
     expect(ops.windows.find((window) => window.windowId === WINDOW)).toMatchObject({ shareCount: 2, totalWeight: '2' });
   });
 
-  it('a window of testnet work credits nothing: the payout refuses mining.testnet_no_credit before any post', async () => {
+  it('a window of testnet work credits nothing: the payout refuses mining.testnet_no_credit, posts nothing and closes it', async () => {
     expect((await post(work('s-a', 'Rig-A', good('Rig-A')))).status).toBe(200);
     await db.sql`UPDATE mining_pool.windows SET epoch = 3, reward = 10, fee_bps = 100 WHERE window_id = ${WINDOW}`;
     const ledger = new MemoryLedger();
     const posted = vi.spyOn(ledger, 'post');
-    await expect(payWindow(db.sql, ledger, WINDOW, POW)).rejects.toThrow('mining.testnet_no_credit');
-    await expect(runEpochPayoutTick({ sql: db.sql, ledger, env: POW })).rejects.toThrow('mining.testnet_no_credit');
+    const alice = router().createCaller(signed(ALICE, ['ledger:read', 'trade:write']));
+    await expect(alice.workers.setMode({ name: 'Rig-A', mode: 'solo' })).rejects.toMatchObject({
+      cause: { code: 'mining.mode_change_in_window' },
+    });
+    await expect(runEpochPayoutTick({ sql: db.sql, ledger })).rejects.toThrow('mining.testnet_no_credit');
     expect(posted).not.toHaveBeenCalled();
-    expect(await db.sql`SELECT status FROM mining_pool.windows WHERE window_id = ${WINDOW}`).toEqual([{ status: 'open' }]);
+    expect(await db.sql`SELECT status FROM mining_pool.windows WHERE window_id = ${WINDOW}`).toEqual([{ status: 'no_credit' }]);
+    const ops = await router()
+      .createCaller(signed(ALICE, ['admin:read']))
+      .ops.windows();
+    expect(ops.windows.find((window) => window.windowId === WINDOW)).toMatchObject({ status: 'no_credit' });
+    // Closed, it is never paid again, and its rig may change mode.
+    await expect(payWindow(db.sql, ledger, WINDOW)).resolves.toBeUndefined();
+    expect(await runEpochPayoutTick({ sql: db.sql, ledger })).toEqual({ paid: [], refused: [] });
+    expect(posted).not.toHaveBeenCalled();
+    expect(await alice.workers.setMode({ name: 'Rig-A', mode: 'solo' })).toMatchObject({ mode: 'solo' });
   });
 
-  it('a window holding only solo work has no pooled split and credits nothing (mining.emission_unpublished)', async () => {
+  it("the testnet stamp is the stored work, not today's settings: unchecked work in another window is not stamped and keeps its own refusal", async () => {
+    expect((await post(work('s-a', 'Rig-A', good('Rig-A')))).status).toBe(200);
+    const legacy = { windowId: 'w-legacy', assetId: 'IFC', shares: [{ shareId: 's-legacy', minerId: ALICE, weight: '4' }] };
+    expect((await post(legacy, {})).status).toBe(200);
+    expect(await db.sql`SELECT window_id, testnet FROM mining_pool.shares ORDER BY window_id`).toEqual([
+      { window_id: 'w-legacy', testnet: false },
+      { window_id: WINDOW, testnet: true },
+    ]);
+    await db.sql`UPDATE mining_pool.windows SET epoch = CASE WHEN window_id = ${WINDOW} THEN 3 ELSE 4 END, reward = 10, fee_bps = 100`;
+    const ledger = new MemoryLedger();
+    const posted = vi.spyOn(ledger, 'post');
+    // The legacy window is refused for its own reason (the parked emission), never closed as testnet.
+    await expect(payWindow(db.sql, ledger, 'w-legacy')).rejects.toThrow('mining.emission_unpublished');
+    await expect(runEpochPayoutTick({ sql: db.sql, ledger })).rejects.toThrow('mining.testnet_no_credit');
+    expect(await db.sql`SELECT window_id, status FROM mining_pool.windows ORDER BY window_id`).toEqual([
+      { window_id: 'w-legacy', status: 'open' },
+      { window_id: WINDOW, status: 'no_credit' },
+    ]);
+    await expect(runEpochPayoutTick({ sql: db.sql, ledger })).rejects.toThrow('mining.emission_unpublished');
+    expect(posted).not.toHaveBeenCalled();
+  });
+
+  it('a window holding only solo work has no pooled split (mining.no_pooled_shares) and solo credit refuses mining.emission_unpublished', async () => {
     const alice = router({}).createCaller(signed(ALICE, ['trade:write']));
     await alice.workers.setMode({ name: 'Rig-S', mode: 'solo' });
     const legacy = { windowId: WINDOW, assetId: 'IFC', shares: [{ shareId: 's-solo', minerId: ALICE, weight: '4', workerName: 'Rig-S' }] };
@@ -264,8 +323,18 @@ describe('mining proof of work and solo mode', () => {
     await db.sql`UPDATE mining_pool.windows SET epoch = 3, reward = 10, fee_bps = 100 WHERE window_id = ${WINDOW}`;
     const ledger = new MemoryLedger();
     const posted = vi.spyOn(ledger, 'post');
-    await expect(payWindow(db.sql, ledger, WINDOW, {})).rejects.toThrow('mining.emission_unpublished');
+    await expect(payWindow(db.sql, ledger, WINDOW)).rejects.toThrow('mining.no_pooled_shares');
+    expect(await db.sql`SELECT status FROM mining_pool.windows WHERE window_id = ${WINDOW}`).toEqual([{ status: 'open' }]);
     expect(posted).not.toHaveBeenCalled();
+    // The share reports count the solo work, so it is never invisible.
+    const mine = await router({})
+      .createCaller(signed(ALICE, ['ledger:read']))
+      .shares.mine({});
+    expect(mine.windows).toEqual([{ windowId: WINDOW, acceptedCount: 1, rejectedCount: 0, soloCount: 1, acceptedWeight: '4' }]);
+    const ops = await router({})
+      .createCaller(signed(ALICE, ['admin:read']))
+      .ops.shares({ windowId: WINDOW });
+    expect(ops.windows).toEqual(mine.windows);
     // The room reads the same refusal from the service.
     await expect(
       router({})

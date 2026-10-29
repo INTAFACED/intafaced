@@ -50,6 +50,11 @@ export function readPowSpec(env: NodeJS.ProcessEnv): PowSpec {
   return { dimension, targetBits, testnet: true };
 }
 
+/** The published set, or null when all three settings are blank. Anything else unusable refuses as `readPowSpec` does. */
+export function publishedPowSpec(env: NodeJS.ProcessEnv): PowSpec | null {
+  return powSpecBlank(env) ? null : readPowSpec(env);
+}
+
 /** The job header the pool gives one rig in one window. Each field is length-prefixed, so no two triples collide. */
 export function powHeader(windowId: string, minerId: string, workerName: string): Buffer {
   const hash = createHash('sha256').update('intafaced:mining:pow:v1');

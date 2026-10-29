@@ -48,6 +48,8 @@ export type ShareWindow = {
   readonly windowId: string;
   readonly acceptedCount: number;
   readonly rejectedCount: number;
+  /** Of the accepted shares, those a solo rig sent: they stay out of the pooled split. */
+  readonly soloCount: number;
   readonly acceptedWeight: string | null;
 };
 export type ShareReport = { readonly asOf: string; readonly windows: ShareWindow[] };
@@ -55,7 +57,8 @@ export type ShareReport = { readonly asOf: string; readonly windows: ShareWindow
 export type OpsWindow = {
   readonly windowId: string;
   readonly assetId: string;
-  readonly status: 'open' | 'paid';
+  /** `no_credit`: a window of testnet work, closed with nothing paid. */
+  readonly status: 'open' | 'paid' | 'no_credit';
   readonly reward: string | null;
   readonly feeBps: number | null;
   readonly shareCount: number;
@@ -108,9 +111,9 @@ function feeOf(value: number | string | null): number | null {
   throw new MiningError('Stored fee is not an integer', 'fee_unconfigured');
 }
 
-function statusOf(value: string): 'open' | 'paid' {
-  if (value === 'open' || value === 'paid') return value;
-  throw new MiningError('Window status is not open or paid', 'mining.window_status_unknown');
+function statusOf(value: string): 'open' | 'paid' | 'no_credit' {
+  if (value === 'open' || value === 'paid' || value === 'no_credit') return value;
+  throw new MiningError('Window status is not open, paid or no credit', 'mining.window_status_unknown');
 }
 
 function countOf(value: number | string): number {
@@ -283,8 +286,8 @@ export class MiningReadStore {
     const to = rangeInstant(filter.to, 'to');
     const restrict = minerIds !== null;
     const ids = minerIds ?? [''];
-    const accepted = await sql<{ window_id: string; n: number | string; weight: string | null }[]>`
-      SELECT window_id, COUNT(*)::int AS n, SUM(weight)::text AS weight
+    const accepted = await sql<{ window_id: string; n: number | string; solo_n: number | string; weight: string | null }[]>`
+      SELECT window_id, COUNT(*)::int AS n, (COUNT(*) FILTER (WHERE solo))::int AS solo_n, SUM(weight)::text AS weight
       FROM mining_pool.shares
       WHERE (${windowId}::text IS NULL OR window_id = ${windowId})
         AND (${from}::timestamptz IS NULL OR created_at >= ${from})
@@ -307,6 +310,7 @@ export class MiningReadStore {
         windowId: row.window_id,
         acceptedCount: countOf(row.n),
         rejectedCount: 0,
+        soloCount: countOf(row.solo_n),
         acceptedWeight: row.weight === null ? null : canonicalWeight(row.weight),
       });
     }
@@ -319,6 +323,7 @@ export class MiningReadStore {
           windowId: row.window_id,
           acceptedCount: 0,
           rejectedCount,
+          soloCount: 0,
           acceptedWeight: null,
         });
       }
