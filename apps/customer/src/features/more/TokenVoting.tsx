@@ -17,6 +17,8 @@ import { tokenVotingCopy } from './token-voting-copy';
  */
 
 type Refusal = Extract<ApiResult<unknown>, { ok: false }>;
+/** The last cast's answer. Held by the proposal panel, so the refresh that follows a cast does not erase it. */
+export type BallotOutcome = { ok: true; weight: string } | { ok: false; failure: Refusal } | null;
 type T = ReturnType<typeof tokenVotingCopy.forLocale>['t'];
 
 export const VOTING_TYPES = ['basic', 'single_choice', 'approval', 'weighted', 'quadratic', 'ranked_choice'] as const;
@@ -211,6 +213,8 @@ export function ChoiceBallot({
   choices,
   open,
   version,
+  outcome,
+  onOutcome,
   onCast,
 }: {
   proposalId: string;
@@ -218,6 +222,8 @@ export function ChoiceBallot({
   choices: readonly string[];
   open: boolean;
   version: number;
+  outcome: BallotOutcome;
+  onOutcome: (outcome: BallotOutcome) => void;
   onCast: () => void;
 }) {
   const api = useApi(),
@@ -227,7 +233,6 @@ export function ChoiceBallot({
   const [inputs, setInputs] = useState<string[]>(() => choices.map(() => ''));
   const [picked, setPicked] = useState<Set<number>>(new Set());
   const [busy, setBusy] = useState(false);
-  const [outcome, setOutcome] = useState<{ ok: true; weight: string } | { ok: false; failure: Refusal } | null>(null);
   const signing = useResource(
     (signal) => api.query('token', 'votingPower.ofProposal', { proposalId }, powerSchema, { signal }),
     `voting-signing:${userId}:${proposalId}:${version}`,
@@ -239,7 +244,7 @@ export function ChoiceBallot({
 
   async function cast(wire: BallotWire) {
     setBusy(true);
-    setOutcome(null);
+    onOutcome(null);
     const result = await api.mutate(
       'token',
       'castVote',
@@ -247,7 +252,7 @@ export function ChoiceBallot({
       castSchema.refine((vote) => vote.proposalId === proposalId && vote.userId === userId),
     );
     setBusy(false);
-    setOutcome(result.ok ? { ok: true, weight: result.data.weight } : { ok: false, failure: result });
+    onOutcome(result.ok ? { ok: true, weight: result.data.weight } : { ok: false, failure: result });
     if (result.ok || result.reason === 'uncertain') onCast();
   }
   function submit(event: FormEvent) {

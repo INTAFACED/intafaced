@@ -11,7 +11,7 @@ import { EmissionEpoch, TokenHoldings } from './TokenHoldings';
 import { Details, Limit, Read, Select, presentActionFailure, useAction } from './common';
 import { governanceCopy as G } from './token-governance-copy';
 import { GovernanceDelegation, GovernanceProposals, GovernanceSpace, GovernanceTreasury } from './GovernanceRoom';
-import { ChoiceBallot, ChoiceTallyView, VOTING_TYPES, VotingPower, choiceTallySchema } from './TokenVoting';
+import { ChoiceBallot, ChoiceTallyView, VOTING_TYPES, VotingPower, choiceTallySchema, type BallotOutcome } from './TokenVoting';
 import './token-governance.css';
 const uuid = z.string().guid();
 /** The service stores `gov:proposal:<space>:<author>:<n>`; older rows keep their uuid. */
@@ -450,6 +450,7 @@ function Proposal({ id, action, ballot }: { id: string; action: ReturnType<typeo
   const { hideBalances } = usePreferences();
   const [now, setNow] = useState(Date.now);
   const [version, setVersion] = useState(0);
+  const [ballotOutcome, setBallotOutcome] = useState<BallotOutcome>(null);
   const [preflight, setPreflight] = useState<{
     detail: Resource<z.infer<ReturnType<typeof proposalDetailSchema>>>;
     stake: Resource<{ staked: string }>;
@@ -677,6 +678,8 @@ function Proposal({ id, action, ballot }: { id: string; action: ReturnType<typeo
                   choices={p.choices}
                   open={activeWindow(p, now) && !action.disabled}
                   version={version}
+                  outcome={ballotOutcome}
+                  onOutcome={setBallotOutcome}
                   onCast={refresh}
                 />
               )}
