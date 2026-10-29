@@ -1,8 +1,10 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { z } from 'zod';
 import { useApi } from '../session/session';
 import { useResource } from '../../shared/resource';
-import { Button, Dialog, Field, Panel, Tabs } from '../../shared/ui';
+import type { ApiResult } from '../../shared/api';
+import { Button, Dialog, Failure, Field, Panel, Tabs } from '../../shared/ui';
+import { navigate } from '../../app/location';
 import { Read, TextArea } from './common';
 import { agentBuilderCopy } from './agent-builder-copy';
 import {
@@ -32,6 +34,11 @@ const CODE_WORDS = {
 } as const;
 const wordsKey = (code: string) => (Object.hasOwn(CODE_WORDS, code) ? CODE_WORDS[code as keyof typeof CODE_WORDS] : null);
 
+type Failed = Extract<ApiResult<unknown>, { ok: false }>;
+/** The service's own refusals arrive as an `agents.` code; anything else (a timeout, a gateway answer) is not a refusal. */
+const refusalCode = (failed: Failed): string | null =>
+  failed.reason === 'error' && /^agents\.[a-z_.]+$/.test(failed.message) ? failed.message : null;
+
 /** A refusal as words, with its code beside them so support can find it. */
 function Refusal({ code, name = '' }: { code: string; name?: string }) {
   const { t } = agentBuilderCopy.useCopy();
@@ -43,22 +50,30 @@ function Refusal({ code, name = '' }: { code: string; name?: string }) {
     </p>
   );
 }
+/** What a failed write says: the service's refusal in words, or the app's own account of a write it could not confirm. */
+function Answer({ failed, name }: { failed: Failed; name?: string }) {
+  const code = refusalCode(failed);
+  return code ? <Refusal code={code} {...(name === undefined ? {} : { name })} /> : <Failure result={failed} />;
+}
+/** Tells the page title a draft was saved under a new name. */
+const SAVED_EVENT = 'intafaced:own-agent-saved';
 
 /** /agents/new: pick a template, which makes a draft, then build it. Nothing here moves money. */
 export function NewAgent() {
   const api = useApi();
   const { t } = agentBuilderCopy.useCopy();
-  const [draft, setDraft] = useState<OwnAgent | null>(null);
-  const [refused, setRefused] = useState<string | null>(null);
+  const [refused, setRefused] = useState<Failed | null>(null);
   const [busy, setBusy] = useState(false);
+  // This visit's key for each template: pressing again after an answer that never arrived returns the draft the first
+  // press made, rather than a second one. Each visit to the picker is a new draft.
+  const visit = useRef(`picker:${crypto.randomUUID()}`);
   async function start(template: string) {
     setBusy(true);
     setRefused(null);
-    // One key per press: a retried request returns the draft this press made, and the next press makes the next draft.
-    const res = await api.mutate('agents', 'own.create', { template, createKey: `picker:${crypto.randomUUID()}` }, ownAgentSchema);
+    const res = await api.mutate('agents', 'own.create', { template, createKey: `${visit.current}:${template}` }, ownAgentSchema);
     setBusy(false);
-    if (res.ok) setDraft(res.data);
-    else setRefused(res.message);
+    if (res.ok) navigate(`/agents/${res.data.id}`, true);
+    else setRefused(res);
   }
   return (
     <div className="more-grid">
@@ -72,7 +87,7 @@ export function NewAgent() {
             {t('startBlank')}
           </Button>
         </div>
-        {refused ? <Refusal code={refused} /> : null}
+        {refused ? <Answer failed={refused} /> : null}
       </Panel>
       <Panel title={t('assistantTitle')} role="region" aria-label={t('assistantTitle')}>
         <p role="note">
@@ -80,7 +95,6 @@ export function NewAgent() {
         </p>
         <Button disabled>{t('draftIt')}</Button>
       </Panel>
-      {draft ? <Builder key={draft.id} agent={draft} onSaved={setDraft} /> : null}
     </div>
   );
 }
@@ -95,21 +109,26 @@ export function Builder({ agent, onSaved }: { agent: OwnAgent; onSaved: (agent: 
   const [cap, setCap] = useState(agent.perSessionCap ?? '');
   const [tools, setTools] = useState<string[]>(agent.tools);
   const [picking, setPicking] = useState(false);
-  const [refused, setRefused] = useState<string | null>(null);
+  const [refused, setRefused] = useState<Failed | null>(null);
+  const [moneyTool, setMoneyTool] = useState(false);
   const [saved, setSaved] = useState(false);
+  const edited = () => setSaved(false);
   const [busy, setBusy] = useState(false);
   function add(tool: ToolEntry) {
     setPicking(false);
     setSaved(false);
     // The service refuses it on save too; saying so now spares a round trip.
-    if (tool.movesMoney) return setRefused('agents.own.money_tool');
+    setMoneyTool(tool.movesMoney);
+    if (tool.movesMoney) return;
     setRefused(null);
+    edited();
     setTools((current) => (current.includes(tool.name) ? current : [...current, tool.name]));
   }
   async function save() {
     setBusy(true);
     setSaved(false);
     setRefused(null);
+    setMoneyTool(false);
     const res = await api.mutate(
       'agents',
       'own.save',
@@ -117,9 +136,10 @@ export function Builder({ agent, onSaved }: { agent: OwnAgent; onSaved: (agent: 
       ownAgentSchema.refine((row) => row.id === agent.id),
     );
     setBusy(false);
-    if (!res.ok) return setRefused(res.message);
+    if (!res.ok) return setRefused(res);
     setSaved(true);
     onSaved(res.data);
+    window.dispatchEvent(new CustomEvent(SAVED_EVENT, { detail: res.data }));
   }
   return (
     <>
@@ -137,16 +157,47 @@ export function Builder({ agent, onSaved }: { agent: OwnAgent; onSaved: (agent: 
               {agent.id}
             </code>
           </p>
-          <Field label={t('name')} value={name} maxLength={64} onChange={(event) => setName(event.target.value)} />
-          <TextArea label={t('instructions')} value={instructions} maxLength={4000} onChange={setInstructions} />
-          <Field label={t('cap')} hint={t('capHint')} inputMode="decimal" value={cap} onChange={(event) => setCap(event.target.value)} />
+          <Field
+            label={t('name')}
+            value={name}
+            maxLength={64}
+            onChange={(event) => {
+              edited();
+              setName(event.target.value);
+            }}
+          />
+          <TextArea
+            label={t('instructions')}
+            value={instructions}
+            maxLength={4000}
+            onChange={(value) => {
+              edited();
+              setInstructions(value);
+            }}
+          />
+          <Field
+            label={t('cap')}
+            hint={t('capHint')}
+            inputMode="decimal"
+            value={cap}
+            onChange={(event) => {
+              edited();
+              setCap(event.target.value);
+            }}
+          />
           <h3>{t('toolsTitle')}</h3>
           {tools.length ? (
             <ul aria-label={t('toolsTitle')}>
               {tools.map((tool) => (
                 <li key={tool}>
                   <code lang="zxx">{tool}</code>{' '}
-                  <Button variant="ghost" onClick={() => setTools((current) => current.filter((name) => name !== tool))}>
+                  <Button
+                    variant="ghost"
+                    onClick={() => {
+                      edited();
+                      setTools((current) => current.filter((name) => name !== tool));
+                    }}
+                  >
                     {t('removeTool')}
                   </Button>
                 </li>
@@ -158,7 +209,8 @@ export function Builder({ agent, onSaved }: { agent: OwnAgent; onSaved: (agent: 
           <Button variant="secondary" onClick={() => setPicking(true)}>
             {t('addTool')}
           </Button>
-          {refused ? <Refusal code={refused} name={name.trim()} /> : null}
+          {moneyTool ? <Refusal code="agents.own.money_tool" /> : null}
+          {refused ? <Answer failed={refused} name={name.trim()} /> : null}
           <Button type="submit" disabled={busy}>
             {t('saveDraft')}
           </Button>
@@ -279,13 +331,23 @@ function Publish({ agent }: { agent: OwnAgent }) {
   );
 }
 
-/** The page title of one of the person's own agents: its name, or that it has none yet. */
+/** The page title of one of the person's own agents: its name, or that it has none, following each save. */
 export function OwnAgentTitle({ id }: { id: string }) {
   const api = useApi();
   const { t } = agentBuilderCopy.useCopy();
   const loaded = useResource((signal) => api.query('agents', 'own.get', { id }, ownAgentSchema, { signal }), `own-agent-title:${id}`);
-  if (loaded.resource.status !== 'ready') return <>{t('ownAgent')}</>;
-  return <>{loaded.resource.data.name || t('untitled')}</>;
+  const [renamed, setRenamed] = useState<string | null>(null);
+  useEffect(() => {
+    const onSaved = (event: Event) => {
+      const agent = (event as CustomEvent<OwnAgent>).detail;
+      if (agent.id === id) setRenamed(agent.name);
+    };
+    window.addEventListener(SAVED_EVENT, onSaved);
+    return () => window.removeEventListener(SAVED_EVENT, onSaved);
+  }, [id]);
+  const name = renamed ?? (loaded.resource.status === 'ready' ? loaded.resource.data.name : null);
+  if (name === null) return <>{t('ownAgent')}</>;
+  return <>{name || t('untitled')}</>;
 }
 
 /** The person's own agents, listed in the Agents room with a way to make one. */
