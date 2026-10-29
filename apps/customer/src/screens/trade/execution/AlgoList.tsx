@@ -44,6 +44,8 @@ function pctOf(row: Ok): string | null {
  * filled, or null when the result could not be read (drawn as a dash, never as a number).
  */
 function averageFill(row: Ok): string | 'not_set' | null {
+  // Zero fills: the room does not ask for the result, and there is no average to show.
+  if (row.progress && compareDecimals(row.progress.filledQty, '0') === 0) return 'not_set';
   if (!row.result) return null;
   const priced = row.result.quotes.find((q) => q.averageFillPrice !== null);
   return priced?.averageFillPrice ?? 'not_set';
@@ -90,13 +92,17 @@ function StatusCell({ row }: { row: ParentRead }) {
 export function AlgoList({
   load,
   empty,
+  listing,
   selectedId,
   onSelect,
   onAction,
   locked,
 }: {
   load: Loadable<ParentRead[]>;
+  /** No schedule id is known yet: the service's list and this device hold none. */
   empty: boolean;
+  /** The service's list read: "none" shows only once it has answered, and a refusal is said, never shown as empty. */
+  listing: Loadable<unknown>;
   selectedId: string | null;
   onSelect: (id: string) => void;
   onAction: (parent: Ok['parent'], action: AlgoAction) => void;
@@ -104,7 +110,12 @@ export function AlgoList({
 }) {
   const { t } = execCopy.useCopy();
   const when = useWhen();
-  if (empty) return <EmptyState variant="empty" size="inline" title={t('No schedules known')} reason={t('No schedules known reason')} />;
+  if (empty)
+    return (
+      <Gate load={listing} rows={2}>
+        {() => <EmptyState variant="empty" size="inline" title={t('No schedules known')} reason={t('No schedules known reason')} />}
+      </Gate>
+    );
 
   const columns: TableColumn<ParentRead>[] = [
     { id: 'market', header: t('Market'), width: 130, pin: 'start', value: (r) => (r.ok ? r.parent.symbol : r.id) },
@@ -230,6 +241,11 @@ export function AlgoList({
             <Freshness asOf={asOf} />
             <span>{t('Schedules re-read every 10 s')}</span>
           </div>
+          {listing.status === 'refused' || listing.status === 'error' ? (
+            <Why code={listing.status === 'refused' ? listing.code : undefined}>{t('Schedule list unread')}</Why>
+          ) : (
+            <p className="m-0 text-sm text-fg-2">{t('Schedule list window')}</p>
+          )}
           <Table
             label={t('Schedules')}
             density="dense"

@@ -39,6 +39,7 @@ export type AlgoResult = z.infer<typeof algoResultSchema>;
 
 /** `algo.list`: the person's schedules as the service keeps them, newest first, so every browser shows the same list. */
 export const algoListSchema = z.object({ rows: z.array(z.object({ id: z.string() })), nextCursor: z.string().nullable() });
+export type AlgoListPage = z.infer<typeof algoListSchema>;
 /** Schedules the room lists at a time. The service refuses a list read without a limit. */
 export const ALGO_LIST_PAGE = 50;
 export type AlgoParent = z.infer<typeof algoParentSchema>;

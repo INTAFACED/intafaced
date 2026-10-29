@@ -32,7 +32,7 @@ export function AlgoTab({
   const { t } = execCopy.useCopy();
   const room = useRoomApi();
   const writer = useRoomWriter();
-  const ids = useAlgoIds(userId);
+  const { ids, list: algoList } = useAlgoIds(userId);
   const parents = useParents(ids);
   const refreshParents = useRefreshParents(ids);
   const [selected, setSelected] = useState<string | null>(null);
@@ -126,6 +126,7 @@ export function AlgoTab({
         <AlgoList
           load={parents}
           empty={ids.length === 0}
+          listing={algoList}
           selectedId={selected}
           onSelect={setSelected}
           onAction={(parent, kind) => setAction({ parent, action: kind })}

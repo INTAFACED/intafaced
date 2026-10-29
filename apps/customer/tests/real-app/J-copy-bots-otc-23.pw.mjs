@@ -621,20 +621,28 @@ test(`${J} #8 opens the algo list and blotter and cancels with one child failing
 
   // Each row carries the service's status. The schedule that ran (#4) shows the average price of its real fills; the
   // one still waiting for its trigger (#3) has no fills, so its average is "Not set".
+  // The service and the room are read again together until they agree, so a fill or status change landing between the
+  // two reads cannot fail it.
   for (const id of [state('running'), state('triggered')]) {
-    const parent = await parentOf(trader, id);
-    await expect(list.getByRole('row', { name: new RegExp(id) }).getByText(STATUS_WORD[parent.status], { exact: true })).toBeVisible();
+    await expect(async () => {
+      const parent = await parentOf(trader, id);
+      await expect(list.getByRole('row', { name: new RegExp(id) }).getByText(STATUS_WORD[parent.status], { exact: true })).toBeVisible({
+        timeout: 2_000,
+      });
+    }).toPass({ timeout: 30_000 });
   }
-  const ranAverage = await averageOf(trader, state('running'));
-  expect(ranAverage).not.toBeNull();
   // The cell shows the service's average rounded to the digits it draws (a mean of several fill prices can run long):
   // it is within half of its last digit of the service's number.
-  const shown = (await cellOf(state('running'), averageColumn).innerText()).replace(/,/g, '').trim();
-  expect(shown).toMatch(/^\d+(\.\d+)?$/);
-  const digits = shown.split('.')[1]?.length ?? 0;
-  const step = toUnits(digits ? `0.${'0'.repeat(digits - 1)}1` : '1');
-  const gap = toUnits(shown) - toUnits(ranAverage);
-  expect((gap < 0n ? -gap : gap) * 2n).toBeLessThanOrEqual(step);
+  await expect(async () => {
+    const ranAverage = await averageOf(trader, state('running'));
+    expect(ranAverage).not.toBeNull();
+    const shown = (await cellOf(state('running'), averageColumn).innerText()).replace(/,/g, '').trim();
+    expect(shown).toMatch(/^\d+(\.\d+)?$/);
+    const digits = shown.split('.')[1]?.length ?? 0;
+    const step = toUnits(digits ? `0.${'0'.repeat(digits - 1)}1` : '1');
+    const gap = toUnits(shown) - toUnits(ranAverage);
+    expect((gap < 0n ? -gap : gap) * 2n).toBeLessThanOrEqual(step);
+  }).toPass({ timeout: 30_000 });
   expect(await averageOf(trader, state('triggered'))).toBeNull();
   await expect(cellOf(state('triggered'), averageColumn)).toHaveText('Not set');
   await list.getByRole('row', { name: new RegExp(state('triggered')) }).click();
@@ -650,7 +658,7 @@ test(`${J} #8 opens the algo list and blotter and cancels with one child failing
   await expect(bodyRows(tableIn(page, 'Orders and fills')).first()).toBeVisible();
 
   // A TWAP buy on the unquoted TEST book, where the other trader rests a bid and a small ask: its first child (1 IFC at
-  // the ask, the band's edge) takes the 0.5 resting and leaves the rest open. The next slice is a minute away, so
+  // the ask, the band's edge) takes the 0.5 resting and leaves the rest open. The next slice is five minutes away, so
   // nothing else is placed while the matching engine is stopped: the child cancel fails for real.
   const maker = otherTrader();
   const other = await api(maker);
@@ -678,7 +686,7 @@ test(`${J} #8 opens the algo list and blotter and cancels with one child failing
     .poll(async () => (await ifcBook()).asks.map(([price, size]) => [toUnits(price), toUnits(size)]), { timeout: 15_000 })
     .toEqual([[toUnits('1.01'), toUnits('0.5')]]);
   await tabs.getByRole('tab', { name: 'Algo orders', exact: true }).click();
-  await fillSchedule(page, { market: UNQUOTED, total: '2', seconds: 120, every: 60 });
+  await fillSchedule(page, { market: UNQUOTED, total: '2', seconds: 600, every: 300 });
   await form(page).getByLabel('Limit price (optional)').fill('1.01');
   const id = await confirmSchedule(page);
   let stopped = false;
@@ -686,8 +694,9 @@ test(`${J} #8 opens the algo list and blotter and cancels with one child failing
     await expect.poll(async () => (await parentOf(trader, id)).children.length, { timeout: 45_000 }).toBe(1);
     const child = (await parentOf(trader, id)).children[0].orderId;
     await expect.poll(async () => (await openOrders(trader, UNQUOTED)).map((o) => o.id), { timeout: 15_000 }).toContain(child);
-    stack('stop', 'matching');
+    // Marked first, so a stop that times out after its signal still brings the engine back.
     stopped = true;
+    stack('stop', 'matching');
     await list.getByRole('button', { name: `Cancel ${id}` }).click();
     await page.getByRole('alertdialog').getByRole('button', { name: 'Cancel schedule' }).click();
     await expect(page.getByText('trade.algo_child_cancel_failed', { exact: true })).toBeVisible({ timeout: 30_000 });
@@ -707,7 +716,7 @@ test(`${J} #8 opens the algo list and blotter and cancels with one child failing
     // Edge refuses every trade write while it cannot read the venue halt, so the service's own refusals are read once
     // the engine is back. The schedule stays parked until it is cancelled again: halt and resume are refused, and
     // nothing about it changes (its child is still open).
-    stack('start');
+    stack('start', '--only', 'matching');
     stopped = false;
     await expect
       .poll(async () => actionCode(trader, 'pause', id), { timeout: 60_000, intervals: [2_000] })
@@ -724,9 +733,18 @@ test(`${J} #8 opens the algo list and blotter and cancels with one child failing
     expect((await parentOf(trader, id)).status).toBe('cancelled');
     expect((await openOrders(trader, UNQUOTED)).map((o) => o.id)).not.toContain(child);
   } finally {
-    if (stopped) stack('start');
+    // The engine comes back before anything else, and a failed restart still lets the rest of the clean-up run.
+    let restart = null;
+    if (stopped) {
+      try {
+        stack('start', '--only', 'matching');
+      } catch (err) {
+        restart = err;
+      }
+    }
     await (await api(trader)).post('/api/trade/trpc/algo.cancel', { algoId: id });
     await clearIfc(maker);
     await clearIfc(trader);
+    if (restart) throw restart;
   }
 });

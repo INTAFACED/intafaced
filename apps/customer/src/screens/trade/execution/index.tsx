@@ -21,7 +21,7 @@ export default function Screen(_props: ScreenProps) {
   const { userId } = useSession();
   const policy = useAlgoPolicy();
   const markets = useExecMarkets();
-  const ids = useAlgoIds(userId);
+  const { ids } = useAlgoIds(userId);
   const parents = useParents(ids);
 
   const meta = (

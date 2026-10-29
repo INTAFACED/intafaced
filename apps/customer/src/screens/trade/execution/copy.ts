@@ -129,8 +129,10 @@ const messages = {
   'Open by id': 'Open by id',
   'Any schedule id you have, for example from another device': 'Any schedule id you have, for example one made on another device.',
   'No schedules known': 'No schedules to show',
-  'No schedules known reason':
-    'The service does not list your schedules, so this page shows the ones made here plus any id you open by hand.',
+  'No schedules known reason': 'The service lists no schedules of yours from the last three months, and none was made here.',
+  'Schedule list window': 'The service lists your newest 50 schedules from the last three months. Open an older one by its id.',
+  'Schedule list unread':
+    'The service did not answer for your list of schedules, so this shows only the ones made here and any id you open.',
   Schedules: 'Schedules',
   'Schedules re-read every 10 s': 'Each schedule is read from the service again every 10 seconds.',
   Total_: 'Total',
