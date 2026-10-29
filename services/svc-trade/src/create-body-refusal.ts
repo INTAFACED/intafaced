@@ -1,4 +1,3 @@
-import { decimal } from '@intafaced/exchange-contract';
 import { invalidOrder, type CcxtErrorBody } from './ccxt-errors.js';
 
 /**
@@ -25,38 +24,6 @@ export function errorDocsLink(intafacedCode: string): string {
   return `/developers/errors#${intafacedCode}`;
 }
 
-/** Strictly greater than zero, by characters only (never a JS number), as the contract's own refinement reads it. */
-function positiveDecimal(value: string): boolean {
-  if (value.startsWith('-')) return false;
-  for (const char of value) if (char >= '1' && char <= '9') return true;
-  return false;
-}
-
-/** The money fields whose sign the contract checks in a refinement, with the words it uses. */
-const SIGNED_FIELDS = ['amount', 'price', 'stopPrice'] as const;
-
-/**
- * The contract checks a negative or zero amount, price or stop price in an object refinement, which does not run once
- * any field (a bad `side`, say) has already failed. Those field checks stand on their own, so they are made here for
- * the fields the schema did not reach: one 400 then lists a bad side and a negative amount together.
- *
- * Kept only until the exchange-contract-field-errors branch lands: it moves these sign checks onto the fields in
- * `@intafaced/exchange-contract` (and exports `positiveDecimal`), after which the schema always names them and this
- * adds nothing (a field the schema named is skipped). Remove this copy, and the local `positiveDecimal`, then.
- */
-function unreachedSignIssues(body: unknown, issues: ReadonlyArray<Issue>): Issue[] {
-  if (body === null || typeof body !== 'object' || Array.isArray(body)) return [];
-  const record = body as Record<string, unknown>;
-  const named = new Set(issues.map((issue) => String(issue.path[0] ?? '')));
-  const found: Issue[] = [];
-  for (const field of SIGNED_FIELDS) {
-    const value = record[field];
-    if (named.has(field) || typeof value !== 'string' || !decimal.safeParse(value).success) continue;
-    if (!positiveDecimal(value)) found.push({ path: [field], message: `${field} must be a positive decimal string` });
-  }
-  return found;
-}
-
 function fieldOf(path: ReadonlyArray<PropertyKey>): string {
   return path.length === 0 ? 'body' : path.map(String).join('.');
 }
@@ -66,8 +33,9 @@ const FIELD_CODES: Readonly<Record<string, { code: string; message: string }>> =
   tag: { code: 'trade.invalid_tag', message: 'tag must be 1 to 16 characters' },
 };
 
-export function createBodyRefusal(error: { issues: ReadonlyArray<Issue> }, fallback: string, body?: unknown): CreateBodyRefusal {
-  const issues: Issue[] = [...error.issues, ...unreachedSignIssues(body, error.issues)];
+export function createBodyRefusal(error: { issues: ReadonlyArray<Issue> }, fallback: string): CreateBodyRefusal {
+  // The contract names every bad field, its sign checks included (#6594), so its issues are the whole list.
+  const issues: Issue[] = [...error.issues];
 
   // One entry per field: the first thing wrong with it.
   const errors: Array<{ field: string; message: string }> = [];

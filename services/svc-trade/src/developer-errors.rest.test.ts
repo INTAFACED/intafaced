@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import type { Principal } from '@intafaced/auth';
 import { encodePrincipal, signPrincipalHeader } from '@intafaced/contracts';
 import { LedgerError, MemoryLedger, parseAmount, recipes, type PostRequest, type LedgerTx } from '@intafaced/ledger-client';
+import { createOrderRequestSchema } from '@intafaced/exchange-contract';
 import { createBodyRefusal } from './create-body-refusal.js';
 import { refusedBeforeEngine } from './ledger-public-code.js';
 import { fakeOrder, registerPrivateRest, type PrivateRestDeps } from './private-rest.js';
@@ -228,10 +229,20 @@ describe('the refusal code depends on which fields are wrong, never on the order
       expect(refusal.errors.map((e) => e.field).sort()).toEqual(['side', 'tag']);
     }
   });
-  it('a bad tag next to a negative amount the schema did not reach is two fields', () => {
-    const refusal = createBodyRefusal({ issues: [tag] }, 'x', { amount: '-1', tag: '' });
+  it('a bad side next to a negative amount: the contract names both, so the one body lists both', () => {
+    const parsed = createOrderRequestSchema.safeParse({
+      symbol: 'BTC/USDT',
+      type: 'limit',
+      side: 'up',
+      amount: '-1',
+      price: '100',
+      clientOrderId: 'jd04-3-unit',
+    });
+    expect(parsed.success).toBe(false);
+    if (parsed.success) return;
+    const refusal = createBodyRefusal(parsed.error, 'x');
     expect(refusal.intafacedCode).toBe('trade.validation_failed');
-    expect(refusal.errors.map((e) => e.field).sort()).toEqual(['amount', 'tag']);
+    expect(refusal.errors.map((e) => e.field).sort()).toEqual(['amount', 'side']);
   });
 });
 
