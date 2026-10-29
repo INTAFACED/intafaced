@@ -6,7 +6,8 @@ import { defineCopy } from '../../../shared/i18n';
  */
 const en = {
   title: 'Tokens',
-  description: 'Find a token, read its page and judge how much to trust it. Read only: nothing here moves money.',
+  description:
+    'Find a token, read its page and judge how much to trust it. The lists are read only; a quick trade on a token page is signed in your own wallet.',
   marketsNav: 'Markets',
   navTokens: 'Tokens',
   sections: 'Token lists',
@@ -66,6 +67,7 @@ const en = {
   stocksBlocked: 'Blocked: a tokenized stock is listed only once the asset registry records it with a licence, and none is recorded.',
   // Token page
   pageTitle: 'Token {address}',
+  pageBanner: 'Chain data · a quick trade is signed in your wallet',
   notFoundTitle: 'Not a token address',
   notFoundBody: 'This page opens a token by its 20-byte contract address. Check the address and try again.',
   back: 'Back to Tokens',
@@ -140,6 +142,35 @@ const en = {
   importFailed: 'The watchlist was not imported. Nothing was changed on your account.',
   importFull: 'Importing these would put more tokens on your account’s watchlist than it can hold. Remove some first.',
   importUnknown: 'The import could not be confirmed. Open your watchlist to see what your account holds now.',
+  // Quick ticket
+  quickTitle: 'Quick trade',
+  quickNote:
+    'Trades this token in one of its pools with the safe minimum the swap form uses in Simple mode. Your wallet signs every step; nothing is sent until you approve it there.',
+  quickSide: 'Buy or sell',
+  quickBuy: 'Buy {symbol}',
+  quickSell: 'Sell {symbol}',
+  quickPool: 'Pool',
+  quickPoolOption: 'Against {symbol} ({address})',
+  quickConnect: 'Connect {name}',
+  quickNoWallet: 'No wallet was found in this browser, so there is nothing to trade with.',
+  quickNoPairs: 'This token is in no pool, so there is nothing to trade it for.',
+  quickBalance: 'Balance',
+  quickBalanceUnread: 'Your balance could not be read through your wallet, so no amount is offered. Try again.',
+  quickAmount: 'Amount',
+  quickShares: 'Share of your balance',
+  quickNeedsAmount: 'Enter an amount above 0 with at most {decimals} decimal places.',
+  quickOverBalance: 'That is more than your balance.',
+  quickSettingsUnread: 'The swap settings could not be read, so no trade is offered.',
+  quickReview: 'Review',
+  quickSwitch: 'Switch to the app’s network',
+  quickReadAgain: 'Read the balance again',
+  quickReadingSettings: 'Reading the swap settings…',
+  quickReadingBalance: 'Reading your balance…',
+  quickReceive: 'You receive about {amount} {symbol}, and at least {min} {symbol}.',
+  quickPending: 'Your last swap is not mined yet. Wait for it before you trade again.',
+  quickFollow_pending: 'Sent: {hash}. Waiting for it to be mined.',
+  quickFollow_mined: 'Mined: {hash}. Your balance is read again.',
+  quickFollow_reverted: 'Mined but reverted: {hash}. Nothing was swapped; the network fee was paid.',
 } as const;
 
 export const tokensCopy = defineCopy('customer.protocol.tokens', en);

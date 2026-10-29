@@ -9,6 +9,7 @@ import { dec } from '../../../data/decimal';
 import { clockTime, stamp } from '../../../screens/money/time';
 import { protocolCopy } from '../copy';
 import { ADDRESS_SHAPE } from '../routes';
+import { QuickTicket } from './QuickTicket';
 import { TabList } from './TabList';
 import { useApi, useSession } from '../../session/session';
 import { useAccountTokenWatchlist, type ListWrite } from '../watch/account-lists';
@@ -450,6 +451,7 @@ function TokenBody({ address, t }: { address: string; t: TokensTranslate }) {
         {data.token.name || t('noName')} · {data.token.symbol || t('noSymbol')} · {data.token.address}
       </p>
       <TokenFacts data={data} t={t} />
+      <QuickTicket data={data} api={protocol} t={t} />
       <TokenTrust data={data} t={t} />
       <Panel title={t('tokenSections')}>
         <TabList
@@ -481,7 +483,7 @@ export function TokenPage({ address }: { address: string | undefined }) {
         title={valid ? t('pageTitle', { address }) : t('notFoundTitle')}
         eyebrow={
           <>
-            <span>{room('bannerLine')}</span>
+            <span>{t('pageBanner')}</span>
             <span className="badge protocol-pill">{room('bannerPill')}</span>
           </>
         }

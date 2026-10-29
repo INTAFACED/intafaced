@@ -3,11 +3,12 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { test, expect } from '@playwright/test';
 import { createPublicClient, getAddress, http, parseAbi } from 'viem';
+import { privateKeyToAccount } from 'viem/accounts';
 import { chainRecordPath, GATE_URL, TEST_CHAIN_ID } from '../../../../tooling/scripts/local-test-chain.mjs';
 import { signIn, signUp } from './desk.mjs';
-import { testChain, TOKEN_A, TOKEN_B } from './dex.mjs';
+import { acceptRepresentation, CHAIN_ID, fundOnTestChain, testChain, TOKEN_A, TOKEN_B } from './dex.mjs';
 import { api, fromUnits, ROOT, toUnits } from './stack.mjs';
-import { installTestWallet } from './test-wallet.mjs';
+import { installTestWallet, testWalletKey, TEST_WALLET } from './test-wallet.mjs';
 import { tableIn } from './tables.mjs';
 
 // J-dex-protocol-07, in the running app (docs/roadmap/journeys.json): find a token, read its page and judge how much to
@@ -22,7 +23,6 @@ import { tableIn } from './tables.mjs';
 // a blank quote token refuses protocol.tokens_quote_unset (services/svc-protocol/src/amm/tokens.router.test.ts).
 // Steps that are written but not built yet fail at their first missing part, quickly (UNBUILT):
 // - #4's dollar price: no dollar price source exists on the stack, so the page names that blocker (price_feed).
-// - #9: a token page has no quick ticket.
 const J = 'J-dex-protocol-07';
 const UNBUILT = { timeout: 5_000 };
 const TOKEN = '0x4200000000000000000000000000000000000006';
@@ -541,14 +541,35 @@ test(`${J} #8 opens the stocks screener with no asset registered: an empty state
 test(`${J} #9 uses the 50 percent shortcut in the quick ticket: the amount is half the balance and Review opens the swap sheet`, async ({
   page,
 }) => {
-  await installTestWallet(page, { chainId: 84532 });
-  await page.goto(`/dex/tokens/${TOKEN}`);
+  // A fresh TEST wallet on the TEST chain, funded with TEST ETH and TEST Token A and B; the ticket buys TEST Token A in the
+  // deep TEST A/B pool, paying TEST Token B.
+  const privateKey = testWalletKey();
+  const owner = privateKeyToAccount(privateKey).address;
+  fundOnTestChain(owner);
+  await installTestWallet(page, { chainId: CHAIN_ID, tokens: [TOKEN_A, TOKEN_B], privateKey, rpcUrl: testChain().gateUrl });
+  await page.goto(`/dex/tokens/${TOKEN_A.address}`);
   const ticket = page.getByRole('form', { name: 'Quick trade' });
   await expect(ticket).toBeVisible(UNBUILT);
-  await ticket.getByRole('button', { name: /^Connect TEST Wallet/ }).click();
-  const balance = toUnits(((await ticket.getByTestId('quick-balance').textContent()) ?? '').replace(/[^\d.]/g, ''));
+  await expect(ticket.getByRole('button', { name: 'Buy TESTA' })).toHaveAttribute('aria-pressed', 'true');
+  await ticket.getByRole('button', { name: `Connect ${TEST_WALLET.name}` }).click();
+  const balance = await chain.readContract({ address: TOKEN_B.address, abi: erc20, functionName: 'balanceOf', args: [owner] });
+  expect(balance > 0n).toBe(true);
+  await expect(ticket.getByTestId('quick-balance')).toHaveAttribute('data-units', balance.toString());
   await ticket.getByRole('button', { name: '50%' }).click();
-  expect(toUnits(await ticket.getByRole('textbox', { name: 'Amount' }).inputValue())).toBe(balance / 2n);
+  const half = exact(balance / 2n, TOKEN_B.decimals);
+  await expect(ticket.getByRole('textbox', { name: 'Amount' })).toHaveValue(half);
   await ticket.getByRole('button', { name: 'Review' }).click();
-  await expect(page.getByRole('dialog', { name: /Review the swap/ })).toBeVisible();
+  // A fresh wallet accepts the representation once before its first signing action; then the swap sheet opens.
+  await acceptRepresentation(page);
+  const sheet = page.getByRole('dialog', { name: 'Check before you sign' }).locator('[data-sheet="sequence"]');
+  const swapStep = new RegExp(`^Swap ${half.replace('.', '\\.')} ${TOKEN_B.name} for at least \\d+(\\.\\d+)? ${TOKEN_A.name}$`);
+  await expect(sheet.getByRole('list', { name: 'Swap steps' }).getByRole('listitem')).toHaveText([
+    `Approve exactly ${half} ${TOKEN_B.name}`,
+    swapStep,
+  ]);
+  await expect(sheet).toContainText(new RegExp(TOKEN_A.address, 'i'));
+  await expect(sheet).toContainText(new RegExp(TOKEN_B.address, 'i'));
+  await sheet.getByRole('button', { name: 'Cancel' }).click();
+  await expect(ticket.getByRole('alert')).toHaveText('You cancelled. Nothing was sent.');
+  expect(await chain.readContract({ address: TOKEN_B.address, abi: erc20, functionName: 'balanceOf', args: [owner] })).toBe(balance);
 });
