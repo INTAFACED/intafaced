@@ -68,8 +68,8 @@ export const PROTOCOLS: readonly Protocol[] = ['rest', 'websocket', 'fix'];
 export const ENVIRONMENTS: readonly Environment[] = ['production', 'sandbox', 'regional'];
 
 /**
- * What the portal knows of a host. No read for the owner's host settings is connected, so every row is `unset`: the table
- * shows `host not set` and no address is written down or guessed. A published host would arrive as `{ state: 'set', host }`.
+ * What the portal knows of a host: `{ state: 'set', host }` where svc-trade publishes it (developers-values.ts), else
+ * `unset`, which the table shows as `host not set`; no address is written down or guessed.
  */
 export type HostCell = { state: 'unset' } | { state: 'set'; host: string };
 
@@ -121,7 +121,7 @@ export function connectivityOptions(
   ];
 }
 
-/** The market data products the terms table lists (RC-developer-05). No term is read yet, so each reads `not set`. */
+/** The market data products the terms table lists (RC-developer-05). A term svc-trade does not publish reads `not set`. */
 export const DATA_PRODUCTS = ['ticker', 'depth_l1', 'depth_l2', 'candles', 'trades', 'index'] as const;
 export const DATA_TERMS = ['entitlement', 'redistribution', 'retention', 'privacy', 'commercial'] as const;
 

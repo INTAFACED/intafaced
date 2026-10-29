@@ -106,6 +106,30 @@ describe('the published developer values', () => {
       { protocol: 'rest', environment: 'production', cell: { state: 'set', host: 'api.a.test' } },
     ]);
   });
+  it('Internet is available once every production host is published; the redundant endpoint waits for every regional one', () => {
+    const view = hostsView(
+      ready({
+        hosts: PROTOCOLS.flatMap((protocol) =>
+          ENVIRONMENTS.map((environment) => ({
+            protocol,
+            environment,
+            host: environment === 'regional' ? null : `${protocol}.${environment}.test`,
+          })),
+        ),
+      }),
+    );
+    if (view.kind !== 'table') throw new Error('unreachable');
+    const options = connectivityOptions(hostTable(view.read));
+    expect(options.map(({ option, state }) => `${option} ${state}`)).toEqual([
+      'internet available',
+      'redundant host_unset',
+      'low_latency parked_hardware',
+      'colocation parked_hardware',
+    ]);
+    expect(options[0]!.hosts.map(({ cell }) => cell)).toEqual(
+      PROTOCOLS.map((protocol) => ({ state: 'set', host: `${protocol}.production.test` })),
+    );
+  });
   it('a blank setting draws every row not set with its code; any other failure draws no table', () => {
     const blank = hostsView({ status: 'failed', code: DEVELOPER_HOSTS_UNSET });
     expect(blank).toMatchObject({ kind: 'table', unsetCode: 'trade.developer_hosts_unset' });

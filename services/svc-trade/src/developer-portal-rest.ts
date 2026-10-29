@@ -23,12 +23,19 @@ export const DATA_TERMS = ['entitlement', 'redistribution', 'retention', 'privac
 export const DEVELOPER_HOSTS_UNSET = 'trade.developer_hosts_unset';
 export const DEVELOPER_DATA_TERMS_UNSET = 'trade.developer_data_terms_unset';
 
-/** A host name with an optional port, lower case; never a scheme or a path. */
+/** A host name with an optional port (1 to 65535), lower case; never a scheme or a path. */
 const HOST = /^(?=.{1,253}(?::\d{1,5})?$)[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)*(?::\d{1,5})?$/;
+const hostText = z
+  .string()
+  .regex(HOST)
+  .refine((host) => {
+    const port = host.split(':')[1];
+    return port === undefined || (Number(port) >= 1 && Number(port) <= 65535);
+  }, 'port out of range');
 
 const hostsSchema = z
-  .partialRecord(z.enum(DEVELOPER_PROTOCOLS), z.partialRecord(z.enum(DEVELOPER_ENVIRONMENTS), z.string().regex(HOST)))
-  .refine((value) => Object.keys(value).length > 0, 'names no host');
+  .partialRecord(z.enum(DEVELOPER_PROTOCOLS), z.partialRecord(z.enum(DEVELOPER_ENVIRONMENTS), hostText))
+  .refine((value) => Object.values(value).some((environments) => Object.keys(environments ?? {}).length > 0), 'names no host');
 const termText = z.string().trim().min(1).max(500);
 const productTerms = z
   .object({ entitlement: termText, redistribution: termText, retention: termText, privacy: termText, commercial: termText })

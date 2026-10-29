@@ -94,10 +94,14 @@ describe('developer docs pages', () => {
     expect(page).toContain('data-testid="developers-clock-check"');
     expect(page).toContain('Check my clock');
   });
-  it('connectivity reads the published hosts before it draws an option; the clock check is there at once', () => {
+  it('connectivity names the parked options and their hardware blocker at once; the host options wait for the read', () => {
     const page = html('/developers/connectivity');
     expect(page).toContain('Connectivity options');
-    expect(page).not.toContain('data-option=');
+    expect(page.match(/data-option="[a-z_]+"/g)).toEqual(['data-option="low_latency"', 'data-option="colocation"']);
+    expect(page.match(/data-option-state="[a-z_]+"/g)).toEqual([
+      'data-option-state="parked_hardware"',
+      'data-option-state="parked_hardware"',
+    ]);
     expect(page).toContain('data-testid="developers-time-probe"');
   });
   it('data terms reads the published terms before it draws a product', () => {

@@ -284,55 +284,56 @@ export function ConnectivityPage({ title }: { title: string }) {
   const { api } = useSession();
   const { read, reload } = useRead((signal) => readDeveloperHosts(api, signal), [api]);
   const view = hostsView(read);
+  // The parked options name their hardware blocker whatever the hosts read says; only the host rows wait for it.
+  const options =
+    view.kind === 'table'
+      ? connectivityOptions(hostTable(view.read))
+      : connectivityOptions().filter(({ state }) => state === 'parked_hardware');
   return (
     <Page id="connectivity" title={title} lead={t('connectivityLead')}>
       <section className="pub-card" aria-labelledby="dev-conn-options">
         <h2 id="dev-conn-options">{t('connectivityTable')}</h2>
         {view.kind === 'loading' ? (
-          <StateBlock kind="loading" rows={4} rowHeight={48} label={live('loading')} />
+          <StateBlock kind="loading" rows={2} rowHeight={48} label={live('loading')} />
         ) : view.kind === 'failed' ? (
           <StateBlock kind="error" title={live('loadFailed')} onRetry={reload} retryLabel={live('tryAgain')} />
-        ) : (
-          <>
-            {view.unsetCode ? (
-              <p className="pub-notice" role="status" data-testid="developers-connectivity-unset" data-code={view.unsetCode}>
-                {portal('hostsUnpublished')}
-              </p>
-            ) : null}
-            <div className="table-scroll">
-              <table className="pub-table">
-                <thead>
-                  <tr>
-                    <th scope="col">{t('colOption')}</th>
-                    <th scope="col">{t('colStatus')}</th>
-                    <th scope="col">{t('colEndpoints2')}</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {connectivityOptions(hostTable(view.read)).map(({ option, state, hosts }) => (
-                    <tr key={option} data-option={option} data-option-state={state}>
-                      <th scope="row">{t(`option_${option}`)}</th>
-                      <td>{connectivityStateLabel(t, state)}</td>
-                      <td>
-                        {connectivityEndpointsLabel(t, option)}
-                        {hosts.length ? (
-                          <ul aria-label={t(`option_${option}`)}>
-                            {hosts.map(({ protocol, cell }) => (
-                              <li key={protocol} data-protocol={protocol} data-host-state={cell.state}>
-                                {portal(`protocol_${protocol}` as const)}:{' '}
-                                {cell.state === 'set' ? <code>{cell.host}</code> : portal('hostUnset')}
-                              </li>
-                            ))}
-                          </ul>
-                        ) : null}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </>
-        )}
+        ) : view.unsetCode ? (
+          <p className="pub-notice" role="status" data-testid="developers-connectivity-unset" data-code={view.unsetCode}>
+            {portal('hostsUnpublished')}
+          </p>
+        ) : null}
+        <div className="table-scroll">
+          <table className="pub-table">
+            <thead>
+              <tr>
+                <th scope="col">{t('colOption')}</th>
+                <th scope="col">{t('colStatus')}</th>
+                <th scope="col">{t('colEndpoints2')}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {options.map(({ option, state, hosts }) => (
+                <tr key={option} data-option={option} data-option-state={state}>
+                  <th scope="row">{t(`option_${option}`)}</th>
+                  <td>{connectivityStateLabel(t, state)}</td>
+                  <td>
+                    {connectivityEndpointsLabel(t, option)}
+                    {hosts.length ? (
+                      <ul aria-label={t(`option_${option}`)}>
+                        {hosts.map(({ protocol, cell }) => (
+                          <li key={protocol} data-protocol={protocol} data-host-state={cell.state}>
+                            {portal(`protocol_${protocol}` as const)}:{' '}
+                            {cell.state === 'set' ? <code>{cell.host}</code> : portal('hostUnset')}
+                          </li>
+                        ))}
+                      </ul>
+                    ) : null}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
         <a className="text-link" href="/developers/hosts">
           {t('hostsLink')} →
         </a>
