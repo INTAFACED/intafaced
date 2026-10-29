@@ -167,12 +167,11 @@ const accrue = async (poolId, at) => (await job('ops.accrueInterest', { poolId, 
 const release = (poolId) => job('ops.releaseUnbondedEarn', { poolId, limit: 10 });
 /** Ends one TEST saving's unbonding now on this stack (moves its two dates back), as seven days passing would. */
 function endUnbonding(positionId) {
-  const r = spawnSync(
+  return execFileSync(
     process.execPath,
     [path.join(ROOT, 'tooling/scripts/local-test-seed.mjs'), 'end-earn-unbonding', positionId, '--state', localStackState()],
-    { encoding: 'utf8', env: { ...process.env, LOCAL_TEST: '1' } },
+    { cwd: ROOT, encoding: 'utf8', env: { ...process.env, LOCAL_TEST: '1' }, timeout: 60_000 },
   );
-  expect(r.status, `${r.stdout}${r.stderr}`).toBe(0);
 }
 /** The renewal job for one pool, run at `at`. */
 const renew = (poolId, at) => job('ops.renewEarnTerms', { poolId, at: at.toISOString(), limit: 10 });
@@ -597,7 +596,7 @@ test(`${J} #6 opens a staking-style pool: unbonding states and pool status; a cl
   });
   expect(await release(staking.id)).toEqual({ released: [], skipped: [], next: null });
   expect(await mainUsdt(api)).toBe(before);
-  endUnbonding(position.id);
+  expect(endUnbonding(position.id)).toContain(`saving ${position.id}: unbonding ends`);
   expect(await release(staking.id)).toEqual({
     released: [{ positionId: position.id, principal: '100' }],
     skipped: [],
