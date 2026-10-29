@@ -1,5 +1,5 @@
 import type { ReconciliationEvaluationCursor } from '@intafaced/contracts/ledger-reconciliation';
-import type { EvaluationFeedPort } from './feed-client.js';
+import { after, type EvaluationFeedPort } from './feed-client.js';
 import type { ReconciliationAlertStore } from './store.js';
 
 const PAGE = 200;
@@ -12,17 +12,10 @@ const MAX_PAGES = 5;
 export const FEED_OVERLAP_MS = 120_000;
 const NIL_ID = '00000000-0000-0000-0000-000000000000';
 
-/** A cursor's place in (finishedAt, id) order, with the fraction padded to microseconds so it compares as text. */
-function place(cursor: ReconciliationEvaluationCursor): string {
-  const iso = new Date(cursor.finishedAt).toISOString().slice(0, 19);
-  const fraction = /\.(\d+)/.exec(cursor.finishedAt)?.[1] ?? '';
-  return `${iso}.${fraction.padEnd(6, '0').slice(0, 6)}|${cursor.id}`;
-}
-
 function later(a: ReconciliationEvaluationCursor | null, b: ReconciliationEvaluationCursor | null) {
   if (!a) return b;
   if (!b) return a;
-  return place(b) > place(a) ? b : a;
+  return after(b, a) ? b : a;
 }
 
 /**

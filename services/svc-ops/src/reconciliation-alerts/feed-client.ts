@@ -79,11 +79,13 @@ type Cursor = { finishedAt: string; id: string };
 
 /** Microseconds since the epoch, so two runs finished in the same millisecond still order as the ledger orders them. */
 export function micros(iso: string): bigint {
-  const fraction = (/\.(\d+)/.exec(iso)?.[1] ?? '').padEnd(6, '0').slice(0, 6);
-  return BigInt(Date.parse(iso.replace(/\.\d+/, ''))) * 1000n + BigInt(fraction);
+  const fraction = (/\.(\d+)/.exec(iso)?.[1] ?? '').slice(0, 6);
+  const sub = fraction ? BigInt(fraction) * 10n ** BigInt(6 - fraction.length) : 0n;
+  return BigInt(Date.parse(iso.replace(/\.\d+/, ''))) * 1000n + sub;
 }
 
-function after(a: Cursor, b: Cursor): boolean {
+/** Whether cursor `a` comes after `b` in the ledger's (finishedAt, id) order. */
+export function after(a: Cursor, b: Cursor): boolean {
   const ta = micros(a.finishedAt);
   const tb = micros(b.finishedAt);
   return ta !== tb ? ta > tb : a.id > b.id;
