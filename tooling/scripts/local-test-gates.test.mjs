@@ -32,6 +32,8 @@ import {
   TEST_UNSUPPORTED_DEPOSIT,
   TEST_HALTED_DEPOSIT,
   TEST_WITHDRAWAL_LIMITS,
+  TEST_CUSTODY_POLICY_RULES,
+  TEST_CUSTODY_CONFIG_QUORUM,
   networkRowMatches,
   payProposal,
   assetEditProposal,
@@ -362,7 +364,19 @@ assert.deepEqual([...TEST_WITHDRAWAL_LIMITS.tiers], ['basic', 'full', 'instituti
     PORTS: {},
   }).env();
   assert.equal(payEnv.PAY_WITHDRAWAL_LIMITS, 'required');
+  // J-wallet-05: a TEST custody signer on TEST Ethereum only, so TEST Base stays unconnected (#7).
+  assert.equal(payEnv.PAY_TEST_WITHDRAW_SIGNER_NETWORKS, 'ethereum');
 }
+// The TEST custody policy allows only wallet transfers on the crypto-native rail, labelled TEST, with no approval group, and
+// asks one approval of the second founder for its own config task.
+assert.equal(TEST_CUSTODY_POLICY_RULES.length, 1);
+assert.match(TEST_CUSTODY_POLICY_RULES[0].id, /^TEST-/);
+assert.deepEqual(JSON.parse(JSON.stringify(TEST_CUSTODY_POLICY_RULES[0])), {
+  id: 'TEST-allow-wallet-sends',
+  action: 'allow',
+  match: { networks: ['crypto-native'], destinationKinds: ['crypto'], txTypes: ['transfer'] },
+});
+assert.deepEqual({ ...TEST_CUSTODY_CONFIG_QUORUM }, { kind: 'config', requiredApprovals: 1, expirySeconds: 3600 });
 assert.deepEqual(payProposal('pay.registry_change', 'sha256:abc'), {
   actionType: 'pay.registry_change',
   targetService: 'svc-pay',

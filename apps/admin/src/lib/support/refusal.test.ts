@@ -73,3 +73,21 @@ describe('the answers that are not refusals', () => {
     expect(explainSupportFailure({ kind: 'invalid', requestId: null }).changed).toBe('unknown');
   });
 });
+
+describe('the owner refusals', () => {
+  it.each([
+    ['support.release.not_assignee', 'Only the person holding the request can unclaim it'],
+    ['support.not_lead', 'Only a lead can do that'],
+  ])('a forbidden %s is that refusal, with its code, not a missing permission', (code, title) => {
+    const view = explainSupportFailure({ kind: 'forbidden', refusal: refusal(code, 403), requestId: null });
+    expect([view.title, view.code, view.changed]).toEqual([title, code, 'no']);
+  });
+  it.each([
+    ['support.stale_ticket', 'The request changed since you opened it', 409],
+    ['support.claim.queue_empty', 'No request is waiting to be claimed', 412],
+    ['support.claim.already_claimed', 'Someone else already holds this request', 409],
+  ])('%s says what happened, with its code', (code, title, status) => {
+    const view = explainSupportFailure(refused(code, status));
+    expect([view.title, view.code, view.changed]).toEqual([title, code, 'no']);
+  });
+});
