@@ -647,6 +647,11 @@ test(`${J} #7: a trading restriction refuses a new order on the desk by name, ke
     await expect(restriction).toContainText(
       'It stops new orders, larger orders, new bots and copied trades. You can still cancel an order.',
     );
+    // The reason line: the gate records a free-text staff note and no coded reason, so the customer reads none, and only
+    // support lifts it.
+    await expect(restriction).toHaveAttribute('data-reason', '');
+    await expect(restriction).toContainText('No reason recorded.');
+    await expect(restriction).toContainText('Only support can lift this.');
     await expect(status.getByTestId('account-status__cannot').locator('li')).toHaveText(['Trade']);
 
     // Cancel still works while it holds: the earlier order is cancelled and its hold released.
