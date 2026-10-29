@@ -68,5 +68,11 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS }) => ({
     // has none, so a send there is refused before anything is held (J-wallet-05 #7). svc-pay refuses this outside APP_ENV dev
     // or test; no live signer exists anywhere.
     PAY_TEST_WITHDRAW_SIGNER_NETWORKS: 'ethereum',
+    // LOCAL-TEST pace for that in-memory chain (J-wallet-05 #8), so a real send can be watched on its page: every send waits
+    // 3 seconds after it is recorded before it answers, as a node waits for confirmations, and a send of exactly 13 is
+    // refused before anything is recorded, so its hold comes back and the page says why. svc-pay refuses both outside
+    // APP_ENV dev or test, and beside a live chain.
+    PAY_TEST_CHAIN_SEND_DELAY_MS: '6000',
+    PAY_TEST_CHAIN_REFUSE_AMOUNT: '13',
   }),
 });

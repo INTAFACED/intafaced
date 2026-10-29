@@ -111,7 +111,33 @@ export type ChainSendLookup =
  * all modelled here, so an adapter that behaves correctly against this one
  * behaves correctly against a chain.
  */
+/**
+ * Dev and test only (J-wallet-05 #8): how the in-memory chain paces a send, so a real send can be watched on its page.
+ * `sendDelayMs` waits after the send is recorded (broadcast) and before it answers, as a real node waits for its
+ * confirmations. `refuseAmount` refuses, before anything is recorded, every send of exactly that amount, as a node refuses a
+ * transaction it will not take. Both are TEST settings: `defaultChainFor` reads them only where the chain is this one.
+ */
+export interface MemoryChainPace {
+  readonly sendDelayMs?: number;
+  readonly refuseAmount?: Amount;
+}
+
+/**
+ * The chain refused the send before anything left: nothing was broadcast, so nothing can arrive. `crypto-native` turns
+ * it into a `rail.refused` failure and the hold is reversed in the same call.
+ */
+export class ChainSendRefusedError extends Error {
+  readonly code = 'chain.send_refused';
+
+  constructor(reason: string) {
+    super(`The chain refused the send before broadcast: ${reason}`);
+    this.name = 'ChainSendRefusedError';
+  }
+}
+
 export class MemoryChain implements CryptoChainPort {
+  constructor(private readonly pace: MemoryChainPace = {}) {}
+
   /**
    * SANDBOX, stated on the object rather than known by convention.
    *
@@ -171,9 +197,15 @@ export class MemoryChain implements CryptoChainPort {
       throw err;
     }
 
+    if (this.pace.refuseAmount !== undefined && request.amount === this.pace.refuseAmount) {
+      throw new ChainSendRefusedError(`TEST: the in-memory chain refuses every send of ${formatAmount(request.amount)}`);
+    }
+
     const txHash = `0xout${(++this.nonce).toString(16).padStart(8, '0')}`;
     this.sent.set(request.idempotencyKey, { txHash });
     this.outbound.push({ ...request, txHash });
+    // Recorded first, so a status query during the wait finds it sent, as it would find a broadcast awaiting confirmations.
+    if (this.pace.sendDelayMs) await new Promise((resolve) => setTimeout(resolve, this.pace.sendDelayMs));
     return { txHash };
   }
 

@@ -1,5 +1,6 @@
 import { MemoryBroadcastStore, type BroadcastStore } from './broadcast-store.js';
-import { MemoryChain, UnconfiguredChain, type CryptoChainPort } from './chain-port.js';
+import { parseAmount, type Amount } from '@intafaced/ledger-client';
+import { MemoryChain, UnconfiguredChain, type CryptoChainPort, type MemoryChainPace } from './chain-port.js';
 import { parseEvmAssets } from './evm-assets.js';
 import { EvmLiveChain } from './evm-chain.js';
 import { SignerUnsetError, TestnetSigner, type EvmSigner } from './evm-signer.js';
@@ -560,12 +561,58 @@ export function defaultChainFor(
   signer?: EvmSigner,
   deposits?: DepositAddressSource,
 ): CryptoChainPort {
+  // Read first, so a TEST pace set beside a live chain, or in staging or prod, refuses to boot instead of being ignored.
+  const pace = memoryChainPaceFromEnv(env);
   const live = tryLiveChainFromEnv(env, broadcasts, signer, deposits);
-  if (live) return live;
+  if (live) {
+    if (Object.keys(pace).length > 0)
+      throw new Error('PAY_TEST_CHAIN_SEND_DELAY_MS and PAY_TEST_CHAIN_REFUSE_AMOUNT pace only the in-memory chain, not a live one');
+    return live;
+  }
 
   const appEnv = env.APP_ENV ?? 'dev';
   const enforced = (RAIL_POSTURE_ENFORCED_ENVS as readonly string[]).includes(appEnv);
-  return enforced ? new UnconfiguredChain() : new MemoryChain();
+  return enforced ? new UnconfiguredChain() : new MemoryChain(pace);
+}
+
+/** The longest TEST wait a send may be given: long enough to watch, short of any request timeout. */
+export const MEMORY_CHAIN_MAX_SEND_DELAY_MS = 20_000;
+
+/**
+ * The in-memory chain's TEST pace (J-wallet-05 #8): `PAY_TEST_CHAIN_SEND_DELAY_MS` (whole milliseconds, at most
+ * {@link MEMORY_CHAIN_MAX_SEND_DELAY_MS}) and `PAY_TEST_CHAIN_REFUSE_AMOUNT` (an exact decimal). Unset is no pace. Set
+ * anywhere but APP_ENV exactly `dev` or `test`, or set to a value that does not parse, refuses to boot: a TEST setting
+ * never quietly shapes a real chain, and a mistyped one never quietly does nothing.
+ */
+export function memoryChainPaceFromEnv(env: Record<string, string | undefined>): MemoryChainPace {
+  const delay = env.PAY_TEST_CHAIN_SEND_DELAY_MS?.trim();
+  const refuse = env.PAY_TEST_CHAIN_REFUSE_AMOUNT?.trim();
+  if (!delay && !refuse) return {};
+  if (env.APP_ENV !== 'dev' && env.APP_ENV !== 'test') {
+    throw new Error(
+      `PAY_TEST_CHAIN_SEND_DELAY_MS and PAY_TEST_CHAIN_REFUSE_AMOUNT are TEST settings: APP_ENV must be dev or test, not "${env.APP_ENV ?? ''}"`,
+    );
+  }
+  const pace: { sendDelayMs?: number; refuseAmount?: Amount } = {};
+  if (delay) {
+    if (!/^\d+$/.test(delay) || Number(delay) > MEMORY_CHAIN_MAX_SEND_DELAY_MS) {
+      throw new Error(
+        `PAY_TEST_CHAIN_SEND_DELAY_MS must be whole milliseconds from 0 to ${MEMORY_CHAIN_MAX_SEND_DELAY_MS}, not "${delay}"`,
+      );
+    }
+    pace.sendDelayMs = Number(delay);
+  }
+  if (refuse) {
+    let amount: Amount;
+    try {
+      amount = parseAmount(refuse);
+    } catch {
+      throw new Error(`PAY_TEST_CHAIN_REFUSE_AMOUNT must be an exact decimal amount, not "${refuse}"`);
+    }
+    if (amount <= 0n) throw new Error(`PAY_TEST_CHAIN_REFUSE_AMOUNT must be above zero, not "${refuse}"`);
+    pace.refuseAmount = amount;
+  }
+  return pace;
 }
 
 /**

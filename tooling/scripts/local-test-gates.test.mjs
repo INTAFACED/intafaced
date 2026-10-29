@@ -366,6 +366,9 @@ assert.deepEqual([...TEST_WITHDRAWAL_LIMITS.tiers], ['basic', 'full', 'instituti
   assert.equal(payEnv.PAY_WITHDRAWAL_LIMITS, 'required');
   // J-wallet-05: a TEST custody signer on TEST Ethereum only, so TEST Base stays unconnected (#7).
   assert.equal(payEnv.PAY_TEST_WITHDRAW_SIGNER_NETWORKS, 'ethereum');
+  // J-wallet-05 #8: the in-memory chain's TEST pace, so a real send is seen sending, and a send of 13 is refused by name.
+  assert.equal(payEnv.PAY_TEST_CHAIN_SEND_DELAY_MS, '6000');
+  assert.equal(payEnv.PAY_TEST_CHAIN_REFUSE_AMOUNT, '13');
 }
 // The TEST custody policy allows only wallet transfers on the crypto-native rail, labelled TEST, with no approval group, and
 // asks one approval of the second founder for its own config task.
