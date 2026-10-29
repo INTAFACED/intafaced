@@ -15,7 +15,6 @@ import { addAuthenticator, nextCode } from './identity-factors.mjs';
 // - #2's fraud list: nothing screens a destination against one, and the stack lists no TEST address (FRAUD_LISTED).
 // - #6, #4's two parallel sends: svc-pay has no custody signer for any network, so every send out is refused before a claim.
 //   They run after #7, which needs the balance still at 300.
-// - #8: a failed withdrawal can't be seeded on the stack yet, so its failure sentence has no row to read.
 // #5 (travel rule) and the sanctions clause of #2 wait for launch (owner decision 2026-10-27, no compliance work until then).
 const J = 'J-wallet-05';
 const run = journeyState(`${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
