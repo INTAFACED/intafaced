@@ -457,6 +457,8 @@ export type DestinationReadiness = z.infer<typeof destinationReadinessSchema>;
 export const destinationCheckSchema = z.object({
   address: z.enum(['ok', 'invalid', 'checksum_mismatch']),
   lookalike: z.object({ destinationId: z.string(), label: z.string().nullable(), refMasked: z.string() }).nullable(),
+  /** On the owner's fraud list for the network asked (W-withdraw-03); the bank refuses it on save. An older bank sends none. */
+  fraudListed: z.boolean().optional(),
 });
 export type DestinationCheck = z.infer<typeof destinationCheckSchema>;
 const detailSetSchema = z.object({

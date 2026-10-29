@@ -118,6 +118,7 @@ const migrations = [
   '0089_pay_payout_dispatched_outcome.sql',
   // createPayment and openCheckoutSession read the business's category (RC-merchant-08). Empty here: nothing refused.
   '20261024084448_pay_business_categories.sql',
+  '20261029051500_pay_business_category_standard.sql',
   // openCheckoutSession reads the business's payment methods (M-adv-payments-core-11). Empty here: the default offer.
   '20261024233504_pay_checkout_methods.sql',
 ].map((f) => readFileSync(join(here, '..', 'drizzle', f), 'utf8'));

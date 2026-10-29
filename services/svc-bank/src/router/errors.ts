@@ -269,6 +269,7 @@ const BANK_ERROR_STATUS: Record<BankErrorCode, TRPCError['code']> = {
   'bank.withdraw_network_unsupported': 'BAD_REQUEST',
   'bank.address_checksum_mismatch': 'BAD_REQUEST',
   'bank.address_lookalike': 'BAD_REQUEST',
+  'bank.destination_fraud_listed': 'BAD_REQUEST',
   'bank.wallet_proof_expired': 'BAD_REQUEST',
   'bank.wallet_proof_signature_invalid': 'BAD_REQUEST',
   'bank.wallet_proof_wrong_signer': 'BAD_REQUEST',
@@ -528,6 +529,7 @@ const BANK_ERROR_STATUS: Record<BankErrorCode, TRPCError['code']> = {
   'bank.account_details_unavailable': 'SERVICE_UNAVAILABLE',
   // The pause read failed; the new borrow or deposit was refused rather than assumed open.
   'bank.asset_pause_unreadable': 'SERVICE_UNAVAILABLE',
+  'bank.destination_fraud_list_unreadable': 'SERVICE_UNAVAILABLE',
 };
 
 export function toTrpcError(err: unknown): TRPCError {

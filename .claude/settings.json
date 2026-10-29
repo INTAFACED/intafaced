@@ -14,6 +14,19 @@
           }
         ]
       }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "mcp__claude-code-remote__add_repo",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node -e 'const deny=()=>console.log(JSON.stringify({hookSpecificOutput:{hookEventName:\"PreToolUse\",permissionDecision:\"deny\",permissionDecisionReason:\"add_repo is limited to INTAFACED/intafaced, INTAFACED/project-state and ZenYoda3/claude-hub (owner decision 2026-10-29); ask the coordinator for any other repository\"}}));let d=\"\";process.stdin.on(\"data\",c=>d+=c).on(\"end\",()=>{try{const i=JSON.parse(d).tool_input;if(typeof i.owner!==\"string\"||typeof i.repo!==\"string\"||![\"intafaced/intafaced\",\"intafaced/project-state\",\"zenyoda3/claude-hub\"].includes((i.owner+\"/\"+i.repo).toLowerCase()))deny()}catch{deny()}})'",
+            "timeout": 10,
+            "onFailure": "block"
+          }
+        ]
+      }
     ]
   }
 }
