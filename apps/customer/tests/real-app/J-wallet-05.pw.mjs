@@ -3,6 +3,7 @@ import { test, expect } from '@playwright/test';
 import { DEVICE_KEY, EDGE, ORIGIN, ROOT, fund, journeyState, mailedLines, toUnits, tool } from './stack.mjs';
 import { signIn, signUp, verify } from './desk.mjs';
 import { addAuthenticator, nextCode } from './identity-factors.mjs';
+import { TEST_WITHDRAW_NETWORK_RULES } from '../../../../tooling/scripts/local-test-gates.mjs';
 
 // J-wallet-05, in the running app (docs/roadmap/journeys.json): I withdraw crypto. One test per step, titled
 // "J-wallet-05 #<n>", run in order on one verified TEST account with an authenticator app, TEST 300 USDT, and one saved
@@ -237,7 +238,22 @@ test(`${J} #1 opens Withdraw and picks asset and network: the default network wi
   const rules = page.getByTestId('withdraw-network-rules');
   await expect(rules).toBeVisible();
   await expect(rules).toContainText('This network takes no tag or memo.');
-  for (const rule of ['Minimum', 'Maximum', 'Step']) await expect(rules).toContainText(new RegExp(`${rule}\\D*[\\d.,]+ USDT`));
+  // Each figure is the one the stack's founders published (TEST_WITHDRAW_NETWORK_RULES: 1, 1000 and 0.01), compared as a
+  // number so a grouped or zero-padded display of the same value still matches, and any other value fails.
+  const figure = (text) =>
+    text
+      .replace(/,/g, '')
+      .replace(/(\.\d*?)0+$/, '$1')
+      .replace(/\.$/, '');
+  for (const [rule, want] of [
+    ['Minimum', TEST_WITHDRAW_NETWORK_RULES.minimum],
+    ['Maximum', TEST_WITHDRAW_NETWORK_RULES.maximum],
+    ['Step', TEST_WITHDRAW_NETWORK_RULES.step],
+  ]) {
+    const shown = (await rules.textContent()).match(new RegExp(`${rule}\\D*?([\\d.,]+) USDT`));
+    expect(shown, `${rule} is shown`).not.toBeNull();
+    expect(figure(shown[1]), `${rule} is the catalogue's TEST ${want} USDT`).toBe(figure(want));
+  }
   await expect(form(page).getByRole('textbox', { name: /^(Tag|Memo)/ })).toHaveCount(0);
 });
 
