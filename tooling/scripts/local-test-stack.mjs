@@ -604,15 +604,42 @@ function gitHead() {
   return r.stdout.trim();
 }
 
+function pnpmFailed(label, logPath, status) {
+  const tail = fs.readFileSync(logPath, 'utf8').split('\n').slice(-25).join('\n');
+  fail(`${label} failed (exit ${status}). Log: ${logPath}\n${tail}`);
+}
+
 function runPnpm(args, label, extraEnv = {}) {
   const logPath = path.join(P.logs, `${label}.log`);
   const fd = fs.openSync(logPath, 'w', 0o600);
   const r = spawnSync('pnpm', args, { cwd: REPO, env: { ...baseEnv(), ...extraEnv }, stdio: ['ignore', fd, fd] });
   fs.closeSync(fd);
-  if (r.status !== 0) {
-    const tail = fs.readFileSync(logPath, 'utf8').split('\n').slice(-25).join('\n');
-    fail(`${label} failed (exit ${r.status}). Log: ${logPath}\n${tail}`);
-  }
+  if (r.status !== 0) pnpmFailed(label, logPath, r.status);
+}
+
+/** runPnpm without blocking, so several can run side by side. */
+function runPnpmAsync(args, label, extraEnv = {}) {
+  const logPath = path.join(P.logs, `${label}.log`);
+  const fd = fs.openSync(logPath, 'w', 0o600);
+  return new Promise((resolve) => {
+    const child = spawn('pnpm', args, { cwd: REPO, env: { ...baseEnv(), ...extraEnv }, stdio: ['ignore', fd, fd] });
+    const done = (status) => {
+      fs.closeSync(fd);
+      if (status !== 0) pnpmFailed(label, logPath, status);
+      resolve();
+    };
+    child.on('error', () => done(-1));
+    child.on('exit', (code, signal) => done(signal ? -1 : code));
+  });
+}
+
+/** Run `task` on every item, at most `limit` at a time. */
+export async function inPool(items, limit, task) {
+  const queue = [...items];
+  const lane = async () => {
+    while (queue.length) await task(queue.shift());
+  };
+  await Promise.all(Array.from({ length: Math.min(limit, queue.length) }, lane));
 }
 
 const SOURCE_PATHS = ['services', 'packages', 'apps/customer', 'pnpm-lock.yaml'];
@@ -807,12 +834,14 @@ function ensureBuilt(rebuild) {
   ensureAdminBuilt(rebuild);
 }
 
-function migrate(secrets, schemas = SCHEMAS) {
-  for (const s of schemas) {
-    runPnpm(['--filter', `@intafaced/svc-${serviceOfSchema(s)}`, 'db:migrate'], `migrate-${s}`, {
+// Each schema migrates as its own role inside its own schema and reads no build output, so they run side by side,
+// one per core (they were 19 runs of about a second each, one after another).
+async function migrate(secrets, schemas = SCHEMAS) {
+  await inPool(schemas, os.availableParallelism(), (s) =>
+    runPnpmAsync(['--filter', `@intafaced/svc-${serviceOfSchema(s)}`, 'db:migrate'], `migrate-${s}`, {
       DATABASE_URL: dbUrl(`svc_${s}`, secrets),
-    });
-  }
+    }),
+  );
   say(`  migrations: ${schemas.length ? schemas.join(', ') : 'none needed'} applied (idempotent)`);
 }
 
@@ -924,6 +953,20 @@ const SERVICES = [
   campaigns,
   edge,
 ];
+
+/**
+ * SERVICES in start waves: ledger, identity and matching (the first three of the old one-by-one order) first, edge
+ * (always last) last, and the rest side by side between them, so edge still opens its doors only once every upstream
+ * answers. Each service takes one to three seconds to answer /health; one after another they took about 36 seconds.
+ */
+const FIRST_WAVE = ['ledger', 'identity', 'matching'];
+const LAST_WAVE = ['edge'];
+export function startWaves(defs) {
+  const first = defs.filter((d) => FIRST_WAVE.includes(d.name));
+  const last = defs.filter((d) => LAST_WAVE.includes(d.name));
+  const middle = defs.filter((d) => !first.includes(d) && !last.includes(d));
+  return [first, middle, last].filter((w) => w.length > 0);
+}
 
 function serviceDefs(secrets) {
   const ctx = {
@@ -1357,7 +1400,7 @@ async function cmdStart(flags) {
   const wanted = serviceDefs(secrets).filter((d) => !only || only.includes(d.name));
   // Migrate only what is about to start: a service that is already running was migrated when it started.
   const toStart = wanted.filter((d) => !ownedAlive(readProcs()[d.name]));
-  migrate(
+  await migrate(
     secrets,
     SCHEMAS.filter((s) => toStart.some((d) => d.name === serviceOfSchema(s))),
   );
@@ -1372,7 +1415,7 @@ async function cmdStart(flags) {
   }
   // Academy's env points at the video store, so `--only academy` starts it too.
   if (!only || only.includes('video-store') || only.includes('academy')) await startVideoStore(secrets);
-  for (const def of wanted) await startNodeService(def);
+  for (const wave of startWaves(wanted)) await Promise.all(wave.map(startNodeService));
   try {
     await ensureLocalTestFounders();
     if (!only || only.includes('ops')) await pinOpsFounders();

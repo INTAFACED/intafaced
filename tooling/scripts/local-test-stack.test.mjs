@@ -23,6 +23,40 @@ import { fileURLToPath } from 'node:url';
 const here = dirname(fileURLToPath(import.meta.url));
 const script = resolve(here, 'local-test-stack.mjs');
 
+// Start waves: the core three first, edge alone and last, every other service in one wave between them.
+{
+  const { startWaves, localTestServiceEnvs } = await import('./local-test-stack.mjs');
+  const defs = localTestServiceEnvs();
+  const names = defs.map((d) => d.name);
+  const waves = startWaves(defs).map((w) => w.map((d) => d.name));
+  assert.deepEqual(waves[0], ['ledger', 'identity', 'matching']);
+  assert.deepEqual(waves.at(-1), ['edge']);
+  assert.equal(waves.length, 3);
+  assert.deepEqual(waves.flat().sort(), [...names].sort());
+  assert.deepEqual(
+    startWaves([{ name: 'ops' }]).map((w) => w.map((d) => d.name)),
+    [['ops']],
+  );
+}
+
+// inPool runs every item, never more than the limit at once.
+{
+  const { inPool } = await import('./local-test-stack.mjs');
+  let running = 0;
+  let peak = 0;
+  const seen = [];
+  await inPool([1, 2, 3, 4, 5, 6, 7], 3, async (n) => {
+    running += 1;
+    peak = Math.max(peak, running);
+    await new Promise((r) => setTimeout(r, 5));
+    seen.push(n);
+    running -= 1;
+  });
+  assert.equal(peak, 3);
+  assert.deepEqual(seen.sort(), [1, 2, 3, 4, 5, 6, 7]);
+  await inPool([], 4, async () => assert.fail('no items, no calls'));
+}
+
 // p2p is the only service that carries the local-test instrument key, and only under APP_ENV=dev.
 {
   const { localTestServiceEnvs } = await import('./local-test-stack.mjs');
