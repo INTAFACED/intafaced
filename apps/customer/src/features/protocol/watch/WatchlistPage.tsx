@@ -13,7 +13,8 @@ export function WatchlistPage() {
   const { language } = usePreferences();
   const { t } = watchCopy.forLocale(language);
   const { list, change } = useAccountAddressWatches();
-  const [failed, setFailed] = useState(false);
+  const [removing, setRemoving] = useState<string | null>(null);
+  const [problem, setProblem] = useState<'not-saved' | 'unknown' | null>(null);
   const headers = [t('hdrAddress'), t('hdrTag'), t('hdrNote'), t('hdrActions')];
   let body = null;
   if (list.status === 'signed-out')
@@ -38,7 +39,13 @@ export function WatchlistPage() {
               <td>
                 <Button
                   variant="secondary"
-                  onClick={async () => setFailed(!(await change((items) => items.filter((entry) => entry.address !== watch.address))).ok)}
+                  disabled={removing !== null}
+                  onClick={async () => {
+                    setRemoving(watch.address);
+                    const write = await change((items) => items.filter((entry) => entry.address !== watch.address));
+                    setRemoving(null);
+                    setProblem(write === 'saved' ? null : write === 'unknown' ? 'unknown' : 'not-saved');
+                  }}
                 >
                   {t('remove')}
                 </Button>
@@ -47,7 +54,7 @@ export function WatchlistPage() {
           ))}
         </DataTable>
         {list.items.length === 0 && <EmptyState title={t('watchlistEmpty')} />}
-        {failed && <p role="alert">{t('removeFailed')}</p>}
+        {problem && <p role="alert">{problem === 'unknown' ? t('removeUnknown') : t('removeFailed')}</p>}
       </>
     );
   return (

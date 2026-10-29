@@ -35,6 +35,9 @@ const en = {
   watchCancel: 'Cancel',
   watchSaved: 'Saved to your watched addresses.',
   watchFailed: 'The watch was not saved. Nothing was changed.',
+  watchFull: 'You watch as many addresses as the list can hold. Remove one before adding another.',
+  watchUnknown: 'The save could not be confirmed. Your watched addresses show what your account holds now.',
+  tryAgain: 'Try again',
   watchTagRequired: 'Give the watch a tag.',
   watchedAs: 'You watch this address as “{tag}”.',
   yourNote: 'Your note: {note}',
@@ -49,6 +52,7 @@ const en = {
   hdrActions: 'Actions',
   remove: 'Remove',
   removeFailed: 'The watch was not removed. Nothing was changed.',
+  removeUnknown: 'The removal could not be confirmed. The list shows what your account holds now.',
   openWatchlist: 'Your watched addresses',
   back: 'Back to Chain',
 } as const;

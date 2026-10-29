@@ -50,14 +50,14 @@ function WatchDialog({
 }) {
   const [tag, setTag] = useState(existing?.tag ?? '');
   const [note, setNote] = useState(existing?.note ?? '');
-  const [state, setState] = useState<'idle' | 'saving' | 'failed' | 'tag'>('idle');
+  const [state, setState] = useState<'idle' | 'saving' | 'not-saved' | 'full' | 'unknown' | 'tag'>('idle');
   async function save(event: FormEvent) {
     event.preventDefault();
     if (!tag.trim()) return setState('tag');
     setState('saving');
     const write = await change((items) => upsertAddressWatch(items, { address, tag, note }));
-    if (write.ok) onClose();
-    else setState('failed');
+    if (write === 'saved') onClose();
+    else setState(write);
   }
   return (
     <Dialog title={t('watch')} onClose={onClose}>
@@ -72,7 +72,9 @@ function WatchDialog({
         </label>
         <small className="muted">{t('watchNoteHint')}</small>
         {state === 'tag' && <p role="alert">{t('watchTagRequired')}</p>}
-        {state === 'failed' && <p role="alert">{t('watchFailed')}</p>}
+        {state === 'not-saved' && <p role="alert">{t('watchFailed')}</p>}
+        {state === 'full' && <p role="alert">{t('watchFull')}</p>}
+        {state === 'unknown' && <p role="alert">{t('watchUnknown')}</p>}
         <div className="actions">
           <Button type="submit" disabled={state === 'saving'}>
             {t('watchSave')}
@@ -100,7 +102,14 @@ function WatchPanel({ address, t }: { address: string; t: WatchTranslate }) {
   const mine = list.status === 'ready' ? list.items.find((watch) => watch.address === address.toLowerCase()) : undefined;
   return (
     <div className="tokens-watch">
-      {list.status === 'failed' && <p className="muted">{t('watchReadFailed')}</p>}
+      {list.status === 'failed' && (
+        <p className="muted">
+          {t('watchReadFailed')}{' '}
+          <Button variant="secondary" onClick={list.reload}>
+            {t('tryAgain')}
+          </Button>
+        </p>
+      )}
       {mine && (
         <p>
           {t('watchedAs', { tag: mine.tag })} {mine.note && t('yourNote', { note: mine.note })}

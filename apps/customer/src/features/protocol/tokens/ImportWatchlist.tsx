@@ -30,7 +30,7 @@ function dismiss(signature: string): void {
 export function ImportWatchlist({ t }: { t: TokensTranslate }) {
   const { list, change } = useAccountTokenWatchlist();
   const [closed, setClosed] = useState(false);
-  const [state, setState] = useState<'idle' | 'saving' | 'failed'>('idle');
+  const [state, setState] = useState<'idle' | 'saving' | 'not-saved' | 'full' | 'unknown'>('idle');
   if (list.status !== 'ready' || closed) return null;
   const browser = readWatchlist() ?? [];
   const missing = browser.filter((entry) => !list.items.includes(entry));
@@ -48,15 +48,17 @@ export function ImportWatchlist({ t }: { t: TokensTranslate }) {
           <li key={entry}>{entry}</li>
         ))}
       </ul>
-      {state === 'failed' && <p role="alert">{t('importFailed')}</p>}
+      {state === 'not-saved' && <p role="alert">{t('importFailed')}</p>}
+      {state === 'full' && <p role="alert">{t('importFull')}</p>}
+      {state === 'unknown' && <p role="alert">{t('importUnknown')}</p>}
       <div className="actions">
         <Button
           disabled={state === 'saving'}
           onClick={async () => {
             setState('saving');
             const write = await change((items) => mergeTokenWatchlists(items, browser));
-            if (write.ok) setClosed(true);
-            else setState('failed');
+            if (write === 'saved') setClosed(true);
+            else setState(write);
           }}
         >
           {t('importConfirm')}
