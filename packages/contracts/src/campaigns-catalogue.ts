@@ -570,6 +570,9 @@ export type CampaignVoucher = z.infer<typeof campaignVoucherSchema>;
 /** A voucher code: 4 to 32 letters, digits or hyphens, stored upper case. With the campaign it is the issue's business key. */
 export const voucherCode = z.string().regex(/^[A-Za-z0-9-]{4,32}$/);
 export const voucherIssueInputSchema = z.object({ campaignId: id, code: voucherCode }).strict();
+/** The most vouchers one read lists, newest first; the screen says when a campaign has at least this many. */
+export const VOUCHER_LIST_LIMIT = 500;
+
 export const voucherListInputSchema = z.object({ campaignId: id }).strict();
 
 /** The gate's answer: every blank by name, in order. Empty means the campaign may go live. */

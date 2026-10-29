@@ -1,9 +1,10 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
-import type { Campaign, CampaignVoucher } from '@intafaced/contracts/campaigns-catalogue';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { VOUCHER_LIST_LIMIT, type Campaign, type CampaignVoucher } from '@intafaced/contracts/campaigns-catalogue';
 import { formatWhen } from '@/lib/as-of';
 import { fetchVouchers, postRuleAction } from '@/lib/campaigns-ops/builder-browser';
+import { REVISABLE_STATES } from '@/lib/campaigns-ops/builder-model';
 
 /**
  * VOUCHERS OF A VOUCHER CAMPAIGN (CM-vouchers-coupons-01, CM-campaign-types-01 T-3; J-campaigns-16 #9).
@@ -15,8 +16,6 @@ import { fetchVouchers, postRuleAction } from '@/lib/campaigns-ops/builder-brows
 
 type Notice = { kind: 'done'; text: string } | { kind: 'refused'; title: string; body: string; code: string | null };
 
-const ISSUES_IN: readonly Campaign['state'][] = ['approved', 'scheduled', 'active', 'paused'];
-
 export function CampaignVouchers({ campaign }: { campaign: Campaign }) {
   const [vouchers, setVouchers] = useState<CampaignVoucher[] | null>(null);
   const [failed, setFailed] = useState<string | null>(null);
@@ -24,8 +23,12 @@ export function CampaignVouchers({ campaign }: { campaign: Campaign }) {
   const [notice, setNotice] = useState<Notice | null>(null);
   const [busy, setBusy] = useState(false);
 
+  // Only the newest read lands: an older answer arriving late never replaces a newer list.
+  const latest = useRef(0);
   const read = useCallback(async () => {
+    const ticket = ++latest.current;
     const answer = await fetchVouchers<CampaignVoucher[]>(campaign.id);
+    if (ticket !== latest.current) return;
     if (answer.ok) {
       setVouchers(answer.data);
       setFailed(null);
@@ -37,20 +40,25 @@ export function CampaignVouchers({ campaign }: { campaign: Campaign }) {
   const issue = async () => {
     setBusy(true);
     setNotice(null);
+    // A code already listed is that voucher again (the code is its key), never a new one at today's terms.
+    const had = new Set((vouchers ?? []).map((v) => v.code));
     const answer = await postRuleAction<CampaignVoucher>({ op: 'voucher-issue', campaignId: campaign.id, code: code.trim() });
-    setNotice(
-      answer.ok
-        ? {
-            kind: 'done',
-            text: `Issued voucher ${answer.data.code} under revision ${answer.data.revision}: ${answer.data.face.amount} ${answer.data.face.asset}.`,
-          }
-        : { kind: 'refused', title: answer.title, body: answer.body, code: answer.code },
-    );
+    if (answer.ok) {
+      const v = answer.data;
+      const terms = `revision ${v.revision}: ${v.face.amount} ${v.face.asset}`;
+      setNotice({
+        kind: 'done',
+        text: had.has(v.code)
+          ? `Voucher ${v.code} was already issued, under ${terms}. Nothing new was issued.`
+          : `Issued voucher ${v.code} under ${terms}.`,
+      });
+      setCode('');
+    } else setNotice({ kind: 'refused', title: answer.title, body: answer.body, code: answer.code });
     await read();
     setBusy(false);
   };
 
-  const issues = ISSUES_IN.includes(campaign.state);
+  const issues = REVISABLE_STATES.includes(campaign.state);
   return (
     <section aria-labelledby="cmp-vouchers-h" data-testid="campaign-vouchers">
       <h2 id="cmp-vouchers-h">Vouchers</h2>
@@ -100,9 +108,14 @@ export function CampaignVouchers({ campaign }: { campaign: Campaign }) {
         </p>
       )}
       {vouchers && vouchers.length === 0 && <p data-testid="vouchers-empty">No voucher issued yet.</p>}
+      {vouchers && vouchers.length >= VOUCHER_LIST_LIMIT && (
+        <p className="dk-muted" data-testid="vouchers-cut">
+          This campaign has at least {VOUCHER_LIST_LIMIT} vouchers; the {VOUCHER_LIST_LIMIT} newest are listed.
+        </p>
+      )}
       {vouchers && vouchers.length > 0 && (
         <table className="adm-table">
-          <caption>Vouchers</caption>
+          <caption>Vouchers, newest first</caption>
           <thead>
             <tr>
               <th scope="col">Code</th>

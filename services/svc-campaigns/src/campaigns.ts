@@ -20,6 +20,7 @@ import {
   type CampaignType,
   type CampaignView,
   type CampaignVoucher,
+  VOUCHER_LIST_LIMIT,
   type MyCampaigns,
   type Participation,
   type ParticipationRules,
@@ -1031,21 +1032,33 @@ export class CampaignService {
       const [had] = await tx<VoucherRow[]>`SELECT * FROM campaigns.vouchers WHERE issue_key = ${key}`;
       if (had) return toVoucher(had);
       if (row.type !== 'voucher') throw new CampaignsError('campaigns.not_voucher', 'Only a voucher campaign issues vouchers');
-      const state = effectiveState(row, this.now());
-      if (!REVISABLE.includes(state)) {
+      const now = this.now();
+      const state = effectiveState(row, now);
+      // An approved campaign that was never activated stays `approved` past its end, so the end time is read as well.
+      const ended = row.ends_at !== null && row.ends_at <= now;
+      if (ended || !REVISABLE.includes(state)) {
         throw new CampaignsError(
           'campaign.invalid_transition',
-          `A campaign that is ${state} issues no voucher: it must be approved and not ended`,
+          `A campaign that is ${ended ? 'ended' : state} issues no voucher: it must be approved and not ended`,
         );
       }
       if (!row.reward_asset || row.reward_amount === null) {
         throw new CampaignsError('campaigns.reward_unset', 'The live revision has no reward, so a voucher would have no face value');
       }
+      // A campaign approved before revisions were recorded has no row for its live revision yet; it is recorded here from the
+      // campaign's own approval, as the first approval records it, so the voucher can name it.
+      if (row.approved_by && row.submitted_by && row.approved_revision === row.revision) {
+        await tx`
+          INSERT INTO campaigns.campaign_revisions (campaign_id, revision, definition, submitted_by, approved_by)
+          VALUES (${row.id}, ${row.revision}, ${tx.json(inputOfRow(row) as unknown as postgres.JSONValue)}, ${row.submitted_by},
+            ${row.approved_by})
+          ON CONFLICT (campaign_id, revision) DO NOTHING`;
+      }
       const [made] = await tx<VoucherRow[]>`
         INSERT INTO campaigns.vouchers (id, campaign_id, code, issue_key, revision, face_asset, face_amount, issued_by)
         VALUES (${`vch_${randomUUID()}`}, ${row.id}, ${code}, ${key}, ${row.revision}, ${row.reward_asset}, ${row.reward_amount},
           ${input.actor})
-        ON CONFLICT DO NOTHING
+        ON CONFLICT (issue_key) DO NOTHING
         RETURNING *`;
       if (!made) {
         const [raced] = await tx<VoucherRow[]>`SELECT * FROM campaigns.vouchers WHERE issue_key = ${key}`;
@@ -1056,12 +1069,12 @@ export class CampaignService {
     });
   }
 
-  /** A campaign's vouchers, oldest first, each with the revision it keeps. */
+  /** A campaign's newest 500 vouchers, newest first, each with the revision it keeps. */
   async listVouchers(input: { campaignId: string }): Promise<CampaignVoucher[]> {
     const [row] = await this.sql<{ id: string }[]>`SELECT id FROM campaigns.campaigns WHERE id = ${input.campaignId}`;
     if (!row) throw new CampaignsError('campaign.unknown', 'No such campaign');
     const rows = await this.sql<VoucherRow[]>`
-      SELECT * FROM campaigns.vouchers WHERE campaign_id = ${input.campaignId} ORDER BY created_at, id LIMIT 500`;
+      SELECT * FROM campaigns.vouchers WHERE campaign_id = ${input.campaignId} ORDER BY created_at DESC, id DESC LIMIT ${VOUCHER_LIST_LIMIT}`;
     return rows.map(toVoucher);
   }
 
