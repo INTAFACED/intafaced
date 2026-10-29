@@ -254,7 +254,17 @@ test(`${J} #5 calls with a missing, wrong, revoked or out-of-scope key: each bod
   for (const [cause, reply] of cases) {
     expect({ code: codeOf(reply), status: String(reply.status) }, `${cause}: ${JSON.stringify(reply.body)}`).toEqual(published[cause]);
   }
-  // Four refusals, and the account holds what it held: nothing was placed or moved.
+  // The page publishes these exact typed codes, so a page that drifted with the service would still be caught.
+  expect(published).toEqual({
+    missing: { code: 'AuthenticationError', status: '401' },
+    wrong: { code: 'edge.api_key_denied', status: '401' },
+    revoked: { code: 'edge.api_key_revoked', status: '401' },
+    scope: { code: 'PermissionDenied', status: '403' },
+  });
+  // Four refusals: the out-of-scope order does not exist, and the account holds what it held.
+  const placed = await call('GET', `/api/v1/orders/by-client-id/${order.clientOrderId}?symbol=BTC/USDT`, trade);
+  expect(placed.status, JSON.stringify(placed.body)).toBe(404);
+  expect(placed.body?.intafacedCode).toBe('trade.order_not_found');
   expect(await balance(trade)).toEqual(before);
 });
 
