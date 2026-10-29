@@ -110,6 +110,8 @@ async function customerApi() {
   return {
     /** A send straight to svc-pay with the given token: the session's own unless a step-up token is passed. */
     create: (body, bearer) => post('/api/pay/trpc/withdrawal.create', body, bearer),
+    /** A fee quote straight from svc-pay. */
+    quote: (body) => post('/api/pay/trpc/withdrawal.quote', body),
     /** An address-book save straight to svc-bank with the given step-up token. */
     saveAddress: (body, bearer) => post('/api/bank/trpc/ramps.destinations.save', body, bearer),
     /** "Confirm it's you" by API: the five-minute token that alone may send. */
@@ -412,12 +414,50 @@ test(`${J}, part of #4 reads the limit line: what the account's level may send n
   );
 });
 
-test(`${J} #4 a blank limit refuses and holds nothing`, () => {
-  // No account in the running app meets a blank limit yet: the stack's TEST terms set a limit for every verified level and
-  // every TEST coin (local-test-gates.mjs TEST_WITHDRAWAL_LIMITS), and an unverified account, whose level has none, is
-  // stopped earlier, since svc-bank lets only a fully verified account save a withdrawal address. Until the stack has a
-  // coin a verified account may send with no limit set, this clause fails by name rather than pass on a lesser check.
-  throw new Error("#4's blank-limit clause: no TEST coin with a blank limit for a verified account on the stack");
+test(`${J} #4 a blank limit refuses and holds nothing`, async ({ page }) => {
+  test.setTimeout(300_000);
+  await signInWithCode(page);
+  const api = await customerApi();
+  // The account's level (full) and USDT: the stack's TEST limit is cleared to unset through the founders' own door for this
+  // step only, and put back in the finally, so every other step still meets the TEST figures.
+  try {
+    tool('local-test-gates.mjs', 'withdraw-limit', 'full', 'USDT', 'unset');
+    await fillSend(page, '25');
+    // The limit line says in words that no limit is set, and nothing can be reviewed, so nothing can be confirmed.
+    await expect(page.getByTestId('withdraw-limit')).toHaveText(
+      'No withdrawal limit is set for your account level and this asset, so nothing can be sent.',
+    );
+    await page.getByRole('button', { name: 'Get the fee' }).click();
+    await expect(page.getByTestId('withdraw-fee')).toContainText('1.5 USDT');
+    // With the fee in hand the send still cannot be reviewed: no limit, no confirm.
+    await expect(page.getByRole('button', { name: 'Review withdrawal' })).toBeDisabled();
+    await expect(confirmSend(page)).toHaveCount(0);
+    // svc-pay itself refuses a send that skips the page: one exact typed code, with a real quote and a fresh step-up.
+    const quoteRef = `${J}-blank-limit-quote-${Date.now()}`;
+    const quoted = await api.quote({ quoteRef, assetId: 'USDT', networkId: 'ethereum', amount: '25' });
+    expect(quoted.status, JSON.stringify(quoted.body).slice(0, 400)).toBe(200);
+    const refused = await api.create(
+      {
+        assetId: 'USDT',
+        amount: '25',
+        railId: 'crypto-native',
+        networkId: 'ethereum',
+        quoteRef,
+        destination: { kind: 'crypto', ref: ADDRESS },
+        clientRef: `${J}-blank-limit-${Date.now()}`,
+      },
+      (await api.stepUp()).accessToken,
+    );
+    expect(refused.body?.error?.data?.cause?.code, JSON.stringify(refused.body).slice(0, 400)).toBe('pay.guard_withdrawal_limit_unset');
+    // Nothing held, nothing recorded.
+    expect(toUnits(await api.available('USDT'))).toBe(toUnits('300'));
+    expect(await api.withdrawals()).toEqual([]);
+  } finally {
+    tool('local-test-gates.mjs', 'withdraw-limit', 'full', 'USDT', 'test');
+  }
+  // Back to the TEST figures: the limit line reads them again.
+  await fillSend(page, '25');
+  await expect(page.getByTestId('withdraw-limit')).toContainText('You can send up to 1,000 USDT now');
 });
 
 test(`${J} #7 confirms with a fresh step-up while no signer is connected: refused by name, nothing held, the balance still reads 300`, async ({
