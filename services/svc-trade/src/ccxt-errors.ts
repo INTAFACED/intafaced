@@ -4,7 +4,7 @@ import { InsufficientFundsError, LedgerError, MoneyError } from '@intafaced/ledg
 import { MatchingNoBookError, MatchingUnavailableError } from './spot/matching-client.js';
 import { TradeError, type TradeErrorCode } from './spot/types.js';
 import { TradingControlError } from './controls/trading-controls.js';
-import { POSTING_FROZEN, publicLedgerCode, SETTLEMENT_PENDING } from './ledger-public-code.js';
+import { POSTING_FROZEN, publicLedgerCode, publicLedgerMessage, SETTLEMENT_PENDING } from './ledger-public-code.js';
 
 /**
  * CCXT ERROR TAXONOMY FOR THE PUBLIC REST SURFACE (trade.ccxt-api).
@@ -695,7 +695,7 @@ export function toCcxtError(err: unknown): CcxtErrorResponse | null {
     const intafacedCode = publicLedgerCode(err);
     if (intafacedCode === POSTING_FROZEN) {
       // Refused before the engine (see the status rule above the table).
-      return { status: 400, body: { code: 'OnMaintenance', message: err.message, intafacedCode } };
+      return { status: 400, body: { code: 'OnMaintenance', message: publicLedgerMessage(err), intafacedCode } };
     }
     if (intafacedCode === SETTLEMENT_PENDING) {
       // After the engine: the order exists, its settlement is not confirmed. Not a refusal.
@@ -703,7 +703,7 @@ export function toCcxtError(err: unknown): CcxtErrorResponse | null {
         status: 503,
         body: {
           code: 'ExchangeNotAvailable',
-          message: `${err.message}; the ledger refused a later posting, so its settlement is not confirmed: read the order or trade before sending it again`,
+          message: `${publicLedgerMessage(err)}; the ledger refused a later posting, so its settlement is not confirmed: read the order or trade before sending it again`,
           intafacedCode,
         },
       };

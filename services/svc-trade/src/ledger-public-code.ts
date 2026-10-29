@@ -42,6 +42,17 @@ export function refusedBeforeEngine(err: unknown): unknown {
   return err.code === LEDGER_FROZEN ? new FrozenBeforeEngineError(err) : err;
 }
 
+/**
+ * What a client reads for the posting freeze, wherever it stopped a post. svc-ledger's own message carries the free-text
+ * reason the founders gave when they froze posting; that is an operator note, never published.
+ */
+export const POSTING_FROZEN_MESSAGE = 'Ledger posting is paused platform-wide';
+
+/** The published message for a ledger error: the posting freeze's fixed words, every other message as thrown. */
+export function publicLedgerMessage(err: LedgerError): string {
+  return err.code === LEDGER_FROZEN ? POSTING_FROZEN_MESSAGE : err.message;
+}
+
 /** The published code for a ledger error; every code but the posting freeze passes through unchanged. */
 export function publicLedgerCode(err: LedgerError): string {
   if (err.code !== LEDGER_FROZEN) return err.code;

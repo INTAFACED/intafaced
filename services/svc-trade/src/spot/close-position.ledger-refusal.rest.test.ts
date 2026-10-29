@@ -62,6 +62,8 @@ describe('the close door under a ledger refusal after the engine', () => {
     expect(res.json()).toMatchObject({ error: SETTLEMENT_PENDING });
     expect(res.json().message).toMatch(/read the order before sending it again/);
     expect(res.body).not.toContain('posting_frozen');
+    // The posting freeze's free-text reason (TEST here) is an operator note, never published.
+    expect(res.body).not.toContain('TEST');
   });
 
   it('an error that is not the ledger still reaches the error handler as before', async () => {

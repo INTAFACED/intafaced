@@ -12,7 +12,7 @@ import {
 import { AuthError, requireTier, TIER_ORDER, type Principal } from '@intafaced/auth';
 import { checkAccess } from '@intafaced/config';
 import { formatAmount, parseAmount, InsufficientFundsError, LedgerError } from '@intafaced/ledger-client';
-import { publicLedgerCode, SETTLEMENT_PENDING } from './ledger-public-code.js';
+import { publicLedgerCode, publicLedgerMessage, SETTLEMENT_PENDING } from './ledger-public-code.js';
 import { orderSideSchema, timeInForceSchema } from '@intafaced/exchange-contract';
 import { TradeError, type FillRecord, type Market, type OrderRecord, type TimeInForce } from './spot/types.js';
 import { MatchingNoBookError } from './spot/matching-client.js';
@@ -582,10 +582,11 @@ export function toTrpcError(err: unknown): TRPCError {
     // engine: the outcome is not known, so not a refusal). The ledger's own error stays the cause of the renamed one.
     const published = publicLedgerCode(err);
     if (published === err.code) return new TRPCError({ code: 'BAD_REQUEST', message: err.message, cause: err });
-    const cause = new LedgerError(err.message, published);
+    const message = publicLedgerMessage(err);
+    const cause = new LedgerError(message, published);
     cause.cause = err;
     if (err.stack) cause.stack = err.stack;
-    return new TRPCError({ code: published === SETTLEMENT_PENDING ? 'SERVICE_UNAVAILABLE' : 'BAD_REQUEST', message: err.message, cause });
+    return new TRPCError({ code: published === SETTLEMENT_PENDING ? 'SERVICE_UNAVAILABLE' : 'BAD_REQUEST', message, cause });
   }
 
   // Matching holds no book for the market (its 404): the named refusal `trade.no_book`, as on the REST and ccxt

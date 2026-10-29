@@ -4,6 +4,7 @@ import { classifyHoldPostError } from './spot/hold-outcome.js';
 import {
   FrozenBeforeEngineError,
   POSTING_FROZEN,
+  POSTING_FROZEN_MESSAGE,
   SETTLEMENT_PENDING,
   publicLedgerCode,
   refusedBeforeEngine,
@@ -57,6 +58,11 @@ describe('publicLedgerCode', () => {
     const trpcAfter = toTrpcError(after);
     expect(trpcAfter.code).toBe('SERVICE_UNAVAILABLE');
     expect((trpcAfter.cause as LedgerError).code).toBe(SETTLEMENT_PENDING);
+    // Neither door publishes the founders' free-text reason the ledger's message carries.
+    for (const trpc of [trpcBefore, trpcAfter]) {
+      expect(trpc.message).toBe(POSTING_FROZEN_MESSAGE);
+      expect((trpc.cause as LedgerError).message).toBe(POSTING_FROZEN_MESSAGE);
+    }
   });
 
   it('the tRPC door keeps any other ledger error as it was thrown', () => {

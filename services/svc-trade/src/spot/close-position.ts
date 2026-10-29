@@ -16,7 +16,7 @@ import { TradeService } from './trade-service.js';
 import { attributionFromPrincipal, withLedgerAttribution } from './auth-attribution.js';
 import { TradeError, type Market, type OrderRecord, type OrderSide } from './types.js';
 import type { EdgeTrust } from '../edge-trust.js';
-import { SETTLEMENT_PENDING } from '../ledger-public-code.js';
+import { publicLedgerMessage, SETTLEMENT_PENDING } from '../ledger-public-code.js';
 import { privateWrite } from '../route-inventory.js';
 
 /**
@@ -292,7 +292,7 @@ export function attachClosePosition(app: FastifyInstance, deps: ClosePositionRes
           reply,
           503,
           SETTLEMENT_PENDING,
-          `${error.message}; the close reached the engine and its settlement is not confirmed: read the order before sending it again`,
+          `${publicLedgerMessage(error)}; the close reached the engine and its settlement is not confirmed: read the order before sending it again`,
         );
       }
       throw error;
