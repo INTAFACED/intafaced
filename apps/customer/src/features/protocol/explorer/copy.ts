@@ -56,7 +56,7 @@ const en = {
   finalizedAt: 'Finalized at block {height}, as of {time}',
   notFinalYet: 'No block is final yet, as of {time}',
   rowFinal: 'Finalized',
-  rowNotFinal: 'Not final yet',
+  rowNotFinal: 'Not finalized',
   rowOffChain: 'Off the chain',
   olderBlocks: 'Older blocks',
   gasTracker: 'Gas tracker',

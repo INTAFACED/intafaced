@@ -163,7 +163,7 @@ test(`${J} #2 opens the blocks list and a block: rows down from the finalized he
   for (const row of await rows.all()) {
     const height = Number((await row.getByRole('rowheader').innerText()).replace(/\D.*$/s, ''));
     if (await row.getAttribute('data-orphaned')) await expect(row).toContainText('Off the chain');
-    else await expect(row).toContainText(height <= finalized ? 'Finalized' : 'Not final yet');
+    else await expect(row).toContainText(height <= finalized ? 'Finalized' : 'Not finalized');
   }
   // The reorged block stays listed at its height, badged with the reason, next to the block that replaced it.
   await expect(async () => {

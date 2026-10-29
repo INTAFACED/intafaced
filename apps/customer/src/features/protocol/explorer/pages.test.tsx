@@ -78,8 +78,8 @@ describe('blocks list', () => {
     expect(html).toContain('Reorged: reorg');
     expect(html).not.toContain('href="/chain/blocks/11"');
     // 12 is above the finalized height, 10 is at it; the reorged 11 is off the chain, never final.
-    expect(html.match(/<td>(Finalized|Not final yet|Off the chain)<\/td>/g)).toEqual([
-      '<td>Not final yet</td>',
+    expect(html.match(/<td>(Finalized|Not finalized|Off the chain)<\/td>/g)).toEqual([
+      '<td>Not finalized</td>',
       '<td>Off the chain</td>',
       '<td>Finalized</td>',
     ]);
