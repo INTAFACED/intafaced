@@ -114,7 +114,8 @@ export function AccountStatus() {
                 <li key={r.kind} data-kind={r.kind} data-reason={r.reasonCode ?? ''}>
                   <strong>{t(`kind_${r.kind}`)}</strong>{' '}
                   {r.reasonCode ? <Copy k="reason" params={{ reason: t(`reason_${r.reasonCode}`) }} /> : <Copy k="noReason" />}{' '}
-                  {r.since && <Copy k="since" params={{ time: stamp(r.since, timeZone) }} />} {lift(r)}
+                  {r.since && <Copy k="since" params={{ time: stamp(r.since, timeZone) }} />}{' '}
+                  {r.blocks.length === 0 && <Copy k="blocksNothing" />} {lift(r)}
                 </li>
               ))}
             </ul>

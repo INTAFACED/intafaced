@@ -32,8 +32,9 @@ const BLOCKS = {
     'add_withdrawal_address',
     'withdraw_to_address',
   ],
-  // Founder controls, trading area: svc-trade refuses `trade.account_restricted`.
-  trading_restricted: ['trade'],
+  // Founder controls, trading area: recorded here, but svc-trade keeps its own restriction table and reads nothing of
+  // this one, so it blocks nothing; the page says so rather than claim trading stops.
+  trading_restricted: [],
 } as const satisfies Record<AccountRestriction['kind'], readonly AccountAction[]>;
 
 type UserRow = {

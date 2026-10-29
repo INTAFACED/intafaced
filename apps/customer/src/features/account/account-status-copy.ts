@@ -16,6 +16,7 @@ export const accountStatusCopy = defineCopy('account.status', {
   noReason: 'No reason recorded.',
   reason: 'Reason: {reason}.',
   liftStaff: 'Only support can lift this.',
+  blocksNothing: 'Support recorded this, but the trading service does not read it, so it does not stop your orders.',
   liftWait: 'You can lift it yourself from {time}, with a fresh confirmation.',
   liftWaitUnset: 'No waiting time is published for lifting it, so a lift is refused.',
   liftUnlockAsked: 'It ends {time}.',

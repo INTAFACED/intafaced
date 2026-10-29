@@ -13,7 +13,8 @@ import { accountCloseReasonCodes } from './account-controls.js';
  * - `security_lock` (the owner's or support's lock): password and sign-in method changes, password and second-factor
  *   resets, adding recovery keys or changing their plan, and support recovery refuse here; svc-bank refuses adding a
  *   withdrawal address and starting a send to one. Removing an address and revoking a recovery key are not stopped.
- * - `trading_restricted` (founder controls, trading area): trading refuses. Only staff lift it; identity keeps no start.
+ * - `trading_restricted` (founder controls, trading area): recorded by identity, but svc-trade keeps its own restriction
+ *   and does not read this one, so it blocks nothing (`blocks: []`). Only staff lift it; identity keeps no start.
  * Staff write a restriction's reason as free text, which never reaches the customer: a restriction with no reason code
  * reads `reasonCode: null`, which the page shows as "No reason recorded". The ledger's platform-wide posting freeze is
  * never part of this shape (it has its own banner); KYC capability switch-offs are listed by `kyc.capabilities.get`.
