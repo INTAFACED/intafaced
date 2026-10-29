@@ -133,6 +133,7 @@ const messages = {
   idleSetNote: 'A key unused for this long is due to end. No job ends idle keys today, so none has been ended for it.',
   fieldIpPolicy: 'IP policy',
   ipAny: 'Any address. Add addresses on a new key to limit where it works.',
+  ipNone: 'No address: this key refuses every call. Make a new key with the addresses it may call from.',
   ipOnly: 'Only from {ips}',
   ipRequireNonEmpty: 'An empty address list refuses every call.',
   fieldSignature: 'Signed requests',
@@ -201,6 +202,8 @@ const written = {
       'Una clave sin uso durante este tiempo debe terminar. Hoy ningún proceso termina las claves inactivas, así que no se ha terminado ninguna.',
     fieldIpPolicy: 'Política de IP',
     ipAny: 'Cualquier dirección. Añade direcciones en una clave nueva para limitar dónde funciona.',
+    ipNone:
+      'Ninguna dirección: esta clave rechaza todas las llamadas. Crea una clave nueva con las direcciones desde las que puede llamar.',
     ipOnly: 'Solo desde {ips}',
     ipRequireNonEmpty: 'Una lista de direcciones vacía rechaza todas las llamadas.',
     fieldSignature: 'Solicitudes firmadas',
@@ -269,6 +272,8 @@ const written = {
       'Une clé inutilisée aussi longtemps doit prendre fin. Aucune tâche n’arrête aujourd’hui les clés inactives : aucune n’a été arrêtée pour cela.',
     fieldIpPolicy: 'Politique IP',
     ipAny: 'Toute adresse. Ajoutez des adresses sur une nouvelle clé pour limiter où elle fonctionne.',
+    ipNone:
+      'Aucune adresse : cette clé refuse tous les appels. Créez une nouvelle clé avec les adresses depuis lesquelles elle peut appeler.',
     ipOnly: 'Uniquement depuis {ips}',
     ipRequireNonEmpty: 'Une liste d’adresses vide refuse tous les appels.',
     fieldSignature: 'Requêtes signées',

@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { PlaceDoor } from './place-door.js';
 import { AuthError } from './auth-service.js';
 import type { ApiKeyFactorGate } from './api-key-fresh-factor.js';
@@ -83,6 +83,19 @@ describe('expireApiKey', () => {
     }
   });
 
+  it('reads the clock under the lock again after the factor, so a key that ended meanwhile is not brought back', async () => {
+    const endsAt = new Date('2026-10-29T00:00:01.000Z');
+    const clock = [new Date('2026-10-29T00:00:00.000Z'), new Date('2026-10-29T00:00:02.000Z')];
+    const row = { revoked: false, expires_at: endsAt };
+    const { sql, texts } = fakeSql([row], [row]);
+    const calls: string[] = [];
+    await expect(
+      expireApiKey({ sql, gate: gate(sql, calls), now: () => clock.shift() ?? new Date() }, person, 'k', future, { proofId: 'p' }),
+    ).rejects.toMatchObject({ code: 'identity.key_not_live' });
+    expect(calls).toEqual(['expiry_widen']);
+    expect(texts.some((text) => /^\s*UPDATE/.test(text))).toBe(false);
+  });
+
   it('treats a missing key as not found', async () => {
     const { sql } = fakeSql([]);
     await expect(expireApiKey({ sql, gate: gate(sql), now }, person, 'k', future)).rejects.toMatchObject({ code: 'auth.not_found' });
@@ -111,5 +124,15 @@ describe('expireApiKey', () => {
     await expect(expiredDoor.assertApiKeyLive('k')).rejects.toMatchObject({ code: 'auth.api_key_revoked' });
     const liveDoor = new PlaceDoor(fakeSql([{ id: 'k', user_id: 'u', revoked: false, expires_at: future }]).sql as never);
     await expect(liveDoor.assertApiKeyLive('k')).resolves.toEqual({ id: 'k', userId: 'u' });
+  });
+
+  it('a key has ended at its end instant, as the end-date writer and every SQL reader count it', () => {
+    vi.useFakeTimers({ now: new Date('2026-10-29T12:00:00.000Z') });
+    try {
+      expect(apiKeyExpired(new Date('2026-10-29T12:00:00.000Z'))).toBe(true);
+      expect(apiKeyExpired(new Date('2026-10-29T12:00:00.001Z'))).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

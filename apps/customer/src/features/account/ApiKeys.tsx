@@ -81,7 +81,7 @@ function RevokeSheet({ sheet, onClose, onSubmit }: { sheet: Sheet; onClose: () =
           <bdi lang="und">{sheet.key.name}</bdi> · <code lang="und">{sheet.key.prefix}</code>
         </p>
         <p>{t('revokeBody')}</p>
-        <Field label={t('revokeReason')} hint={t('revokeReasonHint')} name="reason" autoComplete="off" maxLength={200} />
+        <Field label={t('revokeReason')} hint={t('revokeReasonHint')} name="reason" autoComplete="off" />
         {sheet.refusal && (
           <p className="error-text" role="alert">
             {t(sheet.refusal)}

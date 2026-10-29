@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { EDGE, ORIGIN } from './stack.mjs';
+import { EDGE, ORIGIN, api } from './stack.mjs';
 import { signIn, signUp, verify } from './desk.mjs';
 import { PASSKEY_ORIGIN, addPasskey, virtualAuthenticator } from './identity-factors.mjs';
 
@@ -8,8 +8,9 @@ import { PASSKEY_ORIGIN, addPasskey, virtualAuthenticator } from './identity-fac
 // holds #2 to #6 and #8 in serial mode, so a step here that fails can't skip those; this file has its own TEST account
 // with a passkey, on http://localhost:3210 for the passkey's relying party. The steps share one page: the passkey lives
 // in that page's virtual authenticator, so a new browser context could not pass the key step-up.
-// A step that is written but not built yet fails at its first missing part, quickly (UNBUILT):
-// - #7: the Permissions section publishes no permission-to-endpoint table, and a missing-scope refusal carries no docs link.
+// A clause that is written but not built yet fails at its first missing part, quickly (UNBUILT), after every other
+// clause of its step is proven:
+// - #7: the developer portal publishes no permission-to-endpoint table on this branch (the portal pages are their own PR).
 const J = 'J-developer-03';
 const UNBUILT = { timeout: 5_000 };
 
@@ -19,12 +20,14 @@ test.use({ actionTimeout: 15_000 });
 
 /** @type {import('@playwright/test').Page} */
 let page;
+/** The TEST developer, for a second sign-in that reads the records back. */
+let dev;
 
 test.beforeAll(async ({ browser }) => {
   test.setTimeout(240_000);
   page = await (await browser.newContext({ baseURL: PASSKEY_ORIGIN })).newPage();
   await virtualAuthenticator(page);
-  const dev = await signUp(page, 'dkd');
+  dev = await signUp(page, 'dkd');
   await verify(page, dev);
   await signIn(page, dev);
   await addPasskey(page);
@@ -52,59 +55,115 @@ async function createKey({ name, preset = 'Read only', expiry, scopes }) {
 
 const rows = () => page.getByTestId('api-keys__table').locator('tbody tr');
 
+/** The typed code identity puts at the end of a refusal's message (`... [auth.delegate_cannot_grant]`). */
+const codeOf = (body) => /\[([a-z_]+\.[a-z_.]+)\]$/.exec(body?.error?.message ?? '')?.[1];
+
+/** The account's own keys as identity holds them, read back through a second sign-in. */
+async function storedKeys() {
+  const res = await (
+    await api(dev)
+  ).get(`/api/identity/trpc/developerKeys.list?input=${encodeURIComponent(JSON.stringify({ limit: 50 }))}`);
+  expect(res.status, JSON.stringify(res.body)).toBe(200);
+  return res.body.result.data.keys;
+}
+
 test(`${J} #1 opens /uc/safe/api-keys: every column, a revoked key showing its reason, and the key-safety guidance`, async () => {
-  // The key-safety guidance shows even before the person has any key.
+  // The key-safety guidance shows even before the person has any key: a new account holds none.
+  expect(await storedKeys()).toEqual([]);
   await page.goto('/uc/safe/api-keys');
   await expect(page.getByRole('heading', { name: 'Keeping a key safe' })).toBeVisible();
   await expect(rows()).toHaveCount(0);
-  await createKey({ name: 'reader-1' });
+  const secret = await createKey({ name: 'reader-1' });
 
   await page.goto('/uc/safe/api-keys');
   await expect(page.getByRole('heading', { name: 'Keeping a key safe' })).toBeVisible();
   const table = page.getByTestId('api-keys__table');
-  for (const column of ['Name', 'Prefix', 'Mode', 'Permissions', 'IP addresses', 'Created', 'Ends', 'Last used', 'State'])
-    await expect(table.getByRole('columnheader', { name: column })).toBeVisible();
+  const columns = ['Name', 'Prefix', 'Mode', 'Permissions', 'IP addresses', 'Created', 'Ends', 'Last used', 'State', 'Actions'];
+  await expect(table.getByRole('columnheader')).toHaveText(columns);
+  const [stored] = await storedKeys();
+  expect(secret?.startsWith(stored.prefix)).toBe(true);
   const row = rows().filter({ hasText: 'reader-1' });
+  await expect(row).toHaveCount(1);
+  // Each column shows the stored value: name, prefix, live mode, the read-only permissions, any address, no end date,
+  // not used yet, live state.
+  expect(stored).toMatchObject({ name: 'reader-1', mode: 'live', ipAllowlist: [], expiresAt: null, lastUsedAt: null, revoked: false });
+  expect(stored.scopes.length).toBeGreaterThan(0);
+  await expect(row.getByRole('rowheader')).toContainText('reader-1');
+  const cells = row.getByRole('cell');
+  await expect(cells.nth(0)).toContainText(stored.prefix);
+  await expect(cells.nth(1)).toHaveText('Live');
+  await expect(cells.nth(2)).toHaveText(stored.scopes.join(', '));
+  await expect(cells.nth(3)).toHaveText('Any address');
+  await expect(cells.nth(5)).toHaveText('No end date');
+  await expect(cells.nth(6)).toHaveText('Not used');
+
   await row.getByRole('button', { name: 'Revoke' }).click();
   const sheet = page.getByRole('dialog', { name: 'Revoke this key' });
   await sheet.getByLabel('Reason').fill('TEST: rotated');
   await sheet.getByRole('button', { name: 'Revoke', exact: true }).click();
-  await expect(row).toContainText('Revoked');
-  await expect(row).toContainText('TEST: rotated');
+  await expect(sheet).toBeHidden();
+  await expect(row).toContainText('Revoked by you: TEST: rotated');
+  // The reason the row shows is the one identity stored, with the person as the cause.
+  const [revoked] = await storedKeys();
+  expect(revoked).toMatchObject({ id: stored.id, revoked: true, revokedBy: 'owner', revokeReason: 'TEST: rotated' });
+  expect(revoked.revokedAt).not.toBeNull();
 });
 
 test(`${J} #7 reads the permission-to-endpoint table, then calls a route without the scope: the typed permission error with a docs link`, async () => {
-  await page.goto('/developers/permissions');
-  const table = page.getByRole('table', { name: 'Permissions and endpoints' });
-  await expect(table).toBeVisible(UNBUILT);
-  await expect(table.getByRole('row', { name: /trade:write/ })).toContainText('POST /api/v1/orders');
-
-  // A read-only key placing an order.
+  // A read-only key placing an order: refused by its scope, with the code and the link to the table.
   const key = await createKey({ name: 'reader-2' });
+  const stored = (await storedKeys()).find((k) => k.name === 'reader-2');
+  expect(stored.scopes).not.toContain('trade:write');
   const res = await fetch(`${EDGE}/api/v1/orders`, {
     method: 'POST',
     headers: { origin: ORIGIN, authorization: `Bearer ${key}`, 'content-type': 'application/json' },
     body: JSON.stringify({ symbol: 'BTC/USDT', type: 'limit', side: 'buy', amount: '0.0001', price: '1' }),
   });
-  expect(res.status).toBe(403);
   const body = await res.json();
-  expect(JSON.stringify(body)).toMatch(/scope/);
-  expect(body?.error?.docs ?? body?.docs).toMatch(/\/developers\/permissions/);
+  expect(res.status, JSON.stringify(body)).toBe(403);
+  expect(body).toEqual({
+    code: 'PermissionDenied',
+    message: 'Scope "trade:write" is required',
+    intafacedCode: 'scope.denied',
+    docs: '/developers/permissions',
+  });
+
+  // The docs link opens the published table, which names trade:write against the order route.
+  await page.goto(body.docs);
+  const table = page.getByRole('table', { name: 'Permissions and endpoints' });
+  await expect(table, 'UNBUILT: the permission-to-endpoint table is not published on this branch').toBeVisible(UNBUILT);
+  await expect(table.getByRole('row', { name: /trade:write/ })).toContainText('POST /api/v1/orders');
 });
 
 test(`${J} #9 sets an expiry and opens the key detail: expiry, idle expiry and IP policy shown; a key can't change its own expiry`, async () => {
   test.setTimeout(120_000);
-  const inThirtyDays = new Date(Date.now() + 30 * 864e5).toISOString().slice(0, 10);
+  const day = (days) => new Date(Date.now() + days * 864e5).toISOString().slice(0, 10);
   // The key holds identity:write, so the refusal below is the delegate rule, not a missing scope.
-  const key = await createKey({ name: 'expiring-1', expiry: inThirtyDays, scopes: ['identity:read', 'identity:write'] });
+  const key = await createKey({ name: 'expiring-1', expiry: day(30), scopes: ['identity:read', 'identity:write'] });
   await page.goto('/uc/safe/api-keys');
   await rows().filter({ hasText: 'expiring-1' }).getByRole('link', { name: 'expiring-1' }).click();
   await expect(page).toHaveURL(/\/uc\/safe\/api-keys\/[0-9a-f-]{36}$/);
   const keyId = new URL(page.url()).pathname.split('/').at(-1);
   const detail = page.getByRole('region', { name: 'Key detail' });
-  await expect(detail).toContainText(inThirtyDays);
-  await expect(detail).toContainText(/Idle expiry\s*(\d+ days|not set)/);
-  await expect(detail).toContainText(/IP policy/);
+
+  // Sets an expiry on the detail: an earlier end date, which needs no second factor.
+  await page.getByLabel('New end date').fill(day(20));
+  await page.getByRole('button', { name: 'Save end date' }).click();
+  await expect(page.getByRole('status').filter({ hasText: 'The end date is saved.' })).toBeVisible();
+  const stored = () => storedKeys().then((keys) => keys.find((k) => k.id === keyId));
+  const lastDay = (iso) => new Date(Date.parse(iso) - 1).toISOString().slice(0, 10);
+  const saved = (await stored()).expiresAt;
+  // Stored as the end of the chosen day (UTC): its last working day is the day the person picked.
+  expect(lastDay(saved)).toBe(day(20));
+
+  // The detail shows the stored end date, the idle expiry (a LOCAL TEST 90 days on this stack) and the IP policy.
+  await page.reload();
+  await expect(page.getByTestId('api-keys__expiry')).toContainText(`Works through ${day(20)} (UTC)`);
+  await expect(page.getByTestId('api-keys__idle')).toContainText('90 days');
+  await expect(page.getByTestId('api-keys__idle')).toContainText('No job ends idle keys today');
+  await expect(detail.getByText('IP policy')).toBeVisible();
+  await expect(page.getByTestId('api-keys__ip-policy')).toContainText('Any address.');
+
   // The key itself may not move its own expiry: a valid request for a later end date, sent with the key.
   const res = await fetch(`${EDGE}/api/identity/trpc/developerKeys.setExpiry`, {
     method: 'POST',
@@ -113,7 +172,7 @@ test(`${J} #9 sets an expiry and opens the key detail: expiry, idle expiry and I
   });
   const body = await res.json();
   expect(res.status, JSON.stringify(body)).toBe(403);
-  expect(JSON.stringify(body)).toContain('auth.delegate_cannot_grant');
-  await page.reload();
-  await expect(detail).toContainText(inThirtyDays);
+  expect(codeOf(body), JSON.stringify(body)).toBe('auth.delegate_cannot_grant');
+  // Nothing changed: the stored end date is the one the person saved.
+  expect((await stored()).expiresAt).toBe(saved);
 });

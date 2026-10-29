@@ -2,7 +2,7 @@
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { ApiKeyDetail as Detail, ApiKeyRecord } from '@intafaced/contracts/api-keys';
+import { API_KEY_CHANGE_REFUSALS, type ApiKeyDetail as Detail, type ApiKeyRecord } from '@intafaced/contracts/api-keys';
 
 // TEST data only. The developer room's key list and key detail (DV-keys-03, J-developer-03 #1 and #9): every column, a
 // revoked key's reason, the revoke sheet with its optional reason and one Revoke, the detail's end date, idle expiry
@@ -37,7 +37,8 @@ vi.mock('../session/webauthn', () => ({
 
 import { ApiKeys } from './ApiKeys';
 import { ApiKeyDetail, keyIdFromPath } from './ApiKeyDetail';
-import { idlePeriod } from './developer-keys-api';
+import { apiKeysCopy } from './api-keys-copy';
+import { changeRefusal, idlePeriod } from './developer-keys-api';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 // The page's dialog opens modally; the test DOM has no modal layer, so opening only marks it open.
@@ -165,6 +166,31 @@ describe('the key list', () => {
     expect(host.querySelector('dialog')).not.toBeNull();
   });
 
+  it('counts the reason in code points as the service does: 200 emoji are sent, 201 refuse without sending', async () => {
+    world.queries['developerKeys.list'] = [list([live]), list([live])];
+    world.mutate = [{ ok: true, data: { changed: true, record: live } }];
+    await render(<ApiKeys />);
+    await act(async () => buttons(/Revoke/)[0]!.click());
+    const field = () => host.querySelector<HTMLInputElement>('dialog input[name="reason"]')!;
+    expect(field().maxLength).toBe(-1);
+    field().value = '\u{1F511}'.repeat(201);
+    await act(async () => host.querySelector<HTMLFormElement>('dialog form')!.requestSubmit());
+    await settleUntil(shows('Use a reason of at most 200 characters'));
+    expect(world.asked.some((a) => a.kind === 'mutate')).toBe(false);
+    field().value = '\u{1F511}'.repeat(200);
+    await act(async () => host.querySelector<HTMLFormElement>('dialog form')!.requestSubmit());
+    await settleUntil(() => world.asked.some((a) => a.kind === 'mutate'));
+    expect(world.asked.find((a) => a.kind === 'mutate')!.input).toEqual({ keyId: KEY, reason: '\u{1F511}'.repeat(200) });
+  });
+
+  it('says a sentence for every typed refusal the contract names', () => {
+    for (const code of API_KEY_CHANGE_REFUSALS) {
+      const key = changeRefusal({ ok: false, reason: 'error', message: code, code });
+      expect(key, code).toBe(`changeRefused.${code}`);
+      for (const locale of ['en', 'es', 'fr'] as const) expect(apiKeysCopy.forLocale(locale).t(key!), code).not.toContain('changeRefused');
+    }
+  });
+
   it('a lost answer closes the sheet, says it is unconfirmed and reads the list again', async () => {
     world.queries['developerKeys.list'] = [list([live])];
     world.mutate = [{ ok: false, reason: 'uncertain', message: 'lost' }];
@@ -193,6 +219,23 @@ describe('the key detail', () => {
     expect(region.textContent).toContain('Only from 203.0.113.7');
     expect(region.textContent).toContain('An empty address list refuses every call.');
     expect(world.asked[0]).toEqual({ kind: 'query', procedure: 'developerKeys.get', input: { keyId: KEY } });
+  });
+
+  it('an empty address list says the key refuses every call when the list is required, and any address when not', async () => {
+    const noAddress = { ...live, ipAllowlist: [] };
+    world.queries['developerKeys.get'] = [detail(noAddress)];
+    await render(<ApiKeyDetail keyId={KEY} />);
+    const policy = () => host.querySelector('[data-testid="api-keys__ip-policy"]')!.textContent;
+    expect(policy()).toContain('No address: this key refuses every call.');
+    expect(policy()).not.toContain('Any address');
+    await act(async () => root!.unmount());
+    root = null;
+    world.queries['developerKeys.get'] = [
+      { ok: true, data: { key: noAddress, requireNonEmptyIpAllowlist: false, idleExpirySeconds: null } },
+    ];
+    await render(<ApiKeyDetail keyId={KEY} />);
+    expect(policy()).toContain('Any address.');
+    expect(policy()).not.toContain('refuses every call');
   });
 
   it('shows the owner idle period in days once it is set, and no end-date form on a revoked key', async () => {

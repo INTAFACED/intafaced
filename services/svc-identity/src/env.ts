@@ -221,9 +221,10 @@ const schema = serviceEnvSchema
        */
       IDENTITY_API_KEYS_MAX_BY_TIER: z.string().optional(),
       /**
-       * Owner setting: whole seconds an API key may go unused before the dormant sweep ends it (DV-keys-03, ENGINE KS-7).
-       * NO DEFAULT. Blank: the key detail shows the idle expiry as `not set` and no key is ended for being idle. Parsed at
-       * start by `parseApiKeyIdleExpirySeconds`; a value that is not a positive whole number stops the service.
+       * Owner setting: whole seconds an API key may go unused before it is due to end (DV-keys-03, ENGINE KS-7). The key
+       * detail shows it; no dormant sweep is built yet, so a set value ends no key today and the detail says so. NO
+       * DEFAULT. Blank: the detail shows the idle expiry as `not set`. Parsed at start by `parseApiKeyIdleExpirySeconds`;
+       * a value that is not a positive whole number stops the service.
        */
       IDENTITY_API_KEY_IDLE_EXPIRY_SECONDS: z.string().optional(),
       /**

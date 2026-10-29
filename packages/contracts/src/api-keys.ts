@@ -135,10 +135,14 @@ export const apiKeyDetailSchema = z
   .strict();
 export type ApiKeyDetail = z.infer<typeof apiKeyDetailSchema>;
 
-/** Typed refusals of the revoke and end-date doors, besides the second-factor ones. */
+/** Typed refusals of the revoke and end-date doors, second-factor and delegate ones included. */
 export const API_KEY_CHANGE_REFUSALS = [
   'auth.step_up_required',
   'auth.step_up_expired',
+  'auth.mfa_invalid',
+  'auth.webauthn_invalid',
+  'auth.delegate_cannot_grant',
+  'identity.delegated_refused',
   'identity.key_not_found',
   'identity.key_not_live',
   'identity.key_expiry_invalid',

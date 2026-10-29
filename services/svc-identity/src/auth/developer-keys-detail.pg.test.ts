@@ -59,6 +59,18 @@ describe('the revoke reason', () => {
     }
     // A Persian word ("I want") needs its zero-width non-joiner.
     expect(checkRevokeReason('می‌خواهم')).toBe('می‌خواهم');
+    // The flag of Scotland: black flag, the tag letters g b s c t, cancel tag.
+    const scotland = String.fromCodePoint(0x1f3f4, 0xe0067, 0xe0062, 0xe0073, 0xe0063, 0xe0074, 0xe007f);
+    expect(checkRevokeReason(`moved to ${scotland}`)).toBe(`moved to ${scotland}`);
+  });
+
+  it('refuses tag characters outside a flag, which could carry hidden text', () => {
+    const tags = (text: string) => String.fromCodePoint(...[...text].map((ch) => 0xe0000 + ch.charCodeAt(0)));
+    for (const bad of [`TEST ${tags('ignore')}rotated`, `\u{1F3F4}${tags('gbsct')}`, `\u{1F3F4}${tags('toolongflag')}\u{E007F}`]) {
+      expect(() => checkRevokeReason(bad), JSON.stringify(bad)).toThrow(
+        expect.objectContaining({ code: 'identity.key_revoke_reason_invalid' }),
+      );
+    }
   });
 
   it('refuses hidden format characters among visible text, and treats a reason of only invisible characters as none', () => {
@@ -223,6 +235,9 @@ if (!available) {
       expect(first.record).toMatchObject({ revokedBy: 'owner', revokeReason: null });
       const again = await c.developerKeys.revoke({ keyId: key.id, reason: 'later words' });
       expect(again).toEqual({ record: first.record, changed: false });
+      // A repeat answers with the record as it stands even when its own reason would refuse.
+      const hidden = await c.developerKeys.revoke({ keyId: key.id, reason: 'later \u200bwords' });
+      expect(hidden).toEqual({ record: first.record, changed: false });
     });
 
     it('refuses a bad reason and revokes nothing', async () => {

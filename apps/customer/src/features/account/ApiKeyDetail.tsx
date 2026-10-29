@@ -199,12 +199,16 @@ export function ApiKeyDetail({ keyId }: { keyId: string }) {
               <div>
                 <dt>{t('fieldIpPolicy')}</dt>
                 <dd data-testid="api-keys__ip-policy">
-                  {detail.key.ipAllowlist.length === 0 ? (
-                    t('ipAny')
-                  ) : (
+                  {detail.key.ipAllowlist.length > 0 ? (
                     <bdi lang="und">{t('ipOnly', { ips: detail.key.ipAllowlist.join(', ') })}</bdi>
+                  ) : detail.requireNonEmptyIpAllowlist ? (
+                    t('ipNone')
+                  ) : (
+                    t('ipAny')
                   )}
-                  {detail.requireNonEmptyIpAllowlist && <small className="muted api-keys__note">{t('ipRequireNonEmpty')}</small>}
+                  {detail.requireNonEmptyIpAllowlist && detail.key.ipAllowlist.length > 0 && (
+                    <small className="muted api-keys__note">{t('ipRequireNonEmpty')}</small>
+                  )}
                 </dd>
               </div>
               <div>

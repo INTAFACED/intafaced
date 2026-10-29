@@ -386,9 +386,12 @@ export async function getDeveloperKey(deps: DeveloperKeysDeps, userId: string, k
  * Code points a reason may not hold: control characters and invisible format characters (`\p{Cf}`: bidi overrides and
  * isolates, zero-width spaces, byte-order marks, direction marks, tag characters), which could make the list show a
  * reason other than the one stored. The zero-width joiner and non-joiner stay, so emoji sequences and Persian words are
- * whole, and so do variation selectors (`\p{Mn}`).
+ * whole, and so do variation selectors (`\p{Mn}`) and the tag characters of a subdivision flag (`TAG_FLAG`); a tag
+ * character anywhere else could carry hidden text and refuses.
  */
 const REASON_FORBIDDEN = /(?![‌‍])[\p{Cc}\p{Cf}]/u;
+/** A subdivision flag (black flag, 1 to 6 tag letters or digits, cancel tag): the only place tag characters may stand. */
+const TAG_FLAG = /\u{1F3F4}[\u{E0030}-\u{E0039}\u{E0061}-\u{E007A}]{1,6}\u{E007F}/gu;
 /** At least one code point a reader can see: not whitespace, a joiner or a mark on its own. */
 const REASON_VISIBLE = /[^\s‌‍\p{Mn}\p{Me}]/u;
 
@@ -401,7 +404,7 @@ const REASON_VISIBLE = /[^\s‌‍\p{Mn}\p{Me}]/u;
 export function checkRevokeReason(raw: string | undefined): string | null {
   const reason = raw?.trim() ?? '';
   if (!REASON_VISIBLE.test(reason.replace(new RegExp(REASON_FORBIDDEN.source, 'gu'), ''))) return null;
-  if ([...reason].length > API_KEY_REVOKE_REASON_MAX || REASON_FORBIDDEN.test(reason)) {
+  if ([...reason].length > API_KEY_REVOKE_REASON_MAX || REASON_FORBIDDEN.test(reason.replace(TAG_FLAG, ''))) {
     throw new DeveloperKeyError(
       `Use a reason of at most ${API_KEY_REVOKE_REASON_MAX} visible characters, with no control or hidden characters`,
       'identity.key_revoke_reason_invalid',
@@ -416,6 +419,8 @@ export function checkRevokeReason(raw: string | undefined): string | null {
  * whoever revoked it) and answers with the record as it stands.
  */
 export async function revokeDeveloperKey(deps: DeveloperKeysDeps, userId: string, input: ApiKeyRevokeInput): Promise<ApiKeyRevokeOutput> {
+  const current = await ownKey(deps.sql, userId, input.keyId);
+  if (current.revoked) return { record: toRecord(current), changed: false };
   const reason = checkRevokeReason(input.reason);
   const updated = await deps.sql<KeyRow[]>`
     UPDATE api_keys SET revoked = true, revoked_at = now(), revoked_cause = 'owner', revoke_reason = ${reason}
@@ -440,7 +445,13 @@ export async function setDeveloperKeyExpiry(
   const at = new Date(input.expiresAt);
   if (!(at.getTime() > now.getTime())) throw new DeveloperKeyError('Choose an end date in the future', 'identity.key_expiry_invalid');
   try {
-    await expireApiKey({ sql: deps.sql, gate: deps.gate, now: () => now }, caller, input.keyId, at, input.factorProof);
+    await expireApiKey(
+      { sql: deps.sql, gate: deps.gate, ...(deps.now ? { now: deps.now } : {}) },
+      caller,
+      input.keyId,
+      at,
+      input.factorProof,
+    );
   } catch (err) {
     if (err instanceof ExpireApiKeyError && err.code === 'identity.key_not_live') {
       throw new DeveloperKeyError('This key is revoked or has ended; make a new key instead', 'identity.key_not_live');

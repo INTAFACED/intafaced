@@ -38,7 +38,7 @@ export function requireExpiresAt(value: Date | string | null | undefined): Date 
 /** After expiresAt the key cannot place. Missing expiry stays open. */
 export function apiKeyExpired(expiresAt: Date | null | undefined): boolean {
   if (!expiresAt) return false;
-  return expiresAt.getTime() < Date.now();
+  return expiresAt.getTime() <= Date.now();
 }
 
 /** True when `at` keeps the key no longer than its current end date (none counts as forever). */
@@ -66,7 +66,6 @@ export async function expireApiKey(
   proof?: PayStepUpFactorProof,
 ): Promise<{ id: string; expiresAt: Date }> {
   const at = requireExpiresAt(expiresAt);
-  const now = deps.now?.() ?? new Date();
   return narrowOrGuardedChange({
     sql: deps.sql,
     gate: deps.gate,
@@ -79,6 +78,9 @@ export async function expireApiKey(
       `;
       const row = rows[0];
       if (!row) throw new ExpireApiKeyError('API key not found', 'auth.not_found');
+      // The clock is read under the lock, after any factor check, so a key that ended meanwhile is never revived. A key
+      // is live while its end date is after now, as every reader counts it.
+      const now = deps.now?.() ?? new Date();
       if (row.revoked || (row.expires_at !== null && row.expires_at.getTime() <= now.getTime())) {
         throw new ExpireApiKeyError('This key is revoked or has ended; make a new key instead', 'identity.key_not_live');
       }

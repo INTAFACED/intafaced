@@ -1,4 +1,6 @@
 import {
+  API_KEY_CHANGE_REFUSALS,
+  API_KEY_REVOKE_REASON_MAX,
   apiKeyCreateOutputSchema,
   apiKeyCreateRequestId,
   apiKeyDetailSchema,
@@ -70,7 +72,10 @@ export function readDeveloperKey(api: ApiClient, keyId: string, signal: AbortSig
   return api.query('identity', 'developerKeys.get', { keyId }, apiKeyDetailSchema, { signal });
 }
 
-/** The person's own revoke: never a second factor, so a key can always be switched off. A blank reason is none. */
+/**
+ * The person's own revoke: never a second factor, so a key can always be switched off. A blank reason is none; one over
+ * the limit in code points (as the service counts) answers the service's typed refusal without sending anything.
+ */
 export function revokeDeveloperKey(
   api: ApiClient,
   keyId: string,
@@ -78,6 +83,10 @@ export function revokeDeveloperKey(
   signal?: AbortSignal,
 ): Promise<ApiResult<ApiKeyRevokeOutput>> {
   const trimmed = reason.trim();
+  if ([...trimmed].length > API_KEY_REVOKE_REASON_MAX) {
+    const code = 'identity.key_revoke_reason_invalid';
+    return Promise.resolve({ ok: false, reason: 'error', code, message: code });
+  }
   return api.mutate('identity', 'developerKeys.revoke', { keyId, ...(trimmed ? { reason: trimmed } : {}) }, apiKeyRevokeOutputSchema, {
     signal,
   });
@@ -178,18 +187,7 @@ const REFUSALS = new Set<string>([
   'auth.passkey_verify_unavailable',
 ]);
 
-const CHANGE_REFUSALS = new Set<string>([
-  'auth.step_up_required',
-  'auth.step_up_expired',
-  'auth.mfa_invalid',
-  'auth.webauthn_invalid',
-  'auth.delegate_cannot_grant',
-  'identity.key_not_found',
-  'identity.key_not_live',
-  'identity.key_expiry_invalid',
-  'identity.key_revoke_reason_invalid',
-  'identity.delegated_refused',
-]);
+const CHANGE_REFUSALS = new Set<string>(API_KEY_CHANGE_REFUSALS);
 
 /** The detail page's and the revoke dialog's sentence for a typed refusal, or null for the shared failure panel. */
 export function changeRefusal(
