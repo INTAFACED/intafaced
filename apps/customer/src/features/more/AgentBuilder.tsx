@@ -28,6 +28,7 @@ export const ownAgentId = (path: string): string | null => OWN_AGENT_PATH.exec(p
 
 /** Each refusal and finding code the service sends, with the words for it (the reserved name takes the name). */
 const CODE_WORDS = {
+  'agents.spend.per_call_above_session': 'code_spend_per_call_above_session',
   'agents.own.money_tool': 'code_own_money_tool',
   'agents.own.tool_unknown': 'code_own_tool_unknown',
   'agents.own.name_too_long': 'code_own_name_too_long',

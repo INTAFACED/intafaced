@@ -89,7 +89,8 @@ const en = {
   code_spend_above_agent_cap: 'That is above the agent’s own cap of {cap} {asset}. Enter a lower value, or raise the agent’s cap on Build.',
   code_funds_insufficient: 'Your available balance is below this run’s worst case, so it did not start.',
   code_price_unset: 'This run has no published rate, so it does not run. Nothing runs free.',
-  code_spend_limit: 'This session has spent up to the agent’s cap per session. Open a new session to run again.',
+  code_spend_limit: 'This run would pass one of your spending limits, so it did not start. Check your limits before running again.',
+  code_spend_per_call_above_session: 'The cap per call cannot be above the cap per session. Enter a lower cap per call.',
   code_request_id_replay: 'This request already ran. It is not run or charged again.',
   code_session_closed: 'This session is closed. Open a new one to run again.',
   code_session_not_found: 'That session is not one of this agent’s. Open a new one.',
@@ -223,7 +224,9 @@ const es = {
     'Eso supera el límite propio del agente de {cap} {asset}. Pon un valor menor o sube el límite del agente en Construir.',
   code_funds_insufficient: 'Tu saldo disponible es menor que el peor caso de esta ejecución, así que no empezó.',
   code_price_unset: 'Esta ejecución no tiene tarifa publicada, así que no se ejecuta. Nada se ejecuta gratis.',
-  code_spend_limit: 'Esta sesión ha gastado hasta el límite por sesión del agente. Abre una sesión nueva para volver a ejecutar.',
+  code_spend_limit:
+    'Esta ejecución superaría uno de tus límites de gasto, así que no empezó. Revisa tus límites antes de volver a ejecutar.',
+  code_spend_per_call_above_session: 'El límite por llamada no puede superar el límite por sesión. Introduce un límite por llamada menor.',
   code_request_id_replay: 'Esta solicitud ya se ejecutó. No se ejecuta ni se cobra otra vez.',
   code_session_closed: 'Esta sesión está cerrada. Abre una nueva para volver a ejecutar.',
   code_session_not_found: 'Esa sesión no es de este agente. Abre una nueva.',
@@ -357,7 +360,10 @@ const fr = {
     'C’est au-dessus du plafond propre de l’agent, {cap} {asset}. Saisissez une valeur plus basse, ou relevez le plafond de l’agent dans Construire.',
   code_funds_insufficient: 'Votre solde disponible est inférieur au pire cas de cette exécution ; elle n’a pas commencé.',
   code_price_unset: 'Cette exécution n’a pas de tarif publié ; elle ne s’exécute pas. Rien ne tourne gratuitement.',
-  code_spend_limit: 'Cette session a dépensé jusqu’au plafond par session de l’agent. Ouvrez une nouvelle session pour relancer.',
+  code_spend_limit:
+    'Cette exécution dépasserait l’une de vos limites de dépense, elle n’a donc pas démarré. Vérifiez vos limites avant de relancer.',
+  code_spend_per_call_above_session:
+    'Le plafond par appel ne peut pas dépasser le plafond par session. Saisissez un plafond par appel plus bas.',
   code_request_id_replay: 'Cette demande a déjà été exécutée. Elle n’est ni relancée ni facturée à nouveau.',
   code_session_closed: 'Cette session est fermée. Ouvrez-en une nouvelle pour relancer.',
   code_session_not_found: 'Cette session n’appartient pas à cet agent. Ouvrez-en une nouvelle.',

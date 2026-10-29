@@ -92,8 +92,8 @@ export class OwnLimitsStore {
 
   /**
    * Stores all three caps at once, or none. Saving the same values again writes the same row. A per-call or
-   * per-session value above the agent's own cap is refused rather than lowered, and an agent with no cap of its own
-   * takes no limits until it has one.
+   * per-session value above the agent's own cap is refused rather than lowered, as is a per-call value above the
+   * per-session one (it could never apply), and an agent with no cap of its own takes no limits until it has one.
    */
   async set(
     ownerId: string,
@@ -115,6 +115,7 @@ export class OwnLimitsStore {
       if (perSession > agentCap || perCall > agentCap) {
         throw new OwnAgentRefusal('agents.spend.above_agent_cap', { cap: formatAmount(agentCap) });
       }
+      if (perCall > perSession) throw new OwnAgentRefusal('agents.spend.per_call_above_session');
       await tx`
         INSERT INTO agents.own_agent_limits (agent_id, owner_id, per_call, per_session, per_period, period)
         VALUES (${agentId}, ${ownerId}, ${formatAmount(perCall)}::numeric, ${formatAmount(perSession)}::numeric,

@@ -7,7 +7,7 @@ import type { Principal } from '@intafaced/auth';
 import { createEdgeContext, encodePrincipal, signPrincipalHeader } from '@intafaced/contracts';
 import { assertTestDatabase, postgresAvailable } from '@intafaced/db';
 import { MemoryEventBus } from '@intafaced/events';
-import { formatAmount, MemoryLedger, type Amount } from '@intafaced/ledger-client';
+import { formatAmount, MemoryLedger, parseAmount, type Amount } from '@intafaced/ledger-client';
 import { ModelGateway } from '../gateway/gateway.js';
 import { parseRoutingTable } from '../gateway/routing.js';
 import { UsageMeter } from '../metering/meter.js';
@@ -38,7 +38,7 @@ const SECRET = 'an-agents-own-run-test-secret-of-32-plus-chars!';
 const edgeContext = createEdgeContext({ secret: SECRET, serviceName: 'svc-agents' });
 const PERSON = ['agents:read', 'agents:execute', 'identity:write'];
 
-function callerFor(userId: string, scopes: string[]) {
+function callerFor(userId: string, scopes: string[], extra: { kid?: string } = {}) {
   const principal = {
     sub: userId,
     userId,
@@ -47,6 +47,7 @@ function callerFor(userId: string, scopes: string[]) {
     tier: 'none',
     mfa: false,
     expiresAt: new Date(Date.now() + 60_000),
+    ...(extra.kid ? { kid: extra.kid } : {}),
   } as Principal;
   const raw = encodePrincipal(principal);
   return edgeContext({
@@ -117,7 +118,11 @@ if (!available) {
 
   const people = () => {
     const router = build();
-    return { person: router.createCaller(callerFor(USER, PERSON)), other: router.createCaller(callerFor(OTHER, PERSON)) };
+    return {
+      person: router.createCaller(callerFor(USER, PERSON)),
+      other: router.createCaller(callerFor(OTHER, PERSON)),
+      key: router.createCaller(callerFor(USER, PERSON, { kid: '66666666-6666-4666-8666-666666666666' })),
+    };
   };
 
   async function agentWith(person: ReturnType<typeof people>['person'], cap: string | null = '1') {
@@ -206,6 +211,9 @@ if (!available) {
       await expect(person.own.limits.set({ id, perCall: '2', perSession: '0.02', perPeriod: '5' })).rejects.toMatchObject({
         message: 'agents.spend.above_agent_cap',
       });
+      await expect(person.own.limits.set({ id, perCall: '0.03', perSession: '0.02', perPeriod: '5' })).rejects.toMatchObject({
+        message: 'agents.spend.per_call_above_session',
+      });
       expect(await person.own.limits.get({ id })).toEqual(stored);
     });
 
@@ -262,7 +270,8 @@ if (!available) {
       const { sessionId } = await person.own.session.open({ id });
       const ran = await person.own.run({ id, sessionId, requestId: 'own-run-1', ask: ASK });
       expect(ran.assetId).toBe('USDT');
-      expect(BigInt(Math.round(Number(ran.cost) * 1e9))).toBeGreaterThan(0n);
+      expect(parseAmount(ran.cost)).toBeGreaterThan(0n);
+      expect(parseAmount(ran.cost)).toBeLessThanOrEqual(WORST);
       await expect(person.own.run({ id, sessionId, requestId: 'own-run-1', ask: ASK })).rejects.toMatchObject({
         message: 'agents.request_id_replay',
       });
@@ -313,21 +322,64 @@ if (!available) {
     it('counts every session of the agent this month against the per-month cap', async () => {
       const { person } = people();
       const id = await agentWith(person, '1');
-      await person.own.limits.set({ id, perCall: '0.012', perSession: '0.02', perPeriod: formatAmount(WORST + WORST / 2n) });
+      await person.own.limits.set({ id, perCall: '0.012', perSession: '0.02', perPeriod: '5' });
       const first = await person.own.session.open({ id });
       await person.own.run({ id, sessionId: first.sessionId, requestId: 'own-month-1', ask: ASK });
-      const second = await person.own.session.open({ id });
-      // The first run cost at most its worst case; a second worst case on top passes the month only when the first
-      // cost more than half of one. Lower the month to exactly what was spent, so the next run cannot fit.
       const [spent] = await sql<
         { total: string }[]
       >`SELECT committed_amount::text AS total FROM agents.spend_reservations WHERE reservation_key = 'own-month-1'`;
-      await person.own.limits.set({ id, perCall: '0.012', perSession: '0.02', perPeriod: spent!.total });
+      const used = parseAmount(spent!.total);
+      expect(used).toBeGreaterThan(0n);
+      // A fresh session has spent nothing, so one worst case fits the month only if the first session is not counted.
+      const second = await person.own.session.open({ id });
+      await person.own.limits.set({ id, perCall: '0.012', perSession: '0.02', perPeriod: formatAmount(used + WORST - 1n) });
       await expect(person.own.run({ id, sessionId: second.sessionId, requestId: 'own-month-2', ask: ASK })).rejects.toMatchObject({
         message: 'agents.spend.cap_exceeded',
       });
       expect(calls).toBe(1);
       expect(await holds()).toEqual(['committed']);
+      await person.own.limits.set({ id, perCall: '0.012', perSession: '0.02', perPeriod: formatAmount(used + WORST) });
+      await person.own.run({ id, sessionId: second.sessionId, requestId: 'own-month-3', ask: ASK });
+      expect(calls).toBe(2);
+    });
+
+    it('applies the agent’s cap as it stands at run time, below the person’s per-session value', async () => {
+      const { person } = people();
+      const id = await agentWith(person, '1');
+      await person.own.limits.set({ id, perCall: '0.012', perSession: '0.02', perPeriod: '5' });
+      const { sessionId } = await person.own.session.open({ id });
+      await person.own.save({
+        id,
+        name: 'TEST helper',
+        instructions: INSTRUCTIONS,
+        tools: ['support.kb.search'],
+        perSessionCap: formatAmount(WORST - 1n),
+      });
+      await expect(person.own.run({ id, sessionId, requestId: 'own-live-cap', ask: ASK })).rejects.toMatchObject({
+        message: 'agents.spend.cap_exceeded',
+      });
+      expect(calls).toBe(0);
+      expect(await holds()).toEqual([]);
+    });
+
+    it('refuses a delegated key: it cannot set limits, open a session or run', async () => {
+      const { person, key } = people();
+      const id = await agentWith(person, '1');
+      await expect(key.own.limits.set({ id, perCall: '0.012', perSession: '0.02', perPeriod: '5' })).rejects.toMatchObject({
+        code: 'FORBIDDEN',
+        message: 'A signed-in user session is required',
+      });
+      expect(await person.own.limits.get({ id })).toMatchObject({ limits: null });
+      await person.own.limits.set({ id, perCall: '0.012', perSession: '0.02', perPeriod: '5' });
+      await expect(key.own.session.open({ id })).rejects.toMatchObject({ code: 'FORBIDDEN', cause: { code: 'scope.interactive_only' } });
+      expect(await ownSessions()).toBe(0);
+      const { sessionId } = await person.own.session.open({ id });
+      await expect(key.own.run({ id, sessionId, requestId: 'own-key', ask: ASK })).rejects.toMatchObject({
+        code: 'FORBIDDEN',
+        cause: { code: 'scope.interactive_only' },
+      });
+      expect(calls).toBe(0);
+      expect(await holds()).toEqual([]);
     });
 
     it('refuses a run the available balance cannot cover: funds insufficient, the engine never called, nothing billed or held', async () => {
