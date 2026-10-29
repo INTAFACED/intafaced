@@ -56,8 +56,11 @@ export class KycProfileError extends Error {
 
 export type KycDocumentTypeList = ReadonlyMap<string, KycDocumentTypes['types']>;
 
-/** The photo travels as base64 inside one JSON body (the edge's and the service's 1 MiB), so 768 KiB is the most it can be. */
-const UPLOAD_MAX_BYTES = 768 * 1024;
+/**
+ * The photo travels as base64 inside one JSON body (the edge's and the service's 1 MiB). Base64 is 4/3 of the bytes, and
+ * the JSON around it needs room, so 760 KiB (1,037,654 characters encoded) is the most it can be.
+ */
+const UPLOAD_MAX_BYTES = 760 * 1024;
 const TYPE_ROW = /^[a-z][a-z0-9_]{1,63}$/;
 const CONTENT_TYPE = /^[a-z]+\/[a-z0-9.+-]+$/;
 
@@ -192,9 +195,28 @@ export class KycProfileDesk {
     }
   }
 
-  /** A keyed hash of one save, so a stored hash does not reveal what was entered. */
+  /**
+   * A keyed hash of one save, so a stored hash does not reveal what was entered. Keyed with a subkey derived from the
+   * document key for this one job, never with the encryption key itself.
+   */
   private fingerprint(kind: string, version: number, payload: unknown): string {
-    return createHmac('sha256', this.requireKey()).update(JSON.stringify({ kind, version, payload })).digest('hex');
+    const subkey = createHmac('sha256', this.requireKey()).update('kyc.profile.fingerprint:v1').digest();
+    return createHmac('sha256', subkey).update(JSON.stringify({ kind, version, payload })).digest('hex');
+  }
+
+  /** The draft's fields, or null when the current key cannot open it. */
+  private tryUnseal(row: Row): KycProfileFields | null {
+    try {
+      return this.unseal(row);
+    } catch {
+      return null;
+    }
+  }
+
+  /** A step may be saved once the draft has reached it: going back is fine, skipping ahead is not. */
+  private assertReached(row: Row, step: (typeof KYC_PROFILE_STEPS)[number]): void {
+    if (stepNumber(step) > row.step)
+      throw new KycProfileError(`Finish step ${row.step} first`, 'kyc.profile_incomplete', { step: KYC_PROFILE_STEPS[row.step - 1] });
   }
 
   private view(row: Row, fields: KycProfileFields): KycProfileDraft {
@@ -209,19 +231,19 @@ export class KycProfileDesk {
   }
 
   private async row(sql: Sql, userId: string, lock: boolean): Promise<Row | undefined> {
-    const [row] = lock
-      ? await sql<Row[]>`SELECT tier, step, version, ciphertext, nonce, key_id, last_save, record_id, updated_at
-          FROM kyc_profile_drafts WHERE user_id = ${userId} FOR UPDATE`
-      : await sql<Row[]>`SELECT tier, step, version, ciphertext, nonce, key_id, last_save, record_id, updated_at
-          FROM kyc_profile_drafts WHERE user_id = ${userId}`;
+    const [row] = await sql<Row[]>`SELECT tier, step, version, ciphertext, nonce, key_id, last_save, record_id, updated_at
+      FROM kyc_profile_drafts WHERE user_id = ${userId} ${lock ? sql`FOR UPDATE` : sql``}`;
     return row;
   }
 
+  /** A draft the current key cannot open reads as none, flagged, so the person can start again (`start` replaces it). */
   async read(userId: string): Promise<KycProfile> {
     this.requireKey();
     const row = await this.row(this.sql, userId, false);
+    const fields = row ? this.tryUnseal(row) : null;
     return {
-      draft: row ? this.view(row, this.unseal(row)) : null,
+      draft: row && fields ? this.view(row, fields) : null,
+      unreadableDraft: Boolean(row && !fields),
       uploadCaps: this.settings.uploadCaps,
       documentCheck: 'not_connected',
     };
@@ -232,12 +254,15 @@ export class KycProfileDesk {
     return types ? { country, published: true, types: [...types] } : { country, published: false, types: [] };
   }
 
-  /** Opens a draft at step 1, or returns the unsent one (with the level now asked for). A sent draft starts over. */
+  /**
+   * Opens a draft at step 1, or returns the unsent one (with the level now asked for). A sent draft starts over, and so
+   * does one the current key cannot open: nothing in it can be read, so nothing readable is lost.
+   */
   async start(userId: string, tier: Tier): Promise<KycProfileDraft> {
     this.requireKey();
     return transaction(this.sql, async (tx) => {
       const row = await this.row(tx, userId, true);
-      if (row && !row.record_id) {
+      if (row && !row.record_id && this.tryUnseal(row)) {
         if (row.tier === tier) return this.view(row, this.unseal(row));
         const [moved] = await tx<
           Row[]
@@ -279,6 +304,7 @@ export class KycProfileDesk {
       const hash = this.fingerprint(input.step, input.version, values);
       if (row.version === input.version + 1 && row.last_save === hash) return this.view(row, this.unseal(row));
       if (row.version !== input.version) throw new KycProfileError('The draft changed since this step was opened', 'kyc.profile_version');
+      this.assertReached(row, input.step);
       const fields = { ...this.unseal(row), ...values };
       if (input.step === 'document') this.assertListed(fields.residence, fields.documentType);
       const { ciphertext, nonce } = this.seal(fields);
@@ -310,6 +336,7 @@ export class KycProfileDesk {
     if (before.record_id) throw new KycProfileError('This draft was already sent', 'kyc.profile_sent');
     if (before.version === input.version + 1 && before.last_save === hash) return this.view(before, this.unseal(before));
     if (before.version !== input.version) throw new KycProfileError('The draft changed since this step was opened', 'kyc.profile_version');
+    this.assertReached(before, 'upload');
     // The vault first: a crash after this leaves an unreferenced ciphertext row, never a draft pointing at nothing.
     const stored = await vault.put({ userId, contentType, bytes: input.bytes, storedBy: userId });
     const owner = { kind: 'owner' as const, userId };
@@ -347,25 +374,28 @@ export class KycProfileDesk {
   /**
    * Sends the draft: every step complete, the ID type still listed for the country, the photo the person's own. The
    * request opens through `submitKyc` (its lockout and capability checks apply); sending again returns the same one.
+   *
+   * Three short steps, so no connection is held while `submitKyc` takes its own (a held one waiting for a second
+   * deadlocks the pool under load): check and claim the draft (its version moves on, so an edit made from the version
+   * the person sent refuses), open the request, then record it on the draft if the draft still says what was sent. A
+   * crash between the last two leaves a pending request that carries this photo, which the next send finds as its own.
    */
   async submit(userId: string, version: number): Promise<{ recordId: string; documentCheck: 'not_connected' }> {
     this.requireKey();
     const vault = this.settings.vault;
-    // The draft stays locked until it records what it opened, so an edit in another tab cannot slip in between.
-    return transaction(this.sql, async (tx) => {
+    const claimed = await transaction(this.sql, async (tx) => {
       const row = await this.row(tx, userId, true);
       if (!row) throw new KycProfileError('Start guided verification first', 'kyc.profile_none');
-      if (row.record_id) return { recordId: row.record_id, documentCheck: 'not_connected' as const };
+      if (row.record_id) return { kind: 'sent', recordId: row.record_id } as const;
       if (row.version !== version) throw new KycProfileError('The draft changed since it was opened', 'kyc.profile_version');
       const fields = this.unseal(row);
       for (const step of Object.keys(kycProfileStepFieldsSchemas) as KycProfileFieldStep[]) {
         if (!kycProfileStepFieldsSchemas[step].safeParse(pick(fields, step)).success)
           throw new KycProfileError(`The ${step} step is not complete`, 'kyc.profile_incomplete', { step });
       }
-      if (!fields.documentId) throw new KycProfileError('Add a photo of your ID first', 'kyc.profile_incomplete', { step: 'upload' });
+      const documentId = fields.documentId;
+      if (!documentId) throw new KycProfileError('Add a photo of your ID first', 'kyc.profile_incomplete', { step: 'upload' });
       this.assertListed(fields.residence, fields.documentType);
-      if (!vault) throw new KycProfileError('The document vault is not configured', 'kyc.profile_unconfigured');
-      await vault.assertDocumentForUser(fields.documentId, userId);
       // A request already open at this level, or a level already held, is not this draft's: sending would only return
       // it, without this photo. Only a pending request that carries this photo (a send that crashed after it) is ours.
       const [open] = await tx<Array<{ id: string; status: string; provider_ref: string | null }>>`
@@ -373,20 +403,35 @@ export class KycProfileDesk {
           (status = 'pending' AND tier = ${row.tier}) OR (status = 'approved' AND (expires_at IS NULL OR expires_at > now())
             AND array_position(ARRAY['none','basic','full','institutional']::text[], tier::text) >= array_position(ARRAY['none','basic','full','institutional']::text[], ${row.tier}::text)))
         ORDER BY created_at DESC LIMIT 1`;
-      if (open && !(open.status === 'pending' && open.provider_ref === fields.documentId))
+      if (open && !(open.status === 'pending' && open.provider_ref === documentId))
         throw new KycProfileError('A request at this level is already open or approved', 'kyc.profile_request_open', {
           status: open.status,
         });
-      const record = await this.settings.submit({
-        userId,
-        tier: row.tier,
-        jurisdiction: fields.residence!,
-        providerRef: fields.documentId,
+      const [moved] = await tx<Array<{ version: number }>>`
+        UPDATE kyc_profile_drafts SET version = version + 1, last_save = NULL, updated_at = now() WHERE user_id = ${userId} RETURNING version`;
+      return { kind: 'claimed', tier: row.tier, residence: fields.residence!, documentId, version: moved!.version } as const;
+    });
+    if (claimed.kind === 'sent') return { recordId: claimed.recordId, documentCheck: 'not_connected' };
+    if (!vault) throw new KycProfileError('The document vault is not configured', 'kyc.profile_unconfigured');
+    await vault.assertDocumentForUser(claimed.documentId, userId);
+    const record = await this.settings.submit({
+      userId,
+      tier: claimed.tier,
+      jurisdiction: claimed.residence,
+      providerRef: claimed.documentId,
+    });
+    if (record.status !== 'pending' || record.providerRef !== claimed.documentId)
+      throw new KycProfileError('A request at this level is already open or approved', 'kyc.profile_request_open', {
+        status: record.status,
       });
-      if (record.status !== 'pending' || record.providerRef !== fields.documentId)
-        throw new KycProfileError('A request at this level is already open or approved', 'kyc.profile_request_open', {
-          status: record.status,
-        });
+    return transaction(this.sql, async (tx) => {
+      const row = await this.row(tx, userId, true);
+      if (row?.record_id === record.id) return { recordId: record.id, documentCheck: 'not_connected' as const };
+      const fields = row && !row.record_id ? this.tryUnseal(row) : null;
+      // Changed in between (another tab saved from the claimed version): the request stands with what was sent, and the
+      // draft keeps the newer entry; sending it finds that request open and says so.
+      if (!row || row.version !== claimed.version || fields?.documentId !== claimed.documentId || fields.residence !== claimed.residence)
+        throw new KycProfileError('The draft changed while it was being sent', 'kyc.profile_version');
       await tx`UPDATE kyc_profile_drafts SET record_id = ${record.id}, version = version + 1, updated_at = now() WHERE user_id = ${userId}`;
       return { recordId: record.id, documentCheck: 'not_connected' as const };
     });
