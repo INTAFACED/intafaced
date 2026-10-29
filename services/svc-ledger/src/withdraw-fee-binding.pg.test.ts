@@ -183,6 +183,30 @@ describe('a withdrawal fee bound to its posted hold (Postgres)', () => {
     expect(await bal(otherHold)).toBe('26.5');
   });
 
+  it('refuses a post whose meta names another withdrawal than its key and hold, fee or no fee', async () => {
+    const x = await funded('f10:0');
+    await post(recipes.withdrawHold(x));
+    // A fee-less settle of x pointing its meta at another withdrawal would skip x's fee and strand it in the hold.
+    const settle = toWire(recipes.withdrawSettle({ ...x, fee: undefined }));
+    await expect(handleS2sPost(door, { ...settle, meta: { ...settle.meta, withdrawalId: 'f11:0' } }, pay)).rejects.toEqual(unbound);
+    expect(await bal(withdrawalHoldAccount(USER, 'USDT', 'f10:0'))).toBe('26.5');
+  });
+
+  it('a fee-carrying reverse goes back to the hold owner only, and a settle only on the hold rail', async () => {
+    const x = await funded('f12:0');
+    await post(recipes.withdrawHold(x));
+    const reverse = toWire(recipes.withdrawReverse(x));
+    const toOther = {
+      ...reverse,
+      entries: reverse.entries.map((e) =>
+        e.account.kind === 'available' ? { ...e, account: userAvailable('77777777-7777-4777-8777-777777777777', 'USDT') } : e,
+      ),
+    };
+    await expect(handleS2sPost(door, toOther, pay)).rejects.toEqual(unbound);
+    await expect(post(recipes.withdrawSettle({ ...x, rail: 'bank-sepa' }))).rejects.toEqual(unbound);
+    expect(await bal(withdrawalHoldAccount(USER, 'USDT', 'f12:0'))).toBe('26.5');
+  });
+
   it('leaves a fee-less withdrawal exactly as before, part settle and reverse included', async () => {
     const w = await funded('f7:0');
     const plain = { ...w, fee: undefined, amount: amt('10') };

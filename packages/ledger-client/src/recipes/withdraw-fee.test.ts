@@ -91,6 +91,8 @@ describe('a withdrawal with its quoted fee', () => {
 
   it('a return carries no fee: only what went to the rail comes back', () => {
     expect(() => recipes.withdrawReturned(withFee('w-7:0'))).toThrow(InvalidEntryError);
+    // A zero fee is no fee here as everywhere else.
+    expect(recipes.withdrawReturned(withFee('w-7:0', { fee: amt('0') })).entries).toHaveLength(2);
   });
 
   it('a fee the balance cannot cover with the amount holds nothing', async () => {
