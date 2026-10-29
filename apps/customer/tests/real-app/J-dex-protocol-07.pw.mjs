@@ -22,6 +22,7 @@ import { tableIn } from './tables.mjs';
 // The stack prices tokens in TEST Token B, a labelled LOCAL TEST value (tooling/profiles/test-owner-values/protocol.json);
 // a blank quote token refuses protocol.tokens_quote_unset (services/svc-protocol/src/amm/tokens.router.test.ts).
 // Steps that are written but not built yet fail at their first missing part, quickly (UNBUILT):
+// - #3's market brief: no market data source exists on the platform, so the room names that blocker (market_data).
 // - #4's dollar price: no dollar price source exists on the stack, so the page names that blocker (price_feed).
 const J = 'J-dex-protocol-07';
 const UNBUILT = { timeout: 5_000 };
@@ -263,11 +264,12 @@ test(`${J} #3 opens the market brief and the stablecoin screener: a brief or "No
 }) => {
   await openTokens(page);
   await page.getByRole('tab', { name: 'Market brief' }).click();
-  // No service writes a brief (there is no market data source on the platform), so the one true answer is the empty state with its reason.
+  // No service writes a brief: there is no market data source on the platform. The room shows the empty state and names
+  // that blocker; the clause stays red by that name at the end of this step, after the other clauses have run.
   const brief = page.getByRole('tabpanel', { name: 'Market brief' });
   await expect(brief).toContainText('No brief today.');
   await expect(brief).toContainText('There is no market data source here.');
-  await expect(brief).not.toContainText('Brief for ');
+  await expect(brief.locator('[data-code]')).toHaveAttribute('data-code', 'market_data');
   await page.getByRole('tab', { name: 'Stablecoins' }).click();
   // The owner has listed no stablecoins on the stack, so the screener refuses with that reason and its one code.
   const stable = page.getByRole('tabpanel', { name: 'Stablecoins' });
@@ -299,6 +301,12 @@ test(`${J} #3 opens the market brief and the stablecoin screener: a brief or "No
     expect(sum(realised), `realised for ${wallet}`).toBe(total);
   }
   expect(realisedSeen, 'at least one sell, so a realised result exists').toBeGreaterThan(0);
+
+  await page.getByRole('tab', { name: 'Market brief' }).click();
+  expect(
+    await brief.getByText(/^Brief for /).count(),
+    'BLOCKED (market_data): no market data source exists on the platform, so no brief is written and the empty state reads nothing',
+  ).toBeGreaterThan(0);
 });
 
 test(`${J} #4 opens a token page: price, liquidity in token amounts, fees and growth; market cap "Not available" with no supply source; a USD price with its as-of time`, async ({

@@ -89,6 +89,13 @@ afterEach(() => {
 });
 
 describe('Quick ticket', () => {
+  it('says the balance could not be read when the wallet rejects the read, never stays on reading', async () => {
+    wallet.call.mockReset().mockRejectedValue(new Error('wallet refused'));
+    await mount();
+    expect(text()).toContain(t('quickBalanceUnread'));
+    expect(text()).not.toContain(t('quickReadingBalance'));
+  });
+
   it('fills exactly half the balance and sends one approve then the swap at the minimum from a fresh read', async () => {
     await mount();
     await click('50%');

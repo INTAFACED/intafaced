@@ -24,6 +24,8 @@ const TABS: readonly TokensTab[] = ['trending', 'top', 'new', 'brief', 'stableco
 export const STABLECOINS_UNSET = 'indexer.stablecoins_unset';
 /** A tokenized stock is listed only with a recorded licence hash; with none recorded the screener names the `licence` blocker. */
 export const STOCKS_BLOCKER = 'licence';
+/** No market data source exists on the platform, so no brief is written. */
+export const BRIEF_BLOCKER = 'market_data';
 
 type ListTab = 'trending' | 'top' | 'new';
 
@@ -283,7 +285,12 @@ export function TokensRoom() {
   const listed = tab === 'trending' || tab === 'top' || tab === 'new';
   let body: ReactNode;
   if (listed) body = <TokenList tab={tab} span={span} query={query} onQuery={setQuery} t={t} />;
-  else if (tab === 'brief') body = <EmptyState title={t('noBrief')}>{t('noBriefBody')}</EmptyState>;
+  else if (tab === 'brief')
+    body = (
+      <div role="status" data-code={BRIEF_BLOCKER}>
+        <EmptyState title={t('noBrief')}>{t('noBriefBody')}</EmptyState>
+      </div>
+    );
   else if (tab === 'stablecoins')
     body = (
       <div role="status" data-code={STABLECOINS_UNSET}>

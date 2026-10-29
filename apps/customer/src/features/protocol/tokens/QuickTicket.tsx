@@ -60,9 +60,14 @@ export function QuickTicket({ data, api, t }: { data: TokenPageData; api: Protoc
     setBalance(null);
     if (!owner || !paid) return;
     let stopped = false;
-    void wallet.call(paid.address, balanceOfCall(owner)).then((answer) => {
-      if (!stopped) setBalance(readUnits(answer) ?? 'unread');
-    });
+    void wallet.call(paid.address, balanceOfCall(owner)).then(
+      (answer) => {
+        if (!stopped) setBalance(readUnits(answer) ?? 'unread');
+      },
+      () => {
+        if (!stopped) setBalance('unread');
+      },
+    );
     return () => {
       stopped = true;
     };
