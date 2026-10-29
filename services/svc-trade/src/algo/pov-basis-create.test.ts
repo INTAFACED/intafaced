@@ -176,6 +176,17 @@ describe('POV participation basis at create (isolated PostgreSQL)', () => {
     expect(await available(ALICE, 'USDT')).toBe('100000');
   });
 
+  it('a buy limit below every ask has nothing it could reach: refused as immature, and stores nothing', async () => {
+    await fund(ALICE, 'USDT', '100000');
+    matching.asks = [['60010', '5']];
+    const before = await counts();
+    await expect(
+      trade.createTwap(principalFor(ALICE), schedule({ kind: 'pov', participationBps: 1_000, povBasis: 'opposite_liquidity' })),
+    ).rejects.toMatchObject({ code: ALGO_VOLUME_IMMATURE_CODE, message: expect.stringContaining('within the limit') });
+    expect(await counts()).toEqual(before);
+    expect(await available(ALICE, 'USDT')).toBe('100000');
+  });
+
   it('a traded-volume POV with no tape is still refused as immature', async () => {
     await fund(ALICE, 'USDT', '100000');
     await expect(

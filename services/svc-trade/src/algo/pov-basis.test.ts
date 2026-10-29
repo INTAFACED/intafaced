@@ -4,6 +4,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import { parseAmount } from '@intafaced/ledger-client';
+import { sideQty } from '../spot/trade-service/algo.js';
 import { TwapEngine, type TwapEnginePorts } from './twap-engine.js';
 import type { AlgoQuotedMark, CreateTwapInput } from './types.js';
 
@@ -30,6 +31,7 @@ function input(over: Partial<CreateTwapInput> = {}): CreateTwapInput {
 
 function ports(over: Partial<TwapEnginePorts> = {}) {
   const sides: string[] = [];
+  const limits: Array<bigint | null> = [];
   const base: TwapEnginePorts = {
     now: () => new Date(1_700_000_000_000),
     randomId: () => 'id',
@@ -43,12 +45,13 @@ function ports(over: Partial<TwapEnginePorts> = {}) {
       quality: 'mid',
     }),
     intervalTakerVolume: async () => parseAmount('9'),
-    oppositeBookQty: async (_marketId, side) => {
+    oppositeBookQty: async (_marketId, side, limitPrice) => {
       sides.push(side);
+      limits.push(limitPrice);
       return parseAmount('2.3456');
     },
   };
-  return { ...base, ...over, sides };
+  return { ...base, ...over, sides, limits };
 }
 
 describe('POV participation basis', () => {
@@ -111,5 +114,30 @@ describe('POV participation basis', () => {
     expect(() => engine.create(USER, input({ povBasis: 'book' as never, clientAlgoId: 'bad' }), LOT)).toThrow(
       expect.objectContaining({ code: 'trade.algo_invalid_schedule' }),
     );
+  });
+
+  it('passes the limit to the book read, so only reachable levels size the child', async () => {
+    const p = ports();
+    const engine = new TwapEngine(p);
+    const parent = engine.create(USER, input({ povBasis: 'opposite_liquidity', clientAlgoId: 'limit' }), LOT);
+    await engine.tick(parent.id);
+    expect(p.limits).toEqual([parseAmount('100')]);
+  });
+
+  it('counts only the levels at or inside the limit: asks at or below a buy limit, bids at or above a sell limit', () => {
+    const asks: Array<[string, string]> = [
+      ['1.00', '1'],
+      ['5.00', '10000'],
+    ];
+    expect(sideQty(asks, 'buy', parseAmount('1.00'))).toBe(parseAmount('1'));
+    expect(sideQty(asks, 'buy', parseAmount('0.99'))).toBe(0n);
+    expect(sideQty(asks, 'buy', null)).toBe(parseAmount('10001'));
+    const bids: Array<[string, string]> = [
+      ['0.99', '40'],
+      ['0.50', '7'],
+    ];
+    expect(sideQty(bids, 'sell', parseAmount('0.99'))).toBe(parseAmount('40'));
+    expect(sideQty(bids, 'sell', parseAmount('1'))).toBe(0n);
+    expect(sideQty(bids, 'sell', null)).toBe(parseAmount('47'));
   });
 });

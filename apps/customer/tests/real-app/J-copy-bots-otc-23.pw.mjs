@@ -1,5 +1,19 @@
 import { test, expect } from '@playwright/test';
-import { EDGE, ORIGIN, api, bestPrices, fund, json, journeyState, otherTrader, signOutBrowser, times, tool, toUnits } from './stack.mjs';
+import {
+  EDGE,
+  ORIGIN,
+  api,
+  bestPrices,
+  fund,
+  fromUnits,
+  json,
+  journeyState,
+  otherTrader,
+  signOutBrowser,
+  times,
+  tool,
+  toUnits,
+} from './stack.mjs';
 import { free, fundedTrader, held, openOrders, signIn, signUp } from './desk.mjs';
 import { tableIn } from './tables.mjs';
 
@@ -453,6 +467,23 @@ test(`${J} #7 chooses POV with opposite-side liquidity on an empty opposite book
   expect(fund(trader.email, 'IFC', '100').tx).toBeTruthy();
   await clearIfc(maker);
   await clearIfc(trader);
+  // A run stopped before its clean-up can leave an earlier trader's sell resting, which no account here can cancel: the
+  // other trader buys it out, then cancels what of that buy is left, so the ask side starts empty.
+  const leftover = (await ifcBook()).asks;
+  if (leftover.length > 0) {
+    const size = leftover.reduce((sum, [, qty]) => sum + toUnits(qty), 0n);
+    const sweep = await other.post('/api/v1/orders', {
+      symbol: UNQUOTED,
+      type: 'limit',
+      side: 'buy',
+      amount: fromUnits(size),
+      price: leftover.at(-1)[0],
+      clientOrderId: `${J}-7-sweep-${tag}`,
+    });
+    // Set-up, not a clause: a refused sweep stops the step here rather than asserting under a condition.
+    if (sweep.status >= 300) throw new Error(`sweeping a stale IFC/USDC ask was refused: ${JSON.stringify(sweep.body).slice(0, 300)}`);
+    await clearIfc(maker);
+  }
 
   // The other trader rests one bid on IFC/USDC, which the market maker never quotes: the book has bids and no asks.
   const bid = await other.post('/api/v1/orders', {
@@ -466,7 +497,7 @@ test(`${J} #7 chooses POV with opposite-side liquidity on an empty opposite book
   expect(bid.status, JSON.stringify(bid.body).slice(0, 300)).toBeLessThan(300);
   const oneSided = await ifcBook();
   expect(oneSided.asks).toEqual([]);
-  expect(oneSided.bids).toEqual([['0.99', '40']]);
+  expect(oneSided.bids.map(([price, size]) => [toUnits(price), toUnits(size)])).toEqual([[toUnits('0.99'), toUnits('40')]]);
 
   // A POV buy on opposite-side liquidity: the side it would take from (asks) is empty, so the service refuses it as
   // volume immature, and nothing is written or held.
@@ -523,7 +554,21 @@ test(`${J} #7 chooses POV with opposite-side liquidity on an empty opposite book
     // The book size it read is the bid side above: 40 × 1000 bps = 4, under the 10 remaining.
     expect(first.basisQty).toBe('40');
     expect(toUnits(first.qty)).toBe(toUnits('4'));
-    await expect(detail(page).getByText(/^4(\.0+)? of 40(\.0+)? resting on the opposite side$/)).toBeVisible({ timeout: 15_000 });
+    // The detail names the newest child, and a second one may land while it loads (the first fills 4 of the 40, so the
+    // next reads 36): the line must be a child the service recorded, in its own numbers.
+    const line = detail(page).getByText(/ resting on the opposite side$/);
+    await expect
+      .poll(
+        async () => {
+          const text = (await line.textContent({ timeout: 2_000 }).catch(() => null)) ?? '';
+          const m = /^([\d.]+) of ([\d.]+) resting on the opposite side$/.exec(text.trim());
+          if (!m) return false;
+          const kids = (await parentOf(trader, id)).children;
+          return kids.some((c) => toUnits(c.qty) === toUnits(m[1]) && toUnits(c.basisQty) === toUnits(m[2]));
+        },
+        { timeout: 30_000 },
+      )
+      .toBe(true);
   } finally {
     await (await api(trader)).post('/api/trade/trpc/algo.cancel', { algoId: id });
     await clearIfc(maker);

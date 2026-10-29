@@ -75,9 +75,10 @@ export interface TwapEnginePorts {
   intervalTakerVolume?(marketId: string, from: Date, to: Date): Promise<Amount>;
   /**
    * Resting quantity on the side of the book a child on `side` would take from (asks for a buy). POV with the
-   * opposite-side liquidity basis only. Omit or 0 → miss (never invent a book).
+   * opposite-side liquidity basis only; with a limit, only the levels the child could reach at it. Omit or 0 → miss (never
+   * invent a book).
    */
-  oppositeBookQty?(marketId: string, side: OrderSide): Promise<Amount>;
+  oppositeBookQty?(marketId: string, side: OrderSide, limitPrice: Amount | null): Promise<Amount>;
   now(): Date;
   randomId(): string;
 }
@@ -502,7 +503,7 @@ export class TwapEngine {
       let remaining = working.totalQty;
       for (const c of working.children) remaining -= c.qty;
       if (working.povBasis === 'opposite_liquidity') {
-        basisQty = this.ports.oppositeBookQty ? await this.ports.oppositeBookQty(working.marketId, working.side) : 0n;
+        basisQty = this.ports.oppositeBookQty ? await this.ports.oppositeBookQty(working.marketId, working.side, working.limitPrice) : 0n;
       } else {
         const to = now;
         const from = new Date(now.getTime() - working.sliceIntervalMs);

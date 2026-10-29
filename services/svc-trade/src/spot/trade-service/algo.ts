@@ -32,9 +32,19 @@ import type { TradeServiceInternal } from '../trade-service.js';
 export const OPPOSITE_BOOK_LEVELS = 500;
 
 /** Total resting quantity on one side of an engine depth read. */
-export function sideQty(levels: EngineDepth['bids']): Amount {
+/**
+ * The opposite side's resting quantity a child could reach: with a limit, only the levels at or inside it (asks at or
+ * below a buy limit, bids at or above a sell limit); without one, the whole side read.
+ */
+export function sideQty(levels: EngineDepth['bids'], side: 'buy' | 'sell', limitPrice: Amount | null): Amount {
   let total = 0n;
-  for (const [, qty] of levels) total += parseAmount(qty);
+  for (const [price, qty] of levels) {
+    if (limitPrice !== null) {
+      const p = parseAmount(price);
+      if (side === 'buy' ? p > limitPrice : p < limitPrice) continue;
+    }
+    total += parseAmount(qty);
+  }
   return total;
 }
 
@@ -115,10 +125,12 @@ export async function createTwap(
   }
   // Participation on opposite-side liquidity is applied to that side's size, so an empty opposite side is a
   // book with nothing to participate in: immature, named before the two-sided mark check would call it a missing mark.
-  const oppositeBookQty = oppositeBasis ? sideQty(input.side === 'buy' ? depth.asks : depth.bids) : null;
+  const oppositeBookQty = oppositeBasis
+    ? sideQty(input.side === 'buy' ? depth.asks : depth.bids, input.side, input.limitPrice ?? null)
+    : null;
   if (oppositeBookQty === 0n) {
     throw new TradeError(
-      `${market.symbol}: POV opposite-side book is empty — refuse rather than apply participation to an invented book`,
+      `${market.symbol}: POV opposite-side book is empty within the limit — refuse rather than apply participation to an invented book`,
       'trade.algo_volume_immature',
     );
   }

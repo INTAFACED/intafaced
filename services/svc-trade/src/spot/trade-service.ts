@@ -835,9 +835,9 @@ export class TradeService {
           };
         },
         intervalTakerVolume: async (marketId, from, to) => queryTakerVolumeFromFills(this.sql, { marketId, from, to }),
-        oppositeBookQty: async (marketId, side) => {
+        oppositeBookQty: async (marketId, side, limitPrice) => {
           const depth = await this.matching.depth(marketId, twap.OPPOSITE_BOOK_LEVELS);
-          return twap.sideQty(side === 'buy' ? depth.asks : depth.bids);
+          return twap.sideQty(side === 'buy' ? depth.asks : depth.bids, side, limitPrice);
         },
       },
       {
