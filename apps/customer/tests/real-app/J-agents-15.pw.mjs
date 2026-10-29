@@ -1,7 +1,10 @@
+import { execFile } from 'node:child_process';
 import { readFileSync } from 'node:fs';
+import path from 'node:path';
+import { promisify } from 'node:util';
 import { test, expect } from '@playwright/test';
 import { agentsRun, openFounderDesk, openNavigatorSession, tableIn } from './agents.mjs';
-import { api, tool } from './stack.mjs';
+import { api, ROOT } from './stack.mjs';
 
 // J-agents-15, in the founder console (docs/roadmap/journeys.json): find out why an agent action failed for a customer.
 // One test per step, titled "J-agents-15 #<n>", run in order. The customer is a TEST account who, in their own signed-in
@@ -33,17 +36,19 @@ async function search(page, reason) {
   await desk(page).getByRole('button', { name: 'Search' }).click();
 }
 
-/** Restarts svc-agents with one owner value blank (`off`) or back on its LOCAL TEST value. */
-function ownerValue(variable, on) {
-  const before = process.env[variable];
-  if (on) delete process.env[variable];
-  else process.env[variable] = 'off';
-  try {
-    tool('local-test-stack.mjs', 'restart', 'agents');
-  } finally {
-    if (before === undefined) delete process.env[variable];
-    else process.env[variable] = before;
-  }
+/**
+ * Restarts svc-agents with one owner value blank (`off`) or back on its LOCAL TEST value. The restart runs without
+ * blocking this process, so the console's kept-alive connections close while it runs and the next request opens a new one.
+ */
+async function ownerValue(variable, on) {
+  const env = { ...process.env };
+  if (on) delete env[variable];
+  else env[variable] = 'off';
+  await promisify(execFile)(process.execPath, [path.join(ROOT, 'tooling/scripts/local-test-stack.mjs'), 'restart', 'agents'], {
+    cwd: ROOT,
+    env,
+    timeout: 120_000,
+  });
 }
 
 /** One engine call in the customer's own session, through their own signed-in API door. */
@@ -54,6 +59,8 @@ async function ownRun(sessionId, requestId, task) {
 
 test(`${J} starts: a TEST customer who tried to open a Navigator session, and the founder console`, async ({ page }) => {
   test.setTimeout(240_000);
+  // svc-agents starts on the LOCAL TEST owner values, whatever an earlier run left blank.
+  await ownerValue('LOCAL_STACK_AGENTS_LOG_READ_REASONS', true);
   await agents.start(page, 'ag15', '10');
   // The customer opens a Navigator session and runs it once, in their own session, confirming the spend ceiling.
   const sessionId = await openNavigatorSession(page, agents);
@@ -91,13 +98,13 @@ test(`${J} #2 enters a reason and searches: rows with refusal code and tool, no 
   test.setTimeout(180_000);
   // With the owner's reason list blank there is no reason to enter: the search refuses by its code and shows no rows.
   try {
-    ownerValue('LOCAL_STACK_AGENTS_LOG_READ_REASONS', false);
+    await ownerValue('LOCAL_STACK_AGENTS_LOG_READ_REASONS', false);
     await search(page, false);
     await expect(desk(page).getByRole('combobox', { name: 'Reason' }).getByRole('option')).toHaveCount(1);
     await expect(desk(page).getByRole('alert')).toContainText('(agents.log_read_reason_unset)');
     await expect(rows(page)).toHaveCount(0);
   } finally {
-    ownerValue('LOCAL_STACK_AGENTS_LOG_READ_REASONS', true);
+    await ownerValue('LOCAL_STACK_AGENTS_LOG_READ_REASONS', true);
   }
 
   await search(page, true);
@@ -151,7 +158,7 @@ test(`${J} #4 opens a transcript with retention unset: the typed refusal and no 
   const { sessionId, ranActionId, task } = agents.run.read();
   let unkept;
   try {
-    ownerValue('LOCAL_STACK_AGENTS_TRANSCRIPT_RETENTION', false);
+    await ownerValue('LOCAL_STACK_AGENTS_TRANSCRIPT_RETENTION', false);
     await search(page, true);
     await actionRow(page, ranActionId).getByRole('button', { name: 'Open transcript' }).click();
     await expect(main(page).getByRole('alert')).toContainText('(agents.transcript_retention_unset)');
@@ -161,7 +168,7 @@ test(`${J} #4 opens a transcript with retention unset: the typed refusal and no 
     expect(again.status).toBe(200);
     unkept = again.body.result.data.action.id;
   } finally {
-    ownerValue('LOCAL_STACK_AGENTS_TRANSCRIPT_RETENTION', true);
+    await ownerValue('LOCAL_STACK_AGENTS_TRANSCRIPT_RETENTION', true);
   }
   // With retention back on, that call still has no text: its transcript is refused as not kept.
   await search(page, true);

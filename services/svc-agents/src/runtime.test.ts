@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
@@ -22,6 +23,7 @@ import { UserSpendStore } from './spend/store.js';
 import { hashAction } from './fleet/audit.js';
 import { createAgentsRouter } from './router.js';
 import type { AgentsRouterDeps } from './router.js';
+import type { OpsLogSettings } from './oplog/routes.js';
 
 /**
  * svc-agents — the fleet runtime end to end.
@@ -2543,6 +2545,189 @@ if (!available) {
         });
       }
       expect(await person.session.selected()).toEqual({ sessionId: first.id, agentId: 'probe' });
+    });
+  });
+
+  // ── The operator's agent log and the kept transcript (AG-audit-01, AG-audit-02) ──
+  // Lives here so TRUNCATE stays single-owner with this Postgres suite.
+
+  describe('operator agent log (opsLog) and kept transcripts', () => {
+    const SECRET = 'an-agents-operator-log-test-secret-32';
+    const edge = createEdgeContext({ secret: SECRET, serviceName: 'svc-agents' });
+    const OPERATOR = '44444444-4444-4444-8444-444444444444';
+    const REASONS = ['TEST customer complaint', 'TEST incident review'];
+    const SETTINGS: OpsLogSettings = { reasons: REASONS, limit: 50, retentionDays: 1 };
+    const operatorCtx = (scopes = ['admin:read']) => {
+      const raw = encodePrincipal({
+        sub: OPERATOR,
+        userId: OPERATOR,
+        sid: '55555555-5555-4555-8555-555555555555',
+        scopes,
+        tier: 'none',
+        mfa: true,
+        expiresAt: new Date(Date.now() + 60_000),
+      } as Principal);
+      return edge({
+        headers: {
+          'x-intafaced-principal': raw,
+          'x-intafaced-principal-sig': signPrincipalHeader(raw, SECRET, 'DE'),
+          'x-intafaced-region': 'DE',
+        },
+        id: 'req-ops-log',
+      });
+    };
+    const opsLog = (settings: Partial<OpsLogSettings> = {}) =>
+      createAgentsRouter({ runtime, gateway, meter, feeAssetId: 'IFC', sql, opsLog: { ...SETTINGS, ...settings } }).createCaller(
+        operatorCtx(),
+      ).opsLog;
+    const reads = async () => (await sql<{ n: number }[]>`SELECT count(*)::int AS n FROM agents.agent_log_reads`)[0]!.n;
+    const sha256 = (text: string) => createHash('sha256').update(text).digest('hex');
+    const kept = () => new AgentRuntime(sql, gateway, meter, bus, { feeAssetId: 'IFC', meteringEnabled: true, transcriptRetentionDays: 1 });
+
+    beforeEach(async () => {
+      await sql`TRUNCATE agents.agent_log_reads, agents.agent_transcripts`;
+    });
+
+    /** One executed engine call and one refused task for USER_A, run with retention on. */
+    async function history() {
+      const rt = kept();
+      const session = await rt.openSession({ userId: USER_A, agentId: 'probe' });
+      const ran = await rt.think({ sessionId: session.id, requestId: 'ops-log-ran', task: 'plan', messages: MESSAGES });
+      await expect(rt.think({ sessionId: session.id, requestId: 'ops-log-refused', task: 'nope', messages: MESSAGES })).rejects.toBeInstanceOf(
+        RefusedError,
+      );
+      const [refused] = await sql<{ id: string; refusal_code: string }[]>`
+        SELECT id, refusal_code FROM agents.agent_actions WHERE session_id = ${session.id} AND status = 'refused'
+      `;
+      return { session, ranId: ran.action.id, refused: refused! };
+    }
+
+    it('keeps an engine call’s prompt text while retention is on, its sha256 the row’s input digest; with retention 0 keeps none', async () => {
+      const { ranId } = await history();
+      const [row] = await sql<{ text: string; user_id: string; days: number }[]>`
+        SELECT text, user_id, extract(epoch FROM expires_at - stored_at)::int / 86400 AS days FROM agents.agent_transcripts WHERE action_id = ${ranId}
+      `;
+      const [action] = await sql<{ input_digest: string }[]>`SELECT input_digest FROM agents.agent_actions WHERE id = ${ranId}`;
+      expect(row).toMatchObject({ user_id: USER_A, days: 1 });
+      expect(row!.text).toContain('Where do I stake?');
+      expect(sha256(row!.text)).toBe(action!.input_digest);
+      // The refused call ran nothing and keeps nothing.
+      expect((await sql`SELECT 1 FROM agents.agent_transcripts`).length).toBe(1);
+
+      const session = await runtime.openSession({ userId: USER_A, agentId: 'probe' });
+      const unkept = await runtime.think({ sessionId: session.id, requestId: 'ops-log-unkept', task: 'plan', messages: MESSAGES });
+      expect((await sql`SELECT 1 FROM agents.agent_transcripts WHERE action_id = ${unkept.action.id}`).length).toBe(0);
+    });
+
+    it('refuses every read by its code while the owner’s reasons are blank, a missing or unlisted reason, or a blank limit, and writes no audit row', async () => {
+      const read = { userId: USER_A, requestId: 'ops-log:refuse:1' };
+      await expect(opsLog({ reasons: null }).reasons()).rejects.toMatchObject({ code: 'PRECONDITION_FAILED', message: 'agents.log_read_reason_unset' });
+      for (const door of ['actions', 'export'] as const) {
+        await expect(opsLog({ reasons: null })[door]({ ...read, reason: REASONS[0] })).rejects.toMatchObject({
+          message: 'agents.log_read_reason_unset',
+        });
+        await expect(opsLog()[door](read)).rejects.toMatchObject({ code: 'BAD_REQUEST', message: 'agents.log_read_reason_required' });
+        await expect(opsLog()[door]({ ...read, reason: 'curiosity' })).rejects.toMatchObject({ message: 'agents.log_read_reason_unknown' });
+        await expect(opsLog({ limit: null })[door]({ ...read, reason: REASONS[0] })).rejects.toMatchObject({
+          code: 'PRECONDITION_FAILED',
+          message: 'agents.ops_actions_limit_unset',
+        });
+      }
+      await expect(opsLog({ reasons: null }).transcript({ actionId: USER_B, reason: REASONS[0], requestId: 'ops-log:t:1' })).rejects.toMatchObject({
+        message: 'agents.log_read_reason_unset',
+      });
+      expect(await opsLog().reasons()).toEqual({ reasons: REASONS });
+      expect(await reads()).toBe(0);
+    });
+
+    it('lists one customer’s actions with tool and refusal code and no prompt text, writing one audit row per read, once per request id', async () => {
+      const { ranId, refused } = await history();
+      const read = { userId: USER_A, reason: REASONS[1], requestId: 'ops-log:actions:1' };
+      const page = await opsLog().actions(read);
+      expect(page).toMatchObject({ more: false, limit: 50, auditRows: 1 });
+      expect(page.items.find((i) => i.id === ranId)).toMatchObject({ kind: 'completion', tool: 'plan', outcome: 'executed', refusalCode: null });
+      expect(page.items.find((i) => i.id === refused.id)).toMatchObject({ tool: 'nope', outcome: 'refused', refusalCode: refused.refusal_code });
+      expect(page.tools).toEqual(expect.arrayContaining(['nope', 'plan']));
+      expect(JSON.stringify(page)).not.toContain('Where do I stake?');
+      // The retried request writes no second row; a new request writes its own.
+      expect((await opsLog().actions(read)).auditRows).toBe(1);
+      expect(await reads()).toBe(1);
+      const [audit] = await sql`SELECT operator_id, subject_id, kind, reason, filter, action_id, row_count FROM agents.agent_log_reads`;
+      expect(audit).toMatchObject({
+        operator_id: OPERATOR,
+        subject_id: USER_A,
+        kind: 'actions',
+        reason: REASONS[1],
+        filter: {},
+        action_id: null,
+        row_count: page.items.length,
+      });
+      await opsLog().actions({ ...read, requestId: 'ops-log:actions:2' });
+      expect(await reads()).toBe(2);
+      // Another customer's rows are not in this one's read.
+      expect((await opsLog().actions({ ...read, userId: USER_B, requestId: 'ops-log:actions:3' })).items).toEqual([]);
+    });
+
+    it('filters by outcome and tool, flags a page past the owner’s limit, and exports the same rows as CSV', async () => {
+      const { refused } = await history();
+      const read = { userId: USER_A, reason: REASONS[0], outcome: 'refused' as const, tool: 'nope' };
+      const page = await opsLog().actions({ ...read, requestId: 'ops-log:filter:1' });
+      expect(page.items.map((i) => i.id)).toEqual([refused.id]);
+      const file = await opsLog().export({ ...read, requestId: 'ops-log:export:1' });
+      expect(file).toMatchObject({ rows: 1, more: false, auditRows: 1 });
+      const [header, ...lines] = file.csv.trim().split('\n');
+      expect(header).toBe('Time,Tool,Outcome,Refusal code,Input digest,Action id');
+      expect(lines).toEqual([`${page.items[0]!.occurredAt},nope,Refused,${refused.refusal_code},,${refused.id}`]);
+      const [audit] = await sql`SELECT kind, filter, row_count FROM agents.agent_log_reads WHERE kind = 'export'`;
+      expect(audit).toMatchObject({ kind: 'export', filter: { outcome: 'refused', tool: 'nope' }, row_count: 1 });
+      const capped = await opsLog({ limit: 1 }).actions({ userId: USER_A, reason: REASONS[0], requestId: 'ops-log:capped:1' });
+      expect(capped).toMatchObject({ more: true, limit: 1 });
+      expect(capped.items).toHaveLength(1);
+    });
+
+    it('opens a kept transcript for a reason, with the digest computed from its text; refuses blank or zero retention, an unknown action and an unkept call', async () => {
+      const { ranId, refused } = await history();
+      const open = (actionId: string, requestId: string, settings = {}) =>
+        opsLog(settings).transcript({ actionId, reason: REASONS[0], requestId });
+      await expect(open(ranId, 'ops-log:t:unset', { retentionDays: null })).rejects.toMatchObject({
+        code: 'PRECONDITION_FAILED',
+        message: 'agents.transcript_retention_unset',
+      });
+      await expect(open(ranId, 'ops-log:t:zero', { retentionDays: 0 })).rejects.toMatchObject({ message: 'agents.transcript_not_kept' });
+      await expect(open('99999999-9999-4999-8999-999999999999', 'ops-log:t:none')).rejects.toMatchObject({
+        code: 'NOT_FOUND',
+        message: 'agents.action_not_found',
+      });
+      await expect(open(refused.id, 'ops-log:t:refused')).rejects.toMatchObject({ message: 'agents.transcript_not_kept' });
+      await expect(opsLog().transcript({ actionId: ranId, requestId: 'ops-log:t:noreason' })).rejects.toMatchObject({
+        message: 'agents.log_read_reason_required',
+      });
+      expect(await reads()).toBe(0);
+
+      const shown = await open(ranId, 'ops-log:t:ok');
+      const [action] = await sql<{ input_digest: string }[]>`SELECT input_digest FROM agents.agent_actions WHERE id = ${ranId}`;
+      expect(shown).toMatchObject({ actionId: ranId, userId: USER_A, auditRows: 1, inputDigest: action!.input_digest });
+      expect(shown.digest).toBe(sha256(shown.text));
+      expect(shown.digest).toBe(action!.input_digest);
+      const [audit] = await sql`SELECT kind, action_id, subject_id, row_count FROM agents.agent_log_reads`;
+      expect(audit).toMatchObject({ kind: 'transcript', action_id: ranId, subject_id: USER_A, row_count: 1 });
+
+      // Past its expiry the text is never read.
+      await sql`UPDATE agents.agent_transcripts SET stored_at = now() - interval '2 days', expires_at = now() - interval '1 day' WHERE action_id = ${ranId}`;
+      await expect(open(ranId, 'ops-log:t:expired')).rejects.toMatchObject({ message: 'agents.transcript_not_kept' });
+    });
+
+    it('needs admin:read, and an audit row is never rewritten', async () => {
+      const customer = createAgentsRouter({ runtime, gateway, meter, feeAssetId: 'IFC', sql, opsLog: SETTINGS }).createCaller(
+        operatorCtx(['agents:read', 'agents:execute']),
+      );
+      await expect(customer.opsLog.actions({ userId: USER_A, reason: REASONS[0], requestId: 'ops-log:scope:1' })).rejects.toMatchObject({
+        code: 'FORBIDDEN',
+      });
+      await opsLog().actions({ userId: USER_A, reason: REASONS[0], requestId: 'ops-log:append:1' });
+      await expect(sql`UPDATE agents.agent_log_reads SET reason = 'TEST other'`).rejects.toThrow(/append-only/);
+      await expect(sql`DELETE FROM agents.agent_log_reads`).rejects.toThrow(/append-only/);
+      expect(await reads()).toBe(1);
     });
   });
 }
