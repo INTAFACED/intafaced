@@ -253,6 +253,8 @@ test(`${J} #3 reads Pricing and Fees: the tier fee table, a calculator on the li
     const recordBefore = await api.query('merchantControl.get', { merchantId });
     const ladderBefore = await api.query('merchantControl.tiers.list', { merchantId });
     expect(recordBefore).toMatchObject({ tierId: blank.tierId, pricing: null });
+    // The service itself publishes no fee and no payout fee for the blank tier; the "Not set" cells are what it sent.
+    expect(ladderBefore.tiers.find((tier) => tier.id === blank.tierId)).toMatchObject({ fees: [], payoutFee: null });
     await expect(calc.getByRole('combobox', { name: 'Asset' })).toHaveValue('USDT');
     await calc.getByRole('textbox', { name: /Payment amount/ }).fill('100');
     await calc.getByRole('textbox', { name: /Your volume so far this month/ }).fill('0');

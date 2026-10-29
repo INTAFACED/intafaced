@@ -269,12 +269,17 @@ export type PayPayoutFee = z.infer<typeof payPayoutFeeSchema>;
  * merchant reads it on the ladder. A tier with no rule for an asset has no
  * entry: its fee is blank. The engine then prices from the merchant or the global
  * layer if one has a rule for the asset, and refuses a total when none does.
+ *
+ * `spreadBps` is present only for a caller whose team role sees full pricing
+ * (owner, admin, finance): null there means no spread is configured. For a
+ * fee-only role (viewer, developer) the key is absent, so a missing spread is
+ * never read as "no spread".
  */
 export const merchantTierFeeSchema = z
   .object({
     assetCode: payAssetCodeSchema,
     bands: z.array(payPricingBandSchema).min(1).max(64),
-    spreadBps: payBpsSchema.nullable(),
+    spreadBps: payBpsSchema.nullable().optional(),
     roundingBeneficiary: payRoundingBeneficiarySchema,
     minFee: payAmountStringSchema.nullable(),
     maxFee: payAmountStringSchema.nullable(),
