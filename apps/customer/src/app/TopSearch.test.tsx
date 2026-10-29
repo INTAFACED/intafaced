@@ -156,7 +156,13 @@ describe('header search: where a page lives and the Help group', () => {
     await type('zzqx nothing here');
     expect(host.textContent).toContain('No results for "zzqx nothing here"');
     await press('Enter', input());
+    expect(window.location.pathname).toBe('/support');
+    // Reopened on the same words (the panel unmounts on close): still one count.
+    await act(async () => input().focus());
+    await type('zzqx nothing');
     await type('zzqx nothing here');
+    expect(panel()).not.toBeNull();
+    expect(host.textContent).toContain('No results for "zzqx nothing here"');
     await press('Enter', input());
     const misses = fetcher.mock.calls.filter(([url]) => String(url).includes('navMetrics.searchMiss'));
     expect(misses).toHaveLength(1);
@@ -187,6 +193,28 @@ describe('header search: where a page lives and the Help group', () => {
     expect(misses()).toHaveLength(1);
     await press('Enter', input());
     expect(misses()).toHaveLength(1);
+  });
+
+  it('counts a one-letter search that found nothing, which Help is not asked about', async () => {
+    fetcher.mockImplementation(async (url: string) =>
+      String(url).includes('/api/v1/markets') ? new Response(JSON.stringify([]), { status: 200 }) : new Response('{}', { status: 503 }),
+    );
+    await mount();
+    await type('ζ');
+    expect(host.textContent).toContain('No results for "ζ"');
+    await press('Enter', input());
+    expect(fetcher.mock.calls.filter(([url]) => String(url).includes('navMetrics.searchMiss'))).toHaveLength(1);
+  });
+
+  it('counts nothing while a group failed to answer, since it may have found something', async () => {
+    fetcher.mockImplementation(async (url: string) =>
+      String(url).includes('/api/v1/markets') ? new Response(JSON.stringify([]), { status: 200 }) : new Response('{}', { status: 503 }),
+    );
+    await mount();
+    await type('zzqx nothing here');
+    expect(host.textContent).toContain('Help articles did not load.');
+    await press('Enter', input());
+    expect(fetcher.mock.calls.filter(([url]) => String(url).includes('navMetrics.searchMiss'))).toHaveLength(0);
   });
 
   it('does not count a search where Help found an article', async () => {

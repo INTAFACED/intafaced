@@ -165,7 +165,9 @@ function SearchData({ open, helpCap, ...props }: Omit<PanelProps, 'help'> & { op
   const tickers = useTickers();
   const ownerCap = useHelpResultCap(open);
   const help = useHelpSearch(props.query, open, helpCap === undefined ? ownerCap : helpCap);
-  return open ? <SearchPanel {...props} help={help} source={markets} tickers={tickers} /> : null;
+  // The last search counted as a miss outlives the panel, so closing and reopening on the same words counts it once.
+  const counted = useRef<string | null>(null);
+  return open ? <SearchPanel {...props} help={help} source={markets} tickers={tickers} counted={counted} /> : null;
 }
 
 interface PanelProps {
@@ -194,7 +196,12 @@ function SearchPanel({
   close,
   source,
   tickers,
-}: PanelProps & { source: Loadable<MarketRow[]>; tickers: Loadable<Record<string, TickerRow>> }) {
+  counted,
+}: PanelProps & {
+  source: Loadable<MarketRow[]>;
+  tickers: Loadable<Record<string, TickerRow>>;
+  counted: RefObject<string | null>;
+}) {
   const { t } = shellCopy.useCopy();
   const names = homeCopy.useCopy();
   const signedIn = Boolean(useSession().session);
@@ -261,12 +268,14 @@ function SearchPanel({
 
   // A search that found nothing is counted once for the founders: when "No results" has stood for a moment (so the
   // words typed on the way are not counted), or at once on Enter. Nothing found means every group answered: the markets
-  // answered (even with none listed) and Help gave its articles or has no limit set; "Open Help" alone is not a result.
+  // answered (even with none listed) and Help gave its articles, has no limit set or was not asked (too short a search);
+  // "Open Help" alone is not a result. A group that failed to answer leaves it unknown, so nothing is counted.
   // The call carries only its kind, no words and no session (no bearer), and is never retried.
-  const counted = useRef<string | null>(null);
   const found = rows.some((row) => row.key !== 'help:all');
   const settled = !loading && help.status !== 'loading' && words.length > 0;
-  const answered = (source.status === 'ready' || source.status === 'empty') && (help.status === 'ready' || help.status === 'unset');
+  const answered =
+    (source.status === 'ready' || source.status === 'empty') &&
+    (help.status === 'ready' || help.status === 'unset' || help.status === 'idle');
   const missed = !found && settled && answered;
   const missKey = words.join(' ');
   function countMiss() {

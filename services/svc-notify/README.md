@@ -436,6 +436,15 @@ cannot silently unmute. **Critical** severity never respects mute — a muted
 email channel still receives margin calls, and the delivery row says `accepted`
 or a real refusal, never `channel.muted`.
 
+### Header search misses (HM-navigation-04)
+
+`navMetrics.searchMiss` (public, input `{ kind: 'search_miss' }` only, held strict) counts one header search in the
+customer app that found nothing, per UTC day, in `notify.nav_metric_counts` (migration 0036). It stores no words, account
+or session. The app sends it once per search, with no bearer and no retry, so the count is a lower bound.
+`navMetrics.searchMisses` (`admin:read`) reads it for the founders over a window they name (`days`; blank refuses with
+`notify.nav_metrics_window_unset`). With no database the write and the read refuse with
+`notify.nav_metrics_storage_unconfigured`. No per-caller limit yet: the edge's global limiter is the only throttle.
+
 ### Edge path
 
 Reach this service through **svc-edge** (not direct to port 4015 in production):
