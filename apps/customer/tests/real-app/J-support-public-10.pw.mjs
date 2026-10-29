@@ -195,8 +195,8 @@ test(`${J} #6 priority, type and labels save with one audit row each; a label wi
   const queue = await openQueue(page);
   const workspace = await openRequest(page, queue, ticket);
   const props = page.getByRole('region', { name: 'Priority, type and labels' });
-  await props.getByLabel('Priority').selectOption({ index: 1 });
-  await props.getByLabel('Type').selectOption({ index: 1 });
+  const [priority] = await props.getByLabel('Priority').selectOption({ index: 1 });
+  const [type] = await props.getByLabel('Type').selectOption({ index: 1 });
   await props.getByLabel(/^Labels/).fill(`test_${RUN} vip`);
   await props.getByRole('button', { name: 'Review changes' }).click();
   await props.getByRole('button', { name: 'Yes, save' }).click();
@@ -213,7 +213,10 @@ test(`${J} #6 priority, type and labels save with one audit row each; a label wi
   expect(refused.status).toBe(400);
   expect(refused.text).toMatch(/support\.[a-z_]*label/);
   // Labels are staff-only and kept beside the ticket, never on it (the owner reads the ticket), so the staff read is the one to check.
-  expect((await desk('lead', 'query', 'ticketProperties', { ticketId: ticket.id })).labels).toEqual([`test_${RUN}`, 'vip']);
+  const saved = await desk('lead', 'query', 'ticketProperties', { ticketId: ticket.id });
+  expect(saved.labels).toEqual([`test_${RUN}`, 'vip']);
+  expect(saved.priority).toBe(priority);
+  expect(saved.ticketType).toBe(type);
 });
 
 test(`${J} #7 a macro with a placeholder fills the reply draft, the signature goes on the public reply only, and nothing is sent until Send`, async ({
