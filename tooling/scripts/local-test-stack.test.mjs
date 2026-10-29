@@ -93,6 +93,29 @@ const script = resolve(here, 'local-test-stack.mjs');
   console.log('local-test-stack: bank can start with deposit custody unset');
 }
 
+// svc-ledger reads no outside snapshot by default; `LOCAL_STACK_LEDGER_OUTSIDE_SNAPSHOT=unreachable` points it at a closed
+// local port so a run shows ERROR (J-ops-console-07 #5), and nothing else changes.
+{
+  const { localTestServiceEnvs } = await import('./local-test-stack.mjs');
+  const ledgerEnv = () => localTestServiceEnvs().find((service) => service.name === 'ledger').env;
+  const before = process.env.LOCAL_STACK_LEDGER_OUTSIDE_SNAPSHOT;
+  try {
+    delete process.env.LOCAL_STACK_LEDGER_OUTSIDE_SNAPSHOT;
+    const unset = ledgerEnv();
+    assert.equal('LEDGER_RECONCILE_OUTSIDE_SNAPSHOT_URL' in unset, false);
+    process.env.LOCAL_STACK_LEDGER_OUTSIDE_SNAPSHOT = 'unreachable';
+    const { LEDGER_RECONCILE_OUTSIDE_SNAPSHOT_URL: url, ...rest } = ledgerEnv();
+    assert.equal(url, 'http://127.0.0.1:9/local-test-outside-snapshot');
+    assert.deepEqual(rest, unset);
+    process.env.LOCAL_STACK_LEDGER_OUTSIDE_SNAPSHOT = 'on';
+    assert.throws(ledgerEnv, /LOCAL_STACK_LEDGER_OUTSIDE_SNAPSHOT is "on"/);
+  } finally {
+    if (before === undefined) delete process.env.LOCAL_STACK_LEDGER_OUTSIDE_SNAPSHOT;
+    else process.env.LOCAL_STACK_LEDGER_OUTSIDE_SNAPSHOT = before;
+  }
+  console.log('local-test-stack: ledger can start with an unreachable outside snapshot');
+}
+
 // The bank process carries its BK-xfer-07 TEST values from the bank profile, verbatim, so a global send on this
 // stack meets the same payee list, exchange allowance and proof limits as CX-8 instead of the unset refusals.
 {
