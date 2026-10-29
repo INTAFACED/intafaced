@@ -13,6 +13,9 @@ import {
   type RewardRecord,
   type TaskClaimResult,
   type TaskProgress,
+  EARNING_TRIGGERS,
+  type EarningRule,
+  type EarningTrigger,
 } from '@intafaced/contracts/campaigns-catalogue';
 import type { CampaignParticipant } from '@intafaced/contracts';
 import { CampaignsError } from './codes.js';
@@ -21,6 +24,7 @@ import type { ParticipantSource } from './participants.js';
 import type { PayoutSaga } from './payouts.js';
 import type { MarketNames } from './markets.js';
 import { NO_STREAK, streakOf } from './streaks.js';
+import { evaluateFormula, parseFormula, readsNames } from './formula.js';
 
 /**
  * Task campaigns (CM-tasks-quests-01): progress from verified bus events, the claim window, the verification gate and
@@ -111,7 +115,27 @@ export interface FillEvent {
   marketId: string;
   side: 'buy' | 'sell';
   ts: string;
+  /** The fill's quote amount, fee and quantity, which an earning rule's formula may read. */
+  quoteAmount?: string;
+  feeAmount?: string;
+  qty?: string;
 }
+
+/**
+ * One event an earning rule may answer (CM-rewards-hub-05): its trigger, its own id (the business key of what it earns),
+ * whose it is, when, the asset its amounts are in (null when unknown), and the names its formula reads.
+ */
+export interface EarningEvent {
+  trigger: EarningTrigger;
+  eventId: string;
+  userId: string;
+  at: string;
+  asset: string | null;
+  values: Readonly<Record<string, string>>;
+}
+
+/** The period an earning intent is keyed by: the rule's name and the event's id, so an event earns once per rule. */
+export const earningPeriodOf = (ruleName: string, eventId: string) => `earn:${encodeURIComponent(ruleName)}:${eventId}`;
 
 const iso = (d: Date) => d.toISOString();
 const decimalOf = (raw: string) => (raw.includes('.') ? raw.replace(/0+$/, '').replace(/\.$/, '') : raw);
@@ -287,7 +311,102 @@ export class TaskService {
       });
       moved += 1;
     }
-    return moved + (await this.countLockFill(fill, at, symbolOf));
+    const earned = await this.onEarningEvent(
+      {
+        trigger: 'trade.fill.settled',
+        eventId: fill.fillId,
+        userId: fill.userId,
+        at: fill.ts,
+        asset: null,
+        values: { amount: fill.quoteAmount ?? '0', fee: fill.feeAmount ?? '0', qty: fill.qty ?? '0' },
+      },
+      // A fill's amounts are in its market's quote asset, named only when a rule reads them.
+      async () => {
+        const name = await symbolOf(true);
+        return name ? (name.split('/')[1] ?? null) : null;
+      },
+    );
+    return moved + earned + (await this.countLockFill(fill, at, symbolOf));
+  }
+
+  /**
+   * An event against every running campaign the account joined before it that has an earning rule for its trigger
+   * (CM-rewards-hub-05). Each rule whose condition holds gives one reward intent, keyed by the rule and the event, so the
+   * same event delivered twice earns once. The incentive is the formula's answer, in the campaign's reward asset; a
+   * formula that reads the event's amounts earns only when the event is in that asset (otherwise the units would not
+   * match). What is written never goes past the budget limit less what the campaign's intents hold, nor past the per
+   * person limit (the campaign's reward amount) less what the account already holds from it; with no room, nothing is
+   * written. Then the saga posts it under its own key. A paused campaign earns nothing new (ENGINE T-4). With the ledger
+   * not connected nothing is written: the event comes again only by redelivery, so it is logged by the caller.
+   */
+  async onEarningEvent(event: EarningEvent, assetOf: () => Promise<string | null> = async () => event.asset): Promise<number> {
+    const at = new Date(event.at);
+    if (Number.isNaN(at.getTime()) || !this.saga) return 0;
+    const rows = await this.sql<(TaskCampaignRow & { account_id: string; earning: EarningRule[] })[]>`
+      SELECT c.id, c.type, c.state, c.starts_at, c.ends_at, c.weekdays, c.hours_from, c.hours_to, c.budget_asset,
+        c.budget_limit::text AS budget_limit, c.reward_asset, c.reward_amount::text AS reward_amount, c.tasks, c.earning,
+        p.account_id
+      FROM campaigns.participations p JOIN campaigns.campaigns c ON c.id = p.campaign_id
+      WHERE lower(p.account_id) = lower(${event.userId}) AND c.earning <> '[]'::jsonb
+        AND p.created_at <= ${at} AND c.state IN ('scheduled', 'active')`;
+    const timeZone = this.timeZone();
+    const live = rows.filter(
+      (row) =>
+        effectiveState(row as never, at) === 'active' &&
+        (!(row.weekdays || (row.hours_from && row.hours_to)) || (timeZone !== null && outsideWindow(row, at, timeZone) === null)),
+    );
+    const names = EARNING_TRIGGERS[event.trigger].names;
+    const values: Record<string, bigint> = {};
+    for (const name of names) values[name] = parseAmount(event.values[name] ?? '0');
+    let asset: Promise<string | null> | null = null;
+    let earned = 0;
+    for (const row of live) {
+      for (const rule of row.earning.filter((r) => r.trigger === event.trigger)) {
+        if (rule.minAmount !== null && values.amount! < parseAmount(rule.minAmount)) continue;
+        const formula = parseFormula(rule.formula, names);
+        if (readsNames(formula) && (await (asset ??= assetOf())) !== row.reward_asset) continue;
+        const amount = evaluateFormula(formula, values);
+        if (amount <= 0n) continue;
+        const key = rewardKeyOf(row.id, row.account_id, earningPeriodOf(rule.name, event.eventId));
+        if (await this.writeEarning(row, key, earningPeriodOf(rule.name, event.eventId), amount)) {
+          earned += 1;
+          await this.saga.attempt(key);
+        }
+      }
+    }
+    return earned;
+  }
+
+  /** Writes one earning intent under a lock on the campaign, cut to the room the budget and the per person limit leave. */
+  private async writeEarning(row: TaskCampaignRow & { account_id: string }, key: string, period: string, amount: bigint): Promise<boolean> {
+    return transaction(this.sql, async (tx) => {
+      const [locked] = await tx<
+        { budget_limit: string | null; budget_asset: string | null; reward_asset: string | null; reward_amount: string | null }[]
+      >`
+        SELECT budget_limit::text AS budget_limit, budget_asset, reward_asset, reward_amount::text AS reward_amount
+        FROM campaigns.campaigns WHERE id = ${row.id} FOR UPDATE`;
+      if (!locked?.budget_limit || !locked.reward_asset || locked.reward_amount === null) return false;
+      if (locked.budget_asset !== locked.reward_asset) return false;
+      const [held] = await tx<{ n: number }[]>`SELECT count(*)::int AS n FROM campaigns.reward_intents WHERE reward_key = ${key}`;
+      if (held!.n > 0) return false;
+      const [sums] = await tx<{ campaign: string; mine: string }[]>`
+        SELECT COALESCE(sum(amount), 0)::text AS campaign,
+          COALESCE(sum(amount) FILTER (WHERE account_id = ${row.account_id}), 0)::text AS mine
+        FROM campaigns.reward_intents WHERE campaign_id = ${row.id} AND state NOT IN ('failed', 'forfeited', 'withheld')`;
+      const budgetRoom = parseAmount(locked.budget_limit) - parseAmount(sums!.campaign);
+      const personRoom = parseAmount(locked.reward_amount) - parseAmount(sums!.mine);
+      const pay = [amount, budgetRoom, personRoom].reduce((a, b) => (b < a ? b : a));
+      if (pay <= 0n) return false;
+      await tx`
+        INSERT INTO campaigns.reward_intents (reward_key, campaign_id, account_id, period, asset, amount, state, reason, form)
+        VALUES (${key}, ${row.id}, ${row.account_id}, ${period}, ${locked.reward_asset}, ${formatAmount(pay)}, 'qualified',
+          NULL, 'paid')`;
+      await tx`INSERT INTO campaigns.redemption_attempts (reward_key, outcome, reason) VALUES (${key}, 'qualified', NULL)`;
+      await tx`
+        INSERT INTO campaigns.audit_log (actor, action, target, detail)
+        VALUES (${row.account_id}, ${'campaign.earning.qualify'}, ${row.id}, ${tx.json({ rewardKey: key, amount: formatAmount(pay), worked: formatAmount(amount) })})`;
+      return true;
+    });
   }
 
   /** A fill made while a locked reward of this account is locked counts once toward its unlock step. */

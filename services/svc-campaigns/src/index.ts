@@ -120,6 +120,21 @@ async function attachBus(): Promise<void> {
       },
       { durable: 'campaigns-task-fill-settled' },
     );
+    // Earning rules on crypto deposits (CM-rewards-hub-05): one intent per deposit per rule, keyed by the deposit id.
+    await connected.subscribe(
+      'payDepositCreditPosted',
+      async (deposit) => {
+        await tasks.onEarningEvent({
+          trigger: 'pay.deposit_credit.posted',
+          eventId: deposit.depositId,
+          userId: deposit.userId,
+          at: deposit.creditedAt,
+          asset: deposit.assetId,
+          values: { amount: deposit.amount },
+        });
+      },
+      { durable: 'campaigns-earn-deposit-credited' },
+    );
     bus = connected;
   } catch (err) {
     app.log.error({ err }, 'svc-campaigns could not attach to trade.fill.settled: task progress waits, trying again');
