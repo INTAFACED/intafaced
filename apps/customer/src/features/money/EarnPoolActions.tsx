@@ -138,16 +138,28 @@ export function PoolDeposit({ pool, open }: { pool: Pool; open: Open }) {
   );
 }
 
-/** Where a saving stands: waiting for its first full UTC day, then accruing; a fixed term says when it unlocks. */
+/**
+ * Where a saving stands: waiting for its first full UTC day, then accruing (in a closed pool too); a staking-style saving
+ * asked back earns nothing while unbonding (BK-earn-04).
+ */
 export function AccrualState({ position }: { position: Position }) {
   const { t } = earnPoolActionsCopy.useCopy();
+  const line = () => {
+    switch (position.accrual) {
+      case 'waiting':
+        return t('waiting', { date: utcDay(position.accruesFrom) });
+      case 'accruing':
+        return t('accruing');
+      case 'unbonding':
+        // The bank sends the date with every unbonding saving.
+        return position.unbondsAt ? t('unbonding', { date: date(position.unbondsAt) }) : null;
+      case 'below_unit':
+        return t('belowUnit');
+    }
+  };
   return (
     <p className="money-caption" data-testid="earn-pool-accrual" data-state={position.accrual} data-from={position.accruesFrom}>
-      {position.accrual === 'waiting'
-        ? t('waiting', { date: utcDay(position.accruesFrom) })
-        : position.accrual === 'accruing'
-          ? t('accruing')
-          : t(position.accrual === 'pool_closed' ? 'poolClosed' : 'belowUnit')}
+      {line()}
     </p>
   );
 }
@@ -155,6 +167,8 @@ export function AccrualState({ position }: { position: Position }) {
 /**
  * Taking a saving back (BK-earn-01, J-bank-08 #8). The page sends it once; a lost answer is left to the request's
  * reference and is never settled by a list that no longer shows the saving (the review's own unknown-outcome journal).
+ * In a staking-style pool (BK-earn-04, J-bank-08 #6) the first ask starts unbonding instead: nothing moves until it ends,
+ * then the bank's job pays it back, or the saver takes it back.
  */
 export function PoolWithdraw({ pool, position, open }: { pool: Pool; position: Position; open: Open }) {
   const { t } = earnPoolActionsCopy.useCopy();
@@ -167,40 +181,96 @@ export function PoolWithdraw({ pool, position, open }: { pool: Pool; position: P
       </p>
     );
   }
+  const unbondsAt = position.unbondsAt;
+  // The bank's clock says whether the unbonding has ended, so a device clock that runs fast or slow changes nothing.
+  if (unbondsAt !== null && position.staking === 'unbonding') {
+    return (
+      <p className="money-earn-lock" data-testid="earn-withdraw" data-state="unbonding" data-until={unbondsAt}>
+        {t('unbondingUntil', { date: date(unbondsAt) })}
+      </p>
+    );
+  }
+  const unbondingDays = unbondsAt === null ? position.unbondingDays : null;
   const preflight = async (): Promise<ApiResult<null>> => {
     const fresh = await api.query('bank', 'earn.positions', { limit: POSITIONS, poolId: pool.id }, bankReads['earn.positions']);
     if (!fresh.ok) return readFailed(t('subjectPosition'));
     const current = fresh.data.find((row) => row.id === position.id);
     // Missing from this read proves nothing about an earlier send: it is a change, never an outcome.
-    return current && current.principal === position.principal && current.maturesAt === position.maturesAt
+    return current &&
+      current.principal === position.principal &&
+      current.maturesAt === position.maturesAt &&
+      current.unbondsAt === position.unbondsAt
       ? { ok: true, data: null }
       : changed();
   };
+  if (unbondingDays !== null) {
+    // Shown as an estimate from today; the bank's answer carries the real date, and the saving then shows it.
+    const estimate = new Date(Date.now() + unbondingDays * 24 * 60 * 60 * 1000).toISOString();
+    return (
+      <Button
+        variant="secondary"
+        data-testid="earn-withdraw"
+        data-state="staked"
+        onClick={() =>
+          open({
+            title: t('unbondTitle', { amount: amount(position.principal, position.assetId) }),
+            procedure: 'earn.withdraw',
+            unit: position.assetId,
+            facts: [
+              [t('pool'), pool.name],
+              [t('saved'), amount(position.principal, position.assetId)],
+            ],
+            notes: [
+              t('unbondNote', { days: unbondingDays, date: date(estimate) }),
+              t('unbondEarns'),
+              t('unbondFinal'),
+              t('withdrawOutcome'),
+            ],
+            preflight,
+            verifyOutcome: (data) => {
+              const returned = data as z.infer<(typeof bankWrites)['earn.withdraw']>;
+              return returned.status === 'unbonding' && parseAmount(returned.principal) === parseAmount(position.principal);
+            },
+            // Only an ask that says so starts the wait; the bank refuses a plain take back of a staking-style saving.
+            input: () => ({ positionId: position.id, unbond: true }),
+            submit: t('unbond'),
+          })
+        }
+      >
+        {t('unbond')}
+      </Button>
+    );
+  }
+  const takeBack = () =>
+    open({
+      title: t('withdrawTitle', { amount: amount(position.principal, position.assetId) }),
+      procedure: 'earn.withdraw',
+      unit: position.assetId,
+      facts: [
+        [t('pool'), pool.name],
+        [t('saved'), amount(position.principal, position.assetId)],
+      ],
+      notes: [t('withdrawNote'), t('withdrawOutcome')],
+      preflight,
+      verifyOutcome: (data) => {
+        const returned = data as z.infer<(typeof bankWrites)['earn.withdraw']>;
+        return returned.status === 'closed' && parseAmount(returned.principal) === parseAmount(position.principal);
+      },
+      input: () => ({ positionId: position.id }),
+      submit: t('withdraw'),
+    });
+  if (unbondsAt !== null) {
+    return (
+      <div data-testid="earn-withdraw" data-state="unbonded" data-until={unbondsAt}>
+        <p className="money-caption">{t('unbondEnded', { date: date(unbondsAt) })}</p>
+        <Button variant="secondary" onClick={takeBack}>
+          {t('withdraw')}
+        </Button>
+      </div>
+    );
+  }
   return (
-    <Button
-      variant="secondary"
-      data-testid="earn-withdraw"
-      data-state="open"
-      onClick={() =>
-        open({
-          title: t('withdrawTitle', { amount: amount(position.principal, position.assetId) }),
-          procedure: 'earn.withdraw',
-          unit: position.assetId,
-          facts: [
-            [t('pool'), pool.name],
-            [t('saved'), amount(position.principal, position.assetId)],
-          ],
-          notes: [t('withdrawNote'), t('withdrawOutcome')],
-          preflight,
-          verifyOutcome: (data) => {
-            const returned = data as z.infer<(typeof bankWrites)['earn.withdraw']>;
-            return parseAmount(returned.principal) === parseAmount(position.principal);
-          },
-          input: () => ({ positionId: position.id }),
-          submit: t('withdraw'),
-        })
-      }
-    >
+    <Button variant="secondary" data-testid="earn-withdraw" data-state="open" onClick={takeBack}>
       {t('withdraw')}
     </Button>
   );
