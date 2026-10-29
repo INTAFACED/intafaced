@@ -108,6 +108,7 @@
   .hp-total__figure {
     display: flex;
     align-items: center;
+    column-gap: var(--if-space-2);
     height: 40px;
   }
   .hp-total__change {

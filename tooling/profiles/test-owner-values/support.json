@@ -51,6 +51,11 @@
       "value": "200",
       "note": "Live ticket fields the desk may keep, for the same journey. Not an owner decision."
     },
+    "SUPPORT_MACRO_SHORTCODE_MIN": {
+      "service": "support",
+      "value": "2",
+      "note": "The fewest characters a macro shortcode may have, so J-support-public-10 #7 can save a macro. Not an owner decision."
+    },
     "SUPPORT_FRAUD_GROUP": {
       "service": "support",
       "value": "TEST Compliance",

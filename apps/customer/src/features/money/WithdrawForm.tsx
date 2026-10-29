@@ -47,7 +47,28 @@ type Outcome =
  * read may follow a withdrawal svc-pay recorded, so it is never shown as "nothing is held".
  */
 const definite = (failure: Failed) =>
-  failure.status !== undefined && failure.status < 500 && failure.reason !== 'uncertain' && failure.reason !== 'invalid_response';
+  (failure.status === 503 && GUARD_REFUSAL.test(failure.code ?? '')) ||
+  (failure.status !== undefined &&
+    failure.status < 500 &&
+    failure.reason !== 'uncertain' &&
+    failure.reason !== 'invalid_response' &&
+    !MAY_BE_HELD.has(failure.code ?? ''));
+
+/**
+ * svc-pay's guards answer inside the claim's own transaction, before its row is written, so a guard refusal rolls the claim
+ * back: nothing is claimed or held. One that could not decide (no screening list, say) is svc-pay's 503 with its own
+ * `pay.guard_*` code, still a definite no; a 503 without that code may come from anywhere and stays uncertain.
+ */
+const GUARD_REFUSAL = /^pay\.guard_/;
+
+/**
+ * svc-pay answers that leave a claimed withdrawal behind, possibly with its hold: an outcome it does not know yet, or a fee the
+ * ledger refused after the hold was placed. Never shown as "nothing is held"; the reference is kept so it is finished, not resent.
+ */
+const MAY_BE_HELD = new Set(['pay.rail_outcome_unknown', 'pay.ledger_outcome_unknown', 'pay.withdrawal_fee_unbound']);
+
+/** svc-pay's quote refusals at send: it checks the quote only when no withdrawal exists under the reference yet. */
+const NO_CLAIM_UNDER_REFERENCE = /^withdrawal_quote\./;
 
 /** A saved wallet can take money once the bank calls it active and its cooling-off has ended. */
 const ready = (row: Destination, now: number) => shownState(row.state ?? 'pending', coolingOf(row, now).state) === 'active';
@@ -93,17 +114,22 @@ interface OpenOut {
   destinationId: string;
   amount: string;
   clientRef: string;
+  /** The quote the send was made under: svc-pay keeps it with the withdrawal, so finishing it names the same one. */
+  quoteRef: string;
+  /** What that quote takes from the balance, so finishing the send says what it takes, not what a newer quote shows. */
+  totalDebit?: string;
 }
 
 const outKey = (userId: string) => `intafaced:withdraw-out:${userId}`;
-const outTerms = (send: Omit<OpenOut, 'clientRef'>) => JSON.stringify([send.assetId, send.networkId, send.destinationId, send.amount]);
+const outTerms = (send: Omit<OpenOut, 'clientRef' | 'quoteRef'>) =>
+  JSON.stringify([send.assetId, send.networkId, send.destinationId, send.amount]);
 
 function storedOut(userId: string | null): OpenOut | null {
   if (!userId) return null;
   try {
     const raw = sessionStorage.getItem(outKey(userId));
     const kept = raw ? (JSON.parse(raw) as Partial<OpenOut>) : null;
-    const fields = [kept?.assetId, kept?.networkId, kept?.destinationId, kept?.amount, kept?.clientRef];
+    const fields = [kept?.assetId, kept?.networkId, kept?.destinationId, kept?.amount, kept?.clientRef, kept?.quoteRef];
     if (!kept || fields.some((v) => typeof v !== 'string' || v === '')) return null;
     return {
       assetId: kept.assetId!,
@@ -111,6 +137,8 @@ function storedOut(userId: string | null): OpenOut | null {
       destinationId: kept.destinationId!,
       amount: kept.amount!,
       clientRef: kept.clientRef!,
+      quoteRef: kept.quoteRef!,
+      ...(typeof kept.totalDebit === 'string' && kept.totalDebit !== '' ? { totalDebit: kept.totalDebit } : {}),
     };
   } catch {
     return null;
@@ -211,7 +239,13 @@ export function WithdrawForm({ toWallet = false }: { toWallet?: boolean } = {}) 
     { status: 'idle' } | { status: 'busy' } | { status: 'ready'; quote: WithdrawQuote } | { status: 'failed'; failure: Failed }
   >({ status: 'idle' });
   const [confirmingInside, setConfirmingInside] = useState(false);
-  const [confirmingOut, setConfirmingOut] = useState<{ send: WithdrawSend; destinationId: string; fromWallet: boolean } | null>(null);
+  const [confirmingOut, setConfirmingOut] = useState<{
+    send: WithdrawSend;
+    destinationId: string;
+    fromWallet: boolean;
+    totalDebit: string;
+    why: string;
+  } | null>(null);
   const sendingOut = useRef(false);
   const [sentInside, setSentInside] = useState<WithdrawalRecord | null>(null);
   const [refusal, setRefusal] = useState<string | null>(null);
@@ -469,10 +503,27 @@ export function WithdrawForm({ toWallet = false }: { toWallet?: boolean } = {}) 
     }
     const key = outTerms({ assetId: asset, networkId: network, destinationId: chosen.destinationId, amount: amount.trim() });
     if (sendRef.current?.terms !== key) sendRef.current = { terms: key, ref: `withdraw:${newRef()}` };
+    // A send whose answer was lost is finished under the quote it was made with; svc-pay keeps that one, and its fee, with it.
+    // When that is not the quote on the page, the confirmation says what the earlier one takes, not what the page shows.
+    const resumed = openOut?.clientRef === sendRef.current.ref ? openOut : null;
+    const earlier = resumed !== null && resumed.quoteRef !== current.quoteRef;
     setConfirmingOut({
-      send: { assetId: asset, networkId: network, address: chosen.ref, amount: amount.trim(), clientRef: sendRef.current.ref },
+      send: {
+        assetId: asset,
+        networkId: network,
+        address: chosen.ref,
+        amount: amount.trim(),
+        clientRef: sendRef.current.ref,
+        quoteRef: resumed ? resumed.quoteRef : current.quoteRef,
+      },
       destinationId: chosen.destinationId,
       fromWallet: walletLocked,
+      totalDebit: resumed ? (resumed.totalDebit ?? '') : current.totalDebit,
+      why: !earlier
+        ? t('fConfirmWhy')
+        : resumed.totalDebit
+          ? t('fConfirmResume', { total: shown(resumed.totalDebit), asset })
+          : t('fConfirmResumeUnknown'),
     });
   }
 
@@ -487,7 +538,7 @@ export function WithdrawForm({ toWallet = false }: { toWallet?: boolean } = {}) 
     setQuote(answer.ok ? { status: 'ready', quote: answer.data } : { status: 'failed', failure: answer });
   }
 
-  async function sendOut(input: WithdrawSend, destinationId: string, token: string): Promise<ApiResult<unknown>> {
+  async function sendOut(input: WithdrawSend, destinationId: string, totalDebit: string, token: string): Promise<ApiResult<unknown>> {
     // After an ask whose answer was lost, the earlier send may have been recorded, so no refusal of a retry is final: the
     // reference is kept until svc-pay records that withdrawal.
     const wasUnanswered = openOut !== null;
@@ -497,6 +548,8 @@ export function WithdrawForm({ toWallet = false }: { toWallet?: boolean } = {}) 
       destinationId,
       amount: input.amount,
       clientRef: input.clientRef,
+      quoteRef: input.quoteRef,
+      ...(totalDebit ? { totalDebit } : {}),
     };
     // Kept in the tab before the ask leaves, so a reload or a crash while it is in flight finishes it, never starts another.
     keepOut(userId, open);
@@ -504,7 +557,9 @@ export function WithdrawForm({ toWallet = false }: { toWallet?: boolean } = {}) 
     const answer = await createWithdrawSend(api)
       .send(input, token)
       .finally(() => (sendingOut.current = false));
-    const settled = answer.ok || (definite(answer) && !wasUnanswered);
+    // A refusal of the quote proves svc-pay holds no withdrawal under this reference: it reads the quote only for a reference
+    // it has never claimed. So even after a lost answer, such a refusal lets the reference go and the fee can be got afresh.
+    const settled = answer.ok || (definite(answer) && (!wasUnanswered || NO_CLAIM_UNDER_REFERENCE.test(answer.code ?? '')));
     // Only a recorded withdrawal or a definite first refusal lets the reference go, even if the page has gone since.
     if (settled) keepOut(userId, null);
     if (!alive.current) return { ok: true, data: null };
@@ -517,6 +572,7 @@ export function WithdrawForm({ toWallet = false }: { toWallet?: boolean } = {}) 
       setOutcome({ kind: 'sent', record: answer.data });
     } else if (settled) {
       sendRef.current = null;
+      setOpenOut(null);
       setOutcome({ kind: 'refused', failure: answer, asset: input.assetId });
     } else {
       setOpenOut(open);
@@ -903,8 +959,8 @@ export function WithdrawForm({ toWallet = false }: { toWallet?: boolean } = {}) 
       )}
       {confirmingOut && (
         <WithdrawStepUp
-          why={t('fConfirmWhy')}
-          run={(token) => sendOut(confirmingOut.send, confirmingOut.destinationId, token)}
+          why={confirmingOut.why}
+          run={(token) => sendOut(confirmingOut.send, confirmingOut.destinationId, confirmingOut.totalDebit, token)}
           onDone={() => setConfirmingOut(null)}
           onCancel={() => setConfirmingOut(null)}
         />

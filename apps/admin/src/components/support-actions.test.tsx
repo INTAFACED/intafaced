@@ -1,10 +1,14 @@
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import type { ActionReply } from '@/lib/support/browser';
-import type { SupportKbView, TicketExtrasView } from '@/lib/support/types';
+import type { SupportKbView, SupportMacrosView, TicketExtrasView } from '@/lib/support/types';
+import { readActionRequest } from '@/lib/support/model';
 import {
   TicketActionsView,
   buildRequest,
+  draftWords,
+  signatureBlock,
+  withMacro,
   citedIds,
   effectiveStatus,
   emptyForm,
@@ -27,6 +31,26 @@ const FORBIDDEN: ActionReply = {
   },
 };
 const open = { id: T1, status: 'open' as const };
+const MACRO = '44444444-4444-4444-8444-444444444444';
+const macrosView = (signature: string | null, revision = signature === null ? 0 : 1): SupportMacrosView => ({
+  asOf: '2026-10-29T12:00:00.000Z',
+  macros: {
+    kind: 'ok',
+    data: [
+      {
+        id: MACRO,
+        title: 'Card declined',
+        shortcode: 'card',
+        folder: 'Cards',
+        body: 'About {{ticket.id}}',
+        revision: 1,
+        updatedBy: U,
+        updatedAt: '2026-10-29T12:00:00.000Z',
+      },
+    ],
+  },
+  signature: { kind: 'ok', data: { signature, revision } },
+});
 const base = (over: Partial<TicketActionsViewProps> = {}): TicketActionsViewProps => ({
   ticket: open,
   form: emptyForm(open),
@@ -36,6 +60,7 @@ const base = (over: Partial<TicketActionsViewProps> = {}): TicketActionsViewProp
   onField: () => undefined,
   onArm: () => undefined,
   onSend: () => undefined,
+  macros: macrosView(null),
   ...over,
 });
 const html = (over: Partial<TicketActionsViewProps> = {}) => renderToStaticMarkup(<TicketActionsView {...base(over)} />);
@@ -45,6 +70,50 @@ const buttonTag = (markup: string, label: string) => {
   if (!found) throw new Error(`No "${label}" button`);
   return found;
 };
+
+describe('signature', () => {
+  it('a reply sends exactly its draft, adding nothing; a status reason and an escalation summary never carry it', () => {
+    const sig = { signature: 'Sam, support', revision: 2 };
+    const f = form({ replyBody: ` Hello${signatureBlock('Sam, support')} `, statusNote: 'Waiting', escSummary: 'Needs review' });
+    expect(buildRequest('reply', open, f, 3, 0, sig)).toMatchObject({ action: 'reply', body: 'Hello\n\nSam, support' });
+    expect(buildRequest('reply', open, form({ replyBody: ' Hello ' }), 3, 0, sig)).toMatchObject({ body: 'Hello' });
+    expect(buildRequest('status', open, f, 3, undefined, sig)).toMatchObject({ note: 'Waiting' });
+    expect(buildRequest('escalate', open, f, undefined, undefined, sig)).toMatchObject({ summary: 'Needs review' });
+    expect(buildRequest('signature', open, form({ signatureDraft: ' Sam ' }), undefined, undefined, sig)).toEqual({
+      action: 'signature_set',
+      signature: 'Sam',
+      expectedRevision: 2,
+    });
+  });
+
+  it("is in the draft from the start; a macro goes under the agent's words and above it", () => {
+    const sig = 'Sam, support';
+    expect(signatureBlock(sig)).toBe('\n\nSam, support');
+    expect(signatureBlock(null)).toBe('');
+    expect(withMacro(signatureBlock(sig), 'About T1.', sig)).toBe('About T1.\n\nSam, support');
+    expect(withMacro(`Hi.${signatureBlock(sig)}`, 'About T1.', sig)).toBe('Hi.\n\nAbout T1.\n\nSam, support');
+    expect(withMacro('', 'About T1.', null)).toBe('About T1.');
+    // The agent took their signature out of this draft: the macro does not put it back.
+    expect(withMacro('Hi.', 'About T1.', sig)).toBe('Hi.\n\nAbout T1.');
+    expect(draftWords(`Hi.${signatureBlock(sig)}`, sig)).toBe('Hi.');
+    // Words that merely end like the signature are the agent's own, not the signature block.
+    expect(draftWords('Thanks, Sam', 'Sam')).toBe('Thanks, Sam');
+    expect(withMacro('Thanks, Sam', 'About T1.', 'Sam')).toBe('Thanks, Sam\n\nAbout T1.');
+    expect(draftWords('Thanks', 'Thanks')).toBe('Thanks');
+  });
+
+  it('the console reads a signature write strictly', () => {
+    expect(readActionRequest({ action: 'signature_set', signature: 'Sam', expectedRevision: 0 })).toEqual({
+      action: 'signature_set',
+      signature: 'Sam',
+      expectedRevision: 0,
+    });
+    expect(readActionRequest({ action: 'signature_set', signature: ' ', expectedRevision: 0 })).toBeNull();
+    expect(readActionRequest({ action: 'signature_set', signature: 'x'.repeat(501), expectedRevision: 0 })).toBeNull();
+    expect(readActionRequest({ action: 'signature_set', signature: 'Sam', expectedRevision: -1 })).toBeNull();
+    expect(readActionRequest({ action: 'signature_set', signature: 'Sam', expectedRevision: 0, userId: U })).toBeNull();
+  });
+});
 
 describe('ticket actions render for every founder', () => {
   it('shows reply, status and escalate controls on a fresh open ticket, each off only for a reason the page states', () => {
@@ -63,6 +132,51 @@ describe('ticket actions render for every founder', () => {
     const markup = html({ form: form({ replyBody: 'Hello', escSummary: 'Needs review' }) });
     expect(buttonTag(markup, 'Review reply')).not.toContain('disabled');
     expect(buttonTag(markup, 'Review escalation')).not.toContain('disabled');
+  });
+
+  it('lists the macros by folder, title and shortcode', () => {
+    const markup = html({ macros: macrosView('Sam, support') });
+    expect(markup).toContain('<label for="sd-macro">Macro</label>');
+    expect(markup).toContain(`<option value="${MACRO}">Cards / Card declined (card)</option>`);
+  });
+
+  it('a draft holding only the signature is blank: the signature alone is never a reply', () => {
+    const only = html({ macros: macrosView('Sam, support'), form: form({ replyBody: signatureBlock('Sam, support') }) });
+    expect(buttonTag(only, 'Review reply')).toContain('disabled');
+    expect(only).toContain('Write the reply first.');
+    const blank = html({ macros: macrosView('Sam, support'), form: form({ replyBody: '  ' }) });
+    expect(buttonTag(blank, 'Review reply')).toContain('disabled');
+    const words = html({ macros: macrosView('Sam, support'), form: form({ replyBody: `Hi${signatureBlock('Sam, support')}` }) });
+    expect(buttonTag(words, 'Review reply')).not.toContain('disabled');
+  });
+
+  it('names a placeholder left unfilled in the draft, and leaves the refusal to svc-support', () => {
+    const markup = html({ form: form({ replyBody: 'Hi {{requester.name}}' }) });
+    expect(markup).toContain('data-testid="reply-unfilled"');
+    expect(markup).toContain('{{requester.name}}');
+    expect(html({ form: form({ replyBody: 'Hi Ada' }) })).not.toContain('reply-unfilled');
+  });
+
+  it('holds the reply until the signature is known, and says why', () => {
+    const reading = html({ macros: null, form: form({ replyBody: 'Hello' }) });
+    expect(buttonTag(reading, 'Review reply')).toContain('disabled');
+    expect(reading).toContain('Reading your signature first.');
+    const failed = macrosView(null);
+    const unread = html({
+      macros: { ...failed, signature: { kind: 'failed', message: 'down', code: null, notBuilt: false, forbidden: false } },
+      form: form({ replyBody: 'Hello' }),
+    });
+    expect(buttonTag(unread, 'Review reply')).toContain('disabled');
+    expect(unread).toContain('Your signature could not be read');
+  });
+
+  it('shows a refused macro by its code and leaves the draft as it was', () => {
+    const markup = html({
+      form: form({ replyBody: 'Mine' }),
+      macroReply: { ok: false, refusal: { title: 'Not found', body: 'b', next: 'n', code: 'support.macro_not_found', changed: 'no' } },
+    });
+    expect(markup).toContain('data-code="support.macro_not_found"');
+    expect(markup).toContain('>Mine</textarea>');
   });
 
   it('never hides a control because of permission: nothing on the page mentions support:ops until the service answers', () => {
@@ -343,5 +457,45 @@ describe('help articles panel', () => {
     const failed = panel({ kb: kb({ articles: { kind: 'failed', message: 'down', code: null, notBuilt: false, forbidden: false } }) });
     expect(failed).toContain('Help articles unavailable');
     expect(failed).not.toContain('no articles are published');
+  });
+});
+
+describe('a reply after someone else moved the request', () => {
+  const stale: ActionReply = {
+    ok: false,
+    refusal: { title: 'The request changed since you opened it', body: 'b', next: 'n', code: 'support.stale_ticket', changed: 'no' },
+  };
+  it('quotes the last row read, and lists the new rows with the button to read them', () => {
+    expect(buildRequest('reply', open, form({ replyBody: 'Hi' }), 7)).toEqual({
+      action: 'reply',
+      ticketId: T1,
+      body: 'Hi',
+      expectedSequence: 7,
+    });
+    const markup = html({
+      outcome: { kind: 'reply', reply: stale },
+      stale: [
+        {
+          id: '00000000-0000-4000-8000-000000000003',
+          ticketId: T1,
+          sequence: 3,
+          kind: 'status_changed',
+          actorId: U,
+          actorRole: 'operator',
+          fromStatus: 'pending',
+          toStatus: 'on_hold',
+          note: null,
+          occurredAt: '2026-10-29T12:00:00.000Z',
+        },
+      ],
+    });
+    expect(markup).toContain('data-code="support.stale_ticket"');
+    expect(markup).toContain('#3 status_changed from pending to on_hold');
+    expect(buttonTag(markup, 'I have read the changes')).not.toContain('disabled');
+  });
+  it('holds the reply back while the trail could not be read, and says why', () => {
+    const markup = html({ form: form({ replyBody: 'Hi' }), trailUnread: 'The ticket history could not be read.' });
+    expect(buttonTag(markup, 'Review reply')).toContain('disabled');
+    expect(markup).toContain('The ticket history could not be read.');
   });
 });

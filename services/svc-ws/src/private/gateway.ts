@@ -47,7 +47,8 @@ export const CLOSE_UNAUTHORIZED = 4003;
 /** `setTimeout` delay is a 32-bit signed int; longer waits fire immediately. */
 const MAX_TIMEOUT_MS = 2_147_483_647;
 
-const PRIVATE_CHANNELS: readonly PrivateStreamChannel[] = ['orders', 'fills', 'positions'];
+/** The channels `/private/stream?channel=` serves; `parsePrivateChannel` accepts exactly these. */
+export const PRIVATE_CHANNELS: readonly PrivateStreamChannel[] = ['orders', 'fills', 'positions'];
 
 /**
  * Drop `access_token` from a request-target so access logs never store the credential.
@@ -72,10 +73,9 @@ export function redactAccessTokenQuery(requestTarget: string): string {
  * `null` = unknown (caller 400s). `'all'` = omitted/empty query (three frames).
  * Mirrors public `parseChannel` shape, with a different default.
  */
-function parsePrivateChannel(raw: string | null): PrivateStreamChannel | 'all' | null {
+export function parsePrivateChannel(raw: string | null): PrivateStreamChannel | 'all' | null {
   if (raw === null || raw === '') return 'all';
-  if (raw === 'orders' || raw === 'fills' || raw === 'positions') return raw;
-  return null;
+  return (PRIVATE_CHANNELS as readonly string[]).includes(raw) ? (raw as PrivateStreamChannel) : null;
 }
 
 export interface PrivateWebSocketGatewayOptions {

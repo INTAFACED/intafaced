@@ -48,6 +48,7 @@ import { HomeNotices } from './Notices';
 import { useHomeLayout } from './tiles-data';
 import { shownTiles } from './tiles';
 import { savePreferences, usePreferences } from '../../shared/preferences';
+import { TestBuildTag } from './TestBuildTag';
 import { useSession } from '../../features/session/session';
 
 // Pro Home carries Trade's client; Simple Home (the default) does not load it.
@@ -213,6 +214,7 @@ function Balance({ portfolio, hidden }: { portfolio: Loadable<HomePortfolio>; hi
     <>
       <div data-testid="home-total" className="home-total">
         <TotalFigure data={data} displayCurrency={displayCurrency} hidden={hidden} pro={false} />
+        <TestBuildTag />
       </div>
       <TotalUnitNote data={data} displayCurrency={displayCurrency} hidden={hidden} className="home-note" testId="home-note" />
       {(data.change24hUsd !== null && hasCrypto) || data.source === 'derived' ? (
