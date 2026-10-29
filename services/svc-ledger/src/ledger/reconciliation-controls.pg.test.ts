@@ -743,13 +743,14 @@ async function ctx(scopes: string[], mfa: boolean): Promise<Context> {
     const replay = await open(REPLAY, 'appr-snap-2');
     // Hold both runs at one read_at, on a millisecond as the driver reads it, with the deposits strictly either side.
     await tick();
-    const [{ read_at: readAt }] = await db.sql<Array<{ read_at: Date }>>`
+    const [stamp] = await db.sql<Array<{ read_at: Date }>>`
       UPDATE reconciliation_control_runs
          SET status = 'started', phase = '', error_code = '', finished_at = NULL,
              read_at = date_trunc('milliseconds', clock_timestamp())
        WHERE id IN ${db.sql([netting.run.id, replay.run.id])}
       RETURNING read_at
     `;
+    const readAt = stamp!.read_at;
     await tick();
     await fund('abcdeaaa-4444-4444-8444-000000000002', 'recon-snap-2');
     const legs = await db.sql<Array<{ id: string; created_at: Date; owner_id: string }>>`
