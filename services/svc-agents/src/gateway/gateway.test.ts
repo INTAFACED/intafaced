@@ -103,3 +103,25 @@ describe('ModelGateway.stream provider failures', () => {
     expect(seen).toEqual([{ delta: 'hi', done: false }]);
   });
 });
+
+describe('ModelGateway provider freshness', () => {
+  const route = DEFAULT_ROUTING_TABLE.routes.find((r) => r.task === 'navigator.plan')!;
+  const provider = (health: ReturnType<ModelProvider['health']>): ModelProvider => ({
+    id: 'primary',
+    capabilities: ['complete'],
+    health: () => health,
+    complete: () => Promise.reject(new Error('not called here')),
+  });
+
+  it('routes to a healthy provider whose last answer is old: the call is the probe, so a quiet minute never deadlocks', () => {
+    const quiet = provider({ healthy: true, latencyMs: 1, lastUpdate: new Date(Date.now() - 10 * 60_000) });
+    expect(new ModelGateway([quiet], DEFAULT_ROUTING_TABLE).providerFor(route).id).toBe('primary');
+  });
+
+  it('still refuses a provider that reports itself unhealthy', () => {
+    const down = provider({ healthy: false, latencyMs: 1, lastUpdate: new Date(), reason: 'three failures in a row' });
+    expect(() => new ModelGateway([down], DEFAULT_ROUTING_TABLE).providerFor(route)).toThrow(
+      expect.objectContaining({ code: 'agents.provider_unavailable' }),
+    );
+  });
+});

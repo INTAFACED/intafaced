@@ -1,4 +1,7 @@
 import { createServer } from 'node:http';
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ProviderError } from '../errors.js';
 import {
@@ -157,6 +160,40 @@ describe('MockModelProvider — determinism is the feature', () => {
 
     provider.repair();
     expect(isUsable(provider)).toBe(true);
+  });
+
+  it('parks a completion while its hold file exists, marks itself parked, and answers once the file is gone', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'mock-hold-'));
+    const hold = join(dir, 'engine.hold');
+    try {
+      const provider = new MockModelProvider({ holdFile: hold });
+      const free = await provider.complete(request());
+      expect(existsSync(`${hold}.held`)).toBe(false);
+      writeFileSync(hold, 'held');
+      let answered = false;
+      const parked = provider.complete(request()).then((result) => ((answered = true), result));
+      await vi.waitFor(() => expect(existsSync(`${hold}.held`)).toBe(true));
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      expect(answered).toBe(false);
+      rmSync(hold);
+      expect(await parked).toEqual(free);
+      expect(existsSync(`${hold}.held`)).toBe(false);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('answers anyway once a hold outlasts its limit', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'mock-hold-'));
+    const hold = join(dir, 'engine.hold');
+    try {
+      writeFileSync(hold, 'held');
+      const result = await new MockModelProvider({ holdFile: hold, holdMaxMs: 50 }).complete(request());
+      expect(result.text).toMatch(/^mock:/);
+      expect(existsSync(`${hold}.held`)).toBe(false);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   it('treats a transient blip as freshness, not as staleness', async () => {

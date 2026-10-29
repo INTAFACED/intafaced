@@ -61,7 +61,8 @@ tRPC under `/trpc` (edge mounts `/api/support`). Principal via edge HMAC
 | `support.listAll`          | `support:ops`         | Operator list                                                                                                                                                                                                                                                                                                   |
 | `support.get`              | `support:read` / ops  | Self or operator                                                                                                                                                                                                                                                                                                |
 | `support.comment`          | `support:write` / ops | Add comment. User reply on `resolved` reopens (clears assignee). User comment on `closed` refused.                                                                                                                                                                                                              |
-| `support.listComments`     | `support:read` / ops  | Thread for ticket                                                                                                                                                                                                                                                                                               |
+| `support.listComments`     | `support:read` / ops  | Thread for ticket. Staff reading someone else's request also get its internal notes; the customer never does (filtered in the query)                                                                                                                                                                            |
+| `support.addInternalNote`  | `support:ops`         | Staff-only note (SP-tickets-05), keyed by `clientRequestId`. Never on the customer's thread; no reopen, waiting-on, first reply or `updatedAt`. Blank refuses `support.note_empty`                                                                                                                              |
 | `support.setStatus`        | `support:ops`         | Status change + trail row                                                                                                                                                                                                                                                                                       |
 | `support.events`           | `support:read` / ops  | Audit trail, oldest first                                                                                                                                                                                                                                                                                       |
 | `support.accountState`     | `support:ops`         | Grounding read (no userId)                                                                                                                                                                                                                                                                                      |
@@ -103,7 +104,7 @@ oldest first; the console shows them in the ticket history); `listQueue` takes a
 A ticket can be put `on_hold` by an agent, with a reason (the status note, shown in the owner's history).
 On hold leaves the queue; a customer reply on `pending` or `on_hold` puts it back to `open` with one trail
 row. `ticket_lifecycle` (beside the ticket) keeps who it waits on, when the first public reply went out
-(every operator comment is public; there are no internal notes) and the closed request a new one follows
+(every operator `comment` is public; an internal note is `addInternalNote` and stamps nothing) and the closed request a new one follows
 (`create` with `followsTicketId`, the caller's own closed ticket, else `support.follow_up_invalid`);
 staff read it with `ticketLifecycle`. These facts are written just after the ticket write, so a crash
 between the two leaves them stale until the next reply or status change.
@@ -123,6 +124,17 @@ number or hour is built in. `setContactChannels` (`support:ops`, staff lead only
 exists) sets one or more from the revision it read, with a reason; `null` clears one. A change is logged
 append-only in `contact_channel_log` under `support.contact:r<revision>`; the same change replayed returns the
 stored state (it already applied) and a different change from a stale revision refuses `support.contact_revision_stale`.
+
+Macros and signatures (SP-desk-02): `macros` lists the desk's shared macros and `macroApply` fills one from a request
+without writing anything (any agent, `support:ops`). `macroSave` (`support:ops`, staff lead only, until the
+`support:admin` scope exists) is desk configuration, so it uses the same `actor.role !== 'lead'` check and the same
+`support.not_lead` code as `setContactChannels` and `setAttachmentSettings`. A body may use only the closed placeholder
+list `SUPPORT_MACRO_PLACEHOLDERS` in `packages/contracts` (today only `{{ticket.id}}` is filled; a placeholder the desk cannot fill stays as written and
+is named); an unknown one refuses `support.macro_placeholder_unknown` on save. A reply still holding a placeholder
+refuses `support.macro_placeholder_blank` on send. A shortcode below the owner-set minimum refuses
+`support.shortcode_too_short`, a blank minimum `support.shortcode_rule_unset`. `signature` and `signatureSet` read
+and write the caller's own signature, from the revision read; the console puts it in a public reply's draft as it is
+composed, and the service adds nothing on send.
 
 Awaiting reply: `awaitingMine` (`support:read`) answers how many of the caller's own open requests wait on their reply and
 which has waited longest, as a count and one pointer (no list, so no page size). The ticket the owner reads still never carries

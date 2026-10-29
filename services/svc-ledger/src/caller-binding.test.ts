@@ -392,11 +392,11 @@ describe('POST /trpc/post caller binding', () => {
 describe('every door names its callers', () => {
   const READ_BODY = { ownerType: 'treasury', ownerId: 'rail:crypto-native' };
 
-  it('declares exactly the 18 doors registerS2sHttp serves', () => {
+  it('declares exactly the 20 doors registerS2sHttp serves', () => {
     const source = readFileSync(join(ROOT, 'services/svc-ledger/src/s2s-http.ts'), 'utf8');
     const served = [...source.matchAll(/'\/trpc\/([A-Za-z]+)'/g)].map((match) => match[1]).sort();
     expect(Object.keys(LEDGER_DOOR_CALLERS).sort()).toEqual([...new Set(served)]);
-    expect(served).toHaveLength(18);
+    expect(served).toHaveLength(20);
   });
 
   it('refuses a key-verified service that a read door does not list', async () => {

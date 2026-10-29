@@ -137,6 +137,8 @@ describe('OTC accept', () => {
     const now = new Date('2026-08-07T12:00:00.000Z');
     const emailProof = new StubEmailProof();
     const svc = new OtcDeskService(ledger, new FixedOtcStake(parseAmount('1000')), {
+      // The house desk is the one provider these requests ask (CB-otc-01).
+      makerDirectory: { published: true, makers: [{ id: 'house', name: 'House desk', route: 'platform' }], selectCap: 1 },
       law: {
         published: true,
         spreadBps: 50,
@@ -146,13 +148,14 @@ describe('OTC accept', () => {
         maxMidAgeSeconds: 60,
         // A zero desk minimum is an owner value: these quotes are not held by the CB-otc-07 minimum.
         minNotional: { USDT: 0n },
+        assets: ['BTC'],
       },
       midSource: createObservedOtcMidSource('BTC/USDT:200', () => now),
       now: () => now,
       emailProof,
     });
     const principal = { userId: USER } as Principal;
-    const quote = await svc.quote(principal, { side: 'buy', baseAsset: 'BTC', quoteAsset: 'USDT', qty: '1' });
+    const quote = await svc.quote(principal, { side: 'buy', baseAsset: 'BTC', quoteAsset: 'USDT', qty: '1', makerIds: ['house'] });
     emailProof.missing.add(USER);
     await expect(svc.accept(principal, { quoteId: quote.quoteId })).rejects.toMatchObject({ code: 'trade.email_proof_required' });
     emailProof.missing.delete(USER);

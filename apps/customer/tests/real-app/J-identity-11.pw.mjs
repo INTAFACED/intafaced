@@ -182,3 +182,9 @@ test(`${J} #4 Asking to reactivate before the wait is over is refused with the s
   await expect(status.getByTestId('account-status__state')).toHaveAttribute('data-state', 'active');
   await expect(status.getByTestId('account-status__restrictions')).toHaveCount(0);
 });
+
+// Still red, named: a staff freeze's own page, the staff-only lift and the appeal path wait for the appeal door
+// (I-account-lifecycle-12), which identity does not serve yet.
+test(`${J} #5 A staff freeze shows its own page that only staff can lift, with the appeal path`, () => {
+  throw new Error('step #5 is not built yet: no appeal door in svc-identity (I-account-lifecycle-12)');
+});

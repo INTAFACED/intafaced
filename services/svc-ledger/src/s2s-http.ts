@@ -288,6 +288,16 @@ export async function handleS2sRestoreWatermark(ledger: LedgerService) {
   return ledger.restoreWatermark();
 }
 
+/** Finished reconciliation evaluations after a cursor, oldest first, for svc-ops' alert store alone. A read. */
+export async function handleS2sReconciliationEvaluations(ledger: LedgerService, body: unknown) {
+  return ledger.reconciliationEvaluations(body);
+}
+
+/** Which asked transaction ids are booked, ids only, for svc-ops alone (OPS-reconciliation-04). A read. */
+export async function handleS2sTransactionsExist(ledger: LedgerService, body: unknown) {
+  return ledger.transactionsExist(body);
+}
+
 const txByKeyInput = z.object({ idempotencyKey: z.string().min(1).max(512) });
 
 /**
@@ -582,6 +592,8 @@ export function registerS2sHttp(app: FastifyInstance, ledger: LedgerService, int
     '/trpc/restoreWatermark',
     guarded('restoreWatermark', (_svc, _body) => handleS2sRestoreWatermark(ledger)),
   );
+  app.post('/trpc/reconciliationEvaluations', guarded('reconciliationEvaluations', handleS2sReconciliationEvaluations));
+  app.post('/trpc/transactionsExist', guarded('transactionsExist', handleS2sTransactionsExist));
   app.post(
     '/trpc/portfolio',
     guarded('portfolio', (svc, body) => handleS2sPortfolio(svc, body, { url: options.indexerUrl, fetch: options.indexerFetch })),

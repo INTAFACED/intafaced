@@ -38,6 +38,8 @@ import {
   type FreezeState,
 } from './ledger/freeze.js';
 import type { RestoreWatermarkRead } from '@intafaced/contracts';
+import type { LedgerTransactionsExist, ReconciliationEvaluationFeed } from '@intafaced/contracts/ledger-reconciliation';
+import { transactionsExist } from './ledger/transactions-exist.js';
 import type { FeeRevenueRow } from './ledger/fee-revenue.js';
 import type { HistoryEntry, HistoryPage, HistoryPageInput, HistoryRange } from './ledger/history.js';
 import type { HoldingsHistory, HoldingsHistoryInput } from './ledger/holdings-history.js';
@@ -65,6 +67,7 @@ import {
 } from './ledger/operator-account-metadata.js';
 import { applyAssetEdit, getAsset, listAssets, listOperatorAssets, type OperatorAssetRow } from './ledger/supported-assets.js';
 import {
+  listReconciliationEvaluations,
   type ReconciliationSources,
   runDueReconciliationControls as runDueOperatorControls,
   unsetReconciliationSources,
@@ -196,6 +199,16 @@ export class LedgerService implements LedgerClient, ScheduledReconcileLedger {
   /** Fee revenue per asset over one window. A read; same no-span reasoning as `history`. */
   feeRevenue(range: HistoryRange): Promise<FeeRevenueRow[]> {
     return this.engine.feeRevenue(range);
+  }
+
+  /** Finished reconciliation evaluations after a cursor, for svc-ops' alert store (OPS-reconciliation-03). A read. */
+  async reconciliationEvaluations(input: unknown): Promise<ReconciliationEvaluationFeed> {
+    return listReconciliationEvaluations(this.sql, input);
+  }
+
+  /** Which asked transaction ids are booked, ids only, for svc-ops resolving an alert (OPS-reconciliation-04). A read. */
+  async transactionsExist(input: unknown): Promise<LedgerTransactionsExist> {
+    return transactionsExist(this.sql, input);
   }
 
   /** The ledger's position for the joint restore. A read; same no-span reasoning as `history`. */

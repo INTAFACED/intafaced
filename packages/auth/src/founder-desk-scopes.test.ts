@@ -1,9 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import {
   assertDelegatableScopes,
+  expandScopes,
   FOUNDER_SCOPE_INVALID,
   FOUNDER_SESSION_SCOPE_ALLOWLIST,
   FounderScopeInvalidError,
+  hasScope,
   INTERACTIVE_ONLY_SCOPES,
   parseFounderSessionScopes,
   SCOPES,
@@ -53,6 +55,7 @@ describe('founder desk scopes', () => {
   it('refuses to copy founder desk scopes onto a key even when the session holds them', () => {
     expect(() => assertDelegatableScopes(['admin:write'], ['admin:write', 'support:ops'])).toThrow(/cannot be granted to an API key/);
     expect(() => assertDelegatableScopes(['support:ops'], ['support:ops'])).toThrow(/cannot be granted to an API key/);
+    expect(() => assertDelegatableScopes(['support:lookup'], ['support:lookup'])).toThrow(/cannot be granted to an API key/);
   });
 
   it('classifies every founder and operator desk scope as interactive-only', () => {
@@ -74,11 +77,12 @@ describe('founder desk scopes', () => {
         'admin:treasury',
         'admin:compliance',
         'support:ops',
+        'support:lookup',
         'market:ops',
         'campaigns:ops',
       ]),
     );
-    expect(desk).toHaveLength(7);
+    expect(desk).toHaveLength(8);
 
     for (const scope of desk) {
       expect(INTERACTIVE_ONLY_SCOPES, scope).toContain(scope);
@@ -94,9 +98,28 @@ describe('founder desk scopes', () => {
     for (const scope of SESSION_MFA_SCOPES) {
       expect(INTERACTIVE_ONLY_SCOPES, scope).toContain(scope);
     }
-    for (const scope of ['admin:read', 'admin:write', 'admin:compliance', 'support:ops', 'market:ops', 'campaigns:ops'] as const) {
+    for (const scope of [
+      'admin:read',
+      'admin:write',
+      'admin:compliance',
+      'support:ops',
+      'support:lookup',
+      'market:ops',
+      'campaigns:ops',
+    ] as const) {
       expect(SESSION_MFA_SCOPES, scope).not.toContain(scope);
     }
+  });
+
+  it('support:lookup grants only itself: no queue work, no customer scopes, no admin read', () => {
+    const founder = scopesForFounderSession([...SESSION_SCOPES], { founder: true, mfa: true, configured: ['support:lookup'] });
+    expect(founder).toContain('support:lookup');
+    expect(founder).not.toContain('support:ops');
+    expect(expandScopes(['support:lookup'])).toEqual(new Set(['support:lookup']));
+    expect(hasScope(['support:lookup'], 'support:ops')).toBe(false);
+    expect(hasScope(['support:lookup'], 'admin:read')).toBe(false);
+    expect(hasScope(['support:ops'], 'support:lookup')).toBe(false);
+    expect(parseFounderSessionScopes('support:ops,support:lookup')).toEqual(['support:ops', 'support:lookup']);
   });
 
   it('refuses admin:treasury, a pay scope, and a typo at parse', () => {

@@ -436,6 +436,7 @@ test.describe('Quote desk', () => {
   const ask = async (page) => {
     await expect(page.getByRole('region', { name: 'Desk status' })).toBeVisible();
     await page.getByRole('region', { name: 'Request a price' }).getByRole('textbox', { name: 'Quantity' }).fill('0.5');
+    await page.getByRole('region', { name: 'Request a price' }).getByRole('checkbox', { name: 'House desk (TEST)' }).check();
     await page.getByRole('button', { name: 'Request price' }).click();
     const card = page.getByRole('region', { name: 'Quote', exact: true });
     await expect(card).toBeVisible();

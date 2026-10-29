@@ -81,6 +81,7 @@ describe('rooms with no backing service', () => {
               hashrate: '12345678901234567890',
               hashrateReason: null,
               minDifficulty: '512',
+              mode: 'pooled' as const,
             },
             {
               id: 'w2',
@@ -89,6 +90,7 @@ describe('rooms with no backing service', () => {
               hashrate: null,
               hashrateReason: 'no_shares_in_window',
               minDifficulty: null,
+              mode: 'solo' as const,
             },
           ],
           defaultDifficulty: null,
@@ -113,6 +115,61 @@ describe('rooms with no backing service', () => {
     expect(html).not.toContain('First page');
     expect(html).toContain('Minimum difficulty');
     expect(html).toContain('does not apply it to the jobs it sends');
+    // Each rig shows its mode, and the room offers Pooled or Solo by rig name.
+    expect(html).toMatch(/<td lang="und">rig-a<\/td><td>Pooled<\/td>/);
+    expect(html).toMatch(/<td lang="und">rig-b<\/td><td>Solo<\/td>/);
+    expect(html).toContain('Pooled or solo');
+    expect(html).toMatch(/type="radio" name="mining-worker-mode" checked="" value="pooled"/);
+    expect(html).toContain('value="solo"');
+    expect(html).toContain('Save mode');
+  });
+  it('Mining workers name a TEST testnet proof of work, a blank one by its code, and refuse solo credit by its code', () => {
+    const read = {
+      resource: {
+        status: 'ready' as const,
+        data: {
+          asOf: '2026-10-18T03:00:00.000Z',
+          windowMinutes: 60,
+          workers: [],
+          defaultDifficulty: null,
+          defaultDifficultyReason: null,
+          nextCursor: null,
+        },
+      },
+      reload: () => undefined,
+    };
+    const ready = <T,>(data: T) => ({ resource: { status: 'ready' as const, data }, reload: () => undefined });
+    const soloCredit = {
+      resource: {
+        status: 'failed' as const,
+        failure: { ok: false as const, reason: 'error' as const, message: 'Solo credit waits', code: 'mining.emission_unpublished' },
+      },
+      reload: () => undefined,
+    };
+    const published = renderToStaticMarkup(
+      <WorkersView
+        read={read}
+        minutes={60}
+        onMinutes={() => undefined}
+        pow={ready({ status: 'published' as const, dimension: 8, targetBits: 8, testnet: true as const })}
+        soloCredit={soloCredit}
+      />,
+    );
+    expect(published).toContain(
+      'TEST testnet proof of work: 8×8 matrix multiplication, at least 8 leading zero bits. Testnet shares earn no credit.',
+    );
+    expect(published).toContain('It is not the token’s live proof of work, and it is not audited.');
+    expect(published).toMatch(/data-testid="mining-solo-credit" data-code="mining.emission_unpublished"/);
+    const blank = renderToStaticMarkup(
+      <WorkersView
+        read={read}
+        minutes={60}
+        onMinutes={() => undefined}
+        pow={ready({ status: 'unset' as const, code: 'mining.pow_spec_unset' as const })}
+      />,
+    );
+    expect(blank).toMatch(/data-testid="mining-pow-unset" data-code="mining.pow_spec_unset"/);
+    expect(blank).not.toContain('TEST testnet');
   });
   it('Mining workers show a published default difficulty, a refused one by name, and paging back', () => {
     const data = (defaultDifficulty: string | null, defaultDifficultyReason: string | null) => ({

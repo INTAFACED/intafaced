@@ -198,6 +198,10 @@
       "types": "./dist/bank-value-history.d.ts",
       "default": "./dist/bank-value-history.js"
     },
+    "./agents-own": {
+      "types": "./dist/agents-own.d.ts",
+      "default": "./dist/agents-own.js"
+    },
     "./p2p-delist": {
       "types": "./dist/p2p-delist.d.ts",
       "default": "./dist/p2p-delist.js"
@@ -217,6 +221,10 @@
     "./ledger-reconciliation": {
       "types": "./dist/ledger-reconciliation.d.ts",
       "default": "./dist/ledger-reconciliation.js"
+    },
+    "./ops-reconciliation-alerts": {
+      "types": "./dist/ops-reconciliation-alerts.d.ts",
+      "default": "./dist/ops-reconciliation-alerts.js"
     },
     "./watchlists-preferences": {
       "types": "./dist/watchlists-preferences.d.ts",
@@ -306,6 +314,10 @@
       "types": "./dist/merchant-checkout-methods.d.ts",
       "default": "./dist/merchant-checkout-methods.js"
     },
+    "./merchant-activation": {
+      "types": "./dist/merchant-activation.d.ts",
+      "default": "./dist/merchant-activation.js"
+    },
     "./campaigns-drops": {
       "types": "./dist/campaigns-drops.d.ts",
       "default": "./dist/campaigns-drops.js"
@@ -313,6 +325,10 @@
     "./campaigns-catalogue": {
       "types": "./dist/campaigns-catalogue.d.ts",
       "default": "./dist/campaigns-catalogue.js"
+    },
+    "./support-macros": {
+      "types": "./dist/support-macros.d.ts",
+      "default": "./dist/support-macros.js"
     }
   },
   "scripts": {

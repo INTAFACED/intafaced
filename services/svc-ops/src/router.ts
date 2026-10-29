@@ -21,8 +21,6 @@ import {
   OPS_RESTORE_ARCHIVE_UNCONFIGURED,
   OPS_RESTORE_ARCHIVE_UNPROBED,
   OPS_RESTORE_STORAGE_UNCONFIGURED,
-  OPS_ALERT_SOURCE_UNCONFIGURED,
-  OPS_ALERT_PROBE_UNCONFIGURED,
   OPS_CUSTODY_WRAP_UNSET,
   OPS_CUSTODY_FREEZE_UNSET,
   OPS_CUSTODY_FROZEN,
@@ -41,13 +39,13 @@ import {
 import type { FeeRevenuePort, FeeRevenueRead } from './fee-revenue-client.js';
 import { assertOpsListLimit, OPS_LIST_LIMIT_CAP } from './list-limit.js';
 import type { OpsService } from './ops-service.js';
+import { createReconciliationAlertRoutes } from './reconciliation-alerts/router.js';
+import type { ReconciliationAlertStore } from './reconciliation-alerts/store.js';
 import type { OutreachCrm } from './outreach/crm.js';
 import type { FounderAuthority } from './outreach/authority.js';
 import { createOutreachRouter } from './outreach/router.js';
 import type { PublicSettingsBook } from './outreach/public-settings.js';
 import {
-  alertList,
-  alertSourcePosture,
   archivePosture,
   assertIdempotencyKey,
   consumeFounderApproval,
@@ -222,7 +220,8 @@ export interface OperatorDeskConfig {
    * `ops.restore_archive_unprobed` and the list stays empty.
    */
   readonly restoreArchiveProbe?: (url: string) => Promise<RestoreArchiveProbeResult>;
-  readonly alertSourceUrl?: string | null;
+  /** Reconciliation alerts (OPS-reconciliation-03). Absent means every call refuses `ops.alert_storage_unconfigured`. */
+  readonly reconciliationAlerts?: ReconciliationAlertStore;
   readonly approvals?: ApprovalConsumer;
   /** Durable joint-restore stamps. Absent means stamping refuses `ops.restore_storage_unconfigured`. */
   readonly restoreStamps?: RestoreStampStore;
@@ -263,6 +262,7 @@ export function createOpsRouter(
   desks: OperatorDeskConfig = {},
 ) {
   const now = desks.now ?? (() => new Date().toISOString());
+  const reconciliationAlertRoutes = createReconciliationAlertRoutes(desks.reconciliationAlerts);
   const alertDeskRoutes = createAlertDeskRoutes({
     now,
     ...(desks.alertState ? { alertState: desks.alertState } : {}),
@@ -856,33 +856,7 @@ export function createOpsRouter(
     ),
 
     alerts: router({
-      list: scopedProcedure('admin:read', guards)
-        .output(
-          z.object({
-            asOf: z.string(),
-            source: z.object({
-              configured: z.boolean(),
-              probed: z.literal(false),
-              code: z.enum([OPS_ALERT_SOURCE_UNCONFIGURED, OPS_ALERT_PROBE_UNCONFIGURED]),
-            }),
-            alerts: z.null(),
-            acknowledged: z.null(),
-          }),
-        )
-        .query(() => alertList(desks.alertSourceUrl, now())),
-      acknowledge: scopedProcedure('admin:write', guards)
-        .input(z.object({ alertId: z.string().optional(), idempotencyKey: z.string().optional() }).optional())
-        .mutation(() => {
-          const source = alertSourcePosture(desks.alertSourceUrl);
-          throw new TRPCError({
-            code: 'PRECONDITION_FAILED',
-            message: `${source.code} — ${
-              source.configured
-                ? 'An alert source URL is set, but this service does not probe it and will not invent an alert to acknowledge.'
-                : 'No alert source is configured. Nothing was acknowledged.'
-            }`,
-          });
-        }),
+      ...reconciliationAlertRoutes,
       activity: alertDeskRoutes.activity,
       heartbeat: alertDeskRoutes.heartbeat,
       heartbeatStatus: alertDeskRoutes.heartbeatStatus,

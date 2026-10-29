@@ -1,3 +1,4 @@
+import { SUPPORT_SIGNATURE_MAX } from '@intafaced/contracts/support-macros';
 import type { SupportKbAudience } from '@intafaced/contracts';
 import { KB_AUDIENCES } from './audience';
 import type { BulkChange } from './bulk';
@@ -130,6 +131,8 @@ export const ESCALATION_REASONS = [
 export type EscalationReason = (typeof ESCALATION_REASONS)[number]['id'];
 
 export const REPLY_MAX = 10_000;
+/** An internal note's longest text: svc-support's `SUPPORT_NOTE_MAX`. */
+export const INTERNAL_NOTE_MAX = 10_000;
 export const NOTE_MAX = 500;
 export const SUMMARY_MAX = 2_000;
 
@@ -141,6 +144,14 @@ export function replyGate(ticket: { status: string }, body: string, busy: boolea
   if (ticket.status === 'closed') return { ok: false, why: 'This ticket is closed, and svc-support takes no replies on a closed ticket.' };
   if (body.trim() === '') return { ok: false, why: 'Write the reply first.' };
   if (body.length > REPLY_MAX) return { ok: false, why: `A reply can be at most ${REPLY_MAX} characters.` };
+  return GO;
+}
+
+/** An internal note may go on any request the desk reads, closed ones included: it is the desk's own annotation. */
+export function internalNoteGate(body: string, busy: boolean): ActionGate {
+  if (busy) return { ok: false, why: 'A step is already in progress.' };
+  if (body.trim() === '') return { ok: false, why: 'Write the note first.' };
+  if (body.length > INTERNAL_NOTE_MAX) return { ok: false, why: `A note can be at most ${INTERNAL_NOTE_MAX} characters.` };
   return GO;
 }
 
@@ -227,6 +238,19 @@ export type SupportActionRequest =
       /** How many replies this agent has already sent from this view: the same text sent again is a new reply, a retry is not. */
       readonly sent?: number;
     }
+  | {
+      /** A staff-only note (SP-tickets-05): never on the customer's thread. */
+      readonly action: 'note';
+      readonly ticketId: string;
+      readonly body: string;
+      /** The trail row the agent read when they began the note: part of its key, so a retry is the same note. */
+      readonly expectedSequence: number;
+      /**
+       * The internal notes on the ticket when the agent began, plus those sent from this view since: the same text again
+       * (now, or after reopening the ticket) is a new note, a retry after an unknown outcome is not.
+       */
+      readonly sent: number;
+    }
   | { readonly action: 'claim_next' }
   | { readonly action: 'unclaim'; readonly ticketId: string; readonly expectedSequence: number }
   | { readonly action: 'assign'; readonly ticketId: string; readonly assigneeId: string; readonly expectedSequence: number }
@@ -261,6 +285,8 @@ export type SupportActionRequest =
       readonly reason: string;
     }
   | { readonly action: 'kb_unpublish'; readonly id: string; readonly baseRevision: number }
+  /** The agent's own signature, at the revision they read: 0 before their first. */
+  | { readonly action: 'signature_set'; readonly signature: string; readonly expectedRevision: number }
   | { readonly action: 'kb_audience'; readonly id: string; readonly baseRevision: number; readonly audience: SupportKbAudience };
 
 const isText = (v: unknown, max: number): v is string => typeof v === 'string' && v.trim() !== '' && v.length <= max;
@@ -307,6 +333,10 @@ export function readActionRequest(raw: Record<string, unknown>): SupportActionRe
         ...(raw.expectedSequence === undefined ? {} : { expectedSequence: raw.expectedSequence }),
         ...(raw.sent === undefined ? {} : { sent: raw.sent }),
       };
+    case 'note':
+      if (!isTicketId(raw.ticketId) || !isText(raw.body, INTERNAL_NOTE_MAX)) return null;
+      if (!isSequence(raw.expectedSequence) || !isSequence(raw.sent)) return null;
+      return { action: 'note', ticketId: raw.ticketId, body: raw.body.trim(), expectedSequence: raw.expectedSequence, sent: raw.sent };
     case 'claim_next':
       return Object.keys(raw).length === 1 ? { action: 'claim_next' } : null;
     case 'unclaim':
@@ -427,6 +457,10 @@ export function readActionRequest(raw: Record<string, unknown>): SupportActionRe
         typeof raw.audience === 'string' &&
         (KB_AUDIENCES as readonly string[]).includes(raw.audience)
         ? { action: 'kb_audience', id: raw.id.trim(), baseRevision: raw.baseRevision, audience: raw.audience as SupportKbAudience }
+        : null;
+    case 'signature_set':
+      return Object.keys(raw).length === 3 && isText(raw.signature, SUPPORT_SIGNATURE_MAX) && isSequence(raw.expectedRevision)
+        ? { action: 'signature_set', signature: raw.signature.trim(), expectedRevision: raw.expectedRevision }
         : null;
     default:
       return null;

@@ -77,6 +77,12 @@ describe('request signing helper', () => {
     expect(signaturesEqual('abcd', 'ab')).toBe(false);
     expect(signaturesEqual('zz', 'zz')).toBe(false);
   });
+
+  it('holds no signing window of its own: the window is the owner value the server publishes', async () => {
+    const src = readFileSync(join(dirname(fileURLToPath(import.meta.url)), 'sign.ts'), 'utf8');
+    expect(src).not.toMatch(/WINDOW_SECONDS\s*=|\b300\b/);
+    expect(Object.keys(await import('./index.js')).filter((name) => /WINDOW/.test(name))).toEqual([]);
+  });
 });
 
 describe('PayClient', () => {

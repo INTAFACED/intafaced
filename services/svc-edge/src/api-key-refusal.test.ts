@@ -7,6 +7,12 @@ import {
   API_KEY_DENIED,
   API_KEY_EXPIRED,
   API_KEY_REVOKED,
+  REQUEST_FUTURE,
+  REQUEST_REPLAY,
+  REQUEST_STALE,
+  REQUEST_TAMPERED,
+  REQUEST_UNSIGNED,
+  REQUEST_WINDOW_UNSET,
   apiKeyRefusalBody,
   apiKeyRefusalFromIdentityCode,
   apiKeyShapeOk,
@@ -106,7 +112,30 @@ describe('a presented key the edge cannot open: refused here, with its own code'
     expect((await present(viaCause)).apiKeyRefusal).toEqual(ACCOUNT_FROZEN);
   });
 
-  it('every other verdict code on the key (restrictions, the caller’s request signature, an unknown account) is the one denied answer', async () => {
+  it('the caller’s own request signature is named, each failure by its own code, and a blank owner window is a typed 503', async () => {
+    for (const [code, refusal] of [
+      ['auth.request_unsigned', REQUEST_UNSIGNED],
+      ['auth.request_stale', REQUEST_STALE],
+      ['auth.request_future', REQUEST_FUTURE],
+      ['auth.request_tampered', REQUEST_TAMPERED],
+      ['auth.request_replay', REQUEST_REPLAY],
+      ['auth.request_window_unset', REQUEST_WINDOW_UNSET],
+    ] as const) {
+      const result = await present(identityRefusal(401, code));
+      expect(result.apiKeyRefusal, code).toEqual(refusal);
+      expect(result.rejected, code).toBe('invalid');
+      expect(result.principal, code).toBeNull();
+      expect(result.headers[EDGE_PRINCIPAL_HEADER], code).toBeUndefined();
+    }
+    // identity sends the blank window as PRECONDITION_FAILED (412): still identity's verdict, never edge.authority_unavailable.
+    expect((await present(identityRefusal(412, 'auth.request_window_unset'))).apiKeyRefusal).toEqual(REQUEST_WINDOW_UNSET);
+    expect(REQUEST_WINDOW_UNSET.status).toBe(503);
+    expect([REQUEST_UNSIGNED, REQUEST_STALE, REQUEST_FUTURE, REQUEST_TAMPERED, REQUEST_REPLAY].map((r) => r.status)).toEqual([
+      401, 401, 401, 401, 401,
+    ]);
+  });
+
+  it('every other verdict code on the key (restrictions, an unknown account) is the one denied answer', async () => {
     for (const code of [
       'auth.domain_not_allowed',
       'auth.ip_not_allowed',
@@ -117,10 +146,6 @@ describe('a presented key the edge cannot open: refused here, with its own code'
       'auth.account_denied',
       'auth.account_revoked',
       'auth.sub_account_denied',
-      'auth.request_unsigned',
-      'auth.request_stale',
-      'auth.request_tampered',
-      'auth.request_replay',
       'auth.not_found',
       'auth.api_key_denied',
     ]) {
@@ -150,7 +175,7 @@ describe('a presented key the edge cannot open: refused here, with its own code'
     }
   });
 
-  it('a key opened by identity but refused by the edge’s own checks: frozen status is account_frozen, the rest denied', async () => {
+  it('a key opened by identity but refused by the edge’s own checks: frozen status is account_frozen, unsigned is named, the rest denied', async () => {
     expect((await present(await opened({ status: 'frozen' }))).apiKeyRefusal).toEqual(ACCOUNT_FROZEN);
     expect((await present(await opened({ status: 'closed' }))).apiKeyRefusal).toEqual(ACCOUNT_FROZEN);
     const past = new Date(Date.now() - 60_000).toISOString();
@@ -165,7 +190,7 @@ describe('a presented key the edge cannot open: refused here, with its own code'
     );
     expect(originBound.apiKeyRefusal).toEqual(API_KEY_DENIED);
     const unsigned = await present(await opened({ requireSignature: true }));
-    expect(unsigned.apiKeyRefusal).toEqual(API_KEY_DENIED);
+    expect(unsigned.apiKeyRefusal).toEqual(REQUEST_UNSIGNED);
   });
 
   it('a key opened but refused by the current-authority read is named from identity’s denial code', async () => {
@@ -362,7 +387,17 @@ describe('what does not change', () => {
 
 describe('the body and the codes', () => {
   it('names the code, the identity code it came from, a message and the auth catalogue entry, and echoes nothing of the key', () => {
-    for (const refusal of [API_KEY_DENIED, API_KEY_REVOKED, API_KEY_EXPIRED, ACCOUNT_FROZEN]) {
+    for (const refusal of [
+      API_KEY_DENIED,
+      API_KEY_REVOKED,
+      API_KEY_EXPIRED,
+      ACCOUNT_FROZEN,
+      REQUEST_UNSIGNED,
+      REQUEST_STALE,
+      REQUEST_FUTURE,
+      REQUEST_TAMPERED,
+      REQUEST_REPLAY,
+    ]) {
       const body = apiKeyRefusalBody(refusal);
       expect(body).toMatchObject({
         code: refusal.code,
@@ -372,6 +407,18 @@ describe('the body and the codes', () => {
       expect(body.message).toBe('You do not have access to this.');
       expect(JSON.stringify(body)).not.toContain(KEY);
     }
+  });
+
+  it('a blank owner window names its code and its catalogue entry with the generic sentence, not "no access"', () => {
+    const body = apiKeyRefusalBody(REQUEST_WINDOW_UNSET);
+    expect(body).toMatchObject({
+      code: 'edge.request_window_unset',
+      intafacedCode: 'auth.request_window_unset',
+      docs: '/developers/errors/auth#edge.request_window_unset',
+    });
+    expect(body.message).toEqual(expect.any(String));
+    expect(body.message).not.toBe('You do not have access to this.');
+    expect(body.message).not.toBe('edge.request_window_unset');
   });
 
   it('missing, wrong, revoked and out-of-scope keys give four distinct stable codes; credentials 401, restrictions 403', () => {
@@ -388,10 +435,13 @@ describe('the body and the codes', () => {
     expect(ACCOUNT_FROZEN.code).toBe('account_frozen');
   });
 
-  it('only three identity codes are told apart and nothing upstream is echoed', () => {
+  it('only the dead key, the frozen account and the request signature are told apart, and nothing upstream is echoed', () => {
     expect(apiKeyRefusalFromIdentityCode('auth.api_key_revoked')).toBe(API_KEY_REVOKED);
     expect(apiKeyRefusalFromIdentityCode('auth.api_key_expired')).toBe(API_KEY_EXPIRED);
     expect(apiKeyRefusalFromIdentityCode('auth.account_frozen')).toBe(ACCOUNT_FROZEN);
+    expect(apiKeyRefusalFromIdentityCode('auth.request_tampered')).toBe(REQUEST_TAMPERED);
+    expect(apiKeyRefusalFromIdentityCode('auth.request_window_unset')).toBe(REQUEST_WINDOW_UNSET);
+    expect(apiKeyRefusalFromIdentityCode('auth.request_anything_else')).toBe(API_KEY_DENIED);
     expect(apiKeyRefusalFromIdentityCode('edge.anything_upstream_said')).toBe(API_KEY_DENIED);
     expect(apiKeyRefusalFromIdentityCode(undefined)).toBe(API_KEY_DENIED);
   });
