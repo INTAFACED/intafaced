@@ -1,4 +1,5 @@
 import type {
+  SupportViewList,
   SupportTicketLifecycle,
   SupportTicketProperties,
   SupportCaseFile,
@@ -10,6 +11,7 @@ import type {
 import type { Part } from '@/lib/desk/part';
 import type { BulkPolicyView } from './bulk';
 import type { SupportRatingSummary } from './ratings';
+import type { QueueQuery } from './queue-query';
 
 export type TicketStatus = 'open' | 'pending' | 'on_hold' | 'resolved' | 'closed';
 
@@ -37,9 +39,37 @@ export interface SupportBulkPolicyView {
   readonly policy: Part<BulkPolicyView>;
 }
 
+/** The saved view a queue read was narrowed by. `mine` is whether this founder owns it (only the owner may change it). */
+export interface QueueViewRef {
+  readonly id: string;
+  readonly name: string;
+  readonly shared: boolean;
+  readonly ownerId: string;
+  readonly mine: boolean;
+}
+
+/** svc-support refused the filter, search or view; the queue beside it is the plain one. */
+export interface QueueRefusal {
+  readonly what: 'filter' | 'search' | 'view';
+  readonly code: string | null;
+  /** The field the filter named, as it was typed. */
+  readonly field: string | null;
+}
+
 export interface SupportQueueView {
   readonly asOf: string;
   readonly queue: Part<QueueRead>;
+  /** What the read was asked to narrow by. Absent on an older answer: the plain queue. */
+  readonly query?: QueueQuery;
+  readonly view?: QueueViewRef | null;
+  readonly refused?: QueueRefusal;
+}
+
+export interface SupportViewsView {
+  readonly asOf: string;
+  readonly meId: string;
+  readonly list: Part<SupportViewList>;
+  readonly counts: Part<readonly { readonly viewId: string; readonly count: number }[]>;
 }
 
 export interface TicketDetail {

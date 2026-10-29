@@ -217,6 +217,7 @@ export function CategoryEditor({ categories }: { categories: BusinessCategory[] 
               onChange={(e) => set('class', e.target.value as BusinessCategoryClass)}
               aria-describedby="cat-class-rule"
             >
+              <option value="standard">Standard</option>
               <option value="permissionless">Permissionless</option>
               <option value="restricted">Restricted</option>
               <option value="prohibited">Prohibited</option>
