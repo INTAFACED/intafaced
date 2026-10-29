@@ -59,5 +59,10 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS }) => ({
     // Withdrawal limits per KYC tier are enforced (D-148). The figures are LOCAL-TEST ones set by local-test-gates.mjs through
     // founderAdmin.limits.change (TEST_WITHDRAWAL_LIMITS), and a founder's override for one customer comes from identity.
     PAY_WITHDRAWAL_LIMITS: 'required',
+    // LOCAL-TEST: a TEST custody signer for TEST Ethereum only (J-wallet-05 #6), so a send out to a saved TEST wallet goes
+    // through this stack's crypto-native rail, which is the in-memory MemoryChain: no chain, no key, nothing leaves. TEST Base
+    // has none, so a send there is refused before anything is held (J-wallet-05 #7). svc-pay refuses this outside APP_ENV dev
+    // or test; no live signer exists anywhere.
+    PAY_TEST_WITHDRAW_SIGNER_NETWORKS: 'ethereum',
   }),
 });

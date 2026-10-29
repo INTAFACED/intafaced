@@ -71,6 +71,9 @@ import { PayError, PayService } from './payment-service.js';
 import { startPayoutReconciler } from './payout-reconciler.js';
 import { UserMoneyService, openWithdrawalHolds } from './user-money-service.js';
 import { WalletPay, failClosedWalletPublish } from './wallet/wallet-pay.js';
+import { SendOutDoor } from './withdrawals/send-out/door.js';
+import { setWithdrawFeeUnboundSink } from './withdrawals/send-out/fee-unbound.js';
+import { assertWithdrawSignerPosture } from './withdrawals/send-out/signer-posture.js';
 import { createLedgerClient, createReceiptAssetPlaces } from './ledger-client.js';
 import { BankPayoutAbsentAdapter } from './rails/bank-payout.js';
 import { CardSandboxAdapter } from './rails/card-sandbox.js';
@@ -128,6 +131,7 @@ import {
   createIdentityOperationDecisionClient,
   createBankApproverEligibilityClient,
   createBankInternalWithdrawalClient,
+  createBankSendDestinationClient,
   s2sFromEnv,
 } from '@intafaced/contracts';
 import { registerProcessHooks, startTelemetry } from '@intafaced/telemetry';
@@ -542,8 +546,18 @@ const walletChainReader = { confirm: async (): Promise<'down'> => 'down' };
 const walletPay = new WalletPay({
   publish: failClosedWalletPublish(),
   openHolds: openWithdrawalHolds(sql),
-  allowlist: { has: () => false },
-  now: () => new Date(),
+});
+
+/**
+ * J-wallet-05 #6 and #7 (issue #6517): the door for a send out of the platform. The custody signer per network is decided
+ * here, at boot (`PAY_TEST_WITHDRAW_SIGNER_NETWORKS`: a TEST signer, dev and test only; blank: none, so every outside send
+ * refuses `pay.wallet_withdraw_unavailable`), and asked again at every send. The address book is svc-bank's: without
+ * BANK_URL the client answers unavailable and every outside send refuses before anything is claimed.
+ */
+const withdrawSigners = assertWithdrawSignerPosture(process.env);
+const sendOut = new SendOutDoor({
+  signer: withdrawSigners,
+  destinations: createBankSendDestinationClient({ bankUrl: env.BANK_URL, secret: env.INTERNAL_SERVICE_SECRET, s2s: s2sKey }),
 });
 
 const purchaseHolds = new PurchaseHoldService({ sql }).guard();
@@ -559,6 +573,7 @@ const userMoney = new UserMoneyService(sql, ledger, rails, {
   operatorCreditRails,
   valueMovement: railPosture.policy,
   wallet: walletPay,
+  sendOut,
   chainReader: walletChainReader,
   withdrawalLimits: withdrawalLimitReader,
   withdrawalHistory: createWithdrawalHistory(sql),
@@ -1273,6 +1288,18 @@ travelRuleWaits.unref();
  */
 if (railStatus.sandbox.length > 0) {
   app.log.warn({ ...railStatus, chain: chain.description, appEnv: railPosture.appEnv }, railStatus.summary);
+}
+// svc-ledger refusing a withdrawal's fee is never routine: the post did not happen and a retry would be refused again.
+setWithdrawFeeUnboundSink((alert) =>
+  app.log.error({ ...alert, alert: 'pay.withdrawal_fee_unbound' }, 'withdrawal fee refused by the ledger'),
+);
+// A TEST withdrawal signer is said on every start, like the sandbox rails: sends out on these networks go through the
+// crypto-native rail, which is MemoryChain or a test chain wherever this boots.
+if (withdrawSigners.testNetworks.size > 0) {
+  app.log.warn(
+    { networks: [...withdrawSigners.testNetworks], appEnv: withdrawSigners.appEnv, chain: chain.description },
+    'TEST withdrawal signer connected: sends out on these networks are TEST sends through the crypto-native rail',
+  );
 }
 if (railPosture.sandboxOverride) {
   app.log.warn(
