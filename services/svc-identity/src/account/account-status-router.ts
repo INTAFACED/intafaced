@@ -3,10 +3,13 @@ import { router, scopedProcedure, TRPCError, type Context } from '@intafaced/con
 import { accountStatusSchema } from '@intafaced/contracts/identity-account-status';
 import type { AccountStatusDesk } from './account-status.js';
 
-/** Staff reads are for a person at the console, as `listRestricted` is: never a service, an API key or a sub-account. */
+/**
+ * Staff reads are for a person at the console, as `listRestricted` is: never a service (the procedure's `person` guard),
+ * an API key or a sub-account.
+ */
 function refuseNonOperator(ctx: Context): void {
   const p = ctx.principal;
-  if (!p || ctx.service !== null || p.kid || p.sub_account)
+  if (!p || p.kid || p.sub_account)
     throw new TRPCError({ code: 'FORBIDDEN', message: 'Staff reads need a person signed in', cause: { code: 'operator.denied' } });
 }
 
@@ -26,8 +29,8 @@ function refuseSubAccount(ctx: Context): void {
  * own (`accountStatus`) so it shares no file with the `account.*` change doors.
  */
 export function createAccountStatusRouter(desk: AccountStatusDesk) {
-  const read = async (userId: string) => {
-    const status = await desk.read(userId);
+  const read = async (userId: string, view: 'owner' | 'staff') => {
+    const status = await desk.read(userId, view);
     if (!status) throw new TRPCError({ code: 'NOT_FOUND', message: 'Account not found', cause: { code: 'auth.not_found' } });
     return status;
   };
@@ -37,14 +40,14 @@ export function createAccountStatusRouter(desk: AccountStatusDesk) {
         .output(accountStatusSchema)
         .query(({ ctx }) => {
           refuseSubAccount(ctx);
-          return read(ctx.principal.userId);
+          return read(ctx.principal.userId, 'owner');
         }),
-      of: scopedProcedure('admin:read')
+      of: scopedProcedure('admin:read', { person: true })
         .input(z.object({ userId: z.string().guid() }).strict())
         .output(accountStatusSchema)
         .query(({ ctx, input }) => {
           refuseNonOperator(ctx);
-          return read(input.userId);
+          return read(input.userId, 'staff');
         }),
     }),
   });

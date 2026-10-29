@@ -13,6 +13,7 @@ import {
   type AccountStatusReason,
 } from '@intafaced/contracts/identity-account-status';
 import { KYC_CAPABILITIES, type KycCapability } from '@intafaced/contracts/identity-kyc-capabilities';
+import type { KycCapabilityMap } from '../kyc/capabilities.js';
 import type { KycRejectReasons } from '../kyc/cases.js';
 
 /** What each restriction's guard refuses (the guard is named beside it), so the page never promises more. */
@@ -37,8 +38,9 @@ const BLOCKS = {
   // Founder controls, trading area: recorded here, but svc-trade keeps its own restriction table and reads nothing of
   // this one, so it blocks nothing; the page says so rather than claim trading stops.
   trading_restricted: [],
-  // KYC capability switched off: identity refuses a request for a level that grants it (`assertRequestable`,
-  // `kyc.capability_inactive`); no service outside identity reads capability states, so orders and transfers go on.
+  // KYC capability switched off: identity refuses a request for the level whose own list grants it (`assertRequestable`,
+  // `kyc.capability_inactive`), so it blocks only while the owner's level map grants it somewhere; no service outside
+  // identity reads capability states, so orders and transfers go on.
   capability_off: ['request_level_with_switched_off_capability'],
 } as const satisfies Record<AccountRestriction['kind'], readonly AccountAction[]>;
 
@@ -61,9 +63,15 @@ export class AccountStatusDesk {
     private readonly selfFreezeLiftWaitSeconds: number | undefined,
     /** The owner's capability reason list (`IDENTITY_KYC_CAPABILITY_REASONS`): code to words and next step. */
     private readonly capabilityReasons: KycRejectReasons,
+    /** The owner's level-to-capability map (`IDENTITY_KYC_CAPABILITIES_BY_LEVEL`), as `assertRequestable` reads it. */
+    private readonly capabilityMap: KycCapabilityMap,
   ) {}
 
-  async read(userId: string): Promise<AccountStatus | null> {
+  /**
+   * `view: 'owner'` is the account's own read: a staff closure code other than the person's own request is not shown to
+   * them (sign-in says only "closed" too), so a fraud finding is never tipped off. Staff reads see the code.
+   */
+  async read(userId: string, view: 'owner' | 'staff' = 'staff'): Promise<AccountStatus | null> {
     const wait = this.selfFreezeLiftWaitSeconds ?? null;
     const [[user], [freeze], [lock], [trading], capabilities] = await Promise.all([
       // A customer-closed account carries no staff code: the closure flow's finalisation is its code and its time.
@@ -83,10 +91,11 @@ export class AccountStatusDesk {
     ]);
     if (!user) return null;
     const restrictions: AccountRestriction[] = [];
+    const closedCode = user.closed_reason ?? (user.customer_closed_at ? 'customer_request' : null);
     if (user.status === 'closed')
       restrictions.push({
         kind: 'closed',
-        reasonCode: user.closed_reason ?? (user.customer_closed_at ? 'customer_request' : null),
+        reasonCode: view === 'owner' && closedCode !== 'customer_request' ? null : closedCode,
         since: user.closed_reason ? null : iso(user.customer_closed_at),
         blocks: [...BLOCKS.closed],
         lift: { by: 'staff' },
@@ -136,11 +145,12 @@ export class AccountStatusDesk {
     // In the contract's capability order, so the list reads the same every time.
     for (const row of [...capabilities].sort((a, b) => KYC_CAPABILITIES.indexOf(a.capability) - KYC_CAPABILITIES.indexOf(b.capability))) {
       const listed = this.capabilityReasons.get(row.reason_code);
+      const granted = [...this.capabilityMap.values()].some((own) => own.includes(row.capability));
       restrictions.push({
         kind: 'capability_off',
         reasonCode: null,
         since: iso(row.at),
-        blocks: [...BLOCKS.capability_off],
+        blocks: granted ? [...BLOCKS.capability_off] : [],
         lift: { by: 'none' },
         capability: row.capability,
         owner: { code: row.reason_code, text: listed?.reason ?? null, guidance: listed?.guidance ?? null },
@@ -165,7 +175,12 @@ export class AccountStatusDesk {
       reasonCode: first?.reasonCode ?? null,
       since: first?.since ?? null,
       restrictions,
-      canStill: ACCOUNT_ACTIONS.filter((action) => !cannot.some((c) => c.action === action)),
+      // Asking for a level with a switched-off capability is listed only for an account that has one.
+      canStill: ACCOUNT_ACTIONS.filter(
+        (action) =>
+          !cannot.some((c) => c.action === action) &&
+          (action !== 'request_level_with_switched_off_capability' || restrictions.some((r) => r.kind === 'capability_off')),
+      ),
       cannot,
     };
   }

@@ -163,7 +163,7 @@ export function RestrictionList({ restrictions }: { restrictions: readonly Accou
           </strong>{' '}
           {reason(r)} {r.since && <Copy k="since" params={{ time: stamp(r.since, timeZone) }} />}{' '}
           {r.kind === 'trading_restricted' && <Copy k="blocksNothing_trading_restricted" />}
-          {r.kind === 'capability_off' && <Copy k="capabilityStops" />} {lift(r)}
+          {r.kind === 'capability_off' && <Copy k={r.blocks.length > 0 ? 'capabilityStops' : 'capabilityStopsNothing'} />} {lift(r)}
         </li>
       ))}
     </ul>

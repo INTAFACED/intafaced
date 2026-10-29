@@ -513,7 +513,7 @@ test(`${J} #7: a restriction on another screen gives its reason in plain words a
   await expect(restrictions.getByTestId('verification__restrictions-none')).toHaveCount(0);
 
   // On another screen, the account status: the reason in the owner's plain words, the next step, what it stops today
-  // (a new request for a level that includes it) and what it does not (orders and transfers), and that nothing lifts it.
+  // (a new request for the level that grants it) and what it does not (orders and transfers), and that nothing lifts it.
   await restrictions.getByRole('link', { name: 'See your account status' }).click();
   await expect(page).toHaveURL(/\/uc\/account/);
   const status = page.getByTestId('account-status');
@@ -522,17 +522,20 @@ test(`${J} #7: a restriction on another screen gives its reason in plain words a
   await expect(off).toContainText('Trade crypto switched off');
   await expect(off).toContainText('TEST: this was switched off after a compliance review.');
   await expect(off).toContainText('Next: TEST: ask Support what the review found.');
-  await expect(off).toContainText('It stops a new request for a level that includes it.');
+  await expect(off).toContainText('It stops a new request for the level that grants it.');
   await expect(off).toContainText('it does not stop your orders or transfers.');
   await expect(off).toContainText('It cannot be switched back on.');
   await expect(status.getByTestId('account-status__cannot').locator('li')).toHaveText([
-    'Ask for a verification level that includes a switched-off capability',
+    'Ask for the verification level that grants a switched-off capability',
   ]);
 });
 
 // ── The platform posting freeze, as the founders' freeze desk does it (A asks, B approves, A runs) ─────────────────────
 
 const founders = { a: null, b: null };
+test.afterAll(async () => {
+  for (const key of ['a', 'b']) await founders[key]?.context().close();
+});
 async function founderPages(browser) {
   for (const key of ['a', 'b']) {
     if (founders[key]) continue;

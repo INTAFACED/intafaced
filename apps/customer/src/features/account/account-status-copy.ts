@@ -19,7 +19,9 @@ export const accountStatusCopy = defineCopy('account.status', {
   liftStaff: 'Only support can lift this.',
   blocksNothing_trading_restricted: 'Support recorded this, but the trading service does not read it, so it does not stop your orders.',
   capabilityStops:
-    'It stops a new request for a level that includes it. No other service reads it today, so it does not stop your orders or transfers.',
+    'It stops a new request for the level that grants it. No other service reads it today, so it does not stop your orders or transfers.',
+  capabilityStopsNothing:
+    'No level is set to grant it, so it does not stop a request. No other service reads it today, so it does not stop your orders or transfers.',
   liftNone: 'It cannot be switched back on.',
   ownerNext: 'Next: {guidance}',
   ownerUnlisted: 'The reason is no longer on our published list.',
@@ -64,5 +66,5 @@ export const accountStatusCopy = defineCopy('account.status', {
   action_add_recovery_keys: 'Add recovery keys or change their plan',
   action_add_withdrawal_address: 'Add a withdrawal address',
   action_withdraw_to_address: 'Start a send to a withdrawal address',
-  action_request_level_with_switched_off_capability: 'Ask for a verification level that includes a switched-off capability',
+  action_request_level_with_switched_off_capability: 'Ask for the verification level that grants a switched-off capability',
 });

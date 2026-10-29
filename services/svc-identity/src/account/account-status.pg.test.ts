@@ -15,6 +15,7 @@ import { createTestDb } from '../fixture-truncate.testkit.js';
 import { AuthService } from '../auth/auth-service.js';
 import { RankService } from '../rank/rank-service.js';
 import { SecurityLock } from '../auth/security-lock.js';
+import type { KycCapabilityMap } from '../kyc/capabilities.js';
 import { AccountStatusDesk } from './account-status.js';
 import { createAccountStatusRouter } from './account-status-router.js';
 
@@ -62,7 +63,11 @@ if (!(await postgresAvailable(TEST_URL))) {
   const REASONS = new Map([
     ['compliance_hold', { code: 'compliance_hold', reason: 'TEST: switched off after a review.', guidance: 'TEST: ask Support.' }],
   ]);
-  const desk = new AccountStatusDesk(db.sql, 3600, REASONS);
+  // The owner's level map as `assertRequestable` reads it: full grants trading crypto; custody of crypto is on no level.
+  const LEVELS = new Map([['full', ['trade_crypto']]]) as KycCapabilityMap;
+  const desk = new AccountStatusDesk(db.sql, 3600, REASONS, LEVELS);
+  // What an account with no switched-off capability can do: asking for a level with one is not listed for it.
+  const EVERY = ACCOUNT_ACTIONS.filter((a) => a !== 'request_level_with_switched_off_capability');
   const lock = new SecurityLock(db.sql, 0);
   let n = 0;
   const person = async () => {
@@ -79,7 +84,7 @@ if (!(await postgresAvailable(TEST_URL))) {
         reasonCode: null,
         since: null,
         restrictions: [],
-        canStill: [...ACCOUNT_ACTIONS],
+        canStill: EVERY,
         cannot: [],
       });
     });
@@ -108,7 +113,7 @@ if (!(await postgresAvailable(TEST_URL))) {
       expect(status.cannot).toEqual([{ action: 'create_api_key', kind: 'self_freeze' }]);
       expect(status.canStill).toContain('sign_in');
       // With no wait published, the lift time is unknown and the page says a lift refuses.
-      const unpublished = accountStatusSchema.parse(await new AccountStatusDesk(db.sql, undefined, REASONS).read(userId));
+      const unpublished = accountStatusSchema.parse(await new AccountStatusDesk(db.sql, undefined, REASONS, LEVELS).read(userId));
       expect(unpublished.restrictions[0]!.lift).toEqual({ by: 'owner_after_wait', availableAt: null });
     });
 
@@ -129,7 +134,7 @@ if (!(await postgresAvailable(TEST_URL))) {
         'add_withdrawal_address',
         'withdraw_to_address',
       ]);
-      expect(status.canStill).toEqual(['sign_in', 'trade', 'create_api_key', 'request_level_with_switched_off_capability']);
+      expect(status.canStill).toEqual(['sign_in', 'trade', 'create_api_key']);
       await db.sql`UPDATE account_security_locks SET unlock_requested_at = now() - interval '2 seconds', unlocks_at = now() - interval '1 second' WHERE user_id = ${userId}`;
       expect((await read(userId)).state).toBe('active');
     });
@@ -139,7 +144,7 @@ if (!(await postgresAvailable(TEST_URL))) {
       await db.sql`INSERT INTO trading_restrictions (user_id, restricted, version) VALUES (${userId}, true, 1)`;
       const status = await read(userId);
       // svc-trade does not read identity's record, so "you cannot" stays empty and trading stays in "you can still".
-      expect(status).toMatchObject({ state: 'active', reasonCode: null, cannot: [], canStill: [...ACCOUNT_ACTIONS] });
+      expect(status).toMatchObject({ state: 'active', reasonCode: null, cannot: [], canStill: EVERY });
       expect(status.restrictions[0]!.blocks).toEqual([]);
       expect(status.restrictions[0]).toMatchObject({ kind: 'trading_restricted', lift: { by: 'staff' } });
       expect(status.restrictions[0]!.since).toBeNull();
@@ -160,7 +165,7 @@ if (!(await postgresAvailable(TEST_URL))) {
       expect(status.cannot.every((c) => c.kind === 'staff_freeze')).toBe(true);
     });
 
-    it("a KYC capability compliance switched off is listed with the owner's words and next step, blocks nothing and never lifts", async () => {
+    it("a KYC capability compliance switched off is listed with the owner's words and next step, and never lifts", async () => {
       const userId = await person();
       await db.sql`
         INSERT INTO kyc_capabilities (user_id, capability, state, decided_by, reason_code)
@@ -173,24 +178,40 @@ if (!(await postgresAvailable(TEST_URL))) {
         reasonCode: null,
         cannot: [{ action: 'request_level_with_switched_off_capability', kind: 'capability_off' }],
       });
-      const blocks = ['request_level_with_switched_off_capability'];
+      expect(status.canStill).not.toContain('request_level_with_switched_off_capability');
+      // Trading crypto is granted by full, so a request for full is refused; custody of crypto is on no level, so it blocks
+      // nothing (`assertRequestable` reads only the requested level's own list).
       expect(status.restrictions.map((r) => [r.kind, r.capability, r.owner, r.blocks, r.lift])).toEqual([
-        ['capability_off', 'custody_crypto', { code: 'no_longer_listed', text: null, guidance: null }, blocks, { by: 'none' }],
+        ['capability_off', 'custody_crypto', { code: 'no_longer_listed', text: null, guidance: null }, [], { by: 'none' }],
         [
           'capability_off',
           'trade_crypto',
           { code: 'compliance_hold', text: 'TEST: switched off after a review.', guidance: 'TEST: ask Support.' },
-          blocks,
+          ['request_level_with_switched_off_capability'],
           { by: 'none' },
         ],
       ]);
       expect(status.restrictions.every((r) => r.since !== null)).toBe(true);
+      // With no level map published, no request is refused for it: the account reads active, the switch-off still listed,
+      // and asking for a level is something it can still do.
+      const unmapped = accountStatusSchema.parse(await new AccountStatusDesk(db.sql, 3600, REASONS, new Map()).read(userId));
+      expect(unmapped).toMatchObject({ state: 'active', cannot: [] });
+      expect(unmapped.restrictions.map((r) => r.blocks)).toEqual([[], []]);
+      expect(unmapped.canStill).toContain('request_level_with_switched_off_capability');
     });
 
     it('a closed account names the closure code staff recorded', async () => {
       const userId = await person();
       await db.sql`UPDATE users SET status = 'closed', closed_reason = 'customer_request' WHERE id = ${userId}`;
       expect(await read(userId)).toMatchObject({ state: 'closed', reasonCode: 'customer_request', canStill: [] });
+      expect(await desk.read(userId, 'owner')).toMatchObject({ state: 'closed', reasonCode: 'customer_request' });
+      // A staff closure code is for staff: the owner's own read never names a fraud finding.
+      const staffClosed = await person();
+      await db.sql`UPDATE users SET status = 'closed', closed_reason = 'fraud' WHERE id = ${staffClosed}`;
+      expect(await desk.read(staffClosed, 'staff')).toMatchObject({ state: 'closed', reasonCode: 'fraud' });
+      const ownView = accountStatusSchema.parse(await desk.read(staffClosed, 'owner'));
+      expect(ownView).toMatchObject({ state: 'closed', reasonCode: null });
+      expect(ownView.restrictions[0]).toMatchObject({ kind: 'closed', reasonCode: null });
       // Closed by the person through the closure flow: no staff code, so the finalised closure is the code and the time.
       const own = await person();
       await db.sql`UPDATE users SET status = 'closed' WHERE id = ${own}`;

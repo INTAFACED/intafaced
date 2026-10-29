@@ -375,7 +375,8 @@ const transportMail = openIdentityMail({
 const antiPhishingMailKey = antiPhishingKey(parseTotpSecretKey(env.IDENTITY_TOTP_SECRET_KEY));
 const mail = transportMail && withAntiPhishingCode(transportMail, sql, antiPhishingMailKey);
 auth.usePasswordResetMail(mail);
-auth.useKycCapabilities(parseKycCapabilitiesByLevel(env.IDENTITY_KYC_CAPABILITIES_BY_LEVEL));
+const kycCapabilityMap = parseKycCapabilitiesByLevel(env.IDENTITY_KYC_CAPABILITIES_BY_LEVEL);
+auth.useKycCapabilities(kycCapabilityMap);
 auth.useKycAttemptLimit(parseKycAttemptLimit(env));
 auth.usePasswordResetTtl(env.IDENTITY_PASSWORD_RESET_TTL_SECONDS);
 auth.usePasswordResetPolicy({
@@ -735,7 +736,7 @@ export const appRouter = mergeRouters(
   createServerTimeRouter(),
   createSelfFreezeLiftRouter(selfFreezeLift, securityStepUp),
   createSecurityLockRouter(securityLock, securityStepUp),
-  createAccountStatusRouter(new AccountStatusDesk(sql, env.IDENTITY_SELF_FREEZE_LIFT_WAIT_SECONDS, kycCapabilityReasons)),
+  createAccountStatusRouter(new AccountStatusDesk(sql, env.IDENTITY_SELF_FREEZE_LIFT_WAIT_SECONDS, kycCapabilityReasons, kycCapabilityMap)),
   createMfaResetRouter(auth),
   createSupportRecoveryRouter(() => auth.supportRecoveryDeps()),
   createTrustedDevicesRouter(auth, securityStepUp),
