@@ -40,6 +40,14 @@ const CATALOG_ALIAS: Readonly<Record<string, string>> = {
   'edge.api_key_revoked': 'error.forbidden',
   'edge.api_key_expired': 'error.forbidden',
   account_frozen: 'error.forbidden',
+  // The caller's request signature (api-key-refusal.ts, DV-auth-01). The code and the docs link carry the detail;
+  // a blank owner window is the platform's to set, so it takes the generic sentence.
+  'edge.request_unsigned': 'error.forbidden',
+  'edge.request_stale': 'error.forbidden',
+  'edge.request_future': 'error.forbidden',
+  'edge.request_tampered': 'error.forbidden',
+  'edge.request_replay': 'error.forbidden',
+  'edge.request_window_unset': 'error.generic',
   // A key used against the other environment's host (gateway-plane.ts). The code carries the detail.
   'env.mismatch': 'error.forbidden',
   // Framework refusals renamed by the envelope (reply-envelope.ts). `edge.request_invalid` and

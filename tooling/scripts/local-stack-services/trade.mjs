@@ -15,6 +15,11 @@ function otcDeskLaw() {
   return JSON.stringify(law);
 }
 
+/** The TEST provider list, left blank when the switch says so. */
+function otcMakerDirectory() {
+  return process.env.LOCAL_STACK_TRADE_OTC_MAKERS === 'off' ? '' : testValue('TRADE_OTC_MAKER_DIRECTORY');
+}
+
 export default ({ c, secrets, dbUrl, urlOf, PORTS, TEST_FUTURES_LADDER_POLICY }) => ({
   name: 'trade',
   env: () => ({
@@ -114,12 +119,18 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, TEST_FUTURES_LADDER_POLICY })
     // `LOCAL_STACK_TRADE_OTC_SETTLE_WINDOW=off` on a start or restart leaves the law's settle window blank (no deferral),
     // so its "Not set" state can be seen too (J-copy-bots-otc-24 #7). `LOCAL_STACK_TRADE_OTC_MIN_NOTIONAL=off` leaves the
     // desk minimum blank, so a request refuses `trade.rfq_size_not_set` (J-copy-bots-otc-24 #4).
+    // `LOCAL_STACK_TRADE_OTC_MAKERS=off` leaves the provider list blank, so a request refuses "No providers set" (#2).
     TRADE_OTC_DESK_LAW: otcDeskLaw(),
+    TRADE_OTC_MAKER_DIRECTORY: otcMakerDirectory(),
     TRADE_OTC_MIDS: testValue('TRADE_OTC_MIDS'),
-    // LOCAL TEST ONLY, not an owner decision: the developer portal's hosts and data terms (J-developer-01 #2, #3, #6).
-    // `LOCAL_STACK_TRADE_DEVELOPER_HOSTS=off` or `LOCAL_STACK_TRADE_DEVELOPER_DATA_TERMS=off` on a start or restart leaves
-    // that setting blank, so its refusal can be seen too.
+    // LOCAL TEST ONLY, not an owner decision: the developer portal's hosts, regional host rule and data terms
+    // (J-developer-01 #2, #3, #6). `LOCAL_STACK_TRADE_DEVELOPER_HOSTS=off`, `LOCAL_STACK_TRADE_DEVELOPER_REGIONAL_RULE=off`
+    // or `LOCAL_STACK_TRADE_DEVELOPER_DATA_TERMS=off` on a start or restart leaves that setting blank, so its refusal can be
+    // seen too.
     ...(process.env.LOCAL_STACK_TRADE_DEVELOPER_HOSTS === 'off' ? {} : { TRADE_DEVELOPER_HOSTS: testValue('TRADE_DEVELOPER_HOSTS') }),
+    ...(process.env.LOCAL_STACK_TRADE_DEVELOPER_REGIONAL_RULE === 'off'
+      ? {}
+      : { TRADE_DEVELOPER_REGIONAL_RULE: testValue('TRADE_DEVELOPER_REGIONAL_RULE') }),
     ...(process.env.LOCAL_STACK_TRADE_DEVELOPER_DATA_TERMS === 'off'
       ? {}
       : { TRADE_DEVELOPER_DATA_TERMS: testValue('TRADE_DEVELOPER_DATA_TERMS') }),

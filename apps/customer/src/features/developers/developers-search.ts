@@ -1,10 +1,10 @@
 import { SECTIONS } from './developers-model';
-import { REST_REFERENCE, STREAM_REFERENCE, routeLine } from './developers-reference';
+import { REST_REFERENCE, STREAM_REFERENCE, routeLine, streamName } from './developers-reference';
 
 export type DocsMatch = { href: string; title: string };
 
 /** What the API reference is found by: every route line, operation name and stream. Built once. */
-const REFERENCE_TEXT = [...REST_REFERENCE.flatMap((route) => [routeLine(route), route.name]), ...STREAM_REFERENCE.map((s) => s.channel)]
+const REFERENCE_TEXT = [...REST_REFERENCE.flatMap((route) => [routeLine(route), route.name]), ...STREAM_REFERENCE.map(streamName)]
   .join(' ')
   .toLocaleLowerCase();
 

@@ -40,16 +40,12 @@ export type RestRoute = {
 export const CALL_COST = 1;
 
 /**
- * The window the server accepts a signed timestamp in, either way, in seconds: `REQUEST_SIGN_WINDOW_SECONDS` in
- * services/svc-edge/src/api-key-request-sign.ts and services/svc-identity/src/auth/api-key-request-sign.ts, the value the
- * public SDK also publishes. It is a code constant today, not an owner setting; DV-auth-01 makes it one, and then the
- * pages read it. developers-reference.test.ts fails when the constant changes.
+ * Whether a clock this far from the server's (ms, either way) still signs a timestamp the server accepts, given the
+ * owner's window in seconds as identity publishes it (`requestSigningPolicy`, DV-auth-01). Within the window even at
+ * the far edge of the reading: the offset is known only to half a round trip either way.
  */
-export const SIGN_WINDOW_SECONDS = 300;
-
-/** Whether a clock this far from the server's (ms, either way) still signs a timestamp the server accepts. */
-/** Within the window even at the far edge of the reading: the offset is known only to half a round trip either way. */
-export const withinWindow = (offsetMs: number, roundTripMs = 0) => Math.abs(offsetMs) + roundTripMs / 2 <= SIGN_WINDOW_SECONDS * 1000;
+export const withinWindow = (offsetMs: number, roundTripMs: number, windowSeconds: number) =>
+  Math.abs(offsetMs) + roundTripMs / 2 <= windowSeconds * 1000;
 
 /** A key on `/api/v1` needs `trade:read` for a read and `trade:write` for every other method (`requiredScopeFor`). */
 export const scopeFor = (method: Method): Scope => (method === 'GET' ? 'trade:read' : 'trade:write');
@@ -384,18 +380,39 @@ export const REST_REFERENCE: readonly RestRoute[] = [
   },
 ];
 
-export type Stream = { channel: string; product: Product; private: boolean };
+/** svc-ws's four doors: one market per socket, many channels on one socket, the account's own lifecycle, and the drop copy. */
+export const STREAM_DOORS = ['market', 'mux', 'private', 'drop-copy'] as const;
+export type StreamDoor = (typeof STREAM_DOORS)[number];
+export const STREAM_DOOR_PATH: Readonly<Record<StreamDoor, string>> = {
+  market: '/stream',
+  mux: '/stream',
+  private: '/private/stream',
+  'drop-copy': '/drop-copy/stream',
+};
 
-/** `WS_CHANNELS` in the contract, by product. A private channel carries only the signed-in principal's own data. */
+export type Stream = { door: StreamDoor; channel: string; product: Product; private: boolean };
+
+/**
+ * Every channel svc-ws serves, by door and product, as its live inventory (`GET /ws/streams`) lists them. A private
+ * channel carries only the signed-in principal's own data. `futures.mark.` takes a listing symbol after it.
+ */
 export const STREAM_REFERENCE: readonly Stream[] = [
-  { channel: 'orderbook', product: 'spot', private: false },
-  { channel: 'trades', product: 'spot', private: false },
-  { channel: 'ticker', product: 'spot', private: false },
-  { channel: 'ohlcv', product: 'spot', private: false },
-  { channel: 'orders', product: 'spot', private: true },
-  { channel: 'positions', product: 'derivatives', private: true },
-  { channel: 'balance', product: 'accounts', private: true },
+  { door: 'market', channel: 'depth', product: 'spot', private: false },
+  { door: 'market', channel: 'trades', product: 'spot', private: false },
+  { door: 'mux', channel: 'book', product: 'spot', private: false },
+  { door: 'mux', channel: 'trades', product: 'spot', private: false },
+  { door: 'mux', channel: 'ticker', product: 'spot', private: false },
+  { door: 'mux', channel: 'candles', product: 'spot', private: false },
+  { door: 'mux', channel: 'futures.mark.', product: 'derivatives', private: false },
+  { door: 'private', channel: 'orders', product: 'spot', private: true },
+  { door: 'private', channel: 'fills', product: 'spot', private: true },
+  { door: 'private', channel: 'positions', product: 'derivatives', private: true },
+  { door: 'drop-copy', channel: 'drop_copy', product: 'accounts', private: true },
 ];
+
+/** How a stream is named on the page: the channel, with the symbol placeholder where it takes one. */
+export const streamName = (stream: Pick<Stream, 'channel'>) =>
+  stream.channel.endsWith('.') ? `${stream.channel}<symbol>` : stream.channel;
 
 /** Scopes that never reach a key (`INTERACTIVE_ONLY_SCOPES` in packages/auth): withdrawing is not reachable from the API. */
 export const NEVER_ON_A_KEY = ['trade:withdraw'] as const;

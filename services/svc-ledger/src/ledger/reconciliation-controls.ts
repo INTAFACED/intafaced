@@ -24,6 +24,9 @@ import {
   RECONCILIATION_RUN_LIST_DEFAULT,
   reconciliationAccountSetSchema,
   reconciliationControlRunListSchema,
+  reconciliationEvaluationFeedInputSchema,
+  reconciliationEvaluationFeedSchema,
+  type ReconciliationEvaluationFeed,
   reconciliationControlRunSchema,
   reconciliationControlViewSchema,
   reconciliationScheduleSchema,
@@ -436,25 +439,82 @@ export async function listReconciliationControlRuns(sql: Sql, input: unknown): P
   return reconciliationControlRunListSchema.parse({ controlId: control.id, total, runs: rows.map(toRun) });
 }
 
+/**
+ * How long a finished run waits before the evaluation feed shows it. finishRun is one autocommit UPDATE stamped with
+ * clock_timestamp(), so its commit lands well inside this; a commit stalled past it could sort behind a reader's cursor,
+ * which is why the reader's write is idempotent by run id and it may re-read from an earlier cursor.
+ */
+export const RECONCILIATION_EVALUATION_SETTLE_SECONDS = 30;
+
+/**
+ * Every finished evaluation after the cursor, oldest first by (finished_at, id): the feed svc-ops reads to keep one alert
+ * per control, failing asset and period (OPS-reconciliation-03). Read-only, and it reads no table but this service's own.
+ */
+export async function listReconciliationEvaluations(sql: Sql, input: unknown): Promise<ReconciliationEvaluationFeed> {
+  const parsed = reconciliationEvaluationFeedInputSchema.parse(input);
+  const after = parsed.after;
+  // The cursor carries microseconds, as Postgres stores them: a millisecond cursor would sort before its own row and
+  // hand the last evaluation back on every read. It is bound as text, because the driver turns a timestamptz parameter
+  // into a JavaScript Date and drops the microseconds.
+  const rows = await sql<Array<RunRow & { finished_iso: string; severity: ControlRow['severity'] }>>`
+    SELECT ${sql.unsafe(RUN_COLUMNS_AS_R)},
+           to_char(r.finished_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS finished_iso,
+           c.severity
+      FROM reconciliation_control_runs r
+      JOIN reconciliation_controls c ON c.id = r.control_id
+     WHERE r.status <> 'started'
+       AND r.finished_at IS NOT NULL
+       AND r.finished_at <= clock_timestamp() - make_interval(secs => ${RECONCILIATION_EVALUATION_SETTLE_SECONDS})
+       ${after ? sql`AND (r.finished_at, r.id) > (${after.finishedAt}::text::timestamptz, ${after.id}::uuid)` : sql``}
+     ORDER BY r.finished_at ASC, r.id ASC
+     LIMIT ${parsed.limit}
+  `;
+  // A stored run the contract no longer reads is this service's fault, never the caller's: a 500, not a 400.
+  try {
+    const evaluations = rows.map((row) => {
+      const { accounts: _accounts, ...run } = toRun(row);
+      return { run, finishedAt: row.finished_iso, severity: setOrUnset(row.severity) };
+    });
+    const last = rows.at(-1);
+    return reconciliationEvaluationFeedSchema.parse({
+      evaluations,
+      next: last ? { finishedAt: last.finished_iso, id: last.id } : after,
+    });
+  } catch (err) {
+    throw new Error('reconciliation evaluation feed: a stored run does not fit the contract', { cause: err });
+  }
+}
+
 interface AccountHit {
   id: string;
   asset_id: string;
+}
+
+/**
+ * In the set at readAt: created by then on the database clock, or holding an entry posted by then on the posting clock.
+ * The two clocks can disagree by a millisecond or more (created_at is the post's transaction start in microseconds,
+ * posted_at the app's clock in milliseconds), and an account funded at readAt must be counted with its counter-leg.
+ */
+function existedAt(sql: Db, readAt: Date) {
+  return sql`(created_at <= ${readAt} OR EXISTS (
+    SELECT 1 FROM ledger_entries e JOIN ledger_tx t ON t.id = e.tx_id WHERE e.account_id = accounts.id AND t.posted_at <= ${readAt}
+  ))`;
 }
 
 async function accountsInSet(sql: Db, accountSet: ReconciliationAccountSet, readAt: Date): Promise<AccountHit[]> {
   if (accountSet.mode === 'explicit') {
     return sql<AccountHit[]>`
       SELECT id, asset_id FROM accounts
-       WHERE created_at <= ${readAt} AND id = ANY(${accountSet.accountIds}::uuid[])
+       WHERE ${existedAt(sql, readAt)} AND id = ANY(${accountSet.accountIds}::uuid[])
     `;
   }
   if (accountSet.mode === 'all') {
-    return sql<AccountHit[]>`SELECT id, asset_id FROM accounts WHERE created_at <= ${readAt}`;
+    return sql<AccountHit[]>`SELECT id, asset_id FROM accounts WHERE ${existedAt(sql, readAt)}`;
   }
   const prefix = accountSet.ownerIdPrefix ? likePrefix(accountSet.ownerIdPrefix) : null;
   return sql<AccountHit[]>`
     SELECT id, asset_id FROM accounts
-     WHERE created_at <= ${readAt}
+     WHERE ${existedAt(sql, readAt)}
        ${accountSet.ownerType ? sql`AND owner_type = ${accountSet.ownerType}::owner_type` : sql``}
        ${prefix ? sql`AND owner_id LIKE ${prefix} ESCAPE '\\'` : sql``}
        ${accountSet.kind ? sql`AND kind = ${accountSet.kind}::account_kind` : sql``}
@@ -490,32 +550,78 @@ async function cachedBalances(sql: Db, ids: string[]): Promise<Map<string, Amoun
   return out;
 }
 
+interface Book {
+  accounts: AccountHit[];
+  accountIds: string[];
+  /** Each account's last balance_after at readAt: the ledger side of every total. */
+  balances: Map<string, Amount>;
+  /** Each account's entries summed up to readAt. */
+  replayed: Map<string, Amount>;
+  /**
+   * A replay at the current instant only: the cached balance column and every entry the same snapshot shows, per
+   * account. Their equality holds at every instant, so it is checked on the snapshot itself (the cached column has no
+   * history to read at readAt).
+   */
+  drift?: { cached: Map<string, Amount>; replayed: Map<string, Amount> };
+}
+
+class BookReadError extends Error {
+  constructor(
+    readonly phase: 'accounts' | 'ledger',
+    readonly accountIds: string[],
+    options: { cause: unknown },
+  ) {
+    super(`reconciliation book read failed at ${phase}`, options);
+  }
+}
+
 /**
- * Ledger side and replay side from one snapshot, so a post committing mid-run cannot show as drift. A run at the
- * current instant compares the cached balance with the replayed entries (the drift a replay exists to catch); a
- * past run has no cached history and uses each account's last balance_after.
+ * The account set, the ledger side and the replay side at readAt, from one repeatable-read snapshot, for a past run and
+ * a run at the current instant alike. An account created and funded after readAt is in no side, and its counter-leg's
+ * later balance is not counted either: never one leg without the other, and every total matches the run's read_at and
+ * the outside source read at it. A run at the current instant also reads the cached column against the snapshot's
+ * entries (Book.drift) when the check replays. A chain check reads the set only, outside a transaction.
  */
-async function ledgerAndReplay(
+async function readBook(
   sql: Db,
-  ids: string[],
+  accountSet: ReconciliationAccountSet,
   readAt: Date,
   past: boolean,
-): Promise<{ balances: Map<string, Amount>; replayed: Map<string, Amount> }> {
-  const read = async (db: Db) => {
-    const balances = past ? await balancesAt(db, ids, readAt) : await cachedBalances(db, ids);
-    const replayed = await replayedAt(db, ids, readAt);
-    return { balances, replayed };
+  withBalances: boolean,
+  replays: boolean,
+): Promise<Book> {
+  const read = async (db: Db): Promise<Book> => {
+    let accounts: AccountHit[];
+    try {
+      accounts = await accountsInSet(db, accountSet, readAt);
+    } catch (err) {
+      throw new BookReadError('accounts', [], { cause: err });
+    }
+    const accountIds = accounts.map((account) => account.id).sort();
+    if (!withBalances) return { accounts, accountIds, balances: new Map(), replayed: new Map() };
+    try {
+      const balances = await balancesAt(db, accountIds, readAt);
+      const replayed = replays ? await replayedAt(db, accountIds, readAt) : new Map<string, Amount>();
+      if (past || !replays) return { accounts, accountIds, balances, replayed };
+      const drift = { cached: await cachedBalances(db, accountIds), replayed: await replayedAt(db, accountIds, null) };
+      return { accounts, accountIds, balances, replayed, drift };
+    } catch (err) {
+      throw new BookReadError('ledger', accountIds, { cause: err });
+    }
   };
-  if ('begin' in sql && typeof sql.begin === 'function') {
-    return (sql as Sql).begin('isolation level repeatable read read only', (tx) => read(tx)) as Promise<{
-      balances: Map<string, Amount>;
-      replayed: Map<string, Amount>;
-    }>;
+  if (withBalances && 'begin' in sql && typeof sql.begin === 'function') {
+    try {
+      return (await (sql as Sql).begin('isolation level repeatable read read only', (tx) => read(tx))) as Book;
+    } catch (err) {
+      // Opening or closing the snapshot failed: the database is the source that did not answer.
+      throw err instanceof BookReadError ? err : new BookReadError('ledger', [], { cause: err });
+    }
   }
   return read(sql);
 }
 
-async function replayedAt(sql: Db, ids: string[], readAt: Date): Promise<Map<string, Amount>> {
+/** Each account's entries summed up to readAt, or every entry the snapshot shows when readAt is null. */
+async function replayedAt(sql: Db, ids: string[], readAt: Date | null): Promise<Map<string, Amount>> {
   const out = new Map<string, Amount>();
   for (const id of ids) out.set(id, 0n);
   if (ids.length === 0) return out;
@@ -524,7 +630,7 @@ async function replayedAt(sql: Db, ids: string[], readAt: Date): Promise<Map<str
            COALESCE(SUM(CASE WHEN e.direction = 'debit' THEN e.amount ELSE -e.amount END), 0)::text AS replayed
       FROM ledger_entries e
       JOIN ledger_tx t ON t.id = e.tx_id
-     WHERE e.account_id = ANY(${ids}::uuid[]) AND t.posted_at <= ${readAt}
+     WHERE e.account_id = ANY(${ids}::uuid[]) ${readAt ? sql`AND t.posted_at <= ${readAt}` : sql``}
      GROUP BY e.account_id
   `;
   for (const row of rows) out.set(row.account_id, parseAmount(row.replayed));
@@ -582,6 +688,22 @@ function withinStored(asset: AssetEvidence): boolean {
   const difference = parseAmount(asset.difference);
   const abs = difference < 0n ? -difference : difference;
   return abs <= parseAmount(asset.tolerance);
+}
+
+function withDrift(rows: AssetEvidence[], book: Book, tolerance: ToleranceStored | null): AssetEvidence[] {
+  const drift = book.drift;
+  if (!drift) return rows;
+  const drifted = new Map<string, Amount>();
+  for (const account of book.accounts) {
+    const difference = (drift.cached.get(account.id) ?? 0n) - (drift.replayed.get(account.id) ?? 0n);
+    const abs = difference < 0n ? -difference : difference;
+    const tol = toleranceFor(tolerance, account.asset_id);
+    if (tol !== null && abs > tol) drifted.set(account.asset_id, (drifted.get(account.asset_id) ?? 0n) + abs);
+  }
+  if (drifted.size === 0) return rows;
+  const out = rows.filter((asset) => !drifted.has(asset.assetId));
+  for (const [assetId, abs] of drifted) out.push(assetRow(assetId, abs, 0n, toleranceFor(tolerance, assetId), false));
+  return out.sort((a, b) => (a.assetId < b.assetId ? -1 : 1));
 }
 
 function equalAssets(
@@ -646,35 +768,40 @@ function thresholdAssets(
   return assets;
 }
 
+/** Read the book once (readBook) and judge it; the account ids are the ones the verdict counted, stored as its evidence. */
 async function evaluate(
   sql: Db,
   row: ControlRow,
   readAt: Date,
-  ledgerAsOf: string,
+  sources: ReconciliationSources,
+  past: boolean,
+): Promise<{ verdict: Verdict; accountIds: string[] }> {
+  const accountSet = reconciliationAccountSetSchema.parse(row.account_set);
+  let book: Book;
+  try {
+    const replays = row.template === 'ledger_invariant' && (row.check_kind === 'replay' || row.check_kind === 'replay_and_netting');
+    book = await readBook(sql, accountSet, readAt, past, row.check_kind !== 'chain', replays);
+  } catch (err) {
+    if (err instanceof BookReadError) return { verdict: unavailableVerdict(err.phase, readAt), accountIds: err.accountIds };
+    return { verdict: unavailableVerdict('accounts', readAt), accountIds: [] };
+  }
+  return { verdict: await judge(sql, row, accountSet, book, readAt, sources, past), accountIds: book.accountIds };
+}
+
+async function judge(
+  sql: Db,
+  row: ControlRow,
+  accountSet: ReconciliationAccountSet,
+  book: Book,
+  readAt: Date,
   sources: ReconciliationSources,
   past: boolean,
 ): Promise<Verdict> {
-  const baseSources: ReconciliationControlRunView['sources'] = {
-    ledger: { asOf: ledgerAsOf },
+  const emptySources: ReconciliationControlRunView['sources'] = {
+    ledger: { asOf: readAt.toISOString() },
     outside: { asOf: 'unset' },
     parity: { asOf: 'unset' },
   };
-  const accountSet = reconciliationAccountSetSchema.parse(row.account_set);
-  let accounts: AccountHit[] = [];
-  try {
-    accounts = await accountsInSet(sql, accountSet, readAt);
-  } catch {
-    return {
-      status: 'ERROR',
-      phase: 'accounts',
-      errorCode: LEDGER_RECONCILE_SOURCE_UNAVAILABLE,
-      assets: [],
-      outsideSide: 'not_applicable',
-      sources: baseSources,
-    };
-  }
-  const ids = accounts.map((account) => account.id).sort();
-  const emptySources = baseSources;
 
   if (row.check_kind === 'chain') {
     try {
@@ -699,25 +826,17 @@ async function evaluate(
     }
   }
 
-  let ledgerTotals: Map<string, Amount>;
-  let replayTotals: Map<string, Amount>;
-  try {
-    const { balances, replayed } = await ledgerAndReplay(sql, ids, readAt, past);
-    ledgerTotals = sumByAsset(accounts, balances);
-    replayTotals = sumByAsset(accounts, replayed);
-  } catch {
-    return {
-      status: 'ERROR',
-      phase: 'ledger',
-      errorCode: LEDGER_RECONCILE_SOURCE_UNAVAILABLE,
-      assets: [],
-      outsideSide: 'not_applicable',
-      sources: emptySources,
-    };
-  }
+  const ledgerTotals = sumByAsset(book.accounts, book.balances);
 
   if (row.template === 'ledger_invariant' && (row.check_kind === 'replay' || row.check_kind === 'replay_and_netting')) {
-    const replayRows = equalAssets(ledgerTotals, replayTotals, row.tolerance, true);
+    // Each account's last balance_after against its entries at readAt. At the current instant the cached column is also
+    // checked against the snapshot's entries account by account (drift on two accounts cannot cancel); an asset with a
+    // drifting account fails, its row observing the summed size of each account's drift against 0.
+    const replayRows = withDrift(
+      equalAssets(ledgerTotals, sumByAsset(book.accounts, book.replayed), row.tolerance, true),
+      book,
+      row.tolerance,
+    );
     let assets = replayRows;
     if (row.check_kind === 'replay_and_netting' && accountSet.mode === 'all') {
       const zeros = new Map<string, Amount>();
@@ -884,6 +1003,10 @@ function toRun(row: RunRow): ReconciliationControlRunView {
 const RUN_COLUMNS = `
   id, control_id, status, phase, error_code, as_of, read_at, margin, sources, evidence, outside_side, period_start, period_end
 `;
+/** The same columns read through the alias `r`, for a join. */
+const RUN_COLUMNS_AS_R = RUN_COLUMNS.split(',')
+  .map((column) => `r.${column.trim()}`)
+  .join(', ');
 
 function isUniqueViolation(err: unknown, depth = 0): boolean {
   if (!err || typeof err !== 'object' || depth > 3) return false;
@@ -945,11 +1068,9 @@ async function resumeRun(
 ): Promise<ReconciliationControlRunView> {
   let phase = 'accounts';
   try {
-    const accountSet = reconciliationAccountSetSchema.parse(row.account_set);
-    const accounts = await accountsInSet(sql, accountSet, opened.read_at);
-    const accountIds = accounts.map((account) => account.id).sort();
+    reconciliationAccountSetSchema.parse(row.account_set);
     phase = 'evaluate';
-    const verdict = await evaluate(sql, row, opened.read_at, opened.read_at.toISOString(), sources, past);
+    const { verdict, accountIds } = await evaluate(sql, row, opened.read_at, sources, past);
     return toRun(await finishRun(sql, opened.id, verdict, accountIds));
   } catch {
     return toRun(await finishRun(sql, opened.id, unavailableVerdict(phase, opened.read_at), []));

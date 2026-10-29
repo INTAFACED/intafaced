@@ -1,0 +1,10 @@
+-- svc-ops · reverse 20261029180000_reconciliation_alerts.sql
+DROP TABLE IF EXISTS ops.reconciliation_feed;
+DROP TABLE IF EXISTS ops.reconciliation_periods;
+DROP TABLE IF EXISTS ops.reconciliation_ingested_runs;
+DROP TABLE IF EXISTS ops.reconciliation_alert_timeline;
+DROP TABLE IF EXISTS ops.reconciliation_alert_snoozes;
+DROP TABLE IF EXISTS ops.reconciliation_alerts;
+DROP FUNCTION IF EXISTS ops.reconciliation_alert_timeline_guard();
+DROP FUNCTION IF EXISTS ops.reconciliation_alert_snoozes_guard();
+DROP FUNCTION IF EXISTS ops.reconciliation_alerts_guard();

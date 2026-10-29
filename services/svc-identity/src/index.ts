@@ -28,6 +28,7 @@ import { fetchOwnerPayScopes } from './auth/owner-pay-scopes.js';
 import { fetchPayStepUpGrant } from './auth/pay-step-up-grant.js';
 import { registerApiKeyOwnershipRoute } from './auth/api-key-ownership-route.js';
 import { registerServiceMailRoute } from './auth/service-mail.js';
+import { registerWalletSignatureVerifyRoute, signingAccount, verifyWalletSignature } from './auth/wallet-signature-verify.js';
 import { registerTrustedDeviceReadRoute } from './auth/trusted-device-read.js';
 import { assertProdTotpKey, assertSigningEncKey, parseTotpSecretKey } from './auth/totp-crypto.js';
 import { RankService } from './rank/rank-service.js';
@@ -124,7 +125,8 @@ import { installLimitFeeTierDualControl } from './rank/limit-fee-tier.js';
 import { requestMetaAls } from './auth/request-meta.js';
 import { installApiKeyIpExchange, requestIpAls } from './auth/auth-service-ip.js';
 import { installRefreshCookieHooks } from './auth/refresh-cookie.js';
-import { installApiKeyRequestSignExchange } from './auth/api-key-request-sign.js';
+import { installApiKeyRequestSignExchange, parseRequestSignWindow } from './auth/api-key-request-sign.js';
+import { createRequestSigningPolicyRouter } from './request-signing-policy-router.js';
 import { createApiKeyRequestSignRouter } from './api-key-request-sign-router.js';
 import { createDeveloperKeysRouter } from './developer-keys-router.js';
 import { parseApiKeyCapByTier, parseApiKeyIdleExpirySeconds, passkeyMintRule } from './auth/developer-keys.js';
@@ -198,6 +200,8 @@ if (env.IDENTITY_BREACHED_PASSWORDS_FILE) {
 // Request-signing secrets must not sit plaintext in prod or staging.
 assertSigningEncKey(env);
 const signingEncKey = parseTotpSecretKey(env.API_KEY_SIGNING_ENC_KEY);
+// The owner's signing window (DV-auth-01). Blank stays null: every signed request refuses `auth.request_window_unset`.
+const requestSignWindowSeconds = parseRequestSignWindow(env.IDENTITY_REQUEST_SIGN_WINDOW_SECONDS);
 
 const sql = postgres(env.DATABASE_URL, {
   max: env.DATABASE_POOL_MAX,
@@ -518,7 +522,7 @@ installPasskeyMintRefuse(auth, sql);
 auth.usePasskeyLimit(env.PASSKEY_MAX_PER_ACCOUNT);
 installFourEyes();
 installApiKeyAttribution(auth);
-installApiKeyRequestSignExchange(auth, sql, signingEncKey);
+installApiKeyRequestSignExchange(auth, sql, signingEncKey, requestSignWindowSeconds);
 
 const stepUpStore = new SqlCustomerStepUpStore(sql);
 const actionApprovals = new ActionApprovalService(
@@ -668,7 +672,8 @@ export const appRouter = mergeRouters(
   }),
   createClosureOpsRouter(sql),
   createApiKeyIpRouter(sql, auth, auth),
-  createApiKeyRequestSignRouter(sql, auth, signingEncKey),
+  createApiKeyRequestSignRouter(sql, auth, signingEncKey, env.API_KEY_SIGNING_OPTIONAL.trim() === 'true'),
+  createRequestSigningPolicyRouter(requestSignWindowSeconds),
   createApiKeyOriginRouter(sql, auth, auth),
   createApiKeyAccountRouter(sql, auth, auth),
   createApiKeyRotateRouter(sql, auth, auth, signingEncKey),
@@ -681,6 +686,8 @@ export const appRouter = mergeRouters(
     capByTier: parseApiKeyCapByTier(env.IDENTITY_API_KEYS_MAX_BY_TIER),
     idleExpirySeconds: parseApiKeyIdleExpirySeconds(env.IDENTITY_API_KEY_IDLE_EXPIRY_SECONDS),
     mayMint: passkeyMintRule(sql),
+    signingEncKey,
+    signingWindowSeconds: requestSignWindowSeconds,
   }),
   createGrantsRouter(sql),
   createSessionRevokeAllRouter(sql),
@@ -921,6 +928,14 @@ app.get<{ Params: { subAccountId: string } }>('/internal/sub-accounts/:subAccoun
 /** Mail another service asks identity to send to a customer's own proved address (service-mail.ts). */
 registerServiceMailRoute(app, {
   queue: (input) => auth.queueServiceMail(input),
+  internalSecret: env.INTERNAL_SERVICE_SECRET,
+  bodyBind: env.INTERNAL_SERVICE_BODY_BIND,
+  ...(doorS2s ? { s2s: doorS2s } : {}),
+});
+
+/** Whether a message was signed by one of a customer's linked wallets, for svc-token's signed votes (wallet-signature-verify.ts). */
+registerWalletSignatureVerifyRoute(app, {
+  verify: (input) => verifyWalletSignature((userId) => signingAccount(sql, userId), input),
   internalSecret: env.INTERNAL_SERVICE_SECRET,
   bodyBind: env.INTERNAL_SERVICE_BODY_BIND,
   ...(doorS2s ? { s2s: doorS2s } : {}),

@@ -95,6 +95,10 @@ The spec pins this URL. Add `{ prefix: '/api/v1/announcements', module: 'notify'
 
 svc-bank checking whether an account is frozen has no user's request behind it, so it is a named identity procedure with `CALLERS = ['svc-bank']` (rule 4). The account-state route that accepts any verified service (`services/svc-identity/src/index.ts:783`) is not reused for new callers.
 
+### 3.12 OPS-reconciliation-03 reconciliation evaluation feed for svc-ops (yes, one named ledger door; added 2026-10-29)
+
+svc-ops keeps the reconciliation alert store, so it must see every finished evaluation, including ones run by the schedule with no person behind them. Rule 2 does not fit (no user request), and no event carries evaluations today (rule 3). It is a named service call (rule 4) on svc-ledger's service port, `reconciliationEvaluations`, with svc-ops alone in `LEDGER_DOOR_CALLERS`, svc-ledger's existing callers list for its doors (the pattern `feeRevenue` and `restoreWatermark` already use), and a door test that refuses every other caller. It answers reconciliation results only (status, the two sides per asset, period and severity), never an account balance or an entry, and no account list, so it is not the ledger read rule 5 keeps posters away from; 3.7's "no other new read door" stays true for balances, balance lists and history. A later event for evaluations (rule 3) may replace the door.
+
 ## Consequences
 
 - No new S2S identity and no new holder of the shared secret.
