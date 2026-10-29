@@ -52,7 +52,7 @@ describe('parseOtcDeskLawJson', () => {
       parseOtcDeskLawJson(
         JSON.stringify({ published: true, spreadBps: 25, counterparty: 'platform', quoteTtlMs: 15_000, maxMidAgeSeconds: 60 }),
       ),
-    ).toThrow(OtcError);
+    ).toThrow(expect.objectContaining({ code: 'trade.otc_desk_law_blank' }));
   });
 
   it('refuses invent — missing quoteTtlMs (no invented 30000)', () => {
@@ -123,5 +123,19 @@ describe('requirePublishedOtcDeskLaw', () => {
 
   it('status line names refuse-closed when unpublished', () => {
     expect(otcDeskLawStatusLine(UNPUBLISHED_OTC_DESK_LAW)).toContain('published=0');
+  });
+
+  it('status line publishes the stake floor the desk enforces, as a decimal', () => {
+    const law = parseOtcDeskLawJson(
+      JSON.stringify({
+        published: true,
+        spreadBps: 25,
+        minStake: '100.5',
+        counterparty: 'platform',
+        quoteTtlMs: 15_000,
+        maxMidAgeSeconds: 60,
+      }),
+    );
+    expect(/(?:^| )minStake=(\S+)/.exec(otcDeskLawStatusLine(law))?.[1]).toBe('100.5');
   });
 });

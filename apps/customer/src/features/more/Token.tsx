@@ -1,15 +1,16 @@
 import { t as copyText, Text } from './copy';
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { z } from 'zod';
 import { useApi, useSession } from '../session/session';
 import { useResource, type Resource } from '../../shared/resource';
 import { decimalSchema, displayAmount, parseAmount } from '../../shared/money';
 import type { ApiResult } from '../../shared/api';
 import { currentPreferences, usePreferences } from '../../shared/preferences';
-import { Button, DataTable, EmptyState, Field, Panel, Tabs } from '../../shared/ui';
+import { Button, DataTable, EmptyState, Panel, Tabs } from '../../shared/ui';
 import { EmissionEpoch, TokenHoldings } from './TokenHoldings';
-import { Details, Limit, Read, Select, TextArea, presentActionFailure, useAction } from './common';
+import { Details, Limit, Read, Select, presentActionFailure, useAction } from './common';
 import { governanceCopy as G } from './token-governance-copy';
+import { GovernanceDelegation, GovernanceProposals, GovernanceSpace, GovernanceTreasury } from './GovernanceRoom';
 import './token-governance.css';
 const uuid = z.string().guid();
 /** The service stores `gov:proposal:<space>:<author>:<n>`; older rows keep their uuid. */
@@ -221,18 +222,7 @@ export function Token({ tab: first }: { tab?: TokenTab } = {}) {
   const ballot = useSavedBallot(userId);
   const [tab, setTab] = useState<TokenTab>(() => first ?? (selectedFor(userId) ? 'Governance' : 'Staking')),
     [status, setStatus] = useState('all'),
-    [limit, setLimit] = useState(50),
-    [proposalStatus, setProposalStatus] = useState('all'),
-    [proposalKind, setProposalKind] = useState('all'),
-    [proposalLimit, setProposalLimit] = useState(50),
-    [kind, setKind] = useState('curriculum'),
-    [proposalBody, setProposalBody] = useState(''),
-    [opens, setOpens] = useState(''),
-    [closes, setCloses] = useState(''),
-    [validation, setValidation] = useState('');
-  // The same create request keeps its handle until the service confirms it, so submitting it again after an unknown
-  // outcome returns the stored proposal instead of opening a second one. Changed content is a new request.
-  const createAttempt = useRef<{ request: string; handle: string } | null>(null);
+    [limit, setLimit] = useState(50);
   const access = useResource(
       (signal) =>
         api.query('token', 'accessOf', undefined, z.object({ staked: decimalSchema, tier: z.string(), feeDiscountBps: z.number().int() }), {
@@ -252,33 +242,6 @@ export function Token({ tab: first }: { tab?: TokenTab } = {}) {
           { signal },
         ),
       `token-stakes:${userId}:${status}:${limit}`,
-    ),
-    proposals = useResource(
-      (signal) =>
-        api.query(
-          'token',
-          'listProposals',
-          {
-            limit: proposalLimit,
-            ...(proposalStatus !== 'all' ? { status: proposalStatus } : {}),
-            ...(proposalKind !== 'all' ? { kind: proposalKind } : {}),
-          },
-          z
-            .array(governanceProposal)
-            .refine(
-              (rows) =>
-                rows.length <= proposalLimit &&
-                new Set(rows.map((row) => row.id)).size === rows.length &&
-                rows.every(
-                  (row) =>
-                    Date.parse(row.closesAt) > Date.parse(row.opensAt) &&
-                    (proposalStatus === 'all' || row.status === proposalStatus) &&
-                    (proposalKind === 'all' || row.kind === proposalKind),
-                ),
-            ),
-          { signal },
-        ),
-      `token-proposals:${userId}:${proposalStatus}:${proposalKind}:${proposalLimit}`,
     ),
     burned = useResource(
       (signal) => api.query('token', 'burnedSupply', undefined, z.object({ burned: decimalSchema }), { signal }),
@@ -380,64 +343,9 @@ export function Token({ tab: first }: { tab?: TokenTab } = {}) {
         <div className="token-governance">
           <BallotContext saved={ballot} choose={selection.choose} />
           {action.feedback}
+          <GovernanceSpace />
           <div className="token-governance-layout">
-            <Panel title={G.t('proposals')}>
-              <div className="token-governance-heading">
-                <p className="muted">{G.t('intro')}</p>
-                <Button variant="ghost" onClick={proposals.reload}>
-                  {G.t('refreshList')}
-                </Button>
-              </div>
-              <div className="token-governance-filters">
-                <Select
-                  label={G.t('statusFilter')}
-                  value={proposalStatus}
-                  onChange={setProposalStatus}
-                  options={[
-                    { value: 'all', label: G.t('allStatus') },
-                    ...proposalSchema.shape.status.options.map((value) => ({ value, label: G.t(value) })),
-                  ]}
-                />
-                <Select
-                  label={G.t('kindFilter')}
-                  value={proposalKind}
-                  onChange={setProposalKind}
-                  options={[
-                    { value: 'all', label: G.t('allKinds') },
-                    ...proposalSchema.shape.kind.options.map((value) => ({ value, label: G.t(value) })),
-                  ]}
-                />
-              </div>
-              <Read resource={proposals.resource} retry={proposals.reload} empty={G.t('empty')}>
-                {(rows) => (
-                  <>
-                    <div className="token-proposal-list" aria-label={copyText('token.governance.proposals')}>
-                      {rows.map((p) => (
-                        <Button
-                          key={p.id}
-                          variant="ghost"
-                          className="token-proposal-row"
-                          aria-label={G.t('inspect', { id: p.id })}
-                          aria-pressed={selection.id === p.id}
-                          aria-controls="token-selected-proposal"
-                          onClick={() => selection.choose(p.id)}
-                        >
-                          <span>
-                            <strong lang={titleLanguage(p)}>{proposalTitle(p)}</strong>
-                            <small>{G.t(p.kind)}</small>
-                            <code lang="zxx">{p.id}</code>
-                          </span>
-                          <span>{G.t(p.status)}</span>
-                        </Button>
-                      ))}
-                    </div>
-                    <Limit count={rows.length} limit={proposalLimit} cap={200} onChange={setProposalLimit} />
-                  </>
-                )}
-              </Read>
-              <p className="muted">{G.t('coverage')}</p>
-              <p className="muted">{G.t('original')}</p>
-            </Panel>
+            <GovernanceProposals selectedId={selection.id} onInspect={selection.choose} inspectLabel={(id) => G.t('inspect', { id })} />
             <div id="token-selected-proposal">
               {!selection.saved && <p role="status">{G.t('selectionStorage')}</p>}
               {selection.id ? (
@@ -449,110 +357,8 @@ export function Token({ tab: first }: { tab?: TokenTab } = {}) {
               )}
             </div>
           </div>
-          <details className="token-create">
-            <summary>{copyText('token.create.a.proposal')}</summary>
-            <Panel title={copyText('token.create.a.proposal')}>
-              <p className="muted">
-                <Text k="token.the.service.decides.which.proposal.kinds.your" />
-              </p>
-              <form
-                onSubmit={(e) => {
-                  e.preventDefault();
-                  setValidation('');
-                  let body: unknown;
-                  try {
-                    body = JSON.parse(proposalBody);
-                  } catch {
-                    setValidation(copyText('token.enter.a.valid.json.object.for.the'));
-                    return;
-                  }
-                  if (!z.record(z.string(), z.unknown()).safeParse(body).success) {
-                    setValidation(copyText('token.enter.a.valid.json.object.for.the'));
-                    return;
-                  }
-                  if ((opens && !Number.isFinite(Date.parse(opens))) || (closes && !Number.isFinite(Date.parse(closes)))) {
-                    setValidation(copyText('token.enter.valid.opening.and.closing.dates'));
-                    return;
-                  }
-                  if (opens && closes && Date.parse(closes) <= Date.parse(opens)) {
-                    setValidation(copyText('token.the.closing.date.must.be.after.the'));
-                    return;
-                  }
-                  const author = userId;
-                  const opensAt = opens ? new Date(opens).toISOString() : undefined,
-                    closesAt = closes ? new Date(closes).toISOString() : undefined;
-                  const terms = proposalTerms(body);
-                  const request = JSON.stringify([author, kind, terms, opensAt ?? null, closesAt ?? null]);
-                  if (createAttempt.current?.request !== request) createAttempt.current = { request, handle: crypto.randomUUID() };
-                  const handle = createAttempt.current.handle;
-                  action.stage({
-                    title: copyText('token.review.proposal'),
-                    confirm: copyText('token.submit.proposal'),
-                    success: copyText('token.proposal.created'),
-                    reference: handle,
-                    content: (
-                      <Details
-                        items={[
-                          [copyText('token.kind'), kind],
-                          [copyText('token.body'), proposalBody],
-                          [copyText('token.opens'), opens || copyText('token.service.policy')],
-                          [copyText('token.closes'), closes || copyText('token.service.policy')],
-                        ]}
-                      />
-                    ),
-                    run: () =>
-                      api.mutate(
-                        'token',
-                        'createProposal',
-                        {
-                          kind,
-                          body,
-                          handle,
-                          ...(opensAt ? { opensAt } : {}),
-                          ...(closesAt ? { closesAt } : {}),
-                        },
-                        proposalSchema.refine(
-                          (proposal) =>
-                            proposal.kind === kind &&
-                            proposal.authorId === author &&
-                            proposalTerms(proposal.body) === terms &&
-                            (!opensAt || Date.parse(proposal.opensAt) === Date.parse(opensAt)) &&
-                            (!closesAt || Date.parse(proposal.closesAt) === Date.parse(closesAt)),
-                        ),
-                      ),
-                    done: () => {
-                      if (createAttempt.current?.handle === handle) createAttempt.current = null;
-                      proposals.reload();
-                    },
-                  });
-                }}
-              >
-                <Select
-                  label={copyText('token.proposal.kind')}
-                  value={kind}
-                  onChange={setKind}
-                  options={['curriculum', 'fee_param', 'listing', 'grant']}
-                />
-                <TextArea label={copyText('token.proposal.body.as.json.object')} value={proposalBody} onChange={setProposalBody} />
-                <Field
-                  label={copyText('token.opens.at.optional')}
-                  type="datetime-local"
-                  value={opens}
-                  onChange={(e) => setOpens(e.target.value)}
-                />
-                <Field
-                  label={copyText('token.closes.at.optional')}
-                  type="datetime-local"
-                  value={closes}
-                  onChange={(e) => setCloses(e.target.value)}
-                />
-                {validation && <p role="alert">{validation}</p>}
-                <Button type="submit" disabled={action.disabled || !proposalBody.trim()}>
-                  <Text k="token.review.proposal" />
-                </Button>
-              </form>
-            </Panel>
-          </details>
+          <GovernanceDelegation />
+          <GovernanceTreasury />
         </div>
       ) : (
         <div className="more-columns">

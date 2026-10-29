@@ -135,3 +135,4 @@ export * from './identity-kyc-capabilities.js';
 export * from './identity-kyc-attempts.js';
 export * from './identity-kyc-profile.js';
 export * from './identity-kyc-poa.js';
+export * from './identity-kyc-selfie.js';
