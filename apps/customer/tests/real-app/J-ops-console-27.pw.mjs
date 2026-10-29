@@ -509,18 +509,19 @@ async function openLedger(page) {
 
 const controlRow = (section, id) => section.locator(`[data-testid="rc-row"][data-control-id="${id}"]`);
 
-async function defineOutside(section, rail, asset, tag) {
+async function defineOutside(section, asset, tag) {
   const details = section.getByTestId('rc-define');
   if (!(await details.evaluate((el) => el.open))) await details.locator('summary').click();
   const form = section.getByTestId('rc-form-define');
-  const explanation = `LOCAL TEST rail:${rail} ${asset} outside balance ${J} ${tag}`;
+  const explanation = `LOCAL TEST ${asset} outside balance ${J} ${tag}`;
   await form.getByLabel('Template').selectOption('outside_balance');
   await form.getByLabel('Explanation (optional)').fill(explanation);
-  // Every account of an asset nets to 0 by double entry, so the set is this one rail's boundary: the treasury account
-  // `rail:<rail>` value crosses on its way in or out of the platform, read against that rail's own statement.
+  // Every account of an asset nets to 0 by double entry, so the set is the rail boundaries only: the treasury accounts
+  // `rail:<rail>` that value crosses on its way in or out (the stack has no venue or bridge boundary). The outside side
+  // reports those boundaries in the ledger's own signed form, so the run compares like with like.
   await form.getByLabel('Owner type').selectOption('treasury');
   await form.getByLabel('Account kind').selectOption('available');
-  await form.getByLabel('Owner id starts with').fill(`rail:${rail}`);
+  await form.getByLabel('Owner id starts with').fill('rail:');
   await form.getByLabel('Asset', { exact: true }).fill(asset);
   await form.getByLabel('Cadence').selectOption('daily');
   await form.getByLabel('Hour (UTC)').fill('6');
@@ -566,41 +567,32 @@ async function twoFounderRun(a, b, controlId, tag) {
   return (await reply.innerText()).replace(/\s+/g, ' ');
 }
 
-// The rail each step's money crossed (svc-pay's chain rail, svc-bank's TEST payout partner), as the ledger names its
-// boundary `rail:<rail>`. #4 and #5 move value inside the platform and cross no rail.
-const RAIL_OF_STEP = { deposit: 'crypto-native', cashOut: 'payout-sim', withdraw: 'crypto-native' };
-
-test(`${J} #8 reconciles to the cent: the founders' outside-side reconciliation PASSes on every rail the customer's money crossed`, async ({
+test(`${J} #8 reconciles to the cent: the founders' outside-side reconciliation PASSes on every asset the customer holds`, async ({
   browser,
 }) => {
   test.setTimeout(600_000);
   const { moves = {} } = state();
-  const crossings = new Map();
-  for (const [step, byAsset] of Object.entries(moves)) {
-    const rail = RAIL_OF_STEP[step];
-    if (rail) for (const asset of Object.keys(byAsset)) crossings.set(`${rail} ${asset}`, { rail, asset });
-  }
-  // BTC has no outside side in this journey: it came in through #4's fill inside the platform and never crossed a rail.
-  if (!crossings.size) throw new Error(`${J} #3, #6 and #7 recorded no move, so no rail to reconcile`);
+  const assets = [...new Set(Object.values(moves).flatMap((byAsset) => Object.keys(byAsset)))].sort();
+  if (!assets.length) throw new Error(`${J} #3 to #7 recorded no move, so no asset to reconcile`);
   const a = await founder(browser, 'a');
   const b = await founder(browser, 'b');
   const tag = `${state().who.handle}-${Date.now().toString(36)}`;
-  for (const { rail, asset } of [...crossings.values()].sort((x, y) => `${x.rail} ${x.asset}`.localeCompare(`${y.rail} ${y.asset}`))) {
-    const what = `rail:${rail} ${asset}`;
-    const id = await defineOutside(await openLedger(a), rail, asset, tag);
+  for (const asset of assets) {
+    const id = await defineOutside(await openLedger(a), asset, tag);
     const answer = await twoFounderRun(a, b, id, tag);
-    // The run read exactly this rail's one boundary account, and it is not 0: the customer's money crossed it.
-    expect(answer, `${what}: the run reads this rail's one boundary account`).toContain('1 account and');
+    // The run read the rail boundaries, not a set that nets to 0.
+    const read = /(\d+) accounts? and \d+ assets? read\./.exec(answer);
+    expect(read, `${asset}: the run names how many rail boundary accounts it read`).not.toBeNull();
+    expect(Number(read[1]), `${asset}: at least one rail boundary account read`).toBeGreaterThan(0);
     const observed = new RegExp(`${asset.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}: observed (-?[\\d.]+),`).exec(answer);
-    expect(observed, `${what}: the run names what the boundary holds`).not.toBeNull();
-    expect(Number(observed[1]), `${what}: the boundary the customer's money crossed is not 0`).not.toBe(0);
-    // Soft, so every rail's scope above is proven even while its outside side is missing; the step still fails.
+    expect(observed, `${asset}: the run names what the rail boundaries hold`).not.toBeNull();
+    expect(Number(observed[1]), `${asset}: the rail boundaries the customer's money crossed do not sum to 0`).not.toBe(0);
+    // The outside side is the stack's LOCAL TEST outside source (lane 5, LEDGER_RECONCILE_OUTSIDE_SNAPSHOT_URL), built from
+    // the rail stand-ins' own records; with no source the run answers "Outside side: unset", and this clause stays red by name.
+    // Soft, so each asset's scope above is proven even while the outside side is missing; the step still fails.
     expect
-      .soft(
-        answer,
-        `${what}: blocked until svc-ledger reads a per-rail outside source (lane 5) and the stack serves this rail's LOCAL TEST statement`,
-      )
+      .soft(answer, `${asset}: blocked until the stack serves lane 5's LOCAL TEST outside source (Outside side: unset)`)
       .toContain('Outside side: snapshot');
-    expect.soft(answer, what).toMatch(new RegExp(`Run [0-9a-f-]{36}: PASS\\.`));
+    expect.soft(answer, asset).toMatch(new RegExp(`Run [0-9a-f-]{36}: PASS\\.`));
   }
 });
