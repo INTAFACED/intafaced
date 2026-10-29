@@ -228,7 +228,7 @@ test(`${J} #5 presses Run and confirms the spend ceiling: a run row before the e
   // The service's own record: the session holds exactly this one run, completed, and one executed engine response.
   const detail = await agentsCall('session.detail', { sessionId }, 'GET');
   expect(detail.body.result.data.runs).toEqual([{ requestId, startedAt: expect.any(String), state: 'completed' }]);
-  const log = await agentsCall('session.log', { sessionId }, 'GET');
+  const log = await agentsCall('session.log', { sessionId, limit: 50 }, 'GET');
   expect(log.status).toBe(200);
   const engineRuns = log.body.result.data.filter((entry) => entry.kind === 'completion' && entry.status === 'executed');
   expect(engineRuns).toHaveLength(1);
