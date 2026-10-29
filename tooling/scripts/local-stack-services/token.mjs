@@ -34,5 +34,8 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS }) => ({
     ...(process.env.LOCAL_STACK_TOKEN_LAUNCH_REGIONS === 'off'
       ? {}
       : { TOKEN_LAUNCH_RESTRICTED_REGIONS: testValue('TOKEN_LAUNCH_RESTRICTED_REGIONS') }),
+    // Who may vote: the labelled TEST rule. LOCAL_STACK_TOKEN_VOTE_RULE=off restarts the lane with it blank, so a journey
+    // can show token.vote_rule_unset.
+    ...(process.env.LOCAL_STACK_TOKEN_VOTE_RULE === 'off' ? {} : { TOKEN_VOTE_RULE: testValue('TOKEN_VOTE_RULE') }),
   }),
 });

@@ -552,6 +552,7 @@ export const features: readonly Feature[] = [
       '/token',
       '/token/governance',
       '/token/economy',
+      '/token/burn',
       '/token/governance/:proposalId',
       '/blueprint',
       '/blueprint/crew',

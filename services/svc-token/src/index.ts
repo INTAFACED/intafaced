@@ -9,6 +9,7 @@ import { env } from './env.js';
 import { TokenError, TokenService } from './token-service.js';
 import { createLedgerClient } from './ledger-client.js';
 import { createIdentityApprovalClient, unwiredApprovalConsumer } from './action-approval-consume.js';
+import { createIdentityVoteSignatures } from './vote-signature.js';
 import { createTokenRouter, type TokenRouter } from './router.js';
 import { LaunchService } from './launch/launch-service.js';
 import { createParticipantClient, unwiredParticipants } from './launch/eligibility.js';
@@ -19,8 +20,8 @@ import { registerInternalBuyback } from './internal-buyback.js';
 import { defaultEmissionsTickMs, requireEmissionsTickMsForAutoTick } from './emissions-tick.js';
 import { tokenReadyHonesty } from './ready-honesty.js';
 import { readYieldDistributionCronHours, runYieldWindow } from './yield-job.js';
-import { runBuybackWindow } from './buyback-job.js';
-import { createTradeIocMarketBuy } from './buyback-trade-client.js';
+import { buybackJobSet, runBuybackWindow } from './buyback-job.js';
+import { BUYBACK_PLACE_PUBLISHED, createTradeIocMarketBuy } from './buyback-trade-client.js';
 import { readGovernanceParams } from './governance-close.js';
 import { registerProcessHooks, startTelemetry } from '@intafaced/telemetry';
 
@@ -82,7 +83,18 @@ const governanceBps = readGovernanceParams({
   TOKEN_GOVERNANCE_THRESHOLD_BPS: env.TOKEN_GOVERNANCE_THRESHOLD_BPS,
 });
 
+// Signed votes (OWNER 108): identity checks each vote's signer. No IDENTITY_URL refuses every vote unavailable.
+const voteSignatures = env.IDENTITY_URL
+  ? createIdentityVoteSignatures(
+      env.IDENTITY_URL,
+      env.INTERNAL_SERVICE_SECRET,
+      globalThis.fetch,
+      s2s.signer && s2s.s2sMode ? { signer: s2s.signer, mode: s2s.s2sMode } : undefined,
+    )
+  : undefined;
+
 const token = new TokenService(sql, ledger, bus, {
+  ...(voteSignatures ? { voteSignatures } : {}),
   assetId: env.TOKEN_ASSET_ID,
   // T-02: buyback + emission from token_params, not code defaults.
   loadParamsFromDb: true,
@@ -91,6 +103,8 @@ const token = new TokenService(sql, ledger, bus, {
   governanceThresholdBps: governanceBps.thresholdBps,
   // One-day default (owner-present 2026-10-14): a new epoch cannot start sooner than this after the last claim.
   emissionEpochMs: env.EMISSIONS_EPOCH_MS,
+  // Blank stays undefined — a vote refuses token.vote_rule_unset.
+  voteRule: env.TOKEN_VOTE_RULE,
 });
 
 const yieldJob = {
@@ -123,6 +137,13 @@ export const appRouter = createTokenRouter(token, {
   emissionsEnabled: env.EMISSIONS_ENABLED,
   runYieldWindow: (input) => runYieldWindow(yieldJob, input),
   runBuybackWindow: (input) => runBuybackWindow(buybackJob, input),
+  buybackJobSet: buybackJobSet({
+    enabled: env.BUYBACK_JOB_ENABLED,
+    quoteAssetId: env.BUYBACK_QUOTE_ASSET,
+    symbol: env.BUYBACK_SYMBOL,
+    internalSecret: env.INTERNAL_SERVICE_SECRET,
+    placePublished: BUYBACK_PLACE_PUBLISHED,
+  }),
   approvals: actionApprovals,
   launch: {
     service: new LaunchService(sql),
