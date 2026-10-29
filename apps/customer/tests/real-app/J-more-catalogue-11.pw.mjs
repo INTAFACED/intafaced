@@ -24,7 +24,9 @@ const card = (page, name) => cards(page).filter({ has: page.getByRole('link', { 
 
 /** The catalogue as svc-token publishes it, read signed out through Edge. */
 async function published(input = {}) {
-  const res = await fetch(`${EDGE}/api/token/trpc/launch.events.list${trpcInput({ limit: 200, ...input })}`, { headers: { origin: ORIGIN } });
+  const res = await fetch(`${EDGE}/api/token/trpc/launch.events.list${trpcInput({ limit: 200, ...input })}`, {
+    headers: { origin: ORIGIN },
+  });
   const body = await res.json();
   expect(res.status, JSON.stringify(body).slice(0, 300)).toBe(200);
   return body.result.data;
@@ -47,7 +49,8 @@ test(`${J} #1 Opens /launch with no events: the full layout, filters and empty s
   run.reset({});
   expect(await published(), 'the stack must start with no published launch').toEqual([]);
   await openCatalogue(page);
-  for (const tab of ['Launches', 'Journey', 'Check', 'Requirements', 'Participation']) await expect(page.getByRole('tab', { name: tab })).toBeVisible();
+  for (const tab of ['Launches', 'Journey', 'Check', 'Requirements', 'Participation'])
+    await expect(page.getByRole('tab', { name: tab })).toBeVisible();
   await expect(page.getByRole('combobox', { name: 'Type' })).toBeVisible();
   await expect(page.getByRole('combobox', { name: 'State' })).toBeVisible();
   await expect(page.getByRole('heading', { name: 'No launch events yet' })).toBeVisible();

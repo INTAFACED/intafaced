@@ -9,7 +9,10 @@ const EVENT_CREATE = 'token.launch.event.create';
 const EVENT_MOVE = 'token.launch.event.move';
 
 /** The hash svc-token recomputes when it consumes a launch approval (services/svc-token/src/action-approval-consume.ts). */
-const payloadHash = (actionType, fields) => `sha256:${createHash('sha256').update(JSON.stringify({ actionType, ...fields })).digest('hex')}`;
+const payloadHash = (actionType, fields) =>
+  `sha256:${createHash('sha256')
+    .update(JSON.stringify({ actionType, ...fields }))
+    .digest('hex')}`;
 
 /**
  * The canonical event the founders approve, in the order svc-token's `launchEventPayload` writes it. The caller passes
@@ -56,7 +59,12 @@ async function approved(procedure, actionType, fields, expectedVersion, input) {
     payloadHash: payloadHash(actionType, fields),
     policyVersion: gates.MARKERS.policyVersion,
   });
-  const res = await ctx.edge.mutate('token', procedure, { ...input, approvalId: ids.approvalId, operationId: ids.operationId }, await sessions.a.tradeOpsToken());
+  const res = await ctx.edge.mutate(
+    'token',
+    procedure,
+    { ...input, approvalId: ids.approvalId, operationId: ids.operationId },
+    await sessions.a.tradeOpsToken(),
+  );
   const row = res.json?.result?.data;
   if (res.status !== 200 || !row) throw new Error(`token ${procedure} refused (${res.status}): ${res.text.slice(0, 300)}`);
   return row;
@@ -87,5 +95,9 @@ export async function createEvent(event) {
 /** One status step of a launch event over the revision read. Moving to `snapshot` seals the stake snapshot. */
 export async function moveEvent(id, to, expectedRevision) {
   const expected = String(expectedRevision);
-  return approved('launch.events.move', EVENT_MOVE, { eventId: id, to, expectedRevision: expected }, expected, { id, to, expectedRevision });
+  return approved('launch.events.move', EVENT_MOVE, { eventId: id, to, expectedRevision: expected }, expected, {
+    id,
+    to,
+    expectedRevision,
+  });
 }
