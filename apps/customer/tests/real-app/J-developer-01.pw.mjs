@@ -39,7 +39,7 @@ function wsUpstream(on) {
   }
 }
 
-/** svc-trade's published developer values (`hosts` or `data-terms`), read through the edge the way the page reads them. */
+/** svc-trade's published developer values (`hosts`, `regional-rule` or `data-terms`), read through the edge the way the page reads them. */
 async function published(page, kind) {
   const response = await page.request.get(`/api/trade/developer-portal/${kind}`);
   expect(response.status(), await response.text()).toBe(200);
@@ -54,11 +54,12 @@ async function refusedBlank(page, kind, code) {
 }
 
 /**
- * Restart svc-trade with one developer value blank (`HOSTS` or `DATA_TERMS`), or with both TEST values back (null).
+ * Restart svc-trade with one developer value blank (`HOSTS`, `REGIONAL_RULE` or `DATA_TERMS`), or with every TEST value
+ * back (null).
  * tooling/scripts/local-stack-services/trade.mjs leaves a value out when `LOCAL_STACK_TRADE_DEVELOPER_<name>=off`.
  */
 function tradeDeveloperValues(blank) {
-  const names = ['LOCAL_STACK_TRADE_DEVELOPER_HOSTS', 'LOCAL_STACK_TRADE_DEVELOPER_DATA_TERMS'];
+  const names = ['HOSTS', 'REGIONAL_RULE', 'DATA_TERMS'].map((name) => `LOCAL_STACK_TRADE_DEVELOPER_${name}`);
   const before = names.map((name) => process.env[name]);
   for (const name of names) delete process.env[name];
   if (blank) process.env[`LOCAL_STACK_TRADE_DEVELOPER_${blank}`] = 'off';
@@ -128,6 +129,7 @@ test(`${J} #1 opens /developers: sections per audience with an access statement 
 test(`${J} #2 opens the base-URL table: one row per protocol, environment and region, an unset host reads "host not set", and the regional rule waits for the owner`, async ({
   page,
 }) => {
+  test.setTimeout(240_000);
   await page.goto('/developers');
   await page.getByRole('link', { name: /Open the table of base addresses/ }).click();
   await expect(page).toHaveURL(/\/developers\/hosts$/);
@@ -160,7 +162,29 @@ test(`${J} #2 opens the base-URL table: one row per protocol, environment and re
     await expect(row.getByRole('cell').nth(2)).toHaveText('host not set');
     await expect(row.getByRole('code')).toHaveCount(0);
   }
-  await expect(page.getByText('The regional host rule is stated here once the owner sets it.')).toBeVisible();
+  // The regional host rule appears once the owner sets it: the stack's TEST rule is read back from svc-trade and the page
+  // states exactly that text.
+  const rule = page.getByTestId('developers-regional-rule');
+  const { rule: publishedRule } = await published(page, 'regional-rule');
+  expect(publishedRule).toMatch(/^TEST: /);
+  await expect(rule).toHaveAttribute('data-rule-state', 'set');
+  await expect(rule).toHaveText(publishedRule);
+
+  // Until the owner sets it, svc-trade refuses with its one code and the page says the rule waits for the owner, with
+  // that code and no rule text.
+  try {
+    tradeDeveloperValues('REGIONAL_RULE');
+    await refusedBlank(page, 'regional-rule', 'trade.developer_regional_rule_unset');
+    await page.reload();
+    await expect(rule).toHaveAttribute('data-rule-state', 'unset');
+    await expect(rule).toHaveAttribute('data-code', 'trade.developer_regional_rule_unset');
+    await expect(rule).toHaveText('The regional host rule is stated here once the owner sets it.');
+    await expect(rows).toHaveCount(9);
+  } finally {
+    tradeDeveloperValues(null);
+  }
+  await page.reload();
+  await expect(rule).toHaveText(publishedRule);
 });
 
 test(`${J} #3 opens the connectivity options: internet and redundant endpoints with their hosts, a probe with offset and round trip, and colocation parked with the hardware notice`, async ({

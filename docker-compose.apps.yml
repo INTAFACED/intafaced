@@ -752,6 +752,7 @@ services:
       TRADE_OTC_MIDS: ${TRADE_OTC_MIDS:-}
       TRADE_DEVELOPER_HOSTS: ${TRADE_DEVELOPER_HOSTS:-}
       TRADE_DEVELOPER_DATA_TERMS: ${TRADE_DEVELOPER_DATA_TERMS:-}
+      TRADE_DEVELOPER_REGIONAL_RULE: ${TRADE_DEVELOPER_REGIONAL_RULE:-}
       TRADE_OTC_MID_FROM_VENUE: ${TRADE_OTC_MID_FROM_VENUE:-false}
       TRADE_OTC_VENUE_SYMBOLS: ${TRADE_OTC_VENUE_SYMBOLS:-}
       # Spot candle materialization (A-TRADE-SPOT-1). Default OFF — same shape as
@@ -2173,6 +2174,7 @@ services:
         'local-founder-seed.mjs init',
         'local-founder-seed.mjs enrol',
         'local-test-seed.mjs apply',
+        'local-test-seed.mjs home',
         'local-test-seed.mjs status',
       ]
     environment:

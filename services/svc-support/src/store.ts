@@ -60,6 +60,11 @@ export type AddCommentInput = {
   ticketId: string;
   authorId: string;
   authorRole: 'user' | 'operator';
+  /**
+   * `internal` is a staff-only note (SP-tickets-05): only an operator writes one, it never reopens, resumes or touches the
+   * request (its `updatedAt` stays), and its key is kept apart from replies'. Absent is `public`.
+   */
+  visibility?: 'public' | 'internal';
   body: string;
   /** The caller's key: a replay answers the first comment and writes nothing. */
   clientRequestId?: string;
@@ -102,9 +107,23 @@ export type AddCommentResult =
 type CommentReceipt = { fingerprint: string; comment: SupportComment };
 
 function commentFingerprint(input: AddCommentInput): string {
-  return createHash('sha256')
-    .update(JSON.stringify([input.ticketId, input.authorRole, input.body]))
-    .digest('hex');
+  // A public reply's fingerprint is as it was before notes existed, so a key stored then still answers its reply.
+  const said =
+    input.visibility === 'internal'
+      ? [input.ticketId, input.authorRole, 'internal', input.body]
+      : [input.ticketId, input.authorRole, input.body];
+  return createHash('sha256').update(JSON.stringify(said)).digest('hex');
+}
+
+/** The receipt a comment's key is kept under: a note's apart from a reply's, so one key never answers the other. */
+const commentProcedure = (input: AddCommentInput) => (input.visibility === 'internal' ? 'support.note' : 'support.comment');
+
+/** A comment stored in a receipt before notes existed has no visibility: it was a public reply. */
+const receiptComment = (comment: SupportComment): SupportComment => ({ ...comment, visibility: comment.visibility ?? 'public' });
+
+/** Refuses a note by anyone but an operator before anything is read or written; the table's check refuses it too. */
+function assertNoteAuthor(input: AddCommentInput): void {
+  if (input.visibility === 'internal' && input.authorRole !== 'operator') throw new Error('only an operator writes an internal note');
 }
 
 export type AppendEventInput = {
@@ -210,8 +229,11 @@ export interface SupportStore {
   listAll(options?: { limit?: number }): Promise<SupportTicket[]>;
   findById(ticketId: string): Promise<SupportTicket | null>;
   addComment(input: AddCommentInput): Promise<AddCommentResult>;
-  /** Oldest first. Omit `limit` for the full thread (escalation citations / tests). */
-  listComments(ticketId: string, options?: { limit?: number }): Promise<SupportComment[]>;
+  /**
+   * Oldest first. Omit `limit` for the full thread (escalation citations / tests). Internal notes are left out inside the
+   * query unless `withInternal` is true, so a customer read cannot list one by forgetting a filter (SP-tickets-05).
+   */
+  listComments(ticketId: string, options?: { limit?: number; withInternal?: boolean }): Promise<SupportComment[]>;
   /**
    * Lifecycle move + its audit row, atomically. Refuses illegal transitions.
    * Also refuses a settle, from the ticket category, the note, and every
@@ -531,6 +553,7 @@ type PgComment = {
   ticket_id: string;
   author_id: string;
   author_role: 'user' | 'operator';
+  visibility: 'public' | 'internal';
   body: string;
   created_at: Date;
 };
@@ -576,6 +599,7 @@ function commentFromPg(row: PgComment): SupportComment {
     ticketId: row.ticket_id,
     authorId: row.author_id,
     authorRole: row.author_role,
+    visibility: row.visibility,
     body: row.body,
     createdAt: toIso(row.created_at),
   };
@@ -958,14 +982,16 @@ export class MemorySupportStore implements SupportStore {
   }
 
   async addComment(input: AddCommentInput): Promise<AddCommentResult> {
+    assertNoteAuthor(input);
     const ticket = this.tickets.get(input.ticketId);
     if (!ticket) return { status: 'refuse', reason: 'not_found' };
-    const key = input.clientRequestId === undefined ? null : this.receiptKey('support.comment', input.authorId, input.clientRequestId);
+    const key =
+      input.clientRequestId === undefined ? null : this.receiptKey(commentProcedure(input), input.authorId, input.clientRequestId);
     const fingerprint = commentFingerprint(input);
     const prior = key === null ? undefined : (this.receipts.get(key) as CommentReceipt | undefined);
     if (prior) {
       if (prior.fingerprint !== fingerprint) return { status: 'refuse', reason: 'idempotency_conflict' };
-      return { status: 'ok', comment: prior.comment, ticket, reopened: false, replay: true };
+      return { status: 'ok', comment: receiptComment(prior.comment), ticket, reopened: false, replay: true };
     }
     // Closed is terminal for the owner. An operator note after close is a
     // desk annotation, not a reopen, so it is allowed.
@@ -988,6 +1014,7 @@ export class MemorySupportStore implements SupportStore {
       ticketId: input.ticketId,
       authorId: input.authorId,
       authorRole: input.authorRole,
+      visibility: input.visibility ?? 'public',
       body: input.body,
       createdAt: now,
     };
@@ -995,6 +1022,8 @@ export class MemorySupportStore implements SupportStore {
     list.push(comment);
     this.comments.set(input.ticketId, list);
     if (key !== null) this.receipts.set(key, { fingerprint, comment } satisfies CommentReceipt);
+    // A note leaves the request as it was: no reopen, no resume, and no new `updatedAt` for the customer to read.
+    if (input.visibility === 'internal') return { status: 'ok', comment, ticket, reopened: false };
 
     const reopened = ticket.status === 'resolved' && input.authorRole === 'user';
     // A customer reply on a request the team had in progress or on hold puts it back in the open queue;
@@ -1034,8 +1063,8 @@ export class MemorySupportStore implements SupportStore {
     return { status: 'ok', comment, ticket: updated, reopened };
   }
 
-  async listComments(ticketId: string, options?: { limit?: number }): Promise<SupportComment[]> {
-    const rows = [...(this.comments.get(ticketId) ?? [])];
+  async listComments(ticketId: string, options?: { limit?: number; withInternal?: boolean }): Promise<SupportComment[]> {
+    const rows = (this.comments.get(ticketId) ?? []).filter((c) => options?.withInternal === true || c.visibility === 'public');
     return options?.limit === undefined ? rows : rows.slice(0, options.limit);
   }
 
@@ -1729,6 +1758,8 @@ export class PostgresSupportStore implements SupportStore {
   }
 
   async addComment(input: AddCommentInput): Promise<AddCommentResult> {
+    assertNoteAuthor(input);
+    const procedure = commentProcedure(input);
     return this.sql.begin(async (tx): Promise<AddCommentResult> => {
       const locked = await tx<PgTicket[]>`
         SELECT id, user_id, category, subject, body, message_headers, status, assignee_id, created_at, updated_at
@@ -1741,15 +1772,15 @@ export class PostgresSupportStore implements SupportStore {
       const fingerprint = commentFingerprint(input);
       if (input.clientRequestId !== undefined) {
         // One key used on two requests at once serialises here, not only on the ticket lock.
-        await tx`SELECT pg_advisory_xact_lock(hashtextextended(${`support.comment:${input.authorId.length}:${input.authorId}:${input.clientRequestId}`}, 0))`;
+        await tx`SELECT pg_advisory_xact_lock(hashtextextended(${`${procedure}:${input.authorId.length}:${input.authorId}:${input.clientRequestId}`}, 0))`;
         const prior = await tx<{ result: CommentReceipt }[]>`
           SELECT result FROM support.write_receipts
-          WHERE procedure = 'support.comment' AND actor_id = ${input.authorId} AND client_request_id = ${input.clientRequestId}
+          WHERE procedure = ${procedure} AND actor_id = ${input.authorId} AND client_request_id = ${input.clientRequestId}
           LIMIT 1
         `;
         if (prior[0]) {
           if (prior[0].result.fingerprint !== fingerprint) return { status: 'refuse', reason: 'idempotency_conflict' };
-          return { status: 'ok', comment: prior[0].result.comment, ticket: existing, reopened: false, replay: true };
+          return { status: 'ok', comment: receiptComment(prior[0].result.comment), ticket: existing, reopened: false, replay: true };
         }
       }
       if (existing.status === 'closed' && input.authorRole === 'user') {
@@ -1769,17 +1800,19 @@ export class PostgresSupportStore implements SupportStore {
       }
 
       const comments = await tx<PgComment[]>`
-        INSERT INTO support.comments (ticket_id, author_id, author_role, body)
-        VALUES (${input.ticketId}, ${input.authorId}, ${input.authorRole}, ${input.body})
-        RETURNING id, ticket_id, author_id, author_role, body, created_at
+        INSERT INTO support.comments (ticket_id, author_id, author_role, visibility, body)
+        VALUES (${input.ticketId}, ${input.authorId}, ${input.authorRole}, ${input.visibility ?? 'public'}, ${input.body})
+        RETURNING id, ticket_id, author_id, author_role, visibility, body, created_at
       `;
       if (input.clientRequestId !== undefined) {
         const receipt: CommentReceipt = { fingerprint, comment: commentFromPg(comments[0]!) };
         await tx`
           INSERT INTO support.write_receipts (procedure, actor_id, client_request_id, result)
-          VALUES ('support.comment', ${input.authorId}, ${input.clientRequestId}, ${tx.json(receipt as never)})
+          VALUES (${procedure}, ${input.authorId}, ${input.clientRequestId}, ${tx.json(receipt as never)})
         `;
       }
+      // A note leaves the request as it was: no reopen, no resume, and no new `updated_at` for the customer to read.
+      if (input.visibility === 'internal') return { status: 'ok', comment: commentFromPg(comments[0]!), ticket: existing, reopened: false };
 
       const reopened = existing.status === 'resolved' && input.authorRole === 'user';
       const resumed = (existing.status === 'pending' || existing.status === 'on_hold') && input.authorRole === 'user';
@@ -1837,19 +1870,21 @@ export class PostgresSupportStore implements SupportStore {
     });
   }
 
-  async listComments(ticketId: string, options?: { limit?: number }): Promise<SupportComment[]> {
+  async listComments(ticketId: string, options?: { limit?: number; withInternal?: boolean }): Promise<SupportComment[]> {
+    // The internal-note filter is in the query, before the limit: a customer's page is never cut short by notes it cannot see.
+    const withInternal = options?.withInternal === true;
     const rows =
       options?.limit === undefined
         ? await this.sql<PgComment[]>`
-            SELECT id, ticket_id, author_id, author_role, body, created_at
+            SELECT id, ticket_id, author_id, author_role, visibility, body, created_at
             FROM support.comments
-            WHERE ticket_id = ${ticketId}
+            WHERE ticket_id = ${ticketId} AND (visibility = 'public' OR ${withInternal})
             ORDER BY created_at ASC
           `
         : await this.sql<PgComment[]>`
-            SELECT id, ticket_id, author_id, author_role, body, created_at
+            SELECT id, ticket_id, author_id, author_role, visibility, body, created_at
             FROM support.comments
-            WHERE ticket_id = ${ticketId}
+            WHERE ticket_id = ${ticketId} AND (visibility = 'public' OR ${withInternal})
             ORDER BY created_at ASC
             LIMIT ${options.limit}
           `;

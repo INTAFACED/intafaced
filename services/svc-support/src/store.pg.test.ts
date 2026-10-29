@@ -31,6 +31,7 @@ const MIGRATIONS = [
   '0014_ticket_phishing_report.sql',
   '0022_kb_article_audience.sql',
   '0032_kb_library.sql',
+  '20261029180000_internal_notes.sql',
 ].map(migration);
 
 const USER = '11111111-1111-4111-8111-111111111111';
