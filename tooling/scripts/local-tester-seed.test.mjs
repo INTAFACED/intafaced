@@ -85,3 +85,23 @@ test('a step killed by a signal (no status) counts as a failure', () => {
   const spawn = (...args) => ({ ...w.spawn(...args), status: null });
   assert.equal(main(['local-test-seed.mjs apply'], { APP_ENV: 'dev' }, { spawn, log: w.log }), 1);
 });
+
+test('--notice-minutes goes to the home step alone, and refuses on a run without one', () => {
+  const w = watch();
+  const steps = ['local-test-seed.mjs apply', 'local-test-seed.mjs home', 'local-test-seed.mjs status'];
+  assert.equal(main([...steps, '--state', '/tmp/stack', '--notice-minutes', '5'], { APP_ENV: 'test' }, w), 0);
+  assert.deepEqual(
+    w.calls.map((call) => [call.script, ...call.args]),
+    [
+      ['local-test-seed.mjs', 'apply', '--state', '/tmp/stack'],
+      ['local-test-seed.mjs', 'home', '--notice-minutes', '5', '--state', '/tmp/stack'],
+      ['local-test-seed.mjs', 'status', '--state', '/tmp/stack'],
+    ],
+  );
+  assert.equal(parseArgs(['local-test-seed.mjs home']).noticeMinutes, null);
+  const refused = watch();
+  assert.equal(main(['local-test-seed.mjs apply', '--notice-minutes', '5'], { APP_ENV: 'test' }, refused), 2);
+  assert.deepEqual(refused.calls, []);
+  assert.deepEqual(refused.lines, ['refusing: --notice-minutes is for the home step, which this run does not include']);
+  assert.throws(() => parseArgs(['--notice-minutes']), GuardError);
+});

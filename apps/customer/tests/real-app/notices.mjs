@@ -3,6 +3,9 @@ import { noticePayloadHash as payloadHash } from '../../../../tooling/scripts/lo
 // The founders' notice board on the local stack, as an operator uses it: operator A drafts, B approves, A publishes.
 // Each notice carries a short window, so a run leaves nothing open on the stack for the next one.
 
+/** How long a journey waits for an earlier run's notices to close. Every notice a journey opens must end inside it. */
+export const NOTICE_DRAIN_MINUTES = 7;
+
 let gates;
 let ctx;
 let pair;

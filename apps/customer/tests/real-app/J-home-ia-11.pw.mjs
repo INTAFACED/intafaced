@@ -1,15 +1,16 @@
-import { execFileSync } from 'node:child_process';
+import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { existsSync, mkdtempSync, readFileSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { test, expect } from '@playwright/test';
 import { founderTotp, makeContext } from '../../../../tooling/scripts/local-test-gates.mjs';
-import { FOUNDER_VAULT_NAME } from '../../../../tooling/scripts/local-test-founders.mjs';
+import { FOUNDER_VAULT_NAME, foundersEnrolled } from '../../../../tooling/scripts/local-test-founders.mjs';
 import { localStackState } from '../../../../tooling/scripts/local-test-state.mjs';
 import { deviceCodesMailedTo, OUTBOX_NAME } from '../../../../tooling/scripts/local-test-entry.mjs';
 import { HOME_ASSET, HOME_DEPOSIT_AMOUNT, HOME_NOTICE_TITLE } from '../../../../tooling/scripts/local-test-home.mjs';
 import { ADMIN, assertAdminUp } from './admin.mjs';
+import { NOTICE_DRAIN_MINUTES } from './notices.mjs';
 import { EDGE, ORIGIN as CUSTOMER, ROOT } from './stack.mjs';
 
 // J-home-ia-11, in the running app (docs/roadmap/journeys.json): I bring up a test build and sign in as a founder (tester
@@ -40,24 +41,27 @@ function seedService() {
   return null;
 }
 
-/** A seed script run as the seed service runs it; returns { status, out } instead of throwing on a refusal. */
-function run(script, args, env) {
+/**
+ * A seed script run as the seed service runs it: { status, out }, with out holding both streams, instead of throwing on a
+ * refusal. `timeout` caps the run (2 minutes by default); a killed run has no status and counts as failed.
+ */
+function run(script, args, env, { timeout = 120_000 } = {}) {
   const base = { ...process.env };
   delete base.APP_ENV;
   delete base.NODE_ENV;
-  try {
-    const out = execFileSync(process.execPath, [path.join(ROOT, script), ...args], {
-      cwd: ROOT,
-      env: { ...base, ...env },
-      encoding: 'utf8',
-      stdio: ['ignore', 'pipe', 'pipe'],
-      timeout: 120_000,
-    });
-    return { status: 0, out };
-  } catch (error) {
-    return { status: error.status ?? 1, out: `${error.stdout ?? ''}${error.stderr ?? ''}` };
-  }
+  const res = spawnSync(process.execPath, [path.join(ROOT, script), ...args], {
+    cwd: ROOT,
+    env: { ...base, ...env },
+    encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'pipe'],
+    timeout,
+  });
+  const out = `${res.stdout ?? ''}${res.stderr ?? ''}${res.error ? `\n${res.error.message}` : ''}`;
+  return { status: res.status ?? 1, out };
 }
+
+/** The steps the seed service's command names (its compose `command` list), in order. */
+const composeSteps = (block) => [...block.matchAll(/'(local-[a-z-]+\.mjs [a-z]+)'/g)].map((m) => m[1]);
 
 /** The documented tester step (tooling/scripts/local-test-entry.mjs) for founder a: the one value it prints after `label`. */
 function entry(cmd, label) {
@@ -79,17 +83,30 @@ function vault() {
   return JSON.parse(readFileSync(path.join(STATE, FOUNDER_VAULT_NAME), 'utf8'));
 }
 
-// The seed service's Home step, run as it runs it. The journeys stack loads the TEST content with `apply` alone, which
-// makes no Home content, so every other journey starts from an empty notice board (J-home-ia-06). Here the notice is open
-// for 5 minutes rather than the tester's 30 days: J-home-ia-06 waits up to 7 minutes for leftover notices to close, so in
-// either order in a shard it waits this one out. The seed publishes it last, after the deposit and its inbox row.
-const NOTICE_MINUTES = '5';
-let homeSeed;
+// The seed service's own entrypoint (local-tester-seed.mjs), run with the TEST content steps its compose command names
+// (apply, home, status), on a test build. Its founder steps (init, enrol) are not run here: the journeys stack enrols its
+// founder pair itself (local-test-stack.mjs, through the founder seed's own enrolment), and `init` refuses a machine that
+// already has founder files, so #1 reads the pair back instead. The journeys stack loads the TEST content with `apply`
+// alone, which makes no Home content, so every other journey starts from an empty notice board (J-home-ia-06). Here the
+// notice is open for NOTICE_MINUTES rather than the tester's 30 days, inside the NOTICE_DRAIN_MINUTES that J-home-ia-06
+// waits for leftover notices, so in either order in a shard it waits this one out. The seed publishes it last, after the
+// deposit and its inbox row. The run may take as long as `home`'s own waits (150 s each for the credit and the row).
+const NOTICE_MINUTES = String(NOTICE_DRAIN_MINUTES - 2);
+const SEED_ENTRY = 'tooling/scripts/local-tester-seed.mjs';
+let contentSteps;
+let seedRun;
 test.beforeAll(() => {
-  test.setTimeout(3 * 60_000);
-  homeSeed = run('tooling/scripts/local-test-seed.mjs', ['home', '--notice-minutes', NOTICE_MINUTES, '--state', STATE], {
-    LOCAL_TEST: '1',
-  });
+  test.setTimeout(8 * 60_000);
+  const seed = seedService();
+  contentSteps = seed ? composeSteps(seed.block).filter((step) => step.startsWith('local-test-seed.mjs ')) : [];
+  seedRun = run(
+    SEED_ENTRY,
+    [...contentSteps, '--state', STATE, '--notice-minutes', NOTICE_MINUTES],
+    { APP_ENV: 'test' },
+    {
+      timeout: 7 * 60_000,
+    },
+  );
 });
 
 test(`${J} #1 the tester profile starts healthy services, and its seed service runs once and reports what it made`, async () => {
@@ -104,24 +121,30 @@ test(`${J} #1 the tester profile starts healthy services, and its seed service r
   expect(seed.block).toMatch(/profiles:\s*\[?\s*['"]?tester['"]?/);
   // Once: it is never restarted after it exits.
   expect(seed.block).toMatch(/^ {4}restart: 'no'$/m);
-  const order = [
+  expect(seed.block).toContain(`'node',\n        '${SEED_ENTRY}',`);
+  expect(composeSteps(seed.block)).toEqual([
     'local-founder-seed.mjs init',
     'local-founder-seed.mjs enrol',
     'local-test-seed.mjs apply',
     'local-test-seed.mjs home',
-  ].map((step) => seed.block.indexOf(step));
-  expect(
-    order.every((at) => at >= 0),
-    `the seed service runs ${order}`,
-  ).toBe(true);
-  expect([...order].sort((a, b) => a - b)).toEqual(order);
+    'local-test-seed.mjs status',
+  ]);
 
-  // Its Home step (run above as the service runs it) says what it made: the TEST deposit, notice and inbox row.
-  expect(homeSeed.status, homeSeed.out).toBe(0);
+  // The founder steps' result on this stack: both founders have an account and a confirmed second factor.
+  expect(foundersEnrolled(vault())).toBe(true);
+
+  // The entrypoint (run above) ran each content step once, in the command's order, and ended with what it made.
+  expect(seedRun.status, seedRun.out).toBe(0);
+  const ran = [...seedRun.out.matchAll(/^seed: (local-[a-z-]+\.mjs [a-z]+)$/gm)].map((m) => m[1]);
+  expect(ran).toEqual(['local-test-seed.mjs apply', 'local-test-seed.mjs home', 'local-test-seed.mjs status']);
+  expect(seedRun.out).toMatch(/^seed: done \(3 steps\)$/m);
   const founder = vault().founders[0].handle;
-  expect(homeSeed.out).toContain(`home deposit: ${HOME_DEPOSIT_AMOUNT} ${HOME_ASSET} on TEST `);
-  expect(homeSeed.out).toContain(`home notice: ${HOME_NOTICE_TITLE} `);
-  expect(homeSeed.out).toContain(`home inbox: 1 deposit-credited row for ${founder}`);
+  expect(seedRun.out).toContain(`home deposit: ${HOME_DEPOSIT_AMOUNT} ${HOME_ASSET} on TEST `);
+  expect(seedRun.out).toContain(`home notice: ${HOME_NOTICE_TITLE} `);
+  expect(seedRun.out).toContain(`home inbox: 1 deposit-credited row for ${founder}`);
+  // Its closing `status` step reports the same three things.
+  expect(seedRun.out).toContain(`  deposit  ${HOME_DEPOSIT_AMOUNT} ${HOME_ASSET} credited  ${founder}`);
+  expect(seedRun.out).toContain(`  notice  ${HOME_NOTICE_TITLE}  published`);
 
   // What it made: Home's TEST deposit, TEST notice and inbox row, beside the Earn, Loans, Convert and P2P content.
   const report = seedStatus();
@@ -190,7 +213,7 @@ test(`${J} #3 the founder's Home shows a TEST deposit in the total, a TEST notic
   await expect(page).toHaveURL(/\/home$/);
 
   // What the seed made for founder a, read back from the services (status writes nothing).
-  expect(homeSeed.status, homeSeed.out).toBe(0);
+  expect(seedRun.status, seedRun.out).toBe(0);
   const status = seedStatus();
   expect(status.status, status.out).toBe(0);
   const made = /^ {2}deposit {2}(\S+) (\S+) credited {2}(\S+)$/m.exec(status.out);
