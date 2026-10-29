@@ -257,6 +257,8 @@ export async function installMock(page, { room, now, optionsPolicy = 'paper', sc
         makerRouting: { published: false, residual: null },
         midFeed: { wiring: 'TEST', published: true, residual: null },
       }),
+    'otc.makers.list': () =>
+      trpcOk({ published: true, makers: [{ id: 'house', name: 'House desk (TEST)', route: 'platform' }], selectCap: 1, emptyLabel: null }),
     'rfq.quote': (input) => {
       const source = input.side === 'sell' ? TEST_QUOTES.sell : TEST_QUOTES.open;
       state.quotes.set(source.quoteId, { ...source });

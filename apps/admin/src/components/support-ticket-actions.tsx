@@ -1,7 +1,8 @@
 'use client';
 
 import { useRef, useState } from 'react';
-import type { SupportTicket } from '@intafaced/contracts';
+import type { SupportTicket, SupportTicketEvent } from '@intafaced/contracts';
+import type { Part } from '@/lib/desk/part';
 import { postSupportAction, type ActionReply } from '@/lib/support/browser';
 import {
   ESCALATION_REASONS,
@@ -16,6 +17,7 @@ import {
   type EscalationReason,
   type SupportActionRequest,
 } from '@/lib/support/model';
+import { lastSequence, newerByOthers, trailWords } from '@/lib/support/trail';
 import { ActionOutcome, ConfirmStep } from './support-action-parts';
 
 /**
@@ -58,12 +60,31 @@ export function citedIds(text: string): string[] {
   return [...new Set(text.split(/[\s,]+/).filter((id) => id !== ''))];
 }
 
-export function buildRequest(kind: ActionKind, ticket: { id: string; status: string }, form: ActionForm): SupportActionRequest {
+export function buildRequest(
+  kind: ActionKind,
+  ticket: { id: string; status: string },
+  form: ActionForm,
+  expectedSequence?: number,
+  sent?: number,
+): SupportActionRequest {
   const ticketId = ticket.id;
-  if (kind === 'reply') return { action: 'reply', ticketId, body: form.replyBody.trim() };
+  if (kind === 'reply')
+    return {
+      action: 'reply',
+      ticketId,
+      body: form.replyBody.trim(),
+      ...(expectedSequence === undefined ? {} : { expectedSequence }),
+      ...(sent === undefined ? {} : { sent }),
+    };
   if (kind === 'status') {
     const note = form.statusNote.trim();
-    return { action: 'status', ticketId, status: effectiveStatus(ticket, form) as 'open', ...(note ? { note } : {}) };
+    return {
+      action: 'status',
+      ticketId,
+      status: effectiveStatus(ticket, form) as 'open',
+      ...(note ? { note } : {}),
+      ...(expectedSequence === undefined ? {} : { expectedSequence }),
+    };
   }
   const cited = citedIds(form.escCited);
   return {
@@ -84,6 +105,12 @@ export interface TicketActionsViewProps {
   readonly onField: (patch: Partial<ActionForm>) => void;
   readonly onArm: (kind: ActionKind | null) => void;
   readonly onSend: () => void;
+  /** Rows someone else wrote since the agent last read the trail, shown when a reply is refused as stale. */
+  readonly stale?: readonly SupportTicketEvent[];
+  /** Why the reply cannot be checked for changes (the trail could not be read); null when it can. */
+  readonly trailUnread?: string | null;
+  /** The agent has read the changes: the next reply is checked from the latest row. */
+  readonly onReadChanges?: () => void;
 }
 
 function Gated({ gate, label, onClick }: { gate: ActionGate; label: string; onClick: () => void }) {
@@ -100,7 +127,8 @@ function Gated({ gate, label, onClick }: { gate: ActionGate; label: string; onCl
 export function TicketActionsView(p: TicketActionsViewProps) {
   const { ticket, form } = p;
   const next = allowedNextStatuses(ticket.status);
-  const reply = replyGate(ticket, form.replyBody, p.busy);
+  const gate = replyGate(ticket, form.replyBody, p.busy);
+  const reply: ActionGate = gate.ok && p.trailUnread ? { ok: false, why: p.trailUnread } : gate;
   const chosen = effectiveStatus(ticket, form);
   const status = statusGate(ticket, chosen, form.statusNote, p.busy);
   const escalate = escalateGate(ticket, form.escSummary, p.busy);
@@ -137,7 +165,9 @@ export function TicketActionsView(p: TicketActionsViewProps) {
           onClick={() => p.onArm('reply')}
         />
       )}
-      <ActionOutcome reply={outcome('reply')} testId="reply-outcome" />
+      <ActionOutcome reply={outcome('reply')} testId="reply-outcome">
+        <StaleChanges p={p} kind="reply" />
+      </ActionOutcome>
 
       <h4>Set the status</h4>
       <div className="dk-row">
@@ -195,7 +225,9 @@ export function TicketActionsView(p: TicketActionsViewProps) {
           onClick={() => p.onArm('status')}
         />
       )}
-      <ActionOutcome reply={outcome('status')} testId="status-outcome" />
+      <ActionOutcome reply={outcome('status')} testId="status-outcome">
+        <StaleChanges p={p} kind="status" />
+      </ActionOutcome>
 
       <h4>Escalate with a case file</h4>
       <p className="dk-muted">
@@ -263,11 +295,45 @@ export function TicketActionsView(p: TicketActionsViewProps) {
   );
 }
 
-export function TicketActions({ ticket, onDone }: { ticket: SupportTicket; onDone: () => void }) {
+/** Under a stale refusal: what someone else changed since the agent read the request, and the way to send again. */
+function StaleChanges({ p, kind }: { p: TicketActionsViewProps; kind: ActionKind }) {
+  if (p.outcome?.kind !== kind || p.outcome.reply.ok || p.outcome.reply.refusal.code !== 'support.stale_ticket') return null;
+  return (
+    <>
+      <ol aria-label="Changes since you opened it" data-testid={`${kind}-stale-rows`}>
+        {(p.stale ?? []).map((e) => (
+          <li key={e.id}>{trailWords(e)}</li>
+        ))}
+      </ol>
+      <button type="button" className="adm-btn" onClick={p.onReadChanges} disabled={p.busy}>
+        I have read the changes
+      </button>
+    </>
+  );
+}
+
+export function TicketActions({
+  ticket,
+  events,
+  userId,
+  onDone,
+}: {
+  ticket: SupportTicket;
+  /** The trail as last read: a reply quotes the last row the agent has read, and svc-support refuses it if someone moved on since. */
+  events: Part<readonly SupportTicketEvent[]>;
+  userId: string;
+  onDone: () => void;
+}) {
   const [form, setForm] = useState<ActionForm>(() => emptyForm(ticket));
+  const rows = events.kind === 'ok' ? events.data : [];
+  // What the agent has read: the trail when the request was opened, moved on only by "I have read the changes".
+  const [seen, setSeen] = useState<number | null>(() => (events.kind === 'ok' ? lastSequence(events.data) : null));
+  const seenNow = seen ?? (events.kind === 'ok' ? lastSequence(rows) : null);
   const [armed, setArmed] = useState<ActionKind | null>(null);
   const [busy, setBusy] = useState(false);
   const [outcome, setOutcome] = useState<TicketActionsViewProps['outcome']>(null);
+  // Replies sent from this view: moves only on a recorded reply, so a retry after "outcome not known" keeps its key.
+  const [sent, setSent] = useState(0);
   const lock = useRef(false);
 
   async function send() {
@@ -276,9 +342,13 @@ export function TicketActions({ ticket, onDone }: { ticket: SupportTicket; onDon
     setBusy(true);
     const kind = armed;
     try {
-      const reply = await postSupportAction(buildRequest(kind, ticket, form));
+      if (seen === null && seenNow !== null) setSeen(seenNow);
+      const reply = await postSupportAction(
+        buildRequest(kind, ticket, form, kind === 'escalate' ? undefined : (seenNow ?? undefined), kind === 'reply' ? sent : undefined),
+      );
       setOutcome({ kind, reply });
       setArmed(null);
+      if (reply.ok && kind === 'reply') setSent((n) => n + 1);
       if (reply.ok) {
         setForm((f) =>
           kind === 'reply'
@@ -308,6 +378,17 @@ export function TicketActions({ ticket, onDone }: { ticket: SupportTicket; onDon
         if (!busy) setArmed(kind);
       }}
       onSend={() => void send()}
+      stale={seenNow === null ? [] : newerByOthers(rows, seenNow, userId)}
+      trailUnread={
+        seenNow === null
+          ? 'The ticket history could not be read, so a change by someone else cannot be checked. Read the ticket again first.'
+          : null
+      }
+      onReadChanges={() => {
+        if (events.kind !== 'ok') return;
+        setSeen(lastSequence(rows));
+        setOutcome(null);
+      }}
     />
   );
 }

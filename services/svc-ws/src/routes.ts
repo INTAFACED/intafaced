@@ -10,6 +10,7 @@ import type { TickerHub } from './mux/ticker-hub.js';
 import type { DropCopyHub } from './drop-copy/hub.js';
 import type { PrivateOrderHub } from './private/hub.js';
 import { withWsSpan } from './tracing.js';
+import { streamInventory } from './stream-inventory.js';
 import {
   DEPTH_L3_UNAVAILABLE,
   DEPTH_SBE_UNAVAILABLE,
@@ -252,6 +253,9 @@ export function registerRoutes(app: FastifyInstance, options: RouteOptions): voi
   });
 
   app.get('/policy', async () => describeGatewayPolicy());
+
+  /** Every channel this process serves, from the lists its doors parse (`stream-inventory.ts`). */
+  app.get('/streams', async () => ({ streams: streamInventory({ muxMounted: options.mux !== undefined }) }));
 
   async function sendNativeL3(
     marketId: string,

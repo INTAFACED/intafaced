@@ -260,3 +260,21 @@ export const exportStartedSchema = z.object({
 
 /** What `settlement.payout` and `settlement.release` answer. */
 export const payoutDoneSchema = z.object({ id: z.string(), status: z.string() });
+
+/** merchantControl.reserve (M-money-out-01): the reserve rule and what is recorded against it. Nothing is withheld. */
+export const reserveViewSchema = z.object({
+  rule: z.object({ rollingReserveBps: z.number().int().min(0), holdDays: z.number().int().min(0) }).nullable(),
+  holding: z.literal('recorded_not_withheld'),
+  payoutsRefused: z.boolean(),
+  assets: z.array(
+    z.object({
+      assetCode: asset,
+      recordedAmount: amount,
+      entries: z.number().int().min(0),
+      nextReleaseAt: timestamp.nullable(),
+      lastReleaseAt: timestamp.nullable(),
+    }),
+  ),
+  readAt: timestamp,
+});
+export type ReserveView = z.infer<typeof reserveViewSchema>;
