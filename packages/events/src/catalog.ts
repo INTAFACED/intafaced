@@ -1391,30 +1391,46 @@ export const coreOpsAlertGroupResolved = defineEvent(
  * alert's change counter, so the business key ops:reconciliation-alert:<alertId>:<sequence> is unique per change and a
  * consumer that receives one twice applies it once. Ids and states only: no amount, account or customer data.
  */
-const reconciliationAlertIdSchema = z.string().uuid();
+const reconciliationAlertIdSchema = z.string().guid();
 const reconciliationAlertSequenceSchema = z.number().int().min(1);
 const reconciliationAlertStateSchema = z.enum(['open', 'acknowledged', 'snoozed', 'resolved', 'accepted']);
+/** The states an alert can be in after each transition: an unsnooze returns it to open or acknowledged. */
+const UPDATED_STATES: Record<'acknowledged' | 'snoozed' | 'unsnoozed' | 'reopened', readonly string[]> = {
+  acknowledged: ['acknowledged'],
+  snoozed: ['snoozed'],
+  unsnoozed: ['open', 'acknowledged'],
+  reopened: ['open'],
+};
 
 export const coreOpsReconciliationAlertOpened = defineEvent(
   'core-ops',
   'reconciliation_alert',
   'opened',
   1,
-  z.object({
-    alertId: reconciliationAlertIdSchema,
-    sequence: reconciliationAlertSequenceSchema,
-    /** The ledger reconciliation control and the run that raised the alert. */
-    controlId: z.string().uuid(),
-    runId: z.string().uuid(),
-    /** The failing asset; null when the run failed with no asset to name, or could not finish. */
-    assetId: z.string().min(1).max(64).nullable(),
-    periodStart: z.string().datetime({ offset: true }),
-    periodEnd: z.string().datetime({ offset: true }),
-    /** `fail`: the books disagree, raised to finance. `error`: the run could not finish, raised to the platform team. */
-    cause: z.enum(['fail', 'error']),
-    team: z.enum(['finance', 'platform']),
-    openedAt: z.string().datetime({ offset: true }),
-  }),
+  z
+    .object({
+      alertId: reconciliationAlertIdSchema,
+      sequence: reconciliationAlertSequenceSchema,
+      /** The ledger reconciliation control and the run that raised the alert. */
+      controlId: z.string().uuid(),
+      runId: z.string().guid(),
+      /** The failing asset; null when the run failed with no asset to name, or could not finish. */
+      assetId: assetIdSchema.nullable(),
+      periodStart: z.string().datetime({ offset: true }),
+      periodEnd: z.string().datetime({ offset: true }),
+      /** `fail`: the books disagree, raised to finance. `error`: the run could not finish, raised to the platform team. */
+      cause: z.enum(['fail', 'error']),
+      team: z.enum(['finance', 'platform']),
+      openedAt: z.string().datetime({ offset: true }),
+    })
+    .refine((p) => (p.cause === 'fail') === (p.team === 'finance'), {
+      message: 'a failing run is raised to finance and a run that could not finish to the platform team',
+      path: ['team'],
+    })
+    .refine((p) => Date.parse(p.periodEnd) >= Date.parse(p.periodStart), {
+      message: 'the period ends before it starts',
+      path: ['periodEnd'],
+    }),
   'svc-ops raised a reconciliation alert from a finished ledger reconciliation run. A failing run goes to finance; a run that could not finish goes to the platform team. Business key ops:reconciliation-alert:<alertId>:<sequence>.',
 );
 
@@ -1423,16 +1439,21 @@ export const coreOpsReconciliationAlertUpdated = defineEvent(
   'reconciliation_alert',
   'updated',
   1,
-  z.object({
-    alertId: reconciliationAlertIdSchema,
-    sequence: reconciliationAlertSequenceSchema,
-    /** `reopened`: a repeat failure in the same period reopened a resolved alert; the actor is then `auto`. */
-    transition: z.enum(['acknowledged', 'snoozed', 'unsnoozed', 'reopened']),
-    state: reconciliationAlertStateSchema,
-    /** The signed operator, or `auto` for a change the evaluator made. Never a shared credential. */
-    actor: z.string().min(1),
-    changedAt: z.string().datetime({ offset: true }),
-  }),
+  z
+    .object({
+      alertId: reconciliationAlertIdSchema,
+      sequence: reconciliationAlertSequenceSchema,
+      /** `reopened`: a repeat failure in the same period reopened a resolved alert; the actor is then `auto`. */
+      transition: z.enum(['acknowledged', 'snoozed', 'unsnoozed', 'reopened']),
+      state: reconciliationAlertStateSchema,
+      /** The signed operator, or `auto` for a change the evaluator made. Never a shared credential. */
+      actor: z.string().min(1),
+      changedAt: z.string().datetime({ offset: true }),
+    })
+    .refine((p) => UPDATED_STATES[p.transition].includes(p.state), {
+      message: 'the state does not follow from the transition',
+      path: ['state'],
+    }),
   'A reconciliation alert was acknowledged, snoozed, unsnoozed or reopened by a repeat failure in its period. Never changes a balance. Business key ops:reconciliation-alert:<alertId>:<sequence>.',
 );
 
@@ -1441,19 +1462,27 @@ export const coreOpsReconciliationAlertResolved = defineEvent(
   'reconciliation_alert',
   'resolved',
   1,
-  z.object({
-    alertId: reconciliationAlertIdSchema,
-    sequence: reconciliationAlertSequenceSchema,
-    /** `fixed`: an operator linked the corrective ledger transactions. `auto`: a later run of the same control and period passed. */
-    resolution: z.enum(['fixed', 'auto']),
-    /** The corrective ledger transaction ids, each checked to exist; empty for `auto`. */
-    correctiveTxIds: z.array(z.string().uuid()).max(20),
-    /** The run that passed, for `auto`; null for `fixed`. */
-    passingRunId: z.string().uuid().nullable(),
-    /** The signed operator, or `auto`. */
-    actor: z.string().min(1),
-    resolvedAt: z.string().datetime({ offset: true }),
-  }),
+  z
+    .object({
+      alertId: reconciliationAlertIdSchema,
+      sequence: reconciliationAlertSequenceSchema,
+      /** `fixed`: an operator linked the corrective ledger transactions. `auto`: a later run of the same control and period passed. */
+      resolution: z.enum(['fixed', 'auto']),
+      /** The corrective ledger transaction ids, each checked to exist; empty for `auto`. */
+      correctiveTxIds: z.array(z.string().guid()).max(20),
+      /** The run that passed, for `auto`; null for `fixed`. */
+      passingRunId: z.string().guid().nullable(),
+      /** The signed operator, or `auto`. */
+      actor: z.string().min(1),
+      resolvedAt: z.string().datetime({ offset: true }),
+    })
+    .refine(
+      (p) =>
+        p.resolution === 'fixed'
+          ? p.correctiveTxIds.length > 0 && p.passingRunId === null && p.actor !== 'auto'
+          : p.correctiveTxIds.length === 0 && p.passingRunId !== null && p.actor === 'auto',
+      { message: 'a fix names its corrective transactions and an operator; an auto resolve names the passing run', path: ['resolution'] },
+    ),
   'A reconciliation alert was resolved as fixed (with the corrective ledger transactions it names) or automatically when a later run passed. Resolving never changes a balance. Business key ops:reconciliation-alert:<alertId>:<sequence>.',
 );
 
@@ -1462,16 +1491,20 @@ export const coreOpsReconciliationAlertAccepted = defineEvent(
   'reconciliation_alert',
   'accepted',
   1,
-  z.object({
-    alertId: reconciliationAlertIdSchema,
-    sequence: reconciliationAlertSequenceSchema,
-    /** The operator who asked to accept the discrepancy and the different operator who approved it. */
-    requestedBy: z.string().min(1),
-    approvedBy: z.string().min(1),
-    /** sha-256 of the evidence frozen at acceptance, so a later read can prove it is unchanged. */
-    evidenceHash: z.string().regex(/^[a-f0-9]{64}$/, 'evidenceHash is a sha-256'),
-    acceptedAt: z.string().datetime({ offset: true }),
-  }),
+  z
+    .object({
+      alertId: reconciliationAlertIdSchema,
+      sequence: reconciliationAlertSequenceSchema,
+      /** The operator who asked to accept the discrepancy and the different operator who approved it. */
+      requestedBy: z.string().min(1),
+      approvedBy: z.string().min(1),
+      /** sha-256 of the evidence frozen at acceptance, so a later read can prove it is unchanged. */
+      evidenceHash: z.string().regex(/^[a-f0-9]{64}$/, 'evidenceHash is a sha-256'),
+      /** sha-256 of the required note: the event proves a note was written without carrying its text. */
+      noteHash: z.string().regex(/^[a-f0-9]{64}$/, 'noteHash is a sha-256'),
+      acceptedAt: z.string().datetime({ offset: true }),
+    })
+    .refine((p) => p.requestedBy !== p.approvedBy, { message: 'the approver must be a second operator', path: ['approvedBy'] }),
   'A reconciliation discrepancy was accepted with a note, frozen evidence and a second approver. Never changes a balance. Business key ops:reconciliation-alert:<alertId>:<sequence>.',
 );
 

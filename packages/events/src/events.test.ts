@@ -1028,6 +1028,7 @@ function catalogFixtures(): { [K in EventName]: PayloadOf<K> } {
       requestedBy: uid(),
       approvedBy: uid(),
       evidenceHash: 'b'.repeat(64),
+      noteHash: 'c'.repeat(64),
       acceptedAt: ts(),
     },
     coreOpsComplianceCaseCreated: {
