@@ -462,7 +462,9 @@ test(`${J} #7 the owner chooses the business category and reads its class rule; 
 
   // And a standard TEST category (OWNER 108: cards, crypto and bank transfer), once per stack, so every later journey's
   // business takes every method whichever journeys ran before it (merchant.mjs chooseTakenCategory picks it first).
-  if (!(await a.getByTestId('category-table').getByText('test-standard-shop').isVisible())) {
+  const table = a.getByTestId('category-table');
+  await expect(table).toContainText(LABEL);
+  if (!((await table.textContent()) ?? '').includes('test-standard-shop')) {
     await editor.getByRole('button', { name: 'Add a category' }).click();
     await editor.getByLabel('Key (lowercase words joined by hyphens; it never changes)').fill('test-standard-shop');
     await editor.getByLabel('Name the business reads').fill('TEST Standard shop');
