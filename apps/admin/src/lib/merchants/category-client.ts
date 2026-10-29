@@ -78,6 +78,7 @@ export function categoryHandoff(change: CategoryPolicyPreviewInput, approvalId: 
 }
 
 export const CLASS_WORDS: Record<string, string> = {
+  standard: 'Standard',
   permissionless: 'Permissionless',
   restricted: 'Restricted',
   prohibited: 'Prohibited',
@@ -85,6 +86,7 @@ export const CLASS_WORDS: Record<string, string> = {
 
 /** What each class does, in the words the console and the business both read. */
 export const CLASS_RULE: Record<string, string> = {
+  standard: 'Every rail: cards, crypto-native and bank transfer. No extra documents.',
   permissionless: 'Crypto-native payments only. No extra documents.',
   restricted: 'No card rails (crypto-native and bank transfer only), extra documents and reserve terms.',
   prohibited: 'Not taken: every payment and checkout session is refused.',

@@ -459,6 +459,31 @@ test(`${J} #7 the owner chooses the business category and reads its class rule; 
   await a.reload();
   await expect(a.getByTestId('category-table')).toContainText(LABEL);
   await expect(a.getByTestId('category-event').filter({ hasText: LABEL })).toContainText('TEST add a high-risk category');
+
+  // And a standard TEST category (OWNER 108: cards, crypto and bank transfer), once per stack, so every later journey's
+  // business takes every method whichever journeys ran before it (merchant.mjs chooseTakenCategory picks it first).
+  if (!(await a.getByTestId('category-table').getByText('TEST Standard shop').isVisible())) {
+    await editor.getByRole('button', { name: 'Add a category' }).click();
+    await editor.getByLabel('Key (lowercase words joined by hyphens; it never changes)').fill('test-standard-shop');
+    await editor.getByLabel('Name the business reads').fill('TEST Standard shop');
+    await editor.getByLabel('Class').selectOption('standard');
+    await editor.getByLabel('Why (kept in the history)').fill('TEST add a standard category');
+    await editor.getByRole('button', { name: 'Review the change' }).click();
+    await expect(editor.getByTestId('category-review')).toContainText('TEST Standard shop');
+    await editor.getByRole('button', { name: 'Ask the other founder to approve' }).click();
+    const standardHandoff = await editor.getByLabel('Request for the other founder').inputValue();
+    const contextB2 = await browser.newContext({ baseURL: ADMIN, viewport: { width: 1440, height: 1000 } });
+    const b2 = await contextB2.newPage();
+    await founderSignIn(b2, 'b');
+    await b2.goto('/merchants/categories');
+    const approve2 = b2.getByRole('group', { name: 'Approve a category change' });
+    await approve2.getByLabel('Request from the other founder').fill(standardHandoff);
+    await approve2.getByRole('button', { name: 'Approve this category change' }).click();
+    await expect(approve2).toContainText('Approved');
+    await contextB2.close();
+    await editor.getByRole('button', { name: 'Save the change' }).click();
+    await expect(editor).toContainText('TEST Standard shop is in the table');
+  }
   await contextA.close();
 
   // The owner reads the table with the class rule, reserve and documents, and picks the new category.

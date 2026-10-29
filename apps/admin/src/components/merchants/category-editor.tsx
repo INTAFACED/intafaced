@@ -25,7 +25,7 @@ interface FormValues {
   reason: string;
 }
 
-const EMPTY: FormValues = { key: '', label: '', class: 'permissionless', reservePercent: '', holdDays: '', extraDocuments: '', reason: '' };
+const EMPTY: FormValues = { key: '', label: '', class: 'standard', reservePercent: '', holdDays: '', extraDocuments: '', reason: '' };
 
 function valuesOf(category: BusinessCategory): FormValues {
   return {
@@ -217,6 +217,7 @@ export function CategoryEditor({ categories }: { categories: BusinessCategory[] 
               onChange={(e) => set('class', e.target.value as BusinessCategoryClass)}
               aria-describedby="cat-class-rule"
             >
+              <option value="standard">Standard</option>
               <option value="permissionless">Permissionless</option>
               <option value="restricted">Restricted</option>
               <option value="prohibited">Prohibited</option>

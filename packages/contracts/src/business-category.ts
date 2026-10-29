@@ -5,6 +5,8 @@ import { z } from 'zod';
  * terms. The owner keeps one versioned table; every edit needs a second founder. A business picks its category, and
  * the class of that category decides what it may do:
  *
+ *  - `standard` (OWNER 108): an ordinary verified business. Every rail the platform has (cards, crypto-native and bank
+ *    transfer), no extra documents, no reserve.
  *  - `permissionless`: crypto-native payments only, no extra documents.
  *  - `restricted`: no card payments (card rails are removed; crypto-native and bank transfer still work), extra
  *    verification documents, and reserve terms. Blank reserve terms keep the business from going live (`pay.reserve_terms_unset`); nothing is invented.
@@ -15,12 +17,12 @@ import { z } from 'zod';
  * (`pay.business_category_policy_unset`). A reserve term is a policy value only: holding a reserve is a later ledger
  * movement and nothing here moves money.
  */
-export const BUSINESS_CATEGORY_CLASSES = ['permissionless', 'restricted', 'prohibited'] as const;
+export const BUSINESS_CATEGORY_CLASSES = ['standard', 'permissionless', 'restricted', 'prohibited'] as const;
 export const businessCategoryClassSchema = z.enum(BUSINESS_CATEGORY_CLASSES);
 export type BusinessCategoryClass = z.infer<typeof businessCategoryClassSchema>;
 
 /**
- * The rails a business of each taking class may take payments on. Source: the RC-merchant-08 spec (merchant recon of
+ * The rails a business of each limited class may take payments on (a `standard` one is not limited). Source: the RC-merchant-08 spec (merchant recon of
  * 2026-10-20): "permissionless (crypto-native only)", and "a restricted category removes card rails from rail selection"
  * with "crypto-native still works". So a restricted business keeps every rail that is not a card rail: crypto-native and
  * the bank-transfer rail (`bank-transfer-sandbox`, the only one registered). It is a list rather than "every rail but

@@ -343,7 +343,7 @@ describe(
      * A TEST category in the owner's table, chosen by this business, as the founders' two-person edit and the business's
      * choice write them (J-merchant-02 #7 adds a restricted one on the stack). A restricted one has its reserve set.
      */
-    const chooseTestCategory = async (merchantId: string, cls: 'permissionless' | 'restricted') => {
+    const chooseTestCategory = async (merchantId: string, cls: 'standard' | 'permissionless' | 'restricted') => {
       const key = `test-${cls}-${randomUUID().slice(0, 8)}`;
       const reserve = cls === 'restricted' ? { percent: '5', holdDays: 90 } : null;
       const after = { key, label: 'TEST category', class: cls, reserve };
@@ -387,6 +387,17 @@ describe(
         code: 'pay.checkout_no_method',
       });
       expect((await sql<Array<{ n: string }>>`SELECT count(*)::text AS n FROM pay.payments`)[0]!.n).toBe(before);
+    });
+
+    it('a standard category limits nothing: a fiat link opens on a bank transfer, a crypto one on crypto', async () => {
+      const pay = service('exact_normalised');
+      const m = await pay.createMerchant({ userId: randomUUID(), pricing: { feeBps: 0 } });
+      await chooseTestCategory(m.id, 'standard');
+      const usdt = await pay.createPaymentLink({ merchantId: m.id, label: 'TEST USDT', amount: amt('7'), currency: 'USDT' });
+      expect((await pay.openCheckoutSession({ linkToken: usdt.token, geoCountry: 'DE' })).session.method).toBe('crypto');
+      const eur = await pay.createPaymentLink({ merchantId: m.id, label: 'TEST EUR', amount: amt('7'), currency: 'EUR' });
+      const opened = await pay.openCheckoutSession({ linkToken: eur.token, geoCountry: 'DE', payerName: 'Ada Lovelace' });
+      expect(opened.session.method).toBe('bank_transfer');
     });
 
     it('a restricted category drops only card rails: a fiat link still opens on a bank transfer, a crypto one on crypto', async () => {

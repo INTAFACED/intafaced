@@ -1,7 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import { assertCategoryAllows, categoryRails } from './category.js';
 
-const rule = (cls: 'permissionless' | 'restricted' | 'prohibited', reserveSet = true) => ({ key: `test-${cls}`, class: cls, reserveSet });
+const rule = (cls: 'standard' | 'permissionless' | 'restricted' | 'prohibited', reserveSet = true) => ({
+  key: `test-${cls}`,
+  class: cls,
+  reserveSet,
+});
 const code = (fn: () => void): string | null => {
   try {
     fn();
@@ -12,6 +16,13 @@ const code = (fn: () => void): string | null => {
 };
 
 describe('the rails a business category allows (RC-merchant-08)', () => {
+  it('standard (OWNER 108) takes every rail the platform has, cards included', () => {
+    expect(categoryRails(rule('standard'))).toBeNull();
+    for (const rail of ['card-sandbox', 'crypto-native', 'bank-transfer-sandbox']) {
+      expect(code(() => assertCategoryAllows(rule('standard'), rail))).toBeNull();
+    }
+  });
+
   it('permissionless takes crypto-native only', () => {
     expect(categoryRails(rule('permissionless'))).toEqual(['crypto-native']);
     expect(code(() => assertCategoryAllows(rule('permissionless'), 'crypto-native'))).toBeNull();
