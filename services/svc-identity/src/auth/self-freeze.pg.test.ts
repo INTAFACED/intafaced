@@ -8,6 +8,7 @@ import { SESSION_SCOPES } from '@intafaced/auth';
 import { selfFreezeStateSchema } from '@intafaced/contracts';
 import { createTestDb } from '../fixture-truncate.testkit.js';
 import { AuthService } from './auth-service.js';
+import { SelfFreezeLift } from './self-freeze-lift.js';
 import type { FactorActor } from './factor-gate.js';
 import { RankService } from '../rank/rank-service.js';
 
@@ -136,7 +137,7 @@ if (!available) {
       const done = await auth.selfFreeze({ userId: u.userId, actor: me, reason: 'compromise', password: PASSWORD });
       const during = selfFreezeStateSchema.parse(await auth.selfFreezeState(u.userId));
       expect(during).toEqual({ userId: u.userId, frozen: true, since: done.since.toISOString() });
-      await db.sql`UPDATE account_self_freezes SET state = 'lifted', lifted_at = now() WHERE user_id = ${u.userId}`;
+      await expect(new SelfFreezeLift(db.sql, 0).lift(u.userId)).resolves.toMatchObject({ frozen: false, changed: true });
       expect(selfFreezeStateSchema.parse(await auth.selfFreezeState(u.userId))).toEqual({ userId: u.userId, frozen: false, since: null });
       expect(await auth.selfFreezeState('00000000-0000-4000-8000-000000000000')).toBeNull();
     });

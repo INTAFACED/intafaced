@@ -2159,14 +2159,12 @@ export class AuthService {
    * The owner's freeze as another service reads it (`selfFreezeStateSchema`, `GET /internal/self-freeze/:userId`), or
    * null for an unknown user, which the caller refuses on. One read, so `frozen` and `since` always agree.
    */
+  /** The cross-service read of the same open freeze as `selfFreezeStatus`; null for an unknown user. */
   async selfFreezeState(userId: string): Promise<SelfFreezeState | null> {
-    const rows = await this.sql<Array<{ since: Date | null }>>`
-      SELECT f.since FROM users u
-      LEFT JOIN account_self_freezes f ON f.user_id = u.id AND f.state = 'frozen'
-      WHERE u.id = ${userId}`;
-    if (!rows[0]) return null;
-    const since = rows[0].since;
-    return { userId, frozen: since !== null, since: since ? since.toISOString() : null };
+    const users = await this.sql`SELECT 1 FROM users WHERE id = ${userId}`;
+    if (users.length === 0) return null;
+    const { frozen, since } = await this.selfFreezeStatus(userId);
+    return { userId, frozen, since: since ? since.toISOString() : null };
   }
 
   async selfFreezeStatus(userId: string): Promise<{ frozen: boolean; reason: SelfFreezeReason | null; since: Date | null }> {
