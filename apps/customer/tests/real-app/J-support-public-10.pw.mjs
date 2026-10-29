@@ -66,7 +66,8 @@ const rowOf = (queue, subject) => queue.getByRole('row').filter({ hasText: subje
 /** Opens a request from the queue in its workspace. */
 async function openRequest(page, queue, ticket) {
   await rowOf(queue, ticket.subject).getByRole('button', { name: 'Open' }).click();
-  const workspace = page.getByRole('region', { name: 'Ticket' });
+  // Exact: "Ticket history", "Ticket actions" and "Files on this ticket" are regions inside it.
+  const workspace = page.getByRole('region', { name: 'Ticket', exact: true });
   await expect(workspace).toBeVisible();
   return workspace;
 }
@@ -136,6 +137,7 @@ test(`${J} #2 a filter by field saves as a view and is shared: list and count ag
 
   // A field the queue does not have is refused by name, and the list stays as it was.
   await page.goto(`${ADMIN}/support`);
+  await expect(queue.getByRole('row').filter({ hasNotText: 'Subject' }).first()).toBeVisible();
   const before = await queue.getByRole('row').filter({ hasNotText: 'Subject' }).count();
   await page.goto(`${ADMIN}/support?filter=${encodeURIComponent('nosuchfield:x')}`);
   // Scoped to the page body: Next's route announcer is a second, empty alert outside it.
