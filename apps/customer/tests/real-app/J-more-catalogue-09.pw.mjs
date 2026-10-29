@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { api, fund, journeyState, tool } from './stack.mjs';
 import { signIn, signUp, verify } from './desk.mjs';
 import { tableIn, bodyRows } from './tables.mjs';
-import { addPasskey, virtualAuthenticator } from './identity-factors.mjs';
+import { PASSKEY_ORIGIN, addPasskey, virtualAuthenticator } from './identity-factors.mjs';
 import { installTestWallet } from './test-wallet.mjs';
 
 // J-more-catalogue-09, in the running app (docs/roadmap/journeys.json): read a governance proposal and cast my vote. One
@@ -422,12 +422,13 @@ test(`${J} #6 Opens a proposal and reads my voting power: Power fixed when the p
 });
 
 test(`${J} #7 Casts a vote on an approval, weighted or ranked ballot: A ballot with bad weights is refused; the vote needs a signed message and a validation rule; if the wallet link is absent the typed unavailable reply shows`, async ({
-  page,
+  browser,
 }) => {
   test.setTimeout(240_000);
   const { who, nonce, ballots } = run.read();
   // A TEST wallet stands in for the person's own (test-wallet.mjs), and a virtual passkey confirms linking it. Nothing
-  // reaches a chain.
+  // reaches a chain. Passkeys belong to the relying party `localhost`, so this page runs on PASSKEY_ORIGIN.
+  const page = await (await browser.newContext({ baseURL: PASSKEY_ORIGIN })).newPage();
   await virtualAuthenticator(page);
   const wallet = await installTestWallet(page, { chainId: 1 });
   const client = await api(who);
