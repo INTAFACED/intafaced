@@ -25,6 +25,7 @@ const published: OtcDeskLaw = {
   maxMidAgeSeconds: 60,
   // A zero desk minimum is an owner value: these quotes are not held by the CB-otc-07 minimum.
   minNotional: { USDT: 0n },
+  assets: ['BTC'],
 };
 
 function desk(now = new Date('2026-08-26T12:00:00.000Z'), mids = true) {

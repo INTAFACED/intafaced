@@ -792,8 +792,9 @@ export class SupportService implements SupportContract {
         const settled = await this.lifecycle.get(input.ticketId);
         if (settled?.waitingSince && settled.waitingSince >= result.comment.createdAt) return result.comment;
       }
-      // Every operator comment is visible to the customer (there are no internal notes), so each is a public reply:
-      // the ticket now waits on the customer and the first one is stamped once. A customer reply puts it back on the team.
+      // Every comment written here is on the customer's thread (an internal note is `addInternalNote`), so an operator's is a
+      // public reply: the ticket now waits on the customer and the first one is stamped once. A customer reply puts it back
+      // on the team.
       const at = result.comment.createdAt;
       if (input.asOperator) {
         await this.lifecycle.setWaiting(input.ticketId, 'customer', at);
@@ -805,14 +806,51 @@ export class SupportService implements SupportContract {
     });
   }
 
+  /**
+   * A staff-only note on a request (SP-tickets-05). It is never on the customer's thread, and it moves nothing the customer
+   * reads: no reopen or resume, no "waiting on", no first-reply stamp and no new `updatedAt`. A blank body refuses
+   * `support.note_empty`. The key is required: the same key again answers the first note and writes nothing.
+   */
+  async addInternalNote(input: { userId: string; ticketId: string; body: string; clientRequestId: string }): Promise<SupportComment> {
+    return withSupportSpan('support.addInternalNote', { op: 'addInternalNote', ticketId: input.ticketId }, async () => {
+      this.requireClientRequestId(input.clientRequestId);
+      const body = input.body.trim();
+      if (body === '') throw new SupportError('an internal note needs words', 'support.note_empty');
+      await this.getTicket({ userId: input.userId, ticketId: input.ticketId, asOperator: true });
+      const result = await this.store.addComment({
+        ticketId: input.ticketId,
+        authorId: input.userId,
+        authorRole: 'operator',
+        visibility: 'internal',
+        body,
+        clientRequestId: input.clientRequestId.trim(),
+      });
+      if (result.status === 'refuse') {
+        if (result.reason === 'not_found') throw ticketNotFound();
+        if (result.reason === 'idempotency_conflict') {
+          throw new SupportError('idempotency key was already used for a different command', 'support.idempotency_conflict');
+        }
+        throw new Error(`an internal note was refused for a reason a note cannot have: ${result.reason}`);
+      }
+      return result.comment;
+    });
+  }
+
+  /**
+   * The request's thread, oldest first. Staff reading someone else's request also get its internal notes; the requester
+   * never does, even when they are staff themselves, and the store leaves the notes out inside its query.
+   */
   async listComments(input: { userId: string; ticketId: string; asOperator?: boolean; limit?: number }): Promise<SupportComment[]> {
     return withSupportSpan('support.listComments', { op: 'listComments', ticketId: input.ticketId }, async () => {
       const limit = assertListCommentsLimit(input.limit);
-      await this.getTicket({
+      const ticket = await this.getTicket({
         userId: input.userId,
         ticketId: input.ticketId,
         asOperator: input.asOperator,
       });
+      if (input.asOperator === true && ticket.userId !== input.userId) {
+        return this.store.listComments(input.ticketId, { limit, withInternal: true });
+      }
       return this.store.listComments(input.ticketId, { limit });
     });
   }
@@ -1011,7 +1049,7 @@ export class SupportService implements SupportContract {
    * rather than from anything the operator types. The operator supplies a
    * summary, a reason and the ids of KB articles they relied on; this method
    * resolves those ids against the real catalog, reads the account state, reads
-   * the ticket's comments, and digests each one. An article id that does not
+   * the ticket's public comments (internal notes stay out of the case file), and digests each one. An article id that does not
    * exist contributes no citation — so an escalation cannot be made to look
    * grounded by citing something that was never there.
    *

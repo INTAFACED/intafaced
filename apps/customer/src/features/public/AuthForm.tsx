@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState, type FormEvent } from 're
 import { BrandIris } from '@intafaced/ui';
 import { SocialSignIn } from './SocialSignIn';
 import { CodeSignIn } from './CodeSignIn';
+import { TesterBuild } from './TesterBuild';
 import { DeviceApproval } from './DeviceApproval';
 import { RecoveryCodeUsed, signInAnswerSchema, type SignInAnswer } from './RecoveryCodeUsed';
 import { FrozenByYou } from './FrozenByYou';
@@ -840,6 +841,7 @@ export function AuthForm({ register }: { register: boolean }) {
                 </a>
               )}
             </form>
+            {!register && <TesterBuild />}
             {!register && <CodeSignIn />}
             {!register && walletStopped && (
               <p data-testid="failure" className="failure" role="alert" lang={languageFor(walletWordsStopped[walletStopped])}>

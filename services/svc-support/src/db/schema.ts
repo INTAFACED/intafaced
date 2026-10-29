@@ -36,6 +36,8 @@ export const comments = schema.table('comments', {
     .references(() => tickets.id, { onDelete: 'cascade' }),
   authorId: text('author_id').notNull(),
   authorRole: text('author_role').$type<'user' | 'operator'>().notNull(),
+  /** `internal` is a staff-only note (SP-tickets-05); a customer read never returns it. */
+  visibility: text('visibility').$type<'public' | 'internal'>().notNull().default('public'),
   body: text('body').notNull(),
   createdAt: createdAt(),
 });

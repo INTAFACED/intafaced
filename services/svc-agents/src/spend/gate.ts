@@ -1,4 +1,5 @@
 import type { Sql } from 'postgres';
+import type { Amount } from '@intafaced/ledger-client';
 
 /** A period the user named. There is no default. */
 export type SpendPeriod = 'day' | 'week' | 'month';
@@ -36,6 +37,13 @@ export interface SpendGate {
     assetId: string;
     amount: string;
     now?: Date;
+    /** The agent's stored cap per session: what applies when the person set no limits of their own. */
+    agentCap?: string | null;
+    /**
+     * The person's available balance in this asset, read under the reservation's lock. When given, a hold whose
+     * amount the balance cannot cover after what is already owed and held refuses `agents.funds_insufficient`.
+     */
+    funds?: () => Promise<Amount | null>;
   }): Promise<SpendReservationView>;
   commitIn(tx: Sql, input: { userId: string; reservationKey: string; amount: string }): Promise<SpendReservationView>;
   release(input: { userId: string; reservationKey: string }): Promise<SpendReservationView>;
