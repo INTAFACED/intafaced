@@ -187,7 +187,7 @@ export interface WithdrawalNetworkRuleServiceDeps {
 /**
  * J-wallet-05 #1: a tag or memo named on a send is refused, never dropped. On a network whose rules take no tag it refuses
  * `pay.withdrawal_tag_not_taken`, and so does a send that names no network (a send inside the platform has no tag). On a
- * network that takes one it refuses `pay.withdrawal_tag_unsupported`: no withdrawal row keeps a tag yet, so sending without
+ * network that takes one it refuses `pay.withdrawal_tag_unsupported`: no withdrawal row keeps a tag, so sending without
  * it would lose the money at the receiving wallet. A pair with no rules refuses `withdrawal_network_rules.unset`. Runs before
  * the claim, so nothing is claimed or held.
  */
@@ -204,9 +204,33 @@ export async function refuseWithdrawalTag(sql: Sql | null, assetId: string, netw
       },
     );
   }
-  throw new PayError(`A send with a tag on ${networkId} cannot be made yet; nothing was held`, 'pay.withdrawal_tag_unsupported', {
-    networkId,
-  });
+  throw new PayError(
+    `A send with a tag on ${networkId} is refused: no send keeps a tag; nothing was held`,
+    'pay.withdrawal_tag_unsupported',
+    {
+      networkId,
+    },
+  );
+}
+
+/**
+ * J-wallet-05 #1, the other half: a send out of the platform that names no tag, on a network whose rules require one, is
+ * refused `pay.withdrawal_tag_required` before the claim, because the receiving wallet would lose a send without its memo.
+ * Every client is held to it, not only the Withdraw form. A pair with no rules refuses `withdrawal_network_rules.unset`, never
+ * a guess. With no pay database there is no rule to read and no quote to accept, so the send refuses at its quote instead.
+ */
+export async function refuseTaglessRequired(sql: Sql | null, assetId: string, networkId: string): Promise<void> {
+  if (!sql) return;
+  const rules = await readWithdrawalNetworkRules(sql, assetId, networkId);
+  if (rules.tag === 'required') {
+    throw new PayError(
+      `${networkId} needs a tag or memo, and no send keeps one, so it is refused; nothing was held`,
+      'pay.withdrawal_tag_required',
+      {
+        networkId,
+      },
+    );
+  }
 }
 
 /** The customer's read of one pair's rules. A pair with no row refuses `withdrawal_network_rules.unset`. */

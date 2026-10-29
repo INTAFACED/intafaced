@@ -156,6 +156,7 @@ export const SEND_REFUSAL_KEYS = {
   'withdrawal_quote.fee_mode_unsupported': 'sFeeMode',
   'pay.withdrawal_tag_not_taken': 'sTagNotTaken',
   'pay.withdrawal_tag_unsupported': 'sTagUnsupported',
+  'pay.withdrawal_tag_required': 'sTagRequired',
   'pay.wallet_withdraw_disabled': 'sDisabled',
   'pay.wallet_typed_address': 'sNotSaved',
   'pay.wallet_cooling': 'sCooling',
