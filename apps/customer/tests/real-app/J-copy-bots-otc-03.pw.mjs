@@ -11,7 +11,7 @@ import { copiedOrders, copiedOrdersLoaded, followOnScreen, leadFill, listLeader,
 // Steps that are written but not built yet fail at their first missing part, quickly (UNBUILT):
 // - #2: a stopped follow doesn't close the follower's position when the leader closes (close-only).
 // - #3: no Positions tab with a close for one order or a part of it.
-// - #4: no close-all with a step-up.
+// - #4: no close-all with a step-up (copy.flatten closes at once, with no step-up asked).
 // - #5: no skip log; #6: no notice for a skipped or stopped follow.
 const J = 'J-copy-bots-otc-03';
 const run = journeyState(`${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}`);

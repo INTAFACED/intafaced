@@ -8,6 +8,7 @@ import { fundedTrader, signIn } from './desk.mjs';
 // threshold and opportunity feed are the stack's TEST bot terms.
 // Steps that are written but not built yet fail at their first missing part, quickly (UNBUILT):
 // - every step: the bot catalogue has no combo or smart-arbitrage bot and there is no opportunity view.
+// - #3: the stack's market tool has no `delist` yet.
 const J = 'J-copy-bots-otc-18';
 const run = journeyState(`${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
 const UNBUILT = { timeout: 5_000 };

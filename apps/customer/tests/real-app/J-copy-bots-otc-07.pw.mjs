@@ -55,6 +55,7 @@ test(`${J} #3 calls the lead API with a non-lead key: refused by scope`, async (
     path: '/api/v1/copy/lead/orders',
     body: { symbol: 'BTC/USDT', side: 'buy', amount: '0.001' },
   });
+  expect(res.status, JSON.stringify(res.body).slice(0, 200)).toBe(403);
   expect(codeOf(res.body)).toBe('insufficient_scope');
 });
 
