@@ -13,6 +13,7 @@ import {
   payVersionSchema,
   payoutApprovalSchema,
   payBpsSchema,
+  payPayoutFeeSchema,
 } from '@intafaced/contracts';
 
 /**
@@ -61,6 +62,12 @@ export const tierDefinitionSchema = z
      * it is assigned to.
      */
     merchantVisible: z.boolean().optional(),
+    /**
+     * The payout fee the tier publishes to merchants. Omitted or null means none
+     * is published, and merchants read "Not set". `not_charged` is the only kind,
+     * because payouts charge no fee (payment-service/payouts.ts).
+     */
+    payoutFee: payPayoutFeeSchema.nullable().optional(),
   })
   .strict();
 export type TierDefinitionInput = z.infer<typeof tierDefinitionSchema>;
@@ -103,7 +110,12 @@ export const controlConfigureResultSchema = z
 export type ControlConfigureResult = z.infer<typeof controlConfigureResultSchema>;
 
 export const tierViewSchema = tierDefinitionSchema
-  .extend({ version: payVersionSchema, merchants: z.number().int().min(0), merchantVisible: z.boolean() })
+  .extend({
+    version: payVersionSchema,
+    merchants: z.number().int().min(0),
+    merchantVisible: z.boolean(),
+    payoutFee: payPayoutFeeSchema.nullable(),
+  })
   .strict();
 export const tierListInputSchema = z.object({}).strict();
 

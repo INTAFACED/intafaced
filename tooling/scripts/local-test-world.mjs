@@ -3011,7 +3011,7 @@ async function savePayoutDestination(ctx, merchantId, spec) {
 }
 
 /** The two TEST operators signed in once per run, with their MFA sessions. Cached on ctx; the sign-in spends their TOTP steps. */
-async function operatorPair(ctx) {
+export async function operatorPair(ctx) {
   if (ctx.opPair) return ctx.opPair;
   const gates = await gatesApi();
   const gctx = await gates.makeContext({ log: (m) => ctx.log(`merchant operators: ${m}`) });
@@ -3039,7 +3039,7 @@ async function operatorFreshTotp(gctx, letter) {
  * Define or assign one tier through the two founders: operator A submits, operator B confirms with the hash of the change.
  * `procedure` is the submit door; the confirm door is its sibling. Returns { ok, outcome } or { ok:false, refusal }.
  */
-async function founderChange(pair, { submitProc, confirmProc, input, target, expectedVersion, reason }) {
+export async function founderChange(pair, { submitProc, confirmProc, input, target, expectedVersion, reason }) {
   const { gctx, gates, a, b } = pair;
   const hash = tierChangeHash(target, expectedVersion);
   const response = await gctx.edge.mutate('pay', submitProc, input, a.loginToken);
@@ -3460,7 +3460,7 @@ async function populateMerchantStepUpMoney(ctx, merchantId, { payments, windows,
   );
 }
 
-function trpcData(res) {
+export function trpcData(res) {
   const data = res?.json?.result?.data;
   if (data && typeof data === 'object' && 'json' in data) return data.json;
   return data;

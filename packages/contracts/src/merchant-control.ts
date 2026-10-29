@@ -255,9 +255,38 @@ export const merchantControlApprovalDecideInputSchema = z
   .strict();
 
 /**
- * What a merchant may see of a configured tier: the commercial terms (caps and
- * reserve). Founder thresholds, approval bars, TTL and how many other merchants
- * sit on the tier are not in this shape.
+ * The fee a tier publishes for a payout. `not_charged` says INTAFACED takes no
+ * fee on a payout. Null (on the tier) means the founders have published nothing,
+ * which a merchant reads as "Not set", never as free. Only `not_charged` exists:
+ * payouts charge no fee today, and a charged kind is added here when one is
+ * built, so a published kind is always what the payout path does.
+ */
+export const payPayoutFeeSchema = z.discriminatedUnion('kind', [z.object({ kind: z.literal('not_charged') }).strict()]);
+export type PayPayoutFee = z.infer<typeof payPayoutFeeSchema>;
+
+/**
+ * One processing-fee rule a tier publishes (the tier pricing layer), as a
+ * merchant reads it on the ladder. A tier with no rule for an asset has no
+ * entry: its fee is blank, and the pricing engine refuses a total from it.
+ */
+export const merchantTierFeeSchema = z
+  .object({
+    assetCode: payAssetCodeSchema,
+    bands: z.array(payPricingBandSchema).min(1).max(64),
+    spreadBps: payBpsSchema.nullable(),
+    roundingBeneficiary: payRoundingBeneficiarySchema,
+    minFee: payAmountStringSchema.nullable(),
+    maxFee: payAmountStringSchema.nullable(),
+    version: payVersionSchema,
+  })
+  .strict();
+export type MerchantTierFee = z.infer<typeof merchantTierFeeSchema>;
+
+/**
+ * What a merchant may see of a configured tier: the commercial terms (caps,
+ * reserve, the tier's own processing fees and its published payout fee).
+ * Founder thresholds, approval bars, TTL and how many other merchants sit on
+ * the tier are not in this shape.
  */
 export const merchantTierSummarySchema = z
   .object({
@@ -266,6 +295,10 @@ export const merchantTierSummarySchema = z
     archetype: z.enum(['psp', 'broker', 'gaming', 'standard']),
     caps: z.array(payCapSchema).min(1).max(32),
     reserve: payReserveSchema.nullable(),
+    /** The tier layer's live rules, one per asset. Empty = the tier publishes no processing fee. */
+    fees: z.array(merchantTierFeeSchema).max(32),
+    /** Null = no payout fee is published for this tier. */
+    payoutFee: payPayoutFeeSchema.nullable(),
     version: payVersionSchema,
   })
   .strict();

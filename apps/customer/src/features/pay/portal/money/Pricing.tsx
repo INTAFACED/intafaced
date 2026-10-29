@@ -21,7 +21,7 @@ import { bpsPercent, isCalcAmount, pricingAssets } from './model';
 import { EffectiveFeeView, useEffectiveFeeRates } from './fee-rate';
 import type { PortalApi } from '../api';
 import type { ControlProfile, PricingRule, Quote } from '../schemas';
-import type { PricingHistory as History } from './schemas';
+import type { PricingHistory as History, TierFee, TierList, TierSummary } from './schemas';
 
 /** `/pay/pricing`: what INTAFACED charges this account, read-only, with a calculator that uses the same engine as live payments. */
 export function Pricing({ portal, merchantId }: { portal: PortalApi; merchantId: string }) {
@@ -36,7 +36,8 @@ export function Pricing({ portal, merchantId }: { portal: PortalApi; merchantId:
   // Viewers and developers see the fee that was charged and nothing about the spread or which rule produced it.
   const feeOnly = access.status === 'ready' && access.pricingVisibility === 'fee_only';
   const tierData = tiers.resource.status === 'ready' ? tiers.resource.data : null;
-  const tierName = tierData?.status === 'configured' ? (tierData.tiers.find((x) => x.id === tierData.ownTierId)?.name ?? null) : null;
+  const ownTier = tierData?.status === 'configured' ? (tierData.tiers.find((x) => x.id === tierData.ownTierId) ?? null) : null;
+  const tierName = ownTier?.name ?? null;
   return (
     <div className="stack">
       <TestBanner />
@@ -44,6 +45,9 @@ export function Pricing({ portal, merchantId }: { portal: PortalApi; merchantId:
         {(profile) => {
           const rules = profile.pricing ?? [];
           const assets = pricingAssets(profile.pricing);
+          // The calculator also offers the assets the merchant's own tier names (its fees and its caps), so a tier with no
+          // fee for an asset asks the engine and shows the engine's refusal instead of a quiet blank.
+          const calcAssets = calculatorAssets(assets, ownTier);
           return (
             <>
               {/* The account's own rate comes from a separate read. If it fails the page says so and can ask again; it never stays on "…". */}
@@ -157,6 +161,10 @@ export function Pricing({ portal, merchantId }: { portal: PortalApi; merchantId:
                   ))}
               </PaySection>
 
+              <PaySection title={t('tierFeesTitle')} description={t('tierFeesBody')}>
+                <TierFeeTable tiers={tiers.resource} retry={tiers.reload} />
+              </PaySection>
+
               {rules.map((rule) => (
                 <RuleTable key={`${rule.layer}:${rule.scopeId ?? ''}:${rule.assetCode}`} rule={rule} feeOnly={feeOnly} />
               ))}
@@ -169,7 +177,7 @@ export function Pricing({ portal, merchantId }: { portal: PortalApi; merchantId:
                 />
               </PaySection>
 
-              <FeeCalculator portal={portal} merchantId={merchantId} assets={assets} feeOnly={feeOnly} />
+              <FeeCalculator portal={portal} merchantId={merchantId} assets={calcAssets} feeOnly={feeOnly} />
 
               <PaySection title={t('priceHistoryTitle')} description={t('historyBody')}>
                 <HistoryTable history={history.resource} retry={history.reload} />
@@ -180,6 +188,59 @@ export function Pricing({ portal, merchantId }: { portal: PortalApi; merchantId:
       </Gate>
     </div>
   );
+}
+
+/** The assets the calculator offers: the priced ones, plus every asset the merchant's own tier names. Sorted, no repeats. */
+export function calculatorAssets(priced: readonly string[], ownTier: TierSummary | null): string[] {
+  const named = [
+    ...(ownTier?.fees ?? []).map((fee) => fee.assetCode),
+    ...(ownTier?.caps ?? []).flatMap((cap) => ('assetCode' in cap ? [cap.assetCode] : [])),
+  ];
+  return [...new Set([...priced, ...named])].sort();
+}
+
+/**
+ * The tier fee table: one row per tier and asset, with the processing fee and the payout fee the tier publishes. A tier
+ * with no fee of its own, or no published payout fee, reads "Not set"; only a published `not_charged` reads "Not charged".
+ */
+export function TierFeeTable({ tiers, retry }: { tiers: ReturnType<typeof useResource<TierList>>['resource']; retry: () => void }) {
+  const { t } = portalCopy.useCopy();
+  if (tiers.status === 'loading') return <PortalLoading rows={2} />;
+  if (tiers.status === 'failed') return <PortalFailure result={tiers.failure} retry={retry} />;
+  if (tiers.data.status === 'not_configured') return <p className="muted">{t('tierFeesNone')}</p>;
+  const ownTierId = tiers.data.ownTierId;
+  const notSet = <NotConfigured>{t('feeNotSet')}</NotConfigured>;
+  return (
+    <DataTable label={t('tierFeesTitle')} headers={[t('colTier'), t('colAsset'), t('colProcessingFee'), t('colPayoutFee')]}>
+      {tiers.data.tiers.flatMap((tier) => {
+        const fees: Array<TierFee | null> = tier.fees && tier.fees.length > 0 ? tier.fees : [null];
+        const name = tier.id === ownTierId ? t('tierYours', { name: tier.name }) : tier.name;
+        const payout = tier.payoutFee?.kind === 'not_charged' ? t('payoutNotCharged') : notSet;
+        return fees.map((fee) => (
+          <tr key={`${tier.id}:${fee?.assetCode ?? ''}`} data-testid={`tier-fee-${tier.id}`}>
+            <th scope="row">{name}</th>
+            <td>{fee ? fee.assetCode : <span className="muted">—</span>}</td>
+            <td>{fee ? <TierFeeText fee={fee} /> : notSet}</td>
+            <td>{payout}</td>
+          </tr>
+        ));
+      })}
+    </DataTable>
+  );
+}
+
+/** "2.50% from 0.00 USDT · 1.50% + 0.30 USDT from 10,000.00 USDT · minimum 0.50 USDT". One band from zero drops its "from". */
+function TierFeeText({ fee }: { fee: TierFee }) {
+  const { t } = portalCopy.useCopy();
+  const money = (value: string) => formatMoney(value, fee.assetCode) + ` ${fee.assetCode}`;
+  const one = fee.bands.length === 1 && /^0(\.0+)?$/.test(fee.bands[0]!.fromAmount);
+  const parts = fee.bands.map((band) => {
+    const rate = band.flatFee ? t('tierFeeFlat', { pct: bpsPercent(band.feeBps), flat: money(band.flatFee) }) : bpsPercent(band.feeBps);
+    return one ? rate : t('feeBandFrom', { fee: rate, from: money(band.fromAmount) });
+  });
+  if (fee.minFee) parts.push(t('feeMin', { amount: money(fee.minFee) }));
+  if (fee.maxFee) parts.push(t('feeMax', { amount: money(fee.maxFee) }));
+  return <span className="numeric">{parts.join(' · ')}</span>;
 }
 
 function HistoryTable({ history, retry }: { history: ReturnType<typeof useResource<History>>['resource']; retry: () => void }) {

@@ -118,6 +118,18 @@ const en = {
   calcBand: 'Band starting at',
   calcMonthSoFar: 'Volume so far this month',
   calcNote: 'This is a preview. The fee on a real payment is fixed when it is paid.',
+  tierFeesTitle: 'Fees by tier',
+  tierFeesBody: 'What each tier publishes for processing a payment and for a payout. A fee that is not published reads “Not set”, never free.',
+  tierFeesNone: 'No tier is published for your account, so there is no tier fee to show.',
+  colProcessingFee: 'Processing fee',
+  colPayoutFee: 'Payout fee',
+  feeNotSet: 'Not set',
+  payoutNotCharged: 'Not charged',
+  tierYours: '{name} (your tier)',
+  tierFeeFlat: '{pct} + {flat}',
+  feeBandFrom: '{fee} from {from}',
+  feeMin: 'minimum {amount}',
+  feeMax: 'maximum {amount}',
 
   // limits
   limitsKpiTitle: 'Your tier and limits',
