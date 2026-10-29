@@ -131,6 +131,7 @@ const P = {
   customerDist: path.join(REPO, 'apps', 'customer', 'dist'),
   invitationDist: path.join(REPO, 'apps', 'invitation', 'dist'),
   customerDistFile: path.join(STATE, 'customer-dist.json'),
+  hostReceipt: path.join(STATE, 'host-dispatch.json'),
   cspViolations: path.join(STATE, 'csp-violations.jsonl'),
   admin: path.join(REPO, 'apps', 'admin'),
   adminBuildId: path.join(REPO, 'apps', 'admin', '.next', 'BUILD_ID'),
@@ -1469,6 +1470,7 @@ async function cmdStart(flags) {
     fail('customer build missing; run with --rebuild');
   if (!only || only.includes('customer')) await startCustomer();
   if (!only || only.includes('invitation')) await startInvitation();
+  if (!only || only.includes('customer') || only.includes('invitation')) await checkLocalTestHosts();
   if (!only || only.includes('admin')) await startAdmin(secrets);
   ensureMarket();
   say('');
@@ -1608,6 +1610,42 @@ const WS_UPSTREAM_REFUSAL = {
   message: 'CUSTOMER_WS_URL is not wired. The Customer server has no WebSocket upstream.',
 };
 const customerWsUpstream = () => (process.env.LOCAL_STACK_WS_UPSTREAM === 'off' ? '' : urlOf('ws'));
+
+// ── LOCAL TEST hosts ────────────────────────────────────────────────────────
+
+/** Where the Customer app reads the host dispatch receipt (apps/customer/src/features/public/host-dispatch.ts). */
+const HOST_RECEIPT_PATH = '/host-dispatch.json';
+
+/**
+ * The apex, app and join hosts on this machine: TEST stand-ins on loopback, made from this stack's own ports and never
+ * an owner value. The invitation site stands in for the apex (this stack serves no separate apex site) and is the join
+ * host; the Customer server is the app host. `LOCAL_STACK_HOSTS=off` on a start or restart leaves all three unset, so a
+ * journey can see the typed refusal.
+ */
+export function localTestHosts(env = process.env) {
+  if (env.LOCAL_STACK_HOSTS === 'off') return {};
+  return { INTAFACED_APEX_HOST: INVITATION_ORIGIN, INTAFACED_APP_HOST: CUSTOMER_ORIGIN, INTAFACED_JOIN_HOST: INVITATION_ORIGIN };
+}
+
+/**
+ * Runs the deployment's host check against the TEST hosts in its LOCAL TEST mode (APP_ENV test, loopback only) and
+ * keeps its receipt in the state folder, where the Customer server publishes it at /host-dispatch.json. The previous
+ * receipt is removed first, so with the hosts unset nothing is published. A refusal is printed, never fatal.
+ */
+async function checkLocalTestHosts() {
+  fs.rmSync(P.hostReceipt, { force: true });
+  const check = path.join(REPO, 'apps', 'customer', 'deployment', 'host-dispatch.mjs');
+  const env = { PATH: PNPM_PATH, HOME: os.homedir(), APP_ENV: 'test', ...localTestHosts() };
+  const result = await new Promise((done) => {
+    const child = spawn(process.execPath, [check, '--local-test', '--out', P.hostReceipt], { env, cwd: REPO });
+    let out = '';
+    child.stdout.on('data', (chunk) => (out += chunk));
+    child.stderr.on('data', (chunk) => (out += chunk));
+    child.on('close', (status) => done({ status, out }));
+  });
+  for (const line of result.out.trim().split('\n').filter(Boolean)) say(`  ${line}`);
+  if (result.status !== 0) say(`  host dispatch (TEST): exited ${result.status}; the Help room shows no host as served`);
+}
 
 // ── Customer static server + reverse proxy ──────────────────────────────────
 
@@ -1795,6 +1833,11 @@ function serveCustomer(port = PORTS.customer, site = SITES.customer) {
       );
     }
     const dist = active.dir;
+
+    // The LOCAL TEST host receipt, from the state folder (checkLocalTestHosts). With none, the build's own file or the index.
+    if (site === SITES.customer && p === HOST_RECEIPT_PATH && fs.existsSync(P.hostReceipt)) {
+      return send(res, 200, MIME['.json'], fs.readFileSync(P.hostReceipt, 'utf8'));
+    }
 
     // Static files; unknown paths fall back to index.html like apps/customer/nginx.conf.
     let decoded;

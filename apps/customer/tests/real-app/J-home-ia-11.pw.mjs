@@ -9,7 +9,7 @@ import { localStackState } from '../../../../tooling/scripts/local-test-state.mj
 import { deviceCodesMailedTo, OUTBOX_NAME } from '../../../../tooling/scripts/local-test-entry.mjs';
 import { HOME_ASSET, HOME_DEPOSIT_AMOUNT, HOME_NOTICE_TITLE } from '../../../../tooling/scripts/local-test-home.mjs';
 import { ADMIN, assertAdminUp } from './admin.mjs';
-import { EDGE, ROOT } from './stack.mjs';
+import { EDGE, ORIGIN as CUSTOMER, ROOT } from './stack.mjs';
 
 // J-home-ia-11, in the running app (docs/roadmap/journeys.json): I bring up a test build and sign in as a founder (tester
 // entry). Tests titled "J-home-ia-11 #<n>" prove a whole step. The journey starts from a compose up with the `tester`
@@ -17,14 +17,16 @@ import { EDGE, ROOT } from './stack.mjs';
 // seed service's wiring and run the seed's own scripts, which refuse anything but a local dev or test build.
 // Steps that are written but not built yet fail at their first missing part, quickly (UNBUILT):
 // - #2: the sign-in page of a non-live build has no "Tester build" panel saying where the founder vault is.
-// - #5: no deployment receipt with three served hosts exists on this stack (no apex, app or join host is named), so the
-//   step fails by name, BLOCKED hosts_unset, after the Help room's rows are matched to what the build published.
+// #5 runs on the stack's LOCAL TEST hosts (local-test-stack.mjs localTestHosts: its own loopback sites, labelled TEST),
+// never on an owner's hosts: no deployment is named on this stack.
 const J = 'J-home-ia-11';
 const UNBUILT = { timeout: 5_000 };
 // The stack's own rule for its state folder (LOCAL_STACK_STATE, else per user, else /var/lib as root).
 const STATE = localStackState();
 const COMPOSE = ['docker-compose.yml', 'docker-compose.apps.yml'];
 const OUTBOX = path.join(STATE, OUTBOX_NAME);
+// The stack's invitation site, which stands in for the apex and is the join host on this stack (localTestHosts).
+const INVITATION = 'http://127.0.0.1:3220';
 
 test.describe.configure({ mode: 'default' });
 
@@ -225,13 +227,26 @@ test(`${J} #4 the same image started as staging or production: the seed service 
   expect(seedStatus().out.replace(/^as of .*$/m, '')).toBe(contentBefore);
 });
 
+/** `pnpm local:stack restart customer`, with `env` on top; the stack re-runs its LOCAL TEST host check as it starts. */
+const restartCustomer = (env = {}) =>
+  run('tooling/scripts/local-test-stack.mjs', ['restart', 'customer'], { LOCAL_STACK_HOSTS: '', ...env });
+const HOST_RECEIPT = path.join(STATE, 'host-dispatch.json');
+
+/** The receipt the Customer server publishes at /host-dispatch.json, or null when it answers with anything but JSON. */
+async function publishedReceipt(page) {
+  const published = await page.request.get('/host-dispatch.json');
+  const isReceipt = published.ok() && (published.headers()['content-type'] ?? '').includes('application/json');
+  return isReceipt ? await published.json() : null;
+}
+
 test(`${J} #5 the apex, app and join hosts are checked: a receipt of three served hosts, or a typed refusal naming the host`, async ({
   page,
 }) => {
+  test.setTimeout(6 * 60_000);
   const check = 'apps/customer/deployment/host-dispatch.mjs';
   const out = path.join(mkdtempSync(path.join(tmpdir(), 'host-dispatch-')), 'host-dispatch.json');
 
-  // A blank host setting is refused by name and nothing is fetched.
+  // The deployment check: a blank host setting is refused by name and nothing is fetched.
   const blank = run(check, ['--out', out], { INTAFACED_APEX_HOST: '', INTAFACED_APP_HOST: '', INTAFACED_JOIN_HOST: '' });
   expect(blank.status).toBe(1);
   for (const role of ['apex', 'app', 'join']) expect(blank.out).toContain(`host.${role}_unset`);
@@ -252,29 +267,55 @@ test(`${J} #5 the apex, app and join hosts are checked: a receipt of three serve
     ['join', 'https://127.0.0.1:9', 'host.not_served'],
   ]);
 
-  // The Help room shows each host exactly as the receipt the build published says: its host and its one result. With no
-  // receipt published (a static host answers the unknown path with the app's index, not JSON), every row is
-  // host.receipt_missing, never served.
-  const published = await page.request.get('/host-dispatch.json');
-  const isReceipt = published.ok() && (published.headers()['content-type'] ?? '').includes('application/json');
-  const served = isReceipt ? await published.json() : null;
-  await page.goto('/help');
-  await expect(page.getByTestId('host-dispatch')).toBeVisible();
-  for (const role of ['apex', 'app', 'join']) {
-    const row = page.getByTestId(`host-dispatch-${role}`);
-    const want = served ? (served.hosts.find((host) => host.role === role) ?? {}) : { host: null, result: 'host.receipt_missing' };
-    const result = want.result ?? served?.hosts.find((host) => host.role === 'all')?.result ?? 'host.not_checked';
-    await expect(row).toHaveAttribute('data-result', result);
-    if (want.host) await expect(row).toContainText(want.host);
+  // Its LOCAL TEST mode refuses anything but a dev or test APP_ENV, and writes nothing.
+  const local = path.join(mkdtempSync(path.join(tmpdir(), 'host-dispatch-')), 'host-dispatch.json');
+  for (const appEnv of ['staging', 'production']) {
+    const refused = run(check, ['--local-test', '--out', local], {
+      APP_ENV: appEnv,
+      INTAFACED_APEX_HOST: INVITATION,
+      INTAFACED_APP_HOST: CUSTOMER,
+      INTAFACED_JOIN_HOST: INVITATION,
+    });
+    expect(refused.status, refused.out).toBe(2);
+    expect(refused.out).toContain('host dispatch (TEST): all (not checked) host.local_test_refused');
+    expect(existsSync(local)).toBe(false);
   }
 
-  // The step's pass: a receipt in which the apex, app and join hosts are each served. Until a deployment names them,
-  // this fails by name.
-  expect(
-    served?.status === 'served' &&
-      ['apex', 'app', 'join'].every((role) => served.hosts.some((h) => h.role === role && h.result === 'served')),
-    `BLOCKED hosts_unset: the build published ${served ? `a ${served.status} receipt` : 'no host dispatch receipt'}, not one with the apex, app and join hosts served`,
-  ).toBe(true);
-  for (const role of ['apex', 'app', 'join'])
-    await expect(page.getByTestId(`host-dispatch-${role}`)).toHaveAttribute('data-result', 'served');
+  // The blank case on the stack: restarted with its TEST hosts unset, the check names each host's typed refusal, the
+  // receipt is gone, and the Help room shows no host as served. The finally puts the TEST hosts back.
+  try {
+    const unset = restartCustomer({ LOCAL_STACK_HOSTS: 'off' });
+    for (const role of ['apex', 'app', 'join'])
+      expect(unset.out).toContain(`host dispatch (TEST): ${role} (not checked) host.${role}_unset`);
+    expect(unset.out).toContain('host dispatch (TEST): no receipt written');
+    expect(existsSync(HOST_RECEIPT)).toBe(false);
+    expect(await publishedReceipt(page)).toBeNull();
+    await page.goto('/help');
+    await expect(page.getByTestId('host-dispatch')).toBeVisible();
+    for (const role of ['apex', 'app', 'join'])
+      await expect(page.getByTestId(`host-dispatch-${role}`)).toHaveAttribute('data-result', 'host.receipt_missing');
+    await expect(page.getByTestId('host-dispatch-test')).toHaveCount(0);
+  } finally {
+    const back = restartCustomer();
+    expect(back.out).toContain('host dispatch (TEST): receipt ');
+  }
+
+  // The pass: a TEST receipt in which the apex, app and join hosts are each served, read back from what the Customer
+  // server publishes and from the Help room, row by row, with its TEST label.
+  const want = { apex: INVITATION, app: CUSTOMER, join: INVITATION };
+  const served = await publishedReceipt(page);
+  expect(served, 'the Customer server published no host dispatch receipt').not.toBeNull();
+  expect(served).toMatchObject({ schemaVersion: 1, status: 'served', test: true });
+  expect(served.hosts.map((host) => [host.role, host.host, host.result])).toEqual(
+    Object.entries(want).map(([role, host]) => [role, host, 'served']),
+  );
+  expect(JSON.parse(readFileSync(HOST_RECEIPT, 'utf8'))).toEqual(served);
+  await page.goto('/help');
+  await expect(page.getByTestId('host-dispatch')).toBeVisible();
+  await expect(page.getByTestId('host-dispatch-test')).toHaveText('TEST');
+  for (const [role, host] of Object.entries(want)) {
+    const row = page.getByTestId(`host-dispatch-${role}`);
+    await expect(row).toHaveAttribute('data-result', 'served');
+    await expect(row).toContainText(host);
+  }
 });

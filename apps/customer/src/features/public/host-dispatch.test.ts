@@ -108,4 +108,25 @@ describe('host dispatch receipt', () => {
     const broken = (async () => new Response('{', { headers: { 'content-type': 'application/json' } })) as unknown as typeof fetch;
     expect((await readHostDispatch(broken)).source).toBe('host.receipt_invalid');
   });
+  it('marks a LOCAL TEST receipt test, and refuses a plain-http host in a receipt that does not say so', () => {
+    const hosts = [
+      served('apex', 'http://127.0.0.1:3220'),
+      served('app', 'http://127.0.0.1:3210'),
+      served('join', 'http://127.0.0.1:3220'),
+    ];
+    const test = hostDispatchView({ schemaVersion: 1, checkedAt: '2026-10-29T10:00:00.000Z', status: 'served', hosts, test: true });
+    expect(test.test).toBe(true);
+    expect(test.rows.map((row) => row.result)).toEqual(['served', 'served', 'served']);
+    const unlabelled = hostDispatchView({ schemaVersion: 1, checkedAt: '2026-10-29T10:00:00.000Z', status: 'served', hosts });
+    expect(unlabelled.source).toBe('host.receipt_invalid');
+    expect(unlabelled.test).toBe(false);
+    expect(unlabelled.rows.map((row) => row.result)).toEqual(Array(3).fill('host.receipt_invalid'));
+    const deployed = hostDispatchView({
+      schemaVersion: 1,
+      checkedAt: '2026-10-29T10:00:00.000Z',
+      status: 'served',
+      hosts: [served('apex', 'https://a.test'), served('app', 'https://b.test'), served('join', 'https://c.test')],
+    });
+    expect(deployed.test).toBe(false);
+  });
 });
