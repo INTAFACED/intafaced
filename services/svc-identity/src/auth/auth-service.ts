@@ -478,9 +478,7 @@ export type ApiKeyActionScope = {
 };
 
 export type PayStepUpFactorProof =
-  | { readonly totpCode: string }
-  | { readonly webauthn: AuthenticationResponseJSON }
-  | { readonly proofId: string };
+  { readonly totpCode: string } | { readonly webauthn: AuthenticationResponseJSON } | { readonly proofId: string };
 
 export interface RegisterInput {
   handle: string;
