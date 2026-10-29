@@ -127,6 +127,8 @@ describe('a presented key the edge cannot open: refused here, with its own code'
       expect(result.principal, code).toBeNull();
       expect(result.headers[EDGE_PRINCIPAL_HEADER], code).toBeUndefined();
     }
+    // identity sends the blank window as PRECONDITION_FAILED (412): still identity's verdict, never edge.authority_unavailable.
+    expect((await present(identityRefusal(412, 'auth.request_window_unset'))).apiKeyRefusal).toEqual(REQUEST_WINDOW_UNSET);
     expect(REQUEST_WINDOW_UNSET.status).toBe(503);
     expect([REQUEST_UNSIGNED, REQUEST_STALE, REQUEST_FUTURE, REQUEST_TAMPERED, REQUEST_REPLAY].map((r) => r.status)).toEqual([
       401, 401, 401, 401, 401,
