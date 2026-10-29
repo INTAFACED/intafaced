@@ -465,6 +465,76 @@ if (!db) {
       expect(await code(s.transition({ id: c.id, action: 'archive', revision: 5, actor: A }))).toBe('campaign.archive_active');
     });
 
+    it('a voucher keeps the revision it was issued under and its face value after the next revision is approved (T-3)', async () => {
+      const s = service();
+      const c = await live({ type: 'voucher', reward: { asset: 'USDT', amount: '5' } });
+      expect(await s.listVouchers({ campaignId: c.id })).toEqual([]);
+      const first = await s.issueVoucher({ campaignId: c.id, code: 'test-v1', actor: A });
+      expect(first).toMatchObject({ code: 'TEST-V1', revision: 1, face: { asset: 'USDT', amount: '5' }, state: 'published', issuedBy: A });
+      // The same code again is the same voucher (the business key), whoever sends it; nothing new is written.
+      expect(await s.issueVoucher({ campaignId: c.id, code: 'TEST-V1', actor: B })).toEqual(first);
+      // A change with a new reward is revision 2 beside the live one: a voucher issued meanwhile is still revision 1.
+      await s.update({ id: c.id, revision: 1, definition: full({ type: 'voucher', reward: { asset: 'USDT', amount: '7' } }), actor: A });
+      await s.transition({ id: c.id, action: 'submit', revision: 2, actor: A });
+      expect((await s.issueVoucher({ campaignId: c.id, code: 'TEST-V2', actor: A })).revision).toBe(1);
+      expect(await s.transition({ id: c.id, action: 'approve', revision: 2, actor: B })).toMatchObject({
+        revision: 2,
+        state: 'active',
+        reward: { amount: '7' },
+      });
+      // Approved: the earlier vouchers keep revision 1 and 5 USDT; a voucher issued now takes revision 2 and 7 USDT.
+      const third = await s.issueVoucher({ campaignId: c.id, code: 'TEST-V3', actor: A });
+      expect(third).toMatchObject({ revision: 2, face: { asset: 'USDT', amount: '7' } });
+      expect((await s.listVouchers({ campaignId: c.id })).map((v) => [v.code, v.revision, v.face.amount])).toEqual([
+        ['TEST-V3', 2, '7'],
+        ['TEST-V2', 1, '5'],
+        ['TEST-V1', 1, '5'],
+      ]);
+      // Replaying the first issue after the approval still returns revision 1, never re-prices it.
+      expect(await s.issueVoucher({ campaignId: c.id, code: 'TEST-V1', actor: A })).toEqual(first);
+      const audits = await db!.sql<{ n: number }[]>`
+        SELECT count(*)::int AS n FROM campaigns.audit_log WHERE action = 'campaign.voucher.issue' AND target = ${c.id}`;
+      expect(audits[0]!.n).toBe(3);
+      // An active campaign still cannot be archived.
+      expect(await code(s.transition({ id: c.id, action: 'archive', revision: 2, actor: A }))).toBe('campaign.archive_active');
+    });
+
+    it('only an approved voucher campaign that has not ended issues vouchers; a voucher names an approved revision', async () => {
+      const s = service();
+      const task = await live({ name: 'TEST task' });
+      expect(await code(s.issueVoucher({ campaignId: task.id, code: 'TEST-T1', actor: A }))).toBe('campaigns.not_voucher');
+      const draft = await s.create({ definition: full({ name: 'TEST voucher draft', type: 'voucher' }), actor: A });
+      expect(await code(s.issueVoucher({ campaignId: draft.id, code: 'TEST-D1', actor: A }))).toBe('campaign.invalid_transition');
+      expect(await code(s.issueVoucher({ campaignId: 'cmp_missing', code: 'TEST-M1', actor: A }))).toBe('campaign.unknown');
+      expect(await code(s.listVouchers({ campaignId: 'cmp_missing' }))).toBe('campaign.unknown');
+      const c = await live({ name: 'TEST voucher', type: 'voucher' });
+      now = new Date('2026-11-25T00:00:00Z');
+      expect(await code(s.issueVoucher({ campaignId: c.id, code: 'TEST-E1', actor: A }))).toBe('campaign.invalid_transition');
+      // The database holds the rule too: a voucher row naming a revision that was never approved is refused.
+      await expect(
+        db!.sql`INSERT INTO campaigns.vouchers (id, campaign_id, code, issue_key, revision, face_asset, face_amount, issued_by)
+          VALUES ('vch_x', ${c.id}, 'X1X1', 'voucher:issue:x', 9, 'USDT', '1', ${A})`,
+      ).rejects.toThrow(/vouchers_revision_fk/);
+      expect(await s.listVouchers({ campaignId: c.id })).toEqual([]);
+    });
+
+    it('an approved voucher campaign never activated issues until its end; one approved before revisions were recorded gets its record', async () => {
+      const s = service();
+      const c = await s.create({ definition: full({ name: 'TEST voucher approved', type: 'voucher' }), actor: A });
+      await s.transition({ id: c.id, action: 'submit', revision: 1, actor: A });
+      await s.transition({ id: c.id, action: 'approve', revision: 1, actor: B });
+      // As a campaign approved before campaign_revisions existed: its live revision has no record yet.
+      await db!.sql`DELETE FROM campaigns.campaign_revisions WHERE campaign_id = ${c.id}`;
+      expect(await s.issueVoucher({ campaignId: c.id, code: 'TEST-A1', actor: A })).toMatchObject({ revision: 1, face: { amount: '10' } });
+      const recorded = await db!.sql<{ submitted_by: string; approved_by: string }[]>`
+        SELECT submitted_by, approved_by FROM campaigns.campaign_revisions WHERE campaign_id = ${c.id} AND revision = 1`;
+      expect(recorded.map((r) => [r.submitted_by, r.approved_by])).toEqual([[A, B]]);
+      // Still `approved` past its end, yet ended: no voucher.
+      now = new Date('2026-11-25T00:00:00Z');
+      expect(await code(s.issueVoucher({ campaignId: c.id, code: 'TEST-A2', actor: A }))).toBe('campaign.invalid_transition');
+      expect((await s.listVouchers({ campaignId: c.id })).map((v) => v.code)).toEqual(['TEST-A1']);
+    });
+
     it('a change goes live only on a running campaign, and only if its name is still free when it is approved', async () => {
       const s = service();
       const c = await live();

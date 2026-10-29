@@ -4,15 +4,15 @@ import { signIn, signUp, verify } from './desk.mjs';
 import { PASSKEY_ORIGIN, addPasskey, virtualAuthenticator } from './identity-factors.mjs';
 import { draftNotice, publishNotice, publishedNotices } from './notices.mjs';
 import { statusRead } from './status-page.mjs';
-import { EDGE, ORIGIN, api } from './stack.mjs';
+import { EDGE, ORIGIN, api, tool } from './stack.mjs';
 
 // J-support-public-09, in the running app (docs/roadmap/journeys.json): a developer reads status and notices through the
 // documented API and sends a comment from code. Tests titled "J-support-public-09 #<n>" prove a whole step. The API is
 // called the way a developer's code calls it: plain HTTP to Edge, with no session and no cookie, and from #3 on with a
 // personal API key the developer made in the app (support:read and support:write; only an account with a verified passkey
 // may hold a key, so the person adds one first). The stack's TEST owner value caps a requester's comments at 50 per request
-// (SUPPORT_COMMENT_CAP); with it blank every requester comment refuses support.comment_cap_unset, which svc-support's
-// comment-key tests prove, since the running stack cannot change that value mid-run.
+// (SUPPORT_COMMENT_CAP); #5 restarts svc-support with it blank (LOCAL_STACK_SUPPORT_COMMENT_CAP=off) to see every requester
+// comment refuse support.comment_cap_unset, and puts it back in a finally.
 const J = 'J-support-public-09';
 const RUN = Date.now().toString(36);
 
@@ -147,6 +147,19 @@ async function withKey(key, method, procedure, input) {
   return { status: res.status, data: body?.result?.data, code: /\bsupport(?:\.[a-z0-9_]+)+/.exec(body?.error?.message ?? '')?.[0], body };
 }
 
+/** svc-support restarted with the owner's comment cap blank, or back on the stack's TEST cap. */
+function supportCommentCap(on) {
+  const before = process.env.LOCAL_STACK_SUPPORT_COMMENT_CAP;
+  if (on) delete process.env.LOCAL_STACK_SUPPORT_COMMENT_CAP;
+  else process.env.LOCAL_STACK_SUPPORT_COMMENT_CAP = 'off';
+  try {
+    tool('local-test-stack.mjs', 'restart', 'support');
+  } finally {
+    if (before === undefined) delete process.env.LOCAL_STACK_SUPPORT_COMMENT_CAP;
+    else process.env.LOCAL_STACK_SUPPORT_COMMENT_CAP = before;
+  }
+}
+
 /** @type {{ key: string, mine: string, theirs: string, who: object }} */
 let dev;
 
@@ -226,9 +239,30 @@ test.describe('with a key', () => {
     expect((await withKey(dev.key, 'GET', 'listComments', { ticketId: dev.mine, limit: 100 })).data).toHaveLength(thread.data.length);
   });
 
-  test(`${J} #5 a comment on a request at the owner's comment cap: support.comment_cap_reached`, async () => {
-    test.setTimeout(120_000);
-    const before = (await withKey(dev.key, 'GET', 'listComments', { ticketId: dev.mine, limit: 100 })).data;
+  test(`${J} #5 a comment over the owner's comment cap refuses support.comment_cap_reached; blank cap: support.comment_cap_unset`, async () => {
+    test.setTimeout(240_000);
+    // With the owner's cap blank, a requester comment refuses support.comment_cap_unset while the request is far below
+    // the TEST cap, so the refusal is the blank value and not the count; nothing is stored.
+    const thread = async () => (await withKey(dev.key, 'GET', 'listComments', { ticketId: dev.mine, limit: 100 })).data;
+    const unsetBody = `TEST with the cap blank ${RUN}`;
+    const beforeBlank = await thread();
+    expect(beforeBlank.filter((c) => c.authorRole === 'user').length).toBeLessThan(COMMENT_CAP);
+    try {
+      supportCommentCap(false);
+      const unset = await withKey(dev.key, 'POST', 'comment', {
+        ticketId: dev.mine,
+        body: unsetBody,
+        clientRequestId: `${J}:${RUN}:cap-unset`,
+      });
+      expect([unset.status, unset.code]).toEqual([412, 'support.comment_cap_unset']);
+      expect(await thread()).toEqual(beforeBlank);
+    } finally {
+      supportCommentCap(true);
+    }
+    expect((await thread()).some((c) => c.body === unsetBody)).toBe(false);
+
+    // Back on the TEST cap of 50: fill the request to it, then one more refuses support.comment_cap_reached.
+    const before = await thread();
     const mineSoFar = before.filter((c) => c.authorRole === 'user').length;
     // Fill the request to the cap, a few a second (Edge limits a burst from one address).
     for (let n = mineSoFar; n < COMMENT_CAP; n++) {
@@ -252,15 +286,24 @@ test.describe('with a key', () => {
   });
 
   test(`${J} #6 tries a staff procedure with the key: refused, a key never carries support:ops`, async () => {
+    const status = async () => (await withKey(dev.key, 'GET', 'get', { ticketId: dev.mine })).data.status;
+    const statusBefore = await status();
+    expect(statusBefore).not.toBe('resolved');
     for (const [method, procedure, input] of [
       ['GET', 'listAll', { limit: 10 }],
       ['GET', 'listQueue', { limit: 10 }],
       ['POST', 'setStatus', { ticketId: dev.mine, status: 'resolved' }],
     ]) {
       const refused = await withKey(dev.key, method, procedure, input);
-      expect(refused.status, `${procedure} ${JSON.stringify(refused.body).slice(0, 300)}`).toBe(403);
+      const said = `${procedure} ${JSON.stringify(refused.body).slice(0, 300)}`;
+      // The key's own scopes are refused by name: the shared scope guard's typed code, nothing returned.
+      expect([refused.status, refused.body?.error?.data?.intafacedCode], said).toEqual([403, 'scope.denied']);
+      expect(refused.data, said).toBeUndefined();
     }
-    // And no key can be made with it: identity refuses the scope outright.
+    // The refused status change changed nothing: the request reads back with the status it had.
+    expect(await status()).toBe(statusBefore);
+
+    // And no key can be made with it: identity refuses the scope outright, as one a key made here can never hold.
     const asked = await (
       await api(dev.who)
     ).post('/api/identity/trpc/developerKeys.create', {
@@ -268,9 +311,9 @@ test.describe('with a key', () => {
       scopes: ['support:ops'],
       requestId: `${J}:${RUN}:ops-key`,
     });
-    // A refusal of the ask, never a server failure that happens to name the scope.
-    expect(asked.status).toBeGreaterThanOrEqual(400);
-    expect(asked.status).toBeLessThan(500);
-    expect(JSON.stringify(asked.body)).toMatch(/auth\.scope_(interactive_only|not_held)/);
+    expect([asked.status, asked.body?.error?.data?.cause?.code], JSON.stringify(asked.body).slice(0, 300)).toEqual([
+      403,
+      'auth.scope_interactive_only',
+    ]);
   });
 });

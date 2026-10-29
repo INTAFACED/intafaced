@@ -41,7 +41,7 @@ import {
 } from './otc-convert-bounds.js';
 import { assertOtcStakeGate, otcStakeGate } from './stake-gate.js';
 import type { OtcStakeSource } from './stake-source.js';
-import { MemoryOtcQuoteStore, type OtcQuoteStore } from './quote-store.js';
+import { MemoryOtcQuoteStore, type OtcQuoteStore, type OtcStoredQuote } from './quote-store.js';
 import { listOtcMakers, selectOtcMakers, UNPUBLISHED_OTC_MAKER_DIRECTORY, type OtcMakerDirectory } from './maker-directory.js';
 import { TradingControlError, type TradingAdmissionPort } from '../controls/trading-controls.js';
 import { businessPayload } from '../controls/business-payload.js';
@@ -340,6 +340,15 @@ export class OtcDeskService {
       makerOrderId,
       fillId,
     });
+    // CB-otc-07: past the settle deadline a bound quote no longer settles. A settle that already began in time (its
+    // first post, the house hold, is on the ledger) must still finish on retry, or the funds it held stay stranded.
+    const deadline = otcSettleDeadline(law, stored);
+    if (this.now().getTime() > deadline && !(await this.ledger.getTxByKey(plan.mmHold.idempotencyKey))) {
+      throw new OtcError(
+        `The settlement window for this quote closed at ${new Date(deadline).toISOString()} — nothing was settled or held`,
+        'trade.rfq_window_passed',
+      );
+    }
     await postOtcSettle(this.ledger, plan);
     await this.store.saveSettled(stored.quote, stored.bound, this.now());
     return {
@@ -380,6 +389,7 @@ export class OtcDeskService {
       lifecycle: stored.lifecycle,
       acceptedAt: bound.acceptedAt,
       fillPrice: stored.bound.fillPrice,
+      ...this.settleWindowOf(stored),
     });
   }
 
@@ -395,13 +405,22 @@ export class OtcDeskService {
   async rfqGet(principal: Principal, quoteId: string) {
     const stored = await this.requireOwnedQuote(principal, quoteId);
     if (stored.lifecycle === 'open' || stored.lifecycle === 'expired') {
-      return presentFirmRfq(stored.quote, { lifecycle: stored.lifecycle });
+      return presentFirmRfq(stored.quote, { lifecycle: this.openOrLapsed(stored) });
     }
     return presentFirmRfq(stored.quote, {
       lifecycle: stored.lifecycle,
       acceptedAt: stored.bound.acceptedAt,
       fillPrice: stored.bound.fillPrice,
+      ...this.settleWindowOf(stored),
     });
+  }
+
+  /** When a bound quote stops settling, and the owner window it comes from (null: blank, "Not set"). */
+  private settleWindowOf(stored: OtcStoredQuote): { settleBy: string | null; settleWindowMs: number | null } {
+    if (this.law.published !== true || stored.lifecycle === 'open' || stored.lifecycle === 'expired') {
+      return { settleBy: null, settleWindowMs: null };
+    }
+    return { settleBy: new Date(otcSettleDeadline(this.law, stored)).toISOString(), settleWindowMs: this.law.settleWindowMs ?? null };
   }
 
   rfqAllocate(_principal: Principal, _input: { quoteId: string }): never {
@@ -422,6 +441,16 @@ export class OtcDeskService {
     );
   }
 
+  /**
+   * An open quote read after its expiry reads as expired: `acceptOtcQuote` refuses it from then on, so "open" would be
+   * false. Nothing is written here, so a read never races an accept that was admitted in time and saves after it.
+   */
+  private openOrLapsed(stored: Extract<OtcStoredQuote, { lifecycle: 'open' | 'expired' }>): 'open' | 'expired' {
+    if (stored.lifecycle === 'expired') return 'expired';
+    const expiresAt = Date.parse(stored.quote.expiresAt);
+    return Number.isFinite(expiresAt) && this.now().getTime() <= expiresAt ? 'open' : 'expired';
+  }
+
   private async requireOwnedQuote(principal: Principal, quoteId: string) {
     const stored = await this.store.load(quoteId);
     if (!stored) {
@@ -432,4 +461,16 @@ export class OtcDeskService {
     }
     return stored;
   }
+}
+
+/**
+ * When a bound quote stops settling (CB-otc-07): the owner window from the accept, or, with the window blank (no
+ * deferral), the quote's own expiry. Unparseable times give 0, which refuses rather than settles without a deadline.
+ */
+export function otcSettleDeadline(
+  law: Extract<OtcDeskLaw, { published: true }>,
+  stored: Extract<OtcStoredQuote, { lifecycle: 'bound' | 'settled' }>,
+): number {
+  const from = law.settleWindowMs == null ? Date.parse(stored.quote.expiresAt) : Date.parse(stored.bound.acceptedAt) + law.settleWindowMs;
+  return Number.isFinite(from) ? from : 0;
 }

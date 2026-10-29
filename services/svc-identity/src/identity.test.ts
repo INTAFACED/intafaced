@@ -729,7 +729,7 @@ if (!available) {
         auth.createApiKey({
           userId: session.userId,
           name: 'widen',
-          scopes: ['agents:execute'],
+          scopes: ['pay:read'],
           grantorScopes: ['identity:write', 'trade:read'],
         }),
       ).rejects.toThrow(/does not hold/);
@@ -812,7 +812,12 @@ if (!available) {
         }),
       ).rejects.toThrow(/cannot be granted to an API key/);
 
-      for (const scope of ['admin:write', 'admin:read', 'admin:compliance', 'support:ops', 'market:ops']) {
+      // agents:execute is the person's own (OWNER 107): refused by the service and by the same CHECK.
+      await expect(
+        auth.createApiKey({ userId: session.userId, name: 'agent-bot', scopes: ['agents:execute'], grantorScopes: ['agents:execute'] }),
+      ).rejects.toThrow(/cannot be granted to an API key/);
+
+      for (const scope of ['admin:write', 'admin:read', 'admin:compliance', 'support:ops', 'market:ops', 'agents:execute']) {
         await expect(
           db.sql`
             INSERT INTO api_keys (user_id, name, key_hash, key_prefix, scopes)
