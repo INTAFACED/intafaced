@@ -13,15 +13,15 @@ import { IcebergTab } from './IcebergTab';
 import { RoutingTab } from './RoutingTab';
 import { ScaledTab } from './ScaledTab';
 import { execCopy } from './copy';
-import { useAlgoPolicy, useExecMarkets, useParents } from './data';
-import { Gate, signInHref, useStoredIds } from './parts';
+import { useAlgoIds, useAlgoPolicy, useExecMarkets, useParents } from './data';
+import { Gate, signInHref } from './parts';
 
 export default function Screen(_props: ScreenProps) {
   const { t } = execCopy.useCopy();
   const { userId } = useSession();
   const policy = useAlgoPolicy();
   const markets = useExecMarkets();
-  const ids = useStoredIds('algo', userId);
+  const ids = useAlgoIds(userId);
   const parents = useParents(ids);
 
   const meta = (

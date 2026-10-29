@@ -170,7 +170,10 @@ const messages = {
   'Stretch reason user_pause': 'The schedule was paused, so its end moved later by the time it sat paused.',
   'Stretch reason tick_outage': 'The scheduler was down for a while, so the end moved later.',
   'Resume blocked cancel incomplete':
-    'Resume is off: the last cancel did not finish and some child orders may still be open. Cancel again first.',
+    'Pause and Resume are off: the last cancel did not finish and some child orders may still be open. Cancel again first.',
+  'Average fill price': 'Average fill price',
+  'Not set': 'Not set',
+  'Average fill price hint': 'The average price of the child orders’ fills. Not set until one fills.',
   'Filled so far': 'Filled so far',
   'Counts only fills of the child orders': 'Counts only fills of its child orders.',
   Created: 'Created',

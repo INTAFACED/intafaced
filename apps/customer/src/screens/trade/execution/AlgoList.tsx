@@ -1,5 +1,5 @@
 /** The schedules this device knows, each re-read from the service, and the detail of the one picked. */
-import { Badge, Button, EmptyState, KeyValue, Table, fmtAmount, type Loadable, type TableColumn } from '../rooms/ui';
+import { Badge, Button, EmptyState, KeyValue, Table, fmtAmount, fmtPrice, type Loadable, type TableColumn } from '../rooms/ui';
 import { Freshness } from '../rooms/RoomNotices';
 import { roomWords } from '../rooms/refusals';
 import { compareDecimals, percentOf } from '../rooms/math';
@@ -39,7 +39,17 @@ function pctOf(row: Ok): string | null {
   return pct !== null && compareDecimals(pct, '100') === 1 ? '100' : pct;
 }
 
-/** The reason Resume is off for this schedule, or null when it may be tried. */
+/**
+ * The average price of the schedule's real child fills: the price, 'not_set' when the service answered and nothing has
+ * filled, or null when the result could not be read (drawn as a dash, never as a number).
+ */
+function averageFill(row: Ok): string | 'not_set' | null {
+  if (!row.result) return null;
+  const priced = row.result.quotes.find((q) => q.averageFillPrice !== null);
+  return priced?.averageFillPrice ?? 'not_set';
+}
+
+/** The reason Pause and Resume are off for this schedule, or null when they may be tried. */
 function resumeBlock(row: Ok, t: (key: 'Resume blocked cancel incomplete') => string): string | null {
   const reason = row.parent.haltReason ?? row.progress?.haltReason ?? null;
   return reason === CANCEL_INCOMPLETE ? t('Resume blocked cancel incomplete') : null;
@@ -122,6 +132,16 @@ export function AlgoList({
       cell: (r) => (r.ok && r.progress ? fmtAmount(r.progress.filledQty) : null),
     },
     {
+      id: 'average',
+      header: t('Average fill price'),
+      width: 96,
+      numeric: true,
+      cell: (r) => {
+        const avg = r.ok ? averageFill(r) : null;
+        return avg === null ? null : avg === 'not_set' ? t('Not set') : fmtPrice(avg, null);
+      },
+    },
+    {
       id: 'progress',
       header: t('Progress'),
       width: 120,
@@ -178,7 +198,7 @@ export function AlgoList({
             key={action}
             variant="secondary"
             size={28}
-            disabled={locked || (action === 'resume' && blocked !== null)}
+            disabled={locked || ((action === 'resume' || action === 'pause') && blocked !== null)}
             aria-label={`${label} ${parent.id}`}
             onClick={(event) => {
               event.stopPropagation();
@@ -190,7 +210,7 @@ export function AlgoList({
         );
         return (
           <span className="flex flex-wrap gap-1">
-            {status === 'active' ? act('pause', t('Pause')) : null}
+            {status === 'active' || blocked !== null ? act('pause', t('Pause')) : null}
             {status === 'paused' || status === 'halted' ? act('resume', t('Resume')) : null}
             {status === 'active' || status === 'paused' || status === 'halted' ? act('cancel', t('Cancel')) : null}
             {blocked !== null && (status === 'paused' || status === 'halted') ? (
@@ -286,6 +306,14 @@ export function AlgoDetail({ row, onClone }: { row: ParentRead; onClone: (parent
           },
           { label: t('Last slice'), value: lastSliceWords(parent, t) },
           { label: t('Slice sizes'), value: parent.randomSeed != null ? t('Random sizes', { seed: String(parent.randomSeed) }) : null },
+          {
+            label: t('Average fill price'),
+            value: (() => {
+              const avg = averageFill(row);
+              return avg === null ? null : avg === 'not_set' ? t('Not set') : fmtPrice(avg, null);
+            })(),
+            hint: t('Average fill price hint'),
+          },
           {
             label: t('Filled so far'),
             value: done === null ? null : `${fmtAmount(done)} / ${fmtAmount(parent.totalQty)}`,
