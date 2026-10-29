@@ -272,7 +272,7 @@ let treasuryToken;
  */
 async function ledgerFree(userId) {
   const { gates, ctx } = await founders();
-  treasuryToken ??= await gates.consoleTreasuryToken(ctx, { ttlSeconds: 900 });
+  treasuryToken ??= (await gates.consoleTreasuryToken(ctx, { ttlSeconds: 900 }))?.token;
   expect(treasuryToken, 'the stack has no enrolled founder pair').toBeTruthy();
   const res = await fetch(`${ctx.url('ledger')}/operator/accounts?prefix=${encodeURIComponent(`user:${userId}`)}`, {
     headers: { authorization: `Bearer ${treasuryToken}` },
