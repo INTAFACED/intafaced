@@ -66,6 +66,7 @@ describe('mining pool reads', () => {
         migration('0001_blank_reward_share.sql'),
         migration('0002_mining_reads.sql'),
         migration('0003_share_workers.sql'),
+        migration('0004_pow_solo.sql'),
       ],
     });
   });
