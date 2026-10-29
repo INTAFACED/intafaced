@@ -9,6 +9,7 @@ import Fastify from 'fastify';
 import { afterAll, describe, expect, it } from 'vitest';
 import { issueAccessToken, verifyAccessToken } from '@intafaced/auth';
 import { actionApprovalSchema, type Context } from '@intafaced/contracts';
+import { parseAmount as amt, recipes } from '@intafaced/ledger-client';
 import { createTestDb, rewriteSchemaSql, type TestDb } from '@intafaced/db/testing';
 import {
   OPS_CONTROL_MARGIN_UNSET,
@@ -25,6 +26,7 @@ import { registerOperatorHttp } from '../operator-http.js';
 import { ledgerActionPayloadHash, stubApprovalConsumer, type ActionApprovalConsumer } from './action-approval-consume.js';
 import { withJournalGuardsOff } from '../db/journal-guards.testkit.js';
 import { ReconciliationControlError } from './reconciliation-control-error.js';
+import { PostgresLedger } from './postgres-ledger.js';
 import {
   defineReconciliationControl,
   listReconciliationControlRuns,
@@ -714,6 +716,92 @@ async function ctx(scopes: string[], mfa: boolean): Promise<Context> {
     } finally {
       await db.sql`UPDATE accounts SET balance = 0 WHERE id = ${drifted}`;
     }
+  });
+
+  it('leaves an account created and funded after read_at out of every side, and its counter-leg at read_at: the total stays 0', async () => {
+    const REPLAY = '11111111-1111-4111-8111-111111111111';
+    const NETTING = '33333333-3333-4333-8333-333333333333';
+    const engine = new PostgresLedger(db.sql);
+    const tick = () => new Promise((resolve) => setTimeout(resolve, 5));
+    const fund = (userId: string, railRef: string) =>
+      engine.post(recipes.deposit({ userId, assetId: 'BTC', amount: amt('7'), rail: 'test', railRef }));
+    // The first deposit makes the rail boundary account, so the counter-leg exists before read_at.
+    await fund('abcdeaaa-4444-4444-8444-000000000001', 'recon-snap-1');
+    // Whole-book controls: an earlier test leaves one-sided USDT rows, so each run is judged on its BTC row alone.
+    const btc = (run: { assets: Array<{ assetId: string }> }) => run.assets.find((asset) => asset.assetId === 'BTC');
+    const zero = { assetId: 'BTC', observed: '0', expected: '0', difference: '0', tolerance: '0' };
+    const open = async (controlId: string, approvalId: string) => {
+      const operationId = nextOp();
+      const run = await runReconciliationControl(db.sql, approvals, actor, { controlId, reason: REASON, approvalId, operationId });
+      expect(btc(run)).toEqual(zero);
+      return { run, operationId };
+    };
+    const netting = await open(NETTING, 'appr-snap-1');
+    const replay = await open(REPLAY, 'appr-snap-2');
+    // Hold both runs at one read_at, on a millisecond as the driver reads it, with the deposits strictly either side.
+    await tick();
+    const [{ read_at: readAt }] = await db.sql<Array<{ read_at: Date }>>`
+      UPDATE reconciliation_control_runs
+         SET status = 'started', phase = '', error_code = '', finished_at = NULL,
+             read_at = date_trunc('milliseconds', clock_timestamp())
+       WHERE id IN ${db.sql([netting.run.id, replay.run.id])}
+      RETURNING read_at
+    `;
+    await tick();
+    await fund('abcdeaaa-4444-4444-8444-000000000002', 'recon-snap-2');
+    const legs = await db.sql<Array<{ id: string; created_at: Date; owner_id: string }>>`
+      SELECT a.id, a.created_at, a.owner_id
+        FROM ledger_entries e
+        JOIN ledger_tx t ON t.id = e.tx_id
+        JOIN accounts a ON a.id = e.account_id
+       WHERE t.idempotency_key LIKE '%recon-snap-2%'
+    `;
+    expect(legs).toHaveLength(2);
+    const fresh = legs.find((leg) => leg.owner_id === 'abcdeaaa-4444-4444-8444-000000000002')!;
+    const boundary = legs.find((leg) => leg.id !== fresh.id)!;
+    expect(fresh.created_at.getTime()).toBeGreaterThan(readAt.getTime());
+    expect(boundary.created_at.getTime()).toBeLessThan(readAt.getTime());
+
+    // The run resumes after the deposit, at the current instant: the fresh account is in no side, the boundary is counted
+    // at read_at, and the BTC total is exactly 0.
+    const resumed = await runReconciliationControl(db.sql, approvals, actor, {
+      controlId: NETTING,
+      reason: REASON,
+      approvalId: 'appr-snap-3',
+      operationId: netting.operationId,
+    });
+    expect(resumed.id).toBe(netting.run.id);
+    expect(resumed.status).not.toBe('started');
+    expect(btc(resumed)).toEqual(zero);
+    expect(resumed.accounts).toContain(boundary.id);
+    expect(resumed.accounts).not.toContain(fresh.id);
+    expect(resumed.sources.ledger.asOf).toBe(readAt.toISOString());
+
+    // The replay at the current instant compares the cached column with the entries in one snapshot (the boundary already
+    // carries the later deposit there, -7 on both sides): no drift from a deposit that landed after read_at.
+    const replayed = await runReconciliationControl(db.sql, approvals, actor, {
+      controlId: REPLAY,
+      reason: REASON,
+      approvalId: 'appr-snap-4',
+      operationId: replay.operationId,
+    });
+    expect(replayed.id).toBe(replay.run.id);
+    expect(replayed.status).not.toBe('started');
+    expect(btc(replayed)).toEqual({ ...zero, observed: '-7', expected: '-7' });
+    expect(replayed.accounts).not.toContain(fresh.id);
+
+    // A past run at that read_at agrees with the resumed run.
+    const past = await runReconciliationControl(db.sql, approvals, actor, {
+      controlId: NETTING,
+      reason: REASON,
+      asOf: readAt.toISOString(),
+      margin: '0',
+      approvalId: 'appr-snap-5',
+      operationId: nextOp(),
+    });
+    expect(past.accounts).toContain(boundary.id);
+    expect(past.accounts).not.toContain(fresh.id);
+    expect(btc(past)).toEqual(zero);
   });
 
   it('runs an operator ledger invariant as replay only, and passes a healthy subset', async () => {
