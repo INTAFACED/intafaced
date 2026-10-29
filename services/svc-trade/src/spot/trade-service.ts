@@ -946,6 +946,11 @@ export class TradeService {
     return this.placeOrderInner(principal, input, 'copy.mirror', `copy.follow:${followId}`);
   }
 
+  /** Owning GridService supplies its bot id: one level order, a delegated child of the bot's admitted `strategy.start`. */
+  async placeGridLevel(principal: Principal, input: PlaceOrderInput, botId: string): Promise<OrderRecord> {
+    return this.placeOrderInner(principal, input, 'algo.child', `grid:${botId}`);
+  }
+
   /** Owned worker hook: resolve uncertain grant, then execute only its original payload. */
   async recoverAdmittedOrder(userId: string, orderId: string): Promise<OrderRecord | null> {
     const existing = await this.findOrder(orderId);
