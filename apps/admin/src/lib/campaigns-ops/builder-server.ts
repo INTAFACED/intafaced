@@ -6,6 +6,10 @@ import {
   campaignSchema,
   campaignTransitionInputSchema,
   campaignUpdateInputSchema,
+  ruleLibraryEntrySchema,
+  ruleLibrarySaveInputSchema,
+  ruleTestInputSchema,
+  ruleTestResultSchema,
   type Campaign,
   type CampaignAction,
   type CampaignDefinitionInput,
@@ -127,4 +131,46 @@ export async function updateCampaign(ctx: FounderCallContext, input: UpdateInput
 
 export async function moveCampaign(ctx: FounderCallContext, input: MoveInput) {
   return reply(await founderCall(ctx, 'campaigns', 'ops.campaigns.transition', 'POST', input, readCampaign), input.action);
+}
+
+// ── Rule library (CM-eligibility-rules-02, J-campaigns-16 #4) ──────────────────────────────────────────────────────
+
+const readRuleTest = parseWith(ruleTestResultSchema);
+const readRuleEntry = parseWith(ruleLibraryEntrySchema);
+const readRuleList = parseWith(ruleLibraryEntrySchema.array());
+
+export const checkRuleTest = check(ruleTestInputSchema, 'Which rule, on which TEST fixture account?');
+export const checkRuleSave = check(
+  ruleLibrarySaveInputSchema,
+  'A rule needs a name of up to 120 characters and a tree of groups and conditions.',
+);
+
+export type RuleReply<T> =
+  | { readonly ok: true; readonly data: T }
+  | { readonly ok: false; readonly title: string; readonly body: string; readonly next: string; readonly code: string | null };
+
+/** A rule door's answer: the data, or the service's own sentence and code. */
+function ruleReply<T>(result: FounderCallResult<T>): { status: number; reply: RuleReply<T> } {
+  if (result.kind === 'ok') return { status: 200, reply: { ok: true, data: result.data } };
+  const code = result.kind === 'refused' || result.kind === 'forbidden' ? (result.refusal.code ?? null) : null;
+  const status = result.kind === 'refused' ? result.refusal.status : result.kind === 'forbidden' ? 403 : 502;
+  const message = result.kind === 'refused' ? result.refusal.message : null;
+  const view = explainRefusal(code, status, result.kind !== 'refused' && result.kind !== 'forbidden');
+  const body = message?.replace(CODE_SUFFIX, '').trim();
+  return {
+    status: status >= 400 && status < 600 ? status : 502,
+    reply: { ok: false, title: view.title, body: body || view.body, next: view.next, code },
+  };
+}
+
+export async function testRule(ctx: FounderCallContext, input: unknown) {
+  return ruleReply(await founderCall(ctx, 'campaigns', 'ops.rules.test', 'GET', input, readRuleTest));
+}
+
+export async function saveRule(ctx: FounderCallContext, input: unknown) {
+  return ruleReply(await founderCall(ctx, 'campaigns', 'ops.rules.library.save', 'POST', input, readRuleEntry));
+}
+
+export async function listRules(ctx: FounderCallContext) {
+  return ruleReply(await founderCall(ctx, 'campaigns', 'ops.rules.library.list', 'GET', undefined, readRuleList));
 }

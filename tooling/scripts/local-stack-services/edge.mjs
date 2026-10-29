@@ -27,6 +27,9 @@ export default ({
       EDGE_RATE_LIMIT_MAX: '6000',
       EDGE_RATE_LIMIT_WINDOW_MS: '60000',
       EDGE_BODY_LIMIT_BYTES: '1048576',
+      // Owner value, blank in git. LOCAL TEST: the same edge answers as the sandbox host at localhost and as the live
+      // host at 127.0.0.1, so J-developer-02 can call one key at both and see env.mismatch at the live one.
+      EDGE_SANDBOX_HOSTS: `localhost:${PORTS.edge}`,
       EDGE_KILL_STATE_PATH: path.join(P.data, 'edge-kill-state.json'),
     };
     for (const [k, service] of Object.entries(EDGE_UPSTREAMS)) env[k] = urlOf(service);

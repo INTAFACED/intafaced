@@ -279,6 +279,9 @@ services:
       # Blank stays refuse-closed (never invent 1048576). Host may set 1048576
       # explicitly.
       EDGE_BODY_LIMIT_BYTES: ${EDGE_BODY_LIMIT_BYTES:-}
+      # Owner-published sandbox Host values — pass-through, no compose default.
+      # Blank means no sandbox host, so every sandbox key is refused env.mismatch.
+      EDGE_SANDBOX_HOSTS: ${EDGE_SANDBOX_HOSTS:-}
       EDGE_KILL_STATE_PATH: ${EDGE_KILL_STATE_PATH:-.data/edge-kill-state.json}
       UPSTREAM_TIMEOUT_MS: ${UPSTREAM_TIMEOUT_MS:-15000}
       # Customer page origins. Blank → dev default outside staging/prod. Same name on svc-ws.

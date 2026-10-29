@@ -157,6 +157,23 @@ export const OPERATOR_TOOLS: readonly OperatorTool[] = [
     ],
   },
   {
+    id: 'identity.kyc.proofOfAddress.listFor',
+    group: 'identity',
+    label: 'Proof of address',
+    summary:
+      "One person's proof-of-address submissions, newest first: document type, country, date issued, status, and a flag when the country differs from the approved residence.",
+    edgeModule: 'identity',
+    procedure: 'kyc.proofOfAddress.listFor',
+    kind: 'query',
+    authority: 'module',
+    scope: 'admin:compliance',
+    consequential: false,
+    fields: [
+      { name: 'userId', type: 'uuid', label: 'User id', required: true },
+      { name: 'limit', type: 'number', label: 'Limit', placeholder: '20', hint: '1–50', required: true },
+    ],
+  },
+  {
     id: 'identity.kyc.capabilities.getFor',
     group: 'identity',
     label: 'KYC capabilities',
