@@ -1,6 +1,6 @@
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
-import { SupportDeskView, type DeskViewProps } from './support-desk';
+import { SupportDeskView, historyOf, type DeskViewProps } from './support-desk';
 import type { SupportQueueView, SupportTicketView } from '@/lib/support/types';
 
 const ME = '11111111-1111-4111-8111-111111111111';
@@ -212,5 +212,25 @@ describe('a ticket', () => {
       },
     });
     expect(no).toContain('This ticket is already claimed');
+  });
+});
+
+describe('ticket history with property changes (J-support-public-10 #6)', () => {
+  it('puts one row per changed field among the events, oldest first, and says none for an empty side', () => {
+    const base = detail();
+    if (base.detail.kind !== 'ok') throw new Error('fixture');
+    const rows = historyOf({
+      ...base.detail.data,
+      propertyChanges: {
+        kind: 'ok',
+        data: [
+          { ticketId: T1, field: 'priority', before: null, after: 'low', setBy: ME, reason: 'Triage', setAt: '2026-10-17T02:00:00.000Z' },
+          { ticketId: T1, field: 'labels', before: null, after: 'test_x, vip', setBy: ME, reason: null, setAt: '2026-10-17T02:00:00.000Z' },
+        ],
+      },
+    });
+    expect(rows.map((r) => r.what).slice(-2)).toEqual(['priority none → low', 'labels none → test_x, vip']);
+    expect(rows.at(-2)).toMatchObject({ sequence: null, note: 'Triage' });
+    expect(rows[0]?.sequence).toBe(1);
   });
 });

@@ -421,6 +421,23 @@ export const supportTicketPropertiesSchema = z.object({
 });
 export type SupportTicketProperties = z.infer<typeof supportTicketPropertiesSchema>;
 
+/**
+ * One field's change in a ticket's priority, type and labels, oldest first (J-support-public-10 #6). One save that
+ * changes three fields is three rows, each with who made it, when and why. Labels are listed sorted, comma-joined;
+ * null is "none set". Staff only, like the properties themselves.
+ */
+export const SUPPORT_PROPERTY_FIELDS = ['priority', 'type', 'labels'] as const;
+export const supportTicketPropertyChangeSchema = z.object({
+  ticketId: z.string().guid(),
+  field: z.enum(SUPPORT_PROPERTY_FIELDS),
+  before: z.string().nullable(),
+  after: z.string().nullable(),
+  setBy: z.string(),
+  reason: z.string().max(500).nullable(),
+  setAt: z.string().datetime(),
+});
+export type SupportTicketPropertyChange = z.infer<typeof supportTicketPropertyChangeSchema>;
+
 /** Which agent-set properties a customer reads on their own request (SP-tickets-04). The owner chooses; blank refuses. */
 export const SUPPORT_CUSTOMER_PROPERTIES = ['priority', 'type'] as const;
 export type SupportCustomerProperty = (typeof SUPPORT_CUSTOMER_PROPERTIES)[number];

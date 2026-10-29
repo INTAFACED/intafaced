@@ -141,6 +141,11 @@ if (!url) {
       expect(await book.ticketsWithLabel('absent')).toEqual(new Set());
       const cleared = await book.set({ ticketId: ticket.id, priority: null, by: LEAD, reason: null, at: '2026-10-20T09:31:00.000Z' });
       expect(cleared).toMatchObject({ priority: null, labels: ['a-b', 'vip'] });
+      expect((await book.history(ticket.id, 10)).map((r) => [r.field, r.before, r.after, r.reason, r.setAt])).toEqual([
+        ['priority', null, 'high', 'deadline', at],
+        ['labels', null, 'a-b, vip', 'deadline', at],
+        ['priority', 'high', null, null, '2026-10-20T09:31:00.000Z'],
+      ]);
       await expect(db.sql`UPDATE support.ticket_properties SET priority = 'critical' WHERE ticket_id = ${ticket.id}`).rejects.toThrow();
     });
 

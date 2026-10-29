@@ -108,6 +108,43 @@ function TicketPanel(p: DeskViewProps) {
   );
 }
 
+interface HistoryRow {
+  readonly key: string;
+  readonly sequence: number | null;
+  readonly at: string;
+  readonly what: string;
+  readonly by: string;
+  readonly note: string | null;
+}
+
+/** The ticket's events and its priority, type and label changes, one row each, oldest first. */
+export function historyOf(detail: TicketDetail): HistoryRow[] {
+  const events: HistoryRow[] =
+    detail.events.kind === 'ok'
+      ? detail.events.data.map((e) => ({
+          key: e.id,
+          sequence: e.sequence,
+          at: e.occurredAt,
+          what: e.kind === 'status_changed' ? `status ${e.fromStatus} → ${e.toStatus}` : e.kind,
+          by: `${e.actorRole} ${shortId(e.actorId)}`,
+          note: e.note,
+        }))
+      : [];
+  const changes: HistoryRow[] =
+    detail.propertyChanges?.kind === 'ok'
+      ? detail.propertyChanges.data.map((c, i) => ({
+          key: `prop-${i}`,
+          sequence: null,
+          at: c.setAt,
+          what: `${c.field} ${c.before ?? 'none'} → ${c.after ?? 'none'}`,
+          by: `operator ${shortId(c.setBy)}`,
+          note: c.reason,
+        }))
+      : [];
+  // Stable: events keep their sequence order, and a change sits after the events of the same instant.
+  return [...events, ...changes].sort((a, b) => Date.parse(a.at) - Date.parse(b.at));
+}
+
 function TicketBody({ detail, ...p }: { detail: TicketDetail } & DeskViewProps) {
   const t = detail.ticket;
   const gate: ClaimGate = claimGate(t, p.userId, p.busy);
@@ -212,7 +249,7 @@ function TicketBody({ detail, ...p }: { detail: TicketDetail } & DeskViewProps) 
       <h4>What happened to this ticket</h4>
       {detail.events.kind === 'failed' ? (
         <Failed name="History" part={detail.events} />
-      ) : detail.events.data.length === 0 ? (
+      ) : detail.events.data.length === 0 && historyOf(detail).length === 0 ? (
         <p className="dk-muted">No events recorded.</p>
       ) : (
         <div className="dk-table-wrap" role="region" aria-label="Ticket history" tabIndex={0}>
@@ -227,15 +264,13 @@ function TicketBody({ detail, ...p }: { detail: TicketDetail } & DeskViewProps) 
               </tr>
             </thead>
             <tbody>
-              {detail.events.data.map((e) => (
-                <tr key={e.id}>
-                  <td>{e.sequence}</td>
-                  <td>{formatWhen(e.occurredAt)}</td>
-                  <td>{e.kind === 'status_changed' ? `status ${e.fromStatus} → ${e.toStatus}` : e.kind}</td>
-                  <td>
-                    {e.actorRole} {shortId(e.actorId)}
-                  </td>
-                  <td>{e.note ?? '—'}</td>
+              {historyOf(detail).map((row) => (
+                <tr key={row.key}>
+                  <td>{row.sequence ?? '—'}</td>
+                  <td>{formatWhen(row.at)}</td>
+                  <td>{row.what}</td>
+                  <td>{row.by}</td>
+                  <td>{row.note ?? '—'}</td>
                 </tr>
               ))}
             </tbody>
@@ -243,10 +278,12 @@ function TicketBody({ detail, ...p }: { detail: TicketDetail } & DeskViewProps) 
         </div>
       )}
 
+      {detail.propertyChanges?.kind === 'failed' && <Failed name="Priority, type and labels history" part={detail.propertyChanges} />}
+
       <TicketExtras extras={p.extras} loading={p.loadingExtras} />
       <TicketFiles key={t.id} ticketId={t.id} />
       <TicketLifecycle key={t.id} ticket={t} />
-      <TicketProperties key={t.id} ticket={t} />
+      <TicketProperties key={t.id} ticket={t} onDone={p.onActionDone} />
       <TicketMerge key={t.id} ticket={t} onDone={p.onActionDone} />
       <TicketActions ticket={t} onDone={p.onActionDone} />
     </>

@@ -31,6 +31,7 @@ import {
   supportAwaitingMineSchema,
   supportTicketLifecycleSchema,
   supportTicketPropertiesSchema,
+  supportTicketPropertyChangeSchema,
   supportCreatedByRequestInputSchema,
   supportTicketSchema,
   supportTicketStatusSchema,
@@ -1220,6 +1221,19 @@ export function createSupportRouter(
         try {
           requireSupportOps(ctx.principal!);
           return await support.getTicketProperties({ operatorId: ctx.principal!.userId, ticketId: input.ticketId });
+        } catch (err) {
+          mapError(err);
+        }
+      }),
+
+    /** Each change to priority, type and labels, one row per field, oldest first (J-support-public-10 #6). */
+    ticketPropertyHistory: scopedProcedure('support:ops')
+      .input(z.object({ ticketId: z.string().guid(), limit: z.number().int().positive().max(500).optional() }))
+      .output(z.array(supportTicketPropertyChangeSchema))
+      .query(async ({ ctx, input }) => {
+        try {
+          requireSupportOps(ctx.principal!);
+          return await support.getTicketPropertyHistory({ operatorId: ctx.principal!.userId, ...input });
         } catch (err) {
           mapError(err);
         }

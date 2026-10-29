@@ -166,3 +166,37 @@ describe('ticket properties (SP-tickets-04)', () => {
     });
   });
 });
+
+describe('ticket property history (J-support-public-10 #6)', () => {
+  it('lists one row per field a save changed, oldest first, with who and why; an unchanged save adds none', async () => {
+    const { lead, ticket } = await desk();
+    const t = await ticket('History');
+    await lead.setProperties({
+      ticketId: t.id,
+      priority: 'low',
+      ticketType: 'question',
+      labels: ['vip', 'test_x'],
+      clientRequestId: 'hist-0001',
+      reason: 'Triage',
+    });
+    await lead.setProperties({ ticketId: t.id, priority: 'low', clientRequestId: 'hist-0002' });
+    await lead.setProperties({ ticketId: t.id, priority: 'high', clientRequestId: 'hist-0003' });
+    const rows = await lead.ticketPropertyHistory({ ticketId: t.id, limit: 50 });
+    expect(rows.map((r) => [r.field, r.before, r.after])).toEqual([
+      ['priority', null, 'low'],
+      ['type', null, 'question'],
+      ['labels', null, 'test_x, vip'],
+      ['priority', 'low', 'high'],
+    ]);
+    expect(rows[0]).toMatchObject({ ticketId: t.id, setBy: LEAD, reason: 'Triage' });
+    expect(await lead.ticketPropertyHistory({ ticketId: t.id, limit: 2 })).toHaveLength(2);
+  });
+
+  it('refuses a missing page size by name, and is staff only', async () => {
+    const { lead, as, ticket } = await desk();
+    const t = await ticket('History limit');
+    await expect(lead.ticketPropertyHistory({ ticketId: t.id })).rejects.toMatchObject({ message: 'support.property_history_limit_unset' });
+    const customer = await as(CUSTOMER, ['support:read', 'support:write']);
+    await expect(customer.ticketPropertyHistory({ ticketId: t.id, limit: 10 })).rejects.toMatchObject({ code: 'FORBIDDEN' });
+  });
+});

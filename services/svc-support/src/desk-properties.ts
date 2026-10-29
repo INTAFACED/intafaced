@@ -6,7 +6,7 @@
  * (null, null, no labels); nothing is guessed.
  */
 import type { Sql } from 'postgres';
-import type { SupportTicketPriority, SupportTicketProperties, SupportTicketType } from '@intafaced/contracts';
+import type { SupportTicketPriority, SupportTicketProperties, SupportTicketPropertyChange, SupportTicketType } from '@intafaced/contracts';
 
 export interface PropertyChange {
   readonly ticketId: string;
@@ -26,6 +26,26 @@ export interface PropertiesBook {
   set(change: PropertyChange): Promise<SupportTicketProperties>;
   /** Ids of tickets carrying a label. */
   ticketsWithLabel(label: string): Promise<Set<string>>;
+  /** One row per field each logged save changed, oldest first, at most `limit` rows. */
+  history(ticketId: string, limit: number): Promise<SupportTicketPropertyChange[]>;
+}
+
+type LogRow = { before: SupportTicketProperties; after: SupportTicketProperties; by: string; reason: string | null; at: string };
+
+const labelText = (labels: readonly string[]): string | null => (labels.length === 0 ? null : normaliseLabels(labels).join(', '));
+
+/** Split one logged save into a row per field it changed. Never a row for a field it left alone. */
+export function fieldChanges(ticketId: string, row: LogRow): SupportTicketPropertyChange[] {
+  const base = { ticketId, setBy: row.by, reason: row.reason, setAt: row.at };
+  const out: SupportTicketPropertyChange[] = [];
+  if (row.before.priority !== row.after.priority)
+    out.push({ ...base, field: 'priority', before: row.before.priority, after: row.after.priority });
+  if (row.before.ticketType !== row.after.ticketType)
+    out.push({ ...base, field: 'type', before: row.before.ticketType, after: row.after.ticketType });
+  const before = labelText(row.before.labels);
+  const after = labelText(row.after.labels);
+  if (before !== after) out.push({ ...base, field: 'labels', before, after });
+  return out;
 }
 
 const empty = (ticketId: string): SupportTicketProperties => ({ ticketId, priority: null, ticketType: null, labels: [], updatedAt: null });
@@ -77,6 +97,13 @@ export class MemoryPropertiesBook implements PropertiesBook {
 
   async ticketsWithLabel(label: string): Promise<Set<string>> {
     return new Set([...this.rows.values()].filter((p) => p.labels.includes(label)).map((p) => p.ticketId));
+  }
+
+  async history(ticketId: string, limit: number): Promise<SupportTicketPropertyChange[]> {
+    return this.log
+      .filter((row) => row.ticketId === ticketId)
+      .flatMap((row) => fieldChanges(ticketId, row))
+      .slice(0, limit);
   }
 }
 
@@ -133,5 +160,26 @@ export class SqlPropertiesBook implements PropertiesBook {
   async ticketsWithLabel(label: string): Promise<Set<string>> {
     const rows = await this.sql<{ ticket_id: string }[]>`SELECT ticket_id FROM support.ticket_properties WHERE ${label} = ANY(labels)`;
     return new Set(rows.map((r) => r.ticket_id));
+  }
+
+  async history(ticketId: string, limit: number): Promise<SupportTicketPropertyChange[]> {
+    // A save changes at most three fields, so `limit` log rows always cover `limit` field rows.
+    const rows = await this.sql<
+      { before: SupportTicketProperties; after: SupportTicketProperties; set_by: string; reason: string | null; set_at: Date | string }[]
+    >`
+      SELECT before, after, set_by, reason, set_at FROM support.ticket_property_log
+      WHERE ticket_id = ${ticketId} ORDER BY id ASC LIMIT ${limit}
+    `;
+    return rows
+      .flatMap((r) =>
+        fieldChanges(ticketId, {
+          before: r.before,
+          after: r.after,
+          by: r.set_by,
+          reason: r.reason,
+          at: r.set_at instanceof Date ? r.set_at.toISOString() : new Date(r.set_at).toISOString(),
+        }),
+      )
+      .slice(0, limit);
   }
 }

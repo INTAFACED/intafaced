@@ -39,6 +39,7 @@ import {
   type SupportAwaitingMine,
   type SupportTicketLifecycle,
   type SupportTicketProperties,
+  type SupportTicketPropertyChange,
   type SupportTicketType,
 } from '@intafaced/contracts';
 import type {
@@ -1585,6 +1586,14 @@ export class SupportService implements SupportContract {
     await this.assertDeskVisible(input.operatorId, input.ticketId);
     if (!(await this.store.findById(input.ticketId))) throw ticketNotFound();
     return this.properties.get(input.ticketId);
+  }
+
+  /** Each change to priority, type and labels, one row per field, oldest first. Staff only. */
+  async getTicketPropertyHistory(input: { operatorId: string; ticketId: string; limit?: number }): Promise<SupportTicketPropertyChange[]> {
+    if (input.limit === undefined) throw new SupportError('property history needs a page size', 'support.property_history_limit_unset');
+    await this.assertDeskVisible(input.operatorId, input.ticketId);
+    if (!(await this.store.findById(input.ticketId))) throw ticketNotFound();
+    return this.properties.history(input.ticketId, input.limit);
   }
 
   /**

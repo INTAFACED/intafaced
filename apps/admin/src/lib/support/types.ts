@@ -1,4 +1,5 @@
 import type {
+  SupportTicketPropertyChange,
   SupportViewList,
   SupportTicketLifecycle,
   SupportTicketProperties,
@@ -76,6 +77,8 @@ export interface TicketDetail {
   readonly ticket: SupportTicket;
   readonly comments: Part<readonly SupportComment[]>;
   readonly events: Part<readonly SupportTicketEvent[]>;
+  /** Changes to priority, type and labels, one per field. Absent on an older answer. */
+  readonly propertyChanges?: Part<readonly SupportTicketPropertyChange[]>;
 }
 
 export interface SupportTicketView {
