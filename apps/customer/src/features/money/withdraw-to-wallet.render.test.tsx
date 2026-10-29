@@ -37,6 +37,11 @@ const query = vi.fn(async (module: string, procedure: string) =>
         : { ok: true, data: LIMITS },
 );
 vi.mock('../session/session', () => ({ useSession: () => ({ userId: 'u1', api: { mutate, query } }) }));
+const mint = vi.fn();
+vi.mock('./withdraw-step-up', async (original) => ({
+  ...(await original<typeof import('./withdraw-step-up')>()),
+  mintWithdrawToken: (...args: unknown[]) => mint(...args),
+}));
 vi.mock('./holdings', () => ({
   useHoldings: () => ({
     resource: { status: 'ready', data: { assets: [{ assetId: 'USDT', available: '10' }], spaces: [], holdings: [] } },
@@ -118,6 +123,7 @@ let root: Root | null = null;
 
 beforeEach(() => {
   mutate.mockReset();
+  mint.mockReset();
   connect.mockReset();
   book = [];
   wallet = { status: 'connected', address: WALLET, chainId: 84532 };
@@ -156,6 +162,14 @@ async function press(name: string) {
   await act(async () => void button(name)!.click());
 }
 const chip = () => document.querySelector('[data-testid="withdraw-wallet"]');
+async function confirmWithCode() {
+  const code = document.querySelector('input[name="withdraw-stepup-code"]') as HTMLInputElement;
+  await act(async () => {
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(code, '123456');
+    code.dispatchEvent(new Event('input', { bubbles: true }));
+  });
+  await act(async () => void code.closest('form')!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })));
+}
 
 describe('Withdraw to my Web3 wallet (D-bridge-chain-02)', () => {
   it('fills the destination with the connected account, read-only until Edit, and names the wallet’s chain', async () => {
@@ -171,8 +185,10 @@ describe('Withdraw to my Web3 wallet (D-bridge-chain-02)', () => {
     expect(document.querySelector('a[href="/uc/withdraw/address"]')?.textContent).toContain('Manage saved addresses');
     expect([...document.querySelectorAll('a')].some((a) => a.textContent === 'Save this wallet in your address book')).toBe(true);
     await press('Edit');
-    expect((field('Your wallet') as HTMLInputElement).readOnly).toBe(false);
-    expect((field('Your wallet') as HTMLInputElement).value).toBe(WALLET);
+    // Once edited the field is the person's own, so it no longer says it is the wallet.
+    expect(() => field('Your wallet')).toThrow();
+    expect((field('Or enter a new address') as HTMLInputElement).readOnly).toBe(false);
+    expect((field('Or enter a new address') as HTMLInputElement).value).toBe(WALLET);
     expect(chip()?.getAttribute('data-state')).toBe('edited');
     expect(button('Edit')).toBeUndefined();
   });
@@ -216,6 +232,33 @@ describe('Withdraw to my Web3 wallet (D-bridge-chain-02)', () => {
     expect(document.querySelector('input[name="withdraw-stepup-code"]')).not.toBeNull();
     // Nothing is sent before the step-up answers.
     expect(mutate.mock.calls.map(([, procedure]) => procedure)).toEqual(['withdrawal.quote']);
+  });
+
+  it('a send the wallet chose whose answer is lost keeps its saved entry and network, and a retry keeps its reference', async () => {
+    book = [SAVED];
+    mint.mockResolvedValue({ ok: true, data: { accessToken: 'one-use', expiresAt: '2026-10-23T05:10:00Z' } });
+    mutate.mockResolvedValueOnce({ ok: true, data: quote('base') });
+    mutate.mockResolvedValueOnce({ ok: false, reason: 'uncertain', status: 504, message: 'gateway timeout' });
+    mutate.mockResolvedValueOnce({ ok: true, data: quote('base') });
+    mutate.mockResolvedValueOnce({ ok: false, reason: 'uncertain', status: 504, message: 'gateway timeout' });
+    await render();
+    await type('Amount', '1');
+    await press('Get the fee');
+    await press('Confirm and send');
+    await confirmWithCode();
+    // The form holds the send's terms: the saved entry and network the wallet chose, not cleared and not editable.
+    expect((field('Saved address') as HTMLSelectElement).value).toBe(SAVED.destinationId);
+    expect((field('Saved address') as HTMLSelectElement).disabled).toBe(true);
+    expect((field('Network') as HTMLSelectElement).value).toBe('base');
+    expect(chip()?.getAttribute('data-state')).toBe('held');
+    expect(chip()?.textContent).not.toContain('You can change the address now.');
+    await press('Get the fee');
+    await press('Confirm again to finish');
+    await confirmWithCode();
+    const sends = mutate.mock.calls.filter(([, procedure]) => procedure === 'withdrawal.create');
+    expect(sends).toHaveLength(2);
+    expect(sends[1]![2]).toEqual(sends[0]![2]);
+    expect(sends[0]![2]).toMatchObject({ assetId: 'USDT', amount: '1', destination: { kind: 'crypto', ref: SAVED.ref } });
   });
 
   it('Edit keeps the network and the saved entry the wallet chose, now the person’s to change', async () => {

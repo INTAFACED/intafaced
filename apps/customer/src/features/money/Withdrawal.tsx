@@ -531,15 +531,12 @@ export function Withdrawal({ context, search }: { context: WithdrawalReadContext
   return (
     <Page eyebrow={t('money')} title={t('title')} description={t('description')}>
       <div className="withdrawal-page">
-        {listing &&
-          (toWallet ? (
-            // The browser wallet's connection, mounted here only when the page is asked to fill from it.
-            <WalletProvider>
-              <WithdrawForm toWallet />
-            </WalletProvider>
-          ) : (
-            <WithdrawForm />
-          ))}
+        {listing && (
+          // The browser wallet's connection stays mounted, so moving to or from `?to=wallet` keeps the form and its fields.
+          <WalletProvider>
+            <WithdrawForm toWallet={toWallet} />
+          </WalletProvider>
+        )}
         {!requested.ok ? (
           <Lookup current={current} invalid />
         ) : requested.id ? (

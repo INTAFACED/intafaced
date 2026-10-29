@@ -252,6 +252,8 @@ export function WithdrawForm({ toWallet = false }: { toWallet?: boolean } = {}) 
   // A wallet that disconnects, or switches account, after it filled the destination clears it (the fill follows the
   // wallet) and refuses `wallet.not_connected`: a confirmation it chose closes before anything is asked for. Once the step-up
   // has sent the withdrawal, its answer stands.
+  // A send whose answer was lost holds the form on its terms until svc-pay answers for it.
+  const onHold = open?.unanswered === true || openOut !== null;
   const fillKey = fill.state === 'filled' ? `filled:${fill.address.toLowerCase()}` : fill.state;
   useEffect(() => {
     const before = lastFill.current;
@@ -261,6 +263,10 @@ export function WithdrawForm({ toWallet = false }: { toWallet?: boolean } = {}) 
     if (!walletGone(before, fill)) return;
     if (fill.state !== 'filled') setWalletLost(true);
     setConfirmingOut((current) => (current?.fromWallet && !sendingOut.current ? null : current));
+    // A send whose answer was lost keeps the terms it holds; otherwise the fields the fill wrote go with the wallet.
+    if (onHold) return;
+    setAddress('');
+    setSavedId('');
     // `fill` is read through fillKey, so a new object for the same account is not a change.
   }, [fillKey, walletEdited]);
 
@@ -269,7 +275,7 @@ export function WithdrawForm({ toWallet = false }: { toWallet?: boolean } = {}) 
   const catalogue = networks.resource.status === 'ready' ? networks.resource.data.find((entry) => entry.assetId === asset) : undefined;
   const offered = catalogue?.networks ?? [];
   // The wallet's account fills the destination until Edit, unless a send whose answer was lost holds the form on its terms.
-  const walletAddress = fill.state === 'filled' && !walletEdited && open?.unanswered !== true && openOut === null ? fill.address : null;
+  const walletAddress = fill.state === 'filled' && !walletEdited && !onHold ? fill.address : null;
   const walletLocked = walletAddress !== null;
   const walletNetwork =
     walletAddress !== null && book.resource.status === 'ready'
@@ -292,6 +298,14 @@ export function WithdrawForm({ toWallet = false }: { toWallet?: boolean } = {}) 
     walletAddress !== null
       ? (saved.find((row) => row.ref.toLowerCase() === walletAddress.toLowerCase() && ready(row, now)) ?? null)
       : (saved.find((row) => row.destinationId === savedId && ready(row, now)) ?? null);
+  // The fill is written into the form's own fields, so a send it chose and whose answer is lost resumes on the same terms.
+  const chosenId = walletAddress !== null ? (chosen?.destinationId ?? '') : null;
+  useEffect(() => {
+    if (walletAddress === null) return;
+    setAddress(walletAddress);
+    setPickedNetwork(network);
+    setSavedId(chosenId ?? '');
+  }, [walletAddress, network, chosenId]);
   const limits = useResource(
     async (signal): Promise<ApiResult<WithdrawLimits>> =>
       asset ? createWithdrawSend(api).limits(asset, signal) : { ok: false, reason: 'not_supported', message: '' },
@@ -610,7 +624,14 @@ export function WithdrawForm({ toWallet = false }: { toWallet?: boolean } = {}) 
           <fieldset className="bd-stack">
             <legend className="bd-subhead">{t('fWhere')}</legend>
             {fill.state !== 'off' && (
-              <WalletChip fill={fill} lost={walletLost} locked={walletLocked} networkFilled={walletNetwork !== null} t={t} />
+              <WalletChip
+                fill={fill}
+                lost={walletLost}
+                locked={walletLocked}
+                held={onHold && !walletEdited}
+                networkFilled={walletNetwork !== null}
+                t={t}
+              />
             )}
             {book.resource.status === 'failed' ? (
               <Failure result={book.resource.failure} retry={book.reload} />
@@ -642,7 +663,7 @@ export function WithdrawForm({ toWallet = false }: { toWallet?: boolean } = {}) 
               </label>
             )}
             <label className="field">
-              <span>{fill.state === 'filled' ? t('wLabel') : t('fNew')}</span>
+              <span>{walletLocked ? t('wLabel') : t('fNew')}</span>
               <input
                 value={typed}
                 onChange={(event) => change(() => setAddress(event.target.value))}
@@ -914,12 +935,14 @@ function WalletChip({
   fill,
   lost,
   locked,
+  held,
   networkFilled,
   t,
 }: {
   fill: Exclude<WalletFill, { state: 'off' }>;
   lost: boolean;
   locked: boolean;
+  held: boolean;
   networkFilled: boolean;
   t: Copy;
 }) {
@@ -957,11 +980,19 @@ function WalletChip({
         </a>
       </div>
     );
+  const chain = chainLabel(fill.chainId);
+  const state = locked ? 'filled' : held ? 'held' : 'edited';
   return (
-    <div className="bd-address" role="status" data-testid="withdraw-wallet" data-state={locked ? 'filled' : 'edited'}>
+    <div className="bd-address" role="status" data-testid="withdraw-wallet" data-state={state}>
       <strong>{t('wTitle')}</strong>
-      <p>{t('wOn', { network: chainLabel(fill.chainId).name })}</p>
-      <p>{locked ? `${t('wFilled')} ${t(networkFilled ? 'wNetworkSaved' : 'wNetworkPick')}` : t('wEdited')}</p>
+      <p>{chain.known ? t('wOn', { network: chain.name }) : t(fill.chainId === null ? 'wOnNone' : 'wOnUnknown')}</p>
+      <p>
+        {state === 'filled'
+          ? `${t('wFilled')} ${t(networkFilled ? 'wNetworkSaved' : 'wNetworkPick')}`
+          : state === 'held'
+            ? t('wHeld')
+            : t('wEdited')}
+      </p>
     </div>
   );
 }

@@ -266,7 +266,9 @@ test(`${J} #9 opens Withdraw from the exchange with a wallet connected: destinat
   await expect(network).toHaveValue('ethereum');
   await expect(network).toBeDisabled();
   await form.getByRole('button', { name: 'Edit' }).click();
-  await expect(destination).toBeEditable();
+  const edited = form.getByRole('textbox', { name: /^Or enter a new address/ });
+  await expect(edited).toHaveValue(wallet.address);
+  await expect(edited).toBeEditable();
   await expect(network).toBeEnabled();
   await expect(network).toHaveValue('ethereum');
 
@@ -286,4 +288,5 @@ test(`${J} #9 opens Withdraw from the exchange with a wallet connected: destinat
   await page.goto('/uc/withdraw?to=wallet');
   await expect(page.getByTestId('withdraw-wallet')).toContainText('Connect a wallet to use it');
   await expect(form.getByRole('textbox', { name: /^Your wallet/ })).toHaveCount(0);
+  await expect(form.getByRole('textbox', { name: /^Or enter a new address/ })).toHaveValue('');
 });

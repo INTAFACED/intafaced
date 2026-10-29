@@ -380,6 +380,9 @@ const en = {
   wOpen: 'Open Wallet',
   wGone: 'Your wallet disconnected, so its address was cleared and nothing was sent. Connect it again to use it.',
   wOn: 'Your wallet is on {network}.',
+  wOnUnknown: 'Your wallet is on a network this page does not recognise.',
+  wOnNone: 'Your wallet reported no network.',
+  wHeld: 'The form holds the terms of a send whose answer was not received, until it is answered.',
   wFilled: 'The address is filled from your connected wallet. Press Edit to change it.',
   wNetworkSaved: 'The network is the one you saved this wallet on.',
   wNetworkPick:
@@ -772,6 +775,9 @@ const es = {
   wOpen: 'Abrir Cartera',
   wGone: 'Tu cartera se desconectó, así que se borró su dirección y no se envió nada. Vuelve a conectarla para usarla.',
   wOn: 'Tu cartera está en {network}.',
+  wOnUnknown: 'Tu cartera está en una red que esta página no reconoce.',
+  wOnNone: 'Tu cartera no indicó ninguna red.',
+  wHeld: 'El formulario mantiene las condiciones de un envío cuya respuesta no llegó, hasta que se responda.',
   wFilled: 'La dirección se rellena desde tu cartera conectada. Pulsa Editar para cambiarla.',
   wNetworkSaved: 'La red es la que usaste al guardar esta cartera.',
   wNetworkPick:
@@ -1167,6 +1173,9 @@ const fr = {
   wOpen: 'Ouvrir Portefeuille',
   wGone: 'Ton portefeuille s’est déconnecté : son adresse a été effacée et rien n’a été envoyé. Reconnecte-le pour l’utiliser.',
   wOn: 'Ton portefeuille est sur {network}.',
+  wOnUnknown: 'Ton portefeuille est sur un réseau que cette page ne reconnaît pas.',
+  wOnNone: 'Ton portefeuille n’a indiqué aucun réseau.',
+  wHeld: 'Le formulaire garde les conditions d’un envoi dont la réponse n’est pas arrivée, jusqu’à ce qu’elle arrive.',
   wFilled: 'L’adresse vient de ton portefeuille connecté. Appuie sur Modifier pour la changer.',
   wNetworkSaved: 'Le réseau est celui sur lequel tu as enregistré ce portefeuille.',
   wNetworkPick:
