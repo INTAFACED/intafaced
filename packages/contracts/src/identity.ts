@@ -301,7 +301,9 @@ export type TrustedDeviceState = z.infer<typeof trustedDeviceStateSchema>;
  * - `linked`: the signer is a wallet linked to `userId` (`address`, lower-case).
  * - `no_wallet`: the account has no linked wallet, so nothing it signs can be checked.
  * - `not_linked`: the signature is readable but its signer is not one of the account's wallets.
- * - `invalid`: no signer can be recovered from the signature.
+ * - `account_inactive`: the account is not active (frozen, closed) or is under a security lock; nothing it signs counts.
+ * - `invalid`: no signer can be recovered, or the signature is not in its one canonical form (v 27 or 28, low s), so the
+ *   same signed message never verifies under two different signature strings.
  * The caller words its own message and binds what it means (its record, the person) into it.
  */
 export const WALLET_SIGNATURE_VERIFY_PATH = '/internal/wallet-signatures/verify' as const;
@@ -317,6 +319,7 @@ export const walletSignatureVerifySchema = z.discriminatedUnion('state', [
   z.object({ state: z.literal('linked'), address: z.string().regex(/^0x[0-9a-f]{40}$/) }).strict(),
   z.object({ state: z.literal('no_wallet') }).strict(),
   z.object({ state: z.literal('not_linked') }).strict(),
+  z.object({ state: z.literal('account_inactive') }).strict(),
   z.object({ state: z.literal('invalid') }).strict(),
 ]);
 export type WalletSignatureVerify = z.infer<typeof walletSignatureVerifySchema>;

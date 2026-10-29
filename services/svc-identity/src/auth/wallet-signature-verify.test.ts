@@ -17,7 +17,11 @@ const LINKED = privateKeyToAccount(`0x${'1'.repeat(64)}`);
 const STRANGER = privateKeyToAccount(`0x${'2'.repeat(64)}`);
 const MESSAGE = '{"proposalId":"p-1","userId":"11111111-1111-4111-8111-111111111111","ballot":{"kind":"abstain"}}';
 
-const walletsOf = (addresses: string[]) => async () => addresses.map((a) => a.toLowerCase());
+const walletsOf =
+  (addresses: string[], usable = true) =>
+  async () => ({ usable, wallets: addresses.map((a) => a.toLowerCase()) });
+/** secp256k1 group order: n - s with v flipped is the same signer's malleable twin. */
+const ORDER = 0xfffffffffffffffffffffffffffffffebaaedce6af48a03bbfd25e8cd0364141n;
 
 async function request(signer = LINKED, message = MESSAGE): Promise<WalletSignatureVerifyRequest> {
   return { userId: USER, message, signature: await signer.signMessage({ message }) };
@@ -40,6 +44,21 @@ describe('verifyWalletSignature', () => {
 
   it('answers no_wallet when the account has no linked wallet', async () => {
     expect(await verifyWalletSignature(walletsOf([]), await request())).toEqual({ state: 'no_wallet' });
+  });
+
+  it('answers account_inactive, before any wallet, when the account may not act', async () => {
+    expect(await verifyWalletSignature(walletsOf([LINKED.address], false), await request())).toEqual({ state: 'account_inactive' });
+  });
+
+  it('answers invalid for the non-canonical twins of a good signature (v 0 or 1, high s)', async () => {
+    const good = await request();
+    const r = good.signature.slice(2, 66);
+    const s = BigInt(`0x${good.signature.slice(66, 130)}`);
+    const v = good.signature.slice(130);
+    const lowV = `0x${r}${s.toString(16).padStart(64, '0')}${v === '1b' ? '00' : '01'}`;
+    const highS = `0x${r}${(ORDER - s).toString(16).padStart(64, '0')}${v === '1b' ? '1c' : '1b'}`;
+    expect(await verifyWalletSignature(walletsOf([LINKED.address]), { ...good, signature: lowV })).toEqual({ state: 'invalid' });
+    expect(await verifyWalletSignature(walletsOf([LINKED.address]), { ...good, signature: highS })).toEqual({ state: 'invalid' });
   });
 
   it('answers invalid when no signer can be recovered', async () => {

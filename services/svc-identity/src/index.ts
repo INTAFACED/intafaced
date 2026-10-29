@@ -28,7 +28,7 @@ import { fetchOwnerPayScopes } from './auth/owner-pay-scopes.js';
 import { fetchPayStepUpGrant } from './auth/pay-step-up-grant.js';
 import { registerApiKeyOwnershipRoute } from './auth/api-key-ownership-route.js';
 import { registerServiceMailRoute } from './auth/service-mail.js';
-import { linkedWalletAddresses, registerWalletSignatureVerifyRoute, verifyWalletSignature } from './auth/wallet-signature-verify.js';
+import { registerWalletSignatureVerifyRoute, signingAccount, verifyWalletSignature } from './auth/wallet-signature-verify.js';
 import { registerTrustedDeviceReadRoute } from './auth/trusted-device-read.js';
 import { assertProdTotpKey, assertSigningEncKey, parseTotpSecretKey } from './auth/totp-crypto.js';
 import { RankService } from './rank/rank-service.js';
@@ -929,7 +929,7 @@ registerServiceMailRoute(app, {
 
 /** Whether a message was signed by one of a customer's linked wallets, for svc-token's signed votes (wallet-signature-verify.ts). */
 registerWalletSignatureVerifyRoute(app, {
-  verify: (input) => verifyWalletSignature((userId) => linkedWalletAddresses(sql, userId), input),
+  verify: (input) => verifyWalletSignature((userId) => signingAccount(sql, userId), input),
   internalSecret: env.INTERNAL_SERVICE_SECRET,
   bodyBind: env.INTERNAL_SERVICE_BODY_BIND,
   ...(doorS2s ? { s2s: doorS2s } : {}),

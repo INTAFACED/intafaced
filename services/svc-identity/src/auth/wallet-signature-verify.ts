@@ -15,30 +15,51 @@ import {
   type WalletSignatureVerifyRequest,
 } from '@intafaced/contracts';
 import { serviceOfRequest, type IdentityS2s } from '../s2s-door.js';
+import { securityLockHolds } from './security-lock.js';
 
 /** The services allowed to check a signature against an account's wallets. */
 export const WALLET_SIGNATURE_READERS: ReadonlySet<string> = new Set(['svc-token']);
 
-/** The account's linked wallets, lower-case. */
-export async function linkedWalletAddresses(sql: Sql, userId: string): Promise<string[]> {
+/** What the check needs to know of an account: whether it may act, and its linked wallets (lower-case). */
+export interface SigningAccount {
+  usable: boolean;
+  wallets: string[];
+}
+
+/** An account that is missing, not active or under a security lock is not usable, as for a wallet link. */
+export async function signingAccount(sql: Sql, userId: string): Promise<SigningAccount> {
+  const [user] = await sql<Array<{ status: string }>>`SELECT status FROM users WHERE id = ${userId}`;
+  const usable = user?.status === 'active' && !(await securityLockHolds(sql, userId));
   const rows = await sql<Array<{ address: string }>>`SELECT address FROM wallet_identities WHERE user_id = ${userId}`;
-  return rows.map((row) => row.address.toLowerCase());
+  return { usable, wallets: rows.map((row) => row.address.toLowerCase()) };
+}
+
+/** secp256k1 group order over two: a signature with a larger s is the malleable twin of a canonical one (EIP-2). */
+const HALF_ORDER = 0x7fffffffffffffffffffffffffffffff5d576e7357a4501ddfe92f46681b20a0n;
+
+/** One canonical form per signed message: v is 27 or 28 and s is low. */
+function canonical(signature: string): boolean {
+  const s = BigInt(`0x${signature.slice(66, 130)}`);
+  const v = signature.slice(130, 132).toLowerCase();
+  return (v === '1b' || v === '1c') && s > 0n && s <= HALF_ORDER;
 }
 
 /** Recovers the EIP-191 signer and answers against the account's wallets. */
 export async function verifyWalletSignature(
-  wallets: (userId: string) => Promise<string[]>,
+  account: (userId: string) => Promise<SigningAccount>,
   input: WalletSignatureVerifyRequest,
 ): Promise<WalletSignatureVerify> {
-  const linked = await wallets(input.userId);
-  if (linked.length === 0) return { state: 'no_wallet' };
+  const { usable, wallets } = await account(input.userId);
+  if (!usable) return { state: 'account_inactive' };
+  if (wallets.length === 0) return { state: 'no_wallet' };
+  if (!canonical(input.signature)) return { state: 'invalid' };
   let signer: string;
   try {
     signer = (await recoverMessageAddress({ message: input.message, signature: input.signature as Hex })).toLowerCase();
   } catch {
     return { state: 'invalid' };
   }
-  return linked.includes(signer) ? { state: 'linked', address: signer } : { state: 'not_linked' };
+  return wallets.includes(signer) ? { state: 'linked', address: signer } : { state: 'not_linked' };
 }
 
 export function registerWalletSignatureVerifyRoute(
