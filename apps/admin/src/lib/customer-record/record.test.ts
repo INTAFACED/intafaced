@@ -50,6 +50,10 @@ describe('what each tab reads', () => {
     expect(docs.reads[0]!.refusals?.['kyc_doc.unwired']).toContain('IDENTITY_KYC_DOC_KEY');
     expect(docs.reads[1]!.rowAction).toBe('identity.kyc_selfie.decide');
     expect(docs.reads[1]!.rowsKey).toBe('selfies');
+    const words = Object.fromEntries(docs.reads[1]!.columns.map((c) => [c.key, c.words]));
+    expect(words.status).toEqual({ provided: 'Waiting for a person to compare it', accepted: 'Accepted', rejected: 'Rejected' });
+    expect(Object.keys(words.via ?? {})).toEqual(['this_device', 'handoff']);
+    expect(words.captureCheck?.not_checked).toContain('no automatic liveness or face-match check');
   });
   it('names procedures the owning services serve today', () => {
     expect(service('svc-bank/src/router/ops.router.ts')).toContain('customerBalances:');

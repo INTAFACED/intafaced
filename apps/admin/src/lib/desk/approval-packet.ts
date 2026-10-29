@@ -7,6 +7,7 @@ import {
 import { COST_AMOUNT, COST_ASSET, PERIOD, isCategory, type CostCategory } from '@/lib/venue-economics/model';
 import { METADATA_KEY } from '@/lib/ledger/account-metadata';
 import { STAFF_HOLD_AMOUNT_PATTERN, STAFF_HOLD_ASSET_PATTERN } from '@intafaced/contracts/ops-staff-holds';
+import { kycSelfieDecisionSchema, type KycSelfieDecision } from '@intafaced/contracts/identity-kyc-selfie';
 import {
   accountLimitAmountSchema,
   accountLimitAssetIdSchema,
@@ -207,8 +208,9 @@ export const CARD_STATUSES = ['frozen', 'active'] as const;
 export type CardStatus = (typeof CARD_STATUSES)[number];
 export const RESIDENCY_DECISIONS = ['accepted', 'rejected'] as const;
 export type ResidencyDecision = (typeof RESIDENCY_DECISIONS)[number];
-export const SELFIE_DECISIONS = ['accepted', 'rejected'] as const;
-export type SelfieDecision = (typeof SELFIE_DECISIONS)[number];
+/** The decisions identity takes on a selfie (`kycSelfieDecisionSchema`). */
+export const SELFIE_DECISIONS = kycSelfieDecisionSchema.options;
+export type SelfieDecision = KycSelfieDecision;
 /** svc-identity's signing-key id, and the sorted comma list of ids a remove-old names (`auth-key-ring.ts`). */
 const AUTH_KEY_ID = /^[a-z0-9][a-z0-9._-]{0,31}$/;
 const POOL_ADDRESS = /^0x[0-9a-fA-F]{40}$/;

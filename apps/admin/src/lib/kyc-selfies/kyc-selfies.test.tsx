@@ -3,7 +3,7 @@ import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { identityActionPayloadHash } from '../../../../../services/svc-identity/src/auth/privileged-dual-control';
-import { KycSelfieDecide } from '@/components/kyc-selfie-decide';
+import { KycSelfieDecide, selfieDecideHold } from '@/components/kyc-selfie-decide';
 import { confirmPhrase, readDeskRequest, requestReason } from '@/lib/desk/approval-packet';
 import { payloadHashFor, proposeInputFor } from '@/lib/desk/approval-hash';
 import { stepGate } from '@/lib/desk/desk-model';
@@ -91,12 +91,13 @@ describe('the selfie decision request', () => {
 
 describe('a selfie answer', () => {
   it('reads only a well-formed selfie', () => {
-    expect(readSelfie(answer())).toEqual({ id: SELFIE, status: 'accepted', documentId: DOC, decidedAt: '2026-10-29T10:00:00.000Z' });
+    expect(readSelfie(answer())).toEqual(answer());
     expect(readSelfie(answer({ status: 'provided', decidedAt: null }))).toMatchObject({ status: 'provided', decidedAt: null });
     expect(readSelfie(answer({ status: 'approved' }))).toBeNull();
     expect(readSelfie(answer({ id: 'x' }))).toBeNull();
     expect(readSelfie(answer({ documentId: null }))).toBeNull();
     expect(readSelfie(answer({ decidedAt: 'yesterday' }))).toBeNull();
+    expect(readSelfie(answer({ captureCheck: 'live' }))).toBeNull();
     expect(readSelfie([answer()])).toBeNull();
   });
 });
@@ -164,12 +165,21 @@ describe('the decide control on a selfie row', () => {
     ],
   });
 
-  it('offers a decision only on a selfie that waits', () => {
+  it('offers a decision only on a selfie that waits, and keeps the workbench on every row', () => {
     const waiting = renderToStaticMarkup(<KycSelfieDecide row={row('provided')} userId={USER} onChanged={() => undefined} />);
-    expect(waiting).toContain('data-testid="kyc-selfie-decide"');
+    expect(waiting).toContain('aria-label="Decision"');
     expect(waiting).toContain('Accept this selfie');
+    expect(waiting).toContain('Approve, reject, withdraw or run a request');
     const decided = renderToStaticMarkup(<KycSelfieDecide row={row('accepted')} userId={USER} onChanged={() => undefined} />);
-    expect(decided).toContain('data-testid="kyc-selfie-no-decide"');
-    expect(decided).toContain('This one is accepted');
+    expect(decided).not.toContain('aria-label="Decision"');
+    expect(decided).toContain('This one is accepted.');
+    expect(decided).toContain('Approve, reject, withdraw or run a request');
+  });
+
+  it('names the real reason no decision can be asked for', () => {
+    expect(selfieDecideHold(SELFIE, 'provided')).toBeNull();
+    expect(selfieDecideHold(SELFIE, 'rejected')).toContain('This one is rejected.');
+    expect(selfieDecideHold(null, 'provided')).toContain('no selfie id');
+    expect(selfieDecideHold('not-a-uuid', 'provided')).toContain('no selfie id');
   });
 });

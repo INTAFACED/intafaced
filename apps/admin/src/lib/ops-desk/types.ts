@@ -54,6 +54,11 @@ export interface Column {
    * other value makes the whole read invalid, so a page can never print a figure the service says it does not have. Needs `nullable`.
    */
   readonly alwaysNull?: boolean;
+  /**
+   * A text field's every value in plain words (`provided` reads "Waiting for comparison"). A value not listed makes the whole
+   * read invalid, so an operator never reads a raw code and a new value the service starts sending is not shown as a known one.
+   */
+  readonly words?: Readonly<Record<string, string>>;
 }
 
 export interface ReadSpec {
@@ -212,6 +217,8 @@ export interface Cell {
   readonly kind: CellKind;
   readonly detail: boolean;
   readonly value: CellValue;
+  /** The column's plain words for this text value (`Column.words`), shown in its place. The value stays the service's. */
+  readonly words?: string;
 }
 
 export interface Row {
