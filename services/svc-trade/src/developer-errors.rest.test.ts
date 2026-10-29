@@ -4,6 +4,7 @@ import type { Principal } from '@intafaced/auth';
 import { encodePrincipal, signPrincipalHeader } from '@intafaced/contracts';
 import { LedgerError, MemoryLedger, parseAmount, recipes, type PostRequest, type LedgerTx } from '@intafaced/ledger-client';
 import { createBodyRefusal } from './create-body-refusal.js';
+import { refusedBeforeEngine } from './ledger-public-code.js';
 import { fakeOrder, registerPrivateRest, type PrivateRestDeps } from './private-rest.js';
 import { fakeMarket } from './public-rest.js';
 import type { PlaceOrderInput } from './spot/trade-service.js';
@@ -40,6 +41,7 @@ function signed(scopes = ['trade:read', 'trade:write']): Record<string, string> 
 /** The ledger with svc-ledger's platform posting freeze: while it is on every post refuses `ledger.frozen`; reads answer. */
 class FreezableLedger extends MemoryLedger {
   frozen = false;
+  freezeAfterEngine = false;
   override async post(request: PostRequest): Promise<LedgerTx> {
     if (this.frozen) throw new LedgerError('Ledger posting is frozen: TEST freeze', 'ledger.frozen');
     return super.post(request);
@@ -63,11 +65,21 @@ async function build() {
     marketBySymbol: async (s: string) => (s === 'BTC/USDT' ? market : null),
     marketById: async (id: string) => (id === market.id ? market : null),
     userBalances: (userId: string) => ledger.balances('user', userId),
-    // The place door's step 3: the hold goes to the ledger before anything else, as TradeService does.
+    // The place door's step 3: the hold goes to the ledger before the engine, and a refused hold is marked as refused
+    // before the engine, as order-place does. With `freezeAfterEngine`, the hold books, the engine takes the order, and
+    // the freeze stops the next post (a fill): the order exists.
     placeOrder: async (_p: Principal, input: PlaceOrderInput) => {
       const orderId = `o-${input.clientOrderId}`;
-      await ledger.post(recipes.orderHold({ orderId, userId: ALICE, assetId: 'USDT', amount: parseAmount('0.001') }));
+      try {
+        await ledger.post(recipes.orderHold({ orderId, userId: ALICE, assetId: 'USDT', amount: parseAmount('0.001') }));
+      } catch (err) {
+        throw refusedBeforeEngine(err);
+      }
       placed.push(input);
+      if (ledger.freezeAfterEngine) {
+        ledger.frozen = true;
+        await ledger.post(recipes.orderHold({ orderId: `${orderId}-fill`, userId: ALICE, assetId: 'USDT', amount: parseAmount('0.001') }));
+      }
       return fakeOrder({ id: orderId, marketId: market.id, clientOrderId: input.clientOrderId, side: input.side, type: 'limit' });
     },
   } as unknown as PrivateRestDeps);
@@ -229,8 +241,8 @@ describe('J-developer-04 #6: the platform posting freeze refuses a money call, a
     ledger.frozen = true;
     const journal = ledger.journal().length;
     const money = await app.inject({ method: 'POST', url: '/api/v1/orders', headers: signed(), payload: order('jd04-6') });
-    // Temporary and safe to resend under the same client order id: 503, the class CCXT clients retry with backoff.
-    expect(money.statusCode, money.body).toBe(503);
+    // A refusal (400); the CCXT class tells a bot to back off and retry, which is safe under the same client order id.
+    expect(money.statusCode, money.body).toBe(400);
     expect(money.json()).toMatchObject({ code: 'OnMaintenance', intafacedCode: 'posting_frozen' });
     expect(placed).toHaveLength(0);
     expect(ledger.journal()).toHaveLength(journal);
@@ -244,6 +256,18 @@ describe('J-developer-04 #6: the platform posting freeze refuses a money call, a
     const after = await app.inject({ method: 'POST', url: '/api/v1/orders', headers: signed(), payload: order('jd04-6') });
     expect(after.statusCode, after.body).toBe(201);
     expect(placed).toHaveLength(1);
+    await app.close();
+  });
+
+  it('a freeze after the engine took the order is never posting_frozen: 503 settlement pending, the hold stays', async () => {
+    const { app, ledger, placed } = await build();
+    ledger.freezeAfterEngine = true;
+    const money = await app.inject({ method: 'POST', url: '/api/v1/orders', headers: signed(), payload: order('jd04-6b') });
+    expect(money.statusCode, money.body).toBe(503);
+    expect(money.json()).toMatchObject({ code: 'ExchangeNotAvailable', intafacedCode: 'trade.settlement_pending' });
+    expect(money.json().intafacedCode).not.toBe('posting_frozen');
+    expect(placed).toHaveLength(1);
+    expect(ledger.journal().filter((tx) => tx.reason === 'order.hold')).toHaveLength(1);
     await app.close();
   });
 });

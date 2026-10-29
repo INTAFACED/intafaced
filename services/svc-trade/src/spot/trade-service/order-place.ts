@@ -28,6 +28,7 @@ import {
 import { slippageToleranceFor } from '../slippage-tolerance.js';
 import { assertOperatorRiskOnPlace } from '../../admin/risk.js';
 import { classifyHoldPostError } from '../hold-outcome.js';
+import { refusedBeforeEngine } from '../../ledger-public-code.js';
 import { assertSubAccountOwned } from '../sub-account-ownership.js';
 import { assertEmailProved } from '../email-proof.js';
 import { type EngineSubmitRequest } from '../matching-client.js';
@@ -529,7 +530,9 @@ export async function executeAdmittedOrder(svc: TradeServiceInternal, evidence: 
       // The ledger named a refusal, or the socket never connected. The post
       // did not commit. Guarded on pending so a concurrent open is left alone.
       await svc.sql`DELETE FROM trade.orders WHERE id = ${orderId} AND status = 'pending'`;
-      throw err;
+      // Before the engine, with the row gone and nothing held: the one place a
+      // posting freeze is published as the refusal `posting_frozen`.
+      throw refusedBeforeEngine(err);
     }
     // UNKNOWN. A timeout can land after the hold is booked. Keep the row
     // and read `order.hold:<orderId>`. The row was just stamped, so an

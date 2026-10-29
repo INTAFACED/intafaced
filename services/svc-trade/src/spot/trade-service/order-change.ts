@@ -359,8 +359,7 @@ export function amendOutcome(
     accepted: code === 'AMENDED' || code === 'IDEMPOTENT_RETRY',
     idempotent,
     code,
-    // A ledger refusal is named as the API publishes it (`posting_frozen`, not `ledger.frozen`).
-    reasonCode: publicLedgerCode(reasonCode),
+    reasonCode,
     reconciliationRequired,
     path: 'NATIVE_AMEND',
     priority,
@@ -743,7 +742,15 @@ export async function replaceOrder(
         // final state. A bare 400 here is how a customer loses the order silently.
         const finalOriginal = (await svc.findOrder(original.id)) ?? cancelled;
         if (err instanceof TradeError || err instanceof LedgerError) {
-          return svc.replaceOutcome(finalOriginal, null, 'REPLACEMENT_NOT_SUBMITTED', err.code);
+          // A ledger refusal is named as the API publishes it: the replacement's own first hold refused by the
+          // posting freeze is `posting_frozen` (refusedBeforeEngine in order-place); any later freeze is
+          // `trade.settlement_pending`, never "nothing happened".
+          return svc.replaceOutcome(
+            finalOriginal,
+            null,
+            'REPLACEMENT_NOT_SUBMITTED',
+            err instanceof LedgerError ? publicLedgerCode(err) : err.code,
+          );
         }
         return svc.replaceOutcome(finalOriginal, null, 'REPLACEMENT_NOT_SUBMITTED', 'REPLACEMENT_NOT_SUBMITTED');
       }
@@ -764,8 +771,7 @@ export function replaceOutcome(
     accepted: code === 'REPLACED' || code === 'IDEMPOTENT_RETRY',
     idempotent,
     code,
-    // A ledger refusal is named as the API publishes it (`posting_frozen`, not `ledger.frozen`).
-    reasonCode: publicLedgerCode(reasonCode),
+    reasonCode,
     reconciliationRequired,
     original,
     replacement,

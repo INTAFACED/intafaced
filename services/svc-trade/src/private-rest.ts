@@ -2809,12 +2809,13 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
       throw err;
     }
 
-    const parsed = createOrderRequestSchema.safeParse(schemaBodyOf(rawBody));
+    const schemaBody = schemaBodyOf(rawBody);
+    const parsed = createOrderRequestSchema.safeParse(schemaBody);
     if (!parsed.success) {
       // CCXT `InvalidOrder`, not `BadRequest`: it is specifically the order
       // that is wrong, and that is the branch a client's order-builder listens
       // on. `errors` lists every bad field in one body (DV-errors-01).
-      return reply.code(400).send(createBodyRefusal(parsed.error, 'invalid create order body', schemaBodyOf(rawBody)));
+      return reply.code(400).send(createBodyRefusal(parsed.error, 'invalid create order body', schemaBody));
     }
 
     let input: PlaceOrderInput;
@@ -3118,10 +3119,11 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
       throw err;
     }
 
-    const parsed = createOrderRequestSchema.safeParse(schemaBodyOf(rawBody));
+    const schemaBody = schemaBodyOf(rawBody);
+    const parsed = createOrderRequestSchema.safeParse(schemaBody);
     if (!parsed.success) {
       // The same one body as create: every bad field listed (DV-errors-01).
-      return reply.code(400).send(createBodyRefusal(parsed.error, 'invalid replacement order body', schemaBodyOf(rawBody)));
+      return reply.code(400).send(createBodyRefusal(parsed.error, 'invalid replacement order body', schemaBody));
     }
 
     let input: PlaceOrderInput;

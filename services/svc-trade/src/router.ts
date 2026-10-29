@@ -12,7 +12,7 @@ import {
 import { AuthError, requireTier, TIER_ORDER, type Principal } from '@intafaced/auth';
 import { checkAccess } from '@intafaced/config';
 import { formatAmount, parseAmount, InsufficientFundsError, LedgerError } from '@intafaced/ledger-client';
-import { publicLedgerCode } from './ledger-public-code.js';
+import { publicLedgerCode, SETTLEMENT_PENDING } from './ledger-public-code.js';
 import { orderSideSchema, timeInForceSchema } from '@intafaced/exchange-contract';
 import { TradeError, type FillRecord, type Market, type OrderRecord, type TimeInForce } from './spot/types.js';
 import { MatchingNoBookError } from './spot/matching-client.js';
@@ -572,11 +572,15 @@ export function toTrpcError(err: unknown): TRPCError {
   }
 
   if (err instanceof LedgerError) {
-    // The cause's code is what a client reads (`data.cause.code`): a ledger code renamed for the API (the posting
-    // freeze is `posting_frozen`) travels renamed, every other one as the ledger named it.
-    const published = publicLedgerCode(err.code);
-    const cause = published === err.code ? err : new LedgerError(err.message, published);
-    return new TRPCError({ code: 'BAD_REQUEST', message: err.message, cause });
+    // The cause's code is what a client reads (`data.cause.code`). The posting freeze travels as the API names it:
+    // `posting_frozen` (refused before the engine, a 400 like the REST door) or `trade.settlement_pending` (after the
+    // engine: the outcome is not known, so not a refusal). The ledger's own error stays the cause of the renamed one.
+    const published = publicLedgerCode(err);
+    if (published === err.code) return new TRPCError({ code: 'BAD_REQUEST', message: err.message, cause: err });
+    const cause = new LedgerError(err.message, published);
+    cause.cause = err;
+    if (err.stack) cause.stack = err.stack;
+    return new TRPCError({ code: published === SETTLEMENT_PENDING ? 'SERVICE_UNAVAILABLE' : 'BAD_REQUEST', message: err.message, cause });
   }
 
   // Matching holds no book for the market (its 404): the named refusal `trade.no_book`, as on the REST and ccxt

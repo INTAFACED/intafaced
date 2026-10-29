@@ -9,19 +9,18 @@ describe('the platform posting freeze on the trade API (DV-errors-02)', () => {
   it('a REST refusal with intafacedCode posting_frozen gets the orders-paused copy, not the account-on-hold one', async () => {
     const api = createApiClient({
       fetch: async () =>
-        new Response(
-          JSON.stringify({ code: 'OnMaintenance', message: 'Ledger posting is frozen: TEST freeze', intafacedCode: 'posting_frozen' }),
-          { status: 503 },
-        ),
+        new Response(JSON.stringify({ code: 'OnMaintenance', message: 'ledger.frozen', intafacedCode: 'posting_frozen' }), { status: 400 }),
     });
     const result = await api.rest('/orders', z.unknown(), { method: 'POST', body: { symbol: 'BTC/USDT' } });
-    expect(result).toMatchObject({ ok: false, code: 'posting_frozen', status: 503 });
+    expect(result).toMatchObject({ ok: false, reason: 'error', code: 'posting_frozen', status: 400 });
     const code = result.ok ? '' : (result.code ?? '');
     expect(classifyRefusal(code)).toBe('ordersPaused');
     expect(refusalCopy(code)).toEqual(refusalCopy('trade.orders_paused'));
     expect(refusalCopy(code).title).toBe('Orders are paused right now');
-    // The account freeze is a different thing and keeps its own copy.
-    expect(classifyRefusal('ledger.frozen')).toBe('accountOnHold');
+    // The ledger's own name for the same platform freeze reads the same; the account's freeze keeps its own copy.
+    expect(classifyRefusal('ledger.frozen')).toBe('ordersPaused');
+    expect(refusalCopy('ledger.frozen')).toEqual(refusalCopy('trade.orders_paused'));
+    expect(classifyRefusal('trade.account_restricted')).toBe('accountOnHold');
   });
 });
 
@@ -228,7 +227,7 @@ describe('classifyRefusal', () => {
       ['trade.order_not_found', 'orderGone'],
       ['trade.convert_price_moved', 'priceMoved'],
       ['trade.convert_quote_expired', 'quoteExpired'],
-      ['ledger.frozen', 'accountOnHold'],
+      ['ledger.frozen', 'ordersPaused'],
       ['posting_frozen', 'ordersPaused'],
       ['mfa.required', 'stepUp'],
       ['auth.mfa_required', 'mfaRequired'],

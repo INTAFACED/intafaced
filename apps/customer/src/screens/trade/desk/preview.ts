@@ -6,7 +6,7 @@
 import type { ApiResult } from '../../../shared/api';
 import type { Preview } from '../../../features/trade/trade-api';
 import { parseAmount } from '../../../shared/money';
-import { fmtPrice, refusalCopy } from '../../../data';
+import { classifyRefusal, fmtPrice, refusalCopy } from '../../../data';
 import type { RefusalContext } from '../../../data';
 import type { RefusalCopy } from '../../../data/types';
 
@@ -66,15 +66,14 @@ export function refusalFailure(code: string | null | undefined, context: Refusal
  * the service, timed out or came back unreadable is `network`: for a read that means "nothing was changed".
  */
 /**
- * The service's answer to the platform posting freeze: the trade API's `posting_frozen` (503, temporary, nothing
- * held), or the ledger's own code where it arrives only as the message.
+ * The service's answer to the platform posting freeze before the engine (`posting_frozen`, a 400 refusal) or the
+ * desk's own paused-orders code: the codes the refusal catalogue sorts as orders paused. Read from the code only;
+ * a freeze after the engine (`trade.settlement_pending`) is an unknown outcome and never reads as paused.
  */
-export const isLedgerFrozen = (result: { message?: string; code?: string }): boolean =>
-  result.code === 'posting_frozen' || result.message === 'ledger.frozen';
+export const isLedgerFrozen = (result: { code?: string }): boolean => classifyRefusal(result.code) === 'ordersPaused';
 
 export function failureOf(result: Extract<ApiResult<unknown>, { ok: false }>, context: RefusalContext): Failure {
-  // The platform posting freeze: orders are paused for everyone, not this account. The trade API names it
-  // `posting_frozen`; an older reply carried the ledger's code only in its message, which is read as a code, never shown.
+  // The platform posting freeze: orders are paused for everyone, not this account.
   if (isLedgerFrozen(result)) return refusalFailure('trade.orders_paused', context);
   if (result.reason === 'unauthorized') return refusalFailure('auth.required', context);
   if (result.code) return refusalFailure(result.code, context);

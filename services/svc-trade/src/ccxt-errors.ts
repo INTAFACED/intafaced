@@ -4,7 +4,7 @@ import { InsufficientFundsError, LedgerError, MoneyError } from '@intafaced/ledg
 import { MatchingNoBookError, MatchingUnavailableError } from './spot/matching-client.js';
 import { TradeError, type TradeErrorCode } from './spot/types.js';
 import { TradingControlError } from './controls/trading-controls.js';
-import { POSTING_FROZEN, publicLedgerCode } from './ledger-public-code.js';
+import { POSTING_FROZEN, publicLedgerCode, SETTLEMENT_PENDING } from './ledger-public-code.js';
 
 /**
  * CCXT ERROR TAXONOMY FOR THE PUBLIC REST SURFACE (trade.ccxt-api).
@@ -64,10 +64,15 @@ interface Arm {
  * inspects the HTTP status before it ever parses a body, and a 5xx is retried
  * by most transport wrappers regardless of payload. So anything a caller must
  * *not* retry stays in the 4xx range even when it is genuinely our fault.
- * The other way round, a refusal that is temporary AND safe to resend unchanged
- * is 5xx: the platform posting freeze (`posting_frozen`, 503 `OnMaintenance`,
- * in `toCcxtError`) lifts without the caller doing anything, the ledger refused
- * before commit, and a resend under the same `clientOrderId` cannot place twice.
+ * Two posting-freeze answers sit outside the table (`toCcxtError`, LedgerError):
+ *   - `posting_frozen`, 400 `OnMaintenance`: the order's first hold was refused
+ *     before the engine; nothing exists and nothing is held. 4xx, because it IS a
+ *     refusal; the class is what tells a CCXT client to back off and retry (it
+ *     maps the class name), and a resend under the same clientOrderId is safe.
+ *   - `trade.settlement_pending`, 503 `ExchangeNotAvailable`: the freeze stopped a
+ *     post after the engine accepted, filled or cancelled the order. The order
+ *     exists and its settlement is not confirmed, so this is an unknown outcome,
+ *     never a refusal: 5xx, and the caller reads the order before resending.
  */
 const TRADE_ERROR_MAP: Record<TradeErrorCode, Arm> = {
   // ── Symbol is wrong or unusable: stop asking for it ───────────────────────
@@ -612,7 +617,7 @@ export function invalidOrder(message: string, intafacedCode = 'trade.validation_
  * The API's code for a money call refused by the platform-wide posting freeze
  * (svc-ledger `services/svc-ledger/src/ledger/freeze.ts`). Reads still answer.
  */
-export { POSTING_FROZEN } from './ledger-public-code.js';
+export { POSTING_FROZEN, SETTLEMENT_PENDING } from './ledger-public-code.js';
 
 /**
  * Map any thrown error to the CCXT wire shape, or `null` when we do not
@@ -690,14 +695,21 @@ export function toCcxtError(err: unknown): CcxtErrorResponse | null {
   }
 
   if (err instanceof LedgerError) {
-    const intafacedCode = publicLedgerCode(err.code);
+    const intafacedCode = publicLedgerCode(err);
     if (intafacedCode === POSTING_FROZEN) {
-      // The platform posting freeze (svc-ledger's `ledger.frozen`), not
-      // svc-identity's `account_frozen`. Temporary, and the ledger refused
-      // before commit, so nothing moved and a resend under the same business
-      // key (clientOrderId) is safe: 503 `OnMaintenance`, the class CCXT
-      // clients retry with backoff (see the status rule above).
-      return { status: 503, body: { code: 'OnMaintenance', message: err.message, intafacedCode } };
+      // Refused before the engine (see the status rule above the table).
+      return { status: 400, body: { code: 'OnMaintenance', message: err.message, intafacedCode } };
+    }
+    if (intafacedCode === SETTLEMENT_PENDING) {
+      // After the engine: the order exists, its settlement is not confirmed. Not a refusal.
+      return {
+        status: 503,
+        body: {
+          code: 'ExchangeNotAvailable',
+          message: `${err.message}; the order reached the engine and its settlement is not confirmed: read the order before sending it again`,
+          intafacedCode,
+        },
+      };
     }
     // Any other ledger refusal. A client branches on `intafacedCode`, not on
     // the class name and not on message text.
