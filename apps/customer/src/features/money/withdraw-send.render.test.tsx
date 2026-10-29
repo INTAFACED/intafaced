@@ -379,6 +379,28 @@ describe('sending crypto out (J-wallet-05)', () => {
     expect(sessionStorage.length).toBe(0);
   });
 
+  it('lets the reference go when finishing a send whose answer was lost is refused for its quote: no withdrawal was claimed', async () => {
+    mint.mockResolvedValue({ ok: true, data: { accessToken: 'one-use', expiresAt: '2026-10-23T05:10:00Z' } });
+    mutate.mockResolvedValueOnce({ ok: true, data: quoteFor('25') });
+    mutate.mockResolvedValueOnce({ ok: false, reason: 'uncertain', status: 504, message: 'gateway timeout' });
+    mutate.mockResolvedValueOnce({ ok: true, data: quoteFor('25', { quoteRef: 'q-again' }) });
+    mutate.mockResolvedValueOnce(refusal('withdrawal_quote.expired', 412));
+    await mount();
+    await type('Saved address', ROW.destinationId);
+    await type('Amount', '25');
+    await press('Get the fee');
+    await press('Confirm and send');
+    await confirmWithCode();
+    await press('Get the fee');
+    await press('Confirm again to finish');
+    await confirmWithCode();
+    const outcome = document.querySelector('[data-testid="withdraw-outcome"]')!.textContent;
+    expect(outcome).toContain('Not sent');
+    expect(outcome).toContain('This quote has expired. Get the fee again.');
+    expect(sessionStorage.length).toBe(0);
+    expect((field('Amount') as HTMLInputElement).readOnly).toBe(false);
+  });
+
   it('never says nothing is held when svc-pay answers that the ledger refused the fee after the hold', async () => {
     mint.mockResolvedValue({ ok: true, data: { accessToken: 'one-use', expiresAt: '2026-10-23T05:10:00Z' } });
     mutate.mockResolvedValueOnce({ ok: true, data: quoteFor('25') });

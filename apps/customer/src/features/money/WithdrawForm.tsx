@@ -56,6 +56,9 @@ const definite = (failure: Failed) =>
  */
 const MAY_BE_HELD = new Set(['pay.rail_outcome_unknown', 'pay.ledger_outcome_unknown', 'pay.withdrawal_fee_unbound']);
 
+/** svc-pay's quote refusals at send: it checks the quote only when no withdrawal exists under the reference yet. */
+const NO_CLAIM_UNDER_REFERENCE = /^withdrawal_quote\./;
+
 /** A saved wallet can take money once the bank calls it active and its cooling-off has ended. */
 const ready = (row: Destination, now: number) => shownState(row.state ?? 'pending', coolingOf(row, now).state) === 'active';
 
@@ -468,7 +471,9 @@ export function WithdrawForm() {
     // Kept in the tab before the ask leaves, so a reload or a crash while it is in flight finishes it, never starts another.
     keepOut(userId, open);
     const answer = await createWithdrawSend(api).send(input, token);
-    const settled = answer.ok || (definite(answer) && !wasUnanswered);
+    // A refusal of the quote proves svc-pay holds no withdrawal under this reference: it reads the quote only for a reference
+    // it has never claimed. So even after a lost answer, such a refusal lets the reference go and the fee can be got afresh.
+    const settled = answer.ok || (definite(answer) && (!wasUnanswered || NO_CLAIM_UNDER_REFERENCE.test(answer.code ?? '')));
     // Only a recorded withdrawal or a definite first refusal lets the reference go, even if the page has gone since.
     if (settled) keepOut(userId, null);
     if (!alive.current) return { ok: true, data: null };
@@ -481,6 +486,7 @@ export function WithdrawForm() {
       setOutcome({ kind: 'sent', record: answer.data });
     } else if (settled) {
       sendRef.current = null;
+      setOpenOut(null);
       setOutcome({ kind: 'refused', failure: answer, asset: input.assetId });
     } else {
       setOpenOut(open);

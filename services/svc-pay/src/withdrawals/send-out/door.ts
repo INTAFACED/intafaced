@@ -1,5 +1,5 @@
 import type { Sql } from 'postgres';
-import type { BankSendDestinationPort } from '@intafaced/contracts';
+import { bankSendDestinationInputSchema, type BankSendDestinationPort } from '@intafaced/contracts';
 import { parseAmount, type Amount } from '@intafaced/ledger-client';
 import { PayError, type PayErrorCode } from '../../payment-service.js';
 import { WithdrawalQuoteError } from '../quotes/errors.js';
@@ -91,12 +91,11 @@ export class SendOutDoor {
 
   /** Check 3: svc-bank's address book says the address is saved on this network and may be sent to now. */
   async assertDestination(ask: SendOutAsk): Promise<void> {
-    const answer = await this.deps.destinations.check({
-      userId: ask.userId,
-      assetId: ask.assetId,
-      network: ask.networkId ?? '',
-      ref: ask.destination.ref,
-    });
+    const question = { userId: ask.userId, assetId: ask.assetId, network: ask.networkId ?? '', ref: ask.destination.ref };
+    // An asset, network or address the address book cannot hold is not in it: refused as not saved, never as "try again".
+    const answer = bankSendDestinationInputSchema.safeParse(question).success
+      ? await this.deps.destinations.check(question)
+      : ({ state: 'not_saved', destinationId: null, coolingOffEndsAt: null } as const);
     if (answer.state === 'ready') return;
     if (answer.state === 'unavailable') {
       throw new PayError('The address book could not be read, so nothing was sent', 'pay.withdrawal_destination_unavailable');
@@ -127,22 +126,29 @@ interface QuoteRow {
   fee_total: string;
   total_debit: string;
   expires_at: Date;
-  accepted_by: string | null;
 }
 
+const GUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 /**
- * Check 4, run on the claim's own transaction: the quote covers exactly this send and is accepted under its client reference.
- * Returns the fee the withdrawal carries. The quote row is locked first, so two claims cannot both take one quote.
+ * Check 4, run on the claim's own transaction (READ COMMITTED): the quote covers exactly this send and is accepted under its
+ * client reference. Returns the fee the withdrawal carries.
+ *
+ * The quote row is locked first, alone. Its acceptance is then read by a statement of its own, so a claim that waited on the
+ * lock sees an acceptance another claim committed meanwhile (a join in the locking statement would keep the old, empty
+ * answer). The insert is `ON CONFLICT DO NOTHING`, and a conflict is decided from what is stored, never surfaced raw.
  */
 export async function acceptQuoteForSend(tx: Sql, terms: QuotedSendTerms, at: Date): Promise<{ fee: Amount; totalDebit: Amount }> {
+  const notFound = () => new WithdrawalQuoteError('withdrawal_quote.not_found', `no quote ${terms.quoteRef} for this account`);
+  // Quotes are stored under the account's uuid; any other id has none.
+  if (!GUID.test(terms.userId)) throw notFound();
   const [quote] = await tx<QuoteRow[]>`
-    SELECT q.id, q.asset_id, q.network_id, q.amount::text AS amount, q.fee_mode, q.fee_total::text AS fee_total,
-           q.total_debit::text AS total_debit, q.expires_at, a.client_ref AS accepted_by
-      FROM pay.withdrawal_quotes q
-      LEFT JOIN pay.withdrawal_quote_acceptances a ON a.quote_id = q.id
-     WHERE q.user_id::text = ${terms.userId} AND q.quote_ref = ${terms.quoteRef}
-       FOR UPDATE OF q`;
-  if (!quote) throw new WithdrawalQuoteError('withdrawal_quote.not_found', `no quote ${terms.quoteRef} for this account`);
+    SELECT id, asset_id, network_id, amount::text AS amount, fee_mode, fee_total::text AS fee_total,
+           total_debit::text AS total_debit, expires_at
+      FROM pay.withdrawal_quotes
+     WHERE user_id = ${terms.userId}::uuid AND quote_ref = ${terms.quoteRef}
+       FOR UPDATE`;
+  if (!quote) throw notFound();
   if (quote.asset_id !== terms.assetId || quote.network_id !== terms.networkId || parseAmount(quote.amount) !== terms.amount) {
     throw new WithdrawalQuoteError(
       'withdrawal_quote.terms_differ',
@@ -160,25 +166,36 @@ export async function acceptQuoteForSend(tx: Sql, terms: QuotedSendTerms, at: Da
   if (totalDebit !== terms.amount + fee) {
     throw new WithdrawalQuoteError('withdrawal_quote.terms_differ', `quote ${terms.quoteRef} does not add up; get the fee again`);
   }
-  if (quote.accepted_by !== null) {
-    if (quote.accepted_by === terms.clientRef) return { fee, totalDebit };
-    throw new WithdrawalQuoteError('withdrawal_quote.already_used', `quote ${terms.quoteRef} was used by another withdrawal`);
-  }
+  const decide = async (): Promise<'mine' | 'free'> => {
+    const [accepted] = await tx<Array<{ client_ref: string }>>`
+      SELECT client_ref FROM pay.withdrawal_quote_acceptances WHERE quote_id = ${quote.id}`;
+    if (accepted) {
+      if (accepted.client_ref === terms.clientRef) return 'mine';
+      throw new WithdrawalQuoteError('withdrawal_quote.already_used', `quote ${terms.quoteRef} was used by another withdrawal`);
+    }
+    const [taken] = await tx<Array<{ quote_id: string }>>`
+      SELECT quote_id FROM pay.withdrawal_quote_acceptances
+       WHERE user_id = ${terms.userId}::uuid AND client_ref = ${terms.clientRef}`;
+    if (taken) {
+      throw new WithdrawalQuoteError(
+        'withdrawal_quote.client_ref_taken',
+        `client reference ${terms.clientRef} already accepted another quote`,
+      );
+    }
+    return 'free';
+  };
+  if ((await decide()) === 'mine') return { fee, totalDebit };
   if (at.getTime() >= quote.expires_at.getTime()) {
     throw new WithdrawalQuoteError('withdrawal_quote.expired', `quote ${terms.quoteRef} has expired; get the fee again`);
   }
-  const [taken] = await tx<Array<{ quote_id: string }>>`
-    SELECT quote_id FROM pay.withdrawal_quote_acceptances WHERE user_id::text = ${terms.userId} AND client_ref = ${terms.clientRef}`;
-  if (taken && taken.quote_id !== quote.id) {
-    throw new WithdrawalQuoteError(
-      'withdrawal_quote.client_ref_taken',
-      `client reference ${terms.clientRef} already accepted another quote`,
-    );
-  }
-  if (!taken) {
-    await tx`
-      INSERT INTO pay.withdrawal_quote_acceptances (quote_id, user_id, client_ref, accepted_at)
-      VALUES (${quote.id}, ${terms.userId}, ${terms.clientRef}, ${at})`;
+  const inserted = await tx<Array<{ quote_id: string }>>`
+    INSERT INTO pay.withdrawal_quote_acceptances (quote_id, user_id, client_ref, accepted_at)
+    VALUES (${quote.id}, ${terms.userId}, ${terms.clientRef}, ${at})
+    ON CONFLICT DO NOTHING
+    RETURNING quote_id`;
+  // Another claim took the quote or this reference first: decide from what is stored now. Free again cannot happen.
+  if (inserted.length === 0 && (await decide()) !== 'mine') {
+    throw new WithdrawalQuoteError('withdrawal_quote.already_used', `quote ${terms.quoteRef} was used by another withdrawal`);
   }
   return { fee, totalDebit };
 }

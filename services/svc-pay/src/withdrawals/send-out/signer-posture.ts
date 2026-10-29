@@ -9,8 +9,12 @@ import { RAIL_POSTURE_ENFORCED_ENVS } from '../../rails/posture.js';
  *
  * A TEST signer may be connected per network for a development or test deployment only: `PAY_TEST_WITHDRAW_SIGNER_NETWORKS`
  * names the networks (comma-separated network ids, as the network registry and the address book name them), blank or unset
- * names none. It is not a key and holds none: it lets the existing `crypto-native` rail send for those networks, and that
+ * names none. It is not a key and holds none: it lets the existing `crypto-native` rail send for that network, and that
  * rail is the dev `MemoryChain` (or a test chain) wherever this setting is allowed. It never speaks for any other rail.
+ *
+ * ONE NETWORK AT MOST. The `crypto-native` rail is one chain and its payout names no network, so a second network with a
+ * signer would send on the first one's chain while the address book and the quote said the second. Naming more than one
+ * refuses to boot, so the network a send names is always the chain it goes out on.
  *
  * TWO GATES, as `rails/posture.ts` does for sandbox rails:
  *   1. BOOT. A non-blank setting refuses to start unless `APP_ENV` is exactly `dev` or `test` (read raw: unset, blank and
@@ -29,7 +33,8 @@ export const SIGNED_SEND_RAIL = 'crypto-native';
 /** Where a TEST signer may be connected: development and test only, by exact name. */
 const TEST_SIGNER_ENVS: readonly string[] = ['dev', 'test'];
 
-const NETWORK_ID = /^[a-z0-9][a-z0-9_-]{1,31}$/;
+/** A network id as a quote and a send name it (`sendNetworkIdSchema`), so a named signer can always be matched. */
+const NETWORK_ID = /^[a-z0-9]+(-[a-z0-9]+)*$/;
 
 export interface WithdrawSignerPosture {
   /** `APP_ENV` as read at boot, raw. */
@@ -53,6 +58,12 @@ export function assertWithdrawSignerPosture(env: Record<string, string | undefin
     );
   }
   const networks = raw.split(',').map((part) => part.trim());
+  if (networks.length > 1) {
+    throw new Error(
+      `${PAY_TEST_WITHDRAW_SIGNER_NETWORKS_ENV} names ${networks.length} networks; the crypto-native rail is one chain, so at most ` +
+        'one network can have a TEST signer; refusing to boot',
+    );
+  }
   for (const network of networks) {
     if (!NETWORK_ID.test(network)) {
       throw new Error(

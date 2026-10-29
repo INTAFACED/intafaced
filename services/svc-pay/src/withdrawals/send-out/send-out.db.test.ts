@@ -117,6 +117,13 @@ describe('a send out of the platform: signer, saved address, quote and fee (real
   }, 30_000);
 
   async function network(id: string, fee = '1.5', assets = ['USDT', 'ETH']): Promise<void> {
+    // TEST rules for each asset on the network (W-withdraw-02), wide enough for every amount these tests quote.
+    for (const assetId of assets) {
+      await sql`
+        INSERT INTO pay.withdrawal_network_rules (asset_id, network_id, minimum, maximum, step, tag, set_by)
+        VALUES (${assetId}, ${id}, '0.01', '1000000', '0.01', 'none', 'founder-a')
+        ON CONFLICT (asset_id, network_id) DO NOTHING`;
+    }
     await sql`
       INSERT INTO pay.network_registry (network_id, display_name, asset_codes, enabled, fee_estimate_source, fee_estimate_amount, updated_by)
       VALUES (${id}, ${`TEST ${id}`}, ${sql.json(assets)}, true, 'fixed', ${fee}, 'founder-a')
@@ -126,6 +133,7 @@ describe('a send out of the platform: signer, saved address, quote and fee (real
   beforeEach(async () => {
     await truncatePayForTest(sql, 'pay', `TRUNCATE pay.withdrawals, pay.deposits RESTART IDENTITY CASCADE`);
     await sql`TRUNCATE pay.withdrawal_quotes, pay.withdrawal_quote_acceptances, pay.withdrawal_quote_policy_events RESTART IDENTITY CASCADE`;
+    await sql`TRUNCATE pay.withdrawal_network_rules`;
     memory = new MemoryLedger();
     flaky = flakyLedger(memory);
     chain = new MemoryChain();
@@ -295,6 +303,17 @@ describe('a send out of the platform: signer, saved address, quote and fee (real
       expect(await available()).toBe('273.5');
       expect(await rows()).toHaveLength(1);
       expect(await acceptedBy('q-1')).toBe('w-1');
+    });
+
+    it('two claims racing for one quote under two references: one is sent, the other refused already_used, never a raw error', async () => {
+      const service = money();
+      await quote('q-1');
+      const results = await Promise.all(
+        ['w-a', 'w-b'].map((ref) => codeOf(send(service, ref, 'q-1').then(() => Promise.reject({ code: 'sent' })))),
+      );
+      expect(results.sort()).toEqual(['sent', 'withdrawal_quote.already_used']);
+      expect(await rows()).toHaveLength(1);
+      expect(await available()).toBe('273.5');
     });
 
     it.each([

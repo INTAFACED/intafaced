@@ -30,7 +30,7 @@ describe('the TEST withdrawal signer: boot gate', () => {
 
   it('names the listed networks in dev and test', () => {
     expect([...assertWithdrawSignerPosture({ APP_ENV: 'dev', [ENV]: 'ethereum' }).testNetworks]).toEqual(['ethereum']);
-    expect([...assertWithdrawSignerPosture({ APP_ENV: 'test', [ENV]: ' ethereum , base ' }).testNetworks]).toEqual(['ethereum', 'base']);
+    expect([...assertWithdrawSignerPosture({ APP_ENV: 'test', [ENV]: ' base ' }).testNetworks]).toEqual(['base']);
   });
 
   it.each([['staging'], ['prod'], ['production'], [''], [undefined], ['Dev']])(
@@ -40,8 +40,16 @@ describe('the TEST withdrawal signer: boot gate', () => {
     },
   );
 
-  it.each([['Ethereum'], ['eth mainnet'], ['x'], ['ethereum,,base']])('refuses to boot on a network id that does not parse: %s', (raw) => {
-    expect(() => assertWithdrawSignerPosture({ APP_ENV: 'dev', [ENV]: raw })).toThrow(/not a network id/);
+  it.each([['Ethereum'], ['eth mainnet'], ['base_sepolia'], ['-base']])(
+    'refuses to boot on a network id that does not parse: %s',
+    (raw) => {
+      expect(() => assertWithdrawSignerPosture({ APP_ENV: 'dev', [ENV]: raw })).toThrow(/not a network id/);
+    },
+  );
+
+  it('refuses to boot with more than one network: the crypto-native rail is one chain', () => {
+    expect(() => assertWithdrawSignerPosture({ APP_ENV: 'test', [ENV]: 'ethereum,base' })).toThrow(/at most one network/);
+    expect(() => assertWithdrawSignerPosture({ APP_ENV: 'test', [ENV]: 'ethereum,,base' })).toThrow(/at most one network/);
   });
 });
 
@@ -101,5 +109,13 @@ describe('the door before the claim', () => {
     await expect(ready.sendOut.assertDestination(ask)).resolves.toBeUndefined();
     expect(ready.asked).toEqual([{ userId: 'u-1', assetId: 'USDT', network: 'ethereum', ref: ask.destination.ref }]);
     await expect(door('not_saved').sendOut.assertDestination(ask)).rejects.toMatchObject({ code: 'pay.withdrawal_destination_not_saved' });
+  });
+
+  it('answers an asset the address book cannot hold as not saved, without asking it (never "try again")', async () => {
+    const { sendOut, asked } = door();
+    await expect(sendOut.assertDestination({ ...ask, assetId: 'USDC.e' })).rejects.toMatchObject({
+      code: 'pay.withdrawal_destination_not_saved',
+    });
+    expect(asked).toEqual([]);
   });
 });

@@ -1295,7 +1295,7 @@ setWithdrawFeeUnboundSink((alert) =>
   app.log.error({ ...alert, alert: 'pay.withdrawal_fee_unbound' }, 'withdrawal fee refused by the ledger'),
 );
 // A TEST withdrawal signer is said on every start, like the sandbox rails: sends out on these networks go through the
-// crypto-native rail, which is MemoryChain or a test chain wherever this boots.
+// crypto-native rail, which is the in-memory dev chain or a test chain wherever this boots.
 if (withdrawSigners.testNetworks.size > 0) {
   app.log.warn(
     { networks: [...withdrawSigners.testNetworks], appEnv: withdrawSigners.appEnv, chain: chain.description },
