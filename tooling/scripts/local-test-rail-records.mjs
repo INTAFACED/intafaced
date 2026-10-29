@@ -1,6 +1,6 @@
 /**
- * LOCAL TEST rail records: each stack stand-in for an outside rail (the TEST chain, the TEST signer, the TEST bank payout,
- * the TEST bank payout) writes one line here for every movement it makes, in its own words, before it asks the ledger to
+ * LOCAL TEST rail records: each stack stand-in for an outside rail (the TEST chain and its signer on rail crypto-native,
+ * the TEST bank payout on rail payout-sim) writes one line here for every movement it makes, in its own words, before it asks the ledger to
  * post it. The stack's outside source totals these per rail, so a reconciliation run compares each rail boundary
  * `rail:<rail>` with what that rail itself says, never with the ledger read back. Rail `local-test` is the stack's TEST
  * mint: it has no outside party to hold a statement, so it has no records here.
@@ -12,7 +12,7 @@
  * newline is written; a line torn by a crash is not a record and the next write on that rail cuts it off.
  * LOCAL TEST only; nothing here is a real rail.
  */
-import { appendFileSync, mkdirSync, readdirSync, readFileSync, truncateSync } from 'node:fs';
+import { appendFileSync, mkdirSync, readdirSync, readFileSync, rmdirSync, truncateSync } from 'node:fs';
 import path from 'node:path';
 
 export const RECORDS_DIR = 'test-rail-records';
@@ -25,6 +25,7 @@ const DECIMAL = /^(0|[1-9]\d*)(\.\d{1,18})?$/;
 const DIRECTIONS = new Set(['in', 'out']);
 const MAX_KEY = 512;
 const MINT = 'local-test';
+const LOCK_WAIT_MS = 10_000;
 
 export class RailRecordError extends Error {
   constructor(message) {
@@ -63,20 +64,21 @@ function check(record) {
 
 const facts = (record) => `${record.direction} ${record.assetId} ${formatUnits(units(record.amount))}`;
 
-/** The rail file's complete lines, and how many bytes they take (a torn last line is left out of both). */
+/** The rail file's complete lines, and the byte length they take (a torn last line is left out of both). */
 function readRailFile(file) {
-  let text;
+  let bytes;
   try {
-    text = readFileSync(file, 'utf8');
+    bytes = readFileSync(file);
   } catch (err) {
     if (err?.code === 'ENOENT') return { records: [], complete: 0, size: 0 };
     throw err;
   }
-  const complete = text.lastIndexOf('\n') + 1;
+  const complete = bytes.lastIndexOf(0x0a) + 1;
   const name = path.basename(file);
   const records = [];
-  text
-    .slice(0, complete)
+  bytes
+    .subarray(0, complete)
+    .toString('utf8')
     .split('\n')
     .forEach((line, at) => {
       if (line === '') return;
@@ -91,7 +93,28 @@ function readRailFile(file) {
       if (`${record.rail}.jsonl` !== name) throw new RailRecordError(`${name}:${at + 1} names rail ${record.rail}`);
       records.push(record);
     });
-  return { records, complete: Buffer.byteLength(text.slice(0, complete)), size: Buffer.byteLength(text) };
+  return { records, complete, size: bytes.length };
+}
+
+/** One writer at a time across the stack's processes, so a check, a cut and an append are never interleaved. */
+function withLock(dir, fn) {
+  const lock = path.join(dir, '.lock');
+  const deadline = Date.now() + LOCK_WAIT_MS;
+  for (;;) {
+    try {
+      mkdirSync(lock);
+      break;
+    } catch (err) {
+      if (err?.code !== 'EEXIST') throw err;
+      if (Date.now() > deadline) throw new RailRecordError(`${lock} is held; if no stack command is writing, remove it`);
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 20);
+    }
+  }
+  try {
+    return fn();
+  } finally {
+    rmdirSync(lock);
+  }
 }
 
 /**
@@ -105,17 +128,25 @@ export function recordRailMovement(stateDir, { rail, key, direction, assetId, am
   const dir = path.join(stateDir, RECORDS_DIR);
   mkdirSync(dir, { recursive: true, mode: 0o700 });
   const file = path.join(dir, `${rail}.jsonl`);
-  const { records, complete, size } = readRailFile(file);
-  const earlier = records.find((row) => row.key === key);
-  if (earlier) {
-    if (facts(earlier) !== facts(record)) {
-      throw new RailRecordError(`${rail} ${key} is already recorded as "${facts(earlier)}", not "${facts(record)}"`);
+  return withLock(dir, () => {
+    const { records, complete, size } = readRailFile(file);
+    const earlier = records.find((row) => row.key === key);
+    if (earlier) {
+      if (facts(earlier) !== facts(record)) {
+        throw new RailRecordError(`${rail} ${key} is already recorded as "${facts(earlier)}", not "${facts(record)}"`);
+      }
+      return earlier;
     }
-    return earlier;
-  }
-  if (complete < size) truncateSync(file, complete);
-  appendFileSync(file, `${JSON.stringify(record)}\n`, { mode: 0o600 });
-  return record;
+    if (complete < size) truncateSync(file, complete);
+    appendFileSync(file, `${JSON.stringify(record)}\n`, { mode: 0o600 });
+    return record;
+  });
+}
+
+/** One rail's complete records, each checked. */
+export function readRail(stateDir, rail) {
+  if (typeof rail !== 'string' || !RAIL.test(rail)) throw new RailRecordError(`rail "${rail}" is not a rail id`);
+  return readRailFile(path.join(stateDir, RECORDS_DIR, `${rail}.jsonl`)).records;
 }
 
 /** Every complete record on disk, each checked; a line that is not a TEST record refuses rather than being skipped. */

@@ -1,13 +1,13 @@
 /**
  * Unit tests for the LOCAL TEST rail records. Temp folders only: no stack.
- * Run: node --test tooling/scripts/local-stack-services/test-rail-records.test.mjs
+ * Run: node --test tooling/scripts/local-test-rail-records.test.mjs
  */
 import assert from 'node:assert/strict';
-import { appendFileSync, mkdtempSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { appendFileSync, existsSync, mkdirSync, mkdtempSync, rmdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
-import { RECORDS_DIR, RailRecordError, readRailRecords, recordRailMovement, railTotals } from './test-rail-records.mjs';
+import { RECORDS_DIR, RailRecordError, readRailRecords, recordRailMovement, railTotals, readRail } from './local-test-rail-records.mjs';
 
 const fresh = () => mkdtempSync(path.join(tmpdir(), 'rail-records-'));
 const move = (over = {}) => ({ rail: 'crypto-native', key: 'k1', direction: 'in', assetId: 'USDT', amount: '300', ...over });
@@ -180,4 +180,35 @@ test('a line that is not a TEST record, or sits in another rail file, refuses th
   recordRailMovement(broken, move());
   appendFileSync(path.join(broken, RECORDS_DIR, 'crypto-native.jsonl'), '{not json\n');
   assert.throws(() => railTotals(broken), /is not JSON/);
+});
+
+test('readRail reads one rail only, and a bad line on another rail does not stop it', () => {
+  const dir = fresh();
+  recordRailMovement(dir, move({ key: 'c1' }));
+  recordRailMovement(dir, move({ rail: 'payout-sim', key: 'p1', direction: 'out' }));
+  appendFileSync(path.join(dir, RECORDS_DIR, 'payout-sim.jsonl'), '{not json\n');
+  assert.deepEqual(
+    readRail(dir, 'crypto-native').map((row) => row.key),
+    ['c1'],
+  );
+  assert.deepEqual(readRail(dir, 'no-such-rail'), []);
+  assert.throws(() => readRail(dir, 'payout-sim'), /is not JSON/);
+  assert.throws(() => readRail(dir, '../x'), RailRecordError);
+});
+
+test('a write waits for the records lock and releases it; a lock nobody releases refuses by name', () => {
+  const dir = fresh();
+  recordRailMovement(dir, move({ key: 'first' }));
+  const lock = path.join(dir, RECORDS_DIR, '.lock');
+  assert.equal(existsSync(lock), false);
+  mkdirSync(lock);
+  const started = Date.now();
+  assert.throws(() => recordRailMovement(dir, move({ key: 'second' })), /\.lock is held/);
+  assert.ok(Date.now() - started >= 9_000);
+  rmdirSync(lock);
+  recordRailMovement(dir, move({ key: 'second' }));
+  assert.deepEqual(
+    readRail(dir, 'crypto-native').map((row) => row.key),
+    ['first', 'second'],
+  );
 });
