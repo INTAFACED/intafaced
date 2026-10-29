@@ -266,7 +266,7 @@ const es = {
   agentCap: 'Límite propio del agente por sesión: {cap}.',
   agentCapUnset: 'El agente no tiene límite propio por sesión. Fíjalo primero en Construir.',
   effective: 'Se aplica {amount}',
-  effectiveUnset: 'Aún no se aplica ningún límite por sesión, así que no se abre ninguna sesión.',
+  effectiveUnset: 'No se aplica ningún límite por sesión, así que no se abre ninguna sesión.',
   grace: 'Impago permitido antes de que se detengan las ejecuciones: {amount}.',
   graceUnset:
     'Impago permitido antes de que se detengan las ejecuciones: sin definir. Mientras haya uso impagado, no empieza ninguna ejecución.',
