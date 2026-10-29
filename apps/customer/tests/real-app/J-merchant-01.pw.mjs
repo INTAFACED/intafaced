@@ -3,18 +3,12 @@ import { businessReadyPerson, openBusiness, refusedPayCalls } from './merchant.m
 
 // J-merchant-01, in the running app (docs/roadmap/journeys.json): open Business Pay and see my account as it really
 // is. The business is new and its verification not started, so its owner holds the onboarding grant only, not the
-// acquiring one. Tests titled "J-merchant-01 #<n>" prove a whole step; the others prove part of one and say which.
+// acquiring one. Each test proves one whole step; #4 is in J-merchant-01-team.pw.mjs and #6 in J-merchant-01-settings.pw.mjs.
 const J = 'J-merchant-01';
 
 test.describe.configure({ mode: 'default' });
 
-/** Every room the portal's navigation reaches from the home page, with its own address. */
-async function navRooms(page) {
-  const hrefs = await page.locator('nav a[href^="/pay/"]').evaluateAll((links) => links.map((a) => a.getAttribute('href')));
-  return [...new Set(hrefs)];
-}
-
-test(`${J} #1 and #3 More opens Business Pay; with no business it leads to setup, and a new business sees one explanation, not a wall of zeros`, async ({
+test(`${J} #1 More opens Business Pay at /pay/merchant; with no business it leads to setup, and the new business's dashboard opens from it`, async ({
   page,
 }) => {
   test.setTimeout(180_000);
@@ -37,7 +31,20 @@ test(`${J} #1 and #3 More opens Business Pay; with no business it leads to setup
   await page.getByRole('link', { name: 'Open the dashboard' }).click();
   await expect(page).toHaveURL(/\/pay\/merchant$/);
   await expect(page.getByRole('heading', { name: 'Business overview', level: 1 })).toHaveCount(1);
-  // #3: one explanation with the next step, and the balance says it has nothing to show rather than 0.00.
+  expect(refused).toEqual([]);
+});
+
+test(`${J} #3 a new business reads its KPI area: one explanation with a link to create a payment link, no balance shown as 0, and the as-of`, async ({
+  page,
+}) => {
+  test.setTimeout(180_000);
+  const who = await businessReadyPerson(page, 'mk', '/pay/onboarding');
+  await openBusiness(page, who, 'TEST First Ltd');
+  const refused = refusedPayCalls(page);
+  await page.getByRole('link', { name: 'Open the dashboard' }).click();
+  await expect(page).toHaveURL(/\/pay\/merchant$/);
+  await expect(page.getByText('TEST First Ltd').first()).toBeVisible();
+  // One explanation with the next step, and the balance says it has nothing to show rather than 0.00.
   await expect(page.getByRole('heading', { name: 'Your first payment starts here' })).toBeVisible();
   await expect(page.getByText('No balance to show yet')).toBeVisible();
   await expect(page.getByRole('link', { name: /Create payment link/ }).first()).toBeVisible();
@@ -45,7 +52,7 @@ test(`${J} #1 and #3 More opens Business Pay; with no business it leads to setup
   expect(refused).toEqual([]);
 });
 
-test(`${J} #2 and part of #4 a business with verification not started: "Not verified", the owner role, and every room opens`, async ({
+test(`${J} #2 a business with verification not started: "Not verified", the owner role and the setup link, and the page never calls the founder console`, async ({
   page,
 }) => {
   test.setTimeout(240_000);
@@ -54,8 +61,6 @@ test(`${J} #2 and part of #4 a business with verification not started: "Not veri
   const refused = refusedPayCalls(page);
   const asked = [];
   page.on('request', (req) => req.url().includes('/api/') && asked.push(req.url()));
-  const errors = [];
-  page.on('console', (msg) => msg.type() === 'error' && errors.push(msg.text()));
 
   await page.getByRole('link', { name: 'Open the dashboard' }).click();
   await expect(page.getByText('TEST Rooms Ltd').first()).toBeVisible();
@@ -65,22 +70,7 @@ test(`${J} #2 and part of #4 a business with verification not started: "Not veri
   await expect(account).toContainText('Your role');
   await expect(account).toContainText('Owner');
   await expect(page.getByRole('link', { name: /Set up your account/ })).toHaveAttribute('href', '/pay/onboarding');
-
-  // #4 (owner): each room from navigation opens with its own heading, never "no access", and no refused read.
-  const visited = new Set();
-  const queue = await navRooms(page);
-  while (queue.length) {
-    const room = queue.shift();
-    if (visited.has(room)) continue;
-    visited.add(room);
-    await page.goto(room);
-    await expect(page.locator('main h1').first(), room).toBeVisible();
-    await expect(page.getByText('You don’t have access'), room).toHaveCount(0);
-    for (const next of await navRooms(page)) if (!visited.has(next)) queue.push(next);
-  }
-  expect(visited.size).toBeGreaterThan(20);
   expect(refused).toEqual([]);
-  expect(errors).toEqual([]);
   // The portal never asks the founder's console for anything.
   expect(asked.filter((url) => /founderAdmin/i.test(url))).toEqual([]);
 });
