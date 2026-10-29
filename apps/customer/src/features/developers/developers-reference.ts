@@ -47,7 +47,8 @@ export const CALL_COST = 1;
 export const SIGN_WINDOW_SECONDS = 300;
 
 /** Whether a clock this far from the server's (ms, either way) still signs a timestamp the server accepts. */
-export const withinWindow = (offsetMs: number) => Math.abs(offsetMs) <= SIGN_WINDOW_SECONDS * 1000;
+/** Within the window even at the far edge of the reading: the offset is known only to half a round trip either way. */
+export const withinWindow = (offsetMs: number, roundTripMs = 0) => Math.abs(offsetMs) + roundTripMs / 2 <= SIGN_WINDOW_SECONDS * 1000;
 
 /** A key on `/api/v1` needs `trade:read` for a read and `trade:write` for every other method (`requiredScopeFor`). */
 export const scopeFor = (method: Method): Scope => (method === 'GET' ? 'trade:read' : 'trade:write');

@@ -233,7 +233,7 @@ function ClockResult({ state, testId, t }: { state: ClockState; testId: string; 
     );
   if (state.status !== 'ready') return <div data-testid={testId} aria-live="polite" />;
   const { offsetMs, roundTripMs } = state.reading;
-  const within = withinWindow(offsetMs);
+  const within = withinWindow(offsetMs, roundTripMs);
   return (
     <div data-testid={testId} aria-live="polite" data-clock-window={within ? 'within' : 'outside'}>
       <p>{t('clockOffset', { offset: String(offsetMs) })}</p>

@@ -11,7 +11,7 @@ const REFERENCE_TEXT = [...REST_REFERENCE.flatMap((route) => [routeLine(route), 
 /**
  * The developer docs search for one language: every section and the base-address page by title, and the API reference by
  * the routes and streams it lists. A query matches a page when every word of it is in that page's text. The index is
- * built once per language and each query's answer is kept.
+ * built once per language.
  */
 export function createDocsSearch(sectionTitle: (id: string) => string, hostsTitle: string): (query: string) => DocsMatch[] {
   const index = [
@@ -22,16 +22,10 @@ export function createDocsSearch(sectionTitle: (id: string) => string, hostsTitl
     })),
     { href: '/developers/hosts', title: hostsTitle, text: `${hostsTitle} hosts`.toLocaleLowerCase() },
   ];
-  const answers = new Map<string, DocsMatch[]>();
   return (query) => {
     const words = query.toLocaleLowerCase().split(/\s+/).filter(Boolean);
-    const cacheKey = words.join(' ');
-    const known = answers.get(cacheKey);
-    if (known) return known;
-    const found = words.length
+    return words.length
       ? index.filter((page) => words.every((word) => page.text.includes(word))).map(({ href, title }) => ({ href, title }))
       : [];
-    answers.set(cacheKey, found);
-    return found;
   };
 }

@@ -128,10 +128,17 @@ test(`${J} #5 downloads the OpenAPI file and a collection, and opens the agent d
   // The agent index lists each docs page once, and each has a markdown variant beside it.
   const index = await page.request.get('/developers/llms.txt');
   expect(index.ok()).toBe(true);
-  const pages = (await index.text()).match(/\/developers\/[a-z-/]+\.md/g) ?? [];
+  const indexText = await index.text();
+  // The stack answers a missing file with the app shell, so a 200 alone proves nothing: the file itself must come back.
+  expect(indexText).not.toMatch(/<!doctype html/i);
+  const pages = indexText.match(/\/developers\/[a-z-/]+\.md/g) ?? [];
   expect(pages.length).toBeGreaterThan(0);
   expect(new Set(pages).size).toBe(pages.length);
-  expect((await page.request.get(pages[0])).ok()).toBe(true);
+  for (const path of pages) {
+    const variant = await page.request.get(path);
+    expect(variant.ok(), path).toBe(true);
+    expect(await variant.text(), path).toMatch(/^# \S/);
+  }
 });
 
 test(`${J} #6 reads which data products I may use and on what terms: redistribution, retention and entitlement per product, "not set" where unset`, async ({

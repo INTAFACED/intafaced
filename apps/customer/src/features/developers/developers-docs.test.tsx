@@ -49,8 +49,8 @@ describe('developer portal home', () => {
     expect(searchDocs('rest').map((m) => m.href)).toContain('/developers/rest');
     expect(searchDocs('/api/v1/time').map((m) => m.href)).toEqual(['/developers/reference']);
     expect(searchDocs('   ')).toEqual([]);
-    // The same words give the same answer, kept from the first time.
-    expect(searchDocs('REST ')).toBe(searchDocs('rest'));
+    // Case and spacing do not change the answer.
+    expect(searchDocs('REST ')).toEqual(searchDocs('rest'));
   });
 });
 
@@ -135,6 +135,11 @@ describe('the clock check', () => {
     expect(withinWindow(edge)).toBe(true);
     expect(withinWindow(-edge)).toBe(true);
     expect(withinWindow(edge + 1)).toBe(false);
+  });
+  it('counts half the round trip against the window: a reading near its edge is not called within', () => {
+    const edge = SIGN_WINDOW_SECONDS * 1000;
+    expect(withinWindow(edge - 200, 800)).toBe(false);
+    expect(withinWindow(-(edge - 400), 800)).toBe(true);
   });
 });
 

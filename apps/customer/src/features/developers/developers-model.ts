@@ -85,22 +85,23 @@ export function hostTable(read: (protocol: Protocol, environment: Environment) =
 
 export type HostRow = ReturnType<typeof hostTable>[number];
 
-/** One row per host, in the order the base-address table shows them. The page and its markdown both draw this. */
-export const hostRows = (rows: readonly HostRow[] = hostTable()) =>
-  PROTOCOLS.flatMap((protocol) =>
-    ENVIRONMENTS.map((environment) => rows.find((row) => row.protocol === protocol && row.environment === environment)!),
-  );
+/** One row per host, in the order the base-address table shows them (hostTable's own order). The page and its markdown both draw this. */
+export const hostRows = (rows: readonly HostRow[] = hostTable()) => rows;
 
 export type ConnectivityOption = 'internet' | 'redundant' | 'low_latency' | 'colocation';
 export type ConnectivityState = 'available' | 'host_unset' | 'parked_hardware';
 
 /**
- * The connectivity options (RC-developer-04). Internet is available once a production host is set, the redundant endpoint
- * once a regional one is; until then each reads `host not set`. A low-latency path and colocation need a physical
+ * The connectivity options (RC-developer-04). Internet is available once every protocol's production host is set, the
+ * redundant endpoint once every regional one is; until then each reads `host not set`, since its endpoint line names all
+ * three protocols. A low-latency path and colocation need a physical
  * cross-connect and rack space we do not own, so they stay parked on the `hardware` blocker.
  */
 export function connectivityOptions(rows: readonly HostRow[] = hostTable()): { option: ConnectivityOption; state: ConnectivityState }[] {
-  const set = (environment: Environment) => rows.some((row) => row.environment === environment && row.cell.state === 'set');
+  const set = (environment: Environment) =>
+    PROTOCOLS.every((protocol) =>
+      rows.some((row) => row.protocol === protocol && row.environment === environment && row.cell.state === 'set'),
+    );
   return [
     { option: 'internet', state: set('production') ? 'available' : 'host_unset' },
     { option: 'redundant', state: set('regional') ? 'available' : 'host_unset' },
