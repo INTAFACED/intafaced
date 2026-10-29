@@ -1,7 +1,10 @@
 import { readFileSync } from 'node:fs';
+import path from 'node:path';
 import { test, expect } from '@playwright/test';
 import { TOKEN_A, UNBUILT, connectWallet, dexRun, walletSection } from './dex.mjs';
-import { fundedTrader, signIn } from './desk.mjs';
+import { signIn, signUp, verify } from './desk.mjs';
+import { addAuthenticator, nextCode } from './identity-factors.mjs';
+import { ROOT, fund, mailedLines, tool } from './stack.mjs';
 
 // J-dex-protocol-04, in the running app (docs/roadmap/journeys.json): send and receive tokens, use a claim link and scan
 // a code. One test per step, titled "J-dex-protocol-04 #<n>", run in order with one TEST wallet holding TEST tokens and
@@ -11,8 +14,6 @@ import { fundedTrader, signIn } from './desk.mjs';
 // - the wallet room has no Send, Receive, address book, scan or claim-link panel (D-portfolio-wallet-03, -05, D-swap-12),
 //   and its Activity section is an empty table with no failed or spam toggles or export;
 // - the stack has no TEST chain, so a transfer, a speed-up or a cancel (RC-dex-protocol-01) has nothing to go to;
-// - #9 opens the exchange's Withdraw with a wallet connected: the destination is not filled from the wallet yet
-//   (D-bridge-chain-02).
 const J = 'J-dex-protocol-04';
 const dex = dexRun(J);
 const FRIEND = '0x52908400098527886E0F7030069857D2E4169EE7';
@@ -194,29 +195,95 @@ test(`${J} #8 speeds up a pending transfer, then cancels another that has mined:
 
 test(`${J} #9 opens Withdraw from the exchange with a wallet connected: destination and network filled and read-only until Edit; step-up still applies; no wallet: "Connect a wallet to use it"`, async ({
   page,
+  browser,
 }) => {
-  test.setTimeout(240_000);
-  const who = await fundedTrader(page, 'dex04', '10');
+  test.setTimeout(360_000);
+  // A verified TEST account with an authenticator, TEST USDT, and the connected wallet's own address saved on TEST
+  // Ethereum, approved by its emailed link and past its cooling-off (as J-wallet-05 starts), so the send can reach step-up.
+  tool('local-test-gates.mjs', 'withdraw-terms');
+  const who = await signUp(page, 'dex04');
+  await verify(page, who);
   await signIn(page, who);
+  const { totp } = await import(path.join(ROOT, 'services/svc-identity/dist/auth/totp.js'));
+  const factor = await addAuthenticator(page, totp);
+  let step = factor.step;
+  const code = async () => {
+    const next = await nextCode(totp, factor.secret, step);
+    step = next.step;
+    return next.code;
+  };
+  const confirmItsMe = async (on) => {
+    const dialog = on.getByRole('dialog', { name: 'Confirm it’s you' });
+    await expect(dialog).toBeVisible();
+    await dialog.getByLabel('Authenticator code or recovery code').fill(await code());
+    await dialog.getByRole('button', { name: 'Confirm' }).click();
+  };
+  expect(fund(who.email, 'USDT', '10').tx).toBeTruthy();
   const wallet = await connectWallet(page, dex, { tokens: [TOKEN_A] });
+
+  await page.goto('/uc/withdraw/address');
+  const add = page.getByRole('form', { name: 'Add an address' });
+  await add.getByRole('textbox', { name: /^Label/ }).fill('TEST my wallet');
+  await add.getByRole('combobox', { name: /^Asset/ }).selectOption('USDT');
+  await add.getByRole('combobox', { name: /^Network/ }).selectOption('ethereum');
+  await add.getByRole('textbox', { name: /^Address/ }).fill(wallet.address);
+  await add.getByRole('button', { name: 'Save address' }).click();
+  await confirmItsMe(page);
+  await expect(page.getByText('TEST my wallet was saved to your address book.')).toBeVisible();
+  const seen = mailedLines(who.email, 'withdraw-address-approval').length;
+  await page.locator('tbody tr', { hasText: 'TEST my wallet' }).getByRole('button', { name: 'Withdraw to this address' }).click();
+  await page.getByTestId('address-use').getByRole('button', { name: 'Email me an approval link' }).click();
+  const links = () =>
+    mailedLines(who.email, 'withdraw-address-approval').map((line) => `/${/link=(approveAddress\?token=\S+)/.exec(line)?.[1]}`);
+  await expect.poll(() => links().length, { timeout: 20_000 }).toBeGreaterThan(seen);
+  const other = await browser.newContext();
+  try {
+    const away = await other.newPage();
+    await away.goto(links().at(-1));
+    await away.getByRole('link', { name: 'Sign in' }).last().click();
+    await away.fill('input[name=totp]', await code());
+    await away.fill('input[name=identifier]', who.email);
+    await away.fill('input[name=password]', who.password);
+    await away.getByRole('button', { name: /^sign in$/i }).click();
+    await expect(away).toHaveURL(/\/approveAddress$/);
+    await away.getByTestId('approve-address').getByRole('button', { name: 'Approve' }).click();
+    await confirmItsMe(away);
+    await expect(away.getByRole('heading', { name: 'Address approved' })).toBeVisible();
+  } finally {
+    await other.close();
+  }
+  expect(tool('local-test-stack.mjs', 'age-addresses', who.email, '25')).toContain('1 saved address(es)');
+
+  // With the wallet connected, the destination is the wallet's address and the network the one it is saved on, both
+  // read-only until Edit.
   await page.goto('/uc/withdraw?to=wallet');
   const form = page.getByTestId('withdraw-form');
+  await form.getByRole('combobox', { name: /^Asset/ }).selectOption('USDT');
   const destination = form.getByRole('textbox', { name: /^Your wallet/ });
-  await expect(destination).toHaveValue(wallet.address, UNBUILT);
+  const network = form.getByRole('combobox', { name: /^Network/ });
+  await expect(destination).toHaveValue(wallet.address);
   await expect(destination).not.toBeEditable();
+  await expect(network).toHaveValue('ethereum');
+  await expect(network).toBeDisabled();
   await form.getByRole('button', { name: 'Edit' }).click();
   await expect(destination).toBeEditable();
+  await expect(network).toBeEnabled();
+  await expect(network).toHaveValue('ethereum');
+
   // Sending to the wallet is still a withdrawal: it asks the step-up like any other.
+  await page.goto('/uc/withdraw?to=wallet');
   await form.getByRole('combobox', { name: /^Asset/ }).selectOption('USDT');
+  await expect(destination).toHaveValue(wallet.address);
   await form.getByRole('textbox', { name: /^Amount/ }).fill('1');
   await page.getByRole('button', { name: 'Get the fee' }).click();
   await page.getByRole('button', { name: 'Confirm and send' }).click();
-  await expect(page.getByRole('dialog', { name: 'Confirm it’s you' })).toBeVisible();
+  await expect(page.getByRole('dialog', { name: 'Confirm it’s you' })).toContainText('Sending money out needs a fresh confirmation.');
   await page.keyboard.press('Escape');
 
-  // With the wallet disconnected, the chip says how to use it.
+  // With the wallet disconnected, nothing is filled and the chip says how to use it.
   await page.goto('/wallet');
   await page.getByRole('button', { name: 'Disconnect' }).click();
   await page.goto('/uc/withdraw?to=wallet');
-  await expect(form).toContainText('Connect a wallet to use it');
+  await expect(page.getByTestId('withdraw-wallet')).toContainText('Connect a wallet to use it');
+  await expect(form.getByRole('textbox', { name: /^Your wallet/ })).toHaveCount(0);
 });
