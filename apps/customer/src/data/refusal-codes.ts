@@ -148,6 +148,7 @@ const EXACT: Readonly<Record<string, RefusalKind>> = {
   'trade.email_proof_required': 'emailProof',
   'trade.identity_unavailable': 'tryAgain',
   'trade.account_restricted': 'accountOnHold',
+  'ledger.frozen': 'accountOnHold',
   'ledger.freeze': 'accountOnHold',
   'ledger.freeze_attributed': 'accountOnHold',
   'bank.space_locked': 'accountOnHold',
@@ -224,10 +225,10 @@ const EXACT: Readonly<Record<string, RefusalKind>> = {
   'trade.fee_ifc_index_unset': 'notSetUp',
   'trade.fee_ifc_discount_unavailable': 'tryAgain',
   'trade.orders_paused': 'ordersPaused',
-  // svc-ledger's platform posting freeze (DV-errors-02), as the trade API names it and as the ledger does: every order
-  // is paused, not this account (svc-identity's account freeze is `auth.account_frozen`).
+  // svc-ledger's platform posting freeze (DV-errors-02) as the trade API names it: every order is paused, not this
+  // account (svc-identity's account freeze is `auth.account_frozen`). The ledger's raw `ledger.frozen` keeps its copy:
+  // other rooms (bank, pay) still send it, and their refusals are not about orders.
   posting_frozen: 'ordersPaused',
-  'ledger.frozen': 'ordersPaused',
   'trade.below_min_notional': 'belowMinimum',
   'trade.below_min_qty': 'belowMinimum',
 

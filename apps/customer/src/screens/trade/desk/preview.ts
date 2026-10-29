@@ -68,9 +68,11 @@ export function refusalFailure(code: string | null | undefined, context: Refusal
 /**
  * The service's answer to the platform posting freeze before the engine (`posting_frozen`, a 400 refusal) or the
  * desk's own paused-orders code: the codes the refusal catalogue sorts as orders paused. Read from the code only;
- * a freeze after the engine (`trade.settlement_pending`) is an unknown outcome and never reads as paused.
+ * a freeze after the engine (`trade.settlement_pending`) is an unknown outcome and never reads as paused. On the desk
+ * the ledger's raw `ledger.frozen` is the same platform freeze, though other rooms keep its account-on-hold copy.
  */
-export const isLedgerFrozen = (result: { code?: string }): boolean => classifyRefusal(result.code) === 'ordersPaused';
+export const isLedgerFrozen = (result: { code?: string }): boolean =>
+  result.code === 'ledger.frozen' || classifyRefusal(result.code) === 'ordersPaused';
 
 export function failureOf(result: Extract<ApiResult<unknown>, { ok: false }>, context: RefusalContext): Failure {
   // The platform posting freeze: orders are paused for everyone, not this account.

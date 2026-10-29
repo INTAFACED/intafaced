@@ -281,4 +281,46 @@ describe('J-developer-04 #6: the platform posting freeze refuses a money call, a
     expect(ledger.journal().filter((tx) => tx.reason === 'order.hold')).toHaveLength(1);
     await app.close();
   });
+
+  it('in a batch, a freeze before the engine is refused and a freeze after it is unknown, never refused', async () => {
+    const { app, ledger, placed } = await build();
+    ledger.frozen = true;
+    const before = await app.inject({ method: 'POST', url: '/api/v1/orders/batch', headers: signed(), payload: [order('jd04-6c')] });
+    expect(before.statusCode, before.body).toBe(200);
+    expect(before.json().results[0]).toMatchObject({ status: 'refused', error: { intafacedCode: 'posting_frozen' } });
+    expect(placed).toHaveLength(0);
+
+    ledger.frozen = false;
+    ledger.freezeAfterEngine = true;
+    const after = await app.inject({ method: 'POST', url: '/api/v1/orders/batch', headers: signed(), payload: [order('jd04-6d')] });
+    expect(after.statusCode, after.body).toBe(200);
+    // The engine took it and the hold stands: a bot that read "refused" would resend an order that exists.
+    expect(after.json().results[0]).toMatchObject({ status: 'unknown', error: { intafacedCode: 'trade.settlement_pending' } });
+    expect(placed).toHaveLength(1);
+    await app.close();
+  });
+
+  it('a batch cancel whose release post meets the freeze is unknown, not refused', async () => {
+    const { app } = await build();
+    const cancelApp = Fastify();
+    registerPrivateRest(cancelApp, {
+      edgeSecret: SECRET,
+      serviceName: 'svc-trade',
+      marketById: async (id: string) => (id === market.id ? market : null),
+      cancelOrder: async () => {
+        throw new LedgerError('Ledger posting is frozen: TEST freeze', 'ledger.frozen');
+      },
+    } as unknown as PrivateRestDeps);
+    await cancelApp.ready();
+    const res = await cancelApp.inject({
+      method: 'POST',
+      url: '/api/v1/orders/batch-cancel',
+      headers: signed(),
+      payload: ['5f0c8f0e-1d2a-4c55-9e6b-0b7a3c2d1e4f'],
+    });
+    expect(res.statusCode, res.body).toBe(200);
+    expect(res.json().results[0]).toMatchObject({ status: 'unknown', error: { intafacedCode: 'trade.settlement_pending' } });
+    await cancelApp.close();
+    await app.close();
+  });
 });

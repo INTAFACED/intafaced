@@ -5,8 +5,6 @@ import { InsufficientFundsError, InvalidEntryError, LedgerError, MoneyError } fr
 import {
   CCXT_AUTH_MAPPING,
   CCXT_ERROR_MAPPING,
-  POSTING_FROZEN,
-  SETTLEMENT_PENDING,
   UNAUTHENTICATED,
   badRequest,
   badSymbol,
@@ -16,7 +14,7 @@ import {
   rateLimited,
   toCcxtError,
 } from './ccxt-errors.js';
-import { refusedBeforeEngine } from './ledger-public-code.js';
+import { POSTING_FROZEN, SETTLEMENT_PENDING, refusedBeforeEngine } from './ledger-public-code.js';
 import { MatchingNoBookError, MatchingUnavailableError } from './spot/matching-client.js';
 import { TradeError, type TradeErrorCode } from './spot/types.js';
 
@@ -163,7 +161,7 @@ describe('CCXT error taxonomy', () => {
     const mapped = toCcxtError(new LedgerError('Ledger posting is frozen: TEST', 'ledger.frozen'));
     expect(mapped).toMatchObject({ status: 503, body: { code: 'ExchangeNotAvailable', intafacedCode: SETTLEMENT_PENDING } });
     expect(mapped!.body.intafacedCode).not.toBe(POSTING_FROZEN);
-    expect(mapped!.body.message).toMatch(/read the order before sending it again/);
+    expect(mapped!.body.message).toMatch(/settlement is not confirmed: read the order or trade before sending it again/);
     expect(exchangeErrorSchema.safeParse(mapped!.body).success).toBe(true);
     // Every other ledger refusal keeps its own code and its 400, marked or not.
     for (const err of [

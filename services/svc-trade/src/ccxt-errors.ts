@@ -614,12 +614,6 @@ export function invalidOrder(message: string, intafacedCode = 'trade.validation_
 }
 
 /**
- * The API's code for a money call refused by the platform-wide posting freeze
- * (svc-ledger `services/svc-ledger/src/ledger/freeze.ts`). Reads still answer.
- */
-export { POSTING_FROZEN, SETTLEMENT_PENDING } from './ledger-public-code.js';
-
-/**
  * Map any thrown error to the CCXT wire shape, or `null` when we do not
  * recognise it.
  *
@@ -706,7 +700,7 @@ export function toCcxtError(err: unknown): CcxtErrorResponse | null {
         status: 503,
         body: {
           code: 'ExchangeNotAvailable',
-          message: `${err.message}; the order reached the engine and its settlement is not confirmed: read the order before sending it again`,
+          message: `${err.message}; the ledger refused a later posting, so its settlement is not confirmed: read the order or trade before sending it again`,
           intafacedCode,
         },
       };

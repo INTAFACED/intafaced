@@ -624,12 +624,19 @@ export async function approverSessions(ctx) {
   const pair = founderSignIns(readJson(path.join(ctx.paths.stateDir, FOUNDER_VAULT_NAME), null));
   if (pair.length === 0) return operatorSessions(ctx);
   return shared(ctx, 'founders', () => {
-    const stepsFile = path.join(ctx.paths.stateDir, FOUNDER_STEPS_NAME);
-    const steps = readJson(stepsFile, {});
-    const ops = {};
-    for (const { key, ...f } of pair) ops[key] = { ...f, lastStep: Number(steps[key] ?? 0) };
-    return signInPair(ctx, ops, () => writePrivate(stepsFile, { ...readJson(stepsFile, {}), a: ops.a.lastStep, b: ops.b.lastStep }));
+    const { ops, saveSteps } = founderOps(ctx, pair);
+    return signInPair(ctx, ops, saveSteps);
   });
+}
+
+/** The founder pair as operators, each at the last TOTP step any local tool used, and the writer that records them. */
+function founderOps(ctx, pair) {
+  const stepsFile = path.join(ctx.paths.stateDir, FOUNDER_STEPS_NAME);
+  const steps = readJson(stepsFile, {});
+  const ops = {};
+  for (const { key, ...f } of pair) ops[key] = { ...f, lastStep: Number(steps[key] ?? 0) };
+  const saveSteps = () => writePrivate(stepsFile, { ...readJson(stepsFile, {}), a: ops.a.lastStep, b: ops.b.lastStep });
+  return { ops, saveSteps };
 }
 
 /**
@@ -674,8 +681,13 @@ async function signInPair(ctx, ops, saveSteps) {
 
 /** Sign one operator (or founder) in with their second factor; returns the session with its minted tokens. */
 async function signInOne(ctx, op, saveSteps) {
-  const loginToken = await operatorLogin(ctx, op);
-  saveSteps();
+  let loginToken;
+  try {
+    loginToken = await operatorLogin(ctx, op);
+  } finally {
+    // Identity may have spent the step even when the login then failed: never hand it to the next tool.
+    saveSteps();
+  }
   return {
     op,
     /** Second-factor session token (what a signed-in operator holds). */
@@ -1013,11 +1025,7 @@ export async function setPostingFreeze(ctx, frozen) {
   const pair = founderSignIns(readJson(path.join(ctx.paths.stateDir, FOUNDER_VAULT_NAME), null));
   if (pair.length === 0)
     throw new Error('posting-freeze needs the LOCAL TEST founder pair: enrol the founder pair first (pnpm local:stack enrols it)');
-  const stepsFile = path.join(ctx.paths.stateDir, FOUNDER_STEPS_NAME);
-  const steps = readJson(stepsFile, {});
-  const ops = {};
-  for (const { key, ...f } of pair) ops[key] = { ...f, lastStep: Number(steps[key] ?? 0) };
-  const saveSteps = () => writePrivate(stepsFile, { ...readJson(stepsFile, {}), a: ops.a.lastStep, b: ops.b.lastStep });
+  const { ops, saveSteps } = founderOps(ctx, pair);
 
   const a = await signInOne(ctx, ops.a, saveSteps);
   const read = async () => {

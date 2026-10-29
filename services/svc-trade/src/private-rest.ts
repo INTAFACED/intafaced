@@ -30,6 +30,7 @@ import {
   toCcxtError,
   type CcxtErrorResponse,
 } from './ccxt-errors.js';
+import { SETTLEMENT_PENDING } from './ledger-public-code.js';
 import type { Position } from '@intafaced/exchange-contract';
 import type { MarketStateSnapshot } from '@intafaced/exchange-contract';
 import {
@@ -2520,7 +2521,11 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
         input = withFeeCurrency(mapCreateOrderBody(parsed.data), await feeCurrencyFor(deps, parsed.data, rawItem));
       } catch (err) {
         const mapped = toCcxtError(err);
-        if (mapped) {
+        if (mapped?.body.intafacedCode === SETTLEMENT_PENDING) {
+          // The engine may have acted: never report it as refused.
+          results.push({ ...base, status: 'unknown', error: mapped.body });
+          continue;
+        } else if (mapped) {
           results.push({ ...base, status: 'refused', error: mapped.body });
           continue;
         }
@@ -2560,7 +2565,10 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
         }
       } catch (err) {
         const mapped = toCcxtError(err);
-        if (mapped) {
+        if (mapped?.body.intafacedCode === SETTLEMENT_PENDING) {
+          // The engine may have acted: never report it as refused.
+          results.push({ ...base, status: 'unknown', error: mapped.body });
+        } else if (mapped) {
           results.push({ ...base, status: 'refused', error: mapped.body });
         } else {
           results.push({
@@ -2770,7 +2778,10 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
         }
       } catch (err) {
         const mapped = toCcxtError(err);
-        if (mapped) {
+        if (mapped?.body.intafacedCode === SETTLEMENT_PENDING) {
+          // The engine may have acted: never report it as refused.
+          results.push({ ...base, status: 'unknown', error: mapped.body });
+        } else if (mapped) {
           results.push({ ...base, status: 'refused', error: mapped.body });
         } else {
           results.push({
@@ -2809,8 +2820,7 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
       throw err;
     }
 
-    const schemaBody = schemaBodyOf(rawBody);
-    const parsed = createOrderRequestSchema.safeParse(schemaBody);
+    const parsed = createOrderRequestSchema.safeParse(schemaBodyOf(rawBody));
     if (!parsed.success) {
       // CCXT `InvalidOrder`, not `BadRequest`: it is specifically the order
       // that is wrong, and that is the branch a client's order-builder listens
@@ -3119,8 +3129,7 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
       throw err;
     }
 
-    const schemaBody = schemaBodyOf(rawBody);
-    const parsed = createOrderRequestSchema.safeParse(schemaBody);
+    const parsed = createOrderRequestSchema.safeParse(schemaBodyOf(rawBody));
     if (!parsed.success) {
       // The same one body as create: every bad field listed (DV-errors-01).
       return reply.code(400).send(createBodyRefusal(parsed.error, 'invalid replacement order body'));

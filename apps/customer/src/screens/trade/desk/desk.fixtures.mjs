@@ -420,7 +420,7 @@ export class Exchange {
           {
             code: 'ExchangeNotAvailable',
             message:
-              'ledger.frozen; the order reached the engine and its settlement is not confirmed: read the order before sending it again',
+              'ledger.frozen; the ledger refused a later posting, so its settlement is not confirmed: read the order or trade before sending it again',
             intafacedCode: 'trade.settlement_pending',
           },
           503,

@@ -43,7 +43,7 @@ import {
 } from '../types.js';
 import type { AmendOrderInput, PlaceOrderInput, TradeServiceInternal } from '../trade-service.js';
 import { replacementClientOrderId, replacementRequestHash } from './internal.js';
-import { publicLedgerCode } from '../../ledger-public-code.js';
+import { publicLedgerCode, refusedBeforeEngine } from '../../ledger-public-code.js';
 
 /**
  * Cancel an open order and return what is left of its hold (§5.2 step 3).
@@ -742,14 +742,14 @@ export async function replaceOrder(
         // final state. A bare 400 here is how a customer loses the order silently.
         const finalOriginal = (await svc.findOrder(original.id)) ?? cancelled;
         if (err instanceof TradeError || err instanceof LedgerError) {
-          // A ledger refusal is named as the API publishes it: the replacement's own first hold refused by the
-          // posting freeze is `posting_frozen` (refusedBeforeEngine in order-place); any later freeze is
-          // `trade.settlement_pending`, never "nothing happened".
+          // A ledger refusal is named as the API publishes it. No replacement row was persisted (checked just above),
+          // so the replacement never reached the engine: a posting freeze here is `posting_frozen`, never
+          // `trade.settlement_pending`, which would contradict REPLACEMENT_NOT_SUBMITTED.
           return svc.replaceOutcome(
             finalOriginal,
             null,
             'REPLACEMENT_NOT_SUBMITTED',
-            err instanceof LedgerError ? publicLedgerCode(err) : err.code,
+            err instanceof LedgerError ? publicLedgerCode(refusedBeforeEngine(err) as LedgerError) : err.code,
           );
         }
         return svc.replaceOutcome(finalOriginal, null, 'REPLACEMENT_NOT_SUBMITTED', 'REPLACEMENT_NOT_SUBMITTED');
