@@ -79,12 +79,12 @@ export function sortCatalogue(agents: readonly CatalogueAgent[], sort: Catalogue
 }
 
 /**
- * The exact cost of each completed engine run this person made with an agent,
+ * The exact cost of each completed engine run of one task this person made with an agent,
  * from their own action log. Empty means no run history, so no expected range.
  */
-export function runCosts(rows: readonly ActionRow[], agentId: string): bigint[] {
+export function runCosts(rows: readonly ActionRow[], agentId: string, task: string): bigint[] {
   return rows
-    .filter((row) => row.agentId === agentId && row.kind === 'completion' && row.status === 'executed')
+    .filter((row) => row.agentId === agentId && row.task === task && row.kind === 'completion' && row.status === 'executed')
     .map((row) => parseAmount(row.cost));
 }
 export function costRange(costs: readonly bigint[]): { low: string; high: string } | null {

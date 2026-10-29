@@ -28,11 +28,15 @@ import { usePreferences } from '../../shared/preferences';
 
 const KINDS: readonly (AgentKind | 'all')[] = ['all', 'session', 'room', 'staff', 'unwired'];
 const SORTS: readonly CatalogueSort[] = ['catalogue', 'name'];
-const routeAssetSchema = z.array(z.object({ task: z.string(), assetId: z.string().min(1) }));
+const routeAssetSchema = z.array(z.object({ task: z.string(), capability: z.string(), assetId: z.string().min(1) }));
 
-/** The fee asset an agent's spend cap is counted in: the asset of the routes its tasks run on, when they agree. */
-function capAsset(guardrail: Guardrail, routes: readonly { task: string; assetId: string }[]): string | null {
-  const assets = new Set(routes.filter((route) => guardrail.limits.allowedTasks.includes(route.task)).map((route) => route.assetId));
+/** The fee asset an agent's spend cap is counted in: that of the completion routes its tasks run on, as the session panel reads it, when they agree. */
+function capAsset(guardrail: Guardrail, routes: readonly z.infer<typeof routeAssetSchema>[number][]): string | null {
+  const assets = new Set(
+    routes
+      .filter((route) => route.capability === 'complete' && guardrail.limits.allowedTasks.includes(route.task))
+      .map((route) => route.assetId),
+  );
   return assets.size === 1 ? [...assets][0]! : null;
 }
 
@@ -62,7 +66,12 @@ export function AgentsCatalogue({
   const label = (id: string) => t(`name_${id}` as 'name_navigator');
   const shown = sortCatalogue(filterCatalogue(AGENT_CATALOGUE, { query, kind }, label), sort, label);
   const chosen = AGENT_CATALOGUE.find((agent) => agent.id === selected) ?? null;
-  const enabled = (agent: CatalogueAgent) => (stored.resource.status === 'ready' ? agentEnabled(agent, stored.resource.data) : null);
+  const enabled = (agent: CatalogueAgent) =>
+    agent.kind !== 'session'
+      ? agentEnabled(agent, [])
+      : stored.resource.status === 'ready'
+        ? agentEnabled(agent, stored.resource.data)
+        : null;
   return (
     <div className="more-grid">
       <Panel title={t('catalogueTitle')}>
@@ -114,15 +123,17 @@ export function AgentsCatalogue({
                       <input
                         type="checkbox"
                         checked={comparing.includes(agent.id)}
-                        onChange={(event) =>
-                          setComparing((ids) => (event.target.checked ? [...ids, agent.id] : ids.filter((id) => id !== agent.id)))
-                        }
+                        onChange={(event) => {
+                          const { checked } = event.target;
+                          setComparing((ids) => (checked ? [...ids, agent.id] : ids.filter((id) => id !== agent.id)));
+                          if (!checked) setCompared((ids) => ids && ids.filter((id) => id !== agent.id));
+                        }}
                       />
                       <Copy k="compare" />
                     </label>
                   ) : null}
                   {agent.kind === 'session' ? (
-                    <Button disabled={!usable} onClick={() => onSession(agent.id)}>
+                    <Button disabled={usable === false} onClick={() => onSession(agent.id)}>
                       <Copy k="openSession" />
                     </Button>
                   ) : agent.tab === 'Coach' ? (
@@ -249,6 +260,10 @@ const REFUSALS = [
   'tool_call_limit',
   'approval_required',
   'place_idempotency_required',
+  'place_key_conflict',
+  'task_not_allowed',
+  'output_limit',
+  'spend_limit',
 ] as const;
 /** A refusal code as words; a code this screen does not know is shown as the code itself. */
 function refusalWords(code: string): string {

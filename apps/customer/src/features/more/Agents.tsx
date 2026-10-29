@@ -558,14 +558,21 @@ export function Agents({ paper = false }: { paper?: boolean }) {
                         >
                           <Text k="agents.review.session" />
                         </Button>
-                        <Button variant="secondary" aria-expanded={estimating} onClick={() => setEstimating(true)}>
+                        <Button variant="secondary" aria-expanded={estimating} onClick={() => setEstimating((open) => !open)}>
                           {agentsCatalogueCopy.t('estimateButton')}
                         </Button>
                         {estimating ? (
                           <CostEstimate
                             cap={cap ?? null}
                             assetId={selectedRoute?.assetId ?? null}
-                            history={log.resource.status === 'ready' ? costRange(runCosts(log.resource.data, agent)) : undefined}
+                            history={
+                              log.resource.status === 'ready' && selectedRoute
+                                ? {
+                                    range: costRange(runCosts(log.resource.data, agent, selectedRoute.task)),
+                                    whole: log.resource.data.length < limit,
+                                  }
+                                : undefined
+                            }
                           />
                         ) : null}
                       </>
@@ -993,7 +1000,8 @@ function SessionHistory({ rows }: { rows: AgentAction[] }) {
  * What one run in a new session can cost before it is started. The worst case is
  * the session's spend cap: the figure the runtime's cap check refuses above,
  * before the engine is called. The expected range comes only from this
- * person's own completed runs with the agent; without any there is none.
+ * person's own completed runs of the task; without any there is none. The
+ * log names no asset, so the range names none either.
  */
 function CostEstimate({
   cap,
@@ -1002,7 +1010,8 @@ function CostEstimate({
 }: {
   cap: string | null;
   assetId: string | null;
-  history: { low: string; high: string } | null | undefined;
+  /** This person's runs from the loaded log page; `whole` when that page holds their entire log. */
+  history: { range: { low: string; high: string } | null; whole: boolean } | undefined;
 }) {
   const { t } = agentsCatalogueCopy.useCopy();
   return (
@@ -1015,9 +1024,11 @@ function CostEstimate({
       <p>
         {history === undefined
           ? t('historyUnloaded')
-          : history === null
-            ? t('historyNone')
-            : t('historyRange', { low: displayAmount(history.low), high: displayAmount(history.high), asset: assetId ?? '' })}
+          : history.range
+            ? t('historyRange', { low: displayAmount(history.range.low), high: displayAmount(history.range.high) })
+            : history.whole
+              ? t('historyNone')
+              : t('historyNotLoaded')}
       </p>
     </section>
   );

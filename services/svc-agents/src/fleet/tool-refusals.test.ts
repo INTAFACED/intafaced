@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   EMPTY_SESSION_STATE,
   evaluateToolCall,
+  isPlaceTool,
   parseGuardrail,
   toolRefusalCodes,
   type Guardrail,
@@ -71,6 +72,8 @@ function reachable(guardrail: Guardrail, tool: string): Set<string> {
       const decision = evaluateToolCall(guardrail, state, { tool, ...request });
       if (!decision.allowed) codes.add(decision.code);
     }
+  // Past the policy, the runtime refuses an order key another order already claimed (runtime.test.ts covers it).
+  if (isPlaceTool(tool) && codes.has('agents.place_idempotency_required')) codes.add('agents.place_key_conflict');
   return codes;
 }
 
@@ -96,6 +99,7 @@ describe('toolRefusalCodes', () => {
       'agents.tool_call_limit',
       'agents.approval_required',
       'agents.place_idempotency_required',
+      'agents.place_key_conflict',
     ]);
   });
 

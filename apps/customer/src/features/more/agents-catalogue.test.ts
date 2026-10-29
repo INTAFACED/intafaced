@@ -91,15 +91,17 @@ describe('catalogue status, sort and run history', () => {
     expect(sortCatalogue(three, 'name', label).map((agent) => agent.id)).toEqual(['coach', 'navigator', 'support']);
     expect(sortCatalogue(three, 'catalogue', label).map((agent) => agent.id)).toEqual(['navigator', 'support', 'coach']);
   });
-  it('ranges only completed engine runs of that agent, exactly, and has no range without history', () => {
+  it('ranges only completed engine runs of that agent and task, exactly, and has no range without history', () => {
     const rows = [
       row({ id: '1', cost: '0.000000000000000001' }),
       row({ id: '2', cost: '0.25' }),
       row({ id: '3', cost: '9', status: 'refused' }),
       row({ id: '4', cost: '7', kind: 'tool_call' }),
       row({ id: '5', cost: '5', agentId: 'support' }),
+      row({ id: '6', cost: '3', task: 'plan' }),
     ];
-    expect(costRange(runCosts(rows, 'navigator'))).toEqual({ low: '0.000000000000000001', high: '0.25' });
-    expect(costRange(runCosts(rows, 'scanner'))).toBeNull();
+    expect(costRange(runCosts(rows, 'navigator', 'chat'))).toEqual({ low: '0.000000000000000001', high: '0.25' });
+    expect(costRange(runCosts(rows, 'navigator', 'plan'))).toEqual({ low: '3', high: '3' });
+    expect(costRange(runCosts(rows, 'scanner', 'chat'))).toBeNull();
   });
 });

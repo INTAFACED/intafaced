@@ -376,7 +376,8 @@ function evaluateSession(guardrail: Guardrail, state: SessionState): GuardrailDe
 /**
  * Every refusal `evaluateToolCall` can return for a declared tool under this
  * guardrail, in the order it checks them, so a person can read why a call
- * would be refused before granting a session. Derived from the same rules: a
+ * would be refused before granting a session. Derived from the same rules, plus
+ * the runtime's own key-conflict refusal on order placement: a
  * rule that refuses this tool whatever the session state ends the list, since
  * nothing after it is ever reached.
  */
@@ -393,7 +394,8 @@ export function toolRefusalCodes(guardrail: Guardrail, grant: ToolGrant): Refusa
   if (grant.maxCallsPerSession === 0) return always('agents.tool_call_limit');
   if (grant.maxCallsPerSession !== undefined) codes.push('agents.tool_call_limit');
   if (grant.requiresApproval) codes.push('agents.approval_required');
-  if (isPlaceTool(grant.name)) codes.push('agents.place_idempotency_required');
+  // The runtime, not this policy, refuses a business key already claimed by another order (runtime.ts `placeKeyConflict`).
+  if (isPlaceTool(grant.name)) codes.push('agents.place_idempotency_required', 'agents.place_key_conflict');
   return codes;
 }
 
