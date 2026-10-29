@@ -2173,9 +2173,10 @@ services:
         'local-test-seed.mjs status',
       ]
     environment:
-      # Not production: the seed scripts refuse NODE_ENV=production. APP_ENV has no default (#4610).
+      # APP_ENV comes from the shared service env, with no default (#4610); the entrypoint refuses all but dev or test.
+      <<: *service-env
+      # Not production: the seed scripts refuse NODE_ENV=production.
       NODE_ENV: development
-      APP_ENV: ${APP_ENV:?APP_ENV must be set to dev, test, staging or prod}
       LOCAL_STACK_STATE: ${LOCAL_STACK_STATE:-/var/lib/intafaced/local-test-stack}
     volumes:
       - ${LOCAL_STACK_STATE:-/var/lib/intafaced/local-test-stack}:${LOCAL_STACK_STATE:-/var/lib/intafaced/local-test-stack}
