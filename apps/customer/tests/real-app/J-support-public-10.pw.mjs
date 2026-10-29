@@ -12,7 +12,6 @@ import { api } from './stack.mjs';
 // - #4, #10: no "claim next", no workspace address per request, no unclaim or reassign in the console (SP-tickets-09).
 // - #5: no customer card (SP-tickets-09). #7: no macros or signatures (SP-desk-02). #8: no stale-reply guard (SP-tickets-09).
 // - #6: the ticket history has no rows for priority, type and label changes (svc-support keeps them in its own log).
-// - #9, #11: the claim confirmation says who owns the ticket but not "claimed", so the shared claim step waits it out.
 // #2's blank view cap clause needs the cap blank; the stack sets owner values as TEST, so it is checked where the cap is unset.
 const J = 'J-support-public-10';
 const RUN = Date.now().toString(36);
