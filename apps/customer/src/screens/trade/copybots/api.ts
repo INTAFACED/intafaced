@@ -36,8 +36,9 @@ export const botListRowSchema = z.object({
 });
 export type BotListRow = z.infer<typeof botListRowSchema>;
 const botListSchema = z.object({ rows: z.array(botListRowSchema), nextCursor: z.string().nullable() });
-/** Bots per My bots page. The service refuses a list read without one. */
+/** Bots My bots reads at a time. The service refuses a list read without a limit, and lists at most 500 a read. */
 export const BOT_LIST_PAGE = 50;
+export const BOT_LIST_MAX = 500;
 
 export const studioStrategySchema = z.object({
   id: z.string(),
@@ -187,7 +188,7 @@ export function createRoomApi(api: ApiClient) {
     flatten: (followId: string) => api.mutate('trade', 'copy.flatten', { followId }, ackSchema.passthrough()),
     algoPolicy: (signal?: AbortSignal) => api.query('trade', 'algo.policy', undefined, algoPolicySchema, { signal }),
     createTwap: (input: TwapRequest) => api.mutate('trade', 'algo.createTwap', input, algoSchema),
-    algoList: (signal?: AbortSignal) => api.query('trade', 'algo.list', { limit: BOT_LIST_PAGE }, botListSchema, { signal }),
+    algoList: (limit: number, signal?: AbortSignal) => api.query('trade', 'algo.list', { limit }, botListSchema, { signal }),
     algoGet: tools.algoGet,
     algoProgress: tools.algoProgress,
     algoAction: tools.algoAction,

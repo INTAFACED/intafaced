@@ -22,7 +22,7 @@ import { usePortfolio } from '../../../data';
 import { useApi, useSession } from '../../../features/session/session';
 import { createTradeApi } from '../../../features/trade/trade-api';
 import { displayAmount } from '../../../shared/money';
-import { createRoomApi, type BotListRow, type StudioStrategy } from './api';
+import { BOT_LIST_MAX, BOT_LIST_PAGE, createRoomApi, type BotListRow, type StudioStrategy } from './api';
 import { BOT_TONE, BOT_WORD, BotDetail, percentFilled, type Algo, type Progress } from './BotDetail';
 import { botName } from './bot-name';
 import { roomCopy } from './copy';
@@ -93,10 +93,16 @@ const TYPE_LINK: Record<CatalogueRow['id'], { name: string; href: string }> = {
 
 type OpenBot = { algo: Algo | null; progress: Progress | null; failure: Failure | null };
 
+/** Why a bot type with no engine can't be set up, in the catalogue and in its own room. */
+const NOT_BUILT: Record<'grid' | 'dca', string> = {
+  grid: 'No grid service exists. Nothing is simulated.',
+  dca: 'No recurring-order service exists. Use Convert for a single trade.',
+};
+
 /** Bot types with no engine yet: the room is reachable and says why nothing can be set up. */
 const PARKED: Record<string, { title: string; reason: string }> = {
-  '/trade/bots/grid': { title: 'Spot grid', reason: 'No grid service exists. Nothing is simulated.' },
-  '/trade/bots/dca': { title: 'Recurring buy (DCA)', reason: 'No recurring-order service exists. Use Convert for a single trade.' },
+  [TYPE_LINK.grid.href]: { title: TYPE_LINK.grid.name, reason: NOT_BUILT.grid },
+  [TYPE_LINK.dca.href]: { title: TYPE_LINK.dca.name, reason: NOT_BUILT.dca },
 };
 
 export function BotsRoom({ path }: { path: string }) {
@@ -129,19 +135,32 @@ function BotsHub({ path }: { path: string }) {
   const params = new URL(path, 'http://x').searchParams;
   const requested = params.get('tab');
   const tab: TabId = TABS.find((id) => id === requested) ?? 'catalogue';
-  const setTab = (id: string) => navigate(`/trade/bots?tab=${id}`, true);
+  // Each change reads the address as it is now, so one never undoes another (a create opens its bot, then the wizard
+  // closes) and the tab survives opening and closing a bot.
+  const go = (patch: Record<string, string | null>) => {
+    const next = new URLSearchParams(window.location.search);
+    for (const [name, value] of Object.entries(patch))
+      if (value === null) next.delete(name);
+      else next.set(name, value);
+    const query = next.toString();
+    if (query === new URLSearchParams(window.location.search).toString()) return;
+    navigate(query ? `/trade/bots?${query}` : '/trade/bots', true);
+  };
+  const setTab = (id: string) => go({ tab: id });
 
   const policy = useLive((signal) => api.algoPolicy(signal), 'bots-policy', 60_000);
   const markets = useLive((signal) => tradeApi.markets(signal), 'bots-markets', 300_000);
   const studio = useLive((signal) => api.studio(signal), 'bots-studio', 60_000);
   // My bots is the service's own list of this person's bots, so a new browser shows the same bots.
+  const [mineLimit, setMineLimit] = useState(BOT_LIST_PAGE);
   const mine = useLive(
-    (signal) => (session ? api.algoList(signal) : Promise.resolve({ ok: true as const, data: { rows: [], nextCursor: null } })),
-    `bots-mine:${session ? (userId ?? 'in') : 'out'}`,
+    (signal) => (session ? api.algoList(mineLimit, signal) : Promise.resolve({ ok: true as const, data: { rows: [], nextCursor: null } })),
+    `bots-mine:${session ? (userId ?? 'in') : 'out'}:${mineLimit}`,
     10_000,
   );
+  const moreMine = mine.data?.nextCursor != null;
   const openId = params.get('bot');
-  const setOpenId = (id: string | null) => navigate(id ? `/trade/bots?bot=${encodeURIComponent(id)}` : '/trade/bots', true);
+  const setOpenId = (id: string | null) => go({ bot: id });
   const opened = useLive<OpenBot | null>(
     async (signal) => {
       if (!openId) return { ok: true, data: null };
@@ -161,7 +180,6 @@ function BotsHub({ path }: { path: string }) {
   const guard = useWriteGuard();
   const [wizard, setWizard] = useState<{ open: boolean; kind: BotKind }>({ open: false, kind: 'twap' });
   const [byId, setById] = useState('');
-  const [byIdFailure, setByIdFailure] = useState<Failure | null>(null);
   const [checking, setChecking] = useState(false);
   const [verdict, setVerdict] = useState<string | null>(null);
 
@@ -171,22 +189,13 @@ function BotsHub({ path }: { path: string }) {
 
   const open = opened.data;
   const setup = params.get('setup');
-  useEffect(() => {
-    const kind = SETUP_KINDS.find((k) => k === setup);
-    if (kind) setWizard({ open: true, kind });
-  }, [setup]);
+  const setupKind = SETUP_KINDS.find((k) => k === setup) ?? null;
 
-  const openById = async () => {
-    setByIdFailure(null);
+  const openById = () => {
     const id = byId.trim();
     if (!id) return;
-    const result = await api.algoGet(id);
-    if (!result.ok) {
-      setByIdFailure(result);
-      return;
-    }
     setById('');
-    setOpenId(result.data.id);
+    setOpenId(id);
   };
 
   const check = async () => {
@@ -236,13 +245,25 @@ function BotsHub({ path }: { path: string }) {
     return {
       tone: 'neutral',
       word: 'Not built',
-      reason:
-        row.id === 'grid'
-          ? 'No grid service exists. Nothing is simulated.'
-          : 'No recurring-order service exists. Use Convert for a single trade.',
+      reason: NOT_BUILT[row.id === 'grid' ? 'grid' : 'dca'],
       ready: false,
     };
   };
+
+  // A setup link opens the wizard only where the catalogue's Set up button would, once the policy has answered; where it
+  // can't, the hub says why.
+  const setupStatus = setupKind ? catalogueStatus(CATALOGUE.find((row) => row.id === setupKind)!) : null;
+  const setupBlocked = !setupStatus
+    ? null
+    : !session
+      ? t('Sign in to set up a bot.')
+      : !setupStatus.ready
+        ? t('Not available: {reason}', { reason: t((setupStatus.reason ?? setupStatus.word) as 'Ready') })
+        : null;
+  const setupReady = setupKind !== null && setupBlocked === null && policy.data !== null;
+  useEffect(() => {
+    if (setupKind && setupReady) setWizard({ open: true, kind: setupKind });
+  }, [setupKind, setupReady]);
 
   const catalogueColumns: TableColumn<CatalogueRow>[] = [
     { id: 'name', header: t('Bot'), value: (r) => t(r.name as 'Grid'), pin: 'start', width: 220 },
@@ -295,7 +316,7 @@ function BotsHub({ path }: { path: string }) {
       id: 'id',
       header: t('Bot'),
       value: nameOf,
-      cell: (r) => <a href={`/trade/bots?bot=${encodeURIComponent(r.id)}`}>{nameOf(r)}</a>,
+      cell: (r) => <a href={`/trade/bots?${tab === 'catalogue' ? '' : `tab=${tab}&`}bot=${encodeURIComponent(r.id)}`}>{nameOf(r)}</a>,
       pin: 'start',
       width: 200,
     },
@@ -372,6 +393,8 @@ function BotsHub({ path }: { path: string }) {
         </InfoNote>
       ) : null}
 
+      {setupBlocked ? <InfoNote tone="warn">{setupBlocked}</InfoNote> : null}
+
       <PageSection title={t('Bot types')} headingLevel={2}>
         <ul className="cb-types" aria-label={t('Bot types')}>
           {CATALOGUE.map((row) => {
@@ -410,13 +433,15 @@ function BotsHub({ path }: { path: string }) {
           />
         ) : (
           <>
-            {mine.status === 'error' && mine.failure ? <RefusalNote failure={mine.failure} retry={mine.reload} /> : null}
+            {mine.status === 'ready' && mine.failure ? <RefusalNote failure={mine.failure} retry={mine.reload} /> : null}
             <Table
               label={t('My bots')}
               columns={mineColumns}
               rows={mine.data?.rows ?? []}
               getRowId={(r) => r.id}
-              status={mine.status === 'loading' ? 'loading' : 'ready'}
+              status={mine.status}
+              onRetry={mine.reload}
+              errorState={mine.failure ? <RefusalNote failure={mine.failure} retry={mine.reload} /> : undefined}
               refreshing={mine.refreshing && mine.data !== null}
               onRowActivate={(r) => setOpenId(r.id)}
               minWidth={940}
@@ -429,11 +454,24 @@ function BotsHub({ path }: { path: string }) {
                 />
               }
             />
+            {moreMine ? (
+              <div className="cb-action-row">
+                {mineLimit < BOT_LIST_MAX ? (
+                  <Button variant="secondary" onClick={() => setMineLimit((n) => Math.min(n + BOT_LIST_PAGE, BOT_LIST_MAX))}>
+                    {t('Show more bots')}
+                  </Button>
+                ) : (
+                  <InfoNote>
+                    {t('These are your {count} newest bots. Open an older one by its ID.', { count: String(BOT_LIST_MAX) })}
+                  </InfoNote>
+                )}
+              </div>
+            ) : null}
             <form
               className="cb-byid"
               onSubmit={(event) => {
                 event.preventDefault();
-                void openById();
+                openById();
               }}
             >
               <Field label={t('Open a bot by ID')}>
@@ -443,7 +481,7 @@ function BotsHub({ path }: { path: string }) {
                 {t('Open')}
               </Button>
             </form>
-            {byIdFailure ? <RefusalNote failure={byIdFailure} /> : null}
+            {open && !open.algo && open.failure ? <RefusalNote failure={open.failure} retry={opened.reload} /> : null}
           </>
         )}
       </PageSection>
@@ -504,7 +542,7 @@ function BotsHub({ path }: { path: string }) {
         kind={wizard.kind}
         onOpenChange={(o) => {
           setWizard((w) => ({ ...w, open: o }));
-          if (!o && setup) navigate('/trade/bots', true);
+          if (!o) go({ setup: null });
         }}
         api={api}
         guard={guard}
@@ -513,7 +551,7 @@ function BotsHub({ path }: { path: string }) {
         available={balanceOf}
         onCreated={(algo) => {
           mine.reload();
-          setOpenId(algo.id);
+          go({ setup: null, bot: algo.id });
         }}
       />
       <BotDetail

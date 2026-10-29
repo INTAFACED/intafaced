@@ -69,6 +69,9 @@ test(`${J} #1 opens Bots: the hub with one status and one link per bot type, eac
   const mine = page.getByRole('region', { name: 'My bots' });
   await expect(mine.getByRole('link', { name: 'TWAP BTC/USDT', exact: true })).toHaveAttribute('href', new RegExp(botId));
   await expect(mine.getByRole('row').filter({ hasText: 'TWAP BTC/USDT' })).toContainText('Running');
+  // Its slices would hold USDT while the grid steps measure the reserve, so the journey stops it.
+  const stopped = await me.post('/api/trade/trpc/algo.cancel', { algoId: botId });
+  expect(stopped.status, JSON.stringify(stopped.body).slice(0, 300)).toBe(200);
 });
 
 test(`${J} #2 opens the grid wizard below the owner's verification level: refused as verification insufficient, and no bot written`, async ({
