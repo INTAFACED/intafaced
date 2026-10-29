@@ -91,6 +91,7 @@ type KeySignRow = {
   require_non_empty_ip_allowlist: boolean;
   request_signing_secret: string | null;
   ip_allowlist: string[] | null;
+  expires_at: Date | null;
 };
 
 export function hashBody(body: Buffer | string | Uint8Array | null | undefined): string {
@@ -134,9 +135,13 @@ export function ipAllowlistSatisfied(requireNonEmpty: boolean, allowlist: readon
   return (allowlist ?? []).some(ipAllowlistEntryCounts);
 }
 
-/** Retain through the last second the signature is still acceptable (age === window). */
-export function nonceRetainUntil(signedAtSeconds: number, windowSeconds: number): Date {
-  return new Date((signedAtSeconds + windowSeconds + 1) * 1000);
+/**
+ * Retain through the last second the signature could be acceptable under any window the service will run with
+ * (age === REQUEST_SIGN_WINDOW_MAX_SECONDS), not only today's: an owner who widens the window on restart must not
+ * turn an already-used nonce fresh again.
+ */
+export function nonceRetainUntil(signedAtSeconds: number): Date {
+  return new Date((signedAtSeconds + REQUEST_SIGN_WINDOW_MAX_SECONDS + 1) * 1000);
 }
 
 function validPath(path: string): boolean {
@@ -206,10 +211,10 @@ export async function assessRequestSignature(input: {
   return { ok: true };
 }
 
-export function postgresNonceStore(sql: Sql, windowSeconds: number): NonceStore {
+export function postgresNonceStore(sql: Sql): NonceStore {
   return {
     async consume(keyId, nonce, now, signedAt = now) {
-      const expiresAt = nonceRetainUntil(Math.floor(signedAt.getTime() / 1000), windowSeconds);
+      const expiresAt = nonceRetainUntil(Math.floor(signedAt.getTime() / 1000));
       await sql`DELETE FROM api_key_request_nonces WHERE expires_at <= ${now}`;
       const inserted = await sql<Array<{ nonce: string }>>`
         INSERT INTO api_key_request_nonces (key_id, nonce, seen_at, expires_at)
@@ -371,9 +376,9 @@ export async function rotateSigningSecret(
 
 async function loadKey(sql: Sql, key: string): Promise<KeySignRow | null> {
   const rows = await sql<KeySignRow[]>`
-    SELECT id, require_signature, require_non_empty_ip_allowlist, request_signing_secret, ip_allowlist
+    SELECT id, require_signature, require_non_empty_ip_allowlist, request_signing_secret, ip_allowlist, expires_at
     FROM api_keys
-    WHERE key_hash = ${hashToken(key)} AND revoked = false AND (expires_at IS NULL OR expires_at > now())
+    WHERE key_hash = ${hashToken(key)} AND revoked = false
   `;
   return rows[0] ?? null;
 }
@@ -385,9 +390,14 @@ export async function decideApiKeyExchange(
   now: Date,
   encKey: Buffer | null,
   windowSeconds: number | null,
-): Promise<{ ok: true; row: KeySignRow } | { ok: false; reason: RequestSignReason } | { ok: true; row: null }> {
+): Promise<
+  { ok: true; row: KeySignRow } | { ok: false; reason: RequestSignReason } | { ok: true; row: null } | { ok: false; expired: true }
+> {
   const row = await loadKey(sql, key);
   if (!row) return { ok: true, row: null };
+  // Expiry is judged here, on the same clock as the signature: an expired key is refused outright, so no clock
+  // disagreement between this check and the key check can let a key that must sign mint a token unsigned.
+  if (row.expires_at && row.expires_at.getTime() <= now.getTime()) return { ok: false, expired: true };
   if (!ipAllowlistSatisfied(row.require_non_empty_ip_allowlist, row.ip_allowlist)) {
     return { ok: false, reason: 'ip_allowlist_required' };
   }
@@ -398,7 +408,7 @@ export async function decideApiKeyExchange(
     now,
     keyId: row.id,
     // Without a window nothing is consumed: assessRequestSignature refuses before the nonce store is asked.
-    nonceStore: postgresNonceStore(sql, windowSeconds ?? 0),
+    nonceStore: postgresNonceStore(sql),
     windowSeconds,
   });
   if (!verdict.ok) return verdict;
@@ -440,6 +450,7 @@ export function installApiKeyRequestSignExchange(auth: AuthService, sql: Sql, en
   auth.exchangeApiKey = async (key: string, requestOrigin?: string | null) => {
     const verdict = await decideApiKeyExchange(sql, key, requestSignAls.getStore(), new Date(), encKey, windowSeconds);
     if (!verdict.ok) {
+      if ('expired' in verdict) throw new AuthError('API key has expired', 'auth.api_key_expired');
       throw new AuthError(REFUSAL_MESSAGE[verdict.reason], requestSignRefusalCode(verdict.reason));
     }
     const issued = await orig(key, requestOrigin);

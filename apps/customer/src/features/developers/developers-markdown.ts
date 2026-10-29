@@ -4,6 +4,7 @@
  * copy and route tables as the pages; `developers-reference.test.ts` checks the files against them and rewrites them
  * with `WRITE_DEVELOPER_DOCS=1`.
  */
+import { REQUEST_SIGN_VERSION } from '@intafaced/contracts/api-keys';
 import { developersCopy } from './developers-copy';
 import { docsCopy } from './developers-docs-copy';
 import { connectivityEndpointsLabel, connectivityStateLabel, dataTermLabel } from './developers-labels';
@@ -183,7 +184,7 @@ export const DOCS_PAGES: readonly DocsPage[] = [
         `## ${docs('authSignTitle')}`,
         docs('authSignBody'),
         [
-          `1. ${docs('authLineVersion', { version: 'INTAFACED-REQ-V1' })}`,
+          `1. ${docs('authLineVersion', { version: REQUEST_SIGN_VERSION })}`,
           `2. ${docs('authLineMethod')}`,
           `3. ${docs('authLinePath')}`,
           `4. ${docs('authLineTimestamp')}`,

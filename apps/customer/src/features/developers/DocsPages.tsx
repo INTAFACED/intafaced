@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { StateBlock } from '@intafaced/ui';
-import type { RequestSigningPolicy } from '@intafaced/contracts/api-keys';
+import { REQUEST_SIGN_VERSION, type RequestSigningPolicy } from '@intafaced/contracts/api-keys';
 import { useSession } from '../session/session';
 import { readServerClock, type ServerClockReading } from '../../shared/server-clock';
 import { docsCopy } from './developers-docs-copy';
@@ -21,6 +21,7 @@ import {
 } from './developers-reference';
 import { readSigningPolicy } from './developers-signing';
 import { useRead } from './use-read';
+import { liveCopy } from './developers-live-copy';
 import '../public/public-pages.css';
 import './developers-docs.css';
 
@@ -273,6 +274,7 @@ const VECTOR_FIELDS = ['method', 'path', 'timestamp', 'nonce', 'body', 'bodySha2
 /** /developers/authentication (DV-auth-01): how a key is sent and a request signed, with the live window and test vector. */
 export function AuthenticationPage({ title }: { title: string }) {
   const { t } = docsCopy.useCopy();
+  const live = liveCopy.useCopy().t;
   const { api } = useSession();
   const { read, reload } = useRead((signal) => readSigningPolicy(api, signal), [api]);
   return (
@@ -285,7 +287,7 @@ export function AuthenticationPage({ title }: { title: string }) {
         <h2 id="dev-auth-sign">{t('authSignTitle')}</h2>
         <p>{t('authSignBody')}</p>
         <ol aria-label={t('authLines')}>
-          <li>{t('authLineVersion', { version: read.status === 'ready' ? read.data.version : 'INTAFACED-REQ-V1' })}</li>
+          <li>{t('authLineVersion', { version: read.status === 'ready' ? read.data.version : REQUEST_SIGN_VERSION })}</li>
           <li>{t('authLineMethod')}</li>
           <li>{t('authLinePath')}</li>
           <li>{t('authLineTimestamp')}</li>
@@ -296,7 +298,7 @@ export function AuthenticationPage({ title }: { title: string }) {
       {read.status === 'loading' ? (
         <StateBlock kind="loading" rows={3} rowHeight={48} label={t('authPolicyLoading')} />
       ) : read.status === 'failed' ? (
-        <StateBlock kind="error" title={t('authPolicyFailed')} onRetry={reload} retryLabel={t('clockCheck')} />
+        <StateBlock kind="error" title={t('authPolicyFailed')} onRetry={reload} retryLabel={live('tryAgain')} />
       ) : (
         <SigningPolicy policy={read.data} t={t} />
       )}

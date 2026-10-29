@@ -302,7 +302,7 @@ if (!available) {
       expect(await db.sql`SELECT 1 FROM pay_step_up_proofs WHERE proof_id = ${p.proofId} AND consumed_at IS NULL`).toHaveLength(1);
     });
 
-    it('marks a key that may place orders as signing on every other mint path too (createApiKey)', async () => {
+    it('never leaves a key that must sign without a secret: a mint path that issues no secret does not turn signing on', async () => {
       const s = await register();
       const trader = await auth.createApiKey({
         userId: s.userId,
@@ -316,10 +316,20 @@ if (!available) {
         scopes: ['trade:read'],
         grantorScopes: ['trade:read'],
       });
-      const rows = await db.sql<Array<{ id: string; require_signature: boolean }>>`
-        SELECT id, require_signature FROM api_keys WHERE id IN (${trader.id}, ${reader.id})
+      const rows = await db.sql<Array<{ id: string; require_signature: boolean; request_signing_secret: string | null }>>`
+        SELECT id, require_signature, request_signing_secret FROM api_keys WHERE id IN (${trader.id}, ${reader.id})
       `;
-      expect(Object.fromEntries(rows.map((row) => [row.id, row.require_signature]))).toEqual({ [trader.id]: true, [reader.id]: false });
+      expect(rows).toHaveLength(2);
+      for (const row of rows)
+        expect({ id: row.id, signs: row.require_signature, secret: row.request_signing_secret }).toEqual({
+          id: row.id,
+          signs: false,
+          secret: null,
+        });
+      // Every key that signs holds a sealed secret it can be signed with.
+      const unusable =
+        await db.sql`SELECT id FROM api_keys WHERE user_id = ${s.userId} AND require_signature = true AND request_signing_secret IS NULL`;
+      expect(unusable).toEqual([]);
     });
 
     it('refuses an account without a verified passkey with a typed code, before the factor is spent', async () => {

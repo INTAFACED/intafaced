@@ -217,6 +217,34 @@ if (!available) {
       });
     });
 
+    it('refuses an expired key that must sign before any signature or key check, on the clock it was given', async () => {
+      const owner = await register();
+      const created = await mint(owner.userId);
+      await setApiKeyRequestSigning(
+        db.sql,
+        owner.userId,
+        created.id,
+        { requireSignature: true, requireNonEmptyIpAllowlist: false },
+        encKey,
+      );
+      const expiresAt = new Date(Date.now() + 60_000);
+      await db.sql`UPDATE api_keys SET expires_at = ${expiresAt} WHERE id = ${created.id}`;
+      // Before the end the key still signs: an unsigned call is refused as unsigned, never waved through.
+      await expect(
+        decideApiKeyExchange(db.sql, created.key, undefined, new Date(expiresAt.getTime() - 1), encKey, WINDOW),
+      ).resolves.toEqual({
+        ok: false,
+        reason: 'unsigned',
+      });
+      // At the end it is expired whatever the database clock says, and the exchange refuses it without minting.
+      await expect(decideApiKeyExchange(db.sql, created.key, undefined, expiresAt, encKey, WINDOW)).resolves.toEqual({
+        ok: false,
+        expired: true,
+      });
+      await db.sql`UPDATE api_keys SET expires_at = ${new Date(Date.now() - 1_000)} WHERE id = ${created.id}`;
+      await expect(auth.exchangeApiKey(created.key)).rejects.toMatchObject({ code: 'auth.api_key_expired' });
+    });
+
     it('refuses an empty IP allowlist only after the key opts in', async () => {
       const owner = await register();
       const created = await mint(owner.userId);
@@ -300,6 +328,39 @@ if (!available) {
       await expect(decideApiKeyExchange(db.sql, created.key, material, staleAt, encKey, WINDOW)).resolves.toEqual({
         ok: false,
         reason: 'stale',
+      });
+    });
+
+    it('still refuses a used nonce as a replay after the owner widens the window on restart', async () => {
+      const owner = await register();
+      const created = await mint(owner.userId);
+      const enabled = await setApiKeyRequestSigning(
+        db.sql,
+        owner.userId,
+        created.id,
+        { requireSignature: true, requireNonEmptyIpAllowlist: false },
+        encKey,
+      );
+      const serverNow = new Date('2026-10-17T01:00:00.000Z');
+      const timestamp = String(Math.floor(serverNow.getTime() / 1000));
+      const method = 'POST';
+      const path = '/api/v1/trade/orders';
+      const nonce = 'nonce-widen-01';
+      const bodyHash = hashBody('{"quantity":"1"}');
+      const material: RequestSignMaterial = {
+        method,
+        path,
+        timestamp,
+        nonce,
+        bodyHash,
+        signature: signRequest(enabled.signingSecret!, canonicalRequest({ method, path, timestamp, nonce, bodyHash })),
+      };
+      await expect(decideApiKeyExchange(db.sql, created.key, material, serverNow, encKey, 60)).resolves.toMatchObject({ ok: true });
+      // Two minutes on, under a window raised to an hour, the request is fresh again by its age; its nonce is not.
+      const later = new Date(serverNow.getTime() + 120_000);
+      await expect(decideApiKeyExchange(db.sql, created.key, material, later, encKey, 3600)).resolves.toEqual({
+        ok: false,
+        reason: 'replay',
       });
     });
 
