@@ -327,6 +327,11 @@ export class LeadDesk {
         ),
         operationId: input.operationId,
       });
+      // The two founders are identity's requester and approver; the one who attached the approval here must not also be
+      // its approver. Refused before anything is listed: the application stays waiting and takes a newly filed approval.
+      if (row.proposed_by && row.proposed_by.trim().toLowerCase() === approverId.trim().toLowerCase()) {
+        throw new TradeOpsError('approval_mismatch', 'The founder who attached this approval also approved it. File the approval again.');
+      }
       // The listing is idempotent on the application: a retry after a crash lists the same leader once.
       const listed = await this.deps.directory.upsertListing(principal, {
         clientRequestId: `copy-lead-approve:${row.id}`,
@@ -437,7 +442,7 @@ export class LeadDesk {
     const [row] = await tx<Array<{ leader_ref: string }>>`
       SELECT l.leader_ref FROM trade.copy_leader_listings l
       WHERE l.leader_user_id = ${userId}
-        AND NOT EXISTS (SELECT 1 FROM trade.copy_leader_ops_requests r WHERE r.client_request_id = ${except ?? ''})
+        AND NOT EXISTS (SELECT 1 FROM trade.copy_leader_ops_requests r WHERE r.client_request_id = ${except ?? ''} AND r.result->>'leaderRef' = l.leader_ref)
       LIMIT 1`;
     return row !== undefined;
   }

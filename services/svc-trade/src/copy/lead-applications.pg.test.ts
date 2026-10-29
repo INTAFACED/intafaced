@@ -199,6 +199,26 @@ describe('lead applications', () => {
     expect(await desk.mine(customer(ALICE))).toMatchObject({ state: 'submitted' });
   });
 
+  it('refuses before listing when the founder who attached the approval also approved it', async () => {
+    const { desk, approvals } = harness();
+    const a = await desk.apply(customer(ALICE), { displayName: 'TEST lead a' });
+    await desk.setCriteria(founder(FOUNDER_A), { minTrackRecordDays: 30, clientRequestId: 'crit-1' });
+    // Identity: A filed, B approved. Here B attaches it and A confirms, so B would be both approver and proposer.
+    fileApproval(approvals, a.applicationId, 'TEST lead a', 30, 'appr-1');
+    await desk.propose(founder(FOUNDER_B), { applicationId: a.applicationId, approvalId: 'appr-1' });
+    await expect(
+      desk.approve(founder(FOUNDER_A), { applicationId: a.applicationId, approvalId: 'appr-1', operationId: 'op-appr-1' }),
+    ).rejects.toMatchObject({ code: 'approval_mismatch' });
+    expect(await desk.leads(reader())).toEqual([]);
+    expect(await desk.mine(customer(ALICE))).toMatchObject({ state: 'submitted' });
+    // A newly filed approval, attached by the founder who filed it, lists the lead.
+    fileApproval(approvals, a.applicationId, 'TEST lead a', 30, 'appr-2');
+    await desk.propose(founder(FOUNDER_A), { applicationId: a.applicationId, approvalId: 'appr-2' });
+    await desk.approve(founder(FOUNDER_B), { applicationId: a.applicationId, approvalId: 'appr-2', operationId: 'op-appr-2' });
+    expect(await desk.leads(reader())).toHaveLength(1);
+    expect(await desk.mine(customer(ALICE))).toMatchObject({ state: 'approved' });
+  });
+
   it('never lists again someone already in the leader directory, so a suspension stands', async () => {
     const { desk, approvals } = harness();
     const directory = sqlLeaderDirectory(sql(), { now, feeShareLaw: { published: false } });
