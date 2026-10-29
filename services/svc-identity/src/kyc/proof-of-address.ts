@@ -5,7 +5,8 @@
  * with no list reads "not published" and refuses `kyc.poa_types_unset`. The person enters the date issued, which the
  * reviewer checks; older than the rule refuses `kyc.poa_too_old`. The file goes to the vault first, under the owner's
  * photo caps (I-kyc-compliance-08), and the row then refers to it. A document from another country than the residence
- * on the approved level is stored with `country_mismatch` for the reviewer. Nothing here is logged.
+ * on the approved level is stored with `country_mismatch` for the reviewer. One document waits for a reviewer at a time:
+ * another refuses `kyc.poa_pending`, and every one sent stays on the record. Nothing here is logged.
  */
 import type { Sql } from 'postgres';
 import type { KycPoaRead, KycPoaSubmission } from '@intafaced/contracts/identity-kyc-poa';
@@ -22,6 +23,7 @@ export type KycPoaErrorCode =
   | 'kyc.poa_type_unlisted'
   | 'kyc.poa_type_refused'
   | 'kyc.poa_too_old'
+  | 'kyc.poa_pending'
   | 'kyc.poa_date_invalid'
   | 'kyc.poa_unconfigured';
 
@@ -193,43 +195,44 @@ export class KycPoaDesk {
     if (!approved) throw new KycPoaError('Proof of address is asked for after level Basic is approved', 'kyc.poa_not_requested');
     // The same document sent again (a retry, a second click) returns the pending submission it made.
     const sha256 = createHash('sha256').update(input.bytes).digest('hex');
-    const same = await this.pending(this.sql, userId, input, sha256);
-    if (same) return this.view(same);
+    const first = await this.waiting(this.sql, userId, input, sha256);
+    if (first) return this.view(first);
+    await this.assertNoneWaiting(this.sql, userId);
     // The vault first: a crash after this leaves an unreferenced ciphertext row, never a submission pointing at nothing.
     const stored = await vault.put({ userId, contentType, bytes: input.bytes, storedBy: userId });
     const owner = { kind: 'owner' as const, userId };
-    let replaced: string[] = [];
     let answer: { row: Row; mine: boolean };
     try {
-      answer = await transaction(this.sql, async (tx) => {
-        // One send per person at a time, so a pending submission is never replaced twice or kept beside another.
-        await tx`SELECT pg_advisory_xact_lock(hashtext('kyc-poa'), hashtext(${userId}::text))`;
-        // An identical send landed first: its submission is the answer.
-        const first = await this.pending(tx, userId, input, sha256);
-        if (first) return { row: first, mine: false };
-        // A person has one submission waiting for a reviewer: a new document replaces the one nobody has decided yet.
-        const gone = await tx<Array<{ document_id: string }>>`
-          DELETE FROM kyc_poa_submissions WHERE user_id = ${userId} AND status = 'submitted' RETURNING document_id`;
-        replaced = gone.map((r) => r.document_id);
-        // An unknown residence is flagged too: the reviewer checks the country either way.
-        const [row] = await tx<Row[]>`
-          INSERT INTO kyc_poa_submissions (user_id, document_id, type, country, issued_on, country_mismatch, file_sha256)
-          VALUES (${userId}, ${stored.id}, ${input.type}, ${input.country}, ${input.issuedOn}::date, ${input.country !== residence}, ${sha256})
-          RETURNING id, type, country, issued_on::text AS issued_on, status, country_mismatch, created_at`;
-        return { row: row!, mine: true };
-      });
+      // One send per person at a time (read committed, so each send sees what the one before it committed).
+      answer = await transaction(
+        this.sql,
+        async (tx) => {
+          await tx`SELECT pg_advisory_xact_lock(hashtext('kyc-poa'), hashtext(${userId}::text))`;
+          // An identical send landed first: its submission is the answer.
+          const same = await this.waiting(tx, userId, input, sha256);
+          if (same) return { row: same, mine: false };
+          // One document waits for a reviewer at a time; every one sent stays on the record.
+          await this.assertNoneWaiting(tx, userId);
+          // An unknown residence is flagged too: the reviewer checks the country either way.
+          const [row] = await tx<Row[]>`
+            INSERT INTO kyc_poa_submissions (user_id, document_id, type, country, issued_on, country_mismatch, file_sha256)
+            VALUES (${userId}, ${stored.id}, ${input.type}, ${input.country}, ${input.issuedOn}::date, ${input.country !== residence}, ${sha256})
+            RETURNING id, type, country, issued_on::text AS issued_on, status, country_mismatch, created_at`;
+          return { row: row!, mine: true };
+        },
+        { isolation: 'read committed' },
+      );
     } catch (err) {
       await vault.deleteFor(stored.id, owner).catch(() => undefined);
       throw err;
     }
-    // After commit: a crash here leaves an unreferenced ciphertext row, never a submission pointing at nothing.
-    if (!answer.mine) replaced = [stored.id];
-    for (const id of replaced) await vault.deleteFor(id, owner).catch(() => undefined);
+    // This copy of the file is not the one on record: it goes.
+    if (!answer.mine) await vault.deleteFor(stored.id, owner).catch(() => undefined);
     return this.view(answer.row);
   }
 
   /** The person's pending submission of exactly this document, if there is one. */
-  private async pending(
+  private async waiting(
     sql: Sql,
     userId: string,
     input: { type: string; country: string; issuedOn: string },
@@ -240,6 +243,12 @@ export class KycPoaDesk {
       WHERE user_id = ${userId} AND status = 'submitted' AND type = ${input.type} AND country = ${input.country}
         AND issued_on = ${input.issuedOn}::date AND file_sha256 = ${sha256}`;
     return row;
+  }
+
+  private async assertNoneWaiting(sql: Sql, userId: string): Promise<void> {
+    const [other] = await sql<Array<{ id: string }>>`
+      SELECT id FROM kyc_poa_submissions WHERE user_id = ${userId} AND status = 'submitted' LIMIT 1`;
+    if (other) throw new KycPoaError('A proof of address is already waiting for review', 'kyc.poa_pending');
   }
 
   /** Compliance: one person's submissions, newest first, with the flag. */

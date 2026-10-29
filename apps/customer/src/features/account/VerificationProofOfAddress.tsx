@@ -65,6 +65,8 @@ export function VerificationProofOfAddress({ recordsKey, disabled }: { recordsKe
       switch (result.code) {
         case 'kyc.poa_too_old':
           return setProblem({ kind: 'copy', text: t('tooOld', { days: String(maxAgeDays ?? '') }) });
+        case 'kyc.poa_pending':
+          return setProblem({ kind: 'copy', text: t('pending') });
         case 'kyc.poa_type_refused':
           return setProblem({ kind: 'copy', text: t('typeRefused') });
         case 'kyc.poa_date_invalid':
@@ -143,8 +145,8 @@ export function VerificationProofOfAddress({ recordsKey, disabled }: { recordsKe
           </p>
         )}
         {latest?.status === 'submitted' && (
-          <p className="muted" data-testid="verification__poa-replaces">
-            <Copy k="replaces" />
+          <p className="muted" data-testid="verification__poa-one-at-a-time">
+            <Copy k="oneAtATime" />
           </p>
         )}
         <form

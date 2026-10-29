@@ -696,6 +696,19 @@ describe('kyc.proofOfAddress (I-kyc-compliance-11)', () => {
     expect((err as { cause?: { code?: string } }).cause?.code).toBe('kyc.poa_unconfigured');
   });
 
+  it('a second document while one waits for review refuses as a conflict with its code', async () => {
+    const desk = {
+      async submit() {
+        throw new KycPoaError('waiting', 'kyc.poa_pending');
+      },
+    } as unknown as KycPoaDesk;
+    const caller = createIdentityRouter(stub.auth, stub.rank, { kycPoa: desk }).createCaller(await ctx(['identity:write']));
+    const input = { type: 'utility_bill', country: 'DE', issuedOn: '2026-01-01', contentType: 'application/pdf', bytesBase64: 'AQID' };
+    const refused = await caller.kyc.proofOfAddress.submit(input).catch((e: unknown) => e);
+    expect(codeOf(refused)).toBe('CONFLICT');
+    expect((refused as { cause?: { code?: string } }).cause?.code).toBe('kyc.poa_pending');
+  });
+
   it('submits for the caller only; listFor is behind admin:compliance; refusals keep their codes', async () => {
     const seen: unknown[][] = [];
     const desk = {
