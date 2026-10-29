@@ -84,7 +84,14 @@ type TwapHarness = {
  * clock / liquidity. Children go through placeChild (ordinary order port) —
  * never invent fills on the parent.
  */
-function makeTwapTrade(opts: { liquidity?: boolean; mark?: boolean; algoEnabled?: boolean } = {}): TwapHarness {
+function makeTwapTrade(
+  opts: {
+    liquidity?: boolean;
+    mark?: boolean;
+    algoEnabled?: boolean;
+    refuse?: 'trade.bots_verification_insufficient' | 'trade.bots_verification_level_not_set';
+  } = {},
+): TwapHarness {
   let t = 1_700_000_000_000;
   const placed: TwapHarness['placed'] = [];
   const store = new MemoryTwapParentStore();
@@ -139,6 +146,7 @@ function makeTwapTrade(opts: { liquidity?: boolean; mark?: boolean; algoEnabled?
       if (!algoEnabled) {
         throw new TradeError('algo execution is disabled by the operator kill-switch', 'trade.algo_disabled');
       }
+      if (opts.refuse) throw new TradeError('TEST verification refusal', opts.refuse);
       const kind = (input.kind ?? 'twap').toLowerCase();
       if (kind !== 'twap') {
         throw new TradeError(`algo kind "${kind}" is not available`, 'trade.algo_unsupported_kind');
@@ -513,4 +521,25 @@ describe('D26-P1-T4 public doors — TWAP children pause overdue no fake fills',
     expect(res.body.error?.message ?? '').toMatch(/kill-switch/);
     await app.close();
   });
+
+  // The service path (no parent row, nothing submitted) is bots-verification-twap.test.ts; this is the tRPC door's status.
+  it.each(['trade.bots_verification_insufficient', 'trade.bots_verification_level_not_set'] as const)(
+    '%s is 403 with its code on the mounted door, as on the REST door',
+    async (code) => {
+      const harness = makeTwapTrade({ refuse: code });
+      const app = await mount(harness.trade);
+      const res = await post(app, 'algo.createTwap', {
+        symbol: SYMBOL,
+        side: 'buy',
+        totalQty: '0.004',
+        durationMs: 8_000,
+        sliceIntervalMs: 2_000,
+        clientAlgoId: 'below-tier',
+      });
+      expect(res.statusCode).toBe(403);
+      expect(JSON.stringify(res.body)).toContain(code);
+      expect(harness.placed).toHaveLength(0);
+      await app.close();
+    },
+  );
 });
