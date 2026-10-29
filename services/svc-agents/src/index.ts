@@ -18,8 +18,7 @@ import type { ModelProvider } from './providers/provider.js';
 import { AgentRuntime } from './runtime.js';
 import { UserSpendStore } from './spend/store.js';
 import { registerProductAgentsAtBoot } from './fleet/boot-register.js';
-import { serialiseGuardrail } from './fleet/guardrails.js';
-import { coachAgentGuardrail } from './coach/coach-run.js';
+import { registerCoachAgent } from './coach/coach-run.js';
 import { fleetMatrixBoardCard } from './fleet/matrix.js';
 import { agentsReadiness } from './readiness.js';
 import { describeAgentsLivePlanes } from './live-planes.js';
@@ -144,8 +143,7 @@ const runtime = new AgentRuntime(sql, gateway, meter, bus, {
 // Upsert product guardrails before the listener opens — openSession binds from
 // agent_definitions; a process with zero rows makes every runSession 404.
 const bootAgents = await registerProductAgentsAtBoot(runtime);
-// The Coach is not a fleet product agent (it holds no tools), but its runs open sessions the same way (RC-agents-02).
-await runtime.registerAgent(serialiseGuardrail(coachAgentGuardrail()), { enabled: true });
+await registerCoachAgent(runtime);
 
 const academyUrl = env.ACADEMY_URL;
 const loadCoachGrounding = academyUrl

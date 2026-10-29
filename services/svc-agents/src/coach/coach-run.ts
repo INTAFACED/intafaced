@@ -18,7 +18,7 @@
 import { formatAmount, parseAmount, type Amount } from '@intafaced/ledger-client';
 import type { Sql } from 'postgres';
 import { AgentError } from '../errors.js';
-import { parseGuardrail, type Guardrail } from '../fleet/guardrails.js';
+import { parseGuardrail, serialiseGuardrail, type Guardrail } from '../fleet/guardrails.js';
 import { digestOfText, type ModelGateway } from '../gateway/gateway.js';
 import { engineOfAdapter, type RouteEngine } from '../gateway/routing.js';
 import { RefusedError, type AgentRuntime } from '../runtime.js';
@@ -104,6 +104,14 @@ export function coachAgentGuardrail(overrides: { version?: number; maxSpendPerSe
       allowedTasks: [COACH_TASK],
     },
   });
+}
+
+/**
+ * Registers the Coach at boot. It is not a fleet product agent (it holds no tools), but its runs open sessions the same
+ * way, so its guardrail must be in `agent_definitions` before the listener opens.
+ */
+export async function registerCoachAgent(runtime: Pick<AgentRuntime, 'registerAgent'>): Promise<void> {
+  await runtime.registerAgent(serialiseGuardrail(coachAgentGuardrail()), { enabled: true });
 }
 
 // ── Asks the Coach refuses ───────────────────────────────────────────────────

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { LedgerError } from '@intafaced/ledger-client';
 import { AgentError } from '../errors.js';
-import { evaluateCompletion, type Refusal } from '../fleet/guardrails.js';
+import { evaluateCompletion, serialiseGuardrail, type Refusal } from '../fleet/guardrails.js';
 import type { AuditedAction } from '../fleet/audit.js';
 import { MockModelProvider } from '../providers/mock.js';
 import type { SettlementResult } from '../metering/meter.js';
@@ -16,6 +16,7 @@ import {
   coachAgentGuardrail,
   coachRunKey,
   nextLessonOf,
+  registerCoachAgent,
   stemsOf,
   runCoachAnswer,
   type CoachRunDeps,
@@ -452,6 +453,17 @@ describe('coach run — stored runs and their readback', () => {
 });
 
 describe('coach guardrail', () => {
+  it('registers at boot as an enabled agent with the Coach guardrail', async () => {
+    const calls: Array<{ input: unknown; options: unknown }> = [];
+    await registerCoachAgent({
+      registerAgent: async (input: unknown, options: unknown) => {
+        calls.push({ input, options });
+        return coachAgentGuardrail();
+      },
+    } as unknown as Parameters<typeof registerCoachAgent>[0]);
+    expect(calls).toEqual([{ input: serialiseGuardrail(coachAgentGuardrail()), options: { enabled: true } }]);
+  });
+
   it('holds no tools, only the Coach task, and a spend cap of 0', () => {
     const g = coachAgentGuardrail();
     expect(g.agentId).toBe(COACH_AGENT_ID);

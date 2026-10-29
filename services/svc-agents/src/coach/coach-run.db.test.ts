@@ -61,7 +61,7 @@ const TABLE = parseRoutingTable({
 const available = await postgresAvailable(URL);
 
 if (!available) {
-  describe.skip('svc-agents coach run (Postgres unavailable — start docker compose)', () => {
+  describe.skip('svc-agents coach run (Postgres unavailable)', () => {
     it('skipped', () => undefined);
   });
 } else {
