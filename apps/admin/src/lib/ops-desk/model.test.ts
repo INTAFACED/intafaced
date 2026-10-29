@@ -48,6 +48,15 @@ describe('list reader', () => {
     expect(cellOfRow(data.rows[1]!, 'termDays')).toBe(30);
     expect(tableCells(data.rows[0]!).map((c) => c.key)).toEqual(['id', 'aprBps', 'termDays']);
   });
+  it('shows a text field in its column’s words, keeps the raw value, and refuses a value the words do not list', () => {
+    const spec: ReadSpec = { ...listSpec, columns: [{ key: 'id', label: 'Id', kind: 'text', words: { a: 'The first', b: 'The second' } }] };
+    const data = readData(spec, [{ id: 'a' }]);
+    if (data?.shape !== 'list') throw new Error('list expected');
+    const cell = tableCells(data.rows[0]!)[0]!;
+    expect(cell.value).toBe('a');
+    expect(displayCell(cell)).toBe('The first');
+    expect(readData(spec, [{ id: 'c' }])).toBeNull();
+  });
   it('a short page is not flagged full, and an empty list is empty, not unreadable', () => {
     expect(readData(listSpec, [row()])).toMatchObject({ pageFull: false });
     expect(readData(listSpec, [])).toEqual({ shape: 'list', rows: [], pageFull: false });

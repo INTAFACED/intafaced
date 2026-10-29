@@ -10,7 +10,7 @@ import { MiningError } from './errors.js';
 import { resolveJob, type JobSource } from './job-source.js';
 import { planPplns, type PplnsInput, type PplnsPlan, type PplnsShare } from './pplns.js';
 import { recordShareRejection } from './share-rejections.js';
-import { persistBlankRewardShares, persistWindowShares, readStoredEpoch, PG_UNAVAILABLE } from './window-store.js';
+import { persistBlankRewardShares, persistWindowShares, readStoredEpoch, workerNameOf, PG_UNAVAILABLE } from './window-store.js';
 
 export const MINING_UNAUTHENTICATED = 'mining.unauthenticated' as const;
 
@@ -180,6 +180,7 @@ async function persistSubmittedBody(sql: Sql, body: Record<string, unknown>): Pr
         shareId: requiredId(share.shareId, 'mining.share_malformed'),
         minerId: requiredId(share.minerId, 'mining.share_malformed'),
         weight: share.weight === undefined || share.weight === null ? null : parseWeight(share.weight),
+        ...namedWorker(share.workerName),
       };
     });
     await persistBlankRewardShares(sql, { windowId, assetId, epoch, shares });
@@ -209,6 +210,10 @@ function requiredId(value: unknown, code: string): string {
   if (typeof value !== 'string' || !value.trim()) throw new Error(code);
   return value;
 }
+/** A sent rig name, checked here; no name stays absent and the store files it under the default worker. */
+function namedWorker(value: unknown): { workerName?: string } {
+  return value === undefined || value === null ? {} : { workerName: workerNameOf(value) };
+}
 function parseEpoch(value: unknown): number | undefined {
   if (value === undefined || value === null) return undefined;
   if (typeof value !== 'number' || !Number.isInteger(value) || value < 0 || value > 2_147_483_647) throw new Error('mining.epoch_unset');
@@ -234,6 +239,7 @@ export function parsePplnsBody(raw: unknown): PplnsInput {
       shareId: requiredId(sh.shareId, 'mining.share_malformed'),
       minerId: requiredId(sh.minerId, 'mining.share_malformed'),
       weight: parseWeight(sh.weight),
+      ...namedWorker(sh.workerName),
     };
   });
   return { windowId, epoch, assetId, reward: v.reward, feeBps: v.feeBps, shares };

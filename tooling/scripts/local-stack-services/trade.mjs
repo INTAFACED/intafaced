@@ -96,16 +96,17 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, TEST_FUTURES_LADDER_POLICY })
     TRADE_COPY_JURISDICTION_LAW: testValue('TRADE_COPY_JURISDICTION_LAW'),
     TRADE_COPY_METRIC_DEFINITIONS: testValue('TRADE_COPY_METRIC_DEFINITIONS'),
     TRADE_COPY_MIN_TIER: testValue('TRADE_COPY_MIN_TIER'),
-    // LOCAL TEST, not an owner decision: the bot verification level is the labelled TEST one, so a basic account is
-    // refused a schedule (J-copy-bots-otc-23 #2). Blank, every create refuses trade.bots_verification_level_not_set.
+    // LOCAL TEST, not an owner decision: the lowest tier that may create a bot. Blank refuses every bot
+    // (trade.bots_verification_level_not_set, algo/bots-verification.ts), which a unit test keeps proving.
     TRADE_BOTS_VERIFICATION_LEVEL: testValue('TRADE_BOTS_VERIFICATION_LEVEL'),
-    // LOCAL TEST, not an owner decision: the TWAP slice scheduler runs, so a schedule places its children on TEST money
-    // (J-copy-bots-otc-23 #4). Production leaves it off until the owner turns it on (services/svc-trade/src/env.ts).
-    // LOCAL_STACK_TRADE_ALGO_JOBS=off restarts trade with it off, so #2 sees the scheduler-off refusal.
-    TRADE_ALGO_JOBS_ENABLED: process.env.LOCAL_STACK_TRADE_ALGO_JOBS === 'off' ? 'off' : 'on',
     // LOCAL TEST, not an owner decision: the copy driver places each copy as the follower, so J-copy-bots-otc-01 #8
     // sees a first copied trade on TEST money. Production leaves it off until the owner turns copy placing on.
     TRADE_COPY_PLACE_MIRROR: 'on',
+    // LOCAL TEST, not an owner decision: the TWAP slice scheduler runs, so a bot made on the stack is a live schedule on
+    // TEST money. With it off every create refuses trade.algo_jobs_disabled (algo/jobs-gate.ts), which unit tests keep
+    // proving. Production leaves it off until an operator turns it on.
+    // LOCAL_STACK_TRADE_ALGO_JOBS=off restarts trade with it off, so J-copy-bots-otc-23 #2 sees the scheduler-off refusal.
+    TRADE_ALGO_JOBS_ENABLED: process.env.LOCAL_STACK_TRADE_ALGO_JOBS === 'off' ? 'off' : 'on',
     // LOCAL TEST, not owner decisions: the quote desk's law and its reference price, read from the labelled TEST profile
     // so the OTC journeys price, accept and settle on TEST money against the house inventory.
     // Each one blank refuses by name (services/svc-trade/src/otc/); production stays blank until the owner sets it.

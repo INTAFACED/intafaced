@@ -1,6 +1,6 @@
-import { createServer, type Server } from 'node:net';
+import { EventEmitter } from 'node:events';
+import { createServer, type Server, type Socket } from 'node:net';
 import { describe, expect, it, vi } from 'vitest';
-import { MiningError } from './errors.js';
 import { ProbeRateLimit, dialPool, runProbe, type Dial } from './probe.js';
 
 const ALICE = '11111111-1111-4111-8111-111111111111';
@@ -54,9 +54,32 @@ describe('reachability probe', () => {
     expect(refused.kind).toBe('refused');
   });
 
-  it('an unreachable host is timed out, never a success', async () => {
-    const outcome = await dialPool('192.0.2.1', 9, 200);
+  /** A socket that never connects: it reports the wait running out, or an error, exactly as told. */
+  function fakeConnect(outcome: { timeout: true } | { error: string }) {
+    return () => {
+      const socket = new EventEmitter() as EventEmitter & { setTimeout: (ms: number) => void; destroy: () => void };
+      socket.setTimeout = (ms) => {
+        setTimeout(() => socket.emit('timeout'), 'timeout' in outcome ? ms : ms * 10);
+        if ('error' in outcome) setTimeout(() => socket.emit('error', Object.assign(new Error(outcome.error), { code: outcome.error })), 5);
+      };
+      socket.destroy = () => undefined;
+      return socket as unknown as Socket;
+    };
+  }
+
+  it('a host that never answers is timed out after the whole wait, never a success', async () => {
+    const outcome = await dialPool('pool.test', 9, 200, fakeConnect({ timeout: true }));
     expect(outcome.kind).toBe('timed_out');
+    expect(outcome.roundTripMs).toBeGreaterThanOrEqual(195);
+  });
+
+  it('an error before the wait ends is not reached, never a time-out; the system connect time-out is a time-out', async () => {
+    for (const code of ['ECONNREFUSED', 'ECONNRESET', 'ENETUNREACH', 'EHOSTUNREACH', 'ENOTFOUND']) {
+      const outcome = await dialPool('pool.test', 9, 5_000, fakeConnect({ error: code }));
+      expect(outcome.kind, code).toBe('refused');
+      expect(outcome.roundTripMs, code).toBeLessThan(5_000);
+    }
+    expect((await dialPool('pool.test', 9, 5_000, fakeConnect({ error: 'ETIMEDOUT' }))).kind).toBe('timed_out');
   });
 
   it('a blank limit, window, timeout or host refuses before the dial', async () => {
@@ -105,13 +128,13 @@ describe('reachability probe', () => {
     await expect(runProbe({ env, userId: ALICE, nowMs: 65_000, limiter, dial })).resolves.toMatchObject({ result: 'reachable' });
   });
 
-  it('a limit of zero admits nothing and a thrown dial is timed out, not an error page', async () => {
+  it('a limit of zero admits nothing and a thrown dial is not reached, not a time-out or an error page', async () => {
     const dial = vi.fn<Dial>(async () => {
       throw new Error('down');
     });
     await expect(
       runProbe({ env: published({ MINING_PROBE_LIMIT: '0' }), userId: ALICE, nowMs: 1, limiter: new ProbeRateLimit(), dial }),
-    ).rejects.toBeInstanceOf(MiningError);
+    ).rejects.toMatchObject({ code: 'mining.probe_limit_reached' });
     expect(dial).not.toHaveBeenCalled();
     const view = await runProbe({
       env: published({ MINING_PROBE_LIMIT: '2' }),
@@ -120,7 +143,7 @@ describe('reachability probe', () => {
       limiter: new ProbeRateLimit(),
       dial,
     });
-    expect(view.result).toBe('timed_out');
+    expect(view.result).toBe('refused');
     expect(view.viewpoint).toBe('pool_network');
   });
 
