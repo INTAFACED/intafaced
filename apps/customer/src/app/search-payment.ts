@@ -14,7 +14,7 @@ export type PaymentState =
   | { status: 'idle' }
   | { status: 'loading' }
   | { status: 'ready'; payment: Payment }
-  /** No payment of this business has that id (or it belongs to someone else: svc-pay does not say which). */
+  /** None of this person's merchants has a payment with that id (svc-pay answers another owner's payment the same way). */
   | { status: 'none' }
   | { status: 'failed' };
 
@@ -27,28 +27,33 @@ export const paymentId = (query: string): string | null => {
 export const paymentHref = (id: string) => `/pay/payments/${encodeURIComponent(id)}`;
 
 /**
- * One lookup. svc-pay's not found and refused both read as none, so the search never says whose payment an id is. A
- * 404 or 403 without the service's own code (a route the gateway has not wired, or the gateway refusing) is a failure.
+ * One lookup. Only svc-pay's own not found reads as none (it answers another owner's payment the same way, so the search
+ * never says whose an id is). Anything else, a refusal with a named blocker, a route the gateway has not wired or a
+ * lost answer, is a failure the panel names, never "no results".
  */
 export async function findPayment(api: Pick<ApiClient, 'query'>, id: string, signal: AbortSignal): Promise<PaymentState> {
   const answer = await api.query('pay', 'payment.get', { paymentId: id }, paymentSchema, { signal });
   if (answer.ok) return answer.data.id.toLowerCase() === id ? { status: 'ready', payment: answer.data } : { status: 'none' };
-  const serviceSaidNo = (answer.status === 404 || answer.status === 403) && answer.code !== undefined && !answer.code.startsWith('edge.');
-  return serviceSaidNo ? { status: 'none' } : { status: 'failed' };
+  return answer.status === 404 && answer.code === 'NOT_FOUND' ? { status: 'none' } : { status: 'failed' };
 }
 
-export function usePaymentSearch(query: string, enabled: boolean): PaymentState {
+/**
+ * The lookup for the search box. `scope` names the profile in view: a new profile asks again. An answer is kept with the
+ * id and profile it answers, so until the next answer arrives an older one reads as loading, never as this id's payment.
+ */
+export function usePaymentSearch(query: string, scope: string | null): PaymentState {
   const api = useApi();
-  const [state, setState] = useState<PaymentState>({ status: 'idle' });
-  const id = enabled ? paymentId(query) : null;
+  const [answer, setAnswer] = useState<{ key: string; state: PaymentState } | null>(null);
+  const id = scope ? paymentId(query) : null;
+  const key = id ? `${scope}:${id}` : null;
   useEffect(() => {
-    if (!id) return setState({ status: 'idle' });
+    if (!id || !key) return;
     const controller = new AbortController();
-    setState({ status: 'loading' });
     findPayment(api, id, controller.signal)
-      .then((next) => !controller.signal.aborted && setState(next))
-      .catch(() => !controller.signal.aborted && setState({ status: 'failed' }));
+      .then((state) => !controller.signal.aborted && setAnswer({ key, state }))
+      .catch(() => !controller.signal.aborted && setAnswer({ key, state: { status: 'failed' } }));
     return () => controller.abort();
-  }, [api, id]);
-  return state;
+  }, [api, id, key]);
+  if (!key) return { status: 'idle' };
+  return answer?.key === key ? answer.state : { status: 'loading' };
 }
