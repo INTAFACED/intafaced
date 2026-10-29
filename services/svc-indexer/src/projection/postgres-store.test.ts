@@ -675,7 +675,7 @@ describe('svc-indexer · PostgresProjectionStore PG-hard', () => {
       await store.applyBlock(
         block(2, h(3), h(2), { transactions: [chainTx(t2, 0)], internal: { read: false, reason: 'indexer.trace_unavailable' } }),
       );
-      // Indexed before traces were read: no trace row at all.
+      // Indexed by a source that reads no trace: stored as not recorded.
       await store.applyBlock(block(3, h(4), h(3), { transactions: [chainTx(t3, 0)] }));
       // An orphaned block's moves are not this address's history.
       await store.applyBlock(
@@ -708,6 +708,20 @@ describe('svc-indexer · PostgresProjectionStore PG-hard', () => {
       expect(await store.explorerAddressInternal({ address: fwd, limit: 10, cursor: { height: 1, index: 0, hash: t1 } })).toEqual([]);
 
       // The orphaned block is not a gap; the untraced block and the one indexed before traces are.
+      expect(await store.explorerTraceGaps()).toEqual({
+        blocks: 2,
+        fromHeight: 2,
+        toHeight: 3,
+        reasons: ['indexer.trace_not_recorded', 'indexer.trace_unavailable'],
+      });
+      // A block stored before migration 0004 has no trace row; the migration's backfill gives it one, so it is a gap.
+      await db.sql`DELETE FROM explorer_block_traces WHERE block_hash = ${h(4)}`;
+      expect((await store.explorerTraceGaps()).blocks).toBe(1);
+      const backfill = /INSERT INTO "indexer"\."explorer_block_traces"[^;]*;/.exec(
+        migrations[migrationFiles.indexOf('0004_explorer_internal.sql')] ?? '',
+      )?.[0];
+      expect(backfill).toContain("'indexer' || '.trace_not_recorded'");
+      await db.sql.unsafe(rewriteSchemaSql(backfill as string, 'indexer', db.schema));
       expect(await store.explorerTraceGaps()).toEqual({
         blocks: 2,
         fromHeight: 2,

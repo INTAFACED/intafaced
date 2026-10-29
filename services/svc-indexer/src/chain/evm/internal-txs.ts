@@ -8,9 +8,11 @@ import type { ChainBlockInternal, ChainInternalCall } from '../source.js';
  * tracer. Only moves that stood are kept: a call with value, a contract created with value, a self-destruct sending its
  * balance; a reverted call and everything under it moved nothing. A delegate or static call moves no value of its own.
  *
- * A node that will not trace the block (no such method, history gone, tracer timed out) is the node's answer, the same on
- * every retry, so the block is stored as "trace not read" with a code, never held back: a contract that makes its trace
- * slow cannot stall ingest. Only a transport failure or a rate limit throws, so the block is read again.
+ * A node that will not trace the block (no such method, history gone, tracer timed out, an answer past the size cap) is
+ * the node's answer, the same on every retry, so the block is stored as "trace not read" with a code, never held back: a
+ * contract that makes its trace slow or huge cannot stall ingest. A rate limit throws, so the block is read again later.
+ * Any other failure (a client timeout, a gateway 5xx, a cut-off answer) throws too, but only `TRACE_ATTEMPTS` times for
+ * one block: then the block is stored as not traced and ingest moves on.
  */
 
 export const TRACE_UNAVAILABLE = 'indexer.trace_unavailable';
@@ -23,20 +25,53 @@ const QUANTITY = /^0x[0-9a-fA-F]{1,64}$/;
 /** Busy or rate-limited: asking again later gets an answer, so the block waits. */
 const TRANSIENT = /rate limit|too many requests|limit exceeded|request limit|capacity|try again/i;
 
+/** A load-balanced node that lags the indexer says these for a block it has not seen yet: a busy node, not a refusal. */
+const NOT_SEEN_YET = /header not found|unknown block|block not found/i;
+
+/** Reads of one block's trace that fail without a node's answer, before the block is stored as not traced. */
+export const TRACE_ATTEMPTS = 3;
+
+/** Blocks still being counted at once; past it the counts start again, which only delays the bound. */
+const FAILURES_TRACKED = 1024;
+
+function causes(err: unknown): unknown[] {
+  const out: unknown[] = [];
+  let current = err;
+  for (let depth = 0; current !== undefined && current !== null && depth < 12; depth += 1) {
+    out.push(current);
+    current = (current as { cause?: unknown }).cause;
+  }
+  return out;
+}
+
+/** A rate limit or a busy node: the only failure a block waits out without a bound. */
+export function isRateLimited(err: unknown): boolean {
+  return causes(err).some((link) => {
+    const { code, status, message, details } = link as { code?: unknown; status?: unknown; message?: unknown; details?: unknown };
+    if (code === -32005 || status === 429) return true;
+    return [message, details].some((text) => typeof text === 'string' && TRANSIENT.test(text));
+  });
+}
+
+/** viem refused an answer larger than the client's body cap: the node's trace of this block is too big to read. */
+function isTooLarge(err: unknown): boolean {
+  return causes(err).some((link) => (link as { name?: unknown }).name === 'ResponseBodyTooLargeError');
+}
+
 /**
  * The node answered the trace with an error response (a JSON-RPC error, or an HTTP 4xx other than 408 and 429) that is
  * not a rate limit. That answer is the node's for this block, so the block is stored as not traced.
  */
 export function isTraceDeclined(err: unknown): boolean {
+  if (isRateLimited(err)) return false;
+  if (isTooLarge(err)) return true;
   let declined = false;
-  let current = err;
-  for (let depth = 0; current !== undefined && current !== null && depth < 12; depth += 1) {
-    const { code, status, message, details } = current as { code?: unknown; status?: unknown; message?: unknown; details?: unknown };
-    if (code === -32005 || status === 429 || status === 408) return false;
-    if ([message, details].some((text) => typeof text === 'string' && TRANSIENT.test(text))) return false;
+  for (const link of causes(err)) {
+    const { code, status, message, details } = link as { code?: unknown; status?: unknown; message?: unknown; details?: unknown };
+    if (status === 408) return false;
+    if ([message, details].some((text) => typeof text === 'string' && NOT_SEEN_YET.test(text))) return false;
     if (typeof code === 'number' && Number.isInteger(code) && code < 0) declined = true;
     if (typeof status === 'number' && status >= 400 && status < 500) declined = true;
-    current = (current as { cause?: unknown }).cause;
   }
   return declined;
 }
@@ -83,7 +118,7 @@ export function internalFromParity(traces: unknown, blockHash: string, txHashes:
     if (path.length === 0 || (error !== undefined && error !== null)) continue;
     const hash = (transactionHash as string).toLowerCase();
     // Under a reverted call nothing stood, however deep.
-    if (path.some((_, depth) => failed.has(`${hash}:${path.slice(0, depth).join('.')}`))) continue;
+    if (failed.size > 0 && underFailed(failed, hash, path)) continue;
     const act = (action ?? {}) as Record<string, unknown>;
     const key = path.join('.');
     if (type === 'call') {
@@ -112,6 +147,16 @@ export function internalFromParity(traces: unknown, blockHash: string, txHashes:
     }
   }
   return calls;
+}
+
+/** Whether a call above `path` in its transaction reverted. The prefix is built once, not once per depth. */
+function underFailed(failed: ReadonlySet<string>, hash: string, path: readonly number[]): boolean {
+  let prefix = '';
+  for (let depth = 0; depth < path.length; depth += 1) {
+    if (failed.has(`${hash}:${prefix}`)) return true;
+    prefix = depth === 0 ? String(path[0]) : `${prefix}.${path[depth]}`;
+  }
+  return false;
 }
 
 interface CallFrame {
@@ -152,8 +197,9 @@ export function internalFromCallTracer(traces: unknown, txHashes: readonly strin
       frame.calls.forEach((child, i) => stack.push({ frame: (child ?? {}) as CallFrame, path: [...path, i] }));
     }
   });
+  const order = new Map(txHashes.map((hash, i) => [hash, i]));
   return calls.sort((a, b) =>
-    a.txHash === b.txHash ? comparePath(a.path, b.path) : txHashes.indexOf(a.txHash) - txHashes.indexOf(b.txHash),
+    a.txHash === b.txHash ? comparePath(a.path, b.path) : (order.get(a.txHash) as number) - (order.get(b.txHash) as number),
   );
 }
 
@@ -162,6 +208,20 @@ function comparePath(a: string, b: string): number {
   const y = b.split('.').map(Number);
   for (let i = 0; i < Math.min(x.length, y.length); i += 1) if (x[i] !== y[i]) return (x[i] as number) - (y[i] as number);
   return x.length - y.length;
+}
+
+/**
+ * The node's own limit on tracing one block, kept under the trace client's timeout so a slow trace comes back as the
+ * node's error answer (stored as not traced) rather than a dropped request.
+ */
+export const TRACER_TIMEOUT = '20s';
+
+/** A null trace is a node that has not seen the block yet: the block is read again, within `TRACE_ATTEMPTS`. */
+function seen(answer: unknown, block: { hash: string }, rpcUrl: string): unknown {
+  if (answer === null || answer === undefined) {
+    throw new ChainUnavailableError('indexer.chain_unreachable', `${rpcUrl} answered no trace for block ${block.hash}.`);
+  }
+  return answer;
 }
 
 async function ask(
@@ -179,25 +239,52 @@ async function ask(
   }
 }
 
-/** The block's internal value moves, or why the node did not trace it. `txHashes` are lowercase, in block order. */
+/**
+ * The block's internal value moves, or why the node did not trace it. `txHashes` are lowercase, in block order.
+ * `failures` counts, per block hash, the reads that failed without a node's answer; the caller keeps it across passes.
+ */
 export async function readBlockInternal(
   client: PublicClient,
   block: { hash: string; height: number },
   txHashes: readonly string[],
   rpcUrl: string,
+  failures: Map<string, number> = new Map(),
 ): Promise<ChainBlockInternal> {
   if (txHashes.length === 0) return { read: true, calls: [] };
   try {
+    const answer = await traceBlock(client, block, txHashes, rpcUrl);
+    failures.delete(block.hash);
+    return answer;
+  } catch (err) {
+    if (isRateLimited(err)) throw err;
+    const failed = (failures.get(block.hash) ?? 0) + 1;
+    if (failed < TRACE_ATTEMPTS) {
+      if (!failures.has(block.hash) && failures.size >= FAILURES_TRACKED) failures.clear();
+      failures.set(block.hash, failed);
+      throw err;
+    }
+    failures.delete(block.hash);
+    return { read: false, reason: TRACE_UNAVAILABLE };
+  }
+}
+
+async function traceBlock(
+  client: PublicClient,
+  block: { hash: string; height: number },
+  txHashes: readonly string[],
+  rpcUrl: string,
+): Promise<ChainBlockInternal> {
+  try {
     const parity = await ask(client, 'trace_block', [`0x${block.height.toString(16)}`], `traceBlock(${block.hash})`, rpcUrl);
-    if (parity) return { read: true, calls: internalFromParity(parity.answer, block.hash, txHashes) };
+    if (parity) return { read: true, calls: internalFromParity(seen(parity.answer, block, rpcUrl), block.hash, txHashes) };
     const geth = await ask(
       client,
       'debug_traceBlockByHash',
-      [block.hash as Hex, { tracer: 'callTracer' }],
+      [block.hash as Hex, { tracer: 'callTracer', timeout: TRACER_TIMEOUT }],
       `debugTraceBlock(${block.hash})`,
       rpcUrl,
     );
-    if (geth) return { read: true, calls: internalFromCallTracer(geth.answer, txHashes) };
+    if (geth) return { read: true, calls: internalFromCallTracer(seen(geth.answer, block, rpcUrl), txHashes) };
     return { read: false, reason: TRACE_UNAVAILABLE };
   } catch (err) {
     if (err instanceof Malformed) return { read: false, reason: TRACE_MALFORMED };

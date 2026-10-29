@@ -187,7 +187,15 @@ describe('Balance at a past point', () => {
     answers.set('explorer.address.balanceAt', (input: { at: { height?: number; date?: string } }) =>
       input.at.height === 5000
         ? { ok: true, data: { indexed: true, height: 5000, timestamp: 1_790_000_000, balance: '1500000000000000000' } }
-        : { ok: true, data: { indexed: false, earliestHeight: 3, latestHeight: 6000 } },
+        : {
+            ok: true,
+            data: {
+              indexed: false,
+              after: 'height' in input.at || (input.at.date ?? '') > '2026-06-01',
+              earliestHeight: 3,
+              latestHeight: 6000,
+            },
+          },
     );
     await show(<PastBalance address={ADDRESS} />);
     await ask('5000');
@@ -198,6 +206,8 @@ describe('Balance at a past point', () => {
       calls.filter((call) => call.procedure === 'explorer.address.balanceAt').map((call) => (call.input as { at: unknown }).at),
     ).toEqual([{ height: 5000 }, { date: '2026-01-01' }]);
     await ask('6001');
+    expect(byTestId('address-past-balance')).toBe('Not indexed after block 6000.');
+    await ask('2099-01-01');
     expect(byTestId('address-past-balance')).toBe('Not indexed after block 6000.');
   });
   it('refuses what is neither a date nor a block number, and asks nothing', async () => {

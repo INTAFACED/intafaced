@@ -25,7 +25,8 @@ CREATE TABLE IF NOT EXISTS "indexer"."explorer_internal_txs" (
 CREATE INDEX IF NOT EXISTS "explorer_internal_txs_from" ON "indexer"."explorer_internal_txs" ("chain_id", "from_address");
 CREATE INDEX IF NOT EXISTS "explorer_internal_txs_to" ON "indexer"."explorer_internal_txs" ("chain_id", "to_address");
 
--- Whether the node traced the block. No row: the block was indexed before traces were read.
+-- Whether the node traced the block. Every block holding transactions has a row: one indexed before traces were read
+-- says so with `indexer.trace_not_recorded`.
 CREATE TABLE IF NOT EXISTS "indexer"."explorer_block_traces" (
   "chain_id"    integer NOT NULL,
   "block_hash"  text    NOT NULL,
@@ -36,3 +37,13 @@ CREATE TABLE IF NOT EXISTS "indexer"."explorer_block_traces" (
     REFERENCES "indexer"."blocks" ("chain_id", "hash") ON DELETE CASCADE,
   CONSTRAINT "explorer_block_traces_reason_ck" CHECK (("traced" AND "reason" IS NULL) OR (NOT "traced" AND "reason" ~ '^indexer\.[a-z_]+$'))
 );
+
+-- Every block already holding transactions was indexed before traces were read: it gets its row now, so the gaps the
+-- address page names are read from this table alone, never by scanning every block.
+INSERT INTO "indexer"."explorer_block_traces" ("chain_id", "block_hash", "traced", "reason")
+-- The code is joined from two parts so a test's schema rename (which rewrites every `indexer.` prefix) leaves it whole.
+SELECT DISTINCT "chain_id", "block_hash", FALSE, 'indexer' || '.trace_not_recorded'
+FROM "indexer"."explorer_txs"
+ON CONFLICT ("chain_id", "block_hash") DO NOTHING;
+
+CREATE INDEX IF NOT EXISTS "explorer_block_traces_gaps" ON "indexer"."explorer_block_traces" ("chain_id") WHERE NOT "traced";

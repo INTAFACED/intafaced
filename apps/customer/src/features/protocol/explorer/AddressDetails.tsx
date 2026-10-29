@@ -360,9 +360,9 @@ export function PastBalance({ address }: { address: string }) {
         }),
       });
     else if (resource.data) {
-      const { earliestHeight, latestHeight } = resource.data;
+      const { after, earliestHeight, latestHeight } = resource.data;
       if (earliestHeight === null || latestHeight === null) result = t('pastBalanceNoBlocks', { network: network(chainId) });
-      else if ('height' in point && point.height > latestHeight) result = t('pastBalanceNotIndexedAfter', { height: String(latestHeight) });
+      else if (after) result = t('pastBalanceNotIndexedAfter', { height: String(latestHeight) });
       else result = t('pastBalanceNotIndexed', { height: String(earliestHeight) });
     }
   }

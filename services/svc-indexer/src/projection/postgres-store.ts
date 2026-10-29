@@ -340,14 +340,14 @@ export class PostgresProjectionStore implements ProjectionStore {
    * before traces were read. Their internal moves are unknown, so the address page names them.
    */
   async explorerTraceGaps(): Promise<TraceGapsFact> {
+    // Every block holding transactions has a trace row (migration 0004 backfills the older ones), so the gaps start
+    // from the untraced rows, through their partial index, not from every block.
     const [row] = await this.sql<Array<{ blocks: string; from_height: string | null; to_height: string | null; reasons: string[] | null }>>`
       SELECT COUNT(*) AS blocks, MIN(b.height) AS from_height, MAX(b.height) AS to_height,
-             ARRAY_AGG(DISTINCT COALESCE(tr.reason, ${TRACE_NOT_RECORDED})) AS reasons
-      FROM blocks b
-      LEFT JOIN explorer_block_traces tr ON tr.chain_id = b.chain_id AND tr.block_hash = b.hash
-      WHERE b.chain_id = ${this.chainId} AND b.status = 'canonical'
-        AND (tr.traced IS NULL OR tr.traced = FALSE)
-        AND EXISTS (SELECT 1 FROM explorer_txs t WHERE t.chain_id = b.chain_id AND t.block_hash = b.hash)
+             ARRAY_AGG(DISTINCT tr.reason) AS reasons
+      FROM explorer_block_traces tr
+      JOIN blocks b ON b.chain_id = tr.chain_id AND b.hash = tr.block_hash
+      WHERE tr.chain_id = ${this.chainId} AND NOT tr.traced AND b.status = 'canonical'
     `;
     const blocks = Number(row?.blocks ?? 0);
     return {
@@ -1103,18 +1103,21 @@ async function writeExplorerTxs(sql: TransactionSql, chainId: number, block: Cha
  * transaction rows (written just above) and cascade with them; the trace row belongs to the block.
  */
 async function writeExplorerInternal(sql: TransactionSql, chainId: number, block: ChainBlock): Promise<void> {
-  const internal = block.internal;
+  // A source that reads no trace still says so for a block holding transactions, so the address page names its gap.
+  const internal =
+    block.internal ?? ((block.transactions?.length ?? 0) > 0 ? { read: false as const, reason: TRACE_NOT_RECORDED } : undefined);
   if (!internal) return;
-  if (internal.read) {
-    for (const call of internal.calls) {
-      await sql`
-        INSERT INTO explorer_internal_txs (chain_id, tx_hash, path, kind, from_address, to_address, value_wei)
-        VALUES (
-          ${chainId}, ${call.txHash.toLowerCase()}, ${call.path}, ${call.kind}, ${call.from.toLowerCase()},
-          ${call.to.toLowerCase()}, ${call.valueWei.toString()}
-        )
-      `;
-    }
+  if (internal.read && internal.calls.length > 0) {
+    const rows = internal.calls.map((call) => ({
+      chain_id: chainId,
+      tx_hash: call.txHash.toLowerCase(),
+      path: call.path,
+      kind: call.kind,
+      from_address: call.from.toLowerCase(),
+      to_address: call.to.toLowerCase(),
+      value_wei: call.valueWei.toString(),
+    }));
+    await sql`INSERT INTO explorer_internal_txs ${sql(rows, 'chain_id', 'tx_hash', 'path', 'kind', 'from_address', 'to_address', 'value_wei')}`;
   }
   await sql`
     INSERT INTO explorer_block_traces (chain_id, block_hash, traced, reason)

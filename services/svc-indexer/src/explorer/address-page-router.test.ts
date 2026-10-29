@@ -76,13 +76,18 @@ function page(seen: Seen, over: Partial<AddressPageSource['state']> = {}): Addre
   };
 }
 
-async function caller(over: Partial<IndexerRouterDeps> = {}, heads = 3, state: Partial<AddressPageSource['state']> = {}) {
+async function caller(
+  over: Partial<IndexerRouterDeps> = {},
+  heads = 3,
+  state: Partial<AddressPageSource['state']> = {},
+  time = (h: number) => 1_700_000_000 + h,
+) {
   const seen: Seen = { account: [], balance: [], tokens: [] };
   const store = new MemoryProjectionStore(CHAIN_ID);
   let parent = hex(0, 32);
   for (let h = 0; h < heads; h++) {
     const hash = hex(0x100 + h, 32);
-    await store.applyBlock({ chainId: CHAIN_ID, height: h, hash, parentHash: parent, timestamp: 1_700_000_000 + h, events: [] });
+    await store.applyBlock({ chainId: CHAIN_ID, height: h, hash, parentHash: parent, timestamp: time(h), events: [] });
     parent = hash;
   }
   const indexer = new Indexer({
@@ -162,14 +167,14 @@ describe('indexer.explorer.address.summary', () => {
 });
 
 describe('indexer.explorer.address.holdings', () => {
-  it("lists each token's own balance at the head; null where the contract did not answer; no zero; every holding unpriced", async () => {
+  it("lists each token's own balance at the head; null where the contract did not answer; no zero; every holding that answered is unpriced", async () => {
     const { api, seen } = await caller();
     const out = await api.explorer.address.holdings(input);
     expect(out.rows).toEqual([
       { token: { address: T1, symbol: 'TESTA', decimals: 6 }, balance: '1500000', price: null },
       { token: { address: T2, symbol: null, decimals: null }, balance: null, price: null },
     ]);
-    expect(out).toMatchObject({ unpriced: 2, more: false, asOfHeight: 2 });
+    expect(out).toMatchObject({ unpriced: 1, more: false, asOfHeight: 2 });
     expect(seen.tokens).toEqual([[[T1, T2, T3], ME, 2]]);
   });
 
@@ -228,7 +233,8 @@ describe('indexer.explorer.address.balanceAt', () => {
   });
 
   it('reads the balance at the end of a UTC day: the last block before the next midnight', async () => {
-    const { api, seen } = await caller();
+    // Block 2 is after 2023-11-15T00:00Z, so the whole of 2023-11-14 is indexed.
+    const { api, seen } = await caller({}, 3, {}, (h) => (h < 2 ? 1_700_000_000 + h : 1_700_010_000));
     expect(await api.explorer.address.balanceAt({ ...input, at: { date: '2023-11-14' } })).toMatchObject({ indexed: true, height: 1 });
     expect(seen.balance).toEqual([[ME, 1]]);
   });
@@ -237,14 +243,36 @@ describe('indexer.explorer.address.balanceAt', () => {
     const { api, seen } = await caller();
     expect(await api.explorer.address.balanceAt({ ...input, at: { date: '2001-01-01' } })).toEqual({
       indexed: false,
+      after: false,
       earliestHeight: 0,
       latestHeight: 2,
     });
     expect(await api.explorer.address.balanceAt({ ...input, at: { height: 9 } })).toEqual({
       indexed: false,
+      after: true,
       earliestHeight: 0,
       latestHeight: 2,
     });
+    expect(seen.balance).toEqual([]);
+  });
+
+  it('a day not yet over in the index is not indexed after the newest block, never the newest balance', async () => {
+    // The newest block (2) is at 2023-11-14T22:13:22Z: that day has not ended in the index, and later days are ahead.
+    const { api, seen } = await caller();
+    for (const date of ['2023-11-14', '2099-01-01']) {
+      expect(await api.explorer.address.balanceAt({ ...input, at: { date } })).toEqual({
+        indexed: false,
+        after: true,
+        earliestHeight: 0,
+        latestHeight: 2,
+      });
+    }
+    expect(seen.balance).toEqual([]);
+  });
+
+  it('refuses a height past what a safe integer holds, before any read', async () => {
+    const { api, seen } = await caller();
+    await expect(api.explorer.address.balanceAt({ ...input, at: { height: 1e300 } })).rejects.toMatchObject({ code: 'BAD_REQUEST' });
     expect(seen.balance).toEqual([]);
   });
 

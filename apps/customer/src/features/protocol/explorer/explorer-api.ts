@@ -174,7 +174,12 @@ export const explorerAddressInternalPageSchema = z.object({
 /** `explorer.address.balanceAt`: the native balance at a past block, or the indexed range when that point is outside it. */
 export const explorerBalanceAtSchema = z.union([
   z.object({ indexed: z.literal(true), height: z.number().int(), timestamp: z.number().int(), balance: z.string() }),
-  z.object({ indexed: z.literal(false), earliestHeight: z.number().int().nullable(), latestHeight: z.number().int().nullable() }),
+  z.object({
+    indexed: z.literal(false),
+    after: z.boolean(),
+    earliestHeight: z.number().int().nullable(),
+    latestHeight: z.number().int().nullable(),
+  }),
 ]);
 
 export type ExplorerAddressSummary = z.infer<typeof explorerAddressSummarySchema>;

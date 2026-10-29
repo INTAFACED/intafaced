@@ -177,6 +177,12 @@ export function assertLogsBoundToBlock(
   }
 }
 
+/** Longer than the node's own tracer limit (`TRACER_TIMEOUT`), so the node's refusal arrives before the request drops. */
+const TRACE_TIMEOUT_MS = 30_000;
+
+/** The largest trace answer read: 32 MiB. A block whose call tree is larger is stored as not traced. */
+const TRACE_MAX_BYTES = 32 * 1024 * 1024;
+
 export class EvmChainSource implements ChainSource {
   readonly chainId: number;
   readonly rpcUrl: string;
@@ -195,6 +201,15 @@ export class EvmChainSource implements ChainSource {
 
   /** D-explorer-03. Each Transfer emitter's symbol, name and decimals, read once per process. */
   readonly #tokens: TokenMetaReader;
+
+  /**
+   * D-explorer-03. Traces get their own client: a whole block's call tree is larger and slower than any other read,
+   * so it has a longer timeout and an explicit cap on the answer's size (an answer past it is stored as not traced).
+   */
+  readonly #traceClient: PublicClient;
+
+  /** How many times in a row each block's trace has failed; past `TRACE_ATTEMPTS` the block is stored as not traced. */
+  readonly #traceFailures = new Map<string, number>();
 
   constructor(config: EvmChainSourceConfig) {
     if (!config.rpcUrl) {
@@ -229,6 +244,10 @@ export class EvmChainSource implements ChainSource {
       transport: http(config.rpcUrl, { timeout: config.requestTimeoutMs ?? 10_000, retryCount: 0 }),
     }) as PublicClient;
     this.#tokens = new TokenMetaReader(this.client, config.rpcUrl);
+    this.#traceClient = createPublicClient({
+      chain,
+      transport: http(config.rpcUrl, { timeout: TRACE_TIMEOUT_MS, retryCount: 0, maxResponseBodySize: TRACE_MAX_BYTES }),
+    }) as PublicClient;
   }
 
   /**
@@ -367,10 +386,11 @@ export class EvmChainSource implements ChainSource {
     // Past the per-block cap the rest stay unread here; the token sweep reads them (D-explorer-03).
     const tokens = emitters.length === 0 ? [] : await this.#tokens.read(emitters.slice(0, TOKEN_READS_PER_BLOCK), height);
     const internal = await readBlockInternal(
-      this.client,
+      this.#traceClient,
       { hash, height },
       transactions.map((tx) => tx.hash),
       this.rpcUrl,
+      this.#traceFailures,
     );
 
     const block: ChainBlock = {

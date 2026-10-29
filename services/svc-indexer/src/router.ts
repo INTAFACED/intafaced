@@ -315,8 +315,8 @@ const explorerTxListRowSchema = z.object({
 });
 
 const txCursorSchema = z.object({
-  height: z.number().int().min(0),
-  index: z.number().int().min(0),
+  height: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER),
+  index: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER),
   hash: z.string().regex(/^0x[0-9a-fA-F]{64}$/),
 });
 
@@ -663,7 +663,13 @@ export function createIndexerRouter(deps: IndexerRouterDeps) {
                   balance: row.balance === null ? null : row.balance.toString(),
                   price: null,
                 }));
-              return { rows, unpriced: rows.length, more: fetched.length > limit, asOfHeight: head.height, asOf: new Date().toISOString() };
+              return {
+                rows,
+                unpriced: rows.filter((row) => row.balance !== null).length,
+                more: fetched.length > limit,
+                asOfHeight: head.height,
+                asOf: new Date().toISOString(),
+              };
             } catch (err) {
               throw toTrpcError(err);
             }
@@ -747,7 +753,7 @@ export function createIndexerRouter(deps: IndexerRouterDeps) {
           .input(
             addressInput.extend({
               at: z.union([
-                z.object({ height: z.number().int().min(0) }),
+                z.object({ height: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER) }),
                 z.object({ date: z.string().refine((date) => endOfUtcDay(date) !== null, 'must be a YYYY-MM-DD date') }),
               ]),
             }),
@@ -763,6 +769,8 @@ export function createIndexerRouter(deps: IndexerRouterDeps) {
               }),
               z.object({
                 indexed: z.literal(false),
+                /** True when the point lies past the newest indexed block (a later block, or a day not yet over in the index). */
+                after: z.boolean(),
                 earliestHeight: z.number().int().nullable(),
                 latestHeight: z.number().int().nullable(),
               }),
@@ -773,12 +781,21 @@ export function createIndexerRouter(deps: IndexerRouterDeps) {
               const { page } = addressPageOrRefuse(deps);
               const ours = input.chainId === deps.chainId;
               const [earliestHeight, head] = ours ? await Promise.all([page.reads.earliestHeight(), store.head()]) : [null, null];
-              const block = !ours
-                ? null
-                : 'height' in input.at
-                  ? await page.reads.blockAt(input.at.height)
-                  : await page.reads.blockBefore(endOfUtcDay(input.at.date) as Date);
-              if (!block) return { indexed: false as const, earliestHeight, latestHeight: head?.height ?? null };
+              const latestHeight = head?.height ?? null;
+              const notIndexed = (after: boolean) => ({ indexed: false as const, after, earliestHeight, latestHeight });
+              if (!head) return notIndexed(false);
+              let block;
+              if ('height' in input.at) {
+                if (input.at.height > head.height) return notIndexed(true);
+                block = await page.reads.blockAt(input.at.height);
+              } else {
+                // A day is read only once a block after its end is indexed: before that, a later block of the day may
+                // still move the balance, and the newest indexed block is not "the end of that day".
+                const dayEnd = endOfUtcDay(input.at.date) as Date;
+                if (head.blockTime.getTime() < dayEnd.getTime()) return notIndexed(true);
+                block = await page.reads.blockBefore(dayEnd);
+              }
+              if (!block) return notIndexed(false);
               const balance = await page.state.balance(input.address.toLowerCase(), block.height).catch((err: unknown) => {
                 throw nodeReadError(err);
               });
