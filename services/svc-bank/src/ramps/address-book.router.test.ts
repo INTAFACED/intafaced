@@ -14,6 +14,7 @@ import { memoryWithdrawNetworks, type WithdrawNetworkSource } from './withdraw-n
 import { memoryWalletProofs, type WalletProofStore } from './wallet-ownership.js';
 import { memorySecurityLock } from '../security-lock.js';
 import { memoryTrustedDevices } from './trusted-devices.js';
+import { memoryFraudList } from './fraud-list.js';
 
 /** Identity's answer for the second device of the device-approval test: approved by a mailed code. */
 const PROVED_DEVICE = 'bbbbbbbb-1111-4111-8111-000000000002';
@@ -61,6 +62,7 @@ function callerWith(
     expiresAt: new Date(Date.now() + 60_000),
   } as Principal);
   const ramps = new RampService({} as Sql, {} as LedgerClient, {
+    fraudList: memoryFraudList(),
     securityLock: memorySecurityLock(),
     trustedDevices: devices,
     destinations,
@@ -252,14 +254,23 @@ describe('bank.ramps.destinations: a changed character and a look-alike address 
     const destinations = book();
     const stepped = callerWith(['bank:read', 'trade:withdraw'], true, REGISTRY, destinations);
     const reader = callerWith(['bank:read'], true, REGISTRY, destinations);
-    expect(await reader.ramps.destinations.check({ ref: ADDRESS })).toEqual({ address: 'ok', lookalike: null });
+    expect(await reader.ramps.destinations.check({ ref: ADDRESS })).toEqual({ address: 'ok', lookalike: null, fraudListed: false });
     const saved = await stepped.ramps.destinations.save(entry);
-    expect(await reader.ramps.destinations.check({ ref: ADDRESS.toLowerCase() })).toEqual({ address: 'ok', lookalike: null });
-    expect(await reader.ramps.destinations.check({ ref: TAMPERED })).toEqual({ address: 'checksum_mismatch', lookalike: null });
-    expect(await reader.ramps.destinations.check({ ref: '0x1234' })).toEqual({ address: 'invalid', lookalike: null });
+    expect(await reader.ramps.destinations.check({ ref: ADDRESS.toLowerCase() })).toEqual({
+      address: 'ok',
+      lookalike: null,
+      fraudListed: false,
+    });
+    expect(await reader.ramps.destinations.check({ ref: TAMPERED })).toEqual({
+      address: 'checksum_mismatch',
+      lookalike: null,
+      fraudListed: false,
+    });
+    expect(await reader.ramps.destinations.check({ ref: '0x1234' })).toEqual({ address: 'invalid', lookalike: null, fraudListed: false });
     expect(await reader.ramps.destinations.check({ ref: ` ${LOOKALIKE} ` })).toEqual({
       address: 'ok',
       lookalike: { destinationId: saved.destinationId, label: 'Cold wallet', refMasked: '0xabCD…EF01' },
+      fraudListed: false,
     });
   });
 
@@ -304,12 +315,14 @@ describe('bank.ramps.destinations: a changed character and a look-alike address 
     expect(await callerWith(['bank:read'], true, REGISTRY, destinations).ramps.destinations.check({ ref: LOOKALIKE })).toEqual({
       address: 'ok',
       lookalike: null,
+      fraudListed: false,
     });
   });
 
   it('records a look-alike confirmation only from its own check, never from what a caller passes in', async () => {
     const destinations = book();
     const ramps = new RampService({} as Sql, {} as LedgerClient, {
+      fraudList: memoryFraudList(),
       securityLock: memorySecurityLock(),
       destinations,
       addressBookCap: '5',
@@ -390,6 +403,7 @@ describe('bank.ramps.destinations.ownership: prove a saved wallet (W-withdraw-17
     const destinations = memoryWithdrawDestinations({ addressBookCap: () => '5' });
     const saved = await destinations.save({ userId: USER, ...entry, ref: WALLET, label: 'TEST private' });
     const ramps = new RampService({} as Sql, {} as LedgerClient, {
+      fraudList: memoryFraudList(),
       securityLock: memorySecurityLock(),
       destinations,
       withdrawNetworks: REGISTRY,
