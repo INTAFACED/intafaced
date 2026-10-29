@@ -441,20 +441,31 @@ interface AccountHit {
   asset_id: string;
 }
 
+/**
+ * In the set at readAt: created by then on the database clock, or holding an entry posted by then on the posting clock.
+ * The two clocks can disagree by a millisecond or more (created_at is the post's transaction start in microseconds,
+ * posted_at the app's clock in milliseconds), and an account funded at readAt must be counted with its counter-leg.
+ */
+function existedAt(sql: Db, readAt: Date) {
+  return sql`(created_at <= ${readAt} OR EXISTS (
+    SELECT 1 FROM ledger_entries e JOIN ledger_tx t ON t.id = e.tx_id WHERE e.account_id = accounts.id AND t.posted_at <= ${readAt}
+  ))`;
+}
+
 async function accountsInSet(sql: Db, accountSet: ReconciliationAccountSet, readAt: Date): Promise<AccountHit[]> {
   if (accountSet.mode === 'explicit') {
     return sql<AccountHit[]>`
       SELECT id, asset_id FROM accounts
-       WHERE created_at <= ${readAt} AND id = ANY(${accountSet.accountIds}::uuid[])
+       WHERE ${existedAt(sql, readAt)} AND id = ANY(${accountSet.accountIds}::uuid[])
     `;
   }
   if (accountSet.mode === 'all') {
-    return sql<AccountHit[]>`SELECT id, asset_id FROM accounts WHERE created_at <= ${readAt}`;
+    return sql<AccountHit[]>`SELECT id, asset_id FROM accounts WHERE ${existedAt(sql, readAt)}`;
   }
   const prefix = accountSet.ownerIdPrefix ? likePrefix(accountSet.ownerIdPrefix) : null;
   return sql<AccountHit[]>`
     SELECT id, asset_id FROM accounts
-     WHERE created_at <= ${readAt}
+     WHERE ${existedAt(sql, readAt)}
        ${accountSet.ownerType ? sql`AND owner_type = ${accountSet.ownerType}::owner_type` : sql``}
        ${prefix ? sql`AND owner_id LIKE ${prefix} ESCAPE '\\'` : sql``}
        ${accountSet.kind ? sql`AND kind = ${accountSet.kind}::account_kind` : sql``}
@@ -498,8 +509,9 @@ interface Book {
   /** Each account's entries summed up to readAt. */
   replayed: Map<string, Amount>;
   /**
-   * A run at the current instant only: the cached balance column and every entry the same snapshot shows. Their equality
-   * holds at every instant, so it is checked on the snapshot itself (the cached column has no history to read at readAt).
+   * A replay at the current instant only: the cached balance column and every entry the same snapshot shows, per
+   * account. Their equality holds at every instant, so it is checked on the snapshot itself (the cached column has no
+   * history to read at readAt).
    */
   drift?: { cached: Map<string, Amount>; replayed: Map<string, Amount> };
 }
@@ -507,6 +519,7 @@ interface Book {
 class BookReadError extends Error {
   constructor(
     readonly phase: 'accounts' | 'ledger',
+    readonly accountIds: string[],
     options: { cause: unknown },
   ) {
     super(`reconciliation book read failed at ${phase}`, options);
@@ -518,30 +531,42 @@ class BookReadError extends Error {
  * a run at the current instant alike. An account created and funded after readAt is in no side, and its counter-leg's
  * later balance is not counted either: never one leg without the other, and every total matches the run's read_at and
  * the outside source read at it. A run at the current instant also reads the cached column against the snapshot's
- * entries (Book.drift). A chain check reads the set only, outside a transaction.
+ * entries (Book.drift) when the check replays. A chain check reads the set only, outside a transaction.
  */
-async function readBook(sql: Db, accountSet: ReconciliationAccountSet, readAt: Date, past: boolean, withBalances: boolean): Promise<Book> {
+async function readBook(
+  sql: Db,
+  accountSet: ReconciliationAccountSet,
+  readAt: Date,
+  past: boolean,
+  withBalances: boolean,
+  replays: boolean,
+): Promise<Book> {
   const read = async (db: Db): Promise<Book> => {
     let accounts: AccountHit[];
     try {
       accounts = await accountsInSet(db, accountSet, readAt);
     } catch (err) {
-      throw new BookReadError('accounts', { cause: err });
+      throw new BookReadError('accounts', [], { cause: err });
     }
     const accountIds = accounts.map((account) => account.id).sort();
     if (!withBalances) return { accounts, accountIds, balances: new Map(), replayed: new Map() };
     try {
       const balances = await balancesAt(db, accountIds, readAt);
-      const replayed = await replayedAt(db, accountIds, readAt);
-      if (past) return { accounts, accountIds, balances, replayed };
+      const replayed = replays ? await replayedAt(db, accountIds, readAt) : new Map<string, Amount>();
+      if (past || !replays) return { accounts, accountIds, balances, replayed };
       const drift = { cached: await cachedBalances(db, accountIds), replayed: await replayedAt(db, accountIds, null) };
       return { accounts, accountIds, balances, replayed, drift };
     } catch (err) {
-      throw new BookReadError('ledger', { cause: err });
+      throw new BookReadError('ledger', accountIds, { cause: err });
     }
   };
   if (withBalances && 'begin' in sql && typeof sql.begin === 'function') {
-    return (sql as Sql).begin('isolation level repeatable read read only', (tx) => read(tx)) as Promise<Book>;
+    try {
+      return (await (sql as Sql).begin('isolation level repeatable read read only', (tx) => read(tx))) as Book;
+    } catch (err) {
+      // Opening or closing the snapshot failed: the database is the source that did not answer.
+      throw err instanceof BookReadError ? err : new BookReadError('ledger', [], { cause: err });
+    }
   }
   return read(sql);
 }
@@ -614,6 +639,22 @@ function withinStored(asset: AssetEvidence): boolean {
   const difference = parseAmount(asset.difference);
   const abs = difference < 0n ? -difference : difference;
   return abs <= parseAmount(asset.tolerance);
+}
+
+function withDrift(rows: AssetEvidence[], book: Book, tolerance: ToleranceStored | null): AssetEvidence[] {
+  const drift = book.drift;
+  if (!drift) return rows;
+  const drifted = new Map<string, Amount>();
+  for (const account of book.accounts) {
+    const difference = (drift.cached.get(account.id) ?? 0n) - (drift.replayed.get(account.id) ?? 0n);
+    const abs = difference < 0n ? -difference : difference;
+    const tol = toleranceFor(tolerance, account.asset_id);
+    if (tol !== null && abs > tol) drifted.set(account.asset_id, (drifted.get(account.asset_id) ?? 0n) + abs);
+  }
+  if (drifted.size === 0) return rows;
+  const out = rows.filter((asset) => !drifted.has(asset.assetId));
+  for (const [assetId, abs] of drifted) out.push(assetRow(assetId, abs, 0n, toleranceFor(tolerance, assetId), false));
+  return out.sort((a, b) => (a.assetId < b.assetId ? -1 : 1));
 }
 
 function equalAssets(
@@ -689,9 +730,11 @@ async function evaluate(
   const accountSet = reconciliationAccountSetSchema.parse(row.account_set);
   let book: Book;
   try {
-    book = await readBook(sql, accountSet, readAt, past, row.check_kind !== 'chain');
+    const replays = row.template === 'ledger_invariant' && (row.check_kind === 'replay' || row.check_kind === 'replay_and_netting');
+    book = await readBook(sql, accountSet, readAt, past, row.check_kind !== 'chain', replays);
   } catch (err) {
-    return { verdict: unavailableVerdict(err instanceof BookReadError ? err.phase : 'accounts', readAt), accountIds: [] };
+    if (err instanceof BookReadError) return { verdict: unavailableVerdict(err.phase, readAt), accountIds: err.accountIds };
+    return { verdict: unavailableVerdict('accounts', readAt), accountIds: [] };
   }
   return { verdict: await judge(sql, row, accountSet, book, readAt, sources, past), accountIds: book.accountIds };
 }
@@ -737,11 +780,14 @@ async function judge(
   const ledgerTotals = sumByAsset(book.accounts, book.balances);
 
   if (row.template === 'ledger_invariant' && (row.check_kind === 'replay' || row.check_kind === 'replay_and_netting')) {
-    // At the current instant the replay catches the cached column drifting from the entries; a past run has no cached
-    // history and checks each account's last balance_after against its entries at readAt.
-    const replayRows = book.drift
-      ? equalAssets(sumByAsset(book.accounts, book.drift.cached), sumByAsset(book.accounts, book.drift.replayed), row.tolerance, true)
-      : equalAssets(ledgerTotals, sumByAsset(book.accounts, book.replayed), row.tolerance, true);
+    // Each account's last balance_after against its entries at readAt. At the current instant the cached column is also
+    // checked against the snapshot's entries account by account (drift on two accounts cannot cancel); an asset with a
+    // drifting account fails, its row observing the summed size of each account's drift against 0.
+    const replayRows = withDrift(
+      equalAssets(ledgerTotals, sumByAsset(book.accounts, book.replayed), row.tolerance, true),
+      book,
+      row.tolerance,
+    );
     let assets = replayRows;
     if (row.check_kind === 'replay_and_netting' && accountSet.mode === 'all') {
       const zeros = new Map<string, Amount>();

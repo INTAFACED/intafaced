@@ -712,7 +712,10 @@ async function ctx(scopes: string[], mfa: boolean): Promise<Context> {
         operationId: nextOp(),
       });
       expect(run.status).toBe('FAIL');
-      expect(run.assets).toEqual([expect.objectContaining({ assetId: 'USDT', observed: expect.stringMatching(/^5/) })]);
+      // The row observes the summed size of each USDT account's drift against 0: this account's 5 on top of the one-sided
+      // fixture rows earlier tests leave in the whole book.
+      expect(run.assets).toEqual([expect.objectContaining({ assetId: 'USDT', expected: '0' })]);
+      expect(amt(run.assets[0]!.observed) >= amt('5')).toBe(true);
     } finally {
       await db.sql`UPDATE accounts SET balance = 0 WHERE id = ${drifted}`;
     }
@@ -777,8 +780,8 @@ async function ctx(scopes: string[], mfa: boolean): Promise<Context> {
     expect(resumed.accounts).not.toContain(fresh.id);
     expect(resumed.sources.ledger.asOf).toBe(readAt.toISOString());
 
-    // The replay at the current instant compares the cached column with the entries in one snapshot (the boundary already
-    // carries the later deposit there, -7 on both sides): no drift from a deposit that landed after read_at.
+    // The replay reports balance_after against the entries at read_at, and checks the cached column against the entries
+    // on its snapshot: no drift from a deposit that landed after read_at.
     const replayed = await runReconciliationControl(db.sql, approvals, actor, {
       controlId: REPLAY,
       reason: REASON,
@@ -787,7 +790,7 @@ async function ctx(scopes: string[], mfa: boolean): Promise<Context> {
     });
     expect(replayed.id).toBe(replay.run.id);
     expect(replayed.status).not.toBe('started');
-    expect(btc(replayed)).toEqual({ ...zero, observed: '-7', expected: '-7' });
+    expect(btc(replayed)).toEqual(zero);
     expect(replayed.accounts).not.toContain(fresh.id);
 
     // A past run at that read_at agrees with the resumed run.
@@ -823,6 +826,46 @@ async function ctx(scopes: string[], mfa: boolean): Promise<Context> {
       operationId: nextOp(),
     });
     expect(run.status).toBe('PASS');
+  });
+
+  it('fails a replay now when two accounts drift by amounts that cancel in the asset total', async () => {
+    const engine = new PostgresLedger(db.sql);
+    const funded = async (userId: string) => {
+      const posted = await engine.post(
+        recipes.deposit({ userId, assetId: 'ETH', amount: amt('5'), rail: 'test', railRef: `recon-cancel-${userId}` }),
+      );
+      const [account] = await db.sql<Array<{ id: string }>>`
+        SELECT id FROM accounts WHERE owner_id = ${userId} AND id = ANY(${posted.entries.map((entry) => entry.accountId)}::uuid[])
+      `;
+      return account!.id;
+    };
+    const up = await funded('abcdeaaa-5555-4555-8555-000000000001');
+    const down = await funded('abcdeaaa-5555-4555-8555-000000000002');
+    const defined = await defineReconciliationControl(db.sql, actor, {
+      template: 'ledger_invariant',
+      accountSet: { mode: 'explicit', accountIds: [up, down] },
+      schedule: { cadence: 'daily', hour: 0, minute: 0 },
+      severity: 'info',
+      tolerance: { default: '0' },
+      reason: REASON,
+      activate: true,
+    });
+    await db.sql`UPDATE accounts SET balance = balance + 3 WHERE id = ${up}`;
+    await db.sql`UPDATE accounts SET balance = balance - 3 WHERE id = ${down}`;
+    try {
+      const run = await runReconciliationControl(db.sql, approvals, actor, {
+        controlId: defined.id,
+        reason: REASON,
+        approvalId: 'appr-cancel',
+        operationId: nextOp(),
+      });
+      expect(run.status).toBe('FAIL');
+      // Each account drifts by 3; the asset row observes the summed size, 6, against 0.
+      expect(run.assets).toEqual([expect.objectContaining({ assetId: 'ETH', observed: '6', expected: '0', difference: '6' })]);
+    } finally {
+      await db.sql`UPDATE accounts SET balance = balance - 3 WHERE id = ${up}`;
+      await db.sql`UPDATE accounts SET balance = balance + 3 WHERE id = ${down}`;
+    }
   });
 
   it('refuses an operator run in the scheduled operation-id space', async () => {
