@@ -742,6 +742,29 @@ describe('kyc.profile and kyc.documentTypes (I-kyc-compliance-08)', () => {
       .catch((e: unknown) => e);
     expect(codeOf(read)).toBe('FORBIDDEN');
   });
+
+  it('submit maps an open request to CONFLICT and an unreadable draft to INTERNAL_SERVER_ERROR, for the caller only', async () => {
+    const seen: unknown[][] = [];
+    const answers = [
+      new KycProfileError('open', 'kyc.profile_request_open', { status: 'pending' }),
+      new KycProfileError('unreadable', 'kyc.profile_unreadable'),
+    ];
+    const desk = {
+      async submit(...args: unknown[]) {
+        seen.push(args);
+        throw answers.shift();
+      },
+    } as unknown as KycProfileDesk;
+    const api = createIdentityRouter(stub.auth, stub.rank, { kycProfile: desk }).createCaller(await ctx(['identity:write']));
+    const open = await api.kyc.profile.submit({ version: 3 }).catch((e: unknown) => e);
+    expect(codeOf(open)).toBe('CONFLICT');
+    expect((open as { cause?: { code?: string } }).cause?.code).toBe('kyc.profile_request_open');
+    expect(codeOf(await api.kyc.profile.submit({ version: 3 }).catch((e: unknown) => e))).toBe('INTERNAL_SERVER_ERROR');
+    expect(seen).toEqual([
+      [USER, 3],
+      [USER, 3],
+    ]);
+  });
 });
 
 describe('kyc.attempts (I-kyc-compliance-10)', () => {

@@ -249,14 +249,16 @@ export class KycProfileDesk {
 
   /**
    * Opens a draft at step 1, or returns the unsent one (with the level now asked for). A sent draft starts over, and so
-   * does one the current key cannot open: nothing in it can be read, so nothing readable is lost.
+   * does one the current key cannot open: nothing in it can be read, so nothing readable is lost. While a send holds
+   * the draft, a switch of level or a restart refuses: it would let the photo being sent be replaced and leave the vault.
    */
   async start(userId: string, tier: Tier): Promise<KycProfileDraft> {
     this.requireKey();
     return transaction(this.sql, async (tx) => {
       const row = await this.row(tx, userId, true);
+      if (row && !row.record_id && this.tryUnseal(row) && row.tier === tier) return this.view(row, this.unseal(row));
+      if (row && !row.record_id) this.assertNotSending(row);
       if (row && !row.record_id && this.tryUnseal(row)) {
-        if (row.tier === tier) return this.view(row, this.unseal(row));
         const [moved] = await tx<
           Row[]
         >`UPDATE kyc_profile_drafts SET tier = ${tier}, version = version + 1, last_save = NULL, updated_at = now()
