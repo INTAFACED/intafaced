@@ -95,14 +95,25 @@ async function chooseTakenCategory(page) {
 /** Step 2 of setup: the owner sends a TEST verification reference, then the stack's founder pair approves it through
  * svc-pay's two-person door (`local-test-world.mjs approve-kyb`). The owner signs in again after, for the new grant. */
 export async function verifiedBusiness(page, who, merchantId) {
+  await sentForReview(page, who);
+  approveKyb(merchantId);
+}
+
+/** The owner chooses a category and sends the verification reference from /pay/onboarding/verification; it reads In review. */
+export async function sentForReview(page, who) {
   await chooseTakenCategory(page);
   await page.goto('/pay/onboarding/verification');
   await page.getByLabel('Verification file reference *').fill(`TEST-kyb-${who.handle}`);
   await page.getByRole('button', { name: 'Send for review' }).click();
   await page.getByRole('dialog').locator('[data-testid="form-stack"] > button').last().click();
   await expect(page.getByText('INTAFACED is reviewing it')).toBeVisible();
+}
+
+/** The stack's TEST founder pair approves the business's verification (svc-pay's KYB decision door). */
+export function approveKyb(merchantId) {
   const decided = JSON.parse(tool('local-test-world.mjs', 'approve-kyb', merchantId).trim().split('\n').pop());
   expect(decided.kybStatus).toBe('approved');
+  return decided;
 }
 
 /** Every pay call the page makes that the service refuses, as "status procedure". */

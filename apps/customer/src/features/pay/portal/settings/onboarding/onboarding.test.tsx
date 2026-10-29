@@ -47,6 +47,7 @@ const base: OnboardingViewProps = {
   onDestinationSaved: noop,
   retry: noop,
 };
+const unconfirmed = { activation: 'unconfirmed', status: 'active', activatedAt: null, reason: 'no_activation_record' } as const;
 const html = (props: Partial<OnboardingViewProps>) => renderToString(<OnboardingView {...base} {...props} />);
 
 describe('setup overview', () => {
@@ -211,6 +212,7 @@ describe('compliance', () => {
     const out = renderToString(
       <ComplianceView
         current={ready({ kybStatus: 'approved', kybRef: 'TEST-reference', mode: 'gateway' })}
+        activation={ready(unconfirmed)}
         history={history}
         loadMore={noop}
         reload={noop}
@@ -225,9 +227,59 @@ describe('compliance', () => {
     expect(out).not.toContain('INTERNAL NOTE');
     expect(out).toContain('Load more');
   });
+  it('reads activation as unconfirmed beside an approved verification, and never as a screening result', () => {
+    const out = renderToString(
+      <ComplianceView
+        current={ready({ kybStatus: 'approved', kybRef: 'TEST-reference', mode: 'gateway' })}
+        activation={ready(unconfirmed)}
+        history={history}
+        loadMore={noop}
+        reload={noop}
+      />,
+    );
+    const facts = out.slice(out.indexOf('data-testid="pp-activation"'));
+    expect(facts).toContain('Unconfirmed');
+    expect(facts).not.toContain('Activated');
+    expect(out).toContain('has no recorded activation');
+    expect(out).toContain('It is not a screening result');
+    expect(out).not.toMatch(/screening (passed|cleared)|cleared/i);
+  });
+  it('shows a confirmed activation with its recorded time, and a failed read as a refusal that keeps the record', () => {
+    const at = '2026-10-29T10:00:00.000Z';
+    const confirmed = renderToString(
+      <ComplianceView
+        current={ready({ kybStatus: 'approved', kybRef: 'TEST-reference', mode: 'gateway' })}
+        activation={ready({ activation: 'confirmed', status: 'active', activatedAt: at })}
+        history={history}
+        loadMore={noop}
+        reload={noop}
+      />,
+    );
+    expect(confirmed).toContain('Confirmed');
+    expect(confirmed).toContain('Activated');
+    expect(confirmed).toContain(`dateTime="${at}"`);
+    const refused = renderToString(
+      <ComplianceView
+        current={ready({ kybStatus: 'approved', kybRef: 'TEST-reference', mode: 'gateway' })}
+        activation={failed('pay.merchant_ops_not_merchant', 403)}
+        history={history}
+        loadMore={noop}
+        reload={noop}
+      />,
+    );
+    expect(refused).not.toContain('data-testid="pp-activation"');
+    expect(refused).not.toContain('Confirmed');
+    expect(refused).toContain('TEST-reference');
+  });
   it('has a useful empty history and a loading state', () => {
     const out = renderToString(
-      <ComplianceView current={{ status: 'loading' }} history={{ ...history, items: [], hasMore: false }} loadMore={noop} reload={noop} />,
+      <ComplianceView
+        current={{ status: 'loading' }}
+        activation={{ status: 'loading' }}
+        history={{ ...history, items: [], hasMore: false }}
+        loadMore={noop}
+        reload={noop}
+      />,
     );
     expect(out).toContain('aria-busy="true"');
     expect(out).toContain('No verification history yet');
