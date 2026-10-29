@@ -2,7 +2,7 @@
 
 Which market data products you may use, and on what terms.
 
-No term is published yet: each one reads not set until the owner sets it. The terms wait for the owner’s data terms and their read in the market service (RC-developer-05).
+This file is written when the site is built and holds no term. The published terms are on the page and at GET /api/trade/developer-portal/data-terms.
 
 | Product            | Entitlement | Redistribution | Retention | Privacy | Commercial terms |
 | ------------------ | ----------- | -------------- | --------- | ------- | ---------------- |
