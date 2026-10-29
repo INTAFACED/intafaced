@@ -71,8 +71,8 @@ export const DOCS_PAGES: readonly DocsPage[] = [
             row.cell.state === 'set' ? row.cell.host : portal('hostUnset'),
           ]),
         ),
-        portal('hostsRegional'),
         portal('hostsStaticNote'),
+        portal('regionalStaticNote'),
       ].join('\n\n'),
   },
   {

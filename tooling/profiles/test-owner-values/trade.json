@@ -86,6 +86,11 @@
       "value": "{\"rest\":{\"production\":\"api.local-test.test\",\"sandbox\":\"api.sandbox.local-test.test\"},\"websocket\":{\"production\":\"ws.local-test.test\",\"sandbox\":\"ws.sandbox.local-test.test\"},\"fix\":{\"production\":\"fix.local-test.test:9878\",\"sandbox\":\"fix.sandbox.local-test.test:9878\"}}",
       "note": "LOCAL TEST ONLY, not an owner decision: production and sandbox hosts under the reserved .test domain; regional is left out so its rows read host not set (J-developer-01 #2, #3)."
     },
+    "TRADE_DEVELOPER_REGIONAL_RULE": {
+      "service": "trade",
+      "value": "TEST: a regional host serves only accounts registered in its region; every other account uses the production host.",
+      "note": "LOCAL TEST ONLY, not an owner decision: the regional host rule the base-address page states (J-developer-01 #2)."
+    },
     "TRADE_DEVELOPER_DATA_TERMS": {
       "service": "trade",
       "value": "{\"ticker\":{\"entitlement\":\"TEST: any visitor, no account\",\"redistribution\":\"TEST: allowed with attribution\",\"retention\":\"TEST: no limit\",\"privacy\":\"TEST: no personal data\",\"commercial\":\"TEST: free\"},\"depth_l1\":{\"entitlement\":\"TEST: any visitor, no account\",\"redistribution\":\"TEST: allowed with attribution\",\"retention\":\"TEST: no limit\",\"privacy\":\"TEST: no personal data\",\"commercial\":\"TEST: free\"},\"depth_l2\":{\"entitlement\":\"TEST: signed-in account\",\"redistribution\":\"TEST: not allowed\",\"retention\":\"TEST: 24 hours\",\"privacy\":\"TEST: no personal data\",\"commercial\":\"TEST: free\"},\"candles\":{\"entitlement\":\"TEST: any visitor, no account\",\"redistribution\":\"TEST: allowed with attribution\",\"retention\":\"TEST: no limit\",\"privacy\":\"TEST: no personal data\",\"commercial\":\"TEST: free\"},\"trades\":{\"entitlement\":\"TEST: signed-in account\",\"redistribution\":\"TEST: not allowed\",\"retention\":\"TEST: 30 days\",\"privacy\":\"TEST: no personal data\",\"commercial\":\"TEST: free\"}}",
