@@ -56,6 +56,9 @@ const sent: WithdrawalRecord = {
   failureCode: null,
   status: 'sent',
   createdAt: new Date('2026-10-24T08:00:00.000Z'),
+  networkId: null,
+  quoteRef: null,
+  fee: null,
   journal: 'accepted',
 };
 const create = (railId: string) => ({
@@ -85,6 +88,21 @@ describe('withdrawal.create, internal branch', () => {
         { userId: USER, assetId: 'USDT', amount: parseAmount('25'), destination: { kind: 'crypto', ref: ADDRESS }, clientRef: 'w-1' },
       ]);
     }
+  });
+
+  it('takes no network or quote on the internal branch: a send inside the platform has no network fee', async () => {
+    const asked: unknown[] = [];
+    const caller = api({
+      platformDestination: async () => ({ kind: 'internal' }),
+      withdrawInternal: async (input) => {
+        asked.push(input);
+        return sent;
+      },
+    });
+    await caller.withdrawal.create({ ...create('crypto-native'), networkId: 'ethereum', quoteRef: 'q-1' });
+    expect(asked).toEqual([
+      { userId: USER, assetId: 'USDT', amount: parseAmount('25'), destination: { kind: 'crypto', ref: ADDRESS }, clientRef: 'w-1' },
+    ]);
   });
 
   it('sends a self-send to the internal branch, which refuses it by name', async () => {

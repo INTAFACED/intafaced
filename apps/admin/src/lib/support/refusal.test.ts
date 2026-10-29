@@ -40,6 +40,13 @@ describe('svc-support’s typed refusals', () => {
     ['support.kb_invalid', 'svc-support did not accept that article'],
     ['support.kb_vendor_name', 'Article keys may not name another company’s product'],
     ['support.not_found', 'No such ticket'],
+    ['support.macro_not_found', 'No such macro'],
+    ['support.macro_placeholder_blank', 'A placeholder is still unfilled'],
+    ['support.macro_placeholder_unknown', 'That placeholder does not exist'],
+    ['support.macro_revision_stale', 'It changed since you read it'],
+    ['support.shortcode_taken', 'That shortcode is taken'],
+    ['support.shortcode_too_short', 'That shortcode is too short'],
+    ['support.shortcode_rule_unset', 'The shortcode rule is not set'],
   ])('%s reads as "%s" and changed nothing', (code, title) => {
     const view = explainSupportFailure(refused(code));
     expect(view).toMatchObject({ title, code, changed: 'no' });
@@ -71,5 +78,23 @@ describe('the answers that are not refusals', () => {
   });
   it('an unreadable success is "not known", never done', () => {
     expect(explainSupportFailure({ kind: 'invalid', requestId: null }).changed).toBe('unknown');
+  });
+});
+
+describe('the owner refusals', () => {
+  it.each([
+    ['support.release.not_assignee', 'Only the person holding the request can unclaim it'],
+    ['support.not_lead', 'Only a lead can do that'],
+  ])('a forbidden %s is that refusal, with its code, not a missing permission', (code, title) => {
+    const view = explainSupportFailure({ kind: 'forbidden', refusal: refusal(code, 403), requestId: null });
+    expect([view.title, view.code, view.changed]).toEqual([title, code, 'no']);
+  });
+  it.each([
+    ['support.stale_ticket', 'The request changed since you opened it', 409],
+    ['support.claim.queue_empty', 'No request is waiting to be claimed', 412],
+    ['support.claim.already_claimed', 'Someone else already holds this request', 409],
+  ])('%s says what happened, with its code', (code, title, status) => {
+    const view = explainSupportFailure(refused(code, status));
+    expect([view.title, view.code, view.changed]).toEqual([title, code, 'no']);
   });
 });

@@ -2,12 +2,15 @@
 import { founderMutationHeaders } from '@/lib/founder-browser';
 import type { RefusalView } from '@/lib/desk/refusal-copy';
 import type { SupportMergePreview } from '@intafaced/contracts';
+import type { SupportMacroApplied } from '@intafaced/contracts/support-macros';
 import { readMergePreview } from './merge';
 import type { SupportActionRequest } from './model';
 import { EMPTY_QUERY, queueQueryString, type QueueQuery } from './queue-query';
 import type {
   SupportKbView,
   SupportLifecycleView,
+  SupportMacrosView,
+  SupportCustomerView,
   SupportPropertiesView,
   SupportRatingSummaryView,
   SupportQueueView,
@@ -147,6 +150,36 @@ export async function fetchTicketExtras(id: string, signal?: AbortSignal): Promi
   }
 }
 
+/** The card when the console refused the read itself: unread, with the console's code. */
+export function consoleRefusedCard(status: number, code: string | null, now: Date = new Date()): SupportCustomerView {
+  return {
+    asOf: now.toISOString(),
+    account: {
+      kind: 'failed',
+      message: `The console could not read the account (HTTP ${String(status)}).`,
+      code,
+      notBuilt: false,
+      forbidden: status === 401 || status === 403,
+    },
+  };
+}
+
+export async function fetchCustomerCard(id: string, signal?: AbortSignal): Promise<SupportCustomerView | null> {
+  try {
+    const res = await fetch(`/api/support?view=customer&id=${encodeURIComponent(id)}`, {
+      cache: 'no-store',
+      credentials: 'same-origin',
+      ...(signal ? { signal } : {}),
+    });
+    const body: unknown = await res.json().catch(() => null);
+    // The console's own refusal (its founder check asks svc-identity first) keeps its code, so the card names why it is unread.
+    if (!res.ok) return consoleRefusedCard(res.status, isRecord(body) && typeof body.code === 'string' ? body.code : null);
+    return isRecord(body) && typeof body.asOf === 'string' && isRecord(body.account) ? (body as unknown as SupportCustomerView) : null;
+  } catch {
+    return null;
+  }
+}
+
 export async function fetchTicketProperties(id: string, signal?: AbortSignal): Promise<SupportPropertiesView | null> {
   try {
     const res = await fetch(`/api/support?view=properties&id=${encodeURIComponent(id)}`, {
@@ -272,6 +305,9 @@ const ACTIONS: readonly string[] = [
   'kb_unpublish',
   'kb_audience',
   'view_save',
+  'unclaim',
+  'assign',
+  'signature_set',
 ];
 
 /** Strict reader: anything that is not exactly a known answer is "outcome not known", never a success. */
@@ -318,6 +354,29 @@ export async function postSupportAction(request: SupportActionRequest): Promise<
   }
 }
 
+/** Claim whichever open request the queue ranks first. The answer names the request so the page can open it. */
+export async function postClaimNext(): Promise<ClaimReply> {
+  let headers: Record<string, string>;
+  try {
+    headers = await founderMutationHeaders();
+  } catch (error) {
+    const sent = nothingSent(error instanceof Error ? error.message : 'Your founder session could not be confirmed.');
+    return sent.ok ? UNKNOWN : sent;
+  }
+  try {
+    const res = await fetch('/api/support', {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ action: 'claim_next' }),
+      cache: 'no-store',
+      credentials: 'same-origin',
+    });
+    return readClaimReply(await res.json().catch(() => null));
+  } catch {
+    return UNKNOWN;
+  }
+}
+
 /** What a merge would do, read before the confirmation. Null when it could not be read: never drawn as "nothing moves". */
 export async function fetchMergePreview(sourceId: string, survivorId: string, signal?: AbortSignal): Promise<MergePreviewReply> {
   try {
@@ -340,3 +399,38 @@ export async function fetchMergePreview(sourceId: string, survivorId: string, si
 
 export type MergePreviewReply =
   { readonly ok: true; readonly preview: SupportMergePreview } | { readonly ok: false; readonly refusal: RefusalView | null };
+
+/** The desk's macros and the agent's own signature. Null when they could not be read: never drawn as "no macros". */
+export async function fetchMacros(signal?: AbortSignal): Promise<SupportMacrosView | null> {
+  try {
+    const res = await fetch('/api/support?view=macros', { cache: 'no-store', credentials: 'same-origin', ...(signal ? { signal } : {}) });
+    if (!res.ok) return null;
+    const body: unknown = await res.json();
+    return isRecord(body) && typeof body.asOf === 'string' && isRecord(body.macros) && isRecord(body.signature)
+      ? (body as unknown as SupportMacrosView)
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+export type MacroApplyReply =
+  { readonly ok: true; readonly applied: SupportMacroApplied } | { readonly ok: false; readonly refusal: RefusalView | null };
+
+/** One macro filled from one request. svc-support writes nothing: the text only goes into the agent's draft. */
+export async function fetchMacroApply(ticketId: string, macroId: string): Promise<MacroApplyReply> {
+  try {
+    const res = await fetch(`/api/support?view=macro&id=${encodeURIComponent(ticketId)}&macro=${encodeURIComponent(macroId)}`, {
+      cache: 'no-store',
+      credentials: 'same-origin',
+    });
+    const body: unknown = await res.json().catch(() => null);
+    if (res.ok && isRecord(body) && body.ok === true && isRecord(body.applied) && typeof body.applied.text === 'string') {
+      return { ok: true, applied: body.applied as unknown as SupportMacroApplied };
+    }
+    const read = readClaimReply(body);
+    return { ok: false, refusal: read.ok ? null : read.refusal };
+  } catch {
+    return { ok: false, refusal: null };
+  }
+}

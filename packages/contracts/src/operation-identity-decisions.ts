@@ -100,18 +100,35 @@ export const identityOperationGrantSchema = z
   .strict();
 export type IdentityOperationGrant = z.infer<typeof identityOperationGrantSchema>;
 
-export const identityOperationDecisionSchema = z.discriminatedUnion('status', [
-  identityOperationGrantSchema,
-  z
-    .object({
-      ...decisionFields,
-      status: z.literal('cancelled'),
-      code: z.enum(['admission.cancelled', 'auth.account_frozen', 'auth.credential_denied', 'auth.sub_account_denied']),
-    })
-    .strict(),
-  z.object({ status: z.literal('conflict'), code: z.literal('operation.conflict') }).strict(),
-  z.object({ status: z.literal('unavailable'), code: z.literal('authority.unavailable') }).strict(),
-]);
+export const identityOperationDecisionSchema = z
+  .discriminatedUnion('status', [
+    identityOperationGrantSchema,
+    z
+      .object({
+        ...decisionFields,
+        status: z.literal('cancelled'),
+        // trade.account_restricted: identity's own trading restriction (a founder control),
+        // given only for svc-trade operations, so svc-trade refuses it by name.
+        code: z.enum([
+          'admission.cancelled',
+          'auth.account_frozen',
+          'auth.credential_denied',
+          'auth.sub_account_denied',
+          'trade.account_restricted',
+        ]),
+      })
+      .strict(),
+    z.object({ status: z.literal('conflict'), code: z.literal('operation.conflict') }).strict(),
+    z.object({ status: z.literal('unavailable'), code: z.literal('authority.unavailable') }).strict(),
+  ])
+  .superRefine((decision, ctx) => {
+    if (
+      decision.status === 'cancelled' &&
+      decision.code === 'trade.account_restricted' &&
+      decision.intent.operation.service !== 'svc-trade'
+    )
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['code'], message: 'A trading restriction cancels only svc-trade operations' });
+  });
 export type IdentityOperationDecision = z.infer<typeof identityOperationDecisionSchema>;
 
 /**

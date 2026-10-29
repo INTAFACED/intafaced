@@ -302,12 +302,23 @@ test(`${J} #4 reviews, confirms and watches a TWAP run: partial fills; pause sto
   expect(Date.parse(back.projectedEndsAt)).toBeGreaterThan(Date.parse(paused.projectedEndsAt));
   await expect(detail(page).getByText(/The schedule was paused, so its end moved later/)).toBeVisible({ timeout: 15_000 });
 
-  // No burst: the overdue slices are not caught up at once. The two slices after resume are a full interval apart.
+  // No burst: the overdue slices are not caught up at once. Every slice the parent has recorded, before and after the
+  // pause, unfiltered, is at least one interval after the one before it, and the count after resume is no more than
+  // one interval's worth of time allows.
+  const atPause = sliceTimes(stillPaused);
   await expect
-    .poll(async () => sliceTimes(await parentOf(trader, id)).filter((t) => t >= resumedAt).length, { timeout: 60_000 })
-    .toBeGreaterThanOrEqual(2);
-  const after = sliceTimes(await parentOf(trader, id)).filter((t) => t >= resumedAt);
-  for (let i = 1; i < after.length; i++) expect(after[i] - after[i - 1]).toBeGreaterThanOrEqual(back.sliceIntervalMs);
+    .poll(async () => sliceTimes(await parentOf(trader, id)).length, { timeout: 60_000 })
+    .toBeGreaterThanOrEqual(atPause.length + 2);
+  const final = await parentOf(trader, id);
+  const readAt = Date.now();
+  const all = sliceTimes(final);
+  expect(all.slice(0, atPause.length)).toEqual(atPause);
+  const sinceResume = all.slice(atPause.length);
+  // Still running (or run out), not halted after the resume.
+  expect(['active', 'completed']).toContain(final.status);
+  expect(sinceResume.length).toBeLessThanOrEqual(Math.floor((readAt - resumedAt) / back.sliceIntervalMs) + 1);
+  expect(sinceResume[0]).toBeGreaterThanOrEqual(resumedAt);
+  for (let i = 1; i < all.length; i++) expect(all[i] - all[i - 1]).toBeGreaterThanOrEqual(back.sliceIntervalMs);
 });
 
 test(`${J} #5 places a chase limit order with a maximum distance: re-priced with the book inside the distance, stopped beyond it, blank refused`, async ({
