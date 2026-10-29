@@ -378,7 +378,8 @@ const transportMail = openIdentityMail({
 const antiPhishingMailKey = antiPhishingKey(parseTotpSecretKey(env.IDENTITY_TOTP_SECRET_KEY));
 const mail = transportMail && withAntiPhishingCode(transportMail, sql, antiPhishingMailKey);
 auth.usePasswordResetMail(mail);
-auth.useKycCapabilities(parseKycCapabilitiesByLevel(env.IDENTITY_KYC_CAPABILITIES_BY_LEVEL));
+const kycCapabilityMap = parseKycCapabilitiesByLevel(env.IDENTITY_KYC_CAPABILITIES_BY_LEVEL);
+auth.useKycCapabilities(kycCapabilityMap);
 auth.useKycAttemptLimit(parseKycAttemptLimit(env));
 auth.usePasswordResetTtl(env.IDENTITY_PASSWORD_RESET_TTL_SECONDS);
 auth.usePasswordResetPolicy({
@@ -543,6 +544,8 @@ const actionApprovals = new ActionApprovalService(
 );
 const customerStepUp = new CustomerStepUpService(sql, stepUpStore, auth);
 const securityStepUp = new SecurityStepUp({ sql, approvals: actionApprovals, secondFactor: requireEnrolledSecondFactor(sql) });
+/** The owner's capability reason list, read once: the review doors and the account status share it. */
+const kycCapabilityReasons = parseKycRejectReasons(env.IDENTITY_KYC_CAPABILITY_REASONS, 'IDENTITY_KYC_CAPABILITY_REASONS');
 const selfFreezeLift = new SelfFreezeLift(sql, env.IDENTITY_SELF_FREEZE_LIFT_WAIT_SECONDS);
 const securityLock = new SecurityLock(sql, env.IDENTITY_SECURITY_LOCK_UNLOCK_WAIT_SECONDS);
 await sql`SELECT frozen FROM sub_accounts LIMIT 0`.catch(() => {
@@ -637,7 +640,7 @@ export const appRouter = mergeRouters(
       reviewHours: parseKycReviewHoursByLevel(env.IDENTITY_KYC_REVIEW_HOURS_BY_LEVEL),
     },
     kycRejectReasons: parseKycRejectReasons(env.IDENTITY_KYC_REJECT_REASONS),
-    kycCapabilityReasons: parseKycRejectReasons(env.IDENTITY_KYC_CAPABILITY_REASONS, 'IDENTITY_KYC_CAPABILITY_REASONS'),
+    kycCapabilityReasons,
     kycProfile,
     kycPoa,
     kycSelfie,
@@ -739,7 +742,7 @@ export const appRouter = mergeRouters(
   createServerTimeRouter(),
   createSelfFreezeLiftRouter(selfFreezeLift, securityStepUp),
   createSecurityLockRouter(securityLock, securityStepUp),
-  createAccountStatusRouter(new AccountStatusDesk(sql, env.IDENTITY_SELF_FREEZE_LIFT_WAIT_SECONDS)),
+  createAccountStatusRouter(new AccountStatusDesk(sql, env.IDENTITY_SELF_FREEZE_LIFT_WAIT_SECONDS, kycCapabilityReasons, kycCapabilityMap)),
   createMfaResetRouter(auth),
   createSupportRecoveryRouter(() => auth.supportRecoveryDeps()),
   createTrustedDevicesRouter(auth, securityStepUp),

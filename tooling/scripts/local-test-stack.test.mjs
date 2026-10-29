@@ -93,6 +93,29 @@ const script = resolve(here, 'local-test-stack.mjs');
   console.log('local-test-stack: bank can start with deposit custody unset');
 }
 
+// svc-ledger reads no outside snapshot by default; `LOCAL_STACK_LEDGER_OUTSIDE_SNAPSHOT=unreachable` points it at a closed
+// local port so a run shows ERROR (J-ops-console-07 #5), and nothing else changes.
+{
+  const { localTestServiceEnvs } = await import('./local-test-stack.mjs');
+  const ledgerEnv = () => localTestServiceEnvs().find((service) => service.name === 'ledger').env;
+  const before = process.env.LOCAL_STACK_LEDGER_OUTSIDE_SNAPSHOT;
+  try {
+    delete process.env.LOCAL_STACK_LEDGER_OUTSIDE_SNAPSHOT;
+    const unset = ledgerEnv();
+    assert.equal('LEDGER_RECONCILE_OUTSIDE_SNAPSHOT_URL' in unset, false);
+    process.env.LOCAL_STACK_LEDGER_OUTSIDE_SNAPSHOT = 'unreachable';
+    const { LEDGER_RECONCILE_OUTSIDE_SNAPSHOT_URL: url, ...rest } = ledgerEnv();
+    assert.equal(url, 'http://127.0.0.1:9/local-test-outside-snapshot');
+    assert.deepEqual(rest, unset);
+    process.env.LOCAL_STACK_LEDGER_OUTSIDE_SNAPSHOT = 'on';
+    assert.throws(ledgerEnv, /LOCAL_STACK_LEDGER_OUTSIDE_SNAPSHOT is "on"/);
+  } finally {
+    if (before === undefined) delete process.env.LOCAL_STACK_LEDGER_OUTSIDE_SNAPSHOT;
+    else process.env.LOCAL_STACK_LEDGER_OUTSIDE_SNAPSHOT = before;
+  }
+  console.log('local-test-stack: ledger can start with an unreachable outside snapshot');
+}
+
 // `LOCAL_STACK_MINING_POOL_PUBLISHED=off` starts the pool with every LOCAL TEST owner value blank (J-more-catalogue-05 #1, #2),
 // and nothing else changes.
 {
@@ -131,6 +154,29 @@ const script = resolve(here, 'local-test-stack.mjs');
     assert.equal(bank.env[name], profile[name].value, `bank env ${name} differs from the bank profile`);
   }
   console.log('local-test-stack: bank BK-xfer-07 TEST values come from the bank profile');
+}
+
+// The token process carries the TEST proposer rule and proposal limit from the token profile, verbatim, so a governance
+// journey meets the rule instead of the unset refusal.
+{
+  const { localTestServiceEnvs } = await import('./local-test-stack.mjs');
+  const { loadProfile } = await import('./owner-settings.mjs');
+  const token = localTestServiceEnvs().find((service) => service.name === 'token');
+  const profile = loadProfile().values;
+  for (const name of ['TOKEN_PROPOSER_RULE', 'TOKEN_PROPOSAL_LIMIT', 'EMISSIONS_EPOCH_MS']) {
+    assert.equal(profile[name]?.service, 'token', `${name} is not in the token profile`);
+    assert.equal(token.env[name], profile[name].value, `token env ${name} differs from the token profile`);
+  }
+  // LOCAL_STACK_TOKEN_PROPOSER_RULE=off leaves the rule blank, so a journey can restart the lane to show its refusal.
+  process.env.LOCAL_STACK_TOKEN_PROPOSER_RULE = 'off';
+  try {
+    const blank = localTestServiceEnvs().find((service) => service.name === 'token');
+    assert.equal('TOKEN_PROPOSER_RULE' in blank.env, false, 'the off switch must leave TOKEN_PROPOSER_RULE unset');
+    assert.equal(blank.env.TOKEN_PROPOSAL_LIMIT, profile.TOKEN_PROPOSAL_LIMIT.value);
+  } finally {
+    delete process.env.LOCAL_STACK_TOKEN_PROPOSER_RULE;
+  }
+  console.log('local-test-stack: token governance TEST values come from the token profile');
 }
 
 // The global-send stand-in is chosen on this stack only, and its TEST catalogue and send-field rules come from the bank

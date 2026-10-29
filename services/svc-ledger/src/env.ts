@@ -124,8 +124,26 @@ const schema = serviceEnvSchema
        * Boot/cron freeze does not call identity.
        */
       IDENTITY_URL: z.string().url().optional(),
+
+      /**
+       * Owner value, no default: where an outside-balance control reads the rail's balance snapshot
+       * (OPS-reconciliation-01/-02). Blank / unset → the outside side is `unset`. Set but unreadable → that run is
+       * ERROR (`ledger.reconcile_source_unavailable`), never PASS. The balances a money control trusts travel only over
+       * https; plain http is accepted for a loopback host alone (the local TEST stack), and anything else refuses boot.
+       */
+      LEDGER_RECONCILE_OUTSIDE_SNAPSHOT_URL: z.preprocess(
+        (v) => (v === '' ? undefined : v),
+        z.string().url().refine(isOutsideSnapshotUrl, 'must be https (plain http only for a loopback host)').optional(),
+      ),
     }),
   );
+
+/** https anywhere, or http on a loopback host only. */
+function isOutsideSnapshotUrl(value: string): boolean {
+  const url = new URL(value);
+  if (url.protocol === 'https:') return true;
+  return url.protocol === 'http:' && ['127.0.0.1', 'localhost', '[::1]'].includes(url.hostname);
+}
 
 export const env = loadEnv(schema);
 export type Env = typeof env;
