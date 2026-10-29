@@ -15,6 +15,8 @@ import type { QueueEntry, QueueRead, SupportRating, TicketStatus } from './types
  */
 
 export const QUEUE_PAGE = 100;
+/** The ticket history reads ask svc-support for at most this many rows each; a full page may have more after it. */
+export const HISTORY_PAGE = 100;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const STATUSES: readonly string[] = ['open', 'pending', 'on_hold', 'resolved', 'closed'];
 

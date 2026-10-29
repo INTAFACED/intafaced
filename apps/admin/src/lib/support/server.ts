@@ -16,7 +16,7 @@ import {
 import { founderCall, parseWith, type FounderCallContext, type FounderCallResult } from '@/lib/desk/founder-call';
 import { partFrom, type PartLabels } from '@/lib/desk/part';
 import { SUPPORT_OPS_FORBIDDEN, SUPPORT_OPS_FORBIDDEN_BODY } from './refusal';
-import { QUEUE_PAGE, readQueueResult, readRatingResult, type SupportActionRequest } from './model';
+import { HISTORY_PAGE, QUEUE_PAGE, readQueueResult, readRatingResult, type SupportActionRequest } from './model';
 import { EMPTY_QUERY, isQueryEmpty, type QueueQuery } from './queue-query';
 import { readBulkPolicy, readBulkResults } from './bulk';
 import { readMergePreview } from './merge';
@@ -141,8 +141,8 @@ export async function loadTicket(ctx: FounderCallContext, ticketId: string, now:
   const [ticket, comments, events, propertyChanges] = await Promise.all([
     founderCall(ctx, 'support', 'get', 'GET', { ticketId }, parseWith(supportTicketSchema)),
     founderCall(ctx, 'support', 'listComments', 'GET', { ticketId, limit: 100 }, arrayOf(supportCommentSchema)),
-    founderCall(ctx, 'support', 'events', 'GET', { ticketId, limit: 100 }, arrayOf(supportTicketEventSchema)),
-    founderCall(ctx, 'support', 'ticketPropertyHistory', 'GET', { ticketId, limit: 100 }, arrayOf(supportTicketPropertyChangeSchema)),
+    founderCall(ctx, 'support', 'events', 'GET', { ticketId, limit: HISTORY_PAGE }, arrayOf(supportTicketEventSchema)),
+    founderCall(ctx, 'support', 'ticketPropertyHistory', 'GET', { ticketId, limit: HISTORY_PAGE }, arrayOf(supportTicketPropertyChangeSchema)),
   ]);
   const detail = partFrom(
     ticket,

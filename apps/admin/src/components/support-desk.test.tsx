@@ -233,4 +233,24 @@ describe('ticket history with property changes (J-support-public-10 #6)', () => 
     expect(rows.at(-2)).toMatchObject({ sequence: null, note: 'Triage' });
     expect(rows[0]?.sequence).toBe(1);
   });
+
+  it('keeps the events in sequence order even when a time runs backwards, and shows the changes when the events failed', () => {
+    const base = detail();
+    if (base.detail.kind !== 'ok' || base.detail.data.events.kind !== 'ok') throw new Error('fixture');
+    const e1 = base.detail.data.events.data[0]!;
+    const e2 = { ...e1, id: '66666666-6666-4666-8666-666666666666', sequence: 2, occurredAt: '2026-10-16T23:00:00.000Z' };
+    const change = { ticketId: T1, field: 'type' as const, before: null, after: 'problem', setBy: ME, reason: null, setAt: 'not a time' };
+    const merged = historyOf({
+      ...base.detail.data,
+      events: { kind: 'ok', data: [e1, e2] },
+      propertyChanges: { kind: 'ok', data: [change] },
+    });
+    expect(merged.map((r) => r.sequence)).toEqual([1, 2, null]);
+    const failed = historyOf({
+      ...base.detail.data,
+      events: { kind: 'failed', message: 'down', code: null, notBuilt: false, forbidden: false },
+      propertyChanges: { kind: 'ok', data: [change] },
+    });
+    expect(failed.map((r) => r.what)).toEqual(['type none → problem']);
+  });
 });

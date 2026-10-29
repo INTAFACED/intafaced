@@ -5,7 +5,7 @@ import { Chip } from '@/components/chip';
 import { shortId } from '@/lib/desk/desk-model';
 import type { Part } from '@/lib/desk/part';
 import { fetchQueue, fetchTicket, fetchTicketExtras, postClaim, type ClaimReply } from '@/lib/support/browser';
-import { claimGate, formatAge, queueMetrics, type ClaimGate } from '@/lib/support/model';
+import { HISTORY_PAGE, claimGate, formatAge, queueMetrics, type ClaimGate } from '@/lib/support/model';
 import type { QueueRead, SupportQueueView, SupportTicketView, TicketDetail, TicketExtrasView } from '@/lib/support/types';
 import { Failed } from './support-action-parts';
 import { SupportBulkBar } from './support-bulk-bar';
@@ -133,7 +133,7 @@ export function historyOf(detail: TicketDetail): HistoryRow[] {
   const changes: HistoryRow[] =
     detail.propertyChanges?.kind === 'ok'
       ? detail.propertyChanges.data.map((c, i) => ({
-          key: `prop-${i}`,
+          key: `prop-${c.setAt}-${c.field}-${i}`,
           sequence: null,
           at: c.setAt,
           what: `${c.field} ${c.before ?? 'none'} → ${c.after ?? 'none'}`,
@@ -141,14 +141,31 @@ export function historyOf(detail: TicketDetail): HistoryRow[] {
           note: c.reason,
         }))
       : [];
-  // Stable: events keep their sequence order, and a change sits after the events of the same instant.
-  return [...events, ...changes].sort((a, b) => Date.parse(a.at) - Date.parse(b.at));
+  // Merged, not re-sorted: events keep svc-support's sequence order and changes their log order; at the same instant (or
+  // an unreadable time) the event comes first.
+  const out: HistoryRow[] = [];
+  let i = 0;
+  let j = 0;
+  while (i < events.length || j < changes.length) {
+    const e = events[i];
+    const c = changes[j];
+    if (c === undefined || (e !== undefined && !(Date.parse(c.at) < Date.parse(e.at)))) {
+      out.push(e!);
+      i += 1;
+    } else {
+      out.push(c);
+      j += 1;
+    }
+  }
+  return out;
 }
+
 
 function TicketBody({ detail, ...p }: { detail: TicketDetail } & DeskViewProps) {
   const t = detail.ticket;
   const gate: ClaimGate = claimGate(t, p.userId, p.busy);
   const mine = t.assigneeId !== null && t.assigneeId.toLowerCase() === p.userId.toLowerCase();
+  const history = historyOf(detail);
   return (
     <>
       <dl className="dk-kv">
@@ -247,10 +264,9 @@ function TicketBody({ detail, ...p }: { detail: TicketDetail } & DeskViewProps) 
       )}
 
       <h4>What happened to this ticket</h4>
-      {detail.events.kind === 'failed' ? (
-        <Failed name="History" part={detail.events} />
-      ) : detail.events.data.length === 0 && historyOf(detail).length === 0 ? (
-        <p className="dk-muted">No events recorded.</p>
+      {detail.events.kind === 'failed' && <Failed name="History" part={detail.events} />}
+      {history.length === 0 ? (
+        detail.events.kind === 'ok' && <p className="dk-muted">No events recorded.</p>
       ) : (
         <div className="dk-table-wrap" role="region" aria-label="Ticket history" tabIndex={0}>
           <table className="adm-table">
@@ -264,7 +280,7 @@ function TicketBody({ detail, ...p }: { detail: TicketDetail } & DeskViewProps) 
               </tr>
             </thead>
             <tbody>
-              {historyOf(detail).map((row) => (
+              {history.map((row) => (
                 <tr key={row.key}>
                   <td>{row.sequence ?? '—'}</td>
                   <td>{formatWhen(row.at)}</td>
@@ -279,6 +295,13 @@ function TicketBody({ detail, ...p }: { detail: TicketDetail } & DeskViewProps) 
       )}
 
       {detail.propertyChanges?.kind === 'failed' && <Failed name="Priority, type and labels history" part={detail.propertyChanges} />}
+      {((detail.events.kind === 'ok' && detail.events.data.length >= HISTORY_PAGE) ||
+        (detail.propertyChanges?.kind === 'ok' && detail.propertyChanges.data.length >= HISTORY_PAGE)) && (
+        <p className="dk-muted" data-testid="history-page-full">
+          These are the first {HISTORY_PAGE} rows svc-support returned for this request, and the page is full: later rows may
+          be missing here.
+        </p>
+      )}
 
       <TicketExtras extras={p.extras} loading={p.loadingExtras} />
       <TicketFiles key={`files-${t.id}`} ticketId={t.id} />
