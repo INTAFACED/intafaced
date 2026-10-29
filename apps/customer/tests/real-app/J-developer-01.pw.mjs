@@ -1,5 +1,3 @@
-import { readdirSync, readFileSync } from 'node:fs';
-import { fileURLToPath } from 'node:url';
 import { test, expect } from '@playwright/test';
 import { tableIn, bodyRows } from './tables.mjs';
 import { tool } from './stack.mjs';
@@ -81,27 +79,17 @@ async function liveInventory(page) {
 }
 
 /**
- * The `/api/v1` routes svc-trade's own router code registers, `METHOD /path` per row. The edge forwards the whole
- * `/api/v1` prefix to svc-trade (services/svc-edge/src/routes.ts), so each of these is a route a developer can call.
- * Read from the registration calls themselves (a literal path, or a path constant declared in the same file), never
- * from a list kept beside them; it is a lower bound, since a path built at run time is not seen here.
+ * svc-trade's own route inventory, GET /api/v1/routes, read from the running stack through the edge: every /api/v1
+ * route its router mounted, each with the access and scopes declared where the route is registered.
  */
-function registeredTradeRoutes() {
-  const root = fileURLToPath(new URL('../../../../services/svc-trade/src/', import.meta.url));
-  const files = readdirSync(root, { recursive: true }).filter((file) => file.endsWith('.ts') && !file.endsWith('.test.ts'));
-  const routes = new Set();
-  for (const file of files) {
-    const source = readFileSync(`${root}${file}`, 'utf8');
-    const constants = new Map([...source.matchAll(/const (\w+) = '(\/api\/v1[^']*)'/g)].map(([, name, path]) => [name, path]));
-    for (const [, method, literal, name] of source.matchAll(
-      /\.(get|post|put|delete|patch)(?:<[^()']*?>)?\(\s*(?:'(\/api\/v1[^']*)'|(\w+),)/g,
-    )) {
-      const path = literal ?? constants.get(name);
-      if (path) routes.add(`${method.toUpperCase()} ${path}`);
-    }
-  }
-  return [...routes].sort();
+async function routeInventory(page) {
+  const response = await page.request.get('/api/v1/routes');
+  expect(response.status(), await response.text()).toBe(200);
+  return (await response.json()).routes;
 }
+
+/** A route path with each `:param` filled, so a signed-out call reaches the route's own handler. */
+const concrete = (path) => path.replace(/:\w+/g, '00000000-0000-4000-8000-000000000000');
 
 const readDownload = async (download) => Buffer.concat(await (await download.createReadStream()).toArray()).toString('utf8');
 
@@ -337,6 +325,12 @@ test(`${J} #4 reads the REST conventions and the trading API reference index: UR
 test(`${J} #5 downloads the OpenAPI file and a collection, and opens the agent docs index: every route with scope, cost and errors; each page once with a markdown variant`, async ({
   page,
 }) => {
+  // "Every route" is svc-trade's own inventory: the routes its router mounted on this stack, each once.
+  const live = await routeInventory(page);
+  const liveLines = live.map((route) => `${route.method} ${route.path}`);
+  expect(liveLines.length).toBeGreaterThan(90);
+  expect(new Set(liveLines).size).toBe(liveLines.length);
+
   await page.goto('/developers/openapi');
   await expect(page.getByRole('heading', { name: 'Machine-readable specs', level: 1 })).toBeVisible();
   const download = page.getByRole('link', { name: /Download the OpenAPI file/ });
@@ -344,18 +338,47 @@ test(`${J} #5 downloads the OpenAPI file and a collection, and opens the agent d
   const [file] = await Promise.all([page.waitForEvent('download'), download.click()]);
   const spec = JSON.parse(await readDownload(file));
   expect(spec.openapi).toMatch(/^3\./);
-  const operations = Object.values(spec.paths ?? {}).flatMap((methods) => Object.values(methods));
-  const lines = Object.entries(spec.paths).flatMap(([path, methods]) =>
-    Object.keys(methods).map((method) => `${method.toUpperCase()} ${path.replace(/\{(\w+)\}/g, ':$1')}`),
+  const operations = Object.entries(spec.paths).flatMap(([path, methods]) =>
+    Object.entries(methods).map(([method, operation]) => ({
+      line: `${method.toUpperCase()} ${path.replace(/\{(\w+)\}/g, ':$1')}`,
+      operation,
+    })),
   );
-  // The downloaded file carries every route of the live inventory the running stack serves.
-  const live = await liveInventory(page);
-  for (const line of live) expect(lines, line).toContain(line);
-  for (const operation of operations) {
-    expect(operation.security ?? operation['x-scope'], JSON.stringify(operation).slice(0, 200)).toBeDefined();
-    expect(operation['x-cost'], JSON.stringify(operation).slice(0, 200)).toBeDefined();
-    expect(Object.keys(operation.responses ?? {}).some((status) => /^[45]/.test(status))).toBe(true);
+  // The file lists every live route exactly once, and nothing the router did not mount.
+  expect(operations.map(({ line }) => line).sort()).toEqual([...liveLines].sort());
+  // Each route's access and scopes are the ones its registration declares, its cost is set, and it names its refusals.
+  for (const { line, operation } of operations) {
+    const declared = live.find((route) => `${route.method} ${route.path}` === line);
+    expect({ line, access: operation['x-access'], scopes: operation['x-scopes'] }).toEqual({
+      line,
+      access: declared.access,
+      scopes: declared.scopes ?? [],
+    });
+    expect({ line, cost: operation['x-cost'] }).toEqual({ line, cost: 1 });
+    expect({ line, refusals: Object.keys(operation.responses).filter((status) => /^[45]/.test(status)).length > 0 }).toEqual({
+      line,
+      refusals: true,
+    });
   }
+
+  // A caller with no credential: every route the file calls private or internal answers 401 with the exact field and
+  // code the file names, and every public route answers without asking for one. Every route is called before the one
+  // comparison, so a run names every route that disagrees.
+  const answered = [];
+  const documented = [];
+  for (const { line, operation } of operations) {
+    const [method, path] = line.split(' ');
+    const response = await page.request.fetch(concrete(path), {
+      method,
+      ...(method === 'GET' || method === 'DELETE' ? {} : { data: {} }),
+    });
+    const body = await response.json().catch(() => null);
+    const expected = operation['x-signed-out'];
+    answered.push({ line, refusedSignedOut: response.status() === 401, code: expected ? body?.[expected.field] : null });
+    documented.push({ line, refusedSignedOut: expected !== null, code: expected?.code ?? null });
+  }
+  expect(answered).toEqual(documented);
+
   const [collection] = await Promise.all([
     page.waitForEvent('download'),
     page.getByRole('link', { name: /Download the collection/ }).click(),
@@ -363,10 +386,23 @@ test(`${J} #5 downloads the OpenAPI file and a collection, and opens the agent d
   expect(collection.suggestedFilename()).toMatch(/\.json$/);
   const requests = JSON.parse(await readDownload(collection))
     .item.flatMap((folder) => folder.item)
-    .map(({ request }) => `${request.method} /${request.url.path.join('/')}`);
-  // The collection is a request for every route of the same live inventory, and for every route in the file.
-  for (const line of live) expect(requests, line).toContain(line);
-  expect([...requests].sort()).toEqual([...lines].sort());
+    .map(({ request }) => ({
+      line: `${request.method} /${request.url.path.join('/')}`,
+      keyed: request.header.some((header) => header.key === 'Authorization'),
+    }));
+  // The collection is one request for every live route, each once; only a private route carries the key header.
+  expect(requests.map(({ line }) => line).sort()).toEqual([...liveLines].sort());
+  expect(
+    requests
+      .filter(({ keyed }) => keyed)
+      .map(({ line }) => line)
+      .sort(),
+  ).toEqual(
+    live
+      .filter((route) => route.access === 'private')
+      .map((route) => `${route.method} ${route.path}`)
+      .sort(),
+  );
 
   // The agent index lists every portal docs page exactly once, each beside its markdown variant. The portal's docs pages
   // are the home page, its base-address table, and each section /developers marks "Page in this portal"; the two of
@@ -389,31 +425,18 @@ test(`${J} #5 downloads the OpenAPI file and a collection, and opens the agent d
   const docsPages = ['/developers', '/developers/hosts', ...written.filter((href) => !livePages.includes(href))];
   expect(docsPages.length).toBeGreaterThan(5);
   const listed = indexText.match(/\/developers\/[a-z-]+\.md/g) ?? [];
-  for (const href of docsPages) {
-    const md = href === '/developers' ? '/developers/index.md' : `${href}.md`;
-    expect(
-      listed.filter((path) => path === md),
-      `${href} in llms.txt`,
-    ).toHaveLength(1);
+  // Every docs page is listed exactly once, and nothing else is listed as a docs page.
+  expect([...listed].sort()).toEqual(docsPages.map((href) => (href === '/developers' ? '/developers/index.md' : `${href}.md`)).sort());
+  for (const md of listed) {
     const variant = await page.request.get(md);
     expect(variant.ok(), md).toBe(true);
     const text = await variant.text();
     expect(text, md).not.toMatch(/<!doctype html/i);
     expect(text, md).toMatch(/^# \S/);
   }
-  // Nothing else is listed as a docs page: every markdown line names one of the portal's pages.
-  expect(listed.length).toBe(docsPages.length);
-
-  // "Every route": the live inventory, the file and the collection above agree with each other, but the inventory itself
-  // is a matrix kept by hand in svc-trade, so it is checked last against the routes svc-trade's router registers. Until
-  // svc-trade serves an inventory read from its mounted routes, the routes it leaves out stay red here by name.
-  const registered = registeredTradeRoutes();
-  expect(registered.length).toBeGreaterThan(10);
-  const missing = registered.filter((route) => !live.includes(route) || !lines.includes(route));
-  expect(
-    missing,
-    `BLOCKED: GET /api/v1/capabilities (and so the OpenAPI file and the collection) omits ${missing.length} of the ${registered.length} /api/v1 routes svc-trade registers and the edge forwards; svc-trade's inventory is a hand-kept matrix, not read from its router:\n${missing.join('\n')}`,
-  ).toEqual([]);
+  // The markdown reference names every live route.
+  const reference = await (await page.request.get('/developers/reference.md')).text();
+  for (const line of liveLines) expect(reference, line).toContain(line);
 });
 
 test(`${J} #6 reads which data products I may use and on what terms: redistribution, retention and entitlement per product, "not set" where unset`, async ({

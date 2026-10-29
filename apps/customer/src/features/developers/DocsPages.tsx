@@ -19,7 +19,7 @@ import {
   STREAM_REFERENCE,
   permissionTable,
   routeLine,
-  scopeFor,
+  scopeText,
   streamName,
   withinWindow,
   type Product,
@@ -95,8 +95,15 @@ export function ReferencePage({ title }: { title: string }) {
                         </th>
                         <td>
                           <code>{route.name}</code>
+                          {route.onlyWithFuturesMatching ? <> · {t('onlyWithMatching')}</> : null}
                         </td>
-                        <td>{route.anonymous ? t('publicRoute', { scope: scopeFor(route.method) }) : scopeFor(route.method)}</td>
+                        <td>
+                          {route.access === 'public'
+                            ? t('publicRoute', { scope: scopeText(route) })
+                            : route.access === 'internal'
+                              ? t('internalRoute')
+                              : scopeText(route)}
+                        </td>
                       </tr>
                     ))}
                   </tbody>

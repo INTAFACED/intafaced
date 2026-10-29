@@ -18,7 +18,7 @@ import {
   STREAM_REFERENCE,
   permissionTable,
   routeLine,
-  scopeFor,
+  scopeText,
   streamName,
 } from './developers-reference';
 
@@ -109,8 +109,12 @@ export const DOCS_PAGES: readonly DocsPage[] = [
                     [docs('colRoute'), docs('colName'), docs('colPermission')],
                     routes.map((route) => [
                       code(routeLine(route)),
-                      code(route.name),
-                      route.anonymous ? docs('publicRoute', { scope: scopeFor(route.method) }) : scopeFor(route.method),
+                      code(route.name) + (route.onlyWithFuturesMatching ? ` · ${docs('onlyWithMatching')}` : ''),
+                      route.access === 'public'
+                        ? docs('publicRoute', { scope: scopeText(route) })
+                        : route.access === 'internal'
+                          ? docs('internalRoute')
+                          : scopeText(route),
                     ]),
                   ),
                 ]

@@ -24,6 +24,7 @@ import {
   trialsInForce,
 } from './fee-tier-store.js';
 import { nextSnapshotInstant, nextThreshold, tierForVolume, volumeWindow } from './fee-tiers.js';
+import { privateRead } from '../route-inventory.js';
 
 export const ACCOUNT_FEE_TIER_PATH = '/api/v1/account/fee-tier';
 
@@ -47,7 +48,7 @@ export function registerFeeTierRest(app: FastifyInstance, deps: FeeTierRestDeps)
   const edgeContext = createEdgeContext({ secret: deps.edgeSecret, ...deps.edgeTrust, serviceName: deps.serviceName });
   const now = deps.now ?? (() => new Date());
 
-  app.get(ACCOUNT_FEE_TIER_PATH, async (req, reply) => {
+  app.get(ACCOUNT_FEE_TIER_PATH, privateRead, async (req, reply) => {
     const edgeReq: EdgeRequest = { headers: req.headers as Record<string, string | string[] | undefined>, id: req.id };
     const principal = edgeContext(edgeReq).principal;
     if (!principal) return reply.code(401).send({ code: 'trade.unauthenticated', message: 'signed principal required' });

@@ -77,7 +77,7 @@ describe('developer docs pages', () => {
   it('the permission table has a row per key scope, with POST /api/v1/orders under trade:write', () => {
     const page = html('/developers/permissions');
     expect(page).toContain('aria-label="Permissions and endpoints"');
-    const write = page.slice(page.indexOf('data-scope="trade:write"'), page.indexOf('data-scope="trade:withdraw"'));
+    const write = page.slice(page.indexOf('data-scope="trade:write"'), page.indexOf('data-scope="admin:read"'));
     expect(write).toContain('POST /api/v1/orders');
     expect(write).not.toContain('GET /api/v1/');
   });

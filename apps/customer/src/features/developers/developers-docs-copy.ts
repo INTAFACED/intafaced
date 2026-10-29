@@ -41,15 +41,17 @@ export const docsCopy = defineCopy(
     'door_drop-copy': 'Drop copy of your fills',
     streamsLive: 'The live stream inventory, GET /ws/streams, lists every channel the stream service serves and whether its door is up.',
     publicRoute: 'public; with a key {scope}',
+    onlyWithMatching: 'mounted only with futures matching',
+    internalRoute: 'service to service only; no key or session reaches it',
     privateStream: 'your own data; {scope}',
     publicStream: 'public',
     fundingNone:
       'No deposit or withdrawal route is on the trading API: withdrawals are never reachable with a key, and deposits are made from the signed-in app.',
     referenceMore:
-      'The live inventory, GET /api/v1/capabilities, also lists the position and statement routes beyond this table, with their refusals.',
+      'This table lists every trading REST route, each once. The live inventory, GET /api/v1/routes, lists the same routes with who may call each and the scopes a key needs; a route marked as needing futures matching is mounted only while futures orders go through matching.',
     // Permissions
     permissionsLead:
-      'Which permission a key needs for each route. On /api/v1 a key needs trade:read to read and trade:write for anything else; a key without it is refused with scope.denied and a link to this page.',
+      'Which permission a key needs for each route. On /api/v1 a key needs trade:read to read and trade:write for anything else; a staff route also needs admin:read. A key without the scope is refused with scope.denied and a link to this page.',
     permissionsTable: 'Permissions and endpoints',
     colScope: 'Permission',
     colEndpoints: 'Endpoints',
@@ -164,14 +166,16 @@ export const docsCopy = defineCopy(
       streamsLive:
         'El inventario de flujos en vivo, GET /ws/streams, lista cada canal que sirve el servicio de flujos y si su puerta está abierta.',
       publicRoute: 'pública; con clave {scope}',
+      onlyWithMatching: 'montada solo con matching de futuros',
+      internalRoute: 'solo entre servicios; ninguna clave ni sesión la alcanza',
       privateStream: 'tus propios datos; {scope}',
       publicStream: 'público',
       fundingNone:
         'Ninguna ruta de depósito o retiro está en la API de trading: los retiros nunca son posibles con una clave, y los depósitos se hacen desde la app con sesión iniciada.',
       referenceMore:
-        'El inventario en vivo, GET /api/v1/capabilities, también lista las rutas de posiciones y extractos fuera de esta tabla, con sus rechazos.',
+        'Esta tabla lista cada ruta REST de trading, una vez cada una. El inventario en vivo, GET /api/v1/routes, lista las mismas rutas con quién puede llamar a cada una y los permisos que necesita una clave; una ruta marcada como dependiente del matching de futuros solo está montada mientras las órdenes de futuros pasan por el matching.',
       permissionsLead:
-        'Qué permiso necesita una clave para cada ruta. En /api/v1 una clave necesita trade:read para leer y trade:write para todo lo demás; una clave sin él se rechaza con scope.denied y un enlace a esta página.',
+        'Qué permiso necesita una clave para cada ruta. En /api/v1 una clave necesita trade:read para leer y trade:write para todo lo demás; una ruta de personal también necesita admin:read. Una clave sin el permiso se rechaza con scope.denied y un enlace a esta página.',
       permissionsTable: 'Permisos y endpoints',
       colScope: 'Permiso',
       colEndpoints: 'Endpoints',
@@ -283,14 +287,16 @@ export const docsCopy = defineCopy(
       streamsLive:
         'L’inventaire des flux en direct, GET /ws/streams, liste chaque canal que sert le service de flux et si sa porte est ouverte.',
       publicRoute: 'publique ; avec une clé {scope}',
+      onlyWithMatching: 'montée seulement avec le matching des contrats à terme',
+      internalRoute: 'entre services uniquement ; aucune clé ni session ne l’atteint',
       privateStream: 'vos propres données ; {scope}',
       publicStream: 'public',
       fundingNone:
         'Aucune route de dépôt ou de retrait n’est sur l’API de trading : les retraits ne sont jamais accessibles avec une clé, et les dépôts se font depuis l’application connectée.',
       referenceMore:
-        'L’inventaire en direct, GET /api/v1/capabilities, liste aussi les routes de positions et de relevés hors de ce tableau, avec leurs refus.',
+        'Ce tableau liste chaque route REST de trading, une fois chacune. L’inventaire en direct, GET /api/v1/routes, liste les mêmes routes avec qui peut appeler chacune et les autorisations dont une clé a besoin ; une route marquée comme dépendant du matching des contrats à terme n’est montée que lorsque les ordres à terme passent par le matching.',
       permissionsLead:
-        'L’autorisation dont une clé a besoin pour chaque route. Sur /api/v1, une clé a besoin de trade:read pour lire et de trade:write pour tout le reste ; une clé qui ne l’a pas est refusée avec scope.denied et un lien vers cette page.',
+        'L’autorisation dont une clé a besoin pour chaque route. Sur /api/v1, une clé a besoin de trade:read pour lire et de trade:write pour tout le reste ; une route réservée au personnel demande aussi admin:read. Une clé sans l’autorisation est refusée avec scope.denied et un lien vers cette page.',
       permissionsTable: 'Autorisations et endpoints',
       colScope: 'Autorisation',
       colEndpoints: 'Endpoints',
