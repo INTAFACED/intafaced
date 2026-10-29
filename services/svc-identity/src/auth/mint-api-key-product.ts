@@ -49,7 +49,7 @@ export async function mintApiKeyWithProductScope(
     const bound = await bindApiKeyProductScope(sql, input.userId, minted.id, next, input.grantorScopes);
     return { ...minted, productScopes: bound.productScopes };
   } catch (err) {
-    await minter.revokeApiKey(input.userId, minted.id);
+    await minter.revokeApiKey(input.userId, minted.id, 'system');
     throw err;
   }
 }

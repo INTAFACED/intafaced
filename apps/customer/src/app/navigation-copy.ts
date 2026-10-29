@@ -134,6 +134,8 @@ const messages = {
   'What changed in the developer interfaces': 'What changed in the developer interfaces',
   'Upcoming breaking changes': 'Upcoming breaking changes',
   'Breaking changes and retired endpoints': 'Breaking changes and retired endpoints',
+  'Authentication and permission errors': 'Authentication and permission errors',
+  'Codes a refused key or token carries': 'Codes a refused key or token carries',
   'Hosts per protocol, environment and region': 'Hosts per protocol, environment and region',
   'Developer section': 'Developer section',
   'One section of the developer portal': 'One section of the developer portal',
@@ -342,6 +344,8 @@ const messages = {
   'Create an API key': 'Create an API key',
   'Keys for your own programs to read and trade': 'Keys for your own programs to read and trade',
   'A new key with only the permissions it needs': 'A new key with only the permissions it needs',
+  'API key': 'API key',
+  'One key: its end date, idle expiry and IP policy': 'One key: its end date, idle expiry and IP policy',
   Verification: 'Verification',
   'Verification status and documents': 'Verification status and documents',
   'Business verification': 'Business verification',
@@ -503,6 +507,8 @@ const messages = {
 
 export const navigationCopy: ReturnType<typeof defineCopy<typeof messages>> = defineCopy('customer.navigation', messages, {
   es: {
+    'Authentication and permission errors': 'Errores de autenticación y de permisos',
+    'Codes a refused key or token carries': 'Los códigos que lleva una clave o un token rechazado',
     Home: 'Inicio',
     'Your money and markets': 'Tu dinero y los mercados',
     'Trades, orders and transfers': 'Operaciones, órdenes y transferencias',
@@ -741,6 +747,8 @@ export const navigationCopy: ReturnType<typeof defineCopy<typeof messages>> = de
     'Create an API key': 'Crear una clave de API',
     'Keys for your own programs to read and trade': 'Claves para que tus propios programas lean y operen',
     'A new key with only the permissions it needs': 'Una clave nueva con solo los permisos que necesita',
+    'API key': 'Clave de API',
+    'One key: its end date, idle expiry and IP policy': 'Una clave: su fecha de fin, su caducidad por inactividad y su política de IP',
     Verification: 'Verificación',
     'Verification status and documents': 'Estado de verificación y documentos',
     'Business verification': 'Verificación de empresa',
@@ -851,6 +859,8 @@ export const navigationCopy: ReturnType<typeof defineCopy<typeof messages>> = de
     'One product in your catalogue': 'Un producto de tu catálogo',
   },
   fr: {
+    'Authentication and permission errors': 'Erreurs d’authentification et d’autorisation',
+    'Codes a refused key or token carries': 'Les codes que porte une clé ou un jeton refusé',
     Home: 'Accueil',
     'Your money and markets': 'Votre argent et les marchés',
     'Trades, orders and transfers': 'Opérations, ordres et transferts',
@@ -1088,6 +1098,8 @@ export const navigationCopy: ReturnType<typeof defineCopy<typeof messages>> = de
     'Create an API key': 'Créer une clé d’API',
     'Keys for your own programs to read and trade': 'Des clés pour que vos propres programmes lisent et négocient',
     'A new key with only the permissions it needs': 'Une nouvelle clé avec uniquement les autorisations nécessaires',
+    'API key': 'Clé d’API',
+    'One key: its end date, idle expiry and IP policy': 'Une clé : sa date de fin, son expiration après inactivité et sa politique IP',
     Verification: 'Vérification',
     'Verification status and documents': 'Statut de vérification et documents',
     'Business verification': 'Vérification de l’entreprise',

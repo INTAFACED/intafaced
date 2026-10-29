@@ -24,7 +24,7 @@ import { KillSwitchState } from './kill-switch.js';
 import { httpMatchingApprovalRead, httpMatchingControl, registerMatchingOperatorRoutes } from './matching-proxy.js';
 import { readMatchingUrl, registerMatchingVenueHaltGuard } from './matching-venue-halt.js';
 import { markAuthOutcome, registerMetrics } from './metrics.js';
-import { createQuotaStore, decideGateway, sandboxOf } from './gateway-plane.js';
+import { createQuotaStore, decideGateway, parseSandboxHosts, sandboxOf } from './gateway-plane.js';
 import { apiKeyRefusalBody } from './api-key-refusal.js';
 import { markProxied, registerReplyEnvelope, REQUEST_ID_HEADER, REQUEST_ID_OPTIONS } from './reply-envelope.js';
 import { exchangePrincipal } from './principal-exchange.js';
@@ -181,6 +181,8 @@ const envLookup = (name: string): string | undefined => process.env[name];
 
 /** Per-key quota for the API-key plane (`gateway-plane.ts`). IP throttle stays in hardening.ts. */
 const keyQuota = createQuotaStore();
+/** Hosts that address the sandbox environment (`EDGE_SANDBOX_HOSTS`). Empty: every sandbox key refuses `env.mismatch`. */
+const sandboxHosts = parseSandboxHosts(env.EDGE_SANDBOX_HOSTS);
 
 const edgeEd25519 = edgeEd25519Config(env);
 
@@ -454,7 +456,9 @@ await app.register(async (api) => {
     // refresh path, so anonymous forwarding only told the bot "authentication required", the same words as
     // sending no key (`api-key-refusal.ts`).
     if (exchanged.apiKeyRefusal) {
-      req.log.info({ code: exchanged.apiKeyRefusal.code, path: url.pathname }, 'edge: api key refused');
+      // A 503 refusal (the owner's signing window is blank) is a platform setup gap, not a bad key: warn.
+      const level = exchanged.apiKeyRefusal.status >= 500 ? 'warn' : 'info';
+      req.log[level]({ code: exchanged.apiKeyRefusal.code, path: url.pathname }, 'edge: api key refused');
       markAuthOutcome(req, 'refused');
       return reply.code(exchanged.apiKeyRefusal.status).send(apiKeyRefusalBody(exchanged.apiKeyRefusal));
     }
@@ -475,7 +479,8 @@ await app.register(async (api) => {
     markAuthOutcome(req, exchanged.rejected ? 'refused' : exchanged.principal ? 'authenticated' : 'anonymous');
 
     // One key/scope/quota/sandbox plane. Dialects stay two — refuse bodies are
-    // CCXT on /api/v1 and tRPC on /api/pay. Interactive sessions skip this.
+    // CCXT on /api/v1 and tRPC on /api/pay. The environment rule (env.mismatch)
+    // runs first for every principal; interactive sessions skip scope and quota.
     const gate = decideGateway({
       pathname: url.pathname,
       method: req.method,
@@ -484,6 +489,8 @@ await app.register(async (api) => {
       now: Date.now(),
       max: env.EDGE_RATE_LIMIT_MAX,
       windowMs: env.EDGE_RATE_LIMIT_WINDOW_MS,
+      host: req.headers.host,
+      sandboxHosts,
     });
     if (exchanged.principal?.kid) {
       reply.header('x-intafaced-key-env', sandboxOf(exchanged.principal) ? 'sandbox' : 'live');

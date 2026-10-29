@@ -86,6 +86,10 @@
       "types": "./dist/identity-kyc-poa.d.ts",
       "default": "./dist/identity-kyc-poa.js"
     },
+    "./identity-kyc-selfie": {
+      "types": "./dist/identity-kyc-selfie.d.ts",
+      "default": "./dist/identity-kyc-selfie.js"
+    },
     "./identity-kyc-capabilities": {
       "types": "./dist/identity-kyc-capabilities.d.ts",
       "default": "./dist/identity-kyc-capabilities.js"
@@ -317,6 +321,10 @@
     "./campaigns-catalogue": {
       "types": "./dist/campaigns-catalogue.d.ts",
       "default": "./dist/campaigns-catalogue.js"
+    },
+    "./support-macros": {
+      "types": "./dist/support-macros.d.ts",
+      "default": "./dist/support-macros.js"
     }
   },
   "scripts": {

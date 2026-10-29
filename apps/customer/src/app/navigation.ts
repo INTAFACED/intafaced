@@ -82,6 +82,12 @@ export const rooms: readonly Room[] = [
     area: 'public',
   },
   {
+    path: '/developers/errors/auth',
+    title: 'Authentication and permission errors',
+    description: 'Codes a refused key or token carries',
+    area: 'public',
+  },
+  {
     path: '/developers/:section',
     title: 'Developer section',
     description: 'One section of the developer portal',
@@ -342,6 +348,8 @@ export const rooms: readonly Room[] = [
   { path: '/trade/copy', title: 'Copy', description: 'Follow a trading strategy', door: 'Trade', area: 'trade' },
   { path: '/trade/copy/:ref', title: 'Copy', description: 'Follow a trading strategy', door: 'Trade', area: 'trade', hidden: true },
   { path: '/trade/bots', title: 'Trading bots', description: 'Automated strategies', door: 'Trade', area: 'trade' },
+  { path: '/trade/bots/:kind', title: 'Trading bots', description: 'Automated strategies', door: 'Trade', area: 'trade', hidden: true },
+  { path: '/bots', title: 'Trading bots', description: 'Automated strategies', area: 'trade', alias: '/trade/bots' },
   {
     path: '/trade/risk',
     title: 'Risk control',
@@ -1025,6 +1033,14 @@ export const rooms: readonly Room[] = [
     title: 'Create an API key',
     description: 'A new key with only the permissions it needs',
     area: 'person',
+    screen: 'account',
+  },
+  {
+    path: '/uc/safe/api-keys/:keyId',
+    title: 'API key',
+    description: 'One key: its end date, idle expiry and IP policy',
+    area: 'person',
+    hidden: true,
     screen: 'account',
   },
   { path: '/verification', title: 'Verification', description: 'Verification status and documents', area: 'person', screen: 'account' },

@@ -46,7 +46,7 @@ describe('no founder or operator door in the merchant portal (G9)', () => {
             'settlement\\.(list|get|lines|lifecycle|payout)$',
             'payHalts\\.status$',
             // Merchant-scoped on main (svc-pay checks a `pay:*` scope, never a founder role): history, tiers, limits, payout request.
-            'merchantControl\\.(get|usage|pricing\\.(preview|history)|tiers\\.list|limits\\.(open|requestIncrease|withdraw)|approvals\\.(list|request|decide|cancel))$',
+            'merchantControl\\.(get|reserve|usage|pricing\\.(preview|history)|tiers\\.list|limits\\.(open|requestIncrease|withdraw)|approvals\\.(list|request|decide|cancel))$',
             'conversion\\.(quote|execute|get|list)$)',
           ].join('|'),
         ),
@@ -121,6 +121,7 @@ describe('no founder or operator door in the merchant portal (G9)', () => {
       ]),
       merchantControl: new Set([
         'merchantControl.get',
+        'merchantControl.reserve',
         'merchantControl.usage',
         'merchantControl.pricing.preview',
         'merchantControl.pricing.history',

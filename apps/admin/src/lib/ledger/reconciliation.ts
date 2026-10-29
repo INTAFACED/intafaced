@@ -8,22 +8,27 @@
  * tolerance, a schedule, a severity or a margin.
  */
 import {
+  RECONCILIATION_LIFECYCLE,
+  RECONCILIATION_LIFECYCLE_MOVES,
   RECONCILIATION_SEVERITIES,
   RECONCILIATION_TEMPLATES,
   defineReconciliationControlInputSchema,
   reconciliationControlListSchema,
+  reconciliationControlRunListSchema,
   reconciliationControlRunSchema,
   reconciliationControlViewSchema,
   reconciliationDecimalSchema,
   updateReconciliationControlInputSchema,
   type DefineReconciliationControlInput,
+  type ReconciliationControlRunList,
   type ReconciliationControlRunView,
   type ReconciliationControlView,
+  type ReconciliationLifecycle,
   type ReconciliationSchedule,
   type UpdateReconciliationControlInput,
 } from '@intafaced/contracts/ledger-reconciliation';
 
-export type { ReconciliationControlRunView, ReconciliationControlView };
+export type { ReconciliationControlRunList, ReconciliationControlRunView, ReconciliationControlView, ReconciliationLifecycle };
 export type ControlTemplate = (typeof RECONCILIATION_TEMPLATES)[number];
 export type ControlSeverity = (typeof RECONCILIATION_SEVERITIES)[number];
 export const CONTROL_TEMPLATES = RECONCILIATION_TEMPLATES;
@@ -47,6 +52,13 @@ export function parseControlView(raw: unknown): ReconciliationControlView | null
 export function parseControlRun(raw: unknown): ReconciliationControlRunView | null {
   const parsed = reconciliationControlRunSchema.safeParse(raw);
   return parsed.success ? parsed.data : null;
+}
+
+/** svc-ledger's answer for one control's evaluations, or null when it is not exactly that shape or names another control. */
+export function parseControlRunList(raw: unknown, controlId: string): ReconciliationControlRunList | null {
+  const parsed = reconciliationControlRunListSchema.safeParse(raw);
+  if (!parsed.success || parsed.data.controlId !== controlId) return null;
+  return parsed.data.runs.every((run) => run.controlId === controlId) ? parsed.data : null;
 }
 
 /** What a founder types into the define and update form. Every field is text, so a blank is visibly blank. */
@@ -357,11 +369,11 @@ export function describeThreshold(view: ReconciliationControlView): string | nul
 export function controlRefusal(code: string | null, status: number): string {
   switch (code) {
     case 'ops.control_policy_unset':
-      return 'The control is missing a policy value (tolerance, schedule and severity; a threshold control also needs a threshold per asset), so it was not activated. A new control asked to activate is not stored at all.';
+      return 'The control is missing a policy value (tolerance, schedule and severity; a threshold control also needs a threshold per asset), so it was not activated or resumed. A new control asked to activate is not stored at all.';
     case 'ops.control_margin_unset':
       return 'A run at a past instant needs a margin: type one, or set it on the control. Typed 0 is accepted.';
     case 'ops.control_state_illegal':
-      return 'Only an active control can run. Activate it first.';
+      return 'The control’s state does not allow this step: only an active control runs, a paused one must be resumed first, and a retired one is final.';
     case 'ops.control_reason_required':
       return 'A reason of 12 to 500 characters is required.';
     case 'ledger.reconcile_asof_invalid':
@@ -406,5 +418,30 @@ export function describeRun(run: ReconciliationControlRunView): string {
     `As of ${run.asOf}; balances read at ${run.readAt}${run.margin.status === 'set' ? ` (margin ${run.margin.value} s)` : ''}.`,
     `Sources: ledger as of ${run.sources.ledger.asOf}; outside ${outside}; parity ${parity}. Outside side: ${run.outsideSide}.`,
     `${run.accounts.length} account${run.accounts.length === 1 ? '' : 's'} and ${run.assets.length} asset${run.assets.length === 1 ? '' : 's'} read.`,
+    ...(run.errorCode.status === 'set'
+      ? [`Error: ${run.errorCode.value}${run.phase.status === 'set' ? ` at ${run.phase.value}` : ''}.`]
+      : []),
+    ...run.assets.map(describeEvidence),
   ].join(' ');
 }
+
+/** One asset's evidence (OPS-reconciliation-02): what was observed, what was expected, the difference and the tolerance. */
+export function describeEvidence(asset: ReconciliationControlRunView['assets'][number]): string {
+  return `${asset.assetId}: observed ${asset.observed}, expected ${asset.expected}, difference ${asset.difference}, tolerance ${asset.tolerance}.`;
+}
+
+/** What each move is called on screen. Where it may go from, and to, is the contract's one table. */
+export const LIFECYCLE_LABELS: Record<ReconciliationLifecycle, string> = { pause: 'Pause', resume: 'Resume', retire: 'Retire' };
+
+/** The lifecycle moves svc-ledger accepts from a control's state, in the order the console shows them. */
+export function lifecycleMoves(control: ReconciliationControlView): ReconciliationLifecycle[] {
+  if (control.builtin) return [];
+  return RECONCILIATION_LIFECYCLE.filter((move) => RECONCILIATION_LIFECYCLE_MOVES[move].from.includes(control.state));
+}
+
+export const STATE_LABELS: Record<ReconciliationControlView['state'], string> = {
+  draft: 'Draft',
+  active: 'Active',
+  paused: 'Paused',
+  retired: 'Retired',
+};
