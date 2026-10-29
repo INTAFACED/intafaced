@@ -13,8 +13,9 @@ const baseline = readdirSync(directory)
   .sort()
   .map(read);
 const recovered = ['0005_market_purchase_status_lock.sql', '0006_market_purchase_snapshot.sql', '0007_market_purchase_access_window.sql'];
-// The purchase path claims with a refund-window snapshot (0012). It adds a column and a table, nothing the upgrade tests read.
-const purchasePath = ['0012_market_purchase_holds.sql'];
+// The purchase path claims with a refund-window snapshot (0012) and its held-claim records (0013). They add columns and
+// tables, nothing the upgrade tests read.
+const purchasePath = ['0012_market_purchase_holds.sql', '0013_market_hold_claims.sql'];
 const url = process.env.TEST_DATABASE_URL?.trim();
 if (!url) throw new Error('Purchase upgrade tests require an isolated TEST_DATABASE_URL');
 

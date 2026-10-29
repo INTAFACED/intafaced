@@ -209,7 +209,11 @@ test(`${J} #4 presses Buy on the strategy: the charge into the held account once
   await expect(page.getByRole('status').filter({ hasText: 'Held until the refund window ends.' })).toBeVisible();
   // Charged once, into the held account: the buyer's free USDT is down by the price, and svc-market's record is one hold
   // of exactly the price whose window ends one TEST hour after it was held.
-  expect(toUnits((await usdt(who)).free)).toBe(toUnits(before.free) - toUnits(PRICE));
+  const after = await usdt(who);
+  expect(toUnits(after.free)).toBe(toUnits(before.free) - toUnits(PRICE));
+  // Still the buyer's: the price sits in their held funds, not spent, so the total is unchanged.
+  expect(toUnits(after.used)).toBe(toUnits(before.used) + toUnits(PRICE));
+  expect(toUnits(after.total)).toBe(toUnits(before.total));
   const mine = (await myPurchases(who)).filter((p) => p.listingId === listingId);
   expect(mine).toEqual([expect.objectContaining({ id: purchase.id, status: 'settled', price: PRICE, refundWindowSeconds: 3600 })]);
   expect(mine[0].hold).toMatchObject({ state: 'held', heldAmount: PRICE, refundTxId: null, releaseTxId: null });
@@ -317,6 +321,8 @@ test(`${J} #8 opens /market/purchases: price, window and status for each; a pend
   // A second purchase, held now, so the list holds a pending settlement next to #6's refunded one.
   const held = await ok(await (await api(who)).post('/api/market/trpc/purchase', { listingId, purchaseId: randomUUID() }));
   expect(held.hold).toMatchObject({ state: 'held' });
+  // Its paid period starts at its own settle: #6's refunded period is not added to it.
+  expect(Date.parse(held.accessUntil) - Date.parse(held.settledAt)).toBe(PERIOD_SECONDS * 1000);
   const inventory = await myPurchases(who);
   expect(inventory.map(statusOf).sort()).toEqual(['Held', 'Refunded']);
   await openPurchases(page, who);

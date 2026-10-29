@@ -81,6 +81,9 @@ export function EmptyState({ title, children, action }: { title: ReactNode; chil
 }
 /** Refusals that come from something not being switched on, allowed or listed. A second attempt cannot change them. */
 const SETTLED_KINDS: ReadonlySet<RefusalKind> = new Set([
+  'refundWindowClosed',
+  'notRefundable',
+  'alreadyHeld',
   'spaceLocked',
   'screening',
   'region',

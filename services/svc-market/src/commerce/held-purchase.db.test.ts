@@ -6,14 +6,19 @@ import { createTestDatabase, type TestDatabase } from '@intafaced/db';
 import {
   formatAmount,
   houseFees,
+  LedgerError,
   marketPurchaseEscrowAccount,
   MemoryLedger,
   parseAmount,
+  POST_IN_FLIGHT_BOUND_SECONDS,
   recipes,
+  stampPostAttempts,
   userAvailable,
+  type PostRequest,
 } from '@intafaced/ledger-client';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { MARKET_OPS_SCOPE, VendorService } from '../vendor-service.js';
+import { ReviewsService } from '../reviews/reviews-service.js';
 import { CommerceService } from './commerce-service.js';
 
 /**
@@ -30,6 +35,7 @@ const ups = readdirSync(drizzle)
   .sort();
 const migrations = ups.map((f) => readFileSync(join(drizzle, f), 'utf8'));
 const down0012 = readFileSync(join(drizzle, '0012_market_purchase_holds.down.sql'), 'utf8');
+const down0013 = readFileSync(join(drizzle, '0013_market_hold_claims.down.sql'), 'utf8');
 
 const SELLER = '11111111-1111-4111-8111-111111111111';
 const BUYER = '22222222-2222-4222-8222-222222222222';
@@ -229,6 +235,232 @@ describe('market held purchase', () => {
     expect(await balance(userAvailable(BUYER, 'USDT'))).toBe('90');
   });
 
+  it('a claim whose hold posted before a crash still settles on retry while a newer claim is pending', async () => {
+    const first = randomUUID();
+    // The first claim is cleared and its hold posts; the process stops before the hold row is written.
+    const settleHeld = held.held.settleHeld.bind(held.held);
+    held.held.settleHeld = async () => {
+      throw new Error('crash after the hold posted');
+    };
+    await expect(held.purchase({ buyerId: BUYER, listingId, purchaseId: first })).rejects.toThrow('crash after the hold posted');
+    held.held.settleHeld = settleHeld;
+    expect(await books(first)).toEqual({ buyer: '90', pot: '10', seller: '0', house: '0' });
+    expect(await holdRow(first)).toBeNull();
+
+    // A newer claim of the same listing is written and not yet checked when the first is retried.
+    const second = randomUUID();
+    await sql`
+      INSERT INTO market.purchases (id, listing_id, buyer_id, vendor_id, vendor_user_id, asset_id, price, commission_bps, status, period_seconds, refund_window_seconds)
+      SELECT ${second}, listing_id, buyer_id, vendor_id, vendor_user_id, asset_id, price, commission_bps, 'pending', period_seconds, refund_window_seconds
+        FROM market.purchases WHERE id = ${first}
+    `;
+    const retried = await held.purchase({ buyerId: BUYER, listingId, purchaseId: first });
+    expect(retried).toMatchObject({ status: 'settled', hold: { state: 'held', heldAmount: '10' } });
+    expect(await holdRow(first)).toEqual({ state: 'held', refund_requested_at: null });
+    expect(await books(first)).toEqual({ buyer: '90', pot: '10', seller: '0', house: '0' });
+
+    // The newer claim is the one refused (by the live hold, before its claim is resumed), and nothing of it posts.
+    await expect(held.purchase({ buyerId: BUYER, listingId, purchaseId: second })).rejects.toMatchObject({
+      code: 'market.purchase_already_held',
+    });
+    const [row] = await sql<Array<{ status: string; cleared: boolean }>>`
+      SELECT p.status, EXISTS (SELECT 1 FROM market.purchase_hold_clearances c WHERE c.purchase_id = p.id) AS cleared
+        FROM market.purchases p WHERE p.id = ${second}
+    `;
+    expect(row).toEqual({ status: 'pending', cleared: false });
+    expect(await balance(marketPurchaseEscrowAccount(BUYER, 'USDT', second))).toBe('0');
+    expect(await balance(userAvailable(BUYER, 'USDT'))).toBe('90');
+  });
+
+  /** The ledger answers this key's posts with `fail` (stamped as one attempt, as the HTTP client does) until restored. */
+  const failPosts = (match: (request: PostRequest) => boolean, fail: () => Error) => {
+    const post = ledger.post.bind(ledger);
+    ledger.post = async (request) => {
+      if (!match(request)) return post(request);
+      const err = fail();
+      stampPostAttempts(err, 1);
+      throw err;
+    };
+    return () => {
+      ledger.post = post;
+    };
+  };
+  const purchaseRow = async (id: string) => {
+    const [row] = await sql<Array<{ status: string; rejection_code: string | null }>>`
+      SELECT status, rejection_code FROM market.purchases WHERE id = ${id}
+    `;
+    return row ?? null;
+  };
+  const afterBound = () => new Date(clock.getTime() + (POST_IN_FLIGHT_BOUND_SECONDS + 1) * 1000);
+
+  it('a hold refused for funds releases its claim, so the buyer buys again after a top-up', async () => {
+    const poor = randomUUID();
+    const restore = failPosts(
+      (r) => r.idempotencyKey === `market:hold:${poor}`,
+      () => new LedgerError('Insufficient USDT', 'ledger.insufficient_funds'),
+    );
+    await expect(held.purchase({ buyerId: BUYER, listingId, purchaseId: poor })).rejects.toMatchObject({
+      code: 'market.insufficient_funds',
+    });
+    restore();
+    expect(await purchaseRow(poor)).toEqual({ status: 'rejected', rejection_code: 'market.insufficient_funds' });
+    expect(await books(poor)).toEqual({ buyer: '100', pot: '0', seller: '0', house: '0' });
+
+    const again = randomUUID();
+    const bought = await held.purchase({ buyerId: BUYER, listingId, purchaseId: again });
+    expect(bought.hold).toMatchObject({ state: 'held', heldAmount: '10' });
+    expect(await books(again)).toEqual({ buyer: '90', pot: '10', seller: '0', house: '0' });
+  });
+
+  it('a hold whose outcome is unknown keeps its claim until the sweep finds it never posted, then frees the listing', async () => {
+    const lost = randomUUID();
+    const restore = failPosts(
+      (r) => r.idempotencyKey === `market:hold:${lost}`,
+      () => new Error('socket hang up'),
+    );
+    await expect(held.purchase({ buyerId: BUYER, listingId, purchaseId: lost })).rejects.toThrow('socket hang up');
+    restore();
+    expect(await purchaseRow(lost)).toEqual({ status: 'pending', rejection_code: null });
+    // Inside the in-flight bound the claim still holds the place and the sweep leaves it.
+    await expect(held.purchase({ buyerId: BUYER, listingId, purchaseId: randomUUID() })).rejects.toMatchObject({
+      code: 'market.purchase_already_held',
+    });
+    expect(await held.held.sweepStaleClaims()).toBe(0);
+    expect(await purchaseRow(lost)).toEqual({ status: 'pending', rejection_code: null });
+
+    clock = afterBound();
+    expect(await held.held.sweepStaleClaims()).toBe(1);
+    expect(await purchaseRow(lost)).toEqual({ status: 'rejected', rejection_code: 'market.purchase_hold_not_posted' });
+    expect(await holdRow(lost)).toBeNull();
+    expect(await books(lost)).toEqual({ buyer: '100', pot: '0', seller: '0', house: '0' });
+
+    const again = randomUUID();
+    expect((await held.purchase({ buyerId: BUYER, listingId, purchaseId: again })).hold).toMatchObject({ state: 'held' });
+    expect(await books(again)).toEqual({ buyer: '90', pot: '10', seller: '0', house: '0' });
+  });
+
+  it('the sweep settles a hold that posted before a crash, with no retry from the buyer', async () => {
+    const crashed = randomUUID();
+    const settleHeld = held.held.settleHeld.bind(held.held);
+    held.held.settleHeld = async () => {
+      throw new Error('crash after the hold posted');
+    };
+    await expect(held.purchase({ buyerId: BUYER, listingId, purchaseId: crashed })).rejects.toThrow('crash after the hold posted');
+    held.held.settleHeld = settleHeld;
+    // The seller archives the listing meanwhile: the sweep still settles what the ledger booked.
+    await sql`UPDATE market.listings SET status = 'archived' WHERE id = ${listingId}`;
+    clock = afterBound();
+    expect(await held.held.sweepStaleClaims()).toBe(1);
+    expect(await purchaseRow(crashed)).toEqual({ status: 'settled', rejection_code: null });
+    expect(await holdRow(crashed)).toEqual({ state: 'held', refund_requested_at: null });
+    expect(await books(crashed)).toEqual({ buyer: '90', pot: '10', seller: '0', house: '0' });
+    const refunded = await held.refundPurchase({ buyerId: BUYER, purchaseId: crashed });
+    expect(refunded.hold).toMatchObject({ state: 'refunded' });
+    expect(await books(crashed)).toEqual({ buyer: '100', pot: '0', seller: '0', house: '0' });
+  });
+
+  it('a buyer retry after the hold posted settles before any gate is read again', async () => {
+    const crashed = randomUUID();
+    const settleHeld = held.held.settleHeld.bind(held.held);
+    held.held.settleHeld = async () => {
+      throw new Error('crash after the hold posted');
+    };
+    await expect(held.purchase({ buyerId: BUYER, listingId, purchaseId: crashed })).rejects.toThrow('crash after the hold posted');
+    held.held.settleHeld = settleHeld;
+    await sql`UPDATE market.listings SET status = 'archived' WHERE id = ${listingId}`;
+    const retried = await held.purchase({ buyerId: BUYER, listingId, purchaseId: crashed });
+    expect(retried).toMatchObject({ status: 'settled', hold: { state: 'held', heldAmount: '10' } });
+    expect(await books(crashed)).toEqual({ buyer: '90', pot: '10', seller: '0', house: '0' });
+  });
+
+  it('one hold whose release keeps failing waits its turn and never holds up the others', async () => {
+    const stuck = randomUUID();
+    await held.purchase({ buyerId: BUYER, listingId, purchaseId: stuck });
+    const other = await held.createListing({
+      userId: SELLER,
+      title: 'TEST other',
+      description: 'TEST',
+      offerType: 'one_time',
+      assetId: 'USDT',
+      price: '5',
+    });
+    // Held a second later, so its window ends after the stuck one's: the oldest-first order alone would try the stuck one.
+    clock = new Date(START.getTime() + 1000);
+    const fine = randomUUID();
+    await held.purchase({ buyerId: BUYER, listingId: other.id, purchaseId: fine });
+    clock = new Date(START.getTime() + (WINDOW + 2) * 1000);
+    const restore = failPosts(
+      (r) => r.idempotencyKey === `market:release:${stuck}`,
+      () => new Error('ledger unavailable'),
+    );
+    expect(await held.held.releaseDue(1)).toBe(0);
+    expect(await held.held.releaseDue(1)).toBe(1);
+    expect((await holdRow(fine))?.state).toBe('released');
+    expect((await holdRow(stuck))?.state).toBe('held');
+    restore();
+    clock = new Date(clock.getTime() + 61_000);
+    expect(await held.held.releaseDue()).toBe(1);
+    expect((await holdRow(stuck))?.state).toBe('released');
+  });
+
+  it('a new period after a refunded subscription starts at its own settle, not at the refunded end', async () => {
+    const PERIOD = 2_592_000;
+    const sub = await held.createListing({
+      userId: SELLER,
+      title: 'TEST feed',
+      description: 'TEST',
+      offerType: 'subscription',
+      assetId: 'USDT',
+      price: '10',
+      periodSeconds: PERIOD,
+    });
+    const first = randomUUID();
+    const a = await held.purchase({ buyerId: BUYER, listingId: sub.id, purchaseId: first });
+    expect(a.accessUntil).toBe(new Date(START.getTime() + PERIOD * 1000).toISOString());
+    await held.refundPurchase({ buyerId: BUYER, purchaseId: first });
+    clock = new Date(START.getTime() + 60_000);
+    const b = await held.purchase({ buyerId: BUYER, listingId: sub.id, purchaseId: randomUUID() });
+    expect(b.accessUntil).toBe(new Date(clock.getTime() + PERIOD * 1000).toISOString());
+  });
+
+  it('a held or refunded purchase is no verified buy for a review; a released one is', async () => {
+    const reviews = new ReviewsService(sql);
+    const review = (purchaseId: string) => reviews.submit({ buyerId: BUYER, purchaseId, score: 5, clientRequestId: randomUUID() });
+    const refunded = randomUUID();
+    await held.purchase({ buyerId: BUYER, listingId, purchaseId: refunded });
+    await expect(review(refunded)).rejects.toMatchObject({ code: 'market.review_not_settled' });
+    await held.refundPurchase({ buyerId: BUYER, purchaseId: refunded });
+    await expect(review(refunded)).rejects.toMatchObject({ code: 'market.review_not_settled' });
+    const [none] = await sql<Array<{ n: string }>>`SELECT count(*)::text AS n FROM market.reviews WHERE purchase_id = ${refunded}`;
+    expect(none!.n).toBe('0');
+
+    const released = randomUUID();
+    await held.purchase({ buyerId: BUYER, listingId, purchaseId: released });
+    clock = new Date(START.getTime() + (WINDOW + 1) * 1000);
+    expect(await held.held.releaseDue()).toBe(1);
+    expect(await review(released)).toMatchObject({ purchaseId: released, score: 5 });
+  });
+
+  it('a released sale counts in the seller’s earnings on the day it was released', async () => {
+    const purchaseId = randomUUID();
+    await held.purchase({ buyerId: BUYER, listingId, purchaseId });
+    const releasedAt = new Date(START.getTime() + (WINDOW + 1) * 1000);
+    clock = releasedAt;
+    expect(await held.held.releaseDue()).toBe(1);
+    const heldHour = await held.myEarnings({
+      userId: SELLER,
+      from: START.toISOString(),
+      to: new Date(START.getTime() + WINDOW * 1000).toISOString(),
+    });
+    expect(heldHour.sales).toEqual([]);
+    const releaseHour = await held.myEarnings({
+      userId: SELLER,
+      from: new Date(START.getTime() + WINDOW * 1000).toISOString(),
+      to: new Date(releasedAt.getTime() + 60_000).toISOString(),
+    });
+    expect(releaseHour.sales).toEqual([expect.objectContaining({ purchaseId, gross: '10', settledAt: releasedAt.toISOString() })]);
+  });
+
   it('an ask written before a crash wins over the release once the window ends', async () => {
     const purchaseId = randomUUID();
     await held.purchase({ buyerId: BUYER, listingId, purchaseId });
@@ -310,5 +542,22 @@ describe('market held purchase', () => {
     await expect(sql.begin((tx) => tx.unsafe(down0012))).rejects.toMatchObject({ code: '23514' });
     const [table] = await sql<Array<{ t: string | null }>>`SELECT to_regclass('market.purchase_holds')::text AS t`;
     expect(table!.t).toBe('purchase_holds');
+  });
+
+  it('keeps a clearance for good, and refuses the 0013 reversal while a cleared claim is pending', async () => {
+    const lost = randomUUID();
+    const restore = failPosts(
+      (r) => r.idempotencyKey === `market:hold:${lost}`,
+      () => new Error('socket hang up'),
+    );
+    await expect(held.purchase({ buyerId: BUYER, listingId, purchaseId: lost })).rejects.toThrow('socket hang up');
+    restore();
+    await expect(sql`DELETE FROM market.purchase_hold_clearances WHERE purchase_id = ${lost}`).rejects.toMatchObject({ code: '23514' });
+    await expect(
+      sql`UPDATE market.purchase_hold_clearances SET last_post_at = last_post_at - interval '1 hour' WHERE purchase_id = ${lost}`,
+    ).rejects.toMatchObject({ code: '23514' });
+    await expect(sql.begin((tx) => tx.unsafe(down0013))).rejects.toMatchObject({ code: '23514' });
+    const [table] = await sql<Array<{ t: string | null }>>`SELECT to_regclass('market.purchase_hold_clearances')::text AS t`;
+    expect(table!.t).toBe('purchase_hold_clearances');
   });
 });

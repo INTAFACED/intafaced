@@ -65,6 +65,9 @@ export type RefusalKind =
   | 'notSetUp'
   | 'feeScheduleUnset'
   | 'refundPolicyUnset'
+  | 'refundWindowClosed'
+  | 'notRefundable'
+  | 'alreadyHeld'
   | 'walletPaused'
   | 'walletFee'
   | 'walletCap'
@@ -185,6 +188,10 @@ const EXACT: Readonly<Record<string, RefusalKind>> = {
   'market.insufficient_funds': 'insufficient',
   // No refund window is decided: the purchase stays held and nothing moves; its own words, never "not switched on".
   'market.refund_policy_unset': 'refundPolicyUnset',
+  // A held purchase past its window, a direct sale, and "Buy again" while one is held: each settled, nothing moved.
+  'market.refund_window_closed': 'refundWindowClosed',
+  'market.purchase_not_refundable': 'notRefundable',
+  'market.purchase_already_held': 'alreadyHeld',
   'trade.hold_uncovered': 'insufficient',
   'trade.insufficient_margin': 'insufficient',
   'trade.algo_insufficient_balance': 'insufficient',

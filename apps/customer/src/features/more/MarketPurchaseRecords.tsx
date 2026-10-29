@@ -175,7 +175,7 @@ function OwnerRecords({ userId, resource, reload, limit, renderCancel, renderRef
                       {row.id}
                     </code>
                     {row.hold?.state === 'held' && renderRefund(row)}
-                    {row.accessUntil && renderCancel(row)}
+                    {row.accessUntil && row.hold?.state !== 'refunded' && renderCancel(row)}
                   </article>
                 ))
               ) : (

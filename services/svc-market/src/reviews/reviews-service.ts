@@ -215,6 +215,13 @@ export class ReviewsService {
     if (purchase.status !== 'settled') {
       throw new MarketError(MARKET_REVIEW_NOT_SETTLED, MARKET_REVIEW_NOT_SETTLED);
     }
+    // A held purchase is a verified buy only once released: still held, or refunded, it is not settled to the seller.
+    const [hold] = await this.sql<Array<{ state: string }>>`
+      SELECT state FROM market.purchase_holds WHERE purchase_id = ${purchase.id}
+    `;
+    if (hold && hold.state !== 'released') {
+      throw new MarketError(MARKET_REVIEW_NOT_SETTLED, MARKET_REVIEW_NOT_SETTLED);
+    }
 
     const [byClient] = await this.sql<ReviewRow[]>`
       SELECT * FROM market.reviews

@@ -22,6 +22,15 @@ describe('fee refusals (SP-fees-vip-01)', () => {
     expect(refusalCopy('market.refund_policy_unset').body).toContain('nothing moved');
   });
 
+  it('a closed window, a direct sale and a purchase already held each name themselves (J-more-catalogue-02)', () => {
+    expect(classifyRefusal('market.refund_window_closed')).toBe('refundWindowClosed');
+    expect(refusalCopy('market.refund_window_closed').title).toBe('The refund window has ended');
+    expect(classifyRefusal('market.purchase_not_refundable')).toBe('notRefundable');
+    expect(refusalCopy('market.purchase_not_refundable').title).toBe('This purchase has no refund window');
+    expect(classifyRefusal('market.purchase_already_held')).toBe('alreadyHeld');
+    expect(refusalCopy('market.purchase_already_held').body).toContain('Nothing was charged again');
+  });
+
   it('a missing product schedule, rebate recipe or minimum-fee recipe reads as not switched on', () => {
     for (const code of ['trade.fee_product_unpublished', 'trade.rebate_recipe_unavailable', 'trade.min_fee_recipe_unavailable']) {
       expect(classifyRefusal(code)).toBe('notSetUp');

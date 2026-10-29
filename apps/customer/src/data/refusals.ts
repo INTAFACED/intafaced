@@ -150,6 +150,18 @@ const FIXED: Readonly<Partial<Record<RefusalKind, Words>>> = {
     title: 'The refund policy is not decided',
     body: 'No refund window is published, so a refund cannot be asked for. Your purchase is unchanged and nothing moved.',
   },
+  refundWindowClosed: {
+    title: 'The refund window has ended',
+    body: 'This purchase is past its refund window, so it cannot be refunded. Nothing moved.',
+  },
+  notRefundable: {
+    title: 'This purchase has no refund window',
+    body: 'It was paid to the seller when you bought it, so nothing is held to give back. Nothing moved.',
+  },
+  alreadyHeld: {
+    title: 'You already have this purchase',
+    body: 'A purchase of this listing is held for you or still being recorded. Nothing was charged again.',
+  },
   chartRange: { title: 'That chart range is too long', body: 'Choose a shorter range and try again.' },
   algoSchedulerOff: {
     title: 'Scheduled orders are off',

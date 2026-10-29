@@ -34,7 +34,7 @@ import {
   requireListingCategory,
 } from './listing-categories.js';
 import { MARKET_OPS_SCOPE, MarketError, type PublicVendorProfile, type VendorService } from '../vendor-service.js';
-import { HeldPurchases, MARKET_PURCHASE_ALREADY_HELD, type PurchaseHold } from './held-purchase.js';
+import { HeldPurchases, MARKET_PURCHASE_ALREADY_HELD, type HoldClearance, type PurchaseHold } from './held-purchase.js';
 
 /** Public `listings` page size unpublished. Blank is not 50. */
 export const MARKET_PUBLIC_LISTINGS_LIST_LIMIT_UNSET = 'market.public_listings_list_limit_unset' as const;
@@ -374,6 +374,8 @@ export interface CommerceConfig {
    * Unset: a direct sale, and a refund ask refuses `market.refund_policy_unset`. Never a default.
    */
   refundWindowSeconds?: number | null;
+  /** Where the held-purchase jobs report a hold or claim they could not finish this run. */
+  log?: (message: string) => void;
 }
 
 export class CommerceService {
@@ -396,6 +398,7 @@ export class CommerceService {
       refundWindowSeconds: config.refundWindowSeconds ?? null,
       requireMatchingReceipt: (tx, request) => this.requireMatchingReceipt(tx, request),
       afterRelease: (p) => this.afterHeldRelease(p),
+      log: config.log,
     });
   }
 
@@ -895,9 +898,15 @@ export class CommerceService {
       commissionBps,
       refundWindowSeconds: this.config.refundWindowSeconds ?? null,
     });
+    let clearance: HoldClearance | null = null;
     if (claimed.status === 'pending' && claimed.refundWindowSeconds !== null) {
-      const only = await this.held.claimIsTheOnlyHold({ purchaseId: claimed.id, listingId: claimed.listingId, buyerId: claimed.buyerId });
-      if (!only) {
+      clearance = await this.held.clearHold({ purchaseId: claimed.id, listingId: claimed.listingId, buyerId: claimed.buyerId });
+      if (clearance === 'refused') {
+        const [now] = await this.sql<PurchaseRow[]>`SELECT * FROM market.purchases WHERE id = ${claimed.id}`;
+        if (now?.status === 'settled') return this.ensureSubscriptionAccess(toPurchase(now), listing);
+        if (now?.status === 'rejected' && now.rejection_code !== MARKET_PURCHASE_ALREADY_HELD) {
+          throw new MarketError(now.rejection_code ?? 'Purchase previously rejected', 'market.purchase_conflict');
+        }
         throw new MarketError('A purchase of this listing is already held or settling', MARKET_PURCHASE_ALREADY_HELD);
       }
     }
@@ -938,7 +947,7 @@ export class CommerceService {
     const snapshotBps = claimed.commissionBps;
 
     if (claimed.refundWindowSeconds !== null) {
-      return this.postHeld(claimed, snapshotPrice, claimed.refundWindowSeconds, liveListing);
+      return this.postHeld(claimed, snapshotPrice, claimed.refundWindowSeconds, liveListing, clearance === 'new');
     }
 
     try {
@@ -1011,7 +1020,18 @@ export class CommerceService {
    * Post the claim's hold and settle the purchase with its hold row. The seller is paid nothing and no affiliate leg
    * fires until release. A retry posts the same key and terms; the ledger answers the first post.
    */
-  private async postHeld(claimed: PurchaseRecord, price: Amount, windowSeconds: number, listing: ListingRecord): Promise<PurchaseRecord> {
+  /**
+   * Post the hold for a cleared claim and settle it. `firstPost` is true when this claim was cleared just now, so no
+   * earlier post under its key exists: a failure that proves nothing committed then releases the claim, and the buyer
+   * may buy again. Any other failure keeps the claim pending for a retry or the stale-claim sweep.
+   */
+  private async postHeld(
+    claimed: PurchaseRecord,
+    price: Amount,
+    windowSeconds: number,
+    listing: ListingRecord,
+    firstPost: boolean,
+  ): Promise<PurchaseRecord> {
     const request = this.held.holdRequest({ ...claimed, price });
     let tx: LedgerTx;
     try {
@@ -1023,10 +1043,12 @@ export class CommerceService {
       });
     } catch (err) {
       if (err instanceof MarketError) throw err;
-      // The pending claim stays for a retry under the same key, as with a direct sale.
-      if (err && typeof err === 'object' && 'code' in err && (err as { code: unknown }).code === 'ledger.insufficient_funds') {
-        throw new MarketError('Insufficient balance for this purchase', 'market.insufficient_funds');
+      const insufficient =
+        err !== null && typeof err === 'object' && 'code' in err && (err as { code: unknown }).code === 'ledger.insufficient_funds';
+      if (firstPost) {
+        await this.held.releaseRefusedClaim(claimed.id, err, insufficient ? 'market.insufficient_funds' : 'market.purchase_hold_refused');
       }
+      if (insufficient) throw new MarketError('Insufficient balance for this purchase', 'market.insufficient_funds');
       throw err;
     }
     if (tx.entries.length > 0) await this.requireMatchingReceipt(tx, request);
@@ -1130,16 +1152,17 @@ export class CommerceService {
     >`
       SELECT p.id, p.listing_id, p.asset_id, p.price::text AS price, p.commission_bps,
              -- A released hold paid the seller in its release post, not in the hold.
-             COALESCE(h.release_tx_id, p.ledger_tx_id) AS ledger_tx_id, p.settled_at
+             -- ... and on the day it was released, not the day it was held.
+             COALESCE(h.release_tx_id, p.ledger_tx_id) AS ledger_tx_id, COALESCE(h.released_at, p.settled_at) AS settled_at
         FROM market.purchases p
         LEFT JOIN market.purchase_holds h ON h.purchase_id = p.id
        WHERE p.vendor_id = ${mine.id}
          AND p.status = 'settled'
          -- A held purchase is the seller's only once released.
          AND (h.purchase_id IS NULL OR h.state = 'released')
-         AND p.settled_at >= ${fromIso}::timestamptz
-         AND p.settled_at <= ${toIso}::timestamptz
-       ORDER BY p.settled_at ASC, p.id ASC
+         AND COALESCE(h.released_at, p.settled_at) >= ${fromIso}::timestamptz
+         AND COALESCE(h.released_at, p.settled_at) <= ${toIso}::timestamptz
+       ORDER BY COALESCE(h.released_at, p.settled_at) ASC, p.id ASC
     `;
     const byAsset = new Map<string, { gross: Amount; commission: Amount; net: Amount }>();
     const sales: EarningsSale[] = [];
@@ -1519,6 +1542,27 @@ export class CommerceService {
     }
     if (existing.status !== 'pending') return null;
 
+    // A held claim whose hold posted settles from its snapshot before any gate is read again: a listing archived or a
+    // setting cleared since cannot leave the buyer's pot without its hold row.
+    if (existing.refundWindowSeconds !== null) {
+      const hold = await this.held.postedHold({ ...existing, price: this.positiveDecimalPrice(existing.price) }).catch((err: unknown) => {
+        if (err instanceof MarketError) throw err;
+        return null;
+      });
+      if (!hold) return null;
+      await this.held.settleHeld({
+        purchaseId: existing.id,
+        listingId: existing.listingId,
+        buyerId: existing.buyerId,
+        price: this.positiveDecimalPrice(existing.price),
+        windowSeconds: existing.refundWindowSeconds,
+        holdTxId: hold.id,
+      });
+      const [reload] = await this.sql<PurchaseRow[]>`SELECT * FROM market.purchases WHERE id = ${existing.id}`;
+      if (reload?.status === 'settled') return this.ensureSubscriptionAccess(toPurchase(reload), listing);
+      return null;
+    }
+
     const posted = await this.postedMarketPurchase(existing);
     if (!posted) return null;
 
@@ -1651,6 +1695,9 @@ export class CommerceService {
          AND access_until IS NULL
          AND period_seconds IS NOT NULL
          AND period_seconds > 0
+         AND NOT EXISTS (
+           SELECT 1 FROM market.purchase_holds h WHERE h.purchase_id = market.purchases.id AND h.state = 'refunded'
+         )
        ORDER BY settled_at ASC, id ASC
     `;
     for (const row of rows) {
@@ -1717,6 +1764,10 @@ export class CommerceService {
          AND status = 'settled'
          AND access_until IS NOT NULL
          AND id <> ${exceptPurchaseId}
+         -- A refunded purchase gives no access, so a new period never starts at its end.
+         AND NOT EXISTS (
+           SELECT 1 FROM market.purchase_holds h WHERE h.purchase_id = market.purchases.id AND h.state = 'refunded'
+         )
     `;
     return row?.until ?? null;
   }

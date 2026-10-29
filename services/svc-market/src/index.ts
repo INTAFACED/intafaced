@@ -87,6 +87,7 @@ const ledger = createLedgerClient(env.LEDGER_URL, env.INTERNAL_SERVICE_SECRET, s
 const commerce = new CommerceService(sql, vendors, ledger, {
   commissionBps: env.MARKET_HOUSE_COMMISSION_BPS ?? null,
   refundWindowSeconds: env.MARKET_REFUND_WINDOW_SECONDS ?? null,
+  log: (message) => app.log.warn(message),
   affiliateAccrue: env.IDENTITY_URL ? createAffiliateAccrueClient(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET, s2sKey) : undefined,
   affiliatePayout: env.IDENTITY_URL ? createAffiliatePayoutClient(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET, s2sKey) : undefined,
 });
@@ -126,7 +127,8 @@ await app.listen({ host: env.HTTP_HOST, port: env.HTTP_PORT });
 // Held purchases whose refund window has ended are released to the seller, and an asked-for refund that did not post
 // is posted. The window is the owner's and is snapshotted on each hold; this cadence only bounds how late after the
 // window's end a release posts. It runs with the window blank too, so holds taken before the setting was cleared
-// still finish. One run at a time.
+// still finish. The same run settles or releases a held claim left pending after a crash or a lost reply, once no
+// post of it can still land. One run at a time.
 const HOLD_RELEASE_EVERY_MS = 30_000;
 let releasing = false;
 const releaseTimer = setInterval(() => {
@@ -134,6 +136,7 @@ const releaseTimer = setInterval(() => {
   releasing = true;
   commerce.held
     .releaseDue()
+    .then(() => commerce.held.sweepStaleClaims())
     .catch((err: unknown) => app.log.error({ err }, 'market.hold_release_run_failed'))
     .finally(() => {
       releasing = false;

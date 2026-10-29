@@ -379,15 +379,25 @@ otherwise.
 - **Release:** every 30 s the service finishes due holds: an asked-for refund posts first; otherwise, once the
   window has ended, `marketPurchaseRelease` (key `market:release:<purchaseId>`) pays the seller net and the house
   the snapshot commission, then the affiliate legs fire. A row another worker holds is skipped. A failed post
-  leaves the pot held for the next run under the same key.
+  leaves the pot held, and that hold waits a minute (`next_attempt_at`) so it never holds up the others.
+- **A claim that outlives a crash:** a held claim is cleared once, before its first hold post
+  (`purchase_hold_clearances`), and a cleared claim is never rejected for a newer one. A retry of the same purchase
+  settles a hold the ledger booked before any gate is read again. The release job also sweeps cleared claims still
+  pending once `POST_IN_FLIGHT_BOUND_SECONDS` have passed since their last post: a booked hold settles from the
+  snapshot; an absent one releases the claim (`market.purchase_hold_not_posted`, nothing moved). A first hold post
+  the ledger provably refused (for example `ledger.insufficient_funds`) releases the claim at once, so the buyer can
+  buy again.
 - **One live hold:** buying a listing again while a purchase of it is held or settling refuses
   `market.purchase_already_held`, before anything posts (an advisory lock per listing and buyer, and a partial
   unique index).
 - **Reads:** `myPurchases` returns `refundWindowSeconds` and `hold`. Seller earnings and ops sales count a held
-  purchase only once released (earnings name the release post). A refunded hold grants no access.
+  purchase only once released, on the day of its release (earnings name the release post). A held or refunded
+  purchase is not a verified buy for a review. A refunded hold grants no access.
 - **Schema:** `0012_market_purchase_holds.sql`. Hold terms are immutable, final states are locked, an ask cannot
   be withdrawn and blocks a release, and rows are never deleted. The reversal refuses
   (`market.purchase_hold_downgrade_refused`) while any purchase was claimed with a window.
+  `0013_market_hold_claims.sql` adds the clearances (never deleted; only a later post attempt is recorded) and
+  `next_attempt_at`; its reversal refuses (`market.hold_claims_downgrade_refused`) while a cleared claim is pending.
 
 No balance column exists on `market.listings` or `market.purchases`. Price and
 commission_bps are intent records; the only balances live in svc-ledger.
