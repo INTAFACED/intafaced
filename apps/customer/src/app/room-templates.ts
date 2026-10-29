@@ -323,6 +323,7 @@ export const ROUTE_TEMPLATES: Readonly<Record<string, RoomTemplate | NotARoom>> 
   '/dex/*': 'fallback',
   '/protocol/*': 'fallback',
   '/wallet/*': 'fallback',
+  '/copy/lead/apply': { template: 'flow', migrated: { file: 'features/trade/lead-apply/LeadApplyRoom.tsx' } },
 };
 
 /** Merchant portal pages behind `/pay/:page` and `/pay/:page/:child`. */

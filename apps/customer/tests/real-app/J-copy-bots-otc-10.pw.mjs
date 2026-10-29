@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { ADMIN, founderSignIn } from './admin.mjs';
-import { signOutBrowser } from './stack.mjs';
+import { journeyState, signOutBrowser } from './stack.mjs';
 import { fundedTrader, signIn } from './desk.mjs';
 import { tableIn, bodyRows } from './tables.mjs';
 
@@ -12,26 +12,43 @@ import { tableIn, bodyRows } from './tables.mjs';
 //   suspension, pooled masters, whitelists, takeovers or levels (CB-ops-01, CB-copy-12, CB-copy-pro-share-03, -06, -09, -11).
 // - The customer app has no lead application at /copy/lead/apply, so the queue has no applicant (CB-copy-12).
 const J = 'J-copy-bots-otc-10';
+const run = journeyState(`${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
 const UNBUILT = { timeout: 5_000 };
 
 test.describe.configure({ mode: 'default' });
 
 const queue = (page) => tableIn(page, 'Lead applications');
 
-/** A TEST trader with a funded account applies to lead, through the customer app, so the queue has a row to vet. */
-async function apply(page) {
+function state(key) {
+  const value = run.read()[key];
+  if (!value) throw new Error(`${J}: an earlier step made no ${key}, so this step has nothing to act on`);
+  return value;
+}
+
+/** This run's row in a desk table, by the display name its applicant chose: rows from other runs are never acted on. */
+const rowOf = (table, name) => bodyRows(table).filter({ hasText: name });
+
+/** A TEST trader with a funded account applies to lead under `name`, through the customer app, so the queue has a row to vet. */
+async function apply(page, name) {
   const who = await fundedTrader(page, 'ld', '100');
   await signIn(page, who);
   await page.goto('/copy/lead/apply');
-  await page.getByRole('button', { name: 'Apply to lead' }).click(UNBUILT);
-  await expect(page.getByRole('status')).toContainText('Application sent');
+  await page.getByRole('textbox', { name: 'Display name' }).fill(name, UNBUILT);
+  await page.getByRole('button', { name: 'Apply to lead' }).click();
+  await expect(page.getByRole('status').filter({ hasText: 'Application sent' })).toBeVisible();
   await signOutBrowser(page.context());
   return who;
 }
 
 test(`${J} starts: a TEST trader applies to lead in the customer app`, async ({ page }) => {
-  test.setTimeout(180_000);
-  await apply(page);
+  test.setTimeout(240_000);
+  // Two applicants, named for this run: #3 approves the first, #4 rejects the second.
+  const tag = Date.now().toString(36);
+  const approve = `TEST lead ${tag} A`;
+  const reject = `TEST lead ${tag} B`;
+  run.reset({ tag, approve, reject });
+  await apply(page, approve);
+  run.write({ rejectWho: await apply(page, reject) });
 });
 
 async function openDesk(page, founder = 'a') {
@@ -51,8 +68,8 @@ test(`${J} #1 opens the applications queue: oldest first, and with none the empt
 
 test(`${J} #2 approves an application whose criteria are blank: refused naming the criteria`, async ({ page }) => {
   await openDesk(page);
-  await bodyRows(queue(page)).first().getByRole('button', { name: 'Approve' }).click();
-  await expect(page.getByRole('alert')).toContainText('The lead criteria are not set');
+  await rowOf(queue(page), state('approve')).getByRole('button', { name: 'Approve' }).click();
+  await expect(page.getByRole('alert').filter({ hasText: 'The lead criteria are not set' })).toBeVisible();
 });
 
 test(`${J} #3 approves with the criteria set, as one founder: pending until the second confirms; the listing exists only after both`, async ({
@@ -64,36 +81,50 @@ test(`${J} #3 approves with the criteria set, as one founder: pending until the 
   const criteria = page.getByRole('form', { name: 'Lead criteria' });
   await criteria.getByRole('textbox', { name: 'Minimum track record, days' }).fill('30');
   await criteria.getByRole('button', { name: 'Save criteria' }).click();
-  await expect(page.getByRole('status')).toContainText('Criteria saved');
-  const row = bodyRows(queue(page)).first();
+  await expect(page.getByRole('status').filter({ hasText: 'Criteria saved' })).toBeVisible();
+  const row = rowOf(queue(page), state('approve'));
   await row.getByRole('button', { name: 'Approve' }).click();
   await expect(row).toContainText('Waiting for a second founder');
+  await page.getByRole('tab', { name: 'Leads' }).click();
+  await expect(rowOf(tableIn(page, 'Leads'), state('approve'))).toHaveCount(0);
   const second = await (await browser.newContext()).newPage();
   await openDesk(second, 'b');
-  await bodyRows(queue(second)).first().getByRole('button', { name: 'Confirm approval' }).click();
-  await expect(second.getByRole('status')).toContainText('Approved and listed');
+  await rowOf(queue(second), state('approve')).getByRole('button', { name: 'Confirm approval' }).click();
+  await expect(second.getByRole('status').filter({ hasText: 'Approved and listed' })).toBeVisible();
+  await second.getByRole('tab', { name: 'Leads' }).click();
+  await expect(rowOf(tableIn(second, 'Leads'), state('approve'))).toContainText('Listed');
   await second.context().close();
 });
 
 test(`${J} #4 rejects with a reason: the applicant sees it and may apply again after the owner's wait`, async ({ page }) => {
   await openDesk(page);
-  const row = bodyRows(queue(page)).first();
-  await row.getByRole('button', { name: 'Reject' }).click();
-  await page.getByRole('dialog').getByRole('textbox', { name: 'Reason' }).fill('TEST: track record too short');
+  const reason = `TEST: track record too short ${state('tag')}`;
+  await rowOf(queue(page), state('reject')).getByRole('button', { name: 'Reject' }).click();
+  await page.getByRole('dialog').getByRole('textbox', { name: 'Reason' }).fill(reason);
   await page.getByRole('dialog').getByRole('button', { name: 'Reject' }).click();
-  await expect(page.getByRole('status')).toContainText('Rejected');
+  await expect(page.getByRole('status').filter({ hasText: 'Rejected' })).toBeVisible();
+  await signOutBrowser(page.context());
+  // The applicant reads the reason; the wait before applying again is the owner's and unset, so no form is offered.
+  await signIn(page, state('rejectWho'));
+  await page.goto('/copy/lead/apply');
+  await expect(page.getByText(reason)).toBeVisible();
+  await expect(page.getByText('waits on a waiting period the platform has not set')).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Apply to lead' })).toHaveCount(0);
 });
 
 test(`${J} #5 suspends a lead: the state changes once, with an audit row showing the reason`, async ({ page }) => {
   await openDesk(page);
   await page.getByRole('tab', { name: 'Leads' }).click();
-  const lead = bodyRows(tableIn(page, 'Leads')).first();
+  // This run's lead only: leads listed by other journeys are left as they are.
+  const lead = rowOf(tableIn(page, 'Leads'), state('approve'));
+  const reason = `TEST suspension ${state('tag')}`;
   await lead.getByRole('button', { name: 'Suspend' }).click();
-  await page.getByRole('dialog').getByRole('textbox', { name: 'Reason' }).fill('TEST suspension');
+  await page.getByRole('dialog').getByRole('textbox', { name: 'Reason' }).fill(reason);
   await page.getByRole('dialog').getByRole('button', { name: 'Suspend' }).click();
   await expect(lead).toContainText('Suspended');
+  await expect(lead.getByRole('button', { name: 'Suspend' })).toHaveCount(0);
   await page.getByRole('tab', { name: 'Audit' }).click();
-  await expect(tableIn(page, 'Audit').getByRole('row', { name: /TEST suspension/ })).toHaveCount(1);
+  await expect(tableIn(page, 'Audit').getByRole('row', { name: new RegExp(reason) })).toHaveCount(1);
 });
 
 test(`${J} #6 opens pooled masters and the pool whitelist: master applications, and whitelists with the batch limit`, async ({ page }) => {

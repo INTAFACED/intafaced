@@ -30,6 +30,7 @@ import { FUTURES_PRICE_BAND_UNSET, parsePriceBand, perpetualFeeRates } from './f
 import { MATCHED_FILL_RETRY_BATCH } from './futures/matched-orders.js';
 import { createTradeRouter, type TradeRouter } from './router.js';
 import { identityApprovalBook } from './admin/identity-approval.js';
+import { LeadDesk } from './copy/lead-applications.js';
 import { bindTradingRestrictApprovals, currentTradingRestrictApprovals } from './admin/trading-restrict.js';
 import { operatorSeedAllows as readOperatorSeedAllows } from './admin/service.js';
 import { wireTradeOpsAdmin } from './admin/wire.js';
@@ -378,6 +379,7 @@ const placeFollowerOrder: PlaceFollowerOrderPort = async (principal, input) => {
   );
   return { orderId: order.id };
 };
+const leaderDirectory = sqlLeaderDirectory(sql, { now: () => new Date(), feeShareLaw: copyFeeShareLaw });
 const copy = new CopyService(ledger, {
   accountAdmission: tradingControls,
   feeShareLaw: copyFeeShareLaw,
@@ -385,7 +387,7 @@ const copy = new CopyService(ledger, {
   metricDefinitions: copyMetricDefinitions,
   minTier: copyMinTier,
   store: copyStore,
-  directory: sqlLeaderDirectory(sql, { now: () => new Date(), feeShareLaw: copyFeeShareLaw }),
+  directory: leaderDirectory,
   placeFollowerOrder,
   flattenCopyPosition: createFollowerFlattenPort({
     sql,
@@ -483,6 +485,7 @@ export const appRouter = createTradeRouter(
   }),
   new InsuranceTopupAdmin({ sql, ledger, approvals: tradeOpsApprovals }),
   new SupportTradeSummaryReader({ sql }),
+  new LeadDesk({ sql, approvals: tradeOpsApprovals, directory: leaderDirectory, now: () => new Date() }),
 );
 export type AppRouter = typeof appRouter;
 const edgeContext = createEdgeContext({
