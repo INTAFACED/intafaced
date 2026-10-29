@@ -29,7 +29,7 @@ describe('protocol.amm.swapSettings', () => {
     ).resolves.toEqual({ slippageCeilingBps: 300, quoteTtlSeconds: 30, confirmations: 2 });
   });
 
-  it.each([
+  it.each<[string, Partial<ProtocolRouterDeps>, string]>([
     [
       'slippage',
       { swapSlippageBps: () => null, swapQuoteTtlSeconds: () => 30, swapConfirmations: () => 2 },

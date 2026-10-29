@@ -34,6 +34,12 @@ export default ({ c, secrets, dbUrl, PORTS, UNUSED, testChain }) => ({
       PROTOCOL_SWAP_SLIPPAGE_BPS: '300',
       PROTOCOL_SWAP_QUOTE_TTL_SECONDS: '30',
       PROTOCOL_SWAP_CONFIRMATIONS: '1',
+      // LOCAL TEST network fee settings, labelled in the same file: the percentiles of the last blocks' priority fees for
+      // Slow, Normal and Fast, how many blocks they are read from, and the fee cap per gas (100 gwei). Production stays
+      // blank and the fee levels refuse by name (protocol.gas_percentiles_unset, protocol.swap_fee_cap_unset).
+      PROTOCOL_GAS_PERCENTILES: '10,50,90',
+      PROTOCOL_GAS_HISTORY_BLOCKS: '20',
+      PROTOCOL_SWAP_MAX_FEE_PER_GAS_WEI: '100000000000',
     };
   },
 });

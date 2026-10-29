@@ -126,6 +126,7 @@ export const appRouter = createProtocolRouter({
   swapSlippageBps: () => env.PROTOCOL_SWAP_SLIPPAGE_BPS,
   swapQuoteTtlSeconds: () => env.PROTOCOL_SWAP_QUOTE_TTL_SECONDS,
   swapConfirmations: () => env.PROTOCOL_SWAP_CONFIRMATIONS,
+  swapFeeCapWei: () => env.PROTOCOL_SWAP_MAX_FEE_PER_GAS_WEI,
   probeTimeoutMs: () => env.PROTOCOL_PEER_TIMEOUT_MS,
   representation: {
     store: new PostgresRepresentationStore(db.sql),
