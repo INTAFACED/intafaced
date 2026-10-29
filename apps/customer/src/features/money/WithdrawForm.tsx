@@ -326,7 +326,15 @@ export function WithdrawForm() {
   const rulesAllow = rules !== null && rules.tag === 'none' && outsideRules === null;
   const canQuote = !insideNow && check === 'ok' && !overLimit && rulesAllow && Boolean(asset && network) && quote.status !== 'busy';
   const canSendOut =
-    !insideNow && chosen !== null && current !== null && !debitTooMuch && check === 'ok' && !overLimit && rulesAllow && limit !== null;
+    !insideNow &&
+    chosen !== null &&
+    current !== null &&
+    !debitTooMuch &&
+    check === 'ok' &&
+    !overLimit &&
+    // A send whose answer was lost is finished on its own terms, so svc-pay answers for its reference whatever the rules read now.
+    (rulesAllow || resumingOut) &&
+    limit !== null;
 
   /** Any change to what would be sent drops the quote in hand, so a fee is never shown for other terms. */
   const change = (apply: () => void) => {

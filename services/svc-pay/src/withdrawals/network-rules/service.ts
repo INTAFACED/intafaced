@@ -33,7 +33,8 @@ export type WithdrawalNetworkRuleErrorCode =
   | 'withdrawal_network_rules.not_found'
   | 'withdrawal_network_rules.already_exists'
   | 'withdrawal_network_rules.version_conflict'
-  | 'withdrawal_network_rules.invalid';
+  | 'withdrawal_network_rules.invalid'
+  | 'withdrawal_network_rules.unwired';
 
 const KIND: Record<WithdrawalNetworkRuleErrorCode, TRPCError['code']> = {
   'withdrawal_network_rules.unset': 'PRECONDITION_FAILED',
@@ -41,6 +42,7 @@ const KIND: Record<WithdrawalNetworkRuleErrorCode, TRPCError['code']> = {
   'withdrawal_network_rules.already_exists': 'CONFLICT',
   'withdrawal_network_rules.version_conflict': 'CONFLICT',
   'withdrawal_network_rules.invalid': 'BAD_REQUEST',
+  'withdrawal_network_rules.unwired': 'SERVICE_UNAVAILABLE',
 };
 
 export class WithdrawalNetworkRuleError extends Error {
@@ -287,7 +289,7 @@ export class WithdrawalNetworkRuleService {
             (asset_id, network_id, action, actor_id, approver_id, dual_control, before, after, reason)
           VALUES (${input.assetId}, ${input.networkId}, ${plan.before === null ? 'create' : 'update'}, ${actorId}, ${approverId},
                   ${approverId !== null}, ${plan.beforeState === null ? null : tx.json(plan.beforeState as never)},
-                  ${tx.json(plan.after as never)}, ${input.reason})`;
+                  ${tx.json(plan.after as never)}, ${input.reason.trim()})`;
         return viewOf(saved);
       });
     } catch (error) {
@@ -309,6 +311,13 @@ export class WithdrawalNetworkRuleService {
     if (minimum < step) throw new WithdrawalNetworkRuleError('withdrawal_network_rules.invalid', 'the minimum must be at least one step');
     if (maximum < minimum)
       throw new WithdrawalNetworkRuleError('withdrawal_network_rules.invalid', 'the maximum must be at least the minimum');
+    // Both ends must be sendable amounts themselves, or a customer is shown a minimum every quote refuses.
+    if (minimum % step !== 0n || maximum % step !== 0n) {
+      throw new WithdrawalNetworkRuleError(
+        'withdrawal_network_rules.invalid',
+        'the minimum and the maximum must be whole numbers of steps',
+      );
+    }
     const [row] = await this.deps.sql<Row[]>`
       SELECT * FROM pay.withdrawal_network_rules WHERE asset_id = ${input.assetId} AND network_id = ${input.networkId}`;
     if (input.expectedVersion === null) {

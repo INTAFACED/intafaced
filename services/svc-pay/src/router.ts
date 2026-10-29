@@ -2414,7 +2414,8 @@ export function createPayRouter(
         .output(withdrawalNetworkRulesSchema)
         .query(({ input }) =>
           wrap(async () => {
-            if (!portalSql) throw new WithdrawalQuoteError('withdrawal_quote.unwired', 'withdrawal rules need the pay database');
+            if (!portalSql)
+              throw new WithdrawalNetworkRuleError('withdrawal_network_rules.unwired', 'withdrawal rules need the pay database');
             return readWithdrawalNetworkRules(portalSql, input.assetId, input.networkId);
           }),
         ),

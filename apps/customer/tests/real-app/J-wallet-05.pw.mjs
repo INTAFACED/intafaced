@@ -232,7 +232,7 @@ test(`${J} #1 opens Withdraw and picks asset and network: the default network wi
 
   // The network's own rules, as the catalogue publishes them for TEST Ethereum: no tag, and a minimum, maximum and step.
   const rules = page.getByTestId('withdraw-network-rules');
-  await expect(rules).toBeVisible(UNBUILT);
+  await expect(rules).toBeVisible();
   await expect(rules).toContainText('This network takes no tag or memo.');
   for (const rule of ['Minimum', 'Maximum', 'Step']) await expect(rules).toContainText(new RegExp(`${rule}\\D*[\\d.,]+ USDT`));
   await expect(form(page).getByRole('textbox', { name: /^(Tag|Memo)/ })).toHaveCount(0);

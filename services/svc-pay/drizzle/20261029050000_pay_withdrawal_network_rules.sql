@@ -1,7 +1,7 @@
 -- Reversal: 20261029050000_pay_withdrawal_network_rules.down.sql
 -- The owner's withdrawal rules per asset and network (W-withdraw-02, J-wallet-05 #1): the smallest and largest amount one
 -- withdrawal may send, the step an amount must be a whole multiple of, and whether the network takes a tag or memo. A pair
--- with no row has no rules, and a quote on it is refused (`withdrawal_quote.rules_unset`). NO BALANCE LIVES HERE, nothing
+-- with no row has no rules, and a quote on it is refused (`withdrawal_network_rules.unset`). NO BALANCE LIVES HERE, nothing
 -- has a default, and this migration inserts no row: every figure in a row is the owner's, or the stack's labelled TEST value.
 CREATE TABLE IF NOT EXISTS "pay"."withdrawal_network_rules" (
   "asset_id" text NOT NULL,
@@ -19,6 +19,7 @@ CREATE TABLE IF NOT EXISTS "pay"."withdrawal_network_rules" (
     "minimum" ~ '^(0|[1-9][0-9]{0,29})(\.[0-9]{1,18})?$' AND "maximum" ~ '^(0|[1-9][0-9]{0,29})(\.[0-9]{1,18})?$'
     AND "step" ~ '^(0|[1-9][0-9]{0,29})(\.[0-9]{1,18})?$'
     AND "step"::numeric > 0 AND "minimum"::numeric >= "step"::numeric AND "maximum"::numeric >= "minimum"::numeric
+    AND "minimum"::numeric % "step"::numeric = 0 AND "maximum"::numeric % "step"::numeric = 0
   ),
   CONSTRAINT "withdrawal_network_rules_tag_ck" CHECK ("tag" IN ('none', 'required')),
   CONSTRAINT "withdrawal_network_rules_version_ck" CHECK ("version" >= 1),

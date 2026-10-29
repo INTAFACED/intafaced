@@ -180,7 +180,7 @@ describe('withdrawal network rules (real Postgres)', () => {
     const loosen = [
       [{ minimum: '15' }, 'minimum_lowered'],
       [{ maximum: '600' }, 'maximum_raised'],
-      [{ step: '0.03' }, 'step_loosened'],
+      [{ step: '0.05' }, 'step_loosened'],
       [{ tag: 'none' }, 'tag_dropped'],
     ] as const;
     for (const [change, reason] of loosen) {
@@ -200,6 +200,7 @@ describe('withdrawal network rules (real Postgres)', () => {
       { maximum: 'abc' },
       { minimum: '5', step: '10' },
       { minimum: '100', maximum: '50' },
+      { minimum: '10.2', maximum: '10.4', step: '0.5' },
       { tag: 'optional' },
     ]) {
       await refused(nr().save({ ...input(bad), ...approval }));
