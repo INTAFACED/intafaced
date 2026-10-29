@@ -6,6 +6,7 @@ import { createEdgeContext, s2sFromEnv } from '@intafaced/contracts';
 import { JetStreamEventBus } from '@intafaced/events';
 import { registerProcessHooks, startTelemetry } from '@intafaced/telemetry';
 import { CampaignService, parseTimeZone } from './campaigns.js';
+import { parseRuleLimit } from './rules.js';
 import { createLedgerClient } from './ledger-client.js';
 import { createMarketNames } from './markets.js';
 import { createParticipantClient } from './participants.js';
@@ -44,7 +45,11 @@ const participantsWired = Boolean(env.IDENTITY_URL && env.INTERNAL_SERVICE_SECRE
 const participants = participantsWired
   ? createParticipantClient(env.IDENTITY_URL!, env.INTERNAL_SERVICE_SECRET!, s2sKey)
   : { read: async () => null };
-const campaigns = new CampaignService({ sql, timeZone: () => timeZone, participants });
+const ruleLimits = {
+  depth: parseRuleLimit('CAMPAIGNS_RULE_DEPTH_LIMIT', env.CAMPAIGNS_RULE_DEPTH_LIMIT),
+  size: parseRuleLimit('CAMPAIGNS_RULE_SIZE_LIMIT', env.CAMPAIGNS_RULE_SIZE_LIMIT),
+};
+const campaigns = new CampaignService({ sql, timeZone: () => timeZone, participants, ruleLimits: () => ruleLimits });
 const ledger =
   env.LEDGER_URL && env.INTERNAL_SERVICE_SECRET ? createLedgerClient(env.LEDGER_URL, env.INTERNAL_SERVICE_SECRET, s2sKey) : null;
 const reconcileAfterSeconds = env.CAMPAIGNS_RECONCILE_AFTER_SECONDS ?? null;
@@ -75,6 +80,7 @@ app.get('/ready', async (_req, reply) => {
       database: 'ok',
       tgeSchedule: tgeSchedule ? 'set' : 'launch.schedule_unset',
       timeZone: timeZone ?? 'campaigns.timezone_unset',
+      ruleLimits: ruleLimits.depth && ruleLimits.size ? 'set' : 'campaigns.rule_limits_unset',
       ledger: saga ? 'set' : 'campaigns.reward_saga_unwired',
       reconciler: saga && reconcileAfterSeconds ? 'set' : 'campaigns.reconcile_unset',
       bus: bus ? 'attached' : 'unreachable',

@@ -23,12 +23,16 @@ import {
   type Participation,
   type ParticipationRules,
   type RewardLock,
+  type RuleGroup,
+  type RuleLibraryEntry,
+  type RuleTestResult,
 } from '@intafaced/contracts/campaigns-catalogue';
 import type { CampaignParticipant } from '@intafaced/contracts';
 import { formatAmount, parseAmount as parseAmount18 } from '@intafaced/ledger-client';
 import { CampaignsError } from './codes.js';
 import { parseWindowTime } from './drops.js';
 import type { ParticipantSource } from './participants.js';
+import { checkRule, evaluateRule, tryRule, type RuleLimits } from './rules.js';
 
 /**
  * The campaign object, its type catalogue and lifecycle (CM-campaign-types-01, ENGINE LC-1 to LC-4, LC-6), with the time
@@ -105,6 +109,16 @@ type ChangeRow = {
   created_at: Date;
   updated_at: Date;
 };
+
+type RuleRow = { name: string; revision: number; tree: RuleGroup; created_by: string; created_at: Date };
+
+const toRuleEntry = (r: RuleRow): RuleLibraryEntry => ({
+  name: r.name,
+  revision: r.revision,
+  tree: r.tree,
+  createdBy: r.created_by,
+  createdAt: r.created_at.toISOString(),
+});
 
 /** States in which a campaign is past approval and still changed by a new revision rather than edited in place. */
 const REVISABLE: readonly CampaignState[] = ['approved', 'scheduled', 'active', 'paused'];
@@ -382,7 +396,8 @@ function toView(
 const isOpen = (state: CampaignState) => state === 'active' || state === 'paused' || state === 'scheduled';
 
 /** Whether a campaign's rules need identity's answer at all. A campaign open to every signed-in account does not. */
-export const needsParticipant = (rules: ParticipationRules) => rules.exclusions.length > 0 || rules.regionScope === 'listed';
+export const needsParticipant = (rules: ParticipationRules) =>
+  rules.exclusions.length > 0 || rules.regionScope === 'listed' || Boolean(rules.rule);
 
 /**
  * The caller's answer for one rule set (ENGINE EL-1 to EL-3, EL-6). Null participant is `unread`. A frozen or closed
@@ -398,6 +413,8 @@ export function eligibilityOf(rules: ParticipationRules, who: CampaignParticipan
   if (rules.regionScope === 'listed' && (!who.region || (rules.restrictedRegions ?? []).includes(who.region))) {
     return 'region_blocked';
   }
+  // A library rule (CM-eligibility-rules-02) the account does not meet leaves it out like an exclusion does.
+  if (rules.rule && !evaluateRule(rules.rule.tree, who).passes) return 'not_eligible';
   return 'eligible';
 }
 
@@ -557,6 +574,8 @@ function parseParticipation(input: ParticipationRules): ParticipationRules {
     exclusions: [...new Set(input.exclusions)].sort(),
     regionScope: input.regionScope,
     restrictedRegions: input.regionScope === 'listed' && regions.length > 0 ? regions : null,
+    // Only a campaign with a rule stores the key, so rules without one store as they always did.
+    ...(input.rule ? { rule: input.rule } : {}),
   };
 }
 
@@ -600,6 +619,8 @@ export interface CampaignServiceOptions {
   timeZone: () => string | null;
   /** svc-identity's participant read, per check. Null answers read `unread`. */
   participants: ParticipantSource;
+  /** The owner's rule depth and size limits (CM-eligibility-rules-02); blank refuses every rule. */
+  ruleLimits?: () => RuleLimits;
   now?: () => Date;
 }
 
@@ -608,9 +629,11 @@ export class CampaignService {
   private readonly now: () => Date;
   private readonly timeZone: () => string | null;
   private readonly participants: ParticipantSource;
+  private readonly ruleLimits: () => RuleLimits;
 
   constructor(options: CampaignServiceOptions) {
     this.sql = options.sql;
+    this.ruleLimits = options.ruleLimits ?? (() => ({ depth: null, size: null }));
     this.participants = options.participants;
     this.now = options.now ?? (() => new Date());
     this.timeZone = options.timeZone;
@@ -627,6 +650,7 @@ export class CampaignService {
     const id = `cmp_${randomUUID()}`;
     try {
       return await transaction(this.sql, async (tx) => {
+        await this.checkCampaignRule(tx, d);
         const [row] = await tx<CampaignRow[]>`
           INSERT INTO campaigns.campaigns (id, name, type, rules, starts_at, ends_at, weekdays, hours_from, hours_to,
             participation, budget_asset, budget_limit, reward_asset, reward_amount, tasks, time_zone_blank, created_by)
@@ -667,6 +691,7 @@ export class CampaignService {
         if (row.state !== 'draft') {
           throw new CampaignsError('campaign.not_draft', `A campaign that is ${state} is not edited`);
         }
+        await this.checkCampaignRule(tx, d);
         const [out] = await tx<CampaignRow[]>`
           UPDATE campaigns.campaigns SET name = ${d.name}, type = ${d.type}, rules = ${d.rules}, starts_at = ${d.startsAt},
             ends_at = ${d.endsAt}, weekdays = ${d.weekdays}, hours_from = ${d.hoursFrom}, hours_to = ${d.hoursTo},
@@ -698,6 +723,7 @@ export class CampaignService {
       throw new CampaignsError('campaign.revision_conflict', `The campaign's latest revision is ${expected}, not ${input.revision}`);
     }
     if (d.type !== row.type) throw new CampaignsError('campaign.type_locked', 'A live campaign keeps its type');
+    await this.checkCampaignRule(tx, d);
     const [drawn] = await tx<{ budget_drawn: string }[]>`SELECT budget_drawn FROM campaigns.campaign_rows WHERE id = ${row.id}`;
     if (d.budgetLimit && parseAmount18(d.budgetLimit) < parseAmount18(drawn?.budget_drawn ?? '0')) {
       throw new CampaignsError('campaigns.budget_below_drawn', `Rewards already draw ${decimalOf(drawn!.budget_drawn)} of this budget`);
@@ -863,6 +889,54 @@ export class CampaignService {
       await audit(tx, input.actor, `campaign.${input.action}`, input.id, { from: current, to, revision: row.revision });
       return toCampaign(out!, timeZone, now);
     });
+  }
+
+  // ── Rule library (CM-eligibility-rules-02, ENGINE EL-4) ─────────────────────────────────────────────────────
+
+  /** Tries a tree on a TEST fixture account. Reads no account and stores nothing. */
+  testRule(input: { tree: RuleGroup; fixture: string }): RuleTestResult {
+    return tryRule(input.tree, input.fixture, this.ruleLimits());
+  }
+
+  /** Saves a tree under a name as that name's next revision. The same tree sent again returns the revision it made. */
+  async saveRule(input: { name: string; tree: RuleGroup; actor: string }): Promise<RuleLibraryEntry> {
+    checkRule(input.tree, this.ruleLimits());
+    const name = input.name.trim();
+    return transaction(this.sql, async (tx) => {
+      // One writer per name at a time, so two saves never take the same revision.
+      await tx`SELECT pg_advisory_xact_lock(hashtext(${`campaigns:rule:${name.toLowerCase()}`}))`;
+      const [latest] = await tx<RuleRow[]>`
+        SELECT * FROM campaigns.rule_library WHERE lower(name) = lower(${name}) ORDER BY revision DESC LIMIT 1`;
+      if (latest && canonical(latest.tree) === canonical(input.tree)) return toRuleEntry(latest);
+      const [made] = await tx<RuleRow[]>`
+        INSERT INTO campaigns.rule_library (name, revision, tree, created_by)
+        VALUES (${latest?.name ?? name}, ${(latest?.revision ?? 0) + 1}, ${tx.json(input.tree as unknown as postgres.JSONValue)}, ${input.actor})
+        RETURNING *`;
+      await audit(tx, input.actor, 'campaign.rule.save', made!.name, { revision: made!.revision });
+      return toRuleEntry(made!);
+    });
+  }
+
+  /** Every name's latest revision, newest first. */
+  async listRules(): Promise<RuleLibraryEntry[]> {
+    const rows = await this.sql<RuleRow[]>`
+      SELECT DISTINCT ON (lower(name)) * FROM campaigns.rule_library ORDER BY lower(name), revision DESC`;
+    return rows.map(toRuleEntry).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  }
+
+  /** A campaign's rule is a copy of one library revision, checked against the library and the limits when it is saved. */
+  private async checkCampaignRule(tx: Sql, d: Definition): Promise<void> {
+    const rule = d.participation?.rule;
+    if (!rule) return;
+    checkRule(rule.tree, this.ruleLimits());
+    const [entry] = await tx<RuleRow[]>`
+      SELECT * FROM campaigns.rule_library WHERE lower(name) = lower(${rule.name}) AND revision = ${rule.revision}`;
+    if (!entry || canonical(entry.tree) !== canonical(rule.tree)) {
+      throw new CampaignsError(
+        'campaigns.rule_unknown',
+        `The rule library holds no revision ${rule.revision} of ${rule.name} with this tree`,
+      );
+    }
   }
 
   /** One campaign as operators see it, at any age; the list is the newest 200. */

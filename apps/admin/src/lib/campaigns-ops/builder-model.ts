@@ -57,10 +57,6 @@ export const STEP_LABEL: Record<BuilderStep, string> = {
 
 /** Tabs whose backend is not built yet: shown with their blocker, never hidden, and never a step a draft resumes at. */
 export const PARKED_STEPS: Partial<Record<BuilderStep, { slice: string; what: string }>> = {
-  rules: {
-    slice: 'CM-eligibility-rules-02',
-    what: 'Nested AND and OR rule groups, testing a rule on a fixture account and the rule library are not built in svc-campaigns yet.',
-  },
   earning: {
     slice: 'CM-rewards-hub-05',
     what: 'Earning rules (a trigger from the catalogue, a condition and an incentive in the formula grammar) are not built in svc-campaigns yet.',

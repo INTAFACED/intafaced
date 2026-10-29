@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { createTestDatabase, postgresAvailable, type TestDatabase } from '@intafaced/db/testing';
 import { afterAll, beforeEach, describe, expect, it } from 'vitest';
 import type { CampaignParticipant } from '@intafaced/contracts';
-import type { CampaignDefinitionInput, ParticipationRules } from '@intafaced/contracts/campaigns-catalogue';
+import type { CampaignDefinitionInput, ParticipationRules, RuleGroup } from '@intafaced/contracts/campaigns-catalogue';
 import { CampaignService, effectiveState, eligibilityOf, participationKeyOf, reviewKeyOf, zonedClock } from './campaigns.js';
 import { CampaignsError } from './codes.js';
 
@@ -55,7 +55,8 @@ const who = (over: Partial<CampaignParticipant> = {}): CampaignParticipant => ({
   kycTier: 'basic',
   ...over,
 });
-const service = () => new CampaignService({ sql: db!.sql, timeZone: () => zone, now: () => now, participants });
+const service = () =>
+  new CampaignService({ sql: db!.sql, timeZone: () => zone, now: () => now, participants, ruleLimits: () => ({ depth: 3, size: 10 }) });
 
 async function code(p: Promise<unknown>): Promise<string> {
   const err = await p.then(
@@ -469,6 +470,42 @@ if (!db) {
       const c = await s.create({ definition: full(), actor: A });
       await s.transition({ id: c.id, action: 'submit', revision: 1, actor: A });
       expect(await code(s.update({ id: c.id, revision: 1, definition: full({ rules: 'TEST x' }), actor: A }))).toBe('campaign.not_draft');
+    });
+
+    it('the rule library keeps each save as the next revision; a campaign holds a copy and every join is checked by it', async () => {
+      const s = service();
+      const tree: RuleGroup = { kind: 'group', op: 'and', parts: [{ kind: 'condition', field: 'accountType', is: 'individual' }] };
+      const first = await s.saveRule({ name: 'TEST individuals', tree, actor: A });
+      expect(first).toMatchObject({ name: 'TEST individuals', revision: 1, createdBy: A });
+      // The same tree again is the same revision; a changed tree is the next one, under the name as first written.
+      expect((await s.saveRule({ name: 'test INDIVIDUALS', tree, actor: B })).revision).toBe(1);
+      const wider: RuleGroup = {
+        kind: 'group',
+        op: 'or',
+        parts: [...tree.parts, { kind: 'condition', field: 'kycTier', atLeast: 'full' }],
+      };
+      expect(await s.saveRule({ name: 'test individuals', tree: wider, actor: B })).toMatchObject({
+        name: 'TEST individuals',
+        revision: 2,
+      });
+      expect((await s.listRules()).map((r) => [r.name, r.revision])).toEqual([['TEST individuals', 2]]);
+      // A campaign's copy must be a library revision as stored.
+      const rule = { name: 'TEST individuals', revision: 1, tree };
+      const participation = { exclusions: [], regionScope: 'platform' as const, restrictedRegions: null };
+      expect(
+        await code(
+          s.create({
+            definition: full({ name: 'TEST forged', participation: { ...participation, rule: { ...rule, tree: wider } } }),
+            actor: A,
+          }),
+        ),
+      ).toBe('campaigns.rule_unknown');
+      const c = await live({ participation: { ...participation, rule } });
+      people.set('account-biz', who({ accountType: 'business' }));
+      expect(await code(s.join({ campaignId: c.id, accountId: 'account-biz' }))).toBe('campaigns.not_eligible');
+      expect((await s.join({ campaignId: c.id, accountId: ME })).created).toBe(true);
+      // An edit of the library never reaches the campaign's copy.
+      expect((await s.getForOps({ id: c.id })).participation?.rule?.revision).toBe(1);
     });
 
     it('a paused campaign cannot be archived either; one campaign reads by id at any age', async () => {

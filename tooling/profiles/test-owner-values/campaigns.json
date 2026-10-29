@@ -15,6 +15,16 @@
       "service": "campaigns",
       "value": "86400",
       "note": "The rollback window a reward record shows in the redemption log (J-campaigns-02 #7). Nothing can be rolled back yet: no reversing recipe exists. Not an owner decision."
+    },
+    "CAMPAIGNS_RULE_DEPTH_LIMIT": {
+      "service": "campaigns",
+      "value": "4",
+      "note": "The deepest nesting of AND and OR groups in a campaign rule, so J-campaigns-16 #4 can build, try and save a nested rule. Not an owner decision."
+    },
+    "CAMPAIGNS_RULE_SIZE_LIMIT": {
+      "service": "campaigns",
+      "value": "20",
+      "note": "The most groups and conditions in one campaign rule (J-campaigns-16 #4). Not an owner decision."
     }
   }
 }

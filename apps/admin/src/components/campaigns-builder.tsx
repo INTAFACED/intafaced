@@ -34,6 +34,7 @@ import {
 } from '@/lib/campaigns-ops/builder-model';
 import type { Part } from '@/lib/desk/part';
 import { PartFailed, StateChip } from '@/components/campaigns-desk';
+import { RuleBuilder } from '@/components/campaigns-rule-builder';
 import './desk.css';
 
 /**
@@ -134,7 +135,7 @@ const local = (body: string): Outcome => ({
 });
 
 /** The fields one tab owns, laid over the stored definition, so a tab never blanks another tab's answers. */
-function patchFor(step: BuilderStep, f: Fields): Partial<CampaignDefinitionInput> | string | null {
+function patchFor(step: BuilderStep, f: Fields, rule: ParticipationRules['rule']): Partial<CampaignDefinitionInput> | string | null {
   switch (step) {
     case 'basics':
       return { name: f.name.trim(), type: f.type, rules: f.rules };
@@ -143,6 +144,7 @@ function patchFor(step: BuilderStep, f: Fields): Partial<CampaignDefinitionInput
       if (!regions.ok) return `"${regions.bad}" is not a two-letter region code (ISO 3166, for example DE).`;
       return {
         participation: {
+          ...(rule ? { rule } : {}),
           exclusions: f.exclusions,
           regionScope: f.regionScope,
           // A listed campaign with no region typed stays blank, and the gate refuses it by name: never "no region".
@@ -313,7 +315,7 @@ export function CampaignBuilder({
 
   /** Saves one tab's fields. Null when nothing was saved (refused, or a parked tab). */
   const saveTab = async (tab: BuilderStep): Promise<Campaign | null> => {
-    const patch = patchFor(tab, fields);
+    const patch = patchFor(tab, fields, campaign ? baseDefinition(campaign).participation?.rule : null);
     if (patch === null) return campaign;
     if (typeof patch === 'string') {
       setOutcome(local(patch));
@@ -362,6 +364,32 @@ export function CampaignBuilder({
       });
       await reload(saved.id);
     }
+  };
+
+  /** Puts a library revision on the campaign's rules: the draft, or the next revision of a live campaign. */
+  const putRule = async (rule: NonNullable<ParticipationRules['rule']>) => {
+    if (!campaign) return;
+    const base = baseDefinition(campaign);
+    if (!base.participation) {
+      setOutcome(local('Set who can take part first: the rule is checked alongside the exclusions and the region list.'));
+      return;
+    }
+    setBusy(true);
+    const answer = await postCampaignChange({
+      op: 'update',
+      id: campaign.id,
+      revision: latestRevision(campaign),
+      definition: { ...base, participation: { ...base.participation, rule } },
+    });
+    if (answer.ok) {
+      setCampaign(answer.campaign);
+      setOutcome({
+        kind: 'done',
+        text: `Put ${rule.name}, revision ${rule.revision}, on the campaign as revision ${latestRevision(answer.campaign)}.`,
+      });
+      await reload(answer.campaign.id);
+    } else setOutcome(refusedFrom(answer, campaign, me));
+    setBusy(false);
   };
 
   const checkDraft = async () => {
@@ -575,6 +603,15 @@ export function CampaignBuilder({
                 </div>
               )}
             </>
+          )}
+          {step === 'rules' && campaign && (
+            <RuleBuilder
+              campaignName={campaign.name}
+              current={editedView(campaign).participation?.rule ?? null}
+              disabled={!editable}
+              onNotice={(n) => setOutcome(n.kind === 'done' ? n : { ...n, lines: [] })}
+              onUse={(rule) => void putRule(rule)}
+            />
           )}
           {parked && (
             <section aria-label={`${STEP_LABEL[step]}: not built`} data-testid={`campaign-parked-${step}`}>
