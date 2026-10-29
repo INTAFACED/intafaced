@@ -13,12 +13,24 @@
 import { createHash } from 'node:crypto';
 import type { Sql } from 'postgres';
 import { FOUNDER_DESK_SCOPES, INTERACTIVE_ONLY_SCOPES, SCOPES, expandScopes, isPayStepUpScope, isScope, type Scope } from '@intafaced/auth';
-import type { ApiKeyCreateInput, ApiKeyCreateOutput, ApiKeyList, ApiKeyRecord, ApiKeyScopeEntry } from '@intafaced/contracts/api-keys';
-import { API_KEY_NAME_MAX } from '@intafaced/contracts/api-keys';
+import type {
+  ApiKeyCreateInput,
+  ApiKeyCreateOutput,
+  ApiKeyDetail,
+  ApiKeyList,
+  ApiKeyRecord,
+  ApiKeyRevokedBy,
+  ApiKeyRevokeInput,
+  ApiKeyRevokeOutput,
+  ApiKeyScopeEntry,
+  ApiKeySetExpiryInput,
+} from '@intafaced/contracts/api-keys';
+import { API_KEY_NAME_MAX, API_KEY_REVOKE_REASON_MAX, API_KEY_REVOKED_BY } from '@intafaced/contracts/api-keys';
 import type { KycTier, PayStepUpFactorProof } from './auth-service.js';
 import { bindApiKeyIpAllowlist } from './auth-service-ip.js';
 import { normalizeIp } from './api-key-ip.js';
 import { guardedApiKeyAction, type ApiKeyFactorGate } from './api-key-fresh-factor.js';
+import { inTransaction } from './api-key-request-sign.js';
 import { MintApiKeyPasskeyError, requireVerifiedPasskey } from './mint-api-key-passkey.js';
 
 export type DeveloperKeyRefusal =
@@ -32,7 +44,10 @@ export type DeveloperKeyRefusal =
   | 'identity.key_expiry_invalid'
   | 'identity.key_cap_unset'
   | 'identity.key_cap_reached'
-  | 'identity.key_request_conflict';
+  | 'identity.key_request_conflict'
+  | 'identity.key_not_found'
+  | 'identity.key_not_live'
+  | 'identity.key_revoke_reason_invalid';
 
 export class DeveloperKeyError extends Error {
   constructor(
@@ -63,6 +78,18 @@ export function parseApiKeyCapByTier(raw: string | undefined): ReadonlyMap<KycTi
     caps.set(tier, Number(match[2]));
   }
   return caps;
+}
+
+/**
+ * `IDENTITY_API_KEY_IDLE_EXPIRY_SECONDS`: the owner's idle period, whole seconds a key may go unused before the dormant
+ * sweep ends it (ENGINE KS-7). Blank: null, shown as `not set`, and nothing is ever ended for being idle. A value that
+ * is not a positive whole number throws, so the service does not start on a period it cannot read.
+ */
+export function parseApiKeyIdleExpirySeconds(raw: string | undefined): number | null {
+  if (raw === undefined || raw.trim() === '') return null;
+  const value = raw.trim();
+  if (!/^[1-9]\d{0,9}$/.test(value)) throw new Error('IDENTITY_API_KEY_IDLE_EXPIRY_SECONDS must be a whole number of seconds above zero');
+  return Number(value);
 }
 
 /** Why a scope the session holds cannot sit on a key, or null when it can. */
@@ -143,7 +170,14 @@ type KeyRow = {
   expires_at: Date | null;
   last_used_at: Date | null;
   revoked: boolean;
+  revoked_at: Date | null;
+  revoked_cause: string | null;
+  revoke_reason: string | null;
 };
+
+/** The columns every key read takes, in the order `KeyRow` names them. Never the hash or a secret. */
+const KEY_COLUMNS =
+  'id, name, key_prefix, mode, scopes, ip_allowlist, require_signature, created_at, expires_at, last_used_at, revoked, revoked_at, revoked_cause, revoke_reason';
 
 function toRecord(row: KeyRow): ApiKeyRecord {
   return {
@@ -158,6 +192,12 @@ function toRecord(row: KeyRow): ApiKeyRecord {
     expiresAt: row.expires_at?.toISOString() ?? null,
     lastUsedAt: row.last_used_at?.toISOString() ?? null,
     revoked: row.revoked,
+    revokedAt: row.revoked ? (row.revoked_at?.toISOString() ?? null) : null,
+    revokedBy:
+      row.revoked && (API_KEY_REVOKED_BY as readonly string[]).includes(row.revoked_cause ?? '')
+        ? (row.revoked_cause as ApiKeyRevokedBy)
+        : null,
+    revokeReason: row.revoked && row.revoked_cause === 'owner' ? row.revoke_reason : null,
   };
 }
 
@@ -180,6 +220,8 @@ export type DeveloperKeysDeps = {
    * verifies the passkey on its way in); the mint itself checks it again.
    */
   mayMint?: (userId: string, factor: 'passkey' | 'other' | 'none') => Promise<void>;
+  /** The owner's idle period (`parseApiKeyIdleExpirySeconds`); null is `not set`. Shown on the detail, never defaulted. */
+  idleExpirySeconds?: number | null;
   now?: () => Date;
 };
 
@@ -193,7 +235,7 @@ async function capFor(deps: DeveloperKeysDeps, userId: string, sql: Sql): Promis
 async function replayOf(sql: Sql, userId: string, requestId: string, fingerprint: string): Promise<ApiKeyCreateOutput | null> {
   const rows = await sql<Array<KeyRow & { fingerprint: string }>>`
     SELECT r.fingerprint, k.id, k.name, k.key_prefix, k.mode, k.scopes, k.ip_allowlist, k.require_signature,
-           k.created_at, k.expires_at, k.last_used_at, k.revoked
+           k.created_at, k.expires_at, k.last_used_at, k.revoked, k.revoked_at, k.revoked_cause, k.revoke_reason
     FROM api_key_create_requests r JOIN api_keys k ON k.id = r.key_id AND k.user_id = r.user_id
     WHERE r.user_id = ${userId} AND r.request_id = ${requestId}
   `;
@@ -277,10 +319,7 @@ export async function createDeveloperKey(
         `;
         // The same request id committed first from another call: undo this key and answer with that one.
         if (!recorded[0]) throw new SameRequestRace();
-        const rows = await tx<KeyRow[]>`
-          SELECT id, name, key_prefix, mode, scopes, ip_allowlist, require_signature, created_at, expires_at, last_used_at, revoked
-          FROM api_keys WHERE id = ${minted.id}
-        `;
+        const rows = await tx<KeyRow[]>`SELECT ${tx.unsafe(KEY_COLUMNS)} FROM api_keys WHERE id = ${minted.id}`;
         return { record: toRecord(rows[0]!), key: minted.key, replayed: false };
       },
     );
@@ -313,11 +352,112 @@ export function passkeyMintRule(sql: Sql): NonNullable<DeveloperKeysDeps['mayMin
 /** The account's keys, newest first, with the cap and how many keys count against it. Never a secret or a hash. */
 export async function listDeveloperKeys(deps: DeveloperKeysDeps, userId: string, limit: number): Promise<ApiKeyList> {
   const rows = await deps.sql<KeyRow[]>`
-    SELECT id, name, key_prefix, mode, scopes, ip_allowlist, require_signature, created_at, expires_at, last_used_at, revoked
+    SELECT ${deps.sql.unsafe(KEY_COLUMNS)}
     FROM api_keys WHERE user_id = ${userId} ORDER BY created_at DESC, id DESC LIMIT ${limit}
   `;
   return {
     keys: rows.map(toRecord),
     cap: { limit: await capFor(deps, userId, deps.sql), live: await liveKeyCount(deps.sql, userId) },
   };
+}
+
+const notFound = () => new DeveloperKeyError('No key with this id on your account', 'identity.key_not_found');
+
+async function ownKey(
+  sql: Sql,
+  userId: string,
+  keyId: string,
+  lock = false,
+): Promise<KeyRow & { require_non_empty_ip_allowlist: boolean }> {
+  // Another account's key and a missing key answer the same: not found.
+  const rows = lock
+    ? await sql<Array<KeyRow & { require_non_empty_ip_allowlist: boolean }>>`
+        SELECT ${sql.unsafe(KEY_COLUMNS)}, require_non_empty_ip_allowlist FROM api_keys
+        WHERE id = ${keyId} AND user_id = ${userId} FOR UPDATE`
+    : await sql<Array<KeyRow & { require_non_empty_ip_allowlist: boolean }>>`
+        SELECT ${sql.unsafe(KEY_COLUMNS)}, require_non_empty_ip_allowlist FROM api_keys
+        WHERE id = ${keyId} AND user_id = ${userId}`;
+  if (!rows[0]) throw notFound();
+  return rows[0];
+}
+
+/** One key of the account with its IP policy and the owner's idle period. Never a secret or a hash. */
+export async function getDeveloperKey(deps: DeveloperKeysDeps, userId: string, keyId: string): Promise<ApiKeyDetail> {
+  const row = await ownKey(deps.sql, userId, keyId);
+  return {
+    key: toRecord(row),
+    requireNonEmptyIpAllowlist: row.require_non_empty_ip_allowlist === true,
+    idleExpirySeconds: deps.idleExpirySeconds ?? null,
+  };
+}
+
+const REASON = new RegExp(`^[^\\p{Cc}\\p{Cf}]{1,${API_KEY_REVOKE_REASON_MAX}}$`, 'u');
+
+/** The person's reason, trimmed; blank is no reason. Control characters or too long refuse. */
+export function checkRevokeReason(raw: string | undefined): string | null {
+  const reason = raw?.trim() ?? '';
+  if (reason === '') return null;
+  if (!REASON.test(reason)) {
+    throw new DeveloperKeyError(
+      `Use a reason of at most ${API_KEY_REVOKE_REASON_MAX} characters, with no control characters`,
+      'identity.key_revoke_reason_invalid',
+    );
+  }
+  return reason;
+}
+
+/**
+ * The person's own revoke from the developer room. No second factor: switching a key off must always work. The first
+ * revoke records `owner`, the time and the reason; a repeat on a revoked key changes nothing (its first cause stays,
+ * whoever revoked it) and answers with the record as it stands.
+ */
+export async function revokeDeveloperKey(deps: DeveloperKeysDeps, userId: string, input: ApiKeyRevokeInput): Promise<ApiKeyRevokeOutput> {
+  const reason = checkRevokeReason(input.reason);
+  const updated = await deps.sql<KeyRow[]>`
+    UPDATE api_keys SET revoked = true, revoked_at = now(), revoked_cause = 'owner', revoke_reason = ${reason}
+    WHERE id = ${input.keyId} AND user_id = ${userId} AND revoked = false
+    RETURNING ${deps.sql.unsafe(KEY_COLUMNS)}
+  `;
+  if (updated[0]) return { record: toRecord(updated[0]), changed: true };
+  return { record: toRecord(await ownKey(deps.sql, userId, input.keyId)), changed: false };
+}
+
+/**
+ * A new end date for a live key. The instant must be in the future. An earlier end than today's (or a first one on a
+ * key with none) only narrows the key and commits without a factor; a later end widens it and takes a fresh second
+ * factor, in one transaction with its audit row, as create does. The decision is made on the locked row both times.
+ */
+export async function setDeveloperKeyExpiry(
+  deps: DeveloperKeysDeps,
+  caller: Caller,
+  input: ApiKeySetExpiryInput & { factorProof?: PayStepUpFactorProof | undefined },
+): Promise<{ record: ApiKeyRecord }> {
+  const now = deps.now?.() ?? new Date();
+  const at = new Date(input.expiresAt);
+  if (!(at.getTime() > now.getTime())) throw new DeveloperKeyError('Choose an end date in the future', 'identity.key_expiry_invalid');
+  const lockLive = async (tx: Sql) => {
+    const row = await ownKey(tx, caller.userId, input.keyId, true);
+    if (row.revoked || (row.expires_at !== null && row.expires_at.getTime() <= now.getTime())) {
+      throw new DeveloperKeyError('This key is revoked or has ended; make a new key instead', 'identity.key_not_live');
+    }
+    return row;
+  };
+  const write = async (tx: Sql) => {
+    const rows = await tx<KeyRow[]>`
+      UPDATE api_keys SET expires_at = ${at} WHERE id = ${input.keyId} AND user_id = ${caller.userId} AND revoked = false
+      RETURNING ${tx.unsafe(KEY_COLUMNS)}
+    `;
+    if (!rows[0]) throw notFound();
+    return { record: toRecord(rows[0]) };
+  };
+  const narrowed = await inTransaction(deps.sql, async (tx) => {
+    const row = await lockLive(tx);
+    if (row.expires_at !== null && at.getTime() > row.expires_at.getTime()) return undefined;
+    return write(tx);
+  });
+  if (narrowed) return narrowed;
+  return guardedApiKeyAction(deps.gate, caller, input.factorProof, { action: 'expiry_widen', keyId: input.keyId }, async (scope) => {
+    await lockLive(scope.tx);
+    return write(scope.tx);
+  });
 }

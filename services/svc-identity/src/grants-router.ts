@@ -85,7 +85,7 @@ export function createGrantsRouter(sql: Sql) {
         .output(z.object({ keyId: z.string().guid(), revoked: z.literal(true), alreadyRevoked: z.boolean() }).strict())
         .mutation(async ({ ctx, input }) => {
           const updated = await sql`
-            UPDATE api_keys SET revoked = true
+            UPDATE api_keys SET revoked = true, revoked_at = now(), revoked_cause = 'owner'
             WHERE id = ${input.keyId} AND user_id = ${ctx.principal.userId} AND revoked = false
           `;
           if (updated.count > 0) return { keyId: input.keyId, revoked: true as const, alreadyRevoked: false };

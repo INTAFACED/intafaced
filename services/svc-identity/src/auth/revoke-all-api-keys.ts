@@ -24,6 +24,7 @@ export function requireUserId(value: string | null | undefined): string {
   return value.trim();
 }
 
+/** Every live key of the person, at their own request (panic, a recovery, a passkey removed): recorded as `owner`. */
 export async function revokeAllApiKeys(
   sql: Sql,
   principalUserId: string | null | undefined,
@@ -36,7 +37,7 @@ export async function revokeAllApiKeys(
   }
   const rows = await sql<Array<{ id: string }>>`
     UPDATE api_keys
-    SET revoked = true
+    SET revoked = true, revoked_at = now(), revoked_cause = 'owner'
     WHERE user_id = ${named} AND revoked = false
     RETURNING id
   `;

@@ -454,6 +454,11 @@ export const apiKeys = identity.table(
     lastUsedAt: tstz('last_used_at'),
     expiresAt: tstz('expires_at'),
     revoked: boolean('revoked').notNull().default(false),
+    /** When and why the key was revoked (owner, account_freeze, operator, account_closed); null while live. */
+    revokedAt: tstz('revoked_at'),
+    revokedCause: text('revoked_cause'),
+    /** The person's own words when they revoked it; never an operator's note. */
+    revokeReason: text('revoke_reason'),
     createdAt: createdAt(),
   },
   (t) => [uniqueIndex('api_keys_hash_idx').on(t.keyHash), index('api_keys_user_idx').on(t.userId, t.revoked)],

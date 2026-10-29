@@ -57,6 +57,16 @@ export const apiKeyCreateInputSchema = z
   .strict();
 export type ApiKeyCreateInput = z.infer<typeof apiKeyCreateInputSchema>;
 
+/**
+ * Why a key stopped working before its end date, as the service recorded it at the revoke: the person revoked it
+ * (`owner`), the account was frozen (`account_freeze`, by the person or by staff), an operator revoked this one key
+ * (`operator`), or the account was closed (`account_closed`). Null on a key revoked before causes were recorded.
+ */
+export const API_KEY_REVOKED_BY = ['owner', 'account_freeze', 'operator', 'account_closed'] as const;
+export type ApiKeyRevokedBy = (typeof API_KEY_REVOKED_BY)[number];
+/** Longest reason the person may give when they revoke their own key. */
+export const API_KEY_REVOKE_REASON_MAX = 200;
+
 export const apiKeyRecordSchema = z
   .object({
     id: z.string().guid(),
@@ -70,6 +80,11 @@ export const apiKeyRecordSchema = z
     expiresAt: isoInstant.nullable(),
     lastUsedAt: isoInstant.nullable(),
     revoked: z.boolean(),
+    /** When the key was revoked. Null while live, and on a key revoked before this was recorded. */
+    revokedAt: isoInstant.nullable(),
+    revokedBy: z.enum(API_KEY_REVOKED_BY).nullable(),
+    /** The reason the person typed when they revoked it themselves. An operator's own note is never shown here. */
+    revokeReason: z.string().max(API_KEY_REVOKE_REASON_MAX).nullable(),
   })
   .strict();
 export type ApiKeyRecord = z.infer<typeof apiKeyRecordSchema>;
@@ -97,6 +112,59 @@ export const apiKeyListOutputSchema = z
   .strict()
   .refine((list) => new Set(list.keys.map((key) => key.id)).size === list.keys.length, 'each key once');
 export type ApiKeyList = z.infer<typeof apiKeyListOutputSchema>;
+
+/** One key of the signed-in person, by id (`developerKeys.get`). */
+export const apiKeyGetInputSchema = z.object({ keyId: z.string().guid() }).strict();
+
+/**
+ * The key detail page (`/uc/safe/api-keys/:keyId`): the record, its IP policy and the owner's idle expiry.
+ * `idleExpirySeconds: null` means the owner has not set an idle period (`not set`); nothing is ever defaulted.
+ */
+export const apiKeyDetailSchema = z
+  .object({
+    key: apiKeyRecordSchema,
+    /** When true, an empty IP list refuses every call instead of leaving the key open to any address. */
+    requireNonEmptyIpAllowlist: z.boolean(),
+    idleExpirySeconds: z.number().int().positive().nullable(),
+  })
+  .strict();
+export type ApiKeyDetail = z.infer<typeof apiKeyDetailSchema>;
+
+/** Typed refusals of the revoke and end-date doors, besides the second-factor ones. */
+export const API_KEY_CHANGE_REFUSALS = [
+  'auth.step_up_required',
+  'auth.step_up_expired',
+  'identity.key_not_found',
+  'identity.key_not_live',
+  'identity.key_expiry_invalid',
+  'identity.key_revoke_reason_invalid',
+] as const;
+export type ApiKeyChangeRefusal = (typeof API_KEY_CHANGE_REFUSALS)[number];
+
+/**
+ * The person's own revoke (`developerKeys.revoke`). It never needs a second factor, so a key can always be switched
+ * off. A repeat on a revoked key changes nothing and returns the record as it is (the first reason stays).
+ */
+export const apiKeyRevokeInputSchema = z
+  .object({
+    keyId: z.string().guid(),
+    reason: z
+      .string()
+      .max(API_KEY_REVOKE_REASON_MAX * 4)
+      .optional(),
+  })
+  .strict();
+export type ApiKeyRevokeInput = z.infer<typeof apiKeyRevokeInputSchema>;
+export const apiKeyRevokeOutputSchema = z.object({ record: apiKeyRecordSchema, changed: z.boolean() }).strict();
+export type ApiKeyRevokeOutput = z.infer<typeof apiKeyRevokeOutputSchema>;
+
+/**
+ * A new end date for a live key (`developerKeys.setExpiry`). An earlier end (or a first one) only narrows the key and
+ * needs no second factor; a later one widens it and needs a fresh one, as create does. A key can never call this.
+ */
+export const apiKeySetExpiryInputSchema = z.object({ keyId: z.string().guid(), expiresAt: isoInstant }).strict();
+export type ApiKeySetExpiryInput = z.infer<typeof apiKeySetExpiryInputSchema>;
+export const apiKeySetExpiryOutputSchema = z.object({ record: apiKeyRecordSchema }).strict();
 
 /**
  * Why a scope cannot sit on a key: it moves value off the platform or is interactive-only (`interactive_only`), it is

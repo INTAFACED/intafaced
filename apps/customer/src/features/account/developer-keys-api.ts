@@ -1,11 +1,17 @@
 import {
   apiKeyCreateOutputSchema,
   apiKeyCreateRequestId,
+  apiKeyDetailSchema,
   apiKeyListOutputSchema,
+  apiKeyRevokeOutputSchema,
   apiKeyScopesOutputSchema,
+  apiKeySetExpiryOutputSchema,
   type ApiKeyCreateInput,
   type ApiKeyCreateOutput,
+  type ApiKeyDetail,
   type ApiKeyList,
+  type ApiKeyRecord,
+  type ApiKeyRevokeOutput,
   type ApiKeyScopeEntry,
 } from '@intafaced/contracts/api-keys';
 import type { ApiClient, ApiResult } from '../../shared/api';
@@ -49,6 +55,64 @@ export function endOfDayUtc(day: string): string | undefined {
 
 export type Factor = { code: string } | { passkey: true } | null;
 
+async function proofFor(api: ApiClient, factor: Factor, signal?: AbortSignal) {
+  if (factor && 'code' in factor) return { ok: true as const, proof: { totpCode: factor.code } };
+  if (factor && 'passkey' in factor) {
+    const assertion = await requestPasskeyAssertion(api, signal);
+    if (!assertion.ok) return assertion;
+    return { ok: true as const, proof: { webauthn: assertion.data } };
+  }
+  return { ok: true as const, proof: undefined };
+}
+
+/** One key with its IP policy and the owner's idle period (`/uc/safe/api-keys/:keyId`). */
+export function readDeveloperKey(api: ApiClient, keyId: string, signal: AbortSignal): Promise<ApiResult<ApiKeyDetail>> {
+  return api.query('identity', 'developerKeys.get', { keyId }, apiKeyDetailSchema, { signal });
+}
+
+/** The person's own revoke: never a second factor, so a key can always be switched off. A blank reason is none. */
+export function revokeDeveloperKey(
+  api: ApiClient,
+  keyId: string,
+  reason: string,
+  signal?: AbortSignal,
+): Promise<ApiResult<ApiKeyRevokeOutput>> {
+  const trimmed = reason.trim();
+  return api.mutate('identity', 'developerKeys.revoke', { keyId, ...(trimmed ? { reason: trimmed } : {}) }, apiKeyRevokeOutputSchema, {
+    signal,
+  });
+}
+
+/**
+ * A new end date. Without a factor the service takes only an earlier one (or a first one); a later one answers
+ * `auth.step_up_required` until it is sent again with a passkey or a code.
+ */
+export async function setDeveloperKeyExpiry(
+  api: ApiClient,
+  keyId: string,
+  expiresAt: string,
+  factor: Factor,
+  signal?: AbortSignal,
+): Promise<ApiResult<{ record: ApiKeyRecord }>> {
+  const proof = await proofFor(api, factor, signal);
+  if (!proof.ok) return proof;
+  return api.mutate(
+    'identity',
+    'developerKeys.setExpiry',
+    { keyId, expiresAt, ...(proof.proof ? { factorProof: proof.proof } : {}) },
+    apiKeySetExpiryOutputSchema,
+    { signal, keepSessionFor: ['auth.mfa_invalid', 'auth.webauthn_invalid'] },
+  );
+}
+
+/** The last calendar day (UTC, `YYYY-MM-DD`) a key with this end instant works on: an end at midnight is the day before. */
+export function lastDayUtc(expiresAt: string): string {
+  return new Date(Date.parse(expiresAt) - 1).toISOString().slice(0, 10);
+}
+
+/** Whole days in the owner's idle period, rounded down; a period under a day reads as 0. */
+export const idleDays = (seconds: number): number => Math.floor(seconds / 86_400);
+
 /**
  * Sends one create. The request id comes from the list this form read and the key asked for, so pressing Create again
  * after a lost reply returns the key that request made. With no factor the service answers `auth.step_up_required`.
@@ -61,13 +125,9 @@ export async function createDeveloperKey(
   factor: Factor,
   signal?: AbortSignal,
 ): Promise<ApiResult<ApiKeyCreateOutput>> {
-  let factorProof: { totpCode: string } | { webauthn: unknown } | undefined;
-  if (factor && 'code' in factor) factorProof = { totpCode: factor.code };
-  if (factor && 'passkey' in factor) {
-    const assertion = await requestPasskeyAssertion(api, signal);
-    if (!assertion.ok) return assertion;
-    factorProof = { webauthn: assertion.data };
-  }
+  const proof = await proofFor(api, factor, signal);
+  if (!proof.ok) return proof;
+  const factorProof = proof.proof;
   const requestId = apiKeyCreateRequestId(userId, listed, asked);
   return api.mutate(
     'identity',
@@ -98,6 +158,28 @@ const REFUSALS = new Set<string>([
   'auth.passkey_missing',
   'auth.passkey_verify_unavailable',
 ]);
+
+const CHANGE_REFUSALS = new Set<string>([
+  'auth.step_up_required',
+  'auth.step_up_expired',
+  'auth.mfa_invalid',
+  'auth.webauthn_invalid',
+  'auth.delegate_cannot_grant',
+  'identity.key_not_found',
+  'identity.key_not_live',
+  'identity.key_expiry_invalid',
+  'identity.key_revoke_reason_invalid',
+  'identity.delegated_refused',
+]);
+
+/** The detail page's and the revoke dialog's sentence for a typed refusal, or null for the shared failure panel. */
+export function changeRefusal(
+  result: Extract<ApiResult<unknown>, { ok: false }>,
+): Extract<ApiKeysCopyKey, `changeRefused.${string}`> | null {
+  return result.code && CHANGE_REFUSALS.has(result.code)
+    ? (`changeRefused.${result.code}` as Extract<ApiKeysCopyKey, `changeRefused.${string}`>)
+    : null;
+}
 
 /** The room's own sentence for a typed refusal, or null for anything else (shown by the shared failure panel). */
 export function createRefusal(result: Extract<ApiResult<unknown>, { ok: false }>): Extract<ApiKeysCopyKey, `refused.${string}`> | null {

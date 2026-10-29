@@ -2,7 +2,13 @@ import { router, scopedProcedure, TRPCError } from '@intafaced/contracts';
 import {
   apiKeyCreateInputSchema,
   apiKeyCreateOutputSchema,
+  apiKeyDetailSchema,
+  apiKeyGetInputSchema,
   apiKeyListInputSchema,
+  apiKeyRevokeInputSchema,
+  apiKeyRevokeOutputSchema,
+  apiKeySetExpiryInputSchema,
+  apiKeySetExpiryOutputSchema,
   apiKeyListOutputSchema,
   apiKeyScopesOutputSchema,
 } from '@intafaced/contracts/api-keys';
@@ -11,7 +17,10 @@ import {
   createDeveloperKey,
   describeKeyScopes,
   DeveloperKeyError,
+  getDeveloperKey,
   listDeveloperKeys,
+  revokeDeveloperKey,
+  setDeveloperKeyExpiry,
   type DeveloperKeysDeps,
 } from './auth/developer-keys.js';
 import { MintApiKeyPasskeyError } from './auth/mint-api-key-passkey.js';
@@ -29,6 +38,9 @@ const STATUS: Record<DeveloperKeyError['code'], TRPCError['code']> = {
   'identity.key_cap_unset': 'PRECONDITION_FAILED',
   'identity.key_cap_reached': 'PRECONDITION_FAILED',
   'identity.key_request_conflict': 'CONFLICT',
+  'identity.key_not_found': 'NOT_FOUND',
+  'identity.key_not_live': 'PRECONDITION_FAILED',
+  'identity.key_revoke_reason_invalid': 'BAD_REQUEST',
 };
 
 function refused(err: unknown): never {
@@ -73,6 +85,48 @@ export function createDeveloperKeysRouter(deps: DeveloperKeysDeps) {
         .query(async ({ ctx, input }) => {
           assertSignedInPerson(ctx.principal);
           return listDeveloperKeys(deps, ctx.principal.userId, input.limit);
+        }),
+
+      get: scopedProcedure('identity:read')
+        .input(apiKeyGetInputSchema)
+        .output(apiKeyDetailSchema)
+        .query(async ({ ctx, input }) => {
+          assertSignedInPerson(ctx.principal);
+          try {
+            return await getDeveloperKey(deps, ctx.principal.userId, input.keyId);
+          } catch (err) {
+            refused(err);
+          }
+        }),
+
+      /** No second factor: the person can always switch a key off. A key or a sub-account still cannot call it. */
+      revoke: scopedProcedure('identity:write')
+        .input(apiKeyRevokeInputSchema)
+        .output(apiKeyRevokeOutputSchema)
+        .mutation(async ({ ctx, input }) => {
+          assertSignedInPerson(ctx.principal);
+          try {
+            return await revokeDeveloperKey(deps, ctx.principal.userId, input);
+          } catch (err) {
+            refused(err);
+          }
+        }),
+
+      /** A key can never move its own end date (or any key's): the delegate refusal comes before anything is read. */
+      setExpiry: scopedProcedure('identity:write')
+        .input(apiKeySetExpiryInputSchema.extend({ factorProof: optionalFactorProof }))
+        .output(apiKeySetExpiryOutputSchema)
+        .mutation(async ({ ctx, input }) => {
+          // T-8: a key principal gets the delegate refusal, as the older expire door gives it.
+          if (ctx.principal.kid) {
+            throw new TRPCError({ code: 'FORBIDDEN', message: `${userCopy('auth.delegate_cannot_grant')} [auth.delegate_cannot_grant]` });
+          }
+          assertSignedInPerson(ctx.principal);
+          try {
+            return await setDeveloperKeyExpiry(deps, ctx.principal, input);
+          } catch (err) {
+            refused(err);
+          }
         }),
 
       scopes: scopedProcedure('identity:read')
