@@ -46,6 +46,10 @@ import {
   nextTotpStep,
   TOTP_SKEW_STEPS,
   EDGE_AUTHORITY_CACHE_MAX_MS,
+  POSTING_FREEZE_REASON,
+  ledgerPayloadHash,
+  postingFreezePlan,
+  postingFreezeProposal,
 } from './local-test-gates.mjs';
 import { draftFounderVault } from './local-test-founders.mjs';
 import { TEST_SPOT_LISTINGS, localTestDatabaseUrl } from './seed-spot-test-listing.mjs';
@@ -96,8 +100,8 @@ try {
 
   // Guard 5: every CLI command refuses (exit 1) with no marker.
   const nothing = mkdtempSync(join(tmpdir(), 'local-test-gates-none-'));
-  for (const cmd of ['apply', 'operators', 'lifecycle', 'open', 'verify', 'status']) {
-    const r = run(nothing, [cmd]);
+  for (const cmd of ['apply', 'operators', 'lifecycle', 'open', 'verify', 'status', ['posting-freeze', 'on'], ['posting-freeze', 'off']]) {
+    const r = run(nothing, [cmd].flat());
     assert.equal(r.status, 1, `${cmd}: ${r.stderr}`);
     assert.match(r.stderr, /refusing: state directory .* not found/);
   }
@@ -520,5 +524,44 @@ assert.equal(
   EDGE_AUTHORITY_CACHE_MAX_MS,
   "the gates wait exactly as long as Edge's authority cache can hold a session's tier",
 );
+
+// The platform posting freeze: the same hash, targets and version binding svc-ledger consumes
+// (services/svc-ledger/src/ledger/action-approval-consume.ts, operator-http.ts) and the founders' desk proposes.
+assert.equal(ledgerPayloadHash('ledger.freeze', { reason: 'r' }), sha({ actionType: 'ledger.freeze', reason: 'r' }));
+assert.equal(ledgerPayloadHash('ledger.unfreeze'), sha({ actionType: 'ledger.unfreeze' }));
+const ledgerConsume = readFileSync(resolve(here, '../../services/svc-ledger/src/ledger/action-approval-consume.ts'), 'utf8');
+assert.ok(ledgerConsume.includes('JSON.stringify({ actionType, ...fields })'), 'ledger hash recipe changed; update ledgerPayloadHash');
+const ledgerOperator = readFileSync(resolve(here, '../../services/svc-ledger/src/operator-http.ts'), 'utf8');
+assert.match(
+  ledgerOperator,
+  /'ledger\.freeze', 'posting_freeze', prior\.changedAtPrecise, \{\s*reason: parsed\.reason,\s*\}/,
+  'freeze consume changed',
+);
+assert.ok(ledgerOperator.includes("'ledger.unfreeze', 'posting_unfreeze', prior.changedAtPrecise, {}"), 'unfreeze consume changed');
+const version = '2026-10-29 05:00:00.123456+00';
+const on = postingFreezeProposal(true, version);
+assert.deepEqual(
+  [on.actionType, on.targetService, on.targetId, on.expectedVersion, on.policyVersion],
+  ['ledger.freeze', 'svc-ledger', 'posting_freeze', version, 'local-test:v1'],
+);
+assert.equal(on.payloadHash, ledgerPayloadHash('ledger.freeze', { reason: POSTING_FREEZE_REASON.trim() }));
+const off = postingFreezeProposal(false, version);
+assert.deepEqual([off.actionType, off.targetId, off.expectedVersion], ['ledger.unfreeze', 'posting_unfreeze', version]);
+assert.equal(off.payloadHash, ledgerPayloadHash('ledger.unfreeze', {}));
+assert.throws(() => postingFreezeProposal(true, undefined), /freeze version/);
+assert.throws(() => postingFreezeProposal(false, ''), /freeze version/);
+// svc-ledger wants a reason of 12 to 500 characters after trimming; the freeze carries the LOCAL TEST label.
+assert.ok(POSTING_FREEZE_REASON.trim().length >= 12 && POSTING_FREEZE_REASON.length <= 500);
+assert.ok(POSTING_FREEZE_REASON.startsWith(MARKERS.label));
+// Planning: nothing to do when already there; `off` never lifts a freeze this tool did not set; no state refuses.
+assert.deepEqual(postingFreezePlan({ frozen: false, reason: null }, false), { action: 'skip' });
+assert.deepEqual(postingFreezePlan({ frozen: true, reason: POSTING_FREEZE_REASON }, true), { action: 'skip' });
+assert.deepEqual(postingFreezePlan({ frozen: false, reason: null }, true), { action: 'run' });
+assert.deepEqual(postingFreezePlan({ frozen: true, reason: POSTING_FREEZE_REASON }, false), { action: 'run' });
+const foreign = postingFreezePlan({ frozen: true, reason: 'reconciliation mismatch on USDT', actor: 'reconciliation' }, false);
+assert.equal(foreign.action, 'refuse');
+assert.match(foreign.why, /reconciliation mismatch on USDT.*reconciliation/);
+assert.equal(postingFreezePlan(null, true).action, 'refuse');
+assert.equal(postingFreezePlan({ reason: null }, true).action, 'refuse');
 
 console.log('local-test-gates: marker, builder, hash and planning checks passed');

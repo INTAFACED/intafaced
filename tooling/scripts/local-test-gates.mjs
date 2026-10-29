@@ -15,6 +15,7 @@
  *   node tooling/scripts/local-test-gates.mjs futures    list the TEST perpetual, publish TEST derivatives terms and quiz
  *   node tooling/scripts/local-test-gates.mjs halt <SYMBOL>    halt one book in matching (two-person approval)
  *   node tooling/scripts/local-test-gates.mjs resume <SYMBOL>  resume a halted book (two-person approval)
+ *   node tooling/scripts/local-test-gates.mjs posting-freeze on|off   the platform posting freeze in svc-ledger (two-person approval)
  *   node tooling/scripts/local-test-gates.mjs limits     publish the TEST price band and open-order cap (two-person approval)
  *   node tooling/scripts/local-test-gates.mjs charts     publish the TEST charts owner values (counts; data class two-person approval)
  *   node tooling/scripts/local-test-gates.mjs chart-class <SYMBOL> <dataClass>   one market's data class (two-person approval)
@@ -31,6 +32,8 @@
  *   4. the two people who publish personal transfer limits (Pay sends refuse while none are published).
  *   5. the two founders who publish which assets and networks are supported (the address book refuses while none are),
  *   6. the operator who halts and resumes one market (a journey step: new orders refused, cancels still work).
+ *   6b. the two founders who turn the platform posting freeze on and off (a journey step: a money call refused
+ *      `posting_frozen` while a read still works; `off` lifts only a freeze this tool set).
  *   7. the owner who lists the TEST perpetual and publishes the derivatives risk agreement, margin terms and quiz
  *      (every futures order refuses while none are published).
  *   8. the two operators who register what a P2P payment method needs in a market (svc-p2p ships its method registry
@@ -948,6 +951,88 @@ export async function setBookHalt(ctx, symbol, halted) {
     throw new Error(`matching ${action} for ${symbol} refused (${res.status}): ${JSON.stringify(body).slice(0, 300)}`);
   ctx.log(`matching ${action} ${symbol}: accepted (operator ${body.operatorId}, confirmed by ${body.confirmOperatorId}; ${MARKERS.label})`);
   return { symbol, marketId: market.id, halted: body.halted, approvalId: ids.approvalId };
+}
+
+// ── The platform posting freeze (svc-ledger, two-person approval) ────────────
+
+/** Same hash services/svc-ledger/src/ledger/action-approval-consume.ts computes (`ledgerActionPayloadHash`). */
+export function ledgerPayloadHash(actionType, fields = {}) {
+  return `sha256:${crypto
+    .createHash('sha256')
+    .update(JSON.stringify({ actionType, ...fields }))
+    .digest('hex')}`;
+}
+
+/** The reason a LOCAL TEST freeze carries (svc-ledger wants at least twelve characters, trimmed). */
+export const POSTING_FREEZE_REASON = `${MARKERS.label}: platform posting freeze for a journey step`;
+
+/**
+ * The four-eyes proposal for the platform posting freeze or its thaw, as the founders' freeze desk proposes it
+ * (apps/admin/src/lib/desk/approval-hash.ts): bound to the ledger's own version of the freeze row, so a freeze that
+ * moved since the proposal refuses at consume instead of acting on stale intent.
+ */
+export function postingFreezeProposal(frozen, version, reason = POSTING_FREEZE_REASON) {
+  if (typeof version !== 'string' || version.length === 0) throw new Error('the ledger did not report the freeze version');
+  const actionType = frozen ? 'ledger.freeze' : 'ledger.unfreeze';
+  return {
+    actionType,
+    targetService: 'svc-ledger',
+    targetId: frozen ? 'posting_freeze' : 'posting_unfreeze',
+    expectedVersion: version,
+    payloadHash: ledgerPayloadHash(actionType, frozen ? { reason: reason.trim() } : {}),
+    policyVersion: MARKERS.policyVersion,
+  };
+}
+
+/**
+ * What `posting-freeze on|off` does with the freeze it reads: `skip` when the ledger is already where it was asked to
+ * be, `refuse` when asked to lift a freeze this tool did not set (a reconciliation self-freeze on the stack is a finding,
+ * not something a journey tool clears), otherwise `run`.
+ */
+export function postingFreezePlan(state, frozen) {
+  if (!state || typeof state.frozen !== 'boolean') return { action: 'refuse', why: 'the ledger did not report its freeze state' };
+  if (state.frozen === frozen) return { action: 'skip' };
+  if (!frozen && state.reason !== POSTING_FREEZE_REASON)
+    return {
+      action: 'refuse',
+      why: `the ledger is frozen for another reason (${JSON.stringify(state.reason)}, by ${state.actor ?? 'unknown'}); lift it through the freeze desk`,
+    };
+  return { action: 'run' };
+}
+
+/**
+ * Turn the platform posting freeze on or off on the local stack, through the door the founders use: Edge's
+ * `/admin/ledger/freeze` and `/admin/ledger/unfreeze` (admin:treasury, second factor, live session), with an identity
+ * approval founder A proposes and founder B approves (an unfreeze needs two founders; on a stack without them, the
+ * test operators). svc-ledger consumes the approval once and writes who moved the switch. Reads keep answering.
+ */
+export async function setPostingFreeze(ctx, frozen) {
+  const sessions = await approverSessions(ctx);
+  const read = async () => {
+    const res = await ctx.edge.call('GET', '/admin/ledger/freeze', undefined, await sessions.a.treasuryToken());
+    if (res.status !== 200 || typeof res.json?.frozen !== 'boolean')
+      throw new Error(`ledger freeze read refused (${res.status}): ${String(res.text ?? '').slice(0, 300)}`);
+    return res.json;
+  };
+  const before = await read();
+  const plan = postingFreezePlan(before, frozen);
+  if (plan.action === 'refuse') throw new Error(`posting-freeze ${frozen ? 'on' : 'off'} refused: ${plan.why}`);
+  if (plan.action === 'skip') return { frozen, changed: false, actor: before.actor };
+  const ids = await twoPerson(ctx, sessions, postingFreezeProposal(frozen, before.version));
+  const body = frozen
+    ? { reason: POSTING_FREEZE_REASON, approvalId: ids.approvalId, operationId: ids.operationId }
+    : { approvalId: ids.approvalId, operationId: ids.operationId };
+  const res = await ctx.edge.call('POST', `/admin/ledger/${frozen ? 'freeze' : 'unfreeze'}`, body, await sessions.a.treasuryToken());
+  if (res.status !== 200 || res.json?.frozen !== frozen)
+    throw new Error(`ledger ${frozen ? 'freeze' : 'unfreeze'} refused (${res.status}): ${String(res.text ?? '').slice(0, 300)}`);
+  // Read back: only the ledger's own record says the switch moved.
+  const after = await read();
+  if (after.frozen !== frozen)
+    throw new Error(`the ledger still reports frozen=${after.frozen} after the ${frozen ? 'freeze' : 'unfreeze'}`);
+  ctx.log(
+    `ledger posting ${frozen ? 'FROZEN' : 'unfrozen'} (operator ${res.json.actor ?? sessions.a.op.userId}, confirmed by ${res.json.confirmOperatorId}; ${MARKERS.label})`,
+  );
+  return { frozen, changed: true, actor: after.actor, approvalId: ids.approvalId };
 }
 
 // ── 2c. Supported assets and networks (two-person approval) ─────────────────
@@ -2306,6 +2391,11 @@ async function main() {
       if (!symbol) die(`usage: local-test-gates.mjs ${cmd} <SYMBOL>, for example ETH/USDT`, 2);
       const r = await setBookHalt(ctx, symbol, cmd === 'halt');
       say(`  ${r.symbol} ${r.halted ? 'halted' : 'resumed'} (approval ${r.approvalId})`);
+    } else if (cmd === 'posting-freeze') {
+      const want = process.argv[3];
+      if (want !== 'on' && want !== 'off') die('usage: local-test-gates.mjs posting-freeze on|off', 2);
+      const r = await setPostingFreeze(ctx, want === 'on');
+      say(`  ledger posting ${r.frozen ? 'frozen' : 'open'}${r.changed ? ` (approval ${r.approvalId})` : ' (already)'}`);
     } else if (cmd === 'limits') {
       for (const r of await publishPairRisk(ctx))
         say(`  limits    ${r.symbol.padEnd(10)} ${r.changed ? `version ${r.version}` : 'already published'}`);
@@ -2347,7 +2437,7 @@ async function main() {
       say(JSON.stringify(await status(ctx), null, 2));
     } else {
       die(
-        'usage: local-test-gates.mjs apply | operators | lifecycle | open | terms | assets | deposit-terms | withdrawal-limits | withdraw-terms | futures | limits | charts | chart-class <SYMBOL> <dataClass> | risk <SYMBOL> k=v... | p2p | verify | kyc-reject <handle> <reasonCode> | halt <SYMBOL> | resume <SYMBOL> | age <handle> <seconds> | status',
+        'usage: local-test-gates.mjs apply | operators | lifecycle | open | terms | assets | deposit-terms | withdrawal-limits | withdraw-terms | futures | limits | charts | chart-class <SYMBOL> <dataClass> | risk <SYMBOL> k=v... | p2p | verify | kyc-reject <handle> <reasonCode> | halt <SYMBOL> | resume <SYMBOL> | posting-freeze on|off | age <handle> <seconds> | status',
         2,
       );
     }
