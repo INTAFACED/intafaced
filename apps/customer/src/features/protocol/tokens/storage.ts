@@ -48,16 +48,26 @@ export function readWatchlist(): string[] | null {
   }
 }
 
-/** Adds an address once. Returns the list as kept, or null when it could not be kept. */
-export function addToWatchlist(address: string): string[] | null {
+/** The watchlist after a change, or why it was not kept: no site data at all, or this one write failed (a full store). */
+export type WatchlistWrite = { ok: true; list: string[] } | { ok: false; reason: 'blocked' | 'not_saved' };
+
+function writeWatchlist(change: (list: string[]) => string[]): WatchlistWrite {
   const list = readWatchlist();
-  if (list === null) return null;
-  const key = address.toLowerCase();
-  const next = list.includes(key) ? list : [...list, key];
+  const storage = store();
+  if (list === null || storage === null) return { ok: false, reason: 'blocked' };
+  const next = change(list);
   try {
-    store()?.setItem(WATCHLIST_KEY, JSON.stringify(next));
-    return next;
+    storage.setItem(WATCHLIST_KEY, JSON.stringify(next));
+    return { ok: true, list: next };
   } catch {
-    return null;
+    return { ok: false, reason: 'not_saved' };
   }
 }
+
+/** Adds an address once, by its lower-case form. */
+export const addToWatchlist = (address: string): WatchlistWrite =>
+  writeWatchlist((list) => (list.includes(address.toLowerCase()) ? list : [...list, address.toLowerCase()]));
+
+/** Takes an address off the list. */
+export const removeFromWatchlist = (address: string): WatchlistWrite =>
+  writeWatchlist((list) => list.filter((entry) => entry !== address.toLowerCase()));

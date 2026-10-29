@@ -1,7 +1,10 @@
-import { useState, type ReactNode } from 'react';
+import { useState, type FormEvent, type ReactNode } from 'react';
+import { navigate } from '../../../app/location';
 import { DataTable, EmptyState, Page, Panel } from '../../../shared/ui';
+import { ADDRESS_SHAPE } from '../routes';
 import { usePreferences } from '../../../shared/preferences';
 import { protocolCopy } from '../copy';
+import { BlockedRow } from './BlockedRow';
 import { TabList } from './TabList';
 import { tokensCopy, type TokensTranslate } from './copy';
 import { readWindow, saveWindow, TOKEN_WINDOWS, type TokenWindow } from './storage';
@@ -12,18 +15,8 @@ export type TokensTab = 'trending' | 'top' | 'new' | 'brief' | 'stablecoins' | '
 const TABS: readonly TokensTab[] = ['trending', 'top', 'new', 'brief', 'stablecoins', 'leaderboard', 'stocks'];
 /** The owner-published stablecoin list is blank, so the screener refuses with this code (D-portfolio-wallet-06). */
 export const STABLECOINS_UNSET = 'indexer.stablecoins_unset';
-
-function Blocked({ span, children }: { span: number; children: ReactNode }) {
-  return (
-    <tr>
-      <td colSpan={span}>
-        <div role="status" data-blocker="indexer">
-          <EmptyState title={children} />
-        </div>
-      </td>
-    </tr>
-  );
-}
+/** A tokenized stock is listed only with a recorded licence hash; with none recorded the screener names the `licence` blocker. */
+export const STOCKS_BLOCKER = 'licence';
 
 /** The ranking column each token list sorts by. With no token list there are no rows to sort. */
 const RANK: Record<'trending' | 'top' | 'new', 'hdrGrowth' | 'hdrVolume' | 'hdrListed'> = {
@@ -32,21 +25,51 @@ const RANK: Record<'trending' | 'top' | 'new', 'hdrGrowth' | 'hdrVolume' | 'hdrL
   new: 'hdrListed',
 };
 
-function TokenList({ tab, t }: { tab: 'trending' | 'top' | 'new'; t: TokensTranslate }) {
-  const [query, setQuery] = useState('');
-  const headers = [t('hdrToken'), t('hdrPrice'), t('hdrLiquidity'), t(RANK[tab])];
+function TokenList({
+  tab,
+  span,
+  query,
+  onQuery,
+  t,
+}: {
+  tab: 'trending' | 'top' | 'new';
+  span: TokenWindow;
+  query: string;
+  onQuery: (value: string) => void;
+  t: TokensTranslate;
+}) {
+  const [asked, setAsked] = useState(false);
+  const rank = tab === 'new' ? t('hdrListed') : t('rankFor', { column: t(RANK[tab]), window: t(`window_${span}`) });
+  const headers = [t('hdrToken'), t('hdrPrice'), t('hdrLiquidity'), rank];
+  function submit(event: FormEvent) {
+    event.preventDefault();
+    const value = query.trim();
+    // A pasted contract address opens that token's page; anything else would need the token list to search.
+    if (ADDRESS_SHAPE.test(value)) navigate(`/dex/tokens/${value}`);
+    else setAsked(value.length > 0);
+  }
   return (
     <>
-      <input
-        type="search"
-        className="tokens-search"
-        aria-label={t('search')}
-        placeholder={t('searchPlaceholder')}
-        value={query}
-        onChange={(event) => setQuery(event.target.value)}
-      />
+      <form role="search" onSubmit={submit}>
+        <input
+          type="search"
+          className="tokens-search"
+          aria-label={t('search')}
+          placeholder={t('searchPlaceholder')}
+          value={query}
+          onChange={(event) => {
+            onQuery(event.target.value);
+            setAsked(false);
+          }}
+        />
+      </form>
+      {asked && (
+        <p className="muted" role="status">
+          {t('searchBlocked')}
+        </p>
+      )}
       <DataTable label={t('tableTokens')} headers={headers}>
-        <Blocked span={headers.length}>{t('listBlocked')}</Blocked>
+        <BlockedRow span={headers.length}>{t('listBlocked')}</BlockedRow>
       </DataTable>
       {tab === 'trending' && (
         <>
@@ -75,8 +98,10 @@ export function TokensRoom() {
   const room = protocolCopy.forLocale(language).t;
   const [tab, setTab] = useState<TokensTab>('trending');
   const [span, setSpan] = useState<TokenWindow>(() => readWindow());
+  const [query, setQuery] = useState('');
+  const listed = tab === 'trending' || tab === 'top' || tab === 'new';
   let body: ReactNode;
-  if (tab === 'trending' || tab === 'top' || tab === 'new') body = <TokenList key={tab} tab={tab} t={t} />;
+  if (listed) body = <TokenList tab={tab} span={span} query={query} onQuery={setQuery} t={t} />;
   else if (tab === 'brief') body = <EmptyState title={t('noBrief')}>{t('noBriefBody')}</EmptyState>;
   else if (tab === 'stablecoins')
     body = (
@@ -88,12 +113,12 @@ export function TokensRoom() {
     const headers = [t('hdrWallet'), t('hdrRealised'), t('hdrTrades')];
     body = (
       <DataTable label={t('tableLeaderboard')} headers={headers}>
-        <Blocked span={headers.length}>{t('leaderboardBlocked')}</Blocked>
+        <BlockedRow span={headers.length}>{t('leaderboardBlocked')}</BlockedRow>
       </DataTable>
     );
   } else
     body = (
-      <div role="status" data-code="licence">
+      <div role="status" data-code={STOCKS_BLOCKER}>
         <EmptyState title={t('stocksEmpty')}>{t('stocksBlocked')}</EmptyState>
       </div>
     );
@@ -109,24 +134,26 @@ export function TokensRoom() {
           </>
         }
       >
-        <label className="tokens-window">
-          <span>{t('window')}</span>
-          <select
-            value={span}
-            onChange={(event) => {
-              const next = event.target.value as TokenWindow;
-              setSpan(next);
-              saveWindow(next);
-            }}
-          >
-            {TOKEN_WINDOWS.map((entry) => (
-              <option key={entry} value={entry}>
-                {t(`window_${entry}`)}
-              </option>
-            ))}
-          </select>
-        </label>
         <Panel title={t(`tab_${tab}`)}>
+          {listed && (
+            <label className="tokens-window">
+              <span>{t('window')}</span>
+              <select
+                value={span}
+                onChange={(event) => {
+                  const next = event.target.value as TokenWindow;
+                  setSpan(next);
+                  saveWindow(next);
+                }}
+              >
+                {TOKEN_WINDOWS.map((entry) => (
+                  <option key={entry} value={entry}>
+                    {t(`window_${entry}`)}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
           <TabList label={t('sections')} tabs={TABS.map((id) => ({ id, label: t(`tab_${id}`) }))} value={tab} onChange={setTab}>
             {body}
           </TabList>

@@ -5,9 +5,9 @@ vi.mock('../../../shared/preferences', async (original) => {
   const real = await original<typeof import('../../../shared/preferences')>();
   return { ...real, usePreferences: () => real.currentPreferences() };
 });
-import { addToWatchlist, DEFAULT_WINDOW, readWatchlist, readWindow, saveWindow } from './storage';
+import { addToWatchlist, DEFAULT_WINDOW, readWatchlist, readWindow, removeFromWatchlist, saveWindow } from './storage';
 import { TokenPage } from './TokenPage';
-import { STABLECOINS_UNSET, TokensRoom } from './TokensRoom';
+import { STABLECOINS_UNSET, STOCKS_BLOCKER, TokensRoom } from './TokensRoom';
 
 const TOKEN = '0x4200000000000000000000000000000000000006';
 
@@ -33,8 +33,19 @@ describe('Tokens room storage', () => {
     expect(readWindow()).toBe(DEFAULT_WINDOW);
     saveWindow('24h');
     expect(readWindow()).toBe('24h');
-    expect(addToWatchlist(TOKEN.toUpperCase().replace('0X', '0x'))).toEqual([TOKEN]);
-    expect(addToWatchlist(TOKEN)).toEqual([TOKEN]);
+    expect(addToWatchlist(TOKEN.toUpperCase().replace('0X', '0x'))).toEqual({ ok: true, list: [TOKEN] });
+    expect(addToWatchlist(TOKEN)).toEqual({ ok: true, list: [TOKEN] });
+    expect(readWatchlist()).toEqual([TOKEN]);
+    expect(removeFromWatchlist(TOKEN)).toEqual({ ok: true, list: [] });
+  });
+  it('tells a failed write apart from blocked storage, and keeps the list as it was', () => {
+    const storage = memoryStorage();
+    storage.setItem('intafaced.tokens.watchlist', JSON.stringify([TOKEN]));
+    storage.setItem = () => {
+      throw new DOMException('full', 'QuotaExceededError');
+    };
+    vi.stubGlobal('window', { localStorage: storage });
+    expect(addToWatchlist('0x' + '1'.repeat(40))).toEqual({ ok: false, reason: 'not_saved' });
     expect(readWatchlist()).toEqual([TOKEN]);
   });
   it('works with blocked storage: the default window, and a watchlist that says it cannot be kept', () => {
@@ -46,7 +57,7 @@ describe('Tokens room storage', () => {
     expect(readWindow()).toBe(DEFAULT_WINDOW);
     expect(() => saveWindow('6h')).not.toThrow();
     expect(readWatchlist()).toBeNull();
-    expect(addToWatchlist(TOKEN)).toBeNull();
+    expect(addToWatchlist(TOKEN)).toEqual({ ok: false, reason: 'blocked' });
   });
 });
 
@@ -63,7 +74,10 @@ describe('Tokens room', () => {
     expect(html).toContain('data-blocker="indexer"');
     expect(html).not.toContain('data-testid="token-growth"');
     expect(html).not.toMatch(/\$\d/);
+    expect(html).toMatch(/<label[^>]*><span>Window<\/span><select/);
+    expect(html).toMatch(/<th scope="col">Growth \(1 hour\)<\/th>/);
     expect(STABLECOINS_UNSET).toBe('indexer.stablecoins_unset');
+    expect(STOCKS_BLOCKER).toBe('licence');
   });
 });
 
