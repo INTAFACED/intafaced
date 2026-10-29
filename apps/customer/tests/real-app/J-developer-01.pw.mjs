@@ -202,15 +202,18 @@ test(`${J} #4 reads the REST conventions and the trading API reference index: UR
   // And every route the reference lists sits under the product its file names.
   for (const [line, tag] of tagOf) await expect(product(tag).getByRole('rowheader', { name: line, exact: true }), line).toBeVisible();
   // Every stream svc-ws serves, read from its own inventory on the running stack (GET /ws/streams through the Customer
-  // server, as nginx routes it), is listed exactly once, under its door, with its door path and its permission; and the
-  // reference lists no stream the inventory does not.
+  // server, as nginx routes it), is listed exactly once, inside the product section the inventory names, under its door,
+  // with its door path and its permission; and the reference lists no stream the inventory does not, in any section.
   const liveStreams = await streamInventory(page);
   expect(liveStreams.length).toBeGreaterThan(0);
   const rows = page.getByRole('main').locator('tr[data-stream-door]');
   await expect(rows).toHaveCount(liveStreams.length);
+  for (const tag of new Set(liveStreams.map((stream) => stream.product))) {
+    await expect(product(tag).locator('tr[data-stream-door]'), tag).toHaveCount(liveStreams.filter((s) => s.product === tag).length);
+  }
   for (const stream of liveStreams) {
-    const row = page.getByRole('main').locator(`tr[data-stream-door="${stream.door}"][data-stream-channel="${stream.channel}"]`);
-    const name = `${stream.door} ${stream.channel}`;
+    const row = product(stream.product).locator(`tr[data-stream-door="${stream.door}"][data-stream-channel="${stream.channel}"]`);
+    const name = `${stream.product} ${stream.door} ${stream.channel}`;
     await expect(row, name).toHaveCount(1);
     await expect(row.getByRole('rowheader'), name).toHaveText(stream.channel.endsWith('.') ? `${stream.channel}<symbol>` : stream.channel);
     await expect(row.getByRole('cell').first(), name).toContainText(stream.path);

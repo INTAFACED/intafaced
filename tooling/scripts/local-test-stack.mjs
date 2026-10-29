@@ -1796,10 +1796,19 @@ function serveCustomer(port = PORTS.customer, site = SITES.customer) {
     });
     // The upstream answered without upgrading (a 400 for an unknown channel, a 503 refusal): pass that answer on.
     up.on('response', (ur) => {
-      const lines = [`HTTP/1.1 ${ur.statusCode} ${ur.statusMessage}`];
-      for (let i = 0; i < ur.rawHeaders.length; i += 2) lines.push(`${ur.rawHeaders[i]}: ${ur.rawHeaders[i + 1]}`);
-      socket.write(`${lines.join('\r\n')}\r\n\r\n`);
-      ur.pipe(socket);
+      // Node has already de-chunked the body, so it goes out whole with its own length, never as a stale chunked frame.
+      const chunks = [];
+      ur.on('data', (chunk) => chunks.push(chunk));
+      ur.on('end', () => {
+        const body = Buffer.concat(chunks);
+        const lines = [`HTTP/1.1 ${ur.statusCode} ${ur.statusMessage}`];
+        for (let i = 0; i < ur.rawHeaders.length; i += 2) {
+          if (/^(transfer-encoding|content-length|connection)$/i.test(ur.rawHeaders[i])) continue;
+          lines.push(`${ur.rawHeaders[i]}: ${ur.rawHeaders[i + 1]}`);
+        }
+        lines.push(`Content-Length: ${body.length}`, 'Connection: close');
+        socket.end(Buffer.concat([Buffer.from(`${lines.join('\r\n')}\r\n\r\n`), body]));
+      });
     });
     up.on('error', () => refuse(502, 'Bad Gateway', { error: 'ws_unreachable' }));
     up.end();

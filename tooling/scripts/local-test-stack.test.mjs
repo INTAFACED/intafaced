@@ -621,11 +621,14 @@ console.log('local-test-stack: customer folder override checks passed');
             'Sec-WebSocket-Key': 'dGhlIHNhbXBsZSBub25jZQ==',
           },
         });
-        req.on('upgrade', (res, socket) => {
-          socket.once('data', (chunk) => {
+        // The first bytes after the 101 may already be in `head`, so read them there before waiting on the socket.
+        req.on('upgrade', (res, socket, head) => {
+          const done = (chunk) => {
             socket.destroy();
             resolve({ status: res.statusCode, text: chunk.toString('utf8') });
-          });
+          };
+          if (head.length) done(head);
+          else socket.once('data', done);
         });
         req.on('response', (res) => {
           const chunks = [];
@@ -670,6 +673,12 @@ console.log('local-test-stack: customer folder override checks passed');
   });
   upstream.on('upgrade', (req, socket) => {
     seen.push(`upgrade ${req.url}`);
+    if (req.url.endsWith('&channel=chunked')) {
+      socket.end(
+        'HTTP/1.1 400 Bad Request\r\nConnection: close\r\nTransfer-Encoding: chunked\r\n\r\n3\r\nbad\r\n8\r\n chunked\r\n0\r\n\r\n',
+      );
+      return;
+    }
     if (req.url !== '/stream?market=BTC-USDT') {
       socket.end('HTTP/1.1 400 Bad Request\r\nConnection: close\r\nContent-Length: 11\r\n\r\nbad channel');
       return;
@@ -687,7 +696,15 @@ console.log('local-test-stack: customer folder override checks passed');
     assert.deepEqual(upgraded, { status: 101, text: 'hello /stream?market=BTC-USDT' });
     const refused = await wired.upgrade('/ws/stream?market=BTC-USDT&channel=balance');
     assert.deepEqual(refused, { status: 400, text: 'bad channel' });
-    assert.deepEqual(seen, ['/streams', 'upgrade /stream?market=BTC-USDT', 'upgrade /stream?market=BTC-USDT&channel=balance']);
+    // A chunked refusal reaches the client whole, not as a chunked frame Node has already undone.
+    const chunked = await wired.upgrade('/ws/stream?market=BTC-USDT&channel=chunked');
+    assert.deepEqual(chunked, { status: 400, text: 'bad chunked' });
+    assert.deepEqual(seen, [
+      '/streams',
+      'upgrade /stream?market=BTC-USDT',
+      'upgrade /stream?market=BTC-USDT&channel=balance',
+      'upgrade /stream?market=BTC-USDT&channel=chunked',
+    ]);
     console.log('local-test-stack: wired /ws proxies HTTP and upgrades with the prefix stripped');
   } finally {
     wired.stop();

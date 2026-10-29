@@ -19,12 +19,36 @@ import { STREAM_CHANNELS, STREAM_PATH } from './ws/gateway.js';
 
 export type StreamDoor = 'market' | 'mux' | 'private' | 'drop-copy';
 
+/** The product a channel's data belongs to, as the developer reference groups it. */
+export type StreamProduct = 'spot' | 'derivatives' | 'accounts';
+
+/**
+ * Each listed channel's product, keyed `<door> <channel>`. Market data and the
+ * order and fill events of the spot book are spot; the futures mark and open
+ * positions are derivatives; the drop copy is every fill on the account, so it
+ * is the account's. A channel missing here fails `stream-inventory.test.ts`.
+ */
+export const STREAM_PRODUCTS: Readonly<Record<string, StreamProduct>> = {
+  'market depth': 'spot',
+  'market trades': 'spot',
+  'mux book': 'spot',
+  'mux trades': 'spot',
+  'mux ticker': 'spot',
+  'mux candles': 'spot',
+  'mux futures.mark.': 'derivatives',
+  'private orders': 'spot',
+  'private fills': 'spot',
+  'private positions': 'derivatives',
+  'drop-copy drop_copy': 'accounts',
+};
+
 export interface StreamEntry {
   readonly door: StreamDoor;
   /** Upgrade path on this service. */
   readonly path: string;
   /** The `channel` query value (market, private, drop-copy) or the `ch` a mux frame names; `futures.mark.` takes a symbol after it. */
   readonly channel: string;
+  readonly product: StreamProduct;
   readonly access: 'public' | 'private';
   readonly mounted: boolean;
   /** Why an unmounted door is down: the code the service logs at start. */
@@ -33,7 +57,7 @@ export interface StreamEntry {
 
 export function streamInventory(options: { readonly muxMounted: boolean }): readonly StreamEntry[] {
   const mux = options.muxMounted ? { mounted: true } : { mounted: false, refusal: MUX_IDLE_UNSET };
-  return [
+  const entries: readonly Omit<StreamEntry, 'product'>[] = [
     ...STREAM_CHANNELS.map((channel) => ({
       door: 'market' as const,
       path: STREAM_PATH,
@@ -57,4 +81,10 @@ export function streamInventory(options: { readonly muxMounted: boolean }): read
     })),
     { door: 'drop-copy', path: DROP_COPY_STREAM_PATH, channel: DROP_COPY_CHANNEL, access: 'private', mounted: true },
   ];
+  return entries.map(({ door, path, channel, ...rest }) => {
+    const product = STREAM_PRODUCTS[`${door} ${channel}`];
+    // A served channel with no product is a build fault, not a row to guess a product for.
+    if (product === undefined) throw new Error(`stream ${door} ${channel} has no product in STREAM_PRODUCTS`);
+    return { door, path, channel, product, ...rest };
+  });
 }

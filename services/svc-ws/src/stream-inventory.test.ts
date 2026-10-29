@@ -16,7 +16,7 @@ import type { TickerHub } from './mux/ticker-hub.js';
 import { PRIVATE_STREAM_PATH, parsePrivateChannel } from './private/gateway.js';
 import { PrivateOrderHub } from './private/hub.js';
 import { registerRoutes } from './routes.js';
-import { streamInventory, type StreamEntry } from './stream-inventory.js';
+import { STREAM_PRODUCTS, streamInventory, type StreamEntry } from './stream-inventory.js';
 import { TradeHub } from './trade/hub.js';
 import { STREAM_PATH, parseChannel } from './ws/gateway.js';
 
@@ -51,7 +51,13 @@ async function streamsFrom(withMux: boolean): Promise<readonly StreamEntry[]> {
   const app = Fastify({ logger: false });
   registerRoutes(app, {
     hub,
-    tradeHub: new TradeHub({ highWaterBytes: 1_000, maxLagTicks: 3, maxConnections: 4, recentLimit: 10, ensureKnownMarket: () => true }),
+    tradeHub: new TradeHub({
+      highWaterBytes: 1_000,
+      maxLagTicks: 3,
+      maxConnections: 4,
+      recentLimit: 10,
+      ensureKnownMarket: async () => true,
+    }),
     privateHub: new PrivateOrderHub({ highWaterBytes: 1_000, maxLagTicks: 3, maxConnections: 4, maxConnectionsPerUser: 4 }),
     source,
     depthLimit: 10,
@@ -98,6 +104,24 @@ describe('GET /streams', () => {
       'drop-copy',
     ]);
     expect(streams.every((entry) => entry.mounted && entry.refusal === undefined)).toBe(true);
+  });
+
+  it('gives each listed channel its product, and names a product for no channel it does not list', async () => {
+    const streams = await streamsFrom(true);
+    expect(streams.map((entry) => `${entry.door} ${entry.channel} ${entry.product}`)).toEqual([
+      'market depth spot',
+      'market trades spot',
+      'mux book spot',
+      'mux trades spot',
+      'mux ticker spot',
+      'mux candles spot',
+      'mux futures.mark. derivatives',
+      'private orders spot',
+      'private fills spot',
+      'private positions derivatives',
+      'drop-copy drop_copy accounts',
+    ]);
+    expect(Object.keys(STREAM_PRODUCTS)).toEqual(streams.map((entry) => `${entry.door} ${entry.channel}`));
   });
 
   it('lists nothing a door refuses', () => {

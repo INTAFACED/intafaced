@@ -115,6 +115,14 @@ describe('the published route list matches what the services really mount', () =
     expect(expected).toHaveLength(11);
     expect(STREAM_REFERENCE.map(({ door, channel, private: isPrivate }) => ({ door, channel, private: isPrivate }))).toEqual(expected);
     expect(STREAM_DOOR_PATH).toEqual(Object.fromEntries(Object.entries(doors).map(([door, entry]) => [door, entry.path])));
+    // Each stream sits under the product svc-ws gives it (`STREAM_PRODUCTS`, served on every `/streams` entry).
+    const products = /export const STREAM_PRODUCTS\b[^=]*= \{([^}]*)\}/.exec(repo('services/svc-ws/src/stream-inventory.ts'));
+    expect(products, 'STREAM_PRODUCTS in stream-inventory.ts').not.toBeNull();
+    const productOf = Object.fromEntries([...products![1]!.matchAll(/'([^']+)': '([^']+)'/g)].map((m) => [m[1]!, m[2]!]));
+    expect(Object.keys(productOf)).toEqual(expected.map(({ door, channel }) => `${door} ${channel}`));
+    expect(STREAM_REFERENCE.map(({ door, channel, product }) => `${door} ${channel} ${product}`)).toEqual(
+      Object.entries(productOf).map(([key, product]) => `${key} ${product}`),
+    );
   });
 
   it('states the scope rule, the call cost and the signing window the edge enforces', () => {
