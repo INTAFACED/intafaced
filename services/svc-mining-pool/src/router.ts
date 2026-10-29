@@ -2,7 +2,7 @@ import { z } from 'zod';
 import { checkAccess, type KycTier } from '@intafaced/config';
 import { JurisdictionError, router, scopedProcedure, protectedProcedure, TRPCError } from '@intafaced/contracts';
 import { CREDENTIAL_NOT_ISSUED, readPoolConnection } from './connection.js';
-import { publishedDifficulty } from './env.js';
+import { DIFFICULTY, publishedDifficulty } from './env.js';
 import { MiningError } from './errors.js';
 import { assertListLimit, assertWindowMinutes } from './list-limit.js';
 import { readPoolOverview } from './overview.js';
@@ -157,10 +157,7 @@ export function createMiningRouter(
         .input(
           z.object({
             workerId: z.string().min(1).max(200),
-            minDifficulty: z
-              .string()
-              .regex(/^[1-9]\d{0,37}$/)
-              .nullable(),
+            minDifficulty: z.string().regex(DIFFICULTY).nullable(),
           }),
         )
         .output(z.object({ id: z.string(), minDifficulty: decimal.nullable() }))

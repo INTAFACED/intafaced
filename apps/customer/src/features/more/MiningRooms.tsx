@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useDebouncedValue } from '../pay/portal/payments/use-debounced';
 import { useApi } from '../session/session';
 import { usePreferences } from '../../shared/preferences';
 import { displayAmount } from '../../shared/money';
@@ -121,10 +122,12 @@ function Workers() {
   const [minutes, setMinutes] = useState<WindowMinutes>(60);
   const [filter, setFilter] = useState('');
   const [cursor, setCursor] = useState<string | null>(null);
-  const input = { windowMinutes: minutes, limit: WORKER_PAGE, ...(filter ? { name: filter } : {}), ...(cursor ? { cursor } : {}) };
+  // The box shows every key; the service is read once the typing pauses.
+  const name = useDebouncedValue(filter);
+  const input = { windowMinutes: minutes, limit: WORKER_PAGE, ...(name ? { name } : {}), ...(cursor ? { cursor } : {}) };
   const read = useResource(
     (signal) => api.query('mining', 'workers.mine', input, minerWorkers, { signal }),
-    `mining-workers:${minutes}:${filter}:${cursor ?? ''}`,
+    `mining-workers:${minutes}:${name}:${cursor ?? ''}`,
   );
   const setDifficulty = (workerId: string, minDifficulty: string | null) =>
     api.mutate('mining', 'workers.setDifficulty', { workerId, minDifficulty }, workerDifficulty);

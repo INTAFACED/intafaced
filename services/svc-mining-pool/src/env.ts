@@ -17,7 +17,8 @@ const PATTERN_MAX = 80;
 const LIMIT_MAX = 10_000;
 const WINDOW_MAX_MS = 86_400_000;
 const TIMEOUT_MAX_MS = 30_000;
-const DIFFICULTY = /^[1-9]\d{0,37}$/;
+/** A whole difficulty of 1 to 38 digits, the numeric(38, 0) column's range. */
+export const DIFFICULTY = /^[1-9]\d{0,37}$/;
 
 function blankAsAbsent<T extends z.ZodTypeAny>(schema: T) {
   return z.preprocess((value) => {

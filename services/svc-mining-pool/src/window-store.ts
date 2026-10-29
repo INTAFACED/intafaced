@@ -50,6 +50,14 @@ export async function readStoredEpoch(sql: Sql, windowId: string): Promise<numbe
   return row.epoch;
 }
 
+/** Rows per multi-row insert: five columns a row stays far under Postgres's 65535 bind parameters. */
+const INSERT_ROWS = 1000;
+function chunks<T>(rows: readonly T[]): T[][] {
+  const out: T[][] = [];
+  for (let at = 0; at < rows.length; at += INSERT_ROWS) out.push(rows.slice(at, at + INSERT_ROWS));
+  return out;
+}
+
 /** Conflict checking and share appends hold the same window lock and transaction. */
 async function persistShares(sql: Sql, input: StoredWindowInput): Promise<void> {
   if (!sql) throw new Error(PG_UNAVAILABLE);
@@ -57,12 +65,17 @@ async function persistShares(sql: Sql, input: StoredWindowInput): Promise<void> 
   if (input.epoch !== null && (!Number.isInteger(input.epoch) || input.epoch < 0 || input.epoch > 2_147_483_647))
     throw new Error(EPOCH_UNSET);
   if (input.shares.length === 0) throw new Error('shares_empty');
-  for (const share of input.shares) {
+  const named = input.shares.map((share) => {
     if (!share.shareId.trim() || !share.minerId.trim()) throw new Error('mining.share_malformed');
     if (share.weight !== null && (typeof share.weight !== 'bigint' || share.weight <= 0n || share.weight >= 10n ** 38n))
       throw new Error('mining.weight_not_integer');
-    workerNameOf(share.workerName);
-  }
+    return { ...share, name: workerNameOf(share.workerName) };
+  });
+  // One row per (account, name), in one fixed order, so two batches that create the same workers take their locks in the
+  // same order and never wait on each other in a cycle.
+  const pairs = [...new Map(named.map((share) => [`${share.minerId}\n${share.name}`, share])).values()]
+    .map((share) => ({ id: workerIdOf(share.minerId, share.name), user_id: share.minerId, name: share.name }))
+    .sort((a, b) => (a.user_id < b.user_id ? -1 : a.user_id > b.user_id ? 1 : a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
   await transaction(sql, async (tx) => {
     const written = await tx<{ window_id: string }[]>`
       INSERT INTO mining_pool.windows (window_id, epoch, asset_id, reward, fee_bps, status)
@@ -81,26 +94,37 @@ async function persistShares(sql: Sql, input: StoredWindowInput): Promise<void> 
       if (row.status !== 'open') throw new Error(WINDOW_PAID);
       throw new Error(WINDOW_CONFLICT);
     }
-    for (const share of input.shares) {
-      // The worker only labels the rig: miner_id stays the account the payout credits.
-      const name = workerNameOf(share.workerName);
-      await tx`
-        INSERT INTO mining_pool.workers (id, user_id, name)
-        VALUES (${workerIdOf(share.minerId, name)}, ${share.minerId}, ${name})
-        ON CONFLICT DO NOTHING
-      `;
-      const [worker] = await tx<{ id: string }[]>`
-        SELECT id FROM mining_pool.workers WHERE user_id = ${share.minerId} AND name = ${name}
-      `;
-      if (!worker) throw new Error(PG_UNAVAILABLE);
-      // A share id already stored refuses the whole batch, a byte-identical redelivery included: one share, one worker.
+    // The worker only labels the rig: miner_id stays the account the payout credits.
+    for (const part of chunks(pairs)) {
+      await tx`INSERT INTO mining_pool.workers ${tx(part, 'id', 'user_id', 'name')} ON CONFLICT DO NOTHING`;
+    }
+    const workers = await tx<{ id: string; user_id: string; name: string }[]>`
+      SELECT w.id, w.user_id, w.name
+      FROM mining_pool.workers w
+      JOIN unnest(${tx.array(pairs.map((pair) => pair.user_id))}::text[], ${tx.array(pairs.map((pair) => pair.name))}::text[])
+        AS p(user_id, name) ON w.user_id = p.user_id AND w.name = p.name
+    `;
+    const workerOf = new Map(workers.map((row) => [`${row.user_id}\n${row.name}`, row.id]));
+    const rows = named.map((share) => {
+      const workerId = workerOf.get(`${share.minerId}\n${share.name}`);
+      if (!workerId) throw new Error(PG_UNAVAILABLE);
+      return {
+        share_id: share.shareId,
+        window_id: input.windowId,
+        miner_id: share.minerId,
+        weight: share.weight === null ? null : share.weight.toString(),
+        worker_id: workerId,
+      };
+    });
+    // A share id already stored, or twice in this batch, refuses the whole batch, a byte-identical redelivery included:
+    // one share, one worker.
+    for (const part of chunks(rows)) {
       const inserted = await tx<{ share_id: string }[]>`
-        INSERT INTO mining_pool.shares (share_id, window_id, miner_id, weight, worker_id)
-        VALUES (${share.shareId}, ${input.windowId}, ${share.minerId}, ${share.weight === null ? null : share.weight.toString()}, ${worker.id})
+        INSERT INTO mining_pool.shares ${tx(part, 'share_id', 'window_id', 'miner_id', 'weight', 'worker_id')}
         ON CONFLICT (share_id) DO NOTHING
         RETURNING share_id
       `;
-      if (inserted.length === 0) throw new Error(SHARE_DUPLICATE);
+      if (inserted.length !== part.length) throw new Error(SHARE_DUPLICATE);
     }
   });
 }

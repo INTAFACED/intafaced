@@ -190,6 +190,52 @@ describe('mining pool reads', () => {
     expect(await db.sql`SELECT share_id FROM mining_pool.shares`).toEqual([{ share_id: 's-twice' }]);
   });
 
+  it('a share id twice in one batch is refused whole and keeps nothing', async () => {
+    const twice = {
+      windowId: 'blank',
+      assetId: 'IFC',
+      shares: [
+        { shareId: 's-dup', minerId: ALICE, weight: '1', workerName: 'Rig-A' },
+        { shareId: 's-dup', minerId: ALICE, weight: '1', workerName: 'Rig-A' },
+      ],
+    };
+    expect(await post(twice)).toEqual({ status: 409, body: { accepted: false, error: 'mining.share_duplicate' } });
+    expect(await db.sql`SELECT count(*)::int AS n FROM mining_pool.shares`).toEqual([{ n: 0 }]);
+    expect(await db.sql`SELECT count(*)::int AS n FROM mining_pool.workers`).toEqual([{ n: 0 }]);
+  });
+
+  it('workers made in one batch share one instant and still page in full: every worker once, none skipped', async () => {
+    const rigs = Array.from({ length: 25 }, (_, n) => `Rig-${String(n + 1).padStart(2, '0')}`);
+    const batch = {
+      windowId: 'blank',
+      assetId: 'IFC',
+      shares: rigs.map((workerName) => ({ shareId: `s-${workerName}`, minerId: ALICE, weight: '1', workerName })),
+    };
+    expect((await post(batch)).status).toBe(200);
+    // One transaction, one now(): every new worker has the same microsecond.
+    expect(await db.sql`SELECT count(DISTINCT created_at)::int AS n FROM mining_pool.workers`).toEqual([{ n: 1 }]);
+    const alice = routerFor().createCaller(signed(ALICE, ['ledger:read']));
+    const first = await alice.workers.mine({ windowMinutes: 60, limit: 20 });
+    expect(first.workers).toHaveLength(20);
+    const second = await alice.workers.mine({ windowMinutes: 60, limit: 20, cursor: first.nextCursor ?? undefined });
+    expect(second.workers).toHaveLength(5);
+    expect(second.nextCursor).toBeNull();
+    expect([...first.workers, ...second.workers].map((worker) => worker.name).sort()).toEqual(rigs);
+  });
+
+  it('two batches that make the same workers in opposite orders both land, without a deadlock', async () => {
+    const batch = (windowId: string, names: string[]) => ({
+      windowId,
+      assetId: 'IFC',
+      shares: names.map((workerName) => ({ shareId: `${windowId}-${workerName}`, minerId: ALICE, weight: '1', workerName })),
+    });
+    const names = Array.from({ length: 40 }, (_, n) => `Rig-${n}`);
+    const results = await Promise.all([post(batch('blank-x', names)), post(batch('blank-y', [...names].reverse()))]);
+    expect(results.map((result) => result.status)).toEqual([200, 200]);
+    expect(await db.sql`SELECT count(*)::int AS n FROM mining_pool.workers`).toEqual([{ n: 40 }]);
+    expect(await db.sql`SELECT count(*)::int AS n FROM mining_pool.shares`).toEqual([{ n: 80 }]);
+  });
+
   it('refuses a worker name outside letters, digits, dash and underscore, and stores nothing', async () => {
     for (const workerName of ['', 'a b', 'x:y', 'x'.repeat(65), 7]) {
       expect((await post(blankShare('s-bad', { workerName }))).body).toEqual({ accepted: false, error: 'mining.worker_name_invalid' });

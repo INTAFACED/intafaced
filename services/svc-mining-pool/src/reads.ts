@@ -138,6 +138,8 @@ export class MiningReadStore {
     const decoded = query.cursor ? decodeCursor(query.cursor) : null;
     const name = query.name?.trim() ? query.name.trim().toLowerCase() : null;
     const limit = query.limit ?? null;
+    // The cursor carries the time to the millisecond (a JS Date), so the order and the comparison use the same
+    // millisecond, and workers made in one batch (one now()) page by id instead of being skipped.
     const rows = await sql<{ id: string; name: string; created_at: Date; min_difficulty: string | null }[]>`
       SELECT id, name, created_at, min_difficulty::text AS min_difficulty
       FROM mining_pool.workers
@@ -145,9 +147,9 @@ export class MiningReadStore {
         AND (${name}::text IS NULL OR position(${name ?? ''} in lower(name)) > 0)
         AND (
           ${decoded?.at ?? null}::timestamptz IS NULL
-          OR (created_at, id) < (${decoded?.at ?? null}::timestamptz, ${decoded?.key ?? ''})
+          OR (date_trunc('milliseconds', created_at), id) < (${decoded?.at ?? null}::timestamptz, ${decoded?.key ?? ''})
         )
-      ORDER BY created_at DESC, id DESC
+      ORDER BY date_trunc('milliseconds', created_at) DESC, id DESC
       LIMIT ${limit === null ? null : limit + 1}
     `;
     const workers = limit === null ? rows : rows.slice(0, limit);
@@ -157,7 +159,10 @@ export class MiningReadStore {
       const sums = await sql<{ worker: string; weight: string | null }[]>`
         SELECT COALESCE(worker_id, miner_id) AS worker, SUM(weight)::text AS weight
         FROM mining_pool.shares
-        WHERE COALESCE(worker_id, miner_id) = ANY(${sql.array(workers.map((worker) => worker.id))}::text[])
+        WHERE (
+            worker_id = ANY(${sql.array(workers.map((worker) => worker.id))}::text[])
+            OR (worker_id IS NULL AND miner_id = ANY(${sql.array(workers.map((worker) => worker.id))}::text[]))
+          )
           AND weight IS NOT NULL
           AND created_at >= now() - (${windowMinutes}::int * interval '1 minute')
         GROUP BY COALESCE(worker_id, miner_id)
@@ -210,9 +215,9 @@ export class MiningReadStore {
       FROM mining_pool.workers
       WHERE (
         ${decoded?.at ?? null}::timestamptz IS NULL
-        OR (created_at, id) < (${decoded?.at ?? null}::timestamptz, ${decoded?.key ?? ''})
+        OR (date_trunc('milliseconds', created_at), id) < (${decoded?.at ?? null}::timestamptz, ${decoded?.key ?? ''})
       )
-      ORDER BY created_at DESC, id DESC
+      ORDER BY date_trunc('milliseconds', created_at) DESC, id DESC
       LIMIT ${limit + 1}
     `;
     const page = rows.slice(0, limit);

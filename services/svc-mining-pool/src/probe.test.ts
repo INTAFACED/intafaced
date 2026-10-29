@@ -1,4 +1,5 @@
-import { createServer, type Server } from 'node:net';
+import { EventEmitter } from 'node:events';
+import { createServer, type Server, type Socket } from 'node:net';
 import { describe, expect, it, vi } from 'vitest';
 import { ProbeRateLimit, dialPool, runProbe, type Dial } from './probe.js';
 
@@ -53,18 +54,32 @@ describe('reachability probe', () => {
     expect(refused.kind).toBe('refused');
   });
 
+  /** A socket that never connects: it reports the wait running out, or an error, exactly as told. */
+  function fakeConnect(outcome: { timeout: true } | { error: string }) {
+    return () => {
+      const socket = new EventEmitter() as EventEmitter & { setTimeout: (ms: number) => void; destroy: () => void };
+      socket.setTimeout = (ms) => {
+        setTimeout(() => socket.emit('timeout'), 'timeout' in outcome ? ms : ms * 10);
+        if ('error' in outcome) setTimeout(() => socket.emit('error', Object.assign(new Error(outcome.error), { code: outcome.error })), 5);
+      };
+      socket.destroy = () => undefined;
+      return socket as unknown as Socket;
+    };
+  }
+
   it('a host that never answers is timed out after the whole wait, never a success', async () => {
-    // 198.51.100.1 is TEST-NET-2 (RFC 5737): nothing answers it, so the dial runs to the wait.
-    const outcome = await dialPool('198.51.100.1', 9, 200);
+    const outcome = await dialPool('pool.test', 9, 200, fakeConnect({ timeout: true }));
     expect(outcome.kind).toBe('timed_out');
-    expect(outcome.roundTripMs).toBeGreaterThanOrEqual(200);
+    expect(outcome.roundTripMs).toBeGreaterThanOrEqual(195);
   });
 
-  it('an error before the wait ends is not reached, never a time-out', async () => {
-    // A name under .invalid never resolves (RFC 2606), so the dial errors at once.
-    const outcome = await dialPool('pool.invalid', 9, 5_000);
-    expect(outcome.kind).toBe('refused');
-    expect(outcome.roundTripMs).toBeLessThan(5_000);
+  it('an error before the wait ends is not reached, never a time-out; the system connect time-out is a time-out', async () => {
+    for (const code of ['ECONNREFUSED', 'ECONNRESET', 'ENETUNREACH', 'EHOSTUNREACH', 'ENOTFOUND']) {
+      const outcome = await dialPool('pool.test', 9, 5_000, fakeConnect({ error: code }));
+      expect(outcome.kind, code).toBe('refused');
+      expect(outcome.roundTripMs, code).toBeLessThan(5_000);
+    }
+    expect((await dialPool('pool.test', 9, 5_000, fakeConnect({ error: 'ETIMEDOUT' }))).kind).toBe('timed_out');
   });
 
   it('a blank limit, window, timeout or host refuses before the dial', async () => {

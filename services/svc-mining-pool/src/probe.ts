@@ -1,4 +1,4 @@
-import { connect as netConnect } from 'node:net';
+import { connect as netConnect, type Socket } from 'node:net';
 import { readProbeTarget } from './connection.js';
 import { MiningError } from './errors.js';
 import { PROBE_LIMIT_MAX, PROBE_TIMEOUT_MAX_MS, PROBE_WINDOW_MAX_MS, publishedInt } from './env.js';
@@ -74,11 +74,16 @@ function ms(n: number): string {
 }
 
 /** TCP connect to the owner's host and port. A failure is a result, never a thrown page. */
-export function dialPool(host: string, port: number, timeoutMs: number): Promise<DialOutcome> {
+export function dialPool(
+  host: string,
+  port: number,
+  timeoutMs: number,
+  connect: (options: { host: string; port: number }) => Socket = netConnect,
+): Promise<DialOutcome> {
   return new Promise((resolve) => {
     const started = Date.now();
     let settled = false;
-    const socket = netConnect({ host, port });
+    const socket = connect({ host, port });
     const finish = (kind: ProbeResultName) => {
       if (settled) return;
       settled = true;
@@ -88,9 +93,9 @@ export function dialPool(host: string, port: number, timeoutMs: number): Promise
     socket.setTimeout(timeoutMs);
     socket.once('connect', () => finish('reachable'));
     socket.once('timeout', () => finish('timed_out'));
-    // Only the wait running out is a time-out. Any error before it (refused, reset, no route, no such host) is the
-    // address not being reached, never a time-out the wait did not reach.
-    socket.once('error', () => finish('refused'));
+    // Only a wait running out is a time-out (ours, or the system's own connect time-out). Any other error before it
+    // (refused, reset, no route, no such host) is the address not being reached, never a time-out the wait did not reach.
+    socket.once('error', (err: NodeJS.ErrnoException) => finish(err.code === 'ETIMEDOUT' ? 'timed_out' : 'refused'));
   });
 }
 
