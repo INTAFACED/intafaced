@@ -177,8 +177,9 @@ export interface TokenRouterOptions {
    */
   runBuybackWindow?: (input: { runId: string; revenueWindow: { from: Date; to: Date } }) => Promise<BuybackRunResult>;
   /**
-   * Whether the buyback job has every setting it needs (enabled, quote asset,
-   * listing). Read by `buybackRuns` only, to say "job not set" honestly.
+   * Whether the buyback job has every setting it needs and its trade place is
+   * published. Read by `buybackRuns` only, which also needs the rate set before
+   * it says "set", so "job not set" is honest.
    * Default false: an unknown state never reads as running.
    */
   buybackJobSet?: boolean;
@@ -1026,10 +1027,10 @@ export function createTokenRouter(token: TokenService, options: TokenRouterOptio
       )
       .query(({ ctx, input }) => {
         if (!ctx.principal.userId) throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Principal required' });
-        return guard(async () => ({
-          job: buybackJobSet ? ('set' as const) : ('unset' as const),
-          ...(await token.buybackRuns(input.limit)),
-        }));
+        return guard(async () => {
+          const read = await token.buybackRuns(input.limit);
+          return { job: buybackJobSet && read.rate ? ('set' as const) : ('unset' as const), ...read };
+        });
       }),
 
     burnedSupply: scopedProcedure('token:read')

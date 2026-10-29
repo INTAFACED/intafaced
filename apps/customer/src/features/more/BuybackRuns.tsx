@@ -33,6 +33,9 @@ export const buybackRunsSchema = z.object({
 
 const LIMIT = 50;
 
+/** An ISO instant as minutes in UTC. */
+const utc = (at: string) => `${new Date(at).toISOString().slice(0, 16).replace('T', ' ')} UTC`;
+
 export type BuybackRunsRead = z.infer<typeof buybackRunsSchema>;
 
 /** Stored buyback runs, the job's state and the rate, read from the token service. */
@@ -54,7 +57,7 @@ export function BuybackRunsView({ read }: { read: { resource: Resource<BuybackRu
   return (
     <Panel title={t('runsTitle')}>
       <p className="muted">
-        <Copy k="runsBody" />
+        <Copy k="runsBody" /> {t('latest', { limit: LIMIT })}
       </p>
       <Read resource={read.resource} retry={read.reload}>
         {(data) => (
@@ -65,8 +68,10 @@ export function BuybackRunsView({ read }: { read: { resource: Resource<BuybackRu
             <DataTable headers={[t('executed'), t('window'), t('bought'), t('burned'), t('toRewards')]} label={t('runsTitle')}>
               {data.runs.map((r) => (
                 <tr key={r.id}>
-                  <td>{r.executedAt}</td>
-                  <td>{t('windowRange', { from: r.windowFrom, to: r.windowTo })}</td>
+                  <td>
+                    <time dateTime={r.executedAt}>{utc(r.executedAt)}</time>
+                  </td>
+                  <td>{t('windowRange', { from: utc(r.windowFrom), to: utc(r.windowTo) })}</td>
                   <td className="numeric">{shown(r.bought)}</td>
                   <td className="numeric">{shown(r.burned)}</td>
                   <td className="numeric">{shown(r.toRewards)}</td>

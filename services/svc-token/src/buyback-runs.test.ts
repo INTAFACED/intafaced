@@ -9,6 +9,7 @@ import { MemoryEventBus } from '@intafaced/events';
 import { MemoryLedger, parseAmount as amt } from '@intafaced/ledger-client';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { buybackJobSet } from './buyback-job.js';
+import { BUYBACK_PLACE_PUBLISHED } from './buyback-trade-client.js';
 import { createTokenRouter } from './router.js';
 import { TokenService } from './token-service.js';
 import { reportBuybackRuns, type BuybackRunRow } from './treasury-view.js';
@@ -104,13 +105,19 @@ describe('reportBuybackRuns', () => {
 });
 
 describe('buybackJobSet', () => {
-  const all = { enabled: true, quoteAssetId: 'USDT', symbol: 'IFC-USDT', internalSecret: 's' };
-  it('is set only when enabled with a quote asset, a listing and the place secret', () => {
+  const all = { enabled: true, quoteAssetId: 'USDT', symbol: 'IFC-USDT', internalSecret: 's', placePublished: true };
+  it('is set only when enabled with a quote asset, a listing, the place secret and a published place', () => {
     expect(buybackJobSet(all)).toBe(true);
+    expect(buybackJobSet({ ...all, placePublished: false })).toBe(false);
     expect(buybackJobSet({ ...all, enabled: false })).toBe(false);
     expect(buybackJobSet({ ...all, quoteAssetId: ' ' })).toBe(false);
     expect(buybackJobSet({ ...all, symbol: '' })).toBe(false);
     expect(buybackJobSet({ ...all, internalSecret: undefined })).toBe(false);
+  });
+
+  it('reads not set today: the trade place is unpublished, so the service never says set', () => {
+    expect(BUYBACK_PLACE_PUBLISHED).toBe(false);
+    expect(buybackJobSet({ ...all, placePublished: BUYBACK_PLACE_PUBLISHED })).toBe(false);
   });
 });
 
@@ -211,6 +218,9 @@ describe('buyback runs read', () => {
     const unset = await createTokenRouter(fromDb).createCaller(signed()).buybackRuns({ limit: 5 });
     expect(unset.job).toBe('unset');
     expect(unset.runs).toHaveLength(1);
+    const rateBlank = await createTokenRouter(fromDb, { buybackJobSet: true }).createCaller(signed()).buybackRuns({ limit: 5 });
+    expect(rateBlank.job).toBe('unset');
+    await sql`UPDATE token.token_params SET buyback_bps = 2500, burn_split_bps = 6000 WHERE id = true`;
     const set = await createTokenRouter(fromDb, { buybackJobSet: true }).createCaller(signed()).buybackRuns({ limit: 5 });
     expect(set.job).toBe('set');
     await expect(createTokenRouter(fromDb).createCaller(signed()).buybackRuns({ limit: 201 })).rejects.toMatchObject({

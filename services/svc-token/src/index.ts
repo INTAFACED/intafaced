@@ -18,7 +18,7 @@ import { defaultEmissionsTickMs, requireEmissionsTickMsForAutoTick } from './emi
 import { tokenReadyHonesty } from './ready-honesty.js';
 import { readYieldDistributionCronHours, runYieldWindow } from './yield-job.js';
 import { buybackJobSet, runBuybackWindow } from './buyback-job.js';
-import { createTradeIocMarketBuy } from './buyback-trade-client.js';
+import { BUYBACK_PLACE_PUBLISHED, createTradeIocMarketBuy } from './buyback-trade-client.js';
 import { readGovernanceParams } from './governance-close.js';
 import { registerProcessHooks, startTelemetry } from '@intafaced/telemetry';
 
@@ -126,6 +126,7 @@ export const appRouter = createTokenRouter(token, {
     quoteAssetId: env.BUYBACK_QUOTE_ASSET,
     symbol: env.BUYBACK_SYMBOL,
     internalSecret: env.INTERNAL_SERVICE_SECRET,
+    placePublished: BUYBACK_PLACE_PUBLISHED,
   }),
   approvals: actionApprovals,
 });

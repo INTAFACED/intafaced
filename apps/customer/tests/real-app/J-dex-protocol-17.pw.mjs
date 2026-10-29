@@ -174,13 +174,13 @@ test(`${J} #9 opens the burn page: stored buyback runs that add up per row; "job
   await page.goto('/token/burn');
   const runs = tableIn(main(page), 'Buyback runs');
   await expect(runs).toBeVisible(UNBUILT);
-  const headers = ['Settled', 'Revenue window', 'Bought', 'Burned', 'Sent to rewards'];
+  const headers = ['Recorded', 'Revenue window', 'Bought', 'Burned', 'Sent to rewards'];
   await expect(runs.getByRole('columnheader')).toHaveText(headers);
-  // Every stored run on the page adds up: what was bought is what was burned plus what was sent to rewards.
-  for (const row of await bodyRows(runs).all()) {
-    const [bought, burned, rewards] = (await row.getByRole('cell').allInnerTexts()).slice(2).map(amount);
-    expect(bought).toBe(burned + rewards);
-  }
+  await expect(main(page)).toContainText('The latest 50 settled runs, newest first.');
+  // No run can settle on this stack: the job is not set and its trade place is unpublished. So the real reading is an
+  // empty record, never an invented row. That each stored row adds up is refused at the service and the page schema.
+  await expect(bodyRows(runs)).toHaveCount(0);
+  await expect(main(page).getByText('No buyback run has settled.', { exact: true })).toBeVisible();
   // The test stack runs no buyback job (BUYBACK_JOB_ENABLED is false there), so the real reading is "Job not set".
   await expect(main(page).getByTestId('buyback-job')).toHaveText(/^Job not set: /);
   // The stack leaves the buyback rate blank, as production does until the owner sets it.
