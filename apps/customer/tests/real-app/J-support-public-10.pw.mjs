@@ -2,7 +2,7 @@ import { test, expect } from '@playwright/test';
 import { ADMIN, founderSignIn } from './admin.mjs';
 import { signIn, signUp } from './desk.mjs';
 import { asDesk, deskPeople } from './help-centre.mjs';
-import { api } from './stack.mjs';
+import { api, tool } from './stack.mjs';
 
 // J-support-public-10, in the running app (docs/roadmap/journeys.json): work the support queue and answer customers. Tests
 // titled "J-support-public-10 #<n>" prove a whole step. The agent works in the founder console (apps/admin) as the stack's
@@ -76,6 +76,19 @@ async function claim(workspace) {
   await workspace.getByRole('button', { name: 'Claim this ticket' }).click();
   await workspace.getByRole('button', { name: 'Yes, claim it' }).click();
   await expect(workspace.getByTestId('claim-reply')).toContainText(/claimed/i);
+}
+
+/** Restarts svc-support with its identity reads on, or pointed at a closed port (`LOCAL_STACK_SUPPORT_IDENTITY=off`). */
+function supportIdentity(on) {
+  const before = process.env.LOCAL_STACK_SUPPORT_IDENTITY;
+  if (on) delete process.env.LOCAL_STACK_SUPPORT_IDENTITY;
+  else process.env.LOCAL_STACK_SUPPORT_IDENTITY = 'off';
+  try {
+    tool('local-test-stack.mjs', 'restart', 'support');
+  } finally {
+    if (before === undefined) delete process.env.LOCAL_STACK_SUPPORT_IDENTITY;
+    else process.env.LOCAL_STACK_SUPPORT_IDENTITY = before;
+  }
 }
 
 /** Sends the typed reply with its review step. */
@@ -171,20 +184,38 @@ test(`${J} #4 claiming the next request opens its workspace at its own address; 
 
   // The second agent cannot take it over, and it stays with the first.
   const stolen = await asDesk('agent', 'mutation', 'claim', { ticketId });
-  expect(stolen.status).not.toBe(200);
+  expect([stolen.status, stolen.json?.error?.message], stolen.text.slice(0, 300)).toEqual([409, 'support.claim.already_claimed']);
   expect((await desk('lead', 'query', 'get', { ticketId })).assigneeId).toBe(lead);
 });
 
 test(`${J} #5 the customer card shows the account state, never "active" when identity can't be read, and the related order or "none"`, async ({
   page,
 }) => {
+  test.setTimeout(240_000);
   const ticket = await request(`TEST card ${RUN}`);
   const queue = await openQueue(page);
   const workspace = await openRequest(page, queue, ticket);
   const card = workspace.getByRole('region', { name: 'Customer' });
   await expect(card).toBeVisible(UNBUILT);
-  await expect(card.getByTestId('customer-account-state')).toHaveText(/^(active|restricted|frozen|closed|unread)$/i);
+  // The state shown is identity's, read back through svc-support for this request: a new TEST customer is active.
+  const grounding = await desk('lead', 'query', 'accountState', { ticketId: ticket.id });
+  expect([grounding.status, grounding.state?.status]).toEqual(['read', 'active']);
+  await expect(card.getByTestId('customer-account-state')).toHaveText(grounding.state.status);
   await expect(card.getByTestId('customer-related-order')).toHaveText('none');
+
+  // With svc-support unable to reach identity, the same card reads "unread" with svc-support's reason, never "active".
+  try {
+    supportIdentity(false);
+    await page.reload();
+    const dark = page.getByRole('region', { name: 'Ticket', exact: true }).getByRole('region', { name: 'Customer' });
+    await expect(dark.getByTestId('customer-account-state')).toHaveText('unread');
+    await expect(dark.getByTestId('customer-account-why')).toHaveText(
+      'svc-support could not reach the identity service, so the account state was not read.',
+    );
+    await expect(dark.getByTestId('customer-related-order')).toHaveText('none');
+  } finally {
+    supportIdentity(true);
+  }
 });
 
 test(`${J} #6 priority, type and labels save with one audit row each; a label with a space is refused with a typed reason`, async ({
@@ -302,7 +333,7 @@ test(`${J} #10 the assignee unclaims one request and a lead reassigns another, e
   await claim(workspace);
   // Only the assignee may unclaim: the other agent is refused and the request stays with the lead.
   const notHeld = await asDesk('agent', 'mutation', 'unclaim', { ticketId: mineToDrop.id, idempotencyKey: `${J}:${RUN}:not-held` });
-  expect(notHeld.status).not.toBe(200);
+  expect([notHeld.status, notHeld.json?.error?.message], notHeld.text.slice(0, 300)).toEqual([403, 'support.release.not_assignee']);
   expect(await assignee(mineToDrop.id)).toBe(lead);
   await workspace.getByRole('button', { name: 'Unclaim' }).click(UNBUILT);
   await expect.poll(() => assignee(mineToDrop.id)).toBeNull();
@@ -329,7 +360,7 @@ test(`${J} #10 the assignee unclaims one request and a lead reassigns another, e
     assigneeId: lead,
     idempotencyKey: `${J}:${RUN}:not-lead`,
   });
-  expect(notLead.status).not.toBe(200);
+  expect([notLead.status, notLead.json?.error?.message], notLead.text.slice(0, 300)).toEqual([403, 'support.not_lead']);
   expect(await assignee(toReassign.id)).toBe(agent);
 });
 

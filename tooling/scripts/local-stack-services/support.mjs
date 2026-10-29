@@ -3,7 +3,9 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS }) => ({
   env: () => ({
     ...c('svc-support', PORTS.support),
     DATABASE_URL: dbUrl('svc_support', secrets),
-    IDENTITY_URL: urlOf('identity'),
+    // `LOCAL_STACK_SUPPORT_IDENTITY=off` on a restart points svc-support at a closed port, so its identity reads go dark
+    // while the console's own sign-in still works (J-support-public-10 #5: the card reads "unread", never "active").
+    IDENTITY_URL: process.env.LOCAL_STACK_SUPPORT_IDENTITY === 'off' ? 'http://127.0.0.1:9' : urlOf('identity'),
     // LOCAL TEST only, the labelled value in tooling/profiles/test-owner-values/support.json: how many comments a
     // requester may add to one request. Production stays blank and every requester comment refuses
     // (support.comment_cap_unset) until the owner sets it.
