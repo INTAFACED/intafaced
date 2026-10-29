@@ -2,6 +2,7 @@ import { test, expect } from '@playwright/test';
 import { forgetSession, nextCode } from './identity-factors.mjs';
 import { businessReadyPerson, openBusiness, refusedPayCalls, signInWithCode, verifiedBusiness } from './merchant.mjs';
 import { ADMIN, founderSignIn } from './admin.mjs';
+import { tool } from './stack.mjs';
 
 // J-merchant-02, in the running app (docs/roadmap/journeys.json): get verified and go live. Tests titled
 // "J-merchant-02 #<n>" prove a whole step; the others prove part of one and say which.
@@ -82,21 +83,76 @@ test(`${J} part of #1 a new owner adds the business address before verification,
   expect(refused).toEqual([]);
 });
 
-test(`${J} #1 the owner fills the business step and opens the account at the published starting fee; the business and the application draft are saved by the service and survive leaving, a fresh sign-in included`, async ({
+/** Pay restarted with the starting fee blank, or back on the stack's TEST fee (tooling/scripts/local-stack-services/pay.mjs). */
+function payStarterFee(published) {
+  const before = process.env.LOCAL_STACK_PAY_STARTER_FEE;
+  if (published) delete process.env.LOCAL_STACK_PAY_STARTER_FEE;
+  else process.env.LOCAL_STACK_PAY_STARTER_FEE = 'off';
+  try {
+    tool('local-test-stack.mjs', 'restart', 'pay');
+  } finally {
+    if (before === undefined) delete process.env.LOCAL_STACK_PAY_STARTER_FEE;
+    else process.env.LOCAL_STACK_PAY_STARTER_FEE = before;
+  }
+}
+
+test(`${J} #1 starts onboarding and fills the business step: a saved draft that survives leaving; with no starting fee published the first step refuses to open an account`, async ({
   page,
 }) => {
-  test.setTimeout(240_000);
+  test.setTimeout(420_000);
   const owner = await businessReadyPerson(page, 'mbd', '/pay/onboarding');
+  const fillBusiness = async () => {
+    await page.getByLabel('Legal business name *').fill('TEST Draft Ltd');
+    await page.getByLabel('Country code *').fill('DE');
+    await page.getByLabel('Type of business *').fill('online shop');
+    await page.getByLabel('Contact email *').fill(owner.email);
+  };
+  const createButton = page.locator('form').getByRole('button', { name: 'Create my account' });
 
+  // With no starting fee published, the first step refuses to open an account: the room says why and the button stays
+  // off, and the service refuses a create sent straight to it with its code. No account exists afterwards.
+  try {
+    payStarterFee(false);
+    // The owner's own token, taken from a pay call the room itself makes.
+    const own = page.waitForRequest((r) => r.url().includes('/api/pay/trpc/') && Boolean(r.headers().authorization));
+    await page.goto('/pay/onboarding/business');
+    const authorization = (await own).headers().authorization;
+    const payCall = async (procedure, input) => {
+      const res =
+        input === undefined
+          ? await page.request.get(`/api/pay/trpc/${procedure}`, { headers: { authorization } })
+          : await page.request.post(`/api/pay/trpc/${procedure}`, {
+              headers: { authorization, origin: new URL(page.url()).origin },
+              data: input,
+            });
+      const json = await res.json();
+      return { status: res.status(), data: json?.result?.data, typed: /^([a-z]+\.[a-z_]+):/.exec(json?.error?.message ?? '')?.[1] ?? null };
+    };
+    expect((await payCall('merchant.starterFee')).data).toEqual({ starterFee: null });
+    await fillBusiness();
+    await expect(page.getByText('Opening new accounts isn’t possible here. INTAFACED has not set the starting fee')).toBeVisible();
+    await expect(createButton).toBeDisabled();
+    // A TEST fee the caller names is no way round it: the service opens accounts only at the fee it publishes.
+    const create = await payCall('merchant.create', { pricing: { feeBps: 250 } });
+    expect(create.status).toBe(412);
+    expect(create.typed).toBe('pay.starter_fee_unpublished');
+    expect((await payCall('merchant.me')).data).toBeNull();
+    // The room asks before a reload drops what was typed; the owner leaves anyway, and the cleared form shows the reload ran.
+    page.once('dialog', (dialog) => dialog.accept());
+    await page.reload();
+    await expect(page.getByLabel('Legal business name *')).toHaveValue('');
+    await expect(page.getByText('Opening new accounts isn’t possible here. INTAFACED has not set the starting fee')).toBeVisible();
+    await expect(page.getByText('Your merchant account exists.')).toHaveCount(0);
+  } finally {
+    payStarterFee(true);
+  }
+
+  // The stack's TEST starting fee published again: the same step opens the account.
   await page.goto('/pay/onboarding/business');
-  await page.getByLabel('Legal business name *').fill('TEST Draft Ltd');
-  await page.getByLabel('Country code *').fill('DE');
-  await page.getByLabel('Type of business *').fill('online shop');
-  await page.getByLabel('Contact email *').fill(owner.email);
-  // The stack publishes a TEST starting fee, so the first step opens the account instead of refusing it.
+  await fillBusiness();
   await expect(page.getByText('Opening new accounts isn’t possible here')).toHaveCount(0);
   const created = page.waitForResponse((r) => r.url().includes('merchant.create') && r.request().method() === 'POST');
-  await page.getByRole('button', { name: 'Create my account' }).click();
+  await createButton.click();
   const review = page.getByRole('dialog');
   await expect(review.locator('dt', { hasText: 'Starting fee' }).locator('+ dd')).not.toHaveText(/^(Not published)?$/);
   await review.getByRole('button', { name: 'Create my account' }).click();

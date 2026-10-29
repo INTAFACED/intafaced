@@ -22,6 +22,8 @@ export type OtcErrorCode =
   | 'trade.convert_out_of_bounds'
   | 'trade.convert_flow_side_refused'
   | 'trade.rfq_missing_size'
+  | 'trade.rfq_size_not_set'
+  | 'trade.rfq_below_minimum'
   | 'trade.rfq_missing_price'
   | 'trade.rfq_already_bound'
   | 'trade.rfq_window_passed'

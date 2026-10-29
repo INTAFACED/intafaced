@@ -30,6 +30,7 @@ import {
   payMerchantFailureSchema,
   payPageSchema,
   payPaymentAttemptSchema,
+  payPaymentConfirmationsSchema,
   payPaymentListInputSchema,
   payPaymentListSummarySchema,
   payPricingSnapshotViewSchema,
@@ -1122,7 +1123,13 @@ export function createPayRouter(
 
       get: ownMerchantRead()
         .input(z.object({ paymentId: z.string().guid() }))
-        .output(paymentView.extend({ attempts: z.array(payPaymentAttemptSchema) }))
+        .output(
+          paymentView.extend({
+            attempts: z.array(payPaymentAttemptSchema),
+            /** While the payment is open and its rail waits for confirmations: how deep, how deep it must be, as of when. */
+            confirmations: payPaymentConfirmationsSchema.nullable(),
+          }),
+        )
         .query(({ ctx, input }) =>
           wrap(async () => {
             // Fetched, then checked, then returned. The row has to be read to
@@ -1131,9 +1138,12 @@ export function createPayRouter(
             // the caller has the object. Attempts are read only after that.
             const payment = await pay.getPayment(input.paymentId);
             const audience = await assertPaymentRead(ctx.principal.userId, input.paymentId, payment.merchantId);
-            const attempts = await pay.listPaymentAttempts(input.paymentId);
+            const [attempts, confirmations] = await Promise.all([
+              pay.listPaymentAttempts(input.paymentId),
+              payment.status === 'created' ? pay.paymentConfirmations(input.paymentId) : null,
+            ]);
             const body = await paymentOut(payment, audience, false);
-            return { ...body, attempts };
+            return { ...body, attempts, confirmations };
           }),
         ),
 
