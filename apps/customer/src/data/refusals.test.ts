@@ -1,7 +1,27 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
+import { z } from 'zod';
+import { createApiClient } from '../shared/api';
 import { classifyRefusal } from './refusal-codes';
 import { refusalCopy } from './refusals';
+
+describe('the platform posting freeze on the trade API (DV-errors-02)', () => {
+  it('a REST refusal with intafacedCode posting_frozen gets the same on-hold copy as ledger.frozen', async () => {
+    const api = createApiClient({
+      fetch: async () =>
+        new Response(
+          JSON.stringify({ code: 'ExchangeError', message: 'Ledger posting is frozen: TEST freeze', intafacedCode: 'posting_frozen' }),
+          { status: 400 },
+        ),
+    });
+    const result = await api.rest('/orders', z.unknown(), { method: 'POST', body: { symbol: 'BTC/USDT' } });
+    expect(result).toMatchObject({ ok: false, code: 'posting_frozen' });
+    const code = result.ok ? '' : (result.code ?? '');
+    expect(classifyRefusal(code)).toBe('accountOnHold');
+    expect(refusalCopy(code)).toEqual(refusalCopy('ledger.frozen'));
+    expect(refusalCopy(code).title).toBe('Your account is on hold');
+  });
+});
 
 describe('edge.authority_unavailable', () => {
   it('is a retry, not a sign-out', () => {
@@ -207,6 +227,7 @@ describe('classifyRefusal', () => {
       ['trade.convert_price_moved', 'priceMoved'],
       ['trade.convert_quote_expired', 'quoteExpired'],
       ['ledger.frozen', 'accountOnHold'],
+      ['posting_frozen', 'accountOnHold'],
       ['mfa.required', 'stepUp'],
       ['auth.mfa_required', 'mfaRequired'],
       ['bank.prices_unavailable', 'pricesDown'],
