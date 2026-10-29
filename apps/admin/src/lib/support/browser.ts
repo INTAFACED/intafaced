@@ -8,6 +8,7 @@ import { EMPTY_QUERY, queueQueryString, type QueueQuery } from './queue-query';
 import type {
   SupportKbView,
   SupportLifecycleView,
+  SupportCustomerView,
   SupportPropertiesView,
   SupportRatingSummaryView,
   SupportQueueView,
@@ -147,6 +148,36 @@ export async function fetchTicketExtras(id: string, signal?: AbortSignal): Promi
   }
 }
 
+/** The card when the console refused the read itself: unread, with the console's code. */
+export function consoleRefusedCard(status: number, code: string | null, now: Date = new Date()): SupportCustomerView {
+  return {
+    asOf: now.toISOString(),
+    account: {
+      kind: 'failed',
+      message: `The console could not read the account (HTTP ${String(status)}).`,
+      code,
+      notBuilt: false,
+      forbidden: status === 401 || status === 403,
+    },
+  };
+}
+
+export async function fetchCustomerCard(id: string, signal?: AbortSignal): Promise<SupportCustomerView | null> {
+  try {
+    const res = await fetch(`/api/support?view=customer&id=${encodeURIComponent(id)}`, {
+      cache: 'no-store',
+      credentials: 'same-origin',
+      ...(signal ? { signal } : {}),
+    });
+    const body: unknown = await res.json().catch(() => null);
+    // The console's own refusal (its founder check asks svc-identity first) keeps its code, so the card names why it is unread.
+    if (!res.ok) return consoleRefusedCard(res.status, isRecord(body) && typeof body.code === 'string' ? body.code : null);
+    return isRecord(body) && typeof body.asOf === 'string' && isRecord(body.account) ? (body as unknown as SupportCustomerView) : null;
+  } catch {
+    return null;
+  }
+}
+
 export async function fetchTicketProperties(id: string, signal?: AbortSignal): Promise<SupportPropertiesView | null> {
   try {
     const res = await fetch(`/api/support?view=properties&id=${encodeURIComponent(id)}`, {
@@ -272,6 +303,8 @@ const ACTIONS: readonly string[] = [
   'kb_unpublish',
   'kb_audience',
   'view_save',
+  'unclaim',
+  'assign',
 ];
 
 /** Strict reader: anything that is not exactly a known answer is "outcome not known", never a success. */
@@ -313,6 +346,29 @@ export async function postSupportAction(request: SupportActionRequest): Promise<
       credentials: 'same-origin',
     });
     return readActionReply(await res.json().catch(() => null));
+  } catch {
+    return UNKNOWN;
+  }
+}
+
+/** Claim whichever open request the queue ranks first. The answer names the request so the page can open it. */
+export async function postClaimNext(): Promise<ClaimReply> {
+  let headers: Record<string, string>;
+  try {
+    headers = await founderMutationHeaders();
+  } catch (error) {
+    const sent = nothingSent(error instanceof Error ? error.message : 'Your founder session could not be confirmed.');
+    return sent.ok ? UNKNOWN : sent;
+  }
+  try {
+    const res = await fetch('/api/support', {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ action: 'claim_next' }),
+      cache: 'no-store',
+      credentials: 'same-origin',
+    });
+    return readClaimReply(await res.json().catch(() => null));
   } catch {
     return UNKNOWN;
   }
