@@ -133,7 +133,11 @@ test(`${J} #3 filters by outcome and tool: matching rows; the export applies the
   await main(page).getByRole('combobox', { name: 'Tool' }).selectOption({ label: REFUSED_TASK });
   // The filtered rows: every one refused and for the chosen tool, fewer than the unfiltered read.
   await expect(rows(page).getByTestId('action-outcome')).toHaveCount(1);
-  await expect(rows(page).getByTestId('action-outcome').filter({ hasNotText: /^Refused$/ })).toHaveCount(0);
+  await expect(
+    rows(page)
+      .getByTestId('action-outcome')
+      .filter({ hasNotText: /^Refused$/ }),
+  ).toHaveCount(0);
   await expect(rows(page).getByTestId('action-tool').filter({ hasNotText: REFUSED_TASK })).toHaveCount(0);
   const shown = await rows(page).getByTestId('action-outcome').count();
   expect(shown).toBeLessThan(all);

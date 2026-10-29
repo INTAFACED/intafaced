@@ -2593,9 +2593,9 @@ if (!available) {
       const rt = kept();
       const session = await rt.openSession({ userId: USER_A, agentId: 'probe' });
       const ran = await rt.think({ sessionId: session.id, requestId: 'ops-log-ran', task: 'plan', messages: MESSAGES });
-      await expect(rt.think({ sessionId: session.id, requestId: 'ops-log-refused', task: 'vectors', messages: MESSAGES })).rejects.toBeInstanceOf(
-        RefusedError,
-      );
+      await expect(
+        rt.think({ sessionId: session.id, requestId: 'ops-log-refused', task: 'vectors', messages: MESSAGES }),
+      ).rejects.toBeInstanceOf(RefusedError);
       const [refused] = await sql<{ id: string; refusal_code: string }[]>`
         SELECT id, refusal_code FROM agents.agent_actions WHERE session_id = ${session.id} AND status = 'refused'
       `;
@@ -2621,7 +2621,10 @@ if (!available) {
 
     it('refuses every read by its code while the owner’s reasons are blank, a missing or unlisted reason, or a blank limit, and writes no audit row', async () => {
       const read = { userId: USER_A, requestId: 'ops-log:refuse:1' };
-      await expect(opsLog({ reasons: null }).reasons()).rejects.toMatchObject({ code: 'PRECONDITION_FAILED', message: 'agents.log_read_reason_unset' });
+      await expect(opsLog({ reasons: null }).reasons()).rejects.toMatchObject({
+        code: 'PRECONDITION_FAILED',
+        message: 'agents.log_read_reason_unset',
+      });
       for (const door of ['actions', 'export'] as const) {
         await expect(opsLog({ reasons: null })[door]({ ...read, reason: REASONS[0] })).rejects.toMatchObject({
           message: 'agents.log_read_reason_unset',
@@ -2633,7 +2636,9 @@ if (!available) {
           message: 'agents.ops_actions_limit_unset',
         });
       }
-      await expect(opsLog({ reasons: null }).transcript({ actionId: USER_B, reason: REASONS[0], requestId: 'ops-log:t:1' })).rejects.toMatchObject({
+      await expect(
+        opsLog({ reasons: null }).transcript({ actionId: USER_B, reason: REASONS[0], requestId: 'ops-log:t:1' }),
+      ).rejects.toMatchObject({
         message: 'agents.log_read_reason_unset',
       });
       expect(await opsLog().reasons()).toEqual({ reasons: REASONS });
@@ -2645,8 +2650,17 @@ if (!available) {
       const read = { userId: USER_A, reason: REASONS[1], requestId: 'ops-log:actions:1' };
       const page = await opsLog().actions(read);
       expect(page).toMatchObject({ more: false, limit: 50, auditRows: 1 });
-      expect(page.items.find((i) => i.id === ranId)).toMatchObject({ kind: 'completion', tool: 'plan', outcome: 'executed', refusalCode: null });
-      expect(page.items.find((i) => i.id === refused.id)).toMatchObject({ tool: 'vectors', outcome: 'refused', refusalCode: refused.refusal_code });
+      expect(page.items.find((i) => i.id === ranId)).toMatchObject({
+        kind: 'completion',
+        tool: 'plan',
+        outcome: 'executed',
+        refusalCode: null,
+      });
+      expect(page.items.find((i) => i.id === refused.id)).toMatchObject({
+        tool: 'vectors',
+        outcome: 'refused',
+        refusalCode: refused.refusal_code,
+      });
       expect(page.tools).toEqual(expect.arrayContaining(['plan', 'vectors']));
       expect(JSON.stringify(page)).not.toContain('Where do I stake?');
       // The retried request writes no second row; a new request writes its own.

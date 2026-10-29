@@ -53,7 +53,15 @@ const say = (code: string): string => `${WORDS[code] ?? 'svc-agents refused this
 const audit = (n: number): string => `${n} audit ${n === 1 ? 'row' : 'rows'} written for this read`;
 const requestId = (kind: string): string => `agents-log:${kind}:${crypto.randomUUID()}`;
 
-export function AgentsLogDesk({ csrf, reasons, reasonsRefusal }: { csrf: string; reasons: readonly string[]; reasonsRefusal: string | null }) {
+export function AgentsLogDesk({
+  csrf,
+  reasons,
+  reasonsRefusal,
+}: {
+  csrf: string;
+  reasons: readonly string[];
+  reasonsRefusal: string | null;
+}) {
   const [customer, setCustomer] = useState('');
   const [reason, setReason] = useState('');
   const [searched, setSearched] = useState<string | null>(null);
@@ -81,7 +89,14 @@ export function AgentsLogDesk({ csrf, reasons, reasonsRefusal }: { csrf: string;
     setBusy(true);
     setTranscript(null);
     setTranscriptProblem(null);
-    const answer = await post({ action: 'actions', customer: who, reason, outcome: filter.outcome, tool: filter.tool, requestId: requestId('actions') });
+    const answer = await post({
+      action: 'actions',
+      customer: who,
+      reason,
+      outcome: filter.outcome,
+      tool: filter.tool,
+      requestId: requestId('actions'),
+    });
     setBusy(false);
     if (!answer.ok) {
       setPage(null);
@@ -124,8 +139,8 @@ export function AgentsLogDesk({ csrf, reasons, reasonsRefusal }: { csrf: string;
     <div className="dk-stack" data-testid="agents-log">
       <h1>Agent action log</h1>
       <p className="dk-muted">
-        One customer’s agent actions as svc-agents recorded them: what ran, what was refused and why. Every read needs a reason
-        from the owner’s list and is written to the audit log. Prompt text is never listed.
+        One customer’s agent actions as svc-agents recorded them: what ran, what was refused and why. Every read needs a reason from the
+        owner’s list and is written to the audit log. Prompt text is never listed.
       </p>
       {reasonsRefusal && (
         <p className="adm-callout" data-tone="warn" role="status">

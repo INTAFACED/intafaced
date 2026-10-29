@@ -34,7 +34,8 @@ function parseSearchPage(raw: unknown): SearchPage | null {
 /** Identity pages a handle prefix oldest first; the exact handle is looked for on at most this many pages. */
 const MAX_PAGES = 5;
 
-export type Resolved = { readonly kind: 'ok'; readonly userId: string } | { readonly kind: 'refused'; readonly code: string; readonly status: number };
+export type Resolved =
+  { readonly kind: 'ok'; readonly userId: string } | { readonly kind: 'refused'; readonly code: string; readonly status: number };
 
 export async function resolveCustomer(ctx: FounderCallContext, ref: CustomerReference): Promise<Resolved> {
   if (ref.kind === 'id') return { kind: 'ok', userId: ref.value };
@@ -73,8 +74,12 @@ export function refusalOf(result: Exclude<FounderCallResult<unknown>, { kind: 'o
 }
 
 /** The owner's reason list, read for the form. A blank list is the service's own refusal code. */
-export async function readReasons(ctx: FounderCallContext): Promise<{ kind: 'ok'; reasons: string[] } | { kind: 'refused'; code: string; status: number }> {
-  const result = await founderCall(ctx, 'agents', 'opsLog.reasons', 'GET', undefined, (raw) => (isObject(raw) && isStrings(raw.reasons) ? { reasons: raw.reasons } : null));
+export async function readReasons(
+  ctx: FounderCallContext,
+): Promise<{ kind: 'ok'; reasons: string[] } | { kind: 'refused'; code: string; status: number }> {
+  const result = await founderCall(ctx, 'agents', 'opsLog.reasons', 'GET', undefined, (raw) =>
+    isObject(raw) && isStrings(raw.reasons) ? { reasons: raw.reasons } : null,
+  );
   return result.kind === 'ok' ? { kind: 'ok', reasons: result.data.reasons } : refusalOf(result);
 }
 
@@ -121,8 +126,7 @@ const parseTranscript = (raw: unknown): Json | null =>
     : null;
 
 export type AgentsLogAnswer =
-  | { readonly kind: 'ok'; readonly data: unknown }
-  | { readonly kind: 'refused'; readonly code: string; readonly status: number };
+  { readonly kind: 'ok'; readonly data: unknown } | { readonly kind: 'refused'; readonly code: string; readonly status: number };
 
 /** One desk action as the founder: the customer reference is resolved first, except for a transcript, which names its action. */
 export async function runAgentsLog(ctx: FounderCallContext, action: AgentsLogAction): Promise<AgentsLogAnswer> {
