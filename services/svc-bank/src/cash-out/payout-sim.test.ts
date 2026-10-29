@@ -29,10 +29,8 @@ describe('the cash-out payout stand-in', () => {
   });
 
   it('keeps its own TEST records only in an explicit dev or test process, at an absolute path; unset, it keeps none', () => {
-    expect(cashOutPartnerFor('payout-sim', CATALOGUE, { APP_ENV: 'test' })?.record).toBeUndefined();
-    expect(cashOutPartnerFor('payout-sim', CATALOGUE, { APP_ENV: 'test' }, '/var/lib/stack/test-rail-records')?.record).toBeTypeOf(
-      'function',
-    );
+    expect(cashOutPartnerFor('payout-sim', CATALOGUE, { APP_ENV: 'test' })?.records).toBeUndefined();
+    expect(cashOutPartnerFor('payout-sim', CATALOGUE, { APP_ENV: 'test' }, '/var/lib/stack/test-rail-records')?.records).toBeDefined();
     // Refused whatever the setting: a records folder outside dev or test, under NODE_ENV=production, or not absolute.
     for (const [setting, env, dir] of [
       ['none', {}, '/var/lib/stack/test-rail-records'],

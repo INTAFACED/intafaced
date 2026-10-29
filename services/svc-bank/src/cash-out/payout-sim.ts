@@ -2,7 +2,7 @@ import path from 'node:path';
 import { z } from 'zod';
 import { isExplicitDevOrTest } from '@intafaced/config';
 import { formatAmount, mul, parseAmount, sub } from '@intafaced/ledger-client';
-import { railRecorder, type RailMovement } from './rail-records.js';
+import { railRecorder, type RailRecorder } from './rail-records.js';
 
 /**
  * THE CASH-OUT PAYOUT STAND-IN, AND IT IS A TEST FIXTURE (J-bank-03 #4/#5).
@@ -73,8 +73,8 @@ export interface CashOutPartner {
   price(assetId: string, amount: bigint): PayoutPrice | null;
   /** Take one payout. The cash-out id is the partner's idempotency key: the same id is the same payout. */
   pay(order: { cashOutId: string; assetId: string; amount: string }): Promise<{ payoutRef: string }>;
-  /** LOCAL TEST: the stand-in's own record of a movement on its rail, written before the ledger posts it. Absent: none. */
-  record?(movement: RailMovement): Promise<void>;
+  /** LOCAL TEST: the stand-in's own record of its rail, written before the ledger posts a movement. Absent: none kept. */
+  readonly records?: RailRecorder;
 }
 
 /** The typed catalogue, or null when it is blank, not JSON, not labelled TEST or not in shape. */
@@ -102,7 +102,7 @@ export function parsePayoutSim(json: string | undefined): PayoutSimCatalogue | n
 /** The stand-in over one typed catalogue, keeping its TEST records in `recordsDir` when one is given. */
 export function payoutSim(catalogue: PayoutSimCatalogue, recordsDir?: string): CashOutPartner {
   return {
-    ...(recordsDir ? { record: railRecorder(recordsDir, PAYOUT_SIM_RAIL) } : {}),
+    ...(recordsDir ? { records: railRecorder(recordsDir, PAYOUT_SIM_RAIL) } : {}),
     label: catalogue.label,
     rail: PAYOUT_SIM_RAIL,
     price(assetId, amount) {

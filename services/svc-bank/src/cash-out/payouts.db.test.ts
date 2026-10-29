@@ -30,7 +30,6 @@ import { createBankRouter } from '../router.js';
 import type { SecurityLockPort } from '../security-lock.js';
 import { CashOutService, cashOutWithdrawalId } from './cash-out.js';
 import { PAYOUT_SIM_RAIL, payoutSim, type CashOutPartner } from './payout-sim.js';
-import { RailRecordError } from './rail-records.js';
 
 const SECRET = 'bank-cash-out-payout-edge-secret-long-enough';
 const RECEIPTS = 'bank-cash-out-receipt-secret-long-enough';
@@ -463,10 +462,37 @@ describe('cash out that pays out, with the TEST payout stand-in (J-bank-03 #4/#5
       };
       writeFileSync(join(dir, 'payout-sim.jsonl'), `${JSON.stringify({ ...line, at: new Date().toISOString() })}\n`);
       const posts = ledger.journal().length;
-      await expect(services(recording).cashOut.complete(requestId)).rejects.toThrow(RailRecordError);
+      expect(await refused(services(recording).cashOut.complete(requestId))).toBe('bank.ramp_conflict');
       expect(ledger.journal()).toHaveLength(posts);
       expect(await held(requestId)).toBe(parseAmount('10'));
       expect((await services(recording).cashOut.list(ADA, 10)).find((r) => r.requestId === requestId)?.status).toBe('processing');
+    });
+
+    it('a settle that failed after the stand-in recorded paid is finished by saying paid again, never by saying failed', async () => {
+      const dir = join(mkdtempSync(join(tmpdir(), 'bank-payout-records-')), 'test-rail-records');
+      const recording = payoutSim(
+        { label: 'TEST payout stand-in', payouts: [{ asset: 'USDT', currency: 'EUR', rate: '0.9', fee: '1.5' }] },
+        dir,
+      );
+      const id = await usable();
+      const { requestId } = await start(id, '20');
+      const post = ledger.post.bind(ledger);
+      let down = true;
+      ledger.post = (async (...args: Parameters<MemoryLedger['post']>) => {
+        if (down) throw new Error('TEST ledger unavailable');
+        return post(...args);
+      }) as MemoryLedger['post'];
+      try {
+        await expect(services(recording).cashOut.complete(requestId)).rejects.toThrow('TEST ledger unavailable');
+      } finally {
+        down = false;
+      }
+      expect(await refused(services(recording).cashOut.fail(requestId, 'bank.payout_rejected'))).toBe('bank.ramp_conflict');
+      expect(await held(requestId)).toBe(parseAmount('20'));
+      expect(await services(recording).cashOut.complete(requestId)).toMatchObject({ status: 'completed' });
+      const records = readFileSync(join(dir, 'payout-sim.jsonl'), 'utf8').split('\n').filter(Boolean);
+      expect(records).toHaveLength(1);
+      expect((await ledger.balance(railBoundary(PAYOUT_SIM_RAIL, 'USDT'))).amount).toBe(parseAmount('20'));
     });
 
     it('an answer for no cash-out is not found', async () => {
