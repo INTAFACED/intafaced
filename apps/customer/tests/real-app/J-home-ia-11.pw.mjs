@@ -15,11 +15,10 @@ import { EDGE, ROOT } from './stack.mjs';
 // entry). Tests titled "J-home-ia-11 #<n>" prove a whole step. The journey starts from a compose up with the `tester`
 // profile; the real-app run starts the same services with `pnpm local:stack`, so the steps read the compose files for the
 // seed service's wiring and run the seed's own scripts, which refuse anything but a local dev or test build.
-// Steps that are written but not built yet fail at their first missing part, quickly (UNBUILT):
+// A step that cannot pass on this stack yet fails by name:
 // - #5: no deployment receipt with three served hosts exists on this stack (no apex, app or join host is named), so the
 //   step fails by name, BLOCKED hosts_unset, after the Help room's rows are matched to what the build published.
 const J = 'J-home-ia-11';
-const UNBUILT = { timeout: 5_000 };
 // The stack's own rule for its state folder (LOCAL_STACK_STATE, else per user, else /var/lib as root).
 const STATE = localStackState();
 const COMPOSE = ['docker-compose.yml', 'docker-compose.apps.yml'];
@@ -114,7 +113,7 @@ test(`${J} #2 the documented sign-in steps get the founder in with founder scope
   // one-time code. It never shows a password, a second-factor secret or a code.
   await page.goto('/login');
   const panel = page.getByRole('region', { name: 'Tester build' });
-  await expect(panel).toBeVisible(UNBUILT);
+  await expect(panel).toBeVisible();
   await expect(panel).toContainText(FOUNDER_VAULT_NAME);
   await expect(panel).toContainText(/one-time code/i);
   const text = await panel.innerText();

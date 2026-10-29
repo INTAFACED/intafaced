@@ -8,15 +8,16 @@ import './public-pages.css';
  * build serves no TEST banner, so it shows nothing there.
  */
 export function TesterBuild() {
-  const { t } = testerBuildCopy.useCopy();
+  const { t, languageFor } = testerBuildCopy.useCopy();
   if (!isTestBuild()) return null;
   return (
-    <section className="pub-notice" aria-labelledby="tester-build-title" data-testid="tester-build">
+    <section className="pub-notice" aria-labelledby="tester-build-title" data-testid="tester-build" lang={languageFor('title')}>
       <h2 id="tester-build-title">{t('title')}</h2>
       <p>{t('intro')}</p>
       <p>{t('vault')}</p>
       <h3>{t('stepsHeading')}</h3>
       <ol>
+        <li>{t('stepConsole')}</li>
         <li>{t('stepPassword')}</li>
         <li>{t('stepCode')}</li>
         <li>{t('stepDevice')}</li>

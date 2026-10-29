@@ -30,6 +30,10 @@ describe('TesterBuild', () => {
     expect(region?.textContent).toContain('founders.json');
     expect(region?.textContent).toMatch(/one-time code/i);
     expect(region?.textContent).toContain('node tooling/scripts/local-test-entry.mjs code a');
+    // Where founders sign in, and the device step for the same founder as the code step.
+    expect(region?.textContent).toContain('founder console');
+    expect(region?.textContent).toContain('local-test-entry.mjs device a (or b, the same founder)');
+    expect(region?.getAttribute('lang')).toBe('en');
   });
 
   it('on a build with no TEST banner, shows nothing', async () => {
