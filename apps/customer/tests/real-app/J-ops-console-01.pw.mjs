@@ -15,8 +15,16 @@ const DESKS = [
 test.describe.configure({ mode: 'serial' });
 
 test('J-ops-console-01 #1 a founder signs in to the console', async ({ page }) => {
-  await founderSignIn(page, 'a');
-  await expect(page.getByText('Founder', { exact: true }).first()).toBeVisible();
+  const { userId } = await founderSignIn(page, 'a');
+  // The session bar names the founder who signed in: its span carries their own id, and once the console's founder
+  // directory is read it shows that founder's configured name. ("Founder" is only the placeholder before that read, so
+  // a check on it raced the read, #6652.) The name is read back from the same directory the bar reads.
+  const owners = await page.request.get(`${ADMIN}/api/crm?view=owners`);
+  expect(owners.status()).toBe(200);
+  const name = (await owners.json()).owners.find((owner) => owner.userId === userId)?.displayName;
+  expect(name).toMatch(/^(Nitro|Phantom)$/);
+  await expect(page.locator(`.adm-session > span[title="${userId}"]`)).toHaveText(name);
+  await expect(page.locator(`.adm-session > span[title="${userId}"]`)).toBeVisible();
   await expect(page.getByRole('button', { name: 'Sign out' }).or(page.getByRole('link', { name: 'Sign out' }))).toBeVisible();
 });
 
