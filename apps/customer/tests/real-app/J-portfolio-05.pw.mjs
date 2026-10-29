@@ -707,8 +707,12 @@ test(`${J} #6 bridges the change in value: start, deposits, withdrawals, fees, m
 });
 
 test(`${J} #7 draws what the money was worth over time: a moment with no price is missing, never zero`, async ({ page }) => {
-  test.setTimeout(240_000);
-  const { who } = state();
+  test.setTimeout(600_000);
+  const { who, left } = state();
+  // The withdrawal in #1 is the last movement before XAU. From the first 5-minute edge after its bucket, every moment holds
+  // what is held now; wait until one such moment is past, so the line has one to check by hand (at most five minutes).
+  const settled = Math.floor(left[1] / 300_000) * 300_000 + 300_000;
+  if (Date.now() < settled + 5_000) await page.waitForTimeout(settled + 5_000 - Date.now());
   await signInWithCode(page);
   // The day is picked with the range control, as a person picks it, not typed into the link.
   await valueCards(page, '');
@@ -719,7 +723,7 @@ test(`${J} #7 draws what the money was worth over time: a moment with no price i
   const card = page.getByRole('region', { name: 'What your money was worth' });
   await expect(card.locator('svg[data-chart="value-over-time"]')).toBeVisible({ timeout: 30_000 });
   await expect(card.locator('[data-value-interval]')).toHaveCount(1);
-  // Now's BTC price, read on each side of the line: the live end is valued at the newest 5-minute candle's close.
+  // Now's BTC price, read just before and just after the line is read: the live end is valued at the newest 5-minute candle's close.
   const liveBefore = await liveCloses();
   const before = await readValue(page);
   const liveAfter = await liveCloses();
@@ -739,6 +743,24 @@ test(`${J} #7 draws what the money was worth over time: a moment with no price i
   const worth = [...new Set([...liveBefore, ...liveAfter])].map((close) => total(held, 'USDT') + (total(held, 'BTC') * close) / ONE);
   const end = toUnits(before.points.at(-1).usd);
   expect(worth.includes(end), `last point ${before.points.at(-1).usd} vs by hand ${worth.map(fromUnits).join(' or ')}`).toBe(true);
+  // The account was opened in #1, inside this day: the line starts at zero.
+  expect(toUnits(before.points[0].usd)).toBe(0n);
+  // Every moment after the last movement, up to the live end, is the same holdings at the close of the last 5-minute candle
+  // that had ended by then, exactly.
+  const res = await fetch(
+    `${EDGE}/api/v1/ohlcv/${encodeURIComponent('BTC/USDT')}?timeframe=5m&since=${Math.floor(left[0] / 300_000) * 300_000 - 900_000}&limit=300`,
+    { headers: { origin: ORIGIN } },
+  );
+  expect(res.status).toBe(200);
+  const candles = await res.json();
+  const quiet = before.points.slice(0, -1).filter((p) => Date.parse(p.at) >= settled);
+  expect(quiet.length).toBeGreaterThan(0);
+  for (const p of quiet) {
+    const ended = candles.filter((c) => c[0] <= Date.parse(p.at) - 300_000).at(-1);
+    expect(ended, `a candle ended by ${p.at}`).toBeTruthy();
+    const byHand = total(held, 'USDT') + (total(held, 'BTC') * toUnits(ended[4])) / ONE;
+    expect(toUnits(p.usd), `the moment ${p.at}`).toBe(byHand);
+  }
 
   // TEST XAU arrives, which has no market here: from then on the moment cannot be priced, so it is missing and named, never zero.
   expect(fund(who.email, 'XAU', '1').tx).toBeTruthy();
