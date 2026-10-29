@@ -610,12 +610,8 @@ test(`${J} #4 two withdrawals sent at once that together pass the 24-hour limit:
         await route.continue();
       });
     }
-    // Both codes are typed first (the second waits for the next step), so neither send is held for long once it is made.
-    for (const tab of [page, other]) {
-      await stepUp(tab)
-        .getByLabel('Authenticator code or recovery code')
-        .fill(await freshCode());
-    }
+    // readyToConfirm typed each tab's code, the second from a later step, so neither send is held for long once it is made
+    // and both quotes are still live (90 seconds) when they reach svc-pay.
     for (const tab of [page, other]) {
       const sent = tab.waitForRequest((req) => isCreate(new URL(req.url())));
       await stepUp(tab).getByRole('button', { name: 'Confirm' }).click();
