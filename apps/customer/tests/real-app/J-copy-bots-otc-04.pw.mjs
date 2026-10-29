@@ -169,7 +169,7 @@ test(`${J} #7 reaches the lead's equity minimum or daily buy cap, or a pair with
   await page.getByRole('button', { name: 'Confirm buy' }).click();
   await expect(page.getByText('Reference trade.copy_lead_holding_limit_unset')).toBeVisible();
   // A buy past the TEST daily buy cap.
-  await takeBest(state('applicant'), 'buy', '0.001', `${J}-7-${state('tag')}`).catch(() => undefined);
+  await takeBest(state('applicant'), 'buy', '0.001', `${J}-7-${state('tag')}`);
   await page.goto('/trade/spot/BTC-USDT?lead=1');
   await page.getByRole('switch', { name: 'Lead trade' }).check();
   await page.getByRole('textbox', { name: 'Amount' }).first().fill('1');

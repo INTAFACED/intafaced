@@ -37,6 +37,12 @@ test(`${J} #1 opens settlement oversight: "Settled" where a ledger post matches,
 }) => {
   run.reset({});
   const table = await settlements(page);
+  await expect(
+    table
+      .locator('tbody tr')
+      .filter({ hasText: /Settled|Held/ })
+      .first(),
+  ).toBeVisible();
   for (const row of await table.locator('tbody tr').all()) {
     const text = await row.innerText();
     if (/Held/.test(text)) expect(text).toMatch(/copy\.[a-z-]+:[\w-]+/);

@@ -90,37 +90,46 @@ export function weekAhead() {
   return `${when.getFullYear()}-${pad(when.getMonth() + 1)}-${pad(when.getDate())}T${pad(when.getHours())}:${pad(when.getMinutes())}`;
 }
 
+/** Start copying from `leaderRef`'s page on `page` up to the limits step: country DE and the given markets picked. */
+export async function wizardAtLimits(page, leaderRef, markets = ['BTC/USDT']) {
+  await page.goto(`/trade/copy/${leaderRef}`);
+  await page.getByRole('button', { name: 'Start copying' }).click();
+  const wizard = page.getByRole('dialog');
+  await wizard.getByLabel('Your country').fill('DE');
+  await wizard.getByRole('button', { name: 'Next' }).click();
+  for (const market of markets) await wizard.getByText(market, { exact: true }).click();
+  await wizard.getByRole('button', { name: 'Next' }).click();
+  return wizard;
+}
+
 /**
- * `who` follows the leader `leaderRef` from its lead page, as J-copy-bots-otc-01 does on screen: country DE, BTC/USDT,
- * the given limits, and Start copying (which also turns automatic copying on). Returns the follow id.
+ * `who` follows the leader `leaderRef` from its lead page, as J-copy-bots-otc-01 does on screen: country DE, the given
+ * markets (BTC/USDT unless named), the given limits, and Start copying (which also turns automatic copying on). Returns
+ * the follow id.
  *
  * The follow is made on a page of its own, closed after, so the test's page stays where it was. A lead fill to copy
  * goes through `leadFill`, which waits out the copy driver's sweep (#6556).
  */
-export async function followOnScreen(page, who, leaderRef, { perOrder = '50', total = '200', fixed = '20' } = {}) {
+export async function followOnScreen(page, who, leaderRef, { perOrder = '50', total = '200', fixed = '20', markets } = {}) {
   const context = await page.context().browser().newContext({ baseURL: ORIGIN });
-  const own = await context.newPage();
-  await signIn(own, who);
-  await own.goto(`/trade/copy/${leaderRef}`);
-  await own.getByRole('button', { name: 'Start copying' }).click();
-  const wizard = own.getByRole('dialog');
-  await wizard.getByLabel('Your country').fill('DE');
-  await wizard.getByRole('button', { name: 'Next' }).click();
-  await wizard.getByText('BTC/USDT', { exact: true }).click();
-  await wizard.getByRole('button', { name: 'Next' }).click();
-  await wizard.getByLabel('Most per order (USDT)').fill(perOrder);
-  await wizard.getByLabel('Most in total (USDT)').fill(total);
-  await wizard.getByLabel('Fixed amount per copied order (USDT)').fill(fixed);
-  await wizard.getByLabel('Permission ends').fill(weekAhead());
-  await wizard.getByRole('button', { name: 'Next' }).click();
-  const answer = own.waitForResponse((res) => res.url().includes('copy.follow'));
-  await wizard.getByRole('button', { name: 'Start copying' }).click();
-  const res = await answer;
-  expect(res.status(), (await res.text()).slice(0, 300)).toBe(200);
-  await expect(own).toHaveURL(/tab=follows/);
-  const followId = (await res.json()).result.data.followId;
-  await context.close();
-  return followId;
+  try {
+    const own = await context.newPage();
+    await signIn(own, who);
+    const wizard = await wizardAtLimits(own, leaderRef, markets);
+    await wizard.getByLabel('Most per order (USDT)').fill(perOrder);
+    await wizard.getByLabel('Most in total (USDT)').fill(total);
+    await wizard.getByLabel('Fixed amount per copied order (USDT)').fill(fixed);
+    await wizard.getByLabel('Permission ends').fill(weekAhead());
+    await wizard.getByRole('button', { name: 'Next' }).click();
+    const answer = own.waitForResponse((res) => res.url().includes('copy.follow'));
+    await wizard.getByRole('button', { name: 'Start copying' }).click();
+    const res = await answer;
+    expect(res.status(), (await res.text()).slice(0, 300)).toBe(200);
+    await expect(own).toHaveURL(/tab=follows/);
+    return (await res.json()).result.data.followId;
+  } finally {
+    await context.close();
+  }
 }
 
 /** Opens My follows and the follow with the leader `leaderRef`; returns its detail dialog. */

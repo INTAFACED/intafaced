@@ -63,7 +63,9 @@ test(`${J} #1 opens positions and history: orders and fills listed with statuses
     clientAlgoId: `${J}-algo-${tag}`,
     kind: 'twap',
   });
-  run.write({ algoId: algo.body?.result?.data?.id });
+  // On the stack today svc-trade refuses every algo create (no TEST bots verification level is set): this names it.
+  expect(algo.status, JSON.stringify(algo.body).slice(0, 300)).toBe(200);
+  run.write({ algoId: algo.body.result.data.id });
 
   await terminal(page, 'Orders');
   const open = await openOrders(trader);

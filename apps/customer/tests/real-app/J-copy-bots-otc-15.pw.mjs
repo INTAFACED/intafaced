@@ -70,7 +70,9 @@ test(`${J} #1 tops up the quote by TEST 50: the investment rises by 50 and the g
   await expect(sheet.getByText('A grid is topped up in USDT only.')).toBeVisible();
   await sheet.getByLabel('Asset').selectOption('USDT');
   await sheet.getByLabel('Amount').fill('50');
+  const toppedUp = page.waitForResponse((res) => res.url().includes('bots.topUp'));
   await sheet.getByRole('button', { name: 'Top up' }).click();
+  expect((await toppedUp).status()).toBe(200);
   const after = await getBot(trader, bot.id);
   expect(toUnits(after.investment) - toUnits(bot.investment)).toBe(toUnits('50'));
   expect(after.reinitCount).toBe(1);
@@ -118,7 +120,9 @@ test(`${J} #4 stops with settlement of base and quote: one sell job per level; a
   await detail.getByRole('button', { name: 'Stop' }).click();
   const sheet = page.getByRole('dialog', { name: 'Stop this grid' });
   await sheet.getByRole('radio', { name: 'Sell the BTC back to USDT' }).check();
+  const stoppedRes = page.waitForResponse((res) => res.url().includes('bots.stop'));
   await sheet.getByRole('button', { name: 'Stop and settle' }).click();
+  expect((await stoppedRes).status()).toBe(200);
   const stopped = await getBot(trader, bot.id);
   const levels = stopped.levels.filter((l) => toUnits(l.baseHeld ?? '0') > 0n).length;
   expect(stopped.settleJobs).toHaveLength(levels);

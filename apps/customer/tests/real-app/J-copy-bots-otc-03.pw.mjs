@@ -37,7 +37,6 @@ async function act(page, detail, button) {
 
 /** Copied orders on the follow after the page re-reads it. */
 async function copiedNow(page) {
-  await page.reload();
   return (await copiedOrdersLoaded(await openFollow(page, state('leaderRef')))).count();
 }
 
@@ -66,7 +65,6 @@ test(`${J} #1 pauses the follow: new mirrors refused as paused, and existing pos
   await act(page, detail, 'Pause');
   await expect(detail).toContainText('Paused');
   await leadFill(leader, 'buy', '0.001', `${J}-1-paused-${tag}`);
-  await page.waitForTimeout(10_000);
   expect(await copiedNow(page)).toBe(2);
   // Nothing was sold.
   expect((await (await api(follower)).balances()).BTC.total).toBe(holding);

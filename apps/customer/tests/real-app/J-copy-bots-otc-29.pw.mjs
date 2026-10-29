@@ -31,6 +31,12 @@ test(`${J} #1 opens desk operations: open RFQs and settled fills listed with sta
   await desk(page);
   const rfqs = page.getByRole('table', { name: 'RFQs' });
   await expect(rfqs.or(page.getByText('No RFQs.'))).toBeVisible();
+  await expect(
+    rfqs
+      .locator('tbody tr')
+      .filter({ hasText: /Open|Accepted|Settled|Expired/ })
+      .first(),
+  ).toBeVisible();
   for (const row of await rfqs.locator('tbody tr').all()) await expect(row).toContainText(/Open|Accepted|Settled|Expired/);
 });
 

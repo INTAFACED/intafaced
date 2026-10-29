@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test';
 import { api, journeyState, tool } from './stack.mjs';
 import { fundedTrader, signIn } from './desk.mjs';
-import { copiedOrders, followOnScreen, listLeader, openFollow, takeBest } from './copy.mjs';
+import { copiedOrders, followOnScreen, leadFill, listLeader, openFollow, takeBest, wizardAtLimits } from './copy.mjs';
 
 // J-copy-bots-otc-02, in the running app (docs/roadmap/journeys.json): keep my copying inside my own limits. One test per
 // step, titled "J-copy-bots-otc-02 #<n>", run in order. #1 makes the journey's start: a TEST leader listed by the stack's
@@ -39,18 +39,6 @@ async function skips(who, followId) {
   return body.result.data.items;
 }
 
-/** Start copying from `leaderRef`'s page up to the limits step, where the sizing choice is. */
-async function wizardAtLimits(page, leaderRef) {
-  await page.goto(`/trade/copy/${leaderRef}`);
-  await page.getByRole('button', { name: 'Start copying' }).click();
-  const wizard = page.getByRole('dialog');
-  await wizard.getByLabel('Your country').fill('DE');
-  await wizard.getByRole('button', { name: 'Next' }).click();
-  await wizard.getByText('BTC/USDT', { exact: true }).click();
-  await wizard.getByRole('button', { name: 'Next' }).click();
-  return wizard;
-}
-
 /** The follow #1 made, opened on My follows; with none made, the step stops here and says so. */
 async function myFollow(page) {
   state('followId');
@@ -70,7 +58,12 @@ test(`${J} #1 chooses a sizing mode: smart sync and fixed amount offered, multip
 
   // The follow the later steps change, made the way a person makes one.
   await signIn(page, follower);
-  const followId = await followOnScreen(page, follower, leaderRef, { perOrder: '50', total: '300', fixed: '20' });
+  const followId = await followOnScreen(page, follower, leaderRef, {
+    perOrder: '50',
+    total: '300',
+    fixed: '20',
+    markets: ['BTC/USDT', 'ETH/USDT'],
+  });
   run.write({ followId });
 
   // The sizing choice, on the wizard for a second leader (one follow per leader).
@@ -117,7 +110,7 @@ test(`${J} #3 a lead order past the per-contract cap: refused with the cap code,
   // The leader buys BTC worth more than the follower's 25 USDT per-contract cap at 20 a copy, twice; then ETH once.
   await takeBest(leader, 'buy', '0.001', `${J}-3-btc1-${tag}`);
   await takeBest(leader, 'buy', '0.001', `${J}-3-btc2-${tag}`);
-  await takeBest(leader, 'buy', '0.01', `${J}-3-eth-${tag}`, 'ETH/USDT');
+  await leadFill(leader, 'buy', '0.01', `${J}-3-eth-${tag}`, 'ETH/USDT');
   await expect.poll(async () => (await skips(follower, followId)).map((s) => s.reason), { timeout: 60_000 }).toContain('per_contract_cap');
   await signIn(page, follower);
   const detail = await myFollow(page);

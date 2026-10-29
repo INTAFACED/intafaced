@@ -74,7 +74,6 @@ test(`${J} #1 pauses one lead: its next mirror is refused as paused by the platf
     await a.getByLabel('Lead').fill(leaderRef);
   });
   await leadFill(leader, 'buy', '0.001', `${J}-1-b-${tag}`);
-  await page.waitForTimeout(10_000);
   await expect(copiedOrders(await openFollow(page, leaderRef))).toHaveCount(1);
   expect((await (await api(follower)).balances()).BTC.total).toBe(holding);
 });

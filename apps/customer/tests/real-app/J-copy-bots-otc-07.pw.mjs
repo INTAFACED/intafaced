@@ -67,8 +67,15 @@ test(`${J} #4 opens a position through the lead API on a listed instrument, then
   expect(res.status).toBe(200);
 });
 
-test(`${J} #5 calls start, amend, stop and list with a copier key: as the web; ratio refused; margin mode ignored with a reason`, async () => {
-  const res = await withKey(state('leadKey'), { path: '/api/v1/copy/follows' });
+test(`${J} #5 calls start, amend, stop and list with a copier key: as the web; ratio refused; margin mode ignored with a reason`, async ({
+  browser,
+}) => {
+  const copier = await keyHolder(browser, 'jck5');
+  await copier.page.goto('/uc/safe/api-keys/new');
+  await copier.page.getByLabel('Copy trading', { exact: true }).check(UNBUILT);
+  const key = await makeKey(copier.page, { name: 'copier-bot', preset: 'Copy trading' });
+  await copier.page.context().close();
+  const res = await withKey(key, { path: '/api/v1/copy/follows' });
   expect(res.status).toBe(200);
 });
 
