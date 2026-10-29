@@ -990,9 +990,9 @@ export class UserMoneyService {
    *
    * The claim is the ordinary one (`claimWithdrawal`, rail `internal`), so every withdrawal guard still runs in its
    * transaction: approvals, the allowlist, screening, the limits, the merchant controls and the halts. Three checks belong
-   * to sends that leave custody and skip this rail: the wallet door (`preflightWithdrawal`: stored chain destination,
-   * network fee, travel rule, cooling, cap on holds), the custody transaction policy (nothing is signed) and treasury
-   * exposure (nothing leaves). A frozen account is refused by svc-bank, which asks identity whether the sender can send.
+   * to sends that leave custody and skip this rail: the send-out door (`sendOut`: a custody signer, a named fee quote, and
+   * an address in svc-bank's book approved and past its cooling-off), the custody transaction policy (nothing is signed)
+   * and treasury exposure (nothing leaves). A frozen account is refused by svc-bank, which asks identity whether the sender can send.
    *
    * ONE SEND PER WITHDRAWAL. svc-bank's key is the withdrawal row's own id (`withdraw:<id>`), and the row is unique per
    * person and client reference, so a retry after a lost answer is the same send and posts once.
