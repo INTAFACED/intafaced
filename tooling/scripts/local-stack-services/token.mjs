@@ -26,5 +26,8 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS }) => ({
     // LOCAL_STACK_TOKEN_PROPOSER_RULE=off restarts the lane with the rule blank, so a journey can show its refusal.
     ...(process.env.LOCAL_STACK_TOKEN_PROPOSER_RULE === 'off' ? {} : { TOKEN_PROPOSER_RULE: testValue('TOKEN_PROPOSER_RULE') }),
     TOKEN_PROPOSAL_LIMIT: testValue('TOKEN_PROPOSAL_LIMIT'),
+    // Who may vote: the labelled TEST rule. LOCAL_STACK_TOKEN_VOTE_RULE=off restarts the lane with it blank, so a journey
+    // can show token.vote_rule_unset.
+    ...(process.env.LOCAL_STACK_TOKEN_VOTE_RULE === 'off' ? {} : { TOKEN_VOTE_RULE: testValue('TOKEN_VOTE_RULE') }),
   }),
 });

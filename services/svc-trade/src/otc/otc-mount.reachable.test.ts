@@ -87,6 +87,7 @@ const PUBLISHED: OtcDeskLaw = {
   maxMidAgeSeconds: 60,
   // A zero desk minimum is an owner value: these quotes are not held by the CB-otc-07 minimum.
   minNotional: { USDT: 0n },
+  assets: ['BTC'],
 };
 
 /** Pair map only — `asOf` is bound to the desk clock inside `buildDesk`. */
@@ -476,7 +477,8 @@ describe('a price that moves money is never supplied by the party it pays', () =
    * and no zero.
    */
   it('refuses a pair it can source no mark for, and moves nothing', async () => {
-    const desk = await buildDesk({ law: PUBLISHED });
+    // SOL is on the desk's asset list (CB-otc-11), so the refusal is the missing mark, not the list.
+    const desk = await buildDesk({ law: { ...PUBLISHED, assets: ['BTC', 'SOL'] } });
     await fund(desk.ledger, USER, 'USDT', '10000');
 
     const res = await callMutation(desk, 'otc.quote', { side: 'buy', baseAsset: 'SOL', quoteAsset: 'USDT', qty: '1', makerIds: ['house'] });

@@ -40,6 +40,7 @@ import {
   type SnapshotRead,
 } from './reconciliation-controls.js';
 import { reconciliationSourcesFrom } from './reconciliation-sources.js';
+import { transactionsExist } from './transactions-exist.js';
 import type { LedgerService } from '../service.js';
 
 // PG-hard: no skip. A run without a database fails instead of reporting a silent absence.
@@ -1209,5 +1210,23 @@ async function ctx(scopes: string[], mfa: boolean): Promise<Context> {
     expect(run.statusCode).toBe(200);
     expect(run.json()).toMatchObject({ status: 'ERROR', errorCode: { status: 'set', value: LEDGER_RECONCILE_SOURCE_UNAVAILABLE } });
     await app.close();
+  });
+
+  it('answers which asked transaction ids are booked: ids only, in the order asked, each once (OPS-reconciliation-04)', async () => {
+    const engine = new PostgresLedger(db.sql);
+    const posted = await engine.post(
+      recipes.deposit({
+        userId: 'abcdeaaa-6666-4666-8666-000000000001',
+        assetId: 'BTC',
+        amount: amt('1'),
+        rail: 'test',
+        railRef: 'recon-exist-1',
+      }),
+    );
+    const unknown = '00000000-0000-4000-8000-0000000000ff';
+    const answer = await transactionsExist(db.sql, { txIds: [unknown, posted.id.toUpperCase(), posted.id] });
+    expect(answer).toEqual({ found: [posted.id] });
+    expect(await transactionsExist(db.sql, { txIds: [unknown] })).toEqual({ found: [] });
+    await expect(transactionsExist(db.sql, { txIds: ['not-a-tx'] })).rejects.toMatchObject({ name: 'ZodError' });
   });
 }
