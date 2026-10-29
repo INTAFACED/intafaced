@@ -306,7 +306,8 @@ test(`${J} #1 opens Withdraw and picks asset and network: the default network wi
 test(`${J} #2 picks the saved address or pastes one: a mistyped address is refused before any call, and an address on the fraud list is refused by name with nothing held, and so is a sanctioned address`, async ({
   page,
 }) => {
-  test.setTimeout(180_000);
+  // Two svc-pay restarts (screener off, then back on) take most of a minute each.
+  test.setTimeout(480_000);
   await signInWithCode(page);
   const writes = [];
   page.on('request', (request) => {
@@ -371,7 +372,7 @@ test(`${J} #2 picks the saved address or pastes one: a mistyped address is refus
   throw new Error("#2's sanctions clause: sanctions screening provider not set: the owner's call");
 });
 
-test(`${J} #3 reads the fee quote: fee, what arrives and the total debit as exact decimals, and an expired quote must be got again`, async ({
+test(`${J} #3 reads the fee quote: fee, what arrives and the total debit as exact decimals, an expired quote must be got again, and a blank fee is a refusal`, async ({
   page,
 }) => {
   test.setTimeout(240_000);
@@ -403,6 +404,27 @@ test(`${J} #3 reads the fee quote: fee, what arrives and the total debit as exac
   await page.getByRole('button', { name: 'Get the fee' }).click();
   await expect(review).toContainText('Leaves your balance27.5 USDT');
   await expect(confirmSend(page)).toBeEnabled();
+
+  // A blank fee is a refusal: TEST Ethereum's fee is cleared through the founders' own door for this clause only, and put
+  // back in the finally. The page names it in words, svc-pay answers one typed code, and nothing is quoted or held.
+  const api = await customerApi();
+  try {
+    tool('local-test-gates.mjs', 'withdraw-fee', 'ethereum', 'unset');
+    await amountBox(page).fill('25');
+    await page.getByRole('button', { name: 'Get the fee' }).click();
+    await expect(page.getByText('No fee is set for this network, so nothing can be sent on it.')).toBeVisible();
+    await expect(fee).not.toContainText('1.5 USDT');
+    await expect(page.getByRole('button', { name: 'Review withdrawal' })).toBeDisabled();
+    await expect(confirmSend(page)).toHaveCount(0);
+    const blank = await api.quote({ quoteRef: `${J}-blank-fee-${Date.now()}`, assetId: 'USDT', networkId: 'ethereum', amount: '25' });
+    expect(blank.body?.error?.data?.cause?.code, JSON.stringify(blank.body).slice(0, 400)).toBe('pay.fee_unset');
+    expect(toUnits(await api.available('USDT'))).toBe(toUnits('300'));
+    expect(await api.withdrawals()).toEqual([]);
+  } finally {
+    tool('local-test-gates.mjs', 'withdraw-fee', 'ethereum', 'test');
+  }
+  await page.getByRole('button', { name: 'Get the fee' }).click();
+  await expect(fee).toContainText('1.5 USDT');
 });
 
 test(`${J}, part of #4 reads the limit line: what the account's level may send now, per withdrawal and in 24 hours`, async ({ page }) => {
@@ -424,7 +446,7 @@ test(`${J} #4 a blank limit refuses and holds nothing`, async ({ page }) => {
     tool('local-test-gates.mjs', 'withdraw-limit', 'full', 'USDT', 'unset');
     await fillSend(page, '25');
     // The limit line says in words that no limit is set, and nothing can be reviewed, so nothing can be confirmed.
-    await expect(page.getByTestId('withdraw-limit')).toHaveText(
+    await expect(page.getByTestId('withdraw-limit').locator('p')).toHaveText(
       'No withdrawal limit is set for your account level and this asset, so nothing can be sent.',
     );
     await page.getByRole('button', { name: 'Get the fee' }).click();
@@ -565,9 +587,40 @@ test(`${J} #4 two withdrawals sent at once that together pass the 24-hour limit:
     await signInWithCode(other);
     const api = await customerApi();
     const before = (await api.withdrawals()).length;
+    const availableBefore = toUnits(await api.available('USDT'));
     await readyToConfirm(page, each);
     await readyToConfirm(other, each);
-    await Promise.all([page, other].map((tab) => stepUp(tab).getByRole('button', { name: 'Confirm' }).click()));
+    const answers = [page, other].map((tab) => tab.waitForResponse((res) => res.url().includes('/api/pay/trpc/withdrawal.create')));
+    // Each tab passes its own step-up first, one after the other: a code from an earlier 30-second step than one already
+    // used is refused, so the two can't verify in either order. Each send then waits in its browser until both are made,
+    // and the two go to svc-pay together.
+    const isCreate = (url) => url.href.includes('/api/pay/trpc/withdrawal.create');
+    let release;
+    const bothMade = new Promise((resolve) => (release = resolve));
+    let made = 0;
+    for (const tab of [page, other]) {
+      await tab.route(isCreate, async (route) => {
+        if (++made === 2) release();
+        await bothMade;
+        await route.continue();
+      });
+    }
+    for (const tab of [page, other]) {
+      await stepUp(tab)
+        .getByLabel('Authenticator code or recovery code')
+        .fill(await freshCode());
+      const sent = tab.waitForRequest((req) => isCreate(new URL(req.url())));
+      await stepUp(tab).getByRole('button', { name: 'Confirm' }).click();
+      await sent;
+    }
+    // svc-pay answers one send and refuses the other with the one typed code for a limit that would be passed.
+    const bodies = await Promise.all(answers.map(async (answer) => (await answer).json()));
+    const codes = bodies.map((body) => body?.error?.data?.cause?.code ?? null);
+    expect(
+      codes.filter((c) => c === null),
+      JSON.stringify(bodies).slice(0, 600),
+    ).toHaveLength(1);
+    expect(codes.filter((c) => c !== null)).toEqual(['pay.guard_withdrawal_limit_exceeded']);
     const states = await Promise.all(
       [page, other].map(async (tab) => {
         const outcome = tab.getByTestId('withdraw-outcome');
@@ -578,6 +631,8 @@ test(`${J} #4 two withdrawals sent at once that together pass the 24-hour limit:
     expect(states.filter((state) => state === 'refused')).toHaveLength(1);
     expect(states.filter((state) => state !== 'refused' && state !== 'unknown')).toHaveLength(1);
     expect(await api.withdrawals()).toHaveLength(before + 1);
+    // Exactly one amount and its 1.5 fee left the available balance; the refused one held nothing.
+    expect(toUnits(await api.available('USDT'))).toBe(availableBefore - toUnits(each) - toUnits('1.5'));
   } finally {
     await otherContext.close();
   }

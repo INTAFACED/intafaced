@@ -12,6 +12,7 @@
  *   node tooling/scripts/local-test-gates.mjs assets     publish TEST supported assets and networks (two-person approval)
  *   node tooling/scripts/local-test-gates.mjs deposit-terms   publish TEST crypto deposit networks and terms in svc-pay (two-person approval)
  *   node tooling/scripts/local-test-gates.mjs withdraw-limit <tier> <asset> unset|test  clear one TEST withdrawal limit, or put it back
+ *   node tooling/scripts/local-test-gates.mjs withdraw-fee <network> unset|test  clear one TEST network's withdrawal fee, or put it back
  *   node tooling/scripts/local-test-gates.mjs withdraw-terms  publish TEST withdrawal limits, the fee quote policy, the network rules and the custody policy in svc-pay, and list the TEST fraud address in svc-bank
  *   node tooling/scripts/local-test-gates.mjs futures    list the TEST perpetual, publish TEST derivatives terms and quiz
  *   node tooling/scripts/local-test-gates.mjs halt <SYMBOL>    halt one book in matching (two-person approval)
@@ -1611,6 +1612,48 @@ export async function setWithdrawalLimit(ctx, tier, assetId, value) {
   return { what, status: value === 'unset' ? 'cleared to unset' : 'back to the TEST figures', approvalId: r.approvalId };
 }
 
+/**
+ * Blank one TEST network's withdrawal fee in svc-pay's network registry, or put the TEST fixed fee back, through the
+ * founders' own door (`founderAdmin.registries.networks.save`, dual-controlled). J-wallet-05 #3 uses it inside a
+ * try/finally to prove that a blank fee refuses `pay.fee_unset`; nothing else on the row changes. Only the TEST networks.
+ */
+export async function setWithdrawFee(ctx, networkId, value) {
+  const want = TEST_DEPOSIT_NETWORKS.find((n) => n.networkId === networkId);
+  if (!want) throw new Error(`withdraw-fee refuses ${networkId}: only the TEST networks can be changed`);
+  if (value !== 'unset' && value !== 'test') throw new Error(`withdraw-fee takes unset or test, not ${value}`);
+  const fee =
+    value === 'unset'
+      ? { feeEstimateSource: null, feeEstimateAmount: null }
+      : { feeEstimateSource: want.feeEstimateSource, feeEstimateAmount: want.feeEstimateAmount };
+  const sessions = await approverSessions(ctx);
+  const listed = await ctx.edge.query('pay', 'founderAdmin.registries.networks.list', {}, sessions.a.token);
+  if (!Array.isArray(data(listed))) throw new Error(`pay networks.list refused (${listed.status}): ${refusalText(listed)}`);
+  const row = data(listed).find((n) => n.networkId === networkId) ?? null;
+  if (!row) throw new Error(`withdraw-fee: network ${networkId} is not published; run withdraw-terms first`);
+  const what = `withdrawal fee on ${networkId}`;
+  if (row.feeEstimateSource === fee.feeEstimateSource && row.feeEstimateAmount === fee.feeEstimateAmount) {
+    return { what, status: `already ${value}` };
+  }
+  const change = {
+    networkId,
+    displayName: row.displayName,
+    assetCodes: row.assetCodes,
+    confirmationsRequired: row.confirmationsRequired,
+    enabled: row.enabled,
+    ...fee,
+    expectedVersion: row.version,
+    reason: `${MARKERS.label}: TEST withdrawal fee ${value}`,
+  };
+  const r = await payFounderSave(ctx, sessions, {
+    preview: 'founderAdmin.registries.preview',
+    previewInput: { registry: 'network', change },
+    save: 'founderAdmin.registries.networks.save',
+    input: change,
+    what,
+  });
+  return { what, status: value === 'unset' ? 'cleared to unset' : 'back to the TEST fee', approvalId: r.approvalId };
+}
+
 // ── 2d. Pair price band and open-order cap (two-person approval) ────────────
 
 /**
@@ -2552,6 +2595,11 @@ async function main() {
       if (!tier || !assetId || !value) die('usage: local-test-gates.mjs withdraw-limit <tier> <assetId> unset|test', 2);
       const r = await setWithdrawalLimit(ctx, tier, assetId, value);
       say(`  withdraw  ${r.what}: ${r.status}`);
+    } else if (cmd === 'withdraw-fee') {
+      const [networkId, value] = process.argv.slice(3);
+      if (!networkId || !value) die('usage: local-test-gates.mjs withdraw-fee <networkId> unset|test', 2);
+      const r = await setWithdrawFee(ctx, networkId, value);
+      say(`  withdraw  ${r.what}: ${r.status}`);
     } else if (cmd === 'halt' || cmd === 'resume') {
       const symbol = process.argv[3];
       if (!symbol) die(`usage: local-test-gates.mjs ${cmd} <SYMBOL>, for example ETH/USDT`, 2);
@@ -2598,7 +2646,7 @@ async function main() {
       say(JSON.stringify(await status(ctx), null, 2));
     } else {
       die(
-        'usage: local-test-gates.mjs apply | operators | lifecycle | open | terms | assets | deposit-terms | withdrawal-limits | withdraw-terms | withdraw-limit <tier> <assetId> unset|test | futures | limits | charts | chart-class <SYMBOL> <dataClass> | risk <SYMBOL> k=v... | p2p | verify | kyc-reject <handle> <reasonCode> | halt <SYMBOL> | resume <SYMBOL> | age <handle> <seconds> | status',
+        'usage: local-test-gates.mjs apply | operators | lifecycle | open | terms | assets | deposit-terms | withdrawal-limits | withdraw-terms | withdraw-limit <tier> <assetId> unset|test | withdraw-fee <networkId> unset|test | futures | limits | charts | chart-class <SYMBOL> <dataClass> | risk <SYMBOL> k=v... | p2p | verify | kyc-reject <handle> <reasonCode> | halt <SYMBOL> | resume <SYMBOL> | age <handle> <seconds> | status',
         2,
       );
     }
