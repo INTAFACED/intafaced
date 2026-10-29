@@ -22,9 +22,9 @@ const ACTIONS = [
   'Change your sign-in methods',
   'Reset your password',
   'Reset your second factor',
-  'Use or replace recovery keys',
-  'Add or remove withdrawal addresses',
-  'Send to a withdrawal address',
+  'Add recovery keys or change their plan',
+  'Add a withdrawal address',
+  'Start a send to a withdrawal address',
 ];
 
 test(`${J} #1 Account status lists what I can still do and what I cannot; an active account blocks nothing`, async ({ page }) => {

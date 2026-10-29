@@ -6,22 +6,6 @@ import { usePreferences } from '../../shared/preferences';
 import { stamp } from '../../screens/money/time';
 import { accountStatusCopy as copy } from './account-status-copy';
 
-/** The codes identity sends from fixed lists; any other code reads as "no reason recorded", never as raw text. */
-const REASONS = [
-  'fraud',
-  'negative_balance',
-  'bank_reason',
-  'customer_request',
-  'other',
-  'compromise',
-  'temporary',
-  'personal',
-  'set_by_you',
-  'set_by_support',
-] as const;
-type Reason = (typeof REASONS)[number];
-const known = (code: string | null): code is Reason => code !== null && (REASONS as readonly string[]).includes(code);
-
 /**
  * I-signin-sessions-22: the account status card on /uc/account. It lists what the person can still do and what they
  * cannot, and each restriction with its reason, its start and how it ends, all from identity's `accountStatus.mine`.
@@ -129,7 +113,7 @@ export function AccountStatus() {
               {status.restrictions.map((r) => (
                 <li key={r.kind} data-kind={r.kind} data-reason={r.reasonCode ?? ''}>
                   <strong>{t(`kind_${r.kind}`)}</strong>{' '}
-                  {known(r.reasonCode) ? <Copy k="reason" params={{ reason: t(`reason_${r.reasonCode}`) }} /> : <Copy k="noReason" />}{' '}
+                  {r.reasonCode ? <Copy k="reason" params={{ reason: t(`reason_${r.reasonCode}`) }} /> : <Copy k="noReason" />}{' '}
                   {r.since && <Copy k="since" params={{ time: stamp(r.since, timeZone) }} />} {lift(r)}
                 </li>
               ))}

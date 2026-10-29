@@ -10,6 +10,7 @@ import {
   type AccountAction,
   type AccountRestriction,
   type AccountStatus,
+  type AccountStatusReason,
 } from '@intafaced/contracts/identity-account-status';
 
 /** What each restriction's guard refuses (the guard is named beside it), so the page never promises more. */
@@ -19,25 +20,30 @@ const BLOCKS = {
   closed: [...ACCOUNT_ACTIONS],
   // `AuthService.createApiKey` refuses `identity.account_frozen_self`; the freeze revoked every session and key when set.
   self_freeze: ['create_api_key'],
-  // `assertNotSecurityLocked` (password change, sign-in methods, password and second-factor resets, recovery keys) and
-  // svc-bank's `bank.security_locked` (withdrawal addresses and sending to them).
+  // `assertNotSecurityLocked` (password change, sign-in methods, password and second-factor resets, adding recovery keys
+  // and setting their plan) and svc-bank's `bank.security_locked` (adding a withdrawal address, starting a send to one).
+  // Removing an address and revoking a recovery key read no lock, so they are not listed.
   security_lock: [
     'change_password',
     'change_signin_methods',
     'reset_password',
     'reset_second_factor',
-    'recovery_keys',
-    'manage_withdrawal_addresses',
+    'add_recovery_keys',
+    'add_withdrawal_address',
     'withdraw_to_address',
   ],
   // Founder controls, trading area: svc-trade refuses `trade.account_restricted`.
   trading_restricted: ['trade'],
 } as const satisfies Record<AccountRestriction['kind'], readonly AccountAction[]>;
 
-type UserRow = { status: 'active' | 'frozen' | 'closed'; closed_reason: string | null };
+type UserRow = {
+  status: 'active' | 'frozen' | 'closed';
+  closed_reason: AccountStatusReason | null;
+  customer_closed_at: Date | null;
+};
 type FreezeRow = { reason: string; since: Date; available_at: Date | null };
 type LockRow = { set_by: 'self' | 'support'; locked_at: Date; unlocks_at: Date | null };
-type TradingRow = { updated_at: Date };
+type TradingRow = { restricted: true };
 
 const iso = (d: Date | null) => (d ? d.toISOString() : null);
 
@@ -51,25 +57,36 @@ export class AccountStatusDesk {
   async read(userId: string): Promise<AccountStatus | null> {
     const wait = this.selfFreezeLiftWaitSeconds ?? null;
     const [[user], [freeze], [lock], [trading]] = await Promise.all([
-      this.sql<UserRow[]>`SELECT status, closed_reason FROM users WHERE id = ${userId}`,
+      // A customer-closed account carries no staff code: the closure flow's finalisation is its code and its time.
+      this.sql<UserRow[]>`
+        SELECT status, closed_reason,
+          (SELECT MAX(finalized_at) FROM account_closures c WHERE c.user_id = users.id AND c.status = 'closed') AS customer_closed_at
+        FROM users WHERE id = ${userId}`,
       this.sql<FreezeRow[]>`
         SELECT reason, since, CASE WHEN ${wait}::int IS NULL THEN NULL ELSE since + make_interval(secs => ${wait}::int) END AS available_at
         FROM account_self_freezes WHERE user_id = ${userId} AND state = 'frozen'`,
       this.sql<LockRow[]>`
         SELECT set_by, locked_at, unlocks_at FROM account_security_locks
         WHERE user_id = ${userId} AND state = 'locked' AND (unlocks_at IS NULL OR unlocks_at > now())`,
-      this.sql<TradingRow[]>`SELECT updated_at FROM trading_restrictions WHERE user_id = ${userId} AND restricted`,
+      // `updated_at` moves on every write, even a repeat, so it is not when the restriction began: no start is shown.
+      this.sql<TradingRow[]>`SELECT restricted FROM trading_restrictions WHERE user_id = ${userId} AND restricted`,
     ]);
     if (!user) return null;
     const restrictions: AccountRestriction[] = [];
     if (user.status === 'closed')
-      restrictions.push({ kind: 'closed', reasonCode: user.closed_reason, since: null, blocks: [...BLOCKS.closed], lift: { by: 'staff' } });
+      restrictions.push({
+        kind: 'closed',
+        reasonCode: user.closed_reason ?? (user.customer_closed_at ? 'customer_request' : null),
+        since: user.closed_reason ? null : iso(user.customer_closed_at),
+        blocks: [...BLOCKS.closed],
+        lift: { by: 'staff' },
+      });
     if (user.status === 'frozen')
       restrictions.push({ kind: 'staff_freeze', reasonCode: null, since: null, blocks: [...BLOCKS.staff_freeze], lift: { by: 'staff' } });
     if (freeze)
       restrictions.push({
         kind: 'self_freeze',
-        reasonCode: freeze.reason,
+        reasonCode: freeze.reason as AccountStatusReason,
         since: iso(freeze.since),
         blocks: [...BLOCKS.self_freeze],
         lift: { by: 'owner_after_wait', availableAt: iso(freeze.available_at) },
@@ -86,7 +103,7 @@ export class AccountStatusDesk {
       restrictions.push({
         kind: 'trading_restricted',
         reasonCode: null,
-        since: iso(trading.updated_at),
+        since: null,
         blocks: [...BLOCKS.trading_restricted],
         lift: { by: 'staff' },
       });
@@ -100,9 +117,11 @@ export class AccountStatusDesk {
         ? 'active'
         : first.kind === 'closed'
           ? 'closed'
-          : first.kind === 'self_freeze' && user.status === 'active'
-            ? 'frozen_self'
-            : 'restricted',
+          : first.kind === 'staff_freeze'
+            ? 'frozen'
+            : first.kind === 'self_freeze'
+              ? 'frozen_self'
+              : 'restricted',
       reasonCode: first?.reasonCode ?? null,
       since: first?.since ?? null,
       restrictions,

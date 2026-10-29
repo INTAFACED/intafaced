@@ -120,8 +120,8 @@ if (!(await postgresAvailable(TEST_URL))) {
         'change_signin_methods',
         'reset_password',
         'reset_second_factor',
-        'recovery_keys',
-        'manage_withdrawal_addresses',
+        'add_recovery_keys',
+        'add_withdrawal_address',
         'withdraw_to_address',
       ]);
       expect(status.canStill).toEqual(['sign_in', 'trade', 'create_api_key']);
@@ -135,7 +135,7 @@ if (!(await postgresAvailable(TEST_URL))) {
       const status = await read(userId);
       expect(status).toMatchObject({ state: 'restricted', reasonCode: null, cannot: [{ action: 'trade', kind: 'trading_restricted' }] });
       expect(status.restrictions[0]).toMatchObject({ kind: 'trading_restricted', lift: { by: 'staff' } });
-      expect(status.restrictions[0]!.since).not.toBeNull();
+      expect(status.restrictions[0]!.since).toBeNull();
       await db.sql`UPDATE trading_restrictions SET restricted = false WHERE user_id = ${userId}`;
       expect((await read(userId)).state).toBe('active');
     });
@@ -145,7 +145,7 @@ if (!(await postgresAvailable(TEST_URL))) {
       await auth.selfFreeze({ userId, actor: { delegated: false, privileged: false, mfa: false }, reason: 'personal', password: PASSWORD });
       await db.sql`UPDATE users SET status = 'frozen' WHERE id = ${userId}`;
       const status = await read(userId);
-      expect(status).toMatchObject({ state: 'restricted', reasonCode: null, canStill: [] });
+      expect(status).toMatchObject({ state: 'frozen', reasonCode: null, canStill: [] });
       expect(status.restrictions.map((r) => [r.kind, r.lift.by])).toEqual([
         ['staff_freeze', 'staff'],
         ['self_freeze', 'owner_after_wait'],
@@ -157,6 +157,15 @@ if (!(await postgresAvailable(TEST_URL))) {
       const userId = await person();
       await db.sql`UPDATE users SET status = 'closed', closed_reason = 'customer_request' WHERE id = ${userId}`;
       expect(await read(userId)).toMatchObject({ state: 'closed', reasonCode: 'customer_request', canStill: [] });
+      // Closed by the person through the closure flow: no staff code, so the finalised closure is the code and the time.
+      const own = await person();
+      await db.sql`UPDATE users SET status = 'closed' WHERE id = ${own}`;
+      await db.sql`
+        INSERT INTO account_closures (user_id, status, requested_at, effective_at, finalized_at, client_request_id)
+        VALUES (${own}, 'closed', now() - interval '1 day', now(), now(), 'close-1')`;
+      const closed = await read(own);
+      expect(closed.restrictions[0]).toMatchObject({ kind: 'closed', reasonCode: 'customer_request' });
+      expect(closed.restrictions[0]!.since).not.toBeNull();
       expect(await desk.read('00000000-0000-4000-8000-000000000000')).toBeNull();
     });
 
@@ -175,6 +184,19 @@ if (!(await postgresAvailable(TEST_URL))) {
       await expect(caller(['identity:read']).accountStatus.of({ userId: other })).rejects.toMatchObject({ code: 'FORBIDDEN' });
       expect((await caller(['admin:read']).accountStatus.of({ userId: other })).state).toBe('restricted');
       await expect(caller(['identity:read']).accountStatus.mine({ userId: other } as never)).resolves.toMatchObject({ state: 'active' });
+      // A staff read is for a person signed in: an API key, a sub-account or a service is refused; a sub-account session
+      // never reads the owner's status as its own.
+      const as = (extra: Record<string, unknown>, service: string | null = null) =>
+        createAccountStatusRouter(desk).createCaller({
+          principal: { userId, sid: 'sid-1', scopes: ['admin:read', 'identity:read'], mfa: false, ...extra },
+          service,
+          region: 'DE',
+          requestId: 'req-status',
+        } as unknown as Context);
+      await expect(as({ kid: 'key-1' }).accountStatus.of({ userId: other })).rejects.toMatchObject({ code: 'FORBIDDEN' });
+      await expect(as({ sub_account: 'sub-1' }).accountStatus.of({ userId: other })).rejects.toMatchObject({ code: 'FORBIDDEN' });
+      await expect(as({}, 'svc-ops').accountStatus.of({ userId: other })).rejects.toMatchObject({ code: 'FORBIDDEN' });
+      await expect(as({ sub_account: 'sub-1' }).accountStatus.mine()).rejects.toMatchObject({ code: 'FORBIDDEN' });
     });
   });
 }

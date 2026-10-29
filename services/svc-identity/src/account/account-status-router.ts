@@ -1,11 +1,29 @@
 import { z } from 'zod';
-import { router, scopedProcedure, TRPCError } from '@intafaced/contracts';
+import { router, scopedProcedure, TRPCError, type Context } from '@intafaced/contracts';
 import { accountStatusSchema } from '@intafaced/contracts/identity-account-status';
 import type { AccountStatusDesk } from './account-status.js';
 
+/** Staff reads are for a person at the console, as `listRestricted` is: never a service, an API key or a sub-account. */
+function refuseNonOperator(ctx: Context): void {
+  const p = ctx.principal;
+  if (!p || ctx.service !== null || p.kid || p.sub_account)
+    throw new TRPCError({ code: 'FORBIDDEN', message: 'Staff reads need a person signed in', cause: { code: 'operator.denied' } });
+}
+
+/** A sub-account's own state lives with the sub-account, not here: its session is refused rather than shown the owner's. */
+function refuseSubAccount(ctx: Context): void {
+  if (ctx.principal?.sub_account)
+    throw new TRPCError({
+      code: 'FORBIDDEN',
+      message: 'Sign in to the main account to read its status',
+      cause: { code: 'identity.delegated_refused' },
+    });
+}
+
 /**
  * `account.status` (I-signin-sessions-22). `mine` answers the caller's own account and takes no user id; `of` is the
- * same shape for any account, for support and compliance (`admin:read`). Reads only.
+ * same shape for any account, for support and compliance (`admin:read`, a person signed in). Reads only. Mounted on its
+ * own (`accountStatus`) so it shares no file with the `account.*` change doors.
  */
 export function createAccountStatusRouter(desk: AccountStatusDesk) {
   const read = async (userId: string) => {
@@ -17,11 +35,17 @@ export function createAccountStatusRouter(desk: AccountStatusDesk) {
     accountStatus: router({
       mine: scopedProcedure('identity:read')
         .output(accountStatusSchema)
-        .query(({ ctx }) => read(ctx.principal.userId)),
+        .query(({ ctx }) => {
+          refuseSubAccount(ctx);
+          return read(ctx.principal.userId);
+        }),
       of: scopedProcedure('admin:read')
         .input(z.object({ userId: z.string().guid() }).strict())
         .output(accountStatusSchema)
-        .query(({ input }) => read(input.userId)),
+        .query(({ ctx, input }) => {
+          refuseNonOperator(ctx);
+          return read(input.userId);
+        }),
     }),
   });
 }
