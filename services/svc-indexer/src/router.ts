@@ -26,7 +26,15 @@ import {
   type ExplorerBlocksSource,
 } from './explorer/blocks.js';
 import { classifyExplorerTx, listTxPage, type ExplorerTxList, type ExplorerTxSource } from './explorer/tx.js';
-import { directionOf, listAddressTxPage, type ExplorerAddressSource } from './explorer/address.js';
+import {
+  directionOf,
+  endOfUtcDay,
+  listAddressInternalPage,
+  listAddressTxPage,
+  type AddressPageSource,
+  type ExplorerAddressSource,
+} from './explorer/address.js';
+import { StateUnavailableError } from './chain/evm/address-state.js';
 import { assessProjectionStream, INDEXER_STREAM_UNWIRED, type StreamBook, type StreamLevel } from './stream.js';
 import {
   INDEXER_BOOK_DEPTH_UNSET,
@@ -196,6 +204,8 @@ export interface IndexerRouterDeps {
   readonly txList?: ExplorerTxList;
   /** D-explorer-03 address transactions and token search. Absent => `indexer.explorer_unwired`. */
   readonly address?: ExplorerAddressSource;
+  /** D-explorer-03 address page: live balance, kind and token balances, internal moves, past balance. Absent => `indexer.explorer_unwired`. */
+  readonly addressPage?: AddressPageSource;
 }
 
 /**
@@ -338,6 +348,38 @@ const addressTxRowSchema = z.object({
     }),
   ),
 });
+
+/**
+ * A live read of the node failed. The node no longer holding that block's state, or not answering, is said with its own
+ * code so the page can name it; it is never a zero balance.
+ */
+function nodeReadError(err: unknown): unknown {
+  if (err instanceof StateUnavailableError) {
+    return new TRPCError({ code: 'PRECONDITION_FAILED', message: userCopy(err.code), cause: err });
+  }
+  if (err instanceof ChainUnavailableError) {
+    return new TRPCError({ code: 'SERVICE_UNAVAILABLE', message: userCopy(err.code), cause: err });
+  }
+  return err;
+}
+
+function addressPageOrRefuse(deps: IndexerRouterDeps): { explorer: ExplorerBlocksSource; page: AddressPageSource } {
+  const explorer = explorerOrRefuse(deps);
+  if (!deps.addressPage) {
+    throw new TRPCError({ code: 'SERVICE_UNAVAILABLE', message: userCopy(INDEXER_EXPLORER_UNWIRED) });
+  }
+  return { explorer, page: deps.addressPage };
+}
+
+function ownerLimit(explorer: ExplorerBlocksSource): number {
+  const owner = explorer.listLimit;
+  if (!owner.ok) {
+    throw new TRPCError({ code: 'BAD_REQUEST', message: userCopy(INDEXER_EXPLORER_LIST_LIMIT_UNSET) });
+  }
+  return owner.limit;
+}
+
+const addressInput = z.object({ chainId: z.number().int(), address: addressSchema });
 
 function explorerOrRefuse(deps: IndexerRouterDeps): ExplorerBlocksSource {
   assertServing(deps.indexer, deps.chainSource, deps.venue, deps.claimLiveClob);
@@ -534,6 +576,213 @@ export function createIndexerRouter(deps: IndexerRouterDeps) {
                 asOf: new Date().toISOString(),
                 asOfHeight: head?.height ?? null,
               };
+            } catch (err) {
+              throw toTrpcError(err);
+            }
+          }),
+        /**
+         * The address's native balance (wei) and whether code lives there, read from the node at the newest canonical
+         * block indexed, so it speaks of the same block as the transactions list. Nulls on another network or before
+         * the first block.
+         */
+        summary: publicJurisdictionProcedure('indexer', 'protocol')
+          .input(addressInput)
+          .output(
+            z.object({
+              kind: z.enum(['account', 'contract']).nullable(),
+              /** Wei, decimal string. */
+              balance: z.string().nullable(),
+              asOfHeight: z.number().int().nullable(),
+              asOf: z.string(),
+            }),
+          )
+          .query(async ({ input }) => {
+            try {
+              const { page } = addressPageOrRefuse(deps);
+              const head = input.chainId === deps.chainId ? await store.head() : null;
+              if (!head) return { kind: null, balance: null, asOfHeight: null, asOf: new Date().toISOString() };
+              const account = await page.state.account(input.address.toLowerCase(), head.height).catch((err: unknown) => {
+                throw nodeReadError(err);
+              });
+              return {
+                kind: account.isContract ? ('contract' as const) : ('account' as const),
+                balance: account.balanceWei.toString(),
+                asOfHeight: head.height,
+                asOf: new Date().toISOString(),
+              };
+            } catch (err) {
+              throw toTrpcError(err);
+            }
+          }),
+        /**
+         * Tokens the address sent or received, each with its own `balanceOf` read at the newest canonical block
+         * indexed. A zero balance is not a holding. `balance` is null where the contract did not answer as a token.
+         * The indexer has no price source, so `price` is always null and every holding counts in `unpriced`.
+         */
+        holdings: publicJurisdictionProcedure('indexer', 'protocol')
+          .input(addressInput)
+          .output(
+            z.object({
+              rows: z.array(
+                z.object({
+                  token: tokenSchema.omit({ name: true }),
+                  /** Raw base units, decimal string; null when the contract did not answer `balanceOf`. */
+                  balance: z.string().nullable(),
+                  price: z.null(),
+                }),
+              ),
+              unpriced: z.number().int(),
+              more: z.boolean(),
+              asOfHeight: z.number().int().nullable(),
+              asOf: z.string(),
+            }),
+          )
+          .query(async ({ input }) => {
+            try {
+              const { explorer, page } = addressPageOrRefuse(deps);
+              const limit = ownerLimit(explorer);
+              const head = input.chainId === deps.chainId ? await store.head() : null;
+              if (!head) return { rows: [], unpriced: 0, more: false, asOfHeight: null, asOf: new Date().toISOString() };
+              const address = input.address.toLowerCase();
+              const fetched = await page.reads.tokens({ address, limit });
+              const tokens = fetched.slice(0, limit);
+              const balances = await page.state
+                .tokenBalances(
+                  tokens.map((token) => token.address),
+                  address,
+                  head.height,
+                )
+                .catch((err: unknown) => {
+                  throw nodeReadError(err);
+                });
+              const rows = tokens
+                .map((token, i) => ({ token, balance: balances[i] ?? null }))
+                .filter((row) => row.balance !== 0n)
+                .map((row) => ({
+                  token: { address: row.token.address, symbol: row.token.symbol, decimals: row.token.decimals },
+                  balance: row.balance === null ? null : row.balance.toString(),
+                  price: null,
+                }));
+              return { rows, unpriced: rows.length, more: fetched.length > limit, asOfHeight: head.height, asOf: new Date().toISOString() };
+            } catch (err) {
+              throw toTrpcError(err);
+            }
+          }),
+        /**
+         * Transactions with internal value moves to or from the address, newest first, each with those moves. `gaps`
+         * names the indexed blocks whose trace was not read, where a move could exist that this list cannot show.
+         */
+        internal: publicJurisdictionProcedure('indexer', 'protocol')
+          .input(addressInput.extend({ cursor: txCursorSchema.optional(), limit: z.number().int().min(1).optional() }))
+          .output(
+            z.object({
+              rows: z.array(
+                z.object({
+                  chainId: z.number().int(),
+                  hash: z.string(),
+                  blockHeight: z.number().int(),
+                  index: z.number().int(),
+                  timestamp: z.number().int(),
+                  calls: z.array(
+                    z.object({
+                      path: z.string(),
+                      kind: z.enum(['call', 'create', 'selfdestruct']),
+                      from: z.string(),
+                      to: z.string(),
+                      /** Wei, decimal string. */
+                      value: z.string(),
+                    }),
+                  ),
+                }),
+              ),
+              nextCursor: z.object({ height: z.number().int(), index: z.number().int(), hash: z.string() }).nullable(),
+              gaps: z.object({
+                blocks: z.number().int(),
+                fromHeight: z.number().int().nullable(),
+                toHeight: z.number().int().nullable(),
+                reasons: z.array(z.string()),
+              }),
+              asOfHeight: z.number().int().nullable(),
+              asOf: z.string(),
+            }),
+          )
+          .query(async ({ input }) => {
+            try {
+              const { explorer, page } = addressPageOrRefuse(deps);
+              const owner = ownerLimit(explorer);
+              const limit = Math.min(input.limit ?? owner, owner);
+              const ours = input.chainId === deps.chainId;
+              const head = ours ? await store.head() : null;
+              const list = ours
+                ? await listAddressInternalPage(page.reads.internal, {
+                    address: input.address.toLowerCase(),
+                    limit,
+                    ...(input.cursor ? { cursor: { ...input.cursor, hash: input.cursor.hash.toLowerCase() } } : {}),
+                  })
+                : { rows: [], nextCursor: null };
+              const gaps = ours ? await page.reads.traceGaps() : { blocks: 0, fromHeight: null, toHeight: null, reasons: [] };
+              return {
+                rows: list.rows.map((row) => ({
+                  chainId: deps.chainId,
+                  hash: row.hash,
+                  blockHeight: row.blockHeight,
+                  index: row.index,
+                  timestamp: row.timestamp,
+                  calls: row.calls.map(({ valueWei, ...call }) => ({ ...call, value: valueWei.toString() })),
+                })),
+                nextCursor: list.nextCursor,
+                gaps: { ...gaps, reasons: [...gaps.reasons] },
+                asOfHeight: head?.height ?? null,
+                asOf: new Date().toISOString(),
+              };
+            } catch (err) {
+              throw toTrpcError(err);
+            }
+          }),
+        /**
+         * The address's native balance at a past block, or at the end of a UTC day (the last canonical block before
+         * midnight after it). A point outside the indexed blocks answers `indexed: false` with the indexed range.
+         */
+        balanceAt: publicJurisdictionProcedure('indexer', 'protocol')
+          .input(
+            addressInput.extend({
+              at: z.union([
+                z.object({ height: z.number().int().min(0) }),
+                z.object({ date: z.string().refine((date) => endOfUtcDay(date) !== null, 'must be a YYYY-MM-DD date') }),
+              ]),
+            }),
+          )
+          .output(
+            z.union([
+              z.object({
+                indexed: z.literal(true),
+                height: z.number().int(),
+                timestamp: z.number().int(),
+                /** Wei, decimal string. */
+                balance: z.string(),
+              }),
+              z.object({
+                indexed: z.literal(false),
+                earliestHeight: z.number().int().nullable(),
+                latestHeight: z.number().int().nullable(),
+              }),
+            ]),
+          )
+          .query(async ({ input }) => {
+            try {
+              const { page } = addressPageOrRefuse(deps);
+              const ours = input.chainId === deps.chainId;
+              const [earliestHeight, head] = ours ? await Promise.all([page.reads.earliestHeight(), store.head()]) : [null, null];
+              const block = !ours
+                ? null
+                : 'height' in input.at
+                  ? await page.reads.blockAt(input.at.height)
+                  : await page.reads.blockBefore(endOfUtcDay(input.at.date) as Date);
+              if (!block) return { indexed: false as const, earliestHeight, latestHeight: head?.height ?? null };
+              const balance = await page.state.balance(input.address.toLowerCase(), block.height).catch((err: unknown) => {
+                throw nodeReadError(err);
+              });
+              return { indexed: true as const, height: block.height, timestamp: block.timestamp, balance: balance.toString() };
             } catch (err) {
               throw toTrpcError(err);
             }

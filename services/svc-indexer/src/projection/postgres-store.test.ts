@@ -604,6 +604,140 @@ describe('svc-indexer · PostgresProjectionStore PG-hard', () => {
       ]);
     });
 
+    it('D-explorer-03: internal moves list per address from canonical blocks; untraced blocks are named; tokens and blocks by time', async () => {
+      await db.sql`TRUNCATE positions, fills, book_levels, blocks, explorer_tx_seen, explorer_tokens RESTART IDENTITY CASCADE`;
+      const store = new PostgresProjectionStore(db.sql, CHAIN_ID);
+      const zero = `0x${'00'.repeat(32)}`;
+      const h = (n: number) => `0x${n.toString(16).padStart(2, '0').repeat(32)}`;
+      const me = `0x${'ab'.repeat(20)}`;
+      const other = `0x${'cd'.repeat(20)}`;
+      const fwd = `0x${'fe'.repeat(20)}`;
+      const tokenA = `0x${'0a'.repeat(20)}`;
+      const tokenB = `0x${'0b'.repeat(20)}`;
+      const word = (address: string) => `0x${'00'.repeat(12)}${address.slice(2)}`;
+      const transferLog = (logIndex: number, token: string, from: string, to: string) => ({
+        logIndex,
+        address: token,
+        topics: ['0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef', word(from), word(to)],
+        data: `0x${1n.toString(16).padStart(64, '0')}`,
+      });
+      const chainTx = (hash: string, index: number, logs: ChainTx['logs'] = []): ChainTx => ({
+        hash,
+        index,
+        from: other,
+        to: fwd,
+        valueWei: 9n,
+        nonce: index,
+        gasLimit: 21_000n,
+        gasPriceWei: null,
+        gasConsumed: 21_000n,
+        status: 'success',
+        revertReason: null,
+        input: '0x',
+        createdContract: null,
+        logs,
+      });
+      const [t1, t2, t3, t4] = [0xa1, 0xa2, 0xa3, 0xa4].map(h) as [string, string, string, string];
+      const toMe = (txHash: string, path: string, valueWei: bigint) => ({
+        txHash,
+        path,
+        kind: 'call' as const,
+        from: fwd,
+        to: me,
+        valueWei,
+      });
+      const block = (height: number, hash: string, parentHash: string, extra: Partial<ChainBlock> = {}): ChainBlock => ({
+        chainId: CHAIN_ID,
+        height,
+        hash,
+        parentHash,
+        timestamp: 1_700_000_000 + height * 10,
+        events: [],
+        ...extra,
+      });
+
+      await store.applyBlock(block(0, h(1), zero));
+      await store.applyBlock(
+        block(1, h(2), h(1), {
+          transactions: [chainTx(t1, 0, [transferLog(0, tokenA, other, me)])],
+          internal: {
+            read: true,
+            calls: [
+              toMe(t1, '0', 7n),
+              { txHash: t1, path: '1', kind: 'call', from: fwd, to: other, valueWei: 2n },
+              toMe(t1, '10', 3n),
+              toMe(t1, '2', 4n),
+            ],
+          },
+        }),
+      );
+      // The node would not trace this block.
+      await store.applyBlock(
+        block(2, h(3), h(2), { transactions: [chainTx(t2, 0)], internal: { read: false, reason: 'indexer.trace_unavailable' } }),
+      );
+      // Indexed before traces were read: no trace row at all.
+      await store.applyBlock(block(3, h(4), h(3), { transactions: [chainTx(t3, 0)] }));
+      // An orphaned block's moves are not this address's history.
+      await store.applyBlock(
+        block(4, h(5), h(4), {
+          transactions: [chainTx(t4, 0, [transferLog(0, tokenB, other, me)])],
+          internal: { read: true, calls: [toMe(t4, '0', 1n)] },
+        }),
+      );
+      await store.unwindTo(4);
+      await store.applyBlock(block(4, h(6), h(4), { transactions: [], internal: { read: true, calls: [] } }));
+
+      const rows = await store.explorerAddressInternal({ address: me.toUpperCase().replace('0X', '0x'), limit: 10 });
+      expect(rows).toEqual([
+        {
+          hash: t1,
+          blockHeight: 1,
+          index: 0,
+          timestamp: 1_700_000_010,
+          calls: [
+            { path: '0', kind: 'call', from: fwd, to: me, valueWei: 7n },
+            { path: '2', kind: 'call', from: fwd, to: me, valueWei: 4n },
+            { path: '10', kind: 'call', from: fwd, to: me, valueWei: 3n },
+          ],
+        },
+      ]);
+      // Each row carries only the moves to or from the address asked about.
+      expect((await store.explorerAddressInternal({ address: other, limit: 10 }))[0]?.calls).toEqual([
+        { path: '1', kind: 'call', from: fwd, to: other, valueWei: 2n },
+      ]);
+      expect(await store.explorerAddressInternal({ address: fwd, limit: 10, cursor: { height: 1, index: 0, hash: t1 } })).toEqual([]);
+
+      // The orphaned block is not a gap; the untraced block and the one indexed before traces are.
+      expect(await store.explorerTraceGaps()).toEqual({
+        blocks: 2,
+        fromHeight: 2,
+        toHeight: 3,
+        reasons: ['indexer.trace_not_recorded', 'indexer.trace_unavailable'],
+      });
+
+      // The orphan re-included at a new height: its moves come back once, at the new block.
+      await store.applyBlock(
+        block(5, h(7), h(6), {
+          transactions: [chainTx(t4, 0, [transferLog(0, tokenB, other, me)])],
+          internal: { read: true, calls: [toMe(t4, '0', 1n)] },
+        }),
+      );
+      expect((await store.explorerAddressInternal({ address: me, limit: 10 })).map((r) => [r.hash, r.blockHeight])).toEqual([
+        [t4, 5],
+        [t1, 1],
+      ]);
+      const [count] = await db.sql<Array<{ n: number }>>`SELECT COUNT(*)::int AS n FROM explorer_internal_txs WHERE tx_hash = ${t4}`;
+      expect(count?.n).toBe(1);
+
+      expect((await store.explorerAddressTokens({ address: me, limit: 10 })).map((t) => t.address)).toEqual([tokenA, tokenB]);
+      expect((await store.explorerAddressTokens({ address: me, limit: 1 })).map((t) => t.address)).toEqual([tokenA, tokenB]);
+
+      // The last canonical block strictly before a time.
+      expect(await store.explorerBlockBefore(new Date(1_700_000_011_000))).toEqual({ height: 1, timestamp: 1_700_000_010 });
+      expect(await store.explorerBlockBefore(new Date(1_700_000_000_000))).toBeNull();
+      expect(await store.explorerBlockBefore(new Date(1_800_000_000_000))).toEqual({ height: 5, timestamp: 1_700_000_050 });
+    });
+
     it('refuses parent mismatch and height gaps without moving head', async () => {
       await db.sql`TRUNCATE positions, fills, book_levels, blocks RESTART IDENTITY CASCADE`;
       const store = new PostgresProjectionStore(db.sql, CHAIN_ID);
@@ -833,6 +967,8 @@ describe('svc-indexer · PostgresProjectionStore PG-hard', () => {
         'blocks',
         'book_levels',
         'explorer_block_facts',
+        'explorer_block_traces',
+        'explorer_internal_txs',
         'explorer_tokens',
         'explorer_transfers',
         'explorer_tx_logs',

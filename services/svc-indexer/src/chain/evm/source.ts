@@ -4,6 +4,8 @@ import { assertValidBlock, type ChainBlock, type ChainHead, type ChainSource, ty
 import { decodeVenueLogs, type RawLog } from './decode.js';
 import { ChainUnavailableError, classifyChainError, isBlockNotFound, isZeroAddress } from './availability.js';
 import { lookupExplorerTx, readBlockTransactions, transactionHashes } from './explorer-txs.js';
+import { readBlockInternal } from './internal-txs.js';
+import { readAccount, readBalance, readTokenBalances } from './address-state.js';
 import { TOKEN_READS_PER_BLOCK, TokenMetaReader } from './token-meta.js';
 import { transferOf } from '../../explorer/address.js';
 import { withSpan } from '../../tracing.js';
@@ -364,6 +366,12 @@ export class EvmChainSource implements ChainSource {
     ];
     // Past the per-block cap the rest stay unread here; the token sweep reads them (D-explorer-03).
     const tokens = emitters.length === 0 ? [] : await this.#tokens.read(emitters.slice(0, TOKEN_READS_PER_BLOCK), height);
+    const internal = await readBlockInternal(
+      this.client,
+      { hash, height },
+      transactions.map((tx) => tx.hash),
+      this.rpcUrl,
+    );
 
     const block: ChainBlock = {
       chainId: this.chainId,
@@ -382,6 +390,7 @@ export class EvmChainSource implements ChainSource {
       },
       transactions,
       tokens,
+      internal,
     };
 
     // The port's own validation, run on this adapter's output. An adapter is
@@ -396,14 +405,21 @@ export class EvmChainSource implements ChainSource {
     return lookupExplorerTx(this.client, hash, this.rpcUrl);
   }
 
-  /**
-   * Everything a status endpoint needs, and nothing thrown.
-   *
-   * Three RPC calls (`eth_chainId`, `eth_blockNumber`, `eth_getCode`) on a path
-   * nobody polls in a loop. It is deliberately live rather than a cached copy of
-   * what the last sync pass saw: the question it answers is "how stale is this
-   * projection RIGHT NOW", and a cached answer to that is a contradiction.
-   */
+  /** D-explorer-03. An address's native balance and kind at a stored height. */
+  readAccountAt(address: string, height: number) {
+    return readAccount(this.client, address, height, this.rpcUrl);
+  }
+
+  /** D-explorer-03. An address's native balance at a stored height (the past balance). */
+  readBalanceAt(address: string, height: number) {
+    return readBalance(this.client, address, height, this.rpcUrl);
+  }
+
+  /** D-explorer-03. Each token's own `balanceOf(address)` at a stored height; null where the contract did not answer. */
+  readTokenBalancesAt(tokens: readonly string[], address: string, height: number) {
+    return readTokenBalances(this.client, tokens, address, height, this.rpcUrl);
+  }
+
   /** What token contracts say about themselves, read at the chain's head (the D-explorer-03 backfill). */
   async readTokenMeta(addresses: readonly string[]): Promise<{ height: number; tokens: ChainToken[] }> {
     let height: number;
@@ -415,6 +431,14 @@ export class EvmChainSource implements ChainSource {
     return { height, tokens: await this.#tokens.read(addresses, height) };
   }
 
+  /**
+   * Everything a status endpoint needs, and nothing thrown.
+   *
+   * Three RPC calls (`eth_chainId`, `eth_blockNumber`, `eth_getCode`) on a path
+   * nobody polls in a loop. It is deliberately live rather than a cached copy of
+   * what the last sync pass saw: the question it answers is "how stale is this
+   * projection RIGHT NOW", and a cached answer to that is a contradiction.
+   */
   async probe(): Promise<EvmChainProbe> {
     const base = { kind: 'evm' as const, rpcUrl: this.rpcUrl, venue: this.venue };
     try {
