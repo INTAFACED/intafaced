@@ -11,6 +11,7 @@ import type { Sql } from 'postgres';
 import type { KycPoaRead, KycPoaSubmission } from '@intafaced/contracts/identity-kyc-poa';
 import type { KycProfileUploadCaps } from '@intafaced/contracts/identity-kyc-profile';
 import { createHash } from 'node:crypto';
+import { transaction } from '@intafaced/db';
 import type { KycDocumentVault } from './document-store.js';
 import { assertWithinUploadCaps, parseListedRow } from './profile.js';
 
@@ -192,37 +193,53 @@ export class KycPoaDesk {
     if (!approved) throw new KycPoaError('Proof of address is asked for after level Basic is approved', 'kyc.poa_not_requested');
     // The same document sent again (a retry, a second click) returns the pending submission it made.
     const sha256 = createHash('sha256').update(input.bytes).digest('hex');
-    const [same] = await this.sql<Row[]>`
-      SELECT id, type, country, issued_on::text AS issued_on, status, country_mismatch, created_at FROM kyc_poa_submissions
-      WHERE user_id = ${userId} AND status = 'submitted' AND type = ${input.type} AND country = ${input.country}
-        AND issued_on = ${input.issuedOn}::date AND file_sha256 = ${sha256}
-      ORDER BY created_at DESC LIMIT 1`;
+    const same = await this.pending(this.sql, userId, input, sha256);
     if (same) return this.view(same);
     // The vault first: a crash after this leaves an unreferenced ciphertext row, never a submission pointing at nothing.
     const stored = await vault.put({ userId, contentType, bytes: input.bytes, storedBy: userId });
     const owner = { kind: 'owner' as const, userId };
-    let row: Row | undefined;
+    let replaced: string[] = [];
+    let answer: { row: Row; mine: boolean };
     try {
-      // An unknown residence is flagged too: the reviewer checks the country either way.
-      [row] = await this.sql<Row[]>`
-        INSERT INTO kyc_poa_submissions (user_id, document_id, type, country, issued_on, country_mismatch, file_sha256)
-        VALUES (${userId}, ${stored.id}, ${input.type}, ${input.country}, ${input.issuedOn}::date, ${input.country !== residence}, ${sha256})
-        ON CONFLICT (user_id, type, country, issued_on, file_sha256) WHERE status = 'submitted' DO NOTHING
-        RETURNING id, type, country, issued_on::text AS issued_on, status, country_mismatch, created_at`;
+      answer = await transaction(this.sql, async (tx) => {
+        // One send per person at a time, so a pending submission is never replaced twice or kept beside another.
+        await tx`SELECT pg_advisory_xact_lock(hashtext('kyc-poa'), hashtext(${userId}::text))`;
+        // An identical send landed first: its submission is the answer.
+        const first = await this.pending(tx, userId, input, sha256);
+        if (first) return { row: first, mine: false };
+        // A person has one submission waiting for a reviewer: a new document replaces the one nobody has decided yet.
+        const gone = await tx<Array<{ document_id: string }>>`
+          DELETE FROM kyc_poa_submissions WHERE user_id = ${userId} AND status = 'submitted' RETURNING document_id`;
+        replaced = gone.map((r) => r.document_id);
+        // An unknown residence is flagged too: the reviewer checks the country either way.
+        const [row] = await tx<Row[]>`
+          INSERT INTO kyc_poa_submissions (user_id, document_id, type, country, issued_on, country_mismatch, file_sha256)
+          VALUES (${userId}, ${stored.id}, ${input.type}, ${input.country}, ${input.issuedOn}::date, ${input.country !== residence}, ${sha256})
+          RETURNING id, type, country, issued_on::text AS issued_on, status, country_mismatch, created_at`;
+        return { row: row!, mine: true };
+      });
     } catch (err) {
       await vault.deleteFor(stored.id, owner).catch(() => undefined);
       throw err;
     }
-    if (row) return this.view(row);
-    // An identical send landed first: its submission is the answer, and this copy of the file goes.
-    await vault.deleteFor(stored.id, owner).catch(() => undefined);
-    const [first] = await this.sql<Row[]>`
+    // After commit: a crash here leaves an unreferenced ciphertext row, never a submission pointing at nothing.
+    if (!answer.mine) replaced = [stored.id];
+    for (const id of replaced) await vault.deleteFor(id, owner).catch(() => undefined);
+    return this.view(answer.row);
+  }
+
+  /** The person's pending submission of exactly this document, if there is one. */
+  private async pending(
+    sql: Sql,
+    userId: string,
+    input: { type: string; country: string; issuedOn: string },
+    sha256: string,
+  ): Promise<Row | undefined> {
+    const [row] = await sql<Row[]>`
       SELECT id, type, country, issued_on::text AS issued_on, status, country_mismatch, created_at FROM kyc_poa_submissions
       WHERE user_id = ${userId} AND status = 'submitted' AND type = ${input.type} AND country = ${input.country}
         AND issued_on = ${input.issuedOn}::date AND file_sha256 = ${sha256}`;
-    // Decided in the moment between: nothing pending is left to return.
-    if (!first) throw new Error('The identical proof-of-address submission was decided while this one was sent');
-    return this.view(first);
+    return row;
   }
 
   /** Compliance: one person's submissions, newest first, with the flag. */

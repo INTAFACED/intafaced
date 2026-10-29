@@ -11,7 +11,7 @@
  *   node tooling/scripts/local-test-gates.mjs terms      publish TEST personal transfer limits (two-person approval)
  *   node tooling/scripts/local-test-gates.mjs assets     publish TEST supported assets and networks (two-person approval)
  *   node tooling/scripts/local-test-gates.mjs deposit-terms   publish TEST crypto deposit networks and terms in svc-pay (two-person approval)
- *   node tooling/scripts/local-test-gates.mjs withdraw-terms  publish TEST withdrawal limits and the fee quote policy in svc-pay
+ *   node tooling/scripts/local-test-gates.mjs withdraw-terms  publish TEST withdrawal limits, the fee quote policy and the network rules in svc-pay
  *   node tooling/scripts/local-test-gates.mjs futures    list the TEST perpetual, publish TEST derivatives terms and quiz
  *   node tooling/scripts/local-test-gates.mjs halt <SYMBOL>    halt one book in matching (two-person approval)
  *   node tooling/scripts/local-test-gates.mjs resume <SYMBOL>  resume a halted book (two-person approval)
@@ -1333,6 +1333,49 @@ export async function publishWithdrawQuotePolicy(ctx) {
   return [{ what, status: 'published' }];
 }
 
+/**
+ * LOCAL TEST withdrawal rules per asset and network (svc-pay `founderAdmin.withdrawalNetworkRules`, W-withdraw-02), not owner
+ * values: for every TEST deposit pair, a minimum of 1, a maximum of 1000 (the TEST per-withdrawal limit) and a step of 0.01, and
+ * no tag (the TEST networks are EVM chains, which take none). With no rules a pair's quotes refuse `withdrawal_network_rules.unset`,
+ * and J-wallet-05 #1 reads them on Withdraw.
+ */
+export const TEST_WITHDRAW_NETWORK_RULES = Object.freeze({ minimum: '1', maximum: '1000', step: '0.01', tag: 'none' });
+
+/** Publish the TEST withdrawal rules (publishing a pair takes a second founder). Rules that already say the same are left alone. */
+export async function publishWithdrawNetworkRules(ctx) {
+  const sessions = await approverSessions(ctx);
+  const token = sessions.a.token;
+  const listed = await ctx.edge.query('pay', 'founderAdmin.withdrawalNetworkRules.list', {}, token);
+  if (!Array.isArray(data(listed))) throw new Error(`pay withdrawalNetworkRules.list refused (${listed.status}): ${refusalText(listed)}`);
+  const want = TEST_WITHDRAW_NETWORK_RULES;
+  const out = [];
+  for (const { assetId, networkId } of TEST_DEPOSIT_TERMS) {
+    const what = `withdrawal rules ${assetId} on ${networkId}`;
+    const row = data(listed).find((r) => r.assetId === assetId && r.networkId === networkId) ?? null;
+    if (row && row.minimum === want.minimum && row.maximum === want.maximum && row.step === want.step && row.tag === want.tag) {
+      out.push({ what, status: 'already published' });
+      continue;
+    }
+    const change = {
+      assetId,
+      networkId,
+      ...want,
+      expectedVersion: row ? row.version : null,
+      reason: `${MARKERS.label}: TEST withdrawal rules`,
+    };
+    const r = await payFounderSave(ctx, sessions, {
+      preview: 'founderAdmin.withdrawalNetworkRules.preview',
+      previewInput: change,
+      save: 'founderAdmin.withdrawalNetworkRules.save',
+      input: change,
+      what,
+    });
+    out.push({ what, status: 'published', approvalId: r.approvalId });
+    ctx.log(`${what}: minimum ${want.minimum}, maximum ${want.maximum}, step ${want.step}, no tag (${MARKERS.label})`);
+  }
+  return out;
+}
+
 /** Publish the TEST withdrawal limits through the founders' door (a second founder approves when svc-pay asks). */
 export async function publishWithdrawalLimits(ctx) {
   const sessions = await approverSessions(ctx);
@@ -2286,6 +2329,7 @@ async function main() {
       for (const r of await publishDepositTerms(ctx)) say(`  deposits  ${r.what}: ${r.status}`);
       for (const r of await publishWithdrawalLimits(ctx)) say(`  withdraw  ${r.what}: ${r.status}`);
       for (const r of await publishWithdrawQuotePolicy(ctx)) say(`  withdraw  ${r.what}: ${r.status}`);
+      for (const r of await publishWithdrawNetworkRules(ctx)) say(`  withdraw  ${r.what}: ${r.status}`);
     } else if (cmd === 'kyb') {
       const out = await seedPayKybRequirements(ctx);
       for (const t of out.types) say(`  kyb       ${t.entityType} ${t.changed ? 'published' : 'already published'}`);
@@ -2301,6 +2345,7 @@ async function main() {
     } else if (cmd === 'withdraw-terms') {
       for (const r of await publishWithdrawalLimits(ctx)) say(`  withdraw  ${r.what}: ${r.status}`);
       for (const r of await publishWithdrawQuotePolicy(ctx)) say(`  withdraw  ${r.what}: ${r.status}`);
+      for (const r of await publishWithdrawNetworkRules(ctx)) say(`  withdraw  ${r.what}: ${r.status}`);
     } else if (cmd === 'halt' || cmd === 'resume') {
       const symbol = process.argv[3];
       if (!symbol) die(`usage: local-test-gates.mjs ${cmd} <SYMBOL>, for example ETH/USDT`, 2);

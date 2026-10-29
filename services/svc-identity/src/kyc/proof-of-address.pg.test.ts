@@ -155,15 +155,16 @@ if (!available) {
         status: 'submitted',
         countryMismatch: false,
       });
+      expect(ok.label).toBe('TEST: Utility bill');
+      // Another document replaces the one nobody has decided yet: its row and its file go.
       const flagged = await send(userId, { country: 'FR' });
       expect(flagged.countryMismatch).toBe(true);
-      expect(await docs(userId)).toBe(2);
+      expect(await docs(userId)).toBe(1);
       expect((await desk.read(userId)).latest).toEqual(flagged);
-      expect((await desk.listFor(userId, 10)).map((s) => s.country)).toEqual(['FR', 'DE']);
-      expect(ok.label).toBe('TEST: Utility bill');
+      expect((await desk.listFor(userId, 10)).map((s) => s.country)).toEqual(['FR']);
       // The same document sent again returns its pending submission and stores nothing more.
       expect(await send(userId, { country: 'FR' })).toEqual(flagged);
-      expect(await docs(userId)).toBe(2);
+      expect(await docs(userId)).toBe(1);
       // Dated today on a calendar east of UTC (already tomorrow in UTC) is accepted.
       await expect(send(userId, { issuedOn: '2026-10-28' })).resolves.toMatchObject({ issuedOn: '2026-10-28' });
     });
@@ -174,6 +175,18 @@ if (!available) {
       expect(a).toEqual(b);
       expect(await docs(userId)).toBe(1);
       expect(await desk.listFor(userId, 10)).toHaveLength(1);
+    });
+
+    it('many different documents leave one waiting for a reviewer and one file, sent one by one or at once', async () => {
+      const userId = await person();
+      for (const day of ['2026-09-03', '2026-09-04', '2026-09-05']) await send(userId, { issuedOn: day });
+      expect(await desk.listFor(userId, 10)).toHaveLength(1);
+      expect(await docs(userId)).toBe(1);
+      const sent = await Promise.all(['2026-09-06', '2026-09-07', '2026-09-08'].map((day) => send(userId, { issuedOn: day })));
+      const left = await desk.listFor(userId, 10);
+      expect(left).toHaveLength(1);
+      expect(sent).toContainEqual(left[0]);
+      expect(await docs(userId)).toBe(1);
     });
 
     it('a document exactly at the rule is accepted all day on a calendar west of UTC', async () => {

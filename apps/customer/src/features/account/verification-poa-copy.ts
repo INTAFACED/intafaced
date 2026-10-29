@@ -23,6 +23,7 @@ export const verificationPoaCopy = defineCopy('account.verificationPoa', {
   sending: 'Sending',
   sent: 'Sent for review.',
   latest: 'Last sent: {type} from {country}, issued {issuedOn}. Status: {status}.',
+  replaces: 'Sending another document replaces the one waiting for review.',
   statusSubmitted: 'Pending review',
   statusAccepted: 'Accepted',
   statusRejected: 'Rejected',

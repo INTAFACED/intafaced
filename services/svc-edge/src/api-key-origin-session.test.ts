@@ -89,7 +89,13 @@ describe('API key origin allowlist at the session door', () => {
       { authorization: 'Bearer ifc_bound', origin: FOREIGN },
       {
         ...options,
-        fetch: async () => new Response(JSON.stringify({ error: { message: 'API key is not allowed from this origin' } }), { status: 401 }),
+        fetch: async () =>
+          new Response(
+            JSON.stringify({
+              error: { message: 'API key is not allowed from this origin', data: { intafacedCode: 'auth.domain_not_allowed' } },
+            }),
+            { status: 401 },
+          ),
       },
     );
     expect(result.rejected).toBe('invalid');

@@ -34,19 +34,19 @@ The alternative was to hardcode a hostname and a model id and add this service t
 
 Internal tRPC (§1). Every log query is scoped to `ctx.principal.userId` — an audit trail one user can query for another is a privacy incident wearing a feature's clothes.
 
-| Procedure             | Scope            | Input                                      | Output                                                         |
-| --------------------- | ---------------- | ------------------------------------------ | -------------------------------------------------------------- |
-| `health`              | —                | —                                          | `{ ok, service }`                                              |
-| `routes.list`         | `agents:read`    | —                                          | tasks, output ceilings, and the **rate each is billed at**     |
-| `agent.get`           | `agents:read`    | `{ agentId }`                              | the guardrail, so a user can read it before granting a session |
-| `session.open`        | `agents:execute` | `{ agentId }`                              | session, with the guardrail bound to it                        |
-| `session.close`       | `agents:execute` | `{ sessionId }`                            | settles open windows, then closes                              |
-| `session.log`         | `agents:read`    | `{ sessionId }`                            | every action, i18n-keyed                                       |
-| `run.complete`        | `agents:execute` | `{ sessionId, requestId, task, messages }` | text, token counts, cost, the audit row                        |
-| `usage.current`       | `agents:read`    | `{ sessionId }`                            | what the open window would cost. Bills nothing                 |
-| `usage.settle`        | `admin:write`    | `{ sessionId, windowId }`                  | posts the charge. Idempotent                                   |
-| `usage.settleSession` | `admin:write`    | `{ sessionId }`                            | settles every open / sealed-unbilled window. Idempotent        |
-| `log.mine`            | `agents:read`    | `{ limit }`                                | **the user-visible log** (§8.2)                                |
+| Procedure             | Scope            | Input                                      | Output                                                      |
+| --------------------- | ---------------- | ------------------------------------------ | ----------------------------------------------------------- |
+| `health`              | —                | —                                          | `{ ok, service }`                                           |
+| `routes.list`         | `agents:read`    | —                                          | tasks, output ceilings, and the **rate each is billed at**  |
+| `agent.get`           | `agents:read`    | `{ agentId }`                              | the guardrail, its permission mode and each tool’s refusals |
+| `session.open`        | `agents:execute` | `{ agentId }`                              | session, with the guardrail bound to it                     |
+| `session.close`       | `agents:execute` | `{ sessionId }`                            | settles open windows, then closes                           |
+| `session.log`         | `agents:read`    | `{ sessionId }`                            | every action, i18n-keyed                                    |
+| `run.complete`        | `agents:execute` | `{ sessionId, requestId, task, messages }` | text, token counts, cost, the audit row                     |
+| `usage.current`       | `agents:read`    | `{ sessionId }`                            | what the open window would cost. Bills nothing              |
+| `usage.settle`        | `admin:write`    | `{ sessionId, windowId }`                  | posts the charge. Idempotent                                |
+| `usage.settleSession` | `admin:write`    | `{ sessionId }`                            | settles every open / sealed-unbilled window. Idempotent     |
+| `log.mine`            | `agents:read`    | `{ limit }`                                | **the user-visible log** (§8.2)                             |
 
 `requestId` on `run.complete` is supplied by the caller and is the anti-double-bill handle: a client that retries after a timeout reuses it.
 

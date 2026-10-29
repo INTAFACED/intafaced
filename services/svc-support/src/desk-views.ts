@@ -10,6 +10,7 @@ import type { Sql, TransactionSql } from 'postgres';
 import {
   SUPPORT_VIEW_PERSONAL_CAP_KEY,
   SUPPORT_VIEW_SHARED_CAP_KEY,
+  supportTicketCategorySchema,
   type SupportTicket,
   type SupportTicketPriority,
   type SupportTicketType,
@@ -35,6 +36,7 @@ const STATUSES = new Set(['open', 'pending', 'on_hold', 'resolved', 'closed']);
 const PRIORITIES = new Set(['low', 'normal', 'high', 'urgent']);
 const TYPES = new Set(['question', 'problem', 'incident']);
 const WAITING = new Set(['team', 'customer']);
+const CATEGORIES = new Set<string>(supportTicketCategorySchema.options);
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const LABEL_RE = /^[A-Za-z0-9_-]{1,64}$/;
 const TIME_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})$/;
@@ -207,6 +209,7 @@ function parseClause(o: Record<string, unknown>): DeskFilter {
   }
   if (op !== 'eq' && op !== 'neq') throw new ViewError(FILTER_INVALID);
   if (field === 'status') return enumClause(field, op, text, STATUSES, false);
+  if (field === 'category') return enumClause(field, op, text, CATEGORIES, false);
   if (field === 'priority') return enumClause(field, op, text, PRIORITIES, true);
   if (field === 'type') return enumClause(field, op, text, TYPES, true);
   if (field === 'waiting_on') return enumClause(field, op, text, WAITING, true);
@@ -251,6 +254,8 @@ function readField(fact: DeskFact, field: string): string | null {
   switch (field) {
     case 'status':
       return fact.ticket.status;
+    case 'category':
+      return fact.ticket.category;
     case 'priority':
       return fact.priority;
     case 'type':
