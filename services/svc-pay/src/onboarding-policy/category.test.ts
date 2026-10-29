@@ -41,6 +41,12 @@ describe('the rails a business category allows (RC-merchant-08)', () => {
     expect(code(() => assertCategoryAllows(rule('restricted', false), 'bank-transfer-sandbox'))).toBe('pay.reserve_terms_unset');
   });
 
+  it('a class the table does not name takes no rail', () => {
+    const unknown = { key: 'test-later', class: 'later' as never, reserveSet: true };
+    expect(categoryRails(unknown)).toEqual([]);
+    expect(code(() => assertCategoryAllows(unknown, 'crypto-native'))).toBe('pay.category_rail_refused');
+  });
+
   it('prohibited takes nothing, and no category limits nothing', () => {
     expect(categoryRails(rule('prohibited'))).toBeNull();
     expect(code(() => assertCategoryAllows(rule('prohibited'), 'crypto-native'))).toBe('pay.category_prohibited');
