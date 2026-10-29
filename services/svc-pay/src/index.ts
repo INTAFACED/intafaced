@@ -65,6 +65,8 @@ import { registerOwnerPayScopeRoute } from './merchant-owner-pay-scopes.js';
 import { registerPayStepUpGrantRoute } from './merchant-pay-step-up-grant.js';
 import { registerMerchantMfaRuleRoute } from './merchant-mfa-rule-route.js';
 import { mfaRuleForUser } from './merchant-ops/security.js';
+import { registerAgentsTeamMembershipRoute } from './agents/team-membership-route.js';
+import { teamMembershipForUser } from './agents/team-membership-store.js';
 import { roleOnMerchantForUser } from './control/access.js';
 import { assertOwnerPayScopeStillGranted, teamMerchantStatusesFromSql } from './owner-pay-grant-recheck.js';
 import { PayError, PayService } from './payment-service.js';
@@ -906,6 +908,14 @@ registerMerchantMfaRuleRoute(app, {
   s2s: doorS2s,
   installRawBody: false,
   read: (userId) => mfaRuleForUser(sql, userId),
+});
+
+/** svc-agents' read of the asking person's business team (AG-governance-01). */
+registerAgentsTeamMembershipRoute(app, {
+  internalSecret: env.INTERNAL_SERVICE_SECRET,
+  s2s: doorS2s,
+  installRawBody: false,
+  read: (userId) => teamMembershipForUser(sql, userId),
 });
 
 registerRestoreWatermarkRoute(app, {
