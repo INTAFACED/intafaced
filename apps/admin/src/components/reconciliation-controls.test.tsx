@@ -1,7 +1,7 @@
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
-import { ReconciliationControlsView, type ReconciliationControlsViewProps } from './reconciliation-controls';
-import { CONTROL_ID, controlView } from '@/lib/ledger/reconciliation-fixtures.test-util';
+import { ReconciliationControlsView, RunHistoryView, type ReconciliationControlsViewProps } from './reconciliation-controls';
+import { CONTROL_ID, controlView, runView } from '@/lib/ledger/reconciliation-fixtures.test-util';
 
 const BUILTIN = '5b5b5b5b-1111-4222-8333-444455556666';
 const builtin = controlView({
@@ -124,5 +124,45 @@ describe('pause, resume and retire on screen', () => {
     const html = render({ ...list('active'), treasuryParked: PARKED });
     expect(html).toContain('data-testid="rc-lifecycle"');
     expect(html).toContain('Pause, resume or retire unavailable');
+  });
+});
+
+describe("a control's evaluations", () => {
+  const retired = controlView({ state: 'retired' });
+  const history = (view: Parameters<typeof RunHistoryView>[0]['view']) =>
+    renderToStaticMarkup(<RunHistoryView control={retired} view={view} onRead={() => undefined} />);
+  it('a retired control still lists every evaluation, newest first, each with its status and evidence', () => {
+    const error = runView({
+      id: '9a1b2c3d-2222-4222-8333-444455556666',
+      status: 'ERROR',
+      errorCode: { status: 'set', value: 'ledger.reconcile_source_unavailable' },
+      phase: { status: 'set', value: 'outside' },
+      assets: [],
+      accounts: [],
+    });
+    const html = history({ kind: 'ready', total: 2, runs: [error, runView()], readAt: '2026-10-24T07:00:00.000Z' });
+    expect(html.match(/data-testid="rc-run-row"/g)).toHaveLength(2);
+    expect(html.indexOf('data-status="ERROR"')).toBeLessThan(html.indexOf('data-status="PASS"'));
+    expect(html).toContain('showing 2 of 2 evaluations');
+    expect(html).toContain('Error: ledger.reconcile_source_unavailable at outside.');
+    expect(html).toContain('USDT: observed 5, expected unset, difference unset, tolerance 0.');
+  });
+  it('says how many there are when the page holds fewer, and says so when there are none', () => {
+    expect(history({ kind: 'ready', total: 101, runs: [runView()], readAt: '2026-10-24T07:00:00.000Z' })).toContain(
+      'showing 1 of 101 evaluations',
+    );
+    expect(history({ kind: 'ready', total: 0, runs: [], readAt: '2026-10-24T07:00:00.000Z' })).toContain('rc-runs-empty');
+  });
+  it('a refused read names its code and shows no list', () => {
+    const html = history({ kind: 'refused', code: 'scope.denied', status: 403 });
+    expect(html).toContain('rc-runs-refused');
+    expect(html).toContain('(scope.denied)');
+    expect(html).not.toContain('rc-run-row');
+  });
+  it('shows under the chosen control in every state', () => {
+    expect(render({ list: { kind: 'ready', controls: [retired], readAt: '2026-10-24T06:00:00.000Z' }, selectedId: CONTROL_ID })).toContain(
+      'data-testid="rc-runs"',
+    );
+    expect(render()).not.toContain('data-testid="rc-runs"');
   });
 });

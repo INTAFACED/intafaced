@@ -11,7 +11,8 @@ import { ORIGIN, fund, journeyState, signUpInBrowser, tool } from './stack.mjs';
 // at once.
 
 const tag = randomUUID().slice(0, 8);
-const state = { a: null, b: null, thresholdId: null, outsideId: null };
+const state = { a: null, b: null, thresholdId: null, outsideId: null, outsideRuns: [] };
+const runId = (answer) => answer.match(/Run ([0-9a-f-]{36}): /)?.[1] ?? null;
 
 async function openLedger(page) {
   await page.goto(`${ADMIN}/ledger`, { waitUntil: 'load' });
@@ -316,6 +317,7 @@ test.describe.serial('J-ops-console-07 reconcile the books', () => {
     expect(answer).toMatch(/Sources: ledger as of \d{4}-\d{2}-\d{2}T/);
     expect(answer).toContain('outside unset');
     expect(answer).toContain('Outside side: unset');
+    state.outsideRuns.push({ id: runId(answer), status: answer.match(/Run [0-9a-f-]{36}: (\w+)\./)[1] });
   });
 
   test('J-ops-console-07 #4 a past run reads at the instant minus the margin; blank margin, typed 0 and a future instant', async ({
@@ -400,6 +402,7 @@ test.describe.serial('J-ops-console-07 reconcile the books', () => {
       expect(error).toContain('Outside side: unavailable.');
       expect(error).toContain('Error: ledger.reconcile_source_unavailable at outside.');
       expect(error).toContain('0 assets read.');
+      state.outsideRuns.push({ id: runId(error), status: 'ERROR' });
     } finally {
       ledgerOutside(false);
     }
@@ -465,12 +468,33 @@ test.describe.serial('J-ops-console-07 reconcile the books', () => {
     await again.getByRole('button', { name: 'Refresh' }).click();
     await expect(row(again, state.outsideId).getByTestId('rc-state')).toHaveText('Retired');
 
-    // Still red, named: the console cannot yet read a control's past evaluations (svc-ledger serves them on its operator
-    // port; svc-edge does not forward that door yet), and alerts wait for svc-ops (OPS-reconciliation-03).
-    throw new Error(
-      'step #6 clauses not built: a retired control keeps every evaluation readable (svc-edge does not forward ' +
-        '/operator/reconciliation/controls/runs yet) and a paused or retired control keeps its alerts (OPS-reconciliation-03)',
-    );
+    // A retired control keeps every evaluation readable: its evaluations panel lists each run once, newest first, with
+    // the total read back, and holds both runs this journey made on it (#3, then the ERROR from #5).
+    expect(state.outsideRuns.map((r) => r.id).every(Boolean), 'steps #3 and #5 named their runs').toBe(true);
+    await choose(again, state.outsideId);
+    const runs = again.getByTestId('rc-runs');
+    await expect(runs.getByTestId('rc-runs-count')).toContainText(/showing \d+ of \d+ evaluation/, { timeout: 30_000 });
+    const [shown, total] = (await runs.getByTestId('rc-runs-count').innerText())
+      .match(/showing (\d+) of (\d+)/)
+      .slice(1)
+      .map(Number);
+    const rows = runs.getByTestId('rc-run-row');
+    await expect(rows).toHaveCount(shown);
+    expect(shown, 'every evaluation of the control is on the first page').toBe(total);
+    const ids = await rows.evaluateAll((els) => els.map((el) => el.getAttribute('data-run-id')));
+    expect(new Set(ids).size, 'each evaluation appears exactly once').toBe(ids.length);
+    const [first, second] = state.outsideRuns;
+    expect(ids.indexOf(second.id), 'the #5 ERROR run is listed').toBeGreaterThanOrEqual(0);
+    expect(ids.indexOf(first.id), 'the #3 run is listed').toBeGreaterThan(ids.indexOf(second.id));
+    for (const r of state.outsideRuns) {
+      const line = runs.locator(`[data-testid="rc-run-row"][data-run-id="${r.id}"]`);
+      await expect(line).toHaveAttribute('data-status', r.status);
+      await expect(line).toContainText(`Run ${r.id}: ${r.status}.`);
+    }
+    await expect(runs.locator(`[data-run-id="${second.id}"]`)).toContainText('Error: ledger.reconcile_source_unavailable at outside.');
+
+    // Still red, named: alerts wait for svc-ops (OPS-reconciliation-03).
+    throw new Error('step #6 clause not built: a paused or retired control keeps its alerts (OPS-reconciliation-03)');
   });
 
   for (const [n, slice] of [
