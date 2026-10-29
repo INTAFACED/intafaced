@@ -650,6 +650,8 @@ describe('svc-market mount — commerce scopes', () => {
       programme: vi.fn(() => ({
         commissionBps,
         commissionConfigured: commissionBps !== null,
+        purchaseHold: false,
+        refundWindowSeconds: null,
       })),
       createListing: vi.fn(async () => listingRow),
       archiveListing: vi.fn(async () => ({ ...listingRow, status: 'archived' as const })),
@@ -671,6 +673,14 @@ describe('svc-market mount — commerce scopes', () => {
         settledAt: '2026-08-09T00:00:00.000Z',
         accessUntil: null,
         periodSeconds: null,
+        flow: 'pay' as const,
+        refundWindowSeconds: null,
+        holdPostedAt: null,
+        refundWindowEndsAt: null,
+        refundRequestedAt: null,
+        outcome: null,
+        outcomeTxId: null,
+        outcomeAt: null,
       })),
       purchasesOf: vi.fn(async (_buyerId: string, _opts?: { limit?: number }): Promise<never[]> => []),
       cancelSubscription: vi.fn(),
@@ -744,7 +754,7 @@ describe('svc-market mount — commerce scopes', () => {
       createMarketRouter(stubVendors(), commerce as never)
         .createCaller(anonymous())
         .commerceProgramme(),
-    ).resolves.toEqual({ commissionBps: null, commissionConfigured: false });
+    ).resolves.toEqual({ commissionBps: null, commissionConfigured: false, purchaseHold: false, refundWindowSeconds: null });
   });
 
   /**

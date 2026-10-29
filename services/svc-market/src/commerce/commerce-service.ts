@@ -34,6 +34,11 @@ import {
   requireListingCategory,
 } from './listing-categories.js';
 import { MARKET_OPS_SCOPE, MarketError, type PublicVendorProfile, type VendorService } from '../vendor-service.js';
+import { PAID_STATUSES, toPurchase, type PurchaseRecord, type PurchaseRow, type PurchaseStatus } from './purchase-record.js';
+import { requireMatchingReceipt } from './ledger-receipt.js';
+import { claimFlow, HeldPurchases, type PurchaseHoldConfig } from './held-purchase.js';
+
+export type { PurchaseFlow, PurchaseRecord, PurchaseStatus } from './purchase-record.js';
 
 /** Public `listings` page size unpublished. Blank is not 50. */
 export const MARKET_PUBLIC_LISTINGS_LIST_LIMIT_UNSET = 'market.public_listings_list_limit_unset' as const;
@@ -125,7 +130,6 @@ export const MARKET_OPS_REQUIRED = 'market.ops_required' as const;
 
 const LISTING_SORTS: readonly ListingSort[] = ['newest', 'priceAsc', 'priceDesc', 'title'];
 const CATALOGUE_BATCH = 64;
-export type PurchaseStatus = 'pending' | 'settled' | 'rejected';
 
 export interface ListingRecord {
   id: string;
@@ -186,7 +190,7 @@ export interface EarningsReport {
   from: string;
   to: string;
   assets: EarningsAsset[];
-  /** Settled sales in the window. Each ledger id is the purchase posting. */
+  /** Sales paid to the seller in the window. Each ledger id is the posting that paid them: the purchase, or a held purchase's release. */
   sales: EarningsSale[];
 }
 
@@ -241,29 +245,6 @@ function postgresCode(err: unknown): string {
   return err && typeof err === 'object' && 'code' in err ? String((err as { code: unknown }).code) : '';
 }
 
-export interface PurchaseRecord {
-  id: string;
-  listingId: string;
-  buyerId: string;
-  vendorId: string;
-  vendorUserId: string;
-  assetId: string;
-  price: string;
-  commissionBps: number;
-  status: PurchaseStatus;
-  ledgerTxId: string | null;
-  rejectionCode: string | null;
-  createdAt: string;
-  settledAt: string | null;
-  /** Paid access end. Set on settled subscription purchases; null for one-time. */
-  accessUntil: string | null;
-  /**
-   * Listing period at claim, in whole seconds. Null when the listing period
-   * was null. Never a default month.
-   */
-  periodSeconds: number | null;
-}
-
 interface ListingRow {
   id: string;
   vendor_id: string;
@@ -284,24 +265,6 @@ interface ListingRow {
   created_us?: string;
 }
 
-interface PurchaseRow {
-  id: string;
-  listing_id: string;
-  buyer_id: string;
-  vendor_id: string;
-  vendor_user_id: string;
-  asset_id: string;
-  price: unknown;
-  commission_bps: number;
-  status: PurchaseStatus;
-  ledger_tx_id: string | null;
-  rejection_code: string | null;
-  created_at: Date;
-  settled_at: Date | null;
-  access_until: Date | null;
-  period_seconds: number | string | null;
-}
-
 function toListing(row: ListingRow): ListingRecord {
   return {
     id: row.id,
@@ -318,25 +281,8 @@ function toListing(row: ListingRow): ListingRecord {
   };
 }
 
-function toPurchase(row: PurchaseRow): PurchaseRecord {
-  return {
-    id: row.id,
-    listingId: row.listing_id,
-    buyerId: row.buyer_id,
-    vendorId: row.vendor_id,
-    vendorUserId: row.vendor_user_id,
-    assetId: row.asset_id,
-    price: decimalPriceFromDriver(row.price),
-    commissionBps: row.commission_bps,
-    status: row.status,
-    ledgerTxId: row.ledger_tx_id,
-    rejectionCode: row.rejection_code,
-    createdAt: row.created_at.toISOString(),
-    settledAt: row.settled_at ? row.settled_at.toISOString() : null,
-    accessUntil: row.access_until ? row.access_until.toISOString() : null,
-    periodSeconds: row.period_seconds == null || row.period_seconds === '' ? null : Number(row.period_seconds),
-  };
-}
+/** The buyer's charge stands: a pay-through sale, or a held purchase that is not refunded. */
+const isPaid = (status: PurchaseStatus): boolean => (PAID_STATUSES as readonly string[]).includes(status);
 
 export interface SubscriptionAccess {
   granted: true;
@@ -361,11 +307,20 @@ export interface CommerceConfig {
   affiliatePayout?: AffiliatePayoutPort;
   /** Clock for access windows. Tests inject; production uses wall time. */
   now?: () => Date;
+  /**
+   * The owner's hold switch and refund window (MC-market-02). Absent or off: every purchase pays through. On with a
+   * blank window: a new purchase refuses `market.refund_window_unset` before any row.
+   */
+  hold?: PurchaseHoldConfig;
+  /** Told about each held purchase a release sweep could not finish. */
+  onSweepError?: (purchaseId: string, err: unknown) => void;
 }
 
 export class CommerceService {
   private readonly affiliateAccrue: AffiliateAccruePort;
   private readonly affiliatePayout: AffiliatePayoutPort;
+  /** Held purchases: hold, the buyer's refund request, the seller's refund and the release sweep. */
+  readonly held: HeldPurchases;
 
   constructor(
     private readonly sql: Sql,
@@ -375,6 +330,13 @@ export class CommerceService {
   ) {
     this.affiliateAccrue = config.affiliateAccrue ?? new NoopAffiliateAccrue();
     this.affiliatePayout = config.affiliatePayout ?? new NoopAffiliatePayout();
+    this.held = new HeldPurchases({
+      sql,
+      ledger,
+      now: () => this.now(),
+      afterRelease: (purchase, price) => this.afterHeldRelease(purchase, price),
+      onSweepError: config.onSweepError,
+    });
   }
 
   private now(): Date {
@@ -382,10 +344,13 @@ export class CommerceService {
   }
 
   /** What this deployment's commission rate is — including that it is not one. */
-  programme(): { commissionBps: number | null; commissionConfigured: boolean } {
+  programme(): { commissionBps: number | null; commissionConfigured: boolean; purchaseHold: boolean; refundWindowSeconds: number | null } {
     return {
       commissionBps: this.config.commissionBps,
       commissionConfigured: this.config.commissionBps !== null,
+      // The refund policy: whether new purchases are held, and for how long. Off, or on with no window, is undecided.
+      purchaseHold: this.config.hold?.on === true,
+      refundWindowSeconds: this.config.hold?.on ? this.config.hold.refundWindowSeconds : null,
     };
   }
 
@@ -830,6 +795,8 @@ export class CommerceService {
     }
 
     const price = this.positiveDecimalPrice(listing.price);
+    // The owner's switch picks the flow of a new claim; a claimed row keeps its own (the database refuses a change).
+    const flow = await this.claimFlowFor(input.purchaseId, input.buyerId);
 
     // Claim / idempotent resume. Payee, asset, and period are copied from the
     // listing and vendor rows inside the insert — not taken as separate arguments.
@@ -840,8 +807,9 @@ export class CommerceService {
       buyerId: input.buyerId,
       price: formatAmount(price),
       commissionBps,
+      ...flow,
     });
-    if (claimed.status === 'settled') {
+    if (claimed.status === 'settled' || claimed.status === 'held' || claimed.status === 'released' || claimed.status === 'refunded') {
       return this.ensureSubscriptionAccess(claimed, listing);
     }
     if (claimed.status === 'rejected') {
@@ -873,6 +841,9 @@ export class CommerceService {
     // listing price or a made-up amount.
     const snapshotPrice = this.positiveDecimalPrice(claimed.price);
     const snapshotBps = claimed.commissionBps;
+
+    // A held purchase: the charge goes into the buyer's pot; the seller and the affiliate leg wait for the release.
+    if (claimed.flow === 'hold') return this.ensureSubscriptionAccess(await this.held.hold(claimed), liveListing);
 
     try {
       const request = recipes.marketPurchase({
@@ -968,6 +939,12 @@ export class CommerceService {
     );
   }
 
+  /** A held purchase's commission is earned at its release, so its affiliate legs follow marketPurchaseRelease. */
+  private async afterHeldRelease(released: PurchaseRecord, snapshotPrice: Amount): Promise<void> {
+    await this.notifyMarketAffiliateAccrue(released, snapshotPrice, released.commissionBps);
+    await this.notifyMarketAffiliatePayout(released, snapshotPrice, released.commissionBps);
+  }
+
   /**
    * Caller's own purchases. Page size is owner-published — omit is not 50.
    */
@@ -1009,10 +986,11 @@ export class CommerceService {
         settled_at: Date;
       }>
     >`
-      SELECT id, listing_id, asset_id, price::text AS price, commission_bps, ledger_tx_id, settled_at
+      SELECT id, listing_id, asset_id, price::text AS price, commission_bps,
+             CASE WHEN status = 'released' THEN outcome_tx_id ELSE ledger_tx_id END AS ledger_tx_id, settled_at
         FROM market.purchases
        WHERE vendor_id = ${mine.id}
-         AND status = 'settled'
+         AND status IN ('settled', 'released')
          AND settled_at >= ${fromIso}::timestamptz
          AND settled_at <= ${toIso}::timestamptz
        ORDER BY settled_at ASC, id ASC
@@ -1337,6 +1315,18 @@ export class CommerceService {
     return listing.periodSeconds;
   }
 
+  /**
+   * A new claim's flow from the owner's switch. A purchase id this buyer already claimed keeps its own flow, so a retry
+   * of a claimed hold finishes even after the window was blanked; the claim compares the rest of the terms.
+   */
+  private async claimFlowFor(purchaseId: string, buyerId: string): Promise<{ flow: 'pay' | 'hold'; refundWindowSeconds: number | null }> {
+    const [row] = await this.sql<Array<{ flow: 'pay' | 'hold'; refund_window_seconds: number | null }>>`
+      SELECT flow, refund_window_seconds FROM market.purchases WHERE id = ${purchaseId} AND buyer_id = ${buyerId}
+    `;
+    if (row) return { flow: row.flow, refundWindowSeconds: row.refund_window_seconds };
+    return claimFlow(this.config.hold);
+  }
+
   /** Paid term on the purchase. Null stays null — no default month. */
   private paidPeriodSeconds(purchase: PurchaseRecord): number | null {
     const period = purchase.periodSeconds;
@@ -1365,7 +1355,7 @@ export class CommerceService {
         FROM market.purchases
        WHERE listing_id = ${listingId}
          AND buyer_id = ${buyerId}
-         AND status = 'settled'
+         AND status IN ('settled', 'held', 'released')
          AND access_until IS NOT NULL
     `;
     return row?.until ?? null;
@@ -1386,10 +1376,12 @@ export class CommerceService {
     const listing = await this.getListing(existing.listingId);
     if (!listing) return null;
 
-    if (existing.status === 'settled') {
+    if (existing.status === 'settled' || existing.status === 'held' || existing.status === 'released' || existing.status === 'refunded') {
       return this.ensureSubscriptionAccess(existing, listing);
     }
     if (existing.status !== 'pending') return null;
+    // A pending held purchase finishes through the fresh path, which posts its hold again under the same key.
+    if (existing.flow === 'hold') return null;
 
     const posted = await this.postedMarketPurchase(existing);
     if (!posted) return null;
@@ -1453,38 +1445,8 @@ export class CommerceService {
     return { id: tx.id };
   }
 
-  private async requireMatchingReceipt(tx: LedgerTx, request: PostRequest): Promise<void> {
-    const refuse = () => new MarketError('Ledger receipt does not match this purchase', 'market.purchase_receipt_mismatch');
-    if (
-      !tx.id ||
-      tx.idempotencyKey !== request.idempotencyKey ||
-      tx.module !== request.module ||
-      tx.reason !== request.reason ||
-      Object.entries(request.meta ?? {}).some(([key, value]) => tx.meta[key] !== value) ||
-      tx.entries.length !== request.entries.length
-    ) {
-      throw refuse();
-    }
-    const expected = await Promise.all(
-      request.entries.map(async (entry) => ({
-        accountId: (await this.ledger.balance(entry.account)).accountId,
-        assetId: entry.account.assetId,
-        direction: entry.direction,
-        amount: entry.amount,
-      })),
-    );
-    const actual = [...tx.entries];
-    for (const entry of expected) {
-      const at = actual.findIndex(
-        (posted) =>
-          posted.accountId === entry.accountId &&
-          posted.assetId === entry.assetId &&
-          posted.direction === entry.direction &&
-          posted.amount === entry.amount,
-      );
-      if (at < 0) throw refuse();
-      actual.splice(at, 1);
-    }
+  private requireMatchingReceipt(tx: LedgerTx, request: PostRequest): Promise<void> {
+    return requireMatchingReceipt(this.ledger, tx, request);
   }
 
   /**
@@ -1518,12 +1480,12 @@ export class CommerceService {
       SELECT * FROM market.purchases
        WHERE listing_id = ${listing.id}
          AND buyer_id = ${buyerId}
-         AND status = 'settled'
+         AND status IN ('settled', 'held', 'released')
          AND ledger_tx_id IS NOT NULL
          AND access_until IS NULL
          AND period_seconds IS NOT NULL
          AND period_seconds > 0
-       ORDER BY settled_at ASC, id ASC
+       ORDER BY COALESCE(hold_posted_at, settled_at) ASC, id ASC
     `;
     for (const row of rows) {
       await this.ensureSubscriptionAccess(toPurchase(row), listing);
@@ -1544,7 +1506,7 @@ export class CommerceService {
    */
   private async ensureSubscriptionAccess(purchase: PurchaseRecord, listing: ListingRecord): Promise<PurchaseRecord> {
     if (listing.offerType !== 'subscription') return purchase;
-    if (purchase.status !== 'settled' || purchase.ledgerTxId == null) return purchase;
+    if (!isPaid(purchase.status) || purchase.ledgerTxId == null) return purchase;
     if (purchase.accessUntil) return purchase;
     if (this.paidPeriodSeconds(purchase) == null) return purchase;
     return transaction(
@@ -1554,11 +1516,13 @@ export class CommerceService {
         const [current] = await tx<PurchaseRow[]>`SELECT * FROM market.purchases WHERE id = ${purchase.id}`;
         if (!current) return purchase;
         const snap = toPurchase(current);
-        if (snap.status !== 'settled' || snap.ledgerTxId == null) return snap;
+        if (!isPaid(snap.status) || snap.ledgerTxId == null) return snap;
         if (snap.accessUntil) return snap;
         const period = this.paidPeriodSeconds(snap);
         if (period == null) return snap;
-        const now = current.settled_at ? new Date(current.settled_at) : this.now();
+        // A held purchase's access starts when it was paid into the pot, not at its later release.
+        const paidAt = current.hold_posted_at ?? current.settled_at;
+        const now = paidAt ? new Date(paidAt) : this.now();
         const previous = await this.maxAccessUntilExcluding(tx, listing.id, purchase.buyerId, purchase.id);
         const base = previous && previous > now ? previous : now;
         const untilIso = addSeconds(base, period).toISOString();
@@ -1566,7 +1530,7 @@ export class CommerceService {
           UPDATE market.purchases
              SET access_until = ${untilIso}::timestamptz
            WHERE id = ${purchase.id}
-             AND status = 'settled'
+             AND status IN ('settled', 'held', 'released')
              AND ledger_tx_id IS NOT NULL
              AND access_until IS NULL
           RETURNING *
@@ -1586,7 +1550,7 @@ export class CommerceService {
         FROM market.purchases
        WHERE listing_id = ${listingId}
          AND buyer_id = ${buyerId}
-         AND status = 'settled'
+         AND status IN ('settled', 'held', 'released')
          AND access_until IS NOT NULL
          AND id <> ${exceptPurchaseId}
     `;
@@ -1649,12 +1613,15 @@ export class CommerceService {
     buyerId: string;
     price: string;
     commissionBps: number;
+    flow: 'pay' | 'hold';
+    refundWindowSeconds: number | null;
   }): Promise<PurchaseRecord> {
     try {
       const inserted = await this.sql<PurchaseRow[]>`
         INSERT INTO market.purchases (
           id, listing_id, buyer_id, vendor_id, vendor_user_id,
-          asset_id, price, commission_bps, period_seconds, status
+          asset_id, price, commission_bps, period_seconds, status,
+          flow, refund_window_seconds
         )
         SELECT
           ${input.purchaseId},
@@ -1666,7 +1633,9 @@ export class CommerceService {
           ${input.price}::numeric,
           ${input.commissionBps},
           l.period_seconds,
-          'pending'
+          'pending',
+          ${input.flow},
+          ${input.refundWindowSeconds}
         FROM market.listings l
         JOIN market.vendors v ON v.id = l.vendor_id
         WHERE l.id = ${input.listingId}

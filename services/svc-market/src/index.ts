@@ -85,6 +85,8 @@ const commerce = new CommerceService(sql, vendors, ledger, {
   commissionBps: env.MARKET_HOUSE_COMMISSION_BPS ?? null,
   affiliateAccrue: env.IDENTITY_URL ? createAffiliateAccrueClient(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET, s2sKey) : undefined,
   affiliatePayout: env.IDENTITY_URL ? createAffiliatePayoutClient(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET, s2sKey) : undefined,
+  hold: { on: env.MARKET_PURCHASE_HOLD === 'on', refundWindowSeconds: env.MARKET_REFUND_WINDOW_SECONDS ?? null },
+  onSweepError: (purchaseId, err) => app.log.error({ err, purchaseId }, 'held purchase release sweep could not finish a row'),
 });
 const perpProposals = new PerpProposalService(sql, vendors);
 const actionApprovals = env.IDENTITY_URL
@@ -117,12 +119,24 @@ await app.register(fastifyTRPCPlugin, {
   } satisfies FastifyTRPCPluginOptions<MarketRouter>['trpcOptions'],
 });
 
+// The release sweep: held purchases whose refund window ended are released to the seller, and an outcome a crash left
+// claimed is posted again under its own key. Blank owner value: none runs, and a held purchase stays held.
+const releaseSweep = env.MARKET_RELEASE_SWEEP_SECONDS
+  ? setInterval(() => {
+      commerce.held.sweep().catch((err: unknown) => app.log.error({ err }, 'held purchase release sweep failed'));
+    }, env.MARKET_RELEASE_SWEEP_SECONDS * 1000)
+  : null;
+releaseSweep?.unref();
+
 await app.listen({ host: env.HTTP_HOST, port: env.HTTP_PORT });
 app.log.info(
   {
     port: env.HTTP_PORT,
     stage: 'commerce-subscriptions',
     commissionConfigured: env.MARKET_HOUSE_COMMISSION_BPS !== undefined,
+    purchaseHold: env.MARKET_PURCHASE_HOLD === 'on',
+    refundWindowConfigured: env.MARKET_REFUND_WINDOW_SECONDS !== undefined,
+    releaseSweep: Boolean(releaseSweep),
     trpc: true,
   },
   'svc-market ready',
@@ -131,6 +145,7 @@ app.log.info(
 for (const signal of ['SIGTERM', 'SIGINT'] as const) {
   process.once(signal, () => {
     void (async () => {
+      if (releaseSweep) clearInterval(releaseSweep);
       await app.close();
       await sql.end({ timeout: 5 });
       process.exit(0);

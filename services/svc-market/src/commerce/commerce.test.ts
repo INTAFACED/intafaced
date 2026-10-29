@@ -214,7 +214,12 @@ describe('market.commerce', () => {
 
     it('programme reports unconfigured when null', () => {
       const blank = new CommerceService(sql, vendors, ledger, { commissionBps: null });
-      expect(blank.programme()).toEqual({ commissionBps: null, commissionConfigured: false });
+      expect(blank.programme()).toEqual({
+        commissionBps: null,
+        commissionConfigured: false,
+        purchaseHold: false,
+        refundWindowSeconds: null,
+      });
     });
   });
 
