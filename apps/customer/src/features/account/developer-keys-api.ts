@@ -110,8 +110,27 @@ export function lastDayUtc(expiresAt: string): string {
   return new Date(Date.parse(expiresAt) - 1).toISOString().slice(0, 10);
 }
 
-/** Whole days in the owner's idle period, rounded down; a period under a day reads as 0. */
-export const idleDays = (seconds: number): number => Math.floor(seconds / 86_400);
+export type IdlePeriod =
+  | { key: 'idleDay' | 'idleHour' | 'idleSecond'; params?: undefined }
+  | { key: 'idleDays'; params: { days: number } }
+  | { key: 'idleHours'; params: { hours: number } }
+  | { key: 'idleSeconds'; params: { seconds: number } };
+
+/**
+ * The owner's idle period in the largest unit that states it exactly: whole days, else whole hours, else seconds.
+ * Never rounded, so 90 minutes reads as 5400 seconds rather than "0 days" or "1 hour".
+ */
+export function idlePeriod(seconds: number): IdlePeriod {
+  if (seconds % 86_400 === 0) {
+    const days = seconds / 86_400;
+    return days === 1 ? { key: 'idleDay' } : { key: 'idleDays', params: { days } };
+  }
+  if (seconds % 3_600 === 0) {
+    const hours = seconds / 3_600;
+    return hours === 1 ? { key: 'idleHour' } : { key: 'idleHours', params: { hours } };
+  }
+  return seconds === 1 ? { key: 'idleSecond' } : { key: 'idleSeconds', params: { seconds } };
+}
 
 /**
  * Sends one create. The request id comes from the list this form read and the key asked for, so pressing Create again

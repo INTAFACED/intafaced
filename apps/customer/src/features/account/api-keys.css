@@ -119,7 +119,7 @@
   white-space: nowrap;
 }
 .api-keys__reason {
-  color: var(--color-muted);
+  color: var(--if-text-muted);
 }
 .api-keys__facts {
   margin: 0;

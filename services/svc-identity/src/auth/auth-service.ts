@@ -24,6 +24,7 @@ import type { KycCapabilitiesOutput, KycCapability } from '@intafaced/contracts/
 import { assertAttemptsLeft, readKycAttempts, type KycAttemptLimit } from '../kyc/attempts.js';
 import type { KycAttempts } from '@intafaced/contracts/identity-kyc-attempts';
 import type { KycCase } from '@intafaced/contracts/identity-kyc-cases';
+import type { ApiKeyRevokedBy } from '@intafaced/contracts/api-keys';
 import type {
   AccountState,
   CampaignParticipant,
@@ -467,7 +468,7 @@ export type PayStepUpGrant = {
 export type ApiKeyActionScope = {
   readonly tx: Sql;
   createApiKey: (input: Parameters<AuthService['createApiKey']>[0]) => ReturnType<AuthService['createApiKey']>;
-  revokeApiKey: (userId: string, keyId: string) => Promise<boolean>;
+  revokeApiKey: (userId: string, keyId: string, cause?: ApiKeyRevokedBy) => Promise<boolean>;
 };
 
 export type PayStepUpFactorProof =
@@ -2581,11 +2582,14 @@ export class AuthService {
     return { accessToken, expiresAt, userId: verified.userId, keyId: verified.keyId, scopes: verified.scopes, mode: verified.mode };
   }
 
-  /** The person's own revoke of one key (also a rotation's old key, and a mint undone): recorded as `owner`. */
-  async revokeApiKey(userId: string, keyId: string, executor?: Sql): Promise<boolean> {
+  /**
+   * Revoke one key, recording why: `owner` (the person, also a rotation's old key) unless the caller says otherwise,
+   * `system` when a create or rotation undoes a key it made but never handed over.
+   */
+  async revokeApiKey(userId: string, keyId: string, cause: ApiKeyRevokedBy = 'owner', executor?: Sql): Promise<boolean> {
     const result = await (executor ??
       this
-        .sql)`UPDATE api_keys SET revoked = true, revoked_at = now(), revoked_cause = 'owner' WHERE id = ${keyId} AND user_id = ${userId} AND revoked = false`;
+        .sql)`UPDATE api_keys SET revoked = true, revoked_at = now(), revoked_cause = ${cause} WHERE id = ${keyId} AND user_id = ${userId} AND revoked = false`;
     return result.count > 0;
   }
 
@@ -3417,7 +3421,7 @@ export class AuthService {
         const scope: ApiKeyActionScope = {
           tx: tx as unknown as Sql,
           createApiKey: (create) => this.createApiKey({ ...create, executor: tx as unknown as Sql }),
-          revokeApiKey: (userId, keyId) => this.revokeApiKey(userId, keyId, tx as unknown as Sql),
+          revokeApiKey: (userId, keyId, cause) => this.revokeApiKey(userId, keyId, cause, tx as unknown as Sql),
         };
         const result = await run(scope);
         await tx`

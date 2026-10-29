@@ -60,12 +60,17 @@ export type ApiKeyCreateInput = z.infer<typeof apiKeyCreateInputSchema>;
 /**
  * Why a key stopped working before its end date, as the service recorded it at the revoke: the person revoked it
  * (`owner`), the account was frozen (`account_freeze`, by the person or by staff), an operator revoked this one key
- * (`operator`), or the account was closed (`account_closed`). Null on a key revoked before causes were recorded.
+ * (`operator`), the account was closed (`account_closed`), our team revoked it during an account recovery
+ * (`support`), or the service undid a key it made but never handed over (`system`, a create or rotation that failed
+ * part-way). Null on a key revoked before causes were recorded.
  */
-export const API_KEY_REVOKED_BY = ['owner', 'account_freeze', 'operator', 'account_closed'] as const;
+export const API_KEY_REVOKED_BY = ['owner', 'account_freeze', 'operator', 'account_closed', 'support', 'system'] as const;
 export type ApiKeyRevokedBy = (typeof API_KEY_REVOKED_BY)[number];
-/** Longest reason the person may give when they revoke their own key. */
+/** Longest reason the person may give when they revoke their own key, in code points (as the service and database count). */
 export const API_KEY_REVOKE_REASON_MAX = 200;
+
+/** A string of at most `max` code points: an emoji counts once, as Postgres `char_length` counts it. */
+export const codePointsAtMost = (max: number) => z.string().refine((value) => [...value].length <= max, `at most ${max} characters`);
 
 export const apiKeyRecordSchema = z
   .object({
@@ -84,7 +89,7 @@ export const apiKeyRecordSchema = z
     revokedAt: isoInstant.nullable(),
     revokedBy: z.enum(API_KEY_REVOKED_BY).nullable(),
     /** The reason the person typed when they revoked it themselves. An operator's own note is never shown here. */
-    revokeReason: z.string().max(API_KEY_REVOKE_REASON_MAX).nullable(),
+    revokeReason: codePointsAtMost(API_KEY_REVOKE_REASON_MAX).nullable(),
   })
   .strict();
 export type ApiKeyRecord = z.infer<typeof apiKeyRecordSchema>;
@@ -148,10 +153,7 @@ export type ApiKeyChangeRefusal = (typeof API_KEY_CHANGE_REFUSALS)[number];
 export const apiKeyRevokeInputSchema = z
   .object({
     keyId: z.string().guid(),
-    reason: z
-      .string()
-      .max(API_KEY_REVOKE_REASON_MAX * 4)
-      .optional(),
+    reason: codePointsAtMost(API_KEY_REVOKE_REASON_MAX).optional(),
   })
   .strict();
 export type ApiKeyRevokeInput = z.infer<typeof apiKeyRevokeInputSchema>;

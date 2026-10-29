@@ -2,6 +2,7 @@
  * Revoke every live API key for one named user. Compromise kill switch.
  * Already-revoked keys stay revoked. Missing userId refuses. No other user.
  */
+import type { ApiKeyRevokedBy } from '@intafaced/contracts/api-keys';
 import type { Sql } from 'postgres';
 
 export class RevokeAllApiKeysError extends Error {
@@ -24,22 +25,35 @@ export function requireUserId(value: string | null | undefined): string {
   return value.trim();
 }
 
-/** Every live key of the person, at their own request (panic, a recovery, a passkey removed): recorded as `owner`. */
+/**
+ * Every live key of the person: at their own request (panic, a recovery code, a passkey removed) recorded as `owner`, or
+ * as `support` when our team's account recovery does it.
+ */
 export async function revokeAllApiKeys(
   sql: Sql,
   principalUserId: string | null | undefined,
   namedUserId: string | null | undefined,
+  cause: Extract<ApiKeyRevokedBy, 'owner' | 'support'> = 'owner',
 ): Promise<{ userId: string; revoked: number }> {
   const named = requireUserId(namedUserId);
   const principal = requireUserId(principalUserId);
   if (named !== principal) {
     return { userId: named, revoked: 0 };
   }
-  const rows = await sql<Array<{ id: string }>>`
-    UPDATE api_keys
-    SET revoked = true, revoked_at = now(), revoked_cause = 'owner'
-    WHERE user_id = ${named} AND revoked = false
-    RETURNING id
-  `;
+  // The cause is written as a literal, one statement per cause, so the user id stays the statement's only value.
+  const rows =
+    cause === 'support'
+      ? await sql<Array<{ id: string }>>`
+          UPDATE api_keys
+          SET revoked = true, revoked_at = now(), revoked_cause = 'support'
+          WHERE user_id = ${named} AND revoked = false
+          RETURNING id
+        `
+      : await sql<Array<{ id: string }>>`
+          UPDATE api_keys
+          SET revoked = true, revoked_at = now(), revoked_cause = 'owner'
+          WHERE user_id = ${named} AND revoked = false
+          RETURNING id
+        `;
   return { userId: named, revoked: rows.length };
 }

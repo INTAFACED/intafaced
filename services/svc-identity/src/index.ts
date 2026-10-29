@@ -639,7 +639,7 @@ export const appRouter = mergeRouters(
   createApiKeyOriginRouter(sql, auth, auth),
   createApiKeyAccountRouter(sql, auth, auth),
   createApiKeyRotateRouter(sql, auth, auth, signingEncKey),
-  createApiKeyExpireRouter(sql),
+  createApiKeyExpireRouter(sql, auth),
   createApiKeyRevokeAllRouter(sql),
   createDeveloperKeysRouter({
     sql,

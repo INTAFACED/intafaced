@@ -11,13 +11,15 @@ import { fileURLToPath } from 'node:url';
 import { afterAll, beforeEach, describe, expect, it } from 'vitest';
 import { issueAccessToken, verifyAccessToken } from '@intafaced/auth';
 import { mergeRouters } from '@intafaced/contracts';
-import { apiKeyCreateRequestId } from '@intafaced/contracts/api-keys';
+import { apiKeyCreateRequestId, apiKeyRecordSchema, apiKeyRevokeInputSchema } from '@intafaced/contracts/api-keys';
 import { postgresAvailable, rewriteSchemaSql, type TestDb } from '@intafaced/db';
 import { MemoryEventBus } from '@intafaced/events';
 import { AuthService } from './auth-service.js';
 import { checkRevokeReason, parseApiKeyCapByTier, parseApiKeyIdleExpirySeconds } from './developer-keys.js';
 import { createIdentityRouter } from '../router.js';
 import { createDeveloperKeysRouter } from '../developer-keys-router.js';
+import { createApiKeyExpireRouter } from '../api-key-expire-router.js';
+import { revokeAllApiKeys } from './revoke-all-api-keys.js';
 import { createTestDb } from '../fixture-truncate.testkit.js';
 import { RankService } from '../rank/rank-service.js';
 
@@ -35,13 +37,31 @@ describe('IDENTITY_API_KEY_IDLE_EXPIRY_SECONDS', () => {
 });
 
 describe('the revoke reason', () => {
-  it('is trimmed, blank is none, and too long or control characters refuse', () => {
+  it('is trimmed, blank is none, and too long, control or bidi characters refuse', () => {
     expect(checkRevokeReason(undefined)).toBeNull();
     expect(checkRevokeReason('   ')).toBeNull();
     expect(checkRevokeReason('  TEST: rotated ')).toBe('TEST: rotated');
-    for (const bad of ['x'.repeat(201), 'line\nbreak', 'zero​width']) {
-      expect(() => checkRevokeReason(bad)).toThrow(expect.objectContaining({ code: 'identity.key_revoke_reason_invalid' }));
+    const bidi = ['‪', '‫', '‬', '‭', '‮', '⁦', '⁧', '⁨', '⁩'];
+    for (const bad of ['x'.repeat(201), 'line\nbreak', 'bell\u0007', ...bidi.map((mark) => `TEST ${mark}rotated`)]) {
+      expect(() => checkRevokeReason(bad), JSON.stringify(bad)).toThrow(
+        expect.objectContaining({ code: 'identity.key_revoke_reason_invalid' }),
+      );
     }
+  });
+
+  it('keeps joiners and variation selectors, so emoji stay whole', () => {
+    // A person at a computer: woman, zero-width joiner, laptop. A heart with a variation selector. A zero-width non-joiner.
+    for (const good of ['rotated \u{1F469}‍\u{1F4BB}', 'thanks ❤️', 'zw‌nj']) {
+      expect(checkRevokeReason(good)).toBe(good);
+    }
+  });
+
+  it('counts code points, as the contract and the database do: 200 emoji pass, 201 refuse', () => {
+    const emoji = '\u{1F511}';
+    expect(checkRevokeReason(emoji.repeat(200))).toBe(emoji.repeat(200));
+    expect(() => checkRevokeReason(emoji.repeat(201))).toThrow(expect.objectContaining({ code: 'identity.key_revoke_reason_invalid' }));
+    expect(apiKeyRevokeInputSchema.safeParse({ keyId: randomUUID(), reason: emoji.repeat(200) }).success).toBe(true);
+    expect(apiKeyRevokeInputSchema.safeParse({ keyId: randomUUID(), reason: emoji.repeat(201) }).success).toBe(false);
   });
 });
 
@@ -112,6 +132,7 @@ if (!available) {
         return idle;
       },
     }),
+    createApiKeyExpireRouter(db.sql, auth),
   );
 
   async function register() {
@@ -347,6 +368,86 @@ if (!available) {
       }
       const [row] = await db.sql<Array<{ expires_at: Date | null }>>`SELECT expires_at FROM api_keys WHERE id = ${key.id}`;
       expect(row!.expires_at).toBeNull();
+    });
+  });
+
+  describe('the older expireApiKey door, through the same writer', () => {
+    it('narrows with no factor, needs a fresh one to widen, and never brings back an ended or revoked key', async () => {
+      const s = await register();
+      const far = new Date(Date.now() + 30 * DAY).toISOString();
+      const key = await makeKey(s, 'bot-1', { expiresAt: far });
+      const c = await caller(s);
+      const near = new Date(Date.now() + 10 * DAY).toISOString();
+      expect(await c.expireApiKey({ keyId: key.id, expiresAt: near })).toEqual({ id: key.id, expiresAt: near });
+      await expect(c.expireApiKey({ keyId: key.id, expiresAt: far })).rejects.toMatchObject({
+        code: 'PRECONDITION_FAILED',
+        message: expect.stringContaining('[auth.step_up_required]'),
+      });
+      expect(await c.expireApiKey({ keyId: key.id, expiresAt: far, factorProof: await proof(s, 'expiry_widen', key.id) })).toEqual({
+        id: key.id,
+        expiresAt: far,
+      });
+
+      // Ending a key now still works with no factor (it narrows); afterwards nothing moves its end date again.
+      const ended = await makeKey(s, 'bot-2');
+      const past = new Date(Date.now() - 1000).toISOString();
+      expect((await c.expireApiKey({ keyId: ended.id, expiresAt: past })).expiresAt).toBe(past);
+      for (const factorProof of [undefined, await proof(s, 'expiry_widen', ended.id)]) {
+        await expect(c.expireApiKey({ keyId: ended.id, expiresAt: far, factorProof })).rejects.toMatchObject({
+          code: 'PRECONDITION_FAILED',
+          message: expect.stringContaining('[identity.key_not_live]'),
+        });
+      }
+      const [row] = await db.sql<Array<{ expires_at: Date }>>`SELECT expires_at FROM api_keys WHERE id = ${ended.id}`;
+      expect(row!.expires_at.toISOString()).toBe(past);
+
+      const gone = await makeKey(s, 'bot-3');
+      await c.developerKeys.revoke({ keyId: gone.id });
+      await expect(c.expireApiKey({ keyId: gone.id, expiresAt: near })).rejects.toMatchObject({
+        message: expect.stringContaining('[identity.key_not_live]'),
+      });
+    });
+  });
+
+  describe('reasons in code points', () => {
+    it('stores 200 emoji, a joined emoji and a variation selector, and every read still parses', async () => {
+      const s = await register();
+      const c = await caller(s);
+      const reasons = ['\u{1F511}'.repeat(200), 'rotated \u{1F469}\u200d\u{1F4BB}', 'thanks \u2764\ufe0f'];
+      for (const [index, reason] of reasons.entries()) {
+        const key = await makeKey(s, `bot-${index}`);
+        expect((await c.developerKeys.revoke({ keyId: key.id, reason })).record.revokeReason).toBe(reason);
+        expect(apiKeyRecordSchema.parse((await c.developerKeys.get({ keyId: key.id })).key).revokeReason).toBe(reason);
+      }
+      const list = await c.developerKeys.list({ limit: 50 });
+      expect(list.keys.map((key) => key.revokeReason).sort()).toEqual([...reasons].sort());
+    });
+
+    it('refuses 201 emoji at the door and a bidi override in the service, and revokes nothing', async () => {
+      const s = await register();
+      const key = await makeKey(s, 'bot-1');
+      const c = await caller(s);
+      await expect(c.developerKeys.revoke({ keyId: key.id, reason: '\u{1F511}'.repeat(201) })).rejects.toMatchObject({
+        code: 'BAD_REQUEST',
+      });
+      await expect(c.developerKeys.revoke({ keyId: key.id, reason: 'TEST \u202erotated' })).rejects.toMatchObject({
+        message: expect.stringContaining('[identity.key_revoke_reason_invalid]'),
+      });
+      const [row] = await db.sql<Array<{ revoked: boolean }>>`SELECT revoked FROM api_keys WHERE id = ${key.id}`;
+      expect(row!.revoked).toBe(false);
+    });
+  });
+
+  describe('keys the service or our team revoked', () => {
+    it('a key undone before it was handed over reads system; a support recovery reads support', async () => {
+      const s = await register();
+      const undone = await makeKey(s, 'bot-1');
+      const kept = await makeKey(s, 'bot-2');
+      await auth.revokeApiKey(s.userId, undone.id, 'system');
+      await revokeAllApiKeys(db.sql, s.userId, s.userId, 'support');
+      const c = await caller(s);
+      expect((await c.developerKeys.get({ keyId: undone.id })).key).toMatchObject({ revokedBy: 'system', revokeReason: null });
+      expect((await c.developerKeys.get({ keyId: kept.id })).key).toMatchObject({ revokedBy: 'support', revokeReason: null });
     });
   });
 }

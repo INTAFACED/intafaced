@@ -30,10 +30,13 @@ async function developerPage(browser) {
 }
 
 /** Creates a key from the form with the passkey's step-up and returns the secret it shows once. */
-async function createKey(page, { name, preset = 'Read only', expiry }) {
+async function createKey(page, { name, preset = 'Read only', expiry, scopes }) {
   await page.goto('/uc/safe/api-keys/new');
   await page.getByLabel('Key name').fill(name);
-  await page.getByLabel(preset, { exact: true }).check();
+  if (scopes) {
+    await page.getByLabel('Choose', { exact: true }).check();
+    for (const scope of scopes) await page.getByRole('checkbox', { name: scope }).check();
+  } else await page.getByLabel(preset, { exact: true }).check();
   if (expiry) await page.getByLabel('Expires on').fill(expiry);
   await page.getByRole('button', { name: 'Create with a passkey', exact: true }).click();
   const key = (await page.getByTestId('api-keys__key').locator('code').textContent())?.trim();
@@ -108,20 +111,27 @@ test(`${J} #9 sets an expiry and opens the key detail: expiry, idle expiry and I
   try {
     await signIn(page, state('dev'));
     const inThirtyDays = new Date(Date.now() + 30 * 864e5).toISOString().slice(0, 10);
-    const key = await createKey(page, { name: 'expiring-1', expiry: inThirtyDays });
+    // The key holds identity:write, so the refusal below is the delegate rule, not a missing scope.
+    const key = await createKey(page, { name: 'expiring-1', expiry: inThirtyDays, scopes: ['identity:read', 'identity:write'] });
     await page.goto('/uc/safe/api-keys');
     await rows(page).filter({ hasText: 'expiring-1' }).getByRole('link', { name: 'expiring-1' }).click();
+    await expect(page).toHaveURL(/\/uc\/safe\/api-keys\/[0-9a-f-]{36}$/);
+    const keyId = new URL(page.url()).pathname.split('/').at(-1);
     const detail = page.getByRole('region', { name: 'Key detail' });
     await expect(detail).toContainText(inThirtyDays);
     await expect(detail).toContainText(/Idle expiry\s*(\d+ days|not set)/);
     await expect(detail).toContainText(/IP policy/);
-    // The key itself may not move its own expiry.
+    // The key itself may not move its own expiry: a valid request for a later end date, sent with the key.
     const res = await fetch(`${EDGE}/api/identity/trpc/developerKeys.setExpiry`, {
       method: 'POST',
       headers: { origin: ORIGIN, authorization: `Bearer ${key}`, 'content-type': 'application/json' },
-      body: JSON.stringify({ name: 'expiring-1', expiresAt: null }),
+      body: JSON.stringify({ keyId, expiresAt: new Date(Date.now() + 60 * 864e5).toISOString() }),
     });
-    expect(res.status).toBeGreaterThanOrEqual(400);
+    const body = await res.json();
+    expect(res.status, JSON.stringify(body)).toBe(403);
+    expect(JSON.stringify(body)).toContain('auth.delegate_cannot_grant');
+    await page.reload();
+    await expect(detail).toContainText(inThirtyDays);
   } finally {
     await page.context().close();
   }

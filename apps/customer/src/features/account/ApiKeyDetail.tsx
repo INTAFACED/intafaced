@@ -9,7 +9,7 @@ import { RevokedReason, stateOf } from './ApiKeys';
 import {
   changeRefusal,
   endOfDayUtc,
-  idleDays,
+  idlePeriod,
   lastDayUtc,
   readDeveloperKey,
   setDeveloperKeyExpiry,
@@ -113,6 +113,19 @@ export function ApiKeyDetail({ keyId }: { keyId: string }) {
     [requestedLocale],
   );
   const at = (iso: string) => `${when.format(new Date(iso))} UTC`;
+  const idleText = (seconds: number) => {
+    const period = idlePeriod(seconds);
+    switch (period.key) {
+      case 'idleDays':
+        return t(period.key, period.params);
+      case 'idleHours':
+        return t(period.key, period.params);
+      case 'idleSeconds':
+        return t(period.key, period.params);
+      default:
+        return t(period.key);
+    }
+  };
   const now = Date.now();
   const refused = resource.status === 'failed' ? changeRefusal(resource.failure) : null;
   const detail = updated?.key.id === keyId ? updated : resource.status === 'ready' ? resource.data : null;
@@ -179,7 +192,7 @@ export function ApiKeyDetail({ keyId }: { keyId: string }) {
               <div>
                 <dt>{t('fieldIdle')}</dt>
                 <dd data-testid="api-keys__idle">
-                  {detail.idleExpirySeconds === null ? t('idleUnset') : t('idleDays', { days: idleDays(detail.idleExpirySeconds) })}
+                  {detail.idleExpirySeconds === null ? t('idleUnset') : idleText(detail.idleExpirySeconds)}
                   <small className="muted api-keys__note">{t(detail.idleExpirySeconds === null ? 'idleUnsetNote' : 'idleSetNote')}</small>
                 </dd>
               </div>

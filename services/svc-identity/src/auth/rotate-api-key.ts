@@ -97,7 +97,7 @@ export async function rotateApiKey(
     if (!revoked) throw new RotateApiKeyError('API key not found', 'auth.not_found');
     return { ...minted, revokedKeyId: old.id, signingSecret };
   } catch (err) {
-    await minter.revokeApiKey(input.userId, minted.id);
+    await minter.revokeApiKey(input.userId, minted.id, 'system');
     throw err;
   }
 }

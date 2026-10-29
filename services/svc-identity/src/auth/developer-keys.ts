@@ -30,7 +30,7 @@ import type { KycTier, PayStepUpFactorProof } from './auth-service.js';
 import { bindApiKeyIpAllowlist } from './auth-service-ip.js';
 import { normalizeIp } from './api-key-ip.js';
 import { guardedApiKeyAction, type ApiKeyFactorGate } from './api-key-fresh-factor.js';
-import { inTransaction } from './api-key-request-sign.js';
+import { expireApiKey, ExpireApiKeyError } from './expire-api-key.js';
 import { MintApiKeyPasskeyError, requireVerifiedPasskey } from './mint-api-key-passkey.js';
 
 export type DeveloperKeyRefusal =
@@ -363,20 +363,11 @@ export async function listDeveloperKeys(deps: DeveloperKeysDeps, userId: string,
 
 const notFound = () => new DeveloperKeyError('No key with this id on your account', 'identity.key_not_found');
 
-async function ownKey(
-  sql: Sql,
-  userId: string,
-  keyId: string,
-  lock = false,
-): Promise<KeyRow & { require_non_empty_ip_allowlist: boolean }> {
+async function ownKey(sql: Sql, userId: string, keyId: string): Promise<KeyRow & { require_non_empty_ip_allowlist: boolean }> {
   // Another account's key and a missing key answer the same: not found.
-  const rows = lock
-    ? await sql<Array<KeyRow & { require_non_empty_ip_allowlist: boolean }>>`
-        SELECT ${sql.unsafe(KEY_COLUMNS)}, require_non_empty_ip_allowlist FROM api_keys
-        WHERE id = ${keyId} AND user_id = ${userId} FOR UPDATE`
-    : await sql<Array<KeyRow & { require_non_empty_ip_allowlist: boolean }>>`
-        SELECT ${sql.unsafe(KEY_COLUMNS)}, require_non_empty_ip_allowlist FROM api_keys
-        WHERE id = ${keyId} AND user_id = ${userId}`;
+  const rows = await sql<Array<KeyRow & { require_non_empty_ip_allowlist: boolean }>>`
+    SELECT ${sql.unsafe(KEY_COLUMNS)}, require_non_empty_ip_allowlist FROM api_keys WHERE id = ${keyId} AND user_id = ${userId}
+  `;
   if (!rows[0]) throw notFound();
   return rows[0];
 }
@@ -391,9 +382,14 @@ export async function getDeveloperKey(deps: DeveloperKeysDeps, userId: string, k
   };
 }
 
-const REASON = new RegExp(`^[^\\p{Cc}\\p{Cf}]{1,${API_KEY_REVOKE_REASON_MAX}}$`, 'u');
+/**
+ * Code points a reason may hold: anything but control characters and the bidirectional overrides and isolates, which
+ * could make the list show a reason other than the one stored. Joiners and variation selectors stay, so emoji do.
+ * The length counts code points, as the contract's schema and the database check do.
+ */
+const REASON = new RegExp(`^[^\\p{Cc}\\u202A-\\u202E\\u2066-\\u2069]{1,${API_KEY_REVOKE_REASON_MAX}}$`, 'u');
 
-/** The person's reason, trimmed; blank is no reason. Control characters or too long refuse. */
+/** The person's reason, trimmed; blank is no reason. Control characters, bidi controls or too long refuse. */
 export function checkRevokeReason(raw: string | undefined): string | null {
   const reason = raw?.trim() ?? '';
   if (reason === '') return null;
@@ -423,9 +419,9 @@ export async function revokeDeveloperKey(deps: DeveloperKeysDeps, userId: string
 }
 
 /**
- * A new end date for a live key. The instant must be in the future. An earlier end than today's (or a first one on a
- * key with none) only narrows the key and commits without a factor; a later end widens it and takes a fresh second
- * factor, in one transaction with its audit row, as create does. The decision is made on the locked row both times.
+ * A new end date for a live key, through the one end-date writer (`expireApiKey`): the instant must be in the future;
+ * an earlier end (or a first one) narrows the key and needs no factor, a later one takes a fresh second factor in one
+ * transaction with its audit row, as create does; a revoked or ended key never changes.
  */
 export async function setDeveloperKeyExpiry(
   deps: DeveloperKeysDeps,
@@ -435,29 +431,14 @@ export async function setDeveloperKeyExpiry(
   const now = deps.now?.() ?? new Date();
   const at = new Date(input.expiresAt);
   if (!(at.getTime() > now.getTime())) throw new DeveloperKeyError('Choose an end date in the future', 'identity.key_expiry_invalid');
-  const lockLive = async (tx: Sql) => {
-    const row = await ownKey(tx, caller.userId, input.keyId, true);
-    if (row.revoked || (row.expires_at !== null && row.expires_at.getTime() <= now.getTime())) {
+  try {
+    await expireApiKey({ sql: deps.sql, gate: deps.gate, now: () => now }, caller, input.keyId, at, input.factorProof);
+  } catch (err) {
+    if (err instanceof ExpireApiKeyError && err.code === 'identity.key_not_live') {
       throw new DeveloperKeyError('This key is revoked or has ended; make a new key instead', 'identity.key_not_live');
     }
-    return row;
-  };
-  const write = async (tx: Sql) => {
-    const rows = await tx<KeyRow[]>`
-      UPDATE api_keys SET expires_at = ${at} WHERE id = ${input.keyId} AND user_id = ${caller.userId} AND revoked = false
-      RETURNING ${tx.unsafe(KEY_COLUMNS)}
-    `;
-    if (!rows[0]) throw notFound();
-    return { record: toRecord(rows[0]) };
-  };
-  const narrowed = await inTransaction(deps.sql, async (tx) => {
-    const row = await lockLive(tx);
-    if (row.expires_at !== null && at.getTime() > row.expires_at.getTime()) return undefined;
-    return write(tx);
-  });
-  if (narrowed) return narrowed;
-  return guardedApiKeyAction(deps.gate, caller, input.factorProof, { action: 'expiry_widen', keyId: input.keyId }, async (scope) => {
-    await lockLive(scope.tx);
-    return write(scope.tx);
-  });
+    if (err instanceof ExpireApiKeyError) throw notFound();
+    throw err;
+  }
+  return { record: toRecord(await ownKey(deps.sql, caller.userId, input.keyId)) };
 }

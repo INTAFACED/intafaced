@@ -37,6 +37,7 @@ vi.mock('../session/webauthn', () => ({
 
 import { ApiKeys } from './ApiKeys';
 import { ApiKeyDetail, keyIdFromPath } from './ApiKeyDetail';
+import { idlePeriod } from './developer-keys-api';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 // The page's dialog opens modally; the test DOM has no modal layer, so opening only marks it open.
@@ -233,5 +234,41 @@ describe('the key detail', () => {
     world.queries['developerKeys.get'] = [{ ok: false, reason: 'refused', status: 404, code: 'identity.key_not_found', message: 'x' }];
     await render(<ApiKeyDetail keyId={KEY} />);
     expect(host.textContent).toContain('This key is not on your account.');
+  });
+});
+
+describe('the idle period and who revoked a key', () => {
+  it('states the idle period exactly: whole days, else whole hours, else seconds, never 0 days', () => {
+    expect(idlePeriod(90 * 86_400)).toEqual({ key: 'idleDays', params: { days: 90 } });
+    expect(idlePeriod(86_400)).toEqual({ key: 'idleDay' });
+    expect(idlePeriod(36 * 3_600)).toEqual({ key: 'idleHours', params: { hours: 36 } });
+    expect(idlePeriod(3_600)).toEqual({ key: 'idleHour' });
+    expect(idlePeriod(5_400)).toEqual({ key: 'idleSeconds', params: { seconds: 5_400 } });
+    expect(idlePeriod(1)).toEqual({ key: 'idleSecond' });
+  });
+
+  it.each([
+    [36 * 3_600, '36 hours'],
+    [5_400, '5,400 seconds'],
+    [86_400, '1 day'],
+  ])('shows an idle period of %i seconds as %s', async (seconds, words) => {
+    world.queries['developerKeys.get'] = [detail(live, seconds)];
+    await render(<ApiKeyDetail keyId={KEY} />);
+    const idle = host.querySelector('[data-testid="api-keys__idle"]')!.textContent!;
+    expect(idle.startsWith(words)).toBe(true);
+    expect(idle).not.toContain('0 days');
+  });
+
+  it('names a support recovery and a key that was never issued', async () => {
+    world.queries['developerKeys.list'] = [
+      list([
+        { ...frozen, revokedBy: 'support' },
+        { ...frozen, id: KEY, name: 'never', revokedBy: 'system' },
+      ]),
+    ];
+    await render(<ApiKeys />);
+    const rows = [...host.querySelectorAll('tbody tr')];
+    expect(rows[0]!.textContent).toContain('Revoked by our team during account recovery');
+    expect(rows[1]!.textContent).toContain('Revoked automatically: the key was never issued');
   });
 });
