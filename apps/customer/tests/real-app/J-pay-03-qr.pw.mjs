@@ -48,7 +48,9 @@ function payQrKey(on) {
   }
 }
 
-test(`${J} #3 QR: the signed code opens Send on the payee by account id; a tampered code is refused; it pays 1 TEST USDT`, async ({ page }) => {
+test(`${J} #3 QR: the signed code opens Send on the payee by account id; a tampered code is refused; it pays 1 TEST USDT`, async ({
+  page,
+}) => {
   test.setTimeout(180_000);
   const payee = await signUp(page, 'qe');
   await verify(page, payee);
