@@ -44,5 +44,6 @@ export const moneyContract: ContractPart = {
     conversionQuote: 'a write: the stand-in answers it, and the Playwright run exercises it',
     conversionExecute: 'a write: the stand-in answers it, and the Playwright run exercises it',
     moneyExportCreate: 'a write: the Settings stand-in answers it and the Playwright run exercises it',
+    topUpOptions: 'always a refusal (pay.topup_unconfigured) while no top-up rail exists, so there is no answer shape to match',
   },
 };

@@ -43,6 +43,7 @@ const words: Record<string, Parameters<typeof mc.t>[0]> = {
   'pay.statement_busy': 'rStatementBusy',
   'pay.payout_destination_in_flight': 'rDestInFlight',
   'pay.payout_destination_not_found': 'rDestNotFound',
+  'pay.topup_unconfigured': 'rTopUpUnconfigured',
 };
 const known = new Set(knownRefusalCodes());
 registerRefusals(

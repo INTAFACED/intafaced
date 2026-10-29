@@ -23,7 +23,8 @@ import { tableIn } from './tables.mjs';
 // - The stack cannot post a TEST settlement to a business (`local-test-world.mjs merchant-settlement <merchantId>`,
 //   proposed), so #2 and #6 to #8 have no settlement to pay out (M-money-out-05).
 // - #2: no clearing-to-available view (RC-merchant-10); #4: no payout schedule or rules (M-money-out-03,
-//   M-adv-money-out-01); #5: no top-up (M-money-out-02).
+//   M-adv-money-out-01).
+// #5 needs only #1's business: no top-up rail exists, so it proves the refusal, Request off and the balance unchanged.
 const J = 'J-merchant-07';
 const run = journeyState(`${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
 const UNBUILT = { timeout: 5_000 };
@@ -288,10 +289,38 @@ test(`${J} #4 opens the payout schedule and rules: manual by default or the next
 test(`${J} #5 requests a top-up: with no rail "Top up is not set up for your account" and Request off; the balance is unchanged`, async ({
   page,
 }) => {
+  const { merchantId } = journey();
+  const api = await ownerApi();
+  // The balance as the service reads it (the ledger, through svc-pay), never as the page draws it. #1 left 40.00 clearing.
+  const balances = async () =>
+    (await api.query('merchantMetrics.snapshot', { merchantId, window: { kind: 'preset', preset: 'rolling_30d' } })).balances;
+  const before = await balances();
+  expect(before.length, 'a business with a balance, so "unchanged" is not just nothing staying nothing').toBeGreaterThan(0);
+
+  // Top up is reachable from Money.
   await signInOwner(page, '/pay/money');
-  await page.getByRole('link', { name: 'Top up' }).click(UNBUILT);
-  await expect(page.getByText('Top up is not set up for your account')).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Request' })).toBeDisabled();
+  await expect(page.getByRole('heading', { name: 'Balances', level: 1 })).toBeVisible();
+  const asked = page.waitForResponse((res) => new URL(res.url()).pathname.endsWith('/merchantControl.topUp.options'));
+  await page.getByRole('link', { name: 'Top up' }).click();
+  await expect(page).toHaveURL(/\/pay\/money\/top-up$/);
+  await expect(page.getByRole('heading', { name: 'Top up', level: 1 })).toBeVisible();
+
+  // With no rail the service refuses with its own typed code, and the room says so.
+  const res = await asked;
+  expect(res.status()).toBe(412);
+  expect(await res.text()).toContain('"pay.topup_unconfigured"');
+  await expect(page.getByTestId('failure').filter({ hasText: 'Top up is not set up for your account' })).toHaveCount(1);
+  await expect(api.query('merchantControl.topUp.options', { merchantId })).rejects.toThrow(/refused: 412 .*pay\.topup_unconfigured/);
+
+  // Request is off, and says why; the form is there, never a "coming soon" page.
+  const request = page.getByRole('button', { name: 'Request', exact: true });
+  await expect(request).toBeVisible();
+  await expect(request).toBeDisabled();
+  await expect(page.getByRole('textbox', { name: 'Amount' })).toBeDisabled();
+  await expect(page.getByRole('note').filter({ hasText: 'Request is off because top up is not set up for your account.' })).toHaveCount(1);
+
+  // The balance is unchanged, read from the service again.
+  expect(await balances()).toEqual(before);
 });
 
 test(`${J} #6 presses Pay out on a posted settlement: the whole net with no amount box, the destination and the approval rule`, async ({
