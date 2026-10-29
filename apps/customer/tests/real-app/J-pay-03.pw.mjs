@@ -98,6 +98,7 @@ test(`${J} #2 changes the handle: a handle that breaks a rule gets the reason na
     handle = `${base}_${n}`;
     await attempt(handle);
     await expect(page.getByTestId('receive-value')).toHaveText(`@${handle}`);
+    await expect(dialog).toBeHidden();
     if (n < 3) await expect(changesLeft).toHaveText(left[n - 1]);
   }
   run.write({ me: { ...me, handle } });
