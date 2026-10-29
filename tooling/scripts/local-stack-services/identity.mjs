@@ -90,12 +90,13 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, STATE, CUSTOMER_LOCALHOST_ORI
     IDENTITY_KYC_DOC_KEY: secrets.identityKycDoc,
     // LOCAL TEST, not the lead's grant (which founder holds which scope is the lead's call for a real stack). The
     // operator reads the founder console makes: svc-bank's desks (admin:read), svc-p2p's
-    // operator lists (admin:compliance) and svc-market's vendor desk (market:ops), and the notify desk's writes
-    // (admin:write: the status page and notices). admin:write is platform wide: it also opens the other services'
-    // admin:write doors to a founder's session here (svc-trade's insurance top-up among them), the same scope the local
-    // gates' operator tokens already carry. Identity adds these only to a founder's own signed-in session with a second
-    // factor, never to an API key or a sub-account. support:ops, admin:treasury and every pay: scope stay off.
-    IDENTITY_FOUNDER_SESSION_SCOPES: 'admin:read,admin:write,admin:compliance,market:ops',
+    // operator lists (admin:compliance), svc-market's vendor desk (market:ops), svc-support's queue and request
+    // workspace (support:ops: the support desk at /support), and the notify desk's writes (admin:write: the status page
+    // and notices). admin:write is platform wide: it also opens the other services' admin:write doors to a founder's
+    // session here (svc-trade's insurance top-up among them), the same scope the local gates' operator tokens already
+    // carry. Identity adds these only to a founder's own signed-in session with a second factor, never to an API key or a
+    // sub-account. admin:treasury and every pay: scope stay off.
+    IDENTITY_FOUNDER_SESSION_SCOPES: 'admin:read,admin:write,admin:compliance,market:ops,support:ops',
     // Sub-account cap: an explicit LOCAL TEST value, not an owner limit (the owner has not published one; blank
     // refuses every create with auth.sub_account_cap_unset). 10 live sub-accounts per account on this stack only.
     IDENTITY_MAX_SUB_ACCOUNTS: '10',
