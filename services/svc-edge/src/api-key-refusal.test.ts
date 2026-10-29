@@ -10,6 +10,7 @@ import {
   apiKeyRefusalBody,
   apiKeyRefusalFromIdentityCode,
   apiKeyShapeOk,
+  presentedScopeShapeOk,
   identityErrorCode,
   requestSignShapeOk,
 } from './api-key-refusal.js';
@@ -285,6 +286,8 @@ describe('a key or signed request identity’s schema would refuse is answered h
     ['nonce too short (identity min 8)', signed({ nonce: 'n-1' })],
     ['nonce too long (identity max 128)', signed({ nonce: 'n'.repeat(129) })],
     ['overlong timestamp (identity max 32)', signed({ timestamp: '1'.repeat(33) })],
+    ['account id not a GUID (identity guid())', { authorization: `Bearer ${KEY}`, 'x-account-id': 'not-a-guid' }],
+    ['product over 64 characters (identity max 64)', { authorization: `Bearer ${KEY}`, 'x-product': 'p'.repeat(65) }],
   ];
 
   it.each(cases)('%s: 401 edge.api_key_denied, not a 503', async (_why, headers) => {
@@ -309,6 +312,8 @@ describe('a key or signed request identity’s schema would refuse is answered h
       { authorization: `Bearer ifc_${'a'.repeat(196)}` },
       signed({ nonce: 'n'.repeat(8), timestamp: '1'.repeat(32), signature: 'A'.repeat(64) }),
       signed({ nonce: 'n'.repeat(128) }),
+      { authorization: `Bearer ${KEY}`, 'x-account-id': '0b7d9c1e-5a4f-4e3b-9c2d-1a2b3c4d5e6f' },
+      { authorization: `Bearer ${KEY}`, 'x-product': 'p'.repeat(64) },
     ]) {
       const { calls, fetch } = counting();
       await exchangePrincipal(headers, { ...options, fetch, request });
@@ -334,6 +339,10 @@ describe('a key or signed request identity’s schema would refuse is answered h
     expect(requestSignShapeOk({ ...ok, method: 'X'.repeat(17) })).toBe(false);
     expect(requestSignShapeOk({ ...ok, path: '' })).toBe(false);
     expect(requestSignShapeOk({ ...ok, bodyHash: 'g'.repeat(64) })).toBe(false);
+    expect(presentedScopeShapeOk(undefined, undefined)).toBe(true);
+    expect(presentedScopeShapeOk('0B7D9C1E-5A4F-4E3B-9C2D-1A2B3C4D5E6F', 'p'.repeat(64))).toBe(true);
+    expect(presentedScopeShapeOk('0b7d9c1e5a4f4e3b9c2d1a2b3c4d5e6f', undefined)).toBe(false);
+    expect(presentedScopeShapeOk(undefined, 'p'.repeat(65))).toBe(false);
   });
 });
 

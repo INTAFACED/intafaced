@@ -180,6 +180,19 @@ export function apiKeyShapeOk(key: string): boolean {
   return key.length >= 8 && key.length <= 200 && API_KEY_SHAPE.test(key);
 }
 
+/** zod's `guid()` pattern, as identity's `exchangeApiKeyForAccount` checks `accountId` with it. */
+const GUID = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
+
+/**
+ * The account id and product a caller presents, as identity's account and product doors accept them
+ * (`accountId: z.string().guid()`, `product: z.string().min(1).max(64)`). Absent is fine: no door is asked for it.
+ */
+export function presentedScopeShapeOk(accountId: string | undefined, product: string | undefined): boolean {
+  if (accountId !== undefined && !GUID.test(accountId)) return false;
+  if (product !== undefined && (product.length < 1 || product.length > 64)) return false;
+  return true;
+}
+
 /** `requestSignWireSchema`, field for field. Checked only when the edge will send the signed request. */
 export function requestSignShapeOk(material: {
   readonly method: string;
