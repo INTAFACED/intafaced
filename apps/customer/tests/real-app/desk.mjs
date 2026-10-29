@@ -1,6 +1,6 @@
 import { randomBytes } from 'node:crypto';
 import { expect } from '@playwright/test';
-import { api, bestPrices, fromUnits, fund, signUpInBrowser, toUnits, tool, signOutBrowser } from './stack.mjs';
+import { api, bestPrices, fromUnits, fund, signUpInBrowser, toUnits, signOutBrowser } from './stack.mjs';
 
 // What a person does on the spot desk in the running app, shared by the cex-spot journeys. Each journey keeps its own
 // run file; these helpers take the account they act as.
@@ -34,6 +34,33 @@ export async function signUp(page, prefix) {
   return who;
 }
 
+/**
+ * The founder pair's sign-ins, kept in this worker's memory only and shared by every verification it runs. A fresh
+ * sign-in per call spent a new 30-second TOTP step per founder, so back-to-back verifications waited for the clock
+ * (20 of the 27.6 s J-merchant-01 #5 took). Never written to disk.
+ */
+let founderSessions = {};
+
+/**
+ * The gates tool's `verify`, in this process: a new context each time (its local-stack guards run on every call) over
+ * the kept sign-ins. A refused approval (a kept session that identity no longer honours) drops them and runs once
+ * more, signing in again with a fresh TOTP step from the tool's own step file, so a code is never reused. What was still
+ * refused after that is returned for the failure message.
+ */
+async function verifyPending() {
+  const gates = await import('../../../../tooling/scripts/local-test-gates.mjs');
+  for (let attempt = 1; ; attempt++) {
+    const ctx = await gates.makeContext({ log: () => {}, shareSessions: true });
+    ctx.sessionCache = founderSessions;
+    const run = await gates.verifyAll(ctx);
+    if (attempt === 1 && run.approved.some((row) => !row.ok)) {
+      founderSessions = {};
+      continue;
+    }
+    return { ...(await gates.status(ctx)), refused: run.approved.filter((row) => !row.ok) };
+  }
+}
+
 /** The signed-in person asks for full verification; the stack's two TEST operators approve it through identity's own
  * door. The cookies are cleared after, so the next sign-in carries the new tier. */
 export async function verify(page, who) {
@@ -43,10 +70,8 @@ export async function verify(page, who) {
   await page.getByRole('button', { name: 'Review request' }).click();
   await page.getByRole('button', { name: 'Submit this request' }).click();
   await expect(page.getByText('Your reviewed request')).toBeVisible();
-  tool('local-test-gates.mjs', 'verify');
-  const status = tool('local-test-gates.mjs', 'status');
-  const accounts = JSON.parse(status.slice(status.indexOf('{'))).accounts;
-  expect(accounts.find((a) => a.handle === who.handle)?.tiers).toContain('full');
+  const { accounts, refused } = await verifyPending();
+  expect(accounts.find((a) => a.handle === who.handle)?.tiers, JSON.stringify(refused)).toContain('full');
   await signOutBrowser(page.context());
 }
 

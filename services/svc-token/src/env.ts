@@ -131,6 +131,13 @@ const schema = serviceEnvSchema
       TOKEN_PROPOSER_RULE: z.string().optional(),
 
       /**
+       * Who may vote (MC-token-03). NO DEFAULT. Blank is `token.vote_rule_unset`.
+       * `power:<decimal>`: least voting power, at the proposal's creation
+       * snapshot, that may vote. `power:0` is a deliberate zero.
+       */
+      TOKEN_VOTE_RULE: z.string().optional(),
+
+      /**
        * How many proposals one author may open per period. NO DEFAULT.
        * Blank is `token.proposal_limit_unset`. Shape `count:period_ms`.
        * `0` is a deliberate zero. Used only when the stored row is still blank.

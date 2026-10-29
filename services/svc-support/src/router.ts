@@ -26,6 +26,7 @@ import {
   supportAttachmentSchema,
   supportCaseFileSchema,
   supportCommentSchema,
+  supportInternalNoteInputSchema,
   supportKbArticleSchema,
   supportTicketEventSchema,
   supportAwaitingMineSchema,
@@ -416,6 +417,24 @@ export function createSupportRouter(
             asOperator,
             ...(input.clientRequestId !== undefined ? { clientRequestId: input.clientRequestId } : {}),
             ...(input.expectedSequence !== undefined ? { expectedSequence: input.expectedSequence } : {}),
+          });
+        } catch (err) {
+          mapError(err);
+        }
+      }),
+
+    /** A staff-only note (SP-tickets-05): never on the customer's thread, and it moves nothing the customer reads. */
+    addInternalNote: scopedProcedure('support:ops')
+      .input(supportInternalNoteInputSchema)
+      .output(supportCommentSchema)
+      .mutation(async ({ ctx, input }) => {
+        try {
+          requireSupportOps(ctx.principal!);
+          return await support.addInternalNote({
+            userId: ctx.principal!.userId,
+            ticketId: input.ticketId,
+            body: input.body,
+            clientRequestId: input.clientRequestId,
           });
         } catch (err) {
           mapError(err);

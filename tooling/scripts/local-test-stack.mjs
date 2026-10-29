@@ -97,6 +97,7 @@ import {
   writeFounderPinStamp,
 } from './local-test-founders.mjs';
 import { consoleTreasuryToken, makeContext } from './local-test-gates.mjs';
+import { RailRecordError, readRail, recordRailMovement } from './local-test-rail-records.mjs';
 import { loadProfile, profileEnvFor } from './owner-settings.mjs';
 import {
   localStackState,
@@ -301,6 +302,7 @@ const SECRET_NAMES = [
   'academyVideoStore', // the TEST video store's signing key, shared with academy (local-video-store.mjs)
   'payKybDocKey', // pay's key for business verification documents (PAY_KYB_DOC_KEY, 32 bytes as hex)
   'payTravelRuleKey', // pay's travel-rule sealing key (PAY_TRAVEL_RULE_MESSAGE_KEY is its SHA-256 as base64); this stack's own, valid nowhere else
+  'identityApiKeySigning', // identity's sealing key for API-key request-signing secrets (API_KEY_SIGNING_ENC_KEY, 32 bytes as hex)
   'identityKycDoc', // identity's key for the KYC document vault (IDENTITY_KYC_DOC_KEY, 32 bytes as hex); this stack's own, valid nowhere else
   'tradeVipProofKey', // trade's key for VIP application proof files (TRADE_VIP_PROOF_KEY, 32 bytes as hex); this stack's own, valid nowhere else
 ];
@@ -2567,6 +2569,12 @@ async function cmdSeedWithdrawal(rawArgs) {
     const [outcome] = asPay(`SELECT outcome FROM pay.withdrawal_rail_attempts WHERE withdrawal_id = :'id' AND attempt = 0`, { id });
     if (outcome !== 'accepted')
       fail(`--ref ${ref} already names a withdrawal whose send is ${outcome ?? 'not journalled'}, not sent; use a new --ref`, 2);
+    chainRecord({
+      key: `withdrawal:${id}:0`,
+      direction: 'out',
+      assetId: asset,
+      amount: ledgerClient.formatAmount(ledgerClient.parseAmount(amountStr)),
+    });
     await post('withdrawSettle', 'LOCAL TEST withdrawal settle, not real money');
     asPay(`UPDATE pay.withdrawals SET status = 'sent', rail_ref = :'tx', updated_at = now() WHERE id = :'id' AND status = 'held'`, {
       id,
@@ -2619,6 +2627,10 @@ async function cmdChainDeposit(rawArgs) {
 
   const txHash = chainTxHash(address, label);
   const logIndex = Number(index ?? '0');
+  assertChainDelivery();
+  // Only a transfer into the stack's own custody counts on its statement: an address svc-pay issued, once the chain holds it final.
+  if (Number(confirmationsStr) >= TEST_CHAIN_FINALITY && custodyAddress(address))
+    chainRecord({ key: `${txHash}:${logIndex}`, direction: 'in', assetId: asset, amount: canonicalAmount(amountStr) });
   const text = await deliverChainEvent({
     id: `chain:${txHash}:${address}:${logIndex}`,
     type: 'captured',
@@ -2663,15 +2675,69 @@ export function chainTxHash(address, label) {
   return `0x${crypto.createHash('sha256').update(`local-test-chain-deposit:${address}:${label}`).digest('hex')}`;
 }
 
-/** Signs one chain watcher event with this stack's crypto webhook secret and delivers it to the stack's own svc-pay. Returns its answer. */
-async function deliverChainEvent(event) {
-  // Guards: this only ever talks to the local stack's own svc-pay.
+/**
+ * Confirmations at which the TEST chain holds a transfer final on its own statement. It is the chain's own rule, not read from
+ * svc-pay: if the platform ever credits below it, a run shows that credit as a gap, which is what it is.
+ */
+const TEST_CHAIN_FINALITY = 6;
+
+/** `amount` as the ledger writes it (no leading or trailing zeros), so a repeat of one transfer is recorded with the same facts. */
+function canonicalAmount(amount) {
+  const [whole, frac = ''] = amount.split('.');
+  const digits = frac.replace(/0+$/, '');
+  return `${BigInt(whole)}${digits ? `.${digits}` : ''}`;
+}
+
+/** Whether svc-pay issued `address` as a deposit address: the custodian's own list of its addresses, not a ledger figure. */
+function custodyAddress(address) {
+  const secrets = readJson(P.secrets);
+  const found = psql(secrets, `SELECT 1 FROM pay.custody_deposit_addresses WHERE lower(address) = lower(:'address') LIMIT 1`, {
+    db: DB_NAME,
+    user: 'svc_pay',
+    password: secrets.pgService,
+    vars: { address },
+    tuples: true,
+  });
+  return found.trim() === '1';
+}
+
+/** The TEST chain's records so far, refused by name when the file cannot be read. */
+function chainRecords() {
+  try {
+    return readRail(STATE, 'crypto-native');
+  } catch (err) {
+    if (err instanceof RailRecordError) fail(`refusing: the TEST chain record: ${err.message}`, 2);
+    throw err;
+  }
+}
+
+/**
+ * The TEST chain's own record of a movement on rail crypto-native (local-test-rail-records.mjs), written before svc-pay or the
+ * ledger hears of it, so the stack's outside source reads what the chain did, never the ledger.
+ */
+function chainRecord(movement) {
+  try {
+    recordRailMovement(STATE, { rail: 'crypto-native', ...movement });
+  } catch (err) {
+    if (err instanceof RailRecordError) fail(`refusing: the TEST chain record: ${err.message}`, 2);
+    throw err;
+  }
+}
+
+/** Guards: a chain event only ever goes to the local stack's own svc-pay. Returns the stack's crypto webhook secret. */
+function assertChainDelivery() {
   if (!fs.existsSync(P.marker)) fail(`refusing: marker ${P.marker} not found. Start the stack first (pnpm local:stack).`);
   if (readJson(P.marker).kind !== 'intafaced-local-test-stack') fail('refusing: marker file is not a local test stack marker');
   if (!ownedAlive(readProcs().pay)) fail('refusing: the local stack svc-pay is not running. Run: pnpm local:stack');
   assertActiveLocalStack({ stateDir: STATE, services: ['pay'] });
   const secret = readJson(P.secrets).payCryptoWebhook;
   if (!secret) fail('refusing: this stack has no crypto webhook secret. Run: pnpm local:stack --rebuild');
+  return secret;
+}
+
+/** Signs one chain watcher event with this stack's crypto webhook secret and delivers it to the stack's own svc-pay. Returns its answer. */
+async function deliverChainEvent(event) {
+  const secret = assertChainDelivery();
   const body = JSON.stringify(event);
   const timestamp = Math.floor(Date.now() / 1000).toString();
   const signature = crypto.createHmac('sha256', secret).update(`${timestamp}.${body}`).digest('hex');
@@ -2700,6 +2766,9 @@ async function cmdChainReorg(rawArgs) {
   if (address.length > 200 || /\s/.test(address)) fail('bad deposit address', 2);
   const txHash = chainTxHash(address, label);
   const logIndex = Number(index ?? '0');
+  assertChainDelivery();
+  const final = chainRecords().find((row) => row.key === `${txHash}:${logIndex}`);
+  if (final) chainRecord({ key: `reorg:${txHash}:${logIndex}`, direction: 'out', assetId: final.assetId, amount: final.amount });
   const text = await deliverChainEvent({
     id: `reorg:${txHash}:${address}:${logIndex}`,
     type: 'chain.reorged',

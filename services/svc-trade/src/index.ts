@@ -86,7 +86,8 @@ import { registerPromoRest } from './spot/promo-rest.js';
 import { registerSpotOrderPreviewRest } from './spot/order-preview-rest.js';
 import { registerFeeTierRest } from './spot/fee-tier-rest.js';
 import { registerVipRest } from './spot/vip-rest.js';
-import { parseDataTerms, parseDeveloperHosts, registerDeveloperPortalRest } from './developer-portal-rest.js';
+import { installRouteInventory } from './route-inventory.js';
+import { parseDataTerms, parseDeveloperHosts, parseRegionalRule, registerDeveloperPortalRest } from './developer-portal-rest.js';
 import { VipApplicationStore, parseVipProofKey } from './spot/vip-applications.js';
 import { assertMakerRebatesPayable, parseFeeScheduleJson } from './spot/fee-schedule.js';
 import { feeScheduleAt } from './spot/fee-schedule-store.js';
@@ -247,6 +248,8 @@ const bus = await JetStreamEventBus.connect({
 const feeSchedule = parseFeeScheduleJson(env.TRADE_FEE_SCHEDULE);
 assertMakerRebatesPayable(feeSchedule);
 const app = Fastify({ logger: { level: env.LOG_LEVEL }, maxParamLength: 5_000 });
+// Before any route: every /api/v1 route declares who may call it, and GET /api/v1/routes publishes the list.
+installRouteInventory(app, { edgeSecret: env.EDGE_PRINCIPAL_SECRET, edgeTrust: edgeTrustFromEnv(env), serviceName: env.SERVICE_NAME });
 retainRawBody(app);
 registerClosureCheck(app, { sql, secret: env.INTERNAL_SERVICE_SECRET, s2s: doorS2s });
 // Matching's depth read carries no timestamp, so the read time is the observation time: the book was read from the
@@ -1142,6 +1145,7 @@ registerFundingHistory(app, {
 registerDeveloperPortalRest(app, {
   hosts: parseDeveloperHosts(env.TRADE_DEVELOPER_HOSTS),
   dataTerms: parseDataTerms(env.TRADE_DEVELOPER_DATA_TERMS),
+  regionalRule: parseRegionalRule(env.TRADE_DEVELOPER_REGIONAL_RULE),
 });
 registerMarketLifecycleRoutes(app, {
   internalSecret: env.INTERNAL_SERVICE_SECRET,

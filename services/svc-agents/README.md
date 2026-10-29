@@ -42,11 +42,26 @@ Internal tRPC (§1). Every log query is scoped to `ctx.principal.userId` — an 
 | `session.open`        | `agents:execute` | `{ agentId }`                              | session, with the guardrail bound to it                     |
 | `session.close`       | `agents:execute` | `{ sessionId }`                            | settles open windows, then closes                           |
 | `session.log`         | `agents:read`    | `{ sessionId }`                            | every action, i18n-keyed                                    |
+| `session.detail`      | `agents:read`    | `{ sessionId }`                            | the caller's own session and each usage window, exact       |
+| `session.selected`    | `agents:read`    | —                                          | the session the person last selected, or null               |
+| `session.select`      | `agents:read`    | `{ sessionId }`                            | keeps that choice; the person only, never a key or service  |
 | `run.complete`        | `agents:execute` | `{ sessionId, requestId, task, messages }` | text, token counts, cost, the audit row                     |
 | `usage.current`       | `agents:read`    | `{ sessionId }`                            | what the open window would cost. Bills nothing              |
 | `usage.settle`        | `admin:write`    | `{ sessionId, windowId }`                  | posts the charge. Idempotent                                |
 | `usage.settleSession` | `admin:write`    | `{ sessionId }`                            | settles every open / sealed-unbilled window. Idempotent     |
 | `log.mine`            | `agents:read`    | `{ limit }`                                | **the user-visible log** (§8.2)                             |
+
+### Agents a person builds (AG-builder-01)
+
+| Procedure       | Scope                 | Input                                              | Output                                                    |
+| --------------- | --------------------- | -------------------------------------------------- | --------------------------------------------------------- |
+| `own.catalogue` | `agents:read`         | —                                                  | the templates and the addable tools, money tools marked   |
+| `own.create`    | `agents:read`, person | `{ template, createKey }`                          | a new draft; a retried `createKey` returns the same draft |
+| `own.save`      | `agents:read`, person | `{ id, name, instructions, tools, perSessionCap }` | the draft, or a refusal code (`agents.own.*`)             |
+| `own.get`       | `agents:read`, person | `{ id }`                                           | the caller's own draft and what blocks publishing it      |
+| `own.list`      | `agents:read`, person | `{ limit }`                                        | the caller's own agents, newest first                     |
+
+"Person" is the signed-in session itself (`identity:write`, no `kid` or `sub_account`), as for spend limits. A draft's tools come only from `src/own/catalog.ts`; a tool that moves money is offered so it can be refused (`agents.own.money_tool`) and is never stored, and a blank per-session cap stays blank (`agents.spend.cap_unset` blocks publishing). Building an agent moves no value. Table: `own_agents` (migration `0005`).
 
 `requestId` on `run.complete` is supplied by the caller and is the anti-double-bill handle: a client that retries after a timeout reuses it.
 

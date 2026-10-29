@@ -183,6 +183,12 @@ export function createSettingsMock(ctx) {
           return ok(route, state.destination);
         case 'merchantOps.kyb.current':
           return ok(route, state.kyb);
+        case 'merchantOps.activation.get': {
+          // The stand-in never records an activation, so it is never confirmed here; svc-pay's own record decides that.
+          const status = state.merchant?.status ?? 'active';
+          const reason = status === 'active' ? 'no_activation_record' : 'not_active';
+          return ok(route, { activation: 'unconfirmed', status, activatedAt: null, reason });
+        }
         case 'merchantOps.kyb.history':
           return ok(route, page(state.kybHistory, input));
         case 'merchantOps.team.list':

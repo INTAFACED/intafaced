@@ -131,6 +131,14 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, STATE, CUSTOMER_LOCALHOST_ORI
     IDENTITY_SECURITY_LOCK_UNLOCK_WAIT_SECONDS: '86400',
     // Sealing key for operator second factors (TOTP). Generated per machine in secrets.json.
     IDENTITY_TOTP_SECRET_KEY: secrets.identityTotp,
+    // LOCAL TEST ONLY: seals each API key's request-signing secret (secrets.json); a key that places orders signs
+    // every request (DV-auth-01), so without it such a key is refused at creation.
+    API_KEY_SIGNING_ENC_KEY: secrets.identityApiKeySigning,
+    // The request-signing timestamp window (J-developer-04 #2, J-developer-02 #6): a TEST value, not an owner decision.
+    // `LOCAL_STACK_IDENTITY_REQUEST_SIGN_WINDOW=off` on a start or restart leaves it blank, as production is until the
+    // owner sets it, so a journey can see every signed request refused with auth.request_window_unset.
+    IDENTITY_REQUEST_SIGN_WINDOW_SECONDS:
+      process.env.LOCAL_STACK_IDENTITY_REQUEST_SIGN_WINDOW === 'off' ? '' : testValue('IDENTITY_REQUEST_SIGN_WINDOW_SECONDS'),
     // LOCAL TEST ONLY: the KYC document vault's key, generated for this stack (secrets.json, mode 600). Without it the vault is
     // off and the founder console's document list and viewer refuse kyc_doc.unwired.
     IDENTITY_KYC_DOC_KEY: secrets.identityKycDoc,
@@ -138,12 +146,13 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, STATE, CUSTOMER_LOCALHOST_ORI
     // operator reads the founder console makes: svc-bank's desks (admin:read), svc-p2p's
     // operator lists (admin:compliance), svc-market's vendor desk (market:ops), every svc-support operator door
     // (support:ops: the queue and request workspace at /support, help articles, help-centre and attachment settings,
-    // contact channels and request forms), the notify desk's writes (admin:write: the status page and notices) and the
+    // contact channels and request forms), the support desk's read-only lookup of one customer's records in another
+    // module (support:lookup: copy follows, bots and quotes on the trade desk), the notify desk's writes (admin:write: the status page and notices) and the
     // campaigns desk (campaigns:ops: build, ask, approve, go live). admin:write is platform wide: it also opens the other services' admin:write doors to a founder's
     // session here (svc-trade's insurance top-up among them), the same scope the local gates' operator tokens already
     // carry. Identity adds these only to a founder's own signed-in session with a second factor, never to an API key or a
     // sub-account. admin:treasury and every pay: scope stay off.
-    IDENTITY_FOUNDER_SESSION_SCOPES: 'admin:read,admin:write,admin:compliance,market:ops,support:ops,campaigns:ops',
+    IDENTITY_FOUNDER_SESSION_SCOPES: 'admin:read,admin:write,admin:compliance,market:ops,support:ops,support:lookup,campaigns:ops',
     // Sub-account cap: an explicit LOCAL TEST value, not an owner limit (the owner has not published one; blank
     // refuses every create with auth.sub_account_cap_unset). 10 live sub-accounts per account on this stack only.
     IDENTITY_MAX_SUB_ACCOUNTS: '10',
