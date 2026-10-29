@@ -1,10 +1,14 @@
 import { useState } from 'react';
+import { StateBlock } from '@intafaced/ui';
 import { useSession } from '../session/session';
 import { readServerClock, type ServerClockReading } from '../../shared/server-clock';
 import { docsCopy } from './developers-docs-copy';
 import { developersCopy } from './developers-copy';
 import { connectivityEndpointsLabel, connectivityStateLabel, dataTermLabel } from './developers-labels';
-import { DATA_PRODUCTS, DATA_TERMS, connectivityOptions } from './developers-model';
+import { liveCopy } from './developers-live-copy';
+import { DATA_PRODUCTS, DATA_TERMS, connectivityOptions, hostTable } from './developers-model';
+import { hostsView, readDataTerms, readDeveloperHosts, termsView } from './developers-values';
+import { useRead } from './use-read';
 import {
   CALL_COST,
   NEVER_ON_A_KEY,
@@ -276,10 +280,28 @@ export function QuickstartPage({ title }: { title: string }) {
 export function ConnectivityPage({ title }: { title: string }) {
   const { t } = docsCopy.useCopy();
   const { t: portal } = developersCopy.useCopy();
+  const { t: live } = liveCopy.useCopy();
+  const { api } = useSession();
+  const { read, reload } = useRead((signal) => readDeveloperHosts(api, signal), [api]);
+  const view = hostsView(read);
+  // The parked options name their hardware blocker whatever the hosts read says; only the host rows wait for it.
+  const options =
+    view.kind === 'table'
+      ? connectivityOptions(hostTable(view.read))
+      : connectivityOptions().filter(({ state }) => state === 'parked_hardware');
   return (
     <Page id="connectivity" title={title} lead={t('connectivityLead')}>
       <section className="pub-card" aria-labelledby="dev-conn-options">
         <h2 id="dev-conn-options">{t('connectivityTable')}</h2>
+        {view.kind === 'loading' ? (
+          <StateBlock kind="loading" rows={2} rowHeight={48} label={live('loading')} />
+        ) : view.kind === 'failed' ? (
+          <StateBlock kind="error" title={live('loadFailed')} onRetry={reload} retryLabel={live('tryAgain')} />
+        ) : view.unsetCode ? (
+          <p className="pub-notice" role="status" data-testid="developers-connectivity-unset" data-code={view.unsetCode}>
+            {portal('hostsUnpublished')}
+          </p>
+        ) : null}
         <div className="table-scroll">
           <table className="pub-table">
             <thead>
@@ -290,7 +312,7 @@ export function ConnectivityPage({ title }: { title: string }) {
               </tr>
             </thead>
             <tbody>
-              {connectivityOptions().map(({ option, state, hosts }) => (
+              {options.map(({ option, state, hosts }) => (
                 <tr key={option} data-option={option} data-option-state={state}>
                   <th scope="row">{t(`option_${option}`)}</th>
                   <td>{connectivityStateLabel(t, state)}</td>
@@ -327,37 +349,54 @@ export function ConnectivityPage({ title }: { title: string }) {
 
 export function DataTermsPage({ title }: { title: string }) {
   const { t } = docsCopy.useCopy();
+  const { t: live } = liveCopy.useCopy();
+  const { api } = useSession();
+  const { read, reload } = useRead((signal) => readDataTerms(api, signal), [api]);
+  const view = termsView(read);
   return (
     <Page id="data-terms" title={title} lead={t('dataTermsLead')}>
-      <section className="pub-notice" role="status">
-        <p>{t('dataTermsWaits')}</p>
-      </section>
       <section className="pub-card" aria-labelledby="dev-data-terms">
         <h2 id="dev-data-terms">{t('dataTermsTable')}</h2>
-        <div className="table-scroll">
-          <table className="pub-table">
-            <thead>
-              <tr>
-                <th scope="col">{t('colProduct')}</th>
-                {DATA_TERMS.map((term) => (
-                  <th scope="col" key={term}>
-                    {dataTermLabel(t, term)}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {DATA_PRODUCTS.map((product) => (
-                <tr key={product} data-product={product} data-terms-state="unset">
-                  <th scope="row">{t(`product_${product}`)}</th>
-                  {DATA_TERMS.map((term) => (
-                    <td key={term}>{t('termUnset')}</td>
-                  ))}
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+        {view.kind === 'loading' ? (
+          <StateBlock kind="loading" rows={6} rowHeight={32} label={live('loading')} />
+        ) : view.kind === 'failed' ? (
+          <StateBlock kind="error" title={live('loadFailed')} onRetry={reload} retryLabel={live('tryAgain')} />
+        ) : (
+          <>
+            {view.unsetCode ? (
+              <p className="pub-notice" role="status" data-testid="developers-data-terms-unset" data-code={view.unsetCode}>
+                {t('dataTermsWaits')}
+              </p>
+            ) : null}
+            <div className="table-scroll">
+              <table className="pub-table">
+                <thead>
+                  <tr>
+                    <th scope="col">{t('colProduct')}</th>
+                    {DATA_TERMS.map((term) => (
+                      <th scope="col" key={term}>
+                        {dataTermLabel(t, term)}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {DATA_PRODUCTS.map((product) => {
+                    const terms = view.termsOf(product);
+                    return (
+                      <tr key={product} data-product={product} data-terms-state={terms ? 'set' : 'unset'}>
+                        <th scope="row">{t(`product_${product}`)}</th>
+                        {DATA_TERMS.map((term) => (
+                          <td key={term}>{terms ? terms[term] : t('termUnset')}</td>
+                        ))}
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </>
+        )}
       </section>
     </Page>
   );
