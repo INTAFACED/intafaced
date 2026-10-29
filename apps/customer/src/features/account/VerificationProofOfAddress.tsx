@@ -22,11 +22,10 @@ export function VerificationProofOfAddress({ recordsKey, disabled }: { recordsKe
   const { api, userId } = useSession();
   const { t, Copy } = copy.useCopy();
   const [country, setCountry] = useState<string | null>(null);
-  const [revision, setRevision] = useState(0);
   const chosen = country && /^[A-Z]{2}$/.test(country) ? country : undefined;
   const { resource, reload } = useResource(
     (signal) => api.query('identity', 'kyc.proofOfAddress.read', chosen ? { country: chosen } : {}, kycPoaReadSchema, { signal }),
-    `verification-poa:${userId}:${recordsKey}:${chosen ?? ''}:${revision}`,
+    `verification-poa:${userId}:${recordsKey}:${chosen ?? ''}`,
   );
   const [type, setType] = useState('');
   const [issuedOn, setIssuedOn] = useState('');
@@ -34,14 +33,15 @@ export function VerificationProofOfAddress({ recordsKey, disabled }: { recordsKe
   const [busy, setBusy] = useState(false);
   const [problem, setProblem] = useState<Problem | null>(null);
   const [sent, setSent] = useState<KycPoaSubmission | null>(null);
-  // A re-read (another country, a send) keeps the form on screen with the last answer, so typing and the chosen
-  // file are never thrown away; only the first read shows loading.
-  const last = useRef<KycPoaRead | null>(null);
-  if (resource.status === 'ready') last.current = resource.data;
+  // A re-read (another country, a send) keeps the form on screen with the last answer for this person and status, so
+  // typing and the chosen file are never thrown away, even when the re-read fails; only the first read shows loading.
+  const owner = `${userId}:${recordsKey}`;
+  const last = useRef<{ owner: string; data: KycPoaRead } | null>(null);
+  if (resource.status === 'ready') last.current = { owner, data: resource.data };
 
   const body = () => {
-    const data = resource.status === 'ready' ? resource.data : last.current;
-    if (resource.status === 'failed')
+    const data = resource.status === 'ready' ? resource.data : last.current?.owner === owner ? last.current.data : null;
+    if (resource.status === 'failed' && !data)
       return (
         <>
           <h3>
@@ -51,6 +51,7 @@ export function VerificationProofOfAddress({ recordsKey, disabled }: { recordsKe
         </>
       );
     if (!data) return <Loading />;
+    const rereadFailed = resource.status === 'failed' ? resource.failure : null;
     const { requested, residence, maxAgeDays, documents, latest, uploadCaps } = data;
     const reading = resource.status === 'loading';
     if (!requested)
@@ -89,9 +90,10 @@ export function VerificationProofOfAddress({ recordsKey, disabled }: { recordsKe
     };
     const send = async () => {
       if (!file || !uploadCaps) return;
+      if (file.size === 0) return setProblem({ kind: 'copy', text: t('emptyFile') });
       if (file.size > uploadCaps.maxBytes)
         return setProblem({ kind: 'copy', text: t('tooLarge', { size: String(kib(file.size)), kib: String(kib(uploadCaps.maxBytes)) }) });
-      if (!uploadCaps.contentTypes.includes(file.type))
+      if (!uploadCaps.contentTypes.includes(file.type.toLowerCase()))
         return setProblem({ kind: 'copy', text: t('wrongType', { types: uploadCaps.contentTypes.join(', ') }) });
       setBusy(true);
       setProblem(null);
@@ -111,13 +113,14 @@ export function VerificationProofOfAddress({ recordsKey, disabled }: { recordsKe
         );
         if (!answer.ok) return refused(answer);
         setSent(answer.data);
-        setRevision((n) => n + 1);
+        reload();
       } finally {
         setBusy(false);
       }
     };
     return (
       <div className="stack">
+        {rereadFailed && <Failure result={rereadFailed} retry={reload} />}
         <p data-testid="verification__poa-rule" data-max-age-days={maxAgeDays ?? ''}>
           {maxAgeDays ? <Copy k="rule" params={{ days: String(maxAgeDays) }} /> : <Copy k="ruleUnset" />}
         </p>
@@ -196,7 +199,13 @@ export function VerificationProofOfAddress({ recordsKey, disabled }: { recordsKe
               <span>
                 <Copy k="typeField" />
               </span>
-              <select required value={type} disabled={busy} onChange={(event) => setType(event.target.value)}>
+              {/* Held while another country's list is read, and only a type on the list shown counts as chosen. */}
+              <select
+                required
+                value={documents.accepted.some((row) => row.type === type) ? type : ''}
+                disabled={busy || reading}
+                onChange={(event) => setType(event.target.value)}
+              >
                 <option value="" disabled />
                 {documents.accepted.map((row) => (
                   <option key={row.type} value={row.type}>
@@ -238,7 +247,9 @@ export function VerificationProofOfAddress({ recordsKey, disabled }: { recordsKe
           )}
           <Button
             type="submit"
-            disabled={disabled || busy || reading || !file || !uploadCaps || !maxAgeDays || !documents.published || !type}
+            disabled={
+              disabled || busy || reading || !file || !uploadCaps || !maxAgeDays || !documents.accepted.some((row) => row.type === type)
+            }
           >
             <Copy k={busy ? 'sending' : 'send'} />
           </Button>

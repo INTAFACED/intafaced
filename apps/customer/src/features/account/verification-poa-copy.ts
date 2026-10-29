@@ -31,6 +31,7 @@ export const verificationPoaCopy = defineCopy('account.verificationPoa', {
   typeUnlisted: 'That document is not on the list for {country}. Choose one from the list above.',
   typeRefused: 'That kind of document is not accepted as proof of address.',
   dateInvalid: 'Enter the real date the document was issued. It cannot be in the future.',
+  emptyFile: 'This file is empty. Choose the document.',
   tooLarge: 'This file is {size} KiB. The limit is {kib} KiB.',
   overCap: 'The file is over the {kib} KiB limit.',
   wrongType: 'This file type is not accepted. Accepted: {types}.',

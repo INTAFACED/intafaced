@@ -8,12 +8,11 @@
  * on the approved level is stored with `country_mismatch` for the reviewer. Nothing here is logged.
  */
 import type { Sql } from 'postgres';
-import { transaction } from '@intafaced/db';
 import type { KycPoaRead, KycPoaSubmission } from '@intafaced/contracts/identity-kyc-poa';
 import type { KycProfileUploadCaps } from '@intafaced/contracts/identity-kyc-profile';
 import { createHash } from 'node:crypto';
 import type { KycDocumentVault } from './document-store.js';
-import { assertWithinUploadCaps } from './profile.js';
+import { assertWithinUploadCaps, parseListedRow } from './profile.js';
 
 export type KycPoaErrorCode =
   | 'kyc.poa_not_requested'
@@ -39,8 +38,8 @@ export class KycPoaError extends Error {
 type Listed = { type: string; label: string };
 export type KycPoaTypeList = ReadonlyMap<string, { accepted: readonly Listed[]; rejected: readonly Listed[] }>;
 
-const TYPE_ROW = /^[a-z][a-z0-9_]{1,63}$/;
 const DAY = 86_400_000;
+const HOUR = 3_600_000;
 
 /** The owner's recency rule in whole days. Unset is no rule (submissions refuse); malformed stops the service. */
 export function parseKycPoaMaxAgeDays(raw: string | undefined): number | null {
@@ -64,15 +63,7 @@ export function parseKycPoaTypes(raw: string | undefined): KycPoaTypeList | null
   if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error(`${setting} must be a JSON object`);
   const rows = (country: string, list: unknown, which: string, seen: Set<string>): Listed[] => {
     if (!Array.isArray(list)) throw new Error(`${setting}: ${country}.${which} must be a list`);
-    return list.map((row: unknown) => {
-      const r = row as { type?: unknown; label?: unknown };
-      if (typeof r.type !== 'string' || !TYPE_ROW.test(r.type) || seen.has(r.type))
-        throw new Error(`${setting}: ${country} has a missing, malformed or repeated type`);
-      if (typeof r.label !== 'string' || r.label.trim() === '' || r.label.length > 120)
-        throw new Error(`${setting}: ${country} ${r.type} needs a label of 1 to 120 characters`);
-      seen.add(r.type);
-      return { type: r.type, label: r.label };
-    });
+    return list.map((row: unknown) => parseListedRow(setting, country, row, seen));
   };
   const out = new Map<string, { accepted: Listed[]; rejected: Listed[] }>();
   for (const [country, value] of Object.entries(parsed)) {
@@ -127,13 +118,18 @@ export class KycPoaDesk {
     return toView(row, found ? found.label : null);
   }
 
-  /** The country on the person's highest approved, unexpired level; null when none is approved. */
-  private async residence(sql: Sql, userId: string): Promise<string | null> {
-    const [row] = await sql<Array<{ jurisdiction: string }>>`
+  /**
+   * Whether a level is approved and unexpired, and the country on the highest one. The country is stored as free text,
+   * so one that is not two letters reads as unknown (`residence: null`), never as no approval.
+   */
+  private async approval(userId: string): Promise<{ approved: boolean; residence: string | null }> {
+    const [row] = await this.sql<Array<{ jurisdiction: string | null }>>`
       SELECT jurisdiction FROM kyc_records WHERE user_id = ${userId} AND status = 'approved'
         AND (expires_at IS NULL OR expires_at > now())
       ORDER BY array_position(ARRAY['basic','full','institutional']::text[], tier::text) DESC, reviewed_at DESC NULLS LAST LIMIT 1`;
-    return row?.jurisdiction ?? null;
+    if (!row) return { approved: false, residence: null };
+    const residence = (row.jurisdiction ?? '').trim().toUpperCase();
+    return { approved: true, residence: /^[A-Z]{2}$/.test(residence) ? residence : null };
   }
 
   private lists(country: string | null) {
@@ -144,12 +140,14 @@ export class KycPoaDesk {
   }
 
   async read(userId: string, country?: string): Promise<KycPoaRead> {
-    const residence = await this.residence(this.sql, userId);
-    const [latest] = await this.sql<Row[]>`
-      SELECT id, type, country, issued_on::text AS issued_on, status, country_mismatch, created_at
-      FROM kyc_poa_submissions WHERE user_id = ${userId} ORDER BY created_at DESC LIMIT 1`;
+    const [{ approved, residence }, [latest]] = await Promise.all([
+      this.approval(userId),
+      this.sql<Row[]>`
+        SELECT id, type, country, issued_on::text AS issued_on, status, country_mismatch, created_at
+        FROM kyc_poa_submissions WHERE user_id = ${userId} ORDER BY created_at DESC LIMIT 1`,
+    ]);
     return {
-      requested: residence !== null,
+      requested: approved,
       residence,
       maxAgeDays: this.settings.maxAgeDays,
       documents: this.lists(country ?? residence),
@@ -164,8 +162,6 @@ export class KycPoaDesk {
     input: { type: string; country: string; issuedOn: string; contentType: string; bytes: Buffer },
     now = new Date(),
   ): Promise<KycPoaSubmission> {
-    const residence = await this.residence(this.sql, userId);
-    if (!residence) throw new KycPoaError('Proof of address is asked for after level Basic is approved', 'kyc.poa_not_requested');
     const maxAgeDays = this.settings.maxAgeDays;
     if (!maxAgeDays) throw new KycPoaError('No recency rule is published for proof of address', 'kyc.poa_rule_unset');
     const list = this.settings.types?.get(input.country);
@@ -185,11 +181,15 @@ export class KycPoaDesk {
       issued.getTime() > now.getTime() + 14 * 3_600_000
     )
       throw new KycPoaError('The date issued is not a real date in the past', 'kyc.poa_date_invalid');
-    const ageDays = Math.max(0, Math.floor((now.getTime() - issued.getTime()) / DAY));
+    // And today on the person's own calendar may still be yesterday in UTC (down to UTC-12): counted from that calendar.
+    const ageDays = Math.max(0, Math.floor((now.getTime() - 12 * HOUR - issued.getTime()) / DAY));
     if (ageDays > maxAgeDays) throw new KycPoaError(`The document is older than ${maxAgeDays} days`, 'kyc.poa_too_old', { maxAgeDays });
     const contentType = assertWithinUploadCaps(this.settings.uploadCaps, input.contentType, input.bytes);
     const vault = this.settings.vault;
     if (!vault) throw new KycPoaError('The document vault is not configured', 'kyc.poa_unconfigured');
+    // The settings and the file are checked first, as they cost no query.
+    const { approved, residence } = await this.approval(userId);
+    if (!approved) throw new KycPoaError('Proof of address is asked for after level Basic is approved', 'kyc.poa_not_requested');
     // The same document sent again (a retry, a second click) returns the pending submission it made.
     const sha256 = createHash('sha256').update(input.bytes).digest('hex');
     const [same] = await this.sql<Row[]>`
@@ -200,18 +200,29 @@ export class KycPoaDesk {
     if (same) return this.view(same);
     // The vault first: a crash after this leaves an unreferenced ciphertext row, never a submission pointing at nothing.
     const stored = await vault.put({ userId, contentType, bytes: input.bytes, storedBy: userId });
+    const owner = { kind: 'owner' as const, userId };
+    let row: Row | undefined;
     try {
-      return await transaction(this.sql, async (tx) => {
-        const [row] = await tx<Row[]>`
-          INSERT INTO kyc_poa_submissions (user_id, document_id, type, country, issued_on, country_mismatch, file_sha256)
-          VALUES (${userId}, ${stored.id}, ${input.type}, ${input.country}, ${input.issuedOn}::date, ${input.country !== residence}, ${sha256})
-          RETURNING id, type, country, issued_on::text AS issued_on, status, country_mismatch, created_at`;
-        return this.view(row!);
-      });
+      // An unknown residence is flagged too: the reviewer checks the country either way.
+      [row] = await this.sql<Row[]>`
+        INSERT INTO kyc_poa_submissions (user_id, document_id, type, country, issued_on, country_mismatch, file_sha256)
+        VALUES (${userId}, ${stored.id}, ${input.type}, ${input.country}, ${input.issuedOn}::date, ${input.country !== residence}, ${sha256})
+        ON CONFLICT (user_id, type, country, issued_on, file_sha256) WHERE status = 'submitted' DO NOTHING
+        RETURNING id, type, country, issued_on::text AS issued_on, status, country_mismatch, created_at`;
     } catch (err) {
-      await vault.deleteFor(stored.id, { kind: 'owner', userId }).catch(() => undefined);
+      await vault.deleteFor(stored.id, owner).catch(() => undefined);
       throw err;
     }
+    if (row) return this.view(row);
+    // An identical send landed first: its submission is the answer, and this copy of the file goes.
+    await vault.deleteFor(stored.id, owner).catch(() => undefined);
+    const [first] = await this.sql<Row[]>`
+      SELECT id, type, country, issued_on::text AS issued_on, status, country_mismatch, created_at FROM kyc_poa_submissions
+      WHERE user_id = ${userId} AND status = 'submitted' AND type = ${input.type} AND country = ${input.country}
+        AND issued_on = ${input.issuedOn}::date AND file_sha256 = ${sha256}`;
+    // Decided in the moment between: nothing pending is left to return.
+    if (!first) throw new Error('The identical proof-of-address submission was decided while this one was sent');
+    return this.view(first);
   }
 
   /** Compliance: one person's submissions, newest first, with the flag. */
