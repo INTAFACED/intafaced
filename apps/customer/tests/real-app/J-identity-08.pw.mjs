@@ -255,8 +255,8 @@ test(`${J} #5: proof of address, with honest refusals`, async ({ page }) => {
 
   // With the owner's recency rule blank, the room says so and a send is refused with its code; nothing is stored.
   const ruleUnset = 'No rule is published for how recent a proof of address must be, so a submission is refused.';
-  identityPoaRule(false);
   try {
+    identityPoaRule(false);
     await page.reload();
     await expect(poa.getByTestId('verification__poa-rule')).toHaveAttribute('data-max-age-days', '');
     await expect(poa.getByTestId('verification__poa-rule')).toHaveText(ruleUnset);
