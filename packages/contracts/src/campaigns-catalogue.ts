@@ -31,6 +31,9 @@ export const CAMPAIGN_REFUSAL_CODES = [
   'campaigns.rule_too_large',
   'campaigns.rule_empty_group',
   'campaigns.rule_unknown',
+  'campaigns.formula_invalid',
+  'campaigns.trigger_unknown',
+  'campaigns.earning_rule_name_taken',
   'campaigns.budget_below_drawn',
   'campaigns.budget_unset',
   'campaigns.number_on_wire',
@@ -222,6 +225,36 @@ export const ruleTestResultSchema = z.object({
 });
 export type RuleTestResult = z.infer<typeof ruleTestResultSchema>;
 
+// ── Earning rules (CM-rewards-hub-05) ───────────────────────────────────────────────────────────────────────────────
+
+/**
+ * The triggers an earning rule may name: events declared in `packages/events`, each with the names its incentive
+ * formula may read. `trade.fill.settled`: `amount` is the fill's quote amount, `fee` its fee, `qty` its quantity.
+ * `pay.deposit_credit.posted`: `amount` is the amount credited. Anything else refuses `campaigns.trigger_unknown`.
+ */
+export const EARNING_TRIGGERS = {
+  'trade.fill.settled': { label: 'A spot fill settles', names: ['amount', 'fee', 'qty'] },
+  'pay.deposit_credit.posted': { label: 'A crypto deposit is credited', names: ['amount'] },
+} as const;
+export type EarningTrigger = keyof typeof EARNING_TRIGGERS;
+
+/**
+ * An earning rule: when its trigger's event arrives for a participant, and its condition holds, it gives the incentive
+ * its formula works out, in the campaign's reward asset. A formula is parsed from a closed grammar (decimal numbers, the
+ * trigger's names, `+ - * /`, brackets, `min(a, b)` and `max(a, b)`); anything else refuses `campaigns.formula_invalid`.
+ * A fixed incentive is a formula that is one number. A rule is part of the campaign revision (ENGINE LC-5).
+ */
+export const earningRuleSchema = z
+  .object({
+    name: z.string().trim().min(1).max(80),
+    trigger: z.string().max(64),
+    /** The condition on the event: its amount is at least this; null: any amount. */
+    minAmount: campaignDecimal.nullable().default(null),
+    formula: z.string().trim().min(1).max(200),
+  })
+  .strict();
+export type EarningRule = z.infer<typeof earningRuleSchema>;
+
 /**
  * Who can take part (CM-eligibility-rules-01, ENGINE EL-1 to EL-3). Exclusions read svc-identity: `business` is the
  * account type chosen at sign-up, `institution` the institutional KYC tier. Identity holds no market-maker or staff
@@ -356,6 +389,8 @@ export const campaignSchema = z.object({
   reward: campaignRewardSchema.nullable(),
   /** Steps, claim window and gate of a task campaign; null for any other campaign, or a task campaign with no steps. */
   tasks: campaignTasksSchema.nullable(),
+  /** Earning rules, in the order they are checked (CM-rewards-hub-05). */
+  earning: z.array(earningRuleSchema).default([]),
   createdBy: z.string(),
   submittedBy: z.string().nullable(),
   approvedBy: z.string().nullable(),
@@ -472,6 +507,8 @@ export const campaignDefinitionInputSchema = z
      * `campaigns.timezone_unset`. In this version only the platform zone is accepted (`campaigns.timezone_not_platform`).
      */
     timeZone: z.string().max(64).nullish(),
+    /** Earning rules (CM-rewards-hub-05); absent or null: none. */
+    earning: z.array(earningRuleSchema).max(20).nullish(),
   })
   .strict();
 export type CampaignDefinitionInput = z.infer<typeof campaignDefinitionInputSchema>;

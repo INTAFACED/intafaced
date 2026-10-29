@@ -23,6 +23,9 @@ import {
   type Participation,
   type ParticipationRules,
   type RewardLock,
+  EARNING_TRIGGERS,
+  type EarningRule,
+  type EarningTrigger,
   type RuleGroup,
   type RuleLibraryEntry,
   type RuleTestResult,
@@ -32,6 +35,7 @@ import { formatAmount, parseAmount as parseAmount18 } from '@intafaced/ledger-cl
 import { CampaignsError } from './codes.js';
 import { parseWindowTime } from './drops.js';
 import type { ParticipantSource } from './participants.js';
+import { parseFormula } from './formula.js';
 import { checkRule, evaluateRule, tryRule, type RuleLimits } from './rules.js';
 
 /**
@@ -88,6 +92,7 @@ type CampaignRow = {
   tasks: CampaignTasks | null;
   /** True while the founder has not picked the campaign's time zone; false reads the platform zone. */
   time_zone_blank: boolean;
+  earning: EarningRule[];
   /** What the campaign's reward intents reserve or spent, from `campaigns.campaign_rows`; absent on a RETURNING row. */
   budget_drawn?: string;
   created_by: string;
@@ -276,6 +281,7 @@ function toCampaign(r: CampaignRow, timeZone: string | null, now: Date, change: 
     budget: budgetOf(r),
     reward: r.reward_asset && r.reward_amount !== null ? { asset: r.reward_asset, amount: decimalOf(r.reward_amount) } : null,
     tasks: r.tasks,
+    earning: r.earning,
     createdBy: r.created_by,
     submittedBy: r.submitted_by,
     approvedBy: r.approved_by,
@@ -308,6 +314,7 @@ function inputOf(d: Definition): CampaignDefinitionInput {
     budget: d.budgetAsset && d.budgetLimit ? { asset: d.budgetAsset, limit: d.budgetLimit } : null,
     reward: d.rewardAsset && d.rewardAmount ? { asset: d.rewardAsset, amount: d.rewardAmount } : null,
     tasks: d.tasks,
+    ...(d.earning.length > 0 ? { earning: d.earning } : {}),
     // Blank stays blank; otherwise left out, which reads the platform zone.
     ...(d.timeZoneBlank ? { timeZone: null } : {}),
   };
@@ -332,6 +339,7 @@ function rowWith(r: CampaignRow, d: Definition): CampaignRow {
     reward_amount: d.rewardAmount,
     tasks: d.tasks,
     time_zone_blank: d.timeZoneBlank,
+    earning: d.earning,
   };
 }
 
@@ -353,6 +361,7 @@ function inputOfRow(r: CampaignRow): CampaignDefinitionInput {
     rewardAmount: r.reward_amount === null ? null : decimalOf(r.reward_amount),
     tasks: r.tasks,
     timeZoneBlank: r.time_zone_blank,
+    earning: r.earning,
   });
 }
 
@@ -455,6 +464,7 @@ type Definition = {
   rewardAmount: string | null;
   tasks: CampaignTasks | null;
   timeZoneBlank: boolean;
+  earning: EarningRule[];
 };
 
 /**
@@ -517,7 +527,25 @@ export function parseDefinition(input: CampaignDefinitionInput, platformZone: st
     rewardAmount: rewardAsset && rewardAmount ? rewardAmount : null,
     tasks,
     timeZoneBlank: parseCampaignZone(input.timeZone, platformZone),
+    earning: parseEarning(input.earning ?? []),
   };
+}
+
+/**
+ * Earning rules (CM-rewards-hub-05): a trigger from the closed catalogue, one name per rule, and a formula in the
+ * grammar, read against the names that trigger has. Stored as written, trimmed.
+ */
+function parseEarning(rules: readonly EarningRule[]): EarningRule[] {
+  const seen = new Set<string>();
+  return rules.map((r) => {
+    const trigger = EARNING_TRIGGERS[r.trigger as EarningTrigger];
+    if (!trigger) throw new CampaignsError('campaigns.trigger_unknown', `"${r.trigger}" is not a trigger in the catalogue`);
+    const name = r.name.trim();
+    if (seen.has(name.toLowerCase())) throw new CampaignsError('campaigns.earning_rule_name_taken', `Two earning rules are named ${name}`);
+    seen.add(name.toLowerCase());
+    parseFormula(r.formula, trigger.names);
+    return { name, trigger: r.trigger, minAmount: r.minAmount ?? null, formula: r.formula.trim() };
+  });
 }
 
 /** How the reward is given, stored the same way every time: a bonus's products in the closed list's order, once each. */
@@ -598,6 +626,7 @@ function sameDefinition(r: CampaignRow, d: Definition): boolean {
     r.reward_asset === d.rewardAsset &&
     amount(r.reward_amount) === amount(d.rewardAmount) &&
     canonical(r.tasks) === canonical(d.tasks) &&
+    canonical(r.earning) === canonical(d.earning) &&
     r.time_zone_blank === d.timeZoneBlank
   );
 }
@@ -653,10 +682,10 @@ export class CampaignService {
         await this.checkCampaignRule(tx, d);
         const [row] = await tx<CampaignRow[]>`
           INSERT INTO campaigns.campaigns (id, name, type, rules, starts_at, ends_at, weekdays, hours_from, hours_to,
-            participation, budget_asset, budget_limit, reward_asset, reward_amount, tasks, time_zone_blank, created_by)
+            participation, budget_asset, budget_limit, reward_asset, reward_amount, tasks, time_zone_blank, earning, created_by)
           VALUES (${id}, ${d.name}, ${d.type}, ${d.rules}, ${d.startsAt}, ${d.endsAt}, ${d.weekdays}, ${d.hoursFrom},
             ${d.hoursTo}, ${d.participation ? tx.json(d.participation) : null}, ${d.budgetAsset}, ${d.budgetLimit},
-            ${d.rewardAsset}, ${d.rewardAmount}, ${d.tasks ? tx.json(d.tasks as unknown as postgres.JSONValue) : null}, ${d.timeZoneBlank}, ${input.actor})
+            ${d.rewardAsset}, ${d.rewardAmount}, ${d.tasks ? tx.json(d.tasks as unknown as postgres.JSONValue) : null}, ${d.timeZoneBlank}, ${tx.json(d.earning as unknown as postgres.JSONValue)}, ${input.actor})
           RETURNING *`;
         await audit(tx, input.actor, 'campaign.create', id, { name: d.name, type: d.type });
         return toCampaign(row!, this.timeZone(), this.now());
@@ -698,6 +727,7 @@ export class CampaignService {
             participation = ${d.participation ? tx.json(d.participation) : null}, budget_asset = ${d.budgetAsset},
             budget_limit = ${d.budgetLimit}, reward_asset = ${d.rewardAsset}, reward_amount = ${d.rewardAmount},
             tasks = ${d.tasks ? tx.json(d.tasks as unknown as postgres.JSONValue) : null}, time_zone_blank = ${d.timeZoneBlank},
+            earning = ${tx.json(d.earning as unknown as postgres.JSONValue)},
             revision = revision + 1, updated_at = now()
           WHERE id = ${input.id}
           RETURNING *, (SELECT budget_drawn FROM campaigns.campaign_rows WHERE id = ${input.id}) AS budget_drawn`;
@@ -785,6 +815,7 @@ export class CampaignService {
         participation = ${d.participation ? tx.json(d.participation) : null}, budget_asset = ${d.budgetAsset},
         budget_limit = ${d.budgetLimit}, reward_asset = ${d.rewardAsset}, reward_amount = ${d.rewardAmount},
         tasks = ${d.tasks ? tx.json(d.tasks as unknown as postgres.JSONValue) : null}, time_zone_blank = ${d.timeZoneBlank},
+            earning = ${tx.json(d.earning as unknown as postgres.JSONValue)},
         revision = ${open.revision}, submitted_by = ${open.submitted_by}, approved_by = ${actor},
         approved_revision = ${open.revision}, updated_at = now()
       WHERE id = ${row.id}`;
