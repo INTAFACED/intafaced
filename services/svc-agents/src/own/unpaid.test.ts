@@ -82,13 +82,19 @@ const TABLE = parseRoutingTable({
     },
   ],
 });
+/** One output token a run: a window of a few runs then costs more than one run's worst case (the grace cases below). */
+const TINY = parseRoutingTable({
+  routes: [{ ...TABLE.routes[0]!, maxOutputTokens: 1, price: { inputPerMillion: '1', outputPerMillion: '5' } }],
+});
 const ASK = 'TEST question';
 const INSTRUCTIONS = 'Answer TEST questions.';
 /** The worst case of one run of the agent below: its instructions and the ask, at the route's output ceiling. */
-const WORST: Amount = usageCost(
-  { inputTokens: estimateInputTokens(INSTRUCTIONS, [{ role: 'user', content: ASK }]), outputTokens: 2048 },
-  TABLE.routes[0]!.price!,
-);
+const worstOf = (table: typeof TABLE): Amount =>
+  usageCost(
+    { inputTokens: estimateInputTokens(INSTRUCTIONS, [{ role: 'user', content: ASK }]), outputTokens: table.routes[0]!.maxOutputTokens },
+    table.routes[0]!.price!,
+  );
+const WORST: Amount = worstOf(TABLE);
 
 const available = await postgresAvailable(URL);
 
@@ -108,12 +114,15 @@ if (!available) {
   let ledger: MemoryLedger;
   /** When set, the ledger fails every fee charge with this fault (a ledger that is down, not one refusing for funds). */
   let chargeFault: Error | null;
+  /** When set, fee charges wait here until this many have arrived, so two settles of one window overlap for sure. */
+  let feeBarrier: { want: number; arrived: number; open: () => void; opened: Promise<void> } | null;
   let grace: Amount | null;
   let calls: number;
+  let table: typeof TABLE;
 
   function build() {
     const provider = new MockModelProvider({ id: 'primary' });
-    const inner = new ModelGateway([provider], TABLE);
+    const inner = new ModelGateway([provider], table);
     const gateway = Object.create(inner) as ModelGateway;
     gateway.complete = async (task: string, request: Parameters<ModelGateway['complete']>[1]) => {
       calls += 1;
@@ -122,6 +131,11 @@ if (!available) {
     const book = Object.create(ledger) as MemoryLedger;
     book.post = async (request) => {
       if (chargeFault && request.idempotencyKey.startsWith('fee:agents:')) throw chargeFault;
+      if (feeBarrier && request.idempotencyKey.startsWith('fee:agents:')) {
+        feeBarrier.arrived += 1;
+        if (feeBarrier.arrived >= feeBarrier.want) feeBarrier.open();
+        await feeBarrier.opened;
+      }
       return ledger.post(request);
     };
     const meter = new UsageMeter(sql, book, { assetId: 'USDT', windowMinutes: 60 });
@@ -195,8 +209,10 @@ if (!available) {
     `;
     ledger = new MemoryLedger();
     chargeFault = null;
+    feeBarrier = null;
     grace = null;
     calls = 0;
+    table = TABLE;
   });
 
   afterEach(async () => {
@@ -282,25 +298,70 @@ if (!available) {
       expect(await houseFeesNow()).toBe(cost);
     });
 
-    it('with a grace that covers what is owed, the next run is admitted and the window stays unpaid', async () => {
-      const { person, id, sessionId, cost } = await ranOnce();
-      grace = cost;
-      const giveBack = await closeUnpaid(person, id, sessionId, cost);
-      // Funds back for the new run's worst case, while the ledger still refuses the old window's charge for funds (as it
-      // would for a balance that covers a worst case but not that window): the grace is what admits the run.
-      await giveBack();
-      chargeFault = new InsufficientFundsError('', 'USDT', formatAmount(cost), '0');
+    it('with a grace that covers what is owed, a run whose own worst case the balance covers starts; the window stays unpaid', async () => {
+      table = TINY;
+      const { person, id, sessionId, cost: first } = await ranOnce();
+      let owed = first;
+      for (const requestId of ['unpaid-run-1b', 'unpaid-run-1c']) {
+        owed += units((await person.own.run({ id, sessionId, requestId, ask: ASK })).cost);
+      }
+      // A balance that covers one run's worst case but not the window: the ledger refuses the window for funds.
+      expect(owed - 1n).toBeGreaterThanOrEqual(worstOf(TINY));
+      await closeUnpaid(person, id, sessionId, owed);
+      expect(await balanceOf()).toBe(owed - 1n);
+      grace = owed;
       const graced = build().createCaller(callerFor(USER, PERSON));
       const { sessionId: next } = await graced.own.session.open({ id });
       await expect(graced.own.run({ id, sessionId: next, requestId: 'unpaid-run-2', ask: ASK })).resolves.toMatchObject({
         assetId: 'USDT',
       });
-      expect(calls).toBe(2);
-      expect((await graced.own.usage({ id, limit: 10 })).find((w) => w.sessionId === sessionId)).toMatchObject({ state: 'unpaid' });
+      expect(calls).toBe(4);
+      expect((await graced.own.usage({ id, limit: 10 })).find((w) => w.sessionId === sessionId)).toMatchObject({
+        state: 'unpaid',
+        amount: formatAmount(owed),
+      });
       expect(await houseFeesNow()).toBe(0n);
     });
 
-    it('with a grace below what is owed, the next run refuses agents.window_unpaid naming what is owed and the grace', async () => {
+    it('a grace never covers the run itself: a balance below its worst case refuses agents.funds_insufficient', async () => {
+      table = TINY;
+      const { person, id, sessionId, cost } = await ranOnce();
+      await closeUnpaid(person, id, sessionId, cost);
+      grace = cost;
+      // What is left is below the next run's worst case, whatever the grace forgives of the old window.
+      expect(await balanceOf()).toBe(cost - 1n);
+      expect(cost - 1n).toBeLessThan(worstOf(TINY));
+      const graced = build().createCaller(callerFor(USER, PERSON));
+      const { sessionId: next } = await graced.own.session.open({ id });
+      await expect(graced.own.run({ id, sessionId: next, requestId: 'unpaid-run-2', ask: ASK })).rejects.toMatchObject({
+        code: 'FORBIDDEN',
+        message: 'agents.funds_insufficient',
+      });
+      expect(calls).toBe(1);
+      expect(await houseFeesNow()).toBe(0n);
+    });
+
+    it('two settles of one unpaid window at once charge it once and log one settlement', async () => {
+      const { person, id, sessionId, cost } = await ranOnce();
+      const giveBack = await closeUnpaid(person, id, sessionId, cost);
+      await giveBack();
+      const { sessionId: next } = await person.own.session.open({ id });
+      let open = () => undefined as void;
+      const opened = new Promise<void>((resolve) => (open = resolve));
+      feeBarrier = { want: 2, arrived: 0, open, opened };
+      await Promise.all([
+        person.own.session.close({ id, sessionId }),
+        person.own.run({ id, sessionId: next, requestId: 'unpaid-run-2', ask: ASK }),
+      ]);
+      expect(feeBarrier.arrived).toBe(2);
+      expect(await houseFeesNow()).toBe(cost);
+      const settled = await sql`
+        SELECT 1 FROM agents.agent_actions WHERE session_id = ${sessionId} AND kind = 'usage_settlement' AND status = 'executed'
+      `;
+      expect(settled).toHaveLength(1);
+    });
+
+    it('with a grace below what is owed, the next run refuses agents.overage_grace_exceeded naming what is owed and the grace', async () => {
       const { person, id, sessionId, cost } = await ranOnce();
       grace = cost - 1n;
       await closeUnpaid(person, id, sessionId, cost);
@@ -309,7 +370,7 @@ if (!available) {
       const { sessionId: next } = await graced.own.session.open({ id });
       await expect(graced.own.run({ id, sessionId: next, requestId: 'unpaid-run-2', ask: ASK })).rejects.toMatchObject({
         code: 'FORBIDDEN',
-        message: 'agents.window_unpaid',
+        message: 'agents.overage_grace_exceeded',
       });
       expect(calls).toBe(1);
       const [row] = await sql<{ params: Record<string, string> }[]>`
@@ -318,7 +379,7 @@ if (!available) {
       expect(row!.params).toEqual({ owed: formatAmount(cost), grace: formatAmount(cost - 1n), asset: 'USDT' });
     });
 
-    it('a ledger fault other than funds on the retry is thrown: no run starts and the window is not counted as paid', async () => {
+    it('a ledger fault other than funds on the retry counts the window as owed: the run refuses with its code and its log row', async () => {
       const { person, id, sessionId, cost } = await ranOnce();
       const giveBack = await closeUnpaid(person, id, sessionId, cost);
       await giveBack();
@@ -326,9 +387,12 @@ if (!available) {
       const faulty = build().createCaller(callerFor(USER, PERSON));
       const { sessionId: next } = await faulty.own.session.open({ id });
       await expect(faulty.own.run({ id, sessionId: next, requestId: 'unpaid-run-2', ask: ASK })).rejects.toMatchObject({
-        code: 'INTERNAL_SERVER_ERROR',
+        code: 'FORBIDDEN',
+        message: 'agents.overage_grace_unset',
       });
       expect(calls).toBe(1);
+      const [refused] = await faulty.own.runs({ id, limit: 1 });
+      expect(refused).toMatchObject({ sessionId: next, status: 'refused', refusalCode: 'agents.overage_grace_unset', cost: '0' });
       expect((await faulty.own.usage({ id, limit: 10 })).find((w) => w.sessionId === sessionId)).toMatchObject({ state: 'unpaid' });
       expect(await houseFeesNow()).toBe(0n);
     });

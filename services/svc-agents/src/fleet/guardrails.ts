@@ -302,7 +302,7 @@ export const REFUSAL_CODES = [
   'agents.spend.cap_unset',
   // Refused by the runtime while a usage window the person owes could not be paid: past the owner's overage grace, or
   // with no grace published.
-  'agents.window_unpaid',
+  'agents.overage_grace_exceeded',
   'agents.overage_grace_unset',
   // Refused by the runtime when the session's current usage window is already sealed: it takes no more usage.
   'agents.window_sealed',

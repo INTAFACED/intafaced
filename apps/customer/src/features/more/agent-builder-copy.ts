@@ -130,8 +130,11 @@ const en = {
   code_window_unpaid:
     'A usage window could not be paid, so the session stays open. Add funds, then close it again: the window is retried on its same charge.',
   code_overage_grace_unset:
-    'Earlier usage could not be paid and no allowance for unpaid usage is set, so this run did not start. Add funds: the unpaid usage is retried on its same charge, then runs start again.',
-  code_window_sealed: 'This session’s usage is already settled, so it takes no more runs. Close it and open a new session.',
+    'Earlier usage is still unpaid and no allowance for unpaid usage is set, so this run did not start. It is retried on its same charge before each run; add funds if your balance is short.',
+  code_overage_grace_exceeded:
+    'Earlier usage still unpaid is more than the allowance for unpaid usage, so this run did not start. It is retried on its same charge before each run; add funds if your balance is short.',
+  code_window_sealed:
+    'This session’s usage period is sealed, so it takes no more runs. Open a new session; usage still unpaid is retried on its same charge.',
   closeSession: 'Close session',
   sessionClosed: 'Session closed. Its usage is paid.',
   usageTitle: 'Usage windows',
@@ -290,8 +293,11 @@ const es = {
   code_window_unpaid:
     'No se pudo pagar una ventana de uso, así que la sesión sigue abierta. Añade fondos y ciérrala otra vez: la ventana se reintenta con su mismo cargo.',
   code_overage_grace_unset:
-    'Un uso anterior no se pudo pagar y no hay margen fijado para uso impagado, así que esta ejecución no empezó. Añade fondos: el uso impagado se reintenta con su mismo cargo y luego las ejecuciones vuelven a empezar.',
-  code_window_sealed: 'El uso de esta sesión ya está liquidado, así que no admite más ejecuciones. Ciérrala y abre una sesión nueva.',
+    'Un uso anterior sigue impagado y no hay margen fijado para uso impagado, así que esta ejecución no empezó. Se reintenta con su mismo cargo antes de cada ejecución; añade fondos si tu saldo no alcanza.',
+  code_overage_grace_exceeded:
+    'El uso anterior impagado supera el margen para uso impagado, así que esta ejecución no empezó. Se reintenta con su mismo cargo antes de cada ejecución; añade fondos si tu saldo no alcanza.',
+  code_window_sealed:
+    'El periodo de uso de esta sesión está sellado, así que no admite más ejecuciones. Abre una sesión nueva; el uso aún impagado se reintenta con su mismo cargo.',
   closeSession: 'Cerrar sesión',
   sessionClosed: 'Sesión cerrada. Su uso está pagado.',
   usageTitle: 'Ventanas de uso',
@@ -450,8 +456,11 @@ const fr = {
   code_window_unpaid:
     'Une fenêtre d’usage n’a pas pu être payée, la session reste donc ouverte. Ajoutez des fonds puis fermez-la à nouveau : la fenêtre est retentée sur le même débit.',
   code_overage_grace_unset:
-    'Un usage précédent n’a pas pu être payé et aucune marge pour l’usage impayé n’est fixée, cette exécution n’a donc pas démarré. Ajoutez des fonds : l’usage impayé est retenté sur le même débit, puis les exécutions reprennent.',
-  code_window_sealed: 'L’usage de cette session est déjà réglé, elle n’accepte plus d’exécution. Fermez-la et ouvrez une nouvelle session.',
+    'Un usage précédent reste impayé et aucune marge pour l’usage impayé n’est fixée, cette exécution n’a donc pas démarré. Il est retenté sur le même débit avant chaque exécution ; ajoutez des fonds si votre solde ne suffit pas.',
+  code_overage_grace_exceeded:
+    'L’usage précédent impayé dépasse la marge pour l’usage impayé, cette exécution n’a donc pas démarré. Il est retenté sur le même débit avant chaque exécution ; ajoutez des fonds si votre solde ne suffit pas.',
+  code_window_sealed:
+    'La période d’usage de cette session est scellée, elle n’accepte plus d’exécution. Ouvrez une nouvelle session ; l’usage encore impayé est retenté sur le même débit.',
   closeSession: 'Fermer la session',
   sessionClosed: 'Session fermée. Son usage est payé.',
   usageTitle: 'Fenêtres d’usage',

@@ -329,36 +329,12 @@ export function ownRouter(sql: Sql | undefined, run?: OwnRunDeps) {
       .query(({ ctx, input }) => {
         assertPersonSetsLimits(ctx.principal);
         return guard(async () => {
-          const { feeAssetId } = runDepsOf(run);
           const agent = await storeOf(sql).get(ctx.principal.userId, input.id);
-          const rows = await sqlOf(sql)<
-            Array<{
-              session_id: string;
-              window_id: string;
-              sealed: boolean;
-              paid: boolean;
-              charged_amount: string | null;
-              charge_key: string | null;
-              opened_at: Date;
-            }>
-          >`
-            SELECT w.session_id::text, w.window_id, w.sealed_at IS NOT NULL AS sealed, w.charge_tx_id IS NOT NULL AS paid,
-                   w.charged_amount::text, w.charge_key, w.opened_at
-              FROM agents.usage_windows w
-              JOIN agents.agent_sessions s ON s.id = w.session_id
-             WHERE s.user_id = ${ctx.principal.userId}
-               AND s.agent_id = ${ownSessionAgentId(agent.id)}
-             ORDER BY w.opened_at DESC, w.window_id DESC
-             LIMIT ${input.limit}
-          `;
-          return rows.map((row) => ({
-            sessionId: row.session_id,
-            windowId: row.window_id,
-            state: !row.sealed ? ('open' as const) : row.paid ? ('settled' as const) : ('unpaid' as const),
-            amount: row.sealed && row.charged_amount !== null ? formatAmount(parseAmount(row.charged_amount)) : null,
-            chargeKey: row.charge_key,
-            assetId: feeAssetId,
-            openedAt: row.opened_at.toISOString(),
+          const windows = await runDepsOf(run).runtime.usageWindowsOf(ctx.principal.userId, ownSessionAgentId(agent.id), input.limit);
+          return windows.map((w) => ({
+            ...w,
+            amount: w.amount === null ? null : formatAmount(w.amount),
+            openedAt: w.openedAt.toISOString(),
           }));
         });
       }),

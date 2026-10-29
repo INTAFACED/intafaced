@@ -16,7 +16,7 @@ import {
 } from './fleet/guardrails.js';
 import { digestOfText, type ModelGateway } from './gateway/gateway.js';
 import type { RouteDef } from './gateway/routing.js';
-import { type SettlementResult, type UsageMeter } from './metering/meter.js';
+import { type SettlementResult, type UsageMeter, type UsageWindowView } from './metering/meter.js';
 import { meteringOffSettlementStub, shouldMeterUsage } from './metering/product-law.js';
 import { usageCost } from './metering/pricing.js';
 import type { TokenUsage } from './providers/provider.js';
@@ -519,8 +519,8 @@ export class AgentRuntime {
               }
             : {
                 allowed: false,
-                code: 'agents.window_unpaid',
-                userMessageKey: 'agents.refused.window_unpaid',
+                code: 'agents.overage_grace_exceeded',
+                userMessageKey: 'agents.refused.overage_grace_exceeded',
                 userMessageParams: { owed: formatAmount(owed), grace: formatAmount(grace), asset: this.feeAssetId },
               },
           { kind: 'completion', task: input.task },
@@ -600,6 +600,7 @@ export class AgentRuntime {
           assetId: this.feeAssetId,
           amount: formatAmount(worstCaseCost),
           agentCap: agentCapOf(session.guardrail),
+          overageGrace: this.overageGrace,
           ...(fundsRead ? { funds: fundsRead } : {}),
         });
         // A committed hold is a metered replay. Metering-off must not invent
@@ -636,6 +637,7 @@ export class AgentRuntime {
             assetId: this.feeAssetId,
             amount: formatAmount(worstCaseCost),
             agentCap: agentCapOf(session.guardrail),
+            overageGrace: this.overageGrace,
             ...(fundsRead ? { funds: fundsRead } : {}),
           });
         }
@@ -1121,31 +1123,31 @@ export class AgentRuntime {
   }
 
   /**
-   * Retry every sealed, unpaid window of the person's, across their sessions, each on its own charge key. Returns what
-   * is still owed. A window the ledger refuses for funds stays unpaid and counts; any other fault is thrown, so a run
-   * never starts on a payment nobody could confirm.
+   * Retry the person's sealed, unpaid windows, across their sessions, each on its own charge key, smallest first.
+   * Returns what is still owed. The first window the ledger does not take (short funds, a posting freeze, the ledger
+   * down) stops the retry, and it and every larger one stay unpaid and count: a payment nobody could confirm is owed,
+   * so the run refuses with its typed code (and its log row) unless the owner's grace covers it.
    */
   async retryUnpaidWindows(userId: string): Promise<Amount> {
-    const unpaid = await this.sql<Array<{ session_id: string; window_id: string; charged_amount: string }>>`
-      SELECT w.session_id::text, w.window_id, w.charged_amount::text
-        FROM agents.usage_windows w
-        JOIN agents.agent_sessions s ON s.id = w.session_id
-       WHERE s.user_id = ${userId}
-         AND w.sealed_at IS NOT NULL
-         AND w.charge_tx_id IS NULL
-         AND w.charged_amount > 0
-       ORDER BY w.sealed_at, w.window_id
-    `;
     let owed = 0n;
-    for (const row of unpaid) {
-      try {
-        await this.settleWindow(row.session_id, row.window_id);
-      } catch (err) {
-        if (!(err instanceof InsufficientFundsError)) throw err;
-        owed += parseAmount(row.charged_amount);
+    let stopped = false;
+    for (const window of await this.meter.unpaidWindows(userId)) {
+      if (!stopped) {
+        try {
+          await this.settleWindow(window.sessionId, window.windowId);
+          continue;
+        } catch {
+          stopped = true;
+        }
       }
+      owed += window.amount;
     }
     return owed;
+  }
+
+  /** The usage windows of one agent's sessions of a person's, newest first (see `UsageMeter.windowsOf`). */
+  async usageWindowsOf(userId: string, agentId: string, limit: number): Promise<UsageWindowView[]> {
+    return this.meter.windowsOf(userId, agentId, limit);
   }
 
   /** Settle every open window of a session. Used when a session closes. */

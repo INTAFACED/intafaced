@@ -288,7 +288,7 @@ test(`${J} #5 leaves the overage grace value blank after a window could not be p
   await session(page).getByRole('button', { name: 'Run', exact: true }).click();
   const refusal = session(page).getByRole('alert');
   await expect(refusal).toContainText(
-    'Earlier usage could not be paid and no allowance for unpaid usage is set, so this run did not start. Add funds: the unpaid usage is retried on its same charge, then runs start again.',
+    'Earlier usage is still unpaid and no allowance for unpaid usage is set, so this run did not start. It is retried on its same charge before each run; add funds if your balance is short.',
   );
   await expect(refusal.locator('code')).toHaveText('agents.overage_grace_unset');
   await expect(session(page).getByRole('region', { name: 'Reply' })).toHaveCount(0);

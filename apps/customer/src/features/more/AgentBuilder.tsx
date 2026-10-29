@@ -52,6 +52,7 @@ const CODE_WORDS = {
   'agents.session_not_found': 'code_session_not_found',
   'agents.window_unpaid': 'code_window_unpaid',
   'agents.overage_grace_unset': 'code_overage_grace_unset',
+  'agents.overage_grace_exceeded': 'code_overage_grace_exceeded',
   'agents.window_sealed': 'code_window_sealed',
 } as const;
 const wordsKey = (code: string) => (Object.hasOwn(CODE_WORDS, code) ? CODE_WORDS[code as keyof typeof CODE_WORDS] : null);
