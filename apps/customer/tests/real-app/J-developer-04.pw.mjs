@@ -206,14 +206,17 @@ test(`${J} #3 sends a request with two invalid fields: one typed body listing bo
 test(`${J} #4 provokes a gateway refusal and a service error: the edge prefix tells them apart`, async () => {
   const { trade } = run.read();
   const gateway = await call('GET', '/api/v1/account/balance', { key: 'ifc_not_a_real_key_000000000000' });
-  expect(gateway.status).toBe(401);
-  expect(codeOf(gateway), JSON.stringify(gateway.body)).toMatch(/^edge\./);
+  // Refused at the gateway: a key Edge cannot find, under Edge's own prefix.
+  expect(gateway.status, JSON.stringify(gateway.body)).toBe(401);
+  expect(codeOf(gateway)).toBe('edge.api_key_denied');
+  expect(codeOf(gateway)).toMatch(/^edge\./);
   const service = await call('POST', '/api/v1/orders', {
     ...trade,
     body: { symbol: 'NOPE/USDT', type: 'limit', side: 'buy', amount: '1', price: '1', clientOrderId: `jd04-${RUN}-4` },
   });
-  expect(service.status).toBeGreaterThanOrEqual(400);
-  expect(codeOf(service), JSON.stringify(service.body)).toBeTruthy();
+  // Passed the gateway and refused by the trade service: its own typed code, with no Edge prefix.
+  expect(service.status, JSON.stringify(service.body)).toBe(404);
+  expect(service.body).toMatchObject({ code: 'BadSymbol', intafacedCode: 'trade.market_not_found' });
   expect(codeOf(service)).not.toMatch(/^edge\./);
   for (const reply of [gateway, service]) expect(reply.body.requestId, JSON.stringify(reply.body)).toBeTruthy();
 });
