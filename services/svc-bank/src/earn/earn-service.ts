@@ -185,6 +185,8 @@ export interface EarnServiceOptions {
 export interface ReleaseReport {
   released: Array<{ positionId: string; principal: Amount }>;
   skipped: Array<{ positionId: string; code: BankErrorCode }>;
+  /** A full page was read: pass this as `after` for the rest, so savings that keep failing never block the others. */
+  next: string | null;
 }
 
 /** One approved pool status change (BK-earn-04), as `setPoolStatus` recorded it. */
@@ -986,20 +988,22 @@ export class EarnService {
    * runs at once, release once. A saving that fails is reported with its code and left for the next run; one cannot
    * stop the rest. `limit` is how many one run tries. Blank refuses, never a default.
    */
-  async releaseUnbonded(input: { at?: Date; poolId?: string; limit?: number }): Promise<ReleaseReport> {
-    const at = input.at ?? new Date();
+  async releaseUnbonded(input: { poolId?: string; limit?: number; after?: string }): Promise<ReleaseReport> {
+    // The bank's own clock decides when an unbonding ends: a caller cannot pass a later time to release early.
+    const now = new Date();
     const limit = assertEarnReleaseBatchLimit(input.limit);
     const due = await this.sql<Array<{ id: string }>>`
       SELECT id FROM bank.earn_positions
-       WHERE status = 'active' AND unbonds_at IS NOT NULL AND unbonds_at <= ${at}
+       WHERE status = 'active' AND unbonds_at IS NOT NULL AND unbonds_at <= ${now}
          ${input.poolId ? this.sql`AND pool_id = ${input.poolId}` : this.sql``}
-       ORDER BY unbonds_at ASC, id ASC
+         ${input.after ? this.sql`AND id > ${input.after}` : this.sql``}
+       ORDER BY id ASC
        LIMIT ${limit}
     `;
-    const report: ReleaseReport = { released: [], skipped: [] };
+    const report: ReleaseReport = { released: [], skipped: [], next: due.length === limit ? due[due.length - 1]!.id : null };
     for (const { id } of due) {
       try {
-        const closed = await this.withdraw(id, at);
+        const closed = await this.withdraw(id, now);
         report.released.push({ positionId: id, principal: closed.principal });
       } catch (err) {
         // Taken back by its saver since the list was read: nothing left to release.
@@ -1028,7 +1032,7 @@ export class EarnService {
     reason: string;
     revision: number;
     /** Spends the second person's approval; called only once every check has passed. */
-    approve: () => Promise<{ approvalId: string; approverId: string }>;
+    approve: () => Promise<{ approvalId: string; requesterId: string; approverId: string }>;
   }): Promise<PoolStatusChange> {
     return transaction(
       this.sql,
@@ -1038,6 +1042,23 @@ export class EarnService {
         `;
         const pool = rows[0];
         if (!pool) throw new BankError(`Pool ${input.poolId} not found`, 'bank.pool_not_found');
+        // The same change sent again (its answer lost): the recorded row is the answer, and no approval is spent.
+        const recorded = await tx<
+          Array<{ status: 'open' | 'closed'; previous_status: 'open' | 'closed'; reason: string; approved_by: string }>
+        >`
+          SELECT status, previous_status, reason, approved_by FROM bank.earn_pool_status_changes
+           WHERE pool_id = ${input.poolId} AND revision = ${input.revision}
+        `;
+        const same = recorded[0];
+        if (same && same.status === input.status && same.reason === input.reason) {
+          return {
+            poolId: input.poolId,
+            status: same.status,
+            previousStatus: same.previous_status,
+            revision: input.revision,
+            approvedBy: same.approved_by,
+          };
+        }
         if (pool.status === input.status) {
           throw new BankError(`Pool "${pool.name}" is already ${input.status}`, 'bank.pool_status_unchanged');
         }
@@ -1050,8 +1071,10 @@ export class EarnService {
         }
         const approval = await input.approve();
         await tx`
-          INSERT INTO bank.earn_pool_status_changes (pool_id, revision, status, previous_status, reason, approval_id)
-          VALUES (${input.poolId}, ${input.revision}, ${input.status}, ${pool.status}, ${input.reason}, ${approval.approvalId})
+          INSERT INTO bank.earn_pool_status_changes
+            (pool_id, revision, status, previous_status, reason, approval_id, requested_by, approved_by)
+          VALUES (${input.poolId}, ${input.revision}, ${input.status}, ${pool.status}, ${input.reason},
+                  ${approval.approvalId}, ${approval.requesterId}, ${approval.approverId})
         `;
         await tx`
           UPDATE bank.earn_pools SET status = ${input.status}, status_revision = ${input.revision}, updated_at = now()

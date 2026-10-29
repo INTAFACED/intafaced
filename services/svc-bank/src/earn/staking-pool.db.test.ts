@@ -233,11 +233,18 @@ describe('staking-style earn pool and pool status (BK-earn-04)', () => {
     expect((await customer(bank).earn.positions({ limit: 10, poolId })).map((p) => p.id)).toEqual([held]);
     expect(await main()).toBe(before);
 
-    const rows = await sql<Array<{ revision: number; status: string; previous_status: string; approval_id: string }>>`
-      SELECT revision, status, previous_status, approval_id FROM bank.earn_pool_status_changes WHERE pool_id = ${poolId}
+    const rows = await sql<Array<{ revision: number; status: string; previous_status: string; requested_by: string; approved_by: string }>>`
+      SELECT revision, status, previous_status, requested_by, approved_by FROM bank.earn_pool_status_changes WHERE pool_id = ${poolId}
     `;
     expect(rows).toHaveLength(1);
-    expect(rows[0]).toMatchObject({ revision: 1, status: 'closed', previous_status: 'open' });
+    // Both people are on the record: the proposer and the second person.
+    expect(rows[0]).toMatchObject({
+      revision: 1,
+      status: 'closed',
+      previous_status: 'open',
+      requested_by: OPERATOR,
+      approved_by: APPROVER,
+    });
     // The record is append-only.
     await expect(sql`UPDATE bank.earn_pool_status_changes SET reason = 'edited' WHERE pool_id = ${poolId}`).rejects.toThrow(/append-only/);
   });
@@ -263,14 +270,42 @@ describe('staking-style earn pool and pool status (BK-earn-04)', () => {
     const approvals = deskApprovals();
     const poolId = await openStaking(bank, approvals);
     const spent = approvals.consumed;
-    const outcomes = await Promise.allSettled([close(bank, approvals, poolId, 1), close(bank, approvals, poolId, 1)]);
+    // The same change under the same key, twice at once: one is recorded, the other reads it back.
+    const same = await Promise.all([close(bank, approvals, poolId, 1), close(bank, approvals, poolId, 1)]);
+    expect(same[0]).toEqual({ poolId, status: 'closed', previousStatus: 'open', revision: 1, approvedBy: APPROVER });
+    expect(same[1]).toEqual(same[0]);
+    expect(approvals.consumed).toBe(spent + 1);
 
+    // Two different changes at once for the same next revision: one lands, the other is stale and spends nothing.
+    const reopen = (reason: string): SetEarnPoolStatusInput => ({ poolId, status: 'open', reason, revision: 2 });
+    const outcomes = await Promise.allSettled(
+      [reopen('TEST reopen one'), reopen('TEST reopen two')].map((change) =>
+        treasury(bank, approvals).ops.setEarnPoolStatus({ ...change, ...approvals.status(change) }),
+      ),
+    );
     expect(outcomes.map((o) => o.status).sort()).toEqual(['fulfilled', 'rejected']);
     const refused = outcomes.find((o): o is PromiseRejectedResult => o.status === 'rejected')!;
     expect(refused.reason).toMatchObject({ cause: { code: 'bank.pool_status_unchanged' } });
-    expect(approvals.consumed).toBe(spent + 1);
-    const rows = await sql`SELECT revision FROM bank.earn_pool_status_changes WHERE pool_id = ${poolId}`;
-    expect(rows).toHaveLength(1);
+    expect(approvals.consumed).toBe(spent + 2);
+    const rows = await sql`SELECT revision FROM bank.earn_pool_status_changes WHERE pool_id = ${poolId} ORDER BY revision`;
+    expect(rows.map((r) => r.revision)).toEqual([1, 2]);
+  });
+
+  it('a change sent again after its answer was lost reads back the recorded change and spends no approval', async () => {
+    const bank = services(TEST_WORDING);
+    const approvals = deskApprovals();
+    const poolId = await openStaking(bank, approvals);
+    const first = await close(bank, approvals, poolId, 1);
+    const spent = approvals.consumed;
+    expect(await close(bank, approvals, poolId, 1)).toEqual(first);
+    expect(approvals.consumed).toBe(spent);
+    // The same revision with another reason is not the same change: it is stale.
+    const other: SetEarnPoolStatusInput = { poolId, status: 'closed', reason: 'TEST another reason', revision: 1 };
+    await expect(treasury(bank, approvals).ops.setEarnPoolStatus({ ...other, ...approvals.status(other) })).rejects.toMatchObject({
+      cause: { code: 'bank.pool_status_unchanged' },
+    });
+    expect(approvals.consumed).toBe(spent);
+    expect(await sql`SELECT revision FROM bank.earn_pool_status_changes WHERE pool_id = ${poolId}`).toHaveLength(1);
   });
 
   it('a held saving keeps accruing in a closed pool, unbonds once, earns no later day, and is released once', async () => {
@@ -319,17 +354,23 @@ describe('staking-style earn pool and pool status (BK-earn-04)', () => {
     const nextDay = new Date(Date.parse(`${new Date(asked).toISOString().slice(0, 10)}T00:00:00Z`) + DAY + HOUR);
     expect(await bank.earn.accrue({ poolId, at: nextDay })).toMatchObject({ paid: 0n, recipients: 0 });
 
-    // The release job: nothing before the end, once at it, nothing again.
-    const early = await jobs(bank).ops.releaseUnbondedEarn({ limit: 10, at: new Date(unbondsAt - 60_000).toISOString() });
-    expect(early).toEqual({ released: [], skipped: [] });
+    // The release job: nothing before the end by the bank's clock, whatever time a caller names.
+    const lateClock = { limit: 10, at: new Date(unbondsAt + DAY).toISOString() } as unknown as { limit: number };
+    expect(await jobs(bank).ops.releaseUnbondedEarn(lateClock)).toEqual({ released: [], skipped: [], next: null });
     expect(await main()).toBe(afterInterest);
-    const due = new Date(unbondsAt + 60_000).toISOString();
-    expect(await jobs(bank).ops.releaseUnbondedEarn({ limit: 10, at: due })).toEqual({
+    // The unbonding ends (moved back in time, as the bank's clock passing it would).
+    await sql`
+      UPDATE bank.earn_positions
+         SET unbonding_started_at = unbonding_started_at - interval '7 days 1 minute', unbonds_at = unbonds_at - interval '7 days 1 minute'
+       WHERE id = ${positionId}
+    `;
+    expect(await jobs(bank).ops.releaseUnbondedEarn({ limit: 10 })).toEqual({
       released: [{ positionId, principal: '1000' }],
       skipped: [],
+      next: null,
     });
     expect(await main()).toBe(formatAmount(amt(afterInterest) + amt('1000')));
-    expect(await jobs(bank).ops.releaseUnbondedEarn({ limit: 10, at: due })).toEqual({ released: [], skipped: [] });
+    expect(await jobs(bank).ops.releaseUnbondedEarn({ limit: 10 })).toEqual({ released: [], skipped: [], next: null });
     expect(await main()).toBe(formatAmount(amt(afterInterest) + amt('1000')));
     expect(await customer(bank).earn.positions({ limit: 10, poolId })).toEqual([]);
   });
@@ -345,6 +386,34 @@ describe('staking-style earn pool and pool status (BK-earn-04)', () => {
     const [position] = await customer(bank).earn.positions({ limit: 10, poolId: plain.poolId });
     expect(position).toMatchObject({ staking: null, unbondsAt: null });
     expect(await customer(bank).earn.withdraw({ positionId })).toEqual({ positionId, principal: '100', status: 'closed', unbondsAt: null });
+  });
+
+  it('the release job pages by cursor, so the savings at the front never hold the rest back', async () => {
+    const bank = services(TEST_WORDING);
+    const approvals = deskApprovals();
+    const poolId = await openStaking(bank, approvals);
+    const ids = [randomUUID(), randomUUID()].sort();
+    for (const positionId of ids) {
+      await customer(bank).earn.deposit({ poolId, positionId, amount: '100' });
+      await customer(bank).earn.withdraw({ positionId, unbond: true });
+    }
+    await sql`
+      UPDATE bank.earn_positions
+         SET unbonding_started_at = unbonding_started_at - interval '8 days', unbonds_at = unbonds_at - interval '8 days'
+       WHERE pool_id = ${poolId}
+    `;
+    const first = await jobs(bank).ops.releaseUnbondedEarn({ limit: 1, poolId });
+    expect(first).toEqual({ released: [{ positionId: ids[0], principal: '100' }], skipped: [], next: ids[0] });
+    expect(await jobs(bank).ops.releaseUnbondedEarn({ limit: 1, poolId, after: first.next! })).toEqual({
+      released: [{ positionId: ids[1], principal: '100' }],
+      skipped: [],
+      next: ids[1],
+    });
+    expect(await jobs(bank).ops.releaseUnbondedEarn({ limit: 1, poolId, after: ids[1] })).toEqual({
+      released: [],
+      skipped: [],
+      next: null,
+    });
   });
 
   it('the release job refuses a blank batch size', async () => {

@@ -39,7 +39,7 @@ const en = {
   riskTitle: 'Risks of this pool',
   riskSlashing: 'Slashing',
   riskOwnership: 'Who owns the staked assets',
-  riskUnset: 'The bank has not published its risk wording for staking-style pools yet. That is not a statement that there is no risk.',
+  riskUnset: 'The bank’s risk wording for staking-style pools is not set. That is not a statement that there is no risk.',
   riskKnown: 'What the bank’s own records already say: while a saving is unbonding it earns nothing and cannot be taken back early.',
   everyDay: 'Every day, for each full UTC day',
   simple: 'Simple: interest goes to your main balance and is not added to what you saved',
@@ -123,7 +123,7 @@ const es = {
   riskTitle: 'Riesgos de este fondo',
   riskSlashing: 'Penalización (slashing)',
   riskOwnership: 'Quién es dueño de los activos en staking',
-  riskUnset: 'El banco aún no ha publicado su texto de riesgos para los fondos tipo staking. Eso no significa que no haya riesgo.',
+  riskUnset: 'El texto de riesgos del banco para los fondos tipo staking no está fijado. Eso no significa que no haya riesgo.',
   riskKnown: 'Lo que ya dicen los registros del banco: mientras un ahorro se desvincula no genera intereses y no se puede retirar antes.',
   everyDay: 'Cada día, por cada día UTC completo',
   simple: 'Simple: los intereses van a tu saldo principal y no se suman a lo ahorrado',
@@ -209,7 +209,7 @@ const fr = {
   riskSlashing: 'Pénalité (slashing)',
   riskOwnership: 'Qui possède les actifs en staking',
   riskUnset:
-    'La banque n’a pas encore publié son texte sur les risques des fonds de type staking. Cela ne veut pas dire qu’il n’y a aucun risque.',
+    'Le texte de la banque sur les risques des fonds de type staking n’est pas fixé. Cela ne veut pas dire qu’il n’y a aucun risque.',
   riskKnown:
     'Ce que disent déjà les registres de la banque : pendant le déblocage, une épargne ne rapporte rien et ne peut pas être reprise plus tôt.',
   everyDay: 'Chaque jour, pour chaque journée UTC complète',

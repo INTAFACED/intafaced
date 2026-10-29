@@ -10,7 +10,7 @@
 --
 -- `earn_pools.status_revision` counts the pool's status changes, and `earn_pool_status_changes` records each one under
 -- (pool, revision), the change's business key `pool-status:<poolId>:<revision>`, with the four-eyes approval that made
--- it. A status is a pool-level pause on new savings only; it neither reads nor sets an account or posting freeze.
+-- it and both people. A status is a pool-level pause on new savings only; it neither reads nor sets an account or posting freeze.
 --
 -- Reversal: 20261029203714_earn_unbonding.down.sql (refuses while any pool unbonds, a saving is unbonding or a status
 -- change is recorded).
@@ -42,6 +42,8 @@ CREATE TABLE IF NOT EXISTS "bank"."earn_pool_status_changes" (
   "previous_status" "bank"."pool_status" NOT NULL,
   "reason" text NOT NULL,
   "approval_id" text NOT NULL,
+  "requested_by" text NOT NULL,
+  "approved_by" text NOT NULL,
   "created_at" timestamptz NOT NULL DEFAULT now(),
   PRIMARY KEY ("pool_id", "revision"),
   CONSTRAINT "earn_pool_status_changes_revision_ck" CHECK ("revision" > 0),

@@ -163,8 +163,17 @@ async function job(procedure, input) {
 }
 /** One day of earn interest for one pool. */
 const accrue = async (poolId, at) => (await job('ops.accrueInterest', { poolId, at: at.toISOString() })).results[0];
-/** The unbonding release job for one pool, run at `at`. */
-const release = (poolId, at) => job('ops.releaseUnbondedEarn', { poolId, at: at.toISOString(), limit: 10 });
+/** The unbonding release job for one pool, by the bank's own clock. */
+const release = (poolId) => job('ops.releaseUnbondedEarn', { poolId, limit: 10 });
+/** Ends one TEST saving's unbonding now on this stack (moves its two dates back), as seven days passing would. */
+function endUnbonding(positionId) {
+  const r = spawnSync(
+    process.execPath,
+    [path.join(ROOT, 'tooling/scripts/local-test-seed.mjs'), 'end-earn-unbonding', positionId, '--state', localStackState()],
+    { encoding: 'utf8', env: { ...process.env, LOCAL_TEST: '1' } },
+  );
+  expect(r.status, `${r.stdout}${r.stderr}`).toBe(0);
+}
 /** The renewal job for one pool, run at `at`. */
 const renew = (poolId, at) => job('ops.renewEarnTerms', { poolId, at: at.toISOString(), limit: 10 });
 /** The journey pool's TEST reserve, moved by the seed's own funding step; `ref` keys it, so a retry funds once. */
@@ -578,13 +587,23 @@ test(`${J} #6 opens a staking-style pool: unbonding states and pool status; a cl
   // An unbonding saving earns nothing: the next day pays nobody in this pool.
   expect(await accrue(staking.id, new Date(firstDay + 25 * 60 * 60 * 1000))).toMatchObject({ paid: '0', recipients: 0 });
 
-  // Nothing comes back before the period ends; at its end the bank's job pays the saving back once.
-  expect(await release(staking.id, new Date(ends - 60_000))).toEqual({ released: [], skipped: [] });
-  expect(await release(staking.id, new Date(ends + 60_000))).toEqual({
+  // Nothing comes back before the period ends by the bank's clock, even when a caller names a later time; at its end
+  // the bank's job pays the saving back once.
+  expect(ends).toBeGreaterThan(Date.now());
+  expect(await job('ops.releaseUnbondedEarn', { poolId: staking.id, limit: 10, at: new Date(ends + 60_000).toISOString() })).toEqual({
+    released: [],
+    skipped: [],
+    next: null,
+  });
+  expect(await release(staking.id)).toEqual({ released: [], skipped: [], next: null });
+  expect(await mainUsdt(api)).toBe(before);
+  endUnbonding(position.id);
+  expect(await release(staking.id)).toEqual({
     released: [{ positionId: position.id, principal: '100' }],
     skipped: [],
+    next: null,
   });
-  expect(await release(staking.id, new Date(ends + 60_000))).toEqual({ released: [], skipped: [] });
+  expect(await release(staking.id)).toEqual({ released: [], skipped: [], next: null });
   expect(await mainUsdt(api)).toBe(before + toUnits('100'));
   await page.reload();
   await expect(page.locator(`[data-testid="earn-pool-position"][data-position="${position.id}"]`)).toHaveCount(0);

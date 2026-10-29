@@ -24,7 +24,7 @@ type ConsumeOpsApprovalPair = (
   input: { approvalId?: string | null; operationId?: string | null },
   actionType: string,
   fields: Record<string, string>,
-) => Promise<{ approvalId: string; approverId: string }>;
+) => Promise<{ approvalId: string; requesterId: string; approverId: string }>;
 
 const amountString = z.string().regex(/^\d+(\.\d{1,18})?$/, 'amount must be an unsigned decimal string (max 18dp)');
 /** `apr_bps` is numeric(8,0): the column's own bound, not a product limit. */

@@ -269,28 +269,28 @@ BANK_SEND_FIELD_RULES_JSON=    # owner-published purpose / source-of-funds / ref
 
 ### `ops` — operator only
 
-| Procedure                  | Scope            | Purpose                                                                                                                                 |
-| -------------------------- | ---------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
-| `ops.runDueTransfers`      | `admin:treasury` | Fire every due standing order                                                                                                           |
-| `ops.accrueInterest`       | `admin:treasury` | One day's earn interest, one pool or all                                                                                                |
-| `ops.fundPool`             | `admin:treasury` | Move bank revenue into a pool's reserve                                                                                                 |
-| `ops.fundLoanReserve`      | `admin:treasury` | Top up the debt-asset reserve loans draw from                                                                                           |
-| `ops.accrueLoanInterest`   | `admin:treasury` | Capitalise loan interest (no ledger post; unique per loan/day)                                                                          |
-| `ops.runRiskSweep`         | `admin:treasury` | Mark open loans; margin-call and liquidate past grace                                                                                   |
-| `ops.resumePendingLoans`   | `admin:treasury` | Re-drive loans stuck between collateral lock and principal draw                                                                         |
-| `ops.resumePendingEarn`    | `admin:treasury` | Re-drive earn deposits stuck pending after ledger post                                                                                  |
-| `ops.renewEarnTerms`       | `admin:treasury` | Start the next term of ended fixed-term savings with auto-renew on                                                                      |
-| `ops.setEarnPoolStatus`    | `admin:treasury` | Four-eyes: close a pool to new savings or open it again, keyed `pool-status:<poolId>:<revision>`; unchanged or stale spends no approval |
-| `ops.releaseUnbondedEarn`  | job (svc-bank)   | Pay back staking-style savings whose unbonding ended, through `earnWithdraw`; a second run releases nothing                             |
-| `ops.abandonPendingLoan`   | `admin:treasury` | Give up on a pending loan and return collateral                                                                                         |
-| `ops.adjustLoanInterest`   | `admin:treasury` | Four-eyes interest correction: a new signed row with its reason                                                                         |
-| `ops.cardAuthorize`        | `admin:treasury` | The authorisation "webhook" — decide, and hold if the answer is yes                                                                     |
-| `ops.cardCapture`          | `admin:treasury` | The merchant took this much; the remainder of the hold goes back                                                                        |
-| `ops.cardReverse`          | `admin:treasury` | The authorisation expired or was voided; the whole hold goes back                                                                       |
-| `ops.cardResumeSettlement` | `admin:treasury` | Re-drive a claimed card capture/reversal that never reached ledger                                                                      |
-| `ops.fundCashbackPot`      | `admin:treasury` | Sweep bank revenue into the pot cashback is paid from                                                                                   |
-| `ops.creditOnramp`         | `admin:treasury` | Crypto ledger-half on-ramp credit (never user-callable)                                                                                 |
-| `ops.runAutoInvest`        | `admin:treasury` | Fire due auto-invest rules (threshold sweeps; DCA when convert wired)                                                                   |
+| Procedure                  | Scope            | Purpose                                                                                                                                                                   |
+| -------------------------- | ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ops.runDueTransfers`      | `admin:treasury` | Fire every due standing order                                                                                                                                             |
+| `ops.accrueInterest`       | `admin:treasury` | One day's earn interest, one pool or all                                                                                                                                  |
+| `ops.fundPool`             | `admin:treasury` | Move bank revenue into a pool's reserve                                                                                                                                   |
+| `ops.fundLoanReserve`      | `admin:treasury` | Top up the debt-asset reserve loans draw from                                                                                                                             |
+| `ops.accrueLoanInterest`   | `admin:treasury` | Capitalise loan interest (no ledger post; unique per loan/day)                                                                                                            |
+| `ops.runRiskSweep`         | `admin:treasury` | Mark open loans; margin-call and liquidate past grace                                                                                                                     |
+| `ops.resumePendingLoans`   | `admin:treasury` | Re-drive loans stuck between collateral lock and principal draw                                                                                                           |
+| `ops.resumePendingEarn`    | `admin:treasury` | Re-drive earn deposits stuck pending after ledger post                                                                                                                    |
+| `ops.renewEarnTerms`       | `admin:treasury` | Start the next term of ended fixed-term savings with auto-renew on                                                                                                        |
+| `ops.setEarnPoolStatus`    | `admin:treasury` | Four-eyes: close a pool to new savings or open it again, keyed `pool-status:<poolId>:<revision>`; unchanged or stale spends no approval                                   |
+| `ops.releaseUnbondedEarn`  | job (svc-bank)   | Pay back staking-style savings whose unbonding ended by the bank's clock (no caller time), through `earnWithdraw`; pages by `after`/`next`; a second run releases nothing |
+| `ops.abandonPendingLoan`   | `admin:treasury` | Give up on a pending loan and return collateral                                                                                                                           |
+| `ops.adjustLoanInterest`   | `admin:treasury` | Four-eyes interest correction: a new signed row with its reason                                                                                                           |
+| `ops.cardAuthorize`        | `admin:treasury` | The authorisation "webhook" — decide, and hold if the answer is yes                                                                                                       |
+| `ops.cardCapture`          | `admin:treasury` | The merchant took this much; the remainder of the hold goes back                                                                                                          |
+| `ops.cardReverse`          | `admin:treasury` | The authorisation expired or was voided; the whole hold goes back                                                                                                         |
+| `ops.cardResumeSettlement` | `admin:treasury` | Re-drive a claimed card capture/reversal that never reached ledger                                                                                                        |
+| `ops.fundCashbackPot`      | `admin:treasury` | Sweep bank revenue into the pot cashback is paid from                                                                                                                     |
+| `ops.creditOnramp`         | `admin:treasury` | Crypto ledger-half on-ramp credit (never user-callable)                                                                                                                   |
+| `ops.runAutoInvest`        | `admin:treasury` | Fire due auto-invest rules (threshold sweeps; DCA when convert wired)                                                                                                     |
 
 These jobs are deliberately **not user-callable**: a user who can trigger "run every due transfer" or the risk sweep chooses when other people's money moves (or when their collateral is sold). `admin:treasury` is interactive-only (§4.1), so it can never be held by a long-lived API key.
 

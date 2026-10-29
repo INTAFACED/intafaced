@@ -183,13 +183,15 @@ export function createOpsRouter(c: BankRouterContext) {
         z.object({
           limit: z.number().int().min(1).max(1_000).optional(),
           poolId: z.string().guid().optional(),
-          at: z.string().datetime({ offset: true }).optional(),
+          /** The previous page's `next`. There is no `at`: the bank's own clock decides when an unbonding ends. */
+          after: z.string().guid().optional(),
         }),
       )
       .output(
         z.object({
           released: z.array(z.object({ positionId: z.string(), principal: amountString })),
           skipped: z.array(z.object({ positionId: z.string(), code: z.string() })),
+          next: z.string().nullable(),
         }),
       )
       .mutation(async ({ input }) =>
@@ -197,11 +199,12 @@ export function createOpsRouter(c: BankRouterContext) {
           const report = await bank.earn.releaseUnbonded({
             limit: input.limit,
             ...(input.poolId ? { poolId: input.poolId } : {}),
-            ...(input.at ? { at: new Date(input.at) } : {}),
+            ...(input.after ? { after: input.after } : {}),
           });
           return {
             released: report.released.map((r) => ({ positionId: r.positionId, principal: formatAmount(r.principal) })),
             skipped: report.skipped,
+            next: report.next,
           };
         }),
       ),

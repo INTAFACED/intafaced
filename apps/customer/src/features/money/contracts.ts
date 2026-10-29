@@ -51,6 +51,8 @@ export const positionSchema = z.object({
   unbondsAt: z.string().datetime({ offset: true }).nullable(),
   /** The pool's unbonding period (BK-earn-04): taking this saving back starts it. Null: paid back at once. */
   unbondingDays: z.number().int().positive().nullable(),
+  /** Staking-style only (BK-earn-04): staked, unbonding or unbonded by the bank's clock, never the device's. */
+  staking: z.enum(['staked', 'unbonding', 'unbonded']).nullable(),
 });
 /**
  * What a pool publishes beyond its rate and term (svc-bank `earn.router.ts`, BK-earn-02 and BK-earn-05): how interest is

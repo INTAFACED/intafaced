@@ -182,7 +182,8 @@ export function PoolWithdraw({ pool, position, open }: { pool: Pool; position: P
     );
   }
   const unbondsAt = position.unbondsAt;
-  if (unbondsAt !== null && Date.parse(unbondsAt) > Date.now()) {
+  // The bank's clock says whether the unbonding has ended, so a device clock that runs fast or slow changes nothing.
+  if (unbondsAt !== null && position.staking === 'unbonding') {
     return (
       <p className="money-earn-lock" data-testid="earn-withdraw" data-state="unbonding" data-until={unbondsAt}>
         {t('unbondingUntil', { date: date(unbondsAt) })}

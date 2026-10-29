@@ -927,9 +927,11 @@ function Earn({ open }: { open: (spec: ActionSpec) => void }) {
                       {/* A staking-style saving waits through unbonding, which its pool's own page shows and starts (BK-earn-04). */}
                       {position.unbondsAt !== null || position.unbondingDays !== null ? (
                         <p className="money-caption" data-testid="earn-position-staking">
-                          {position.unbondsAt !== null
+                          {position.unbondsAt !== null && position.staking === 'unbonding'
                             ? earnCopy.t('unbondingOnPool', { date: date(position.unbondsAt) })
-                            : earnCopy.t('stakingOnPool')}{' '}
+                            : position.staking === 'unbonded'
+                              ? earnCopy.t('unbondedOnPool')
+                              : earnCopy.t('stakingOnPool')}{' '}
                           <a className="text-link" href={poolHref(position.poolId)}>
                             {earnCopy.t('openPool')}
                           </a>

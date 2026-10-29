@@ -31,6 +31,7 @@ import {
   applyLoans,
   applyP2p,
   ageLoan,
+  endEarnUnbonding,
   earnFundingId,
   earnPoolName,
   fundEarnPool,
@@ -1014,6 +1015,27 @@ test('age-loan: whole days from 1 to the cap on a loan id, and only the TEST pro
   assert.deepEqual(calls, [{ loanId: LOAN, days: 15, products: TEST_LOANS.map((row) => row.name) }]);
   assert.match(report.lines[0], /moved back 15 days/);
   assert.equal(report.lines[1], FUNDS_LABEL);
+});
+
+test('end-earn-unbonding: a saving id only, checked against the TEST pool names, and a refusal names why', async () => {
+  const SAVING = '1b2c3d4e-5f6a-4b7c-8d9e-0f1a2b3c4d5e';
+  const calls = [];
+  const deps = {
+    async endUnbondingRows(positionId, testPoolName) {
+      calls.push(positionId);
+      assert.equal(testPoolName.test('TEST · staking'), true);
+      assert.equal(testPoolName.test('Staking'), false);
+      return { unbondsAt: '2026-10-29T10:00:00.000Z' };
+    },
+  };
+  await assert.rejects(endEarnUnbonding(deps, 'not-a-saving'), GuardError);
+  await assert.rejects(endEarnUnbonding(deps, undefined), GuardError);
+  assert.equal(calls.length, 0);
+  const report = await endEarnUnbonding(deps, SAVING);
+  assert.deepEqual(calls, [SAVING]);
+  assert.deepEqual(report.lines, [`saving ${SAVING}: unbonding ends 2026-10-29T10:00:00.000Z (moved back)`, FUNDS_LABEL]);
+  const refusing = { endUnbondingRows: async () => ({ refused: 'is not unbonding' }) };
+  await assert.rejects(endEarnUnbonding(refusing, SAVING), /saving 1b2c3d4e-5f6a-4b7c-8d9e-0f1a2b3c4d5e is not unbonding/);
 });
 
 test('age-loan: a loan the database refuses to age is a guard refusal naming why', async () => {

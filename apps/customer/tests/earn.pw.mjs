@@ -39,6 +39,7 @@ const position = {
   nextPayoutOn: '2026-01-03',
   unbondsAt: null,
   unbondingDays: null,
+  staking: null,
 };
 const reply = (r, data) => r.fulfill({ json: { result: { data } } }),
   failed = (r) => r.fulfill({ status: 503, json: { error: 'Unavailable', message: 'Current read failed.' } });

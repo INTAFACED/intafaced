@@ -19,6 +19,7 @@ const messages = {
   refresh: 'Refresh',
   stakingOnPool: 'This pool is staking-style: taking it back starts unbonding, so it is done on the pool’s own page.',
   unbondingOnPool: 'Unbonding: it comes back to your main balance on {date}. The pool’s own page shows where it stands.',
+  unbondedOnPool: 'Unbonding has ended: the bank pays it back to your main balance, or you can take it back now on the pool’s own page.',
   openPool: 'Open the pool',
 } as const;
 
@@ -47,6 +48,7 @@ const es = {
   refresh: 'Actualizar',
   stakingOnPool: 'Este fondo es tipo staking: retirarlo inicia la desvinculación, así que se hace en la página del fondo.',
   unbondingOnPool: 'Desvinculando: vuelve a tu saldo principal el {date}. La página del fondo muestra en qué punto está.',
+  unbondedOnPool: 'La desvinculación terminó: el banco lo devuelve a tu saldo principal, o puedes retirarlo ahora en la página del fondo.',
   openPool: 'Abrir el fondo',
 } as const;
 const fr = {
@@ -74,6 +76,8 @@ const fr = {
   refresh: 'Actualiser',
   stakingOnPool: 'Ce fonds est de type staking : reprendre lance le déblocage, cela se fait donc sur la page du fonds.',
   unbondingOnPool: 'En déblocage : revient sur ton solde principal le {date}. La page du fonds montre où elle en est.',
+  unbondedOnPool:
+    'Le déblocage est terminé : la banque la reverse sur ton solde principal, ou tu peux la reprendre maintenant sur la page du fonds.',
   openPool: 'Ouvrir le fonds',
 } as const;
 export const earnCopy = defineCopy('customer.money.earn', messages, { es, fr });

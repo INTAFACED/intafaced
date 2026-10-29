@@ -319,6 +319,10 @@ export const earnPositions = bank.table(
     /** The accrual job sweeps a pool's open positions. */
     index('earn_positions_pool_status_idx').on(t.poolId, t.status),
     index('earn_positions_user_status_idx').on(t.userId, t.status),
+    /** The unbonding release job's sweep (BK-earn-04); unbonding CHECKs live in the migration. */
+    index('earn_positions_unbonds_at_idx')
+      .on(t.unbondsAt)
+      .where(sql`${t.status} = 'active' AND ${t.unbondsAt} IS NOT NULL`),
   ],
 );
 
@@ -429,6 +433,9 @@ export const earnPoolStatusChanges = bank.table(
     previousStatus: poolStatusEnum('previous_status').notNull(),
     reason: text('reason').notNull(),
     approvalId: text('approval_id').notNull(),
+    /** The person who proposed the change and the second person who approved it. */
+    requestedBy: text('requested_by').notNull(),
+    approvedBy: text('approved_by').notNull(),
     createdAt: createdAt(),
   },
   (t) => [primaryKey({ columns: [t.poolId, t.revision] })],
