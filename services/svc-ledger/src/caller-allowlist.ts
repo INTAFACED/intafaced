@@ -74,6 +74,9 @@ export const LEDGER_POST_ALLOWLIST = {
   },
   'svc-market': {
     marketPurchase: g('market', 'services/svc-market/src/commerce/commerce-service.ts'),
+    marketPurchaseHold: g('market', 'services/svc-market/src/commerce/held-purchase.ts'),
+    marketPurchaseRefund: g('market', 'services/svc-market/src/commerce/held-purchase.ts'),
+    marketPurchaseRelease: g('market', 'services/svc-market/src/commerce/held-purchase.ts'),
   },
   'svc-mining-pool': {
     rewardPay: g('token', 'services/svc-mining-pool/src/ledger.ts'),

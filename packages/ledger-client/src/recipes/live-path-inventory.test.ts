@@ -75,9 +75,6 @@ const PINNED_SOCKETS: readonly { name: RecipeName; fingerprint: string }[] = [
   { name: 'orderHoldAmend', fingerprint: 'eb8454c78c05' },
   { name: 'marketListingFee', fingerprint: 'c6b5159bbd35' },
   { name: 'marketPremiumPlacement', fingerprint: 'ef52f37a4786' },
-  { name: 'marketPurchaseHold', fingerprint: 'd42384c631c1' },
-  { name: 'marketPurchaseRefund', fingerprint: 'cab4cf971742' },
-  { name: 'marketPurchaseRelease', fingerprint: '98c0d45b2efa' },
   { name: 'payReceivedHold', fingerprint: 'd38b34fa6dff' },
   { name: 'payReceivedRelease', fingerprint: '7d6896cf46f5' },
   { name: 'payReceivedReturn', fingerprint: '8ccf8023ca20' },
@@ -99,9 +96,6 @@ const SOCKET_CALLER_ALLOWLIST: ReadonlyMap<RecipeName, readonly string[]> = new 
   ['orderHoldAmend', [RECIPE_GATE_CATALOG]],
   ['marketListingFee', [RECIPE_GATE_CATALOG]],
   ['marketPremiumPlacement', [RECIPE_GATE_CATALOG]],
-  ['marketPurchaseHold', [RECIPE_GATE_CATALOG]],
-  ['marketPurchaseRefund', [RECIPE_GATE_CATALOG]],
-  ['marketPurchaseRelease', [RECIPE_GATE_CATALOG]],
   ['payReceivedHold', [RECIPE_GATE_CATALOG]],
   ['payReceivedRelease', [RECIPE_GATE_CATALOG]],
   ['payReceivedReturn', [RECIPE_GATE_CATALOG]],
@@ -118,11 +112,11 @@ describe('D26-P2-11 recipe matrix inventory (live path closure)', () => {
     expect(inventory.live.length + inventory.sockets.length).toBe(inventory.recipes.length);
   });
 
-  it('pins live vs §13 socket counts on tip (85 = 73 live + 12 socket)', () => {
+  it('pins live vs §13 socket counts on tip (85 = 76 live + 9 socket)', () => {
     const counts = countByKind(inventory);
-    expect(counts).toEqual({ live: 73, socket: 12 });
+    expect(counts).toEqual({ live: 76, socket: 9 });
     expect(inventory.recipes).toHaveLength(85);
-    expect(liveRecipeKeys(inventory)).toHaveLength(73);
+    expect(liveRecipeKeys(inventory)).toHaveLength(76);
     expect(socketRecipeKeys(inventory)).toEqual(PINNED_SOCKETS.map((s) => s.name).sort());
   });
 

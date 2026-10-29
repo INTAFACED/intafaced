@@ -34,6 +34,7 @@ import {
   requireListingCategory,
 } from './listing-categories.js';
 import { MARKET_OPS_SCOPE, MarketError, type PublicVendorProfile, type VendorService } from '../vendor-service.js';
+import { HeldPurchases, MARKET_PURCHASE_ALREADY_HELD, type PurchaseHold } from './held-purchase.js';
 
 /** Public `listings` page size unpublished. Blank is not 50. */
 export const MARKET_PUBLIC_LISTINGS_LIST_LIMIT_UNSET = 'market.public_listings_list_limit_unset' as const;
@@ -262,6 +263,10 @@ export interface PurchaseRecord {
    * was null. Never a default month.
    */
   periodSeconds: number | null;
+  /** The owner's refund window at claim, in whole seconds. Null: a direct sale with no hold. */
+  refundWindowSeconds: number | null;
+  /** The hold once a held purchase settled: held, refunded or released. Null for a direct sale or before settle. */
+  hold: PurchaseHold | null;
 }
 
 interface ListingRow {
@@ -300,6 +305,7 @@ interface PurchaseRow {
   settled_at: Date | null;
   access_until: Date | null;
   period_seconds: number | string | null;
+  refund_window_seconds?: number | string | null;
 }
 
 function toListing(row: ListingRow): ListingRecord {
@@ -335,6 +341,8 @@ function toPurchase(row: PurchaseRow): PurchaseRecord {
     settledAt: row.settled_at ? row.settled_at.toISOString() : null,
     accessUntil: row.access_until ? row.access_until.toISOString() : null,
     periodSeconds: row.period_seconds == null || row.period_seconds === '' ? null : Number(row.period_seconds),
+    refundWindowSeconds: row.refund_window_seconds == null || row.refund_window_seconds === '' ? null : Number(row.refund_window_seconds),
+    hold: null,
   };
 }
 
@@ -361,11 +369,17 @@ export interface CommerceConfig {
   affiliatePayout?: AffiliatePayoutPort;
   /** Clock for access windows. Tests inject; production uses wall time. */
   now?: () => Date;
+  /**
+   * The owner's refund window in whole seconds, or null / absent when unset. Set: purchases are held until it ends.
+   * Unset: a direct sale, and a refund ask refuses `market.refund_policy_unset`. Never a default.
+   */
+  refundWindowSeconds?: number | null;
 }
 
 export class CommerceService {
   private readonly affiliateAccrue: AffiliateAccruePort;
   private readonly affiliatePayout: AffiliatePayoutPort;
+  readonly held: HeldPurchases;
 
   constructor(
     private readonly sql: Sql,
@@ -375,6 +389,29 @@ export class CommerceService {
   ) {
     this.affiliateAccrue = config.affiliateAccrue ?? new NoopAffiliateAccrue();
     this.affiliatePayout = config.affiliatePayout ?? new NoopAffiliatePayout();
+    this.held = new HeldPurchases({
+      sql,
+      ledger,
+      now: () => this.now(),
+      refundWindowSeconds: config.refundWindowSeconds ?? null,
+      requireMatchingReceipt: (tx, request) => this.requireMatchingReceipt(tx, request),
+      afterRelease: (p) => this.afterHeldRelease(p),
+    });
+  }
+
+  /** Each purchase with its hold, when it has one. */
+  private async withHolds(rows: PurchaseRecord[]): Promise<PurchaseRecord[]> {
+    const holds = await this.held.holdsOf(rows.map((row) => row.id));
+    return rows.map((row) => ({ ...row, hold: holds.get(row.id) ?? null }));
+  }
+
+  /** The buyer's refund ask on a held purchase; returns the purchase as stored after it. */
+  async refundPurchase(input: { buyerId: string; purchaseId: string }): Promise<PurchaseRecord> {
+    await this.held.refund(input);
+    const [row] = await this.sql<PurchaseRow[]>`SELECT * FROM market.purchases WHERE id = ${input.purchaseId}`;
+    if (!row) throw new MarketError('Refund did not persist', 'market.purchase_not_written');
+    const [withHold] = await this.withHolds([toPurchase(row)]);
+    return withHold!;
   }
 
   private now(): Date {
@@ -794,6 +831,11 @@ export class CommerceService {
    * sell gates → post from the claim snapshot → settle only while still pending.
    */
   async purchase(input: { buyerId: string; listingId: string; purchaseId: string }): Promise<PurchaseRecord> {
+    const [stored] = await this.withHolds([await this.purchaseOnce(input)]);
+    return stored!;
+  }
+
+  private async purchaseOnce(input: { buyerId: string; listingId: string; purchaseId: string }): Promise<PurchaseRecord> {
     if (!input.purchaseId?.trim()) {
       throw new MarketError('purchaseId is required', 'market.purchase_id_required');
     }
@@ -831,6 +873,17 @@ export class CommerceService {
 
     const price = this.positiveDecimalPrice(listing.price);
 
+    // A live hold on this listing makes "Buy again" one purchase: refuse before writing a claim. The claim itself
+    // re-checks under a lock, for two claims racing.
+    if (this.config.refundWindowSeconds != null) {
+      const [live] = await this.sql<Array<{ purchase_id: string }>>`
+        SELECT purchase_id FROM market.purchase_holds
+         WHERE listing_id = ${listing.id} AND buyer_id = ${input.buyerId} AND state = 'held' AND purchase_id <> ${input.purchaseId}
+         LIMIT 1
+      `;
+      if (live) throw new MarketError('A purchase of this listing is already held or settling', MARKET_PURCHASE_ALREADY_HELD);
+    }
+
     // Claim / idempotent resume. Payee, asset, and period are copied from the
     // listing and vendor rows inside the insert — not taken as separate arguments.
     // A null listing period stays null. No default month.
@@ -840,11 +893,21 @@ export class CommerceService {
       buyerId: input.buyerId,
       price: formatAmount(price),
       commissionBps,
+      refundWindowSeconds: this.config.refundWindowSeconds ?? null,
     });
+    if (claimed.status === 'pending' && claimed.refundWindowSeconds !== null) {
+      const only = await this.held.claimIsTheOnlyHold({ purchaseId: claimed.id, listingId: claimed.listingId, buyerId: claimed.buyerId });
+      if (!only) {
+        throw new MarketError('A purchase of this listing is already held or settling', MARKET_PURCHASE_ALREADY_HELD);
+      }
+    }
     if (claimed.status === 'settled') {
       return this.ensureSubscriptionAccess(claimed, listing);
     }
     if (claimed.status === 'rejected') {
+      if (claimed.rejectionCode === MARKET_PURCHASE_ALREADY_HELD) {
+        throw new MarketError('A purchase of this listing is already held or settling', MARKET_PURCHASE_ALREADY_HELD);
+      }
       throw new MarketError(claimed.rejectionCode ?? 'Purchase previously rejected', 'market.purchase_conflict');
     }
 
@@ -873,6 +936,10 @@ export class CommerceService {
     // listing price or a made-up amount.
     const snapshotPrice = this.positiveDecimalPrice(claimed.price);
     const snapshotBps = claimed.commissionBps;
+
+    if (claimed.refundWindowSeconds !== null) {
+      return this.postHeld(claimed, snapshotPrice, claimed.refundWindowSeconds, liveListing);
+    }
 
     try {
       const request = recipes.marketPurchase({
@@ -940,6 +1007,58 @@ export class CommerceService {
     }
   }
 
+  /**
+   * Post the claim's hold and settle the purchase with its hold row. The seller is paid nothing and no affiliate leg
+   * fires until release. A retry posts the same key and terms; the ledger answers the first post.
+   */
+  private async postHeld(claimed: PurchaseRecord, price: Amount, windowSeconds: number, listing: ListingRecord): Promise<PurchaseRecord> {
+    const request = this.held.holdRequest({ ...claimed, price });
+    let tx: LedgerTx;
+    try {
+      tx = await this.ledger.post(request).catch((error: unknown) => {
+        if (error instanceof LedgerError && error.code === IDEMPOTENCY_CONFLICT_CODE) {
+          throw new MarketError('Ledger receipt does not match this purchase', 'market.purchase_receipt_mismatch');
+        }
+        throw error;
+      });
+    } catch (err) {
+      if (err instanceof MarketError) throw err;
+      // The pending claim stays for a retry under the same key, as with a direct sale.
+      if (err && typeof err === 'object' && 'code' in err && (err as { code: unknown }).code === 'ledger.insufficient_funds') {
+        throw new MarketError('Insufficient balance for this purchase', 'market.insufficient_funds');
+      }
+      throw err;
+    }
+    if (tx.entries.length > 0) await this.requireMatchingReceipt(tx, request);
+    await this.held.settleHeld({
+      purchaseId: claimed.id,
+      listingId: claimed.listingId,
+      buyerId: claimed.buyerId,
+      price,
+      windowSeconds,
+      holdTxId: tx.id,
+    });
+    const [reload] = await this.sql<PurchaseRow[]>`SELECT * FROM market.purchases WHERE id = ${claimed.id}`;
+    if (reload?.status === 'settled') return this.ensureSubscriptionAccess(toPurchase(reload), listing);
+    if (reload?.status === 'rejected') {
+      throw new MarketError(reload.rejection_code ?? 'Purchase previously rejected', 'market.purchase_conflict');
+    }
+    throw new MarketError('Purchase settle returned no row', 'market.purchase_not_written');
+  }
+
+  /** A held purchase's affiliate legs fire once its release paid the house commission. Best-effort; never throws. */
+  private async afterHeldRelease(p: {
+    id: string;
+    vendorUserId: string;
+    assetId: string;
+    price: Amount;
+    commissionBps: number;
+  }): Promise<void> {
+    const claimed = { id: p.id, vendorUserId: p.vendorUserId, assetId: p.assetId } as PurchaseRecord;
+    await this.notifyMarketAffiliateAccrue(claimed, p.price, p.commissionBps);
+    await this.notifyMarketAffiliatePayout(claimed, p.price, p.commissionBps);
+  }
+
   /** Best-effort; never throws. marketPurchase already posted. */
   private async notifyMarketAffiliateAccrue(claimed: PurchaseRecord, snapshotPrice: Amount, snapshotBps: number): Promise<void> {
     await fireAffiliateAccrue(
@@ -977,7 +1096,7 @@ export class CommerceService {
       SELECT * FROM market.purchases WHERE buyer_id = ${buyerId} ORDER BY created_at DESC
        LIMIT ${limit}
     `;
-    return rows.map(toPurchase);
+    return this.withHolds(rows.map(toPurchase));
   }
 
   /**
@@ -1009,13 +1128,18 @@ export class CommerceService {
         settled_at: Date;
       }>
     >`
-      SELECT id, listing_id, asset_id, price::text AS price, commission_bps, ledger_tx_id, settled_at
-        FROM market.purchases
-       WHERE vendor_id = ${mine.id}
-         AND status = 'settled'
-         AND settled_at >= ${fromIso}::timestamptz
-         AND settled_at <= ${toIso}::timestamptz
-       ORDER BY settled_at ASC, id ASC
+      SELECT p.id, p.listing_id, p.asset_id, p.price::text AS price, p.commission_bps,
+             -- A released hold paid the seller in its release post, not in the hold.
+             COALESCE(h.release_tx_id, p.ledger_tx_id) AS ledger_tx_id, p.settled_at
+        FROM market.purchases p
+        LEFT JOIN market.purchase_holds h ON h.purchase_id = p.id
+       WHERE p.vendor_id = ${mine.id}
+         AND p.status = 'settled'
+         -- A held purchase is the seller's only once released.
+         AND (h.purchase_id IS NULL OR h.state = 'released')
+         AND p.settled_at >= ${fromIso}::timestamptz
+         AND p.settled_at <= ${toIso}::timestamptz
+       ORDER BY p.settled_at ASC, p.id ASC
     `;
     const byAsset = new Map<string, { gross: Amount; commission: Amount; net: Amount }>();
     const sales: EarningsSale[] = [];
@@ -1367,6 +1491,10 @@ export class CommerceService {
          AND buyer_id = ${buyerId}
          AND status = 'settled'
          AND access_until IS NOT NULL
+         -- A refunded purchase gives no access.
+         AND NOT EXISTS (
+           SELECT 1 FROM market.purchase_holds h WHERE h.purchase_id = market.purchases.id AND h.state = 'refunded'
+         )
     `;
     return row?.until ?? null;
   }
@@ -1649,12 +1777,13 @@ export class CommerceService {
     buyerId: string;
     price: string;
     commissionBps: number;
+    refundWindowSeconds: number | null;
   }): Promise<PurchaseRecord> {
     try {
       const inserted = await this.sql<PurchaseRow[]>`
         INSERT INTO market.purchases (
           id, listing_id, buyer_id, vendor_id, vendor_user_id,
-          asset_id, price, commission_bps, period_seconds, status
+          asset_id, price, commission_bps, period_seconds, refund_window_seconds, status
         )
         SELECT
           ${input.purchaseId},
@@ -1666,6 +1795,7 @@ export class CommerceService {
           ${input.price}::numeric,
           ${input.commissionBps},
           l.period_seconds,
+          ${input.refundWindowSeconds},
           'pending'
         FROM market.listings l
         JOIN market.vendors v ON v.id = l.vendor_id

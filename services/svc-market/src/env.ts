@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { edgeEnvSchema, internalServiceEnvSchema, loadEnv, s2sEnvSchema, serviceEnvSchema } from '@intafaced/config';
-import { marketHouseCommissionBpsSchema } from './house-commission-bps.js';
+import { marketHouseCommissionBpsSchema, marketRefundWindowSecondsSchema } from './house-commission-bps.js';
 
 /**
  * svc-market environment.
@@ -52,6 +52,13 @@ const schema = serviceEnvSchema
        * missing / whitespace → refuse every purchase. Do not invent 0.
        */
       MARKET_HOUSE_COMMISSION_BPS: marketHouseCommissionBpsSchema,
+
+      /**
+       * The owner's refund window, whole seconds. NO DEFAULT. Set: a purchase is held in the buyer's own pot until the
+       * window ends, refundable inside it, then released to the seller. Blank: a direct sale as before, and a refund ask
+       * refuses `market.refund_policy_unset`. Never invent a window.
+       */
+      MARKET_REFUND_WINDOW_SECONDS: marketRefundWindowSecondsSchema,
     }),
   );
 

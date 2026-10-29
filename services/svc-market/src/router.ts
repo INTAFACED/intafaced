@@ -192,6 +192,9 @@ function mapError(err: unknown): never {
       err.code === 'market.listing_taken_down' ||
       err.code === 'market.takedown_approval_mismatch' ||
       err.code === 'market.review_not_settled' ||
+      err.code === 'market.refund_policy_unset' ||
+      err.code === 'market.refund_window_closed' ||
+      err.code === 'market.purchase_not_refundable' ||
       err.code === MARKET_LISTING_PIN_UNSET ||
       err.code === MARKET_LISTING_PIN_IEEE ||
       err.code === MARKET_LISTING_SET_UNSET ||
@@ -205,11 +208,12 @@ function mapError(err: unknown): never {
     if (err.code === 'market.listing_slot_missing' || err.code === 'market.slot_required' || err.code === 'market.listing_over_capacity') {
       throw new TRPCError({ code: 'PRECONDITION_FAILED', message, cause: err });
     }
-    if (err.code === 'market.listing_not_found') {
+    if (err.code === 'market.listing_not_found' || err.code === 'market.purchase_not_found') {
       throw new TRPCError({ code: 'NOT_FOUND', message, cause: err });
     }
     if (
       err.code === 'market.purchase_conflict' ||
+      err.code === 'market.purchase_already_held' ||
       err.code === 'market.purchase_receipt_mismatch' ||
       err.code === 'market.purchase_self' ||
       err.code === 'market.listing_not_owned' ||
@@ -291,6 +295,20 @@ const purchaseOut = z.object({
   settledAt: z.string().datetime().nullable(),
   accessUntil: z.string().datetime().nullable(),
   periodSeconds: z.number().int().positive().nullable(),
+  refundWindowSeconds: z.number().int().positive().nullable(),
+  hold: z
+    .object({
+      state: z.enum(['held', 'refunded', 'released']),
+      heldAmount: z.string(),
+      heldAt: z.string().datetime(),
+      windowEndsAt: z.string().datetime(),
+      refundRequestedAt: z.string().datetime().nullable(),
+      refundedAt: z.string().datetime().nullable(),
+      refundTxId: z.string().guid().nullable(),
+      releasedAt: z.string().datetime().nullable(),
+      releaseTxId: z.string().guid().nullable(),
+    })
+    .nullable(),
 });
 
 const salesRowOut = z.object({
@@ -1100,6 +1118,23 @@ export function createMarketRouter(
             listingId: input.listingId,
             purchaseId: input.purchaseId,
           });
+        } catch (err) {
+          mapError(err);
+        }
+      }),
+
+    /**
+     * The buyer asks for a held purchase's whole amount back, inside its refund window. Blank refund policy refuses
+     * `market.refund_policy_unset`; after the window `market.refund_window_closed`; a direct sale
+     * `market.purchase_not_refundable`. A retry after the refund posted returns the same refunded purchase.
+     */
+    refundPurchase: scopedProcedure('market:write', { module: 'market' })
+      .input(z.object({ purchaseId: z.string().guid() }))
+      .output(purchaseOut)
+      .mutation(async ({ ctx, input }) => {
+        requireCommerce(commerce);
+        try {
+          return await commerce.refundPurchase({ buyerId: ctx.principal!.userId, purchaseId: input.purchaseId });
         } catch (err) {
           mapError(err);
         }

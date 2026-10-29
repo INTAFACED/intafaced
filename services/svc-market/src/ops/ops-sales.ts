@@ -149,7 +149,11 @@ export async function queryOpsSales(sql: Sql, input: OpsSalesQuery): Promise<Ops
     SELECT vendor_id, asset_id, status, price::text AS price, commission_bps
       FROM market.purchases
      WHERE (
-       (status = 'settled' AND settled_at >= ${fromIso}::timestamptz AND settled_at <= ${toIso}::timestamptz)
+       (status = 'settled' AND settled_at >= ${fromIso}::timestamptz AND settled_at <= ${toIso}::timestamptz
+         -- A held purchase is a sale only once released to the seller.
+         AND NOT EXISTS (
+           SELECT 1 FROM market.purchase_holds h WHERE h.purchase_id = market.purchases.id AND h.state <> 'released'
+         ))
        OR (status = 'pending' AND created_at >= ${fromIso}::timestamptz AND created_at <= ${toIso}::timestamptz)
        OR (status = 'rejected' AND created_at >= ${fromIso}::timestamptz AND created_at <= ${toIso}::timestamptz)
      )

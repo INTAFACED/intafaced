@@ -44,6 +44,7 @@ tRPC under `/trpc` (edge mounts `/api/market`). Principal via edge HMAC
 | `myListings`               | `market:read`  | Caller's listings                                                                                             |
 | `purchase`                 | `market:write` | One-time or one-period subscription purchase (`purchaseId`)                                                   |
 | `myPurchases`              | `market:read`  | Caller's purchases                                                                                            |
+| `refundPurchase`           | `market:write` | Ask for the whole amount back on a held purchase, inside its refund window                                    |
 | `cancelSubscription`       | `market:write` | Stop new access; no ledger reverse                                                                            |
 | `subscriptionAccess`       | `market:read`  | Time-bounded grant, or named past-due / cancelled                                                             |
 | `claimSlot`                | `market:write` | Take a listing slot, if the caller's tier has one                                                             |
@@ -264,7 +265,9 @@ With `S2S_AUTH_MODE`, `S2S_SIGNING_KID` and `S2S_SIGNING_KEY` set, the calls to 
 
 **Vendors half moves no value.** Slot capacity is not money. **Commerce half**
 depends on `@intafaced/ledger-client` and posts only `recipes.marketPurchase`
-(buyer → vendor net + `houseFees('market')`). Market tables hold no balances —
+(buyer → vendor net + `houseFees('market')`) and, with the refund window set, the
+held-purchase recipes `marketPurchaseHold`, `marketPurchaseRefund` and
+`marketPurchaseRelease`. Market tables hold no balances —
 price and commission_bps are intent records. The house rate is owner-gated via
 `MARKET_HOUSE_COMMISSION_BPS` (no default).
 
@@ -306,9 +309,12 @@ otherwise.
 
 ## Commerce money path (Class M)
 
-| Recipe           | Reason            | Accounts                                                   |
-| ---------------- | ----------------- | ---------------------------------------------------------- |
-| `marketPurchase` | `market.purchase` | buyer available → vendor available + `houseFees('market')` |
+| Recipe                  | Reason                     | Accounts                                                      |
+| ----------------------- | -------------------------- | ------------------------------------------------------------- |
+| `marketPurchase`        | `market.purchase`          | buyer available → vendor available + `houseFees('market')`    |
+| `marketPurchaseHold`    | `market.purchase.held`     | buyer available → buyer escrow `market:purchase:<purchaseId>` |
+| `marketPurchaseRefund`  | `market.purchase.refunded` | buyer escrow → buyer available                                |
+| `marketPurchaseRelease` | `market.purchase.released` | buyer escrow → vendor available + `houseFees('market')`       |
 
 - **Idempotency:** `market.purchase:<purchaseId>` (client-supplied).
 - **Categories:** product enum in `@intafaced/contracts` — `bots`, `defi`,
@@ -355,6 +361,33 @@ otherwise.
   `market.subscription_cancelled` if cancelled). Leftover rows without a period
   stay off the public catalogue. Automatic recurring `subscribe` still refuses
   `market.subscription_recurring_not_built` (no second recipe / scheduler).
+
+### Held purchases and refunds (J-more-catalogue-02 #4 to #6)
+
+- **Owner setting:** `MARKET_REFUND_WINDOW_SECONDS` (whole seconds, 1 to 31536000) — **no default**.
+  - **Set:** `purchase` posts `marketPurchaseHold` (key `market:hold:<purchaseId>`): the price waits in the
+    buyer's own pot for that purchase and the seller is paid nothing yet. The purchase settles with a
+    `market.purchase_holds` row whose window ends that many seconds after the settle. The window is part of the
+    claim snapshot (`purchases.refund_window_seconds`, immutable), so a retried claim posts what the first chose.
+  - **Blank:** a direct sale (`marketPurchase`), as before, and `refundPurchase` refuses
+    `market.refund_policy_unset`.
+- **Refund:** inside the window the buyer may ask once for the whole amount (`marketPurchaseRefund`, key
+  `market:refund:<purchaseId>:1`). The ask is written to the hold row first, then posted, so a crash between the
+  two still ends in the refund. A retry returns the same refunded hold. Refusals: `market.purchase_not_found`
+  (not the caller's), `market.purchase_not_refundable` (sold directly), `market.refund_window_closed` (window
+  over or released).
+- **Release:** every 30 s the service finishes due holds: an asked-for refund posts first; otherwise, once the
+  window has ended, `marketPurchaseRelease` (key `market:release:<purchaseId>`) pays the seller net and the house
+  the snapshot commission, then the affiliate legs fire. A row another worker holds is skipped. A failed post
+  leaves the pot held for the next run under the same key.
+- **One live hold:** buying a listing again while a purchase of it is held or settling refuses
+  `market.purchase_already_held`, before anything posts (an advisory lock per listing and buyer, and a partial
+  unique index).
+- **Reads:** `myPurchases` returns `refundWindowSeconds` and `hold`. Seller earnings and ops sales count a held
+  purchase only once released (earnings name the release post). A refunded hold grants no access.
+- **Schema:** `0012_market_purchase_holds.sql`. Hold terms are immutable, final states are locked, an ask cannot
+  be withdrawn and blocks a release, and rows are never deleted. The reversal refuses
+  (`market.purchase_hold_downgrade_refused`) while any purchase was claimed with a window.
 
 No balance column exists on `market.listings` or `market.purchases`. Price and
 commission_bps are intent records; the only balances live in svc-ledger.

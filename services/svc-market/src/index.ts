@@ -75,6 +75,9 @@ await sql`SELECT 1 FROM market.reviews LIMIT 1`.catch(() => {
 await sql`SELECT 1 FROM market.listing_category_events LIMIT 1`.catch(() => {
   throw new Error('market.listing_category_events is missing — run migrations before starting svc-market');
 });
+await sql`SELECT 1 FROM market.purchase_holds LIMIT 1`.catch(() => {
+  throw new Error('market.purchase_holds is missing — run migrations before starting svc-market');
+});
 
 // Per-service keys (S2S v3): unset S2S_AUTH_MODE leaves every outgoing call on the shared secret alone.
 const s2s = s2sFromEnv(env, 'svc-market');
@@ -83,6 +86,7 @@ const vendors = new VendorService(sql, createStakeSource(env.TOKEN_URL, env.INTE
 const ledger = createLedgerClient(env.LEDGER_URL, env.INTERNAL_SERVICE_SECRET, s2sKey);
 const commerce = new CommerceService(sql, vendors, ledger, {
   commissionBps: env.MARKET_HOUSE_COMMISSION_BPS ?? null,
+  refundWindowSeconds: env.MARKET_REFUND_WINDOW_SECONDS ?? null,
   affiliateAccrue: env.IDENTITY_URL ? createAffiliateAccrueClient(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET, s2sKey) : undefined,
   affiliatePayout: env.IDENTITY_URL ? createAffiliatePayoutClient(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET, s2sKey) : undefined,
 });
@@ -118,6 +122,24 @@ await app.register(fastifyTRPCPlugin, {
 });
 
 await app.listen({ host: env.HTTP_HOST, port: env.HTTP_PORT });
+
+// Held purchases whose refund window has ended are released to the seller, and an asked-for refund that did not post
+// is posted. The window is the owner's and is snapshotted on each hold; this cadence only bounds how late after the
+// window's end a release posts. It runs with the window blank too, so holds taken before the setting was cleared
+// still finish. One run at a time.
+const HOLD_RELEASE_EVERY_MS = 30_000;
+let releasing = false;
+const releaseTimer = setInterval(() => {
+  if (releasing) return;
+  releasing = true;
+  commerce.held
+    .releaseDue()
+    .catch((err: unknown) => app.log.error({ err }, 'market.hold_release_run_failed'))
+    .finally(() => {
+      releasing = false;
+    });
+}, HOLD_RELEASE_EVERY_MS);
+releaseTimer.unref();
 app.log.info(
   {
     port: env.HTTP_PORT,
