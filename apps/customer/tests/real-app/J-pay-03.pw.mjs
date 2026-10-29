@@ -31,8 +31,8 @@ async function strangerPays(page, handle, amount) {
   await signOutBrowser(page.context());
   await signIn(page, stranger);
   await page.goto('/pay/send');
-  await page.getByLabel('Handle').fill(handle);
-  await page.getByLabel('Handle').press('Tab');
+  await page.getByRole('textbox', { name: 'Handle' }).fill(handle);
+  await page.getByRole('textbox', { name: 'Handle' }).press('Tab');
   await page.getByLabel(/Amount/).fill(amount);
   await page.getByRole('button', { name: 'Review' }).click();
   await page.getByRole('dialog').getByRole('button', { name: /^Send/ }).click();
@@ -87,6 +87,7 @@ test(`${J} #2 changes the handle: a handle that breaks a rule gets the reason na
   await attempt('ab');
   await expect(dialog.getByRole('alert')).toHaveText('A handle has 3 to 32 characters.');
   await page.keyboard.press('Escape');
+  await expect(dialog).toBeHidden();
   await expect(changesLeft).toHaveText('You can change your handle 3 more times.');
 
   // Three changes use the cap up; each one is the handle the card shows, and the count goes down with it.
@@ -104,6 +105,7 @@ test(`${J} #2 changes the handle: a handle that breaks a rule gets the reason na
   await attempt(`${base}_4`);
   await expect(dialog.getByRole('alert')).toHaveText('You have changed your handle 3 times, the most allowed.');
   await page.keyboard.press('Escape');
+  await expect(dialog).toBeHidden();
   await page.reload();
   await expect(page.getByTestId('receive-value')).toHaveText(`@${handle}`);
 });
@@ -123,8 +125,8 @@ test(`${J} #3 turns discoverability off: handle search finds nothing for others,
     await signOutBrowser(page.context());
     await signIn(page, stranger);
     await page.goto('/pay/send');
-    await page.getByLabel('Handle').fill(me.handle);
-    await page.getByLabel('Handle').press('Tab');
+    await page.getByRole('textbox', { name: 'Handle' }).fill(me.handle);
+    await page.getByRole('textbox', { name: 'Handle' }).press('Tab');
     await expect(page.getByRole('alert')).toContainText(/No one with this handle/);
 
     // The stranger scans the QR code: Send opens on this account and the payment lands in its balance.
