@@ -16,7 +16,8 @@ import {
   buildLadder,
   createPriceWalk,
   crossingSide,
-  cycleMids,
+  bookMid,
+  quoteOrder,
   crossesOn,
   fromScaled,
   TAPE_CLIENT_PREFIX,
@@ -145,27 +146,48 @@ const b = createPriceWalk({ ...cfg, seed: '7' });
 a.advance(40);
 assert.equal(b.advance(40), a.current());
 assert.equal(b.next(), a.next());
-// A follower is quoted at its leader's mid of the same cycle, even after `history` moved only the leader's walk on
-// (failure it prevents: the TEST perp walked the spot series 420 steps behind, its bids sat more than the 50 bps
-// market-open cap under the mark, and J-derivatives-03 #9's reverse open went unfilled on runs 640 and 641).
+// A follower is quoted right after its leader, around the leader's book (failure it prevents: the TEST perp walked the
+// spot series 420 steps behind, its bids sat more than the 50 bps market-open cap under the mark, and
+// J-derivatives-03 #9's reverse open went unfilled on runs 640 and 641).
 {
-  const perp = { symbol: 'BTC/USDT:USDT' };
-  const spot = { symbol: 'BTC/USDT' };
-  const walks = new Map([
-    [spot.symbol, createPriceWalk({ ...cfg, seed: '1013' })],
-    [perp.symbol, createPriceWalk({ ...cfg, seed: '1013' })],
+  const mk = (symbol) => ({ symbol });
+  const prices = {
+    A: {},
+    B: { follows: 'A' },
+    C: { follows: 'B' },
+    X: { follows: 'gone' },
+    L1: { follows: 'L2' },
+    L2: { follows: 'L1' },
+    S: { follows: 'S' },
+  };
+  const pairs = (list) => list.map(({ market, leader }) => [market.symbol, leader]);
+  const order = (symbols) => pairs(quoteOrder(symbols.map(mk), prices));
+  // The follower listed first still goes after its leader, and a chain resolves in leader order.
+  assert.deepEqual(order(['C', 'B', 'A']), [
+    ['A', null],
+    ['B', 'A'],
+    ['C', 'B'],
   ]);
-  walks.get(spot.symbol).advance(420);
-  for (let cycle = 0; cycle < 200; cycle += 1) {
-    const mids = cycleMids([perp, spot], walks);
-    assert.equal(mids.get(perp.symbol), mids.get(spot.symbol));
-    assert.equal(mids.get(spot.symbol), walks.get(spot.symbol).current());
-  }
-  // Its leader not quoted in this run: the follower walks on its own.
-  const alone = new Map([[perp.symbol, createPriceWalk({ ...cfg, seed: '1013' })]]);
-  const before = alone.get(perp.symbol).steps;
-  assert.equal(cycleMids([perp], alone).get(perp.symbol), alone.get(perp.symbol).current());
-  assert.equal(alone.get(perp.symbol).steps, before + 1);
+  // The real pair, whatever order the markets come back in: the perp right after BTC/USDT.
+  assert.deepEqual(pairs(quoteOrder(['BTC/USDT:USDT', 'BTC/USDT', 'ETH/USDT'].map(mk))), [
+    ['BTC/USDT', null],
+    ['BTC/USDT:USDT', 'BTC/USDT'],
+    ['ETH/USDT', null],
+  ]);
+  // A leader not quoted in this run, a loop and a market naming itself: each is quoted, none centred on a missing mid.
+  assert.deepEqual(order(['X']), [['X', null]]);
+  assert.deepEqual(order(['B']), [['B', null]]);
+  assert.deepEqual(order(['S']), [['S', null]]);
+  assert.deepEqual(order(['L1', 'L2']), [
+    ['L1', null],
+    ['L2', 'L1'],
+  ]);
+  // The leader's book mid, from the best bid and ask; an empty or unreadable side is no mid.
+  assert.equal(bookMid({ bids: [['65000', '1']], asks: [['65001', '1']] }), toScaled('65000.5'));
+  assert.equal(bookMid({ bids: [], asks: [['65001', '1']] }), null);
+  assert.equal(bookMid({ bids: [['65000', '1']] }), null);
+  assert.equal(bookMid(null), null);
+  assert.equal(bookMid({ bids: [['1e3', '1']], asks: [['65001', '1']] }), null);
 }
 
 // 8. The ladder: bids below mid and asks above, on the tick grid, strictly ordered, sized above the market minimums.
