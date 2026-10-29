@@ -312,6 +312,11 @@ export interface UserMoneyWithdrawalContext {
   readonly userId: string;
   readonly assetId: string;
   readonly amount: Amount;
+  /**
+   * The quoted network fee the hold takes on top of `amount` (J-wallet-05 #6), when the send carries one. What leaves the
+   * balance is `amount + fee`; what the rail sends is `amount`.
+   */
+  readonly fee?: Amount;
   readonly rail: string;
   readonly destination: { readonly kind: string; readonly ref: string };
   readonly clientRef: string;

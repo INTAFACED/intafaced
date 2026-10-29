@@ -16542,7 +16542,7 @@
     "outside": "",
     "size": "M",
     "families": 2,
-    "order": 2
+    "order": 1
   },
   {
     "id": "OPS-reconciliation-03",
@@ -16557,7 +16557,7 @@
     "outside": "",
     "size": "L",
     "families": 3,
-    "order": 2,
+    "order": 1,
     "later": ["OPS-reconciliation-04"]
   },
   {
@@ -16573,7 +16573,7 @@
     "outside": "",
     "size": "M",
     "families": 3,
-    "order": 2
+    "order": 1
   },
   {
     "id": "OPS-rules-monitoring-01",

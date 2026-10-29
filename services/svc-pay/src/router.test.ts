@@ -322,6 +322,9 @@ function stubUserMoney(): MoneyStub {
     failureCode: null,
     status: 'sent',
     createdAt: new Date('2026-07-27T12:00:00.000Z'),
+    networkId: null,
+    quoteRef: null,
+    fee: null,
   });
 
   const service = {
@@ -1650,6 +1653,22 @@ describe('withdrawal.create is the interactive, 2FA-backed path off the platform
 
     const verified = await caller(['trade:withdraw'], { tier: 'basic' });
     await expect(verified.withdrawal.create(body)).resolves.toBeDefined();
+  });
+
+  it('carries the network and the accepted quote of a send out of the platform to the send (J-wallet-05 #6)', async () => {
+    const api = await caller(['trade:withdraw'], { tier: 'basic' });
+    await api.withdrawal.create({ ...body, railId: 'crypto-native', networkId: 'ethereum', quoteRef: 'q-1' });
+    const call = money.calls.find((c) => c.method === 'withdraw')!;
+    expect(call.args[0]).toMatchObject({ rail: 'crypto-native', networkId: 'ethereum', quoteRef: 'q-1' });
+  });
+
+  it('refuses a malformed network or quote reference before the send is asked', async () => {
+    const api = await caller(['trade:withdraw'], { tier: 'basic' });
+    for (const bad of [{ networkId: 'Ethereum Mainnet' }, { quoteRef: 'q 1' }, { quoteRef: '' }]) {
+      const err = await api.withdrawal.create({ ...body, railId: 'crypto-native', ...bad }).catch((e: unknown) => e);
+      expect(codeOf(err)).toBe('BAD_REQUEST');
+    }
+    expect(money.calls.filter((c) => c.method === 'withdraw')).toHaveLength(0);
   });
 
   it('takes the account from the token — there is no userId to tamper with', async () => {

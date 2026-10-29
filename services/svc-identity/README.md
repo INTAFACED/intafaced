@@ -142,6 +142,12 @@ service credentials, svc-bank only) at the moment it acts: `live` (not removed, 
 `trustedBy` (`sign-up` and `approval` were proved; `sign-in` was trusted while the check was off, or approved from
 such a device) and `newDeviceCheck`. An unknown device answers 200 with `live: false`.
 
+**Wallet signatures (`wallet-signature-verify.ts`, J-more-catalogue-09 #7).** A service that needs a person's linked
+wallet to sign its own message posts `{ userId, message, signature }` to `/internal/wallet-signatures/verify`
+(`walletSignatureVerifySchema`, service credentials, svc-token only). Identity recovers the EIP-191 signer over the exact
+message and answers `linked` (with the address), `not_linked`, `no_wallet` or `invalid`. It stores nothing; the caller
+binds what the message means.
+
 **Passwords — argon2id, scrypt fallback.** §9 specifies argon2id. `@node-rs/argon2` is a native module, and a failed native install must not stop a developer running tests — so scrypt is the fallback. Both are memory-hard; there is no path here that reaches a fast hash. In production `assertArgon2Available()` runs at boot and the process refuses to start without argon2id. A scrypt hash upgrades to argon2id silently on next login, so nobody needs a reset.
 
 > scrypt at N=2¹⁵, r=8 needs exactly Node's 32 MiB default `maxmem` and therefore fails without raising it. Found by a test. Without it, every password hash on a machine lacking argon2 would throw.
