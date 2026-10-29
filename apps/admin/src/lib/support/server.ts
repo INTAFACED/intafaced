@@ -75,14 +75,16 @@ const refusalCode = (r: { code: string | null; message: string }): string | null
  */
 export async function loadQueue(
   ctx: FounderCallContext,
-  query: QueueQuery = EMPTY_QUERY,
+  asked: QueueQuery = EMPTY_QUERY,
   now: Date = new Date(),
 ): Promise<SupportQueueView> {
   const asOf = now.toISOString();
+  let query = asked;
   const plain = () => founderCall(ctx, 'support', 'listQueue', 'GET', { limit: QUEUE_PAGE }, readQueuePage);
   if (isQueryEmpty(query)) return { asOf, queue: partFrom(await plain(), (d) => d, LABELS), query };
 
   let filter: unknown = query.filter ?? undefined;
+  let sort: unknown = undefined;
   let view: SupportQueueView['view'] = null;
   if (query.viewId) {
     const views = await founderCall(ctx, 'support', 'viewsList', 'GET', {}, parseWith(supportViewListSchema));
@@ -91,22 +93,30 @@ export async function loadQueue(
       const code = views.kind === 'ok' ? 'admin.support_view_not_found' : views.kind;
       return { asOf, queue: partFrom(await plain(), (d) => d, LABELS), query, refused: { what: 'view', code, field: null } };
     }
-    view = { id: found.id, name: found.name, shared: found.shared, ownerId: found.ownerId, mine: found.ownerId === ctx.session.userId };
+    const mine = found.ownerId.toLowerCase() === ctx.session.userId.toLowerCase();
+    view = { id: found.id, name: found.name, shared: found.shared, ownerId: found.ownerId, mine };
+    // A saved view is its own filter and order; a filter also in the address is not applied.
     filter = found.filter;
+    sort = found.sort ?? undefined;
+    query = { ...query, filter: null };
   }
-  const input = { limit: QUEUE_PAGE, ...(filter !== undefined ? { filter } : {}), ...(query.q ? { q: query.q } : {}) };
+  const input = {
+    limit: QUEUE_PAGE,
+    ...(filter !== undefined ? { filter } : {}),
+    ...(sort !== undefined ? { sort } : {}),
+    ...(query.q ? { q: query.q } : {}),
+  };
   const result = await founderCall(ctx, 'support', 'listQueue', 'GET', input, readQueuePage);
   if (result.kind === 'refused') {
+    const code = refusalCode(result.refusal);
+    // Named by what svc-support refused: only `support.filter_invalid` is about a typed filter's field.
+    const what = view ? 'view' : code === 'support.filter_invalid' && query.filter ? 'filter' : 'search';
     return {
       asOf,
       queue: partFrom(await plain(), (d) => d, LABELS),
       query,
       view,
-      refused: {
-        what: query.filter && !view ? 'filter' : view ? 'view' : 'search',
-        code: refusalCode(result.refusal),
-        field: query.filter?.field ?? null,
-      },
+      refused: { what, code, field: what === 'filter' ? (query.filter?.field ?? null) : null },
     };
   }
   return { asOf, queue: partFrom(result, (d) => d, LABELS), query, view };

@@ -174,12 +174,9 @@ function TicketBody({ detail, ...p }: { detail: TicketDetail } & DeskViewProps) 
             {p.reply.ok ? (
               <>
                 <strong>
-                  Claimed. svc-support says the ticket is now owned by{' '}
-                  {p.reply.assigneeId === null
-                    ? 'nobody'
-                    : p.reply.assigneeId.toLowerCase() === p.userId.toLowerCase()
-                      ? 'you'
-                      : shortId(p.reply.assigneeId)}
+                  {p.reply.assigneeId !== null && p.reply.assigneeId.toLowerCase() === p.userId.toLowerCase()
+                    ? 'Claimed. svc-support says the ticket is now owned by you'
+                    : `svc-support says the ticket is now owned by ${p.reply.assigneeId ? shortId(p.reply.assigneeId) : 'nobody'}`}
                 </strong>
                 <p>The ticket above was read again.</p>
               </>
