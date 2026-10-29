@@ -103,6 +103,11 @@ const schema = serviceEnvSchema
       SUPPORT_FORM_CAP: z.preprocess((v) => (v === '' ? undefined : v), z.coerce.number().int().min(0).optional()),
       SUPPORT_FIELD_CAP: z.preprocess((v) => (v === '' ? undefined : v), z.coerce.number().int().min(0).optional()),
       /**
+       * The fewest characters a macro shortcode may have (SP-desk-02). Blank refuses every macro save with
+       * support.shortcode_rule_unset. Never defaulted.
+       */
+      SUPPORT_MACRO_SHORTCODE_MIN: z.preprocess((v) => (v === '' ? undefined : v), z.coerce.number().int().positive().optional()),
+      /**
        * How many help-answer votes one account or signed-out reader may cast in the window below.
        * Either one blank refuses every vote with support.feedback_rate_limit_unset. Never defaulted.
        */

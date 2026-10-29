@@ -59,6 +59,8 @@ const anonymous = () => edgeContext({ headers: { 'x-intafaced-region': 'SG' }, i
 function otcDesk() {
   const now = new Date('2026-08-26T12:00:00.000Z');
   return new OtcDeskService(new MemoryLedger(), new FixedOtcStake(parseAmount('1000')), {
+    // The house desk is the one provider these requests ask (CB-otc-01).
+    makerDirectory: { published: true, makers: [{ id: 'house', name: 'House desk', route: 'platform' }], selectCap: 1 },
     law: published,
     midSource: createObservedOtcMidSource('BTC/USDT:200', () => now),
     now: () => now,
@@ -68,7 +70,9 @@ function otcDesk() {
 describe('svc-trade mount — professional RFQ doors', () => {
   it('refuses anonymous quote/accept/expire', async () => {
     const caller = createTradeRouter({} as TradeService, otcDesk()).createCaller(anonymous());
-    await expect(caller.rfq.quote({ side: 'buy', baseAsset: 'BTC', quoteAsset: 'USDT', qty: '1' })).rejects.toMatchObject({
+    await expect(
+      caller.rfq.quote({ side: 'buy', baseAsset: 'BTC', quoteAsset: 'USDT', qty: '1', makerIds: ['house'] }),
+    ).rejects.toMatchObject({
       code: 'UNAUTHORIZED',
     });
     await expect(caller.rfq.accept({ quoteId: '55555555-5555-4555-8555-555555555555' })).rejects.toMatchObject({
@@ -95,7 +99,7 @@ describe('svc-trade mount — professional RFQ doors', () => {
   it('quotes, accepts, expires with decimal strings and refuses allocation/give-up', async () => {
     const otc = otcDesk();
     const caller = createTradeRouter({} as TradeService, otc).createCaller(signed());
-    const quoted = await caller.rfq.quote({ side: 'buy', baseAsset: 'BTC', quoteAsset: 'USDT', qty: '1.00' });
+    const quoted = await caller.rfq.quote({ side: 'buy', baseAsset: 'BTC', quoteAsset: 'USDT', qty: '1.00', makerIds: ['house'] });
     expect(quoted.bookFill).toBe(false);
     expect(quoted.midInvented).toBe(false);
     expect(quoted.qty).toBe('1');
@@ -116,7 +120,7 @@ describe('svc-trade mount — professional RFQ doors', () => {
       message: expect.stringMatching(/refuse-closed/),
     });
 
-    const open = await caller.rfq.quote({ side: 'sell', baseAsset: 'BTC', quoteAsset: 'USDT', qty: '2' });
+    const open = await caller.rfq.quote({ side: 'sell', baseAsset: 'BTC', quoteAsset: 'USDT', qty: '2', makerIds: ['house'] });
     const expired = await caller.rfq.expire({ quoteId: open.quoteId });
     expect(expired.lifecycle).toBe('expired');
     await expect(caller.rfq.accept({ quoteId: open.quoteId })).rejects.toMatchObject({ code: 'BAD_REQUEST' });
@@ -124,14 +128,18 @@ describe('svc-trade mount — professional RFQ doors', () => {
 
   it('unwired RFQ doors refuse rather than invent a quote', async () => {
     const caller = createTradeRouter({} as TradeService).createCaller(signed());
-    await expect(caller.rfq.quote({ side: 'buy', baseAsset: 'BTC', quoteAsset: 'USDT', qty: '1' })).rejects.toMatchObject({
+    await expect(
+      caller.rfq.quote({ side: 'buy', baseAsset: 'BTC', quoteAsset: 'USDT', qty: '1', makerIds: ['house'] }),
+    ).rejects.toMatchObject({
       code: 'PRECONDITION_FAILED',
     });
   });
 
   it('blank size on the wire refuses rather than inventing quantity', async () => {
     const caller = createTradeRouter({} as TradeService, otcDesk()).createCaller(signed());
-    await expect(caller.rfq.quote({ side: 'buy', baseAsset: 'BTC', quoteAsset: 'USDT', qty: '' })).rejects.toMatchObject({
+    await expect(
+      caller.rfq.quote({ side: 'buy', baseAsset: 'BTC', quoteAsset: 'USDT', qty: '', makerIds: ['house'] }),
+    ).rejects.toMatchObject({
       code: 'BAD_REQUEST',
     });
   });

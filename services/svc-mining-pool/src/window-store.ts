@@ -12,7 +12,7 @@ export const SHARE_DUPLICATE = 'mining.share_duplicate';
 export const WORKER_NAME_INVALID = 'mining.worker_name_invalid';
 /** The worker a share with no name goes to. */
 export const DEFAULT_WORKER = 'default';
-const WORKER_NAME = /^[A-Za-z0-9_-]{1,64}$/;
+export const WORKER_NAME = /^[A-Za-z0-9_-]{1,64}$/;
 
 /** A rig name as sent: absent is the default worker; anything outside letters, digits, dash and underscore is refused. */
 export function workerNameOf(value: unknown): string {
@@ -31,6 +31,10 @@ export type BlankRewardShare = {
   readonly minerId: string;
   readonly weight: bigint | null;
   readonly workerName?: string;
+  /** The checked proof-of-work nonce. One nonce counts once per worker and window: the same work again is a duplicate. */
+  readonly powNonce?: string;
+  /** Checked under a testnet proof-of-work set: its window earns no credit. */
+  readonly testnet?: boolean;
 };
 type StoredWindowInput = {
   readonly windowId: string;
@@ -50,7 +54,7 @@ export async function readStoredEpoch(sql: Sql, windowId: string): Promise<numbe
   return row.epoch;
 }
 
-/** Rows per multi-row insert: five columns a row stays far under Postgres's 65535 bind parameters. */
+/** Rows per multi-row insert: eight columns a row stays far under Postgres's 65535 bind parameters. */
 const INSERT_ROWS = 1000;
 function chunks<T>(rows: readonly T[]): T[][] {
   const out: T[][] = [];
@@ -98,30 +102,38 @@ async function persistShares(sql: Sql, input: StoredWindowInput): Promise<void> 
     for (const part of chunks(pairs)) {
       await tx`INSERT INTO mining_pool.workers ${tx(part, 'id', 'user_id', 'name')} ON CONFLICT DO NOTHING`;
     }
-    const workers = await tx<{ id: string; user_id: string; name: string }[]>`
-      SELECT w.id, w.user_id, w.name
+    // Locked in the same fixed order, so a mode change (workers.setMode) waits for this batch, or this batch for it:
+    // a share is filed under the mode its worker has when it is stored.
+    const workers = await tx<{ id: string; user_id: string; name: string; mode: string }[]>`
+      SELECT w.id, w.user_id, w.name, w.mode
       FROM mining_pool.workers w
       JOIN unnest(${tx.array(pairs.map((pair) => pair.user_id))}::text[], ${tx.array(pairs.map((pair) => pair.name))}::text[])
         AS p(user_id, name) ON w.user_id = p.user_id AND w.name = p.name
+      ORDER BY w.user_id, w.name
+      FOR UPDATE OF w
     `;
-    const workerOf = new Map(workers.map((row) => [`${row.user_id}\n${row.name}`, row.id]));
+    const workerOf = new Map(workers.map((row) => [`${row.user_id}\n${row.name}`, row]));
     const rows = named.map((share) => {
-      const workerId = workerOf.get(`${share.minerId}\n${share.name}`);
-      if (!workerId) throw new Error(PG_UNAVAILABLE);
+      const worker = workerOf.get(`${share.minerId}\n${share.name}`);
+      if (!worker) throw new Error(PG_UNAVAILABLE);
       return {
         share_id: share.shareId,
         window_id: input.windowId,
         miner_id: share.minerId,
         weight: share.weight === null ? null : share.weight.toString(),
-        worker_id: workerId,
+        worker_id: worker.id,
+        pow_nonce: share.powNonce ?? null,
+        // A solo worker's share is kept out of the pooled (PPLNS) split.
+        solo: worker.mode === 'solo',
+        testnet: share.testnet === true,
       };
     });
     // A share id already stored, or twice in this batch, refuses the whole batch, a byte-identical redelivery included:
-    // one share, one worker.
+    // one share, one worker. The same work (window, worker and nonce) under a new share id is the same duplicate.
     for (const part of chunks(rows)) {
       const inserted = await tx<{ share_id: string }[]>`
-        INSERT INTO mining_pool.shares ${tx(part, 'share_id', 'window_id', 'miner_id', 'weight', 'worker_id')}
-        ON CONFLICT (share_id) DO NOTHING
+        INSERT INTO mining_pool.shares ${tx(part, 'share_id', 'window_id', 'miner_id', 'weight', 'worker_id', 'pow_nonce', 'solo', 'testnet')}
+        ON CONFLICT DO NOTHING
         RETURNING share_id
       `;
       if (inserted.length !== part.length) throw new Error(SHARE_DUPLICATE);
