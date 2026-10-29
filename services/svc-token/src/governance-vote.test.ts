@@ -11,10 +11,13 @@ import { DEFAULT_BUYBACK_PARAMS } from './economics/buyback.js';
 import { DEFAULT_EMISSION_PARAMS } from './economics/emission.js';
 import { parseVoteRule, snapshotHash } from './governance-vote.js';
 import { TokenError, TokenService, type TokenServiceOptions } from './token-service.js';
+import { voteMessage } from './vote-signature.js';
+import { TEST_VOTE_SIGNATURE, TEST_VOTE_SIGNER, testVoteSignatures } from './vote-signature.testkit.js';
 
 /**
  * MC-token-03. Voting power is fixed when a proposal is created, who may vote
- * is a published rule, the signed vote refuses, and every voting type tallies.
+ * is a published rule, every vote is signed by a linked wallet, and every
+ * voting type tallies.
  * PG-hard: no skip.
  */
 
@@ -100,6 +103,7 @@ describe('MC-token-03 voting power and voting types', () => {
     governanceQuorumBps: 1000,
     governanceThresholdBps: 5000,
     voteRule: 'power:0',
+    voteSignatures: testVoteSignatures(),
   };
 
   beforeAll(async () => {
@@ -169,22 +173,30 @@ describe('MC-token-03 voting power and voting types', () => {
       takenAt: null,
       rule: { minPower: 0n, code: null },
     });
-    expect(await codeOf(token.castVote({ proposalId: proposal.id, userId: USER_C, choice: 'for', now: LATER }))).toBe(
-      'token.no_voting_weight',
-    );
+    expect(
+      await codeOf(token.castVote({ signature: TEST_VOTE_SIGNATURE, proposalId: proposal.id, userId: USER_C, choice: 'for', now: LATER })),
+    ).toBe('token.no_voting_weight');
 
     // Unstake after creation: the ballot still weighs the power fixed at creation.
     await token.unstake(stakeA, LATER);
-    const vote = await token.castVote({ proposalId: proposal.id, userId: USER_A, choice: 'for', now: LATER });
+    const vote = await token.castVote({
+      signature: TEST_VOTE_SIGNATURE,
+      proposalId: proposal.id,
+      userId: USER_A,
+      choice: 'for',
+      now: LATER,
+    });
     expect(vote.weight).toBe(amt('1000'));
     expect(await votesOn(proposal.id)).toEqual([
       { user_id: USER_A, weight: '1000.000000000000000000', eligible_stake: '3000.000000000000000000', choice: 'for', ballot: null },
     ]);
 
     // A repeat vote is refused and the stored ballot is unchanged.
-    expect(await codeOf(token.castVote({ proposalId: proposal.id, userId: USER_A, choice: 'against', now: LATER }))).toBe(
-      'token.already_voted',
-    );
+    expect(
+      await codeOf(
+        token.castVote({ signature: TEST_VOTE_SIGNATURE, proposalId: proposal.id, userId: USER_A, choice: 'against', now: LATER }),
+      ),
+    ).toBe('token.already_voted');
     expect((await votesOn(proposal.id)).map((row) => row.choice)).toEqual(['for']);
   });
 
@@ -217,13 +229,13 @@ describe('MC-token-03 voting power and voting types', () => {
     delete process.env.TOKEN_VOTE_RULE;
     try {
       const blank = new TokenService(sql, ledger, new MemoryEventBus('svc-token'), { ...options, voteRule: undefined });
-      expect(await codeOf(blank.castVote({ proposalId: proposal.id, userId: USER_A, choice: 'for', now: NOW }))).toBe(
-        'token.vote_rule_unset',
-      );
+      expect(
+        await codeOf(blank.castVote({ signature: TEST_VOTE_SIGNATURE, proposalId: proposal.id, userId: USER_A, choice: 'for', now: NOW })),
+      ).toBe('token.vote_rule_unset');
       const spaces = new TokenService(sql, ledger, new MemoryEventBus('svc-token'), { ...options, voteRule: '  ' });
-      expect(await codeOf(spaces.castVote({ proposalId: proposal.id, userId: USER_A, choice: 'for', now: NOW }))).toBe(
-        'token.vote_rule_unset',
-      );
+      expect(
+        await codeOf(spaces.castVote({ signature: TEST_VOTE_SIGNATURE, proposalId: proposal.id, userId: USER_A, choice: 'for', now: NOW })),
+      ).toBe('token.vote_rule_unset');
       expect(blank.voteRuleState()).toEqual({ minPower: null, code: 'token.vote_rule_unset' });
       expect((await blank.proposalPower(proposal.id, USER_A)).rule).toEqual({ minPower: null, code: 'token.vote_rule_unset' });
     } finally {
@@ -238,26 +250,89 @@ describe('MC-token-03 voting power and voting types', () => {
     await fundStake(USER_B, '2000');
     const proposal = await create('rule');
     const ruled = new TokenService(sql, ledger, new MemoryEventBus('svc-token'), { ...options, voteRule: 'power:1500' });
-    expect(await codeOf(ruled.castVote({ proposalId: proposal.id, userId: USER_A, choice: 'for', now: NOW }))).toBe(
-      'token.vote_rule_not_met',
-    );
+    expect(
+      await codeOf(ruled.castVote({ signature: TEST_VOTE_SIGNATURE, proposalId: proposal.id, userId: USER_A, choice: 'for', now: NOW })),
+    ).toBe('token.vote_rule_not_met');
     expect((await ruled.proposalPower(proposal.id, USER_A)).rule).toEqual({ minPower: amt('1500'), code: null });
     // Stake added after creation does not lift A over the rule.
     await fundStake(USER_A, '1000');
-    expect(await codeOf(ruled.castVote({ proposalId: proposal.id, userId: USER_A, choice: 'for', now: NOW }))).toBe(
-      'token.vote_rule_not_met',
-    );
-    await ruled.castVote({ proposalId: proposal.id, userId: USER_B, choice: 'for', now: NOW });
+    expect(
+      await codeOf(ruled.castVote({ signature: TEST_VOTE_SIGNATURE, proposalId: proposal.id, userId: USER_A, choice: 'for', now: NOW })),
+    ).toBe('token.vote_rule_not_met');
+    await ruled.castVote({ signature: TEST_VOTE_SIGNATURE, proposalId: proposal.id, userId: USER_B, choice: 'for', now: NOW });
     expect((await votesOn(proposal.id)).map((row) => row.user_id)).toEqual([USER_B]);
   });
 
-  it('a signed vote refuses token.signed_vote_unavailable and stores nothing', async () => {
+  it('an unsigned vote refuses token.vote_signature_required before identity is asked, and stores nothing', async () => {
+    await fundStake(USER_A, '1000');
+    const proposal = await create('unsigned');
+    const identity = testVoteSignatures();
+    const signedOnly = new TokenService(sql, ledger, new MemoryEventBus('svc-token'), { ...options, voteSignatures: identity });
+    expect(await codeOf(signedOnly.castVote({ proposalId: proposal.id, userId: USER_A, choice: 'for', now: NOW }))).toBe(
+      'token.vote_signature_required',
+    );
+    expect(identity.asked).toEqual([]);
+    expect(await votesOn(proposal.id)).toEqual([]);
+  });
+
+  it('refuses token.signed_vote_unavailable when identity is unset, silent, has no wallet or the account may not act', async () => {
+    await fundStake(USER_A, '1000');
+    const proposal = await create('unavailable');
+    const { voteSignatures: _unset, ...noIdentity } = options;
+    const cases: Array<TokenServiceOptions> = [
+      noIdentity,
+      { ...options, voteSignatures: testVoteSignatures(null) },
+      { ...options, voteSignatures: testVoteSignatures({ state: 'no_wallet' }) },
+      { ...options, voteSignatures: testVoteSignatures({ state: 'account_inactive' }) },
+    ];
+    for (const opts of cases) {
+      const service = new TokenService(sql, ledger, new MemoryEventBus('svc-token'), opts);
+      expect(
+        await codeOf(
+          service.castVote({ signature: TEST_VOTE_SIGNATURE, proposalId: proposal.id, userId: USER_A, choice: 'for', now: NOW }),
+        ),
+      ).toBe('token.signed_vote_unavailable');
+    }
+    expect(await votesOn(proposal.id)).toEqual([]);
+  });
+
+  it('refuses token.vote_signature_invalid when the signer is not a linked wallet or cannot be recovered', async () => {
+    await fundStake(USER_A, '1000');
+    const proposal = await create('invalid');
+    for (const answer of [{ state: 'not_linked' as const }, { state: 'invalid' as const }]) {
+      const service = new TokenService(sql, ledger, new MemoryEventBus('svc-token'), {
+        ...options,
+        voteSignatures: testVoteSignatures(answer),
+      });
+      expect(
+        await codeOf(
+          service.castVote({ signature: TEST_VOTE_SIGNATURE, proposalId: proposal.id, userId: USER_A, choice: 'for', now: NOW }),
+        ),
+      ).toBe('token.vote_signature_invalid');
+    }
+    expect(await votesOn(proposal.id)).toEqual([]);
+  });
+
+  it('records a vote signed by a linked wallet, asking identity about the exact vote message, and stores the signer', async () => {
     await fundStake(USER_A, '1000');
     const proposal = await create('signed');
-    expect(await codeOf(token.castVote({ proposalId: proposal.id, userId: USER_A, choice: 'for', signature: '0xsigned', now: NOW }))).toBe(
-      'token.signed_vote_unavailable',
-    );
-    expect(await votesOn(proposal.id)).toEqual([]);
+    const identity = testVoteSignatures();
+    const service = new TokenService(sql, ledger, new MemoryEventBus('svc-token'), { ...options, voteSignatures: identity });
+    const vote = await service.castVote({
+      signature: TEST_VOTE_SIGNATURE,
+      proposalId: proposal.id,
+      userId: USER_A,
+      choice: 'for',
+      now: NOW,
+    });
+    expect(vote.signedBy).toBe(TEST_VOTE_SIGNER);
+    expect(identity.asked).toEqual([
+      { userId: USER_A, message: voteMessage({ proposalId: proposal.id, userId: USER_A, choice: 'for' }), signature: TEST_VOTE_SIGNATURE },
+    ]);
+    const [row] = await sql<Array<{ signed_by: string; signature: string }>>`
+      SELECT signed_by, signature FROM token.governance_votes WHERE proposal_id = ${proposal.id}
+    `;
+    expect(row).toEqual({ signed_by: TEST_VOTE_SIGNER, signature: TEST_VOTE_SIGNATURE });
   });
 
   it('refuses a ballot when the stored power no longer matches its seal', async () => {
@@ -265,9 +340,9 @@ describe('MC-token-03 voting power and voting types', () => {
     await fundStake(USER_B, '2000');
     const proposal = await create('tamper');
     await sql`UPDATE token.governance_snapshots SET power = 9000 WHERE proposal_id = ${proposal.id} AND user_id = ${USER_A}`;
-    expect(await codeOf(token.castVote({ proposalId: proposal.id, userId: USER_A, choice: 'for', now: NOW }))).toBe(
-      'token.governance_snapshot_missing',
-    );
+    expect(
+      await codeOf(token.castVote({ signature: TEST_VOTE_SIGNATURE, proposalId: proposal.id, userId: USER_A, choice: 'for', now: NOW })),
+    ).toBe('token.governance_snapshot_missing');
     expect(await votesOn(proposal.id)).toEqual([]);
   });
 
@@ -278,10 +353,24 @@ describe('MC-token-03 voting power and voting types', () => {
     const proposal = await create('approval', { votingType: 'approval', choices: ['North', 'South', 'East'] });
     expect(proposal).toMatchObject({ votingType: 'approval', choices: ['North', 'South', 'East'], ranking: null });
 
-    await token.castVote({ proposalId: proposal.id, userId: USER_A, ballot: { kind: 'pick', choices: [2, 0] }, now: NOW });
-    await token.castVote({ proposalId: proposal.id, userId: USER_B, ballot: { kind: 'pick', choices: [1] }, now: NOW });
-    await token.castVote({ proposalId: proposal.id, userId: USER_C, choice: 'abstain', now: NOW });
-    expect(await codeOf(token.castVote({ proposalId: proposal.id, userId: USER_A, choice: 'for', now: NOW }))).toBe('token.ballot_invalid');
+    await token.castVote({
+      signature: TEST_VOTE_SIGNATURE,
+      proposalId: proposal.id,
+      userId: USER_A,
+      ballot: { kind: 'pick', choices: [2, 0] },
+      now: NOW,
+    });
+    await token.castVote({
+      signature: TEST_VOTE_SIGNATURE,
+      proposalId: proposal.id,
+      userId: USER_B,
+      ballot: { kind: 'pick', choices: [1] },
+      now: NOW,
+    });
+    await token.castVote({ signature: TEST_VOTE_SIGNATURE, proposalId: proposal.id, userId: USER_C, choice: 'abstain', now: NOW });
+    expect(
+      await codeOf(token.castVote({ signature: TEST_VOTE_SIGNATURE, proposalId: proposal.id, userId: USER_A, choice: 'for', now: NOW })),
+    ).toBe('token.ballot_invalid');
 
     const detail = await token.getProposal(proposal.id);
     expect(detail.choiceTally).toEqual({
@@ -313,9 +402,12 @@ describe('MC-token-03 voting power and voting types', () => {
         { choice: 1, bps: 4999 },
       ],
     };
-    expect(await codeOf(token.castVote({ proposalId: proposal.id, userId: USER_A, ballot: short, now: NOW }))).toBe('token.ballot_invalid');
+    expect(
+      await codeOf(token.castVote({ signature: TEST_VOTE_SIGNATURE, proposalId: proposal.id, userId: USER_A, ballot: short, now: NOW })),
+    ).toBe('token.ballot_invalid');
     expect(await votesOn(proposal.id)).toEqual([]);
     await token.castVote({
+      signature: TEST_VOTE_SIGNATURE,
       proposalId: proposal.id,
       userId: USER_A,
       ballot: {
@@ -339,9 +431,17 @@ describe('MC-token-03 voting power and voting types', () => {
 
     const basic = await create('basic');
     expect(basic.votingType).toBe('basic');
-    expect(await codeOf(token.castVote({ proposalId: basic.id, userId: USER_A, ballot: { kind: 'pick', choices: [0] }, now: NOW }))).toBe(
-      'token.ballot_invalid',
-    );
+    expect(
+      await codeOf(
+        token.castVote({
+          signature: TEST_VOTE_SIGNATURE,
+          proposalId: basic.id,
+          userId: USER_A,
+          ballot: { kind: 'pick', choices: [0] },
+          now: NOW,
+        }),
+      ),
+    ).toBe('token.ballot_invalid');
     expect(await votesOn(basic.id)).toEqual([]);
   });
 
@@ -349,8 +449,8 @@ describe('MC-token-03 voting power and voting types', () => {
     await fundStake(USER_A, '1000');
     await fundStake(USER_B, '400');
     const proposal = await create('basic-close');
-    await token.castVote({ proposalId: proposal.id, userId: USER_A, choice: 'for', now: NOW });
-    await token.castVote({ proposalId: proposal.id, userId: USER_B, choice: 'against', now: NOW });
+    await token.castVote({ signature: TEST_VOTE_SIGNATURE, proposalId: proposal.id, userId: USER_A, choice: 'for', now: NOW });
+    await token.castVote({ signature: TEST_VOTE_SIGNATURE, proposalId: proposal.id, userId: USER_B, choice: 'against', now: NOW });
     const detail = await token.getProposal(proposal.id);
     expect(detail.choiceTally).toBeNull();
     expect(detail.tally).toEqual({

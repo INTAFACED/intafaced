@@ -104,7 +104,7 @@ async function network(context, page, baseURL, extra = {}) {
         reason: state.stake === '0' ? 'no_stake_at_creation' : null,
         takenAt: state.stake === '0' ? null : proposal.createdAt,
         rule: { minPower: '0', code: null },
-        signing: { available: false, code: 'token.signed_vote_unavailable' },
+        signing: { required: true, available: true, code: null },
       });
     if (procedure === 'accessOf') return reply({ staked: '40.75', tier: 'flex', feeDiscountBps: 0 });
     if (procedure === 'burnedSupply') return reply({ burned: '0' });

@@ -68,6 +68,8 @@ const TOKEN_ERROR_CODES = [
   'token.vote_rule_unset',
   'token.vote_rule_not_met',
   'token.signed_vote_unavailable',
+  'token.vote_signature_required',
+  'token.vote_signature_invalid',
 ] as const satisfies readonly TokenError['code'][];
 
 type Missing = Exclude<TokenError['code'], (typeof TOKEN_ERROR_CODES)[number]>;

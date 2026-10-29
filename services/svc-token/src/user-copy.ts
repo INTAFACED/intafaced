@@ -82,7 +82,10 @@ export const TOKEN_REFUSAL_COPY = {
   'token.voting_type_unsupported': 'That voting type is not supported.',
   'token.vote_rule_unset': 'Who may vote is not set.',
   'token.vote_rule_not_met': 'Your voting power for this proposal is below the vote rule.',
-  'token.signed_vote_unavailable': 'Signed votes need a linked wallet, and no wallet link is available yet.',
+  'token.signed_vote_unavailable':
+    'Your signed vote could not be checked: no wallet is linked to your account, or the check is unavailable. Nothing was saved.',
+  'token.vote_signature_required': 'Sign your vote with the wallet linked to your account. Unsigned votes are not accepted.',
+  'token.vote_signature_invalid': 'That signature is not from a wallet linked to your account, so the vote was not saved.',
 } as const satisfies Record<TokenError['code'], string>;
 
 /** Refusal codes that are not TokenError: job HMAC, emissions switch, ready honesty. */

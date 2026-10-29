@@ -23,6 +23,7 @@ import { DELEGATION_BLOCKER, refuseDelegation, unavailableDelegation } from './d
 import { userCopy } from './user-copy.js';
 import { BALLOT_BPS, MAX_CHOICES, VOTING_TYPES, type ChoiceTally } from './ballot-tally.js';
 import type { SnapshotSeal } from './governance-vote.js';
+import { voteMessage } from './vote-signature.js';
 import { feeDiscountSchedulePayload } from './economics/staking.js';
 
 /** The founders' approval that publishes the fee-decay schedule; the router binds the ladder and the version it replaces. */
@@ -298,6 +299,8 @@ function toTrpcError(err: unknown): TRPCError {
       case 'token.proposal_handle_invalid':
       case 'token.ballot_invalid':
       case 'token.voting_type_unsupported':
+      case 'token.vote_signature_required':
+      case 'token.vote_signature_invalid':
       case 'token.vote_rule_not_met':
         return new TRPCError({ code: 'BAD_REQUEST', message, cause: err });
       default:
@@ -1113,6 +1116,19 @@ export function createTokenRouter(token: TokenService, options: TokenRouterOptio
         }),
       ),
 
+    /**
+     * The exact text the signed account's wallet signs for this vote (`voteMessage`), so the browser signs the bytes the
+     * service checks. Reads nothing and stores nothing; castVote validates the vote itself.
+     */
+    voteMessage: scopedProcedure('token:read', { module: 'token' })
+      .input(z.object({ proposalId: proposalIdWire, choice: voteChoice.optional(), ballot: ballotWire.optional() }))
+      .output(z.object({ message: z.string() }))
+      .query(({ ctx, input }) => {
+        const userId = ctx.principal.userId;
+        if (!userId) throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Principal required' });
+        return { message: voteMessage({ proposalId: input.proposalId, userId, choice: input.choice, ballot: input.ballot }) };
+      }),
+
     castVote: scopedProcedure('token:stake', { module: 'token' })
       .input(
         z.object({
@@ -1120,8 +1136,14 @@ export function createTokenRouter(token: TokenService, options: TokenRouterOptio
           /** For/against/abstain on a basic proposal; abstain on any type. */
           choice: voteChoice.optional(),
           ballot: ballotWire.optional(),
-          /** A wallet signature. Refused `token.signed_vote_unavailable` until a wallet link exists. */
-          signature: z.string().min(1).max(4096).optional(),
+          /**
+           * A linked wallet's EIP-191 signature over the vote's message (`voteMessage`). Missing refuses
+           * `token.vote_signature_required`; identity checks the signer.
+           */
+          signature: z
+            .string()
+            .regex(/^0x[0-9a-fA-F]{130}$/)
+            .optional(),
         }),
       )
       .output(
@@ -1133,6 +1155,7 @@ export function createTokenRouter(token: TokenService, options: TokenRouterOptio
           choice: voteChoice.nullable(),
           ballot: ballotWire.nullable(),
           castAt: z.string(),
+          signedBy: z.string(),
         }),
       )
       .mutation(async ({ ctx, input }) =>
@@ -1155,6 +1178,7 @@ export function createTokenRouter(token: TokenService, options: TokenRouterOptio
             choice: vote.choice,
             ballot: vote.ballot,
             castAt: vote.castAt.toISOString(),
+            signedBy: vote.signedBy,
           };
         }),
       ),
@@ -1247,8 +1271,15 @@ export function createTokenRouter(token: TokenService, options: TokenRouterOptio
             takenAt: z.string().nullable(),
             /** Who may vote: the minimum power, or the typed code every vote is refused with. */
             rule: z.object({ minPower: z.string().nullable(), code: z.string().nullable() }),
-            /** The signed-vote door. Always the typed unavailable reply until a wallet link exists. */
-            signing: z.object({ available: z.literal(false), code: z.literal('token.signed_vote_unavailable') }),
+            /**
+             * Every vote is signed. `available: false` with its code when no identity is configured; when true,
+             * whether the account has a linked wallet is identity's answer at cast time.
+             */
+            signing: z.object({
+              required: z.literal(true),
+              available: z.boolean(),
+              code: z.literal('token.signed_vote_unavailable').nullable(),
+            }),
           }),
         )
         .query(async ({ ctx, input }) =>
@@ -1261,7 +1292,9 @@ export function createTokenRouter(token: TokenService, options: TokenRouterOptio
               power: formatAmount(power.power),
               takenAt: power.takenAt?.toISOString() ?? null,
               rule: { minPower: power.rule.minPower === null ? null : formatAmount(power.rule.minPower), code: power.rule.code },
-              signing: { available: false as const, code: 'token.signed_vote_unavailable' as const },
+              signing: token.signedVotesConfigured()
+                ? { required: true as const, available: true, code: null }
+                : { required: true as const, available: false, code: 'token.signed_vote_unavailable' as const },
             };
           }),
         ),

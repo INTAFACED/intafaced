@@ -18,6 +18,7 @@ import {
   VotingPower,
   choiceTallySchema,
   powerSchema,
+  signVote,
   type BallotOutcome,
   type ProposalPower,
 } from './TokenVoting';
@@ -202,7 +203,7 @@ function proposalTerms(value: unknown): string {
 function reviewedProposal(p: z.infer<typeof governanceProposal>) {
   return JSON.stringify([p.id, p.kind, proposalTerms(p.body), Date.parse(p.opensAt), Date.parse(p.closesAt)]);
 }
-type RefusalKey = 'changed' | 'inactive' | 'noWeight' | 'storage' | 'receiptStorage';
+type RefusalKey = 'changed' | 'inactive' | 'noWeight' | 'storage' | 'receiptStorage' | 'walletNone' | 'walletRejected' | 'walletFailed';
 function governanceRefusal(reason: Extract<ApiResult<never>, { ok: false }>['reason'], key: RefusalKey) {
   return presentActionFailure({ ok: false as const, reason, message: G.t(key) }, (locale) => ({
     message: G.forLocale(locale).t(key),
@@ -575,11 +576,19 @@ function Proposal({ id, action, ballot }: { id: string; action: ReturnType<typeo
         if (!activeWindow(fresh.data, Date.now())) return refuseBeforeDispatch(governanceRefusal('error', 'inactive'));
         if (reviewedProposal(fresh.data) !== reviewed) return refuseBeforeDispatch(governanceRefusal('error', 'changed'));
         if (parseAmount(currentPower.data.power) <= 0n) return refuseBeforeDispatch(governanceRefusal('forbidden', 'noWeight'));
+        // Every vote carries a linked wallet's signature over the service's own message for it.
+        const signed = await signVote(api, { proposalId: id, choice });
+        if (!signed.ok) {
+          if ('failure' in signed) return refuseBeforeDispatch(signed.failure);
+          const key = signed.wallet === 'none' ? 'walletNone' : signed.wallet === 'rejected' ? 'walletRejected' : 'walletFailed';
+          return refuseBeforeDispatch(governanceRefusal('error', key));
+        }
+        if (!canDispatch() || !api.canWrite()) return refuseBeforeDispatch(governanceRefusal('aborted', 'changed'));
         // No await separates the final identity guard and dispatch.
         const result = await api.mutate(
           'token',
           'castVote',
-          { proposalId: id, choice },
+          { proposalId: id, choice, signature: signed.signature },
           voteSchema.refine((vote) => vote.proposalId === id && vote.userId === actor && vote.choice === choice),
         );
         try {

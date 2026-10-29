@@ -3,6 +3,8 @@ import { randomUUID } from 'node:crypto';
 import { api, fund, journeyState, tool } from './stack.mjs';
 import { signIn, signUp, verify } from './desk.mjs';
 import { tableIn, bodyRows } from './tables.mjs';
+import { addPasskey, virtualAuthenticator } from './identity-factors.mjs';
+import { installTestWallet } from './test-wallet.mjs';
 
 // J-more-catalogue-09, in the running app (docs/roadmap/journeys.json): read a governance proposal and cast my vote. One
 // test per step, titled "J-more-catalogue-09 #<n>", run in order. No value moves: staking is TEST IFC funded through the
@@ -21,7 +23,9 @@ import { tableIn, bodyRows } from './tables.mjs';
 // Step 6 reads voting power fixed when each proposal was created, through a second TEST account that stakes only
 // afterwards, and creates the approval, weighted and ranked proposals step 7 votes on. Step 7's "a validation rule"
 // restarts the token lane with who may vote unset (LOCAL_STACK_TOKEN_VOTE_RULE=off), reads the refusal, then restarts it
-// with the TEST rule (power:0). No service links a wallet to an account, so a signed vote is refused with its typed code.
+// with the TEST rule (power:0). Every vote is signed: a TEST browser wallet signs the token service's message for the
+// ballot and identity checks the signer, first with no wallet linked (the typed unavailable reply), then after the wallet
+// is linked through Security.
 const J = 'J-more-catalogue-09';
 const run = journeyState(`${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
 const DAY = 86_400_000;
@@ -420,12 +424,22 @@ test(`${J} #6 Opens a proposal and reads my voting power: Power fixed when the p
 test(`${J} #7 Casts a vote on an approval, weighted or ranked ballot: A ballot with bad weights is refused; the vote needs a signed message and a validation rule; if the wallet link is absent the typed unavailable reply shows`, async ({
   page,
 }) => {
+  test.setTimeout(240_000);
   const { who, nonce, ballots } = run.read();
+  // A TEST wallet stands in for the person's own (test-wallet.mjs), and a virtual passkey confirms linking it. Nothing
+  // reaches a chain.
+  await virtualAuthenticator(page);
+  const wallet = await installTestWallet(page, { chainId: 1 });
   const client = await api(who);
   const detail = async (proposalId) => {
     const res = await client.get(`/api/token/trpc/getProposal${trpcInput({ proposalId })}`);
     expect(res.status, JSON.stringify(res.body).slice(0, 300)).toBe(200);
     return data(res);
+  };
+  const messageFor = async (vote) => {
+    const res = await client.get(`/api/token/trpc/voteMessage${trpcInput(vote)}`);
+    expect(res.status, JSON.stringify(res.body).slice(0, 300)).toBe(200);
+    return data(res).message;
   };
   const openBallot = async (type) => {
     await openGovernance(page);
@@ -438,61 +452,80 @@ test(`${J} #7 Casts a vote on an approval, weighted or ranked ballot: A ballot w
   };
   const castFrom = async (form) => {
     const answer = page.waitForResponse((r) => r.url().includes('/api/token/trpc/castVote'));
-    await form.getByRole('button', { name: 'Cast ballot' }).click();
+    await form.getByRole('button', { name: 'Sign with wallet and cast' }).click();
     const res = await answer;
-    return { status: res.status(), body: await res.json() };
+    return { status: res.status(), body: await res.json(), sent: res.request().postDataJSON() };
   };
+  const split = (alpha, beta) => ({
+    kind: 'split',
+    parts: [
+      { choice: 0, bps: alpha * 100 },
+      { choice: 1, bps: beta * 100 },
+    ],
+  });
+  const signs = () => wallet.requests.filter((request) => request.method === 'personal_sign').length;
+
+  // The vote needs a signed message: the token service says every vote is signed and that it can check one.
+  const power = await client.get(`/api/token/trpc/votingPower.ofProposal${trpcInput({ proposalId: ballots.weighted })}`);
+  expect(power.status).toBe(200);
+  expect(data(power).signing).toEqual({ required: true, available: true, code: null });
+
+  // A vote with no signature is refused with its own code, and no vote row is written.
+  const unsigned = await client.post('/api/token/trpc/castVote', { proposalId: ballots.weighted, ballot: split(60, 40) });
+  expect(unsigned.status).toBe(400);
+  expect(causeOf(unsigned.body)).toEqual({ code: 'token.vote_signature_required' });
+  expect((await detail(ballots.weighted)).choiceTally).toMatchObject({ voterCount: 0, totals: ['0', '0'] });
+
+  // If the wallet link is absent the typed unavailable reply shows: my wallet signs the service's message for this
+  // ballot, but no wallet is linked to my account, so the vote is refused with token.signed_vote_unavailable.
+  let ballot = await openBallot('weighted');
+  await ballot.getByLabel('Weight for TEST alpha (%)').fill('60');
+  await ballot.getByLabel('Weight for TEST beta (%)').fill('40');
+  await expect(ballot.getByTestId('ballot-sum')).toHaveText('Your weights add up to 100.');
+  const absent = await castFrom(ballot);
+  expect(signs()).toBe(1);
+  expect(absent.sent).toEqual({
+    proposalId: ballots.weighted,
+    ballot: split(60, 40),
+    signature: expect.stringMatching(/^0x[0-9a-f]{130}$/),
+  });
+  expect(absent.status).toBe(412);
+  expect(causeOf(absent.body)).toEqual({ code: 'token.signed_vote_unavailable' });
+  await expect(ballot.getByRole('alert')).toHaveText(
+    'Refused: signed votes are unavailable: no wallet is linked to your account, or it cannot be checked. Nothing was saved.',
+  );
+  // The message signed names this proposal, me and this ballot, and is the service's own text for it.
+  const message = await messageFor({ proposalId: ballots.weighted, ballot: split(60, 40) });
+  await expect(ballot.getByRole('region', { name: 'Message to sign' }).locator('pre')).toHaveText(message);
+  expect(JSON.parse(message)).toEqual({
+    purpose: 'INTAFACED governance vote',
+    proposalId: ballots.weighted,
+    userId: client.userId,
+    ballot: split(60, 40),
+  });
+  expect((await detail(ballots.weighted)).choiceTally).toMatchObject({ voterCount: 0, totals: ['0', '0'] });
+
+  // I link this wallet through Security: its own signature, then a confirmation with my passkey.
+  await addPasskey(page);
+  const methods = page.getByTestId('security__signin-methods');
+  const walletsRow = methods.getByRole('listitem', { name: 'Wallets', exact: true });
+  await walletsRow.getByRole('button', { name: 'Link a wallet' }).click();
+  await methods.getByRole('form', { name: 'Confirm it is you' }).getByRole('button', { name: 'Confirm with a passkey' }).click();
+  await expect(walletsRow.getByTitle(wallet.address)).toBeVisible();
 
   // A ballot with bad weights is refused: 60 and 50 add up to 110, the panel says so, and the service refuses it.
-  let ballot = await openBallot('weighted');
+  ballot = await openBallot('weighted');
   await ballot.getByLabel('Weight for TEST alpha (%)').fill('60');
   await ballot.getByLabel('Weight for TEST beta (%)').fill('50');
   await expect(ballot.getByTestId('ballot-sum')).toHaveText(
     'Your weights add up to 110. The weights must add up to 100, or the service refuses the ballot.',
   );
   const bad = await castFrom(ballot);
+  expect(bad.sent.ballot).toEqual(split(60, 50));
   expect(bad.status).toBe(400);
   expect(causeOf(bad.body)).toEqual({ code: 'token.ballot_invalid' });
   await expect(ballot.getByRole('alert')).toHaveText('Refused: the ballot does not fit this proposal. Nothing was saved.');
   expect((await detail(ballots.weighted)).choiceTally).toMatchObject({ voterCount: 0, totals: ['0', '0'] });
-
-  // The vote needs a signed message: the panel shows the message to sign; the wallet link is absent, so the sign control
-  // is off and the typed unavailable reply shows; a signed vote sent anyway is refused with that code and saves nothing.
-  await ballot.getByLabel('Weight for TEST beta (%)').fill('40');
-  await expect(ballot.getByTestId('ballot-sum')).toHaveText('Your weights add up to 100.');
-  const signing = ballot.getByRole('region', { name: 'Message to sign' });
-  await expect(signing.locator('pre')).toHaveText(
-    JSON.stringify({
-      proposalId: ballots.weighted,
-      ballot: {
-        kind: 'split',
-        parts: [
-          { choice: 0, bps: 6000 },
-          { choice: 1, bps: 4000 },
-        ],
-      },
-    }),
-  );
-  await expect(signing.getByRole('button', { name: 'Sign with wallet' })).toBeDisabled();
-  await expect(signing.getByTestId('signed-vote-reply')).toHaveText(
-    'Signed votes are unavailable (token.signed_vote_unavailable): no service links a wallet to your account or verifies a signed message.',
-  );
-  const power = await client.get(`/api/token/trpc/votingPower.ofProposal${trpcInput({ proposalId: ballots.weighted })}`);
-  expect(data(power).signing).toEqual({ available: false, code: 'token.signed_vote_unavailable' });
-  const signed = await client.post('/api/token/trpc/castVote', {
-    proposalId: ballots.weighted,
-    ballot: {
-      kind: 'split',
-      parts: [
-        { choice: 0, bps: 6000 },
-        { choice: 1, bps: 4000 },
-      ],
-    },
-    signature: 'TEST-not-a-wallet-signature',
-  });
-  expect(signed.status).toBe(412);
-  expect(causeOf(signed.body)).toEqual({ code: 'token.signed_vote_unavailable' });
-  expect((await detail(ballots.weighted)).choiceTally).toMatchObject({ voterCount: 0 });
 
   // The vote needs a validation rule: with who may vote unset, the panel says so and the cast is refused with its code.
   voteRule(false);
@@ -521,7 +554,7 @@ test(`${J} #7 Casts a vote on an approval, weighted or ranked ballot: A ballot w
   await ballot.getByLabel('Weight for TEST beta (%)').fill('40');
   const weighted = await castFrom(ballot);
   expect(weighted.status, JSON.stringify(weighted.body).slice(0, 300)).toBe(200);
-  expect(weighted.body.result.data).toMatchObject({ weight: '150', choice: null });
+  expect(weighted.body.result.data).toMatchObject({ weight: '150', choice: null, signedBy: wallet.address });
   await expect(ballot.getByRole('status').filter({ hasText: 'Ballot recorded' })).toHaveText('Ballot recorded with 150 voting power.');
   expect((await detail(ballots.weighted)).choiceTally).toMatchObject({ voterCount: 1, totals: ['90', '60'], ranking: [0, 1] });
 
@@ -531,7 +564,7 @@ test(`${J} #7 Casts a vote on an approval, weighted or ranked ballot: A ballot w
   await ballot.getByRole('checkbox', { name: 'TEST blue' }).check();
   const approval = await castFrom(ballot);
   expect(approval.status, JSON.stringify(approval.body).slice(0, 300)).toBe(200);
-  expect(approval.body.result.data).toMatchObject({ weight: '150', ballot: { kind: 'pick', choices: [0, 2] } });
+  expect(approval.body.result.data).toMatchObject({ weight: '150', ballot: { kind: 'pick', choices: [0, 2] }, signedBy: wallet.address });
   expect((await detail(ballots.approval)).choiceTally).toMatchObject({ voterCount: 1, totals: ['150', '0', '150'] });
 
   // Ranked: second first, then third; the first round counts my power for my first preference.
@@ -540,7 +573,7 @@ test(`${J} #7 Casts a vote on an approval, weighted or ranked ballot: A ballot w
   await ballot.getByLabel('Rank for TEST third').fill('2');
   const ranked = await castFrom(ballot);
   expect(ranked.status, JSON.stringify(ranked.body).slice(0, 300)).toBe(200);
-  expect(ranked.body.result.data).toMatchObject({ weight: '150', ballot: { kind: 'pick', choices: [1, 2] } });
+  expect(ranked.body.result.data).toMatchObject({ weight: '150', ballot: { kind: 'pick', choices: [1, 2] }, signedBy: wallet.address });
   const rankedTally = (await detail(ballots.ranked_choice)).choiceTally;
   expect(rankedTally).toMatchObject({ voterCount: 1, totals: ['0', '150', '0'] });
   expect(rankedTally.rounds[0]).toEqual(['0', '150', '0']);

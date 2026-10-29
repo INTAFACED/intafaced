@@ -5,7 +5,7 @@ import { TokenError } from './token-service.js';
 
 /**
  * MC-token-03: who may vote, voting power fixed when a proposal is created,
- * and the signed-vote door.
+ * and the code a signed vote that cannot be checked refuses with (vote-signature.ts).
  *
  * Power is a stored measurement of the stake pots taken inside the proposal's
  * creation transaction. Nothing here moves value or holds a balance.
@@ -39,14 +39,6 @@ export function parseVoteRule(raw: string | undefined): VoteRule {
   }
   if (minPower < 0n) throw new TokenError('Vote rule minimum is negative', 'token.params_invalid');
   return { minPower };
-}
-
-/** The signed-vote control always refuses until a wallet link exists. Nothing is stored. */
-export function refuseSignedVote(): never {
-  throw new TokenError(
-    'No service links a wallet to this account or verifies a signed message, so the vote was not saved',
-    SIGNED_VOTE_UNAVAILABLE,
-  );
 }
 
 /** sha256 over `user:power` lines in user order. The seal a resumed or audited snapshot is checked against. */

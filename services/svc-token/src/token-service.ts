@@ -48,7 +48,7 @@ import {
   readPowerHistory,
   readProposalPower,
   readSealedSnapshot,
-  refuseSignedVote,
+  SIGNED_VOTE_UNAVAILABLE,
   sealFromRow,
   sealSnapshot,
   type PowerHistoryEntry,
@@ -56,6 +56,7 @@ import {
   type SnapshotSeal,
 } from './governance-vote.js';
 import { GOVERNANCE_EXECUTE_UNWIRED, GOVERNANCE_QUORUM_UNSET, decideProposalOutcome, executeUnwiredFor } from './governance-close.js';
+import { voteMessage, type VoteSignaturePort } from './vote-signature.js';
 import { reportLastBuyback, reportTreasury, type LastBuybackRow, type TokenTreasuryView, type TreasurySums } from './treasury-view.js';
 import {
   assessProposalAccess,
@@ -260,8 +261,12 @@ export class TokenError extends Error {
       | 'token.vote_rule_unset'
       /** The account's power at the proposal's snapshot is below the published vote rule. */
       | 'token.vote_rule_not_met'
-      /** No service links a wallet to an account or verifies a signed message. Nothing is stored. */
-      | 'token.signed_vote_unavailable',
+      /** A signed vote cannot be checked: identity is unreachable or unset, or the account has no linked wallet or may not act. Nothing is stored. */
+      | 'token.signed_vote_unavailable'
+      /** A vote arrived without a wallet signature. Unsigned votes are refused (OWNER 108). Nothing is stored. */
+      | 'token.vote_signature_required'
+      /** The signature is unreadable or not from a wallet linked to the account. Nothing is stored. */
+      | 'token.vote_signature_invalid',
     /** Set on `token.epoch_too_early`: how long until a new epoch may start, from the database clock. */
     readonly retryAfterMs?: number,
     /** Set on `token.params_unset`: the blank `token_params` column. Not a value. */
@@ -502,6 +507,8 @@ export interface VoteRecord {
   choice: VoteChoice | null;
   ballot: Ballot | null;
   castAt: Date;
+  /** The linked wallet whose signature was checked when the vote was recorded, lower-case. */
+  signedBy: string;
 }
 
 export interface ProposalTally {
@@ -577,6 +584,11 @@ export interface TokenServiceOptions {
    * blank refuses `token.vote_rule_unset`. Never defaulted here.
    */
   voteRule?: string;
+  /**
+   * Checks a vote's wallet signature with identity (vote-signature.ts). Missing refuses every vote
+   * `token.signed_vote_unavailable`; never treated as verified.
+   */
+  voteSignatures?: VoteSignaturePort;
 }
 
 /** One day. Epoch length is owner-decided (2026-10-14); reward / cap / halving stay unset. */
@@ -2793,9 +2805,13 @@ export class TokenService {
    * from before snapshots keeps the old read (active stake at this instant).
    *
    * Who may vote is the published rule (`TOKEN_VOTE_RULE`); blank refuses
-   * `token.vote_rule_unset` before any write. A signature refuses
-   * `token.signed_vote_unavailable` before any read: no service links a
-   * wallet to an account yet. Zero weight is refused, never recorded.
+   * `token.vote_rule_unset` before any write. Every vote is signed (OWNER
+   * 108): no signature refuses `token.vote_signature_required`; identity then
+   * checks the signer of `voteMessage` against the account's linked wallets,
+   * before the transaction. No answer, no IDENTITY_URL, no linked wallet or an
+   * account that may not act refuse `token.signed_vote_unavailable`; any other
+   * signer refuses `token.vote_signature_invalid`. The signer and signature
+   * are stored on the vote. Zero weight is refused, never recorded.
    */
   async castVote(input: {
     proposalId: string;
@@ -2804,16 +2820,20 @@ export class TokenService {
     choice?: VoteChoice;
     /** A ballot for a non-basic type. Exactly one of `choice` and `ballot`. */
     ballot?: Ballot;
-    /** A wallet signature over the ballot. Always refused until a wallet link exists. */
+    /** A linked wallet's EIP-191 signature over `voteMessage(...)`. Required. */
     signature?: string;
     now?: Date;
   }): Promise<VoteRecord> {
-    if (input.signature !== undefined) refuseSignedVote();
+    if (input.signature === undefined || input.signature === '') {
+      throw new TokenError('A vote must be signed by a wallet linked to the account', 'token.vote_signature_required');
+    }
     const rule = parseVoteRule(this.options.voteRule ?? process.env.TOKEN_VOTE_RULE);
     if ((input.choice === undefined) === (input.ballot === undefined)) {
       throw new TokenError('A vote is either a for/against/abstain choice or a ballot', 'token.ballot_invalid');
     }
     const now = input.now ?? new Date();
+    const signature = input.signature.toLowerCase();
+    const signedBy = await this.voteSigner(input, signature);
 
     return transaction(
       this.sql,
@@ -2893,17 +2913,18 @@ export class TokenService {
               choice: VoteChoice | null;
               ballot: unknown;
               cast_at: Date;
+              signed_by: string;
             }>
           >`
             INSERT INTO token.governance_votes (
-              id, proposal_id, user_id, weight, eligible_stake, choice, ballot, cast_at
+              id, proposal_id, user_id, weight, eligible_stake, choice, ballot, cast_at, signed_by, signature
             )
             VALUES (
               ${voteId}, ${input.proposalId}, ${input.userId},
               ${formatAmount(weight)}::numeric, ${formatAmount(eligible)}::numeric,
-              ${choice}, ${ballot === null ? null : tx.json(ballot as never)}, ${now}
+              ${choice}, ${ballot === null ? null : tx.json(ballot as never)}, ${now}, ${signedBy}, ${signature}
             )
-            RETURNING id, proposal_id, user_id, weight, choice, ballot, cast_at
+            RETURNING id, proposal_id, user_id, weight, choice, ballot, cast_at, signed_by
           `;
 
           const row = rows[0]!;
@@ -2915,6 +2936,7 @@ export class TokenService {
             choice: row.choice,
             ballot: asBallotError(() => parseStoredBallot(row.ballot)),
             castAt: row.cast_at,
+            signedBy: row.signed_by,
           };
         } catch (err) {
           // Unique (proposal_id, user_id) — one ballot per member.
@@ -2928,6 +2950,29 @@ export class TokenService {
     );
   }
 
+  /** The linked wallet that signed this vote's message, or the typed refusal. Asked before any lock is taken. */
+  private async voteSigner(
+    input: { proposalId: string; userId: string; choice?: VoteChoice; ballot?: Ballot },
+    signature: string,
+  ): Promise<string> {
+    const port = this.options.voteSignatures;
+    const unavailable = (why: string) => new TokenError(`Signed votes cannot be checked: ${why}`, SIGNED_VOTE_UNAVAILABLE);
+    if (!port) throw unavailable('the identity service is not configured');
+    const answer = await port.verify({ userId: input.userId, message: voteMessage(input), signature });
+    if (answer === null) throw unavailable('the identity service did not answer');
+    switch (answer.state) {
+      case 'linked':
+        return answer.address;
+      case 'no_wallet':
+        throw unavailable('no wallet is linked to this account');
+      case 'account_inactive':
+        throw unavailable('this account may not act');
+      default:
+        // not_linked or invalid.
+        throw new TokenError('The vote is not signed by a wallet linked to this account', 'token.vote_signature_invalid');
+    }
+  }
+
   /** The signed account's voting power on one proposal, fixed at creation. Zero carries its reason. */
   async proposalPower(proposalId: string, userId: string): Promise<ProposalPower & { rule: VoteRuleState }> {
     const power = await readProposalPower(this.sql, proposalId, userId);
@@ -2935,6 +2980,11 @@ export class TokenService {
   }
 
   /** Who may vote, as the pane shows it: the minimum, or the typed code a vote would be refused with. Never a default. */
+  /** Whether a signed vote can be checked at all: false when no identity is configured. A linked wallet is identity's to say. */
+  signedVotesConfigured(): boolean {
+    return this.options.voteSignatures !== undefined;
+  }
+
   voteRuleState(): VoteRuleState {
     try {
       return { minPower: parseVoteRule(this.options.voteRule ?? process.env.TOKEN_VOTE_RULE).minPower, code: null };

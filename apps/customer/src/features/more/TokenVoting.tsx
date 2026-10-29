@@ -2,6 +2,7 @@
 import { useState, type FormEvent } from 'react';
 import { z } from 'zod';
 import { useApi, useSession } from '../session/session';
+import { signTextWithBrowserWallet } from '../session/browser-wallet';
 import { useResource, type Resource } from '../../shared/resource';
 import { decimalSchema, displayAmount } from '../../shared/money';
 import type { ApiResult } from '../../shared/api';
@@ -12,13 +13,14 @@ import { tokenVotingCopy } from './token-voting-copy';
 
 /**
  * MC-token-03 in the proposal pane: the voting power fixed when a proposal was created, its history, who may vote,
- * and the ballot for the voting types other than for/against/abstain. The signed-vote control stays visible with the
- * service's typed unavailable reply until a wallet link exists.
+ * and the ballot for the voting types other than for/against/abstain. Every vote is signed by a wallet linked to the
+ * account: the service builds the message (`voteMessage`), the browser's wallet signs it, and identity checks the signer.
  */
 
 type Refusal = Extract<ApiResult<unknown>, { ok: false }>;
 /** The last cast's answer. Held by the proposal panel, so the refresh that follows a cast does not erase it. */
-export type BallotOutcome = { ok: true; weight: string } | { ok: false; failure: Refusal } | null;
+export type BallotOutcome =
+  { ok: true; weight: string } | { ok: false; failure: Refusal } | { ok: false; wallet: 'none' | 'rejected' | 'failed' } | null;
 type T = ReturnType<typeof tokenVotingCopy.forLocale>['t'];
 
 export const VOTING_TYPES = ['basic', 'single_choice', 'approval', 'weighted', 'quadratic', 'ranked_choice'] as const;
@@ -34,7 +36,11 @@ export const powerSchema = z.object({
   reason: z.enum(['no_stake_at_creation', 'not_measured']).nullable(),
   takenAt: iso.nullable(),
   rule: z.object({ minPower: decimalSchema.nullable(), code: z.string().nullable() }),
-  signing: z.object({ available: z.literal(false), code: z.literal('token.signed_vote_unavailable') }),
+  signing: z.object({
+    required: z.literal(true),
+    available: z.boolean(),
+    code: z.literal('token.signed_vote_unavailable').nullable(),
+  }),
 });
 export type ProposalPower = z.infer<typeof powerSchema>;
 /** Read once per proposal view and shared, so the power, the ballot and the vote buttons agree. */
@@ -71,7 +77,25 @@ const castSchema = z.object({
   choice: z.enum(['for', 'against', 'abstain']).nullable(),
   ballot: ballotSchema.nullable(),
   castAt: iso,
+  signedBy: z.string().regex(/^0x[0-9a-f]{40}$/),
 });
+
+export type VoteSigned =
+  | { ok: true; message: string; signature: string }
+  | { ok: false; wallet: 'none' | 'rejected' | 'failed' }
+  | { ok: false; failure: Refusal };
+
+/** Ask the service for this vote's exact message, then have the browser's wallet sign it. Nothing is cast here. */
+export async function signVote(
+  api: ReturnType<typeof useApi>,
+  vote: { proposalId: string; choice?: 'for' | 'against' | 'abstain'; ballot?: BallotWire },
+): Promise<VoteSigned> {
+  const asked = await api.query('token', 'voteMessage', vote, z.object({ message: z.string().min(1) }));
+  if (!asked.ok) return { ok: false, failure: asked };
+  const signed = await signTextWithBrowserWallet(asked.data.message);
+  if (signed.status !== 'signed') return { ok: false, wallet: signed.status };
+  return { ok: true, message: asked.data.message, signature: signed.signature };
+}
 
 function useWords(): T {
   const { language } = usePreferences();
@@ -200,6 +224,10 @@ function refusalWords(failure: Refusal, t: T): string {
       return t('refusedAlready');
     case 'token.signed_vote_unavailable':
       return t('refusedSigned');
+    case 'token.vote_signature_required':
+      return t('refusedSignatureRequired');
+    case 'token.vote_signature_invalid':
+      return t('refusedSignatureInvalid');
     case 'token.proposal_not_open':
     case 'token.proposal_window':
       return t('refusedClosed');
@@ -238,15 +266,23 @@ export function ChoiceBallot({
   const split = votingType === 'weighted' || votingType === 'quadratic';
   const sum = split ? inputs.reduce((total, raw) => total + (percentToBps(raw) ?? 0), 0) : 0;
   const ballot = ballotOf(votingType, choices, inputs, picked);
-  const message = JSON.stringify({ proposalId, ballot: ballot ?? null });
+  const [message, setMessage] = useState<string | null>(null);
 
   async function cast(wire: BallotWire) {
     setBusy(true);
     onOutcome(null);
+    setMessage(null);
+    const signed = await signVote(api, { proposalId, ballot: wire });
+    if (!signed.ok) {
+      setBusy(false);
+      onOutcome(signed);
+      return;
+    }
+    setMessage(signed.message);
     const result = await api.mutate(
       'token',
       'castVote',
-      { proposalId, ballot: wire },
+      { proposalId, ballot: wire, signature: signed.signature },
       castSchema.refine((vote) => vote.proposalId === proposalId && vote.userId === userId),
     );
     setBusy(false);
@@ -316,29 +352,34 @@ export function ChoiceBallot({
       )}
       <section className="token-ballot-sign" aria-label={t('message')}>
         <h4>{t('message')}</h4>
-        <pre lang="zxx">{message}</pre>
+        {message ? <pre lang="zxx">{message}</pre> : <p className="muted">{t('messagePending')}</p>}
         <p className="muted">{t('messageNote')}</p>
-        <Button variant="secondary" disabled>
-          {t('sign')}
-        </Button>
         <Read resource={power.resource} retry={power.reload}>
-          {(p) => (
-            <p role="note" data-testid="signed-vote-reply">
-              {t('signUnavailable', { code: p.signing.code })}
-            </p>
-          )}
+          {(p) =>
+            p.signing.code ? (
+              <p role="note" data-testid="signed-vote-reply">
+                {t('signUnavailable', { code: p.signing.code })}
+              </p>
+            ) : null
+          }
         </Read>
       </section>
       <div className="actions">
         <Button type="submit" disabled={!open || busy || !ballot}>
-          {t('cast')}
+          {t('sign')}
         </Button>
         <Button variant="secondary" disabled={!open || busy} onClick={() => void cast({ kind: 'abstain' })}>
           {t('abstain')}
         </Button>
       </div>
       {outcome?.ok && <p role="status">{t('recorded', { weight: hideBalances ? t('hidden') : displayAmount(outcome.weight) })}</p>}
-      {outcome && !outcome.ok && <p role="alert">{refusalWords(outcome.failure, t)}</p>}
+      {outcome && !outcome.ok && (
+        <p role="alert">
+          {'wallet' in outcome
+            ? t(outcome.wallet === 'none' ? 'walletNone' : outcome.wallet === 'rejected' ? 'walletRejected' : 'walletFailed')
+            : refusalWords(outcome.failure, t)}
+        </p>
+      )}
     </form>
   );
 }

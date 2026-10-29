@@ -332,6 +332,10 @@ export const governanceVotes = token.table(
     /** A non-basic ballot as validated data (`ballot-tally.ts`). Exactly one of choice or ballot is set. */
     ballot: jsonb('ballot'),
     castAt: tstz('cast_at').notNull().defaultNow(),
+    /** The linked wallet whose signature identity checked (lower-case). Null only on votes from before signed votes. */
+    signedBy: text('signed_by'),
+    /** The EIP-191 signature over the vote's message (`vote-signature.ts`), kept so the vote can be re-checked. */
+    signature: text('signature'),
   },
   (t) => [
     /** The tally reads every vote for one proposal — this is that scan. */

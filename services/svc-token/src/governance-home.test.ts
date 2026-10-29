@@ -19,6 +19,7 @@ import {
   type ProposerGate,
 } from './governance-home.js';
 import { TokenError, TokenService } from './token-service.js';
+import { TEST_VOTE_SIGNATURE, testVoteSignatures } from './vote-signature.testkit.js';
 
 /**
  * MC-token-01. One space, follow, a stored proposer rule, and draft open.
@@ -188,6 +189,7 @@ describe('MC-token-01 governance home', () => {
       loadParamsFromDb: false,
       // Test fixture only — production env has no default vote rule.
       voteRule: 'power:0',
+      voteSignatures: testVoteSignatures(),
     });
     await sql`TRUNCATE token.governance_votes, token.proposals, token.governance_follows, token.stakes RESTART IDENTITY CASCADE`;
     await publish(sql, { kind: 'stake', minStake: '1000', accounts: null, limit: 100, periodMs: 604_800_000n });
@@ -383,7 +385,13 @@ describe('MC-token-01 governance home', () => {
     await expect(token.editProposal({ proposalId: draft.id, authorId: USER_A, title: 'Too late' })).rejects.toMatchObject({
       code: 'token.proposal_not_editable',
     });
-    const vote = await token.castVote({ proposalId: draft.id, userId: USER_A, choice: 'for', now: openedAt });
+    const vote = await token.castVote({
+      signature: TEST_VOTE_SIGNATURE,
+      proposalId: draft.id,
+      userId: USER_A,
+      choice: 'for',
+      now: openedAt,
+    });
     expect(vote.proposalId).toBe(draft.id);
   });
 
@@ -409,8 +417,8 @@ describe('MC-token-01 governance home', () => {
       title: 'Beacon',
       bodyMd: 'notes',
     });
-    await token.castVote({ proposalId: beacon.id, userId: USER_A, choice: 'for', now: NOW });
-    await token.castVote({ proposalId: beacon.id, userId: USER_B, choice: 'against', now: NOW });
+    await token.castVote({ signature: TEST_VOTE_SIGNATURE, proposalId: beacon.id, userId: USER_A, choice: 'for', now: NOW });
+    await token.castVote({ signature: TEST_VOTE_SIGNATURE, proposalId: beacon.id, userId: USER_B, choice: 'against', now: NOW });
 
     const found = await token.listProposals({ q: 'alpha', limit: 50 });
     expect(found.map((row) => row.title).sort()).toEqual(['Alpha']);

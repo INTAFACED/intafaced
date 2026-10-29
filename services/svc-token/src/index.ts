@@ -9,6 +9,7 @@ import { env } from './env.js';
 import { TokenError, TokenService } from './token-service.js';
 import { createLedgerClient } from './ledger-client.js';
 import { createIdentityApprovalClient, unwiredApprovalConsumer } from './action-approval-consume.js';
+import { createIdentityVoteSignatures } from './vote-signature.js';
 import { createTokenRouter, type TokenRouter } from './router.js';
 import { registerInternalStake } from './internal-stake.js';
 import { registerInternalEmissions } from './internal-emissions.js';
@@ -80,7 +81,18 @@ const governanceBps = readGovernanceParams({
   TOKEN_GOVERNANCE_THRESHOLD_BPS: env.TOKEN_GOVERNANCE_THRESHOLD_BPS,
 });
 
+// Signed votes (OWNER 108): identity checks each vote's signer. No IDENTITY_URL refuses every vote unavailable.
+const voteSignatures = env.IDENTITY_URL
+  ? createIdentityVoteSignatures(
+      env.IDENTITY_URL,
+      env.INTERNAL_SERVICE_SECRET,
+      globalThis.fetch,
+      s2s.signer && s2s.s2sMode ? { signer: s2s.signer, mode: s2s.s2sMode } : undefined,
+    )
+  : undefined;
+
 const token = new TokenService(sql, ledger, bus, {
+  ...(voteSignatures ? { voteSignatures } : {}),
   assetId: env.TOKEN_ASSET_ID,
   // T-02: buyback + emission from token_params, not code defaults.
   loadParamsFromDb: true,
