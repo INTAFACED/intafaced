@@ -177,5 +177,8 @@ export async function paidCardPayment(api, merchantId, { key, amount, assetId = 
   });
   if (!['created', 'authorized'].includes(created.status)) return created;
   const authorized = created.status === 'created' ? await api.mutate('payment.authorize', { paymentId: created.id }) : created;
-  return authorized.status === 'captured' ? authorized : api.mutate('payment.capture', { paymentId: created.id });
+  if (authorized.status === 'captured') return authorized;
+  // A declined or failed authorisation is returned as it is: capture is only asked of an authorised payment.
+  if (authorized.status !== 'authorized') return authorized;
+  return api.mutate('payment.capture', { paymentId: created.id });
 }

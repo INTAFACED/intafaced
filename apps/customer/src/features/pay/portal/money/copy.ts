@@ -226,7 +226,7 @@ const en = {
   balEmptyAction: 'Create a payment link',
   balAssetLabel: 'Choose an asset',
   balAvailable: 'Available to pay out',
-  balPending: 'Clearing',
+  balClearing: 'Clearing',
   balExact: 'Exactly',
   balReserveDays: 'Held for {days} days.',
   balReserveTitle: 'Reserve',

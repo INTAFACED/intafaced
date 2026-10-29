@@ -73,6 +73,8 @@ test(`${J} #1 opens Money: zero per asset with "No money yet" for a new business
   await expect(page.getByRole('heading', { name: 'Balances', level: 1 })).toBeVisible();
   await expect(page.getByText('No money yet')).toBeVisible();
   await expect(page.getByRole('group', { name: /Balances at a glance/ })).toHaveCount(0);
+  // The reserve card is there before the first payment too.
+  await expect(page.getByRole('region', { name: 'Reserve' })).toContainText('recorded, not withheld');
 
   // A TEST card payment, paid: it is captured, so it waits in clearing until a settlement makes it available.
   const api = await ownerApi();
@@ -105,7 +107,9 @@ test(`${J} #1 opens Money: zero per asset with "No money yet" for a new business
     tool('local-test-stack.mjs', 'stop', 'ledger');
     await expect(snapshot()).rejects.toThrow(/refused: 503 .*pay\.metrics_balance_unavailable/);
     await page.reload();
-    await expect(page.getByTestId('failure').first()).toBeVisible();
+    // The refusal the page shows is the balance read's own (pay.metrics_balance_unavailable), not some other failure.
+    await expect(page.getByTestId('failure').filter({ hasText: 'We can’t show your balances right now.' })).toHaveCount(1);
+    await expect(page.getByRole('region', { name: 'Reserve' })).toContainText('recorded, not withheld');
     await expect(page.getByRole('group', { name: /Balances at a glance/ })).toHaveCount(0);
     await expect(page.getByRole('region', { name: 'All balances' })).toHaveCount(0);
     await expect(page.getByText('Available to pay out')).toHaveCount(0);

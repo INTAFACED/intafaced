@@ -92,7 +92,7 @@ export function MerchantMoney({ portal, merchantId }: { portal: PortalApi; merch
                     </span>
                   )}
                   <span className="muted">
-                    {t('balPending')} <MoneyText value={balance.clearing} asset={asset} test={test} />
+                    {t('balClearing')} <MoneyText value={balance.clearing} asset={asset} test={test} />
                   </span>
                 </div>
               </div>
@@ -106,7 +106,7 @@ export function MerchantMoney({ portal, merchantId }: { portal: PortalApi; merch
                     value: <MoneyText value={balance.available} asset={asset} test={test} />,
                   },
                   {
-                    label: t('balPending'),
+                    label: t('balClearing'),
                     period: t('mnPeriodNow'),
                     href: `/pay/money/activity?${q}`,
                     value: <MoneyText value={balance.clearing} asset={asset} test={test} />,
@@ -146,7 +146,6 @@ export function MerchantMoney({ portal, merchantId }: { portal: PortalApi; merch
                   },
                 ]}
               />
-              <ReserveCard resource={reserve.resource} retry={reserve.reload} test={test} />
               <PaySection title={t('balAllTitle')}>
                 <EntityList
                   label={t('balAllTitle')}
@@ -155,14 +154,14 @@ export function MerchantMoney({ portal, merchantId }: { portal: PortalApi; merch
                   columns={[
                     { header: t('colAsset'), cell: (b) => b.assetCode },
                     { header: t('balAvailable'), cell: (b) => <MoneyText value={b.available} asset={b.assetCode} test={test} /> },
-                    { header: t('balPending'), cell: (b) => <MoneyText value={b.clearing} asset={b.assetCode} test={test} /> },
+                    { header: t('balClearing'), cell: (b) => <MoneyText value={b.clearing} asset={b.assetCode} test={test} /> },
                   ]}
                   card={(b) => ({
                     title: b.assetCode,
                     amount: <MoneyText value={b.available} asset={b.assetCode} test={test} />,
                     status: (
                       <span className="muted">
-                        {t('balPending')} <MoneyText value={b.clearing} asset={b.assetCode} test={test} />
+                        {t('balClearing')} <MoneyText value={b.clearing} asset={b.assetCode} test={test} />
                       </span>
                     ),
                   })}
@@ -179,6 +178,8 @@ export function MerchantMoney({ portal, merchantId }: { portal: PortalApi; merch
           );
         }}
       </Gate>
+      {/* The reserve reads apart from the balances, so it shows before a first payment and while balances cannot be read. */}
+      <ReserveCard resource={reserve.resource} retry={reserve.reload} test={test} />
     </div>
   );
 }
