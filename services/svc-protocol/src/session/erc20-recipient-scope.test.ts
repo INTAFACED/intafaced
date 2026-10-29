@@ -309,7 +309,6 @@ describe('every function with an address input in the compiled contracts is clas
       'payout recipients are constructor-fixed (merchant, feeRecipient); amount is uncapped, which is the ERC20 spend-cap follow-up',
     'MerchantAccept.rescue(address,uint256)': 'merchant-only and pays the merchant',
     'MockERC20.mint(address,uint256)': 'test token faucet; not a deployed protocol surface',
-    'TestToken.mint(address,uint256)': 'LOCAL TEST chain token faucet; not a deployed protocol surface',
     'MockERC20Dec.mint(address,uint256)': 'test token faucet; not a deployed protocol surface',
     'ReenteringBorrowToken.mint(address,uint256)': 'test fixture; not a deployed protocol surface',
     'ReenteringBorrowToken.arm(address,uint256)': 'test fixture; not a deployed protocol surface',
