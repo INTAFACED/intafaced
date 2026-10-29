@@ -1363,9 +1363,7 @@ async function healthTable({ gateMarket = false } = {}) {
     'customer',
     PORTS.customer,
     procs.customer?.pid ?? '-',
-    cust.status === 200 && cust.text.includes(BANNER_TEXT) && cust.text.includes(TEST_BUILD_META_HTML)
-      ? 'ok (banner on)'
-      : `DOWN (${cust.status}${cust.status === 200 ? ', no TEST banner or test-build tag' : ''})`,
+    cust.status === 200 && cust.text.includes(BANNER_TEXT) ? 'ok (banner on)' : `DOWN (${cust.status})`,
   ]);
   const invitation = await httpGet(`${INVITATION_ORIGIN}/`, 2500);
   rows.push([
@@ -1639,15 +1637,9 @@ const BANNER_HTML =
   `font:600 12px/1 ui-sans-serif,system-ui,-apple-system,'Segoe UI',sans-serif;letter-spacing:.04em;text-align:center;` +
   `pointer-events:none;user-select:none">${BANNER_TEXT}</div>`;
 
-/** Tells the app it is a test build, so it labels its money TEST (apps/customer/src/shared/test-build.ts). */
-export const TEST_BUILD_META_HTML = '<meta name="intafaced-build" content="test">';
-
-export function withTestBuildMarks(html) {
-  return html.replace(/<head([^>]*)>/i, (m) => `${m}${TEST_BUILD_META_HTML}`).replace(/<body([^>]*)>/i, (m) => `${m}${BANNER_HTML}`);
-}
-
 function indexWithBanner(dist) {
-  return withTestBuildMarks(fs.readFileSync(path.join(dist, 'index.html'), 'utf8'));
+  const html = fs.readFileSync(path.join(dist, 'index.html'), 'utf8');
+  return html.replace(/<body([^>]*)>/i, (m) => `${m}${BANNER_HTML}`);
 }
 
 /** What nginx's /api/ location adds to Edge's answers (security-headers-api.conf). */

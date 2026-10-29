@@ -288,7 +288,6 @@ function Summary({
           <div data-testid="hp-total__figure" className="hp-total__figure">
             {/* The balance call answered with no assets, so zero is correct here and only here. */}
             <HeroNumber value="0.00" decimals={2} prefix="$" unit="USD" size="hero-pro" hidden={hidden} />
-            <TestBuildTag />
           </div>
           <p data-testid="hp-total__note" className="hp-total__note">
             {t('No crypto yet')}

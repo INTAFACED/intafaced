@@ -16,7 +16,6 @@ import { EDGE, ROOT } from './stack.mjs';
 // seed service's wiring and run the seed's own scripts, which refuse anything but a local dev or test build.
 // Steps that are written but not built yet fail at their first missing part, quickly (UNBUILT):
 // - #2: the sign-in page of a non-live build has no "Tester build" panel saying where the founder vault is.
-// - #3: the seed gives founder a's Home a TEST deposit, notice and inbox row, but Home does not label them TEST.
 // - #5: the Help room does not read the host dispatch receipt (RC-home-ia-01); the check itself is built.
 const J = 'J-home-ia-11';
 const UNBUILT = { timeout: 5_000 };
@@ -127,13 +126,32 @@ test(`${J} #3 the founder's Home shows a TEST deposit in the total, a TEST notic
   await page.getByRole('button', { name: /^sign in$/i }).click();
   await expect(page).toHaveURL(/\/home$/);
 
-  // The total holds the seeded deposit and says it is TEST money.
-  await expect(page.getByTestId('home-total').first()).toContainText('TEST', UNBUILT);
-  // One TEST notice, drafted by one founder and published by the other.
-  await expect(page.getByTestId('home-notice').filter({ hasText: 'TEST' })).toHaveCount(1, UNBUILT);
-  // One inbox row, filed by the real deposit-credit consumer.
+  // What the seed made for founder a, read back from the services (status writes nothing).
+  const status = seedStatus();
+  expect(status.status, status.out).toBe(0);
+  const made = /^ {2}deposit {2}(\S+) (\S+) credited {2}(\S+)$/m.exec(status.out);
+  expect(made, `the seed reports no credited Home deposit:\n${status.out}`).not.toBeNull();
+  const [, amount, asset, holder] = made;
+  expect(holder).toBe(founder.handle);
+  const notice = /^ {2}notice {2}(.+) {2}published$/m.exec(status.out)?.[1];
+  expect(notice, `the seed reports no published Home notice:\n${status.out}`).toBeTruthy();
+  // The deposit is founder a's only holding, a stablecoin Home counts as cash at its dollar amount, so the total is exactly
+  // that figure, not zero, and says it is TEST money.
+  const [whole, fraction = ''] = amount.split('.');
+  const dollars = `$${whole}.${`${fraction}00`.slice(0, 2)}`;
+  const total = page.getByTestId('home-total').first();
+  await expect(total.getByRole('img', { name: dollars, exact: true })).toBeVisible();
+  await expect(total.getByTestId('home-total-test')).toHaveText('TEST');
+  // The deposit itself is on Home, once.
+  await expect(page.getByTestId('home-activity__row').filter({ hasText: `+${amount} ${asset}` })).toHaveCount(1);
+  // One TEST notice, the one the seed published (drafted by one founder and published by the other).
+  await expect(page.getByTestId('home-notice').filter({ hasText: notice })).toHaveCount(1);
+  expect(notice).toContain('TEST');
+  // One inbox row for that deposit, filed by the real deposit-credit consumer, and it says TEST beside the amount.
   await page.goto('/notifications');
-  await expect(page.getByTestId('nf-row').filter({ hasText: 'TEST' })).toHaveCount(1, UNBUILT);
+  const row = page.getByTestId('nf-row').filter({ hasText: `${amount} ${asset}` });
+  await expect(row).toHaveCount(1);
+  await expect(row.getByTestId('nf-test')).toHaveText('TEST');
 });
 
 test(`${J} #4 the same image started as staging or production: the seed service exits with an error and creates nothing`, async () => {

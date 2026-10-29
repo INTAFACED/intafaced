@@ -192,7 +192,6 @@ function Balance({ portfolio, hidden }: { portfolio: Loadable<HomePortfolio>; hi
         <div data-testid="home-total" className="home-total">
           {/* The balance call answered with no assets, so zero is correct here and only here. */}
           <HeroNumber value="0.00" decimals={2} prefix="$" hidden={hidden} />
-          <TestBuildTag />
         </div>
         <p data-testid="home-note" className="home-note home-note--lg">
           {t('No crypto yet')}
