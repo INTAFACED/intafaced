@@ -247,12 +247,13 @@ describe('copy control dispositions', () => {
     expect([...COPY_CONTROL_DISPOSITIONS, COPY_FLATTEN_DISPOSITION]).toEqual([
       'PAUSE_NEW',
       'STOP_NEW',
+      'STOP_CLOSE_ONLY',
       'DETACH_KEEP',
       'RESUME',
       'DETACH_FLATTEN',
     ]);
     expect([...COPY_PAUSE_DISPOSITIONS]).toEqual(['PAUSE_NEW']);
-    expect([...COPY_STOP_DISPOSITIONS]).toEqual(['STOP_NEW']);
+    expect([...COPY_STOP_DISPOSITIONS]).toEqual(['STOP_NEW', 'STOP_CLOSE_ONLY']);
     expect([...COPY_DETACH_DISPOSITIONS]).toEqual(['DETACH_KEEP']);
     expect([...COPY_RESUME_DISPOSITIONS]).toEqual(['RESUME']);
     expect([...COPY_FLATTEN_WIRE_DISPOSITIONS]).toEqual(['DETACH_FLATTEN']);
