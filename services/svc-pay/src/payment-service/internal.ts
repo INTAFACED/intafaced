@@ -386,6 +386,23 @@ export async function instrumentFor(sql: Sql, paymentId: string): Promise<Paymen
   };
 }
 
+/**
+ * How deep a pending crypto result's furthest-behind transfer is and how deep it must be (J-merchant-05 #4), from a rail
+ * result's `raw` or a stored `rail.pending` payload (same keys). Null unless both are whole numbers in range.
+ */
+export function confirmationDepth(source: Record<string, unknown> | null | undefined): { seen: number; required: number } | null {
+  const seen = source?.confirmations;
+  const required = source?.required;
+  return Number.isInteger(seen) && Number.isInteger(required) && (seen as number) >= 0 && (required as number) > 0
+    ? { seen: seen as number, required: required as number }
+    : null;
+}
+
+function waitingDepth(raw: Record<string, unknown> | undefined): Record<string, unknown> {
+  const depth = confirmationDepth(raw);
+  return depth ? { confirmations: depth.seen, required: depth.required } : {};
+}
+
 export function railPayload(result: RailResult): Record<string, unknown> {
   return {
     ok: result.ok,
@@ -406,10 +423,8 @@ export function railPayload(result: RailResult): Record<string, unknown> {
           ...(typeof result.raw.confirming === 'string' ? { confirming: result.raw.confirming } : {}),
         }
       : {}),
-    // Waiting for confirmations: how deep the transfer furthest from final is, and how deep it must be (J-merchant-05 #4).
-    ...(Number.isInteger(result.raw?.confirmations) && Number.isInteger(result.raw?.required) && (result.raw!.required as number) > 0
-      ? { confirmations: result.raw!.confirmations as number, required: result.raw!.required as number }
-      : {}),
+    // Waiting for confirmations (J-merchant-05 #4), kept only on a pending result: the count the merchant reads while it waits.
+    ...(result.status === 'pending' ? waitingDepth(result.raw) : {}),
   };
 }
 

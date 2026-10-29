@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { STALE_AFTER_SECONDS, bars, lagParts, nameHold, newRequestId, staleness, waitingConfirmations } from './model';
+import { STALE_AFTER_SECONDS, bars, lagParts, nameHold, newRequestId, staleness } from './model';
 import {
   businessDetails,
   merchantNames,
@@ -303,46 +303,6 @@ describe('portal routes', () => {
       '/pay/payments/a/b',
     ])
       expect(parsePortalRoute(path), path).toBeNull();
-  });
-});
-
-describe('a crypto payment waiting for confirmations (J-merchant-05 #4)', () => {
-  const ev = (event: string, payload: Record<string, unknown>, id = 'e1'): PaymentEvent => ({
-    id,
-    event,
-    payload,
-    railEventId: null,
-    ts: '2026-10-29T06:00:00.000Z',
-  });
-
-  it('reads the newest pending rail result while the payment is open, for the owner and for the team', () => {
-    expect(waitingConfirmations('created', [ev('rail.pending', { confirmations: 2, required: 6 })])).toEqual({ seen: 2, required: 6 });
-    expect(
-      waitingConfirmations('created', [
-        ev('rail.pending', { confirmations: 1, required: 6 }),
-        ev('rail.pending', { confirmations: 4, required: 6 }, 'e2'),
-      ]),
-    ).toEqual({ seen: 4, required: 6 });
-    const team: PaymentEvent = {
-      id: 'e3',
-      event: 'rail.pending',
-      ts: '2026-10-29T06:00:00.000Z',
-      amount: '60',
-      assetId: 'USDT',
-      failure: null,
-      confirmations: { seen: 3, required: 6 },
-    };
-    expect(waitingConfirmations('created', [team])).toEqual({ seen: 3, required: 6 });
-  });
-
-  it('shows nothing once the payment moved on, after a later rail result, or with no count', () => {
-    expect(waitingConfirmations('authorized', [ev('rail.pending', { confirmations: 2, required: 6 })])).toBeNull();
-    expect(
-      waitingConfirmations('created', [ev('rail.pending', { confirmations: 2, required: 6 }), ev('rail.declined', {}, 'e2')]),
-    ).toBeNull();
-    expect(waitingConfirmations('created', [ev('rail.pending', { received: '0', missing: '7' })])).toBeNull();
-    expect(waitingConfirmations('created', [ev('rail.pending', { confirmations: '2', required: 6 })])).toBeNull();
-    expect(waitingConfirmations('created', [])).toBeNull();
   });
 });
 

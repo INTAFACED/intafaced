@@ -331,7 +331,7 @@ export class CryptoNativeAdapter implements RailAdapter {
             amount: formatAmount(t.amount),
             confirmations: t.confirmations,
           })),
-          ...(shallow.length === 1 && final.length === 0 ? { txHash: shallow[0]!.txHash, confirmations: shallow[0]!.confirmations } : {}),
+          ...(shallow.length === 1 && final.length === 0 ? { txHash: shallow[0]!.txHash } : {}),
           ...(strays.length > 0 ? { strays } : {}),
         },
       };

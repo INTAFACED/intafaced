@@ -4572,6 +4572,34 @@ describe('svc-pay money PG-hard', { timeout: 30_000 }, () => {
       expect(Number(rows[0]!.uses)).toBe(1);
     });
 
+    it('counts confirmations while a payment waits for its transfer to be final, newest first (J-merchant-05 #4)', async () => {
+      const { link } = await linked({ amount: '100', currency: 'USDT', maxUses: 3 });
+      const { session } = await pay.openCheckoutSession({ linkToken: link.token, ...geo });
+      const address = session.instruction!.reference;
+      const [row] = await sql<Array<{ payment_id: string }>>`SELECT payment_id FROM pay.checkout_sessions WHERE id = ${session.id}`;
+      const paymentId = row!.payment_id;
+      const deliver = (id: string) =>
+        pay.handleWebhook(
+          'crypto-native',
+          signed('crypto-native', { id, type: 'captured', ref: address, occurredAt: new Date().toISOString() }),
+        );
+      expect(await pay.paymentConfirmations(paymentId)).toBeNull();
+
+      chain.creditAnother({ address, assetId: 'USDT', amount: amt('100'), from: '0xbuyer', confirmations: 2, txHash: '0xshallow' });
+      await deliver('evt-shallow-1');
+      expect(await pay.paymentConfirmations(paymentId)).toMatchObject({ seen: 2, required: 6 });
+      chain.setConfirmations(address, 4, '0xshallow');
+      await deliver('evt-shallow-2');
+      const deeper = await pay.paymentConfirmations(paymentId);
+      expect(deeper).toMatchObject({ seen: 4, required: 6 });
+      expect(Number.isNaN(Date.parse(deeper!.asOf))).toBe(false);
+      expect((await pay.getPayment(paymentId)).status).toBe('created');
+
+      chain.setConfirmations(address, 6, '0xshallow');
+      await deliver('evt-final');
+      expect((await pay.getPayment(paymentId)).status).not.toBe('created');
+    });
+
     it('books nothing when a part is reorganised away between authorize and capture, and books once when it is back', async () => {
       const { merchant: m, link } = await linked({ amount: '100', currency: 'USDT' });
       const { sessionToken, session } = await pay.openCheckoutSession({ linkToken: link.token, ...geo });

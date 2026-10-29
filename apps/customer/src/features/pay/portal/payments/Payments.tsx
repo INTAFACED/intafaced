@@ -4,7 +4,7 @@ import { useResource, type Resource } from '../../../../shared/resource';
 import { PaySection } from '../../components';
 import { Facts, Gate, HaltBanner, Money, MoneyLines, NotConfigured, PortalFailure, PortalLoading } from '../components';
 import type { ListState } from '../hooks';
-import { isUuid, nameHold, paymentLinks, paymentRefunds, shortId, waitingConfirmations } from '../model';
+import { isUuid, nameHold, paymentLinks, paymentRefunds, shortId } from '../model';
 import { paymentLabel } from '../presentation';
 import { portalRefusal } from '../refusal';
 import type { PortalApi } from '../api';
@@ -364,7 +364,7 @@ export function PaymentDetailView({
           const events = history.status === 'ready' ? history.data : [];
           const links = paymentLinks(events);
           const held = nameHold(p.status, events);
-          const waiting = waitingConfirmations(p.status, events);
+          const waiting = p.status === 'created' ? (p.confirmations ?? null) : null;
           const customerRef = p.customerRef?.trim() || links.customerRef;
           const fee = feeSummary(p);
           const derived = paymentRefunds(events);
@@ -441,7 +441,8 @@ export function PaymentDetailView({
                 )}
                 {waiting && (
                   <p className="pp-callout" role="note" data-testid="payment-confirmations">
-                    {t('pay_waitingConfirmations', { seen: waiting.seen, required: waiting.required })}
+                    {t('pay_waitingConfirmations', { seen: waiting.seen, required: waiting.required })} {t('pay_asOf')}{' '}
+                    <DateTime value={waiting.asOf} />
                   </p>
                 )}
                 {held && (

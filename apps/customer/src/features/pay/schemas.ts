@@ -565,11 +565,6 @@ const paymentEventTeamSchema = z
     amount: amount.nullable(),
     assetId: asset.nullable(),
     failure: z.object({ code: z.string(), message: z.string() }).strict().nullable(),
-    confirmations: z
-      .object({ seen: z.number().int().min(0), required: z.number().int().min(1) })
-      .strict()
-      .nullable()
-      .optional(),
   })
   .strict();
 export const paymentEventSchema = z.union([paymentEventOwnerSchema, paymentEventTeamSchema]);

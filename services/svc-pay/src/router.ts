@@ -1122,7 +1122,16 @@ export function createPayRouter(
 
       get: ownMerchantRead()
         .input(z.object({ paymentId: z.string().guid() }))
-        .output(paymentView.extend({ attempts: z.array(payPaymentAttemptSchema) }))
+        .output(
+          paymentView.extend({
+            attempts: z.array(payPaymentAttemptSchema),
+            /** While the payment is open and its rail waits for confirmations: how deep, how deep it must be, as of when. */
+            confirmations: z
+              .object({ seen: z.number().int().min(0), required: z.number().int().min(1), asOf: z.string().datetime({ offset: true }) })
+              .strict()
+              .nullable(),
+          }),
+        )
         .query(({ ctx, input }) =>
           wrap(async () => {
             // Fetched, then checked, then returned. The row has to be read to
@@ -1132,8 +1141,9 @@ export function createPayRouter(
             const payment = await pay.getPayment(input.paymentId);
             const audience = await assertPaymentRead(ctx.principal.userId, input.paymentId, payment.merchantId);
             const attempts = await pay.listPaymentAttempts(input.paymentId);
+            const confirmations = payment.status === 'created' ? await pay.paymentConfirmations(input.paymentId) : null;
             const body = await paymentOut(payment, audience, false);
-            return { ...body, attempts };
+            return { ...body, attempts, confirmations };
           }),
         ),
 
@@ -1187,10 +1197,6 @@ export function createPayRouter(
                   amount: amountSchema.nullable(),
                   assetId: assetIdSchema.nullable(),
                   failure: payMerchantFailureSchema.nullable(),
-                  confirmations: z
-                    .object({ seen: z.number().int().min(0), required: z.number().int().min(1) })
-                    .strict()
-                    .nullable(),
                 })
                 .strict(),
             ]),

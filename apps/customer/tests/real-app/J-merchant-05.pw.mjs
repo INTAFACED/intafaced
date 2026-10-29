@@ -257,7 +257,8 @@ test(`${J} #4 opens one payment: facts, amounts, timeline, linked refunds and th
   // waits, then drops the count once the transfer is final.
   const owner = await ownerApi(state);
   const waiting = await owner.mutate('payment.create', {
-    requestId: uuidOf(`${J}:payment:confirming:${state.merchantId}`),
+    // A fresh payment per attempt: a retried step must not find the one its first attempt already completed.
+    requestId: uuidOf(`${J}:payment:confirming:${state.merchantId}:${Date.now()}`),
     merchantId: state.merchantId,
     amount: '7.00',
     assetId: 'USDT',

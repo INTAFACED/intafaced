@@ -23,8 +23,6 @@ export interface TeamHistoryEvent {
   readonly amount: string | null;
   readonly assetId: string | null;
   readonly failure: MerchantFailure | null;
-  /** A pending rail result's confirmation count and the depth it needs; null on any other event. */
-  readonly confirmations: { readonly seen: number; readonly required: number } | null;
 }
 
 const AMOUNT = /^\d+(\.\d{1,18})?$/;
@@ -44,25 +42,11 @@ export function projectTeamHistoryEvent(event: {
   const payload = event.payload ?? {};
   const routing = event.event === 'rail.selected' || payload.kind === 'pay.routing.decision';
   if (routing) {
-    return {
-      id: event.id,
-      event: event.event,
-      ts: event.ts.toISOString(),
-      amount: null,
-      assetId: null,
-      failure: null,
-      confirmations: null,
-    };
+    return { id: event.id, event: event.event, ts: event.ts.toISOString(), amount: null, assetId: null, failure: null };
   }
   const amount = typeof payload.amount === 'string' && AMOUNT.test(payload.amount) ? payload.amount : null;
   const assetId = typeof payload.assetId === 'string' && ASSET.test(payload.assetId) ? payload.assetId : null;
   const code = typeof payload.failureCode === 'string' ? payload.failureCode : null;
-  const seen = payload.confirmations;
-  const required = payload.required;
-  const confirmations =
-    Number.isInteger(seen) && Number.isInteger(required) && (seen as number) >= 0 && (required as number) > 0
-      ? { seen: seen as number, required: required as number }
-      : null;
   return {
     id: event.id,
     event: event.event,
@@ -70,7 +54,6 @@ export function projectTeamHistoryEvent(event: {
     amount,
     assetId,
     failure: safeFailure(code),
-    confirmations,
   };
 }
 
