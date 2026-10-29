@@ -8,9 +8,11 @@ import { isTicketId, readActionRequest, type SupportActionRequest } from '@/lib/
 import { readQueueQuery } from '@/lib/support/queue-query';
 import { SUPPORT_OPS_FORBIDDEN, SUPPORT_OPS_FORBIDDEN_BODY, explainSupportFailure } from '@/lib/support/refusal';
 import {
+  applyMacro,
   claimTicket,
   loadBulkPolicy,
   loadKb,
+  loadMacros,
   loadQueue,
   loadTicket,
   loadTicketExtras,
@@ -28,7 +30,8 @@ import type { FounderCallFailure } from '@/lib/desk/founder-call';
 
 /**
  * Support desk BFF: the operator queue, one ticket (with its case file and rating), the help articles, and the desk's
- * writes: claim, unclaim, reassign, reply, set status, escalate, publish and unpublish an article.
+ * writes: claim, unclaim, reassign, reply, set status, escalate, publish and unpublish an article, and the agent's own
+ * signature. A macro is read filled from one request (`view=macro`) and only goes into the agent's draft.
  *
  * Runs as the signed-in founder: svc-support takes the operator id from the verified session, so a claim is recorded
  * against the founder who made it and cannot be made on anyone else's behalf. Every procedure is `support:ops`; if
@@ -70,6 +73,18 @@ export async function GET(request: Request) {
       return Response.json({ ok: false, refusal: explainSupportFailure(result) }, { status: statusOf(result), headers: NO_STORE });
     }
     return Response.json({ asOf: new Date().toISOString(), preview: result.data }, { headers: NO_STORE });
+  }
+  if (url.searchParams.get('view') === 'macros') return Response.json(await loadMacros(session), { headers: NO_STORE });
+  if (url.searchParams.get('view') === 'macro') {
+    const id = url.searchParams.get('id');
+    const macro = url.searchParams.get('macro');
+    if (!isTicketId(id)) return Response.json({ code: 'admin.support_ticket_id' }, { status: 400, headers: NO_STORE });
+    if (!isTicketId(macro)) return Response.json({ code: 'admin.support_macro_id' }, { status: 400, headers: NO_STORE });
+    const result = await applyMacro(session, id, macro);
+    if (result.kind !== 'ok') {
+      return Response.json({ ok: false, refusal: explainSupportFailure(result) }, { status: statusOf(result), headers: NO_STORE });
+    }
+    return Response.json({ ok: true, applied: result.data }, { headers: NO_STORE });
   }
   if (url.searchParams.get('view') === 'bulk') return Response.json(await loadBulkPolicy(session), { headers: NO_STORE });
   if (url.searchParams.get('view') === 'groups') return Response.json(await loadGroups(session), { headers: NO_STORE });
@@ -188,21 +203,23 @@ const INVALID = {
 const targetOf = (request: SupportActionRequest) =>
   request.action === 'staff_availability'
     ? (request.userId ?? 'self')
-    : request.action === 'group_save'
-      ? (request.groupId ?? 'new')
-      : request.action === 'group_member'
-        ? request.groupId
-        : request.action === 'bulk'
-          ? request.batchKey
-          : request.action === 'view_save'
-            ? `view:${request.name}`
-            : request.action === 'merge' || request.action === 'assign'
-              ? `${request.ticketId}->${request.action === 'merge' ? request.survivorId : request.assigneeId}`
-              : request.action === 'claim_next'
-                ? 'queue'
-                : 'ticketId' in request
-                  ? request.ticketId
-                  : request.id;
+    : request.action === 'signature_set'
+      ? 'self'
+      : request.action === 'group_save'
+        ? (request.groupId ?? 'new')
+        : request.action === 'group_member'
+          ? request.groupId
+          : request.action === 'bulk'
+            ? request.batchKey
+            : request.action === 'view_save'
+              ? `view:${request.name}`
+              : request.action === 'merge' || request.action === 'assign'
+                ? `${request.ticketId}->${request.action === 'merge' ? request.survivorId : request.assigneeId}`
+                : request.action === 'claim_next'
+                  ? 'queue'
+                  : 'ticketId' in request
+                    ? request.ticketId
+                    : request.id;
 
 function statusOf(failure: FounderCallFailure<unknown>): number {
   if (failure.kind === 'forbidden') return failure.refusal.status === 401 ? 401 : 403;
@@ -285,6 +302,8 @@ function summaryOf(request: SupportActionRequest, data: unknown): string {
       return `svc-support says ${String(d.id)} is published at revision ${String(d.revision)}.`;
     case 'kb_audience':
       return `svc-support says ${String(d.id)} is now readable by ${audienceWords(d.audience)}. Its revision is now ${String(d.revision)}.`;
+    case 'signature_set':
+      return `svc-support saved your signature at revision ${String(d.revision)}.`;
     case 'kb_unpublish':
       return `svc-support says ${String(d.id)} is hidden from customers. Its revision is now ${String(d.revision)}; quote it to publish it again.`;
   }
