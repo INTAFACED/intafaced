@@ -1,16 +1,20 @@
 /**
- * Iceberg: fully usable up to the review so the numbers can be checked, and then blocked by name. The order API has no
- * display size, so this tab never sends a plain order dressed up as an iceberg.
+ * Iceberg: a limit order that shows only its display size on the house book and refills from the hidden rest. The order goes
+ * through the room writer with a confirm and one request id per intent; an unknown outcome is settled by reading the order
+ * back by that id, never by sending again. Sending to a live venue is shown and switched off while no venue submit port is set.
  */
 import { useMemo, useState } from 'react';
 import { Button, Field, Input, KeyValue, SegmentedControl, fmtAmount, fmtPrice } from '../rooms/ui';
+import { WriteNotice } from '../rooms/RoomNotices';
+import { useRoomApi } from '../rooms/read';
+import { useRoomWriter } from '../rooms/write';
 import { useOpenOrders, useRefreshPrivate } from '../desk/data';
 import { execCopy } from './copy';
-import type { ExecMarket } from './data';
+import { useTradeApi, type ExecMarket } from './data';
 import { buildBlotter } from './blotter';
-import { reviewIceberg, type IcebergProblem, type Side } from './model';
+import { icebergClientId, newNonce, ownsNote, reviewIceberg, type IcebergProblem, type Side } from './model';
 import { BlotterTable, useCancelFlow } from './OrdersView';
-import { Gate, Pick, Why, placesFor } from './parts';
+import { ConfirmDialog, Gate, Pick, Why, placesFor } from './parts';
 
 export function IcebergTab({ markets }: { markets: readonly ExecMarket[] }) {
   const { t } = execCopy.useCopy();
@@ -19,6 +23,12 @@ export function IcebergTab({ markets }: { markets: readonly ExecMarket[] }) {
   const [total, setTotal] = useState('');
   const [display, setDisplay] = useState('');
   const [price, setPrice] = useState('');
+  const [nonce, setNonce] = useState(newNonce);
+  const [confirming, setConfirming] = useState(false);
+  const [note, setNote] = useState<string | null>(null);
+  const room = useRoomApi();
+  const trade = useTradeApi();
+  const writer = useRoomWriter();
   const open = useOpenOrders();
   const refresh = useRefreshPrivate();
   const cancel = useCancelFlow(refresh);
@@ -28,6 +38,60 @@ export function IcebergTab({ markets }: { markets: readonly ExecMarket[] }) {
   const rows = useMemo(() => buildBlotter(open.status === 'ready' ? open.data : [], [], [], []), [open]);
   const word = (p: IcebergProblem) => t(`Iceberg problem ${p}`);
   const holdAsset = side === 'buy' ? market?.quote : market?.base;
+  const clientOrderId = icebergClientId(nonce);
+  const canReview = market !== null && review.problems.length === 0 && writer.signedIn;
+
+  async function send() {
+    if (!market || review.problems.length > 0) return;
+    setNote(null);
+    const result = await writer.run({
+      kind: 'place',
+      id: clientOrderId,
+      symbol: market.symbol,
+      call: () =>
+        room.placeIceberg({
+          symbol: market.symbol,
+          side,
+          amount: total.trim(),
+          price: price.trim(),
+          displayQty: display.trim(),
+          clientOrderId,
+        }),
+    });
+    setConfirming(false);
+    if (result.kind === 'done' || result.kind === 'refused') setNonce(newNonce());
+    if (result.kind === 'done') refresh();
+  }
+
+  /** The note holds `ice-<nonce>` and the market, so a check works after a reload. A note from another screen is never released here. */
+  async function checkPending(id: string) {
+    if (writer.note.state === 'pending' && !ownsNote('iceberg', writer.note.pending)) {
+      setNote(t('Check in another room'));
+      return;
+    }
+    const symbol = writer.note.state === 'pending' ? writer.note.pending.symbol : (market?.symbol ?? '');
+    if (!symbol) return;
+    const [openRead, closedRead] = await Promise.all([trade.orders('open', symbol, 500), trade.orders('closed', symbol, 500)]);
+    if (!openRead.ok || !closedRead.ok) {
+      setNote(t('Could not check, try again'));
+      return;
+    }
+    const found = [...openRead.data, ...closedRead.data].find((o) => o.clientOrderId === id);
+    writer.resolve(id);
+    setNonce(newNonce());
+    setNote(found ? t('Iceberg check found {status}', { status: found.status }) : t('Iceberg check none'));
+    refresh();
+  }
+
+  const confirmRows = [
+    { label: t('Market'), value: symbol },
+    { label: t('Side'), value: side === 'buy' ? t('Buy') : t('Sell') },
+    { label: t('Total size ({asset})', { asset: market?.base ?? '' }), value: fmtAmount(total, { places: lotPlaces }) },
+    { label: t('Display size ({asset})', { asset: market?.base ?? '' }), value: fmtAmount(display, { places: lotPlaces }) },
+    { label: t('Limit price'), value: fmtPrice(price, market?.tickSize) },
+    { label: t('Where it rests'), value: t('House order book') },
+    { label: t('Request id'), value: clientOrderId },
+  ];
 
   return (
     <div className="grid gap-4 lg:grid-cols-[360px_minmax(0,1fr)]">
@@ -128,10 +192,41 @@ export function IcebergTab({ markets }: { markets: readonly ExecMarket[] }) {
             { label: t('Limit price'), value: review.problems.includes('price') ? null : fmtPrice(price, market?.tickSize) },
           ]}
         />
-        <Button size={40} fullWidth disabled>
-          {t('Place iceberg')}
+        <Field label={t('Where it rests')}>
+          <Input aria-label={t('Where it rests')} value={t('House order book')} readOnly density="dense" />
+        </Field>
+        <Field label={t('Request id')} hint={t('Made once for this request, so a re-send cannot place a second order')}>
+          <Input aria-label={t('Request id')} value={clientOrderId} readOnly density="dense" />
+        </Field>
+        {!writer.signedIn ? <Why>{t('Sign in to place')}</Why> : null}
+        <Button
+          size={40}
+          fullWidth
+          disabled={!canReview || writer.busy || writer.note.state !== 'none'}
+          onClick={() => setConfirming(true)}
+        >
+          {t('Review iceberg')}
         </Button>
-        <Why>{t('Iceberg blocker')}</Why>
+        <WriteNotice writer={writer} onCheck={(id) => void checkPending(id)} done={t('Iceberg placed')} />
+        {note ? (
+          <p role="status" className="m-0 text-sm text-warn">
+            {note}
+          </p>
+        ) : null}
+        <Button variant="secondary" size={32} fullWidth disabled>
+          {t('Live venue')}
+        </Button>
+        <Why>{t('Iceberg live door off')}</Why>
+        <ConfirmDialog
+          open={confirming}
+          title={t('Place this iceberg?')}
+          description={t('Confirm iceberg body')}
+          rows={confirmRows}
+          confirmLabel={t('Place iceberg')}
+          busy={writer.busy}
+          onConfirm={() => void send()}
+          onCancel={() => setConfirming(false)}
+        />
       </section>
       <section aria-label={t('Open orders')} className="flex min-w-0 flex-col gap-2">
         <h3 className="m-0 text-md font-medium text-fg">{t('Your open orders')}</h3>

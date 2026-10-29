@@ -2831,6 +2831,7 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
 
     let input: PlaceOrderInput;
     let displayQty: string | null = null;
+    let icebergMarketId: string | null = null;
     let stopTrigger: string | null = null;
     try {
       const now = (deps.now ?? (() => new Date()))();
@@ -2845,6 +2846,7 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
       const attached = await attachIcebergDisplay(deps, input, parsed.data, readRawDisplayQty(rawBody));
       input = attached.input;
       displayQty = attached.displayQty;
+      icebergMarketId = attached.marketId;
       if (deps.stopTriggers && parsed.data.type !== 'stop_limit' && hasRawStopPx(rawBody)) {
         throw new TradeError('a stop is placed as type stop_limit with a stopPrice', TRADE_STOP_TRIGGER_INVALID);
       }
@@ -2889,37 +2891,45 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
         displayQty && deps.findClientOrder
           ? await deps.findClientOrder(principal, { symbol: input.symbol, marketId: input.marketId, clientOrderId: input.clientOrderId })
           : null;
-      let order: OrderRecord;
-      try {
-        order = await deps.placeOrder(principal, input);
-      } catch (placeErr) {
-        if (displayQty && deps.icebergDisplay && deps.findClientOrder && prior == null) {
-          try {
-            const row = await deps.findClientOrder(principal, {
-              symbol: input.symbol,
-              marketId: input.marketId,
-              clientOrderId: input.clientOrderId,
-            });
-            if (row) await deps.icebergDisplay.remember(row.id, principal.userId, displayQty);
-          } catch {
-            // The customer's answer stays the original place error.
+      const place = async (): Promise<OrderRecord> => {
+        let order: OrderRecord;
+        try {
+          order = await deps.placeOrder(principal, input);
+        } catch (placeErr) {
+          if (displayQty && deps.icebergDisplay && deps.findClientOrder && prior == null) {
+            try {
+              const row = await deps.findClientOrder(principal, {
+                symbol: input.symbol,
+                marketId: input.marketId,
+                clientOrderId: input.clientOrderId,
+              });
+              if (row) await deps.icebergDisplay.remember(row.id, principal.userId, displayQty);
+            } catch {
+              // The customer's answer stays the original place error.
+            }
+          }
+          throw placeErr;
+        }
+        if (displayQty && deps.icebergDisplay) {
+          if (deps.findClientOrder && prior) {
+            const storedPeak = await deps.icebergDisplay.read(order.id);
+            if (!storedPeak) {
+              throw new TradeError(
+                'iceberg displayQty cannot be added to an order that was not placed as an iceberg',
+                TRADE_ICEBERG_DISPLAY_INVALID,
+              );
+            }
+          } else {
+            await deps.icebergDisplay.remember(order.id, principal.userId, displayQty);
           }
         }
-        throw placeErr;
-      }
-      if (displayQty && deps.icebergDisplay) {
-        if (deps.findClientOrder && prior) {
-          const storedPeak = await deps.icebergDisplay.read(order.id);
-          if (!storedPeak) {
-            throw new TradeError(
-              'iceberg displayQty cannot be added to an order that was not placed as an iceberg',
-              TRADE_ICEBERG_DISPLAY_INVALID,
-            );
-          }
-        } else {
-          await deps.icebergDisplay.remember(order.id, principal.userId, displayQty);
-        }
-      }
+        return order;
+      };
+      // A new iceberg takes the account's one slot on its market; a replay of an existing one keeps the slot it holds.
+      const order =
+        displayQty && deps.icebergDisplay && icebergMarketId && prior == null
+          ? await deps.icebergDisplay.oneLivePerMarket(principal.userId, icebergMarketId, parsed.data.symbol, place)
+          : await place();
       const stored = deps.icebergDisplay ? await deps.icebergDisplay.read(order.id) : displayQty;
       const market = await deps.marketById(order.marketId);
       const symbol = market?.symbol ?? parsed.data.symbol;

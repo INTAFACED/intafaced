@@ -88,6 +88,18 @@ export const batchItemSchema = z.object({
 export type BatchItem = z.infer<typeof batchItemSchema>;
 export const batchSchema = z.object({ results: z.array(batchItemSchema) });
 
+/** The order door's answer to one iceberg: the order id, its status and the display size the service stored. */
+export const icebergAnswerSchema = z.object({ id: z.string(), status: z.string(), displayQty: z.string().optional() });
+
+export interface IcebergOrder {
+  symbol: string;
+  side: 'buy' | 'sell';
+  amount: string;
+  price: string;
+  displayQty: string;
+  clientOrderId: string;
+}
+
 export interface CreateTwapInput {
   symbol: string;
   side: 'buy' | 'sell';
@@ -148,6 +160,8 @@ export function createRoomApi(api: ApiClient) {
     greeks: (input: GreeksInput, signal?: AbortSignal) =>
       api.rest('/greeks/what-if', greeksSchema, { method: 'POST', body: input, signal }),
     placeBatch: (orders: BatchOrder[]) => api.rest('/orders/batch', batchSchema, { method: 'POST', body: { orders } }),
+    placeIceberg: (order: IcebergOrder) =>
+      api.rest('/orders', icebergAnswerSchema, { method: 'POST', body: { ...order, type: 'limit', timeInForce: 'GTC' } }),
   };
 }
 export type RoomApi = ReturnType<typeof createRoomApi>;

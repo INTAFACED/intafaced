@@ -14,7 +14,13 @@ import { installIcebergPlace } from '../spot/iceberg-place.js';
 import { READY_MARKET_LIFECYCLE, StubMatching, StubPerks, principalFor, PUBLISHED_TEST_FEE_SCHEDULE } from '../spot/testing.js';
 import { fakeOrder, registerPrivateRest, type PrivateRestDeps } from '../private-rest.js';
 import type { PlaceOrderInput } from '../spot/trade-service.js';
-import { attachIcebergDisplay, memoryIcebergDisplay, sqlIcebergDisplay, TRADE_ICEBERG_DISPLAY_INVALID } from '../spot/iceberg-door.js';
+import {
+  attachIcebergDisplay,
+  memoryIcebergDisplay,
+  sqlIcebergDisplay,
+  TRADE_ICEBERG_DISPLAY_INVALID,
+  TRADE_ICEBERG_SYMBOL_CAP,
+} from '../spot/iceberg-door.js';
 import { SqlTwapParentStore } from '../algo/parent-store.js';
 import { TwapEngine } from '../algo/twap-engine.js';
 import { presentAlgoDesk } from '../algo/present.js';
@@ -987,6 +993,88 @@ describe('desk acceptance (shared test postgres)', () => {
       SELECT count(*)::int AS n FROM trade.order_iceberg_display WHERE order_id = ${orderId}::uuid
     `;
     expect(rows[0]?.n).toBe(0);
+    await app.close();
+  });
+
+  function icebergDoor(): ReturnType<typeof Fastify> {
+    const app = Fastify();
+    registerPrivateRest(app, {
+      edgeSecret: SECRET,
+      serviceName: 'svc-trade',
+      icebergDisplay: sqlIcebergDisplay(sql),
+      findClientOrder: (principal: Principal, input: { symbol?: string; marketId?: string; clientOrderId?: string }) =>
+        trade.findClientOrder(principal, input),
+      marketBySymbol: (symbol: string) => trade.marketBySymbol(symbol),
+      marketById: (marketId: string) => trade.marketById(marketId),
+      lifecycleForMarket: (market: Market) => READY_MARKET_LIFECYCLE.snapshot(market),
+      placeOrder: (principal: Principal, input: PlaceOrderInput) => trade.placeOrder(principal, input),
+    } as unknown as PrivateRestDeps);
+    return app;
+  }
+
+  const iceberg = (clientOrderId: string, symbol = 'BTC/USDT') => ({
+    symbol,
+    type: 'limit',
+    side: 'buy',
+    amount: '3',
+    price: '100',
+    clientOrderId,
+    displayQty: '1',
+  });
+
+  async function aliceOrders(): Promise<Array<{ id: string; client_order_id: string; status: string }>> {
+    return sql<Array<{ id: string; client_order_id: string; status: string }>>`
+      SELECT id, client_order_id, status::text AS status FROM trade.orders WHERE user_id = ${ALICE} ORDER BY created_at
+    `;
+  }
+
+  it('refuses a second live iceberg on the same market by name, places nothing for it, and frees the slot once the first is done', async () => {
+    await fund(ALICE, 'USDT', '5000');
+    const app = icebergDoor();
+    const headers = signedHeaders();
+    const first = await app.inject({ method: 'POST', url: '/api/v1/orders', headers, payload: iceberg('ice-cap-1') });
+    expect(first.statusCode).toBe(201);
+    const firstId = first.json().id as string;
+    const heldAfterFirst = (await ledger.balance(userAvailable(ALICE, 'USDT'))).amount;
+
+    const second = await app.inject({ method: 'POST', url: '/api/v1/orders', headers, payload: iceberg('ice-cap-2') });
+    expect(second.statusCode).toBe(409);
+    expect(second.json().intafacedCode).toBe(TRADE_ICEBERG_SYMBOL_CAP);
+    // Nothing changed: no second order row, no second hold, no second peak.
+    expect((await aliceOrders()).map((o) => o.client_order_id)).toEqual(['ice-cap-1']);
+    expect((await ledger.balance(userAvailable(ALICE, 'USDT'))).amount).toBe(heldAfterFirst);
+    const peaks = await sql<Array<{ n: number }>>`SELECT count(*)::int AS n FROM trade.order_iceberg_display`;
+    expect(peaks[0]?.n).toBe(1);
+
+    // A replay of the first iceberg is not a second one: it answers the same order.
+    const replay = await app.inject({ method: 'POST', url: '/api/v1/orders', headers, payload: iceberg('ice-cap-1') });
+    expect(replay.statusCode).toBe(201);
+    expect(replay.json()).toMatchObject({ id: firstId, displayQty: '1' });
+    // An iceberg on another market is not capped.
+    expect(
+      (await app.inject({ method: 'POST', url: '/api/v1/orders', headers, payload: iceberg('ice-cap-other', 'SCALE/USDT') })).statusCode,
+    ).toBe(201);
+    // A plain limit on the same market is not capped.
+    const plain = { symbol: 'BTC/USDT', type: 'limit', side: 'buy', amount: '1', price: '100', clientOrderId: 'plain-cap' };
+    expect((await app.inject({ method: 'POST', url: '/api/v1/orders', headers, payload: plain })).statusCode).toBe(201);
+
+    // Once the first is cancelled the slot is free.
+    await trade.cancelOrder(principalFor(ALICE, [...BOTH]), firstId);
+    const third = await app.inject({ method: 'POST', url: '/api/v1/orders', headers, payload: iceberg('ice-cap-3') });
+    expect(third.statusCode).toBe(201);
+    await app.close();
+  });
+
+  it('lets exactly one of two icebergs sent at once on one market through', async () => {
+    await fund(ALICE, 'USDT', '5000');
+    const app = icebergDoor();
+    const headers = signedHeaders();
+    const answers = await Promise.all(
+      ['ice-race-a', 'ice-race-b'].map((id) => app.inject({ method: 'POST', url: '/api/v1/orders', headers, payload: iceberg(id) })),
+    );
+    expect(answers.map((a) => a.statusCode).sort()).toEqual([201, 409]);
+    expect(answers.find((a) => a.statusCode === 409)!.json().intafacedCode).toBe(TRADE_ICEBERG_SYMBOL_CAP);
+    expect((await aliceOrders()).filter((o) => o.status === 'open' || o.status === 'pending')).toHaveLength(1);
     await app.close();
   });
 

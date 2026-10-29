@@ -5,10 +5,28 @@ import { TradeError, type Market } from './types.js';
 import type { PlaceOrderInput } from './trade-service.js';
 
 export const TRADE_ICEBERG_DISPLAY_INVALID = 'trade.iceberg_display_invalid' as const;
+/** An account rests at most one live iceberg per market; a second is refused until the first is done. */
+export const TRADE_ICEBERG_SYMBOL_CAP = 'trade.iceberg_symbol_cap' as const;
+
+/** Order statuses that still rest on the book or may: the slot stays taken while the order is in one of them. */
+const LIVE_STATUSES = ['pending', 'open', 'recovery_required', 'hold_unknown'] as const;
 
 export interface IcebergDisplayStore {
   remember(orderId: string, userId: string, displayQty: string): Promise<void>;
   read(orderId: string): Promise<string | null>;
+  /**
+   * Runs `place` (the placement and its `remember`) only while this account has no other live iceberg on the market,
+   * and holds out every other new iceberg of the account on that market until `place` settles. Otherwise refuses
+   * `trade.iceberg_symbol_cap` and places nothing.
+   */
+  oneLivePerMarket<T>(userId: string, marketId: string, symbol: string, place: () => Promise<T>): Promise<T>;
+}
+
+function symbolCap(symbol: string): TradeError {
+  return new TradeError(
+    `${symbol}: this account already has a live iceberg on this market; cancel it or let it fill first`,
+    TRADE_ICEBERG_SYMBOL_CAP,
+  );
 }
 
 /**
@@ -44,8 +62,8 @@ export async function attachIcebergDisplay(
   input: PlaceOrderInput,
   parsed: { type: string; symbol: string },
   rawDisplay: string | undefined,
-): Promise<{ input: PlaceOrderInput; displayQty: string | null }> {
-  if (rawDisplay === undefined) return { input, displayQty: null };
+): Promise<{ input: PlaceOrderInput; displayQty: string | null; marketId: string | null }> {
+  if (rawDisplay === undefined) return { input, displayQty: null, marketId: null };
   if (parsed.type !== 'limit') {
     throw new TradeError('iceberg displayQty is valid only on a limit order', TRADE_ICEBERG_DISPLAY_INVALID);
   }
@@ -69,6 +87,7 @@ export async function attachIcebergDisplay(
   return {
     input: Object.assign({}, input, { iceberg: true, displayQty: display }),
     displayQty: formatAmount(display),
+    marketId: market.id,
   };
 }
 
@@ -88,12 +107,52 @@ export function sqlIcebergDisplay(sql: Sql): IcebergDisplayStore {
       const raw = rows[0]?.display_qty;
       return raw == null ? null : formatAmount(parseAmount(raw));
     },
+    async oneLivePerMarket(userId, marketId, symbol, place) {
+      // A session lock on one pinned connection: two new icebergs of one account on one market take turns, and a crash
+      // drops the connection and with it the lock. The check reads the orders the peaks belong to, so a cancelled,
+      // filled or refused iceberg frees the slot without any release step.
+      const connection = await sql.reserve();
+      const key = `iceberg-slot:${userId}:${marketId}`;
+      let locked = false;
+      try {
+        await connection`SELECT pg_advisory_lock(hashtext(${key}))`;
+        locked = true;
+        const live = await connection<Array<{ n: number }>>`
+          SELECT count(*)::int AS n
+          FROM order_iceberg_display d
+          JOIN orders o ON o.id = d.order_id
+          WHERE d.user_id = ${userId} AND o.user_id = ${userId} AND o.market_id = ${marketId}
+            AND o.status::text IN ${connection([...LIVE_STATUSES])}
+        `;
+        if ((live[0]?.n ?? 0) > 0) throw symbolCap(symbol);
+        return await place();
+      } finally {
+        try {
+          if (locked) await connection`SELECT pg_advisory_unlock(hashtext(${key}))`;
+        } finally {
+          connection.release();
+        }
+      }
+    },
   };
 }
 
-export function memoryIcebergDisplay(): IcebergDisplayStore {
+/** `liveOn` lists the account's live order ids on a market; without it no order counts as live. */
+export function memoryIcebergDisplay(opts: { liveOn?: (userId: string, marketId: string) => readonly string[] } = {}): IcebergDisplayStore {
   const byId = new Map<string, string>();
+  const turns = new Map<string, Promise<unknown>>();
   return {
+    async oneLivePerMarket(userId, marketId, symbol, place) {
+      const key = `${userId}:${marketId}`;
+      const run = (turns.get(key) ?? Promise.resolve())
+        .catch(() => undefined)
+        .then(async () => {
+          if ((opts.liveOn?.(userId, marketId) ?? []).some((id) => byId.has(id))) throw symbolCap(symbol);
+          return place();
+        });
+      turns.set(key, run);
+      return run;
+    },
     async remember(orderId, _userId, displayQty) {
       if (!byId.has(orderId)) byId.set(orderId, displayQty);
     },

@@ -198,8 +198,19 @@ const messages = {
   Held: 'Held',
   'Limit price times total, held in {asset}': 'Limit price times total, held in {asset}.',
   'Place iceberg': 'Place iceberg',
-  'Iceberg blocker':
-    'Iceberg orders have no customer door. The matching engine supports a display size; the order API does not accept one.',
+  'Review iceberg': 'Review iceberg',
+  'Place this iceberg?': 'Place this iceberg?',
+  'Confirm iceberg body':
+    'The book shows the display size at your limit. Each time it fills, the next part of the same size is shown, until the total is done. The whole total is held now.',
+  'Iceberg placed': 'Iceberg placed. It rests on the house order book.',
+  'Iceberg check found {status}': 'Checked: the iceberg was placed and is {status}.',
+  'Iceberg check none': 'Checked: no order has that request id, so nothing was placed.',
+  'Made once for this request, so a re-send cannot place a second order':
+    'Made once for this request, so a re-send cannot place a second order',
+  'Where it rests': 'Where it rests',
+  'House order book': 'House order book',
+  'Live venue': 'Send to a live venue',
+  'Iceberg live door off': 'Sending an iceberg to a live venue needs an authorised venue submit port. It is switched off in this build.',
   'Iceberg problem total': 'Enter a total size above zero.',
   'Iceberg problem display': 'Enter a display size above zero.',
   'Iceberg problem displayTooBig': 'The display size must be smaller than the total.',
