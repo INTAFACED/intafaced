@@ -111,6 +111,24 @@ export const securityLockSchema = z
 export type SecurityLockView = z.infer<typeof securityLockSchema>;
 
 /**
+ * THE OWNER'S SELF-FREEZE, as a service reads it (I-account-lifecycle-08, J-identity-11 #2). The owner froze their own
+ * account (`account_self_freezes`): every session and API key ended, and a service that moves money out or changes a
+ * withdrawal address reads this per request from `GET /internal/self-freeze/:userId` (service credentials) and refuses
+ * while `frozen` is true, keeping no copy. It is not the staff freeze (`users.status`), not the security lock and not the
+ * ledger posting freeze. Only the owner lifts it, through reactivation after the owner-set wait.
+ */
+export const selfFreezeStateSchema = z
+  .object({
+    userId: z.string().guid(),
+    /** True while the owner's freeze is open. */
+    frozen: z.boolean(),
+    /** When the open freeze began; null while none is open. */
+    since: z.string().datetime({ offset: true }).nullable(),
+  })
+  .strict();
+export type SelfFreezeState = z.infer<typeof selfFreezeStateSchema>;
+
+/**
  * OWN-NAME RULE (P-ads-merchant-18, J-p2p-04 #2). A service that stores a payout destination in the person's own name
  * asks identity whether the holder name it was given is the account's verified legal name. svc-identity compares, so the
  * legal name never leaves it: the caller sends a name and gets only the outcome. `POST /internal/holder-name-check`,
