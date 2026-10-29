@@ -271,10 +271,12 @@ const bank = createBankServices(sql, ledger, history, {
     NODE_ENV: process.env.NODE_ENV,
   }),
   /** Who pays cash-outs out: unset unless the TEST stand-in was chosen, which refuses to boot outside dev/test. */
-  cashOutPartner: cashOutPartnerFor(env.BANK_PAYOUT_PARTNER, env.BANK_PAYOUT_SIM_JSON, {
-    APP_ENV: process.env.APP_ENV,
-    NODE_ENV: process.env.NODE_ENV,
-  }),
+  cashOutPartner: cashOutPartnerFor(
+    env.BANK_PAYOUT_PARTNER,
+    env.BANK_PAYOUT_SIM_JSON,
+    { APP_ENV: process.env.APP_ENV, NODE_ENV: process.env.NODE_ENV },
+    env.BANK_PAYOUT_SIM_RECORDS_DIR?.trim() || undefined,
+  ),
   /** Who speaks for the direct debit scheme: unset unless the TEST stand-in was chosen, which refuses to boot outside dev/test. */
   directDebitScheme: directDebitSchemeFor(env.BANK_DD_SCHEME, env.BANK_DD_SIM_JSON, {
     APP_ENV: process.env.APP_ENV,
