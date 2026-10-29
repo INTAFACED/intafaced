@@ -1,12 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { fractionDigits } from '../../../data/decimal';
-import type { DeskStatus } from '../rooms/api';
+import type { DeskStatus, OtcMakers } from '../rooms/api';
 import { Refusal } from '../rooms/RoomNotices';
 import { roomWords } from '../rooms/refusals';
 import type { RoomApi } from '../rooms/api';
 import type { RoomWriter } from '../rooms/write';
 import {
   Button,
+  Checkbox,
   Field,
   Input,
   SegmentedControl,
@@ -49,21 +50,25 @@ interface Props {
   writer: RoomWriter;
   desk: Loadable<DeskStatus>;
   pairs: Loadable<PairOption[]>;
+  /** The owner's provider list (CB-otc-01): each request asks the providers picked here. */
+  makers: Loadable<OtcMakers>;
+  /** The providers picked; the room keeps the pick so a re-price asks the same ones. */
+  picked: string[];
+  onPick: (picked: string[]) => void;
   /** A quote that matches what was asked for. */
-  onQuote: (quote: RfqQuote) => void;
+  onQuote: (quote: RfqQuote, providers: string[]) => void;
 }
 
 /** Ask for a firm price. There is no price field: the desk names the price (and the form says so). */
-export function RequestForm({ api, writer, desk, pairs, onQuote }: Props) {
+export function RequestForm({ api, writer, desk, pairs, makers, picked, onPick, onQuote }: Props) {
   const { t } = otcCopy.useCopy();
   const [pair, setPair] = useState('');
   const [side, setSide] = useState<Side>('buy');
   const [qty, setQty] = useState('');
-  const [maker, setMaker] = useState('');
   const [mismatch, setMismatch] = useState(false);
   // One nonce per intent: sending the same request again reuses it, changing anything starts a new one.
   const nonce = useRef(newNonce());
-  const intent = `${pair}|${side}|${qty}|${maker}`;
+  const intent = `${pair}|${side}|${qty}|${picked.join(',')}`;
   const lastIntent = useRef(intent);
   if (lastIntent.current !== intent) {
     lastIntent.current = intent;
@@ -91,18 +96,19 @@ export function RequestForm({ api, writer, desk, pairs, onQuote }: Props) {
   async function submit() {
     if (block !== null || !chosen) return;
     setMismatch(false);
+    const asked = picked;
     const result = await writer.run({
       kind: 'rfq',
       id: nonce.current,
       symbol: noteSymbol('request', chosen.symbol),
-      call: () =>
-        api.rfqQuote({ side, baseAsset: chosen.base, quoteAsset: chosen.quote, qty, ...(maker.trim() ? { makerId: maker.trim() } : {}) }),
+      // The pick goes as chosen, even empty or over the cap: the desk refuses it by name, and the form never guesses one.
+      call: () => api.rfqQuote({ side, baseAsset: chosen.base, quoteAsset: chosen.quote, qty, makerIds: asked }),
     });
     if (result.kind !== 'done') return;
     const q = result.data;
     const matches = q.baseAsset === chosen.base && q.quoteAsset === chosen.quote && q.side === side && compareDecimals(q.qty, qty) === 0;
     setMismatch(!matches);
-    if (matches) onQuote(q);
+    if (matches) onQuote(q, asked);
   }
 
   return (
@@ -155,9 +161,33 @@ export function RequestForm({ api, writer, desk, pairs, onQuote }: Props) {
               placeholder="0"
             />
           </Field>
-          <Field label={t('Maker')} hint={t('Maker hint')}>
-            <Input value={maker} onValueChange={setMaker} autoComplete="off" />
-          </Field>
+          <fieldset className="m-0 flex flex-col gap-2 border-0 p-0">
+            <legend className="text-sm text-fg">{t('Providers')}</legend>
+            {makers.status === 'loading' ? <Skeleton className="h-8 w-full" /> : null}
+            {makers.status === 'refused' ? <Refusal words={roomWords({ code: makers.code })} size="inline" /> : null}
+            {makers.status === 'error' ? (
+              <Button variant="secondary" size={32} onClick={makers.retry}>
+                {t('Providers unreadable retry')}
+              </Button>
+            ) : null}
+            {makers.status === 'ready' && !makers.data.published ? <p className="m-0 text-sm text-fg-2">{t('No providers set')}</p> : null}
+            {makers.status === 'ready' && makers.data.published ? (
+              <>
+                {makers.data.makers.map((m) => (
+                  <label key={m.id} className="flex items-center gap-2 text-sm text-fg">
+                    <Checkbox
+                      checked={picked.includes(m.id)}
+                      onCheckedChange={(on) => onPick(on ? [...new Set([...picked, m.id])] : picked.filter((id) => id !== m.id))}
+                    />
+                    <span>{m.name}</span>
+                  </label>
+                ))}
+                {makers.data.selectCap != null ? (
+                  <p className="m-0 text-xs text-fg-2">{t('Providers hint', { cap: String(makers.data.selectCap) })}</p>
+                ) : null}
+              </>
+            ) : null}
+          </fieldset>
           <p className="m-0 text-xs text-fg-2">{t('Desk names the price')}</p>
           <Button variant="primary" size={40} loading={writer.busy} disabled={block !== null} onClick={() => void submit()}>
             {t('Request price')}

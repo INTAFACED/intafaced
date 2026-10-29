@@ -55,11 +55,15 @@ describe('OTC RFQ — blank mid and unset owner tiers refuse', () => {
   it('quote refuses unset owner desk law even when a mid is present', async () => {
     const now = new Date('2026-08-15T10:00:00.000Z');
     const svc = new OtcDeskService(new MemoryLedger(), new FixedOtcStake(parseAmount('9999')), {
+      // The house desk is the one provider these requests ask (CB-otc-01).
+      makerDirectory: { published: true, makers: [{ id: 'house', name: 'House desk', route: 'platform' }], selectCap: 1 },
       law: UNPUBLISHED_OTC_DESK_LAW,
       midSource: () => ({ mid: '200', asOf: now }),
       now: () => now,
     });
-    await expect(svc.quote(principal, { side: 'buy', baseAsset: 'BTC', quoteAsset: 'USDT', qty: '1' })).rejects.toMatchObject({
+    await expect(
+      svc.quote(principal, { side: 'buy', baseAsset: 'BTC', quoteAsset: 'USDT', qty: '1', makerIds: ['house'] }),
+    ).rejects.toMatchObject({
       code: 'trade.otc_desk_law_blank',
     });
   });
@@ -67,11 +71,15 @@ describe('OTC RFQ — blank mid and unset owner tiers refuse', () => {
   it('quote refuses a blank sourced mid string — no invented mid', async () => {
     const now = new Date('2026-08-15T10:00:00.000Z');
     const svc = new OtcDeskService(new MemoryLedger(), new FixedOtcStake(parseAmount('1000')), {
+      // The house desk is the one provider these requests ask (CB-otc-01).
+      makerDirectory: { published: true, makers: [{ id: 'house', name: 'House desk', route: 'platform' }], selectCap: 1 },
       law: published,
       midSource: () => ({ mid: '', asOf: now }),
       now: () => now,
     });
-    await expect(svc.quote(principal, { side: 'buy', baseAsset: 'BTC', quoteAsset: 'USDT', qty: '1' })).rejects.toMatchObject({
+    await expect(
+      svc.quote(principal, { side: 'buy', baseAsset: 'BTC', quoteAsset: 'USDT', qty: '1', makerIds: ['house'] }),
+    ).rejects.toMatchObject({
       code: 'trade.otc_no_reference_price',
     });
   });
