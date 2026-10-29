@@ -29,6 +29,8 @@ async function payment(page, who, reference = state('reference')) {
   await signIn(page, who);
   await page.goto('/pay');
   const receipts = page.getByRole('link', { name: /receipt/i });
+  // The recent payments load after the page: count the receipts once the first is there.
+  await expect(receipts.first()).toBeVisible();
   const count = await receipts.count();
   for (let i = 0; i < count; i += 1) {
     if (i > 0) await page.goto('/pay');

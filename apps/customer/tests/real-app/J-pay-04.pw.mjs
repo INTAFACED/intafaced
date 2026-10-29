@@ -63,6 +63,8 @@ test(`${J} #3 the recipient opens the claim link and signs up: the claim page, t
   page,
   browser,
 }) => {
+  // #2's send to the contact comes first: without it there is no claim to mail.
+  state('reference');
   const link = mailedConfirmLinks(state('email')).find((l) => l.includes('/pay/claim/'));
   expect(link, 'the claim message reached the TEST mailbox').toBeTruthy();
   const claimer = await (await browser.newContext()).newPage();
