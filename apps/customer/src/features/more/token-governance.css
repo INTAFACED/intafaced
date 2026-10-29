@@ -192,6 +192,15 @@
   align-items: center;
   flex-wrap: wrap;
 }
+/* The app resets native inputs to appearance: none; the ballot keeps the browser's own checkbox and radio. */
+.token-ballot-choice input[type='checkbox'],
+.token-ballot-choice input[type='radio'] {
+  appearance: auto;
+  flex: none;
+  width: 0.875rem;
+  height: 0.875rem;
+  margin: 0;
+}
 .token-ballot-sign pre {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
