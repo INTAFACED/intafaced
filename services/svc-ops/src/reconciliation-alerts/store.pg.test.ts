@@ -319,8 +319,9 @@ if (!pg) {
 
         // A store failure holds the cursor and shows as the source failing, never as a healthy empty list.
         const failing = Object.create(store) as ReconciliationAlertStore;
-        failing.ingest = async () => {
-          throw new Error('disk full');
+        failing.ingest = async (evaluation) => {
+          if (evaluation.run.id === runId(3)) throw new Error('disk full');
+          return store.ingest(evaluation);
         };
         rows.push(evaluation(3, CONTROL, 'FAIL', { USDC: '5' }));
         expect(await ingestReconciliationEvaluations(failing, fakeFeed(rows))).toBe(0);
@@ -336,6 +337,15 @@ if (!pg) {
         const up = await a.alerts.list({ after: null, limit: 10 });
         expect(up.source).toMatchObject({ status: 'ok' });
         expect(up.alerts.map((alert) => alert.assetId)).toEqual(['USDC']);
+
+        // A run whose commit landed behind the cursor (finished before the last one read) is still taken, once, by the
+        // overlap, and the cursor never moves back.
+        const cursorBefore = await store.cursor();
+        rows.push({ ...evaluation(4, CONTROL, 'FAIL', { EUR: '3' }), finishedAt: '2026-10-29T10:00:02.500000Z' });
+        expect(await ingestReconciliationEvaluations(store, fakeFeed(rows))).toBe(1);
+        expect(await ingestReconciliationEvaluations(store, fakeFeed(rows))).toBe(0);
+        expect(await store.cursor()).toEqual(cursorBefore);
+        expect((await a.alerts.list({ after: null, limit: 10 })).alerts.map((alert) => alert.assetId).sort()).toEqual(['EUR', 'USDC']);
       } finally {
         await sql.end();
         await database.drop();
