@@ -638,7 +638,7 @@ export function registerOperatorHttp(
       if (!controls) return reply.code(503).send(sourceUnavailable());
       const input = updateReconciliationControlInputSchema.safeParse(body ?? {});
       if (!input.success) return reply.code(400).send(invalidControl(input.error));
-      return updateReconciliationControl(controls, actorOf(operator, req), input.data);
+      return updateReconciliationControl(controls, actorOf(operator, req), input.data, approvals);
     }),
   );
 
