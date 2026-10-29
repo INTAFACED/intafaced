@@ -7,7 +7,15 @@ import { appendFileSync, existsSync, mkdirSync, mkdtempSync, rmdirSync, readFile
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
-import { RECORDS_DIR, RailRecordError, readRailRecords, recordRailMovement, railTotals, readRail } from './local-test-rail-records.mjs';
+import {
+  RECORDS_DIR,
+  RailRecordError,
+  readRailRecords,
+  recordRailMovement,
+  railStatement,
+  railTotals,
+  readRail,
+} from './local-test-rail-records.mjs';
 
 const fresh = () => mkdtempSync(path.join(tmpdir(), 'rail-records-'));
 const move = (over = {}) => ({ rail: 'crypto-native', key: 'k1', direction: 'in', assetId: 'USDT', amount: '300', ...over });
@@ -211,4 +219,22 @@ test('a write waits for the records lock and releases it; a lock nobody releases
     readRail(dir, 'crypto-native').map((row) => row.key),
     ['first', 'second'],
   );
+});
+
+test('a rail statement is the per-rail outside body: that rail only, at asOf, never the mint', () => {
+  const dir = fresh();
+  recordRailMovement(dir, move({ key: 'd1', amount: '2400', at: '2026-10-29T10:00:00.000Z' }));
+  recordRailMovement(dir, move({ key: 'w1', direction: 'out', amount: '200', at: '2026-10-29T10:05:00.000Z' }));
+  recordRailMovement(dir, move({ key: 'late', amount: '1', at: '2026-10-29T12:00:00.000Z' }));
+  recordRailMovement(dir, move({ rail: 'payout-sim', key: 'p1', direction: 'out', amount: '160', at: '2026-10-29T10:00:00.000Z' }));
+  assert.deepEqual(railStatement(dir, 'crypto-native', '2026-10-29T11:00:00Z'), {
+    source: 'rail',
+    rail: 'crypto-native',
+    asOf: '2026-10-29T11:00:00.000Z',
+    balances: [{ assetId: 'USDT', amount: '-2200' }],
+  });
+  assert.deepEqual(railStatement(dir, 'payout-sim', '2026-10-29T11:00:00Z').balances, [{ assetId: 'USDT', amount: '160' }]);
+  assert.deepEqual(railStatement(fresh(), 'payout-sim', '2026-10-29T11:00:00Z').balances, []);
+  assert.throws(() => railStatement(dir, 'local-test', '2026-10-29T11:00:00Z'), /TEST mint/);
+  assert.throws(() => railStatement(dir, 'crypto-native', 'now'), RailRecordError);
 });

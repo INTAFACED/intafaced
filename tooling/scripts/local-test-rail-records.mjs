@@ -197,3 +197,22 @@ function signedTotals(stateDir, asOf = new Date().toISOString()) {
   }
   return sums;
 }
+
+/**
+ * One rail's statement at `asOf`, in the body svc-ledger's per-rail outside reader takes (railBalanceSnapshotSchema plus
+ * `rail`; read with `GET <LEDGER_RECONCILE_RAIL_<RAIL>_URL>?rail=<rail>&asOf=<instant>`). Figures come only from that rail's
+ * own records, in the ledger's signed form for its boundary.
+ */
+export function railStatement(stateDir, rail, asOf) {
+  if (typeof rail !== 'string' || !RAIL.test(rail)) throw new RailRecordError(`rail "${rail}" is not a rail id`);
+  if (rail === MINT) throw new RailRecordError(`rail ${MINT} is the stack's TEST mint and has no outside records`);
+  if (typeof asOf !== 'string' || Number.isNaN(Date.parse(asOf))) throw new RailRecordError(`asOf "${asOf}" is not a time`);
+  return {
+    source: 'rail',
+    rail,
+    asOf: new Date(Date.parse(asOf)).toISOString(),
+    balances: railTotals(stateDir, asOf)
+      .filter((row) => row.rail === rail)
+      .map(({ assetId, amount }) => ({ assetId, amount })),
+  };
+}
