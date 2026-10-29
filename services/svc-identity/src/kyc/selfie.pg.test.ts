@@ -109,8 +109,57 @@ if (!available) {
       const selfie = await desk.submit(userId, { contentType: 'image/jpeg', bytes: JPEG });
       expect(selfie).toMatchObject({ status: 'provided', via: 'this_device' });
       expect((await desk.read(userId)).latest).toEqual(selfie);
-      expect(await desk.listFor(userId, 10)).toEqual([selfie]);
+      expect(await desk.listFor(userId, 10)).toEqual([
+        { ...selfie, documentId: expect.any(String), captureCheck: 'not_checked', decidedAt: null },
+      ]);
       expect(await docs(userId)).toBe(1);
+    });
+
+    it('a retake replaces a selfie nobody has decided, row and frame; a decided one is kept', async () => {
+      const userId = await person();
+      const first = await desk.submit(userId, { contentType: 'image/jpeg', bytes: JPEG });
+      const second = await desk.submit(userId, { contentType: 'image/jpeg', bytes: JPEG });
+      expect((await desk.listFor(userId, 10)).map((s) => s.id)).toEqual([second.id]);
+      expect(await docs(userId)).toBe(1);
+      await expect(desk.decide({ selfieId: first.id, decision: 'accepted', reviewerId: userId })).rejects.toMatchObject({
+        code: 'kyc.selfie_unknown',
+      });
+      await desk.decide({ selfieId: second.id, decision: 'rejected', reviewerId: userId });
+      const third = await desk.submit(userId, { contentType: 'image/jpeg', bytes: JPEG });
+      expect((await desk.listFor(userId, 10)).map((s) => [s.id, s.status])).toEqual([
+        [third.id, 'provided'],
+        [second.id, 'rejected'],
+      ]);
+      expect(await docs(userId)).toBe(2);
+    });
+
+    it('a person decides a selfie once: the same decision again returns it, the other refuses', async () => {
+      const userId = await person();
+      const reviewer = await person();
+      const selfie = await desk.submit(userId, { contentType: 'image/jpeg', bytes: JPEG });
+      expect(await desk.assertDecidable(selfie.id, 'accepted')).toBe(userId);
+      const decided = await desk.decide({ selfieId: selfie.id, decision: 'accepted', reviewerId: reviewer });
+      expect(decided).toMatchObject({ id: selfie.id, status: 'accepted', decidedAt: expect.any(String) });
+      expect(await desk.decide({ selfieId: selfie.id, decision: 'accepted', reviewerId: reviewer })).toEqual(decided);
+      await expect(desk.assertDecidable(selfie.id, 'rejected')).rejects.toMatchObject({ code: 'kyc.selfie_decided' });
+      await expect(desk.decide({ selfieId: selfie.id, decision: 'rejected', reviewerId: reviewer })).rejects.toMatchObject({
+        code: 'kyc.selfie_decided',
+      });
+      expect((await desk.read(userId)).latest).toMatchObject({ status: 'accepted' });
+    });
+
+    it("a new phone link replaces the account's unused ones", async () => {
+      const userId = await person();
+      const old = await desk.startHandoff(userId);
+      const fresh = await desk.startHandoff(userId);
+      await expect(desk.checkHandoff(userId, old.token)).rejects.toMatchObject({ code: 'kyc.handoff_unknown' });
+      expect(await desk.checkHandoff(userId, fresh.token)).toMatchObject({ state: 'open' });
+      await desk.submit(userId, { contentType: 'image/jpeg', bytes: JPEG, handoff: fresh.token });
+      // A used link stays while its selfie does, so the phone can still say it was used.
+      await desk.startHandoff(userId);
+      expect(await desk.checkHandoff(userId, fresh.token)).toMatchObject({ state: 'used' });
+      const [links] = await db.sql<Array<{ n: number }>>`SELECT count(*)::int AS n FROM kyc_selfie_handoffs WHERE user_id = ${userId}`;
+      expect(links!.n).toBe(2);
     });
 
     it('refuses a file that is not a photo, or over the caps, and stores nothing', async () => {

@@ -21,6 +21,30 @@ export const kycSelfieSchema = z.object({
 });
 export type KycSelfie = z.infer<typeof kycSelfieSchema>;
 
+/**
+ * Compliance's view (`kyc.selfie.listFor`, `kyc.selfie.decide`): the vault id of the frame, opened through
+ * `kyc.getDocument`, to compare with the ID photo. `captureCheck` says the server did not check that the frame was live:
+ * the page takes it from the camera, and `via` is what the device reported.
+ */
+export const kycSelfieForComplianceSchema = kycSelfieSchema.extend({
+  documentId: z.string().uuid(),
+  captureCheck: z.literal('not_checked'),
+  decidedAt: z.string().datetime({ offset: true }).nullable(),
+});
+export type KycSelfieForCompliance = z.infer<typeof kycSelfieForComplianceSchema>;
+
+export const kycSelfieDecisionSchema = z.enum(['accepted', 'rejected']);
+export type KycSelfieDecision = z.infer<typeof kycSelfieDecisionSchema>;
+
+export const kycSelfieDecideInputSchema = z
+  .object({
+    selfieId: z.string().uuid(),
+    decision: kycSelfieDecisionSchema,
+    approvalId: z.string().max(128).nullish(),
+    operationId: z.string().max(128).nullish(),
+  })
+  .strict();
+
 export const kycSelfieReadSchema = z.object({
   latest: kycSelfieSchema.nullable(),
   /** The automatic face match: not connected, so a person compares. */

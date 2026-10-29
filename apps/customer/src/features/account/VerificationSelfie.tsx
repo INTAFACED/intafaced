@@ -17,21 +17,32 @@ import { encodeQr, qrPath } from '../pay/personal/qr';
 import { verificationSelfieCopy as copy } from './verification-selfie-copy';
 
 type Refusal = Extract<ApiResult<unknown>, { ok: false }>;
-type Problem = { kind: 'copy'; text: string } | { kind: 'failure'; result: Refusal };
-type LinkState = 'open' | 'used' | 'expired' | 'unknown';
+type Problem = { kind: 'copy'; text: string } | { kind: 'failure'; result: Refusal; retry?: () => void };
+/** `done`: this page just used the link. `broken`: the page was opened with a link that is not whole. */
+type LinkState = 'open' | 'done' | 'used' | 'expired' | 'unknown' | 'broken';
 const statusKey = { provided: 'statusProvided', accepted: 'statusAccepted', rejected: 'statusRejected' } as const;
 const viaKey = { this_device: 'viaThisDevice', handoff: 'viaHandoff' } as const;
-const linkKey = { open: 'handoffOpen', used: 'handoffUsed', expired: 'handoffExpired', unknown: 'handoffUnknown' } as const;
+const linkKey = {
+  open: 'handoffOpen',
+  done: 'handoffDone',
+  used: 'handoffUsed',
+  expired: 'handoffExpired',
+  unknown: 'handoffUnknown',
+  broken: 'handoffBroken',
+} as const;
 const TOKEN = /^[A-Za-z0-9_-]{43}$/;
+/** How often the computer re-reads the latest selfie while its phone link is on screen. */
+const PHONE_POLL_MS = 4000;
 
-/** The hand-off token this page was opened with (`/verification?handoff=…`), or null. */
-function handoffFromUrl(): string | null {
-  const token = new URLSearchParams(window.location.search).get('handoff');
-  return token && TOKEN.test(token) ? token : null;
+/** The hand-off this page was opened with (`/verification?handoff=…`): none, a whole token, or one that is not whole. */
+function handoffFromUrl(): { token: string | null; broken: boolean } {
+  const raw = new URLSearchParams(window.location.search).get('handoff');
+  if (raw === null) return { token: null, broken: false };
+  return TOKEN.test(raw) ? { token: raw, broken: false } : { token: null, broken: true };
 }
 
-/** The link as a QR code, dark on light in every theme because that is what a scanner needs; null when it cannot be made. */
-function PhoneCode({ value, label }: { value: string; label: string }) {
+/** The link as a QR code, dark on light in every theme because that is what a scanner needs; says so when it cannot be made. */
+function PhoneCode({ value, label, failed }: { value: string; label: string; failed: string }) {
   const drawn = useMemo(() => {
     try {
       return qrPath(encodeQr(value, 'M'), 2);
@@ -39,11 +50,11 @@ function PhoneCode({ value, label }: { value: string; label: string }) {
       return null;
     }
   }, [value]);
-  if (!drawn) return null;
+  if (!drawn) return <p data-testid="verification__selfie-qr-failed">{failed}</p>;
   return (
     <div className="verification__selfie-qr" data-testid="verification__selfie-qr">
       <svg viewBox={`0 0 ${drawn.size} ${drawn.size}`} role="img" aria-label={label} shapeRendering="crispEdges">
-        <path d={drawn.d} fill="black" />
+        <path d={drawn.d} fill="black" /* look-drift-allow: a QR code needs dark on light in every theme */ />
       </svg>
     </div>
   );
@@ -69,13 +80,17 @@ function grab(video: HTMLVideoElement): Promise<Blob | null> {
 export function VerificationSelfie({ recordsKey, disabled }: { recordsKey: string; disabled: boolean }) {
   const { api, userId } = useSession();
   const { t, Copy } = copy.useCopy();
-  const [revision, setRevision] = useState(0);
   const { resource, reload } = useResource(
     (signal) => api.query('identity', 'kyc.selfie.read', undefined, kycSelfieReadSchema, { signal }),
-    `verification-selfie:${userId}:${recordsKey}:${revision}`,
+    `verification-selfie:${userId}:${recordsKey}`,
   );
-  const [token] = useState(handoffFromUrl);
-  const [link, setLink] = useState<LinkState | null>(null);
+  const [opened] = useState(handoffFromUrl);
+  const token = opened.token;
+  const [link, setLink] = useState<LinkState | null>(opened.broken ? 'broken' : null);
+  const [checks, setChecks] = useState(0);
+  /** On the computer: the latest selfie's id when the phone link was made, so a newer one from the phone shows. */
+  const [before, setBefore] = useState<string | null>(null);
+  const [linkExpired, setLinkExpired] = useState(false);
   const [handoff, setHandoff] = useState<KycSelfieHandoff | null>(null);
   const [stream, setStream] = useState<MediaStream | null>(null);
   const [busy, setBusy] = useState(false);
@@ -84,6 +99,9 @@ export function VerificationSelfie({ recordsKey, disabled }: { recordsKey: strin
   const video = useRef<HTMLVideoElement | null>(null);
   const last = useRef<KycSelfieRead | null>(null);
   if (resource.status === 'ready') last.current = resource.data;
+  // `reload` is a new function each render; the phone poll reads the latest through this ref so it keeps one timer.
+  const reloadRef = useRef(reload);
+  reloadRef.current = reload;
 
   useEffect(() => {
     if (!token) return;
@@ -92,12 +110,26 @@ export function VerificationSelfie({ recordsKey, disabled }: { recordsKey: strin
       .query('identity', 'kyc.selfie.handoff.check', { token }, kycSelfieHandoffCheckSchema, { signal: controller.signal })
       .then((answer) => {
         if (controller.signal.aborted) return;
-        if (answer.ok) setLink(answer.data.state);
-        else if (answer.code === 'kyc.handoff_unknown') setLink('unknown');
-        else setProblem({ kind: 'failure', result: answer });
+        if (answer.ok) {
+          setProblem(null);
+          setLink(answer.data.state);
+        } else if (answer.code === 'kyc.handoff_unknown') setLink('unknown');
+        else setProblem({ kind: 'failure', result: answer, retry: () => setChecks((n) => n + 1) });
       });
     return () => controller.abort();
-  }, [api, token, userId]);
+  }, [api, token, userId, checks]);
+
+  // On the computer, while the phone link is on screen: re-read the latest selfie, and say when the link runs out.
+  useEffect(() => {
+    if (!handoff) return;
+    setLinkExpired(false);
+    const poll = window.setInterval(() => reloadRef.current(), PHONE_POLL_MS);
+    const expiry = window.setTimeout(() => setLinkExpired(true), Math.max(0, Date.parse(handoff.expiresAt) - Date.now()));
+    return () => {
+      window.clearInterval(poll);
+      window.clearTimeout(expiry);
+    };
+  }, [handoff]);
 
   // The camera is released when the page closes it, sends, or goes away.
   useEffect(() => {
@@ -108,7 +140,15 @@ export function VerificationSelfie({ recordsKey, disabled }: { recordsKey: strin
   const data = resource.status === 'ready' ? resource.data : last.current;
   const caps = data?.uploadCaps ?? null;
   const viaLink = token !== null && link === 'open';
-  const linkRefused = token !== null && link !== null && link !== 'open';
+  const linkRefused = link !== null && link !== 'open' && link !== 'done';
+  const fromPhone = handoff && data?.latest && data.latest.id !== before && data.latest.via === 'handoff' ? data.latest : null;
+
+  // The phone's selfie arrived: the code has done its job and leaves the screen.
+  useEffect(() => {
+    if (!fromPhone) return;
+    setHandoff(null);
+    setSent(fromPhone);
+  }, [fromPhone]);
 
   const refused = (result: Refusal) => {
     switch (result.code) {
@@ -162,8 +202,8 @@ export function VerificationSelfie({ recordsKey, disabled }: { recordsKey: strin
       if (!answer.ok) return refused(answer);
       setSent(answer.data);
       setStream(null);
-      if (viaLink) setLink('used');
-      setRevision((n) => n + 1);
+      if (viaLink) setLink('done');
+      reload();
     } finally {
       setBusy(false);
     }
@@ -175,6 +215,8 @@ export function VerificationSelfie({ recordsKey, disabled }: { recordsKey: strin
     try {
       const answer = await api.mutate('identity', 'kyc.selfie.handoff.start', undefined, kycSelfieHandoffSchema);
       if (!answer.ok) return refused(answer);
+      setBefore(data?.latest?.id ?? null);
+      setSent(null);
       setHandoff(answer.data);
     } finally {
       setBusy(false);
@@ -207,7 +249,7 @@ export function VerificationSelfie({ recordsKey, disabled }: { recordsKey: strin
             <Copy k="latest" params={{ status: t(statusKey[latest.status]), via: t(viaKey[latest.via]) }} />
           </p>
         )}
-        {token !== null && link !== null && (
+        {link !== null && (
           <p role={linkRefused ? 'alert' : undefined} data-testid="verification__selfie-handoff" data-state={link}>
             <Copy k={linkKey[link]} />
           </p>
@@ -217,7 +259,8 @@ export function VerificationSelfie({ recordsKey, disabled }: { recordsKey: strin
             <Copy k="capsUnset" />
           </p>
         ) : (
-          !linkRefused && (
+          !linkRefused &&
+          link !== 'done' && (
             <div className="verification__selfie-camera">
               {stream ? (
                 <>
@@ -244,9 +287,9 @@ export function VerificationSelfie({ recordsKey, disabled }: { recordsKey: strin
             <Copy k="sent" />
           </p>
         )}
-        {token === null && (
+        {token === null && !opened.broken && (
           <div className="stack" data-testid="verification__selfie-phone">
-            {!phoneLink ? (
+            {!phoneLink || !handoff ? (
               <Button type="button" variant="secondary" disabled={disabled || busy} onClick={() => void startHandoff()}>
                 <Copy k="usePhone" />
               </Button>
@@ -258,17 +301,34 @@ export function VerificationSelfie({ recordsKey, disabled }: { recordsKey: strin
                 <p>
                   <Copy k="phoneHelp" />
                 </p>
-                <PhoneCode value={phoneLink} label={t('qrLabel')} />
-                <p className="verification__selfie-link">
-                  <a href={phoneLink} data-testid="verification__selfie-link">
-                    {phoneLink}
-                  </a>
-                </p>
+                {linkExpired ? (
+                  <p role="alert" data-testid="verification__selfie-link-expired">
+                    <Copy k="phoneExpired" />
+                  </p>
+                ) : (
+                  <>
+                    <PhoneCode value={phoneLink} label={t('qrLabel')} failed={t('qrFailed')} />
+                    <p className="verification__selfie-link">
+                      <a href={phoneLink} data-testid="verification__selfie-link">
+                        {phoneLink}
+                      </a>
+                    </p>
+                    <p className="muted" data-testid="verification__selfie-link-until">
+                      <Copy
+                        k="phoneUntil"
+                        params={{ time: new Date(handoff.expiresAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) }}
+                      />
+                    </p>
+                  </>
+                )}
                 {handoffTtlSeconds && (
                   <p className="muted">
                     <Copy k="phoneRule" params={{ minutes: String(Math.round(handoffTtlSeconds / 60)) }} />
                   </p>
                 )}
+                <Button type="button" variant="secondary" disabled={disabled || busy} onClick={() => void startHandoff()}>
+                  <Copy k="newLink" />
+                </Button>
               </>
             )}
           </div>
@@ -288,7 +348,7 @@ export function VerificationSelfie({ recordsKey, disabled }: { recordsKey: strin
       {body()}
       {problem && (
         <div role="alert" data-testid="verification__selfie-problem">
-          {problem.kind === 'copy' ? <p>{problem.text}</p> : <Failure result={problem.result} />}
+          {problem.kind === 'copy' ? <p>{problem.text}</p> : <Failure result={problem.result} retry={problem.retry} />}
         </div>
       )}
     </section>

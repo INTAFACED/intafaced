@@ -224,6 +224,12 @@ test(`${J} #3: with the face check switched off the selfie is kept for manual re
     await expect(onPhone.getByTestId('verification__selfie-handoff')).toHaveAttribute('data-state', 'open');
     await takeLive(onPhone);
     await expect(onPhone.getByTestId('verification__selfie-latest')).toHaveAttribute('data-via', 'handoff');
+    // The phone says it is done, with no refusal; the computer picks up the phone's selfie and the code leaves its screen.
+    await expect(onPhone.getByTestId('verification__selfie-handoff')).toHaveAttribute('data-state', 'done');
+    await expect(onPhone.getByRole('alert')).toHaveCount(0);
+    await expect(selfie.getByTestId('verification__selfie-latest')).toHaveAttribute('data-via', 'handoff', { timeout: 15_000 });
+    await expect(selfie.getByRole('img', { name: 'Code with the link for your phone' })).toHaveCount(0);
+    await expect(selfie.getByTestId('verification__selfie-sent')).toBeVisible();
 
     // The same link opened again is refused in plain words, and offers no camera.
     const again = await context.newPage();
@@ -232,6 +238,14 @@ test(`${J} #3: with the face check switched off the selfie is kept for manual re
     await expect(refused).toHaveAttribute('data-state', 'used');
     await expect(refused).toHaveText('This link was already used. Make a new one on your computer.');
     await expect(again.getByTestId('verification__selfie').getByRole('button', { name: 'Open camera' })).toHaveCount(0);
+
+    // A link that lost characters on the way is refused as not whole, with no camera and no new phone link offered.
+    const cut = await context.newPage();
+    await cut.goto(href.slice(0, -5));
+    const broken = cut.getByTestId('verification__selfie').getByTestId('verification__selfie-handoff');
+    await expect(broken).toHaveAttribute('data-state', 'broken');
+    await expect(cut.getByTestId('verification__selfie').getByRole('button', { name: 'Open camera' })).toHaveCount(0);
+    await expect(cut.getByTestId('verification__selfie-phone')).toHaveCount(0);
   } finally {
     await browser.close();
   }

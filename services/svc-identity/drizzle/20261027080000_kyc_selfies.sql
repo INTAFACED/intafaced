@@ -1,7 +1,7 @@
 -- svc-identity · selfie (I-kyc-compliance-09, J-identity-08 #3). One row per selfie a person takes: the vault id of the
 -- captured frame (kyc_documents, sealed there), whether it came from this device or a phone hand-off, and its review
 -- state. The face match (`vendor.kyc`) is not connected, so a selfie stays `provided` until a person compares it with
--- the ID photo. A hand-off link is stored only as the SHA-256 of its token, with its expiry and the moment it was used.
+-- the ID photo; the row keeps who decided it and when. A hand-off link is stored only as the SHA-256 of its token, with its expiry and the moment it was used.
 -- Reversal: the .down.sql of the same name.
 CREATE TABLE IF NOT EXISTS "identity"."kyc_selfies" (
   "id"          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -9,7 +9,10 @@ CREATE TABLE IF NOT EXISTS "identity"."kyc_selfies" (
   "document_id" uuid NOT NULL REFERENCES "identity"."kyc_documents" ("id") ON DELETE CASCADE,
   "via"         text NOT NULL CHECK ("via" IN ('this_device', 'handoff')),
   "status"      text NOT NULL DEFAULT 'provided' CHECK ("status" IN ('provided', 'accepted', 'rejected')),
-  "created_at"  timestamptz NOT NULL DEFAULT now()
+  "decided_by"  uuid,
+  "decided_at"  timestamptz,
+  "created_at"  timestamptz NOT NULL DEFAULT now(),
+  CHECK (("status" = 'provided') = ("decided_at" IS NULL))
 );
 CREATE INDEX IF NOT EXISTS "kyc_selfies_user_idx" ON "identity"."kyc_selfies" ("user_id", "created_at" DESC);
 

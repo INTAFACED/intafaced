@@ -10,6 +10,8 @@ import { KycProfileError, type KycProfileDesk } from './kyc/profile.js';
 import { KycPoaError, type KycPoaDesk } from './kyc/proof-of-address.js';
 import { KycSelfieError, type KycSelfieDesk } from './kyc/selfie.js';
 import {
+  kycSelfieDecideInputSchema,
+  kycSelfieForComplianceSchema,
   kycSelfieHandoffCheckInputSchema,
   kycSelfieHandoffCheckSchema,
   kycSelfieHandoffSchema,
@@ -212,9 +214,11 @@ export function toTrpcError(err: unknown): TRPCError {
       case 'kyc.selfie_unconfigured':
         return new TRPCError({ code: 'PRECONDITION_FAILED', message: err.message, cause: err });
       case 'kyc.handoff_unknown':
+      case 'kyc.selfie_unknown':
         return new TRPCError({ code: 'NOT_FOUND', message: err.message, cause: err });
       case 'kyc.handoff_used':
       case 'kyc.handoff_expired':
+      case 'kyc.selfie_decided':
         return new TRPCError({ code: 'CONFLICT', message: err.message, cause: err });
       default:
         return new TRPCError({ code: 'BAD_REQUEST', message: err.message, cause: err });
@@ -2502,10 +2506,39 @@ export function createIdentityRouter(
         }),
         listFor: scopedProcedure('admin:compliance')
           .input(z.object({ userId: z.string().uuid(), limit: z.number().int().min(1).max(50) }).strict())
-          .output(z.object({ selfies: z.array(kycSelfieSchema) }))
+          .output(z.object({ selfies: z.array(kycSelfieForComplianceSchema) }))
           .query(async ({ input }) => {
             try {
               return { selfies: await requireKycSelfie().listFor(input.userId, input.limit) };
+            } catch (err) {
+              throw toTrpcError(err);
+            }
+          }),
+        /**
+         * The person's decision after comparing the selfie (its frame opened through `getDocument`) with the ID photo.
+         * Same class as a review: MFA, never an agent, never the reviewer's own, and the four-eyes approval binds the
+         * selfie and the decision. Checked before the approval is spent.
+         */
+        decide: scopedProcedure('admin:compliance')
+          .input(kycSelfieDecideInputSchema)
+          .output(kycSelfieForComplianceSchema)
+          .mutation(async ({ ctx, input }) => {
+            try {
+              requireMfa(ctx.principal);
+              refuseAgentKycReview(ctx);
+              const desk = requireKycSelfie();
+              const approvalId = input.approvalId?.trim();
+              const parties = approvalId ? await options.actionApprovals?.partiesOf?.(approvalId) : null;
+              assertNotOwnKyc(await desk.assertDecidable(input.selfieId, input.decision), [
+                ctx.principal.userId,
+                parties?.requesterId,
+                parties?.approverId,
+              ]);
+              await consumePrivileged(ctx.principal.userId, input, 'kyc.selfie.decide', {
+                selfieId: input.selfieId,
+                decision: input.decision,
+              });
+              return await desk.decide({ selfieId: input.selfieId, decision: input.decision, reviewerId: ctx.principal.userId });
             } catch (err) {
               throw toTrpcError(err);
             }
