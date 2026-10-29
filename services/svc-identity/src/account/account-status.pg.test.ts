@@ -74,7 +74,16 @@ if (!(await postgresAvailable(TEST_URL))) {
     const handle = `as${process.pid}${++n}`;
     return (await auth.register({ handle, email: `${handle}@example.com`, password: PASSWORD, region: 'DE' })).userId;
   };
-  const read = async (userId: string) => accountStatusSchema.parse(await desk.read(userId, 'staff'));
+  // Every case reads both views: the owner's may differ from staff's only by hiding a staff closure code.
+  const read = async (userId: string) => {
+    const staff = accountStatusSchema.parse(await desk.read(userId, 'staff'));
+    const owner = accountStatusSchema.parse(await desk.read(userId, 'owner'));
+    const hidden = staff.restrictions.map((r) =>
+      r.kind === 'closed' && r.reasonCode !== 'customer_request' ? { ...r, reasonCode: null } : r,
+    );
+    expect(owner).toEqual({ ...staff, restrictions: hidden });
+    return staff;
+  };
 
   describe('account status', () => {
     it('an active account blocks nothing: everything is in "you can still"', async () => {

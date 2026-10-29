@@ -69,7 +69,9 @@ export class AccountStatusDesk {
 
   /**
    * `view: 'owner'` is the account's own read: a staff closure code other than the person's own request is not shown to
-   * them (sign-in says only "closed" too), so a fraud finding is never tipped off. Staff reads see the code.
+   * them (sign-in says only "closed" too), so a fraud finding is never tipped off. Staff reads see the code. The view is
+   * required: any read on the account holder's behalf passes `'owner'`; only a staff door (`accountStatus.of`) passes
+   * `'staff'`.
    */
   async read(userId: string, view: 'owner' | 'staff'): Promise<AccountStatus | null> {
     const wait = this.selfFreezeLiftWaitSeconds ?? null;

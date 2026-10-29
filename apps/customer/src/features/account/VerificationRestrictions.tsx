@@ -100,10 +100,10 @@ export function VerificationCapabilityRefused({ recordsKey }: { recordsKey: stri
     // Lifted or remapped since the refusal: point to where capabilities are read, never an empty list.
     return stops.length > 0 ? (
       <>
-        <p>
+        <p id="verification-capability-refused-list">
           <Copy k="capabilityRefusedList" />
         </p>
-        <RestrictionList restrictions={stops} />
+        <RestrictionList restrictions={stops} labelledBy="verification-capability-refused-list" />
       </>
     ) : (
       <p>
