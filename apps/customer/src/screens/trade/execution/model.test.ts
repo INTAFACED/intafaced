@@ -263,6 +263,15 @@ describe('device note ownership', () => {
     expect(ownsNote('scaled', desk)).toBe(false);
     expect(ownsNote('algo', desk)).toBe(false);
     expect(ownsNote('execCancel', desk)).toBe(false);
+    expect(ownsNote('iceberg', desk)).toBe(false);
+  });
+  it('gives an ice- place note to iceberg only', () => {
+    const note = { kind: 'place', id: 'ice-abc' } as const;
+    expect(ownsNote('iceberg', note)).toBe(true);
+    expect(ownsNote('scaled', note)).toBe(false);
+    expect(ownsNote('algo', note)).toBe(false);
+    expect(ownsNote('execCancel', note)).toBe(false);
+    expect(ownsNote('iceberg', { kind: 'place', id: 'scl-abc' })).toBe(false);
   });
   it('gives a scl- place note to scaled only', () => {
     const note = { kind: 'place', id: 'scl-abc' } as const;

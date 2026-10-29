@@ -1,8 +1,9 @@
 /**
  * Owner replay window for a private trade place.
  *
- * The length is the signed-request window this service already publishes
- * (`REQUEST_SIGN_WINDOW_SECONDS` in api-key-request-sign.ts): 300 seconds.
+ * The length is the reference verifier's window (`REQUEST_SIGN_WINDOW_SECONDS`
+ * in api-key-request-sign.ts), used only by this module's acceptance test; the
+ * live signed-request window is the owner's, published by identity.
  * A timestamp outside that window is not executed. Inside the window, the
  * same client order id returns the original order.
  */
