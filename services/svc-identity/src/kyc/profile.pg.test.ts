@@ -307,6 +307,7 @@ if (!available) {
       const userId = await person();
       const ready = await fill(userId);
       let during: unknown;
+      let switched: unknown;
       const holding = new KycProfileDesk(db.sql, KEY, {
         documentTypes: TYPES,
         uploadCaps: CAPS,
@@ -315,11 +316,17 @@ if (!available) {
           // Another tab reads the draft and tries a new photo while the request opens.
           const seen = (await desk.read(userId)).draft!;
           during = await desk.upload(userId, { version: seen.version, contentType: 'image/png', bytes: PNG }).catch((e: unknown) => e);
+          // Nor may it switch the level or start over: that would clear the hold and let the photo be replaced.
+          switched = await desk.start(userId, 'full').catch((e: unknown) => e);
           throw new Error('request refused');
         },
       });
       await expect(holding.submit(userId, ready.version)).rejects.toThrow('request refused');
       expect(during).toMatchObject({ code: 'kyc.profile_version' });
+      expect(switched).toMatchObject({ code: 'kyc.profile_version' });
+      // The photo being sent never left the vault.
+      const [kept] = await db.sql<Array<{ n: number }>>`SELECT count(*)::int AS n FROM kyc_documents WHERE id = ${ready.fields.documentId}`;
+      expect(kept!.n).toBe(1);
       // Let go: the draft can change and be sent again.
       const after = (await desk.read(userId)).draft!;
       expect(after.recordId).toBeNull();
