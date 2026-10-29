@@ -8,8 +8,8 @@ import { signIn, signUp, verify } from './desk.mjs';
 // credits A's available balance once, and a held one counts as set aside until accepted; the steps read both balances
 // through each person's own API.
 // Steps that are written but not built yet fail at their first missing part, quickly (UNBUILT):
-// - #2, #3, #5, #6: no handle change with typed rule refusals, no discoverability switch, no stranger rule and no
-//   receive-by email or phone (PP-send-request-03, PP-money-balance-05).
+// - #3's QR clause: the QR code carries the handle, so with finding by handle off a scan misses too (PP-send-request-11).
+// - #5, #6: no stranger rule and no receive-by email or phone (PP-money-balance-05).
 // - #4: no QR scan that opens Send prefilled, and no tampered-code refusal (PP-send-request-11).
 const J = 'J-pay-03';
 const run = journeyState(`${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
@@ -68,40 +68,84 @@ test(`${J} #1 opens Receive: the handle with Copy and the toast "Copied"; with n
 test(`${J} #2 changes the handle: a handle that breaks a rule gets the reason naming the rule; past the lifetime change cap it refuses with the count`, async ({
   page,
 }) => {
+  test.setTimeout(120_000);
   const { me } = people();
   await signIn(page, me);
   await page.goto('/pay/receive');
-  await page.getByRole('button', { name: 'Change handle' }).click(UNBUILT);
+  const changesLeft = page.getByTestId('handle-changes-left');
+  // The stack's TEST cap is 3 changes in the life of an account (tooling/profiles/test-owner-values/identity.json).
+  await expect(changesLeft).toHaveText('You can change your handle 3 more times.');
   const dialog = page.getByRole('dialog', { name: 'Change your handle' });
-  await dialog.getByRole('textbox', { name: 'New handle' }).fill('no spaces-allowed!');
-  await dialog.getByRole('button', { name: 'Save' }).click();
-  await expect(dialog.getByRole('alert')).toContainText(/letters, digits and underscore/);
-  const next = `${me.handle}_x`.slice(0, 30);
-  await dialog.getByRole('textbox', { name: 'New handle' }).fill(next);
-  await dialog.getByRole('button', { name: 'Save' }).click();
-  await expect(page.getByTestId('receive-value')).toHaveText(`@${next}`);
-  await expect(page.getByText(/You can change your handle \d+ more times?/)).toBeVisible();
-  run.write({ me: { ...me, handle: next } });
+  const attempt = async (handle) => {
+    if (!(await dialog.isVisible())) await page.getByRole('button', { name: 'Change handle' }).click(UNBUILT);
+    await dialog.getByRole('textbox', { name: 'New handle' }).fill(handle);
+    await dialog.getByRole('button', { name: 'Save' }).click();
+  };
+  // A rule refusal names the rule, and spends no change.
+  await attempt('no spaces-allowed!');
+  await expect(dialog.getByRole('alert')).toHaveText('A handle uses only letters, digits and underscore.');
+  await attempt('ab');
+  await expect(dialog.getByRole('alert')).toHaveText('A handle has 3 to 32 characters.');
+  await page.keyboard.press('Escape');
+  await expect(changesLeft).toHaveText('You can change your handle 3 more times.');
+
+  // Three changes use the cap up; each one is the handle the card shows, and the count goes down with it.
+  const base = me.handle.slice(0, 28);
+  const left = ['You can change your handle 2 more times.', 'You can change your handle 1 more time.'];
+  let handle = me.handle;
+  for (const n of [1, 2, 3]) {
+    handle = `${base}_${n}`;
+    await attempt(handle);
+    await expect(page.getByTestId('receive-value')).toHaveText(`@${handle}`);
+    if (n < 3) await expect(changesLeft).toHaveText(left[n - 1]);
+  }
+  run.write({ me: { ...me, handle } });
+  // The fourth is refused with the count, and the handle stays.
+  await attempt(`${base}_4`);
+  await expect(dialog.getByRole('alert')).toHaveText('You have changed your handle 3 times, the most allowed.');
+  await page.keyboard.press('Escape');
+  await page.reload();
+  await expect(page.getByTestId('receive-value')).toHaveText(`@${handle}`);
 });
 
 test(`${J} #3 turns discoverability off: handle search finds nothing for others, and a QR scan still pays`, async ({ page }) => {
+  test.setTimeout(180_000);
   const { me, stranger } = people();
+  const discoverable = () => page.getByRole('switch', { name: 'Let people find me by my handle' });
   await signIn(page, me);
   await page.goto('/pay/receive');
-  await page.getByRole('switch', { name: 'Let people find me by my handle' }).click(UNBUILT);
-  await expect(page.getByRole('switch', { name: 'Let people find me by my handle' })).not.toBeChecked();
-  await signOutBrowser(page.context());
-  await signIn(page, stranger);
-  await page.goto('/pay/send');
-  await page.getByLabel('Handle').fill(me.handle);
-  await page.getByLabel('Handle').press('Tab');
-  await expect(page.getByRole('alert')).toContainText(/No one with this handle/);
-  // Back on, so #5 can be paid by handle.
-  await signOutBrowser(page.context());
-  await signIn(page, me);
-  await page.goto('/pay/receive');
-  await page.getByRole('switch', { name: 'Let people find me by my handle' }).click();
-  await expect(page.getByRole('switch', { name: 'Let people find me by my handle' })).toBeChecked();
+  // What the QR code encodes is the link printed under it.
+  const link = (await page.getByTestId('receive-link-value').textContent())?.trim() ?? '';
+  expect(new URL(link).pathname, 'the QR code opens Send for this account').toBe('/pay/send');
+  await discoverable().click(UNBUILT);
+  await expect(discoverable()).not.toBeChecked();
+  try {
+    await signOutBrowser(page.context());
+    await signIn(page, stranger);
+    await page.goto('/pay/send');
+    await page.getByLabel('Handle').fill(me.handle);
+    await page.getByLabel('Handle').press('Tab');
+    await expect(page.getByRole('alert')).toContainText(/No one with this handle/);
+
+    // The stranger scans the QR code: Send opens on this account and the payment lands in its balance.
+    const before = toUnits((await usdt(me)).free);
+    const url = new URL(link);
+    await page.goto(`${url.pathname}${url.search}`);
+    await expect(page.getByRole('alert')).toHaveCount(0);
+    await page.getByLabel(/Amount/).fill('1');
+    await page.getByRole('button', { name: 'Review' }).click();
+    await page.getByRole('dialog').getByRole('button', { name: /^Send/ }).click();
+    await expect(page.getByRole('status').first()).toBeVisible({ timeout: 30_000 });
+    await expect(page.getByRole('alert')).toHaveCount(0);
+    await expect.poll(async () => toUnits((await usdt(me)).free) - before, { timeout: 30_000 }).toBe(toUnits('1'));
+  } finally {
+    // Back on, so #5 can be paid by handle.
+    await signOutBrowser(page.context());
+    await signIn(page, me);
+    await page.goto('/pay/receive');
+    if (!(await discoverable().isChecked())) await discoverable().click();
+    await expect(discoverable()).toBeChecked();
+  }
 });
 
 test(`${J} #4 shows the QR to a friend who scans it: Send opens prefilled with a payee preview; a tampered code is refused; with the camera denied an image upload works`, async ({
