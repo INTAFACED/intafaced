@@ -1,4 +1,4 @@
-import type { Address, Hex } from 'viem';
+import { formatUnits, parseUnits, type Address, type Hex } from 'viem';
 import {
   ORGANIC_SCORE_UNSET,
   TOKEN_WINDOW_SECONDS,
@@ -26,7 +26,9 @@ import {
  */
 export const MAX_LOGS = 20_000;
 export const MAX_HOLDERS = 1_000;
-const SCALE = 10n ** 18n;
+/** Prices and figures here are on-chain 18-place fixed point; viem owns the unit conversion. */
+const PLACES = 18;
+const SCALE = parseUnits('1', PLACES);
 const ZERO = '0x0000000000000000000000000000000000000000';
 const DEAD = '0x000000000000000000000000000000000000dead';
 
@@ -96,10 +98,7 @@ const same = (a: string, b: string) => lower(a) === lower(b);
 
 /** A 1e18-scaled bigint as a decimal string, trailing zeros trimmed. */
 export function formatScaled(value: bigint): string {
-  const sign = value < 0n ? '-' : '';
-  const abs = value < 0n ? -value : value;
-  const frac = (abs % SCALE).toString().padStart(18, '0').replace(/0+$/, '');
-  return `${sign}${abs / SCALE}${frac ? `.${frac}` : ''}`;
+  return formatUnits(value, PLACES);
 }
 /** Base units with `decimals` places as a 1e18-scaled bigint (exact up to 18 places; more are cut toward zero). */
 export function toScaled(amount: bigint, decimals: number): bigint {
