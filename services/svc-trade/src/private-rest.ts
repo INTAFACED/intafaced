@@ -88,6 +88,7 @@ import type { OrderLink } from './spot/order-links.js';
 import { readOcoFromBody } from './spot/oco-place.js';
 import { createBodyRefusal } from './create-body-refusal.js';
 import { massCancelAccountRefuse, massCancelSessionRefuse, readSessionId } from './spot/matching-client.js';
+import { privateRead, privateWith, privateWrite, publicRead } from './route-inventory.js';
 
 /**
  * Private CCXT-style REST (trade.ccxt-api — authenticated).
@@ -1335,7 +1336,7 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
 
   // ── Static paths first (before :id) ───────────────────────────────────────
 
-  app.get<{ Querystring: { limit?: string } }>('/api/v1/admin/orders/open', async (req, reply) => {
+  app.get<{ Querystring: { limit?: string } }>('/api/v1/admin/orders/open', privateWith('trade:read', 'admin:read'), async (req, reply) => {
     const principal = requirePrincipal(req, reply);
     if (!principal) return;
     try {
@@ -1362,7 +1363,7 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
     }
   });
 
-  app.get('/api/v1/admin/fees', async (req, reply) => {
+  app.get('/api/v1/admin/fees', privateWith('trade:read', 'admin:read'), async (req, reply) => {
     const principal = requirePrincipal(req, reply);
     if (!principal) return;
     try {
@@ -1383,7 +1384,7 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
     }
   });
 
-  app.get<{ Querystring: { symbol?: string; limit?: string } }>('/api/v1/orders/open', async (req, reply) => {
+  app.get<{ Querystring: { symbol?: string; limit?: string } }>('/api/v1/orders/open', privateRead, async (req, reply) => {
     const principal = requirePrincipal(req, reply);
     if (!principal) return;
 
@@ -1422,7 +1423,7 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
     }
   });
 
-  app.get<{ Querystring: ClosedQuery }>('/api/v1/orders/closed', async (req, reply) => {
+  app.get<{ Querystring: ClosedQuery }>('/api/v1/orders/closed', privateRead, async (req, reply) => {
     const principal = requirePrincipal(req, reply);
     if (!principal) return;
 
@@ -1489,52 +1490,56 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
     }
   });
 
-  app.get<{ Querystring: { symbol?: string; limit?: string; since?: string } }>('/api/v1/account/trades', async (req, reply) => {
-    const principal = requirePrincipal(req, reply);
-    if (!principal) return;
+  app.get<{ Querystring: { symbol?: string; limit?: string; since?: string } }>(
+    '/api/v1/account/trades',
+    privateRead,
+    async (req, reply) => {
+      const principal = requirePrincipal(req, reply);
+      if (!principal) return;
 
-    const limit = parsePrivateRestLimit(req.query.limit, MAX_FILLS);
-    if (limit === undefined) {
-      return sendCcxt(reply, badRequest('account/trades limit is unset — refuse to invent 100', TRADE_ACCOUNT_TRADES_LIMIT_UNSET));
-    }
-    const sinceParsed = parseSince(req.query.since);
-    if (!sinceParsed.ok) {
-      return sendCcxt(reply, badRequest(sinceParsed.message, 'trade.invalid_since'));
-    }
-    let filterMarketId: string | undefined;
-    const symbolRaw = req.query.symbol;
-    if (symbolRaw !== undefined && symbolRaw !== '') {
-      const symbol = decodeURIComponent(symbolRaw);
-      const market = await deps.marketBySymbol(symbol);
-      if (!market) {
-        return sendCcxt(reply, badSymbol(symbol));
+      const limit = parsePrivateRestLimit(req.query.limit, MAX_FILLS);
+      if (limit === undefined) {
+        return sendCcxt(reply, badRequest('account/trades limit is unset — refuse to invent 100', TRADE_ACCOUNT_TRADES_LIMIT_UNSET));
       }
-      filterMarketId = market.id;
-    }
-
-    try {
-      // Symbol + since resolve in SQL via myFills (fills.market_id, fills.ts),
-      // not a post-filter of a user-wide page.
-      const fills = await deps.myFills(principal, limit, filterMarketId, sinceParsed.sinceMs);
-      const serverTime = stampServerTime(reply, deps);
-      const symbolByMarket = new Map<string, string>();
-      const wire = [];
-      for (const fill of fills) {
-        let symbol = symbolByMarket.get(fill.marketId);
-        if (symbol === undefined) {
-          const market = await deps.marketById(fill.marketId);
-          symbol = market?.symbol ?? fill.marketId;
-          symbolByMarket.set(fill.marketId, symbol);
+      const sinceParsed = parseSince(req.query.since);
+      if (!sinceParsed.ok) {
+        return sendCcxt(reply, badRequest(sinceParsed.message, 'trade.invalid_since'));
+      }
+      let filterMarketId: string | undefined;
+      const symbolRaw = req.query.symbol;
+      if (symbolRaw !== undefined && symbolRaw !== '') {
+        const symbol = decodeURIComponent(symbolRaw);
+        const market = await deps.marketBySymbol(symbol);
+        if (!market) {
+          return sendCcxt(reply, badSymbol(symbol));
         }
-        wire.push({ ...presentCcxtMyTrade(fill, symbol), serverTime });
+        filterMarketId = market.id;
       }
-      return reply.code(200).send(wire);
-    } catch (err) {
-      const sent = sendDomainError(reply, err);
-      if (sent) return sent;
-      throw err;
-    }
-  });
+
+      try {
+        // Symbol + since resolve in SQL via myFills (fills.market_id, fills.ts),
+        // not a post-filter of a user-wide page.
+        const fills = await deps.myFills(principal, limit, filterMarketId, sinceParsed.sinceMs);
+        const serverTime = stampServerTime(reply, deps);
+        const symbolByMarket = new Map<string, string>();
+        const wire = [];
+        for (const fill of fills) {
+          let symbol = symbolByMarket.get(fill.marketId);
+          if (symbol === undefined) {
+            const market = await deps.marketById(fill.marketId);
+            symbol = market?.symbol ?? fill.marketId;
+            symbolByMarket.set(fill.marketId, symbol);
+          }
+          wire.push({ ...presentCcxtMyTrade(fill, symbol), serverTime });
+        }
+        return reply.code(200).send(wire);
+      } catch (err) {
+        const sent = sendDomainError(reply, err);
+        if (sent) return sent;
+        throw err;
+      }
+    },
+  );
 
   /**
    * The rates this caller pays, once per listed symbol: the owner schedule in force at the caller's fee tier (the last
@@ -1544,7 +1549,7 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
    * listed → `trade.fee_schedule_blank`; a tier or rank read that fails refuses rather than answer the regular rate.
    * The volume behind the tier is `GET /api/v1/account/fee-tier`.
    */
-  app.get('/api/v1/account/fees', async (req, reply) => {
+  app.get('/api/v1/account/fees', privateRead, async (req, reply) => {
     const principal = requirePrincipal(req, reply);
     if (!principal) return;
 
@@ -1598,7 +1603,7 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
    * their simulated fills with `fees`. Unpublished refuses `trade.fee_schedule_blank`; a
    * market whose row refuses is left out, never shown at zero. An empty listing answers an empty `fees` map.
    */
-  app.get('/api/v1/fees/published', async (_req, reply) => {
+  app.get('/api/v1/fees/published', publicRead, async (_req, reply) => {
     try {
       const schedule = deps.feeScheduleNow ? await deps.feeScheduleNow() : deps.feeSchedule;
       if (!schedule || schedule.published !== true) {
@@ -1624,7 +1629,7 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
     }
   });
 
-  app.get<{ Params: { symbol: string } }>('/api/v1/account/market-lifecycle/:symbol', async (req, reply) => {
+  app.get<{ Params: { symbol: string } }>('/api/v1/account/market-lifecycle/:symbol', privateRead, async (req, reply) => {
     const principal = requirePrincipal(req, reply);
     if (!principal) return;
     try {
@@ -1665,7 +1670,7 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
    * the S2S ledger client will answer for any ownerId, so the gate lives here.
    * Read-only: no recipe, no post, no second balance store (Doctrine §0.6).
    */
-  app.get('/api/v1/account/balance', async (req, reply) => {
+  app.get('/api/v1/account/balance', privateRead, async (req, reply) => {
     const principal = requirePrincipal(req, reply);
     if (!principal) return;
 
@@ -1688,7 +1693,7 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
    * never invents leverage/mark. `closing` is a voluntary exit waiting on a mark
    * (ADR 2026-08-07) and must not look like a normal open. Optional ?symbol= filters.
    */
-  app.get<{ Querystring: { symbol?: string; clientOpenId?: string } }>('/api/v1/positions', async (req, reply) => {
+  app.get<{ Querystring: { symbol?: string; clientOpenId?: string } }>('/api/v1/positions', privateRead, async (req, reply) => {
     const principal = requirePrincipal(req, reply);
     if (!principal) return;
 
@@ -1707,33 +1712,37 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
    * Settled futures history. Mounted as `/closed` (not `:id`) so it cannot be
    * swallowed by GET /positions/:id. Empty [] when none — no invented mark.
    */
-  app.get<{ Querystring: { symbol?: string; limit?: string; since?: string } }>('/api/v1/positions/closed', async (req, reply) => {
-    const principal = requirePrincipal(req, reply);
-    if (!principal) return;
+  app.get<{ Querystring: { symbol?: string; limit?: string; since?: string } }>(
+    '/api/v1/positions/closed',
+    privateRead,
+    async (req, reply) => {
+      const principal = requirePrincipal(req, reply);
+      if (!principal) return;
 
-    const limit = parsePrivateRestLimit(req.query.limit, MAX_HISTORY);
-    if (limit === undefined) {
-      return sendCcxt(reply, badRequest('positions/closed limit is unset — refuse to invent 100', TRADE_POSITIONS_CLOSED_LIMIT_UNSET));
-    }
-    const sinceParsed = parseSince(req.query.since);
-    if (!sinceParsed.ok) {
-      return sendCcxt(reply, badRequest(sinceParsed.message, 'trade.invalid_since'));
-    }
+      const limit = parsePrivateRestLimit(req.query.limit, MAX_HISTORY);
+      if (limit === undefined) {
+        return sendCcxt(reply, badRequest('positions/closed limit is unset — refuse to invent 100', TRADE_POSITIONS_CLOSED_LIMIT_UNSET));
+      }
+      const sinceParsed = parseSince(req.query.since);
+      if (!sinceParsed.ok) {
+        return sendCcxt(reply, badRequest(sinceParsed.message, 'trade.invalid_since'));
+      }
 
-    try {
-      requireScope(principal, 'trade:read');
-      const rows = await deps.listClosedPositions(principal, {
-        symbol: req.query.symbol,
-        limit,
-        sinceMs: sinceParsed.sinceMs,
-      });
-      return reply.code(200).send(rows);
-    } catch (err) {
-      const sent = sendDomainError(reply, err);
-      if (sent) return sent;
-      throw err;
-    }
-  });
+      try {
+        requireScope(principal, 'trade:read');
+        const rows = await deps.listClosedPositions(principal, {
+          symbol: req.query.symbol,
+          limit,
+          sinceMs: sinceParsed.sinceMs,
+        });
+        return reply.code(200).send(rows);
+      } catch (err) {
+        const sent = sendDomainError(reply, err);
+        if (sent) return sent;
+        throw err;
+      }
+    },
+  );
 
   /**
    * Open a funded futures position (margin via ledger recipes).
@@ -1741,7 +1750,7 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
    * The entry price is NOT a parameter. It is read from the mark source, and a
    * body that carries one is refused before anything is locked.
    */
-  app.post('/api/v1/positions', async (req, reply) => {
+  app.post('/api/v1/positions', privateWrite, async (req, reply) => {
     const principal = requirePrincipal(req, reply);
     if (!principal) return;
     if (!requireTradeJurisdiction(req, reply, principal)) return;
@@ -1847,7 +1856,7 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
    * DIRECTION:34 — in-product ADL disclosure (copy + ack state). Product information:
    * no open waits on the ack (owner decision 2026-10-27, until launch prep).
    */
-  app.get('/api/v1/futures/adl-disclosure', async (req, reply) => {
+  app.get('/api/v1/futures/adl-disclosure', privateRead, async (req, reply) => {
     const principal = requirePrincipal(req, reply);
     if (!principal) return;
 
@@ -1862,7 +1871,7 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
     }
   });
 
-  app.post('/api/v1/futures/adl-disclosure/ack', async (req, reply) => {
+  app.post('/api/v1/futures/adl-disclosure/ack', privateWrite, async (req, reply) => {
     const principal = requirePrincipal(req, reply);
     if (!principal) return;
     if (!requireTradeJurisdiction(req, reply, principal)) return;
@@ -1879,7 +1888,7 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
   });
 
   /** D-ops-01: each futures contract open or blocked for this account, with every reason. A read; it opens nothing. */
-  app.get('/api/v1/account/gated-list', async (req, reply) => {
+  app.get('/api/v1/account/gated-list', privateRead, async (req, reply) => {
     const principal = requirePrincipal(req, reply);
     if (!principal) return;
     try {
@@ -1899,7 +1908,7 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
     }
   });
 
-  app.get<{ Querystring: { limit?: string } }>('/api/v1/futures/adl-events', async (req, reply) => {
+  app.get<{ Querystring: { limit?: string } }>('/api/v1/futures/adl-events', privateRead, async (req, reply) => {
     const principal = requirePrincipal(req, reply);
     if (!principal) return;
 
@@ -1919,7 +1928,7 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
     }
   });
 
-  app.get<{ Params: { id: string } }>('/api/v1/positions/:id/liquidation', async (req, reply) => {
+  app.get<{ Params: { id: string } }>('/api/v1/positions/:id/liquidation', privateRead, async (req, reply) => {
     const principal = requirePrincipal(req, reply);
     if (!principal) return;
     if (!deps.positionLiquidation) {
@@ -1939,7 +1948,7 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
     }
   });
 
-  app.get('/api/v1/futures/liquidations', async (req, reply) => {
+  app.get('/api/v1/futures/liquidations', privateRead, async (req, reply) => {
     const principal = requirePrincipal(req, reply);
     if (!principal) return;
     if (!deps.listLiquidations) {
@@ -1959,7 +1968,7 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
     }
   });
 
-  app.get('/api/v1/futures/payouts', async (req, reply) => {
+  app.get('/api/v1/futures/payouts', privateRead, async (req, reply) => {
     const principal = requirePrincipal(req, reply);
     if (!principal) return;
     if (!deps.listFuturesPayouts) {
@@ -1979,25 +1988,29 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
     }
   });
 
-  app.get<{ Params: { id: string }; Querystring: { cursor?: string } }>('/api/v1/positions/:id/funding-payments', async (req, reply) => {
-    const principal = requirePrincipal(req, reply);
-    if (!principal) return;
-    if (!deps.listFundingPayments) {
-      return reply.code(503).send({
-        error: 'trade.funding_payments_unwired',
-        message: 'funding payment history is not wired on this process',
-      });
-    }
-    try {
-      requireScope(principal, 'trade:read');
-      return reply.code(200).send(await deps.listFundingPayments(principal, req.params.id, req.query.cursor));
-    } catch (err) {
-      if (err instanceof FuturesError) return reply.code(err.status).send(presentFuturesErrorWire(err));
-      const sent = sendDomainError(reply, err);
-      if (sent) return sent;
-      throw err;
-    }
-  });
+  app.get<{ Params: { id: string }; Querystring: { cursor?: string } }>(
+    '/api/v1/positions/:id/funding-payments',
+    privateRead,
+    async (req, reply) => {
+      const principal = requirePrincipal(req, reply);
+      if (!principal) return;
+      if (!deps.listFundingPayments) {
+        return reply.code(503).send({
+          error: 'trade.funding_payments_unwired',
+          message: 'funding payment history is not wired on this process',
+        });
+      }
+      try {
+        requireScope(principal, 'trade:read');
+        return reply.code(200).send(await deps.listFundingPayments(principal, req.params.id, req.query.cursor));
+      } catch (err) {
+        if (err instanceof FuturesError) return reply.code(err.status).send(presentFuturesErrorWire(err));
+        const sent = sendDomainError(reply, err);
+        if (sent) return sent;
+        throw err;
+      }
+    },
+  );
 
   /**
    * Delivered margin call for one position (D26-P1-T1b / DIRECTION MVP-2).
@@ -2007,7 +2020,7 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
    * never a fabricated healthy "no call" body that could be confused with a
    * delivered warning. Undelivered attempts are not exposed here.
    */
-  app.get<{ Params: { id: string } }>('/api/v1/positions/:id/margin-call', async (req, reply) => {
+  app.get<{ Params: { id: string } }>('/api/v1/positions/:id/margin-call', privateRead, async (req, reply) => {
     const principal = requirePrincipal(req, reply);
     if (!principal) return;
 
@@ -2033,7 +2046,7 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
    * or not theirs (same answer, no leak). Not a valuation: no invented mark.
    * Registered after `/positions/:id/margin-call` so that door stays specific.
    */
-  app.get<{ Params: { id: string } }>('/api/v1/positions/:id', async (req, reply) => {
+  app.get<{ Params: { id: string } }>('/api/v1/positions/:id', privateRead, async (req, reply) => {
     const principal = requirePrincipal(req, reply);
     if (!principal) return;
 
@@ -2057,36 +2070,40 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
    * `?exitPrice=` used to be required here and was the whole realised PnL — the
    * trader named the number the platform paid them. It is now refused.
    */
-  app.delete<{ Params: { id: string }; Querystring: Record<string, string | undefined> }>('/api/v1/positions/:id', async (req, reply) => {
-    const principal = requirePrincipal(req, reply);
-    if (!principal) return;
-    if (!requireTradeJurisdiction(req, reply, principal)) return;
+  app.delete<{ Params: { id: string }; Querystring: Record<string, string | undefined> }>(
+    '/api/v1/positions/:id',
+    privateWrite,
+    async (req, reply) => {
+      const principal = requirePrincipal(req, reply);
+      if (!principal) return;
+      if (!requireTradeJurisdiction(req, reply, principal)) return;
 
-    try {
-      requireScope(principal, 'trade:write');
+      try {
+        requireScope(principal, 'trade:write');
 
-      const supplied = suppliedPriceFields(req.query as Record<string, unknown> | undefined);
-      if (supplied.length > 0) {
-        return reply.code(400).send(priceNotAcceptedBody(supplied));
+        const supplied = suppliedPriceFields(req.query as Record<string, unknown> | undefined);
+        if (supplied.length > 0) {
+          return reply.code(400).send(priceNotAcceptedBody(supplied));
+        }
+
+        // Cancel and close are different calls. DELETE does not run closeAtomically
+        // and does not release margin. The close routes do.
+        return reply.code(400).send({
+          error: CANCEL_NOT_CLOSE,
+          message: 'DELETE /api/v1/positions/:id does not close a position or release margin. Close on POST /api/v1/positions/:id/close.',
+        });
+      } catch (err) {
+        if (err instanceof FuturesError) {
+          return reply.code(err.status).send(presentFuturesErrorWire(err));
+        }
+        const sent = sendDomainError(reply, err);
+        if (sent) return sent;
+        throw err;
       }
+    },
+  );
 
-      // Cancel and close are different calls. DELETE does not run closeAtomically
-      // and does not release margin. The close routes do.
-      return reply.code(400).send({
-        error: CANCEL_NOT_CLOSE,
-        message: 'DELETE /api/v1/positions/:id does not close a position or release margin. Close on POST /api/v1/positions/:id/close.',
-      });
-    } catch (err) {
-      if (err instanceof FuturesError) {
-        return reply.code(err.status).send(presentFuturesErrorWire(err));
-      }
-      const sent = sendDomainError(reply, err);
-      if (sent) return sent;
-      throw err;
-    }
-  });
-
-  app.post<{ Params: { id: string } }>('/api/v1/positions/:id/close', async (req, reply) => {
+  app.post<{ Params: { id: string } }>('/api/v1/positions/:id/close', privateWrite, async (req, reply) => {
     const principal = requirePrincipal(req, reply);
     if (!principal) return;
     if (!requireTradeJurisdiction(req, reply, principal)) return;
@@ -2122,7 +2139,7 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
     }
   });
 
-  app.post('/api/v1/futures/positions/close-all', async (req, reply) => {
+  app.post('/api/v1/futures/positions/close-all', privateWrite, async (req, reply) => {
     const principal = requirePrincipal(req, reply);
     if (!principal) return;
     if (!requireTradeJurisdiction(req, reply, principal)) return;
@@ -2151,7 +2168,7 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
     }
   });
 
-  app.get('/api/v1/futures/margin-summary', async (req, reply) => {
+  app.get('/api/v1/futures/margin-summary', privateRead, async (req, reply) => {
     const principal = requirePrincipal(req, reply);
     if (!principal) return;
     if (!deps.marginSummary) {
@@ -2168,7 +2185,7 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
     }
   });
 
-  app.get('/api/v1/futures/position-mode', async (req, reply) => {
+  app.get('/api/v1/futures/position-mode', privateRead, async (req, reply) => {
     const principal = requirePrincipal(req, reply);
     if (!principal) return;
     if (!deps.readAccountMode) {
@@ -2185,7 +2202,7 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
     }
   });
 
-  app.put('/api/v1/futures/position-mode', async (req, reply) => {
+  app.put('/api/v1/futures/position-mode', privateWrite, async (req, reply) => {
     const principal = requirePrincipal(req, reply);
     if (!principal) return;
     if (!requireTradeJurisdiction(req, reply, principal)) return;
@@ -2288,10 +2305,10 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
     }
   };
 
-  app.post('/api/v1/positions/leverage', async (req, reply) => leverageHandler(req, reply));
-  app.post('/api/v1/futures/leverage', async (req, reply) => leverageHandler(req, reply));
+  app.post('/api/v1/positions/leverage', privateWrite, async (req, reply) => leverageHandler(req, reply));
+  app.post('/api/v1/futures/leverage', privateWrite, async (req, reply) => leverageHandler(req, reply));
 
-  app.post('/api/v1/positions/margin', async (req, reply) => {
+  app.post('/api/v1/positions/margin', privateWrite, async (req, reply) => {
     const principal = requirePrincipal(req, reply);
     if (!principal) return;
     if (!requireTradeJurisdiction(req, reply, principal)) return;
@@ -2362,7 +2379,7 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
     }
   });
 
-  app.post('/api/v1/positions/margin/reduce', async (req, reply) => {
+  app.post('/api/v1/positions/margin/reduce', privateWrite, async (req, reply) => {
     const principal = requirePrincipal(req, reply);
     if (!principal) return;
     if (!requireTradeJurisdiction(req, reply, principal)) return;
@@ -2452,7 +2469,7 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
       return sendCcxt(reply, notSupported('setMarginMode is not available: set margin mode at open', setMarginModeArm.intafacedCode));
     };
   };
-  app.post('/api/v1/positions/margin-mode', derivativesNotSupported('setMarginMode'));
+  app.post('/api/v1/positions/margin-mode', privateWrite, derivativesNotSupported('setMarginMode'));
 
   // ── Create (money path) ───────────────────────────────────────────────────
 
@@ -2468,7 +2485,7 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
    * Both `{ orders: [...] }` and a bare `[...]` are accepted so clients can
    * send the existing create-order shape as a list without a second item type.
    */
-  app.post('/api/v1/orders/batch', async (req, reply) => {
+  app.post('/api/v1/orders/batch', privateWrite, async (req, reply) => {
     const principal = requirePrincipal(req, reply);
     if (!principal) return;
     if (!requireTradeJurisdiction(req, reply, principal)) return;
@@ -2598,7 +2615,7 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
    *
    * `{ amends: [...] }`, `{ orders: [...] }`, and a bare `[...]` are accepted.
    */
-  app.post('/api/v1/orders/batch-amend', async (req, reply) => {
+  app.post('/api/v1/orders/batch-amend', privateWrite, async (req, reply) => {
     const principal = requirePrincipal(req, reply);
     if (!principal) return;
     if (!requireTradeJurisdiction(req, reply, principal)) return;
@@ -2705,7 +2722,7 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
    * and independent: a refusal or unresolved cancel never rewrites an earlier item and there is no rollback or
    * atomicity promise. Body: `{ ids: [...] }`, `{ orders: [{ id }|"id"] }`, or a bare array of ids.
    */
-  app.post('/api/v1/orders/batch-cancel', async (req, reply) => {
+  app.post('/api/v1/orders/batch-cancel', privateWrite, async (req, reply) => {
     const principal = requirePrincipal(req, reply);
     if (!principal) return;
     if (!requireTradeJurisdiction(req, reply, principal)) return;
@@ -2800,7 +2817,7 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
     return reply.code(200).send({ atomic: false, results });
   });
 
-  app.post('/api/v1/orders', async (req, reply) => {
+  app.post('/api/v1/orders', privateWrite, async (req, reply) => {
     const principal = requirePrincipal(req, reply);
     if (!principal) return;
     if (!requireTradeJurisdiction(req, reply, principal)) return;
@@ -2957,7 +2974,7 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
    * Owner is the authenticated account. Body accountId, if present, must match.
    * Session id refuses. Unauthenticated refuses. Trade never invents a session.
    */
-  app.post<{ Params: { marketId: string } }>('/api/v1/markets/:marketId/orders/mass-cancel', async (req, reply) => {
+  app.post<{ Params: { marketId: string } }>('/api/v1/markets/:marketId/orders/mass-cancel', privateWrite, async (req, reply) => {
     const principal = requirePrincipal(req, reply);
     if (!principal) return;
     if (!requireTradeJurisdiction(req, reply, principal)) return;
@@ -3026,7 +3043,7 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
    * has published (`timeouts`, null while none are). The desk reads it to offer only published values and to show
    * the trigger time after a reload.
    */
-  app.get('/api/v1/orders/cancel-all-after', async (req, reply) => {
+  app.get('/api/v1/orders/cancel-all-after', privateRead, async (req, reply) => {
     const principal = requirePrincipal(req, reply);
     if (!principal) return;
     if (!deps.readCancelAllAfter) {
@@ -3047,7 +3064,7 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
     }
   });
 
-  app.post('/api/v1/orders/cancel-all-after', async (req, reply) => {
+  app.post('/api/v1/orders/cancel-all-after', privateWrite, async (req, reply) => {
     const principal = requirePrincipal(req, reply);
     if (!principal) return;
     if (!requireTradeJurisdiction(req, reply, principal)) return;
@@ -3081,7 +3098,7 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
    * trade:write is enforced inside TradeService; jurisdiction here matches create/cancel.
    * `kind` keeps the cancel to one product ("spot only"); any other value is refused, never read as "all".
    */
-  app.delete<{ Querystring: { symbol?: string; kind?: string } }>('/api/v1/orders', async (req, reply) => {
+  app.delete<{ Querystring: { symbol?: string; kind?: string } }>('/api/v1/orders', privateWrite, async (req, reply) => {
     const principal = requirePrincipal(req, reply);
     if (!principal) return;
     if (!requireTradeJurisdiction(req, reply, principal)) return;
@@ -3124,7 +3141,7 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
    * Original cancel/finalized release is complete before a replacement is
    * submitted. It is never advertised as native amend or queue-preserving.
    */
-  app.post<{ Params: { id: string } }>('/api/v1/orders/:id/replace', async (req, reply) => {
+  app.post<{ Params: { id: string } }>('/api/v1/orders/:id/replace', privateWrite, async (req, reply) => {
     const principal = requirePrincipal(req, reply);
     if (!principal) return;
     if (!requireTradeJurisdiction(req, reply, principal)) return;
@@ -3248,7 +3265,7 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
    * Qty-down at the same price keeps queue priority. Side/market/price change
    * is named CANCEL_REPLACE and does not silently cancel-plus-new.
    */
-  app.patch<{ Params: { id: string } }>('/api/v1/orders/:id', async (req, reply) => {
+  app.patch<{ Params: { id: string } }>('/api/v1/orders/:id', privateWrite, async (req, reply) => {
     const principal = requirePrincipal(req, reply);
     if (!principal) return;
     if (!requireTradeJurisdiction(req, reply, principal)) return;
@@ -3302,7 +3319,7 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
   }
 
   for (const path of ['/api/v1/orders/by-client-id/:clientOrderId', '/api/v1/orders/by-client/:clientOrderId']) {
-    app.get<{ Params: { clientOrderId: string }; Querystring: { symbol?: string } }>(path, async (req, reply) => {
+    app.get<{ Params: { clientOrderId: string }; Querystring: { symbol?: string } }>(path, privateRead, async (req, reply) => {
       const principal = requirePrincipal(req, reply);
       if (!principal) return;
       try {
@@ -3323,7 +3340,7 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
       }
     });
 
-    app.delete<{ Params: { clientOrderId: string }; Querystring: { symbol?: string } }>(path, async (req, reply) => {
+    app.delete<{ Params: { clientOrderId: string }; Querystring: { symbol?: string } }>(path, privateWrite, async (req, reply) => {
       const principal = requirePrincipal(req, reply);
       if (!principal) return;
       if (!requireTradeJurisdiction(req, reply, principal)) return;
@@ -3348,7 +3365,7 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
 
   // ── By id ─────────────────────────────────────────────────────────────────
 
-  app.get<{ Params: { id: string } }>('/api/v1/orders/:id', async (req, reply) => {
+  app.get<{ Params: { id: string } }>('/api/v1/orders/:id', privateRead, async (req, reply) => {
     const principal = requirePrincipal(req, reply);
     if (!principal) return;
 
@@ -3368,7 +3385,7 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
   });
 
   /** CCXT fetchOrderTrades: one order's fills, oldest first, each with its role, fee, fee asset and fee rate. */
-  app.get<{ Params: { id: string }; Querystring: { limit?: string } }>('/api/v1/orders/:id/trades', async (req, reply) => {
+  app.get<{ Params: { id: string }; Querystring: { limit?: string } }>('/api/v1/orders/:id/trades', privateRead, async (req, reply) => {
     const principal = requirePrincipal(req, reply);
     if (!principal) return;
     if (!deps.orderFills) {
@@ -3402,7 +3419,7 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
     }
   });
 
-  app.get<{ Params: { id: string } }>('/api/v1/orders/:id/amendments', async (req, reply) => {
+  app.get<{ Params: { id: string } }>('/api/v1/orders/:id/amendments', privateRead, async (req, reply) => {
     const principal = requirePrincipal(req, reply);
     if (!principal) return;
     if (!deps.orderAmendments) {
@@ -3418,7 +3435,7 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
     }
   });
 
-  app.delete<{ Params: { id: string } }>('/api/v1/orders/:id', async (req, reply) => {
+  app.delete<{ Params: { id: string } }>('/api/v1/orders/:id', privateWrite, async (req, reply) => {
     const principal = requirePrincipal(req, reply);
     if (!principal) return;
     if (!requireTradeJurisdiction(req, reply, principal)) return;

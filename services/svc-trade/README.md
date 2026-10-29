@@ -625,6 +625,10 @@ committing; an uncertain granted intent becomes its original owner admission, ne
 a fresh admission under restriction. Each child/mirror needs its own decision and
 verified persisted parent provenance; legacy parents lacking it refuse new exposure.
 
+A fresh admission under this service's own restriction refuses `trade.desk_restricted`. Identity's trading
+restriction (svc-identity's founder control, which account status lists) refuses `trade.account_restricted`, so a
+caller can tell which owner holds the restriction.
+
 Cancellation, closing and recovery of original admitted effects remain available.
 Internal `recoverAdmittedOrder`, `recoverAdmittedPosition` and `recoverAdmittedAlgo`
 hooks reconstruct owned stored payloads after uncertain responses. They accept no

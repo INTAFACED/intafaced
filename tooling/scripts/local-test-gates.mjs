@@ -236,6 +236,31 @@ export function bookProposal(action, marketId) {
 
 export const openProposal = (marketId) => bookProposal('open', marketId);
 
+/** The four-eyes proposal for one vendor decision, hashed as services/svc-market/src/action-approval-consume.ts does. */
+export function vendorVetProposal(vendorId, decision, reason) {
+  return {
+    actionType: 'market.vendor.vet',
+    targetService: 'svc-market',
+    targetId: 'market.vendor.vet',
+    expectedVersion: '1',
+    payloadHash: matchingPayloadHash('market.vendor.vet', { vendorId, decision, reason }),
+    policyVersion: MARKERS.policyVersion,
+  };
+}
+
+/**
+ * The stack's two TEST operators decide one vendor application through svc-market's own door: founder a proposes, founder
+ * b approves in identity, then founder a records the decision with `market:ops`. Returns svc-market's answer.
+ */
+export async function vetVendor(ctx, vendorId, decision, reason) {
+  const pair = await approverSessions(ctx);
+  const ids = await twoPerson(ctx, pair, vendorVetProposal(vendorId, decision, reason));
+  const res = await ctx.edge.mutate('market', 'vet', { vendorId, decision, reason, ...ids }, await pair.a.marketOpsToken());
+  const row = data(res);
+  if (!row?.vendor) throw new Error(`market vet refused (${res.status}): ${refusalText(res)}`);
+  return row;
+}
+
 export function kycApproveProposal(recordId) {
   return {
     actionType: 'kyc.approve',
@@ -746,6 +771,10 @@ async function signInOne(ctx, op, saveSteps) {
     /** Same session with the support desk staff scope svc-support checks (help-centre settings, article publishing). */
     async supportOpsToken() {
       return mintOperatorToken(ctx, op, ['support:read', 'support:write', 'support:ops']);
+    },
+    /** Same session with the marketplace operator scope svc-market's vendor vetting checks (vet). */
+    async marketOpsToken() {
+      return mintOperatorToken(ctx, op, ['market:ops']);
     },
   };
 }

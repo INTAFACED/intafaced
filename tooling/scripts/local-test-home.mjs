@@ -1,6 +1,6 @@
 /**
  * LOCAL TEST content for the founder's Home (HM-desks-03, J-home-ia-11 #3): one TEST deposit, one TEST notice and the
- * inbox row the deposit files. Called by local-test-seed.mjs `apply` and `status`, after its guard passed.
+ * inbox row the deposit files. Called by local-test-seed.mjs `home` and `status`, after its guard passed.
  *
  * Nothing here posts to the ledger. The deposit is a TEST chain transfer to founder a's own deposit address, delivered
  * to svc-pay's chain webhook the way the chain watcher delivers one (`local-test-stack.mjs chain-deposit`): svc-pay
@@ -8,7 +8,8 @@
  * consumer files the inbox row. The transfer's label is fixed, so a second seed run delivers the same chain event again,
  * which svc-pay recognises: no second deposit, no second row. The notice is drafted by founder a, approved by founder b
  * and published by founder a, as the notice desk does; while a published one with the same title is open, none is
- * drafted. Each 30-day window has its own draft key, so once the notice has ended the next apply drafts a fresh one.
+ * drafted. Each window (30 days unless the caller sets one) has its own draft key, so once the notice has ended the next run drafts a
+ * fresh one.
  * Every figure here is an illustrative TEST value.
  */
 
@@ -21,11 +22,11 @@ export const HOME_DEPOSIT_CONFIRMATIONS = 6;
 export const HOME_DEPOSIT_LABEL = 'LOCAL-TEST-seed-home-deposit-v1';
 export const HOME_NOTICE_TITLE = 'TEST · This is a test build';
 export const HOME_NOTICE_BODY = 'TEST notice from the tester seed. Balances here are TEST funds, not real money.';
-/** The TEST notice stays open as long as a test stack is likely to live. */
+/** The TEST notice stays open as long as a test stack is likely to live, unless the caller asks for a shorter window. */
 export const HOME_NOTICE_DAYS = 30;
 /** svc-notify's inbox row for a credited deposit (services/svc-notify/src/deposit-credit-notice.ts). */
 export const DEPOSIT_CREDITED_KIND = 'bank.deposit.credited';
-const NOTICE_WINDOW_MS = HOME_NOTICE_DAYS * 24 * 60 * 60_000;
+export const NOTICE_WINDOW_MS = HOME_NOTICE_DAYS * 24 * 60 * 60_000;
 /** How long apply waits for svc-pay's credit and svc-notify's row after the transfer is delivered. */
 const WAIT_MS = 150_000;
 
@@ -90,20 +91,20 @@ async function depositRecord(home, address) {
   return rows[0] ?? null;
 }
 
-async function applyNotice(home) {
+async function applyNotice(home, noticeMs) {
   const existing = await seededNotice(home);
   if (existing) return { notice: 'skipped', id: existing.id };
   const now = home.now();
-  const window = Math.floor(now / NOTICE_WINDOW_MS);
+  const window = Math.floor(now / noticeMs);
   const row = await home.draftNotice(
     {
       kind: 'announcement',
       title: HOME_NOTICE_TITLE,
       body: HOME_NOTICE_BODY,
       startsAt: new Date(now - 60_000).toISOString(),
-      endsAt: new Date(now + NOTICE_WINDOW_MS).toISOString(),
+      endsAt: new Date(now + noticeMs).toISOString(),
     },
-    `local-test-seed:home-notice:draft:v1:${window}`,
+    `local-test-seed:home-notice:draft:v1:${noticeMs}:${window}`,
   );
   const published = await home.publishNotice(row, (approvalId) => `local-test-seed:home-notice:publish:${row.id}:${approvalId}`);
   return { notice: 'published', id: published.id };
@@ -111,9 +112,13 @@ async function applyNotice(home) {
 
 /**
  * Makes Home's TEST content and waits for the inbox row. Returns report lines. `home` is the live wiring
- * (`homeDeps` in local-test-seed.mjs) or a test's stand-in.
+ * (`homeDeps` in local-test-seed.mjs) or a test's stand-in. `noticeMs` is how long a newly drafted notice stays open
+ * (a journey passes minutes, so the board it shares with other journeys empties soon after).
  */
-export async function applyHome(home) {
+export async function applyHome(home, { noticeMs = NOTICE_WINDOW_MS } = {}) {
+  if (!Number.isSafeInteger(noticeMs) || noticeMs < 60_000 || noticeMs > NOTICE_WINDOW_MS) {
+    throw new Error(`the TEST notice window must be a whole number of ms from 1 minute to ${HOME_NOTICE_DAYS} days`);
+  }
   const address = await depositAddress(home);
   home.chainDeposit(address, HOME_ASSET, HOME_DEPOSIT_AMOUNT, HOME_DEPOSIT_CONFIRMATIONS, HOME_DEPOSIT_LABEL);
   const record = await until(
@@ -124,7 +129,6 @@ export async function applyHome(home) {
   if (!record || record.status !== 'credited') {
     throw new Error(`the TEST home deposit was not credited (record ${record ? record.status : 'missing'})`);
   }
-  const notice = await applyNotice(home);
   const tx = home.txHash(address, HOME_DEPOSIT_LABEL);
   const rows = await until(
     home,
@@ -132,6 +136,8 @@ export async function applyHome(home) {
     (found) => found.length > 0,
   );
   if (rows.length !== 1) throw new Error(`founder a's inbox has ${rows.length} deposit-credited rows for the TEST home deposit, not 1`);
+  // The notice is published last, so a short window starts only once the deposit and its row are there.
+  const notice = await applyNotice(home, noticeMs);
   return [
     `home deposit: ${HOME_DEPOSIT_AMOUNT} ${HOME_ASSET} on TEST ${HOME_NETWORK} to ${home.founder.handle}, ${record.status}`,
     `home notice: ${HOME_NOTICE_TITLE} ${notice.notice}`,

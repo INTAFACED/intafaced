@@ -232,6 +232,8 @@ const EXACT: Readonly<Record<string, RefusalKind>> = {
   // account (svc-identity's account freeze is `auth.account_frozen`). The ledger's raw `ledger.frozen` keeps its copy:
   // other rooms (bank, pay) still send it, and their refusals are not about orders.
   posting_frozen: 'ordersPaused',
+  // svc-trade's own trading restriction (identity's is trade.account_restricted): the same hold, until its own words land.
+  'trade.desk_restricted': 'accountOnHold',
   'trade.below_min_notional': 'belowMinimum',
   'trade.below_min_qty': 'belowMinimum',
 
