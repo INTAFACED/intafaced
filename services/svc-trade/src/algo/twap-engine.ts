@@ -12,7 +12,7 @@ import type {
   CreateTwapInput,
   TwapParent,
 } from './types.js';
-import { awaitingTrigger } from './types.js';
+import { awaitingTrigger, POV_BASES, type PovBasis } from './types.js';
 
 /**
  * TWAP engine (D-S-04 v1) — schedule that emits child orders.
@@ -73,6 +73,11 @@ export interface TwapEnginePorts {
    * Omit or 0 → miss (never invent participation against an empty tape).
    */
   intervalTakerVolume?(marketId: string, from: Date, to: Date): Promise<Amount>;
+  /**
+   * Resting quantity on the side of the book a child on `side` would take from (asks for a buy). POV with the
+   * opposite-side liquidity basis only. Omit or 0 → miss (never invent a book).
+   */
+  oppositeBookQty?(marketId: string, side: OrderSide): Promise<Amount>;
   now(): Date;
   randomId(): string;
 }
@@ -191,11 +196,18 @@ export class TwapEngine {
     if (kind !== 'twap' && (input.randomSeed !== undefined || input.triggerPrice !== undefined)) {
       throw new TradeError('random sizes and a trigger price are TWAP options', 'trade.algo_invalid_schedule');
     }
+    if (input.povBasis !== undefined && (kind !== 'pov' || !POV_BASES.includes(input.povBasis))) {
+      throw new TradeError(
+        'a participation basis is a POV option: traded volume or opposite-side liquidity',
+        'trade.algo_invalid_schedule',
+      );
+    }
     if (input.triggerPrice !== undefined && (input.triggerPrice <= 0n || input.triggerAbove === undefined)) {
       throw new TradeError('a trigger price must be strictly positive and read against the mark at create', 'trade.algo_invalid_schedule');
     }
     let slices: readonly Amount[];
     let participationBps: number | null = null;
+    let povBasis: PovBasis | null = null;
 
     if (kind === 'twap') {
       slices = planTwapSlices({
@@ -223,6 +235,7 @@ export class TwapEngine {
         );
       }
       participationBps = bps;
+      povBasis = input.povBasis ?? 'traded_volume';
       const n = sliceCount(input.durationMs, input.sliceIntervalMs);
       slices = Array.from({ length: n }, () => 0n);
     } else {
@@ -258,6 +271,7 @@ export class TwapEngine {
       haltReason: null,
       lotSize,
       participationBps,
+      povBasis,
       slicesPlanned: slices.length,
       nextSliceIndex: 0,
       children: [],
@@ -478,6 +492,7 @@ export class TwapEngine {
     }
 
     let qty = plan[working.nextSliceIndex]!;
+    let basisQty: Amount | null = null;
     if (working.kind === 'pov') {
       const bps = working.participationBps;
       const lot = working.lotSize;
@@ -486,17 +501,22 @@ export class TwapEngine {
       }
       let remaining = working.totalQty;
       for (const c of working.children) remaining -= c.qty;
-      const to = now;
-      const from = new Date(now.getTime() - working.sliceIntervalMs);
-      const vol = this.ports.intervalTakerVolume ? await this.ports.intervalTakerVolume(working.marketId, from, to) : 0n;
-      qty = planPovSliceQty({ intervalVolume: vol, participationBps: bps, remainingQty: remaining, lotSize: lot });
+      if (working.povBasis === 'opposite_liquidity') {
+        basisQty = this.ports.oppositeBookQty ? await this.ports.oppositeBookQty(working.marketId, working.side) : 0n;
+      } else {
+        const to = now;
+        const from = new Date(now.getTime() - working.sliceIntervalMs);
+        basisQty = this.ports.intervalTakerVolume ? await this.ports.intervalTakerVolume(working.marketId, from, to) : 0n;
+      }
+      qty = planPovSliceQty({ intervalVolume: basisQty, participationBps: bps, remainingQty: remaining, lotSize: lot });
     }
 
     if (qty <= 0n) {
+      const what = working.povBasis === 'opposite_liquidity' ? 'opposite-side book quantity' : 'non-seeded taker volume';
       return this.recordMiss(working, {
         sliceIndex: working.nextSliceIndex,
         code: 'trade.algo_no_volume',
-        reason: `${working.symbol}: no non-seeded taker volume for slice ${working.nextSliceIndex} — recorded miss, no fill invented`,
+        reason: `${working.symbol}: not enough ${what} for slice ${working.nextSliceIndex} — recorded miss, no fill invented`,
         at: now,
       });
     }
@@ -521,6 +541,7 @@ export class TwapEngine {
         clientOrderId,
         qty,
         placedAt: now,
+        ...(basisQty !== null ? { basisQty } : {}),
       };
 
       const next = working.nextSliceIndex + 1;

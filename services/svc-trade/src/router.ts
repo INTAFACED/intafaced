@@ -55,7 +55,7 @@ import { deskTrpcError } from './desk/errors.js';
 import { algoDeskProcedures, optionsDeskProcedures, rfqHistoryProcedures, scaleProcedures } from './desk/procedures.js';
 import { presentAlgoDesk, presentScheduleHonesty } from './algo/present.js';
 import { MAX_ALGO_SEED } from './algo/schedule.js';
-import { awaitingTrigger } from './algo/types.js';
+import { awaitingTrigger, POV_BASES } from './algo/types.js';
 import { tradingControlsRouter } from './controls/router.js';
 import { TradingControlError, type TradingControls } from './controls/trading-controls.js';
 import { tradeOpsAdminRouter } from './admin/router.js';
@@ -235,6 +235,8 @@ const algoParentOutputSchema = z.object({
   haltReason: z.string().nullable(),
   stopReason: algoStopReasonSchema,
   participationBps: z.number().int().nullable(),
+  /** POV: what participation is applied to; null for TWAP and VWAP. */
+  povBasis: z.enum(POV_BASES).nullable(),
   createdAt: z.string(),
   startedAt: z.string(),
   nextDueAt: z.string(),
@@ -263,7 +265,9 @@ const algoScheduleHonestySchema = {
 };
 
 const algoGetOutputSchema = algoParentOutputSchema.extend({
-  children: z.array(z.object({ orderId: z.string(), sliceIndex: z.number().int(), time: z.string() })),
+  children: z.array(
+    z.object({ orderId: z.string(), sliceIndex: z.number().int(), time: z.string(), qty: decimal, basisQty: decimal.nullable() }),
+  ),
   misses: z.array(z.object({ sliceIndex: z.number().int(), time: z.string(), code: z.string() })),
   filledQty: decimal,
   /** The planned size of every slice, in order, as stored with the parent. */
@@ -1329,6 +1333,7 @@ export function createTradeRouter(
             subAccountId: z.string().guid().optional(),
             kind: z.enum(['twap', 'vwap', 'pov']).optional(),
             participationBps: z.number().int().min(1).max(10_000).optional(),
+            povBasis: z.enum(POV_BASES).optional(),
             randomSeed: z.number().int().min(0).max(MAX_ALGO_SEED).optional(),
             triggerPrice: decimal.optional(),
           }),
@@ -1347,6 +1352,7 @@ export function createTradeRouter(
               subAccountId: input.subAccountId,
               kind: input.kind ?? 'twap',
               participationBps: input.participationBps,
+              povBasis: input.povBasis,
               randomSeed: input.randomSeed,
               triggerPrice: input.triggerPrice === undefined ? undefined : parseAmount(input.triggerPrice),
             });
@@ -1955,6 +1961,7 @@ function presentAlgo(parent: import('./algo/index.js').TwapParent) {
     haltReason: parent.haltReason,
     stopReason: algoStopReason(parent),
     participationBps: parent.participationBps,
+    povBasis: parent.povBasis ?? null,
     createdAt: parent.createdAt.toISOString(),
     startedAt: parent.startedAt.toISOString(),
     nextDueAt: parent.nextDueAt.toISOString(),
