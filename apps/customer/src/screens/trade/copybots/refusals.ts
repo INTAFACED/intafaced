@@ -289,9 +289,86 @@ const BOTS: Readonly<Record<string, Words>> = {
   'trade.algo_principal_unavailable': { title: 'The schedule can’t act for you right now', body: 'Nothing was changed. Try again later.' },
 };
 
+/** Spot grid bot (svc-trade grid). A field the person left out or set out of range is named in the title. */
+const GRID: Readonly<Record<string, Words>> = {
+  'trade.bots_verification_insufficient': {
+    title: 'Verification insufficient',
+    body: 'Bots need a higher verification level than your account has. Finish verification, then set up a bot. Nothing was created.',
+  },
+  'trade.bots_verification_level_not_set': {
+    title: 'Bots are closed: no verification level is set',
+    body: 'The platform hasn’t set the verification level bots need, so no one can start a bot. Nothing was created.',
+  },
+  'trade.grid_request_key_invalid': { title: 'This request can’t be sent', body: 'Refresh the page and try again. Nothing was created.' },
+  'trade.grid_request_conflict': {
+    title: 'That request already made a different bot',
+    body: 'We kept the first bot. Check My bots. Nothing new was created.',
+  },
+  'trade.grid_market_not_found': { title: 'That market isn’t listed', body: 'Choose a market from the list. Nothing was created.' },
+  'trade.grid_market_not_spot': {
+    title: 'That market isn’t open for spot trading',
+    body: 'Choose an open spot market. Nothing was created.',
+  },
+  'trade.grid_lower_price_required': {
+    title: 'Enter a Lower price',
+    body: 'Lower price is required and must be above zero. Nothing was created.',
+  },
+  'trade.grid_upper_price_required': {
+    title: 'Enter an Upper price',
+    body: 'Upper price is required and must be above zero. Nothing was created.',
+  },
+  'trade.grid_investment_required': {
+    title: 'Enter an Investment',
+    body: 'Investment is required and must be above zero. Nothing was created.',
+  },
+  'trade.grid_count_required': { title: 'Enter Grids', body: 'Say how many grid levels to place. Nothing was created.' },
+  'trade.grid_bounds_inverted': {
+    title: 'Lower price must be below Upper price',
+    body: 'Swap or change the bounds. Nothing was created.',
+  },
+  'trade.grid_count_range_not_set': {
+    title: 'The allowed grid count isn’t set',
+    body: 'The platform hasn’t set how many grid levels a bot may use, so no grid bot can start. Nothing was created.',
+  },
+  'trade.grid_count_out_of_range': {
+    title: 'Grids is out of range',
+    body: 'Choose a grid count inside the allowed range shown under the field. Nothing was created.',
+  },
+  'trade.grid_spacing_below_tick': {
+    title: 'The levels are too close together',
+    body: 'At this range the levels would be closer than the market’s price step. Widen the range or use fewer grids. Nothing was created.',
+  },
+  'trade.grid_level_below_minimum': {
+    title: 'Each level would be too small',
+    body: 'The investment split across the grids is below the market’s smallest order. Invest more or use fewer grids. Nothing was created.',
+  },
+  'trade.grid_mark_unavailable': {
+    title: 'No market price right now',
+    body: 'A grid is placed around the current bid and ask, and this market has none. Nothing was created.',
+  },
+  'trade.grid_reserve_exceeds_balance': {
+    title: 'Not enough free balance',
+    body: 'The investment is more than you have free after your other bots and copies. Lower it or add funds. Nothing was held.',
+  },
+  'trade.grid_initialization_failed': {
+    title: 'The grid could not start',
+    body: 'Its levels could not all be placed, so every placed order was cancelled and the reserve was released.',
+  },
+  'trade.grid_tick_failed': {
+    title: 'The grid could not check its orders',
+    body: 'It tries again on its next check. Your reserve and orders stay as they are.',
+  },
+  'trade.grid_not_found': { title: 'We couldn’t find that grid bot', body: 'Check My bots.' },
+  'trade.grid_not_running': { title: 'This grid bot has already stopped', body: 'Refresh to see its final state.' },
+  'trade.grid_unavailable': {
+    title: 'Grid bots aren’t available right now',
+    body: 'The grid service isn’t switched on here. Nothing was created.',
+  },
+};
+
 export function roomRefusal(failure: Extract<ApiResult<unknown>, { ok: false }>): RefusalCopy & { code: string | null } {
   const code = failure.code ?? null;
-  const words = code ? (COPY[code] ?? BOTS[code] ?? DEVICE[code]) : undefined;
+  const words = code ? (COPY[code] ?? BOTS[code] ?? GRID[code] ?? DEVICE[code]) : undefined;
   if (words) return { ...words, code };
   if (failure.reason === 'unreachable') {
     return { title: 'Can’t reach the service', body: 'Nothing was changed. Check your connection and try again.', code };
@@ -310,4 +387,4 @@ export function roomRefusal(failure: Extract<ApiResult<unknown>, { ok: false }>)
   return { ...refusalCopy(code ?? 'unknown'), code };
 }
 
-export const KNOWN_ROOM_CODES: readonly string[] = [...Object.keys(COPY), ...Object.keys(BOTS)];
+export const KNOWN_ROOM_CODES: readonly string[] = [...Object.keys(COPY), ...Object.keys(BOTS), ...Object.keys(GRID)];

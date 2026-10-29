@@ -47,6 +47,7 @@ export function gridRouter(grid?: GridService) {
     }
   }
   return router({
+    setup: scopedProcedure('trade:read', { module: 'trade' }).query(({ ctx }) => call((g) => g.setup(ctx.principal))),
     presets: scopedProcedure('trade:read', { module: 'trade' }).query(() => call((g) => g.presets())),
     create: scopedProcedure('trade:write', { module: 'trade' })
       .input(

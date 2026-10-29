@@ -83,6 +83,8 @@ export interface GridLevelView {
 
 export interface GridBotView {
   readonly botId: string;
+  /** The person's own request key, so a room that lost the reply can find the bot it asked for. */
+  readonly clientRequestId: string;
   readonly symbol: string;
   readonly baseAsset: string;
   readonly quoteAsset: string;
@@ -116,6 +118,12 @@ export interface GridPresetsView {
   /** Null: no backtest source is set, so no preset and no APR exists. */
   readonly source: null;
   readonly presets: readonly [];
+}
+
+/** What the wizard may offer this person: it is only answered once they pass the owner's bot verification level. */
+export interface GridSetupView {
+  /** The owner's allowed grid counts, or null while either end is blank (every create then refuses). */
+  readonly countRange: { readonly min: number; readonly max: number } | null;
 }
 
 const REQUEST_KEY = /^[A-Za-z0-9:._-]{8,120}$/;
@@ -171,6 +179,12 @@ export class GridService {
   presets(): GridPresetsView {
     // No backtest source exists (policy.ts): never a sample range, never an APR.
     return { source: this.ports.policy.presetSource, presets: [] };
+  }
+
+  /** The wizard's first read: refuses below the owner's verification level (or a blank level), as create does. */
+  setup(principal: Principal): GridSetupView {
+    assertBotVerification(this.ports.verification(), principal.tier);
+    return { countRange: this.ports.policy.countRange };
   }
 
   async create(principal: Principal, input: GridCreateInput): Promise<GridBotView> {
@@ -470,6 +484,7 @@ export class GridService {
     };
     return {
       botId,
+      clientRequestId: bot.clientRequestId,
       symbol: bot.symbol,
       baseAsset: bot.baseAsset,
       quoteAsset: bot.quoteAsset,

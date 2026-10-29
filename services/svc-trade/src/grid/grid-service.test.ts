@@ -139,6 +139,17 @@ describe('grid create · verification first (CB-bots-10, #2)', () => {
     expect((await refusal(service.create(verified('institutional'), BODY))).code).toBe('trade.bots_verification_level_not_set');
     expect(await store.listBots(ALICE)).toEqual([]);
   });
+
+  it('the wizard setup read refuses the same way, and answers the count range once verified', async () => {
+    expect((await refusal(Promise.resolve().then(() => setup().service.setup(verified('basic'))))).code).toBe(
+      'trade.bots_verification_insufficient',
+    );
+    const blank = setup({ verification: { mode: 'required', level: null } }).service;
+    expect((await refusal(Promise.resolve().then(() => blank.setup(verified('institutional'))))).code).toBe(
+      'trade.bots_verification_level_not_set',
+    );
+    expect(setup().service.setup(verified('full'))).toEqual({ countRange: { min: 2, max: 100 } });
+  });
 });
 
 describe('grid presets (CB-bots-10, #3)', () => {
