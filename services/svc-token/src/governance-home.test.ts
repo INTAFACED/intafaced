@@ -183,6 +183,8 @@ describe('MC-token-01 governance home', () => {
       emission: DEFAULT_EMISSION_PARAMS,
       buyback: DEFAULT_BUYBACK_PARAMS,
       loadParamsFromDb: false,
+      // Test fixture only — production env has no default vote rule.
+      voteRule: 'power:0',
     });
     await sql`TRUNCATE token.governance_votes, token.proposals, token.governance_follows, token.stakes RESTART IDENTITY CASCADE`;
     await publish(sql, { kind: 'stake', minStake: '1000', accounts: null, limit: 100, periodMs: 604_800_000n });

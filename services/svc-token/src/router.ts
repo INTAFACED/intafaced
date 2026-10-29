@@ -21,6 +21,8 @@ import { publishedStakeTiers, stakingAssetPublication } from './terms.js';
 import { requireTokenJobService } from './job-hmac.js';
 import { DELEGATION_BLOCKER, refuseDelegation, unavailableDelegation } from './delegation.js';
 import { userCopy } from './user-copy.js';
+import { BALLOT_BPS, MAX_CHOICES, VOTING_TYPES, type ChoiceTally } from './ballot-tally.js';
+import type { SnapshotSeal } from './governance-vote.js';
 import { feeDiscountSchedulePayload } from './economics/staking.js';
 
 /** The founders' approval that publishes the fee-decay schedule; the router binds the ladder and the version it replaces. */
@@ -115,8 +117,37 @@ const payoutHistoryOutput = z.object({
 });
 
 const proposalKind = z.enum(['listing', 'fee_param', 'curriculum', 'grant']);
-const proposalStatus = z.enum(['draft', 'open', 'passed', 'rejected', 'executed', 'cancelled']);
+const proposalStatus = z.enum(['draft', 'open', 'passed', 'rejected', 'executed', 'cancelled', 'closed_ranked']);
 const voteChoice = z.enum(['for', 'against', 'abstain']);
+const votingType = z.enum(VOTING_TYPES);
+const choiceIndex = z
+  .number()
+  .int()
+  .min(0)
+  .max(MAX_CHOICES - 1);
+/** A non-basic ballot (MC-token-03). The service checks it against the proposal's type and choices. */
+const ballotWire = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('abstain') }).strict(),
+  z.object({ kind: z.literal('pick'), choices: z.array(choiceIndex).min(1).max(MAX_CHOICES) }).strict(),
+  z
+    .object({
+      kind: z.literal('split'),
+      parts: z
+        .array(z.object({ choice: choiceIndex, bps: z.number().int().min(1).max(BALLOT_BPS) }).strict())
+        .min(1)
+        .max(MAX_CHOICES),
+    })
+    .strict(),
+]);
+const snapshotOutput = z.object({ count: z.number().int().nonnegative(), total: z.string(), hash: z.string() });
+const choiceTallyOutput = z.object({
+  totals: z.array(z.string()),
+  abstainWeight: z.string(),
+  participatingWeight: z.string(),
+  voterCount: z.number().int().nonnegative(),
+  ranking: z.array(z.number().int().nonnegative()),
+  rounds: z.array(z.array(z.string())).nullable(),
+});
 
 /** Stored id `gov:proposal:<space>:<author>:<n>`. Not a client uuid. */
 const proposalIdWire = z.string().min(1).max(512);
@@ -142,6 +173,10 @@ const proposalOutput = z.object({
   businessKey: z.string().nullable(),
   authorId: z.string().nullable(),
   revision: z.number().int().nonnegative(),
+  votingType,
+  choices: z.array(z.string()).nullable(),
+  snapshot: snapshotOutput.nullable(),
+  ranking: z.array(z.number().int().nonnegative()).nullable(),
   counts: proposalCountsOutput,
 });
 
@@ -251,6 +286,8 @@ function toTrpcError(err: unknown): TRPCError {
       case 'token.emission_schedule_count_unset':
       case 'token.staking_asset_unpublished':
       case 'token.stake_ledger_mismatch':
+      case 'token.vote_rule_unset':
+      case 'token.signed_vote_unavailable':
         return new TRPCError({ code: 'PRECONDITION_FAILED', message, cause: err });
       case 'token.stake_tier_unknown':
       case 'token.stake_amount_invalid':
@@ -259,6 +296,9 @@ function toTrpcError(err: unknown): TRPCError {
       case 'token.delegation_delegatee_invalid':
       case 'token.proposal_title_invalid':
       case 'token.proposal_handle_invalid':
+      case 'token.ballot_invalid':
+      case 'token.voting_type_unsupported':
+      case 'token.vote_rule_not_met':
         return new TRPCError({ code: 'BAD_REQUEST', message, cause: err });
       default:
         return new TRPCError({ code: 'BAD_REQUEST', message, cause: err });
@@ -315,6 +355,10 @@ function proposalToWire(p: {
   businessKey: string | null;
   authorId: string | null;
   revision: number;
+  votingType: z.infer<typeof votingType>;
+  choices: string[] | null;
+  snapshot: SnapshotSeal | null;
+  ranking: number[] | null;
   counts: { votes: number; for: number; against: number; abstain: number };
 }) {
   return {
@@ -331,7 +375,23 @@ function proposalToWire(p: {
     businessKey: p.businessKey,
     authorId: p.authorId,
     revision: p.revision,
+    votingType: p.votingType,
+    choices: p.choices,
+    snapshot: p.snapshot ? { count: p.snapshot.count, total: formatAmount(p.snapshot.total), hash: p.snapshot.hash } : null,
+    ranking: p.ranking,
     counts: p.counts,
+  };
+}
+
+function choiceTallyToWire(t: ChoiceTally | null) {
+  if (!t) return null;
+  return {
+    totals: t.totals.map(formatAmount),
+    abstainWeight: formatAmount(t.abstainWeight),
+    participatingWeight: formatAmount(t.participatingWeight),
+    voterCount: t.voterCount,
+    ranking: t.ranking,
+    rounds: t.rounds ? t.rounds.map((round) => round.map(formatAmount)) : null,
   };
 }
 
@@ -1016,6 +1076,9 @@ export function createTokenRouter(token: TokenService, options: TokenRouterOptio
           title: z.string().optional(),
           bodyMd: z.string().optional(),
           discussionLink: z.string().optional(),
+          /** `basic` when omitted. Any other type needs 2 to 20 choices. */
+          votingType: votingType.optional(),
+          choices: z.array(z.string().max(1000)).max(MAX_CHOICES).optional(),
         }),
       )
       .output(proposalOutput)
@@ -1043,6 +1106,8 @@ export function createTokenRouter(token: TokenService, options: TokenRouterOptio
             title: input.title,
             bodyMd: input.bodyMd,
             discussionLink: input.discussionLink,
+            votingType: input.votingType,
+            choices: input.choices,
           });
           return proposalToWire(proposal);
         }),
@@ -1052,7 +1117,11 @@ export function createTokenRouter(token: TokenService, options: TokenRouterOptio
       .input(
         z.object({
           proposalId: proposalIdWire,
-          choice: voteChoice,
+          /** For/against/abstain on a basic proposal; abstain on any type. */
+          choice: voteChoice.optional(),
+          ballot: ballotWire.optional(),
+          /** A wallet signature. Refused `token.signed_vote_unavailable` until a wallet link exists. */
+          signature: z.string().min(1).max(4096).optional(),
         }),
       )
       .output(
@@ -1061,7 +1130,8 @@ export function createTokenRouter(token: TokenService, options: TokenRouterOptio
           proposalId: proposalIdWire,
           userId: z.string().guid(),
           weight: z.string(),
-          choice: voteChoice,
+          choice: voteChoice.nullable(),
+          ballot: ballotWire.nullable(),
           castAt: z.string(),
         }),
       )
@@ -1074,6 +1144,8 @@ export function createTokenRouter(token: TokenService, options: TokenRouterOptio
             proposalId: input.proposalId,
             userId,
             choice: input.choice,
+            ballot: input.ballot,
+            signature: input.signature,
           });
           return {
             id: vote.id,
@@ -1081,6 +1153,7 @@ export function createTokenRouter(token: TokenService, options: TokenRouterOptio
             userId: vote.userId,
             weight: formatAmount(vote.weight),
             choice: vote.choice,
+            ballot: vote.ballot,
             castAt: vote.castAt.toISOString(),
           };
         }),
@@ -1113,12 +1186,13 @@ export function createTokenRouter(token: TokenService, options: TokenRouterOptio
 
     getProposal: scopedProcedure('token:read')
       .input(z.object({ proposalId: proposalIdWire }))
-      .output(proposalOutput.extend({ tally: tallyOutput }))
+      .output(proposalOutput.extend({ tally: tallyOutput, choiceTally: choiceTallyOutput.nullable() }))
       .query(async ({ input }) =>
         guard(async () => {
           const detail = await token.getProposal(input.proposalId);
           return {
             ...proposalToWire(detail),
+            choiceTally: choiceTallyToWire(detail.choiceTally),
             tally: {
               forWeight: formatAmount(detail.tally.forWeight),
               againstWeight: formatAmount(detail.tally.againstWeight),
@@ -1135,6 +1209,7 @@ export function createTokenRouter(token: TokenService, options: TokenRouterOptio
       .output(
         proposalOutput.extend({
           tally: tallyOutput,
+          choiceTally: choiceTallyOutput.nullable(),
           execute: z.literal('token.governance_execute_unwired').nullable(),
         }),
       )
@@ -1143,6 +1218,7 @@ export function createTokenRouter(token: TokenService, options: TokenRouterOptio
           const closed = await token.closeProposal({ proposalId: input.proposalId });
           return {
             ...proposalToWire(closed),
+            choiceTally: choiceTallyToWire(closed.choiceTally),
             tally: {
               forWeight: formatAmount(closed.tally.forWeight),
               againstWeight: formatAmount(closed.tally.againstWeight),
@@ -1154,6 +1230,43 @@ export function createTokenRouter(token: TokenService, options: TokenRouterOptio
           };
         }),
       ),
+
+    /**
+     * The signed account's voting power (MC-token-03): the stored snapshot of
+     * one proposal, and every stored snapshot newest first. Zero carries its
+     * reason. A list without a page size refuses `token.history_list_limit_unset`.
+     */
+    votingPower: router({
+      ofProposal: scopedProcedure('token:read', { module: 'token' })
+        .input(z.object({ proposalId: proposalIdWire }))
+        .output(
+          z.object({
+            proposalId: proposalIdWire,
+            power: z.string(),
+            reason: z.enum(['no_stake_at_creation', 'not_measured']).nullable(),
+            takenAt: z.string().nullable(),
+          }),
+        )
+        .query(async ({ ctx, input }) =>
+          guard(async () => {
+            const userId = ctx.principal.userId;
+            if (!userId) throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Principal required' });
+            const power = await token.proposalPower(input.proposalId, userId);
+            return { ...power, power: formatAmount(power.power), takenAt: power.takenAt?.toISOString() ?? null };
+          }),
+        ),
+      history: scopedProcedure('token:read', { module: 'token' })
+        .input(z.object({ limit: z.number().int().min(1).max(200).optional() }).default({}))
+        .output(z.array(z.object({ proposalId: proposalIdWire, title: z.string().nullable(), takenAt: z.string(), power: z.string() })))
+        .query(async ({ ctx, input }) =>
+          guard(async () => {
+            const userId = ctx.principal.userId;
+            if (!userId) throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Principal required' });
+            const rows = await token.votingPowerHistory(userId, input.limit);
+            return rows.map((row) => ({ ...row, takenAt: row.takenAt.toISOString(), power: formatAmount(row.power) }));
+          }),
+        ),
+    }),
 
     editProposal: protectedProcedure
       .input(

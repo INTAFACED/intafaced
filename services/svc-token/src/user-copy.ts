@@ -78,6 +78,11 @@ export const TOKEN_REFUSAL_COPY = {
   'token.proposal_not_editable': 'That proposal can no longer be edited.',
   'token.proposal_title_invalid': 'That proposal title is not valid.',
   'token.proposal_handle_invalid': 'That proposal request is not valid.',
+  'token.ballot_invalid': 'That ballot does not fit this proposal.',
+  'token.voting_type_unsupported': 'That voting type is not supported.',
+  'token.vote_rule_unset': 'Who may vote is not set.',
+  'token.vote_rule_not_met': 'Your voting power for this proposal is below the vote rule.',
+  'token.signed_vote_unavailable': 'Signed votes need a linked wallet, and no wallet link is available yet.',
 } as const satisfies Record<TokenError['code'], string>;
 
 /** Refusal codes that are not TokenError: job HMAC, emissions switch, ready honesty. */

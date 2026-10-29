@@ -125,6 +125,8 @@ describe('svc-token money PG-hard', () => {
     // Test fixture only — production env has no default bar.
     governanceQuorumBps: 1000,
     governanceThresholdBps: 5000,
+    // Test fixture only — production env has no default vote rule.
+    voteRule: 'power:0',
   };
 
   /** Put real IFC in a user's available balance so a stake has something behind it. */

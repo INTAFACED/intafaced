@@ -89,6 +89,8 @@ const token = new TokenService(sql, ledger, bus, {
   governanceThresholdBps: governanceBps.thresholdBps,
   // One-day default (owner-present 2026-10-14): a new epoch cannot start sooner than this after the last claim.
   emissionEpochMs: env.EMISSIONS_EPOCH_MS,
+  // Blank stays undefined — a vote refuses token.vote_rule_unset.
+  voteRule: env.TOKEN_VOTE_RULE,
 });
 
 const yieldJob = {

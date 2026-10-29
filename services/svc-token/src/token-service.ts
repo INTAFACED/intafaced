@@ -32,6 +32,29 @@ import {
 import { distributeYield, splitBuyback, type BuybackParams } from './economics/buyback.js';
 import { cumulativeEmission, epochReward, type EmissionParams } from './economics/emission.js';
 import { withMoneySpan } from './tracing.js';
+import {
+  BallotError,
+  assertVotingType,
+  normalizeChoices,
+  parseStoredBallot,
+  tallyChoices,
+  validateBallot,
+  type Ballot,
+  type ChoiceTally,
+  type VotingType,
+} from './ballot-tally.js';
+import {
+  parseVoteRule,
+  readPowerHistory,
+  readProposalPower,
+  readSealedSnapshot,
+  refuseSignedVote,
+  sealFromRow,
+  sealSnapshot,
+  type PowerHistoryEntry,
+  type ProposalPower,
+  type SnapshotSeal,
+} from './governance-vote.js';
 import { GOVERNANCE_EXECUTE_UNWIRED, GOVERNANCE_QUORUM_UNSET, decideProposalOutcome, executeUnwiredFor } from './governance-close.js';
 import { reportLastBuyback, reportTreasury, type LastBuybackRow, type TokenTreasuryView, type TreasurySums } from './treasury-view.js';
 import {
@@ -228,7 +251,17 @@ export class TokenError extends Error {
       /** Title was sent and it is empty. Omitting the title is the legacy create. */
       | 'token.proposal_title_invalid'
       /** Stored request handle missing or not usable. The proposal id is not a client uuid. */
-      | 'token.proposal_handle_invalid',
+      | 'token.proposal_handle_invalid'
+      /** A ballot does not fit its proposal's voting type or choice list (MC-token-03). Nothing is stored. */
+      | 'token.ballot_invalid'
+      /** A voting type this service does not tally. */
+      | 'token.voting_type_unsupported'
+      /** Who may vote is blank (`TOKEN_VOTE_RULE`). Never a default. */
+      | 'token.vote_rule_unset'
+      /** The account's power at the proposal's snapshot is below the published vote rule. */
+      | 'token.vote_rule_not_met'
+      /** No service links a wallet to an account or verifies a signed message. Nothing is stored. */
+      | 'token.signed_vote_unavailable',
     /** Set on `token.epoch_too_early`: how long until a new epoch may start, from the database clock. */
     readonly retryAfterMs?: number,
     /** Set on `token.params_unset`: the blank `token_params` column. Not a value. */
@@ -424,7 +457,7 @@ export type BuybackRunStatus = 'pending' | 'settled';
 
 /** §4.3 proposal surface — what an IFC-weighted vote may decide. */
 export type ProposalKind = 'listing' | 'fee_param' | 'curriculum' | 'grant';
-export type ProposalStatus = 'draft' | 'open' | 'passed' | 'rejected' | 'executed' | 'cancelled';
+export type ProposalStatus = 'draft' | 'open' | 'passed' | 'rejected' | 'executed' | 'cancelled' | 'closed_ranked';
 export type VoteChoice = 'for' | 'against' | 'abstain';
 
 export interface ProposalCounts {
@@ -449,6 +482,13 @@ export interface ProposalRecord {
   businessKey: string | null;
   authorId: string | null;
   revision: number;
+  /** `basic` is for/against/abstain. Other types carry a choice list (MC-token-03). */
+  votingType: VotingType;
+  choices: string[] | null;
+  /** Seal of the voting power measured at creation. Null on proposals from before the snapshot. */
+  snapshot: SnapshotSeal | null;
+  /** Written when a non-basic proposal closes (`closed_ranked`). */
+  ranking: number[] | null;
   counts: ProposalCounts;
 }
 
@@ -456,9 +496,11 @@ export interface VoteRecord {
   id: string;
   proposalId: string;
   userId: string;
-  /** Snapshotted `stakeOf` at cast time — not re-read at tally. */
+  /** The account's power from the proposal's snapshot (or, before snapshots, at cast time). */
   weight: Amount;
-  choice: VoteChoice;
+  /** Null when `ballot` holds a non-basic vote. */
+  choice: VoteChoice | null;
+  ballot: Ballot | null;
   castAt: Date;
 }
 
@@ -472,6 +514,8 @@ export interface ProposalTally {
 
 export interface ProposalDetail extends ProposalRecord {
   tally: ProposalTally;
+  /** Per-choice totals and ranking for a non-basic type. Null on `basic`. */
+  choiceTally: ChoiceTally | null;
 }
 
 export interface ProposalCloseResult extends ProposalDetail {
@@ -522,6 +566,11 @@ export interface TokenServiceOptions {
    * only accepts positive integers). Reward, cap and halving are not set here.
    */
   emissionEpochMs?: number;
+  /**
+   * Who may vote (`TOKEN_VOTE_RULE`, `power:<decimal>`). Read on every vote;
+   * blank refuses `token.vote_rule_unset`. Never defaulted here.
+   */
+  voteRule?: string;
 }
 
 /** One day. Epoch length is owner-decided (2026-10-14); reward / cap / halving stay unset. */
@@ -2669,9 +2718,14 @@ export class TokenService {
     title?: string;
     bodyMd?: string;
     discussionLink?: string;
+    /** `basic` (for/against/abstain) when omitted. Other types need `choices` (MC-token-03). */
+    votingType?: string;
+    choices?: string[];
     now?: Date;
   }): Promise<ProposalRecord> {
     const now = input.now ?? new Date();
+    const votingType = assertBallotType(input.votingType ?? 'basic');
+    const choices = asBallotError(() => normalizeChoices(votingType, input.choices));
     const opensAt = input.opensAt ?? now;
     // Caller-omitted close still uses the existing fixed length. The owner
     // period for that default is MC-token-02 (`token.proposal_window_unset`).
@@ -2702,6 +2756,9 @@ export class TokenService {
       bodyMd: input.bodyMd,
       discussionLink: input.discussionLink,
       lockedStake: (tx) => this.lockedActiveStake(tx, input.createdBy),
+      votingType,
+      choices,
+      snapshot: async (tx) => (await this.snapshotActiveStake(tx)).byUser,
     });
   }
 
@@ -2739,15 +2796,34 @@ export class TokenService {
   }
 
   /**
-   * Cast one ballot. Weight = that user's active stake at this instant, and
-   * `eligible_stake` = the electorate total from the same read. Both stay on
-   * the row. Later stake or unstake cannot amplify the choice or move the
-   * quorum bar it was cast against.
+   * Cast one ballot.
    *
-   * Zero weight is refused (not recorded as a free no-op): IFC-weighted means
-   * unstaked accounts do not sit in the electorate.
+   * A proposal created with a snapshot (MC-token-03) weighs the ballot by the
+   * voting power stored at creation, and `eligible_stake` is that snapshot's
+   * total: stake opened or closed after creation changes neither. A proposal
+   * from before snapshots keeps the old read (active stake at this instant).
+   *
+   * Who may vote is the published rule (`TOKEN_VOTE_RULE`); blank refuses
+   * `token.vote_rule_unset` before any write. A signature refuses
+   * `token.signed_vote_unavailable` before any read: no service links a
+   * wallet to an account yet. Zero weight is refused, never recorded.
    */
-  async castVote(input: { proposalId: string; userId: string; choice: VoteChoice; now?: Date }): Promise<VoteRecord> {
+  async castVote(input: {
+    proposalId: string;
+    userId: string;
+    /** For/against/abstain on a `basic` proposal; `abstain` on any type. */
+    choice?: VoteChoice;
+    /** A ballot for a non-basic type. Exactly one of `choice` and `ballot`. */
+    ballot?: Ballot;
+    /** A wallet signature over the ballot. Always refused until a wallet link exists. */
+    signature?: string;
+    now?: Date;
+  }): Promise<VoteRecord> {
+    if (input.signature !== undefined) refuseSignedVote();
+    const rule = parseVoteRule(this.options.voteRule ?? process.env.TOKEN_VOTE_RULE);
+    if ((input.choice === undefined) === (input.ballot === undefined)) {
+      throw new TokenError('A vote is either a for/against/abstain choice or a ballot', 'token.ballot_invalid');
+    }
     const now = input.now ?? new Date();
 
     return transaction(
@@ -2759,9 +2835,15 @@ export class TokenService {
             status: ProposalStatus;
             opens_at: Date;
             closes_at: Date;
+            voting_type: string | null;
+            choices: unknown;
+            snapshot_count: number | null;
+            snapshot_total: string | null;
+            snapshot_hash: string | null;
           }>
         >`
-          SELECT id, status, opens_at, closes_at
+          SELECT id, status, opens_at, closes_at, voting_type, choices,
+                 snapshot_count, snapshot_total::text AS snapshot_total, snapshot_hash
             FROM token.proposals
            WHERE id = ${input.proposalId}
            FOR UPDATE
@@ -2776,14 +2858,39 @@ export class TokenService {
           throw new TokenError('Proposal voting window is not active', 'token.proposal_window');
         }
 
-        // Weight and electorate are one ledger read. A drifted row must not
-        // mint voting power the book does not hold, and the quorum bar stored
-        // beside the weight is that same total — not a later live sum.
+        const votingType = assertBallotType(proposal.voting_type ?? 'basic');
+        let choice: VoteChoice | null = null;
+        let ballot: Ballot | null = null;
+        if (votingType === 'basic') {
+          if (input.choice === undefined) throw new TokenError('A basic proposal takes for, against or abstain', 'token.ballot_invalid');
+          choice = input.choice;
+        } else if (input.choice !== undefined) {
+          if (input.choice !== 'abstain') throw new TokenError('This proposal takes a ballot, not for or against', 'token.ballot_invalid');
+          ballot = { kind: 'abstain' };
+        } else {
+          const count = Array.isArray(proposal.choices) ? proposal.choices.length : 0;
+          ballot = asBallotError(() => validateBallot(votingType, count, input.ballot!));
+        }
+
         // Use `tx` — outer `this.sql` while FOR UPDATE is held deadlocks the pool.
-        const snap = await this.snapshotActiveStake(tx);
-        const weight = snap.byUser.get(input.userId) ?? 0n;
+        const seal = sealFromRow(proposal);
+        let weight: Amount;
+        let eligible: Amount;
+        if (seal) {
+          const power = await readSealedSnapshot(tx, input.proposalId, seal);
+          weight = power.get(input.userId) ?? 0n;
+          eligible = seal.total;
+        } else {
+          // Before snapshots: weight and electorate are one ledger read.
+          const snap = await this.snapshotActiveStake(tx);
+          weight = snap.byUser.get(input.userId) ?? 0n;
+          eligible = snap.total;
+        }
         if (weight <= 0n) {
-          throw new TokenError('No active stake — voting weight is zero', 'token.no_voting_weight');
+          throw new TokenError('No voting power on this proposal — voting weight is zero', 'token.no_voting_weight');
+        }
+        if (weight < rule.minPower) {
+          throw new TokenError('Voting power on this proposal is below the vote rule', 'token.vote_rule_not_met');
         }
 
         const voteId = crypto.randomUUID();
@@ -2794,19 +2901,20 @@ export class TokenService {
               proposal_id: string;
               user_id: string;
               weight: string;
-              choice: VoteChoice;
+              choice: VoteChoice | null;
+              ballot: unknown;
               cast_at: Date;
             }>
           >`
             INSERT INTO token.governance_votes (
-              id, proposal_id, user_id, weight, eligible_stake, choice, cast_at
+              id, proposal_id, user_id, weight, eligible_stake, choice, ballot, cast_at
             )
             VALUES (
               ${voteId}, ${input.proposalId}, ${input.userId},
-              ${formatAmount(weight)}::numeric, ${formatAmount(snap.total)}::numeric,
-              ${input.choice}, ${now}
+              ${formatAmount(weight)}::numeric, ${formatAmount(eligible)}::numeric,
+              ${choice}, ${ballot === null ? null : tx.json(ballot as never)}, ${now}
             )
-            RETURNING id, proposal_id, user_id, weight, choice, cast_at
+            RETURNING id, proposal_id, user_id, weight, choice, ballot, cast_at
           `;
 
           const row = rows[0]!;
@@ -2816,6 +2924,7 @@ export class TokenService {
             userId: row.user_id,
             weight: parseAmount(row.weight),
             choice: row.choice,
+            ballot: asBallotError(() => parseStoredBallot(row.ballot)),
             castAt: row.cast_at,
           };
         } catch (err) {
@@ -2827,6 +2936,34 @@ export class TokenService {
         }
       },
       { isolation: 'read committed', maxAttempts: 5 },
+    );
+  }
+
+  /** The signed account's voting power on one proposal, fixed at creation. Zero carries its reason. */
+  async proposalPower(proposalId: string, userId: string): Promise<ProposalPower> {
+    return readProposalPower(this.sql, proposalId, userId);
+  }
+
+  /** The signed account's stored voting power, one row per proposal snapshot, newest first. */
+  async votingPowerHistory(userId: string, limit: number | undefined): Promise<PowerHistoryEntry[]> {
+    return readPowerHistory(this.sql, userId, limit);
+  }
+
+  /** Per-choice tally of a non-basic proposal from its stored ballots. */
+  private async choiceTallyOf(sql: Sql, card: ProposalRecord): Promise<ChoiceTally | null> {
+    if (card.votingType === 'basic') return null;
+    const rows = await sql<Array<{ weight: string; choice: VoteChoice | null; ballot: unknown }>>`
+      SELECT weight::text AS weight, choice, ballot
+        FROM token.governance_votes
+       WHERE proposal_id = ${card.id}
+       ORDER BY cast_at, id
+    `;
+    return asBallotError(() =>
+      tallyChoices(
+        card.votingType,
+        card.choices?.length ?? 0,
+        rows.map((row) => ({ weight: parseAmount(row.weight), choice: row.choice, ballot: parseStoredBallot(row.ballot) })),
+      ),
     );
   }
 
@@ -2862,13 +2999,30 @@ export class TokenService {
       SELECT choice, COALESCE(SUM(weight), 0)::text AS weight, COUNT(*)::text AS n
         FROM token.governance_votes
        WHERE proposal_id = ${proposalId}
+         AND choice IS NOT NULL
        GROUP BY choice
     `;
 
     const folded = foldTally(tallies);
+    const choiceTally = await this.choiceTallyOf(this.sql, row);
+    if (choiceTally) {
+      // A non-basic proposal has no for/against. Counts come from the card.
+      return {
+        ...row,
+        choiceTally,
+        tally: {
+          forWeight: 0n,
+          againstWeight: 0n,
+          abstainWeight: choiceTally.abstainWeight,
+          totalWeight: choiceTally.participatingWeight,
+          voterCount: choiceTally.voterCount,
+        },
+      };
+    }
 
     return {
       ...row,
+      choiceTally,
       counts: {
         votes: folded.voterCount,
         for: folded.forCount,
@@ -2905,13 +3059,6 @@ export class TokenService {
   async closeProposal(input: { proposalId: string; now?: Date }): Promise<ProposalCloseResult> {
     const quorumBps = this.options.governanceQuorumBps;
     const thresholdBps = this.options.governanceThresholdBps;
-    if (quorumBps === undefined || thresholdBps === undefined) {
-      throw new TokenError(
-        'Governance quorum/threshold is unset (TOKEN_GOVERNANCE_QUORUM_BPS / TOKEN_GOVERNANCE_THRESHOLD_BPS)',
-        GOVERNANCE_QUORUM_UNSET,
-      );
-    }
-
     const now = input.now ?? new Date();
 
     return transaction(
@@ -2932,10 +3079,17 @@ export class TokenService {
             business_key: string | null;
             author_id: string | null;
             revision: number | null;
+            voting_type: string | null;
+            choices: unknown;
+            snapshot_count: number | null;
+            snapshot_total: string | null;
+            snapshot_hash: string | null;
+            ranking: unknown;
           }>
         >`
           SELECT id, kind, body, status, opens_at, closes_at, created_at,
-                 title, body_md, discussion_link, business_key, author_id, revision
+                 title, body_md, discussion_link, business_key, author_id, revision,
+                 voting_type, choices, snapshot_count, snapshot_total::text AS snapshot_total, snapshot_hash, ranking
             FROM token.proposals
            WHERE id = ${input.proposalId}
            FOR UPDATE
@@ -2950,6 +3104,40 @@ export class TokenService {
           throw new TokenError('Proposal voting window is still active', 'token.proposal_window');
         }
 
+        const card = proposalCard(row);
+        const choiceTally = await this.choiceTallyOf(tx, card);
+        if (choiceTally) {
+          // Non-basic types store only the ranking. What a multi-choice result
+          // means (quorum, a winner that executes) is the owner's, so nothing
+          // passes or fails here and nothing executes.
+          await tx`
+            UPDATE token.proposals
+               SET status = 'closed_ranked',
+                   ranking = ${tx.json(choiceTally.ranking as never)}
+             WHERE id = ${input.proposalId}
+          `;
+          const closed = await loadProposalRow(tx, input.proposalId);
+          if (!closed) throw new TokenError(`Proposal ${input.proposalId} not found`, 'token.proposal_not_found');
+          return {
+            ...closed,
+            choiceTally,
+            tally: {
+              forWeight: 0n,
+              againstWeight: 0n,
+              abstainWeight: choiceTally.abstainWeight,
+              totalWeight: choiceTally.participatingWeight,
+              voterCount: choiceTally.voterCount,
+            },
+            execute: executeUnwiredFor(row.kind),
+          };
+        }
+        if (quorumBps === undefined || thresholdBps === undefined) {
+          throw new TokenError(
+            'Governance quorum/threshold is unset (TOKEN_GOVERNANCE_QUORUM_BPS / TOKEN_GOVERNANCE_THRESHOLD_BPS)',
+            GOVERNANCE_QUORUM_UNSET,
+          );
+        }
+
         const tallies = await tx<Array<{ choice: VoteChoice; weight: string; n: string }>>`
           SELECT choice, COALESCE(SUM(weight), 0)::text AS weight, COUNT(*)::text AS n
             FROM token.governance_votes
@@ -2957,7 +3145,6 @@ export class TokenService {
            GROUP BY choice
         `;
         const folded = foldTally(tallies);
-        const card = proposalCard(row);
 
         const stakeRows = await tx<Array<{ id: string; user_id: string; amount: string }>>`
           SELECT id, user_id, amount
@@ -3014,6 +3201,7 @@ export class TokenService {
         return {
           ...card,
           status,
+          choiceTally: null,
           counts: {
             votes: folded.voterCount,
             for: folded.forCount,
@@ -3085,6 +3273,20 @@ export function foldTally(rows: Array<{ choice: VoteChoice; weight: string; n: s
   }
 
   return { forWeight, againstWeight, abstainWeight, voterCount, forCount, againstCount, abstainCount };
+}
+
+/** Ballot rules raise `BallotError`; the service speaks `TokenError` with the same code. */
+function asBallotError<T>(fn: () => T): T {
+  try {
+    return fn();
+  } catch (err) {
+    if (err instanceof BallotError) throw new TokenError(err.message, err.code);
+    throw err;
+  }
+}
+
+function assertBallotType(value: string): VotingType {
+  return asBallotError(() => assertVotingType(value));
 }
 
 function asTokenError(err: unknown): TokenError | undefined {
