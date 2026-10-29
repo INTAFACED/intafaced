@@ -52,9 +52,12 @@ test(`${J} #1 opens Chain home: latest blocks and transactions for the test netw
   // Empty tables show no network: both must list what the test network holds, newest block first.
   // A blocked row is a row too: each block row is headed by its height.
   await expect(tableIn(page, 'Latest blocks').getByRole('rowheader').first()).toHaveText(/\d/, UNBUILT);
+  // Newest first is only shown by two rows or more; the TEST chain mines every few seconds, so the list has them.
+  await expect.poll(() => tableIn(page, 'Latest blocks').getByRole('rowheader').count(), UNBUILT).toBeGreaterThan(1);
   const heights = (await tableIn(page, 'Latest blocks').getByRole('rowheader').allInnerTexts()).map((text) =>
     Number(text.replace(/\D/g, '')),
   );
+  expect(new Set(heights).size).toBe(heights.length);
   expect(heights).toEqual([...heights].sort((a, b) => b - a));
   await expect(
     tableIn(page, 'Latest transactions')
@@ -62,9 +65,10 @@ test(`${J} #1 opens Chain home: latest blocks and transactions for the test netw
       .first(),
   ).toBeVisible(UNBUILT);
   const intachain = main(page).getByTestId('chain-intachain');
-  await expect(intachain).toContainText('INTACHAIN');
-  await expect(intachain).toContainText('not launched');
-  await expect(intachain).toContainText(/Blocked:/);
+  // The whole line: "not launched", its blocker word for word, and the test network these tables are read from.
+  await expect(intachain).toHaveText(
+    'INTACHAIN: not launched. Blocked: no INTACHAIN chain service or validator set is running. This explorer reads Base Sepolia test network.',
+  );
   await expect(main(page)).not.toContainText(/INTACHAIN mainnet/i);
 });
 
