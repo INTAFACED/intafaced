@@ -125,6 +125,12 @@ async function customerApi() {
       if (status !== 200) throw new Error(`balance read refused: ${status}`);
       return body.balances[asset]?.free ?? '0';
     },
+    /** svc-bank's network catalogue, as the Withdraw form reads it: each asset's networks and its default. */
+    async networks() {
+      const { status, body } = await get('/api/bank/trpc/ramps.destinations.networks');
+      if (status !== 200) throw new Error(`network catalogue read refused: ${status}`);
+      return body.result.data;
+    },
     async withdrawals(limit = 10) {
       const { status, body } = await get(`/api/pay/trpc/withdrawal.history?input=${encodeURIComponent(JSON.stringify({ limit }))}`);
       if (status !== 200) throw new Error(`withdrawal history refused: ${status}`);
@@ -265,12 +271,19 @@ test(`${J} starts: a verified TEST account with 300 USDT, a second factor and a 
 test(`${J} #1 opens Withdraw and picks asset and network: the default network with its tag rule, minimum, maximum and step from the catalogue, and a changed network checks the address again`, async ({
   page,
 }) => {
-  test.setTimeout(300_000);
+  test.setTimeout(180_000);
   await signInWithCode(page);
+  // The default is the one svc-bank's catalogue names for USDT, read from the catalogue itself, never a guess.
+  const api = await customerApi();
+  const usdt = (await api.networks()).find((entry) => entry.assetId === 'USDT');
+  expect(usdt?.defaultNetworkId, 'the catalogue names a default network for USDT').toBeTruthy();
+  expect(usdt.networks.map((network) => network.networkId)).toContain(usdt.defaultNetworkId);
   await page.goto('/uc/withdraw');
   await page.mouse.move(0, 600);
   await pick(page, 'Asset').selectOption('USDT');
-  await expect(pick(page, 'Network')).toHaveValue('ethereum');
+  await expect(pick(page, 'Network')).toHaveValue(usdt.defaultNetworkId);
+  // The steps below use TEST Ethereum's address book and rules, so the stack's default must be that one.
+  expect(usdt.defaultNetworkId, 'the stack publishes TEST Ethereum as the USDT default').toBe('ethereum');
 
   // A typed address is checked on the network chosen: saved on TEST Ethereum, not saved on TEST Base.
   const typed = form(page).getByRole('textbox', { name: /^Or enter a new address/ });
@@ -303,7 +316,6 @@ test(`${J} #1 opens Withdraw and picks asset and network: the default network wi
   await expect(form(page).getByRole('textbox', { name: /^(Tag|Memo)/ })).toHaveCount(0);
   // A tag on a network without tags is refused by svc-pay itself, by name, with a real quote and a fresh step-up: never
   // dropped and sent without it. Then nothing is held and nothing is recorded.
-  const api = await customerApi();
   const quoteRef = `${J}-tag-quote-${Date.now()}`;
   const quoted = await api.quote({ quoteRef, assetId: 'USDT', networkId: 'ethereum', amount: '25' });
   expect(quoted.status, JSON.stringify(quoted.body).slice(0, 400)).toBe(200);
