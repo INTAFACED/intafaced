@@ -371,8 +371,7 @@ export async function assertCategoryApprovable(sql: Sql, merchantId: string): Pr
 
 /** The rails a business may take payments on by its category; null when its category sets no limit (or it has none). */
 export function categoryRails(rule: { class: BusinessCategoryClass } | null): readonly string[] | null {
-  // A standard category (OWNER 108) takes every rail the platform has, as a business with no category does.
-  if (!rule || rule.class === 'prohibited' || rule.class === 'standard') return null;
+  if (!rule || rule.class === 'prohibited') return null;
   return CATEGORY_CLASS_RAILS[rule.class];
 }
 

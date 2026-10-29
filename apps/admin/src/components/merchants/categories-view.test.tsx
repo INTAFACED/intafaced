@@ -20,7 +20,8 @@ const gaming = {
   approvedBy: B,
 };
 const travel = { ...gaming, key: 'test-travel', label: 'TEST travel', reserve: null, extraDocuments: [], version: 1 };
-const policy: CategoryPolicyView = { tableVersion: 3, categories: [gaming, travel] };
+const shop = { ...travel, key: 'test-shop', label: 'TEST shop', class: 'standard' as const };
+const policy: CategoryPolicyView = { tableVersion: 3, categories: [gaming, travel, shop] };
 const event: CategoryPolicyEvent = {
   seq: 3,
   key: 'test-gaming',
@@ -46,6 +47,7 @@ describe('the business category console', () => {
     const out = renderToStaticMarkup(<CategoriesView policy={ok(policy)} history={ok([event])} />);
     expect(out).toContain('Table version 3');
     expect(out).toContain('No card rails');
+    expect(out).toContain('Every rail: cards, crypto-native and bank transfer.');
     expect(out).toContain('5.00% for 90 days');
     expect(out).toContain('Not set');
     expect(out).toContain('TEST gaming licence');

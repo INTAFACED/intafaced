@@ -25,7 +25,7 @@ interface FormValues {
   reason: string;
 }
 
-const EMPTY: FormValues = { key: '', label: '', class: 'standard', reservePercent: '', holdDays: '', extraDocuments: '', reason: '' };
+const EMPTY: FormValues = { key: '', label: '', class: 'permissionless', reservePercent: '', holdDays: '', extraDocuments: '', reason: '' };
 
 function valuesOf(category: BusinessCategory): FormValues {
   return {

@@ -18,11 +18,12 @@ const gaming = {
   reserve: { percent: '5.00', holdDays: 90 },
   extraDocuments: ['TEST gaming licence'],
 };
+const everyday = { key: 'test-everyday', label: 'TEST everyday shop', class: 'standard' as const, reserve: null, extraDocuments: [] };
 const unset = { key: 'test-travel', label: 'TEST travel', class: 'restricted' as const, reserve: null, extraDocuments: [] };
 const weapons = { key: 'test-weapons', label: 'TEST weapons', class: 'prohibited' as const, reserve: null, extraDocuments: [] };
 const table: CategoryView = {
   merchantId: MERCHANT,
-  policy: { tableVersion: 4, categories: [shop, gaming, unset, weapons] },
+  policy: { tableVersion: 4, categories: [everyday, shop, gaming, unset, weapons] },
   chosen: null,
   locked: false,
 };
@@ -44,6 +45,8 @@ describe('business category on the Compliance page', () => {
   it('shows every category with its class rule, and a high-risk one with its reserve and documents', () => {
     const out = html(ready(table));
     expect(out).toContain('TEST online shop');
+    expect(out).toContain('Card, crypto and bank transfer payments. No extra documents.');
+    expect(out).toContain('Crypto only');
     expect(out).toContain('Crypto payments only. No extra documents.');
     expect(out).toContain('High risk');
     expect(out).toContain('No card payments (crypto and bank transfer only), extra documents and a reserve.');

@@ -77,7 +77,10 @@ async function chooseTakenCategory(page) {
   // categories earlier journeys added; otherwise the first one taken.
   const items = await all.getByRole('listitem').all();
   const texts = await Promise.all(items.map(async (item) => (await item.textContent()) ?? ''));
-  const order = [...items.keys()].sort((x, y) => Number(!texts[x].includes('Standard')) - Number(!texts[y].includes('Standard')));
+  // The class is the first fact under each category (CategoryFacts): its exact word, never a label that contains it.
+  const classes = await Promise.all(items.map(async (item) => ((await item.locator('dd').first().textContent()) ?? '').trim()));
+  const standard = (i) => classes[i] === 'Standard';
+  const order = [...items.keys()].sort((x, y) => Number(!standard(x)) - Number(!standard(y)));
   for (const i of order) {
     const item = items[i];
     const text = texts[i];
