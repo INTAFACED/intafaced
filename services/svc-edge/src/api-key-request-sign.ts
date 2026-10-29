@@ -15,10 +15,15 @@
  * body (empty body hashes as empty bytes).
  *
  * HMAC-SHA256(secret, canonical) as lowercase hex. Compare with
- * timingSafeEqual after a length check. A 5-minute window. A nonce is kept
- * until the signed timestamp plus that window, so a skewed client clock
- * cannot forget it while the signature is still acceptable. A catch-all
- * allowlist (0.0.0.0/0 or ::/0) does not satisfy a required IP allowlist.
+ * timingSafeEqual after a length check. A catch-all allowlist (0.0.0.0/0 or
+ * ::/0) does not satisfy a required IP allowlist.
+ *
+ * The live check is identity's (svc-identity `auth/api-key-request-sign.ts`):
+ * the edge reads these headers and sends them with the key exchange, and
+ * identity judges them inside the owner's window, which it publishes as
+ * `requestSigningPolicy` (blank refuses `auth.request_window_unset`). The
+ * verifier below, with its fixed window, is this module's reference for its
+ * own tests, not the window a caller is held to.
  *
  * Unsigned is accepted only when the key has not opted in. A key that
  * requires a signature and has no secret refuses (fail closed).
@@ -26,7 +31,7 @@
 import { createHash, createHmac, timingSafeEqual } from 'node:crypto';
 
 export const REQUEST_SIGN_VERSION = 'INTAFACED-REQ-V1';
-/** Spec window. Not a configured business TTL. */
+/** The reference verifier's window (tests only). The live window is the owner's, from identity. */
 export const REQUEST_SIGN_WINDOW_SECONDS = 300;
 
 export const REQUEST_TIMESTAMP_HEADER = 'x-intafaced-request-timestamp';

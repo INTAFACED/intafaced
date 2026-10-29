@@ -12,10 +12,10 @@ import { fundedTrader, signIn, signUp } from './desk.mjs';
 // prep (owner decision 2026-10-27); the level gate of #3 stays (identity verification).
 // The stack publishes a TEST desk law (tooling/profiles/test-owner-values/trade.json): a 60 s firm quote and a 60 s
 // window to settle an accepted one, so #7 and #8 watch both run out on the real clock. Each step checks the service's
-// own record of the quote (rfq.get through Edge) and the ledger balance, not only the screen.
+// own record of the quote (rfq.get through Edge) and the ledger balance, not only the screen. Every request asks the
+// providers it picks from the owner's TEST provider list (CB-otc-01); the steps after #2 ask the house desk.
 // Steps that are written but not built yet fail at their first missing part, quickly (UNBUILT):
-// - #1 no asset list on the desk (CB-otc-11); #2 no provider pick (CB-otc-01); #3 no verification-level gate
-//   (CB-otc-08).
+// - #1 no asset list on the desk (CB-otc-11); #3 no verification-level gate (CB-otc-08).
 // - #5: no RFQ board grouped by status (CB-otc-02); #9: Convert has no OTC price (CB-otc-12).
 const J = 'J-copy-bots-otc-24';
 const run = journeyState(`${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
@@ -28,6 +28,8 @@ const request = (page) => page.getByRole('region', { name: 'Request a price' });
 const card = (page) => page.getByRole('region', { name: 'Quote', exact: true });
 const dialog = (page) => page.getByRole('alertdialog');
 const balances = async () => (await api(run.read().who)).balances();
+/** The one platform-routed provider on the stack's TEST provider list: the house desk, which prices every step. */
+const HOUSE = 'House desk (TEST)';
 
 /** A decimal string as a whole number of 1e-18 units, so amounts compare exactly (never as floats). */
 const units = (value) => {
@@ -98,12 +100,29 @@ async function listedQuotes(client) {
   return read.body.result.data.rows;
 }
 
-/** Asks for a price on `quantity` BTC against USDT on the open room and returns the service's refusal code. */
-async function askRefused(page, quantity) {
+/** The owner's provider list and pick cap as the desk publishes them (`otc.makers.list`). */
+async function listedMakers(client) {
+  const read = await client.get('/api/trade/trpc/otc.makers.list');
+  expect(read.status, JSON.stringify(read.body).slice(0, 300)).toBe(200);
+  return read.body.result.data;
+}
+
+/** Ticks each named provider in the request form's Providers group. */
+async function pickProviders(page, names, options) {
+  const group = request(page).getByRole('group', { name: 'Providers' });
+  for (const name of names) await group.getByRole('checkbox', { name, exact: true }).check(options);
+}
+
+/**
+ * Asks for a price on `quantity` BTC against USDT from the providers named (the house desk unless told otherwise) on
+ * the open room and returns the service's refusal code.
+ */
+async function askRefused(page, quantity, providers = [HOUSE]) {
   const answer = page.waitForResponse((res) => res.url().includes('rfq.quote'));
   await request(page).getByRole('combobox', { name: 'Pair' }).click();
   await page.getByRole('option', { name: 'BTC/USDT', exact: true }).click();
   await request(page).getByRole('textbox', { name: 'Quantity' }).fill(quantity);
+  await pickProviders(page, providers);
   await page.getByRole('button', { name: 'Request price' }).click();
   return [await (await answer).json()].flat()[0].error?.data?.cause?.code;
 }
@@ -136,11 +155,12 @@ async function openOtc(page) {
   await expect(desk(page)).toBeVisible();
 }
 
-/** Asks for a price on `quantity` BTC against USDT and returns the open quote card. */
+/** Asks the house desk for a price on `quantity` BTC against USDT and returns the open quote card. */
 async function ask(page, quantity = '0.5') {
   await request(page).getByRole('combobox', { name: 'Pair' }).click(UNBUILT);
   await page.getByRole('option', { name: 'BTC/USDT', exact: true }).click(UNBUILT);
   await request(page).getByRole('textbox', { name: 'Quantity' }).fill(quantity, UNBUILT);
+  await pickProviders(page, [HOUSE], UNBUILT);
   await page.getByRole('button', { name: 'Request price' }).click(UNBUILT);
   await expect(card(page)).toBeVisible(UNBUILT);
   await expect(card(page).getByTestId('phase-line')).toContainText('firm');
@@ -213,15 +233,65 @@ test(`${J} #1 opens OTC: the overview and the owner's asset list, "Not set" when
   await expect(assets).toContainText(/Not set|BTC/);
 });
 
-test(`${J} #2 requests a quote with no provider set, then from four providers when three are allowed: "No providers set" refuses, and the cap refusal names the limit`, async ({
+test(`${J} #2 requests a quote with no provider set: "No providers set", refused with trade.otc_makers_unset, nothing recorded`, async ({
   page,
 }) => {
+  test.setTimeout(300_000);
+  const me = await api(run.read().who);
+  try {
+    tradeSwitch('LOCAL_STACK_TRADE_OTC_MAKERS', false);
+    // The desk publishes no provider list, and says so.
+    const blank = await listedMakers(me);
+    expect(blank.published).toBe(false);
+    expect(blank.makers).toEqual([]);
+    const before = await me.balances();
+    const quotes = await listedQuotes(me);
+    await openOtc(page);
+    const providers = request(page).getByRole('group', { name: 'Providers' });
+    await expect(providers.getByText('No providers set')).toBeVisible();
+    await expect(providers.getByRole('checkbox')).toHaveCount(0);
+    // A size the house desk prices in #6, so only the blank list can refuse it.
+    expect(await askRefused(page, '0.5', [])).toBe('trade.otc_makers_unset');
+    await expect(page.getByText('trade.otc_makers_unset')).toBeVisible();
+    await expect(page.getByText('The desk has no provider list, so a request cannot be sent.', { exact: false })).toBeVisible();
+    await expect(card(page)).toHaveCount(0);
+    // Re-read after the refusal: no quote was recorded and nothing moved or was held.
+    expect(await listedQuotes(me)).toEqual(quotes);
+    expect(await me.balances()).toEqual(before);
+  } finally {
+    tradeSwitch('LOCAL_STACK_TRADE_OTC_MAKERS', true);
+  }
+  expect((await listedMakers(me)).published).toBe(true);
+});
+
+test(`${J} #2 requests a quote from four providers when three are allowed: refused, and the refusal names the limit`, async ({ page }) => {
+  test.setTimeout(180_000);
+  const me = await api(run.read().who);
+  // The owner's list and cap, read back from the desk, not numbers this file chose: three allowed, four listed.
+  const list = await listedMakers(me);
+  expect(list.published).toBe(true);
+  expect(list.selectCap).toBe(3);
+  const four = list.makers.map((m) => m.name);
+  expect(four).toHaveLength(4);
+  expect(four).toContain(HOUSE);
+  const before = await me.balances();
+  const quotes = await listedQuotes(me);
+
   await openOtc(page);
   const providers = request(page).getByRole('group', { name: 'Providers' });
-  await expect(providers).toBeVisible(UNBUILT);
-  await request(page).getByRole('textbox', { name: 'Quantity' }).fill('0.5', UNBUILT);
-  await page.getByRole('button', { name: 'Request price' }).click(UNBUILT);
-  await expect(page.getByRole('alert')).toContainText(/No providers set|at most \d+ providers/);
+  await expect(providers.getByRole('checkbox')).toHaveCount(4);
+  await expect(providers.getByText(`Pick who to ask, up to ${list.selectCap}.`)).toBeVisible();
+  expect(await askRefused(page, '0.5', four)).toBe('trade.otc_provider_cap');
+  await expect(page.getByText('trade.otc_provider_cap')).toBeVisible();
+  // The refusal names the limit the desk publishes and the number picked.
+  await expect(
+    page.getByText(`At most ${list.selectCap} providers can be picked for one request (got 4).`, { exact: false }),
+  ).toBeVisible();
+  await expect(card(page)).toHaveCount(0);
+
+  // Re-read after the refusal: no quote was recorded and nothing moved or was held.
+  expect(await listedQuotes(me)).toEqual(quotes);
+  expect(await me.balances()).toEqual(before);
 });
 
 test(`${J} #3 requests as a user below the owner's level: refused, and no quote is priced`, async ({ page }) => {

@@ -155,27 +155,50 @@ async function fillsOf(client, symbol, id) {
 /**
  * The other TEST trader sells into `who`'s resting IFC/USDT buy `id` with an IOC, through any house bids at or above its
  * price (its own level included, so a house bid that queued there first cannot leave it unfilled; the rest of the IOC
- * cancels), and waits until nothing of `who`'s rests.
+ * cancels), and waits until nothing of `who`'s rests. The house quotes keep moving, so a bid that joined ahead between the
+ * depth read and the IOC can take it; while the buy still rests, the next IOC is sized on a fresh read of the depth and
+ * of what the buy has left.
  */
-async function sellInto(who, { id, price, amount }, clientOrderId) {
-  if ((await openOrders(who, 'IFC/USDT')).some((o) => o.id === id)) {
+async function sellInto(who, { id, price }, clientOrderId) {
+  const until = Date.now() + 30_000;
+  for (let round = 1; ; round += 1) {
+    const resting = (await openOrders(who, 'IFC/USDT')).find((o) => o.id === id);
+    if (!resting || Date.now() >= until) break;
     const { body } = await bestPrices('IFC/USDT');
     const ahead = body.bids.filter(([p]) => toUnits(p) >= toUnits(price)).reduce((sum, [, size]) => sum + toUnits(size), 0n);
-    const size = fromUnits(ahead + toUnits(amount));
+    const size = fromUnits(ahead + toUnits(resting.remaining));
     const seller = otherTrader();
     fund(seller.email, 'IFC', size);
     const sell = await (
       await api(seller)
-    ).post('/api/v1/orders', { symbol: 'IFC/USDT', side: 'sell', type: 'limit', amount: size, price, timeInForce: 'IOC', clientOrderId });
+    ).post('/api/v1/orders', {
+      symbol: 'IFC/USDT',
+      side: 'sell',
+      type: 'limit',
+      amount: size,
+      price,
+      timeInForce: 'IOC',
+      clientOrderId: round === 1 ? clientOrderId : `${clientOrderId}-${round}`,
+    });
     expect(sell.status, JSON.stringify(sell.body).slice(0, 300)).toBeLessThan(300);
+    // Only bids that joined ahead may leave the buy resting: they then took the whole IOC. An IOC that stopped short
+    // while the buy rested at its price is a matching fault, never a reason to try again.
+    const still = (await openOrders(who, 'IFC/USDT')).find((o) => o.id === id);
+    const whole = toUnits(sell.body.filled) === toUnits(size);
+    expect(!still || whole, `IOC round ${round} left ${id} resting: ${JSON.stringify(sell.body).slice(0, 300)}`).toBe(true);
   }
   await expect.poll(async () => (await openOrders(who, 'IFC/USDT')).length, { timeout: 30_000 }).toBe(0);
 }
 
-/** A post-only IFC/USDT buy inside the spread, so it rests ahead of the house bids and a crossing sell reaches it first. */
+/**
+ * A post-only IFC/USDT buy 3% under the best bid, below the house ladder. It has to rest for minutes: the local market's
+ * own taker sells into the best bid every few cycles, and a buy at the top of the book was filled by it while the
+ * journey waited (`trade.fills`: test_taker's LTEST- IOC took all 200). The walk moves at most 12 bps a step, so the
+ * house bids stay above it; `sellInto` sells through them to reach it.
+ */
 async function restingIfcBuy(client, amount, clientOrderId) {
-  const { bid, ask } = await bestPrices('IFC/USDT');
-  const price = fromUnits(toUnits(bid) + ((toUnits(ask) - toUnits(bid)) / 2n / 10n ** 14n) * 10n ** 14n);
+  const { bid } = await bestPrices('IFC/USDT');
+  const price = fromUnits(((toUnits(bid) * 97n) / 100n / 10n ** 14n) * 10n ** 14n);
   const placed = await client.post('/api/v1/orders', {
     symbol: 'IFC/USDT',
     side: 'buy',

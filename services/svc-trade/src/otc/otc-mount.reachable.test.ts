@@ -176,6 +176,8 @@ async function buildDesk(
     opts.mount === false
       ? undefined
       : new OtcDeskService(ledger, new FixedOtcStake(parseAmount(opts.stake ?? '1000')), {
+          // The house desk is the one provider these requests ask (CB-otc-01).
+          makerDirectory: { published: true, makers: [{ id: 'house', name: 'House desk', route: 'platform' }], selectCap: 1 },
           law: opts.law ?? UNPUBLISHED_OTC_DESK_LAW,
           // Observed mid tied to desk `now` — a boot-stamped config mid from
           // module load sits in the future vs the fixture clock and trips the
@@ -283,7 +285,13 @@ describe('the OTC desk is mounted, and what is mounted refuses', () => {
   it('mounts quote, accept and settle — none of them 404', async () => {
     const desk = await buildDesk();
 
-    const quote = await callMutation(desk, 'otc.quote', { side: 'buy', baseAsset: 'BTC', quoteAsset: 'USDT', qty: '1' });
+    const quote = await callMutation(desk, 'otc.quote', {
+      side: 'buy',
+      baseAsset: 'BTC',
+      quoteAsset: 'USDT',
+      qty: '1',
+      makerIds: ['house'],
+    });
     const accept = await callMutation(desk, 'otc.accept', { quoteId: randomUUID() });
     const settle = await callMutation(desk, 'otc.settle', { quoteId: randomUUID() });
 
@@ -308,7 +316,7 @@ describe('the OTC desk is mounted, and what is mounted refuses', () => {
    */
   it('refuses to quote at all while the spread is unpublished, and names the ruling', async () => {
     const desk = await buildDesk({ law: UNPUBLISHED_OTC_DESK_LAW });
-    const res = await callMutation(desk, 'otc.quote', { side: 'buy', baseAsset: 'BTC', quoteAsset: 'USDT', qty: '1' });
+    const res = await callMutation(desk, 'otc.quote', { side: 'buy', baseAsset: 'BTC', quoteAsset: 'USDT', qty: '1', makerIds: ['house'] });
 
     expect(errorCode(res)).toBe('PRECONDITION_FAILED');
     expect(errorMessage(res)).toMatch(/spread/i);
@@ -327,7 +335,13 @@ describe('the OTC desk is mounted, and what is mounted refuses', () => {
     const status = await callQuery(desk, 'otc.deskStatus');
     expect(resultData<{ published: boolean }>(status).published).toBe(false);
 
-    const quote = await callMutation(desk, 'otc.quote', { side: 'buy', baseAsset: 'BTC', quoteAsset: 'USDT', qty: '1' });
+    const quote = await callMutation(desk, 'otc.quote', {
+      side: 'buy',
+      baseAsset: 'BTC',
+      quoteAsset: 'USDT',
+      qty: '1',
+      makerIds: ['house'],
+    });
     expect(errorCode(quote)).toBe('PRECONDITION_FAILED');
 
     await desk.app.close();
@@ -340,7 +354,7 @@ describe('the OTC desk is mounted, and what is mounted refuses', () => {
       method: 'POST',
       url: '/trpc/otc.quote',
       headers: { 'content-type': 'application/json', 'x-intafaced-region': 'SG' },
-      payload: { side: 'buy', baseAsset: 'BTC', quoteAsset: 'USDT', qty: '1' },
+      payload: { side: 'buy', baseAsset: 'BTC', quoteAsset: 'USDT', qty: '1', makerIds: ['house'] },
     });
 
     expect(errorCode(res)).toBe('UNAUTHORIZED');
@@ -362,7 +376,7 @@ describe('the staked-tier gate stands at the port', () => {
    */
   it('refuses a caller under the published minimum stake, and prices nothing for them', async () => {
     const desk = await buildDesk({ law: PUBLISHED, stake: '100' });
-    const res = await callMutation(desk, 'otc.quote', { side: 'buy', baseAsset: 'BTC', quoteAsset: 'USDT', qty: '1' });
+    const res = await callMutation(desk, 'otc.quote', { side: 'buy', baseAsset: 'BTC', quoteAsset: 'USDT', qty: '1', makerIds: ['house'] });
 
     expect(errorCode(res)).toBe('FORBIDDEN');
     expect(errorMessage(res)).toMatch(/stake/i);
@@ -376,7 +390,7 @@ describe('the staked-tier gate stands at the port', () => {
   /** Exactly at the minimum is inside it. A threshold that excludes its own boundary is a different threshold. */
   it('admits a caller holding exactly the minimum', async () => {
     const desk = await buildDesk({ law: PUBLISHED, stake: '500' });
-    const res = await callMutation(desk, 'otc.quote', { side: 'buy', baseAsset: 'BTC', quoteAsset: 'USDT', qty: '1' });
+    const res = await callMutation(desk, 'otc.quote', { side: 'buy', baseAsset: 'BTC', quoteAsset: 'USDT', qty: '1', makerIds: ['house'] });
 
     expect(res.statusCode).toBe(200);
     expect(resultData<{ midPrice: string }>(res).midPrice).toBe('200');
@@ -439,7 +453,7 @@ describe('a price that moves money is never supplied by the party it pays', () =
    */
   it('prices a clean body off the desk mid at the owner spread', async () => {
     const desk = await buildDesk({ law: PUBLISHED });
-    const res = await callMutation(desk, 'otc.quote', { side: 'buy', baseAsset: 'BTC', quoteAsset: 'USDT', qty: '1' });
+    const res = await callMutation(desk, 'otc.quote', { side: 'buy', baseAsset: 'BTC', quoteAsset: 'USDT', qty: '1', makerIds: ['house'] });
 
     expect(res.statusCode).toBe(200);
     const quote = resultData<{ midPrice: string; quotedPrice: string; userNotional: string; spreadBps: number }>(res);
@@ -465,7 +479,7 @@ describe('a price that moves money is never supplied by the party it pays', () =
     const desk = await buildDesk({ law: PUBLISHED });
     await fund(desk.ledger, USER, 'USDT', '10000');
 
-    const res = await callMutation(desk, 'otc.quote', { side: 'buy', baseAsset: 'SOL', quoteAsset: 'USDT', qty: '1' });
+    const res = await callMutation(desk, 'otc.quote', { side: 'buy', baseAsset: 'SOL', quoteAsset: 'USDT', qty: '1', makerIds: ['house'] });
 
     expect(errorCode(res)).toBe('PRECONDITION_FAILED');
     expect(errorMessage(res)).toMatch(/SOL\/USDT/);
@@ -478,7 +492,7 @@ describe('a price that moves money is never supplied by the party it pays', () =
   /** No mid source at all is the production default, and it refuses every pair. */
   it('refuses every pair when no mid is published anywhere', async () => {
     const desk = await buildDesk({ law: PUBLISHED, mids: createConfigOtcMidSource('') });
-    const res = await callMutation(desk, 'otc.quote', { side: 'buy', baseAsset: 'BTC', quoteAsset: 'USDT', qty: '1' });
+    const res = await callMutation(desk, 'otc.quote', { side: 'buy', baseAsset: 'BTC', quoteAsset: 'USDT', qty: '1', makerIds: ['house'] });
 
     expect(errorCode(res)).toBe('PRECONDITION_FAILED');
     expect(errorMessage(res)).toMatch(/refuses rather than quote/);
@@ -506,7 +520,7 @@ describe('a quote the desk gave is a quote the desk honours', () => {
     await fund(desk.ledger, USER, 'USDT', '10000');
 
     const quoted = resultData<{ quoteId: string; quotedPrice: string; userNotional: string; expiresAt: string; counterparty: string }>(
-      await callMutation(desk, 'otc.quote', { side: 'buy', baseAsset: 'BTC', quoteAsset: 'USDT', qty: '1' }),
+      await callMutation(desk, 'otc.quote', { side: 'buy', baseAsset: 'BTC', quoteAsset: 'USDT', qty: '1', makerIds: ['house'] }),
     );
 
     // A1: counterparty, size and expiry are on the quote, not inferred by a screen.
@@ -547,7 +561,7 @@ describe('a quote the desk gave is a quote the desk honours', () => {
     await fund(desk.ledger, USER, 'USDT', '10000');
 
     const quoted = resultData<{ quoteId: string }>(
-      await callMutation(desk, 'otc.quote', { side: 'buy', baseAsset: 'BTC', quoteAsset: 'USDT', qty: '1' }),
+      await callMutation(desk, 'otc.quote', { side: 'buy', baseAsset: 'BTC', quoteAsset: 'USDT', qty: '1', makerIds: ['house'] }),
     );
 
     const res = await callMutation(desk, 'otc.accept', { quoteId: quoted.quoteId, assertedPrice: '1' });
@@ -573,7 +587,7 @@ describe('a quote the desk gave is a quote the desk honours', () => {
     await fund(desk.ledger, USER, 'USDT', '10000');
 
     const quoted = resultData<{ quoteId: string; expiresAt: string }>(
-      await callMutation(desk, 'otc.quote', { side: 'buy', baseAsset: 'BTC', quoteAsset: 'USDT', qty: '1' }),
+      await callMutation(desk, 'otc.quote', { side: 'buy', baseAsset: 'BTC', quoteAsset: 'USDT', qty: '1', makerIds: ['house'] }),
     );
 
     // One second past the expiry the desk itself published.
@@ -598,7 +612,7 @@ describe('a quote the desk gave is a quote the desk honours', () => {
   it('refuses an accept from a caller who is not the one quoted', async () => {
     const desk = await buildDesk({ law: PUBLISHED });
     const quoted = resultData<{ quoteId: string }>(
-      await callMutation(desk, 'otc.quote', { side: 'buy', baseAsset: 'BTC', quoteAsset: 'USDT', qty: '1' }),
+      await callMutation(desk, 'otc.quote', { side: 'buy', baseAsset: 'BTC', quoteAsset: 'USDT', qty: '1', makerIds: ['house'] }),
     );
 
     const res = await callMutation(desk, 'otc.accept', { quoteId: quoted.quoteId }, principal(OTHER));
@@ -634,7 +648,7 @@ describe('a fill is idempotent per business event', () => {
     await fund(desk.ledger, USER, 'USDT', '10000');
 
     const quoted = resultData<{ quoteId: string }>(
-      await callMutation(desk, 'otc.quote', { side: 'buy', baseAsset: 'BTC', quoteAsset: 'USDT', qty: '1' }),
+      await callMutation(desk, 'otc.quote', { side: 'buy', baseAsset: 'BTC', quoteAsset: 'USDT', qty: '1', makerIds: ['house'] }),
     );
     await callMutation(desk, 'otc.accept', { quoteId: quoted.quoteId });
 
@@ -668,7 +682,7 @@ describe('a fill is idempotent per business event', () => {
     await fund(desk.ledger, USER, 'USDT', '10000');
 
     const quoted = resultData<{ quoteId: string }>(
-      await callMutation(desk, 'otc.quote', { side: 'buy', baseAsset: 'BTC', quoteAsset: 'USDT', qty: '1' }),
+      await callMutation(desk, 'otc.quote', { side: 'buy', baseAsset: 'BTC', quoteAsset: 'USDT', qty: '1', makerIds: ['house'] }),
     );
     const accepted = resultData<{ fillNotional: string; fillPrice: string }>(
       await callMutation(desk, 'otc.accept', { quoteId: quoted.quoteId }),
@@ -798,7 +812,7 @@ describe('otc.settle attribution is the existing trade:write path', () => {
   it('refuses settle when the caller holds only trade:read', async () => {
     const desk = await buildDesk({ law: PUBLISHED });
     const quoted = resultData<{ quoteId: string }>(
-      await callMutation(desk, 'otc.quote', { side: 'buy', baseAsset: 'BTC', quoteAsset: 'USDT', qty: '1' }),
+      await callMutation(desk, 'otc.quote', { side: 'buy', baseAsset: 'BTC', quoteAsset: 'USDT', qty: '1', makerIds: ['house'] }),
     );
     await callMutation(desk, 'otc.accept', { quoteId: quoted.quoteId });
     const res = await callMutation(desk, 'otc.settle', { quoteId: quoted.quoteId }, principal(USER, ['trade:read']));
@@ -818,7 +832,7 @@ describe('otc.settle attribution is the existing trade:write path', () => {
     const key = apiKeyPrincipal();
 
     const quoted = resultData<{ quoteId: string }>(
-      await callMutation(desk, 'otc.quote', { side: 'buy', baseAsset: 'BTC', quoteAsset: 'USDT', qty: '1' }, key),
+      await callMutation(desk, 'otc.quote', { side: 'buy', baseAsset: 'BTC', quoteAsset: 'USDT', qty: '1', makerIds: ['house'] }, key),
     );
     await callMutation(desk, 'otc.accept', { quoteId: quoted.quoteId }, key);
     const settled = await callMutation(desk, 'otc.settle', { quoteId: quoted.quoteId }, key);
