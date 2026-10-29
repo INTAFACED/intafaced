@@ -7,12 +7,13 @@ const SECRET = 'internal-secret-for-agents-team-membership-test';
 const USER = '22222222-2222-4222-8222-222222222222';
 const BUSINESS = '33333333-3333-4333-8333-333333333333';
 
-async function appFor(answer: AgentsTeamMembershipResponse, seen: string[] = []) {
+async function appFor(answer: AgentsTeamMembershipResponse | Error, seen: string[] = []) {
   const app = Fastify();
   registerAgentsTeamMembershipRoute(app, {
     internalSecret: SECRET,
     read: async (userId) => {
       seen.push(userId);
+      if (answer instanceof Error) throw answer;
       return answer;
     },
   });
@@ -38,7 +39,7 @@ describe('POST /internal/agents/team-membership', () => {
       role: 'owner',
       members: [{ userId: USER, role: 'owner', label: null }],
     };
-    for (const answer of [team, { ok: false, reason: 'no_business' } as const]) {
+    for (const answer of [team, { ok: false, reason: 'no_business' } as const, { ok: false, reason: 'business_shut' } as const]) {
       const seen: string[] = [];
       const app = await appFor(answer, seen);
       const res = await app.inject(post({ userId: USER }));
@@ -65,5 +66,16 @@ describe('POST /internal/agents/team-membership', () => {
     }
     expect(seen).toEqual([]);
     await app.close();
+  });
+
+  it('answers 503 with a typed code, never the error text, when the read fails or breaks the contract', async () => {
+    const broken = { ok: true, businessId: BUSINESS, role: 'owner', members: [] } as unknown as AgentsTeamMembershipResponse;
+    for (const answer of [new Error('connect ECONNREFUSED 10.0.0.9:5432'), broken]) {
+      const app = await appFor(answer);
+      const res = await app.inject(post({ userId: USER }));
+      expect(res.statusCode).toBe(503);
+      expect(res.json()).toEqual({ error: 'pay.team_membership_unavailable', message: 'business team could not be read' });
+      await app.close();
+    }
   });
 });

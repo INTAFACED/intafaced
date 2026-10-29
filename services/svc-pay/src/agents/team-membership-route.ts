@@ -1,13 +1,15 @@
 /**
  * S2S read of the asking person's business team, for svc-agents' team roles, pool and project limits
  * (AG-governance-01). Only svc-agents may call; the body is bound to the signature. A person on no business gets
- * `{ ok: false, reason: 'no_business' }`, which svc-agents turns into its own typed refusal.
+ * `{ ok: false, reason: 'no_business' }` and a suspended or closed one `business_shut`; svc-agents turns each into its
+ * own typed refusal. A failed read is 503 `pay.team_membership_unavailable`.
  */
 
 import type { FastifyInstance } from 'fastify';
 import {
   AGENTS_TEAM_MEMBERSHIP_PATH,
   agentsTeamMembershipRequestSchema,
+  agentsTeamMembershipResponseSchema,
   retainRawBody,
   verifyServiceRequest,
   type AgentsTeamMembershipResponse,
@@ -44,6 +46,17 @@ export function registerAgentsTeamMembershipRoute(app: FastifyInstance, deps: Ag
     if (!parsed.success) {
       return reply.code(400).send({ error: 'pay.team_membership_invalid', message: 'userId must be a uuid' });
     }
-    return reply.send(await deps.read(parsed.data.userId));
+    let answer: AgentsTeamMembershipResponse;
+    try {
+      answer = await deps.read(parsed.data.userId);
+    } catch {
+      // A failed read is 503 with a typed code, never an empty team and never the database's own words.
+      return reply.code(503).send({ error: 'pay.team_membership_unavailable', message: 'business team could not be read' });
+    }
+    const checked = agentsTeamMembershipResponseSchema.safeParse(answer);
+    if (!checked.success) {
+      return reply.code(503).send({ error: 'pay.team_membership_unavailable', message: 'business team could not be read' });
+    }
+    return reply.send(checked.data);
   });
 }

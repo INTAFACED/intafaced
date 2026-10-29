@@ -124,6 +124,22 @@ describe('teamMembershipForUser', () => {
     }
   });
 
+  it('answers business_shut, never the team, to the owner and a member of a suspended or closed business', async () => {
+    for (const status of ['suspended', 'closed']) {
+      await sql`UPDATE pay.merchants SET status = ${status}::pay.merchant_status WHERE id = ${business}`;
+      for (const userId of [OWNER, ACTIVE]) {
+        expect(await teamMembershipForUser(sql, userId)).toEqual({ ok: false, reason: 'business_shut' });
+      }
+    }
+  });
+
+  it('shows a claim stash by its visible part and never sends the email token', async () => {
+    await sql`UPDATE pay.merchant_team_members SET label = ${'\u001eemail:ada@example.test'} WHERE user_id = ${ACTIVE}`;
+    const answer = await teamMembershipForUser(sql, OWNER);
+    expect(answer.ok && answer.members.find((m) => m.userId === ACTIVE)?.label).toBeNull();
+    expect(JSON.stringify(answer)).not.toContain('ada@example.test');
+  });
+
   it('drops a member at the next read once they are removed', async () => {
     await sql`UPDATE pay.merchant_team_members SET status = 'removed', removed_at = now() WHERE user_id = ${ACTIVE}`;
     expect(await teamMembershipForUser(sql, ACTIVE)).toEqual({ ok: false, reason: 'no_business' });
