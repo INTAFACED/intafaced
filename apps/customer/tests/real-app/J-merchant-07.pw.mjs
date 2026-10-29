@@ -186,7 +186,12 @@ test(`${J} #2 reads funds moving from clearing to available: funds wait until av
     paymentId.slice(0, 8),
     '40.00 USDT',
     'Not given yet',
+    'Open',
   ]);
+  await expect(clearing.getByRole('rowgroup').last().getByRole('link', { name: 'Open', exact: true })).toHaveAttribute(
+    'href',
+    `/pay/payments/${paymentId}`,
+  );
 
   // (2) A payout of clearing money is refused by name, by the API and on the page, and moves nothing.
   await expect(api.mutate('settlement.payout', { settlementId: waiting.id, railId: 'crypto-native' })).rejects.toThrow(
