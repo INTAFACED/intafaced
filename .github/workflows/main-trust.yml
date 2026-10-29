@@ -55,7 +55,8 @@ jobs:
     name: Post-merge checks
     if: >-
       github.event.workflow_run.name != 'CI' &&
-      (github.event.workflow_run.event == 'push' || github.event.workflow_run.event == 'workflow_dispatch')
+      (github.event.workflow_run.event == 'push' || github.event.workflow_run.event == 'workflow_dispatch' ||
+      github.event.workflow_run.event == 'schedule')
     runs-on: ubuntu-latest
     timeout-minutes: 5 # healthy run: under a minute (three journey reports at most)
     permissions:

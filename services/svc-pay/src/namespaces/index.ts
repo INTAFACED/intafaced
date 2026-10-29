@@ -19,6 +19,7 @@ import type { DepositTravelRuleMountDeps } from '../custody/deposits/travel-rule
 import type { CustodyMountDeps } from '../custody/router.js';
 import type { PurchaseHoldMountDeps } from '../withdrawals/purchase-holds/router.js';
 import type { WithdrawalQuoteMountDeps } from '../withdrawals/quotes/router.js';
+import type { WithdrawalNetworkRulesMountDeps } from '../withdrawals/network-rules/service.js';
 import type { TravelRuleMountDeps } from '../travel-rule/router.js';
 import type { WithdrawalReturnMountDeps } from '../withdrawals/returns/router.js';
 import type { WithdrawalApprovalMountDeps } from '../withdrawals/approvals/router.js';
@@ -78,6 +79,7 @@ export function createPayNamespaces(deps: {
   custody?: CustodyMountDeps;
   purchaseHolds?: PurchaseHoldMountDeps;
   withdrawalQuotes?: WithdrawalQuoteMountDeps;
+  withdrawalNetworkRules?: WithdrawalNetworkRulesMountDeps;
   travelRule?: TravelRuleMountDeps;
   withdrawalReturns?: WithdrawalReturnMountDeps;
   withdrawalApprovals?: WithdrawalApprovalMountDeps;
@@ -134,6 +136,7 @@ export function createPayNamespaces(deps: {
       custody: deps.custody,
       purchaseHolds: deps.purchaseHolds,
       withdrawalQuotes: deps.withdrawalQuotes,
+      withdrawalNetworkRules: deps.withdrawalNetworkRules,
       travelRule: deps.travelRule,
       withdrawalReturns: deps.withdrawalReturns,
       withdrawalApprovals: deps.withdrawalApprovals,

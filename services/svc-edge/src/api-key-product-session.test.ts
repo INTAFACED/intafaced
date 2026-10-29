@@ -136,7 +136,13 @@ describe('API key product/module scope at the session door', () => {
       { authorization: 'Bearer ifc_bound', 'x-product': FOREIGN },
       {
         ...options,
-        fetch: async () => new Response(JSON.stringify({ error: { message: 'API key is not allowed for this product' } }), { status: 401 }),
+        fetch: async () =>
+          new Response(
+            JSON.stringify({
+              error: { message: 'API key scopes are outside this product list', data: { cause: { code: 'auth.product_outside' } } },
+            }),
+            { status: 401 },
+          ),
       },
     );
     expect(result.rejected).toBe('invalid');

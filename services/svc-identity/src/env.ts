@@ -277,6 +277,15 @@ const schema = serviceEnvSchema
        */
       IDENTITY_KYC_CAPABILITY_REASONS: z.string().optional(),
       /**
+       * Owner settings (I-kyc-compliance-08). The accepted ID types per country, as JSON
+       * `{"<country>": [{"type", "label", "originalRequired"}]}`: a country not listed reads "not published". The ID
+       * photo's caps, set together: the largest file in bytes (at most 760 KiB, so its base64 and the JSON around it fit one 1 MiB request body) and a comma list of content
+       * types. NO DEFAULT: unset caps refuse every upload. Parsed at start; malformed stops the service.
+       */
+      IDENTITY_KYC_DOCUMENT_TYPES_BY_COUNTRY: z.string().optional(),
+      IDENTITY_KYC_UPLOAD_MAX_BYTES: z.string().optional(),
+      IDENTITY_KYC_UPLOAD_TYPES: z.string().optional(),
+      /**
        * Owner settings (I-kyc-compliance-10), set together or not at all: how many rejected verification requests a
        * person may have inside `IDENTITY_KYC_DENIAL_WINDOW_HOURS`, and for how many hours after the last of them a new
        * request is refused `kyc.attempts_exhausted`. NO DEFAULT. All unset is no limit, and /verification says so.

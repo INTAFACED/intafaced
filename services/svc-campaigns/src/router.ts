@@ -89,6 +89,7 @@ const STATUS: Record<CampaignsRefusalCode | CampaignRefusalCode, TRPCError['code
   'owner.decision': 'PRECONDITION_FAILED',
   'campaigns.window_unset': 'PRECONDITION_FAILED',
   'campaigns.timezone_unset': 'BAD_REQUEST',
+  'campaigns.timezone_not_platform': 'BAD_REQUEST',
   'campaigns.window_invalid': 'BAD_REQUEST',
   'campaigns.second_person_required': 'FORBIDDEN',
   'campaigns.already_published': 'CONFLICT',
@@ -275,6 +276,17 @@ export function createCampaignsRouter(drops: DropService, campaigns: CampaignSer
             mapError(err);
           }
         }),
+        /** One campaign by id, at any age (the list is the newest 200). */
+        get: opsProcedure
+          .input(campaignGetInputSchema)
+          .output(campaignSchema)
+          .query(async ({ input }) => {
+            try {
+              return await campaigns.getForOps(input);
+            } catch (err) {
+              mapError(err);
+            }
+          }),
         calendar: opsProcedure.output(campaignCalendarSchema).query(async () => {
           try {
             return await campaigns.calendar();

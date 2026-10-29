@@ -97,6 +97,8 @@ describe('founderAdmin.withdrawalQuotes (real Postgres)', () => {
     await db.sql`INSERT INTO pay.network_registry (network_id, display_name, asset_codes, enabled, fee_estimate_source, fee_estimate_amount, updated_by)
       VALUES ('tron-test', 'tron-test', ${db.sql.json(['USDT'])}, true, 'fixed', '1', ${FOUNDER})
       ON CONFLICT (network_id) DO NOTHING`;
+    await db.sql`INSERT INTO pay.withdrawal_network_rules (asset_id, network_id, minimum, maximum, step, tag, set_by)
+      VALUES ('USDT', 'tron-test', '1', '100', '1', 'none', ${FOUNDER}) ON CONFLICT DO NOTHING`;
     await new WithdrawalQuoteService({ sql: db.sql }).quote(USER, {
       quoteRef: 'q-1',
       assetId: 'USDT',

@@ -509,7 +509,7 @@ export const features: readonly Feature[] = [
     unlock: 'already live',
     tab: 'pay',
     checked:
-      '2026-10-22, real svc-pay on the local stack (apps/customer/tests/real-app/J-merchant-01.pw.mjs): a person with no business is led to setup, and the owner of a business whose verification has not started opens every /pay room from navigation with no refused read.',
+      '2026-10-22, real svc-pay on the local stack (apps/customer/tests/real-app/J-merchant-01.pw.mjs and, since 2026-10-29, the room walk in J-merchant-01-team.pw.mjs): a person with no business is led to setup, and the owner of a business whose verification has not started opens every /pay room from navigation with no refused read.',
   },
   {
     id: 'more-rooms',

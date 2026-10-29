@@ -261,7 +261,7 @@ test(`${J} #3 withdraws to a friend's address on the platform: told it settles i
   await page.goto(detail);
   const status = page.getByTestId('withdrawal-status');
   await expect(status).toHaveAttribute('data-status', 'settled');
-  await expect(status).toHaveText('Sent');
+  await expect(status).toHaveText('Settled');
   await expect(page.getByTestId('withdrawal-facts')).toContainText('Inside INTAFACED, no network');
 });
 

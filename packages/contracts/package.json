@@ -70,6 +70,10 @@
       "types": "./dist/identity-kyc-attempts.d.ts",
       "default": "./dist/identity-kyc-attempts.js"
     },
+    "./identity-kyc-profile": {
+      "types": "./dist/identity-kyc-profile.d.ts",
+      "default": "./dist/identity-kyc-profile.js"
+    },
     "./identity-kyc-capabilities": {
       "types": "./dist/identity-kyc-capabilities.d.ts",
       "default": "./dist/identity-kyc-capabilities.js"
@@ -193,6 +197,10 @@
     "./home-tiles-preferences": {
       "types": "./dist/home-tiles-preferences.d.ts",
       "default": "./dist/home-tiles-preferences.js"
+    },
+    "./protocol-watch-preferences": {
+      "types": "./dist/protocol-watch-preferences.d.ts",
+      "default": "./dist/protocol-watch-preferences.js"
     },
     "./ledger-reconciliation": {
       "types": "./dist/ledger-reconciliation.d.ts",

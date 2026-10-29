@@ -407,6 +407,8 @@ test(`${J} #9 copy the badge snippet for a component: operational with a cache t
   const unknown = await fetch(`${ORIGIN}/api/notify/status/badge.svg?component=no-such-component`);
   expect(unknown.status).toBe(404);
   expect(unknown.headers.get('content-type')).not.toContain('image/');
-  expect(await unknown.json()).toEqual({ code: 'status.component_unknown' });
+  // The refusal names Edge's request id, the same one as its header (DV-errors-01, svc-edge `reply-envelope.ts`).
+  expect(unknown.headers.get('x-request-id')).toMatch(/^[0-9a-f-]{36}$/);
+  expect(await unknown.json()).toEqual({ code: 'status.component_unknown', requestId: unknown.headers.get('x-request-id') });
   await context.close();
 });

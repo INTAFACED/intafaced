@@ -366,6 +366,21 @@ export function postFingerprint(request: Pick<PostRequest, 'module' | 'reason' |
   return createHash('sha256').update('ledger-post-body-v1\0').update(canonical).digest('hex');
 }
 
+/** Withdrawal posts whose meta binds a later step: the hold's `fee` and `rail` decide what its settle and reverse may be. */
+const WITHDRAW_META_BOUND = new Set(['withdraw.held', 'withdraw.settled', 'withdraw.reversed']);
+
+/**
+ * True when a retry of a withdrawal post (same key, same entries) names another `fee` or `rail` in its meta than the posted
+ * one. The body fingerprint covers entries, not meta, so without this a hold first posted with no fee and retried as amount
+ * plus fee (the same total) would replay as a success while the book keeps no fee, and svc-ledger's door would later refuse
+ * the settle after the rail had sent. Both engines check it inside their own replay, so concurrent retries are covered too.
+ */
+export function replayMetaDiffers(posted: Record<string, unknown>, request: Pick<PostRequest, 'module' | 'reason' | 'meta'>): boolean {
+  if (request.module !== 'ledger' || !WITHDRAW_META_BOUND.has(request.reason)) return false;
+  const asked = request.meta ?? {};
+  return ['fee', 'rail'].some((field) => String(posted[field] ?? '') !== String(asked[field] ?? ''));
+}
+
 export function assertValidPost(request: PostRequest): void {
   assertIdempotencyKey(request.idempotencyKey);
   // FIRST. If the owner is the wrong one, everything below is a well-formed
