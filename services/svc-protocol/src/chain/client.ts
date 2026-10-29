@@ -1,7 +1,7 @@
 import { createPublicClient, defineChain, http } from 'viem';
 import type { Address, Hex, PublicClient } from 'viem';
 import { accountFactoryAbi, smartAccountAbi } from './abi.js';
-import { poolAbi } from '../amm/abi.js';
+import { factoryAbi, poolAbi } from '../amm/abi.js';
 import { erc20ApprovalAbi, erc20ReadAbi, tokenFactoryAbi } from './abi.js';
 import {
   ChainUnavailableError,
@@ -298,6 +298,36 @@ export class ProtocolChain {
     return this.#read('poolFeeBps', 'chain.feeBps', async () =>
       this.client.readContract({ address: pool, abi: poolAbi, functionName: 'feeBps' }).then(Number),
     );
+  }
+
+  /**
+   * Every pool `factory` lists, read at one pinned block, at most `limit` of them (the factory's own order). A factory
+   * with no code refuses rather than reading as "no pools".
+   */
+  async factoryPools(factory: Address, limit: number): Promise<{ pools: Address[]; blockNumber: bigint }> {
+    return this.#read('factoryPools', 'chain.allPools', async () => {
+      const blockNumber = await this.client.getBlockNumber();
+      const length = await this.client.readContract({ address: factory, abi: factoryAbi, functionName: 'allPoolsLength', blockNumber });
+      const count = Number(length < BigInt(limit) ? length : BigInt(limit));
+      const pools = await Promise.all(
+        Array.from({ length: count }, (_, index) =>
+          this.client.readContract({ address: factory, abi: factoryAbi, functionName: 'allPools', args: [BigInt(index)], blockNumber }),
+        ),
+      );
+      return { pools, blockNumber };
+    });
+  }
+
+  /** A token's name, symbol and decimals, as the token contract answers them. */
+  async tokenBasics(token: Address): Promise<{ name: string; symbol: string; decimals: number }> {
+    return this.#read('tokenBasics', 'chain.tokenBasics', async () => {
+      const [name, symbol, decimals] = await Promise.all([
+        this.client.readContract({ address: token, abi: erc20ReadAbi, functionName: 'name' }),
+        this.client.readContract({ address: token, abi: erc20ReadAbi, functionName: 'symbol' }),
+        this.client.readContract({ address: token, abi: erc20ReadAbi, functionName: 'decimals' }),
+      ]);
+      return { name, symbol, decimals: Number(decimals) };
+    });
   }
 
   // ── launch.token-factory (§8.4) ──────────────────────────────────────────

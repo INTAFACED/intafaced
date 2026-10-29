@@ -43,7 +43,8 @@ export function fundOnTestChain(address) {
 /** One journey run's state, with one TEST wallet key kept for every step of the run. */
 export function dexRun(journey) {
   const run = journeyState(`${journey}-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
-  const onChain = ON_TEST_CHAIN.has(journey);
+  // A second wallet in one journey (`J-dex-protocol-02-mover`) runs on the journey's chain too.
+  const onChain = [...ON_TEST_CHAIN].some((id) => journey === id || journey.startsWith(`${id}-`));
   return {
     run,
     onChain,
@@ -92,4 +93,16 @@ export async function connectWallet(page, dex, { tokens = [], chainId = CHAIN_ID
 /** Opens one section of the wallet room (Overview, Activity, Approvals, Session keys, Accounts, Safety, ...) by its tab. */
 export async function walletSection(page, name) {
   await page.getByRole('button', { name, exact: true }).click(UNBUILT);
+}
+
+/**
+ * The representation a fresh wallet accepts once before its first signing action (J-dex-protocol-01 #8): tick, then
+ * sign the message on the plain-words sheet. A later signing action by the same wallet goes straight to its own sheet.
+ */
+export async function acceptRepresentation(page) {
+  const panel = page.locator('[data-panel="representation"]');
+  await panel.getByLabel('I have read this and it is true for me.').check();
+  await panel.getByRole('button', { name: 'Accept and sign' }).click();
+  await page.locator('[data-sheet="sign"]').getByRole('button', { name: 'Continue in wallet' }).click();
+  await expect(panel).toHaveCount(0);
 }

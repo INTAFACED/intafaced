@@ -45,6 +45,21 @@ function browserStore(): Storage | undefined {
   }
 }
 
+/** The node reads a room may make through the wallet. Nothing here can sign or send. */
+export type ReadMethod = 'eth_getTransactionReceipt' | 'eth_blockNumber';
+const READ_METHODS: ReadonlySet<string> = new Set<ReadMethod>(['eth_getTransactionReceipt', 'eth_blockNumber']);
+export interface Sequence {
+  /** The sheet's list of steps is named by this, for example "Swap steps". */
+  title: string;
+  steps: Array<{ label: string; request: Extract<SignRequest, { kind: 'transaction' }> }>;
+}
+export type SequenceResult =
+  | { status: 'sent'; hashes: string[] }
+  | { status: 'rejected'; sent: string[] }
+  | { status: 'failed'; step: number; sent: string[]; message: string; reverted?: boolean };
+/** How long a step may wait to be mined before the next one is given up (the person's wallet still holds the first). */
+const STEP_MINED_TIMEOUT_MS = 120_000;
+
 export type WalletStatus = 'disconnected' | 'connecting' | 'connected';
 export interface WalletState {
   status: WalletStatus;
@@ -65,6 +80,13 @@ export interface WalletApi extends WalletState {
   sign(request: SignRequest): Promise<SignResult>;
   /** A read-only `eth_call` through the connected wallet's own network connection. Resolves null when it cannot answer. */
   call(to: string, data: string): Promise<string | null>;
+  /** A read-only node call through the wallet's own connection (receipts, the block height). Null when it cannot answer. */
+  read(method: ReadMethod, params: unknown[]): Promise<unknown>;
+  /**
+   * Several transactions under one plain-words sheet, in order (an exact approve, then the swap). Each step is sent only
+   * after the one before it is mined and succeeded; the last step's hash comes back without waiting for it.
+   */
+  sendSequence(sequence: Sequence): Promise<SequenceResult>;
   /** The code at `address` through the wallet's own network connection: '0x' for a plain wallet, null when it cannot answer. */
   code(address: string): Promise<string | null>;
   /** "Disconnect on idle": minutes chosen by the person; null means never. A convenience, not a security control. */
@@ -84,6 +106,8 @@ const empty: WalletApi = {
   disconnect: () => undefined,
   switchNetwork: async () => undefined,
   sign: async () => ({ status: 'failed', reason: 'not_connected', message: 'No wallet is connected.' }),
+  read: async () => null,
+  sendSequence: async () => ({ status: 'failed', step: 0, sent: [], message: 'No wallet is connected.' }),
   call: async () => null,
   code: async () => null,
   idleMinutes: null,
@@ -92,6 +116,31 @@ const empty: WalletApi = {
 const Context = createContext<WalletApi>(empty);
 /** Outside a provider (a server render, a test) the wallet is simply not connected. */
 export const useWallet = (): WalletApi => useContext(Context);
+
+interface PendingSequence {
+  sequence: Sequence;
+  account: string;
+  chainId: number;
+  resolve: (result: SequenceResult) => void;
+  run: () => Promise<SequenceResult>;
+  started?: boolean;
+}
+
+/** Polls the wallet's node for `hash` until it is mined, it reverted, or `timeoutMs` passes. */
+async function waitMined(provider: Eip1193Provider, hash: string, timeoutMs: number): Promise<'success' | 'reverted' | 'timeout'> {
+  const until = Date.now() + timeoutMs;
+  while (Date.now() < until) {
+    try {
+      const receipt = (await provider.request({ method: 'eth_getTransactionReceipt', params: [hash] })) as { status?: string } | null;
+      if (receipt?.status === '0x1') return 'success';
+      if (receipt?.status === '0x0') return 'reverted';
+    } catch {
+      /* not answered this time; ask again */
+    }
+    await new Promise((resolve) => setTimeout(resolve, 500));
+  }
+  return 'timeout';
+}
 
 interface Pending {
   request: SignRequest;
@@ -113,6 +162,7 @@ export function WalletProvider({ children, discovery = true }: { children: React
   const [chainId, setChainId] = useState<number | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
   const [pending, setPending] = useState<Pending | null>(null);
+  const [sequence, setSequence] = useState<PendingSequence | null>(null);
   const [idleMinutes, setIdleMinutes] = useState<number | null>(null);
   const store = useMemo(browserStore, []);
   const restored = useRef(false);
@@ -283,6 +333,67 @@ export function WalletProvider({ children, discovery = true }: { children: React
     [connected],
   );
 
+  const read = useCallback(
+    async (method: ReadMethod, params: unknown[]): Promise<unknown> => {
+      if (!connected || !READ_METHODS.has(method)) return null;
+      try {
+        return await connected.provider.request({ method, params });
+      } catch {
+        return null;
+      }
+    },
+    [connected],
+  );
+
+  const sendSequence = useCallback(
+    (next: Sequence): Promise<SequenceResult> => {
+      const notConnected: SequenceResult = { status: 'failed', step: 0, sent: [], message: t('signNotConnected') };
+      if (!connected || !address || next.steps.length === 0) return Promise.resolve(notConnected);
+      for (const step of next.steps) {
+        const refused = refuseReason(step.request);
+        if (refused) return Promise.resolve({ status: 'failed', step: 0, sent: [], message: `${refused} Nothing was signed or sent.` });
+      }
+      if (!chainGuard(chainId).ok) return Promise.resolve({ status: 'failed', step: 0, sent: [], message: t('signWrongNetwork') });
+      const wallet = connected;
+      const account = address;
+      return new Promise<SequenceResult>((resolve) => {
+        setSequence({
+          sequence: next,
+          account,
+          chainId: chainId ?? APP_CHAIN_ID,
+          resolve,
+          run: async () => {
+            const sent: string[] = [];
+            for (const [index, step] of next.steps.entries()) {
+              const result = await runSignRequest(wallet.provider, account, step.request);
+              if (result.status === 'rejected') return { status: 'rejected', sent };
+              if (result.status !== 'sent')
+                return {
+                  status: 'failed',
+                  step: index,
+                  sent,
+                  message: result.status === 'failed' ? result.message : t('signNotConnected'),
+                };
+              sent.push(result.hash);
+              if (index === next.steps.length - 1) break;
+              const mined = await waitMined(wallet.provider, result.hash, STEP_MINED_TIMEOUT_MS);
+              if (mined !== 'success')
+                return {
+                  status: 'failed',
+                  step: index,
+                  sent,
+                  reverted: mined === 'reverted',
+                  message: t(mined === 'reverted' ? 'seqReverted' : 'seqNotMined'),
+                };
+            }
+            return { status: 'sent', hashes: sent };
+          },
+        });
+      });
+    },
+    [connected, address, chainId, t],
+  );
+
   const api: WalletApi = {
     status,
     wallets,
@@ -296,6 +407,8 @@ export function WalletProvider({ children, discovery = true }: { children: React
     switchNetwork,
     sign,
     call,
+    read,
+    sendSequence,
     code,
     idleMinutes,
     setIdleMinutes,
@@ -303,6 +416,24 @@ export function WalletProvider({ children, discovery = true }: { children: React
   return (
     <Context.Provider value={api}>
       {children}
+      {sequence && (
+        <SequenceSheet
+          sequence={sequence.sequence}
+          account={sequence.account}
+          chainId={sequence.chainId}
+          onCancel={() => {
+            sequence.resolve({ status: 'rejected', sent: [] });
+            setSequence(null);
+          }}
+          onContinue={async () => {
+            const current = sequence;
+            if (current.started) return;
+            current.started = true;
+            setSequence(null);
+            current.resolve(await current.run());
+          }}
+        />
+      )}
       {pending && (
         <SignSheet
           request={pending.request}
@@ -372,6 +503,59 @@ export function SignSheet({
         <p className="muted">
           {t(request.kind === 'transaction' ? 'sheetMovesFunds' : request.kind === 'message' ? 'sheetMovesNothing' : 'sheetMayAuthorise')}
         </p>
+        <Button onClick={onContinue}>{t('sheetContinue')}</Button>{' '}
+        <Button variant="secondary" onClick={onCancel}>
+          {t('sheetCancel')}
+        </Button>
+      </div>
+    </Dialog>
+  );
+}
+
+/** The plain-words sheet for several transactions: every step listed in order, each with its exact data, one Continue. */
+export function SequenceSheet({
+  sequence,
+  account,
+  chainId,
+  onCancel,
+  onContinue,
+}: {
+  sequence: Sequence;
+  account: string;
+  chainId: number;
+  onCancel: () => void;
+  onContinue: () => void;
+}) {
+  const { language } = usePreferences();
+  const { t } = walletCopy.forLocale(language);
+  return (
+    <Dialog title={t('sheetTitle')} onClose={onCancel}>
+      <div data-sheet="sequence">
+        <p>{t('seqSends', { count: String(sequence.steps.length) })}</p>
+        <dl className="protocol-facts">
+          <div>
+            <dt>{t('fact_account')}</dt>
+            <dd className="numeric">{account}</dd>
+          </div>
+          <div>
+            <dt>{t('fact_network')}</dt>
+            <dd>{chainId}</dd>
+          </div>
+        </dl>
+        <ol aria-label={sequence.title}>
+          {sequence.steps.map((step, index) => (
+            <li key={index}>{step.label}</li>
+          ))}
+        </ol>
+        <details>
+          <summary>{t('sheetExact')}</summary>
+          {sequence.steps.map((step, index) => (
+            <pre key={index} className="numeric" data-sheet-payload>
+              {payloadText(step.request, account, chainId)}
+            </pre>
+          ))}
+        </details>
+        <p className="muted">{t('sheetMovesFunds')}</p>
         <Button onClick={onContinue}>{t('sheetContinue')}</Button>{' '}
         <Button variant="secondary" onClick={onCancel}>
           {t('sheetCancel')}

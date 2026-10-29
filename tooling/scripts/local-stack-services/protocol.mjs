@@ -29,6 +29,11 @@ export default ({ c, secrets, dbUrl, PORTS, UNUSED, testChain }) => ({
       PROTOCOL_REPRESENTATION_VERSION: 'TEST-1',
       PROTOCOL_REPRESENTATION_TEXT:
         "TEST representation, not counsel's wording: I am not located in, or acting for anyone in, a region where this service is not available.",
+      // LOCAL TEST swap settings, labelled in the same file: the slippage ceiling, the quote lifetime and the confirmations
+      // before a swap reads filled. Production stays blank and the swap form refuses by name.
+      PROTOCOL_SWAP_SLIPPAGE_BPS: '300',
+      PROTOCOL_SWAP_QUOTE_TTL_SECONDS: '30',
+      PROTOCOL_SWAP_CONFIRMATIONS: '1',
     };
   },
 });
