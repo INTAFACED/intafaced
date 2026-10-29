@@ -29,7 +29,7 @@ async function ask(page, amount, note) {
   await page.goto('/pay/request');
   await page.getByLabel('Who to ask').fill(state('payer').handle, UNBUILT);
   await page.getByLabel('Amount', { exact: true }).fill(amount);
-  await page.locator('#request-note').fill(note);
+  await page.getByLabel('What is it for? (optional)').fill(note);
   await page.getByTestId('request-create').click();
   await page.getByRole('dialog').getByRole('button', { name: 'Send request' }).click();
   return (await page.getByTestId('request-id').innerText()).trim();

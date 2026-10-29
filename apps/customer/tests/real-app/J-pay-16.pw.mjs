@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { journeyState, toUnits } from './stack.mjs';
+import { journeyState, signOutBrowser, toUnits } from './stack.mjs';
 import { signIn } from './desk.mjs';
 import { member, sendNow, usdt } from './pay.mjs';
 
@@ -26,7 +26,21 @@ function state(key) {
 
 const cases = (page) => page.getByRole('table', { name: 'Your cases' });
 
+/** The payer opens a dispute on the `nth` payment listed on Pay (newest first), submits it and returns the case id. */
+async function dispute(page, nth) {
+  await page.goto('/pay');
+  await page
+    .getByRole('link', { name: /receipt/i })
+    .nth(nth)
+    .click();
+  await page.getByRole('button', { name: 'Open a dispute' }).click(UNBUILT);
+  await page.getByRole('dialog').getByLabel('Reason').selectOption({ index: 1 });
+  await page.getByRole('dialog').getByRole('button', { name: 'Submit' }).click();
+  return (await page.getByTestId('case-id').innerText()).trim();
+}
+
 async function openCase(page, who, caseId) {
+  await signOutBrowser(page.context());
   await signIn(page, who);
   await page.goto(`/pay/cases/${encodeURIComponent(caseId)}`);
   await expect(page.getByRole('heading', { name: 'Case', level: 1 })).toBeVisible();
@@ -60,16 +74,10 @@ test(`${J} #2 submits the case: a receipt with the case id and next step; the sa
   const payer = state('payer');
   const before = await usdt(payer);
   await signIn(page, payer);
-  await page.goto('/pay');
-  await page
-    .getByRole('link', { name: /receipt/i })
-    .first()
-    .click();
-  await page.getByRole('button', { name: 'Open a dispute' }).click(UNBUILT);
-  await page.getByRole('dialog').getByLabel('Reason').selectOption({ index: 1 });
-  await page.getByRole('dialog').getByRole('button', { name: 'Submit' }).click();
-  const caseId = (await page.getByTestId('case-id').innerText()).trim();
-  run.write({ caseId });
+  // One case per payment: #4 settles the first, #6 the second.
+  const caseId = await dispute(page, 0);
+  const secondCaseId = await dispute(page, 1);
+  run.write({ caseId, secondCaseId });
   expect(await usdt(payer)).toBe(before);
 });
 
@@ -91,6 +99,7 @@ test(`${J} #4 the recipient accepts: one refund, and the case ends accepted offe
 });
 
 test(`${J} #5 opens the dispute centre: both cases with status and timeline; a cancelled case has no Reopen`, async ({ page }) => {
+  await signOutBrowser(page.context());
   await signIn(page, state('payer'));
   await page.goto('/pay/cases');
   await expect(cases(page).locator('tbody tr')).toHaveCount(2, UNBUILT);
@@ -101,9 +110,14 @@ test(`${J} #6 receives an offer of TEST 30 and escalates another case: accept po
 }) => {
   const payer = state('payer');
   const before = await usdt(payer);
-  await openCase(page, payer, state('caseId'));
+  // The recipient offers TEST 30 on the second case; the payer accepts it.
+  await openCase(page, state('recipient'), state('secondCaseId'));
+  await page.getByRole('button', { name: 'Make an offer' }).click(UNBUILT);
+  await page.getByLabel('Offer (USDT)').fill('30');
+  await page.getByRole('button', { name: 'Send the offer' }).click();
+  await openCase(page, payer, state('secondCaseId'));
   await page.getByRole('button', { name: 'Accept the offer' }).click();
-  expect(toUnits(await usdt(payer)) - toUnits(before)).toBe(toUnits('30'));
+  await expect.poll(async () => toUnits(await usdt(payer)) - toUnits(before), { timeout: 15_000 }).toBe(toUnits('30'));
 });
 
 test(`${J} #7 appeals a decision: accepted once; a second appeal without new information denied`, async ({ page }) => {

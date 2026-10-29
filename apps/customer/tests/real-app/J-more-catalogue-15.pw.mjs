@@ -25,7 +25,7 @@ function state(key) {
   return value;
 }
 
-const room = (page) => page.locator('#main');
+const room = (page) => page.getByRole('main');
 const held = async (who) => toUnits((await (await api(who)).balances()).USDT?.used ?? '0');
 
 async function openMarket(page, marketId) {

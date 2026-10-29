@@ -57,7 +57,7 @@ test(`${J} #2 opens a transfer by id: the transfer with its ledger key; an unkno
   await page.getByRole('button', { name: 'Find this transfer' }).click();
   await page.getByRole('button', { name: 'Read the full transfer record' }).click();
   const record = page.getByTestId('transfer-record');
-  await expect(record).toContainText('5');
+  await expect(record).toContainText(/Amount\s*5(\.0+)? USDT/);
   await expect(record).toContainText(/Ledger transaction\s*\S+/);
   await page.getByLabel('Transfer id').fill('00000000-0000-4000-8000-000000000000');
   await page.getByRole('button', { name: 'Find this transfer' }).click();

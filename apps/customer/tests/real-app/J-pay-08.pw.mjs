@@ -75,5 +75,8 @@ test(`${J} #4 withdraws: the balance moves to the organiser once`, async ({ page
   await signIn(page, organiser);
   await page.goto(state('link'));
   await pool(page).getByRole('button', { name: 'Withdraw' }).dblclick(UNBUILT);
+  await expect.poll(async () => toUnits(await usdt(organiser)) - toUnits(before), { timeout: 15_000 }).toBe(toUnits('10'));
+  // A double press withdraws once: still 10 a moment later.
+  await page.waitForTimeout(3_000);
   expect(toUnits(await usdt(organiser)) - toUnits(before)).toBe(toUnits('10'));
 });

@@ -24,7 +24,7 @@ function state(key) {
   return value;
 }
 
-const room = (page) => page.locator('#main');
+const room = (page) => page.getByRole('main');
 
 async function crew(page) {
   await signIn(page, state('who'));

@@ -36,8 +36,9 @@ test(`${J} #1 opens Global send: corridors, delivery methods and an honest empty
   await expect(card(page).getByLabel('Where it goes')).toBeVisible();
   await expect(card(page).getByLabel('Recipient')).toBeVisible();
   // Either corridors to choose from, or the notice that names what isn't set.
-  const destinations = await card(page).getByLabel('Where it goes').locator('option').count();
-  if (destinations <= 1) await expect(card(page).getByRole('note').or(card(page).locator('.pay-reason')).first()).toBeVisible();
+  const destinations = await card(page).getByLabel('Where it goes').getByRole('option').count();
+  if (destinations <= 1) await expect(card(page).getByRole('note').first()).toBeVisible();
+  else await expect(card(page).getByLabel('Delivery method')).toBeVisible(UNBUILT);
 });
 
 test(`${J} #2 picks a corridor, a recipient and a delivery method, and asks for a quote: the quote, or the FX refusal by name`, async ({
@@ -47,8 +48,8 @@ test(`${J} #2 picks a corridor, a recipient and a delivery method, and asks for 
   await page.goto('/pay/global');
   await card(page).getByLabel('Where it goes').selectOption({ index: 1 }, UNBUILT);
   await card(page).getByRole('button', { name: 'Add a new recipient' }).click();
-  await card(page).locator('#global-name').fill('TEST Recipient');
-  await card(page).locator('#global-account').fill('DE89370400440532013000');
+  await card(page).getByLabel('Recipient’s full name').fill('TEST Recipient');
+  await card(page).getByLabel('Account number or IBAN').fill('DE89370400440532013000');
   await card(page).getByTestId('global-recipient-save').click();
   await card(page).getByLabel('You send').fill('50');
   await card(page).getByTestId('global-get-quote').click();

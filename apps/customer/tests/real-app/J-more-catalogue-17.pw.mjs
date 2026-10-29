@@ -25,7 +25,7 @@ function state(key) {
   return value;
 }
 
-const room = (page) => page.locator('#main');
+const room = (page) => page.getByRole('main');
 
 async function predict(page, path = '/predict') {
   await signIn(page, state('trader'));

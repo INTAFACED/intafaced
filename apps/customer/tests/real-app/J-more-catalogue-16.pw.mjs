@@ -25,7 +25,7 @@ function state(key) {
   return value;
 }
 
-const room = (page) => page.locator('#main');
+const room = (page) => page.getByRole('main');
 const free = async (who) => toUnits((await (await api(who)).balances()).USDT?.free ?? '0');
 const positions = (page) => room(page).getByRole('table', { name: 'Positions' });
 const orders = (page) => room(page).getByRole('table', { name: 'Open orders' });

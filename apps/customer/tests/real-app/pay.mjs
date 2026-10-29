@@ -1,15 +1,15 @@
 import { expect } from '@playwright/test';
 import { api, fund } from './stack.mjs';
-import { signUp, verify } from './desk.mjs';
+import { fundedTrader, signUp, verify } from './desk.mjs';
 
 // Pay journeys' shared start: verified TEST members, some holding TEST USDT, and their balances read through each
 // person's own API.
 
 /** A verified member, funded with `usdt` TEST USDT when given. */
 export async function member(page, prefix, usdt) {
+  if (usdt) return fundedTrader(page, prefix, usdt);
   const who = await signUp(page, prefix);
   await verify(page, who);
-  if (usdt) expect(fund(who.email, 'USDT', usdt).tx).toBeTruthy();
   return who;
 }
 
@@ -23,7 +23,7 @@ export async function sendTo(page, handle, amount, note = '') {
   await to.press('Tab');
   await expect(page.getByText(`@${handle}`).first()).toBeVisible();
   await page.getByLabel('Amount to send').fill(amount);
-  if (note) await page.locator('#pay-note').fill(note);
+  if (note) await page.getByLabel('Note (optional)').fill(note);
 }
 
 /** Sends `amount` to `handle` through Review and Send, and returns the receipt reference. */

@@ -24,7 +24,7 @@ function state(key) {
   return value;
 }
 
-const room = (page) => page.locator('#main');
+const room = (page) => page.getByRole('main');
 const trpc = (proc, input) => `/api/token/trpc/${proc}?input=${encodeURIComponent(JSON.stringify(input ?? {}))}`;
 const stakes = async (who, status) => (await (await api(who)).get(trpc('listStakes', { status }))).body.result.data;
 

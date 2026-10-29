@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { journeyState } from './stack.mjs';
+import { journeyState, toUnits } from './stack.mjs';
 import { signIn } from './desk.mjs';
 import { member } from './pay.mjs';
 
@@ -48,7 +48,7 @@ test(`${J} #1 opens Split a bill, enters TEST 100.00 and picks three friends: po
   const portions = await split(page)
     .getByRole('spinbutton', { name: /Portion/ })
     .evaluateAll((els) => els.map((e) => e.value));
-  expect(portions.reduce((a, v) => a + Number(v), 0).toFixed(2)).toBe('100.00');
+  expect(portions.reduce((sum, v) => sum + toUnits(v), 0n)).toBe(toUnits('100'));
   await split(page)
     .getByRole('spinbutton', { name: /Portion/ })
     .first()

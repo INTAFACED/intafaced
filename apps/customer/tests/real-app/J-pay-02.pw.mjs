@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { journeyState, toUnits } from './stack.mjs';
+import { journeyState, signOutBrowser, toUnits } from './stack.mjs';
 import { signIn, signUp } from './desk.mjs';
 import { member, sendTo, usdt } from './pay.mjs';
 
@@ -37,6 +37,7 @@ test(`${J} #1 opens the send limits and the fee schedule: terms per tier, today'
   const sender = await member(page, 'jpls', '100');
   const unverified = await signUp(page, 'jplu');
   run.reset({ sender, recipient, unverified });
+  await signOutBrowser(page.context());
   await signIn(page, sender);
   await page.goto('/pay/send/limits');
   await expect(page.getByRole('heading', { name: 'Send limits', level: 1 })).toBeVisible();
@@ -60,11 +61,13 @@ test(`${J} #3 tries to send more than the balance covers: which balance is short
   page,
 }) => {
   const sender = state('sender');
+  const before = await usdt(sender);
   await signIn(page, sender);
   await sendTo(page, state('recipient').handle, '1000');
   await expect(terms(page).or(page.getByRole('alert'))).toContainText(/USDT balance is short|not enough USDT/i);
   await expect(page.getByRole('link', { name: 'Add money' })).toBeVisible();
-  expect(toUnits(await usdt(sender))).toBeGreaterThanOrEqual(0n);
+  // Nothing reserved or moved.
+  expect(await usdt(sender)).toBe(before);
 });
 
 test(`${J} #4 sends two payments across midnight that pass the rolling cap: the second refuses with the remaining allowance`, async ({

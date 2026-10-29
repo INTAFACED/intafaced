@@ -96,9 +96,9 @@ test(`${J} #5 revokes the share: the next read through it is not found at once, 
   const viewerPage = await (await browser.newContext()).newPage();
   await signIn(viewerPage, state('viewer'));
   await viewerPage.goto(`/blueprint/shared/${encodeURIComponent(state('shareId'))}`);
-  const revoked = await viewerPage.locator('#main').innerText();
+  const revoked = await viewerPage.getByRole('main').innerText();
   await viewerPage.goto('/blueprint/shared/00000000-0000-4000-8000-000000000000');
-  expect(await viewerPage.locator('#main').innerText()).toBe(revoked);
+  expect(await viewerPage.getByRole('main').innerText()).toBe(revoked);
 });
 
 test(`${J} #6 a viewer not allowed by visibility opens it: not found and no opener row`, async ({ page, browser }) => {

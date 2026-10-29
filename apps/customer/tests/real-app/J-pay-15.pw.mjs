@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { journeyState, toUnits } from './stack.mjs';
+import { journeyState, signOutBrowser, toUnits } from './stack.mjs';
 import { signIn } from './desk.mjs';
 import { member, sendNow, usdt } from './pay.mjs';
 
@@ -23,20 +23,32 @@ function state(key) {
   return value;
 }
 
-/** The payment's room for `who`, opened from the receipt link on Pay's recent payments. */
-async function payment(page, who) {
+/** The payment's room for `who`, opened from its receipt link on Pay's recent payments (the original unless named). */
+async function payment(page, who, reference = state('reference')) {
+  await signOutBrowser(page.context());
   await signIn(page, who);
   await page.goto('/pay');
-  await page
-    .getByRole('link', { name: /receipt/i })
-    .first()
-    .click();
-  await expect(page.getByText(state('reference')).first()).toBeVisible();
+  const receipts = page.getByRole('link', { name: /receipt/i });
+  const count = await receipts.count();
+  for (let i = 0; i < count; i += 1) {
+    if (i > 0) await page.goto('/pay');
+    await receipts.nth(i).click();
+    const shown = await page
+      .getByText(reference)
+      .first()
+      .waitFor({ timeout: 3_000 })
+      .then(
+        () => true,
+        () => false,
+      );
+    if (shown) return;
+  }
+  throw new Error(`${J}: no receipt on Pay shows ${reference}`);
 }
 
 /** B refunds `amount` from the payment's room after a fresh confirmation. */
-async function refund(page, amount) {
-  await payment(page, state('b'));
+async function refund(page, amount, reference) {
+  await payment(page, state('b'), reference);
   await page.getByRole('button', { name: 'Refund' }).click(UNBUILT);
   const sheet = page.getByRole('dialog', { name: 'Refund this payment' });
   await sheet.getByLabel('Amount to refund').fill(amount);
@@ -77,9 +89,19 @@ test(`${J} #3 B refunds the rest: allowed at TEST 70, refused at TEST 70.01; two
 });
 
 test(`${J} #4 B refunds with too little balance: refused with an add-money prompt; no negative balance`, async ({ page }) => {
-  const sheet = await refund(page, '1');
+  // #3 refunded the first payment in full, so this is a new one: A pays B TEST 10, and B sends all it holds back to A.
+  const [a, b] = [state('a'), state('b')];
+  await signOutBrowser(page.context());
+  await signIn(page, a);
+  const second = await sendNow(page, b.handle, '10', 'TEST second order');
+  await signOutBrowser(page.context());
+  await signIn(page, b);
+  await sendNow(page, a.handle, await usdt(b), 'TEST back');
+  const before = await usdt(b);
+  const sheet = await refund(page, '1', second);
   await expect(sheet.getByRole('link', { name: 'Add money' })).toBeVisible();
-  expect(toUnits(await usdt(state('b')))).toBeGreaterThanOrEqual(0n);
+  // Nothing reserved or moved.
+  expect(await usdt(b)).toBe(before);
 });
 
 test(`${J} #5 both track the refund: the refund line in both histories, the status page with the reason`, async ({ page }) => {
