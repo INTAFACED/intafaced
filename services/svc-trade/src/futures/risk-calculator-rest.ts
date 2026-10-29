@@ -9,6 +9,7 @@ import { checkLeverage, LEVERAGE_CAP_UNSET, LEVERAGE_STEP } from './initial-marg
 import type { FuturesLadderPolicy } from './maintenance-ladder.js';
 import { bpsToRate } from '../public-rest.js';
 import { calculate, MARGIN_FORMULAS, riskTiers, type DepthBySide } from './risk-calculator.js';
+import { privateWrite, publicRead } from '../route-inventory.js';
 
 export const LADDER_UNSET = 'trade.ladder_unset';
 
@@ -79,7 +80,7 @@ export function registerRiskCalculatorRest(app: FastifyInstance, deps: RiskCalcu
   const edgeContext = createEdgeContext({ secret: deps.edgeSecret, ...deps.edgeTrust, serviceName: deps.serviceName });
 
   // Public, like the ticker: the table is the owner's published policy and today's depth.
-  app.get<{ Querystring: { symbol?: string } }>('/api/v1/futures/tiers', async (req, reply) => {
+  app.get<{ Querystring: { symbol?: string } }>('/api/v1/futures/tiers', publicRead, async (req, reply) => {
     const market = await futuresMarket(deps, reply, req.query.symbol);
     if (!market) return reply;
     const policy = deps.publishedLadder();
@@ -111,7 +112,7 @@ export function registerRiskCalculatorRest(app: FastifyInstance, deps: RiskCalcu
     });
   });
 
-  app.post('/api/v1/futures/calculator', async (req, reply) => {
+  app.post('/api/v1/futures/calculator', privateWrite, async (req, reply) => {
     const edgeReq: EdgeRequest = { headers: req.headers as Record<string, string | string[] | undefined>, id: req.id };
     const principal = edgeContext(edgeReq).principal;
     if (!principal) return sendError(reply, 401, 'trade.unauthenticated', 'signed principal required');

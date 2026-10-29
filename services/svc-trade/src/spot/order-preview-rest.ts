@@ -30,6 +30,7 @@ import {
 } from './fee-schedule.js';
 import { TradeError, type Market, type OrderSide, type OrderType, type TimeInForce } from './types.js';
 import type { EdgeTrust } from '../edge-trust.js';
+import { privateWrite } from '../route-inventory.js';
 
 export const SPOT_ORDER_PREVIEW_PATH = '/api/v1/orders/preview';
 
@@ -230,7 +231,7 @@ function pushError(refusals: SpotOrderPreviewRefusal[], error: unknown, field: S
 export function registerSpotOrderPreviewRest(app: FastifyInstance, deps: SpotOrderPreviewRestDeps): void {
   const edgeContext = createEdgeContext({ secret: deps.edgeSecret, ...deps.edgeTrust, serviceName: deps.serviceName });
 
-  app.post(SPOT_ORDER_PREVIEW_PATH, async (req, reply) => {
+  app.post(SPOT_ORDER_PREVIEW_PATH, privateWrite, async (req, reply) => {
     const edgeReq: EdgeRequest = { headers: req.headers as Record<string, string | string[] | undefined>, id: req.id };
     const edge = edgeContext(edgeReq);
     const principal = edge.principal;
