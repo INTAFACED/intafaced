@@ -49,6 +49,11 @@ const KNOWN: Readonly<Record<string, { title: string; body: string }>> = {
     title: 'The settlement window has closed',
     body: 'This accepted quote can no longer settle. Nothing was settled or held; ask for a new price.',
   },
+  'trade.otc_makers_unset': {
+    title: 'No providers set',
+    body: 'The desk has no provider list, so a request cannot be sent. Nothing was priced or held.',
+  },
+  'trade.otc_provider_required': { title: 'Pick a provider', body: 'Pick at least one provider to ask. Nothing was priced or held.' },
   'trade.rfq_size_not_set': {
     title: 'The desk minimum is not set',
     body: 'The desk cannot price a request in this asset until its minimum size is published. Nothing was priced or held.',
@@ -137,6 +142,23 @@ const KNOWN: Readonly<Record<string, { title: string; body: string }>> = {
   },
 };
 
+/**
+ * Refusals whose sentence from the desk names the owner's number (the desk minimum, CB-otc-07; the provider cap,
+ * CB-otc-01), so the customer sees the limit they hit. The service sentence is kept and the next step follows it.
+ */
+const NAMES_ITS_LIMIT: Readonly<Record<string, { title: string; fallback: string; after: string }>> = {
+  'trade.rfq_below_minimum': {
+    title: 'Below the desk minimum',
+    fallback: 'This request is below the desk minimum',
+    after: 'Ask for a larger size; nothing was priced or held.',
+  },
+  'trade.otc_provider_cap': {
+    title: 'Too many providers',
+    fallback: 'More providers were picked than the desk allows',
+    after: 'Pick fewer; nothing was priced or held.',
+  },
+};
+
 export interface RefusalInput {
   reason?: string;
   message?: string;
@@ -156,11 +178,11 @@ export function roomWords(input: RefusalInput): Words {
   if (code) {
     const known = KNOWN[code];
     if (known) return { ...known, code: refusalSupportCode(code) };
-    // The desk names its own minimum in the sentence (CB-otc-07), so the customer sees the number to ask above.
-    if (code === 'trade.rfq_below_minimum')
+    const named = NAMES_ITS_LIMIT[code];
+    if (named)
       return {
-        title: 'Below the desk minimum',
-        body: `${input.message?.trim().replace(/\.$/, '') || 'This request is below the desk minimum'}. Ask for a larger size; nothing was priced or held.`,
+        title: named.title,
+        body: `${input.message?.trim().replace(/\.$/, '') || named.fallback}. ${named.after}`,
         code: refusalSupportCode(code),
       };
     if (code.startsWith('trade.greeks_')) return { ...KNOWN['trade.greeks_native_unlinked']!, code: refusalSupportCode(code) };

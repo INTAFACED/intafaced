@@ -65,6 +65,8 @@ interface Props {
   quote: RfqQuote;
   readAt: number;
   now: number;
+  /** The providers picked in the request form: a re-price asks them again (CB-otc-01). */
+  providers: string[];
   /** Re-read the quote from the service (and release a device note if that proves the outcome). */
   onCheck: (id: string) => Promise<void>;
   /** Show a quote a write just returned; `select` opens it in place of this one (a re-price). */
@@ -72,7 +74,7 @@ interface Props {
 }
 
 /** One quote in full: the returned numbers, the all-in cost, the live countdown, and what may be done to it now. */
-export function QuoteCard({ api, writer, quote, readAt, now, onCheck, onQuote }: Props) {
+export function QuoteCard({ api, writer, quote, readAt, now, providers, onCheck, onQuote }: Props) {
   const { t } = otcCopy.useCopy();
   const { timeZone } = usePreferences();
   const [confirming, setConfirming] = useState<Confirming | null>(null);
@@ -136,7 +138,7 @@ export function QuoteCard({ api, writer, quote, readAt, now, onCheck, onQuote }:
       : []),
   ];
 
-  /** Re-price an expired quote: a new request for the same pair, side, size and maker. The old quote stays expired. */
+  /** Re-price an expired quote: a new request for the same pair, side and size to the providers picked. The old quote stays expired. */
   async function askAgain() {
     setMismatch(false);
     const result = await writer.run<RfqQuote>({
@@ -149,6 +151,7 @@ export function QuoteCard({ api, writer, quote, readAt, now, onCheck, onQuote }:
           baseAsset: quote.baseAsset,
           quoteAsset: quote.quoteAsset,
           qty: quote.qty,
+          makerIds: providers,
           ...(quote.counterparty === 'maker' ? { makerId: quote.counterpartyId } : {}),
         }),
     });

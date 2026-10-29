@@ -31,6 +31,7 @@ async function show(quote: RfqQuote) {
         quote={quote}
         readAt={TEST_NOW}
         now={TEST_NOW}
+        providers={['house']}
         onCheck={async () => undefined}
         onQuote={() => undefined}
       />,

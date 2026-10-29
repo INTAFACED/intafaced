@@ -29,6 +29,8 @@ const published: OtcDeskLaw = {
 
 function desk(now = new Date('2026-08-26T12:00:00.000Z'), mids = true) {
   return new OtcDeskService(new MemoryLedger(), new FixedOtcStake(parseAmount('1000')), {
+    // The house desk is the one provider these requests ask (CB-otc-01).
+    makerDirectory: { published: true, makers: [{ id: 'house', name: 'House desk', route: 'platform' }], selectCap: 1 },
     law: published,
     midSource: mids ? createObservedOtcMidSource('BTC/USDT:200', () => now) : undefined,
     now: () => now,
@@ -62,7 +64,9 @@ describe('professional RFQ — missing size/price refuse', () => {
   });
 
   it('quote with blank size refuses', async () => {
-    await expect(desk().rfqQuote(principal, { side: 'buy', baseAsset: 'BTC', quoteAsset: 'USDT', qty: '' })).rejects.toMatchObject({
+    await expect(
+      desk().rfqQuote(principal, { side: 'buy', baseAsset: 'BTC', quoteAsset: 'USDT', qty: '', makerIds: ['house'] }),
+    ).rejects.toMatchObject({
       code: 'trade.rfq_missing_size',
     });
   });
@@ -74,6 +78,7 @@ describe('professional RFQ — missing size/price refuse', () => {
         baseAsset: 'BTC',
         quoteAsset: 'USDT',
         qty: '1',
+        makerIds: ['house'],
       }),
     ).rejects.toMatchObject({ code: 'trade.rfq_missing_price' });
   });
@@ -86,6 +91,7 @@ describe('professional RFQ — quote / accept / expire', () => {
       baseAsset: 'BTC',
       quoteAsset: 'USDT',
       qty: '1.5',
+      makerIds: ['house'],
     });
     expect(quoted.qty).toBe('1.5');
     expect(quoted.midPrice).toBe('200');
@@ -99,7 +105,7 @@ describe('professional RFQ — quote / accept / expire', () => {
 
   it('accept binds the quoted price — last look on a different price refuses', async () => {
     const svc = desk();
-    const quoted = await svc.rfqQuote(principal, { side: 'buy', baseAsset: 'BTC', quoteAsset: 'USDT', qty: '1' });
+    const quoted = await svc.rfqQuote(principal, { side: 'buy', baseAsset: 'BTC', quoteAsset: 'USDT', qty: '1', makerIds: ['house'] });
     await expect(svc.rfqAccept(principal, { quoteId: quoted.quoteId, assertedPrice: '1' })).rejects.toMatchObject({
       code: 'trade.otc_last_look_forbidden',
     });
@@ -114,7 +120,7 @@ describe('professional RFQ — quote / accept / expire', () => {
 
   it('expire then accept refuses — not a book fill and not a requote', async () => {
     const svc = desk();
-    const quoted = await svc.rfqQuote(principal, { side: 'sell', baseAsset: 'BTC', quoteAsset: 'USDT', qty: '1' });
+    const quoted = await svc.rfqQuote(principal, { side: 'sell', baseAsset: 'BTC', quoteAsset: 'USDT', qty: '1', makerIds: ['house'] });
     const expired = await svc.rfqExpire(principal, { quoteId: quoted.quoteId });
     expect(expired.lifecycle).toBe('expired');
     expect(expired.bookFill).toBe(false);
@@ -130,7 +136,7 @@ describe('professional RFQ — quote / accept / expire', () => {
 
   it('rfqExpire after accept refuses and does not overwrite the bound quote', async () => {
     const svc = desk();
-    const quoted = await svc.rfqQuote(principal, { side: 'buy', baseAsset: 'BTC', quoteAsset: 'USDT', qty: '1' });
+    const quoted = await svc.rfqQuote(principal, { side: 'buy', baseAsset: 'BTC', quoteAsset: 'USDT', qty: '1', makerIds: ['house'] });
     const bound = await svc.rfqAccept(principal, { quoteId: quoted.quoteId, assertedPrice: quoted.quotedPrice });
     expect(bound.lifecycle).toBe('bound');
     await expect(svc.rfqExpire(principal, { quoteId: quoted.quoteId })).rejects.toMatchObject({
@@ -173,12 +179,14 @@ describe('professional RFQ — a quote read after its expiry is expired', () => 
     const ledger = new MemoryLedger();
     const store = new MemoryOtcQuoteStore();
     const service = new OtcDeskService(ledger, new FixedOtcStake(parseAmount('1000')), {
+      // The house desk is the one provider these requests ask (CB-otc-01).
+      makerDirectory: { published: true, makers: [{ id: 'house', name: 'House desk', route: 'platform' }], selectCap: 1 },
       law: published,
       midSource: createObservedOtcMidSource('BTC/USDT:200', () => now),
       now: () => now,
       store,
     });
-    const quoted = await service.rfqQuote(principal, { side: 'buy', baseAsset: 'BTC', quoteAsset: 'USDT', qty: '1' });
+    const quoted = await service.rfqQuote(principal, { side: 'buy', baseAsset: 'BTC', quoteAsset: 'USDT', qty: '1', makerIds: ['house'] });
     expect((await service.rfqGet(principal, quoted.quoteId)).lifecycle).toBe('open');
 
     now = new Date(now.getTime() + published.quoteTtlMs + 1);
@@ -193,12 +201,14 @@ describe('professional RFQ — a quote read after its expiry is expired', () => 
   it('leaves a quote read at exactly its expiry open', async () => {
     let now = new Date('2026-08-26T12:00:00.000Z');
     const service = new OtcDeskService(new MemoryLedger(), new FixedOtcStake(parseAmount('1000')), {
+      // The house desk is the one provider these requests ask (CB-otc-01).
+      makerDirectory: { published: true, makers: [{ id: 'house', name: 'House desk', route: 'platform' }], selectCap: 1 },
       law: published,
       midSource: createObservedOtcMidSource('BTC/USDT:200', () => now),
       now: () => now,
       store: new MemoryOtcQuoteStore(),
     });
-    const quoted = await service.rfqQuote(principal, { side: 'buy', baseAsset: 'BTC', quoteAsset: 'USDT', qty: '1' });
+    const quoted = await service.rfqQuote(principal, { side: 'buy', baseAsset: 'BTC', quoteAsset: 'USDT', qty: '1', makerIds: ['house'] });
     now = new Date(now.getTime() + published.quoteTtlMs);
     expect((await service.rfqGet(principal, quoted.quoteId)).lifecycle).toBe('open');
   });

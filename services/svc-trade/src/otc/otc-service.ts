@@ -163,8 +163,8 @@ export class OtcDeskService {
         qty: input.qty,
       },
       // Convert and one-click buy are sized by their own owner bounds (CB-otc-12), checked above; the RFQ desk minimum
-      // (CB-otc-07) is for desk requests only.
-      { deskMinimum: false },
+      // (CB-otc-07) and the provider pick (CB-otc-01) are for desk requests only.
+      { desk: false },
     );
     return { flow: input.flow, ...quote };
   }
@@ -178,8 +178,10 @@ export class OtcDeskService {
       qty: string;
       /** Maker id when counterparty mode is maker. */
       makerId?: string;
+      /** The providers a desk request asks (CB-otc-01): picked from the owner's list, at most its cap. */
+      makerIds?: readonly string[];
     },
-    options: { deskMinimum: boolean } = { deskMinimum: true },
+    options: { desk: boolean } = { desk: true },
   ) {
     const law = requirePublishedOtcDeskLaw(this.law);
     const qty = parseRequiredOtcSize(input.qty);
@@ -187,7 +189,7 @@ export class OtcDeskService {
     // CB-otc-07: a desk request in a quote asset with no published minimum refuses on the law alone, before any stake
     // read or price lookup. The minimum itself is checked once the quote is priced, below.
     let minNotional: Amount | null = null;
-    if (options.deskMinimum) {
+    if (options.desk) {
       const asset = normalizeOtcAsset(input.quoteAsset);
       minNotional = asset == null ? null : otcMinNotionalFor(law, asset);
       if (asset != null && minNotional == null) {
@@ -195,13 +197,15 @@ export class OtcDeskService {
       }
     }
 
-    // CB-otc-01: in maker mode the maker comes from the owner provider list, not
-    // free text. A blank list, an unknown provider or an outside provider refuses
-    // the request before any stake read or price lookup.
-    // A blank makerId is not skipped: it goes through the same selection, so a
-    // blank list refuses otc_makers_unset and a blank pick refuses otc_provider_required.
-    if (law.counterparty === 'maker') {
-      selectOtcMakers(this.makerDirectory, [input.makerId ?? '']);
+    // CB-otc-01: the providers come from the owner's list, never free text. A desk request always names them: a blank
+    // list refuses "No providers set", an empty pick refuses otc_provider_required, a pick over the owner's cap refuses
+    // naming the cap, and an unknown or outside provider refuses by name, all before any stake read or price lookup.
+    // Convert and one-click buy name no providers; in maker mode they still pick their one maker from the list.
+    let asked: readonly string[] = [];
+    if (options.desk) {
+      asked = selectOtcMakers(this.makerDirectory, input.makerIds ?? (input.makerId == null ? [] : [input.makerId])).map((m) => m.id);
+    } else if (law.counterparty === 'maker') {
+      asked = selectOtcMakers(this.makerDirectory, [input.makerId ?? '']).map((m) => m.id);
     }
 
     // Access gate before price lookup: an unstaked caller learns nothing about
@@ -247,9 +251,13 @@ export class OtcDeskService {
     if (law.counterparty === 'platform') {
       counterpartyId = this.platformCounterpartyId;
     } else {
-      const makerId = (input.makerId ?? '').trim();
+      // The quoting maker is one of the providers asked: the one picked, or the makerId named among them.
+      const makerId = (input.makerId ?? (asked.length === 1 ? asked[0]! : '')).trim();
       if (!makerId) {
         throw new OtcError('Maker id required when desk routes to makers — refuse rather than invent', 'trade.otc_no_reference_price');
+      }
+      if (!asked.includes(makerId)) {
+        throw new OtcError(`Provider ${makerId} is not one of the providers asked`, 'trade.otc_provider_unknown');
       }
       counterpartyId = makerId;
     }
@@ -393,7 +401,10 @@ export class OtcDeskService {
    * Professional RFQ (PTX-M12) — firm quote/accept/expire on the OTC desk.
    * Size required; price is the desk mid (never invented, never caller-named).
    */
-  async rfqQuote(principal: Principal, input: { side: OtcSide; baseAsset: string; quoteAsset: string; qty: string; makerId?: string }) {
+  async rfqQuote(
+    principal: Principal,
+    input: { side: OtcSide; baseAsset: string; quoteAsset: string; qty: string; makerId?: string; makerIds?: readonly string[] },
+  ) {
     try {
       const quoted = await this.quote(principal, input);
       const stored = await this.store.load(quoted.quoteId);

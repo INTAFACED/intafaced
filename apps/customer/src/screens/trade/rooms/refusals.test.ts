@@ -33,4 +33,16 @@ describe('roomWords: a write that may have gone through is never called unchange
     expect(below.code).toBe('trade.rfq_below_minimum');
     expect(roomWords({ reason: 'error', code: 'trade.rfq_size_not_set' }).title).toBe('The desk minimum is not set');
   });
+  it('shows the provider cap the service names, and plain words for a blank provider list or no pick (CB-otc-01)', () => {
+    const over = roomWords({
+      reason: 'error',
+      code: 'trade.otc_provider_cap',
+      message: 'At most 3 providers can be picked for one request (got 4)',
+    });
+    expect(over.title).toBe('Too many providers');
+    expect(over.body).toBe('At most 3 providers can be picked for one request (got 4). Pick fewer; nothing was priced or held.');
+    expect(over.code).toBe('trade.otc_provider_cap');
+    expect(roomWords({ reason: 'error', code: 'trade.otc_makers_unset' }).title).toBe('No providers set');
+    expect(roomWords({ reason: 'error', code: 'trade.otc_provider_required' }).title).toBe('Pick a provider');
+  });
 });

@@ -71,6 +71,11 @@
       "value": "{\"published\": true, \"spreadBps\": 20, \"minStake\": \"100\", \"counterparty\": \"platform\", \"quoteTtlMs\": 60000, \"maxMidAgeSeconds\": 86400, \"settleWindowMs\": 60000, \"minNotional\": {\"USDT\": \"1000\"}}",
       "note": "TEST quote desk law: 20 bps disclosed spread, a 100 IFC stake floor (J-copy-bots-otc-24 stakes it; one below it is refused), the platform as counterparty, a 60 s firm quote so a journey sees one expire, a reference price trusted for one day (the stack's boot-stamped TEST mid), a 60 s window to settle an accepted quote so a journey sees one close, and a 1000 USDT desk minimum per request (J-copy-bots-otc-24 #4 asks below it and is refused)."
     },
+    "TRADE_OTC_MAKER_DIRECTORY": {
+      "service": "trade",
+      "value": "{\"selectCap\": 3, \"makers\": [{\"id\": \"house\", \"name\": \"House desk (TEST)\", \"route\": \"platform\"}, {\"id\": \"test-lp-1\", \"name\": \"TEST provider 1\", \"route\": \"outside\"}, {\"id\": \"test-lp-2\", \"name\": \"TEST provider 2\", \"route\": \"outside\"}, {\"id\": \"test-lp-3\", \"name\": \"TEST provider 3\", \"route\": \"outside\"}]}",
+      "note": "TEST provider list for the quote desk: the house desk (the platform prices it) and three TEST outside providers, which refuse by name until outside routing exists, with at most 3 picked per request (J-copy-bots-otc-24 #2 picks four and is refused). Not real providers."
+    },
     "TRADE_OTC_MIDS": {
       "service": "trade",
       "value": "BTC/USDT:65000",

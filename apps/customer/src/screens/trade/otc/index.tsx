@@ -6,7 +6,7 @@ import { Freshness, Refusal, WriteNotice } from '../rooms/RoomNotices';
 import { useRoomWriter } from '../rooms/write';
 import { EmptyState, Skeleton, Tabs, TabsList, TabsPanel, TabsTab, useSession } from '../rooms/ui';
 import { otcCopy } from './copy';
-import { useDeskStatus, usePairs, useQuoteBook } from './data';
+import { useDeskStatus, useOtcMakers, usePairs, useQuoteBook } from './data';
 import { DeskStatusStrip } from './DeskStatusStrip';
 import { AllocationTab, ExportTab, RulesTab } from './InfoTabs';
 import { lifecycleOf, operationOf, verdictOf } from './model';
@@ -30,6 +30,8 @@ function Room({ linkedId }: { linkedId: string | null }) {
   const now = useNow(1000);
   const desk = useDeskStatus(api);
   const pairs = usePairs(api);
+  const makers = useOtcMakers(api);
+  const [providers, setProviders] = useState<string[]>([]);
   const [selected, setSelected] = useState<string | null>(linkedId);
   const [tab, setTab] = useState<Tab>('quotes');
   const [checkNote, setCheckNote] = useState<string | null>(null);
@@ -90,6 +92,9 @@ function Room({ linkedId }: { linkedId: string | null }) {
             writer={writer}
             desk={desk}
             pairs={pairs}
+            makers={makers}
+            picked={providers}
+            onPick={setProviders}
             onQuote={(quote) => {
               setKept(book.adopt(quote));
               setSelected(quote.quoteId);
@@ -141,6 +146,7 @@ function Room({ linkedId }: { linkedId: string | null }) {
                   quote={entry.quote}
                   readAt={entry.readAt}
                   now={now}
+                  providers={providers}
                   onCheck={check}
                   onQuote={(quote, options) => {
                     const kept = book.adopt(quote);
