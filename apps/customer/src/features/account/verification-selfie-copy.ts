@@ -35,7 +35,7 @@ export const verificationSelfieCopy = defineCopy('account.verificationSelfie', {
   handoffBroken: 'This link is not complete. Open the whole link from your computer, or make a new one there.',
   handoffUsed: 'This link was already used. Make a new one on your computer.',
   handoffExpired: 'This link has expired. Make a new one on your computer.',
-  handoffUnknown: 'This link is not for the account you are signed in to.',
+  handoffUnknown: 'This link does not work here. Sign in to the account that made it, or make a new link on your computer.',
   capsUnset: 'No size and type limits are published for photos, so a selfie is refused.',
   wrongType: 'A selfie must be a photo. Accepted: {types}.',
   overCap: 'The photo is over the {kib} KiB limit.',
