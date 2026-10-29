@@ -11,7 +11,6 @@ import { addAuthenticator, nextCode } from './identity-factors.mjs';
 // in svc-pay (`local-test-gates.mjs withdraw-terms`): a fixed 1.5 network fee on TEST Ethereum and TEST Base, the fee on
 // top, a 90-second quote, and USDT limits of 1000 a withdrawal and 5000 a day for verified accounts.
 // Steps that are written but not built yet fail at their first missing part, quickly (UNBUILT):
-// - #1: svc-pay has no minimum, maximum, step or tag catalogue per network, and the stack publishes none.
 // - #2's fraud list: nothing screens a destination against one, and the stack lists no TEST address (FRAUD_LISTED).
 // - #6, #4's two parallel sends: svc-pay has no custody signer for any network, so every send out is refused before a claim.
 //   They run after #7, which needs the balance still at 300.
