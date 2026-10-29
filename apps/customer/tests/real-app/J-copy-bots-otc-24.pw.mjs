@@ -292,7 +292,7 @@ test(`${J} #1 asset list unpublished: "Not set" on the strip, the ask refuses tr
 
 // BLOCKED: compliance gates wait for launch prep (owner decision 2026-10-27). This test stays red, by this name, until
 // the desk publishes the regions it refuses (CB-otc-21); it fails at that first missing part, quickly.
-test(`${J} #1 region block (BLOCKED until launch prep, owner decision 2026-10-27): the desk publishes the regions it refuses, and an account in one is refused, nothing kept`, async ({
+test(`${J} #1 region block (BLOCKED until launch prep, owner decision 2026-10-27): the desk publishes the regions it refuses, an account in one sees the banner and is refused, nothing kept`, async ({
   page,
 }) => {
   test.setTimeout(120_000);
@@ -317,6 +317,8 @@ test(`${J} #1 region block (BLOCKED until launch prep, owner decision 2026-10-27
   const before = await client.balances();
   const quotes = await listedQuotes(client);
   await page.goto('/otc');
+  // The account sees the banner naming its region before it asks.
+  await expect(page.getByRole('alert').filter({ hasText: status.blockedRegions[0] })).toContainText('not available in your region');
   expect(await askRefused(page, '0.5')).toBe('trade.otc_region_blocked');
   await expect(page.getByText('trade.otc_region_blocked')).toBeVisible();
   await expect(card(page)).toHaveCount(0);
