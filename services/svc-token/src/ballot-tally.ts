@@ -1,4 +1,4 @@
-import type { Amount } from '@intafaced/ledger-client';
+import { SCALE, type Amount } from '@intafaced/ledger-client';
 
 /**
  * Voting types and their tallies (MC-token-03).
@@ -109,9 +109,6 @@ export function validateBallot(votingType: VotingType, choiceCount: number, ball
   if (sum !== BALLOT_BPS) throw invalid(`The parts add up to ${sum} basis points, not ${BALLOT_BPS}`);
   return { kind: 'split', parts: parts.sort((a, b) => a.choice - b.choice) };
 }
-
-/** One whole token in base units (18 decimals, as the ledger's amounts). */
-const SCALE = 10n ** 18n;
 
 /** Floor of the square root of a non-negative bigint, by Newton's method. No float. */
 export function isqrt(value: bigint): bigint {
