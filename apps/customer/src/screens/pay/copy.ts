@@ -108,7 +108,7 @@ const messages = {
   'Changes left one': 'You can change your handle 1 more time.',
   'Changes left {n}': 'You can change your handle {n} more times.',
   'Changes used up {n}': 'You have changed your handle {n} times, the most allowed.',
-  'Changes not open': 'Changing your handle isn’t open yet: the number of changes allowed hasn’t been set.',
+  'Changes not open': 'Your handle can’t be changed: the number of changes allowed hasn’t been set.',
   'Handle rule characters': 'A handle uses only letters, digits and underscore.',
   'Handle rule length': 'A handle has 3 to 32 characters.',
   'Handle taken': 'Someone already has @{handle}. Pick another.',
