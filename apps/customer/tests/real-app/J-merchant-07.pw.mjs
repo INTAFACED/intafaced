@@ -55,7 +55,7 @@ async function ownerApi() {
 
 /**
  * Puts the business on a TEST tier of its own through the two-founder doors and returns what the founders read back
- * (`tooling/scripts/local-test-merchant-pricing.mjs`). Signing the two TEST operators in can wait out TOTP steps, so it
+ * (`tooling/scripts/local-test-merchant-pricing.mjs`). Signing the two founders in can wait out TOTP steps, so it
  * gets longer than `tool`'s two minutes.
  */
 function merchantPricing(...args) {

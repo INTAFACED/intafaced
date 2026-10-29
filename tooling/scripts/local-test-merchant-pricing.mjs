@@ -10,15 +10,16 @@
  *   --payout-not-charged  the tier publishes its payout fee as not charged; without it the tier publishes none
  *
  * Each change is one founder submitting and a DIFFERENT founder confirming with the hash of the change they were shown
- * (founderAdmin.control.configure.* for the tier and its fee, founderAdmin.changes.* for the move); on this stack the
- * two founders are the two TEST operators. Nothing is written to a table. Each tier belongs to one business (its id
+ * (founderAdmin.control.configure.* for the tier and its fee, founderAdmin.changes.* for the move). The two are the
+ * stack's enrolled LOCAL TEST founders (svc-pay's founder doors accept only identity's founder pair), or the two TEST
+ * operators on a stack without them, the same pair local-test-gates' approverSessions signs in. Nothing is written to a table. Each tier belongs to one business (its id
  * carries the business's id) and stays off the shared ladder (merchantVisible false), so no other account sees it. A
  * run reads the founder views first and only changes what differs, so a second run is a set of noops. Prints JSON.
  *
  * Every figure here is a TEST VALUE for the local stack, not a proposal for a real price or limit.
  */
 import { assertActiveLocalStack } from './local-test-state.mjs';
-import { describeMoneyRefusal, founderChange, operatorPair, populateUuid, trpcData } from './local-test-world.mjs';
+import { describeMoneyRefusal, founderChange, populateUuid, trpcData } from './local-test-world.mjs';
 
 export const PRICING_USAGE = 'usage: local-test-merchant-pricing.mjs <merchantId> --tier priced|blank [--payout-not-charged]';
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -141,6 +142,18 @@ export const tierLayerRequestId = (tierId, expectedVersion) => populateUuid(`jou
 export const tierMoveRequestId = (merchantId, tierId, expectedVersion) =>
   populateUuid(`journey-tier-move-${merchantId}-${tierId}-v${expectedVersion}`);
 
+/**
+ * The pair svc-pay's founder doors accept: the enrolled founders once the stack has them (identity's founder pair),
+ * else the TEST operators. Each session is a plain MFA sign-in, what a founder desk holds.
+ */
+async function founderPair(ctx) {
+  const gates = await import('./local-test-gates.mjs');
+  const gctx = await gates.makeContext({ log: (m) => ctx.log(`merchant pricing founders: ${m}`) });
+  const sessions = await gates.approverSessions(gctx);
+  const side = (letter) => ({ letter, loginToken: sessions[letter].token });
+  return { ok: true, gates, gctx, a: side('a'), b: side('b') };
+}
+
 async function main() {
   const args = pricingArgs(process.argv.slice(2));
   if (!args) {
@@ -153,8 +166,12 @@ async function main() {
     process.exit(3);
   };
   const ctx = { log: (m) => console.error(m) };
-  const pair = await operatorPair(ctx);
-  if (!pair.ok) fail(pair.refusal);
+  let pair;
+  try {
+    pair = await founderPair(ctx);
+  } catch (err) {
+    fail(`the founder pair could not sign in (${err instanceof Error ? err.message : err})`);
+  }
   const read = async (proc, input) => {
     const res = await pair.gctx.edge.query('pay', proc, input, pair.a.loginToken);
     const data = trpcData(res);
