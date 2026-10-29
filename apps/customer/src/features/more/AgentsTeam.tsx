@@ -88,7 +88,12 @@ function TeamRoom({ team, reload }: { team: Team; reload: () => void }) {
   const api = useApi();
   const { Copy, t } = agentsTeamCopy.useCopy();
   const refusalText = useRefusalText();
-  const name = (userId: string) => team.members.find((m) => m.userId === userId)?.label ?? userId;
+  // A member with no name on file reads as their business role; the account ID beside it tells two apart.
+  const memberName = (m: Team['members'][number]) => m.label ?? t(`business_${m.businessRole}`);
+  const name = (userId: string) => {
+    const m = team.members.find((x) => x.userId === userId);
+    return m ? memberName(m) : userId;
+  };
   const roleName = (role: Role) => t(`role_${role}`);
   const [busy, setBusy] = useState(false);
   const [rolesNote, setRolesNote] = useState<{ ok: boolean; text: string } | null>(null);
@@ -140,7 +145,7 @@ function TeamRoom({ team, reload }: { team: Team; reload: () => void }) {
     setBusy(false);
     if (!result.ok) setPoolNote({ ok: false, text: refusalText((result as Refusal).code) });
     else if (!result.data.ok) {
-      const members = result.data.memberUserIds.map((id) => t('allocationFor', { member: name(id) })).join(', ');
+      const members = result.data.memberUserIds.map((id) => t('allocationFor', { member: name(id), account: id })).join(', ');
       setPoolNote({ ok: false, text: t('err_pool_allocation_unset', { members }) });
     } else setPoolNote({ ok: true, text: t('saved') });
     reload();
@@ -189,7 +194,7 @@ function TeamRoom({ team, reload }: { team: Team; reload: () => void }) {
         >
           {team.members.map((m) => (
             <tr key={m.userId}>
-              <th scope="row">{m.label ?? m.userId}</th>
+              <th scope="row">{memberName(m)}</th>
               <td>
                 <code>{m.userId}</code>
               </td>
@@ -281,7 +286,7 @@ function TeamRoom({ team, reload }: { team: Team; reload: () => void }) {
           {team.members.map((m) => (
             <Field
               key={m.userId}
-              label={t('allocationFor', { member: m.label ?? m.userId })}
+              label={t('allocationFor', { member: memberName(m), account: m.userId })}
               inputMode="decimal"
               value={allocations[m.userId] ?? ''}
               disabled={locked}
@@ -335,7 +340,7 @@ function TeamRoom({ team, reload }: { team: Team; reload: () => void }) {
                     setProjectMembers((list) => (e.target.checked ? [...list, m.userId] : list.filter((id) => id !== m.userId)))
                   }
                 />{' '}
-                {m.label ?? m.userId}
+                {t('memberChoice', { member: memberName(m), account: m.userId })}
               </label>
             ))}
           </fieldset>
@@ -352,7 +357,7 @@ function TeamRoom({ team, reload }: { team: Team; reload: () => void }) {
             const projects = team.projects.filter((p) => p.memberUserIds.includes(m.userId));
             return (
               <tr key={m.userId}>
-                <th scope="row">{m.label ?? m.userId}</th>
+                <th scope="row">{memberName(m)}</th>
                 <td>
                   <code>{m.userId}</code>
                 </td>

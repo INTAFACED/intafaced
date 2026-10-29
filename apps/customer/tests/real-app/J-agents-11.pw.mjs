@@ -8,12 +8,13 @@ import { ROOT, toUnits } from './stack.mjs';
 // J-agents-11, in the running app (docs/roadmap/journeys.json): run agents for my team: roles, a shared pool and
 // per-project limits. One test per step, titled "J-agents-11 #<n>", run in order. The start is real: a TEST business
 // owner with a verified business (the stack's founder pair approves it) and two TEST members who accepted the owner's
-// invitations on the business's Team page. The pool total never exceeds its limit; a removed member's allocation stops
-// at the next admission. Limit alerts by email or push show their vendor notice.
-// Every step is written; none is built yet, so each fails at its first missing part, quickly (UNBUILT):
-// - there is no agents Team page, roles, business pool, allocations, project limits or usage by member
-//   (AG-governance-01, AG-usage-02, -03, -04);
-// - #5 needs a member's metered run, and opening a session is refused for a standard account ("agents:execute").
+// invitations on the business's Team page (/pay/team). The agents Team page (/agents/team) reads that team from
+// svc-pay at every call, and keeps roles, the pool and project limits in svc-agents. Members are told apart by their
+// account ID, which the page shows beside each name. No value moves: a pool is a limit, never a balance.
+// Built and proven: #1, #2, #4, #6 and #8. Still failing at their first missing part, quickly (UNBUILT):
+// - #3: agents have no action that waits for an approver, so there is no approval for the four-eyes rule to refuse;
+// - #5: a member's metered run needs a session, and opening one is refused for a standard account ("agents:execute");
+// - #7: every run is billed to the member who runs it, so there is no business usage by member and task.
 const J = 'J-agents-11';
 const agents = agentsRun(J);
 const { totp } = await import(path.join(ROOT, 'services/svc-identity/dist/auth/totp.js'));
@@ -23,6 +24,10 @@ test.describe.configure({ mode: 'default' });
 const main = (page) => page.getByRole('main');
 const members = (page) => tableIn(main(page), 'Members');
 const ROLES = ['Creator', 'Runner', 'Approver', 'Log reader', 'Spend reader'];
+/** A member's row in a table, by the account ID the page shows on it. */
+const rowOf = (table, key) => table.getByRole('row').filter({ hasText: person(key).userId });
+/** A TEST account ID that is on no business team. */
+const NOT_A_MEMBER = '00000000-0000-4000-8000-00000000a911';
 
 /** A person kept in the run file (its authenticator secret is a TEST one), with its code generator put back. */
 function person(key) {
@@ -45,6 +50,15 @@ async function openTeam(page, key = 'owner') {
   await signInAs(page, key, '/agents');
   await page.goto('/agents/team');
   await expect(main(page).getByRole('heading', { name: 'Team', level: 1 })).toBeVisible(UNBUILT);
+  await expect(members(page)).toBeVisible();
+}
+
+/** Ticks one checkbox and waits for the change to be saved and read back. */
+async function tick(page, box) {
+  await box.check();
+  await expect(main(page).getByRole('status').filter({ hasText: 'Saved.' })).toBeVisible();
+  await expect(box).toBeEnabled();
+  await expect(box).toBeChecked();
 }
 
 /** The owner invites `member` to the business by account ID; the member accepts on its own Team page. */
@@ -87,30 +101,33 @@ test(`${J} starts: a TEST business owner with a verified business and two member
   agents.run.reset({ owner: keep(owner), one: keep(one), two: keep(two) });
 });
 
-test(`${J} #1 opens Team and grants the five roles: the roles listed per member; granting to a non-member is refused`, async ({ page }) => {
+test(`${J} #1 opens Team and grants creator, runner, approver, log reader and spend reader roles: the roles listed per member; granting to a non-member is refused`, async ({
+  page,
+}) => {
   await openTeam(page);
-  const one = members(page)
-    .getByRole('row')
-    .filter({ hasText: person('one').handle });
-  for (const role of ROLES) await one.getByRole('checkbox', { name: role }).check();
-  await one.getByRole('button', { name: 'Save roles' }).click();
-  for (const role of ROLES) await expect(one.getByRole('checkbox', { name: role })).toBeChecked();
-  await main(page)
-    .getByRole('textbox', { name: /^Grant to/ })
-    .fill('ag11-not-a-member');
-  await main(page).getByRole('button', { name: 'Grant' }).click();
-  await expect(main(page).getByRole('alert')).toContainText('agents.team.not_a_member');
+  for (const role of ROLES) await tick(page, rowOf(members(page), 'one').getByRole('checkbox', { name: `Allow ${role}` }));
+  // Read again from the services: the five roles are listed on member one's row, and on no one else's.
+  await page.reload();
+  await expect(rowOf(members(page), 'one').getByTestId('effective-roles')).toHaveText(ROLES.join(', '));
+  await expect(rowOf(members(page), 'two').getByTestId('effective-roles')).toHaveText('None');
+  const grant = main(page).getByRole('form', { name: 'Grant a role to an account' });
+  await grant.getByRole('textbox', { name: /^Grant to/ }).fill(NOT_A_MEMBER);
+  await grant.getByRole('button', { name: 'Grant' }).click();
+  await expect(main(page).getByRole('alert')).toContainText('That account is not a member of this business');
+  await page.reload();
+  await expect(members(page).getByRole('row').filter({ hasText: NOT_A_MEMBER })).toHaveCount(0);
 });
 
 test(`${J} #2 gives a member allow runner and deny runner: the effective result is deny`, async ({ page }) => {
   await openTeam(page);
-  const two = members(page)
-    .getByRole('row')
-    .filter({ hasText: person('two').handle });
-  await two.getByRole('combobox', { name: 'Runner' }).selectOption({ label: 'Allow' }, UNBUILT);
-  await two.getByRole('combobox', { name: 'Runner (business-wide)' }).selectOption({ label: 'Deny' });
-  await two.getByRole('button', { name: 'Save roles' }).click();
+  await tick(page, rowOf(members(page), 'two').getByRole('checkbox', { name: 'Allow Runner' }));
+  await tick(page, rowOf(members(page), 'two').getByRole('checkbox', { name: 'Deny Runner' }));
+  await page.reload();
+  const two = rowOf(members(page), 'two');
+  await expect(two.getByRole('checkbox', { name: 'Allow Runner' })).toBeChecked();
+  await expect(two.getByRole('checkbox', { name: 'Deny Runner' })).toBeChecked();
   await expect(two.getByTestId('effective-runner')).toHaveText('Denied');
+  await expect(two.getByTestId('effective-roles')).toHaveText('None');
 });
 
 test(`${J} #3 a creator who also holds approver approves their own agent's action: the four-eyes rule refuses`, async ({ page }) => {
@@ -121,19 +138,26 @@ test(`${J} #3 a creator who also holds approver approves their own agent's actio
   await expect(main(page).getByRole('alert')).toContainText('agents.approval.four_eyes');
 });
 
-test(`${J} #4 creates a business pool and per-member allocations, one left blank: the blank allocation refused by name; the pool shows its limit`, async ({
+test(`${J} #4 creates a business pool and per-member allocations, one left blank: the blank allocation is refused by name; the pool shows its limit`, async ({
   page,
 }) => {
   await openTeam(page);
   const pool = main(page).getByRole('form', { name: 'Business pool' });
-  await pool.getByRole('textbox', { name: /^Pool limit/ }).fill('5', UNBUILT);
-  await pool.getByRole('textbox', { name: new RegExp(`^Allocation for ${person('one').handle}`) }).fill('2');
+  const allocation = (key) => pool.getByRole('textbox', { name: new RegExp(`^Allocation for .*\\(${person(key).userId}\\)`) });
+  await pool.getByRole('textbox', { name: /^Pool limit/ }).fill('5');
+  await allocation('owner').fill('1');
+  await allocation('one').fill('2');
   await pool.getByRole('button', { name: 'Save pool' }).click();
-  await expect(pool.getByRole('alert')).toContainText(`Allocation for ${person('two').handle}`);
-  // Member two's allocation is a TEST hundredth, so one metered run in #5 spends past it.
-  await pool.getByRole('textbox', { name: new RegExp(`^Allocation for ${person('two').handle}`) }).fill('0.01');
+  await expect(pool.getByRole('alert')).toContainText(`(${person('two').userId}) is blank`);
+  await expect(pool.getByRole('alert')).not.toContainText(person('one').userId);
+  await expect(main(page).getByTestId('pool-limit')).toHaveCount(0);
+  // Member two's allocation is a TEST hundredth.
+  await allocation('two').fill('0.01');
   await pool.getByRole('button', { name: 'Save pool' }).click();
+  await expect(pool.getByRole('status')).toHaveText('Saved.');
+  await page.reload();
   await expect(main(page).getByTestId('pool-limit')).toHaveText('5 USDT');
+  await expect(main(page).getByTestId('pool-allocated')).toHaveText('3.01 USDT');
 });
 
 test(`${J} #5 a member spends past their allocation: the next run refuses and the pool total stays within its limit`, async ({ page }) => {
@@ -160,13 +184,16 @@ test(`${J} #5 a member spends past their allocation: the next run refuses and th
 test(`${J} #6 sets a limit for one business project: members of that project are limited and others are not`, async ({ page }) => {
   await openTeam(page);
   const project = main(page).getByRole('form', { name: 'New project' });
-  await project.getByRole('textbox', { name: /^Project name/ }).fill('TEST desk project', UNBUILT);
-  await project.getByRole('checkbox', { name: person('one').handle }).check();
+  await project.getByRole('textbox', { name: /^Project name/ }).fill('TEST desk project');
+  await project.getByRole('checkbox', { name: new RegExp(`\\(${person('one').userId}\\)$`) }).check();
   await project.getByRole('textbox', { name: /^Project limit/ }).fill('1');
   await project.getByRole('button', { name: 'Create project' }).click();
+  await expect(project.getByRole('status')).toHaveText('Saved.');
+  await page.reload();
   const limits = tableIn(main(page), 'Limits by member');
-  await expect(limits.getByRole('row').filter({ hasText: person('one').handle })).toContainText('TEST desk project: 1 USDT');
-  await expect(limits.getByRole('row').filter({ hasText: person('two').handle })).not.toContainText('TEST desk project');
+  await expect(rowOf(limits, 'one')).toContainText('TEST desk project: 1 USDT');
+  await expect(rowOf(limits, 'two')).toContainText('No project limit');
+  await expect(rowOf(limits, 'owner')).toContainText('No project limit');
 });
 
 test(`${J} #7 opens usage analytics by member and task: only members of the business, totals matching sealed windows`, async ({ page }) => {
@@ -179,19 +206,31 @@ test(`${J} #7 opens usage analytics by member and task: only members of the busi
 });
 
 test(`${J} #8 removes a member: their allocation stops applying and their next request fails`, async ({ page }) => {
-  await openTeam(page);
-  await members(page)
-    .getByRole('row')
-    .filter({ hasText: person('two').handle })
-    .getByRole('button', { name: 'Remove' })
-    .click(UNBUILT);
+  // Removal is the business's own: the owner removes member two on the business's Team page.
+  await signInAs(page, 'owner', '/pay/team');
+  await page
+    .getByRole('link', { name: new RegExp(`${person('two').userId.slice(-8)}`) })
+    .first()
+    .click();
+  await page.getByRole('button', { name: 'Remove' }).click();
+  await page.getByRole('dialog').getByRole('button', { name: 'Remove' }).click();
+  await expect(page.getByText('Removed').first()).toBeVisible();
+  await page.goto('/agents/team');
+  await expect(members(page)).toBeVisible();
   await expect(
     members(page)
       .getByRole('row')
-      .filter({ hasText: person('two').handle }),
+      .filter({ hasText: person('two').userId }),
   ).toHaveCount(0);
+  await expect(
+    tableIn(main(page), 'Limits by member')
+      .getByRole('row')
+      .filter({ hasText: person('two').userId }),
+  ).toHaveCount(0);
+  // Two's hundredth no longer counts towards the pool: owner 1 + member one 2.
+  await expect(main(page).getByTestId('pool-allocated')).toHaveText('3 USDT');
   await forgetSession(page);
   await signInAs(page, 'two', '/agents');
   await page.goto('/agents/team');
-  await expect(main(page).getByRole('alert')).toContainText('agents.team.not_a_member');
+  await expect(main(page).getByRole('alert')).toContainText('You are not a member of a business team');
 });
