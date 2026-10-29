@@ -152,6 +152,10 @@ export const appRouter = createIndexerRouter({
     lookup: (hash) => (evmSource ? evmSource.lookupExplorerTx(hash) : Promise.resolve(null)),
   },
   txList: (q) => store.explorerTxList(q),
+  address: {
+    txs: (q) => store.explorerAddressTxs(q),
+    tokensBySymbol: (q) => store.explorerTokensBySymbol(q),
+  },
 });
 export type AppRouter = typeof appRouter;
 

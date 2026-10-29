@@ -4,6 +4,8 @@ import { assertValidBlock, type ChainBlock, type ChainHead, type ChainSource } f
 import { decodeVenueLogs, type RawLog } from './decode.js';
 import { ChainUnavailableError, classifyChainError, isBlockNotFound, isZeroAddress } from './availability.js';
 import { lookupExplorerTx, readBlockTransactions, transactionHashes } from './explorer-txs.js';
+import { TokenMetaReader } from './token-meta.js';
+import { transferOf } from '../../explorer/address.js';
 import { withSpan } from '../../tracing.js';
 
 /**
@@ -189,6 +191,9 @@ export class EvmChainSource implements ChainSource {
    */
   #chainIdVerified = false;
 
+  /** D-explorer-03. Each Transfer emitter's symbol, name and decimals, read once per process. */
+  readonly #tokens: TokenMetaReader;
+
   constructor(config: EvmChainSourceConfig) {
     if (!config.rpcUrl) {
       throw new ChainUnavailableError(
@@ -221,6 +226,7 @@ export class EvmChainSource implements ChainSource {
       // holds the poll interval open while it does.
       transport: http(config.rpcUrl, { timeout: config.requestTimeoutMs ?? 10_000, retryCount: 0 }),
     }) as PublicClient;
+    this.#tokens = new TokenMetaReader(this.client, config.rpcUrl);
   }
 
   /**
@@ -353,6 +359,10 @@ export class EvmChainSource implements ChainSource {
 
     const hashes = transactionHashes(header.transactions, hash, this.rpcUrl);
     const transactions = hashes.length === 0 ? [] : await readBlockTransactions(this.client, hashes, hash, this.rpcUrl);
+    const emitters = [
+      ...new Set(transactions.flatMap((tx) => tx.logs.flatMap((log) => (transferOf(log) ? [log.address.toLowerCase()] : [])))),
+    ];
+    const tokens = emitters.length === 0 ? [] : await this.#tokens.read(emitters, height);
 
     const block: ChainBlock = {
       chainId: this.chainId,
@@ -370,6 +380,7 @@ export class EvmChainSource implements ChainSource {
         size: Number(header.size),
       },
       transactions,
+      tokens,
     };
 
     // The port's own validation, run on this adapter's output. An adapter is

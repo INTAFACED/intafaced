@@ -472,6 +472,128 @@ describe('svc-indexer · PostgresProjectionStore PG-hard', () => {
      * The store is the last line of defence if a second writer or corrupt apply
      * tries to plant an unlinked height.
      */
+    it('D-explorer-03: an address lists what it sent, received and was transferred, canonical only; symbols never merge', async () => {
+      await db.sql`TRUNCATE positions, fills, book_levels, blocks, explorer_tx_seen, explorer_tokens RESTART IDENTITY CASCADE`;
+      const store = new PostgresProjectionStore(db.sql, CHAIN_ID);
+      const zero = `0x${'00'.repeat(32)}`;
+      const [h0, h1, h2, h2b] = ['11', '22', '33', '44'].map((b) => `0x${b.repeat(32)}`) as [string, string, string, string];
+      const me = `0x${'ab'.repeat(20)}`;
+      const other = `0x${'cd'.repeat(20)}`;
+      const tokenA = `0x${'0a'.repeat(20)}`;
+      const tokenB = `0x${'0b'.repeat(20)}`;
+      const word = (address: string) => `0x${'00'.repeat(12)}${address.slice(2)}`;
+      const transferLog = (logIndex: number, token: string, from: string, to: string, amount: bigint) => ({
+        logIndex,
+        address: token,
+        topics: ['0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef', word(from), word(to)],
+        data: `0x${amount.toString(16).padStart(64, '0')}`,
+      });
+      const chainTx = (hash: string, index: number, from: string, to: string | null, logs: ChainTx['logs'] = []): ChainTx => ({
+        hash,
+        index,
+        from,
+        to,
+        valueWei: 0n,
+        nonce: index,
+        gasLimit: 21_000n,
+        gasPriceWei: null,
+        gasConsumed: 21_000n,
+        status: 'success',
+        revertReason: null,
+        input: '0x',
+        createdContract: null,
+        logs,
+      });
+      const sent = `0x${'a1'.repeat(32)}`;
+      const received = `0x${'a2'.repeat(32)}`;
+      const transferredIn = `0x${'a3'.repeat(32)}`;
+      const unrelated = `0x${'a4'.repeat(32)}`;
+      const orphanOnly = `0x${'a5'.repeat(32)}`;
+      // An ERC-721 Transfer has the same topic and a fourth one: not an ERC-20 transfer.
+      const nft = {
+        ...transferLog(2, tokenB, other, me, 0n),
+        topics: [...transferLog(2, tokenB, other, me, 0n).topics, word(other)],
+        data: '0x',
+      };
+      const tokens = [
+        { address: tokenA, symbol: 'SAME', name: 'First', decimals: 6 },
+        { address: tokenB, symbol: 'same', name: 'Second', decimals: null },
+      ];
+      await store.applyBlock({ chainId: CHAIN_ID, height: 0, hash: h0, parentHash: zero, timestamp: 1_700_000_000, events: [] });
+      await store.applyBlock({
+        chainId: CHAIN_ID,
+        height: 1,
+        hash: h1,
+        parentHash: h0,
+        timestamp: 1_700_000_001,
+        events: [],
+        transactions: [
+          chainTx(sent, 0, me, other),
+          chainTx(received, 1, other, me),
+          chainTx(transferredIn, 2, other, tokenA, [
+            transferLog(0, tokenA, other, me, 2n ** 200n),
+            transferLog(1, tokenA, other, other, 5n),
+            nft,
+          ]),
+          chainTx(unrelated, 3, other, other),
+        ],
+        tokens,
+      });
+      await store.applyBlock({
+        chainId: CHAIN_ID,
+        height: 2,
+        hash: h2,
+        parentHash: h1,
+        timestamp: 1_700_000_002,
+        events: [],
+        transactions: [chainTx(orphanOnly, 0, me, other)],
+        // A later read of the same contract never overwrites its first answers.
+        tokens: [{ address: tokenA, symbol: 'CHANGED', name: null, decimals: null }],
+      });
+      await store.unwindTo(2);
+      await store.applyBlock({
+        chainId: CHAIN_ID,
+        height: 2,
+        hash: h2b,
+        parentHash: h1,
+        timestamp: 1_700_000_003,
+        events: [],
+        transactions: [],
+      });
+
+      const all = await store.explorerAddressTxs({ address: me.toUpperCase().replace('0X', '0x'), limit: 10 });
+      expect(all.map((row) => row.hash)).toEqual([transferredIn, received, sent]);
+      expect(all[0]?.transfers).toEqual([
+        { token: { address: tokenA, symbol: 'SAME', name: 'First', decimals: 6 }, from: other, to: me, amount: 2n ** 200n },
+      ]);
+      expect(all[1]?.transfers).toEqual([]);
+
+      const first = await store.explorerAddressTxs({ address: me, limit: 1 });
+      expect(first.map((row) => row.hash)).toEqual([transferredIn, received]);
+      const next = await store.explorerAddressTxs({ address: me, limit: 1, cursor: { height: 1, index: 1, hash: received } });
+      expect(next.map((row) => row.hash)).toEqual([sent]);
+
+      const same = await store.explorerTokensBySymbol({ symbol: 'Same', limit: 10 });
+      expect(same).toEqual(tokens);
+      expect(await store.explorerTokensBySymbol({ symbol: 'SAME', limit: 1 })).toHaveLength(2);
+      const [transfers] = await db.sql<
+        Array<{ n: number }>
+      >`SELECT COUNT(*)::int AS n FROM explorer_transfers WHERE chain_id = ${CHAIN_ID}`;
+      expect(transfers?.n).toBe(2);
+
+      // The migration copies transfers already stored before it, from their logs, with the full uint256 amount.
+      await db.sql`DELETE FROM explorer_transfers`;
+      const migration = migrations[migrationFiles.findIndex((f) => f.startsWith('0003_'))] as string;
+      await db.sql.unsafe(rewriteSchemaSql(migration, 'indexer', db.schema));
+      const copied = await db.sql<Array<{ log_index: number; amount: string; to_address: string }>>`
+        SELECT log_index, amount::text AS amount, to_address FROM explorer_transfers WHERE tx_hash = ${transferredIn} ORDER BY log_index
+      `;
+      expect(copied).toEqual([
+        { log_index: 0, amount: (2n ** 200n).toString(), to_address: me },
+        { log_index: 1, amount: '5', to_address: other },
+      ]);
+    });
+
     it('refuses parent mismatch and height gaps without moving head', async () => {
       await db.sql`TRUNCATE positions, fills, book_levels, blocks RESTART IDENTITY CASCADE`;
       const store = new PostgresProjectionStore(db.sql, CHAIN_ID);
@@ -701,6 +823,8 @@ describe('svc-indexer · PostgresProjectionStore PG-hard', () => {
         'blocks',
         'book_levels',
         'explorer_block_facts',
+        'explorer_tokens',
+        'explorer_transfers',
         'explorer_tx_logs',
         'explorer_tx_seen',
         'explorer_txs',
