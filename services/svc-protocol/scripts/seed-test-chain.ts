@@ -69,9 +69,19 @@ async function assertStandIn(publicClient: ReturnType<typeof clients>['publicCli
   return version;
 }
 
+/**
+ * After the seed, blocks come once a second, as on a real network, instead of one per transaction: a swap then reads
+ * submitted, confirming and filled in turn. Seeding itself runs on automine so it takes about a second.
+ */
+async function mineOnInterval(publicClient: ReturnType<typeof clients>['publicClient']) {
+  await publicClient.request({ method: 'evm_setAutomine', params: [false] } as never);
+  await publicClient.request({ method: 'evm_setIntervalMining', params: [1] } as never);
+}
+
 async function seed(out: string) {
   const { publicClient, walletClient, account } = clients();
   const version = await assertStandIn(publicClient);
+  await publicClient.request({ method: 'evm_setAutomine', params: [true] } as never);
   // Seeded already (the chain kept running across a stack restart): the record still names what is on the node.
   if (existsSync(out)) {
     const record = JSON.parse(readFileSync(out, 'utf8')) as { factory: Address; tokens: typeof TEST_TOKENS };
@@ -80,6 +90,7 @@ async function seed(out: string) {
       publicClient.getCode({ address: record.tokens.A.address }),
     ]);
     if (factoryCode && factoryCode !== '0x' && tokenCode && tokenCode !== '0x') {
+      await mineOnInterval(publicClient);
       console.log(`already seeded: factory ${record.factory}`);
       return;
     }
@@ -176,6 +187,7 @@ async function seed(out: string) {
     test: true,
   };
   writeFileSync(out, `${JSON.stringify(record, null, 2)}\n`);
+  await mineOnInterval(publicClient);
   console.log(`seeded: factory ${factory}, router ${router}, ${seeded.length} TEST pools`);
 }
 
