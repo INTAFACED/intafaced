@@ -128,10 +128,10 @@ export async function postRuleAction<T>(body: Record<string, unknown>): Promise<
   }
 }
 
-/** Every rule name's latest revision, or null when the library could not be read. */
-export async function fetchRuleLibrary<T>(): Promise<RuleAnswer<T>> {
+/** A rule door's GET answer: the data, or the service's own sentence and code. */
+async function readAnswer<T>(url: string, unreadable: string): Promise<RuleAnswer<T>> {
   try {
-    const res = await fetch('/api/more-ops/campaigns?rules=library', { cache: 'no-store', credentials: 'same-origin' });
+    const res = await fetch(url, { cache: 'no-store', credentials: 'same-origin' });
     const answer: unknown = await res.json().catch(() => null);
     if (isRecord(answer) && answer.ok === true && 'data' in answer) return answer as unknown as RuleAnswer<T>;
     if (isRecord(answer) && typeof answer.title === 'string' && typeof answer.body === 'string')
@@ -144,6 +144,16 @@ export async function fetchRuleLibrary<T>(): Promise<RuleAnswer<T>> {
       };
     return ruleUnknown('The console answered in a shape it does not understand.');
   } catch {
-    return ruleUnknown('The rule library could not be read.');
+    return ruleUnknown(unreadable);
   }
+}
+
+/** Every rule name's latest revision, or null when the library could not be read. */
+export async function fetchRuleLibrary<T>(): Promise<RuleAnswer<T>> {
+  return readAnswer<T>('/api/more-ops/campaigns?rules=library', 'The rule library could not be read.');
+}
+
+/** A voucher campaign's vouchers, oldest first (J-campaigns-16 #9). */
+export async function fetchVouchers<T>(campaignId: string): Promise<RuleAnswer<T>> {
+  return readAnswer<T>(`/api/more-ops/campaigns?vouchers=${encodeURIComponent(campaignId)}`, 'The vouchers could not be read.');
 }

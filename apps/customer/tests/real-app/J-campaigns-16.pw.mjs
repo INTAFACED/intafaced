@@ -1,3 +1,6 @@
+import { spawnSync } from 'node:child_process';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { test, expect } from '@playwright/test';
 import { ADMIN, founderSignIn } from './admin.mjs';
 import { signIn, signUp, verify } from './desk.mjs';
@@ -45,7 +48,26 @@ test(`${J} #1 opens the campaigns desk with none: the overview with honest empty
   await openDesk(page);
   const overview = page.getByRole('region', { name: 'Overview' });
   await expect(overview).toBeVisible();
-  for (const figure of await overview.getByRole('definition').all()) await expect(figure).toHaveText(/^(\d[\d.,]*|None yet|Not set)$/);
+  // No sample number: each figure is the count of the campaigns the desk lists in that state, and a state with none says
+  // "None yet". A stack with no campaign shows every figure as none, and the overview says so.
+  const states = await campaigns(page)
+    .getByTestId('campaign-state')
+    .evaluateAll((chips) => chips.map((c) => c.dataset.state));
+  const count = (...these) => states.filter((s) => these.includes(s)).length;
+  const expected = [
+    ['Campaigns', states.length],
+    ['Drafts', count('draft')],
+    ['Waiting for approval', count('pending_approval')],
+    ['Approved, not live yet', count('approved')],
+    ['Live or scheduled', count('scheduled', 'active', 'paused')],
+    ['Ended', count('ended', 'closed')],
+  ];
+  await expect(overview.getByRole('term')).toHaveText(expected.map(([label]) => label));
+  await expect(overview.getByRole('definition')).toHaveText(expected.map(([, n]) => (n === 0 ? 'None yet' : String(n))));
+  if (states.length === 0) {
+    await expect(overview.getByTestId('campaigns-overview-empty')).toHaveText(/^No campaign exists yet\./);
+    await expect(page.getByTestId('campaigns-all')).toContainText('No campaign yet.');
+  }
 });
 
 test(`${J} #2 starts the builder, leaves and returns: the draft resumes at the same step, and a second draft leaves the first listed`, async ({
@@ -139,13 +161,31 @@ test(`${J} #4 builds a rule with nested AND and OR, tests it on a fixture accoun
 test(`${J} #5 defines participation exclusions and a region list: a blank region list refuses activation`, async ({ page }) => {
   await openDraft(page);
   await builder(page).getByRole('tab', { name: 'Who can take part' }).click(UNBUILT);
-  await expect(page.getByRole('group', { name: 'Exclusions' })).toBeVisible();
+  const exclusions = page.getByRole('group', { name: 'Exclusions' });
+  await exclusions.getByRole('checkbox', { name: 'Business accounts' }).check();
+  await builder(page).getByRole('radio', { name: 'Every region except a restricted list' }).check();
+  await builder(page).getByRole('textbox', { name: 'Restricted regions' }).fill('');
+  await builder(page).getByRole('button', { name: 'Next' }).click();
+  await expect(builder(page).getByRole('tab', { name: 'Rules', exact: true })).toHaveAttribute('aria-selected', 'true');
+  // The blank region list refuses activation by its own code.
   await page.getByRole('button', { name: 'Ask to activate' }).click();
-  await expect(builder(page).getByRole('alert')).toContainText('The region list is not set');
+  await expect(
+    builder(page).getByRole('alert').getByRole('listitem').filter({ hasText: 'The region list is not set (campaigns.region_list_unset)' }),
+  ).toHaveCount(1);
+  await expect(page.getByTestId('campaign-state')).not.toHaveText('Waiting for approval');
   // The step defines the region list too, so the draft can go live in #7.
+  await builder(page).getByRole('tab', { name: 'Who can take part' }).click();
   await builder(page).getByRole('textbox', { name: 'Restricted regions' }).fill('KP');
   await builder(page).getByRole('button', { name: 'Next' }).click();
   await expect(builder(page).getByRole('tab', { name: 'Rules', exact: true })).toHaveAttribute('aria-selected', 'true');
+  // Both are saved on the draft: a fresh load shows them.
+  await page.reload();
+  await builder(page).getByRole('tab', { name: 'Who can take part' }).click();
+  await expect(exclusions.getByRole('checkbox', { name: 'Business accounts' })).toBeChecked();
+  await expect(exclusions.getByRole('checkbox', { name: 'Institutional accounts' })).not.toBeChecked();
+  await expect(builder(page).getByRole('textbox', { name: 'Restricted regions' })).toHaveValue('KP');
+  await builder(page).getByRole('button', { name: 'Check the draft' }).click();
+  await expect(page.getByRole('list', { name: 'Still missing' })).not.toContainText('Region list');
 });
 
 test(`${J} #6 adds an earning rule with a trigger, condition and fixed incentive: one intent per event; a formula outside the grammar and an unknown trigger refuse`, async ({
@@ -198,13 +238,22 @@ test(`${J} #7 sets the time frame, budget and limits and requests activation: ea
 }) => {
   await openDraft(page);
   await page.getByRole('button', { name: 'Ask to activate' }).click(UNBUILT);
-  await expect(builder(page).getByRole('alert')).toContainText(/campaigns\.\w+_unset/);
+  // Each blank of this step is its own line with its own code.
+  const blanks = builder(page).getByRole('alert').getByRole('listitem');
+  for (const line of [
+    'The budget is not set (campaigns.budget_unset)',
+    'The time frame is not set (campaigns.time_frame_unset)',
+    'The time zone is not set (campaigns.timezone_unset)',
+    'The reward per person is not set (campaigns.reward_unset)',
+  ])
+    await expect(blanks.filter({ hasText: line })).toHaveCount(1);
+  await expect(page.getByTestId('campaign-state')).toHaveText('Draft');
   await builder(page).getByRole('tab', { name: 'Budget and time' }).click();
   await builder(page).getByLabel('Starts').fill('2026-11-01T00:00');
   await builder(page).getByLabel('Ends').fill('2026-11-30T23:59');
   await builder(page).getByRole('combobox', { name: 'Time zone' }).selectOption('UTC');
   await builder(page).getByRole('textbox', { name: 'Budget, USDT' }).fill('100');
-  await builder(page).getByRole('textbox', { name: 'Per person limit' }).fill('1');
+  await builder(page).getByRole('textbox', { name: 'Reward per person' }).fill('1');
   await page.getByRole('button', { name: 'Ask to activate' }).click();
   await expect(page.getByTestId('campaign-state')).toHaveText('Waiting for approval');
 });
@@ -216,34 +265,119 @@ test(`${J} #8 the requester tries to approve and a second founder approves: the 
   await openDraft(page);
   await page.getByRole('button', { name: 'Approve' }).click(UNBUILT);
   await expect(builder(page).getByRole('alert')).toContainText('You asked for this, so another founder must approve it.');
+  await expect(builder(page).getByRole('alert')).toHaveAttribute('data-code', 'campaigns.second_person_required');
+  // The refused approval changed nothing: the campaign still waits for a second founder.
+  await page.reload();
+  await expect(page.getByTestId('campaign-state')).toHaveText('Waiting for approval');
   const second = await (await browser.newContext()).newPage();
   await openDesk(second, 'b');
   await campaigns(second).getByRole('link', { name: draftName(), exact: true }).click();
   await second.getByRole('button', { name: 'Approve' }).click();
   await expect(second.getByRole('status')).toContainText(/Approved revision \d+/);
+  const approved = Number((await second.getByRole('status').textContent())?.match(/Approved revision (\d+)/)?.[1]);
   await second.context().close();
+  // The approval is of that revision only: an edit after it is the next revision, a draft, and the approved one stays.
+  await page.reload();
+  await expect(page.getByTestId('campaign-revision')).toHaveText(`Revision ${approved}`);
+  await builder(page).getByRole('tab', { name: 'Budget and time' }).click();
+  await builder(page).getByRole('textbox', { name: 'Budget, USDT' }).fill('90');
+  await builder(page).getByRole('button', { name: 'Next' }).click();
+  await expect(page.getByTestId('campaign-pending')).toContainText(`Revision ${approved + 1}, a draft`);
+  await expect(page.getByTestId('campaign-revision')).toHaveText(`Revision ${approved}`);
 });
 
 test(`${J} #9 edits the active campaign: a new revision; earlier vouchers keep the old one; archiving an active campaign is refused`, async ({
   page,
-}) => {
-  await openDraft(page);
-  await expect(page.getByTestId('campaign-revision')).toHaveText(/Revision \d+/, UNBUILT);
-  const live = (await page.getByTestId('campaign-revision').textContent()) ?? '';
+  browser,
+}, testInfo) => {
+  test.setTimeout(150_000);
+  // The journey's own draft goes live only on its start date, so this step runs on a TEST voucher campaign the two founders
+  // take live now through svc-campaigns' operator doors (as #6's second test), with a reward of 5 USDT per person.
+  const name = `TEST vouchers ${Date.now().toString(36)}r${testInfo.retry}`;
+  const made = await liveCampaign(name, { type: 'voucher', earning: [] });
+  const tag = made.id.slice(-6).toUpperCase();
+  const [first, second] = [`EARLY-${tag}`, `LATER-${tag}`];
+  await openDesk(page);
+  await campaigns(page).getByRole('link', { name, exact: true }).click(UNBUILT);
+  await expect(page.getByTestId('campaign-state')).toHaveText('Active');
+  await expect(page.getByTestId('campaign-revision')).toHaveText('Revision 1');
+  const vouchers = page.getByTestId('campaign-vouchers');
+  await expect(vouchers.getByTestId('vouchers-empty')).toHaveText('No voucher issued yet.', UNBUILT);
+  const issue = async (code) => {
+    await vouchers.getByLabel('Voucher code').fill(code);
+    await vouchers.getByRole('button', { name: 'Issue a voucher' }).click();
+  };
+  // A voucher issued now is published under the live revision, with that revision's reward as its face value.
+  await issue(first);
+  await expect(vouchers.getByRole('status')).toHaveText(`Issued voucher ${first} under revision 1: 5 USDT.`);
+  const row = (code) => vouchers.getByRole('table', { name: 'Vouchers' }).getByRole('row').filter({ hasText: code }).getByRole('cell');
+  await expect(row(first)).toHaveText([first, 'Revision 1', '5 USDT', 'published', /.+/, /UTC/]);
+
   // The edit is the next revision beside the live one, which stays live until another founder approves it.
   await builder(page).getByRole('tab', { name: 'Budget and time' }).click();
-  await builder(page).getByRole('textbox', { name: 'Per person limit' }).fill('2');
+  await builder(page).getByRole('textbox', { name: 'Reward per person' }).fill('7');
   await builder(page).getByRole('button', { name: 'Next' }).click();
-  await expect(page.getByTestId('campaign-pending')).toContainText(/Revision \d+, a draft/);
-  await expect(page.getByTestId('campaign-revision')).toHaveText(live);
+  await expect(page.getByTestId('campaign-pending')).toContainText('Revision 2, a draft');
+  await page.getByRole('button', { name: 'Ask to activate' }).click();
+  // Each saved edit is the next revision number; the one asked for is the one another founder approves.
+  await expect(page.getByTestId('campaign-pending')).toContainText(/Revision \d+, waiting for another founder/);
+  const asked = Number((await page.getByTestId('campaign-pending').textContent())?.match(/Revision (\d+)/)?.[1]);
+  expect(asked).toBeGreaterThan(1);
+  await expect(page.getByTestId('campaign-revision')).toHaveText('Revision 1');
+
+  const b = await (await browser.newContext()).newPage();
+  await openDesk(b, 'b');
+  await campaigns(b).getByRole('link', { name, exact: true }).click();
+  await b.getByRole('button', { name: 'Approve' }).click();
+  await expect(builder(b).getByRole('status')).toContainText(`Approved revision ${asked}. It replaces revision 1 as the live one.`);
+  await b.context().close();
+
+  // The new revision is live; the voucher issued under revision 1 keeps it and its 5 USDT; one issued now takes 7 USDT.
+  await page.reload();
+  await expect(page.getByTestId('campaign-revision')).toHaveText(`Revision ${asked}`);
+  await expect(page.getByTestId('campaign-state')).toHaveText('Active');
+  await expect(row(first)).toHaveText([first, 'Revision 1', '5 USDT', 'published', /.+/, /UTC/]);
+  await issue(second);
+  await expect(vouchers.getByRole('status')).toHaveText(`Issued voucher ${second} under revision ${asked}: 7 USDT.`);
+  await expect(row(second)).toHaveText([second, `Revision ${asked}`, '7 USDT', 'published', /.+/, /UTC/]);
+  await expect(row(first)).toHaveText([first, 'Revision 1', '5 USDT', 'published', /.+/, /UTC/]);
+
+  // Archiving the active campaign is refused, and it stays active.
   await page.getByRole('button', { name: 'Archive' }).click();
   await expect(builder(page).getByRole('alert')).toContainText('An active campaign cannot be archived');
+  await expect(builder(page).getByRole('alert')).toHaveAttribute('data-code', 'campaign.archive_active');
+  await page.reload();
+  await expect(page.getByTestId('campaign-state')).toHaveText('Active');
 });
 
 test(`${J} #10 opens the calendar: all campaigns by time`, async ({ page }) => {
   await openDesk(page);
   await page.getByRole('tab', { name: 'Calendar' }).click(UNBUILT);
-  await expect(page.getByRole('grid', { name: 'Campaign calendar' })).toBeVisible();
+  const calendar = page.getByRole('grid', { name: 'Campaign calendar' });
+  await expect(calendar).toBeVisible();
+  // The journey's campaign is there with the time frame #7 set, and every campaign is in order of its start.
+  const entry = calendar.getByTestId('campaign-calendar-entry').filter({ hasText: draftName() });
+  await expect(entry.getByRole('gridcell')).toHaveText([
+    '1 Nov 2026, 00:00:00 UTC',
+    '30 Nov 2026, 23:59:00 UTC',
+    draftName(),
+    /Approved|Scheduled|Active/,
+  ]);
+  const starts = await calendar
+    .getByTestId('campaign-calendar-entry')
+    .evaluateAll((rows) => rows.map((r) => Date.parse(r.cells[0].textContent.replace(',', ''))));
+  expect(starts.length).toBeGreaterThan(0);
+  expect(starts.every(Number.isFinite)).toBe(true);
+  expect(starts).toEqual([...starts].sort((a, b) => a - b));
+  // All campaigns: each one svc-campaigns holds with a time frame (and not archived) is on the calendar exactly once,
+  // and the calendar shows nothing else. The service's list is its newest 200, so the stack must hold fewer.
+  const held = await opsCampaigns();
+  expect(held.length, 'svc-campaigns lists its newest 200: the comparison needs fewer campaigns on the stack').toBeLessThan(200);
+  const timed = held.filter((c) => c.state !== 'archived' && c.startsAt && c.endsAt).map((c) => c.id);
+  expect(timed.length).toBeGreaterThan(0);
+  const shown = await calendar.getByTestId('campaign-calendar-entry').evaluateAll((rows) => rows.map((r) => r.dataset.campaignId));
+  expect(new Set(shown).size).toBe(shown.length);
+  expect([...shown].sort()).toEqual([...timed].sort());
 });
 
 // #6's other half: the rule pays one reward per event. The journey's own draft only goes live on its start date, so this
@@ -259,7 +393,8 @@ const reply = (res, what) => {
   return row;
 };
 
-async function liveEarningCampaign(name) {
+/** A TEST campaign A creates and asks for, B approves and A activates now; `extra` replaces fields of the definition. */
+async function liveCampaign(name, extra = {}) {
   gates ??= await import('../../../../tooling/scripts/local-test-gates.mjs');
   ctx ??= await gates.makeContext({ log: () => {} });
   pair ??= await gates.approverSessions(ctx);
@@ -275,6 +410,7 @@ async function liveEarningCampaign(name) {
     budget: { asset: 'USDT', limit: '100' },
     reward: { asset: 'USDT', amount: '5' },
     earning: [{ name: 'Deposit reward', trigger: 'pay.deposit_credit.posted', minAmount: '10', formula: '1' }],
+    ...extra,
   };
   const made = reply(await ctx.edge.mutate('campaigns', 'ops.campaigns.create', definition, a), 'ops.campaigns.create');
   reply(await ctx.edge.mutate('campaigns', 'ops.campaigns.transition', { id: made.id, action: 'submit', revision: 1 }, a), 'submit');
@@ -285,6 +421,14 @@ async function liveEarningCampaign(name) {
   );
   expect(live.state).toBe('active');
   return live;
+}
+
+/** Every campaign svc-campaigns holds, as its operator list answers founder A (newest 200). */
+async function opsCampaigns() {
+  gates ??= await import('../../../../tooling/scripts/local-test-gates.mjs');
+  ctx ??= await gates.makeContext({ log: () => {} });
+  pair ??= await gates.approverSessions(ctx);
+  return reply(await ctx.edge.query('campaigns', 'ops.campaigns.list', undefined, await pair.a.campaignsOpsToken()), 'ops.campaigns.list');
 }
 
 /** The customer's TEST Ethereum USDT deposit address, read on Deposit as a person reads it. */
@@ -298,16 +442,58 @@ async function depositAddress(page) {
   return (await page.getByTestId('deposit-address').locator('strong[data-testid="numeric"]').innerText()).trim();
 }
 
+/**
+ * The same deposit event delivered to svc-campaigns twice more: the customer's newest pay.deposit_credit.posted on the
+ * stack's bus, published again with its payload unchanged (same deposit id). Each copy gets a new envelope key, so the bus
+ * does not drop it as its own duplicate and the consumer is what must hold. Returns the payload.
+ */
+function redeliverDeposit(userId) {
+  const code = `
+    import { connect } from 'nats';
+    import { EVENT_CATALOG, JetStreamEventBus, decodeEnvelope, streamName } from '@intafaced/events';
+    const { NATS_URL: servers, NATS_STREAM_PREFIX: prefix, USER_ID: userId } = process.env;
+    const subject = EVENT_CATALOG.payDepositCreditPosted.subject;
+    const nc = await connect({ servers });
+    const jsm = await nc.jetstreamManager();
+    const stream = streamName('pay', prefix);
+    const { state } = await jsm.streams.info(stream);
+    let payload;
+    for (let seq = state.last_seq; seq >= state.first_seq && !payload; seq -= 1) {
+      const m = await jsm.streams.getMessage(stream, { seq }).catch(() => null);
+      if (m?.subject !== subject) continue;
+      const env = decodeEnvelope(m.data);
+      if (env.payload.userId === userId) payload = env.payload;
+    }
+    await nc.close();
+    if (!payload) throw new Error('no ' + subject + ' for ' + userId + ' in ' + stream);
+    const bus = await JetStreamEventBus.connect({ servers, producer: 'svc-pay', streamPrefix: prefix });
+    for (const n of [1, 2]) {
+      await bus.publish('payDepositCreditPosted', payload, { idempotencyKey: payload.depositId + ':again:' + n + ':' + Date.now() });
+    }
+    await bus.close();
+    console.log(JSON.stringify(payload));`;
+  const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../..');
+  const r = spawnSync(process.execPath, ['--input-type=module', '-e', code], {
+    cwd: path.join(root, 'packages', 'events'),
+    env: { ...process.env, NATS_URL: 'nats://127.0.0.1:14232', NATS_STREAM_PREFIX: 'LOCAL_TEST', USER_ID: userId },
+    encoding: 'utf8',
+    timeout: 60_000,
+  });
+  if (r.status !== 0) throw new Error(`delivering the deposit event again failed: ${(r.stderr || r.stdout).slice(0, 500)}`);
+  return JSON.parse(r.stdout.trim().split('\n').at(-1));
+}
+
 test(`${J} #6 the earning rule gives one intent per event: a deposit the chain delivers three times shows one reward, a second deposit a second`, async ({
   browser,
 }, testInfo) => {
   test.setTimeout(240_000);
-  const campaign = await liveEarningCampaign(`TEST earning ${Date.now().toString(36)}r${testInfo.retry}`);
+  const campaign = await liveCampaign(`TEST earning ${Date.now().toString(36)}r${testInfo.retry}`);
   const page = await (await browser.newContext()).newPage();
   const who = await signUp(page, 'c16');
   await verify(page, who);
   await signIn(page, who);
-  const joined = await (await api(who)).post('/api/campaigns/trpc/participation.join', { campaignId: campaign.id });
+  const customer = await api(who);
+  const joined = await customer.post('/api/campaigns/trpc/participation.join', { campaignId: campaign.id });
   expect(joined.body?.result?.data?.participation, JSON.stringify(joined.body).slice(0, 300)).toBeTruthy();
 
   const address = await depositAddress(page);
@@ -326,6 +512,20 @@ test(`${J} #6 the earning rule gives one intent per event: a deposit the chain d
   }).toPass({ timeout: 60_000 });
   await expect(rows.getByTestId('reward-amount')).toContainText('1 USDT');
   // A moment later it is still the one reward: the second and third delivery gave nothing.
+  await page.reload();
+  await expect(rows).toHaveCount(1);
+  // The same event reaches svc-campaigns twice more on the bus (the chain's repeats may stop upstream): still one reward.
+  const event = redeliverDeposit(customer.userId);
+  expect(event).toMatchObject({ userId: customer.userId, assetId: 'USDT', amount: '20' });
+  await expect(async () => {
+    const info = await fetch('http://127.0.0.1:18232/jsz?consumers=true').then((r) => r.json());
+    const consumer = info.account_details
+      ?.flatMap((a) => a.stream_detail ?? [])
+      .flatMap((st) => st.consumer_detail ?? [])
+      .find((c) => c.name === 'campaigns-earn-deposit-credited');
+    expect(consumer?.num_pending ?? -1).toBe(0);
+    expect(consumer?.num_ack_pending ?? -1).toBe(0);
+  }).toPass({ timeout: 30_000 });
   await page.reload();
   await expect(rows).toHaveCount(1);
 

@@ -8,6 +8,7 @@ import {
   describeSchedule,
   emptyControlForm,
   formFromControl,
+  lifecycleMoves,
   parseControlList,
   parseControlRun,
   runInstant,
@@ -15,6 +16,7 @@ import {
   type ControlForm,
 } from './reconciliation';
 import { CONTROL_ID, controlView, runView } from './reconciliation-fixtures.test-util';
+import { updateReconciliationControlInputSchema } from '@intafaced/contracts/ledger-reconciliation';
 
 const REASON = 'LOCAL TEST define the USDT floor control';
 const form = (extra: Partial<ControlForm> = {}): ControlForm => ({ ...emptyControlForm(), assetId: 'USDT', reason: REASON, ...extra });
@@ -123,6 +125,25 @@ describe('reading svc-ledger', () => {
     expect(line).toContain('outside unset');
     expect(line).toContain('Outside side: unset');
   });
+  it('a run lists each asset’s evidence, and an ERROR names its code and phase', () => {
+    const fail = describeRun(
+      runView({
+        status: 'FAIL',
+        assets: [{ assetId: 'USDT', observed: '5', expected: '100', difference: '-95', tolerance: '0' }],
+      }),
+    );
+    expect(fail).toContain('FAIL');
+    expect(fail).toContain('USDT: observed 5, expected 100, difference -95, tolerance 0.');
+    const error = describeRun(
+      runView({
+        status: 'ERROR',
+        errorCode: { status: 'set', value: 'ledger.read_failed' },
+        phase: { status: 'set', value: 'read' },
+        assets: [],
+      }),
+    );
+    expect(error).toContain('Error: ledger.read_failed at read.');
+  });
   it('schedules are UTC and a dynamic account set says it is matched at each run', () => {
     expect(describeSchedule(controlView())).toBe('Daily at 06:30 UTC');
     expect(describeSchedule(controlView({ schedule: { status: 'unset' } }))).toBe('Not set');
@@ -138,5 +159,33 @@ describe('reading svc-ledger', () => {
     ])
       expect(controlRefusal(code, 412)).not.toContain('refused (412)');
     expect(controlRefusal('something.else', 418)).toBe('The step was refused (418).');
+  });
+});
+
+describe('pause, resume and retire', () => {
+  const REASON_LC = 'LOCAL TEST pause while the rail is down';
+  it('offers only the moves svc-ledger accepts from each state, and none on a built-in', () => {
+    expect(lifecycleMoves(controlView({ state: 'draft' }))).toEqual(['retire']);
+    expect(lifecycleMoves(controlView({ state: 'active' }))).toEqual(['pause', 'retire']);
+    expect(lifecycleMoves(controlView({ state: 'paused' }))).toEqual(['resume', 'retire']);
+    expect(lifecycleMoves(controlView({ state: 'retired' }))).toEqual([]);
+    expect(lifecycleMoves(controlView({ builtin: true }))).toEqual([]);
+  });
+  it('a move travels alone, and only with the two-founder approval it spends', () => {
+    const base = { controlId: CONTROL_ID, reason: REASON_LC, lifecycle: 'pause' } as const;
+    expect(updateReconciliationControlInputSchema.safeParse({ ...base, approvalId: 'a', operationId: 'o' }).success).toBe(true);
+    expect(updateReconciliationControlInputSchema.safeParse(base).success).toBe(false);
+    expect(updateReconciliationControlInputSchema.safeParse({ ...base, approvalId: 'a', operationId: 'o', activate: true }).success).toBe(
+      false,
+    );
+    // A key present with no value is not a second field.
+    expect(
+      updateReconciliationControlInputSchema.safeParse({ ...base, approvalId: 'a', operationId: 'o', severity: undefined }).success,
+    ).toBe(true);
+    // Approval ids never ride on an ordinary edit.
+    expect(
+      updateReconciliationControlInputSchema.safeParse({ controlId: CONTROL_ID, reason: REASON_LC, severity: 'info', approvalId: 'a' })
+        .success,
+    ).toBe(false);
   });
 });

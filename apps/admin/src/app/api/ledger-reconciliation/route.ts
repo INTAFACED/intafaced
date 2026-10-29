@@ -11,7 +11,8 @@ import { defineReconciliationControlInputSchema, updateReconciliationControlInpu
  * GET lists svc-ledger's controls as the signed-in founder, through svc-edge, and stamps when it read them. POST defines or
  * changes one control on the treasury transport: `{ action: 'define', body }` or `{ action: 'update', body }`, where `body` is
  * the contract's input. svc-ledger's refusals come back with its own code; a 2xx that is not a control is not reported as one.
- * Running a control is a two-founder request and lives at `/api/ledger-reconciliation/run`.
+ * Running a control is a two-founder request and lives at `/api/ledger-reconciliation/run`; so is pausing, resuming or
+ * retiring one, at `/api/ledger-reconciliation/lifecycle`.
  */
 
 export const dynamic = 'force-dynamic';
@@ -48,6 +49,8 @@ export async function POST(request: Request) {
     const schema = raw.action === 'define' ? defineReconciliationControlInputSchema : updateReconciliationControlInputSchema;
     const parsed = schema.safeParse(raw.body);
     if (!parsed.success) throw new AdminSessionError('admin.request_invalid', 400, 'edge.invalid_reconciliation_control');
+    // Pause, resume and retire are two-founder and go through `/api/ledger-reconciliation/lifecycle`, never this one-founder door.
+    if ('lifecycle' in parsed.data && parsed.data.lifecycle !== undefined) throw new AdminSessionError('admin.request_invalid', 400);
     const parked = treasuryParked();
     if (parked) return Response.json({ code: 'admin.ledger_unconfigured', detail: parked }, { status: 503, headers: NO_STORE });
     const answer = await sendTreasuryControl(raw.action, parsed.data);

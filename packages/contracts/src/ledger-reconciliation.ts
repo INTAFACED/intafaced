@@ -22,6 +22,19 @@ export const RECONCILIATION_TEMPLATES = ['ledger_invariant', 'outside_balance', 
 export const RECONCILIATION_SEVERITIES = ['info', 'warning', 'critical'] as const;
 export const RECONCILIATION_PERIODS = ['hour', 'day', 'iso_week', 'month'] as const;
 export const RECONCILIATION_CHECK_KINDS = ['replay', 'chain', 'netting', 'replay_and_netting'] as const;
+/** OPS-reconciliation-02. Paused runs nothing until resumed; retired is final and keeps its history. */
+export const RECONCILIATION_STATES = ['draft', 'active', 'paused', 'retired'] as const;
+export const RECONCILIATION_LIFECYCLE = ['pause', 'resume', 'retire'] as const;
+export type ReconciliationLifecycle = (typeof RECONCILIATION_LIFECYCLE)[number];
+export type ReconciliationState = (typeof RECONCILIATION_STATES)[number];
+/** The one transition table: the states each move leaves from, and the state it lands in. Anything else is illegal. */
+export const RECONCILIATION_LIFECYCLE_MOVES: Readonly<
+  Record<ReconciliationLifecycle, { readonly from: readonly ReconciliationState[]; readonly to: ReconciliationState }>
+> = {
+  pause: { from: ['active'], to: 'paused' },
+  resume: { from: ['paused'], to: 'active' },
+  retire: { from: ['draft', 'active', 'paused'], to: 'retired' },
+};
 
 /** Decimal string. No exponent. Zero is `0`, never a blank. */
 export const reconciliationDecimalSchema = z.string().regex(/^(0|[1-9]\d*)(\.\d{1,18})?$/);
@@ -148,8 +161,29 @@ export const updateReconciliationControlInputSchema = z
     threshold: reconciliationThresholdSchema.optional(),
     reason: reasonSchema,
     activate: z.boolean().optional(),
+    /**
+     * A lifecycle move travels alone: with it, only the control id, the reason and the two-founder approval it consumes.
+     * The approval ids ride only with a lifecycle move, and a lifecycle move always carries them.
+     */
+    lifecycle: z.enum(RECONCILIATION_LIFECYCLE).optional(),
+    approvalId: z.string().min(1).max(128).optional(),
+    operationId: z.string().min(1).max(128).optional(),
   })
-  .strict();
+  .strict()
+  .superRefine((value, ctx) => {
+    const present = Object.keys(value).filter((key) => value[key as keyof typeof value] !== undefined);
+    if (value.lifecycle === undefined) {
+      const stray = present.filter((key) => key === 'approvalId' || key === 'operationId');
+      if (stray.length > 0) ctx.addIssue({ code: z.ZodIssueCode.custom, message: OPS_CONTROL_STATE_ILLEGAL, path: stray });
+      return;
+    }
+    const allowed = ['controlId', 'reason', 'lifecycle', 'approvalId', 'operationId'];
+    const extra = present.filter((key) => !allowed.includes(key));
+    if (extra.length > 0) ctx.addIssue({ code: z.ZodIssueCode.custom, message: OPS_CONTROL_STATE_ILLEGAL, path: extra });
+    for (const key of ['approvalId', 'operationId'] as const) {
+      if (value[key] === undefined) ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'action_approval.missing', path: [key] });
+    }
+  });
 export type UpdateReconciliationControlInput = z.infer<typeof updateReconciliationControlInputSchema>;
 
 export const runReconciliationControlInputSchema = z
@@ -172,7 +206,7 @@ export const reconciliationControlViewSchema = z
     builtin: z.boolean(),
     template: z.enum(RECONCILIATION_TEMPLATES),
     checkKind: z.union([unsetSchema, z.object({ status: z.literal('set'), value: z.enum(RECONCILIATION_CHECK_KINDS) }).strict()]),
-    state: z.enum(['draft', 'active']),
+    state: z.enum(RECONCILIATION_STATES),
     explanation: z.string(),
     labels: z.array(z.string()),
     schedule: z.union([

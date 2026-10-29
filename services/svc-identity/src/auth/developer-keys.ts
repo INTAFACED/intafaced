@@ -12,7 +12,7 @@
  */
 import { createHash } from 'node:crypto';
 import type { Sql } from 'postgres';
-import { FOUNDER_DESK_SCOPES, INTERACTIVE_ONLY_SCOPES, SCOPES, expandScopes, isPayStepUpScope, isScope, type Scope } from '@intafaced/auth';
+import { FOUNDER_DESK_SCOPES, SCOPES, isKeyForbiddenScope, expandScopes, isPayStepUpScope, isScope, type Scope } from '@intafaced/auth';
 import type { ApiKeyCreateInput, ApiKeyCreateOutput, ApiKeyList, ApiKeyRecord, ApiKeyScopeEntry } from '@intafaced/contracts/api-keys';
 import { API_KEY_NAME_MAX } from '@intafaced/contracts/api-keys';
 import type { KycTier, PayStepUpFactorProof } from './auth-service.js';
@@ -67,7 +67,8 @@ export function parseApiKeyCapByTier(raw: string | undefined): ReadonlyMap<KycTi
 
 /** Why a scope the session holds cannot sit on a key, or null when it can. */
 function blockOf(scope: Scope): ApiKeyScopeEntry['blockedBy'] {
-  if ((INTERACTIVE_ONLY_SCOPES as readonly string[]).includes(scope)) return 'interactive_only';
+  // Interactive-only and person-only alike (agents:execute spends the person's own money, OWNER 107).
+  if (isKeyForbiddenScope(scope)) return 'interactive_only';
   if ((FOUNDER_DESK_SCOPES as readonly string[]).includes(scope)) return 'operator_only';
   if (isPayStepUpScope(scope)) return 'step_up_only';
   return null;
