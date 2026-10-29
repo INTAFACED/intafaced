@@ -72,6 +72,11 @@ export const payPaymentAttemptSchema = z
   })
   .strict();
 
+/** While an open crypto payment waits for its transfers to be final: how deep, how deep it must be, and as of when. */
+export const payPaymentConfirmationsSchema = z
+  .object({ seen: z.number().int().min(0), required: z.number().int().min(1), asOf: payTimestampSchema })
+  .strict();
+
 export const paySettlementListInputSchema = z
   .object({
     merchantId: payMerchantIdSchema,

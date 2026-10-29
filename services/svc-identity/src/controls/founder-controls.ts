@@ -597,7 +597,7 @@ export class FounderControls {
                 await tx`UPDATE users SET status = ${input.action === 'restrict' ? 'frozen' : 'active'}, identity_control_version = identity_control_version + 1, updated_at = now() WHERE id = ${targetId}`;
                 if (input.action === 'restrict') {
                   await tx`UPDATE sessions SET revoked = true WHERE user_id = ${targetId} AND revoked = false`;
-                  await tx`UPDATE api_keys SET revoked = true WHERE user_id = ${targetId} AND revoked = false`;
+                  await tx`UPDATE api_keys SET revoked = true, revoked_at = now(), revoked_cause = 'account_freeze' WHERE user_id = ${targetId} AND revoked = false`;
                   await tx`UPDATE sub_accounts SET revoked = true WHERE parent_user_id = ${targetId} AND revoked = false`;
                   await tx`UPDATE navigator_session_projections SET status = 'closed', published_at = now() WHERE user_id = ${targetId} AND status = 'open'`;
                 }
@@ -1196,7 +1196,7 @@ export class FounderControls {
           if (input.action === 'close') {
             await tx`UPDATE users SET status = 'closed', closed_reason = ${input.reasonCode}, closed_from_frozen = (status = 'frozen'), identity_control_version = identity_control_version + 1, updated_at = now() WHERE id = ${targetId}`;
             await tx`UPDATE sessions SET revoked = true WHERE user_id = ${targetId} AND revoked = false`;
-            await tx`UPDATE api_keys SET revoked = true WHERE user_id = ${targetId} AND revoked = false`;
+            await tx`UPDATE api_keys SET revoked = true, revoked_at = now(), revoked_cause = 'account_closed' WHERE user_id = ${targetId} AND revoked = false`;
             await tx`UPDATE sub_accounts SET revoked = true WHERE parent_user_id = ${targetId} AND revoked = false`;
             await tx`UPDATE navigator_session_projections SET status = 'closed', published_at = now() WHERE user_id = ${targetId} AND status = 'open'`;
           } else {

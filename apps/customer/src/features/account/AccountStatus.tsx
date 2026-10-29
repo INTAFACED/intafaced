@@ -98,7 +98,14 @@ export function AccountStatus() {
 }
 
 /** Each restriction with its reason, its start, whether it stops anything and how it ends; shared with /verification. */
-export function RestrictionList({ restrictions }: { restrictions: readonly AccountRestriction[] }) {
+export function RestrictionList({
+  restrictions,
+  labelledBy,
+}: {
+  restrictions: readonly AccountRestriction[];
+  /** The id of the heading that names this list, when one does. */
+  labelledBy?: string;
+}) {
   const { t, Copy } = copy.useCopy();
   // The capability names /verification already uses, so a capability reads the same on both pages.
   const capabilities = verificationCapabilitiesCopy.useCopy();
@@ -144,7 +151,7 @@ export function RestrictionList({ restrictions }: { restrictions: readonly Accou
     return r.reasonCode ? <Copy k="reason" params={{ reason: t(`reason_${r.reasonCode}`) }} /> : <Copy k="noReason" />;
   };
   return (
-    <ul data-testid="account-status__restrictions">
+    <ul data-testid="account-status__restrictions" aria-labelledby={labelledBy}>
       {restrictions.map((r) => (
         <li
           key={`${r.kind}:${r.capability ?? ''}`}
