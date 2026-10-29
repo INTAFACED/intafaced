@@ -817,7 +817,16 @@ if (!available) {
         auth.createApiKey({ userId: session.userId, name: 'agent-bot', scopes: ['agents:execute'], grantorScopes: ['agents:execute'] }),
       ).rejects.toThrow(/cannot be granted to an API key/);
 
-      for (const scope of ['admin:write', 'admin:read', 'admin:compliance', 'support:ops', 'market:ops', 'agents:execute']) {
+      for (const scope of [
+        'admin:write',
+        'admin:read',
+        'admin:compliance',
+        'support:ops',
+        'support:lookup',
+        'market:ops',
+        'campaigns:ops',
+        'agents:execute',
+      ]) {
         await expect(
           db.sql`
             INSERT INTO api_keys (user_id, name, key_hash, key_prefix, scopes)
