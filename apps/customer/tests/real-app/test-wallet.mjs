@@ -51,6 +51,9 @@ function tokenAnswers(chainId, owner, token) {
  * while the wallet is on `chainId`; on any other network it answers as it does with no node.
  */
 export async function installTestWallet(page, { chainId, tokens = [], privateKey = generatePrivateKey(), rpcUrl = null }) {
+  // The TEST wallet only ever talks to a chain on this machine: an rpcUrl anywhere else is refused, whoever handed it over.
+  if (rpcUrl && !['127.0.0.1', 'localhost', '[::1]'].includes(new URL(rpcUrl).hostname))
+    throw new Error(`The TEST wallet only connects to a loopback chain, not ${rpcUrl}`);
   const account = privateKeyToAccount(privateKey);
   const node = rpcUrl
     ? createWalletClient({
