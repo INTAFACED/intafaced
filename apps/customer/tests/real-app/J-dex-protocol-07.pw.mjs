@@ -36,7 +36,9 @@ test(`${J} #1 opens Tokens and the Trending tab: rows by growth for the window w
   await page.getByRole('tab', { name: 'Trending' }).click();
   await expect(page.getByRole('link', { name: 'How trending is worked out' })).toBeVisible();
   // An empty list proves no order: Trending must list tokens read from the chain before their order counts.
-  await expect(tokenRows(page).first()).toBeVisible(UNBUILT);
+  // A blocked row is a row too, so the growth figure itself must be there, one per token row.
+  await expect(tokenRows(page).first().getByTestId('token-growth')).toBeVisible(UNBUILT);
+  await expect(tableIn(page, 'Tokens').getByTestId('token-growth')).toHaveCount(await tokenRows(page).count());
   const growth = await tableIn(page, 'Tokens').getByTestId('token-growth').allInnerTexts();
   const values = growth.map((text) => Number(text.replace(/[^\d.-]/g, '')));
   expect(values).toEqual([...values].sort((a, b) => b - a));
@@ -88,8 +90,7 @@ test(`${J} #3 opens the market brief and the stablecoin screener: a brief or "No
   await expect(board.getByRole('columnheader', { name: /Realised/ })).toBeVisible();
   // A header over a blocked row ranks nobody: the board lists wallets, each with its realised result from its trades.
   const ranked = bodyRows(tableIn(page, 'Leaderboard'));
-  await expect(ranked.first()).toBeVisible(UNBUILT);
-  await expect(ranked.first().getByTestId('leaderboard-realised')).toHaveText(/-?\$?[\d,.]+/);
+  await expect(ranked.first().getByTestId('leaderboard-realised')).toHaveText(/-?\$?[\d,.]+/, UNBUILT);
   await ranked
     .first()
     .getByRole('link', { name: /^0x[0-9a-fA-F]{4}/ })
@@ -131,7 +132,7 @@ test(`${J} #6 opens the pairs, holders and trades tabs: candles at the swap time
   // Blocked tables prove nothing: each tab must list what the chain holds for this token, and the figures must agree.
   await page.getByRole('tab', { name: 'Trades' }).click();
   const trades = bodyRows(tableIn(page.getByRole('tabpanel', { name: 'Trades' }), 'Trades'));
-  await expect(trades.first()).toBeVisible(UNBUILT);
+  await expect(trades.first().getByTestId('trade-amount')).toBeVisible(UNBUILT);
   const swapTimes = await trades.getByRole('time').evaluateAll((items) => items.map((t) => t.getAttribute('datetime')));
   const traded = (await trades.getByTestId('trade-amount').allInnerTexts()).map((t) => toUnits(t.replace(/[^\d.]/g, '')));
 

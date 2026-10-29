@@ -39,7 +39,8 @@ test(`${J} #1 opens Chain home: latest blocks and transactions for the test netw
   await expect(tableIn(page, 'Latest blocks')).toBeVisible(UNBUILT);
   await expect(tableIn(page, 'Latest transactions')).toBeVisible();
   // Empty tables show no network: both must list what the test network holds, newest block first.
-  await expect(bodyRows(tableIn(page, 'Latest blocks')).first()).toBeVisible(UNBUILT);
+  // A blocked row is a row too: each block row is headed by its height.
+  await expect(tableIn(page, 'Latest blocks').getByRole('rowheader').first()).toHaveText(/\d/, UNBUILT);
   const heights = (await tableIn(page, 'Latest blocks').getByRole('rowheader').allInnerTexts()).map((text) =>
     Number(text.replace(/\D/g, '')),
   );
