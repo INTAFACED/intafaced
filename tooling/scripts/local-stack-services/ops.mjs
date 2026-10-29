@@ -26,6 +26,9 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, opsOutreachEnv }) => ({
     OPS_HOME_WORK_LIST_CAP: testValue('OPS_HOME_WORK_LIST_CAP'),
     OPS_HOME_WORK_LIST_ORDER: testValue('OPS_HOME_WORK_LIST_ORDER'),
     OPS_HOME_SEARCH_RESULT_CAP: testValue('OPS_HOME_SEARCH_RESULT_CAP'),
+    // Reconciliation alerts (OPS-reconciliation-03, J-ops-console-07 #8): the TEST repeat interval for in-console notices.
+    // Unset, a repeat failure still counts and its notice reads ops.alert_repeat_unset. The ledger feed uses LEDGER_URL above.
+    OPS_RECON_ALERT_REPEAT_SECONDS: testValue('OPS_RECON_ALERT_REPEAT_SECONDS'),
     ...opsOutreachEnv(),
   }),
 });

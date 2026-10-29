@@ -6,8 +6,9 @@ import { test, expect } from '@playwright/test';
 import { founderTotp, makeContext } from '../../../../tooling/scripts/local-test-gates.mjs';
 import { FOUNDER_VAULT_NAME } from '../../../../tooling/scripts/local-test-founders.mjs';
 import { localStackState } from '../../../../tooling/scripts/local-test-state.mjs';
+import { deviceCodesMailedTo, OUTBOX_NAME } from '../../../../tooling/scripts/local-test-entry.mjs';
 import { HOME_ASSET, HOME_DEPOSIT_AMOUNT, HOME_NOTICE_TITLE } from '../../../../tooling/scripts/local-test-home.mjs';
-import { ADMIN, founderSignIn } from './admin.mjs';
+import { ADMIN, assertAdminUp } from './admin.mjs';
 import { EDGE, ROOT } from './stack.mjs';
 
 // J-home-ia-11, in the running app (docs/roadmap/journeys.json): I bring up a test build and sign in as a founder (tester
@@ -15,13 +16,14 @@ import { EDGE, ROOT } from './stack.mjs';
 // profile; the real-app run starts the same services with `pnpm local:stack`, so the steps read the compose files for the
 // seed service's wiring and run the seed's own scripts, which refuse anything but a local dev or test build.
 // Steps that are written but not built yet fail at their first missing part, quickly (UNBUILT):
-// - #2: the sign-in page of a non-live build has no "Tester build" panel saying where the founder vault is.
-// - #5: the Help room does not read the host dispatch receipt (RC-home-ia-01); the check itself is built.
+// - #5: no deployment receipt with three served hosts exists on this stack (no apex, app or join host is named), so the
+//   step fails by name, BLOCKED hosts_unset, after the Help room's rows are matched to what the build published.
 const J = 'J-home-ia-11';
 const UNBUILT = { timeout: 5_000 };
 // The stack's own rule for its state folder (LOCAL_STACK_STATE, else per user, else /var/lib as root).
 const STATE = localStackState();
 const COMPOSE = ['docker-compose.yml', 'docker-compose.apps.yml'];
+const OUTBOX = path.join(STATE, OUTBOX_NAME);
 
 test.describe.configure({ mode: 'default' });
 
@@ -54,6 +56,18 @@ function run(script, args, env) {
     return { status: error.status ?? 1, out: `${error.stdout ?? ''}${error.stderr ?? ''}` };
   }
 }
+
+/** The documented tester step (tooling/scripts/local-test-entry.mjs) for founder a: the one value it prints after `label`. */
+function entry(cmd, label) {
+  const done = run('tooling/scripts/local-test-entry.mjs', [cmd, 'a'], { LOCAL_TEST: '1' });
+  expect(done.status, done.out).toBe(0);
+  const value = new RegExp(`${label}: (\\d{6})`).exec(done.out)?.[1];
+  expect(value, done.out).toBeTruthy();
+  return value;
+}
+
+/** How many device codes identity has mailed to `email` in the stack's LOCAL-TEST outbox. */
+const deviceMails = (email) => deviceCodesMailedTo(existsSync(OUTBOX) ? readFileSync(OUTBOX, 'utf8') : '', email).length;
 
 /** What the test-content seed says it has made on this stack. */
 const seedStatus = () => run('tooling/scripts/local-test-seed.mjs', ['status', '--state', STATE], { LOCAL_TEST: '1' });
@@ -108,10 +122,35 @@ test(`${J} #2 the documented sign-in steps get the founder in with founder scope
     for (const secret of [founder.password, founder.totpSecret].filter(Boolean)) expect(text).not.toContain(secret);
   }
 
-  // Following those steps: the founder signs in to the console with password and code, and it opens on a founder page.
-  await founderSignIn(page, 'a');
-  await expect(page).toHaveURL(new RegExp(`^${ADMIN}/(?!login)`));
+  // Following those steps in a browser identity has never seen, with no cookie or device put in by the test: the founder
+  // signs in to the console with password and a one-time code, identity asks for this browser to be authorised and mails a
+  // device code to the founder's address, and the founder enters it.
+  // (The run's customer-app device cookie, scoped to the customer's identity path, never reaches the console.)
+  test.setTimeout(180_000);
+  await assertAdminUp();
+  expect(await page.context().cookies(new URL('/', ADMIN).href)).toEqual([]);
+  const founder = vault().founders[0];
+  await page.goto(`${ADMIN}/login`);
+  await page.getByLabel('Email or handle').fill(founder.handle);
+  await page.getByLabel('Password').fill(founder.password);
+  await page.getByLabel('Authenticator or recovery code').fill(entry('code', 'one-time code'));
+  const mailed = deviceMails(founder.email);
+  await page.locator('button[type=submit]').click();
+  await expect(page.getByRole('heading', { name: 'Authorise this browser' })).toBeVisible({ timeout: 20_000 });
+  // This sign-in's own code, never an older one still in the outbox.
+  await expect.poll(() => deviceMails(founder.email), { timeout: 15_000 }).toBeGreaterThan(mailed);
+  await page.getByLabel('Device code from the email').fill(entry('device', 'device code for \\S+'));
+  await page.getByRole('button', { name: 'Approve this browser' }).click();
+  await page.waitForURL((url) => !url.pathname.startsWith('/login'), { timeout: 30_000 });
   await expect(page.getByRole('main')).toBeVisible();
+
+  // Founder scopes: the console reads the founder directory with this session, a door svc-ops opens only to a founder
+  // session's ops scopes, and its session bar names this founder by the directory's own name.
+  const owners = await page.request.get(`${ADMIN}/api/crm?view=owners`);
+  expect(owners.status()).toBe(200);
+  const name = (await owners.json()).owners.find((owner) => owner.userId === founder.userId)?.displayName;
+  expect(name).toMatch(/^(Nitro|Phantom)$/);
+  await expect(page.locator(`.adm-session > span[title="${founder.userId}"]`)).toHaveText(name);
 });
 
 test(`${J} #3 the founder's Home shows a TEST deposit in the total, a TEST notice and one inbox row, each labelled TEST`, async ({
@@ -212,9 +251,29 @@ test(`${J} #5 the apex, app and join hosts are checked: a receipt of three serve
     ['join', 'https://127.0.0.1:9', 'host.not_served'],
   ]);
 
-  // The Help room reads the deployment's receipt and shows each host as served or with its named blocker.
+  // The Help room shows each host exactly as the receipt the build published says: its host and its one result. With no
+  // receipt published (a static host answers the unknown path with the app's index, not JSON), every row is
+  // host.receipt_missing, never served.
+  const published = await page.request.get('/host-dispatch.json');
+  const isReceipt = published.ok() && (published.headers()['content-type'] ?? '').includes('application/json');
+  const served = isReceipt ? await published.json() : null;
   await page.goto('/help');
-  const hosts = page.getByTestId('host-dispatch');
-  await expect(hosts).toBeVisible(UNBUILT);
-  for (const role of ['apex', 'app', 'join']) await expect(hosts).toContainText(new RegExp(`${role}[\\s\\S]*(served|host\\.)`, 'i'));
+  await expect(page.getByTestId('host-dispatch')).toBeVisible();
+  for (const role of ['apex', 'app', 'join']) {
+    const row = page.getByTestId(`host-dispatch-${role}`);
+    const want = served ? (served.hosts.find((host) => host.role === role) ?? {}) : { host: null, result: 'host.receipt_missing' };
+    const result = want.result ?? served?.hosts.find((host) => host.role === 'all')?.result ?? 'host.not_checked';
+    await expect(row).toHaveAttribute('data-result', result);
+    if (want.host) await expect(row).toContainText(want.host);
+  }
+
+  // The step's pass: a receipt in which the apex, app and join hosts are each served. Until a deployment names them,
+  // this fails by name.
+  expect(
+    served?.status === 'served' &&
+      ['apex', 'app', 'join'].every((role) => served.hosts.some((h) => h.role === role && h.result === 'served')),
+    `BLOCKED hosts_unset: the build published ${served ? `a ${served.status} receipt` : 'no host dispatch receipt'}, not one with the apex, app and join hosts served`,
+  ).toBe(true);
+  for (const role of ['apex', 'app', 'join'])
+    await expect(page.getByTestId(`host-dispatch-${role}`)).toHaveAttribute('data-result', 'served');
 });

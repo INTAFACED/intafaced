@@ -3,10 +3,19 @@ import { StateBlock } from '@intafaced/ui';
 import { useSession } from '../session/session';
 import { developersCopy } from './developers-copy';
 import { liveCopy } from './developers-live-copy';
-import { hostsView, readDeveloperHosts } from './developers-values';
+import { hostsView, readDeveloperHosts, readRegionalRule, regionalRuleView } from './developers-values';
 import { useRead } from './use-read';
 import { createDocsSearch } from './developers-search';
-import { ConnectivityPage, DataTermsPage, OpenApiPage, PermissionsPage, QuickstartPage, ReferencePage, RestPage } from './DocsPages';
+import {
+  AuthenticationPage,
+  ConnectivityPage,
+  DataTermsPage,
+  OpenApiPage,
+  PermissionsPage,
+  QuickstartPage,
+  ReferencePage,
+  RestPage,
+} from './DocsPages';
 import {
   AUDIENCES,
   SECTIONS,
@@ -38,6 +47,7 @@ const PAGES: Record<PageSectionId, (props: { title: string }) => JSX.Element> = 
   quickstart: QuickstartPage,
   openapi: OpenApiPage,
   status: () => <StatusPage />,
+  authentication: AuthenticationPage,
 };
 
 /** /developers and the pages under it: the portal home, the base-address table and one page per section. Public: no sign-in needed. */
@@ -146,12 +156,32 @@ function Hosts() {
             </table>
           </>
         )}
-        <p className="muted">{t('hostsRegional')}</p>
+        <RegionalRule />
         <a className="text-link" href="/developers">
           ← {t('hostsBack')}
         </a>
       </section>
     </div>
+  );
+}
+
+/** The owner's rule for the regional hosts, read from svc-trade; until it is published the page says it waits for the owner. */
+function RegionalRule() {
+  const { t } = developersCopy.useCopy();
+  const { t: live } = liveCopy.useCopy();
+  const { api } = useSession();
+  const { read, reload } = useRead((signal) => readRegionalRule(api, signal), [api]);
+  const view = regionalRuleView(read);
+  if (view.kind === 'loading') return <StateBlock kind="loading" rows={1} rowHeight={24} label={live('loading')} />;
+  if (view.kind === 'failed') return <StateBlock kind="error" title={live('loadFailed')} onRetry={reload} retryLabel={live('tryAgain')} />;
+  return view.kind === 'set' ? (
+    <p data-testid="developers-regional-rule" data-rule-state="set" style={{ whiteSpace: 'pre-line' }}>
+      {view.rule}
+    </p>
+  ) : (
+    <p className="muted" role="status" data-testid="developers-regional-rule" data-rule-state="unset" data-code={view.code}>
+      {t('hostsRegional')}
+    </p>
   );
 }
 

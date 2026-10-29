@@ -201,7 +201,7 @@ export type RunReconciliationControlInput = z.infer<typeof runReconciliationCont
 const unsetSchema = z.object({ status: z.literal('unset') }).strict();
 
 /** A control's severity: set to one of the severities, or blank. */
-const reconciliationSeveritySetSchema = z.union([
+export const reconciliationSeveritySetSchema = z.union([
   unsetSchema,
   z.object({ status: z.literal('set'), value: z.enum(RECONCILIATION_SEVERITIES) }).strict(),
 ]);

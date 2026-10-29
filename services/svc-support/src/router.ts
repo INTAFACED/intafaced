@@ -26,6 +26,7 @@ import {
   supportAttachmentSchema,
   supportCaseFileSchema,
   supportCommentSchema,
+  supportInternalNoteInputSchema,
   supportKbArticleSchema,
   supportTicketEventSchema,
   supportAwaitingMineSchema,
@@ -52,6 +53,8 @@ import { surveyProcedures } from './survey-router.js';
 import { MemoryHelpCentreBook, type HelpCentreBook } from './help-centre.js';
 import { helpCentreGate, helpCentreProcedures } from './help-centre-router.js';
 import { MemoryFormsStore, RequestFormError, RequestForms } from './request-forms.js';
+import { DeskMacros, MemoryMacroBook } from './desk-macros.js';
+import { macroProcedures } from './desk-macros-router.js';
 import { mapRequestForm, requestFormProcedures } from './request-forms-router.js';
 import { MemoryKbLibraryBook, type KbLibraryBook } from './kb-library.js';
 import { kbLibraryProcedures } from './kb-library-router.js';
@@ -82,7 +85,7 @@ const queueResultSchema = z.discriminatedUnion('status', [
   z.object({ status: z.literal('empty') }),
 ]);
 
-function mapError(err: unknown): never {
+export function mapError(err: unknown): never {
   if (err instanceof SupportError) {
     const message = err.missingKey ? `${userCopy(err.code)} ${err.missingKey}` : userCopy(err.code);
     if (err.code === 'support.not_found' || err.code === 'support.claim.not_found') {
@@ -208,9 +211,11 @@ export function createSupportRouter(
   helpCentre: HelpCentreBook = new MemoryHelpCentreBook(),
   kbLibrary: KbLibraryBook = new MemoryKbLibraryBook(),
   forms: RequestForms = new RequestForms(new MemoryFormsStore(), { forms: null, fields: null }),
+  macros: DeskMacros = new DeskMacros(new MemoryMacroBook(), support, null),
 ) {
   const helpCentreOpen = helpCentreGate(helpCentre);
   return router({
+    ...macroProcedures(macros),
     ...contactProcedures(contact, support),
     ...attachmentProcedures(attachmentSettings, support),
     ...surveyProcedures(surveys, support, surveyApprovals),
@@ -412,6 +417,24 @@ export function createSupportRouter(
             asOperator,
             ...(input.clientRequestId !== undefined ? { clientRequestId: input.clientRequestId } : {}),
             ...(input.expectedSequence !== undefined ? { expectedSequence: input.expectedSequence } : {}),
+          });
+        } catch (err) {
+          mapError(err);
+        }
+      }),
+
+    /** A staff-only note (SP-tickets-05): never on the customer's thread, and it moves nothing the customer reads. */
+    addInternalNote: scopedProcedure('support:ops')
+      .input(supportInternalNoteInputSchema)
+      .output(supportCommentSchema)
+      .mutation(async ({ ctx, input }) => {
+        try {
+          requireSupportOps(ctx.principal!);
+          return await support.addInternalNote({
+            userId: ctx.principal!.userId,
+            ticketId: input.ticketId,
+            body: input.body,
+            clientRequestId: input.clientRequestId,
           });
         } catch (err) {
           mapError(err);

@@ -68,7 +68,7 @@ import bank from './local-stack-services/bank.mjs';
 import blueprint from './local-stack-services/blueprint.mjs';
 import edge from './local-stack-services/edge.mjs';
 import execution from './local-stack-services/execution.mjs';
-import identity from './local-stack-services/identity.mjs';
+import identity, { confirmLocalFounderEmails } from './local-stack-services/identity.mjs';
 import ledger from './local-stack-services/ledger.mjs';
 import market from './local-stack-services/market.mjs';
 import matching from './local-stack-services/matching.mjs';
@@ -97,7 +97,8 @@ import {
   writeFounderPinStamp,
 } from './local-test-founders.mjs';
 import { consoleTreasuryToken, makeContext } from './local-test-gates.mjs';
-import { loadProfile } from './owner-settings.mjs';
+import { RailRecordError, readRail, recordRailMovement } from './local-test-rail-records.mjs';
+import { loadProfile, profileEnvFor } from './owner-settings.mjs';
 import {
   localStackState,
   localPgBin,
@@ -301,6 +302,7 @@ const SECRET_NAMES = [
   'academyVideoStore', // the TEST video store's signing key, shared with academy (local-video-store.mjs)
   'payKybDocKey', // pay's key for business verification documents (PAY_KYB_DOC_KEY, 32 bytes as hex)
   'payTravelRuleKey', // pay's travel-rule sealing key (PAY_TRAVEL_RULE_MESSAGE_KEY is its SHA-256 as base64); this stack's own, valid nowhere else
+  'identityApiKeySigning', // identity's sealing key for API-key request-signing secrets (API_KEY_SIGNING_ENC_KEY, 32 bytes as hex)
   'identityKycDoc', // identity's key for the KYC document vault (IDENTITY_KYC_DOC_KEY, 32 bytes as hex); this stack's own, valid nowhere else
   'tradeVipProofKey', // trade's key for VIP application proof files (TRADE_VIP_PROOF_KEY, 32 bytes as hex); this stack's own, valid nowhere else
 ];
@@ -1196,6 +1198,7 @@ async function ensureLocalTestFounders() {
     await restartIdentity();
   }
   if (!foundersEnrolled(readVault())) fail('local test founder pair did not enrol');
+  await confirmLocalFounderEmails({ STATE, marker, edgeUrl, say });
 }
 
 /** svc-ops reads the founder pair at start. When it started before the pair was enrolled, or with another pair, restart it. */
@@ -2156,6 +2159,15 @@ function cmdExpireAddressApprovals(args) {
   say(`  ${moved.length} open address approval link(s) of ${who} now expired (LOCAL TEST fixture)`);
 }
 
+// The pool's own reference check, from its build, so a TEST nonce is found exactly as the pool verifies it.
+async function miningPow() {
+  try {
+    return await import(pathToFileURL(path.join(REPO, 'services', 'svc-mining-pool', 'dist', 'pow.js')).href);
+  } catch (err) {
+    fail(`svc-mining-pool is not built (${err.message}). Run: pnpm local:stack --rebuild`);
+  }
+}
+
 // One TEST share from a rig, posted to the pool's own share door signed as a service, the way a stratum front would.
 // The window has no published reward or fee, so the share is stored and nothing is ever paid for it. The miner id is the
 // account's own id (what the mining room tells a miner to use); --worker names the rig, absent goes to "default".
@@ -2171,9 +2183,15 @@ async function cmdMiningShare(rawArgs) {
   };
   const worker = take('--worker');
   const label = take('--share');
+  const invalidAt = args.indexOf('--invalid-pow');
+  const invalidPow = invalidAt !== -1;
+  if (invalidPow) args.splice(invalidAt, 1);
   const [who] = args;
   if (!who || !label)
-    fail('usage: node tooling/scripts/local-test-stack.mjs mining-share <email-or-userId> --share <label> [--worker <rig name>]', 2);
+    fail(
+      'usage: node tooling/scripts/local-test-stack.mjs mining-share <email-or-userId> --share <label> [--worker <rig name>] [--invalid-pow]',
+      2,
+    );
   if (!/^[A-Za-z0-9-]{4,64}$/.test(label)) fail('--share must be 4-64 letters, digits or dashes', 2);
   if (worker !== undefined && !/^[A-Za-z0-9_-]{1,64}$/.test(worker)) fail('--worker must be 1-64 letters, digits, dash or underscore', 2);
 
@@ -2206,10 +2224,22 @@ async function cmdMiningShare(rawArgs) {
     fail(`packages are not built (${err.message}). Run: pnpm local:stack --rebuild`);
   }
   const shareId = `LOCAL-TEST-${label}`;
+  const windowId = 'LOCAL-TEST-unpaid-window';
+  // The share carries a nonce found with the TEST proof-of-work parameters against the pool's own header for this window,
+  // account and rig, and no weight (the pool sets it); --invalid-pow sends a nonce that misses the target. A pool started
+  // with LOCAL_STACK_MINING_POOL_POW=off has no parameters and refuses work by name (mining.pow_spec_unset).
+  const pow = await miningPow();
+  const spec = pow.readPowSpec(profileEnvFor('mining-pool', 'dev'));
+  const header = pow.powHeader(windowId, userId, worker ?? 'default');
+  // Each share searches from its own start, derived from its id, so two shares of one rig never send the same work
+  // (the pool refuses repeated work in a window as mining.share_duplicate).
+  const start = Number.parseInt(crypto.createHash('sha256').update(shareId).digest('hex').slice(0, 12), 16);
+  const powNonce = invalidPow ? pow.failingPow(spec, header, start) : pow.grindPow(spec, header, start);
+  const powNote = `TEST testnet proof of work, ${invalidPow ? 'invalid' : 'valid'} nonce ${powNonce}`;
   const raw = JSON.stringify({
-    windowId: 'LOCAL-TEST-unpaid-window',
+    windowId,
     assetId: 'TEST',
-    shares: [{ shareId, minerId: userId, weight: '1', ...(worker === undefined ? {} : { workerName: worker }) }],
+    shares: [{ shareId, minerId: userId, powNonce, ...(worker === undefined ? {} : { workerName: worker }) }],
   });
   const res = await fetch(`${urlOf('mining-pool')}/submitShare`, {
     redirect: 'error',
@@ -2226,11 +2256,22 @@ async function cmdMiningShare(rawArgs) {
   }
   // A share id the pool already holds is refused by name; that is the pool's answer, not a tool failure.
   if (res.status === 409 && body?.error === 'mining.share_duplicate') {
-    console.log(`refused mining.share_duplicate: TEST share ${shareId} is already stored; nothing new was kept`);
+    console.log(`refused mining.share_duplicate: TEST share ${shareId}, or its work, is already stored; nothing new was kept`);
+    return;
+  }
+  // A share whose work misses the target is refused by name and stored nowhere but the pool's rejection log.
+  if (invalidPow && body?.error === 'mining.pow_invalid') {
+    console.log(`refused mining.pow_invalid: TEST share ${shareId} (${powNote}); nothing was kept`);
+    return;
+  }
+  if (body?.error === 'mining.pow_spec_unset') {
+    console.log(`refused mining.pow_spec_unset: the pool has no proof-of-work parameters, so TEST share ${shareId} was not kept`);
     return;
   }
   if (res.status !== 200 || body?.accepted !== true) fail(`the pool refused the TEST share (${res.status}): ${text.slice(0, 400)}`);
-  console.log(`accepted TEST share ${shareId} for miner ${userId}, worker ${worker ?? 'default'} (unpaid window, nothing credited)`);
+  console.log(
+    `accepted TEST share ${shareId} for miner ${userId}, worker ${worker ?? 'default'}, ${powNote} (unpaid window, nothing credited)`,
+  );
 }
 
 async function cmdFund(rawArgs) {
@@ -2528,6 +2569,12 @@ async function cmdSeedWithdrawal(rawArgs) {
     const [outcome] = asPay(`SELECT outcome FROM pay.withdrawal_rail_attempts WHERE withdrawal_id = :'id' AND attempt = 0`, { id });
     if (outcome !== 'accepted')
       fail(`--ref ${ref} already names a withdrawal whose send is ${outcome ?? 'not journalled'}, not sent; use a new --ref`, 2);
+    chainRecord({
+      key: `withdrawal:${id}:0`,
+      direction: 'out',
+      assetId: asset,
+      amount: ledgerClient.formatAmount(ledgerClient.parseAmount(amountStr)),
+    });
     await post('withdrawSettle', 'LOCAL TEST withdrawal settle, not real money');
     asPay(`UPDATE pay.withdrawals SET status = 'sent', rail_ref = :'tx', updated_at = now() WHERE id = :'id' AND status = 'held'`, {
       id,
@@ -2580,6 +2627,10 @@ async function cmdChainDeposit(rawArgs) {
 
   const txHash = chainTxHash(address, label);
   const logIndex = Number(index ?? '0');
+  assertChainDelivery();
+  // Only a transfer into the stack's own custody counts on its statement: an address svc-pay issued, once the chain holds it final.
+  if (Number(confirmationsStr) >= TEST_CHAIN_FINALITY && custodyAddress(address))
+    chainRecord({ key: `${txHash}:${logIndex}`, direction: 'in', assetId: asset, amount: canonicalAmount(amountStr) });
   const text = await deliverChainEvent({
     id: `chain:${txHash}:${address}:${logIndex}`,
     type: 'captured',
@@ -2624,15 +2675,69 @@ export function chainTxHash(address, label) {
   return `0x${crypto.createHash('sha256').update(`local-test-chain-deposit:${address}:${label}`).digest('hex')}`;
 }
 
-/** Signs one chain watcher event with this stack's crypto webhook secret and delivers it to the stack's own svc-pay. Returns its answer. */
-async function deliverChainEvent(event) {
-  // Guards: this only ever talks to the local stack's own svc-pay.
+/**
+ * Confirmations at which the TEST chain holds a transfer final on its own statement. It is the chain's own rule, not read from
+ * svc-pay: if the platform ever credits below it, a run shows that credit as a gap, which is what it is.
+ */
+const TEST_CHAIN_FINALITY = 6;
+
+/** `amount` as the ledger writes it (no leading or trailing zeros), so a repeat of one transfer is recorded with the same facts. */
+function canonicalAmount(amount) {
+  const [whole, frac = ''] = amount.split('.');
+  const digits = frac.replace(/0+$/, '');
+  return `${BigInt(whole)}${digits ? `.${digits}` : ''}`;
+}
+
+/** Whether svc-pay issued `address` as a deposit address: the custodian's own list of its addresses, not a ledger figure. */
+function custodyAddress(address) {
+  const secrets = readJson(P.secrets);
+  const found = psql(secrets, `SELECT 1 FROM pay.custody_deposit_addresses WHERE lower(address) = lower(:'address') LIMIT 1`, {
+    db: DB_NAME,
+    user: 'svc_pay',
+    password: secrets.pgService,
+    vars: { address },
+    tuples: true,
+  });
+  return found.trim() === '1';
+}
+
+/** The TEST chain's records so far, refused by name when the file cannot be read. */
+function chainRecords() {
+  try {
+    return readRail(STATE, 'crypto-native');
+  } catch (err) {
+    if (err instanceof RailRecordError) fail(`refusing: the TEST chain record: ${err.message}`, 2);
+    throw err;
+  }
+}
+
+/**
+ * The TEST chain's own record of a movement on rail crypto-native (local-test-rail-records.mjs), written before svc-pay or the
+ * ledger hears of it, so the stack's outside source reads what the chain did, never the ledger.
+ */
+function chainRecord(movement) {
+  try {
+    recordRailMovement(STATE, { rail: 'crypto-native', ...movement });
+  } catch (err) {
+    if (err instanceof RailRecordError) fail(`refusing: the TEST chain record: ${err.message}`, 2);
+    throw err;
+  }
+}
+
+/** Guards: a chain event only ever goes to the local stack's own svc-pay. Returns the stack's crypto webhook secret. */
+function assertChainDelivery() {
   if (!fs.existsSync(P.marker)) fail(`refusing: marker ${P.marker} not found. Start the stack first (pnpm local:stack).`);
   if (readJson(P.marker).kind !== 'intafaced-local-test-stack') fail('refusing: marker file is not a local test stack marker');
   if (!ownedAlive(readProcs().pay)) fail('refusing: the local stack svc-pay is not running. Run: pnpm local:stack');
   assertActiveLocalStack({ stateDir: STATE, services: ['pay'] });
   const secret = readJson(P.secrets).payCryptoWebhook;
   if (!secret) fail('refusing: this stack has no crypto webhook secret. Run: pnpm local:stack --rebuild');
+  return secret;
+}
+
+/** Signs one chain watcher event with this stack's crypto webhook secret and delivers it to the stack's own svc-pay. Returns its answer. */
+async function deliverChainEvent(event) {
+  const secret = assertChainDelivery();
   const body = JSON.stringify(event);
   const timestamp = Math.floor(Date.now() / 1000).toString();
   const signature = crypto.createHmac('sha256', secret).update(`${timestamp}.${body}`).digest('hex');
@@ -2661,6 +2766,9 @@ async function cmdChainReorg(rawArgs) {
   if (address.length > 200 || /\s/.test(address)) fail('bad deposit address', 2);
   const txHash = chainTxHash(address, label);
   const logIndex = Number(index ?? '0');
+  assertChainDelivery();
+  const final = chainRecords().find((row) => row.key === `${txHash}:${logIndex}`);
+  if (final) chainRecord({ key: `reorg:${txHash}:${logIndex}`, direction: 'out', assetId: final.assetId, amount: final.amount });
   const text = await deliverChainEvent({
     id: `reorg:${txHash}:${address}:${logIndex}`,
     type: 'chain.reorged',

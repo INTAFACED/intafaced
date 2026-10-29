@@ -42,6 +42,9 @@ Internal tRPC (§1). Every log query is scoped to `ctx.principal.userId` — an 
 | `session.open`        | `agents:execute` | `{ agentId }`                              | session, with the guardrail bound to it                     |
 | `session.close`       | `agents:execute` | `{ sessionId }`                            | settles open windows, then closes                           |
 | `session.log`         | `agents:read`    | `{ sessionId }`                            | every action, i18n-keyed                                    |
+| `session.detail`      | `agents:read`    | `{ sessionId }`                            | the caller's own session and each usage window, exact       |
+| `session.selected`    | `agents:read`    | —                                          | the session the person last selected, or null               |
+| `session.select`      | `agents:read`    | `{ sessionId }`                            | keeps that choice; the person only, never a key or service  |
 | `run.complete`        | `agents:execute` | `{ sessionId, requestId, task, messages }` | text, token counts, cost, the audit row                     |
 | `usage.current`       | `agents:read`    | `{ sessionId }`                            | what the open window would cost. Bills nothing              |
 | `usage.settle`        | `admin:write`    | `{ sessionId, windowId }`                  | posts the charge. Idempotent                                |
