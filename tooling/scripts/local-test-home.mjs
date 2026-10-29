@@ -129,7 +129,6 @@ export async function applyHome(home, { noticeMs = NOTICE_WINDOW_MS } = {}) {
   if (!record || record.status !== 'credited') {
     throw new Error(`the TEST home deposit was not credited (record ${record ? record.status : 'missing'})`);
   }
-  const notice = await applyNotice(home, noticeMs);
   const tx = home.txHash(address, HOME_DEPOSIT_LABEL);
   const rows = await until(
     home,
@@ -137,6 +136,8 @@ export async function applyHome(home, { noticeMs = NOTICE_WINDOW_MS } = {}) {
     (found) => found.length > 0,
   );
   if (rows.length !== 1) throw new Error(`founder a's inbox has ${rows.length} deposit-credited rows for the TEST home deposit, not 1`);
+  // The notice is published last, so a short window starts only once the deposit and its row are there.
+  const notice = await applyNotice(home, noticeMs);
   return [
     `home deposit: ${HOME_DEPOSIT_AMOUNT} ${HOME_ASSET} on TEST ${HOME_NETWORK} to ${home.founder.handle}, ${record.status}`,
     `home notice: ${HOME_NOTICE_TITLE} ${notice.notice}`,

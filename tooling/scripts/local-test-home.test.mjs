@@ -175,9 +175,10 @@ test('another credited deposit in the inbox is not counted as the seeded row', a
   await assert.rejects(applyHome(home), { message: "founder a's inbox has 0 deposit-credited rows for the TEST home deposit, not 1" });
 });
 
-test('no inbox row within the wait fails the seed by name', async () => {
-  const { home } = stack({ fileRow: false });
+test('no inbox row within the wait fails the seed by name, before any notice is drafted', async () => {
+  const { home, state } = stack({ fileRow: false });
   await assert.rejects(applyHome(home), { message: "founder a's inbox has 0 deposit-credited rows for the TEST home deposit, not 1" });
+  assert.deepEqual(state.drafts, []);
 });
 
 test('two records for the seeded transfer fail rather than report one', async () => {

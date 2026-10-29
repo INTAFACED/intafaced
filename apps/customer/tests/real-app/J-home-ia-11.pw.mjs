@@ -80,8 +80,9 @@ function vault() {
 
 // The seed service's Home step, run as it runs it. The journeys stack loads the TEST content with `apply` alone, which
 // makes no Home content, so every other journey starts from an empty notice board (J-home-ia-06). Here the notice is open
-// for 10 minutes rather than the tester's 30 days, so the board this shard shares empties soon after.
-const NOTICE_MINUTES = '10';
+// for 5 minutes rather than the tester's 30 days: J-home-ia-06 waits up to 7 minutes for leftover notices to close, so in
+// either order in a shard it waits this one out. The seed publishes it last, after the deposit and its inbox row.
+const NOTICE_MINUTES = '5';
 let homeSeed;
 test.beforeAll(() => {
   test.setTimeout(3 * 60_000);
