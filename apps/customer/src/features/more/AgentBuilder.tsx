@@ -50,9 +50,13 @@ const CODE_WORDS = {
 const wordsKey = (code: string) => (Object.hasOwn(CODE_WORDS, code) ? CODE_WORDS[code as keyof typeof CODE_WORDS] : null);
 
 type Failed = Extract<ApiResult<unknown>, { ok: false }>;
-/** The service's own refusals arrive as an `agents.` code; anything else (a timeout, a gateway answer) is not a refusal. */
+/**
+ * The service's own refusals arrive as an `agents.` code, whatever the status (a run's refusal is 403, a session of
+ * someone else's is 404); anything else (a timeout, a gateway answer, a write that may have gone through) is not one.
+ */
+const REFUSAL_REASONS: ReadonlySet<Failed['reason']> = new Set(['error', 'forbidden', 'not_mounted']);
 const refusalCode = (failed: Failed): string | null =>
-  failed.reason === 'error' && /^agents\.[a-z_.]+$/.test(failed.message) ? failed.message : null;
+  REFUSAL_REASONS.has(failed.reason) && /^agents\.[a-z_.]+$/.test(failed.message) ? failed.message : null;
 
 /** A refusal as words, with its code beside them so support can find it. */
 function Refusal({
