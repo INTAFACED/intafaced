@@ -15,7 +15,6 @@ import { blankSigningWindow, signingPolicy } from './developer.mjs';
 //   its test vector and window, but Edge still answers every signature refusal edge.api_key_denied, not its own code
 //   (DV-auth-01, the svc-edge PR). Each step proves its other clauses first and stops there.
 // - #3, #4: errors are not one typed body with a request id, a docs link and a list of fields (DV-errors-01).
-// - #5: no catalogue of auth and permission codes at /developers/errors/auth (DV-errors-02).
 // - #6: no stack tool turns the platform posting freeze on and off (`local-test-gates.mjs posting-freeze`, proposed).
 // - #7: replies carry `x-request-id` only on rate-limit refusals, and no received or sent time (RC-developer-03).
 // #6 runs last: it freezes the account.
@@ -217,14 +216,16 @@ test(`${J} #5 calls with a missing, wrong, revoked or out-of-scope key: each bod
   await page.goto('/developers/errors/auth');
   const catalogue = tableIn(page, /Authentication and permission errors/);
   await expect(catalogue).toBeVisible(UNBUILT);
-  const codeFor = async (cause) =>
-    (
-      await catalogue
-        .getByRole('row', { name: new RegExp(cause, 'i') })
-        .getByRole('code')
-        .first()
-        .textContent()
-    )?.trim();
+  // The published entry for each cause, read before the keys are made: one row per cause, its code and its status.
+  const published = {};
+  for (const cause of ['missing', 'wrong', 'revoked', 'scope']) {
+    const row = catalogue.getByRole('row', { name: new RegExp(cause, 'i') });
+    await expect(row, cause).toHaveCount(1);
+    published[cause] = {
+      code: (await row.getByRole('rowheader').getByRole('code').textContent())?.trim(),
+      status: (await row.getByRole('cell').first().textContent())?.trim(),
+    };
+  }
 
   const readOnly = await makeKey('bot-read', 'Read only');
   const revoked = await makeKey('bot-gone', 'Read only');
@@ -235,6 +236,8 @@ test(`${J} #5 calls with a missing, wrong, revoked or out-of-scope key: each bod
     .click();
   await page.getByRole('dialog').getByRole('button', { name: 'Revoke' }).click();
 
+  const { trade } = run.read();
+  const before = await balance(trade);
   const order = { symbol: 'BTC/USDT', type: 'limit', side: 'buy', amount: '0.001', price: '1', clientOrderId: `jd04-${RUN}-5` };
   const cases = [
     ['missing', await call('GET', '/api/v1/account/balance', {})],
@@ -243,9 +246,10 @@ test(`${J} #5 calls with a missing, wrong, revoked or out-of-scope key: each bod
     ['scope', await call('POST', '/api/v1/orders', { ...readOnly, body: order })],
   ];
   for (const [cause, reply] of cases) {
-    expect(reply.status, cause).toBeGreaterThanOrEqual(400);
-    expect(codeOf(reply), cause).toBe(await codeFor(cause));
+    expect({ code: codeOf(reply), status: String(reply.status) }, `${cause}: ${JSON.stringify(reply.body)}`).toEqual(published[cause]);
   }
+  // Four refusals, and the account holds what it held: nothing was placed or moved.
+  expect(await balance(trade)).toEqual(before);
 });
 
 test(`${J} #7 reads the response headers: the request id and the server's received and sent times, sent not before received`, async () => {
