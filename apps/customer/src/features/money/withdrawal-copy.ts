@@ -167,6 +167,10 @@ const en = {
   fOverLimit: 'That is above what you can send now: {amount} {asset}.',
   fTotalTooMuch: 'The amount plus its fee is more than you have available.',
   fConfirmWhy: 'Sending money out needs a fresh confirmation.',
+  fConfirmResume:
+    'This finishes the send whose answer was lost, under the fee it was made with: it takes {total} {asset} from your balance, not the newer fee shown. It needs a fresh confirmation.',
+  fConfirmResumeUnknown:
+    'This finishes the send whose answer was lost, under the fee it was made with, not the newer fee shown. It needs a fresh confirmation.',
   qGet: 'Get the fee',
   qGetting: 'Getting the fee…',
   qFee: 'Network fee',
@@ -551,6 +555,10 @@ const es = {
   fOverLimit: 'Supera lo que puedes enviar ahora: {amount} {asset}.',
   fTotalTooMuch: 'El importe más su comisión supera lo que tienes disponible.',
   fConfirmWhy: 'Enviar dinero fuera necesita una confirmación nueva.',
+  fConfirmResume:
+    'Esto termina el envío cuya respuesta se perdió, con la comisión con la que se hizo: toma {total} {asset} de tu saldo, no la comisión más reciente que se muestra. Necesita una confirmación nueva.',
+  fConfirmResumeUnknown:
+    'Esto termina el envío cuya respuesta se perdió, con la comisión con la que se hizo, no la más reciente que se muestra. Necesita una confirmación nueva.',
   qGet: 'Consultar la comisión',
   qGetting: 'Consultando la comisión…',
   qFee: 'Comisión de red',
@@ -937,6 +945,10 @@ const fr = {
   fOverLimit: 'C’est plus que ce que tu peux envoyer maintenant : {amount} {asset}.',
   fTotalTooMuch: 'Le montant plus ses frais dépasse ce dont tu disposes.',
   fConfirmWhy: 'Envoyer de l’argent demande une nouvelle confirmation.',
+  fConfirmResume:
+    'Ceci termine l’envoi dont la réponse s’est perdue, avec les frais sous lesquels il a été fait : il prend {total} {asset} de votre solde, pas les frais plus récents affichés. Il demande une nouvelle confirmation.',
+  fConfirmResumeUnknown:
+    'Ceci termine l’envoi dont la réponse s’est perdue, avec les frais sous lesquels il a été fait, pas les plus récents affichés. Il demande une nouvelle confirmation.',
   qGet: 'Demander les frais',
   qGetting: 'Demande des frais…',
   qFee: 'Frais de réseau',

@@ -105,6 +105,8 @@ interface OpenOut {
   clientRef: string;
   /** The quote the send was made under: svc-pay keeps it with the withdrawal, so finishing it names the same one. */
   quoteRef: string;
+  /** What that quote takes from the balance, so finishing the send says what it takes, not what a newer quote shows. */
+  totalDebit?: string;
 }
 
 const outKey = (userId: string) => `intafaced:withdraw-out:${userId}`;
@@ -125,6 +127,7 @@ function storedOut(userId: string | null): OpenOut | null {
       amount: kept.amount!,
       clientRef: kept.clientRef!,
       quoteRef: kept.quoteRef!,
+      ...(typeof kept.totalDebit === 'string' && kept.totalDebit !== '' ? { totalDebit: kept.totalDebit } : {}),
     };
   } catch {
     return null;
@@ -215,7 +218,9 @@ export function WithdrawForm() {
     { status: 'idle' } | { status: 'busy' } | { status: 'ready'; quote: WithdrawQuote } | { status: 'failed'; failure: Failed }
   >({ status: 'idle' });
   const [confirmingInside, setConfirmingInside] = useState(false);
-  const [confirmingOut, setConfirmingOut] = useState<{ send: WithdrawSend; destinationId: string } | null>(null);
+  const [confirmingOut, setConfirmingOut] = useState<{ send: WithdrawSend; destinationId: string; totalDebit: string; why: string } | null>(
+    null,
+  );
   const [sentInside, setSentInside] = useState<WithdrawalRecord | null>(null);
   const [refusal, setRefusal] = useState<string | null>(null);
   const [outcome, setOutcome] = useState<Outcome | null>(null);
@@ -431,6 +436,10 @@ export function WithdrawForm() {
     }
     const key = outTerms({ assetId: asset, networkId: network, destinationId: chosen.destinationId, amount: amount.trim() });
     if (sendRef.current?.terms !== key) sendRef.current = { terms: key, ref: `withdraw:${newRef()}` };
+    // A send whose answer was lost is finished under the quote it was made with; svc-pay keeps that one, and its fee, with it.
+    // When that is not the quote on the page, the confirmation says what the earlier one takes, not what the page shows.
+    const resumed = openOut?.clientRef === sendRef.current.ref ? openOut : null;
+    const earlier = resumed !== null && resumed.quoteRef !== current.quoteRef;
     setConfirmingOut({
       send: {
         assetId: asset,
@@ -438,10 +447,15 @@ export function WithdrawForm() {
         address: chosen.ref,
         amount: amount.trim(),
         clientRef: sendRef.current.ref,
-        // A send whose answer was lost is finished under the quote it was made with; svc-pay keeps that one with it.
-        quoteRef: openOut?.clientRef === sendRef.current.ref ? openOut.quoteRef : current.quoteRef,
+        quoteRef: resumed ? resumed.quoteRef : current.quoteRef,
       },
       destinationId: chosen.destinationId,
+      totalDebit: resumed ? (resumed.totalDebit ?? '') : current.totalDebit,
+      why: !earlier
+        ? t('fConfirmWhy')
+        : resumed.totalDebit
+          ? t('fConfirmResume', { total: shown(resumed.totalDebit), asset })
+          : t('fConfirmResumeUnknown'),
     });
   }
 
@@ -456,7 +470,7 @@ export function WithdrawForm() {
     setQuote(answer.ok ? { status: 'ready', quote: answer.data } : { status: 'failed', failure: answer });
   }
 
-  async function sendOut(input: WithdrawSend, destinationId: string, token: string): Promise<ApiResult<unknown>> {
+  async function sendOut(input: WithdrawSend, destinationId: string, totalDebit: string, token: string): Promise<ApiResult<unknown>> {
     // After an ask whose answer was lost, the earlier send may have been recorded, so no refusal of a retry is final: the
     // reference is kept until svc-pay records that withdrawal.
     const wasUnanswered = openOut !== null;
@@ -467,6 +481,7 @@ export function WithdrawForm() {
       amount: input.amount,
       clientRef: input.clientRef,
       quoteRef: input.quoteRef,
+      ...(totalDebit ? { totalDebit } : {}),
     };
     // Kept in the tab before the ask leaves, so a reload or a crash while it is in flight finishes it, never starts another.
     keepOut(userId, open);
@@ -851,8 +866,8 @@ export function WithdrawForm() {
       )}
       {confirmingOut && (
         <WithdrawStepUp
-          why={t('fConfirmWhy')}
-          run={(token) => sendOut(confirmingOut.send, confirmingOut.destinationId, token)}
+          why={confirmingOut.why}
+          run={(token) => sendOut(confirmingOut.send, confirmingOut.destinationId, confirmingOut.totalDebit, token)}
           onDone={() => setConfirmingOut(null)}
           onCancel={() => setConfirmingOut(null)}
         />

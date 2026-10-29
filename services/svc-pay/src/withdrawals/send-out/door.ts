@@ -1,5 +1,5 @@
 import type { Sql } from 'postgres';
-import { bankSendDestinationInputSchema, type BankSendDestinationPort } from '@intafaced/contracts';
+import { bankSendDestinationInputSchema, type BankSendDestinationPort, type BankSendDestinationState } from '@intafaced/contracts';
 import { parseAmount, type Amount } from '@intafaced/ledger-client';
 import { PayError, type PayErrorCode } from '../../payment-service.js';
 import { WithdrawalQuoteError } from '../quotes/errors.js';
@@ -47,7 +47,8 @@ export interface SendOutAsk {
   readonly destination: { readonly kind: string; readonly ref: string };
 }
 
-const DESTINATION_REFUSALS: Record<string, { code: PayErrorCode; message: string }> = {
+// Keyed by every state but `ready`, so a new state in the contract fails the typecheck until it has its refusal.
+const DESTINATION_REFUSALS: Record<Exclude<BankSendDestinationState, 'ready'>, { code: PayErrorCode; message: string }> = {
   not_saved: {
     code: 'pay.withdrawal_destination_not_saved',
     message: 'That address is not in your address book for this asset; nothing is sent to it',
@@ -100,7 +101,7 @@ export class SendOutDoor {
     if (answer.state === 'unavailable') {
       throw new PayError('The address book could not be read, so nothing was sent', 'pay.withdrawal_destination_unavailable');
     }
-    const refusal = DESTINATION_REFUSALS[answer.state]!;
+    const refusal = DESTINATION_REFUSALS[answer.state];
     throw new PayError(refusal.message, refusal.code, {
       networkId: ask.networkId ?? null,
       ...(answer.state === 'cooling' ? { coolingOffEndsAt: answer.coolingOffEndsAt } : {}),

@@ -239,6 +239,19 @@ describe('a send out of the platform: signer, saved address, quote and fee (real
       expect(await acceptedBy('q-2')).toBeNull();
       expect(await feePot()).toBe('1.5');
     });
+
+    it('a quoted send on a reference an unquoted withdrawal already holds is a typed conflict, never a raw constraint error', async () => {
+      const service = money();
+      await quote('q-1');
+      // A row from before quoted sends: no network, no quote and no fee.
+      await sql`
+        INSERT INTO pay.withdrawals (user_id, asset_id, amount, rail, destination, client_ref, status)
+        VALUES (${USER}, 'USDT', 25, ${RAIL}, ${sql.json({ kind: 'crypto', ref: ADDRESS })}, 'w-old', 'pending')`;
+      expect(await codeOf(send(service, 'w-old', 'q-1'))).toBe('pay.withdrawal_conflict');
+      expect(await acceptedBy('q-1')).toBeNull();
+      expect(await available()).toBe('300');
+      expect(await rows()).toMatchObject([{ status: 'pending', quote_ref: null, fee: null }]);
+    });
   });
 
   describe('no custody signer for the network (J-wallet-05 #7)', () => {

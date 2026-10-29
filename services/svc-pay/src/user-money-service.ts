@@ -1214,7 +1214,11 @@ export class UserMoneyService {
       // The purchase hold check counts what the hold will take: the amount and its fee.
       if (fresh) await this.assertNotHeldFromPurchase(tx, { ...input, amount: input.amount + (fee ?? 0n) });
 
-      const inserted = await tx<WithdrawalRow[]>`
+      // A client reference that already has a row is never inserted again: its stored fee must not be mixed with this
+      // request's quote and network (the row's check constraint would refuse it raw). The comparison below answers it.
+      const inserted = prior
+        ? []
+        : await tx<WithdrawalRow[]>`
           INSERT INTO pay.withdrawals (user_id, asset_id, amount, rail, destination, client_ref, status, network_id, quote_ref, fee)
           VALUES (
             ${input.userId}, ${input.assetId}, ${formatAmount(input.amount)}::numeric, ${input.rail},
