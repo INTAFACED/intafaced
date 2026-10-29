@@ -24,6 +24,7 @@ export type OtcErrorCode =
   | 'trade.rfq_missing_size'
   | 'trade.rfq_missing_price'
   | 'trade.rfq_already_bound'
+  | 'trade.rfq_window_passed'
   | 'trade.rfq_allocation_refused'
   | 'trade.rfq_give_up_refused'
   | 'trade.otc_makers_unset'
