@@ -932,6 +932,7 @@ export const rooms: readonly Room[] = [
   { path: '/launch/:projectId', title: 'Launch project', description: 'Issue and list an asset', door: 'More', area: 'more', hidden: true },
   { path: '/token/governance', title: 'Token governance', description: 'Access and staking', door: 'More', area: 'more', hidden: true },
   { path: '/token/economy', title: 'Token economy', description: 'Access and staking', door: 'More', area: 'more', hidden: true },
+  { path: '/token/burn', title: 'Token burn', description: 'Access and staking', door: 'More', area: 'more', hidden: true },
   {
     path: '/token/governance/:proposalId',
     title: 'Governance proposal',
