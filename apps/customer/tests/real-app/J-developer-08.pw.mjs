@@ -1,11 +1,12 @@
 import { test, expect } from '@playwright/test';
-import { journeyState } from './stack.mjs';
+import { request } from 'node:http';
+import { EDGE, ORIGIN, journeyState } from './stack.mjs';
 import { holderAgain, keyHolder, makeKey, withKey } from './developer.mjs';
 
 // J-developer-08, in the running app (docs/roadmap/journeys.json): see what my key did. One test per step, titled
 // "J-developer-08 #<n>", run in order. #1 makes the start: a verified TEST account with a passkey makes a read-only key
 // bound to one IP, then makes three calls with it: one allowed, one denied by its scope (an order) and one from outside
-// its IP list (sent through the stack's TEST forwarded-for header, which Edge trusts only on the local stack).
+// its IP list (sent from the loopback address 127.0.0.2, a real second source address; no forwarded-for header).
 // Steps that are written but not built yet fail at their first missing part, quickly (UNBUILT):
 // - #1 to #5: the key detail has no call log (status, request id, IP flag, filters, Refresh) and no usage.
 const J = 'J-developer-08';
@@ -31,6 +32,28 @@ async function openDetail(browser) {
   return page;
 }
 
+/** One call with the key from 127.0.0.2, outside the key's IP list (127.0.0.1); its status is what Edge answers. */
+function fromOtherAddress(key, path) {
+  const url = new URL(path, EDGE);
+  return new Promise((resolve, reject) => {
+    const req = request(
+      {
+        host: url.hostname,
+        port: url.port,
+        path: url.pathname,
+        localAddress: '127.0.0.2',
+        headers: { origin: ORIGIN, authorization: `Bearer ${key}` },
+      },
+      (res) => {
+        res.resume();
+        res.on('end', () => resolve(res.statusCode));
+      },
+    );
+    req.on('error', reject);
+    req.end();
+  });
+}
+
 test(`${J} #1 opens /uc/safe/api-keys/<keyId>: the key detail with its call log`, async ({ browser }) => {
   test.setTimeout(240_000);
   const { page, who } = await keyHolder(browser, 'jdc');
@@ -41,7 +64,7 @@ test(`${J} #1 opens /uc/safe/api-keys/<keyId>: the key detail with its call log`
     path: '/api/v1/orders',
     body: { symbol: 'BTC/USDT', type: 'limit', side: 'buy', amount: '0.001', price: '1' },
   });
-  await withKey(key, { path: '/api/v1/account/balance', headers: { 'x-forwarded-for': '203.0.113.99' } });
+  await fromOtherAddress(key, '/api/v1/account/balance');
   await page.goto('/uc/safe/api-keys');
   await page.getByTestId('api-keys__table').locator('tbody tr').filter({ hasText: 'reader' }).getByRole('link').first().click();
   const keyId = page.url().split('/').at(-1);

@@ -152,8 +152,11 @@ test(`${J} #9 my endpoint returns 410: the endpoint is disabled`, async ({ page 
   await addEndpoint(page, hook.url);
   await page.goto('/pay/developer/deliveries');
   await page.getByRole('button', { name: 'Send a test event' }).click(UNBUILT);
-  await page.goto('/pay/developer/webhooks');
-  await expect(page.getByRole('row', { name: new RegExp(hook.url) })).toContainText('Disabled');
+  // The 410 delivery runs in the background: re-read the endpoints until it shows.
+  await expect(async () => {
+    await page.goto('/pay/developer/webhooks');
+    await expect(page.getByRole('row', { name: new RegExp(hook.url) })).toContainText('Disabled', { timeout: 2_000 });
+  }).toPass({ timeout: 30_000 });
   hook.server.close();
 });
 

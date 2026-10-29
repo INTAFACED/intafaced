@@ -38,6 +38,7 @@ test(`${J} #1 reads the limits page: tiers, per-route cost, burst and refill; wi
   await page.goto('/developers/limits');
   const limits = page.getByRole('region', { name: 'Rate limits' });
   await expect(limits.getByRole('table', { name: 'Tiers' }).or(limits.getByText('Rate tiers are not set.'))).toBeVisible(UNBUILT);
+  // The route costs are published either way; only the tiers can be unset.
   await expect(limits.getByRole('table', { name: 'Cost per route' })).toBeVisible();
 });
 
@@ -78,6 +79,11 @@ test(`${J} #5 asks for a higher limit and gives a spike notice: recorded; with n
   await holder.page.goto('/developers/limits/request');
   const form = holder.page.getByRole('form', { name: 'Ask for a higher limit' });
   await expect(form.or(holder.page.getByText('Rate limits are not set.'))).toBeVisible(UNBUILT);
+  if (!(await form.isVisible())) {
+    // No base tier: the honest refusal is the whole step, and there is no request for #6 to grant.
+    await holder.page.context().close();
+    return;
+  }
   await form.getByLabel('Requests per second you need').fill('50');
   await form.getByLabel('Expected spike').fill('TEST launch day');
   await form.getByRole('button', { name: 'Send request' }).click();

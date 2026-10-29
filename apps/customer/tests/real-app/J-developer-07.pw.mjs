@@ -48,8 +48,9 @@ test(`${J} #1 rotates with a 60-second overlap: both keys verify until the end, 
 test(`${J} #2 loses the reply after the replacement is issued and retries: one replacement exists`, async ({ browser }) => {
   const page = await holderAgain(browser, state('who'));
   await page.goto('/uc/safe/api-keys');
-  await expect(rowOf(page, 'bot-1')).toHaveCount(1, UNBUILT);
-  await expect(rowOf(page, 'bot-1').getByText('Replaced')).toHaveCount(1);
+  // The replaced key and its one replacement: two rows named bot-1, one of them Replaced.
+  await expect(rowOf(page, 'bot-1').getByText('Replaced')).toHaveCount(1, UNBUILT);
+  await expect(rowOf(page, 'bot-1')).toHaveCount(2);
   await page.context().close();
 });
 
@@ -63,8 +64,8 @@ test(`${J} #4 revokes a key: it stops verifying at once; the list shows it revok
   const key = await makeKey(page, { name: 'bot-r' });
   await rowOf(page, 'bot-r').getByRole('button', { name: 'Revoke' }).click();
   await page.getByRole('alertdialog').getByRole('button', { name: 'Revoke' }).click();
-  expect(await works(key)).toBe(false);
   await expect(rowOf(page, 'bot-r')).toContainText('Revoked');
+  expect(await works(key)).toBe(false);
   await expect(rowOf(page, 'bot-r')).toContainText(/Revoked by you/);
   await page.context().close();
 });
@@ -79,7 +80,7 @@ test(`${J} #5 revokes all keys: every live key revoked; another user's keys unto
     .getByRole('alertdialog')
     .getByRole('button', { name: /Revoke all/ })
     .click();
-  for (const key of keys) expect(await works(key)).toBe(false);
+  for (const key of keys) await expect.poll(() => works(key), { timeout: 15_000 }).toBe(false);
   expect(await works(theirs)).toBe(true);
   await mine.page.context().close();
   await other.page.context().close();

@@ -36,10 +36,11 @@ test(`${J} #1 opens the limits view: tiers, per-route cost, a shared counter; a 
 
 test(`${J} #2 sets a base tier: the tiers saved with an audit entry`, async ({ page }) => {
   const view = await limits(page);
-  await view.getByLabel('Base tier, requests per second').fill('10');
-  await view.getByLabel('Base tier, burst').fill('20');
+  // TEST values far above what any journey sends, so the stack's other key journeys aren't throttled by this one.
+  await view.getByLabel('Base tier, requests per second').fill('1000');
+  await view.getByLabel('Base tier, burst').fill('2000');
   await view.getByRole('button', { name: 'Save tiers' }).click();
-  await expect(view).toContainText(/Base\s*10/);
+  await expect(view).toContainText(/Base\s*1000/);
   await page.goto(`${ADMIN}/audit?q=api-limits`);
   await expect(page.getByRole('row', { name: /api_limits\.tiers/ }).first()).toBeVisible();
 });
@@ -80,4 +81,7 @@ test(`${J} #5 records an incident on a component: the status feed shows impact a
   await form.getByLabel('Update').fill('TEST incident for the developer journey.');
   await form.getByRole('button', { name: 'Record' }).click();
   await expect(page.getByText('TEST incident for the developer journey.')).toBeVisible();
+  // Resolved again, so the status feed other journeys read is clear.
+  await page.getByRole('button', { name: 'Resolve' }).first().click();
+  await expect(page.getByText(/Resolved/).first()).toBeVisible();
 });

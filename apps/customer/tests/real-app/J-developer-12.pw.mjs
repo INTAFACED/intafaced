@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { journeyState, EDGE } from './stack.mjs';
-import { keyHolder, makeKey } from './developer.mjs';
+import { keyHolder, makeKey, withKey } from './developer.mjs';
 
 // J-developer-12, in the running app (docs/roadmap/journeys.json): build with the official SDK. One test per step, titled
 // "J-developer-12 #<n>", run in order. The SDK is loaded from the repository's own build (packages/sdk-ts) and pointed at
@@ -57,7 +57,12 @@ test(`${J} #2 places an order and the write times out: one retry under the same 
     onRequest: (req) => seen.push(req.headers['idempotency-key']),
   });
   await client.orders.place({ symbol: 'BTC/USDT', type: 'limit', side: 'buy', amount: '0.0001', price: '1' }).catch(() => {});
-  expect(new Set(seen).size).toBe(1);
+  // Two attempts (the first timed out), both under one idempotency key, and only one order on the book.
+  expect(seen).toHaveLength(2);
+  expect(seen[0]).toBeTruthy();
+  expect(seen[1]).toBe(seen[0]);
+  const listed = await withKey(key, { path: '/api/v1/orders/open?symbol=BTC%2FUSDT' });
+  expect(listed.body.filter((o) => o.price === '1' && o.amount === '0.0001')).toHaveLength(1);
 });
 
 test(`${J} #3 pages through a list: each item once`, async () => {

@@ -67,13 +67,15 @@ test(`${J} #2 authenticates with a short-lived stream token: subscribed; after t
   const minted = await withKey(key, { method: 'POST', path: '/api/v1/stream/token' });
   expect(minted.status, JSON.stringify(minted.body).slice(0, 300)).toBe(200);
   run.write({ who, key, url: minted.body.url, token: minted.body.token, lifetime: minted.body.expiresInSeconds });
-  const { got } = await stream(`${minted.body.url}?token=${minted.body.token}`, { until: (m) => m.some((x) => x.type === 'welcome') });
+  const { got } = await stream(`${minted.body.url}?token=${encodeURIComponent(minted.body.token)}`, {
+    until: (m) => m.some((x) => x.type === 'welcome'),
+  });
   expect(got[0].type).toBe('welcome');
 });
 
 test(`${J} #3 subscribes with a request id: the ack echoes it with server times; an unknown message type is ignored`, async () => {
   const id = `${J}-3`;
-  const { got } = await stream(`${state('url')}?token=${state('token')}`, {
+  const { got } = await stream(`${state('url')}?token=${encodeURIComponent(state('token'))}`, {
     send: [{ type: 'nonsense' }, { type: 'subscribe', id, channels: ['ticker:BTC/USDT'] }],
     until: (m) => m.some((x) => x.id === id),
   });
@@ -84,12 +86,14 @@ test(`${J} #3 subscribes with a request id: the ack echoes it with server times;
 
 test(`${J} #4 stops answering pings: the server ends the connection after the interval`, async () => {
   test.setTimeout(180_000);
-  const { closed } = await stream(`${state('url')}?token=${state('token')}`, { waitMs: 150_000 });
+  // The stream's heartbeat is its own {"type":"ping"} message, which this client never answers (the built-in WebSocket
+  // only answers protocol-level ping frames).
+  const { closed } = await stream(`${state('url')}?token=${encodeURIComponent(state('token'))}`, { waitMs: 150_000 });
   expect(closed?.reason).toMatch(/ping/);
 });
 
 test(`${J} #5 reconnects after a gap: a snapshot first, then sequence numbers continue from it`, async () => {
-  const { got } = await stream(`${state('url')}?token=${state('token')}`, {
+  const { got } = await stream(`${state('url')}?token=${encodeURIComponent(state('token'))}`, {
     send: [{ type: 'subscribe', id: `${J}-5`, channels: ['book:BTC/USDT'] }],
     until: (m) => m.filter((x) => x.channel === 'book:BTC/USDT').length >= 3,
   });
@@ -99,6 +103,8 @@ test(`${J} #5 reconnects after a gap: a snapshot first, then sequence numbers co
 });
 
 test(`${J} #6 opens connections above the per-IP cap: the extra one closes with the typed reason`, async () => {
-  const opened = await Promise.all(Array.from({ length: 30 }, () => stream(`${state('url')}?token=${state('token')}`, { waitMs: 5_000 })));
+  const opened = await Promise.all(
+    Array.from({ length: 30 }, () => stream(`${state('url')}?token=${encodeURIComponent(state('token'))}`, { waitMs: 5_000 })),
+  );
   expect(opened.some((o) => o.closed?.reason?.includes('connection_cap'))).toBe(true);
 });

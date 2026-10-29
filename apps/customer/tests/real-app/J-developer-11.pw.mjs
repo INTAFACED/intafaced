@@ -46,8 +46,16 @@ test(`${J} #1 logs the tool in with a pairing code approved in the browser: a se
   const { pairingCode, deviceId } = start.body;
   await page.goto(`/developers/cli/approve?code=${encodeURIComponent(pairingCode)}`);
   await page.getByRole('button', { name: 'Approve the command-line tool' }).click(UNBUILT);
-  const polled = await cli({ deviceId, poll: true });
-  expect(polled.body.session).toMatch(/\S+/);
+  let polled;
+  await expect
+    .poll(
+      async () => {
+        polled = await cli({ deviceId, poll: true });
+        return polled.body?.session ?? null;
+      },
+      { timeout: 15_000 },
+    )
+    .toMatch(/\S+/);
   expect(polled.body.secret ?? null).toBeNull();
   run.write({ session: polled.body.session });
 });

@@ -60,6 +60,7 @@ test(`${J} #3 deletes a sub-account key: it stops verifying at once`, async ({ b
   await page.goto('/uc/safe/api-keys');
   await page.getByTestId('api-keys__table').getByRole('row', { name: /sub-2/ }).getByRole('button', { name: 'Delete' }).click(UNBUILT);
   await page.getByRole('alertdialog').getByRole('button', { name: 'Delete key' }).click();
+  await expect(page.getByTestId('api-keys__table').getByRole('row', { name: /sub-2/ })).toHaveCount(0);
   expect((await withKey(key, { path: '/api/identity/trpc/me' })).status).toBe(401);
 });
 

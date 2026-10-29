@@ -75,9 +75,11 @@ test(`${J} #1 registers an app with an https redirect and scopes: the client id 
   run.reset({ who, tag: Date.now().toString(36) });
   let box = await form(page);
   await register(box, { name: `TEST wild ${state('tag')}`, redirects: 'https://*.local-test.invalid/cb', scopes: 'trade:read' });
-  await expect(box.getByRole('alert')).toContainText('is not an exact https address');
+  await expect(box.getByRole('alert').last()).toContainText('is not an exact https address');
   await register(box, { name: `TEST http ${state('tag')}`, redirects: 'http://app.local-test.invalid/cb', scopes: 'trade:read' });
-  await expect(box.getByRole('alert')).toContainText('is not an exact https address');
+  // The refusal names this redirect, not the wildcard one before it.
+  await expect(box.getByRole('alert').last()).toContainText('http://app.local-test.invalid/cb');
+  await expect(box.getByRole('alert').last()).toContainText('is not an exact https address');
   await register(box, { name: `TEST withdraw ${state('tag')}`, redirects: REDIRECT, scopes: 'trade:withdraw' });
   await expect(box.getByRole('alert').last()).toContainText('A scope that needs an interactive session cannot be declared by an app.');
 

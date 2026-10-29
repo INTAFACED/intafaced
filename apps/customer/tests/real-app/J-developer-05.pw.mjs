@@ -80,7 +80,9 @@ test(`${J} #6 lists orders with a cursor, three pages: each once; the end cursor
   const seen = [];
   let cursor = '';
   for (let pageNo = 0; pageNo < 10; pageNo++) {
-    const res = await withKey(state('key'), { path: `/api/v1/orders?symbol=BTC%2FUSDT&limit=2${cursor ? `&cursor=${cursor}` : ''}` });
+    const res = await withKey(state('key'), {
+      path: `/api/v1/orders?symbol=BTC%2FUSDT&limit=2${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ''}`,
+    });
     expect(res.status, JSON.stringify(res.body).slice(0, 300)).toBe(200);
     seen.push(...res.body.items.map((o) => o.id));
     cursor = res.body.nextCursor ?? '';
