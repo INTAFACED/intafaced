@@ -399,6 +399,42 @@ describe('founder admin session security boundaries', () => {
     });
   });
 
+  it("reads identity's new-device refusal as the shared tRPC formatter sends it: prose message, code in data.cause", async () => {
+    const waiting = { flowId: USER_ID, secret: 's'.repeat(43), expiresAt: '2026-10-10T12:10:00.000Z', mailed: true };
+    const body = {
+      error: {
+        message: 'This device has not been used to sign in to this account before. Approve it to continue.',
+        code: -32003,
+        data: {
+          code: 'FORBIDDEN',
+          httpStatus: 403,
+          path: 'auth.login',
+          cause: { code: 'auth.device_authorisation_required' },
+          deviceAuthorisation: waiting,
+        },
+      },
+    };
+    expect(upstreamCodeOf(body)).toBe('auth.device_authorisation_required');
+    expect(deviceAuthorisationOf(body)).toEqual(waiting);
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response(JSON.stringify(body), { status: 403 })),
+    );
+    const refused = await founderEdgeCall(config(), 'identity', 'auth.login', 'POST', {}, undefined, { userAgent: null }).catch(
+      (error: unknown) => error,
+    );
+    expect(await adminSessionErrorResponse(refused).json()).toEqual({
+      code: 'admin.authority_refused',
+      upstream: 'auth.device_authorisation_required',
+      deviceAuthorisation: waiting,
+    });
+    // A wrong emailed code arrives the same way and is named, so the page can say so.
+    expect(upstreamCodeOf({ error: { message: 'That code is not valid.', data: { cause: { code: 'auth.code_invalid' } } } })).toBe(
+      'auth.code_invalid',
+    );
+    expect(upstreamCodeOf({ error: { message: 'x', data: { cause: { code: 'Free text here' } } } })).toBeNull();
+  });
+
   it('never forwards free text from a service as a code', () => {
     expect(upstreamCodeOf({ error: { json: { message: 'Something went wrong for user 3faadae7' } } })).toBeNull();
     expect(upstreamCodeOf({ message: 'refused [ops.crm.revision_conflict] later' })).toBe('ops.crm.revision_conflict');

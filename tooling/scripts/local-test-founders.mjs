@@ -15,6 +15,7 @@ import { randomBytes } from 'node:crypto';
 import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { GuardError, enrolFounderAccounts, generateInvites, randomPassword } from './local-founder-seed.mjs';
+import { readLatestEmailConfirmToken } from './local-test-state.mjs';
 
 export { GuardError };
 
@@ -327,6 +328,20 @@ export function planFounderIdentityRestart({ enrolled, stamp, vault }) {
 }
 
 /**
+ * Confirms a new founder's email address the way its owner would: identity mails a link to this stack's outbox file
+ * (`auth.requestEmailConfirmation`) and the token in it confirms the address (`auth.confirmEmail`). Nothing writes
+ * `email_verified_at` directly. A confirmed address is what lets the console's new-device check mail a founder the code
+ * that approves a new browser (docs/LOCAL-TEST-STACK.md, Founder console; J-ops-console-01 #1).
+ */
+export async function confirmFounderEmail(f, call, outboxPath, log = () => {}) {
+  await call('auth.requestEmailConfirmation', {});
+  const token = existsSync(outboxPath) ? readLatestEmailConfirmToken(readFileSync(outboxPath, 'utf8'), f.email) : null;
+  if (!token) throw new GuardError(`no LOCAL-TEST confirm link reached ${outboxPath} for ${f.email}`);
+  await call('auth.confirmEmail', { token });
+  log(`${f.key}: email address confirmed`);
+}
+
+/**
  * Enrol the vault's two founders on the test stack edge. Saves the vault after
  * each secret. Does not write a Docker env file and does not set IDENTITY_FOUNDER_*
  * itself: the stack reads founderIdentityEnv on the next identity start.
@@ -353,6 +368,7 @@ export async function enrolTestStackFounders({
     fetchImpl,
     log,
     vaultLabel: vaultPath,
+    afterRegister: (f, call) => confirmFounderEmail(f, call, path.join(stateDir, 'email-outbox.log'), log),
   });
   assertVaultShape(vault);
   // A confirm here used the current TOTP step. Record it where the gates and the world look (founderTotp in

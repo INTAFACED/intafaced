@@ -104,7 +104,19 @@ export function upstreamCodeOf(body: unknown): string | null {
   const error = root.error && typeof root.error === 'object' ? (root.error as Record<string, unknown>) : {};
   const json = error.json && typeof error.json === 'object' ? (error.json as Record<string, unknown>) : error;
   const data = json.data && typeof json.data === 'object' ? (json.data as Record<string, unknown>) : {};
-  for (const candidate of [root.intafacedCode, json.intafacedCode, data.appCode, root.code, json.message, root.message]) {
+  // The shared tRPC formatter (packages/contracts) puts a service's own code in `data.intafacedCode` or, for every other
+  // typed error (identity's new-device check among them), in `data.cause.code`; the message is then prose.
+  const cause = data.cause && typeof data.cause === 'object' ? (data.cause as Record<string, unknown>) : {};
+  for (const candidate of [
+    root.intafacedCode,
+    json.intafacedCode,
+    data.intafacedCode,
+    data.appCode,
+    cause.code,
+    root.code,
+    json.message,
+    root.message,
+  ]) {
     if (typeof candidate !== 'string' || candidate.length > 120) continue;
     if (UPSTREAM_CODE.test(candidate)) return candidate;
     const embedded = EMBEDDED_CODE.exec(candidate)?.[1];

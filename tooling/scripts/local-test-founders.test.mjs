@@ -4,7 +4,7 @@
  */
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync } from 'node:fs';
+import { appendFileSync, existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
@@ -327,7 +327,7 @@ test('draft writes only founders.json under the state dir and refreshes expired 
   }
 });
 
-function fakeEdge() {
+function fakeEdge(outbox) {
   const users = new Map();
   const calls = [];
   const clock = { t: new Date('2026-10-17T00:00:00Z') };
@@ -345,6 +345,20 @@ function fakeEdge() {
     }
     const user = users.get(token?.replace('tok-', ''));
     if (!user) return error(401, 'UNAUTHORIZED');
+    if (proc === 'auth.requestEmailConfirmation') {
+      // Identity "mails" the link to the stack's outbox file; only the token in it confirms the address.
+      user.confirmToken = `ct-${user.id}`;
+      appendFileSync(
+        outbox,
+        `LOCAL-TEST purpose=email-confirm email=${user.email} expires=x link=confirm-email?token=${user.confirmToken}\n`,
+      );
+      return reply({ accepted: true });
+    }
+    if (proc === 'auth.confirmEmail') {
+      if (body.token !== user.confirmToken) return error(400, 'BAD_REQUEST', 'auth.token_invalid');
+      user.emailVerified = true;
+      return reply({ userId: user.id });
+    }
     if (proc === 'totp.enrol') {
       user.pending = base32Encode(Buffer.from(`secret-${user.id}`));
       return reply({ secret: user.pending, uri: 'otpauth://x', recoveryCodes: ['aaaaa-bbbbb', 'ccccc-ddddd'] });
@@ -386,7 +400,7 @@ test('enrol talks only to the test stack edge and writes no Docker founder file'
       rand: seeded(),
       log() {},
     });
-    const edge = fakeEdge();
+    const edge = fakeEdge(join(stateDir, 'email-outbox.log'));
     const vault = await enrolTestStackFounders({
       stateDir,
       marker: marker(),
@@ -397,7 +411,23 @@ test('enrol talks only to the test stack edge and writes no Docker founder file'
     });
     assert.deepEqual(
       edge.calls.map((c) => c.proc),
-      ['auth.registerFounder', 'totp.enrol', 'totp.confirm', 'auth.registerFounder', 'totp.enrol', 'totp.confirm'],
+      [
+        'auth.registerFounder',
+        'auth.requestEmailConfirmation',
+        'auth.confirmEmail',
+        'totp.enrol',
+        'totp.confirm',
+        'auth.registerFounder',
+        'auth.requestEmailConfirmation',
+        'auth.confirmEmail',
+        'totp.enrol',
+        'totp.confirm',
+      ],
+    );
+    // Each founder's address is confirmed through the mailed link, as its owner would, so a new browser can be mailed a code.
+    assert.deepEqual(
+      [...edge.users.values()].map((u) => u.emailVerified),
+      [true, true],
     );
     assert.ok(edge.calls.every((c) => c.url.startsWith('http://127.0.0.1:14500/api/identity/trpc/')));
     assert.deepEqual(
