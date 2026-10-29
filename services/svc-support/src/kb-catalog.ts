@@ -7,10 +7,12 @@
  */
 
 import type { SupportKbArticle } from '@intafaced/contracts';
+import { en } from '@intafaced/i18n';
 
 /**
  * Day-one platform KB spine. Keys are catalog ids for @intafaced/i18n —
- * strings here are keys, not user-facing English copy.
+ * strings here are keys, not user-facing English copy. Search also matches the
+ * English title a key shows (`publishedTitle`), so editing that copy changes hits.
  */
 export const PLATFORM_KB_SPINE: readonly SupportKbArticle[] = [
   {
@@ -251,6 +253,19 @@ export function listPlatformKb(): readonly SupportKbArticle[] {
   return publishedOnly(PLATFORM_KB_SPINE).map((a) => assertKbArticle({ ...a }));
 }
 
+const shownTitles = new Map<string, string | null>();
+/**
+ * The English title a key shows, lower-cased, or null when the catalogue has none. A template (`{name}`) is shown as
+ * nothing by the apps, so it is never matched either. Fixed for the life of the process, so worked out once per key.
+ */
+function publishedTitle(titleKey: string): string | null {
+  if (!shownTitles.has(titleKey)) {
+    const text = (en as Readonly<Record<string, unknown>>)[titleKey];
+    shownTitles.set(titleKey, typeof text === 'string' && !/\{\w+\}/.test(text) ? text.toLowerCase() : null);
+  }
+  return shownTitles.get(titleKey) ?? null;
+}
+
 /**
  * How closely one article matches a query. A label (tag or category) outranks
  * a title, which outranks the body. Zero means it is not a hit.
@@ -260,10 +275,12 @@ function kbSearchScore(article: SupportKbArticle, q: string): number {
   let score = 0;
   if (labels.some((label) => label === q)) score += 300;
   else if (labels.some((label) => label.includes(q))) score += 200;
-  // A version typed in the desk is matched on its text; a catalogue-keyed one on its keys.
+  // A version typed in the desk is matched on its text, a catalogue-keyed one on its keys, and both on the catalogue
+  // title the apps show for the key (the header lists every article by that title).
   const title = article.title ?? article.titleKey;
   const body = article.body ?? article.bodyKey;
-  if (title.toLowerCase().includes(q)) score += 100;
+  const shown = publishedTitle(article.titleKey);
+  if (title.toLowerCase().includes(q) || (shown !== null && shown.includes(q))) score += 100;
   if (article.id.toLowerCase().includes(q)) score += 80;
   if (body.toLowerCase().includes(q)) score += 10;
   return score;

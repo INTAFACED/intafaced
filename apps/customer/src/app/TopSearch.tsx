@@ -1,5 +1,6 @@
 import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent, type RefObject } from 'react';
-import { useSession } from '../features/session/session';
+import { useApi, useSession } from '../features/session/session';
+import { z } from 'zod';
 import { CoinIcon } from '@intafaced/ui';
 import { fmtPrice, useMarkets, useTickers, type Loadable, type MarketRow, type TickerRow } from '../data';
 import { assetName, homeCopy } from '../screens/home/copy';
@@ -26,6 +27,8 @@ interface Row {
   lang?: string;
 }
 const perGroup = 8;
+/** How long "No results" stands before the miss is counted, so the words passed while typing are not counted. */
+const MISS_SETTLE_MS = 1_200;
 
 const isMac = typeof navigator !== 'undefined' && /mac|iphone|ipad/i.test(navigator.platform);
 
@@ -162,7 +165,9 @@ function SearchData({ open, helpCap, ...props }: Omit<PanelProps, 'help'> & { op
   const tickers = useTickers();
   const ownerCap = useHelpResultCap(open);
   const help = useHelpSearch(props.query, open, helpCap === undefined ? ownerCap : helpCap);
-  return open ? <SearchPanel {...props} help={help} source={markets} tickers={tickers} /> : null;
+  // The last search counted as a miss outlives the panel, so closing and reopening on the same words counts it once.
+  const counted = useRef<string | null>(null);
+  return open ? <SearchPanel {...props} help={help} source={markets} tickers={tickers} counted={counted} /> : null;
 }
 
 interface PanelProps {
@@ -191,7 +196,12 @@ function SearchPanel({
   close,
   source,
   tickers,
-}: PanelProps & { source: Loadable<MarketRow[]>; tickers: Loadable<Record<string, TickerRow>> }) {
+  counted,
+}: PanelProps & {
+  source: Loadable<MarketRow[]>;
+  tickers: Loadable<Record<string, TickerRow>>;
+  counted: RefObject<string | null>;
+}) {
   const { t } = shellCopy.useCopy();
   const names = homeCopy.useCopy();
   const signedIn = Boolean(useSession().session);
@@ -202,6 +212,8 @@ function SearchPanel({
     return isUsdQuote(market.quote) ? `$${price}` : `${price} ${market.quote}`;
   };
   const words = query.toLowerCase().trim().split(/\s+/).filter(Boolean);
+  const loading = source.status === 'loading';
+  const api = useApi();
   const helpList = useMemo<Row[]>(() => {
     if (help.status === 'idle') return [];
     const articles =
@@ -254,6 +266,31 @@ function SearchPanel({
     return [...coins, ...markets, ...pages, ...helpList];
   }, [source, tickers, pages, helpList, layoutMode, query, signedIn]);
 
+  // A search that found nothing is counted once for the founders: when "No results" has stood for a moment (so the
+  // words typed on the way are not counted), or at once on Enter. Nothing found means every group answered: the markets
+  // answered (even with none listed) and Help gave its articles, has no limit set or was not asked (too short a search);
+  // "Open Help" alone is not a result. A group that failed to answer leaves it unknown, so nothing is counted.
+  // The call carries only its kind, no words and no session (no bearer), and is never retried.
+  const found = rows.some((row) => row.key !== 'help:all');
+  const settled = !loading && help.status !== 'loading' && words.length > 0;
+  const answered =
+    (source.status === 'ready' || source.status === 'empty') &&
+    (help.status === 'ready' || help.status === 'unset' || help.status === 'idle');
+  const missed = !found && settled && answered;
+  const missKey = words.join(' ');
+  function countMiss() {
+    if (counted.current === missKey) return;
+    counted.current = missKey;
+    void api.mutate('notify', 'navMetrics.searchMiss', { kind: 'search_miss' }, z.unknown(), { bearer: '' }).catch(() => undefined);
+  }
+  useEffect(() => {
+    if (!missed) return;
+    const timer = setTimeout(countMiss, MISS_SETTLE_MS);
+    return () => clearTimeout(timer);
+    // countMiss reads only missKey and refs.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [missed, missKey]);
+
   function choose(row: Row | undefined) {
     if (!row) return;
     close();
@@ -269,6 +306,8 @@ function SearchPanel({
       setActive(rows.length ? (active - 1 + rows.length) % rows.length : 0);
     } else if (event.key === 'Enter') {
       event.preventDefault();
+      // Nothing found: the miss is counted, and Enter opens the active row as always (Open Help).
+      if (missed) countMiss();
       choose(rows[Math.min(active, rows.length - 1)]);
     }
   }
@@ -281,7 +320,6 @@ function SearchPanel({
   });
 
   const groups: Group[] = ['Coins', 'Markets', 'Pages', 'Help'];
-  const loading = source.status === 'loading';
   let index = -1;
   return (
     <div data-testid="tb-search-panel" className="tb-popover tb-search-panel" role="presentation">
@@ -335,7 +373,7 @@ function SearchPanel({
           );
         })}
       </ul>
-      {!rows.some((row) => row.group !== 'Help') && !loading && help.status !== 'loading' && words.length > 0 && (
+      {!rows.some((row) => row.group !== 'Help') && settled && (
         <p className="tb-empty" role="status">
           {t('No results for "{query}"', { query })}
         </p>
