@@ -184,27 +184,31 @@ export interface WithdrawInput {
   withdrawalId: string;
   /**
    * The network fee the person was quoted for this withdrawal (W-withdraw-04, J-wallet-05 #6), in the same asset, charged on
-   * top of `amount`. Absent means no fee leg: a withdrawal held without one settles and reverses without one. When present it
-   * must be above zero (a stated zero fee is no leg, never a zero-amount entry), and the same fee must ride the hold, the
-   * settle and the reverse of one withdrawal, so what leaves the balance is exactly the quote's total debit.
+   * top of `amount`. Absent or zero means no fee leg (never a zero-amount entry): a withdrawal held without one settles and
+   * reverses without one. The same fee must ride the hold, the settle and the reverse of one withdrawal, so what leaves the
+   * balance is exactly the quote's total debit; svc-ledger's door refuses a settle or reverse whose fee is not the one its
+   * posted hold carries, and one that draws less than the whole of a fee-carrying hold (`withdraw-fee-binding.ts`).
    */
   fee?: Amount;
 }
 
-/** What one withdrawal holds: the amount sent plus its fee, when there is one. */
-function withdrawTotal(input: WithdrawInput): Amount {
-  if (input.fee === undefined) return input.amount;
+/** The fee leg of a withdrawal post, or null when it has none. A negative fee is refused. */
+function withdrawFee(input: WithdrawInput): Amount | null {
+  if (input.fee === undefined || input.fee === 0n) return null;
   requirePositive('withdrawal fee', input.fee);
-  return input.amount + input.fee;
+  return input.fee;
 }
 
-/** `meta.fee` on a withdrawal post that carries a fee, so the journal says which part was the fee. */
+/** What one withdrawal holds: the amount sent plus its fee, when there is one. */
+function withdrawTotal(input: WithdrawInput): Amount {
+  const fee = withdrawFee(input);
+  return fee === null ? input.amount : input.amount + fee;
+}
+
+/** `meta.fee` on a withdrawal post that carries a fee, so the journal (and svc-ledger's door) says which part was the fee. */
 function withdrawMeta(input: WithdrawInput): Record<string, string> {
-  return {
-    rail: input.rail,
-    withdrawalId: input.withdrawalId,
-    ...(input.fee === undefined ? {} : { fee: formatAmount(input.fee) }),
-  };
+  const fee = withdrawFee(input);
+  return { rail: input.rail, withdrawalId: input.withdrawalId, ...(fee === null ? {} : { fee: formatAmount(fee) }) };
 }
 
 /**
@@ -265,7 +269,7 @@ export function withdrawSettle(input: WithdrawInput): PostRequest {
     entries: [
       credit(withdrawalHoldAccount(input.userId, input.assetId, input.withdrawalId), total),
       debit(railBoundary(input.rail, input.assetId), input.amount),
-      ...(input.fee === undefined ? [] : [debit(houseFees('pay', input.assetId), input.fee)]),
+      ...(withdrawFee(input) === null ? [] : [debit(houseFees('pay', input.assetId), withdrawFee(input)!)]),
     ],
   };
 }
@@ -298,6 +302,8 @@ export function withdrawReverse(input: WithdrawInput): PostRequest {
  */
 export function withdrawReturned(input: WithdrawInput): PostRequest {
   requirePositive('returned withdrawal amount', input.amount);
+  // What comes back is what went to the rail. The fee never left, so a return carries none.
+  if (input.fee !== undefined) throw new InvalidEntryError('a returned withdrawal carries no fee; return only what was sent');
   const withdrawalId = input.withdrawalId;
   if (!withdrawalId || withdrawalId.trim() !== withdrawalId) {
     throw new InvalidEntryError('withdrawalId is required, with no surrounding spaces');

@@ -80,12 +80,17 @@ describe('a withdrawal with its quoted fee', () => {
     }
   });
 
-  it('refuses a zero or negative fee rather than posting a zero leg', () => {
-    for (const fee of [amt('0'), -amt('1')]) {
-      for (const step of [recipes.withdrawHold, recipes.withdrawSettle, recipes.withdrawReverse]) {
-        expect(() => step(withFee('w-5:0', { fee }))).toThrow(InvalidEntryError);
-      }
+  it('a zero fee is no leg, and a negative fee is refused', () => {
+    for (const step of [recipes.withdrawHold, recipes.withdrawSettle, recipes.withdrawReverse]) {
+      const post = step(withFee('w-5:0', { fee: amt('0') }));
+      expect(post.entries).toHaveLength(2);
+      expect(post.meta).not.toHaveProperty('fee');
+      expect(() => step(withFee('w-5:0', { fee: -amt('1') }))).toThrow(InvalidEntryError);
     }
+  });
+
+  it('a return carries no fee: only what went to the rail comes back', () => {
+    expect(() => recipes.withdrawReturned(withFee('w-7:0'))).toThrow(InvalidEntryError);
   });
 
   it('a fee the balance cannot cover with the amount holds nothing', async () => {
