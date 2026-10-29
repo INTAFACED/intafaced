@@ -1,9 +1,8 @@
 import { readdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import postgres from 'postgres';
 import { afterAll, beforeEach, describe, expect, it } from 'vitest';
-import { assertTestDatabase, postgresAvailable } from '@intafaced/db';
+import { assertTestDatabase, createTestDatabase, postgresAvailable, type TestDatabase } from '@intafaced/db';
 import type { Principal } from '@intafaced/auth';
 import { createEdgeContext, encodePrincipal, signPrincipalHeader } from '@intafaced/contracts';
 import { createSupportHttpApp } from './http-app.js';
@@ -18,46 +17,30 @@ import { createTicketKbLoopObserver } from './ticket-kb-loop-observation.js';
  * TICKET_KB_LOOP_OBSERVED_IN_LIVE_COMPOSE boolean do not satisfy this.
  */
 
-// Per-run database as in kb-audience.pg.test.ts: a file sharing intafaced_test with another file that replays
-// migrations sees the other's half-applied triggers and truncates (#6713). The name ends in _test and is never
-// intafaced_test.
-const ADMIN_URL = process.env.TEST_DATABASE_URL_SUPPORT_ADMIN ?? 'postgres://127.0.0.1:5432/postgres';
-const database = `svc_support_kbloop_${process.pid}_${Math.random().toString(36).slice(2, 10)}_test`;
-if (database === 'intafaced_test' || !database.endsWith('_test') || !/^[a-z0-9_]+$/.test(database)) {
-  throw new Error(`refusing database name ${database}`);
-}
+const ADMIN_URL = process.env.TEST_DATABASE_URL ?? 'postgres://intafaced_ops:intafaced_ops@localhost:5433/intafaced_test';
 const here = dirname(fileURLToPath(import.meta.url));
 const migrationsDir = join(here, '..', 'drizzle');
+// Every migration, in order: the store writes columns later migrations add, which this file once got only from other
+// files migrating the shared database further.
+const MIGRATIONS = readdirSync(migrationsDir)
+  .filter((f) => f.endsWith('.sql') && !f.endsWith('.down.sql'))
+  .sort()
+  .map((f) => readFileSync(join(migrationsDir, f), 'utf8'));
 
 const SECRET = 'a-support-ticket-kb-process-edge-secret-long';
 const IDENTITY_SECRET = 'a-support-ticket-kb-process-identity-secret';
 const USER = '11111111-1111-4111-8111-111111111111';
 
+// A per-run database (#6713): on the shared intafaced_test, other files' migration replays and truncates ran under this
+// file's tests.
 const available = await postgresAvailable(ADMIN_URL);
-const admin = available ? postgres(ADMIN_URL, { max: 1, onnotice: () => undefined }) : null;
-if (admin) await admin.unsafe(`CREATE DATABASE "${database}"`);
-const databaseUrl = new URL(ADMIN_URL);
-databaseUrl.pathname = `/${database}`;
-const sql = admin ? postgres(databaseUrl.toString(), { max: 4, onnotice: () => undefined }) : null;
-
-if (available && sql) {
-  await assertTestDatabase(sql, 'svc-support ticket-kb-loop.process.test');
-  await sql.unsafe('CREATE SCHEMA IF NOT EXISTS support');
-  // Every migration, in order: the store writes columns later migrations add, which this file once got only from
-  // other files migrating the shared database further.
-  const files = readdirSync(migrationsDir)
-    .filter((f) => f.endsWith('.sql') && !f.endsWith('.down.sql'))
-    .sort();
-  for (const f of files) await sql.unsafe(readFileSync(join(migrationsDir, f), 'utf8'));
-}
+const db: TestDatabase | null = available ? await createTestDatabase({ service: 'support', url: ADMIN_URL, migrations: MIGRATIONS }) : null;
+const sql = db?.sql ?? null;
+if (sql) await assertTestDatabase(sql, 'svc-support ticket-kb-loop.process.test');
 
 afterAll(async () => {
-  if (sql) await sql.end({ timeout: 5 });
-  if (admin) {
-    await admin.unsafe(`DROP DATABASE IF EXISTS "${database}" WITH (FORCE)`);
-    await admin.end({ timeout: 5 });
-  }
-});
+  await db?.drop();
+}, 30_000);
 
 const edgeContext = createEdgeContext({ secret: SECRET, serviceName: 'svc-support' });
 
