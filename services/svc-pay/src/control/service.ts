@@ -344,7 +344,11 @@ export class ControlService {
         .map(toRule)
         .map((rule) => ({
           assetCode: rule.assetCode,
-          bands: rule.bands.map((b) => ({ fromAmount: fmt(b.fromAmount), feeBps: b.feeBps, flatFee: b.flatFee === null ? null : fmt(b.flatFee) })),
+          bands: rule.bands.map((b) => ({
+            fromAmount: fmt(b.fromAmount),
+            feeBps: b.feeBps,
+            flatFee: b.flatFee === null ? null : fmt(b.flatFee),
+          })),
           spreadBps: rule.spreadBps,
           roundingBeneficiary: rule.roundingBeneficiary,
           minFee: rule.minFee === null ? null : fmt(rule.minFee),

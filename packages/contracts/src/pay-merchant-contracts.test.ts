@@ -337,9 +337,7 @@ describe('founder merchant names', () => {
     expect(merchantTierSummarySchema.safeParse({ ...tier, payoutFee: { kind: 'not_charged', amount: '0' } }).success).toBe(false);
     expect(payPayoutFeeSchema.safeParse({ kind: 'free' }).success).toBe(false);
     // A fee row carries a decimal string, never a number.
-    expect(
-      merchantTierSummarySchema.safeParse({ ...tier, fees: [{ ...tier.fees[0], minFee: 1 }] }).success,
-    ).toBe(false);
+    expect(merchantTierSummarySchema.safeParse({ ...tier, fees: [{ ...tier.fees[0], minFee: 1 }] }).success).toBe(false);
   });
 
   it('pricing history with nothing configured carries no events', () => {
