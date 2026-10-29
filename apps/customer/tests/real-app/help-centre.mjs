@@ -148,11 +148,20 @@ export async function setPropertiesAsLead(ticketId, priority, ticketType) {
   );
 }
 
-// The desk tokens, minted once per worker; a refused mint is not kept, so the next call tries again.
-let leadTokenOnce;
-let agentTokenOnce;
-const deskLeadToken = () => (leadTokenOnce ??= leadToken().catch((error) => ((leadTokenOnce = undefined), Promise.reject(error))));
-const agentToken = () => (agentTokenOnce ??= appointAgent().catch((error) => ((agentTokenOnce = undefined), Promise.reject(error))));
+// The desk tokens live 300 s (local-test-gates.mjs `mintOperatorToken`), and one worker runs many journey files, so a
+// token is minted again once it is four minutes old instead of once per worker. A refused mint is not kept, so the next
+// call tries again.
+const DESK_TOKEN_FRESH_MS = 4 * 60_000;
+const desks = { lead: undefined, agent: undefined };
+function deskToken(slot, mint) {
+  const held = desks[slot];
+  if (held && Date.now() - held.at < DESK_TOKEN_FRESH_MS) return held.token;
+  const next = { at: Date.now(), token: mint().catch((error) => ((desks[slot] = undefined), Promise.reject(error))) };
+  desks[slot] = next;
+  return next.token;
+}
+const deskLeadToken = () => deskToken('lead', leadToken);
+const agentToken = () => deskToken('agent', appointAgent);
 
 /** A token for founder B as a support agent, appointed by the lead (founder A) the first time. */
 async function appointAgent() {
