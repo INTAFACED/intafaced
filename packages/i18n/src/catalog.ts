@@ -331,10 +331,18 @@ export const en = {
   'agents.refused.cursor_invalid': 'Refused: that page cursor is not valid — ask for the list again from the start.',
   'agents.refused.fee_asset_unset': 'Refused: the fee asset for settled usage is unset, so spend cannot be labelled.',
   'agents.refused.kb_search_limit_unset': 'Refused: a page size is required to search support knowledge — none was given.',
+  'agents.refused.window_unpaid':
+    'Refused: {owed} {asset} of earlier usage could not be paid, more than the {grace} {asset} allowed unpaid, so this run did not start. Add funds: the unpaid usage is retried on its same charge, then runs start again.',
+  'agents.refused.overage_grace_unset':
+    'Refused: {owed} {asset} of earlier usage could not be paid, and no allowance for unpaid usage is set, so this run did not start. Add funds: the unpaid usage is retried on its same charge, then runs start again.',
+  'agents.refused.window_sealed':
+    'Refused: this session’s usage is already settled, so it takes no more runs and nothing was called. Close it and open a new session.',
   'agents.error.route_not_found': 'No Sovereign Intelligence route is configured for “{task}”.',
   'agents.error.capability_unavailable': 'The Neural Engine cannot serve this kind of request right now.',
   'agents.error.engine_unavailable': 'The Neural Engine is unavailable. Nothing was run and nothing was charged.',
   'agents.error.window_sealed': 'This usage period is already settled.',
+  'agents.error.window_unpaid':
+    'A usage window could not be paid, so the session stays open. Add funds: the window is retried on its same charge when you close the session or start a run.',
   'agents.error.request_id_replay':
     'That request was already processed for this session — start a new request rather than reusing the same id.',
   'agents.scanner.empty': 'No markets were provided to rank.',
