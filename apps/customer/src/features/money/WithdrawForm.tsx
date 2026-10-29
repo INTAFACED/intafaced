@@ -249,11 +249,14 @@ export function WithdrawForm({ toWallet = false }: { toWallet?: boolean } = {}) 
     const timer = setTimeout(() => setNow(Date.now()), Math.min(nextCoolingEnd - Date.now() + 50, 2 ** 31 - 1));
     return () => clearTimeout(timer);
   }, [nextCoolingEnd]);
+  // An unanswered send inside locks the form on its own terms: only finishing it is offered, whatever the address reads as now.
+  // An unanswered send out locks what it sends (asset, network, address, amount) until svc-pay answers for its reference.
+  const resuming = open?.unanswered === true;
+  const resumingOut = openOut !== null;
+  const locked = resuming || resumingOut;
   // A wallet that disconnects, or switches account, after it filled the destination clears it (the fill follows the
   // wallet) and refuses `wallet.not_connected`: a confirmation it chose closes before anything is asked for. Once the step-up
   // has sent the withdrawal, its answer stands.
-  // A send whose answer was lost holds the form on its terms until svc-pay answers for it.
-  const onHold = open?.unanswered === true || openOut !== null;
   const fillKey = fill.state === 'filled' ? `filled:${fill.address.toLowerCase()}` : fill.state;
   useEffect(() => {
     const before = lastFill.current;
@@ -261,12 +264,8 @@ export function WithdrawForm({ toWallet = false }: { toWallet?: boolean } = {}) 
     if (walletEdited) return;
     if (fill.state === 'filled') setWalletLost(false);
     if (!walletGone(before, fill)) return;
-    if (fill.state !== 'filled') setWalletLost(true);
+    if (fill.state !== 'filled' && !locked) setWalletLost(true);
     setConfirmingOut((current) => (current?.fromWallet && !sendingOut.current ? null : current));
-    // A send whose answer was lost keeps the terms it holds; otherwise the fields the fill wrote go with the wallet.
-    if (onHold) return;
-    setAddress('');
-    setSavedId('');
     // `fill` is read through fillKey, so a new object for the same account is not a change.
   }, [fillKey, walletEdited]);
 
@@ -275,13 +274,14 @@ export function WithdrawForm({ toWallet = false }: { toWallet?: boolean } = {}) 
   const catalogue = networks.resource.status === 'ready' ? networks.resource.data.find((entry) => entry.assetId === asset) : undefined;
   const offered = catalogue?.networks ?? [];
   // The wallet's account fills the destination until Edit, unless a send whose answer was lost holds the form on its terms.
-  const walletAddress = fill.state === 'filled' && !walletEdited && !onHold ? fill.address : null;
+  const walletAddress = fill.state === 'filled' && !walletEdited && !locked ? fill.address : null;
   const walletLocked = walletAddress !== null;
   const walletNetwork =
     walletAddress !== null && book.resource.status === 'ready'
       ? walletSavedNetwork(book.resource.data, asset, walletAddress, offered)
       : null;
   const network =
+    (openOut && offered.some((entry) => entry.networkId === openOut.networkId) ? openOut.networkId : null) ??
     walletNetwork ??
     (offered.some((entry) => entry.networkId === pickedNetwork)
       ? pickedNetwork
@@ -297,15 +297,7 @@ export function WithdrawForm({ toWallet = false }: { toWallet?: boolean } = {}) 
   const chosen =
     walletAddress !== null
       ? (saved.find((row) => row.ref.toLowerCase() === walletAddress.toLowerCase() && ready(row, now)) ?? null)
-      : (saved.find((row) => row.destinationId === savedId && ready(row, now)) ?? null);
-  // The fill is written into the form's own fields, so a send it chose and whose answer is lost resumes on the same terms.
-  const chosenId = walletAddress !== null ? (chosen?.destinationId ?? '') : null;
-  useEffect(() => {
-    if (walletAddress === null) return;
-    setAddress(walletAddress);
-    setPickedNetwork(network);
-    setSavedId(chosenId ?? '');
-  }, [walletAddress, network, chosenId]);
+      : (saved.find((row) => row.destinationId === (openOut?.destinationId ?? savedId) && ready(row, now)) ?? null);
   const limits = useResource(
     async (signal): Promise<ApiResult<WithdrawLimits>> =>
       asset ? createWithdrawSend(api).limits(asset, signal) : { ok: false, reason: 'not_supported', message: '' },
@@ -350,14 +342,9 @@ export function WithdrawForm({ toWallet = false }: { toWallet?: boolean } = {}) 
 
   // Where the typed address leads. Another INTAFACED account's address takes the send inside; any other address is only
   // checked here, because money goes out only to a saved address.
-  const typed = walletAddress ?? address;
+  const typed = walletAddress ?? (resuming && open ? open.ref : address);
   const place = useWithdrawDestination(typed);
   const inside = place.state === 'known' && place.kind === 'internal';
-  // An unanswered send inside locks the form on its own terms: only finishing it is offered, whatever the address reads as now.
-  // An unanswered send out locks what it sends (asset, network, address, amount) until svc-pay answers for its reference.
-  const resuming = open?.unanswered === true;
-  const resumingOut = openOut !== null;
-  const locked = resuming || resumingOut;
   const insideNow = inside || resuming;
   const canSendInside = resuming || (inside && check === 'ok' && !overLimit && Boolean(asset));
   const typedCheck = typed.trim() ? checkAddress(typed.trim()) : 'empty';
@@ -628,7 +615,7 @@ export function WithdrawForm({ toWallet = false }: { toWallet?: boolean } = {}) 
                 fill={fill}
                 lost={walletLost}
                 locked={walletLocked}
-                held={onHold && !walletEdited}
+                held={locked && !walletEdited}
                 networkFilled={walletNetwork !== null}
                 t={t}
               />

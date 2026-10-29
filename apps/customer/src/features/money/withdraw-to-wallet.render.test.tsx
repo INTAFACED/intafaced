@@ -252,6 +252,17 @@ describe('Withdraw to my Web3 wallet (D-bridge-chain-02)', () => {
     expect((field('Network') as HTMLSelectElement).value).toBe('base');
     expect(chip()?.getAttribute('data-state')).toBe('held');
     expect(chip()?.textContent).not.toContain('You can change the address now.');
+    // A reload keeps the held send on the same terms.
+    act(() => root?.unmount());
+    root = null;
+    await render();
+    expect((field('Saved address') as HTMLSelectElement).value).toBe(SAVED.destinationId);
+    expect((field('Network') as HTMLSelectElement).value).toBe('base');
+    // The wallet going away while the send is held never says nothing was sent: the send may be recorded.
+    wallet = { status: 'disconnected', address: null, chainId: null };
+    await render();
+    expect(chip()?.textContent).not.toContain('nothing was sent');
+    expect((field('Saved address') as HTMLSelectElement).value).toBe(SAVED.destinationId);
     await press('Get the fee');
     await press('Confirm again to finish');
     await confirmWithCode();
