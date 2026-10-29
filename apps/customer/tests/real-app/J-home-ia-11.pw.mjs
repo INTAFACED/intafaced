@@ -307,8 +307,10 @@ test(`${J} #5 the apex, app and join hosts are checked: a receipt of three serve
 
   // The blank case on the stack: restarted with its TEST hosts unset, the check names each host's typed refusal, the
   // receipt is gone, and the Help room shows no host as served. The finally puts the TEST hosts back.
+  let restored;
   try {
     const unset = restartCustomer({ LOCAL_STACK_HOSTS: 'off' });
+    expect(unset.status, unset.out).toBe(0);
     for (const role of ['apex', 'app', 'join'])
       expect(unset.out).toContain(`host dispatch (TEST): ${role} (not checked) host.${role}_unset`);
     expect(unset.out).toContain('host dispatch (TEST): no receipt written');
@@ -320,9 +322,11 @@ test(`${J} #5 the apex, app and join hosts are checked: a receipt of three serve
       await expect(page.getByTestId(`host-dispatch-${role}`)).toHaveAttribute('data-result', 'host.receipt_missing');
     await expect(page.getByTestId('host-dispatch-test')).toHaveCount(0);
   } finally {
-    const back = restartCustomer();
-    expect(back.out).toContain('host dispatch (TEST): receipt ');
+    restored = restartCustomer();
   }
+  // Asserted after the finally, so a failure above is the one reported.
+  expect(restored.status, restored.out).toBe(0);
+  expect(restored.out).toContain('host dispatch (TEST): receipt ');
 
   // The pass: a TEST receipt in which the apex, app and join hosts are each served, read back from what the Customer
   // server publishes and from the Help room, row by row, with its TEST label.

@@ -1524,6 +1524,8 @@ async function cmdStop(names = []) {
   const procs = readProcs();
   const order = ['admin', 'invitation', 'customer', ...serviceNames().reverse(), 'video-store', 'nats'];
   const only = names.length ? names : null;
+  // A TEST host receipt never outlives the sites it says are served (checkLocalTestHosts writes it again on start).
+  if (!only || only.includes('customer') || only.includes('invitation')) fs.rmSync(P.hostReceipt, { force: true });
   let bad = false;
   for (const name of order) {
     if (only && !only.includes(name)) continue;

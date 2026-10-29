@@ -19,7 +19,7 @@ export function HostDispatch() {
   }, []);
   return (
     <section className="help__card host-dispatch" data-testid="host-dispatch" aria-labelledby="host-dispatch-title">
-      <h2 id="host-dispatch-title">
+      <h2 id="host-dispatch-title" className="host-dispatch__title">
         {t('title')}
         {view?.test && <StatusTag data-testid="host-dispatch-test" data-status="test" status="pending" label={t('TEST')} />}
       </h2>

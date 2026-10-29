@@ -1,10 +1,11 @@
-import { mkdtempSync } from 'node:fs';
+import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 // @ts-expect-error the deployment check is plain JavaScript with no type declarations
 import { runHostDispatch } from '../../../deployment/host-dispatch.mjs';
 import { hostDispatchView, readHostDispatch } from './host-dispatch';
+import { hostDispatchReceipt } from '../../../vite.config';
 
 const served = (role: string, host: string) => ({ role, host, result: 'served', buildId: 'abc' });
 const json = (body: unknown, status = 200, type = 'application/json') =>
@@ -128,5 +129,24 @@ describe('host dispatch receipt', () => {
       hosts: [served('apex', 'https://a.test'), served('app', 'https://b.test'), served('join', 'https://c.test')],
     });
     expect(deployed.test).toBe(false);
+  });
+  it('a build publishes a deployment receipt and refuses a LOCAL TEST one', () => {
+    const file = join(mkdtempSync(join(tmpdir(), 'host-dispatch-build-')), 'host-dispatch.json');
+    const bundle = () => {
+      const emitted: unknown[] = [];
+      const context = {
+        emitFile: (asset: unknown) => emitted.push(asset),
+        error: (message: string) => {
+          throw new Error(message);
+        },
+      };
+      (hostDispatchReceipt(new URL(`file://${file}`)).generateBundle as unknown as (this: typeof context) => void).call(context);
+      return emitted;
+    };
+    const receipt = { schemaVersion: 1, checkedAt: '2026-10-29T10:00:00.000Z', status: 'served', hosts: [] };
+    writeFileSync(file, JSON.stringify(receipt));
+    expect(bundle()).toEqual([{ type: 'asset', fileName: 'host-dispatch.json', source: JSON.stringify(receipt) }]);
+    writeFileSync(file, JSON.stringify({ ...receipt, test: true }));
+    expect(bundle).toThrow('deployment/host-dispatch.json is a LOCAL TEST receipt; a build never publishes one');
   });
 });
