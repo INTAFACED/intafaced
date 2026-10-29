@@ -41,7 +41,7 @@ Helpers also check that this folder's Postgres and recorded services still own t
 
 Real: the code. Identity, Ledger, Trade, Matching, Pay, Bank and Edge are the repository's own services, running their own migrations against a real Postgres and a real NATS JetStream. Funds move only through the ledger (`packages/ledger-client` recipes into `svc-ledger`); amounts are decimal strings on the wire.
 
-Test: the money. `local:fund` posts a `deposit` recipe on rail `local-test` with reference `LOCAL-TEST-<timestamp>-<id>`, so every entry is labelled. It refuses unless the marker file exists and the database is `127.0.0.1` on the stack's port. No bank, card, chain or exchange feed is connected. Prices, bank cards, on-chain Pay, WebSocket (`/ws` returns 503) and loans' price marks are unavailable. Background money jobs in Bank (scheduled transfers, auto-invest, interest, loan accrual) are switched off.
+Test: the money. `local:fund` posts a `deposit` recipe on rail `local-test` with reference `LOCAL-TEST-<timestamp>-<id>`, so every entry is labelled. It refuses unless the marker file exists and the database is `127.0.0.1` on the stack's port. No bank, card, chain or exchange feed is connected. Prices, bank cards, on-chain Pay and loans' price marks are unavailable. WebSocket `/ws` reaches the stack's own svc-ws (`GET /ws/streams` lists its streams); its owner limits are blank, so each stream door refuses by its own `ws.*_unset` code, and `LOCAL_STACK_WS_UPSTREAM=off` on a start or restart of `customer` leaves `/ws` blank (503 `ws.upstream_unset`). Background money jobs in Bank (scheduled transfers, auto-invest, interest, loan accrual) are switched off.
 
 Placeholders the services refuse to boot without (no owner-published value exists): reconcile cadence, rate limits, Pay checkout limits (from `.env.example`), Bank `LOAN_QUOTE_ASSET_ID=USDT` and batch sizes `1` (jobs off), Matching snapshot cadence `0` (off). They are local-test values, not product decisions. Edge's kill-state file is written once as an explicit all-on list; without it Edge halts every module.
 
@@ -121,7 +121,7 @@ The `Try it` workflow (Actions, Try it, Run workflow) boots this stack on GitHub
   - a button for the two TEST operators to approve waiting verification requests;
   - a once-per-account TEST USDT credit, through `local:fund` with a business key per email.
 - **Not on the link:**
-  - live streams (no svc-ws, as in the journeys run);
+  - live streams (the gate passes no WebSocket upgrade);
   - the founder console;
   - passkeys (their relying party is localhost);
   - anything that needs a partner.
