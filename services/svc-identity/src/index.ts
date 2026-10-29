@@ -98,6 +98,8 @@ import { createServerTimeRouter } from './server-time-router.js';
 import { createTotpLifecycleRouter } from './totp-lifecycle-router.js';
 import { createSelfFreezeLiftRouter } from './self-freeze-lift-router.js';
 import { createSecurityLockRouter } from './security-lock-router.js';
+import { createAccountStatusRouter } from './account/account-status-router.js';
+import { AccountStatusDesk } from './account/account-status.js';
 import { createMfaResetRouter } from './mfa-reset-router.js';
 import { createSupportRecoveryRouter } from './support-recovery-router.js';
 import { createRecoveryKeysRouter } from './recovery-keys-router.js';
@@ -722,6 +724,7 @@ export const appRouter = mergeRouters(
   createServerTimeRouter(),
   createSelfFreezeLiftRouter(selfFreezeLift, securityStepUp),
   createSecurityLockRouter(securityLock, securityStepUp),
+  createAccountStatusRouter(new AccountStatusDesk(sql, env.IDENTITY_SELF_FREEZE_LIFT_WAIT_SECONDS)),
   createMfaResetRouter(auth),
   createSupportRecoveryRouter(() => auth.supportRecoveryDeps()),
   createTrustedDevicesRouter(auth, securityStepUp),
