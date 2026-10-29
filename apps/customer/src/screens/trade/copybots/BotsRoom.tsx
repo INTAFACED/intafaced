@@ -105,9 +105,15 @@ const PARKED: Record<string, { title: string; reason: string }> = {
   [TYPE_LINK.dca.href]: { title: TYPE_LINK.dca.name, reason: NOT_BUILT.dca },
 };
 
+const UNKNOWN_KIND = { title: 'Trading bots', reason: 'No bot type has that address.' };
+
 export function BotsRoom({ path }: { path: string }) {
-  const parked = PARKED[new URL(path, 'http://x').pathname.replace(/\/+$/, '')];
-  return parked ? <ParkedBotRoom title={parked.title} reason={parked.reason} /> : <BotsHub path={path} />;
+  const pathname = new URL(path, 'http://x').pathname.replace(/\/+$/, '');
+  const parked = PARKED[pathname];
+  if (parked) return <ParkedBotRoom title={parked.title} reason={parked.reason} />;
+  // Only grid and DCA have rooms of their own; any other /trade/bots/<kind> is an address with no bot type behind it.
+  if (pathname.startsWith('/trade/bots/')) return <ParkedBotRoom title={UNKNOWN_KIND.title} reason={UNKNOWN_KIND.reason} />;
+  return <BotsHub path={path} />;
 }
 
 function ParkedBotRoom({ title, reason }: { title: string; reason: string }) {
@@ -155,12 +161,19 @@ function BotsHub({ path }: { path: string }) {
   const [mineLimit, setMineLimit] = useState(BOT_LIST_PAGE);
   const mine = useLive(
     (signal) => (session ? api.algoList(mineLimit, signal) : Promise.resolve({ ok: true as const, data: { rows: [], nextCursor: null } })),
-    `bots-mine:${session ? (userId ?? 'in') : 'out'}:${mineLimit}`,
+    // The limit stays out of the key: showing more is a reload of the same list, so the rows on screen stay.
+    `bots-mine:${session ? (userId ?? 'in') : 'out'}`,
     10_000,
   );
   const moreMine = mine.data?.nextCursor != null;
+  const showMoreMine = () => {
+    setMineLimit((n) => Math.min(n + BOT_LIST_PAGE, BOT_LIST_MAX));
+    mine.reload();
+  };
   const openId = params.get('bot');
   const setOpenId = (id: string | null) => go({ bot: id });
+  // An ID the service refused is not polled again; Retry reads it once more.
+  const [refusedId, setRefusedId] = useState<string | null>(null);
   const opened = useLive<OpenBot | null>(
     async (signal) => {
       if (!openId) return { ok: true, data: null };
@@ -175,8 +188,12 @@ function BotsHub({ path }: { path: string }) {
       };
     },
     `bots-open:${openId ?? 'none'}`,
-    10_000,
+    openId !== null && openId === refusedId ? null : 10_000,
   );
+  const openRefused = opened.data !== null && !opened.data.algo && opened.data.failure !== null;
+  useEffect(() => {
+    setRefusedId(openRefused ? openId : null);
+  }, [openRefused, openId]);
   const guard = useWriteGuard();
   const [wizard, setWizard] = useState<{ open: boolean; kind: BotKind }>({ open: false, kind: 'twap' });
   const [byId, setById] = useState('');
@@ -229,6 +246,8 @@ function BotsHub({ path }: { path: string }) {
 
   const catalogueStatus = (row: CatalogueRow): { tone: BadgeTone; word: string; reason: string | null; ready: boolean } => {
     if (row.id === 'twap' || row.id === 'vwap' || row.id === 'pov') {
+      if (!policy.data && policy.status === 'error')
+        return { tone: 'warn', word: 'Unknown', reason: 'The bot service did not answer. Try again in a moment.', ready: false };
       if (policy.data && !policy.data.capability.createEnabled)
         return { tone: 'warn', word: 'Switched off', reason: 'New bots can’t be created right now', ready: false };
       if (policy.data?.immatureKinds.includes(row.id))
@@ -399,7 +418,15 @@ function BotsHub({ path }: { path: string }) {
         <ul className="cb-types" aria-label={t('Bot types')}>
           {CATALOGUE.map((row) => {
             const s = catalogueStatus(row);
-            const word = s.ready ? (row.id === 'studio' ? t('Available on paper only') : t('Available')) : null;
+            const word = !s.ready
+              ? null
+              : row.id === 'studio'
+                ? t('Available on paper only')
+                : s.word === 'Checking'
+                  ? t('Checking')
+                  : s.reason
+                    ? t('Available. {reason}', { reason: t(s.reason as 'Ready') })
+                    : t('Available');
             return (
               <li key={row.id}>
                 <a href={TYPE_LINK[row.id].href}>{t(TYPE_LINK[row.id].name as 'Spot grid')}</a>
@@ -450,20 +477,19 @@ function BotsHub({ path }: { path: string }) {
                   size="inline"
                   title={t('No bots')}
                   reason={t('Bots you start appear here, on every device you sign in on.')}
-                  action={{ label: t('Set up a bot'), onClick: () => setTab('catalogue'), variant: 'secondary' }}
+                  action={{ label: t('Set up a bot'), href: TYPE_LINK.twap.href, variant: 'secondary' }}
                 />
               }
             />
+            <InfoNote>{t('My bots lists the bots you started in the last 3 months. Open an older one by its ID.')}</InfoNote>
             {moreMine ? (
               <div className="cb-action-row">
                 {mineLimit < BOT_LIST_MAX ? (
-                  <Button variant="secondary" onClick={() => setMineLimit((n) => Math.min(n + BOT_LIST_PAGE, BOT_LIST_MAX))}>
+                  <Button variant="secondary" onClick={showMoreMine}>
                     {t('Show more bots')}
                   </Button>
                 ) : (
-                  <InfoNote>
-                    {t('These are your {count} newest bots. Open an older one by its ID.', { count: String(BOT_LIST_MAX) })}
-                  </InfoNote>
+                  <InfoNote>{t('These are your {count} newest bots.', { count: String(BOT_LIST_MAX) })}</InfoNote>
                 )}
               </div>
             ) : null}
@@ -481,7 +507,14 @@ function BotsHub({ path }: { path: string }) {
                 {t('Open')}
               </Button>
             </form>
-            {open && !open.algo && open.failure ? <RefusalNote failure={open.failure} retry={opened.reload} /> : null}
+            {open && openRefused && open.failure ? (
+              <div className="cb-action-row">
+                <RefusalNote failure={open.failure} retry={opened.reload} />
+                <Button variant="ghost" size={28} onClick={() => setOpenId(null)}>
+                  {t('Close')}
+                </Button>
+              </div>
+            ) : null}
           </>
         )}
       </PageSection>

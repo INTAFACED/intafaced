@@ -235,7 +235,7 @@
     flex-direction: column;
     gap: var(--if-space-1);
     padding: var(--if-space-3);
-    border: 1px solid var(--if-line);
+    border: 0.0625rem solid var(--if-line);
     border-radius: var(--if-r-sm);
   }
   .cb-types span {

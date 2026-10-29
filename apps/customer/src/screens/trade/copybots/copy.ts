@@ -32,6 +32,7 @@ const messages = {
   'Automatic copying of leader orders is switched off': 'Automatic copying of leader orders is switched off',
   Available: 'Available',
   'Available on paper only': 'Available on paper only',
+  'Available. {reason}': 'Available. {reason}',
   'Average price': 'Average price',
   Back: 'Back',
   'Back to Bots': 'Back to Bots',
@@ -60,6 +61,7 @@ const messages = {
   'Choose a time in the future': 'Choose a time in the future',
   'Choose at least one market': 'Choose at least one market',
   'Choose markets that settle in the same asset': 'Choose markets that settle in the same asset',
+  Close: 'Close',
   'Close copied positions': 'Close copied positions',
   'Close copied positions and leave?': 'Close copied positions and leave?',
   'Close price': 'Close price',
@@ -174,6 +176,8 @@ const messages = {
   'Most per order': 'Most per order',
   'Most per order ({asset})': 'Most per order ({asset})',
   'My bots': 'My bots',
+  'My bots lists the bots you started in the last 3 months. Open an older one by its ID.':
+    'My bots lists the bots you started in the last 3 months. Open an older one by its ID.',
   'My follows': 'My follows',
   'Needs trading history': 'Needs trading history',
   'New actions stay locked until we know what happened to request {id}.':
@@ -194,6 +198,7 @@ const messages = {
   'Next slice number': 'Next slice number',
   'No bot exists with that request, so it did not go through. You can set it up again.':
     'No bot exists with that request, so it did not go through. You can set it up again.',
+  'No bot type has that address.': 'No bot type has that address.',
   'No bots': 'No bots',
   'No copied orders': 'No copied orders',
   'No follow exists for that leader, so the request did not go through.':
@@ -370,6 +375,7 @@ const messages = {
     'That request belongs to the spot desk or another room. Check it there; it stays locked until then.',
   'The ID the leader shares with you': 'The ID the leader shares with you',
   'The amount is below one lot after it is split into slices': 'The amount is below one lot after it is split into slices',
+  'The bot service did not answer. Try again in a moment.': 'The bot service did not answer. Try again in a moment.',
   'The bot trades with your real balance on this market. Each slice is an ordinary order.':
     'The bot trades with your real balance on this market. Each slice is an ordinary order.',
   'The bot was created. It is in My bots.': 'The bot was created. It is in My bots.',
@@ -396,7 +402,7 @@ const messages = {
   'The slices that are not placed are cancelled and any open slice order is cancelled. Slices already filled stay filled. This cannot be undone.':
     'The slices that are not placed are cancelled and any open slice order is cancelled. Slices already filled stay filled. This cannot be undone.',
   'The total can’t be below the amount per order': 'The total can’t be below the amount per order',
-  'These are your {count} newest bots. Open an older one by its ID.': 'These are your {count} newest bots. Open an older one by its ID.',
+  'These are your {count} newest bots.': 'These are your {count} newest bots.',
   'This bot can’t be set up here.': 'This bot can’t be set up here.',
   'This bot has already ended': 'This bot has already ended',
   'This follow has already stopped': 'This follow has already stopped',
@@ -410,6 +416,7 @@ const messages = {
   'Trades a fixed share of the market’s live volume': 'Trades a fixed share of the market’s live volume',
   'Trades are not copied for you until you turn on automatic copying.':
     'Trades are not copied for you until you turn on automatic copying.',
+  'Trading bots': 'Trading bots',
   'Trading fee': 'Trading fee',
   Trending: 'Trending',
   'Try again': 'Try again',

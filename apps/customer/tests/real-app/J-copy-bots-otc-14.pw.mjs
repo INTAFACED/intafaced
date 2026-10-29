@@ -55,7 +55,16 @@ test(`${J} #1 opens Bots: the hub with one status and one link per bot type, eac
   });
   expect(made.status, JSON.stringify(made.body).slice(0, 300)).toBe(200);
   const botId = made.body.result.data.id;
+  try {
+    await hub(page, botId);
+  } finally {
+    // Its slices would hold USDT while the grid steps measure the reserve, so the journey stops it, pass or fail.
+    const stopped = await me.post('/api/trade/trpc/algo.cancel', { algoId: botId });
+    expect(stopped.status, JSON.stringify(stopped.body).slice(0, 300)).toBe(200);
+  }
+});
 
+async function hub(page, botId) {
   await openBots(page);
   const types = page.getByRole('list', { name: 'Bot types' }).getByRole('listitem');
   await expect(types.first()).toBeVisible(UNBUILT);
@@ -66,13 +75,14 @@ test(`${J} #1 opens Bots: the hub with one status and one link per bot type, eac
     await expect(type.getByTestId('bot-type-status')).toHaveText(/^(Available.*|Not available: [A-Z].+)$/);
     await expect(type.getByTestId('bot-type-status')).not.toContainText(/\b[a-z]+\.[a-z_]+\b|\b[a-z]+_[a-z_]+\b/);
   }
-  const mine = page.getByRole('region', { name: 'My bots' });
-  await expect(mine.getByRole('link', { name: 'TWAP BTC/USDT', exact: true })).toHaveAttribute('href', new RegExp(botId));
-  await expect(mine.getByRole('row').filter({ hasText: 'TWAP BTC/USDT' })).toContainText('Running');
-  // Its slices would hold USDT while the grid steps measure the reserve, so the journey stops it.
-  const stopped = await me.post('/api/trade/trpc/algo.cancel', { algoId: botId });
-  expect(stopped.status, JSON.stringify(stopped.body).slice(0, 300)).toBe(200);
-});
+  // This bot's own row, found by its id, so another TWAP BTC/USDT on the account can't stand in for it.
+  const row = page
+    .getByRole('region', { name: 'My bots' })
+    .getByRole('row')
+    .filter({ has: page.locator(`a[href*="bot=${botId}"]`) });
+  await expect(row.getByRole('link')).toHaveText('TWAP BTC/USDT');
+  await expect(row).toContainText('Running');
+}
 
 test(`${J} #2 opens the grid wizard below the owner's verification level: refused as verification insufficient, and no bot written`, async ({
   page,
