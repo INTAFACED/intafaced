@@ -49,6 +49,6 @@ test(`${J} #1 Account status lists what I can still do and what I cannot; an act
   await expect(lock).toContainText('Security lock');
   await expect(lock).toContainText('Reason: you turned it on.');
   await expect(lock).toContainText('It holds until you ask to unlock it in Security.');
-  await expect(status.getByTestId('account-status__cannot').locator('li')).toContainText(['Change your password']);
+  await expect(status.getByTestId('account-status__cannot').locator('li')).toHaveText(ACTIONS.slice(3));
   await expect(status.getByTestId('account-status__can').locator('li')).toHaveText(['Sign in', 'Trade', 'Create API keys']);
 });
