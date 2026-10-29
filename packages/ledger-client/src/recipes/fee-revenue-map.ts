@@ -206,6 +206,12 @@ export const FEE_REVENUE_PATHS = {
     feeModule: 'market',
     note: 'Listing commission → houseFees(market); blank bps refused upstream.',
   },
+  'market.commerce_commission_held': {
+    kind: 'recipe',
+    recipe: 'marketPurchaseRelease',
+    feeModule: 'market',
+    note: 'The same listing commission, taken when a held purchase is released after its refund window; blank bps refused upstream.',
+  },
   'market.listing_fee': {
     kind: 'recipe',
     recipe: 'marketListingFee',
@@ -268,6 +274,7 @@ export const RECIPES_TOUCHING_HOUSE_FEES = [
   'loanReserveFund',
   'earnPoolFund',
   'marketPurchase',
+  'marketPurchaseRelease',
   'marketListingFee',
   'marketPremiumPlacement',
 ] as const satisfies readonly RecipeName[];

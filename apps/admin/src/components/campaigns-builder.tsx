@@ -37,6 +37,7 @@ import type { Part } from '@/lib/desk/part';
 import { PartFailed, StateChip } from '@/components/campaigns-desk';
 import { RuleBuilder } from '@/components/campaigns-rule-builder';
 import { EarningRules } from '@/components/campaigns-earning-rules';
+import { CampaignVouchers } from '@/components/campaigns-vouchers';
 import './desk.css';
 
 /**
@@ -550,8 +551,8 @@ export function CampaignBuilder({
         </div>
         {!editable && (
           <p className="dk-muted" data-testid="campaign-not-draft">
-            Only a draft is edited. This campaign is past draft, so its definition is read-only here; a new revision of a live campaign is
-            not built yet.
+            A draft, or an approved, scheduled, active or paused campaign, is edited. This campaign is in none of those states, so its
+            definition is read-only here.
           </p>
         )}
         <fieldset disabled={!ready || busy || saving || !editable} role="tabpanel" aria-label={STEP_LABEL[step]}>
@@ -772,6 +773,7 @@ export function CampaignBuilder({
           )}
         </section>
       </form>
+      {campaign && campaign.type === 'voucher' && campaign.state !== 'draft' && <CampaignVouchers campaign={campaign} />}
     </div>
   );
 }

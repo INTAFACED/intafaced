@@ -221,6 +221,13 @@ const schema = serviceEnvSchema
        */
       IDENTITY_API_KEYS_MAX_BY_TIER: z.string().optional(),
       /**
+       * Owner setting: whole seconds an API key may go unused before it is due to end (DV-keys-03, ENGINE KS-7). The key
+       * detail shows it; no dormant sweep is built yet, so a set value ends no key today and the detail says so. NO
+       * DEFAULT. Blank: the detail shows the idle expiry as `not set`. Parsed at start by `parseApiKeyIdleExpirySeconds`;
+       * a value that is not a positive whole number stops the service.
+       */
+      IDENTITY_API_KEY_IDLE_EXPIRY_SECONDS: z.string().optional(),
+      /**
        * Owner setting: the account product tiers an operator may move an account onto (J-ops-console-04 #11). A JSON list of
        * `{ id, name, terms: { ratePercent, monthlyFee, feeAssetId, dailyLimit, clearingDays } }`, terms as decimal strings or
        * null. NO DEFAULT. Blank or invalid: `accountControls.tiers` answers `identity.account_tiers_unset` and every move
@@ -287,6 +294,13 @@ const schema = serviceEnvSchema
        */
       IDENTITY_KYC_POA_MAX_AGE_DAYS: z.string().optional(),
       IDENTITY_KYC_POA_TYPES_BY_COUNTRY: z.string().optional(),
+      /**
+       * Owner settings (I-kyc-compliance-09), NO DEFAULT. How many seconds a phone hand-off link for the selfie lasts
+       * (60 to 3600; unset refuses every hand-off `kyc.handoff_unset`), and the comma-separated actions that ask for a
+       * liveness re-check (unset is none). Parsed at start; malformed stops the service.
+       */
+      IDENTITY_KYC_HANDOFF_TTL_SECONDS: z.string().optional(),
+      IDENTITY_KYC_LIVENESS_RECHECK_FOR: z.string().optional(),
       /**
        * Owner settings (I-kyc-compliance-10), set together or not at all: how many rejected verification requests a
        * person may have inside `IDENTITY_KYC_DENIAL_WINDOW_HOURS`, and for how many hours after the last of them a new

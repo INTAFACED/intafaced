@@ -23,6 +23,61 @@ import { fileURLToPath } from 'node:url';
 const here = dirname(fileURLToPath(import.meta.url));
 const script = resolve(here, 'local-test-stack.mjs');
 
+// Start order: a service waits for every earlier service its env names (matching checks resting-order holds against
+// the ledger as it boots), edge waits for every service, and services that call nothing start at once.
+{
+  const { startDependencies, localTestServiceEnvs } = await import('./local-test-stack.mjs');
+  const defs = localTestServiceEnvs();
+  const envOf = (d) => d.env;
+  const waitsOf = (name) =>
+    startDependencies(
+      defs,
+      defs.find((d) => d.name === name),
+      envOf,
+    ).map((d) => d.name);
+  assert.deepEqual(waitsOf('ledger'), []);
+  assert.ok(waitsOf('matching').includes('ledger'), 'matching waits for the ledger');
+  assert.ok(waitsOf('identity').includes('ledger'), 'identity waits for the ledger');
+  assert.deepEqual(
+    waitsOf('edge').sort(),
+    defs
+      .map((d) => d.name)
+      .filter((n) => n !== 'edge')
+      .sort(),
+  );
+  // Only services listed earlier are waited for, so the order can never deadlock.
+  for (const def of defs) {
+    for (const dep of startDependencies(defs, def, envOf)) assert.ok(defs.indexOf(dep) < defs.indexOf(def));
+  }
+  // A port is matched whole: 1450 is not 14501.
+  const a = { name: 'a', env: { HTTP_PORT: '14501' } };
+  const b = { name: 'b', env: { HTTP_PORT: '14502', A_URL: 'http://127.0.0.1:1450' } };
+  assert.deepEqual(startDependencies([a, b], b, envOf), []);
+  const b2 = { name: 'b', env: { HTTP_PORT: '14502', A_URL: 'http://127.0.0.1:14501/x' } };
+  assert.deepEqual(
+    startDependencies([a, b2], b2, envOf).map((d) => d.name),
+    ['a'],
+  );
+}
+
+// inPool runs every item, never more than the limit at once.
+{
+  const { inPool } = await import('./local-test-stack.mjs');
+  let running = 0;
+  let peak = 0;
+  const seen = [];
+  await inPool([1, 2, 3, 4, 5, 6, 7], 3, async (n) => {
+    running += 1;
+    peak = Math.max(peak, running);
+    await new Promise((r) => setTimeout(r, 5));
+    seen.push(n);
+    running -= 1;
+  });
+  assert.equal(peak, 3);
+  assert.deepEqual(seen.sort(), [1, 2, 3, 4, 5, 6, 7]);
+  await inPool([], 4, async () => assert.fail('no items, no calls'));
+}
+
 // p2p is the only service that carries the local-test instrument key, and only under APP_ENV=dev.
 {
   const { localTestServiceEnvs } = await import('./local-test-stack.mjs');
@@ -93,6 +148,55 @@ const script = resolve(here, 'local-test-stack.mjs');
   console.log('local-test-stack: bank can start with deposit custody unset');
 }
 
+// svc-ledger reads no outside snapshot by default; `LOCAL_STACK_LEDGER_OUTSIDE_SNAPSHOT=unreachable` points it at a closed
+// local port so a run shows ERROR (J-ops-console-07 #5), and nothing else changes.
+{
+  const { localTestServiceEnvs } = await import('./local-test-stack.mjs');
+  const ledgerEnv = () => localTestServiceEnvs().find((service) => service.name === 'ledger').env;
+  const before = process.env.LOCAL_STACK_LEDGER_OUTSIDE_SNAPSHOT;
+  try {
+    delete process.env.LOCAL_STACK_LEDGER_OUTSIDE_SNAPSHOT;
+    const unset = ledgerEnv();
+    assert.equal('LEDGER_RECONCILE_OUTSIDE_SNAPSHOT_URL' in unset, false);
+    process.env.LOCAL_STACK_LEDGER_OUTSIDE_SNAPSHOT = 'unreachable';
+    const { LEDGER_RECONCILE_OUTSIDE_SNAPSHOT_URL: url, ...rest } = ledgerEnv();
+    assert.equal(url, 'http://127.0.0.1:9/local-test-outside-snapshot');
+    assert.deepEqual(rest, unset);
+    process.env.LOCAL_STACK_LEDGER_OUTSIDE_SNAPSHOT = 'on';
+    assert.throws(ledgerEnv, /LOCAL_STACK_LEDGER_OUTSIDE_SNAPSHOT is "on"/);
+  } finally {
+    if (before === undefined) delete process.env.LOCAL_STACK_LEDGER_OUTSIDE_SNAPSHOT;
+    else process.env.LOCAL_STACK_LEDGER_OUTSIDE_SNAPSHOT = before;
+  }
+  console.log('local-test-stack: ledger can start with an unreachable outside snapshot');
+}
+
+// `LOCAL_STACK_MINING_POOL_PUBLISHED=off` starts the pool with every LOCAL TEST owner value blank (J-more-catalogue-05 #1, #2),
+// and nothing else changes.
+{
+  const { localTestServiceEnvs } = await import('./local-test-stack.mjs');
+  const poolEnv = () => localTestServiceEnvs().find((service) => service.name === 'mining-pool').env;
+  const before = process.env.LOCAL_STACK_MINING_POOL_PUBLISHED;
+  try {
+    delete process.env.LOCAL_STACK_MINING_POOL_PUBLISHED;
+    const on = poolEnv();
+    assert.ok(on.MINING_POOL_HOST);
+    process.env.LOCAL_STACK_MINING_POOL_PUBLISHED = 'off';
+    const off = poolEnv();
+    assert.equal(
+      Object.keys(off).some((key) => key.startsWith('MINING_')),
+      false,
+    );
+    assert.deepEqual(off, Object.fromEntries(Object.entries(on).filter(([key]) => !key.startsWith('MINING_'))));
+    process.env.LOCAL_STACK_MINING_POOL_PUBLISHED = 'OFF';
+    assert.throws(poolEnv, /LOCAL_STACK_MINING_POOL_PUBLISHED is "OFF"/);
+  } finally {
+    if (before === undefined) delete process.env.LOCAL_STACK_MINING_POOL_PUBLISHED;
+    else process.env.LOCAL_STACK_MINING_POOL_PUBLISHED = before;
+  }
+  console.log('local-test-stack: the mining pool can start with nothing published');
+}
+
 // The bank process carries its BK-xfer-07 TEST values from the bank profile, verbatim, so a global send on this
 // stack meets the same payee list, exchange allowance and proof limits as CX-8 instead of the unset refusals.
 {
@@ -105,6 +209,29 @@ const script = resolve(here, 'local-test-stack.mjs');
     assert.equal(bank.env[name], profile[name].value, `bank env ${name} differs from the bank profile`);
   }
   console.log('local-test-stack: bank BK-xfer-07 TEST values come from the bank profile');
+}
+
+// The token process carries the TEST proposer rule and proposal limit from the token profile, verbatim, so a governance
+// journey meets the rule instead of the unset refusal.
+{
+  const { localTestServiceEnvs } = await import('./local-test-stack.mjs');
+  const { loadProfile } = await import('./owner-settings.mjs');
+  const token = localTestServiceEnvs().find((service) => service.name === 'token');
+  const profile = loadProfile().values;
+  for (const name of ['TOKEN_PROPOSER_RULE', 'TOKEN_PROPOSAL_LIMIT', 'EMISSIONS_EPOCH_MS']) {
+    assert.equal(profile[name]?.service, 'token', `${name} is not in the token profile`);
+    assert.equal(token.env[name], profile[name].value, `token env ${name} differs from the token profile`);
+  }
+  // LOCAL_STACK_TOKEN_PROPOSER_RULE=off leaves the rule blank, so a journey can restart the lane to show its refusal.
+  process.env.LOCAL_STACK_TOKEN_PROPOSER_RULE = 'off';
+  try {
+    const blank = localTestServiceEnvs().find((service) => service.name === 'token');
+    assert.equal('TOKEN_PROPOSER_RULE' in blank.env, false, 'the off switch must leave TOKEN_PROPOSER_RULE unset');
+    assert.equal(blank.env.TOKEN_PROPOSAL_LIMIT, profile.TOKEN_PROPOSAL_LIMIT.value);
+  } finally {
+    delete process.env.LOCAL_STACK_TOKEN_PROPOSER_RULE;
+  }
+  console.log('local-test-stack: token governance TEST values come from the token profile');
 }
 
 // The global-send stand-in is chosen on this stack only, and its TEST catalogue and send-field rules come from the bank

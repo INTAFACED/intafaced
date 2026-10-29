@@ -32,6 +32,7 @@ import {
 } from '@intafaced/contracts';
 import {
   defineReconciliationControlInputSchema,
+  listReconciliationControlRunsInputSchema,
   runReconciliationControlInputSchema,
   updateReconciliationControlInputSchema,
 } from '@intafaced/contracts/ledger-reconciliation';
@@ -284,7 +285,10 @@ export interface FreezeSnapshot {
  * become one.
  */
 export type LedgerControlPath =
-  '/operator/reconciliation/controls' | '/operator/reconciliation/controls/update' | '/operator/reconciliation/controls/run';
+  | '/operator/reconciliation/controls'
+  | '/operator/reconciliation/controls/update'
+  | '/operator/reconciliation/controls/run'
+  | '/operator/reconciliation/controls/runs';
 
 export type LedgerOperatorCall = (
   path:
@@ -413,6 +417,8 @@ export interface AdminApi {
   updateReconciliationControl(body: unknown, header: string): Promise<{ status: number; body: unknown }>;
   /** Forward POST /operator/reconciliation/controls/run. Reason and approval travel in the body. */
   runReconciliationControl(body: unknown, header: string): Promise<{ status: number; body: unknown }>;
+  /** Forward POST /operator/reconciliation/controls/runs: one control's evaluations, newest first. Read-only. */
+  listReconciliationControlRuns(body: unknown, header: string): Promise<{ status: number; body: unknown }>;
   consumeApproval(input: ActionApprovalConsumeInput, operator: Principal): Promise<ActionApproval>;
   /**
    * Ops honesty residual (VPN/network, freeze invent, compliance queue, analytics dark).
@@ -725,6 +731,12 @@ export function createAdminApi(state: KillSwitchState, deps: AdminApiDeps): Admi
       if (!deps.ledger) return unreachable;
       const payload = parsedControlBody(runReconciliationControlInputSchema, body);
       return deps.ledger('/operator/reconciliation/controls/run', 'POST', header, payload);
+    },
+
+    async listReconciliationControlRuns(body, header) {
+      if (!deps.ledger) return unreachable;
+      const payload = parsedControlBody(listReconciliationControlRunsInputSchema, body);
+      return deps.ledger('/operator/reconciliation/controls/runs', 'POST', header, payload);
     },
 
     async consumeApproval(input, operator) {

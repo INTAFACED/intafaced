@@ -380,7 +380,7 @@ export async function redeemSupportRecoveryLink(deps: SupportRecoveryDeps, input
     await tx`UPDATE trusted_devices SET removed_at = now() WHERE user_id = ${row.user_id} AND removed_at IS NULL`;
     const sessions = await tx<Array<{ id: string }>>`
       UPDATE sessions SET revoked = true WHERE user_id = ${row.user_id} AND revoked = false RETURNING id`;
-    await revokeAllApiKeys(tx, row.user_id, row.user_id);
+    await revokeAllApiKeys(tx, row.user_id, row.user_id, 'support');
     const now = deps.now();
     // The inbox hears the app went (I-signin-sessions-08); the mail is the recovered-through-Support notice below.
     if (account.totp) await queueFactorChangedNotice(tx, { userId: row.user_id, change: 'totp_removed', now, mail: false });

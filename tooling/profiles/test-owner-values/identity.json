@@ -56,6 +56,11 @@
       "value": "{\"DE\":{\"accepted\":[{\"type\":\"utility_bill\",\"label\":\"TEST: Utility bill (gas, power, water)\"},{\"type\":\"bank_statement\",\"label\":\"TEST: Bank statement\"}],\"rejected\":[{\"type\":\"screenshot\",\"label\":\"TEST: Screenshots\"},{\"type\":\"mobile_bill\",\"label\":\"TEST: Mobile phone bills\"}]},\"FR\":{\"accepted\":[{\"type\":\"utility_bill\",\"label\":\"TEST: Utility bill\"}],\"rejected\":[]}}",
       "note": "TEST: accepted and refused proof-of-address documents for DE and FR only (J-identity-08 #5)."
     },
+    "IDENTITY_KYC_HANDOFF_TTL_SECONDS": {
+      "service": "identity",
+      "value": "600",
+      "note": "TEST: a phone hand-off link for the selfie lasts ten minutes (J-identity-08 #3)."
+    },
     "IDENTITY_KYC_MAX_DENIALS": {
       "service": "identity",
       "value": "2",
@@ -205,6 +210,11 @@
       "service": "identity",
       "value": "../../tooling/profiles/test-owner-values/identity-breached-passwords.sha1",
       "note": "A one-entry TEST breached-password list (TEST-breached-password-0001), so J-identity-03 #3 sees a breached password refused by name. A relative path is read from the services/svc-identity folder."
+    },
+    "IDENTITY_API_KEY_IDLE_EXPIRY_SECONDS": {
+      "service": "identity",
+      "value": "7776000",
+      "note": "LOCAL TEST ONLY, not an owner decision: a 90 day idle period, so the key detail shows a set idle expiry (J-developer-03 #9). No dormant sweep is built, so it ends no key; blank shows `not set` (developer-keys-detail tests)."
     }
   }
 }

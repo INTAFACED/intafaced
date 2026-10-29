@@ -12,6 +12,9 @@ import {
   type AccountStatus,
   type AccountStatusReason,
 } from '@intafaced/contracts/identity-account-status';
+import { KYC_CAPABILITIES, type KycCapability } from '@intafaced/contracts/identity-kyc-capabilities';
+import type { KycCapabilityMap } from '../kyc/capabilities.js';
+import type { KycRejectReasons } from '../kyc/cases.js';
 
 /** What each restriction's guard refuses (the guard is named beside it), so the page never promises more. */
 const BLOCKS = {
@@ -35,6 +38,10 @@ const BLOCKS = {
   // Founder controls, trading area: recorded here, but svc-trade keeps its own restriction table and reads nothing of
   // this one, so it blocks nothing; the page says so rather than claim trading stops.
   trading_restricted: [],
+  // KYC capability switched off: identity refuses a request for the level whose own list grants it (`assertRequestable`,
+  // `kyc.capability_inactive`), so it blocks only while the owner's level map grants it somewhere; no service outside
+  // identity reads capability states, so orders and transfers go on.
+  capability_off: ['request_level_with_switched_off_capability'],
 } as const satisfies Record<AccountRestriction['kind'], readonly AccountAction[]>;
 
 type UserRow = {
@@ -45,6 +52,7 @@ type UserRow = {
 type FreezeRow = { reason: string; since: Date; available_at: Date | null };
 type LockRow = { set_by: 'self' | 'support'; locked_at: Date; unlocks_at: Date | null };
 type TradingRow = { restricted: true };
+type CapabilityRow = { capability: KycCapability; reason_code: string; at: Date };
 
 const iso = (d: Date | null) => (d ? d.toISOString() : null);
 
@@ -53,11 +61,21 @@ export class AccountStatusDesk {
     private readonly sql: Sql,
     /** The owner's wait before a self-freeze may be lifted, in seconds; undefined when unpublished (a lift refuses). */
     private readonly selfFreezeLiftWaitSeconds: number | undefined,
+    /** The owner's capability reason list (`IDENTITY_KYC_CAPABILITY_REASONS`): code to words and next step. */
+    private readonly capabilityReasons: KycRejectReasons,
+    /** The owner's level-to-capability map (`IDENTITY_KYC_CAPABILITIES_BY_LEVEL`), as `assertRequestable` reads it. */
+    private readonly capabilityMap: KycCapabilityMap,
   ) {}
 
-  async read(userId: string): Promise<AccountStatus | null> {
+  /**
+   * `view: 'owner'` is the account's own read: a staff closure code other than the person's own request is not shown to
+   * them (sign-in says only "closed" too), so a fraud finding is never tipped off. Staff reads see the code. The view is
+   * required: any read on the account holder's behalf passes `'owner'`; only a staff door (`accountStatus.of`) passes
+   * `'staff'`.
+   */
+  async read(userId: string, view: 'owner' | 'staff'): Promise<AccountStatus | null> {
     const wait = this.selfFreezeLiftWaitSeconds ?? null;
-    const [[user], [freeze], [lock], [trading]] = await Promise.all([
+    const [[user], [freeze], [lock], [trading], capabilities] = await Promise.all([
       // A customer-closed account carries no staff code: the closure flow's finalisation is its code and its time.
       this.sql<UserRow[]>`
         SELECT status, closed_reason,
@@ -71,19 +89,31 @@ export class AccountStatusDesk {
         WHERE user_id = ${userId} AND state = 'locked' AND (unlocks_at IS NULL OR unlocks_at > now())`,
       // `updated_at` moves on every write, even a repeat, so it is not when the restriction began: no start is shown.
       this.sql<TradingRow[]>`SELECT restricted FROM trading_restrictions WHERE user_id = ${userId} AND restricted`,
+      this.sql<CapabilityRow[]>`SELECT capability, reason_code, at FROM kyc_capabilities WHERE user_id = ${userId} AND state = 'inactive'`,
     ]);
     if (!user) return null;
     const restrictions: AccountRestriction[] = [];
+    const closedCode = user.closed_reason ?? (user.customer_closed_at ? 'customer_request' : null);
     if (user.status === 'closed')
       restrictions.push({
         kind: 'closed',
-        reasonCode: user.closed_reason ?? (user.customer_closed_at ? 'customer_request' : null),
+        reasonCode: view === 'owner' && closedCode !== 'customer_request' ? null : closedCode,
         since: user.closed_reason ? null : iso(user.customer_closed_at),
         blocks: [...BLOCKS.closed],
         lift: { by: 'staff' },
+        capability: null,
+        owner: null,
       });
     if (user.status === 'frozen')
-      restrictions.push({ kind: 'staff_freeze', reasonCode: null, since: null, blocks: [...BLOCKS.staff_freeze], lift: { by: 'staff' } });
+      restrictions.push({
+        kind: 'staff_freeze',
+        reasonCode: null,
+        since: null,
+        blocks: [...BLOCKS.staff_freeze],
+        lift: { by: 'staff' },
+        capability: null,
+        owner: null,
+      });
     if (freeze)
       restrictions.push({
         kind: 'self_freeze',
@@ -91,6 +121,8 @@ export class AccountStatusDesk {
         since: iso(freeze.since),
         blocks: [...BLOCKS.self_freeze],
         lift: { by: 'owner_after_wait', availableAt: iso(freeze.available_at) },
+        capability: null,
+        owner: null,
       });
     if (lock)
       restrictions.push({
@@ -99,6 +131,8 @@ export class AccountStatusDesk {
         since: iso(lock.locked_at),
         blocks: [...BLOCKS.security_lock],
         lift: { by: 'owner_unlock', endsAt: iso(lock.unlocks_at) },
+        capability: null,
+        owner: null,
       });
     if (trading)
       restrictions.push({
@@ -107,8 +141,25 @@ export class AccountStatusDesk {
         since: null,
         blocks: [...BLOCKS.trading_restricted],
         lift: { by: 'staff' },
+        capability: null,
+        owner: null,
       });
-    const first = restrictions[0];
+    // In the contract's capability order, so the list reads the same every time.
+    for (const row of [...capabilities].sort((a, b) => KYC_CAPABILITIES.indexOf(a.capability) - KYC_CAPABILITIES.indexOf(b.capability))) {
+      const listed = this.capabilityReasons.get(row.reason_code);
+      const granted = [...this.capabilityMap.values()].some((own) => own.includes(row.capability));
+      restrictions.push({
+        kind: 'capability_off',
+        reasonCode: null,
+        since: iso(row.at),
+        blocks: granted ? [...BLOCKS.capability_off] : [],
+        lift: { by: 'none' },
+        capability: row.capability,
+        owner: { code: row.reason_code, text: listed?.reason ?? null, guidance: listed?.guidance ?? null },
+      });
+    }
+    // The state and summary name only what blocks something; one that blocks nothing is listed, not counted.
+    const first = restrictions.find((r) => r.blocks.length > 0);
     const cannot = ACCOUNT_ACTIONS.flatMap((action) => {
       const by = restrictions.find((r) => r.blocks.includes(action));
       return by ? [{ action, kind: by.kind }] : [];
@@ -126,7 +177,12 @@ export class AccountStatusDesk {
       reasonCode: first?.reasonCode ?? null,
       since: first?.since ?? null,
       restrictions,
-      canStill: ACCOUNT_ACTIONS.filter((action) => !cannot.some((c) => c.action === action)),
+      // Asking for a level with a switched-off capability is listed only for an account that has one.
+      canStill: ACCOUNT_ACTIONS.filter(
+        (action) =>
+          !cannot.some((c) => c.action === action) &&
+          (action !== 'request_level_with_switched_off_capability' || restrictions.some((r) => r.kind === 'capability_off')),
+      ),
       cannot,
     };
   }

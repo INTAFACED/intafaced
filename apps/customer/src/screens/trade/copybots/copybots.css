@@ -222,6 +222,26 @@
     line-height: var(--if-leading-xs);
     white-space: normal;
   }
+  .cb-types {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(16rem, 1fr));
+    gap: var(--if-space-3);
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+  .cb-types li {
+    display: flex;
+    flex-direction: column;
+    gap: var(--if-space-1);
+    padding: var(--if-space-3);
+    border: 0.0625rem solid var(--if-line);
+    border-radius: var(--if-r-sm);
+  }
+  .cb-types span {
+    color: var(--if-fg-2);
+    font-size: var(--if-text-xs);
+  }
   .cb-byid {
     display: flex;
     align-items: flex-end;

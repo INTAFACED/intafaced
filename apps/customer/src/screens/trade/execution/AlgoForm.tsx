@@ -12,7 +12,9 @@ import { execCopy } from './copy';
 import { useLast, type ExecMarket } from './data';
 import {
   DURATION_PRESETS,
+  CREATE_BLOCKER_CODE,
   algoClientId,
+  createBlocker,
   defaultIntervalMs,
   newNonce,
   planSchedule,
@@ -132,14 +134,8 @@ export function AlgoForm({
   );
 
   const clientAlgoId = algoClientId(nonce);
-  const blocker =
-    policy.status !== 'ready'
-      ? t('Scheduler unknown')
-      : !policy.data.capability.jobsEnabled
-        ? t('Scheduler off block')
-        : !market?.open
-          ? t('Market closed block')
-          : null;
+  const blockerKey = createBlocker(policy.status === 'ready' ? policy.data.capability : null, market?.open === true);
+  const blocker = blockerKey ? t(blockerKey) : null;
   const immature = policy.status === 'ready' && policy.data.immatureKinds.includes(form.kind);
   const problemWord = (p: PlanProblem) => t(`Plan problem ${p}`, { max: '500' });
   const general = problems.find((p) => p === 'tooManySlices' || p === 'sliceTooSmall' || p === 'sliceBelowMin');
@@ -330,7 +326,7 @@ export function AlgoForm({
 
       {plan ? <KeyValue density="dense" aria-label={t('Preview')} items={rows.slice(4, 11)} /> : null}
       {general ? <Why>{problemWord(general)}</Why> : null}
-      {blocker ? <Why>{blocker}</Why> : null}
+      {blockerKey && blocker ? <Why code={CREATE_BLOCKER_CODE[blockerKey]}>{blocker}</Why> : null}
       {!writer.signedIn ? <Why>{t('Sign in to create')}</Why> : null}
       {duplicate ? (
         <div className="flex flex-wrap items-center gap-3 text-sm text-fg">

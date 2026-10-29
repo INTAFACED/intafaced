@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useSession } from '../session/session';
 import { readServerClock, type ServerClockReading } from '../../shared/server-clock';
 import { docsCopy } from './developers-docs-copy';
+import { developersCopy } from './developers-copy';
 import { connectivityEndpointsLabel, connectivityStateLabel, dataTermLabel } from './developers-labels';
 import { DATA_PRODUCTS, DATA_TERMS, connectivityOptions } from './developers-model';
 import {
@@ -274,6 +275,7 @@ export function QuickstartPage({ title }: { title: string }) {
 
 export function ConnectivityPage({ title }: { title: string }) {
   const { t } = docsCopy.useCopy();
+  const { t: portal } = developersCopy.useCopy();
   return (
     <Page id="connectivity" title={title} lead={t('connectivityLead')}>
       <section className="pub-card" aria-labelledby="dev-conn-options">
@@ -288,11 +290,23 @@ export function ConnectivityPage({ title }: { title: string }) {
               </tr>
             </thead>
             <tbody>
-              {connectivityOptions().map(({ option, state }) => (
+              {connectivityOptions().map(({ option, state, hosts }) => (
                 <tr key={option} data-option={option} data-option-state={state}>
                   <th scope="row">{t(`option_${option}`)}</th>
                   <td>{connectivityStateLabel(t, state)}</td>
-                  <td>{connectivityEndpointsLabel(t, option)}</td>
+                  <td>
+                    {connectivityEndpointsLabel(t, option)}
+                    {hosts.length ? (
+                      <ul aria-label={t(`option_${option}`)}>
+                        {hosts.map(({ protocol, cell }) => (
+                          <li key={protocol} data-protocol={protocol} data-host-state={cell.state}>
+                            {portal(`protocol_${protocol}` as const)}:{' '}
+                            {cell.state === 'set' ? <code>{cell.host}</code> : portal('hostUnset')}
+                          </li>
+                        ))}
+                      </ul>
+                    ) : null}
+                  </td>
                 </tr>
               ))}
             </tbody>
