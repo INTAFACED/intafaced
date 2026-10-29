@@ -1,9 +1,11 @@
 import { describe, expect, it } from 'vitest';
+import type { Principal } from './tokens.js';
 import { issueAccessToken, verifyAccessToken, AuthError, generateRefreshToken, hashRefreshToken } from './tokens.js';
 import { requireScope, requireTier, requireOwnership, requireMfa, bearerToken } from './guards.js';
 import {
   assertDelegatableScopes,
   assertKeyScopesAllowed,
+  PERSON_ONLY_SCOPES,
   expandScopes,
   hasScope,
   isScope,
@@ -484,5 +486,28 @@ describe('a validly-signed token with the wrong claims shape', () => {
     const err = (await verifyAccessToken(token, config).catch((e: unknown) => e)) as AuthError;
     expect(err).toBeInstanceOf(AuthError);
     expect(err.code).toBe('token.malformed');
+  });
+});
+
+describe('agents:execute never sits on an API key (OWNER 107, 29 Oct 2026)', () => {
+  it('is refused on a key even from a session that holds it, and an API key cannot exercise it', () => {
+    expect(PERSON_ONLY_SCOPES).toContain('agents:execute');
+    expect(() => assertKeyScopesAllowed(['agents:execute'])).toThrow(/cannot be granted to an API key/);
+    expect(() => assertDelegatableScopes(['agents:read', 'agents:execute'], ['agents:read', 'agents:execute'])).toThrow(
+      /cannot be granted to an API key/,
+    );
+    expect(() => assertDelegatableScopes(['agents:read'], ['agents:read', 'agents:execute'])).not.toThrow();
+    const key = {
+      sub: 'u',
+      userId: 'u',
+      sid: 's',
+      scopes: ['agents:execute'],
+      tier: 'none',
+      mfa: false,
+      kid: 'k1',
+    } as unknown as Principal;
+    expect(() => requireScope(key, 'agents:execute')).toThrow(expect.objectContaining({ code: 'scope.interactive_only' }));
+    const person = { ...key, kid: undefined } as unknown as Principal;
+    expect(() => requireScope(person, 'agents:execute')).not.toThrow();
   });
 });

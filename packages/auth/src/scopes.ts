@@ -207,8 +207,23 @@ export function isPayStepUpScope(scope: string): scope is PayStepUpScope {
  */
 export const SESSION_MFA_SCOPES: readonly Scope[] = ['trade:withdraw', 'admin:treasury', 'bank:card', 'pay:onboard'];
 
+/**
+ * Scopes a person's own session may carry and nothing delegated ever does.
+ *
+ * Unlike `INTERACTIVE_ONLY_SCOPES`, a scope here may be issued by default
+ * (that is `SESSION_SCOPES`' call). It is kept off API keys because what it
+ * authorises spends the person's own money at the person's own instruction:
+ * `agents:execute` runs a metered agent (OWNER 107, 29 Oct 2026: "Every
+ * signed-in person may run agents from their own session, never from API keys
+ * or delegated tokens"). svc-agents also refuses a delegated token (`kid`,
+ * `sub_account`) or a service on the request.
+ */
+export const PERSON_ONLY_SCOPES: readonly Scope[] = ['agents:execute'];
+
 export function assertKeyScopesAllowed(scopes: readonly string[]): void {
-  const forbidden = scopes.filter((s) => (INTERACTIVE_ONLY_SCOPES as readonly string[]).includes(s));
+  const forbidden = scopes.filter(
+    (s) => (INTERACTIVE_ONLY_SCOPES as readonly string[]).includes(s) || (PERSON_ONLY_SCOPES as readonly string[]).includes(s),
+  );
   if (forbidden.length > 0) {
     throw new Error(`Scopes ${forbidden.join(', ')} cannot be granted to an API key — they require an interactive session (§9)`);
   }
