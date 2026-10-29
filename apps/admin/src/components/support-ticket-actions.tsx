@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import type { SupportTicket, SupportTicketEvent } from '@intafaced/contracts';
-import { SUPPORT_SIGNATURE_MAX, signedSupportReply, type SupportMacro } from '@intafaced/contracts/support-macros';
+import { SUPPORT_SIGNATURE_MAX, supportMacroUnfilled, type SupportMacro } from '@intafaced/contracts/support-macros';
 import type { Part } from '@/lib/desk/part';
 import { fetchMacroApply, fetchMacros, postSupportAction, type ActionReply, type MacroApplyReply } from '@/lib/support/browser';
 import type { SupportMacrosView } from '@/lib/support/types';
@@ -26,8 +26,10 @@ import { ActionOutcome, ConfirmStep, Failed } from './support-action-parts';
  * TICKET ACTIONS — reply, set status, escalate.
  *
  * A macro (SP-desk-02) is filled from this request by svc-support and only goes into the reply draft: nothing is sent
- * until the agent sends. The agent's own signature is added under a public reply when it is sent, and to nothing else
- * (not a status reason, not an escalation's summary).
+ * until the agent sends. A placeholder svc-support could not fill stays in the draft as written, and svc-support refuses
+ * to send a reply still holding one. The agent's own signature is put into the public reply's draft when it is composed,
+ * so the agent sees exactly what the customer gets; nothing is added on send, and a status reason or an escalation's
+ * summary never carries it.
  *
  * Every control is on the page whatever the founder's permissions are. svc-support is the judge: when it answers
  * forbidden, the page says "Your console session does not have support operations permission" and nothing is
@@ -84,8 +86,8 @@ export function buildRequest(
     return {
       action: 'reply',
       ticketId,
-      // The signature goes under the public reply only: never under a status reason or an escalation.
-      body: signedSupportReply(form.replyBody.trim(), signature.signature),
+      // Exactly the draft the agent saw, signature included: nothing is added on send.
+      body: form.replyBody.trim(),
       ...(expectedSequence === undefined ? {} : { expectedSequence }),
       ...(sent === undefined ? {} : { sent }),
     };
@@ -129,17 +131,38 @@ export interface TicketActionsViewProps {
   /** svc-support's answer to the last macro applied, shown when it refused. */
   readonly macroReply?: MacroApplyReply | null;
   readonly onMacro?: (macroId: string) => void;
+  /** Reads the macros and the signature again after a failed read. */
+  readonly onMacrosRead?: () => void;
 }
 
-const macroLabel = (m: SupportMacro) => (m.folder === null ? m.name : `${m.folder} / ${m.name}`);
+const macroLabel = (m: SupportMacro) => `${m.folder === null ? m.title : `${m.folder} / ${m.title}`} (${m.shortcode})`;
 
-/** The signature that goes under a reply, or why it is not known yet. A reply waits until it is known. */
+/** What a fresh public reply's draft holds: the agent's signature under room to write, or nothing without one. */
+export function signatureBlock(signature: string | null): string {
+  return signature === null ? '' : `\n\n${signature}`;
+}
+
+/** The agent's own words in a draft: the draft less the signature block at its end, if it is still there. */
+export function draftWords(body: string, signature: string | null): string {
+  const block = signatureBlock(signature);
+  return block !== '' && body.endsWith(block) ? body.slice(0, body.length - block.length) : body;
+}
+
+/** A macro's text put into a draft: under what the agent already wrote, above their signature. */
+export function withMacro(body: string, text: string, signature: string | null): string {
+  const words = draftWords(body, signature).trimEnd();
+  const filled = words.trim() === '' ? text : `${words}\n\n${text}`;
+  const block = signatureBlock(signature);
+  return block !== '' && body.endsWith(block) ? `${filled}${block}` : filled;
+}
+
+/** The signature that goes into a reply's draft, or why it is not known yet. A reply waits until it is known. */
 function signatureOf(
   macros: SupportMacrosView | null | undefined,
 ): { ok: true; signature: string | null; revision: number } | { ok: false; why: string } {
   if (!macros) return { ok: false, why: 'Reading your signature first.' };
   if (macros.signature.kind !== 'ok')
-    return { ok: false, why: 'Your signature could not be read, so the reply cannot be signed. Read the ticket again first.' };
+    return { ok: false, why: 'Your signature could not be read, so the reply cannot be signed. Read it again first.' };
   return { ok: true, signature: macros.signature.data.signature, revision: macros.signature.data.revision };
 }
 
@@ -158,9 +181,10 @@ export function TicketActionsView(p: TicketActionsViewProps) {
   const { ticket, form } = p;
   const next = allowedNextStatuses(ticket.status);
   const signed = signatureOf(p.macros);
-  // A blank draft is refused as blank: the signature alone is never a reply.
-  const draft = form.replyBody.trim();
-  const gate = replyGate(ticket, signed.ok && draft !== '' ? signedSupportReply(draft, signed.signature) : form.replyBody, p.busy);
+  // A draft holding only the signature is refused as blank: the signature alone is never a reply.
+  const words = draftWords(form.replyBody, signed.ok ? signed.signature : null);
+  const gate = replyGate(ticket, words.trim() === '' ? '' : form.replyBody, p.busy);
+  const unfilled = supportMacroUnfilled(form.replyBody);
   const reply: ActionGate =
     gate.ok && p.trailUnread ? { ok: false, why: p.trailUnread } : gate.ok && !signed.ok ? { ok: false, why: signed.why } : gate;
   const signatureText = (form.signatureDraft ?? (signed.ok ? (signed.signature ?? '') : '')).trim();
@@ -182,6 +206,11 @@ export function TicketActionsView(p: TicketActionsViewProps) {
     <section className="dk-stack" aria-label="Ticket actions" data-testid="ticket-actions">
       <h4>Reply to the customer</h4>
       <MacroPicker p={p} disabled={p.busy || editing} />
+      {p.macros && (p.macros.macros.kind !== 'ok' || p.macros.signature.kind !== 'ok') && (
+        <button type="button" className="adm-btn" disabled={p.busy} onClick={() => p.onMacrosRead?.()}>
+          Read the macros and your signature again
+        </button>
+      )}
       <div className="adm-field">
         <label htmlFor="sd-reply">Your reply</label>
         <textarea
@@ -194,20 +223,15 @@ export function TicketActionsView(p: TicketActionsViewProps) {
           onChange={(e) => p.onField({ replyBody: e.target.value })}
         />
       </div>
-      {signed.ok && signed.signature !== null && (
-        <div className="dk-muted">
-          Added under this reply when you send it, and under nothing else:
-          <pre data-testid="reply-signature">{signed.signature}</pre>
-        </div>
+      {unfilled.length > 0 && (
+        <p className="dk-why" data-testid="reply-unfilled">
+          {`Fill in or remove ${unfilled.map((name) => `{{${name}}}`).join(', ')}: the desk holds no value for it on this request, and svc-support sends no reply that still holds one.`}
+        </p>
       )}
       {p.armed === 'reply' ? (
         <ConfirmStep
           title="Send this reply?"
-          consequence={
-            signed.ok && signed.signature !== null
-              ? 'The customer sees it on their request, with your signature under it. A reply cannot be unsent.'
-              : 'The customer sees it on their request. A reply cannot be unsent.'
-          }
+          consequence="The customer sees it on their request exactly as written above. A reply cannot be unsent."
           confirmLabel="Yes, send the reply"
           busy={p.busy}
           onConfirm={p.onSend}
@@ -225,7 +249,7 @@ export function TicketActionsView(p: TicketActionsViewProps) {
       </ActionOutcome>
 
       <div className="adm-field">
-        <label htmlFor="sd-signature">Your signature (added under your public replies only)</label>
+        <label htmlFor="sd-signature">Your signature (put into your public reply drafts only)</label>
         <textarea
           id="sd-signature"
           className="adm-textarea"
@@ -239,7 +263,7 @@ export function TicketActionsView(p: TicketActionsViewProps) {
       {p.armed === 'signature' ? (
         <ConfirmStep
           title="Save this signature?"
-          consequence="It is added under every public reply you send from now on. Replies already sent keep the text they were sent with."
+          consequence="It goes into each new public reply draft from now on, where you can still change it. A draft you have already started and replies already sent keep the text they have."
           confirmLabel="Yes, save my signature"
           busy={p.busy}
           onConfirm={p.onSend}
@@ -460,6 +484,16 @@ export function TicketActions({
   const [macroReply, setMacroReply] = useState<MacroApplyReply | null>(null);
   const [macrosRead, setMacrosRead] = useState(0);
   const lock = useRef(false);
+  const signature = macros?.signature.kind === 'ok' ? macros.signature.data.signature : null;
+  // The signature goes into the draft when the reply is composed: an untouched draft follows the signature as read.
+  const drafted = useRef('');
+  useEffect(() => {
+    if (macros?.signature.kind !== 'ok') return;
+    const block = signatureBlock(signature);
+    const before = drafted.current;
+    drafted.current = block;
+    setForm((f) => (f.replyBody === '' || f.replyBody === before ? { ...f, replyBody: block } : f));
+  }, [macros, signature]);
 
   useEffect(() => {
     const abort = new AbortController();
@@ -483,12 +517,8 @@ export function TicketActions({
     try {
       const reply = await fetchMacroApply(ticket.id, macroId);
       setMacroReply(reply);
-      // The macro goes under what the agent already wrote; it never discards their draft.
-      if (reply.ok)
-        setForm((f) => ({
-          ...f,
-          replyBody: f.replyBody.trim() === '' ? reply.applied.text : `${f.replyBody.trimEnd()}\n\n${reply.applied.text}`,
-        }));
+      // The macro goes under what the agent already wrote and above their signature; it never discards their draft.
+      if (reply.ok) setForm((f) => ({ ...f, replyBody: withMacro(f.replyBody, reply.applied.text, signature) }));
     } finally {
       lock.current = false;
       setBusy(false);
@@ -502,7 +532,7 @@ export function TicketActions({
     const kind = armed;
     try {
       if (seen === null && seenNow !== null) setSeen(seenNow);
-      const signature = macros?.signature.kind === 'ok' ? macros.signature.data : undefined;
+      const read = macros?.signature.kind === 'ok' ? macros.signature.data : undefined;
       const reply = await postSupportAction(
         buildRequest(
           kind,
@@ -510,7 +540,7 @@ export function TicketActions({
           form,
           kind === 'escalate' || kind === 'signature' ? undefined : (seenNow ?? undefined),
           kind === 'reply' ? sent : undefined,
-          signature,
+          read,
         ),
       );
       setOutcome({ kind, reply });
@@ -519,7 +549,7 @@ export function TicketActions({
       if (reply.ok) {
         setForm((f) =>
           kind === 'reply'
-            ? { ...f, replyBody: '' }
+            ? { ...f, replyBody: signatureBlock(signature) }
             : kind === 'escalate'
               ? { ...f, escSummary: '', escCited: '' }
               : kind === 'signature'
@@ -527,7 +557,7 @@ export function TicketActions({
                 : { ...f, statusNote: '' },
         );
       }
-      // A signature write (done or not) is read back from svc-support before the next reply is signed with it.
+      // A signature write (done or not) is read back from svc-support before it goes into the next draft.
       if (kind === 'signature') {
         setMacros(null);
         setMacrosRead((n) => n + 1);
@@ -555,6 +585,7 @@ export function TicketActions({
       macros={macros}
       macroReply={macroReply}
       onMacro={(id) => void applyMacro(id)}
+      onMacrosRead={() => setMacrosRead((n) => n + 1)}
       stale={seenNow === null ? [] : newerByOthers(rows, seenNow, userId)}
       trailUnread={
         seenNow === null

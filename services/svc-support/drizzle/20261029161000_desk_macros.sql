@@ -6,7 +6,8 @@
 
 CREATE TABLE IF NOT EXISTS "support"."desk_macros" (
   "id" uuid PRIMARY KEY,
-  "name" text NOT NULL UNIQUE CHECK (char_length("name") BETWEEN 1 AND 80),
+  "title" text NOT NULL CHECK (char_length("title") BETWEEN 1 AND 80),
+  "shortcode" text NOT NULL UNIQUE CHECK (char_length("shortcode") BETWEEN 1 AND 40 AND "shortcode" !~ '\s'),
   "folder" text CHECK ("folder" IS NULL OR char_length("folder") BETWEEN 1 AND 80),
   "body" text NOT NULL CHECK (char_length("body") BETWEEN 1 AND 5000),
   "revision" integer NOT NULL CHECK ("revision" >= 1),

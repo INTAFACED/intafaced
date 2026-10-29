@@ -210,7 +210,7 @@ export function createSupportRouter(
   helpCentre: HelpCentreBook = new MemoryHelpCentreBook(),
   kbLibrary: KbLibraryBook = new MemoryKbLibraryBook(),
   forms: RequestForms = new RequestForms(new MemoryFormsStore(), { forms: null, fields: null }),
-  macros: DeskMacros = new DeskMacros(new MemoryMacroBook(), support),
+  macros: DeskMacros = new DeskMacros(new MemoryMacroBook(), support, null),
 ) {
   const helpCentreOpen = helpCentreGate(helpCentre);
   return router({

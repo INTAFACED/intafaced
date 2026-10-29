@@ -1,32 +1,42 @@
 /**
  * Support desk macros and agent signatures (SP-desk-02).
  *
- * A macro is a lead's saved reply text, filed under a folder, with placeholders such as `{{ticket.subject}}` that are
- * filled from the request it is applied to. Applying a macro only fills the agent's draft: nothing is sent until the
- * agent sends. An agent's signature is their own text, added under a public reply when it is sent and nowhere else.
+ * A macro is saved reply text with a title, a shortcode and an optional folder. Its body may name placeholders from a
+ * closed list, written `{{requester.name}}`, which svc-support fills from the request it is applied to. A value the
+ * desk cannot read for that request stays in the draft unfilled, and svc-support refuses to send a reply that still
+ * holds one: what the agent sees is what is sent, and a blank value is never sent empty or filled with a stand-in.
+ * Applying a macro only fills the agent's draft; nothing is sent until the agent sends. An agent's signature is their
+ * own text, put into the draft of a public reply when it is composed, so the reply carries exactly what the agent saw.
  *
  * Browser safe: nothing here imports Node.
  *
  * - `support.macro_placeholder_unknown`: the macro names a placeholder outside `SUPPORT_MACRO_PLACEHOLDERS`. Nothing is
- *   saved; a macro is never stored with a placeholder that cannot be filled.
+ *   saved.
+ * - `support.macro_placeholder_blank`: a reply still holds a placeholder (its value was blank for this request). Nothing
+ *   is sent.
+ * - `support.shortcode_taken`: another macro already has this shortcode. Nothing is saved.
+ * - `support.shortcode_rule_unset`: the shortcode's minimum length is blank. Every save refuses until it is set.
+ * - `support.shortcode_too_short`: the shortcode is shorter than the desk's minimum. Nothing is saved.
  * - `support.macro_revision_stale`: the macro or signature moved on since the writer read it. Nothing is saved.
  * - `support.macro_not_found`: no macro has this id.
- * - `support.macro_name_taken`: another macro already has this name. Nothing is saved.
  * - `support.not_lead`: only a lead writes macros. Any agent reads and applies them.
  */
 import { z } from 'zod';
 
 export const SUPPORT_MACRO_ERROR_CODES = [
   'support.macro_placeholder_unknown',
+  'support.macro_placeholder_blank',
+  'support.shortcode_taken',
+  'support.shortcode_rule_unset',
+  'support.shortcode_too_short',
   'support.macro_revision_stale',
   'support.macro_not_found',
-  'support.macro_name_taken',
   'support.not_lead',
 ] as const;
 export type SupportMacroErrorCode = (typeof SUPPORT_MACRO_ERROR_CODES)[number];
 
-/** Every placeholder a macro may name, each read from the request the macro is applied to. */
-export const SUPPORT_MACRO_PLACEHOLDERS = ['ticket.subject', 'ticket.category'] as const;
+/** The closed list a macro may name: none reads money or account data. */
+export const SUPPORT_MACRO_PLACEHOLDERS = ['requester.name', 'ticket.id', 'agent.name'] as const;
 export type SupportMacroPlaceholder = (typeof SUPPORT_MACRO_PLACEHOLDERS)[number];
 
 const PLACEHOLDER_RE = /\{\{\s*([^{}]*?)\s*\}\}/g;
@@ -41,28 +51,36 @@ export function supportMacroUnknownPlaceholders(body: string): string[] {
   return supportMacroPlaceholders(body).filter((name) => !(SUPPORT_MACRO_PLACEHOLDERS as readonly string[]).includes(name));
 }
 
-/** The body with each known placeholder replaced by its value. An unknown placeholder is left as written. */
-export function fillSupportMacro(body: string, values: Readonly<Record<SupportMacroPlaceholder, string>>): string {
-  return body.replace(PLACEHOLDER_RE, (whole, name: string) =>
-    Object.prototype.hasOwnProperty.call(values, name) ? values[name as SupportMacroPlaceholder] : whole,
+/** The known placeholders a text still holds, unfilled. A reply holding any of them is refused. */
+export function supportMacroUnfilled(text: string): SupportMacroPlaceholder[] {
+  return supportMacroPlaceholders(text).filter((name): name is SupportMacroPlaceholder =>
+    (SUPPORT_MACRO_PLACEHOLDERS as readonly string[]).includes(name),
   );
 }
 
-/** The text a public reply is sent with: the draft, then the agent's signature under it when they have one. */
-export function signedSupportReply(draft: string, signature: string | null): string {
-  return signature === null ? draft : `${draft}\n\n${signature}`;
+/** The body with each placeholder whose value is known replaced by it. A blank or unknown one is left as written. */
+export function fillSupportMacro(body: string, values: Readonly<Record<SupportMacroPlaceholder, string | null>>): string {
+  return body.replace(PLACEHOLDER_RE, (whole, name: string) => {
+    if (!Object.prototype.hasOwnProperty.call(values, name)) return whole;
+    const value = values[name as SupportMacroPlaceholder];
+    return value === null || value.trim() === '' ? whole : value;
+  });
 }
 
 export const SUPPORT_MACRO_BODY_MAX = 5_000;
 export const SUPPORT_SIGNATURE_MAX = 500;
+export const SUPPORT_SHORTCODE_MAX = 40;
 
-const name = z.string().trim().min(1).max(80);
+const title = z.string().trim().min(1).max(80);
+/** One word, so it can be typed after the expander. Its minimum length is the desk's setting, checked by svc-support. */
+const shortcode = z.string().trim().min(1).max(SUPPORT_SHORTCODE_MAX).regex(/^\S+$/u);
 
 export const supportMacroSchema = z.object({
   id: z.string().guid(),
-  name,
+  title,
+  shortcode,
   /** Where the macro is filed in the desk's list; null when it is not in a folder. */
-  folder: name.nullable(),
+  folder: title.nullable(),
   body: z.string().min(1).max(SUPPORT_MACRO_BODY_MAX),
   revision: z.number().int().positive(),
   updatedBy: z.string().min(1),
@@ -76,8 +94,9 @@ export type SupportMacroList = z.infer<typeof supportMacroListSchema>;
 export const supportMacroSaveInputSchema = z.object({
   /** Absent to create a macro. */
   macroId: z.string().guid().optional(),
-  name,
-  folder: name.nullable(),
+  title,
+  shortcode,
+  folder: title.nullable(),
   body: z.string().min(1).max(SUPPORT_MACRO_BODY_MAX),
   /** The revision the lead read: 0 to create. A moved revision refuses `support.macro_revision_stale`. */
   expectedRevision: z.number().int().nonnegative(),
@@ -87,15 +106,16 @@ export type SupportMacroSaveInput = z.infer<typeof supportMacroSaveInputSchema>;
 
 export const supportMacroApplyInputSchema = z.object({ ticketId: z.string().guid(), macroId: z.string().guid() });
 
-/** A macro filled for one request. Applying it writes nothing. */
+/** A macro filled for one request. Applying it writes nothing. `unfilled` names the placeholders left in `text`. */
 export const supportMacroAppliedSchema = z.object({
   macroId: z.string().guid(),
   revision: z.number().int().positive(),
   text: z.string().min(1),
+  unfilled: z.array(z.enum(SUPPORT_MACRO_PLACEHOLDERS)),
 });
 export type SupportMacroApplied = z.infer<typeof supportMacroAppliedSchema>;
 
-/** The caller's own signature. `signature` is null until they set one; then nothing is added under their replies. */
+/** The caller's own signature. `signature` is null until they set one; then nothing goes into their drafts. */
 export const supportSignatureSchema = z.object({
   signature: z.string().min(1).max(SUPPORT_SIGNATURE_MAX).nullable(),
   revision: z.number().int().nonnegative(),

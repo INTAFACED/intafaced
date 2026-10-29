@@ -1,7 +1,7 @@
 /**
  * SP-desk-02 — macros and agent signatures.
  *
- * A lead writes a macro at a revision with a reason; each write is a compare-and-set on the revision the lead read, logged
+ * A lead writes a macro (a title, a unique shortcode, a body) at a revision with a reason; each write is a compare-and-set on the revision the lead read, logged
  * with who and why. A macro naming a placeholder no request can fill is refused before anything is written. Any agent
  * applies a macro to a request they may see: svc-support fills the placeholders from that request and writes nothing, so
  * nothing reaches the customer until the agent sends. Each agent writes only their own signature, also at a revision.
@@ -10,6 +10,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import type { Sql } from 'postgres';
 import {
   fillSupportMacro,
+  supportMacroUnfilled,
   supportMacroUnknownPlaceholders,
   type SupportMacro,
   type SupportMacroApplied,
@@ -20,9 +21,12 @@ import {
 import type { StaffMember } from './desk-staff.js';
 
 export const MACRO_PLACEHOLDER_UNKNOWN = 'support.macro_placeholder_unknown' as const;
+export const MACRO_PLACEHOLDER_BLANK = 'support.macro_placeholder_blank' as const;
 export const MACRO_REVISION_STALE = 'support.macro_revision_stale' as const;
 export const MACRO_NOT_FOUND = 'support.macro_not_found' as const;
-export const MACRO_NAME_TAKEN = 'support.macro_name_taken' as const;
+export const SHORTCODE_TAKEN = 'support.shortcode_taken' as const;
+export const SHORTCODE_RULE_UNSET = 'support.shortcode_rule_unset' as const;
+export const SHORTCODE_TOO_SHORT = 'support.shortcode_too_short' as const;
 export const MACRO_NOT_LEAD = 'support.not_lead' as const;
 
 export class MacroError extends Error {
@@ -34,7 +38,8 @@ export class MacroError extends Error {
 
 export interface MacroWrite {
   readonly macroId?: string;
-  readonly name: string;
+  readonly title: string;
+  readonly shortcode: string;
   readonly folder: string | null;
   readonly body: string;
   readonly expectedRevision: number;
@@ -55,43 +60,44 @@ export interface MacroBook {
 }
 
 /** The writer is part of it: another lead sending the same text is a new write, never a replay of the first. */
-export function macroFingerprint(input: Pick<MacroWrite, 'actorId' | 'name' | 'folder' | 'body' | 'reason'>): string {
+export function macroFingerprint(input: Pick<MacroWrite, 'actorId' | 'title' | 'shortcode' | 'folder' | 'body' | 'reason'>): string {
   return createHash('sha256')
-    .update(JSON.stringify([input.actorId, input.name, input.folder, input.body, input.reason]))
+    .update(JSON.stringify([input.actorId, input.title, input.shortcode, input.folder, input.body, input.reason]))
     .digest('hex');
 }
 
 type Logged = { readonly fingerprint: string; readonly after: SupportMacro };
 
 /**
- * The one decision both books make under their lock. `current` is the macro the write targets (by id, or by name on a
- * create); `byName` is whichever macro holds the name; `logged` is the log row at the revision this write would make.
+ * The one decision both books make under their lock. `current` is the macro the write targets (by id, or by shortcode on
+ * a create); `byShortcode` is whichever macro holds the shortcode; `logged` is the log row at the revision this write would make.
  */
 function decide(
   input: MacroWrite,
   current: SupportMacro | null,
-  byName: SupportMacro | null,
+  byShortcode: SupportMacro | null,
   logged: (macroId: string, revision: number) => Logged | undefined,
 ): MacroPut | { readonly write: SupportMacro } {
   const fingerprint = macroFingerprint(input);
   if (input.macroId !== undefined && current === null) return { ok: false, code: MACRO_NOT_FOUND };
   // A retry of a write that already landed answers it: same macro, the next revision, the same content and reason.
-  const target = current ?? byName;
+  const target = current ?? byShortcode;
   if (target && target.revision === input.expectedRevision + 1) {
     const hit = logged(target.id, target.revision);
     if (hit && hit.fingerprint === fingerprint) return { ok: true, macro: hit.after };
   }
   if (input.macroId === undefined) {
-    if (byName) return { ok: false, code: input.expectedRevision === 0 ? MACRO_NAME_TAKEN : MACRO_REVISION_STALE };
+    if (byShortcode) return { ok: false, code: input.expectedRevision === 0 ? SHORTCODE_TAKEN : MACRO_REVISION_STALE };
     if (input.expectedRevision !== 0) return { ok: false, code: MACRO_REVISION_STALE };
   } else {
     if (current!.revision !== input.expectedRevision) return { ok: false, code: MACRO_REVISION_STALE };
-    if (byName && byName.id !== current!.id) return { ok: false, code: MACRO_NAME_TAKEN };
+    if (byShortcode && byShortcode.id !== current!.id) return { ok: false, code: SHORTCODE_TAKEN };
   }
   return {
     write: {
       id: current?.id ?? randomUUID(),
-      name: input.name,
+      title: input.title,
+      shortcode: input.shortcode,
       folder: input.folder,
       body: input.body,
       revision: (current?.revision ?? 0) + 1,
@@ -101,8 +107,8 @@ function decide(
   };
 }
 
-function byFolderThenName(a: SupportMacro, b: SupportMacro): number {
-  return (a.folder ?? '').localeCompare(b.folder ?? '') || a.name.localeCompare(b.name) || a.id.localeCompare(b.id);
+function byFolderThenTitle(a: SupportMacro, b: SupportMacro): number {
+  return (a.folder ?? '').localeCompare(b.folder ?? '') || a.title.localeCompare(b.title) || a.id.localeCompare(b.id);
 }
 
 export class MemoryMacroBook implements MacroBook {
@@ -111,7 +117,7 @@ export class MemoryMacroBook implements MacroBook {
   private readonly signatures = new Map<string, { signature: string; revision: number }>();
 
   async list(): Promise<SupportMacro[]> {
-    return [...this.macros.values()].sort(byFolderThenName);
+    return [...this.macros.values()].sort(byFolderThenTitle);
   }
 
   async get(macroId: string): Promise<SupportMacro | null> {
@@ -120,8 +126,8 @@ export class MemoryMacroBook implements MacroBook {
 
   async put(input: MacroWrite): Promise<MacroPut> {
     const current = input.macroId === undefined ? null : (this.macros.get(input.macroId) ?? null);
-    const byName = [...this.macros.values()].find((m) => m.name === input.name) ?? null;
-    const outcome = decide(input, current, byName, (id, revision) => this.log.get(`${id}:${revision}`));
+    const byShortcode = [...this.macros.values()].find((m) => m.shortcode === input.shortcode) ?? null;
+    const outcome = decide(input, current, byShortcode, (id, revision) => this.log.get(`${id}:${revision}`));
     if (!('write' in outcome)) return outcome;
     this.macros.set(outcome.write.id, outcome.write);
     this.log.set(`${outcome.write.id}:${outcome.write.revision}`, { fingerprint: macroFingerprint(input), after: outcome.write });
@@ -152,7 +158,8 @@ function decideSignature(now: SupportSignature, input: { signature: string; expe
 
 type PgMacro = {
   id: string;
-  name: string;
+  title: string;
+  shortcode: string;
   folder: string | null;
   body: string;
   revision: number;
@@ -160,12 +167,13 @@ type PgMacro = {
   updated_at: Date | string;
 };
 
-const MACRO_COLUMNS = `id, name, folder, body, revision, updated_by, updated_at`;
+const MACRO_COLUMNS = `id, title, shortcode, folder, body, revision, updated_by, updated_at`;
 
 function fromRow(row: PgMacro): SupportMacro {
   return {
     id: row.id,
-    name: row.name,
+    title: row.title,
+    shortcode: row.shortcode,
     folder: row.folder,
     body: row.body,
     revision: row.revision,
@@ -179,7 +187,7 @@ export class SqlMacroBook implements MacroBook {
 
   async list(): Promise<SupportMacro[]> {
     const rows = await this.sql<PgMacro[]>`SELECT ${this.sql.unsafe(MACRO_COLUMNS)} FROM support.desk_macros`;
-    return rows.map(fromRow).sort(byFolderThenName);
+    return rows.map(fromRow).sort(byFolderThenTitle);
   }
 
   async get(macroId: string): Promise<SupportMacro | null> {
@@ -189,7 +197,7 @@ export class SqlMacroBook implements MacroBook {
 
   async put(input: MacroWrite): Promise<MacroPut> {
     return this.sql.begin(async (tx) => {
-      // One macro write at a time: the name check and the revision check stay true until this write lands.
+      // One macro write at a time: the shortcode check and the revision check stay true until this write lands.
       await tx`SELECT pg_advisory_xact_lock(hashtext('support.desk_macros'))`;
       const current =
         input.macroId === undefined
@@ -197,10 +205,11 @@ export class SqlMacroBook implements MacroBook {
           : ((await tx<PgMacro[]>`SELECT ${tx.unsafe(MACRO_COLUMNS)} FROM support.desk_macros WHERE id = ${input.macroId}`).map(
               fromRow,
             )[0] ?? null);
-      const byName =
-        (await tx<PgMacro[]>`SELECT ${tx.unsafe(MACRO_COLUMNS)} FROM support.desk_macros WHERE name = ${input.name}`).map(fromRow)[0] ??
-        null;
-      const target = current ?? byName;
+      const byShortcode =
+        (await tx<PgMacro[]>`SELECT ${tx.unsafe(MACRO_COLUMNS)} FROM support.desk_macros WHERE shortcode = ${input.shortcode}`).map(
+          fromRow,
+        )[0] ?? null;
+      const target = current ?? byShortcode;
       const logged = target
         ? (
             await tx<{ fingerprint: string; after: SupportMacro }[]>`
@@ -208,20 +217,20 @@ export class SqlMacroBook implements MacroBook {
             `
           )[0]
         : undefined;
-      const outcome = decide(input, current, byName, (id, revision) =>
+      const outcome = decide(input, current, byShortcode, (id, revision) =>
         target && id === target.id && revision === target.revision ? logged : undefined,
       );
       if (!('write' in outcome)) return outcome;
       const next = outcome.write;
       if (current === null) {
         await tx`
-          INSERT INTO support.desk_macros (id, name, folder, body, revision, updated_by, updated_at)
-          VALUES (${next.id}, ${next.name}, ${next.folder}, ${next.body}, ${next.revision}, ${next.updatedBy}, ${next.updatedAt})
+          INSERT INTO support.desk_macros (id, title, shortcode, folder, body, revision, updated_by, updated_at)
+          VALUES (${next.id}, ${next.title}, ${next.shortcode}, ${next.folder}, ${next.body}, ${next.revision}, ${next.updatedBy}, ${next.updatedAt})
         `;
       } else {
         await tx`
           UPDATE support.desk_macros
-          SET name = ${next.name}, folder = ${next.folder}, body = ${next.body}, revision = ${next.revision},
+          SET title = ${next.title}, shortcode = ${next.shortcode}, folder = ${next.folder}, body = ${next.body}, revision = ${next.revision},
               updated_by = ${next.updatedBy}, updated_at = ${next.updatedAt}
           WHERE id = ${next.id}
         `;
@@ -261,7 +270,12 @@ export class SqlMacroBook implements MacroBook {
           WHERE support.staff_signatures.revision = ${now.revision}
         RETURNING revision
       `;
-      return written.length === 0 ? null : { signature: input.signature, revision };
+      if (written.length > 0) return { signature: input.signature, revision };
+      // The other first write won: the same text is this write's retry, anything else is stale.
+      const won = await tx<{ signature: string; revision: number }[]>`
+        SELECT signature, revision FROM support.staff_signatures WHERE user_id = ${input.userId}
+      `;
+      return won[0]?.signature === input.signature && won[0].revision === revision ? { signature: won[0].signature, revision } : null;
     }) as Promise<SupportSignature | null>;
   }
 }
@@ -274,6 +288,8 @@ export class DeskMacros {
       listStaff(): Promise<StaffMember[]>;
       getTicket(input: { userId: string; ticketId: string; asOperator?: boolean }): Promise<SupportTicket>;
     },
+    /** The shortcode's minimum length, an owner value; null (blank) refuses every save. */
+    private readonly shortcodeMin: number | null,
     private readonly now: () => string = () => new Date().toISOString(),
   ) {}
 
@@ -285,10 +301,13 @@ export class DeskMacros {
   async save(actorId: string, input: SupportMacroSaveInput): Promise<SupportMacro> {
     const actor = (await this.support.listStaff()).find((member) => member.userId === actorId);
     if (actor?.role !== 'lead') throw new MacroError(MACRO_NOT_LEAD);
+    if (this.shortcodeMin === null) throw new MacroError(SHORTCODE_RULE_UNSET);
+    if ([...input.shortcode].length < this.shortcodeMin) throw new MacroError(SHORTCODE_TOO_SHORT);
     if (supportMacroUnknownPlaceholders(input.body).length > 0) throw new MacroError(MACRO_PLACEHOLDER_UNKNOWN);
     const put = await this.book.put({
       ...(input.macroId === undefined ? {} : { macroId: input.macroId }),
-      name: input.name,
+      title: input.title,
+      shortcode: input.shortcode,
       folder: input.folder,
       body: input.body,
       expectedRevision: input.expectedRevision,
@@ -302,25 +321,26 @@ export class DeskMacros {
 
   /**
    * The macro filled from one request the caller may see. Writes nothing: the text only goes into the agent's draft.
-   * Someone else's request outside the caller's desk scope reads as not found, as `get` does.
+   * Someone else's request outside the caller's desk scope reads as not found, as `get` does. The desk holds no name
+   * for a requester or an agent, so those stay unfilled and are named in `unfilled`: the agent fills them by hand, and
+   * a reply still holding one is refused on send.
    */
   async apply(actorId: string, input: { ticketId: string; macroId: string }): Promise<SupportMacroApplied> {
     const ticket = await this.support.getTicket({ userId: actorId, ticketId: input.ticketId, asOperator: true });
     const macro = await this.book.get(input.macroId);
     if (!macro) throw new MacroError(MACRO_NOT_FOUND);
-    return {
-      macroId: macro.id,
-      revision: macro.revision,
-      text: fillSupportMacro(macro.body, { 'ticket.subject': ticket.subject, 'ticket.category': ticket.category }),
-    };
+    const text = fillSupportMacro(macro.body, { 'requester.name': null, 'ticket.id': ticket.id, 'agent.name': null });
+    return { macroId: macro.id, revision: macro.revision, text, unfilled: supportMacroUnfilled(text) };
   }
 
   async signature(userId: string): Promise<SupportSignature> {
     return this.book.signature(userId);
   }
 
-  /** Only the caller's own signature: there is no user id to name someone else. */
+  /** Only the caller's own signature: there is no user id to name someone else. A placeholder in it refuses. */
   async setSignature(userId: string, input: { signature: string; expectedRevision: number }): Promise<SupportSignature> {
+    // A placeholder in a signature is never filled, so every reply carrying it would be refused on send.
+    if (supportMacroUnfilled(input.signature).length > 0) throw new MacroError(MACRO_PLACEHOLDER_BLANK);
     const saved = await this.book.setSignature({ userId, ...input, at: this.now() });
     if (saved === null) throw new MacroError(MACRO_REVISION_STALE);
     return saved;

@@ -77,8 +77,11 @@ const HTTP: Record<string, TRPCError['code']> = {
   'support.not_lead': 'FORBIDDEN',
   'support.macro_not_found': 'NOT_FOUND',
   'support.macro_revision_stale': 'CONFLICT',
-  'support.macro_name_taken': 'CONFLICT',
+  'support.shortcode_taken': 'CONFLICT',
+  'support.shortcode_rule_unset': 'PRECONDITION_FAILED',
+  'support.shortcode_too_short': 'BAD_REQUEST',
   'support.macro_placeholder_unknown': 'BAD_REQUEST',
+  'support.macro_placeholder_blank': 'BAD_REQUEST',
 };
 
 /** A macro refusal keeps its own code in the message, as the desk's other refusals do; every other refusal maps as the desk's do. */

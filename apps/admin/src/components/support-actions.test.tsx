@@ -6,6 +6,9 @@ import { readActionRequest } from '@/lib/support/model';
 import {
   TicketActionsView,
   buildRequest,
+  draftWords,
+  signatureBlock,
+  withMacro,
   citedIds,
   effectiveStatus,
   emptyForm,
@@ -36,9 +39,10 @@ const macrosView = (signature: string | null, revision = signature === null ? 0 
     data: [
       {
         id: MACRO,
-        name: 'Card declined',
+        title: 'Card declined',
+        shortcode: 'card',
         folder: 'Cards',
-        body: 'About {{ticket.subject}}',
+        body: 'About {{ticket.id}}',
         revision: 1,
         updatedBy: U,
         updatedAt: '2026-10-29T12:00:00.000Z',
@@ -68,11 +72,11 @@ const buttonTag = (markup: string, label: string) => {
 };
 
 describe('signature', () => {
-  it('goes under the public reply only: never under a status reason or an escalation summary', () => {
+  it('a reply sends exactly its draft, adding nothing; a status reason and an escalation summary never carry it', () => {
     const sig = { signature: 'Sam, support', revision: 2 };
-    const f = form({ replyBody: ' Hello ', statusNote: 'Waiting', escSummary: 'Needs review' });
+    const f = form({ replyBody: ` Hello${signatureBlock('Sam, support')} `, statusNote: 'Waiting', escSummary: 'Needs review' });
     expect(buildRequest('reply', open, f, 3, 0, sig)).toMatchObject({ action: 'reply', body: 'Hello\n\nSam, support' });
-    expect(buildRequest('reply', open, f, 3, 0)).toMatchObject({ body: 'Hello' });
+    expect(buildRequest('reply', open, form({ replyBody: ' Hello ' }), 3, 0, sig)).toMatchObject({ body: 'Hello' });
     expect(buildRequest('status', open, f, 3, undefined, sig)).toMatchObject({ note: 'Waiting' });
     expect(buildRequest('escalate', open, f, undefined, undefined, sig)).toMatchObject({ summary: 'Needs review' });
     expect(buildRequest('signature', open, form({ signatureDraft: ' Sam ' }), undefined, undefined, sig)).toEqual({
@@ -80,6 +84,22 @@ describe('signature', () => {
       signature: 'Sam',
       expectedRevision: 2,
     });
+  });
+
+  it("is in the draft from the start; a macro goes under the agent's words and above it", () => {
+    const sig = 'Sam, support';
+    expect(signatureBlock(sig)).toBe('\n\nSam, support');
+    expect(signatureBlock(null)).toBe('');
+    expect(withMacro(signatureBlock(sig), 'About T1.', sig)).toBe('About T1.\n\nSam, support');
+    expect(withMacro(`Hi.${signatureBlock(sig)}`, 'About T1.', sig)).toBe('Hi.\n\nAbout T1.\n\nSam, support');
+    expect(withMacro('', 'About T1.', null)).toBe('About T1.');
+    // The agent took their signature out of this draft: the macro does not put it back.
+    expect(withMacro('Hi.', 'About T1.', sig)).toBe('Hi.\n\nAbout T1.');
+    expect(draftWords(`Hi.${signatureBlock(sig)}`, sig)).toBe('Hi.');
+    // Words that merely end like the signature are the agent's own, not the signature block.
+    expect(draftWords('Thanks, Sam', 'Sam')).toBe('Thanks, Sam');
+    expect(withMacro('Thanks, Sam', 'About T1.', 'Sam')).toBe('Thanks, Sam\n\nAbout T1.');
+    expect(draftWords('Thanks', 'Thanks')).toBe('Thanks');
   });
 
   it('the console reads a signature write strictly', () => {
@@ -114,18 +134,27 @@ describe('ticket actions render for every founder', () => {
     expect(buttonTag(markup, 'Review escalation')).not.toContain('disabled');
   });
 
-  it('lists the macros by folder and shows the signature that goes under the reply, and only there', () => {
+  it('lists the macros by folder, title and shortcode', () => {
     const markup = html({ macros: macrosView('Sam, support') });
     expect(markup).toContain('<label for="sd-macro">Macro</label>');
-    expect(markup).toContain(`<option value="${MACRO}">Cards / Card declined</option>`);
-    expect(markup).toContain('<pre data-testid="reply-signature">Sam, support</pre>');
-    expect(html()).not.toContain('reply-signature');
+    expect(markup).toContain(`<option value="${MACRO}">Cards / Card declined (card)</option>`);
   });
 
-  it('a blank draft stays blank under a signature: the signature alone is never a reply', () => {
-    const markup = html({ macros: macrosView('Sam, support'), form: form({ replyBody: '  ' }) });
-    expect(buttonTag(markup, 'Review reply')).toContain('disabled');
-    expect(markup).toContain('Write the reply first.');
+  it('a draft holding only the signature is blank: the signature alone is never a reply', () => {
+    const only = html({ macros: macrosView('Sam, support'), form: form({ replyBody: signatureBlock('Sam, support') }) });
+    expect(buttonTag(only, 'Review reply')).toContain('disabled');
+    expect(only).toContain('Write the reply first.');
+    const blank = html({ macros: macrosView('Sam, support'), form: form({ replyBody: '  ' }) });
+    expect(buttonTag(blank, 'Review reply')).toContain('disabled');
+    const words = html({ macros: macrosView('Sam, support'), form: form({ replyBody: `Hi${signatureBlock('Sam, support')}` }) });
+    expect(buttonTag(words, 'Review reply')).not.toContain('disabled');
+  });
+
+  it('names a placeholder left unfilled in the draft, and leaves the refusal to svc-support', () => {
+    const markup = html({ form: form({ replyBody: 'Hi {{requester.name}}' }) });
+    expect(markup).toContain('data-testid="reply-unfilled"');
+    expect(markup).toContain('{{requester.name}}');
+    expect(html({ form: form({ replyBody: 'Hi Ada' }) })).not.toContain('reply-unfilled');
   });
 
   it('holds the reply until the signature is known, and says why', () => {

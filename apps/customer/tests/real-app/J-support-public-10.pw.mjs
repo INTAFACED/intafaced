@@ -282,65 +282,74 @@ test(`${J} #6 priority, type and labels save with one audit row each; a label wi
 test(`${J} #7 a macro with a placeholder fills the reply draft, the signature goes on the public reply only, and nothing is sent until Send`, async ({
   page,
 }) => {
-  test.setTimeout(120_000);
+  test.setTimeout(150_000);
   const ticket = await request(`TEST macro ${RUN}`);
-  // A lead writes the macro (SP-desk-02); a placeholder no request can fill, and an agent's write, are refused by code.
-  const name = `TEST macro ${RUN}`;
-  const body = 'TEST: about "{{ticket.subject}}" ({{ ticket.category }}).';
-  const macro = await desk('lead', 'mutation', 'macroSave', { name, folder: 'TEST', body, expectedRevision: 0, reason: `TEST ${J} #7` });
-  expect(macro).toMatchObject({ name, folder: 'TEST', body, revision: 1 });
-  const unknown = {
-    name: `TEST unknown ${RUN}`,
-    folder: 'TEST',
-    body: 'Hi {{customer.name}}',
-    expectedRevision: 0,
-    reason: `TEST ${J} #7`,
-  };
-  expect(await refusedWith('lead', 'mutation', 'macroSave', unknown)).toBe('support.macro_placeholder_unknown');
-  expect(await refusedWith('agent', 'mutation', 'macroSave', { ...unknown, name: `TEST agent ${RUN}`, body: 'Hi' })).toBe(
-    'support.not_lead',
+  // A lead writes the macro (SP-desk-02). A placeholder outside the closed list, a taken or too-short shortcode and an
+  // agent's write are each refused by their one code, and the desk's list is read again to show none of them was saved.
+  const title = `TEST macro ${RUN}`;
+  const shortcode = `t7${RUN}`;
+  const body = 'TEST: about request {{ticket.id}}. Hi {{requester.name}}, thanks for writing.';
+  const save = { title, shortcode, folder: 'TEST', body, expectedRevision: 0, reason: `TEST ${J} #7` };
+  const macro = await desk('lead', 'mutation', 'macroSave', save);
+  expect(macro).toMatchObject({ title, shortcode, folder: 'TEST', body, revision: 1 });
+  const listed = async () => (await desk('lead', 'query', 'macros', undefined)).macros;
+  const saved = await listed();
+  const other = { ...save, title: `TEST other ${RUN}`, shortcode: `t7o${RUN}` };
+  expect(await refusedWith('lead', 'mutation', 'macroSave', { ...other, body: 'Hi {{ticket.subject}}' })).toBe(
+    'support.macro_placeholder_unknown',
   );
-  const names = (await desk('lead', 'query', 'macros', undefined)).macros.map((m) => m.name);
-  expect(names).toContain(name);
-  expect(names).not.toContain(unknown.name);
-  expect(names).not.toContain(`TEST agent ${RUN}`);
+  expect(await refusedWith('lead', 'mutation', 'macroSave', { ...other, shortcode })).toBe('support.shortcode_taken');
+  expect(await refusedWith('lead', 'mutation', 'macroSave', { ...other, shortcode: 'x' })).toBe('support.shortcode_too_short');
+  expect(await refusedWith('agent', 'mutation', 'macroSave', { ...other, body: 'Hi' })).toBe('support.not_lead');
+  expect(await listed()).toEqual(saved);
+  expect(saved.filter((m) => m.shortcode === shortcode)).toEqual([macro]);
 
   const queue = await openQueue(page);
   const workspace = await openRequest(page, queue, ticket);
   await claim(workspace);
   const actions = page.getByRole('region', { name: 'Ticket actions' });
 
-  // The agent (the console's founder, the lead) sets their own signature, read back from svc-support.
+  // The agent (the console's founder, the lead) sets their own signature, read back from svc-support; it goes into the
+  // public reply's draft as it is composed, so the agent sees exactly what the customer will get.
   const signature = `TEST signature ${RUN}`;
   await actions.getByLabel(/Your signature/).fill(signature);
   await actions.getByRole('button', { name: 'Review signature' }).click();
   await actions.getByRole('button', { name: 'Yes, save my signature' }).click();
   await expect(actions.getByTestId('signature-outcome')).toContainText('Done');
   expect((await desk('lead', 'query', 'signature', undefined)).signature).toBe(signature);
-  await expect(actions.getByTestId('reply-signature')).toHaveText(signature);
-
-  // Applying the macro fills the draft with this request's own values, and writes nothing.
-  const before = await trail(ticket.id);
-  const filled = `TEST: about "${ticket.subject}" (${ticket.category}).`;
-  await actions.getByLabel('Macro').selectOption({ label: `TEST / ${name}` });
   const draft = actions.getByLabel('Your reply');
-  await expect(draft).toHaveValue(filled);
+  await expect(draft).toHaveValue(`\n\n${signature}`);
+
+  // Applying the macro substitutes this request's id; the requester's name, which the desk does not hold, stays as
+  // written (never blank, never a stand-in) and is named. Nothing is written.
+  const before = await trail(ticket.id);
   const operatorComments = async () =>
     (await desk('lead', 'query', 'listComments', { ticketId: ticket.id, limit: 50 })).filter((row) => row.authorRole !== 'customer');
-  // Nothing is sent until the agent sends: no operator comment, and the trail is as it was.
+  await actions.getByLabel('Macro').selectOption({ label: `TEST / ${title} (${shortcode})` });
+  const filled = `TEST: about request ${ticket.id}. Hi {{requester.name}}, thanks for writing.`;
+  await expect(draft).toHaveValue(`${filled}\n\n${signature}`);
+  await expect(actions.getByTestId('reply-unfilled')).toContainText('{{requester.name}}');
   expect(await operatorComments()).toHaveLength(0);
   expect(await trail(ticket.id)).toEqual(before);
 
-  // Sent: the customer's request carries the filled text with the signature under it, once.
+  // Send with the placeholder still in it: svc-support refuses by its code and nothing is sent.
+  const refused = await sendReply(workspace);
+  await expect(refused).toHaveAttribute('data-code', 'support.macro_placeholder_blank');
+  expect(await operatorComments()).toHaveLength(0);
+  expect(await trail(ticket.id)).toEqual(before);
+
+  // The agent removes it; the draft they send is what the customer gets, signature included, once.
+  const reply = `TEST: about request ${ticket.id}. Thanks for writing.\n\n${signature}`;
+  await draft.fill(reply);
+  await expect(actions.getByTestId('reply-unfilled')).toHaveCount(0);
   await expect(await sendReply(workspace)).toContainText('Done');
-  const sent = await operatorComments();
-  expect(sent.map((row) => row.body)).toEqual([`${filled}\n\n${signature}`]);
+  expect((await operatorComments()).map((row) => row.body)).toEqual([reply]);
   const customerView = await (
     await api(customer)
   ).get(`/api/support/trpc/listComments?input=${encodeURIComponent(JSON.stringify({ ticketId: ticket.id, limit: 50 }))}`);
-  expect(customerView.body.result.data.filter((row) => row.authorRole !== 'customer').map((row) => row.body)).toEqual([
-    `${filled}\n\n${signature}`,
-  ]);
+  expect(customerView.body.result.data.filter((row) => row.authorRole !== 'customer').map((row) => row.body)).toEqual([reply]);
+  // The next reply's draft starts again from the signature.
+  await expect(draft).toHaveValue(`\n\n${signature}`);
 
   // The signature goes on the public reply only: a status reason is stored as written, without it.
   const reason = `TEST ${J} #7 hold`;

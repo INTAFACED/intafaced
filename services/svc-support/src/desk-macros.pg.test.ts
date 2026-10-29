@@ -7,7 +7,7 @@ import { createTestDatabase, postgresAvailable, type TestDatabase } from '@intaf
 import { SqlMacroBook } from './desk-macros.js';
 
 /**
- * Macros and signatures against Postgres (SP-desk-02): two leads creating one name at once leave one macro, a stale
+ * Macros and signatures against Postgres (SP-desk-02): two leads creating one shortcode at once leave one macro, a stale
  * revision writes nothing, the log keeps one row per write and refuses edits, and a signature moves one revision at a time.
  */
 
@@ -59,10 +59,19 @@ if (!url) {
     await db.truncateAll();
   });
 
-  const write = { name: 'Card', folder: 'Cards', body: 'About {{ticket.subject}}', expectedRevision: 0, actorId: LEAD, reason: R, at: AT };
+  const write = {
+    title: 'Card',
+    shortcode: 'card',
+    folder: 'Cards',
+    body: 'About {{ticket.id}}',
+    expectedRevision: 0,
+    actorId: LEAD,
+    reason: R,
+    at: AT,
+  };
 
   describe('SqlMacroBook', () => {
-    it('two leads creating one name on two connections leave one macro and one log row', async () => {
+    it('two leads creating one shortcode on two connections leave one macro and one log row', async () => {
       const second = postgres(db.url, { max: 1, onnotice: () => undefined });
       try {
         const results = await Promise.all([
@@ -70,7 +79,7 @@ if (!url) {
           new SqlMacroBook(second).put({ ...write, body: 'Two' }),
         ]);
         expect(results.filter((r) => r.ok)).toHaveLength(1);
-        expect(results.filter((r) => !r.ok)).toEqual([{ ok: false, code: 'support.macro_name_taken' }]);
+        expect(results.filter((r) => !r.ok)).toEqual([{ ok: false, code: 'support.shortcode_taken' }]);
         const [n] = await db.sql<{ macros: number; log: number }[]>`
           SELECT (SELECT count(*)::int FROM support.desk_macros) AS macros, (SELECT count(*)::int FROM support.desk_macro_log) AS log
         `;
@@ -115,6 +124,15 @@ if (!url) {
           revision: 2,
         });
         expect(await book.signature(LEAD)).toEqual({ signature: null, revision: 0 });
+        // The same first signature sent twice at once is one write and its retry: both answer it, as the memory book does.
+        const twice = await Promise.all([
+          new SqlMacroBook(db.sql).setSignature({ userId: LEAD, signature: 'Lead', expectedRevision: 0, at: AT }),
+          new SqlMacroBook(second).setSignature({ userId: LEAD, signature: 'Lead', expectedRevision: 0, at: AT }),
+        ]);
+        expect(twice).toEqual([
+          { signature: 'Lead', revision: 1 },
+          { signature: 'Lead', revision: 1 },
+        ]);
       } finally {
         await second.end({ timeout: 5 });
       }
