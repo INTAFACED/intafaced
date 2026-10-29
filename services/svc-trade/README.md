@@ -681,6 +681,12 @@ per asset; no `available` or `hold` balance ever goes negative; and no terminal 
 
 `GET /api/v1/orders/closed` takes `side` (`buy` or `sell`), `status` (CCXT words `closed`, `canceled`, `rejected`, `expired`) and `until` (unix ms, inclusive) next to `symbol`, `limit` and `since`. All filters run in SQL on the caller's own orders, so `limit` stays honest. An unknown `side` or `status`, an `until` that is negative, not a number or before `since` is a 400, never a silent unfiltered page.
 
+## Developer error bodies (DV-errors-01, DV-errors-02)
+
+A create-order body the schema refuses (`POST /api/v1/orders`, and each batch item) is one 400 that lists every bad field: `code` (CCXT `InvalidOrder`), `intafacedCode` (`trade.validation_failed`, or `trade.invalid_tag`), `message`, `docs` (`/developers/errors#<intafacedCode>`), `errors: [{field, message}]` (one entry per field) and the raw `issues`. A negative or zero `amount`, `price` or `stopPrice` is listed next to any other bad field in the same reply. Edge stamps `requestId`; this service sets none (`src/create-body-refusal.ts`).
+
+A money call during svc-ledger's platform posting freeze (`ledger.frozen` from the ledger) answers `{code: 'ExchangeError', intafacedCode: 'posting_frozen'}`, HTTP 400, with nothing held and no order row left; reads such as `GET /api/v1/account/balance` still answer. The account freeze is svc-identity's (`account_frozen`), not this.
+
 ## Service keys: ledger calls
 
 The ledger client signs with svc-trade's own key when `S2S_AUTH_MODE`, `S2S_SIGNING_KID` and `S2S_SIGNING_KEY` are set (`dual` also sends the shared secret, `keypair` the key only); unset, it signs with the shared secret as before. Setup and rotation: `services/svc-ledger/CALLER-BINDING.md`.

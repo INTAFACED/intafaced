@@ -5,6 +5,7 @@ import { InsufficientFundsError, InvalidEntryError, LedgerError, MoneyError } fr
 import {
   CCXT_AUTH_MAPPING,
   CCXT_ERROR_MAPPING,
+  POSTING_FROZEN,
   UNAUTHENTICATED,
   badRequest,
   badSymbol,
@@ -137,9 +138,25 @@ describe('CCXT error taxonomy', () => {
     expect(toCcxtError(new InsufficientFundsError('a', 'USDT', '1', '0'))!.body.code).toBe('InsufficientFunds');
     expect(toCcxtError(new InvalidEntryError('bad entry'))!.body.code).toBe('ExchangeError');
     expect(toCcxtError(new LedgerError('nope', 'ledger.other'))!.body.code).toBe('ExchangeError');
-    expect(toCcxtError(new LedgerError('book is frozen', 'ledger.frozen'))!.body.intafacedCode).toBe('ledger.frozen');
+    expect(toCcxtError(new LedgerError('nope', 'ledger.other'))!.body.intafacedCode).toBe('ledger.other');
     expect(toCcxtError(new InvalidEntryError('bad entry'))!.body.intafacedCode).toBe('ledger.invalid_entry');
     expect(toCcxtError(new MoneyError('bad decimal'))!.body.code).toBe('BadRequest');
+  });
+
+  /**
+   * The platform posting freeze is published to the API as `posting_frozen` (DV-errors-02, J-developer-04 #6):
+   * the CCXT class and the status stay what they were, only the platform reason is renamed.
+   */
+  it('reports the ledger posting freeze as posting_frozen, keeping the CCXT class and status', () => {
+    const mapped = toCcxtError(new LedgerError('Ledger posting is frozen: TEST', 'ledger.frozen'));
+    expect(mapped).toEqual({
+      status: 400,
+      body: { code: 'ExchangeError', message: 'Ledger posting is frozen: TEST', intafacedCode: POSTING_FROZEN },
+    });
+    expect(POSTING_FROZEN).toBe('posting_frozen');
+    expect(exchangeErrorSchema.safeParse(mapped!.body).success).toBe(true);
+    // Only the freeze is renamed; every other ledger refusal keeps its own code.
+    expect(toCcxtError(new LedgerError('x', 'ledger.idempotency_conflict'))!.body.intafacedCode).toBe('ledger.idempotency_conflict');
   });
 
   /**

@@ -604,6 +604,12 @@ export function invalidOrder(message: string, intafacedCode = 'trade.validation_
 }
 
 /**
+ * The API's code for a money call refused by the platform-wide posting freeze
+ * (svc-ledger `services/svc-ledger/src/ledger/freeze.ts`). Reads still answer.
+ */
+export const POSTING_FROZEN = 'posting_frozen';
+
+/**
  * Map any thrown error to the CCXT wire shape, or `null` when we do not
  * recognise it.
  *
@@ -679,10 +685,13 @@ export function toCcxtError(err: unknown): CcxtErrorResponse | null {
   }
 
   if (err instanceof LedgerError) {
-    // The ledger refused for a reason that is not "not enough funds". The
-    // desk branches on `intafacedCode` (`ledger.frozen`), not on the class
-    // name and not on message text.
-    return { status: 400, body: { code: 'ExchangeError', message: err.message, intafacedCode: err.code } };
+    // The ledger refused for a reason that is not "not enough funds". A client
+    // branches on `intafacedCode`, not on the class name and not on message text.
+    // The platform posting freeze (svc-ledger's `ledger.frozen`) is published to
+    // the API as the platform reason `posting_frozen` (DV-errors-02), distinct
+    // from svc-identity's `account_frozen`; `code` stays the CCXT class.
+    const intafacedCode = err.code === 'ledger.frozen' ? POSTING_FROZEN : err.code;
+    return { status: 400, body: { code: 'ExchangeError', message: err.message, intafacedCode } };
   }
 
   return null;

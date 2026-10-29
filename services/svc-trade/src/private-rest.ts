@@ -85,6 +85,7 @@ import { carryPlacementBody, schemaBodyOf } from './spot/placement-extras.js';
 import { readBracketFromBody } from './spot/bracket-place.js';
 import type { OrderLink } from './spot/order-links.js';
 import { readOcoFromBody } from './spot/oco-place.js';
+import { createBodyRefusal } from './create-body-refusal.js';
 import { massCancelAccountRefuse, massCancelSessionRefuse, readSessionId } from './spot/matching-client.js';
 
 /**
@@ -945,19 +946,6 @@ export function parseClosedFilters(query: {
  * Map CCXT create body → PlaceOrderInput (decimal strings → Amount).
  * Only market/limit; postOnly becomes tif PO when no other tif is set.
  */
-/**
- * The 400 body for a create body the typed schema refused. A bad `tag` names its own code; anything else keeps the
- * generic one with the offending field in `issues`.
- */
-function createBodyRefusal(error: { issues: ReadonlyArray<{ path: ReadonlyArray<PropertyKey>; message: string }> }, fallback: string) {
-  const first = error.issues[0];
-  const typed =
-    first?.path[0] === 'tag'
-      ? invalidOrder('tag must be 1 to 16 characters', 'trade.invalid_tag').body
-      : invalidOrder(first?.message ?? fallback).body;
-  return { ...typed, issues: error.issues.map((i) => ({ path: i.path, message: i.message })) };
-}
-
 /** The create-body fields a plain market or limit order has. Any other field places through an installer. */
 const PLAIN_ORDER_FIELDS: ReadonlySet<string> = new Set([
   'symbol',
@@ -2519,7 +2507,7 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
       const base = { index, clientOrderId };
       const parsed = createOrderRequestSchema.safeParse(rawItem);
       if (!parsed.success) {
-        results.push({ ...base, status: 'refused', error: createBodyRefusal(parsed.error, 'invalid create order body') });
+        results.push({ ...base, status: 'refused', error: createBodyRefusal(parsed.error, 'invalid create order body', rawItem) });
         continue;
       }
 
@@ -2825,8 +2813,8 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
     if (!parsed.success) {
       // CCXT `InvalidOrder`, not `BadRequest`: it is specifically the order
       // that is wrong, and that is the branch a client's order-builder listens
-      // on. `issues` rides alongside so the integrator sees which field.
-      return reply.code(400).send(createBodyRefusal(parsed.error, 'invalid create order body'));
+      // on. `errors` lists every bad field in one body (DV-errors-01).
+      return reply.code(400).send(createBodyRefusal(parsed.error, 'invalid create order body', schemaBodyOf(rawBody)));
     }
 
     let input: PlaceOrderInput;
