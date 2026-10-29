@@ -11,10 +11,12 @@ import { Actions, toSource } from '../ParkedProtocolRoom';
 import '../protocol.css';
 import { walletCopy } from './copy';
 import { APP_CHAIN_ID, shortAddress } from './eip1193';
+import { AddressBookPanel } from './AddressBookPanel';
 import { PermitForm } from './PermitForm';
 import { ReceivePanel } from './ReceivePanel';
 import { ScanPanel } from './ScanPanel';
 import { SendPanel } from './SendPanel';
+import { WalletGroupPanel } from './WalletGroupPanel';
 import { WALLET_SECTIONS, type WalletSection } from '../routes';
 import { useWallet } from './WalletProvider';
 
@@ -36,7 +38,13 @@ const relayProjectId: string = ((import.meta.env.VITE_WALLET_RELAY_PROJECT_ID as
  * /wallet: connect, the connected wallet, the network guard and its sections, each at its own path. A section that a
  * later slice builds shows its full layout and its real state (nothing to show, or what it needs), never a blank.
  */
-export function WalletRoom({ section: initial }: { section: Section }) {
+export function WalletRoom({
+  section: initial,
+  groupId,
+}: {
+  section: Section;
+  /** A wallet group's page, under Address book. */ groupId?: string;
+}) {
   const { language } = usePreferences();
   const { t } = walletCopy.forLocale(language);
   const { t: tp } = protocolCopy.forLocale(language);
@@ -151,6 +159,12 @@ export function WalletRoom({ section: initial }: { section: Section }) {
       <ReceivePanel />
     ) : section === 'scan' ? (
       <ScanPanel />
+    ) : section === 'addressBook' ? (
+      groupId === undefined ? (
+        <AddressBookPanel />
+      ) : (
+        <WalletGroupPanel groupId={groupId} />
+      )
     ) : (
       <>
         {section === 'approvals' && <PermitForm />}

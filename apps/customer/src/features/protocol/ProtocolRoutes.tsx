@@ -13,6 +13,7 @@ export function ProtocolRoutes({ path }: { path: string }) {
   if (!found) return <NotFoundRoute path={path} />;
   const { route, params } = found;
   if (route.wallet) return <WalletRoom section={route.wallet} />;
+  if (route.walletGroup) return <WalletRoom section="addressBook" groupId={safeDecode(params.groupId) ?? ''} />;
   if (route.pending) {
     const { param } = route.pending;
     const value = param ? params[param.name] : undefined;
