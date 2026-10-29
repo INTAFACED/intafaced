@@ -12,7 +12,14 @@
 name: Real-app journeys
 
 on:
+  # A dispatch on a branch other than main may name journey files: that run runs only those files, as one shard, and
+  # skips the plan's split. A run on main, on push and on the schedule always runs the full suite.
   workflow_dispatch:
+    inputs:
+      journeys:
+        description: 'Journey files to run alone, separated by spaces or commas (J-p2p-01.pw.mjs ...); ignored on main'
+        required: false
+        default: ''
   # One full run a day on main's newest commit, even on a day nothing merges under the paths below, so a finished run
   # is never more than about a day old (#6416). It starts about three hours before the 00:00 UTC daily line, so it has
   # usually finished by then even when it waits behind a push run. On the same commit as the run before it, a step
@@ -66,9 +73,9 @@ jobs:
       contents: read
       actions: read # to download the last finished runs' reports
     outputs:
-      shards: ${{ steps.plan.outputs.shards }}
-      matrix: ${{ steps.plan.outputs.matrix }}
-      count: ${{ steps.plan.outputs.count }}
+      shards: ${{ steps.targeted.outputs.shards || steps.plan.outputs.shards }}
+      matrix: ${{ steps.targeted.outputs.matrix || steps.plan.outputs.matrix }}
+      count: ${{ steps.targeted.outputs.count || steps.plan.outputs.count }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -76,9 +83,37 @@ jobs:
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 20
+      # A targeted run (a dispatch off main that names journey files) runs just those, as one shard. Every name must be a
+      # journey file in apps/customer/tests/real-app, or the run fails here instead of running something else.
+      - name: Targeted run
+        id: targeted
+        if: ${{ github.event_name == 'workflow_dispatch' && github.ref != 'refs/heads/main' && inputs.journeys != '' }}
+        env:
+          JOURNEYS: ${{ inputs.journeys }}
+        run: |
+          set -f # a name is a file name, never a pattern
+          files=()
+          for f in $(tr ',' ' ' <<<"$JOURNEYS"); do
+            f="${f#apps/customer/tests/real-app/}"
+            if ! [[ "$f" =~ ^[A-Za-z0-9._-]+\.pw\.mjs$ ]] || [ ! -f "apps/customer/tests/real-app/$f" ]; then
+              echo "::error::'$f' is not a journey file in apps/customer/tests/real-app"
+              exit 1
+            fi
+            files+=("$f")
+          done
+          if [ "${#files[@]}" -eq 0 ]; then
+            echo "::error::the journeys input names no file"
+            exit 1
+          fi
+          {
+            echo "shards=$(jq -cn --arg f "${files[*]}" '[$f]')"
+            echo "matrix=[1]"
+            echo "count=1"
+          } >> "$GITHUB_OUTPUT"
       # Up to three, so a run that lost a shard or failed a journey early does not make those files look fast. Most runs
       # are queued runs a newer push replaced (cancelled), so the list reaches back 100 runs to find three that finished.
       - name: Last finished runs' reports
+        if: steps.targeted.outcome == 'skipped'
         continue-on-error: true
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -92,6 +127,7 @@ jobs:
           done
       - name: Plan
         id: plan
+        if: steps.targeted.outcome == 'skipped'
         continue-on-error: true
         run: |
           node --test tooling/scripts/journey-shards.test.mjs
@@ -107,8 +143,9 @@ jobs:
   journeys:
     name: Journeys (shard ${{ matrix.shard }} of ${{ strategy.job-total }})
     needs: plan
-    # The shards run even when planning failed (they fall back to Playwright's split).
-    if: ${{ !cancelled() }}
+    # The shards run even when planning failed (they fall back to Playwright's split), but not when a targeted run's
+    # list was refused: that run fails rather than run the full suite.
+    if: ${{ !cancelled() && (needs.plan.result == 'success' || inputs.journeys == '' || github.ref == 'refs/heads/main') }}
     runs-on: ubuntu-24.04
     # Setup (about 10 minutes, once 21 when the browser's system packages were slow) plus at most 60 minutes of journeys,
     # which Playwright stops itself (JOURNEY_GLOBAL_TIMEOUT_MS below), so the job's own limit is never what ends a shard
@@ -152,11 +189,16 @@ jobs:
           node-version: 20
           cache: pnpm
 
-      # The stack refuses to start under 14 GB free; the runner image ships toolchains this job never uses.
-      - name: Free disk space
+      # The stack refuses to start under 14 GB free (local-test-stack.mjs). Run 40873067394's runner had 101 GB free, so
+      # the job no longer deletes the runner's toolchains first; it only checks the space and says so plainly when short.
+      - name: Disk space
         run: |
-          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /usr/local/share/boost
           df -h /
+          free_kb=$(df --output=avail -k / | tail -1 | tr -d ' ')
+          if [ "$free_kb" -lt $((14 * 1024 * 1024)) ]; then
+            echo "::error::only $((free_kb / 1024 / 1024)) GB free on /; the local test stack needs 14 GB"
+            exit 1
+          fi
 
       # The stack runs its builds with a clean PATH that holds node's own folder, not the folder pnpm/action-setup uses.
       - name: Put pnpm next to node
