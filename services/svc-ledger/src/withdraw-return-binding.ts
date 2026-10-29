@@ -63,5 +63,6 @@ export async function assertWithdrawReturnBound(ledger: ReturnSettleReader, inpu
   const sent = boundaryId ? settle.entries.find((e) => e.accountId === boundaryId && e.direction === 'debit') : undefined;
   if (!sent) refuse('that settle was not sent to this rail boundary');
 
-  if (amount > drawn.amount) refuse('more than the settle sent');
+  // What went to the rail, not what left the hold: a settle with a fee leg drew the fee from the hold too, and the fee never left.
+  if (amount > sent.amount) refuse('more than the settle sent');
 }

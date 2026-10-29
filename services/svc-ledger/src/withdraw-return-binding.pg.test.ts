@@ -147,6 +147,18 @@ describe('returned withdrawal bound to its posted settle (Postgres)', () => {
     expect(amt(await bal(userAvailable(USER, 'USDT'))) - amt(before)).toBe(amt('15'));
   });
 
+  it('a settle with a fee leg takes back at most what went to the rail, never the fee', async () => {
+    const w = withdrawal('w-fee:0', { amount: amt('25'), fee: amt('1.5') });
+    await settled(w);
+    await expect(handleS2sPost(door, toWire(recipes.withdrawReturned({ ...w, fee: undefined, amount: amt('26.5') })))).rejects.toEqual(
+      unbound,
+    );
+    expect(await engine.getTxByKey('withdraw.returned:w-fee:0')).toBeNull();
+    const before = await bal(userAvailable(USER, 'USDT'));
+    await handleS2sPost(door, toWire(recipes.withdrawReturned({ ...w, fee: undefined, amount: amt('25') })));
+    expect(amt(await bal(userAvailable(USER, 'USDT'))) - amt(before)).toBe(amt('25'));
+  });
+
   it('refuses a return for a withdrawal that never settled: held, reversed or never made', async () => {
     const held = withdrawal('w3:0');
     await engine.post(recipes.deposit({ userId: USER, assetId: 'USDT', amount: amt('100'), rail: RAIL, railRef: 'in-w3' }));

@@ -2085,12 +2085,17 @@ const moreSections: readonly DeskSection[] = [
       un(
         'campaigns.participation',
         'Campaign participation',
-        'No campaign service exists: the customer Campaigns room says so too. The nearest real data is the CRM outreach campaigns.',
+        'svc-campaigns has no operator read of who joined a campaign (its participations are read per customer). The campaigns desk shows every campaign, its state and its budget.',
         26,
       ),
     ],
     disabledActions: [],
     links: [
+      {
+        href: '/more-ops/campaigns',
+        label: 'Campaigns desk and builder',
+        why: 'Every campaign in svc-campaigns, the builder, the two-founder approval and the calendar.',
+      },
       {
         href: '/more-ops/campaigns/waves',
         label: 'Waitlist waves',

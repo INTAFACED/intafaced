@@ -89,10 +89,13 @@ test(`${J} #2 selects two agents to compare: one table of tools, modes, caps and
   for (const row of ['Tools', 'Modes', 'Spend cap per session', 'Allowed engine tasks']) {
     await expect(compare.getByRole('row').filter({ has: page.getByRole('cell', { name: row, exact: true }) })).toBeVisible();
   }
-  // The caps come from each agent's stored guardrail (Navigator publishes 1 per session on the stack).
-  await expect(
-    compare.getByRole('row').filter({ hasText: 'Spend cap per session' }).getByRole('cell', { name: '1 USDT per session', exact: true }),
-  ).toHaveCount(2);
+  // The caps come from each agent's stored guardrail, one per column: Navigator publishes 1 per session on the stack and
+  // Support helper 0.5 (services/svc-agents/src/support-agent/guardrail.ts).
+  await expect(compare.getByRole('row').filter({ hasText: 'Spend cap per session' }).getByRole('cell')).toHaveText([
+    'Spend cap per session',
+    '1 USDT per session',
+    '0.5 USDT per session',
+  ]);
 });
 
 test(`${J} #3 opens an agent's detail page: tools with inputs, outputs and refusal reasons; the permission mode; it acts as the person, never with broader access`, async ({
