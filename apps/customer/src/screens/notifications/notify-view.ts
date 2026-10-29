@@ -101,6 +101,11 @@ export function describe(item: Notification, markets: ReadonlyMap<string, Notify
   };
 }
 
+/** Whether a notification names an amount of money (a credited amount, a filled quantity): on a test build it is TEST. */
+export function carriesFigure(item: Pick<Notification, 'params'>): boolean {
+  return [item.params.amount, item.params.qty].some((value) => dec(text(value)) !== null);
+}
+
 /** Where each known kind opens. A fill is a trade; an ended order is an order. Anything else keeps the service's own link, if it is a live screen. */
 const KIND_LINK: Readonly<Record<string, string>> = {
   'trade.fill': '/money/activity?tab=trades',

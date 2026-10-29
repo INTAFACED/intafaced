@@ -1,13 +1,20 @@
 import type { LedgerClient } from '@intafaced/ledger-client';
 import { formatAmount, parseAmount } from '@intafaced/ledger-client';
+import { transaction } from '@intafaced/db';
 import type { Sql } from 'postgres';
 import { canonicalMoney, canonicalWeight, weightToBigInt } from './decimal.js';
 import { MiningError } from './errors.js';
 import { decodeCursor, decodePayoutCursor, encodeCursor, encodePayoutCursor } from './list-limit.js';
 import { miningPayoutIdempotencyKey } from './ledger.js';
 import { planPplns } from './pplns.js';
+import { workerIdOf } from './window-store.js';
 
 const NO_SHARES = 'no_shares_in_window' as const;
+
+function modeOf(raw: string): WorkerMode {
+  if (raw === 'pooled' || raw === 'solo') return raw;
+  throw new MiningError('Worker mode is not pooled or solo', 'mining.pg_unavailable');
+}
 
 export type HashrateWorker = {
   readonly id: string;
@@ -17,7 +24,12 @@ export type HashrateWorker = {
   readonly hashrateReason: typeof NO_SHARES | null;
   /** The account's own floor for this rig. Null is automatic: the pool picks. */
   readonly minDifficulty: string | null;
+  /** Pooled shares join the PPLNS split; solo shares are kept out of it. */
+  readonly mode: WorkerMode;
 };
+
+export type WorkerMode = 'pooled' | 'solo';
+export const MODE_CHANGE_IN_WINDOW = 'mining.mode_change_in_window';
 
 export type MyWorkers = {
   readonly asOf: string;
@@ -36,6 +48,8 @@ export type ShareWindow = {
   readonly windowId: string;
   readonly acceptedCount: number;
   readonly rejectedCount: number;
+  /** Of the accepted shares, those a solo rig sent: they stay out of the pooled split. */
+  readonly soloCount: number;
   readonly acceptedWeight: string | null;
 };
 export type ShareReport = { readonly asOf: string; readonly windows: ShareWindow[] };
@@ -43,7 +57,8 @@ export type ShareReport = { readonly asOf: string; readonly windows: ShareWindow
 export type OpsWindow = {
   readonly windowId: string;
   readonly assetId: string;
-  readonly status: 'open' | 'paid';
+  /** `no_credit`: a window of testnet work, closed with nothing paid. */
+  readonly status: 'open' | 'paid' | 'no_credit';
   readonly reward: string | null;
   readonly feeBps: number | null;
   readonly shareCount: number;
@@ -96,9 +111,9 @@ function feeOf(value: number | string | null): number | null {
   throw new MiningError('Stored fee is not an integer', 'fee_unconfigured');
 }
 
-function statusOf(value: string): 'open' | 'paid' {
-  if (value === 'open' || value === 'paid') return value;
-  throw new MiningError('Window status is not open or paid', 'mining.window_status_unknown');
+function statusOf(value: string): 'open' | 'paid' | 'no_credit' {
+  if (value === 'open' || value === 'paid' || value === 'no_credit') return value;
+  throw new MiningError('Window status is not open, paid or no credit', 'mining.window_status_unknown');
 }
 
 function countOf(value: number | string): number {
@@ -140,8 +155,8 @@ export class MiningReadStore {
     const limit = query.limit ?? null;
     // The cursor carries the time to the millisecond (a JS Date), so the order and the comparison use the same
     // millisecond, and workers made in one batch (one now()) page by id instead of being skipped.
-    const rows = await sql<{ id: string; name: string; created_at: Date; min_difficulty: string | null }[]>`
-      SELECT id, name, created_at, min_difficulty::text AS min_difficulty
+    const rows = await sql<{ id: string; name: string; created_at: Date; min_difficulty: string | null; mode: string }[]>`
+      SELECT id, name, created_at, min_difficulty::text AS min_difficulty, mode
       FROM mining_pool.workers
       WHERE user_id = ${userId}
         AND (${name}::text IS NULL OR position(${name ?? ''} in lower(name)) > 0)
@@ -184,6 +199,7 @@ export class MiningReadStore {
           hashrate,
           hashrateReason: hashrate === null ? NO_SHARES : null,
           minDifficulty: worker.min_difficulty === null ? null : canonicalWeight(worker.min_difficulty),
+          mode: modeOf(worker.mode),
         };
       }),
       nextCursor: limit !== null && rows.length > limit && last ? encodeCursor(last.created_at, last.id) : null,
@@ -205,6 +221,35 @@ export class MiningReadStore {
     `;
     if (!row) throw new MiningError('Worker not found', 'mining.worker_not_found');
     return { id: row.id, minDifficulty: row.min_difficulty === null ? null : canonicalWeight(row.min_difficulty) };
+  }
+
+  /**
+   * Pooled or solo for one of the caller's own rigs, by name. A rig with no worker yet gets one under the caller's own
+   * account. Saving the mode it already has changes nothing. A change is refused while the rig has a share in an open
+   * window (`mining.mode_change_in_window`), so one window never holds a rig's work under two modes. The worker row is
+   * locked first, the same lock share ingest takes, so no share can land between the check and the change.
+   */
+  async setWorkerMode(userId: string, name: string, mode: WorkerMode): Promise<{ id: string; name: string; mode: WorkerMode }> {
+    const sql = this.db();
+    const id = workerIdOf(userId, name);
+    return transaction(sql, async (tx) => {
+      await tx`INSERT INTO mining_pool.workers (id, user_id, name) VALUES (${id}, ${userId}, ${name}) ON CONFLICT DO NOTHING`;
+      const [worker] = await tx<{ id: string; mode: string }[]>`
+        SELECT id, mode FROM mining_pool.workers WHERE user_id = ${userId} AND name = ${name} FOR UPDATE
+      `;
+      if (!worker) throw new MiningError('Worker not found', 'mining.worker_not_found');
+      if (worker.mode === mode) return { id: worker.id, name, mode };
+      const [open] = await tx<{ n: number }[]>`
+        SELECT 1 AS n
+        FROM mining_pool.shares s
+        JOIN mining_pool.windows w ON w.window_id = s.window_id
+        WHERE s.worker_id = ${worker.id} AND w.status = 'open'
+        LIMIT 1
+      `;
+      if (open) throw new MiningError('This rig has shares in an open window', MODE_CHANGE_IN_WINDOW);
+      await tx`UPDATE mining_pool.workers SET mode = ${mode} WHERE id = ${worker.id}`;
+      return { id: worker.id, name, mode };
+    });
   }
 
   async listWorkers(limit: number, cursor: string | null): Promise<WorkerPage> {
@@ -241,8 +286,8 @@ export class MiningReadStore {
     const to = rangeInstant(filter.to, 'to');
     const restrict = minerIds !== null;
     const ids = minerIds ?? [''];
-    const accepted = await sql<{ window_id: string; n: number | string; weight: string | null }[]>`
-      SELECT window_id, COUNT(*)::int AS n, SUM(weight)::text AS weight
+    const accepted = await sql<{ window_id: string; n: number | string; solo_n: number | string; weight: string | null }[]>`
+      SELECT window_id, COUNT(*)::int AS n, (COUNT(*) FILTER (WHERE solo))::int AS solo_n, SUM(weight)::text AS weight
       FROM mining_pool.shares
       WHERE (${windowId}::text IS NULL OR window_id = ${windowId})
         AND (${from}::timestamptz IS NULL OR created_at >= ${from})
@@ -265,6 +310,7 @@ export class MiningReadStore {
         windowId: row.window_id,
         acceptedCount: countOf(row.n),
         rejectedCount: 0,
+        soloCount: countOf(row.solo_n),
         acceptedWeight: row.weight === null ? null : canonicalWeight(row.weight),
       });
     }
@@ -277,6 +323,7 @@ export class MiningReadStore {
           windowId: row.window_id,
           acceptedCount: 0,
           rejectedCount,
+          soloCount: 0,
           acceptedWeight: null,
         });
       }
@@ -307,8 +354,8 @@ export class MiningReadStore {
       }[]
     >`
       SELECT w.window_id, w.asset_id, w.status, w.reward::text AS reward, w.fee_bps, w.paid_at,
-             (SELECT COUNT(*)::int FROM mining_pool.shares s WHERE s.window_id = w.window_id) AS share_count,
-             (SELECT SUM(s.weight)::text FROM mining_pool.shares s WHERE s.window_id = w.window_id) AS total_weight
+             (SELECT COUNT(*)::int FROM mining_pool.shares s WHERE s.window_id = w.window_id AND NOT s.solo) AS share_count,
+             (SELECT SUM(s.weight)::text FROM mining_pool.shares s WHERE s.window_id = w.window_id AND NOT s.solo) AS total_weight
       FROM mining_pool.windows w
       ORDER BY w.created_at DESC, w.window_id DESC
     `;
@@ -345,6 +392,7 @@ export class MiningReadStore {
       FROM mining_pool.shares
       WHERE window_id = ANY(${sql.array(ids)}::text[])
         AND weight IS NOT NULL
+        AND NOT solo
       GROUP BY window_id
     `;
     const sumByWindow = new Map(sums.map((row) => [row.window_id, row]));
@@ -353,6 +401,7 @@ export class MiningReadStore {
       FROM mining_pool.shares
       WHERE window_id = ANY(${sql.array(ids)}::text[])
         AND weight IS NOT NULL
+        AND NOT solo
     `;
     const sharesByWindow = new Map<string, { shareId: string; minerId: string; weight: bigint }[]>();
     for (const row of shareRows) {
@@ -402,6 +451,7 @@ export class MiningReadStore {
       WHERE w.status = 'paid'
         AND w.paid_at IS NOT NULL
         AND s.weight IS NOT NULL
+        AND NOT s.solo
         AND s.miner_id = ANY(${sql.array(minerIds)}::text[])
         AND (
           ${decoded?.at ?? null}::timestamptz IS NULL
@@ -444,6 +494,7 @@ export class MiningReadStore {
       FROM mining_pool.shares
       WHERE window_id = ANY(${sql.array([...windowIds])}::text[])
         AND weight IS NOT NULL
+        AND NOT solo
     `;
     const sharesByWindow = new Map<string, { shareId: string; minerId: string; weight: bigint }[]>();
     for (const row of shareRows) {
