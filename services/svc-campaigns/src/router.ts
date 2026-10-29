@@ -20,6 +20,10 @@ import {
   campaignDefinitionInputSchema,
   campaignGateSchema,
   campaignGetInputSchema,
+  ruleLibraryEntrySchema,
+  ruleLibrarySaveInputSchema,
+  ruleTestInputSchema,
+  ruleTestResultSchema,
   campaignJoinInputSchema,
   campaignJoinResultSchema,
   campaignReviewInputSchema,
@@ -59,6 +63,17 @@ const STATUS: Record<CampaignsRefusalCode | CampaignRefusalCode, TRPCError['code
   'campaign.not_active': 'CONFLICT',
   'campaign.outside_window': 'CONFLICT',
   'campaign.archive_active': 'CONFLICT',
+  'campaign.type_locked': 'CONFLICT',
+  'campaigns.rule_depth_unset': 'PRECONDITION_FAILED',
+  'campaigns.rule_size_unset': 'PRECONDITION_FAILED',
+  'campaigns.rule_too_deep': 'BAD_REQUEST',
+  'campaigns.rule_too_large': 'BAD_REQUEST',
+  'campaigns.rule_empty_group': 'BAD_REQUEST',
+  'campaigns.rule_unknown': 'BAD_REQUEST',
+  'campaigns.formula_invalid': 'BAD_REQUEST',
+  'campaigns.trigger_unknown': 'BAD_REQUEST',
+  'campaigns.earning_rule_name_taken': 'CONFLICT',
+  'campaigns.budget_below_drawn': 'CONFLICT',
   'campaigns.budget_unset': 'PRECONDITION_FAILED',
   'campaigns.number_on_wire': 'BAD_REQUEST',
   'campaigns.rules_unset': 'PRECONDITION_FAILED',
@@ -89,6 +104,7 @@ const STATUS: Record<CampaignsRefusalCode | CampaignRefusalCode, TRPCError['code
   'owner.decision': 'PRECONDITION_FAILED',
   'campaigns.window_unset': 'PRECONDITION_FAILED',
   'campaigns.timezone_unset': 'BAD_REQUEST',
+  'campaigns.timezone_not_platform': 'BAD_REQUEST',
   'campaigns.window_invalid': 'BAD_REQUEST',
   'campaigns.second_person_required': 'FORBIDDEN',
   'campaigns.already_published': 'CONFLICT',
@@ -275,6 +291,17 @@ export function createCampaignsRouter(drops: DropService, campaigns: CampaignSer
             mapError(err);
           }
         }),
+        /** One campaign by id, at any age (the list is the newest 200). */
+        get: opsProcedure
+          .input(campaignGetInputSchema)
+          .output(campaignSchema)
+          .query(async ({ input }) => {
+            try {
+              return await campaigns.getForOps(input);
+            } catch (err) {
+              mapError(err);
+            }
+          }),
         calendar: opsProcedure.output(campaignCalendarSchema).query(async () => {
           try {
             return await campaigns.calendar();
@@ -323,6 +350,39 @@ export function createCampaignsRouter(drops: DropService, campaigns: CampaignSer
               mapError(err);
             }
           }),
+      }),
+      rules: router({
+        /** Tries a tree on a TEST fixture account: every failing condition by its place. Reads no account, stores nothing. */
+        test: opsProcedure
+          .input(ruleTestInputSchema)
+          .output(ruleTestResultSchema)
+          .query(({ input }) => {
+            try {
+              return campaigns.testRule(input);
+            } catch (err) {
+              mapError(err);
+            }
+          }),
+        library: router({
+          list: opsProcedure.output(z.array(ruleLibraryEntrySchema)).query(async () => {
+            try {
+              return await campaigns.listRules();
+            } catch (err) {
+              mapError(err);
+            }
+          }),
+          /** The name's next revision; the same tree again returns the revision it made. */
+          save: opsProcedure
+            .input(ruleLibrarySaveInputSchema)
+            .output(ruleLibraryEntrySchema)
+            .mutation(async ({ ctx, input }) => {
+              try {
+                return await campaigns.saveRule({ ...input, actor: ctx.principal!.userId });
+              } catch (err) {
+                mapError(err);
+              }
+            }),
+        }),
       }),
       payouts: router({
         /** Every reward record with its account, state, ledger transaction and attempts. */

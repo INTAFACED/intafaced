@@ -1,4 +1,4 @@
-import { useEffect, useId, useMemo, useState, type FormEvent, type ReactNode } from 'react';
+import { useEffect, useId, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { navigate } from '../../../app/location';
 import { useApi } from '../../session/session';
 import { usePreferences } from '../../../shared/preferences';
@@ -143,6 +143,24 @@ function LatestBlocks({ api, chain, locale, t }: { api: ExplorerApi; chain: Chai
   );
 }
 
+/**
+ * The indexer's status in words. The indexer marks a transaction `replaced` only when its block was reorged and another
+ * transaction took its place, so the replacing hash leads; any other transaction from a reorged block keeps its outcome and
+ * says the block was reorged. Nothing reorged or replaced ever reads as plain Success.
+ */
+export function txStatusWords(tx: ExplorerTx, t: ExplorerTranslate): string {
+  if (tx.status === 'replaced') return tx.replacingHash ? t('txReplacedBy', { hash: short(tx.replacingHash) }) : t('txReplaced');
+  const outcome = t(TX_STATUS[tx.status]);
+  return tx.orphaned ? t('txOrphaned', { outcome, reason: tx.orphaned.reason }) : outcome;
+}
+const TX_STATUS: Record<ExplorerTx['status'], 'txSuccess' | 'txReverted' | 'txPending' | 'txDropped' | 'txReplaced'> = {
+  success: 'txSuccess',
+  failed: 'txReverted',
+  pending: 'txPending',
+  dropped: 'txDropped',
+  replaced: 'txReplaced',
+};
+
 /** Every network this explorer knows, plus the configured one when it is not among them. */
 function searchedNetworks(chainId: number | null): { chainId: number; name: string }[] {
   const ids = Object.keys(KNOWN_NETWORKS).map(Number);
@@ -166,7 +184,9 @@ function ExplorerSearch({ api, chain, t }: { api: ExplorerApi; chain: ChainRef; 
   const [text, setText] = useState('');
   // Each search is its own attempt, so searching the same hash again asks the indexer again.
   const [searched, setSearched] = useState<{ hash: string; attempt: number } | null>(null);
-  const [lookup, setLookup] = useState<{ attempt: number; chainId: number; result: ApiResult<ExplorerTx> } | null>(null);
+  const [lookup, setLookup] = useState<{ hash: string; attempt: number; chainId: number; result: ApiResult<ExplorerTx> } | null>(null);
+  // Never reset, so an answer for an earlier search can never be read as the answer for a later one.
+  const attempts = useRef(0);
   const listId = useId();
   const query = classifyQuery(text);
 
@@ -175,7 +195,7 @@ function ExplorerSearch({ api, chain, t }: { api: ExplorerApi; chain: ChainRef; 
     if (searched === null || chainId === null) return;
     const controller = new AbortController();
     void api.tx(chainId, searched.hash, controller.signal).then((result) => {
-      if (!controller.signal.aborted) setLookup({ attempt: searched.attempt, chainId, result });
+      if (!controller.signal.aborted) setLookup({ hash: searched.hash, attempt: searched.attempt, chainId, result });
     });
     return () => controller.abort();
   }, [api, searched, chainId]);
@@ -188,7 +208,8 @@ function ExplorerSearch({ api, chain, t }: { api: ExplorerApi; chain: ChainRef; 
           if (chainId === null) return { ...network, state: 'not_checked', reason: t('reasonChainUnknown') };
           if (network.chainId !== chainId)
             return { ...network, state: 'not_checked', reason: t('reasonOtherNetwork', { network: networkLabel(chainId).name }) };
-          if (!lookup || lookup.attempt !== searched.attempt || lookup.chainId !== chainId) return { ...network, state: 'checking' };
+          if (!lookup || lookup.hash !== searched.hash || lookup.attempt !== searched.attempt || lookup.chainId !== chainId)
+            return { ...network, state: 'checking' };
           const { result } = lookup;
           if (result.ok) return { ...network, state: 'found', tx: result.data };
           if (isNotFound(result.code)) return { ...network, state: 'not_found' };
@@ -198,7 +219,10 @@ function ExplorerSearch({ api, chain, t }: { api: ExplorerApi; chain: ChainRef; 
   function open() {
     const path = pathFor(query);
     if (path) navigate(path);
-    else if (query.kind === 'tx') setSearched((last) => ({ hash: query.value, attempt: (last?.attempt ?? 0) + 1 }));
+    else if (query.kind === 'tx') {
+      attempts.current += 1;
+      setSearched({ hash: query.value, attempt: attempts.current });
+    }
   }
   function submit(event: FormEvent) {
     event.preventDefault();
@@ -233,7 +257,7 @@ function ExplorerSearch({ api, chain, t }: { api: ExplorerApi; chain: ChainRef; 
               {network.state === 'checking' && t('searchingNetwork', { network: network.name })}
               {network.state === 'found' && (
                 <>
-                  {t('networkFound', { network: network.name, status: network.tx.status })}{' '}
+                  {t('networkFound', { network: network.name, status: txStatusWords(network.tx, t) })}{' '}
                   <a href={`/chain/tx/${network.tx.hash}`}>{t('openTx')}</a>
                 </>
               )}

@@ -19,6 +19,7 @@ import { PostgresLedger } from './ledger/postgres-ledger.js';
 import { handleS2sPost } from './s2s-http.js';
 import type { LedgerService } from './service.js';
 import { WITHDRAW_FEE_UNBOUND_CODE } from './withdraw-fee-binding.js';
+import { IDEMPOTENCY_CONFLICT_CODE } from '@intafaced/ledger-client';
 
 /**
  * J-wallet-05 #6 (issue #6517): the ledger door settles or reverses a withdrawal only with the fee its posted hold carried,
@@ -205,6 +206,30 @@ describe('a withdrawal fee bound to its posted hold (Postgres)', () => {
     await expect(handleS2sPost(door, toOther, pay)).rejects.toEqual(unbound);
     await expect(post(recipes.withdrawSettle({ ...x, rail: 'bank-sepa' }))).rejects.toEqual(unbound);
     expect(await bal(withdrawalHoldAccount(USER, 'USDT', 'f12:0'))).toBe('26.5');
+  });
+
+  it('refuses a hold retried with another fee or rail than the posted one, at once or in turn, and replays the same hold', async () => {
+    const conflict = expect.objectContaining({ code: IDEMPOTENCY_CONFLICT_CODE });
+    const x = await funded('f13:0');
+    await post(recipes.withdrawHold({ ...x, amount: amt('26.5'), fee: undefined }));
+    await expect(post(recipes.withdrawHold(x))).rejects.toEqual(conflict);
+    await expect(post(recipes.withdrawHold({ ...x, amount: amt('26.5'), fee: undefined, rail: 'bank-sepa' }))).rejects.toEqual(conflict);
+    expect((await engine.getTxByKey('withdraw.hold:f13:0'))?.meta).not.toHaveProperty('fee');
+
+    // Two first holds at the same moment, the same total either way: one books, the other is refused, never a silent replay.
+    const y = await funded('f14:0');
+    const results = await Promise.allSettled([
+      post(recipes.withdrawHold(y)),
+      post(recipes.withdrawHold({ ...y, amount: amt('26.5'), fee: undefined })),
+    ]);
+    expect(results.filter((r) => r.status === 'fulfilled')).toHaveLength(1);
+    expect(results.find((r) => r.status === 'rejected')).toMatchObject({ reason: conflict });
+    expect(await bal(withdrawalHoldAccount(USER, 'USDT', 'f14:0'))).toBe('26.5');
+    const kept = (await engine.getTxByKey('withdraw.hold:f14:0'))!.meta;
+    // The same hold as the one that booked replays.
+    await post(recipes.withdrawHold(kept.fee ? y : { ...y, amount: amt('26.5'), fee: undefined }));
+    expect((await engine.getTxByKey('withdraw.hold:f14:0'))!.meta).toEqual(kept);
+    expect(await bal(withdrawalHoldAccount(USER, 'USDT', 'f14:0'))).toBe('26.5');
   });
 
   it('leaves a fee-less withdrawal exactly as before, part settle and reverse included', async () => {

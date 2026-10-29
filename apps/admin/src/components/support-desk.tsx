@@ -16,6 +16,8 @@ import { TicketFiles } from './support-ticket-files';
 import { TicketLifecycle } from './support-ticket-lifecycle';
 import { TicketMerge } from './support-ticket-merge';
 import { TicketProperties } from './support-ticket-properties';
+import { QueueFilters } from './support-queue-filters';
+import { EMPTY_QUERY } from '@/lib/support/queue-query';
 import './desk.css';
 import { formatAsOf, formatWhen } from '@/lib/as-of';
 
@@ -71,6 +73,8 @@ export interface DeskViewProps {
   /** A reply, status change or escalation was sent (whatever the answer): read the ticket and its extras again. */
   readonly onActionDone: () => void;
   readonly children?: ReactNode;
+  /** The filter, search and saved views over the queue. Absent when the page offers none. */
+  readonly filters?: ReactNode;
   readonly onRefresh: () => void;
   readonly onOpen: (id: string) => void;
   readonly onClose: () => void;
@@ -169,7 +173,11 @@ function TicketBody({ detail, ...p }: { detail: TicketDetail } & DeskViewProps) 
           >
             {p.reply.ok ? (
               <>
-                <strong>svc-support says the ticket is now owned by {p.reply.assigneeId ? shortId(p.reply.assigneeId) : 'nobody'}</strong>
+                <strong>
+                  {p.reply.assigneeId !== null && p.reply.assigneeId.toLowerCase() === p.userId.toLowerCase()
+                    ? 'Claimed. svc-support says the ticket is now owned by you'
+                    : `svc-support says the ticket is now owned by ${p.reply.assigneeId ? shortId(p.reply.assigneeId) : 'nobody'}`}
+                </strong>
                 <p>The ticket above was read again.</p>
               </>
             ) : (
@@ -261,6 +269,7 @@ export function SupportDeskView(p: DeskViewProps) {
         </button>
         <span className="dk-asof">{q ? `As of ${formatAsOf(q.asOf)} (when this console read svc-support)` : 'No read yet'}</span>
       </div>
+      {q && p.filters}
       {!q && <p className="dk-why">svc-support could not be read. Nothing is shown rather than a guess.</p>}
       {q && q.queue.kind === 'failed' && <Failed name="Support queue" part={q.queue} />}
       {q && q.queue.kind === 'ok' && (
@@ -359,7 +368,7 @@ export function SupportDesk({ initial, userId, children }: { initial: SupportQue
   const reloadQueue = useCallback(async () => {
     const mine = ++queueSeq.current;
     setLoadingQueue(true);
-    const next = await fetchQueue();
+    const next = await fetchQueue(initial?.query ?? EMPTY_QUERY);
     if (mine === queueSeq.current) {
       setQueue(next);
       setLoadingQueue(false);
@@ -369,7 +378,7 @@ export function SupportDesk({ initial, userId, children }: { initial: SupportQue
         setTicked((t) => new Set([...t].filter((id) => here.has(id))));
       }
     }
-  }, []);
+  }, [initial?.query]);
 
   const loadOne = useCallback(async (id: string) => {
     const mine = ++ticketSeq.current;
@@ -450,6 +459,7 @@ export function SupportDesk({ initial, userId, children }: { initial: SupportQue
         onToggleAll: (ids, on) => setTicked(on ? new Set(ids) : new Set()),
         bar: <SupportBulkBar selected={[...ticked]} onClear={() => setTicked(new Set())} onDone={() => void reloadQueue()} />,
       }}
+      filters={queue ? <QueueFilters query={queue.query ?? EMPTY_QUERY} view={queue.view ?? null} refused={queue.refused ?? null} /> : null}
       extras={extras}
       loadingExtras={loadingExtras}
       onActionDone={() => {
