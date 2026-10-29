@@ -16,6 +16,18 @@ export const freezeStatus = z.object({
   since: z.string().nullable(),
 });
 export type FreezeStatus = z.infer<typeof freezeStatus>;
+export const liftDone = z.object({ frozen: z.literal(false), changed: z.boolean(), liftedAt: z.string().nullable() });
+
+/** The lift's own typed refusals; `identity.step_up_required` opens the confirmation instead. */
+export const LIFT_REFUSAL_KEYS: Readonly<Record<string, string>> = {
+  'identity.self_freeze_lift_wait_unset': 'liftWaitUnset',
+  'identity.second_factor_required': 'liftNeedsFactor',
+};
+
+/** One lift per freeze: the business key names the person and the freeze it ends, so a retry is the same request. */
+export function liftRequestId(userId: string, since: string): string {
+  return `self-freeze-lift:${userId}:${since}`;
+}
 
 /** Sentence key for each reason the person can pick. */
 export const REASON_KEYS: Readonly<Record<FreezeReason, string>> = {
