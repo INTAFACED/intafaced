@@ -209,6 +209,10 @@ describe('token buyback IOC buy', () => {
       () => fill({ makerFeeBps: -1 }),
       () => fill({ makerFeeBps: 1.5 }),
       () => fill({ baseAsset: QUOTE }),
+      () => fill({ baseAsset: '' }),
+      () => fill({ quoteAsset: ' USDT' }),
+      () => recipes.buybackOrderHold({ orderId: ORDER, quoteAsset: '', amount: amt('1') }),
+      () => recipes.buybackOrderHoldRelease({ orderId: ORDER, quoteAsset: 'USDT ', amount: amt('1') }),
     ]) {
       expect(bad).toThrow(InvalidEntryError);
     }

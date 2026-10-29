@@ -17,9 +17,9 @@ import { InvalidEntryError } from '../types.js';
  * (fee-revenue map row `trade.spot.buyback_maker_fee`). A resting house market-maker ask has no recipe: house against
  * house is wash volume, and svc-trade refuses that match before it posts anything.
  *
- * Readers that list fill reasons (`trade.fill`, `trade.fill.mm_maker`) do not know `trade.fill.buyback` yet: until
- * they learn it, the maker's history shows its lines with no fill fee or order id, and svc-tax reads the sold base as
- * an outflow from outside the lot book.
+ * svc-ledger's history and holdings reads know `trade.fill.buyback` as a fill. Other readers that list fill reasons
+ * (svc-tax lots, svc-bank activity, the customer ledger tab) do not yet: until they learn it, svc-tax reads the sold
+ * base as an outflow from outside the lot book, and svc-bank files the line as other activity.
  */
 
 export interface BuybackOrderHoldInput {
@@ -74,6 +74,7 @@ export function buybackOrderHoldAccount(assetId: string, orderId: string): Accou
 /** Reserve the swept quote for one buyback IOC order: rewards engine → that order's house hold. */
 export function buybackOrderHold(input: BuybackOrderHoldInput): PostRequest {
   const orderId = requireId('orderId', input.orderId);
+  requireId('quoteAsset', input.quoteAsset);
   requirePositive('buyback order hold amount', input.amount);
   return {
     idempotencyKey: `order.hold.buyback:${orderId}`,
@@ -90,6 +91,7 @@ export function buybackOrderHold(input: BuybackOrderHoldInput): PostRequest {
 /** Return the unfilled remainder of a buyback IOC order to the rewards engine. */
 export function buybackOrderHoldRelease(input: BuybackOrderHoldReleaseInput): PostRequest {
   const orderId = requireId('orderId', input.orderId);
+  requireId('quoteAsset', input.quoteAsset);
   requirePositive('buyback order release amount', input.amount);
   const sequence = input.sequence ?? 0;
   if (!Number.isInteger(sequence) || sequence < 0) throw new InvalidEntryError(`sequence must be a whole number, got ${sequence}`);
@@ -117,6 +119,8 @@ export function buybackTakerFill(input: BuybackTakerFillInput): PostRequest {
   const makerId = requireId('makerId', input.makerId);
   const makerOrderId = requireId('makerOrderId', input.makerOrderId);
   const takerOrderId = requireId('takerOrderId', input.takerOrderId);
+  requireId('baseAsset', input.baseAsset);
+  requireId('quoteAsset', input.quoteAsset);
   requirePositive('fill qty', input.qty);
   requirePositive('fill quote amount', input.quoteAmount);
   if (!Number.isInteger(input.makerFeeBps) || input.makerFeeBps < 0) {
