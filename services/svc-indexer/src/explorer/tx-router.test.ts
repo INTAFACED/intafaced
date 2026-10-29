@@ -155,3 +155,65 @@ describe('indexer.explorer.tx.get', () => {
     expect(noted).toEqual([HASH]);
   });
 });
+
+describe('indexer.explorer.tx.networks', () => {
+  function withNetworks(searchNetworks?: Parameters<typeof createIndexerRouter>[0]['searchNetworks']) {
+    const indexer = new Indexer({
+      source: new MemoryChainSource(CHAIN_ID),
+      store: new MemoryProjectionStore(CHAIN_ID),
+      finalityDepth: 64,
+      ingestEnabled: () => true,
+      startHeight: 0,
+    });
+    return createIndexerRouter({
+      store: new MemoryProjectionStore(CHAIN_ID),
+      indexer,
+      chainId: CHAIN_ID,
+      finalityDepth: 64,
+      ingestEnabled: () => true,
+      chainSource: 'memory',
+      ...(searchNetworks ? { searchNetworks } : {}),
+    }).createCaller(anonymous());
+  }
+
+  it('no listed network is an empty list, never an invented one', async () => {
+    expect(await withNetworks().explorer.tx.networks({ hash: HASH })).toEqual({ networks: [] });
+    expect(await withNetworks([]).explorer.tx.networks({ hash: HASH })).toEqual({ networks: [] });
+  });
+
+  it('answers for every listed network in order, each with its own answer, asked with the hash given', async () => {
+    const asked: string[] = [];
+    const result = await withNetworks([
+      {
+        chainId: 31337,
+        find: async (hash) => {
+          asked.push(hash);
+          return { chainId: 31337, state: 'found', pending: false, blockHeight: 4, status: 'success' };
+        },
+      },
+      { chainId: 5, find: async () => ({ chainId: 5, state: 'not_checked', code: 'indexer.chain_unreachable' }) },
+      { chainId: 6, find: async () => ({ chainId: 6, state: 'not_found' }) },
+    ]).explorer.tx.networks({ hash: HASH });
+    expect(asked).toEqual([HASH]);
+    expect(result.networks).toEqual([
+      { chainId: 31337, state: 'found', pending: false, blockHeight: 4, status: 'success' },
+      { chainId: 5, state: 'not_checked', code: 'indexer.chain_unreachable' },
+      { chainId: 6, state: 'not_found' },
+    ]);
+  });
+
+  it('refuses a hash that is not one before asking any node', async () => {
+    let asked = false;
+    const router = withNetworks([
+      {
+        chainId: 31337,
+        find: async () => {
+          asked = true;
+          return { chainId: 31337, state: 'not_found' };
+        },
+      },
+    ]);
+    await expect(router.explorer.tx.networks({ hash: '0x12' })).rejects.toMatchObject({ code: 'BAD_REQUEST' });
+    expect(asked).toBe(false);
+  });
+});

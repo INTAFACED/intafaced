@@ -13,6 +13,7 @@
 //   node tooling/scripts/local-test-chain.mjs serve             anvil + gate + control (the stack runs this as `chain`)
 //   node tooling/scripts/local-test-chain.mjs status            {"chain":"running"|"absent","gate":...}
 //   node tooling/scripts/local-test-chain.mjs gate open|closed  a journey's switch (stack.mjs tool())
+//   node tooling/scripts/local-test-chain.mjs gate open|closed second   the same for the second network's gate alone
 //   node tooling/scripts/local-test-chain.mjs fund <address>    TEST ETH for gas + TEST Token A and B (stack.mjs tool())
 import { spawn, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
@@ -27,8 +28,16 @@ const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '.
 const PROTOCOL_DIR = path.join(REPO, 'services', 'svc-protocol');
 /** The app's network id (apps/customer/src/features/protocol/wallet/eip1193.ts APP_CHAIN_ID). */
 export const TEST_CHAIN_ID = 84532;
-export const CHAIN_PORTS = { gate: 14530, anvil: 14531, control: 14532 };
+/** Every port the chains hold, the second network's included, so the stack's in-use check covers them all. */
+export const CHAIN_PORTS = { gate: 14530, anvil: 14531, control: 14532, secondGate: 14533, secondAnvil: 14534 };
 export const GATE_URL = `http://${HOST}:${CHAIN_PORTS.gate}`;
+/**
+ * A second LOCAL TEST network (chain id 31337, "Local test chain"), so the explorer's search has two networks to look a
+ * hash up on (J-dex-protocol-09 #10). Nothing is seeded on it; it has its own gate, which a journey may shut alone.
+ */
+export const SECOND_CHAIN_ID = 31337;
+export const SECOND_CHAIN_PORTS = { gate: CHAIN_PORTS.secondGate, anvil: CHAIN_PORTS.secondAnvil };
+export const SECOND_GATE_URL = `http://${HOST}:${SECOND_CHAIN_PORTS.gate}`;
 /** What the seed put on the chain (addresses), written by `serve`'s seed step; absent when no chain runs. */
 export const chainRecordPath = (state = localStackState()) => path.join(state, 'test-chain.json');
 
@@ -69,77 +78,103 @@ export async function chainStatus() {
   return answer ? { chain: 'running', ...answer } : { chain: 'absent' };
 }
 
+/** A TCP pass-through on `gatePort` to the anvil on `anvilPort`: open, it forwards; closed, nothing listens there. */
+function makeGate(gatePort, anvilPort) {
+  const sockets = new Set();
+  let server = null;
+  return {
+    isOpen: () => server !== null,
+    open: () =>
+      new Promise((resolve, reject) => {
+        if (server) return resolve();
+        const next = net.createServer((client) => {
+          const upstream = net.connect(anvilPort, HOST);
+          sockets.add(client).add(upstream);
+          const drop = () => {
+            client.destroy();
+            upstream.destroy();
+            sockets.delete(client);
+            sockets.delete(upstream);
+          };
+          client.on('error', drop).on('close', drop);
+          upstream.on('error', drop).on('close', drop);
+          client.pipe(upstream).pipe(client);
+        });
+        next.once('error', reject);
+        next.listen(gatePort, HOST, () => {
+          server = next;
+          resolve();
+        });
+      }),
+    close: () =>
+      new Promise((resolve) => {
+        if (!server) return resolve();
+        const closing = server;
+        server = null;
+        for (const s of sockets) s.destroy();
+        closing.close(() => resolve());
+      }),
+  };
+}
+
 function serve() {
   const bin = anvilBin();
   if (!bin) throw new Error('no anvil binary (set LOCAL_STACK_ANVIL_BIN or put anvil on PATH)');
-  const anvil = spawn(
-    bin,
-    ['--host', HOST, '--port', String(CHAIN_PORTS.anvil), '--chain-id', String(TEST_CHAIN_ID), '--accounts', '1', '--silent'],
-    { stdio: 'inherit' },
-  );
-  const sockets = new Set();
-  let gate = null;
-  const open = () =>
-    new Promise((resolve, reject) => {
-      if (gate) return resolve();
-      const server = net.createServer((client) => {
-        const upstream = net.connect(CHAIN_PORTS.anvil, HOST);
-        sockets.add(client).add(upstream);
-        const drop = () => {
-          client.destroy();
-          upstream.destroy();
-          sockets.delete(client);
-          sockets.delete(upstream);
-        };
-        client.on('error', drop).on('close', drop);
-        upstream.on('error', drop).on('close', drop);
-        client.pipe(upstream).pipe(client);
-      });
-      server.once('error', reject);
-      server.listen(CHAIN_PORTS.gate, HOST, () => {
-        gate = server;
-        resolve();
-      });
-    });
-  const close = () =>
-    new Promise((resolve) => {
-      if (!gate) return resolve();
-      const server = gate;
-      gate = null;
-      for (const s of sockets) s.destroy();
-      server.close(() => resolve());
-    });
+  const anvils = [
+    spawn(bin, ['--host', HOST, '--port', String(CHAIN_PORTS.anvil), '--chain-id', String(TEST_CHAIN_ID), '--accounts', '1', '--silent'], {
+      stdio: 'inherit',
+    }),
+    spawn(
+      bin,
+      ['--host', HOST, '--port', String(SECOND_CHAIN_PORTS.anvil), '--chain-id', String(SECOND_CHAIN_ID), '--accounts', '1', '--silent'],
+      { stdio: 'inherit' },
+    ),
+  ];
+  const gate = makeGate(CHAIN_PORTS.gate, CHAIN_PORTS.anvil);
+  const second = makeGate(SECOND_CHAIN_PORTS.gate, SECOND_CHAIN_PORTS.anvil);
   http
     .createServer(async (req, res) => {
-      const want = new URL(req.url, `http://${HOST}`).searchParams.get('gate');
-      if (want === 'open') await open();
-      if (want === 'closed') await close();
+      const params = new URL(req.url, `http://${HOST}`).searchParams;
+      const target = params.get('network') === 'second' ? second : gate;
+      const want = params.get('gate');
+      if (want === 'open') await target.open();
+      if (want === 'closed') await target.close();
       res.setHeader('content-type', 'application/json');
-      res.end(JSON.stringify({ gate: gate ? 'open' : 'closed', chainId: TEST_CHAIN_ID, gateUrl: GATE_URL }));
+      res.end(
+        JSON.stringify({
+          gate: gate.isOpen() ? 'open' : 'closed',
+          chainId: TEST_CHAIN_ID,
+          gateUrl: GATE_URL,
+          second: { gate: second.isOpen() ? 'open' : 'closed', chainId: SECOND_CHAIN_ID, gateUrl: SECOND_GATE_URL },
+        }),
+      );
     })
     .listen(CHAIN_PORTS.control, HOST);
-  open();
+  gate.open();
+  second.open();
   let stopping = false;
-  // Stop anvil and wait for it, so no anvil outlives the chain process (the stack stops this one by pid).
+  // Stop both anvils and wait for them, so no anvil outlives the chain process (the stack stops this one by pid).
   const stop = () => {
     stopping = true;
-    anvil.kill('SIGTERM');
+    for (const anvil of anvils) anvil.kill('SIGTERM');
     setTimeout(() => {
-      anvil.kill('SIGKILL');
+      for (const anvil of anvils) anvil.kill('SIGKILL');
       process.exit(0);
     }, 5000).unref();
   };
   process.on('SIGTERM', stop).on('SIGINT', stop);
-  anvil.on('exit', (code) => {
-    if (stopping) process.exit(0);
-    console.error(`anvil exited (${code}); the TEST chain is gone`);
-    process.exit(1);
-  });
+  for (const anvil of anvils)
+    anvil.on('exit', (code) => {
+      if (stopping) process.exit(0);
+      console.error(`anvil exited (${code}); the TEST chains are gone`);
+      for (const other of anvils) other.kill('SIGTERM');
+      process.exit(1);
+    });
 }
 
-async function cmdGate(state) {
-  if (!['open', 'closed'].includes(state)) throw new Error('usage: gate open|closed');
-  const answer = await control(`?gate=${state}`);
+async function cmdGate(state, network) {
+  if (!['open', 'closed'].includes(state) || ![undefined, 'second'].includes(network)) throw new Error('usage: gate open|closed [second]');
+  const answer = await control(`?gate=${state}${network ? `&network=${network}` : ''}`);
   // No TEST chain on this stack: svc-protocol's RPC is UNUSED, which is already "closed".
   console.log(JSON.stringify(answer ?? { chain: 'absent', gate: 'closed' }));
 }
@@ -162,13 +197,13 @@ async function cmdFund(address) {
 
 const runningAsCli = process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
 if (runningAsCli) {
-  const [command, arg] = process.argv.slice(2);
+  const [command, arg, extra] = process.argv.slice(2);
   if (command === 'serve') serve();
   else if (command === 'status') console.log(JSON.stringify(await chainStatus()));
-  else if (command === 'gate') await cmdGate(arg);
+  else if (command === 'gate') await cmdGate(arg, extra);
   else if (command === 'fund') await cmdFund(arg);
   else {
-    console.error('usage: local-test-chain.mjs serve | status | gate open|closed | fund <address>');
+    console.error('usage: local-test-chain.mjs serve | status | gate open|closed [second] | fund <address>');
     process.exit(2);
   }
 }

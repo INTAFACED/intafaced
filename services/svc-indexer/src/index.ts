@@ -7,6 +7,7 @@ import { NullChainSource } from './chain/memory-source.js';
 import { EvmChainSource } from './chain/evm/source.js';
 import { parseExplorerListLimit } from './explorer/blocks.js';
 import { parseTxDropWindow } from './explorer/tx.js';
+import { parseSearchNetworks, searchNetworkFinders } from './explorer/search-networks.js';
 import { PostgresProjectionStore } from './projection/postgres-store.js';
 import { Indexer } from './indexer.js';
 import { shutdownIndexer } from './shutdown.js';
@@ -62,6 +63,9 @@ if (!table?.exists) {
 }
 
 const store = new PostgresProjectionStore(db.sql, env.INDEXER_CHAIN_ID);
+
+// Parsed before anything listens: a malformed list stops the boot instead of searching a network nobody named.
+const searchNetworks = parseSearchNetworks(env.INDEXER_SEARCH_NETWORKS, env.INDEXER_CHAIN_ID);
 
 /**
  * THE CHAIN THE OPERATOR NAMED.
@@ -152,6 +156,7 @@ export const appRouter = createIndexerRouter({
     lookup: (hash) => (evmSource ? evmSource.lookupExplorerTx(hash) : Promise.resolve(null)),
   },
   txList: (q) => store.explorerTxList(q),
+  searchNetworks: searchNetworkFinders(searchNetworks),
 });
 export type AppRouter = typeof appRouter;
 
@@ -229,6 +234,7 @@ app.log.info(
     venue: evmSource ? env.INDEXER_VENUE_ADDRESS : null,
     startHeight: env.INDEXER_START_HEIGHT,
     finalityDepth: env.INDEXER_FINALITY_DEPTH,
+    searchNetworks: searchNetworks.map((n) => n.chainId),
   },
   'svc-indexer ready — non-custodial, permissionless, read-only',
 );

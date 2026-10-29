@@ -25,6 +25,7 @@ import {
   type ExplorerBlocksSource,
 } from './explorer/blocks.js';
 import { classifyExplorerTx, listTxPage, type ExplorerTxList, type ExplorerTxSource } from './explorer/tx.js';
+import type { FindTx } from './explorer/search-networks.js';
 import { assessProjectionStream, INDEXER_STREAM_UNWIRED, type StreamBook, type StreamLevel } from './stream.js';
 import {
   INDEXER_BOOK_DEPTH_UNSET,
@@ -148,6 +149,18 @@ export interface ChainProbe {
   readonly reason: string | null;
 }
 
+const networkAnswerSchema = z.discriminatedUnion('state', [
+  z.object({
+    chainId: z.number().int(),
+    state: z.literal('found'),
+    pending: z.boolean(),
+    blockHeight: z.number().int().nullable(),
+    status: z.enum(['success', 'failed']).nullable(),
+  }),
+  z.object({ chainId: z.number().int(), state: z.literal('not_found') }),
+  z.object({ chainId: z.number().int(), state: z.literal('not_checked'), code: z.string() }),
+]);
+
 const chainProbeSchema = z.object({
   kind: z.enum(['null', 'evm']),
   rpcUrl: z.string().nullable(),
@@ -192,6 +205,8 @@ export interface IndexerRouterDeps {
   readonly txs?: ExplorerTxSource;
   /** Latest transactions, newest first. Absent => `indexer.explorer_unwired`. */
   readonly txList?: ExplorerTxList;
+  /** D-explorer-02 the other networks a hash is looked up on, live. Absent or empty => the search names none. */
+  readonly searchNetworks?: ReadonlyArray<{ readonly chainId: number; readonly find: FindTx }>;
 }
 
 /**
@@ -485,6 +500,18 @@ export function createIndexerRouter(deps: IndexerRouterDeps) {
             } catch (err) {
               throw toTrpcError(err);
             }
+          }),
+        /**
+         * The same hash on the other networks this indexer is told to search, asked live of each one's node. A node that
+         * did not answer, or answered as another chain, is `not_checked` with its code, never `not_found`. No listed
+         * network is an empty list, never an invented one.
+         */
+        networks: publicJurisdictionProcedure('indexer', 'protocol')
+          .input(z.object({ hash: z.string().regex(/^0x[0-9a-fA-F]{64}$/) }))
+          .output(z.object({ networks: z.array(networkAnswerSchema) }))
+          .query(async ({ input }) => {
+            const finders = deps.searchNetworks ?? [];
+            return { networks: await Promise.all(finders.map(({ find }) => find(input.hash))) };
           }),
       }),
     }),

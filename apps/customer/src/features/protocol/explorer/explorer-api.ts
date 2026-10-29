@@ -3,7 +3,7 @@ import { z } from 'zod';
 import type { ApiClient } from '../../../shared/api';
 
 /**
- * Read-only wire shapes for the explorer, mirroring svc-indexer's `explorer.blocks.list`, `explorer.blocks.get`, `explorer.txs.list` and `explorer.tx.get` output
+ * Read-only wire shapes for the explorer, mirroring svc-indexer's `explorer.blocks.list`, `explorer.blocks.get`, `explorer.txs.list`, `explorer.tx.get` and `explorer.tx.networks` output
  * schemas and keeping only the fields the explorer renders. Amounts and gas stay decimal strings.
  */
 export const explorerBlockRowSchema = z.object({
@@ -82,6 +82,24 @@ export type ExplorerTx = z.infer<typeof explorerTxSchema>;
 export type ExplorerTxRow = z.infer<typeof explorerTxRowSchema>;
 export type ExplorerTxsPage = z.infer<typeof explorerTxsPageSchema>;
 
+/** The same hash on the other networks the indexer is told to search, each asked live (`explorer.tx.networks`). */
+export const explorerTxNetworksSchema = z.object({
+  networks: z.array(
+    z.discriminatedUnion('state', [
+      z.object({
+        chainId: z.number().int(),
+        state: z.literal('found'),
+        pending: z.boolean(),
+        blockHeight: z.number().int().nullable(),
+        status: z.enum(['success', 'failed']).nullable(),
+      }),
+      z.object({ chainId: z.number().int(), state: z.literal('not_found') }),
+      z.object({ chainId: z.number().int(), state: z.literal('not_checked'), code: z.string() }),
+    ]),
+  ),
+});
+export type ExplorerTxNetworks = z.infer<typeof explorerTxNetworksSchema>;
+
 /** The indexer's answer for a hash it has never seen on the chain it reads (`protocol.not_found`, tRPC NOT_FOUND). */
 export const isNotFound = (code: string | undefined) => code === 'NOT_FOUND' || code === 'protocol.not_found';
 
@@ -107,6 +125,9 @@ export function createExplorerApi(api: ApiClient) {
     /** One transaction by hash on the chain the indexer reads. An unknown hash is NOT_FOUND, never an empty success. */
     tx: (chainId: number, hash: string, signal?: AbortSignal) =>
       api.query('indexer', 'explorer.tx.get', { chainId, hash }, explorerTxSchema, { signal }),
+    /** The same hash on every other network the indexer searches, each Found, Not found or not checked with its code. */
+    txNetworks: (hash: string, signal?: AbortSignal) =>
+      api.query('indexer', 'explorer.tx.networks', { hash }, explorerTxNetworksSchema, { signal }),
   };
 }
 export type ExplorerApi = ReturnType<typeof createExplorerApi>;
