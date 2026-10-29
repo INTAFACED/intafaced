@@ -352,6 +352,19 @@ function executeProcedure() {
   });
 }
 
+/**
+ * The person's own choice of which session their history shows: a write to their own state, so a key, a sub-account
+ * or a service forwarding their principal does not make it, even with `agents:read`.
+ */
+function personReadProcedure() {
+  return scopedProcedure('agents:read', { module: 'agents', person: true }).use(({ ctx, next }) => {
+    if (ctx.principal.kid || ctx.principal.sub_account) {
+      throw new TRPCError({ code: 'FORBIDDEN', message: 'agents.select_person_only' });
+    }
+    return next();
+  });
+}
+
 export function createAgentsRouter(deps: AgentsRouterDeps) {
   const {
     runtime,
@@ -737,7 +750,7 @@ export function createAgentsRouter(deps: AgentsRouterDeps) {
         ),
 
       /** Selects one of the caller's own sessions for their history; someone else's session is not found. */
-      select: scopedProcedure('agents:read', { module: 'agents', person: true })
+      select: personReadProcedure()
         .input(z.object({ sessionId: z.string().guid() }))
         .output(z.object({ sessionId: z.string().guid(), agentId: z.string() }))
         .mutation(({ ctx, input }) =>

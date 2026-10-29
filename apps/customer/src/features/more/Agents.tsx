@@ -161,6 +161,7 @@ export function Agents({ paper = false }: { paper?: boolean }) {
     if (!userId) return;
     const next = { owner: userId, id: row.sessionId, agentId: row.agentId };
     setInspection(next);
+    setCloseFailure(null);
     try {
       localStorage.setItem(`intafaced:agents:selected:${userId}`, JSON.stringify(next));
     } catch {
@@ -327,6 +328,7 @@ export function Agents({ paper = false }: { paper?: boolean }) {
     setEstimating(false);
     setRuns([]);
     setRunNote(null);
+    setCloseFailure(null);
   }, [userId, agent]);
   // A refresh of the selected session keeps showing what was read until the new read lands.
   const steadyUsage = useSteady(selectedUsage.resource, selectedSession?.id),
@@ -498,10 +500,13 @@ export function Agents({ paper = false }: { paper?: boolean }) {
                           closed={closedNote === detail.session.id}
                           onClose={async () => {
                             setClosing(true);
+                            setCloseFailure(null);
                             const res = await api.mutate('agents', 'session.close', { sessionId: detail.session.id }, sessionSchema);
                             setClosing(false);
-                            if (res.ok) setClosedNote(detail.session.id);
-                            else setCloseFailure(res);
+                            if (res.ok) {
+                              setClosedNote(detail.session.id);
+                              setCloseFailure(null);
+                            } else setCloseFailure(res);
                             selectedDetail.reload();
                             selectedUsage.reload();
                             selectedHistory.reload();
@@ -884,9 +889,18 @@ export function Agents({ paper = false }: { paper?: boolean }) {
                         'agents',
                         'run.complete',
                         { sessionId: active.id, requestId: row.requestId, task: row.task, messages: [{ role: 'user', content: row.ask }] },
-                        z.object({ cost: decimalSchema, text: z.string() }).passthrough(),
+                        z.object({ cost: decimalSchema, text: z.string(), assetId: z.string(), metered: z.boolean() }).passthrough(),
                       );
-                      if (res.ok || /request_id_replay/.test(res.message)) setRunNote('same');
+                      // Answered: the first try never reached the engine, so this is the run and its own cost.
+                      if (res.ok) {
+                        setRunNote(null);
+                        setRuns((current) =>
+                          current.map((entry) =>
+                            entry.requestId === row.requestId ? { ...entry, status: 'completed', cost: res.data.cost, code: null } : entry,
+                          ),
+                        );
+                        setReply({ text: res.data.text, cost: res.data.cost, assetId: res.data.assetId, metered: res.data.metered });
+                      } else if (res.code === 'agents.request_id_replay') setRunNote('same');
                       else
                         setRuns((current) =>
                           current.map((entry) => (entry.requestId === row.requestId ? { ...entry, code: res.message } : entry)),

@@ -2189,6 +2189,123 @@ if (!available) {
       expect(ran.metered).toBe(true);
     });
 
+    it('counts usage not yet charged against the balance: a run the balance covers only before that debt does not start', async () => {
+      const route = TABLE.routes.find((r) => r.task === 'plan')!;
+      const worst = usageCost({ inputTokens: estimateInputTokens(undefined, MESSAGES), outputTokens: route.maxOutputTokens }, route.price!);
+      const spend = new UserSpendStore(sql);
+      let available = worst * 10n;
+      const gate = counting(gateway);
+      const rt = new AgentRuntime(sql, gate.gateway, meter, bus, {
+        feeAssetId: 'IFC',
+        meteringEnabled: true,
+        spend,
+        funds: { available: async () => available },
+      });
+      await rt.registerAgent({ ...PROBE, agentId: 'owed', limits: { ...PROBE.limits, maxSpendPerSession: '1000' } });
+      const session = await rt.openSession({ userId: USER_A, agentId: 'owed' });
+      await rt.think({ sessionId: session.id, requestId: 'owed-1', task: 'plan', messages: MESSAGES });
+      const owed = await meter.sessionSpend(session.id);
+      expect(owed > 0n).toBe(true);
+
+      // The ledger still shows the whole balance: the window is open, nothing is charged yet.
+      available = worst + owed - 1n;
+      const err = await rt.think({ sessionId: session.id, requestId: 'owed-2', task: 'plan', messages: MESSAGES }).catch((e) => e);
+      expect(refusalCode(err)).toBe('agents.funds_insufficient');
+      expect(gate.calls()).toBe(1);
+      const holds = await sql`SELECT status FROM agents.spend_reservations WHERE session_id = ${session.id} AND reservation_key = 'owed-2'`;
+      expect(holds).toHaveLength(0);
+      expect(await meter.sessionSpend(session.id)).toBe(owed);
+
+      available = worst + owed;
+      await rt.think({ sessionId: session.id, requestId: 'owed-3', task: 'plan', messages: MESSAGES });
+      expect(gate.calls()).toBe(2);
+    });
+
+    it('two runs at once whose worst cases together exceed the balance: exactly one starts, the other bills 0 and holds nothing', async () => {
+      const route = TABLE.routes.find((r) => r.task === 'plan')!;
+      const worst = usageCost({ inputTokens: estimateInputTokens(undefined, MESSAGES), outputTokens: route.maxOutputTokens }, route.price!);
+      const spend = new UserSpendStore(sql);
+      const gate = counting(gateway);
+      const rt = new AgentRuntime(sql, gate.gateway, meter, bus, {
+        feeAssetId: 'IFC',
+        meteringEnabled: true,
+        spend,
+        funds: { available: async () => worst + worst / 2n },
+      });
+      await rt.registerAgent({ ...PROBE, agentId: 'twin', limits: { ...PROBE.limits, maxSpendPerSession: '1000' } });
+      // Two sessions, so the agent's per-session cap is not what decides.
+      const one = await rt.openSession({ userId: USER_A, agentId: 'twin' });
+      const two = await rt.openSession({ userId: USER_A, agentId: 'twin' });
+      const results = await Promise.allSettled([
+        rt.think({ sessionId: one.id, requestId: 'twin-1', task: 'plan', messages: MESSAGES }),
+        rt.think({ sessionId: two.id, requestId: 'twin-2', task: 'plan', messages: MESSAGES }),
+      ]);
+      const admitted = results.filter((r) => r.status === 'fulfilled');
+      const refused = results.filter((r): r is PromiseRejectedResult => r.status === 'rejected');
+      expect(admitted).toHaveLength(1);
+      expect(refused).toHaveLength(1);
+      expect(refusalCode(refused[0]!.reason)).toBe('agents.funds_insufficient');
+      expect(gate.calls()).toBe(1);
+      const refusedSession = results[0]!.status === 'rejected' ? one.id : two.id;
+      expect(await sql`SELECT 1 FROM agents.spend_reservations WHERE session_id = ${refusedSession}`).toHaveLength(0);
+      expect(await sql`SELECT 1 FROM agents.usage_records WHERE session_id = ${refusedSession}`).toHaveLength(0);
+      expect(await sql`SELECT 1 FROM agents.spend_reservations WHERE status = 'held'`).toHaveLength(0);
+      expect(await balanceOf(USER_A)).toBe('1000');
+    });
+
+    it('the agent’s cap applies even when the person’s own limit is higher: the lower of the two wins', async () => {
+      const route = TABLE.routes.find((r) => r.task === 'plan')!;
+      const worst = usageCost({ inputTokens: estimateInputTokens(undefined, MESSAGES), outputTokens: route.maxOutputTokens }, route.price!);
+      const spend = new UserSpendStore(sql);
+      await spend.set({
+        userId: USER_A,
+        assetId: 'IFC',
+        perCall: '100',
+        perSession: '100',
+        perPeriod: '100',
+        period: 'month',
+        idempotencyKey: 'own-high',
+      });
+      const cap = formatAmount(worst + worst / 2n);
+      await runtime.registerAgent({ ...PROBE, agentId: 'lower', limits: { ...PROBE.limits, maxSpendPerSession: cap } });
+      const session = await runtime.openSession({ userId: USER_A, agentId: 'lower' });
+      const reserve = (key: string) =>
+        spend.reserve({
+          userId: USER_A,
+          sessionId: session.id,
+          reservationKey: key,
+          assetId: 'IFC',
+          amount: formatAmount(worst),
+          agentCap: cap,
+        });
+      expect((await reserve('lower-1')).status).toBe('held');
+      await expect(reserve('lower-2')).rejects.toMatchObject({ code: 'agents.spend_limit' });
+      const rows = await sql<
+        Array<{ reservation_key: string }>
+      >`SELECT reservation_key FROM agents.spend_reservations WHERE session_id = ${session.id}`;
+      expect(rows.map((r) => r.reservation_key)).toEqual(['lower-1']);
+    });
+
+    it('a replayed request id reads as a replay even when the balance is now short, and the engine is not called again', async () => {
+      const spend = new UserSpendStore(sql);
+      let available = amt('1000');
+      const gate = counting(gateway);
+      const rt = new AgentRuntime(sql, gate.gateway, meter, bus, {
+        feeAssetId: 'IFC',
+        meteringEnabled: true,
+        spend,
+        funds: { available: async () => available },
+      });
+      await rt.registerAgent({ ...PROBE, agentId: 'again', limits: { ...PROBE.limits, maxSpendPerSession: '1000' } });
+      const session = await rt.openSession({ userId: USER_A, agentId: 'again' });
+      await rt.think({ sessionId: session.id, requestId: 'again-1', task: 'plan', messages: MESSAGES });
+      available = 0n;
+      await expect(rt.think({ sessionId: session.id, requestId: 'again-1', task: 'plan', messages: MESSAGES })).rejects.toMatchObject({
+        code: 'agents.request_id_replay',
+      });
+      expect(gate.calls()).toBe(1);
+    });
+
     it('session.detail shows each usage window: open while running, settled once with its charge after close; never another person’s', async () => {
       const SECRET = 'an-agents-owner-107-session-detail-secret';
       const edge = createEdgeContext({ secret: SECRET, serviceName: 'svc-agents' });
@@ -2302,6 +2419,46 @@ if (!available) {
           code: 'FORBIDDEN',
         });
       }
+    });
+
+    it('only the person selects which session their history shows: a key, a sub-account or a service is refused and changes nothing', async () => {
+      const SECRET = 'an-agents-select-person-only-secret';
+      const edge = createEdgeContext({ secret: SECRET, serviceName: 'svc-agents' });
+      const signed = (extra: Partial<Principal> = {}) => {
+        const raw = encodePrincipal({
+          sub: USER_A,
+          userId: USER_A,
+          sid: '33333333-3333-4333-8333-333333333333',
+          scopes: ['agents:read', 'agents:execute'],
+          tier: 'none',
+          mfa: false,
+          expiresAt: new Date(Date.now() + 60_000),
+          ...extra,
+        } as Principal);
+        return edge({
+          headers: {
+            'x-intafaced-principal': raw,
+            'x-intafaced-principal-sig': signPrincipalHeader(raw, SECRET, 'DE'),
+            'x-intafaced-region': 'DE',
+          },
+          id: 'req-select-person',
+        });
+      };
+      const router = createAgentsRouter({ runtime, gateway, meter, feeAssetId: 'IFC', sql });
+      const person = router.createCaller(signed());
+      const first = await person.session.open({ agentId: 'probe' });
+      const second = await person.session.open({ agentId: 'probe' });
+      expect(await person.session.select({ sessionId: first.id })).toEqual({ sessionId: first.id, agentId: 'probe' });
+      for (const ctx of [
+        signed({ kid: '66666666-6666-4666-8666-666666666666' }),
+        signed({ sub_account: '77777777-7777-4777-8777-777777777777' }),
+        { ...signed(), service: 'svc-trade' as const },
+      ]) {
+        await expect(router.createCaller(ctx as ReturnType<typeof signed>).session.select({ sessionId: second.id })).rejects.toMatchObject({
+          code: 'FORBIDDEN',
+        });
+      }
+      expect(await person.session.selected()).toEqual({ sessionId: first.id, agentId: 'probe' });
     });
   });
 }
