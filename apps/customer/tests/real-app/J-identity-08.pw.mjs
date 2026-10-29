@@ -640,7 +640,7 @@ test(`${J} #7: a trading restriction refuses a new order on the desk by name, ke
     await expect(page).toHaveURL(/\/uc\/account/);
     const status = page.getByTestId('account-status');
     await expect(status.getByTestId('account-status__state')).toHaveAttribute('data-state', 'restricted');
-    const restriction = status.locator('li[data-kind="trading_restricted"]');
+    const restriction = status.getByTestId('account-status__restrictions').locator('li[data-kind="trading_restricted"]');
     await expect(restriction).toContainText('Trading restricted');
     await expect(restriction).toContainText(
       'It stops new orders, larger orders, new bots and copied trades. You can still cancel an order.',
