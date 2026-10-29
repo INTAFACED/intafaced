@@ -1,3 +1,4 @@
+import type { SupportMacro, SupportSignature } from '@intafaced/contracts/support-macros';
 import type {
   SupportAccountGrounding,
   SupportViewList,
@@ -153,4 +154,11 @@ export interface SupportGroupsView {
   readonly groups: Part<readonly DeskGroupView[]>;
   readonly scope: Part<DeskScopeView>;
   readonly roster: Part<readonly StaffMemberView[]>;
+}
+
+/** The desk's macros and the signed-in agent's own signature (SP-desk-02). Two reads, each its own part. */
+export interface SupportMacrosView {
+  readonly asOf: string;
+  readonly macros: Part<readonly SupportMacro[]>;
+  readonly signature: Part<SupportSignature>;
 }

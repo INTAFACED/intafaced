@@ -218,6 +218,10 @@
       "types": "./dist/ledger-reconciliation.d.ts",
       "default": "./dist/ledger-reconciliation.js"
     },
+    "./ops-reconciliation-alerts": {
+      "types": "./dist/ops-reconciliation-alerts.d.ts",
+      "default": "./dist/ops-reconciliation-alerts.js"
+    },
     "./watchlists-preferences": {
       "types": "./dist/watchlists-preferences.d.ts",
       "default": "./dist/watchlists-preferences.js"
@@ -313,6 +317,10 @@
     "./campaigns-catalogue": {
       "types": "./dist/campaigns-catalogue.d.ts",
       "default": "./dist/campaigns-catalogue.js"
+    },
+    "./support-macros": {
+      "types": "./dist/support-macros.d.ts",
+      "default": "./dist/support-macros.js"
     }
   },
   "scripts": {

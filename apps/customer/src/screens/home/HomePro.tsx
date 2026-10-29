@@ -37,6 +37,7 @@ import {
   type HomePortfolio,
 } from './deps';
 import { InfoTip } from './InfoTip';
+import { TestBuildTag } from './TestBuildTag';
 import { IN_PANEL, STATE_IN_COLUMN } from './panel';
 import { proCopy } from './pro-copy';
 import { MarketsTable } from '../trade/markets/MarketsTable';
@@ -312,6 +313,7 @@ function Summary({
         {label}
         <div data-testid="hp-total__figure" className="hp-total__figure">
           <TotalFigure data={data} displayCurrency={displayCurrency} hidden={hidden} pro />
+          <TestBuildTag />
         </div>
         <TotalUnitNote data={data} displayCurrency={displayCurrency} hidden={hidden} className="hp-total__note" testId="hp-total__note" />
         <div className="hp-total__change">
