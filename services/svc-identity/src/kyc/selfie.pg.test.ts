@@ -188,7 +188,8 @@ if (!available) {
     it('a retake keeps a frame compliance bound to a verification record', async () => {
       const userId = await person();
       await desk.submit(userId, { contentType: 'image/jpeg', bytes: JPEG });
-      const [{ documentId }] = (await desk.listFor(userId, 1)) as [{ documentId: string }];
+      const [first] = await desk.listFor(userId, 1);
+      const documentId = first!.documentId;
       await db.sql`INSERT INTO kyc_records (user_id, tier, jurisdiction, provider_ref, status) VALUES (${userId}, 'basic', 'DE', ${documentId}, 'pending')`;
       await desk.submit(userId, { contentType: 'image/jpeg', bytes: JPEG });
       expect((await desk.listFor(userId, 10)).map((s) => s.status)).toEqual(['provided']);
