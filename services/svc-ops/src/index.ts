@@ -46,6 +46,9 @@ import { OpsService } from './ops-service.js';
 import { OPS_IDENTITY_UNWIRED, OPS_SUPPORT_UNWIRED, OpsError } from './codes.js';
 import { opsReadyUrlHonesty } from './ready-honesty.js';
 import { homeConfigFromEnv } from './home-config.js';
+import { createEvaluationFeedClient } from './reconciliation-alerts/feed-client.js';
+import { ingestReconciliationEvaluations } from './reconciliation-alerts/ingest.js';
+import { ReconciliationAlertStore } from './reconciliation-alerts/store.js';
 
 if (process.env.OPS_OUTREACH_RESTORE_QUARANTINED === '1') throw new Error('ops.crm.restore_quarantined');
 
@@ -110,6 +113,15 @@ try {
 // Per-service keys (S2S v3): with no S2S_AUTH_MODE every call stays on its shared secret.
 const s2s = s2sFromEnv(env, 'svc-ops');
 const s2sKey = s2s.signer && s2s.s2sMode ? { signer: s2s.signer, mode: s2s.s2sMode } : undefined;
+// Reconciliation alerts (OPS-reconciliation-03): the store, and the ledger's settled evaluations it reads.
+const reconciliationAlerts = crmSql
+  ? new ReconciliationAlertStore(crmSql, { repeatSeconds: env.OPS_RECON_ALERT_REPEAT_SECONDS ?? null })
+  : null;
+const evaluationFeed = createEvaluationFeedClient({
+  ledgerUrl: env.LEDGER_URL,
+  secret: env.INTERNAL_SERVICE_SECRET,
+  ...(s2sKey ? { s2s: s2sKey } : {}),
+});
 const notificationPort = createOutreachNotificationClient({
   notifyUrl: env.NOTIFY_URL,
   secret: env.OPS_NOTIFY_SERVICE_SECRET,
@@ -188,7 +200,7 @@ const appRouter = createOpsRouter(
     serviceRecords: crmSql ? new SqlServiceRecordStore(crmSql) : undefined,
     staffHolds,
     homeConfig: homeConfigFromEnv(env),
-    alertSourceUrl: env.OPS_ALERT_SOURCE_URL,
+    reconciliationAlerts: reconciliationAlerts ?? undefined,
     approvals: approvalConsumer,
     protocolListing: crmSql
       ? createListingDesk({
@@ -222,6 +234,7 @@ app.get('/ready', async () => ({
   alerts: {
     storage: crmSql ? 'configured' : 'unavailable',
     evaluator: crmSql ? 'running' : 'unavailable',
+    reconciliationFeed: reconciliationAlerts ? (evaluationFeed.configured ? 'configured' : 'unconfigured') : 'unavailable',
     // Events are kept in the durable outbox; no bus is wired from this process yet.
     events: 'outbox_only',
   },
@@ -284,6 +297,24 @@ const alertTimer = setInterval(() => {
 }, 5000);
 alertTimer.unref();
 
+// Reconciliation alerts: read the ledger's settled evaluations from the stored cursor. A failed read is kept as the source
+// being unavailable, which every alert answer shows; the next tick reads the same rows again.
+let reconciliationRun: Promise<void> | null = null;
+const reconciliationTimer = setInterval(() => {
+  if (!reconciliationAlerts || reconciliationRun) return;
+  reconciliationRun = ingestReconciliationEvaluations(reconciliationAlerts, evaluationFeed)
+    .then(() => undefined)
+    .catch(() => {
+      app.log.warn({ code: 'ops.reconciliation_feed_unavailable' }, 'Reconciliation alerts will read again on the next tick');
+    })
+    .finally(() => {
+      reconciliationRun = null;
+      // Not wired: the first tick recorded why, and nothing changes until a restart with the ledger set.
+      if (!evaluationFeed.configured) clearInterval(reconciliationTimer);
+    });
+}, 5000);
+reconciliationTimer.unref();
+
 // Explicit approved config enables this owned bounded scheduler; absent config does no work.
 let retentionRun: Promise<void> | null = null;
 const retentionTimer = setInterval(() => {
@@ -328,11 +359,13 @@ for (const signal of ['SIGTERM', 'SIGINT'] as const) {
       clearInterval(notificationTimer);
       clearInterval(retentionTimer);
       clearInterval(alertTimer);
+      clearInterval(reconciliationTimer);
       clearInterval(holdTimer);
       await app.close();
       await notificationRun;
       await retentionRun;
       await alertRun;
+      await reconciliationRun;
       await holdRun;
       await crmSql?.end({ timeout: 5 });
       process.exit(0);

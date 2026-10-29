@@ -69,7 +69,7 @@ export async function createOwnAgent(page, { cap = '1' } = {}) {
   await builder.getByRole('textbox', { name: /^Name/ }).fill(OWN_AGENT);
   await builder.getByRole('textbox', { name: /^Spend cap per session/ }).fill(cap);
   await builder.getByRole('button', { name: 'Save draft' }).click();
-  await expect(page.getByRole('status')).toContainText('Draft saved');
+  await expect(builder.getByRole('status')).toHaveText('Draft saved.');
 }
 
 /** Opens one page of the person's own agent (Limits, Rules, Test, Memory, ...) from My agents. Its pages are the app's

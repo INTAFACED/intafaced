@@ -24,6 +24,7 @@ import type { KycCapabilitiesOutput, KycCapability } from '@intafaced/contracts/
 import { assertAttemptsLeft, readKycAttempts, type KycAttemptLimit } from '../kyc/attempts.js';
 import type { KycAttempts } from '@intafaced/contracts/identity-kyc-attempts';
 import type { KycCase } from '@intafaced/contracts/identity-kyc-cases';
+import type { SelfFreezeState } from '@intafaced/contracts/identity';
 import type { ApiKeyRevokedBy } from '@intafaced/contracts/api-keys';
 import type {
   AccountState,
@@ -233,8 +234,12 @@ export class AuthError extends Error {
       | 'auth.founder_enrolment_closed'
       | 'auth.request_unsigned'
       | 'auth.request_stale'
+      | 'auth.request_future'
       | 'auth.request_tampered'
       | 'auth.request_replay'
+      | 'auth.request_window_unset'
+      | 'auth.api_key_expired'
+      | 'auth.edge_unauthenticated'
       | 'auth.ip_allowlist_required'
       | 'auth.payee_email_unconfirmed'
       | 'auth.payee_phone_unverified'
@@ -2150,6 +2155,17 @@ export class AuthService {
     return { frozen: true, ...result };
   }
 
+  /**
+   * The owner's freeze as another service reads it (`selfFreezeStateSchema`, `GET /internal/self-freeze/:userId`), or
+   * null for an unknown user, which the caller refuses on. It reads the same open freeze as `selfFreezeStatus`.
+   */
+  async selfFreezeState(userId: string): Promise<SelfFreezeState | null> {
+    const users = await this.sql`SELECT 1 FROM users WHERE id = ${userId}`;
+    if (users.length === 0) return null;
+    const { frozen, since } = await this.selfFreezeStatus(userId);
+    return { userId, frozen, since: since ? since.toISOString() : null };
+  }
+
   async selfFreezeStatus(userId: string): Promise<{ frozen: boolean; reason: SelfFreezeReason | null; since: Date | null }> {
     const rows = await this.sql<Array<{ reason: SelfFreezeReason; since: Date }>>`
       SELECT reason, since FROM account_self_freezes WHERE user_id = ${userId} AND state = 'frozen'`;
@@ -2543,6 +2559,26 @@ export class AuthService {
     return { userId: row.user_id, scopes: row.scopes, keyId: row.id, mode, domainWhitelist: row.domain_whitelist ?? [] };
   }
 
+  /**
+   * Why a presented key that opens nothing is refused (DV-errors-02, J-developer-04 #5 and #6). Only a caller holding
+   * the key's full secret reaches a named answer, and the key is dead either way, so naming it tells a guesser
+   * nothing: a key matching no row stays `auth.invalid_credentials`. A frozen account comes first, because a freeze
+   * also revokes the account's keys and the holder needs to know the account, not the key, is the cause.
+   */
+  private async deadApiKeyRefusal(key: string): Promise<AuthError> {
+    const rows = await this.sql<Array<{ revoked: boolean; expires_at: Date | null; status: string | null }>>`
+      SELECT k.revoked, k.expires_at, u.status
+      FROM api_keys k LEFT JOIN users u ON u.id = k.user_id
+      WHERE k.key_hash = ${hashToken(key)}
+    `;
+    const row = rows[0];
+    if (!row) return new AuthError('Invalid credentials', 'auth.invalid_credentials');
+    if (row.status !== null && row.status !== 'active') return new AuthError(`Account is ${row.status}`, 'auth.account_frozen');
+    if (row.revoked) return new AuthError('API key is revoked', 'auth.api_key_revoked');
+    if (row.expires_at && row.expires_at.getTime() < Date.now()) return new AuthError('API key has expired', 'auth.api_key_expired');
+    return new AuthError('Invalid credentials', 'auth.invalid_credentials');
+  }
+
   async exchangeApiKey(
     key: string,
     requestOrigin?: string | null,
@@ -2558,7 +2594,7 @@ export class AuthService {
     ipAllowlist?: string[];
   }> {
     const verified = await this.verifyApiKey(key);
-    if (!verified) throw new AuthError('Invalid credentials', 'auth.invalid_credentials');
+    if (!verified) throw await this.deadApiKeyRefusal(key);
     if (!apiKeyOriginAllowed(verified.domainWhitelist, requestOrigin)) {
       throw new AuthError('API key is not allowed from this origin', 'auth.domain_not_allowed');
     }
