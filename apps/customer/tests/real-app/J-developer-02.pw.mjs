@@ -70,6 +70,7 @@ test(`${J} #1 follows the trading quickstart: account, key, clock check, first c
   }
   // Each step leads somewhere real: the key step opens the key room, the clock step reads the server, the first call
   // opens the reference that lists the time route.
+  await expect(steps.nth(0).getByRole('link')).toHaveAttribute('href', '/register');
   await expect(steps.nth(2).getByRole('button', { name: 'Check my clock' })).toBeVisible();
   await steps.nth(1).getByRole('link').click();
   await expect(page).toHaveURL(/\/uc\/safe\/api-keys$/);
