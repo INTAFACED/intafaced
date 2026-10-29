@@ -11,10 +11,9 @@ import { blankSigningWindow, signingPolicy } from './developer.mjs';
 // (only such an account may hold a key, as in J-developer-03) and one live trade key made in the browser; every call
 // after that goes from the developer's own program straight to Edge, as a bot's would.
 // Steps that are written but not built yet fail at their first missing part, quickly (UNBUILT):
-// - #1, #2: identity checks each trade key's signature against the owner's window and publishes its test vector and
-//   window (`requestSigningPolicy`), but Edge still answers every signature refusal edge.api_key_denied, not its own
-//   code, and /developers/authentication does not show the vector or the window yet (DV-auth-01, the svc-edge and
-//   portal PRs). Each step proves its other clauses first and stops at the first of those.
+// - #1, #2: identity checks each trade key's signature against the owner's window and /developers/authentication shows
+//   its test vector and window, but Edge still answers every signature refusal edge.api_key_denied, not its own code
+//   (DV-auth-01, the svc-edge PR). Each step proves its other clauses first and stops there.
 // - #3, #4: errors are not one typed body with a request id, a docs link and a list of fields (DV-errors-01).
 // - #5: no catalogue of auth and permission codes at /developers/errors/auth (DV-errors-02).
 // - #6: no stack tool turns the platform posting freeze on and off (`local-test-gates.mjs posting-freeze`, proposed).

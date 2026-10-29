@@ -148,6 +148,32 @@ test(`${J} #6 runs the clock check: the offset against the server, and within th
   await expect(result).toHaveAttribute('data-clock-window', 'within');
   await expect(result).toContainText('Within the window');
 
+  // "the offset against the server": the server clock is real, so a browser clock set ahead by a known amount must read
+  // back as that much behind the server (within the read's own round trip), and one set beyond the window must not pass.
+  const skewedCheck = async (skewMs) => {
+    const skewed = await page.context().newPage();
+    try {
+      await skewed.addInitScript((skew) => {
+        const real = Date.now.bind(Date);
+        Date.now = () => real() + skew;
+      }, skewMs);
+      await skewed.goto('/developers/quickstart');
+      await skewed.getByRole('button', { name: 'Check my clock' }).click();
+      const shown = skewed.getByTestId('developers-clock-check');
+      await expect(shown).toHaveAttribute('data-offset-ms', /-?\d+/);
+      return { offsetMs: Number(await shown.getAttribute('data-offset-ms')), verdict: await shown.getAttribute('data-clock-window') };
+    } finally {
+      await skewed.close();
+    }
+  };
+  const ahead = await skewedCheck(120_000);
+  expect(Math.abs(ahead.offsetMs + 120_000), `offset ${ahead.offsetMs} reads the 120 s skew against the server`).toBeLessThanOrEqual(2_000);
+  expect(ahead.verdict).toBe('within');
+  const beyondMs = (windowSeconds + 60) * 1000;
+  const beyond = await skewedCheck(beyondMs);
+  expect(Math.abs(beyond.offsetMs + beyondMs), `offset ${beyond.offsetMs} reads the skew against the server`).toBeLessThanOrEqual(2_000);
+  expect(beyond.verdict).toBe('outside');
+
   // While the owner's window is blank the check does not pass: it names the refusal every signed call would get.
   blankSigningWindow(true);
   try {
