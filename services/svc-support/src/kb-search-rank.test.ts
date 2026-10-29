@@ -52,9 +52,14 @@ describe('searchKb finds a catalogue-keyed article by the title people read (HM-
     expect(searchKb('zebra crossing', [access])).toEqual([]);
   });
 
-  it('matches a title typed in the desk on that text, not on the catalogue', () => {
+  it('matches a title typed in the desk on that text and still on the catalogue title the header shows', () => {
     const typed = { ...access, title: 'Getting back in' };
     expect(searchKb('Getting back in', [typed]).map((row) => row.id)).toEqual(['kb-account-access']);
-    expect(searchKb('account access', [typed])).toEqual([]);
+    expect(searchKb('account access', [typed]).map((row) => row.id)).toEqual(['kb-account-access']);
+  });
+
+  it('never matches a key that has no catalogue text', () => {
+    const unknown = article({ id: 'kb-x', titleKey: 'support.kb.no_such.title', bodyKey: 'support.kb.no_such.body' });
+    expect(searchKb('account access', [unknown])).toEqual([]);
   });
 });
