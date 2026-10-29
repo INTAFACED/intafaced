@@ -516,6 +516,12 @@ async function defineOutside(section, asset, tag) {
   const explanation = `LOCAL TEST ${asset} outside balance ${J} ${tag}`;
   await form.getByLabel('Template').selectOption('outside_balance');
   await form.getByLabel('Explanation (optional)').fill(explanation);
+  // Every account of an asset nets to 0 by double entry, so the set is the rail boundaries only: the treasury accounts
+  // `rail:<rail>` that value crosses on its way in or out (the stack has no venue or bridge boundary). The outside side
+  // reports those boundaries in the ledger's own signed form, so the run compares like with like.
+  await form.getByLabel('Owner type').selectOption('treasury');
+  await form.getByLabel('Account kind').selectOption('available');
+  await form.getByLabel('Owner id starts with').fill('rail:');
   await form.getByLabel('Asset', { exact: true }).fill(asset);
   await form.getByLabel('Cadence').selectOption('daily');
   await form.getByLabel('Hour (UTC)').fill('6');
@@ -574,9 +580,17 @@ test(`${J} #8 reconciles to the cent: the founders' outside-side reconciliation 
   for (const asset of assets) {
     const id = await defineOutside(await openLedger(a), asset, tag);
     const answer = await twoFounderRun(a, b, id, tag);
+    // The run read the rail boundaries, not a set that nets to 0.
+    const read = /(\d+) accounts? and \d+ assets? read\./.exec(answer);
+    expect(read, `${asset}: the run names how many rail boundary accounts it read`).not.toBeNull();
+    expect(Number(read[1]), `${asset}: at least one rail boundary account read`).toBeGreaterThan(0);
+    const observed = new RegExp(`${asset.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}: observed (-?[\\d.]+),`).exec(answer);
+    expect(observed, `${asset}: the run names what the rail boundaries hold`).not.toBeNull();
+    expect(Number(observed[1]), `${asset}: the rail boundaries the customer's money crossed do not sum to 0`).not.toBe(0);
     // The outside side is the stack's LOCAL TEST rail snapshot (lane 5, LEDGER_RECONCILE_OUTSIDE_SNAPSHOT_URL); with no
     // snapshot source the run answers "outside unset", and this clause stays red by that name.
-    expect(answer, `${asset}: the outside side needs the stack's LOCAL TEST snapshot source`).toContain('Outside side: snapshot');
-    expect(answer, asset).toMatch(new RegExp(`Run [0-9a-f-]{36}: PASS\\.`));
+    // Soft, so each asset's scope above is proven even while the outside side is missing; the step still fails.
+    expect.soft(answer, `${asset}: the outside side needs the stack's LOCAL TEST snapshot source`).toContain('Outside side: snapshot');
+    expect.soft(answer, asset).toMatch(new RegExp(`Run [0-9a-f-]{36}: PASS\\.`));
   }
 });
