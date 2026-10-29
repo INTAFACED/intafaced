@@ -8,7 +8,8 @@ import { Button, Failure, Field, Loading } from '../../shared/ui';
 import { verificationPoaCopy as copy } from './verification-poa-copy';
 
 type Refusal = Extract<ApiResult<unknown>, { ok: false }>;
-type Problem = { kind: 'copy'; text: string } | { kind: 'failure'; result: Refusal };
+/** A refusal from the service keeps its typed code beside the plain words; a check made here before sending has none. */
+type Problem = { kind: 'copy'; text: string; code?: string } | { kind: 'failure'; result: Refusal };
 const statusKey = { submitted: 'statusSubmitted', accepted: 'statusAccepted', rejected: 'statusRejected' } as const;
 
 /**
@@ -64,26 +65,31 @@ export function VerificationProofOfAddress({ recordsKey, disabled }: { recordsKe
     const refused = (result: Refusal) => {
       switch (result.code) {
         case 'kyc.poa_too_old':
-          return setProblem({ kind: 'copy', text: t('tooOld', { days: String(maxAgeDays ?? '') }) });
+          return setProblem({ kind: 'copy', code: result.code, text: t('tooOld', { days: String(maxAgeDays ?? '') }) });
         case 'kyc.poa_pending':
-          return setProblem({ kind: 'copy', text: t('pending') });
+          return setProblem({ kind: 'copy', code: result.code, text: t('pending') });
         case 'kyc.poa_type_refused':
-          return setProblem({ kind: 'copy', text: t('typeRefused') });
+          return setProblem({ kind: 'copy', code: result.code, text: t('typeRefused') });
         case 'kyc.poa_date_invalid':
-          return setProblem({ kind: 'copy', text: t('dateInvalid') });
+          return setProblem({ kind: 'copy', code: result.code, text: t('dateInvalid') });
         case 'kyc.poa_types_unset':
-          return setProblem({ kind: 'copy', text: t('unpublished', { country: shownCountry }) });
+          return setProblem({ kind: 'copy', code: result.code, text: t('unpublished', { country: shownCountry }) });
         case 'kyc.poa_type_unlisted':
-          return setProblem({ kind: 'copy', text: t('typeUnlisted', { country: shownCountry }) });
+          return setProblem({ kind: 'copy', code: result.code, text: t('typeUnlisted', { country: shownCountry }) });
         case 'kyc.poa_rule_unset':
-          return setProblem({ kind: 'copy', text: t('ruleUnset') });
+          return setProblem({ kind: 'copy', code: result.code, text: t('ruleUnset') });
         case 'kyc.upload_caps_unset':
-          return setProblem({ kind: 'copy', text: t('capsUnset') });
+          return setProblem({ kind: 'copy', code: result.code, text: t('capsUnset') });
         case 'kyc.upload_too_large':
-          return setProblem({ kind: 'copy', text: uploadCaps ? t('overCap', { kib: String(kib(uploadCaps.maxBytes)) }) : t('capsUnset') });
+          return setProblem({
+            kind: 'copy',
+            code: result.code,
+            text: uploadCaps ? t('overCap', { kib: String(kib(uploadCaps.maxBytes)) }) : t('capsUnset'),
+          });
         case 'kyc.upload_type':
           return setProblem({
             kind: 'copy',
+            code: result.code,
             text: uploadCaps ? t('wrongType', { types: uploadCaps.contentTypes.join(', ') }) : t('capsUnset'),
           });
         default:
@@ -254,9 +260,7 @@ export function VerificationProofOfAddress({ recordsKey, disabled }: { recordsKe
           )}
           <Button
             type="submit"
-            disabled={
-              disabled || busy || reading || !file || !uploadCaps || !maxAgeDays || !documents.accepted.some((row) => row.type === type)
-            }
+            disabled={disabled || busy || reading || !file || !uploadCaps || !documents.accepted.some((row) => row.type === type)}
           >
             <Copy k={busy ? 'sending' : 'send'} />
           </Button>
@@ -287,7 +291,7 @@ export function VerificationProofOfAddress({ recordsKey, disabled }: { recordsKe
       </p>
       {body()}
       {problem && (
-        <div role="alert" data-testid="verification__poa-problem">
+        <div role="alert" data-testid="verification__poa-problem" data-code={problem.kind === 'copy' ? problem.code : problem.result.code}>
           {problem.kind === 'copy' ? <p>{problem.text}</p> : <Failure result={problem.result} />}
         </div>
       )}
