@@ -80,6 +80,16 @@
       "service": "trade",
       "value": "BTC/USDT:65000",
       "note": "TEST reference price for the quote desk: the TEST BTC/USDT book's start price on the local stack, stamped at boot. Not a market price."
+    },
+    "TRADE_GRID_COUNT_MIN": {
+      "service": "trade",
+      "value": "2",
+      "note": "TEST lowest grid count a spot grid bot may use: 2, the structural floor (two levels to trade between), so a count of 1 is refused (trade.grid_count_out_of_range)."
+    },
+    "TRADE_GRID_COUNT_MAX": {
+      "service": "trade",
+      "value": "100",
+      "note": "TEST highest grid count a spot grid bot may use: 100, so the journeys' 20 grids plan inside the range."
     }
   }
 }

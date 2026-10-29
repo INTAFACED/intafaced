@@ -8,6 +8,9 @@
  *   pnpm local:market stop           stop it, cancel its resting orders, and forget it (ensure then leaves it off)
  *                                    (pnpm local:market:stop is the same as stop)
  *   node tooling/scripts/local-test-market.mjs check
+ *   node tooling/scripts/local-test-market.mjs move <symbol> <+/-pct%>
+ *                                    shifts that market's TEST PRICE by the percent from the next cycle on (0% clears it),
+ *                                    so a journey can push a price out of a bot's range; the running loop picks it up.
  *   node tooling/scripts/local-test-market.mjs history [--bars 210] [--step-minutes 15] [--trades-per-bar 2]
  *                                    on a FRESH stack, with the market stopped: real TEST trades now, then moved into the
  *                                    past (fill times only) so charts have history. Skips any market that already traded.
@@ -73,6 +76,7 @@ export function stackPaths(home = os.homedir()) {
     runDir: path.join(stateDir, 'run'),
     pidFile: path.join(stateDir, 'run', 'market.json'),
     walkFile: path.join(stateDir, 'run', 'market-walk.json'),
+    shiftFile: path.join(stateDir, 'run', 'market-shift.json'),
     log: path.join(stateDir, 'logs', 'market.log'),
   };
 }
@@ -250,6 +254,34 @@ export function quoteOrder(markets, prices = TEST_PRICES) {
   // What is left follows round a loop: each walks on its own.
   for (const m of markets) if (!placed.has(m.symbol)) visit(m, null);
   return out;
+}
+
+/**
+ * A `move` percent ("+2%", "-6%", "0.5%", "0%") as whole basis points, or null when it is not one. At most two decimal
+ * places, and from -50% to +100%, so a shift can never quote a book at or below zero (exported for tests).
+ */
+export function parseShift(text) {
+  const match = /^([+-]?)(\d{1,3})(?:\.(\d{1,2}))?%$/.exec(String(text ?? '').trim());
+  if (!match) return null;
+  const bps = (BigInt(match[2]) * 100n + BigInt((match[3] ?? '').padEnd(2, '0'))) * (match[1] === '-' ? -1n : 1n);
+  return bps < -5000n || bps > 10000n ? null : bps;
+}
+
+/** A walk mid moved by a `move` shift in basis points, floored to the tick (exported for tests). */
+export function shiftedMid(mid, bps, tick) {
+  if (!bps) return mid;
+  const moved = (mid * (10000n + bps)) / 10000n;
+  return tick > 0n ? (moved / tick) * tick : moved;
+}
+
+/** The saved shifts, symbol to basis points; unreadable or absent is no shift. */
+function readShifts(p) {
+  try {
+    const raw = JSON.parse(fs.readFileSync(p.shiftFile, 'utf8'));
+    return new Map(Object.entries(raw ?? {}).map(([k, v]) => [k, BigInt(v)]));
+  } catch {
+    return new Map();
+  }
 }
 
 /** The mid of a book's best bid and best ask (a public order book answer), scaled; null when either side is empty. */
@@ -720,6 +752,7 @@ async function runLoop(opts, home) {
     cycle += 1;
     /** This cycle's mid per market, so a follower whose leader's book cannot be read uses the leader's walk. */
     const mids = new Map();
+    const shifts = readShifts(p);
     for (const { market: m, leader } of order) {
       let mid;
       if (leader) {
@@ -728,7 +761,8 @@ async function runLoop(opts, home) {
           .catch(() => null);
         mid = (book?.status === 200 ? bookMid(book.json) : null) ?? mids.get(leader) ?? walks.get(m.symbol).next();
       } else {
-        mid = walks.get(m.symbol).next();
+        // A `move` shift applies to a walked market; a follower is quoted round its leader's book, so it moves with it.
+        mid = shiftedMid(walks.get(m.symbol).next(), shifts.get(m.symbol), m.tick);
       }
       mids.set(m.symbol, mid);
       const cfg = TEST_PRICES[m.symbol];
@@ -1356,6 +1390,26 @@ async function main() {
     process.exit(await runLoop({ ...opts, ...(cmd === 'check' ? { seconds: 2 } : {}) }, os.homedir()));
   }
   if (cmd === 'history') process.exit(await runHistory(opts, os.homedir()));
+  if (cmd === 'move') {
+    const [symbol, pct] = rest;
+    const bps = parseShift(pct);
+    if (!TEST_PRICES[symbol] || TEST_PRICES[symbol].follows)
+      die(
+        `move needs a walked TEST market (${Object.keys(TEST_PRICES)
+          .filter((k) => !TEST_PRICES[k].follows)
+          .join(', ')})`,
+        2,
+      );
+    if (bps === null) die(`move needs a percent from -50% to +100%, like +2% or -6% (got ${JSON.stringify(pct ?? '')})`, 2);
+    const shifts = readShifts(p);
+    if (bps === 0n) shifts.delete(symbol);
+    else shifts.set(symbol, bps);
+    fs.mkdirSync(p.runDir, { recursive: true, mode: 0o700 });
+    fs.writeFileSync(p.shiftFile, JSON.stringify(Object.fromEntries([...shifts].map(([k, v]) => [k, v.toString()]))), { mode: 0o600 });
+    return console.log(
+      `${symbol} TEST PRICE shift ${bps === 0n ? 'cleared' : `${bps} bps`}; the running market quotes it from its next cycle`,
+    );
+  }
   if (cmd === 'ensure') {
     const rec = readRecord(p);
     if (runningPid(p)) return console.log(`already running (pid ${runningPid(p)})`);
@@ -1363,7 +1417,7 @@ async function main() {
     console.log(`was running (pid ${rec.pid}) and is not now; starting it again with the same options`);
     return startBackground(p, rec.args ?? [], { wait: false });
   }
-  if (cmd !== 'start') die(`unknown command "${cmd}". Use: start | stop | status | ensure | check | history`, 2);
+  if (cmd !== 'start') die(`unknown command "${cmd}". Use: start | stop | status | ensure | check | history | move`, 2);
   await startBackground(p, rest, { wait: true });
 }
 
