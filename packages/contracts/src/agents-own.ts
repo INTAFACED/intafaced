@@ -37,3 +37,42 @@ export const ownAgentCatalogueSchema = z.object({
   tools: z.array(ownAgentToolSchema),
 });
 export type OwnAgentCatalogue = z.infer<typeof ownAgentCatalogueSchema>;
+
+/**
+ * `own.limits.get` / `own.limits.set`: the caps a person sets for one of their own agents (AG-spend-01). Every amount
+ * is a decimal string in the fee asset. `limits` is null until all three are set; `effectivePerSession` is the lower of
+ * the person's per-session value and the agent's own cap, and null while either is unset. `assetId` is the fee asset.
+ */
+export const ownAgentLimitsSchema = z.object({
+  limits: z.object({ perCall: z.string(), perSession: z.string(), perPeriod: z.string(), period: z.literal('month') }).nullable(),
+  agentCap: z.string().nullable(),
+  effectivePerSession: z.string().nullable(),
+  assetId: z.string(),
+});
+export type OwnAgentLimits = z.infer<typeof ownAgentLimitsSchema>;
+
+/** `own.session.open`: a session of the person's own agent, bound to its tools and caps as they stood at open. */
+export const ownAgentSessionSchema = z.object({ sessionId: z.string().uuid(), agentId: z.string() });
+export type OwnAgentSession = z.infer<typeof ownAgentSessionSchema>;
+
+/** `own.run`: one admitted run. A refused run answers with its refusal code as the error message instead. */
+export const ownAgentRunResultSchema = z.object({
+  text: z.string(),
+  cost: z.string(),
+  assetId: z.string(),
+  inputTokens: z.number().int(),
+  outputTokens: z.number().int(),
+});
+export type OwnAgentRunResult = z.infer<typeof ownAgentRunResultSchema>;
+
+/** `own.runs`: every engine call asked of the agent, newest first. A refused one carries its code and costs 0. */
+export const ownAgentRunRowSchema = z.object({
+  sessionId: z.string().uuid(),
+  sequence: z.number().int(),
+  status: z.enum(['executed', 'refused', 'failed']),
+  refusalCode: z.string().nullable(),
+  cost: z.string(),
+  assetId: z.string(),
+  occurredAt: z.string(),
+});
+export type OwnAgentRunRow = z.infer<typeof ownAgentRunRowSchema>;

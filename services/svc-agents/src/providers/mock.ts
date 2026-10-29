@@ -43,6 +43,11 @@ export interface MockProviderOptions {
   readonly failFirst?: number;
   readonly capabilities?: readonly ProviderCapability[];
   readonly latencyMs?: number;
+  /**
+   * How long each answer takes, in milliseconds. Zero or absent answers at once. A local test stack sets it so that
+   * two runs started together are both in flight at the same moment, as they would be against a real engine.
+   */
+  readonly answerDelayMs?: number;
 }
 
 /**
@@ -166,6 +171,7 @@ export class MockModelProvider implements ModelProvider {
   private lastLatencyMs: number;
   private failWith: ProviderError | undefined;
   private failFirst: number;
+  private readonly answerDelayMs: number;
 
   constructor(options: MockProviderOptions = {}) {
     this.id = options.id ?? 'mock';
@@ -173,6 +179,7 @@ export class MockModelProvider implements ModelProvider {
     this.lastLatencyMs = options.latencyMs ?? 1;
     this.failWith = options.failWith;
     this.failFirst = options.failFirst ?? 0;
+    this.answerDelayMs = options.answerDelayMs ?? 0;
   }
 
   /** Test control: start failing. */
@@ -206,6 +213,7 @@ export class MockModelProvider implements ModelProvider {
 
   async complete(request: CompletionRequest): Promise<CompletionResult> {
     this.calls++;
+    if (this.answerDelayMs > 0) await new Promise((resolve) => setTimeout(resolve, this.answerDelayMs));
     // Freshness is recorded before the failure branch: a provider that answered
     // with an error still answered. That is what separates a transient blip
     // (`failFirst` — the next call is routed normally) from an outage

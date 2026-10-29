@@ -296,6 +296,9 @@ export const REFUSAL_CODES = [
   // the person's available balance cannot cover (OWNER 107).
   'agents.price_unset',
   'agents.funds_insufficient',
+  // Refused at the hold for an agent the person built: a run past one of the caps they set for it, or no caps set.
+  'agents.spend.cap_exceeded',
+  'agents.spend.cap_unset',
 ] as const;
 
 export type RefusalCode = (typeof REFUSAL_CODES)[number];
