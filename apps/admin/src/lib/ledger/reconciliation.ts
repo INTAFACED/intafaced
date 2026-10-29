@@ -14,11 +14,13 @@ import {
   RECONCILIATION_TEMPLATES,
   defineReconciliationControlInputSchema,
   reconciliationControlListSchema,
+  reconciliationControlRunListSchema,
   reconciliationControlRunSchema,
   reconciliationControlViewSchema,
   reconciliationDecimalSchema,
   updateReconciliationControlInputSchema,
   type DefineReconciliationControlInput,
+  type ReconciliationControlRunList,
   type ReconciliationControlRunView,
   type ReconciliationControlView,
   type ReconciliationLifecycle,
@@ -26,7 +28,7 @@ import {
   type UpdateReconciliationControlInput,
 } from '@intafaced/contracts/ledger-reconciliation';
 
-export type { ReconciliationControlRunView, ReconciliationControlView, ReconciliationLifecycle };
+export type { ReconciliationControlRunList, ReconciliationControlRunView, ReconciliationControlView, ReconciliationLifecycle };
 export type ControlTemplate = (typeof RECONCILIATION_TEMPLATES)[number];
 export type ControlSeverity = (typeof RECONCILIATION_SEVERITIES)[number];
 export const CONTROL_TEMPLATES = RECONCILIATION_TEMPLATES;
@@ -50,6 +52,13 @@ export function parseControlView(raw: unknown): ReconciliationControlView | null
 export function parseControlRun(raw: unknown): ReconciliationControlRunView | null {
   const parsed = reconciliationControlRunSchema.safeParse(raw);
   return parsed.success ? parsed.data : null;
+}
+
+/** svc-ledger's answer for one control's evaluations, or null when it is not exactly that shape or names another control. */
+export function parseControlRunList(raw: unknown, controlId: string): ReconciliationControlRunList | null {
+  const parsed = reconciliationControlRunListSchema.safeParse(raw);
+  if (!parsed.success || parsed.data.controlId !== controlId) return null;
+  return parsed.data.runs.every((run) => run.controlId === controlId) ? parsed.data : null;
 }
 
 /** What a founder types into the define and update form. Every field is text, so a blank is visibly blank. */

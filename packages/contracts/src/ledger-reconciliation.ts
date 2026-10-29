@@ -290,6 +290,27 @@ export const reconciliationControlRunSchema = z
   .strict();
 export type ReconciliationControlRunView = z.infer<typeof reconciliationControlRunSchema>;
 
+/** OPS-reconciliation-02: a control's evaluations, newest first. A paused or retired control keeps every one readable. */
+export const RECONCILIATION_RUN_LIST_MAX = 500;
+/** How many runs a list returns when it names no limit. */
+export const RECONCILIATION_RUN_LIST_DEFAULT = 100;
+export const listReconciliationControlRunsInputSchema = z
+  .object({
+    controlId: z.string().uuid(),
+    limit: z.number().int().min(1).max(RECONCILIATION_RUN_LIST_MAX).optional(),
+  })
+  .strict();
+export type ListReconciliationControlRunsInput = z.infer<typeof listReconciliationControlRunsInputSchema>;
+export const reconciliationControlRunListSchema = z
+  .object({
+    controlId: z.string().uuid(),
+    /** Every evaluation the control has; `runs` holds the newest `limit` of them, by when each run started. */
+    total: z.number().int().nonnegative(),
+    runs: z.array(reconciliationControlRunSchema),
+  })
+  .strict();
+export type ReconciliationControlRunList = z.infer<typeof reconciliationControlRunListSchema>;
+
 /** What a rail snapshot must look like when a partner has one. Amounts are decimal strings. */
 export const railBalanceSnapshotSchema = z
   .object({

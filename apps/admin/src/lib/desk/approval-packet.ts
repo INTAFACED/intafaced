@@ -7,6 +7,7 @@ import {
 import { COST_AMOUNT, COST_ASSET, PERIOD, isCategory, type CostCategory } from '@/lib/venue-economics/model';
 import { METADATA_KEY } from '@/lib/ledger/account-metadata';
 import { STAFF_HOLD_AMOUNT_PATTERN, STAFF_HOLD_ASSET_PATTERN } from '@intafaced/contracts/ops-staff-holds';
+import { kycSelfieDecisionSchema, type KycSelfieDecision } from '@intafaced/contracts/identity-kyc-selfie';
 import {
   accountLimitAmountSchema,
   accountLimitAssetIdSchema,
@@ -194,7 +195,12 @@ export type DeskRequest =
    * Open one KYC document from identity's encrypted vault (svc-identity `kyc.getDocument`, J-ops-console-02 #5). Identity binds
    * the approval to the document id alone and spends it on the read, so one approval opens it once.
    */
-  | { readonly kind: 'identity.kyc_document.open'; readonly documentId: string };
+  | { readonly kind: 'identity.kyc_document.open'; readonly documentId: string }
+  /**
+   * Accept or reject one selfie a person sent for comparison with their ID photo (svc-identity `kyc.selfie.decide`,
+   * I-kyc-compliance-09). Identity binds the selfie id and the decision to the approval; neither founder may be the person.
+   */
+  | { readonly kind: 'identity.kyc_selfie.decide'; readonly selfieId: string; readonly decision: SelfieDecision };
 
 export const VENDOR_DECISIONS = ['approved', 'rejected', 'suspended'] as const;
 export type VendorDecision = (typeof VENDOR_DECISIONS)[number];
@@ -202,6 +208,9 @@ export const CARD_STATUSES = ['frozen', 'active'] as const;
 export type CardStatus = (typeof CARD_STATUSES)[number];
 export const RESIDENCY_DECISIONS = ['accepted', 'rejected'] as const;
 export type ResidencyDecision = (typeof RESIDENCY_DECISIONS)[number];
+/** The decisions identity takes on a selfie (`kycSelfieDecisionSchema`). */
+export const SELFIE_DECISIONS = kycSelfieDecisionSchema.options;
+export type SelfieDecision = KycSelfieDecision;
 /** svc-identity's signing-key id, and the sorted comma list of ids a remove-old names (`auth-key-ring.ts`). */
 const AUTH_KEY_ID = /^[a-z0-9][a-z0-9._-]{0,31}$/;
 const POOL_ADDRESS = /^0x[0-9a-fA-F]{40}$/;
@@ -382,6 +391,12 @@ export function readDeskRequest(raw: unknown): DeskRequest | null {
     if (keys !== 'documentId,kind') return null;
     if (typeof raw.documentId !== 'string' || !UUID.test(raw.documentId)) return null;
     return { kind: 'identity.kyc_document.open', documentId: raw.documentId };
+  }
+  if (raw.kind === 'identity.kyc_selfie.decide') {
+    if (keys !== 'decision,kind,selfieId') return null;
+    if (typeof raw.selfieId !== 'string' || !UUID.test(raw.selfieId)) return null;
+    if (typeof raw.decision !== 'string' || !(SELFIE_DECISIONS as readonly string[]).includes(raw.decision)) return null;
+    return { kind: 'identity.kyc_selfie.decide', selfieId: raw.selfieId, decision: raw.decision as SelfieDecision };
   }
   if (raw.kind === 'identity.account.tier_move') {
     if (keys !== 'kind,reason,tierId,userId,version') return null;
@@ -674,6 +689,8 @@ export function confirmPhrase(request: DeskRequest): string {
       return 'CONSOLE WRITABLE';
     case 'identity.kyc_document.open':
       return `OPEN DOCUMENT ${request.documentId.slice(0, 8)}`;
+    case 'identity.kyc_selfie.decide':
+      return `${request.decision === 'accepted' ? 'ACCEPT' : 'REJECT'} SELFIE ${request.selfieId.slice(0, 8)}`;
   }
 }
 
@@ -762,6 +779,10 @@ export function describeRequest(request: DeskRequest): string {
       return 'Turn off maintenance mode: this console takes writes again. Nothing else changes.';
     case 'identity.kyc_document.open':
       return `Open KYC document ${request.documentId} from identity's encrypted vault: its contents are decrypted and shown on the requester's console only, once. Identity's approval names who asked and who approved, and the read spends it. Nothing about the document or the account changes.`;
+    case 'identity.kyc_selfie.decide':
+      return request.decision === 'accepted'
+        ? `Accept selfie ${request.selfieId}: the operator compared it with the account's ID photo and they match. Identity marks the selfie accepted and records when.`
+        : `Reject selfie ${request.selfieId}: it does not match the account's ID photo or cannot be compared. Identity marks the selfie rejected and records when; the person can take a new one.`;
   }
 }
 
@@ -778,6 +799,7 @@ export function requestReason(request: DeskRequest): string | null {
     case 'protocol.market.restore':
     case 'ops.console_mode.off':
     case 'identity.kyc_document.open':
+    case 'identity.kyc_selfie.decide':
       return null;
     default:
       return request.reason;

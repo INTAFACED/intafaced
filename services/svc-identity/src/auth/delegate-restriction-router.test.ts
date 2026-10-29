@@ -55,7 +55,9 @@ describe('a delegated key cannot change any key expiry', () => {
     );
     const context = { principal: await verifyAccessToken(token, tokenConfig), service: null, region: 'DE', requestId: 'delegate-fixture' };
     await expect(
-      createApiKeyExpireRouter(sql).createCaller(context).expireApiKey({ keyId, expiresAt: '2099-01-01T00:00:00.000Z' }),
+      createApiKeyExpireRouter(sql, {} as ApiKeyFactorGate)
+        .createCaller(context)
+        .expireApiKey({ keyId, expiresAt: '2099-01-01T00:00:00.000Z' }),
     ).rejects.toMatchObject({ code: 'FORBIDDEN', cause: { code: 'auth.delegate_cannot_grant' } });
     expect(reads).toBe(0);
   });

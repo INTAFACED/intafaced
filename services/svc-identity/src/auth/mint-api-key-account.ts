@@ -50,7 +50,7 @@ export async function mintApiKeyBoundToAccount(
     const bound = await bindApiKeyAccount(sql, input.userId, minted.id, accountId);
     return { ...minted, accountId: bound.accountId };
   } catch (err) {
-    await minter.revokeApiKey(input.userId, minted.id);
+    await minter.revokeApiKey(input.userId, minted.id, 'system');
     throw err;
   }
 }
