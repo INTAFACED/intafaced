@@ -1,3 +1,5 @@
+import { readdirSync, readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { test, expect } from '@playwright/test';
 import { tableIn, bodyRows } from './tables.mjs';
 
@@ -22,6 +24,29 @@ async function liveInventory(page) {
   const { routes } = await capabilities(page);
   expect(routes.length).toBeGreaterThan(10);
   return routes.map((route) => `${route.method} ${route.path}`);
+}
+
+/**
+ * The `/api/v1` routes svc-trade's own router code registers, `METHOD /path` per row. The edge forwards the whole
+ * `/api/v1` prefix to svc-trade (services/svc-edge/src/routes.ts), so each of these is a route a developer can call.
+ * Read from the registration calls themselves (a literal path, or a path constant declared in the same file), never
+ * from a list kept beside them; it is a lower bound, since a path built at run time is not seen here.
+ */
+function registeredTradeRoutes() {
+  const root = fileURLToPath(new URL('../../../../services/svc-trade/src/', import.meta.url));
+  const files = readdirSync(root, { recursive: true }).filter((file) => file.endsWith('.ts') && !file.endsWith('.test.ts'));
+  const routes = new Set();
+  for (const file of files) {
+    const source = readFileSync(`${root}${file}`, 'utf8');
+    const constants = new Map([...source.matchAll(/const (\w+) = '(\/api\/v1[^']*)'/g)].map(([, name, path]) => [name, path]));
+    for (const [, method, literal, name] of source.matchAll(
+      /\.(get|post|put|delete|patch)(?:<[^()']*?>)?\(\s*(?:'(\/api\/v1[^']*)'|(\w+),)/g,
+    )) {
+      const path = literal ?? constants.get(name);
+      if (path) routes.add(`${method.toUpperCase()} ${path}`);
+    }
+  }
+  return [...routes].sort();
 }
 
 const readDownload = async (download) => Buffer.concat(await (await download.createReadStream()).toArray()).toString('utf8');
@@ -253,6 +278,17 @@ test(`${J} #5 downloads the OpenAPI file and a collection, and opens the agent d
   }
   // Nothing else is listed as a docs page: every markdown line names one of the portal's pages.
   expect(listed.length).toBe(docsPages.length);
+
+  // "Every route": the live inventory, the file and the collection above agree with each other, but the inventory itself
+  // is a matrix kept by hand in svc-trade, so it is checked last against the routes svc-trade's router registers. Until
+  // svc-trade serves an inventory read from its mounted routes, the routes it leaves out stay red here by name.
+  const registered = registeredTradeRoutes();
+  expect(registered.length).toBeGreaterThan(10);
+  const missing = registered.filter((route) => !live.includes(route) || !lines.includes(route));
+  expect(
+    missing,
+    `BLOCKED: GET /api/v1/capabilities (and so the OpenAPI file and the collection) omits ${missing.length} of the ${registered.length} /api/v1 routes svc-trade registers and the edge forwards; svc-trade's inventory is a hand-kept matrix, not read from its router:\n${missing.join('\n')}`,
+  ).toEqual([]);
 });
 
 test(`${J} #6 reads which data products I may use and on what terms: redistribution, retention and entitlement per product, "not set" where unset`, async ({
