@@ -15,9 +15,19 @@ export type HashrateWorker = {
   readonly createdAt: string;
   readonly hashrate: string | null;
   readonly hashrateReason: typeof NO_SHARES | null;
+  /** The account's own floor for this rig. Null is automatic: the pool picks. */
+  readonly minDifficulty: string | null;
 };
 
-export type MyWorkers = { readonly asOf: string; readonly windowMinutes: number; readonly workers: HashrateWorker[] };
+export type MyWorkers = {
+  readonly asOf: string;
+  readonly windowMinutes: number;
+  readonly workers: HashrateWorker[];
+  readonly nextCursor: string | null;
+};
+
+/** Optional page of the caller's roster. No limit is the whole roster; a name filter matches anywhere, ignoring case. */
+export type WorkerQuery = { readonly limit?: number; readonly cursor?: string | null; readonly name?: string };
 
 export type OpsWorker = { readonly id: string; readonly userId: string; readonly name: string; readonly createdAt: string };
 export type WorkerPage = { readonly asOf: string; readonly workers: OpsWorker[]; readonly nextCursor: string | null };
@@ -123,28 +133,40 @@ export class MiningReadStore {
     return [userId, ...workers.map((row) => row.id).filter((id) => id !== userId)];
   }
 
-  async myWorkers(userId: string, windowMinutes: number): Promise<MyWorkers> {
+  async myWorkers(userId: string, windowMinutes: number, query: WorkerQuery = {}): Promise<MyWorkers> {
     const sql = this.db();
-    const workers = await sql<{ id: string; name: string; created_at: Date }[]>`
-      SELECT id, name, created_at
+    const decoded = query.cursor ? decodeCursor(query.cursor) : null;
+    const name = query.name?.trim() ? query.name.trim().toLowerCase() : null;
+    const limit = query.limit ?? null;
+    const rows = await sql<{ id: string; name: string; created_at: Date; min_difficulty: string | null }[]>`
+      SELECT id, name, created_at, min_difficulty::text AS min_difficulty
       FROM mining_pool.workers
       WHERE user_id = ${userId}
+        AND (${name}::text IS NULL OR position(${name ?? ''} in lower(name)) > 0)
+        AND (
+          ${decoded?.at ?? null}::timestamptz IS NULL
+          OR (created_at, id) < (${decoded?.at ?? null}::timestamptz, ${decoded?.key ?? ''})
+        )
       ORDER BY created_at DESC, id DESC
+      LIMIT ${limit === null ? null : limit + 1}
     `;
+    const workers = limit === null ? rows : rows.slice(0, limit);
     const weights = new Map<string, string>();
     if (workers.length > 0) {
-      const rows = await sql<{ miner_id: string; weight: string | null }[]>`
-        SELECT miner_id, SUM(weight)::text AS weight
+      // A share names its worker; a share stored before workers were labelled counts for the id it was sent under.
+      const sums = await sql<{ worker: string; weight: string | null }[]>`
+        SELECT COALESCE(worker_id, miner_id) AS worker, SUM(weight)::text AS weight
         FROM mining_pool.shares
-        WHERE miner_id = ANY(${sql.array(workers.map((worker) => worker.id))}::text[])
+        WHERE COALESCE(worker_id, miner_id) = ANY(${sql.array(workers.map((worker) => worker.id))}::text[])
           AND weight IS NOT NULL
           AND created_at >= now() - (${windowMinutes}::int * interval '1 minute')
-        GROUP BY miner_id
+        GROUP BY COALESCE(worker_id, miner_id)
       `;
-      for (const row of rows) {
-        if (row.weight !== null) weights.set(row.miner_id, canonicalWeight(row.weight));
+      for (const row of sums) {
+        if (row.weight !== null) weights.set(row.worker, canonicalWeight(row.weight));
       }
     }
+    const last = workers[workers.length - 1];
     return {
       asOf: asOfNow(),
       windowMinutes,
@@ -156,9 +178,28 @@ export class MiningReadStore {
           createdAt: worker.created_at.toISOString(),
           hashrate,
           hashrateReason: hashrate === null ? NO_SHARES : null,
+          minDifficulty: worker.min_difficulty === null ? null : canonicalWeight(worker.min_difficulty),
         };
       }),
+      nextCursor: limit !== null && rows.length > limit && last ? encodeCursor(last.created_at, last.id) : null,
     };
+  }
+
+  /** Sets or clears (null: automatic) the floor on one of the caller's own workers. Another account's worker is not found. */
+  async setWorkerDifficulty(
+    userId: string,
+    workerId: string,
+    minDifficulty: bigint | null,
+  ): Promise<{ id: string; minDifficulty: string | null }> {
+    const sql = this.db();
+    const [row] = await sql<{ id: string; min_difficulty: string | null }[]>`
+      UPDATE mining_pool.workers
+      SET min_difficulty = ${minDifficulty === null ? null : minDifficulty.toString()}
+      WHERE id = ${workerId} AND user_id = ${userId}
+      RETURNING id, min_difficulty::text AS min_difficulty
+    `;
+    if (!row) throw new MiningError('Worker not found', 'mining.worker_not_found');
+    return { id: row.id, minDifficulty: row.min_difficulty === null ? null : canonicalWeight(row.min_difficulty) };
   }
 
   async listWorkers(limit: number, cursor: string | null): Promise<WorkerPage> {

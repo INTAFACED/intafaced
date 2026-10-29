@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { checkAccess, type KycTier } from '@intafaced/config';
 import { JurisdictionError, router, scopedProcedure, protectedProcedure, TRPCError } from '@intafaced/contracts';
 import { CREDENTIAL_NOT_ISSUED, readPoolConnection } from './connection.js';
+import { publishedDifficulty } from './env.js';
 import { MiningError } from './errors.js';
 import { assertListLimit, assertWindowMinutes } from './list-limit.js';
 import { readPoolOverview } from './overview.js';
@@ -14,7 +15,7 @@ const money = z.string().regex(/^(0|[1-9]\d*)(\.\d+)?$/);
 
 export type MiningReads = Pick<
   MiningReadStore,
-  'myWorkers' | 'listWorkers' | 'myShares' | 'opsShares' | 'opsWindows' | 'pending' | 'myPayouts'
+  'myWorkers' | 'setWorkerDifficulty' | 'listWorkers' | 'myShares' | 'opsShares' | 'opsWindows' | 'pending' | 'myPayouts'
 >;
 
 function fail(err: unknown): never {
@@ -81,6 +82,8 @@ export function createMiningRouter(
 ) {
   const customer = scopedProcedure('ledger:read', { module: 'mining-pool' });
   const operator = scopedProcedure('admin:read', { module: 'mining-pool' });
+  // A rig setting is the account's own trading-side write; a read-only key cannot change it.
+  const rigWriter = scopedProcedure('trade:write', { module: 'mining-pool' });
   const envOf = () => publish.env ?? process.env;
   const now = publish.now ?? Date.now;
   const dial = publish.dial ?? dialPool;
@@ -92,11 +95,21 @@ export function createMiningRouter(
   return router({
     workers: router({
       mine: customer
-        .input(z.object({ windowMinutes: z.unknown().optional() }))
+        .input(
+          z.object({
+            windowMinutes: z.unknown().optional(),
+            limit: z.unknown().optional(),
+            cursor: z.string().max(512).optional(),
+            name: z.string().max(64).optional(),
+          }),
+        )
         .output(
           z.object({
             asOf: z.string(),
             windowMinutes: z.number().int(),
+            defaultDifficulty: decimal.nullable(),
+            defaultDifficultyReason: z.enum(['mining.default_difficulty_unset', 'mining.default_difficulty_invalid']).nullable(),
+            nextCursor: z.string().nullable(),
             workers: z.array(
               z
                 .object({
@@ -105,15 +118,59 @@ export function createMiningRouter(
                   createdAt: z.string(),
                   hashrate: decimal.nullable(),
                   hashrateReason: z.enum(['no_shares_in_window']).nullable(),
+                  minDifficulty: decimal.nullable(),
                 })
                 .refine((row) => (row.hashrate === null) !== (row.hashrateReason === null)),
             ),
           }),
         )
-        .query(({ ctx, input }) => {
+        .query(async ({ ctx, input }) => {
           try {
             const windowMinutes = assertWindowMinutes(input.windowMinutes);
-            return reads.myWorkers(ctx.principal.userId, windowMinutes);
+            const limit = input.limit === undefined ? undefined : assertListLimit(input.limit, 'mining.workers_list_limit_unset');
+            const query = {
+              ...(limit === undefined ? {} : { limit }),
+              ...(input.cursor === undefined ? {} : { cursor: input.cursor }),
+              ...(input.name === undefined ? {} : { name: input.name }),
+            };
+            const roster = await reads.myWorkers(ctx.principal.userId, windowMinutes, query);
+            const fallback = publishedDifficulty(envOf().MINING_DEFAULT_DIFFICULTY);
+            return {
+              ...roster,
+              defaultDifficulty: fallback === null || fallback === 'invalid' ? null : fallback,
+              defaultDifficultyReason:
+                fallback === null
+                  ? ('mining.default_difficulty_unset' as const)
+                  : fallback === 'invalid'
+                    ? ('mining.default_difficulty_invalid' as const)
+                    : null,
+            };
+          } catch (err) {
+            fail(err);
+          }
+        }),
+      /**
+       * The account's own minimum difficulty for one of its workers; null is automatic. Only a worker the caller's shares
+       * created can be changed, and nothing here touches a share, a window or a payout.
+       */
+      setDifficulty: rigWriter
+        .input(
+          z.object({
+            workerId: z.string().min(1).max(200),
+            minDifficulty: z
+              .string()
+              .regex(/^[1-9]\d{0,37}$/)
+              .nullable(),
+          }),
+        )
+        .output(z.object({ id: z.string(), minDifficulty: decimal.nullable() }))
+        .mutation(async ({ ctx, input }) => {
+          try {
+            return await reads.setWorkerDifficulty(
+              ctx.principal.userId,
+              input.workerId,
+              input.minDifficulty === null ? null : BigInt(input.minDifficulty),
+            );
           } catch (err) {
             fail(err);
           }

@@ -61,7 +61,12 @@ describe('mining pool reads', () => {
     db = await createTestDatabase({
       service: 'mining_pool',
       url: databaseUrl(),
-      migrations: [migration('0000_mining_pool_init.sql'), migration('0001_blank_reward_share.sql'), migration('0002_mining_reads.sql')],
+      migrations: [
+        migration('0000_mining_pool_init.sql'),
+        migration('0001_blank_reward_share.sql'),
+        migration('0002_mining_reads.sql'),
+        migration('0003_share_workers.sql'),
+      ],
     });
   });
 
@@ -87,8 +92,8 @@ describe('mining pool reads', () => {
     });
   };
 
-  function routerFor(ledger: Pick<LedgerClient, 'getTxByKey'> | null = null) {
-    return createMiningRouter(new MiningReadStore(db.sql, ledger));
+  function routerFor(ledger: Pick<LedgerClient, 'getTxByKey'> | null = null, env: NodeJS.ProcessEnv = {}) {
+    return createMiningRouter(new MiningReadStore(db.sql, ledger), undefined, { env });
   }
 
   it('lists the caller workers and the exact accepted-weight sum, and hides the other account', async () => {
@@ -141,6 +146,122 @@ describe('mining pool reads', () => {
     expect(new Set(ids).size).toBe(3);
     expect(second.nextCursor).toBeNull();
     expect(first.workers.map((worker) => worker.id).some((id) => second.workers.some((worker) => worker.id === id))).toBe(false);
+  });
+
+  const blankShare = (shareId: string, extra: Record<string, unknown> = {}, minerId = ALICE) => ({
+    windowId: 'blank',
+    assetId: 'IFC',
+    shares: [{ shareId, minerId, weight: '4', ...extra }],
+  });
+
+  it('a share naming Rig-A makes one worker Rig-A; a share with no name goes to the default worker', async () => {
+    expect((await post(blankShare('s-rig', { workerName: 'Rig-A' }))).status).toBe(200);
+    expect((await post(blankShare('s-none'))).status).toBe(200);
+    expect(await db.sql`SELECT user_id, name FROM mining_pool.workers ORDER BY name`).toEqual([
+      { user_id: ALICE, name: 'Rig-A' },
+      { user_id: ALICE, name: 'default' },
+    ]);
+    // The worker labels the rig; the share's miner stays the account the payout credits.
+    expect(await db.sql`SELECT share_id, miner_id FROM mining_pool.shares ORDER BY share_id`).toEqual([
+      { share_id: 's-none', miner_id: ALICE },
+      { share_id: 's-rig', miner_id: ALICE },
+    ]);
+    const mine = await routerFor()
+      .createCaller(signed(ALICE, ['ledger:read']))
+      .workers.mine({ windowMinutes: 60 });
+    expect(mine.workers.map((worker) => [worker.name, worker.hashrate])).toEqual(
+      expect.arrayContaining([
+        ['Rig-A', '4'],
+        ['default', '4'],
+      ]),
+    );
+    expect(mine.workers).toHaveLength(2);
+  });
+
+  it('the same share delivered twice makes one worker and one share, and the redelivery is refused by name', async () => {
+    const share = blankShare('s-twice', { workerName: 'Rig-A' });
+    expect((await post(share)).status).toBe(200);
+    expect(await post(share)).toEqual({ status: 409, body: { accepted: false, error: 'mining.share_duplicate' } });
+    // A batch carrying a new share beside the stored one is refused whole: the new share is not kept either.
+    expect(
+      (await post({ ...share, shares: [{ shareId: 's-new', minerId: ALICE, weight: '1', workerName: 'Rig-B' }, ...share.shares] })).body,
+    ).toEqual({ accepted: false, error: 'mining.share_duplicate' });
+    expect(await db.sql`SELECT name FROM mining_pool.workers`).toEqual([{ name: 'Rig-A' }]);
+    expect(await db.sql`SELECT share_id FROM mining_pool.shares`).toEqual([{ share_id: 's-twice' }]);
+  });
+
+  it('refuses a worker name outside letters, digits, dash and underscore, and stores nothing', async () => {
+    for (const workerName of ['', 'a b', 'x:y', 'x'.repeat(65), 7]) {
+      expect((await post(blankShare('s-bad', { workerName }))).body).toEqual({ accepted: false, error: 'mining.worker_name_invalid' });
+    }
+    expect(await db.sql`SELECT count(*)::int AS n FROM mining_pool.workers`).toEqual([{ n: 0 }]);
+    expect(await db.sql`SELECT count(*)::int AS n FROM mining_pool.shares`).toEqual([{ n: 0 }]);
+  });
+
+  it('one account cannot file a worker under another: each account gets its own worker of the same name', async () => {
+    expect((await post(blankShare('s-a', { workerName: 'Rig-A' }))).status).toBe(200);
+    expect((await post(blankShare('s-b', { workerName: 'Rig-A' }, BOB))).status).toBe(200);
+    const bob = await routerFor()
+      .createCaller(signed(BOB, ['ledger:read']))
+      .workers.mine({ windowMinutes: 60 });
+    expect(bob.workers.map((worker) => worker.name)).toEqual(['Rig-A']);
+    expect(await db.sql`SELECT count(*)::int AS n FROM mining_pool.workers`).toEqual([{ n: 2 }]);
+  });
+
+  it('filters the roster by name, pages it without repeats, and says when the default difficulty is blank', async () => {
+    await db.sql`
+      INSERT INTO mining_pool.workers (id, user_id, name, created_at) VALUES
+        ('w1', ${ALICE}, 'Rig-A', '2026-01-01T00:00:00Z'),
+        ('w2', ${ALICE}, 'rig-b', '2026-01-02T00:00:00Z'),
+        ('w3', ${ALICE}, 'Spare', '2026-01-03T00:00:00Z'),
+        ('wb', ${BOB}, 'Rig-Z', '2026-01-04T00:00:00Z')
+    `;
+    const alice = routerFor().createCaller(signed(ALICE, ['ledger:read']));
+    const filtered = await alice.workers.mine({ windowMinutes: 60, name: 'RIG' });
+    expect(filtered.workers.map((worker) => worker.name)).toEqual(['rig-b', 'Rig-A']);
+    expect(filtered.defaultDifficulty).toBeNull();
+    expect(filtered.defaultDifficultyReason).toBe('mining.default_difficulty_unset');
+    const first = await alice.workers.mine({ windowMinutes: 60, limit: 2 });
+    const second = await alice.workers.mine({ windowMinutes: 60, limit: 2, cursor: first.nextCursor ?? undefined });
+    expect([...first.workers, ...second.workers].map((worker) => worker.id)).toEqual(['w3', 'w2', 'w1']);
+    expect(second.nextCursor).toBeNull();
+    await expect(alice.workers.mine({ windowMinutes: 60, limit: 0 })).rejects.toMatchObject({
+      cause: { code: 'mining.workers_list_limit_unset' },
+    });
+    const published = await routerFor(null, { MINING_DEFAULT_DIFFICULTY: '512' })
+      .createCaller(signed(ALICE, ['ledger:read']))
+      .workers.mine({ windowMinutes: 60 });
+    expect(published).toMatchObject({ defaultDifficulty: '512', defaultDifficultyReason: null });
+    const broken = await routerFor(null, { MINING_DEFAULT_DIFFICULTY: '0' })
+      .createCaller(signed(ALICE, ['ledger:read']))
+      .workers.mine({ windowMinutes: 60 });
+    expect(broken).toMatchObject({ defaultDifficulty: null, defaultDifficultyReason: 'mining.default_difficulty_invalid' });
+  });
+
+  it('sets and clears the minimum difficulty on the caller worker only, and a read-only key cannot', async () => {
+    await db.sql`
+      INSERT INTO mining_pool.workers (id, user_id, name) VALUES ('w1', ${ALICE}, 'Rig-A'), ('wb', ${BOB}, 'Rig-Z')
+    `;
+    const alice = routerFor().createCaller(signed(ALICE, ['ledger:read', 'trade:write']));
+    expect(await alice.workers.setDifficulty({ workerId: 'w1', minDifficulty: '1024' })).toEqual({ id: 'w1', minDifficulty: '1024' });
+    expect((await alice.workers.mine({ windowMinutes: 60 })).workers[0]).toMatchObject({ name: 'Rig-A', minDifficulty: '1024' });
+    expect(await alice.workers.setDifficulty({ workerId: 'w1', minDifficulty: null })).toEqual({ id: 'w1', minDifficulty: null });
+    expect((await alice.workers.mine({ windowMinutes: 60 })).workers[0]).toMatchObject({ minDifficulty: null });
+    await expect(alice.workers.setDifficulty({ workerId: 'wb', minDifficulty: '8' })).rejects.toMatchObject({
+      cause: { code: 'mining.worker_not_found' },
+    });
+    for (const minDifficulty of ['0', '-1', '1.5', '01', '1'.repeat(39)]) {
+      await expect(alice.workers.setDifficulty({ workerId: 'w1', minDifficulty })).rejects.toMatchObject({ code: 'BAD_REQUEST' });
+    }
+    await expect(
+      routerFor()
+        .createCaller(signed(ALICE, ['ledger:read']))
+        .workers.setDifficulty({ workerId: 'w1', minDifficulty: '8' }),
+    ).rejects.toMatchObject({ code: 'FORBIDDEN', cause: { code: 'scope.denied' } });
+    expect(await db.sql`SELECT id, min_difficulty FROM mining_pool.workers ORDER BY id`).toEqual([
+      { id: 'w1', min_difficulty: null },
+      { id: 'wb', min_difficulty: null },
+    ]);
   });
 
   it('counts two accepted shares and one refusal, ignores a bad HMAC, and hides the other account', async () => {

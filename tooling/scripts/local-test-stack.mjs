@@ -1966,6 +1966,83 @@ function cmdExpireAddressApprovals(args) {
   say(`  ${moved.length} open address approval link(s) of ${who} now expired (LOCAL TEST fixture)`);
 }
 
+// One TEST share from a rig, posted to the pool's own share door signed as a service, the way a stratum front would.
+// The window has no published reward or fee, so the share is stored and nothing is ever paid for it. The miner id is the
+// account's own id (what the mining room tells a miner to use); --worker names the rig, absent goes to "default".
+async function cmdMiningShare(rawArgs) {
+  const args = [...rawArgs];
+  const take = (flag) => {
+    const at = args.indexOf(flag);
+    if (at === -1) return undefined;
+    const value = args[at + 1];
+    args.splice(at, 2);
+    if (value === undefined) fail(`${flag} needs a value`, 2);
+    return value;
+  };
+  const worker = take('--worker');
+  const label = take('--share');
+  const [who] = args;
+  if (!who || !label)
+    fail('usage: node tooling/scripts/local-test-stack.mjs mining-share <email-or-userId> --share <label> [--worker <rig name>]', 2);
+  if (!/^[A-Za-z0-9-]{4,64}$/.test(label)) fail('--share must be 4-64 letters, digits or dashes', 2);
+  if (worker !== undefined && !/^[A-Za-z0-9_-]{1,64}$/.test(worker)) fail('--worker must be 1-64 letters, digits, dash or underscore', 2);
+
+  if (!fs.existsSync(P.marker)) fail(`refusing: marker ${P.marker} not found. Start the stack first (pnpm local:stack).`);
+  const marker = readJson(P.marker);
+  if (marker.kind !== 'intafaced-local-test-stack') fail('refusing: marker file is not a local test stack marker');
+  const secrets = readJson(P.secrets);
+  if (!pgRunning()) fail('refusing: the local stack Postgres is not running. Run: pnpm local:stack');
+  if (!ownedAlive(readProcs()['mining-pool'])) fail('refusing: the local stack mining pool is not running. Run: pnpm local:stack');
+  // The pool starts from server.js, which the ownership check does not model; the owned-process check above covers it.
+  assertActiveLocalStack({ stateDir: STATE });
+  const found = psql(secrets, `SELECT id::text FROM identity.users WHERE email = :'who' OR id::text = :'who'`, {
+    db: DB_NAME,
+    user: 'svc_identity',
+    password: secrets.pgService,
+    vars: { who },
+    tuples: true,
+  })
+    .trim()
+    .split('\n')
+    .filter(Boolean);
+  if (found.length === 0) fail(`no user "${who}" in the local identity database. Register at ${CUSTOMER_ORIGIN} first.`);
+  if (found.length > 1) fail(`"${who}" matches more than one user`);
+  const [userId] = found;
+
+  let contracts;
+  try {
+    contracts = await import(pathToFileURL(path.join(REPO, 'packages', 'contracts', 'dist', 'index.js')).href);
+  } catch (err) {
+    fail(`packages are not built (${err.message}). Run: pnpm local:stack --rebuild`);
+  }
+  const shareId = `LOCAL-TEST-${label}`;
+  const raw = JSON.stringify({
+    windowId: 'LOCAL-TEST-unpaid-window',
+    assetId: 'TEST',
+    shares: [{ shareId, minerId: userId, weight: '1', ...(worker === undefined ? {} : { workerName: worker }) }],
+  });
+  const res = await fetch(`${urlOf('mining-pool')}/submitShare`, {
+    redirect: 'error',
+    method: 'POST',
+    headers: { 'content-type': 'application/json', ...contracts.serviceAuthHeadersForBody('local-test-miner', secrets.internal, raw) },
+    body: raw,
+  });
+  const text = await res.text();
+  let body = null;
+  try {
+    body = JSON.parse(text);
+  } catch {
+    // reported below
+  }
+  // A share id the pool already holds is refused by name; that is the pool's answer, not a tool failure.
+  if (res.status === 409 && body?.error === 'mining.share_duplicate') {
+    console.log(`refused mining.share_duplicate: TEST share ${shareId} is already stored; nothing new was kept`);
+    return;
+  }
+  if (res.status !== 200 || body?.accepted !== true) fail(`the pool refused the TEST share (${res.status}): ${text.slice(0, 400)}`);
+  console.log(`accepted TEST share ${shareId} for miner ${userId}, worker ${worker ?? 'default'} (unpaid window, nothing credited)`);
+}
+
 async function cmdFund(rawArgs) {
   // Optional --ref <id>: reuse it when retrying after a lost reply, so the ledger's
   // idempotency key turns the repeat into a no-op instead of a second credit.
@@ -2551,6 +2628,7 @@ async function runCli() {
   else if (cmd === 'csp-report') cmdCspReport(rest);
   else if (cmd === 'restart') await cmdRestart(rest);
   else if (cmd === 'fund') await cmdFund(rest);
+  else if (cmd === 'mining-share') await cmdMiningShare(rest);
   else if (cmd === 'seed-withdrawal') await cmdSeedWithdrawal(rest);
   else if (cmd === 'chain-deposit') await cmdChainDeposit(rest);
   else if (cmd === 'chain-reorg') await cmdChainReorg(rest);

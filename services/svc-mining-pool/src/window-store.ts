@@ -8,8 +8,30 @@ export const EMISSION_UNPUBLISHED = 'mining.emission_unpublished';
 export const PG_UNAVAILABLE = 'mining.pg_unavailable';
 export const WINDOW_PAID = 'mining.window_paid';
 export const WINDOW_CONFLICT = 'mining.window_conflict';
+export const SHARE_DUPLICATE = 'mining.share_duplicate';
+export const WORKER_NAME_INVALID = 'mining.worker_name_invalid';
+/** The worker a share with no name goes to. */
+export const DEFAULT_WORKER = 'default';
+const WORKER_NAME = /^[A-Za-z0-9_-]{1,64}$/;
 
-export type BlankRewardShare = { readonly shareId: string; readonly minerId: string; readonly weight: bigint | null };
+/** A rig name as sent: absent is the default worker; anything outside letters, digits, dash and underscore is refused. */
+export function workerNameOf(value: unknown): string {
+  if (value === undefined || value === null) return DEFAULT_WORKER;
+  if (typeof value !== 'string' || !WORKER_NAME.test(value)) throw new Error(WORKER_NAME_INVALID);
+  return value;
+}
+
+/** One worker per account and name. The name has no colon, so two different (account, name) pairs never share an id. */
+export function workerIdOf(minerId: string, name: string): string {
+  return `worker:${minerId}:${name}`;
+}
+
+export type BlankRewardShare = {
+  readonly shareId: string;
+  readonly minerId: string;
+  readonly weight: bigint | null;
+  readonly workerName?: string;
+};
 type StoredWindowInput = {
   readonly windowId: string;
   readonly assetId: string;
@@ -39,6 +61,7 @@ async function persistShares(sql: Sql, input: StoredWindowInput): Promise<void> 
     if (!share.shareId.trim() || !share.minerId.trim()) throw new Error('mining.share_malformed');
     if (share.weight !== null && (typeof share.weight !== 'bigint' || share.weight <= 0n || share.weight >= 10n ** 38n))
       throw new Error('mining.weight_not_integer');
+    workerNameOf(share.workerName);
   }
   await transaction(sql, async (tx) => {
     const written = await tx<{ window_id: string }[]>`
@@ -59,10 +82,25 @@ async function persistShares(sql: Sql, input: StoredWindowInput): Promise<void> 
       throw new Error(WINDOW_CONFLICT);
     }
     for (const share of input.shares) {
+      // The worker only labels the rig: miner_id stays the account the payout credits.
+      const name = workerNameOf(share.workerName);
       await tx`
-        INSERT INTO mining_pool.shares (share_id, window_id, miner_id, weight)
-        VALUES (${share.shareId}, ${input.windowId}, ${share.minerId}, ${share.weight === null ? null : share.weight.toString()})
+        INSERT INTO mining_pool.workers (id, user_id, name)
+        VALUES (${workerIdOf(share.minerId, name)}, ${share.minerId}, ${name})
+        ON CONFLICT DO NOTHING
       `;
+      const [worker] = await tx<{ id: string }[]>`
+        SELECT id FROM mining_pool.workers WHERE user_id = ${share.minerId} AND name = ${name}
+      `;
+      if (!worker) throw new Error(PG_UNAVAILABLE);
+      // A share id already stored refuses the whole batch, a byte-identical redelivery included: one share, one worker.
+      const inserted = await tx<{ share_id: string }[]>`
+        INSERT INTO mining_pool.shares (share_id, window_id, miner_id, weight, worker_id)
+        VALUES (${share.shareId}, ${input.windowId}, ${share.minerId}, ${share.weight === null ? null : share.weight.toString()}, ${worker.id})
+        ON CONFLICT (share_id) DO NOTHING
+        RETURNING share_id
+      `;
+      if (inserted.length === 0) throw new Error(SHARE_DUPLICATE);
     }
   });
 }

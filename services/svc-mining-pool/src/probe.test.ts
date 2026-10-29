@@ -1,6 +1,5 @@
 import { createServer, type Server } from 'node:net';
 import { describe, expect, it, vi } from 'vitest';
-import { MiningError } from './errors.js';
 import { ProbeRateLimit, dialPool, runProbe, type Dial } from './probe.js';
 
 const ALICE = '11111111-1111-4111-8111-111111111111';
@@ -54,9 +53,18 @@ describe('reachability probe', () => {
     expect(refused.kind).toBe('refused');
   });
 
-  it('an unreachable host is timed out, never a success', async () => {
-    const outcome = await dialPool('192.0.2.1', 9, 200);
+  it('a host that never answers is timed out after the whole wait, never a success', async () => {
+    // 198.51.100.1 is TEST-NET-2 (RFC 5737): nothing answers it, so the dial runs to the wait.
+    const outcome = await dialPool('198.51.100.1', 9, 200);
     expect(outcome.kind).toBe('timed_out');
+    expect(outcome.roundTripMs).toBeGreaterThanOrEqual(200);
+  });
+
+  it('an error before the wait ends is not reached, never a time-out', async () => {
+    // A name under .invalid never resolves (RFC 2606), so the dial errors at once.
+    const outcome = await dialPool('pool.invalid', 9, 5_000);
+    expect(outcome.kind).toBe('refused');
+    expect(outcome.roundTripMs).toBeLessThan(5_000);
   });
 
   it('a blank limit, window, timeout or host refuses before the dial', async () => {
@@ -105,13 +113,13 @@ describe('reachability probe', () => {
     await expect(runProbe({ env, userId: ALICE, nowMs: 65_000, limiter, dial })).resolves.toMatchObject({ result: 'reachable' });
   });
 
-  it('a limit of zero admits nothing and a thrown dial is timed out, not an error page', async () => {
+  it('a limit of zero admits nothing and a thrown dial is not reached, not a time-out or an error page', async () => {
     const dial = vi.fn<Dial>(async () => {
       throw new Error('down');
     });
     await expect(
       runProbe({ env: published({ MINING_PROBE_LIMIT: '0' }), userId: ALICE, nowMs: 1, limiter: new ProbeRateLimit(), dial }),
-    ).rejects.toBeInstanceOf(MiningError);
+    ).rejects.toMatchObject({ code: 'mining.probe_limit_reached' });
     expect(dial).not.toHaveBeenCalled();
     const view = await runProbe({
       env: published({ MINING_PROBE_LIMIT: '2' }),
@@ -120,7 +128,7 @@ describe('reachability probe', () => {
       limiter: new ProbeRateLimit(),
       dial,
     });
-    expect(view.result).toBe('timed_out');
+    expect(view.result).toBe('refused');
     expect(view.viewpoint).toBe('pool_network');
   });
 

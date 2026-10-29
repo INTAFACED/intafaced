@@ -17,6 +17,7 @@ const PATTERN_MAX = 80;
 const LIMIT_MAX = 10_000;
 const WINDOW_MAX_MS = 86_400_000;
 const TIMEOUT_MAX_MS = 30_000;
+const DIFFICULTY = /^[1-9]\d{0,37}$/;
 
 function blankAsAbsent<T extends z.ZodTypeAny>(schema: T) {
   return z.preprocess((value) => {
@@ -98,7 +99,19 @@ export const miningPublishSchema = z.object({
    * NO DEFAULT. Blank refuses `mining.probe_timeout_unset`.
    */
   MINING_PROBE_TIMEOUT_MS: blankAsAbsent(z.coerce.number().int().min(1).max(TIMEOUT_MAX_MS).optional()),
+  /**
+   * Share difficulty a worker gets when its account set no minimum.
+   * NO DEFAULT. Blank is reported as `mining.default_difficulty_unset` on the worker roster.
+   */
+  MINING_DEFAULT_DIFFICULTY: blankAsAbsent(z.string().regex(DIFFICULTY).optional()),
 });
+
+/** A whole share difficulty as published: digits, no leading zero, below 10^38. Blank is null; anything else is invalid. */
+export function publishedDifficulty(raw: string | undefined): Published {
+  const line = publishedText(raw, 38, false);
+  if (line === null || line === 'invalid') return line;
+  return DIFFICULTY.test(line) ? line : 'invalid';
+}
 
 export type Published = string | null | 'invalid';
 

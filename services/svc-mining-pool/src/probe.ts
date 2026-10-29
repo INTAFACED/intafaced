@@ -88,9 +88,9 @@ export function dialPool(host: string, port: number, timeoutMs: number): Promise
     socket.setTimeout(timeoutMs);
     socket.once('connect', () => finish('reachable'));
     socket.once('timeout', () => finish('timed_out'));
-    socket.once('error', (err: NodeJS.ErrnoException) => {
-      finish(err.code === 'ECONNREFUSED' || err.code === 'ECONNRESET' ? 'refused' : 'timed_out');
-    });
+    // Only the wait running out is a time-out. Any error before it (refused, reset, no route, no such host) is the
+    // address not being reached, never a time-out the wait did not reach.
+    socket.once('error', () => finish('refused'));
   });
 }
 
@@ -116,7 +116,8 @@ export async function runProbe(args: {
   try {
     outcome = await args.dial(target.host, target.port, bounds.timeoutMs);
   } catch {
-    outcome = { kind: 'timed_out', roundTripMs: Date.now() - started };
+    // A dial that fails outright did not reach the address; it is not a time-out.
+    outcome = { kind: 'refused', roundTripMs: Date.now() - started };
   }
   return { result: outcome.kind, roundTripMs: ms(outcome.roundTripMs), viewpoint: 'pool_network' };
 }
