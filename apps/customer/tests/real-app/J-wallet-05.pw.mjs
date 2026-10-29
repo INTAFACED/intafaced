@@ -14,7 +14,11 @@ import { addAuthenticator, nextCode } from './identity-factors.mjs';
 // - #2's fraud list: nothing screens a destination against one, and the stack lists no TEST address (FRAUD_LISTED).
 // - #6, #4's two parallel sends: svc-pay has no custody signer for any network, so every send out is refused before a claim.
 //   They run after #7, which needs the balance still at 300.
-// #5 (travel rule) and the sanctions clause of #2 wait for launch (owner decision 2026-10-27, no compliance work until then).
+// - #2's sanctions clause: svc-bank has no destination sanctions list yet, so the stack has no listed address to read.
+//   It stays in the step (OWNER 88: the blank-sanctions-list refusal stays, it blocks nothing). The list is owner content and
+//   is never written in this repo: the stack hands the test one address from it, and a blank list refuses every save (proven
+//   in svc-bank's own tests, since this journey needs a saved address).
+// #5 (travel rule) waits for launch (owner decision 2026-10-27).
 const J = 'J-wallet-05';
 const run = journeyState(`${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
 const ADDRESS = '0x52908400098527886E0F7030069857D2E4169EE7';
@@ -237,7 +241,7 @@ test(`${J} #1 opens Withdraw and picks asset and network: the default network wi
   await expect(form(page).getByRole('textbox', { name: /^(Tag|Memo)/ })).toHaveCount(0);
 });
 
-test(`${J} #2 picks the saved address or pastes one: a mistyped address is refused before any call, and an address on the fraud list is refused by name with nothing held`, async ({
+test(`${J} #2 picks the saved address or pastes one: a mistyped address is refused before any call, and an address on the fraud list is refused by name with nothing held, and so is a sanctioned address`, async ({
   page,
 }) => {
   test.setTimeout(180_000);
@@ -268,6 +272,19 @@ test(`${J} #2 picks the saved address or pastes one: a mistyped address is refus
   if (await stepUp(page).isVisible()) await confirmItsMe(page);
   await expect(refusal).toContainText(/fraud/i, UNBUILT);
   await expect(page.locator('tbody tr', { hasText: 'TEST fraud-listed wallet' })).toHaveCount(0);
+
+  // The sanctions clause: an address on the destination sanctions list is refused by name and never saved.
+  const sanctioned = tool('local-test-gates.mjs', 'sanctioned-destination').trim();
+  expect(sanctioned).toMatch(/^0x[0-9a-fA-F]{40}$/);
+  await add.getByRole('textbox', { name: /^Label/ }).fill('TEST sanctioned wallet');
+  await add.getByRole('combobox', { name: /^Asset/ }).selectOption('USDT');
+  await add.getByRole('combobox', { name: /^Network/ }).selectOption('ethereum');
+  await add.getByRole('textbox', { name: /^Address/ }).fill(sanctioned);
+  await add.getByRole('button', { name: 'Save address' }).click();
+  await expect(refusal.or(stepUp(page))).toBeVisible();
+  if (await stepUp(page).isVisible()) await confirmItsMe(page);
+  await expect(refusal).toContainText(/sanction/i, UNBUILT);
+  await expect(page.locator('tbody tr', { hasText: 'TEST sanctioned wallet' })).toHaveCount(0);
   const api = await customerApi();
   expect(toUnits(await api.available('USDT'))).toBe(toUnits('300'));
   expect(await api.withdrawals()).toEqual([]);
