@@ -39,6 +39,10 @@ const SIGNED_FIELDS = ['amount', 'price', 'stopPrice'] as const;
  * The contract checks a negative or zero amount, price or stop price in an object refinement, which does not run once
  * any field (a bad `side`, say) has already failed. Those field checks stand on their own, so they are made here for
  * the fields the schema did not reach: one 400 then lists a bad side and a negative amount together.
+ *
+ * Kept only until the exchange-contract-field-errors branch lands: it moves these sign checks onto the fields in
+ * `@intafaced/exchange-contract` (and exports `positiveDecimal`), after which the schema always names them and this
+ * adds nothing (a field the schema named is skipped). Remove this copy, and the local `positiveDecimal`, then.
  */
 function unreachedSignIssues(body: unknown, issues: ReadonlyArray<Issue>): Issue[] {
   if (body === null || typeof body !== 'object' || Array.isArray(body)) return [];
@@ -57,13 +61,13 @@ function fieldOf(path: ReadonlyArray<PropertyKey>): string {
   return path.length === 0 ? 'body' : path.map(String).join('.');
 }
 
+/** One bad field keeps its own code (a bad `tag` is `trade.invalid_tag`); more than one is `trade.validation_failed`. */
+const FIELD_CODES: Readonly<Record<string, { code: string; message: string }>> = {
+  tag: { code: 'trade.invalid_tag', message: 'tag must be 1 to 16 characters' },
+};
+
 export function createBodyRefusal(error: { issues: ReadonlyArray<Issue> }, fallback: string, body?: unknown): CreateBodyRefusal {
   const issues: Issue[] = [...error.issues, ...unreachedSignIssues(body, error.issues)];
-  const first = issues[0];
-  const typed =
-    first?.path[0] === 'tag'
-      ? invalidOrder('tag must be 1 to 16 characters', 'trade.invalid_tag').body
-      : invalidOrder(first?.message ?? fallback).body;
 
   // One entry per field: the first thing wrong with it.
   const errors: Array<{ field: string; message: string }> = [];
@@ -74,13 +78,23 @@ export function createBodyRefusal(error: { issues: ReadonlyArray<Issue> }, fallb
     seen.add(field);
     errors.push({ field, message: issue.message });
   }
-  const message =
-    errors.length > 1 ? `${errors.length} fields are invalid: ${errors.map((entry) => entry.field).join(', ')}` : typed.message;
+
+  // The code depends only on which fields are wrong, never on the order the schema reported them in.
+  const only = errors.length === 1 ? errors[0]! : null;
+  const specific = only ? FIELD_CODES[only.field] : undefined;
+  const typed = specific
+    ? invalidOrder(specific.message, specific.code).body
+    : invalidOrder(
+        only
+          ? only.message
+          : errors.length > 1
+            ? `${errors.length} fields are invalid: ${errors.map((e) => e.field).join(', ')}`
+            : fallback,
+      ).body;
   const intafacedCode = typed.intafacedCode ?? 'trade.validation_failed';
 
   return {
     ...typed,
-    message,
     intafacedCode,
     docs: errorDocsLink(intafacedCode),
     errors,

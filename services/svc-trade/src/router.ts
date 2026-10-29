@@ -12,6 +12,7 @@ import {
 import { AuthError, requireTier, TIER_ORDER, type Principal } from '@intafaced/auth';
 import { checkAccess } from '@intafaced/config';
 import { formatAmount, parseAmount, InsufficientFundsError, LedgerError } from '@intafaced/ledger-client';
+import { publicLedgerCode } from './ledger-public-code.js';
 import { orderSideSchema, timeInForceSchema } from '@intafaced/exchange-contract';
 import { TradeError, type FillRecord, type Market, type OrderRecord, type TimeInForce } from './spot/types.js';
 import { MatchingNoBookError } from './spot/matching-client.js';
@@ -429,7 +430,7 @@ function presentFill(fill: FillRecord) {
  * hold just rejects it again — while an unreachable engine must, because the
  * order may not have been placed at all.
  */
-function toTrpcError(err: unknown): TRPCError {
+export function toTrpcError(err: unknown): TRPCError {
   const historyError = convertHistoryTrpcError(err);
   if (historyError) return historyError;
   const desk = deskTrpcError(err);
@@ -571,7 +572,11 @@ function toTrpcError(err: unknown): TRPCError {
   }
 
   if (err instanceof LedgerError) {
-    return new TRPCError({ code: 'BAD_REQUEST', message: err.message, cause: err });
+    // The cause's code is what a client reads (`data.cause.code`): a ledger code renamed for the API (the posting
+    // freeze is `posting_frozen`) travels renamed, every other one as the ledger named it.
+    const published = publicLedgerCode(err.code);
+    const cause = published === err.code ? err : new LedgerError(err.message, published);
+    return new TRPCError({ code: 'BAD_REQUEST', message: err.message, cause });
   }
 
   // Matching holds no book for the market (its 404): the named refusal `trade.no_book`, as on the REST and ccxt

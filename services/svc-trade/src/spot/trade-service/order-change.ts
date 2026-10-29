@@ -43,6 +43,7 @@ import {
 } from '../types.js';
 import type { AmendOrderInput, PlaceOrderInput, TradeServiceInternal } from '../trade-service.js';
 import { replacementClientOrderId, replacementRequestHash } from './internal.js';
+import { publicLedgerCode } from '../../ledger-public-code.js';
 
 /**
  * Cancel an open order and return what is left of its hold (§5.2 step 3).
@@ -358,7 +359,8 @@ export function amendOutcome(
     accepted: code === 'AMENDED' || code === 'IDEMPOTENT_RETRY',
     idempotent,
     code,
-    reasonCode,
+    // A ledger refusal is named as the API publishes it (`posting_frozen`, not `ledger.frozen`).
+    reasonCode: publicLedgerCode(reasonCode),
     reconciliationRequired,
     path: 'NATIVE_AMEND',
     priority,
@@ -762,7 +764,8 @@ export function replaceOutcome(
     accepted: code === 'REPLACED' || code === 'IDEMPOTENT_RETRY',
     idempotent,
     code,
-    reasonCode,
+    // A ledger refusal is named as the API publishes it (`posting_frozen`, not `ledger.frozen`).
+    reasonCode: publicLedgerCode(reasonCode),
     reconciliationRequired,
     original,
     replacement,

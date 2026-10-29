@@ -4,6 +4,7 @@ import { InsufficientFundsError, LedgerError, MoneyError } from '@intafaced/ledg
 import { MatchingNoBookError, MatchingUnavailableError } from './spot/matching-client.js';
 import { TradeError, type TradeErrorCode } from './spot/types.js';
 import { TradingControlError } from './controls/trading-controls.js';
+import { POSTING_FROZEN, publicLedgerCode } from './ledger-public-code.js';
 
 /**
  * CCXT ERROR TAXONOMY FOR THE PUBLIC REST SURFACE (trade.ccxt-api).
@@ -63,6 +64,10 @@ interface Arm {
  * inspects the HTTP status before it ever parses a body, and a 5xx is retried
  * by most transport wrappers regardless of payload. So anything a caller must
  * *not* retry stays in the 4xx range even when it is genuinely our fault.
+ * The other way round, a refusal that is temporary AND safe to resend unchanged
+ * is 5xx: the platform posting freeze (`posting_frozen`, 503 `OnMaintenance`,
+ * in `toCcxtError`) lifts without the caller doing anything, the ledger refused
+ * before commit, and a resend under the same `clientOrderId` cannot place twice.
  */
 const TRADE_ERROR_MAP: Record<TradeErrorCode, Arm> = {
   // ── Symbol is wrong or unusable: stop asking for it ───────────────────────
@@ -607,7 +612,7 @@ export function invalidOrder(message: string, intafacedCode = 'trade.validation_
  * The API's code for a money call refused by the platform-wide posting freeze
  * (svc-ledger `services/svc-ledger/src/ledger/freeze.ts`). Reads still answer.
  */
-export const POSTING_FROZEN = 'posting_frozen';
+export { POSTING_FROZEN } from './ledger-public-code.js';
 
 /**
  * Map any thrown error to the CCXT wire shape, or `null` when we do not
@@ -685,12 +690,17 @@ export function toCcxtError(err: unknown): CcxtErrorResponse | null {
   }
 
   if (err instanceof LedgerError) {
-    // The ledger refused for a reason that is not "not enough funds". A client
-    // branches on `intafacedCode`, not on the class name and not on message text.
-    // The platform posting freeze (svc-ledger's `ledger.frozen`) is published to
-    // the API as the platform reason `posting_frozen` (DV-errors-02), distinct
-    // from svc-identity's `account_frozen`; `code` stays the CCXT class.
-    const intafacedCode = err.code === 'ledger.frozen' ? POSTING_FROZEN : err.code;
+    const intafacedCode = publicLedgerCode(err.code);
+    if (intafacedCode === POSTING_FROZEN) {
+      // The platform posting freeze (svc-ledger's `ledger.frozen`), not
+      // svc-identity's `account_frozen`. Temporary, and the ledger refused
+      // before commit, so nothing moved and a resend under the same business
+      // key (clientOrderId) is safe: 503 `OnMaintenance`, the class CCXT
+      // clients retry with backoff (see the status rule above).
+      return { status: 503, body: { code: 'OnMaintenance', message: err.message, intafacedCode } };
+    }
+    // Any other ledger refusal. A client branches on `intafacedCode`, not on
+    // the class name and not on message text.
     return { status: 400, body: { code: 'ExchangeError', message: err.message, intafacedCode } };
   }
 

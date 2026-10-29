@@ -144,19 +144,22 @@ describe('CCXT error taxonomy', () => {
   });
 
   /**
-   * The platform posting freeze is published to the API as `posting_frozen` (DV-errors-02, J-developer-04 #6):
-   * the CCXT class and the status stay what they were, only the platform reason is renamed.
+   * The platform posting freeze is published to the API as `posting_frozen` (DV-errors-02, J-developer-04 #6), with
+   * the retry-with-backoff class: it lifts on its own, and the ledger refused before commit.
    */
-  it('reports the ledger posting freeze as posting_frozen, keeping the CCXT class and status', () => {
+  it('reports the ledger posting freeze as posting_frozen, 503 OnMaintenance: temporary, and safe to resend', () => {
     const mapped = toCcxtError(new LedgerError('Ledger posting is frozen: TEST', 'ledger.frozen'));
     expect(mapped).toEqual({
-      status: 400,
-      body: { code: 'ExchangeError', message: 'Ledger posting is frozen: TEST', intafacedCode: POSTING_FROZEN },
+      status: 503,
+      body: { code: 'OnMaintenance', message: 'Ledger posting is frozen: TEST', intafacedCode: POSTING_FROZEN },
     });
     expect(POSTING_FROZEN).toBe('posting_frozen');
     expect(exchangeErrorSchema.safeParse(mapped!.body).success).toBe(true);
-    // Only the freeze is renamed; every other ledger refusal keeps its own code.
-    expect(toCcxtError(new LedgerError('x', 'ledger.idempotency_conflict'))!.body.intafacedCode).toBe('ledger.idempotency_conflict');
+    // Only the freeze is renamed and retryable; every other ledger refusal keeps its own code and its 400.
+    expect(toCcxtError(new LedgerError('x', 'ledger.idempotency_conflict'))).toMatchObject({
+      status: 400,
+      body: { code: 'ExchangeError', intafacedCode: 'ledger.idempotency_conflict' },
+    });
   });
 
   /**

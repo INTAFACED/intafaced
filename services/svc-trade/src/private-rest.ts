@@ -3120,10 +3120,8 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
 
     const parsed = createOrderRequestSchema.safeParse(schemaBodyOf(rawBody));
     if (!parsed.success) {
-      return reply.code(400).send({
-        ...invalidOrder(parsed.error.issues[0]?.message ?? 'invalid replacement order body').body,
-        issues: parsed.error.issues.map((i) => ({ path: i.path, message: i.message })),
-      });
+      // The same one body as create: every bad field listed (DV-errors-01).
+      return reply.code(400).send(createBodyRefusal(parsed.error, 'invalid replacement order body', schemaBodyOf(rawBody)));
     }
 
     let input: PlaceOrderInput;

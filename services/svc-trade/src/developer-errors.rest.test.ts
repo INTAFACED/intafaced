@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import type { Principal } from '@intafaced/auth';
 import { encodePrincipal, signPrincipalHeader } from '@intafaced/contracts';
 import { LedgerError, MemoryLedger, parseAmount, recipes, type PostRequest, type LedgerTx } from '@intafaced/ledger-client';
+import { createBodyRefusal } from './create-body-refusal.js';
 import { fakeOrder, registerPrivateRest, type PrivateRestDeps } from './private-rest.js';
 import { fakeMarket } from './public-rest.js';
 import type { PlaceOrderInput } from './spot/trade-service.js';
@@ -49,9 +50,14 @@ async function build() {
   const ledger = new FreezableLedger();
   await ledger.post(recipes.deposit({ userId: ALICE, assetId: 'USDT', amount: parseAmount('10'), rail: 'test', railRef: 'alice:usdt' }));
   const placed: PlaceOrderInput[] = [];
+  const replaced: string[] = [];
   const app = Fastify();
   registerPrivateRest(app, {
     findClientOrder: async () => null,
+    replaceOrder: async (_p: Principal, id: string) => {
+      replaced.push(id);
+      throw new Error('a refused replacement body never reaches the service');
+    },
     edgeSecret: SECRET,
     serviceName: 'svc-trade',
     marketBySymbol: async (s: string) => (s === 'BTC/USDT' ? market : null),
@@ -66,7 +72,7 @@ async function build() {
     },
   } as unknown as PrivateRestDeps);
   await app.ready();
-  return { app, ledger, placed };
+  return { app, ledger, placed, replaced };
 }
 
 const order = (clientOrderId: string, extra: Record<string, unknown> = {}) => ({
@@ -160,14 +166,72 @@ describe('J-developer-04 #3: one typed 400 lists every bad field', () => {
   });
 });
 
+describe('the replace door refuses its body the same way', () => {
+  it('lists every bad field of a replacement in one 400, before the original is touched', async () => {
+    const { app, replaced } = await build();
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/v1/orders/o-1/replace',
+      headers: signed(),
+      payload: order('jd04-r', { side: 'sideways', amount: '-1' }),
+    });
+    expect(res.statusCode, res.body).toBe(400);
+    const body = res.json();
+    expect(body).toMatchObject({
+      code: 'InvalidOrder',
+      intafacedCode: 'trade.validation_failed',
+      docs: '/developers/errors#trade.validation_failed',
+    });
+    expect(body.errors.map((e: { field: string }) => e.field).sort()).toEqual(['amount', 'side']);
+    expect(replaced).toHaveLength(0);
+    await app.close();
+  });
+});
+
+describe('the refusal code depends on which fields are wrong, never on the order they are reported in', () => {
+  const tag = { path: ['tag'], message: 'Too small: expected string to have >=1 characters' };
+  const side = { path: ['side'], message: 'Invalid option: expected one of "buy"|"sell"' };
+  it('one bad field keeps its own code: a tag is trade.invalid_tag', () => {
+    expect(createBodyRefusal({ issues: [tag] }, 'x')).toMatchObject({
+      intafacedCode: 'trade.invalid_tag',
+      message: 'tag must be 1 to 16 characters',
+      docs: '/developers/errors#trade.invalid_tag',
+    });
+    // Two issues on the same one field are still one field.
+    expect(createBodyRefusal({ issues: [tag, { ...tag, message: 'second' }] }, 'x').intafacedCode).toBe('trade.invalid_tag');
+    expect(createBodyRefusal({ issues: [side] }, 'x')).toMatchObject({ intafacedCode: 'trade.validation_failed', message: side.message });
+  });
+  it('more than one bad field is trade.validation_failed, in either order', () => {
+    for (const issues of [
+      [tag, side],
+      [side, tag],
+    ]) {
+      const refusal = createBodyRefusal({ issues }, 'x');
+      expect(refusal).toMatchObject({
+        code: 'InvalidOrder',
+        intafacedCode: 'trade.validation_failed',
+        docs: '/developers/errors#trade.validation_failed',
+        message: expect.stringMatching(/^2 fields are invalid: /),
+      });
+      expect(refusal.errors.map((e) => e.field).sort()).toEqual(['side', 'tag']);
+    }
+  });
+  it('a bad tag next to a negative amount the schema did not reach is two fields', () => {
+    const refusal = createBodyRefusal({ issues: [tag] }, 'x', { amount: '-1', tag: '' });
+    expect(refusal.intafacedCode).toBe('trade.validation_failed');
+    expect(refusal.errors.map((e) => e.field).sort()).toEqual(['amount', 'tag']);
+  });
+});
+
 describe('J-developer-04 #6: the platform posting freeze refuses a money call, a read still answers', () => {
   it('refuses the order posting_frozen with the CCXT class, writes nothing, and the balance read answers', async () => {
     const { app, ledger, placed } = await build();
     ledger.frozen = true;
     const journal = ledger.journal().length;
     const money = await app.inject({ method: 'POST', url: '/api/v1/orders', headers: signed(), payload: order('jd04-6') });
-    expect(money.statusCode, money.body).toBe(400);
-    expect(money.json()).toMatchObject({ code: 'ExchangeError', intafacedCode: 'posting_frozen' });
+    // Temporary and safe to resend under the same client order id: 503, the class CCXT clients retry with backoff.
+    expect(money.statusCode, money.body).toBe(503);
+    expect(money.json()).toMatchObject({ code: 'OnMaintenance', intafacedCode: 'posting_frozen' });
     expect(placed).toHaveLength(0);
     expect(ledger.journal()).toHaveLength(journal);
 

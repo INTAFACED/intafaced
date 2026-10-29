@@ -115,7 +115,7 @@ describe('the order door under the platform posting freeze (PG-hard)', () => {
       caught = err;
     }
     expect(caught).toMatchObject({ name: 'LedgerError', code: 'ledger.frozen' });
-    expect(toCcxtError(caught)).toMatchObject({ status: 400, body: { code: 'ExchangeError', intafacedCode: POSTING_FROZEN } });
+    expect(toCcxtError(caught)).toMatchObject({ status: 503, body: { code: 'OnMaintenance', intafacedCode: POSTING_FROZEN } });
     expect(holds()).toBe(0);
     // Whose funds are stranded if it stops here? Nobody's: no hold, and no pending row waits for one.
     expect(await db.sql`SELECT id FROM trade.orders WHERE client_order_id = 'freeze-1'`).toHaveLength(0);
