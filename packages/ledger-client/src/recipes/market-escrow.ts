@@ -1,4 +1,4 @@
-import { mulBps, sub, type Amount } from '../money.js';
+import { add, mulBps, sub, type Amount } from '../money.js';
 import type { AccountRef, EntryInput, PostRequest } from '../types.js';
 import { InvalidEntryError } from '../types.js';
 import { houseFees, userAvailable, userEscrow } from '../accounts.js';
@@ -13,10 +13,13 @@ import { houseFees, userAvailable, userEscrow } from '../accounts.js';
  *   refund   buyer escrow    → buyer available                                market:refund:<purchaseId>:<n>
  *   release  buyer escrow    → seller available (net) + houseFees(market)    market:release:<purchaseId>
  *
- * Refunds are numbered by the caller (1, 2, …) so a retried refund posts once and a
- * second, separate refund gets its own key. Release moves what is left in the pot;
- * the caller passes that amount. The ledger's non-negative escrow balance refuses a
- * refund or release larger than what is held, so the pot can never pay out twice.
+ * Refunds are numbered by svc-market (1, 2, …, allocated with the refund row) so a
+ * retried refund posts once and a second, separate refund gets its own key. Release
+ * moves exactly what is left: the caller states the held amount and the total
+ * refunded, and any other release amount is refused (`MarketReleaseRemainderError`),
+ * so a release can never leave a remainder behind its one key. The ledger's
+ * non-negative escrow balance refuses a refund or release larger than what is held,
+ * so the pot can never pay out twice.
  * The window, the refund policy and the commission are svc-market's; these recipes
  * never choose an amount, a date or a rate.
  *
@@ -38,9 +41,21 @@ function requirePositive(name: string, value: Amount): void {
   if (typeof value !== 'bigint' || value <= 0n) throw new InvalidEntryError(`${name} must be positive`);
 }
 
-/** The buyer's pot for one held purchase. */
+/** The buyer's pot for one held purchase. Ids are trimmed exactly as the recipes trim them. */
 export function marketPurchaseEscrowAccount(buyerId: string, assetId: string, purchaseId: string): AccountRef {
-  return userEscrow(buyerId, assetId, `market:purchase:${purchaseId}`);
+  return userEscrow(
+    requireText('buyerId', buyerId),
+    requireText('assetId', assetId),
+    `market:purchase:${requireText('purchaseId', purchaseId)}`,
+  );
+}
+
+/** A release that would not empty the pot. */
+export class MarketReleaseRemainderError extends InvalidEntryError {
+  constructor() {
+    super('market.release_remainder: a held purchase is released for exactly what is left (held minus refunded)');
+    this.name = 'MarketReleaseRemainderError';
+  }
 }
 
 export interface MarketPurchaseHeldInput {
@@ -58,6 +73,10 @@ export interface MarketPurchaseRefundInput extends MarketPurchaseHeldInput {
 }
 
 export interface MarketPurchaseReleaseInput extends MarketPurchaseHeldInput {
+  /** The amount `marketPurchaseHold` placed for this purchase. */
+  heldAmount: Amount;
+  /** The sum of every refund posted for this purchase ('0' when none). `amount` must equal held minus refunded. */
+  refundedAmount: Amount;
   vendorUserId: string;
   /** House commission in basis points (0..9999). Required: a blank commission is never zero. */
   commissionBps: number;
@@ -73,7 +92,7 @@ function pot(input: MarketPurchaseHeldInput) {
     listingId,
     buyerId,
     assetId,
-    escrow: marketPurchaseEscrowAccount(buyerId, assetId, purchaseId),
+    escrow: userEscrow(buyerId, assetId, `market:purchase:${purchaseId}`),
     available: userAvailable(buyerId, assetId),
   };
 }
@@ -113,12 +132,17 @@ export function marketPurchaseRelease(input: MarketPurchaseReleaseInput): PostRe
   if (!Number.isInteger(input.commissionBps) || input.commissionBps < 0 || input.commissionBps > 9_999) {
     throw new InvalidEntryError(`market commissionBps must be an integer in 0..9999, got ${input.commissionBps}`);
   }
+  requirePositive('held amount', input.heldAmount);
+  if (typeof input.refundedAmount !== 'bigint' || input.refundedAmount < 0n) {
+    throw new InvalidEntryError('refunded amount must be zero or more');
+  }
+  if (add(input.amount, input.refundedAmount) !== input.heldAmount) throw new MarketReleaseRemainderError();
   const p = pot(input);
   const vendorUserId = requireText('vendorUserId', input.vendorUserId);
   if (vendorUserId === p.buyerId) throw new InvalidEntryError('buyer and vendor must be different users');
+  // Floor with bps ≤ 9999 leaves the vendor at least one unit of a positive amount.
   const commission = mulBps(input.amount, input.commissionBps, 'floor');
   const vendorNet = sub(input.amount, commission);
-  if (vendorNet <= 0n) throw new InvalidEntryError('Commission leaves the vendor with nothing — check commission bps');
   return {
     idempotencyKey: `market:release:${p.purchaseId}`,
     module: 'market',

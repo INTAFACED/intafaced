@@ -2,9 +2,9 @@ import { describe, expect, it } from 'vitest';
 import { houseFees, userAvailable } from '../accounts.js';
 import { MemoryLedger } from '../memory-ledger.js';
 import { formatAmount, parseAmount as amt } from '../money.js';
-import { InvalidEntryError } from '../types.js';
+import { InsufficientFundsError, InvalidEntryError } from '../types.js';
 import { recipes } from './index.js';
-import { marketPurchaseEscrowAccount } from './market-escrow.js';
+import { MarketReleaseRemainderError, marketPurchaseEscrowAccount } from './market-escrow.js';
 
 const BUYER = '11111111-1111-4111-8111-111111111111';
 const SELLER = '22222222-2222-4222-8222-222222222222';
@@ -31,8 +31,14 @@ const base = (amount: string, purchaseId = PURCHASE) => ({
 const hold = (amount = '40', purchaseId = PURCHASE) => recipes.marketPurchaseHold(base(amount, purchaseId));
 const refund = (amount: string, refundNo: number, purchaseId = PURCHASE) =>
   recipes.marketPurchaseRefund({ ...base(amount, purchaseId), refundNo });
-const release = (amount: string, commissionBps = 1_000, purchaseId = PURCHASE) =>
-  recipes.marketPurchaseRelease({ ...base(amount, purchaseId), vendorUserId: SELLER, commissionBps });
+const release = (amount: string, commissionBps = 1_000, purchaseId = PURCHASE, held = amount, refunded = '0') =>
+  recipes.marketPurchaseRelease({
+    ...base(amount, purchaseId),
+    heldAmount: amt(held),
+    refundedAmount: amt(refunded),
+    vendorUserId: SELLER,
+    commissionBps,
+  });
 
 async function snapshot(ledger: MemoryLedger, purchaseId = PURCHASE) {
   return {
@@ -56,7 +62,7 @@ describe('market purchase held until its refund window ends', () => {
 
   it('refuses a hold larger than the buyer available balance and moves nothing', async () => {
     const ledger = await funded('10');
-    await expect(ledger.post(hold('40'))).rejects.toThrow();
+    await expect(ledger.post(hold('40'))).rejects.toBeInstanceOf(InsufficientFundsError);
     expect(await snapshot(ledger)).toEqual({ buyer: '10', held: '0', seller: '0', house: '0' });
   });
 
@@ -74,7 +80,7 @@ describe('market purchase held until its refund window ends', () => {
     const ledger = await funded();
     await ledger.post(hold());
     await ledger.post(refund('40', 1));
-    await expect(ledger.post(refund('1', 2))).rejects.toThrow();
+    await expect(ledger.post(refund('1', 2))).rejects.toBeInstanceOf(InsufficientFundsError);
     expect(await snapshot(ledger)).toEqual({ buyer: '100', held: '0', seller: '0', house: '0' });
   });
 
@@ -92,7 +98,7 @@ describe('market purchase held until its refund window ends', () => {
     const ledger = await funded();
     await ledger.post(hold());
     await ledger.post(release('40'));
-    await expect(ledger.post(refund('40', 1))).rejects.toThrow();
+    await expect(ledger.post(refund('40', 1))).rejects.toBeInstanceOf(InsufficientFundsError);
     expect(await snapshot(ledger)).toEqual({ buyer: '60', held: '0', seller: '36', house: '4' });
   });
 
@@ -100,9 +106,26 @@ describe('market purchase held until its refund window ends', () => {
     const ledger = await funded();
     await ledger.post(hold());
     await ledger.post(refund('15', 1));
-    await ledger.post(release('25', 1_000));
+    await ledger.post(release('25', 1_000, PURCHASE, '40', '15'));
     // 25 at 10% floors to 2.5 commission; seller 22.5.
     expect(await snapshot(ledger)).toEqual({ buyer: '75', held: '0', seller: '22.5', house: '2.5' });
+  });
+
+  it('a release that would leave a remainder in the pot is refused before any post', async () => {
+    const ledger = await funded();
+    await ledger.post(hold());
+    expect(() => release('25', 1_000, PURCHASE, '40', '0')).toThrow(MarketReleaseRemainderError);
+    expect(() => release('40', 1_000, PURCHASE, '40', '15')).toThrow(MarketReleaseRemainderError);
+    expect(() => release('25', 1_000, PURCHASE, '40', '-15')).toThrow(/refunded amount must be zero or more/);
+    expect(() => release('25', 1_000, PURCHASE, '0', '0')).toThrow(/held amount must be positive/);
+    expect(await snapshot(ledger)).toEqual({ buyer: '60', held: '40', seller: '0', house: '0' });
+  });
+
+  it('the pot helper names the same pot the recipes post to, whatever the spacing', async () => {
+    const ledger = await funded();
+    await ledger.post(recipes.marketPurchaseHold({ ...base('40'), purchaseId: ' p1 ' }));
+    expect(await bal(ledger, marketPurchaseEscrowAccount(BUYER, ASSET, ' p1 '))).toBe('40');
+    expect(() => marketPurchaseEscrowAccount(BUYER, ASSET, ' ')).toThrow(InvalidEntryError);
   });
 
   it('a release with no commission posts no house leg', async () => {
@@ -126,12 +149,11 @@ describe('market purchase held until its refund window ends', () => {
     expect(() => release('40', -1)).toThrow(/commissionBps must be an integer/);
     expect(() => release('40', 10_000)).toThrow(/commissionBps must be an integer/);
     expect(() => release('40', 0.5)).toThrow(/commissionBps must be an integer/);
-    expect(() =>
-      recipes.marketPurchaseRelease({ ...base('40'), vendorUserId: undefined as unknown as string, commissionBps: 100 }),
-    ).toThrow(/vendorUserId is required/);
-    expect(() => recipes.marketPurchaseRelease({ ...base('40'), vendorUserId: BUYER, commissionBps: 100 })).toThrow(
-      /buyer and vendor must be different/,
+    const whole = { ...base('40'), heldAmount: amt('40'), refundedAmount: 0n, commissionBps: 100 };
+    expect(() => recipes.marketPurchaseRelease({ ...whole, vendorUserId: undefined as unknown as string })).toThrow(
+      /vendorUserId is required/,
     );
+    expect(() => recipes.marketPurchaseRelease({ ...whole, vendorUserId: BUYER })).toThrow(/buyer and vendor must be different/);
     expect(() => release('0.00000001', 9_999)).not.toThrow();
   });
 
@@ -148,16 +170,30 @@ describe('market purchase held until its refund window ends', () => {
       const ledger = await funded('1000');
       const ids = ['a', 'b', 'c'];
       const refundNo = new Map<string, number>();
+      // What svc-market would record: the held amount and the refunds that posted.
+      const heldBy = new Map<string, bigint>();
+      const refundedBy = new Map<string, bigint>();
       for (let step = 0; step < 25; step += 1) {
         const id = ids[next(ids.length)]!;
         const amount = String(1 + next(60));
         const kind = next(3);
-        const post =
-          kind === 0 ? hold(amount, id) : kind === 1 ? refund(amount, (refundNo.get(id) ?? 0) + 1, id) : release(amount, next(10_000), id);
         try {
-          await ledger.post(post);
+          if (kind === 0) {
+            await ledger.post(hold(amount, id));
+            if (!heldBy.has(id)) heldBy.set(id, amt(amount));
+          } else if (kind === 1) {
+            const n = (refundNo.get(id) ?? 0) + 1;
+            await ledger.post(refund(amount, n, id));
+            refundNo.set(id, n);
+            refundedBy.set(id, (refundedBy.get(id) ?? 0n) + amt(amount));
+          } else {
+            // Mostly the true remainder; one in four a wrong figure that must be refused.
+            const held = heldBy.get(id) ?? amt(amount);
+            const refunded = refundedBy.get(id) ?? 0n;
+            const left = next(4) === 0 ? amt(amount) : held - refunded;
+            await ledger.post(release(formatAmount(left), next(10_000), id, formatAmount(held), formatAmount(refunded)));
+          }
           posted[kind]! += 1;
-          if (kind === 1) refundNo.set(id, (refundNo.get(id) ?? 0) + 1);
         } catch {
           // A refused post moves nothing; the checks below prove it.
           refused[kind]! += 1;
