@@ -4,6 +4,8 @@ import { useSession } from '../session/session';
 import { AcademyRoom } from './Academy';
 import { academyRoute } from './academy-lms';
 import { Agents } from './Agents';
+import { AgentsTeam } from './AgentsTeam';
+import { agentsTeamCopy } from './agents-team-copy';
 import { Blueprint } from './Blueprint';
 import { Campaigns } from './Campaigns';
 import { CampaignDetail } from './campaign-catalogue';
@@ -73,6 +75,10 @@ function MoreRooms({ path }: { path: string }) {
     title = copyText('moreroutes.agents');
     description = copyText('moreroutes.permissions.bounded.engine.sessions.and.your.activity');
     content = <Agents paper={paper} />;
+  } else if (p === '/agents/team') {
+    title = <agentsTeamCopy.Copy k="title" />;
+    description = <agentsTeamCopy.Copy k="description" />;
+    content = <AgentsTeam />;
   } else if (p === '/blueprint') {
     room = 'blueprint';
     title = copyText('moreroutes.identity.blueprint');

@@ -325,6 +325,10 @@
     "./support-macros": {
       "types": "./dist/support-macros.d.ts",
       "default": "./dist/support-macros.js"
+    },
+    "./agents-team": {
+      "types": "./dist/agents-team.d.ts",
+      "default": "./dist/agents-team.js"
     }
   },
   "scripts": {

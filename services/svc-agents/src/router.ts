@@ -61,6 +61,8 @@ import { listCatalogue } from './ops/catalogue.js';
 import { listSessions } from './ops/ops-sessions.js';
 import { engineForTasks, engineOfAdapter, routeIsMetered, type RouteDef, type RouteEngine } from './gateway/routing.js';
 import { spendRouter } from './spend/routes.js';
+import type { TeamMembershipPort } from './team/membership.js';
+import { teamRouter } from './team/routes.js';
 
 /**
  * The internal tRPC surface (§1: "Fastify + tRPC (internal) / REST (public)").
@@ -336,6 +338,8 @@ export interface AgentsRouterDeps {
   readonly portfolioLedger?: HoldingsLedger | null;
   /** Platform prices. Absent → portfolio.plan stays port_dark. Null price → portfolio.price_unset. */
   readonly portfolioPrices?: PortfolioPriceSource | null;
+  /** svc-pay's business team read. Absent → every team call refuses `agents.membership_unavailable`. */
+  readonly teamMembership?: TeamMembershipPort;
 }
 
 /**
@@ -4199,6 +4203,9 @@ export function createAgentsRouter(deps: AgentsRouterDeps) {
 
     /** User spend caps (AG-spend-01). A blank cap refuses. A reservation is not a ledger post. */
     spend: spendRouter(sql),
+
+    /** A business team's agent roles, pool and project limits (AG-governance-01). Membership is svc-pay's, read per call. */
+    team: teamRouter({ sql, membership: deps.teamMembership, feeAssetId }),
   });
 }
 
