@@ -222,6 +222,10 @@
       "types": "./dist/ledger-reconciliation.d.ts",
       "default": "./dist/ledger-reconciliation.js"
     },
+    "./ops-reconciliation-alerts": {
+      "types": "./dist/ops-reconciliation-alerts.d.ts",
+      "default": "./dist/ops-reconciliation-alerts.js"
+    },
     "./watchlists-preferences": {
       "types": "./dist/watchlists-preferences.d.ts",
       "default": "./dist/watchlists-preferences.js"

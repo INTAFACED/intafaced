@@ -93,6 +93,9 @@ export function schemaOf(serviceDir) {
   return serviceDir.replace(/^svc-/, '').replace(/-/g, '_');
 }
 
+/** The most characters `keyExpression` reads after the `:` or `=`, strings included, so the scan stays linear. */
+export const KEY_EXPR_CAP = 2000;
+
 /**
  * The expression after `idempotencyKey` (`: expr`, `= expr`), across lines, up to the `,` `;` or closing bracket that ends
  * it. Returns '' for a shorthand property (`{ idempotencyKey }`) and null when the word is not a key being set.
@@ -106,15 +109,15 @@ export function keyExpression(code, from) {
   i += 1;
   const start = i;
   let depth = 0;
-  const end = Math.min(code.length, start + 2000);
+  const end = Math.min(code.length, start + KEY_EXPR_CAP);
   for (; i < end; i += 1) {
     const c = code[i];
     if (c === '`') {
-      for (i += 1; i < code.length && code[i] !== '`'; i += 1) if (code[i] === '\\') i += 1;
+      for (i += 1; i < end && code[i] !== '`'; i += 1) if (code[i] === '\\') i += 1;
       continue;
     }
     if (c === '"' || c === "'") {
-      for (i += 1; i < code.length && code[i] !== c; i += 1) if (code[i] === '\\') i += 1;
+      for (i += 1; i < end && code[i] !== c; i += 1) if (code[i] === '\\') i += 1;
       continue;
     }
     if ('([{'.includes(c)) depth += 1;
@@ -531,10 +534,19 @@ function selfTest() {
   eq(checkMigration('  balances numeric(38,18),', { rel: 'm.sql' }).length, 1, 'plural balance column');
   eq(checkMigration('  availablebalance numeric,', { rel: 'm.sql' }).length, 1, 'run-together balance column');
   eq(checkMigration('  available int8 NOT NULL,', { rel: 'm.sql' }).length, 1, 'int8 available column');
-  const big = 'idempotencyKey: '.repeat(20000);
-  const t0 = Date.now();
-  t(big);
-  if (Date.now() - t0 > 3000) throw new Error('an unterminated key expression made the scan slow');
+  // An unterminated key, bare or inside an unclosed string, reads at most its cap, never the rest of the file: the slice
+  // is everything it read after the `:`. Checked by length, not by the runner's clock (#6138).
+  for (const [open, name] of [
+    ['', 'bare'],
+    ["'", 'single-quoted'],
+    ['"', 'double-quoted'],
+    ['`', 'template'],
+  ]) {
+    const flood = `idempotencyKey: ${open}${'idempotencyKey: '.repeat(20000)}`;
+    const read = keyExpression(flood, 'idempotencyKey'.length).length;
+    if (read > KEY_EXPR_CAP + 1) throw new Error(`an unterminated ${name} key expression read ${read} characters`);
+  }
+  eq(t('idempotencyKey: '.repeat(20000)), [], 'a flood of unterminated keys scans and finds nothing');
   const f = { rule: 'B-deps', file: 'a/package.json', detail: 'devDependencies @intafaced/svc-x' };
   eq(applyAllow([f], [{ rule: 'B-deps', file: 'a/package.json', reason: 'r' }]).open, [], 'allowed');
   eq(applyAllow([], [{ rule: 'B-deps', file: 'a/package.json', reason: 'r' }]).stale.length, 1, 'stale allow entry');
