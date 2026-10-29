@@ -4,6 +4,7 @@ import { requireScope, requireTier, requireOwnership, requireMfa, bearerToken } 
 import {
   assertDelegatableScopes,
   assertKeyScopesAllowed,
+  PERSON_ONLY_SCOPES,
   expandScopes,
   hasScope,
   isScope,
@@ -484,5 +485,18 @@ describe('a validly-signed token with the wrong claims shape', () => {
     const err = (await verifyAccessToken(token, config).catch((e: unknown) => e)) as AuthError;
     expect(err).toBeInstanceOf(AuthError);
     expect(err.code).toBe('token.malformed');
+  });
+});
+
+describe('agents:execute (OWNER 107, 29 Oct 2026: every person runs agents from their own session)', () => {
+  it('is on every person’s session and on no API key, even from a session that holds it', () => {
+    expect(SESSION_SCOPES).toContain('agents:execute');
+    expect(PERSON_ONLY_SCOPES).toContain('agents:execute');
+    expect(() => assertKeyScopesAllowed(['agents:execute'])).toThrow(/cannot be granted to an API key/);
+    expect(() => assertDelegatableScopes(['agents:read', 'agents:execute'], [...SESSION_SCOPES])).toThrow(
+      /cannot be granted to an API key/,
+    );
+    // Reading stays delegable.
+    expect(() => assertDelegatableScopes(['agents:read'], [...SESSION_SCOPES])).not.toThrow();
   });
 });

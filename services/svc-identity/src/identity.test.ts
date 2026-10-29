@@ -729,7 +729,7 @@ if (!available) {
         auth.createApiKey({
           userId: session.userId,
           name: 'widen',
-          scopes: ['agents:execute'],
+          scopes: ['pay:read'],
           grantorScopes: ['identity:write', 'trade:read'],
         }),
       ).rejects.toThrow(/does not hold/);

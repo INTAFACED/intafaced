@@ -207,8 +207,22 @@ export function isPayStepUpScope(scope: string): scope is PayStepUpScope {
  */
 export const SESSION_MFA_SCOPES: readonly Scope[] = ['trade:withdraw', 'admin:treasury', 'bank:card', 'pay:onboard'];
 
+/**
+ * Scopes every person's own session carries and nothing delegated ever does.
+ *
+ * Unlike `INTERACTIVE_ONLY_SCOPES`, these ARE issued by default. They are kept
+ * off API keys because what they authorise spends the person's own money at
+ * the person's own instruction: `agents:execute` runs a metered agent
+ * (OWNER 107, 29 Oct 2026: "Every signed-in person may run agents from their
+ * own session, never from API keys or delegated tokens"). svc-agents also
+ * refuses a delegated token (`kid`, `sub_account`) or a service on the request.
+ */
+export const PERSON_ONLY_SCOPES: readonly Scope[] = ['agents:execute'];
+
 export function assertKeyScopesAllowed(scopes: readonly string[]): void {
-  const forbidden = scopes.filter((s) => (INTERACTIVE_ONLY_SCOPES as readonly string[]).includes(s));
+  const forbidden = scopes.filter(
+    (s) => (INTERACTIVE_ONLY_SCOPES as readonly string[]).includes(s) || (PERSON_ONLY_SCOPES as readonly string[]).includes(s),
+  );
   if (forbidden.length > 0) {
     throw new Error(`Scopes ${forbidden.join(', ')} cannot be granted to an API key — they require an interactive session (§9)`);
   }
@@ -276,6 +290,14 @@ const SESSION_SCOPE_LIST = [
   // ambassadors and operators running rooms, not anyone with a login.
   'academy:write',
   'agents:read',
+  // Owner decision 29 Oct 2026 (OWNER 107, "Everyone, bounded"): every
+  // signed-in person may run agents from their own session. It spends their
+  // money, so it is bounded where it is spent, not here: svc-agents refuses a
+  // run before the engine when its worst case passes the agent's stored cap,
+  // the person's own limits or their available balance, and refuses every run
+  // whose rate is unpublished (blank in production until the owner sets it).
+  // Never on an API key (`PERSON_ONLY_SCOPES`).
+  'agents:execute',
   // Non-custodial, `minTier: 'none'`. §22 makes this the easy case: the
   // platform never holds a Blueprint, so there is nothing to verify anyone
   // against. `:write` runs an onboarding session or ERASES a Blueprint — both
@@ -474,12 +496,6 @@ export const WITHHELD_FROM_SESSION: Readonly<Record<Exclude<Scope, SessionScope>
   // funded card, so it needs a 2FA session and must never sit on a long-lived
   // key. `bank:read` and `bank:write` are issued; this one is not.
   'bank:card': 'Card spend authority — interactive-only step-up surface (§9, §18)',
-
-  // Running an agent spends real money: svc-agents meters model cost and
-  // settles it against the user's balance. Whether every account may burn agent
-  // budget by default is a pricing decision, not an authorisation one, and it
-  // belongs to the owner. Left withheld rather than guessed at.
-  'agents:execute': 'Metered spend — issuance is a pricing decision, not an auth one (OWNER)',
 
   // No service exists yet (§12 Phase 5). A scope for a router that cannot be
   // called is noise in every token in the platform; these get issued by the PR
