@@ -31,7 +31,7 @@ const en = {
   txDropped: 'Dropped',
   txReplaced: 'Replaced by another transaction',
   txReplacedBy: 'Replaced by {hash}',
-  txOrphaned: 'In a reorged block: {reason}',
+  txOrphaned: '{outcome}, in a reorged block: {reason}',
   latestBlocks: 'Latest blocks',
   latestTxs: 'Latest transactions',
   hdrBlock: 'Block',

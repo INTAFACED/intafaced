@@ -64,8 +64,9 @@ describe('Chain home search', () => {
   it('never reads a reorged or replaced transaction as plain Success', async () => {
     answers.set(A, tx(A, { orphaned: { reason: 'replaced by a heavier branch' } }));
     await search(A);
-    expect(networks()).toContain('Found (In a reorged block: replaced by a heavier branch)');
-    answers.set(B, tx(B, { status: 'replaced', replacingHash: `0x${'c'.repeat(64)}` }));
+    expect(networks()).toContain('Found (Success, in a reorged block: replaced by a heavier branch)');
+    // As the indexer sends it: replaced only ever comes with the reorged block that lost it.
+    answers.set(B, tx(B, { status: 'replaced', replacingHash: `0x${'c'.repeat(64)}`, orphaned: { reason: 'reorg' } }));
     await search(B);
     expect(networks()).toContain('Found (Replaced by 0xcccccccc…cccccc)');
   });

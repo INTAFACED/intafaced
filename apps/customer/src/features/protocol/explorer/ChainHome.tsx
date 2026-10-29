@@ -143,18 +143,23 @@ function LatestBlocks({ api, chain, locale, t }: { api: ExplorerApi; chain: Chai
   );
 }
 
-/** The indexer's status in words. A transaction from a reorged block or one replaced by another is never plain Success. */
+/**
+ * The indexer's status in words. The indexer marks a transaction `replaced` only when its block was reorged and another
+ * transaction took its place, so the replacing hash leads; any other transaction from a reorged block keeps its outcome and
+ * says the block was reorged. Nothing reorged or replaced ever reads as plain Success.
+ */
 export function txStatusWords(tx: ExplorerTx, t: ExplorerTranslate): string {
-  if (tx.orphaned) return t('txOrphaned', { reason: tx.orphaned.reason });
   if (tx.status === 'replaced') return tx.replacingHash ? t('txReplacedBy', { hash: short(tx.replacingHash) }) : t('txReplaced');
-  return t(TX_STATUS[tx.status]);
+  const outcome = t(TX_STATUS[tx.status]);
+  return tx.orphaned ? t('txOrphaned', { outcome, reason: tx.orphaned.reason }) : outcome;
 }
-const TX_STATUS = {
+const TX_STATUS: Record<ExplorerTx['status'], 'txSuccess' | 'txReverted' | 'txPending' | 'txDropped' | 'txReplaced'> = {
   success: 'txSuccess',
   failed: 'txReverted',
   pending: 'txPending',
   dropped: 'txDropped',
-} as const;
+  replaced: 'txReplaced',
+};
 
 /** Every network this explorer knows, plus the configured one when it is not among them. */
 function searchedNetworks(chainId: number | null): { chainId: number; name: string }[] {
