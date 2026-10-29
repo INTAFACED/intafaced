@@ -4,6 +4,7 @@ import { parseKycCapabilitiesByLevel } from './kyc/capabilities.js';
 import { parseKycAttemptLimit } from './kyc/attempts.js';
 import { KycProfileDesk, parseKycDocumentTypes, parseKycUploadCaps } from './kyc/profile.js';
 import { KycPoaDesk, parseKycPoaMaxAgeDays, parseKycPoaTypes } from './kyc/proof-of-address.js';
+import { KycSelfieDesk, parseKycHandoffTtlSeconds, parseKycLivenessRecheckFor } from './kyc/selfie.js';
 import { readFileSync } from 'node:fs';
 import { resolve as resolvePath } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -487,6 +488,13 @@ const kycPoa = new KycPoaDesk(sql, {
   uploadCaps: kycUploadCaps,
   vault: vault?.kycDocs,
 });
+// Selfie (I-kyc-compliance-09): the frame goes to the vault under the same caps; the face match is not connected.
+const kycSelfie = new KycSelfieDesk(sql, {
+  handoffTtlSeconds: parseKycHandoffTtlSeconds(env.IDENTITY_KYC_HANDOFF_TTL_SECONDS),
+  recheckFor: parseKycLivenessRecheckFor(env.IDENTITY_KYC_LIVENESS_RECHECK_FOR),
+  uploadCaps: kycUploadCaps,
+  vault: vault?.kycDocs,
+});
 // Staff-edited customer details (J-ops-console-04 #9) are encrypted under the same key; unset, every details door refuses.
 const customerDetails = new CustomerDetailsDesk(sql, founderControls, parseKycDocKey(env.IDENTITY_KYC_DOC_KEY));
 // Customer limit overrides (J-ops-console-04 #12) under the owner's IDENTITY_LIMIT_OVERRIDE_POLICY; unset, every set refuses.
@@ -632,6 +640,7 @@ export const appRouter = mergeRouters(
     kycCapabilityReasons: parseKycRejectReasons(env.IDENTITY_KYC_CAPABILITY_REASONS, 'IDENTITY_KYC_CAPABILITY_REASONS'),
     kycProfile,
     kycPoa,
+    kycSelfie,
     social,
     referral,
     share,

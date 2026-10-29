@@ -142,7 +142,13 @@ function Room({ linkedId }: { linkedId: string | null }) {
                   readAt={entry.readAt}
                   now={now}
                   onCheck={check}
-                  onQuote={(quote) => void book.adopt(quote)}
+                  onQuote={(quote, options) => {
+                    const kept = book.adopt(quote);
+                    if (options?.select) {
+                      setKept(kept);
+                      setSelected(quote.quoteId);
+                    }
+                  }}
                 />
               ) : null}
             </TabsPanel>

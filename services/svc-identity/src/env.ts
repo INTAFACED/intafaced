@@ -299,6 +299,13 @@ const schema = serviceEnvSchema
       IDENTITY_KYC_POA_MAX_AGE_DAYS: z.string().optional(),
       IDENTITY_KYC_POA_TYPES_BY_COUNTRY: z.string().optional(),
       /**
+       * Owner settings (I-kyc-compliance-09), NO DEFAULT. How many seconds a phone hand-off link for the selfie lasts
+       * (60 to 3600; unset refuses every hand-off `kyc.handoff_unset`), and the comma-separated actions that ask for a
+       * liveness re-check (unset is none). Parsed at start; malformed stops the service.
+       */
+      IDENTITY_KYC_HANDOFF_TTL_SECONDS: z.string().optional(),
+      IDENTITY_KYC_LIVENESS_RECHECK_FOR: z.string().optional(),
+      /**
        * Owner settings (I-kyc-compliance-10), set together or not at all: how many rejected verification requests a
        * person may have inside `IDENTITY_KYC_DENIAL_WINDOW_HOURS`, and for how many hours after the last of them a new
        * request is refused `kyc.attempts_exhausted`. NO DEFAULT. All unset is no limit, and /verification says so.

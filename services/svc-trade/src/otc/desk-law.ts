@@ -5,7 +5,7 @@
  * never defaulted. Blank / unpublished → refuse-closed.
  */
 
-import { parseAmount, type Amount } from '@intafaced/ledger-client';
+import { formatAmount, parseAmount, type Amount } from '@intafaced/ledger-client';
 import { logRefusalSpec } from '../refusal-spec-log.js';
 import { OTC_DESK_LAW_RESIDUAL, OtcError } from './errors.js';
 
@@ -28,6 +28,11 @@ export type OtcDeskLaw =
        * Older than this → refuse quote rather than price off a memory.
        */
       readonly maxMidAgeSeconds: number;
+      /**
+       * How long an accepted quote may wait to be settled, ms from the accept (CB-otc-07). Owner-published only.
+       * Null is blank: there is no deferral, so a bound quote settles only while its own quote is still firm.
+       */
+      readonly settleWindowMs?: number | null;
     };
 
 /** Production default — no invent. */
@@ -103,7 +108,20 @@ export function parseOtcDeskLawJson(raw: string | null | undefined): OtcDeskLaw 
     );
   }
 
-  return { published: true, spreadBps, minStake, counterparty, quoteTtlMs, maxMidAgeSeconds };
+  // Optional: absent or null is blank (no deferral), never a default window.
+  const settleWindowMs = obj.settleWindowMs ?? null;
+  if (
+    settleWindowMs !== null &&
+    (typeof settleWindowMs !== 'number' || !Number.isInteger(settleWindowMs) || settleWindowMs < 1_000 || settleWindowMs > 86_400_000)
+  ) {
+    throw new OtcError(
+      'TRADE_OTC_DESK_LAW.settleWindowMs must be an integer 1000..86400000, or left out for no deferral',
+      'trade.otc_desk_law_blank',
+      OTC_DESK_LAW_RESIDUAL,
+    );
+  }
+
+  return { published: true, spreadBps, minStake, counterparty, quoteTtlMs, maxMidAgeSeconds, settleWindowMs };
 }
 
 /** Require published law or throw refuse-closed. */
@@ -120,5 +138,5 @@ export function otcDeskLawStatusLine(law: OtcDeskLaw): string {
     logRefusalSpec('trade.otc_desk_law_blank');
     return 'published=0 residual=otc_desk_law_unset';
   }
-  return `published=1 spreadBps=${law.spreadBps} counterparty=${law.counterparty} ttlMs=${law.quoteTtlMs} maxMidAgeSeconds=${law.maxMidAgeSeconds}`;
+  return `published=1 spreadBps=${law.spreadBps} counterparty=${law.counterparty} ttlMs=${law.quoteTtlMs} maxMidAgeSeconds=${law.maxMidAgeSeconds} settleWindowMs=${law.settleWindowMs ?? 'unset'} minStake=${formatAmount(law.minStake)}`;
 }
