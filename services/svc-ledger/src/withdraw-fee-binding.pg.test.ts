@@ -207,6 +207,19 @@ describe('a withdrawal fee bound to its posted hold (Postgres)', () => {
     expect(await bal(withdrawalHoldAccount(USER, 'USDT', 'f12:0'))).toBe('26.5');
   });
 
+  it('refuses a hold retried with another fee than the posted one, either way, and replays the same hold', async () => {
+    const x = await funded('f13:0');
+    await post(recipes.withdrawHold({ ...x, amount: amt('26.5'), fee: undefined }));
+    await expect(post(recipes.withdrawHold(x))).rejects.toEqual(unbound);
+    const y = await funded('f14:0');
+    await post(recipes.withdrawHold(y));
+    await expect(post(recipes.withdrawHold({ ...y, amount: amt('26.5'), fee: undefined }))).rejects.toEqual(unbound);
+    // The same hold again is a plain replay.
+    await post(recipes.withdrawHold(y));
+    expect(await bal(withdrawalHoldAccount(USER, 'USDT', 'f14:0'))).toBe('26.5');
+    expect((await engine.getTxByKey('withdraw.hold:f13:0'))?.meta).not.toHaveProperty('fee');
+  });
+
   it('leaves a fee-less withdrawal exactly as before, part settle and reverse included', async () => {
     const w = await funded('f7:0');
     const plain = { ...w, fee: undefined, amount: amt('10') };
