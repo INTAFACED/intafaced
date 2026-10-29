@@ -10,8 +10,11 @@ import { decodeErrorResult, parseAbi, type Hex } from 'viem';
  * name an error the transaction never raised.
  *
  * Empty revert data is a contract that gave no reason, and reads as `null`
- * ("No reason returned"). A node that does not trace says so in the reason
- * instead of passing for a contract that gave none.
+ * ("No reason returned"), unless the tracer names a failure of its own (out of
+ * gas, an invalid opcode). A node that answers the trace with a refusal (no
+ * debug methods, no history, not on the plan) stores `TRACE_NOT_READ`, which the
+ * page words; only a failure in transit refuses the block, so a node that will
+ * never trace cannot stall ingest.
  */
 
 /**
@@ -40,7 +43,8 @@ const KNOWN_ERRORS = parseAbi([
   'error StringTooLong()',
 ]);
 
-export const TRACE_UNAVAILABLE_REASON = 'Reason not read: this network’s node does not trace transactions';
+/** Stored in place of a reason when the node refused to trace the transaction. A code, not words: the page words it. */
+export const TRACE_NOT_READ = 'indexer.trace_unavailable';
 
 /** Revert data to the words the transaction page shows. `null` when the contract returned nothing. */
 export function revertReasonFromData(data: string | null | undefined): string | null {
@@ -59,22 +63,28 @@ export function revertReasonFromData(data: string | null | undefined): string | 
   }
 }
 
-/** JSON-RPC "method not found" / "not supported": the node will not trace, which is an answer, not an outage. */
-export function isTraceUnsupported(err: unknown): boolean {
+/**
+ * The node answered the trace request with a refusal, not a transport failure: any JSON-RPC error response (method not
+ * found, history pruned, tracer not supported, internal error) or an HTTP 4xx other than 408 and 429 (not on the plan,
+ * forbidden). Asking again gets the same answer, so it is stored as not read rather than holding the block back.
+ */
+export function isTraceRefused(err: unknown): boolean {
   let current = err;
   for (let depth = 0; current !== undefined && current !== null && depth < 12; depth += 1) {
-    const code = (current as { code?: unknown }).code;
-    const name = (current as { name?: unknown }).name;
-    if (code === -32601 || code === -32004) return true;
-    if (name === 'MethodNotFoundRpcError' || name === 'MethodNotSupportedRpcError') return true;
+    const { code, status } = current as { code?: unknown; status?: unknown };
+    if (typeof code === 'number' && Number.isInteger(code) && code < 0) return true;
+    if (typeof status === 'number' && status >= 400 && status < 500 && status !== 408 && status !== 429) return true;
     current = (current as { cause?: unknown }).cause;
   }
   return false;
 }
 
-/** The top call's revert data out of a call-tracer answer. */
-export function traceOutput(trace: unknown): string | null {
+/** The reason out of a call-tracer answer: the top call's revert data, else the tracer's own error when it is not a plain revert. */
+export function traceReason(trace: unknown): string | null {
   if (!trace || typeof trace !== 'object') return null;
-  const output = (trace as { output?: unknown }).output;
-  return typeof output === 'string' ? output : null;
+  const { output, error } = trace as { output?: unknown; error?: unknown };
+  const fromData = revertReasonFromData(typeof output === 'string' ? output : null);
+  if (fromData !== null) return fromData;
+  if (typeof error === 'string' && error.trim() !== '' && !/^execution reverted$/i.test(error.trim())) return error.trim();
+  return null;
 }

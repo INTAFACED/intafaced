@@ -19,8 +19,8 @@ import {
   type ExplorerBlockRow,
   type ExplorerTx,
   type ExplorerTxRow,
+  type ExplorerTxsPage,
 } from './explorer-api';
-import { txStatusWords } from './ChainHome';
 import './explorer.css';
 
 type Failure = Extract<ApiResult<unknown>, { ok: false }>;
@@ -227,9 +227,10 @@ export function TxTable({
   t: ExplorerTranslate;
 }) {
   const chainId = chain.status === 'ready' ? chain.chainId : null;
+  const [cursor, setCursor] = useState<ExplorerTxsPage['nextCursor']>(null);
   const txs = useResource(
-    (signal) => (chainId === null ? Promise.resolve({ ok: true as const, data: null }) : api.latestTxs(chainId, signal, blockHash)),
-    `explorer:txs:${chainId ?? 'none'}:${blockHash ?? 'latest'}`,
+    (signal) => (chainId === null ? Promise.resolve({ ok: true as const, data: null }) : api.latestTxs(chainId, signal, blockHash, cursor)),
+    `explorer:txs:${chainId ?? 'none'}:${blockHash ?? 'latest'}${cursor ? `:${cursor.height}:${cursor.index}:${cursor.hash}` : ''}`,
   );
   const headers = txHeaders(t);
   const { resource } = txs;
@@ -266,10 +267,18 @@ export function TxTable({
       </NoteRow>
     );
   else body = resource.data.rows.map((row) => <TxRow key={`${row.blockHash}:${row.hash}`} row={row} t={t} />);
+  const next = resource.status === 'ready' ? (resource.data?.nextCursor ?? null) : null;
   return (
-    <DataTable label={label} headers={headers}>
-      {body}
-    </DataTable>
+    <>
+      <DataTable label={label} headers={headers}>
+        {body}
+      </DataTable>
+      {next !== null && (
+        <Button variant="secondary" onClick={() => setCursor(next)}>
+          {t('moreTxs')}
+        </Button>
+      )}
+    </>
   );
 }
 
@@ -414,6 +423,30 @@ export function BlockPage({ height }: { height: number }) {
   );
 }
 
+/**
+ * The indexer's status in words. The indexer marks a transaction `replaced` only when its block was reorged and another
+ * transaction took its place, so the replacing hash leads; any other transaction from a reorged block keeps its outcome and
+ * says the block was reorged. Nothing reorged or replaced ever reads as plain Success.
+ */
+export function txStatusWords(tx: ExplorerTx, t: ExplorerTranslate): string {
+  if (tx.status === 'replaced') return tx.replacingHash ? t('txReplacedBy', { hash: short(tx.replacingHash) }) : t('txReplaced');
+  const outcome = t(TX_STATUS[tx.status]);
+  return tx.orphaned ? t('txOrphaned', { outcome, reason: tx.orphaned.reason }) : outcome;
+}
+const TX_STATUS: Record<ExplorerTx['status'], 'txSuccess' | 'txReverted' | 'txPending' | 'txDropped' | 'txReplaced'> = {
+  success: 'txSuccess',
+  failed: 'txReverted',
+  pending: 'txPending',
+  dropped: 'txDropped',
+  replaced: 'txReplaced',
+};
+
+/** The indexer stores `indexer.trace_unavailable` when the node refused to trace the transaction: worded here, not stored as words. */
+function revertReasonWords(reason: string | null, t: ExplorerTranslate): string {
+  if (reason === null) return t('noReasonReturned');
+  return reason === 'indexer.trace_unavailable' ? t('reasonNotTraced') : reason;
+}
+
 type TxTab = 'input' | 'logs';
 
 /**
@@ -466,7 +499,7 @@ function TxBody({ tx, t }: { tx: ExplorerTx; t: ExplorerTranslate }) {
   const body = tx.transaction;
   const receipt = tx.receipt;
   const rows: [string, ReactNode, string?][] = [[t('txStatus'), txStatusWords(tx, t), 'tx-status']];
-  if (tx.status === 'failed') rows.push([t('txRevertReason'), receipt?.revertReason ?? t('noReasonReturned'), 'tx-revert-reason']);
+  if (tx.status === 'failed') rows.push([t('txRevertReason'), revertReasonWords(receipt?.revertReason ?? null, t), 'tx-revert-reason']);
   rows.push([t('txHash'), <code key="hash">{tx.hash}</code>]);
   if (body) {
     rows.push(

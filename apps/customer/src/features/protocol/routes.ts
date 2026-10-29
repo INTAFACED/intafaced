@@ -40,7 +40,8 @@ export interface Web3Route {
   pending?: { page: PendingPage; blocker: PendingBlocker; param?: { name: string; shape: RegExp } };
 }
 
-const digits = /^\d{1,20}$/;
+// A block height up to 15 digits: every such number is exact in a JavaScript number, so the page asks for the block named.
+const digits = /^\d{1,15}$/;
 const txHash = /^0x[0-9a-fA-F]{64}$/;
 /** A 20-byte hex address, the shape every address route and the token page accept. */
 export const ADDRESS_SHAPE = /^0x[0-9a-fA-F]{40}$/;

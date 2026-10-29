@@ -96,8 +96,14 @@ export function createExplorerApi(api: ApiClient) {
     block: (chainId: number, at: { height: number } | { hash: string }, signal?: AbortSignal) =>
       api.query('indexer', 'explorer.blocks.get', { chainId, ...at }, explorerBlockRowSchema, { signal }),
     /** Newest transactions first, or one block's. The window is the owner's list limit, as for blocks. */
-    latestTxs: (chainId: number, signal?: AbortSignal, blockHash?: string) =>
-      api.query('indexer', 'explorer.txs.list', { chainId, ...(blockHash ? { blockHash } : {}) }, explorerTxsPageSchema, { signal }),
+    latestTxs: (chainId: number, signal?: AbortSignal, blockHash?: string, cursor?: ExplorerTxsPage['nextCursor']) =>
+      api.query(
+        'indexer',
+        'explorer.txs.list',
+        { chainId, ...(blockHash ? { blockHash } : {}), ...(cursor ? { cursor } : {}) },
+        explorerTxsPageSchema,
+        { signal },
+      ),
     /** One transaction by hash on the chain the indexer reads. An unknown hash is NOT_FOUND, never an empty success. */
     tx: (chainId: number, hash: string, signal?: AbortSignal) =>
       api.query('indexer', 'explorer.tx.get', { chainId, hash }, explorerTxSchema, { signal }),

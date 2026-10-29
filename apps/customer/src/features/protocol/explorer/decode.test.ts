@@ -23,6 +23,22 @@ describe('decodeInput', () => {
     });
   });
 
+  it("reads a swap through the router, which names its pool, apart from the pool's own swap", () => {
+    const data = encodeFunctionData({
+      abi: parseAbi(['function swapExactIn(address pool, address tokenIn, uint256 amountIn, uint256 minAmountOut, address to)']),
+      functionName: 'swapExactIn',
+      args: [TO, TO, 7n, 1n, TO],
+    });
+    const decoded = decodeInput(data, TO);
+    expect(decoded.kind === 'decoded' && decoded.args.map((arg) => arg.name)).toEqual([
+      'pool',
+      'tokenIn',
+      'amountIn',
+      'minAmountOut',
+      'to',
+    ]);
+  });
+
   it('an unknown method keeps its selector and invents no names', () => {
     expect(decodeInput('0xdeadbeef0000', TO)).toEqual({ kind: 'unknown', selector: '0xdeadbeef' });
   });

@@ -1,7 +1,7 @@
 import type { Hex, PublicClient } from 'viem';
 import { ChainUnavailableError, classifyChainError } from './availability.js';
 import type { ChainTx, ChainTxLog } from '../source.js';
-import { isTraceUnsupported, revertReasonFromData, TRACE_UNAVAILABLE_REASON, traceOutput } from './revert-reason.js';
+import { isTraceRefused, TRACE_NOT_READ, traceReason } from './revert-reason.js';
 import type { LiveTx } from '../../explorer/tx.js';
 
 /**
@@ -49,10 +49,10 @@ async function tracedRevertReason(client: PublicClient, hash: Hex, rpcUrl: strin
       params: [hash, { tracer: 'callTracer', tracerConfig: { onlyTopCall: true } }],
     } as never);
   } catch (err) {
-    if (isTraceUnsupported(err)) return TRACE_UNAVAILABLE_REASON;
+    if (isTraceRefused(err)) return TRACE_NOT_READ;
     throw classifyChainError(err, `revertReason(${hash})`, rpcUrl);
   }
-  return revertReasonFromData(traceOutput(trace));
+  return traceReason(trace);
 }
 
 export async function readBlockTransactions(

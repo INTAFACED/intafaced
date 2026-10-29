@@ -1,15 +1,20 @@
 import { decodeFunctionData, formatUnits, parseAbi, type Abi } from 'viem';
 
 /**
- * Interfaces this explorer can read a transaction's input against: the ERC-20 standard and the platform's own pool,
- * router and factory. An input whose method is in none of them is reported undecoded with its selector, never guessed.
+ * Interfaces this explorer can read a transaction's input against: the ERC-20 standard with permit, the platform's own
+ * pool, router and factory, and the TEST token's mint. An input whose method is in none of them is reported undecoded with its selector, never guessed.
  */
 const KNOWN: readonly Abi[] = [
   parseAbi([
     'function transfer(address to, uint256 amount)',
     'function approve(address spender, uint256 amount)',
     'function transferFrom(address from, address to, uint256 amount)',
+    'function permit(address owner, address spender, uint256 value, uint256 deadline, uint8 v, bytes32 r, bytes32 s)',
   ]),
+  // The router names the pool it swaps through; the pool's own swapExactIn does not.
+  parseAbi(['function swapExactIn(address pool, address tokenIn, uint256 amountIn, uint256 minAmountOut, address to)']),
+  // The TEST token's faucet mint (two arguments; a pool's mint takes three).
+  parseAbi(['function mint(address to, uint256 amount)']),
   parseAbi([
     'function swap(uint256 amount0Out, uint256 amount1Out, address to)',
     'function swapExactIn(address tokenIn, uint256 amountIn, uint256 minAmountOut, address to)',

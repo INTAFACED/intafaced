@@ -9,7 +9,7 @@ import { KNOWN_NETWORKS, networkLabel } from '../blockers';
 import type { ChainRef } from '../NetworkPanels';
 import { explorerCopy, type ExplorerTranslate } from './copy';
 import { createExplorerApi, isNotFound, type ExplorerApi, type ExplorerBlocksPage, type ExplorerTx } from './explorer-api';
-import { BlockerNote, NoteRow, refusalWords, short, TxTable } from './pages';
+import { BlockerNote, NoteRow, refusalWords, short, TxTable, txStatusWords } from './pages';
 import { classifyQuery, pathFor, type ExplorerQuery } from './search';
 
 /**
@@ -110,24 +110,6 @@ function LatestBlocks({ api, chain, locale, t }: { api: ExplorerApi; chain: Chai
     </Panel>
   );
 }
-
-/**
- * The indexer's status in words. The indexer marks a transaction `replaced` only when its block was reorged and another
- * transaction took its place, so the replacing hash leads; any other transaction from a reorged block keeps its outcome and
- * says the block was reorged. Nothing reorged or replaced ever reads as plain Success.
- */
-export function txStatusWords(tx: ExplorerTx, t: ExplorerTranslate): string {
-  if (tx.status === 'replaced') return tx.replacingHash ? t('txReplacedBy', { hash: short(tx.replacingHash) }) : t('txReplaced');
-  const outcome = t(TX_STATUS[tx.status]);
-  return tx.orphaned ? t('txOrphaned', { outcome, reason: tx.orphaned.reason }) : outcome;
-}
-const TX_STATUS: Record<ExplorerTx['status'], 'txSuccess' | 'txReverted' | 'txPending' | 'txDropped' | 'txReplaced'> = {
-  success: 'txSuccess',
-  failed: 'txReverted',
-  pending: 'txPending',
-  dropped: 'txDropped',
-  replaced: 'txReplaced',
-};
 
 /** Every network this explorer knows, plus the configured one when it is not among them. */
 function searchedNetworks(chainId: number | null): { chainId: number; name: string }[] {

@@ -169,6 +169,16 @@ describe('transaction page', () => {
       data: tx({ status: 'failed', receipt: { status: 'failed', gasConsumed: '1', revertReason: null, createdContract: null } }),
     };
     expect(renderToStaticMarkup(<TxPage hash={HASH} />)).toMatch(/data-testid="tx-revert-reason"[^>]*>No reason returned</);
+    answers[key] = {
+      status: 'ready',
+      data: tx({
+        status: 'failed',
+        receipt: { status: 'failed', gasConsumed: '1', revertReason: 'indexer.trace_unavailable', createdContract: null },
+      }),
+    };
+    expect(renderToStaticMarkup(<TxPage hash={HASH} />)).toMatch(
+      /data-testid="tx-revert-reason"[^>]*>Reason not read: this network’s node did not trace the transaction</,
+    );
   });
   it('an unknown method is not decoded and names its selector', () => {
     answers[key] = { status: 'ready', data: tx({ transaction: { ...tx().transaction, input: '0xdeadbeef' } }) };

@@ -1,6 +1,6 @@
 import { encodeErrorResult, parseAbi } from 'viem';
 import { describe, expect, it } from 'vitest';
-import { isTraceUnsupported, revertReasonFromData, traceOutput } from './revert-reason.js';
+import { isTraceRefused, revertReasonFromData, traceReason } from './revert-reason.js';
 
 const abi = parseAbi([
   'error Error(string message)',
@@ -36,21 +36,30 @@ describe('revertReasonFromData', () => {
   });
 });
 
-describe('isTraceUnsupported', () => {
-  it('matches method-not-found anywhere in the cause chain', () => {
-    expect(isTraceUnsupported({ name: 'X', cause: { code: -32601 } })).toBe(true);
-    expect(isTraceUnsupported({ name: 'MethodNotSupportedRpcError' })).toBe(true);
+describe('isTraceRefused', () => {
+  it('takes any JSON-RPC error answer, anywhere in the cause chain, as the node refusing to trace', () => {
+    expect(isTraceRefused({ name: 'X', cause: { code: -32601 } })).toBe(true);
+    expect(isTraceRefused({ name: 'RpcRequestError', code: -32000, message: 'historical state unavailable' })).toBe(true);
+    expect(isTraceRefused({ name: 'InvalidParamsRpcError', code: -32602 })).toBe(true);
+    expect(isTraceRefused({ name: 'HttpRequestError', status: 403 })).toBe(true);
   });
 
-  it('does not treat a transport failure as a node that will not trace', () => {
-    expect(isTraceUnsupported({ name: 'HttpRequestError', cause: { code: 'ECONNREFUSED' } })).toBe(false);
+  it('does not take a failure in transit or a busy node as a refusal', () => {
+    expect(isTraceRefused({ name: 'HttpRequestError', cause: { code: 'ECONNREFUSED' } })).toBe(false);
+    expect(isTraceRefused({ name: 'HttpRequestError', status: 429 })).toBe(false);
+    expect(isTraceRefused({ name: 'HttpRequestError', status: 503 })).toBe(false);
+    expect(isTraceRefused({ name: 'TimeoutError' })).toBe(false);
   });
 });
 
-describe('traceOutput', () => {
+describe('traceReason', () => {
   it('takes the top call output and nothing else', () => {
-    expect(traceOutput({ output: '0x1234', calls: [{ output: '0xff' }] })).toBe('0x1234');
-    expect(traceOutput({ error: 'execution reverted' })).toBeNull();
-    expect(traceOutput(null)).toBeNull();
+    expect(traceReason({ output: '0xbe664d40', calls: [{ output: '0xff' }] })).toBe('InsufficientOut');
+    expect(traceReason(null)).toBeNull();
+  });
+
+  it('names the tracer error when the call failed without revert data, but not a plain revert', () => {
+    expect(traceReason({ error: 'out of gas' })).toBe('out of gas');
+    expect(traceReason({ error: 'execution reverted', output: '0x' })).toBeNull();
   });
 });
