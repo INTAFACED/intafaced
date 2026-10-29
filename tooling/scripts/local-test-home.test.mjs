@@ -13,6 +13,7 @@ import {
   HOME_DEPOSIT_LABEL,
   HOME_NETWORK,
   HOME_NOTICE_TITLE,
+  NOTICE_WINDOW_MS,
   applyHome,
   homeStatus,
 } from './local-test-home.mjs';
@@ -140,11 +141,32 @@ test('an ended TEST notice is drafted afresh under the next window key, and each
   assert.equal(again[1], `home notice: ${HOME_NOTICE_TITLE} published`);
   assert.equal(state.drafts.length, 2);
   assert.notEqual(state.drafts[0], state.drafts[1]);
-  assert.match(state.drafts[0], /^local-test-seed:home-notice:draft:v1:\d+$/);
+  assert.match(state.drafts[0], new RegExp(`^local-test-seed:home-notice:draft:v1:${NOTICE_WINDOW_MS}:\\d+$`));
   assert.deepEqual(state.publishKeys, [
     'local-test-seed:home-notice:publish:notice-1:approval-1',
     'local-test-seed:home-notice:publish:notice-2:approval-2',
   ]);
+});
+
+test('a short notice window ends the notice within minutes, and the next run drafts a new one under its own key', async () => {
+  const { home, state } = stack();
+  await applyHome(home, { noticeMs: 6 * 60_000 });
+  const [first] = state.notices;
+  assert.equal(Date.parse(first.endsAt) - Date.parse(first.startsAt), 7 * 60_000); // drafted a minute back, open 6 ahead
+  assert.match(state.drafts[0], /^local-test-seed:home-notice:draft:v1:360000:\d+$/);
+  state.t += 7 * 60_000;
+  await applyHome(home, { noticeMs: 6 * 60_000 });
+  assert.equal(state.drafts.length, 2);
+  assert.notEqual(state.drafts[0], state.drafts[1]);
+});
+
+test('a notice window outside 1 minute to 30 days is refused before anything is delivered', async () => {
+  for (const noticeMs of [0, 59_999, NOTICE_WINDOW_MS + 1, 90_000.5]) {
+    const { home, state } = stack();
+    await assert.rejects(applyHome(home, { noticeMs }), /the TEST notice window must be a whole number of ms from 1 minute to 30 days/);
+    assert.equal(state.deliveries, 0);
+    assert.deepEqual(state.drafts, []);
+  }
 });
 
 test('another credited deposit in the inbox is not counted as the seeded row', async () => {
