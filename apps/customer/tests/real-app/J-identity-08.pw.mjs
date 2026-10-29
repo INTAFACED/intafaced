@@ -193,7 +193,10 @@ test(`${J} #3: with the face check switched off the selfie is kept for manual re
     const selfie = page.getByTestId('verification__selfie');
     await expect(page.getByRole('heading', { name: 'Selfie and liveness' })).toBeVisible();
     await expect(selfie.getByTestId('verification__selfie-manual')).toHaveAttribute('data-face-check', 'not_connected');
-    await expect(selfie.getByTestId('verification__selfie-manual')).toContainText('a person compares your selfie with your ID photo');
+    // The vendor is off: the notice names both checks it does not run, and that a person reviews the capture instead.
+    await expect(selfie.getByTestId('verification__selfie-manual')).toHaveText(
+      'The automatic face match and liveness check are not connected here, so a person compares your selfie with your ID photo.',
+    );
     await expect(selfie.getByTestId('verification__selfie-liveness')).toHaveText('No action asks for a liveness re-check.');
 
     // Taken live on this device: no file picker is offered, and the selfie waits for a person.

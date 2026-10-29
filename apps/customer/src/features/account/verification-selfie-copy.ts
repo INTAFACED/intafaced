@@ -4,7 +4,7 @@ export const verificationSelfieCopy = defineCopy('account.verificationSelfie', {
   title: 'Selfie and liveness',
   intro: 'A live photo of your face, taken with the camera now. Photos from your gallery are not accepted.',
   failedTitle: 'The selfie step could not be read',
-  manual: 'The automatic face match is not connected here, so a person compares your selfie with your ID photo.',
+  manual: 'The automatic face match and liveness check are not connected here, so a person compares your selfie with your ID photo.',
   livenessNone: 'No action asks for a liveness re-check.',
   livenessFor: 'These actions are listed for a liveness re-check: {actions}. The liveness check is not connected here.',
   latest: 'Last selfie: {status}, taken {via}.',
