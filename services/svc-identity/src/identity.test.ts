@@ -874,7 +874,8 @@ if (!available) {
       const listed = await auth.listApiKeys(session.userId, 200);
       expect(listed.find((k) => k.id === id)?.revoked).toBe(true);
       expect(await auth.verifyApiKey(key)).toBeNull();
-      await expect(auth.exchangeApiKey(key)).rejects.toMatchObject({ code: 'auth.invalid_credentials' });
+      // The holder of the dead key is told why: the account, not the key (DV-errors-02).
+      await expect(auth.exchangeApiKey(key)).rejects.toMatchObject({ code: 'auth.account_frozen' });
     });
 
     it('disableUser kills that user’s keys and refuses new mint; other users stay live', async () => {
@@ -906,7 +907,7 @@ if (!available) {
       );
       expect(result).toMatchObject({ userId: session.userId, status: 'frozen', keysRevoked: 1 });
 
-      await expect(auth.exchangeApiKey(key)).rejects.toMatchObject({ code: 'auth.invalid_credentials' });
+      await expect(auth.exchangeApiKey(key)).rejects.toMatchObject({ code: 'auth.account_frozen' });
       await expect(
         auth.createApiKey({
           userId: session.userId,
@@ -927,7 +928,8 @@ if (!available) {
       ).resolves.toMatchObject({ mode: 'live' });
 
       await auth.unfreezeIdentity(session.userId);
-      await expect(auth.exchangeApiKey(key)).rejects.toMatchObject({ code: 'auth.invalid_credentials' });
+      // Unfreezing does not bring the key back: it stays revoked, and says so.
+      await expect(auth.exchangeApiKey(key)).rejects.toMatchObject({ code: 'auth.api_key_revoked' });
     });
 
     it('honours domain_whitelist on exchange (empty = open; foreign origin refused)', async () => {

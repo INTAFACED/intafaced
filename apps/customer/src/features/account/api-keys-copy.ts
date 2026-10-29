@@ -70,6 +70,9 @@ const messages = {
   copied: 'Copied',
   copyFailed: 'This browser did not let the page copy. Select the key and copy it yourself.',
   download: 'Download as an environment file',
+  signingTitle: 'Signing secret',
+  signingOnce:
+    'This key places orders, so every request it sends must be signed with this secret. It is shown once, with the key, and cannot be shown again.',
   stored: 'I have stored this key somewhere safe',
   done: 'Done',
   replayed:
@@ -90,6 +93,8 @@ const messages = {
   'refused.identity.key_name_taken': 'You already have a key with this name. Choose another name. Nothing was created.',
   'refused.identity.key_expiry_invalid': 'Choose an end date in the future. Nothing was created.',
   'refused.identity.key_cap_unset': 'The number of keys an account may hold is not set, so keys are refused. Nothing was created.',
+  'refused.identity.key_signing_unset':
+    'Keys that place orders sign every request, and request signing is not set up yet, so this key is refused. Nothing was created.',
   'refused.identity.key_cap_reached': 'This account holds as many keys as it may. Revoke one to make another. Nothing was created.',
   'refused.identity.key_request_conflict': 'This request was already used for a different key. Reload the page and try again.',
   'refused.auth.passkey_missing': 'Add a passkey on Security first. Only an account with a passkey can hold API keys. Nothing was created.',

@@ -6,7 +6,16 @@ import { liveCopy } from './developers-live-copy';
 import { hostsView, readDeveloperHosts } from './developers-values';
 import { useRead } from './use-read';
 import { createDocsSearch } from './developers-search';
-import { ConnectivityPage, DataTermsPage, OpenApiPage, PermissionsPage, QuickstartPage, ReferencePage, RestPage } from './DocsPages';
+import {
+  AuthenticationPage,
+  ConnectivityPage,
+  DataTermsPage,
+  OpenApiPage,
+  PermissionsPage,
+  QuickstartPage,
+  ReferencePage,
+  RestPage,
+} from './DocsPages';
 import {
   AUDIENCES,
   SECTIONS,
@@ -38,6 +47,7 @@ const PAGES: Record<PageSectionId, (props: { title: string }) => JSX.Element> = 
   quickstart: QuickstartPage,
   openapi: OpenApiPage,
   status: () => <StatusPage />,
+  authentication: AuthenticationPage,
 };
 
 /** /developers and the pages under it: the portal home, the base-address table and one page per section. Public: no sign-in needed. */

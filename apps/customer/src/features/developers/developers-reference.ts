@@ -63,16 +63,12 @@ export type RestRoute = {
 export const CALL_COST = 1;
 
 /**
- * The window the server accepts a signed timestamp in, either way, in seconds: `REQUEST_SIGN_WINDOW_SECONDS` in
- * services/svc-edge/src/api-key-request-sign.ts and services/svc-identity/src/auth/api-key-request-sign.ts, the value the
- * public SDK also publishes. It is a code constant today, not an owner setting; DV-auth-01 makes it one, and then the
- * pages read it. developers-reference.test.ts fails when the constant changes.
+ * Whether a clock this far from the server's (ms, either way) still signs a timestamp the server accepts, given the
+ * owner's window in seconds as identity publishes it (`requestSigningPolicy`, DV-auth-01). Within the window even at
+ * the far edge of the reading: the offset is known only to half a round trip either way.
  */
-export const SIGN_WINDOW_SECONDS = 300;
-
-/** Whether a clock this far from the server's (ms, either way) still signs a timestamp the server accepts. */
-/** Within the window even at the far edge of the reading: the offset is known only to half a round trip either way. */
-export const withinWindow = (offsetMs: number, roundTripMs = 0) => Math.abs(offsetMs) + roundTripMs / 2 <= SIGN_WINDOW_SECONDS * 1000;
+export const withinWindow = (offsetMs: number, roundTripMs: number, windowSeconds: number) =>
+  Math.abs(offsetMs) + roundTripMs / 2 <= windowSeconds * 1000;
 
 /** A key on `/api/v1` needs `trade:read` for a read and `trade:write` for every other method (`requiredScopeFor`). */
 export const scopeFor = (method: Method): MethodScope => (method === 'GET' ? 'trade:read' : 'trade:write');
