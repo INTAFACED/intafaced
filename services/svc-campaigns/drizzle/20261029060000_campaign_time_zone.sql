@@ -1,3 +1,4 @@
+-- intafaced:destructive drops and rebuilds the campaign_rows view (a read view, no data) so it carries the new column
 -- J-campaigns-16 #3 and #7: each campaign names the time zone its time frame is typed in. In this version that is the
 -- platform time zone (owner value CAMPAIGNS_PLATFORM_TIME_ZONE); a campaign may differ from it only once windows are read
 -- per campaign. The builder leaves it blank until the founder picks it, and a blank refuses activation
