@@ -587,38 +587,45 @@ test.describe.serial('J-ops-console-07 reconcile the books', () => {
         await setPolicy(form, { tolerance: '0' });
       },
     });
-    await expect(row(section, state.pairId).getByTestId('rc-state')).toHaveText('Active');
+    try {
+      await expect(row(section, state.pairId).getByTestId('rc-state')).toHaveText('Active');
 
-    const first = await twoFounderRun(state.pairId);
-    expect(first).toMatch(/Run [0-9a-f-]{36}: FAIL\./);
-    expect(scaled(evidence(first, 'USDC').difference) < 0n).toBe(true);
-    expect(scaled(evidence(first, 'USDT').difference) < 0n).toBe(true);
+      const first = await twoFounderRun(state.pairId);
+      expect(first).toMatch(/Run [0-9a-f-]{36}: FAIL\./);
+      expect(scaled(evidence(first, 'USDC').difference) < 0n).toBe(true);
+      expect(scaled(evidence(first, 'USDT').difference) < 0n).toBe(true);
 
-    // Two alerts, one per asset, in the same period, each counted once.
-    const opened = await awaitAlerts(a, state.pairId, (rows) => rows.length >= 2, 'svc-ops opens the two-asset FAIL’s alerts');
-    expect(opened.map((r) => r.asset).sort(), 'one alert per failing asset, each exactly once').toEqual(['USDC', 'USDT']);
-    expect(new Set(opened.map((r) => r.periodStart)).size, 'both in the run’s one period').toBe(1);
-    for (const r of opened) {
-      expect(r.state).toBe('open');
-      expect(r.occurrences).toBe(1);
+      // Two alerts, one per asset, in the same period, each counted once.
+      const opened = await awaitAlerts(a, state.pairId, (rows) => rows.length >= 2, 'svc-ops opens the two-asset FAIL’s alerts');
+      expect(opened.map((r) => r.asset).sort(), 'one alert per failing asset, each exactly once').toEqual(['USDC', 'USDT']);
+      expect(new Set(opened.map((r) => r.periodStart)).size, 'both in the run’s one period').toBe(1);
+      for (const r of opened) {
+        expect(r.state).toBe('open');
+        expect(r.occurrences).toBe(1);
+      }
+
+      // The same failure again: each alert's count rises to 2 and no third alert opens.
+      const again = await twoFounderRun(state.pairId);
+      expect(again).toMatch(/Run [0-9a-f-]{36}: FAIL\./);
+      const repeated = await awaitAlerts(
+        a,
+        state.pairId,
+        (rows) => rows.length > 2 || (rows.length === 2 && rows.every((r) => r.occurrences === 2)),
+        'svc-ops counts the repeat on both alerts',
+      );
+      expect(repeated, 'the repeat opens nothing new').toHaveLength(2);
+      expect(repeated.map((r) => r.id).sort()).toEqual(opened.map((r) => r.id).sort());
+      expect(repeated.every((r) => r.periodStart === opened[0].periodStart)).toBe(true);
+      const detail = await openAlert(a, opened[0].id);
+      await expect(detail.getByTestId('timeline-entry')).toHaveCount(2);
+      await expect(detail.locator('[data-testid="timeline-entry"][data-kind="opened"]')).toHaveCount(1);
+      await expect(detail.locator('[data-testid="timeline-entry"][data-kind="repeated"]')).toHaveCount(1);
+    } catch (err) {
+      // #8 retires the pair; when this step fails first, retire it here so scheduled runs do not keep failing on it.
+      await lifecycle(state.pairId, 'retire', 'Retired').catch(() => undefined);
+      state.pairId = undefined;
+      throw err;
     }
-
-    // The same failure again: each alert's count rises to 2 and no third alert opens.
-    const again = await twoFounderRun(state.pairId);
-    expect(again).toMatch(/Run [0-9a-f-]{36}: FAIL\./);
-    const repeated = await awaitAlerts(
-      a,
-      state.pairId,
-      (rows) => rows.length > 2 || (rows.length === 2 && rows.every((r) => r.occurrences === 2)),
-      'svc-ops counts the repeat on both alerts',
-    );
-    expect(repeated, 'the repeat opens nothing new').toHaveLength(2);
-    expect(repeated.map((r) => r.id).sort()).toEqual(opened.map((r) => r.id).sort());
-    expect(repeated.every((r) => r.periodStart === opened[0].periodStart)).toBe(true);
-    const detail = await openAlert(a, opened[0].id);
-    await expect(detail.getByTestId('timeline-entry')).toHaveCount(2);
-    await expect(detail.locator('[data-testid="timeline-entry"][data-kind="opened"]')).toHaveCount(1);
-    await expect(detail.locator('[data-testid="timeline-entry"][data-kind="repeated"]')).toHaveCount(1);
   });
 
   test('J-ops-console-07 #8 two founders acknowledge at once: one wins, the other sees it; snoozed notices stop while the count rises', async ({
@@ -651,6 +658,10 @@ test.describe.serial('J-ops-console-07 reconcile the books', () => {
       await expect(winner.getByTestId('alert-acknowledged')).toContainText(winnerNote);
       const shownTo = await winner.getByTestId('alert-acknowledged').innerText();
       await expect(loser.getByTestId('alert-acknowledged')).toHaveText(shownTo);
+      // The refusal names who acknowledged first, read back from the winner's record.
+      const winnerBy = await winner.getByTestId('alert-acknowledged').getAttribute('data-by');
+      expect(winnerBy, 'the acknowledgement names its founder').toBeTruthy();
+      await expect(loser.getByTestId('alert-refused-detail')).toContainText(winnerBy);
       // Re-read after the refusal: one acknowledgement in the timeline, the winner's, and the version moved once.
       const reread = await openAlert(a, usdt.id);
       await expect(reread.locator('[data-testid="timeline-entry"][data-kind="acknowledged"]')).toHaveCount(1);

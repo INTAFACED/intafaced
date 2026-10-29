@@ -3,7 +3,7 @@
  *
  * svc-ops owns the alert store. It reads every settled evaluation from svc-ledger's `reconciliationEvaluations` door and
  * keeps one alert per control, failing asset and period. Acknowledge and snooze never change a balance or a freeze, and
- * never turn a period green: a period is green only when it was evaluated and has no open or acknowledged alert.
+ * never turn a period green: a period is green only when its latest evaluation passed and it has no open or acknowledged alert.
  */
 
 import { z } from 'zod';
@@ -197,7 +197,7 @@ export const opsReconciliationPeriodSchema = z
     lastStatus: reconciliationControlRunSchema.shape.status,
     open: z.number().int().nonnegative(),
     acknowledged: z.number().int().nonnegative(),
-    /** True only when evaluated and no alert in the period is open or acknowledged. */
+    /** True only when the latest evaluation passed and no alert in the period is open or acknowledged. An ERROR or UNSET period is never green. */
     green: z.boolean(),
   })
   .strict();

@@ -113,6 +113,7 @@ describe('POST /api/ledger-reconciliation/alerts', () => {
     expect(res.status).toBe(409);
     const body = await res.json();
     expect(body.code).toBe('ops.alert_state_illegal');
+    expect(body.detail).toBe('ops.alert_state_illegal — refused');
     expect(body.ok).toBe(false);
   });
 
@@ -129,9 +130,12 @@ describe('POST /api/ledger-reconciliation/alerts', () => {
       (await POST(post({ action: 'snooze', alertId: ALERT, version: 2, endsAt: '2026-10-30T12:00:00Z', reason: ' night ' }))).status,
     ).toBe(200);
     expect((await POST(post({ action: 'unsnooze', alertId: ALERT, version: 3 }))).status).toBe(200);
+    // A time with no offset is UTC, as the form's label says.
+    expect((await POST(post({ action: 'snooze', alertId: ALERT, version: 4, endsAt: '2026-10-30T12:00:00' }))).status).toBe(200);
     expect(bodies).toEqual([
       { alertId: ALERT, endsAt: '2026-10-30T12:00:00.000Z', reason: 'night', idempotencyKey: `alert:snooze:${ALERT}:v2:${FOUNDER}` },
       { alertId: ALERT, idempotencyKey: `alert:unsnooze:${ALERT}:v3:${FOUNDER}` },
+      { alertId: ALERT, endsAt: '2026-10-30T12:00:00.000Z', idempotencyKey: `alert:snooze:${ALERT}:v4:${FOUNDER}` },
     ]);
   });
 

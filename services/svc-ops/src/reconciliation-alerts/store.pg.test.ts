@@ -41,7 +41,12 @@ async function caller(router: ReturnType<typeof createOpsRouter>, userId: string
   );
 }
 
-function evaluation(n: number, control: string, status: 'PASS' | 'FAIL', differences: Record<string, string>): ReconciliationEvaluation {
+function evaluation(
+  n: number,
+  control: string,
+  status: 'PASS' | 'FAIL' | 'ERROR' | 'UNSET',
+  differences: Record<string, string>,
+): ReconciliationEvaluation {
   return {
     run: {
       id: runId(n),
@@ -291,6 +296,46 @@ if (!pg) {
         ).rejects.toThrow(/never rewritten/);
 
         await expect(a.alerts.get({ alertId: runId(777) })).rejects.toMatchObject({ code: 'NOT_FOUND' });
+      } finally {
+        await sql.end();
+        await database.drop();
+      }
+    });
+    it('never shows an ERROR or UNSET period green, and records a run it cannot store as the source failing', async () => {
+      const database = await createTestDatabase({ service: 'ops' });
+      const sql = postgres(database.url, { max: 4, onnotice: () => undefined });
+      try {
+        await migrateOutreach(sql);
+        const store = new ReconciliationAlertStore(sql, { repeatSeconds: 90, now: () => new Date('2026-10-29T10:01:00.000Z') });
+        const router = createOpsRouter(new OpsService(), undefined, { reconciliationAlerts: store });
+        const a = await caller(router, A);
+        const rows = [evaluation(1, CONTROL, 'ERROR', {}), evaluation(2, PASSING, 'UNSET', {})];
+        expect(await ingestReconciliationEvaluations(store, fakeFeed(rows))).toBe(2);
+        const periods = await a.alerts.periods({ limit: 10 });
+        expect(periods.periods.map((p) => [p.controlId, p.lastStatus, p.open, p.green]).sort()).toEqual([
+          [CONTROL, 'ERROR', 0, false],
+          [PASSING, 'UNSET', 0, false],
+        ]);
+
+        // A store failure holds the cursor and shows as the source failing, never as a healthy empty list.
+        const failing = Object.create(store) as ReconciliationAlertStore;
+        failing.ingest = async () => {
+          throw new Error('disk full');
+        };
+        rows.push(evaluation(3, CONTROL, 'FAIL', { USDC: '5' }));
+        expect(await ingestReconciliationEvaluations(failing, fakeFeed(rows))).toBe(0);
+        const down = await a.alerts.list({ after: null, limit: 10 });
+        expect(down.source).toMatchObject({
+          status: 'unavailable',
+          code: 'ops.alert_source_unavailable',
+          message: `svc-ops could not store evaluation ${runId(3)}. It reads it again on the next tick.`,
+        });
+        expect(down.alerts).toEqual([]);
+        // The next healthy tick reads the same run again and opens its alert.
+        expect(await ingestReconciliationEvaluations(store, fakeFeed(rows))).toBe(1);
+        const up = await a.alerts.list({ after: null, limit: 10 });
+        expect(up.source).toMatchObject({ status: 'ok' });
+        expect(up.alerts.map((alert) => alert.assetId)).toEqual(['USDC']);
       } finally {
         await sql.end();
         await database.drop();

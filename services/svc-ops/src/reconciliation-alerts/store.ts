@@ -409,7 +409,7 @@ export class ReconciliationAlertStore {
         lastStatus: row.last_status,
         open: row.open,
         acknowledged: row.acknowledged,
-        green: row.open === 0 && row.acknowledged === 0,
+        green: row.last_status === 'PASS' && row.open === 0 && row.acknowledged === 0,
       })),
     };
   }

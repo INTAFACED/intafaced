@@ -309,6 +309,8 @@ const reconciliationTimer = setInterval(() => {
     })
     .finally(() => {
       reconciliationRun = null;
+      // Not wired: the first tick recorded why, and nothing changes until a restart with the ledger set.
+      if (!evaluationFeed.configured) clearInterval(reconciliationTimer);
     });
 }, 5000);
 reconciliationTimer.unref();

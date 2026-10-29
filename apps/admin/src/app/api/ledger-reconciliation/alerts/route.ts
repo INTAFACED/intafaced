@@ -29,6 +29,14 @@ const PROCEDURE: Readonly<Record<AlertAction, string>> = {
   unsnooze: 'alerts.unsnooze',
 };
 
+/** A typed time with no offset is read as UTC, as the form says, never in the server's own zone. */
+function utcIso(raw: unknown): string {
+  if (typeof raw !== 'string' || raw.trim() === '') return '';
+  const text = raw.trim();
+  const at = Date.parse(/(Z|[+-]\d{2}:?\d{2})$/i.test(text) ? text : `${text}Z`);
+  return Number.isNaN(at) ? '' : new Date(at).toISOString();
+}
+
 function parseBody(raw: Record<string, unknown>, userId: string): { action: AlertAction; input: unknown } | null {
   const action = raw.action;
   if (action !== 'acknowledge' && action !== 'snooze' && action !== 'unsnooze') return null;
@@ -48,7 +56,7 @@ function parseBody(raw: Record<string, unknown>, userId: string): { action: Aler
       : action === 'snooze'
         ? {
             alertId,
-            endsAt: typeof raw.endsAt === 'string' && !Number.isNaN(Date.parse(raw.endsAt)) ? new Date(raw.endsAt).toISOString() : '',
+            endsAt: utcIso(raw.endsAt),
             ...(typeof raw.reason === 'string' && raw.reason.trim() ? { reason: raw.reason.trim() } : {}),
             idempotencyKey,
           }
@@ -87,7 +95,16 @@ export async function POST(request: Request) {
         403,
       );
     case 'refused':
-      return answer({ ok: false, code: result.refusal.code, message: refusalWords(result.refusal.code) ?? 'svc-ops refused this.' }, 409);
+      // svc-ops's own message names, for a lost race, who moved the alert first and when.
+      return answer(
+        {
+          ok: false,
+          code: result.refusal.code,
+          message: refusalWords(result.refusal.code) ?? 'svc-ops refused this.',
+          detail: result.refusal.message,
+        },
+        409,
+      );
     case 'not_built':
       return answer({ ok: false, code: 'not_built', message: 'svc-ops has not switched this on for this deployment.' }, 501);
     case 'invalid':
