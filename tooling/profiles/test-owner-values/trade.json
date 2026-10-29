@@ -69,7 +69,7 @@
     "TRADE_BOTS_VERIFICATION_LEVEL": {
       "service": "trade",
       "value": "full",
-      "note": "LOCAL TEST ONLY, not an owner decision: the verification level a bot or algo schedule needs. Full, the level the journeys verify to, so a basic account is refused."
+      "note": "TEST verification level for creating a bot: full, the level the journeys verify to, so an unverified account is refused (trade.bots_verification_insufficient)."
     },
     "TRADE_OTC_DESK_LAW": {
       "service": "trade",

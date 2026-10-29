@@ -64,7 +64,11 @@ import {
   type AccountMetadataReadInput,
 } from './ledger/operator-account-metadata.js';
 import { applyAssetEdit, getAsset, listAssets, listOperatorAssets, type OperatorAssetRow } from './ledger/supported-assets.js';
-import { runDueReconciliationControls as runDueOperatorControls } from './ledger/reconciliation-controls.js';
+import {
+  type ReconciliationSources,
+  runDueReconciliationControls as runDueOperatorControls,
+  unsetReconciliationSources,
+} from './ledger/reconciliation-controls.js';
 
 /**
  * The service layer: the ledger engine plus the three things wrapping every
@@ -85,6 +89,7 @@ export class LedgerService implements LedgerClient, ScheduledReconcileLedger {
   private readonly clockSkewBoundMs: number | null;
   private readonly now: () => Date;
   private readonly readDatabaseNow: (sql: Sql) => Promise<Date>;
+  private readonly reconciliationSources: ReconciliationSources;
 
   constructor(
     private readonly sql: Sql,
@@ -96,6 +101,8 @@ export class LedgerService implements LedgerClient, ScheduledReconcileLedger {
       clockSkewBoundMs?: number | null;
       now?: () => Date;
       readDatabaseNow?: (sql: Sql) => Promise<Date>;
+      /** The outside and parity sides operator controls read; omitted, both are unset. */
+      reconciliationSources?: ReconciliationSources;
     } & IdempotencyConflictOptions = {},
   ) {
     this.bootPostingEnabled = options.postingEnabled ?? true;
@@ -103,6 +110,7 @@ export class LedgerService implements LedgerClient, ScheduledReconcileLedger {
     this.clockSkewBoundMs = options.clockSkewBoundMs ?? null;
     this.now = options.now ?? (() => new Date());
     this.readDatabaseNow = options.readDatabaseNow ?? readDatabaseNow;
+    this.reconciliationSources = options.reconciliationSources ?? unsetReconciliationSources();
     this.engine = new PostgresLedger(sql, {
       ...(options.idempotencyConflict ? { idempotencyConflict: options.idempotencyConflict } : {}),
       onIdempotencyMismatch:
@@ -540,7 +548,7 @@ export class LedgerService implements LedgerClient, ScheduledReconcileLedger {
 
   /** Due operator controls. Read-only: a failure does not freeze posting. */
   runDueReconciliationControls(): Promise<void> {
-    return runDueOperatorControls(this.sql);
+    return runDueOperatorControls(this.sql, this.reconciliationSources);
   }
 
   private async publishReconciliationDrift(report: ReconciliationReport): Promise<void> {

@@ -20,7 +20,10 @@ import {
   OPS_CONTROL_REASON_REQUIRED,
   OPS_CONTROL_STATE_ILLEGAL,
   defineReconciliationControlInputSchema,
+  listReconciliationControlRunsInputSchema,
+  RECONCILIATION_RUN_LIST_DEFAULT,
   reconciliationAccountSetSchema,
+  reconciliationControlRunListSchema,
   reconciliationControlRunSchema,
   reconciliationControlViewSchema,
   reconciliationScheduleSchema,
@@ -31,6 +34,7 @@ import {
   RECONCILIATION_LIFECYCLE_MOVES,
   type DefineReconciliationControlInput,
   type ReconciliationAccountSet,
+  type ReconciliationControlRunList,
   type ReconciliationControlRunView,
   type ReconciliationControlView,
   type ReconciliationLifecycle,
@@ -407,6 +411,29 @@ export async function listReconciliationControls(sql: Sql): Promise<Reconciliati
      ORDER BY builtin DESC, builtin_key ASC NULLS LAST, id ASC
   `;
   return rows.map(toView);
+}
+
+/** A control's evaluations, newest first, with the count of all of them. Read-only; any state, retired included. */
+export async function listReconciliationControlRuns(sql: Sql, input: unknown): Promise<ReconciliationControlRunList> {
+  const parsed = listReconciliationControlRunsInputSchema.parse(input);
+  const control = await loadControl(sql, parsed.controlId, false);
+  const limit = parsed.limit ?? RECONCILIATION_RUN_LIST_DEFAULT;
+  // One snapshot for the count and the page, so a scheduled run landing in between cannot make them disagree. Newest by
+  // when the run started: a past-instant run reads an old instant but is still the latest evaluation.
+  const { total, rows } = await sql.begin('isolation level repeatable read', async (tx) => {
+    const [count] = await tx<Array<{ total: string }>>`
+      SELECT count(*)::text AS total FROM reconciliation_control_runs WHERE control_id = ${control.id}
+    `;
+    const page = await tx<RunRow[]>`
+      SELECT ${tx.unsafe(RUN_COLUMNS)}
+        FROM reconciliation_control_runs
+       WHERE control_id = ${control.id}
+       ORDER BY started_at DESC, id DESC
+       LIMIT ${limit}
+    `;
+    return { total: Number(count?.total ?? 0), rows: page };
+  });
+  return reconciliationControlRunListSchema.parse({ controlId: control.id, total, runs: rows.map(toRun) });
 }
 
 interface AccountHit {
@@ -1237,6 +1264,6 @@ async function resumeScheduled(sql: Sql, row: ControlRow, existing: RunRow, sour
   await resumeRun(sql, row, existing, sources, true);
 }
 
-export async function runDueReconciliationControls(sql: Sql): Promise<void> {
-  await runDueControls(sql);
+export async function runDueReconciliationControls(sql: Sql, sources: ReconciliationSources = unsetReconciliationSources()): Promise<void> {
+  await runDueControls(sql, sources);
 }
