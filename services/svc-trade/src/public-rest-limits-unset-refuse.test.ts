@@ -83,9 +83,9 @@ describe('GET public REST refuses unpublished limit', () => {
     expect(src).toMatch(/TRADE_MARKETS_LIMIT_UNSET/);
     expect(src).toMatch(/TRADE_TICKERS_LIMIT_UNSET/);
     expect(src).toMatch(/deps\.depth\(market\.id, 1\)/);
-    expect(src).not.toMatch(/app\.get\('\/api\/v1\/markets', async \(_req/);
+    expect(src).not.toMatch(/app\.get\('\/api\/v1\/markets',\s*(?:publicRead,\s*)?async \(_req/);
     expect(src).not.toMatch(/deps\.markets\(MAX_MARKETS\)/);
-    expect(src).not.toMatch(/app\.get\('\/api\/v1\/tickers', async \(_req/);
+    expect(src).not.toMatch(/app\.get\('\/api\/v1\/tickers',\s*(?:publicRead,\s*)?async \(_req/);
   });
 
   it('blank orderbook refuses and does not call depth', async () => {

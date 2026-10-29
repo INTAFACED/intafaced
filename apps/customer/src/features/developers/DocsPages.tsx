@@ -12,14 +12,14 @@ import { hostsView, readDataTerms, readDeveloperHosts, termsView } from './devel
 import { useRead } from './use-read';
 import {
   CALL_COST,
-  NEVER_ON_A_KEY,
+  neverOnAKeyTable,
   PRODUCTS,
   REST_REFERENCE,
   STREAM_DOOR_PATH,
   STREAM_REFERENCE,
   permissionTable,
   routeLine,
-  scopeFor,
+  scopeText,
   streamName,
   withinWindow,
   type Product,
@@ -96,8 +96,15 @@ export function ReferencePage({ title }: { title: string }) {
                         </th>
                         <td>
                           <code>{route.name}</code>
+                          {route.onlyWithFuturesMatching ? <> · {t('onlyWithMatching')}</> : null}
                         </td>
-                        <td>{route.anonymous ? t('publicRoute', { scope: scopeFor(route.method) }) : scopeFor(route.method)}</td>
+                        <td>
+                          {route.access === 'public'
+                            ? t('publicRoute', { scope: scopeText(route) })
+                            : route.access === 'internal'
+                              ? t('internalRoute')
+                              : scopeText(route)}
+                        </td>
                       </tr>
                     ))}
                   </tbody>
@@ -169,12 +176,23 @@ export function PermissionsPage({ title }: { title: string }) {
                   </td>
                 </tr>
               ))}
-              {NEVER_ON_A_KEY.map((scope) => (
-                <tr key={scope} data-scope={scope}>
+              {neverOnAKeyTable().map((row) => (
+                <tr key={row.scope} data-scope={row.scope} data-never-on-key="">
                   <th scope="row">
-                    <code>{scope}</code>
+                    <code>{row.scope}</code>
                   </th>
-                  <td>{t('neverOnKey')}</td>
+                  <td>
+                    {row.routes.length > 0 ? t('neverOnKeyStaff') : t('neverOnKey')}
+                    {row.routes.length > 0 ? (
+                      <ul>
+                        {row.routes.map((route) => (
+                          <li key={routeLine(route)}>
+                            <code>{routeLine(route)}</code>
+                          </li>
+                        ))}
+                      </ul>
+                    ) : null}
+                  </td>
                 </tr>
               ))}
             </tbody>

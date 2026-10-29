@@ -53,6 +53,7 @@ describe('More room sections and records (MC-order-01)', () => {
       ['/launch/requirements', 'Requirements'],
       ['/token/governance', 'Governance'],
       ['/token/economy', 'Economy'],
+      ['/token/burn', 'Burn'],
     ] as const) {
       expect(selected(page(path)), path).toEqual([tab]);
     }

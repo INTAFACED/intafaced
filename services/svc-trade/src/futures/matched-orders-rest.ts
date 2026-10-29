@@ -16,6 +16,7 @@ import { FuturesError } from './position-service.js';
 import type { EntryProtectionInput, EntryProtectionView } from './conditional-orders/service.js';
 import type { ReverseInput, ReverseView } from './reverse.js';
 import { CONFIRM_TIER_INVALID, readConfirmTier } from './risk-tier-confirm.js';
+import { privateRead, privateWrite } from '../route-inventory.js';
 
 /** The largest page one read may ask for; a blank or larger limit refuses rather than picking one. */
 export const FUTURES_ORDERS_LIMIT_MAX = 500;
@@ -172,7 +173,7 @@ function sendFuturesFailure(reply: FastifyReply, err: unknown, gates: MatchedOrd
 }
 
 export function attachMatchedOrderRoutes(app: FastifyInstance, deps: MatchedOrdersRestDeps, gates: MatchedOrdersRestGates): void {
-  app.post('/api/v1/futures/orders', async (req, reply) => {
+  app.post('/api/v1/futures/orders', privateWrite, async (req, reply) => {
     const principal = gates.requirePrincipal(req, reply);
     if (!principal) return;
     if (!gates.requireTradeJurisdiction(req, reply, principal)) return;
@@ -206,7 +207,7 @@ export function attachMatchedOrderRoutes(app: FastifyInstance, deps: MatchedOrde
   });
 
   // The same body as a single order; the answer lists every child placed (`MatchedFuturesOrders.placeSplit`).
-  app.post('/api/v1/futures/orders/split', async (req, reply) => {
+  app.post('/api/v1/futures/orders/split', privateWrite, async (req, reply) => {
     const principal = gates.requirePrincipal(req, reply);
     if (!principal) return;
     if (!gates.requireTradeJurisdiction(req, reply, principal)) return;
@@ -232,7 +233,7 @@ export function attachMatchedOrderRoutes(app: FastifyInstance, deps: MatchedOrde
   });
 
   // The same request id sent again carries the reverse on, or answers how it ended; it never places a leg twice.
-  app.post<{ Params: { id: string } }>('/api/v1/positions/:id/reverse', async (req, reply) => {
+  app.post<{ Params: { id: string } }>('/api/v1/positions/:id/reverse', privateWrite, async (req, reply) => {
     const principal = gates.requirePrincipal(req, reply);
     if (!principal) return;
     if (!gates.requireTradeJurisdiction(req, reply, principal)) return;
@@ -257,29 +258,33 @@ export function attachMatchedOrderRoutes(app: FastifyInstance, deps: MatchedOrde
     }
   });
 
-  app.get<{ Querystring: { scope?: string; limit?: string; symbol?: string } }>('/api/v1/futures/orders', async (req, reply) => {
-    const principal = gates.requirePrincipal(req, reply);
-    if (!principal) return;
-    if (!deps.list) return reply.code(503).send(UNMOUNTED);
-    const scope = req.query.scope;
-    if (scope !== 'open' && scope !== 'all') return bad(reply, 'trade.futures_orders_scope_invalid', 'scope must be open or all');
-    const limitRaw = typeof req.query.limit === 'string' ? req.query.limit.trim() : '';
-    const limit = /^\d+$/.test(limitRaw) ? Number(limitRaw) : NaN;
-    if (!Number.isInteger(limit) || limit < 1 || limit > FUTURES_ORDERS_LIMIT_MAX) {
-      return bad(reply, 'trade.futures_orders_limit_unset', `limit is required, 1–${FUTURES_ORDERS_LIMIT_MAX} — refuse to invent one`);
-    }
-    try {
-      requireScope(principal, 'trade:read');
-      const symbol = typeof req.query.symbol === 'string' && req.query.symbol.trim() !== '' ? req.query.symbol.trim() : null;
-      return reply.code(200).send(await deps.list(principal, { scope, limit, symbol }));
-    } catch (err) {
-      const sent = sendFuturesFailure(reply, err, gates);
-      if (sent) return sent;
-      throw err;
-    }
-  });
+  app.get<{ Querystring: { scope?: string; limit?: string; symbol?: string } }>(
+    '/api/v1/futures/orders',
+    privateRead,
+    async (req, reply) => {
+      const principal = gates.requirePrincipal(req, reply);
+      if (!principal) return;
+      if (!deps.list) return reply.code(503).send(UNMOUNTED);
+      const scope = req.query.scope;
+      if (scope !== 'open' && scope !== 'all') return bad(reply, 'trade.futures_orders_scope_invalid', 'scope must be open or all');
+      const limitRaw = typeof req.query.limit === 'string' ? req.query.limit.trim() : '';
+      const limit = /^\d+$/.test(limitRaw) ? Number(limitRaw) : NaN;
+      if (!Number.isInteger(limit) || limit < 1 || limit > FUTURES_ORDERS_LIMIT_MAX) {
+        return bad(reply, 'trade.futures_orders_limit_unset', `limit is required, 1–${FUTURES_ORDERS_LIMIT_MAX} — refuse to invent one`);
+      }
+      try {
+        requireScope(principal, 'trade:read');
+        const symbol = typeof req.query.symbol === 'string' && req.query.symbol.trim() !== '' ? req.query.symbol.trim() : null;
+        return reply.code(200).send(await deps.list(principal, { scope, limit, symbol }));
+      } catch (err) {
+        const sent = sendFuturesFailure(reply, err, gates);
+        if (sent) return sent;
+        throw err;
+      }
+    },
+  );
 
-  app.delete<{ Params: { id: string } }>('/api/v1/futures/orders/:id', async (req, reply) => {
+  app.delete<{ Params: { id: string } }>('/api/v1/futures/orders/:id', privateWrite, async (req, reply) => {
     const principal = gates.requirePrincipal(req, reply);
     if (!principal) return;
     if (!deps.cancel) return reply.code(503).send(UNMOUNTED);
