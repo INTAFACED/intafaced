@@ -137,7 +137,7 @@ interface OrderRow {
   order_id: string;
   price: string;
   qty: string;
-  hold_amount: string;
+  order_hold: string;
   status: GridOrder['status'];
   pair_profit: string | null;
   placed_at: Date;
@@ -201,7 +201,7 @@ const orderFromRow = (row: OrderRow): GridOrder => ({
   orderId: row.order_id,
   price: parseAmount(row.price),
   qty: parseAmount(row.qty),
-  holdAmount: parseAmount(row.hold_amount),
+  holdAmount: parseAmount(row.order_hold),
   status: row.status,
   pairProfit: row.pair_profit === null ? null : parseAmount(row.pair_profit),
   placedAt: row.placed_at,
@@ -213,7 +213,7 @@ const BOT_COLUMNS = `bot_id, user_id, client_request_id, request_hash, market_id
   levels, status, status_reason, place_grant, created_at, updated_at`;
 
 const ORDER_COLUMNS = `client_order_id, bot_id, level_index, side, cycle, order_id, price::text AS price, qty::text AS qty,
-  hold_amount::text AS hold_amount, status, pair_profit::text AS pair_profit, placed_at, closed_at`;
+  order_hold::text AS order_hold, status, pair_profit::text AS pair_profit, placed_at, closed_at`;
 
 export class SqlGridStore implements GridStore {
   constructor(private readonly sql: Sql) {}
@@ -282,7 +282,7 @@ export class SqlGridStore implements GridStore {
     const [row] = await this.sql<Array<{ total: string | null }>>`
       SELECT sum(greatest(r.amount - coalesce(h.held, 0), 0))::text AS total
         FROM grid_bot_reserves r
-        LEFT JOIN (SELECT bot_id, sum(hold_amount) AS held FROM grid_bot_orders
+        LEFT JOIN (SELECT bot_id, sum(order_hold) AS held FROM grid_bot_orders
                     WHERE side = 'buy' AND status = 'open' GROUP BY bot_id) h ON h.bot_id = r.bot_id
        WHERE r.user_id = ${userId} AND r.asset = ${asset} AND r.released_at IS NULL`;
     return row?.total ? parseAmount(row.total) : 0n;
@@ -290,7 +290,7 @@ export class SqlGridStore implements GridStore {
 
   async saveOrder(order: GridOrder) {
     await this.sql`
-      INSERT INTO grid_bot_orders (client_order_id, bot_id, level_index, side, cycle, order_id, price, qty, hold_amount,
+      INSERT INTO grid_bot_orders (client_order_id, bot_id, level_index, side, cycle, order_id, price, qty, order_hold,
                                    status, pair_profit, placed_at, closed_at)
       VALUES (${order.clientOrderId}, ${order.botId}, ${order.levelIndex}, ${order.side}, ${order.cycle}, ${order.orderId},
               ${formatAmount(order.price)}, ${formatAmount(order.qty)}, ${formatAmount(order.holdAmount)}, ${order.status},

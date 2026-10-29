@@ -68,7 +68,7 @@ CREATE TABLE IF NOT EXISTS "trade"."grid_bot_orders" (
   "order_id"        text NOT NULL,
   "price"           numeric(38, 18) NOT NULL,
   "qty"             numeric(38, 18) NOT NULL,
-  "hold_amount"     numeric(38, 18) NOT NULL,
+  "order_hold"     numeric(38, 18) NOT NULL,
   "status"          text NOT NULL,
   "pair_profit"     numeric(38, 18),
   "placed_at"       timestamptz NOT NULL,
