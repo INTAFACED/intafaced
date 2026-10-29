@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { consoleRefusedCard } from '@/lib/support/browser';
 import { accountWords } from './support-customer-card';
 
 const asOf = '2026-10-29T12:00:00.000Z';
@@ -24,5 +25,11 @@ describe('the customer card never says "active" without a read', () => {
       }),
     ).toMatchObject({ state: 'unread', code: 'support.identity_grounding_unwired' });
     expect(accountWords(null).state).toBe('unread');
+  });
+  it("is unread with the console's own code when the console refused the read", () => {
+    expect(accountWords(consoleRefusedCard(502, 'admin.upstream_unavailable'))).toMatchObject({
+      state: 'unread',
+      code: 'admin.upstream_unavailable',
+    });
   });
 });

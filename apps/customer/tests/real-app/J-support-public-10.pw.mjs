@@ -214,9 +214,17 @@ test(`${J} #5 the customer card shows the account state, never "active" when ide
     tool('local-test-stack.mjs', 'stop', 'identity');
     const dark = await desk('lead', 'query', 'accountState', { ticketId: ticket.id });
     expect(dark).toEqual({ status: 'unread', reason: 'plane_dark' });
+    // The console checks its founder with svc-identity before it reads anything, so with identity down the console
+    // itself refuses the read; the card shows that refusal's code, and "unread".
+    const answer = page.waitForResponse((res) => res.url().includes('view=customer'));
     await card.getByRole('button', { name: 'Read again' }).click();
+    const refused = await answer;
+    // Edge answers 502 or 503 depending on how far its own identity call got; the console's code is the same either way.
+    const body = await refused.json();
+    expect(refused.ok(), JSON.stringify(body)).toBe(false);
+    expect(body.code, JSON.stringify(body)).toBe('admin.upstream_refused');
     await expect(card.getByTestId('customer-account-state')).toHaveText('unread');
-    await expect(card.getByTestId('customer-account-state')).toHaveAttribute('data-code', 'plane_dark');
+    await expect(card.getByTestId('customer-account-state')).toHaveAttribute('data-code', 'admin.upstream_refused');
   } finally {
     tool('local-test-stack.mjs', 'start', '--only', 'identity');
   }

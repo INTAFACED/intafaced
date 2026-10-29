@@ -148,6 +148,20 @@ export async function fetchTicketExtras(id: string, signal?: AbortSignal): Promi
   }
 }
 
+/** The card when the console refused the read itself: unread, with the console's code. */
+export function consoleRefusedCard(status: number, code: string | null, now: Date = new Date()): SupportCustomerView {
+  return {
+    asOf: now.toISOString(),
+    account: {
+      kind: 'failed',
+      message: `The console could not read the account (HTTP ${String(status)}).`,
+      code,
+      notBuilt: false,
+      forbidden: status === 401 || status === 403,
+    },
+  };
+}
+
 export async function fetchCustomerCard(id: string, signal?: AbortSignal): Promise<SupportCustomerView | null> {
   try {
     const res = await fetch(`/api/support?view=customer&id=${encodeURIComponent(id)}`, {
@@ -155,8 +169,9 @@ export async function fetchCustomerCard(id: string, signal?: AbortSignal): Promi
       credentials: 'same-origin',
       ...(signal ? { signal } : {}),
     });
-    if (!res.ok) return null;
-    const body: unknown = await res.json();
+    const body: unknown = await res.json().catch(() => null);
+    // The console's own refusal (its founder check asks svc-identity first) keeps its code, so the card names why it is unread.
+    if (!res.ok) return consoleRefusedCard(res.status, isRecord(body) && typeof body.code === 'string' ? body.code : null);
     return isRecord(body) && typeof body.asOf === 'string' && isRecord(body.account) ? (body as unknown as SupportCustomerView) : null;
   } catch {
     return null;
