@@ -38,6 +38,7 @@ import {
   type FreezeState,
 } from './ledger/freeze.js';
 import type { RestoreWatermarkRead } from '@intafaced/contracts';
+import type { ReconciliationEvaluationFeed } from '@intafaced/contracts/ledger-reconciliation';
 import type { FeeRevenueRow } from './ledger/fee-revenue.js';
 import type { HistoryEntry, HistoryPage, HistoryPageInput, HistoryRange } from './ledger/history.js';
 import type { HoldingsHistory, HoldingsHistoryInput } from './ledger/holdings-history.js';
@@ -65,6 +66,7 @@ import {
 } from './ledger/operator-account-metadata.js';
 import { applyAssetEdit, getAsset, listAssets, listOperatorAssets, type OperatorAssetRow } from './ledger/supported-assets.js';
 import {
+  listReconciliationEvaluations,
   type ReconciliationSources,
   runDueReconciliationControls as runDueOperatorControls,
   unsetReconciliationSources,
@@ -199,6 +201,11 @@ export class LedgerService implements LedgerClient, ScheduledReconcileLedger {
   }
 
   /** The ledger's position for the joint restore. A read; same no-span reasoning as `history`. */
+  /** Finished reconciliation evaluations after a cursor, for svc-ops' alert store (OPS-reconciliation-03). A read. */
+  async reconciliationEvaluations(input: unknown): Promise<ReconciliationEvaluationFeed> {
+    return listReconciliationEvaluations(this.sql, input);
+  }
+
   async restoreWatermark(): Promise<RestoreWatermarkRead> {
     const at = await this.engine.restoreWatermark();
     return {

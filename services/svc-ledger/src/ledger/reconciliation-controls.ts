@@ -24,6 +24,9 @@ import {
   RECONCILIATION_RUN_LIST_DEFAULT,
   reconciliationAccountSetSchema,
   reconciliationControlRunListSchema,
+  reconciliationEvaluationFeedInputSchema,
+  reconciliationEvaluationFeedSchema,
+  type ReconciliationEvaluationFeed,
   reconciliationControlRunSchema,
   reconciliationControlViewSchema,
   reconciliationScheduleSchema,
@@ -434,6 +437,51 @@ export async function listReconciliationControlRuns(sql: Sql, input: unknown): P
     return { total: Number(count?.total ?? 0), rows: page };
   });
   return reconciliationControlRunListSchema.parse({ controlId: control.id, total, runs: rows.map(toRun) });
+}
+
+/**
+ * How long a finished run waits before the evaluation feed shows it. finishRun is one autocommit UPDATE, so its commit
+ * lands well inside this; a reader past a cursor therefore never misses a row finished just behind it.
+ */
+export const RECONCILIATION_EVALUATION_SETTLE_SECONDS = 5;
+
+/**
+ * Every finished evaluation after the cursor, oldest first by (finished_at, id): the feed svc-ops reads to keep one alert
+ * per control, failing asset and period (OPS-reconciliation-03). Read-only, and it reads no table but this service's own.
+ */
+export async function listReconciliationEvaluations(sql: Sql, input: unknown): Promise<ReconciliationEvaluationFeed> {
+  const parsed = reconciliationEvaluationFeedInputSchema.parse(input);
+  const after = parsed.after;
+  // The cursor carries microseconds, as Postgres stores them: a millisecond cursor would sort before its own row and
+  // hand the last evaluation back on every read. It is bound as text, because the driver turns a timestamptz parameter
+  // into a JavaScript Date and drops the microseconds.
+  const rows = await sql<Array<RunRow & { finished_iso: string; severity: ControlRow['severity'] }>>`
+    SELECT ${sql.unsafe(
+      RUN_COLUMNS.split(',')
+        .map((column) => `r.${column.trim()}`)
+        .join(', '),
+    )},
+           to_char(r.finished_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS finished_iso,
+           c.severity
+      FROM reconciliation_control_runs r
+      JOIN reconciliation_controls c ON c.id = r.control_id
+     WHERE r.status <> 'started'
+       AND r.finished_at IS NOT NULL
+       AND r.finished_at <= clock_timestamp() - make_interval(secs => ${RECONCILIATION_EVALUATION_SETTLE_SECONDS})
+       ${after ? sql`AND (r.finished_at, r.id) > (${after.finishedAt}::text::timestamptz, ${after.id}::uuid)` : sql``}
+     ORDER BY r.finished_at ASC, r.id ASC
+     LIMIT ${parsed.limit}
+  `;
+  const evaluations = rows.map((row) => ({
+    run: toRun(row),
+    finishedAt: row.finished_iso,
+    severity: setOrUnset(row.severity),
+  }));
+  const last = rows.at(-1);
+  return reconciliationEvaluationFeedSchema.parse({
+    evaluations,
+    next: last ? { finishedAt: last.finished_iso, id: last.id } : after,
+  });
 }
 
 interface AccountHit {

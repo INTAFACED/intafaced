@@ -311,6 +311,42 @@ export const reconciliationControlRunListSchema = z
   .strict();
 export type ReconciliationControlRunList = z.infer<typeof reconciliationControlRunListSchema>;
 
+/**
+ * OPS-reconciliation-03: every finished evaluation, oldest first, for svc-ops' alert store. A service door (svc-ops
+ * alone) read with a cursor on (finishedAt, id). A run only shows once it has been finished for a settle window, so a
+ * reader that has passed a cursor never misses a row committed just behind it.
+ */
+export const RECONCILIATION_EVALUATION_FEED_MAX = 500;
+export const reconciliationEvaluationCursorSchema = z
+  .object({ finishedAt: z.string().datetime({ offset: true }), id: z.string().uuid() })
+  .strict();
+export type ReconciliationEvaluationCursor = z.infer<typeof reconciliationEvaluationCursorSchema>;
+export const reconciliationEvaluationFeedInputSchema = z
+  .object({
+    /** Null reads from the first evaluation. */
+    after: reconciliationEvaluationCursorSchema.nullable(),
+    limit: z.number().int().min(1).max(RECONCILIATION_EVALUATION_FEED_MAX),
+  })
+  .strict();
+export type ReconciliationEvaluationFeedInput = z.infer<typeof reconciliationEvaluationFeedInputSchema>;
+export const reconciliationEvaluationSchema = z
+  .object({
+    run: reconciliationControlRunSchema,
+    finishedAt: z.string().datetime({ offset: true }),
+    /** The control's severity when the feed was read. A blank one stays blank. */
+    severity: z.union([unsetSchema, z.object({ status: z.literal('set'), value: z.enum(RECONCILIATION_SEVERITIES) }).strict()]),
+  })
+  .strict();
+export type ReconciliationEvaluation = z.infer<typeof reconciliationEvaluationSchema>;
+export const reconciliationEvaluationFeedSchema = z
+  .object({
+    evaluations: z.array(reconciliationEvaluationSchema),
+    /** Where the next read starts: the last evaluation returned, or the cursor asked for when none was. */
+    next: reconciliationEvaluationCursorSchema.nullable(),
+  })
+  .strict();
+export type ReconciliationEvaluationFeed = z.infer<typeof reconciliationEvaluationFeedSchema>;
+
 /** What a rail snapshot must look like when a partner has one. Amounts are decimal strings. */
 export const railBalanceSnapshotSchema = z
   .object({
