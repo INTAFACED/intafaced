@@ -13,7 +13,7 @@ const NO_SHARES = 'no_shares_in_window' as const;
 
 function modeOf(raw: string): WorkerMode {
   if (raw === 'pooled' || raw === 'solo') return raw;
-  throw new MiningError('Worker mode is not pooled or solo', 'mining.pg_unavailable');
+  throw new MiningError('Worker mode is not pooled or solo', 'mining.mode_invalid');
 }
 
 export type HashrateWorker = {

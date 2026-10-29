@@ -126,6 +126,33 @@ export const miningPublishSchema = z.object({
    * NO DEFAULT. Blank refuses `mining.pow_spec_unset`.
    */
   MINING_POW_TESTNET: blankAsAbsent(z.enum(['true', 'false']).optional()),
+  /**
+   * Port the pool's miner door (`stratum-door.ts`) listens on; the address a rig dials is MINING_POOL_HOST and
+   * MINING_POOL_PORT, which may sit in front of it.
+   * NO DEFAULT. Blank leaves the door closed (`mining.stratum_unset`).
+   */
+  MINING_STRATUM_LISTEN_PORT: blankAsAbsent(
+    z
+      .string()
+      .regex(/^[1-9]\d{0,4}$/)
+      .optional(),
+  ),
+  /**
+   * Length in seconds of one share window at the miner door (60..2678400); shares fall in fixed windows counted from the
+   * Unix epoch.
+   * NO DEFAULT. Blank leaves the door closed (`mining.stratum_unset`).
+   */
+  MINING_STRATUM_WINDOW_SECONDS: blankAsAbsent(z.coerce.number().int().min(60).max(2_678_400).optional()),
+  /**
+   * Asset a miner-door window is mined for.
+   * NO DEFAULT. Blank leaves the door closed (`mining.stratum_unset`).
+   */
+  MINING_STRATUM_ASSET_ID: blankAsAbsent(
+    z
+      .string()
+      .regex(/^[A-Z0-9][A-Z0-9_-]{0,31}$/)
+      .optional(),
+  ),
 });
 
 /** A whole share difficulty as published: digits, no leading zero, below 10^38. Blank is null; anything else is invalid. */
