@@ -65,6 +65,11 @@
       "service": "trade",
       "value": "full",
       "note": "TEST verification level for copying: full, the level the journeys verify to, so an unverified account is refused."
+    },
+    "TRADE_BOTS_VERIFICATION_LEVEL": {
+      "service": "trade",
+      "value": "full",
+      "note": "TEST verification level for creating a bot: full, the level the journeys verify to, so an unverified account is refused (trade.bots_verification_insufficient)."
     }
   }
 }

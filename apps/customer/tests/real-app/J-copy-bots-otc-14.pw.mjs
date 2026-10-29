@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { api, journeyState, toUnits } from './stack.mjs';
+import { api, bestPrices, journeyState, toUnits } from './stack.mjs';
 
 const ONE = toUnits('1');
 import { fundedTrader, signIn, signUp } from './desk.mjs';
@@ -10,7 +10,6 @@ import { fundedTrader, signIn, signUp } from './desk.mjs';
 // own order, which the steps read from the ledger.
 // Steps that are written but not built yet fail at their first missing part, quickly (UNBUILT):
 // - svc-trade has no grid bot: no wizard, plan, levels, range pause, metrics or withdrawal (CB-bots-02, -05, -10).
-// - #1: the Bots hub has no per-type status and no My bots from the server (CB-bots-01).
 const J = 'J-copy-bots-otc-14';
 const run = journeyState(`${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
 const UNBUILT = { timeout: 5_000 };
@@ -40,14 +39,36 @@ test(`${J} starts: a verified TEST account with 1000 USDT`, async ({ page }) => 
 test(`${J} #1 opens Bots: the hub with one status and one link per bot type, each refusal in words; My bots from the server even in a new browser`, async ({
   page,
 }) => {
+  // A bot this person started elsewhere: made through the service, never in this browser, which is new and holds nothing.
+  const me = await api(run.read().who);
+  const { ask } = await bestPrices();
+  const made = await me.post('/api/trade/trpc/algo.createTwap', {
+    symbol: 'BTC/USDT',
+    side: 'buy',
+    totalQty: '0.001',
+    durationMs: 3_600_000,
+    sliceIntervalMs: 600_000,
+    // A buy limit must sit at or over the ask (the slice price band); a whole number 1% over it.
+    limitPrice: String((toUnits(ask) * 101n) / 100n / ONE + 1n),
+    clientAlgoId: `${J}-hub-${Date.now().toString(36)}`,
+    kind: 'twap',
+  });
+  expect(made.status, JSON.stringify(made.body).slice(0, 300)).toBe(200);
+  const botId = made.body.result.data.id;
+
   await openBots(page);
   const types = page.getByRole('list', { name: 'Bot types' }).getByRole('listitem');
   await expect(types.first()).toBeVisible(UNBUILT);
+  expect(await types.count()).toBeGreaterThan(1);
   for (const type of await types.all()) {
+    // One link and one status per type; a type that can't be used says why, in words, never a bare code.
     await expect(type.getByRole('link')).toHaveCount(1);
-    await expect(type.getByTestId('bot-type-status')).toHaveText(/Available|Not available: .+/);
+    await expect(type.getByTestId('bot-type-status')).toHaveText(/^(Available.*|Not available: [A-Z].+)$/);
+    await expect(type.getByTestId('bot-type-status')).not.toContainText(/\b[a-z]+\.[a-z_]+\b|\b[a-z]+_[a-z_]+\b/);
   }
-  await expect(page.getByRole('region', { name: 'My bots' })).toBeVisible();
+  const mine = page.getByRole('region', { name: 'My bots' });
+  await expect(mine.getByRole('link', { name: 'TWAP BTC/USDT', exact: true })).toHaveAttribute('href', new RegExp(botId));
+  await expect(mine.getByRole('row').filter({ hasText: 'TWAP BTC/USDT' })).toContainText('Running');
 });
 
 test(`${J} #2 opens the grid wizard below the owner's verification level: refused as verification insufficient, and no bot written`, async ({
