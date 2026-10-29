@@ -306,7 +306,8 @@ describe('API key bearers (ifc_…) exchange into access JWTs', () => {
   });
 
   it('lands as anonymous when identity refuses the key', async () => {
-    const fetchMock: typeof fetch = async () => new Response(JSON.stringify({ error: { message: 'nope' } }), { status: 401 });
+    const fetchMock: typeof fetch = async () =>
+      new Response(JSON.stringify({ error: { message: 'nope', data: { intafacedCode: 'auth.invalid_credentials' } } }), { status: 401 });
 
     const result = await exchangePrincipal(
       { authorization: 'Bearer ifc_wrong' },
@@ -352,7 +353,9 @@ describe('API key bearers (ifc_…) exchange into access JWTs', () => {
     const fetchMock: typeof fetch = async (_input, init) => {
       const headers = new Headers(init?.headers);
       seen.push(headers.get('origin'));
-      return new Response(JSON.stringify({ error: { message: 'nope' } }), { status: 401 });
+      return new Response(JSON.stringify({ error: { message: 'nope', data: { intafacedCode: 'auth.invalid_credentials' } } }), {
+        status: 401,
+      });
     };
 
     const result = await exchangePrincipal(

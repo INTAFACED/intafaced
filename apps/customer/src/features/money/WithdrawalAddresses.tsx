@@ -590,7 +590,8 @@ export function draftProblems(draft: Draft, assets: readonly WithdrawAsset[]) {
  * The add form. Saving needs a fresh confirmation (`trade:withdraw`): the code buys one token, used for this save only.
  * Before the code is asked for, the bank checks the address (`ramps.destinations.check`, W-withdraw-03): a mixed-case
  * address whose checksum does not match is refused at the field, and one that starts and ends like a saved address but
- * is not (address poisoning) shows a warning that must be ticked before it can be saved. The bank checks both again on save.
+ * is not (address poisoning) shows a warning that must be ticked before it can be saved, and an address on the owner's
+ * fraud list for that network is refused at the form, before any code is asked for. The bank checks all three again on save.
  */
 function AddForm({ onSaved }: { onSaved: () => void }) {
   const { t } = withdrawalCopy.useCopy();
@@ -606,7 +607,7 @@ function AddForm({ onSaved }: { onSaved: () => void }) {
   const [lookalike, setLookalike] = useState<NonNullable<DestinationCheck['lookalike']> | null>(null);
   const [checked, setChecked] = useState(false);
   const [untickedShown, setUntickedShown] = useState(false);
-  // The address as typed now, so a check answered after the field changed is dropped, not applied to the new address.
+  // The address and network as typed now, so a check answered after either changed is dropped, not applied to the new pair.
   const typed = useRef('');
   if (networks.resource.status === 'loading') return <Loading />;
   if (networks.resource.status === 'failed') return <Failure result={networks.resource.failure} retry={networks.reload} />;
@@ -619,9 +620,9 @@ function AddForm({ onSaved }: { onSaved: () => void }) {
   const set = (patch: Partial<Draft>) => {
     setSaved(null);
     setCheckProblem(null);
-    if (patch.address !== undefined) {
-      // A new address is a new check: the old warning and tick do not carry over.
-      typed.current = patch.address.trim();
+    if (patch.address !== undefined || patch.network !== undefined) {
+      // A new address or network is a new check (the fraud list is per network): the old warning and tick do not carry over.
+      typed.current = `${(patch.address ?? draft.address).trim()}|${patch.network ?? draft.network}`;
       setChecksumBad(false);
       setLookalike(null);
       setChecked(false);
@@ -648,11 +649,13 @@ function AddForm({ onSaved }: { onSaved: () => void }) {
       return;
     }
     const ref = input.ref;
+    const asked = `${ref}|${input.network}`;
+    typed.current = asked;
     setChecking(true);
     setCheckProblem(null);
     try {
-      const answer = await api.query('bank', 'ramps.destinations.check', { ref }, destinationCheckSchema);
-      if (typed.current !== ref) return;
+      const answer = await api.query('bank', 'ramps.destinations.check', { ref, network: input.network }, destinationCheckSchema);
+      if (typed.current !== asked) return;
       if (!answer.ok) {
         setCheckProblem(moneyRefusalWords(answer.code) ?? t('aCheckFailed'));
         return;
@@ -662,13 +665,17 @@ function AddForm({ onSaved }: { onSaved: () => void }) {
         if (answer.data.address === 'invalid') setCheckProblem(t('aAddressBad'));
         return;
       }
+      if (answer.data.fraudListed) {
+        setCheckProblem(t('aFraudListed'));
+        return;
+      }
       if (answer.data.lookalike) {
         setLookalike(answer.data.lookalike);
         return;
       }
       setConfirming(true);
     } catch {
-      if (typed.current === ref) setCheckProblem(t('aCheckFailed'));
+      if (typed.current === asked) setCheckProblem(t('aCheckFailed'));
     } finally {
       setChecking(false);
     }
@@ -789,9 +796,10 @@ function AddForm({ onSaved }: { onSaved: () => void }) {
           why={t('aSaveWhy')}
           run={async (token) => {
             const answer = await api.mutate('bank', 'ramps.destinations.save', input, destinationSchema, { bearer: token });
-            // The two address refusals in the customer's own words; the check above makes them rare.
+            // The three address refusals in the customer's own words; the check above makes them rare.
             if (!answer.ok && answer.code === 'bank.address_lookalike') return { ...answer, message: t('aLookalikeRefused') };
             if (!answer.ok && answer.code === 'bank.address_checksum_mismatch') return { ...answer, message: t('aAddressChecksum') };
+            if (!answer.ok && answer.code === 'bank.destination_fraud_listed') return { ...answer, message: t('aFraudListed') };
             // The security lock's refusals in the customer's words; any other refusal keeps the bank's own sentence.
             return !answer.ok && lockRefusal(answer.code) ? { ...answer, message: moneyRefusalWords(answer.code)! } : answer;
           }}

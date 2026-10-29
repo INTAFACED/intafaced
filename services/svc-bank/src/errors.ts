@@ -404,6 +404,10 @@ export type BankErrorCode =
    * different address: the shape of address poisoning. Saved only once the customer confirms it. Nothing was saved.
    */
   | 'bank.address_lookalike'
+  /** The address is on the owner's destination fraud list (W-withdraw-03), on its network or on every network. Nothing was saved. */
+  | 'bank.destination_fraud_listed'
+  /** The destination fraud list could not be read, so the address was refused rather than assumed safe. Nothing was saved. */
+  | 'bank.destination_fraud_list_unreadable'
   /** The owner has not published how long a wallet proof offer stays open (`BANK_WALLET_PROOF_WINDOW_MINUTES`). Nothing was offered. */
   | 'bank.wallet_proof_window_unset'
   /** The owner has not published how long a verified wallet proof holds (`BANK_WALLET_PROOF_VALID_DAYS`). Nothing was recorded. */

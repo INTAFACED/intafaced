@@ -16,6 +16,7 @@ const uuidText = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i
 const rawKey = /notify\.[a-z_.]+/;
 
 let who;
+let cancelled;
 
 test.beforeAll(async ({ browser }) => {
   test.setTimeout(240_000);
@@ -29,8 +30,8 @@ test.beforeAll(async ({ browser }) => {
   await confirm(page, 'buy');
   await reviewLimit(page, 'buy', await awayBid(90), '0.001');
   await confirm(page, 'buy');
-  const [order] = await openOrders(who);
-  expect((await (await api(who)).delete(`/api/v1/orders/${order.id}?symbol=BTC%2FUSDT`)).status).toBe(200);
+  [cancelled] = await openOrders(who);
+  expect((await (await api(who)).delete(`/api/v1/orders/${cancelled.id}?symbol=BTC%2FUSDT`)).status).toBe(200);
   // Verified, filled and cancelled: three notices, all unread.
   await expect
     .poll(async () => (await (await api(who)).get('/api/notify/trpc/notify.unreadCount')).body?.result?.data?.count, { timeout: 20_000 })
@@ -61,11 +62,27 @@ test(`${J} #2 a fill notice opens the trade in Activity and is marked read; a ca
   await popup(page).locator('[data-testid="nf-row"]', { hasText: 'Order filled' }).click();
   await expect(page).toHaveURL(/\/money\/activity\?tab=trades&asset=BTC$/);
   await expect(popup(page)).toHaveCount(0);
+  // The trade itself is on screen: the one fill, as a market buy of 0.001 BTC at its own price.
+  const [fill] = (await (await api(who)).get('/api/v1/account/trades?limit=100')).body;
+  const trades = page.getByTestId('money-trade-tab').locator('tbody tr[data-fill]');
+  await expect(trades).toHaveCount(1);
+  await expect(trades.first()).toHaveAttribute('data-fill', fill.id);
+  await expect(trades.first().getByTestId('dk-trade-what')).toHaveText('Bought 0.001 BTC');
+  await expect(trades.first()).toContainText('BTC/USDT · Market');
+  await expect(trades.first()).toContainText(Number(fill.price).toLocaleString('en-US', { minimumFractionDigits: 2 }));
   await expect(bell(page).getByTestId('tb-badge')).toHaveText('2');
   await bell(page).click();
   await expect(popup(page).locator('[data-testid="nf-row"]', { hasText: 'Order filled' })).not.toHaveAttribute('data-unread');
   await popup(page).locator('[data-testid="nf-row"]', { hasText: 'Order cancelled' }).click();
   await expect(page).toHaveURL(/\/money\/activity\?tab=orders/);
+  // The cancelled order is on screen in the order history, marked Cancelled with nothing filled.
+  const order = page
+    .getByTestId('money-trade-tab')
+    .locator('tbody tr')
+    .filter({ has: page.locator(`a[data-testid="dk-order-link"][href="/trade/orders/${cancelled.id}"]`) });
+  await expect(order).toHaveCount(1);
+  await expect(order.locator('[data-slot="status-tag"]')).toHaveText('Cancelled');
+  await expect(order.locator('td').nth(6)).toHaveText('0');
   await expect(bell(page).getByTestId('tb-badge')).toHaveText('1');
 });
 

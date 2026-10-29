@@ -29,6 +29,7 @@ const ROUTER: Record<ReadSpec['module'], string | null> = {
   protocol: 'svc-protocol',
   indexer: 'svc-indexer',
   dex: 'svc-dex',
+  campaigns: 'svc-campaigns',
   identity: null,
   trade: null,
   pay: null,

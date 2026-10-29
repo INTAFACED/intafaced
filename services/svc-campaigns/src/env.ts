@@ -21,6 +21,10 @@ import {
  * weekday and hour windows and the calendar are read in it. NO DEFAULT: blank boots, and every campaign activation and
  * every join refuses `campaigns.timezone_unset`; a name the runtime does not know refuses at boot.
  *
+ * CAMPAIGNS_RULE_DEPTH_LIMIT and CAMPAIGNS_RULE_SIZE_LIMIT are the owner's limits on a rule tree (CM-eligibility-rules-02): the
+ * deepest nesting of AND and OR groups, and the most groups and conditions in one tree. NO DEFAULT: blank boots, and every
+ * rule try, library save and campaign rule refuses `campaigns.rule_depth_unset` or `campaigns.rule_size_unset`.
+ *
  * IDENTITY_URL and INTERNAL_SERVICE_SECRET reach svc-identity's participant read. Without them a campaign with
  * exclusions or a region list cannot check anyone: its page reads `unread` and a join refuses
  * `campaigns.participant_unread`, and the service logs a warning at boot. A campaign open to every signed-in account
@@ -56,6 +60,8 @@ const schema = baseEnvSchema
       HTTP_PORT: z.coerce.number().int().positive().default(4024),
       CAMPAIGNS_TGE_SCHEDULE_JSON: blankAsAbsent(z.string().optional()),
       CAMPAIGNS_PLATFORM_TIME_ZONE: blankAsAbsent(z.string().optional()),
+      CAMPAIGNS_RULE_DEPTH_LIMIT: blankAsAbsent(z.string().optional()),
+      CAMPAIGNS_RULE_SIZE_LIMIT: blankAsAbsent(z.string().optional()),
       /** svc-identity, for the participant read (exclusions, region). Read only. Unset: every rule check reads unread. */
       IDENTITY_URL: blankAsAbsent(z.string().url().optional()),
       INTERNAL_SERVICE_SECRET: blankAsAbsent(z.string().min(32).optional()),

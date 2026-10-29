@@ -23,5 +23,9 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS }) => ({
     // rollback window a reward record shows. Production stays blank: no reconciler runs, and the window reads "not set".
     CAMPAIGNS_RECONCILE_AFTER_SECONDS: '5',
     CAMPAIGNS_ROLLBACK_WINDOW_SECONDS: '86400',
+    // LOCAL TEST only, labelled in tooling/profiles/test-owner-values/campaigns.json: the rule tree limits (J-campaigns-16
+    // #4). Production stays blank and every rule try, save and campaign rule refuses campaigns.rule_depth_unset.
+    CAMPAIGNS_RULE_DEPTH_LIMIT: '4',
+    CAMPAIGNS_RULE_SIZE_LIMIT: '20',
   }),
 });
