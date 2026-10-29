@@ -494,9 +494,8 @@ export const WITHHELD_FROM_SESSION: Readonly<Record<Exclude<Scope, SessionScope>
   'bank:card': 'Card spend authority — interactive-only step-up surface (§9, §18)',
 
   // Running an agent spends real money: svc-agents meters model cost and
-  // settles it against the user's balance. Whether every account may burn agent
-  // budget by default is a pricing decision, not an authorisation one, and it
-  // belongs to the owner. Left withheld rather than guessed at.
+  // settles it against the user's balance. The owner decided issuance (OWNER 107);
+  // it stays withheld until svc-agents bounds every run, in the PR that issues it.
   'agents:execute':
     'Metered spend. Owner decision 29 Oct 2026 (OWNER 107): every person may run agents from their own session; issued by the PR in which svc-agents bounds each run (agent cap, own limits, balance, published rate). Never on a key (PERSON_ONLY_SCOPES).',
 
