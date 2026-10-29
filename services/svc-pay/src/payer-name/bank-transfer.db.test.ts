@@ -354,7 +354,8 @@ describe(
         await tx`
           INSERT INTO pay.business_category_events (key, actor_id, approver_id, before, after, reason)
           VALUES (${key}, 'founder-a', 'founder-b', NULL, ${tx.json(after)}, 'TEST category')`;
-        const [{ version }] = await tx<Array<{ version: string }>>`SELECT count(*)::text AS version FROM pay.business_category_events`;
+        const [counted] = await tx<Array<{ version: string }>>`SELECT count(*)::text AS version FROM pay.business_category_events`;
+        const version = counted!.version;
         await tx`
           INSERT INTO pay.merchant_categories (merchant_id, category_key, table_version, chosen_by)
           VALUES (${merchantId}, ${key}, ${version}, ${merchantId})`;
