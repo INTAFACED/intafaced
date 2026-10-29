@@ -184,6 +184,8 @@ function SendForm({
   const [recipient, setRecipient] = useState<Recipient>({ kind: 'idle' });
   const [note, setNote] = useState<string | null>(null);
   const lookup = useRef<{ id: number; controller: AbortController | null }>({ id: 0, controller: null });
+  // The pay code being read, so "Try again" reads the code again rather than the empty To field.
+  const scanned = useRef<string | null>(null);
   // What this device remembers: a private note for this payment, people paid before, and what a payment link suggested.
   const [memo, setMemo] = useState('');
   const [linkNotice, setLinkNotice] = useState<string | null>(null);
@@ -196,6 +198,7 @@ function SendForm({
     lookup.current.id += 1;
     lookup.current.controller?.abort();
     lookup.current.controller = null;
+    scanned.current = null;
     setTo(value);
     setRecipient({ kind: 'idle' });
     setNote(null);
@@ -247,6 +250,7 @@ function SendForm({
     lookup.current.controller?.abort();
     const controller = new AbortController();
     lookup.current.controller = controller;
+    scanned.current = payload;
     setTo('');
     setRecipient({ kind: 'checking' });
     const outcome = await resolvePayQr(api, payload, controller.signal);
@@ -264,12 +268,13 @@ function SendForm({
       case 'unset':
         return setRecipient({ kind: 'problem', text: personal.t('qrUnset') });
       case 'failed':
-        return setRecipient({ kind: 'problem', text: personal.t('qrFailedSend') });
+        return setRecipient({ kind: 'problem', text: personal.t('qrFailedSend'), retry: true });
     }
   }
 
   /** A person paid before. A handle is looked up again, so a handle that moved to someone else is caught. */
   function pickContact(contact: Contact) {
+    scanned.current = null;
     lookup.current.id += 1;
     lookup.current.controller?.abort();
     lookup.current.controller = null;
@@ -737,7 +742,11 @@ function SendForm({
             <span className="pay-problem" role="alert">
               {recipient.text}
               {recipient.retry ? (
-                <button type="button" className="pay-chip" onClick={() => void check()}>
+                <button
+                  type="button"
+                  className="pay-chip"
+                  onClick={() => void (scanned.current !== null && to === '' ? scan(scanned.current) : check())}
+                >
                   {payCopy.t('Try again')}
                 </button>
               ) : null}

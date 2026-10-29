@@ -4,8 +4,8 @@ import { signIn, signUp } from './desk.mjs';
 
 // J-pay-03 step 3's signed QR code (PP-send-request-11) in the running app, kept apart from J-pay-03.pw.mjs because it
 // restarts identity. The code names the payee by account id and is signed with this stack's LOCAL TEST key, made on
-// this machine and refused by identity outside dev or test. Here: the code opens Send on the payee; a tampered code is
-// refused with "This code is not valid"; and with the signing key blank (identity restarted with
+// this machine and refused by identity outside dev or test. Here: with finding by handle off, the code opens Send on
+// the payee; a tampered code is refused with "This code is not valid"; and with the signing key blank (identity restarted with
 // LOCAL_STACK_IDENTITY_PAY_QR_KEY=off) Receive refuses the QR code with identity.qr_key_unset and a scan reads nothing.
 // After each refusal the payee's own record reads the same. Paying through the code is J-pay-03 #3.
 const J = 'J-pay-03';
@@ -58,30 +58,39 @@ test(`${J} #3 QR: the signed code opens Send on the payee by account id; a tampe
   const url = new URL(link);
   expect(url.pathname).toBe('/pay/send');
   const code = url.searchParams.get('qr') ?? '';
-  expect(code, 'the QR code carries a signed code').toMatch(/^v1\.[0-9a-f-]{36}\.[A-Za-z0-9_-]{43}$/);
+  expect(code, 'the QR code carries a signed code').toMatch(/^v1\.[0-9a-f-]{36}\.[A-Za-z0-9_-]{16}\.[A-Za-z0-9_-]{43}$/);
   expect(code, 'the code names the account by id, never the handle').not.toContain(payee.handle);
   await expect(page.getByTestId('pay-qr')).toBeVisible();
   const before = await record(payee);
   expect(code.split('.')[1]).toBe(before.userId);
+  // Finding by handle off: the code must still open Send on this account.
+  const discoverable = page.getByRole('switch', { name: 'Let people find me by my handle' });
+  await discoverable.click();
+  await expect(discoverable).not.toBeChecked();
+  const hidden = await record(payee);
 
   await signOutBrowser(page.context());
   await signIn(page, payer);
+  await page.goto('/pay/send');
+  await page.getByRole('textbox', { name: 'Handle' }).fill(payee.handle);
+  await page.getByRole('textbox', { name: 'Handle' }).press('Tab');
+  await expect(page.getByRole('alert'), 'finding by handle is off').toContainText('No one with this handle');
   await page.goto(`${url.pathname}${url.search}`);
   await expect(page.getByRole('textbox', { name: 'Handle' })).toHaveValue(payee.handle);
   await expect(page.getByTestId('recipient-found')).toContainText(`@${payee.handle}`);
   await expect(page.getByRole('alert')).toHaveCount(0);
 
   // The signature moved onto another account, and a changed last character: both refused, and nothing is read.
-  const [v, , sig] = code.split('.');
+  const [v, , tag, sig] = code.split('.');
   const payerId = (await api(payer)).userId;
-  for (const bad of [`${v}.${payerId}.${sig}`, `${code.slice(0, -1)}${code.endsWith('A') ? 'B' : 'A'}`]) {
+  for (const bad of [`${v}.${payerId}.${tag}.${sig}`, `${code.slice(0, -1)}${code.endsWith('A') ? 'B' : 'A'}`]) {
     const tampered = new URL(link);
     tampered.searchParams.set('qr', bad);
     await page.goto(`${tampered.pathname}${tampered.search}`);
     await expect(page.getByRole('alert')).toContainText('This code is not valid');
     await expect(page.getByRole('textbox', { name: 'Handle' })).toHaveValue('');
     await expect(page.getByTestId('recipient-found')).toHaveCount(0);
-    expect(await record(payee)).toEqual(before);
+    expect(await record(payee)).toEqual(hidden);
   }
 });
 

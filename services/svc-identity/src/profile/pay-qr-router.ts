@@ -31,9 +31,9 @@ export function createPayQrRouter(service: PayQrService) {
   return router({
     qr: router({
       /** The caller's own signed pay code, for their QR code and payment link. */
-      mine: protectedProcedure.output(z.object({ payload: z.string() })).query(({ ctx }) => {
+      mine: protectedProcedure.output(z.object({ payload: z.string() })).query(async ({ ctx }) => {
         try {
-          return service.mine(actor(ctx.principal as Principal));
+          return await service.mine(actor(ctx.principal as Principal));
         } catch (err) {
           toTrpc(err);
         }

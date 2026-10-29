@@ -43,7 +43,7 @@ export interface PaymentRequest {
 }
 
 /** The characters a signed pay code is made of, with room to spare. Anything else is dropped, never sent. */
-const PAY_QR = /^[A-Za-z0-9._-]{1,166}$/;
+const PAY_QR = /^[A-Za-z0-9._-]{1,200}$/;
 
 export function payee(raw: string | null | undefined): { to: string; kind: 'handle' | 'accountId' } | null {
   if (typeof raw !== 'string') return null;

@@ -11,7 +11,8 @@ import { usePayQr, type IdentityState, type PayQrState } from './identity-state'
 /** Receive (UI-SPEC 5.10): the customer's @handle to share, or their Account ID until handles are live, with a QR code and a link. */
 export function ReceiveCard({ identity, payQr }: { identity: IdentityState; payQr?: PayQrState }) {
   const { api, userId } = useSession();
-  const read = usePayQr(api, userId);
+  // A caller that already holds the code passes it in, and nothing is fetched twice.
+  const read = usePayQr(api, payQr ? null : userId, identity.status === 'handles' ? identity.handle : '');
   const qr = payQr ?? read;
   const toast = useToast();
   const [failed, setFailed] = useState<'value' | 'link' | null>(null);
@@ -74,8 +75,8 @@ export function ReceiveCard({ identity, payQr }: { identity: IdentityState; payQ
         <h3 className="pay-section-title">{t('scanToPay')}</h3>
         {qr.kind === 'loading' ? (
           <div aria-busy="true" data-testid="receive-qr-loading">
-            <Skeleton height={160} width={160} />
-            <Skeleton height={20} />
+            <Skeleton height="10rem" width="10rem" />
+            <Skeleton height="1.25rem" />
           </div>
         ) : (
           <>
@@ -98,12 +99,12 @@ export function ReceiveCard({ identity, payQr }: { identity: IdentityState; payQ
           </p>
         ) : null}
         <div className="pay-row-actions">
-          <Button variant="secondary" size={40} onClick={() => void copy('link')}>
+          <Button variant="secondary" size={40} disabled={qr.kind === 'loading'} onClick={() => void copy('link')}>
             <Link2 size={16} aria-hidden="true" />
             {t('copyLink')}
           </Button>
           {canShare() ? (
-            <Button variant="secondary" size={40} onClick={() => void share()}>
+            <Button variant="secondary" size={40} disabled={qr.kind === 'loading'} onClick={() => void share()}>
               <Share2 size={16} aria-hidden="true" />
               {t('share')}
             </Button>

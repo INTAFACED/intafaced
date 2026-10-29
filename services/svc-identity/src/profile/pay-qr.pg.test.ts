@@ -109,9 +109,12 @@ if (!available) {
       expect(await payerApi.qr.resolve({ payload })).toEqual({ userId: payee.userId, handle: 'qr_payee', self: false });
       expect(await payeeApi.qr.resolve({ payload })).toMatchObject({ self: true });
 
-      // A handle change never breaks a code already shared.
+      // A handle change retires the old code without naming the new handle; the new code pays the same account.
       await payeeApi.handle.change({ handle: 'qr_payee_renamed', fromHandle: 'qr_payee' });
-      expect(await payerApi.qr.resolve({ payload })).toEqual({ userId: payee.userId, handle: 'qr_payee_renamed', self: false });
+      expect(await refusal(payerApi.qr.resolve({ payload }))).toEqual({ trpc: 'BAD_REQUEST', code: 'identity.qr_invalid' });
+      const renamed = (await payeeApi.qr.mine()).payload;
+      expect(renamed).not.toBe(payload);
+      expect(await payerApi.qr.resolve({ payload: renamed })).toEqual({ userId: payee.userId, handle: 'qr_payee_renamed', self: false });
     });
 
     it('refuses a tampered code and a blank key with their own codes, and the record reads the same after each', async () => {
@@ -120,9 +123,9 @@ if (!available) {
       const payerCtx = await ctxOf(payer);
       const { payload } = await router.createCaller(await ctxOf(payee)).qr.mine();
       const before = await record(payee.userId);
-      const [v, , sig] = payload.split('.') as [string, string, string];
+      const [v, , tag, sig] = payload.split('.') as [string, string, string, string];
 
-      expect(await refusal(router.createCaller(payerCtx).qr.resolve({ payload: `${v}.${payer.userId}.${sig}` }))).toEqual({
+      expect(await refusal(router.createCaller(payerCtx).qr.resolve({ payload: `${v}.${payer.userId}.${tag}.${sig}` }))).toEqual({
         trpc: 'BAD_REQUEST',
         code: 'identity.qr_invalid',
       });

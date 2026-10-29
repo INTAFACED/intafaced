@@ -44,13 +44,14 @@ export function useIdentity(api: ApiClient, userId: string | null): IdentityStat
 /**
  * The caller's own signed pay code (PP-send-request-11), read once the screen knows who they are. `unset` is the
  * owner's signing key not yet set (`identity.qr_key_unset`): the QR code is refused and the link carries no code.
+ * `handle` is the handle on screen: a code is made for one handle, so a rename reads a new code.
  */
 export type PayQrState = { kind: 'loading' } | Exclude<PayQrOutcome, { kind: 'failed' }> | { kind: 'failed'; retry: () => void };
 
-export function usePayQr(api: ApiClient, userId: string | null): PayQrState {
+export function usePayQr(api: ApiClient, userId: string | null, handle = ''): PayQrState {
   const [revision, setRevision] = useState(0);
   const [state, setState] = useState<{ key: string; value: PayQrOutcome | null }>({ key: '', value: null });
-  const key = `${userId}:${revision}`;
+  const key = `${userId}:${handle}:${revision}`;
   useEffect(() => {
     if (!userId) return;
     const controller = new AbortController();
