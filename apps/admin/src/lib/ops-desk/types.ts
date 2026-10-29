@@ -136,6 +136,8 @@ export type RowAction =
   | 'pay.transfer.detail'
   /** Opening one KYC document's contents from identity's vault (`kyc.getDocument`), with a second founder's approval. */
   | 'identity.kyc_document.open'
+  /** Accepting or rejecting one selfie that waits for comparison (`kyc.selfie.decide`), with a second founder's approval. */
+  | 'identity.kyc_selfie.decide'
   /** Freezing one deposit address (one founder), or lifting its freeze with a second founder (svc-pay `founderAdmin.depositFreezes`). */
   | 'pay.deposit_address'
   /** Waiting on the sending platform, or releasing a declared deposit held for the inbound travel rule (one founder each). */

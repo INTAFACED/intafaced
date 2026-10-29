@@ -28,6 +28,8 @@ const col = (key: string, label: string, kind: Column['kind'], extra: Partial<Co
 
 const CONTROL_HISTORY_LIMIT = 50;
 const DOCUMENT_LIMIT = 50;
+/** identity's own cap on one selfie list (`kyc.selfie.listFor`, max 50). */
+const SELFIE_LIMIT = 50;
 
 /** An account-control history for one target: every restrict or restore attempt, newest first, as the owning service logged it. */
 function controlHistory(id: string, module: 'identity' | 'trade', area: 'identity' | 'trading', userId: string, service: string): ReadSpec {
@@ -286,6 +288,36 @@ export function tabPlan(tab: CustomerTab, userId: string): CustomerTabPlan {
                 'Identity’s document vault is switched off on this deployment: its encryption key (IDENTITY_KYC_DOC_KEY) is not set, so no document can be stored or listed for anyone.',
               'kyc_doc.reviews_unwired':
                 'Identity’s document vault is on, but its lookup of the verification each document is attached to is not wired, so it refuses the list rather than show every document as not attached.',
+            },
+          },
+          {
+            id: 'identity.selfies',
+            title: 'Selfies',
+            note: 'Every selfie this account sent for comparison with its ID photo, newest first: how it was taken, its status and when it was decided. The selfie’s photo is the document named in its row; open that document above to compare. A selfie that waits can be accepted or rejected here, with a second founder’s approval.',
+            module: 'identity',
+            plainName: 'identity’s selfie step',
+            procedure: 'kyc.selfie.listFor',
+            input: { userId, limit: SELFIE_LIMIT },
+            shape: 'list',
+            rowsKey: 'selfies',
+            idKey: 'id',
+            page: SELFIE_LIMIT,
+            columns: [
+              col('createdAt', 'Taken', 'time'),
+              col('status', 'Status', 'text'),
+              col('via', 'Taken on', 'text'),
+              col('decidedAt', 'Decided', 'time', { nullable: true }),
+              col('captureCheck', 'Automatic check', 'text', { detail: true }),
+              col('documentId', 'Photo document id', 'text', { detail: true }),
+              col('id', 'Selfie id', 'text', { detail: true }),
+            ],
+            rowAction: 'identity.kyc_selfie.decide',
+            emptyText: 'This account has sent no selfie.',
+            forbiddenText:
+              'Identity did not accept your founder session for this read (the selfie list is for an enabled founder with the compliance permission).',
+            refusals: {
+              'kyc.selfie_unconfigured':
+                'Identity’s selfie step is switched off on this deployment, so no selfie can be taken or listed for anyone.',
             },
           },
         ],

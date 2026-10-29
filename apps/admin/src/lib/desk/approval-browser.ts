@@ -11,6 +11,7 @@ export type ApprovalEndpoint =
   | '/api/accounts/closure'
   | '/api/accounts/archive'
   | '/api/accounts/documents'
+  | '/api/accounts/selfies'
   | '/api/accounts/tier'
   | '/api/accounts/limits'
   | '/api/accounts/holds'
