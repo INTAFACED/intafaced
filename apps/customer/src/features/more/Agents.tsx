@@ -7,10 +7,11 @@ import { z } from 'zod';
 import { useApi, useSession } from '../session/session';
 import { useResource } from '../../shared/resource';
 import { decimalSchema, displayAmount, parseAmount } from '../../shared/money';
-import { Button, DataTable, Field, Panel, Tabs } from '../../shared/ui';
+import type { ApiResult } from '../../shared/api';
+import { Button, DataTable, Failure, Field, Panel, Tabs } from '../../shared/ui';
 import { Details, Limit, Read, Select, TextArea, useAction, presentActionFailure } from './common';
 import { Campaigns } from './Campaigns';
-import { AgentsCatalogue } from './AgentsCatalogue';
+import { AgentsCatalogue, refusalWords } from './AgentsCatalogue';
 import { agentsCatalogueCopy } from './agents-catalogue-copy';
 import { costRange, runCosts, SESSION_AGENT_IDS } from './agents-catalogue';
 import { preservePaperHref } from './trade-context';
@@ -19,10 +20,12 @@ const routeSchema = z.object({
   task: z.string(),
   maxOutputTokens: z.number().int().positive().safe(),
   capability: z.enum(['complete', 'stream', 'embed']),
-  inputPerMillion: decimalSchema,
-  outputPerMillion: decimalSchema,
+  /** Null when the deployment publishes no rate for the task: every run of it refuses. */
+  inputPerMillion: decimalSchema.nullable(),
+  outputPerMillion: decimalSchema.nullable(),
   assetId: z.string().min(1),
 });
+type PricedRoute = z.infer<typeof routeSchema> & { inputPerMillion: string; outputPerMillion: string };
 const definition = z.object({
   agentId: z.string(),
   version: z.number().int().positive().safe(),
@@ -44,6 +47,22 @@ const definition = z.object({
     allowedTasks: z.array(z.string()),
   }),
 });
+const sessionDetailSchema = z
+  .object({
+    session: z.object({ id: uuid, agentId: z.string(), status: z.enum(['open', 'closed']) }).passthrough(),
+    assetId: z.string().min(1),
+    windows: z.array(
+      z.object({
+        windowId: z.string(),
+        openedAt: z.string(),
+        state: z.enum(['open', 'unpaid', 'settled']),
+        amount: decimalSchema.nullable(),
+        chargeKey: z.string().nullable(),
+      }),
+    ),
+  })
+  .nullable();
+type SessionDetail = NonNullable<z.infer<typeof sessionDetailSchema>>;
 const sessionSchema = z.object({
   id: uuid,
   agentId: z.string(),
@@ -123,7 +142,12 @@ export function Agents({ paper = false }: { paper?: boolean }) {
     [coachQuery, setCoachQuery] = useState(''),
     [inspection, setInspection] = useState<Inspection | null>(() => readInspection(userId)),
     [sessionFilter, setSessionFilter] = useState(''),
-    [estimating, setEstimating] = useState(false);
+    [estimating, setEstimating] = useState(false),
+    [runs, setRuns] = useState<RunRow[]>([]),
+    [runNote, setRunNote] = useState<'same' | null>(null),
+    [closing, setClosing] = useState(false),
+    [closedNote, setClosedNote] = useState<string | null>(null),
+    [closeFailure, setCloseFailure] = useState<Extract<ApiResult<unknown>, { ok: false }> | null>(null);
   const selectedSession = inspection?.owner === userId ? inspection : null;
   const activeOwner = useRef<string | null>(null);
   const active = activeOwner.current === userId && activeRecord?.agentId === agent ? activeRecord : null;
@@ -235,6 +259,13 @@ export function Agents({ paper = false }: { paper?: boolean }) {
           : Promise.resolve({ ok: true as const, data: null }),
       `agent-inspect-usage:${userId}:${selectedSession?.id}`,
     ),
+    selectedDetail = useResource(
+      (signal) =>
+        selectedSession
+          ? api.query('agents', 'session.detail', { sessionId: selectedSession.id }, sessionDetailSchema, { signal })
+          : Promise.resolve({ ok: true as const, data: null }),
+      `agent-inspect-detail:${userId}:${selectedSession?.id}`,
+    ),
     coach = useResource(
       (signal) =>
         api.query(
@@ -266,17 +297,30 @@ export function Agents({ paper = false }: { paper?: boolean }) {
     setInspection(readInspection(userId));
     setSessionFilter('');
   }, [userId]);
+  // A device that has chosen no session yet (a new browser, another device) opens on the newest one.
+  const newestSession = log.resource.status === 'ready' ? log.resource.data[0] : undefined;
+  useEffect(() => {
+    if (!selectedSession && newestSession) inspect(newestSession);
+  }, [selectedSession, newestSession?.sessionId]);
   useEffect(() => {
     activeOwner.current = null;
     setActive(null);
     setReply(null);
     setTask('');
     setEstimating(false);
+    setRuns([]);
+    setRunNote(null);
   }, [userId, agent]);
   const defs = guard.resource.status === 'ready' ? guard.resource.data : null,
     available =
       routes.resource.status === 'ready'
-        ? routes.resource.data.filter((r) => r.capability === 'complete' && defs?.limits.allowedTasks.includes(r.task))
+        ? routes.resource.data.filter(
+            (r): r is PricedRoute =>
+              r.capability === 'complete' &&
+              r.inputPerMillion !== null &&
+              r.outputPerMillion !== null &&
+              Boolean(defs?.limits.allowedTasks.includes(r.task)),
+          )
         : [],
     selectedRoute = available.find((r) => r.task === (task || available[0]?.task)),
     cap = defs?.limits.maxSpendPerSession;
@@ -334,25 +378,36 @@ export function Agents({ paper = false }: { paper?: boolean }) {
                         </select>
                       </label>
                       {visible.length ? (
-                        <ul className="agent-session-list">
+                        <DataTable
+                          headers={[
+                            copyText('agents.agent'),
+                            sessionCopy.t('lastAction'),
+                            sessionCopy.t('sessionId'),
+                            copyText('agents.time'),
+                            '',
+                          ]}
+                          label={sessionCopy.t('recordsTable')}
+                        >
                           {visible.map((row) => (
-                            <li key={row.sessionId}>
-                              <div>
-                                <strong lang="zxx">{row.agentId}</strong>
-                                <small>
-                                  <span>
-                                    {sessionCopy.t(row.kind)} · {sessionCopy.t(row.status)}
-                                  </span>
-                                </small>
-                                <small lang="zxx">{row.sessionId}</small>
-                                <small>{sessionTime(row.occurredAt, preferences)}</small>
-                              </div>
-                              <Button variant="secondary" aria-pressed={selectedSession?.id === row.sessionId} onClick={() => inspect(row)}>
-                                {sessionCopy.t('inspect')}
-                              </Button>
-                            </li>
+                            <tr key={row.sessionId}>
+                              <td lang="zxx">{row.agentId}</td>
+                              <td>
+                                {sessionCopy.t(row.kind)} · {sessionCopy.t(row.status)}
+                              </td>
+                              <td lang="zxx">{row.sessionId}</td>
+                              <td>{sessionTime(row.occurredAt, preferences)}</td>
+                              <td>
+                                <Button
+                                  variant="secondary"
+                                  aria-pressed={selectedSession?.id === row.sessionId}
+                                  onClick={() => inspect(row)}
+                                >
+                                  {sessionCopy.t('inspect')}
+                                </Button>
+                              </td>
+                            </tr>
                           ))}
-                        </ul>
+                        </DataTable>
                       ) : (
                         <p role="status">{sessionCopy.t('noMatch')}</p>
                       )}
@@ -412,6 +467,29 @@ export function Agents({ paper = false }: { paper?: boolean }) {
                     }
                   </Read>
                   <p className="muted">{sessionCopy.t('usageBoundary')}</p>
+                  <Read resource={selectedDetail.resource} retry={selectedDetail.reload}>
+                    {(detail) =>
+                      detail ? (
+                        <SessionWindows
+                          detail={detail}
+                          closing={closing}
+                          closed={closedNote === detail.session.id}
+                          onClose={async () => {
+                            setClosing(true);
+                            const res = await api.mutate('agents', 'session.close', { sessionId: detail.session.id }, sessionSchema);
+                            setClosing(false);
+                            if (res.ok) setClosedNote(detail.session.id);
+                            else setCloseFailure(res);
+                            selectedDetail.reload();
+                            selectedUsage.reload();
+                            selectedHistory.reload();
+                            log.reload();
+                          }}
+                        />
+                      ) : null
+                    }
+                  </Read>
+                  {closeFailure ? <Failure result={closeFailure} /> : null}
                   <Read
                     resource={selectedHistory.resource}
                     retry={selectedHistory.reload}
@@ -597,10 +675,14 @@ export function Agents({ paper = false }: { paper?: boolean }) {
                           <td>{r.task}</td>
                           <td>{r.capability}</td>
                           <td>
-                            {displayAmount(r.inputPerMillion)} {r.assetId}
+                            {r.inputPerMillion === null
+                              ? agentsCatalogueCopy.t('rateBlank')
+                              : `${displayAmount(r.inputPerMillion)} ${r.assetId}`}
                           </td>
                           <td>
-                            {displayAmount(r.outputPerMillion)} {r.assetId}
+                            {r.outputPerMillion === null
+                              ? agentsCatalogueCopy.t('rateBlank')
+                              : `${displayAmount(r.outputPerMillion)} ${r.assetId}`}
                           </td>
                         </tr>
                       ))}
@@ -609,11 +691,14 @@ export function Agents({ paper = false }: { paper?: boolean }) {
                 </Read>
               </Panel>
             </div>
-            <Panel title={copyText('agents.session.workspace')}>
+            <Panel title={copyText('agents.session.workspace')} role="region" aria-label={copyText('agents.session.workspace')}>
               {active ? (
                 <>
                   <p>
-                    <code>{active.id}</code> · {active.status}
+                    <code data-testid="session-id" lang="zxx">
+                      {active.id}
+                    </code>{' '}
+                    · {active.status}
                   </p>
                   <Read resource={usage.resource} retry={usage.reload}>
                     {(u) =>
@@ -633,7 +718,7 @@ export function Agents({ paper = false }: { paper?: boolean }) {
                     onChange={setTask}
                     options={available.map((r) => r.task)}
                   />
-                  <TextArea label={copyText('agents.task.request')} value={ask} onChange={setAsk} maxLength={200000} />
+                  <TextArea label={agentsCatalogueCopy.t('askAgent')} value={ask} onChange={setAsk} maxLength={200000} />
                   <Button
                     disabled={action.disabled || active.status !== 'open' || !ask.trim() || !selectedRoute}
                     onClick={() => {
@@ -641,8 +726,11 @@ export function Agents({ paper = false }: { paper?: boolean }) {
                       const requestId = crypto.randomUUID();
                       const expected = { ...currentContext.current };
                       action.stage({
-                        title: () => copyText('agents.review.metered.engine.request'),
-                        confirm: () => copyText('agents.run.engine.request'),
+                        title: () => agentsCatalogueCopy.t('ceilingTitle'),
+                        confirm: () =>
+                          cap
+                            ? agentsCatalogueCopy.t('runUpTo', { amount: displayAmount(cap), asset: selectedRoute.assetId })
+                            : copyText('agents.run.engine.request'),
                         success: () => copyText('agents.engine.response.received'),
                         content: () => (
                           <>
@@ -697,6 +785,18 @@ export function Agents({ paper = false }: { paper?: boolean }) {
                             return preflightFailure('error', 'agents.agent.permissions.or.routing.prices.changed.reload');
                           if (!canDispatch() || !contextMatches(expected))
                             return preflightFailure('aborted', 'agents.the.account.or.session.changed.review.again');
+                          // The run row exists before the engine is called, and says so.
+                          const row: RunRow = {
+                            requestId,
+                            task: selectedRoute.task,
+                            ask,
+                            status: 'running',
+                            cost: null,
+                            assetId: selectedRoute.assetId,
+                            code: null,
+                          };
+                          setRunNote(null);
+                          setRuns((current) => [row, ...current]);
                           const res = await api.mutate(
                             'agents',
                             'run.complete',
@@ -736,6 +836,15 @@ export function Agents({ paper = false }: { paper?: boolean }) {
                                 copyText('agents.engine.response.does.not.match.this.session'),
                               ),
                           );
+                          setRuns((current) =>
+                            current.map((entry) =>
+                              entry.requestId !== requestId
+                                ? entry
+                                : res.ok
+                                  ? { ...entry, status: 'completed', cost: res.data.cost }
+                                  : { ...entry, status: res.reason === 'uncertain' ? 'unknown' : 'refused', code: res.message },
+                            ),
+                          );
                           if (res.ok && action.isCurrent() && contextMatches(expected)) setReply(res.data);
                           return res;
                         },
@@ -747,13 +856,34 @@ export function Agents({ paper = false }: { paper?: boolean }) {
                       });
                     }}
                   >
-                    <Text k="agents.review.engine.request" />
+                    {agentsCatalogueCopy.t('run')}
                   </Button>
+                  <Runs
+                    rows={runs}
+                    onSendAgain={async (row) => {
+                      // The same request id is the same run: the service returns it or names it, and charges once.
+                      const res = await api.mutate(
+                        'agents',
+                        'run.complete',
+                        { sessionId: active.id, requestId: row.requestId, task: row.task, messages: [{ role: 'user', content: row.ask }] },
+                        z.object({ cost: decimalSchema, text: z.string() }).passthrough(),
+                      );
+                      if (res.ok || /request_id_replay/.test(res.message)) setRunNote('same');
+                      else
+                        setRuns((current) =>
+                          current.map((entry) => (entry.requestId === row.requestId ? { ...entry, code: res.message } : entry)),
+                        );
+                    }}
+                  />
+                  {runNote ? <p role="status">{agentsCatalogueCopy.t('sameRequest')}</p> : null}
                   {reply && (
                     <>
-                      <p data-testid="more-body" className="more-body" lang="und">
-                        {reply.text}
-                      </p>
+                      <section role="region" aria-label={agentsCatalogueCopy.t('reply')}>
+                        <h3>{agentsCatalogueCopy.t('reply')}</h3>
+                        <p data-testid="more-body" className="more-body" lang="und">
+                          {reply.text}
+                        </p>
+                      </section>
                       <p className="muted">
                         {reply.metered
                           ? copyText('agents.metered.cost', { value1: reply.cost, value2: reply.assetId })
@@ -989,7 +1119,11 @@ function SessionHistory({ rows }: { rows: AgentAction[] }) {
           <small>
             <Text k="agents.asset.not.supplied.by.log" />
           </small>
-          {row.refusalCode && <small lang="zxx">{row.refusalCode}</small>}
+          {row.refusalCode && (
+            <small>
+              {refusalWords(row.refusalCode)} <span lang="zxx">{row.refusalCode}</span>
+            </small>
+          )}
         </li>
       ))}
     </ol>
@@ -1031,5 +1165,94 @@ function CostEstimate({
               : t('historyNotLoaded')}
       </p>
     </section>
+  );
+}
+
+type RunRow = {
+  requestId: string;
+  task: string;
+  ask: string;
+  status: 'running' | 'completed' | 'refused' | 'unknown';
+  cost: string | null;
+  assetId: string;
+  /** The service's refusal, as its key, when the run did not complete. */
+  code: string | null;
+};
+
+/** This session's runs on this page, newest first: each row exists before the engine is called. */
+function Runs({ rows, onSendAgain }: { rows: RunRow[]; onSendAgain: (row: RunRow) => void }) {
+  const { t } = agentsCatalogueCopy.useCopy();
+  const preferences = usePreferences();
+  return (
+    <DataTable headers={[t('runRequest'), t('runTask'), t('runStatus'), t('runCost'), '']} label={t('runs')}>
+      {rows.map((row) => (
+        <tr key={row.requestId}>
+          <td lang="zxx">{row.requestId}</td>
+          <td lang="zxx">{row.task}</td>
+          <td>
+            {t(`run_${row.status}`)}
+            {row.code ? <small lang="zxx"> {row.code}</small> : null}
+          </td>
+          <td data-testid="run-cost">
+            {row.cost === null
+              ? row.status === 'refused'
+                ? `0 ${row.assetId}`
+                : '—'
+              : preferences.hideBalances
+                ? '••••'
+                : `${displayAmount(row.cost)} ${row.assetId}`}
+          </td>
+          <td>
+            {row.status === 'completed' ? (
+              <Button variant="secondary" onClick={() => onSendAgain(row)}>
+                {t('sendAgain')}
+              </Button>
+            ) : null}
+          </td>
+        </tr>
+      ))}
+    </DataTable>
+  );
+}
+
+/** One recorded session's usage windows, and closing it: open windows settle once, and a closed session takes nothing more. */
+function SessionWindows({
+  detail,
+  closing,
+  closed,
+  onClose,
+}: {
+  detail: SessionDetail;
+  closing: boolean;
+  closed: boolean;
+  onClose: () => void;
+}) {
+  const { t } = agentsCatalogueCopy.useCopy();
+  const preferences = usePreferences();
+  return (
+    <>
+      <DataTable headers={[t('windowId'), t('windowState'), t('windowCost'), t('chargeKey')]} label={t('usageWindows')}>
+        {detail.windows.map((window) => (
+          <tr key={window.windowId}>
+            <td lang="zxx">{window.windowId}</td>
+            <td>{t(`window_${window.state}`)}</td>
+            <td data-testid="window-cost">
+              {window.amount === null ? '—' : preferences.hideBalances ? '••••' : `${displayAmount(window.amount)} ${detail.assetId}`}
+            </td>
+            <td data-testid="charge-key" lang="zxx">
+              {window.chargeKey ?? '—'}
+            </td>
+          </tr>
+        ))}
+      </DataTable>
+      {detail.session.status === 'open' ? (
+        <Button variant="secondary" disabled={closing} onClick={onClose}>
+          {t('closeSession')}
+        </Button>
+      ) : (
+        <p>{t('sessionClosed')}</p>
+      )}
+      {closed ? <p role="status">{t('closedSettled')}</p> : null}
+    </>
   );
 }

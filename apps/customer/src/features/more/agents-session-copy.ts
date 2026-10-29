@@ -27,13 +27,16 @@ const en = {
   resultBoundary:
     'This history contains no prompt or response text, and cannot identify a lost request. Reading history or usage does not clear an unknown request.',
   permission:
-    'Starting a session, running a request or closing it requires metered-use permission. Standard accounts do not receive that permission automatically.',
-  readOnly: 'Session inspection is read-only. It does not resume, close or run the selected session.',
+    'Running a session spends your own money: each run is capped by the agent’s own limit, your limits and your available balance, and is refused before it starts if its worst case is above any of them. Only you can run it, from your own sign-in.',
+  readOnly: 'Reading a session changes nothing. Closing it settles its open usage once; a closed session takes no new request.',
   hidden: 'Hidden',
   input: 'Input tokens',
   output: 'Output tokens',
   sameRequest: 'The response does not confirm this original session request. Keep it blocked and inspect its records.',
   changed: 'The session or reviewed context changed. Review again before continuing.',
+  lastAction: 'Last action',
+  sessionId: 'Session',
+  recordsTable: 'Sessions in your activity',
 } as const;
 const es: Record<keyof typeof en, string> = {
   session_open: 'Sesión iniciada',
@@ -63,13 +66,17 @@ const es: Record<keyof typeof en, string> = {
   resultBoundary:
     'Este historial no contiene la solicitud ni el texto de respuesta y no puede identificar una solicitud perdida. Consultar el historial o el uso no desbloquea una solicitud sin confirmar.',
   permission:
-    'Iniciar una sesión, ejecutar una solicitud o cerrarla requiere permiso para uso facturado. Las cuentas estándar no reciben ese permiso automáticamente.',
-  readOnly: 'La consulta de sesiones es de solo lectura. No reanuda, cierra ni ejecuta la sesión seleccionada.',
+    'Ejecutar una sesión gasta tu propio dinero: cada ejecución está limitada por el límite del agente, tus límites y tu saldo disponible, y se rechaza antes de empezar si su peor caso supera alguno de ellos. Solo tú puedes ejecutarla, desde tu propio inicio de sesión.',
+  readOnly:
+    'Consultar una sesión no cambia nada. Cerrarla liquida su uso abierto una sola vez; una sesión cerrada no acepta nuevas solicitudes.',
   hidden: 'Oculto',
   input: 'Tokens de entrada',
   output: 'Tokens de salida',
   sameRequest: 'La respuesta no confirma esta solicitud de la sesión original. Mantenla bloqueada y consulta sus registros.',
   changed: 'La sesión o el contexto revisado ha cambiado. Revisa de nuevo antes de continuar.',
+  lastAction: 'Última acción',
+  sessionId: 'Sesión',
+  recordsTable: 'Sesiones de tu actividad',
 };
 const fr: Record<keyof typeof en, string> = {
   session_open: 'Session ouverte',
@@ -100,12 +107,16 @@ const fr: Record<keyof typeof en, string> = {
   resultBoundary:
     'Cet historique ne contient ni la demande ni le texte de réponse et ne peut pas identifier une demande perdue. Consulter l’historique ou l’utilisation ne débloque pas une demande non confirmée.',
   permission:
-    'Démarrer une session, exécuter une demande ou la fermer nécessite une autorisation d’utilisation facturée. Les comptes standard ne la reçoivent pas automatiquement.',
-  readOnly: 'La consultation des sessions est en lecture seule. Elle ne reprend, ne ferme ni n’exécute la session sélectionnée.',
+    'Exécuter une session dépense votre propre argent : chaque exécution est plafonnée par la limite de l’agent, vos limites et votre solde disponible, et elle est refusée avant de commencer si son pire cas dépasse l’un d’eux. Vous seul pouvez l’exécuter, depuis votre propre connexion.',
+  readOnly:
+    'Consulter une session ne change rien. La fermer règle son utilisation ouverte une seule fois ; une session fermée n’accepte plus de requête.',
   hidden: 'Masqué',
   input: 'Tokens d’entrée',
   output: 'Tokens de sortie',
   sameRequest: 'La réponse ne confirme pas cette demande de la session d’origine. Gardez-la bloquée et consultez ses enregistrements.',
   changed: 'La session ou le contexte vérifié a changé. Vérifiez à nouveau avant de continuer.',
+  lastAction: 'Dernière action',
+  sessionId: 'Session',
+  recordsTable: 'Sessions de votre activité',
 };
 export const agentSessionCopy = defineCopy('more.agentSessions', en, { es, fr });

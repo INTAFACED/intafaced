@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { envScreeningList, SHIPPED_BUSINESS_BLOCKS } from '@intafaced/config';
 import { router, publicProcedure, scopedProcedure, TRPCError, forwardedPrincipalHeaders } from '@intafaced/contracts';
-import { formatAmount } from '@intafaced/ledger-client';
+import { formatAmount, parseAmount } from '@intafaced/ledger-client';
 import type { Sql } from 'postgres';
 import { AgentError, assertOpsSessionsLimit, assertSessionLogPageLimit, assertSessionMineLimit, assertUserLogPageLimit } from './errors.js';
 import { requireSettleService } from './settle-hmac.js';
@@ -262,6 +262,8 @@ function toActionOutput(action: AuditedAction) {
  * own words. `intafacedCode` lets a client branch on the machine code.
  */
 function toTRPCError(err: unknown): TRPCError {
+  // Already decided (an ownership check's NOT_FOUND): passed on, never reworded as an engine outage.
+  if (err instanceof TRPCError) return err;
   if (err instanceof AgentError) {
     const code =
       err.code === 'agents.refused' || err.code === 'agents.spend_limit' || err.code === 'agents.spend_limit_unset'
@@ -650,6 +652,68 @@ export function createAgentsRouter(deps: AgentsRouterDeps) {
               metered: session.metered,
               openedAt: session.openedAt.toISOString(),
               closedAt: session.closedAt?.toISOString() ?? null,
+            };
+          }),
+        ),
+
+      /**
+       * One of the caller's own sessions: its state and every usage window with what it was charged. Open windows have
+       * no amount yet; a sealed window with no ledger transaction is unpaid and is retried on its charge key.
+       */
+      detail: scopedProcedure('agents:read', { module: 'agents' })
+        .input(z.object({ sessionId: z.string().guid() }))
+        .output(
+          z.object({
+            session: sessionOutput,
+            assetId: z.string(),
+            windows: z.array(
+              z.object({
+                windowId: z.string(),
+                openedAt: z.string(),
+                state: z.enum(['open', 'unpaid', 'settled']),
+                amount: z.string().nullable(),
+                chargeKey: z.string().nullable(),
+              }),
+            ),
+          }),
+        )
+        .query(({ ctx, input }) =>
+          guard(async () => {
+            const session = await ownedSession(input.sessionId, ctx.principal.userId);
+            if (!sql) throw new Error('agents sql is unset');
+            const rows = await sql<
+              Array<{
+                window_id: string;
+                opened_at: Date;
+                sealed_at: Date | null;
+                charged_amount: string | null;
+                charge_key: string | null;
+                charge_tx_id: string | null;
+              }>
+            >`
+              SELECT window_id, opened_at, sealed_at, charged_amount::text, charge_key, charge_tx_id
+                FROM agents.usage_windows
+               WHERE session_id = ${session.id}
+               ORDER BY opened_at, window_id
+            `;
+            return {
+              session: {
+                id: session.id,
+                agentId: session.agentId,
+                guardrailVersion: session.guardrailVersion,
+                status: session.status,
+                metered: session.metered,
+                openedAt: session.openedAt.toISOString(),
+                closedAt: session.closedAt?.toISOString() ?? null,
+              },
+              assetId: feeAssetId,
+              windows: rows.map((row) => ({
+                windowId: row.window_id,
+                openedAt: row.opened_at.toISOString(),
+                state: row.sealed_at === null ? ('open' as const) : row.charge_tx_id ? ('settled' as const) : ('unpaid' as const),
+                amount: row.charged_amount === null ? null : formatAmount(parseAmount(row.charged_amount)),
+                chargeKey: row.charge_key,
+              })),
             };
           }),
         ),

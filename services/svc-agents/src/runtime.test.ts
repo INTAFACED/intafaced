@@ -2189,6 +2189,46 @@ if (!available) {
       expect(ran.metered).toBe(true);
     });
 
+    it('session.detail shows each usage window: open while running, settled once with its charge after close; never another person’s', async () => {
+      const SECRET = 'an-agents-owner-107-session-detail-secret';
+      const edge = createEdgeContext({ secret: SECRET, serviceName: 'svc-agents' });
+      const as = (userId: string) => {
+        const raw = encodePrincipal({
+          sub: userId,
+          userId,
+          sid: '44444444-4444-4444-8444-444444444444',
+          scopes: ['agents:read', 'agents:execute'],
+          tier: 'none',
+          mfa: false,
+          expiresAt: new Date(Date.now() + 60_000),
+        } as Principal);
+        return edge({
+          headers: {
+            'x-intafaced-principal': raw,
+            'x-intafaced-principal-sig': signPrincipalHeader(raw, SECRET, 'DE'),
+            'x-intafaced-region': 'DE',
+          },
+          id: 'req-detail',
+        });
+      };
+      const router = createAgentsRouter({ runtime, gateway, meter, feeAssetId: 'IFC', sql });
+      const person = router.createCaller(as(USER_A));
+      const session = await person.session.open({ agentId: 'probe' });
+      const ran = await person.run.complete({ sessionId: session.id, requestId: 'detail-1', task: 'plan', messages: MESSAGES });
+      const before = await person.session.detail({ sessionId: session.id });
+      expect(before.windows).toEqual([expect.objectContaining({ state: 'open', amount: null, chargeKey: null })]);
+
+      await person.session.close({ sessionId: session.id });
+      const after = await person.session.detail({ sessionId: session.id });
+      expect(after.session.status).toBe('closed');
+      expect(after.windows).toHaveLength(1);
+      expect(after.windows[0]).toMatchObject({ state: 'settled', amount: ran.cost });
+      expect(after.windows[0]!.chargeKey).toMatch(/^agent\.usage:/);
+      expect(await balanceOf(USER_A)).toBe(formatAmount(amt('1000') - amt(ran.cost)));
+
+      await expect(router.createCaller(as(USER_B)).session.detail({ sessionId: session.id })).rejects.toMatchObject({ code: 'NOT_FOUND' });
+    });
+
     it('the run doors take only the person: a delegated token or a service on the request is refused', async () => {
       const SECRET = 'an-agents-owner-107-person-doors-secret';
       const edge = createEdgeContext({ secret: SECRET, serviceName: 'svc-agents' });
