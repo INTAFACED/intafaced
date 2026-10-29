@@ -42,14 +42,20 @@ export async function requireMatchingReceipt(ledger: LedgerClient, tx: LedgerTx,
 
 /**
  * Post one recipe and prove the receipt. A reused key with another body (`ledger.idempotency_conflict`) and a receipt
- * for other terms are both `market.purchase_receipt_mismatch`; too little balance is `market.insufficient_funds`. A
- * retry under the same key and body gets the original transaction back, so a lost reply is recovered by posting again.
+ * for other terms are both `market.purchase_receipt_mismatch`; too little balance is `market.insufficient_funds`, or
+ * the caller's own error where the short account is not the buyer's (a held pot). A retry under the same key and body
+ * gets the original transaction back, so a lost reply is recovered by posting again.
  */
-export async function postWithReceipt(ledger: LedgerClient, request: PostRequest): Promise<LedgerTx> {
+export async function postWithReceipt(
+  ledger: LedgerClient,
+  request: PostRequest,
+  options: { insufficient?: () => Error } = {},
+): Promise<LedgerTx> {
   const tx = await ledger.post(request).catch((error: unknown) => {
     if (error instanceof LedgerError && error.code === IDEMPOTENCY_CONFLICT_CODE) throw mismatch();
     const code = error && typeof error === 'object' && 'code' in error ? (error as { code: unknown }).code : undefined;
     if (code === 'ledger.insufficient_funds') {
+      if (options.insufficient) throw options.insufficient();
       throw new MarketError('Insufficient balance for this purchase', 'market.insufficient_funds');
     }
     throw error;

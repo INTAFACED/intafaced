@@ -36,7 +36,7 @@ import {
 import { MARKET_OPS_SCOPE, MarketError, type PublicVendorProfile, type VendorService } from '../vendor-service.js';
 import { PAID_STATUSES, toPurchase, type PurchaseRecord, type PurchaseRow, type PurchaseStatus } from './purchase-record.js';
 import { requireMatchingReceipt } from './ledger-receipt.js';
-import { claimFlow, HeldPurchases, type PurchaseHoldConfig } from './held-purchase.js';
+import { claimFlow, HeldPurchases, MARKET_PURCHASE_ALREADY_HELD, type PurchaseHoldConfig } from './held-purchase.js';
 
 export type { PurchaseFlow, PurchaseRecord, PurchaseStatus } from './purchase-record.js';
 
@@ -797,6 +797,9 @@ export class CommerceService {
     const price = this.positiveDecimalPrice(listing.price);
     // The owner's switch picks the flow of a new claim; a claimed row keeps its own (the database refuses a change).
     const flow = await this.claimFlowFor(input.purchaseId, input.buyerId);
+    // A subscription's next period stacks on the end of the one before. While that one is held it may still be refunded,
+    // and the next would keep the refunded period, so the buyer buys the next period once it is released.
+    if (listing.offerType === 'subscription') await this.assertNoOtherHeld(listing.id, input.buyerId, input.purchaseId);
 
     // Claim / idempotent resume. Payee, asset, and period are copied from the
     // listing and vendor rows inside the insert — not taken as separate arguments.
@@ -1341,6 +1344,23 @@ export class CommerceService {
     }
   }
 
+  private async assertNoOtherHeld(listingId: string, buyerId: string, purchaseId: string): Promise<void> {
+    const [row] = await this.sql<Array<{ id: string }>>`
+      SELECT id FROM market.purchases
+       WHERE listing_id = ${listingId}
+         AND buyer_id = ${buyerId}
+         AND id <> ${purchaseId}
+         AND status = 'held'
+       LIMIT 1
+    `;
+    if (row) {
+      throw new MarketError(
+        'Your last purchase of this subscription is still held — buy the next period once its refund window ends',
+        MARKET_PURCHASE_ALREADY_HELD,
+      );
+    }
+  }
+
   private async cancelledAt(listingId: string, buyerId: string): Promise<Date | null> {
     const [row] = await this.sql<Array<{ cancelled_at: Date | null }>>`
       SELECT cancelled_at FROM market.subscription_state
@@ -1380,8 +1400,12 @@ export class CommerceService {
       return this.ensureSubscriptionAccess(existing, listing);
     }
     if (existing.status !== 'pending') return null;
-    // A pending held purchase finishes through the fresh path, which posts its hold again under the same key.
-    if (existing.flow === 'hold') return null;
+    // A pending held purchase whose hold already posted is finished from the ledger's receipt, past the live gates; one
+    // not on the ledger yet goes through the fresh path, which posts its hold under the same key.
+    if (existing.flow === 'hold') {
+      const held = await this.held.resumePostedHold(existing);
+      return held ? this.ensureSubscriptionAccess(held, listing) : null;
+    }
 
     const posted = await this.postedMarketPurchase(existing);
     if (!posted) return null;

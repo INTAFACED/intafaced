@@ -40,7 +40,8 @@ const OPERATOR = '33333333-3333-4333-8333-333333333333';
 const STRANGER = '44444444-4444-4444-8444-444444444444';
 const WINDOW = 3600;
 const START = new Date('2026-10-30T00:00:00.000Z');
-const ON: PurchaseHoldConfig = { on: true, refundWindowSeconds: WINDOW };
+const SWEEP = 5;
+const ON: PurchaseHoldConfig = { on: true, refundWindowSeconds: WINDOW, releaseSweepSeconds: SWEEP };
 
 class FixedEntitlement implements SlotEntitlementSource {
   async entitlementOf(): Promise<VendorEntitlement> {
@@ -149,7 +150,7 @@ describe('market held purchase (MC-market-02)', () => {
   describe('the owner switch', () => {
     it('off: the purchase pays through as before, with no pot and no window', async () => {
       const id = randomUUID();
-      const paid = await service({ on: false, refundWindowSeconds: WINDOW }).purchase({
+      const paid = await service({ on: false, refundWindowSeconds: WINDOW, releaseSweepSeconds: SWEEP }).purchase({
         buyerId: BUYER,
         listingId: await listing(),
         purchaseId: id,
@@ -165,10 +166,23 @@ describe('market held purchase (MC-market-02)', () => {
       for (const refundWindowSeconds of [null, 0]) {
         const id = randomUUID();
         await expect(
-          service({ on: true, refundWindowSeconds }).purchase({ buyerId: BUYER, listingId, purchaseId: id }),
+          service({ on: true, refundWindowSeconds, releaseSweepSeconds: SWEEP }).purchase({ buyerId: BUYER, listingId, purchaseId: id }),
         ).rejects.toMatchObject({
           code: 'market.refund_window_unset',
         });
+        expect(await rows(id)).toBe(0);
+        expect(await ledger.getTxByKey(`market:hold:${id}`)).toBeNull();
+      }
+      expect(await buyer()).toBe('100');
+    });
+
+    it('on with a blank release sweep: refuses market.release_sweep_unset before any claim row, and nothing moves', async () => {
+      const listingId = await listing();
+      for (const releaseSweepSeconds of [null, 0]) {
+        const id = randomUUID();
+        await expect(
+          service({ on: true, refundWindowSeconds: WINDOW, releaseSweepSeconds }).purchase({ buyerId: BUYER, listingId, purchaseId: id }),
+        ).rejects.toMatchObject({ code: 'market.release_sweep_unset' });
         expect(await rows(id)).toBe(0);
         expect(await ledger.getTxByKey(`market:hold:${id}`)).toBeNull();
       }
@@ -187,7 +201,11 @@ describe('market held purchase (MC-market-02)', () => {
       });
       spend.mockRestore();
       expect(
-        await service({ on: false, refundWindowSeconds: null }).purchase({ buyerId: BUYER, listingId, purchaseId: poor }),
+        await service({ on: false, refundWindowSeconds: null, releaseSweepSeconds: null }).purchase({
+          buyerId: BUYER,
+          listingId,
+          purchaseId: poor,
+        }),
       ).toMatchObject({
         status: 'held',
         flow: 'hold',
@@ -197,7 +215,11 @@ describe('market held purchase (MC-market-02)', () => {
       const plain = randomUUID();
       const fail = vi.spyOn(ledger, 'post').mockRejectedValueOnce(new Error('ledger down'));
       await expect(
-        service({ on: false, refundWindowSeconds: null }).purchase({ buyerId: BUYER, listingId, purchaseId: plain }),
+        service({ on: false, refundWindowSeconds: null, releaseSweepSeconds: null }).purchase({
+          buyerId: BUYER,
+          listingId,
+          purchaseId: plain,
+        }),
       ).rejects.toThrow('ledger down');
       fail.mockRestore();
       expect(await service(ON).purchase({ buyerId: BUYER, listingId, purchaseId: plain })).toMatchObject({
@@ -244,6 +266,40 @@ describe('market held purchase (MC-market-02)', () => {
       expect([await buyer(), await pot(id)]).toEqual(['90', '10']);
     });
 
+    it('a posted hold whose row was not updated is finished from the ledger even after the listing is archived', async () => {
+      const listingId = await listing();
+      const id = randomUUID();
+      const real = ledger.post.bind(ledger);
+      const lost = vi.spyOn(ledger, 'post').mockImplementationOnce(async (request) => {
+        await real(request);
+        throw new Error('reply lost');
+      });
+      await expect(service(ON).purchase({ buyerId: BUYER, listingId, purchaseId: id })).rejects.toThrow('reply lost');
+      lost.mockRestore();
+      await service(ON).archiveListing({ userId: SELLER, listingId });
+      const posted = await ledger.getTxByKey(`market:hold:${id}`);
+      const retried = await service(ON).purchase({ buyerId: BUYER, listingId, purchaseId: id });
+      expect(retried).toMatchObject({ status: 'held', ledgerTxId: posted!.id });
+      expect([await buyer(), await pot(id)]).toEqual(['90', '10']);
+      later(WINDOW);
+      expect(await service(ON).held.sweep()).toEqual({ released: 1, refunded: 0, failed: 0 });
+      expect([await pot(id), await seller(), await house()]).toEqual(['0', '9.5', '0.5']);
+    });
+
+    it('a claimed hold that never posted meets the live gates on retry: an archived listing refuses and nothing moves', async () => {
+      const listingId = await listing();
+      const id = randomUUID();
+      const down = vi.spyOn(ledger, 'post').mockRejectedValueOnce(new Error('ledger down'));
+      await expect(service(ON).purchase({ buyerId: BUYER, listingId, purchaseId: id })).rejects.toThrow('ledger down');
+      down.mockRestore();
+      await service(ON).archiveListing({ userId: SELLER, listingId });
+      await expect(service(ON).purchase({ buyerId: BUYER, listingId, purchaseId: id })).rejects.toMatchObject({
+        code: 'market.listing_not_found',
+      });
+      expect(await ledger.getTxByKey(`market:hold:${id}`)).toBeNull();
+      expect([await buyer(), await pot(id)]).toEqual(['100', '0']);
+    });
+
     it('too little balance refuses market.insufficient_funds, keeps the claim, and holds once funded', async () => {
       const listingId = await listing({ price: '150' });
       const id = randomUUID();
@@ -270,6 +326,22 @@ describe('market held purchase (MC-market-02)', () => {
       await expect(service(ON).subscriptionAccess({ buyerId: BUYER, listingId })).rejects.toMatchObject({
         code: 'market.subscription_no_access',
       });
+    });
+
+    it('a next subscription period waits until the held one is released, so a refund never leaves its period stacked', async () => {
+      const listingId = await listing({ offerType: 'subscription' });
+      const first = await held(listingId);
+      const next = randomUUID();
+      await expect(service(ON).purchase({ buyerId: BUYER, listingId, purchaseId: next })).rejects.toMatchObject({
+        code: 'market.purchase_already_held',
+      });
+      expect(await rows(next)).toBe(0);
+      expect(await buyer()).toBe('90');
+      later(WINDOW);
+      expect(await service(ON).held.sweep()).toEqual({ released: 1, refunded: 0, failed: 0 });
+      const second = await service(ON).purchase({ buyerId: BUYER, listingId, purchaseId: next });
+      expect(second).toMatchObject({ status: 'held' });
+      expect(second.accessUntil).toBe(new Date(new Date(first.accessUntil!).getTime() + 30 * 86_400 * 1000).toISOString());
     });
   });
 
@@ -395,6 +467,11 @@ describe('market held purchase (MC-market-02)', () => {
 
     it('after the window the sweep pays the seller net and the house commission once, under market:release:<id>', async () => {
       const purchase = await held(await listing());
+      const statusAtAccrue: string[] = [];
+      accrue.mockImplementation(async () => {
+        const [row] = await sql<Array<{ status: string }>>`SELECT status FROM market.purchases WHERE id = ${purchase.id}`;
+        statusAtAccrue.push(row!.status);
+      });
       later(WINDOW);
       expect(await service(ON).held.sweep()).toEqual({ released: 1, refunded: 0, failed: 0 });
       const tx = await ledger.getTxByKey(`market:release:${purchase.id}`);
@@ -413,6 +490,8 @@ describe('market held purchase (MC-market-02)', () => {
       });
       expect([await buyer(), await pot(purchase.id), await seller(), await house()]).toEqual(['90', '0', '9.5', '0.5']);
       expect(accrue).toHaveBeenCalledTimes(1);
+      // The legs go before the row is marked released, so a crash between them leaves a held row the sweep finishes.
+      expect(statusAtAccrue).toEqual(['held']);
       expect(payout).toHaveBeenCalledTimes(1);
       expect(await service(ON).held.sweep()).toEqual({ released: 0, refunded: 0, failed: 0 });
       expect(await seller()).toBe('9.5');
@@ -434,6 +513,41 @@ describe('market held purchase (MC-market-02)', () => {
       expect(row).toEqual({ status: 'held', outcome: 'release' });
       expect(await service(ON).held.sweep()).toEqual({ released: 1, refunded: 0, failed: 0 });
       expect([await pot(first.id), await pot(second.id), await seller(), await house()]).toEqual(['0', '0', '19', '1']);
+    });
+
+    it('rows that keep failing never fill every sweep: a good row behind them is still released', async () => {
+      const listingId = await listing();
+      const stuck = [await held(listingId), await held(listingId)];
+      later(1);
+      const good = await held(listingId);
+      later(WINDOW);
+      const real = ledger.post.bind(ledger);
+      const frozen = vi.spyOn(ledger, 'post').mockImplementation(async (request) => {
+        if (stuck.some((p) => request.idempotencyKey === `market:release:${p.id}`)) throw new Error('seller account frozen');
+        return real(request);
+      });
+      // Two rows per sweep, the two stuck ones first by window end: the good row is reached all the same.
+      for (let round = 0; round < 40 && (await pot(good.id)) !== '0'; round += 1) await service(ON).held.sweep(2);
+      frozen.mockRestore();
+      expect([await pot(good.id), await pot(stuck[0]!.id), await pot(stuck[1]!.id)]).toEqual(['0', '10', '10']);
+    });
+
+    it("a pot short of the price is reported as market.held_pot_short, never as the buyer's balance", async () => {
+      const listingId = await listing();
+      const released = await held(listingId);
+      const refunded = await held(listingId);
+      const short = () => Object.assign(new Error('Insufficient USDT'), { code: 'ledger.insufficient_funds' });
+      const refuse = vi.spyOn(ledger, 'post').mockRejectedValueOnce(short());
+      await expect(service(ON).held.refund({ sellerUserId: SELLER, purchaseId: refunded.id })).rejects.toMatchObject({
+        code: 'market.held_pot_short',
+      });
+      refuse.mockRestore();
+      later(WINDOW);
+      const refuseAgain = vi.spyOn(ledger, 'post').mockRejectedValue(short());
+      expect(await service(ON).held.sweep()).toEqual({ released: 0, refunded: 0, failed: 2 });
+      refuseAgain.mockRestore();
+      expect(sweepErrors.map((e) => (e.err as { code?: string }).code)).toEqual(['market.held_pot_short', 'market.held_pot_short']);
+      expect([await pot(released.id), await pot(refunded.id), await buyer()]).toEqual(['10', '10', '80']);
     });
 
     it('a lost reply on the release post is finished by the next sweep with one release', async () => {

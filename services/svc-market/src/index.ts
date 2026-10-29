@@ -85,7 +85,11 @@ const commerce = new CommerceService(sql, vendors, ledger, {
   commissionBps: env.MARKET_HOUSE_COMMISSION_BPS ?? null,
   affiliateAccrue: env.IDENTITY_URL ? createAffiliateAccrueClient(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET, s2sKey) : undefined,
   affiliatePayout: env.IDENTITY_URL ? createAffiliatePayoutClient(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET, s2sKey) : undefined,
-  hold: { on: env.MARKET_PURCHASE_HOLD === 'on', refundWindowSeconds: env.MARKET_REFUND_WINDOW_SECONDS ?? null },
+  hold: {
+    on: env.MARKET_PURCHASE_HOLD === 'on',
+    refundWindowSeconds: env.MARKET_REFUND_WINDOW_SECONDS ?? null,
+    releaseSweepSeconds: env.MARKET_RELEASE_SWEEP_SECONDS ?? null,
+  },
   onSweepError: (purchaseId, err) => app.log.error({ err, purchaseId }, 'held purchase release sweep could not finish a row'),
 });
 const perpProposals = new PerpProposalService(sql, vendors);
@@ -120,10 +124,20 @@ await app.register(fastifyTRPCPlugin, {
 });
 
 // The release sweep: held purchases whose refund window ended are released to the seller, and an outcome a crash left
-// claimed is posted again under its own key. Blank owner value: none runs, and a held purchase stays held.
+// claimed is posted again under its own key. Blank owner value: none runs, and no new purchase is held
+// (market.release_sweep_unset).
+// A tick that finds the last sweep still running skips, so slow sweeps never overlap.
+let sweeping = false;
 const releaseSweep = env.MARKET_RELEASE_SWEEP_SECONDS
   ? setInterval(() => {
-      commerce.held.sweep().catch((err: unknown) => app.log.error({ err }, 'held purchase release sweep failed'));
+      if (sweeping) return;
+      sweeping = true;
+      commerce.held
+        .sweep()
+        .catch((err: unknown) => app.log.error({ err }, 'held purchase release sweep failed'))
+        .finally(() => {
+          sweeping = false;
+        });
     }, env.MARKET_RELEASE_SWEEP_SECONDS * 1000)
   : null;
 releaseSweep?.unref();

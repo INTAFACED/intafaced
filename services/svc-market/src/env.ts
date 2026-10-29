@@ -60,7 +60,8 @@ const schema = serviceEnvSchema
        * MC-market-02, owner values with no default. MARKET_PURCHASE_HOLD ('on' | 'off'; blank is off) decides whether a
        * new purchase is held until its refund window ends. MARKET_REFUND_WINDOW_SECONDS is that window; with the switch
        * on and the window blank, a new purchase refuses `market.refund_window_unset`. MARKET_RELEASE_SWEEP_SECONDS is
-       * how often the sweep releases held purchases whose window ended; blank, no sweep runs and they stay held.
+       * how often the sweep releases held purchases whose window ended; with the switch on and it blank, a new purchase
+       * refuses `market.release_sweep_unset`, since nothing would ever release it.
        */
       MARKET_PURCHASE_HOLD: blankAsAbsent(z.enum(['on', 'off']).optional()),
       MARKET_REFUND_WINDOW_SECONDS: blankAsAbsent(z.coerce.number().int().min(1).max(31_536_000).optional()),

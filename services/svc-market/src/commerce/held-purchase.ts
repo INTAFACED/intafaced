@@ -1,7 +1,7 @@
 import type { Sql } from 'postgres';
-import { parseAmount, recipes, type Amount, type LedgerClient } from '@intafaced/ledger-client';
+import { parseAmount, recipes, type Amount, type LedgerClient, type LedgerTx } from '@intafaced/ledger-client';
 import { MarketError } from '../vendor-service.js';
-import { postWithReceipt } from './ledger-receipt.js';
+import { postWithReceipt, requireMatchingReceipt } from './ledger-receipt.js';
 import { toPurchase, type PurchaseRecord, type PurchaseRow } from './purchase-record.js';
 
 /**
@@ -9,7 +9,9 @@ import { toPurchase, type PurchaseRecord, type PurchaseRow } from './purchase-re
  *
  * Whether a new purchase is held is the owner's switch (`MARKET_PURCHASE_HOLD`), never whether a window happens to be
  * filled. With the switch on, the window (`MARKET_REFUND_WINDOW_SECONDS`) is copied onto the claim; a blank window
- * refuses `market.refund_window_unset` before any claim row. With it off, purchases pay through as before.
+ * refuses `market.refund_window_unset`, and a blank sweep interval (`MARKET_RELEASE_SWEEP_SECONDS`, so nothing would
+ * ever release the pot) refuses `market.release_sweep_unset`, both before any claim row. With it off, purchases pay
+ * through as before.
  *
  *   hold      `marketPurchaseHold`     market:hold:<purchase>       pending → held
  *   refund    `marketPurchaseRefund`   market:refund:<purchase>:1   held → refunded   (the seller, inside the window)
@@ -25,6 +27,9 @@ import { toPurchase, type PurchaseRecord, type PurchaseRow } from './purchase-re
  */
 
 export const MARKET_REFUND_WINDOW_UNSET = 'market.refund_window_unset' as const;
+export const MARKET_RELEASE_SWEEP_UNSET = 'market.release_sweep_unset' as const;
+export const MARKET_HELD_POT_SHORT = 'market.held_pot_short' as const;
+export const MARKET_PURCHASE_ALREADY_HELD = 'market.purchase_already_held' as const;
 export const MARKET_REFUND_NOT_HELD = 'market.refund_not_held' as const;
 export const MARKET_REFUND_FORBIDDEN = 'market.refund_forbidden' as const;
 export const MARKET_PURCHASE_NOT_FOUND = 'market.purchase_not_found' as const;
@@ -34,13 +39,18 @@ export interface PurchaseHoldConfig {
   on: boolean;
   /** Whole seconds, or null while the owner has not set one. Never defaulted. */
   refundWindowSeconds: number | null;
+  /** Whole seconds between release sweeps, or null while the owner has not set one. Never defaulted. */
+  releaseSweepSeconds: number | null;
 }
 
 export interface HeldPurchaseDeps {
   sql: Sql;
   ledger: LedgerClient;
   now: () => Date;
-  /** Best-effort affiliate legs on the house commission, after a release posts. Never throws. */
+  /**
+   * Best-effort affiliate legs on the house commission, after a release posts and before its row is marked released,
+   * so a crash between them is sent again (under the legs' own keys) when the sweep finishes the row. Never throws.
+   */
   afterRelease: (purchase: PurchaseRecord, price: Amount) => Promise<void>;
   /** Told about each row a sweep could not finish; that row stays held for the next sweep. */
   onSweepError?: (purchaseId: string, err: unknown) => void;
@@ -62,6 +72,13 @@ export function claimFlow(config: PurchaseHoldConfig | undefined): { flow: 'pay'
       MARKET_REFUND_WINDOW_UNSET,
     );
   }
+  const sweep = config.releaseSweepSeconds;
+  if (sweep == null || !Number.isInteger(sweep) || sweep <= 0) {
+    throw new MarketError(
+      'The release sweep is not set — a held purchase would never be released, so none can start until the owner sets it',
+      MARKET_RELEASE_SWEEP_UNSET,
+    );
+  }
   return { flow: 'hold', refundWindowSeconds: seconds };
 }
 
@@ -70,6 +87,9 @@ function positive(price: string): Amount {
   if (amount <= 0n) throw new MarketError('Purchase price must be positive', 'market.listing_invalid_price');
   return amount;
 }
+
+/** A refund or release draws on the buyer's held pot: too little there is a broken book, never the buyer's balance. */
+const potShort = { insufficient: () => new MarketError('The held pot is short of this purchase', MARKET_HELD_POT_SHORT) };
 
 const heldInput = (p: PurchaseRecord) => ({
   purchaseId: p.id,
@@ -96,12 +116,38 @@ export class HeldPurchases {
       throw new MarketError('This purchase is not a held purchase', 'market.purchase_conflict');
     }
     const tx = await postWithReceipt(this.deps.ledger, recipes.marketPurchaseHold(heldInput(claimed)));
+    return this.markHeld(claimed, tx.id);
+  }
+
+  /**
+   * A pending held purchase whose hold is already on the ledger (the reply or the row's update was lost) is finished
+   * from that receipt, whatever the listing's state now: the buyer's money is in the pot and the row must say so. Null
+   * when the ledger holds no such hold or cannot be asked, so the caller's fresh gates still apply. Never posts.
+   */
+  async resumePostedHold(pending: PurchaseRecord): Promise<PurchaseRecord | null> {
+    if (pending.status !== 'pending' || pending.flow !== 'hold' || pending.refundWindowSeconds == null) return null;
+    const request = recipes.marketPurchaseHold(heldInput(pending));
+    let tx: LedgerTx | null;
+    try {
+      tx = await this.deps.ledger.getTxByKey(request.idempotencyKey);
+    } catch {
+      return null;
+    }
+    if (!tx) return null;
+    await requireMatchingReceipt(this.deps.ledger, tx, request);
+    return this.markHeld(pending, tx.id);
+  }
+
+  private async markHeld(claimed: PurchaseRecord, txId: string): Promise<PurchaseRecord> {
+    if (claimed.refundWindowSeconds == null) {
+      throw new MarketError('This purchase is not a held purchase', 'market.purchase_conflict');
+    }
     const holdPostedAt = this.deps.now();
     const endsAt = new Date(holdPostedAt.getTime() + claimed.refundWindowSeconds * 1000);
     const [row] = await this.deps.sql<PurchaseRow[]>`
       UPDATE market.purchases
          SET status = 'held',
-             ledger_tx_id = ${tx.id},
+             ledger_tx_id = ${txId},
              hold_posted_at = ${holdPostedAt.toISOString()}::timestamptz,
              refund_window_ends_at = ${endsAt.toISOString()}::timestamptz
        WHERE id = ${claimed.id}
@@ -171,7 +217,7 @@ export class HeldPurchases {
   }
 
   private async finishRefund(purchase: PurchaseRecord): Promise<PurchaseRecord> {
-    const tx = await postWithReceipt(this.deps.ledger, recipes.marketPurchaseRefund({ ...heldInput(purchase), refundNo: 1 }));
+    const tx = await postWithReceipt(this.deps.ledger, recipes.marketPurchaseRefund({ ...heldInput(purchase), refundNo: 1 }), potShort);
     const [row] = await this.deps.sql<PurchaseRow[]>`
       UPDATE market.purchases
          SET status = 'refunded',
@@ -199,7 +245,11 @@ export class HeldPurchases {
         vendorUserId: purchase.vendorUserId,
         commissionBps: purchase.commissionBps,
       }),
+      potShort,
     );
+    // The affiliate legs go before the row is marked released, as the pay-through path sends them before settling: a
+    // crash after the update would leave no held row for the sweep to finish, and the legs would never be sent.
+    await this.deps.afterRelease({ ...purchase, outcomeTxId: tx.id }, price);
     const atIso = this.deps.now().toISOString();
     const [row] = await this.deps.sql<PurchaseRow[]>`
       UPDATE market.purchases
@@ -212,11 +262,7 @@ export class HeldPurchases {
          AND outcome = 'release'
       RETURNING *
     `;
-    if (row) {
-      const released = toPurchase(row);
-      await this.deps.afterRelease(released, price);
-      return released;
-    }
+    if (row) return toPurchase(row);
     const reload = await this.load(purchase.id);
     if (reload?.status === 'released') return reload;
     throw new MarketError('Release returned no row', 'market.purchase_not_written');
@@ -224,7 +270,8 @@ export class HeldPurchases {
 
   /**
    * Release every held purchase whose window has ended, and finish any outcome a crash left claimed. One row's failure
-   * (a ledger outage, a frozen account) leaves that row held for the next sweep and does not stop the others.
+   * (a ledger outage, a frozen account) leaves that row held for the next sweep and does not stop the others. Claimed
+   * rows are finished in random order, so rows that keep failing can never fill every sweep and starve the rest.
    */
   async sweep(limit = 100): Promise<ReleaseSweepResult> {
     const nowIso = this.deps.now().toISOString();
@@ -247,7 +294,7 @@ export class HeldPurchases {
       SELECT * FROM market.purchases
        WHERE status = 'held'
          AND outcome IS NOT NULL
-       ORDER BY refund_window_ends_at ASC, id ASC
+       ORDER BY random()
        LIMIT ${limit}
     `;
     const result: ReleaseSweepResult = { released: 0, refunded: 0, failed: 0 };
