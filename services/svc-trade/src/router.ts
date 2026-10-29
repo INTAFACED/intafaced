@@ -810,26 +810,26 @@ export function createTradeRouter(
 ) {
   const placeAttempts = new PlaceAttemptBook();
   /** The lead desk's refusals carry their code at the end of the message, where the console reads it. */
-  const lead = <T>(fn: (desk: LeadDesk) => Promise<T>): Promise<T> =>
-    guard(async () => {
+  // Mapped outside `guard`: guard wraps any TRPCError thrown inside it again as a 500, which loses the code.
+  const lead = async <T>(fn: (desk: LeadDesk) => Promise<T>): Promise<T> => {
+    try {
       if (!leadDesk) throw new CopyError('Copy trading is not available', 'trade.copy_unavailable');
-      try {
-        return await fn(leadDesk);
-      } catch (err) {
-        if (err instanceof CopyError && err.code.startsWith('trade.copy_lead_')) {
-          const code =
-            err.code === 'trade.copy_lead_application_not_found'
-              ? 'NOT_FOUND'
-              : err.code === 'trade.copy_lead_criteria_unset'
-                ? 'PRECONDITION_FAILED'
-                : 'BAD_REQUEST';
-          throw new TRPCError({ code, message: `${err.message} [${err.code}]`, cause: err });
-        }
-        if (err instanceof TradeOpsError)
-          throw new TRPCError({ code: 'BAD_REQUEST', message: `${err.message} [trade_ops.${err.code}]`, cause: err });
-        throw err;
+      return await fn(leadDesk);
+    } catch (err) {
+      if (err instanceof CopyError && err.code.startsWith('trade.copy_lead_')) {
+        const code =
+          err.code === 'trade.copy_lead_application_not_found'
+            ? 'NOT_FOUND'
+            : err.code === 'trade.copy_lead_criteria_unset'
+              ? 'PRECONDITION_FAILED'
+              : 'BAD_REQUEST';
+        throw new TRPCError({ code, message: `${err.message} [${err.code}]`, cause: err });
       }
-    });
+      if (err instanceof TradeOpsError)
+        throw new TRPCError({ code: 'BAD_REQUEST', message: `${err.message} [trade_ops.${err.code}]`, cause: err });
+      throw toTrpcError(err);
+    }
+  };
   return router({
     accountControls: tradingControlsRouter(controls),
     admin: mergeRouters(tradeOpsAdminRouter(admin), insuranceAdminRouter(insuranceTopups)),
