@@ -54,6 +54,10 @@ const KNOWN: Readonly<Record<string, { title: string; body: string }>> = {
     body: 'The desk has no provider list, so a request cannot be sent. Nothing was priced or held.',
   },
   'trade.otc_provider_required': { title: 'Pick a provider', body: 'Pick at least one provider to ask. Nothing was priced or held.' },
+  'trade.otc_assets_unset': {
+    title: 'No assets set',
+    body: 'The desk has no asset list, so a request cannot be sent. Nothing was priced or held.',
+  },
   'trade.otc_provider_unknown': {
     title: 'Provider not on the list',
     body: "A provider picked is not on the desk's provider list. Pick again from the list; nothing was priced or held.",
@@ -160,6 +164,11 @@ const NAMES_ITS_LIMIT: Readonly<Record<string, { title: string; fallback: string
     title: 'Too many providers',
     fallback: 'More providers were picked than the desk allows',
     after: 'Pick fewer; nothing was priced or held.',
+  },
+  'trade.otc_asset_unlisted': {
+    title: 'Asset not on the desk',
+    fallback: "That asset is not on the desk's asset list",
+    after: 'Pick a pair whose asset the desk lists; nothing was priced or held.',
   },
 };
 
