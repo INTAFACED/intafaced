@@ -57,7 +57,13 @@ describe('API key IP allowlist at the session door', () => {
         'x-forwarded-for': FOREIGN,
         'x-real-ip': FOREIGN,
       },
-      { ...options, fetch: async () => new Response(null, { status: 401 }) },
+      {
+        ...options,
+        fetch: async () =>
+          new Response(JSON.stringify({ error: { message: 'Invalid credentials', data: { intafacedCode: 'auth.invalid_credentials' } } }), {
+            status: 401,
+          }),
+      },
     );
     expect(result.headers['x-forwarded-for']).toBeUndefined();
     expect(result.headers['x-real-ip']).toBeUndefined();
@@ -150,7 +156,11 @@ describe('API key IP allowlist at the session door', () => {
       {
         ...options,
         clientIp: FOREIGN,
-        fetch: async () => new Response(JSON.stringify({ error: { message: 'API key is not allowed from this IP' } }), { status: 401 }),
+        fetch: async () =>
+          new Response(
+            JSON.stringify({ error: { message: 'API key is not allowed from this IP', data: { intafacedCode: 'auth.ip_not_allowed' } } }),
+            { status: 401 },
+          ),
       },
     );
     expect(result.rejected).toBe('invalid');
