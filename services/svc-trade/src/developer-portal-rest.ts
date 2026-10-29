@@ -1,14 +1,15 @@
 /**
  * The developer portal's published values (J-developer-01 #2, #3, #6): the API hosts per protocol and environment, the
- * rule for the regional hosts, and the market data terms per product. Both are the owner's to publish; nothing here holds a default.
+ * rule for the regional hosts, and the market data terms per product. All three are the owner's to publish; nothing
+ * here holds a default.
  *
  *   GET /developer-portal/hosts       (through the edge: /api/trade/developer-portal/hosts)
  *   GET /developer-portal/data-terms  (through the edge: /api/trade/developer-portal/data-terms)
  *   GET /developer-portal/regional-rule (through the edge: /api/trade/developer-portal/regional-rule)
  *
  * Plain JSON, signed-out readable. Blank setting → 503 with its one code (`trade.developer_hosts_unset`,
- * `trade.developer_data_terms_unset`, `trade.developer_regional_rule_unset`). A published setting answers every row, with `null` where the owner left that
- * host or product out. A malformed setting stops the service at boot instead of serving a guess.
+ * `trade.developer_data_terms_unset`, `trade.developer_regional_rule_unset`). A published hosts or data terms setting
+ * answers every row, with `null` where the owner left that host or product out; a published rule answers its text. A malformed setting stops the service at boot instead of serving a guess.
  */
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
@@ -91,7 +92,7 @@ export function parseDataTerms(raw: string): DataTermsRow[] | null {
 export function parseRegionalRule(raw: string): string | null {
   const rule = raw.trim();
   if (rule === '') return null;
-  if (rule.length > REGIONAL_RULE_MAX) {
+  if ([...rule].length > REGIONAL_RULE_MAX) {
     throw new Error(`TRADE_DEVELOPER_REGIONAL_RULE is malformed: longer than ${REGIONAL_RULE_MAX} characters`);
   }
   return rule;

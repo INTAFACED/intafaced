@@ -80,5 +80,7 @@ describe('developer portal values', () => {
     expect(() => parseDataTerms(JSON.stringify({ ticker: { entitlement: 'e' } }))).toThrow(/malformed/);
     expect(() => parseDataTerms(JSON.stringify({ ticker: { ...TERMS, extra: 'x' } }))).toThrow(/malformed/);
     expect(() => parseRegionalRule('x'.repeat(1001))).toThrow(/TRADE_DEVELOPER_REGIONAL_RULE is malformed/);
+    expect(parseRegionalRule('x'.repeat(1000))).toBe('x'.repeat(1000));
+    expect(parseRegionalRule('\u{1F310}'.repeat(1000))).toBe('\u{1F310}'.repeat(1000));
   });
 });

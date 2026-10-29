@@ -21,7 +21,7 @@ async function capabilities(page) {
   return response.json();
 }
 
-/** svc-trade's published developer values (`hosts` or `data-terms`), read through the edge the way the page reads them. */
+/** svc-trade's published developer values (`hosts`, `regional-rule` or `data-terms`), read through the edge the way the page reads them. */
 async function published(page, kind) {
   const response = await page.request.get(`/api/trade/developer-portal/${kind}`);
   expect(response.status(), await response.text()).toBe(200);

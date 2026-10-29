@@ -165,7 +165,7 @@ function RegionalRule() {
   if (view.kind === 'loading') return <StateBlock kind="loading" rows={1} rowHeight={24} label={live('loading')} />;
   if (view.kind === 'failed') return <StateBlock kind="error" title={live('loadFailed')} onRetry={reload} retryLabel={live('tryAgain')} />;
   return view.kind === 'set' ? (
-    <p data-testid="developers-regional-rule" data-rule-state="set">
+    <p data-testid="developers-regional-rule" data-rule-state="set" style={{ whiteSpace: 'pre-line' }}>
       {view.rule}
     </p>
   ) : (
