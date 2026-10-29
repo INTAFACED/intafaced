@@ -16,6 +16,7 @@ import {
   buildUpdateBody,
   controlRefusal,
   describeAccountSet,
+  describeRun,
   describeSchedule,
   describeThreshold,
   describeTolerance,
@@ -26,6 +27,7 @@ import {
   runInstant,
   runMargin,
   type ControlForm,
+  type ReconciliationControlRunView,
   type ReconciliationControlView,
   type ReconciliationLifecycle,
 } from '@/lib/ledger/reconciliation';
@@ -140,6 +142,8 @@ export function ReconciliationControlsView({
   const controls = list.kind === 'ready' ? list.controls : [];
   const selected = controls.find((control) => control.id === selectedId) ?? null;
   const reading = list.kind === 'loading' || (list.kind === 'ready' && list.refreshing === true);
+  // A run does not change the control's version, so each run the desk reports re-reads the evaluations panel.
+  const [runsRead, setRunsRead] = useState(0);
 
   return (
     <section className="adm-control-card rc" data-testid="reconciliation-controls" aria-labelledby="rc-heading">
@@ -209,7 +213,18 @@ export function ReconciliationControlsView({
         onChanged={onRead}
       />
 
-      <RunDesk key={selected?.id ?? 'none'} control={selected} parked={treasuryParked} userId={userId} onChanged={onRead} />
+      <RunDesk
+        key={selected?.id ?? 'none'}
+        control={selected}
+        parked={treasuryParked}
+        userId={userId}
+        onChanged={() => {
+          setRunsRead((n) => n + 1);
+          onRead();
+        }}
+      />
+
+      {selected && <RunHistory key={`runs:${selected.id}:${selected.version}:${runsRead}`} control={selected} />}
     </section>
   );
 }
@@ -849,6 +864,100 @@ function RunDesk({
         blockedButtonLabel="Run control unavailable"
         onChanged={onChanged}
       />
+    </div>
+  );
+}
+
+type RunsView =
+  | { readonly kind: 'loading' }
+  | {
+      readonly kind: 'ready';
+      readonly total: number;
+      readonly runs: readonly ReconciliationControlRunView[];
+      readonly readAt: string;
+    }
+  | { readonly kind: 'refused'; readonly code: string | null; readonly status: number };
+
+/**
+ * One control's evaluations, newest first (OPS-reconciliation-02). Read as the signed-in founder in every state: a paused or
+ * retired control keeps every evaluation, and so does this panel.
+ */
+function RunHistory({ control }: { control: ReconciliationControlView }) {
+  const [view, setView] = useState<RunsView>({ kind: 'loading' });
+  const sequence = useRef(0);
+  const read = useCallback(async () => {
+    const request = ++sequence.current;
+    setView({ kind: 'loading' });
+    let next: RunsView;
+    try {
+      const res = await fetch(`/api/ledger-reconciliation/runs?controlId=${encodeURIComponent(control.id)}`, {
+        cache: 'no-store',
+        credentials: 'same-origin',
+      });
+      const body = (await res.json().catch(() => null)) as {
+        total?: unknown;
+        runs?: unknown;
+        readAt?: unknown;
+        code?: unknown;
+        upstream?: unknown;
+      } | null;
+      if (res.ok && typeof body?.total === 'number' && Array.isArray(body?.runs) && typeof body?.readAt === 'string') {
+        next = { kind: 'ready', total: body.total, runs: body.runs as ReconciliationControlRunView[], readAt: body.readAt };
+      } else {
+        const code = typeof body?.upstream === 'string' ? body.upstream : typeof body?.code === 'string' ? body.code : null;
+        next = { kind: 'refused', code, status: res.status };
+      }
+    } catch {
+      next = { kind: 'refused', code: 'admin.upstream_unavailable', status: 503 };
+    }
+    if (request === sequence.current) setView(next);
+  }, [control.id]);
+
+  useEffect(() => {
+    void read();
+    return () => {
+      sequence.current += 1;
+    };
+  }, [read]);
+
+  return <RunHistoryView control={control} view={view} onRead={() => void read()} />;
+}
+
+export function RunHistoryView({ control, view, onRead }: { control: ReconciliationControlView; view: RunsView; onRead: () => void }) {
+  return (
+    <div className="rc-block" data-testid="rc-runs" data-control-id={control.id}>
+      <div className="rc-head">
+        <h3>Evaluations of control {control.id.slice(0, 8)}</h3>
+        <button type="button" className="adm-btn" onClick={onRead} disabled={view.kind === 'loading'}>
+          {view.kind === 'refused' ? 'Retry evaluations' : 'Reload evaluations'}
+        </button>
+      </div>
+      <p className="adm-subtle">Every run svc-ledger stored for this control, newest first. A paused or retired control keeps them all.</p>
+      {view.kind === 'loading' && <p className="adm-subtle">Reading the evaluations…</p>}
+      {view.kind === 'refused' && (
+        <p className="adm-alert" role="alert" data-testid="rc-runs-refused">
+          {controlRefusal(view.code, view.status)} {view.code && <span className="adm-subtle">({view.code})</span>}
+        </p>
+      )}
+      {view.kind === 'ready' && (
+        <>
+          <p className="adm-subtle" data-testid="rc-runs-count">
+            As of <time dateTime={view.readAt}>{formatAsOf(view.readAt)}</time> · showing {view.runs.length} of {view.total} evaluation
+            {view.total === 1 ? '' : 's'}
+          </p>
+          {view.runs.length === 0 ? (
+            <p data-testid="rc-runs-empty">This control has no evaluations yet.</p>
+          ) : (
+            <ol className="rc-runs" data-testid="rc-runs-list">
+              {view.runs.map((run) => (
+                <li key={run.id} data-testid="rc-run-row" data-run-id={run.id} data-status={run.status}>
+                  <p>{describeRun(run)}</p>
+                </li>
+              ))}
+            </ol>
+          )}
+        </>
+      )}
     </div>
   );
 }
