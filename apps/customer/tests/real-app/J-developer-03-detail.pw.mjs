@@ -54,6 +54,16 @@ const rows = () => page.getByTestId('api-keys__table').locator('tbody tr');
 /** The typed code identity puts at the end of a refusal's message (`... [auth.delegate_cannot_grant]`). */
 const codeOf = (body) => /\[([a-z_]+\.[a-z_.]+)\]$/.exec(body?.error?.message ?? '')?.[1];
 
+/** The account's BTC/USDT orders, open and closed, as the exchange holds them, read back through a second sign-in. */
+async function storedOrders() {
+  const mine = await api(dev);
+  const open = await mine.get('/api/v1/orders/open?symbol=BTC%2FUSDT&limit=100');
+  const closed = await mine.get('/api/v1/orders/closed?symbol=BTC%2FUSDT&limit=100');
+  expect(open.status, JSON.stringify(open.body)).toBe(200);
+  expect(closed.status, JSON.stringify(closed.body)).toBe(200);
+  return { open: open.body, closed: closed.body };
+}
+
 /** The account's own keys as identity holds them, read back through a second sign-in. */
 async function storedKeys() {
   const res = await (
@@ -110,6 +120,8 @@ test(`${J} #7 reads the permission-to-endpoint table, then calls a route without
   const key = await createKey({ name: 'reader-2' });
   const stored = (await storedKeys()).find((k) => k.name === 'reader-2');
   expect(stored.scopes).not.toContain('trade:write');
+  const ordersBefore = await storedOrders();
+  expect(ordersBefore).toEqual({ open: [], closed: [] });
   const res = await fetch(`${EDGE}/api/v1/orders`, {
     method: 'POST',
     headers: { origin: ORIGIN, authorization: `Bearer ${key}`, 'content-type': 'application/json' },
@@ -125,6 +137,8 @@ test(`${J} #7 reads the permission-to-endpoint table, then calls a route without
     // Each refusal carries its own request id for support; the code is exact.
     requestId: expect.stringMatching(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/),
   });
+  // The refusal placed nothing: the account's orders read back unchanged.
+  expect(await storedOrders()).toEqual(ordersBefore);
 
   // The docs link opens the published table, which names trade:write against the order route.
   await page.goto(body.docs);
