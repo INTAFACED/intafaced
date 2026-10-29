@@ -164,6 +164,8 @@ type Row = {
   updated_at: Date;
 };
 
+/** `last_save` while a send is opening its request: the marker and the photo being sent. */
+const SENDING = 'sending:';
 const stepNumber = (step: (typeof KYC_PROFILE_STEPS)[number]) => KYC_PROFILE_STEPS.indexOf(step) + 1;
 
 export class KycProfileDesk {
@@ -220,6 +222,11 @@ export class KycProfileDesk {
     } catch {
       return null;
     }
+  }
+
+  /** While a send opens its request the draft is held: no save or photo may change what is being sent. */
+  private assertNotSending(row: Row): void {
+    if (row.last_save?.startsWith(SENDING)) throw new KycProfileError('This draft is being sent; read it again', 'kyc.profile_version');
   }
 
   /** A step may be saved once the draft has reached it: going back is fine, skipping ahead is not. */
@@ -313,6 +320,7 @@ export class KycProfileDesk {
       const hash = this.fingerprint(input.step, input.version, values);
       if (row.version === input.version + 1 && row.last_save === hash) return this.view(row, this.unseal(row));
       if (row.version !== input.version) throw new KycProfileError('The draft changed since this step was opened', 'kyc.profile_version');
+      this.assertNotSending(row);
       this.assertReached(row, input.step);
       const fields = { ...this.unseal(row), ...values };
       if (input.step === 'document') this.assertListed(fields.residence, fields.documentType);
@@ -345,6 +353,7 @@ export class KycProfileDesk {
     if (before.record_id) throw new KycProfileError('This draft was already sent', 'kyc.profile_sent');
     if (before.version === input.version + 1 && before.last_save === hash) return this.view(before, this.unseal(before));
     if (before.version !== input.version) throw new KycProfileError('The draft changed since this step was opened', 'kyc.profile_version');
+    this.assertNotSending(before);
     this.assertReached(before, 'upload');
     // The vault first: a crash after this leaves an unreferenced ciphertext row, never a draft pointing at nothing.
     const stored = await vault.put({ userId, contentType, bytes: input.bytes, storedBy: userId });
@@ -356,6 +365,7 @@ export class KycProfileDesk {
         const row = await this.row(tx, userId, true);
         if (!row || row.record_id || row.version !== input.version)
           throw new KycProfileError('The draft changed since this step was opened', 'kyc.profile_version');
+        this.assertNotSending(row);
         const previous = this.unseal(row);
         replaced = previous.documentId;
         const fields = { ...previous, documentId: stored.id };
@@ -385,9 +395,10 @@ export class KycProfileDesk {
    * request opens through `submitKyc` (its lockout and capability checks apply); sending again returns the same one.
    *
    * Three short steps, so no connection is held while `submitKyc` takes its own (a held one waiting for a second
-   * deadlocks the pool under load): check and claim the draft (its version moves on, so an edit made from the version
-   * the person sent refuses), open the request, then record it on the draft if the draft still says what was sent. A
-   * crash between the last two leaves a pending request that carries this photo, which the next send finds as its own.
+   * deadlocks the pool under load): check and claim the draft (its version moves on and it is held as sending, so no
+   * save or new photo can change it, and the photo cannot leave the vault), open the request, then record it on the
+   * draft. A refused request lets the draft go again. A crash in between leaves the draft held with a pending request
+   * that carries this photo: the next send claims it again and finds that request as its own.
    */
   async submit(userId: string, version: number): Promise<{ recordId: string; documentCheck: 'not_connected' }> {
     this.requireKey();
@@ -417,31 +428,41 @@ export class KycProfileDesk {
           status: open.status,
         });
       const [moved] = await tx<Array<{ version: number }>>`
-        UPDATE kyc_profile_drafts SET version = version + 1, last_save = NULL, updated_at = now() WHERE user_id = ${userId} RETURNING version`;
+        UPDATE kyc_profile_drafts SET version = version + 1, last_save = ${SENDING + documentId}, updated_at = now()
+        WHERE user_id = ${userId} RETURNING version`;
       return { kind: 'claimed', tier: row.tier, residence: fields.residence!, documentId, version: moved!.version } as const;
     });
     if (claimed.kind === 'sent') return { recordId: claimed.recordId, documentCheck: 'not_connected' };
-    if (!vault) throw new KycProfileError('The document vault is not configured', 'kyc.profile_unconfigured');
-    await vault.assertDocumentForUser(claimed.documentId, userId);
-    const record = await this.settings.submit({
-      userId,
-      tier: claimed.tier,
-      jurisdiction: claimed.residence,
-      providerRef: claimed.documentId,
-    });
-    if (record.status !== 'pending' || record.providerRef !== claimed.documentId)
-      throw new KycProfileError('A request at this level is already open or approved', 'kyc.profile_request_open', {
-        status: record.status,
+    const marker = SENDING + claimed.documentId;
+    let record: Awaited<ReturnType<typeof this.settings.submit>>;
+    try {
+      if (!vault) throw new KycProfileError('The document vault is not configured', 'kyc.profile_unconfigured');
+      await vault.assertDocumentForUser(claimed.documentId, userId);
+      record = await this.settings.submit({
+        userId,
+        tier: claimed.tier,
+        jurisdiction: claimed.residence,
+        providerRef: claimed.documentId,
       });
+      if (record.status !== 'pending' || record.providerRef !== claimed.documentId)
+        throw new KycProfileError('A request at this level is already open or approved', 'kyc.profile_request_open', {
+          status: record.status,
+        });
+    } catch (err) {
+      // Nothing was opened for this photo: the draft is the person's to change again.
+      await this.sql`UPDATE kyc_profile_drafts SET last_save = NULL WHERE user_id = ${userId} AND last_save = ${marker}`;
+      throw err;
+    }
     return transaction(this.sql, async (tx) => {
       const row = await this.row(tx, userId, true);
       if (row?.record_id === record.id) return { recordId: record.id, documentCheck: 'not_connected' as const };
       const fields = row && !row.record_id ? this.tryUnseal(row) : null;
-      // Changed in between (another tab saved from the claimed version): the request stands with what was sent, and the
-      // draft keeps the newer entry; sending it finds that request open and says so.
+      // Held while sending, so this only fails if the draft was started over meanwhile: the request stands with what was
+      // sent, and sending the new draft finds that request open and says so.
       if (!row || row.version !== claimed.version || fields?.documentId !== claimed.documentId || fields.residence !== claimed.residence)
         throw new KycProfileError('The draft changed while it was being sent', 'kyc.profile_version');
-      await tx`UPDATE kyc_profile_drafts SET record_id = ${record.id}, version = version + 1, updated_at = now() WHERE user_id = ${userId}`;
+      await tx`UPDATE kyc_profile_drafts SET record_id = ${record.id}, version = version + 1, last_save = NULL, updated_at = now()
+        WHERE user_id = ${userId}`;
       return { recordId: record.id, documentCheck: 'not_connected' as const };
     });
   }
