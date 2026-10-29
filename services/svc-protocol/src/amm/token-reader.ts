@@ -21,6 +21,12 @@ const erc20Abi = [
 const BURN_ADDRESSES = ['0x0000000000000000000000000000000000000000', '0x000000000000000000000000000000000000dEaD'] as const;
 /** How many block reads go to the node at once. */
 const RPC_BATCH = 16;
+/** Block times kept per process; past this the oldest are dropped and read again if asked. */
+const BLOCK_TIMES_KEPT = 100_000;
+/** A token's name or symbol is shown up to this many characters; a longer one is cut, never rejected. */
+export const TOKEN_TEXT_LIMIT = 64;
+/** The most decimals the wire takes; a token claiming more is left out of the pages with its pools. */
+const MAX_DECIMALS = 36;
 
 /** The log reads the token pages need, on top of the pool reads. Every one is a read; nothing here can sign. */
 export interface TokenLogsChain extends PairsChain {
@@ -108,7 +114,12 @@ export function tokenLogsChain(pairs: PairsChain, client: () => PublicClient, rp
           );
           batch.forEach((block, j) => blockTime.set(block, times[j]!));
         }
-        return new Map(blocks.map((block) => [block, blockTime.get(block)!]));
+        const answer = new Map(blocks.map((block) => [block, blockTime.get(block)!]));
+        for (const block of blockTime.keys()) {
+          if (blockTime.size <= BLOCK_TIMES_KEPT) break;
+          blockTime.delete(block);
+        }
+        return answer;
       }),
     transferLogs: (token, toBlock) =>
       read('transferLogs', async () => {
@@ -125,6 +136,10 @@ export function tokenLogsChain(pairs: PairsChain, client: () => PublicClient, rp
   };
 }
 
+/** Direction controls (U+200E, U+200F, U+202A–U+202E, U+2066–U+2069) would reorder the text around a name; they go. */
+const BIDI_CONTROLS = /[\u200e\u200f\u202a-\u202e\u2066-\u2069]/gu;
+const cut = (text: string) => [...text.replace(BIDI_CONTROLS, '')].slice(0, TOKEN_TEXT_LIMIT).join('');
+
 /** Every pool, its history and its tokens at one block. */
 export async function readMarket(chain: TokenLogsChain, factory: Address, block: bigint): Promise<MarketSnapshot> {
   const [pairs, created] = await Promise.all([listPairs(chain, factory, block), chain.poolCreatedLogs(factory, block)]);
@@ -135,7 +150,14 @@ export async function readMarket(chain: TokenLogsChain, factory: Address, block:
       `${created.length} pools is more than this read takes (${PAIRS_READ_LIMIT}); the indexer must project them.`,
     );
   const createdBy = new Map(created.map((c) => [c.pool.toLowerCase(), c]));
-  const listedPools = pairs.pools.map((p) => p.pool as Address);
+  // A token's own contract says its name, symbol and decimals, so a hostile one is shaped here rather than refusing the
+  // whole list: decimals past what the wire takes leave the token and its pools out; a long name or symbol is cut.
+  const tokens = (pairs.tokens as TokenBasics[])
+    .filter((t) => Number.isInteger(t.decimals) && t.decimals >= 0 && t.decimals <= MAX_DECIMALS)
+    .map((t) => ({ ...t, name: cut(t.name), symbol: cut(t.symbol) }));
+  const kept = new Set(tokens.map((t) => t.address.toLowerCase()));
+  const listed = pairs.pools.filter((p) => kept.has(p.token0.toLowerCase()) && kept.has(p.token1.toLowerCase()));
+  const listedPools = listed.map((p) => p.pool as Address);
   const logs = await chain.poolLogs(listedPools, block);
   const times = await chain.blockTimes([
     block,
@@ -143,7 +165,7 @@ export async function readMarket(chain: TokenLogsChain, factory: Address, block:
     ...logs.syncs.map((s) => s.block),
     ...logs.swaps.map((s) => s.block),
   ]);
-  const pools: PoolRecord[] = pairs.pools.map((p) => {
+  const pools: PoolRecord[] = listed.map((p) => {
     const made = createdBy.get(p.pool.toLowerCase());
     return {
       pool: p.pool as Address,
@@ -159,7 +181,7 @@ export async function readMarket(chain: TokenLogsChain, factory: Address, block:
   return {
     blockNumber: block,
     asOf: times.get(block)!,
-    tokens: pairs.tokens as TokenBasics[],
+    tokens,
     pools,
     syncs: logs.syncs.map((s) => ({ ...s, time: times.get(s.block)! })),
     swaps: logs.swaps.map((s) => ({ ...s, time: times.get(s.block)! })),

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { Address, Hex } from 'viem';
 import {
   ORGANIC_SCORE_UNSET,
+  TOKENS_HOLDERS_INCONSISTENT,
   TOKENS_READ_TOO_LARGE,
   TRUST_CRITERIA_UNSET,
   tokenPageOutputSchema,
@@ -31,6 +32,8 @@ const P1 = '0x1000000000000000000000000000000000000001' as Address;
 const P2 = '0x2000000000000000000000000000000000000002' as Address;
 const W1 = '0x00000000000000000000000000000000000000a1' as Address;
 const W2 = '0x00000000000000000000000000000000000000a2' as Address;
+const W3 = '0x00000000000000000000000000000000000000a3' as Address;
+const W4 = '0x00000000000000000000000000000000000000a4' as Address;
 const ZERO = '0x0000000000000000000000000000000000000000' as Address;
 const DEAD = '0x000000000000000000000000000000000000dEaD' as Address;
 const E6 = 10n ** 6n;
@@ -222,6 +225,33 @@ describe('holdersFrom', () => {
       { address: W2, amount: '300' },
     ]);
     expect(h.list.reduce((s, x) => s + BigInt(x.amount), 0n).toString()).toBe(h.supplyLessBurned);
+  });
+
+  it('refuses a holder list its own Transfer logs do not add up to, so an emitted log cannot invent holders', () => {
+    // A contract can emit any Transfer it likes: these claim 400 more than its supply less burned.
+    const forged = [...transfers, { from: ZERO, to: W3, value: 400n }];
+    const refused = (() => {
+      try {
+        return holdersFrom(forged, 950n, 100n);
+      } catch (err) {
+        return err;
+      }
+    })();
+    expect(refused).toBeInstanceOf(TokensReadError);
+    expect((refused as TokensReadError).code).toBe(TOKENS_HOLDERS_INCONSISTENT);
+  });
+
+  it('refuses a holder that would hold less than nothing, even when the total still adds up', () => {
+    // W3 never received any, yet "sends" 100 to W4: the sum is unchanged with W4 counted and W3 at -100.
+    const forged = [...transfers, { from: W3, to: W4, value: 100n }];
+    const refused = (() => {
+      try {
+        return holdersFrom(forged, 1_050n, 100n);
+      } catch (err) {
+        return err;
+      }
+    })();
+    expect((refused as TokensReadError).code).toBe(TOKENS_HOLDERS_INCONSISTENT);
   });
 
   it('refuses past its holder limit instead of listing part of them', () => {

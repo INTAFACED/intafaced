@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { Address, PublicClient } from 'viem';
 import { TOKENS_READ_TOO_LARGE } from '@intafaced/contracts';
 import { PAIRS_READ_LIMIT } from './pairs.js';
-import { holdersReader, readMarket, tokenLogsChain, type TokenLogsChain } from './token-reader.js';
+import { holdersReader, readMarket, TOKEN_TEXT_LIMIT, tokenLogsChain, type TokenLogsChain } from './token-reader.js';
 import { TokensReadError } from './tokens.js';
 
 const POOL = '0x00000000000000000000000000000000000000a1' as Address;
@@ -66,6 +66,42 @@ describe('readMarket', () => {
     const refused = await readMarket(chain, POOL, 9n).catch((err: unknown) => err);
     expect(refused).toBeInstanceOf(TokensReadError);
     expect((refused as TokensReadError).code).toBe(TOKENS_READ_TOO_LARGE);
+  });
+});
+
+describe('readMarket shaping what token contracts say about themselves', () => {
+  const P1 = '0x00000000000000000000000000000000000000b1' as Address;
+  const P2 = '0x00000000000000000000000000000000000000b2' as Address;
+  const PLAIN = '0x00000000000000000000000000000000000000c2' as Address;
+  const HUGE = '0x00000000000000000000000000000000000000c3' as Address;
+  const snapshot = (token1: Address) => ({ token0: TOKEN, token1, feeBps: 30, reserve0: 1n, reserve1: 1n, blockTimestampLast: 0 });
+  const basics: Record<string, { name: string; symbol: string; decimals: number }> = {
+    [TOKEN]: { name: `\u202eLONG${'x'.repeat(100)}`, symbol: 'A\u2066B', decimals: 18 },
+    [PLAIN]: { name: 'Plain', symbol: 'PLN', decimals: 6 },
+    [HUGE]: { name: 'Huge', symbol: 'HUG', decimals: 77 },
+  };
+  const asked: Address[][] = [];
+  const chain = {
+    headBlock: async () => 9n,
+    factoryPools: async () => [P1, P2],
+    poolSnapshot: async (pool: Address) => snapshot(pool === P1 ? PLAIN : HUGE),
+    tokenBasics: async (token: Address) => basics[token]!,
+    poolCreatedLogs: async () => [],
+    poolLogs: async (pools: Address[]) => (asked.push(pools), { syncs: [], swaps: [] }),
+    blockTimes: async (blocks: bigint[]) => new Map(blocks.map((b) => [b, 100])),
+  } as unknown as TokenLogsChain;
+
+  it('leaves out a token claiming more decimals than the wire takes, with its pools, instead of refusing the list', async () => {
+    const snap = await readMarket(chain, POOL, 9n);
+    expect(snap.tokens.map((t) => t.address)).toEqual([TOKEN, PLAIN]);
+    expect(snap.pools.map((p) => p.pool)).toEqual([P1]);
+    expect(asked.at(-1)).toEqual([P1]);
+  });
+
+  it('drops direction controls from a name or symbol and cuts a long one', async () => {
+    const token = (await readMarket(chain, POOL, 9n)).tokens.find((t) => t.address === TOKEN)!;
+    expect(token.symbol).toBe('AB');
+    expect(token.name).toBe(`LONG${'x'.repeat(TOKEN_TEXT_LIMIT - 4)}`);
   });
 });
 

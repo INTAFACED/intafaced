@@ -10,6 +10,10 @@ export const TOKENS_QUOTE_UNSET = 'protocol.tokens_quote_unset' as const;
 export const TRUST_CRITERIA_UNSET = 'protocol.trust_criteria_unset' as const;
 export const ORGANIC_SCORE_UNSET = 'protocol.organic_score_unset' as const;
 export const TOKENS_READ_TOO_LARGE = 'protocol.tokens_read_too_large' as const;
+/** The token's own Transfer logs do not add up to its supply, so no holder list from them is shown. */
+export const TOKENS_HOLDERS_INCONSISTENT = 'protocol.tokens_holders_inconsistent' as const;
+/** A token page is read only for a token in one of the factory's pools. */
+export const TOKEN_NOT_LISTED = 'protocol.token_not_listed' as const;
 
 const units = z.string().regex(/^(0|[1-9][0-9]*)$/);
 /** A decimal with at most 18 places, possibly negative. */
@@ -82,7 +86,7 @@ export const tokenTradeSchema = z
     logIndex: z.number().int(),
     time: z.number().int(),
     pool: address,
-    /** The account that signed the swap transaction. */
+    /** The account the pool paid (the swap's `to`): the trader, or whatever account the trader named. */
     wallet: address,
     side: z.enum(['buy', 'sell']),
     amount: units,

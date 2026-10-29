@@ -4,6 +4,7 @@ import {
   router,
   TRPCError,
   TOKENS_QUOTE_UNSET,
+  TOKEN_NOT_LISTED,
   tokenPageInputSchema,
   tokenPageOutputSchema,
   tokensLeaderboardOutputSchema,
@@ -81,11 +82,12 @@ export function createTokensRouter(deps: TokensRouterDeps) {
         guard(async () => {
           const { snap, quote } = await context();
           const address = input.address as Address;
-          const token = snap.tokens.find((t) => t.address.toLowerCase() === address.toLowerCase()) ?? {
-            address,
-            ...(await deps.chain.tokenBasics(address)),
-          };
-          return tokenPage(snap, quote, token, await readHolders(address, snap.blockNumber));
+          // Only a listed token is read: its holders come from every Transfer it ever emitted, and an address in no pool
+          // would let anyone ask for that read on any contract.
+          const token = snap.tokens.find((t) => t.address.toLowerCase() === address.toLowerCase());
+          if (!token)
+            throw new TokensReadError(TOKEN_NOT_LISTED, `${address} is in none of the factory's pools; no token page is read for it.`);
+          return tokenPage(snap, quote, token, await readHolders(token.address as Address, snap.blockNumber));
         }),
       ),
     leaderboard: publicJurisdictionProcedure('protocol', 'protocol')

@@ -55,7 +55,7 @@ const en = {
   hdrRealised: 'Realised profit and loss',
   hdrTrades: 'Trades',
   leaderboardRule:
-    'Each wallet’s realised result in {symbol} is the sum of its sells, each less the average cost of what it bought before. Buys realise nothing.',
+    'Each wallet’s realised result in {symbol} is the sum of its sells, each less the average cost of what it bought before. Buys realise nothing. A wallet is the account each swap paid out to.',
   leaderboardNone: 'No wallet has traded in these pools, so none is ranked.',
   walletTrades: 'Trades by {wallet}',
   hdrPaid: '{symbol} paid or received',
