@@ -400,6 +400,19 @@ test(`${J} #7 a macro with a placeholder fills the reply draft, the signature go
   await expect(noteDraft).toHaveValue('');
   await actions.getByLabel('Public reply (the customer sees it)').check();
   await expect(draft).toHaveValue(`\n\n${signature}`);
+  // The same words noted again after the request is opened afresh are a second note, never a replay of the first:
+  // a note adds no trail row, so its key counts the notes already on the request.
+  await page.reload();
+  await expect(workspace).toBeVisible();
+  await cardRead(workspace);
+  await actions.getByLabel('Internal note (staff only)').check();
+  await noteDraft.fill(note);
+  await actions.getByRole('button', { name: 'Review note' }).click();
+  await actions.getByRole('button', { name: 'Yes, add the note' }).click();
+  await expect(actions.getByTestId('note-outcome')).toContainText('Done');
+  const twice = (await deskComments()).filter((row) => row.visibility === 'internal');
+  expect(twice.map((row) => row.body)).toEqual([note, note]);
+  expect(new Set(twice.map((row) => row.id)).size).toBe(2);
 });
 
 test(`${J} #8 sending after another agent changed the status is refused as stale with the new events, and goes through after review`, async ({

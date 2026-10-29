@@ -141,6 +141,8 @@ export interface TicketActionsViewProps {
   readonly onSend: () => void;
   /** Rows someone else wrote since the agent last read the trail, shown when a reply is refused as stale. */
   readonly stale?: readonly SupportTicketEvent[];
+  /** Why a note cannot be keyed (the ticket's comments could not be read); null when it can. */
+  readonly notesUnread?: string | null;
   /** Why the reply cannot be checked for changes (the trail could not be read); null when it can. */
   readonly trailUnread?: string | null;
   /** The agent has read the changes: the next reply is checked from the latest row. */
@@ -217,7 +219,8 @@ export function TicketActionsView(p: TicketActionsViewProps) {
           ? { ok: false, why: 'This is already your signature.' }
           : { ok: true };
   const noteGate = internalNoteGate(form.noteBody, p.busy);
-  const note: ActionGate = noteGate.ok && p.trailUnread ? { ok: false, why: p.trailUnread } : noteGate;
+  const unkeyed = p.trailUnread ?? p.notesUnread ?? null;
+  const note: ActionGate = noteGate.ok && unkeyed ? { ok: false, why: unkeyed } : noteGate;
   const writingNote = form.compose === 'note';
   const chosen = effectiveStatus(ticket, form);
   const status = statusGate(ticket, chosen, form.statusNote, p.busy);
@@ -312,11 +315,11 @@ export function TicketActionsView(p: TicketActionsViewProps) {
               onClick={() => p.onArm('reply')}
             />
           )}
-          <ActionOutcome reply={outcome('reply')} testId="reply-outcome">
-            <StaleChanges p={p} kind="reply" />
-          </ActionOutcome>
         </>
       )}
+      <ActionOutcome reply={outcome('reply')} testId="reply-outcome">
+        <StaleChanges p={p} kind="reply" />
+      </ActionOutcome>
       <ActionOutcome reply={outcome('note')} testId="note-outcome" />
 
       <div className="adm-field">
@@ -533,12 +536,15 @@ export function TicketActions({
   ticket,
   events,
   userId,
+  notesRead,
   onDone,
 }: {
   ticket: SupportTicket;
   /** The trail as last read: a reply quotes the last row the agent has read, and svc-support refuses it if someone moved on since. */
   events: Part<readonly SupportTicketEvent[]>;
   userId: string;
+  /** The internal notes on the ticket as last read, by anyone; null when the comments could not be read. */
+  notesRead: number | null;
   onDone: () => void;
 }) {
   const [form, setForm] = useState<ActionForm>(() => emptyForm(ticket));
@@ -551,7 +557,10 @@ export function TicketActions({
   const [outcome, setOutcome] = useState<TicketActionsViewProps['outcome']>(null);
   // Replies sent from this view: moves only on a recorded reply, so a retry after "outcome not known" keeps its key.
   const [sent, setSent] = useState(0);
-  // Notes are counted apart from replies: each has its own key.
+  // A note's key counts the notes already on the ticket when the agent began, plus those sent from this view: a note
+  // adds no trail row, so the same text again (now, or after reopening the ticket) is still a new key.
+  const [noteBase, setNoteBase] = useState<number | null>(notesRead);
+  const notesBefore = noteBase ?? notesRead;
   const [notesSent, setNotesSent] = useState(0);
   const [macros, setMacros] = useState<SupportMacrosView | null>(null);
   const [macroReply, setMacroReply] = useState<MacroApplyReply | null>(null);
@@ -605,6 +614,7 @@ export function TicketActions({
     const kind = armed;
     try {
       if (seen === null && seenNow !== null) setSeen(seenNow);
+      if (noteBase === null && notesRead !== null) setNoteBase(notesRead);
       const read = macros?.signature.kind === 'ok' ? macros.signature.data : undefined;
       const reply = await postSupportAction(
         buildRequest(
@@ -612,7 +622,7 @@ export function TicketActions({
           ticket,
           form,
           kind === 'escalate' || kind === 'signature' ? undefined : (seenNow ?? undefined),
-          kind === 'reply' ? sent : kind === 'note' ? notesSent : undefined,
+          kind === 'reply' ? sent : kind === 'note' && notesBefore !== null ? notesBefore + notesSent : undefined,
           read,
         ),
       );
@@ -663,6 +673,11 @@ export function TicketActions({
       onMacro={(id) => void applyMacro(id)}
       onMacrosRead={() => setMacrosRead((n) => n + 1)}
       stale={seenNow === null ? [] : newerByOthers(rows, seenNow, userId)}
+      notesUnread={
+        notesBefore === null
+          ? 'The comments on this ticket could not be read, so a note cannot be told apart from one already sent. Read the ticket again first.'
+          : null
+      }
       trailUnread={
         seenNow === null
           ? 'The ticket history could not be read, so a change by someone else cannot be checked. Read the ticket again first.'

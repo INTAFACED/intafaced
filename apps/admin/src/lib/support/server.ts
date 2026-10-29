@@ -301,8 +301,12 @@ export async function loadBulkPolicy(ctx: FounderCallContext, now: Date = new Da
  * is the same key, so svc-support answers the stored reply and writes no second one; a different reply is a new key.
  */
 export function replyKey(ticketId: string, agentId: string, expectedSequence: number, sent: number, body: string): string {
+  return deskKey('admin-reply', ticketId, agentId, expectedSequence, sent, body);
+}
+
+function deskKey(kind: string, ticketId: string, agentId: string, expectedSequence: number, sent: number, body: string): string {
   const text = createHash('sha256').update(body).digest('hex').slice(0, 32);
-  return `admin-reply:${ticketId}:${agentId}:${expectedSequence}:${sent}:${text}`;
+  return `${kind}:${ticketId}:${agentId}:${expectedSequence}:${sent}:${text}`;
 }
 
 /**
@@ -310,8 +314,7 @@ export function replyKey(ticketId: string, agentId: string, expectedSequence: nu
  * apart from a reply's). Sent again after an unknown outcome it is the same key, so svc-support answers the stored note.
  */
 export function noteKey(ticketId: string, agentId: string, expectedSequence: number, sent: number, body: string): string {
-  const text = createHash('sha256').update(body).digest('hex').slice(0, 32);
-  return `admin-note:${ticketId}:${agentId}:${expectedSequence}:${sent}:${text}`;
+  return deskKey('admin-note', ticketId, agentId, expectedSequence, sent, body);
 }
 
 /**

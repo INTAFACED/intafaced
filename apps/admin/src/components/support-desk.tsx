@@ -243,7 +243,14 @@ function TicketBody({ detail, ...p }: { detail: TicketDetail } & DeskViewProps) 
       <TicketLifecycle key={`lifecycle:${t.id}`} ticket={t} />
       <TicketProperties key={`properties:${t.id}`} ticket={t} onDone={p.onActionDone} />
       <TicketMerge key={`merge:${t.id}`} ticket={t} onDone={p.onActionDone} />
-      <TicketActions key={`actions:${t.id}`} ticket={t} events={detail.events} userId={p.userId} onDone={p.onActionDone} />
+      <TicketActions
+        key={`actions:${t.id}`}
+        ticket={t}
+        events={detail.events}
+        userId={p.userId}
+        notesRead={detail.comments.kind === 'ok' ? detail.comments.data.filter((c) => c.visibility === 'internal').length : null}
+        onDone={p.onActionDone}
+      />
     </>
   );
 }

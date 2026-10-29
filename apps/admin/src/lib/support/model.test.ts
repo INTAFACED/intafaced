@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { SUPPORT_NOTE_MAX } from '@intafaced/contracts';
 import {
   allowedNextStatuses,
   claimGate,
@@ -165,6 +166,9 @@ describe('reply and escalate gates', () => {
 });
 
 describe('the internal note gate', () => {
+  it('caps a note at the contract’s own limit', () => {
+    expect(INTERNAL_NOTE_MAX).toBe(SUPPORT_NOTE_MAX);
+  });
   it('needs words, holds while busy, caps the length, and takes a note on a closed ticket too', () => {
     expect(internalNoteGate('  ', false)).toEqual({ ok: false, why: 'Write the note first.' });
     expect(internalNoteGate('TEST', true)).toMatchObject({ ok: false });

@@ -1049,7 +1049,7 @@ export class SupportService implements SupportContract {
    * rather than from anything the operator types. The operator supplies a
    * summary, a reason and the ids of KB articles they relied on; this method
    * resolves those ids against the real catalog, reads the account state, reads
-   * the ticket's comments, and digests each one. An article id that does not
+   * the ticket's public comments (internal notes stay out of the case file), and digests each one. An article id that does not
    * exist contributes no citation — so an escalation cannot be made to look
    * grounded by citing something that was never there.
    *

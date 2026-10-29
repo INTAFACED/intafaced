@@ -225,6 +225,20 @@ describe('the internal note', () => {
     expect(buttonTag(unread, 'Review note')).toContain('disabled');
     expect(unread).toContain('Read the ticket again first.');
   });
+  it('waits while the comments are unread, since its key counts the notes already there', () => {
+    const unread = html({ form: noting({ noteBody: 'TEST' }), notesUnread: 'Read the ticket again first.' });
+    expect(buttonTag(unread, 'Review note')).toContain('disabled');
+    expect(unread).toContain('Read the ticket again first.');
+  });
+  it('keeps a reply’s answer and its stale rows on the page when the agent switches to a note', () => {
+    const stale: ActionReply = {
+      ok: false,
+      refusal: { title: 'Someone changed this first', body: 'b', next: 'n', code: 'support.stale_ticket', changed: 'no' },
+    };
+    const markup = html({ form: noting(), outcome: { kind: 'reply', reply: stale }, stale: [] });
+    expect(markup).toContain('data-testid="reply-outcome"');
+    expect(markup).toContain('I have read the changes');
+  });
   it('says the customer never sees it before the second click', () => {
     const markup = html({ form: noting({ noteBody: 'TEST' }), armed: 'note' });
     expect(markup).toContain('Add this internal note?');

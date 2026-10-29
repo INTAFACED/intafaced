@@ -245,7 +245,10 @@ export type SupportActionRequest =
       readonly body: string;
       /** The trail row the agent read when they began the note: part of its key, so a retry is the same note. */
       readonly expectedSequence: number;
-      /** How many notes this agent has already sent from this view: the same text again is a new note, a retry is not. */
+      /**
+       * The internal notes on the ticket when the agent began, plus those sent from this view since: the same text again
+       * (now, or after reopening the ticket) is a new note, a retry after an unknown outcome is not.
+       */
       readonly sent: number;
     }
   | { readonly action: 'claim_next' }
