@@ -92,6 +92,10 @@ test(`${J} #5 defines participation exclusions and a region list: a blank region
   await expect(page.getByRole('group', { name: 'Exclusions' })).toBeVisible();
   await page.getByRole('button', { name: 'Ask to activate' }).click();
   await expect(page.getByRole('alert')).toContainText('The region list is not set');
+  // The step defines the region list too, so the draft can go live in #7.
+  await builder(page).getByRole('textbox', { name: 'Restricted regions' }).fill('KP');
+  await builder(page).getByRole('button', { name: 'Next' }).click();
+  await expect(builder(page).getByRole('tab', { name: 'Rules' })).toHaveAttribute('aria-selected', 'true');
 });
 
 test(`${J} #6 adds an earning rule with a trigger, condition and fixed incentive: one intent per event; a formula outside the grammar and an unknown trigger refuse`, async ({
@@ -111,7 +115,7 @@ test(`${J} #7 sets the time frame, budget and limits and requests activation: ea
 }) => {
   await openDraft(page);
   await page.getByRole('button', { name: 'Ask to activate' }).click(UNBUILT);
-  await expect(page.getByRole('alert')).toContainText(/campaign\.\w+_unset/);
+  await expect(page.getByRole('alert')).toContainText(/campaigns\.\w+_unset/);
   await builder(page).getByRole('tab', { name: 'Budget and time' }).click();
   await builder(page).getByLabel('Starts').fill('2026-11-01T00:00');
   await builder(page).getByLabel('Ends').fill('2026-11-30T23:59');

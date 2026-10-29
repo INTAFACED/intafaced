@@ -81,6 +81,8 @@ type CampaignRow = {
   reward_asset: string | null;
   reward_amount: string | null;
   tasks: CampaignTasks | null;
+  /** True while the founder has not picked the campaign's time zone; false reads the platform zone. */
+  time_zone_blank: boolean;
   /** What the campaign's reward intents reserve or spent, from `campaigns.campaign_rows`; absent on a RETURNING row. */
   budget_drawn?: string;
   created_by: string;
@@ -183,7 +185,7 @@ export function gateOf(row: CampaignRow, timeZone: string | null): CampaignGate[
     missing.push({ code: 'campaigns.region_list_unset', field: 'restrictedRegions' });
   }
   if (!row.starts_at || !row.ends_at) missing.push({ code: 'campaigns.time_frame_unset', field: 'timeFrame' });
-  if (!timeZone) missing.push({ code: 'campaigns.timezone_unset', field: 'timeZone' });
+  if (!timeZone || row.time_zone_blank) missing.push({ code: 'campaigns.timezone_unset', field: 'timeZone' });
   if (!row.reward_asset || row.reward_amount === null) missing.push({ code: 'campaigns.reward_unset', field: 'reward' });
   if (row.budget_asset && row.reward_asset && row.budget_asset !== row.reward_asset) {
     missing.push({ code: 'campaigns.budget_asset_mismatch', field: 'budget' });
@@ -234,7 +236,7 @@ function toCampaign(r: CampaignRow, timeZone: string | null, now: Date): Campaig
     rules: r.rules,
     startsAt: r.starts_at ? iso(r.starts_at) : null,
     endsAt: r.ends_at ? iso(r.ends_at) : null,
-    timeZone,
+    timeZone: r.time_zone_blank ? null : timeZone,
     windows: {
       weekdays: r.weekdays,
       hours: r.hours_from && r.hours_to ? { from: r.hours_from, to: r.hours_to } : null,
@@ -326,9 +328,9 @@ const MOVES: Record<CampaignAction, { from: readonly CampaignState[]; to: Campai
   activate: { from: ['approved'], to: 'active' },
   pause: { from: ['active'], to: 'paused' },
   resume: { from: ['paused'], to: 'active' },
-  end: { from: ['active', 'paused'], to: 'ended' },
+  end: { from: ['scheduled', 'active', 'paused'], to: 'ended' },
   close: { from: ['ended'], to: 'closed' },
-  archive: { from: ['draft', 'pending_approval', 'approved', 'scheduled', 'paused', 'ended', 'closed'], to: 'archived' },
+  archive: { from: ['draft', 'pending_approval', 'approved', 'paused', 'ended', 'closed'], to: 'archived' },
 };
 
 type Definition = {
@@ -346,10 +348,28 @@ type Definition = {
   rewardAsset: string | null;
   rewardAmount: string | null;
   tasks: CampaignTasks | null;
+  timeZoneBlank: boolean;
 };
 
+/**
+ * The campaign's time zone. Absent: the platform zone (every caller before the builder). Null or blank: not picked yet,
+ * which the gate names `campaigns.timezone_unset`. A name: in this version windows are read in the platform zone only,
+ * so any other zone refuses `campaigns.timezone_not_platform`, and with the platform zone blank none can be picked.
+ */
+function parseCampaignZone(raw: string | null | undefined, platform: string | null): boolean {
+  if (raw === undefined) return false;
+  const value = raw?.trim() ?? '';
+  if (!value) return true;
+  if (!platform)
+    throw new CampaignsError('campaigns.timezone_unset', 'The platform time zone is not set, so no campaign time zone can be picked');
+  if (value !== platform) {
+    throw new CampaignsError('campaigns.timezone_not_platform', `Campaigns run in the platform time zone, ${platform}, in this version`);
+  }
+  return false;
+}
+
 /** An operator definition, read field by field. Blanks stay blank for the gate to name; a malformed value refuses now. */
-export function parseDefinition(input: CampaignDefinitionInput): Definition {
+export function parseDefinition(input: CampaignDefinitionInput, platformZone: string | null): Definition {
   const type = input.type.trim();
   if (!(CAMPAIGN_TYPES as readonly string[]).includes(type)) {
     throw new CampaignsError('campaign.type_unknown', `Unknown campaign type: ${type || 'blank'}`);
@@ -390,6 +410,7 @@ export function parseDefinition(input: CampaignDefinitionInput): Definition {
     rewardAsset: rewardAsset && rewardAmount ? rewardAsset : null,
     rewardAmount: rewardAsset && rewardAmount ? rewardAmount : null,
     tasks,
+    timeZoneBlank: parseCampaignZone(input.timeZone, platformZone),
   };
 }
 
@@ -468,7 +489,8 @@ function sameDefinition(r: CampaignRow, d: Definition): boolean {
     amount(r.budget_limit) === amount(d.budgetLimit) &&
     r.reward_asset === d.rewardAsset &&
     amount(r.reward_amount) === amount(d.rewardAmount) &&
-    canonical(r.tasks) === canonical(d.tasks)
+    canonical(r.tasks) === canonical(d.tasks) &&
+    r.time_zone_blank === d.timeZoneBlank
   );
 }
 
@@ -512,16 +534,16 @@ export class CampaignService {
    * draft gets that draft back (a lost reply); anyone else, or a name in use past draft, refuses `campaign.name_taken`.
    */
   async create(input: { definition: CampaignDefinitionInput; actor: string }): Promise<Campaign> {
-    const d = parseDefinition(input.definition);
+    const d = parseDefinition(input.definition, this.timeZone());
     const id = `cmp_${randomUUID()}`;
     try {
       return await transaction(this.sql, async (tx) => {
         const [row] = await tx<CampaignRow[]>`
           INSERT INTO campaigns.campaigns (id, name, type, rules, starts_at, ends_at, weekdays, hours_from, hours_to,
-            participation, budget_asset, budget_limit, reward_asset, reward_amount, tasks, created_by)
+            participation, budget_asset, budget_limit, reward_asset, reward_amount, tasks, time_zone_blank, created_by)
           VALUES (${id}, ${d.name}, ${d.type}, ${d.rules}, ${d.startsAt}, ${d.endsAt}, ${d.weekdays}, ${d.hoursFrom},
             ${d.hoursTo}, ${d.participation ? tx.json(d.participation) : null}, ${d.budgetAsset}, ${d.budgetLimit},
-            ${d.rewardAsset}, ${d.rewardAmount}, ${d.tasks ? tx.json(d.tasks as unknown as postgres.JSONValue) : null}, ${input.actor})
+            ${d.rewardAsset}, ${d.rewardAmount}, ${d.tasks ? tx.json(d.tasks as unknown as postgres.JSONValue) : null}, ${d.timeZoneBlank}, ${input.actor})
           RETURNING *`;
         await audit(tx, input.actor, 'campaign.create', id, { name: d.name, type: d.type });
         return toCampaign(row!, this.timeZone(), this.now());
@@ -539,7 +561,7 @@ export class CampaignService {
 
   /** Replaces a draft's definition. Past draft a definition does not change in this version (`campaign.not_draft`). */
   async update(input: { id: string; revision: number; definition: CampaignDefinitionInput; actor: string }): Promise<Campaign> {
-    const d = parseDefinition(input.definition);
+    const d = parseDefinition(input.definition, this.timeZone());
     try {
       return await transaction(this.sql, async (tx) => {
         const row = await this.lock(tx, input.id, input.revision);
@@ -551,7 +573,7 @@ export class CampaignService {
             ends_at = ${d.endsAt}, weekdays = ${d.weekdays}, hours_from = ${d.hoursFrom}, hours_to = ${d.hoursTo},
             participation = ${d.participation ? tx.json(d.participation) : null}, budget_asset = ${d.budgetAsset},
             budget_limit = ${d.budgetLimit}, reward_asset = ${d.rewardAsset}, reward_amount = ${d.rewardAmount},
-            tasks = ${d.tasks ? tx.json(d.tasks as unknown as postgres.JSONValue) : null},
+            tasks = ${d.tasks ? tx.json(d.tasks as unknown as postgres.JSONValue) : null}, time_zone_blank = ${d.timeZoneBlank},
             revision = revision + 1, updated_at = now()
           WHERE id = ${input.id}
           RETURNING *, (SELECT budget_drawn FROM campaigns.campaign_rows WHERE id = ${input.id}) AS budget_drawn`;
@@ -590,8 +612,9 @@ export class CampaignService {
         }
         return toCampaign(row, timeZone, now);
       }
-      if (input.action === 'archive' && current === 'active') {
-        throw new CampaignsError('campaign.archive_active', 'An active campaign cannot be archived; pause or end it first');
+      // A scheduled campaign is live to customers already (the catalogue lists it): it is ended, never archived away.
+      if (input.action === 'archive' && (current === 'active' || current === 'scheduled')) {
+        throw new CampaignsError('campaign.archive_active', 'An active or scheduled campaign cannot be archived; end it first');
       }
       if (input.action === 'activate' && (current === 'draft' || current === 'pending_approval')) {
         refuseGate(gateOf(row, timeZone));

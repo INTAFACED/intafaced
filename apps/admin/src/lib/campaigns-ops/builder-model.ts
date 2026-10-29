@@ -1,0 +1,231 @@
+import type {
+  Campaign,
+  CampaignAction,
+  CampaignCalendar,
+  CampaignDefinitionInput,
+  CampaignGate,
+  CampaignState,
+} from '@intafaced/contracts/campaigns-catalogue';
+import type { Part } from '@/lib/desk/part';
+
+/**
+ * The campaign builder (CM-campaign-types-01 and -02, CM-eligibility-rules-01 and -03, CM-campaign-admin-03; J-campaigns-16).
+ * Pure, so the server loaders, the route and the screens share one reading of a draft.
+ *
+ * svc-campaigns holds every campaign and its revision. The console keeps nothing: a draft resumes at the first builder
+ * tab whose fields are still blank, read from the stored draft itself, so leaving and coming back lands where the
+ * founder stopped on any device.
+ */
+
+export interface CampaignsDeskView {
+  readonly asOf: string;
+  readonly campaigns: Part<readonly Campaign[]>;
+  readonly calendar: Part<CampaignCalendar>;
+}
+
+export interface CampaignDetailView {
+  readonly asOf: string;
+  /** Null data when the list was read and has no campaign with this id. */
+  readonly campaign: Part<Campaign | null>;
+  /** The activation gate's answer for the stored revision: every blank by name. Stores nothing. */
+  readonly gate: Part<CampaignGate> | null;
+  /** The platform time zone (owner value CAMPAIGNS_PLATFORM_TIME_ZONE) from the calendar read; null while blank or unread. */
+  readonly platformTimeZone: string | null;
+}
+
+export type CampaignDeskReply =
+  | { readonly ok: true; readonly what: string; readonly campaign: Campaign }
+  | {
+      readonly ok: false;
+      readonly title: string;
+      readonly body: string;
+      readonly next: string;
+      readonly code: string | null;
+      readonly changed: 'no' | 'unknown';
+    };
+
+export const BUILDER_STEPS = ['basics', 'who', 'rules', 'earning', 'time'] as const;
+export type BuilderStep = (typeof BUILDER_STEPS)[number];
+
+export const STEP_LABEL: Record<BuilderStep, string> = {
+  basics: 'Name and type',
+  who: 'Who can take part',
+  rules: 'Rules',
+  earning: 'Earning rules',
+  time: 'Budget and time',
+};
+
+/** Tabs whose backend is not built yet: shown with their blocker, never hidden, and never a step a draft resumes at. */
+export const PARKED_STEPS: Partial<Record<BuilderStep, { slice: string; what: string }>> = {
+  rules: {
+    slice: 'CM-eligibility-rules-02',
+    what: 'Nested AND and OR rule groups, testing a rule on a fixture account and the rule library are not built in svc-campaigns yet.',
+  },
+  earning: {
+    slice: 'CM-rewards-hub-05',
+    what: 'Earning rules (a trigger from the catalogue, a condition and an incentive in the formula grammar) are not built in svc-campaigns yet.',
+  },
+};
+
+export const STATE_LABEL: Record<CampaignState, string> = {
+  draft: 'Draft',
+  pending_approval: 'Waiting for approval',
+  approved: 'Approved',
+  scheduled: 'Scheduled',
+  active: 'Active',
+  paused: 'Paused',
+  ended: 'Ended',
+  closed: 'Closed',
+  archived: 'Archived',
+};
+
+/** The gate's field names, as a founder reads them in the "Still missing" list. */
+export const GATE_FIELD_LABEL: Record<string, string> = {
+  type: 'Campaign type (waits for an owner decision)',
+  budget: 'Budget',
+  participation: 'Rules: who can take part',
+  restrictedRegions: 'Region list',
+  timeFrame: 'Time frame',
+  timeZone: 'Time zone',
+  reward: 'Reward (the per person limit)',
+  claimWindow: 'Claim window',
+  holdPeriod: 'Risk-review hold',
+  lockPeriod: 'Lock period',
+  bonusExpiry: 'Bonus expiry',
+  bonusScope: 'Where the bonus applies',
+};
+
+/** One sentence per blank, as "Ask to activate" names it with its code. */
+export const BLANK_SENTENCE: Record<string, string> = {
+  'owner.decision': 'This campaign type waits for an owner decision',
+  'campaigns.budget_unset': 'The budget is not set',
+  'campaigns.rules_unset': 'Who can take part is not set',
+  'campaigns.region_list_unset': 'The region list is not set',
+  'campaigns.time_frame_unset': 'The time frame is not set',
+  'campaigns.timezone_unset': 'The time zone is not set',
+  'campaigns.reward_unset': 'The per person limit (the reward) is not set',
+  'campaigns.budget_asset_mismatch': 'The budget and the reward are in different assets',
+  'campaigns.claim_window_unset': 'The claim window is not set',
+  'campaigns.hold_period_unset': 'The risk-review hold is not set',
+  'campaigns.lock_period_unset': 'The lock period is not set',
+  'campaigns.bonus_expiry_unset': 'The bonus expiry is not set',
+  'campaigns.bonus_scope_unset': 'Where the bonus applies is not set',
+};
+
+export const blankSentence = (m: CampaignGate['missing'][number]) =>
+  `${BLANK_SENTENCE[m.code] ?? `${GATE_FIELD_LABEL[m.field] ?? m.field} is not set`} (${m.code})`;
+
+/**
+ * The builder's own sentence for refusals a founder meets in this room. svc-campaigns names who may not approve as one
+ * rule; the builder says which of the two the founder is.
+ */
+export function refusalSentence(code: string | null, campaign: Campaign | null, me: string | null): string | null {
+  switch (code) {
+    case 'campaigns.second_person_required':
+      if (campaign && me && campaign.submittedBy === me) return 'You asked for this, so another founder must approve it.';
+      if (campaign && me && campaign.createdBy === me) return 'You wrote this draft, so another founder must approve it.';
+      return 'This revision was approved by another founder, or you wrote or asked for it: another founder must approve it.';
+    case 'campaign.archive_active':
+      return 'An active campaign cannot be archived. A scheduled one counts as active, because customers already see it: end it first.';
+    case 'campaign.not_draft':
+      return 'Only a draft is edited. Changing a campaign that is past draft (a new revision of a live campaign) is not built yet.';
+    default:
+      return null;
+  }
+}
+
+/** Where a draft resumes: the first tab with a blank the founder fills there, else the last. Parked tabs are skipped. */
+export function resumeStep(c: Campaign): BuilderStep {
+  if (!c.name.trim()) return 'basics';
+  if (!c.participation || (c.participation.regionScope === 'listed' && !c.participation.restrictedRegions?.length)) return 'who';
+  return 'time';
+}
+
+/** The stored definition, as the update door takes it back, so a tab changes only its own fields. */
+export function definitionOf(c: Campaign): CampaignDefinitionInput {
+  return {
+    name: c.name,
+    type: c.type,
+    rules: c.rules,
+    startsAt: c.startsAt,
+    endsAt: c.endsAt,
+    timeZone: c.timeZone,
+    weekdays: c.windows.weekdays,
+    hours: c.windows.hours,
+    participation: c.participation,
+    budget: c.budget ? { asset: c.budget.asset, limit: c.budget.limit } : null,
+    reward: c.reward ? { asset: c.reward.asset, amount: c.reward.amount } : null,
+    tasks: c.tasks,
+  };
+}
+
+/**
+ * Every move, offered in every state: svc-campaigns decides, and refuses one that does not apply by name. "Approve" by a
+ * second founder approves the revision and takes it live (scheduled until its start).
+ */
+export const MOVES: readonly { action: CampaignAction | 'approve_live'; label: string }[] = [
+  { action: 'approve_live', label: 'Approve and take live' },
+  { action: 'pause', label: 'Pause' },
+  { action: 'resume', label: 'Resume' },
+  { action: 'end', label: 'End now' },
+  { action: 'archive', label: 'Archive' },
+];
+
+/** The overview's figures, each counted from the rows the service listed: never a figure of the console's own. */
+export function overviewOf(rows: readonly Campaign[]): { label: string; count: number }[] {
+  const count = (states: readonly CampaignState[]) => rows.filter((r) => states.includes(r.state)).length;
+  return [
+    { label: 'Campaigns', count: rows.length },
+    { label: 'Drafts', count: count(['draft']) },
+    { label: 'Waiting for approval', count: count(['pending_approval', 'approved']) },
+    { label: 'Live or scheduled', count: count(['scheduled', 'active', 'paused']) },
+    { label: 'Ended', count: count(['ended', 'closed']) },
+  ];
+}
+
+const REGION = /^[A-Z]{2}$/;
+
+/** A typed region list ("DE, FR us") as ISO alpha-2 codes; null names the first entry that is not one. */
+export function parseRegions(raw: string): { ok: true; regions: string[] } | { ok: false; bad: string } {
+  const regions: string[] = [];
+  for (const part of raw.split(/[\s,;]+/)) {
+    if (!part) continue;
+    const code = part.toUpperCase();
+    if (!REGION.test(code)) return { ok: false, bad: part };
+    if (!regions.includes(code)) regions.push(code);
+  }
+  return { ok: true, regions };
+}
+
+/** How far a time zone is ahead of UTC at an instant, in milliseconds. */
+function offsetAt(ms: number, timeZone: string): number {
+  const parts = new Intl.DateTimeFormat('en-GB', {
+    timeZone,
+    hourCycle: 'h23',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+  }).formatToParts(new Date(ms));
+  const n = (type: string) => Number(parts.find((p) => p.type === type)?.value);
+  return Date.UTC(n('year'), n('month') - 1, n('day'), n('hour'), n('minute'), n('second')) - Math.floor(ms / 1000) * 1000;
+}
+
+/** A `datetime-local` value typed in a time zone, as an instant; blank is null, an unreadable value undefined. */
+export function instantIn(value: string, timeZone: string): string | null | undefined {
+  if (!value.trim()) return null;
+  const wall = Date.parse(`${value.length === 16 ? `${value}:00` : value}Z`);
+  if (!Number.isFinite(wall)) return undefined;
+  let ms = wall - offsetAt(wall, timeZone);
+  ms = wall - offsetAt(ms, timeZone);
+  return new Date(ms).toISOString();
+}
+
+/** An instant as the `datetime-local` value it reads in a time zone; blank stays blank. */
+export function localIn(iso: string | null, timeZone: string): string {
+  if (!iso) return '';
+  const ms = Date.parse(iso);
+  return new Date(ms + offsetAt(ms, timeZone)).toISOString().slice(0, 16);
+}

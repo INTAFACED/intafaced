@@ -144,6 +144,26 @@ if (!db) {
       ]);
     });
 
+    it('a campaign time zone left blank by the builder refuses activation; only the platform zone is accepted', async () => {
+      const s = service();
+      const c = await s.create({ definition: full({ timeZone: null }), actor: A });
+      expect(c.timeZone).toBeNull();
+      expect((await s.validate({ id: c.id })).missing.map((m) => m.code)).toEqual(['campaigns.timezone_unset']);
+      expect(await code(s.transition({ id: c.id, action: 'submit', revision: 1, actor: A }))).toBe('campaigns.timezone_unset');
+      expect(await code(s.update({ id: c.id, revision: 1, definition: full({ timeZone: 'Europe/Berlin' }), actor: A }))).toBe(
+        'campaigns.timezone_not_platform',
+      );
+      const picked = await s.update({ id: c.id, revision: 1, definition: full({ timeZone: 'UTC' }), actor: A });
+      expect(picked.timeZone).toBe('UTC');
+      expect((await s.validate({ id: c.id })).missing).toEqual([]);
+      // A caller that sends no zone reads the platform zone, as before the builder.
+      expect((await s.create({ definition: full({ name: 'TEST no zone sent' }), actor: A })).timeZone).toBe('UTC');
+      zone = null;
+      expect(await code(s.create({ definition: full({ name: 'TEST zone without platform', timeZone: 'UTC' }), actor: A }))).toBe(
+        'campaigns.timezone_unset',
+      );
+    });
+
     it('refuses malformed values when they arrive: numbers on the wire, a bad type, a bad window, exclusions', async () => {
       const s = service();
       const make = (over: Partial<CampaignDefinitionInput>) => s.create({ definition: full(over), actor: A });
@@ -378,6 +398,15 @@ if (!db) {
       expect((await service().join({ campaignId: c.id, accountId: ME })).created).toBe(false);
       expect(await code(service().join({ campaignId: c.id, accountId: 'account-late' }))).toBe('campaign.not_active');
       expect((await service().catalogue(ME)).campaigns).toEqual([]);
+    });
+
+    it('a scheduled campaign cannot be archived (customers already see it); it can be ended before it starts', async () => {
+      const s = service();
+      const c = await live({ startsAt: '2026-10-25T00:00:00Z', endsAt: '2026-10-26T00:00:00Z' });
+      expect(c.state).toBe('scheduled');
+      expect(await code(s.transition({ id: c.id, action: 'archive', revision: 1, actor: A }))).toBe('campaign.archive_active');
+      expect((await s.transition({ id: c.id, action: 'end', revision: 1, actor: A })).state).toBe('ended');
+      expect((await s.transition({ id: c.id, action: 'archive', revision: 1, actor: A })).state).toBe('archived');
     });
 
     it('customers see published campaigns only, with the budget read from its counters', async () => {

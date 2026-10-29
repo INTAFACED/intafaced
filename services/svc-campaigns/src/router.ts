@@ -89,6 +89,7 @@ const STATUS: Record<CampaignsRefusalCode | CampaignRefusalCode, TRPCError['code
   'owner.decision': 'PRECONDITION_FAILED',
   'campaigns.window_unset': 'PRECONDITION_FAILED',
   'campaigns.timezone_unset': 'BAD_REQUEST',
+  'campaigns.timezone_not_platform': 'BAD_REQUEST',
   'campaigns.window_invalid': 'BAD_REQUEST',
   'campaigns.second_person_required': 'FORBIDDEN',
   'campaigns.already_published': 'CONFLICT',
