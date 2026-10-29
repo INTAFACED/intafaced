@@ -33,7 +33,8 @@ export type DeskModule =
   | 'token'
   | 'protocol'
   | 'indexer'
-  | 'dex';
+  | 'dex'
+  | 'campaigns';
 
 /** A module a console action can call that has no desk reads: svc-ops, reached at `/api/ops`. */
 export type CallModule = DeskModule | 'ops';

@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { createTestDatabase, postgresAvailable, type TestDatabase } from '@intafaced/db/testing';
 import { afterAll, beforeEach, describe, expect, it } from 'vitest';
 import type { CampaignParticipant } from '@intafaced/contracts';
-import type { CampaignDefinitionInput, ParticipationRules } from '@intafaced/contracts/campaigns-catalogue';
+import type { CampaignDefinitionInput, ParticipationRules, RuleGroup } from '@intafaced/contracts/campaigns-catalogue';
 import { CampaignService, effectiveState, eligibilityOf, participationKeyOf, reviewKeyOf, zonedClock } from './campaigns.js';
 import { CampaignsError } from './codes.js';
 
@@ -55,7 +55,8 @@ const who = (over: Partial<CampaignParticipant> = {}): CampaignParticipant => ({
   kycTier: 'basic',
   ...over,
 });
-const service = () => new CampaignService({ sql: db!.sql, timeZone: () => zone, now: () => now, participants });
+const service = () =>
+  new CampaignService({ sql: db!.sql, timeZone: () => zone, now: () => now, participants, ruleLimits: () => ({ depth: 3, size: 10 }) });
 
 async function code(p: Promise<unknown>): Promise<string> {
   const err = await p.then(
@@ -142,6 +143,26 @@ if (!db) {
         'campaigns.timezone_unset',
         'campaigns.reward_unset',
       ]);
+    });
+
+    it('a campaign time zone left blank by the builder refuses activation; only the platform zone is accepted', async () => {
+      const s = service();
+      const c = await s.create({ definition: full({ timeZone: null }), actor: A });
+      expect(c).toMatchObject({ timeZone: null, timeZoneBlank: true });
+      expect((await s.validate({ id: c.id })).missing.map((m) => m.code)).toEqual(['campaigns.timezone_unset']);
+      expect(await code(s.transition({ id: c.id, action: 'submit', revision: 1, actor: A }))).toBe('campaigns.timezone_unset');
+      expect(await code(s.update({ id: c.id, revision: 1, definition: full({ timeZone: 'Europe/Berlin' }), actor: A }))).toBe(
+        'campaigns.timezone_not_platform',
+      );
+      const picked = await s.update({ id: c.id, revision: 1, definition: full({ timeZone: 'UTC' }), actor: A });
+      expect(picked.timeZone).toBe('UTC');
+      expect((await s.validate({ id: c.id })).missing).toEqual([]);
+      // A caller that sends no zone reads the platform zone, as before the builder.
+      expect((await s.create({ definition: full({ name: 'TEST no zone sent' }), actor: A })).timeZone).toBe('UTC');
+      zone = null;
+      expect(await code(s.create({ definition: full({ name: 'TEST zone without platform', timeZone: 'UTC' }), actor: A }))).toBe(
+        'campaigns.timezone_unset',
+      );
     });
 
     it('refuses malformed values when they arrive: numbers on the wire, a bad type, a bad window, exclusions', async () => {
@@ -327,7 +348,8 @@ if (!db) {
       // The same approval sent again by anyone else still refuses.
       expect(await code(s.transition({ id: c.id, action: 'approve', revision: 1, actor: A }))).toBe('campaigns.second_person_required');
       expect((await s.transition({ id: c.id, action: 'activate', revision: 1, actor: A })).state).toBe('active');
-      expect(await code(s.update({ id: c.id, revision: 1, definition: full({ rules: 'changed' }), actor: A }))).toBe('campaign.not_draft');
+      // Past approval an edit is a change at the next revision, beside the live one (J-campaigns-16 #9).
+      expect((await s.update({ id: c.id, revision: 1, definition: full({ rules: 'changed' }), actor: A })).pendingChange?.revision).toBe(2);
     });
 
     it('whoever wrote the draft cannot approve it, even when someone else asked', async () => {
@@ -378,6 +400,185 @@ if (!db) {
       expect((await service().join({ campaignId: c.id, accountId: ME })).created).toBe(false);
       expect(await code(service().join({ campaignId: c.id, accountId: 'account-late' }))).toBe('campaign.not_active');
       expect((await service().catalogue(ME)).campaigns).toEqual([]);
+    });
+
+    it('an edit of a live campaign is revision n+1 beside it; a second person puts it live; joins keep their revision', async () => {
+      const s = service();
+      const c = await live();
+      expect((await s.join({ campaignId: c.id, accountId: ME })).participation.revision).toBe(1);
+      // A stale revision, a new type or a taken name refuse; the live row is untouched.
+      expect(await code(s.update({ id: c.id, revision: 2, definition: full({ rules: 'TEST v2' }), actor: A }))).toBe(
+        'campaign.revision_conflict',
+      );
+      expect(await code(s.update({ id: c.id, revision: 1, definition: full({ type: 'voucher' }), actor: A }))).toBe('campaign.type_locked');
+      const changed = await s.update({
+        id: c.id,
+        revision: 1,
+        definition: full({ rules: 'TEST v2', reward: { asset: 'USDT', amount: '12' } }),
+        actor: A,
+      });
+      expect(changed).toMatchObject({
+        revision: 1,
+        rules: 'TEST rules',
+        state: 'active',
+        pendingChange: { revision: 2, state: 'draft', createdBy: A },
+      });
+      expect(changed.pendingChange?.definition).toMatchObject({ rules: 'TEST v2', reward: { asset: 'USDT', amount: '12' } });
+      // Editing the change again is the next revision; the old one is gone.
+      const again = await s.update({
+        id: c.id,
+        revision: 2,
+        definition: full({ rules: 'TEST v3', reward: { asset: 'USDT', amount: '12' } }),
+        actor: A,
+      });
+      expect(again.pendingChange).toMatchObject({ revision: 3, state: 'draft' });
+      // A blank in the change is what the check names, and what refuses its approval request.
+      await s.update({ id: c.id, revision: 3, definition: full({ rules: 'TEST v4', budget: null }), actor: A });
+      expect((await s.validate({ id: c.id })).missing.map((m) => m.code)).toEqual(['campaigns.budget_unset']);
+      expect(await code(s.transition({ id: c.id, action: 'submit', revision: 4, actor: A }))).toBe('campaigns.budget_unset');
+      await s.update({ id: c.id, revision: 4, definition: full({ rules: 'TEST v5', reward: { asset: 'USDT', amount: '12' } }), actor: A });
+      expect(await code(s.transition({ id: c.id, action: 'approve', revision: 5, actor: B }))).toBe('campaign.invalid_transition');
+      expect((await s.transition({ id: c.id, action: 'submit', revision: 5, actor: A })).pendingChange?.state).toBe('pending_approval');
+      expect(await code(s.transition({ id: c.id, action: 'pause', revision: 5, actor: A }))).toBe('campaign.invalid_transition');
+      expect(await code(s.transition({ id: c.id, action: 'approve', revision: 5, actor: A }))).toBe('campaigns.second_person_required');
+      const out = await s.transition({ id: c.id, action: 'approve', revision: 5, actor: B });
+      expect(out).toMatchObject({
+        revision: 5,
+        rules: 'TEST v5',
+        reward: { amount: '12' },
+        state: 'active',
+        approvedBy: B,
+        pendingChange: null,
+      });
+      // The same approval again returns the campaign; my join still names revision 1; a new join takes revision 5.
+      expect((await s.transition({ id: c.id, action: 'approve', revision: 5, actor: B })).revision).toBe(5);
+      expect((await s.join({ campaignId: c.id, accountId: ME })).participation.revision).toBe(1);
+      people.set('account-new', who());
+      expect((await s.join({ campaignId: c.id, accountId: 'account-new' })).participation.revision).toBe(5);
+      const history = await db!.sql<{ revision: number; approved_by: string }[]>`
+        SELECT revision, approved_by FROM campaigns.campaign_revisions WHERE campaign_id = ${c.id} ORDER BY revision`;
+      expect(history.map((h) => [h.revision, h.approved_by])).toEqual([
+        [1, B],
+        [5, B],
+      ]);
+      // Moves on the live campaign use its live revision; archive still refuses.
+      expect(await code(s.transition({ id: c.id, action: 'archive', revision: 5, actor: A }))).toBe('campaign.archive_active');
+    });
+
+    it('a change goes live only on a running campaign, and only if its name is still free when it is approved', async () => {
+      const s = service();
+      const c = await live();
+      await s.update({ id: c.id, revision: 1, definition: full({ rules: 'TEST v2' }), actor: A });
+      await s.transition({ id: c.id, action: 'submit', revision: 2, actor: A });
+      // Ended while the change waited: approving it would bring the campaign back, so it refuses.
+      await s.transition({ id: c.id, action: 'end', revision: 1, actor: A });
+      expect(await code(s.transition({ id: c.id, action: 'approve', revision: 2, actor: B }))).toBe('campaign.invalid_transition');
+      expect((await s.listForOps()).find((x) => x.id === c.id)).toMatchObject({ state: 'ended', rules: 'TEST rules', revision: 1 });
+
+      const d = await live({ name: 'TEST other' });
+      await s.update({ id: d.id, revision: 1, definition: full({ name: 'TEST renamed' }), actor: A });
+      await s.transition({ id: d.id, action: 'submit', revision: 2, actor: A });
+      // Another campaign takes the name before the approval.
+      await s.create({ definition: full({ name: 'TEST renamed' }), actor: A });
+      expect(await code(s.transition({ id: d.id, action: 'approve', revision: 2, actor: B }))).toBe('campaign.name_taken');
+    });
+
+    it('a campaign that ended or waits for its first approval is not edited', async () => {
+      const s = service();
+      const c = await s.create({ definition: full(), actor: A });
+      await s.transition({ id: c.id, action: 'submit', revision: 1, actor: A });
+      expect(await code(s.update({ id: c.id, revision: 1, definition: full({ rules: 'TEST x' }), actor: A }))).toBe('campaign.not_draft');
+    });
+
+    it('the rule library keeps each save as the next revision; a campaign holds a copy and every join is checked by it', async () => {
+      const s = service();
+      const tree: RuleGroup = { kind: 'group', op: 'and', parts: [{ kind: 'condition', field: 'accountType', is: 'individual' }] };
+      const first = await s.saveRule({ name: 'TEST individuals', tree, actor: A });
+      expect(first).toMatchObject({ name: 'TEST individuals', revision: 1, createdBy: A });
+      // The same tree again is the same revision; a changed tree is the next one, under the name as first written.
+      expect((await s.saveRule({ name: 'test INDIVIDUALS', tree, actor: B })).revision).toBe(1);
+      const wider: RuleGroup = {
+        kind: 'group',
+        op: 'or',
+        parts: [...tree.parts, { kind: 'condition', field: 'kycTier', atLeast: 'full' }],
+      };
+      expect(await s.saveRule({ name: 'test individuals', tree: wider, actor: B })).toMatchObject({
+        name: 'TEST individuals',
+        revision: 2,
+      });
+      expect((await s.listRules()).map((r) => [r.name, r.revision])).toEqual([['TEST individuals', 2]]);
+      // A campaign's copy must be a library revision as stored.
+      const rule = { name: 'TEST individuals', revision: 1, tree };
+      const participation = { exclusions: [], regionScope: 'platform' as const, restrictedRegions: null };
+      expect(
+        await code(
+          s.create({
+            definition: full({ name: 'TEST forged', participation: { ...participation, rule: { ...rule, tree: wider } } }),
+            actor: A,
+          }),
+        ),
+      ).toBe('campaigns.rule_unknown');
+      const c = await live({ participation: { ...participation, rule } });
+      people.set('account-biz', who({ accountType: 'business' }));
+      expect(await code(s.join({ campaignId: c.id, accountId: 'account-biz' }))).toBe('campaigns.not_eligible');
+      expect((await s.join({ campaignId: c.id, accountId: ME })).created).toBe(true);
+      // An edit of the library never reaches the campaign's copy.
+      expect((await s.getForOps({ id: c.id })).participation?.rule?.revision).toBe(1);
+    });
+
+    it('earning rules are part of the definition: a known trigger and a formula in the grammar, one name each', async () => {
+      const s = service();
+      const rule = { name: 'TEST per fill', trigger: 'trade.fill.settled', minAmount: '10', formula: 'min(amount * 0.01, 5)' };
+      const c = await s.create({ definition: full({ earning: [rule] }), actor: A });
+      expect(c.earning).toEqual([rule]);
+      expect(
+        await code(s.update({ id: c.id, revision: 1, definition: full({ earning: [{ ...rule, formula: 'amount * * 2' }] }), actor: A })),
+      ).toBe('campaigns.formula_invalid');
+      expect(
+        await code(
+          s.update({ id: c.id, revision: 1, definition: full({ earning: [{ ...rule, trigger: 'trade.order.placed' }] }), actor: A }),
+        ),
+      ).toBe('campaigns.trigger_unknown');
+      expect(
+        await code(
+          s.update({ id: c.id, revision: 1, definition: full({ earning: [rule, { ...rule, name: 'test PER fill' }] }), actor: A }),
+        ),
+      ).toBe('campaigns.earning_rule_name_taken');
+      // A deposit rule reads only the names its trigger has.
+      expect(
+        await code(
+          s.update({
+            id: c.id,
+            revision: 1,
+            definition: full({ earning: [{ ...rule, trigger: 'pay.deposit_credit.posted', formula: 'fee' }] }),
+            actor: A,
+          }),
+        ),
+      ).toBe('campaigns.formula_invalid');
+      // A live campaign's earning rules change only through its next revision.
+      await s.transition({ id: c.id, action: 'submit', revision: 1, actor: A });
+      await s.transition({ id: c.id, action: 'approve', revision: 1, actor: B });
+      const changed = await s.update({ id: c.id, revision: 1, definition: full({ earning: [{ ...rule, formula: '2' }] }), actor: A });
+      expect(changed.earning).toEqual([rule]);
+      expect(changed.pendingChange?.definition.earning).toEqual([{ ...rule, formula: '2' }]);
+    });
+
+    it('a paused campaign cannot be archived either; one campaign reads by id at any age', async () => {
+      const s = service();
+      const c = await live();
+      await s.transition({ id: c.id, action: 'pause', revision: 1, actor: A });
+      expect(await code(s.transition({ id: c.id, action: 'archive', revision: 1, actor: A }))).toBe('campaign.archive_active');
+      expect((await s.getForOps({ id: c.id })).state).toBe('paused');
+      expect(await code(s.getForOps({ id: 'cmp_missing' }))).toBe('campaign.unknown');
+    });
+
+    it('a scheduled campaign cannot be archived (customers already see it); it can be ended before it starts', async () => {
+      const s = service();
+      const c = await live({ startsAt: '2026-10-25T00:00:00Z', endsAt: '2026-10-26T00:00:00Z' });
+      expect(c.state).toBe('scheduled');
+      expect(await code(s.transition({ id: c.id, action: 'archive', revision: 1, actor: A }))).toBe('campaign.archive_active');
+      expect((await s.transition({ id: c.id, action: 'end', revision: 1, actor: A })).state).toBe('ended');
+      expect((await s.transition({ id: c.id, action: 'archive', revision: 1, actor: A })).state).toBe('archived');
     });
 
     it('customers see published campaigns only, with the budget read from its counters', async () => {

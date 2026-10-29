@@ -13,6 +13,14 @@ import type { Context } from '@intafaced/contracts';
 import { ACCOUNT_DISPLAY_NAMESPACE, parseAccountDisplay, type AccountDisplayValue } from './account-display.js';
 import { UI_VIEW_NAMESPACE, parseUiView, type UiViewValue } from './ui-view.js';
 import { HOME_TILES_NAMESPACE, parseHomeTiles, type HomeTilesValue } from './home-tiles.js';
+import {
+  ADDRESS_WATCHES_NAMESPACE,
+  TOKEN_WATCHLIST_NAMESPACE,
+  parseAddressWatches,
+  parseTokenWatchlist,
+  type AddressWatchesValue,
+  type TokenWatchlistValue,
+} from './protocol-watches.js';
 import type { SavedScreensValue, WatchlistsValue } from '@intafaced/contracts/watchlists-preferences';
 import {
   NO_WATCHLIST_CAPS,
@@ -46,8 +54,18 @@ export type PreferenceNamespace =
   | typeof UI_VIEW_NAMESPACE
   | typeof HOME_TILES_NAMESPACE
   | typeof WATCHLISTS_NAMESPACE
-  | typeof SAVED_SCREENS_NAMESPACE;
-export type PreferenceValue = TradeViewsValue | AccountDisplayValue | UiViewValue | HomeTilesValue | WatchlistsValue | SavedScreensValue;
+  | typeof SAVED_SCREENS_NAMESPACE
+  | typeof TOKEN_WATCHLIST_NAMESPACE
+  | typeof ADDRESS_WATCHES_NAMESPACE;
+export type PreferenceValue =
+  | TradeViewsValue
+  | AccountDisplayValue
+  | UiViewValue
+  | HomeTilesValue
+  | WatchlistsValue
+  | SavedScreensValue
+  | TokenWatchlistValue
+  | AddressWatchesValue;
 
 /** Owner-published settings a value is checked against. Blank means nothing is listed. */
 export type PreferenceSettings = {
@@ -75,7 +93,9 @@ export type PreferenceView =
   | { readonly namespace: typeof UI_VIEW_NAMESPACE; readonly version: number; readonly value: UiViewValue | null }
   | { readonly namespace: typeof HOME_TILES_NAMESPACE; readonly version: number; readonly value: HomeTilesValue | null }
   | { readonly namespace: typeof WATCHLISTS_NAMESPACE; readonly version: number; readonly value: WatchlistsValue | null }
-  | { readonly namespace: typeof SAVED_SCREENS_NAMESPACE; readonly version: number; readonly value: SavedScreensValue | null };
+  | { readonly namespace: typeof SAVED_SCREENS_NAMESPACE; readonly version: number; readonly value: SavedScreensValue | null }
+  | { readonly namespace: typeof TOKEN_WATCHLIST_NAMESPACE; readonly version: number; readonly value: TokenWatchlistValue | null }
+  | { readonly namespace: typeof ADDRESS_WATCHES_NAMESPACE; readonly version: number; readonly value: AddressWatchesValue | null };
 
 type StoredResult = {
   outcome: 'stored' | 'conflict';
@@ -119,6 +139,8 @@ const NAMESPACES: Readonly<Record<PreferenceNamespace, Namespace>> = {
     growth: (next, stored, settings) =>
       checkSavedScreenGrowth(next as SavedScreensValue, stored as SavedScreensValue | null, settings.watchlists ?? NO_WATCHLIST_CAPS),
   },
+  [TOKEN_WATCHLIST_NAMESPACE]: { shape: (value) => parseTokenWatchlist(value) },
+  [ADDRESS_WATCHES_NAMESPACE]: { shape: (value) => parseAddressWatches(value) },
 };
 
 function requireNamespace(namespace: string): PreferenceNamespace {
