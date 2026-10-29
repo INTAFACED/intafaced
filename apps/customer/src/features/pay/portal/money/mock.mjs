@@ -348,6 +348,18 @@ export function createMoneyMock(ctx) {
         }
         case 'merchantControl.get':
           return ok(route, control);
+        case 'merchantControl.reserve':
+          // TEST: the reserve the control profile sets, recorded on the settlements and never withheld.
+          return ok(route, {
+            merchantId: MERCHANT_ID,
+            rule: control.reserve ? { rollingReserveBps: control.reserve.rollingReserveBps, holdDays: control.reserve.holdDays } : null,
+            holding: 'recorded_not_withheld',
+            payoutsRefused: Boolean(control.reserve),
+            assets: control.reserve
+              ? [{ assetCode: 'USDT', recordedAmount: '11.80', entries: 1, nextReleaseAt: iso(Date.now() + 30 * DAY), lastReleaseAt: null }]
+              : [],
+            readAt: iso(Date.now()),
+          });
         case 'merchantControl.usage':
           return ok(route, usageNow());
         case 'merchantControl.pricing.preview': {

@@ -12,6 +12,32 @@ import type { Pending } from '../buy/write-lock';
 
 export type Side = 'buy' | 'sell';
 
+/* ------------------------------------------------------------------ create blocker */
+
+export type CreateBlocker = 'Scheduler unknown' | 'Create off block' | 'Scheduler off block' | 'Market closed block';
+
+/**
+ * Why the schedule form cannot be sent, as its copy key, or null. An unread policy, creating switched off or a stopped
+ * slice scheduler blocks first: a schedule created then would be refused, or sit active and place nothing.
+ */
+export function createBlocker(
+  capability: { createEnabled: boolean; jobsEnabled: boolean } | null,
+  marketOpen: boolean,
+): CreateBlocker | null {
+  if (capability === null) return 'Scheduler unknown';
+  if (!capability.createEnabled) return 'Create off block';
+  if (!capability.jobsEnabled) return 'Scheduler off block';
+  return marketOpen ? null : 'Market closed block';
+}
+
+/** The typed refusal the service answers for each blocker; an unread policy has none, since nothing was answered. */
+export const CREATE_BLOCKER_CODE: Record<CreateBlocker, string | undefined> = {
+  'Scheduler unknown': undefined,
+  'Create off block': 'trade.algo_disabled',
+  'Scheduler off block': 'trade.algo_jobs_disabled',
+  'Market closed block': 'trade.market_closed',
+};
+
 /* ------------------------------------------------------------------ client ids */
 
 /** A short random token that names one intent. It is made once per intent, so a re-send reuses the same ids. */
@@ -24,6 +50,8 @@ export const scaledPrefix = (nonce: string): string => `${SCALED_TAG}${nonce}-`;
 export const scaledId = (nonce: string, index: number): string => `${scaledPrefix(nonce)}${index}`;
 export const matchesPrefix = (clientOrderId: string | null | undefined, prefix: string): boolean =>
   Boolean(clientOrderId) && clientOrderId!.startsWith(prefix);
+export const ICEBERG_TAG = 'ice-';
+export const icebergClientId = (nonce: string): string => `${ICEBERG_TAG}${nonce}`;
 export const isScaledId = (clientOrderId: string | null | undefined): boolean => matchesPrefix(clientOrderId, SCALED_TAG);
 /** `scl-<nonce>-` of an id placed by this room, or null for any other id. */
 export function scaledGroupOf(clientOrderId: string | null | undefined): string | null {
@@ -33,11 +61,12 @@ export function scaledGroupOf(clientOrderId: string | null | undefined): string 
 
 /**
  * The device note `trade-pending:<user>` is shared with the spot desk, Buy and Convert. A room's "Check status" may release
- * only the note it wrote itself: scaled batches (`place` with a `scl-` id), algo requests, and single-order cancels.
+ * only the note it wrote itself: scaled batches (`place` with a `scl-` id), icebergs (`place` with an `ice-` id), algo requests, and single-order cancels.
  * Anything else keeps its lock until the screen that owns it checks it.
  */
-export function ownsNote(room: 'scaled' | 'algo' | 'execCancel', pending: Pick<Pending, 'kind' | 'id'>): boolean {
+export function ownsNote(room: 'scaled' | 'iceberg' | 'algo' | 'execCancel', pending: Pick<Pending, 'kind' | 'id'>): boolean {
   if (room === 'scaled') return pending.kind === 'place' && pending.id.startsWith(SCALED_TAG);
+  if (room === 'iceberg') return pending.kind === 'place' && pending.id.startsWith(ICEBERG_TAG);
   if (room === 'algo') return pending.kind === 'algo';
   return pending.kind === 'cancel';
 }

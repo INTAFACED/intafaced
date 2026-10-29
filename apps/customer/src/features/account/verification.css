@@ -342,3 +342,36 @@
   font-size: var(--if-text-base);
   line-height: var(--if-leading-base);
 }
+.verification__selfie-camera,
+.verification__selfie-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--if-space-3);
+}
+.verification__selfie-actions {
+  flex-direction: row;
+  flex-wrap: wrap;
+}
+.verification__selfie-camera video {
+  inline-size: 100%;
+  max-inline-size: 24rem;
+  border-radius: var(--if-r-sm);
+  transform: scaleX(-1);
+}
+.verification__selfie-qr {
+  inline-size: 100%;
+  max-inline-size: 13rem;
+  padding: var(--if-space-2);
+  border-radius: var(--if-r-sm);
+  background: white; /* look-drift-allow: a QR code needs dark on light in every theme */
+  line-height: 0;
+}
+.verification__selfie-qr svg {
+  display: block;
+  inline-size: 100%;
+  block-size: auto;
+}
+.verification__selfie-link {
+  overflow-wrap: anywhere;
+}

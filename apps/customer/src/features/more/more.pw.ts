@@ -99,21 +99,30 @@ test('More rooms keep forms and empty states within a 320px viewport with access
   await page.keyboard.press('Tab');
   await expect(page.getByLabel('Search help')).toBeFocused();
 });
-test('governance gives an actionable validation error for malformed JSON without sending a proposal', async ({ page }) => {
+test('governance refuses a new proposal with no kind chosen, without sending it', async ({ page }) => {
   let writes = 0;
   await page.route('**/api/**', async (route) => {
     const proc = new URL(route.request().url()).pathname.split('/').at(-1);
     if (route.request().method() === 'POST') writes++;
-    const data = proc === 'accessOf' ? { staked: '0', tier: 'none', feeDiscountBps: 0 } : proc === 'burnedSupply' ? { burned: '0' } : [];
+    const data =
+      proc === 'accessOf'
+        ? { staked: '0', tier: 'none', feeDiscountBps: 0 }
+        : proc === 'burnedSupply'
+          ? { burned: '0' }
+          : proc === 'governanceHome'
+            ? { spaceId: 'ifc', following: false, proposal: { code: null, minStake: null } }
+            : [];
     await route.fulfill({ json: { result: { data } } });
   });
   await page.goto('/token');
   await page.getByRole('button', { name: 'Governance', exact: true }).click();
-  await page.getByLabel('Proposal body as JSON object').fill('{broken');
-  await page.getByRole('button', { name: 'Review proposal', exact: true }).click();
-  await expect(page.getByText('Enter a valid JSON object for the proposal body.')).toBeVisible();
+  await page.getByRole('button', { name: 'New proposal', exact: true }).click();
+  const form = page.getByRole('form', { name: 'New proposal' });
+  await form.getByRole('textbox', { name: 'Title' }).fill('A proposal with no kind');
+  await form.getByRole('button', { name: 'Submit proposal', exact: true }).click();
+  expect(await form.getByLabel('Kind').evaluate((el) => (el as HTMLSelectElement).validity.valueMissing)).toBe(true);
   expect(writes).toBe(0);
-  await expect(page.getByRole('dialog')).toHaveCount(0);
+  await expect(form.getByRole('status')).toHaveCount(0);
 });
 test('private support data with another account identity is refused before rendering or replying', async ({ page }) => {
   await page.route('**/api/**', async (route) => {

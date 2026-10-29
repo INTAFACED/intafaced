@@ -6,7 +6,7 @@ import { decodeLifecycleExecute } from '@/lib/ledger/reconciliation-run';
 import { sendTreasuryControl, treasuryParked } from '@/lib/ledger/reconciliation-server';
 
 /**
- * Pause, resume or retire one reconciliation control (J-ops-console-07 step 5, OPS-reconciliation-02).
+ * Pause, resume or retire one reconciliation control (J-ops-console-07 step 6, OPS-reconciliation-02).
  *
  * A TWO-FOUNDER request like a run: one founder proposes the move bound to the control's version and the reason; a different
  * founder approves exactly that; the move step goes to svc-edge on the treasury transport as an update carrying the approval,

@@ -12,7 +12,7 @@ import { readServerClock } from '../../shared/server-clock';
 import { developersCopy } from './developers-copy';
 import { docsCopy } from './developers-docs-copy';
 import { AUDIENCES, SECTIONS, developersRoute } from './developers-model';
-import { REST_REFERENCE, SIGN_WINDOW_SECONDS, routeLine, withinWindow } from './developers-reference';
+import { REST_REFERENCE, routeLine, withinWindow } from './developers-reference';
 import { createDocsSearch } from './developers-search';
 
 const html = (path: string) =>
@@ -40,7 +40,7 @@ describe('developer portal home', () => {
   });
   it('a section without a page names the slice it waits for', () => {
     expect(text(html('/developers/errors'))).toContain('It waits for DV-errors-01');
-    expect(text(html('/developers/authentication'))).toContain('It waits for DV-auth-01');
+    expect(text(html('/developers/websocket'))).toContain('It waits for DV-websocket-01');
   });
   it('search finds pages by title or route, and finds nothing for an unknown topic', () => {
     const title = (id: string) => developersCopy.forLocale('en').t(`section_${id.replace(/-/g, '_')}` as 'section_rest');
@@ -94,20 +94,25 @@ describe('developer docs pages', () => {
     expect(page).toContain('data-testid="developers-clock-check"');
     expect(page).toContain('Check my clock');
   });
-  it('connectivity: unset hosts read host not set, colocation is parked on hardware', () => {
+  it('connectivity names the parked options and their hardware blocker at once; the host options wait for the read', () => {
     const page = html('/developers/connectivity');
-    const row = (key: string) =>
-      text(page.slice(page.indexOf(`data-option="${key}"`), page.indexOf('</tr>', page.indexOf(`data-option="${key}"`))));
-    expect(row('internet')).toContain('host not set');
-    expect(row('redundant')).toContain('host not set');
-    expect(row('colocation')).toMatch(/Parked.*hardware/);
+    expect(page).toContain('Connectivity options');
+    expect(page.match(/data-option="[a-z_]+"/g)).toEqual(['data-option="low_latency"', 'data-option="colocation"']);
+    expect(page.match(/data-option-state="[a-z_]+"/g)).toEqual([
+      'data-option-state="parked_hardware"',
+      'data-option-state="parked_hardware"',
+    ]);
+    const colocation = page.slice(
+      page.indexOf('data-option="colocation"'),
+      page.indexOf('</tr>', page.indexOf('data-option="colocation"')),
+    );
+    expect(text(colocation)).toMatch(/Parked.*hardware/);
     expect(page).toContain('data-testid="developers-time-probe"');
   });
-  it('data terms: every product, every term not set, and what they wait for', () => {
+  it('data terms reads the published terms before it draws a product', () => {
     const page = html('/developers/data-terms');
-    expect(page.match(/data-terms-state="unset"/g)).toHaveLength(6);
-    expect(page.match(/<td>not set<\/td>/g)).toHaveLength(30);
-    expect(text(page)).toContain('RC-developer-05');
+    expect(page).toContain('Market data products and their terms');
+    expect(page).not.toContain('data-terms-state=');
   });
   it('the auth error catalogue address says what it waits for and links the permission table', () => {
     const page = html('/developers/errors/auth');
@@ -130,16 +135,18 @@ describe('the clock check', () => {
   it('fails without an offset when the server time cannot be read', async () => {
     expect((await readServerClock(api(null, false))).ok).toBe(false);
   });
+  // A TEST window: the live one is the owner's, read from identity's published policy.
+  const WINDOW = 90;
   it('is within the window up to the signing window, either way, and outside past it', () => {
-    const edge = SIGN_WINDOW_SECONDS * 1000;
-    expect(withinWindow(edge)).toBe(true);
-    expect(withinWindow(-edge)).toBe(true);
-    expect(withinWindow(edge + 1)).toBe(false);
+    const edge = WINDOW * 1000;
+    expect(withinWindow(edge, 0, WINDOW)).toBe(true);
+    expect(withinWindow(-edge, 0, WINDOW)).toBe(true);
+    expect(withinWindow(edge + 1, 0, WINDOW)).toBe(false);
   });
   it('counts half the round trip against the window: a reading near its edge is not called within', () => {
-    const edge = SIGN_WINDOW_SECONDS * 1000;
-    expect(withinWindow(edge - 200, 800)).toBe(false);
-    expect(withinWindow(-(edge - 400), 800)).toBe(true);
+    const edge = WINDOW * 1000;
+    expect(withinWindow(edge - 200, 800, WINDOW)).toBe(false);
+    expect(withinWindow(-(edge - 400), 800, WINDOW)).toBe(true);
   });
 });
 

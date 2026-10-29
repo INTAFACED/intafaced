@@ -8,10 +8,16 @@
  */
 
 import { randomUUID } from 'node:crypto';
-import { parseAmount, type Amount, type LedgerClient } from '@intafaced/ledger-client';
+import { formatAmount, parseAmount, type Amount, type LedgerClient } from '@intafaced/ledger-client';
 import type { Principal } from '@intafaced/auth';
 import { otcSettleIdsFor } from '../spot/ids.js';
-import { otcDeskLawStatusLine, requirePublishedOtcDeskLaw, type OtcDeskLaw, UNPUBLISHED_OTC_DESK_LAW } from './desk-law.js';
+import {
+  otcDeskLawStatusLine,
+  otcMinNotionalFor,
+  requirePublishedOtcDeskLaw,
+  type OtcDeskLaw,
+  UNPUBLISHED_OTC_DESK_LAW,
+} from './desk-law.js';
 import { logRefusalSpec } from '../refusal-spec-log.js';
 import { OTC_DESK_LAW_RESIDUAL, OtcError, RFQ_ALLOCATION_RESIDUAL, RFQ_GIVE_UP_RESIDUAL } from './errors.js';
 import { otcMakerRoutingStatus, OTC_MAKER_ROUTING_RESIDUAL } from './maker-routing.js';
@@ -41,7 +47,7 @@ import {
 } from './otc-convert-bounds.js';
 import { assertOtcStakeGate, otcStakeGate } from './stake-gate.js';
 import type { OtcStakeSource } from './stake-source.js';
-import { MemoryOtcQuoteStore, type OtcQuoteStore } from './quote-store.js';
+import { MemoryOtcQuoteStore, type OtcQuoteStore, type OtcStoredQuote } from './quote-store.js';
 import { listOtcMakers, selectOtcMakers, UNPUBLISHED_OTC_MAKER_DIRECTORY, type OtcMakerDirectory } from './maker-directory.js';
 import { TradingControlError, type TradingAdmissionPort } from '../controls/trading-controls.js';
 import { businessPayload } from '../controls/business-payload.js';
@@ -148,12 +154,18 @@ export class OtcDeskService {
       throw new OtcError('One-click buy only buys; use convert to sell', 'trade.convert_flow_side_refused');
     }
     assertOtcConvertBounds(this.convertBounds, input.flow, parseRequiredOtcSize(input.qty));
-    const quote = await this.quote(principal, {
-      side: input.side,
-      baseAsset: input.baseAsset,
-      quoteAsset: input.quoteAsset,
-      qty: input.qty,
-    });
+    const quote = await this.quote(
+      principal,
+      {
+        side: input.side,
+        baseAsset: input.baseAsset,
+        quoteAsset: input.quoteAsset,
+        qty: input.qty,
+      },
+      // Convert and one-click buy are sized by their own owner bounds (CB-otc-12), checked above; the RFQ desk minimum
+      // (CB-otc-07) and the provider pick (CB-otc-01) are for desk requests only.
+      { desk: false },
+    );
     return { flow: input.flow, ...quote };
   }
 
@@ -166,18 +178,47 @@ export class OtcDeskService {
       qty: string;
       /** Maker id when counterparty mode is maker. */
       makerId?: string;
+      /** The providers a desk request asks (CB-otc-01): picked from the owner's list, at most its cap. */
+      makerIds?: readonly string[];
     },
+    options: { desk: boolean } = { desk: true },
   ) {
     const law = requirePublishedOtcDeskLaw(this.law);
     const qty = parseRequiredOtcSize(input.qty);
 
-    // CB-otc-01: in maker mode the maker comes from the owner provider list, not
-    // free text. A blank list, an unknown provider or an outside provider refuses
-    // the request before any stake read or price lookup.
-    // A blank makerId is not skipped: it goes through the same selection, so a
-    // blank list refuses otc_makers_unset and a blank pick refuses otc_provider_required.
+    // CB-otc-07: a desk request in a quote asset with no published minimum refuses on the law alone, before any stake
+    // read or price lookup. The minimum itself is checked once the quote is priced, below.
+    let minNotional: Amount | null = null;
+    if (options.desk) {
+      const asset = normalizeOtcAsset(input.quoteAsset);
+      minNotional = asset == null ? null : otcMinNotionalFor(law, asset);
+      if (asset != null && minNotional == null) {
+        throw new OtcError(`The desk minimum for ${asset} requests is not set — the request refuses`, 'trade.rfq_size_not_set');
+      }
+    }
+
+    // CB-otc-01: the providers come from the owner's list, never free text. A desk request always names them: a blank
+    // list refuses "No providers set", an empty pick refuses otc_provider_required, a pick over the owner's cap refuses
+    // naming the cap, and an unknown or outside provider refuses by name, all before any stake read or price lookup.
+    // Convert and one-click buy name no providers; in maker mode they still pick their one maker from the list.
+    let asked: readonly string[] = [];
+    if (options.desk) {
+      asked = selectOtcMakers(this.makerDirectory, input.makerIds ?? (input.makerId == null ? [] : [input.makerId])).map((m) => m.id);
+    } else if (law.counterparty === 'maker') {
+      asked = selectOtcMakers(this.makerDirectory, [input.makerId ?? '']).map((m) => m.id);
+    }
+    // In maker mode the quoting maker is one of the providers asked: the one picked, or the makerId named among them.
+    // Both checks run here, before any stake read or price lookup.
+    let quotingMaker: string | undefined;
     if (law.counterparty === 'maker') {
-      selectOtcMakers(this.makerDirectory, [input.makerId ?? '']);
+      quotingMaker = (input.makerId ?? (asked.length === 1 ? asked[0]! : '')).trim();
+      if (!quotingMaker) {
+        // More than one asked and none named: on a maker desk one provider quotes, so the limit is one.
+        throw new OtcError(`At most 1 provider can quote one request on this desk (got ${asked.length})`, 'trade.otc_provider_cap');
+      }
+      if (!asked.includes(quotingMaker)) {
+        throw new OtcError(`Provider ${quotingMaker} is not one of the providers asked`, 'trade.otc_provider_unknown');
+      }
     }
 
     // Access gate before price lookup: an unstaked caller learns nothing about
@@ -219,16 +260,7 @@ export class OtcDeskService {
     }
     const midPrice = parseOtcMidPrice(String(sourced.mid));
 
-    let counterpartyId: string;
-    if (law.counterparty === 'platform') {
-      counterpartyId = this.platformCounterpartyId;
-    } else {
-      const makerId = (input.makerId ?? '').trim();
-      if (!makerId) {
-        throw new OtcError('Maker id required when desk routes to makers — refuse rather than invent', 'trade.otc_no_reference_price');
-      }
-      counterpartyId = makerId;
-    }
+    const counterpartyId = law.counterparty === 'platform' ? this.platformCounterpartyId : quotingMaker!;
 
     const quote = buildOtcQuote({
       quoteId: randomUUID(),
@@ -244,6 +276,12 @@ export class OtcDeskService {
       now: this.now(),
       quoteTtlMs: law.quoteTtlMs,
     });
+
+    // CB-otc-07: the minimum holds on what the customer trades (the notional after the disclosed spread), so a sell
+    // never fills below it. Checked before the quote is saved, so a refused request records nothing.
+    if (minNotional != null && quote.userNotional < minNotional) {
+      throw new OtcError(`Below the desk minimum of ${formatAmount(minNotional)} ${quoteAsset}`, 'trade.rfq_below_minimum');
+    }
 
     await this.store.saveOpen(quote);
     return presentOtcQuote(quote);
@@ -340,6 +378,15 @@ export class OtcDeskService {
       makerOrderId,
       fillId,
     });
+    // CB-otc-07: past the settle deadline a bound quote no longer settles. A settle that already began in time (its
+    // first post, the house hold, is on the ledger) must still finish on retry, or the funds it held stay stranded.
+    const deadline = otcSettleDeadline(law, stored);
+    if (this.now().getTime() > deadline && !(await this.ledger.getTxByKey(plan.mmHold.idempotencyKey))) {
+      throw new OtcError(
+        `The settlement window for this quote closed at ${new Date(deadline).toISOString()} — nothing was settled or held`,
+        'trade.rfq_window_passed',
+      );
+    }
     await postOtcSettle(this.ledger, plan);
     await this.store.saveSettled(stored.quote, stored.bound, this.now());
     return {
@@ -354,7 +401,10 @@ export class OtcDeskService {
    * Professional RFQ (PTX-M12) — firm quote/accept/expire on the OTC desk.
    * Size required; price is the desk mid (never invented, never caller-named).
    */
-  async rfqQuote(principal: Principal, input: { side: OtcSide; baseAsset: string; quoteAsset: string; qty: string; makerId?: string }) {
+  async rfqQuote(
+    principal: Principal,
+    input: { side: OtcSide; baseAsset: string; quoteAsset: string; qty: string; makerId?: string; makerIds?: readonly string[] },
+  ) {
     try {
       const quoted = await this.quote(principal, input);
       const stored = await this.store.load(quoted.quoteId);
@@ -380,6 +430,7 @@ export class OtcDeskService {
       lifecycle: stored.lifecycle,
       acceptedAt: bound.acceptedAt,
       fillPrice: stored.bound.fillPrice,
+      ...this.settleWindowOf(stored),
     });
   }
 
@@ -395,13 +446,22 @@ export class OtcDeskService {
   async rfqGet(principal: Principal, quoteId: string) {
     const stored = await this.requireOwnedQuote(principal, quoteId);
     if (stored.lifecycle === 'open' || stored.lifecycle === 'expired') {
-      return presentFirmRfq(stored.quote, { lifecycle: stored.lifecycle });
+      return presentFirmRfq(stored.quote, { lifecycle: this.openOrLapsed(stored) });
     }
     return presentFirmRfq(stored.quote, {
       lifecycle: stored.lifecycle,
       acceptedAt: stored.bound.acceptedAt,
       fillPrice: stored.bound.fillPrice,
+      ...this.settleWindowOf(stored),
     });
+  }
+
+  /** When a bound quote stops settling, and the owner window it comes from (null: blank, "Not set"). */
+  private settleWindowOf(stored: OtcStoredQuote): { settleBy: string | null; settleWindowMs: number | null } {
+    if (this.law.published !== true || stored.lifecycle === 'open' || stored.lifecycle === 'expired') {
+      return { settleBy: null, settleWindowMs: null };
+    }
+    return { settleBy: new Date(otcSettleDeadline(this.law, stored)).toISOString(), settleWindowMs: this.law.settleWindowMs ?? null };
   }
 
   rfqAllocate(_principal: Principal, _input: { quoteId: string }): never {
@@ -422,6 +482,16 @@ export class OtcDeskService {
     );
   }
 
+  /**
+   * An open quote read after its expiry reads as expired: `acceptOtcQuote` refuses it from then on, so "open" would be
+   * false. Nothing is written here, so a read never races an accept that was admitted in time and saves after it.
+   */
+  private openOrLapsed(stored: Extract<OtcStoredQuote, { lifecycle: 'open' | 'expired' }>): 'open' | 'expired' {
+    if (stored.lifecycle === 'expired') return 'expired';
+    const expiresAt = Date.parse(stored.quote.expiresAt);
+    return Number.isFinite(expiresAt) && this.now().getTime() <= expiresAt ? 'open' : 'expired';
+  }
+
   private async requireOwnedQuote(principal: Principal, quoteId: string) {
     const stored = await this.store.load(quoteId);
     if (!stored) {
@@ -432,4 +502,16 @@ export class OtcDeskService {
     }
     return stored;
   }
+}
+
+/**
+ * When a bound quote stops settling (CB-otc-07): the owner window from the accept, or, with the window blank (no
+ * deferral), the quote's own expiry. Unparseable times give 0, which refuses rather than settles without a deadline.
+ */
+export function otcSettleDeadline(
+  law: Extract<OtcDeskLaw, { published: true }>,
+  stored: Extract<OtcStoredQuote, { lifecycle: 'bound' | 'settled' }>,
+): number {
+  const from = law.settleWindowMs == null ? Date.parse(stored.quote.expiresAt) : Date.parse(stored.bound.acceptedAt) + law.settleWindowMs;
+  return Number.isFinite(from) ? from : 0;
 }

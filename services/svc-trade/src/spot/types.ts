@@ -567,6 +567,10 @@ export type TradeErrorCode =
   | 'trade.otc_already_settled'
   | 'trade.otc_settle_refused'
   | 'trade.rfq_missing_size'
+  /** CB-otc-07: the owner has not set the desk minimum for this quote asset; the request refuses. */
+  | 'trade.rfq_size_not_set'
+  /** CB-otc-07: the request's notional at the reference mid is below the owner's desk minimum. */
+  | 'trade.rfq_below_minimum'
   | 'trade.rfq_missing_price'
   | 'trade.rfq_already_bound'
   | 'trade.rfq_allocation_refused'
@@ -653,6 +657,7 @@ export type TradeErrorCode =
   | 'trade.iceberg_display_not_smaller'
   /** REST iceberg door: peak is not a positive lot-multiple strictly below the order, or the order is not a limit in a PLACE lifecycle. */
   | 'trade.iceberg_display_invalid'
+  | 'trade.iceberg_symbol_cap'
   | 'trade.stop_trigger_invalid'
   /** Option without a caller strike — trade does not invent a mark. */
   | 'trade.missing_strike'

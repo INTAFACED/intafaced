@@ -348,6 +348,8 @@ class EdgeClient {
     this.account = account;
     this.token = null;
     this.tokenAt = 0;
+    /** Called with every Edge reply's headers (history reads Edge's budget from them). */
+    this.onReply = null;
   }
   async http(method, route, body, { auth = true } = {}) {
     if (method !== 'GET') assertActiveLocalStack();
@@ -369,6 +371,7 @@ class EdgeClient {
       /* non-JSON refusal */
     }
     if (res.status === 401 && auth) this.token = null;
+    this.onReply?.(res.headers);
     return { status: res.status, json, text };
   }
   async login() {
@@ -825,12 +828,56 @@ export const TAPE_RETIME_ROUTE = '/internal/local-test/tape-retime';
 /** Requests a second `history` sends: well below Edge's local budget of 6000 a minute per address (local-stack-services/edge.mjs, EDGE_RATE_LIMIT_MAX), with room left. */
 export const HISTORY_REQUESTS_PER_SECOND = 14;
 /**
- * Edge's local budget window (local-stack-services/edge.mjs, EDGE_RATE_LIMIT_WINDOW_MS). `history` ends by waiting out
- * the rest of one window after its last request, so whatever runs next on the same address starts with the whole budget
- * (failure it prevents: run 552 on main, the first journey on a shard right after `history` was refused
- * edge.rate_limited once the step stopped ending with an 80-second wait for the first market maker trade).
+ * Edge's local budget window (local-stack-services/edge.mjs, EDGE_RATE_LIMIT_WINDOW_MS). When Edge did not say what is
+ * left of its budget, `history` ends by waiting out the rest of one window after its last request (failure it prevents:
+ * run 552 on main, the first journey on a shard right after `history` was refused edge.rate_limited once the step
+ * stopped ending with an 80-second wait for the first market maker trade).
  */
 export const HISTORY_EDGE_WINDOW_MS = 60_000;
+
+/**
+ * How long `history` waits at the end so whatever runs next on the same address has at least half of Edge's budget.
+ * Edge counts in fixed windows and says on each reply how much of this window is left and when it ends
+ * (x-ratelimit-remaining, x-ratelimit-reset in seconds); `budget` is the latest reading (laterEdgeBudget). Half or
+ * more left: no wait (run 40873067394 waited 59 s here with most of the budget unspent). Less, or headers missing:
+ * wait for the window to end, and with no headers the whole window after the last request, as before.
+ */
+export function historyBudgetWait({ budget, lastEdgeAt, nowMs, windowMs = HISTORY_EDGE_WINDOW_MS }) {
+  if (budget) {
+    if (budget.remaining * 2 >= budget.limit) return 0;
+    return Math.max(0, budget.endsAt - nowMs);
+  }
+  if (lastEdgeAt === 0) return 0;
+  return Math.max(0, windowMs - (nowMs - lastEdgeAt));
+}
+
+/**
+ * Edge's budget as one reply's headers state it, or null when they are missing or not whole numbers (a missing header
+ * reads null, which Number() would turn into 0).
+ */
+export function readEdgeBudget(headers, seenAt) {
+  const read = (name) => {
+    const v = headers?.get?.(name);
+    return typeof v === 'string' && /^\d+$/.test(v.trim()) ? Number(v) : NaN;
+  };
+  const limit = read('x-ratelimit-limit');
+  const remaining = read('x-ratelimit-remaining');
+  const reset = read('x-ratelimit-reset');
+  if (![limit, remaining, reset].every(Number.isFinite) || limit <= 0) return null;
+  return { limit, remaining, endsAt: seenAt + reset * 1000 };
+}
+
+/**
+ * The reading that describes the most Edge has counted: replies from lanes side by side can arrive out of order, so
+ * within one window the lowest remaining wins, and a reading from a later window replaces one from an earlier window.
+ * The reset is whole seconds, so window ends within a second and a half of each other are the same window.
+ */
+export function laterEdgeBudget(prev, next) {
+  if (!next) return prev;
+  if (!prev || next.endsAt > prev.endsAt + 1500) return next;
+  if (prev.endsAt > next.endsAt + 1500) return prev;
+  return next.remaining < prev.remaining ? next : prev;
+}
 /**
  * Markets per `history` batch request. Fewer requests leave Edge's budget room, more lanes side by side keep svc-trade
  * busy. On a 4-core machine (26 Oct), six markets took 6.1 minutes at one request per order, 7.7 in one request for
@@ -923,6 +970,15 @@ async function runHistory(opts, home) {
   // the time Edge names, then sends the same request again: the same client ids, so svc-trade returns the same orders.
   let nextSlot = 0;
   let lastEdgeAt = 0;
+  let budget = null;
+  // Every Edge reply counts against the same address's budget (sign-in, cancels and tape reads too), so every reply
+  // refreshes the reading and the time of the last request.
+  for (const client of [maker, taker]) {
+    client.onReply = (headers) => {
+      lastEdgeAt = Date.now();
+      budget = laterEdgeBudget(budget, readEdgeBudget(headers, lastEdgeAt));
+    };
+  }
   const pace = async () => {
     const now = Date.now();
     const at = Math.max(now, nextSlot);
@@ -1089,10 +1145,12 @@ async function runHistory(opts, home) {
   for (const b of books) results.push(await retime(b).catch((err) => (log(`${b.m.symbol}: ${err.message}`), false)));
   fs.mkdirSync(p.runDir, { recursive: true, mode: 0o700 });
   fs.writeFileSync(p.walkFile, JSON.stringify({ seed: opts.seed, steps }), { mode: 0o600 });
-  const rest = lastEdgeAt === 0 ? 0 : HISTORY_EDGE_WINDOW_MS - (Date.now() - lastEdgeAt);
+  const rest = historyBudgetWait({ budget, lastEdgeAt, nowMs: Date.now() });
   if (rest > 0) {
     log(`Waiting ${Math.ceil(rest / 1000)}s for Edge's one-minute budget to start fresh for what runs next`);
     await sleep(rest);
+  } else if (budget) {
+    log(`Edge budget left for what runs next: ${budget.remaining} of ${budget.limit} this window, so no wait`);
   }
   return results.every(Boolean) ? 0 : 1;
 }

@@ -11,45 +11,66 @@ Every trading REST route and WebSocket stream, under its product, with the permi
 
 ## Spot
 
-| Route                                  | Name                    | Permission                    |
-| -------------------------------------- | ----------------------- | ----------------------------- |
-| `GET /api/v1/markets`                  | `fetchMarkets`          | public; with a key trade:read |
-| `GET /api/v1/ticker/:symbol`           | `fetchTicker`           | public; with a key trade:read |
-| `GET /api/v1/tickers`                  | `fetchTickers`          | public; with a key trade:read |
-| `GET /api/v1/orderbook/:symbol`        | `fetchOrderBook`        | public; with a key trade:read |
-| `GET /api/v1/ohlcv/:symbol`            | `fetchOHLCV`            | public; with a key trade:read |
-| `GET /api/v1/trades/:symbol`           | `fetchTrades`           | public; with a key trade:read |
-| `GET /api/v1/market-halt/:symbol`      | `fetchMarketHalt`       | public; with a key trade:read |
-| `GET /api/v1/market-lifecycle/:symbol` | `fetchMarketLifecycle`  | public; with a key trade:read |
-| `GET /api/v1/charts/owner-values`      | `fetchChartOwnerValues` | public; with a key trade:read |
-| `POST /api/v1/orders`                  | `createOrder`           | trade:write                   |
-| `DELETE /api/v1/orders/:id`            | `cancelOrder`           | trade:write                   |
-| `DELETE /api/v1/orders`                | `cancelAllOrders`       | trade:write                   |
-| `GET /api/v1/orders/:id`               | `fetchOrder`            | trade:read                    |
-| `GET /api/v1/orders/open`              | `fetchOpenOrders`       | trade:read                    |
-| `GET /api/v1/orders/closed`            | `fetchClosedOrders`     | trade:read                    |
+| Route                                               | Name                    | Permission                    |
+| --------------------------------------------------- | ----------------------- | ----------------------------- |
+| `GET /api/v1/markets`                               | `fetchMarkets`          | public; with a key trade:read |
+| `GET /api/v1/ticker/:symbol`                        | `fetchTicker`           | public; with a key trade:read |
+| `GET /api/v1/tickers`                               | `fetchTickers`          | public; with a key trade:read |
+| `GET /api/v1/orderbook/:symbol`                     | `fetchOrderBook`        | public; with a key trade:read |
+| `GET /api/v1/ohlcv/:symbol`                         | `fetchOHLCV`            | public; with a key trade:read |
+| `GET /api/v1/trades/:symbol`                        | `fetchTrades`           | public; with a key trade:read |
+| `GET /api/v1/market-halt/:symbol`                   | `fetchMarketHalt`       | public; with a key trade:read |
+| `GET /api/v1/market-lifecycle/:symbol`              | `fetchMarketLifecycle`  | public; with a key trade:read |
+| `GET /api/v1/charts/owner-values`                   | `fetchChartOwnerValues` | public; with a key trade:read |
+| `POST /api/v1/orders`                               | `createOrder`           | trade:write                   |
+| `DELETE /api/v1/orders/:id`                         | `cancelOrder`           | trade:write                   |
+| `DELETE /api/v1/orders`                             | `cancelAllOrders`       | trade:write                   |
+| `GET /api/v1/orders/:id`                            | `fetchOrder`            | trade:read                    |
+| `GET /api/v1/orders/open`                           | `fetchOpenOrders`       | trade:read                    |
+| `GET /api/v1/orders/closed`                         | `fetchClosedOrders`     | trade:read                    |
+| `POST /api/v1/orders/preview`                       | `previewOrder`          | trade:write                   |
+| `POST /api/v1/orders/batch-amend`                   | `batchAmendOrders`      | trade:write                   |
+| `POST /api/v1/orders/batch-cancel`                  | `batchCancelOrders`     | trade:write                   |
+| `POST /api/v1/markets/:marketId/orders/mass-cancel` | `massCancelOrders`      | trade:write                   |
+| `POST /api/v1/orders/cancel-all-after`              | `cancelAllOrdersAfter`  | trade:write                   |
+| `GET /api/v1/orders/cancel-all-after`               | `fetchCancelAllAfter`   | trade:read                    |
 
-| WebSocket stream | Permission                |
-| ---------------- | ------------------------- |
-| `orderbook`      | public                    |
-| `trades`         | public                    |
-| `ticker`         | public                    |
-| `ohlcv`          | public                    |
-| `orders`         | your own data; trade:read |
+| WebSocket stream | Door                                                   | Permission                |
+| ---------------- | ------------------------------------------------------ | ------------------------- |
+| `depth`          | One market per socket `/stream`                        | public                    |
+| `trades`         | One market per socket `/stream`                        | public                    |
+| `book`           | Many channels on one socket `/stream`                  | public                    |
+| `trades`         | Many channels on one socket `/stream`                  | public                    |
+| `ticker`         | Many channels on one socket `/stream`                  | public                    |
+| `candles`        | Many channels on one socket `/stream`                  | public                    |
+| `orders`         | Your own orders, fills and positions `/private/stream` | your own data; trade:read |
+| `fills`          | Your own orders, fills and positions `/private/stream` | your own data; trade:read |
 
 ## Derivatives
 
-| Route                                | Name                     | Permission                    |
-| ------------------------------------ | ------------------------ | ----------------------------- |
-| `GET /api/v1/funding-rate/:symbol`   | `fetchFundingRate`       | public; with a key trade:read |
-| `GET /api/v1/futures/order-types`    | `fetchFuturesOrderTypes` | public; with a key trade:read |
-| `GET /api/v1/positions`              | `fetchPositions`         | trade:read                    |
-| `POST /api/v1/positions/leverage`    | `setLeverage`            | trade:write                   |
-| `POST /api/v1/positions/margin-mode` | `setMarginMode`          | trade:write                   |
+| Route                                     | Name                       | Permission                    |
+| ----------------------------------------- | -------------------------- | ----------------------------- |
+| `GET /api/v1/funding-rate/:symbol`        | `fetchFundingRate`         | public; with a key trade:read |
+| `GET /api/v1/futures/order-types`         | `fetchFuturesOrderTypes`   | public; with a key trade:read |
+| `GET /api/v1/positions`                   | `fetchPositions`           | trade:read                    |
+| `GET /api/v1/positions/closed`            | `fetchClosedPositions`     | trade:read                    |
+| `GET /api/v1/positions/:id`               | `fetchPosition`            | trade:read                    |
+| `GET /api/v1/positions/:id/margin-call`   | `fetchPositionMarginCall`  | trade:read                    |
+| `POST /api/v1/positions`                  | `openPosition`             | trade:write                   |
+| `POST /api/v1/positions/:id/close`        | `closePositionQuantity`    | trade:write                   |
+| `DELETE /api/v1/positions/:id`            | `closePosition`            | trade:write                   |
+| `POST /api/v1/positions/margin`           | `addIsolatedMargin`        | trade:write                   |
+| `POST /api/v1/positions/margin/reduce`    | `reduceIsolatedMargin`     | trade:write                   |
+| `GET /api/v1/futures/adl-disclosure`      | `fetchAdlDisclosure`       | trade:read                    |
+| `POST /api/v1/futures/adl-disclosure/ack` | `ackAdlDisclosure`         | trade:write                   |
+| `GET /api/v1/futures/adl-events`          | `fetchAdlDisclosureEvents` | trade:read                    |
+| `POST /api/v1/positions/leverage`         | `setLeverage`              | trade:write                   |
+| `POST /api/v1/positions/margin-mode`      | `setMarginMode`            | trade:write                   |
 
-| WebSocket stream | Permission                |
-| ---------------- | ------------------------- |
-| `positions`      | your own data; trade:read |
+| WebSocket stream        | Door                                                   | Permission                |
+| ----------------------- | ------------------------------------------------------ | ------------------------- |
+| `futures.mark.<symbol>` | Many channels on one socket `/stream`                  | public                    |
+| `positions`             | Your own orders, fills and positions `/private/stream` | your own data; trade:read |
 
 ## Funding
 
@@ -57,14 +78,20 @@ No deposit or withdrawal route is on the trading API: withdrawals are never reac
 
 ## Accounts
 
-| Route                         | Name               | Permission |
-| ----------------------------- | ------------------ | ---------- |
-| `GET /api/v1/account/balance` | `fetchBalance`     | trade:read |
-| `GET /api/v1/account/fees`    | `fetchTradingFees` | trade:read |
-| `GET /api/v1/account/trades`  | `fetchMyTrades`    | trade:read |
+| Route                             | Name                       | Permission  |
+| --------------------------------- | -------------------------- | ----------- |
+| `GET /api/v1/account/balance`     | `fetchBalance`             | trade:read  |
+| `GET /api/v1/account/fees`        | `fetchTradingFees`         | trade:read  |
+| `GET /api/v1/account/trades`      | `fetchMyTrades`            | trade:read  |
+| `GET /api/v1/ledger`              | `fetchLedger`              | trade:read  |
+| `POST /api/v1/statements`         | `createStatementExport`    | trade:write |
+| `GET /api/v1/statements/:id`      | `fetchStatementExport`     | trade:read  |
+| `GET /api/v1/statements/:id/file` | `fetchStatementExportFile` | trade:read  |
 
-| WebSocket stream | Permission                |
-| ---------------- | ------------------------- |
-| `balance`        | your own data; trade:read |
+| WebSocket stream | Door                                        | Permission                |
+| ---------------- | ------------------------------------------- | ------------------------- |
+| `drop_copy`      | Drop copy of your fills `/drop-copy/stream` | your own data; trade:read |
 
 The live inventory, GET /api/v1/capabilities, also lists the position and statement routes beyond this table, with their refusals.
+
+The live stream inventory, GET /ws/streams, lists every channel the stream service serves and whether its door is up.

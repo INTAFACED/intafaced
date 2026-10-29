@@ -200,6 +200,12 @@ export type RunReconciliationControlInput = z.infer<typeof runReconciliationCont
 
 const unsetSchema = z.object({ status: z.literal('unset') }).strict();
 
+/** A control's severity: set to one of the severities, or blank. */
+export const reconciliationSeveritySetSchema = z.union([
+  unsetSchema,
+  z.object({ status: z.literal('set'), value: z.enum(RECONCILIATION_SEVERITIES) }).strict(),
+]);
+
 export const reconciliationControlViewSchema = z
   .object({
     id: z.string().uuid(),
@@ -219,7 +225,7 @@ export const reconciliationControlViewSchema = z
         })
         .strict(),
     ]),
-    severity: z.union([unsetSchema, z.object({ status: z.literal('set'), value: z.enum(RECONCILIATION_SEVERITIES) }).strict()]),
+    severity: reconciliationSeveritySetSchema,
     tolerance: z.union([
       unsetSchema,
       z
@@ -289,6 +295,65 @@ export const reconciliationControlRunSchema = z
   })
   .strict();
 export type ReconciliationControlRunView = z.infer<typeof reconciliationControlRunSchema>;
+
+/** OPS-reconciliation-02: a control's evaluations, newest first. A paused or retired control keeps every one readable. */
+export const RECONCILIATION_RUN_LIST_MAX = 500;
+/** How many runs a list returns when it names no limit. */
+export const RECONCILIATION_RUN_LIST_DEFAULT = 100;
+export const listReconciliationControlRunsInputSchema = z
+  .object({
+    controlId: z.string().uuid(),
+    limit: z.number().int().min(1).max(RECONCILIATION_RUN_LIST_MAX).optional(),
+  })
+  .strict();
+export type ListReconciliationControlRunsInput = z.infer<typeof listReconciliationControlRunsInputSchema>;
+export const reconciliationControlRunListSchema = z
+  .object({
+    controlId: z.string().uuid(),
+    /** Every evaluation the control has; `runs` holds the newest `limit` of them, by when each run started. */
+    total: z.number().int().nonnegative(),
+    runs: z.array(reconciliationControlRunSchema),
+  })
+  .strict();
+export type ReconciliationControlRunList = z.infer<typeof reconciliationControlRunListSchema>;
+
+/**
+ * OPS-reconciliation-03: every finished evaluation, oldest first, for svc-ops' alert store. A service door (svc-ops
+ * alone) read with a cursor on (finishedAt, id). A run only shows once it has been finished for a settle window, so a
+ * reader that has passed a cursor does not miss a row committed just behind it; a reader keeps its own write idempotent
+ * by run id, so re-reading from an earlier cursor is safe.
+ */
+export const RECONCILIATION_EVALUATION_FEED_MAX = 500;
+export const reconciliationEvaluationCursorSchema = z
+  .object({ finishedAt: z.string().datetime({ offset: true }), id: z.string().uuid() })
+  .strict();
+export type ReconciliationEvaluationCursor = z.infer<typeof reconciliationEvaluationCursorSchema>;
+export const reconciliationEvaluationFeedInputSchema = z
+  .object({
+    /** Null reads from the first evaluation. */
+    after: reconciliationEvaluationCursorSchema.nullable(),
+    limit: z.number().int().min(1).max(RECONCILIATION_EVALUATION_FEED_MAX),
+  })
+  .strict();
+export type ReconciliationEvaluationFeedInput = z.infer<typeof reconciliationEvaluationFeedInputSchema>;
+export const reconciliationEvaluationSchema = z
+  .object({
+    /** The run as `controls.runs` shows it, without the account list: an alert keys on the control, asset and period. */
+    run: reconciliationControlRunSchema.omit({ accounts: true }),
+    finishedAt: z.string().datetime({ offset: true }),
+    /** The control's severity when the feed is read (a run does not store it). A blank one stays blank. */
+    severity: reconciliationSeveritySetSchema,
+  })
+  .strict();
+export type ReconciliationEvaluation = z.infer<typeof reconciliationEvaluationSchema>;
+export const reconciliationEvaluationFeedSchema = z
+  .object({
+    evaluations: z.array(reconciliationEvaluationSchema),
+    /** Where the next read starts: the last evaluation returned, or the cursor asked for when none was. */
+    next: reconciliationEvaluationCursorSchema.nullable(),
+  })
+  .strict();
+export type ReconciliationEvaluationFeed = z.infer<typeof reconciliationEvaluationFeedSchema>;
 
 /** What a rail snapshot must look like when a partner has one. Amounts are decimal strings. */
 export const railBalanceSnapshotSchema = z

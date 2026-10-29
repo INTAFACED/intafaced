@@ -24,6 +24,7 @@ import type { KycCapabilitiesOutput, KycCapability } from '@intafaced/contracts/
 import { assertAttemptsLeft, readKycAttempts, type KycAttemptLimit } from '../kyc/attempts.js';
 import type { KycAttempts } from '@intafaced/contracts/identity-kyc-attempts';
 import type { KycCase } from '@intafaced/contracts/identity-kyc-cases';
+import type { ApiKeyRevokedBy } from '@intafaced/contracts/api-keys';
 import type {
   AccountState,
   CampaignParticipant,
@@ -233,8 +234,12 @@ export class AuthError extends Error {
       | 'auth.founder_enrolment_closed'
       | 'auth.request_unsigned'
       | 'auth.request_stale'
+      | 'auth.request_future'
       | 'auth.request_tampered'
       | 'auth.request_replay'
+      | 'auth.request_window_unset'
+      | 'auth.api_key_expired'
+      | 'auth.edge_unauthenticated'
       | 'auth.ip_allowlist_required'
       | 'auth.payee_email_unconfirmed'
       | 'auth.payee_phone_unverified'
@@ -468,7 +473,7 @@ export type PayStepUpGrant = {
 export type ApiKeyActionScope = {
   readonly tx: Sql;
   createApiKey: (input: Parameters<AuthService['createApiKey']>[0]) => ReturnType<AuthService['createApiKey']>;
-  revokeApiKey: (userId: string, keyId: string) => Promise<boolean>;
+  revokeApiKey: (userId: string, keyId: string, cause?: ApiKeyRevokedBy) => Promise<boolean>;
 };
 
 export type PayStepUpFactorProof =
@@ -2146,7 +2151,7 @@ export class AuthService {
       const made = await tx<Array<{ since: Date }>>`
         INSERT INTO account_self_freezes (user_id, reason) VALUES (${input.userId}, ${input.reason}) RETURNING since`;
       await tx`UPDATE sessions SET revoked = true WHERE user_id = ${input.userId} AND revoked = false`;
-      await tx`UPDATE api_keys SET revoked = true WHERE user_id = ${input.userId} AND revoked = false`;
+      await tx`UPDATE api_keys SET revoked = true, revoked_at = now(), revoked_cause = 'account_freeze' WHERE user_id = ${input.userId} AND revoked = false`;
       return { reason: input.reason, since: made[0]!.since, changed: true };
     });
     if (result.changed) await syncNavigatorSessionsClosedForUser(this.sql, input.userId);
@@ -2547,6 +2552,26 @@ export class AuthService {
     return { userId: row.user_id, scopes: row.scopes, keyId: row.id, mode, domainWhitelist: row.domain_whitelist ?? [] };
   }
 
+  /**
+   * Why a presented key that opens nothing is refused (DV-errors-02, J-developer-04 #5 and #6). Only a caller holding
+   * the key's full secret reaches a named answer, and the key is dead either way, so naming it tells a guesser
+   * nothing: a key matching no row stays `auth.invalid_credentials`. A frozen account comes first, because a freeze
+   * also revokes the account's keys and the holder needs to know the account, not the key, is the cause.
+   */
+  private async deadApiKeyRefusal(key: string): Promise<AuthError> {
+    const rows = await this.sql<Array<{ revoked: boolean; expires_at: Date | null; status: string | null }>>`
+      SELECT k.revoked, k.expires_at, u.status
+      FROM api_keys k LEFT JOIN users u ON u.id = k.user_id
+      WHERE k.key_hash = ${hashToken(key)}
+    `;
+    const row = rows[0];
+    if (!row) return new AuthError('Invalid credentials', 'auth.invalid_credentials');
+    if (row.status !== null && row.status !== 'active') return new AuthError(`Account is ${row.status}`, 'auth.account_frozen');
+    if (row.revoked) return new AuthError('API key is revoked', 'auth.api_key_revoked');
+    if (row.expires_at && row.expires_at.getTime() < Date.now()) return new AuthError('API key has expired', 'auth.api_key_expired');
+    return new AuthError('Invalid credentials', 'auth.invalid_credentials');
+  }
+
   async exchangeApiKey(
     key: string,
     requestOrigin?: string | null,
@@ -2562,7 +2587,7 @@ export class AuthService {
     ipAllowlist?: string[];
   }> {
     const verified = await this.verifyApiKey(key);
-    if (!verified) throw new AuthError('Invalid credentials', 'auth.invalid_credentials');
+    if (!verified) throw await this.deadApiKeyRefusal(key);
     if (!apiKeyOriginAllowed(verified.domainWhitelist, requestOrigin)) {
       throw new AuthError('API key is not allowed from this origin', 'auth.domain_not_allowed');
     }
@@ -2586,9 +2611,14 @@ export class AuthService {
     return { accessToken, expiresAt, userId: verified.userId, keyId: verified.keyId, scopes: verified.scopes, mode: verified.mode };
   }
 
-  async revokeApiKey(userId: string, keyId: string, executor?: Sql): Promise<boolean> {
+  /**
+   * Revoke one key, recording why: `owner` (the person, also a rotation's old key) unless the caller says otherwise,
+   * `system` when a create or rotation undoes a key it made but never handed over.
+   */
+  async revokeApiKey(userId: string, keyId: string, cause: ApiKeyRevokedBy = 'owner', executor?: Sql): Promise<boolean> {
     const result = await (executor ??
-      this.sql)`UPDATE api_keys SET revoked = true WHERE id = ${keyId} AND user_id = ${userId} AND revoked = false`;
+      this
+        .sql)`UPDATE api_keys SET revoked = true, revoked_at = now(), revoked_cause = ${cause} WHERE id = ${keyId} AND user_id = ${userId} AND revoked = false`;
     return result.count > 0;
   }
 
@@ -3422,7 +3452,7 @@ export class AuthService {
         const scope: ApiKeyActionScope = {
           tx: tx as unknown as Sql,
           createApiKey: (create) => this.createApiKey({ ...create, executor: tx as unknown as Sql }),
-          revokeApiKey: (userId, keyId) => this.revokeApiKey(userId, keyId, tx as unknown as Sql),
+          revokeApiKey: (userId, keyId, cause) => this.revokeApiKey(userId, keyId, cause, tx as unknown as Sql),
         };
         const result = await run(scope);
         await tx`
@@ -3476,7 +3506,7 @@ export class AuthService {
       >`UPDATE sub_accounts SET revoked = true WHERE parent_user_id = ${userId} AND revoked = false RETURNING id`;
       const revokedKeys = await tx<
         Array<{ id: string }>
-      >`UPDATE api_keys SET revoked = true WHERE user_id = ${userId} AND revoked = false RETURNING id`;
+      >`UPDATE api_keys SET revoked = true, revoked_at = now(), revoked_cause = 'account_freeze' WHERE user_id = ${userId} AND revoked = false RETURNING id`;
       return { userId, status: 'frozen' as const, subAccountsRevoked: revokedRows.length, apiKeysRevoked: revokedKeys.length };
     });
     await syncNavigatorSessionsClosedForUser(this.sql, userId);

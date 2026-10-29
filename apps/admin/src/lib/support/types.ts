@@ -1,4 +1,6 @@
+import type { SupportMacro, SupportSignature } from '@intafaced/contracts/support-macros';
 import type {
+  SupportAccountGrounding,
   SupportViewList,
   SupportTicketLifecycle,
   SupportTicketProperties,
@@ -109,6 +111,12 @@ export interface SupportKbView {
 }
 
 /** Priority, type and labels an agent set on one ticket. Null priority or type means nobody set one. */
+/** The customer card's account read: svc-support's own answer (`read` with the state, or `unread` with why). */
+export interface SupportCustomerView {
+  readonly asOf: string;
+  readonly account: Part<SupportAccountGrounding>;
+}
+
 export interface SupportPropertiesView {
   readonly asOf: string;
   readonly properties: Part<SupportTicketProperties>;
@@ -146,4 +154,11 @@ export interface SupportGroupsView {
   readonly groups: Part<readonly DeskGroupView[]>;
   readonly scope: Part<DeskScopeView>;
   readonly roster: Part<readonly StaffMemberView[]>;
+}
+
+/** The desk's macros and the signed-in agent's own signature (SP-desk-02). Two reads, each its own part. */
+export interface SupportMacrosView {
+  readonly asOf: string;
+  readonly macros: Part<readonly SupportMacro[]>;
+  readonly signature: Part<SupportSignature>;
 }

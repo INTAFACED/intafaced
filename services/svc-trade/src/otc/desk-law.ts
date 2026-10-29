@@ -5,9 +5,10 @@
  * never defaulted. Blank / unpublished → refuse-closed.
  */
 
-import { parseAmount, type Amount } from '@intafaced/ledger-client';
+import { formatAmount, parseAmount, type Amount } from '@intafaced/ledger-client';
 import { logRefusalSpec } from '../refusal-spec-log.js';
 import { OTC_DESK_LAW_RESIDUAL, OtcError } from './errors.js';
+import { normalizeOtcAsset } from './mid-source.js';
 
 export type OtcCounterpartyMode = 'platform' | 'maker';
 
@@ -28,6 +29,16 @@ export type OtcDeskLaw =
        * Older than this → refuse quote rather than price off a memory.
        */
       readonly maxMidAgeSeconds: number;
+      /**
+       * How long an accepted quote may wait to be settled, ms from the accept (CB-otc-07). Owner-published only.
+       * Null is blank: there is no deferral, so a bound quote settles only while its own quote is still firm.
+       */
+      readonly settleWindowMs?: number | null;
+      /**
+       * Smallest request the desk prices, as the notional the customer trades (after the spread), per quote asset (CB-otc-07). Owner-published
+       * only. Null, or a quote asset left out, is blank: a request in that asset refuses `trade.rfq_size_not_set`.
+       */
+      readonly minNotional?: Readonly<Record<string, Amount>> | null;
     };
 
 /** Production default — no invent. */
@@ -103,7 +114,55 @@ export function parseOtcDeskLawJson(raw: string | null | undefined): OtcDeskLaw 
     );
   }
 
-  return { published: true, spreadBps, minStake, counterparty, quoteTtlMs, maxMidAgeSeconds };
+  // Optional: absent or null is blank (no deferral), never a default window.
+  const settleWindowMs = obj.settleWindowMs ?? null;
+  if (
+    settleWindowMs !== null &&
+    (typeof settleWindowMs !== 'number' || !Number.isInteger(settleWindowMs) || settleWindowMs < 1_000 || settleWindowMs > 86_400_000)
+  ) {
+    throw new OtcError(
+      'TRADE_OTC_DESK_LAW.settleWindowMs must be an integer 1000..86400000, or left out for no deferral',
+      'trade.otc_desk_law_blank',
+      OTC_DESK_LAW_RESIDUAL,
+    );
+  }
+
+  // Optional: absent or null is blank, and a blank minimum refuses each request in its asset, never a default size.
+  const minNotional = parseMinNotional(obj.minNotional ?? null);
+
+  return { published: true, spreadBps, minStake, counterparty, quoteTtlMs, maxMidAgeSeconds, settleWindowMs, minNotional };
+}
+
+/** `{ "USDT": "1000" }`: quote asset to minimum notional, each a non-negative decimal string. */
+function parseMinNotional(raw: unknown): Readonly<Record<string, Amount>> | null {
+  if (raw === null) return null;
+  if (typeof raw !== 'object' || Array.isArray(raw)) refuseMinNotional('must be an object of quote asset to decimal string, or left out');
+  const out: Record<string, Amount> = {};
+  for (const [key, value] of Object.entries(raw as Record<string, unknown>)) {
+    const asset = normalizeOtcAsset(key);
+    if (asset == null) refuseMinNotional(`has an unusable asset id ${JSON.stringify(key)}`);
+    if (Object.hasOwn(out, asset)) refuseMinNotional(`names ${asset} twice`);
+    if (typeof value !== 'string' || !value.trim()) refuseMinNotional(`.${asset} must be a decimal string`);
+    let amount: Amount;
+    try {
+      amount = parseAmount(value);
+    } catch {
+      refuseMinNotional(`.${asset} is not a valid amount`);
+    }
+    if (amount < 0n) refuseMinNotional(`.${asset} must be non-negative`);
+    out[asset] = amount;
+  }
+  return out;
+}
+
+function refuseMinNotional(why: string): never {
+  throw new OtcError(`TRADE_OTC_DESK_LAW.minNotional ${why}`, 'trade.otc_desk_law_blank', OTC_DESK_LAW_RESIDUAL);
+}
+
+/** The desk minimum for requests in `quoteAsset`, or null when the owner has not set one. */
+export function otcMinNotionalFor(law: Extract<OtcDeskLaw, { published: true }>, quoteAsset: string): Amount | null {
+  const table = law.minNotional ?? null;
+  return table != null && Object.hasOwn(table, quoteAsset) ? (table[quoteAsset] ?? null) : null;
 }
 
 /** Require published law or throw refuse-closed. */
@@ -120,5 +179,10 @@ export function otcDeskLawStatusLine(law: OtcDeskLaw): string {
     logRefusalSpec('trade.otc_desk_law_blank');
     return 'published=0 residual=otc_desk_law_unset';
   }
-  return `published=1 spreadBps=${law.spreadBps} counterparty=${law.counterparty} ttlMs=${law.quoteTtlMs} maxMidAgeSeconds=${law.maxMidAgeSeconds}`;
+  return `published=1 spreadBps=${law.spreadBps} counterparty=${law.counterparty} ttlMs=${law.quoteTtlMs} maxMidAgeSeconds=${law.maxMidAgeSeconds} settleWindowMs=${law.settleWindowMs ?? 'unset'} minStake=${formatAmount(law.minStake)} minNotional=${minNotionalLabel(law.minNotional ?? null)}`;
+}
+
+function minNotionalLabel(table: Readonly<Record<string, Amount>> | null): string {
+  const entries = Object.entries(table ?? {}).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
+  return entries.length === 0 ? 'unset' : entries.map(([asset, amount]) => `${asset}:${formatAmount(amount)}`).join(',');
 }

@@ -1,12 +1,27 @@
 import { useMemo, useState, type FormEvent, type JSX } from 'react';
+import { StateBlock } from '@intafaced/ui';
+import { useSession } from '../session/session';
 import { developersCopy } from './developers-copy';
+import { liveCopy } from './developers-live-copy';
+import { hostsView, readDeveloperHosts, readRegionalRule, regionalRuleView } from './developers-values';
+import { useRead } from './use-read';
 import { createDocsSearch } from './developers-search';
-import { ConnectivityPage, DataTermsPage, OpenApiPage, PermissionsPage, QuickstartPage, ReferencePage, RestPage } from './DocsPages';
+import {
+  AuthenticationPage,
+  ConnectivityPage,
+  DataTermsPage,
+  OpenApiPage,
+  PermissionsPage,
+  QuickstartPage,
+  ReferencePage,
+  RestPage,
+} from './DocsPages';
 import {
   AUDIENCES,
   SECTIONS,
   developersRoute,
   hostRows,
+  hostTable,
   sectionById,
   type Audience,
   type PageSectionId,
@@ -32,6 +47,7 @@ const PAGES: Record<PageSectionId, (props: { title: string }) => JSX.Element> = 
   quickstart: QuickstartPage,
   openapi: OpenApiPage,
   status: () => <StatusPage />,
+  authentication: AuthenticationPage,
 };
 
 /** /developers and the pages under it: the portal home, the base-address table and one page per section. Public: no sign-in needed. */
@@ -98,6 +114,10 @@ function Home() {
 
 function Hosts() {
   const { t } = developersCopy.useCopy();
+  const { t: live } = liveCopy.useCopy();
+  const { api } = useSession();
+  const { read, reload } = useRead((signal) => readDeveloperHosts(api, signal), [api]);
+  const view = hostsView(read);
   return (
     <div className="pub-page" data-testid="developers-hosts">
       <header className="pub-heading">
@@ -105,30 +125,63 @@ function Hosts() {
         <p className="muted">{t('hostsPageLead')}</p>
       </header>
       <section className="pub-card">
-        <table>
-          <thead>
-            <tr>
-              <th scope="col">{t('colProtocol')}</th>
-              <th scope="col">{t('colEnvironment')}</th>
-              <th scope="col">{t('colHost')}</th>
-            </tr>
-          </thead>
-          <tbody>
-            {hostRows().map((row) => (
-              <tr key={`${row.protocol}:${row.environment}`} data-host-state={row.cell.state}>
-                <td>{t(`protocol_${row.protocol}` as const)}</td>
-                <td>{t(`environment_${row.environment}` as const)}</td>
-                <td lang="und">{row.cell.state === 'set' ? row.cell.host : <span lang={undefined}>{t('hostUnset')}</span>}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-        <p className="muted">{t('hostsRegional')}</p>
+        {view.kind === 'loading' ? (
+          <StateBlock kind="loading" rows={9} rowHeight={32} label={live('loading')} />
+        ) : view.kind === 'failed' ? (
+          <StateBlock kind="error" title={live('loadFailed')} onRetry={reload} retryLabel={live('tryAgain')} />
+        ) : (
+          <>
+            {view.unsetCode ? (
+              <p className="pub-notice" role="status" data-testid="developers-hosts-unset" data-code={view.unsetCode}>
+                {t('hostsUnpublished')}
+              </p>
+            ) : null}
+            <table>
+              <thead>
+                <tr>
+                  <th scope="col">{t('colProtocol')}</th>
+                  <th scope="col">{t('colEnvironment')}</th>
+                  <th scope="col">{t('colHost')}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {hostRows(hostTable(view.read)).map((row) => (
+                  <tr key={`${row.protocol}:${row.environment}`} data-host-state={row.cell.state}>
+                    <td>{t(`protocol_${row.protocol}` as const)}</td>
+                    <td>{t(`environment_${row.environment}` as const)}</td>
+                    <td>{row.cell.state === 'set' ? <code>{row.cell.host}</code> : t('hostUnset')}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </>
+        )}
+        <RegionalRule />
         <a className="text-link" href="/developers">
           ← {t('hostsBack')}
         </a>
       </section>
     </div>
+  );
+}
+
+/** The owner's rule for the regional hosts, read from svc-trade; until it is published the page says it waits for the owner. */
+function RegionalRule() {
+  const { t } = developersCopy.useCopy();
+  const { t: live } = liveCopy.useCopy();
+  const { api } = useSession();
+  const { read, reload } = useRead((signal) => readRegionalRule(api, signal), [api]);
+  const view = regionalRuleView(read);
+  if (view.kind === 'loading') return <StateBlock kind="loading" rows={1} rowHeight={24} label={live('loading')} />;
+  if (view.kind === 'failed') return <StateBlock kind="error" title={live('loadFailed')} onRetry={reload} retryLabel={live('tryAgain')} />;
+  return view.kind === 'set' ? (
+    <p data-testid="developers-regional-rule" data-rule-state="set" style={{ whiteSpace: 'pre-line' }}>
+      {view.rule}
+    </p>
+  ) : (
+    <p className="muted" role="status" data-testid="developers-regional-rule" data-rule-state="unset" data-code={view.code}>
+      {t('hostsRegional')}
+    </p>
   );
 }
 

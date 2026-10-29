@@ -52,7 +52,9 @@ function forged(p: Principal = principal()) {
 
 function reads(): MiningReads & { myWorkers: ReturnType<typeof vi.fn> } {
   return {
-    myWorkers: vi.fn(async () => ({ asOf: '2026-01-01T00:00:00.000Z', windowMinutes: 60, workers: [] })),
+    myWorkers: vi.fn(async () => ({ asOf: '2026-01-01T00:00:00.000Z', windowMinutes: 60, workers: [], nextCursor: null })),
+    setWorkerDifficulty: vi.fn(),
+    setWorkerMode: vi.fn(),
     listWorkers: vi.fn(async () => ({ asOf: '2026-01-01T00:00:00.000Z', workers: [], nextCursor: null })),
     myShares: vi.fn(),
     opsShares: vi.fn(),
@@ -80,7 +82,7 @@ describe('mining tRPC mount', () => {
     ).rejects.toMatchObject({ code: 'FORBIDDEN', cause: { code: 'scope.denied' } });
     expect(store.myWorkers).not.toHaveBeenCalled();
     await expect(router.createCaller(signed()).workers.mine({ windowMinutes: 60 })).resolves.toMatchObject({ workers: [] });
-    expect(store.myWorkers).toHaveBeenCalledWith(USER, 60);
+    expect(store.myWorkers).toHaveBeenCalledWith(USER, 60, {});
   });
 
   it('refuses operator reads without admin:read', async () => {
