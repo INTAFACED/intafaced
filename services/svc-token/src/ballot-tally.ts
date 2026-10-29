@@ -110,6 +110,9 @@ export function validateBallot(votingType: VotingType, choiceCount: number, ball
   return { kind: 'split', parts: parts.sort((a, b) => a.choice - b.choice) };
 }
 
+/** One whole token in base units (18 decimals, as the ledger's amounts). */
+const SCALE = 10n ** 18n;
+
 /** Floor of the square root of a non-negative bigint, by Newton's method. No float. */
 export function isqrt(value: bigint): bigint {
   if (value < 0n) throw new RangeError('isqrt of a negative number');
@@ -132,7 +135,7 @@ export interface TallyVote {
 }
 
 export interface ChoiceTally {
-  /** One total per choice, in choice order. Quadratic totals are square roots of base units. */
+  /** One total per choice, in choice order. Quadratic totals are square roots of whole tokens, at the ledger's 18-decimal scale. */
   totals: Amount[];
   abstainWeight: Amount;
   /** Weight of every ballot, abstain included: what quorum would read. */
@@ -213,7 +216,8 @@ export function tallyChoices(votingType: VotingType, choiceCount: number, votes:
     if (ballot.kind === 'split') {
       for (const part of ballot.parts) {
         const allocated = (vote.weight * BigInt(part.bps)) / BigInt(BALLOT_BPS);
-        totals[part.choice] = totals[part.choice]! + (votingType === 'quadratic' ? isqrt(allocated) : allocated);
+        // sqrt(x tokens) at 18 decimals is isqrt(x * 10^18 * 10^18): the base units scaled once more before the root.
+        totals[part.choice] = totals[part.choice]! + (votingType === 'quadratic' ? isqrt(allocated * SCALE) : allocated);
       }
     }
   }

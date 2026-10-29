@@ -11,7 +11,16 @@ import { EmissionEpoch, TokenHoldings } from './TokenHoldings';
 import { Details, Limit, Read, Select, presentActionFailure, useAction } from './common';
 import { governanceCopy as G } from './token-governance-copy';
 import { GovernanceDelegation, GovernanceProposals, GovernanceSpace, GovernanceTreasury } from './GovernanceRoom';
-import { ChoiceBallot, ChoiceTallyView, VOTING_TYPES, VotingPower, choiceTallySchema, type BallotOutcome } from './TokenVoting';
+import {
+  ChoiceBallot,
+  ChoiceTallyView,
+  VOTING_TYPES,
+  VotingPower,
+  choiceTallySchema,
+  powerSchema,
+  type BallotOutcome,
+  type ProposalPower,
+} from './TokenVoting';
 import './token-governance.css';
 const uuid = z.string().guid();
 /** The service stores `gov:proposal:<space>:<author>:<n>`; older rows keep their uuid. */
@@ -447,13 +456,12 @@ function BallotContext({ saved, choose }: { saved: SavedBallot; choose: (id: str
 function Proposal({ id, action, ballot }: { id: string; action: ReturnType<typeof useAction>; ballot: SavedBallot }) {
   const api = useApi(),
     { userId } = useSession();
-  const { hideBalances } = usePreferences();
   const [now, setNow] = useState(Date.now);
   const [version, setVersion] = useState(0);
   const [ballotOutcome, setBallotOutcome] = useState<BallotOutcome>(null);
   const [preflight, setPreflight] = useState<{
     detail: Resource<z.infer<ReturnType<typeof proposalDetailSchema>>>;
-    stake: Resource<{ staked: string }>;
+    power: Resource<ProposalPower>;
   } | null>(null);
   useEffect(() => {
     const timer = setInterval(() => setNow(Date.now()), 1000);
@@ -463,18 +471,20 @@ function Proposal({ id, action, ballot }: { id: string; action: ReturnType<typeo
     (signal) => api.query('token', 'getProposal', { proposalId: id }, proposalDetailSchema(id), { signal }),
     `proposal:${userId}:${id}`,
   );
-  const stake = useResource(
-    (signal) => api.query('token', 'stakeOf', undefined, z.object({ staked: decimalSchema }), { signal }),
-    `vote-stake:${userId}:${id}`,
+  // Votes weigh the power fixed at creation, never today's stake.
+  const power = useResource(
+    (signal) => api.query('token', 'votingPower.ofProposal', { proposalId: id }, powerSchema, { signal }),
+    `voting-power:${userId}:${id}`,
   );
   const blocked = ballot.status === 'unreadable' || (ballot.status === 'ready' && ballot.data.status === 'unknown');
   const detailView = preflight?.detail ?? detail.resource,
-    stakeView = preflight?.stake ?? stake.resource;
+    powerView = preflight?.power ?? power.resource;
+  const canWeigh = powerView.status === 'ready' && parseAmount(powerView.data.power) > 0n;
   function refresh() {
     setPreflight(null);
     setVersion((n) => n + 1);
     detail.reload();
-    stake.reload();
+    power.reload();
   }
   function stageVote(p: z.infer<ReturnType<typeof proposalDetailSchema>>, choice: VoteChoice) {
     if (
@@ -482,12 +492,12 @@ function Proposal({ id, action, ballot }: { id: string; action: ReturnType<typeo
       action.disabled ||
       blocked ||
       !activeWindow(p, Date.now()) ||
-      stakeView.status !== 'ready' ||
-      parseAmount(stakeView.data.staked) <= 0n
+      powerView.status !== 'ready' ||
+      parseAmount(powerView.data.power) <= 0n
     )
       return;
     const actor = userId,
-      estimate = stakeView.data.staked;
+      weight = powerView.data.power;
     const body = JSON.stringify(p.body, null, 2);
     const reviewed = reviewedProposal(p);
     action.stage({
@@ -514,7 +524,7 @@ function Proposal({ id, action, ballot }: { id: string; action: ReturnType<typeo
                   {timeValue(p.closesAt)}
                 </time>,
               ],
-              [G.t('stakeEstimate'), currentPreferences().hideBalances ? G.t('hidden') : displayAmount(estimate)],
+              [G.t('stakeEstimate'), currentPreferences().hideBalances ? G.t('hidden') : displayAmount(weight)],
             ]}
           />
           <p className="muted">
@@ -550,21 +560,21 @@ function Proposal({ id, action, ballot }: { id: string; action: ReturnType<typeo
           }
           return result;
         };
-        setPreflight({ detail: { status: 'loading' }, stake: { status: 'loading' } });
-        const [fresh, currentStake] = await Promise.all([
+        setPreflight({ detail: { status: 'loading' }, power: { status: 'loading' } });
+        const [fresh, currentPower] = await Promise.all([
           api.query('token', 'getProposal', { proposalId: id }, proposalDetailSchema(id)),
-          api.query('token', 'stakeOf', undefined, z.object({ staked: decimalSchema })),
+          api.query('token', 'votingPower.ofProposal', { proposalId: id }, powerSchema),
         ]);
         if (!canDispatch() || !api.canWrite()) return refuseBeforeDispatch(governanceRefusal('aborted', 'changed'));
         setPreflight({
           detail: fresh.ok ? { status: 'ready', data: fresh.data } : { status: 'failed', failure: fresh },
-          stake: currentStake.ok ? { status: 'ready', data: currentStake.data } : { status: 'failed', failure: currentStake },
+          power: currentPower.ok ? { status: 'ready', data: currentPower.data } : { status: 'failed', failure: currentPower },
         });
         if (!fresh.ok) return refuseBeforeDispatch(fresh);
-        if (!currentStake.ok) return refuseBeforeDispatch(currentStake);
+        if (!currentPower.ok) return refuseBeforeDispatch(currentPower);
         if (!activeWindow(fresh.data, Date.now())) return refuseBeforeDispatch(governanceRefusal('error', 'inactive'));
         if (reviewedProposal(fresh.data) !== reviewed) return refuseBeforeDispatch(governanceRefusal('error', 'changed'));
-        if (parseAmount(currentStake.data.staked) <= 0n) return refuseBeforeDispatch(governanceRefusal('forbidden', 'noWeight'));
+        if (parseAmount(currentPower.data.power) <= 0n) return refuseBeforeDispatch(governanceRefusal('forbidden', 'noWeight'));
         // No await separates the final identity guard and dispatch.
         const result = await api.mutate(
           'token',
@@ -627,7 +637,7 @@ function Proposal({ id, action, ballot }: { id: string; action: ReturnType<typeo
                 {JSON.stringify(p.body, null, 2)}
               </pre>
             </section>
-            <VotingPower proposalId={id} version={version} />
+            <VotingPower power={power} version={version} />
             {p.votingType !== 'basic' && p.choices && p.choiceTally && (
               <ChoiceTallyView choices={p.choices} tally={p.choiceTally} closedRanked={p.status === 'closed_ranked'} />
             )}
@@ -650,22 +660,15 @@ function Proposal({ id, action, ballot }: { id: string; action: ReturnType<typeo
               <p className="muted">{G.t('aggregate')}</p>
             </section>
             <section className="token-proposal-section">
-              <Read resource={stakeView} retry={refresh}>
-                {(s) => (
-                  <>
-                    <Details items={[[G.t('stakeEstimate'), hideBalances ? G.t('hidden') : displayAmount(s.staked)]]} />
-                    <p className="muted">
-                      {G.t('unit')} {G.t('weightBoundary')}
-                    </p>
-                  </>
-                )}
-              </Read>
+              <p className="muted">
+                {G.t('unit')} {G.t('weightBoundary')}
+              </p>
               {!activeWindow(p, now) && (
                 <p role="status" className="muted">
                   {G.t('inactive')}
                 </p>
               )}
-              {stakeView.status === 'ready' && parseAmount(stakeView.data.staked) === 0n && (
+              {powerView.status === 'ready' && !canWeigh && (
                 <p role="status" className="muted">
                   {G.t('noWeight')}
                 </p>
@@ -676,8 +679,8 @@ function Proposal({ id, action, ballot }: { id: string; action: ReturnType<typeo
                   proposalId={id}
                   votingType={p.votingType}
                   choices={p.choices}
-                  open={activeWindow(p, now) && !action.disabled}
-                  version={version}
+                  open={activeWindow(p, now) && !action.disabled && canWeigh}
+                  power={power}
                   outcome={ballotOutcome}
                   onOutcome={setBallotOutcome}
                   onCast={refresh}
@@ -688,13 +691,7 @@ function Proposal({ id, action, ballot }: { id: string; action: ReturnType<typeo
                   <Button
                     key={choice}
                     variant="secondary"
-                    disabled={
-                      action.disabled ||
-                      blocked ||
-                      !activeWindow(p, now) ||
-                      stakeView.status !== 'ready' ||
-                      parseAmount(stakeView.data.staked) <= 0n
-                    }
+                    disabled={action.disabled || blocked || !activeWindow(p, now) || !canWeigh}
                     onClick={() => stageVote(p, choice)}
                   >
                     {G.t(choice === 'for' ? 'reviewFor' : choice === 'against' ? 'reviewAgainst' : 'reviewAbstain')}

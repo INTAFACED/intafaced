@@ -117,7 +117,10 @@ describe('proposer rule decisions', () => {
     const service = readFileSync(join(here, 'token-service.ts'), 'utf8');
     const create = service.slice(service.indexOf('async createProposal('), service.indexOf('async editProposal('));
     expect(create).not.toMatch(/this\.stakeOf\(/);
-    expect(create).toMatch(/lockedActiveStake/);
+    // The author's stake is read from the locked snapshot of every active stake (FOR UPDATE, id order), not a bare read.
+    expect(create).toMatch(/snapshotActiveStake/);
+    const snapshot = service.slice(service.indexOf('private async snapshotActiveStake('), service.indexOf('async getStake('));
+    expect(snapshot).toMatch(/ORDER BY id\s+FOR UPDATE/);
   });
 });
 

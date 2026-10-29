@@ -1071,35 +1071,6 @@ export class TokenService {
   }
 
   /**
-   * Author's active stake inside the proposal insert. `FOR UPDATE` is the
-   * lock `unstake` already takes on `token.stakes`, so a commit that marks
-   * the row `unstaking` cannot land between this read and the insert.
-   */
-  private async lockedActiveStake(sql: Sql, userId: string): Promise<Amount> {
-    const rows = await sql<Array<{ id: string; amount: string }>>`
-      SELECT id, amount
-        FROM token.stakes
-       WHERE user_id = ${userId}
-         AND status = 'active'
-       ORDER BY id
-       FOR UPDATE
-    `;
-    let total: Amount = 0n;
-    for (const row of rows) {
-      const recorded = parseAmount(row.amount);
-      const book = (await this.ledger.balance(tokenStakeAccount(userId, this.assetId, row.id))).amount;
-      if (book !== recorded) {
-        throw new TokenError(
-          `Stake ${row.id} table amount ${formatAmount(recorded)} disagrees with ledger ${formatAmount(book)}`,
-          'token.stake_ledger_mismatch',
-        );
-      }
-      total += book;
-    }
-    return total;
-  }
-
-  /**
    * Active stake locked in id order, read from ledger pots.
    *
    * One read is the ballot weight and the electorate that weight was a share
@@ -2749,6 +2720,18 @@ export class TokenService {
       );
     }
 
+    // One read of every active stake per attempt, locked in id order. The author's stake for the proposer rule comes
+    // from the same read, so two authors creating at once take their row locks in one order and cannot deadlock.
+    const snapshots = new WeakMap<Sql, Promise<Map<string, Amount>>>();
+    const snapshotOf = (tx: Sql) => {
+      let read = snapshots.get(tx);
+      if (!read) {
+        read = this.snapshotActiveStake(tx).then((snap) => snap.byUser);
+        snapshots.set(tx, read);
+      }
+      return read;
+    };
+
     return insertGovernanceProposal(this.sql, {
       kind: input.kind,
       body: input.body ?? {},
@@ -2761,10 +2744,10 @@ export class TokenService {
       title: input.title,
       bodyMd: input.bodyMd,
       discussionLink: input.discussionLink,
-      lockedStake: (tx) => this.lockedActiveStake(tx, input.createdBy),
+      lockedStake: async (tx) => (await snapshotOf(tx)).get(input.createdBy) ?? 0n,
       votingType,
       choices,
-      snapshot: async (tx) => (await this.snapshotActiveStake(tx)).byUser,
+      snapshot: snapshotOf,
     });
   }
 

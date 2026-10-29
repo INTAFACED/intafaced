@@ -327,7 +327,7 @@ export const governanceVotes = token.table(
      * from before this column; close refuses those rather than reading live pots.
      */
     eligibleStake: amount('eligible_stake'),
-    /** for/against/abstain on `basic`; abstain on every type. Null when `ballot` holds the vote. */
+    /** for/against/abstain on `basic` only. Null when `ballot` holds the vote; a non-basic abstain is `{ kind: 'abstain' }` there. */
     choice: voteChoiceEnum('choice'),
     /** A non-basic ballot as validated data (`ballot-tally.ts`). Exactly one of choice or ballot is set. */
     ballot: jsonb('ballot'),

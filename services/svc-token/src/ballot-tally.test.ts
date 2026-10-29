@@ -60,7 +60,7 @@ describe('voting types', () => {
     expect(isqrt(big)).toBe(10n ** 20n);
     const tally = tallyChoices('quadratic', 2, [
       {
-        weight: 100n,
+        weight: amt('100'),
         choice: null,
         ballot: {
           kind: 'split',
@@ -71,8 +71,8 @@ describe('voting types', () => {
         },
       },
     ]);
-    // 50 base units each: floor(sqrt(50)) = 7.
-    expect(tally.totals).toEqual([7n, 7n]);
+    // 50 tokens each: sqrt(50) = 7.071067811865475244..., floored at 18 decimals, so the total reads as tokens.
+    expect(tally.totals).toEqual([amt('7.071067811865475244'), amt('7.071067811865475244')]);
   });
 
   it('ranked: a tie goes to the lower choice index', () => {

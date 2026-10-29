@@ -44,7 +44,7 @@ CREATE TABLE IF NOT EXISTS "token"."governance_snapshots" (
 CREATE INDEX IF NOT EXISTS "governance_snapshots_user_idx"
   ON "token"."governance_snapshots" ("user_id", "taken_at" DESC);
 
--- A non-basic ballot is stored as data. Abstain stays in `choice` on every type.
+-- A non-basic ballot is stored as data, an abstain included (`{"kind":"abstain"}`); `choice` holds only a basic vote.
 ALTER TABLE "token"."governance_votes" ADD COLUMN IF NOT EXISTS "ballot" jsonb;
 ALTER TABLE "token"."governance_votes" ALTER COLUMN "choice" DROP NOT NULL;
 ALTER TABLE "token"."governance_votes" DROP CONSTRAINT IF EXISTS "governance_votes_choice_or_ballot_check";

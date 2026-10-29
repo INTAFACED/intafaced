@@ -2,7 +2,7 @@
 import { useState, type FormEvent } from 'react';
 import { z } from 'zod';
 import { useApi, useSession } from '../session/session';
-import { useResource } from '../../shared/resource';
+import { useResource, type Resource } from '../../shared/resource';
 import { decimalSchema, displayAmount } from '../../shared/money';
 import type { ApiResult } from '../../shared/api';
 import { usePreferences } from '../../shared/preferences';
@@ -28,7 +28,7 @@ const HISTORY_PAGE = 20;
 const HISTORY_CAP = 200;
 
 const iso = z.string().datetime({ offset: true });
-const powerSchema = z.object({
+export const powerSchema = z.object({
   proposalId: z.string().min(1).max(512),
   power: decimalSchema,
   reason: z.enum(['no_stake_at_creation', 'not_measured']).nullable(),
@@ -36,6 +36,12 @@ const powerSchema = z.object({
   rule: z.object({ minPower: decimalSchema.nullable(), code: z.string().nullable() }),
   signing: z.object({ available: z.literal(false), code: z.literal('token.signed_vote_unavailable') }),
 });
+export type ProposalPower = z.infer<typeof powerSchema>;
+/** Read once per proposal view and shared, so the power, the ballot and the vote buttons agree. */
+export interface PowerRead {
+  resource: Resource<ProposalPower>;
+  reload: () => void;
+}
 const historySchema = z.array(
   z.object({ proposalId: z.string().min(1).max(512), title: z.string().nullable(), takenAt: iso, power: decimalSchema }),
 );
@@ -82,16 +88,12 @@ function ruleWords(rule: z.infer<typeof powerSchema>['rule'], t: T, hide: boolea
 }
 
 /** The signed account's power on one proposal, who may vote, and its stored power over time. */
-export function VotingPower({ proposalId, version }: { proposalId: string; version: number }) {
+export function VotingPower({ power, version }: { power: PowerRead; version: number }) {
   const api = useApi(),
     { userId } = useSession(),
     t = useWords(),
     { hideBalances } = usePreferences();
   const [limit, setLimit] = useState(HISTORY_PAGE);
-  const power = useResource(
-    (signal) => api.query('token', 'votingPower.ofProposal', { proposalId }, powerSchema, { signal }),
-    `voting-power:${userId}:${proposalId}:${version}`,
-  );
   const history = useResource(
     (signal) => api.query('token', 'votingPower.history', { limit }, historySchema, { signal }),
     `voting-power-history:${userId}:${limit}:${version}`,
@@ -212,7 +214,7 @@ export function ChoiceBallot({
   votingType,
   choices,
   open,
-  version,
+  power,
   outcome,
   onOutcome,
   onCast,
@@ -221,7 +223,7 @@ export function ChoiceBallot({
   votingType: Exclude<VotingType, 'basic'>;
   choices: readonly string[];
   open: boolean;
-  version: number;
+  power: PowerRead;
   outcome: BallotOutcome;
   onOutcome: (outcome: BallotOutcome) => void;
   onCast: () => void;
@@ -233,10 +235,6 @@ export function ChoiceBallot({
   const [inputs, setInputs] = useState<string[]>(() => choices.map(() => ''));
   const [picked, setPicked] = useState<Set<number>>(new Set());
   const [busy, setBusy] = useState(false);
-  const signing = useResource(
-    (signal) => api.query('token', 'votingPower.ofProposal', { proposalId }, powerSchema, { signal }),
-    `voting-signing:${userId}:${proposalId}:${version}`,
-  );
   const split = votingType === 'weighted' || votingType === 'quadratic';
   const sum = split ? inputs.reduce((total, raw) => total + (percentToBps(raw) ?? 0), 0) : 0;
   const ballot = ballotOf(votingType, choices, inputs, picked);
@@ -323,7 +321,7 @@ export function ChoiceBallot({
         <Button variant="secondary" disabled>
           {t('sign')}
         </Button>
-        <Read resource={signing.resource} retry={signing.reload}>
+        <Read resource={power.resource} retry={power.reload}>
           {(p) => (
             <p role="note" data-testid="signed-vote-reply">
               {t('signUnavailable', { code: p.signing.code })}
@@ -345,7 +343,7 @@ export function ChoiceBallot({
   );
 }
 
-/** Totals per choice, best first by the service's ranking. Quadratic totals are square roots of base units. */
+/** Totals per choice, best first by the service's ranking. Quadratic totals are square roots of whole tokens. */
 export function ChoiceTallyView({
   choices,
   tally,
@@ -355,7 +353,9 @@ export function ChoiceTallyView({
   tally: ChoiceTally;
   closedRanked: boolean;
 }) {
-  const t = useWords();
+  const t = useWords(),
+    { hideBalances } = usePreferences();
+  const amount = (value: string) => (hideBalances ? t('hidden') : displayAmount(value));
   const rankOf = new Map(tally.ranking.map((choice, position) => [choice, position + 1]));
   return (
     <section className="token-proposal-section" aria-label={t('choiceTally')}>
@@ -364,14 +364,14 @@ export function ChoiceTallyView({
         {choices.map((choice, index) => (
           <tr key={index}>
             <td lang="und">{choice}</td>
-            <td>{tally.totals[index] ?? '0'}</td>
+            <td>{amount(tally.totals[index] ?? '0')}</td>
             <td>{rankOf.get(index) ?? '–'}</td>
           </tr>
         ))}
       </DataTable>
       <Details
         items={[
-          [t('abstainWeight'), tally.abstainWeight],
+          [t('abstainWeight'), amount(tally.abstainWeight)],
           [t('voters'), String(tally.voterCount)],
         ]}
       />

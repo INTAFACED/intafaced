@@ -68,10 +68,16 @@ export async function sealSnapshot(
   input: { proposalId: string; takenAt: Date; byUser: ReadonlyMap<string, Amount> },
 ): Promise<{ count: number; total: Amount; hash: string }> {
   const rows = [...input.byUser.entries()].filter(([, power]) => power > 0n).map(([userId, power]) => ({ userId, power }));
-  for (const row of rows) {
+  if (rows.length > 0) {
+    // One statement for every account, so the creation transaction holds its stake locks for one round-trip.
+    const values = rows.map((row) => ({
+      proposal_id: input.proposalId,
+      user_id: row.userId,
+      power: formatAmount(row.power),
+      taken_at: input.takenAt,
+    }));
     await tx`
-      INSERT INTO token.governance_snapshots (proposal_id, user_id, power, taken_at)
-      VALUES (${input.proposalId}, ${row.userId}, ${formatAmount(row.power)}::numeric, ${input.takenAt})
+      INSERT INTO token.governance_snapshots ${tx(values, 'proposal_id', 'user_id', 'power', 'taken_at')}
     `;
   }
   const total = rows.reduce((sum, row) => sum + row.power, 0n);

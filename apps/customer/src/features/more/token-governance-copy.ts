@@ -36,10 +36,9 @@ const en = {
   for: 'For',
   against: 'Against',
   abstain: 'Abstain',
-  stakeEstimate: 'Current stake estimate',
+  stakeEstimate: 'Voting power on this proposal',
   unit: 'The native staking unit is unpublished.',
-  weightBoundary:
-    'The service weighs your vote with the voting power fixed when the proposal was created. It can differ from this estimate.',
+  weightBoundary: 'The service weighs your vote with this voting power, fixed when the proposal was created.',
   aggregate:
     'Current proposal status and tally do not identify your original ballot. Grant or listing execution is not published by this action.',
   reviewFor: 'Review for',
@@ -66,14 +65,15 @@ const en = {
   saved: 'Saved response on this device. It is scoped to this account and original request.',
   refusedBoundary: 'This is the requested choice, not evidence of a recorded ballot.',
   inactive: 'Voting is unavailable outside the original opening and closing window or when the proposal is not open.',
-  noWeight: 'You need a current stake above zero before reviewing a vote. The final weight of your vote is set when you cast it.',
+  noWeight: 'You had no voting power when this proposal was created, so you cannot vote on it.',
   changed: 'The original proposal, account or reviewed window changed. No vote was sent. Review again.',
   storage: 'Recovery storage is unavailable. No vote was sent.',
   receiptStorage: 'The response could not be saved against the original request. Keep the outcome blocked.',
   unreadable: 'The saved ballot context cannot be verified. Keep voting blocked; the original outcome lookup is unavailable.',
   selectionStorage: 'The original selection could not be saved on this device.',
   hidden: 'Hidden',
-  preflight: 'Sending reads this original proposal and current stake again. A changed body, window or account requires a new review.',
+  preflight:
+    'Sending reads this original proposal and your voting power on it again. A changed body, window or account requires a new review.',
 } as const;
 const es: Record<keyof typeof en, string> = {
   proposals: 'Propuestas',
@@ -111,9 +111,9 @@ const es: Record<keyof typeof en, string> = {
   for: 'A favor',
   against: 'En contra',
   abstain: 'Abstención',
-  stakeEstimate: 'Estimación del stake actual',
+  stakeEstimate: 'Poder de voto en esta propuesta',
   unit: 'La unidad nativa del stake no está publicada.',
-  weightBoundary: 'El servicio pondera tu voto con el poder de voto fijado al crear la propuesta. Puede diferir de esta estimación.',
+  weightBoundary: 'El servicio pondera tu voto con este poder de voto, fijado al crear la propuesta.',
   aggregate:
     'El estado y el recuento actuales no identifican tu voto original. Esta acción no publica la ejecución de subvenciones ni listados.',
   reviewFor: 'Revisar a favor',
@@ -140,7 +140,7 @@ const es: Record<keyof typeof en, string> = {
   saved: 'Respuesta guardada en este dispositivo, vinculada a esta cuenta y solicitud original.',
   refusedBoundary: 'Esta es la opción solicitada y no demuestra que el voto esté registrado.',
   inactive: 'No se puede votar fuera del periodo original de apertura y cierre ni cuando la propuesta no está abierta.',
-  noWeight: 'Necesitas un stake actual mayor que cero antes de revisar un voto. El peso final de tu voto se fija al emitirlo.',
+  noWeight: 'No tenías poder de voto cuando se creó esta propuesta, así que no puedes votar en ella.',
   changed: 'La propuesta original, la cuenta o el periodo revisado han cambiado. No se ha enviado ningún voto. Revisa de nuevo.',
   storage: 'No se puede guardar la recuperación. No se ha enviado ningún voto.',
   receiptStorage: 'No se pudo guardar la respuesta con la solicitud original. Mantén el resultado bloqueado.',
@@ -149,7 +149,7 @@ const es: Record<keyof typeof en, string> = {
   selectionStorage: 'No se pudo guardar la selección original en este dispositivo.',
   hidden: 'Oculto',
   preflight:
-    'Al enviar se consultan de nuevo esta propuesta original y el stake actual. Si cambia el contenido, el periodo o la cuenta, debes revisar de nuevo.',
+    'Al enviar se consultan de nuevo esta propuesta original y tu poder de voto en ella. Si cambia el contenido, el periodo o la cuenta, debes revisar de nuevo.',
 };
 const fr: Record<keyof typeof en, string> = {
   proposals: 'Propositions',
@@ -187,10 +187,9 @@ const fr: Record<keyof typeof en, string> = {
   for: 'Pour',
   against: 'Contre',
   abstain: 'Abstention',
-  stakeEstimate: 'Estimation du stake actuel',
+  stakeEstimate: 'Pouvoir de vote sur cette proposition',
   unit: 'L’unité native du stake n’est pas publiée.',
-  weightBoundary:
-    'Le service pondère votre vote avec le pouvoir de vote fixé à la création de la proposition. Il peut différer de cette estimation.',
+  weightBoundary: 'Le service pondère votre vote avec ce pouvoir de vote, fixé à la création de la proposition.',
   aggregate:
     'Le statut et le décompte actuels n’identifient pas votre vote original. Cette action ne publie pas l’exécution des subventions ou cotations.',
   reviewFor: 'Revoir pour',
@@ -217,8 +216,7 @@ const fr: Record<keyof typeof en, string> = {
   saved: 'Réponse enregistrée sur cet appareil, liée à ce compte et à la demande originale.',
   refusedBoundary: 'Il s’agit du choix demandé, sans preuve que le vote est enregistré.',
   inactive: 'Le vote est indisponible hors de la période originale d’ouverture et de clôture ou lorsque la proposition n’est pas ouverte.',
-  noWeight:
-    'Il te faut un stake actuel supérieur à zéro avant de vérifier un vote. Le poids final de ton vote est fixé au moment où tu votes.',
+  noWeight: 'Vous n’aviez aucun pouvoir de vote à la création de cette proposition, vous ne pouvez donc pas y voter.',
   changed: 'La proposition originale, le compte ou la période revue ont changé. Aucun vote n’a été envoyé. Revoyez la demande.',
   storage: 'Le stockage de récupération est indisponible. Aucun vote n’a été envoyé.',
   receiptStorage: 'La réponse n’a pas pu être enregistrée avec la demande originale. Gardez le résultat bloqué.',
@@ -227,7 +225,7 @@ const fr: Record<keyof typeof en, string> = {
   selectionStorage: 'La sélection originale n’a pas pu être enregistrée sur cet appareil.',
   hidden: 'Masqué',
   preflight:
-    'L’envoi relit cette proposition originale et le stake actuel. Un changement de contenu, de période ou de compte impose une nouvelle vérification.',
+    'L’envoi relit cette proposition originale et votre pouvoir de vote sur elle. Un changement de contenu, de période ou de compte impose une nouvelle vérification.',
 };
 
 export const governanceCopy = defineCopy('token-governance', en, { es, fr });

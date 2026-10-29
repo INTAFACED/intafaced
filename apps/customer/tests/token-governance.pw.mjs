@@ -197,6 +197,15 @@ async function network(context, page, baseURL) {
       return reply(value);
     }
     if (procedure === 'stakeOf') return reply({ staked: state.stake });
+    if (procedure === 'votingPower.ofProposal')
+      return reply({
+        proposalId: input.proposalId,
+        power: state.stake,
+        reason: state.stake === '0' ? 'no_stake_at_creation' : null,
+        takenAt: state.stake === '0' ? null : proposal.createdAt,
+        rule: { minPower: '0', code: null },
+        signing: { available: false, code: 'token.signed_vote_unavailable' },
+      });
     if (procedure === 'accessOf') return reply({ staked: '40.75', tier: 'flex', feeDiscountBps: 0 });
     if (procedure === 'listStakes' || procedure === 'webauthn.list') return reply([]);
     if (procedure === 'burnedSupply') return reply({ burned: '0' });
