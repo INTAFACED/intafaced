@@ -331,7 +331,15 @@ describe('guards', () => {
 
   it('refuses desk scopes on a key even when the token claims MFA', async () => {
     const keyId = '66666666-6666-4666-8666-666666666666';
-    for (const scope of ['admin:read', 'admin:write', 'admin:compliance', 'admin:treasury', 'support:ops', 'market:ops'] as const) {
+    for (const scope of [
+      'admin:read',
+      'admin:write',
+      'admin:compliance',
+      'admin:treasury',
+      'support:ops',
+      'support:lookup',
+      'market:ops',
+    ] as const) {
       const keyed = await principal({ scopes: [scope], mfa: true, apiKeyId: keyId });
       let thrown: unknown;
       try {
@@ -345,13 +353,14 @@ describe('guards', () => {
 
   it('lets a founder session use desk scopes interactively', async () => {
     const session = await principal({
-      scopes: ['admin:read', 'admin:write', 'admin:treasury', 'support:ops', 'market:ops', 'admin:compliance'],
+      scopes: ['admin:read', 'admin:write', 'admin:treasury', 'support:ops', 'support:lookup', 'market:ops', 'admin:compliance'],
       mfa: true,
     });
     expect(session.kid).toBeUndefined();
     expect(() => requireScope(session, 'admin:write')).not.toThrow();
     expect(() => requireScope(session, 'admin:read')).not.toThrow();
     expect(() => requireScope(session, 'support:ops')).not.toThrow();
+    expect(() => requireScope(session, 'support:lookup')).not.toThrow();
     expect(() => requireScope(session, 'admin:treasury')).not.toThrow();
     expect(() => requireScope(session, 'market:ops')).not.toThrow();
     expect(() => requireScope(session, 'admin:compliance')).not.toThrow();

@@ -1,8 +1,13 @@
 import 'server-only';
+import { createHash } from 'node:crypto';
 import {
+  supportAccountGroundingSchema,
   supportCaseFileSchema,
   supportCommentSchema,
   supportKbArticleSchema,
+  supportMacroAppliedSchema,
+  supportMacroListSchema,
+  supportSignatureSchema,
   supportMergeResultSchema,
   supportTicketEventSchema,
   supportTicketLifecycleSchema,
@@ -26,6 +31,8 @@ import { readStaffMember, readStaffPolicy, readStaffRoster } from './staff';
 import type {
   SupportKbView,
   SupportLifecycleView,
+  SupportMacrosView,
+  SupportCustomerView,
   SupportPropertiesView,
   SupportRatingSummaryView,
   SupportBulkPolicyView,
@@ -194,6 +201,16 @@ export async function loadTicketProperties(
   return { asOf: now.toISOString(), properties: partFrom(result, (p) => p, LABELS) };
 }
 
+/**
+ * The customer card's account state, read through svc-support (which takes the account from the request, never from
+ * the caller, and writes the read to the request's history). A refusal or an unreachable service is the part's
+ * failure, shown as unread: never a guessed state.
+ */
+export async function loadCustomerCard(ctx: FounderCallContext, ticketId: string, now: Date = new Date()): Promise<SupportCustomerView> {
+  const result = await founderCall(ctx, 'support', 'accountState', 'GET', { ticketId }, parseWith(supportAccountGroundingSchema));
+  return { asOf: now.toISOString(), account: partFrom(result, (a) => a, LABELS) };
+}
+
 /** Who a ticket waits on and the request it follows. Its own read, so a refusal here never hides the ticket. */
 export async function loadTicketLifecycle(
   ctx: FounderCallContext,
@@ -226,6 +243,24 @@ export async function loadStaff(ctx: FounderCallContext, now: Date = new Date())
     roster: partFrom(roster, (r) => r, LABELS),
     policy: partFrom(policy, (p) => p, LABELS),
   };
+}
+
+/** The desk's macros and the signed-in agent's own signature (SP-desk-02). Two reads, each its own part. */
+export async function loadMacros(ctx: FounderCallContext, now: Date = new Date()): Promise<SupportMacrosView> {
+  const [macros, signature] = await Promise.all([
+    founderCall(ctx, 'support', 'macros', 'GET', {}, parseWith(supportMacroListSchema)),
+    founderCall(ctx, 'support', 'signature', 'GET', {}, parseWith(supportSignatureSchema)),
+  ]);
+  return {
+    asOf: now.toISOString(),
+    macros: partFrom(macros, (m) => m.macros, LABELS),
+    signature: partFrom(signature, (s) => s, LABELS),
+  };
+}
+
+/** One macro filled from one request, for the agent's draft. svc-support writes nothing; the agent sends the reply. */
+export function applyMacro(ctx: FounderCallContext, ticketId: string, macroId: string) {
+  return founderCall(ctx, 'support', 'macroApply', 'GET', { ticketId, macroId }, parseWith(supportMacroAppliedSchema));
 }
 
 /** Desk groups, this person's own scope and the roster. Three reads, each its own part. */
@@ -262,6 +297,27 @@ export async function loadBulkPolicy(ctx: FounderCallContext, now: Date = new Da
 }
 
 /**
+ * A reply's business key: the request, the trail row the agent read and the text. Sent again after an unknown outcome it
+ * is the same key, so svc-support answers the stored reply and writes no second one; a different reply is a new key.
+ */
+export function replyKey(ticketId: string, agentId: string, expectedSequence: number, sent: number, body: string): string {
+  return deskKey('admin-reply', ticketId, agentId, expectedSequence, sent, body);
+}
+
+function deskKey(kind: string, ticketId: string, agentId: string, expectedSequence: number, sent: number, body: string): string {
+  const text = createHash('sha256').update(body).digest('hex').slice(0, 32);
+  return `${kind}:${ticketId}:${agentId}:${expectedSequence}:${sent}:${text}`;
+}
+
+/**
+ * An internal note's business key, built as a reply's is and kept apart from it (svc-support also keeps a note's keys
+ * apart from a reply's). Sent again after an unknown outcome it is the same key, so svc-support answers the stored note.
+ */
+export function noteKey(ticketId: string, agentId: string, expectedSequence: number, sent: number, body: string): string {
+  return deskKey('admin-note', ticketId, agentId, expectedSequence, sent, body);
+}
+
+/**
  * One desk write, as the signed-in founder. svc-support takes the operator id from the verified session, so a reply,
  * a status change or an escalation is recorded against the person at the keyboard.
  */
@@ -273,8 +329,59 @@ export function runSupportAction(ctx: FounderCallContext, request: SupportAction
         'support',
         'comment',
         'POST',
-        { ticketId: request.ticketId, body: request.body },
+        {
+          ticketId: request.ticketId,
+          body: request.body,
+          ...(request.expectedSequence === undefined
+            ? {}
+            : {
+                expectedSequence: request.expectedSequence,
+                clientRequestId: replyKey(request.ticketId, ctx.session.userId, request.expectedSequence, request.sent ?? 0, request.body),
+              }),
+        },
         parseWith(supportCommentSchema),
+      );
+    case 'note':
+      return founderCall(
+        ctx,
+        'support',
+        'addInternalNote',
+        'POST',
+        {
+          ticketId: request.ticketId,
+          body: request.body,
+          clientRequestId: noteKey(request.ticketId, ctx.session.userId, request.expectedSequence, request.sent, request.body),
+        },
+        parseWith(supportCommentSchema),
+      );
+    case 'claim_next':
+      return founderCall(ctx, 'support', 'claimNext', 'POST', undefined, parseWith(supportTicketSchema));
+    // The business key is the request, the person and the trail row they read: the same click sent twice is one change,
+    // and the next unclaim or reassign (after the trail has moved on) is a new one.
+    case 'unclaim':
+      return founderCall(
+        ctx,
+        'support',
+        'unclaim',
+        'POST',
+        {
+          ticketId: request.ticketId,
+          idempotencyKey: `admin-unclaim:${request.ticketId}:${ctx.session.userId}:${request.expectedSequence}`,
+        },
+        parseWith(supportTicketSchema),
+      );
+    case 'assign':
+      return founderCall(
+        ctx,
+        'support',
+        'assign',
+        'POST',
+        {
+          ticketId: request.ticketId,
+          assigneeId: request.assigneeId,
+          idempotencyKey: `admin-assign:${request.ticketId}:${ctx.session.userId}:${request.assigneeId}:${request.expectedSequence}`,
+        },
+        parseWith(supportTicketSchema),
       );
     case 'status':
       return founderCall(
@@ -282,7 +389,12 @@ export function runSupportAction(ctx: FounderCallContext, request: SupportAction
         'support',
         'setStatus',
         'POST',
-        { ticketId: request.ticketId, status: request.status, ...(request.note ? { note: request.note } : {}) },
+        {
+          ticketId: request.ticketId,
+          status: request.status,
+          ...(request.note ? { note: request.note } : {}),
+          ...(request.expectedSequence === undefined ? {} : { expectedSequence: request.expectedSequence }),
+        },
         parseWith(supportTicketSchema),
       );
     case 'escalate':
@@ -393,6 +505,15 @@ export function runSupportAction(ctx: FounderCallContext, request: SupportAction
           ...(request.tags ? { tags: request.tags } : {}),
         },
         parseWith(supportKbArticleSchema),
+      );
+    case 'signature_set':
+      return founderCall(
+        ctx,
+        'support',
+        'signatureSet',
+        'POST',
+        { signature: request.signature, expectedRevision: request.expectedRevision },
+        parseWith(supportSignatureSchema),
       );
     case 'kb_unpublish':
       return founderCall(

@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { SUPPORT_NOTE_MAX } from '@intafaced/contracts';
 import {
   allowedNextStatuses,
   claimGate,
@@ -9,6 +10,8 @@ import {
   readActionRequest,
   readQueueResult,
   readRatingResult,
+  internalNoteGate,
+  INTERNAL_NOTE_MAX,
   replyGate,
   statusGate,
 } from './model';
@@ -162,6 +165,33 @@ describe('reply and escalate gates', () => {
   });
 });
 
+describe('the internal note gate', () => {
+  it('caps a note at the contract’s own limit', () => {
+    expect(INTERNAL_NOTE_MAX).toBe(SUPPORT_NOTE_MAX);
+  });
+  it('needs words, holds while busy, caps the length, and takes a note on a closed ticket too', () => {
+    expect(internalNoteGate('  ', false)).toEqual({ ok: false, why: 'Write the note first.' });
+    expect(internalNoteGate('TEST', true)).toMatchObject({ ok: false });
+    expect(internalNoteGate('x'.repeat(INTERNAL_NOTE_MAX + 1), false)).toMatchObject({ ok: false });
+    expect(internalNoteGate('TEST', false)).toEqual({ ok: true });
+  });
+  it('reads a note strictly: the row read and the notes sent are its key', () => {
+    expect(readActionRequest({ action: 'note', ticketId: T1, body: ' TEST ', expectedSequence: 4, sent: 0 })).toEqual({
+      action: 'note',
+      ticketId: T1,
+      body: 'TEST',
+      expectedSequence: 4,
+      sent: 0,
+    });
+    expect(readActionRequest({ action: 'note', ticketId: T1, body: 'TEST', sent: 0 })).toBeNull();
+    expect(readActionRequest({ action: 'note', ticketId: T1, body: 'TEST', expectedSequence: 4 })).toBeNull();
+    expect(readActionRequest({ action: 'note', ticketId: 'x', body: 'TEST', expectedSequence: 4, sent: 0 })).toBeNull();
+    expect(
+      readActionRequest({ action: 'note', ticketId: T1, body: 'x'.repeat(INTERNAL_NOTE_MAX + 1), expectedSequence: 4, sent: 0 }),
+    ).toBeNull();
+  });
+});
+
 describe('the strict action reader', () => {
   it('reads each known action and trims what was typed', () => {
     expect(readActionRequest({ action: 'reply', ticketId: T1, body: ' Hi ' })).toEqual({ action: 'reply', ticketId: T1, body: 'Hi' });
@@ -227,5 +257,33 @@ describe('the rating reader', () => {
     expect(readRatingResult({ ...ok, note: 3 })).toBeNull();
     expect(readRatingResult({ ...ok, userId: 'x' })).toBeNull();
     expect(readRatingResult('5')).toBeNull();
+  });
+});
+
+describe('the owner changes and the stale check', () => {
+  it('reads claim-next, unclaim, assign and a reply that quotes the row it read; nothing else rides along', () => {
+    expect(readActionRequest({ action: 'claim_next' })).toEqual({ action: 'claim_next' });
+    expect(readActionRequest({ action: 'claim_next', ticketId: T1 })).toBeNull();
+    expect(readActionRequest({ action: 'unclaim', ticketId: T1, expectedSequence: 4 })).toEqual({
+      action: 'unclaim',
+      ticketId: T1,
+      expectedSequence: 4,
+    });
+    expect(readActionRequest({ action: 'unclaim', ticketId: T1 })).toBeNull();
+    expect(readActionRequest({ action: 'assign', ticketId: T1, assigneeId: U, expectedSequence: 0 })).toEqual({
+      action: 'assign',
+      ticketId: T1,
+      assigneeId: U,
+      expectedSequence: 0,
+    });
+    expect(readActionRequest({ action: 'assign', ticketId: T1, assigneeId: 'someone', expectedSequence: 0 })).toBeNull();
+    expect(readActionRequest({ action: 'reply', ticketId: T1, body: 'Hi', expectedSequence: 2 })).toEqual({
+      action: 'reply',
+      ticketId: T1,
+      body: 'Hi',
+      expectedSequence: 2,
+    });
+    expect(readActionRequest({ action: 'reply', ticketId: T1, body: 'Hi', expectedSequence: -1 })).toBeNull();
+    expect(readActionRequest({ action: 'reply', ticketId: T1, body: 'Hi', expectedSequence: 1.5 })).toBeNull();
   });
 });

@@ -3,6 +3,7 @@
  * LOCAL TEST CONTENT — labelled rows so Earn, Loans, Convert and P2P show data.
  *
  *   LOCAL_TEST=1 node tooling/scripts/local-test-seed.mjs apply  [--state <dir>]
+ *   LOCAL_TEST=1 node tooling/scripts/local-test-seed.mjs home   [--notice-minutes <n>] [--state <dir>]
  *   LOCAL_TEST=1 node tooling/scripts/local-test-seed.mjs status [--state <dir>]
  *   LOCAL_TEST=1 node tooling/scripts/local-test-seed.mjs unseed [--state <dir>]
  *   LOCAL_TEST=1 node tooling/scripts/local-test-seed.mjs age-loan <loanId> <days> [--state <dir>]
@@ -29,6 +30,8 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { execFileSync } from 'node:child_process';
+import { HOME_NOTICE_DAYS, applyHome, homeStatus } from './local-test-home.mjs';
 
 const SCRIPT = fileURLToPath(import.meta.url);
 const REPO = path.resolve(path.dirname(SCRIPT), '..', '..');
@@ -485,6 +488,19 @@ export async function applyAll(deps) {
   return { earn, loans, house, p2p, lines };
 }
 
+/**
+ * The founder's Home (J-home-ia-11): a TEST deposit, a TEST notice and an inbox row, only when the tester profile asks
+ * (`home`). Not part of `apply`: the notice is on the public board for 30 days, and every stack that loads the TEST
+ * content without the tester entry (each Real-app journeys shard, Try it) keeps an empty board, which J-home-ia-06 needs.
+ */
+export async function applyHomeContent(deps, { noticeMinutes } = {}) {
+  // The deposit, notice and inbox row need the founder pair; the tester entry asked for Home, so without it this fails.
+  const wired = deps.home ? await deps.home() : null;
+  if (!wired) throw new Error('home: no enrolled founder pair on this stack, so Home cannot be seeded (run local-founder-seed.mjs enrol)');
+  const lines = await applyHome(wired, noticeMinutes === undefined ? {} : { noticeMs: noticeMinutes * 60_000 });
+  return { lines: [...lines, FUNDS_LABEL] };
+}
+
 // ── Unseed (close / disable, never delete, never reverse a ledger credit) ──
 
 export async function unseedAll(deps) {
@@ -607,6 +623,8 @@ export async function statusReport(deps, now = new Date()) {
     lines.push('method:');
     lines.push(`  ${method.methodId}  ${method.enabled ? 'enabled' : 'disabled'}  ${method.label}`);
   }
+  const wired = deps.home ? await deps.home() : null;
+  lines.push(...(wired ? await homeStatus(wired) : ['home: no enrolled founder pair on this stack']));
   return lines;
 }
 
@@ -644,6 +662,70 @@ export function resolvePostgres(repo) {
     const message = err instanceof Error ? err.message : String(err);
     throw new Error(`cannot load postgres from ${pkg}: ${message}`);
   }
+}
+
+/**
+ * Home's live wiring on this stack, or null when its founder pair is not enrolled: founder a's and b's sessions through
+ * Edge (local-test-gates.mjs), and the stack's own `chain-deposit` tool for the TEST transfer. The gates refuse a state
+ * folder other than the one this seed was given, so the two always name the same stack.
+ */
+function homeDeps(plan) {
+  const vault = path.join(plan.stateDir, 'founders.json');
+  if (!fs.existsSync(vault)) return null;
+  let wired;
+  return () =>
+    (wired ??= (async () => {
+      const [gates, founders, notice, stack] = await Promise.all([
+        import('./local-test-gates.mjs'),
+        import('./local-test-founders.mjs'),
+        import('./local-test-notice.mjs'),
+        import('./local-test-stack.mjs'),
+      ]);
+      // A draft vault (the stack wrote it, enrolment has not run or failed) is no founder pair: Home is not seeded.
+      if (!founders.enrolledFounderPair(JSON.parse(fs.readFileSync(vault, 'utf8')))) return null;
+      const ctx = await gates.makeContext({ log: () => {} });
+      if (path.resolve(ctx.paths.stateDir) !== path.resolve(plan.stateDir)) {
+        throw new GuardError(`refusing: the gates read ${ctx.paths.stateDir}, not ${plan.stateDir}; set LOCAL_STACK_STATE to it`);
+      }
+      const pair = await gates.approverSessions(ctx);
+      if (!founders.isLocalTestFounderHandle(pair.a.op.handle)) throw new GuardError('refusing: Home is seeded for the founder pair only');
+      return {
+        edge: ctx.edge,
+        founder: { handle: pair.a.op.handle, token: pair.a.token },
+        async draftNotice(input, key) {
+          const res = await ctx.edge.mutate(
+            'notify',
+            'notify.draftNotice',
+            { ...input, clientRequestId: key },
+            await pair.a.tradeOpsToken(),
+          );
+          const row = res.json?.result?.data;
+          if (!row) throw new Error(`notify.draftNotice refused (${res.status}): ${res.text.slice(0, 300)}`);
+          return row;
+        },
+        publishNotice: (row, publishKey) =>
+          notice.publishWithApproval({ edge: ctx.edge, pair, policyVersion: gates.MARKERS.policyVersion }, row, publishKey),
+        chainDeposit(address, asset, amount, confirmations, label) {
+          execFileSync(
+            process.execPath,
+            [
+              path.join(REPO, 'tooling/scripts/local-test-stack.mjs'),
+              'chain-deposit',
+              address,
+              asset,
+              amount,
+              String(confirmations),
+              '--tx',
+              label,
+            ],
+            { cwd: REPO, env: { ...process.env, LOCAL_STACK_STATE: plan.stateDir }, stdio: ['ignore', 'pipe', 'pipe'], timeout: 60_000 },
+          );
+        },
+        txHash: stack.chainTxHash,
+        now: () => Date.now(),
+        sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+      };
+    })());
 }
 
 export async function openLocal(plan) {
@@ -685,6 +767,7 @@ export async function openLocal(plan) {
   const namesIn = (sql, names) => sql(names);
 
   return {
+    home: homeDeps(plan),
     earn,
     loans,
     instruments: {
@@ -806,17 +889,31 @@ export async function openLocal(plan) {
 
 // ── CLI ─────────────────────────────────────────────────────────────────────
 
+const USAGE = 'Use: apply | home [--notice-minutes <n>] | status | unseed | age-loan | fund-earn-pool';
+const MAX_NOTICE_MINUTES = HOME_NOTICE_DAYS * 24 * 60;
+
 export function parseArgs(argv) {
   const args = [...argv];
   let stateDir;
+  let noticeMinutes;
   const at = args.indexOf('--state');
   if (at !== -1) {
     stateDir = args[at + 1];
     if (!stateDir || stateDir.startsWith('--')) throw new GuardError('refusing: --state needs a directory');
     args.splice(at, 2);
   }
+  const minutesAt = args.indexOf('--notice-minutes');
+  if (minutesAt !== -1) {
+    const raw = args[minutesAt + 1];
+    if (args[0] !== 'home') throw new GuardError('refusing: --notice-minutes is for home only');
+    if (!/^[1-9][0-9]*$/.test(raw ?? '') || Number(raw) > MAX_NOTICE_MINUTES) {
+      throw new GuardError(`refusing: --notice-minutes needs a whole number from 1 to ${MAX_NOTICE_MINUTES}`);
+    }
+    noticeMinutes = Number(raw);
+    args.splice(minutesAt, 2);
+  }
   const [command, ...rest] = args;
-  if (!command) throw new GuardError('refusing: command required. Use: apply | status | unseed | age-loan | fund-earn-pool');
+  if (!command) throw new GuardError(`refusing: command required. ${USAGE}`);
   const operands = command === 'age-loan' ? 2 : command === 'fund-earn-pool' ? 3 : 0;
   if (rest.length > operands) throw new GuardError(`refusing: unknown argument "${rest[operands]}"`);
   if (rest.length < operands) {
@@ -824,13 +921,23 @@ export function parseArgs(argv) {
       command === 'age-loan' ? 'refusing: age-loan needs <loanId> <days>' : 'refusing: fund-earn-pool needs <poolId> <amount> <ref>',
     );
   }
-  return { command, operands: rest, stateDir: path.resolve(stateDir ?? defaultStateDir()) };
+  return {
+    command,
+    operands: rest,
+    ...(noticeMinutes === undefined ? {} : { noticeMinutes }),
+    stateDir: path.resolve(stateDir ?? defaultStateDir()),
+  };
 }
 
-async function dispatch(command, deps, hooks, operands = []) {
+async function dispatch(command, deps, hooks, operands = [], options = {}) {
   const out = hooks.out ?? ((line) => process.stdout.write(`${line}\n`));
   if (command === 'apply') {
     const report = await applyAll(deps);
+    for (const line of report.lines) out(line);
+    return 0;
+  }
+  if (command === 'home') {
+    const report = await applyHomeContent(deps, { noticeMinutes: options.noticeMinutes });
     for (const line of report.lines) out(line);
     return 0;
   }
@@ -854,7 +961,7 @@ async function dispatch(command, deps, hooks, operands = []) {
     for (const line of report.lines) out(line);
     return 0;
   }
-  throw new GuardError(`refusing: unknown command "${command}". Use: apply | status | unseed | age-loan | fund-earn-pool`);
+  throw new GuardError(`refusing: unknown command "${command}". ${USAGE}`);
 }
 
 /**
@@ -870,7 +977,7 @@ export async function main(argv, env = process.env, hooks = {}) {
     const load = hooks.load ?? openLocal;
     const deps = hooks.deps ?? (await load(plan));
     try {
-      return await dispatch(parsed.command, deps, hooks, parsed.operands);
+      return await dispatch(parsed.command, deps, hooks, parsed.operands, { noticeMinutes: parsed.noticeMinutes });
     } finally {
       if (!hooks.deps && deps?.close) await deps.close();
     }

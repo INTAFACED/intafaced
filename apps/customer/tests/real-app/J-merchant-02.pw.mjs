@@ -1,6 +1,14 @@
 import { test, expect } from '@playwright/test';
 import { forgetSession, nextCode } from './identity-factors.mjs';
-import { businessReadyPerson, openBusiness, refusedPayCalls, signInWithCode, verifiedBusiness } from './merchant.mjs';
+import {
+  approveKyb,
+  businessReadyPerson,
+  openBusiness,
+  refusedPayCalls,
+  sentForReview,
+  signInWithCode,
+  verifiedBusiness,
+} from './merchant.mjs';
 import { ADMIN, founderSignIn } from './admin.mjs';
 import { tool } from './stack.mjs';
 
@@ -608,5 +616,60 @@ test(`${J} #7 the owner chooses the business category and reads its class rule; 
   await expect(chosen).toContainText('5% of payments, held for 90 days');
   await page.reload();
   await expect(section.getByTestId('category-chosen')).toContainText('TEST gaming licence');
+  expect(refused).toEqual([]);
+});
+
+test(`${J} #6 the owner reads the verification history and the activation state: the history only grows, activation reads unconfirmed until svc-pay records one, and nothing reads as a screening clearance`, async ({
+  page,
+}) => {
+  test.setTimeout(240_000);
+  const owner = await businessReadyPerson(page, 'mav', '/pay/onboarding');
+  const merchantId = await openBusiness(page, owner, 'TEST Activation Ltd');
+  const refused = refusedPayCalls(page);
+  const activation = page.getByTestId('pp-activation');
+  const history = page.getByRole('list', { name: 'Verification history' });
+  const entries = async () =>
+    history.getByRole('listitem').evaluateAll((items) =>
+      items.map((li) => ({
+        title: li.querySelector('strong')?.textContent ?? '',
+        at: li.querySelector('time')?.getAttribute('datetime') ?? '',
+      })),
+    );
+  const noClearance = async () =>
+    expect(page.locator('main')).not.toContainText(/screening (passed|cleared|complete)|(passed|cleared) screening/i);
+
+  // A new business: nothing sent, activation unconfirmed because svc-pay holds no activation record.
+  await page.goto('/pay/compliance');
+  await expect(activation).toContainText('Unconfirmed');
+  await expect(activation).not.toContainText('Active since');
+  await expect(page.getByText('INTAFACED has no recorded activation decision for this business.', { exact: false })).toBeVisible();
+  await expect(page.getByText('No verification history yet')).toBeVisible();
+  await noClearance();
+
+  // Sent for review: one entry, by the owner.
+  await sentForReview(page, owner);
+  await page.goto('/pay/compliance');
+  await expect(history.getByRole('listitem')).toHaveCount(1);
+  const sent = await entries();
+  expect(sent).toEqual([{ title: 'Verification changed: Not sent → In review', at: expect.stringMatching(/^\d{4}-/) }]);
+  await expect(history).toContainText('Changed by your merchant account');
+
+  // INTAFACED approves it: a new entry on top, the earlier one exactly as it was, times in order.
+  approveKyb(merchantId);
+  await page.reload();
+  await expect(history.getByRole('listitem')).toHaveCount(2);
+  const decided = await entries();
+  expect(decided[0].title).toBe('Verification changed: In review → Approved');
+  expect(decided[1]).toEqual(sent[0]);
+  expect(Date.parse(decided[0].at)).toBeGreaterThanOrEqual(Date.parse(decided[1].at));
+  await expect(history.getByRole('listitem').first()).toContainText('Changed by INTAFACED');
+
+  // An approved verification is not an activation: svc-pay records none on a KYB decision, so it stays unconfirmed.
+  const record = page.locator('section').filter({ has: page.getByRole('heading', { name: 'Current record' }) });
+  await expect(record.getByTestId('pp-facts')).toContainText('Approved');
+  await expect(activation).toContainText('Unconfirmed');
+  await expect(activation).not.toContainText('Confirmed');
+  await expect(page.getByText('It is not a screening result.')).toBeVisible();
+  await noClearance();
   expect(refused).toEqual([]);
 });

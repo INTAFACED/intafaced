@@ -41,6 +41,7 @@ import {
   type SupportTicketProperties,
   type SupportTicketPropertyChange,
   type SupportTicketType,
+  supportMacroUnfilled,
 } from '@intafaced/contracts';
 import type {
   CreateTicketInput,
@@ -130,6 +131,7 @@ import {
 } from './kb-feedback.js';
 import {
   MemorySupportStore,
+  newerByOthers,
   type AttachmentMeta,
   type KbFeedbackCount,
   type KbFeedbackVote,
@@ -190,6 +192,15 @@ export class SupportError extends Error {
 /** Resolved and closed requests are finished: they wait on nobody and read as solved to their owner. */
 function isFinished(status: SupportTicket['status']): boolean {
   return status === 'resolved' || status === 'closed';
+}
+
+/** A write that named an older trail row than the ticket has: what changed is in the message, and nothing was written. */
+function staleTicket(newer: readonly SupportTicketEvent[]): SupportError {
+  const last = newer[newer.length - 1]!;
+  return new SupportError(
+    `the request changed since you opened it: ${newer.length} newer trail row(s), last #${last.sequence}`,
+    'support.stale_ticket',
+  );
 }
 
 function ticketNotFound(): SupportError {
@@ -735,6 +746,8 @@ export class SupportService implements SupportContract {
     asOperator?: boolean;
     /** The caller's key. The same key again answers the first comment and writes nothing; with other text it refuses. */
     clientRequestId?: string;
+    /** The last trail row the operator had read: a newer row by someone else refuses `support.stale_ticket`, writing nothing. */
+    expectedSequence?: number;
   }): Promise<SupportComment> {
     return withSupportSpan('support.comment', { op: 'comment', ticketId: input.ticketId }, async () => {
       if (input.clientRequestId !== undefined) this.requireClientRequestId(input.clientRequestId);
@@ -743,6 +756,10 @@ export class SupportService implements SupportContract {
         ticketId: input.ticketId,
         asOperator: input.asOperator,
       });
+      // SP-desk-02: a macro placeholder whose value was blank for this request is never sent, blank or as written.
+      if (input.asOperator && supportMacroUnfilled(input.body).length > 0) {
+        throw new SupportError('the reply still holds a placeholder to fill', 'support.macro_placeholder_blank');
+      }
       const result = await this.store.addComment({
         ticketId: input.ticketId,
         authorId: input.userId,
@@ -750,9 +767,11 @@ export class SupportService implements SupportContract {
         body: input.body,
         ...(input.clientRequestId !== undefined ? { clientRequestId: input.clientRequestId.trim() } : {}),
         ...(!input.asOperator ? { userCap: this.commentCap } : {}),
+        ...(input.expectedSequence !== undefined ? { expectedSequence: input.expectedSequence } : {}),
       });
       if (result.status === 'refuse') {
         if (result.reason === 'not_found') throw ticketNotFound();
+        if (result.reason === 'stale') throw staleTicket(result.newer);
         if (result.reason === 'cap_unset') {
           throw new SupportError('the comment cap per request is not set', 'support.comment_cap_unset', SUPPORT_COMMENT_CAP_KEY);
         }
@@ -773,8 +792,9 @@ export class SupportService implements SupportContract {
         const settled = await this.lifecycle.get(input.ticketId);
         if (settled?.waitingSince && settled.waitingSince >= result.comment.createdAt) return result.comment;
       }
-      // Every operator comment is visible to the customer (there are no internal notes), so each is a public reply:
-      // the ticket now waits on the customer and the first one is stamped once. A customer reply puts it back on the team.
+      // Every comment written here is on the customer's thread (an internal note is `addInternalNote`), so an operator's is a
+      // public reply: the ticket now waits on the customer and the first one is stamped once. A customer reply puts it back
+      // on the team.
       const at = result.comment.createdAt;
       if (input.asOperator) {
         await this.lifecycle.setWaiting(input.ticketId, 'customer', at);
@@ -786,14 +806,51 @@ export class SupportService implements SupportContract {
     });
   }
 
+  /**
+   * A staff-only note on a request (SP-tickets-05). It is never on the customer's thread, and it moves nothing the customer
+   * reads: no reopen or resume, no "waiting on", no first-reply stamp and no new `updatedAt`. A blank body refuses
+   * `support.note_empty`. The key is required: the same key again answers the first note and writes nothing.
+   */
+  async addInternalNote(input: { userId: string; ticketId: string; body: string; clientRequestId: string }): Promise<SupportComment> {
+    return withSupportSpan('support.addInternalNote', { op: 'addInternalNote', ticketId: input.ticketId }, async () => {
+      this.requireClientRequestId(input.clientRequestId);
+      const body = input.body.trim();
+      if (body === '') throw new SupportError('an internal note needs words', 'support.note_empty');
+      await this.getTicket({ userId: input.userId, ticketId: input.ticketId, asOperator: true });
+      const result = await this.store.addComment({
+        ticketId: input.ticketId,
+        authorId: input.userId,
+        authorRole: 'operator',
+        visibility: 'internal',
+        body,
+        clientRequestId: input.clientRequestId.trim(),
+      });
+      if (result.status === 'refuse') {
+        if (result.reason === 'not_found') throw ticketNotFound();
+        if (result.reason === 'idempotency_conflict') {
+          throw new SupportError('idempotency key was already used for a different command', 'support.idempotency_conflict');
+        }
+        throw new Error(`an internal note was refused for a reason a note cannot have: ${result.reason}`);
+      }
+      return result.comment;
+    });
+  }
+
+  /**
+   * The request's thread, oldest first. Staff reading someone else's request also get its internal notes; the requester
+   * never does, even when they are staff themselves, and the store leaves the notes out inside its query.
+   */
   async listComments(input: { userId: string; ticketId: string; asOperator?: boolean; limit?: number }): Promise<SupportComment[]> {
     return withSupportSpan('support.listComments', { op: 'listComments', ticketId: input.ticketId }, async () => {
       const limit = assertListCommentsLimit(input.limit);
-      await this.getTicket({
+      const ticket = await this.getTicket({
         userId: input.userId,
         ticketId: input.ticketId,
         asOperator: input.asOperator,
       });
+      if (input.asOperator === true && ticket.userId !== input.userId) {
+        return this.store.listComments(input.ticketId, { limit, withInternal: true });
+      }
       return this.store.listComments(input.ticketId, { limit });
     });
   }
@@ -816,7 +873,14 @@ export class SupportService implements SupportContract {
    *     is refused rather than writing a trail row that records no change. A
    *     history of `open → open` is a history nobody reads.
    */
-  async setStatus(input: { operatorId: string; ticketId: string; status: SupportTicketStatus; note?: string }): Promise<SupportTicket> {
+  async setStatus(input: {
+    operatorId: string;
+    ticketId: string;
+    status: SupportTicketStatus;
+    note?: string;
+    /** The last trail row the operator had read: a newer row by someone else refuses `support.stale_ticket`, writing nothing. */
+    expectedSequence?: number;
+  }): Promise<SupportTicket> {
     return withSupportSpan('support.setStatus', { op: 'setStatus', ticketId: input.ticketId }, async (span) => {
       await this.assertDeskVisible(input.operatorId, input.ticketId);
       if (input.status === 'on_hold' && !input.note?.trim()) {
@@ -830,9 +894,11 @@ export class SupportService implements SupportContract {
         status: input.status,
         operatorId: input.operatorId,
         note: input.note ?? null,
+        ...(input.expectedSequence !== undefined ? { expectedSequence: input.expectedSequence } : {}),
       });
       if (result.status === 'refuse') {
         if (result.reason === 'not_found') throw ticketNotFound();
+        if (result.reason === 'stale') throw staleTicket(result.newer);
         if (result.reason === 'settle') throw new SupportError('support cannot settle', SUPPORT_SETTLE_REFUSE);
         throw new SupportError(
           `status change refused: ${result.reason}`,
@@ -983,7 +1049,7 @@ export class SupportService implements SupportContract {
    * rather than from anything the operator types. The operator supplies a
    * summary, a reason and the ids of KB articles they relied on; this method
    * resolves those ids against the real catalog, reads the account state, reads
-   * the ticket's comments, and digests each one. An article id that does not
+   * the ticket's public comments (internal notes stay out of the case file), and digests each one. An article id that does not
    * exist contributes no citation — so an escalation cannot be made to look
    * grounded by citing something that was never there.
    *
@@ -1351,6 +1417,31 @@ export class SupportService implements SupportContract {
     });
   }
 
+  /**
+   * Claim the queue's next request for this operator: the same ranking the queue shows, claimed atomically.
+   * A row another operator took between the read and the claim is skipped, never stolen. An empty queue
+   * refuses with `support.claim.queue_empty`.
+   */
+  async claimNext(operatorId: string): Promise<SupportTicket> {
+    return withSupportSpan('support.claimNext', { op: 'claimNext' }, async (span) => {
+      const skipped = new Set<string>();
+      for (;;) {
+        const tickets = await this.visibleTickets(operatorId, await this.store.listAll());
+        const next = assignNext(tickets, { now: this.now(), excludeTicketIds: skipped });
+        if (next === null) throw new SupportError('the queue has no request to claim', 'support.claim.queue_empty');
+        const result = await this.store.claimTicket({ ticketId: next.ticketId, operatorId });
+        if (result.status === 'ok') {
+          span.setAttribute('intafaced.support.ticket_id', result.ticket.id);
+          span.setAttribute('intafaced.support.assignee_id', operatorId);
+          return result.ticket;
+        }
+        if (result.reason === 'invalid_operator')
+          throw new SupportError('claim refused: invalid_operator', 'support.claim.invalid_operator');
+        skipped.add(next.ticketId);
+      }
+    });
+  }
+
   /** Whole-queue counts. Zero means the desk has that many rows, not a missing read. */
   async queueMetrics(viewerId?: string): Promise<{
     asOf: string;
@@ -1613,6 +1704,12 @@ export class SupportService implements SupportContract {
     labels?: string[];
     reason?: string;
     clientRequestId: string;
+    /**
+     * The last trail row the operator had read: a newer row by someone else refuses `support.stale_ticket` and nothing is
+     * written. Checked after a replay, so the same request id answers its first result. The property log keeps no ticket
+     * lock, so this is a read just before the write, not a lock.
+     */
+    expectedSequence?: number;
   }): Promise<SupportTicketProperties> {
     this.requireClientRequestId(input.clientRequestId);
     const priority = parseEnumField(supportTicketPrioritySchema, input.priority);
@@ -1639,6 +1736,10 @@ export class SupportService implements SupportContract {
         const ticket = await this.store.findById(input.ticketId);
         if (!ticket) throw ticketNotFound();
         if (ticket.status === 'closed') throw new SupportError('a closed request takes no further changes', 'support.ticket_closed');
+        if (input.expectedSequence !== undefined) {
+          const newer = newerByOthers(await this.store.listEvents(input.ticketId), input.expectedSequence, input.operatorId);
+          if (newer.length > 0) throw staleTicket(newer);
+        }
         return this.properties.set({
           ticketId: input.ticketId,
           ...change,

@@ -66,6 +66,7 @@ describe('mining pool reads', () => {
         migration('0001_blank_reward_share.sql'),
         migration('0002_mining_reads.sql'),
         migration('0003_share_workers.sql'),
+        migration('0004_pow_solo.sql'),
       ],
     });
   });
@@ -345,16 +346,16 @@ describe('mining pool reads', () => {
     const ops = await routerFor()
       .createCaller(signed(ALICE, ['admin:read']))
       .ops.shares({ windowId: 'w' });
-    expect(ops.windows).toEqual([{ windowId: 'w', acceptedCount: 2, rejectedCount: 1, acceptedWeight: '4' }]);
+    expect(ops.windows).toEqual([{ windowId: 'w', acceptedCount: 2, rejectedCount: 1, soloCount: 0, acceptedWeight: '4' }]);
     expect(ops.asOf).toMatch(/^\d{4}-\d{2}-\d{2}T/);
     const alice = await routerFor()
       .createCaller(signed(ALICE, ['ledger:read']))
       .shares.mine({});
-    expect(alice.windows).toEqual([{ windowId: 'w', acceptedCount: 1, rejectedCount: 1, acceptedWeight: '1' }]);
+    expect(alice.windows).toEqual([{ windowId: 'w', acceptedCount: 1, rejectedCount: 1, soloCount: 0, acceptedWeight: '1' }]);
     const bob = await routerFor()
       .createCaller(signed(BOB, ['ledger:read']))
       .shares.mine({});
-    expect(bob.windows).toEqual([{ windowId: 'w', acceptedCount: 1, rejectedCount: 0, acceptedWeight: '3' }]);
+    expect(bob.windows).toEqual([{ windowId: 'w', acceptedCount: 1, rejectedCount: 0, soloCount: 0, acceptedWeight: '3' }]);
     expect(JSON.stringify(bob)).not.toContain(ALICE);
   });
 

@@ -752,6 +752,7 @@ services:
       TRADE_OTC_MIDS: ${TRADE_OTC_MIDS:-}
       TRADE_DEVELOPER_HOSTS: ${TRADE_DEVELOPER_HOSTS:-}
       TRADE_DEVELOPER_DATA_TERMS: ${TRADE_DEVELOPER_DATA_TERMS:-}
+      TRADE_DEVELOPER_REGIONAL_RULE: ${TRADE_DEVELOPER_REGIONAL_RULE:-}
       TRADE_OTC_MID_FROM_VENUE: ${TRADE_OTC_MID_FROM_VENUE:-false}
       TRADE_OTC_VENUE_SYMBOLS: ${TRADE_OTC_VENUE_SYMBOLS:-}
       # Spot candle materialization (A-TRADE-SPOT-1). Default OFF — same shape as
@@ -1654,8 +1655,9 @@ services:
       IDENTITY_URL: http://svc-identity:4002
       BANK_URL: http://svc-bank:4009
       PAY_URL: http://svc-pay:4006
-      # Alert source. Blank → ops.alert_source_unconfigured. A set URL is not probed.
-      OPS_ALERT_SOURCE_URL: ${OPS_ALERT_SOURCE_URL:-}
+      # Reconciliation alerts read the ledger's settled evaluations through LEDGER_URL. Blank repeat → a repeat failure
+      # still counts and its notice reads ops.alert_repeat_unset.
+      OPS_RECON_ALERT_REPEAT_SECONDS: ${OPS_RECON_ALERT_REPEAT_SECONDS:-}
     expose: ['4022']
     healthcheck: *healthcheck
     depends_on:
@@ -2142,6 +2144,47 @@ services:
       HSTS_INCLUDE_SUBDOMAINS: ${ADMIN_HSTS_INCLUDE_SUBDOMAINS:-false}
     ports: ['3100:3100']
     healthcheck: *healthcheck
+
+  # The tester profile's seed (HM-desks-03, J-home-ia-11). OFF BY DEFAULT: it starts only under `--profile tester`, runs
+  # once (restart 'no') and exits. Its entrypoint refuses unless APP_ENV is exactly dev or test (exit 2, nothing seeded),
+  # then runs, in this order: the founder seed (init, then enrol through svc-identity's own doors) and the TEST content
+  # seed (apply, then status, which prints what it made: Home's TEST deposit, TEST notice and inbox row, and the Earn,
+  # Loans and P2P rows), stopping at the first step that fails. Each script keeps its own guards: the founder seed enrols
+  # only through a loopback edge, so this service shares the host's network and reaches svc-edge on its published :4000
+  # once it is healthy; the TEST content seed refuses unless a local test stack marker with a loopback database is in
+  # LOCAL_STACK_STATE. KNOWN GAP on a plain compose stack: identity reads the founder invites at boot from the host's
+  # .env.founder.local (`pnpm local:founder init` before `up`), while this container's `init` writes its own copy inside
+  # the container, so `enrol` here is refused by identity, and compose writes no stack marker, so the content step would
+  # refuse too. The run stops with that refusal and creates nothing. `pnpm local:stack` runs the same scripts and seeds.
+  seed:
+    <<: *app
+    container_name: intafaced-seed
+    profiles: ['tester']
+    restart: 'no'
+    network_mode: host
+    depends_on:
+      svc-edge:
+        condition: service_healthy
+      svc-identity:
+        condition: service_healthy
+    command:
+      [
+        'node',
+        'tooling/scripts/local-tester-seed.mjs',
+        'local-founder-seed.mjs init',
+        'local-founder-seed.mjs enrol',
+        'local-test-seed.mjs apply',
+        'local-test-seed.mjs home',
+        'local-test-seed.mjs status',
+      ]
+    environment:
+      # APP_ENV comes from the shared service env, with no default (#4610); the entrypoint refuses all but dev or test.
+      <<: *service-env
+      # Not production: the seed scripts refuse NODE_ENV=production.
+      NODE_ENV: development
+      LOCAL_STACK_STATE: ${LOCAL_STACK_STATE:-/var/lib/intafaced/local-test-stack}
+    volumes:
+      - ${LOCAL_STACK_STATE:-/var/lib/intafaced/local-test-stack}:${LOCAL_STACK_STATE:-/var/lib/intafaced/local-test-stack}
 
 volumes:
   matchingjournal:

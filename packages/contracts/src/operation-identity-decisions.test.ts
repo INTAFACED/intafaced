@@ -195,6 +195,22 @@ describe('identity operation decision wire shapes', () => {
         decidedAt: NOW,
       }).success,
     ).toBe(true);
+    expect(
+      identityOperationDecisionSchema.safeParse({
+        status: 'cancelled',
+        intent: tradeIntent,
+        code: 'trade.account_restricted',
+        decidedAt: NOW,
+      }).success,
+    ).toBe(true);
+    expect(
+      identityOperationDecisionSchema.safeParse({
+        status: 'cancelled',
+        intent: payIntent,
+        code: 'trade.account_restricted',
+        decidedAt: NOW,
+      }).success,
+    ).toBe(false);
     expect(identityOperationDecisionSchema.safeParse({ status: 'conflict', code: 'operation.conflict' }).success).toBe(true);
     expect(identityOperationDecisionSchema.safeParse({ status: 'unavailable', code: 'authority.unavailable' }).success).toBe(true);
     expect(identityOperationDecisionSchema.safeParse({ status: 'cancelled', code: 'authority.unavailable' }).success).toBe(false);

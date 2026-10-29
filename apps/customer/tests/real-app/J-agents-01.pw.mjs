@@ -1,7 +1,8 @@
 import { test, expect } from '@playwright/test';
 import { UNBUILT, agentCard, agentSection, agentsRun, openAgents, openNavigatorSession, tableIn } from './agents.mjs';
 import { signIn } from './desk.mjs';
-import { api, fromUnits, toUnits } from './stack.mjs';
+import { existsSync, rmSync, writeFileSync } from 'node:fs';
+import { api, fromUnits, stackFile, toUnits } from './stack.mjs';
 
 // J-agents-01, in the running app (docs/roadmap/journeys.json): find an agent, check what it may do, and run it once.
 // One test per step, titled "J-agents-01 #<n>", run in order on one verified TEST account funded with TEST USDT. The
@@ -155,31 +156,38 @@ test(`${J} #5 presses Run and confirms the spend ceiling: a run row before the e
   const ask = workspace(page).getByRole('textbox', { name: /^Ask the agent/ });
   await ask.fill('Where do I place a limit order?');
 
-  // The run request is held at the browser until the row is checked: the row exists before the service, and so the
-  // engine, is called at all.
-  let release;
-  const held = new Promise((resolve) => (release = resolve));
-  let sent = 0;
-  await page.route('**/api/agents/trpc/run.complete', async (route) => {
-    sent += 1;
-    if (sent === 1) await held;
-    await route.continue();
-  });
-  const answered = page.waitForResponse((res) => res.url().endsWith('/api/agents/trpc/run.complete'));
-  await workspace(page).getByRole('button', { name: 'Run' }).click();
-  const ceiling = page.getByRole('dialog', { name: 'Confirm the spend ceiling' });
-  await expect(ceiling).toContainText('1 USDT');
-  await ceiling.getByRole('button', { name: 'Run up to 1 USDT' }).click();
+  // The stack's stand-in engine is held at its door (its hold file), so the run is read from the service itself while
+  // the engine has not answered: the service's run row exists before the engine answers.
+  const hold = stackFile('agents-engine.hold');
+  const parked = `${hold}.held`;
+  writeFileSync(hold, 'J-agents-01 #5');
+  let first;
+  let requestId;
   const runs = tableIn(workspace(page), 'Runs');
   const row = runs.getByRole('row').nth(1);
-  await expect(row).toContainText('Running');
-  await expect.poll(() => sent).toBe(1);
-  release();
-
-  const first = await answered;
+  try {
+    const sent = page.waitForRequest((req) => req.url().endsWith('/api/agents/trpc/run.complete'));
+    const answered = page.waitForResponse((res) => res.url().endsWith('/api/agents/trpc/run.complete'));
+    await workspace(page).getByRole('button', { name: 'Run' }).click();
+    const ceiling = page.getByRole('dialog', { name: 'Confirm the spend ceiling' });
+    await expect(ceiling).toContainText('1 USDT');
+    await ceiling.getByRole('button', { name: 'Run up to 1 USDT' }).click();
+    requestId = JSON.parse((await sent).postData()).requestId;
+    await expect.poll(() => existsSync(parked), { message: 'the engine is parked at its door' }).toBe(true);
+    const during = await agentsCall('session.detail', { sessionId }, 'GET');
+    expect(during.status).toBe(200);
+    expect(during.body.result.data.runs).toEqual([{ requestId, startedAt: expect.any(String), state: 'running' }]);
+    // Nothing is used or charged while the engine has not answered.
+    const pending = await agentsCall('usage.current', { sessionId }, 'GET');
+    expect(toUnits(pending.body.result.data.sessionTotal)).toBe(0n);
+    await expect(row).toContainText('Running');
+    rmSync(hold);
+    first = await answered;
+  } finally {
+    rmSync(hold, { force: true });
+  }
   expect(first.status()).toBe(200);
   const run = (await first.json()).result.data;
-  const requestId = JSON.parse(first.request().postData()).requestId;
   // The reply is the engine's own answer to this request.
   await expect(workspace(page).getByRole('region', { name: 'Reply' }).getByTestId('more-body')).toHaveText(run.text, { timeout: 60_000 });
   expect(run.text.trim()).not.toBe('');
@@ -200,7 +208,8 @@ test(`${J} #5 presses Run and confirms the spend ceiling: a run row before the e
     cost: run.cost,
   });
 
-  // Sending the same request again (a retry after a lost answer) returns the first run and charges once.
+  // Sending the same request again (a retry after a lost answer) is refused as a replay: the first run is the only one,
+  // and it charges once.
   const again = page.waitForResponse((res) => res.url().endsWith('/api/agents/trpc/run.complete'));
   await row.getByRole('button', { name: 'Send again' }).click();
   const second = await again;
@@ -216,7 +225,14 @@ test(`${J} #5 presses Run and confirms the spend ceiling: a run row before the e
   expect(toUnits(usage.body.result.data.sessionTotal)).toBe(cost);
   expect(toUnits(usage.body.result.data.pending)).toBe(cost);
   expect(await ledgerBalances()).toEqual(before);
-  await page.unroute('**/api/agents/trpc/run.complete');
+  // The service's own record: the session holds exactly this one run, completed, and one executed engine response.
+  const detail = await agentsCall('session.detail', { sessionId }, 'GET');
+  expect(detail.body.result.data.runs).toEqual([{ requestId, startedAt: expect.any(String), state: 'completed' }]);
+  const log = await agentsCall('session.log', { sessionId, limit: 50 }, 'GET');
+  expect(log.status).toBe(200);
+  const engineRuns = log.body.result.data.filter((entry) => entry.kind === 'completion' && entry.status === 'executed');
+  expect(engineRuns).toHaveLength(1);
+  expect(engineRuns[0].cost).toBe(run.cost);
 });
 
 test(`${J} #6 closes the session: open windows settle once; a closed session refuses further actions`, async ({ page }) => {

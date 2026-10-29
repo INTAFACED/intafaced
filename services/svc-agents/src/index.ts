@@ -78,7 +78,9 @@ await sql`SELECT 1 FROM agents.agent_definitions LIMIT 1`.catch(() => {
  * to spend money.
  */
 function buildPrimaryProvider(): ModelProvider {
-  if (env.AGENTS_PROVIDER === 'mock') return new MockModelProvider({ id: 'primary' });
+  if (env.AGENTS_PROVIDER === 'mock') {
+    return new MockModelProvider({ id: 'primary', ...(env.AGENTS_MOCK_HOLD_FILE ? { holdFile: env.AGENTS_MOCK_HOLD_FILE } : {}) });
+  }
 
   if (!env.AGENTS_UPSTREAM_BASE_URL || !env.AGENTS_UPSTREAM_API_KEY) {
     throw new Error('AGENTS_PROVIDER=upstream requires AGENTS_UPSTREAM_BASE_URL and AGENTS_UPSTREAM_API_KEY');
