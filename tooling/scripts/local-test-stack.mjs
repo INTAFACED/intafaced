@@ -68,7 +68,7 @@ import bank from './local-stack-services/bank.mjs';
 import blueprint from './local-stack-services/blueprint.mjs';
 import edge from './local-stack-services/edge.mjs';
 import execution from './local-stack-services/execution.mjs';
-import identity from './local-stack-services/identity.mjs';
+import identity, { confirmLocalFounderEmails } from './local-stack-services/identity.mjs';
 import ledger from './local-stack-services/ledger.mjs';
 import market from './local-stack-services/market.mjs';
 import matching from './local-stack-services/matching.mjs';
@@ -87,7 +87,6 @@ import token from './local-stack-services/token.mjs';
 import trade from './local-stack-services/trade.mjs';
 import {
   FOUNDER_VAULT_NAME,
-  confirmFounderEmails,
   enrolledFounderPair,
   ensureFounderVaultDraft,
   enrolTestStackFounders,
@@ -97,8 +96,7 @@ import {
   readFounderPinStamp,
   writeFounderPinStamp,
 } from './local-test-founders.mjs';
-import { consoleTreasuryToken, founderTotp, makeContext } from './local-test-gates.mjs';
-import { LOCAL_TEST_DEVICE_KEY } from './local-test-device.mjs';
+import { consoleTreasuryToken, makeContext } from './local-test-gates.mjs';
 import { loadProfile } from './owner-settings.mjs';
 import {
   localStackState,
@@ -1198,33 +1196,7 @@ async function ensureLocalTestFounders() {
     await restartIdentity();
   }
   if (!foundersEnrolled(readVault())) fail('local test founder pair did not enrol');
-  // A founder's address is confirmed like anyone's, so a new browser in the console is mailed its approval code.
-  // Only a console sign-in from a new browser needs it, so a failure here is named and the stack still starts.
-  let ctx;
-  try {
-    await confirmFounderEmails({
-      stateDir: STATE,
-      marker,
-      edgeUrl,
-      log: say,
-      signIn: async (f) => {
-        ctx ??= await makeContext({ log: () => {} });
-        const login = await ctx.edge.mutate('identity', 'auth.login', {
-          identifier: f.handle,
-          password: f.password,
-          totpCode: await founderTotp(ctx, f.key, f.totpSecret),
-          deviceKey: LOCAL_TEST_DEVICE_KEY,
-        });
-        const token = login.json?.result?.data?.accessToken;
-        if (typeof token !== 'string') throw new Error(`founder ${f.key} could not sign in to confirm their email (${login.status})`);
-        return token;
-      },
-    });
-  } catch (err) {
-    say(
-      `  founders: email addresses not confirmed, so a new browser in the console gets no mailed code: ${err instanceof Error ? err.message : err}`,
-    );
-  }
+  await confirmLocalFounderEmails({ STATE, marker, edgeUrl, say });
 }
 
 /** svc-ops reads the founder pair at start. When it started before the pair was enrolled, or with another pair, restart it. */

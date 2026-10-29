@@ -114,3 +114,26 @@ test('J-ops-console-01 #6 Ctrl K and "ledger" lists matching pages and actions, 
   await expect(palette).toHaveCount(0);
   await expect(page).toHaveURL(/\/ledger$/);
 });
+
+// #6's last clause is red until the console has per-operator scope: today it admits founders only, and the palette
+// filters by the deployment's modules, not by the person. The stack must hold an operator without ledger scope for
+// this to run; until the admin-access lane builds that, the test fails here by name rather than being dropped or faked.
+test('J-ops-console-01 #6 scope: pages the person lacks scope for are not listed', async ({ page }) => {
+  await assertAdminUp();
+  const ctx = await makeContext({ log: () => {} });
+  const vault = JSON.parse(readFileSync(path.join(ctx.paths.stateDir, FOUNDER_VAULT_NAME), 'utf8'));
+  const narrow = (vault.operators ?? []).find((o) => Array.isArray(o.scopes) && !o.scopes.includes('ledger'));
+  expect(narrow, 'no operator without ledger scope exists: the console has no per-operator scope yet').toBeTruthy();
+  await page.goto(`${ADMIN}/login`);
+  await page.getByLabel('Email or handle').fill(narrow.handle ?? narrow.email);
+  await page.getByLabel('Password').fill(narrow.password);
+  await page.getByLabel('Authenticator or recovery code').fill(await founderTotp(ctx, 'a', narrow.totpSecret));
+  await page.locator('button[type=submit]').click();
+  await page.waitForURL((url) => !url.pathname.startsWith('/login'), { timeout: 30_000 });
+  await page.keyboard.press('Control+k');
+  const palette = page.getByTestId('command-palette');
+  await expect(palette).toBeVisible();
+  await page.keyboard.type('ledger');
+  await expect(palette.getByRole('option', { name: /Ledger ops/ })).toHaveCount(0);
+  await expect(palette.getByRole('option', { name: /Freeze or unfreeze ledger posting/ })).toHaveCount(0);
+});
