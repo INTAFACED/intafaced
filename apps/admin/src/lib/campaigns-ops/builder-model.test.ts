@@ -1,6 +1,17 @@
 import { describe, expect, it } from 'vitest';
 import type { Campaign } from '@intafaced/contracts/campaigns-catalogue';
-import { blankSentence, definitionOf, overviewOf, parseRegions, refusalSentence, resumeStep } from './builder-model';
+import {
+  baseDefinition,
+  blankSentence,
+  definitionOf,
+  editedView,
+  isEditable,
+  latestRevision,
+  overviewOf,
+  parseRegions,
+  refusalSentence,
+  resumeStep,
+} from './builder-model';
 
 const draft = (over: Partial<Campaign> = {}): Campaign => ({
   id: 'cmp_1',
@@ -23,6 +34,8 @@ const draft = (over: Partial<Campaign> = {}): Campaign => ({
   approvedBy: null,
   createdAt: '2026-10-25T00:00:00.000Z',
   updatedAt: '2026-10-25T00:00:00.000Z',
+  pendingChange: null,
+  earning: [],
   ...over,
 });
 
@@ -96,5 +109,35 @@ describe('campaign builder model', () => {
   it('a time zone the builder left blank goes back blank; any other is the platform zone', () => {
     expect(definitionOf(draft({ timeZone: null, timeZoneBlank: true })).timeZone).toBeNull();
     expect(definitionOf(draft({ timeZone: null })).timeZone).toBeUndefined();
+  });
+
+  it('a live campaign is edited through its open change; the change is what the builder shows and saves over', () => {
+    expect(isEditable(draft({ state: 'active' }))).toBe(true);
+    expect(isEditable(draft({ state: 'pending_approval' }))).toBe(false);
+    expect(isEditable(draft({ state: 'ended' }))).toBe(false);
+    const live = draft({ state: 'active', revision: 3, rules: 'live', budget: { asset: 'USDT', limit: '100', left: '90' } });
+    expect(latestRevision(live)).toBe(3);
+    expect(baseDefinition(live).rules).toBe('live');
+    const definition = { name: 'TEST', type: 'task', rules: 'next', budget: { asset: 'USDT', limit: '120' }, timeZone: null };
+    const changed = draft({
+      ...live,
+      pendingChange: { revision: 4, state: 'draft', createdBy: 'a', submittedBy: null, definition, updatedAt: live.updatedAt },
+    });
+    expect(latestRevision(changed)).toBe(4);
+    expect(baseDefinition(changed)).toBe(definition);
+    expect(editedView(changed)).toMatchObject({ revision: 3, rules: 'next', timeZoneBlank: true, budget: { limit: '120', left: '90' } });
+    // The Tasks tab shows the change's steps too, so saving it never puts the live steps back over them.
+    const steps = {
+      steps: [{ title: 'TEST trade once', event: 'trade.fill' as const, market: null, side: null, count: 1, streakDays: null }],
+      claimWindowSeconds: 604_800,
+      holdSeconds: null,
+      lock: null,
+      kycGate: 'none' as const,
+    };
+    const withTasks = draft({ ...changed, pendingChange: { ...changed.pendingChange!, definition: { ...definition, tasks: steps } } });
+    expect(editedView(withTasks).tasks).toEqual(steps);
+    expect(refusalSentence('campaigns.second_person_required', changed, 'a')).toBe(
+      'You wrote this revision, so another founder must approve it.',
+    );
   });
 });

@@ -18,6 +18,7 @@ import { decideLimitRequestProcedure, limitRequestQueueProcedure } from '../tran
 import { createLoanProductProcedure } from '../ops/loan-products.js';
 import { createEarnPoolProcedure, setEarnPoolRateProcedure } from '../ops/earn-pools.js';
 import { publishTransferTermsProcedure } from '../transfers/transfer-terms.js';
+import { DestinationFraudList, destinationFraudListProcedure, setDestinationFraudListingProcedure } from '../ramps/fraud-list.js';
 import { rampHealthProcedure } from '../ops/ramp-health.js';
 import { transferHealthProcedure } from '../ops/transfer-health.js';
 import { failedTransfersProcedure } from '../ops/failed-transfers.js';
@@ -900,6 +901,13 @@ export function createOpsRouter(c: BankRouterContext) {
     createEarnPool: createEarnPoolProcedure(bank, consumeOpsApproval, guard),
     setEarnPoolRate: setEarnPoolRateProcedure(bank, consumeOpsApproval, guard),
     publishTransferTerms: publishTransferTermsProcedure(() => bank.transferOps.sql, consumeOpsApproval, guard),
+    /** W-withdraw-03: the destination fraud list. Read on the desk; a listing or delisting needs compliance and a second person. */
+    destinationFraudList: destinationFraudListProcedure(() => new DestinationFraudList(bank.transferOps.sql), guard),
+    setDestinationFraudListing: setDestinationFraudListingProcedure(
+      () => new DestinationFraudList(bank.transferOps.sql),
+      consumeOpsApprovalPair,
+      guard,
+    ),
     cardProgramme: cardProgrammeProcedure(bank, guard),
     setCardStatus: setCardStatusProcedure(bank, consumeOpsApproval, guard),
     rampHealth: rampHealthProcedure(bank, guard),

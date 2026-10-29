@@ -1,5 +1,12 @@
 import { z } from 'zod';
-import { router, scopedProcedure } from '@intafaced/contracts';
+import {
+  BANK_SEND_DESTINATION_CALLERS,
+  bankSendDestinationInputSchema,
+  bankSendDestinationSchema,
+  router,
+  scopedProcedure,
+  serviceProcedureFor,
+} from '@intafaced/contracts';
 import { formatAmount, parseAmount } from '@intafaced/ledger-client';
 import { ONRAMP_METHODS } from '../ramps/customer-ports.js';
 import { destinationViewOutput, amountString } from './shared.js';
@@ -211,10 +218,12 @@ export function createRampsRouter(c: BankRouterContext) {
       /**
        * Check an address before the confirmation step, with the rules `save` applies: `address` is `checksum_mismatch`
        * when its mixed case does not match its EIP-55 checksum (a changed character), and `lookalike` names the saved
-       * entry it shows like but is not (address poisoning). Read-only (`bank:read`); `save` enforces both again.
+       * entry it shows like but is not (address poisoning). With a `network`, `fraudListed` says whether the owner's fraud list
+       * holds the address on that network or on every network (W-withdraw-03); without one it is false and unasked. Read-only
+       * (`bank:read`); `save` enforces all three again.
        */
       check: scopedProcedure('bank:read', { module: 'bank' })
-        .input(z.object({ ref: z.string().min(1).max(256) }).strict())
+        .input(z.object({ ref: z.string().min(1).max(256), network: z.string().min(2).max(32).optional() }).strict())
         .output(
           z
             .object({
@@ -223,10 +232,19 @@ export function createRampsRouter(c: BankRouterContext) {
                 .object({ destinationId: z.string().guid(), label: z.string().nullable(), refMasked: z.string() })
                 .strict()
                 .nullable(),
+              fraudListed: z.boolean(),
             })
             .strict(),
         )
-        .query(async ({ ctx, input }) => guard(async () => bank.ramps.checkDestination({ userId: ctx.principal.userId, ref: input.ref }))),
+        .query(async ({ ctx, input }) =>
+          guard(async () =>
+            bank.ramps.checkDestination({
+              userId: ctx.principal.userId,
+              ref: input.ref,
+              ...(input.network !== undefined ? { network: input.network } : {}),
+            }),
+          ),
+        ),
 
       /**
        * Save an address-book entry. `trade:withdraw` (the step-up scope), like removing one: a leaked key or a
@@ -237,6 +255,8 @@ export function createRampsRouter(c: BankRouterContext) {
        * checked first: once an asset or network is delisted, saving that entry again refuses even if it is stored.
        * A mixed-case address must match its checksum (`bank.address_checksum_mismatch`), and an address that shows like
        * a saved one but is not refuses `bank.address_lookalike` unless `confirmLookalike` is true (the customer checked).
+       * An address on the owner's fraud list for that network or every network refuses `bank.destination_fraud_listed`
+       * before anything is stored (W-withdraw-03).
        */
       save: scopedProcedure('trade:withdraw', { module: 'bank' })
         .input(
@@ -378,6 +398,17 @@ export function createRampsRouter(c: BankRouterContext) {
         .query(async ({ ctx, input }) =>
           guard(async () => bank.ramps.destinationReadiness({ userId: ctx.principal.userId, destinationId: input.destinationId })),
         ),
+
+      /**
+       * Whether money may be sent to one address of one asset on one network now (J-wallet-05 #6, issue #6517): asked by svc-pay
+       * before it claims a withdrawal to a wallet outside the platform, so the address book decides on the server. Service-only:
+       * `serviceProcedureFor` proves the caller is svc-pay before the input is parsed. A read; a POST only because the caller
+       * signs the body.
+       */
+      sendable: serviceProcedureFor(BANK_SEND_DESTINATION_CALLERS)
+        .input(bankSendDestinationInputSchema)
+        .output(bankSendDestinationSchema)
+        .mutation(async ({ input }) => guard(async () => bank.ramps.sendableDestination(input))),
 
       /** Remove, with the same step-up scope as saving. A withdrawal that already copied the address is not touched. */
       remove: scopedProcedure('trade:withdraw', { module: 'bank' })

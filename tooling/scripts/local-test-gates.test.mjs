@@ -19,6 +19,9 @@ import {
   makeContext,
   matchingPayloadHash,
   bankPayloadHash,
+  fraudListingFields,
+  SET_FRAUD_LISTING_ACTION,
+  TEST_FRAUD_LIST,
   founderSignIns,
   termsProposal,
   TEST_TRANSFER_TERMS,
@@ -228,6 +231,35 @@ assert.ok(
 // The TEST figures are canonical decimals, so the hash the stack signs is the one svc-bank recomputes.
 for (const t of TEST_TRANSFER_TERMS)
   for (const v of [t.perTransferLimit, t.dailyLimit, t.fee]) assert.match(v, /^(0|[1-9]\d*)(\.\d*[1-9])?$/, `${t.assetId} ${v}`);
+
+// The TEST fraud list (W-withdraw-03): the approval is bound to the fields svc-bank normalises (lower-case EVM address, `*` or a
+// lower-case network, the next revision, the reason), so the hash the stack signs is the one svc-bank recomputes.
+const fraudSrc = readFileSync(resolve(here, '..', '..', 'services', 'svc-bank', 'src', 'ramps', 'fraud-list.ts'), 'utf8');
+assert.ok(fraudSrc.includes(`SET_FRAUD_LISTING_ACTION = '${SET_FRAUD_LISTING_ACTION}'`), 'fraud listing action renamed; update the stack');
+for (const field of ['revision: String(input.expectedRevision + 1)', 'reason: input.reason.trim()'])
+  assert.ok(fraudSrc.includes(field), 'fraud listing approval fields changed; update fraudListingFields');
+assert.deepEqual(
+  fraudListingFields({
+    network: '*',
+    address: '0x7E5700000000000000000000000000000000FA1D',
+    listed: true,
+    expectedRevision: 0,
+    reason: ' LOCAL TEST: x ',
+  }),
+  { network: '*', address: '0x7e5700000000000000000000000000000000fa1d', listed: 'true', revision: '1', reason: 'LOCAL TEST: x' },
+);
+assert.deepEqual(fraudListingFields({ network: 'Base', address: 'bc1Qx', listed: false, expectedRevision: 2, reason: 'LOCAL TEST: y' }), {
+  network: 'base',
+  address: 'bc1Qx',
+  listed: 'false',
+  revision: '3',
+  reason: 'LOCAL TEST: y',
+});
+const journey05 = readFileSync(resolve(here, '..', '..', 'apps', 'customer', 'tests', 'real-app', 'J-wallet-05.pw.mjs'), 'utf8');
+for (const listed of TEST_FRAUD_LIST) {
+  assert.ok(journey05.includes(`FRAUD_LISTED = '${listed.address}'`), 'J-wallet-05 #2 lists another address; keep them the same');
+  assert.match(listed.reason, /^LOCAL TEST: .{10,}/);
+}
 
 // Asset registry: the proposal names the row's revision and the action svc-ledger consumes; every TEST row is a valid
 // edit body (unique EVM networks, the default among them) and is matched again once published, so a rerun is a no-op.

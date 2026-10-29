@@ -18,6 +18,7 @@ import { TicketMerge } from './support-ticket-merge';
 import { TicketProperties } from './support-ticket-properties';
 import { QueueFilters } from './support-queue-filters';
 import { EMPTY_QUERY } from '@/lib/support/queue-query';
+import { historyRows, type HistoryRow } from '@/lib/support/history';
 import './desk.css';
 import { formatAsOf, formatWhen } from '@/lib/as-of';
 
@@ -210,46 +211,56 @@ function TicketBody({ detail, ...p }: { detail: TicketDetail } & DeskViewProps) 
       )}
 
       <h4>What happened to this ticket</h4>
-      {detail.events.kind === 'failed' ? (
-        <Failed name="History" part={detail.events} />
-      ) : detail.events.data.length === 0 ? (
-        <p className="dk-muted">No events recorded.</p>
-      ) : (
-        <div className="dk-table-wrap" role="region" aria-label="Ticket history" tabIndex={0}>
-          <table className="adm-table">
-            <thead>
-              <tr>
-                <th>#</th>
-                <th>When</th>
-                <th>What</th>
-                <th>By</th>
-                <th>Note</th>
-              </tr>
-            </thead>
-            <tbody>
-              {detail.events.data.map((e) => (
-                <tr key={e.id}>
-                  <td>{e.sequence}</td>
-                  <td>{formatWhen(e.occurredAt)}</td>
-                  <td>{e.kind === 'status_changed' ? `status ${e.fromStatus} → ${e.toStatus}` : e.kind}</td>
-                  <td>
-                    {e.actorRole} {shortId(e.actorId)}
-                  </td>
-                  <td>{e.note ?? '—'}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
+      {detail.events.kind === 'failed' && <Failed name="History" part={detail.events} />}
+      {detail.propertyChanges.kind === 'failed' && <Failed name="Priority, type and label changes" part={detail.propertyChanges} />}
+      <TicketHistory
+        rows={historyRows(
+          detail.events.kind === 'ok' ? detail.events.data : [],
+          detail.propertyChanges.kind === 'ok' ? detail.propertyChanges.data : [],
+        )}
+        anyFailed={detail.events.kind === 'failed' || detail.propertyChanges.kind === 'failed'}
+      />
 
       <TicketExtras extras={p.extras} loading={p.loadingExtras} />
-      <TicketFiles key={t.id} ticketId={t.id} />
-      <TicketLifecycle key={t.id} ticket={t} />
-      <TicketProperties key={t.id} ticket={t} />
-      <TicketMerge key={t.id} ticket={t} onDone={p.onActionDone} />
+      <TicketFiles key={`files:${t.id}`} ticketId={t.id} />
+      <TicketLifecycle key={`lifecycle:${t.id}`} ticket={t} />
+      <TicketProperties key={`properties:${t.id}`} ticket={t} onDone={p.onActionDone} />
+      <TicketMerge key={`merge:${t.id}`} ticket={t} onDone={p.onActionDone} />
       <TicketActions ticket={t} onDone={p.onActionDone} />
     </>
+  );
+}
+
+function TicketHistory({ rows, anyFailed }: { rows: readonly HistoryRow[]; anyFailed: boolean }) {
+  // "No events recorded" only when every part was read; a failed part already says so above.
+  if (rows.length === 0) return anyFailed ? null : <p className="dk-muted">No events recorded.</p>;
+  return (
+    <div className="dk-table-wrap" role="region" aria-label="Ticket history" tabIndex={0}>
+      <table className="adm-table">
+        <thead>
+          <tr>
+            <th>#</th>
+            <th>When</th>
+            <th>What</th>
+            <th>By</th>
+            <th>Note</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((r) => (
+            <tr key={r.key}>
+              <td>{r.sequence ?? '—'}</td>
+              <td>{formatWhen(r.at)}</td>
+              <td>{r.what}</td>
+              <td>
+                {r.actorRole} {shortId(r.actorId)}
+              </td>
+              <td>{r.note ?? '—'}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
   );
 }
 
