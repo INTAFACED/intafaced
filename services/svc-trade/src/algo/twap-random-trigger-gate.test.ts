@@ -60,10 +60,10 @@ async function refusal(p: Promise<unknown>): Promise<TradeError> {
 describe('creation gate with a trigger price', () => {
   it('judges a buy limit against the trigger, not today’s ask', async () => {
     // A limit of 60 is inside the band at an ask of 50 but cannot fill once the trigger at 100 is reached.
-    const err = await refusal(gateAlgoCreate(ctx({ limitPrice: amt('60'), triggerPrice: amt('100'), triggerAbove: true }), amt('1000000')));
+    const err = await refusal(gateAlgoCreate(ctx({ limitPrice: amt('60'), triggerPrice: amt('100'), triggerAbove: true }, amt('1000000'))));
     expect(err.code).toBe('trade.algo_price_band');
     // The same limit with no trigger passes the band.
-    await expect(gateAlgoCreate(ctx({ limitPrice: amt('60') }), amt('1000000'))).resolves.toBeUndefined();
+    await expect(gateAlgoCreate(ctx({ limitPrice: amt('60') }, amt('1000000')))).resolves.toBeUndefined();
   });
 
   it('funds a market buy’s first slice at the trigger when it is above the ask', async () => {

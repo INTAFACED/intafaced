@@ -172,7 +172,7 @@ function makeTwapTrade(
         limitPrice: input.limitPrice ?? null,
         subAccountId: null,
         clientAlgoId: input.clientAlgoId,
-        randomSeed: input.randomSeed ?? null,
+        ...(input.randomSeed !== undefined ? { randomSeed: input.randomSeed } : {}),
       };
       const parent = engine.create(p.userId, createInput, LOT);
       const plan = engine.planOf(parent.id) ?? [];
