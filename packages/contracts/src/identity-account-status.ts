@@ -18,11 +18,13 @@ import { kycReasonCodeSchema } from './identity-kyc-cases.js';
  * - `trading_restricted` (founder controls, trading area): recorded by identity, but svc-trade keeps its own restriction
  *   and does not read this one, so it blocks nothing (`blocks: []`). Only staff lift it; identity keeps no start.
  * - `capability_off` (I-kyc-compliance-17): compliance switched a KYC capability off for good, with a code from the
- *   owner's capability reason list (`IDENTITY_KYC_CAPABILITY_REASONS`), whose words and next step travel in `owner`. No
- *   service outside identity reads capability states, so it blocks nothing either (`blocks: []`), and nothing lifts it.
+ *   owner's capability reason list (`IDENTITY_KYC_CAPABILITY_REASONS`), whose words and next step travel in `owner`.
+ *   Identity refuses a new request for a level that grants it (`kyc.capability_inactive`); no service outside identity
+ *   reads capability states, so orders and transfers are not stopped by it. Nothing lifts it.
  * Staff write a restriction's reason as free text, which never reaches the customer: a restriction with no reason code
  * reads `reasonCode: null`, which the page shows as "No reason recorded". The ledger's platform-wide posting freeze is
- * never part of this shape (it has its own banner); KYC capability switch-offs are listed by `kyc.capabilities.get`.
+ * never part of this shape (it has its own banner). `state` counts only restrictions that block something: one that
+ * blocks nothing is listed, and the account still reads active.
  */
 export const ACCOUNT_ACTIONS = [
   'sign_in',
@@ -35,6 +37,7 @@ export const ACCOUNT_ACTIONS = [
   'add_recovery_keys',
   'add_withdrawal_address',
   'withdraw_to_address',
+  'request_level_with_switched_off_capability',
 ] as const;
 export const accountActionSchema = z.enum(ACCOUNT_ACTIONS);
 export type AccountAction = z.infer<typeof accountActionSchema>;

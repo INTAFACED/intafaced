@@ -133,14 +133,10 @@ const FIXED: Readonly<Partial<Record<RefusalKind, Words>>> = {
   tagInvalid: { title: 'Check the order tag', body: 'An order tag is 1 to 16 characters. Shorten it or leave it blank. Nothing was held.' },
   expiryInvalid: { title: 'Check the expiry', body: 'The expiry time has already passed. Choose a time in the future. Nothing was held.' },
   selfTrade: { title: 'You would trade with yourself', body: 'Change the price so it does not match one of your own orders.' },
-  accountOnHold: {
-    title: 'Your account is on hold',
-    body: 'This is held on your account. Your account status says what is held, why, and the next step.',
-    action: { label: 'See your account status', href: '/uc/account' },
-  },
+  accountOnHold: { title: 'Your account is on hold', body: 'Money cannot move right now. Contact support to find out why.' },
   platformPaused: {
     title: 'Money movement is paused for everyone',
-    body: 'Money movement is paused across the platform right now. Your account is not on hold. Nothing was sent.',
+    body: 'Money movement is paused across the platform right now. Your account is not on hold. Nothing was done.',
   },
   spaceLocked: { title: 'This space is locked', body: 'You locked this space for a time. It opens again at the time you chose.' },
   notFound: { title: "We couldn't find that", body: 'It may have been removed. Go back and try again.' },

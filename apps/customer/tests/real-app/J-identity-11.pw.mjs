@@ -25,6 +25,7 @@ const ACTIONS = [
   'Add recovery keys or change their plan',
   'Add a withdrawal address',
   'Start a send to a withdrawal address',
+  'Ask for a verification level that includes a switched-off capability',
 ];
 
 test(`${J} #1 Account status lists what I can still do and what I cannot; an active account blocks nothing`, async ({ page }) => {
@@ -50,5 +51,10 @@ test(`${J} #1 Account status lists what I can still do and what I cannot; an act
   await expect(lock).toContainText('Reason: you turned it on.');
   await expect(lock).toContainText('It holds until you ask to unlock it in Security.');
   await expect(status.getByTestId('account-status__cannot').locator('li')).toContainText(['Change your password']);
-  await expect(status.getByTestId('account-status__can').locator('li')).toHaveText(['Sign in', 'Trade', 'Create API keys']);
+  await expect(status.getByTestId('account-status__can').locator('li')).toHaveText([
+    'Sign in',
+    'Trade',
+    'Create API keys',
+    'Ask for a verification level that includes a switched-off capability',
+  ]);
 });

@@ -5,6 +5,7 @@ import { Failure, Loading } from '../../shared/ui';
 import { usePreferences } from '../../shared/preferences';
 import { stamp } from '../../screens/money/time';
 import { accountStatusCopy as copy } from './account-status-copy';
+import { verificationCapabilitiesCopy } from './verification-capabilities-copy';
 
 /**
  * I-signin-sessions-22: the account status card on /uc/account. It lists what the person can still do and what they
@@ -38,7 +39,7 @@ export function AccountStatus() {
     return (
       <div className="stack">
         <p data-testid="account-status__state" data-state={status.state}>
-          <Copy k={status.state} />
+          <Copy k={status.state === 'active' && status.restrictions.length > 0 ? 'activeWithRecords' : status.state} />
         </p>
         <div className="account-status__lists">
           <div>
@@ -99,6 +100,8 @@ export function AccountStatus() {
 /** Each restriction with its reason, its start, whether it stops anything and how it ends; shared with /verification. */
 export function RestrictionList({ restrictions }: { restrictions: readonly AccountRestriction[] }) {
   const { t, Copy } = copy.useCopy();
+  // The capability names /verification already uses, so a capability reads the same on both pages.
+  const capabilities = verificationCapabilitiesCopy.useCopy();
   const { timeZone } = usePreferences();
   const lift = (r: AccountRestriction) => {
     switch (r.lift.by) {
@@ -149,12 +152,18 @@ export function RestrictionList({ restrictions }: { restrictions: readonly Accou
           data-capability={r.capability ?? ''}
           data-reason={r.reasonCode ?? r.owner?.code ?? ''}
         >
-          <strong>{r.capability ? t('capabilityOff', { capability: t(`cap_${r.capability}`) }) : t(`kind_${r.kind}`)}</strong> {reason(r)}{' '}
-          {r.since && <Copy k="since" params={{ time: stamp(r.since, timeZone) }} />}{' '}
-          {r.blocks.length === 0 && (r.kind === 'trading_restricted' || r.kind === 'capability_off') && (
-            <Copy k={`blocksNothing_${r.kind}`} />
-          )}{' '}
-          {lift(r)}
+          <strong>
+            {r.capability ? (
+              <>
+                <capabilities.Copy k={r.capability} /> <Copy k="switchedOff" />
+              </>
+            ) : (
+              t(`kind_${r.kind as Exclude<AccountRestriction['kind'], 'capability_off'>}`)
+            )}
+          </strong>{' '}
+          {reason(r)} {r.since && <Copy k="since" params={{ time: stamp(r.since, timeZone) }} />}{' '}
+          {r.kind === 'trading_restricted' && <Copy k="blocksNothing_trading_restricted" />}
+          {r.kind === 'capability_off' && <Copy k="capabilityStops" />} {lift(r)}
         </li>
       ))}
     </ul>

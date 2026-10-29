@@ -250,21 +250,30 @@ test(`${J} #7: a restriction on another screen gives its reason in plain words a
     'switched off (compliance_hold)',
   );
   await page.reload();
-  const off = restrictions.locator('li[data-kind="capability_off"][data-capability="trade_crypto"]');
-  // The reason in the owner's plain words, the next step, and what it does today: nothing reads it, so nothing stops.
-  await expect(off).toContainText('Trade crypto switched off');
-  await expect(off).toContainText('TEST: this was switched off after a compliance review.');
-  await expect(off).toContainText('Next: TEST: ask Support what the review found.');
-  await expect(off).toContainText('no service reads it today, so it does not stop your orders or transfers.');
-  await expect(off).toContainText('It cannot be switched back on.');
+  // Here: Capabilities says it is switched off and why, and the restrictions section points there, saying it once.
+  const capabilities = page.getByRole('region', { name: 'Capabilities' });
+  const capability = capabilities.locator('[data-testid="verification__capability"][data-capability="trade_crypto"]');
+  await expect(capability).toContainText('Switched off');
+  await expect(capability).toContainText('TEST: this was switched off after a compliance review.');
+  await expect(restrictions.getByTestId('verification__restrictions-capabilities')).toHaveText(
+    'A capability compliance switched off is listed under Capabilities above.',
+  );
+  await expect(restrictions.getByTestId('verification__restrictions-none')).toHaveCount(0);
 
-  // On another screen: the account status lists it too, and blocks nothing it does not enforce.
+  // On another screen, the account status: the reason in the owner's plain words, the next step, what it stops today
+  // (a new request for a level that includes it) and what it does not (orders and transfers), and that nothing lifts it.
   await restrictions.getByRole('link', { name: 'See your account status' }).click();
   await expect(page).toHaveURL(/\/uc\/account/);
   const status = page.getByTestId('account-status');
   await expect(status.getByTestId('account-status__state')).toHaveAttribute('data-state', 'restricted');
-  await expect(status.locator('li[data-kind="capability_off"][data-capability="trade_crypto"]')).toContainText(
-    'TEST: this was switched off after a compliance review.',
-  );
-  await expect(status.getByTestId('account-status__cannot').locator('li')).toHaveText(['Nothing']);
+  const off = status.locator('li[data-kind="capability_off"][data-capability="trade_crypto"]');
+  await expect(off).toContainText('Trade crypto switched off');
+  await expect(off).toContainText('TEST: this was switched off after a compliance review.');
+  await expect(off).toContainText('Next: TEST: ask Support what the review found.');
+  await expect(off).toContainText('It stops a new request for a level that includes it.');
+  await expect(off).toContainText('it does not stop your orders or transfers.');
+  await expect(off).toContainText('It cannot be switched back on.');
+  await expect(status.getByTestId('account-status__cannot').locator('li')).toHaveText([
+    'Ask for a verification level that includes a switched-off capability',
+  ]);
 });

@@ -59,7 +59,9 @@ if (!(await postgresAvailable(TEST_URL))) {
   afterAll(async () => {
     await db.drop();
   });
-  const REASONS = new Map([['compliance_hold', { reason: 'TEST: switched off after a review.', guidance: 'TEST: ask Support.' }]]);
+  const REASONS = new Map([
+    ['compliance_hold', { code: 'compliance_hold', reason: 'TEST: switched off after a review.', guidance: 'TEST: ask Support.' }],
+  ]);
   const desk = new AccountStatusDesk(db.sql, 3600, REASONS);
   const lock = new SecurityLock(db.sql, 0);
   let n = 0;
@@ -106,7 +108,7 @@ if (!(await postgresAvailable(TEST_URL))) {
       expect(status.cannot).toEqual([{ action: 'create_api_key', kind: 'self_freeze' }]);
       expect(status.canStill).toContain('sign_in');
       // With no wait published, the lift time is unknown and the page says a lift refuses.
-      const unpublished = accountStatusSchema.parse(await new AccountStatusDesk(db.sql, undefined).read(userId));
+      const unpublished = accountStatusSchema.parse(await new AccountStatusDesk(db.sql, undefined, REASONS).read(userId));
       expect(unpublished.restrictions[0]!.lift).toEqual({ by: 'owner_after_wait', availableAt: null });
     });
 
@@ -127,7 +129,7 @@ if (!(await postgresAvailable(TEST_URL))) {
         'add_withdrawal_address',
         'withdraw_to_address',
       ]);
-      expect(status.canStill).toEqual(['sign_in', 'trade', 'create_api_key']);
+      expect(status.canStill).toEqual(['sign_in', 'trade', 'create_api_key', 'request_level_with_switched_off_capability']);
       await db.sql`UPDATE account_security_locks SET unlock_requested_at = now() - interval '2 seconds', unlocks_at = now() - interval '1 second' WHERE user_id = ${userId}`;
       expect((await read(userId)).state).toBe('active');
     });
@@ -137,7 +139,7 @@ if (!(await postgresAvailable(TEST_URL))) {
       await db.sql`INSERT INTO trading_restrictions (user_id, restricted, version) VALUES (${userId}, true, 1)`;
       const status = await read(userId);
       // svc-trade does not read identity's record, so "you cannot" stays empty and trading stays in "you can still".
-      expect(status).toMatchObject({ state: 'restricted', reasonCode: null, cannot: [], canStill: [...ACCOUNT_ACTIONS] });
+      expect(status).toMatchObject({ state: 'active', reasonCode: null, cannot: [], canStill: [...ACCOUNT_ACTIONS] });
       expect(status.restrictions[0]!.blocks).toEqual([]);
       expect(status.restrictions[0]).toMatchObject({ kind: 'trading_restricted', lift: { by: 'staff' } });
       expect(status.restrictions[0]!.since).toBeNull();
@@ -166,14 +168,19 @@ if (!(await postgresAvailable(TEST_URL))) {
                (${userId}, 'custody_crypto', 'inactive', 'reviewer', 'no_longer_listed'),
                (${userId}, 'transfer_fiat', 'active', NULL, NULL)`;
       const status = await read(userId);
-      expect(status).toMatchObject({ state: 'restricted', reasonCode: null, cannot: [], canStill: [...ACCOUNT_ACTIONS] });
+      expect(status).toMatchObject({
+        state: 'restricted',
+        reasonCode: null,
+        cannot: [{ action: 'request_level_with_switched_off_capability', kind: 'capability_off' }],
+      });
+      const blocks = ['request_level_with_switched_off_capability'];
       expect(status.restrictions.map((r) => [r.kind, r.capability, r.owner, r.blocks, r.lift])).toEqual([
-        ['capability_off', 'custody_crypto', { code: 'no_longer_listed', text: null, guidance: null }, [], { by: 'none' }],
+        ['capability_off', 'custody_crypto', { code: 'no_longer_listed', text: null, guidance: null }, blocks, { by: 'none' }],
         [
           'capability_off',
           'trade_crypto',
           { code: 'compliance_hold', text: 'TEST: switched off after a review.', guidance: 'TEST: ask Support.' },
-          [],
+          blocks,
           { by: 'none' },
         ],
       ]);
@@ -199,7 +206,7 @@ if (!(await postgresAvailable(TEST_URL))) {
     it('`mine` reads only the caller; `of` is for admin:read', async () => {
       const userId = await person();
       const other = await person();
-      await db.sql`INSERT INTO trading_restrictions (user_id, restricted, version) VALUES (${other}, true, 1)`;
+      await db.sql`UPDATE users SET status = 'frozen' WHERE id = ${other}`;
       const caller = (scopes: string[]) =>
         createAccountStatusRouter(desk).createCaller({
           principal: { userId, sid: 'sid-1', scopes, mfa: false },
@@ -209,7 +216,7 @@ if (!(await postgresAvailable(TEST_URL))) {
         } as unknown as Context);
       expect((await caller(['identity:read']).accountStatus.mine()).state).toBe('active');
       await expect(caller(['identity:read']).accountStatus.of({ userId: other })).rejects.toMatchObject({ code: 'FORBIDDEN' });
-      expect((await caller(['admin:read']).accountStatus.of({ userId: other })).state).toBe('restricted');
+      expect((await caller(['admin:read']).accountStatus.of({ userId: other })).state).toBe('frozen');
       await expect(caller(['identity:read']).accountStatus.mine({ userId: other } as never)).resolves.toMatchObject({ state: 'active' });
       // A staff read is for a person signed in: an API key, a sub-account or a service is refused; a sub-account session
       // never reads the owner's status as its own.

@@ -23,14 +23,36 @@ export function VerificationRestrictions({ recordsKey }: { recordsKey: string })
   );
   const body = () => {
     if (resource.status === 'loading') return <Loading />;
-    if (resource.status === 'failed') return <Failure result={resource.failure} retry={reload} />;
+    if (resource.status === 'failed')
+      // A sub-account's session reads no status of its own: say where it lives rather than offer a retry that fails.
+      return resource.failure.code === 'identity.delegated_refused' ? (
+        <p>
+          <Copy k="delegated" />
+        </p>
+      ) : (
+        <Failure result={resource.failure} retry={reload} />
+      );
     if (!resource.data) return null;
-    return resource.data.restrictions.length === 0 ? (
-      <p data-testid="verification__restrictions-none">
-        <Copy k="noRestrictions" />
-      </p>
-    ) : (
-      <RestrictionList restrictions={resource.data.restrictions} />
+    // A switched-off capability is already in Capabilities above; listing it again here would say it twice.
+    const others = resource.data.restrictions.filter((r) => r.kind !== 'capability_off');
+    const switchedOff = others.length < resource.data.restrictions.length;
+    return (
+      <>
+        {others.length > 0 ? (
+          <RestrictionList restrictions={others} />
+        ) : (
+          !switchedOff && (
+            <p data-testid="verification__restrictions-none">
+              <Copy k="noRestrictions" />
+            </p>
+          )
+        )}
+        {switchedOff && (
+          <p data-testid="verification__restrictions-capabilities">
+            <Copy k="capabilitiesAbove" />
+          </p>
+        )}
+      </>
     );
   };
   return (
