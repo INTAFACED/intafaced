@@ -250,14 +250,12 @@ const fr = {
   page_Rules: 'Règles',
   parked_Rules:
     'Les règles qui demandent votre accord avant qu’un agent agisse ne sont pas construites (AG-approvals-01) ; cet agent n’en a donc aucune.',
-  page_Permissions:
-    'The permission mode and connector consent are not built (AG-guardrails-01), so this draft grants nothing beyond its tools.',
+  page_Permissions: 'Autorisations',
   parked_Permissions:
     'Le mode d’autorisation et le consentement aux connecteurs ne sont pas construits (AG-guardrails-01) ; ce brouillon n’accorde rien au-delà de ses outils.',
   page_Memory: 'Mémoire',
   parked_Memory: 'La mémoire de l’agent n’est pas construite (AG-builder-02) ; cet agent ne garde rien d’une session à l’autre.',
-  page_Privacy:
-    'Data controls and the retention statement are not built (AG-guardrails-04). This draft has never run, so it holds no data from a run.',
+  page_Privacy: 'Confidentialité',
   parked_Privacy:
     'Les contrôles des données et la déclaration de conservation ne sont pas construits (AG-guardrails-04). Ce brouillon n’a jamais tourné ; il ne détient aucune donnée d’exécution.',
   page_Access: 'Accès',
