@@ -14,7 +14,7 @@ import { TEST_WITHDRAW_NETWORK_RULES } from '../../../../tooling/scripts/local-t
 // accounts (the day counts the fee), and a TEST custody policy that lets a TEST send out on the crypto-native rail through.
 // The stack's svc-pay has a TEST custody signer for TEST Ethereum only (`PAY_TEST_WITHDRAW_SIGNER_NETWORKS`), sending through
 // the in-memory MemoryChain; TEST Base has none, which is what #7 meets. #6 and #4's two parallel sends run after #7, which
-// needs the balance still at 300.
+// needs the balance still at 300. #8 watches the withdrawal #6 sent, so it runs after #6.
 // #2's sanctions clause stays in the step and fails by name: no sanctions screening provider is set for destinations, which
 // is the owner's call, and a blank list is never filled in here (product law). The rest of #2 runs before it.
 // #5 (travel rule) waits for launch (owner decision 2026-10-27).
@@ -125,8 +125,8 @@ async function customerApi() {
       if (status !== 200) throw new Error(`balance read refused: ${status}`);
       return body.balances[asset]?.free ?? '0';
     },
-    async withdrawals() {
-      const { status, body } = await get(`/api/pay/trpc/withdrawal.history?input=${encodeURIComponent(JSON.stringify({ limit: 10 }))}`);
+    async withdrawals(limit = 10) {
+      const { status, body } = await get(`/api/pay/trpc/withdrawal.history?input=${encodeURIComponent(JSON.stringify({ limit }))}`);
       if (status !== 200) throw new Error(`withdrawal history refused: ${status}`);
       return body.result.data.items;
     },
@@ -542,6 +542,7 @@ test(`${J} #6 reviews and confirms with a fresh step-up: no code keeps Confirm s
   // While it lives, the same token gets past the step-up check: svc-pay stops only at the quote this send names, which
   // does not exist, so nothing is held.
   const live = await api.create({ ...send, clientRef: `${J}-live-step-up` }, elevated.accessToken);
+  expect(live.status, JSON.stringify(live.body).slice(0, 400)).toBe(404);
   expect(live.body?.error?.data?.cause?.code, JSON.stringify(live.body).slice(0, 400)).toBe('withdrawal_quote.not_found');
   await page.waitForTimeout(Math.max(0, Date.parse(elevated.expiresAt) - Date.now()) + 2_000);
   // Once expired, the edge no longer vouches for it, and svc-pay refuses it as signed out: UNAUTHORIZED, not the
@@ -662,16 +663,20 @@ test(`${J} #8 watches the status: requested, held, broadcast and settled in plai
     const own = await ownContext.newPage();
     await signInWithCode(own);
     const api = await customerApi();
-    const sends = (await api.withdrawals()).filter((w) => w.destination?.ref === ADDRESS && toUnits(w.amount) === toUnits('25'));
+    // A full page, newest first: #4's sends come after #6's, so the oldest 25 USDT send to ADDRESS is #6's.
+    const sends = (await api.withdrawals(200)).filter(
+      (w) => w.destination?.ref?.toLowerCase() === ADDRESS.toLowerCase() && toUnits(w.amount) === toUnits('25'),
+    );
     const real = sends.at(-1);
-    expect(real?.id, 'the withdrawal #6 sent').toBeTruthy();
+    expect(real?.id, 'the withdrawal #6 sent (#8 runs after #6)').toBeTruthy();
     const order = ['Requested', 'In review', 'Approved', 'Held', 'Sending', 'Broadcast', 'Confirming', 'Settled'];
+    const words = [...order, 'Rejected', 'Cancelled', 'Failed', 'Needs review'];
     const seen = [];
     const until = Date.now() + 60_000;
     while (seen.at(-1) !== 'Settled' && Date.now() < until) {
       await own.goto(`/uc/withdraw?withdrawalId=${real.id}`);
-      const shown = (await own.getByTestId('withdrawal-status').textContent({ timeout: 30_000 }))?.trim();
-      expect(order, `"${shown}" is a status word`).toContain(shown);
+      const shown = (await own.getByTestId('withdrawal-status').textContent({ timeout: 15_000 }))?.trim();
+      expect(words, `"${shown}" is a status word`).toContain(shown);
       if (seen.at(-1) !== shown) seen.push(shown);
       if (shown !== 'Settled') await own.waitForTimeout(1_000);
     }
