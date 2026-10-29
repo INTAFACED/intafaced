@@ -361,6 +361,12 @@ test(`${J} #7 a macro with a placeholder fills the reply draft, the signature go
   const held = (await trail(ticket.id)).filter((row) => row.kind === 'status_changed' && row.toStatus === 'on_hold');
   expect(held.map((row) => row.note)).toEqual([reason]);
   expect(await operatorComments()).toHaveLength(1);
+  // The case "public reply only" is measured against is an internal note's draft, which is unbuilt (SP-tickets-05). This
+  // step stays red, by that name, until the note composer exists and its draft is shown to start without the signature.
+  await expect(
+    actions.getByLabel('Your internal note'),
+    'blocked by SP-tickets-05: no internal note composer, so "the signature goes on the public reply only" is unproven',
+  ).toBeVisible({ timeout: 5_000 });
 });
 
 test(`${J} #8 sending after another agent changed the status is refused as stale with the new events, and goes through after review`, async ({
