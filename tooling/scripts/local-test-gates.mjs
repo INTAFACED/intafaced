@@ -15,7 +15,7 @@
  *   node tooling/scripts/local-test-gates.mjs futures    list the TEST perpetual, publish TEST derivatives terms and quiz
  *   node tooling/scripts/local-test-gates.mjs halt <SYMBOL>    halt one book in matching (two-person approval)
  *   node tooling/scripts/local-test-gates.mjs resume <SYMBOL>  resume a halted book (two-person approval)
- *   node tooling/scripts/local-test-gates.mjs posting-freeze on|off   the platform posting freeze in svc-ledger (two-person approval)
+ *   node tooling/scripts/local-test-gates.mjs posting-freeze on|off   the platform posting freeze in svc-ledger (two founders)
  *   node tooling/scripts/local-test-gates.mjs limits     publish the TEST price band and open-order cap (two-person approval)
  *   node tooling/scripts/local-test-gates.mjs charts     publish the TEST charts owner values (counts; data class two-person approval)
  *   node tooling/scripts/local-test-gates.mjs chart-class <SYMBOL> <dataClass>   one market's data class (two-person approval)
@@ -33,7 +33,8 @@
  *   5. the two founders who publish which assets and networks are supported (the address book refuses while none are),
  *   6. the operator who halts and resumes one market (a journey step: new orders refused, cancels still work).
  *   6b. the two founders who turn the platform posting freeze on and off (a journey step: a money call refused
- *      `posting_frozen` while a read still works; `off` lifts only a freeze this tool set).
+ *      `posting_frozen` while a read still works). Founders only, never the test operators; neither `on` nor `off`
+ *      adopts or lifts a freeze this tool did not set.
  *   7. the owner who lists the TEST perpetual and publishes the derivatives risk agreement, margin terms and quiz
  *      (every futures order refuses while none are published).
  *   8. the two operators who register what a P2P payment method needs in a market (svc-p2p ships its method registry
@@ -667,54 +668,56 @@ export async function founderTotp(ctx, key, secret) {
 
 async function signInPair(ctx, ops, saveSteps) {
   const sessions = {};
-  for (const l of ['a', 'b']) {
-    const op = ops[l];
-    const loginToken = await operatorLogin(ctx, op);
-    saveSteps();
-    sessions[l] = {
-      op,
-      /** Second-factor session token (what a signed-in operator holds). */
-      token: loginToken,
-      /** Same session, plus the operator scope. Short-lived. */
-      async complianceToken() {
-        return mintOperatorToken(ctx, op);
-      },
-      /**
-       * Same session with an `admin:*` scope: what identity needs to see an OPERATOR principal. Four-eyes over
-       * operator action types (matching.open, kyc.approve, ...) refuses a plain session token (an ordinary user,
-       * #4724), so propose, approve and reject use this. Identity still checks the proposer and the approver are
-       * two distinct users, so the two operators keep two distinct tokens. Accepted before and after that rule.
-       */
-      async approvalToken() {
-        return mintOperatorToken(ctx, op);
-      },
-      /** Same session with `admin:treasury`, the scope svc-bank's four-eyes treasury doors check (ops.adjustLoanInterest). */
-      async treasuryToken() {
-        return mintOperatorToken(ctx, op, ['admin:treasury']);
-      },
-      /** Same session with the trade operator write scope svc-trade's admin doors check (admin.risk.set). */
-      async tradeOpsToken() {
-        return mintOperatorToken(ctx, op, ['admin:read', 'admin:write']);
-      },
-      /** Same session as compliance: the trade desk's VIP application review also needs `admin:compliance`. */
-      async complianceToken() {
-        return mintOperatorToken(ctx, op, ['admin:read', 'admin:write', 'admin:compliance']);
-      },
-      /** Same session with the CRM scopes svc-ops checks before it asks identity whether the caller is a founder. */
-      async crmToken() {
-        return mintOperatorToken(ctx, op, ['ops:read', 'ops:write']);
-      },
-      /** Same session with the campaign operator scope svc-campaigns checks (seasons and drops: one creates, the other publishes). */
-      async campaignsOpsToken() {
-        return mintOperatorToken(ctx, op, ['campaigns:ops']);
-      },
-      /** Same session with the support desk staff scope svc-support checks (help-centre settings, article publishing). */
-      async supportOpsToken() {
-        return mintOperatorToken(ctx, op, ['support:read', 'support:write', 'support:ops']);
-      },
-    };
-  }
+  for (const l of ['a', 'b']) sessions[l] = await signInOne(ctx, ops[l], saveSteps);
   return sessions;
+}
+
+/** Sign one operator (or founder) in with their second factor; returns the session with its minted tokens. */
+async function signInOne(ctx, op, saveSteps) {
+  const loginToken = await operatorLogin(ctx, op);
+  saveSteps();
+  return {
+    op,
+    /** Second-factor session token (what a signed-in operator holds). */
+    token: loginToken,
+    /** Same session, plus the operator scope. Short-lived. */
+    async complianceToken() {
+      return mintOperatorToken(ctx, op);
+    },
+    /**
+     * Same session with an `admin:*` scope: what identity needs to see an OPERATOR principal. Four-eyes over
+     * operator action types (matching.open, kyc.approve, ...) refuses a plain session token (an ordinary user,
+     * #4724), so propose, approve and reject use this. Identity still checks the proposer and the approver are
+     * two distinct users, so the two operators keep two distinct tokens. Accepted before and after that rule.
+     */
+    async approvalToken() {
+      return mintOperatorToken(ctx, op);
+    },
+    /** Same session with `admin:treasury`, the scope svc-bank's four-eyes treasury doors check (ops.adjustLoanInterest). */
+    async treasuryToken() {
+      return mintOperatorToken(ctx, op, ['admin:treasury']);
+    },
+    /** Same session with the trade operator write scope svc-trade's admin doors check (admin.risk.set). */
+    async tradeOpsToken() {
+      return mintOperatorToken(ctx, op, ['admin:read', 'admin:write']);
+    },
+    /** Same session as compliance: the trade desk's VIP application review also needs `admin:compliance`. */
+    async complianceToken() {
+      return mintOperatorToken(ctx, op, ['admin:read', 'admin:write', 'admin:compliance']);
+    },
+    /** Same session with the CRM scopes svc-ops checks before it asks identity whether the caller is a founder. */
+    async crmToken() {
+      return mintOperatorToken(ctx, op, ['ops:read', 'ops:write']);
+    },
+    /** Same session with the campaign operator scope svc-campaigns checks (seasons and drops: one creates, the other publishes). */
+    async campaignsOpsToken() {
+      return mintOperatorToken(ctx, op, ['campaigns:ops']);
+    },
+    /** Same session with the support desk staff scope svc-support checks (help-centre settings, article publishing). */
+    async supportOpsToken() {
+      return mintOperatorToken(ctx, op, ['support:read', 'support:write', 'support:ops']);
+    },
+  };
 }
 
 /** Operator A proposes, operator B approves, with two different signed-in sessions. Returns { approvalId, operationId }. */
@@ -953,25 +956,18 @@ export async function setBookHalt(ctx, symbol, halted) {
   return { symbol, marketId: market.id, halted: body.halted, approvalId: ids.approvalId };
 }
 
-// ── The platform posting freeze (svc-ledger, two-person approval) ────────────
+// ── The platform posting freeze (svc-ledger, two founders) ─────────────────
 
-/** Same hash services/svc-ledger/src/ledger/action-approval-consume.ts computes (`ledgerActionPayloadHash`). */
-export function ledgerPayloadHash(actionType, fields = {}) {
-  return `sha256:${crypto
-    .createHash('sha256')
-    .update(JSON.stringify({ actionType, ...fields }))
-    .digest('hex')}`;
-}
-
-/** The reason a LOCAL TEST freeze carries (svc-ledger wants at least twelve characters, trimmed). */
+/** The reason a LOCAL TEST freeze carries (svc-ledger wants 12 to 500 characters, trimmed). Also how `off` knows it is ours. */
 export const POSTING_FREEZE_REASON = `${MARKERS.label}: platform posting freeze for a journey step`;
 
 /**
  * The four-eyes proposal for the platform posting freeze or its thaw, as the founders' freeze desk proposes it
  * (apps/admin/src/lib/desk/approval-hash.ts): bound to the ledger's own version of the freeze row, so a freeze that
- * moved since the proposal refuses at consume instead of acting on stale intent.
+ * moved since the proposal refuses at consume instead of acting on stale intent. svc-ledger hashes
+ * `{ actionType, ...fields }` exactly as matching does (`ledgerActionPayloadHash`), so the matching helper is reused.
  */
-export function postingFreezeProposal(frozen, version, reason = POSTING_FREEZE_REASON) {
+export function postingFreezeProposal(frozen, version) {
   if (typeof version !== 'string' || version.length === 0) throw new Error('the ledger did not report the freeze version');
   const actionType = frozen ? 'ledger.freeze' : 'ledger.unfreeze';
   return {
@@ -979,37 +975,53 @@ export function postingFreezeProposal(frozen, version, reason = POSTING_FREEZE_R
     targetService: 'svc-ledger',
     targetId: frozen ? 'posting_freeze' : 'posting_unfreeze',
     expectedVersion: version,
-    payloadHash: ledgerPayloadHash(actionType, frozen ? { reason: reason.trim() } : {}),
+    payloadHash: matchingPayloadHash(actionType, frozen ? { reason: POSTING_FREEZE_REASON.trim() } : {}),
     policyVersion: MARKERS.policyVersion,
   };
 }
 
 /**
- * What `posting-freeze on|off` does with the freeze it reads: `skip` when the ledger is already where it was asked to
- * be, `refuse` when asked to lift a freeze this tool did not set (a reconciliation self-freeze on the stack is a finding,
- * not something a journey tool clears), otherwise `run`.
+ * What `posting-freeze on|off` does with the freeze record it read, before anyone else signs in:
+ *   - `skip` when the ledger is already where it was asked to be, by this tool;
+ *   - `refuse` for a freeze this tool did not set, either way: `off` must not lift it and `on` must not report it as
+ *     its own (a reconciliation self-freeze on the stack is a finding), and for a record with no state or no version;
+ *   - otherwise `run`.
  */
 export function postingFreezePlan(state, frozen) {
   if (!state || typeof state.frozen !== 'boolean') return { action: 'refuse', why: 'the ledger did not report its freeze state' };
-  if (state.frozen === frozen) return { action: 'skip' };
-  if (!frozen && state.reason !== POSTING_FREEZE_REASON)
+  if (state.frozen && state.reason !== POSTING_FREEZE_REASON)
     return {
       action: 'refuse',
-      why: `the ledger is frozen for another reason (${JSON.stringify(state.reason)}, by ${state.actor ?? 'unknown'}); lift it through the freeze desk`,
+      why: `the ledger is frozen for another reason (${JSON.stringify(state.reason)}, by ${state.actor ?? 'unknown'}); use the freeze desk`,
     };
+  if (state.frozen === frozen) return { action: 'skip' };
+  if (typeof state.version !== 'string' || state.version.length === 0)
+    return { action: 'refuse', why: 'the ledger did not report the freeze version an approval is bound to' };
   return { action: 'run' };
 }
 
 /**
  * Turn the platform posting freeze on or off on the local stack, through the door the founders use: Edge's
  * `/admin/ledger/freeze` and `/admin/ledger/unfreeze` (admin:treasury, second factor, live session), with an identity
- * approval founder A proposes and founder B approves (an unfreeze needs two founders; on a stack without them, the
- * test operators). svc-ledger consumes the approval once and writes who moved the switch. Reads keep answering.
+ * approval founder A proposes and founder B approves. Both verbs are founder-level in svc-identity
+ * (`FOUNDER_LEVEL_ACTION_TYPES`) and svc-ledger refuses a consume without the founder attestation, so the test
+ * operators cannot stand in: with no enrolled founder pair this refuses before any call (`pnpm local:stack` enrols
+ * it). Founder A reads the record first; founder B signs in only when there is something to approve. svc-ledger
+ * consumes the approval once and writes who moved the switch. Reads keep answering.
  */
 export async function setPostingFreeze(ctx, frozen) {
-  const sessions = await approverSessions(ctx);
+  const pair = founderSignIns(readJson(path.join(ctx.paths.stateDir, FOUNDER_VAULT_NAME), null));
+  if (pair.length === 0)
+    throw new Error('posting-freeze needs the LOCAL TEST founder pair: enrol the founder pair first (pnpm local:stack enrols it)');
+  const stepsFile = path.join(ctx.paths.stateDir, FOUNDER_STEPS_NAME);
+  const steps = readJson(stepsFile, {});
+  const ops = {};
+  for (const { key, ...f } of pair) ops[key] = { ...f, lastStep: Number(steps[key] ?? 0) };
+  const saveSteps = () => writePrivate(stepsFile, { ...readJson(stepsFile, {}), a: ops.a.lastStep, b: ops.b.lastStep });
+
+  const a = await signInOne(ctx, ops.a, saveSteps);
   const read = async () => {
-    const res = await ctx.edge.call('GET', '/admin/ledger/freeze', undefined, await sessions.a.treasuryToken());
+    const res = await ctx.edge.call('GET', '/admin/ledger/freeze', undefined, await a.treasuryToken());
     if (res.status !== 200 || typeof res.json?.frozen !== 'boolean')
       throw new Error(`ledger freeze read refused (${res.status}): ${String(res.text ?? '').slice(0, 300)}`);
     return res.json;
@@ -1018,11 +1030,13 @@ export async function setPostingFreeze(ctx, frozen) {
   const plan = postingFreezePlan(before, frozen);
   if (plan.action === 'refuse') throw new Error(`posting-freeze ${frozen ? 'on' : 'off'} refused: ${plan.why}`);
   if (plan.action === 'skip') return { frozen, changed: false, actor: before.actor };
-  const ids = await twoPerson(ctx, sessions, postingFreezeProposal(frozen, before.version));
+
+  const b = await signInOne(ctx, ops.b, saveSteps);
+  const ids = await twoPerson(ctx, { a, b }, postingFreezeProposal(frozen, before.version));
   const body = frozen
     ? { reason: POSTING_FREEZE_REASON, approvalId: ids.approvalId, operationId: ids.operationId }
     : { approvalId: ids.approvalId, operationId: ids.operationId };
-  const res = await ctx.edge.call('POST', `/admin/ledger/${frozen ? 'freeze' : 'unfreeze'}`, body, await sessions.a.treasuryToken());
+  const res = await ctx.edge.call('POST', `/admin/ledger/${frozen ? 'freeze' : 'unfreeze'}`, body, await a.treasuryToken());
   if (res.status !== 200 || res.json?.frozen !== frozen)
     throw new Error(`ledger ${frozen ? 'freeze' : 'unfreeze'} refused (${res.status}): ${String(res.text ?? '').slice(0, 300)}`);
   // Read back: only the ledger's own record says the switch moved.
@@ -1030,7 +1044,7 @@ export async function setPostingFreeze(ctx, frozen) {
   if (after.frozen !== frozen)
     throw new Error(`the ledger still reports frozen=${after.frozen} after the ${frozen ? 'freeze' : 'unfreeze'}`);
   ctx.log(
-    `ledger posting ${frozen ? 'FROZEN' : 'unfrozen'} (operator ${res.json.actor ?? sessions.a.op.userId}, confirmed by ${res.json.confirmOperatorId}; ${MARKERS.label})`,
+    `ledger posting ${frozen ? 'FROZEN' : 'unfrozen'} (founder ${res.json.actor ?? a.op.userId}, confirmed by ${res.json.confirmOperatorId}; ${MARKERS.label})`,
   );
   return { frozen, changed: true, actor: after.actor, approvalId: ids.approvalId };
 }
@@ -2306,6 +2320,9 @@ function die(msg, code = 1) {
 
 async function main() {
   const cmd = process.argv[2] ?? 'status';
+  // Usage first: a typo never signs anyone in or touches the stack.
+  if (cmd === 'posting-freeze' && process.argv[3] !== 'on' && process.argv[3] !== 'off')
+    die('usage: local-test-gates.mjs posting-freeze on|off', 2);
   let ctx;
   try {
     ctx = await makeContext({ shareSessions: true });
@@ -2392,9 +2409,7 @@ async function main() {
       const r = await setBookHalt(ctx, symbol, cmd === 'halt');
       say(`  ${r.symbol} ${r.halted ? 'halted' : 'resumed'} (approval ${r.approvalId})`);
     } else if (cmd === 'posting-freeze') {
-      const want = process.argv[3];
-      if (want !== 'on' && want !== 'off') die('usage: local-test-gates.mjs posting-freeze on|off', 2);
-      const r = await setPostingFreeze(ctx, want === 'on');
+      const r = await setPostingFreeze(ctx, process.argv[3] === 'on');
       say(`  ledger posting ${r.frozen ? 'frozen' : 'open'}${r.changed ? ` (approval ${r.approvalId})` : ' (already)'}`);
     } else if (cmd === 'limits') {
       for (const r of await publishPairRisk(ctx))
