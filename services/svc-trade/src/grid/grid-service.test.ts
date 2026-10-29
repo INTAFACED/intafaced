@@ -3,7 +3,7 @@
  * order path. Every number here is TEST.
  */
 import { describe, expect, it, vi } from 'vitest';
-import { formatAmount, mul, parseAmount, type Amount } from '@intafaced/ledger-client';
+import { div, formatAmount, mul, parseAmount, type Amount } from '@intafaced/ledger-client';
 import type { Principal } from '@intafaced/auth';
 import { orderIdFor } from '../spot/ids.js';
 import { principalFor } from '../spot/testing.js';
@@ -312,9 +312,14 @@ describe('grid tick · range pause and pairs (CB-bots-02 #5, CB-bots-05 #6)', ()
     trade.fill(sellId, 'USDT', A('0.01'));
     await service.tick((await store.findBot(view.botId))!);
     const after = await service.get(verified(), view.botId);
-    const buyCost = mul(A(buy.price), A(buy.qty), 'floor');
+    // The pair is charged the cost of the base it sold: the buy delivered its qty less the base fee, and the sell
+    // (floored to the lot) sold a little less, which stays the owner's.
+    const buyQuote = mul(A(buy.price), A(buy.qty), 'floor');
+    const delivered = A(buy.qty) - A('0.00000001');
+    const soldCost = div(mul(buyQuote, sell.qty, 'ceil'), delivered, 'ceil');
     const sellQuote = mul(sell.price!, sell.qty, 'floor');
-    const expected = sellQuote - A('0.01') - buyCost;
+    const expected = sellQuote - A('0.01') - soldCost;
+    expect(expected > 0n).toBe(true); // a pair one level up, with small fees, is a profit
     expect(after.gridProfit).toBe(formatAmount(expected));
     expect(after.closedPairs).toBe(1);
     // The level is free again: a fresh buy, cycle 1.

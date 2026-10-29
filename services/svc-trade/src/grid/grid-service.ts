@@ -33,7 +33,7 @@
  * Nothing here moves value: every hold, fill and release is the trade service's order path through the ledger recipes.
  */
 import { createHash } from 'node:crypto';
-import { formatAmount, parseAmount, type Amount } from '@intafaced/ledger-client';
+import { div, formatAmount, mul, parseAmount, type Amount } from '@intafaced/ledger-client';
 import type { Principal } from '@intafaced/auth';
 import { assertBotVerification, type BotVerificationPolicy } from '../algo/bots-verification.js';
 import { captureAlgoPlaceGrant, principalFromAlgoGrant } from '../algo/durable-principal.js';
@@ -619,9 +619,16 @@ export class GridService {
     const buyFills = await this.ports.fillsForOrder(principal, buy.orderId);
     const known = (f: FillRecord) => f.feeAmount === 0n || f.feeAsset === bot.baseAsset || f.feeAsset === bot.quoteAsset;
     if (![...buyFills, ...sellFills].every(known)) return null;
-    const quoteFee = (fills: FillRecord[]) => fills.filter((f) => f.feeAsset === bot.quoteAsset).reduce((a, f) => a + f.feeAmount, 0n);
+    const fee = (fills: FillRecord[], asset: string) => fills.filter((f) => f.feeAsset === asset).reduce((a, f) => a + f.feeAmount, 0n);
     const quote = (fills: FillRecord[]) => fills.reduce((a, f) => a + f.quoteAmount, 0n);
-    return quote(sellFills) - quoteFee(sellFills) - (quote(buyFills) + quoteFee(buyFills));
+    const base = (fills: FillRecord[]) => fills.reduce((a, f) => a + f.qty, 0n);
+    // What the buy cost and what it delivered, each net of its fee. The sell is floored to the lot, so it may sell less
+    // than the buy delivered: the pair is charged only the cost of the base it sold, and the rest stays the owner's.
+    const bought = base(buyFills) - fee(buyFills, bot.baseAsset);
+    const sold = base(sellFills) + fee(sellFills, bot.baseAsset);
+    if (bought <= 0n || sold > bought) return null;
+    const cost = div(mul(quote(buyFills) + fee(buyFills, bot.quoteAsset), sold, 'ceil'), bought, 'ceil');
+    return quote(sellFills) - fee(sellFills, bot.quoteAsset) - cost;
   }
 
   private async view(bot: GridBot): Promise<GridBotView> {

@@ -412,6 +412,35 @@ async function untilStatus(who, botId, status, waitMs = 30_000) {
   }
 }
 
+/** The trade service's fills of one of `who`'s orders. */
+async function fillsOf(who, orderId) {
+  const { status, body } = await readAs(who, '/api/trade/trpc/fills.forOrder', { orderId, limit: 50 });
+  expect(status, JSON.stringify(body).slice(0, 300)).toBe(200);
+  return body.result.data;
+}
+
+/** Wait until the bot read satisfies `ok`. */
+async function untilBot(who, botId, ok, waitMs = 90_000) {
+  const until = Date.now() + waitMs;
+  for (;;) {
+    const bot = await gridBot(who, botId);
+    if (ok(bot)) return bot;
+    if (Date.now() >= until)
+      throw new Error(
+        `grid ${botId} did not reach the expected state: ${JSON.stringify(bot.orders.map((o) => [o.side, o.status, o.price]))}`,
+      );
+    await new Promise((resolve) => setTimeout(resolve, 500));
+  }
+}
+
+/** The `move` percent (two decimals, whole basis points) that takes the mid `from` to about `to`. */
+function shiftPercent(from, to) {
+  const bps = ((to - from) * 10_000n) / from;
+  const sign = bps < 0n ? '-' : '+';
+  const abs = bps < 0n ? -bps : bps;
+  return `${sign}${abs / 100n}.${String(abs % 100n).padStart(2, '0')}%`;
+}
+
 /** Wait until the BTC/USDT book's mid is past `limit` (`above` or `below`). */
 async function untilMid(side, limit, waitMs = 60_000) {
   const until = Date.now() + waitMs;
@@ -464,12 +493,61 @@ test(`${J} #5 lets the price leave the upper bound: no new buy is placed and the
 test(`${J} #6 opens Metrics after two closed level pairs: grid profit is their sum net of fees; an APR with zero days reads "Not set"`, async ({
   page,
 }) => {
+  test.setTimeout(240_000);
   const { who, botId } = run.read();
+  const start = await untilStatus(who, botId, 'running', 60_000);
+  expect(start.closedPairs).toBe(0);
+  // Two level pairs close through the TEST book: the price falls through exactly two resting buys, the bot places a
+  // sell one level above each, and the price comes back up through both sells.
+  const buys = start.orders
+    .filter((o) => o.side === 'buy' && o.status === 'open')
+    .map((o) => toUnits(o.price))
+    .sort((a, b) => (a < b ? 1 : a > b ? -1 : 0));
+  expect(buys.length).toBeGreaterThanOrEqual(3);
+  const { bid, ask } = await bestPrices();
+  const mid = (toUnits(bid) + toUnits(ask)) / 2n;
+  const target = (buys[1] + buys[2]) / 2n;
+  try {
+    tool('local-test-market.mjs', 'move', 'BTC/USDT', shiftPercent(mid, target));
+    await untilMid('below', buys[1]);
+    const bought = await untilBot(who, botId, (b) => b.orders.filter((o) => o.side === 'sell' && o.status === 'open').length === 2);
+    const filledBuys = bought.orders.filter((o) => o.side === 'buy' && o.status === 'filled').map((o) => toUnits(o.price));
+    expect(filledBuys.sort()).toEqual([buys[1], buys[0]].sort());
+    const sells = bought.orders.filter((o) => o.side === 'sell' && o.status === 'open').map((o) => toUnits(o.price));
+    // The top sell sits one level above where the price started, so the price rises half a level past it. A move
+    // shifts the TEST price from its base, which is where the mid stood before the first move.
+    const top = sells.reduce((a, b) => (a > b ? a : b));
+    tool('local-test-market.mjs', 'move', 'BTC/USDT', shiftPercent(mid, top + (buys[0] - buys[1]) / 2n));
+    await untilMid('above', top);
+    await untilBot(who, botId, (b) => b.closedPairs >= 2);
+  } finally {
+    tool('local-test-market.mjs', 'move', 'BTC/USDT', '0%');
+  }
   const bot = await gridBot(who, botId);
-  // UNBUILT: nothing drives two level pairs to close through the TEST book yet, so this stops here, by name.
   expect(bot.closedPairs, 'two closed level pairs').toBe(2);
   const pairs = bot.orders.filter((o) => o.side === 'sell' && o.status === 'filled' && o.pairProfit !== null);
   expect(pairs).toHaveLength(2);
+  // Net of fees, from the trade service's own fills of each pair's buy and sell: the sell's proceeds less its fee, less
+  // what the base it sold cost (the buy's cost with its fee, over what the buy delivered net of its base fee).
+  const ONE = 10n ** 18n;
+  const ceilDiv = (a, b) => (a + b - 1n) / b;
+  for (const sell of pairs) {
+    const buy = bot.orders.find((o) => o.side === 'buy' && o.levelIndex === sell.levelIndex && o.cycle === sell.cycle);
+    expect(buy?.status, `the buy that opened level ${sell.levelIndex}`).toBe('filled');
+    const buyFills = await fillsOf(who, buy.orderId);
+    const sellFills = await fillsOf(who, sell.orderId);
+    expect(buyFills.length).toBeGreaterThan(0);
+    expect(sellFills.length).toBeGreaterThan(0);
+    const total = (fills, pick) => fills.reduce((a, f) => a + pick(f), 0n);
+    const fee = (fills, asset) => total(fills, (f) => (f.fee.currency === asset ? toUnits(f.fee.cost) : 0n));
+    const bought = total(buyFills, (f) => toUnits(f.amount)) - fee(buyFills, 'BTC');
+    const sold = total(sellFills, (f) => toUnits(f.amount)) + fee(sellFills, 'BTC');
+    expect(sold).toBe(toUnits(sell.qty));
+    const cost = ceilDiv(ceilDiv((total(buyFills, (f) => toUnits(f.cost)) + fee(buyFills, 'USDT')) * sold, ONE) * ONE, bought);
+    const net = total(sellFills, (f) => toUnits(f.cost)) - fee(sellFills, 'USDT') - cost;
+    expect(toUnits(sell.pairProfit), `level ${sell.levelIndex} pair profit net of fees`).toBe(net);
+    expect(net > 0n, `level ${sell.levelIndex}: one level up is a profit`).toBe(true);
+  }
   const sum = pairs.reduce((total, o) => total + toUnits(o.pairProfit), 0n);
   expect(toUnits(bot.gridProfit)).toBe(sum);
   await signIn(page, who);
