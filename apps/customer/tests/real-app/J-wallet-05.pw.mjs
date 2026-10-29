@@ -265,7 +265,7 @@ test(`${J} starts: a verified TEST account with 300 USDT, a second factor and a 
 test(`${J} #1 opens Withdraw and picks asset and network: the default network with its tag rule, minimum, maximum and step from the catalogue, and a changed network checks the address again`, async ({
   page,
 }) => {
-  test.setTimeout(180_000);
+  test.setTimeout(300_000);
   await signInWithCode(page);
   await page.goto('/uc/withdraw');
   await page.mouse.move(0, 600);
@@ -301,6 +301,27 @@ test(`${J} #1 opens Withdraw and picks asset and network: the default network wi
     expect(figure(shown[1]), `${rule} is the catalogue's TEST ${want} USDT`).toBe(figure(want));
   }
   await expect(form(page).getByRole('textbox', { name: /^(Tag|Memo)/ })).toHaveCount(0);
+  // A tag on a network without tags is refused by svc-pay itself, by name, with a real quote and a fresh step-up: never
+  // dropped and sent without it. Then nothing is held and nothing is recorded.
+  const api = await customerApi();
+  const quoteRef = `${J}-tag-quote-${Date.now()}`;
+  const quoted = await api.quote({ quoteRef, assetId: 'USDT', networkId: 'ethereum', amount: '25' });
+  expect(quoted.status, JSON.stringify(quoted.body).slice(0, 400)).toBe(200);
+  const tagged = await api.create(
+    {
+      assetId: 'USDT',
+      amount: '25',
+      railId: 'crypto-native',
+      networkId: 'ethereum',
+      quoteRef,
+      destination: { kind: 'crypto', ref: ADDRESS, tag: '12345' },
+      clientRef: `${J}-tag-${Date.now()}`,
+    },
+    (await api.stepUp()).accessToken,
+  );
+  expect(tagged.body?.error?.data?.cause?.code, JSON.stringify(tagged.body).slice(0, 400)).toBe('pay.withdrawal_tag_not_taken');
+  expect(toUnits(await api.available('USDT'))).toBe(toUnits('300'));
+  expect(await api.withdrawals()).toEqual([]);
 });
 
 test(`${J} #2 picks the saved address or pastes one: a mistyped address is refused before any call, and an address on the fraud list is refused by name with nothing held, and so is a sanctioned address`, async ({
