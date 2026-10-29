@@ -4,9 +4,9 @@ import { usePreferences } from '../../../shared/preferences';
 import { WALLET_GROUP_ID, WALLET_SECTIONS } from '../routes';
 import type { WalletGroup } from './address-book-api';
 import { walletCopy } from './copy';
-import { bookMessage, useAddressBook } from './useAddressBook';
+import { bookMessage, useAddressBook, type BookFailure } from './useAddressBook';
 
-type Read = { kind: 'opening' } | { kind: 'ready'; group: WalletGroup } | { kind: 'closed'; message: string };
+type Read = { kind: 'opening' } | { kind: 'ready'; group: WalletGroup } | { kind: 'closed'; failure: BookFailure | null };
 
 /**
  * One wallet group (D-portfolio-wallet-03): its wallets and their combined activity. The activity table keeps its full
@@ -22,17 +22,17 @@ export function WalletGroupPanel({ groupId }: { groupId: string }) {
 
   useEffect(() => {
     if (!address) return;
-    if (!valid) return setRead({ kind: 'closed', message: t('groupMissing') });
+    if (!valid) return setRead({ kind: 'closed', failure: null });
     let live = true;
     setRead({ kind: 'opening' });
     void run((api, session) => api.group(session, groupId)).then((result) => {
       if (!live) return;
-      setRead(result.ok ? { kind: 'ready', group: result.data } : { kind: 'closed', message: bookMessage(t, result) });
+      setRead(result.ok ? { kind: 'ready', group: result.data } : { kind: 'closed', failure: result });
     });
     return () => {
       live = false;
     };
-  }, [address, groupId, valid, run, t, attempt]);
+  }, [address, groupId, valid, run, attempt]);
 
   const group = read.kind === 'ready' ? read.group : null;
   return (
@@ -45,7 +45,7 @@ export function WalletGroupPanel({ groupId }: { groupId: string }) {
         {address && read.kind === 'opening' && <p role="status">{t('bookLoading')}</p>}
         {address && read.kind === 'closed' && (
           <>
-            <p role="alert">{read.message}</p>
+            <p role="alert">{read.failure ? bookMessage(t, read.failure) : t('groupMissing')}</p>
             {valid && (
               <Button variant="secondary" onClick={() => setAttempt((n) => n + 1)}>
                 {t('bookSignIn')}

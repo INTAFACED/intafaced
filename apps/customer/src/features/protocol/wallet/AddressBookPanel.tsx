@@ -8,7 +8,7 @@ import { walletCopy } from './copy';
 import { ADDRESS } from './eip1193';
 import { bookMessage, useAddressBook, type BookFailure } from './useAddressBook';
 
-type Book = { kind: 'idle' } | { kind: 'opening' } | { kind: 'ready'; book: AddressBook } | { kind: 'closed'; message: string };
+type Book = { kind: 'idle' } | { kind: 'opening' } | { kind: 'ready'; book: AddressBook } | { kind: 'closed'; failure: BookFailure };
 
 /**
  * The address book and wallet groups (D-portfolio-wallet-03). Kept by svc-protocol for this wallet address, so a contact
@@ -28,7 +28,8 @@ export function AddressBookPanel() {
   const [grouping, setGrouping] = useState(false);
   const turn = useRef(0);
 
-  const fail = useCallback((failure: BookFailure) => bookMessage(t, failure), [t]);
+  // Words are chosen as the page renders: `t` is a new function on every render, so no effect or callback holds it.
+  const fail = (failure: BookFailure) => bookMessage(t, failure);
 
   /** Reads the book; opens the session first when there is none. */
   const load = useCallback(async () => {
@@ -36,8 +37,8 @@ export function AddressBookPanel() {
     setBook({ kind: 'opening' });
     const read = await run((api, session) => api.list(session));
     if (mine !== turn.current) return;
-    setBook(read.ok ? { kind: 'ready', book: read.data } : { kind: 'closed', message: fail(read) });
-  }, [run, fail]);
+    setBook(read.ok ? { kind: 'ready', book: read.data } : { kind: 'closed', failure: read });
+  }, [run]);
 
   useEffect(() => {
     // The book is this wallet's: a new or changed wallet reads its own, and no wallet shows none.
@@ -88,7 +89,7 @@ export function AddressBookPanel() {
         {book.kind === 'closed' && (
           <>
             <p role="alert" data-book-closed>
-              {book.message}
+              {fail(book.failure)}
             </p>
             <Button variant="secondary" onClick={() => void load()}>
               {t('bookSignIn')}
