@@ -10,7 +10,7 @@ export {
   type PlaceChildResult,
   type SliceTickResult,
 } from './twap-engine.js';
-export { planTwapSlices, type TwapSlicePlan } from './schedule.js';
+export { planTwapSlices, MAX_ALGO_SEED, type TwapSlicePlan } from './schedule.js';
 export {
   planVwapSlices,
   planVwapSlicesFromFills,

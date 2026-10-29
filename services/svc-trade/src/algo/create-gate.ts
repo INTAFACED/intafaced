@@ -18,7 +18,7 @@ import { queryTakerVolumeFromFills } from '../spot/candles.js';
 import { TRADE_FEE_SCHEDULE_ENV, type OwnerFeeSchedule } from '../spot/fee-schedule.js';
 import { ratesForFill } from '../spot/fees.js';
 import type { RankPerksSource } from '../spot/rank-perks.js';
-import { holdFor, protectionPriceFor } from '../spot/risk.js';
+import { assertQty, holdFor, protectionPriceFor } from '../spot/risk.js';
 import { TradeError, type Market, type OrderSide } from '../spot/types.js';
 import type { Principal } from '@intafaced/auth';
 import { assertBotVerification, type BotVerificationPolicy } from './bots-verification.js';
@@ -89,6 +89,32 @@ function assertPriceBand(input: CreateTwapInput, bid: Amount, ask: Amount): void
   );
 }
 
+/** Random sizes keep one lot per slice at least; the smallest slice must still be an order the market takes. */
+function assertRandomSlicesTradable(input: CreateTwapInput, market: Market): void {
+  const slices = planTwapSlices({
+    totalQty: input.totalQty,
+    durationMs: input.durationMs,
+    sliceIntervalMs: input.sliceIntervalMs,
+    lotSize: market.lotSize,
+    randomSeed: input.randomSeed ?? null,
+  }).slices;
+  assertSmallestSliceTradable(market, slices);
+}
+
+/** Refuse a plan whose smallest slice is below the market's minimum order quantity. */
+export function assertSmallestSliceTradable(market: Market, slices: readonly Amount[]): void {
+  const smallest = slices.reduce((min, q) => (q < min ? q : min), slices[0] ?? 0n);
+  try {
+    assertQty(market, smallest);
+  } catch (err) {
+    if (!(err instanceof TradeError)) throw err;
+    throw new TradeError(
+      `${market.symbol}: a slice of this plan is not an order the market takes: ${err.message}`,
+      'trade.algo_invalid_qty',
+    );
+  }
+}
+
 function immature(symbol: string, why: string): never {
   throw new TradeError(`${symbol}: ${why}`, 'trade.algo_volume_immature');
 }
@@ -101,7 +127,8 @@ function firstSliceQty(input: CreateTwapInput, lotSize: Amount, povVolume: Amoun
       durationMs: input.durationMs,
       sliceIntervalMs: input.sliceIntervalMs,
       lotSize,
-    }).slices[0]!;
+      randomSeed: input.randomSeed ?? null,
+    }).slices.reduce((max, q) => (q > max ? q : max), 0n);
   }
   if (kind === 'vwap') {
     if (vwapLookbackImmature(input.volumeProfile)) {
@@ -200,7 +227,13 @@ export async function gateAlgoCreate(ctx: AlgoCreateGateInput): Promise<void> {
   requireAlgoMarkPolicy(ctx.markPolicy);
   assertReferenceUsable(ctx.market, ctx.bid, ctx.now, ctx.markPolicy);
   assertReferenceUsable(ctx.market, ctx.ask, ctx.now, ctx.markPolicy);
-  assertPriceBand(ctx.input, ctx.bid, ctx.ask);
+  // A schedule with a trigger starts when the mark reaches it, so its band and its first slice's funding are read at
+  // that price: a limit that cannot fill once triggered is refused now, and a buy is funded at the higher of ask and trigger.
+  const trigger = ctx.input.triggerPrice ?? null;
+  assertPriceBand(ctx.input, trigger ?? ctx.bid, trigger ?? ctx.ask);
+  const bid = trigger !== null && trigger > ctx.bid ? trigger : ctx.bid;
+  const ask = trigger !== null && trigger > ctx.ask ? trigger : ctx.ask;
+  if ((ctx.input.kind ?? 'twap') === 'twap' && ctx.input.randomSeed != null) assertRandomSlicesTradable(ctx.input, ctx.market);
 
   let povVolume: Amount | null = null;
   if ((ctx.input.kind ?? 'twap') === 'pov') {
@@ -216,8 +249,8 @@ export async function gateAlgoCreate(ctx: AlgoCreateGateInput): Promise<void> {
     side: ctx.input.side,
     qty: sliceQty,
     limitPrice: ctx.input.limitPrice,
-    bid: ctx.bid,
-    ask: ctx.ask,
+    bid,
+    ask,
     slippageCapBps: ctx.slippageCapBps,
     feeSchedule: ctx.feeSchedule,
     takerDiscountBps: perks.feeDiscountBps,

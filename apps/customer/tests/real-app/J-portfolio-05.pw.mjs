@@ -644,6 +644,18 @@ async function btcBand(from) {
 /** `usd` is `qty` BTC at some price inside the band (to the cent each side). */
 const inBand = (usdUnits, qty, band) => usdUnits >= times(qty, band.lo) - CENT && usdUnits <= times(qty, band.hi) + CENT;
 
+/** The closes of the newest two BTC/USDT 5-minute candles, from the public candles: now's price is the newest one's, or
+ * the one before it if a candle opened between this read and the line's. */
+async function liveCloses() {
+  const res = await fetch(`${EDGE}/api/v1/ohlcv/${encodeURIComponent('BTC/USDT')}?timeframe=5m&since=${Date.now() - 900_000}&limit=10`, {
+    headers: { origin: ORIGIN },
+  });
+  expect(res.status).toBe(200);
+  const candles = await res.json();
+  expect(candles.length).toBeGreaterThan(0);
+  return candles.slice(-2).map((c) => toUnits(c[4]));
+}
+
 async function valueCards(page, query) {
   await page.goto(`/money/pnl${query}`);
   const card = page.getByRole('region', { name: 'What your money was worth' });
@@ -698,8 +710,19 @@ test(`${J} #7 draws what the money was worth over time: a moment with no price i
   test.setTimeout(240_000);
   const { who } = state();
   await signInWithCode(page);
-  const card = await valueCards(page, '?range=1D');
+  // The day is picked with the range control, as a person picks it, not typed into the link.
+  await valueCards(page, '');
+  const range = page.getByRole('group', { name: 'Range' }).first();
+  await range.getByRole('button', { name: '1D', exact: true }).click();
+  await expect(page).toHaveURL(/range=1D/);
+  await expect(range.getByRole('button', { name: '1D', exact: true })).toHaveAttribute('aria-pressed', 'true');
+  const card = page.getByRole('region', { name: 'What your money was worth' });
+  await expect(card.locator('svg[data-chart="value-over-time"]')).toBeVisible({ timeout: 30_000 });
+  await expect(card.locator('[data-value-interval]')).toHaveCount(1);
+  // Now's BTC price, read on each side of the line: the live end is valued at the newest 5-minute candle's close.
+  const liveBefore = await liveCloses();
   const before = await readValue(page);
+  const liveAfter = await liveCloses();
   // A day at one point every 5 minutes, ordered, on candle edges, every one known: BTC and USDT both have prices.
   expect(before.interval).toBe('5m');
   expect(before.points.length).toBeGreaterThan(280);
@@ -710,6 +733,12 @@ test(`${J} #7 draws what the money was worth over time: a moment with no price i
   expect(before.missing).toBe(0);
   // Each moment is never below zero and the line ends at what is held now.
   for (const p of before.points) expect(toUnits(p.usd) >= 0n).toBe(true);
+  // By hand: the ledger's USDT plus its BTC at now's price, exactly, nothing else held yet.
+  const held = await (await bank()).balances();
+  expect(Object.entries(held).filter(([asset, b]) => !['USDT', 'BTC'].includes(asset) && toUnits(b.total) !== 0n)).toEqual([]);
+  const worth = [...new Set([...liveBefore, ...liveAfter])].map((close) => total(held, 'USDT') + (total(held, 'BTC') * close) / ONE);
+  const end = toUnits(before.points.at(-1).usd);
+  expect(worth.includes(end), `last point ${before.points.at(-1).usd} vs by hand ${worth.map(fromUnits).join(' or ')}`).toBe(true);
 
   // TEST XAU arrives, which has no market here: from then on the moment cannot be priced, so it is missing and named, never zero.
   expect(fund(who.email, 'XAU', '1').tx).toBeTruthy();

@@ -18,6 +18,7 @@ import type { ModelProvider } from './providers/provider.js';
 import { AgentRuntime } from './runtime.js';
 import { UserSpendStore } from './spend/store.js';
 import { registerProductAgentsAtBoot } from './fleet/boot-register.js';
+import { registerCoachAgent } from './coach/coach-run.js';
 import { fleetMatrixBoardCard } from './fleet/matrix.js';
 import { agentsReadiness } from './readiness.js';
 import { describeAgentsLivePlanes } from './live-planes.js';
@@ -142,6 +143,7 @@ const runtime = new AgentRuntime(sql, gateway, meter, bus, {
 // Upsert product guardrails before the listener opens — openSession binds from
 // agent_definitions; a process with zero rows makes every runSession 404.
 const bootAgents = await registerProductAgentsAtBoot(runtime);
+await registerCoachAgent(runtime);
 
 const academyUrl = env.ACADEMY_URL;
 const loadCoachGrounding = academyUrl
