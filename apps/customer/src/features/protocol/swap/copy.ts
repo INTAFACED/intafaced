@@ -77,6 +77,28 @@ const en = {
   notMined: 'Waiting for the network',
   swapEvent: 'Swap event',
   newQuote: 'Get a new quote',
+  fee_slow: 'Slow',
+  fee_normal: 'Normal',
+  fee_fast: 'Fast',
+  fee_custom: 'Custom',
+  feeLevelHint: 'at most {max} gwei per gas, {priority} gwei priority',
+  feeCustomHint: 'your own most per gas',
+  feeReading: 'reading the last blocks…',
+  feeNotRead: 'could not be read',
+  feeFrom: 'Levels from the priority fees paid in the last {blocks} blocks, read at {asOf}.',
+  customFee: 'Custom fee (gwei per gas)',
+  customFeeHint: 'The most you offer per unit of gas: at most {cap} gwei, and at least the next block’s base fee of {base} gwei.',
+  feeOverCap: 'That fee is above the fee cap of {cap} gwei per gas. Choose a lower one.',
+  feeUnderBase:
+    'That fee is under the next block’s base fee of {base} gwei per gas, so the swap would not be included. Enter a higher one.',
+  feeCustomInvalid: 'Enter the custom fee in gwei per gas, above zero with at most 9 decimal places.',
+  feeCustomNeeded: 'Enter your custom network fee.',
+  feePaid: 'You pay the network fee',
+  feeSponsored: 'Network fee sponsored',
+  feeUnread: 'The network fee levels could not be read, so no swap can start. The reason is above.',
+  feeLoading: 'Reading the network fee levels…',
+  feeFact: 'Network fee',
+  feeFactValue: '{level}: at most {max} gwei per gas, {priority} gwei priority',
 } as const;
 
 export const swapCopy = defineCopy('customer.protocol.swap', en);
