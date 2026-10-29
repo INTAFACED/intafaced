@@ -168,6 +168,21 @@ describe('a withdrawal fee bound to its posted hold (Postgres)', () => {
     expect(await engine.getTxByKey('withdraw.hold:f6:0')).toBeNull();
   });
 
+  it('refuses a fee-carrying post whose key or hold is another withdrawal than the one it names', async () => {
+    const named = await funded('f8:0');
+    const other = await funded('f9:0');
+    await post(recipes.withdrawHold(named));
+    await post(recipes.withdrawHold(other));
+    // Names f8 (and its fee) but draws f9's hold.
+    const settle = toWire(recipes.withdrawSettle(named));
+    const otherHold = withdrawalHoldAccount(USER, 'USDT', 'f9:0');
+    const drawsOther = { ...settle, entries: settle.entries.map((e) => (e.account.kind === 'hold' ? { ...e, account: otherHold } : e)) };
+    await expect(handleS2sPost(door, drawsOther, pay)).rejects.toEqual(unbound);
+    await expect(handleS2sPost(door, { ...settle, idempotencyKey: 'withdraw.settle:f9:0' }, pay)).rejects.toEqual(unbound);
+    expect(await bal(withdrawalHoldAccount(USER, 'USDT', 'f8:0'))).toBe('26.5');
+    expect(await bal(otherHold)).toBe('26.5');
+  });
+
   it('leaves a fee-less withdrawal exactly as before, part settle and reverse included', async () => {
     const w = await funded('f7:0');
     const plain = { ...w, fee: undefined, amount: amt('10') };

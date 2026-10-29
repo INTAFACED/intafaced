@@ -17,10 +17,11 @@ export const WITHDRAW_FEE_UNBOUND_CODE = 'ledger.withdraw_fee_unbound';
 const FEE_REASONS = new Set(['withdraw.held', 'withdraw.settled', 'withdraw.reversed']);
 
 interface WireFeePost {
+  readonly idempotencyKey: string;
   readonly module: string;
   readonly reason: string;
   readonly entries: readonly {
-    readonly account: { ownerType: string; ownerId?: string; kind: string };
+    readonly account: { ownerType: string; ownerId?: string; kind: string; purpose?: string };
     readonly direction: string;
     readonly amount: string;
   }[];
@@ -62,9 +63,16 @@ export async function assertWithdrawFeeBound(ledger: FeeHoldReader, input: WireF
   }
   if (fee !== null && feeLegs[0] && parseAmount(feeLegs[0].amount) !== fee) refuse('the fee leg is not the fee the post names');
   if (fee !== null && caller?.kind === 'bound' && caller.service !== 'svc-pay') refuse('only svc-pay posts a withdrawal fee');
-  if (input.reason === 'withdraw.held') return;
 
   const withdrawalId = typeof input.meta?.withdrawalId === 'string' ? input.meta.withdrawalId : '';
+  if (fee !== null) {
+    // A fee-carrying post names its own withdrawal three ways, and they agree: its key, its meta and the hold it moves.
+    const step = { 'withdraw.held': 'hold', 'withdraw.settled': 'settle', 'withdraw.reversed': 'reverse' }[input.reason];
+    if (!withdrawalId || input.idempotencyKey !== `withdraw.${step}:${withdrawalId}`) refuse('the key does not name its withdrawal');
+    const holdLeg = input.entries.find((e) => e.account.ownerType === 'user' && e.account.kind === 'hold');
+    if (holdLeg?.account.purpose !== `withdraw:${withdrawalId}`) refuse('it does not move the hold of the withdrawal it names');
+  }
+  if (input.reason === 'withdraw.held') return;
   const hold = withdrawalId ? await ledger.getTxByKey(`withdraw.hold:${withdrawalId}`) : null;
   const heldFee = hold && hold.module === 'ledger' && hold.reason === 'withdraw.held' ? feeOf(hold.meta) : null;
   if (fee !== heldFee) refuse(heldFee === null ? 'its hold carried no fee' : 'it does not carry the fee its hold carried');
