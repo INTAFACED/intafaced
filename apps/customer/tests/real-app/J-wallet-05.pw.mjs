@@ -11,7 +11,6 @@ import { addAuthenticator, nextCode } from './identity-factors.mjs';
 // in svc-pay (`local-test-gates.mjs withdraw-terms`): a fixed 1.5 network fee on TEST Ethereum and TEST Base, the fee on
 // top, a 90-second quote, and USDT limits of 1000 a withdrawal and 5000 a day for verified accounts.
 // Steps that are written but not built yet fail at their first missing part, quickly (UNBUILT):
-// - #1: svc-pay has no minimum, maximum, step or tag catalogue per network, and the stack publishes none.
 // - #6, #4's two parallel sends: svc-pay has no custody signer for any network, so every send out is refused before a claim.
 //   They run after #7, which needs the balance still at 300.
 // - #8: a failed withdrawal can't be seeded on the stack yet, so its failure sentence has no row to read.
@@ -232,7 +231,7 @@ test(`${J} #1 opens Withdraw and picks asset and network: the default network wi
 
   // The network's own rules, as the catalogue publishes them for TEST Ethereum: no tag, and a minimum, maximum and step.
   const rules = page.getByTestId('withdraw-network-rules');
-  await expect(rules).toBeVisible(UNBUILT);
+  await expect(rules).toBeVisible();
   await expect(rules).toContainText('This network takes no tag or memo.');
   for (const rule of ['Minimum', 'Maximum', 'Step']) await expect(rules).toContainText(new RegExp(`${rule}\\D*[\\d.,]+ USDT`));
   await expect(form(page).getByRole('textbox', { name: /^(Tag|Memo)/ })).toHaveCount(0);

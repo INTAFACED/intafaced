@@ -41,6 +41,31 @@ export const withdrawQuoteSchema = z.object({
 });
 export type WithdrawQuote = z.infer<typeof withdrawQuoteSchema>;
 
+/** svc-pay `withdrawal.networkRules` (W-withdraw-02): the owner's minimum, maximum and step for one asset on one network, and its tag rule. */
+export const withdrawNetworkRulesSchema = z.object({
+  assetId: z.string(),
+  networkId: z.string(),
+  minimum: amount,
+  maximum: amount,
+  step: amount,
+  tag: z.enum(['none', 'required']),
+});
+export type WithdrawNetworkRules = z.infer<typeof withdrawNetworkRulesSchema>;
+
+/** Where an amount stands against a network's rules: inside them, or the rule it breaks. A malformed amount is the field's to say. */
+export function rulesProblem(value: string, rules: WithdrawNetworkRules): 'nrBelow' | 'nrAbove' | 'nrOffStep' | null {
+  let sent: bigint;
+  try {
+    sent = parseAmount(value.trim());
+  } catch {
+    return null;
+  }
+  if (sent < parseAmount(rules.minimum)) return 'nrBelow';
+  if (sent > parseAmount(rules.maximum)) return 'nrAbove';
+  if (sent % parseAmount(rules.step) !== 0n) return 'nrOffStep';
+  return null;
+}
+
 /** One send: the asset, its network, a saved address and the amount, with the client reference fixed when it was reviewed. */
 export type WithdrawSend = { assetId: string; networkId: string; address: string; amount: string; clientRef: string };
 
@@ -51,6 +76,9 @@ export function createWithdrawSend(api: ApiClient) {
   return {
     limits(assetId: string, signal?: AbortSignal): Promise<ApiResult<WithdrawLimits>> {
       return api.query('pay', 'withdrawal.limits', { assetId }, withdrawLimitsSchema, { signal });
+    },
+    networkRules(assetId: string, networkId: string, signal?: AbortSignal): Promise<ApiResult<WithdrawNetworkRules>> {
+      return api.query('pay', 'withdrawal.networkRules', { assetId, networkId }, withdrawNetworkRulesSchema, { signal });
     },
     /** Stores a quote under `quoteRef` and moves nothing. The same reference and terms read the same quote back. */
     quote(input: { quoteRef: string; assetId: string; networkId: string; amount: string }): Promise<ApiResult<WithdrawQuote>> {
@@ -123,6 +151,10 @@ export const SEND_REFUSAL_KEYS = {
   'withdrawal_quote.network_disabled': 'qNetwork',
   'withdrawal_quote.asset_not_on_network': 'qNetwork',
   'withdrawal_quote.fee_exceeds_amount': 'qFeeTooBig',
+  'withdrawal_network_rules.unset': 'nrUnset',
+  'withdrawal_quote.below_minimum': 'qOutsideRules',
+  'withdrawal_quote.above_maximum': 'qOutsideRules',
+  'withdrawal_quote.off_step': 'qOutsideRules',
 } as const;
 export type SendRefusalKey = (typeof SEND_REFUSAL_KEYS)[keyof typeof SEND_REFUSAL_KEYS];
 
