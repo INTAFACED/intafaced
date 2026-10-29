@@ -559,7 +559,7 @@ export class AgentRuntime {
           {
             allowed: false,
             code: available === null ? 'agents.funds_unread' : 'agents.funds_insufficient',
-            userMessageKey: 'agents.refused.funds_insufficient',
+            userMessageKey: available === null ? 'agents.refused.funds_unread' : 'agents.refused.funds_insufficient',
             userMessageParams: { worstCase: formatAmount(worstCaseCost), asset: this.feeAssetId },
           },
           { kind: 'completion', task: input.task },

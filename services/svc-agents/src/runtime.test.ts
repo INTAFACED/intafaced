@@ -2152,6 +2152,7 @@ if (!available) {
       const session = await rt.openSession({ userId: USER_A, agentId: 'unread-gate' });
       const err = await rt.think({ sessionId: session.id, requestId: 'unread-gate-1', task: 'plan', messages: MESSAGES }).catch((e) => e);
       expect(refusalCode(err)).toBe('agents.funds_unread');
+      expect((err as RefusedError).refusal.userMessageKey).toBe('agents.refused.funds_unread');
       expect(gate.calls()).toBe(0);
       expect(await sql`SELECT 1 FROM agents.spend_reservations WHERE session_id = ${session.id}`).toHaveLength(0);
       expect(await sql`SELECT 1 FROM agents.usage_records WHERE session_id = ${session.id}`).toHaveLength(0);
@@ -2174,6 +2175,7 @@ if (!available) {
       const session = await rt.openSession({ userId: USER_A, agentId: 'probe' });
       const err = await rt.think({ sessionId: session.id, requestId: 'unread', task: 'plan', messages: MESSAGES }).catch((e) => e);
       expect(refusalCode(err)).toBe('agents.funds_unread');
+      expect((err as RefusedError).refusal.userMessageKey).toBe('agents.refused.funds_unread');
       expect(gate.calls()).toBe(0);
     });
 

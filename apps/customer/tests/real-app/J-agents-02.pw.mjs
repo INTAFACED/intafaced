@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { OWN_AGENT, UNBUILT, agentsRun, createOwnAgent, openOwnAgent, tableIn } from './agents.mjs';
+import { ADMIN, founderSignIn } from './admin.mjs';
 import { fundedTrader, signIn } from './desk.mjs';
 import { api, toUnits, tool } from './stack.mjs';
 
@@ -74,6 +75,24 @@ async function bankOf(who) {
     move: async (transferId, from, to, amount) =>
       answer(await client.post('/api/bank/trpc/transfers.create', { transferId, fromSpaceId: from, toSpaceId: to, amount })),
   };
+}
+
+/**
+ * The ledger's own record of a business key: founder A, in a browser of their own, traces it through the founder
+ * console's ledger lookup, which reads svc-ledger through Edge. The ledger keys an agent's usage charge
+ * `fee:agents:<charge key>`, one transaction per key.
+ */
+async function ledgerTrace(browser, businessKey) {
+  const context = await browser.newContext();
+  try {
+    const founder = await context.newPage();
+    await founderSignIn(founder);
+    const res = await founder.request.get(`${ADMIN}/api/ledger-lookup?businessKey=${encodeURIComponent(businessKey)}`);
+    expect(res.status(), (await res.text()).slice(0, 300)).toBe(200);
+    return await res.json();
+  } finally {
+    await context.close();
+  }
 }
 
 test(`${J} starts: a verified TEST account funded with TEST USDT and an agent of the person's own`, async ({ page }) => {
@@ -230,6 +249,7 @@ test(`${J} #4 asks for a run when the available balance is below the worst case:
 
 test(`${J} #5 leaves the overage grace value blank after a window could not be paid: the next run refuses with recovery text; the unpaid window retries on its charge key`, async ({
   page,
+  browser,
 }) => {
   test.setTimeout(240_000);
   // A third TEST person with 1 USDT and the same agent and limits. The stack publishes no overage grace (blank).
@@ -274,7 +294,10 @@ test(`${J} #5 leaves the overage grace value blank after a window could not be p
   await expect(windows).toContainText('Unpaid');
   await expect(windows.getByTestId('window-cost')).toHaveText(`${cost} USDT`);
   const key = await windows.getByTestId('charge-key').innerText();
-  expect(key).toMatch(new RegExp(`^agent\\.usage:${first}:`));
+  expect(key).toMatch(new RegExp(`^agent\\.usage:${first}:\\d{4}-\\d{2}-\\d{2}#\\d{4}$`));
+  // The ledger, not the page: nothing is booked under that key while the window is unpaid.
+  const ledgerKey = `fee:agents:${key}`;
+  expect(await ledgerTrace(browser, ledgerKey)).toEqual({ found: false, businessKey: ledgerKey });
   await expect(main(page).getByRole('alert')).toHaveText('A usage window is unpaid. Add funds and it is retried on the same charge.');
 
   // With the grace blank, the next run refuses with recovery text, before the engine, and bills 0.
@@ -312,8 +335,19 @@ test(`${J} #5 leaves the overage grace value blank after a window could not be p
   await expect(windows.getByTestId('charge-key')).toHaveText(key);
   await expect(windows.getByTestId('window-cost')).toHaveText(`${cost} USDT`);
   await expect(main(page).getByRole('alert')).toHaveCount(0);
-  // Paid once: reading the page again charges nothing more.
+  // The ledger booked the retry under that same key: one transaction, the window's exact cost from the person's USDT
+  // to the house's agents fees, and nothing else.
+  const booked = await ledgerTrace(browser, ledgerKey);
+  expect(booked.found).toBe(true);
+  expect(booked.transaction).toMatchObject({ businessKey: ledgerKey, module: 'agents' });
+  expect(booked.transaction.postings).toHaveLength(2);
+  expect(booked.transaction.postings.map((p) => [p.side, p.assetId, toUnits(p.amount)]).sort()).toEqual([
+    ['destination', 'USDT', toUnits(cost)],
+    ['source', 'USDT', toUnits(cost)],
+  ]);
+  // Paid once: reading the page again charges nothing more, and the key still names that one transaction.
   expect(await ledgerBalances(owes)).toEqual(paid);
+  expect((await ledgerTrace(browser, ledgerKey)).transaction.txId).toBe(booked.transaction.txId);
 });
 
 test(`${J} #6 sets a soft alert and a hard limit for the month: one inbox row at the alert; push or email shows its vendor notice; the hard limit refuses new runs`, async ({
