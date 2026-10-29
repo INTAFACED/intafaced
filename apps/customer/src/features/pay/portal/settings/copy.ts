@@ -260,10 +260,10 @@ const en = {
   activationLabel: 'Activation',
   activationConfirmed: 'Confirmed',
   activationUnconfirmed: 'Unconfirmed',
-  activationAt: 'Activated',
+  activationAt: 'Active since',
   activationAccountStatus: 'Account status',
   activationWhy_no_activation_record:
-    'INTAFACED has no recorded activation for this business. It stays unconfirmed until INTAFACED records one.',
+    'The account status has read Active from the day the account was opened, but INTAFACED has no recorded activation decision for this business. It stays unconfirmed until INTAFACED records one.',
   activationWhy_not_active: 'The business is not active in INTAFACED’s record, so it is not activated.',
   activationNotScreening: 'Activation says only whether the account is switched on. It is not a screening result.',
   reportsPurpose: 'Choose a supported account report and request it through the existing export service.',

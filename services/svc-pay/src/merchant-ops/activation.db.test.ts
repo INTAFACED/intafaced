@@ -1,14 +1,11 @@
 import { randomUUID } from 'node:crypto';
-import { readdirSync, readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { PostgreSqlContainer } from '@testcontainers/postgresql';
 import { createTestDatabase, type TestDatabase } from '@intafaced/db';
 import type { Principal } from '@intafaced/auth';
 import type { Context } from '@intafaced/contracts';
 import { merchantActivationSchema } from '@intafaced/contracts/merchant-activation';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { Sql } from 'postgres';
+import { migrations, openAdmin } from '../control/control.testkit.js';
 import { createFounderAuthority } from '../founder-authority.js';
 import { MerchantStateService } from '../merchant-state-service.js';
 import { createMerchantOpsRouter } from './router.js';
@@ -18,24 +15,6 @@ import { createMerchantOpsRouter } from './router.js';
  * unconfirmed for a new business and after an approved verification, confirmed with the recorded time once a status
  * change to active is written, and never answers for another business.
  */
-const here = dirname(fileURLToPath(import.meta.url));
-const drizzleDir = join(here, '..', '..', 'drizzle');
-const migrations = readdirSync(drizzleDir)
-  .filter((f) => f.endsWith('.sql') && !f.endsWith('.down.sql'))
-  .sort()
-  .map((f) => readFileSync(join(drizzleDir, f), 'utf8'));
-
-async function openAdmin(): Promise<{ url: string; stop: () => Promise<void> }> {
-  const envUrl = process.env.TEST_DATABASE_URL?.trim();
-  if (envUrl) return { url: envUrl, stop: async () => undefined };
-  const container = await new PostgreSqlContainer('postgres:16-alpine')
-    .withDatabase('intafaced_activation_test')
-    .withUsername('intafaced')
-    .withPassword('intafaced')
-    .start();
-  return { url: container.getConnectionUri(), stop: async () => void (await container.stop()) };
-}
-
 const id = () => randomUUID();
 const principalOf = (userId: string, scopes: string[] = ['pay:read']): Principal => ({
   userId,

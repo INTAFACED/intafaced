@@ -36,6 +36,7 @@ export function Compliance({ portal, merchantId, role }: { portal: PortalApi; me
     <ComplianceView
       current={current.resource}
       activation={activation.resource}
+      retryActivation={activation.reload}
       history={history.state}
       loadMore={history.loadMore}
       reload={() => {
@@ -52,6 +53,7 @@ export function Compliance({ portal, merchantId, role }: { portal: PortalApi; me
 export function ComplianceView({
   current,
   activation,
+  retryActivation,
   history,
   loadMore,
   reload,
@@ -61,6 +63,8 @@ export function ComplianceView({
   current: Resource<Kyb>;
   /** svc-pay's own activation record; its own read, so a failure here never hides the verification record. */
   activation: Resource<MerchantActivation>;
+  /** Re-reads the activation alone, so a failed activation read never drops the loaded history. Defaults to `reload`. */
+  retryActivation?: () => void;
   history: ListState<KybEvent>;
   loadMore: () => void;
   reload: () => void;
@@ -72,6 +76,7 @@ export function ComplianceView({
   const { t } = accountCopy.useCopy();
   const { t: p } = portalCopy.useCopy();
   const at = useReadAt(current.status === 'ready', current);
+  const activationAt = useReadAt(activation.status === 'ready', activation);
   return (
     <div className="stack">
       <PaySection
@@ -115,8 +120,13 @@ export function ComplianceView({
         </Gate>
       </PaySection>
       <PaySection title={c.t('activationTitle')} description={c.t('activationBody')}>
-        <Gate resource={activation} retry={reload} rows={2}>
-          {(a) => <ActivationFacts activation={a} />}
+        <Gate resource={activation} retry={retryActivation ?? reload} rows={2}>
+          {(a) => (
+            <>
+              <ActivationFacts activation={a} />
+              <Freshness asOf={activationAt} />
+            </>
+          )}
         </Gate>
       </PaySection>
       {category}

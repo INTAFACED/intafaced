@@ -239,10 +239,10 @@ describe('compliance', () => {
     );
     const facts = out.slice(out.indexOf('data-testid="pp-activation"'));
     expect(facts).toContain('Unconfirmed');
-    expect(facts).not.toContain('Activated');
-    expect(out).toContain('has no recorded activation');
+    expect(facts).not.toContain('<dt>Active since</dt>');
+    expect(out).toContain('no recorded activation decision');
     expect(out).toContain('It is not a screening result');
-    expect(out).not.toMatch(/screening (passed|cleared)|cleared/i);
+    expect(out).not.toMatch(/screening (passed|cleared|complete)|(passed|cleared) screening/i);
   });
   it('shows a confirmed activation with its recorded time, and a failed read as a refusal that keeps the record', () => {
     const at = '2026-10-29T10:00:00.000Z';
@@ -256,7 +256,7 @@ describe('compliance', () => {
       />,
     );
     expect(confirmed).toContain('Confirmed');
-    expect(confirmed).toContain('Activated');
+    expect(confirmed).toContain('<dt>Active since</dt>');
     expect(confirmed).toContain(`dateTime="${at}"`);
     const refused = renderToString(
       <ComplianceView

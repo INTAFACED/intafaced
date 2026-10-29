@@ -1,19 +1,23 @@
 import type { Sql } from 'postgres';
 import type { MerchantActivation } from '@intafaced/contracts/merchant-activation';
+import type { MerchantStatus as Status } from '../merchant-state-service.js';
 import { MerchantOpsError } from './errors.js';
 import { iso } from './money.js';
 import { assertPermission, type MerchantCaller } from './roles.js';
-
-type Status = 'pending' | 'active' | 'suspended' | 'closed';
 
 /**
  * Merchant-scoped activation read (J-merchant-02 step 6): the CALLER'S business only, read-only, `kyb.read` like the
  * verification view beside it.
  *
  * The truth is svc-pay's own record of the business's status: `pay.merchants.status`, which every money door enforces,
- * and `pay.merchant_status_events`, the append-only history its one writer (`MerchantStateService`, and the founder
- * account controls) writes in the same transaction. An activation is confirmed only when the newest history row moves
- * the business to `active` and the column still says `active`; its time is that row's time.
+ * and `pay.merchant_status_events`, the append-only history written in the same transaction as every status change
+ * (`MerchantAccountControls`, the founder console's restrict and restore, and `MerchantStateService.setStatus`). An
+ * activation is confirmed only when the newest history row moves the business to `active` and the column still says
+ * `active`; its time is that row's time ("active since").
+ *
+ * Known gap, said rather than papered over: svc-pay has no separate "activate" action today. An account opens `active`
+ * with no history row, and the one production door that records a move to `active` is the founder's restore after a
+ * restriction. So a business that was never restricted reads unconfirmed until svc-pay gains an activation decision.
  *
  * Deliberately NOT read from:
  *   - `kyb_status`: deciding the verification never writes the status, so an approved verification is not an activation;

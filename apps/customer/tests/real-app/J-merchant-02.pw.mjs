@@ -641,8 +641,8 @@ test(`${J} #6 the owner reads the verification history and the activation state:
   // A new business: nothing sent, activation unconfirmed because svc-pay holds no activation record.
   await page.goto('/pay/compliance');
   await expect(activation).toContainText('Unconfirmed');
-  await expect(activation).not.toContainText('Activated');
-  await expect(page.getByText('INTAFACED has no recorded activation for this business.')).toBeVisible();
+  await expect(activation).not.toContainText('Active since');
+  await expect(page.getByText('INTAFACED has no recorded activation decision for this business.', { exact: false })).toBeVisible();
   await expect(page.getByText('No verification history yet')).toBeVisible();
   await noClearance();
 
@@ -665,7 +665,8 @@ test(`${J} #6 the owner reads the verification history and the activation state:
   await expect(history.getByRole('listitem').first()).toContainText('Changed by INTAFACED');
 
   // An approved verification is not an activation: svc-pay records none on a KYB decision, so it stays unconfirmed.
-  await expect(page.getByTestId('pp-facts')).toContainText('Approved');
+  const record = page.locator('section').filter({ has: page.getByRole('heading', { name: 'Current record' }) });
+  await expect(record.getByTestId('pp-facts')).toContainText('Approved');
   await expect(activation).toContainText('Unconfirmed');
   await expect(activation).not.toContainText('Confirmed');
   await expect(page.getByText('It is not a screening result.')).toBeVisible();
