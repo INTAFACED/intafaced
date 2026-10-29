@@ -291,6 +291,7 @@ export const ROUTE_TEMPLATES: Readonly<Record<string, RoomTemplate | NotARoom>> 
   '/dex/pools/:poolId': { template: 'monitor' },
   '/dex/positions': { template: 'record-list' },
   '/dex/positions/:positionId': { template: 'record-list' },
+  '/dex/tokens': { template: 'record-list' },
   '/dex/tokens/:address': { template: 'monitor' },
   '/dex/venue': { template: 'monitor' },
   '/wallet': { template: 'monitor' },

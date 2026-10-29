@@ -8,8 +8,7 @@ import { matchPath } from '../../app/path-match';
 export type Web3Room = 'dex' | 'chain' | 'protocol' | 'wallet';
 /** What a not-yet-built route waits on: our own indexer reader, the wallet connection, or the INTACHAIN network. */
 export type PendingBlocker = 'indexer' | 'wallet' | 'chain';
-export type PendingPage =
-  'poolNew' | 'poolDetail' | 'positionDetail' | 'tokenDetail' | 'blockDetail' | 'txDetail' | 'addressDetail' | 'validatorDetail';
+export type PendingPage = 'poolNew' | 'poolDetail' | 'positionDetail' | 'blockDetail' | 'txDetail' | 'addressDetail' | 'validatorDetail';
 
 export interface Web3Route {
   path: string;
@@ -18,6 +17,8 @@ export interface Web3Route {
   tab?: string;
   /** The wallet room, opened on this section. */
   wallet?: 'overview' | 'activity';
+  /** The Tokens room, or one token's page by its address. */
+  tokens?: 'list' | 'detail';
   pending?: { page: PendingPage; blocker: PendingBlocker; param?: { name: string; shape: RegExp } };
 }
 
@@ -38,11 +39,8 @@ export const WEB3_ROUTES: readonly Web3Route[] = [
     room: 'dex',
     pending: { page: 'positionDetail', blocker: 'wallet', param: { name: 'positionId', shape: id } },
   },
-  {
-    path: '/dex/tokens/:address',
-    room: 'dex',
-    pending: { page: 'tokenDetail', blocker: 'indexer', param: { name: 'address', shape: address } },
-  },
+  { path: '/dex/tokens', room: 'dex', tokens: 'list' },
+  { path: '/dex/tokens/:address', room: 'dex', tokens: 'detail' },
   { path: '/dex/venue', room: 'dex', tab: 'venue' },
   { path: '/wallet', room: 'wallet', wallet: 'overview' },
   { path: '/wallet/activity', room: 'wallet', wallet: 'activity' },
