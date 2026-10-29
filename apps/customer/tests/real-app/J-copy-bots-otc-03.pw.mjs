@@ -125,7 +125,7 @@ test(`${J} #3 opens Positions and closes one order, then a part larger than open
   await page.getByRole('dialog', { name: 'Close part of this position' }).getByRole('button', { name: 'Close' }).click();
   await expect(page.getByText('That is more than is open.')).toBeVisible();
   const before = (await (await api(follower)).balances()).BTC.total;
-  await row.getByRole('button', { name: 'Close' }).click();
+  await row.getByRole('button', { name: 'Close', exact: true }).click();
   await page.getByRole('alertdialog').getByRole('button', { name: 'Close' }).click();
   await expect(row).toContainText('Closed');
   expect(toUnits((await (await api(follower)).balances()).BTC.total)).toBeLessThan(toUnits(before));
