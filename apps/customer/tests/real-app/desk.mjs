@@ -44,7 +44,8 @@ let founderSessions = {};
 /**
  * The gates tool's `verify`, in this process: a new context each time (its local-stack guards run on every call) over
  * the kept sign-ins. A refused approval (a kept session that identity no longer honours) drops them and runs once
- * more, signing in again with a fresh TOTP step from the tool's own step file, so a code is never reused.
+ * more, signing in again with a fresh TOTP step from the tool's own step file, so a code is never reused. What was still
+ * refused after that is returned for the failure message.
  */
 async function verifyPending() {
   const gates = await import('../../../../tooling/scripts/local-test-gates.mjs');
@@ -56,7 +57,7 @@ async function verifyPending() {
       founderSessions = {};
       continue;
     }
-    return gates.status(ctx);
+    return { ...(await gates.status(ctx)), refused: run.approved.filter((row) => !row.ok) };
   }
 }
 
@@ -69,8 +70,8 @@ export async function verify(page, who) {
   await page.getByRole('button', { name: 'Review request' }).click();
   await page.getByRole('button', { name: 'Submit this request' }).click();
   await expect(page.getByText('Your reviewed request')).toBeVisible();
-  const { accounts } = await verifyPending();
-  expect(accounts.find((a) => a.handle === who.handle)?.tiers).toContain('full');
+  const { accounts, refused } = await verifyPending();
+  expect(accounts.find((a) => a.handle === who.handle)?.tiers, JSON.stringify(refused)).toContain('full');
   await signOutBrowser(page.context());
 }
 
