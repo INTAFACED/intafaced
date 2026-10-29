@@ -373,6 +373,30 @@ function evaluateSession(guardrail: Guardrail, state: SessionState): GuardrailDe
   return ALLOWED;
 }
 
+/**
+ * Every refusal `evaluateToolCall` can return for a declared tool under this
+ * guardrail, in the order it checks them, so a person can read why a call
+ * would be refused before granting a session. Derived from the same rules: a
+ * rule that refuses this tool whatever the session state ends the list, since
+ * nothing after it is ever reached.
+ */
+export function toolRefusalCodes(guardrail: Guardrail, grant: ToolGrant): RefusalCode[] {
+  const codes: RefusalCode[] = ['agents.session_closed', 'agents.action_limit'];
+  const always = (code: RefusalCode) => [...codes, code];
+  if (isProductAgentId(guardrail.agentId) && isFleetHardMoneyWriteTool(grant.name)) return always('agents.tool_not_declared');
+  if (!guardrail.limits.allowedModules.includes(grant.module)) return always('agents.module_not_allowed');
+  if (isLiveWriteTool(grant.name)) {
+    if (!isKnownCapacityMode(guardrail.capacityMode)) return always('agents.mode_unknown');
+    if (!capacityModeAllowsLiveWrite(guardrail.capacityMode)) return always('agents.mode_forbids_write');
+  }
+  if (isWithdrawTool(grant.name) && !hasWithdrawScope(guardrail.scopes)) return always('agents.withdraw_scope_required');
+  if (grant.maxCallsPerSession === 0) return always('agents.tool_call_limit');
+  if (grant.maxCallsPerSession !== undefined) codes.push('agents.tool_call_limit');
+  if (grant.requiresApproval) codes.push('agents.approval_required');
+  if (isPlaceTool(grant.name)) codes.push('agents.place_idempotency_required');
+  return codes;
+}
+
 /** Guardrail decision for a proposed tool call. Evaluated before dispatch. */
 export function evaluateToolCall(guardrail: Guardrail, state: SessionState, request: ToolCallRequest): GuardrailDecision {
   const session = evaluateSession(guardrail, state);

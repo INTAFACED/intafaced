@@ -2,7 +2,11 @@ import { describe, expect, it } from 'vitest';
 import {
   ACTION_LOG_HEADER,
   actionLogRows,
+  agentEnabled,
   agentUse,
+  costRange,
+  runCosts,
+  sortCatalogue,
   AGENT_CATALOGUE,
   filterCatalogue,
   SESSION_AGENT_IDS,
@@ -64,5 +68,38 @@ describe('action log export', () => {
     const csv = toCsv(ACTION_LOG_HEADER, actionLogRows([row({ tool: '=cmd' })]));
     expect(csv.split('\r\n')[0]).toBe(ACTION_LOG_HEADER.join(','));
     expect(csv).toContain("'=cmd");
+  });
+});
+
+describe('catalogue status, sort and run history', () => {
+  const stored = [
+    { agentId: 'navigator', name: null, purpose: null, enabled: true, version: 1 },
+    { agentId: 'support', name: null, purpose: null, enabled: false, version: 2 },
+  ];
+  it('takes a session agent’s status from its stored row, and an unstored one cannot be used', () => {
+    const byId = (id: string) => AGENT_CATALOGUE.find((agent) => agent.id === id)!;
+    expect(agentEnabled(byId('navigator'), stored)).toBe(true);
+    expect(agentEnabled(byId('support'), stored)).toBe(false);
+    expect(agentEnabled(byId('scanner'), stored)).toBe(false);
+    expect(agentEnabled(byId('coach'), stored)).toBe(true);
+    expect(agentEnabled(byId('portfolio'), stored)).toBe(false);
+    expect(agentEnabled(byId('risk-compliance'), stored)).toBe(false);
+  });
+  it('sorts by the shown name, or keeps the catalogue order', () => {
+    const label = (id: string) => ({ navigator: 'Navigator', support: 'Support helper', coach: 'Curriculum coach' })[id] ?? id;
+    const three = AGENT_CATALOGUE.filter((agent) => ['navigator', 'support', 'coach'].includes(agent.id));
+    expect(sortCatalogue(three, 'name', label).map((agent) => agent.id)).toEqual(['coach', 'navigator', 'support']);
+    expect(sortCatalogue(three, 'catalogue', label).map((agent) => agent.id)).toEqual(['navigator', 'support', 'coach']);
+  });
+  it('ranges only completed engine runs of that agent, exactly, and has no range without history', () => {
+    const rows = [
+      row({ id: '1', cost: '0.000000000000000001' }),
+      row({ id: '2', cost: '0.25' }),
+      row({ id: '3', cost: '9', status: 'refused' }),
+      row({ id: '4', cost: '7', kind: 'tool_call' }),
+      row({ id: '5', cost: '5', agentId: 'support' }),
+    ];
+    expect(costRange(runCosts(rows, 'navigator'))).toEqual({ low: '0.000000000000000001', high: '0.25' });
+    expect(costRange(runCosts(rows, 'scanner'))).toBeNull();
   });
 });
