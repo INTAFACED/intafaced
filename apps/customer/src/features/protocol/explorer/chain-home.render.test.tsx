@@ -80,6 +80,8 @@ describe('Chain home search', () => {
           { chainId: 9, state: 'not_found' },
           { chainId: 11, state: 'found', pending: true, blockHeight: null, status: null },
           { chainId: 13, state: 'found', pending: false, blockHeight: 4, status: 'failed' },
+          { chainId: 15, state: 'found', pending: false, blockHeight: 6, status: null },
+          { chainId: 17, state: 'not_checked', code: 'indexer.malformed_block' },
         ],
       },
     });
@@ -96,6 +98,8 @@ describe('Chain home search', () => {
       ['not_found', 'Unrecognised network (chain 9): Not found on this network'],
       ['found', 'Unrecognised network (chain 11): Found (Pending)'],
       ['found', 'Unrecognised network (chain 13): Found (Reverted, block 4)'],
+      ['found', 'Unrecognised network (chain 15): Found (outcome not read yet, block 6)'],
+      ['not_checked', 'Unrecognised network (chain 17): not checked: the network’s node refused the lookup'],
     ]);
   });
   it('says the other networks are being checked until they answer, and why they were not checked when the indexer refuses', async () => {
@@ -106,7 +110,7 @@ describe('Chain home search', () => {
     networkAnswers.set(B, { ok: false, reason: 'unavailable', message: 'edge.upstream_unavailable', code: 'edge.upstream_unavailable' });
     answers.set(B, tx(B));
     await search(B);
-    expect(networks()).toContain('Local test chain: not checked: ');
+    expect(networks()).toContain('Local test chain: not checked: the indexer service didn’t answer');
     expect(networks()).not.toContain('Local test chain: Found');
   });
   it('never reads a reorged or replaced transaction as plain Success', async () => {

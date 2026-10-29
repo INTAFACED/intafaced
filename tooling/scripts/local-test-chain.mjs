@@ -150,22 +150,32 @@ function serve() {
       );
     })
     .listen(CHAIN_PORTS.control, HOST);
-  gate.open();
-  second.open();
+  // A gate that cannot listen (its port taken after the stack's check) stops the chains with its error, never unhandled.
+  Promise.all([gate.open(), second.open()]).catch((err) => {
+    console.error(`a TEST chain gate could not open: ${err.message}`);
+    stop(1);
+  });
   let stopping = false;
+  let exited = 0;
+  let stopCode = 0;
   // Stop both anvils and wait for them, so no anvil outlives the chain process (the stack stops this one by pid).
-  const stop = () => {
+  const stop = (code = 0) => {
     stopping = true;
+    stopCode = typeof code === 'number' ? code : 0;
     for (const anvil of anvils) anvil.kill('SIGTERM');
     setTimeout(() => {
       for (const anvil of anvils) anvil.kill('SIGKILL');
-      process.exit(0);
+      process.exit(stopCode);
     }, 5000).unref();
   };
   process.on('SIGTERM', stop).on('SIGINT', stop);
   for (const anvil of anvils)
     anvil.on('exit', (code) => {
-      if (stopping) process.exit(0);
+      // While stopping, the process waits for every anvil (or the SIGKILL fallback), so none outlives it.
+      if (stopping) {
+        if (++exited === anvils.length) process.exit(stopCode);
+        return;
+      }
       console.error(`anvil exited (${code}); the TEST chains are gone`);
       for (const other of anvils) other.kill('SIGTERM');
       process.exit(1);

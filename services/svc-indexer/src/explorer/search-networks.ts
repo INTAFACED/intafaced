@@ -8,8 +8,17 @@ import { ChainUnavailableError, classifyChainError } from '../chain/evm/availabi
  */
 export const INDEXER_SEARCH_NETWORKS_INVALID = 'indexer.search_networks_invalid' as const;
 
-/** One search waits this long for each node; a node slower than that did not answer. */
+/** Each call to a node waits this long; a node slower than that did not answer. */
 export const SEARCH_TIMEOUT_MS = 5_000;
+
+/**
+ * One network's whole answer (its chain id check and up to two reads) waits no longer than this, well inside the edge's
+ * and the browser's 15 s, so one slow node reads "not checked" and never fails the other networks' answers with it.
+ */
+export const SEARCH_DEADLINE_MS = 6_000;
+
+/** A node that said which chain it is is believed this long, so a search costs one or two reads, not three. */
+export const CHAIN_ID_TTL_MS = 60_000;
 
 /** A search fans out to every listed node per request, so the list stays short. */
 const SEARCH_NETWORKS_MAX = 8;
@@ -68,34 +77,50 @@ export type NetworkAnswer =
 
 export type FindTx = (hash: string) => Promise<NetworkAnswer>;
 
-function isNotFound(err: unknown): boolean {
-  const name = err instanceof Error ? err.name : '';
-  return name === 'TransactionNotFoundError' || name === 'TransactionReceiptNotFoundError';
+function errorName(err: unknown): string {
+  return err instanceof Error ? err.name : '';
 }
+
+/** The chain id the node says it is; a finder remembers a matching answer for a while, never a mismatch. */
+export type ChainIdCheck = (client: PublicClient) => Promise<number>;
 
 /**
  * Asks one network's node for a hash. The node must first say it is that network: a node on another chain could hold
  * the same hash, and its answer is not this network's. Any failure is "not checked" with its typed code, never "not found".
+ * A mined transaction whose receipt the node does not serve yet is found with its block and no outcome, never "not checked".
  */
-export async function findTxOn(client: PublicClient, network: SearchNetwork, hash: string): Promise<NetworkAnswer> {
+export async function findTxOn(
+  client: PublicClient,
+  network: SearchNetwork,
+  hash: string,
+  chainIdOf: ChainIdCheck = (c) => c.getChainId(),
+): Promise<NetworkAnswer> {
   const id = hash.toLowerCase() as Hex;
   try {
-    const observed = await client.getChainId();
+    const observed = await chainIdOf(client);
     if (observed !== network.chainId) return { chainId: network.chainId, state: 'not_checked', code: 'indexer.chain_id_mismatch' };
     let tx;
     try {
       tx = await client.getTransaction({ hash: id });
     } catch (err) {
-      if (isNotFound(err)) return { chainId: network.chainId, state: 'not_found' };
+      if (errorName(err) === 'TransactionNotFoundError') return { chainId: network.chainId, state: 'not_found' };
       throw err;
     }
     if (tx.blockNumber === null) return { chainId: network.chainId, state: 'found', pending: true, blockHeight: null, status: null };
-    const receipt = await client.getTransactionReceipt({ hash: id });
+    const blockHeight = Number(tx.blockNumber);
+    let receipt;
+    try {
+      receipt = await client.getTransactionReceipt({ hash: id });
+    } catch (err) {
+      if (errorName(err) === 'TransactionReceiptNotFoundError')
+        return { chainId: network.chainId, state: 'found', pending: false, blockHeight, status: null };
+      throw err;
+    }
     return {
       chainId: network.chainId,
       state: 'found',
       pending: false,
-      blockHeight: Number(tx.blockNumber),
+      blockHeight,
       status: receipt.status === 'success' ? 'success' : 'failed',
     };
   } catch (err) {
@@ -104,10 +129,51 @@ export async function findTxOn(client: PublicClient, network: SearchNetwork, has
   }
 }
 
-/** One lookup per listed network, each with its own short-timeout client so one slow node cannot hold the others. */
-export function searchNetworkFinders(networks: readonly SearchNetwork[]): Array<{ chainId: number; find: FindTx }> {
+/** The answer, or "not checked: the node didn't answer" once the deadline passes; the timer never holds the process. */
+function withDeadline(chainId: number, answer: Promise<NetworkAnswer>, ms: number): Promise<NetworkAnswer> {
+  let timer: NodeJS.Timeout | undefined;
+  const late = new Promise<NetworkAnswer>((resolve) => {
+    timer = setTimeout(() => resolve({ chainId, state: 'not_checked', code: 'indexer.chain_unreachable' }), ms);
+    timer.unref();
+  });
+  return Promise.race([answer, late]).finally(() => clearTimeout(timer));
+}
+
+export interface FinderOptions {
+  readonly deadlineMs?: number;
+  readonly chainIdTtlMs?: number;
+  readonly now?: () => number;
+}
+
+/**
+ * One lookup per listed network, each with its own short-timeout client and its own deadline, so one slow node cannot
+ * hold the others. The same hash searched again while a lookup of it is still running shares that lookup rather than
+ * asking the node again; nothing is kept once it answers, so a later search always reads the node afresh.
+ */
+export function searchNetworkFinders(
+  networks: readonly SearchNetwork[],
+  { deadlineMs = SEARCH_DEADLINE_MS, chainIdTtlMs = CHAIN_ID_TTL_MS, now = Date.now }: FinderOptions = {},
+): Array<{ chainId: number; find: FindTx }> {
   return networks.map((network) => {
     const client = createPublicClient({ transport: http(network.rpcUrl, { timeout: SEARCH_TIMEOUT_MS, retryCount: 0 }) });
-    return { chainId: network.chainId, find: (hash: string) => findTxOn(client, network, hash) };
+    let confirmedUntil = 0;
+    const chainIdOf: ChainIdCheck = async (c) => {
+      if (now() < confirmedUntil) return network.chainId;
+      const observed = await c.getChainId();
+      if (observed === network.chainId) confirmedUntil = now() + chainIdTtlMs;
+      return observed;
+    };
+    const inFlight = new Map<string, Promise<NetworkAnswer>>();
+    const find: FindTx = (hash) => {
+      const key = hash.toLowerCase();
+      const running = inFlight.get(key);
+      if (running) return running;
+      const answer = withDeadline(network.chainId, findTxOn(client, network, key, chainIdOf), deadlineMs).finally(() =>
+        inFlight.delete(key),
+      );
+      inFlight.set(key, answer);
+      return answer;
+    };
+    return { chainId: network.chainId, find };
   });
 }

@@ -137,18 +137,25 @@ type NetworkAnswer =
 
 type ElsewhereAnswer = ExplorerTxNetworks['networks'][number];
 
-/** Why another network's node gave no answer, in words; an unknown code is shown as it came. */
+/** Why another network's node gave no answer, in words; any other code reads as a refusal, never as the raw code. */
 function elsewhereReason(code: string, t: ExplorerTranslate): string {
   if (code === 'indexer.chain_id_mismatch') return t('reasonWrongChain');
   if (code === 'indexer.chain_unreachable') return t('reasonNodeNoAnswer');
-  return code;
+  return t('reasonNodeRefused');
 }
 
 /** One other network's answer, read live by the indexer from that network's node. */
 function elsewhereAnswer(network: { chainId: number; name: string }, answer: ElsewhereAnswer, t: ExplorerTranslate): NetworkAnswer {
   if (answer.state === 'not_found') return { ...network, state: 'not_found' };
   if (answer.state === 'not_checked') return { ...network, state: 'not_checked', reason: elsewhereReason(answer.code, t) };
-  const status = answer.pending ? t('txPending') : answer.status === 'success' ? t('txSuccess') : t('txReverted');
+  // A mined transaction whose receipt the node does not serve yet has no outcome to show, never a guessed one.
+  const status = answer.pending
+    ? t('txPending')
+    : answer.status === 'success'
+      ? t('txSuccess')
+      : answer.status === 'failed'
+        ? t('txReverted')
+        : t('txOutcomeUnread');
   return { ...network, state: 'found_elsewhere', status, height: answer.blockHeight };
 }
 

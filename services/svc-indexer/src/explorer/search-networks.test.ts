@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import {
   INDEXER_SEARCH_NETWORKS_INVALID,
   parseSearchNetworks,
+  SEARCH_DEADLINE_MS,
   searchNetworkFinders,
   SearchNetworksInvalidError,
 } from './search-networks.js';
@@ -45,12 +46,17 @@ describe('INDEXER_SEARCH_NETWORKS', () => {
 
 /** A node over real HTTP, so the lookup runs through viem's own transport: it answers as `chainId` and holds `txs`. */
 let servers: Server[] = [];
-async function node(chainId: number, txs: Record<string, { block: number | null; status?: '0x1' | '0x0' }>) {
+type NodeTx = { block: number | null; status?: '0x1' | '0x0'; receipt?: 'missing' };
+/** Every call the node was asked, by method, so a test can count what one search cost. */
+let calls: string[] = [];
+async function node(chainId: number, txs: Record<string, NodeTx>, { hang = false }: { hang?: boolean } = {}) {
   const server = createServer((req, res) => {
     let body = '';
     req.on('data', (chunk) => (body += chunk));
     req.on('end', () => {
       const { id, method, params } = JSON.parse(body) as { id: number; method: string; params: string[] };
+      calls.push(method);
+      if (hang) return; // never answers: each call runs to its own timeout
       const hash = params?.[0];
       const tx = typeof hash === 'string' ? txs[hash] : undefined;
       let result: unknown = null;
@@ -75,7 +81,7 @@ async function node(chainId: number, txs: Record<string, { block: number | null;
           transactionIndex: mined ? '0x0' : null,
         };
       }
-      if (method === 'eth_getTransactionReceipt' && tx && tx.block !== null) {
+      if (method === 'eth_getTransactionReceipt' && tx && tx.block !== null && tx.receipt !== 'missing') {
         result = {
           transactionHash: hash,
           transactionIndex: '0x0',
@@ -111,8 +117,14 @@ async function closedPort() {
 }
 
 afterEach(async () => {
-  await Promise.all(servers.map((server) => new Promise<void>((resolve) => server.close(() => resolve()))));
+  await Promise.all(
+    servers.map((server) => {
+      server.closeAllConnections();
+      return new Promise<void>((resolve) => server.close(() => resolve()));
+    }),
+  );
   servers = [];
+  calls = [];
 });
 
 describe('a hash looked up on each listed network', () => {
@@ -142,5 +154,55 @@ describe('a hash looked up on each listed network', () => {
   it('a node that answers as another chain is not checked, even though it holds the hash', async () => {
     const [finder] = searchNetworkFinders([{ chainId: 31337, rpcUrl: await node(1, { [HASH]: { block: 3 } }) }]);
     expect(await finder!.find(HASH)).toEqual({ chainId: 31337, state: 'not_checked', code: 'indexer.chain_id_mismatch' });
+  });
+  it('a mined transaction whose receipt the node does not serve yet is found at its block, with no outcome', async () => {
+    const [finder] = searchNetworkFinders([{ chainId: 31337, rpcUrl: await node(31337, { [HASH]: { block: 4, receipt: 'missing' } }) }]);
+    expect(await finder!.find(HASH)).toEqual({ chainId: 31337, state: 'found', pending: false, blockHeight: 4, status: null });
+  });
+  it('a node that never answers is not checked once the deadline passes, and the other network still answers', async () => {
+    const [slow, fast] = await Promise.all([node(31337, {}, { hang: true }), node(5, { [HASH]: { block: 2 } })]);
+    const finders = searchNetworkFinders(
+      [
+        { chainId: 31337, rpcUrl: slow },
+        { chainId: 5, rpcUrl: fast },
+      ],
+      { deadlineMs: 300 },
+    );
+    const started = Date.now();
+    expect(await Promise.all(finders.map(({ find }) => find(HASH)))).toEqual([
+      { chainId: 31337, state: 'not_checked', code: 'indexer.chain_unreachable' },
+      { chainId: 5, state: 'found', pending: false, blockHeight: 2, status: 'success' },
+    ]);
+    expect(Date.now() - started).toBeLessThan(2_000);
+  });
+  it('the deadline sits inside the edge and browser 15 s, so a slow node never fails the whole answer', async () => {
+    expect(SEARCH_DEADLINE_MS).toBeLessThan(15_000);
+  });
+});
+
+describe('what a search costs the node', () => {
+  it('the chain id is asked once and believed for its TTL, then asked again', async () => {
+    let clock = 0;
+    const [finder] = searchNetworkFinders([{ chainId: 31337, rpcUrl: await node(31337, {}) }], { chainIdTtlMs: 1_000, now: () => clock });
+    await finder!.find(HASH);
+    await finder!.find(OTHER);
+    expect(calls.filter((m) => m === 'eth_chainId')).toHaveLength(1);
+    clock = 1_000;
+    await finder!.find(HASH);
+    expect(calls.filter((m) => m === 'eth_chainId')).toHaveLength(2);
+  });
+  it('a node that answered as another chain is asked again on the next search, never remembered', async () => {
+    const [finder] = searchNetworkFinders([{ chainId: 31337, rpcUrl: await node(1, {}) }]);
+    expect(await finder!.find(HASH)).toEqual({ chainId: 31337, state: 'not_checked', code: 'indexer.chain_id_mismatch' });
+    expect(await finder!.find(HASH)).toEqual({ chainId: 31337, state: 'not_checked', code: 'indexer.chain_id_mismatch' });
+    expect(calls.filter((m) => m === 'eth_chainId')).toHaveLength(2);
+  });
+  it('the same hash searched while its lookup runs shares it; once answered, the next search asks the node again', async () => {
+    const [finder] = searchNetworkFinders([{ chainId: 31337, rpcUrl: await node(31337, { [HASH]: { block: 7 } }) }]);
+    const [a, b] = await Promise.all([finder!.find(HASH), finder!.find(HASH.toUpperCase().replace('0X', '0x'))]);
+    expect(a).toEqual(b);
+    expect(calls.filter((m) => m === 'eth_getTransactionByHash')).toHaveLength(1);
+    await finder!.find(HASH);
+    expect(calls.filter((m) => m === 'eth_getTransactionByHash')).toHaveLength(2);
   });
 });
