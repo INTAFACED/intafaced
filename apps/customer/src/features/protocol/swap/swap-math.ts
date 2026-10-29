@@ -67,3 +67,12 @@ export function receivedIn(logs: readonly ReceiptLog[], token: string, to: strin
     )
     .reduce((sum, log) => sum + BigInt(log.data === '0x' ? 0 : log.data), 0n);
 }
+
+/** A USD price (a decimal string) for reading: two places from one dollar up, up to six significant places below it. */
+export function formatUsd(usd: string): string {
+  const [whole = '0', fraction = ''] = usd.split('.');
+  if (whole !== '0') return `$${whole.replace(/\B(?=(\d{3})+(?!\d))/g, ',')}.${fraction.padEnd(2, '0').slice(0, 2)}`;
+  const lead = /^0*/.exec(fraction)![0].length;
+  const shown = fraction.slice(0, lead + 6).replace(/0+$/, '');
+  return `$0.${shown || '00'}`;
+}

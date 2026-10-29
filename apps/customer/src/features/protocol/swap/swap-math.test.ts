@@ -56,3 +56,13 @@ describe('swap math', () => {
     expect(receivedIn(logs, B, me)).toBe(5n);
   });
 });
+
+describe('formatUsd', () => {
+  it('reads dollars and cents, and small prices to six places', async () => {
+    const { formatUsd } = await import('./swap-math');
+    expect(formatUsd('1')).toBe('$1.00');
+    expect(formatUsd('1234.5678')).toBe('$1,234.56');
+    expect(formatUsd('0.000012345678')).toBe('$0.000012345678'.slice(0, 13));
+    expect(formatUsd('0.5')).toBe('$0.5');
+  });
+});

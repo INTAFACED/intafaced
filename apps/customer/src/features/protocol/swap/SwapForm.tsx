@@ -14,7 +14,7 @@ import { shortContract, tokenLabel, toBaseUnits } from '../wallet/transfer';
 import { useWallet } from '../wallet/WalletProvider';
 import { swapCopy } from './copy';
 import { keepMode, readMode, type SwapMode } from './mode';
-import { bpsToPercent, formatUnits, minimumOut, percentToBps, poolsFor, receivedIn } from './swap-math';
+import { bpsToPercent, formatUnits, formatUsd, minimumOut, percentToBps, poolsFor, receivedIn } from './swap-math';
 
 type Quote = { pool: ProtocolSwapPool; quote: ProtocolPoolQuote; amountIn: bigint; readAt: number };
 type Track = {
@@ -56,6 +56,8 @@ export function SwapForm() {
   const network = networkLabel(APP_CHAIN_ID).name;
   const pairs = useResource((signal) => api.ammPairs(signal), 'swap:pairs');
   const settings = useResource((signal) => api.swapSettings(signal), 'swap:settings');
+  const [refresh, setRefresh] = useState(0);
+  const prices = useResource((signal) => api.tokenPrices(signal), `swap:prices:${refresh}`);
   const tokens = pairs.resource.status === 'ready' ? pairs.resource.data.tokens : [];
   const pools = pairs.resource.status === 'ready' ? pairs.resource.data.pools : [];
   const setting = settings.resource.status === 'ready' ? settings.resource.data : null;
@@ -68,7 +70,6 @@ export function SwapForm() {
   const [tokenOutAddress, setTokenOut] = useState('');
   const [amount, setAmount] = useState('');
   const [slippage, setSlippage] = useState('');
-  const [refresh, setRefresh] = useState(0);
   const [quote, setQuote] = useState<Quote | null>(null);
   const [quoteProblem, setQuoteProblem] = useState<string | null>(null);
   const [now, setNow] = useState(() => Date.now());
@@ -301,6 +302,19 @@ export function SwapForm() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [track?.hash, following, setting, wallet.address]);
 
+  // A token's USD price as the pools read it, with the block's time; a token the filter leaves out says why.
+  const priceLine = (address: string): string => {
+    if (prices.resource.status === 'loading') return t('priceReading');
+    if (prices.resource.status === 'failed') return t('priceUnread');
+    const found = prices.resource.data.prices.find((entry) => entry.address.toLowerCase() === address.toLowerCase());
+    if (!found) return t('priceNone_no_route');
+    if (found.usd === null) return t(found.reason === 'thin_reserve' ? 'priceNone_thin_reserve' : 'priceNone_no_route');
+    const time = new Intl.DateTimeFormat(language, { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(
+      new Date(prices.resource.data.asOf),
+    );
+    return t('priceLine', { price: formatUsd(found.usd), time });
+  };
+
   const tokenSelect = (id: string, label: string, value: string, set: (value: string) => void) => (
     <label className="field">
       <span id={id}>{label}</span>
@@ -319,6 +333,11 @@ export function SwapForm() {
         ))}
       </select>
       {value && <small className="numeric">{t('contract', { address: shortContract(value) })}</small>}
+      {value && (
+        <small className="numeric" data-testid={id === ids.pay ? 'price-pay' : 'price-receive'}>
+          {priceLine(value)}
+        </small>
+      )}
     </label>
   );
   const seconds = expiresAt === null ? null : Math.max(0, Math.ceil((expiresAt - now) / 1000));
