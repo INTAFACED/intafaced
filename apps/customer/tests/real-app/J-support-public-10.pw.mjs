@@ -212,7 +212,8 @@ test(`${J} #6 priority, type and labels save with one audit row each; a label wi
   });
   expect(refused.status).toBe(400);
   expect(refused.text).toMatch(/support\.[a-z_]*label/);
-  expect((await desk('lead', 'query', 'get', { ticketId: ticket.id })).labels).toEqual([`test_${RUN}`, 'vip']);
+  // Labels live beside the ticket, staff only (`ticketProperties`), not on the ticket row `get` returns.
+  expect((await desk('lead', 'query', 'ticketProperties', { ticketId: ticket.id })).labels).toEqual([`test_${RUN}`, 'vip']);
 });
 
 test(`${J} #7 a macro with a placeholder fills the reply draft, the signature goes on the public reply only, and nothing is sent until Send`, async ({
