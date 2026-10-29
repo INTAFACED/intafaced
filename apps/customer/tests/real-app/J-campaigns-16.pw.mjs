@@ -281,18 +281,65 @@ test(`${J} #8 the requester tries to approve and a second founder approves: the 
 
 test(`${J} #9 edits the active campaign: a new revision; earlier vouchers keep the old one; archiving an active campaign is refused`, async ({
   page,
-}) => {
-  await openDraft(page);
-  await expect(page.getByTestId('campaign-revision')).toHaveText(/Revision \d+/, UNBUILT);
-  const live = (await page.getByTestId('campaign-revision').textContent()) ?? '';
+  browser,
+}, testInfo) => {
+  test.setTimeout(150_000);
+  // The journey's own draft goes live only on its start date, so this step runs on a TEST voucher campaign the two founders
+  // take live now through svc-campaigns' operator doors (as #6's second test), with a reward of 5 USDT per person.
+  const name = `TEST vouchers ${Date.now().toString(36)}r${testInfo.retry}`;
+  const made = await liveCampaign(name, { type: 'voucher', earning: [] });
+  const tag = made.id.slice(-6).toUpperCase();
+  const [first, second] = [`EARLY-${tag}`, `LATER-${tag}`];
+  await openDesk(page);
+  await campaigns(page).getByRole('link', { name, exact: true }).click(UNBUILT);
+  await expect(page.getByTestId('campaign-state')).toHaveText('Active');
+  await expect(page.getByTestId('campaign-revision')).toHaveText('Revision 1');
+  const vouchers = page.getByTestId('campaign-vouchers');
+  await expect(vouchers.getByTestId('vouchers-empty')).toHaveText('No voucher issued yet.', UNBUILT);
+  const issue = async (code) => {
+    await vouchers.getByLabel('Voucher code').fill(code);
+    await vouchers.getByRole('button', { name: 'Issue a voucher' }).click();
+  };
+  // A voucher issued now is published under the live revision, with that revision's reward as its face value.
+  await issue(first);
+  await expect(vouchers.getByRole('status')).toHaveText(`Issued voucher ${first} under revision 1: 5 USDT.`);
+  const row = (code) => vouchers.getByRole('table', { name: 'Vouchers' }).getByRole('row').filter({ hasText: code }).getByRole('cell');
+  await expect(row(first)).toHaveText([first, 'Revision 1', '5 USDT', 'published', /.+/, /UTC/]);
+
   // The edit is the next revision beside the live one, which stays live until another founder approves it.
   await builder(page).getByRole('tab', { name: 'Budget and time' }).click();
-  await builder(page).getByRole('textbox', { name: 'Reward per person' }).fill('2');
+  await builder(page).getByRole('textbox', { name: 'Reward per person' }).fill('7');
   await builder(page).getByRole('button', { name: 'Next' }).click();
-  await expect(page.getByTestId('campaign-pending')).toContainText(/Revision \d+, a draft/);
-  await expect(page.getByTestId('campaign-revision')).toHaveText(live);
+  await expect(page.getByTestId('campaign-pending')).toContainText('Revision 2, a draft');
+  await page.getByRole('button', { name: 'Ask to activate' }).click();
+  // Each saved edit is the next revision number; the one asked for is the one another founder approves.
+  await expect(page.getByTestId('campaign-pending')).toContainText(/Revision \d+, waiting for another founder/);
+  const asked = Number((await page.getByTestId('campaign-pending').textContent())?.match(/Revision (\d+)/)?.[1]);
+  expect(asked).toBeGreaterThan(1);
+  await expect(page.getByTestId('campaign-revision')).toHaveText('Revision 1');
+
+  const b = await (await browser.newContext()).newPage();
+  await openDesk(b, 'b');
+  await campaigns(b).getByRole('link', { name, exact: true }).click();
+  await b.getByRole('button', { name: 'Approve' }).click();
+  await expect(builder(b).getByRole('status')).toContainText(`Approved revision ${asked}. It replaces revision 1 as the live one.`);
+  await b.context().close();
+
+  // The new revision is live; the voucher issued under revision 1 keeps it and its 5 USDT; one issued now takes 7 USDT.
+  await page.reload();
+  await expect(page.getByTestId('campaign-revision')).toHaveText(`Revision ${asked}`);
+  await expect(page.getByTestId('campaign-state')).toHaveText('Active');
+  await expect(row(first)).toHaveText([first, 'Revision 1', '5 USDT', 'published', /.+/, /UTC/]);
+  await issue(second);
+  await expect(vouchers.getByRole('status')).toHaveText(`Issued voucher ${second} under revision ${asked}: 7 USDT.`);
+  await expect(row(second)).toHaveText([second, `Revision ${asked}`, '7 USDT', 'published', /.+/, /UTC/]);
+  await expect(row(first)).toHaveText([first, 'Revision 1', '5 USDT', 'published', /.+/, /UTC/]);
+
+  // Archiving the active campaign is refused, and it stays active.
   await page.getByRole('button', { name: 'Archive' }).click();
   await expect(builder(page).getByRole('alert')).toContainText('An active campaign cannot be archived');
+  await page.reload();
+  await expect(page.getByTestId('campaign-state')).toHaveText('Active');
 });
 
 test(`${J} #10 opens the calendar: all campaigns by time`, async ({ page }) => {
@@ -329,7 +376,8 @@ const reply = (res, what) => {
   return row;
 };
 
-async function liveEarningCampaign(name) {
+/** A TEST campaign A creates and asks for, B approves and A activates now; `extra` replaces fields of the definition. */
+async function liveCampaign(name, extra = {}) {
   gates ??= await import('../../../../tooling/scripts/local-test-gates.mjs');
   ctx ??= await gates.makeContext({ log: () => {} });
   pair ??= await gates.approverSessions(ctx);
@@ -345,6 +393,7 @@ async function liveEarningCampaign(name) {
     budget: { asset: 'USDT', limit: '100' },
     reward: { asset: 'USDT', amount: '5' },
     earning: [{ name: 'Deposit reward', trigger: 'pay.deposit_credit.posted', minAmount: '10', formula: '1' }],
+    ...extra,
   };
   const made = reply(await ctx.edge.mutate('campaigns', 'ops.campaigns.create', definition, a), 'ops.campaigns.create');
   reply(await ctx.edge.mutate('campaigns', 'ops.campaigns.transition', { id: made.id, action: 'submit', revision: 1 }, a), 'submit');
@@ -372,7 +421,7 @@ test(`${J} #6 the earning rule gives one intent per event: a deposit the chain d
   browser,
 }, testInfo) => {
   test.setTimeout(240_000);
-  const campaign = await liveEarningCampaign(`TEST earning ${Date.now().toString(36)}r${testInfo.retry}`);
+  const campaign = await liveCampaign(`TEST earning ${Date.now().toString(36)}r${testInfo.retry}`);
   const page = await (await browser.newContext()).newPage();
   const who = await signUp(page, 'c16');
   await verify(page, who);

@@ -19,6 +19,7 @@ import {
   type CampaignTasks,
   type CampaignType,
   type CampaignView,
+  type CampaignVoucher,
   type MyCampaigns,
   type Participation,
   type ParticipationRules,
@@ -129,6 +130,30 @@ const toRuleEntry = (r: RuleRow): RuleLibraryEntry => ({
 const REVISABLE: readonly CampaignState[] = ['approved', 'scheduled', 'active', 'paused'];
 
 type ParticipationRow = { participation_key: string; campaign_id: string; revision: number; created_at: Date };
+type VoucherRow = {
+  id: string;
+  campaign_id: string;
+  code: string;
+  issue_key: string;
+  revision: number;
+  face_asset: string;
+  face_amount: string;
+  state: CampaignVoucher['state'];
+  issued_by: string;
+  created_at: Date;
+};
+
+const toVoucher = (v: VoucherRow): CampaignVoucher => ({
+  id: v.id,
+  campaignId: v.campaign_id,
+  code: v.code,
+  revision: v.revision,
+  face: { asset: v.face_asset, amount: decimalOf(v.face_amount) },
+  state: v.state,
+  issuedBy: v.issued_by,
+  issuedAt: v.created_at.toISOString(),
+});
+
 type ReviewRow = { review_key: string; campaign_id: string; created_at: Date };
 
 const DECIMAL = /^(0|[1-9]\d{0,19})(\.\d{1,18})?$/;
@@ -434,6 +459,7 @@ const ELIGIBILITY_REFUSAL = {
 } as const;
 
 export const participationKeyOf = (campaignId: string, accountId: string) => `campaign:join:${campaignId}:${accountId}`;
+export const voucherKeyOf = (campaignId: string, code: string) => `voucher:issue:${campaignId}:${code}`;
 export const reviewKeyOf = (campaignId: string, accountId: string) => `campaign:review:${campaignId}:${accountId}`;
 
 /** What each move needs and where it goes. `activate` lands on scheduled or active by the start time. */
@@ -986,6 +1012,57 @@ export class CampaignService {
         `The rule library holds no revision ${rule.revision} of ${rule.name} with this tree`,
       );
     }
+  }
+
+  // ── Vouchers (CM-vouchers-coupons-01, CM-campaign-types-01 T-3) ──────────────────────────────────────────────
+
+  /**
+   * Issues (publishes) one voucher of a voucher campaign under its live revision, with that revision's reward as its face
+   * value. The campaign row is read under a share lock, so an approval of the next revision waits for the issue and the
+   * voucher never mixes two revisions. The code is the business key with the campaign: the same issue again returns the
+   * stored voucher, whoever sends it and whatever revision is live by then. Moves no value.
+   */
+  async issueVoucher(input: { campaignId: string; code: string; actor: string }): Promise<CampaignVoucher> {
+    const code = input.code.trim().toUpperCase();
+    const key = voucherKeyOf(input.campaignId, code);
+    return transaction(this.sql, async (tx) => {
+      const [row] = await tx<CampaignRow[]>`SELECT * FROM campaigns.campaigns WHERE id = ${input.campaignId} FOR SHARE`;
+      if (!row) throw new CampaignsError('campaign.unknown', 'No such campaign');
+      const [had] = await tx<VoucherRow[]>`SELECT * FROM campaigns.vouchers WHERE issue_key = ${key}`;
+      if (had) return toVoucher(had);
+      if (row.type !== 'voucher') throw new CampaignsError('campaigns.not_voucher', 'Only a voucher campaign issues vouchers');
+      const state = effectiveState(row, this.now());
+      if (!REVISABLE.includes(state)) {
+        throw new CampaignsError(
+          'campaign.invalid_transition',
+          `A campaign that is ${state} issues no voucher: it must be approved and not ended`,
+        );
+      }
+      if (!row.reward_asset || row.reward_amount === null) {
+        throw new CampaignsError('campaigns.reward_unset', 'The live revision has no reward, so a voucher would have no face value');
+      }
+      const [made] = await tx<VoucherRow[]>`
+        INSERT INTO campaigns.vouchers (id, campaign_id, code, issue_key, revision, face_asset, face_amount, issued_by)
+        VALUES (${`vch_${randomUUID()}`}, ${row.id}, ${code}, ${key}, ${row.revision}, ${row.reward_asset}, ${row.reward_amount},
+          ${input.actor})
+        ON CONFLICT DO NOTHING
+        RETURNING *`;
+      if (!made) {
+        const [raced] = await tx<VoucherRow[]>`SELECT * FROM campaigns.vouchers WHERE issue_key = ${key}`;
+        return toVoucher(raced!);
+      }
+      await audit(tx, input.actor, 'campaign.voucher.issue', row.id, { voucher: made.id, code, revision: made.revision });
+      return toVoucher(made);
+    });
+  }
+
+  /** A campaign's vouchers, oldest first, each with the revision it keeps. */
+  async listVouchers(input: { campaignId: string }): Promise<CampaignVoucher[]> {
+    const [row] = await this.sql<{ id: string }[]>`SELECT id FROM campaigns.campaigns WHERE id = ${input.campaignId}`;
+    if (!row) throw new CampaignsError('campaign.unknown', 'No such campaign');
+    const rows = await this.sql<VoucherRow[]>`
+      SELECT * FROM campaigns.vouchers WHERE campaign_id = ${input.campaignId} ORDER BY created_at, id LIMIT 500`;
+    return rows.map(toVoucher);
   }
 
   /** One campaign as operators see it, at any age; the list is the newest 200. */
