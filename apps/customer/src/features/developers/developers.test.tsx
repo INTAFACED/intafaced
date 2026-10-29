@@ -5,8 +5,10 @@ vi.mock('../../shared/preferences', async (original) => {
   return { ...real, usePreferences: () => real.currentPreferences() };
 });
 import { findRoom } from '../../app/navigation';
+import { SessionProvider } from '../session/session';
 import { DevelopersRoutes } from './DevelopersRoutes';
 import { ENVIRONMENTS, PROTOCOLS, SECTIONS, connectivityOptions, developersRoute, hostTable } from './developers-model';
+import { DEVELOPER_DATA_TERMS_UNSET, DEVELOPER_HOSTS_UNSET, hostsView, termsView } from './developers-values';
 
 describe('developer portal model', () => {
   it('reads the address into home, hosts, a known section or unknown', () => {
@@ -42,10 +44,14 @@ describe('developer portal pages', () => {
     expect(html).toContain('Best practice');
     expect(html).toContain('No access tiers are published');
   });
-  it('hosts table says host not set for every row and writes no address', () => {
-    const html = renderToString(<DevelopersRoutes path="/developers/hosts" />);
-    expect(html.match(/data-host-state="unset"/g)).toHaveLength(PROTOCOLS.length * ENVIRONMENTS.length);
-    expect(html.match(/>host not set</g)).toHaveLength(PROTOCOLS.length * ENVIRONMENTS.length);
+  it('hosts page reads the published hosts before it draws a row, and writes no address of its own', () => {
+    const html = renderToString(
+      <SessionProvider>
+        <DevelopersRoutes path="/developers/hosts" />
+      </SessionProvider>,
+    );
+    expect(html).toContain('Base addresses');
+    expect(html).not.toMatch(/data-host-state=/);
     expect(html).not.toMatch(/https?:\/\//);
   });
   it('a section without a page names that, and a published one links to it', () => {
@@ -78,5 +84,55 @@ describe('connectivityOptions', () => {
     ]);
     expect(options.find((o) => o.option === 'redundant')?.hosts.every((row) => row.environment === 'regional')).toBe(true);
     expect(options.find((o) => o.option === 'colocation')?.hosts).toEqual([]);
+  });
+});
+
+describe('the published developer values', () => {
+  const ready = <T,>(data: T) => ({ status: 'ready' as const, data });
+  it('draws the hosts the service publishes and leaves the rest not set', () => {
+    const view = hostsView(
+      ready({
+        hosts: [
+          { protocol: 'rest' as const, environment: 'production' as const, host: 'api.a.test' },
+          { protocol: 'fix' as const, environment: 'regional' as const, host: null },
+        ],
+      }),
+    );
+    expect(view.kind).toBe('table');
+    if (view.kind !== 'table') throw new Error('unreachable');
+    expect(view.unsetCode).toBeNull();
+    const rows = hostTable(view.read);
+    expect(rows.filter((row) => row.cell.state === 'set')).toEqual([
+      { protocol: 'rest', environment: 'production', cell: { state: 'set', host: 'api.a.test' } },
+    ]);
+  });
+  it('a blank setting draws every row not set with its code; any other failure draws no table', () => {
+    const blank = hostsView({ status: 'failed', code: DEVELOPER_HOSTS_UNSET });
+    expect(blank).toMatchObject({ kind: 'table', unsetCode: 'trade.developer_hosts_unset' });
+    if (blank.kind !== 'table') throw new Error('unreachable');
+    expect(hostTable(blank.read).every((row) => row.cell.state === 'unset')).toBe(true);
+    expect(hostsView({ status: 'failed' })).toEqual({ kind: 'failed' });
+    expect(hostsView({ status: 'failed', code: 'edge.upstream_unwired' })).toEqual({ kind: 'failed' });
+    expect(hostsView({ status: 'loading' })).toEqual({ kind: 'loading' });
+  });
+  it('terms: a product the service publishes shows its terms, the rest not set; blank carries its code', () => {
+    const terms = { entitlement: 'e', redistribution: 'r', retention: 'k', privacy: 'p', commercial: 'c' };
+    const view = termsView(
+      ready({
+        products: [
+          { product: 'ticker' as const, terms },
+          { product: 'index' as const, terms: null },
+        ],
+      }),
+    );
+    if (view.kind !== 'table') throw new Error('unreachable');
+    expect(view.termsOf('ticker')).toEqual(terms);
+    expect(view.termsOf('index')).toBeNull();
+    expect(view.termsOf('trades')).toBeNull();
+    expect(termsView({ status: 'failed', code: DEVELOPER_DATA_TERMS_UNSET })).toMatchObject({
+      kind: 'table',
+      unsetCode: 'trade.developer_data_terms_unset',
+    });
+    expect(termsView({ status: 'failed', code: 'trade.developer_hosts_unset' })).toEqual({ kind: 'failed' });
   });
 });
