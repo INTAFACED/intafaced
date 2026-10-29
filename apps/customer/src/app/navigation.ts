@@ -909,6 +909,8 @@ export const rooms: readonly Room[] = [
     area: 'more',
     hidden: true,
   },
+  { path: '/agents/new', title: 'New agent', description: 'Build an agent of your own', door: 'More', area: 'more', hidden: true },
+  { path: '/agents/:agentId', title: 'Your agent', description: 'An agent of your own', door: 'More', area: 'more', hidden: true },
   { path: '/launch/new', title: 'New launch', description: 'Issue and list an asset', door: 'More', area: 'more', hidden: true },
   { path: '/launch/check', title: 'Launch check', description: 'Issue and list an asset', door: 'More', area: 'more', hidden: true },
   {

@@ -61,6 +61,7 @@ import { listCatalogue } from './ops/catalogue.js';
 import { listSessions } from './ops/ops-sessions.js';
 import { engineForTasks, engineOfAdapter, routeIsMetered, type RouteDef, type RouteEngine } from './gateway/routing.js';
 import { spendRouter } from './spend/routes.js';
+import { ownRouter } from './own/routes.js';
 
 /**
  * The internal tRPC surface (§1: "Fastify + tRPC (internal) / REST (public)").
@@ -4047,6 +4048,9 @@ export function createAgentsRouter(deps: AgentsRouterDeps) {
 
     /** User spend caps (AG-spend-01). A blank cap refuses. A reservation is not a ledger post. */
     spend: spendRouter(sql),
+
+    /** Agents a person builds for themselves (AG-builder-01). Building moves no value. */
+    own: ownRouter(sql),
   });
 }
 
