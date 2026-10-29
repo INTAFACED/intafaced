@@ -263,7 +263,11 @@ test(`${J} #3 opens the market brief and the stablecoin screener: a brief or "No
 }) => {
   await openTokens(page);
   await page.getByRole('tab', { name: 'Market brief' }).click();
-  await expect(page.getByRole('tabpanel', { name: 'Market brief' })).toContainText(/No brief today|Brief for /);
+  // No service writes a brief (there is no market data source on the platform), so the one true answer is the empty state with its reason.
+  const brief = page.getByRole('tabpanel', { name: 'Market brief' });
+  await expect(brief).toContainText('No brief today.');
+  await expect(brief).toContainText('There is no market data source here.');
+  await expect(brief).not.toContainText('Brief for ');
   await page.getByRole('tab', { name: 'Stablecoins' }).click();
   // The owner has listed no stablecoins on the stack, so the screener refuses with that reason and its one code.
   const stable = page.getByRole('tabpanel', { name: 'Stablecoins' });
@@ -529,6 +533,8 @@ test(`${J} #8 opens the stocks screener with no asset registered: an empty state
   const panel = page.getByRole('tabpanel', { name: 'Stocks' });
   await expect(panel).toContainText(/No stock is registered/);
   await expect(panel).toContainText(/Blocked:/);
+  await expect(panel.locator('[data-code]')).toHaveCount(1);
+  await expect(panel.locator('[data-code]')).toHaveAttribute('data-code', 'licence');
   await expect(panel.getByRole('row')).toHaveCount(0);
 });
 
