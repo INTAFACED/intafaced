@@ -359,6 +359,18 @@ test(`${J} #5 downloads the OpenAPI file and a collection, and opens the agent d
       line,
       refusals: true,
     });
+    // The signed-out refusal is always stated: null on a public route, the 401 itself (also listed as a response) elsewhere.
+    expect({
+      line,
+      signedOutStated: operation['x-signed-out'] !== undefined,
+      publicWithoutRefusal: operation['x-signed-out'] === null,
+      lists401: '401' in operation.responses,
+    }).toEqual({
+      line,
+      signedOutStated: true,
+      publicWithoutRefusal: declared.access === 'public',
+      lists401: declared.access !== 'public',
+    });
   }
 
   // A caller with no credential: every route the file calls private or internal answers 401 with the exact field and
