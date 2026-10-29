@@ -139,6 +139,8 @@ if (!available) {
       callerFor(USER, ['agents:read', 'identity:write'], { kid: '66666666-6666-4666-8666-666666666666' }),
     );
     await expect(delegated.own.create({ template: 'blank', createKey: 'picker:delegated' })).rejects.toMatchObject({ code: 'FORBIDDEN' });
+    await expect(delegated.own.list({ limit: 10 })).rejects.toMatchObject({ code: 'FORBIDDEN' });
+    await expect(delegated.own.get({ id })).rejects.toMatchObject({ code: 'FORBIDDEN' });
     const readOnly = router.createCaller(callerFor(USER, ['agents:read']));
     await expect(readOnly.own.create({ template: 'blank', createKey: 'picker:read' })).rejects.toMatchObject({ code: 'FORBIDDEN' });
   });

@@ -22,7 +22,8 @@ function storeOf(sql: Sql | undefined): OwnAgentStore {
 
 /**
  * Agents a person builds for themselves (AG-builder-01). The owner is always the
- * signed-in person; a delegated token cannot build for them. Building moves no value.
+ * signed-in person; a delegated token can neither build nor read their drafts,
+ * whose instructions are theirs alone. Building moves no value.
  */
 export function ownRouter(sql: Sql | undefined) {
   return router({
@@ -68,11 +69,17 @@ export function ownRouter(sql: Sql | undefined) {
     get: scopedProcedure('agents:read', { module: 'agents' })
       .input(z.object({ id: z.string().min(1).max(64) }))
       .output(ownAgentSchema)
-      .query(({ ctx, input }) => guard(() => storeOf(sql).get(ctx.principal.userId, input.id))),
+      .query(({ ctx, input }) => {
+        assertPersonSetsLimits(ctx.principal);
+        return guard(() => storeOf(sql).get(ctx.principal.userId, input.id));
+      }),
 
     list: scopedProcedure('agents:read', { module: 'agents' })
       .input(z.object({ limit: z.number().int().min(1).max(200) }))
       .output(z.array(ownAgentSchema))
-      .query(({ ctx, input }) => guard(() => storeOf(sql).list(ctx.principal.userId, input.limit))),
+      .query(({ ctx, input }) => {
+        assertPersonSetsLimits(ctx.principal);
+        return guard(() => storeOf(sql).list(ctx.principal.userId, input.limit));
+      }),
   });
 }
