@@ -8,6 +8,7 @@ import type { BankServices } from '../bank-service.js';
 import { memorySecurityLock } from '../security-lock.js';
 import { memoryWithdrawDestinations } from '../withdraw-destination.js';
 import { memoryApprovalLinks } from './address-approval.js';
+import { memoryFraudList } from './fraud-list.js';
 import { RampService } from './ramp-service.js';
 import { memoryWalletProofs } from './wallet-ownership.js';
 import { memoryWithdrawNetworks } from './withdraw-networks.js';
@@ -46,6 +47,8 @@ const ask = { userId: USER, assetId: 'USDT', network: 'ethereum', ref: ADDRESS }
 function book(clock: { now: Date }, hours = '24') {
   const lock = memorySecurityLock();
   const destinations = memoryWithdrawDestinations({ addressBookCap: () => '5', now: () => clock.now });
+  // The fraud list as it stands at each read, so a test can list an address after it was saved.
+  const listed: Array<{ network: string; address: string }> = [];
   const service = new RampService({} as Sql, {} as LedgerClient, {
     securityLock: lock,
     destinations,
@@ -53,8 +56,9 @@ function book(clock: { now: Date }, hours = '24') {
     walletProofs: memoryWalletProofs(),
     approvalLinks: memoryApprovalLinks(),
     offrampCoolingHours: hours,
+    fraudList: { isListed: (network, ref) => memoryFraudList(listed).isListed(network, ref) },
   });
-  return { lock, destinations, service };
+  return { lock, destinations, service, listed };
 }
 
 /** Saved and approved 25 hours ago: past a 24-hour cooling-off. */
@@ -125,6 +129,12 @@ describe('whether money may be sent to an address on a network now', () => {
     await expect(service.sendableDestination(ask)).resolves.toMatchObject({ state: 'locked' });
     lock.failWith(new BankError('identity is down', 'bank.security_lock_unavailable'));
     await expect(service.sendableDestination(ask)).rejects.toMatchObject({ code: 'bank.security_lock_unavailable' });
+  });
+
+  it('answers blocked for a saved, ready entry whose address is put on the fraud list afterwards', async () => {
+    const { service, listed, saved } = await readyEntry();
+    listed.push({ network: '*', address: ADDRESS });
+    await expect(service.sendableDestination(ask)).resolves.toMatchObject({ state: 'blocked', destinationId: saved.destinationId });
   });
 
   it('never answers ready for a removed entry', async () => {

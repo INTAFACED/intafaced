@@ -15,8 +15,8 @@ const trpc = (data) => ({ status: 200, json: { result: { data } } });
 
 /**
  * Answer svc-notify (`/api/notify/trpc/<procedure>`) and the market list. State lives in the test, so a mutation changes what the next read
- * returns. `fail` makes the list answer 500 until set back to false; `hold` keeps the list request open until `release()`.
- * No service is contacted.
+ * returns. `fail` makes the list answer 500 until set back to false; `hold` keeps the list request open until `release()`;
+ * `holdMarkets` keeps the market list open until `releaseMarkets()`. No service is contacted.
  */
 async function mock(page, options = {}) {
   const state = {
@@ -30,10 +30,16 @@ async function mock(page, options = {}) {
     fail: options.fail ?? false,
     hold: options.hold ?? false,
     held: [],
+    heldMarkets: options.holdMarkets ? [] : null,
     calls: [],
   };
   const unread = () => state.items.filter((item) => !item.readAt).length;
-  await page.route('**/api/v1/markets**', (route) => route.fulfill({ status: 200, json: markets }));
+  await page.route('**/api/v1/markets**', (route) => {
+    const answer = () => route.fulfill({ status: 200, json: markets });
+    // Only the notifications' own read (`limit=500`) is held; any other market read on the page answers at once.
+    const ours = new URL(route.request().url()).searchParams.get('limit') === '500';
+    return state.heldMarkets && ours ? void state.heldMarkets.push(answer) : answer();
+  });
   await page.route('**/api/notify/trpc/**', async (route) => {
     const url = new URL(route.request().url());
     const procedure = url.pathname.split('/trpc/')[1];
@@ -85,6 +91,11 @@ async function mock(page, options = {}) {
     release: async () => {
       state.hold = false;
       for (const answer of state.held.splice(0)) await answer();
+    },
+    releaseMarkets: async () => {
+      const held = state.heldMarkets ?? [];
+      state.heldMarkets = null;
+      for (const answer of held.splice(0)) await answer();
     },
   };
 }
@@ -384,4 +395,18 @@ test('tied to market: a fill names its coin from the market list', async ({ page
   await page.goto('/notifications');
   await expect(page.getByTestId('nf-body').first()).toHaveText('Bought 0.00015 BTC at 64,733.35 USDT');
   expect(api.calls('notify.list').length).toBeGreaterThan(0);
+});
+
+test('tied to market: a fill row is not drawn, so cannot be opened, before the market list answers', async ({ page }) => {
+  const api = await mock(page, { items: [{ ...fill(1, 1), params: { ...fill(1, 1).params, marketId: BTC_MARKET } }], holdMarkets: true });
+  await page.goto('/home');
+  await bell(page).click();
+  await expect(popup(page)).toBeVisible();
+  await expect.poll(() => api.calls('notify.list').length).toBeGreaterThan(0);
+  // The inbox has answered; the market list has not. A row drawn now would open Trades unfiltered and read "a trade".
+  await expect(popup(page).locator('[data-kind="loading"]')).toBeVisible();
+  await expect(page.getByTestId('nf-row')).toHaveCount(0);
+  await api.releaseMarkets();
+  await expect(page.getByTestId('nf-row')).toHaveAttribute('href', '/money/activity?tab=trades&asset=BTC');
+  await expect(page.getByTestId('nf-body')).toHaveText('Bought 0.00015 BTC at 64,733.35 USDT');
 });

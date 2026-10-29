@@ -76,6 +76,9 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, STATE, CUSTOMER_LOCALHOST_ORI
     IDENTITY_KYC_REJECT_REASONS: testValue('IDENTITY_KYC_REJECT_REASONS'),
     IDENTITY_KYC_CAPABILITIES_BY_LEVEL: testValue('IDENTITY_KYC_CAPABILITIES_BY_LEVEL'),
     IDENTITY_KYC_CAPABILITY_REASONS: testValue('IDENTITY_KYC_CAPABILITY_REASONS'),
+    IDENTITY_KYC_DOCUMENT_TYPES_BY_COUNTRY: testValue('IDENTITY_KYC_DOCUMENT_TYPES_BY_COUNTRY'),
+    IDENTITY_KYC_UPLOAD_MAX_BYTES: testValue('IDENTITY_KYC_UPLOAD_MAX_BYTES'),
+    IDENTITY_KYC_UPLOAD_TYPES: testValue('IDENTITY_KYC_UPLOAD_TYPES'),
     IDENTITY_KYC_MAX_DENIALS: testValue('IDENTITY_KYC_MAX_DENIALS'),
     IDENTITY_KYC_DENIAL_WINDOW_HOURS: testValue('IDENTITY_KYC_DENIAL_WINDOW_HOURS'),
     IDENTITY_KYC_LOCKOUT_HOURS: testValue('IDENTITY_KYC_LOCKOUT_HOURS'),
@@ -92,11 +95,12 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, STATE, CUSTOMER_LOCALHOST_ORI
     // operator reads the founder console makes: svc-bank's desks (admin:read), svc-p2p's
     // operator lists (admin:compliance), svc-market's vendor desk (market:ops), every svc-support operator door
     // (support:ops: the queue and request workspace at /support, help articles, help-centre and attachment settings,
-    // contact channels and request forms), and the notify desk's writes (admin:write: the status page and notices). admin:write is platform wide: it also opens the other services' admin:write doors to a founder's
+    // contact channels and request forms), the notify desk's writes (admin:write: the status page and notices) and the
+    // campaigns desk (campaigns:ops: build, ask, approve, go live). admin:write is platform wide: it also opens the other services' admin:write doors to a founder's
     // session here (svc-trade's insurance top-up among them), the same scope the local gates' operator tokens already
     // carry. Identity adds these only to a founder's own signed-in session with a second factor, never to an API key or a
     // sub-account. admin:treasury and every pay: scope stay off.
-    IDENTITY_FOUNDER_SESSION_SCOPES: 'admin:read,admin:write,admin:compliance,market:ops,support:ops',
+    IDENTITY_FOUNDER_SESSION_SCOPES: 'admin:read,admin:write,admin:compliance,market:ops,support:ops,campaigns:ops',
     // Sub-account cap: an explicit LOCAL TEST value, not an owner limit (the owner has not published one; blank
     // refuses every create with auth.sub_account_cap_unset). 10 live sub-accounts per account on this stack only.
     IDENTITY_MAX_SUB_ACCOUNTS: '10',

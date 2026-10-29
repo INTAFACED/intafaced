@@ -37,7 +37,7 @@
  *   node tooling/scripts/local-test-stack.mjs expire-deposit-addresses <email>   TEST fixture: open extra deposit addresses expire
  *   node tooling/scripts/local-test-stack.mjs expire-staff-holds <email>   TEST fixture: open staff holds with an expiry reach it
  *   node tooling/scripts/local-test-stack.mjs age-task-progress <email> <campaignId> <days>   TEST fixture: a task campaign's counted events happened days earlier
- *   node tooling/scripts/local-test-stack.mjs seed-withdrawal <email> <ASSET> <amount> --state <s> --ref <label> [--count <n>]   TEST fixture: a withdrawal in that state, sent included (or n requested ones)
+ *   node tooling/scripts/local-test-stack.mjs seed-withdrawal <email> <ASSET> <amount> --state <s> --ref <label> [--count <n>] [--failure-code <code>]   TEST fixture: a withdrawal in that state, sent and failed included (or n requested ones)
  *
  * Rules this file keeps (AGENTS.md "Money"):
  *   - Value moves ONLY through the ledger (packages/ledger-client recipes -> svc-ledger).
@@ -2086,7 +2086,8 @@ async function cmdFund(rawArgs) {
 }
 
 /**
- * `seed-withdrawal <email-or-userId> <ASSET> <amount> --state requested|held|dispatching|broadcast|sent --ref <label>`: one TEST
+ * `seed-withdrawal <email-or-userId> <ASSET> <amount> --state requested|held|dispatching|broadcast|sent|failed --ref <label>
+ * [--failure-code <code>]`: one TEST
  * withdrawal of the person's own funds, in the state a journey starts from (J-wallet-06). Sending out is switched off in
  * svc-pay (its withdraw feature is published `blocked`), so no withdrawal can reach these states through the Withdraw form on
  * this stack. This writes the row the way svc-pay's `withdraw` leaves it at that point and books the hold through the ledger's
@@ -2094,7 +2095,9 @@ async function cmdFund(rawArgs) {
  * posted. `held`: the hold booked and the row held, nothing asked of a rail. `dispatching`: a send journalled `requested` with no
  * answer (a lost reply). `broadcast`: the send journalled `accepted` with a TEST transaction reference. `sent`: broadcast, then
  * settled as `withdraw` settles it (`withdrawSettle` under the same attempt, the row `sent` with its TEST reference), so a
- * return can be recorded against it (J-wallet-06 #6). What the person can do
+ * return can be recorded against it (J-wallet-06 #6). `failed` (with `--failure-code`, required for it): held, the send journalled
+ * `refused`, then the hold reversed under the same attempt (`withdrawReverse`) and the row `failed` with that code and its attempt
+ * advanced, as `withdraw` finishes a rail refusal (J-wallet-05 #8). What the person can do
  * next (cancel, and what that gives back) is svc-pay's own code. The same --ref is the same withdrawal. `--count <n>` (requested
  * only) writes n requested withdrawals one second apart, for a history longer than one page (J-wallet-06 #5).
  */
@@ -2110,12 +2113,16 @@ async function cmdSeedWithdrawal(rawArgs) {
   const state = option('--state');
   const ref = option('--ref');
   const countRaw = option('--count');
+  const failureCode = option('--failure-code');
   const [who, assetRaw, amountStr] = args;
   const usage =
-    'usage: node tooling/scripts/local-test-stack.mjs seed-withdrawal <email-or-userId> <ASSET> <amount> --state requested|held|dispatching|broadcast|sent --ref <label> [--count <n>, requested only]';
+    'usage: node tooling/scripts/local-test-stack.mjs seed-withdrawal <email-or-userId> <ASSET> <amount> --state requested|held|dispatching|broadcast|sent|failed --ref <label> [--count <n>, requested only] [--failure-code <code>, failed only]';
   if (!who || !assetRaw || !amountStr || !state || !ref) fail(usage, 2);
-  if (!['requested', 'held', 'dispatching', 'broadcast', 'sent'].includes(state))
-    fail(`--state must be requested, held, dispatching, broadcast or sent (got "${state}")`, 2);
+  if (!['requested', 'held', 'dispatching', 'broadcast', 'sent', 'failed'].includes(state))
+    fail(`--state must be requested, held, dispatching, broadcast, sent or failed (got "${state}")`, 2);
+  if ((state === 'failed') !== (failureCode !== undefined)) fail('--failure-code goes with --state failed, and only with it', 2);
+  if (failureCode !== undefined && !/^[a-z][a-z_]*(\.[a-z_]+)+$/.test(failureCode))
+    fail(`--failure-code must be a dotted code like rail.refused (got "${failureCode}")`, 2);
   if (!/^[A-Za-z0-9-]{4,48}$/.test(ref)) fail('--ref must be 4-48 letters, digits or dashes', 2);
   const asset = assetRaw.toUpperCase();
   if (!/^[A-Z0-9]{2,12}$/.test(asset)) fail(`bad asset id: ${assetRaw}`, 2);
@@ -2220,12 +2227,31 @@ async function cmdSeedWithdrawal(rawArgs) {
       },
     );
   }
-  if (state === 'dispatching' || state === 'broadcast' || state === 'sent') {
-    const accepted = state !== 'dispatching';
+  if (state === 'dispatching' || state === 'broadcast' || state === 'sent' || state === 'failed') {
+    const outcome = { dispatching: 'requested', failed: 'refused' }[state] ?? 'accepted';
     asPay(
       `INSERT INTO pay.withdrawal_rail_attempts (withdrawal_id, attempt, outcome, rail_ref)
        VALUES (:'id', 0, :'outcome', NULLIF(:'tx', '')) ON CONFLICT DO NOTHING`,
-      { id, outcome: accepted ? 'accepted' : 'requested', tx: accepted ? txRef : '' },
+      { id, outcome, tx: outcome === 'accepted' ? txRef : '' },
+    );
+  }
+  // A failed seed starts from a fresh row: a reference already seeded in another state is refused, never turned into failed.
+  if (state === 'failed' && stored !== 'pending' && stored !== 'failed')
+    fail(`--ref ${ref} already names a withdrawal that is ${stored}, not failed; use a new --ref`, 2);
+  if (state === 'failed' && stored !== 'failed') {
+    // The rail refused it: the code stamped while held, the hold reversed under the same attempt, then the row failed with its
+    // attempt advanced, as `withdraw` finishes a refusal. A reused reference whose send was not refused is refused here.
+    const [outcome] = asPay(`SELECT outcome FROM pay.withdrawal_rail_attempts WHERE withdrawal_id = :'id' AND attempt = 0`, { id });
+    if (outcome !== 'refused')
+      fail(`--ref ${ref} already names a withdrawal whose send is ${outcome ?? 'not journalled'}, not refused; use a new --ref`, 2);
+    asPay(`UPDATE pay.withdrawals SET failure_code = :'code', updated_at = now() WHERE id = :'id' AND status = 'held'`, {
+      id,
+      code: failureCode,
+    });
+    await post('withdrawReverse', 'LOCAL TEST withdrawal reverse, not real money');
+    asPay(
+      `UPDATE pay.withdrawals SET status = 'failed', attempts = attempts + 1, updated_at = now() WHERE id = :'id' AND status = 'held'`,
+      { id },
     );
   }
   if (state === 'sent' && stored !== 'sent') {
@@ -2242,17 +2268,21 @@ async function cmdSeedWithdrawal(rawArgs) {
   }
   // Read back what svc-pay holds: a reference reused for another state is refused, never reported as the state asked for.
   const [after] = asPay(
-    `SELECT w.status::text || E'\\t' || coalesce(a.outcome, 'none') FROM pay.withdrawals w
+    `SELECT w.status::text || E'\\t' || coalesce(a.outcome, 'none') || E'\\t' || coalesce(w.failure_code, '') FROM pay.withdrawals w
        LEFT JOIN pay.withdrawal_rail_attempts a ON a.withdrawal_id = w.id AND a.attempt = w.attempts
       WHERE w.id = :'id'`,
     { id },
   );
-  const [nowStored, journal] = (after ?? '').split('\t');
+  const [nowStored, journal, storedCode] = (after ?? '').split('\t');
   const reached = {
     pending: 'requested',
     held: { none: 'held', requested: 'dispatching', accepted: 'broadcast' }[journal],
     sent: journal === 'accepted' ? 'sent' : undefined,
+    // A failed row's attempt has advanced past the refused one, so its own attempt has no journal row.
+    failed: journal === 'none' && storedCode === failureCode ? 'failed' : undefined,
   }[nowStored];
+  if (state === 'failed' && nowStored === 'failed' && storedCode !== failureCode)
+    fail(`--ref ${ref} already names a withdrawal that failed with ${storedCode || 'no code'}, not ${failureCode}; use a new --ref`, 2);
   if (reached !== state) fail(`--ref ${ref} already names a withdrawal that is ${reached ?? nowStored}, not ${state}; use a new --ref`, 2);
   say(`TEST withdrawal (LOCAL TEST, not real money)`);
   say(`  withdrawal ${id}`);

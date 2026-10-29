@@ -34,7 +34,34 @@ const CATALOG_ALIAS: Readonly<Record<string, string>> = {
   'edge.network_flagged': 'error.forbidden',
   'edge.network_dark': 'error.network',
   'edge.network_unconfigured': 'error.generic',
+  // Key refusals and the account freeze (api-key-refusal.ts). Generic sentences until the catalogue gains
+  // dedicated ones; the code and the docs link carry the detail.
+  'edge.api_key_denied': 'error.forbidden',
+  'edge.api_key_revoked': 'error.forbidden',
+  'edge.api_key_expired': 'error.forbidden',
+  account_frozen: 'error.forbidden',
+  // Framework refusals renamed by the envelope (reply-envelope.ts). `edge.request_invalid` and
+  // `edge.internal_error` have no row on purpose: they take the sentence for their status (`refusalCopy`).
+  'edge.body_too_large': 'error.generic',
+  'edge.unsupported_media_type': 'error.generic',
 };
+
+/** Whether this code has a catalogue sentence of its own (through the alias table or directly). */
+export function hasCopy(key: string): boolean {
+  return translator.tUnsafe(CATALOG_ALIAS[key] ?? key, {}) !== (CATALOG_ALIAS[key] ?? key);
+}
+
+/**
+ * A human sentence for a refusal, never a bare code: the code's own sentence when the catalogue has one, else
+ * the generic sentence for its HTTP status. For the `message` of a completed edge body (reply-envelope.ts).
+ */
+export function refusalCopy(code: string | undefined, status: number): string {
+  if (code && hasCopy(code)) return userCopy(code);
+  if (status === 401 || status === 403) return userCopy('error.forbidden');
+  if (status === 404) return userCopy('error.notFound');
+  if (status === 429) return userCopy('error.rateLimited');
+  return userCopy('error.generic');
+}
 
 export function userCopy(key: string, params: Readonly<Record<string, string | number | bigint>> = {}): string {
   return translator.tUnsafe(CATALOG_ALIAS[key] ?? key, params);

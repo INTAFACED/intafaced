@@ -18,10 +18,20 @@ const RUN = Date.now().toString(36);
 
 test.describe.configure({ mode: 'serial' });
 
-/** A signed-out GET of the read API through Edge, as JSON. */
+/**
+ * A signed-out GET of the read API through Edge, as JSON. Every refusal names Edge's request id, the same one as its
+ * `x-request-id` header (DV-errors-01, svc-edge `reply-envelope.ts`); that is checked here and set aside, so each step
+ * compares the rest of the body field for field.
+ */
 async function readApi(path) {
   const res = await fetch(`${EDGE}/api/notify/v1${path}`, { headers: { accept: 'application/json' } });
-  return { status: res.status, body: await res.json() };
+  const body = await res.json();
+  if (!res.ok) {
+    expect(res.headers.get('x-request-id')).toMatch(/^[0-9a-f-]{36}$/);
+    expect(body.requestId).toBe(res.headers.get('x-request-id'));
+    delete body.requestId;
+  }
+  return { status: res.status, body };
 }
 
 test(`${J} #1 the notices read without a key: the same data as the website, paged`, async ({ browser }) => {
