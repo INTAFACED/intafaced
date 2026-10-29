@@ -485,6 +485,8 @@ export type BankErrorCode =
   | 'bank.security_lock_unavailable'
   /** No IDENTITY_URL: this deployment cannot check the security lock, so address changes and sends refuse. A deployment gap. */
   | 'bank.security_lock_unset'
+  /** The owner froze the account themselves (I-account-lifecycle-08): no address change and nothing sent until they lift it. */
+  | 'bank.account_frozen_self'
   /** The address was approved already, so there is nothing to approve or mail. */
   | 'bank.address_approval_not_pending'
   /** Approving from the device (or the sign-in, where no device is named) that saved the address: another one, or the link, must. */

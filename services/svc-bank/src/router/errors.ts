@@ -409,6 +409,7 @@ const BANK_ERROR_STATUS: Record<BankErrorCode, TRPCError['code']> = {
   'bank.recipient_check_unset': 'PRECONDITION_FAILED',
   'bank.security_locked': 'PRECONDITION_FAILED',
   'bank.security_lock_unset': 'PRECONDITION_FAILED',
+  'bank.account_frozen_self': 'PRECONDITION_FAILED',
   'bank.address_approval_not_pending': 'CONFLICT',
   'bank.address_approval_same_device': 'PRECONDITION_FAILED',
   'bank.address_approval_device_unknown': 'PRECONDITION_FAILED',
