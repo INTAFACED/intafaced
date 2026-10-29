@@ -448,6 +448,14 @@ export class UsageMeter {
    * selected. Zero-amount windows seal with a sentinel charge id and are not
    * returned here (nothing left to bill).
    */
+  /** Whether this window of the session is sealed: it then refuses any further usage. */
+  async isSealed(sessionId: string, windowId: string): Promise<boolean> {
+    const rows = await this.sql<Array<{ sealed: boolean }>>`
+      SELECT sealed_at IS NOT NULL AS sealed FROM agents.usage_windows WHERE session_id = ${sessionId} AND window_id = ${windowId}
+    `;
+    return rows[0]?.sealed ?? false;
+  }
+
   async openWindows(sessionId: string): Promise<string[]> {
     const rows = await this.sql<Array<{ window_id: string }>>`
       SELECT window_id FROM agents.usage_windows

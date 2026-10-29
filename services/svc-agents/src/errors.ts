@@ -44,7 +44,11 @@ export type AgentErrorCode =
   /** A run of the person's own agent would pass one of the caps they set for it (per call, session or month). */
   | 'agents.spend.cap_exceeded'
   /** The person's own agent has no caps stored: nothing of it runs until they are set. */
-  | 'agents.spend.cap_unset';
+  | 'agents.spend.cap_unset'
+  /** A usage window could not be paid and the person owes more than the owner's overage grace. */
+  | 'agents.window_unpaid'
+  /** A usage window could not be paid and no overage grace is published: the next run refuses. */
+  | 'agents.overage_grace_unset';
 
 export class AgentError extends Error {
   constructor(

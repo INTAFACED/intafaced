@@ -49,7 +49,7 @@ const en = {
   page_Usage: 'Usage',
   page_Identity: 'Identity',
   page_Sharing: 'Sharing',
-  parked_Usage: 'This agent has never run, so it has no usage. Usage by day and task is not built (AG-usage-02).',
+  parked_Usage: 'Usage by day and task is not built (AG-usage-02); the windows above are each session’s sealed usage.',
   parked_Identity:
     'This agent has no token of its own: agent identity is not built (AG-identity-01), so it can only act inside a session you open.',
   parked_Sharing: 'Only you can see or change this agent. Co-owners are not built (AG-builder-03).',
@@ -124,6 +124,25 @@ const en = {
   run_executed: 'Admitted',
   run_refused: 'Refused',
   run_failed: 'Failed',
+  code_window_unpaid:
+    'A usage window could not be paid, so the session stays open. Add funds, then close it again: the window is retried on its same charge.',
+  code_overage_grace_unset:
+    'Earlier usage could not be paid and no allowance for unpaid usage is set, so this run did not start. Add funds: the unpaid usage is retried on its same charge, then runs start again.',
+  code_window_sealed: 'This session’s usage is already settled, so it takes no more runs. Close it and open a new session.',
+  closeSession: 'Close session',
+  sessionClosed: 'Session closed. Its usage is paid.',
+  usageTitle: 'Usage windows',
+  usageOpened: 'Opened',
+  usageSession: 'Session',
+  usageState: 'State',
+  usageAmount: 'Amount',
+  usageChargeKey: 'Charge key',
+  usage_open: 'Open',
+  usage_unpaid: 'Unpaid',
+  usage_settled: 'Settled',
+  usageNotSealed: 'Not sealed yet',
+  usageUnpaid: 'A usage window is unpaid. Add funds and it is retried on the same charge.',
+  usageEmpty: 'This agent has no usage yet.',
 } as const;
 const es = {
   newAgent: 'Nuevo agente',
@@ -176,7 +195,7 @@ const es = {
   page_Usage: 'Uso',
   page_Identity: 'Identidad',
   page_Sharing: 'Compartir',
-  parked_Usage: 'Este agente nunca se ha ejecutado, así que no tiene uso. El uso por día y tarea no está construido (AG-usage-02).',
+  parked_Usage: 'El uso por día y tarea no está construido (AG-usage-02); las ventanas de arriba son el uso sellado de cada sesión.',
   parked_Identity:
     'Este agente no tiene un token propio: la identidad de agentes no está construida (AG-identity-01), así que solo puede actuar dentro de una sesión que abras.',
   parked_Sharing: 'Solo tú puedes ver o cambiar este agente. Los copropietarios no están construidos (AG-builder-03).',
@@ -260,6 +279,25 @@ const es = {
   run_executed: 'Admitida',
   run_refused: 'Rechazada',
   run_failed: 'Fallida',
+  code_window_unpaid:
+    'No se pudo pagar una ventana de uso, así que la sesión sigue abierta. Añade fondos y ciérrala otra vez: la ventana se reintenta con su mismo cargo.',
+  code_overage_grace_unset:
+    'Un uso anterior no se pudo pagar y no hay margen fijado para uso impagado, así que esta ejecución no empezó. Añade fondos: el uso impagado se reintenta con su mismo cargo y luego las ejecuciones vuelven a empezar.',
+  code_window_sealed: 'El uso de esta sesión ya está liquidado, así que no admite más ejecuciones. Ciérrala y abre una sesión nueva.',
+  closeSession: 'Cerrar sesión',
+  sessionClosed: 'Sesión cerrada. Su uso está pagado.',
+  usageTitle: 'Ventanas de uso',
+  usageOpened: 'Abierta',
+  usageSession: 'Sesión',
+  usageState: 'Estado',
+  usageAmount: 'Importe',
+  usageChargeKey: 'Clave del cargo',
+  usage_open: 'Abierta',
+  usage_unpaid: 'Impagada',
+  usage_settled: 'Liquidada',
+  usageNotSealed: 'Aún sin sellar',
+  usageUnpaid: 'Hay una ventana de uso impagada. Añade fondos y se reintenta con el mismo cargo.',
+  usageEmpty: 'Este agente aún no tiene uso.',
 } satisfies Record<keyof typeof en, string>;
 const fr = {
   newAgent: 'Nouvel agent',
@@ -314,7 +352,7 @@ const fr = {
   page_Identity: 'Identité',
   page_Sharing: 'Partage',
   parked_Usage:
-    'Cet agent n’a jamais tourné, il n’a donc aucune utilisation. L’utilisation par jour et par tâche n’est pas construite (AG-usage-02).',
+    'L’utilisation par jour et par tâche n’est pas construite (AG-usage-02) ; les fenêtres ci-dessus sont l’usage scellé de chaque session.',
   parked_Identity:
     'Cet agent n’a pas de jeton propre : l’identité des agents n’est pas construite (AG-identity-01), il ne peut donc agir que dans une session que vous ouvrez.',
   parked_Sharing: 'Vous seul pouvez voir ou modifier cet agent. Les copropriétaires ne sont pas construits (AG-builder-03).',
@@ -397,5 +435,24 @@ const fr = {
   run_executed: 'Admise',
   run_refused: 'Refusée',
   run_failed: 'Échouée',
+  code_window_unpaid:
+    'Une fenêtre d’usage n’a pas pu être payée, la session reste donc ouverte. Ajoutez des fonds puis fermez-la à nouveau : la fenêtre est retentée sur le même débit.',
+  code_overage_grace_unset:
+    'Un usage précédent n’a pas pu être payé et aucune marge pour l’usage impayé n’est fixée, cette exécution n’a donc pas démarré. Ajoutez des fonds : l’usage impayé est retenté sur le même débit, puis les exécutions reprennent.',
+  code_window_sealed: 'L’usage de cette session est déjà réglé, elle n’accepte plus d’exécution. Fermez-la et ouvrez une nouvelle session.',
+  closeSession: 'Fermer la session',
+  sessionClosed: 'Session fermée. Son usage est payé.',
+  usageTitle: 'Fenêtres d’usage',
+  usageOpened: 'Ouverte',
+  usageSession: 'Session',
+  usageState: 'État',
+  usageAmount: 'Montant',
+  usageChargeKey: 'Clé du débit',
+  usage_open: 'Ouverte',
+  usage_unpaid: 'Impayée',
+  usage_settled: 'Réglée',
+  usageNotSealed: 'Pas encore scellée',
+  usageUnpaid: 'Une fenêtre d’usage est impayée. Ajoutez des fonds et elle est retentée sur le même débit.',
+  usageEmpty: 'Cet agent n’a pas encore d’usage.',
 } satisfies Record<keyof typeof en, string>;
 export const agentBuilderCopy = defineCopy('more.agents.builder', en, { es, fr });

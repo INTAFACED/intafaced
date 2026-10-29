@@ -6,7 +6,9 @@ import {
   ownAgentRunResultSchema,
   ownAgentRunRowSchema,
   ownAgentSchema,
+  ownAgentSessionClosedSchema,
   ownAgentSessionSchema,
+  ownAgentUsageWindowSchema,
   router,
   scopedProcedure,
   TRPCError,
@@ -101,6 +103,16 @@ function runDepsOf(deps: OwnRunDeps | undefined): OwnRunDeps {
 }
 
 const idInput = z.object({ id: z.string().min(1).max(64) });
+
+/** The person's own agent and a session of it. Not theirs, or not this agent's: one answer, so no oracle for others. */
+async function ownedOwnSession(sql: Sql | undefined, runtime: AgentRuntime, userId: string, agentId: string, sessionId: string) {
+  const agent = await guard(() => storeOf(sql).get(userId, agentId));
+  const session = await runtime.session(sessionId);
+  if (!session || session.userId !== userId || session.agentId !== ownSessionAgentId(agent.id)) {
+    throw new TRPCError({ code: 'NOT_FOUND', message: 'agents.session_not_found' });
+  }
+  return { agent, session };
+}
 
 /**
  * Agents a person builds for themselves (AG-builder-01). The owner is always the
@@ -214,6 +226,24 @@ export function ownRouter(sql: Sql | undefined, run?: OwnRunDeps) {
             return { sessionId: session.id, agentId: session.agentId };
           }),
         ),
+
+      /**
+       * Closes a session of the person's own agent once its windows are paid, each on its own charge key. A window the
+       * ledger refuses for funds stays unpaid and the session stays open: refused `agents.window_unpaid`.
+       */
+      close: executeProcedure()
+        .input(idInput.extend({ sessionId: z.string().uuid() }))
+        .output(ownAgentSessionClosedSchema)
+        .mutation(async ({ ctx, input }) => {
+          const { runtime } = runDepsOf(run);
+          const { session } = await ownedOwnSession(sql, runtime, ctx.principal.userId, input.id, input.sessionId);
+          try {
+            const closed = await runtime.closeSettled(session.id);
+            return { sessionId: closed.id, status: 'closed' as const, closedAt: (closed.closedAt ?? new Date()).toISOString() };
+          } catch (err) {
+            return runError(err);
+          }
+        }),
     }),
 
     /**
@@ -231,12 +261,7 @@ export function ownRouter(sql: Sql | undefined, run?: OwnRunDeps) {
       .output(ownAgentRunResultSchema)
       .mutation(async ({ ctx, input }) => {
         const deps = runDepsOf(run);
-        const agent = await guard(() => storeOf(sql).get(ctx.principal.userId, input.id));
-        const session = await deps.runtime.session(input.sessionId);
-        // Not yours, or not this agent's: one answer, so the route is no oracle for other people's sessions.
-        if (!session || session.userId !== ctx.principal.userId || session.agentId !== ownSessionAgentId(agent.id)) {
-          throw new TRPCError({ code: 'NOT_FOUND', message: 'agents.session_not_found' });
-        }
+        const { agent, session } = await ownedOwnSession(sql, deps.runtime, ctx.principal.userId, input.id, input.sessionId);
         try {
           const result = await deps.runtime.think({
             sessionId: session.id,
@@ -292,6 +317,47 @@ export function ownRouter(sql: Sql | undefined, run?: OwnRunDeps) {
             cost: formatAmount(parseAmount(row.cost)),
             assetId: feeAssetId,
             occurredAt: row.occurred_at.toISOString(),
+          }));
+        });
+      }),
+
+    /** The usage windows of this agent's sessions, newest first: open, unpaid (retried on its charge key) or settled. */
+    usage: scopedProcedure('agents:read', { module: 'agents', person: true })
+      .input(idInput.extend({ limit: z.number().int().min(1).max(200) }))
+      .output(z.array(ownAgentUsageWindowSchema))
+      .query(({ ctx, input }) => {
+        assertPersonSetsLimits(ctx.principal);
+        return guard(async () => {
+          const { feeAssetId } = runDepsOf(run);
+          const agent = await storeOf(sql).get(ctx.principal.userId, input.id);
+          const rows = await sqlOf(sql)<
+            Array<{
+              session_id: string;
+              window_id: string;
+              sealed: boolean;
+              paid: boolean;
+              charged_amount: string | null;
+              charge_key: string | null;
+              opened_at: Date;
+            }>
+          >`
+            SELECT w.session_id::text, w.window_id, w.sealed_at IS NOT NULL AS sealed, w.charge_tx_id IS NOT NULL AS paid,
+                   w.charged_amount::text, w.charge_key, w.opened_at
+              FROM agents.usage_windows w
+              JOIN agents.agent_sessions s ON s.id = w.session_id
+             WHERE s.user_id = ${ctx.principal.userId}
+               AND s.agent_id = ${ownSessionAgentId(agent.id)}
+             ORDER BY w.opened_at DESC, w.window_id DESC
+             LIMIT ${input.limit}
+          `;
+          return rows.map((row) => ({
+            sessionId: row.session_id,
+            windowId: row.window_id,
+            state: !row.sealed ? ('open' as const) : row.paid ? ('settled' as const) : ('unpaid' as const),
+            amount: row.sealed && row.charged_amount !== null ? formatAmount(parseAmount(row.charged_amount)) : null,
+            chargeKey: row.charge_key,
+            assetId: feeAssetId,
+            openedAt: row.opened_at.toISOString(),
           }));
         });
       }),

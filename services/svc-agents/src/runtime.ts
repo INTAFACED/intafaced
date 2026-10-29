@@ -1,7 +1,7 @@
 import type { Sql } from 'postgres';
 import { transaction } from '@intafaced/db';
 import type { EventBus } from '@intafaced/events';
-import { formatAmount, parseAmount, type Amount } from '@intafaced/ledger-client';
+import { formatAmount, InsufficientFundsError, parseAmount, type Amount } from '@intafaced/ledger-client';
 import { AgentError } from './errors.js';
 import { AuditLog, type ActionKind, type AuditedAction } from './fleet/audit.js';
 import {
@@ -81,6 +81,12 @@ export interface AgentRuntimeOptions {
    * not exercise funds; production wires the ledger's balance read.
    */
   readonly funds?: { available(userId: string, assetId: string): Promise<Amount> };
+  /**
+   * AGENTS_OVERAGE_GRACE: how much usage a person may leave unpaid and still start a run, in the fee asset. An owner
+   * value. Blank is null: any unpaid window refuses the next run with `agents.overage_grace_unset`, never a grace
+   * nobody published.
+   */
+  readonly overageGrace?: Amount | null;
 }
 
 /** The agent's own stored cap per session, as the spend hold takes it. */
@@ -192,6 +198,7 @@ export class AgentRuntime {
   private readonly meteringEnabled: boolean;
   private readonly spend: SpendGate | null;
   private readonly funds: AgentRuntimeOptions['funds'] | null;
+  private readonly overageGrace: Amount | null;
 
   constructor(
     private readonly sql: Sql,
@@ -205,6 +212,7 @@ export class AgentRuntime {
     this.meteringEnabled = options.meteringEnabled ?? false;
     this.spend = options.spend ?? null;
     this.funds = options.funds ?? null;
+    this.overageGrace = options.overageGrace ?? null;
   }
 
   // ── Agent definitions ──────────────────────────────────────────────────────
@@ -486,6 +494,44 @@ export class AgentRuntime {
 
     if (!decision.allowed) {
       throw await this.appendRefusal(session, decision, { kind: 'completion', task: input.task });
+    }
+
+    // 2b · Unpaid usage. A window that could not be paid is retried first, on its own charge key, so adding funds is
+    //      all a person does to recover. What still cannot be paid holds the run back unless the owner's grace covers
+    //      it: blank grace refuses outright, and nothing is claimed, held or called.
+    if (shouldMeter) {
+      const owed = await this.retryUnpaidWindows(session.userId);
+      if (owed > 0n && (this.overageGrace === null || owed > this.overageGrace)) {
+        const grace = this.overageGrace;
+        throw await this.appendRefusal(
+          session,
+          grace === null
+            ? {
+                allowed: false,
+                code: 'agents.overage_grace_unset',
+                userMessageKey: 'agents.refused.overage_grace_unset',
+                userMessageParams: { owed: formatAmount(owed), asset: this.feeAssetId },
+              }
+            : {
+                allowed: false,
+                code: 'agents.window_unpaid',
+                userMessageKey: 'agents.refused.window_unpaid',
+                userMessageParams: { owed: formatAmount(owed), grace: formatAmount(grace), asset: this.feeAssetId },
+              },
+          { kind: 'completion', task: input.task },
+        );
+      }
+    }
+
+    // 2b' · A sealed window takes no more usage: a run in it would reach the engine and then fail to record, an engine
+    //       call nobody pays for. A session whose current window was sealed (a close the ledger refused for funds, or
+    //       the sweep) refuses before anything is claimed or called; a new session, or the next window, runs.
+    if (shouldMeter && (await this.meter.isSealed(session.id, this.meter.windowFor(new Date())))) {
+      throw await this.appendRefusal(
+        session,
+        { allowed: false, code: 'agents.window_sealed', userMessageKey: 'agents.refused.window_sealed', userMessageParams: {} },
+        { kind: 'completion', task: input.task },
+      );
     }
 
     // 2a · Funds. A run whose worst case the person's available balance cannot cover does not start (OWNER 107): the
@@ -1069,6 +1115,34 @@ export class AgentRuntime {
     return result;
   }
 
+  /**
+   * Retry every sealed, unpaid window of the person's, across their sessions, each on its own charge key. Returns what
+   * is still owed. A window the ledger refuses for funds stays unpaid and counts; any other fault is thrown, so a run
+   * never starts on a payment nobody could confirm.
+   */
+  async retryUnpaidWindows(userId: string): Promise<Amount> {
+    const unpaid = await this.sql<Array<{ session_id: string; window_id: string; charged_amount: string }>>`
+      SELECT w.session_id::text, w.window_id, w.charged_amount::text
+        FROM agents.usage_windows w
+        JOIN agents.agent_sessions s ON s.id = w.session_id
+       WHERE s.user_id = ${userId}
+         AND w.sealed_at IS NOT NULL
+         AND w.charge_tx_id IS NULL
+         AND w.charged_amount > 0
+       ORDER BY w.sealed_at, w.window_id
+    `;
+    let owed = 0n;
+    for (const row of unpaid) {
+      try {
+        await this.settleWindow(row.session_id, row.window_id);
+      } catch (err) {
+        if (!(err instanceof InsufficientFundsError)) throw err;
+        owed += parseAmount(row.charged_amount);
+      }
+    }
+    return owed;
+  }
+
   /** Settle every open window of a session. Used when a session closes. */
   async settleSession(sessionId: string): Promise<SettlementResult[]> {
     const windows = await this.meter.openWindows(sessionId);
@@ -1076,6 +1150,21 @@ export class AgentRuntime {
     for (const windowId of windows) results.push(await this.settleWindow(sessionId, windowId));
     return results;
   }
+  /**
+   * Settle a session's windows, then close it. A window the ledger refuses for funds stays sealed and unpaid on its
+   * charge key and the session stays open, refused `agents.window_unpaid`, so the person sees what they owe; adding
+   * funds and closing again (or starting a run) retries it on that same key.
+   */
+  async closeSettled(sessionId: string): Promise<SessionRecord> {
+    try {
+      await this.settleSession(sessionId);
+    } catch (err) {
+      if (!(err instanceof InsufficientFundsError)) throw err;
+      throw new AgentError(`A usage window of session ${sessionId} could not be paid`, 'agents.window_unpaid', 'agents.error.window_unpaid');
+    }
+    return this.closeSession(sessionId);
+  }
+
 
   // ── The user-visible log (§8.2) ────────────────────────────────────────────
 
