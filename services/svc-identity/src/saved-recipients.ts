@@ -141,7 +141,7 @@ export class SavedRecipientService {
       }
       return { removed: prior.result === 'removed', handle: person.handle };
     }
-    const person = await this.anyByHandle(handle);
+    const person = await this.removableByHandle(handle, ownerId);
     if (!person) throw new SavedRecipientError(`No such person (${RECIPIENT_UNKNOWN})`, RECIPIENT_UNKNOWN);
     const deleted = await this.sql.begin(async (tx) => {
       const inserted = await tx`
@@ -185,9 +185,14 @@ export class SavedRecipientService {
     return rows[0] ?? null;
   }
 
-  private async anyByHandle(handle: string): Promise<{ id: string; handle: string } | null> {
+  /** Remove finds any status, but an undiscoverable handle the owner never saved is the same miss as an unknown one. */
+  private async removableByHandle(handle: string, ownerId: string): Promise<{ id: string; handle: string } | null> {
     const rows = await this.sql<Array<{ id: string; handle: string }>>`
-      SELECT id, handle::text AS handle FROM users WHERE handle = ${handle} LIMIT 1
+      SELECT u.id, u.handle::text AS handle FROM users u
+       WHERE u.handle = ${handle}
+         AND (u.handle_discoverable OR u.id = ${ownerId}
+              OR EXISTS (SELECT 1 FROM saved_recipients s WHERE s.owner_id = ${ownerId} AND s.recipient_id = u.id))
+       LIMIT 1
     `;
     return rows[0] ?? null;
   }
