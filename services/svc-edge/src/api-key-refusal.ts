@@ -1,0 +1,93 @@
+import { AUTH_ERRORS_DOCS } from './reply-envelope.js';
+import { userCopy } from './user-copy.js';
+
+/**
+ * A platform API key (`ifc_…`) the edge could not open (DV-errors-02).
+ *
+ * A refused interactive JWT still goes upstream as anonymous: that is what lets
+ * an expired session reach `auth.refresh` (README, "A bad token lands as
+ * anonymous"). A key has no refresh path. Forwarding a refused key as anonymous
+ * only meant the service answered "authentication required", the same words
+ * as sending no key at all, so a bot with a dead key could not tell it from a
+ * missing header. The edge now refuses a presented key it cannot open, here,
+ * and forwards nothing. That is stricter than before, never looser: no request
+ * that was refused upstream is let through, and one less reaches a service.
+ *
+ * The codes say only what the key holder needs and no more:
+ *
+ *   · `edge.api_key_denied`: no live key matches, OR the key matched and a
+ *     restriction on it refused this call (origin, IP, product, account,
+ *     signature). Identity deliberately answers those in one shape "so a
+ *     caller never learns which half of the credential was right"
+ *     (svc-identity `router.ts`, `auth.ip_allowlist_required`); the edge keeps
+ *     that posture and does not split them. Splitting them is DV-auth-01's
+ *     decision, in its own PR.
+ *   · `edge.api_key_revoked` / `edge.api_key_expired`: only when identity says
+ *     so for this exact key. Saying it to the person holding the key reveals
+ *     nothing they could use: the key is dead either way.
+ *   · `account_frozen`: identity says the account behind the key is frozen.
+ *     Not `edge.`-prefixed on purpose: the freeze is svc-identity's state, not
+ *     a gateway policy, and the catalogue names it the same wherever it comes
+ *     from. The edge only reports which state applies; it never invents one.
+ *
+ * The identity code each one came from stays in `intafacedCode`, so nothing
+ * that branched on `auth.*` loses it.
+ */
+
+export type ApiKeyRefusalCode = 'edge.api_key_denied' | 'edge.api_key_revoked' | 'edge.api_key_expired' | 'account_frozen';
+
+export interface ApiKeyRefusal {
+  readonly status: 401 | 403;
+  readonly code: ApiKeyRefusalCode;
+  /** The `auth.*` code the decision came from. */
+  readonly intafacedCode: string;
+}
+
+export const API_KEY_DENIED: ApiKeyRefusal = { status: 401, code: 'edge.api_key_denied', intafacedCode: 'auth.api_key_denied' };
+export const API_KEY_REVOKED: ApiKeyRefusal = { status: 401, code: 'edge.api_key_revoked', intafacedCode: 'auth.api_key_revoked' };
+export const API_KEY_EXPIRED: ApiKeyRefusal = { status: 401, code: 'edge.api_key_expired', intafacedCode: 'auth.api_key_expired' };
+export const ACCOUNT_FROZEN: ApiKeyRefusal = { status: 403, code: 'account_frozen', intafacedCode: 'auth.account_frozen' };
+
+/**
+ * Identity's own code for a refused exchange → the refusal. Only these three are told apart; every
+ * other code, and anything unrecognised, is the one denied answer. Never echoes an upstream string.
+ */
+export function apiKeyRefusalFromIdentityCode(code: string | undefined): ApiKeyRefusal {
+  switch (code) {
+    case 'auth.api_key_revoked':
+      return API_KEY_REVOKED;
+    case 'auth.api_key_expired':
+      return API_KEY_EXPIRED;
+    case 'auth.account_frozen':
+      return ACCOUNT_FROZEN;
+    default:
+      return API_KEY_DENIED;
+  }
+}
+
+/** The identity code inside a refused tRPC answer, plain or `{ json }`-wrapped. Undefined when there is none. */
+export function identityErrorCode(body: unknown): string | undefined {
+  if (!body || typeof body !== 'object') return undefined;
+  const error = (body as { error?: unknown }).error;
+  if (!error || typeof error !== 'object') return undefined;
+  const shape = ((error as { json?: unknown }).json ?? error) as { data?: unknown };
+  const data = shape.data;
+  if (!data || typeof data !== 'object') return undefined;
+  const direct = (data as { intafacedCode?: unknown }).intafacedCode;
+  if (typeof direct === 'string') return direct;
+  const cause = (data as { cause?: unknown }).cause;
+  const nested = cause && typeof cause === 'object' ? (cause as { code?: unknown }).code : undefined;
+  return typeof nested === 'string' ? nested : undefined;
+}
+
+/** The body for a refused key. `requestId` is added on the way out (`reply-envelope.ts`). */
+export function apiKeyRefusalBody(refusal: ApiKeyRefusal): Record<string, unknown> {
+  const copy = userCopy(refusal.code);
+  return {
+    code: refusal.code,
+    message: copy,
+    error: copy,
+    intafacedCode: refusal.intafacedCode,
+    docs: `${AUTH_ERRORS_DOCS}#${refusal.code}`,
+  };
+}

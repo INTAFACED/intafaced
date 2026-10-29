@@ -70,7 +70,32 @@ An unlisted prefix returns **404, never a pass-through**. An edge that forwards 
 
 **The bearer token is never forwarded upstream.** A service that can read a token is a service that can replay it.
 
-**A bad token lands as anonymous, never as an error.** A forged or expired token on a public endpoint is an ordinary event. The request reaches the service unauthenticated and `protectedProcedure` refuses it there with the right status — which is what lets a caller with an expired token still reach `auth.refresh` and recover.
+**A bad session token lands as anonymous, never as an error.** A forged or expired token on a public endpoint is an ordinary event. The request reaches the service unauthenticated and `protectedProcedure` refuses it there with the right status — which is what lets a caller with an expired token still reach `auth.refresh` and recover.
+
+**A bad API key is refused at the door, and forwarded nowhere** (`src/api-key-refusal.ts`, DV-errors-02). A key has no refresh path, and forwarded as anonymous it only drew the service's "authentication required", the same answer as sending no key, so a bot could not tell a dead key from a missing header. This is stricter than before, never looser: one less request reaches a service.
+
+| Case                                                                                                     | Status                 | `code`                                              | `intafacedCode`        | Decided by                                                |
+| -------------------------------------------------------------------------------------------------------- | ---------------------- | --------------------------------------------------- | ---------------------- | --------------------------------------------------------- |
+| No key at all                                                                                            | 401                    | `AuthenticationError`                               | `auth.required`        | the service (svc-trade): only it knows a route is private |
+| Key identity does not open, or opens and a restriction refuses (origin, IP, product, account, signature) | 401                    | `edge.api_key_denied`                               | `auth.api_key_denied`  | edge, on identity's answer                                |
+| Key identity names revoked                                                                               | 401                    | `edge.api_key_revoked`                              | `auth.api_key_revoked` | edge, on identity's answer                                |
+| Key identity names expired, or past its `expiresAt`                                                      | 401                    | `edge.api_key_expired`                              | `auth.api_key_expired` | edge                                                      |
+| Account behind the key frozen or closed                                                                  | 403                    | `account_frozen`                                    | `auth.account_frozen`  | svc-identity's state, reported by the edge                |
+| Key without the route's scope                                                                            | 403                    | `PermissionDenied` (trade) / tRPC `FORBIDDEN` (pay) | `scope.denied`         | edge gateway plane                                        |
+| Identity cannot be asked                                                                                 | 503 + `Retry-After: 1` | `edge.authority_unavailable`                        |                        | edge                                                      |
+
+Restrictions are not told apart on purpose: identity answers them in the shape of a wrong key so a caller never learns which half of a credential was right, and the edge keeps that posture. `account_frozen` has no `edge.` prefix because the freeze is svc-identity's state, not a gateway policy; the edge only reports which state applies and never invents one. The scope refusal keeps its published CCXT class (renaming a published code is DV-versioning-02's deprecation process).
+
+## Request id, server times and the error body (`src/reply-envelope.ts`)
+
+Every reply, on every path and status, carries `x-request-id` (a random UUID per request; the edge never adopts a caller's id, `requestIdHeader: false`), `x-server-received` and `x-server-sent` (unix ms from this process's clock: arrival in the first hook, and the moment the reply is serialised; sent is never before received). The same id goes upstream as `x-request-id`, replacing anything the caller sent. Millisecond times tell an integrator how much of the latency is ours, which the round trip already bounds; they are too coarse to time a comparison.
+
+Every JSON-object error under `/api/*` carries `requestId`, equal to the header:
+
+- **An edge refusal** is completed into one shape: `code` (always `edge.*`, or `account_frozen` as above; Fastify's own `FST_*` refusals are renamed, e.g. `edge.body_too_large`, `edge.unsupported_media_type`), `message` beside the older `error` string, `docs` (`/developers/errors#<code>`, `/developers/errors/auth#<code>` for key and freeze codes, `/developers/permissions` on a scope refusal) and `requestId`.
+- **A proxied service error** gains `requestId` and nothing else: the edge inserts the one field without re-serialising the body (no number is rounded) and never re-words a code, message or field list it did not decide. A body that already names a `requestId`, a tRPC batch array, non-JSON and every success reply pass untouched. The `edge.` prefix is how a client tells a gateway refusal from a service error.
+
+The operator plane (`/admin/*`) and the probes get the headers only.
 
 **Hop-by-hop headers are stripped, not forwarded.** The full RFC 7230 set (`connection`, `keep-alive`, `proxy-authenticate`, `proxy-authorization`, `te`, `trailer`, `transfer-encoding`, `upgrade`) plus `host` and `content-length` die in `stripReserved` before anything reaches an upstream. The edge rewrites `host`/`content-length` for the hop it owns; the rest must not be smuggled through the perimeter.
 
@@ -84,18 +109,20 @@ Until this landed the edge sent **no CORS headers at all** — not a permissive 
 
 **The vendored shell on `:8090` was never affected and is unchanged.** nginx proxies its `/api` same-origin, so no `Origin` header is sent and none of this applies to it. There is a test asserting a request with no `Origin` is untouched.
 
-| Behaviour                          | Value                                                               |
-| ---------------------------------- | ------------------------------------------------------------------- |
-| Allowed origins                    | `EDGE_ALLOWED_ORIGINS` — exact origins, comma-separated             |
-| `Access-Control-Allow-Origin`      | the caller's own origin, echoed. **Never `*`**                      |
-| `Access-Control-Allow-Credentials` | **never emitted** — our front-ends send no cookies                  |
-| `Access-Control-Allow-Methods`     | `GET, POST, OPTIONS`                                                |
-| `Access-Control-Allow-Headers`     | `authorization, content-type`                                       |
-| `Access-Control-Expose-Headers`    | unset                                                               |
-| `Vary`                             | `origin`, on every answer including the ones that allow nothing     |
-| Surface                            | `/api/*`, `/health`, `/ready`. **`/admin/*` is not a CORS surface** |
+| Behaviour                          | Value                                                                 |
+| ---------------------------------- | --------------------------------------------------------------------- |
+| Allowed origins                    | `EDGE_ALLOWED_ORIGINS` — exact origins, comma-separated               |
+| `Access-Control-Allow-Origin`      | the caller's own origin, echoed. **Never `*`**                        |
+| `Access-Control-Allow-Credentials` | **never emitted** — our front-ends send no cookies                    |
+| `Access-Control-Allow-Methods`     | `GET, POST, OPTIONS`                                                  |
+| `Access-Control-Allow-Headers`     | `authorization, content-type`                                         |
+| `Access-Control-Expose-Headers`    | `x-request-id, x-server-received, x-server-sent`, allowed origin only |
+| `Vary`                             | `origin`, on every answer including the ones that allow nothing       |
+| Surface                            | `/api/*`, `/health`, `/ready`. **`/admin/*` is not a CORS surface**   |
 
 **No wildcard, ever.** `*` in `EDGE_ALLOWED_ORIGINS` is a boot failure with an explanation, not a silently skipped entry.
+
+**Three headers are exposed, and only these** (RC-developer-03). A browser on an allowed origin needs the request id to quote to support and the two server times for its clock check; none is a secret or names an account. Not the rate-limit headers, not `x-intafaced-*`. A disallowed origin, a caller with no `Origin`, a preflight and `/admin/*` get no expose header, and a disallowed origin reads nothing anyway.
 
 **No credentials, deliberately.** `apps/web` holds the access token in memory (`providers.tsx` — explicitly not `localStorage`, explicitly not a cookie) and sends it as an `Authorization` header. There is no `credentials: 'include'` anywhere in `apps/`. Announcing credentials support would describe a mechanism we do not use, and a credentialed response may never carry `*` — we emit neither, so the forbidden pair cannot arise. **When the §13 refresh-token-in-an-httpOnly-cookie socket lands, this decision must be re-taken deliberately**: a cookie is ambient, and every request here becomes credentialed the day it exists.
 
