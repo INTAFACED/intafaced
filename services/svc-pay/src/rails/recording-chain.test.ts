@@ -56,7 +56,7 @@ describe("the TEST chain's own records of what it sent (crypto-native)", () => {
     mkdirSync(path.join(dir, '.lock'), { recursive: true });
     const memory = new MemoryChain();
     const { railRecorder } = await import('./test-rail-records.js');
-    const chain = new RecordingChain(memory, railRecorder(dir, 'crypto-native', 50).record);
+    const chain = new RecordingChain(memory, railRecorder(dir, 'crypto-native', 50));
     const rail = new CryptoNativeAdapter({ chain, secret: SECRET, minConfirmations: 6, toleranceSeconds: 300 });
     await expect(rail.payout({ ...settlement, destination: { kind: 'crypto', ref: '0xabc' } })).rejects.toThrow(RailOutcomeUnknownError);
     expect(await memory.lookupSend('pay.payout:w-1')).toMatchObject({ state: 'sent' });
@@ -69,24 +69,52 @@ describe("the TEST chain's own records of what it sent (crypto-native)", () => {
   it('a send the rail already recorded with other facts refuses rather than contradicting itself', async () => {
     const dir = fresh();
     mkdirSync(dir, { recursive: true });
-    const at = new Date().toISOString();
-    const earlier = {
-      label: 'TEST',
-      rail: 'crypto-native',
-      key: 'send:pay.payout:w-1',
-      direction: 'out',
-      assetId: 'USDT',
-      amount: '9',
-      at,
-    };
-    writeFileSync(path.join(dir, 'crypto-native.jsonl'), `${JSON.stringify(earlier)}\n`);
+    const memory = new MemoryChain();
+    // The chain sent 12.5 under this key, but the rail's record says 9.
+    await memory.send({ idempotencyKey: 'pay.payout:w-1', to: '0xabc', assetId: 'USDT', amount: parseAmount('12.5') });
+    const earlier = { label: 'TEST', rail: 'crypto-native', key: 'send:pay.payout:w-1', direction: 'out', assetId: 'USDT', amount: '9' };
+    writeFileSync(path.join(dir, 'crypto-native.jsonl'), `${JSON.stringify({ ...earlier, at: new Date().toISOString() })}\n`);
     const rail = new CryptoNativeAdapter({
-      chain: recordingChainFor(new MemoryChain(), dev(dir)),
+      chain: recordingChainFor(memory, dev(dir)),
       secret: SECRET,
       minConfirmations: 6,
       toleranceSeconds: 300,
     });
     await expect(rail.payout({ ...settlement, destination: { kind: 'crypto', ref: '0xabc' } })).rejects.toThrow(RailOutcomeUnknownError);
-    expect(lines(dir)).toHaveLength(1);
+    expect(lines(dir).map((line) => line.amount)).toEqual(['9']);
+  });
+
+  it('after a restart forgets the chain, a recorded payout is never reported not sent and never sent again', async () => {
+    const dir = fresh();
+    const before = new CryptoNativeAdapter({
+      chain: recordingChainFor(new MemoryChain(), dev(dir)),
+      secret: SECRET,
+      minConfirmations: 6,
+      toleranceSeconds: 300,
+    });
+    expect((await before.payout({ ...settlement, destination: { kind: 'crypto', ref: '0xabc' } })).ok).toBe(true);
+    const memory = new MemoryChain();
+    const after = new CryptoNativeAdapter({
+      chain: recordingChainFor(memory, dev(dir)),
+      secret: SECRET,
+      minConfirmations: 6,
+      toleranceSeconds: 300,
+    });
+    expect(await after.queryPayout('pay.payout:w-1')).toEqual({ status: 'unknown' });
+    await expect(after.payout({ ...settlement, destination: { kind: 'crypto', ref: '0xabc' } })).rejects.toThrow(RailOutcomeUnknownError);
+    expect(await memory.lookupSend('pay.payout:w-1')).toEqual({ state: 'not_sent' });
+    expect(lines(dir).map((line) => line.key)).toEqual(['send:pay.payout:w-1']);
+  });
+
+  it('a refund send is recorded once under its own key, and after a restart it is not sent again', async () => {
+    const dir = fresh();
+    const request = { idempotencyKey: 'pay.refund:p-1:r-1', to: '0xpayer', assetId: 'USDT', amount: parseAmount('3') };
+    const first = recordingChainFor(new MemoryChain(), dev(dir));
+    await first.send(request);
+    await first.send(request);
+    const memory = new MemoryChain();
+    await expect(recordingChainFor(memory, dev(dir)).send(request)).rejects.toThrow(/not sent again/);
+    expect(await memory.lookupSend(request.idempotencyKey)).toEqual({ state: 'not_sent' });
+    expect(lines(dir).map(({ key, direction, amount }) => [key, direction, amount])).toEqual([['send:pay.refund:p-1:r-1', 'out', '3']]);
   });
 });

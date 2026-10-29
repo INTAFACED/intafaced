@@ -1,7 +1,7 @@
 import path from 'node:path';
 import { isExplicitDevOrTest } from '@intafaced/config';
 import type { ChainSendLookup, ChainSendRequest, ConfirmedTransfer, CryptoChainPort } from './chain-port.js';
-import { railRecorder, type RailMovement } from './test-rail-records.js';
+import { railRecorder, type RailRecorder } from './test-rail-records.js';
 
 /**
  * LOCAL TEST: the TEST chain's own record of what it sent out of custody (J-ops-console-27 #7 and #8).
@@ -15,6 +15,10 @@ import { railRecorder, type RailMovement } from './test-rail-records.js';
  * The line is written after the chain sent and before the caller posts anything. A record that cannot be written throws,
  * which `CryptoNativeAdapter` treats as an unknown outcome: the withdrawal stays held, the retry asks `lookupSend`, and
  * the chain's "sent" answer writes the record then (the same key with the same facts is one record).
+ *
+ * The records outlive the in-memory chain: after a restart the chain has forgotten a send its record still holds. Such a
+ * send is never sent again (it throws, so the caller keeps the hold), and a lookup that the forgetful chain answers
+ * "not sent" is answered "unknown" instead, so nothing recorded as gone out is ever reversed back to the customer.
  *
  * Only a sandbox chain is wrapped: a live chain's own word is the chain, and an absent one sends nothing. Set in a process
  * whose raw `APP_ENV` is not exactly `dev` or `test`, under `NODE_ENV=production`, to a path that is not absolute, or
@@ -31,7 +35,7 @@ export class RecordingChain implements CryptoChainPort {
 
   constructor(
     private readonly inner: CryptoChainPort,
-    private readonly record: (movement: RailMovement) => Promise<void>,
+    private readonly records: RailRecorder,
   ) {
     this.posture = inner.posture;
     this.description = `${inner.description}; keeps its TEST rail records`;
@@ -54,8 +58,12 @@ export class RecordingChain implements CryptoChainPort {
   }
 
   async send(request: ChainSendRequest): Promise<{ txHash: string }> {
+    const key = recordKey(request.idempotencyKey);
+    if ((await this.inner.lookupSend(request.idempotencyKey)).state !== 'sent' && (await this.records.has(key))) {
+      throw new Error(`${key} is recorded as sent before this chain's memory began; it is not sent again`);
+    }
     const sent = await this.inner.send(request);
-    await this.record(sentMovement(request.idempotencyKey, request.assetId, request.amount));
+    await this.records.record(sentMovement(request.idempotencyKey, request.assetId, request.amount));
     return sent;
   }
 
@@ -63,15 +71,19 @@ export class RecordingChain implements CryptoChainPort {
     const found = await this.inner.lookupSend(idempotencyKey);
     // A send the chain says left, found again after a record that was not written: it is written now.
     if (found.state === 'sent' && found.assetId !== null && found.amount !== null) {
-      await this.record(sentMovement(idempotencyKey, found.assetId, found.amount));
+      await this.records.record(sentMovement(idempotencyKey, found.assetId, found.amount));
     }
+    // Recorded as gone out, but the chain restarted and forgot it: not "not sent", or the hold would be reversed.
+    if (found.state === 'not_sent' && (await this.records.has(recordKey(idempotencyKey)))) return { state: 'unknown' };
     return found;
   }
 }
 
-const sentMovement = (key: string, assetId: string, amount: bigint): RailMovement => ({
-  key: `send:${key}`,
-  direction: 'out',
+const recordKey = (idempotencyKey: string) => `send:${idempotencyKey}`;
+
+const sentMovement = (idempotencyKey: string, assetId: string, amount: bigint) => ({
+  key: recordKey(idempotencyKey),
+  direction: 'out' as const,
   assetId,
   amount,
 });
@@ -102,6 +114,5 @@ export function recordingChainFor(chain: CryptoChainPort, env: Record<string, st
       `${PAY_TEST_RAIL_RECORDS_DIR_ENV} keeps records for the TEST chain only; this chain is ${chain.posture}`,
     );
   }
-  const { record } = railRecorder(dir, RECORDED_CHAIN_RAIL);
-  return new RecordingChain(chain, record);
+  return new RecordingChain(chain, railRecorder(dir, RECORDED_CHAIN_RAIL));
 }
