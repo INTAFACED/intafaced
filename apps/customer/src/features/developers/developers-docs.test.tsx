@@ -102,6 +102,11 @@ describe('developer docs pages', () => {
       'data-option-state="parked_hardware"',
       'data-option-state="parked_hardware"',
     ]);
+    const colocation = page.slice(
+      page.indexOf('data-option="colocation"'),
+      page.indexOf('</tr>', page.indexOf('data-option="colocation"')),
+    );
+    expect(text(colocation)).toMatch(/Parked.*hardware/);
     expect(page).toContain('data-testid="developers-time-probe"');
   });
   it('data terms reads the published terms before it draws a product', () => {
