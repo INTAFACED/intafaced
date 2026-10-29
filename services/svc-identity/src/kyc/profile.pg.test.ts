@@ -147,6 +147,11 @@ if (!available) {
       expect(desk.documentTypes('DE').types.map((t) => t.type)).toEqual(['passport']);
       let d = await desk.start(userId, 'basic');
       d = await desk.saveStep(userId, { step: 'residence', version: d.version, fields: { residence: 'FR', nationality: 'FR' } });
+      d = await desk.saveStep(userId, {
+        step: 'identity',
+        version: d.version,
+        fields: { legalName: 'TEST Anna Muster', localName: null, dateOfBirth: '1990-01-31' },
+      });
       await expect(
         desk.saveStep(userId, { step: 'document', version: d.version, fields: { documentType: 'passport', documentNumber: 'X1' } }),
       ).rejects.toMatchObject({ code: 'kyc.document_types_unset', details: { country: 'FR' } });
@@ -253,6 +258,72 @@ if (!available) {
       await expect(keyless.start(userId, 'basic')).rejects.toMatchObject({ code: 'kyc.profile_unconfigured' });
       const [row] = await db.sql<Array<{ n: number }>>`SELECT count(*)::int AS n FROM kyc_profile_drafts WHERE user_id = ${userId}`;
       expect(row!.n).toBe(0);
+    });
+
+    it('refuses skipping ahead: a step, or the photo, waits until the draft has reached it', async () => {
+      const userId = await person();
+      const d = await desk.start(userId, 'basic');
+      await expect(
+        desk.saveStep(userId, {
+          step: 'address',
+          version: d.version,
+          fields: { addressLine: 'TEST Str. 1', city: 'Berlin', postalCode: '10115' },
+        }),
+      ).rejects.toMatchObject({ code: 'kyc.profile_incomplete', details: { step: 'residence' } });
+      await expect(desk.upload(userId, { version: d.version, contentType: 'image/png', bytes: PNG })).rejects.toMatchObject({
+        code: 'kyc.profile_incomplete',
+      });
+      const [count] = await db.sql<Array<{ n: number }>>`SELECT count(*)::int AS n FROM kyc_documents WHERE user_id = ${userId}`;
+      expect(count!.n).toBe(0);
+    });
+
+    it('a draft the key cannot open reads as none, flagged, and starting again replaces it', async () => {
+      const userId = await person();
+      await desk.start(userId, 'basic');
+      await db.sql`UPDATE kyc_profile_drafts SET key_id = 'v0' WHERE user_id = ${userId}`;
+      expect(await desk.read(userId)).toMatchObject({ draft: null, unreadableDraft: true });
+      const fresh = await desk.start(userId, 'basic');
+      expect(fresh).toMatchObject({ step: 1, recordId: null });
+      expect(await desk.read(userId)).toMatchObject({ draft: { step: 1 }, unreadableDraft: false });
+    });
+
+    it('a send claims the draft first: a save from the version that was sent refuses, and the request is recorded once', async () => {
+      const userId = await person();
+      const ready = await fill(userId);
+      const sent = await desk.submit(userId, ready.version);
+      await expect(
+        desk.saveStep(userId, {
+          step: 'address',
+          version: ready.version,
+          fields: { addressLine: 'TEST Str. 2', city: 'Berlin', postalCode: '10115' },
+        }),
+      ).rejects.toMatchObject({ code: 'kyc.profile_sent' });
+      const [count] = await db.sql<Array<{ n: number }>>`SELECT count(*)::int AS n FROM kyc_records WHERE user_id = ${userId}`;
+      expect(count!.n).toBe(1);
+      expect((await desk.read(userId)).draft).toMatchObject({ recordId: sent.recordId });
+    });
+
+    it('a draft changed while its request was opening is not marked sent; the request stands and a resend says so', async () => {
+      const userId = await person();
+      const ready = await fill(userId);
+      // While the request opens (no connection is held), another tab moves the draft on.
+      const racing = new KycProfileDesk(db.sql, KEY, {
+        documentTypes: TYPES,
+        uploadCaps: CAPS,
+        vault,
+        submit: async (input) => {
+          await db.sql`UPDATE kyc_profile_drafts SET version = version + 1 WHERE user_id = ${input.userId}`;
+          return auth.submitKyc(input);
+        },
+      });
+      await expect(racing.submit(userId, ready.version)).rejects.toMatchObject({ code: 'kyc.profile_version' });
+      const after = (await desk.read(userId)).draft!;
+      expect(after.recordId).toBeNull();
+      // Same photo: the pending request that carries it is this draft's, so the resend records it.
+      const resent = await desk.submit(userId, after.version);
+      const [count] = await db.sql<Array<{ n: number }>>`SELECT count(*)::int AS n FROM kyc_records WHERE user_id = ${userId}`;
+      expect(count!.n).toBe(1);
+      expect((await desk.read(userId)).draft).toMatchObject({ recordId: resent.recordId });
     });
   });
 }

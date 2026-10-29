@@ -273,7 +273,7 @@ const schema = serviceEnvSchema
       /**
        * Owner settings (I-kyc-compliance-08). The accepted ID types per country, as JSON
        * `{"<country>": [{"type", "label", "originalRequired"}]}`: a country not listed reads "not published". The ID
-       * photo's caps, set together: the largest file in bytes (at most 768 KiB, so its base64 fits one request body) and a comma list of content
+       * photo's caps, set together: the largest file in bytes (at most 760 KiB, so its base64 and the JSON around it fit one 1 MiB request body) and a comma list of content
        * types. NO DEFAULT: unset caps refuse every upload. Parsed at start; malformed stops the service.
        */
       IDENTITY_KYC_DOCUMENT_TYPES_BY_COUNTRY: z.string().optional(),

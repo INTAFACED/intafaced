@@ -75,6 +75,8 @@ export type KycProfileDraft = z.infer<typeof kycProfileDraftSchema>;
 
 export const kycProfileSchema = z.object({
   draft: kycProfileDraftSchema.nullable(),
+  /** A saved draft the current key cannot open: it reads as none, and starting again replaces it. */
+  unreadableDraft: z.boolean(),
   /** The owner's caps on the ID photo; null when unset, and then an upload refuses. */
   uploadCaps: kycProfileUploadCapsSchema.nullable(),
   /** The automatic document check: not connected sends every request to a person for review. */
