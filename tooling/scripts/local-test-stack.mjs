@@ -2620,7 +2620,7 @@ function chainArgs(rawArgs) {
 }
 
 /** The TEST transaction hash of `label` to `address`: the same label to the same address is the same transfer, another address another one. */
-function chainTxHash(address, label) {
+export function chainTxHash(address, label) {
   return `0x${crypto.createHash('sha256').update(`local-test-chain-deposit:${address}:${label}`).digest('hex')}`;
 }
 
