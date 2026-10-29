@@ -211,27 +211,29 @@ function TicketBody({ detail, ...p }: { detail: TicketDetail } & DeskViewProps) 
       )}
 
       <h4>What happened to this ticket</h4>
-      {detail.events.kind === 'failed' ? (
-        <Failed name="History" part={detail.events} />
-      ) : (
-        <>
-          {detail.propertyChanges.kind === 'failed' && <Failed name="Priority, type and label changes" part={detail.propertyChanges} />}
-          <TicketHistory rows={historyRows(detail.events.data, detail.propertyChanges.kind === 'ok' ? detail.propertyChanges.data : [])} />
-        </>
-      )}
+      {detail.events.kind === 'failed' && <Failed name="History" part={detail.events} />}
+      {detail.propertyChanges.kind === 'failed' && <Failed name="Priority, type and label changes" part={detail.propertyChanges} />}
+      <TicketHistory
+        rows={historyRows(
+          detail.events.kind === 'ok' ? detail.events.data : [],
+          detail.propertyChanges.kind === 'ok' ? detail.propertyChanges.data : [],
+        )}
+        anyFailed={detail.events.kind === 'failed' || detail.propertyChanges.kind === 'failed'}
+      />
 
       <TicketExtras extras={p.extras} loading={p.loadingExtras} />
-      <TicketFiles key={t.id} ticketId={t.id} />
-      <TicketLifecycle key={t.id} ticket={t} />
-      <TicketProperties key={t.id} ticket={t} onDone={p.onActionDone} />
-      <TicketMerge key={t.id} ticket={t} onDone={p.onActionDone} />
+      <TicketFiles key={`files:${t.id}`} ticketId={t.id} />
+      <TicketLifecycle key={`lifecycle:${t.id}`} ticket={t} />
+      <TicketProperties key={`properties:${t.id}`} ticket={t} onDone={p.onActionDone} />
+      <TicketMerge key={`merge:${t.id}`} ticket={t} onDone={p.onActionDone} />
       <TicketActions ticket={t} onDone={p.onActionDone} />
     </>
   );
 }
 
-function TicketHistory({ rows }: { rows: readonly HistoryRow[] }) {
-  if (rows.length === 0) return <p className="dk-muted">No events recorded.</p>;
+function TicketHistory({ rows, anyFailed }: { rows: readonly HistoryRow[]; anyFailed: boolean }) {
+  // "No events recorded" only when every part was read; a failed part already says so above.
+  if (rows.length === 0) return anyFailed ? null : <p className="dk-muted">No events recorded.</p>;
   return (
     <div className="dk-table-wrap" role="region" aria-label="Ticket history" tabIndex={0}>
       <table className="adm-table">

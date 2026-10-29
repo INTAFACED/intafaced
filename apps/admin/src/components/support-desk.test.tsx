@@ -177,6 +177,18 @@ describe('a ticket', () => {
     expect(html).toContain('deadline');
     expect(html.indexOf('opened')).toBeLessThan(html.indexOf('labels none → vip, chargeback'));
   });
+  it('a failed part of the history says so and never hides the part that was read', () => {
+    const d = detail();
+    if (d.detail.kind !== 'ok') throw new Error('fixture');
+    const down = { kind: 'failed', message: 'down', code: null, notBuilt: false, forbidden: false } as const;
+    const trailDown = open({ ticket: { ...d, detail: { kind: 'ok', data: { ...d.detail.data, events: down } } } });
+    expect(trailDown).toContain('History unavailable');
+    expect(trailDown).toContain('labels none → vip, chargeback');
+    expect(trailDown).not.toContain('No events recorded');
+    const logDown = open({ ticket: { ...d, detail: { kind: 'ok', data: { ...d.detail.data, propertyChanges: down } } } });
+    expect(logDown).toContain('Priority, type and label changes unavailable');
+    expect(logDown).toContain('opened');
+  });
   it('labels the customer as an account id and says why no handle is shown', () => {
     const html = open();
     expect(html).toContain('<dt>Customer account id</dt>');

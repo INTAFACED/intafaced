@@ -16,8 +16,6 @@ export interface HistoryRow {
   readonly note: string | null;
 }
 
-const FIELD_NAME = { priority: 'priority', type: 'type', labels: 'labels' } as const;
-
 function propertyValue(value: string | readonly string[] | null): string {
   if (value === null) return 'none';
   if (typeof value === 'string') return value;
@@ -28,35 +26,28 @@ function eventWhat(e: SupportTicketEvent): string {
   return e.kind === 'status_changed' ? `status ${e.fromStatus} → ${e.toStatus}` : e.kind;
 }
 
-/** Trail events and property changes in time order; at the same instant a trail event comes first. */
+/** Trail events and property changes in time order; at the same instant a trail event comes first (the sort is stable). */
 export function historyRows(events: readonly SupportTicketEvent[], changes: readonly SupportTicketPropertyChange[]): HistoryRow[] {
-  const rows: { row: HistoryRow; time: number; rank: number }[] = [
-    ...events.map((e, i) => ({
-      row: {
-        key: `event:${e.id}`,
-        sequence: e.sequence,
-        at: e.occurredAt,
-        what: eventWhat(e),
-        actorRole: e.actorRole,
-        actorId: e.actorId,
-        note: e.note,
-      },
-      time: Date.parse(e.occurredAt),
-      rank: i,
+  const rows: HistoryRow[] = [
+    ...events.map((e) => ({
+      key: `event:${e.id}`,
+      sequence: e.sequence,
+      at: e.occurredAt,
+      what: eventWhat(e),
+      actorRole: e.actorRole,
+      actorId: e.actorId,
+      note: e.note,
     })),
-    ...changes.map((c, i) => ({
-      row: {
-        key: `property:${c.logId}:${c.field}`,
-        sequence: null,
-        at: c.setAt,
-        what: `${FIELD_NAME[c.field]} ${propertyValue(c.from)} → ${propertyValue(c.to)}`,
-        actorRole: 'operator',
-        actorId: c.setBy,
-        note: c.reason,
-      },
-      time: Date.parse(c.setAt),
-      rank: events.length + i,
+    ...changes.map((c) => ({
+      key: `property:${c.logId}:${c.field}`,
+      sequence: null,
+      at: c.setAt,
+      what: `${c.field} ${propertyValue(c.from)} → ${propertyValue(c.to)}`,
+      // Only `setProperties` writes the log, and it is support:ops.
+      actorRole: 'operator',
+      actorId: c.setBy,
+      note: c.reason,
     })),
   ];
-  return rows.sort((a, b) => a.time - b.time || a.rank - b.rank).map((r) => r.row);
+  return rows.sort((a, b) => Date.parse(a.at) - Date.parse(b.at));
 }

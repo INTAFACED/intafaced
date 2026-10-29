@@ -142,8 +142,11 @@ describe('ticket properties (SP-tickets-04)', () => {
     ]);
     expect(changes[0]).toMatchObject({ ticketId: t.id, setBy: LEAD, reason: 'deadline' });
     expect(changes[3]).toMatchObject({ reason: null });
-    // The limit counts saves, not fields: one save, three entries.
-    expect(await lead.propertyChanges({ ticketId: t.id, limit: 1 })).toHaveLength(3);
+    // The limit counts saves, not fields, and keeps the newest: the last save changed two fields.
+    expect((await lead.propertyChanges({ ticketId: t.id, limit: 1 })).map((c) => [c.logId, c.field])).toEqual([
+      ['2', 'priority'],
+      ['2', 'labels'],
+    ]);
   });
 
   it('the property log is staff only: the customer is refused and an agent outside the desk scope reads not found', async () => {

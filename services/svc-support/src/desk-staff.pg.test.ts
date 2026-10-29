@@ -163,6 +163,9 @@ if (!url) {
       expect(await book.ticketsWithLabel('absent')).toEqual(new Set());
       const cleared = await book.set({ ticketId: ticket.id, priority: null, by: LEAD, reason: null, at: '2026-10-20T09:31:00.000Z' });
       expect(cleared).toMatchObject({ priority: null, labels: ['a-b', 'vip'] });
+      // The newest save is kept when the limit cuts, and entries still come oldest first.
+      expect((await book.changes(ticket.id, 1)).map((c) => [c.field, c.from, c.to])).toEqual([['priority', 'high', null]]);
+      expect((await book.changes(ticket.id, 100)).map((c) => c.field)).toEqual(['priority', 'labels', 'priority']);
       await expect(db.sql`UPDATE support.ticket_properties SET priority = 'critical' WHERE ticket_id = ${ticket.id}`).rejects.toThrow();
     });
 

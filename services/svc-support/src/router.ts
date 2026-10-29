@@ -1226,7 +1226,10 @@ export function createSupportRouter(
         }
       }),
 
-    /** The log of priority, type and label changes on a ticket, one entry per field changed. Staff only. */
+    /**
+     * The log of priority, type and label changes on a ticket, oldest first, one entry per field changed. Staff only.
+     * `limit` counts saves, newest kept: one save that changed three fields is three entries.
+     */
     propertyChanges: scopedProcedure('support:ops')
       .input(z.object({ ticketId: z.string().guid(), limit: z.number().int().positive().max(500) }))
       .output(z.array(supportTicketPropertyChangeSchema))

@@ -26,7 +26,7 @@ export interface PropertiesBook {
   set(change: PropertyChange): Promise<SupportTicketProperties>;
   /** Ids of tickets carrying a label. */
   ticketsWithLabel(label: string): Promise<Set<string>>;
-  /** The log for one ticket, oldest first, one entry per field that changed. At most `limit` log rows are read. */
+  /** The newest `limit` saves on one ticket (log rows, not fields), oldest first, as one entry per field that changed. */
   changes(ticketId: string, limit: number): Promise<SupportTicketPropertyChange[]>;
 }
 
@@ -118,7 +118,7 @@ export class MemoryPropertiesBook implements PropertiesBook {
   async changes(ticketId: string, limit: number): Promise<SupportTicketPropertyChange[]> {
     return this.log
       .filter((e) => e.ticketId === ticketId)
-      .slice(0, limit)
+      .slice(-limit)
       .flatMap(fieldChanges);
   }
 }
@@ -190,8 +190,9 @@ export class SqlPropertiesBook implements PropertiesBook {
 
   async changes(ticketId: string, limit: number): Promise<SupportTicketPropertyChange[]> {
     const rows = await this.sql<LogRow[]>`
-      SELECT id::text AS id, ticket_id, before, after, set_by, reason, set_at FROM support.ticket_property_log
-      WHERE ticket_id = ${ticketId} ORDER BY id LIMIT ${limit}
+      SELECT id::text AS id, ticket_id, before, after, set_by, reason, set_at FROM (
+        SELECT * FROM support.ticket_property_log WHERE ticket_id = ${ticketId} ORDER BY id DESC LIMIT ${limit}
+      ) newest ORDER BY id
     `;
     return rows.flatMap((row) =>
       fieldChanges({
