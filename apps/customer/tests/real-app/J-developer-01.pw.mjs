@@ -3,15 +3,8 @@ import { tableIn, bodyRows } from './tables.mjs';
 
 // J-developer-01, in the running app (docs/roadmap/journeys.json): a signed-out developer reads the portal at /developers
 // and finds where to start. One test per step, titled "J-developer-01 #<n>". Nothing here needs an account or money.
-// Steps that are written but not built yet fail at their first missing part, quickly (UNBUILT):
-// - #1: a section with no page says only that nothing is published; it does not name what it waits for.
-// - #3: no connectivity page (`/developers/connectivity`, RC-developer-04) and no time-sync probe.
-// - #4: the REST conventions and API reference pages say nothing is published (DV-rest-01).
-// - #5: no OpenAPI download page, collection or agent docs index (`/developers/llms.txt`, DV-portal-02).
-// - #6: no data terms page (`/developers/data-terms`, RC-developer-05).
-// - #7: the portal has no docs search.
+// The stack's banner also carries role=status, so a page's own status is found inside main.
 const J = 'J-developer-01';
-const UNBUILT = { timeout: 5_000 };
 const AUDIENCES = ['Exchange API', 'Institutional', 'Embedded', 'Broker', 'Best practice'];
 
 test.describe.configure({ mode: 'default' });
@@ -42,11 +35,11 @@ test(`${J} #1 opens /developers: sections per audience with an access statement 
   }
 
   // Each audience says who may use it.
-  for (const audience of AUDIENCES) await expect(card(page, audience).getByTestId('developers-access')).toBeVisible(UNBUILT);
+  for (const audience of AUDIENCES) await expect(card(page, audience).getByTestId('developers-access')).toBeVisible();
   // A section with no page names what it waits for, not only that nothing is published.
-  await page.getByRole('link', { name: 'REST conventions', exact: true }).click();
-  await expect(page).toHaveURL(/\/developers\/rest$/);
-  await expect(page.getByRole('status')).toContainText(/waits for/i, UNBUILT);
+  await page.getByRole('link', { name: 'FIX', exact: true }).click();
+  await expect(page).toHaveURL(/\/developers\/fix$/);
+  await expect(page.getByRole('main').getByRole('status')).toContainText(/waits for/i);
 });
 
 test(`${J} #2 opens the base-URL table: one row per protocol, environment and region, an unset host reads "host not set", and the regional rule waits for the owner`, async ({
@@ -77,7 +70,7 @@ test(`${J} #3 opens the connectivity options: internet and redundant endpoints w
   page,
 }) => {
   await page.goto('/developers/connectivity');
-  await expect(page.getByRole('heading', { name: 'Connectivity', level: 1 })).toBeVisible(UNBUILT);
+  await expect(page.getByRole('heading', { name: 'Connectivity', level: 1 })).toBeVisible();
   const options = tableIn(page, 'Connectivity options');
   for (const option of ['Internet', 'Redundant endpoint']) {
     await expect(options.getByRole('row', { name: new RegExp(option) })).toContainText(/Available|host not set/);
@@ -97,12 +90,12 @@ test(`${J} #4 reads the REST conventions and the trading API reference index: UR
   await page.goto('/developers/rest');
   await expect(page.getByRole('heading', { name: 'REST conventions', level: 1 })).toBeVisible();
   const body = page.getByRole('main');
-  for (const rule of [/JSON/, /UTC/, /UUID/, /symbol/i, /decimal string/i]) await expect(body).toContainText(rule, UNBUILT);
+  for (const rule of [/JSON/, /UTC/, /UUID/, /symbol/i, /decimal string/i]) await expect(body).toContainText(rule);
 
   await page.goto('/developers/reference');
   await expect(page.getByRole('heading', { name: 'API reference', level: 1 })).toBeVisible();
   for (const product of ['Spot', 'Derivatives', 'Funding', 'Accounts']) {
-    await expect(page.getByRole('region', { name: product })).toBeVisible(UNBUILT);
+    await expect(page.getByRole('region', { name: product })).toBeVisible();
   }
   // The public time endpoint is one of the listed routes, under its method and path.
   await expect(page.getByRole('main')).toContainText('GET /api/v1/time');
@@ -115,7 +108,7 @@ test(`${J} #5 downloads the OpenAPI file and a collection, and opens the agent d
   await page.goto('/developers/openapi');
   await expect(page.getByRole('heading', { name: 'Machine-readable specs', level: 1 })).toBeVisible();
   const download = page.getByRole('link', { name: /Download the OpenAPI file/ });
-  await expect(download).toBeVisible(UNBUILT);
+  await expect(download).toBeVisible();
   const [file] = await Promise.all([page.waitForEvent('download'), download.click()]);
   const spec = JSON.parse(await (await file.createReadStream()).toArray().then((parts) => Buffer.concat(parts).toString('utf8')));
   expect(spec.openapi).toMatch(/^3\./);
@@ -145,7 +138,7 @@ test(`${J} #6 reads which data products I may use and on what terms: redistribut
   page,
 }) => {
   await page.goto('/developers/data-terms');
-  await expect(page.getByRole('heading', { name: /Market data terms/, level: 1 })).toBeVisible(UNBUILT);
+  await expect(page.getByRole('heading', { name: /Market data terms/, level: 1 })).toBeVisible();
   const table = tableIn(page, /data products/i);
   for (const column of ['Product', 'Entitlement', 'Redistribution', 'Retention']) {
     await expect(table.getByRole('columnheader', { name: column })).toBeVisible();
@@ -159,8 +152,10 @@ test(`${J} #6 reads which data products I may use and on what terms: redistribut
 test(`${J} #7 searches the docs for something that does not exist: the empty search state`, async ({ page }) => {
   await page.goto('/developers');
   const search = page.getByRole('searchbox', { name: /Search the developer docs/ });
-  await expect(search).toBeVisible(UNBUILT);
+  await expect(search).toBeVisible();
   await search.fill('zz-no-such-developer-topic');
   await search.press('Enter');
-  await expect(page.getByRole('status')).toContainText('Nothing in the developer docs matches “zz-no-such-developer-topic”.');
+  await expect(page.getByRole('main').getByRole('status')).toContainText(
+    'Nothing in the developer docs matches “zz-no-such-developer-topic”.',
+  );
 });
