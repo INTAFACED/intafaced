@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import type { Sql } from 'postgres';
 import { transaction } from '@intafaced/db';
 import {
-  CATEGORY_CRYPTO_ONLY_RAIL,
+  CATEGORY_CLASS_RAILS,
   businessCategoryTermsSchema,
   type BusinessCategory,
   type BusinessCategoryClass,
@@ -372,7 +372,7 @@ export async function assertCategoryApprovable(sql: Sql, merchantId: string): Pr
 /** The rails a business may take payments on by its category; null when its category sets no limit (or it has none). */
 export function categoryRails(rule: { class: BusinessCategoryClass } | null): readonly string[] | null {
   if (!rule || rule.class === 'prohibited') return null;
-  return [CATEGORY_CRYPTO_ONLY_RAIL];
+  return CATEGORY_CLASS_RAILS[rule.class];
 }
 
 /** Refuses a payment the business's category does not allow. A prohibited category takes nothing. */

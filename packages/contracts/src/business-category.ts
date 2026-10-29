@@ -6,8 +6,8 @@ import { z } from 'zod';
  * the class of that category decides what it may do:
  *
  *  - `permissionless`: crypto-native payments only, no extra documents.
- *  - `restricted`: crypto-native payments only (card rails are removed), extra verification documents, and reserve
- *    terms. Blank reserve terms keep the business from going live (`pay.reserve_terms_unset`); nothing is invented.
+ *  - `restricted`: no card payments (card rails are removed; crypto-native and bank transfer still work), extra
+ *    verification documents, and reserve terms. Blank reserve terms keep the business from going live (`pay.reserve_terms_unset`); nothing is invented.
  *  - `prohibited`: INTAFACED does not take this business; every payment and checkout session is refused
  *    (`pay.category_prohibited`) before any row exists.
  *
@@ -20,11 +20,16 @@ export const businessCategoryClassSchema = z.enum(BUSINESS_CATEGORY_CLASSES);
 export type BusinessCategoryClass = z.infer<typeof businessCategoryClassSchema>;
 
 /**
- * The one rail a permissionless or restricted business may take payments on. Source: the RC-merchant-08 spec (merchant
- * recon of 2026-10-20), "permissionless (crypto-native only)" and "a restricted category removes card rails from rail
- * selection". The rail registry holds `crypto-native` and `card-sandbox` only, so both classes come to this one rail.
+ * The rails a business of each taking class may take payments on. Source: the RC-merchant-08 spec (merchant recon of
+ * 2026-10-20): "permissionless (crypto-native only)", and "a restricted category removes card rails from rail selection"
+ * with "crypto-native still works". So a restricted business keeps every rail that is not a card rail: crypto-native and
+ * the bank-transfer rail (`bank-transfer-sandbox`, the only one registered). It is a list rather than "every rail but
+ * cards" so a rail added later is refused to both classes until it is named here.
  */
-export const CATEGORY_CRYPTO_ONLY_RAIL = 'crypto-native';
+export const CATEGORY_CLASS_RAILS: Readonly<Record<'permissionless' | 'restricted', readonly string[]>> = {
+  permissionless: ['crypto-native'],
+  restricted: ['crypto-native', 'bank-transfer-sandbox'],
+};
 
 export const businessCategoryKeySchema = z.string().regex(/^[a-z][a-z0-9-]{1,62}$/, 'lowercase letters, digits and hyphens');
 

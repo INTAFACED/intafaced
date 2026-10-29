@@ -45,7 +45,7 @@ describe('the business category console', () => {
   it('shows each category with its class rule, reserve or "Not set", documents, version and both founders', () => {
     const out = renderToStaticMarkup(<CategoriesView policy={ok(policy)} history={ok([event])} />);
     expect(out).toContain('Table version 3');
-    expect(out).toContain('card rails removed');
+    expect(out).toContain('No card rails');
     expect(out).toContain('5.00% for 90 days');
     expect(out).toContain('Not set');
     expect(out).toContain('TEST gaming licence');

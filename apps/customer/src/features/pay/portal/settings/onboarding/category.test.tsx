@@ -46,7 +46,7 @@ describe('business category on the Compliance page', () => {
     expect(out).toContain('TEST online shop');
     expect(out).toContain('Crypto payments only. No extra documents.');
     expect(out).toContain('High risk');
-    expect(out).toContain('Crypto payments only (no card payments), extra documents and a reserve.');
+    expect(out).toContain('No card payments (crypto and bank transfer only), extra documents and a reserve.');
     expect(out).toContain('5.00% of payments, held for 90 days');
     expect(out).toContain('TEST gaming licence');
     expect(out).toContain('Not set. A business in this category can’t go live without it.');

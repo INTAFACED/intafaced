@@ -204,7 +204,7 @@ describe('guard seams are called on the real money paths', () => {
     expect(seen[0]).toBe(`payment.create:${m.id}`);
   });
 
-  it('RC-merchant-08: a prohibited category or a blank reserve opens no checkout session, and a restricted one routes to crypto-native only', async () => {
+  it('RC-merchant-08: a prohibited category or a blank reserve opens no checkout session, and a restricted one takes no card payment', async () => {
     const checkout = () =>
       new PayService(sql, ledger, rails, {
         payoutDestinations: memoryPayoutDestinations(),

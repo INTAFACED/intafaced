@@ -465,7 +465,7 @@ test(`${J} #7 the owner chooses the business category and reads its class rule; 
   await page.reload();
   const item = section.getByRole('list', { name: 'Every category' }).getByRole('listitem', { name: LABEL });
   await expect(item).toContainText('High risk');
-  await expect(item).toContainText('Crypto payments only (no card payments), extra documents and a reserve.');
+  await expect(item).toContainText('No card payments (crypto and bank transfer only), extra documents and a reserve.');
   await expect(item).toContainText('5% of payments, held for 90 days');
   await expect(item).toContainText('TEST gaming licence');
   await expect(section).toContainText('You haven’t chosen a category yet');
