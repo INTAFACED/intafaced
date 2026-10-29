@@ -40,6 +40,8 @@ const CATALOG_ALIAS: Readonly<Record<string, string>> = {
   'edge.api_key_revoked': 'error.forbidden',
   'edge.api_key_expired': 'error.forbidden',
   account_frozen: 'error.forbidden',
+  // A key used against the other environment's host (gateway-plane.ts). The code carries the detail.
+  'env.mismatch': 'error.forbidden',
   // Framework refusals renamed by the envelope (reply-envelope.ts). `edge.request_invalid` and
   // `edge.internal_error` have no row on purpose: they take the sentence for their status (`refusalCopy`).
   'edge.body_too_large': 'error.generic',
