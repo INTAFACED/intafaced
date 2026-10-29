@@ -53,7 +53,7 @@ import {
   EDGE_AUTHORITY_CACHE_MAX_MS,
 } from './local-test-gates.mjs';
 import { draftFounderVault } from './local-test-founders.mjs';
-import { TEST_SPOT_LISTINGS, localTestDatabaseUrl } from './seed-spot-test-listing.mjs';
+import { TEST_SPOT_LISTINGS, UNQUOTED_TEST_SPOT, localTestDatabaseUrl } from './seed-spot-test-listing.mjs';
 import { TEST_KYB_ENTITY_TYPES, TEST_KYB_UPLOAD_RULES } from './seed-pay-kyb-test-requirements.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -410,15 +410,27 @@ assert.deepEqual(
   ['BTC/USDT'],
 );
 
-// TEST spot listings: labelled TEST, no dollar side needed, quoted by the market maker, and opened like any spot book.
+// TEST spot listings: labelled TEST, no dollar side needed, quoted by the market maker unless named unquoted, and opened
+// like any spot book.
 {
   const marketSrc = readFileSync(join(dirname(fileURLToPath(import.meta.url)), 'local-test-market.mjs'), 'utf8');
   assert.ok(TEST_SPOT_LISTINGS.some((l) => l.symbol === 'ETH/BTC'));
+  for (const symbol of UNQUOTED_TEST_SPOT)
+    assert.ok(
+      TEST_SPOT_LISTINGS.some((l) => l.symbol === symbol),
+      `${symbol} is listed`,
+    );
   for (const l of TEST_SPOT_LISTINGS) {
     assert.match(l.displayName, /TEST/);
     assert.equal(l.symbol, `${l.baseAsset}/${l.quoteAsset}`);
-    assert.ok(marketSrc.includes(`'${l.symbol}': { start:`), `${l.symbol} has a TEST price`);
-    assert.match(marketSrc, new RegExp(`const DEFAULT_SYMBOLS = \\[[^\\]]*'${l.symbol}'`));
+    if (UNQUOTED_TEST_SPOT.includes(l.symbol)) {
+      // Unquoted on purpose: no TEST price and not in the market maker's defaults.
+      assert.ok(!marketSrc.includes(`'${l.symbol}': { start:`), `${l.symbol} must stay unquoted`);
+      assert.doesNotMatch(marketSrc, new RegExp(`const DEFAULT_SYMBOLS = \\[[^\\]]*'${l.symbol}'`));
+    } else {
+      assert.ok(marketSrc.includes(`'${l.symbol}': { start:`), `${l.symbol} has a TEST price`);
+      assert.match(marketSrc, new RegExp(`const DEFAULT_SYMBOLS = \\[[^\\]]*'${l.symbol}'`));
+    }
     assert.deepEqual(
       openableMarkets([{ ...base, symbol: l.symbol, test: true }]).map((m) => m.symbol),
       [l.symbol],

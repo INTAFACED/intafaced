@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
-import { api, bestPrices, fund, journeyState, signOutBrowser, times, tool, toUnits } from './stack.mjs';
-import { free, fundedTrader, held, signIn, signUp } from './desk.mjs';
+import { EDGE, ORIGIN, api, bestPrices, fund, json, journeyState, otherTrader, signOutBrowser, times, tool, toUnits } from './stack.mjs';
+import { free, fundedTrader, held, openOrders, signIn, signUp } from './desk.mjs';
 import { tableIn } from './tables.mjs';
 
 // J-copy-bots-otc-23, in the running app (docs/roadmap/journeys.json): work a large order slowly with TWAP, chase or
@@ -9,10 +9,12 @@ import { tableIn } from './tables.mjs';
 // read back from the service.
 // Steps that are written but not built yet fail at their first missing part, quickly (UNBUILT):
 // - #3: the New schedule form has no random sizes, seed or trigger; #5: the order form offers no Chase; #6: no
-//   iceberg symbol cap or refill; #7: no participation basis; #8: the list and blotter do not read the service.
+//   iceberg symbol cap or refill; #8: the list and blotter do not read the service.
 const J = 'J-copy-bots-otc-23';
 const run = journeyState(`${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
 const UNBUILT = { timeout: 5_000 };
+/** The TEST spot market the market maker never quotes (seed-spot-test-listing.mjs `UNQUOTED_TEST_SPOT`). */
+const UNQUOTED = 'IFC/USDC';
 
 test.describe.configure({ mode: 'default' });
 
@@ -419,19 +421,114 @@ test(`${J} #6 places an iceberg: display equal to total refused; a valid one res
   await expect(page.getByText('Needs the venue submit port; switched off in this build')).toBeVisible();
 });
 
-test(`${J} #7 chooses POV on opposite-side liquidity with an empty opposite book: refused as volume immature`, async ({ page }) => {
+/** IFC/USDC's book as the public depth route reports it: `[price, size]` levels a side. */
+async function ifcBook() {
+  const { status, body } = await fetch(`${EDGE}/api/v1/orderbook/${encodeURIComponent(UNQUOTED)}?limit=50`, {
+    headers: { origin: ORIGIN },
+  }).then(json);
+  expect(status, JSON.stringify(body).slice(0, 300)).toBe(200);
+  return body;
+}
+
+/** Cancels every open order `who` has on IFC/USDC, so the book holds only what this step rests. */
+async function clearIfc(who) {
+  const client = await api(who);
+  for (const order of await openOrders(who, UNQUOTED)) {
+    const { status } = await client.delete(`/api/v1/orders/${order.id}?symbol=${encodeURIComponent(UNQUOTED)}`);
+    expect(status).toBeLessThan(300);
+  }
+}
+
+test(`${J} #7 chooses POV with opposite-side liquidity on an empty opposite book: refused as volume immature; participation is applied to the book size`, async ({
+  page,
+}) => {
+  test.setTimeout(180_000);
   const trader = state('trader');
+  const tag = state('tag');
+  const maker = otherTrader();
+  const other = await api(maker);
+  expect(fund(maker.email, 'USDC', '1000').tx).toBeTruthy();
+  expect(fund(maker.email, 'IFC', '1000').tx).toBeTruthy();
+  expect(fund(trader.email, 'USDC', '100').tx).toBeTruthy();
+  expect(fund(trader.email, 'IFC', '100').tx).toBeTruthy();
+  await clearIfc(maker);
+  await clearIfc(trader);
+
+  // The other trader rests one bid on IFC/USDC, which the market maker never quotes: the book has bids and no asks.
+  const bid = await other.post('/api/v1/orders', {
+    symbol: UNQUOTED,
+    type: 'limit',
+    side: 'buy',
+    amount: '40',
+    price: '0.99',
+    clientOrderId: `${J}-7-bid-${tag}`,
+  });
+  expect(bid.status, JSON.stringify(bid.body).slice(0, 300)).toBeLessThan(300);
+  const oneSided = await ifcBook();
+  expect(oneSided.asks).toEqual([]);
+  expect(oneSided.bids).toEqual([['0.99', '40']]);
+
+  // A POV buy on opposite-side liquidity: the side it would take from (asks) is empty, so the service refuses it as
+  // volume immature, and nothing is written or held.
+  const rowsBefore = (await algoRows(trader)).map((row) => row.id);
+  const before = await (await api(trader)).balances();
   await signIn(page, trader);
   await page.goto('/execution');
-  // IFC/USDT is a TEST market the market maker does not quote, so its ask side is empty.
-  await fillSchedule(page, { market: 'IFC/USDT', kind: 'POV', total: '1', seconds: 120, every: 30 });
+  await fillSchedule(page, { market: UNQUOTED, kind: 'POV', total: '10', seconds: 120, every: 15 });
   await pick(page, 'Participation basis', 'Opposite-side liquidity');
   await form(page).getByLabel('Participation, in basis points').fill('1000');
   const answer = page.waitForResponse((res) => res.url().includes('algo.createTwap'));
   await page.getByRole('button', { name: 'Review schedule' }).click();
   await page.getByRole('alertdialog').getByRole('button', { name: 'Create schedule' }).click();
-  expect((await answer).status()).toBeGreaterThanOrEqual(400);
+  const refused = await answer;
+  expect(refused.status()).toBe(400);
+  expect(codeOf(await refused.json())).toBe('trade.algo_volume_immature');
   await expect(page.getByText('trade.algo_volume_immature', { exact: true })).toBeVisible();
+  expect((await algoRows(trader)).map((row) => row.id)).toEqual(rowsBefore);
+  const after = await (await api(trader)).balances();
+  for (const asset of ['USDC', 'IFC']) {
+    expect(free(after, asset)).toBe(free(before, asset));
+    expect(held(after, asset)).toBe(held(before, asset));
+  }
+
+  // With an ask resting too, a POV sell on opposite-side liquidity takes from the bids: its first child is the
+  // participation rate applied to the size resting on the bid side, floored to the lot (0.01), as the service records.
+  const ask = await other.post('/api/v1/orders', {
+    symbol: UNQUOTED,
+    type: 'limit',
+    side: 'sell',
+    amount: '50',
+    price: '1.01',
+    clientOrderId: `${J}-7-ask-${tag}`,
+  });
+  expect(ask.status, JSON.stringify(ask.body).slice(0, 300)).toBeLessThan(300);
+  const twoSided = await ifcBook();
+  const bidSize = twoSided.bids.reduce((sum, [, size]) => sum + toUnits(size), 0n);
+  expect(bidSize).toBe(toUnits('40'));
+
+  await page.goto('/execution');
+  await fillSchedule(page, { market: UNQUOTED, side: 'Sell', kind: 'POV', total: '10', seconds: 120, every: 15 });
+  await pick(page, 'Participation basis', 'Opposite-side liquidity');
+  await form(page).getByLabel('Participation, in basis points').fill('1000');
+  await form(page).getByLabel('Limit price (optional)').fill('0.99');
+  const id = await confirmSchedule(page);
+  try {
+    const created = await parentOf(trader, id);
+    expect(created.kind).toBe('pov');
+    expect(created.povBasis).toBe('opposite_liquidity');
+    expect(created.participationBps).toBe(1000);
+
+    await expect.poll(async () => (await parentOf(trader, id)).children.length, { timeout: 60_000 }).toBeGreaterThan(0);
+    const first = (await parentOf(trader, id)).children[0];
+    // The book size it read is the bid side above: 40 × 1000 bps = 4, under the 10 remaining.
+    expect(first.basisQty).toBe('40');
+    expect(toUnits(first.qty)).toBe(toUnits('4'));
+    await expect(detail(page).getByText(/^4(\.0+)? of 40(\.0+)? resting on the opposite side$/)).toBeVisible({ timeout: 15_000 });
+  } finally {
+    await (await api(trader)).post('/api/trade/trpc/algo.cancel', { algoId: id });
+    await clearIfc(maker);
+    await clearIfc(trader);
+  }
 });
 
 test(`${J} #8 opens the algo list and blotter, and cancels with a child failing: statuses, average fill price, cancel incomplete, halt and resume refused`, async ({
