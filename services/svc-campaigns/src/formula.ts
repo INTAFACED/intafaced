@@ -1,3 +1,4 @@
+import { SCALE, parseAmount } from '@intafaced/ledger-client';
 import { CampaignsError } from './codes.js';
 
 /**
@@ -20,7 +21,6 @@ export type Formula =
   | { kind: 'op'; op: '+' | '-' | '*' | '/'; left: Formula; right: Formula }
   | { kind: 'call'; fn: 'min' | 'max'; left: Formula; right: Formula };
 
-const SCALE = 10n ** 18n;
 const MAX_TOKENS = 60;
 
 type Token = { text: string; at: number };
@@ -48,9 +48,12 @@ function tokens(source: string): Token[] {
 }
 
 const decimal = (text: string): bigint => {
-  const [whole, frac = ''] = text.split('.');
-  if (frac.length > 18) refuse(`${text} has more than 18 places`);
-  return BigInt(whole!) * SCALE + BigInt(frac.padEnd(18, '0') || '0');
+  if ((text.split('.')[1] ?? '').length > 18) refuse(`${text} has more than 18 places`);
+  try {
+    return parseAmount(text);
+  } catch {
+    return refuse(`${text} is larger than an amount can be`);
+  }
 };
 
 /** Parses a formula against the names its trigger allows. */
@@ -139,4 +142,11 @@ export function evaluateFormula(f: Formula, values: Readonly<Record<string, bigi
   };
   const out = run(f);
   return out > 0n ? out : 0n;
+}
+
+/** Whether a formula reads any of its trigger's names (a fixed incentive reads none). */
+export function readsNames(f: Formula): boolean {
+  if (f.kind === 'name') return true;
+  if (f.kind === 'number') return false;
+  return readsNames(f.left) || readsNames(f.right);
 }

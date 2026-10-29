@@ -45,6 +45,7 @@ describe('the incentive formula grammar', () => {
     expect(refusal('(amount')).toMatch(/expected "\)"/);
     expect(refusal('1.1234567890123456789')).toMatch(/more than 18 places/);
     expect(refusal('-1')).toMatch(/found "-"/);
+    expect(refusal('1'.repeat(30))).toMatch(/larger than an amount can be/);
     expect(refusal(Array.from({ length: 31 }, () => '1').join('+'))).toMatch(/longer than 60 parts/);
   });
 });
