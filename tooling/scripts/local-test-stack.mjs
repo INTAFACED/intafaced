@@ -97,6 +97,7 @@ import {
   writeFounderPinStamp,
 } from './local-test-founders.mjs';
 import { consoleTreasuryToken, makeContext } from './local-test-gates.mjs';
+import { RailRecordError, readRailRecords, recordRailMovement } from './local-stack-services/test-rail-records.mjs';
 import { loadProfile, profileEnvFor } from './owner-settings.mjs';
 import {
   localStackState,
@@ -2567,6 +2568,7 @@ async function cmdSeedWithdrawal(rawArgs) {
     const [outcome] = asPay(`SELECT outcome FROM pay.withdrawal_rail_attempts WHERE withdrawal_id = :'id' AND attempt = 0`, { id });
     if (outcome !== 'accepted')
       fail(`--ref ${ref} already names a withdrawal whose send is ${outcome ?? 'not journalled'}, not sent; use a new --ref`, 2);
+    chainRecord({ key: txRef, direction: 'out', assetId: asset, amount: amountStr });
     await post('withdrawSettle', 'LOCAL TEST withdrawal settle, not real money');
     asPay(`UPDATE pay.withdrawals SET status = 'sent', rail_ref = :'tx', updated_at = now() WHERE id = :'id' AND status = 'held'`, {
       id,
@@ -2619,6 +2621,8 @@ async function cmdChainDeposit(rawArgs) {
 
   const txHash = chainTxHash(address, label);
   const logIndex = Number(index ?? '0');
+  if (Number(confirmationsStr) >= TEST_CHAIN_FINALITY)
+    chainRecord({ key: `${txHash}:${logIndex}`, direction: 'in', assetId: asset, amount: amountStr });
   const text = await deliverChainEvent({
     id: `chain:${txHash}:${address}:${logIndex}`,
     type: 'captured',
@@ -2663,6 +2667,22 @@ export function chainTxHash(address, label) {
   return `0x${crypto.createHash('sha256').update(`local-test-chain-deposit:${address}:${label}`).digest('hex')}`;
 }
 
+/** Confirmations at which the TEST chain counts a transfer as final on its own statement: the stack's PAY_MIN_CONFIRMATIONS (pay.mjs). */
+const TEST_CHAIN_FINALITY = 6;
+
+/**
+ * The TEST chain's own record of a movement on rail crypto-native (test-rail-records.mjs), written before svc-pay or the
+ * ledger hears of it, so the stack's outside source reads what the chain did, never the ledger.
+ */
+function chainRecord(movement) {
+  try {
+    recordRailMovement(STATE, { rail: 'crypto-native', ...movement });
+  } catch (err) {
+    if (err instanceof RailRecordError) fail(`refusing: the TEST chain record: ${err.message}`, 2);
+    throw err;
+  }
+}
+
 /** Signs one chain watcher event with this stack's crypto webhook secret and delivers it to the stack's own svc-pay. Returns its answer. */
 async function deliverChainEvent(event) {
   // Guards: this only ever talks to the local stack's own svc-pay.
@@ -2700,6 +2720,8 @@ async function cmdChainReorg(rawArgs) {
   if (address.length > 200 || /\s/.test(address)) fail('bad deposit address', 2);
   const txHash = chainTxHash(address, label);
   const logIndex = Number(index ?? '0');
+  const final = readRailRecords(STATE).find((row) => row.rail === 'crypto-native' && row.key === `${txHash}:${logIndex}`);
+  if (final) chainRecord({ key: `reorg:${txHash}:${logIndex}`, direction: 'out', assetId: final.assetId, amount: final.amount });
   const text = await deliverChainEvent({
     id: `reorg:${txHash}:${address}:${logIndex}`,
     type: 'chain.reorged',
