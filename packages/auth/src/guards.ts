@@ -22,11 +22,13 @@ export function requireScope(principal: Principal, scope: Scope): void {
   // interactive-only scope — including a desk scope already stored on a key
   // that was issued before the scope was classified. `scope.denied` would tell
   // the caller to ask for a scope the key already lists.
-  if (
-    isApiKeyPrincipal(principal) &&
-    ((INTERACTIVE_ONLY_SCOPES as readonly string[]).includes(scope) || (PERSON_ONLY_SCOPES as readonly string[]).includes(scope))
-  ) {
+  if (isApiKeyPrincipal(principal) && (INTERACTIVE_ONLY_SCOPES as readonly string[]).includes(scope)) {
     throw new AuthError(`Scope "${scope}" requires an interactive session and cannot be used from an API key`, 'scope.interactive_only');
+  }
+  // A person-only scope spends the person's own money (OWNER 107): a key or a sub-account token never exercises it,
+  // whatever it carries.
+  if ((isApiKeyPrincipal(principal) || Boolean(principal.sub_account)) && (PERSON_ONLY_SCOPES as readonly string[]).includes(scope)) {
+    throw new AuthError(`Scope "${scope}" is the person's own and cannot be used from a key or a sub-account`, 'scope.interactive_only');
   }
 
   // Value leaving the platform needs a 2FA-backed session (§9). Desk scopes

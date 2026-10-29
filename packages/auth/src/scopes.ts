@@ -215,15 +215,18 @@ export const SESSION_MFA_SCOPES: readonly Scope[] = ['trade:withdraw', 'admin:tr
  * authorises spends the person's own money at the person's own instruction:
  * `agents:execute` runs a metered agent (OWNER 107, 29 Oct 2026: "Every
  * signed-in person may run agents from their own session, never from API keys
- * or delegated tokens"). svc-agents also refuses a delegated token (`kid`,
- * `sub_account`) or a service on the request.
+ * or delegated tokens"). `requireScope` refuses a key or sub-account token that
+ * carries one.
  */
 export const PERSON_ONLY_SCOPES: readonly Scope[] = ['agents:execute'];
 
+/** True for a scope no API key may hold: interactive-only or person-only. The one test every key path uses. */
+export function isKeyForbiddenScope(scope: string): boolean {
+  return (INTERACTIVE_ONLY_SCOPES as readonly string[]).includes(scope) || (PERSON_ONLY_SCOPES as readonly string[]).includes(scope);
+}
+
 export function assertKeyScopesAllowed(scopes: readonly string[]): void {
-  const forbidden = scopes.filter(
-    (s) => (INTERACTIVE_ONLY_SCOPES as readonly string[]).includes(s) || (PERSON_ONLY_SCOPES as readonly string[]).includes(s),
-  );
+  const forbidden = scopes.filter(isKeyForbiddenScope);
   if (forbidden.length > 0) {
     throw new Error(`Scopes ${forbidden.join(', ')} cannot be granted to an API key — they require an interactive session (§9)`);
   }
@@ -494,7 +497,8 @@ export const WITHHELD_FROM_SESSION: Readonly<Record<Exclude<Scope, SessionScope>
   // settles it against the user's balance. Whether every account may burn agent
   // budget by default is a pricing decision, not an authorisation one, and it
   // belongs to the owner. Left withheld rather than guessed at.
-  'agents:execute': 'Metered spend — issuance is a pricing decision, not an auth one (OWNER)',
+  'agents:execute':
+    'Metered spend. Owner decision 29 Oct 2026 (OWNER 107): every person may run agents from their own session; issued by the PR in which svc-agents bounds each run (agent cap, own limits, balance, published rate). Never on a key (PERSON_ONLY_SCOPES).',
 
   // No service exists yet (§12 Phase 5). A scope for a router that cannot be
   // called is noise in every token in the platform; these get issued by the PR
