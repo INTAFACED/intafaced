@@ -82,8 +82,10 @@ function refusalWords(failure: Refusal, t: T): string {
   switch (failure.code) {
     case 'launch.event_not_found':
       return t('refusedNotFound');
-    case 'launch.eligibility_unset':
-      return t('refusedRuleUnset');
+    case 'launch.min_kyc_tier_unset':
+      return t('refusedTierUnset');
+    case 'launch.restricted_regions_unset':
+      return t('refusedRegionsUnset');
     case 'launch.eligibility_unavailable':
       return t('refusedUnavailable');
     default:

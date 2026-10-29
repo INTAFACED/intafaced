@@ -16,7 +16,17 @@ import { LaunchError } from './errors.js';
  */
 
 export const LAUNCH_TYPES = ['token_sale', 'whitelist_drop', 'primary_subscription'] as const;
-export const LAUNCH_STATUSES = ['draft', 'announced', 'snapshot', 'open', 'closed', 'allocated', 'distributing', 'complete', 'cancelled'] as const;
+export const LAUNCH_STATUSES = [
+  'draft',
+  'announced',
+  'snapshot',
+  'open',
+  'closed',
+  'allocated',
+  'distributing',
+  'complete',
+  'cancelled',
+] as const;
 export const ISSUER_STATES = ['applied', 'reviewing', 'onboarded', 'suspended'] as const;
 export const ALLOCATION_METHODS = ['pro_rata', 'tickets', 'tiered'] as const;
 export const LAUNCH_STATES = ['upcoming', 'open', 'past'] as const;
@@ -101,7 +111,12 @@ export interface CreateEventInput {
   projectName: string;
   symbol: string;
   periods: { announceAt: Date; snapshotAt: Date; openAt: Date; closeAt: Date; distributionAt: Date };
-  allocation: { method: AllocationMethod | null; perUserCap: string | null; ticketSize: string | null; tierWeights: Array<{ minBasis: string; weight: number }> | null };
+  allocation: {
+    method: AllocationMethod | null;
+    perUserCap: string | null;
+    ticketSize: string | null;
+    tierWeights: Array<{ minBasis: string; weight: number }> | null;
+  };
   terms: { price: string | null; paymentAsset: string | null; rateSource: string | null };
 }
 
@@ -166,7 +181,8 @@ export function canonicalEvent(input: CreateEventInput) {
   if (!ID_RE.test(input.issuerId)) throw new LaunchError('Issuer id is not valid', 'launch.event_invalid');
   if (!(LAUNCH_TYPES as readonly string[]).includes(input.type)) throw new LaunchError('Launch type is not valid', 'launch.event_invalid');
   const projectName = input.projectName.trim();
-  if (projectName.length < 1 || projectName.length > 120) throw new LaunchError('Project name must be 1 to 120 characters', 'launch.event_invalid');
+  if (projectName.length < 1 || projectName.length > 120)
+    throw new LaunchError('Project name must be 1 to 120 characters', 'launch.event_invalid');
   if (!SYMBOL_RE.test(input.symbol)) throw new LaunchError('Symbol must be 2 to 12 capital letters or digits', 'launch.event_invalid');
   const p = input.periods;
   for (const [name, at] of Object.entries(p)) {
@@ -183,7 +199,8 @@ export function canonicalEvent(input: CreateEventInput) {
   const ticketSize = positiveAmount(a.ticketSize, 'Ticket size');
   let tierWeights: TierWeight[] | null = null;
   if (a.tierWeights !== null) {
-    if (a.tierWeights.length < 1 || a.tierWeights.length > 16) throw new LaunchError('Tier weights need 1 to 16 tiers', 'launch.event_invalid');
+    if (a.tierWeights.length < 1 || a.tierWeights.length > 16)
+      throw new LaunchError('Tier weights need 1 to 16 tiers', 'launch.event_invalid');
     tierWeights = a.tierWeights.map((tier) => {
       if (!Number.isInteger(tier.weight) || tier.weight < 1 || tier.weight > 1000) {
         throw new LaunchError('A tier weight is a whole number from 1 to 1000', 'launch.event_invalid');
@@ -205,8 +222,10 @@ export function canonicalEvent(input: CreateEventInput) {
   }
   const t = input.terms;
   const price = positiveAmount(t.price, 'Price');
-  if ((price === null) !== (t.paymentAsset === null)) throw new LaunchError('A price needs the asset it is paid in', 'launch.event_invalid');
-  if (t.paymentAsset !== null && !ASSET_RE.test(t.paymentAsset)) throw new LaunchError('Payment asset is not valid', 'launch.event_invalid');
+  if ((price === null) !== (t.paymentAsset === null))
+    throw new LaunchError('A price needs the asset it is paid in', 'launch.event_invalid');
+  if (t.paymentAsset !== null && !ASSET_RE.test(t.paymentAsset))
+    throw new LaunchError('Payment asset is not valid', 'launch.event_invalid');
   const rateSource = t.rateSource === null ? null : t.rateSource.trim();
   if (rateSource !== null && (rateSource.length < 1 || rateSource.length > 120)) {
     throw new LaunchError('Rate source must be 1 to 120 characters', 'launch.event_invalid');
@@ -279,7 +298,8 @@ function eventFromRow(row: EventRow): LaunchEvent {
       method: row.allocation_method,
       perUserCap: amountOrNull(row.per_user_cap),
       ticketSize: amountOrNull(row.ticket_size),
-      tierWeights: row.tier_weights === null ? null : row.tier_weights.map((t) => ({ minBasis: parseAmount(t.minBasis), weight: t.weight })),
+      tierWeights:
+        row.tier_weights === null ? null : row.tier_weights.map((t) => ({ minBasis: parseAmount(t.minBasis), weight: t.weight })),
     },
     terms: { price: amountOrNull(row.price), paymentAsset: row.payment_asset, rateSource: row.rate_source },
     snapshot:
@@ -296,7 +316,10 @@ const sameAmount = (a: Amount | null, b: Amount | null) => a === b;
 export class LaunchService {
   constructor(private readonly sql: Sql) {}
 
-  private async selectEvents(db: Sql, where: { id?: string; statuses?: LaunchStatus[]; type?: LaunchType; limit?: number; forUpdate?: boolean }) {
+  private async selectEvents(
+    db: Sql,
+    where: { id?: string; statuses?: LaunchStatus[]; type?: LaunchType; limit?: number; forUpdate?: boolean },
+  ) {
     return db<EventRow[]>`
       SELECT e.id, e.issuer_id, i.name AS issuer_name, i.state AS issuer_state, e.type, e.project_name, e.symbol,
              e.announce_at, e.snapshot_at, e.open_at, e.close_at, e.distribution_at, e.status,
@@ -349,7 +372,8 @@ export class LaunchService {
     actorId: string;
     approverId: string;
   }): Promise<LaunchIssuer> {
-    if (!ID_RE.test(input.id)) throw new LaunchError('Issuer id must be 3 to 63 lowercase letters, digits or dashes', 'launch.event_invalid');
+    if (!ID_RE.test(input.id))
+      throw new LaunchError('Issuer id must be 3 to 63 lowercase letters, digits or dashes', 'launch.event_invalid');
     const name = input.name.trim();
     if (name.length < 1 || name.length > 120) throw new LaunchError('Issuer name must be 1 to 120 characters', 'launch.event_invalid');
     return transaction(this.sql, async (tx) => {
@@ -429,7 +453,8 @@ export class LaunchService {
         return { id: stored.id, status: stored.status, revision: stored.revision };
       }
       const fmt = (v: Amount | null) => (v === null ? null : formatAmount(v));
-      const weights = e.tierWeights === null ? null : tx.json(e.tierWeights.map((t) => ({ minBasis: formatAmount(t.minBasis), weight: t.weight })));
+      const weights =
+        e.tierWeights === null ? null : tx.json(e.tierWeights.map((t) => ({ minBasis: formatAmount(t.minBasis), weight: t.weight })));
       await tx`
         INSERT INTO token.launch_events (
           id, issuer_id, type, project_name, symbol, announce_at, snapshot_at, open_at, close_at, distribution_at,
@@ -451,7 +476,14 @@ export class LaunchService {
    * holdings in the same transaction, so a crash leaves neither the status nor a half snapshot.
    * Past `closed`, allocation and distribution would move tokens and refuse `launch.allocation_unwired`.
    */
-  async moveEvent(input: { id: string; to: LaunchStatus; expectedRevision: number; actorId: string; approverId: string; now: Date }): Promise<LaunchEvent> {
+  async moveEvent(input: {
+    id: string;
+    to: LaunchStatus;
+    expectedRevision: number;
+    actorId: string;
+    approverId: string;
+    now: Date;
+  }): Promise<LaunchEvent> {
     return transaction(this.sql, async (tx) => {
       const row = (await this.selectEvents(tx, { id: input.id, forUpdate: true }))[0];
       if (!row) throw new LaunchError(`Launch ${input.id} not found`, 'launch.event_not_found');
@@ -483,7 +515,9 @@ export class LaunchService {
         if ((input.to === 'announced' || input.to === 'snapshot' || input.to === 'open') && event.issuer.state !== 'onboarded') {
           throw new LaunchError(`Issuer ${event.issuer.id} is ${event.issuer.state}`, 'launch.issuer_not_onboarded');
         }
-        const due = { announced: p.announceAt, snapshot: p.snapshotAt, open: p.openAt, closed: p.closeAt }[input.to as 'announced' | 'snapshot' | 'open' | 'closed'];
+        const due = { announced: p.announceAt, snapshot: p.snapshotAt, open: p.openAt, closed: p.closeAt }[
+          input.to as 'announced' | 'snapshot' | 'open' | 'closed'
+        ];
         if (now < due) throw new LaunchError(`The ${input.to} period starts at ${due.toISOString()}`, 'launch.period_not_due');
         if (input.to === 'open' && now >= p.closeAt) throw new LaunchError('The launch window has already closed', 'launch.period_passed');
         if (input.to === 'snapshot') await this.sealSnapshot(tx, event.id, now);

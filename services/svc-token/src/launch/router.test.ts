@@ -2,8 +2,19 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { Principal } from '@intafaced/auth';
 import { createEdgeContext, encodePrincipal, signPrincipalHeader, type CampaignParticipant } from '@intafaced/contracts';
 import { parseAmount as amt } from '@intafaced/ledger-client';
-import { stubApprovalConsumer, tokenActionPayloadHash, unwiredApprovalConsumer, type ActionApprovalConsumer } from '../action-approval-consume.js';
-import { createParticipantClient, decideEligibility, parseEligibilityRule, unwiredParticipants, type ParticipantSource } from './eligibility.js';
+import {
+  stubApprovalConsumer,
+  tokenActionPayloadHash,
+  unwiredApprovalConsumer,
+  type ActionApprovalConsumer,
+} from '../action-approval-consume.js';
+import {
+  createParticipantClient,
+  decideEligibility,
+  parseEligibilityRule,
+  unwiredParticipants,
+  type ParticipantSource,
+} from './eligibility.js';
 import { LaunchError } from './errors.js';
 import type { LaunchEvent, LaunchService } from './launch-service.js';
 import { LAUNCH_EVENT_CREATE_ACTION, LAUNCH_EVENT_MOVE_ACTION, createLaunchRouter, launchEventPayload } from './router.js';
@@ -31,7 +42,11 @@ function principal(overrides: Partial<Principal> = {}): Principal {
 function signed(p: Principal = principal()) {
   const raw = encodePrincipal(p);
   return edgeContext({
-    headers: { 'x-intafaced-principal': raw, 'x-intafaced-principal-sig': signPrincipalHeader(raw, SECRET, 'DE'), 'x-intafaced-region': 'DE' },
+    headers: {
+      'x-intafaced-principal': raw,
+      'x-intafaced-principal-sig': signPrincipalHeader(raw, SECRET, 'DE'),
+      'x-intafaced-region': 'DE',
+    },
     id: 'req-signed',
   });
 }
@@ -149,7 +164,10 @@ describe('basis and eligibility read the signed account only', () => {
   });
 
   it('an unverified account lists identity verification as unmet', async () => {
-    const result = await caller(signed(), fakeService(), { participants: { read: async () => ({ ...VERIFIED, kycTier: 'none' }) } }).eligibility({
+    // Signed in at tier none: the token module's tier guard would refuse it, so eligibility carries none.
+    const result = await caller(signed(principal({ tier: 'none' })), fakeService(), {
+      participants: { read: async () => ({ ...VERIFIED, kycTier: 'none' }) },
+    }).eligibility({
       id: OPEN.id,
     });
     expect(result.eligible).toBe(false);
@@ -165,16 +183,27 @@ describe('basis and eligibility read the signed account only', () => {
   it('a blank rule refuses before identity is asked; an unread account refuses, never eligible', async () => {
     const read = vi.fn(async () => VERIFIED);
     await expect(caller(signed(), fakeService(), { participants: { read }, env: {} }).eligibility({ id: OPEN.id })).rejects.toMatchObject({
-      cause: { code: 'launch.eligibility_unset' },
+      code: 'PRECONDITION_FAILED',
+      cause: { code: 'launch.min_kyc_tier_unset' },
+    });
+    await expect(
+      caller(signed(), fakeService(), { participants: { read }, env: { TOKEN_LAUNCH_MIN_KYC_TIER: 'basic' } }).eligibility({ id: OPEN.id }),
+    ).rejects.toMatchObject({
+      code: 'PRECONDITION_FAILED',
+      cause: { code: 'launch.restricted_regions_unset' },
     });
     expect(read).not.toHaveBeenCalled();
-    await expect(caller(signed(), fakeService(), { participants: unwiredParticipants() }).eligibility({ id: OPEN.id })).rejects.toMatchObject({
+    await expect(
+      caller(signed(), fakeService(), { participants: unwiredParticipants() }).eligibility({ id: OPEN.id }),
+    ).rejects.toMatchObject({
       cause: { code: 'launch.eligibility_unavailable' },
     });
   });
 
   it('a sub-account is not the main account', async () => {
-    const result = await caller(signed(principal({ sub_account: '77777777-7777-4777-8777-777777777777' } as Partial<Principal>))).eligibility({
+    const result = await caller(
+      signed(principal({ sub_account: '77777777-7777-4777-8777-777777777777' } as Partial<Principal>)),
+    ).eligibility({
       id: OPEN.id,
     });
     expect(result.requirements.find((r) => r.id === 'main_account')).toMatchObject({ met: false, actual: 'sub' });
@@ -202,13 +231,19 @@ describe('operator doors', () => {
 
   it('need admin:write', async () => {
     await expect(caller(signed()).events.create({ ...createInput, approvalId: 'a' })).rejects.toMatchObject({ code: 'FORBIDDEN' });
-    await expect(caller(anonymous()).events.move({ id: OPEN.id, to: 'closed', expectedRevision: 3 })).rejects.toMatchObject({ code: 'UNAUTHORIZED' });
+    await expect(caller(anonymous()).events.move({ id: OPEN.id, to: 'closed', expectedRevision: 3 })).rejects.toMatchObject({
+      code: 'UNAUTHORIZED',
+    });
   });
 
   it('create binds the founders’ approval to the canonical event and needs a second person', async () => {
     const consume = vi.fn(stubApprovalConsumer(APPROVER).consume);
     const service = fakeService();
-    const out = await caller(admin(), service, { approvals: { consume } }).events.create({ ...createInput, approvalId: 'approval-1', operationId: 'op-1' });
+    const out = await caller(admin(), service, { approvals: { consume } }).events.create({
+      ...createInput,
+      approvalId: 'approval-1',
+      operationId: 'op-1',
+    });
     expect(out).toMatchObject({ id: OPEN.id, status: 'draft', confirmOperatorId: APPROVER });
     const payload = launchEventPayload({
       ...createInput,
@@ -220,7 +255,13 @@ describe('operator doors', () => {
       payloadHash: tokenActionPayloadHash(LAUNCH_EVENT_CREATE_ACTION, { event: payload }),
     });
     // The same person cannot approve their own launch.
-    await expect(caller(admin(), service, { approvals: stubApprovalConsumer(USER) }).events.create({ ...createInput, approvalId: 'a', operationId: 'op-3' })).rejects.toMatchObject({
+    await expect(
+      caller(admin(), service, { approvals: stubApprovalConsumer(USER) }).events.create({
+        ...createInput,
+        approvalId: 'a',
+        operationId: 'op-3',
+      }),
+    ).rejects.toMatchObject({
       code: 'PRECONDITION_FAILED',
     });
   });
@@ -233,7 +274,12 @@ describe('operator doors', () => {
     expect(consume).not.toHaveBeenCalled();
     const service = fakeService();
     await expect(
-      caller(admin(), service, { approvals: unwiredApprovalConsumer() }).events.move({ id: OPEN.id, to: 'closed', expectedRevision: 3, approvalId: 'a' }),
+      caller(admin(), service, { approvals: unwiredApprovalConsumer() }).events.move({
+        id: OPEN.id,
+        to: 'closed',
+        expectedRevision: 3,
+        approvalId: 'a',
+      }),
     ).rejects.toMatchObject({ code: 'PRECONDITION_FAILED' });
     expect(service.moveEvent).not.toHaveBeenCalled();
   });
@@ -241,30 +287,54 @@ describe('operator doors', () => {
   it('move passes the actor and the approver to the service', async () => {
     const consume = vi.fn(stubApprovalConsumer(APPROVER).consume);
     const service = fakeService();
-    await caller(admin(), service, { approvals: { consume } }).events.move({ id: OPEN.id, to: 'closed', expectedRevision: 3, approvalId: 'a', operationId: 'op-2' });
+    await caller(admin(), service, { approvals: { consume } }).events.move({
+      id: OPEN.id,
+      to: 'closed',
+      expectedRevision: 3,
+      approvalId: 'a',
+      operationId: 'op-2',
+    });
     expect(consume.mock.calls[0]![0]).toMatchObject({
       targetId: LAUNCH_EVENT_MOVE_ACTION,
       expectedVersion: '3',
       payloadHash: tokenActionPayloadHash(LAUNCH_EVENT_MOVE_ACTION, { eventId: OPEN.id, to: 'closed', expectedRevision: '3' }),
     });
-    expect(service.moveEvent).toHaveBeenCalledWith(expect.objectContaining({ actorId: USER, approverId: APPROVER, to: 'closed', expectedRevision: 3 }));
+    expect(service.moveEvent).toHaveBeenCalledWith(
+      expect.objectContaining({ actorId: USER, approverId: APPROVER, to: 'closed', expectedRevision: 3 }),
+    );
   });
 });
 
 describe('eligibility rule', () => {
   it('a blank or malformed owner value refuses; none means no region is restricted', () => {
-    for (const env of [{}, { TOKEN_LAUNCH_MIN_KYC_TIER: 'basic' }, { TOKEN_LAUNCH_MIN_KYC_TIER: ' ', TOKEN_LAUNCH_RESTRICTED_REGIONS: 'none' }]) {
-      expect(() => parseEligibilityRule(env)).toThrow(LaunchError);
-    }
-    expect(() => parseEligibilityRule({ TOKEN_LAUNCH_MIN_KYC_TIER: 'gold', TOKEN_LAUNCH_RESTRICTED_REGIONS: 'none' })).toThrow(LaunchError);
-    expect(() => parseEligibilityRule({ TOKEN_LAUNCH_MIN_KYC_TIER: 'basic', TOKEN_LAUNCH_RESTRICTED_REGIONS: 'de' })).toThrow(LaunchError);
+    const code = (env: Parameters<typeof parseEligibilityRule>[0]) => {
+      try {
+        parseEligibilityRule(env);
+      } catch (err) {
+        return err instanceof LaunchError ? err.code : 'not a LaunchError';
+      }
+      return 'accepted';
+    };
+    expect(code({})).toBe('launch.min_kyc_tier_unset');
+    expect(code({ TOKEN_LAUNCH_MIN_KYC_TIER: ' ', TOKEN_LAUNCH_RESTRICTED_REGIONS: 'none' })).toBe('launch.min_kyc_tier_unset');
+    expect(code({ TOKEN_LAUNCH_MIN_KYC_TIER: 'gold', TOKEN_LAUNCH_RESTRICTED_REGIONS: 'none' })).toBe('launch.min_kyc_tier_unset');
+    expect(code({ TOKEN_LAUNCH_MIN_KYC_TIER: 'basic' })).toBe('launch.restricted_regions_unset');
+    expect(code({ TOKEN_LAUNCH_MIN_KYC_TIER: 'basic', TOKEN_LAUNCH_RESTRICTED_REGIONS: ' ' })).toBe('launch.restricted_regions_unset');
+    expect(code({ TOKEN_LAUNCH_MIN_KYC_TIER: 'basic', TOKEN_LAUNCH_RESTRICTED_REGIONS: 'de' })).toBe('launch.restricted_regions_unset');
     expect(parseEligibilityRule(RULE_ENV)).toEqual({ minKycTier: 'basic', restrictedRegions: [] });
-    expect(parseEligibilityRule({ TOKEN_LAUNCH_MIN_KYC_TIER: 'full', TOKEN_LAUNCH_RESTRICTED_REGIONS: 'KP, IR' }).restrictedRegions).toEqual(['KP', 'IR']);
+    expect(
+      parseEligibilityRule({ TOKEN_LAUNCH_MIN_KYC_TIER: 'full', TOKEN_LAUNCH_RESTRICTED_REGIONS: 'KP, IR' }).restrictedRegions,
+    ).toEqual(['KP', 'IR']);
   });
 
   it('lists every requirement, met or not', () => {
     const rule = { minKycTier: 'full' as const, restrictedRegions: ['KP'] };
-    const result = decideEligibility(rule, { ...OPEN, status: 'snapshot', issuer: { ...OPEN.issuer, state: 'suspended' } }, { ...VERIFIED, region: 'KP', status: 'frozen' }, false);
+    const result = decideEligibility(
+      rule,
+      { ...OPEN, status: 'snapshot', issuer: { ...OPEN.issuer, state: 'suspended' } },
+      { ...VERIFIED, region: 'KP', status: 'frozen' },
+      false,
+    );
     expect(result.eligible).toBe(false);
     expect(Object.fromEntries(result.requirements.map((r) => [r.id, r.met]))).toEqual({
       identity_verification: false,
@@ -274,7 +344,9 @@ describe('eligibility rule', () => {
       issuer_onboarded: false,
       event_open: false,
     });
-    expect(decideEligibility(rule, OPEN, { ...VERIFIED, region: null, kycTier: 'full' }, false).requirements.find((r) => r.id === 'region')).toMatchObject({
+    expect(
+      decideEligibility(rule, OPEN, { ...VERIFIED, region: null, kycTier: 'full' }, false).requirements.find((r) => r.id === 'region'),
+    ).toMatchObject({
       met: false,
       actual: 'unknown',
     });
@@ -287,13 +359,25 @@ describe('participant client', () => {
 
   it('any failure reads as null, and an answer about another user is null', async () => {
     const client = createParticipantClient('http://identity.test', 'secret-long-enough-for-the-legacy-hmac');
-    vi.stubGlobal('fetch', vi.fn(async () => new Response('{}', { status: 500 })));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response('{}', { status: 500 })),
+    );
     expect(await client.read(USER)).toBeNull();
-    vi.stubGlobal('fetch', vi.fn(async () => Promise.reject(new Error('down'))));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => Promise.reject(new Error('down'))),
+    );
     expect(await client.read(USER)).toBeNull();
-    vi.stubGlobal('fetch', vi.fn(async () => Response.json({ ...VERIFIED, userId: APPROVER })));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => Response.json({ ...VERIFIED, userId: APPROVER })),
+    );
     expect(await client.read(USER)).toBeNull();
-    vi.stubGlobal('fetch', vi.fn(async () => Response.json({ ...VERIFIED, kycTier: 'gold' })));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => Response.json({ ...VERIFIED, kycTier: 'gold' })),
+    );
     expect(await client.read(USER)).toBeNull();
     const fetchOk = vi.fn(async () => Response.json(VERIFIED));
     vi.stubGlobal('fetch', fetchOk);

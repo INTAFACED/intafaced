@@ -67,6 +67,10 @@ function DevRibbon({ feature }: { feature: Feature }) {
 }
 
 const isAcademyPath = (path: string) => path === '/academy' || path.startsWith('/academy/');
+// The launch catalogue and a launch's page open signed out too (J-more-catalogue-11): they read only published events.
+// Eligibility and basis inside them still ask the visitor to sign in. The issuer forms under /launch stay private.
+const isLaunchCataloguePath = (path: string) =>
+  path === '/launch' || (/^\/launch\/[^/]+$/.test(path) && !['/launch/new', '/launch/check', '/launch/requirements'].includes(path));
 
 function legacyArea(room: Room): LegacyArea | undefined {
   return room.area === 'money' || room.area === 'trade' || room.area === 'pay' || room.area === 'more' || room.area === 'person'
@@ -143,7 +147,11 @@ export function App() {
   }
   // The Academy opens for a visitor with no account too (J-academy-01): its signed-out view reads only published content.
   const needsSession =
-    room && ['home', 'money', 'pay', 'more', 'person'].includes(room.area) && path !== '/pay/checkout' && !isAcademyPath(path);
+    room &&
+    ['home', 'money', 'pay', 'more', 'person'].includes(room.area) &&
+    path !== '/pay/checkout' &&
+    !isAcademyPath(path) &&
+    !isLaunchCataloguePath(path);
   // Start downloading the room's code before it can render: a signed-in room waits for the boot refresh, and the
   // Web3 frame and its rooms are two chunks that would otherwise load one after the other. A signed-out visitor to
   // a private room only sees "Sign in", so nothing is fetched for it.

@@ -84,7 +84,10 @@ const en = {
   signIn: 'Sign in to check your eligibility and read your basis.',
   back: 'All launches',
   refusedNotFound: 'We could not find that launch.',
-  refusedRuleUnset: 'Who may take part is not set yet, so no one can be checked. This is a blocker for every account, not yours alone.',
+  refusedTierUnset:
+    'Who may take part is not set yet: the least identity verification is blank, so no one can be checked. This blocks every account, not yours alone.',
+  refusedRegionsUnset:
+    'Who may take part is not set yet: the barred regions are blank, so no one can be checked. This blocks every account, not yours alone.',
   refusedUnavailable: 'We could not read your account to check who may take part. Try again later.',
   refusedOther: 'Refused: {message}',
   uncertain: 'We could not confirm the answer. Try again.',

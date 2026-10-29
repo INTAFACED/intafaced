@@ -17,7 +17,8 @@ export const LAUNCH_REFUSAL_COPY = {
   'launch.allocation_unwired': 'Allocation and distribution are not wired yet, so the launch cannot move past closed.',
   'launch.event_invalid': 'The launch details are not valid.',
   'launch.events_list_limit_unset': 'A page size is required.',
-  'launch.eligibility_unset': 'Who may take part is not set.',
+  'launch.min_kyc_tier_unset': 'Who may take part is not set: the least identity verification is blank.',
+  'launch.restricted_regions_unset': 'Who may take part is not set: the barred regions are blank.',
   'launch.eligibility_unavailable': 'We could not read your account to check who may take part. Try again later.',
 } as const;
 

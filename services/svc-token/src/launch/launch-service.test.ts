@@ -163,21 +163,27 @@ describe('J-more-catalogue-11 launch service', () => {
     await onboardedIssuer();
     const bad = event({ periods: { announceAt: at(2), snapshotAt: at(1), openAt: at(3), closeAt: at(4), distributionAt: at(5) } });
     expect(await refusal(launch.createEvent(bad))).toBe('launch.event_invalid');
-    expect(await refusal(launch.createEvent(event({ terms: { price: '1', paymentAsset: null, rateSource: null } })))).toBe('launch.event_invalid');
+    expect(await refusal(launch.createEvent(event({ terms: { price: '1', paymentAsset: null, rateSource: null } })))).toBe(
+      'launch.event_invalid',
+    );
     expect(
-      await refusal(launch.createEvent(event({ allocation: { method: 'pro_rata', perUserCap: '0', ticketSize: null, tierWeights: null } }))),
+      await refusal(
+        launch.createEvent(event({ allocation: { method: 'pro_rata', perUserCap: '0', ticketSize: null, tierWeights: null } })),
+      ),
     ).toBe('launch.event_invalid');
   });
 
   it('issuer review moves one step at a time, a retry replays, and a stale revision refuses', async () => {
     await launch.setIssuer({ id: 'test-issuer', name: 'TEST Issuer', state: 'applied', expectedRevision: 0, ...who });
-    expect(await refusal(launch.setIssuer({ id: 'test-issuer', name: 'TEST Issuer', state: 'onboarded', expectedRevision: 1, ...who }))).toBe(
-      'launch.issuer_move_invalid',
-    );
+    expect(
+      await refusal(launch.setIssuer({ id: 'test-issuer', name: 'TEST Issuer', state: 'onboarded', expectedRevision: 1, ...who })),
+    ).toBe('launch.issuer_move_invalid');
     const reviewing = await launch.setIssuer({ id: 'test-issuer', name: 'TEST Issuer', state: 'reviewing', expectedRevision: 1, ...who });
     expect(reviewing).toMatchObject({ state: 'reviewing', revision: 2 });
     // The same move again replays: no second move row.
-    expect(await launch.setIssuer({ id: 'test-issuer', name: 'TEST Issuer', state: 'reviewing', expectedRevision: 1, ...who })).toMatchObject({
+    expect(
+      await launch.setIssuer({ id: 'test-issuer', name: 'TEST Issuer', state: 'reviewing', expectedRevision: 1, ...who }),
+    ).toMatchObject({
       state: 'reviewing',
       revision: 2,
     });
@@ -270,7 +276,9 @@ describe('J-more-catalogue-11 launch service', () => {
     await stake(HOLDER_B, '1000', at(-3), 'pending');
     await stake(NOBODY, '9', at(5));
 
-    expect((await launch.readBasis('test-open-launch', HOLDER_A).catch((e: LaunchError) => e.code)) as string).toBe('launch.event_not_found');
+    expect((await launch.readBasis('test-open-launch', HOLDER_A).catch((e: LaunchError) => e.code)) as string).toBe(
+      'launch.event_not_found',
+    );
     await launch.moveEvent({ id: 'test-open-launch', to: 'announced', expectedRevision: 0, ...who, now: at(0.5) });
     expect(await launch.readBasis('test-open-launch', HOLDER_A)).toMatchObject({ basis: null, reason: 'snapshot_not_taken' });
 

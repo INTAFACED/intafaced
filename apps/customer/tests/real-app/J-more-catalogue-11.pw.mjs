@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { test, expect } from '@playwright/test';
 import { EDGE, ORIGIN, api, fund, journeyState } from './stack.mjs';
 import { signIn, signUp, verify } from './desk.mjs';
@@ -35,7 +36,7 @@ async function published(input = {}) {
 async function openCatalogue(page) {
   await page.goto('/launch');
   await expect(page.getByRole('heading', { name: 'Launch', level: 1 })).toBeVisible();
-  await expect(page.getByRole('tab', { name: 'Launches', selected: true })).toBeVisible();
+  await expect(page.getByRole('group', { name: 'Launch sections' }).getByRole('button', { name: 'Launches', pressed: true })).toBeVisible();
 }
 
 async function openLaunch(page, launch) {
@@ -49,8 +50,8 @@ test(`${J} #1 Opens /launch with no events: the full layout, filters and empty s
   run.reset({});
   expect(await published(), 'the stack must start with no published launch').toEqual([]);
   await openCatalogue(page);
-  for (const tab of ['Launches', 'Journey', 'Check', 'Requirements', 'Participation'])
-    await expect(page.getByRole('tab', { name: tab })).toBeVisible();
+  for (const section of ['Launches', 'Issuer journey', 'Pre-listing check', 'Requirements', 'My participation'])
+    await expect(page.getByRole('group', { name: 'Launch sections' }).getByRole('button', { name: section })).toBeVisible();
   await expect(page.getByRole('combobox', { name: 'Type' })).toBeVisible();
   await expect(page.getByRole('combobox', { name: 'State' })).toBeVisible();
   await expect(page.getByRole('heading', { name: 'No launch events yet' })).toBeVisible();
@@ -68,7 +69,10 @@ test(`${J} starts: signed in or out; one open and one past launch event exist`, 
   await verify(page, who);
   expect(fund(who.email, 'IFC', STAKE).tx).toBeTruthy();
   const client = await api(who);
-  const staked = await client.post('/api/token/trpc/stake', { amount: STAKE, tier: 'flex', stakeId: `${J}:stake:${tag}` });
+  // Name-based (version 5) uuid from the business key, so a retried step stakes once.
+  const hex = createHash('sha256').update(`${J}:stake:${tag}`).digest('hex');
+  const stakeId = `${hex.slice(0, 8)}-${hex.slice(8, 12)}-5${hex.slice(13, 16)}-8${hex.slice(17, 20)}-${hex.slice(20, 32)}`;
+  const staked = await client.post('/api/token/trpc/stake', { amount: STAKE, tier: 'flex', stakeId });
   expect(staked.status, JSON.stringify(staked.body).slice(0, 300)).toBe(200);
   expect(data(staked)).toMatchObject({ amount: STAKE, status: 'active' });
 

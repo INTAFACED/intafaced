@@ -11,7 +11,7 @@ import type { LaunchEvent } from './launch-service.js';
 /**
  * Who may take part in a launch (J-more-catalogue-11 #4): a requirements list, each item met or not, read per check.
  *
- * The rule is two owner values. A blank one refuses `launch.eligibility_unset`; nothing is defaulted:
+ * The rule is two owner values. A blank tier refuses `launch.min_kyc_tier_unset`, blank regions `launch.restricted_regions_unset`; nothing is defaulted:
  * - `TOKEN_LAUNCH_MIN_KYC_TIER`: the least identity verification (`none`, `basic`, `full`, `institutional`).
  * - `TOKEN_LAUNCH_RESTRICTED_REGIONS`: two-letter regions that may not take part, comma separated, or `none`.
  *
@@ -27,16 +27,22 @@ export interface EligibilityRule {
   restrictedRegions: readonly string[];
 }
 
-export function parseEligibilityRule(env: { TOKEN_LAUNCH_MIN_KYC_TIER?: string; TOKEN_LAUNCH_RESTRICTED_REGIONS?: string }): EligibilityRule {
+export function parseEligibilityRule(env: {
+  TOKEN_LAUNCH_MIN_KYC_TIER?: string;
+  TOKEN_LAUNCH_RESTRICTED_REGIONS?: string;
+}): EligibilityRule {
   const tier = env.TOKEN_LAUNCH_MIN_KYC_TIER?.trim() ?? '';
   const regions = env.TOKEN_LAUNCH_RESTRICTED_REGIONS?.trim() ?? '';
-  if (tier === '' || regions === '') throw new LaunchError('Who may take part is not set', 'launch.eligibility_unset');
-  if (!(KYC_TIERS as readonly string[]).includes(tier)) throw new LaunchError('TOKEN_LAUNCH_MIN_KYC_TIER is not a tier', 'launch.eligibility_unset');
+  // One typed code per owner value, so the refusal names which one is blank. A malformed value refuses as unset.
+  if (tier === '') throw new LaunchError('TOKEN_LAUNCH_MIN_KYC_TIER is not set', 'launch.min_kyc_tier_unset');
+  if (!(KYC_TIERS as readonly string[]).includes(tier))
+    throw new LaunchError('TOKEN_LAUNCH_MIN_KYC_TIER is not a tier', 'launch.min_kyc_tier_unset');
+  if (regions === '') throw new LaunchError('TOKEN_LAUNCH_RESTRICTED_REGIONS is not set', 'launch.restricted_regions_unset');
   let restrictedRegions: string[] = [];
   if (regions !== 'none') {
     restrictedRegions = regions.split(',').map((r) => r.trim());
     if (restrictedRegions.some((r) => !/^[A-Z]{2}$/.test(r))) {
-      throw new LaunchError('TOKEN_LAUNCH_RESTRICTED_REGIONS is not a list of two-letter regions', 'launch.eligibility_unset');
+      throw new LaunchError('TOKEN_LAUNCH_RESTRICTED_REGIONS is not a list of two-letter regions', 'launch.restricted_regions_unset');
     }
   }
   return { minKycTier: tier as KycTier, restrictedRegions };

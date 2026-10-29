@@ -138,14 +138,14 @@ const schema = serviceEnvSchema
       TOKEN_PROPOSAL_LIMIT: z.string().optional(),
 
       /**
-       * Who may take part in a launch. NO DEFAULT. Blank is `launch.eligibility_unset`.
+       * Who may take part in a launch. NO DEFAULT. Blank is `launch.min_kyc_tier_unset`.
        * The least identity verification: `none`, `basic`, `full` or `institutional`.
        */
       TOKEN_LAUNCH_MIN_KYC_TIER: z.string().optional(),
 
       /**
        * Regions that may not take part in a launch: two-letter codes, comma separated, or `none`.
-       * NO DEFAULT. Blank is `launch.eligibility_unset`.
+       * NO DEFAULT. Blank is `launch.restricted_regions_unset`.
        */
       TOKEN_LAUNCH_RESTRICTED_REGIONS: z.string().optional(),
 
