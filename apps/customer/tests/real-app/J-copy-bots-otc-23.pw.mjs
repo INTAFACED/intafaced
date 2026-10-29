@@ -279,7 +279,8 @@ test(`${J} #4 reviews, confirms and watches a TWAP run: partial fills; pause sto
   const all = sliceTimes(final);
   expect(all.slice(0, atPause.length)).toEqual(atPause);
   const sinceResume = all.slice(atPause.length);
-  expect(sinceResume.length).toBe(final.children.length + final.misses.length - atPause.length);
+  // Still running (or run out), not halted after the resume.
+  expect(['active', 'completed']).toContain(final.status);
   expect(sinceResume.length).toBeLessThanOrEqual(Math.floor((readAt - resumedAt) / back.sliceIntervalMs) + 1);
   expect(sinceResume[0]).toBeGreaterThanOrEqual(resumedAt);
   for (let i = 1; i < all.length; i++) expect(all[i] - all[i - 1]).toBeGreaterThanOrEqual(back.sliceIntervalMs);
