@@ -393,14 +393,18 @@ test(`${J} #5 opens the address page: summary, transactions, holdings with unpri
   await expect(page.getByTestId('address-past-balance')).toHaveText(new RegExp(`^0 at block ${forwardHeight - 1} \\(`));
 
   // "or "not indexed before block N"": a date before the TEST chain's first block names the first block the indexer
-  // holds, checked against the block list: block N is stored and the one before it is not.
+  // holds. Checked against the chain and the block list: block N was mined after that date, block N is stored, and no
+  // block before it is (block 0 is the chain's first block, so nothing precedes it).
   await at.fill('2026-01-01');
   await show.click();
   const notIndexed = page.getByTestId('address-past-balance');
   await expect(notIndexed).toHaveText(/^Not indexed before block \d+\.$/);
   const earliest = Number((await notIndexed.textContent()).match(/block (\d+)/)[1]);
+  const mined = (await reader.getBlock({ blockNumber: BigInt(earliest) })).timestamp;
+  expect(mined, `block ${earliest} was mined after 2026-01-01 ended`).toBeGreaterThan(BigInt(Date.UTC(2026, 0, 2) / 1000));
   expect(await blockIndexed(earliest), `block ${earliest} is indexed`).toBe(true);
-  if (earliest > 0) expect(await blockIndexed(earliest - 1), `block ${earliest - 1} is not indexed`).toBe(false);
+  const before = earliest === 0 ? 'no block before the first' : (await blockIndexed(earliest - 1)) ? 'indexed' : 'not indexed';
+  expect(before, `the block before ${earliest}`).not.toBe('indexed');
 });
 
 test(`${J} #6 adds a watch with a tag and a private note: listed for this person only, adding again changes nothing, another account cannot read it, and the page says the explorer holds no funds`, async ({

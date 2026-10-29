@@ -6,6 +6,8 @@ import {
   isTraceDeclined,
   readBlockInternal,
   TRACE_ATTEMPTS,
+  TRACE_GIVE_UP_MS,
+  TraceAttempts,
   TRACE_MALFORMED,
   TRACE_UNAVAILABLE,
 } from './internal-txs.js';
@@ -239,56 +241,110 @@ describe('readBlockInternal', () => {
     await expect(readBlockInternal(dead as never, block, [TX1], 'http://node.test')).rejects.toBeInstanceOf(ChainUnavailableError);
   });
 
-  it('stores a block as not traced after TRACE_ATTEMPTS timeouts or server errors, so a hostile block cannot stall ingest', async () => {
-    const failures = new Map<string, number>();
+  // A clock the test moves: giving up needs TRACE_ATTEMPTS failures spread over at least TRACE_GIVE_UP_MS.
+  const clock = () => {
+    let now = 1_000_000;
+    return { attempts: new TraceAttempts(() => now), pass: (ms: number) => (now += ms) };
+  };
+
+  it('stores a block as not traced after TRACE_ATTEMPTS timeouts or server errors over TRACE_GIVE_UP_MS, so a hostile block cannot stall ingest', async () => {
     const slow = {
       request: async () => {
         throw Object.assign(new Error('The request took too long to respond.'), { name: 'TimeoutError' });
       },
     };
-    for (let attempt = 1; attempt < TRACE_ATTEMPTS; attempt += 1) {
-      await expect(readBlockInternal(slow as never, block, [TX1], 'http://node.test', failures)).rejects.toBeInstanceOf(
-        ChainUnavailableError,
-      );
-      expect(failures.get(BLOCK)).toBe(attempt);
-    }
-    expect(await readBlockInternal(slow as never, block, [TX1], 'http://node.test', failures)).toEqual({
-      read: false,
-      reason: TRACE_UNAVAILABLE,
-    });
-    expect(failures.has(BLOCK)).toBe(false);
     const broken = {
       request: async () => {
         throw Object.assign(new Error('HTTP request failed.'), { status: 503 });
       },
     };
-    for (let attempt = 1; attempt < TRACE_ATTEMPTS; attempt += 1) {
-      await expect(readBlockInternal(broken as never, block, [TX1], 'http://node.test', failures)).rejects.toBeInstanceOf(
-        ChainUnavailableError,
-      );
+    for (const node of [slow, broken]) {
+      const { attempts, pass } = clock();
+      for (let attempt = 1; attempt < TRACE_ATTEMPTS; attempt += 1) {
+        await expect(readBlockInternal(node as never, block, [TX1], 'http://node.test', attempts)).rejects.toBeInstanceOf(
+          ChainUnavailableError,
+        );
+        expect(attempts.failures(BLOCK)).toBe(attempt);
+        pass(TRACE_GIVE_UP_MS / 2);
+      }
+      expect(await readBlockInternal(node as never, block, [TX1], 'http://node.test', attempts)).toEqual({
+        read: false,
+        reason: TRACE_UNAVAILABLE,
+      });
+      expect(attempts.failures(BLOCK)).toBe(0);
     }
-    expect(await readBlockInternal(broken as never, block, [TX1], 'http://node.test', failures)).toEqual({
-      read: false,
-      reason: TRACE_UNAVAILABLE,
-    });
   });
 
-  it('a success clears the count, and a rate limit is never counted', async () => {
-    const failures = new Map<string, number>([[BLOCK, TRACE_ATTEMPTS - 1]]);
+  it('a short outage gives up on nothing: many failures inside TRACE_GIVE_UP_MS keep the block waiting', async () => {
+    const { attempts, pass } = clock();
+    const outage = {
+      request: async () => {
+        throw Object.assign(new Error('HTTP request failed.'), { status: 502 });
+      },
+    };
+    for (let attempt = 1; attempt <= TRACE_ATTEMPTS * 10; attempt += 1) {
+      await expect(readBlockInternal(outage as never, block, [TX1], 'http://node.test', attempts)).rejects.toBeInstanceOf(
+        ChainUnavailableError,
+      );
+      pass(2_000);
+    }
+    expect(attempts.failures(BLOCK)).toBe(TRACE_ATTEMPTS * 10);
+    const ok = client({ trace_block: () => [] });
+    expect(await readBlockInternal(ok as never, block, [TX1], 'http://node.test', attempts)).toEqual({ read: true, calls: [] });
+    expect(attempts.failures(BLOCK)).toBe(0);
+  });
+
+  it('a rate limit is never counted, however long it lasts', async () => {
+    const { attempts, pass } = clock();
     const limited = {
       request: async () => {
         throw { code: -32005, message: 'limit exceeded' };
       },
     };
     for (let attempt = 0; attempt < TRACE_ATTEMPTS * 2; attempt += 1) {
-      await expect(readBlockInternal(limited as never, block, [TX1], 'http://node.test', failures)).rejects.toBeInstanceOf(
+      await expect(readBlockInternal(limited as never, block, [TX1], 'http://node.test', attempts)).rejects.toBeInstanceOf(
         ChainUnavailableError,
       );
+      pass(TRACE_GIVE_UP_MS);
     }
-    expect(failures.get(BLOCK)).toBe(TRACE_ATTEMPTS - 1);
-    const ok = client({ trace_block: () => [] });
-    expect(await readBlockInternal(ok as never, block, [TX1], 'http://node.test', failures)).toEqual({ read: true, calls: [] });
-    expect(failures.has(BLOCK)).toBe(false);
+    expect(attempts.failures(BLOCK)).toBe(0);
+  });
+
+  it('a block given up on, or declined, is not traced again when it is read again', async () => {
+    const { attempts, pass } = clock();
+    const broken = client({});
+    expect(await readBlockInternal(broken as never, block, [TX1], 'http://node.test', attempts)).toEqual({
+      read: false,
+      reason: TRACE_UNAVAILABLE,
+    });
+    const asked = broken.asked.length;
+    expect(await readBlockInternal(broken as never, block, [TX1], 'http://node.test', attempts)).toEqual({
+      read: false,
+      reason: TRACE_UNAVAILABLE,
+    });
+    expect(broken.asked).toHaveLength(asked);
+    const failing = {
+      asked: 0,
+      request: async () => {
+        failing.asked += 1;
+        throw Object.assign(new Error('HTTP request failed.'), { status: 503 });
+      },
+    };
+    const other = { hash: `0x${'d'.repeat(64)}`, height: 27 };
+    for (let attempt = 1; attempt < TRACE_ATTEMPTS; attempt += 1) {
+      await expect(readBlockInternal(failing as never, other, [TX1], 'http://node.test', attempts)).rejects.toThrow();
+      pass(TRACE_GIVE_UP_MS);
+    }
+    expect(await readBlockInternal(failing as never, other, [TX1], 'http://node.test', attempts)).toEqual({
+      read: false,
+      reason: TRACE_UNAVAILABLE,
+    });
+    const before = failing.asked;
+    expect(await readBlockInternal(failing as never, other, [TX1], 'http://node.test', attempts)).toEqual({
+      read: false,
+      reason: TRACE_UNAVAILABLE,
+    });
+    expect(failing.asked).toBe(before);
   });
 
   it('stores an answer too large to read as not traced at once', async () => {
@@ -306,13 +362,13 @@ describe('readBlockInternal', () => {
         throw { code: -32000, message: 'header not found' };
       },
     });
-    const failures = new Map<string, number>();
-    await expect(readBlockInternal(lagging as never, block, [TX1], 'http://node.test', failures)).rejects.toBeInstanceOf(
+    const attempts = new TraceAttempts();
+    await expect(readBlockInternal(lagging as never, block, [TX1], 'http://node.test', attempts)).rejects.toBeInstanceOf(
       ChainUnavailableError,
     );
-    expect(failures.get(BLOCK)).toBe(1);
+    expect(attempts.failures(BLOCK)).toBe(1);
     const empty = client({ trace_block: () => null });
-    await expect(readBlockInternal(empty as never, block, [TX1], 'http://node.test', new Map())).rejects.toBeInstanceOf(
+    await expect(readBlockInternal(empty as never, block, [TX1], 'http://node.test', new TraceAttempts())).rejects.toBeInstanceOf(
       ChainUnavailableError,
     );
     expect(isTraceDeclined({ code: -32000, message: 'unknown block' })).toBe(false);

@@ -4,7 +4,7 @@ import { assertValidBlock, type ChainBlock, type ChainHead, type ChainSource, ty
 import { decodeVenueLogs, type RawLog } from './decode.js';
 import { ChainUnavailableError, classifyChainError, isBlockNotFound, isZeroAddress } from './availability.js';
 import { lookupExplorerTx, readBlockTransactions, transactionHashes } from './explorer-txs.js';
-import { readBlockInternal } from './internal-txs.js';
+import { readBlockInternal, TraceAttempts } from './internal-txs.js';
 import { readAccount, readBalance, readTokenBalances } from './address-state.js';
 import { TOKEN_READS_PER_BLOCK, TokenMetaReader } from './token-meta.js';
 import { transferOf } from '../../explorer/address.js';
@@ -208,8 +208,8 @@ export class EvmChainSource implements ChainSource {
    */
   readonly #traceClient: PublicClient;
 
-  /** How many times in a row each block's trace has failed; past `TRACE_ATTEMPTS` the block is stored as not traced. */
-  readonly #traceFailures = new Map<string, number>();
+  /** Each block's failed traces, and the blocks stored as not traced (see `TraceAttempts`). */
+  readonly #traceAttempts = new TraceAttempts();
 
   constructor(config: EvmChainSourceConfig) {
     if (!config.rpcUrl) {
@@ -390,7 +390,7 @@ export class EvmChainSource implements ChainSource {
       { hash, height },
       transactions.map((tx) => tx.hash),
       this.rpcUrl,
-      this.#traceFailures,
+      this.#traceAttempts,
     );
 
     const block: ChainBlock = {

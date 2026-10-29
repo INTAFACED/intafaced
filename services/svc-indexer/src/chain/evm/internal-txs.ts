@@ -11,8 +11,8 @@ import type { ChainBlockInternal, ChainInternalCall } from '../source.js';
  * A node that will not trace the block (no such method, history gone, tracer timed out, an answer past the size cap) is
  * the node's answer, the same on every retry, so the block is stored as "trace not read" with a code, never held back: a
  * contract that makes its trace slow or huge cannot stall ingest. A rate limit throws, so the block is read again later.
- * Any other failure (a client timeout, a gateway 5xx, a cut-off answer) throws too, but only `TRACE_ATTEMPTS` times for
- * one block: then the block is stored as not traced and ingest moves on.
+ * Any other failure (a client timeout, a gateway 5xx, a cut-off answer) throws too, until it has happened `TRACE_ATTEMPTS`
+ * times over at least `TRACE_GIVE_UP_MS` for one block: then the block is stored as not traced and ingest moves on.
  */
 
 export const TRACE_UNAVAILABLE = 'indexer.trace_unavailable';
@@ -31,8 +31,59 @@ const NOT_SEEN_YET = /header not found|unknown block|block not found/i;
 /** Reads of one block's trace that fail without a node's answer, before the block is stored as not traced. */
 export const TRACE_ATTEMPTS = 3;
 
-/** Blocks still being counted at once; past it the counts start again, which only delays the bound. */
-const FAILURES_TRACKED = 1024;
+/**
+ * The least time between a block's first failed trace and giving up on it, so a short outage of the node's trace
+ * backend (a few seconds of 502s, or a node a few blocks behind) does not store blocks as not traced.
+ */
+export const TRACE_GIVE_UP_MS = 120_000;
+
+/** Blocks remembered at once, in each map below; past it the oldest is forgotten. */
+const TRACES_TRACKED = 1024;
+
+/**
+ * A block's failed trace attempts, and the blocks given up on. A given-up block is answered from here when it is read
+ * again (the head check and the fork walk re-read blocks), so it is not traced again from a fresh count.
+ */
+export class TraceAttempts {
+  readonly #failing = new Map<string, { count: number; since: number }>();
+  readonly #givenUp = new Map<string, ChainBlockInternal>();
+  constructor(private readonly now: () => number = Date.now) {}
+
+  givenUp(hash: string): ChainBlockInternal | undefined {
+    return this.#givenUp.get(hash);
+  }
+
+  /** The node answered. A block it declined to trace is remembered like one given up on: it would decline again. */
+  answered(hash: string, answer: ChainBlockInternal): void {
+    this.#failing.delete(hash);
+    if (!answer.read) remember(this.#givenUp, hash, answer);
+  }
+
+  /** Records one failure; true when the block has failed `TRACE_ATTEMPTS` times over at least `TRACE_GIVE_UP_MS`. */
+  failed(hash: string): boolean {
+    const now = this.now();
+    const prior = this.#failing.get(hash);
+    const entry = { count: (prior?.count ?? 0) + 1, since: prior?.since ?? now };
+    if (entry.count >= TRACE_ATTEMPTS && now - entry.since >= TRACE_GIVE_UP_MS) {
+      this.#failing.delete(hash);
+      remember(this.#givenUp, hash, { read: false, reason: TRACE_UNAVAILABLE });
+      return true;
+    }
+    remember(this.#failing, hash, entry);
+    return false;
+  }
+
+  /** How many times the block has failed so far, for tests. */
+  failures(hash: string): number {
+    return this.#failing.get(hash)?.count ?? 0;
+  }
+}
+
+function remember<V>(map: Map<string, V>, key: string, value: V): void {
+  map.delete(key);
+  if (map.size >= TRACES_TRACKED) map.delete(map.keys().next().value as string);
+  map.set(key, value);
+}
 
 function causes(err: unknown): unknown[] {
   const out: unknown[] = [];
@@ -248,22 +299,17 @@ export async function readBlockInternal(
   block: { hash: string; height: number },
   txHashes: readonly string[],
   rpcUrl: string,
-  failures: Map<string, number> = new Map(),
+  attempts: TraceAttempts = new TraceAttempts(),
 ): Promise<ChainBlockInternal> {
   if (txHashes.length === 0) return { read: true, calls: [] };
+  const decided = attempts.givenUp(block.hash);
+  if (decided) return decided;
   try {
     const answer = await traceBlock(client, block, txHashes, rpcUrl);
-    failures.delete(block.hash);
+    attempts.answered(block.hash, answer);
     return answer;
   } catch (err) {
-    if (isRateLimited(err)) throw err;
-    const failed = (failures.get(block.hash) ?? 0) + 1;
-    if (failed < TRACE_ATTEMPTS) {
-      if (!failures.has(block.hash) && failures.size >= FAILURES_TRACKED) failures.clear();
-      failures.set(block.hash, failed);
-      throw err;
-    }
-    failures.delete(block.hash);
+    if (isRateLimited(err) || !attempts.failed(block.hash)) throw err;
     return { read: false, reason: TRACE_UNAVAILABLE };
   }
 }

@@ -1102,6 +1102,9 @@ async function writeExplorerTxs(sql: TransactionSql, chainId: number, block: Cha
  * D-explorer-03. The block's internal value moves, and whether the node traced it at all. The calls belong to their
  * transaction rows (written just above) and cascade with them; the trace row belongs to the block.
  */
+/** 7 parameters a row: 5000 rows stay well under the 65534 one statement can carry. */
+const INTERNAL_ROWS_PER_INSERT = 5000;
+
 async function writeExplorerInternal(sql: TransactionSql, chainId: number, block: ChainBlock): Promise<void> {
   // A source that reads no trace still says so for a block holding transactions, so the address page names its gap.
   const internal =
@@ -1117,7 +1120,11 @@ async function writeExplorerInternal(sql: TransactionSql, chainId: number, block
       to_address: call.to.toLowerCase(),
       value_wei: call.valueWei.toString(),
     }));
-    await sql`INSERT INTO explorer_internal_txs ${sql(rows, 'chain_id', 'tx_hash', 'path', 'kind', 'from_address', 'to_address', 'value_wei')}`;
+    // Chunked: one statement carries at most 65534 parameters, and a block can hold more value moves than that allows.
+    for (let at = 0; at < rows.length; at += INTERNAL_ROWS_PER_INSERT) {
+      const chunk = rows.slice(at, at + INTERNAL_ROWS_PER_INSERT);
+      await sql`INSERT INTO explorer_internal_txs ${sql(chunk, 'chain_id', 'tx_hash', 'path', 'kind', 'from_address', 'to_address', 'value_wei')}`;
+    }
   }
   await sql`
     INSERT INTO explorer_block_traces (chain_id, block_hash, traced, reason)

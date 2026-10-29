@@ -750,6 +750,13 @@ describe('svc-indexer · PostgresProjectionStore PG-hard', () => {
       expect(await store.explorerBlockBefore(new Date(1_700_000_011_000))).toEqual({ height: 1, timestamp: 1_700_000_010 });
       expect(await store.explorerBlockBefore(new Date(1_700_000_000_000))).toBeNull();
       expect(await store.explorerBlockBefore(new Date(1_800_000_000_000))).toEqual({ height: 5, timestamp: 1_700_000_050 });
+
+      // A block with more value moves than one statement's 65534 parameters can carry (7 a row) is written whole.
+      const t5 = h(0xa5);
+      const many = Array.from({ length: 9_500 }, (_, i) => ({ ...toMe(t5, String(i), 1n), to: other }));
+      await store.applyBlock(block(6, h(8), h(7), { transactions: [chainTx(t5, 0)], internal: { read: true, calls: many } }));
+      const [written] = await db.sql<Array<{ n: number }>>`SELECT COUNT(*)::int AS n FROM explorer_internal_txs WHERE tx_hash = ${t5}`;
+      expect(written?.n).toBe(9_500);
     });
 
     it('refuses parent mismatch and height gaps without moving head', async () => {
