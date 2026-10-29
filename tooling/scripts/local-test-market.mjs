@@ -613,7 +613,7 @@ function parseArgs(argv) {
     else if (!a.startsWith('--'))
       // Failure it prevents: `pnpm local:market status` used to be `start status` and started a second copy.
       die(
-        `unexpected argument "${a}". Commands: start | stop | status | ensure | check | history (for example: pnpm local:market ${a})`,
+        `unexpected argument "${a}". Commands: start | stop | status | ensure | check | history | move (for example: pnpm local:market ${a})`,
         2,
       );
   }
@@ -735,6 +735,8 @@ async function runLoop(opts, home) {
   const crossings = new Map();
   /** The maker's resting quote ids per market, from the cycle before. */
   const quoted = new Map();
+  /** The `move` shift each walked market was last quoted at, so a changed shift is quoted as a clean jump. */
+  const quotedShift = new Map();
   const place = (client, m, side, price, amount, tif) =>
     m.swap
       ? acceptedTier(m).then((tier) => placeFutures(client, m, side, price, amount, `LTEST-${runId}-${(counter += 1)}`, tier))
@@ -744,7 +746,12 @@ async function runLoop(opts, home) {
           side,
           amount,
           price,
-          ...(tif === 'IOC' ? { timeInForce: 'IOC' } : { timeInForce: 'GTC', postOnly: true }),
+          // `GTC-TAKE` is a `move`'s jump: the new ladder trades through whatever rests in its path, as a real jump would.
+          ...(tif === 'IOC'
+            ? { timeInForce: 'IOC' }
+            : tif === 'GTC-TAKE'
+              ? { timeInForce: 'GTC' }
+              : { timeInForce: 'GTC', postOnly: true }),
           clientOrderId: `LTEST-${runId}-${(counter += 1)}`,
         });
 
@@ -790,12 +797,29 @@ async function runLoop(opts, home) {
         if (open.status === 200 && rows && rows.length < 100) previous = rows.map((o) => o.id);
         else await maker.http('DELETE', `/api/v1/orders?symbol=${encodeURIComponent(m.symbol)}`);
       }
+      // A `move` is a jump: the old ladder comes down before the new one goes up. Overlapped, the old bids and the new
+      // asks would stand together and the book's mid would sit halfway, a price the jump never quoted (failure it
+      // prevents: a grid bot read that mid as in range and bought levels the market then left behind). The jump's quotes
+      // may take: post-only, they were refused by any order resting in the path and the price never got there.
+      const shift = leader ? undefined : (shifts.get(m.symbol) ?? 0n);
+      const jump = shift !== undefined && quotedShift.has(m.symbol) && quotedShift.get(m.symbol) !== shift;
+      if (jump && previous?.length) {
+        const left = [];
+        for (const id of previous) {
+          const r = m.swap
+            ? await maker.http('DELETE', `/api/v1/futures/orders/${encodeURIComponent(id)}`)
+            : await maker.http('DELETE', `/api/v1/orders/${encodeURIComponent(id)}?symbol=${encodeURIComponent(m.symbol)}`);
+          if (r.status >= 300 && r.status !== 404 && r.status !== 409) left.push(id);
+        }
+        previous = left;
+      }
+      if (shift !== undefined) quotedShift.set(m.symbol, shift);
       const ids = [];
       let refused = null;
       for (const q of ladder) {
         // A new post-only quote can meet one of the maker's own old quotes when the walk jumps; it is refused and
         // that level is quoted again next cycle.
-        const r = await place(maker, m, q.side, q.price, q.amount, 'GTC');
+        const r = await place(maker, m, q.side, q.price, q.amount, jump ? 'GTC-TAKE' : 'GTC');
         if (r.status === 201 && r.json?.id) ids.push(r.json.id);
         else if (m.swap && r.status === 200 && r.json?.orderId && LIVE_FUTURES.has(r.json.status)) ids.push(r.json.orderId);
         else refused = `${r.status} ${(r.json?.intafacedCode ?? r.json?.code ?? r.json?.error ?? r.text).toString().slice(0, 120)}`;
@@ -1345,7 +1369,8 @@ async function startBackground(p, args, { wait }) {
 
 async function main() {
   const [cmd = 'start', ...rest] = process.argv.slice(2);
-  const opts = parseArgs(rest.filter((a) => a !== '__run'));
+  // `move` takes two positionals (symbol, percent) before any option.
+  const opts = parseArgs(rest.slice(cmd === 'move' ? 2 : 0).filter((a) => a !== '__run'));
   let guard;
   try {
     guard = assertLocalTarget({ urls: [opts.edge] });

@@ -34,11 +34,11 @@ export async function signUp(page, prefix) {
   return who;
 }
 
-/** The signed-in person asks for full verification; the stack's two TEST operators approve it through identity's own
- * door. The cookies are cleared after, so the next sign-in carries the new tier. */
-export async function verify(page, who) {
+/** The signed-in person asks for a verification level (Full unless named); the stack's two TEST operators approve it
+ * through identity's own door. The cookies are cleared after, so the next sign-in carries the new tier. */
+export async function verify(page, who, level = 'Full') {
   await page.goto('/verification');
-  await page.getByLabel('Level to request').selectOption({ label: 'Full' });
+  await page.getByLabel('Level to request').selectOption({ label: level });
   await page.getByLabel('Country code').fill('DE');
   await page.getByRole('button', { name: 'Review request' }).click();
   await page.getByRole('button', { name: 'Submit this request' }).click();
@@ -46,7 +46,7 @@ export async function verify(page, who) {
   tool('local-test-gates.mjs', 'verify');
   const status = tool('local-test-gates.mjs', 'status');
   const accounts = JSON.parse(status.slice(status.indexOf('{'))).accounts;
-  expect(accounts.find((a) => a.handle === who.handle)?.tiers).toContain('full');
+  expect(accounts.find((a) => a.handle === who.handle)?.tiers).toContain(level.toLowerCase());
   await signOutBrowser(page.context());
 }
 
