@@ -8,10 +8,16 @@
  */
 
 import { randomUUID } from 'node:crypto';
-import { parseAmount, type Amount, type LedgerClient } from '@intafaced/ledger-client';
+import { formatAmount, mul, parseAmount, type Amount, type LedgerClient } from '@intafaced/ledger-client';
 import type { Principal } from '@intafaced/auth';
 import { otcSettleIdsFor } from '../spot/ids.js';
-import { otcDeskLawStatusLine, requirePublishedOtcDeskLaw, type OtcDeskLaw, UNPUBLISHED_OTC_DESK_LAW } from './desk-law.js';
+import {
+  otcDeskLawStatusLine,
+  otcMinNotionalFor,
+  requirePublishedOtcDeskLaw,
+  type OtcDeskLaw,
+  UNPUBLISHED_OTC_DESK_LAW,
+} from './desk-law.js';
 import { logRefusalSpec } from '../refusal-spec-log.js';
 import { OTC_DESK_LAW_RESIDUAL, OtcError, RFQ_ALLOCATION_RESIDUAL, RFQ_GIVE_UP_RESIDUAL } from './errors.js';
 import { otcMakerRoutingStatus, OTC_MAKER_ROUTING_RESIDUAL } from './maker-routing.js';
@@ -218,6 +224,16 @@ export class OtcDeskService {
       );
     }
     const midPrice = parseOtcMidPrice(String(sourced.mid));
+
+    // CB-otc-07: the desk minimum is notional at the desk's own mid, in the quote asset, from published law only.
+    // Checked before anything is built or saved, so a refused request records no quote.
+    const minNotional = otcMinNotionalFor(law, quoteAsset);
+    if (minNotional == null) {
+      throw new OtcError(`The desk minimum for ${quoteAsset} requests is not set — the request refuses`, 'trade.rfq_size_not_set');
+    }
+    if (mul(midPrice, qty, 'floor') < minNotional) {
+      throw new OtcError(`Below the desk minimum of ${formatAmount(minNotional)} ${quoteAsset}`, 'trade.rfq_below_minimum');
+    }
 
     let counterpartyId: string;
     if (law.counterparty === 'platform') {

@@ -20,6 +20,8 @@ const published: OtcDeskLaw = {
   counterparty: 'platform',
   quoteTtlMs: 60_000,
   maxMidAgeSeconds: 60,
+  // A zero desk minimum is an owner value: these quotes are not held by the CB-otc-07 minimum.
+  minNotional: { USDT: 0n },
 };
 
 /** Fresh observed mid — standing in for a live TRADE_OTC_MIDS / feed. */
@@ -63,6 +65,54 @@ describe('OtcDeskService', () => {
     });
     await expect(svc.quote(principal, { side: 'buy', baseAsset: 'BTC', quoteAsset: 'USDT', qty: '1' })).rejects.toMatchObject({
       code: 'trade.otc_stake_gate',
+    });
+  });
+
+  describe('desk minimum (CB-otc-07)', () => {
+    /** A store that counts writes, so a refusal is shown to record no quote. */
+    class CountingStore extends MemoryOtcQuoteStore {
+      saved = 0;
+      override async saveOpen(...args: Parameters<MemoryOtcQuoteStore['saveOpen']>) {
+        this.saved += 1;
+        return super.saveOpen(...args);
+      }
+    }
+    const desk = (minNotional: Extract<OtcDeskLaw, { published: true }>['minNotional']) => {
+      const now = new Date('2026-08-07T12:00:00.000Z');
+      const store = new CountingStore();
+      const svc = new OtcDeskService(new MemoryLedger(), new FixedOtcStake(parseAmount('1000')), {
+        law: { ...published, minNotional },
+        midSource: freshMids(() => now),
+        now: () => now,
+        store,
+      });
+      return { svc, store };
+    };
+
+    it('given notional 500 below a 1000 minimum, refuses trade.rfq_below_minimum naming the minimum, and records nothing', async () => {
+      const { svc, store } = desk({ USDT: parseAmount('1000') });
+      // 2.5 BTC at the mid of 200 is 500 USDT.
+      const refused = svc.quote(principal, { side: 'buy', baseAsset: 'BTC', quoteAsset: 'USDT', qty: '2.5' });
+      await expect(refused).rejects.toBeInstanceOf(OtcError);
+      await expect(refused).rejects.toMatchObject({ code: 'trade.rfq_below_minimum', message: 'Below the desk minimum of 1000 USDT' });
+      expect(store.saved).toBe(0);
+    });
+
+    it('at exactly the minimum the desk prices', async () => {
+      const { svc, store } = desk({ USDT: parseAmount('1000') });
+      const quote = await svc.quote(principal, { side: 'buy', baseAsset: 'BTC', quoteAsset: 'USDT', qty: '5' });
+      expect(quote.quoteId).toBeTruthy();
+      expect(store.saved).toBe(1);
+    });
+
+    it('a blank minimum for the quote asset refuses trade.rfq_size_not_set, and records nothing', async () => {
+      for (const minNotional of [null, undefined, { EUR: parseAmount('1') }]) {
+        const { svc, store } = desk(minNotional);
+        await expect(svc.quote(principal, { side: 'buy', baseAsset: 'BTC', quoteAsset: 'USDT', qty: '100' })).rejects.toMatchObject({
+          code: 'trade.rfq_size_not_set',
+        });
+        expect(store.saved).toBe(0);
+      }
     });
   });
 
