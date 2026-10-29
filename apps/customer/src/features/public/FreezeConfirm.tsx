@@ -7,7 +7,7 @@ import { freezeConfirmCopy } from './freeze-confirm-copy';
 import './public-pages.css';
 
 type Refusal = Extract<ApiResult<unknown>, { ok: false }>;
-type Done = { since: string; firstUse: boolean };
+type Done = { since: string; firstUse: boolean; frozenNow: boolean };
 
 /**
  * /freeze/confirm?token=… : the page a security notice's freeze link opens (I-account-lifecycle-08, J-identity-11 #2).
@@ -39,7 +39,7 @@ export function FreezeConfirm() {
     const answer = await api.mutate('identity', 'freezeLink.redeem', { token }, freezeLinkRedeemSchema);
     if (!mounted.current) return;
     setBusy(false);
-    if (answer.ok) setDone({ since: answer.data.since, firstUse: answer.data.firstUse });
+    if (answer.ok) setDone({ since: answer.data.since, firstUse: answer.data.firstUse, frozenNow: answer.data.frozenNow });
     else setRefusal(answer);
   }
 
@@ -51,8 +51,9 @@ export function FreezeConfirm() {
         <h1>{done ? (done.firstUse ? t('doneTitle') : t('usedTitle')) : dead ? t('deadTitle') : t('title')}</h1>
       </header>
       {done ? (
-        <p role="status" data-testid="freeze-link-result" data-first-use={String(done.firstUse)}>
+        <p role="status" data-testid="freeze-link-result" data-first-use={String(done.firstUse)} data-frozen-now={String(done.frozenNow)}>
           {done.firstUse ? t('doneBody') : t('usedBody')} <time dateTime={done.since}>{new Date(done.since).toUTCString()}</time>.{' '}
+          {done.frozenNow ? null : <>{t('liftedNow')} </>}
           <a className="text-link" href="/login">
             {t('signIn')}
           </a>
