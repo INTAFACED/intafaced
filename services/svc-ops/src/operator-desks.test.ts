@@ -258,5 +258,12 @@ describe('founder custody / restore / alerts desks', () => {
       code: 'PRECONDITION_FAILED',
       message: expect.stringContaining(OPS_ALERT_STORAGE_UNCONFIGURED),
     });
+    const endsAt = new Date(Date.now() + 3_600_000).toISOString();
+    await expect(writer.alerts.snooze({ alertId, endsAt, idempotencyKey: 'alert-key-2' })).rejects.toMatchObject({
+      message: expect.stringContaining(OPS_ALERT_STORAGE_UNCONFIGURED),
+    });
+    await expect(writer.alerts.unsnooze({ alertId, idempotencyKey: 'alert-key-3' })).rejects.toMatchObject({
+      message: expect.stringContaining(OPS_ALERT_STORAGE_UNCONFIGURED),
+    });
   });
 });
