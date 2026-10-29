@@ -16,6 +16,7 @@ import {
   buildLadder,
   createPriceWalk,
   crossingSide,
+  cycleMids,
   crossesOn,
   fromScaled,
   TAPE_CLIENT_PREFIX,
@@ -144,6 +145,28 @@ const b = createPriceWalk({ ...cfg, seed: '7' });
 a.advance(40);
 assert.equal(b.advance(40), a.current());
 assert.equal(b.next(), a.next());
+// A follower is quoted at its leader's mid of the same cycle, even after `history` moved only the leader's walk on
+// (failure it prevents: the TEST perp walked the spot series 420 steps behind, its bids sat more than the 50 bps
+// market-open cap under the mark, and J-derivatives-03 #9's reverse open went unfilled on runs 640 and 641).
+{
+  const perp = { symbol: 'BTC/USDT:USDT' };
+  const spot = { symbol: 'BTC/USDT' };
+  const walks = new Map([
+    [spot.symbol, createPriceWalk({ ...cfg, seed: '1013' })],
+    [perp.symbol, createPriceWalk({ ...cfg, seed: '1013' })],
+  ]);
+  walks.get(spot.symbol).advance(420);
+  for (let cycle = 0; cycle < 200; cycle += 1) {
+    const mids = cycleMids([perp, spot], walks);
+    assert.equal(mids.get(perp.symbol), mids.get(spot.symbol));
+    assert.equal(mids.get(spot.symbol), walks.get(spot.symbol).current());
+  }
+  // Its leader not quoted in this run: the follower walks on its own.
+  const alone = new Map([[perp.symbol, createPriceWalk({ ...cfg, seed: '1013' })]]);
+  const before = alone.get(perp.symbol).steps;
+  assert.equal(cycleMids([perp], alone).get(perp.symbol), alone.get(perp.symbol).current());
+  assert.equal(alone.get(perp.symbol).steps, before + 1);
+}
 
 // 8. The ladder: bids below mid and asks above, on the tick grid, strictly ordered, sized above the market minimums.
 const ladder = buildLadder({

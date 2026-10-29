@@ -212,7 +212,8 @@ export const TEST_PRICES = {
   // The labelled TEST spot market with no dollar side (`local-test-gates.mjs apply` lists it). Notional is in BTC.
   'ETH/BTC': { start: '0.04', notional: '0.05' },
   // The labelled TEST perpetual (`local-test-gates.mjs futures` lists it). Its mark comes from the BTC/USDT book
-  // (TRADE_FUTURES_INDEX_SPOT_MARKETS), so its quotes walk the same series and stay inside the band around that mark.
+  // (TRADE_FUTURES_INDEX_SPOT_MARKETS), so it is quoted around that book's own mid each cycle (`cycleMids`) and stays
+  // inside the band and the market-open slippage cap around that mark.
   // Quotes go through the futures book; no crossings by test_taker, whose account carries no futures terms.
   'BTC/USDT:USDT': { start: '65000', notional: '3000', follows: 'BTC/USDT', cross: false },
   'XAU/USD': { start: '2650', notional: '3000' },
@@ -221,6 +222,28 @@ export const TEST_PRICES = {
   'BRENT/USD': { start: '76', notional: '1500' },
   'NATGAS/USD': { start: '2.8', notional: '1500' },
 };
+/**
+ * Each market's mid for one quoting cycle (exported for tests). A market that follows another quoted here takes that
+ * market's mid of the same cycle, never a walk of its own: `history` advances only the spot walks (hundreds of steps),
+ * so a follower walking the same series from its own step count sat at an unrelated point of it, up to about 1% from
+ * the book that marks it (failure it prevents: J-derivatives-03 #9 on main runs 640 and 641, the reverse's market open
+ * found no bid within the 50 bps slippage cap of the mark and ended `closed_only`, unfilled). A follower whose leader
+ * is not quoted in this run walks on its own.
+ */
+export function cycleMids(markets, walks, prices = TEST_PRICES) {
+  const mids = new Map();
+  const leads = (m) => {
+    const follows = prices[m.symbol]?.follows;
+    return follows && walks.has(follows) ? follows : null;
+  };
+  for (const m of markets) if (!leads(m)) mids.set(m.symbol, walks.get(m.symbol).next());
+  for (const m of markets) {
+    const follows = leads(m);
+    if (follows) mids.set(m.symbol, mids.get(follows));
+  }
+  return mids;
+}
+
 const DEFAULT_SYMBOLS = ['BTC/USDT', 'BTC/USDC', 'ETH/USDT', 'ETH/USDC', 'IFC/USDT', 'ETH/BTC', 'BTC/USDT:USDT'];
 // Funded to this level by `local:fund` (real ledger deposits, LOCAL-TEST- rail refs); the taker gets a tenth.
 const FUND_TO = {
@@ -660,9 +683,9 @@ async function runLoop(opts, home) {
 
   while (!STOP.requested) {
     cycle += 1;
+    const mids = cycleMids(markets, walks);
     for (const m of markets) {
-      const walk = walks.get(m.symbol);
-      const mid = walk.next();
+      const mid = mids.get(m.symbol);
       const cfg = TEST_PRICES[m.symbol];
       const ladder = buildLadder({
         mid,
