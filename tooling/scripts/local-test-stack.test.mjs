@@ -116,6 +116,32 @@ const script = resolve(here, 'local-test-stack.mjs');
   console.log('local-test-stack: ledger can start with an unreachable outside snapshot');
 }
 
+// `LOCAL_STACK_MINING_POOL_PUBLISHED=off` starts the pool with every LOCAL TEST owner value blank (J-more-catalogue-05 #1, #2),
+// and nothing else changes.
+{
+  const { localTestServiceEnvs } = await import('./local-test-stack.mjs');
+  const poolEnv = () => localTestServiceEnvs().find((service) => service.name === 'mining-pool').env;
+  const before = process.env.LOCAL_STACK_MINING_POOL_PUBLISHED;
+  try {
+    delete process.env.LOCAL_STACK_MINING_POOL_PUBLISHED;
+    const on = poolEnv();
+    assert.ok(on.MINING_POOL_HOST);
+    process.env.LOCAL_STACK_MINING_POOL_PUBLISHED = 'off';
+    const off = poolEnv();
+    assert.equal(
+      Object.keys(off).some((key) => key.startsWith('MINING_')),
+      false,
+    );
+    assert.deepEqual(off, Object.fromEntries(Object.entries(on).filter(([key]) => !key.startsWith('MINING_'))));
+    process.env.LOCAL_STACK_MINING_POOL_PUBLISHED = 'OFF';
+    assert.throws(poolEnv, /LOCAL_STACK_MINING_POOL_PUBLISHED is "OFF"/);
+  } finally {
+    if (before === undefined) delete process.env.LOCAL_STACK_MINING_POOL_PUBLISHED;
+    else process.env.LOCAL_STACK_MINING_POOL_PUBLISHED = before;
+  }
+  console.log('local-test-stack: the mining pool can start with nothing published');
+}
+
 // The bank process carries its BK-xfer-07 TEST values from the bank profile, verbatim, so a global send on this
 // stack meets the same payee list, exchange allowance and proof limits as CX-8 instead of the unset refusals.
 {

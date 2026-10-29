@@ -1,5 +1,5 @@
-/** Reads a file as base64 without its data-URL prefix, for an upload sent inside a JSON body. */
-export function base64Of(file: File): Promise<string> {
+/** Reads a file (or a captured frame) as base64 without its data-URL prefix, for an upload sent inside a JSON body. */
+export function base64Of(file: Blob): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onerror = () => reject(reader.error);
