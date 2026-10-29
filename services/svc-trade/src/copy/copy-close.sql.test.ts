@@ -23,6 +23,7 @@ import { readyMarket } from '../spot/testing.js';
 import { TradeError, type Market } from '../spot/types.js';
 import { SqlMirrorEventLog } from './mirror-events.js';
 import { recordCopySkip } from './skip-log.js';
+import type { LeaderFill } from './copy-service.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const drizzle = join(here, '..', '..', 'drizzle');
@@ -135,7 +136,7 @@ describe('copy.closePosition on Postgres (CB-copy-10)', () => {
     `;
   }
 
-  function harness(opts: { fail?: () => Error | null } = {}) {
+  function harness(opts: { fail?: () => Error | null; leaderFills?: LeaderFill[] } = {}) {
     const ledger = new MemoryLedger();
     const store = new SqlCopyFollowStore(db!.sql);
     const calls: PlaceFollowerOrderInput[] = [];
@@ -167,6 +168,7 @@ describe('copy.closePosition on Postgres (CB-copy-10)', () => {
       store,
       sql: db!.sql,
       placeFollowerOrder: place,
+      lookupLeaderFill: async (fillId) => opts.leaderFills?.find((f) => f.fillId === fillId) ?? null,
       copyClose: createCopyClosePort({ sql: db!.sql, placeFollowerOrder: place, ...priceDeps }),
       flattenCopyPosition: createFollowerFlattenPort({ sql: db!.sql, ledger, store, placeFollowerOrder: place, ...priceDeps }),
     });
@@ -308,6 +310,71 @@ describe('copy.closePosition on Postgres (CB-copy-10)', () => {
     await fillOrder(closed.orderId, '0.2');
     await box.copy.flatten(principal, { followId });
     expect(box.calls.map((c) => formatAmount(c.qty))).toEqual(['0.2', '0.3']);
+  });
+
+  /** The leader's sell of 0.5 BTC on the follow's market. */
+  const leaderSell = (fillId: string): LeaderFill => ({
+    fillId,
+    userId: LEADER,
+    marketId: 'BTC-USDT',
+    side: 'sell',
+    qty: parseAmount('0.5'),
+    notional: parseAmount('50'),
+  });
+  const planSell = (copy: CopyService, followId: string, fillId: string) =>
+    copy.planMirrorForFollow(principal, { followId, fillId, marketId: 'BTC-USDT', side: 'sell', qty: '0.5', notional: '50' });
+
+  it("after Close on an active follow, no leader sell moves the follower's own holdings", async () => {
+    const box = harness({ leaderFills: [leaderSell('lead-sell-after-close')] });
+    const followId = await follow(box.copy);
+    await box.copy.grantSessionKey(principal, { followId });
+    await box.ledger.post(
+      recipes.deposit({ userId: FOLLOWER, assetId: 'BTC', amount: parseAmount('2'), rail: 'test', railRef: 'btc-own' }),
+    );
+    const bought = await filledOrder({ followId, side: 'buy', qty: '0.5', at: '2026-10-24T08:00:01Z' });
+    const closed = await box.copy.closePosition(principal, { followId, positionId: bought.orderId });
+    await fillOrder(closed.orderId, '0.5');
+    const holdings = await box.ledger.balances('user', FOLLOWER);
+    const sells = await db!.sql`SELECT id FROM trade.orders WHERE side = 'sell' ORDER BY id`;
+
+    await expect(planSell(box.copy, followId, 'lead-sell-after-close')).rejects.toMatchObject({ code: 'trade.copy_position_closed' });
+    // Only the follower's own close was ever placed; no sell order was added and the ledger reads the same, exactly.
+    expect(box.calls).toHaveLength(1);
+    expect(await db!.sql`SELECT id FROM trade.orders WHERE side = 'sell' ORDER BY id`).toEqual(sells);
+    expect(await box.ledger.balances('user', FOLLOWER)).toEqual(holdings);
+    expect(
+      holdings.filter((b) => b.account.assetId === 'BTC' && b.account.kind === 'available').map((b) => formatAmount(b.amount)),
+    ).toEqual(['2']);
+  });
+
+  it('a leader sell planned while the copy was open is refused at place once the follower closed it: nothing is sold', async () => {
+    const box = harness({ leaderFills: [leaderSell('lead-sell-planned')] });
+    const followId = await follow(box.copy);
+    await box.copy.grantSessionKey(principal, { followId });
+    const bought = await filledOrder({ followId, side: 'buy', qty: '0.5', at: '2026-10-24T08:00:01Z' });
+    expect(await planSell(box.copy, followId, 'lead-sell-planned')).toMatchObject({ side: 'sell', qty: '0.5' });
+
+    const closed = await box.copy.closePosition(principal, { followId, positionId: bought.orderId });
+    await fillOrder(closed.orderId, '0.5');
+    await expect(
+      box.copy.placeMirrorForFollow(principal, { followId, fillId: 'lead-sell-planned', leaderPaper: false }),
+    ).rejects.toMatchObject({
+      code: 'trade.copy_position_closed',
+    });
+    expect(box.calls).toHaveLength(1);
+    expect(
+      await db!.sql`SELECT 1 FROM trade.copy_placed_mirrors WHERE follow_id = ${followId} AND fill_id = 'lead-sell-planned'`,
+    ).toHaveLength(0);
+  });
+
+  it('after a part is closed, a leader sell on an active follow is capped at what the copy still holds open', async () => {
+    const box = harness({ leaderFills: [leaderSell('lead-sell-part')] });
+    const followId = await follow(box.copy);
+    const bought = await filledOrder({ followId, side: 'buy', qty: '0.5', at: '2026-10-24T08:00:01Z' });
+    const closed = await box.copy.closePosition(principal, { followId, positionId: bought.orderId, qty: '0.2' });
+    await fillOrder(closed.orderId, '0.2');
+
+    expect(await planSell(box.copy, followId, 'lead-sell-part')).toMatchObject({ side: 'sell', qty: '0.3' });
   });
 
   it('keeps one skip row per follow and leader fill on Postgres, newest first', async () => {

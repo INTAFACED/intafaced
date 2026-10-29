@@ -150,7 +150,7 @@ export function CopiedPositions({ follow, api, guard }: { follow: Follow; api: R
                 <AlertDialogTitle>{t('Close this position?')}</AlertDialogTitle>
                 <AlertDialogDescription>
                   {isZero(closing.open)
-                    ? t('The close of {amount} in {market} has not settled yet. Closing again sends that same order, never a second one.', {
+                    ? t('The close of {amount} in {market} is still settling. Closing again sends that same order, never a second one.', {
                         amount: displayAmount(closing.closing),
                         market: closing.market,
                       })

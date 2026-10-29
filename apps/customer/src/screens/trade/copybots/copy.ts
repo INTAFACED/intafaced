@@ -407,8 +407,8 @@ const messages = {
   'The bot trades with your real balance on this market. Each slice is an ordinary order.':
     'The bot trades with your real balance on this market. Each slice is an ordinary order.',
   'The bot was created. It is in My bots.': 'The bot was created. It is in My bots.',
-  'The close of {amount} in {market} has not settled yet. Closing again sends that same order, never a second one.':
-    'The close of {amount} in {market} has not settled yet. Closing again sends that same order, never a second one.',
+  'The close of {amount} in {market} is still settling. Closing again sends that same order, never a second one.':
+    'The close of {amount} in {market} is still settling. Closing again sends that same order, never a second one.',
   'The copy was refused': 'The copy was refused',
   'The follow ends. Positions already open become yours to manage. Nothing is sold for you.':
     'The follow ends. Positions already open become yours to manage. Nothing is sold for you.',

@@ -484,9 +484,9 @@ export class CopyService {
             followerPrice: price,
             leaderPrice: leaderFill?.price ?? null,
           });
-          if (closeOnly) {
-            // A close opens nothing, so the open-copy and drawdown limits do not hold it back; it never sells more
-            // than is copied and still open in that market.
+          if (prior.side === 'sell') {
+            // A copied sell, active or close-only, never sells more than is copied and still open in that market: after
+            // the follower closes a copy themselves, the leader's sell must not reach the follower's own coin.
             const sellable = sellableInMarket(await this.readCopiedPositions(follow), prior.marketId);
             if (prior.qty > sellable) {
               throw new CopyCloseError('Nothing copied is left open to close in this market', 'trade.copy_position_closed');
@@ -1306,7 +1306,7 @@ export class CopyService {
     // Cap is re-checked inside claimMirrorFill under the follow exclusive lock
     // so a concurrent first-claim cannot overshoot even if this read is stale.
     const market = this.inspectMarket ? await this.inspectMarket(observation.marketId) : null;
-    // A close-only sell is sized against what is copied and open (capCloseOnlySell), not the per-order limit, so the
+    // A close-only sell is sized against what is copied and open (capCopiedSell), not the per-order limit, so the
     // leader's close of a position built from several copies still closes it. The bound below is the most a plan can
     // reach: the leader's own notional, or the fixed amount.
     const planFollow = closeOnly
@@ -1327,7 +1327,7 @@ export class CopyService {
       now: this.now(),
       ...(market?.lotSize !== undefined ? { lotSize: market.lotSize } : {}),
     });
-    const planned = closeOnly ? await this.capCloseOnlySell(follow, sized) : sized;
+    const planned = observation.side === 'sell' ? await this.capCopiedSell(follow, sized) : sized;
 
     let drawdown: { current: Amount; cap: Amount } | undefined;
     if (!closeOnly && gated.envelope.maxDrawdown !== undefined) {
@@ -1378,13 +1378,11 @@ export class CopyService {
   }
 
   /**
-   * Close-only (CB-copy-09): a leader close never sells more than the follower's copied coin still open in that market.
-   * The plan keeps its price; its notional scales down with the quantity. Nothing open refuses.
+   * A leader sell, on an active or a close-only follow (CB-copy-09), never sells more than the follower's copied coin
+   * still open in that market, so a copy the follower already closed is never sold again out of their own coin. The plan
+   * keeps its price; its notional scales down with the quantity. Nothing open refuses.
    */
-  private async capCloseOnlySell<T extends { marketId: string; qty: Amount; notional: Amount }>(
-    follow: CopyFollow,
-    planned: T,
-  ): Promise<T> {
+  private async capCopiedSell<T extends { marketId: string; qty: Amount; notional: Amount }>(follow: CopyFollow, planned: T): Promise<T> {
     const sellable = sellableInMarket(await this.readCopiedPositions(follow), planned.marketId);
     if (sellable === 0n) throw new CopyCloseError('Nothing copied is left open to close in this market', 'trade.copy_position_closed');
     if (planned.qty <= sellable) return planned;
