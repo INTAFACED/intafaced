@@ -83,6 +83,9 @@ import { RAIL_CAPABILITIES, RAIL_MODES } from './rails/rail-adapter.js';
 import { PublicCheckoutUnavailable, SandboxRailRefusal } from './rails/posture.js';
 import { guardRefusalToTrpc, PayGuardRefusal } from './seams/guards.js';
 import { isInteractivePrincipal, seesFullPricing } from './merchant-ops/roles.js';
+import { maskRailRef, PaymentPrivacy, seesClearRailRef } from './merchant-ops/payment-views.js';
+import { paymentPrivacyProcedures } from './merchant-ops/payment-views-router.js';
+import { paymentListPrivacySchema } from '@intafaced/contracts/pay-payment-views';
 import {
   loadDestinationHoldSeconds,
   notifyMerchantOwners,
@@ -427,6 +430,8 @@ export function createPayRouter(
     const detail = toSettlementDetail(row);
     return { ...detail, pricingSnapshot: projectPricingSnapshot(detail.pricingSnapshot, audience) };
   };
+
+  const paymentPrivacy = portalSql ? new PaymentPrivacy(portalSql) : null;
 
   const portal =
     portalSql && teamReads
@@ -1026,6 +1031,7 @@ export function createPayRouter(
     ...(portal ? { merchantAnalytics: portal.merchantAnalytics } : {}),
 
     payment: router({
+      ...paymentPrivacyProcedures(portalSql),
       create: scopedProcedure('pay:write', { module: 'pay' })
         .input(
           z.object({
@@ -1154,17 +1160,31 @@ export function createPayRouter(
       /** Durable status list for the merchant — projection of `payments.status`. */
       list: ownMerchantRead()
         .input(payPaymentListInputSchema)
-        .output(payPageSchema(paymentView).extend({ summary: payPaymentListSummarySchema }))
+        .output(payPageSchema(paymentView.extend(paymentListPrivacySchema.shape)).extend({ summary: payPaymentListSummarySchema }))
         .query(({ ctx, input }) =>
           wrap(async () => {
             const audience = await assertRead(ctx.principal.userId, input.merchantId, 'trpc.payment.list', 'payments.read');
             const page = await pay.listPayments(input);
+            // M-adv-payments-core-01: the payer email is masked for every role (`payment.unmask` shows one clear value,
+            // audited), and a role that cannot unmask reads the rail reference masked too.
+            const emails = paymentPrivacy
+              ? await paymentPrivacy.maskedEmails(
+                  input.merchantId,
+                  page.items.map((item) => item.id),
+                )
+              : new Map<string, string>();
+            const clearRailRef = seesClearRailRef(audience);
             return {
-              items: page.items.map((item) => ({
-                ...toPaymentOut(item),
-                pricingSnapshot: projectPricingSnapshot(item.pricingSnapshot, audience),
-                failure: item.failure,
-              })),
+              items: page.items.map((item) => {
+                const out = toPaymentOut(item);
+                return {
+                  ...out,
+                  railRef: clearRailRef ? out.railRef : maskRailRef(out.railRef),
+                  customerEmail: emails.get(item.id) ?? null,
+                  pricingSnapshot: projectPricingSnapshot(item.pricingSnapshot, audience),
+                  failure: item.failure,
+                };
+              }),
               nextCursor: page.nextCursor,
               summary: page.summary,
             };

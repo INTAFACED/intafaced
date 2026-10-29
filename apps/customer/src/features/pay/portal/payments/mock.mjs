@@ -197,6 +197,8 @@ export function createPaymentsMock(ctx) {
   };
   const payments = world.payments;
   /** A payment as the service sends it: the world's bookkeeping fields (link, fee, ids of what it belongs to) stay behind. */
+  /** Saved payment views (M-adv-payments-core-01), kept for this stand-in's life. */
+  const views = [];
   const asPayment = ({ n: _n, linkId: _l, fee: _f, settlementId: _s, disputeId: _d, refundId: _r, ...row }) => row;
   const historyOf = (p) => {
     const t0 = Date.parse(p.createdAt);
@@ -280,7 +282,40 @@ export function createPaymentsMock(ctx) {
               (!input.search || p.customerRef === input.search || p.id === input.search.toLowerCase()),
           );
           const paged = page(rows, input);
-          return ok(route, { ...paged, items: paged.items.map(asPayment) });
+          // The payer email comes from a paid invoice; no stand-in payment paid one, so every row says none.
+          return ok(route, { ...paged, items: paged.items.map((p) => ({ ...asPayment(p), customerEmail: null })) });
+        }
+        case 'payment.views.list':
+          return ok(route, page(views, input));
+        case 'payment.views.create': {
+          const same = views.find((v) => v.name.toLowerCase() === String(input.name).trim().toLowerCase());
+          if (same) return refuse(route, 409, 'pay.payment_view_name_taken');
+          const at = iso(now);
+          const view = {
+            id: hex('7e', views.length + 1),
+            name: String(input.name).trim(),
+            visibility: input.visibility,
+            filters: input.filters,
+            columns: input.columns,
+            mine: true,
+            editable: true,
+            revision: 0,
+            createdAt: at,
+            updatedAt: at,
+          };
+          views.push(view);
+          return ok(route, view);
+        }
+        case 'payment.views.delete': {
+          const at = views.findIndex((v) => v.id === input.viewId);
+          if (at < 0) return refuse(route, 404, 'pay.payment_view_not_found');
+          views.splice(at, 1);
+          return ok(route, { deleted: true });
+        }
+        case 'payment.unmask': {
+          const p = payments.find((x) => x.id === input.paymentId);
+          if (!p) return refuse(route, 404, 'pay.payment_not_found');
+          return ok(route, { paymentId: p.id, field: input.field, value: null, auditId: hex('ad', p.n) });
         }
         case 'payment.get': {
           const p = payments.find((x) => x.id === input.paymentId);

@@ -310,6 +310,10 @@
       "types": "./dist/merchant-checkout-methods.d.ts",
       "default": "./dist/merchant-checkout-methods.js"
     },
+    "./pay-payment-views": {
+      "types": "./dist/pay-payment-views.d.ts",
+      "default": "./dist/pay-payment-views.js"
+    },
     "./campaigns-drops": {
       "types": "./dist/campaigns-drops.d.ts",
       "default": "./dist/campaigns-drops.js"

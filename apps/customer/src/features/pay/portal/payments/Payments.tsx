@@ -1,4 +1,6 @@
+import type { ReactNode } from 'react';
 import { Button } from '@intafaced/ui';
+import type { PaymentViewColumn } from '@intafaced/contracts/pay-payment-views';
 import { EmptyState } from '../../ui-kit';
 import { useResource, type Resource } from '../../../../shared/resource';
 import { PaySection } from '../../components';
@@ -26,6 +28,7 @@ import { useServerList } from '../ui/useServerList';
 import { assetsOf } from '../model';
 import { formatAmount, parseAmount } from '../../../../shared/money';
 import { ExportResults } from './ExportResults';
+import { PayerEmailCell, PaymentViewsBar, usePaymentColumns } from './PaymentViews';
 import { MoneyAction } from '../access/MoneyAction';
 import { RefundsIssuedValue } from './RefundsIssued';
 import { railName } from './HomePanels';
@@ -114,6 +117,24 @@ export function PaymentsView({
   const { period, matchesList } = totalsPeriod(filters.date);
   const filtered = Boolean(filters.status || filters.search || filters.date || filters.asset);
   const assets = snapshot.status === 'ready' ? assetsOf(snapshot.data) : [];
+  const [columns, setColumns] = usePaymentColumns();
+  const columnDefs: Record<PaymentViewColumn, { header: string; cell: (p: Payment) => ReactNode }> = {
+    payment: {
+      header: t('colPayment'),
+      cell: (p) => (
+        <>
+          <strong>{paymentLabel(p)}</strong>
+          {p.customerRef && p.description && <small className="pay-cell-note">{p.description}</small>}
+        </>
+      ),
+    },
+    amount: { header: t('colAmount'), cell: (p) => <Money value={p.amount} asset={p.assetId} /> },
+    status: { header: t('colStatus'), cell: (p) => <StatusChip entity="payment" value={p.status} /> },
+    method: { header: t('pay_colMethod'), cell: (p) => plainCode(p.method.replace(/^TEST-/, '').replace(/-/g, '_')) },
+    created: { header: t('colCreated'), cell: (p) => <DateTime value={p.createdAt} /> },
+    customerEmail: { header: t('pay_colEmail'), cell: (p) => <PayerEmailCell portal={portal} payment={p} /> },
+    railRef: { header: t('railReference'), cell: (p) => p.railRef ?? <span className="muted">{t('notGiven')}</span> },
+  };
   return (
     <div className="stack">
       {snapshot.status === 'ready' ? (
@@ -128,6 +149,7 @@ export function PaymentsView({
         portal={portal}
         {...(merchantId ? { merchantId } : {})}
       />
+      {merchantId && <PaymentViewsBar portal={portal} filters={filters} columns={columns} setColumns={setColumns} />}
       <FilterRow
         label={t('pay_listTitle')}
         filters={filters}
@@ -159,21 +181,7 @@ export function PaymentsView({
               rows={list.items}
               rowKey={(p) => p.id}
               href={(p) => paymentHref(p.id)}
-              columns={[
-                {
-                  header: t('colPayment'),
-                  cell: (p) => (
-                    <>
-                      <strong>{paymentLabel(p)}</strong>
-                      {p.customerRef && p.description && <small className="pay-cell-note">{p.description}</small>}
-                    </>
-                  ),
-                },
-                { header: t('colAmount'), cell: (p) => <Money value={p.amount} asset={p.assetId} /> },
-                { header: t('colStatus'), cell: (p) => <StatusChip entity="payment" value={p.status} /> },
-                { header: t('pay_colMethod'), cell: (p) => plainCode(p.method.replace(/^TEST-/, '').replace(/-/g, '_')) },
-                { header: t('colCreated'), cell: (p) => <DateTime value={p.createdAt} /> },
-              ]}
+              columns={columns.map((col) => columnDefs[col])}
               card={(p) => ({
                 title: paymentLabel(p),
                 time: <DateTime value={p.createdAt} />,
