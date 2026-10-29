@@ -1,6 +1,7 @@
 import { expect } from '@playwright/test';
 import { keccak256, toHex } from 'viem';
-import { journeyState, toUnits } from './stack.mjs';
+import { privateKeyToAccount } from 'viem/accounts';
+import { journeyState, tool, toUnits } from './stack.mjs';
 import { installTestWallet, testWalletKey, TEST_WALLET } from './test-wallet.mjs';
 
 // Shared parts of the Web3 journeys (J-dex-protocol-NN) written ahead of their rooms. The app's network on the stack is
@@ -11,7 +12,8 @@ import { installTestWallet, testWalletKey, TEST_WALLET } from './test-wallet.mjs
 /** The wait for a part a step needs that may not be built yet: short, so an unbuilt step fails fast and says where. */
 export const UNBUILT = { timeout: 5_000 };
 export const CHAIN_ID = 84532;
-// TEST tokens only the TEST wallet knows (its stand-in for a node answers for them). Fixed addresses, so rows can be read.
+// TEST tokens at fixed addresses, so rows can be read. The TEST wallet answers their domain, decimals and nonce itself;
+// on the stack's TEST chain the same tokens are deployed at these addresses (services/svc-protocol/scripts/seed-test-chain.ts).
 export const TOKEN_A = { address: '0x00000000000000000000000000000000000a11ce', name: 'TEST Token A', version: '1', decimals: 6, nonce: 0 };
 export const TOKEN_B = {
   address: '0x00000000000000000000000000000000000b0b00',
@@ -21,14 +23,35 @@ export const TOKEN_B = {
   nonce: 0,
 };
 
+/**
+ * The journeys that run on the stack's LOCAL TEST chain (tooling/scripts/local-test-chain.mjs: anvil, chain id 84532,
+ * seeded TEST tokens, pools and router). Their wallet is connected to that node and their run's key is funded with
+ * TEST ETH and TEST Token A and B when the run starts. Every other journey's wallet reaches no chain, as before.
+ */
+export const ON_TEST_CHAIN = new Set(['J-dex-protocol-02', 'J-dex-protocol-04']);
+
+/** The stack's TEST chain: `{ chain: 'running', gate, gateUrl }` or `{ chain: 'absent' }` (no anvil on this stack). */
+export function testChain() {
+  return JSON.parse(tool('local-test-chain.mjs', 'status'));
+}
+
+/** Funds `address` on the TEST chain (TEST ETH for gas, 10,000 TEST Token A and B); refuses by name with no chain. */
+export function fundOnTestChain(address) {
+  return tool('local-test-chain.mjs', 'fund', address);
+}
+
 /** One journey run's state, with one TEST wallet key kept for every step of the run. */
 export function dexRun(journey) {
   const run = journeyState(`${journey}-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
+  const onChain = ON_TEST_CHAIN.has(journey);
   return {
     run,
-    /** Starts the run again with a new TEST wallet key (each journey's first step). */
+    onChain,
+    /** Starts the run again with a new TEST wallet key (each journey's first step), funded when it runs on the TEST chain. */
     start(extra = {}) {
-      return run.reset({ walletKey: testWalletKey(), ...extra });
+      const walletKey = testWalletKey();
+      if (onChain) fundOnTestChain(privateKeyToAccount(walletKey).address);
+      return run.reset({ walletKey, ...extra });
     },
     /** The run's TEST wallet key, made on first use when no earlier step started the run. */
     key() {
@@ -53,9 +76,13 @@ export function oneAmount(text) {
   return toUnits(found[0].replaceAll(',', ''));
 }
 
-/** Installs the run's TEST wallet in `page`, opens /wallet and connects it; returns the wallet handle. */
+/**
+ * Installs the run's TEST wallet in `page`, opens /wallet and connects it; returns the wallet handle. A journey on the
+ * TEST chain gets a wallet connected to that node (through its gate, as svc-protocol reads it).
+ */
 export async function connectWallet(page, dex, { tokens = [], chainId = CHAIN_ID } = {}) {
-  const wallet = await installTestWallet(page, { chainId, tokens, privateKey: dex.key() });
+  const rpcUrl = dex.onChain ? testChain().gateUrl : null;
+  const wallet = await installTestWallet(page, { chainId, tokens, privateKey: dex.key(), rpcUrl });
   await page.goto('/wallet');
   await page.getByRole('button', { name: `Connect ${TEST_WALLET.name}` }).click();
   await expect(page.getByRole('button', { name: 'Disconnect' })).toBeVisible();
