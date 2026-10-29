@@ -1,3 +1,4 @@
+-- intafaced:destructive — false positive: this file removes no data; BEFORE TRUNCATE is the trigger event of a guard that refuses TRUNCATE.
 -- The owner's destination fraud list (W-withdraw-03, J-wallet-05 #2): withdrawal addresses the compliance desk has listed as
 -- fraud, on one network or on every network ('*'). An address on it is never saved to a customer's address book, and a saved
 -- entry that is listed later reads as blocked before a send. An EVM address is kept in lower case, so a listing matches the
