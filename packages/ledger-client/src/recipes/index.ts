@@ -303,7 +303,7 @@ export function withdrawReverse(input: WithdrawInput): PostRequest {
 export function withdrawReturned(input: WithdrawInput): PostRequest {
   requirePositive('returned withdrawal amount', input.amount);
   // What comes back is what went to the rail. The fee never left, so a return carries none.
-  if (input.fee !== undefined) throw new InvalidEntryError('a returned withdrawal carries no fee; return only what was sent');
+  if (withdrawFee(input) !== null) throw new InvalidEntryError('a returned withdrawal carries no fee; return only what was sent');
   const withdrawalId = input.withdrawalId;
   if (!withdrawalId || withdrawalId.trim() !== withdrawalId) {
     throw new InvalidEntryError('withdrawalId is required, with no surrounding spaces');

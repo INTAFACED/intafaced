@@ -120,7 +120,7 @@ describe('Web3 shell', () => {
   });
   it('never renders an empty page for a path no route claims', () => {
     answers.chain = chain(84532);
-    for (const path of ['/dex/unknown', '/dex/tokens', '/chain/foo', '/chain/tx', '/protocol/zzz', '/wallet/foo']) {
+    for (const path of ['/dex/unknown', '/dex/tokens/nope/deep', '/chain/foo', '/chain/tx', '/protocol/zzz', '/wallet/foo']) {
       const html = page(path);
       expect(html, path).toContain('data-code="protocol.not_found"');
       expect(html, path).toContain('<h1>');

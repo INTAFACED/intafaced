@@ -754,6 +754,7 @@ export const appRouter = mergeRouters(
     },
     purchaseHolds: { sql },
     withdrawalQuotes: { sql },
+    withdrawalNetworkRules: { sql, approvals: actionApprovals },
     travelRule: { sql, cipher: travelRuleCipher },
     withdrawalReturns: { sql, ledger },
     withdrawalApprovals: { service: withdrawalApprovals },

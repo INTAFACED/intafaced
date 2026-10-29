@@ -15,7 +15,6 @@ import { addAuthenticator, nextCode } from './identity-factors.mjs';
 // the in-memory MemoryChain; TEST Base has none, which is what #7 meets. #6 and #4's two parallel sends run after #7, which
 // needs the balance still at 300.
 // Steps that are written but not built yet fail at their first missing part, quickly (UNBUILT):
-// - #1: svc-pay has no minimum, maximum, step or tag catalogue per network, and the stack publishes none.
 // - #2's fraud list: nothing screens a destination against one, and the stack lists no TEST address (FRAUD_LISTED).
 // - #8: a failed withdrawal can't be seeded on the stack yet, so its failure sentence has no row to read.
 // #5 (travel rule) and the sanctions clause of #2 wait for launch (owner decision 2026-10-27, no compliance work until then).
@@ -251,7 +250,7 @@ test(`${J} #1 opens Withdraw and picks asset and network: the default network wi
 
   // The network's own rules, as the catalogue publishes them for TEST Ethereum: no tag, and a minimum, maximum and step.
   const rules = page.getByTestId('withdraw-network-rules');
-  await expect(rules).toBeVisible(UNBUILT);
+  await expect(rules).toBeVisible();
   await expect(rules).toContainText('This network takes no tag or memo.');
   for (const rule of ['Minimum', 'Maximum', 'Step']) await expect(rules).toContainText(new RegExp(`${rule}\\D*[\\d.,]+ USDT`));
   await expect(form(page).getByRole('textbox', { name: /^(Tag|Memo)/ })).toHaveCount(0);

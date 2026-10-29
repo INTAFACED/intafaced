@@ -12,7 +12,7 @@ import { Details, Limit, Read, Select, TextArea, useAction, presentActionFailure
 import { Campaigns } from './Campaigns';
 import { AgentsCatalogue } from './AgentsCatalogue';
 import { agentsCatalogueCopy } from './agents-catalogue-copy';
-import { SESSION_AGENT_IDS } from './agents-catalogue';
+import { costRange, runCosts, SESSION_AGENT_IDS } from './agents-catalogue';
 import { preservePaperHref } from './trade-context';
 const uuid = z.string().guid();
 const routeSchema = z.object({
@@ -122,7 +122,8 @@ export function Agents({ paper = false }: { paper?: boolean }) {
     [coachAsk, setCoachAsk] = useState(''),
     [coachQuery, setCoachQuery] = useState(''),
     [inspection, setInspection] = useState<Inspection | null>(() => readInspection(userId)),
-    [sessionFilter, setSessionFilter] = useState('');
+    [sessionFilter, setSessionFilter] = useState(''),
+    [estimating, setEstimating] = useState(false);
   const selectedSession = inspection?.owner === userId ? inspection : null;
   const activeOwner = useRef<string | null>(null);
   const active = activeOwner.current === userId && activeRecord?.agentId === agent ? activeRecord : null;
@@ -270,6 +271,7 @@ export function Agents({ paper = false }: { paper?: boolean }) {
     setActive(null);
     setReply(null);
     setTask('');
+    setEstimating(false);
   }, [userId, agent]);
   const defs = guard.resource.status === 'ready' ? guard.resource.data : null,
     available =
@@ -556,6 +558,23 @@ export function Agents({ paper = false }: { paper?: boolean }) {
                         >
                           <Text k="agents.review.session" />
                         </Button>
+                        <Button variant="secondary" aria-expanded={estimating} onClick={() => setEstimating((open) => !open)}>
+                          {agentsCatalogueCopy.t('estimateButton')}
+                        </Button>
+                        {estimating ? (
+                          <CostEstimate
+                            cap={cap ?? null}
+                            assetId={selectedRoute?.assetId ?? null}
+                            history={
+                              log.resource.status === 'ready' && selectedRoute
+                                ? {
+                                    range: costRange(runCosts(log.resource.data, agent, selectedRoute.task)),
+                                    whole: log.resource.data.length < limit,
+                                  }
+                                : undefined
+                            }
+                          />
+                        ) : null}
                       </>
                     ) : null
                   }
@@ -974,5 +993,43 @@ function SessionHistory({ rows }: { rows: AgentAction[] }) {
         </li>
       ))}
     </ol>
+  );
+}
+
+/**
+ * What one run in a new session can cost before it is started. The worst case is
+ * the session's spend cap: the figure the runtime's cap check refuses above,
+ * before the engine is called. The expected range comes only from this
+ * person's own completed runs of the task; without any there is none. The
+ * log names no asset, so the range names none either.
+ */
+function CostEstimate({
+  cap,
+  assetId,
+  history,
+}: {
+  cap: string | null;
+  assetId: string | null;
+  /** This person's runs from the loaded log page; `whole` when that page holds their entire log. */
+  history: { range: { low: string; high: string } | null; whole: boolean } | undefined;
+}) {
+  const { t } = agentsCatalogueCopy.useCopy();
+  return (
+    <section role="region" aria-label={t('estimateTitle')}>
+      <h3>{t('estimateTitle')}</h3>
+      <p data-testid="worst-case">
+        {cap && assetId && parseAmount(cap) > 0n ? t('worstCase', { amount: displayAmount(cap), asset: assetId }) : t('worstCaseNoCap')}
+      </p>
+      <p className="muted">{t('worstCaseBasis')}</p>
+      <p>
+        {history === undefined
+          ? t('historyUnloaded')
+          : history.range
+            ? t('historyRange', { low: displayAmount(history.range.low), high: displayAmount(history.range.high) })
+            : history.whole
+              ? t('historyNone')
+              : t('historyNotLoaded')}
+      </p>
+    </section>
   );
 }

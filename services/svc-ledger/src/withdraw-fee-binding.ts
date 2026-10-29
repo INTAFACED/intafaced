@@ -64,16 +64,18 @@ export async function assertWithdrawFeeBound(ledger: FeeHoldReader, input: WireF
   if (fee !== null && feeLegs[0] && parseAmount(feeLegs[0].amount) !== fee) refuse('the fee leg is not the fee the post names');
   if (fee !== null && caller?.kind === 'bound' && caller.service !== 'svc-pay') refuse('only svc-pay posts a withdrawal fee');
 
-  const withdrawalId = typeof input.meta?.withdrawalId === 'string' ? input.meta.withdrawalId : '';
-  if (fee !== null) {
-    // A fee-carrying post names its own withdrawal three ways, and they agree: its key, its meta and the hold it moves.
-    const step = { 'withdraw.held': 'hold', 'withdraw.settled': 'settle', 'withdraw.reversed': 'reverse' }[input.reason];
-    if (!withdrawalId || input.idempotencyKey !== `withdraw.${step}:${withdrawalId}`) refuse('the key does not name its withdrawal');
-    const holdLeg = input.entries.find((e) => e.account.ownerType === 'user' && e.account.kind === 'hold');
-    if (holdLeg?.account.purpose !== `withdraw:${withdrawalId}`) refuse('it does not move the hold of the withdrawal it names');
+  // Every withdrawal post names its withdrawal three ways, and they agree: the hold it moves (`withdraw:<id>`), its key and its
+  // meta. The hold is then found by that id, so a post cannot point its fee check at another withdrawal's hold.
+  const holdLeg = input.entries.find((e) => e.account.ownerType === 'user' && e.account.kind === 'hold');
+  const purpose = holdLeg?.account.purpose ?? '';
+  if (!purpose.startsWith('withdraw:')) refuse('it moves no withdrawal hold');
+  const withdrawalId = purpose.slice('withdraw:'.length);
+  const step = { 'withdraw.held': 'hold', 'withdraw.settled': 'settle', 'withdraw.reversed': 'reverse' }[input.reason];
+  if (!withdrawalId || input.idempotencyKey !== `withdraw.${step}:${withdrawalId}` || input.meta?.withdrawalId !== withdrawalId) {
+    refuse('its key, its meta and the hold it moves do not name one withdrawal');
   }
   if (input.reason === 'withdraw.held') return;
-  const hold = withdrawalId ? await ledger.getTxByKey(`withdraw.hold:${withdrawalId}`) : null;
+  const hold = await ledger.getTxByKey(`withdraw.hold:${withdrawalId}`);
   const heldFee = hold && hold.module === 'ledger' && hold.reason === 'withdraw.held' ? feeOf(hold.meta) : null;
   if (fee !== heldFee) refuse(heldFee === null ? 'its hold carried no fee' : 'it does not carry the fee its hold carried');
   if (heldFee === null || !hold) return;
@@ -81,4 +83,16 @@ export async function assertWithdrawFeeBound(ledger: FeeHoldReader, input: WireF
   const held = hold.entries.find((e) => e.direction === 'debit')?.amount;
   const drawn = input.entries.find((e) => e.direction === 'credit');
   if (held === undefined || !drawn || parseAmount(drawn.amount) !== held) refuse('it does not draw the whole fee-carrying hold');
+  // A reverse gives the hold back to the person whose hold it is, and a settle sends it on the rail it was held for.
+  if (input.reason === 'withdraw.reversed') {
+    const back = input.entries.find((e) => e.direction === 'debit');
+    if (back?.account.ownerType !== 'user' || back.account.kind !== 'available' || back.account.ownerId !== holdLeg?.account.ownerId) {
+      refuse('it gives the hold back to someone other than its owner');
+    }
+  } else {
+    const railLeg = input.entries.find((e) => e.direction === 'debit' && e.account.ownerType === 'treasury');
+    if (input.meta?.rail !== hold.meta.rail || railLeg?.account.ownerId !== `rail:${String(hold.meta.rail)}`) {
+      refuse('it sends on another rail than its hold');
+    }
+  }
 }

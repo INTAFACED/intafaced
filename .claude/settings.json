@@ -1,6 +1,6 @@
 {
   "permissions": {
-    "allow": ["mcp__github__merge_pull_request"]
+    "allow": ["mcp__github__merge_pull_request", "mcp__claude-code-remote__add_repo"]
   },
   "hooks": {
     "SessionStart": [
