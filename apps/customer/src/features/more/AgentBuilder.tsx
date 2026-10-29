@@ -470,6 +470,9 @@ function LimitsForm({ agent, view }: { agent: OwnAgent; view: OwnAgentLimits }) 
             ? t('effectiveUnset')
             : t('effective', { amount: money(current.effectivePerSession, current.assetId) })}
         </p>
+        <p data-testid="overage-grace">
+          {current.overageGrace === null ? t('graceUnset') : t('grace', { amount: money(current.overageGrace, current.assetId) })}
+        </p>
         <Button type="submit" disabled={busy}>
           {t('saveLimits')}
         </Button>

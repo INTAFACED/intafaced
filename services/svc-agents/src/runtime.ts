@@ -215,6 +215,11 @@ export class AgentRuntime {
     this.overageGrace = options.overageGrace ?? null;
   }
 
+  /** The owner's overage grace as the runtime applies it; null is blank, and any unpaid window then refuses runs. */
+  get overageGraceAmount(): Amount | null {
+    return this.overageGrace;
+  }
+
   // ── Agent definitions ──────────────────────────────────────────────────────
 
   /**
@@ -1150,6 +1155,7 @@ export class AgentRuntime {
     for (const windowId of windows) results.push(await this.settleWindow(sessionId, windowId));
     return results;
   }
+
   /**
    * Settle a session's windows, then close it. A window the ledger refuses for funds stays sealed and unpaid on its
    * charge key and the session stays open, refused `agents.window_unpaid`, so the person sees what they owe; adding
@@ -1160,11 +1166,14 @@ export class AgentRuntime {
       await this.settleSession(sessionId);
     } catch (err) {
       if (!(err instanceof InsufficientFundsError)) throw err;
-      throw new AgentError(`A usage window of session ${sessionId} could not be paid`, 'agents.window_unpaid', 'agents.error.window_unpaid');
+      throw new AgentError(
+        `A usage window of session ${sessionId} could not be paid`,
+        'agents.window_unpaid',
+        'agents.error.window_unpaid',
+      );
     }
     return this.closeSession(sessionId);
   }
-
 
   // ── The user-visible log (§8.2) ────────────────────────────────────────────
 

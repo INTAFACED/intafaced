@@ -8,9 +8,9 @@ import { api, toUnits, tool } from './stack.mjs';
 // TEST USDT and an agent of the person's own. Per-call, per-session and per-period caps reserve before the engine is
 // called; a refused run bills 0 and leaves no hold; charges equal sealed windows. Push and email delivery of an alert
 // show their vendor notice (vendor.push, vendor.email); the in-app inbox row is written regardless.
-// #1-#4 run on the agent's Limits and Test pages (AG-spend-01). Still unbuilt, failing at their first missing part
-// within UNBUILT: the unpaid-window grace (#5), usage alerts and the hard monthly limit (AG-usage-03, #6), and usage by
-// agent, day and task (AG-usage-02, #7).
+// #1-#5 run on the agent's Limits, Test and Usage pages (AG-spend-01). Still unbuilt, failing at their first missing
+// part within UNBUILT: usage alerts and the hard monthly limit (AG-usage-03, #6), and usage by agent, day and task
+// (AG-usage-02, #7).
 // Numbers: the agent's own cap is 1 USDT per session; the person sets 0.012 per call, 0.02 per session and 5 a month.
 // One run's worst case on the stack's test engine is just over 0.01024 USDT (2048 output tokens at 5 per million, plus
 // its input at 1 per million), so one fits the per-call cap and two together pass the per-session cap.
@@ -35,6 +35,45 @@ async function setAgentCap(page, cap) {
   await builder.getByRole('button', { name: 'Save draft' }).click();
   await expect(builder.getByRole('status')).toHaveText('Draft saved.');
   await pages(page).getByRole('button', { name: 'Limits', exact: true }).click();
+}
+
+/** A fresh TEST person's own agent, opened on Limits with the journey's caps saved (0.012 per call, 0.02, 5 a month). */
+async function ownAgentWithLimits(page, who) {
+  await signIn(page, who);
+  await createOwnAgent(page);
+  await page.goto('/agents');
+  await main(page).getByRole('link', { name: OWN_AGENT, exact: true }).click(UNBUILT);
+  await pages(page).getByRole('button', { name: 'Limits', exact: true }).click();
+  await limits(page)
+    .getByRole('textbox', { name: /^Per call/ })
+    .fill('0.012');
+  await limits(page)
+    .getByRole('textbox', { name: /^Per session/ })
+    .fill('0.02');
+  await limits(page)
+    .getByRole('textbox', { name: /^Per month/ })
+    .fill('5');
+  await limits(page).getByRole('button', { name: 'Save limits' }).click();
+  await expect(limits(page).getByRole('status')).toHaveText('Limits saved.');
+}
+/**
+ * The person's own bank spaces through Edge. Moving USDT from the main space into a savings pot is a real outflow: it
+ * leaves the balance an agent's usage is charged from, as a withdrawal would.
+ */
+async function bankOf(who) {
+  const client = await api(who);
+  const answer = ({ status, body }) => {
+    expect(status, JSON.stringify(body).slice(0, 300)).toBe(200);
+    return body.result.data;
+  };
+  const list = async () =>
+    answer(await client.get(`/api/bank/trpc/spaces.list?input=${encodeURIComponent(JSON.stringify({ limit: 50 }))}`));
+  return {
+    main: async () => (await list()).find((s) => s.kind === 'primary' && s.assetId === 'USDT'),
+    pot: async (name) => answer(await client.post('/api/bank/trpc/spaces.create', { assetId: 'USDT', name })),
+    move: async (transferId, from, to, amount) =>
+      answer(await client.post('/api/bank/trpc/transfers.create', { transferId, fromSpaceId: from, toSpaceId: to, amount })),
+  };
 }
 
 test(`${J} starts: a verified TEST account funded with TEST USDT and an agent of the person's own`, async ({ page }) => {
@@ -151,22 +190,7 @@ test(`${J} #4 asks for a run when the available balance is below the worst case:
   // A second TEST person with 0.005 USDT, the same kind of agent (cap 1 per session) and the same limits: one run's
   // worst case (just over 0.01024) is above the balance.
   const poor = await fundedTrader(page, 'ag02p', '0.005');
-  await signIn(page, poor);
-  await createOwnAgent(page);
-  await page.goto('/agents');
-  await main(page).getByRole('link', { name: OWN_AGENT, exact: true }).click(UNBUILT);
-  await page.getByRole('group', { name: 'Agent pages' }).getByRole('button', { name: 'Limits', exact: true }).click();
-  await limits(page)
-    .getByRole('textbox', { name: /^Per call/ })
-    .fill('0.012');
-  await limits(page)
-    .getByRole('textbox', { name: /^Per session/ })
-    .fill('0.02');
-  await limits(page)
-    .getByRole('textbox', { name: /^Per month/ })
-    .fill('5');
-  await limits(page).getByRole('button', { name: 'Save limits' }).click();
-  await expect(limits(page).getByRole('status')).toHaveText('Limits saved.');
+  await ownAgentWithLimits(page, poor);
   await session(page).getByRole('button', { name: 'Open a session' }).click();
   await expect(session(page).getByText('Session open:')).toBeVisible();
   await session(page)
@@ -207,11 +231,89 @@ test(`${J} #4 asks for a run when the available balance is below the worst case:
 test(`${J} #5 leaves the overage grace value blank after a window could not be paid: the next run refuses with recovery text; the unpaid window retries on its charge key`, async ({
   page,
 }) => {
-  await openOwnAgent(page, agents, 'Usage');
-  const unpaid = tableIn(main(page), 'Usage windows').getByRole('row').filter({ hasText: 'Unpaid' });
-  await expect(unpaid).toHaveCount(1, UNBUILT);
-  await expect(main(page).getByRole('alert')).toContainText('A usage window is unpaid. Add funds and it is retried on the same charge.');
-  await expect(unpaid.getByTestId('charge-key')).toHaveText(/^agents\.usage:/);
+  test.setTimeout(240_000);
+  // A third TEST person with 1 USDT and the same agent and limits. The stack publishes no overage grace (blank).
+  const owes = await fundedTrader(page, 'ag02u', '1');
+  await ownAgentWithLimits(page, owes);
+  await expect(limits(page).getByTestId('overage-grace')).toHaveText(
+    'Allowed unpaid before runs stop: not set. While any usage is unpaid, no run starts.',
+  );
+
+  // One admitted run: its usage sits on the session's open window, not yet charged.
+  await session(page).getByRole('button', { name: 'Open a session' }).click();
+  const first = await session(page).getByText('Session open:').locator('code').innerText();
+  await session(page)
+    .getByRole('textbox', { name: /^Ask the agent/ })
+    .fill('TEST question');
+  await session(page).getByRole('button', { name: 'Run', exact: true }).click();
+  await expect(session(page).getByRole('region', { name: 'Reply' })).toBeVisible();
+  const cost = (await session(page).getByTestId('reply-cost').innerText()).replace(/ USDT$/, '');
+  expect(toUnits(cost)).toBeGreaterThan(0n);
+  const funded = await ledgerBalances(owes);
+
+  // The person moves every USDT into a savings pot before the window is paid, so the close cannot charge it.
+  const bank = await bankOf(owes);
+  const home = await bank.main();
+  const pot = await bank.pot('Agents TEST pot');
+  await bank.move(`${J}#5:out:${pot.id}`, home.id, pot.id, '1');
+  const drained = await ledgerBalances(owes);
+  expect(toUnits(drained.USDT?.free ?? '0')).toBe(0n);
+
+  // A window earlier could not be paid: the close is refused and says so; the session stays open; nothing moved.
+  await session(page).getByRole('button', { name: 'Close session' }).click();
+  const unpaidClose = session(page).getByRole('alert');
+  await expect(unpaidClose).toContainText('A usage window could not be paid, so the session stays open.');
+  await expect(unpaidClose.locator('code')).toHaveText('agents.window_unpaid');
+  await expect(session(page).getByText('Session open:').locator('code')).toHaveText(first);
+  expect(await ledgerBalances(owes)).toEqual(drained);
+
+  // The window is sealed at the run's exact cost, unpaid, on its charge key.
+  await pages(page).getByRole('button', { name: 'Usage', exact: true }).click();
+  const windows = tableIn(main(page), 'Usage windows').getByRole('row').filter({ hasText: first });
+  await expect(windows).toHaveCount(1);
+  await expect(windows).toContainText('Unpaid');
+  await expect(windows.getByTestId('window-cost')).toHaveText(`${cost} USDT`);
+  const key = await windows.getByTestId('charge-key').innerText();
+  expect(key).toMatch(new RegExp(`^agent\\.usage:${first}:`));
+  await expect(main(page).getByRole('alert')).toHaveText('A usage window is unpaid. Add funds and it is retried on the same charge.');
+
+  // With the grace blank, the next run refuses with recovery text, before the engine, and bills 0.
+  await pages(page).getByRole('button', { name: 'Limits', exact: true }).click();
+  await session(page).getByRole('button', { name: 'Open a session' }).click();
+  const second = session(page).getByText('Session open:').locator('code');
+  await expect(second).not.toHaveText(first);
+  await session(page)
+    .getByRole('textbox', { name: /^Ask the agent/ })
+    .fill('TEST question');
+  await session(page).getByRole('button', { name: 'Run', exact: true }).click();
+  const refusal = session(page).getByRole('alert');
+  await expect(refusal).toContainText(
+    'Earlier usage could not be paid and no allowance for unpaid usage is set, so this run did not start. Add funds: the unpaid usage is retried on its same charge, then runs start again.',
+  );
+  await expect(refusal.locator('code')).toHaveText('agents.overage_grace_unset');
+  await expect(session(page).getByRole('region', { name: 'Reply' })).toHaveCount(0);
+  const refusedRow = tableIn(main(page), 'Runs').getByRole('row').filter({ hasText: 'agents.overage_grace_unset' });
+  await expect(refusedRow).toHaveCount(1);
+  await expect(refusedRow).toContainText('Refused');
+  await expect(refusedRow.getByTestId('run-cost')).toHaveText('0 USDT');
+  expect(await ledgerBalances(owes)).toEqual(drained);
+
+  // Funds back: the next run first retries the unpaid window on its same charge key, which now pays it once, then runs.
+  await bank.move(`${J}#5:back:${pot.id}`, pot.id, home.id, '1');
+  expect(await ledgerBalances(owes)).toEqual(funded);
+  await session(page).getByRole('button', { name: 'Run', exact: true }).click();
+  await expect(session(page).getByRole('region', { name: 'Reply' })).toBeVisible();
+  const paid = await ledgerBalances(owes);
+  expect(toUnits(funded.USDT.total) - toUnits(paid.USDT.total)).toBe(toUnits(cost));
+  expect(toUnits(funded.USDT.free) - toUnits(paid.USDT.free)).toBe(toUnits(cost));
+  await pages(page).getByRole('button', { name: 'Usage', exact: true }).click();
+  await expect(windows).toHaveCount(1);
+  await expect(windows).toContainText('Settled');
+  await expect(windows.getByTestId('charge-key')).toHaveText(key);
+  await expect(windows.getByTestId('window-cost')).toHaveText(`${cost} USDT`);
+  await expect(main(page).getByRole('alert')).toHaveCount(0);
+  // Paid once: reading the page again charges nothing more.
+  expect(await ledgerBalances(owes)).toEqual(paid);
 });
 
 test(`${J} #6 sets a soft alert and a hard limit for the month: one inbox row at the alert; push or email shows its vendor notice; the hard limit refuses new runs`, async ({

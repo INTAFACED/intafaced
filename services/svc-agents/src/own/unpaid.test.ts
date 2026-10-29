@@ -223,6 +223,8 @@ if (!available) {
 
     it('with the grace blank, the next run refuses agents.overage_grace_unset before the engine: no claim, no hold, bills 0', async () => {
       const { person, id, sessionId, cost } = await ranOnce();
+      // The Limits page reads the grace as blank: it is not set, and none is assumed.
+      expect((await person.own.limits.get({ id })).overageGrace).toBeNull();
       await closeUnpaid(person, id, sessionId, cost);
       const before = await holds();
       const { sessionId: next } = await person.own.session.open({ id });
@@ -303,6 +305,7 @@ if (!available) {
       grace = cost - 1n;
       await closeUnpaid(person, id, sessionId, cost);
       const graced = build().createCaller(callerFor(USER, PERSON));
+      expect((await graced.own.limits.get({ id })).overageGrace).toBe(formatAmount(cost - 1n));
       const { sessionId: next } = await graced.own.session.open({ id });
       await expect(graced.own.run({ id, sessionId: next, requestId: 'unpaid-run-2', ask: ASK })).rejects.toMatchObject({
         code: 'FORBIDDEN',

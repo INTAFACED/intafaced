@@ -102,6 +102,13 @@ function runDepsOf(deps: OwnRunDeps | undefined): OwnRunDeps {
   return deps;
 }
 
+/** The owner's values a limits view carries: the fee asset, and the overage grace (null when blank). */
+function owner(run: OwnRunDeps | undefined): { overageGrace: string | null; assetId: string } {
+  const { runtime, feeAssetId } = runDepsOf(run);
+  const grace = runtime.overageGraceAmount;
+  return { overageGrace: grace === null ? null : formatAmount(grace), assetId: feeAssetId };
+}
+
 const idInput = z.object({ id: z.string().min(1).max(64) });
 
 /** The person's own agent and a session of it. Not theirs, or not this agent's: one answer, so no oracle for others. */
@@ -183,10 +190,7 @@ export function ownRouter(sql: Sql | undefined, run?: OwnRunDeps) {
         .output(ownAgentLimitsSchema)
         .query(({ ctx, input }) => {
           assertPersonSetsLimits(ctx.principal);
-          return guard(async () => ({
-            ...(await new OwnLimitsStore(sqlOf(sql)).get(ctx.principal.userId, input.id)),
-            assetId: runDepsOf(run).feeAssetId,
-          }));
+          return guard(async () => ({ ...(await new OwnLimitsStore(sqlOf(sql)).get(ctx.principal.userId, input.id)), ...owner(run) }));
         }),
 
       /** All three caps or none. Blank refuses `agents.spend.cap_unset`; above the agent's own cap is refused, not lowered. */
@@ -202,10 +206,7 @@ export function ownRouter(sql: Sql | undefined, run?: OwnRunDeps) {
         .mutation(({ ctx, input }) => {
           assertPersonSetsLimits(ctx.principal);
           const { id, ...caps } = input;
-          return guard(async () => ({
-            ...(await new OwnLimitsStore(sqlOf(sql)).set(ctx.principal.userId, id, caps)),
-            assetId: runDepsOf(run).feeAssetId,
-          }));
+          return guard(async () => ({ ...(await new OwnLimitsStore(sqlOf(sql)).set(ctx.principal.userId, id, caps)), ...owner(run) }));
         }),
     }),
 

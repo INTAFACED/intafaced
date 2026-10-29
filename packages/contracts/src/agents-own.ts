@@ -47,6 +47,8 @@ export const ownAgentLimitsSchema = z.object({
   limits: z.object({ perCall: z.string(), perSession: z.string(), perPeriod: z.string(), period: z.literal('month') }).nullable(),
   agentCap: z.string().nullable(),
   effectivePerSession: z.string().nullable(),
+  /** The owner's overage grace: how much usage may stay unpaid and runs still start. Null is blank: none at all. */
+  overageGrace: z.string().nullable(),
   assetId: z.string(),
 });
 export type OwnAgentLimits = z.infer<typeof ownAgentLimitsSchema>;
