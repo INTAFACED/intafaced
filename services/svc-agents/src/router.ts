@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { envScreeningList, SHIPPED_BUSINESS_BLOCKS } from '@intafaced/config';
 import { router, publicProcedure, scopedProcedure, TRPCError, forwardedPrincipalHeaders } from '@intafaced/contracts';
+import { executeProcedure } from './procedures.js';
 import { formatAmount, parseAmount } from '@intafaced/ledger-client';
 import type { Sql } from 'postgres';
 import { AgentError, assertOpsSessionsLimit, assertSessionLogPageLimit, assertSessionMineLimit, assertUserLogPageLimit } from './errors.js';
@@ -338,20 +339,6 @@ export interface AgentsRouterDeps {
   readonly portfolioLedger?: HoldingsLedger | null;
   /** Platform prices. Absent → portfolio.plan stays port_dark. Null price → portfolio.price_unset. */
   readonly portfolioPrices?: PortfolioPriceSource | null;
-}
-
-/**
- * Running an agent spends the person's money, so only the person runs one (OWNER 107): their own signed-in session,
- * never an API key (`agents:execute` is interactive-only in packages/auth), a sub-account or delegated token, or a
- * service forwarding their principal.
- */
-function executeProcedure() {
-  return scopedProcedure('agents:execute', { module: 'agents', person: true }).use(({ ctx, next }) => {
-    if (ctx.principal.kid || ctx.principal.sub_account) {
-      throw new TRPCError({ code: 'FORBIDDEN', message: 'agents.execute_person_only' });
-    }
-    return next();
-  });
 }
 
 /**
@@ -4204,7 +4191,7 @@ export function createAgentsRouter(deps: AgentsRouterDeps) {
     spend: spendRouter(sql),
 
     /** Agents a person builds for themselves (AG-builder-01). Building moves no value. */
-    own: ownRouter(sql),
+    own: ownRouter(sql, { runtime, feeAssetId }),
   });
 }
 
