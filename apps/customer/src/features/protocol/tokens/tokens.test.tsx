@@ -5,6 +5,11 @@ vi.mock('../../../shared/preferences', async (original) => {
   const real = await original<typeof import('../../../shared/preferences')>();
   return { ...real, usePreferences: () => real.currentPreferences() };
 });
+const session = {
+  userId: null as string | null,
+  api: { query: () => new Promise(() => undefined), mutate: () => new Promise(() => undefined) },
+};
+vi.mock('../../session/session', () => ({ useSession: () => session, useApi: () => session.api }));
 import { addToWatchlist, DEFAULT_WINDOW, readWatchlist, readWindow, removeFromWatchlist, saveWindow } from './storage';
 import { TokenPage } from './TokenPage';
 import { STABLECOINS_UNSET, STOCKS_BLOCKER, TokensRoom } from './TokensRoom';

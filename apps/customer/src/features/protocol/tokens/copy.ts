@@ -95,6 +95,13 @@ const en = {
   watchUnavailable: 'This browser is not keeping site data, so the watchlist cannot be kept here.',
   watchNotSaved: 'Your watchlist could not be saved in this browser. Nothing was changed.',
   watchRemove: 'Remove from watchlist',
+  watchNoteAccount: 'Your watchlist is kept on your account.',
+  watchAccountFailed: 'Your account’s watchlist could not be read, so nothing can be added here right now.',
+  importTitle: 'Import your watchlist',
+  importBody: 'This browser kept {count} token(s) on a watchlist while you were signed out. Add them to your account’s watchlist?',
+  importConfirm: 'Import',
+  importLater: 'Not now',
+  importFailed: 'The watchlist was not imported. Nothing was changed on your account.',
 } as const;
 
 export const tokensCopy = defineCopy('customer.protocol.tokens', en);
