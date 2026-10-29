@@ -181,10 +181,16 @@ export const DOCS_PAGES: readonly DocsPage[] = [
         docs('connectivityLead'),
         table(
           [docs('colOption'), docs('colStatus'), docs('colEndpoints2')],
-          connectivityOptions().map(({ option, state }) => [
+          connectivityOptions().map(({ option, state, hosts }) => [
             docs(`option_${option}`),
             connectivityStateLabel(docs, state),
-            connectivityEndpointsLabel(docs, option),
+            [
+              connectivityEndpointsLabel(docs, option),
+              ...hosts.map(
+                ({ protocol, cell }) =>
+                  `${portal(`protocol_${protocol}`)}: ${cell.state === 'set' ? code(cell.host) : portal('hostUnset')}`,
+              ),
+            ].join('; '),
           ]),
         ),
         `## ${docs('timeTitle')}`,
