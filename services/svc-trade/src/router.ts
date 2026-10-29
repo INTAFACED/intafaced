@@ -475,6 +475,7 @@ function toTrpcError(err: unknown): TRPCError {
       case 'trade.rfq_missing_price':
       case 'trade.otc_makers_unset':
       case 'trade.rfq_size_not_set':
+      case 'feed.market':
         return new TRPCError({ code: 'PRECONDITION_FAILED', message: err.message, cause: err });
       default:
         return new TRPCError({ code: 'BAD_REQUEST', message: err.message, cause: err });
@@ -1126,6 +1127,8 @@ export function createTradeRouter(
               quoteAsset: z.string().min(1).max(32),
               qty: decimal,
               makerId: z.string().min(1).max(120).optional(),
+              /** CB-otc-01: the providers this request asks, from `otc.makers.list`; the owner's cap is checked in the desk. */
+              makerIds: z.array(z.string().max(120)).max(50).optional(),
             })
             .strict(),
         )
@@ -1140,6 +1143,7 @@ export function createTradeRouter(
               quoteAsset: input.quoteAsset,
               qty: input.qty,
               makerId: input.makerId,
+              makerIds: input.makerIds,
             });
           }),
         ),
@@ -1218,6 +1222,8 @@ export function createTradeRouter(
               quoteAsset: z.string().min(1).max(32),
               qty: z.string(),
               makerId: z.string().min(1).max(120).optional(),
+              /** CB-otc-01: the providers this request asks, from `otc.makers.list`; the owner's cap is checked in the desk. */
+              makerIds: z.array(z.string().max(120)).max(50).optional(),
             })
             .strict(),
         )
@@ -1230,6 +1236,7 @@ export function createTradeRouter(
               quoteAsset: input.quoteAsset,
               qty: input.qty,
               makerId: input.makerId,
+              makerIds: input.makerIds,
             });
           }),
         ),

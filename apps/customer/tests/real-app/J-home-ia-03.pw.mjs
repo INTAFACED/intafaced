@@ -31,6 +31,9 @@ async function device(browser) {
   await signIn(page, who);
   await page.goto('/home');
   await expect(page.getByTestId('if-home-pro')).toBeVisible();
+  // While the balance call is out Home draws the assets panel as busy. This person is not verified, so once the call
+  // answers the summary names that refusal and the panel goes; tiles are read only after that answer.
+  await expect(page.getByTestId('hp-summary')).toContainText('Verify your identity first');
   return { context, page };
 }
 
@@ -70,6 +73,8 @@ test(`${J} #1 Customise Home hides and reorders tiles on the account: the same l
 
   // Hide the markets tile and move Recent activity up one place.
   let dialog = await openCustomise(a.page);
+  const shippedList = await listed(dialog);
+  expect(shippedList.some((tile) => tile.endsWith('(hidden)'))).toBe(false);
   await dialog.getByRole('checkbox', { name: 'Show Markets' }).uncheck();
   await expect(outcome(dialog)).toHaveText('Saved to your account.');
   await dialog.getByRole('button', { name: 'Move Recent activity up' }).click();
@@ -114,6 +119,7 @@ test(`${J} #1 Customise Home hides and reorders tiles on the account: the same l
   const reset = await openCustomise(b.page);
   await reset.getByRole('button', { name: 'Reset' }).click();
   await expect(outcome(reset)).toHaveText('Saved to your account.');
+  expect(await listed(reset)).toEqual(shippedList);
   await reset.getByRole('button', { name: 'Done' }).click();
   await expect.poll(() => drawnTiles(b.page)).toEqual(shipped);
   await onA.getByRole('button', { name: 'Done' }).click();

@@ -225,7 +225,9 @@ test('merchant money: snapshot balances, separate assets and honest statement ga
   await signIn(page, '/pay/money');
   await expect(page.getByRole('heading', { name: 'Balances', level: 1 })).toBeVisible();
   await expect(page.getByRole('group', { name: 'Balances at a glance' })).toBeVisible();
-  await expect(page.getByText(/Reserve: 5\.00% held back/).first()).toBeVisible();
+  const reserve = page.getByRole('region', { name: 'Reserve' });
+  await expect(reserve).toContainText('recorded, not withheld');
+  await expect(reserve).toContainText('5.00% of each settlement');
   await snap(page, 'P24-money');
   await axe(page);
   await phone(page, 'P24-money');

@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useState } from 'react';
 import type { ApiResult } from '../../shared/api';
 
-export type Read<T> = { status: 'loading' } | { status: 'failed' } | { status: 'ready'; data: T };
+/** A failed read keeps the service's code, when it sent one, so a page can tell a blank owner setting from an outage. */
+export type Read<T> = { status: 'loading' } | { status: 'failed'; code?: string } | { status: 'ready'; data: T };
 
 /** Run one read when the page opens and again whenever `deps` change; `reload` runs it again after a failure. */
 export function useRead<T>(
@@ -14,7 +15,8 @@ export function useRead<T>(
     const controller = new AbortController();
     setRead({ status: 'loading' });
     void run(controller.signal).then((result) => {
-      if (!controller.signal.aborted) setRead(result.ok ? { status: 'ready', data: result.data } : { status: 'failed' });
+      if (!controller.signal.aborted)
+        setRead(result.ok ? { status: 'ready', data: result.data } : { status: 'failed', ...(result.code ? { code: result.code } : {}) });
     });
     return () => controller.abort();
     // `run` is rebuilt every render; the caller's deps say when the read really changes.

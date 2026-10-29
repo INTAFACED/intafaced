@@ -35,13 +35,16 @@ Every trading REST route and WebSocket stream, under its product, with the permi
 | `POST /api/v1/orders/cancel-all-after`              | `cancelAllOrdersAfter`  | trade:write                   |
 | `GET /api/v1/orders/cancel-all-after`               | `fetchCancelAllAfter`   | trade:read                    |
 
-| WebSocket stream | Permission                |
-| ---------------- | ------------------------- |
-| `orderbook`      | public                    |
-| `trades`         | public                    |
-| `ticker`         | public                    |
-| `ohlcv`          | public                    |
-| `orders`         | your own data; trade:read |
+| WebSocket stream | Door                                                   | Permission                |
+| ---------------- | ------------------------------------------------------ | ------------------------- |
+| `depth`          | One market per socket `/stream`                        | public                    |
+| `trades`         | One market per socket `/stream`                        | public                    |
+| `book`           | Many channels on one socket `/stream`                  | public                    |
+| `trades`         | Many channels on one socket `/stream`                  | public                    |
+| `ticker`         | Many channels on one socket `/stream`                  | public                    |
+| `candles`        | Many channels on one socket `/stream`                  | public                    |
+| `orders`         | Your own orders, fills and positions `/private/stream` | your own data; trade:read |
+| `fills`          | Your own orders, fills and positions `/private/stream` | your own data; trade:read |
 
 ## Derivatives
 
@@ -64,9 +67,10 @@ Every trading REST route and WebSocket stream, under its product, with the permi
 | `POST /api/v1/positions/leverage`         | `setLeverage`              | trade:write                   |
 | `POST /api/v1/positions/margin-mode`      | `setMarginMode`            | trade:write                   |
 
-| WebSocket stream | Permission                |
-| ---------------- | ------------------------- |
-| `positions`      | your own data; trade:read |
+| WebSocket stream        | Door                                                   | Permission                |
+| ----------------------- | ------------------------------------------------------ | ------------------------- |
+| `futures.mark.<symbol>` | Many channels on one socket `/stream`                  | public                    |
+| `positions`             | Your own orders, fills and positions `/private/stream` | your own data; trade:read |
 
 ## Funding
 
@@ -84,8 +88,10 @@ No deposit or withdrawal route is on the trading API: withdrawals are never reac
 | `GET /api/v1/statements/:id`      | `fetchStatementExport`     | trade:read  |
 | `GET /api/v1/statements/:id/file` | `fetchStatementExportFile` | trade:read  |
 
-| WebSocket stream | Permission                |
-| ---------------- | ------------------------- |
-| `balance`        | your own data; trade:read |
+| WebSocket stream | Door                                        | Permission                |
+| ---------------- | ------------------------------------------- | ------------------------- |
+| `drop_copy`      | Drop copy of your fills `/drop-copy/stream` | your own data; trade:read |
 
 The live inventory, GET /api/v1/capabilities, also lists the position and statement routes beyond this table, with their refusals.
+
+The live stream inventory, GET /ws/streams, lists every channel the stream service serves and whether its door is up.
