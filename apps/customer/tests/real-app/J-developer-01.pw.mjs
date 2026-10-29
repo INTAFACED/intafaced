@@ -12,10 +12,14 @@ test.describe.configure({ mode: 'default' });
 const card = (page, name) => page.getByRole('region', { name, exact: true });
 
 /** svc-trade's live route inventory, read from the running stack through the edge: `METHOD /path` per row. */
-async function liveInventory(page) {
+async function capabilities(page) {
   const response = await page.request.get('/api/v1/capabilities');
   expect(response.ok(), await response.text()).toBe(true);
-  const { routes } = await response.json();
+  return response.json();
+}
+
+async function liveInventory(page) {
+  const { routes } = await capabilities(page);
   expect(routes.length).toBeGreaterThan(10);
   return routes.map((route) => `${route.method} ${route.path}`);
 }
@@ -69,10 +73,10 @@ test(`${J} #2 opens the base-URL table: one row per protocol, environment and re
         has: page.getByRole('cell', { name: environment, exact: true }),
       });
       await expect(row).toHaveCount(1);
-      // A host the owner set shows its address; one not set says so, and nothing is guessed.
-      const state = await row.getAttribute('data-host-state');
-      if (state === 'unset') await expect(row).toContainText('host not set');
-      else await expect(row.getByRole('cell').nth(2)).toHaveText(/^[a-z0-9.-]+(:\d+)?$/i);
+      // The owner has published no host, so the row says "host not set" and no address is guessed.
+      await expect(row).toHaveAttribute('data-host-state', 'unset');
+      await expect(row).toContainText('host not set');
+      await expect(row.getByRole('code')).toHaveCount(0);
     }
   }
   await expect(page.getByText('The regional host rule is stated here once the owner sets it.')).toBeVisible();
@@ -84,20 +88,20 @@ test(`${J} #3 opens the connectivity options: internet and redundant endpoints w
   await page.goto('/developers/connectivity');
   await expect(page.getByRole('heading', { name: 'Connectivity', level: 1 })).toBeVisible();
   const options = tableIn(page, 'Connectivity options');
-  // Each endpoint names its host for every protocol: an address the owner set, or "host not set". Available only when all are set.
+  // Each endpoint names its host for every protocol. The owner has published no host, so every one reads "host not set"
+  // with no address written or guessed, and neither endpoint claims Available.
   for (const option of ['Internet', 'Redundant endpoint']) {
     const row = options.getByRole('row', { name: new RegExp(option) });
     const hosts = row.getByRole('list', { name: option, exact: true }).getByRole('listitem');
     await expect(hosts).toHaveCount(3);
-    const states = [];
     for (const [index, protocol] of ['REST', 'WebSocket', 'FIX'].entries()) {
       const host = hosts.nth(index);
-      const state = await host.getAttribute('data-host-state');
-      states.push(state);
-      if (state === 'unset') await expect(host).toHaveText(`${protocol}: host not set`);
-      else await expect(host.getByRole('code')).toHaveText(/^[a-z0-9.-]+(:\d+)?$/i);
+      await expect(host).toHaveAttribute('data-protocol', protocol.toLowerCase());
+      await expect(host).toHaveAttribute('data-host-state', 'unset');
+      await expect(host).toHaveText(`${protocol}: host not set`);
+      await expect(host.getByRole('code')).toHaveCount(0);
     }
-    await expect(row).toContainText(states.every((state) => state === 'set') ? 'Available' : 'host not set');
+    await expect(row).not.toContainText('Available');
   }
   await expect(options.getByRole('row', { name: /Colocation/ })).toContainText('Parked');
   await expect(options.getByRole('row', { name: /Colocation/ })).toContainText(/hardware/i);
@@ -162,6 +166,19 @@ test(`${J} #4 reads the REST conventions and the trading API reference index: UR
   for (const { channel, tag } of streams) {
     await expect(product(tag).getByRole('rowheader', { name: channel, exact: true }), channel).toBeVisible();
   }
+
+  // The streams half stays red until a running service publishes its channel inventory: the live inventory lists routes
+  // only, and the local stack has no WebSocket upstream (ws.upstream_unset). When `streams` arrives, it is compared here.
+  const { streams: liveStreams } = await capabilities(page);
+  expect(
+    liveStreams,
+    'BLOCKED: no running service publishes its stream inventory (GET /api/v1/capabilities has no streams; the stack has no WebSocket upstream, ws.upstream_unset)',
+  ).toBeDefined();
+  for (const { channel } of liveStreams)
+    expect(
+      streams.map((stream) => stream.channel),
+      channel,
+    ).toContain(channel);
 });
 
 test(`${J} #5 downloads the OpenAPI file and a collection, and opens the agent docs index: every route with scope, cost and errors; each page once with a markdown variant`, async ({
