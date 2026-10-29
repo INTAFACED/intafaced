@@ -1,14 +1,17 @@
 import { useEffect, useState } from 'react';
 import { hostDispatchCopy as copy } from './host-dispatch-copy';
-import { readHostDispatch, type HostDispatchView } from './host-dispatch';
+import { hostDispatchOnce, type HostDispatchView } from './host-dispatch';
+import { usePreferences } from '../../shared/preferences';
+import { stamp } from '../../screens/money/time';
 
 /** The apex, app and join hosts as the deployment's host check left them: served, or the typed code that refused each. */
 export function HostDispatch() {
   const { t } = copy.useCopy();
+  const { timeZone } = usePreferences();
   const [view, setView] = useState<HostDispatchView | null>(null);
   useEffect(() => {
     let live = true;
-    void readHostDispatch().then((read) => live && setView(read));
+    void hostDispatchOnce().then((read) => live && setView(read));
     return () => {
       live = false;
     };
@@ -25,6 +28,11 @@ export function HostDispatch() {
               {t(view.source)}
             </p>
           )}
+          {view.everyHost && (
+            <p role="status">
+              {t('everyHost')} <strong lang="zxx">{view.everyHost}</strong>
+            </p>
+          )}
           <ul className="host-dispatch__rows">
             {view.rows.map((row) => (
               <li key={row.role} data-testid={`host-dispatch-${row.role}`} data-result={row.result}>
@@ -33,21 +41,22 @@ export function HostDispatch() {
                   {row.host ?? t('notNamed')}
                 </span>{' '}
                 <strong lang="zxx">{row.result === 'served' ? t('served') : row.result}</strong>
-                {row.detail && (
-                  <span lang="und" className="muted">
-                    {' '}
-                    ({row.detail})
-                  </span>
-                )}
               </li>
             ))}
           </ul>
           {view.checkedAt && (
             <p className="help__caption muted">
-              {t('checkedAt')} <span lang="zxx">{view.checkedAt}</span>
+              {t('checkedAt')} <span lang="zxx">{stamp(view.checkedAt, timeZone)}</span>
             </p>
           )}
-          {view.lastGood && <p className="help__caption muted">{t('lastGood', { at: view.lastGood.checkedAt })}</p>}
+          {view.lastGood && (
+            <p className="help__caption muted">
+              {t('lastGood', {
+                at: stamp(view.lastGood.checkedAt, timeZone),
+                since: stamp(view.lastGood.staleSince ?? view.checkedAt ?? view.lastGood.checkedAt, timeZone),
+              })}
+            </p>
+          )}
         </>
       )}
     </section>

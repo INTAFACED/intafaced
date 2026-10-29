@@ -1,4 +1,9 @@
+import { mkdtempSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
+// @ts-expect-error the deployment check is plain JavaScript with no type declarations
+import { runHostDispatch } from '../../../deployment/host-dispatch.mjs';
 import { hostDispatchView, readHostDispatch } from './host-dispatch';
 
 const served = (role: string, host: string) => ({ role, host, result: 'served', buildId: 'abc' });
@@ -33,24 +38,50 @@ describe('host dispatch receipt', () => {
       ],
       lastGood: { checkedAt: '2026-10-28T10:00:00.000Z', staleSince: '2026-10-29T10:00:00.000Z' },
     });
-    expect(view.rows[0]).toEqual({ role: 'apex', host: 'https://a.test', result: 'host.not_served', detail: 'ECONNREFUSED' });
+    expect(view.rows[0]).toEqual({ role: 'apex', host: 'https://a.test', result: 'host.not_served' });
     expect(view.rows[2]?.result).toBe('host.join_wrong_build');
     expect(view.lastGood).toEqual({ checkedAt: '2026-10-28T10:00:00.000Z', staleSince: '2026-10-29T10:00:00.000Z' });
   });
 
-  it('applies a refusal for every host to each role, and a host the receipt leaves out is not checked', () => {
-    const all = hostDispatchView({
+  it("keeps a refusal for every host beside each host's own refusal, and a host the receipt leaves out is not checked", () => {
+    const view = hostDispatchView({
       schemaVersion: 1,
       checkedAt: '2026-10-29T10:00:00.000Z',
-      hosts: [{ role: 'all', host: null, result: 'host.tls_verification_disabled' }],
+      hosts: [
+        { role: 'all', host: null, result: 'host.tls_verification_disabled' },
+        { role: 'apex', host: null, result: 'host.apex_unset' },
+      ],
     });
-    expect(all.rows.map((row) => row.result)).toEqual(Array(3).fill('host.tls_verification_disabled'));
+    expect(view.everyHost).toBe('host.tls_verification_disabled');
+    expect(view.rows.map((row) => row.result)).toEqual([
+      'host.apex_unset',
+      'host.tls_verification_disabled',
+      'host.tls_verification_disabled',
+    ]);
     const partial = hostDispatchView({
       schemaVersion: 1,
       checkedAt: '2026-10-29T10:00:00.000Z',
       hosts: [served('apex', 'https://a.test')],
     });
     expect(partial.rows.map((row) => row.result)).toEqual(['served', 'host.not_checked', 'host.not_checked']);
+  });
+
+  it('reads the receipt the deployment check writes', async () => {
+    const receiptFile = join(mkdtempSync(join(tmpdir(), 'host-dispatch-view-')), 'host-dispatch.json');
+    const blank = await runHostDispatch({ env: {}, receiptFile, fetchImpl: () => Promise.reject(new Error('no fetch')) });
+    expect(hostDispatchView(blank.receipt).rows.map((row) => row.result)).toEqual(['host.apex_unset', 'host.app_unset', 'host.join_unset']);
+    const dark = await runHostDispatch({
+      env: { INTAFACED_APEX_HOST: 'https://a.test', INTAFACED_APP_HOST: 'https://b.test', INTAFACED_JOIN_HOST: 'https://c.test' },
+      receiptFile,
+      fetchImpl: () => Promise.reject(new TypeError('offline')),
+    });
+    const view = hostDispatchView(dark.receipt);
+    expect(view.source).toBe('receipt');
+    expect(view.rows).toEqual([
+      { role: 'apex', host: 'https://a.test', result: 'host.not_served' },
+      { role: 'app', host: 'https://b.test', result: 'host.not_served' },
+      { role: 'join', host: 'https://c.test', result: 'host.not_served' },
+    ]);
   });
 
   it('refuses a body that is not a version-1 receipt', () => {
