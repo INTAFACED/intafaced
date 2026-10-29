@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';
+import { SwapForm } from './swap/SwapForm';
 import { navigate } from '../../app/location';
 import { useApi } from '../session/session';
 import { usePreferences } from '../../shared/preferences';
@@ -23,6 +24,8 @@ import {
 } from './blockers';
 import { protocolCopy as copy } from './copy';
 import { ContractsPanel, type ChainRef, NetworkPanel, SupportedNetworksPanel } from './NetworkPanels';
+import { ChainHome } from './explorer/ChainHome';
+import './explorer/explorer.css';
 import './protocol.css';
 
 type Translate = ReturnType<typeof copy.forLocale>['t'];
@@ -329,7 +332,7 @@ function QuoteResult({ quote, t }: { quote: DexQuote; t: Translate }) {
  * The /chain, /dex and /protocol rooms while INTACHAIN is parked. Parked means "blocked with a named reason you can open
  * and inspect": every section reads the live service where one answers, every service that does not answer shows a typed
  * refuse, and every action the room implies is present, disabled, and names its first real blocker.
- * Nothing here is labelled INTACHAIN, mainnet or audited.
+ * Nothing here is labelled INTACHAIN mainnet or audited; the INTACHAIN line on Chain home reads "not launched" with its blocker.
  */
 export function ParkedProtocolRoom({ slug, subPath }: { slug: Slug; subPath?: string }) {
   const { language } = usePreferences();
@@ -444,6 +447,7 @@ export function ParkedProtocolRoom({ slug, subPath }: { slug: Slug; subPath?: st
   if (slug === 'chain' && tab === 'status')
     body = (
       <>
+        <ChainHome chain={chainRef} />
         {chainStatusPanel}
         <NetworkPanel chain={chainRef} t={t} />
       </>
@@ -494,7 +498,7 @@ export function ParkedProtocolRoom({ slug, subPath }: { slug: Slug; subPath?: st
       </Panel>
     );
   else if (tab === 'audit') body = auditPanel;
-  else if (slug === 'dex' && tab === 'swap') body = <QuoteDesk api={api} t={t} />;
+  else if (slug === 'dex' && tab === 'swap') body = <SwapForm />;
   else if (slug === 'dex' && tab === 'pools')
     body = (
       <Panel title={t('poolsTitle')}>
@@ -521,6 +525,7 @@ export function ParkedProtocolRoom({ slug, subPath }: { slug: Slug; subPath?: st
     body = (
       <>
         {venuePanel}
+        <QuoteDesk api={api} t={t} />
         <SupportedNetworksPanel t={t} chain={chainRef} />
       </>
     );

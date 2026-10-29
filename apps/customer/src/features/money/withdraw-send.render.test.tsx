@@ -80,6 +80,10 @@ const LIMITS = {
   remaining: { perTx: '100', rolling24h: '200' },
   maxNow: '100',
 };
+const RULES = { assetId: 'USDT', networkId: 'ethereum', minimum: '10', maximum: '1000', step: '0.5', tag: 'none' };
+/** svc-pay's reads: the limit line and the network's rules, each by its own procedure. */
+const reads = (rules: unknown = { ok: true, data: RULES }, limits: unknown = { ok: true, data: LIMITS }) =>
+  query.mockImplementation(async (_module: string, procedure: string) => (procedure === 'withdrawal.networkRules' ? rules : limits));
 const quoteFor = (amount: string, over: Record<string, unknown> = {}) => ({
   quoteRef: 'q',
   assetId: 'USDT',
@@ -106,7 +110,7 @@ beforeEach(() => {
   query.mockReset();
   mint.mockReset();
   reloads.held = 0;
-  query.mockResolvedValue({ ok: true, data: LIMITS });
+  reads();
   host = document.createElement('div');
   document.body.append(host);
 });
@@ -160,8 +164,51 @@ describe('sending crypto out (J-wallet-05)', () => {
     expect(button('Get the fee').disabled).toBe(true);
   });
 
+  it('shows the network rules from svc-pay before any fee, and an amount outside them is refused at the field with no quote', async () => {
+    await mount();
+    expect(query).toHaveBeenCalledWith(
+      'pay',
+      'withdrawal.networkRules',
+      { assetId: 'USDT', networkId: 'ethereum' },
+      expect.anything(),
+      expect.anything(),
+    );
+    const panel = document.querySelector('[data-testid="withdraw-network-rules"]')!.textContent ?? '';
+    expect(panel).toContain('This network takes no tag or memo.');
+    expect(panel).toContain('Minimum10 USDT');
+    expect(panel).toContain('Maximum1,000 USDT');
+    expect(panel).toContain('Step0.5 USDT');
+    for (const [typed, words] of [
+      ['9.5', 'That is below this network’s minimum of 10 USDT.'],
+      ['10.25', 'Send a whole number of steps of 0.5 USDT on this network.'],
+    ] as const) {
+      await type('Amount', typed);
+      expect(text()).toContain(words);
+      expect(button('Get the fee').disabled).toBe(true);
+    }
+    await type('Amount', '10.5');
+    expect(button('Get the fee').disabled).toBe(false);
+    expect(mutate).not.toHaveBeenCalled();
+  });
+
+  it('says in words when the network has no rules or needs a tag, and no fee can be got', async () => {
+    reads(refusal('withdrawal_network_rules.unset'));
+    await mount();
+    expect(text()).toContain('The minimum, maximum and step for this network aren’t published, so nothing can be sent on it.');
+    expect(text()).not.toContain('service words');
+    await type('Amount', '25');
+    expect(button('Get the fee').disabled).toBe(true);
+    act(() => root?.unmount());
+    root = null;
+    reads({ ok: true, data: { ...RULES, tag: 'required' } });
+    await mount();
+    expect(text()).toContain('This network needs a tag or memo with every send.');
+    await type('Amount', '25');
+    expect(button('Get the fee').disabled).toBe(true);
+  });
+
   it('says in words when no limit is set, and nothing can be confirmed', async () => {
-    query.mockResolvedValue(refusal('pay.guard_withdrawal_limit_unset'));
+    reads(undefined, refusal('pay.guard_withdrawal_limit_unset'));
     await mount();
     expect(text()).toContain('No withdrawal limit is set for your account level and this asset, so nothing can be sent.');
     expect(text()).not.toContain('service words');
