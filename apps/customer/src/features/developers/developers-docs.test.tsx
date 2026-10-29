@@ -114,6 +114,12 @@ describe('developer docs pages', () => {
     expect(page).toContain('Market data products and their terms');
     expect(page).not.toContain('data-terms-state=');
   });
+  it('the auth error catalogue address publishes the catalogue and links the permission table', () => {
+    const page = html('/developers/errors/auth');
+    expect(page).toContain('Authentication and permission errors');
+    expect(page).not.toContain('DV-errors-02');
+    expect(page).toContain('href="/developers/permissions"');
+  });
 });
 
 describe('the clock check', () => {
