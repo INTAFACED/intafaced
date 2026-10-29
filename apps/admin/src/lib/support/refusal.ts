@@ -112,6 +112,11 @@ const BY_SUPPORT_CODE: Readonly<Record<string, Entry>> = {
     body: 'The text still holds a placeholder such as {{requester.name}}, and the desk holds no value for it.',
     next: 'Nothing was sent or saved. Fill it in by hand or remove it, then try again.',
   },
+  'support.note_empty': {
+    title: 'The note is empty',
+    body: 'svc-support records no internal note without text.',
+    next: 'Nothing was written. Write the note, then add it again.',
+  },
   'support.macro_placeholder_unknown': {
     title: 'That placeholder does not exist',
     body: 'A macro may name only {{requester.name}}, {{ticket.id}} and {{agent.name}}.',

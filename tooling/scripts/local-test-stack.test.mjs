@@ -250,6 +250,7 @@ const script = resolve(here, 'local-test-stack.mjs');
   assert.equal(bank.env.BANK_GLOBAL_PARTNER, 'global-sim');
   assert.equal(bank.env.BANK_ONRAMP_RATES, 'ramp-sim');
   assert.equal(bank.env.BANK_PAYOUT_PARTNER, 'payout-sim');
+  assert.match(bank.env.BANK_PAYOUT_SIM_RECORDS_DIR, /\/test-rail-records$/);
   assert.equal(bank.env.BANK_DD_SCHEME, 'dd-sim');
   for (const name of [
     'BANK_GLOBAL_SIM_JSON',

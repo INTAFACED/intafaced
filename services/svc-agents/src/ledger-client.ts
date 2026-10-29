@@ -7,8 +7,9 @@ import { serviceCallSigner, type ServiceAuthMode, type ServiceSigner } from '@in
  * svc-agents moves value in exactly one place: `UsageMeter.settleInner` posts the `feeCharge` for a sealed usage window.
  * That post is made with NO database transaction open: the seal commits first (it freezes the amount and the charge key),
  * and the ledger id is written back by a plain statement afterwards. So the post budget protects the caller (a settle
- * route or `session.close` waiting on svc-agents) and the connection pool, not an idle-in-transaction timer. The same
- * code reads no balance, so the read budget below is only what any later read would inherit.
+ * route or `session.close` waiting on svc-agents) and the connection pool, not an idle-in-transaction timer. It reads one
+ * balance: the person's available amount before a run is admitted (`funds` in `index.ts`), read inside the spend
+ * reservation's transaction under the per-user lock, so the read budget below bounds how long that lock is held.
  *
  *   - post: 10s per attempt, 2 retries, 25s for the whole call including backoffs. Retrying a post is safe because the
  *     ledger answers a reused idempotency key with the original transaction (the key is the window's charge key,

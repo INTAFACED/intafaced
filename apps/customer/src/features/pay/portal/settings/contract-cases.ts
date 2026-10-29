@@ -6,6 +6,7 @@ export const settingsContract: ContractPart = {
   cases: [
     ...accountContract.cases,
     { method: 'kybCurrent', run: (p) => p.kybCurrent() },
+    { method: 'activation', run: (p) => p.activation() },
     { method: 'kybHistory', run: (p) => p.kybHistory(undefined) },
     { method: 'teamList', run: (p) => p.teamList(undefined, '') },
     { method: 'teamHistory', run: (p) => p.teamHistory(undefined) },

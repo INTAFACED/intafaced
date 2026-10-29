@@ -112,9 +112,11 @@ export class ModelGateway {
 
     if (!isUsable(provider, now)) {
       const health = provider.health();
-      // Unprobed ≠ outage. `/ready` must not stamp live, but the first complete
-      // is the probe — refusing here would deadlock inference forever.
-      if (health.reason !== PROVIDER_UNPROBED_REASON) {
+      // Unprobed ≠ outage, and neither is quiet. `/ready` must not stamp live,
+      // but the next complete is the probe: a healthy provider whose last answer
+      // is merely old (nobody asked for a minute) refreshes on this call.
+      // Refusing it would deadlock inference forever after the first idle minute.
+      if (!health.healthy && health.reason !== PROVIDER_UNPROBED_REASON) {
         throw new AgentError(
           `Provider "${provider.id}" is not currently usable: ${health.reason ?? 'unhealthy or stale'}`,
           'agents.provider_unavailable',

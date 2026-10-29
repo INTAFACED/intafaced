@@ -50,6 +50,8 @@ export const scaledPrefix = (nonce: string): string => `${SCALED_TAG}${nonce}-`;
 export const scaledId = (nonce: string, index: number): string => `${scaledPrefix(nonce)}${index}`;
 export const matchesPrefix = (clientOrderId: string | null | undefined, prefix: string): boolean =>
   Boolean(clientOrderId) && clientOrderId!.startsWith(prefix);
+export const ICEBERG_TAG = 'ice-';
+export const icebergClientId = (nonce: string): string => `${ICEBERG_TAG}${nonce}`;
 export const isScaledId = (clientOrderId: string | null | undefined): boolean => matchesPrefix(clientOrderId, SCALED_TAG);
 /** `scl-<nonce>-` of an id placed by this room, or null for any other id. */
 export function scaledGroupOf(clientOrderId: string | null | undefined): string | null {
@@ -59,11 +61,12 @@ export function scaledGroupOf(clientOrderId: string | null | undefined): string 
 
 /**
  * The device note `trade-pending:<user>` is shared with the spot desk, Buy and Convert. A room's "Check status" may release
- * only the note it wrote itself: scaled batches (`place` with a `scl-` id), algo requests, and single-order cancels.
+ * only the note it wrote itself: scaled batches (`place` with a `scl-` id), icebergs (`place` with an `ice-` id), algo requests, and single-order cancels.
  * Anything else keeps its lock until the screen that owns it checks it.
  */
-export function ownsNote(room: 'scaled' | 'algo' | 'execCancel', pending: Pick<Pending, 'kind' | 'id'>): boolean {
+export function ownsNote(room: 'scaled' | 'iceberg' | 'algo' | 'execCancel', pending: Pick<Pending, 'kind' | 'id'>): boolean {
   if (room === 'scaled') return pending.kind === 'place' && pending.id.startsWith(SCALED_TAG);
+  if (room === 'iceberg') return pending.kind === 'place' && pending.id.startsWith(ICEBERG_TAG);
   if (room === 'algo') return pending.kind === 'algo';
   return pending.kind === 'cancel';
 }

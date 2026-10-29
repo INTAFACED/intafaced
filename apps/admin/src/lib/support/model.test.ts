@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { SUPPORT_NOTE_MAX } from '@intafaced/contracts';
 import {
   allowedNextStatuses,
   claimGate,
@@ -9,6 +10,8 @@ import {
   readActionRequest,
   readQueueResult,
   readRatingResult,
+  internalNoteGate,
+  INTERNAL_NOTE_MAX,
   replyGate,
   statusGate,
 } from './model';
@@ -159,6 +162,33 @@ describe('reply and escalate gates', () => {
     expect(escalateGate({ status: 'open' }, '', false)).toMatchObject({ ok: false });
     expect(escalateGate({ status: 'closed' }, 'Needs review', false)).toMatchObject({ ok: false });
     expect(escalateGate({ status: 'resolved' }, 'Needs review', false)).toEqual({ ok: true });
+  });
+});
+
+describe('the internal note gate', () => {
+  it('caps a note at the contract’s own limit', () => {
+    expect(INTERNAL_NOTE_MAX).toBe(SUPPORT_NOTE_MAX);
+  });
+  it('needs words, holds while busy, caps the length, and takes a note on a closed ticket too', () => {
+    expect(internalNoteGate('  ', false)).toEqual({ ok: false, why: 'Write the note first.' });
+    expect(internalNoteGate('TEST', true)).toMatchObject({ ok: false });
+    expect(internalNoteGate('x'.repeat(INTERNAL_NOTE_MAX + 1), false)).toMatchObject({ ok: false });
+    expect(internalNoteGate('TEST', false)).toEqual({ ok: true });
+  });
+  it('reads a note strictly: the row read and the notes sent are its key', () => {
+    expect(readActionRequest({ action: 'note', ticketId: T1, body: ' TEST ', expectedSequence: 4, sent: 0 })).toEqual({
+      action: 'note',
+      ticketId: T1,
+      body: 'TEST',
+      expectedSequence: 4,
+      sent: 0,
+    });
+    expect(readActionRequest({ action: 'note', ticketId: T1, body: 'TEST', sent: 0 })).toBeNull();
+    expect(readActionRequest({ action: 'note', ticketId: T1, body: 'TEST', expectedSequence: 4 })).toBeNull();
+    expect(readActionRequest({ action: 'note', ticketId: 'x', body: 'TEST', expectedSequence: 4, sent: 0 })).toBeNull();
+    expect(
+      readActionRequest({ action: 'note', ticketId: T1, body: 'x'.repeat(INTERNAL_NOTE_MAX + 1), expectedSequence: 4, sent: 0 }),
+    ).toBeNull();
   });
 });
 
