@@ -191,30 +191,17 @@ test(`${J} starts: below the desk's tier the price request is refused with trade
   expect(toUnits(short)).toBeGreaterThan(0n);
   await stake(below, me, short);
   const before = await me.balances();
-  // The account's quotes as svc-trade records them (rfq.list), over a window around this step.
-  const window = { from: new Date(Date.now() - 3_600_000).toISOString(), to: new Date(Date.now() + 3_600_000).toISOString(), limit: 50 };
-  const listed = async () => {
-    const read = await me.get(`/api/trade/trpc/rfq.list?input=${encodeURIComponent(JSON.stringify(window))}`);
-    expect(read.status, JSON.stringify(read.body).slice(0, 300)).toBe(200);
-    return read.body.result.data.rows;
-  };
-  expect(await listed()).toEqual([]);
+  expect(await listedQuotes(me)).toEqual([]);
 
   await signIn(page, below);
   await page.goto('/otc');
   await expect(desk(page)).toBeVisible();
-  const answer = page.waitForResponse((res) => res.url().includes('rfq.quote'));
-  await request(page).getByRole('combobox', { name: 'Pair' }).click();
-  await page.getByRole('option', { name: 'BTC/USDT', exact: true }).click();
-  await request(page).getByRole('textbox', { name: 'Quantity' }).fill('0.5');
-  await page.getByRole('button', { name: 'Request price' }).click();
-  const refused = await (await answer).json();
-  expect([refused].flat()[0].error.data.cause.code).toBe('trade.otc_stake_gate');
+  expect(await askRefused(page, '0.5')).toBe('trade.otc_stake_gate');
   await expect(page.getByText('trade.otc_stake_gate')).toBeVisible();
   await expect(card(page)).toHaveCount(0);
 
   // Re-read after the refusal: no quote was recorded for the account and nothing moved or was held.
-  expect(await listed()).toEqual([]);
+  expect(await listedQuotes(me)).toEqual([]);
   expect(await me.balances()).toEqual(before);
   expect(await stakedOf(me)).toBe(short);
 });

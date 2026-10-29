@@ -91,17 +91,22 @@ describe('OtcDeskService', () => {
 
     it('given notional 500 below a 1000 minimum, refuses trade.rfq_below_minimum naming the minimum, and records nothing', async () => {
       const { svc, store } = desk({ USDT: parseAmount('1000') });
-      // 2.5 BTC at the mid of 200 is 500 USDT.
+      // 2.5 BTC at the mid of 200 is 500 USDT (502.5 with the 50 bps spread).
       const refused = svc.quote(principal, { side: 'buy', baseAsset: 'BTC', quoteAsset: 'USDT', qty: '2.5' });
       await expect(refused).rejects.toBeInstanceOf(OtcError);
       await expect(refused).rejects.toMatchObject({ code: 'trade.rfq_below_minimum', message: 'Below the desk minimum of 1000 USDT' });
       expect(store.saved).toBe(0);
     });
 
-    it('at exactly the minimum the desk prices', async () => {
+    it('holds on what the customer trades: a buy of 1000 at the mid prices, a sell of 1000 at the mid nets 995 and refuses', async () => {
       const { svc, store } = desk({ USDT: parseAmount('1000') });
+      // 5 BTC at the mid of 200 is 1000 USDT: the buyer pays 1005 after the 50 bps spread, the seller gets 995.
       const quote = await svc.quote(principal, { side: 'buy', baseAsset: 'BTC', quoteAsset: 'USDT', qty: '5' });
       expect(quote.quoteId).toBeTruthy();
+      expect(store.saved).toBe(1);
+      await expect(svc.quote(principal, { side: 'sell', baseAsset: 'BTC', quoteAsset: 'USDT', qty: '5' })).rejects.toMatchObject({
+        code: 'trade.rfq_below_minimum',
+      });
       expect(store.saved).toBe(1);
     });
 

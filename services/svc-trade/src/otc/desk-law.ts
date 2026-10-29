@@ -35,7 +35,7 @@ export type OtcDeskLaw =
        */
       readonly settleWindowMs?: number | null;
       /**
-       * Smallest request the desk prices, as notional at the reference mid, per quote asset (CB-otc-07). Owner-published
+       * Smallest request the desk prices, as the notional the customer trades (after the spread), per quote asset (CB-otc-07). Owner-published
        * only. Null, or a quote asset left out, is blank: a request in that asset refuses `trade.rfq_size_not_set`.
        */
       readonly minNotional?: Readonly<Record<string, Amount>> | null;

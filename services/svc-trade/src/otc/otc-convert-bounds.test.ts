@@ -24,8 +24,8 @@ const TEST_LAW: OtcDeskLaw = {
   counterparty: 'platform',
   quoteTtlMs: 60_000,
   maxMidAgeSeconds: 60,
-  // A zero desk minimum is an owner value: these quotes are not held by the CB-otc-07 minimum.
-  minNotional: { USDT: 0n },
+  // The desk minimum is left blank on purpose: convert is sized by its own owner bounds, never by the RFQ desk minimum
+  // (CB-otc-07), so every convert below prices without one.
 };
 const TEST_BOUNDS_JSON = JSON.stringify({ convert: { minQty: '1', maxQty: '10' }, oneClickBuy: { minQty: '2', maxQty: '5' } });
 
