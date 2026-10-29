@@ -239,6 +239,42 @@ describe('J-more-catalogue-11 launch service', () => {
     expect(cancelled.status).toBe('cancelled');
   });
 
+  it('the read-only checks refuse what the writes refuse, pass a retry, and write nothing', async () => {
+    expect(await refusal(launch.checkIssuerSet({ id: 'test-issuer', name: 'TEST Issuer', state: 'reviewing', expectedRevision: 0 }))).toBe(
+      'launch.issuer_move_invalid',
+    );
+    await launch.checkIssuerSet({ id: 'test-issuer', name: 'TEST Issuer', state: 'applied', expectedRevision: 0 });
+    await launch.setIssuer({ id: 'test-issuer', name: 'TEST Issuer', state: 'applied', expectedRevision: 0, ...who });
+    await launch.checkIssuerSet({ id: 'test-issuer', name: 'TEST Issuer', state: 'applied', expectedRevision: 0 });
+    expect(await refusal(launch.checkIssuerSet({ id: 'test-issuer', name: 'TEST Issuer', state: 'onboarded', expectedRevision: 1 }))).toBe(
+      'launch.issuer_move_invalid',
+    );
+    expect(await refusal(launch.checkMove({ id: 'test-open-launch', to: 'announced', expectedRevision: 0, now: at(0.5) }))).toBe(
+      'launch.event_not_found',
+    );
+    await launch.createEvent(event());
+    expect(await refusal(launch.checkMove({ id: 'test-open-launch', to: 'announced', expectedRevision: 0, now: at(0.5) }))).toBe(
+      'launch.issuer_not_onboarded',
+    );
+    await launch.setIssuer({ id: 'test-issuer', name: 'TEST Issuer', state: 'reviewing', expectedRevision: 1, ...who });
+    await launch.setIssuer({ id: 'test-issuer', name: 'TEST Issuer', state: 'onboarded', expectedRevision: 2, ...who });
+    expect(await refusal(launch.checkMove({ id: 'test-open-launch', to: 'announced', expectedRevision: 0, now: at(-1) }))).toBe(
+      'launch.period_not_due',
+    );
+    expect(await refusal(launch.checkMove({ id: 'test-open-launch', to: 'open', expectedRevision: 0, now: at(3) }))).toBe(
+      'launch.event_move_invalid',
+    );
+    expect(await refusal(launch.checkMove({ id: 'test-open-launch', to: 'announced', expectedRevision: 1, now: at(0.5) }))).toBe(
+      'launch.event_stale',
+    );
+    await launch.checkMove({ id: 'test-open-launch', to: 'announced', expectedRevision: 0, now: at(0.5) });
+    const [{ moves }] = await sql<[{ moves: number }]>`SELECT count(*)::int AS moves FROM token.launch_event_moves`;
+    expect(moves).toBe(0);
+    await launch.moveEvent({ id: 'test-open-launch', to: 'announced', expectedRevision: 0, ...who, now: at(0.5) });
+    // A retry of the move that landed passes the check, so it reaches the write and replays there.
+    await launch.checkMove({ id: 'test-open-launch', to: 'announced', expectedRevision: 0, now: at(0.5) });
+  });
+
   it('filters by state and type, newest opening first, each with its issuer state', async () => {
     await onboardedIssuer();
     await launch.createEvent(event());

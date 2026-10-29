@@ -19,6 +19,7 @@ import { isMerchantArea } from '../features/pay/portal/chrome/model';
 import { SessionNotice } from './SessionNotice';
 import { rememberShellRoute } from '../features/protocol/shell-state';
 import { TeamDesk, teamConsoleHref } from './TeamDesk';
+import { matchMoreRoute } from '../features/more/more-room-routes';
 
 // Rooms outside the customer doors load on demand, so a first visit to Home does not download them.
 const loadPublic = () => import('../features/public/PublicRoutes').then((m) => ({ default: m.PublicRoutes }));
@@ -69,8 +70,11 @@ function DevRibbon({ feature }: { feature: Feature }) {
 const isAcademyPath = (path: string) => path === '/academy' || path.startsWith('/academy/');
 // The launch catalogue and a launch's page open signed out too (J-more-catalogue-11): they read only published events.
 // Eligibility and basis inside them still ask the visitor to sign in. The issuer forms under /launch stay private.
-const isLaunchCataloguePath = (path: string) =>
-  path === '/launch' || (/^\/launch\/[^/]+$/.test(path) && !['/launch/new', '/launch/check', '/launch/requirements'].includes(path));
+const isLaunchCataloguePath = (path: string) => {
+  if (path === '/launch') return true;
+  const hit = matchMoreRoute(path);
+  return hit?.route.room === 'launch' && hit.route.kind === 'detail' && hit.id !== undefined;
+};
 
 function legacyArea(room: Room): LegacyArea | undefined {
   return room.area === 'money' || room.area === 'trade' || room.area === 'pay' || room.area === 'more' || room.area === 'person'

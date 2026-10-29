@@ -268,8 +268,11 @@ function EligibilityCheck({ event }: { event: LaunchEvent }) {
   const [busy, setBusy] = useState(false);
   const check = async () => {
     setBusy(true);
-    setResult(await api.query('token', 'launch.eligibility', { id: event.id }, eligibilitySchema));
-    setBusy(false);
+    try {
+      setResult(await api.query('token', 'launch.eligibility', { id: event.id }, eligibilitySchema));
+    } finally {
+      setBusy(false);
+    }
   };
   return (
     <Region id="eligibility" title={t('eligibility')}>

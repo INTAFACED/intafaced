@@ -94,7 +94,9 @@ function fakeService(overrides: Partial<Record<keyof LaunchService, unknown>> = 
     })),
     createEvent: vi.fn(async () => ({ id: OPEN.id, status: 'draft', revision: 0 })),
     moveEvent: vi.fn(async () => OPEN),
+    checkMove: vi.fn(async () => undefined),
     setIssuer: vi.fn(),
+    checkIssuerSet: vi.fn(async () => undefined),
     ...overrides,
   } as unknown as LaunchService & Record<string, ReturnType<typeof vi.fn>>;
 }
@@ -282,6 +284,28 @@ describe('operator doors', () => {
       }),
     ).rejects.toMatchObject({ code: 'PRECONDITION_FAILED' });
     expect(service.moveEvent).not.toHaveBeenCalled();
+  });
+
+  it('a move or issuer change the service refuses never spends the approval', async () => {
+    const consume = vi.fn(stubApprovalConsumer(APPROVER).consume);
+    const service = fakeService({
+      checkMove: vi.fn(async () => {
+        throw new LaunchError('Launch is at revision 4', 'launch.event_stale');
+      }),
+      checkIssuerSet: vi.fn(async () => {
+        throw new LaunchError('Issuer cannot move from applied to onboarded', 'launch.issuer_move_invalid');
+      }),
+    });
+    const admin1 = caller(admin(), service, { approvals: { consume } });
+    await expect(admin1.events.move({ id: OPEN.id, to: 'closed', expectedRevision: 3, approvalId: 'a' })).rejects.toMatchObject({
+      cause: { code: 'launch.event_stale' },
+    });
+    await expect(
+      admin1.issuer.set({ id: 'tst-issuer', name: 'TEST Issuer', state: 'onboarded', expectedRevision: 1, approvalId: 'a' }),
+    ).rejects.toMatchObject({ cause: { code: 'launch.issuer_move_invalid' } });
+    expect(consume).not.toHaveBeenCalled();
+    expect(service.moveEvent).not.toHaveBeenCalled();
+    expect(service.setIssuer).not.toHaveBeenCalled();
   });
 
   it('move passes the actor and the approver to the service', async () => {

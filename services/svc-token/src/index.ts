@@ -127,9 +127,16 @@ export const appRouter = createTokenRouter(token, {
   launch: {
     service: new LaunchService(sql),
     participants: env.IDENTITY_URL
-      ? createParticipantClient(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET, s2s.signer && s2s.s2sMode ? { signer: s2s.signer, mode: s2s.s2sMode } : undefined)
+      ? createParticipantClient(
+          env.IDENTITY_URL,
+          env.INTERNAL_SERVICE_SECRET,
+          s2s.signer && s2s.s2sMode ? { signer: s2s.signer, mode: s2s.s2sMode } : undefined,
+        )
       : unwiredParticipants(),
-    eligibilityEnv: () => ({ TOKEN_LAUNCH_MIN_KYC_TIER: env.TOKEN_LAUNCH_MIN_KYC_TIER, TOKEN_LAUNCH_RESTRICTED_REGIONS: env.TOKEN_LAUNCH_RESTRICTED_REGIONS }),
+    eligibilityEnv: () => ({
+      TOKEN_LAUNCH_MIN_KYC_TIER: env.TOKEN_LAUNCH_MIN_KYC_TIER,
+      TOKEN_LAUNCH_RESTRICTED_REGIONS: env.TOKEN_LAUNCH_RESTRICTED_REGIONS,
+    }),
   },
 });
 export type AppRouter = typeof appRouter;

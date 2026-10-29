@@ -184,7 +184,7 @@ async function guard<T>(fn: () => Promise<T>): Promise<T> {
 export interface LaunchRouterOptions {
   approvals: ActionApprovalConsumer;
   participants: ParticipantSource;
-  /** The owner values read per check, so a change is never cached. */
+  /** The owner values as read at startup. Each check parses them again, so a blank one refuses every check with its own code. */
   eligibilityEnv: () => { TOKEN_LAUNCH_MIN_KYC_TIER?: string; TOKEN_LAUNCH_RESTRICTED_REGIONS?: string };
   now?: () => Date;
 }
@@ -256,6 +256,8 @@ export function createLaunchRouter(launch: LaunchService, options: LaunchRouterO
         .mutation(({ ctx, input }) =>
           guard(async () => {
             const expected = String(input.expectedRevision);
+            // A move the service would refuse never spends the founders' approval.
+            await launch.checkMove({ id: input.id, to: input.to, expectedRevision: input.expectedRevision, now: now() });
             const consumed = await consumeTokenApproval(
               options.approvals,
               input,
@@ -301,6 +303,8 @@ export function createLaunchRouter(launch: LaunchService, options: LaunchRouterO
         .mutation(({ ctx, input }) =>
           guard(async () => {
             const expected = String(input.expectedRevision);
+            // An issuer change the service would refuse never spends the founders' approval.
+            await launch.checkIssuerSet(input);
             const consumed = await consumeTokenApproval(
               options.approvals,
               input,

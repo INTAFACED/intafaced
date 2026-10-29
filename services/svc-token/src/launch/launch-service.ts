@@ -77,6 +77,75 @@ const ISSUER_MOVES: Record<IssuerState, IssuerState[]> = {
   suspended: ['reviewing'],
 };
 
+function issuerName(input: { id: string; name: string }): string {
+  if (!ID_RE.test(input.id)) throw new LaunchError('Issuer id must be 3 to 63 lowercase letters, digits or dashes', 'launch.event_invalid');
+  const name = input.name.trim();
+  if (name.length < 1 || name.length > 120) throw new LaunchError('Issuer name must be 1 to 120 characters', 'launch.event_invalid');
+  return name;
+}
+
+/** Every refusal of an issuer change, given the stored issuer and the move row at the next ordinal, if any. */
+function refuseIssuerSet(
+  current: { name: string; state: IssuerState; revision: number } | undefined,
+  input: { id: string; name: string; state: IssuerState; expectedRevision: number },
+  replayTo: string | undefined,
+): 'replay' | 'set' {
+  if (current && replayTo !== undefined) {
+    if (replayTo === input.state && current.name === input.name) return 'replay';
+    throw new LaunchError(`Issuer ${input.id} changed since revision ${input.expectedRevision}`, 'launch.issuer_stale');
+  }
+  if (!current) {
+    if (input.expectedRevision !== 0) throw new LaunchError(`Issuer ${input.id} not found`, 'launch.issuer_not_found');
+    if (input.state !== 'applied') throw new LaunchError('A new issuer starts as applied', 'launch.issuer_move_invalid');
+    return 'set';
+  }
+  if (current.name !== input.name) throw new LaunchError(`Issuer ${input.id} has another name`, 'launch.issuer_conflict');
+  if (current.revision !== input.expectedRevision) {
+    throw new LaunchError(`Issuer ${input.id} is at revision ${current.revision}`, 'launch.issuer_stale');
+  }
+  if (!ISSUER_MOVES[current.state].includes(input.state)) {
+    throw new LaunchError(`Issuer cannot move from ${current.state} to ${input.state}`, 'launch.issuer_move_invalid');
+  }
+  return 'set';
+}
+
+/** Every refusal of an event move, given the stored event and the move row at the next ordinal, if any. */
+function refuseMove(
+  event: LaunchEvent,
+  input: { id: string; to: LaunchStatus; expectedRevision: number; now: Date },
+  replayTo: string | undefined,
+): 'replay' | 'move' {
+  if (replayTo !== undefined) {
+    if (replayTo === input.to) return 'replay';
+    throw new LaunchError(`Launch ${input.id} changed since revision ${input.expectedRevision}`, 'launch.event_stale');
+  }
+  if (event.revision !== input.expectedRevision) {
+    throw new LaunchError(`Launch ${input.id} is at revision ${event.revision}`, 'launch.event_stale');
+  }
+  if (input.to === 'cancelled') {
+    if (event.status === 'complete' || event.status === 'cancelled') {
+      throw new LaunchError(`A ${event.status} launch cannot be cancelled`, 'launch.event_move_invalid');
+    }
+    return 'move';
+  }
+  if (NEXT[event.status] !== input.to) {
+    throw new LaunchError(`Launch cannot move from ${event.status} to ${input.to}`, 'launch.event_move_invalid');
+  }
+  if (input.to === 'allocated' || input.to === 'distributing' || input.to === 'complete') {
+    throw new LaunchError('Allocation and distribution have no ledger recipe wired', 'launch.allocation_unwired');
+  }
+  if ((input.to === 'announced' || input.to === 'snapshot' || input.to === 'open') && event.issuer.state !== 'onboarded') {
+    throw new LaunchError(`Issuer ${event.issuer.id} is ${event.issuer.state}`, 'launch.issuer_not_onboarded');
+  }
+  const p = event.periods;
+  const due = { announced: p.announceAt, snapshot: p.snapshotAt, open: p.openAt, closed: p.closeAt }[
+    input.to as 'announced' | 'snapshot' | 'open' | 'closed'
+  ];
+  if (input.now < due) throw new LaunchError(`The ${input.to} period starts at ${due.toISOString()}`, 'launch.period_not_due');
+  if (input.to === 'open' && input.now >= p.closeAt) throw new LaunchError('The launch window has already closed', 'launch.period_passed');
+  return 'move';
+}
+
 export interface TierWeight {
   minBasis: Amount;
   weight: number;
@@ -361,6 +430,31 @@ export class LaunchService {
   }
 
   /**
+   * Refuses an issuer change that setIssuer would refuse, without writing or locking, so a refused change never spends
+   * the founders' approval. setIssuer checks again under its lock: this only moves the refusal ahead of the approval.
+   */
+  async checkIssuerSet(input: { id: string; name: string; state: IssuerState; expectedRevision: number }): Promise<void> {
+    const name = issuerName(input);
+    const rows = await this.sql<Array<{ id: string; name: string; state: IssuerState; revision: number }>>`
+      SELECT id, name, state, revision FROM token.launch_issuers WHERE id = ${input.id}
+    `;
+    const replay = await this.sql<Array<{ to_state: string }>>`
+      SELECT to_state FROM token.launch_issuer_moves WHERE issuer_id = ${input.id} AND ordinal = ${input.expectedRevision + 1}
+    `;
+    refuseIssuerSet(rows[0], { ...input, name }, replay[0]?.to_state);
+  }
+
+  /** As checkIssuerSet, for moveEvent: the same refusals, read-only, before the approval is spent. */
+  async checkMove(input: { id: string; to: LaunchStatus; expectedRevision: number; now: Date }): Promise<void> {
+    const row = (await this.selectEvents(this.sql, { id: input.id }))[0];
+    if (!row) throw new LaunchError(`Launch ${input.id} not found`, 'launch.event_not_found');
+    const replay = await this.sql<Array<{ to_status: string }>>`
+      SELECT to_status FROM token.launch_event_moves WHERE event_id = ${input.id} AND ordinal = ${input.expectedRevision + 1}
+    `;
+    refuseMove(eventFromRow(row), input, replay[0]?.to_status);
+  }
+
+  /**
    * Adds an issuer (`expectedRevision` 0, state `applied`) or moves it one review step. The move row's ordinal is the
    * revision after the move, so a retried move with the same expected revision and target replays instead of failing.
    */
@@ -372,10 +466,7 @@ export class LaunchService {
     actorId: string;
     approverId: string;
   }): Promise<LaunchIssuer> {
-    if (!ID_RE.test(input.id))
-      throw new LaunchError('Issuer id must be 3 to 63 lowercase letters, digits or dashes', 'launch.event_invalid');
-    const name = input.name.trim();
-    if (name.length < 1 || name.length > 120) throw new LaunchError('Issuer name must be 1 to 120 characters', 'launch.event_invalid');
+    const name = issuerName(input);
     return transaction(this.sql, async (tx) => {
       const rows = await tx<Array<{ id: string; name: string; state: IssuerState; revision: number }>>`
         SELECT id, name, state, revision FROM token.launch_issuers WHERE id = ${input.id} FOR UPDATE
@@ -385,13 +476,9 @@ export class LaunchService {
       const replay = await tx<Array<{ to_state: string }>>`
         SELECT to_state FROM token.launch_issuer_moves WHERE issuer_id = ${input.id} AND ordinal = ${ordinal}
       `;
-      if (current && replay[0]) {
-        if (replay[0].to_state === input.state && current.name === name) return current;
-        throw new LaunchError(`Issuer ${input.id} changed since revision ${input.expectedRevision}`, 'launch.issuer_stale');
-      }
+      const verdict = refuseIssuerSet(current, { ...input, name }, replay[0]?.to_state);
+      if (verdict === 'replay') return current!;
       if (!current) {
-        if (input.expectedRevision !== 0) throw new LaunchError(`Issuer ${input.id} not found`, 'launch.issuer_not_found');
-        if (input.state !== 'applied') throw new LaunchError('A new issuer starts as applied', 'launch.issuer_move_invalid');
         await tx`
           INSERT INTO token.launch_issuers (id, name, state, revision) VALUES (${input.id}, ${name}, 'applied', 1)
         `;
@@ -400,13 +487,6 @@ export class LaunchService {
           VALUES (${input.id}, 1, NULL, 'applied', ${input.actorId}, ${input.approverId})
         `;
         return { id: input.id, name, state: 'applied', revision: 1 };
-      }
-      if (current.name !== name) throw new LaunchError(`Issuer ${input.id} has another name`, 'launch.issuer_conflict');
-      if (current.revision !== input.expectedRevision) {
-        throw new LaunchError(`Issuer ${input.id} is at revision ${current.revision}`, 'launch.issuer_stale');
-      }
-      if (!ISSUER_MOVES[current.state].includes(input.state)) {
-        throw new LaunchError(`Issuer cannot move from ${current.state} to ${input.state}`, 'launch.issuer_move_invalid');
       }
       await tx`
         UPDATE token.launch_issuers SET state = ${input.state}, revision = ${ordinal}, updated_at = now() WHERE id = ${input.id}
@@ -492,36 +572,9 @@ export class LaunchService {
       const replay = await tx<Array<{ to_status: string }>>`
         SELECT to_status FROM token.launch_event_moves WHERE event_id = ${input.id} AND ordinal = ${ordinal}
       `;
-      if (replay[0]) {
-        if (replay[0].to_status === input.to) return event;
-        throw new LaunchError(`Launch ${input.id} changed since revision ${input.expectedRevision}`, 'launch.event_stale');
-      }
-      if (event.revision !== input.expectedRevision) {
-        throw new LaunchError(`Launch ${input.id} is at revision ${event.revision}`, 'launch.event_stale');
-      }
+      if (refuseMove(event, input, replay[0]?.to_status) === 'replay') return event;
       const now = input.now;
-      const p = event.periods;
-      if (input.to === 'cancelled') {
-        if (event.status === 'complete' || event.status === 'cancelled') {
-          throw new LaunchError(`A ${event.status} launch cannot be cancelled`, 'launch.event_move_invalid');
-        }
-      } else {
-        if (NEXT[event.status] !== input.to) {
-          throw new LaunchError(`Launch cannot move from ${event.status} to ${input.to}`, 'launch.event_move_invalid');
-        }
-        if (input.to === 'allocated' || input.to === 'distributing' || input.to === 'complete') {
-          throw new LaunchError('Allocation and distribution have no ledger recipe wired', 'launch.allocation_unwired');
-        }
-        if ((input.to === 'announced' || input.to === 'snapshot' || input.to === 'open') && event.issuer.state !== 'onboarded') {
-          throw new LaunchError(`Issuer ${event.issuer.id} is ${event.issuer.state}`, 'launch.issuer_not_onboarded');
-        }
-        const due = { announced: p.announceAt, snapshot: p.snapshotAt, open: p.openAt, closed: p.closeAt }[
-          input.to as 'announced' | 'snapshot' | 'open' | 'closed'
-        ];
-        if (now < due) throw new LaunchError(`The ${input.to} period starts at ${due.toISOString()}`, 'launch.period_not_due');
-        if (input.to === 'open' && now >= p.closeAt) throw new LaunchError('The launch window has already closed', 'launch.period_passed');
-        if (input.to === 'snapshot') await this.sealSnapshot(tx, event.id, now);
-      }
+      if (input.to === 'snapshot') await this.sealSnapshot(tx, event.id, now);
       await tx`
         UPDATE token.launch_events SET status = ${input.to}, revision = ${ordinal} WHERE id = ${input.id}
       `;

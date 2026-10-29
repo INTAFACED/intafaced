@@ -1,5 +1,6 @@
 import {
   campaignParticipantSchema,
+  kycTierSchema,
   serviceCallSigner,
   type CampaignParticipant,
   type ServiceAuthMode,
@@ -19,7 +20,8 @@ import type { LaunchEvent } from './launch-service.js';
  * svc-token keeps no copy. An unread account refuses `launch.eligibility_unavailable`, never reads as eligible.
  */
 
-const KYC_TIERS = ['none', 'basic', 'full', 'institutional'] as const;
+/** Lowest to highest, in identity's own order. */
+const KYC_TIERS = kycTierSchema.options;
 type KycTier = (typeof KYC_TIERS)[number];
 
 export interface EligibilityRule {
