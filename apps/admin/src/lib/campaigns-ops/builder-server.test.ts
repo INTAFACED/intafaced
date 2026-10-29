@@ -34,6 +34,7 @@ const campaign = {
   createdAt: '2026-10-25T00:00:00.000Z',
   updatedAt: '2026-10-25T00:00:00.000Z',
   pendingChange: null,
+  earning: [],
 };
 const ok = (data: unknown) => Response.json({ result: { data } });
 const err = (status: number, message: string, code: string) =>

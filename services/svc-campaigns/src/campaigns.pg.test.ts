@@ -508,6 +508,43 @@ if (!db) {
       expect((await s.getForOps({ id: c.id })).participation?.rule?.revision).toBe(1);
     });
 
+    it('earning rules are part of the definition: a known trigger and a formula in the grammar, one name each', async () => {
+      const s = service();
+      const rule = { name: 'TEST per fill', trigger: 'trade.fill.settled', minAmount: '10', formula: 'min(amount * 0.01, 5)' };
+      const c = await s.create({ definition: full({ earning: [rule] }), actor: A });
+      expect(c.earning).toEqual([rule]);
+      expect(
+        await code(s.update({ id: c.id, revision: 1, definition: full({ earning: [{ ...rule, formula: 'amount * * 2' }] }), actor: A })),
+      ).toBe('campaigns.formula_invalid');
+      expect(
+        await code(
+          s.update({ id: c.id, revision: 1, definition: full({ earning: [{ ...rule, trigger: 'trade.order.placed' }] }), actor: A }),
+        ),
+      ).toBe('campaigns.trigger_unknown');
+      expect(
+        await code(
+          s.update({ id: c.id, revision: 1, definition: full({ earning: [rule, { ...rule, name: 'test PER fill' }] }), actor: A }),
+        ),
+      ).toBe('campaigns.earning_rule_name_taken');
+      // A deposit rule reads only the names its trigger has.
+      expect(
+        await code(
+          s.update({
+            id: c.id,
+            revision: 1,
+            definition: full({ earning: [{ ...rule, trigger: 'pay.deposit_credit.posted', formula: 'fee' }] }),
+            actor: A,
+          }),
+        ),
+      ).toBe('campaigns.formula_invalid');
+      // A live campaign's earning rules change only through its next revision.
+      await s.transition({ id: c.id, action: 'submit', revision: 1, actor: A });
+      await s.transition({ id: c.id, action: 'approve', revision: 1, actor: B });
+      const changed = await s.update({ id: c.id, revision: 1, definition: full({ earning: [{ ...rule, formula: '2' }] }), actor: A });
+      expect(changed.earning).toEqual([rule]);
+      expect(changed.pendingChange?.definition.earning).toEqual([{ ...rule, formula: '2' }]);
+    });
+
     it('a paused campaign cannot be archived either; one campaign reads by id at any age', async () => {
       const s = service();
       const c = await live();

@@ -56,12 +56,8 @@ export const STEP_LABEL: Record<BuilderStep, string> = {
 };
 
 /** Tabs whose backend is not built yet: shown with their blocker, never hidden, and never a step a draft resumes at. */
-export const PARKED_STEPS: Partial<Record<BuilderStep, { slice: string; what: string }>> = {
-  earning: {
-    slice: 'CM-rewards-hub-05',
-    what: 'Earning rules (a trigger from the catalogue, a condition and an incentive in the formula grammar) are not built in svc-campaigns yet.',
-  },
-};
+/** Tabs whose backend is not built yet: shown with their blocker, never hidden. None today; kept for the next one. */
+export const PARKED_STEPS: Partial<Record<BuilderStep, { slice: string; what: string }>> = {};
 
 export const STATE_LABEL: Record<CampaignState, string> = {
   draft: 'Draft',
@@ -166,6 +162,7 @@ export function editedView(c: Campaign): Campaign {
     participation: d.participation ?? null,
     budget: d.budget ? { asset: d.budget.asset, limit: amount(d.budget.limit), left: c.budget?.left ?? amount(d.budget.limit) } : null,
     reward: d.reward ? { asset: d.reward.asset, amount: amount(d.reward.amount) } : null,
+    earning: d.earning ?? [],
   };
 }
 
@@ -193,6 +190,7 @@ export function definitionOf(c: Campaign): CampaignDefinitionInput {
     budget: c.budget ? { asset: c.budget.asset, limit: c.budget.limit } : null,
     reward: c.reward ? { asset: c.reward.asset, amount: c.reward.amount } : null,
     tasks: c.tasks,
+    ...(c.earning.length > 0 ? { earning: c.earning } : {}),
   };
 }
 

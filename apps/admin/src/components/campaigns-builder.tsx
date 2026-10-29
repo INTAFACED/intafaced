@@ -9,6 +9,7 @@ import {
   type CampaignAction,
   type CampaignDefinitionInput,
   type CampaignGate,
+  type EarningRule,
   type ParticipationRules,
 } from '@intafaced/contracts/campaigns-catalogue';
 import { formatAsOf, formatWhen } from '@/lib/as-of';
@@ -35,6 +36,7 @@ import {
 import type { Part } from '@/lib/desk/part';
 import { PartFailed, StateChip } from '@/components/campaigns-desk';
 import { RuleBuilder } from '@/components/campaigns-rule-builder';
+import { EarningRules } from '@/components/campaigns-earning-rules';
 import './desk.css';
 
 /**
@@ -392,6 +394,31 @@ export function CampaignBuilder({
     setBusy(false);
   };
 
+  /** Saves the earning rules: the draft, or the next revision of a live campaign. The tab shows a refusal itself. */
+  const saveEarning = async (earning: EarningRule[]): Promise<CampaignDeskReply> => {
+    if (!campaign)
+      return {
+        ok: false,
+        title: 'No draft yet',
+        body: 'Save the name and type first.',
+        next: 'Nothing was saved.',
+        code: null,
+        changed: 'no',
+      };
+    const answer = await postCampaignChange({
+      op: 'update',
+      id: campaign.id,
+      revision: latestRevision(campaign),
+      definition: { ...baseDefinition(campaign), earning },
+    });
+    if (answer.ok) {
+      setCampaign(answer.campaign);
+      setOutcome({ kind: 'done', text: `Saved the earning rules as revision ${latestRevision(answer.campaign)}.` });
+      await reload(answer.campaign.id);
+    }
+    return answer;
+  };
+
   const checkDraft = async () => {
     if (!campaign) {
       setOutcome(local('Save the name and type first: there is no draft to check yet.'));
@@ -611,6 +638,14 @@ export function CampaignBuilder({
               disabled={!editable}
               onNotice={(n) => setOutcome(n.kind === 'done' ? n : { ...n, lines: [] })}
               onUse={(rule) => void putRule(rule)}
+            />
+          )}
+          {step === 'earning' && campaign && (
+            <EarningRules
+              rules={editedView(campaign).earning}
+              asset={editedView(campaign).reward?.asset ?? editedView(campaign).budget?.asset ?? null}
+              disabled={!editable}
+              onSave={(earning) => saveEarning(earning)}
             />
           )}
           {parked && (
