@@ -291,12 +291,26 @@ describe('the payment methods a hosted checkout offers (M-adv-payments-core-11, 
       await as(owner).merchantCheckoutMethods.save({ requestId: nid(), expectedVersion: current.version, methods });
     };
 
-    it('for a business that never saved, passes the caller through, and takes the one method connected when none is named', async () => {
+    it('passes the caller through for a business that never saved, so the open runs as before', async () => {
       const token = await link(otherMerchant, '5', 'EUR');
-      // One method left (one connected, or the only one the business's category allows): that one, not a blank method
-      // that routing would refuse as the payer's gap.
-      expect(await checkoutMethodFor(sql, CRYPTO_ONLY, { linkToken: token, geoCountry: 'DE' }, now)).toBe('crypto');
+      expect(await checkoutMethodFor(sql, CRYPTO_ONLY, { linkToken: token, geoCountry: 'DE' }, now)).toBeUndefined();
       expect(await checkoutMethodFor(sql, CRYPTO_ONLY, { linkToken: token, geoCountry: 'DE', method: 'card' }, now)).toBe('card');
+    });
+
+    it('for a business that never saved and whose category leaves one method, the default offer decides', async () => {
+      const limited = { categoryLimited: true };
+      // The one method the category allows, for a payment it can take; never a blank method routing would refuse.
+      const usdt = await link(otherMerchant, '5', 'USDT');
+      expect(await checkoutMethodFor(sql, CRYPTO_ONLY, { linkToken: usdt, geoCountry: 'DE' }, now, limited)).toBe('crypto');
+      // Euros the category's one method cannot take refuse by name, not as a crypto payment for euros.
+      const eur = await link(otherMerchant, '5', 'EUR');
+      await expect(checkoutMethodFor(sql, CRYPTO_ONLY, { linkToken: eur, geoCountry: 'DE' }, now, limited)).rejects.toMatchObject({
+        code: 'pay.checkout_no_method',
+      });
+      // A country the offer cannot read refuses as a missing country, as for a saved offer.
+      await expect(checkoutMethodFor(sql, CRYPTO_ONLY, { linkToken: usdt, geoCountry: 'Germany' }, now, limited)).rejects.toMatchObject({
+        code: 'pay.routing_input_missing',
+      });
     });
 
     it('takes the only payable method; bank debit first and on still pays a USDT link by crypto', async () => {

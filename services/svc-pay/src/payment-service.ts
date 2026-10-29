@@ -2386,7 +2386,9 @@ export class PayService {
     if (categoryRule?.class === 'prohibited') assertCategoryAllows(categoryRule, null);
     // M-adv-payments-core-11: only a method the business offers for this country, currency and amount, in its order.
     const onlyRails = categoryRails(categoryRule) ?? undefined;
-    const offeredMethod = await checkoutMethodFor(this.sql, this.checkoutMethodRails(onlyRails), input, this.now());
+    const offeredMethod = await checkoutMethodFor(this.sql, this.checkoutMethodRails(onlyRails), input, this.now(), {
+      categoryLimited: onlyRails !== undefined,
+    });
     const decision = this.selectCheckoutRail(
       {
         geoCountry: input.geoCountry,

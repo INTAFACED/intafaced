@@ -364,7 +364,7 @@ describe(
       });
     };
 
-    it('a business whose category takes crypto only and that never saved its methods opens on crypto, without a method named', async () => {
+    it('a business whose category takes crypto only and that never saved its methods opens a USDT link on crypto and refuses a EUR one', async () => {
       const pay = service('exact_normalised');
       const m = await pay.createMerchant({ userId: randomUUID(), pricing: { feeBps: 0 } });
       // A permissionless category takes crypto-native only.
@@ -374,16 +374,18 @@ describe(
       expect(opened.session.method).toBe('crypto');
       expect((await paymentOf(await sessionPayment(opened.sessionToken))).method).toBe('crypto');
 
-      // A fiat link opens on the one method the category leaves too, and a bank transfer the category does not allow
-      // refuses by the category's name before anything is written.
+      // A EUR link has no method the category leaves for euros, so it refuses by name rather than open a crypto payment;
+      // a bank transfer the payer names refuses by the category's name. Neither writes anything.
       const eur = await pay.createPaymentLink({ merchantId: m.id, label: 'TEST EUR', amount: amt('7'), currency: 'EUR' });
-      expect((await pay.openCheckoutSession({ linkToken: eur.token, geoCountry: 'DE' })).session.method).toBe('crypto');
       const before = (await sql<Array<{ n: string }>>`SELECT count(*)::text AS n FROM pay.payments`)[0]!.n;
       expect(
         await refusal(() =>
           pay.openCheckoutSession({ linkToken: eur.token, geoCountry: 'DE', method: 'bank_transfer', payerName: 'Ada Lovelace' }),
         ),
       ).toMatchObject({ code: 'pay.category_rail_refused', detail: { allowed: ['crypto-native'] } });
+      expect(await refusal(() => pay.openCheckoutSession({ linkToken: eur.token, geoCountry: 'DE' }))).toMatchObject({
+        code: 'pay.checkout_no_method',
+      });
       expect((await sql<Array<{ n: string }>>`SELECT count(*)::text AS n FROM pay.payments`)[0]!.n).toBe(before);
     });
 
