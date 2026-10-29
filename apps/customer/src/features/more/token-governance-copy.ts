@@ -13,6 +13,7 @@ const en = {
   rejected: 'Rejected',
   executed: 'Executed',
   cancelled: 'Cancelled',
+  closed_ranked: 'Closed, ranking stored',
   listing: 'Listing',
   fee_param: 'Fee parameter',
   curriculum: 'Curriculum',
@@ -37,7 +38,8 @@ const en = {
   abstain: 'Abstain',
   stakeEstimate: 'Current stake estimate',
   unit: 'The native staking unit is unpublished.',
-  weightBoundary: 'The service records voting weight from active stake when the vote is cast. It can differ from this estimate.',
+  weightBoundary:
+    'The service weighs your vote with the voting power fixed when the proposal was created. It can differ from this estimate.',
   aggregate:
     'Current proposal status and tally do not identify your original ballot. Grant or listing execution is not published by this action.',
   reviewFor: 'Review for',
@@ -86,6 +88,7 @@ const es: Record<keyof typeof en, string> = {
   rejected: 'Rechazada',
   executed: 'Ejecutada',
   cancelled: 'Cancelada',
+  closed_ranked: 'Cerrada, clasificación guardada',
   listing: 'Listado',
   fee_param: 'Parámetro de comisión',
   curriculum: 'Programa',
@@ -110,7 +113,7 @@ const es: Record<keyof typeof en, string> = {
   abstain: 'Abstención',
   stakeEstimate: 'Estimación del stake actual',
   unit: 'La unidad nativa del stake no está publicada.',
-  weightBoundary: 'El servicio registra el peso según el stake activo al emitir el voto. Puede diferir de esta estimación.',
+  weightBoundary: 'El servicio pondera tu voto con el poder de voto fijado al crear la propuesta. Puede diferir de esta estimación.',
   aggregate:
     'El estado y el recuento actuales no identifican tu voto original. Esta acción no publica la ejecución de subvenciones ni listados.',
   reviewFor: 'Revisar a favor',
@@ -161,6 +164,7 @@ const fr: Record<keyof typeof en, string> = {
   rejected: 'Rejetée',
   executed: 'Exécutée',
   cancelled: 'Annulée',
+  closed_ranked: 'Clôturée, classement enregistré',
   listing: 'Cotation',
   fee_param: 'Paramètre de commission',
   curriculum: 'Programme',
@@ -185,7 +189,8 @@ const fr: Record<keyof typeof en, string> = {
   abstain: 'Abstention',
   stakeEstimate: 'Estimation du stake actuel',
   unit: 'L’unité native du stake n’est pas publiée.',
-  weightBoundary: 'Le service enregistre le poids selon le stake actif au moment du vote. Il peut différer de cette estimation.',
+  weightBoundary:
+    'Le service pondère votre vote avec le pouvoir de vote fixé à la création de la proposition. Il peut différer de cette estimation.',
   aggregate:
     'Le statut et le décompte actuels n’identifient pas votre vote original. Cette action ne publie pas l’exécution des subventions ou cotations.',
   reviewFor: 'Revoir pour',

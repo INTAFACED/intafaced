@@ -11,6 +11,7 @@ import { EmissionEpoch, TokenHoldings } from './TokenHoldings';
 import { Details, Limit, Read, Select, presentActionFailure, useAction } from './common';
 import { governanceCopy as G } from './token-governance-copy';
 import { GovernanceDelegation, GovernanceProposals, GovernanceSpace, GovernanceTreasury } from './GovernanceRoom';
+import { ChoiceBallot, ChoiceTallyView, VOTING_TYPES, VotingPower, choiceTallySchema } from './TokenVoting';
 import './token-governance.css';
 const uuid = z.string().guid();
 /** The service stores `gov:proposal:<space>:<author>:<n>`; older rows keep their uuid. */
@@ -34,12 +35,14 @@ const proposalSchema = z.object({
   id: proposalIdSchema,
   kind: z.enum(['listing', 'fee_param', 'curriculum', 'grant']),
   body: z.record(z.string(), z.unknown()),
-  status: z.enum(['draft', 'open', 'passed', 'rejected', 'executed', 'cancelled']),
+  status: z.enum(['draft', 'open', 'passed', 'rejected', 'executed', 'cancelled', 'closed_ranked']),
   opensAt: z.string(),
   closesAt: z.string(),
   createdAt: z.string(),
   title: z.string().nullable().optional(),
   authorId: z.string().nullable().optional(),
+  votingType: z.enum(VOTING_TYPES).default('basic'),
+  choices: z.array(z.string()).nullable().default(null),
 });
 const tally = z.object({
   forWeight: decimalSchema,
@@ -198,8 +201,11 @@ function governanceRefusal(reason: Extract<ApiResult<never>, { ok: false }>['rea
   }));
 }
 function proposalDetailSchema(id: string) {
-  return governanceProposal.extend({ tally }).refine((p) => {
+  return governanceProposal.extend({ tally, choiceTally: choiceTallySchema.nullable().default(null) }).refine((p) => {
     try {
+      // A multi-choice proposal has no for/against: its weight is in the choice tally.
+      if (p.votingType !== 'basic')
+        return p.id === id && Date.parse(p.closesAt) > Date.parse(p.opensAt) && p.choices !== null && p.choiceTally !== null;
       return (
         p.id === id &&
         Date.parse(p.closesAt) > Date.parse(p.opensAt) &&
@@ -443,6 +449,7 @@ function Proposal({ id, action, ballot }: { id: string; action: ReturnType<typeo
     { userId } = useSession();
   const { hideBalances } = usePreferences();
   const [now, setNow] = useState(Date.now);
+  const [version, setVersion] = useState(0);
   const [preflight, setPreflight] = useState<{
     detail: Resource<z.infer<ReturnType<typeof proposalDetailSchema>>>;
     stake: Resource<{ staked: string }>;
@@ -464,6 +471,7 @@ function Proposal({ id, action, ballot }: { id: string; action: ReturnType<typeo
     stakeView = preflight?.stake ?? stake.resource;
   function refresh() {
     setPreflight(null);
+    setVersion((n) => n + 1);
     detail.reload();
     stake.reload();
   }
@@ -618,7 +626,11 @@ function Proposal({ id, action, ballot }: { id: string; action: ReturnType<typeo
                 {JSON.stringify(p.body, null, 2)}
               </pre>
             </section>
-            <section className="token-proposal-section">
+            <VotingPower proposalId={id} version={version} />
+            {p.votingType !== 'basic' && p.choices && p.choiceTally && (
+              <ChoiceTallyView choices={p.choices} tally={p.choiceTally} closedRanked={p.status === 'closed_ranked'} />
+            )}
+            <section className="token-proposal-section" hidden={p.votingType !== 'basic'}>
               <h3>{G.t('tally')}</h3>
               <dl className="token-tally">
                 {[
@@ -657,8 +669,19 @@ function Proposal({ id, action, ballot }: { id: string; action: ReturnType<typeo
                   {G.t('noWeight')}
                 </p>
               )}
+              {p.votingType !== 'basic' && p.choices && (
+                <ChoiceBallot
+                  key={`${id}:${p.votingType}`}
+                  proposalId={id}
+                  votingType={p.votingType}
+                  choices={p.choices}
+                  open={activeWindow(p, now) && !action.disabled}
+                  version={version}
+                  onCast={refresh}
+                />
+              )}
               <div className="actions">
-                {choiceSchema.options.map((choice) => (
+                {(p.votingType === 'basic' ? choiceSchema.options : []).map((choice) => (
                   <Button
                     key={choice}
                     variant="secondary"

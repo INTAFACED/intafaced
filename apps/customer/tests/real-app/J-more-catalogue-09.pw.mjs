@@ -18,11 +18,12 @@ import { tableIn, bodyRows } from './tables.mjs';
 // after `local-test-stack.mjs token-params` writes the labelled TEST emission settings into the blank columns, so the
 // treasury holds a figure the test can compare with the ledger. Nothing on this stack buys back, distributes or burns IFC
 // (the buyback and yield jobs are off), so those figures are the missing ones.
-// Steps 6 and 7 are not built (MC-token-03: power fixed at creation and its history, approval, weighted and ranked
-// ballots, the signed vote), so they fail at their first missing part, quickly (UNBUILT).
+// Step 6 reads voting power fixed when each proposal was created, through a second TEST account that stakes only
+// afterwards, and creates the approval, weighted and ranked proposals step 7 votes on. Step 7's "a validation rule"
+// restarts the token lane with who may vote unset (LOCAL_STACK_TOKEN_VOTE_RULE=off), reads the refusal, then restarts it
+// with the TEST rule (power:0). No service links a wallet to an account, so a signed vote is refused with its typed code.
 const J = 'J-more-catalogue-09';
 const run = journeyState(`${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
-const UNBUILT = { timeout: 5_000 };
 const DAY = 86_400_000;
 
 test.describe.configure({ mode: 'default' });
@@ -64,18 +65,20 @@ async function staker(page, prefix, funded, stake) {
   return { who, client };
 }
 
-/** Restarts the token lane with the TEST proposer rule (`on`) or with it unset, as identity's restarts do (J-identity-08). */
-function proposerRule(on) {
-  const before = process.env.LOCAL_STACK_TOKEN_PROPOSER_RULE;
-  if (on) delete process.env.LOCAL_STACK_TOKEN_PROPOSER_RULE;
-  else process.env.LOCAL_STACK_TOKEN_PROPOSER_RULE = 'off';
+/** Restarts the token lane with one TEST rule on, or with it unset (`off`), as identity's restarts do (J-identity-08). */
+function restartTokenWith(variable, on) {
+  const before = process.env[variable];
+  if (on) delete process.env[variable];
+  else process.env[variable] = 'off';
   try {
     tool('local-test-stack.mjs', 'restart', 'token');
   } finally {
-    if (before === undefined) delete process.env.LOCAL_STACK_TOKEN_PROPOSER_RULE;
-    else process.env.LOCAL_STACK_TOKEN_PROPOSER_RULE = before;
+    if (before === undefined) delete process.env[variable];
+    else process.env[variable] = before;
   }
 }
+const proposerRule = (on) => restartTokenWith('LOCAL_STACK_TOKEN_PROPOSER_RULE', on);
+const voteRule = (on) => restartTokenWith('LOCAL_STACK_TOKEN_VOTE_RULE', on);
 
 /** A canonical decimal string as 18-decimal scaled bigint, so sums and differences never pass through a JS number. */
 function units(value) {
@@ -316,35 +319,237 @@ test(`${J} #5 Creates a proposal with a future opening time: It stays draft and 
 
 test(`${J} #6 Opens a proposal and reads my voting power: Power fixed when the proposal was created; if I staked later it is zero and says so; history of power over time`, async ({
   page,
+  browser,
 }) => {
+  const { who, proposer, nonce, openId } = run.read();
+  const client = await api(who);
+  const author = await api(proposer);
+  const powerOf = async (c, proposalId) => {
+    const res = await c.get(`/api/token/trpc/votingPower.ofProposal${trpcInput({ proposalId })}`);
+    expect(res.status, JSON.stringify(res.body).slice(0, 300)).toBe(200);
+    return data(res);
+  };
+  const opened = await client.get(`/api/token/trpc/getProposal${trpcInput({ proposalId: openId })}`);
+  expect(opened.status).toBe(200);
+
+  // Power fixed when the proposal was created: I staked 100 before it, then stake 50 more now. The power stays 100.
+  const more = await client.post('/api/token/trpc/stake', { amount: '50', tier: 'flex', stakeId: randomUUID() });
+  expect(more.status, JSON.stringify(more.body).slice(0, 300)).toBe(200);
+  const mine = await powerOf(client, openId);
+  expect(mine).toMatchObject({ proposalId: openId, power: '100', reason: null, takenAt: data(opened).createdAt });
+
   await openGovernance(page);
-  await search(page).fill(run.read().nonce);
+  await search(page).fill(nonce);
   await proposals(page)
+    .getByRole('row', { name: new RegExp(`TEST ${nonce} open vote`) })
     .getByRole('button', { name: /^Inspect proposal/ })
-    .first()
     .click();
   const power = page.getByRole('region', { name: 'Your voting power' });
-  await expect(power).toBeVisible(UNBUILT);
-  await expect(power).toContainText(/Fixed at block \d+|Fixed on /);
-  await expect(tableIn(power, 'Voting power over time')).toBeVisible();
+  await expect(power).toContainText('Voting power on this proposal100');
+  const fixed = new Date(mine.takenAt).toISOString().replace('T', ' · ').replace('Z', ' UTC');
+  await expect(power.getByTestId('voting-power-basis')).toHaveText(
+    `Fixed on ${fixed}, when the proposal was created. Stake you add or remove later does not change it.`,
+  );
+
+  // If I staked later it is zero and says so: a second TEST account stakes only after the proposal exists.
+  const laterPage = await browser.newPage();
+  try {
+    const later = await staker(laterPage, 'gvl', '60', '50');
+    const none = await powerOf(later.client, openId);
+    expect(none).toMatchObject({ proposalId: openId, power: '0', reason: 'no_stake_at_creation', takenAt: null });
+    await openGovernance(laterPage, later.who);
+    await search(laterPage).fill(nonce);
+    await proposals(laterPage)
+      .getByRole('row', { name: new RegExp(`TEST ${nonce} open vote`) })
+      .getByRole('button', { name: /^Inspect proposal/ })
+      .click();
+    const zero = laterPage.getByRole('region', { name: 'Your voting power' });
+    await expect(zero).toContainText('Voting power on this proposal0');
+    await expect(zero.getByTestId('voting-power-basis')).toHaveText(
+      'Zero: you had no active stake when this proposal was created. Stake added later does not count on it.',
+    );
+  } finally {
+    await laterPage.close();
+  }
+
+  // History of power over time: the multi-choice proposals of step 7 are created now, after my extra 50, so they fix 150.
+  const made = {};
+  for (const [type, choices] of [
+    ['approval', ['TEST red', 'TEST green', 'TEST blue']],
+    ['weighted', ['TEST alpha', 'TEST beta']],
+    ['ranked_choice', ['TEST first', 'TEST second', 'TEST third']],
+  ]) {
+    const res = await author.post('/api/token/trpc/createProposal', {
+      kind: 'fee_param',
+      body: {},
+      handle: `${nonce}:${type}`,
+      title: `TEST ${nonce} ${type} ballot`,
+      bodyMd: 'TEST multi-choice proposal for the governance journey.',
+      votingType: type,
+      choices,
+    });
+    expect(res.status, JSON.stringify(res.body).slice(0, 300)).toBe(200);
+    expect(data(res)).toMatchObject({ votingType: type, choices, status: 'open' });
+    made[type] = data(res).id;
+    expect(await powerOf(client, made[type])).toMatchObject({ power: '150', reason: null });
+  }
+  run.write({ ballots: made });
+
+  const history = await client.get(`/api/token/trpc/votingPower.history${trpcInput({ limit: 20 })}`);
+  expect(history.status).toBe(200);
+  const rows = data(history);
+  const byId = Object.fromEntries(rows.map((row) => [row.proposalId, row.power]));
+  expect(byId[openId]).toBe('100');
+  for (const id of Object.values(made)) expect(byId[id]).toBe('150');
+  for (let i = 1; i < rows.length; i++) expect(Date.parse(rows[i - 1].takenAt)).toBeGreaterThanOrEqual(Date.parse(rows[i].takenAt));
+
+  await page.getByRole('button', { name: 'Refresh original proposal' }).click();
+  const table = tableIn(power, 'Voting power over time');
+  await expect(bodyRows(table)).toHaveCount(rows.length);
+  for (const [i, row] of rows.entries()) {
+    const at = new Date(row.takenAt).toISOString().replace('T', ' · ').replace('Z', ' UTC');
+    await expect(bodyRows(table).nth(i)).toHaveText(`${row.title ?? 'Untitled proposal'}${at}${row.power}`);
+  }
+
+  // A history read with no page size is refused with its own code, never a default page.
+  const blank = await client.get(`/api/token/trpc/votingPower.history${trpcInput({})}`);
+  expect(blank.status).toBe(412);
+  expect(causeOf(blank.body)).toEqual({ code: 'token.history_list_limit_unset' });
 });
 
 test(`${J} #7 Casts a vote on an approval, weighted or ranked ballot: A ballot with bad weights is refused; the vote needs a signed message and a validation rule; if the wallet link is absent the typed unavailable reply shows`, async ({
   page,
 }) => {
-  await openGovernance(page);
-  await search(page).fill(run.read().nonce);
-  await proposals(page)
-    .getByRole('button', { name: /^Inspect proposal/ })
-    .first()
-    .click();
-  await page.getByRole('radio', { name: 'Weighted' }).click(UNBUILT);
-  await page.getByRole('button', { name: /^Vote/ }).click();
-  const ballot = page.getByRole('dialog');
-  await ballot.getByRole('spinbutton').first().fill('150');
-  await ballot.getByRole('button', { name: /^Cast/ }).click();
-  await expect(ballot.getByRole('alert')).toContainText(/weights must add up to 100/i);
-  await expect(ballot).toContainText(/signed message/i);
+  const { who, nonce, ballots } = run.read();
+  const client = await api(who);
+  const detail = async (proposalId) => {
+    const res = await client.get(`/api/token/trpc/getProposal${trpcInput({ proposalId })}`);
+    expect(res.status, JSON.stringify(res.body).slice(0, 300)).toBe(200);
+    return data(res);
+  };
+  const openBallot = async (type) => {
+    await openGovernance(page);
+    await search(page).fill(nonce);
+    await proposals(page)
+      .getByRole('row', { name: new RegExp(`TEST ${nonce} ${type} ballot`) })
+      .getByRole('button', { name: /^Inspect proposal/ })
+      .click();
+    return page.getByRole('form', { name: 'Your ballot' });
+  };
+  const castFrom = async (form) => {
+    const answer = page.waitForResponse((r) => r.url().includes('/api/token/trpc/castVote'));
+    await form.getByRole('button', { name: 'Cast ballot' }).click();
+    const res = await answer;
+    return { status: res.status(), body: await res.json() };
+  };
+
+  // A ballot with bad weights is refused: 60 and 50 add up to 110, the panel says so, and the service refuses it.
+  let ballot = await openBallot('weighted');
+  await ballot.getByLabel('Weight for TEST alpha (%)').fill('60');
+  await ballot.getByLabel('Weight for TEST beta (%)').fill('50');
+  await expect(ballot.getByTestId('ballot-sum')).toHaveText(
+    'Your weights add up to 110. The weights must add up to 100, or the service refuses the ballot.',
+  );
+  const bad = await castFrom(ballot);
+  expect(bad.status).toBe(400);
+  expect(causeOf(bad.body)).toEqual({ code: 'token.ballot_invalid' });
+  await expect(ballot.getByRole('alert')).toHaveText('Refused: the ballot does not fit this proposal. Nothing was saved.');
+  expect((await detail(ballots.weighted)).choiceTally).toMatchObject({ voterCount: 0, totals: ['0', '0'] });
+
+  // The vote needs a signed message: the panel shows the message to sign; the wallet link is absent, so the sign control
+  // is off and the typed unavailable reply shows; a signed vote sent anyway is refused with that code and saves nothing.
+  await ballot.getByLabel('Weight for TEST beta (%)').fill('40');
+  await expect(ballot.getByTestId('ballot-sum')).toHaveText('Your weights add up to 100.');
+  const signing = ballot.getByRole('region', { name: 'Message to sign' });
+  await expect(signing.locator('pre')).toHaveText(
+    JSON.stringify({
+      proposalId: ballots.weighted,
+      ballot: {
+        kind: 'split',
+        parts: [
+          { choice: 0, bps: 6000 },
+          { choice: 1, bps: 4000 },
+        ],
+      },
+    }),
+  );
+  await expect(signing.getByRole('button', { name: 'Sign with wallet' })).toBeDisabled();
+  await expect(signing.getByTestId('signed-vote-reply')).toHaveText(
+    'Signed votes are unavailable (token.signed_vote_unavailable): no service links a wallet to your account or verifies a signed message.',
+  );
+  const power = await client.get(`/api/token/trpc/votingPower.ofProposal${trpcInput({ proposalId: ballots.weighted })}`);
+  expect(data(power).signing).toEqual({ available: false, code: 'token.signed_vote_unavailable' });
+  const signed = await client.post('/api/token/trpc/castVote', {
+    proposalId: ballots.weighted,
+    ballot: {
+      kind: 'split',
+      parts: [
+        { choice: 0, bps: 6000 },
+        { choice: 1, bps: 4000 },
+      ],
+    },
+    signature: 'TEST-not-a-wallet-signature',
+  });
+  expect(signed.status).toBe(412);
+  expect(causeOf(signed.body)).toEqual({ code: 'token.signed_vote_unavailable' });
+  expect((await detail(ballots.weighted)).choiceTally).toMatchObject({ voterCount: 0 });
+
+  // The vote needs a validation rule: with who may vote unset, the panel says so and the cast is refused with its code.
+  voteRule(false);
+  try {
+    ballot = await openBallot('weighted');
+    await expect(page.getByRole('region', { name: 'Your voting power' })).toContainText(
+      'Who may voteWho may vote is not set, so the token service refuses every vote.',
+    );
+    await ballot.getByLabel('Weight for TEST alpha (%)').fill('60');
+    await ballot.getByLabel('Weight for TEST beta (%)').fill('40');
+    const unset = await castFrom(ballot);
+    expect(unset.status).toBe(412);
+    expect(causeOf(unset.body)).toEqual({ code: 'token.vote_rule_unset' });
+    await expect(ballot.getByRole('alert')).toHaveText('Refused: who may vote is not set. Nothing was saved.');
+    expect((await detail(ballots.weighted)).choiceTally).toMatchObject({ voterCount: 0 });
+  } finally {
+    voteRule(true);
+  }
+
+  // With the TEST rule (power:0) the same ballot is recorded at the power fixed when the proposal was created.
+  ballot = await openBallot('weighted');
+  await expect(page.getByRole('region', { name: 'Your voting power' })).toContainText(
+    'Who may voteAccounts with at least 0 voting power on the proposal.',
+  );
+  await ballot.getByLabel('Weight for TEST alpha (%)').fill('60');
+  await ballot.getByLabel('Weight for TEST beta (%)').fill('40');
+  const weighted = await castFrom(ballot);
+  expect(weighted.status, JSON.stringify(weighted.body).slice(0, 300)).toBe(200);
+  expect(weighted.body.result.data).toMatchObject({ weight: '150', choice: null });
+  await expect(ballot.getByRole('status').filter({ hasText: 'Ballot recorded' })).toHaveText('Ballot recorded with 150 voting power.');
+  expect((await detail(ballots.weighted)).choiceTally).toMatchObject({ voterCount: 1, totals: ['90', '60'], ranking: [0, 1] });
+
+  // Approval: I approve two of three choices; each gets my whole power.
+  ballot = await openBallot('approval');
+  await ballot.getByRole('checkbox', { name: 'TEST red' }).check();
+  await ballot.getByRole('checkbox', { name: 'TEST blue' }).check();
+  const approval = await castFrom(ballot);
+  expect(approval.status, JSON.stringify(approval.body).slice(0, 300)).toBe(200);
+  expect(approval.body.result.data).toMatchObject({ weight: '150', ballot: { kind: 'pick', choices: [0, 2] } });
+  expect((await detail(ballots.approval)).choiceTally).toMatchObject({ voterCount: 1, totals: ['150', '0', '150'] });
+
+  // Ranked: second first, then third; the first round counts my power for my first preference.
+  ballot = await openBallot('ranked_choice');
+  await ballot.getByLabel('Rank for TEST second').fill('1');
+  await ballot.getByLabel('Rank for TEST third').fill('2');
+  const ranked = await castFrom(ballot);
+  expect(ranked.status, JSON.stringify(ranked.body).slice(0, 300)).toBe(200);
+  expect(ranked.body.result.data).toMatchObject({ weight: '150', ballot: { kind: 'pick', choices: [1, 2] } });
+  const rankedTally = (await detail(ballots.ranked_choice)).choiceTally;
+  expect(rankedTally).toMatchObject({ voterCount: 1, totals: ['0', '150', '0'] });
+  expect(rankedTally.rounds[0]).toEqual(['0', '150', '0']);
+  expect(rankedTally.ranking).toEqual([1, 0, 2]);
+  const tally = page.getByRole('region', { name: 'Choice tally', exact: true }).first();
+  const rows = bodyRows(tableIn(tally, 'Choice tally'));
+  await expect(rows).toHaveText(['TEST first02', 'TEST second1501', 'TEST third03']);
+  await expect(tally).toContainText('Voters1');
+  await expect(tally).toContainText('Instant-runoff rounds: 1');
 });
 
 test(`${J} #8 Presses Delegate: The refusal naming the Protocol blocker; no row written`, async ({ page }) => {
