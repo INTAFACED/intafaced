@@ -157,18 +157,21 @@ export function PayoutNew({ portal, merchantId }: { portal: PortalApi; merchantI
   const [picked, setPicked] = useUrlParam('settlement', '');
   const [destPicked, setDest] = useState('');
   // A payout can be started from a finalised settlement ("posted"). Retrying a "failed" one is held (PAYOUT_RETRY_ENABLED).
-  // A settlement still waiting on the rail ("pending") is listed too, tagged "still clearing": it is never hidden, and asking
-  // for it gets the service's own refusal (`pay.payout_clearing_pending`), which names the clearing it would have spent.
+  // A settlement still waiting on the rail is listed too, tagged "still clearing": it is never hidden, and asking for it
+  // gets the service's own refusal (`pay.payout_clearing_pending`), which names the clearing it would have spent. Only a
+  // pending settlement the service names as holding clearing gets that tag; one pending for any other reason is not offered.
   const ready = useResource(async (s) => {
-    const [posted, failed, waitingOnRail] = await Promise.all([
+    const [posted, failed, pending, held] = await Promise.all([
       portal.settlementPage(merchantId, { status: 'posted' }, undefined, s),
       PAYOUT_RETRY_ENABLED ? portal.settlementPage(merchantId, { status: 'failed' }, undefined, s) : Promise.resolve(null),
       portal.settlementPage(merchantId, { status: 'pending' }, undefined, s),
+      portal.clearing(merchantId, s),
     ]);
     if (!posted.ok) return posted;
     // A failed read only hides the retry or clearing rows; the ready ones still show.
     const retry = failed?.ok ? failed.data.items : [];
-    const clearing = waitingOnRail.ok ? waitingOnRail.data.items : [];
+    const waitingOnRail = new Set(held.ok ? held.data.held.map((h) => h.settlementId).filter(Boolean) : []);
+    const clearing = pending.ok ? pending.data.items.filter((p) => waitingOnRail.has(p.id)) : [];
     return { ok: true as const, data: { ...posted.data, items: [...posted.data.items, ...retry], clearing } };
   }, `money:payable:${merchantId}`);
   const destinations = useResource((s) => portal.destinationPage(merchantId, undefined, s), `money:destinations:${merchantId}`);

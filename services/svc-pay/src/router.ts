@@ -175,6 +175,8 @@ const heldClearingView = z.object({
   amount: amountSchema,
   assetId: assetIdSchema,
   availableOn: z.string().datetime({ offset: true }).nullable(),
+  /** The settlement waiting on the rail that froze it; absent while no window holds it. */
+  settlementId: z.string().guid().optional(),
 });
 
 const settlementView = z.object({

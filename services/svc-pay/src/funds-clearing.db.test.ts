@@ -130,7 +130,9 @@ describe('clearing to available (RC-merchant-10)', { timeout: 30_000 }, () => {
     const run = await pay.settleWindow({ merchantId: m.id, window: 'held-1', assetId: 'USDT', ...wide() });
 
     expect(run.status).toBe('pending');
-    expect(run.clearingPending).toEqual([{ paymentId: payment.id, amount: '100', assetId: 'USDT', availableOn: null }]);
+    expect(run.clearingPending).toEqual([
+      { paymentId: payment.id, amount: '100', assetId: 'USDT', availableOn: null, settlementId: run.id },
+    ]);
     expect(settlementPosts()).toHaveLength(0);
     expect(await ledger.getTxByKey(settlementKey(m.id, 'held-1'))).toBeNull();
     expect(await clearingOf(m.id)).toBe('100');
@@ -245,6 +247,79 @@ describe('clearing to available (RC-merchant-10)', { timeout: 30_000 }, () => {
     expect(await clearingOf(m.id)).toBe('0');
     expect(await availableOf(m.id)).toBe(formatAmount(first.net + later.net));
     expect(ledger.reconcile()).toEqual({ ok: true });
+  });
+
+  it('keeps a release that arrives before the capture commits, so the payment is never stuck held', async () => {
+    const m = await merchant();
+    const created = await pay.createPayment({
+      merchantId: m.id,
+      amount: amt('100.00'),
+      assetId: 'USDT',
+      method: 'card',
+      railAdapter: 'card-sandbox',
+      instrument: { kind: 'card', token: SANDBOX_FUNDS_HELD_TOKEN },
+    });
+    const authorized = await pay.authorize(created.id);
+    expect(await release(authorized, 'evt-funds-early')).toMatchObject({ applied: true, duplicate: false });
+    await pay.capture(created.id);
+    expect(await pay.heldClearing(m.id, 'USDT')).toEqual([]);
+
+    const run = await pay.settleWindow({ merchantId: m.id, window: 'early', assetId: 'USDT', ...wide() });
+    expect(run.status).toBe('posted');
+    expect(formatAmount(run.gross)).toBe('100');
+    expect(await clearingOf(m.id)).toBe('0');
+    expect(ledger.reconcile()).toEqual({ ok: true });
+  });
+
+  it('frees a waiting window whose held payment was disputed, so the rest settle without an operator', async () => {
+    const m = await merchant();
+    const disputed = await captured(m.id, '100.00');
+    const kept = await captured(m.id, '50.00');
+    const waiting = await pay.settleWindow({ merchantId: m.id, window: 'held-dispute', assetId: 'USDT', ...wide() });
+    expect(waiting.status).toBe('pending');
+
+    await pay.handleWebhook(
+      'card-sandbox',
+      signed({
+        id: 'evt-held-dispute',
+        type: 'dispute.opened',
+        ref: disputed.railRef,
+        assetId: 'USDT',
+        disputeId: 'dp-held-1',
+        amount: '100',
+      }),
+    );
+    await release(kept, 'evt-funds-kept');
+    await expect(pay.settleWindow({ merchantId: m.id, window: 'held-dispute', assetId: 'USDT', ...wide() })).rejects.toMatchObject({
+      code: 'pay.settlement_desynced',
+    });
+    expect((await pay.getSettlement(waiting.id)).status).toBe('failed');
+    expect(settlementPosts()).toHaveLength(0);
+
+    const next = await pay.settleWindow({ merchantId: m.id, window: 'held-dispute-2', assetId: 'USDT', ...wide() });
+    expect(next.status).toBe('posted');
+    expect(formatAmount(next.gross)).toBe('50');
+    expect(ledger.reconcile()).toEqual({ ok: true });
+  });
+
+  it("names only its own window's held payments as excluded", async () => {
+    const m = await merchant();
+    const late = await captured(m.id, '30.00');
+    const other = await captured(m.id, '100.00');
+    await release(late, 'evt-funds-late');
+
+    // A later window: the released payment is overdue into it; the held one was captured outside it.
+    const run = await pay.settleWindow({
+      merchantId: m.id,
+      window: 'own-window',
+      assetId: 'USDT',
+      from: new Date(Date.now() + 24 * 3600_000),
+      to: new Date(Date.now() + 48 * 3600_000),
+    });
+    expect(run.status).toBe('posted');
+    expect(formatAmount(run.gross)).toBe('30');
+    expect(run.clearingPending).toBeUndefined();
+    expect((await pay.heldClearing(m.id, 'USDT')).map((h) => h.paymentId)).toEqual([other.id]);
   });
 
   it('takes availability only from a signed rail delivery', async () => {

@@ -44,6 +44,8 @@ export const heldClearingSchema = z.object({
   amount,
   assetId: asset,
   availableOn: timestamp.nullable(),
+  /** The settlement waiting on the rail that froze it; absent while no window holds it. */
+  settlementId: z.string().optional(),
 });
 export type HeldClearing = z.infer<typeof heldClearingSchema>;
 export const clearingSchema = z.object({ held: z.array(heldClearingSchema) });

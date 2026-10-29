@@ -85,7 +85,8 @@ test(`${J} #1 opens Money: zero per asset with "No money yet" for a new business
     token: 'tok_funds_held',
   });
   expect(paid.status).toBe('captured');
-  run.write({ paymentId: paid.id, window: paid.createdAt.slice(0, 10) });
+  // Settlement selects by capture time; the capture has just happened, so its UTC day is today's (not the creation's).
+  run.write({ paymentId: paid.id, window: new Date().toISOString().slice(0, 10) });
   // The balances follow the payment's events, so the page is read again until the payment shows.
   const balances = page.getByRole('group', { name: /Balances at a glance/ });
   await expect(async () => {
@@ -154,7 +155,7 @@ test(`${J} #2 reads funds moving from clearing to available: funds wait until av
   const waiting = await settle();
   expect(waiting.status).toBe('pending');
   expect(waiting.clearingPending).toEqual([
-    { paymentId, amount: expect.stringMatching(/^40(\.0+)?$/), assetId: 'USDT', availableOn: null },
+    { paymentId, amount: expect.stringMatching(/^40(\.0+)?$/), assetId: 'USDT', availableOn: null, settlementId: waiting.id },
   ]);
   const before = await snapshot();
   expect(before).toEqual([

@@ -108,9 +108,11 @@ export async function settleWindow(
         replay: rerun,
       });
       const prepared = await svc.prepareSettlement(input);
-      // RC-merchant-10: the run names what the rail still holds. Those payments stay in clearing; this run posts none of them.
+      // RC-merchant-10: the run names what the rail still holds in this window. Those payments stay in clearing; this run
+      // posts none of them.
+      const bounds = windowBounds(input.window, input.from, input.to);
       const withHeld = async (record: SettlementRecord): Promise<SettlementRecord> => {
-        const held = await heldClearingOf(svc.sql, record.merchantId, record.assetId, record.id);
+        const held = await heldClearingOf(svc.sql, record.merchantId, record.assetId, { settlementId: record.id, ...bounds });
         return held.length > 0 ? { ...record, clearingPending: held } : record;
       };
       if (prepared.status !== 'pending') return withHeld(prepared);
@@ -205,13 +207,10 @@ export async function postPendingSettlement(
       // else's clearing.
       const existing = await svc.ledger.getTxByKey(settlementPost.idempotencyKey);
       if (!existing) {
-        // RC-merchant-10: a window frozen while the rail held its funds waits. Nothing posts until the rail's
-        // `funds.available` is on every payment in it; the re-run after that posts once, on the same key.
-        for (const { payment_id } of included) {
-          await lockPayment(tx, payment_id);
-          if ((await fundsHeldOf(tx, payment_id)).held) return toSettlement(row);
-        }
         let liveGross = 0n;
+        // RC-merchant-10: a window frozen while the rail held its funds waits. Nothing posts until the rail's
+        // `funds.available` is on every payment still in it; the re-run after that posts once, on the same key.
+        let waitingOnRail = false;
         for (const { payment_id } of included) {
           const locked = await lockPayment(tx, payment_id);
           // A dispute opened after the freeze took this payment's clearing back through the opening post, so its
@@ -219,7 +218,9 @@ export async function postPendingSettlement(
           if (locked.status === 'disputed') continue;
           const totals = await totalsFor(tx, payment_id);
           const net = totals.captured - totals.refunded;
-          if (net > 0n) liveGross += net;
+          if (net <= 0n) continue;
+          liveGross += net;
+          if ((await fundsHeldOf(tx, payment_id)).held) waitingOnRail = true;
         }
         if (liveGross !== gross) {
           throw new PayError(
@@ -232,6 +233,9 @@ export async function postPendingSettlement(
             },
           );
         }
+        // Checked after the desync, so a window whose frozen set changed (a held payment disputed since) is still
+        // released automatically instead of waiting on a release that can never come.
+        if (waitingOnRail) return toSettlement(row);
       }
 
       if (await svc.settlementIncludesSandbox(tx, row.id)) svc.refuseSandboxLive(true, settlementPost);
@@ -561,8 +565,11 @@ export async function releasePendingSettlement(
 
   // Prefer heal by settlement id (not settleWindow — custom window labels need
   // from/to that release does not carry). Ledger re-post is idempotent on
-  // settlement:<merchant>:<window>:<asset>; projection catches up. Only
-  // desync falls through to release.
+  // settlement:<merchant>:<window>:<asset>; projection catches up. Desync
+  // falls through to release, and so does a window still waiting on the rail
+  // (RC-merchant-10): an operator's release with a reason frees its payments to
+  // a later window, where a held one is still left out, and a released window
+  // is never payable (`pay.settlement_released`).
   try {
     const healed = await svc.postPendingSettlement(current.id, { kind: 'recovery', reason: 'window_frozen_not_posted' });
     if (healed.status !== 'pending') return healed;
