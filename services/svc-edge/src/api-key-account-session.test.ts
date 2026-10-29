@@ -71,7 +71,15 @@ describe('API key account bind at the session door', () => {
   it('identity mismatch (401) refuses', async () => {
     const result = await exchangePrincipal(
       { authorization: 'Bearer ifc_bound', 'x-account-id': OTHER },
-      { ...options, fetch: async () => new Response(null, { status: 401 }) },
+      // Identity's answer names its verdict (`cause.code`); a bare 401 would be the edge's own setup failing.
+      {
+        ...options,
+        fetch: async () =>
+          new Response(
+            JSON.stringify({ error: { message: 'API key account mismatch', data: { cause: { code: 'auth.account_mismatch' } } } }),
+            { status: 401 },
+          ),
+      },
     );
     expect(result.rejected).toBe('invalid');
     expect(result.principal).toBeNull();

@@ -31,7 +31,7 @@ import { scheduleKeySchema } from '@intafaced/contracts/instruments';
 export const decimal = z.string().regex(/^-?\d+(\.\d{1,18})?$/, 'amounts are decimal strings with at most 18 decimal places');
 
 /** Strictly greater than zero. Character scan only — never a JS number. */
-function positiveDecimal(value: string): boolean {
+export function positiveDecimal(value: string): boolean {
   if (value.startsWith('-')) return false;
   for (const char of value) {
     if (char >= '1' && char <= '9') return true;
@@ -437,9 +437,11 @@ export const createOrderRequestSchema = z
     symbol: z.string(),
     type: orderTypeSchema,
     side: orderSideSchema,
-    amount: decimal,
-    price: decimal.optional(),
-    stopPrice: decimal.optional(),
+    // The sign checks sit on the fields, not in the object refinement below: a field refinement runs even when another
+    // field (a bad `side`) has already failed, so one refusal names every bad field (DV-errors-01).
+    amount: decimal.refine(positiveDecimal, 'amount must be a positive decimal string'),
+    price: decimal.refine(positiveDecimal, 'price must be a positive decimal string').optional(),
+    stopPrice: decimal.refine(positiveDecimal, 'stopPrice must be a positive decimal string').optional(),
     timeInForce: timeInForceSchema.optional(),
     postOnly: z.boolean().optional(),
     reduceOnly: z.boolean().optional(),
@@ -476,21 +478,12 @@ export const createOrderRequestSchema = z
     if (needsPrice && order.price === undefined) {
       ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['price'], message: `a ${order.type} order requires a price` });
     }
-    if (order.price !== undefined && !positiveDecimal(order.price)) {
-      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['price'], message: 'price must be a positive decimal string' });
-    }
     if (order.type === 'market' && order.price !== undefined) {
       ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['price'], message: 'a market order must not carry a price' });
     }
     const needsStop = order.type === 'stop' || order.type === 'stop_limit' || order.type === 'take_profit';
     if (needsStop && order.stopPrice === undefined) {
       ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['stopPrice'], message: `a ${order.type} order requires a stopPrice` });
-    }
-    if (order.stopPrice !== undefined && !positiveDecimal(order.stopPrice)) {
-      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['stopPrice'], message: 'stopPrice must be a positive decimal string' });
-    }
-    if (!positiveDecimal(order.amount)) {
-      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['amount'], message: 'amount must be a positive decimal string' });
     }
     if (order.type === 'market' && order.postOnly === true && order.timeInForce === undefined) {
       ctx.addIssue({
