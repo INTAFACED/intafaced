@@ -70,16 +70,6 @@
       "service": "trade",
       "value": "full",
       "note": "LOCAL TEST ONLY, not an owner decision: the verification level a bot or algo schedule needs. Full, the level the journeys verify to, so a basic account is refused."
-    },
-    "TRADE_ALGO_JOBS_ENABLED": {
-      "service": "trade",
-      "value": "on",
-      "note": "LOCAL TEST ONLY, not an owner decision: the algo slice scheduler runs, so a schedule places its children on the TEST book."
-    },
-    "TRADE_ALGO_JOBS_INTERVAL_MS": {
-      "service": "trade",
-      "value": "1000",
-      "note": "LOCAL TEST ONLY, not an owner decision: how often the scheduler looks for a due slice."
     }
   }
 }

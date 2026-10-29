@@ -133,7 +133,7 @@ export function AlgoForm({
   );
 
   const clientAlgoId = algoClientId(nonce);
-  const blockerKey = createBlocker(policy.status === 'ready' ? policy.data.capability.jobsEnabled : null, market?.open === true);
+  const blockerKey = createBlocker(policy.status === 'ready' ? policy.data.capability : null, market?.open === true);
   const blocker = blockerKey ? t(blockerKey) : null;
   const immature = policy.status === 'ready' && policy.data.immatureKinds.includes(form.kind);
   const problemWord = (p: PlanProblem) => t(`Plan problem ${p}`, { max: '500' });

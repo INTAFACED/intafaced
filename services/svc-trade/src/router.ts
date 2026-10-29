@@ -543,8 +543,9 @@ function toTrpcError(err: unknown): TRPCError {
       case 'trade.paper_fill_refused':
       // RC-identity-01: the person proves their email, then retries.
       case 'trade.email_proof_required':
-      // Below the bot verification level: a decision about the caller, 403 as on the REST door (ccxt-errors.ts).
+      // Below the bot verification level, or no level published: 403, as on the REST door (ccxt-errors.ts).
       case 'trade.bots_verification_insufficient':
+      case 'trade.bots_verification_level_not_set':
         return new TRPCError({ code: 'FORBIDDEN', message: err.message, cause: err });
       // Identity could not answer the email-proof read; nothing moved, try again.
       case 'trade.identity_unavailable':

@@ -41,15 +41,16 @@ const draft: PlanDraft = {
 
 describe('create blocker', () => {
   it('with the scheduler off the form refuses with its reason', () => {
-    expect(createBlocker(false, true)).toBe('Scheduler off block');
+    expect(createBlocker({ createEnabled: true, jobsEnabled: false }, true)).toBe('Scheduler off block');
     expect(execCopy.t('Scheduler off block')).toMatch(/slice scheduler is off/);
   });
 
-  it('an unread scheduler state blocks too; a closed market blocks only once the scheduler runs', () => {
+  it('an unread policy or creating switched off blocks too; a closed market blocks only once the scheduler runs', () => {
     expect(createBlocker(null, true)).toBe('Scheduler unknown');
-    expect(createBlocker(false, false)).toBe('Scheduler off block');
-    expect(createBlocker(true, false)).toBe('Market closed block');
-    expect(createBlocker(true, true)).toBeNull();
+    expect(createBlocker({ createEnabled: false, jobsEnabled: true }, true)).toBe('Create off block');
+    expect(createBlocker({ createEnabled: true, jobsEnabled: false }, false)).toBe('Scheduler off block');
+    expect(createBlocker({ createEnabled: true, jobsEnabled: true }, false)).toBe('Market closed block');
+    expect(createBlocker({ createEnabled: true, jobsEnabled: true }, true)).toBeNull();
   });
 });
 

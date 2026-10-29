@@ -8,8 +8,8 @@ import { tableIn } from './tables.mjs';
 // in, verified and funded with TEST USDT; every child order goes to the real TEST book, and the parent's progress is
 // read back from the service.
 // Steps that are written but not built yet fail at their first missing part, quickly (UNBUILT):
-// - The New schedule form has no side choice and no Kind, Duration or slice fields as named here, so #2 to #4 and #7
-//   stop at the form; #5: the order form offers no Chase; #6: no Iceberg tab.
+// - #3: the New schedule form has no random sizes, seed or trigger; #5: the order form offers no Chase; #6: no
+//   iceberg symbol cap or refill; #7: no participation basis; #8: the list and blotter do not read the service.
 const J = 'J-copy-bots-otc-23';
 const run = journeyState(`${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
 const UNBUILT = { timeout: 5_000 };
