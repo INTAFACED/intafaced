@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { signUp } from './desk.mjs';
-import { NOTICE_DRAIN_MINUTES, draftNotice, openNotices, publishNotice } from './notices.mjs';
+import { NOTICE_DRAIN_MINUTES, draftNotice, openNotices, publishNotice, publishedNotices } from './notices.mjs';
 import { expectServiceOff } from './service-off.mjs';
 import { ORIGIN } from './stack.mjs';
 
@@ -18,14 +18,21 @@ let page;
 let announcement;
 let maintenance;
 
-/** Home after both notice reads have answered, so "nothing drawn" is an answer and not a page still loading. */
+/**
+ * Home after both notice reads have answered, so "nothing drawn" is an answer and not a page still loading. Returns what
+ * the two reads answered: { status, current }, each the tRPC reply's JSON.
+ */
 async function openHome() {
   const status = page.waitForResponse((res) => res.url().includes('/notify.noticeStatus'));
   const current = page.waitForResponse((res) => res.url().includes('/notify.announcement'));
   await page.goto('/home');
-  await Promise.all([status, current]);
+  const [statusRes, currentRes] = await Promise.all([status, current]);
   await expect(page.getByRole('heading', { name: 'Home', level: 1 })).toBeAttached();
+  return { status: { ok: statusRes.ok(), json: await statusRes.json() }, current: { ok: currentRes.ok(), json: await currentRes.json() } };
 }
+
+/** A tRPC refusal's typed code, read where the app's own client reads it (src/shared/api.ts). */
+const refusalCode = (json) => json?.error?.data?.intafacedCode ?? json?.error?.data?.cause?.code ?? json?.error?.data?.code;
 
 /** "23 Oct, 05:00", as Home words an end time in the browser's own zone (UTC here). */
 const dayTime = (iso) =>
@@ -60,7 +67,12 @@ test.afterAll(async () => {
 });
 
 test(`${J} #1 with nothing published, Home draws no strip and no banner`, async () => {
-  await openHome();
+  const { status, current } = await openHome();
+  // Both reads answered, and answered "nothing": the status read with no incident and no maintenance window, and the
+  // announcement read with its one typed answer for none published. A refused read would also draw nothing.
+  expect(status.ok, JSON.stringify(status.json)).toBe(true);
+  expect(status.json.result.data).toMatchObject({ incidents: [], maintenance: [] });
+  expect(refusalCode(current.json), JSON.stringify(current.json)).toBe('notify.announcement_unset');
   await expect(page.getByTestId('home-notices')).toHaveCount(0);
   await expect(page.getByRole('alert')).toHaveCount(0);
   await expect(page.getByTestId('home-notice')).toHaveCount(0);
@@ -83,6 +95,15 @@ test(`${J} #4 a founder's draft never reaches the customer`, async () => {
     key: `${J}:${RUN}:maintenance`,
   });
   expect([announcement.status, maintenance.status]).toEqual(['draft', 'draft']);
+  // The public reads leave both drafts out: the open board and the published list.
+  const drafts = [announcement.id, maintenance.id];
+  const open = await openNotices();
+  const openIds = [...open.incidents, ...open.maintenance, ...(open.announcement ? [open.announcement] : [])].map((n) => n.id);
+  const publishedIds = (await publishedNotices()).map((n) => n.id);
+  for (const id of drafts) {
+    expect(openIds).not.toContain(id);
+    expect(publishedIds).not.toContain(id);
+  }
   await openHome();
   await expect(page.getByTestId('home-notices')).toHaveCount(0);
   await expect(page.getByText(`TEST announcement ${RUN}`)).toHaveCount(0);
@@ -135,7 +156,21 @@ test(`${J} #5 an action the shell cannot run because an outside service is off s
   const stake = person.locator('[data-action="stake"]');
   await expect(stake.getByRole('button', { name: 'Stake' })).toBeDisabled();
   const staked = await expectServiceOff(stake.locator('[data-not-connected]'), 'chain.go', 'Stake');
+  // Security: linking a social account is a live button; pressing it reaches identity, which answers that the outside
+  // sign-in provider is off, and the card says the same sentence with that code.
+  await person.goto('/uc/safe');
+  const methods = person.getByTestId('security__signin-methods');
+  const social = methods
+    .getByRole('listitem', { name: 'Social account', exact: true })
+    .getByRole('button', { name: 'Link a social account' });
+  await expect(social).toBeEnabled();
+  const started = person.waitForResponse((res) => res.url().includes('/linkProviderStart'));
+  await social.click();
+  const refused = await (await started).json();
+  expect(refusalCode(refused), JSON.stringify(refused)).toBe('idp.social');
+  const linked = await expectServiceOff(methods.locator('[data-not-connected]'), 'idp.social', 'Signing in with a social account');
   expect(pushed.replace(/^.+ needs .+?\./, '')).toBe(' It is switched off in this build. vendor.push');
   expect(staked.replace(/^.+ needs .+?\./, '')).toBe(' It is switched off in this build. chain.go');
+  expect(linked.replace(/^.+ needs .+?\./, '')).toBe(' It is switched off in this build. idp.social');
   await context.close();
 });
