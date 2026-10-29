@@ -13,7 +13,8 @@ const en = {
   resultAddress: 'Address',
   resultTx: 'Transaction',
   resultBlock: 'Block',
-  textNoTokenSource: 'Token names are searched in the token list, and this build has no token list to search. Paste an address, a transaction hash or a block height.',
+  textNoTokenSource:
+    'Token names are searched in the token list, and this build has no token list to search. Paste an address, a transaction hash or a block height.',
   networksSearched: 'Networks searched',
   searchingNetwork: 'Checking {network}…',
   networkFound: '{network}: Found ({status})',
@@ -21,7 +22,7 @@ const en = {
   networkNotChecked: '{network}: not checked: {reason}',
   reasonOtherNetwork: 'this explorer reads only {network}',
   reasonChainUnknown: 'the network this explorer reads could not be confirmed',
-  reasonIndexerNotConnected: 'the indexer service is not connected here',
+  reasonIndexerNotConnected: 'the indexer service is not running here',
   reasonIndexerNoAnswer: 'the indexer service didn’t answer',
   openTx: 'Open transaction',
   latestBlocks: 'Latest blocks',

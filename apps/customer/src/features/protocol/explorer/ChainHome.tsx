@@ -110,7 +110,9 @@ function LatestBlocks({ api, chain, t }: { api: ExplorerApi; chain: ChainRef; t:
   }
   return (
     <Panel title={t('latestBlocks')}>
-      {asOf && <p className="muted">{t('blocksAsOf', { time: new Date(asOf).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) })}</p>}
+      {asOf && (
+        <p className="muted">{t('blocksAsOf', { time: new Date(asOf).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) })}</p>
+      )}
       <DataTable label={t('latestBlocks')} headers={headers}>
         {body}
       </DataTable>
@@ -244,7 +246,8 @@ function SearchResults({ id, query, onPick, t }: { id: string; query: ExplorerQu
           if (event.key === 'Enter') onPick();
         }}
       >
-        <span className="badge">{label}</span> <span className="explorer-results__value">{query.kind === 'tx' ? short(query.value) : query.value}</span>
+        <span className="badge">{label}</span>{' '}
+        <span className="explorer-results__value">{query.kind === 'tx' ? short(query.value) : query.value}</span>
       </li>
     </ul>
   );

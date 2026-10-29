@@ -48,7 +48,7 @@ describe('Chain home', () => {
       failure: { ok: false, reason: 'error', message: 'Not connected', code: 'edge.upstream_unwired' },
     };
     const html = renderToStaticMarkup(<ChainHome chain={ready84532} />);
-    expect(html).toContain('No blocks listed: the indexer service is not connected here');
+    expect(html).toContain('No blocks listed: the indexer service is not running here');
     expect(html).toContain('aria-label="Latest transactions"');
     expect(html).toContain('The indexer has no list of recent transactions');
     expect(html).not.toMatch(/<td[^>]*>\s*0\s*<\/td>/);
