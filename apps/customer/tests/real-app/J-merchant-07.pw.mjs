@@ -86,29 +86,39 @@ test(`${J} #1 opens Money: zero per asset with "No money yet" for a new business
   }).toPass({ timeout: 60_000 });
   await expect(balances.getByRole('link', { name: /^Clearing/ })).toContainText(/40(\.0+)?\s*USDT/);
   await expect(balances.getByRole('link', { name: /^Available to pay out/ })).toContainText(/Now\s*0(\.0+)?\s*USDT/);
-  const all = page.getByRole('table', { name: 'All balances' });
-  await expect(all.getByRole('row', { name: /USDT/ })).toContainText(/0(\.0+)?\s*USDT/);
+  // Every asset the business holds, once, with its two figures: USDT only, 0.00 available and 40.00 clearing.
+  const all = page.getByRole('region', { name: 'All balances' });
+  await expect(all.getByRole('rowgroup').last().getByRole('row')).toHaveCount(1);
+  await expect(all.getByRole('rowgroup').last().getByRole('row').getByRole('cell')).toHaveText(['USDT', '0.00 USDT', '40.00 USDT']);
   const reserve = page.getByRole('region', { name: 'Reserve' });
   await expect(reserve).toContainText('recorded, not withheld');
   await expect(reserve).toContainText('No reserve rule is set for your account.');
   expect(refused).toEqual([]);
 
-  // A balance the page cannot read says so, and never reads as zero.
-  await page.route('**/api/pay/trpc/merchantMetrics.snapshot**', (route) =>
-    route.fulfill({
-      status: 503,
-      contentType: 'application/json',
-      body: JSON.stringify({
-        error: { message: 'pay.metrics_balance_unavailable', code: -32603, data: { code: 'INTERNAL_SERVER_ERROR' } },
-      }),
-    }),
-  );
-  await page.reload();
-  await expect(page.getByTestId('failure').first()).toBeVisible();
-  await expect(page.getByRole('group', { name: /Balances at a glance/ })).toHaveCount(0);
-  await expect(page.getByText('Available to pay out')).toHaveCount(0);
-  await expect(page.getByText('No money yet')).toHaveCount(0);
-  await page.unroute('**/api/pay/trpc/merchantMetrics.snapshot**');
+  // A balance the page cannot read says so, and never reads as zero: with the ledger stopped the service refuses the
+  // read with its code, and the page shows the refusal and no figure. Started again, the same 40.00 is back.
+  const snapshot = () => api.query('merchantMetrics.snapshot', { merchantId, window: { kind: 'preset', preset: 'rolling_30d' } });
+  expect((await snapshot()).balances).toEqual([
+    { assetCode: 'USDT', clearing: expect.stringMatching(/^40(\.0+)?$/), available: expect.stringMatching(/^0(\.0+)?$/) },
+  ]);
+  try {
+    tool('local-test-stack.mjs', 'stop', 'ledger');
+    await expect(snapshot()).rejects.toThrow(/refused: 503 .*pay\.metrics_balance_unavailable/);
+    await page.reload();
+    await expect(page.getByTestId('failure').first()).toBeVisible();
+    await expect(page.getByRole('group', { name: /Balances at a glance/ })).toHaveCount(0);
+    await expect(page.getByRole('region', { name: 'All balances' })).toHaveCount(0);
+    await expect(page.getByText('Available to pay out')).toHaveCount(0);
+    await expect(page.getByText('No money yet')).toHaveCount(0);
+    await expect(page.locator('main')).not.toContainText(/\b0\.00 USDT/);
+  } finally {
+    // `start` brings back only what is down; `restart` refuses a just-stopped process the system has not reaped yet.
+    tool('local-test-stack.mjs', 'start');
+  }
+  await expect(async () => {
+    await page.reload();
+    await expect(balances.getByRole('link', { name: /^Clearing/ })).toContainText('40.00 USDT', { timeout: 3_000 });
+  }).toPass({ timeout: 60_000 });
 });
 
 test(`${J} #2 reads funds moving from clearing to available: funds wait until available, and a payout of clearing money is refused without moving it`, async ({
