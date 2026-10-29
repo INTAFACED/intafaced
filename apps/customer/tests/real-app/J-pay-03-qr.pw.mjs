@@ -1,13 +1,14 @@
 import { test, expect } from '@playwright/test';
-import { api, journeyState, signOutBrowser, tool } from './stack.mjs';
-import { signIn, signUp } from './desk.mjs';
+import { api, fund, journeyState, signOutBrowser, toUnits, tool } from './stack.mjs';
+import { signIn, signUp, verify } from './desk.mjs';
 
 // J-pay-03 step 3's signed QR code (PP-send-request-11) in the running app, kept apart from J-pay-03.pw.mjs because it
 // restarts identity. The code names the payee by account id and is signed with this stack's LOCAL TEST key, made on
 // this machine and refused by identity outside dev or test. Here: with finding by handle off, the code opens Send on
 // the payee; a tampered code is refused with "This code is not valid"; and with the signing key blank (identity restarted with
 // LOCAL_STACK_IDENTITY_PAY_QR_KEY=off) Receive refuses the QR code with identity.qr_key_unset and a scan reads nothing.
-// After each refusal the payee's own record reads the same. Paying through the code is J-pay-03 #3.
+// After each refusal the payee's own record reads the same. The payer is funded with TEST USDT through the real ledger,
+// and the scanned code pays 1 TEST USDT into the payee's balance through the existing pay path.
 const J = 'J-pay-03';
 const run = journeyState(`${J}-qr-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
 
@@ -20,6 +21,8 @@ function people() {
 }
 
 /** The payee's own record as identity answers it to them. */
+const usdt = async (who) => (await (await api(who)).balances()).USDT ?? { free: '0', used: '0' };
+
 async function record(who) {
   const res = await (await api(who)).get('/api/identity/trpc/me');
   expect(res.status, JSON.stringify(res.body).slice(0, 300)).toBe(200);
@@ -45,11 +48,14 @@ function payQrKey(on) {
   }
 }
 
-test(`${J} #3 QR: the signed code opens Send on the payee by account id; a tampered code is refused`, async ({ page }) => {
+test(`${J} #3 QR: the signed code opens Send on the payee by account id; a tampered code is refused; it pays 1 TEST USDT`, async ({ page }) => {
   test.setTimeout(180_000);
   const payee = await signUp(page, 'qe');
+  await verify(page, payee);
   await signOutBrowser(page.context());
   const payer = await signUp(page, 'qp');
+  await verify(page, payer);
+  expect(fund(payer.email, 'USDT', '10').tx).toBeTruthy();
   run.reset({ payee, payer });
 
   await signOutBrowser(page.context());
@@ -79,6 +85,16 @@ test(`${J} #3 QR: the signed code opens Send on the payee by account id; a tampe
   await expect(page.getByRole('textbox', { name: 'Handle' })).toHaveValue(payee.handle);
   await expect(page.getByTestId('recipient-found')).toContainText(`@${payee.handle}`);
   await expect(page.getByRole('alert')).toHaveCount(0);
+
+  // It pays through the existing pay path: 1 TEST USDT lands in the payee's balance.
+  const held = toUnits((await usdt(payee)).free);
+  await page.getByLabel(/Amount/).fill('1');
+  await page.getByRole('button', { name: 'Review' }).click();
+  const review = page.getByRole('alertdialog');
+  await expect(review).toContainText(`@${payee.handle}`);
+  await review.getByRole('button', { name: /^Send/ }).click();
+  await expect(page.getByRole('alert')).toHaveCount(0);
+  await expect.poll(async () => toUnits((await usdt(payee)).free) - held, { timeout: 30_000 }).toBe(toUnits('1'));
 
   // The signature moved onto another account, and a changed last character: both refused, and nothing is read.
   const [v, , tag, sig] = code.split('.');
