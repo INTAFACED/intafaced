@@ -90,7 +90,7 @@ export const docsCopy = defineCopy(
     clockHow:
       'The check reads GET /api/v1/time and takes the offset at the middle of the round trip. Keep your clock on a standard network time source.',
     clockWindowUnset:
-      'The signing window is not set yet, so the offset is not judged against one, and every signed request is refused with auth.request_window_unset.',
+      'The signing window is unset, so the offset is not judged against one, and every signed request is refused with auth.request_window_unset.',
     clockPolicyFailed: 'The signing window could not be read, so the offset is not judged against it. Try again.',
     clockWindowLive:
       'The server publishes its window, in seconds, at GET /api/identity/trpc/requestSigningPolicy and refuses a timestamp further from its clock than that. While the window is not set, every signed request is refused.',
@@ -115,7 +115,7 @@ export const docsCopy = defineCopy(
     authHeaderSignature: 'The signature, in hex',
     authWindowTitle: 'Timestamp window',
     authWindow: 'The server accepts a timestamp up to {seconds} seconds from its clock, either way, and each nonce once.',
-    authWindowUnset: 'The timestamp window is not set yet, so every signed request is refused with auth.request_window_unset.',
+    authWindowUnset: 'The timestamp window is unset, so every signed request is refused with auth.request_window_unset.',
     authRefusals: 'An altered request, a stale or future timestamp and a reused nonce are each refused with their own code.',
     authErrorsLink: 'Authentication and permission errors',
     authPolicyLoading: 'Reading the signing policy.',
@@ -249,7 +249,7 @@ export const docsCopy = defineCopy(
       clockHow:
         'La comprobación lee GET /api/v1/time y toma el desfase en la mitad de la ida y vuelta. Mantén tu reloj con una fuente de hora de red estándar.',
       clockWindowUnset:
-        'La ventana de firma aún no está fijada, así que el desfase no se juzga contra ninguna, y toda solicitud firmada se rechaza con auth.request_window_unset.',
+        'La ventana de firma no está fijada, así que el desfase no se juzga contra ninguna, y toda solicitud firmada se rechaza con auth.request_window_unset.',
       clockPolicyFailed: 'No se pudo leer la ventana de firma, así que el desfase no se juzga contra ella. Inténtalo de nuevo.',
       clockWindowLive:
         'El servidor publica su ventana, en segundos, en GET /api/identity/trpc/requestSigningPolicy y rechaza una marca de tiempo más alejada de su reloj. Mientras la ventana no esté fijada, toda solicitud firmada se rechaza.',
@@ -276,7 +276,7 @@ export const docsCopy = defineCopy(
       authWindow:
         'El servidor acepta una marca de tiempo hasta {seconds} segundos de su reloj, en cualquier sentido, y cada nonce una vez.',
       authWindowUnset:
-        'La ventana de marca de tiempo aún no está fijada, así que toda solicitud firmada se rechaza con auth.request_window_unset.',
+        'La ventana de marca de tiempo no está fijada, así que toda solicitud firmada se rechaza con auth.request_window_unset.',
       authRefusals:
         'Una solicitud alterada, una marca de tiempo caducada o futura y un nonce reutilizado se rechazan cada uno con su propio código.',
       authErrorsLink: 'Errores de autenticación y de permisos',
@@ -411,7 +411,7 @@ export const docsCopy = defineCopy(
       clockHow:
         'La vérification lit GET /api/v1/time et prend le décalage au milieu de l’aller-retour. Gardez votre horloge sur une source de temps réseau standard.',
       clockWindowUnset:
-        'La fenêtre de signature n’est pas encore fixée : le décalage n’est jugé contre aucune, et toute requête signée est refusée avec auth.request_window_unset.',
+        'La fenêtre de signature n’est pas fixée : le décalage n’est jugé contre aucune, et toute requête signée est refusée avec auth.request_window_unset.',
       clockPolicyFailed: 'La fenêtre de signature n’a pas pu être lue : le décalage n’est pas jugé contre elle. Réessayez.',
       clockWindowLive:
         'Le serveur publie sa fenêtre, en secondes, à GET /api/identity/trpc/requestSigningPolicy et refuse un horodatage plus éloigné de son horloge. Tant que la fenêtre n’est pas fixée, toute requête signée est refusée.',
@@ -438,7 +438,7 @@ export const docsCopy = defineCopy(
       authWindowTitle: 'Fenêtre d’horodatage',
       authWindow:
         'Le serveur accepte un horodatage jusqu’à {seconds} secondes de son horloge, dans un sens comme dans l’autre, et chaque nonce une fois.',
-      authWindowUnset: 'La fenêtre d’horodatage n’est pas encore fixée : toute requête signée est refusée avec auth.request_window_unset.',
+      authWindowUnset: 'La fenêtre d’horodatage n’est pas fixée : toute requête signée est refusée avec auth.request_window_unset.',
       authRefusals: 'Une requête modifiée, un horodatage périmé ou futur et un nonce réutilisé sont chacun refusés avec leur propre code.',
       authErrorsLink: 'Erreurs d’authentification et d’autorisation',
       authPolicyLoading: 'Lecture de la politique de signature.',

@@ -196,7 +196,7 @@ export type ApiKeyScopeEntry = z.infer<typeof apiKeyScopeEntrySchema>;
 export const apiKeyScopesOutputSchema = z.object({ scopes: z.array(apiKeyScopeEntrySchema).max(200) }).strict();
 
 /** The scope that makes a key sign its requests by default: a key that may place orders (DV-auth-01). */
-export const API_KEY_SIGNED_BY_DEFAULT_SCOPE = 'trade:write';
+export const SIGNING_REQUIRED_SCOPE = 'trade:write';
 
 /** The request-signing scheme's name, the first line of every canonical request. */
 export const REQUEST_SIGN_VERSION = 'INTAFACED-REQ-V1';
