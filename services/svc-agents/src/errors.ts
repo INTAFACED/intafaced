@@ -39,7 +39,8 @@ export type AgentErrorCode =
   | 'agents.spend_reservation_conflict'
   | 'agents.spend_reservation_not_found'
   | 'agents.spend_reservation_closed'
-  | 'agents.spend_hold_max_age_unset';
+  | 'agents.spend_hold_max_age_unset'
+  | 'agents.funds_insufficient';
 
 export class AgentError extends Error {
   constructor(

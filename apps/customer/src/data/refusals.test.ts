@@ -1,7 +1,27 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
+import { z } from 'zod';
+import { createApiClient } from '../shared/api';
 import { classifyRefusal } from './refusal-codes';
 import { refusalCopy } from './refusals';
+
+describe('the platform posting freeze on the trade API (DV-errors-02)', () => {
+  it('a REST refusal with intafacedCode posting_frozen gets the orders-paused copy, not the account-on-hold one', async () => {
+    const api = createApiClient({
+      fetch: async () =>
+        new Response(JSON.stringify({ code: 'OnMaintenance', message: 'ledger.frozen', intafacedCode: 'posting_frozen' }), { status: 400 }),
+    });
+    const result = await api.rest('/orders', z.unknown(), { method: 'POST', body: { symbol: 'BTC/USDT' } });
+    expect(result).toMatchObject({ ok: false, reason: 'error', code: 'posting_frozen', status: 400 });
+    const code = result.ok ? '' : (result.code ?? '');
+    expect(classifyRefusal(code)).toBe('ordersPaused');
+    expect(refusalCopy(code)).toEqual(refusalCopy('trade.orders_paused'));
+    expect(refusalCopy(code).title).toBe('Orders are paused right now');
+    // The account's freeze keeps its own copy, and so does the ledger's raw code, which rooms other than trade send.
+    expect(classifyRefusal('trade.account_restricted')).toBe('accountOnHold');
+    expect(classifyRefusal('ledger.frozen')).toBe('platformPaused');
+  });
+});
 
 describe('edge.authority_unavailable', () => {
   it('is a retry, not a sign-out', () => {
@@ -209,6 +229,7 @@ describe('classifyRefusal', () => {
       ['ledger.frozen', 'platformPaused'],
       ['trade.account_restricted', 'accountOnHold'],
       ['bank.space_locked', 'spaceLocked'],
+      ['posting_frozen', 'ordersPaused'],
       ['mfa.required', 'stepUp'],
       ['auth.mfa_required', 'mfaRequired'],
       ['bank.prices_unavailable', 'pricesDown'],

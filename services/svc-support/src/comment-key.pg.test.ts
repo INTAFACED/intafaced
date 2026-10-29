@@ -1,9 +1,8 @@
 import { readdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import postgres from 'postgres';
 import { afterAll, describe, expect, it } from 'vitest';
-import { assertTestDatabase, postgresAvailable } from '@intafaced/db';
+import { assertTestDatabase, createTestDatabase, postgresAvailable, type TestDatabase } from '@intafaced/db';
 import { PostgresSupportStore } from './store.js';
 
 /**
@@ -11,27 +10,25 @@ import { PostgresSupportStore } from './store.js';
  * the cap is counted under the ticket lock, so two comments at once cannot both pass it.
  */
 
-const URL = process.env.TEST_DATABASE_URL_SUPPORT ?? 'postgres://svc_support:svc_support@localhost:5433/intafaced_test';
+const ADMIN_URL = process.env.TEST_DATABASE_URL ?? 'postgres://intafaced_ops:intafaced_ops@localhost:5433/intafaced_test';
 const here = dirname(fileURLToPath(import.meta.url));
 const migrationsDir = join(here, '..', 'drizzle');
+const MIGRATIONS = readdirSync(migrationsDir)
+  .filter((f) => f.endsWith('.sql') && !f.endsWith('.down.sql'))
+  .sort()
+  .map((f) => readFileSync(join(migrationsDir, f), 'utf8'));
 const USER = '5c0e0e00-1111-4111-8111-111111111111';
 
-const available = await postgresAvailable(URL);
-const sql = available ? postgres(URL, { max: 4, onnotice: () => undefined }) : null;
-
-if (available && sql) {
-  await assertTestDatabase(sql, 'svc-support comment-key.pg.test');
-  await sql.unsafe(`CREATE SCHEMA IF NOT EXISTS support`).catch(() => undefined);
-  for (const file of readdirSync(migrationsDir)
-    .filter((f) => f.endsWith('.sql') && !f.endsWith('.down.sql'))
-    .sort()) {
-    await sql.unsafe(readFileSync(join(migrationsDir, file), 'utf8')).catch(() => undefined);
-  }
-}
+// A per-run database (#6713): on the shared intafaced_test, another file's migration replay rewrote the status trigger
+// under this file's tests.
+const available = await postgresAvailable(ADMIN_URL);
+const db: TestDatabase | null = available ? await createTestDatabase({ service: 'support', url: ADMIN_URL, migrations: MIGRATIONS }) : null;
+const sql = db?.sql ?? null;
+if (sql) await assertTestDatabase(sql, 'svc-support comment-key.pg.test');
 
 afterAll(async () => {
-  if (sql) await sql.end({ timeout: 5 });
-});
+  await db?.drop();
+}, 30_000);
 
 describe.skipIf(!available)('comment key and cap on Postgres', () => {
   const store = () => new PostgresSupportStore(sql!);

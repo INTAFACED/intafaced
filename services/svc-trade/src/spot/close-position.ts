@@ -16,6 +16,7 @@ import { TradeService } from './trade-service.js';
 import { attributionFromPrincipal, withLedgerAttribution } from './auth-attribution.js';
 import { TradeError, type Market, type OrderRecord, type OrderSide } from './types.js';
 import type { EdgeTrust } from '../edge-trust.js';
+import { SETTLEMENT_PENDING } from '../ledger-public-code.js';
 
 /**
  * Close a spot position through the matching flatten that landed in #3249.
@@ -281,6 +282,17 @@ export function attachClosePosition(app: FastifyInstance, deps: ClosePositionRes
       if (error instanceof TradeError) {
         const status = error.code === 'trade.position_flat' ? 409 : error.code === 'trade.market_not_found' ? 404 : 400;
         return sendError(reply, status, error.code, error.message);
+      }
+      if (error instanceof LedgerError) {
+        // Every ledger post on a close comes after the engine printed the flatten, and the row is kept
+        // recovery_required (closeSpotPosition): whatever the ledger said, the close exists and its settlement is not
+        // confirmed. An unknown outcome, never a refusal, and never a bare 500.
+        return sendError(
+          reply,
+          503,
+          SETTLEMENT_PENDING,
+          `${error.message}; the close reached the engine and its settlement is not confirmed: read the order before sending it again`,
+        );
       }
       throw error;
     }

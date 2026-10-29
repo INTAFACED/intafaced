@@ -2,8 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { Principal } from '@intafaced/auth';
 import { createEdgeContext, encodePrincipal, signPrincipalHeader, type ActionApproval } from '@intafaced/contracts';
 import {
-  OPS_ALERT_PROBE_UNCONFIGURED,
-  OPS_ALERT_SOURCE_UNCONFIGURED,
+  OPS_ALERT_STORAGE_UNCONFIGURED,
   OPS_APPROVAL_UNWIRED,
   OPS_CUSTODY_CHAIN_UNWIRED,
   OPS_CUSTODY_KEYS_UNPUBLISHED,
@@ -81,7 +80,7 @@ describe('founder custody / restore / alerts desks', () => {
     const api = createOpsRouter(new OpsService()).createCaller(await signed(principal({ scopes: ['ops:read'], mfa: false })));
     await expect(api.custody.ops.status()).rejects.toMatchObject({ code: 'FORBIDDEN' });
     await expect(api.restore.watermarks()).rejects.toMatchObject({ code: 'FORBIDDEN' });
-    await expect(api.alerts.list()).rejects.toMatchObject({ code: 'FORBIDDEN' });
+    await expect(api.alerts.list({ after: null, limit: 10 })).rejects.toMatchObject({ code: 'FORBIDDEN' });
   });
 
   it('reads unconfigured custody, restore, and alerts without inventing numbers', async () => {
@@ -100,12 +99,14 @@ describe('founder custody / restore / alerts desks', () => {
       restored: false,
     });
 
-    const alerts = await api.alerts.list();
-    expect(alerts.alerts).toBeNull();
-    expect(alerts.source.code).toBe(OPS_ALERT_SOURCE_UNCONFIGURED);
-    const raw = JSON.stringify(alerts);
-    expect(raw).not.toContain('"alerts":[]');
-    expect(raw).not.toContain('"open":0');
+    // No alert store: the list refuses rather than answering an empty list or a zero count.
+    await expect(api.alerts.list({ after: null, limit: 10 })).rejects.toMatchObject({
+      code: 'PRECONDITION_FAILED',
+      message: expect.stringContaining(OPS_ALERT_STORAGE_UNCONFIGURED),
+    });
+    await expect(api.alerts.periods({ limit: 10 })).rejects.toMatchObject({
+      message: expect.stringContaining(OPS_ALERT_STORAGE_UNCONFIGURED),
+    });
   });
 
   it('replays a custody approval and conflicts a different body on the same key', async () => {
@@ -246,21 +247,23 @@ describe('founder custody / restore / alerts desks', () => {
     expect(read.watermarks).toEqual({ stamped: false, rows: [] });
   });
 
-  it('refuses alert acknowledgement with the same code the list shows, and stores nothing', async () => {
-    const reader = createOpsRouter(new OpsService(), undefined, { alertSourceUrl: 'https://alerts.example/feed' }).createCaller(
-      await signed(),
-    );
-    const listed = await reader.alerts.list();
-    expect(listed.alerts).toBeNull();
-    expect(listed.source.code).toBe(OPS_ALERT_PROBE_UNCONFIGURED);
+  it('refuses alert acknowledgement without a second factor, and without storage stores nothing', async () => {
+    const alertId = '00000000-0000-4000-8000-000000000001';
     const denied = createOpsRouter(new OpsService()).createCaller(await signed(principal({ scopes: ['admin:read'] })));
-    await expect(denied.alerts.acknowledge({ alertId: 'a-1' })).rejects.toMatchObject({ code: 'FORBIDDEN' });
-    const writer = createOpsRouter(new OpsService(), undefined, { alertSourceUrl: 'https://alerts.example/feed' }).createCaller(
-      await signed(principal({ scopes: ['admin:write'], mfa: true })),
-    );
-    await expect(writer.alerts.acknowledge({ alertId: 'a-1', idempotencyKey: 'alert-key-1' })).rejects.toMatchObject({
+    await expect(denied.alerts.acknowledge({ alertId, note: 'seen', idempotencyKey: 'alert-key-1' })).rejects.toMatchObject({
+      code: 'FORBIDDEN',
+    });
+    const writer = createOpsRouter(new OpsService()).createCaller(await signed(principal({ scopes: ['admin:write'], mfa: true })));
+    await expect(writer.alerts.acknowledge({ alertId, note: 'seen', idempotencyKey: 'alert-key-1' })).rejects.toMatchObject({
       code: 'PRECONDITION_FAILED',
-      message: expect.stringContaining(OPS_ALERT_PROBE_UNCONFIGURED),
+      message: expect.stringContaining(OPS_ALERT_STORAGE_UNCONFIGURED),
+    });
+    const endsAt = new Date(Date.now() + 3_600_000).toISOString();
+    await expect(writer.alerts.snooze({ alertId, endsAt, idempotencyKey: 'alert-key-2' })).rejects.toMatchObject({
+      message: expect.stringContaining(OPS_ALERT_STORAGE_UNCONFIGURED),
+    });
+    await expect(writer.alerts.unsnooze({ alertId, idempotencyKey: 'alert-key-3' })).rejects.toMatchObject({
+      message: expect.stringContaining(OPS_ALERT_STORAGE_UNCONFIGURED),
     });
   });
 });

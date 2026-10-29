@@ -12,6 +12,7 @@ import {
 import { AuthError, requireTier, TIER_ORDER, type Principal } from '@intafaced/auth';
 import { checkAccess } from '@intafaced/config';
 import { formatAmount, parseAmount, InsufficientFundsError, LedgerError } from '@intafaced/ledger-client';
+import { publicLedgerCode, SETTLEMENT_PENDING } from './ledger-public-code.js';
 import { orderSideSchema, timeInForceSchema } from '@intafaced/exchange-contract';
 import { TradeError, type FillRecord, type Market, type OrderRecord, type TimeInForce } from './spot/types.js';
 import { MatchingNoBookError } from './spot/matching-client.js';
@@ -428,7 +429,7 @@ function presentFill(fill: FillRecord) {
  * hold just rejects it again — while an unreachable engine must, because the
  * order may not have been placed at all.
  */
-function toTrpcError(err: unknown): TRPCError {
+export function toTrpcError(err: unknown): TRPCError {
   const historyError = convertHistoryTrpcError(err);
   if (historyError) return historyError;
   const desk = deskTrpcError(err);
@@ -575,7 +576,15 @@ function toTrpcError(err: unknown): TRPCError {
   }
 
   if (err instanceof LedgerError) {
-    return new TRPCError({ code: 'BAD_REQUEST', message: err.message, cause: err });
+    // The cause's code is what a client reads (`data.cause.code`). The posting freeze travels as the API names it:
+    // `posting_frozen` (refused before the engine, a 400 like the REST door) or `trade.settlement_pending` (after the
+    // engine: the outcome is not known, so not a refusal). The ledger's own error stays the cause of the renamed one.
+    const published = publicLedgerCode(err);
+    if (published === err.code) return new TRPCError({ code: 'BAD_REQUEST', message: err.message, cause: err });
+    const cause = new LedgerError(err.message, published);
+    cause.cause = err;
+    if (err.stack) cause.stack = err.stack;
+    return new TRPCError({ code: published === SETTLEMENT_PENDING ? 'SERVICE_UNAVAILABLE' : 'BAD_REQUEST', message: err.message, cause });
   }
 
   // Matching holds no book for the market (its 404): the named refusal `trade.no_book`, as on the REST and ccxt

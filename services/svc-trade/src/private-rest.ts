@@ -30,6 +30,7 @@ import {
   toCcxtError,
   type CcxtErrorResponse,
 } from './ccxt-errors.js';
+import { SETTLEMENT_PENDING } from './ledger-public-code.js';
 import type { Position } from '@intafaced/exchange-contract';
 import type { MarketStateSnapshot } from '@intafaced/exchange-contract';
 import {
@@ -85,6 +86,7 @@ import { carryPlacementBody, schemaBodyOf } from './spot/placement-extras.js';
 import { readBracketFromBody } from './spot/bracket-place.js';
 import type { OrderLink } from './spot/order-links.js';
 import { readOcoFromBody } from './spot/oco-place.js';
+import { createBodyRefusal } from './create-body-refusal.js';
 import { massCancelAccountRefuse, massCancelSessionRefuse, readSessionId } from './spot/matching-client.js';
 
 /**
@@ -945,19 +947,6 @@ export function parseClosedFilters(query: {
  * Map CCXT create body → PlaceOrderInput (decimal strings → Amount).
  * Only market/limit; postOnly becomes tif PO when no other tif is set.
  */
-/**
- * The 400 body for a create body the typed schema refused. A bad `tag` names its own code; anything else keeps the
- * generic one with the offending field in `issues`.
- */
-function createBodyRefusal(error: { issues: ReadonlyArray<{ path: ReadonlyArray<PropertyKey>; message: string }> }, fallback: string) {
-  const first = error.issues[0];
-  const typed =
-    first?.path[0] === 'tag'
-      ? invalidOrder('tag must be 1 to 16 characters', 'trade.invalid_tag').body
-      : invalidOrder(first?.message ?? fallback).body;
-  return { ...typed, issues: error.issues.map((i) => ({ path: i.path, message: i.message })) };
-}
-
 /** The create-body fields a plain market or limit order has. Any other field places through an installer. */
 const PLAIN_ORDER_FIELDS: ReadonlySet<string> = new Set([
   'symbol',
@@ -2532,7 +2521,11 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
         input = withFeeCurrency(mapCreateOrderBody(parsed.data), await feeCurrencyFor(deps, parsed.data, rawItem));
       } catch (err) {
         const mapped = toCcxtError(err);
-        if (mapped) {
+        if (mapped?.body.intafacedCode === SETTLEMENT_PENDING) {
+          // The engine may have acted: never report it as refused.
+          results.push({ ...base, status: 'unknown', error: mapped.body });
+          continue;
+        } else if (mapped) {
           results.push({ ...base, status: 'refused', error: mapped.body });
           continue;
         }
@@ -2572,7 +2565,10 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
         }
       } catch (err) {
         const mapped = toCcxtError(err);
-        if (mapped) {
+        if (mapped?.body.intafacedCode === SETTLEMENT_PENDING) {
+          // The engine may have acted: never report it as refused.
+          results.push({ ...base, status: 'unknown', error: mapped.body });
+        } else if (mapped) {
           results.push({ ...base, status: 'refused', error: mapped.body });
         } else {
           results.push({
@@ -2782,7 +2778,10 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
         }
       } catch (err) {
         const mapped = toCcxtError(err);
-        if (mapped) {
+        if (mapped?.body.intafacedCode === SETTLEMENT_PENDING) {
+          // The engine may have acted: never report it as refused.
+          results.push({ ...base, status: 'unknown', error: mapped.body });
+        } else if (mapped) {
           results.push({ ...base, status: 'refused', error: mapped.body });
         } else {
           results.push({
@@ -2825,12 +2824,13 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
     if (!parsed.success) {
       // CCXT `InvalidOrder`, not `BadRequest`: it is specifically the order
       // that is wrong, and that is the branch a client's order-builder listens
-      // on. `issues` rides alongside so the integrator sees which field.
+      // on. `errors` lists every bad field in one body (DV-errors-01).
       return reply.code(400).send(createBodyRefusal(parsed.error, 'invalid create order body'));
     }
 
     let input: PlaceOrderInput;
     let displayQty: string | null = null;
+    let icebergMarketId: string | null = null;
     let stopTrigger: string | null = null;
     try {
       const now = (deps.now ?? (() => new Date()))();
@@ -2845,6 +2845,7 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
       const attached = await attachIcebergDisplay(deps, input, parsed.data, readRawDisplayQty(rawBody));
       input = attached.input;
       displayQty = attached.displayQty;
+      icebergMarketId = attached.marketId;
       if (deps.stopTriggers && parsed.data.type !== 'stop_limit' && hasRawStopPx(rawBody)) {
         throw new TradeError('a stop is placed as type stop_limit with a stopPrice', TRADE_STOP_TRIGGER_INVALID);
       }
@@ -2885,41 +2886,58 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
     }
 
     try {
-      const prior =
-        displayQty && deps.findClientOrder
-          ? await deps.findClientOrder(principal, { symbol: input.symbol, marketId: input.marketId, clientOrderId: input.clientOrderId })
-          : null;
-      let order: OrderRecord;
-      try {
-        order = await deps.placeOrder(principal, input);
-      } catch (placeErr) {
-        if (displayQty && deps.icebergDisplay && deps.findClientOrder && prior == null) {
-          try {
-            const row = await deps.findClientOrder(principal, {
-              symbol: input.symbol,
-              marketId: input.marketId,
-              clientOrderId: input.clientOrderId,
-            });
-            if (row) await deps.icebergDisplay.remember(row.id, principal.userId, displayQty);
-          } catch {
-            // The customer's answer stays the original place error.
+      const place = async (): Promise<OrderRecord> => {
+        // Read inside the account's turn on the market, so a re-send racing its first request finds the order that won.
+        const prior =
+          displayQty && deps.findClientOrder
+            ? await deps.findClientOrder(principal, { symbol: input.symbol, marketId: input.marketId, clientOrderId: input.clientOrderId })
+            : null;
+        let order: OrderRecord;
+        try {
+          order = await deps.placeOrder(principal, input);
+        } catch (placeErr) {
+          if (displayQty && deps.icebergDisplay && deps.findClientOrder && prior == null) {
+            try {
+              const row = await deps.findClientOrder(principal, {
+                symbol: input.symbol,
+                marketId: input.marketId,
+                clientOrderId: input.clientOrderId,
+              });
+              if (row) await deps.icebergDisplay.remember(row.id, principal.userId, displayQty);
+            } catch {
+              // The customer's answer stays the original place error.
+            }
+          }
+          throw placeErr;
+        }
+        if (displayQty && deps.icebergDisplay) {
+          if (deps.findClientOrder && prior) {
+            const storedPeak = await deps.icebergDisplay.read(order.id);
+            if (!storedPeak) {
+              throw new TradeError(
+                'iceberg displayQty cannot be added to an order that was not placed as an iceberg',
+                TRADE_ICEBERG_DISPLAY_INVALID,
+              );
+            }
+          } else {
+            await deps.icebergDisplay.remember(order.id, principal.userId, displayQty);
           }
         }
-        throw placeErr;
-      }
-      if (displayQty && deps.icebergDisplay) {
-        if (deps.findClientOrder && prior) {
-          const storedPeak = await deps.icebergDisplay.read(order.id);
-          if (!storedPeak) {
-            throw new TradeError(
-              'iceberg displayQty cannot be added to an order that was not placed as an iceberg',
-              TRADE_ICEBERG_DISPLAY_INVALID,
-            );
-          }
-        } else {
-          await deps.icebergDisplay.remember(order.id, principal.userId, displayQty);
-        }
-      }
+        return order;
+      };
+      // A new iceberg takes the account's one slot on its market; a re-send of the same request keeps the slot it holds.
+      const order =
+        displayQty && deps.icebergDisplay && icebergMarketId
+          ? await deps.icebergDisplay.oneLivePerMarket(
+              {
+                userId: principal.userId,
+                marketId: icebergMarketId,
+                symbol: parsed.data.symbol,
+                clientOrderId: input.clientOrderId ?? null,
+              },
+              place,
+            )
+          : await place();
       const stored = deps.icebergDisplay ? await deps.icebergDisplay.read(order.id) : displayQty;
       const market = await deps.marketById(order.marketId);
       const symbol = market?.symbol ?? parsed.data.symbol;
@@ -3132,10 +3150,8 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
 
     const parsed = createOrderRequestSchema.safeParse(schemaBodyOf(rawBody));
     if (!parsed.success) {
-      return reply.code(400).send({
-        ...invalidOrder(parsed.error.issues[0]?.message ?? 'invalid replacement order body').body,
-        issues: parsed.error.issues.map((i) => ({ path: i.path, message: i.message })),
-      });
+      // The same one body as create: every bad field listed (DV-errors-01).
+      return reply.code(400).send(createBodyRefusal(parsed.error, 'invalid replacement order body'));
     }
 
     let input: PlaceOrderInput;
@@ -3147,6 +3163,16 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
       // Replace has no stop door: a raw stopPx would reach the engine with no stored trigger.
       if (hasRawStopPx(req.body)) {
         throw new TradeError('a stop cannot be set on an order replacement', TRADE_STOP_TRIGGER_INVALID);
+      }
+      // An iceberg is placed only through the create door, which keeps its peak and its one slot per market.
+      if (
+        readRawDisplayQty(req.body) !== undefined ||
+        (req.body !== null && typeof req.body === 'object' && Object.hasOwn(req.body, 'iceberg'))
+      ) {
+        throw new TradeError(
+          'an iceberg cannot be set on an order replacement; cancel it and place the new iceberg',
+          TRADE_ICEBERG_DISPLAY_INVALID,
+        );
       }
       // The original is cancelled before the replacement is placed; a trailing stop that could then be refused for want
       // of a mark would leave the customer with neither order.

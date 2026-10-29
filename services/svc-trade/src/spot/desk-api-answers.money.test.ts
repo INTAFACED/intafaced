@@ -183,7 +183,7 @@ describe('desk API money answers (H8a PG-hard)', () => {
       ).rejects.toMatchObject({ code: 'trade.no_reference_price' });
     });
 
-    it('returns REPLACEMENT_NOT_SUBMITTED with the cancelled original when the new hold is ledger.frozen', async () => {
+    it('returns REPLACEMENT_NOT_SUBMITTED, named posting_frozen, with the cancelled original when the new hold is ledger.frozen', async () => {
       const frozen = new FreezeOnSecondHold();
       const local = service(frozen, 200);
       await frozen.post(
@@ -214,7 +214,7 @@ describe('desk API money answers (H8a PG-hard)', () => {
       expect(outcome).toMatchObject({
         accepted: false,
         code: 'REPLACEMENT_NOT_SUBMITTED',
-        reasonCode: 'ledger.frozen',
+        reasonCode: 'posting_frozen',
         replacement: null,
       });
       expect(outcome.original.id).toBe(original.id);
