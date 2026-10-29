@@ -9,8 +9,6 @@ import { api } from './stack.mjs';
 // founder A, the support lead; founder B is a second agent (help-centre.mjs appoints both). A TEST customer sends the
 // requests through its own support API, and reads the answers in the customer app.
 // Steps that are written but not built yet fail at their first missing part, quickly (UNBUILT):
-// - Every step: a founder's console sign-in does not carry `support:ops`, so the desk at /support says the queue is
-//   unavailable instead of listing it (apps/admin/src/lib/support/server.ts).
 // - #2, #3: no saved views, filters or search on the queue (SP-desk-01).
 // - #4, #10: no "claim next", no workspace address per request, no unclaim or reassign in the console (SP-tickets-09).
 // - #5: no customer card (SP-tickets-09). #7: no macros or signatures (SP-desk-02). #8: no stale-reply guard (SP-tickets-09).
