@@ -157,6 +157,11 @@ export async function payApiOf(who, kept) {
   return {
     mutate: (procedure, input) => send(`/api/pay/trpc/${procedure}`, input, token),
     query: (procedure, input) => send(`/api/pay/trpc/${procedure}?input=${encodeURIComponent(JSON.stringify(input))}`, undefined, token),
+    /** The same person after "Confirm it's you" (`auth.stepUpPay` with a fresh code): a token that may refund or pay out. */
+    async steppedUp(merchantId, scopes, totpCode) {
+      const minted = await send('/api/identity/trpc/auth.stepUpPay', { merchantId, scopes, factorProof: { totpCode } }, token);
+      return { mutate: (procedure, input) => send(`/api/pay/trpc/${procedure}`, input, minted.accessToken) };
+    },
   };
 }
 

@@ -194,9 +194,6 @@ test(`${J} #2 reads funds moving from clearing to available: funds wait until av
   );
 
   // (2) A payout of clearing money is refused by name, by the API and on the page, and moves nothing.
-  await expect(api.mutate('settlement.payout', { settlementId: waiting.id, railId: 'crypto-native' })).rejects.toThrow(
-    /refused: 412 .*"code":"pay\.payout_clearing_pending"/,
-  );
   await expect(
     api.mutate('merchantControl.approvals.request', { merchantId, settlementId: waiting.id, railId: 'crypto-native' }),
   ).rejects.toThrow(/refused: 412 .*"code":"pay\.payout_clearing_pending"/);
@@ -218,6 +215,13 @@ test(`${J} #2 reads funds moving from clearing to available: funds wait until av
   expect(JSON.stringify(await answer.json())).toContain('"code":"pay.payout_clearing_pending"');
   await expect(review.getByTestId('failure')).toContainText('This money is still clearing, so it isn’t available to pay out yet.');
   expect(refused).toEqual(['412 merchantControl.approvals.request']);
+  // The send itself, with the owner's "Confirm it's you" payout token, is refused the same way.
+  const sendCode = await nextCode(owner.totp, owner.secret, payCode.step);
+  run.write({ owner: saved({ ...owner, step: sendCode.step }) });
+  const payer = await api.steppedUp(merchantId, ['pay:payout'], sendCode.code);
+  await expect(payer.mutate('settlement.payout', { settlementId: waiting.id, railId: 'crypto-native' })).rejects.toThrow(
+    /refused: 412 .*"code":"pay\.payout_clearing_pending"/,
+  );
   // Read again: nothing moved, the window still waits and no payout was asked for or sent.
   expect(await snapshot()).toEqual(before);
   expect((await api.query('settlement.get', { settlementId: waiting.id })).status).toBe('pending');
