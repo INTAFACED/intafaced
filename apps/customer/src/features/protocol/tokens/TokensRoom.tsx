@@ -5,6 +5,7 @@ import { ADDRESS_SHAPE } from '../routes';
 import { usePreferences } from '../../../shared/preferences';
 import { protocolCopy } from '../copy';
 import { BlockedRow } from './BlockedRow';
+import { ImportWatchlist } from './ImportWatchlist';
 import { TabList } from './TabList';
 import { tokensCopy, type TokensTranslate } from './copy';
 import { readWindow, saveWindow, TOKEN_WINDOWS, type TokenWindow } from './storage';
@@ -158,6 +159,7 @@ export function TokensRoom() {
             {body}
           </TabList>
         </Panel>
+        <ImportWatchlist t={t} />
       </Page>
     </div>
   );

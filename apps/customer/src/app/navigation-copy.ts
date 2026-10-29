@@ -134,6 +134,8 @@ const messages = {
   'What changed in the developer interfaces': 'What changed in the developer interfaces',
   'Upcoming breaking changes': 'Upcoming breaking changes',
   'Breaking changes and retired endpoints': 'Breaking changes and retired endpoints',
+  'Authentication and permission errors': 'Authentication and permission errors',
+  'Codes a refused key or token carries': 'Codes a refused key or token carries',
   'Hosts per protocol, environment and region': 'Hosts per protocol, environment and region',
   'Developer section': 'Developer section',
   'One section of the developer portal': 'One section of the developer portal',
@@ -503,6 +505,8 @@ const messages = {
 
 export const navigationCopy: ReturnType<typeof defineCopy<typeof messages>> = defineCopy('customer.navigation', messages, {
   es: {
+    'Authentication and permission errors': 'Errores de autenticación y de permisos',
+    'Codes a refused key or token carries': 'Los códigos que lleva una clave o un token rechazado',
     Home: 'Inicio',
     'Your money and markets': 'Tu dinero y los mercados',
     'Trades, orders and transfers': 'Operaciones, órdenes y transferencias',
@@ -851,6 +855,8 @@ export const navigationCopy: ReturnType<typeof defineCopy<typeof messages>> = de
     'One product in your catalogue': 'Un producto de tu catálogo',
   },
   fr: {
+    'Authentication and permission errors': 'Erreurs d’authentification et d’autorisation',
+    'Codes a refused key or token carries': 'Les codes que porte une clé ou un jeton refusé',
     Home: 'Accueil',
     'Your money and markets': 'Votre argent et les marchés',
     'Trades, orders and transfers': 'Opérations, ordres et transferts',

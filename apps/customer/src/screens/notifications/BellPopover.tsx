@@ -5,7 +5,7 @@ import { Button, Popover, PopoverContent, PopoverTitle, PopoverTrigger, StateBlo
 import { notifyCopy } from './copy';
 import { announceChange } from './notify-api';
 import { InboxFailure, NotificationRow } from './NotificationRow';
-import { useInbox, useMarketNames, useUnreadCount } from './use-notifications';
+import { useInboxView, useUnreadCount } from './use-notifications';
 
 /** How many notifications the popover lists; the rest are one click away under "See all". */
 export const POPOVER_ITEMS = 8;
@@ -63,9 +63,7 @@ export function BellPopover({ path }: { path?: string }) {
 
 function BellContent({ unread, onClose, innerRef }: { unread: number; onClose: () => void; innerRef: RefObject<HTMLDivElement | null> }) {
   const copy = notifyCopy.useCopy();
-  const inbox = useInbox({ limit: POPOVER_ITEMS, unreadOnly: false });
-  const markets = useMarketNames();
-  const { state } = inbox;
+  const { inbox, state, markets } = useInboxView({ limit: POPOVER_ITEMS, unreadOnly: false });
   const anyUnread = state.status === 'ready' ? state.items.some((item) => !item.readAt) : unread > 0;
   const now = Date.now();
   return (
