@@ -7,7 +7,7 @@ import { ADDRESS_SHAPE } from '../routes';
 import { BlockedRow } from './BlockedRow';
 import { TabList } from './TabList';
 import { useSession } from '../../session/session';
-import { useAccountTokenWatchlist } from '../watch/account-lists';
+import { useAccountTokenWatchlist, type ListWrite } from '../watch/account-lists';
 import { tokensCopy, type TokensTranslate } from './copy';
 import { addToWatchlist, readWatchlist, removeFromWatchlist, type WatchlistWrite } from './storage';
 import '../protocol.css';
@@ -27,12 +27,14 @@ function Fact({ label, value, testId }: { label: string; value: ReactNode; testI
 
 function WatchToggle({
   on,
+  busy = false,
   note,
   onAdd,
   onRemove,
   t,
 }: {
   on: boolean;
+  busy?: boolean;
   note: ReactNode;
   onAdd: () => void;
   onRemove: () => void;
@@ -41,11 +43,11 @@ function WatchToggle({
   return (
     <div className="tokens-watch">
       {on ? (
-        <Button variant="secondary" aria-pressed="true" title={t('watchRemove')} onClick={onRemove}>
+        <Button variant="secondary" aria-pressed="true" title={t('watchRemove')} disabled={busy} onClick={onRemove}>
           {t('watchOn')}
         </Button>
       ) : (
-        <Button variant="secondary" onClick={onAdd}>
+        <Button variant="secondary" disabled={busy} onClick={onAdd}>
           {t('watchAdd')}
         </Button>
       )}
@@ -57,12 +59,12 @@ function WatchToggle({
 /** Signed out, the watchlist is kept in this browser. */
 function BrowserWatch({ address, t }: { address: string; t: TokensTranslate }) {
   const [list, setList] = useState<string[] | null>(() => readWatchlist());
-  const [notSaved, setNotSaved] = useState(false);
+  const [problem, setProblem] = useState<'not_saved' | 'full' | null>(null);
   if (list === null) return <p className="muted">{t('watchUnavailable')}</p>;
   const change = (write: WatchlistWrite) => {
     if (write.ok) setList(write.list);
     else if (write.reason === 'blocked') setList(null);
-    setNotSaved(!write.ok && write.reason === 'not_saved');
+    setProblem(!write.ok && write.reason !== 'blocked' ? write.reason : null);
   };
   return (
     <WatchToggle
@@ -70,8 +72,8 @@ function BrowserWatch({ address, t }: { address: string; t: TokensTranslate }) {
       onAdd={() => change(addToWatchlist(address))}
       onRemove={() => change(removeFromWatchlist(address))}
       note={
-        <span className="muted" role={notSaved ? 'alert' : undefined}>
-          {notSaved ? t('watchNotSaved') : t('watchNote')}
+        <span className="muted" role={problem ? 'alert' : undefined}>
+          {problem === 'full' ? t('watchFull') : problem ? t('watchNotSaved') : t('watchNote')}
         </span>
       }
       t={t}
@@ -79,22 +81,50 @@ function BrowserWatch({ address, t }: { address: string; t: TokensTranslate }) {
   );
 }
 
+const ACCOUNT_PROBLEM: Record<Exclude<ListWrite, 'saved'>, 'watchAccountNotSaved' | 'watchFull' | 'watchUnknown'> = {
+  'not-saved': 'watchAccountNotSaved',
+  full: 'watchFull',
+  unknown: 'watchUnknown',
+};
+
 /** Signed in, the watchlist is the account's own (`protocol.token-watchlist`), so it follows the person to every device. */
 function AccountWatch({ address, t }: { address: string; t: TokensTranslate }) {
   const { list, change } = useAccountTokenWatchlist();
-  const [notSaved, setNotSaved] = useState(false);
-  if (list.status === 'loading' || list.status === 'signed-out') return null;
-  if (list.status === 'failed') return <p className="muted">{t('watchAccountFailed')}</p>;
+  const [outcome, setOutcome] = useState<ListWrite | 'saving' | null>(null);
+  if (list.status === 'signed-out') return null;
+  if (list.status === 'loading')
+    return (
+      <div className="tokens-watch">
+        <Button variant="secondary" disabled>
+          {t('watchAdd')}
+        </Button>
+        <span className="muted">{t('watchAccountChecking')}</span>
+      </div>
+    );
+  if (list.status === 'failed')
+    return (
+      <div className="tokens-watch">
+        <span className="muted">{t('watchAccountFailed')}</span>
+        <Button variant="secondary" onClick={list.reload}>
+          {t('tryAgain')}
+        </Button>
+      </div>
+    );
   const key = address.toLowerCase();
-  const write = async (apply: (items: string[]) => string[]) => setNotSaved(!(await change(apply)).ok);
+  const write = async (apply: (items: string[]) => string[]) => {
+    setOutcome('saving');
+    setOutcome(await change(apply));
+  };
+  const problem = outcome && outcome !== 'saving' && outcome !== 'saved' ? ACCOUNT_PROBLEM[outcome] : null;
   return (
     <WatchToggle
       on={list.items.includes(key)}
+      busy={outcome === 'saving'}
       onAdd={() => void write((items) => (items.includes(key) ? items : [...items, key]))}
       onRemove={() => void write((items) => items.filter((entry) => entry !== key))}
       note={
-        <span className="muted" role={notSaved ? 'alert' : undefined}>
-          {notSaved ? t('watchNotSaved') : t('watchNoteAccount')}
+        <span className="muted" role={problem ? 'alert' : undefined}>
+          {problem ? t(problem) : t('watchNoteAccount')}
         </span>
       }
       t={t}

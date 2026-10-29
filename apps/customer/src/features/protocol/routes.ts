@@ -42,7 +42,6 @@ const digits = /^\d{1,20}$/;
 const txHash = /^0x[0-9a-fA-F]{64}$/;
 /** A 20-byte hex address, the shape every address route and the token page accept. */
 export const ADDRESS_SHAPE = /^0x[0-9a-fA-F]{40}$/;
-const address = ADDRESS_SHAPE;
 const id = /^[A-Za-z0-9_.:-]{1,128}$/;
 
 /** Specific routes sit before the parameter routes that could swallow them (`/dex/pools/new` before `/dex/pools/:poolId`). */

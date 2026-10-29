@@ -1,3 +1,5 @@
+import { PROTOCOL_WATCH_MAX } from '@intafaced/contracts/protocol-watch-preferences';
+
 /**
  * Browser-kept view settings for the Tokens room: the chosen window and the signed-out watchlist (D-portfolio-wallet-06,
  * -07). Storage can be blocked or throw, so every read and write is guarded and the room works without it.
@@ -49,13 +51,14 @@ export function readWatchlist(): string[] | null {
 }
 
 /** The watchlist after a change, or why it was not kept: no site data at all, or this one write failed (a full store). */
-export type WatchlistWrite = { ok: true; list: string[] } | { ok: false; reason: 'blocked' | 'not_saved' };
+export type WatchlistWrite = { ok: true; list: string[] } | { ok: false; reason: 'blocked' | 'not_saved' | 'full' };
 
 function writeWatchlist(change: (list: string[]) => string[]): WatchlistWrite {
   const list = readWatchlist();
   const storage = store();
   if (list === null || storage === null) return { ok: false, reason: 'blocked' };
   const next = change(list);
+  if (next.length > PROTOCOL_WATCH_MAX) return { ok: false, reason: 'full' };
   try {
     storage.setItem(WATCHLIST_KEY, JSON.stringify(next));
     return { ok: true, list: next };
