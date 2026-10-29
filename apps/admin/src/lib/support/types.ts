@@ -1,4 +1,5 @@
 import type {
+  SupportAccountGrounding,
   SupportViewList,
   SupportTicketLifecycle,
   SupportTicketProperties,
@@ -100,6 +101,12 @@ export interface TicketExtrasView {
   readonly asOf: string;
   readonly caseFile: Part<SupportCaseFile | null>;
   readonly rating: Part<SupportRating | null>;
+}
+
+/** The customer card's account state, as svc-support read it for this ticket's owner. */
+export interface CustomerCardView {
+  readonly asOf: string;
+  readonly account: Part<SupportAccountGrounding>;
 }
 
 export interface SupportKbView {

@@ -6,6 +6,7 @@ import { readMergePreview } from './merge';
 import type { SupportActionRequest } from './model';
 import { EMPTY_QUERY, queueQueryString, type QueueQuery } from './queue-query';
 import type {
+  CustomerCardView,
   SupportKbView,
   SupportLifecycleView,
   SupportPropertiesView,
@@ -100,7 +101,16 @@ export function readClaimReply(raw: unknown): ClaimReply {
   return UNKNOWN;
 }
 
-export async function postClaim(ticketId: string): Promise<ClaimReply> {
+export function postClaim(ticketId: string): Promise<ClaimReply> {
+  return sendClaim({ action: 'claim', ticketId });
+}
+
+/** Claims whichever request svc-support's queue names next. The reply names the ticket that was claimed. */
+export function postClaimNext(): Promise<ClaimReply> {
+  return sendClaim({ action: 'claim_next' });
+}
+
+async function sendClaim(body: { action: 'claim'; ticketId: string } | { action: 'claim_next' }): Promise<ClaimReply> {
   let headers: Record<string, string>;
   try {
     headers = await founderMutationHeaders();
@@ -120,13 +130,27 @@ export async function postClaim(ticketId: string): Promise<ClaimReply> {
     const res = await fetch('/api/support', {
       method: 'POST',
       headers,
-      body: JSON.stringify({ action: 'claim', ticketId }),
+      body: JSON.stringify(body),
       cache: 'no-store',
       credentials: 'same-origin',
     });
     return readClaimReply(await res.json().catch(() => null));
   } catch {
     return UNKNOWN;
+  }
+}
+
+export async function fetchCustomerCard(id: string, signal?: AbortSignal): Promise<CustomerCardView | null> {
+  try {
+    const res = await fetch(`/api/support?view=customer&id=${encodeURIComponent(id)}`, {
+      cache: 'no-store',
+      credentials: 'same-origin',
+      ...(signal ? { signal } : {}),
+    });
+    const body: unknown = await res.json().catch(() => null);
+    return isRecord(body) && typeof body.asOf === 'string' && isRecord(body.account) ? (body as unknown as CustomerCardView) : null;
+  } catch {
+    return null;
   }
 }
 
@@ -260,6 +284,8 @@ export type ActionReply =
 
 const ACTIONS: readonly string[] = [
   'reply',
+  'unclaim',
+  'assign',
   'bulk',
   'merge',
   'status',

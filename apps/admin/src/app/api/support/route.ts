@@ -8,7 +8,9 @@ import { isTicketId, readActionRequest, type SupportActionRequest } from '@/lib/
 import { readQueueQuery } from '@/lib/support/queue-query';
 import { SUPPORT_OPS_FORBIDDEN, SUPPORT_OPS_FORBIDDEN_BODY, explainSupportFailure } from '@/lib/support/refusal';
 import {
+  claimNextTicket,
   claimTicket,
+  loadCustomerCard,
   loadBulkPolicy,
   loadKb,
   loadQueue,
@@ -27,14 +29,16 @@ import type { FounderCallFailure } from '@/lib/desk/founder-call';
 
 /**
  * Support desk BFF: the operator queue, one ticket (with its case file and rating), the help articles, and the desk's
- * writes: claim, reply, set status, escalate, publish and unpublish an article.
+ * writes: claim (one ticket, or the next in the queue), unclaim, reassign, reply, set status, escalate, publish and
+ * unpublish an article.
  *
  * Runs as the signed-in founder: svc-support takes the operator id from the verified session, so a claim is recorded
  * against the founder who made it and cannot be made on anyone else's behalf. Every procedure is `support:ops`; if
  * founder sign-in does not carry it, svc-support answers 403 and the desk says that (admin-BACKEND-NEEDS.md).
  *
- * There is no unclaim or reassign: svc-support has none. That is why a claim needs a second click in the page. Every other
- * write needs one too: a reply cannot be unsent, a closed ticket stays closed, an escalation's case file is immutable, and
+ * A claim of an opened ticket takes a second click in the page; "claim the next request", unclaim and reassign take one,
+ * since each can be undone from here (svc-support lets only the assignee unclaim and only a lead reassign, and says so
+ * when it refuses). Every other write needs a second click: a reply cannot be unsent, a closed ticket stays closed, an escalation's case file is immutable, and
  * a published article changes what customers read. No write here moves money, and none needs a second approver.
  */
 
@@ -58,6 +62,11 @@ export async function GET(request: Request) {
     const id = url.searchParams.get('id');
     if (!isTicketId(id)) return Response.json({ code: 'admin.support_ticket_id' }, { status: 400, headers: NO_STORE });
     return Response.json(await loadTicketExtras(session, id), { headers: NO_STORE });
+  }
+  if (url.searchParams.get('view') === 'customer') {
+    const id = url.searchParams.get('id');
+    if (!isTicketId(id)) return Response.json({ code: 'admin.support_ticket_id' }, { status: 400, headers: NO_STORE });
+    return Response.json(await loadCustomerCard(session, id), { headers: NO_STORE });
   }
   if (url.searchParams.get('view') === 'merge') {
     const id = url.searchParams.get('id');
@@ -116,6 +125,35 @@ export async function POST(request: Request) {
   } catch (error) {
     return adminSessionErrorResponse(error instanceof AdminSessionError ? error : new AdminSessionError('admin.json_required', 400));
   }
+  if (raw.action === 'claim_next') {
+    if (Object.keys(raw).length !== 1) return Response.json(INVALID, { status: 400, headers: NO_STORE });
+    const result = await claimNextTicket(session);
+    console.warn(
+      JSON.stringify({
+        audit: 'admin.support_claim_next',
+        at: new Date().toISOString(),
+        founder: session.session.userId,
+        ticketId: result.kind === 'ok' ? result.data.id : null,
+        outcome: result.kind,
+      }),
+    );
+    if (result.kind === 'empty') {
+      return Response.json(
+        {
+          ok: false,
+          refusal: {
+            title: 'Nothing to claim',
+            body: 'svc-support says no open or waiting request is free: every one is already held, or the queue is empty.',
+            next: 'Refresh the queue later.',
+            code: 'admin.support_queue_empty',
+            changed: 'no',
+          },
+        },
+        { status: 409, headers: NO_STORE },
+      );
+    }
+    return claimResponse(result);
+  }
   if (raw.action !== 'claim') return writeAction(session, raw);
   if (!isTicketId(raw.ticketId)) {
     return Response.json(
@@ -143,6 +181,11 @@ export async function POST(request: Request) {
       outcome: result.kind,
     }),
   );
+  return claimResponse(result);
+}
+
+/** A claim's answer for the page: the ticket's new owner, or svc-support's refusal in the console's words. */
+function claimResponse(result: Awaited<ReturnType<typeof claimTicket>>): Response {
   if (result.kind === 'ok') {
     const t = result.data;
     return Response.json({ ok: true, ticketId: t.id, assigneeId: t.assigneeId, status: t.status }, { headers: NO_STORE });
@@ -242,6 +285,12 @@ function summaryOf(request: SupportActionRequest, data: unknown): string {
   switch (request.action) {
     case 'reply':
       return 'svc-support recorded your reply on the ticket.';
+    case 'unclaim':
+      return d.assigneeId === null
+        ? 'svc-support says nobody holds the ticket now; it is back in the queue.'
+        : `svc-support says the ticket is held by ${String(d.assigneeId)}.`;
+    case 'assign':
+      return `svc-support says the ticket is now held by ${String(d.assigneeId)}.`;
     case 'merge':
       return `svc-support merged the request: ${String(d.commentsMoved)} messages and ${String(d.attachmentsMoved)} files now sit under the surviving request, and the duplicate is closed.`;
     case 'status':

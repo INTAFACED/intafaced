@@ -1,5 +1,6 @@
 import 'server-only';
 import {
+  supportAccountGroundingSchema,
   supportCaseFileSchema,
   supportCommentSchema,
   supportKbArticleSchema,
@@ -12,11 +13,12 @@ import {
   supportViewCountsSchema,
   supportViewListSchema,
   supportViewSchema,
+  type SupportAccountGrounding,
 } from '@intafaced/contracts';
 import { founderCall, parseWith, type FounderCallContext, type FounderCallResult } from '@/lib/desk/founder-call';
 import { partFrom, type PartLabels } from '@/lib/desk/part';
 import { SUPPORT_OPS_FORBIDDEN, SUPPORT_OPS_FORBIDDEN_BODY } from './refusal';
-import { QUEUE_PAGE, readQueueResult, readRatingResult, type SupportActionRequest } from './model';
+import { QUEUE_PAGE, isTicketId, readQueueResult, readRatingResult, type SupportActionRequest } from './model';
 import { EMPTY_QUERY, isQueryEmpty, type QueueQuery } from './queue-query';
 import { readBulkPolicy, readBulkResults } from './bulk';
 import { readMergePreview } from './merge';
@@ -24,6 +26,7 @@ import { readRatingSummary } from './ratings';
 import { readDeskScope, readGroup, readGroups } from './groups';
 import { readStaffMember, readStaffPolicy, readStaffRoster } from './staff';
 import type {
+  CustomerCardView,
   SupportKbView,
   SupportLifecycleView,
   SupportPropertiesView,
@@ -165,6 +168,34 @@ export function claimTicket(
 }
 
 /**
+ * Claims the request at the head of the queue: svc-support's `next` names it (open or waiting, nobody holds it, highest
+ * score), then `claim` takes it. `empty` when `next` names none. If someone else claims it between the two calls, the
+ * claim's refusal is the answer: nothing is retried on the founder's behalf.
+ */
+export async function claimNextTicket(
+  ctx: FounderCallContext,
+): Promise<FounderCallResult<ReturnType<typeof supportTicketSchema.parse>> | { readonly kind: 'empty' }> {
+  const next = await founderCall(ctx, 'support', 'next', 'GET', {}, (raw) => {
+    if (raw === null) return { ticketId: null };
+    const id = (raw as { ticketId?: unknown } | null)?.ticketId;
+    return isTicketId(id) ? { ticketId: id } : null;
+  });
+  if (next.kind !== 'ok') return next;
+  if (next.data.ticketId === null) return { kind: 'empty' };
+  return claimTicket(ctx, next.data.ticketId);
+}
+
+/**
+ * The customer card's account state: svc-support's `accountState` read for this ticket's owner (`support:ops`; it asks
+ * svc-identity and appends a `grounding_read` event to the ticket). `unread` is svc-support's own answer when identity
+ * cannot be reached; it is never shown as "active".
+ */
+export async function loadCustomerCard(ctx: FounderCallContext, ticketId: string, now: Date = new Date()): Promise<CustomerCardView> {
+  const result = await founderCall(ctx, 'support', 'accountState', 'GET', { ticketId }, parseWith(supportAccountGroundingSchema));
+  return { asOf: now.toISOString(), account: partFrom(result, (g: SupportAccountGrounding) => g, LABELS) };
+}
+
+/**
  * The operator-only reads on one ticket: the case file an escalation was made against, and the customer's rating.
  * Both are `support:ops`. Each is its own part: a refusal on one is shown as that part's refusal, never as "none".
  */
@@ -275,6 +306,24 @@ export function runSupportAction(ctx: FounderCallContext, request: SupportAction
         'POST',
         { ticketId: request.ticketId, body: request.body },
         parseWith(supportCommentSchema),
+      );
+    case 'unclaim':
+      return founderCall(
+        ctx,
+        'support',
+        'unclaim',
+        'POST',
+        { ticketId: request.ticketId, idempotencyKey: request.idempotencyKey },
+        parseWith(supportTicketSchema),
+      );
+    case 'assign':
+      return founderCall(
+        ctx,
+        'support',
+        'assign',
+        'POST',
+        { ticketId: request.ticketId, assigneeId: request.assigneeId, idempotencyKey: request.idempotencyKey },
+        parseWith(supportTicketSchema),
       );
     case 'status':
       return founderCall(

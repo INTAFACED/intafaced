@@ -220,6 +220,8 @@ export type SupportActionRequest =
     }
   | { readonly action: 'merge'; readonly ticketId: string; readonly survivorId: string; readonly reason: string }
   | { readonly action: 'reply'; readonly ticketId: string; readonly body: string }
+  | { readonly action: 'unclaim'; readonly ticketId: string; readonly idempotencyKey: string }
+  | { readonly action: 'assign'; readonly ticketId: string; readonly assigneeId: string; readonly idempotencyKey: string }
   | { readonly action: 'status'; readonly ticketId: string; readonly status: TicketStatus; readonly note?: string }
   | {
       readonly action: 'escalate';
@@ -249,6 +251,19 @@ export type SupportActionRequest =
 
 const isText = (v: unknown, max: number): v is string => typeof v === 'string' && v.trim() !== '' && v.length <= max;
 const isKey = (v: unknown): v is string => isText(v, 200);
+/** svc-support's idempotency key: 8 to 200 characters, a business key the page builds (`unclaim:<ticket>:after-<seq>`). */
+const isIdemKey = (v: unknown): v is string => typeof v === 'string' && /^[A-Za-z0-9:_.-]{8,200}$/.test(v);
+
+/**
+ * The idempotency key for an unclaim or a reassign, from the ticket's last update as read: a double click sends the same
+ * key and svc-support answers it once, while the same move made again after the ticket changed is a new key.
+ */
+export function assignmentKey(op: 'unclaim', ticketId: string, updatedAt: string): string;
+export function assignmentKey(op: 'assign', ticketId: string, updatedAt: string, assigneeId: string): string;
+export function assignmentKey(op: 'unclaim' | 'assign', ticketId: string, updatedAt: string, assigneeId?: string): string {
+  const at = Date.parse(updatedAt);
+  return op === 'unclaim' ? `unclaim:${ticketId}:at-${at}` : `assign:${ticketId}:${assigneeId}:at-${at}`;
+}
 
 function readBulkChange(raw: unknown): BulkChange | null {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
@@ -281,6 +296,14 @@ export function readActionRequest(raw: Record<string, unknown>): SupportActionRe
     case 'reply':
       return isTicketId(raw.ticketId) && isText(raw.body, REPLY_MAX)
         ? { action: 'reply', ticketId: raw.ticketId, body: raw.body.trim() }
+        : null;
+    case 'unclaim':
+      return isTicketId(raw.ticketId) && isIdemKey(raw.idempotencyKey)
+        ? { action: 'unclaim', ticketId: raw.ticketId, idempotencyKey: raw.idempotencyKey }
+        : null;
+    case 'assign':
+      return isTicketId(raw.ticketId) && isTicketId(raw.assigneeId) && isIdemKey(raw.idempotencyKey)
+        ? { action: 'assign', ticketId: raw.ticketId, assigneeId: raw.assigneeId, idempotencyKey: raw.idempotencyKey }
         : null;
     case 'status': {
       if (!isTicketId(raw.ticketId) || typeof raw.status !== 'string' || !STATUSES.includes(raw.status)) return null;
