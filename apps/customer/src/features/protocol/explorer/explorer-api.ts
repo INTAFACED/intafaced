@@ -3,7 +3,8 @@ import { z } from 'zod';
 import type { ApiClient } from '../../../shared/api';
 
 /**
- * Read-only wire shapes for the explorer, mirroring svc-indexer's `explorer.blocks.list`, `explorer.blocks.get`, `explorer.txs.list` and `explorer.tx.get` output
+ * Read-only wire shapes for the explorer, mirroring svc-indexer's `explorer.blocks.list`, `explorer.blocks.get`, `explorer.txs.list`, `explorer.tx.get`,
+ * `explorer.address.txs` and `explorer.tokens.bySymbol` output
  * schemas and keeping only the fields the explorer renders. Amounts and gas stay decimal strings.
  */
 export const explorerBlockRowSchema = z.object({
@@ -76,6 +77,50 @@ export const explorerTxsPageSchema = z.object({
   asOf: z.string(),
 });
 
+const txCursorSchema = z.object({ height: z.number().int(), index: z.number().int(), hash: z.string() });
+/** `explorer.address.txs`: what the address sent, received, or was a party to as an ERC-20 transfer. Amounts are raw base units. */
+export const explorerAddressTxsPageSchema = z.object({
+  rows: z.array(
+    z.object({
+      chainId: z.number().int(),
+      hash: z.string(),
+      blockHeight: z.number().int(),
+      index: z.number().int(),
+      timestamp: z.number().int(),
+      from: z.string(),
+      to: z.string().nullable(),
+      status: z.enum(['success', 'failed']),
+      revertReason: z.string().nullable(),
+      transfers: z.array(
+        z.object({
+          token: z.object({ address: z.string(), symbol: z.string().nullable(), decimals: z.number().int().nullable() }),
+          amount: z.string(),
+          direction: z.enum(['in', 'out', 'self']),
+        }),
+      ),
+    }),
+  ),
+  nextCursor: txCursorSchema.nullable(),
+  asOf: z.string(),
+  asOfHeight: z.number().int().nullable(),
+});
+/** `explorer.tokens.bySymbol`: every contract that says it has this symbol, one row each. */
+export const explorerTokensBySymbolSchema = z.object({
+  rows: z.array(
+    z.object({
+      chainId: z.number().int(),
+      address: z.string(),
+      symbol: z.string().nullable(),
+      name: z.string().nullable(),
+      decimals: z.number().int().nullable(),
+    }),
+  ),
+  more: z.boolean(),
+  asOf: z.string(),
+});
+
+export type ExplorerAddressTxsPage = z.infer<typeof explorerAddressTxsPageSchema>;
+export type ExplorerToken = z.infer<typeof explorerTokensBySymbolSchema>['rows'][number];
 export type ExplorerBlockRow = z.infer<typeof explorerBlockRowSchema>;
 export type ExplorerBlocksPage = z.infer<typeof explorerBlocksPageSchema>;
 export type ExplorerTx = z.infer<typeof explorerTxSchema>;
@@ -107,6 +152,14 @@ export function createExplorerApi(api: ApiClient) {
     /** One transaction by hash on the chain the indexer reads. An unknown hash is NOT_FOUND, never an empty success. */
     tx: (chainId: number, hash: string, signal?: AbortSignal) =>
       api.query('indexer', 'explorer.tx.get', { chainId, hash }, explorerTxSchema, { signal }),
+    /** An address's transactions, newest first, in pages of the owner's list limit. */
+    addressTxs: (chainId: number, address: string, signal?: AbortSignal, cursor?: ExplorerAddressTxsPage['nextCursor']) =>
+      api.query('indexer', 'explorer.address.txs', { chainId, address, ...(cursor ? { cursor } : {}) }, explorerAddressTxsPageSchema, {
+        signal,
+      }),
+    /** Every token contract with this symbol, ignoring case. Two contracts sharing a symbol are two rows. */
+    tokensBySymbol: (chainId: number, symbol: string, signal?: AbortSignal) =>
+      api.query('indexer', 'explorer.tokens.bySymbol', { chainId, symbol }, explorerTokensBySymbolSchema, { signal }),
   };
 }
 export type ExplorerApi = ReturnType<typeof createExplorerApi>;
