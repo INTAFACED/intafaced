@@ -56,9 +56,30 @@ describe('the published route list matches what the services really mount', () =
   });
 
   it('lists only private routes svc-trade mounts', () => {
-    const privateRoutes = new Set(mounted(repo('services/svc-trade/src/private-rest.ts')));
+    const preview = repo('services/svc-trade/src/spot/order-preview-rest.ts').match(/SPOT_ORDER_PREVIEW_PATH = '([^']+)'/)![1];
+    const privateRoutes = new Set([
+      ...mounted(repo('services/svc-trade/src/private-rest.ts')),
+      ...mounted(repo('services/svc-trade/src/statements/statement-rest.ts')),
+      `POST ${preview}`,
+    ]);
     for (const route of REST_REFERENCE.filter((r) => !r.anonymous))
       expect(privateRoutes.has(routeLine(route)), routeLine(route)).toBe(true);
+  });
+
+  it('lists every route in svc-trade’s live inventory, the one GET /api/v1/capabilities serves', () => {
+    const matrix = repo('services/svc-trade/src/ccxt-capability-matrix.ts');
+    const rows = matrix.slice(matrix.indexOf('export const CCXT_CAPABILITY_MATRIX'));
+    const literal = [...rows.matchAll(/method: '(\w+)',\s*path: '([^']+)'/g)].map((match) => `${match[1]} ${match[2]}`);
+    const fromContract = [...rows.matchAll(/route\(\s*'(\w+)'/g)].map((match) => match[1]!);
+    expect(literal.length).toBeGreaterThan(10);
+    expect(fromContract.length).toBeGreaterThan(10);
+    const ours = new Set(REST_REFERENCE.map(routeLine));
+    for (const line of literal) expect(ours.has(line), line).toBe(true);
+    for (const name of fromContract)
+      expect(
+        REST_REFERENCE.some((route) => route.name === name),
+        name,
+      ).toBe(true);
   });
 
   it('lists every contract stream with its privacy', () => {
