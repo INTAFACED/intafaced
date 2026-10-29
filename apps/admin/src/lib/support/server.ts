@@ -5,6 +5,9 @@ import {
   supportCaseFileSchema,
   supportCommentSchema,
   supportKbArticleSchema,
+  supportMacroAppliedSchema,
+  supportMacroListSchema,
+  supportSignatureSchema,
   supportMergeResultSchema,
   supportTicketEventSchema,
   supportTicketLifecycleSchema,
@@ -28,6 +31,7 @@ import { readStaffMember, readStaffPolicy, readStaffRoster } from './staff';
 import type {
   SupportKbView,
   SupportLifecycleView,
+  SupportMacrosView,
   SupportCustomerView,
   SupportPropertiesView,
   SupportRatingSummaryView,
@@ -239,6 +243,24 @@ export async function loadStaff(ctx: FounderCallContext, now: Date = new Date())
     roster: partFrom(roster, (r) => r, LABELS),
     policy: partFrom(policy, (p) => p, LABELS),
   };
+}
+
+/** The desk's macros and the signed-in agent's own signature (SP-desk-02). Two reads, each its own part. */
+export async function loadMacros(ctx: FounderCallContext, now: Date = new Date()): Promise<SupportMacrosView> {
+  const [macros, signature] = await Promise.all([
+    founderCall(ctx, 'support', 'macros', 'GET', {}, parseWith(supportMacroListSchema)),
+    founderCall(ctx, 'support', 'signature', 'GET', {}, parseWith(supportSignatureSchema)),
+  ]);
+  return {
+    asOf: now.toISOString(),
+    macros: partFrom(macros, (m) => m.macros, LABELS),
+    signature: partFrom(signature, (s) => s, LABELS),
+  };
+}
+
+/** One macro filled from one request, for the agent's draft. svc-support writes nothing; the agent sends the reply. */
+export function applyMacro(ctx: FounderCallContext, ticketId: string, macroId: string) {
+  return founderCall(ctx, 'support', 'macroApply', 'GET', { ticketId, macroId }, parseWith(supportMacroAppliedSchema));
 }
 
 /** Desk groups, this person's own scope and the roster. Three reads, each its own part. */
@@ -458,6 +480,15 @@ export function runSupportAction(ctx: FounderCallContext, request: SupportAction
           ...(request.tags ? { tags: request.tags } : {}),
         },
         parseWith(supportKbArticleSchema),
+      );
+    case 'signature_set':
+      return founderCall(
+        ctx,
+        'support',
+        'signatureSet',
+        'POST',
+        { signature: request.signature, expectedRevision: request.expectedRevision },
+        parseWith(supportSignatureSchema),
       );
     case 'kb_unpublish':
       return founderCall(

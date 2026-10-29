@@ -1,7 +1,8 @@
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import type { ActionReply } from '@/lib/support/browser';
-import type { SupportKbView, TicketExtrasView } from '@/lib/support/types';
+import type { SupportKbView, SupportMacrosView, TicketExtrasView } from '@/lib/support/types';
+import { readActionRequest } from '@/lib/support/model';
 import {
   TicketActionsView,
   buildRequest,
@@ -27,6 +28,25 @@ const FORBIDDEN: ActionReply = {
   },
 };
 const open = { id: T1, status: 'open' as const };
+const MACRO = '44444444-4444-4444-8444-444444444444';
+const macrosView = (signature: string | null, revision = signature === null ? 0 : 1): SupportMacrosView => ({
+  asOf: '2026-10-29T12:00:00.000Z',
+  macros: {
+    kind: 'ok',
+    data: [
+      {
+        id: MACRO,
+        name: 'Card declined',
+        folder: 'Cards',
+        body: 'About {{ticket.subject}}',
+        revision: 1,
+        updatedBy: U,
+        updatedAt: '2026-10-29T12:00:00.000Z',
+      },
+    ],
+  },
+  signature: { kind: 'ok', data: { signature, revision } },
+});
 const base = (over: Partial<TicketActionsViewProps> = {}): TicketActionsViewProps => ({
   ticket: open,
   form: emptyForm(open),
@@ -36,6 +56,7 @@ const base = (over: Partial<TicketActionsViewProps> = {}): TicketActionsViewProp
   onField: () => undefined,
   onArm: () => undefined,
   onSend: () => undefined,
+  macros: macrosView(null),
   ...over,
 });
 const html = (over: Partial<TicketActionsViewProps> = {}) => renderToStaticMarkup(<TicketActionsView {...base(over)} />);
@@ -45,6 +66,34 @@ const buttonTag = (markup: string, label: string) => {
   if (!found) throw new Error(`No "${label}" button`);
   return found;
 };
+
+describe('signature', () => {
+  it('goes under the public reply only: never under a status reason or an escalation summary', () => {
+    const sig = { signature: 'Sam, support', revision: 2 };
+    const f = form({ replyBody: ' Hello ', statusNote: 'Waiting', escSummary: 'Needs review' });
+    expect(buildRequest('reply', open, f, 3, 0, sig)).toMatchObject({ action: 'reply', body: 'Hello\n\nSam, support' });
+    expect(buildRequest('reply', open, f, 3, 0)).toMatchObject({ body: 'Hello' });
+    expect(buildRequest('status', open, f, 3, undefined, sig)).toMatchObject({ note: 'Waiting' });
+    expect(buildRequest('escalate', open, f, undefined, undefined, sig)).toMatchObject({ summary: 'Needs review' });
+    expect(buildRequest('signature', open, form({ signatureDraft: ' Sam ' }), undefined, undefined, sig)).toEqual({
+      action: 'signature_set',
+      signature: 'Sam',
+      expectedRevision: 2,
+    });
+  });
+
+  it('the console reads a signature write strictly', () => {
+    expect(readActionRequest({ action: 'signature_set', signature: 'Sam', expectedRevision: 0 })).toEqual({
+      action: 'signature_set',
+      signature: 'Sam',
+      expectedRevision: 0,
+    });
+    expect(readActionRequest({ action: 'signature_set', signature: ' ', expectedRevision: 0 })).toBeNull();
+    expect(readActionRequest({ action: 'signature_set', signature: 'x'.repeat(501), expectedRevision: 0 })).toBeNull();
+    expect(readActionRequest({ action: 'signature_set', signature: 'Sam', expectedRevision: -1 })).toBeNull();
+    expect(readActionRequest({ action: 'signature_set', signature: 'Sam', expectedRevision: 0, userId: U })).toBeNull();
+  });
+});
 
 describe('ticket actions render for every founder', () => {
   it('shows reply, status and escalate controls on a fresh open ticket, each off only for a reason the page states', () => {
@@ -63,6 +112,42 @@ describe('ticket actions render for every founder', () => {
     const markup = html({ form: form({ replyBody: 'Hello', escSummary: 'Needs review' }) });
     expect(buttonTag(markup, 'Review reply')).not.toContain('disabled');
     expect(buttonTag(markup, 'Review escalation')).not.toContain('disabled');
+  });
+
+  it('lists the macros by folder and shows the signature that goes under the reply, and only there', () => {
+    const markup = html({ macros: macrosView('Sam, support') });
+    expect(markup).toContain('<label for="sd-macro">Macro</label>');
+    expect(markup).toContain(`<option value="${MACRO}">Cards / Card declined</option>`);
+    expect(markup).toContain('<pre data-testid="reply-signature">Sam, support</pre>');
+    expect(html()).not.toContain('reply-signature');
+  });
+
+  it('a blank draft stays blank under a signature: the signature alone is never a reply', () => {
+    const markup = html({ macros: macrosView('Sam, support'), form: form({ replyBody: '  ' }) });
+    expect(buttonTag(markup, 'Review reply')).toContain('disabled');
+    expect(markup).toContain('Write the reply first.');
+  });
+
+  it('holds the reply until the signature is known, and says why', () => {
+    const reading = html({ macros: null, form: form({ replyBody: 'Hello' }) });
+    expect(buttonTag(reading, 'Review reply')).toContain('disabled');
+    expect(reading).toContain('Reading your signature first.');
+    const failed = macrosView(null);
+    const unread = html({
+      macros: { ...failed, signature: { kind: 'failed', message: 'down', code: null, notBuilt: false, forbidden: false } },
+      form: form({ replyBody: 'Hello' }),
+    });
+    expect(buttonTag(unread, 'Review reply')).toContain('disabled');
+    expect(unread).toContain('Your signature could not be read');
+  });
+
+  it('shows a refused macro by its code and leaves the draft as it was', () => {
+    const markup = html({
+      form: form({ replyBody: 'Mine' }),
+      macroReply: { ok: false, refusal: { title: 'Not found', body: 'b', next: 'n', code: 'support.macro_not_found', changed: 'no' } },
+    });
+    expect(markup).toContain('data-code="support.macro_not_found"');
+    expect(markup).toContain('>Mine</textarea>');
   });
 
   it('never hides a control because of permission: nothing on the page mentions support:ops until the service answers', () => {

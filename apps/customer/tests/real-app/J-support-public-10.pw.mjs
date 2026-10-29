@@ -8,8 +8,9 @@ import { api, tool } from './stack.mjs';
 // titled "J-support-public-10 #<n>" prove a whole step. The agent works in the founder console (apps/admin) as the stack's
 // founder A, the support lead; founder B is a second agent (help-centre.mjs appoints both). A TEST customer sends the
 // requests through its own support API, and reads the answers in the customer app.
-// Steps that are written but not built yet fail at their first missing part, quickly (UNBUILT):
-// - #7: no macros or signatures (SP-desk-02).
+// A step whose part is missing fails at it quickly (UNBUILT).
+// #7's "public reply only" is proved against the status reason and the escalation summary: the desk has no internal notes
+// yet (SP-tickets-05), so a note the signature must stay off does not exist to check.
 // A refusal is matched by its one typed code, and the record is read again after it to show nothing changed.
 // #2's blank view cap clause needs the cap blank; the stack sets owner values as TEST, so it is checked where the cap is unset.
 const J = 'J-support-public-10';
@@ -281,24 +282,76 @@ test(`${J} #6 priority, type and labels save with one audit row each; a label wi
 test(`${J} #7 a macro with a placeholder fills the reply draft, the signature goes on the public reply only, and nothing is sent until Send`, async ({
   page,
 }) => {
+  test.setTimeout(120_000);
   const ticket = await request(`TEST macro ${RUN}`);
+  // A lead writes the macro (SP-desk-02); a placeholder no request can fill, and an agent's write, are refused by code.
+  const name = `TEST macro ${RUN}`;
+  const body = 'TEST: about "{{ticket.subject}}" ({{ ticket.category }}).';
+  const macro = await desk('lead', 'mutation', 'macroSave', { name, folder: 'TEST', body, expectedRevision: 0, reason: `TEST ${J} #7` });
+  expect(macro).toMatchObject({ name, folder: 'TEST', body, revision: 1 });
+  const unknown = {
+    name: `TEST unknown ${RUN}`,
+    folder: 'TEST',
+    body: 'Hi {{customer.name}}',
+    expectedRevision: 0,
+    reason: `TEST ${J} #7`,
+  };
+  expect(await refusedWith('lead', 'mutation', 'macroSave', unknown)).toBe('support.macro_placeholder_unknown');
+  expect(await refusedWith('agent', 'mutation', 'macroSave', { ...unknown, name: `TEST agent ${RUN}`, body: 'Hi' })).toBe(
+    'support.not_lead',
+  );
+  const names = (await desk('lead', 'query', 'macros', undefined)).macros.map((m) => m.name);
+  expect(names).toContain(name);
+  expect(names).not.toContain(unknown.name);
+  expect(names).not.toContain(`TEST agent ${RUN}`);
+
   const queue = await openQueue(page);
   const workspace = await openRequest(page, queue, ticket);
   await claim(workspace);
   const actions = page.getByRole('region', { name: 'Ticket actions' });
-  const macro = actions.getByLabel('Macro');
-  await expect(macro).toBeVisible(UNBUILT);
-  await macro.selectOption({ index: 1 });
+
+  // The agent (the console's founder, the lead) sets their own signature, read back from svc-support.
+  const signature = `TEST signature ${RUN}`;
+  await actions.getByLabel(/Your signature/).fill(signature);
+  await actions.getByRole('button', { name: 'Review signature' }).click();
+  await actions.getByRole('button', { name: 'Yes, save my signature' }).click();
+  await expect(actions.getByTestId('signature-outcome')).toContainText('Done');
+  expect((await desk('lead', 'query', 'signature', undefined)).signature).toBe(signature);
+  await expect(actions.getByTestId('reply-signature')).toHaveText(signature);
+
+  // Applying the macro fills the draft with this request's own values, and writes nothing.
+  const before = await trail(ticket.id);
+  const filled = `TEST: about "${ticket.subject}" (${ticket.category}).`;
+  await actions.getByLabel('Macro').selectOption({ label: `TEST / ${name}` });
   const draft = actions.getByLabel('Your reply');
-  // The placeholder is filled with this request's own values, and the agent's signature closes the public reply.
-  await expect(draft).not.toHaveValue(/\{\{.*\}\}/);
-  await expect(draft).toHaveValue(new RegExp(customer.handle));
-  await expect(actions.getByTestId('reply-signature')).toBeVisible();
-  // Nothing has been sent yet.
-  const comments = await (
+  await expect(draft).toHaveValue(filled);
+  const operatorComments = async () =>
+    (await desk('lead', 'query', 'listComments', { ticketId: ticket.id, limit: 50 })).filter((row) => row.authorRole !== 'customer');
+  // Nothing is sent until the agent sends: no operator comment, and the trail is as it was.
+  expect(await operatorComments()).toHaveLength(0);
+  expect(await trail(ticket.id)).toEqual(before);
+
+  // Sent: the customer's request carries the filled text with the signature under it, once.
+  await expect(await sendReply(workspace)).toContainText('Done');
+  const sent = await operatorComments();
+  expect(sent.map((row) => row.body)).toEqual([`${filled}\n\n${signature}`]);
+  const customerView = await (
     await api(customer)
   ).get(`/api/support/trpc/listComments?input=${encodeURIComponent(JSON.stringify({ ticketId: ticket.id, limit: 50 }))}`);
-  expect(comments.body.result.data.filter((row) => row.authorRole !== 'customer')).toHaveLength(0);
+  expect(customerView.body.result.data.filter((row) => row.authorRole !== 'customer').map((row) => row.body)).toEqual([
+    `${filled}\n\n${signature}`,
+  ]);
+
+  // The signature goes on the public reply only: a status reason is stored as written, without it.
+  const reason = `TEST ${J} #7 hold`;
+  await actions.getByLabel('New status').selectOption('on_hold');
+  await actions.getByLabel(/^Reason/).fill(reason);
+  await actions.getByRole('button', { name: 'Review status change' }).click();
+  await actions.getByRole('button', { name: 'Yes, set it to on_hold' }).click();
+  await expect(actions.getByTestId('status-outcome')).toContainText('Done');
+  const held = (await trail(ticket.id)).filter((row) => row.kind === 'status_changed' && row.toStatus === 'on_hold');
+  expect(held.map((row) => row.note)).toEqual([reason]);
+  expect(await operatorComments()).toHaveLength(1);
 });
 
 test(`${J} #8 sending after another agent changed the status is refused as stale with the new events, and goes through after review`, async ({

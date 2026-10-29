@@ -1,9 +1,11 @@
 'use client';
 
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { SupportTicket, SupportTicketEvent } from '@intafaced/contracts';
+import { SUPPORT_SIGNATURE_MAX, signedSupportReply, type SupportMacro } from '@intafaced/contracts/support-macros';
 import type { Part } from '@/lib/desk/part';
-import { postSupportAction, type ActionReply } from '@/lib/support/browser';
+import { fetchMacroApply, fetchMacros, postSupportAction, type ActionReply, type MacroApplyReply } from '@/lib/support/browser';
+import type { SupportMacrosView } from '@/lib/support/types';
 import {
   ESCALATION_REASONS,
   NOTE_MAX,
@@ -18,10 +20,14 @@ import {
   type SupportActionRequest,
 } from '@/lib/support/model';
 import { lastSequence, newerByOthers, trailWords } from '@/lib/support/trail';
-import { ActionOutcome, ConfirmStep } from './support-action-parts';
+import { ActionOutcome, ConfirmStep, Failed } from './support-action-parts';
 
 /**
  * TICKET ACTIONS — reply, set status, escalate.
+ *
+ * A macro (SP-desk-02) is filled from this request by svc-support and only goes into the reply draft: nothing is sent
+ * until the agent sends. The agent's own signature is added under a public reply when it is sent, and to nothing else
+ * (not a status reason, not an escalation's summary).
  *
  * Every control is on the page whatever the founder's permissions are. svc-support is the judge: when it answers
  * forbidden, the page says "Your console session does not have support operations permission" and nothing is
@@ -29,7 +35,7 @@ import { ActionOutcome, ConfirmStep } from './support-action-parts';
  * double click cannot send twice. A dropped connection is "outcome not known", never "failed" or "done".
  */
 
-export type ActionKind = 'reply' | 'status' | 'escalate';
+export type ActionKind = 'reply' | 'status' | 'escalate' | 'signature';
 
 export interface ActionForm {
   readonly replyBody: string;
@@ -39,6 +45,8 @@ export interface ActionForm {
   readonly escSummary: string;
   /** Article ids, separated by commas, spaces or new lines. */
   readonly escCited: string;
+  /** The agent's own signature as they are editing it; null until they start. */
+  readonly signatureDraft: string | null;
 }
 
 export const emptyForm = (ticket: { status: string }): ActionForm => ({
@@ -48,6 +56,7 @@ export const emptyForm = (ticket: { status: string }): ActionForm => ({
   escReason: 'other',
   escSummary: '',
   escCited: '',
+  signatureDraft: null,
 });
 
 /** The status the select shows: the one chosen if the ticket can still go there, else the first it can go to. */
@@ -66,13 +75,17 @@ export function buildRequest(
   form: ActionForm,
   expectedSequence?: number,
   sent?: number,
+  signature: { readonly signature: string | null; readonly revision: number } = { signature: null, revision: 0 },
 ): SupportActionRequest {
   const ticketId = ticket.id;
+  if (kind === 'signature')
+    return { action: 'signature_set', signature: (form.signatureDraft ?? '').trim(), expectedRevision: signature.revision };
   if (kind === 'reply')
     return {
       action: 'reply',
       ticketId,
-      body: form.replyBody.trim(),
+      // The signature goes under the public reply only: never under a status reason or an escalation.
+      body: signedSupportReply(form.replyBody.trim(), signature.signature),
       ...(expectedSequence === undefined ? {} : { expectedSequence }),
       ...(sent === undefined ? {} : { sent }),
     };
@@ -111,6 +124,23 @@ export interface TicketActionsViewProps {
   readonly trailUnread?: string | null;
   /** The agent has read the changes: the next reply is checked from the latest row. */
   readonly onReadChanges?: () => void;
+  /** The desk's macros and the agent's signature; null while they are read. */
+  readonly macros?: SupportMacrosView | null;
+  /** svc-support's answer to the last macro applied, shown when it refused. */
+  readonly macroReply?: MacroApplyReply | null;
+  readonly onMacro?: (macroId: string) => void;
+}
+
+const macroLabel = (m: SupportMacro) => (m.folder === null ? m.name : `${m.folder} / ${m.name}`);
+
+/** The signature that goes under a reply, or why it is not known yet. A reply waits until it is known. */
+function signatureOf(
+  macros: SupportMacrosView | null | undefined,
+): { ok: true; signature: string | null; revision: number } | { ok: false; why: string } {
+  if (!macros) return { ok: false, why: 'Reading your signature first.' };
+  if (macros.signature.kind !== 'ok')
+    return { ok: false, why: 'Your signature could not be read, so the reply cannot be signed. Read the ticket again first.' };
+  return { ok: true, signature: macros.signature.data.signature, revision: macros.signature.data.revision };
 }
 
 function Gated({ gate, label, onClick }: { gate: ActionGate; label: string; onClick: () => void }) {
@@ -127,8 +157,22 @@ function Gated({ gate, label, onClick }: { gate: ActionGate; label: string; onCl
 export function TicketActionsView(p: TicketActionsViewProps) {
   const { ticket, form } = p;
   const next = allowedNextStatuses(ticket.status);
-  const gate = replyGate(ticket, form.replyBody, p.busy);
-  const reply: ActionGate = gate.ok && p.trailUnread ? { ok: false, why: p.trailUnread } : gate;
+  const signed = signatureOf(p.macros);
+  // A blank draft is refused as blank: the signature alone is never a reply.
+  const draft = form.replyBody.trim();
+  const gate = replyGate(ticket, signed.ok && draft !== '' ? signedSupportReply(draft, signed.signature) : form.replyBody, p.busy);
+  const reply: ActionGate =
+    gate.ok && p.trailUnread ? { ok: false, why: p.trailUnread } : gate.ok && !signed.ok ? { ok: false, why: signed.why } : gate;
+  const signatureText = (form.signatureDraft ?? (signed.ok ? (signed.signature ?? '') : '')).trim();
+  const signatureGate: ActionGate = p.busy
+    ? { ok: false, why: 'A step is already in progress.' }
+    : !signed.ok
+      ? { ok: false, why: signed.why }
+      : signatureText === ''
+        ? { ok: false, why: 'Write your signature first.' }
+        : signatureText === signed.signature
+          ? { ok: false, why: 'This is already your signature.' }
+          : { ok: true };
   const chosen = effectiveStatus(ticket, form);
   const status = statusGate(ticket, chosen, form.statusNote, p.busy);
   const escalate = escalateGate(ticket, form.escSummary, p.busy);
@@ -137,6 +181,7 @@ export function TicketActionsView(p: TicketActionsViewProps) {
   return (
     <section className="dk-stack" aria-label="Ticket actions" data-testid="ticket-actions">
       <h4>Reply to the customer</h4>
+      <MacroPicker p={p} disabled={p.busy || editing} />
       <div className="adm-field">
         <label htmlFor="sd-reply">Your reply</label>
         <textarea
@@ -149,10 +194,20 @@ export function TicketActionsView(p: TicketActionsViewProps) {
           onChange={(e) => p.onField({ replyBody: e.target.value })}
         />
       </div>
+      {signed.ok && signed.signature !== null && (
+        <div className="dk-muted">
+          Added under this reply when you send it, and under nothing else:
+          <pre data-testid="reply-signature">{signed.signature}</pre>
+        </div>
+      )}
       {p.armed === 'reply' ? (
         <ConfirmStep
           title="Send this reply?"
-          consequence="The customer sees it on their request. A reply cannot be unsent."
+          consequence={
+            signed.ok && signed.signature !== null
+              ? 'The customer sees it on their request, with your signature under it. A reply cannot be unsent.'
+              : 'The customer sees it on their request. A reply cannot be unsent.'
+          }
           confirmLabel="Yes, send the reply"
           busy={p.busy}
           onConfirm={p.onSend}
@@ -168,6 +223,36 @@ export function TicketActionsView(p: TicketActionsViewProps) {
       <ActionOutcome reply={outcome('reply')} testId="reply-outcome">
         <StaleChanges p={p} kind="reply" />
       </ActionOutcome>
+
+      <div className="adm-field">
+        <label htmlFor="sd-signature">Your signature (added under your public replies only)</label>
+        <textarea
+          id="sd-signature"
+          className="adm-textarea"
+          rows={2}
+          maxLength={SUPPORT_SIGNATURE_MAX}
+          value={form.signatureDraft ?? (signed.ok ? (signed.signature ?? '') : '')}
+          disabled={p.busy || editing || !signed.ok}
+          onChange={(e) => p.onField({ signatureDraft: e.target.value })}
+        />
+      </div>
+      {p.armed === 'signature' ? (
+        <ConfirmStep
+          title="Save this signature?"
+          consequence="It is added under every public reply you send from now on. Replies already sent keep the text they were sent with."
+          confirmLabel="Yes, save my signature"
+          busy={p.busy}
+          onConfirm={p.onSend}
+          onCancel={() => p.onArm(null)}
+        />
+      ) : (
+        <Gated
+          gate={editing ? { ok: false, why: 'Finish or cancel the step above first.' } : signatureGate}
+          label="Review signature"
+          onClick={() => p.onArm('signature')}
+        />
+      )}
+      <ActionOutcome reply={outcome('signature')} testId="signature-outcome" />
 
       <h4>Set the status</h4>
       <div className="dk-row">
@@ -295,6 +380,43 @@ export function TicketActionsView(p: TicketActionsViewProps) {
   );
 }
 
+/** The desk's macros. Choosing one fills the draft from this request; nothing is sent until the agent sends. */
+function MacroPicker({ p, disabled }: { p: TicketActionsViewProps; disabled: boolean }) {
+  if (!p.macros) return <p className="dk-muted">Reading the desk's macros.</p>;
+  if (p.macros.macros.kind !== 'ok') return <Failed name="Macros" part={p.macros.macros} />;
+  const list = p.macros.macros.data;
+  const refused = p.macroReply && !p.macroReply.ok ? p.macroReply.refusal : null;
+  return (
+    <>
+      <div className="adm-field">
+        <label htmlFor="sd-macro">Macro</label>
+        <select
+          id="sd-macro"
+          className="adm-input"
+          value=""
+          disabled={disabled || list.length === 0}
+          onChange={(e) => {
+            if (e.target.value !== '') p.onMacro?.(e.target.value);
+          }}
+        >
+          <option value="">{list.length === 0 ? 'None: no macro has been written yet' : 'Fill the reply from a macro'}</option>
+          {list.map((m) => (
+            <option key={m.id} value={m.id}>
+              {macroLabel(m)}
+            </option>
+          ))}
+        </select>
+      </div>
+      {p.macroReply && !p.macroReply.ok && (
+        <div className="adm-callout" role="alert" data-tone="danger" data-testid="macro-outcome" data-code={refused?.code ?? undefined}>
+          <strong>{refused?.title ?? 'The macro could not be read'}</strong>
+          <p>{refused?.body ?? 'The draft was not changed. Choose the macro again.'}</p>
+        </div>
+      )}
+    </>
+  );
+}
+
 /** Under a stale refusal: what someone else changed since the agent read the request, and the way to send again. */
 function StaleChanges({ p, kind }: { p: TicketActionsViewProps; kind: ActionKind }) {
   if (p.outcome?.kind !== kind || p.outcome.reply.ok || p.outcome.reply.refusal.code !== 'support.stale_ticket') return null;
@@ -334,7 +456,44 @@ export function TicketActions({
   const [outcome, setOutcome] = useState<TicketActionsViewProps['outcome']>(null);
   // Replies sent from this view: moves only on a recorded reply, so a retry after "outcome not known" keeps its key.
   const [sent, setSent] = useState(0);
+  const [macros, setMacros] = useState<SupportMacrosView | null>(null);
+  const [macroReply, setMacroReply] = useState<MacroApplyReply | null>(null);
+  const [macrosRead, setMacrosRead] = useState(0);
   const lock = useRef(false);
+
+  useEffect(() => {
+    const abort = new AbortController();
+    void fetchMacros(abort.signal).then((view) => {
+      if (abort.signal.aborted) return;
+      setMacros(
+        view ?? {
+          asOf: new Date().toISOString(),
+          macros: { kind: 'failed', message: 'The macros could not be read.', code: null, notBuilt: false, forbidden: false },
+          signature: { kind: 'failed', message: 'Your signature could not be read.', code: null, notBuilt: false, forbidden: false },
+        },
+      );
+    });
+    return () => abort.abort();
+  }, [macrosRead]);
+
+  async function applyMacro(macroId: string) {
+    if (lock.current) return;
+    lock.current = true;
+    setBusy(true);
+    try {
+      const reply = await fetchMacroApply(ticket.id, macroId);
+      setMacroReply(reply);
+      // The macro goes under what the agent already wrote; it never discards their draft.
+      if (reply.ok)
+        setForm((f) => ({
+          ...f,
+          replyBody: f.replyBody.trim() === '' ? reply.applied.text : `${f.replyBody.trimEnd()}\n\n${reply.applied.text}`,
+        }));
+    } finally {
+      lock.current = false;
+      setBusy(false);
+    }
+  }
 
   async function send() {
     if (lock.current || !armed) return;
@@ -343,8 +502,16 @@ export function TicketActions({
     const kind = armed;
     try {
       if (seen === null && seenNow !== null) setSeen(seenNow);
+      const signature = macros?.signature.kind === 'ok' ? macros.signature.data : undefined;
       const reply = await postSupportAction(
-        buildRequest(kind, ticket, form, kind === 'escalate' ? undefined : (seenNow ?? undefined), kind === 'reply' ? sent : undefined),
+        buildRequest(
+          kind,
+          ticket,
+          form,
+          kind === 'escalate' || kind === 'signature' ? undefined : (seenNow ?? undefined),
+          kind === 'reply' ? sent : undefined,
+          signature,
+        ),
       );
       setOutcome({ kind, reply });
       setArmed(null);
@@ -355,8 +522,15 @@ export function TicketActions({
             ? { ...f, replyBody: '' }
             : kind === 'escalate'
               ? { ...f, escSummary: '', escCited: '' }
-              : { ...f, statusNote: '' },
+              : kind === 'signature'
+                ? { ...f, signatureDraft: null }
+                : { ...f, statusNote: '' },
         );
+      }
+      // A signature write (done or not) is read back from svc-support before the next reply is signed with it.
+      if (kind === 'signature') {
+        setMacros(null);
+        setMacrosRead((n) => n + 1);
       }
       // Whatever the answer, read the ticket again: after "outcome not known" the page must show what is true.
       onDone();
@@ -378,6 +552,9 @@ export function TicketActions({
         if (!busy) setArmed(kind);
       }}
       onSend={() => void send()}
+      macros={macros}
+      macroReply={macroReply}
+      onMacro={(id) => void applyMacro(id)}
       stale={seenNow === null ? [] : newerByOthers(rows, seenNow, userId)}
       trailUnread={
         seenNow === null
