@@ -1,13 +1,14 @@
 /**
  * Rotate an API key. The old key is revoked (cannot place).
  * The new key is minted by AuthService — no invented secret.
- * Same name, scopes, mode, domain list, expiry, IP allowlist, account bind.
+ * Same name, scopes, mode, domain list, expiry, IP allowlist, account bind, sandbox.
  */
 import type { Sql } from 'postgres';
 import { bindApiKeyAccount } from './bind-api-key-account.js';
 import { bindApiKeyIpAllowlist } from './auth-service-ip.js';
 import { issueSigningSecret } from './api-key-request-sign.js';
 import type { ApiKeyMinter } from './mint-api-key-ip.js';
+import { copySandboxLink } from './sandbox-key-link.js';
 import { encryptAtRest } from './totp-crypto.js';
 
 export class RotateApiKeyError extends Error {
@@ -89,6 +90,7 @@ export async function rotateApiKey(
     if (old.account_id) {
       await bindApiKeyAccount(sql, input.userId, minted.id, old.account_id);
     }
+    await copySandboxLink(sql, old.id, minted.id);
     const ips = old.ip_allowlist ?? [];
     if (ips.length > 0) {
       await bindApiKeyIpAllowlist(sql, input.userId, minted.id, ips);

@@ -222,6 +222,10 @@
       "types": "./dist/api-keys.d.ts",
       "default": "./dist/api-keys.js"
     },
+    "./developer-sandboxes": {
+      "types": "./dist/developer-sandboxes.d.ts",
+      "default": "./dist/developer-sandboxes.js"
+    },
     "./academy-catalogue": {
       "types": "./dist/academy-catalogue.d.ts",
       "default": "./dist/academy-catalogue.js"

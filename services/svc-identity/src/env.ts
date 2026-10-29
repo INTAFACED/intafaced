@@ -221,6 +221,17 @@ const schema = serviceEnvSchema
        */
       IDENTITY_API_KEYS_MAX_BY_TIER: z.string().optional(),
       /**
+       * Owner-published developer sandbox cap per verification level (`full=3`, levels none, basic, full, institutional).
+       * Every account may hold one sandbox; blank, or a level left out, refuses a second (`identity.sandbox_cap_unset`).
+       * Never git-default. Parsed at start by `parseSandboxCapByTier`; a malformed value stops the service.
+       */
+      IDENTITY_SANDBOXES_MAX_BY_TIER: z.string().optional(),
+      /**
+       * Owner setting: the origin where the door serves sandbox keys (one of the edge's `EDGE_SANDBOX_HOSTS`), shown
+       * with a new sandbox key. Blank: the room says the sandbox address is not set. Never git-default.
+       */
+      IDENTITY_SANDBOX_BASE_URL: z.string().optional(),
+      /**
        * Owner setting: the account product tiers an operator may move an account onto (J-ops-console-04 #11). A JSON list of
        * `{ id, name, terms: { ratePercent, monthlyFee, feeAssetId, dailyLimit, clearingDays } }`, terms as decimal strings or
        * null. NO DEFAULT. Blank or invalid: `accountControls.tiers` answers `identity.account_tiers_unset` and every move

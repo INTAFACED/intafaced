@@ -159,6 +159,14 @@ const LOCAL_COPY: Readonly<Record<string, string>> = {
   'identity.key_request_conflict': 'This request was already used for a different key. Reload the page and try again.',
   'auth.passkey_missing': 'Add a passkey on Security first. Only an account with a passkey can hold API keys.',
   'auth.passkey_verify_unavailable': 'Use your passkey once to sign in or confirm, then make the key.',
+  'identity.sandbox_name_invalid': 'Use a sandbox name of 1 to 40 characters, with no control characters.',
+  'identity.sandbox_name_taken': 'You already have a sandbox with this name. Choose another name.',
+  'identity.sandbox_cap_unset': 'Another sandbox cannot be made yet. The number of sandboxes an account may hold is not set.',
+  'identity.sandbox_cap_reached': 'This account holds as many sandboxes as it may.',
+  'identity.sandbox_request_conflict': 'This request was already used for a different sandbox. Reload the page and try again.',
+  'identity.sandbox_not_found': 'This sandbox is not on your account.',
+  'env.scope_not_sandboxable':
+    'This permission can’t be used in a sandbox, so no key was made. A sandbox key can read and make test payments.',
 };
 
 export function userCopy(key: string, params: Readonly<Record<string, string | number | bigint>> = {}): string {

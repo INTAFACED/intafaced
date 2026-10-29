@@ -50,7 +50,7 @@ describe('developer portal pages', () => {
   });
   it('a section without a page names that, and a published one links to it', () => {
     expect(renderToString(<DevelopersRoutes path="/developers/fix" />)).toContain('No page is published for this section');
-    expect(renderToString(<DevelopersRoutes path="/developers/sandbox" />)).toContain('href="/pay/developer/sandbox"');
+    expect(renderToString(<DevelopersRoutes path="/developers/webhooks" />)).toContain('href="/pay/developer/webhooks"');
   });
   it('an address that names no section says so and links back', () => {
     const html = renderToString(<DevelopersRoutes path="/developers/no-such" />);

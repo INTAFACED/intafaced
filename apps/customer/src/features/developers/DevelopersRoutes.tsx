@@ -15,6 +15,7 @@ import {
 import { ChangelogPage, UpcomingPage } from './ChangelogPages';
 import { StatusPage } from './StatusPage';
 import { AppsRoom } from './apps/AppsRoom';
+import { SandboxRoutes } from './sandbox/SandboxRoutes';
 import '../public/public-pages.css';
 
 const key = (id: string) => id.replace(/-/g, '_');
@@ -36,6 +37,7 @@ const PAGES: Record<PageSectionId, (props: { title: string }) => JSX.Element> = 
 
 /** /developers and the pages under it: the portal home, the base-address table and one page per section. Public: no sign-in needed. */
 export function DevelopersRoutes({ path }: { path: string }) {
+  if (/^\/developers\/sandbox(\/|$)/.test(path.split(/[?#]/)[0]!)) return <SandboxRoutes path={path} />;
   const route = developersRoute(path);
   if (route.kind === 'hosts') return <Hosts />;
   if (route.kind === 'status') return <StatusPage />;
