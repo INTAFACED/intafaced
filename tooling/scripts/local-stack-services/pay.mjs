@@ -42,7 +42,9 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS }) => ({
     PAY_KYB_MALWARE_SCANNER: 'local-test-eicar',
     // LOCAL-TEST screener for custodial sends (W9): answers clear, recorded as provider local-test, so J-wallet-07 #3-#5 can
     // walk an internal withdrawal. No supplier is connected anywhere else; svc-pay refuses it outside APP_ENV dev or test.
-    PAY_SCREENING_SCREENER: 'local-test',
+    // `LOCAL_STACK_PAY_SCREENER=off` on a start or restart leaves it blank, so the blank-list refusal can be seen too
+    // (J-wallet-05 #2).
+    ...(process.env.LOCAL_STACK_PAY_SCREENER === 'off' ? {} : { PAY_SCREENING_SCREENER: 'local-test' }),
     // LOCAL-TEST value (tooling/profiles/test-owner-values/pay.json): the largest product image, 500 KB.
     PAY_PRODUCT_IMAGE_MAX_BYTES: '500000',
     // LOCAL-TEST value (tooling/profiles/test-owner-values/pay.json): the largest hosted checkout logo, 100 KB.
