@@ -46,7 +46,8 @@ export interface RouteDef {
   readonly model: string;
   /** Hard output ceiling for this task. An unbounded generation is an unbounded bill. */
   readonly maxOutputTokens: number;
-  readonly price: ModelPrice;
+  /** Null when no rate is published for this deployment: the route never runs (OWNER 107). */
+  readonly price: ModelPrice | null;
   /** Which capability this route needs. Checked before the provider is called. */
   readonly capability: ProviderCapability;
 }
@@ -126,6 +127,15 @@ export function parseRoutingTable(input: unknown): RoutingTable {
     })),
     ...(config.fallbackTask ? { fallbackTask: config.fallbackTask } : {}),
   };
+}
+
+/**
+ * The same routes with every rate blank. A deployment that has not published its rates (no `AGENTS_ROUTING_TABLE`)
+ * serves the default table's tasks and ceilings and prices nothing: its placeholder rates are for tests, never a
+ * person's bill, so every run refuses `agents.price_unset` until the rates are set.
+ */
+export function unpricedTable(table: RoutingTable): RoutingTable {
+  return { ...table, routes: table.routes.map((route) => ({ ...route, price: null })) };
 }
 
 export function resolveRoute(table: RoutingTable, task: string): RouteDef {
