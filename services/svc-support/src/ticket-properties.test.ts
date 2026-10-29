@@ -118,6 +118,47 @@ describe('ticket properties (SP-tickets-04)', () => {
     expect(properties.log).toHaveLength(1);
   });
 
+  it('reads the log as one entry per field changed, oldest first, with who and why; a no-op adds none', async () => {
+    const { lead, ticket } = await desk();
+    const t = await ticket('Logged');
+    expect(await lead.propertyChanges({ ticketId: t.id, limit: 100 })).toEqual([]);
+    await lead.setProperties({
+      ticketId: t.id,
+      priority: 'high',
+      ticketType: 'question',
+      labels: ['vip', 'a-b'],
+      reason: 'deadline',
+      clientRequestId: 'req-0001',
+    });
+    await lead.setProperties({ ticketId: t.id, labels: ['a-b', 'vip'], clientRequestId: 'req-0002' });
+    await lead.setProperties({ ticketId: t.id, priority: null, labels: ['vip'], clientRequestId: 'req-0003' });
+    const changes = await lead.propertyChanges({ ticketId: t.id, limit: 100 });
+    expect(changes.map((c) => [c.logId, c.field, c.from, c.to])).toEqual([
+      ['1', 'priority', null, 'high'],
+      ['1', 'type', null, 'question'],
+      ['1', 'labels', [], ['a-b', 'vip']],
+      ['2', 'priority', 'high', null],
+      ['2', 'labels', ['a-b', 'vip'], ['vip']],
+    ]);
+    expect(changes[0]).toMatchObject({ ticketId: t.id, setBy: LEAD, reason: 'deadline' });
+    expect(changes[3]).toMatchObject({ reason: null });
+    // The limit counts saves, not fields: one save, three entries.
+    expect(await lead.propertyChanges({ ticketId: t.id, limit: 1 })).toHaveLength(3);
+  });
+
+  it('the property log is staff only: the customer is refused and an agent outside the desk scope reads not found', async () => {
+    const { as, lead, groups, ticket } = await desk();
+    const t = await ticket('Private log');
+    await lead.setProperties({ ticketId: t.id, priority: 'urgent', clientRequestId: 'req-0001' });
+    const customer = await as(CUSTOMER, ['support:read', 'support:write']);
+    await expect(customer.propertyChanges({ ticketId: t.id, limit: 100 })).rejects.toMatchObject({ code: 'FORBIDDEN' });
+    expect(JSON.stringify(await customer.events({ ticketId: t.id, limit: 100 }))).not.toMatch(/urgent|priority/);
+    const g = await lead.groupsSave({ name: 'Payments', idempotencyKey: 'group-pay-0002' });
+    await groups.addMember({ groupId: g.id, userId: LEAD, by: LEAD, at: new Date().toISOString() });
+    await lead.ticketSetGroup({ ticketId: t.id, groupId: g.id });
+    await expect((await as(AGENT)).propertyChanges({ ticketId: t.id, limit: 100 })).rejects.toMatchObject({ code: 'NOT_FOUND' });
+  });
+
   it('refuses a closed ticket with support.ticket_closed', async () => {
     const { lead, support, ticket } = await desk();
     const t = await ticket('Done');

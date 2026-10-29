@@ -31,6 +31,7 @@ import {
   supportAwaitingMineSchema,
   supportTicketLifecycleSchema,
   supportTicketPropertiesSchema,
+  supportTicketPropertyChangeSchema,
   supportCreatedByRequestInputSchema,
   supportTicketSchema,
   supportTicketStatusSchema,
@@ -1220,6 +1221,19 @@ export function createSupportRouter(
         try {
           requireSupportOps(ctx.principal!);
           return await support.getTicketProperties({ operatorId: ctx.principal!.userId, ticketId: input.ticketId });
+        } catch (err) {
+          mapError(err);
+        }
+      }),
+
+    /** The log of priority, type and label changes on a ticket, one entry per field changed. Staff only. */
+    propertyChanges: scopedProcedure('support:ops')
+      .input(z.object({ ticketId: z.string().guid(), limit: z.number().int().positive().max(500) }))
+      .output(z.array(supportTicketPropertyChangeSchema))
+      .query(async ({ ctx, input }) => {
+        try {
+          requireSupportOps(ctx.principal!);
+          return await support.listTicketPropertyChanges({ operatorId: ctx.principal!.userId, ...input });
         } catch (err) {
           mapError(err);
         }

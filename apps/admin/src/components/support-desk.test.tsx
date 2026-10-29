@@ -69,6 +69,21 @@ const detail = (t = ticket()): SupportTicketView => ({
           },
         ],
       },
+      propertyChanges: {
+        kind: 'ok',
+        data: [
+          {
+            logId: '7',
+            ticketId: T1,
+            setBy: ME,
+            reason: 'deadline',
+            setAt: '2026-10-17T02:00:00.000Z',
+            field: 'labels',
+            from: [],
+            to: ['vip', 'chargeback'],
+          },
+        ],
+      },
     },
   },
 });
@@ -155,6 +170,12 @@ describe('a ticket', () => {
     expect(html).toContain('any update?');
     expect(html).toContain('opened');
     expect(html).toContain('Nobody yet');
+  });
+  it('the history shows each priority, type or label change as its own row, after the trail event before it', () => {
+    const html = open();
+    expect(html).toContain('labels none → vip, chargeback');
+    expect(html).toContain('deadline');
+    expect(html.indexOf('opened')).toBeLessThan(html.indexOf('labels none → vip, chargeback'));
   });
   it('labels the customer as an account id and says why no handle is shown', () => {
     const html = open();
