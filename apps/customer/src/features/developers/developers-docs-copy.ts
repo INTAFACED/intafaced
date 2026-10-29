@@ -93,7 +93,7 @@ export const docsCopy = defineCopy(
     authKeyBody: 'Send the key in the Authorization header: Bearer, a space, then the key. The key is shown once, when you create it.',
     authSignTitle: 'Sign each request',
     authSignBody:
-      'A key that may place orders (trade:write) signs every request by default, so a copied key alone cannot trade. Its signing secret is shown once, beside the key, when you create it. Join these lines with a newline, sign the text with HMAC-SHA256 and the secret, and send the signature in hex.',
+      'A key you create under Developers that may place orders (trade:write) signs every request, so that key copied alone cannot trade. Its signing secret is shown once, beside the key, when you create it. Join these lines with a newline, sign the text with HMAC-SHA256 and the secret, and send the signature in hex.',
     authLines: 'The text you sign, line by line',
     authLineVersion: 'The scheme’s name, {version}',
     authLineMethod: 'The method, in capitals',
