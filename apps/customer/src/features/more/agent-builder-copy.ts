@@ -146,7 +146,7 @@ const en = {
   usage_open: 'Open',
   usage_unpaid: 'Unpaid',
   usage_settled: 'Settled',
-  usageNotSealed: 'Not sealed yet',
+  usageNotSealed: 'Open',
   usageUnpaid: 'A usage window is unpaid. Add funds and it is retried on the same charge.',
   usageEmpty: 'This agent has no usage yet.',
 } as const;
@@ -309,7 +309,7 @@ const es = {
   usage_open: 'Abierta',
   usage_unpaid: 'Impagada',
   usage_settled: 'Liquidada',
-  usageNotSealed: 'Aún sin sellar',
+  usageNotSealed: 'Abierta',
   usageUnpaid: 'Hay una ventana de uso impagada. Añade fondos y se reintenta con el mismo cargo.',
   usageEmpty: 'Este agente aún no tiene uso.',
 } satisfies Record<keyof typeof en, string>;
@@ -472,7 +472,7 @@ const fr = {
   usage_open: 'Ouverte',
   usage_unpaid: 'Impayée',
   usage_settled: 'Réglée',
-  usageNotSealed: 'Pas encore scellée',
+  usageNotSealed: 'Ouverte',
   usageUnpaid: 'Une fenêtre d’usage est impayée. Ajoutez des fonds et elle est retentée sur le même débit.',
   usageEmpty: 'Cet agent n’a pas encore d’usage.',
 } satisfies Record<keyof typeof en, string>;

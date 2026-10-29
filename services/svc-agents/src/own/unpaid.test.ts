@@ -91,7 +91,7 @@ const INSTRUCTIONS = 'Answer TEST questions.';
 /** The worst case of one run of the agent below: its instructions and the ask, at the route's output ceiling. */
 const worstOf = (table: typeof TABLE): Amount =>
   usageCost(
-    { inputTokens: estimateInputTokens(INSTRUCTIONS, [{ role: 'user', content: ASK }]), outputTokens: table.routes[0]!.maxOutputTokens },
+    { inputTokens: estimateInputTokens(INSTRUCTIONS, [{ content: ASK }]), outputTokens: table.routes[0]!.maxOutputTokens },
     table.routes[0]!.price!,
   );
 const WORST: Amount = worstOf(TABLE);
