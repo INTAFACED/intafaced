@@ -1,7 +1,7 @@
 import { randomBytes } from 'node:crypto';
 import path from 'node:path';
 import { test, expect } from '@playwright/test';
-import { ROOT, signOutBrowser, signUpInBrowser } from './stack.mjs';
+import { ROOT, api, signOutBrowser, signUpInBrowser } from './stack.mjs';
 import { addAuthenticator, nextCode } from './identity-factors.mjs';
 
 // J-identity-11, in the running app (docs/roadmap/journeys.json): I freeze my own account and later reactivate it.
@@ -18,15 +18,33 @@ function person(prefix = 'jf') {
 
 const totpLib = () => import(path.join(ROOT, 'services/svc-identity/dist/auth/totp.js'));
 
-/** Signs in through /login with the password alone, as a person with no second factor does. */
-async function signIn(page, who) {
+/** Freezes the person's own account from Security with their password; every session ends. Returns when it was asked. */
+async function freezeOwn(page, who) {
+  await page.goto('/uc/safe');
+  const card = page.getByTestId('security__card').filter({ has: page.getByRole('heading', { name: 'Freeze your account' }) });
+  await card.getByLabel('Your password').fill(who.password);
+  // Taken before the click, so it is never later than the freeze the service records.
+  const frozenAt = Date.now();
+  await card.getByRole('button', { name: 'Freeze my account' }).click();
+  // The freeze ends this session too: the room shows the frozen card until its next read finds the session gone, then
+  // drops to signed out. Either is the answer; the sign-in after it proves the freeze.
+  await expect(
+    page.getByRole('heading', { name: 'You froze this account' }).or(page.getByRole('heading', { name: 'Sign in to continue' })),
+  ).toBeVisible();
+  return frozenAt;
+}
+
+/** Signs in again through /login to an account its owner froze; the sign-in lands on that freeze. */
+async function signInFrozen(page, who) {
   await page.goto('about:blank');
   await signOutBrowser(page.context());
   await page.goto('/login');
   await page.fill('input[name=identifier]', who.email);
   await page.fill('input[name=password]', who.password);
   await page.getByRole('button', { name: /^sign in$/i }).click();
-  await expect(page).not.toHaveURL(/\/login/);
+  const frozen = page.getByTestId('frozen-by-you');
+  await expect(frozen).toBeVisible();
+  return frozen;
 }
 
 const ACTIONS = [
@@ -68,6 +86,47 @@ test(`${J} #1 Account status lists what I can still do and what I cannot; an act
   await expect(status.getByTestId('account-status__can').locator('li')).toHaveText(['Sign in', 'Trade', 'Create API keys']);
 });
 
+test(`${J} #3 Signing in again after freezing lands on a typed "frozen by you" page with the lift path, not a generic error`, async ({
+  page,
+}) => {
+  test.setTimeout(120_000);
+  const who = person('jg');
+  await signUpInBrowser(page, who);
+  await freezeOwn(page, who);
+
+  // The sign-in succeeds and lands on the person's own freeze, typed from identity's account status, with no refusal.
+  const frozen = await signInFrozen(page, who);
+  await expect(frozen).toHaveAttribute('data-state', 'frozen_self');
+  await expect(page.getByRole('heading', { level: 1 })).toHaveText('You froze this account');
+  await expect(frozen.getByTestId('frozen-by-you__since')).toHaveText(/^Frozen on .+\.$/);
+  // The stack's TEST wait (IDENTITY_SELF_FREEZE_LIFT_WAIT_SECONDS=20) has not passed, so the page says from when.
+  const lift = frozen.getByTestId('frozen-by-you__lift');
+  await expect(lift).toHaveAttribute('data-lift', 'liftAt');
+  await expect(lift).toHaveText(/^You can reactivate it yourself from .+, in Security, with your authenticator code or a passkey\.$/);
+  await expect(page.getByRole('alert')).toHaveCount(0);
+  await expect(page.getByTestId('failure')).toHaveCount(0);
+
+  // The page states what identity holds: the same account reads frozen by its owner, with one self freeze.
+  const own = await api(who);
+  const read = await own.get('/api/identity/trpc/accountStatus.mine');
+  expect(read.status).toBe(200);
+  expect(read.body.result.data.state).toBe('frozen_self');
+  expect(read.body.result.data.restrictions.map((restriction) => restriction.kind)).toEqual(['self_freeze']);
+  // What the page says the freeze stops is exactly what identity's guard refuses for it.
+  const stops = await frozen
+    .getByTestId('frozen-by-you__stops')
+    .locator('li')
+    .evaluateAll((items) => items.map((li) => li.getAttribute('data-action')));
+  expect(stops).toEqual(read.body.result.data.restrictions[0].blocks);
+  expect(stops.length).toBeGreaterThan(0);
+
+  // The lift path: Security holds the reactivation for this freeze.
+  await frozen.getByRole('button', { name: 'Reactivate in Security' }).click();
+  await expect(page).toHaveURL(/\/uc\/safe$/);
+  const card = page.getByTestId('security__card').filter({ has: page.getByRole('heading', { name: 'You froze this account' }) });
+  await expect(card.getByRole('button', { name: 'Reactivate my account' })).toBeVisible();
+});
+
 test(`${J} #4 Asking to reactivate before the wait is over is refused with the seconds left; after it, step-up lifts the freeze`, async ({
   page,
 }) => {
@@ -78,20 +137,10 @@ test(`${J} #4 Asking to reactivate before the wait is over is refused with the s
   await signUpInBrowser(page, who);
 
   // The person freezes their own account from Security; every session ends.
-  await page.goto('/uc/safe');
-  const card = page.getByTestId('security__card').filter({ has: page.getByRole('heading', { name: 'Freeze your account' }) });
-  await card.getByLabel('Your password').fill(who.password);
-  // Taken before the click, so it is never later than the freeze the service records.
-  const frozenAt = Date.now();
-  await card.getByRole('button', { name: 'Freeze my account' }).click();
-  // The freeze ends this session too: the room shows the frozen card until its next read finds the session gone, then
-  // drops to signed out. Either is the answer; Account status below proves the freeze after a fresh sign-in.
-  await expect(
-    page.getByRole('heading', { name: 'You froze this account' }).or(page.getByRole('heading', { name: 'Sign in to continue' })),
-  ).toBeVisible();
+  const frozenAt = await freezeOwn(page, who);
 
   // They sign in again and Account status names their own freeze.
-  await signIn(page, who);
+  await signInFrozen(page, who);
   await page.goto('/uc/account');
   const status = page.getByTestId('account-status');
   await expect(status.getByTestId('account-status__state')).toHaveAttribute('data-state', 'frozen_self');
