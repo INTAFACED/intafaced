@@ -1996,7 +1996,7 @@ if (!available) {
     }
 
     function routerDeps(rt: AgentRuntime): AgentsRouterDeps {
-      return { runtime: rt, gateway, meter, feeAssetId: 'IFC' };
+      return { runtime: rt, gateway, meter, feeAssetId: 'IFC', sql };
     }
 
     it('run.complete through createCaller never bills / never feeCharges', async () => {

@@ -32,6 +32,7 @@ import { SCANNER_DATA_TOOLS } from './scanner/guardrail.js';
 import { SEALED_ABS_CHANGE_X_LOG_VOLUME_LAW } from './scanner/signal-inputs-law.js';
 import { NAVIGATOR_DATA_TOOLS } from './navigator/data-tools.js';
 import { SUPPORT_DATA_TOOLS } from './support-agent/data-tools.js';
+import { createMemoryRunStore } from './runs/memory-store.js';
 
 const SECRET = 'an-agents-metering-public-doors-promise-falsify-secret';
 const USER = '11111111-1111-4111-8111-111111111111';
@@ -297,6 +298,7 @@ describe('D26-P2-01h public doors — metering-off never feeCharges', () => {
       gateway: { routingTable: { routes: [] } } as unknown as AgentsRouterDeps['gateway'],
       meter,
       feeAssetId: 'IFC',
+      runStore: createMemoryRunStore(),
     };
 
     return { deps, meterSettleCalls };
@@ -393,7 +395,9 @@ describe('D26-P2-01h public doors — metering-off never feeCharges', () => {
   });
 
   it('router never posts feeCharge itself — settle doors only call runtime', () => {
-    const src = readFileSync(join(dirname(fileURLToPath(import.meta.url)), 'router.ts'), 'utf8');
+    const here = dirname(fileURLToPath(import.meta.url));
+    // run.complete lives in runs/routes.ts and is mounted by router.ts; both files are the router.
+    const src = ['router.ts', 'runs/routes.ts'].map((file) => readFileSync(join(here, file), 'utf8')).join('\n');
     expect(src).not.toMatch(/recipes\.feeCharge/);
     expect(src).not.toMatch(/ledger\.post/);
     expect(src).toMatch(/runtime\.settleWindow/);

@@ -54,6 +54,8 @@ import { refuseIdentityKycReviewWrite } from './risk-compliance/kyc-review-write
 import { envCoachGrounding, runCoachSession, type CoachGrounding } from './coach/grounded-session.js';
 import { describeCoachPolicy } from './coach/policy.js';
 import { coachRunRoutes } from './coach/router.js';
+import { runRoutes } from './runs/routes.js';
+import type { RunStore } from './runs/store.js';
 import { envGrowthWarehouse, proposeGrowthCampaign } from './growth/campaign-proposal.js';
 import { planRebalance } from './portfolio-agent/plan.js';
 import { readOwnHoldings, type HoldingsLedger, type PortfolioPriceSource } from './portfolio-agent/holdings.js';
@@ -84,7 +86,7 @@ import { ownRouter } from './own/routes.js';
  * feature's clothes.
  */
 
-const actionOutput = z.object({
+export const actionOutput = z.object({
   id: z.string().guid(),
   sessionId: z.string().guid(),
   agentId: z.string(),
@@ -234,7 +236,7 @@ const sessionOutput = z.object({
   closedAt: z.string().nullable(),
 });
 
-function toActionOutput(action: AuditedAction) {
+export function toActionOutput(action: AuditedAction) {
   return {
     id: action.id,
     sessionId: action.sessionId,
@@ -332,6 +334,8 @@ export interface AgentsRouterDeps {
    * caller fixtures as live truth.
    */
   readonly navigatorIdentitySessionPort?: NavigatorIdentitySessionPort;
+  /** Stored runs (AG-sessions-01). Absent → the Postgres store on `sql`; tests without a database pass one in. */
+  readonly runStore?: RunStore;
   /** Agents schema. Absent on route stubs that never list sessions or the catalogue. */
   readonly sql?: Sql;
   /** Caller's balances. Read-only: the plan path calls `balances` and nothing else. */
@@ -366,6 +370,9 @@ function personReadProcedure() {
     return next();
   });
 }
+
+/** The `agents:execute` builder, for route modules mounted below. */
+export type ExecuteProcedure = typeof executeProcedure;
 
 export function createAgentsRouter(deps: AgentsRouterDeps) {
   const {
@@ -851,63 +858,7 @@ export function createAgentsRouter(deps: AgentsRouterDeps) {
         ),
     }),
 
-    run: router({
-      /**
-       * One metered engine call.
-       *
-       * `requestId` is supplied by the CALLER and is the anti-double-bill
-       * handle: a client that retries after a timeout reuses it, and the
-       * usage is counted once no matter how many times the request arrives.
-       */
-      complete: executeProcedure()
-        .input(
-          z.object({
-            sessionId: z.string().guid(),
-            requestId: z.string().min(8).max(200),
-            task: z.string().min(1),
-            system: z.string().max(20_000).optional(),
-            messages: z
-              .array(z.object({ role: z.enum(['user', 'assistant']), content: z.string().min(1).max(200_000) }))
-              .min(1)
-              .max(200),
-            maxOutputTokens: z.number().int().min(1).optional(),
-          }),
-        )
-        .output(
-          z.object({
-            text: z.string(),
-            inputTokens: z.number().int(),
-            outputTokens: z.number().int(),
-            cost: z.string(),
-            assetId: z.string(),
-            metered: z.boolean(),
-            action: actionOutput,
-          }),
-        )
-        .mutation(({ ctx, input }) =>
-          guard(async () => {
-            await ownedSession(input.sessionId, ctx.principal.userId);
-            const result = await runtime.think({
-              sessionId: input.sessionId,
-              requestId: input.requestId,
-              task: input.task,
-              ...(input.system ? { system: input.system } : {}),
-              messages: input.messages,
-              ...(input.maxOutputTokens === undefined ? {} : { maxOutputTokens: input.maxOutputTokens }),
-            });
-
-            return {
-              text: result.text,
-              inputTokens: result.usage.inputTokens,
-              outputTokens: result.usage.outputTokens,
-              cost: formatAmount(result.cost),
-              assetId: feeAssetId,
-              metered: result.metered,
-              action: toActionOutput(result.action),
-            };
-          }),
-        ),
-    }),
+    run: router(runRoutes(deps, { guard, executeProcedure, ownedSession })),
 
     usage: router({
       /** What the current window would cost if it settled now. Bills nothing. */
