@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import type { ScreenProps } from '../../../app/screen-types';
 import { useRoomApi, useNow, asOfOf } from '../rooms/read';
 import { RoomFrame } from '../rooms/RoomFrame';
@@ -6,7 +6,7 @@ import { Freshness, Refusal, WriteNotice } from '../rooms/RoomNotices';
 import { useRoomWriter } from '../rooms/write';
 import { EmptyState, Skeleton, Tabs, TabsList, TabsPanel, TabsTab, useSession } from '../rooms/ui';
 import { otcCopy } from './copy';
-import { useDeskStatus, usePairs, useQuoteBook } from './data';
+import { useDeskStatus, useOtcMakers, usePairs, useQuoteBook } from './data';
 import { DeskStatusStrip } from './DeskStatusStrip';
 import { AllocationTab, ExportTab, RulesTab } from './InfoTabs';
 import { lifecycleOf, operationOf, verdictOf } from './model';
@@ -30,6 +30,17 @@ function Room({ linkedId }: { linkedId: string | null }) {
   const now = useNow(1000);
   const desk = useDeskStatus(api);
   const pairs = usePairs(api);
+  const makers = useOtcMakers(api);
+  const [providers, setProviders] = useState<string[]>([]);
+  // The providers each quote asked, so a re-price asks the same ones whatever the form shows now.
+  const [askedBy, setAskedBy] = useState<Readonly<Record<string, string[]>>>({});
+  const listed = makers.status === 'ready' ? makers.data.makers.map((m) => m.id).join('\n') : null;
+  // A provider the owner took off the list leaves the pick: it has no box left to untick.
+  useEffect(() => {
+    if (listed === null) return;
+    const ids = listed.split('\n');
+    setProviders((pick) => (pick.every((id) => ids.includes(id)) ? pick : pick.filter((id) => ids.includes(id))));
+  }, [listed]);
   const [selected, setSelected] = useState<string | null>(linkedId);
   const [tab, setTab] = useState<Tab>('quotes');
   const [checkNote, setCheckNote] = useState<string | null>(null);
@@ -90,7 +101,11 @@ function Room({ linkedId }: { linkedId: string | null }) {
             writer={writer}
             desk={desk}
             pairs={pairs}
-            onQuote={(quote) => {
+            makers={makers}
+            picked={providers}
+            onPick={setProviders}
+            onQuote={(quote, asked) => {
+              setAskedBy((all) => ({ ...all, [quote.quoteId]: asked }));
               setKept(book.adopt(quote));
               setSelected(quote.quoteId);
               setTab('quotes');
@@ -141,8 +156,11 @@ function Room({ linkedId }: { linkedId: string | null }) {
                   quote={entry.quote}
                   readAt={entry.readAt}
                   now={now}
+                  providers={askedBy[entry.quote.quoteId] ?? providers}
                   onCheck={check}
                   onQuote={(quote, options) => {
+                    const asked = options?.asked;
+                    if (asked) setAskedBy((all) => ({ ...all, [quote.quoteId]: asked }));
                     const kept = book.adopt(quote);
                     if (options?.select) {
                       setKept(kept);

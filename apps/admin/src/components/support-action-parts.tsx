@@ -16,7 +16,7 @@ export function Failed({ name, part }: { name: string; part: Extract<Part<unknow
 }
 
 /** What svc-support said back to a write. A success is only ever the service's own sentence; a refusal says whether anything changed. */
-export function ActionOutcome({ reply, testId }: { reply: ActionReply | null; testId: string }) {
+export function ActionOutcome({ reply, testId, children }: { reply: ActionReply | null; testId: string; children?: ReactNode }) {
   if (!reply) return null;
   if (reply.ok) {
     return (
@@ -32,11 +32,13 @@ export function ActionOutcome({ reply, testId }: { reply: ActionReply | null; te
       className="adm-callout"
       role="alert"
       data-testid={testId}
+      data-code={r.code ?? undefined}
       data-tone={r.title === SUPPORT_OPS_FORBIDDEN ? 'warn' : r.changed === 'unknown' ? 'warn' : 'danger'}
     >
       <strong>{r.title}</strong>
       <p>{r.body}</p>
       <p>{r.next}</p>
+      {children}
     </div>
   );
 }

@@ -1,0 +1,21 @@
+/* The app resets native inputs to appearance: none, which leaves a radio with no size: the rig's mode keeps the browser's own. */
+.mining-mode-choice {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--if-space-3);
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.mining-mode-choice label {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--if-space-1-5);
+}
+.mining-mode-choice input[type='radio'] {
+  appearance: auto;
+  flex: none;
+  width: 0.875rem;
+  height: 0.875rem;
+  margin: 0;
+}
