@@ -12,11 +12,10 @@ import { tableIn } from './tables.mjs';
 // Steps that are written but not built yet fail at their first missing part, quickly (UNBUILT):
 // - #1, #2: /developers/authentication publishes no test vector, a trade key gets no signing secret at creation, and the
 //   timestamp window is a constant, not an owner value (DV-auth-01).
-// - #3: svc-trade's 400 lists every bad field with a docs link; #3 needs svc-edge request ids (branch developer-edge-errors).
 // - #4: errors carry no request id in the body (DV-errors-01, svc-edge).
 // - #5: no catalogue of auth and permission codes at /developers/errors/auth (DV-errors-02).
-// - #6: svc-trade refuses a money call posting_frozen (400, refused before the engine); the stack tool that turns
-//   the freeze on and off (`local-test-gates.mjs posting-freeze on|off`) is on branch developer-gates-posting-freeze.
+// #3 and #6 are built: svc-trade's 400 lists every bad field, and `local-test-gates.mjs posting-freeze on|off` moves
+// the ledger's posting freeze with the founder pair.
 // - #7: replies carry `x-request-id` only on rate-limit refusals, and no received or sent time (RC-developer-03).
 // #6 runs last: it freezes the account.
 const J = 'J-developer-04';
@@ -125,16 +124,28 @@ test(`${J} #2 sends a timestamp just outside the owner window: the stale code; a
 
 test(`${J} #3 sends a request with two invalid fields: one typed body listing both, with a request id and a docs link`, async () => {
   const { trade } = run.read();
+  const clientOrderId = `jd04-${RUN}-3`;
+  const balance = await call('GET', '/api/v1/account/balance', trade);
+  expect(balance.status, JSON.stringify(balance.body)).toBe(200);
   const reply = await call('POST', '/api/v1/orders', {
     ...trade,
-    body: { symbol: 'BTC/USDT', type: 'limit', side: 'sideways', amount: '-1', price: '1', clientOrderId: `jd04-${RUN}-3` },
+    body: { symbol: 'BTC/USDT', type: 'limit', side: 'sideways', amount: '-1', price: '1', clientOrderId },
   });
-  expect(reply.status).toBe(400);
-  expect(reply.body, JSON.stringify(reply.body)).toMatchObject({ code: expect.any(String), message: expect.any(String) });
-  expect(reply.body.requestId).toBeTruthy();
-  expect(reply.body.docs).toMatch(/\/developers\/errors/);
+  // One typed body: the exchange code, the service's own code, and one entry per bad field, each exactly once.
+  expect(reply.status, JSON.stringify(reply.body)).toBe(400);
+  expect(reply.body).toMatchObject({ code: 'InvalidOrder', intafacedCode: 'trade.validation_failed', message: expect.any(String) });
   const fields = (reply.body.errors ?? []).map((error) => error.field).sort();
   expect(fields).toEqual(['amount', 'side']);
+  // The request id in the body is the one Edge put on the reply's header; the docs link names the error page.
+  expect(reply.body.requestId).toBeTruthy();
+  expect(reply.body.requestId).toBe(reply.headers.get('x-request-id'));
+  expect(reply.body.docs).toMatch(/^\/developers\/errors\b/);
+  // Refused, so nothing was placed and nothing was held.
+  const placed = await call('GET', `/api/v1/orders/by-client-id/${clientOrderId}?symbol=BTC/USDT`, trade);
+  expect(placed.status, JSON.stringify(placed.body)).toBe(404);
+  expect(placed.body?.intafacedCode).toBe('trade.order_not_found');
+  const after = await call('GET', '/api/v1/account/balance', trade);
+  expect(after.body?.balances).toEqual(balance.body?.balances);
 });
 
 test(`${J} #4 provokes a gateway refusal and a service error: the edge prefix tells them apart`, async () => {
@@ -206,9 +217,19 @@ test(`${J} #6 calls from a frozen account, then a money call during the platform
   let failed;
   try {
     const order = { symbol: 'BTC/USDT', type: 'limit', side: 'buy', amount: '0.001', price: '1', clientOrderId: `jd04-${RUN}-6` };
+    const before = await call('GET', '/api/v1/account/balance', trade);
+    expect(before.status, JSON.stringify(before.body)).toBe(200);
     const money = await call('POST', '/api/v1/orders', { ...trade, body: order });
-    expect(money.body?.intafacedCode, JSON.stringify(money.body)).toBe('posting_frozen');
-    expect((await call('GET', '/api/v1/account/balance', trade)).status).toBe(200);
+    // Refused before the engine: a 400 the client may correct by waiting, named for the ledger's freeze.
+    expect(money.status, JSON.stringify(money.body)).toBe(400);
+    expect(money.body).toMatchObject({ code: 'OnMaintenance', intafacedCode: 'posting_frozen' });
+    // A read still works, and the refused order held nothing and does not exist.
+    const read = await call('GET', '/api/v1/account/balance', trade);
+    expect(read.status, JSON.stringify(read.body)).toBe(200);
+    expect(read.body?.balances).toEqual(before.body?.balances);
+    const placed = await call('GET', `/api/v1/orders/by-client-id/${order.clientOrderId}?symbol=BTC/USDT`, trade);
+    expect(placed.status, JSON.stringify(placed.body)).toBe(404);
+    expect(placed.body?.intafacedCode).toBe('trade.order_not_found');
   } catch (error) {
     failed = error;
   }
@@ -221,6 +242,14 @@ test(`${J} #6 calls from a frozen account, then a money call during the platform
   }
   if (failed) throw failed;
   await staffFreeze(who);
+  // The account freeze (svc-identity), not the posting freeze (svc-ledger): a read and a money call both name it.
   const frozen = await call('GET', '/api/v1/account/balance', trade);
-  expect(codeOf(frozen), JSON.stringify(frozen.body)).toBe('account_frozen');
+  expect(frozen.status, JSON.stringify(frozen.body)).toBe(403);
+  expect(codeOf(frozen)).toBe('account_frozen');
+  const frozenMoney = await call('POST', '/api/v1/orders', {
+    ...trade,
+    body: { symbol: 'BTC/USDT', type: 'limit', side: 'buy', amount: '0.001', price: '1', clientOrderId: `jd04-${RUN}-6b` },
+  });
+  expect(frozenMoney.status, JSON.stringify(frozenMoney.body)).toBe(403);
+  expect(codeOf(frozenMoney)).toBe('account_frozen');
 });
