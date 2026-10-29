@@ -46,12 +46,15 @@ async function drawnCloses() {
   return closes;
 }
 
-/** Waits until a study's legend row shows the value worked from the closes the chart draws. */
+/**
+ * Waits until a study's legend row shows the value worked from the closes the chart draws. `work` returns the value as
+ * the legend writes it: two decimals (BTC/USDT's 0.01 tick), rounded half away from zero (studies/math.ts formatAt).
+ */
 async function expectWorked(page, id, work) {
   await expect
     .poll(
       async () => {
-        const expected = work(await drawnCloses()).toFixed(2);
+        const expected = work(await drawnCloses());
         return (await row(page, id).innerText()).includes(expected);
       },
       { timeout: 30_000, message: `the ${id} legend never showed the value worked from the drawn bars` },
@@ -77,8 +80,20 @@ const legend = (page) => page.getByTestId('study-legend');
 const row = (page, id) => page.locator(`[data-study="${id}"]`);
 const host = (page) => page.getByTestId('cw').getByTestId('wc-host');
 
-/** A simple moving average of the closes, worked from the formula: the mean of the last `period` closes. */
-const sma = (closes, period) => closes.slice(-period).reduce((a, b) => a + b, 0) / period;
+/**
+ * A simple moving average of the closes, worked from the formula: the mean of the last `period` closes, in exact whole
+ * cents and rounded half away from zero, as the legend writes it. A mean of 20 two-decimal closes lands exactly on a half
+ * cent once in 20 windows; a binary `toFixed(2)` of that mean rounds about half of those down (64909.635 -> "64909.63")
+ * while the legend rounds the half up ("64909.64"), and with the market quiet the two stayed a cent apart for the whole
+ * poll. Worked in whole cents, the expected value does not depend on where the binary sum happens to land.
+ */
+function sma(closes, period) {
+  const sum = closes.slice(-period).reduce((a, b) => a + BigInt(Math.round(b * 100)), 0n);
+  const cents = (2n * sum + BigInt(period)) / (2n * BigInt(period));
+  return `${cents / 100n}.${String(cents % 100n).padStart(2, '0')}`;
+}
+/** A worked value as the legend writes it at BTC/USDT's 0.01 tick: half away from zero, the tie decided in decimal. */
+const twoDecimals = (value) => (Math.round(Number((value * 100).toPrecision(15))) / 100).toFixed(2);
 /** EMA seeded with the SMA of the first `period` closes, then a = 2 / (period + 1). */
 function ema(closes, period) {
   const a = 2 / (period + 1);
@@ -140,7 +155,7 @@ test('J-charts-desk-03 #3 adds EMA(20), Volume, MACD, Stochastic, Bollinger and 
   expect(rows.length).toBeGreaterThanOrEqual(BAR_LIMIT);
   // The legend reads the last bar. EMA(20) is worked on the closes the chart draws (quiet intervals forward-filled).
   await page.getByRole('checkbox', { name: 'Legend always shown' }).check();
-  await expectWorked(page, 'ema-1', (closes) => ema(closes, 20));
+  await expectWorked(page, 'ema-1', (closes) => twoDecimals(ema(closes, 20)));
   await expect(legend(page)).not.toContainText('This market has no volume in the loaded bars.');
 });
 
