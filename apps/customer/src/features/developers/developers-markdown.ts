@@ -11,14 +11,14 @@ import { connectivityEndpointsLabel, connectivityStateLabel, dataTermLabel } fro
 import { AUDIENCES, DATA_PRODUCTS, DATA_TERMS, SECTIONS, connectivityOptions, hostRows, type Section } from './developers-model';
 import {
   CALL_COST,
-  NEVER_ON_A_KEY,
+  neverOnAKeyTable,
   PRODUCTS,
   REST_REFERENCE,
   STREAM_DOOR_PATH,
   STREAM_REFERENCE,
   permissionTable,
   routeLine,
-  scopeFor,
+  scopeText,
   streamName,
 } from './developers-reference';
 
@@ -109,8 +109,12 @@ export const DOCS_PAGES: readonly DocsPage[] = [
                     [docs('colRoute'), docs('colName'), docs('colPermission')],
                     routes.map((route) => [
                       code(routeLine(route)),
-                      code(route.name),
-                      route.anonymous ? docs('publicRoute', { scope: scopeFor(route.method) }) : scopeFor(route.method),
+                      code(route.name) + (route.onlyWithFuturesMatching ? ` · ${docs('onlyWithMatching')}` : ''),
+                      route.access === 'public'
+                        ? docs('publicRoute', { scope: scopeText(route) })
+                        : route.access === 'internal'
+                          ? docs('internalRoute')
+                          : scopeText(route),
                     ]),
                   ),
                 ]
@@ -144,7 +148,12 @@ export const DOCS_PAGES: readonly DocsPage[] = [
           [docs('colScope'), docs('colEndpoints')],
           [
             ...permissionTable().map((row) => [code(row.scope), row.routes.map((route) => code(routeLine(route))).join(', ')]),
-            ...NEVER_ON_A_KEY.map((scope) => [code(scope), docs('neverOnKey')]),
+            ...neverOnAKeyTable().map((row) => [
+              code(row.scope),
+              row.routes.length > 0
+                ? `${docs('neverOnKeyStaff')} ${row.routes.map((route) => code(routeLine(route))).join(', ')}`
+                : docs('neverOnKey'),
+            ]),
           ],
         ),
       ].join('\n\n'),

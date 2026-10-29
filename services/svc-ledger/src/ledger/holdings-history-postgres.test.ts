@@ -33,6 +33,9 @@ const TAKER = '91111111-1111-4111-8111-111111111111';
 const MAKER = '92222222-2222-4222-8222-222222222222';
 const TAKER_ORDER = 'e1111111-1111-4111-8111-e11111111111';
 const MAKER_ORDER = 'e2222222-2222-4222-8222-e22222222222';
+const BB_PAYER = '95555555-5555-4555-8555-555555555555';
+const BB_MAKER = '94444444-4444-4444-8444-444444444444';
+const BB_ASK = 'e3333333-3333-4333-8333-e33333333333';
 
 async function openAdmin(): Promise<{ url: string; stop: () => Promise<void> }> {
   const envUrl = process.env.TEST_DATABASE_URL?.trim();
@@ -120,6 +123,32 @@ describe('PostgresLedger.holdingsHistory', () => {
       });
     await engine.post(send('hh-t-in', MAKER, TAKER));
     await engine.post(send('hh-t-back', TAKER, MAKER));
+    // The token buyback buys 0.5 BTC for 300 USDT from BB_MAKER's ask at a 10 bps maker fee (TEST amounts).
+    await engine.post(
+      recipes.deposit({ userId: BB_PAYER, assetId: 'USDT', amount: amt('300'), rail: 'crypto-native', railRef: 'hh-bb-fee' }),
+    );
+    await engine.post(
+      recipes.feeCharge({ chargeId: 'hh-bb-fee', userId: BB_PAYER, module: 'trade', mode: 'asset', assetId: 'USDT', amount: amt('300') }),
+    );
+    await engine.post(
+      recipes.sweepFeesToRewards({ windowId: 'buyback:hh-bb', sourceModule: 'trade', assetId: 'USDT', amount: amt('300') }),
+    );
+    await engine.post(recipes.buybackOrderHold({ orderId: 'hh-bb-order', quoteAsset: 'USDT', amount: amt('300') }));
+    await engine.post(recipes.deposit({ userId: BB_MAKER, assetId: 'BTC', amount: amt('1'), rail: 'crypto-native', railRef: 'hh-bb-btc' }));
+    await engine.post(recipes.orderHold({ orderId: BB_ASK, userId: BB_MAKER, assetId: 'BTC', amount: amt('0.5') }));
+    await engine.post(
+      recipes.buybackTakerFill({
+        fillId: 'hh-bb-fill',
+        makerId: BB_MAKER,
+        makerOrderId: BB_ASK,
+        takerOrderId: 'hh-bb-order',
+        baseAsset: 'BTC',
+        quoteAsset: 'USDT',
+        qty: amt('0.5'),
+        quoteAmount: amt('300'),
+        makerFeeBps: 10,
+      }),
+    );
   }, 120_000);
 
   afterAll(async () => {
@@ -188,6 +217,15 @@ describe('PostgresLedger.holdingsHistory', () => {
     const got = await read(TAKER);
     for (const m of got.movements)
       if (!(m.assetId === 'BTC' && m.reason === 'trade.fill')) expect(m.fee, `${m.assetId} ${m.reason}`).toBe(0n);
+  });
+
+  it('a buyback fill against a customer ask: the maker sold base and received quote less the maker fee', async () => {
+    const got = await read(BB_MAKER);
+    const flows = (assetId: string) =>
+      rowsOf(got, assetId, 'trade.fill.buyback').map((m) => [formatAmount(m.inflow), formatAmount(m.outflow), formatAmount(m.fee)]);
+    expect(flows('USDT')).toEqual([['299.7', '0', '0.3']]);
+    expect(flows('BTC')).toEqual([['0', '0.5', '0']]);
+    for (const assetId of ['USDT', 'BTC']) expect(heldOf(got, assetId) - netOf(got, assetId), assetId).toBe(0n);
   });
 
   it('never answers with another owner: the maker side of the same fill stays out', async () => {
