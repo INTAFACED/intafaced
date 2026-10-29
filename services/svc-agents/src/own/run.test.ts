@@ -75,7 +75,7 @@ const ASK = 'TEST question';
 const INSTRUCTIONS = 'Answer TEST questions.';
 /** The worst case of one run of the agent below: its instructions and the ask, at the route's output ceiling. */
 const WORST: Amount = usageCost(
-  { inputTokens: estimateInputTokens(INSTRUCTIONS, [{ role: 'user', content: ASK }]), outputTokens: 2048 },
+  { inputTokens: estimateInputTokens(INSTRUCTIONS, [{ content: ASK }]), outputTokens: 2048 },
   TABLE.routes[0]!.price!,
 );
 
@@ -94,7 +94,7 @@ if (!available) {
   await assertTestDatabase(sql, 'svc-agents');
   let lockConn: Awaited<ReturnType<typeof sql.reserve>>;
 
-  let balance: Amount | null;
+  let balance: Amount;
   let calls: number;
   let delayMs: number;
 
