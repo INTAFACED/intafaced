@@ -4,6 +4,7 @@ import { EDGE, json, journeyState, staffFreeze, tool } from './stack.mjs';
 import { signIn, signUp, verify } from './desk.mjs';
 import { PASSKEY_ORIGIN, addPasskey, virtualAuthenticator } from './identity-factors.mjs';
 import { tableIn } from './tables.mjs';
+import { blankSigningWindow, signingPolicy } from './developer.mjs';
 
 // J-developer-04, in the running app (docs/roadmap/journeys.json): sign requests and understand the errors that come
 // back. One test per step, titled "J-developer-04 #<n>". The person is a TEST account on the local stack with a passkey
@@ -70,13 +71,6 @@ async function call(
 
 const codeOf = (reply) => reply.body?.code ?? reply.body?.error?.code;
 
-/** The running identity service's published signing policy: the owner's window and the TEST vector its own signer made. */
-async function signingPolicy() {
-  const reply = await json(await fetch(`${EDGE}/api/identity/trpc/requestSigningPolicy`));
-  expect(reply.status, JSON.stringify(reply.body)).toBe(200);
-  return reply.body.result.data;
-}
-
 /** The account's balance as the trade key reads it, to show a refused call changed and held nothing. */
 async function balance(trade) {
   const reply = await call('GET', '/api/v1/account/balance', trade);
@@ -84,19 +78,6 @@ async function balance(trade) {
   // The clock fields change on every read; the amounts must not.
   const { serverTime, timestamp, datetime, ...amounts } = reply.body;
   return amounts;
-}
-
-/** Identity restarted with the request-signing window blank (as production is until the owner sets it), or back on the stack's TEST value. */
-function blankSigningWindow(blank) {
-  const before = process.env.LOCAL_STACK_IDENTITY_REQUEST_SIGN_WINDOW;
-  if (blank) process.env.LOCAL_STACK_IDENTITY_REQUEST_SIGN_WINDOW = 'off';
-  else delete process.env.LOCAL_STACK_IDENTITY_REQUEST_SIGN_WINDOW;
-  try {
-    tool('local-test-stack.mjs', 'restart', 'identity');
-  } finally {
-    if (before === undefined) delete process.env.LOCAL_STACK_IDENTITY_REQUEST_SIGN_WINDOW;
-    else process.env.LOCAL_STACK_IDENTITY_REQUEST_SIGN_WINDOW = before;
-  }
 }
 
 test.beforeAll(async ({ browser }) => {

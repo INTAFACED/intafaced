@@ -9,7 +9,6 @@ import { DOCS_PAGES, llmsTxt, markdownOf } from './developers-markdown';
 import {
   CALL_COST,
   REST_REFERENCE,
-  SIGN_WINDOW_SECONDS,
   STREAM_REFERENCE,
   openApiDocument,
   permissionTable,
@@ -92,14 +91,16 @@ describe('the published route list matches what the services really mount', () =
     expect(STREAM_REFERENCE.map(({ channel, private: isPrivate }) => ({ channel, private: isPrivate }))).toEqual(channels);
   });
 
-  it('states the scope rule, the call cost and the signing window the edge enforces', () => {
+  it('states the scope rule and the call cost the edge enforces, and reads the signing window from identity', () => {
     const gateway = repo('services/svc-edge/src/gateway-plane.ts');
     expect(gateway).toMatch(/const write = verb !== 'GET' && verb !== 'HEAD' && verb !== 'OPTIONS';/);
     expect(gateway).toMatch(/if \(door === 'trade'\) return write \? 'trade:write' : 'trade:read';/);
     expect(gateway).toContain("PERMISSION_TABLE_DOCS = '/developers/permissions'");
     expect(repo('services/svc-edge/src/hardening.ts')).toContain(`export const EDGE_RATE_COST = ${CALL_COST} as const;`);
-    for (const file of ['services/svc-edge/src/api-key-request-sign.ts', 'services/svc-identity/src/auth/api-key-request-sign.ts'])
-      expect(repo(file)).toContain(`export const REQUEST_SIGN_WINDOW_SECONDS = ${SIGN_WINDOW_SECONDS};`);
+    // The window is an owner value identity publishes: the pages read it live and never hold a number of their own.
+    expect(repo('services/svc-identity/src/auth/api-key-request-sign.ts')).not.toMatch(/REQUEST_SIGN_WINDOW_SECONDS = \d/);
+    expect(repo('apps/customer/src/features/developers/developers-signing.ts')).toContain("'requestSigningPolicy'");
+    expect(repo('apps/customer/src/features/developers/developers-reference.ts')).not.toMatch(/WINDOW_SECONDS = \d/);
   });
 
   it('names only refusals the capability matrix has, at its status', () => {

@@ -1,6 +1,6 @@
 import { createHash, createHmac, randomUUID } from 'node:crypto';
 import { expect } from '@playwright/test';
-import { EDGE, ORIGIN, journeyState } from './stack.mjs';
+import { EDGE, ORIGIN, journeyState, json, tool } from './stack.mjs';
 import { signIn, signUp, verify } from './desk.mjs';
 import { PASSKEY_ORIGIN, addPasskey, virtualAuthenticator } from './identity-factors.mjs';
 
@@ -90,3 +90,23 @@ export async function withKey(key, { method = 'GET', path, body, headers = {} })
 }
 
 export const codeOf = (body) => body?.error?.data?.code ?? body?.error?.code ?? body?.code;
+
+/** The running identity service's published signing policy: the owner's window and the TEST vector its own signer made. */
+export async function signingPolicy() {
+  const reply = await json(await fetch(`${EDGE}/api/identity/trpc/requestSigningPolicy`));
+  expect(reply.status, JSON.stringify(reply.body)).toBe(200);
+  return reply.body.result.data;
+}
+
+/** Identity restarted with the request-signing window blank (as production is until the owner sets it), or back on the stack's TEST value. */
+export function blankSigningWindow(blank) {
+  const before = process.env.LOCAL_STACK_IDENTITY_REQUEST_SIGN_WINDOW;
+  if (blank) process.env.LOCAL_STACK_IDENTITY_REQUEST_SIGN_WINDOW = 'off';
+  else delete process.env.LOCAL_STACK_IDENTITY_REQUEST_SIGN_WINDOW;
+  try {
+    tool('local-test-stack.mjs', 'restart', 'identity');
+  } finally {
+    if (before === undefined) delete process.env.LOCAL_STACK_IDENTITY_REQUEST_SIGN_WINDOW;
+    else process.env.LOCAL_STACK_IDENTITY_REQUEST_SIGN_WINDOW = before;
+  }
+}

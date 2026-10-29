@@ -3,13 +3,13 @@ import { EDGE, api, json, journeyState, tool, toUnits } from './stack.mjs';
 import { signIn, signUp, verify } from './desk.mjs';
 import { PASSKEY_ORIGIN, addPasskey, virtualAuthenticator } from './identity-factors.mjs';
 import { tableIn, bodyRows } from './tables.mjs';
+import { blankSigningWindow, signingPolicy } from './developer.mjs';
 
 // J-developer-02, in the running app (docs/roadmap/journeys.json): make a first call in the sandbox. One test per step,
 // titled "J-developer-02 #<n>". The person is a TEST account on the local stack, signed in, with a passkey for each fresh
 // step-up (as in J-developer-03) and no keys yet. Sandbox funds are TEST and never reach the live ledger, which the steps
 // check by reading the live balance before and after.
 // Steps that are written but not built yet fail at their first missing part, quickly (UNBUILT):
-// - #6: the clock check measures against the edge's fixed signing window, not an owner-set one (DV-auth-01).
 // - #2, #3: no named sandboxes at /developers/sandbox and no sandbox key with an environment rule (DV-sandbox-01).
 // - #4, #5, #8: no sandbox funds, reset cap or test values (DV-sandbox-02). The stack starts with the funding decision
 //   unset; #5 sets a TEST value with `local-test-gates.mjs sandbox-funds set` (proposed, not built).
@@ -136,11 +136,30 @@ test(`${J} #5 funds the sandbox once the decision is set: the sandbox balance ri
 });
 
 test(`${J} #6 runs the clock check: the offset against the server, and within the owner's window it passes`, async () => {
+  const { windowSeconds } = await signingPolicy();
+  expect(windowSeconds, "the stack's TEST window is set").toEqual(expect.any(Number));
   await page.goto('/developers/quickstart');
-  await page.getByRole('button', { name: 'Check my clock' }).click(UNBUILT);
+  await page.getByRole('button', { name: 'Check my clock' }).click();
   const result = page.getByTestId('developers-clock-check');
   await expect(result).toContainText(/Offset\s*-?\d+ ms/);
+  // The window the page judged against is the one identity publishes, and the offset it shows is inside it.
+  await expect(result).toHaveAttribute('data-window-seconds', String(windowSeconds));
+  expect(Math.abs(Number(await result.getAttribute('data-offset-ms')))).toBeLessThanOrEqual(windowSeconds * 1000);
+  await expect(result).toHaveAttribute('data-clock-window', 'within');
   await expect(result).toContainText('Within the window');
+
+  // While the owner's window is blank the check does not pass: it names the refusal every signed call would get.
+  blankSigningWindow(true);
+  try {
+    expect((await signingPolicy()).windowSeconds).toBeNull();
+    await page.reload();
+    await page.getByRole('button', { name: 'Check my clock' }).click();
+    await expect(result).toHaveAttribute('data-clock-window', 'unset');
+    await expect(result).toContainText('auth.request_window_unset');
+    await expect(result).not.toContainText('Within the window');
+  } finally {
+    blankSigningWindow(false);
+  }
 });
 
 test(`${J} #7 sends the first signed call: success in the sandbox, and the same key at the live host is refused with the environment mismatch code`, async () => {
