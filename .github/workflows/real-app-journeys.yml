@@ -1,8 +1,8 @@
 # Journeys in the running app (apps/customer/tests/real-app): the local test stack built from main, the customer app
-# in Chromium, nothing mocked. Runs after merge (push to main) and on workflow_dispatch, never on pull requests, and is
-# not a required check. Main trust's post-merge job compares its steps run to run (tooling/ci/post-merge-trust.mjs), so a
-# journey that does not pass yet opens no issue; the run goes red and the summary shows the scoreboard from
-# `roadmap.mjs --progress --results`.
+# in Chromium, nothing mocked. Runs after merge (push to main), once a day on main's newest commit, and on
+# workflow_dispatch, never on pull requests, and is not a required check. Main trust's post-merge job compares its
+# steps run to run (tooling/ci/post-merge-trust.mjs), so a journey that does not pass yet opens no issue; the run goes
+# red and the summary shows the scoreboard from `roadmap.mjs --progress --results`.
 #
 # The journeys run in shards, each on its own fresh stack, and one job merges the shards' reports into the scoreboard.
 # (Failure it prevents: one job running every journey hit its 45-minute limit from 23 Oct 02:26 UTC, runs 122, 140 and
@@ -13,6 +13,12 @@ name: Real-app journeys
 
 on:
   workflow_dispatch:
+  # One full run a day on main's newest commit, even on a day nothing merges under the paths below, so a finished run
+  # is never more than about a day old (#6416). It starts about three hours before the 00:00 UTC daily line, so it has
+  # usually finished by then even when it waits behind a push run. On the same commit as the run before it, a step
+  # that flips is a flake, which Main trust's issue then says.
+  schedule:
+    - cron: '43 20 * * *'
   push:
     branches: [main]
     paths:

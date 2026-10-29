@@ -126,7 +126,7 @@ export function refusalSentence(code: string | null, campaign: Campaign | null, 
       return 'This revision was approved by another founder, or you wrote or asked for it: another founder must approve it.';
     }
     case 'campaign.archive_active':
-      return 'An active campaign cannot be archived. A scheduled one counts as active, because customers already see it: end it first.';
+      return 'An active campaign cannot be archived. A scheduled or paused one counts as active, because customers can still see it: end it first.';
     case 'campaign.not_draft':
       return 'A campaign that waits for its first approval, or has ended, is not edited.';
     case 'campaign.type_locked':

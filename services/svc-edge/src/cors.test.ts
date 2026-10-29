@@ -548,10 +548,25 @@ describe('deliberately closed', () => {
     expect(res.headers['access-control-allow-origin']).toBeUndefined();
   });
 
-  it('exposes no response headers to a browser', async () => {
+  // RC-developer-03 re-took this decision: exactly the request id and the two server times, nothing else,
+  // and only to an origin that may read the reply at all.
+  it('exposes exactly the request id and the two server times to an allowed origin, on answers and on refusals', async () => {
     const { app } = await edge();
-    const res = await app.inject({ method: 'GET', url: '/api/v1/markets', headers: { origin: APP } });
-    expect(res.headers['access-control-expose-headers']).toBeUndefined();
+    for (const url of ['/api/v1/markets', '/api/does-not-exist']) {
+      const res = await app.inject({ method: 'GET', url, headers: { origin: APP } });
+      expect(res.headers['access-control-expose-headers']).toBe('x-request-id, x-server-received, x-server-sent');
+    }
+  });
+
+  it('exposes nothing to a disallowed origin, to a caller with no origin, on a preflight, or on /admin/*', async () => {
+    const { app } = await edge();
+    const answers = [
+      await app.inject({ method: 'GET', url: '/api/v1/markets', headers: { origin: EVIL } }),
+      await app.inject({ method: 'GET', url: '/api/v1/markets' }),
+      await preflight(app, '/api/v1/markets', APP),
+      await app.inject({ method: 'GET', url: '/admin/kill-switches', headers: { origin: APP } }),
+    ];
+    for (const res of answers) expect(res.headers['access-control-expose-headers']).toBeUndefined();
   });
 });
 
