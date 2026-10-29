@@ -457,11 +457,7 @@ export async function listReconciliationEvaluations(sql: Sql, input: unknown): P
   // hand the last evaluation back on every read. It is bound as text, because the driver turns a timestamptz parameter
   // into a JavaScript Date and drops the microseconds.
   const rows = await sql<Array<RunRow & { finished_iso: string; severity: ControlRow['severity'] }>>`
-    SELECT ${sql.unsafe(
-      RUN_COLUMNS.split(',')
-        .map((column) => `r.${column.trim()}`)
-        .join(', '),
-    )},
+    SELECT ${sql.unsafe(RUN_COLUMNS_AS_R)},
            to_char(r.finished_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS finished_iso,
            c.severity
       FROM reconciliation_control_runs r
