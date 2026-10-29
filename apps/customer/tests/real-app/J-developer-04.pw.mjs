@@ -1,7 +1,7 @@
 import { createHash, createHmac, randomUUID } from 'node:crypto';
 import { test, expect } from '@playwright/test';
-import { EDGE, json, journeyState, staffFreeze, tool } from './stack.mjs';
-import { signIn, signUp, verify } from './desk.mjs';
+import { EDGE, fund, json, journeyState, staffFreeze, tool } from './stack.mjs';
+import { awayBid, signIn, signUp, verify } from './desk.mjs';
 import { PASSKEY_ORIGIN, addPasskey, virtualAuthenticator } from './identity-factors.mjs';
 import { tableIn } from './tables.mjs';
 
@@ -212,11 +212,20 @@ test(`${J} #7 reads the response headers: the request id and the server's receiv
 test(`${J} #6 calls from a frozen account, then a money call during the platform posting freeze: account_frozen, then posting_frozen while a read still works`, async () => {
   test.setTimeout(180_000);
   const { who, trade } = run.read();
+  // A buy the account can pay for and the market accepts, resting under the book: only the freeze can refuse it.
+  expect(fund(who.email, 'USDT', '1000').tx).toBeTruthy();
+  const order = {
+    symbol: 'BTC/USDT',
+    type: 'limit',
+    side: 'buy',
+    amount: '0.001',
+    price: await awayBid(90),
+    clientOrderId: `jd04-${RUN}-6`,
+  };
   // The platform posting freeze first, so the account is still open: a money call is refused, a read still works.
   tool('local-test-gates.mjs', 'posting-freeze', 'on');
   let failed;
   try {
-    const order = { symbol: 'BTC/USDT', type: 'limit', side: 'buy', amount: '0.001', price: '1', clientOrderId: `jd04-${RUN}-6` };
     const before = await call('GET', '/api/v1/account/balance', trade);
     expect(before.status, JSON.stringify(before.body)).toBe(200);
     const money = await call('POST', '/api/v1/orders', { ...trade, body: order });
@@ -248,7 +257,7 @@ test(`${J} #6 calls from a frozen account, then a money call during the platform
   expect(codeOf(frozen)).toBe('account_frozen');
   const frozenMoney = await call('POST', '/api/v1/orders', {
     ...trade,
-    body: { symbol: 'BTC/USDT', type: 'limit', side: 'buy', amount: '0.001', price: '1', clientOrderId: `jd04-${RUN}-6b` },
+    body: { ...order, clientOrderId: `jd04-${RUN}-6b` },
   });
   expect(frozenMoney.status, JSON.stringify(frozenMoney.body)).toBe(403);
   expect(codeOf(frozenMoney)).toBe('account_frozen');
