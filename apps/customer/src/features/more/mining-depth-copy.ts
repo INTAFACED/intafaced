@@ -76,7 +76,8 @@ const en = {
   rosterAdded: 'Added',
   rosterNoShares: 'No accepted shares in this window',
   workersEmpty: 'You have no workers yet',
-  workersEmptyBody: 'Workers the pool lists for you appear here.',
+  workersEmptyBody:
+    'A worker appears here when your rig sends its first accepted share. A share with no worker name goes to the worker named default.',
   workersNote:
     'Weight adds up the accepted share weights in the window. It isn’t hashes per second, because the pool publishes no such unit.',
   sharesByWindow: 'By payout window',
@@ -192,7 +193,8 @@ const es = {
   rosterAdded: 'Añadido',
   rosterNoShares: 'Sin aportaciones aceptadas en esta ventana',
   workersEmpty: 'Aún no tienes trabajadores',
-  workersEmptyBody: 'Los trabajadores que el pool lista para ti aparecen aquí.',
+  workersEmptyBody:
+    'Un trabajador aparece aquí cuando tu equipo envía su primera aportación aceptada. Una aportación sin nombre de trabajador va al trabajador llamado default.',
   workersNote:
     'El peso suma los pesos de las aportaciones aceptadas en la ventana. No son hashes por segundo, porque el pool no publica esa unidad.',
   sharesByWindow: 'Por ventana de pago',
@@ -307,7 +309,8 @@ const fr = {
   rosterAdded: 'Ajouté',
   rosterNoShares: 'Aucune share acceptée sur cette fenêtre',
   workersEmpty: 'Tu n’as pas encore de worker',
-  workersEmptyBody: 'Les workers que le pool liste pour toi apparaissent ici.',
+  workersEmptyBody:
+    'Un worker apparaît ici quand ta machine envoie sa première share acceptée. Une share sans nom de worker va au worker nommé default.',
   workersNote:
     'Le poids additionne les poids des shares acceptées sur la fenêtre. Ce ne sont pas des hashes par seconde, car le pool ne publie pas cette unité.',
   sharesByWindow: 'Par fenêtre de paiement',

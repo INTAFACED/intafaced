@@ -66,6 +66,11 @@
       "value": "full",
       "note": "TEST verification level for copying: full, the level the journeys verify to, so an unverified account is refused."
     },
+    "TRADE_BOTS_VERIFICATION_LEVEL": {
+      "service": "trade",
+      "value": "full",
+      "note": "TEST verification level for creating a bot: full, the level the journeys verify to, so an unverified account is refused (trade.bots_verification_insufficient)."
+    },
     "TRADE_OTC_DESK_LAW": {
       "service": "trade",
       "value": "{\"published\": true, \"spreadBps\": 20, \"minStake\": \"100\", \"counterparty\": \"platform\", \"quoteTtlMs\": 60000, \"maxMidAgeSeconds\": 86400, \"settleWindowMs\": 60000}",
