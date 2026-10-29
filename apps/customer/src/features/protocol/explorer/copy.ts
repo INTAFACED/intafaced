@@ -33,7 +33,7 @@ const en = {
   txSuccess: 'Success',
   txReverted: 'Reverted',
   txPending: 'Pending',
-  txOutcomeUnread: 'outcome not read yet',
+  txOutcomeUnread: 'no receipt from its node',
   txDropped: 'Dropped',
   txReplaced: 'Replaced by another transaction',
   txReplacedBy: 'Replaced by {hash}',

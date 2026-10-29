@@ -98,7 +98,7 @@ describe('Chain home search', () => {
       ['not_found', 'Unrecognised network (chain 9): Not found on this network'],
       ['found', 'Unrecognised network (chain 11): Found (Pending)'],
       ['found', 'Unrecognised network (chain 13): Found (Reverted, block 4)'],
-      ['found', 'Unrecognised network (chain 15): Found (outcome not read yet, block 6)'],
+      ['found', 'Unrecognised network (chain 15): Found (no receipt from its node, block 6)'],
       ['not_checked', 'Unrecognised network (chain 17): not checked: the network’s node refused the lookup'],
     ]);
   });
