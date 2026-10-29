@@ -429,6 +429,10 @@ describe('founder admin session security boundaries', () => {
       upstream: 'auth.device_authorisation_required',
       deviceAuthorisation: waiting,
     });
+    // A wrong emailed code arrives the same way and is named, so the page can say so.
+    expect(upstreamCodeOf({ error: { message: 'That code is not valid.', data: { cause: { code: 'auth.code_invalid' } } } })).toBe(
+      'auth.code_invalid',
+    );
     // Free text in the cause is not a code either.
     expect(upstreamCodeOf({ error: { data: { cause: { code: 'refused for user 3faadae7' } } } })).toBeNull();
   });
