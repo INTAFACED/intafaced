@@ -471,8 +471,10 @@ export class AgentRuntime {
     }
 
     // 2a · Funds. A run whose worst case the person's available balance cannot cover does not start (OWNER 107): the
-    //      charge settles later, and a window nobody can pay is the outcome this check exists to prevent. A read that
-    //      fails refuses too — an unknown balance is not a covered one.
+    //      charge settles later, so this check narrows the windows nobody can pay. It reads the balance and holds
+    //      nothing in the ledger, so a withdrawal before the window seals can still leave it unpaid (it is then
+    //      retried on its charge key); a ledger hold at reserve closes that gap. A read that fails refuses too — an
+    //      unknown balance is not a covered one.
     //      With a spend gate the check runs inside its reservation instead, under the per-user lock and net of what is
     //      already owed and held (2c); this path is only for a runtime wired without one.
     if (!this.spend && this.funds && shouldMeter && worstCaseCost > 0n) {
