@@ -84,7 +84,14 @@ export function QueueFilters({ query, view, refused }: { query: QueueQuery; view
   }
 
   const counts = views?.counts.kind === 'ok' ? new Map(views.counts.data.map((c) => [c.viewId, c.count])) : null;
-  const canSave = query.filter !== null && !view;
+  const canSave = query.filter !== null && !view && !refused && query.q === '';
+  const cannotSave = view
+    ? 'This is a saved view already.'
+    : refused
+      ? 'svc-support refused this filter, so there is nothing to save.'
+      : query.q !== ''
+        ? 'A view saves a filter, not a search: clear the search to save it.'
+        : 'Apply a filter first; a view saves the filter applied.';
 
   return (
     <div className="dk-stack" data-testid="queue-filters">
@@ -124,11 +131,7 @@ export function QueueFilters({ query, view, refused }: { query: QueueQuery; view
         <button type="button" className="adm-btn" disabled={!canSave} onClick={() => setSaving(true)}>
           Save as view
         </button>
-        {!canSave && (
-          <span className="dk-why">
-            {view ? 'This is a saved view already.' : 'Apply a filter first; a view saves the filter applied.'}
-          </span>
-        )}
+        {!canSave && <span className="dk-why">{cannotSave}</span>}
       </form>
 
       {refused && (
@@ -188,7 +191,7 @@ export function QueueFilters({ query, view, refused }: { query: QueueQuery; view
                   </Link>
                   <span className="dk-muted">
                     {count === undefined ? 'count not read' : `${count} matching`} · {v.shared ? 'shared' : 'personal'} ·{' '}
-                    {v.ownerId === views.meId ? 'yours' : 'read-only'}
+                    {v.ownerId.toLowerCase() === views.meId.toLowerCase() ? 'yours' : 'read-only'}
                     {clause ? ` · ${clause.field} is ${clause.value}` : ''}
                   </span>
                 </li>
