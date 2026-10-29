@@ -125,6 +125,9 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, STATE, CUSTOMER_LOCALHOST_ORI
     // create in the developer room with identity.key_cap_unset). Three live keys per account on this stack, so
     // J-developer-03 can show the fourth refused.
     IDENTITY_API_KEYS_MAX_BY_TIER: 'none=3,basic=3,full=3,institutional=3',
+    // LOCAL TEST idle period for API keys (J-developer-03 #9), labelled in the same profile, never an owner decision: the
+    // key detail shows it; no dormant sweep is built, so it ends no key. Blank shows `not set`.
+    IDENTITY_API_KEY_IDLE_EXPIRY_SECONDS: testValue('IDENTITY_API_KEY_IDLE_EXPIRY_SECONDS'),
     // LOCAL TEST account tiers (J-ops-console-04 #11), labelled TEST, never an owner decision: the owner has published no
     // tiers (blank refuses every move with identity.account_tiers_unset). TEST Premier leaves its monthly fee blank on
     // purpose, so the console shows a tier that cannot be assigned (identity.tier_terms_unset).

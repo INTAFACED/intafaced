@@ -99,7 +99,12 @@ export function VerificationCapabilityRefused({ recordsKey }: { recordsKey: stri
     const stops = (resource.data?.restrictions ?? []).filter((r) => r.kind === 'capability_off' && r.blocks.length > 0);
     // Lifted or remapped since the refusal: point to where capabilities are read, never an empty list.
     return stops.length > 0 ? (
-      <RestrictionList restrictions={stops} />
+      <>
+        <p id="verification-capability-refused-list">
+          <Copy k="capabilityRefusedList" />
+        </p>
+        <RestrictionList restrictions={stops} labelledBy="verification-capability-refused-list" />
+      </>
     ) : (
       <p>
         <Copy k="capabilitiesAbove" />

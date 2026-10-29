@@ -108,6 +108,8 @@ const messages = {
   'Each slice holds funds only when it is placed': 'Each slice holds funds only when it is placed.',
   'Ends about': 'Ends about',
   'Scheduler unknown': 'We could not read whether the slice scheduler is running, so a schedule cannot be created now.',
+  'Create off block': 'Creating schedules is switched off on this service, so a schedule cannot be created now.',
+  'Create off banner': 'Creating schedules is switched off on this service. Existing ones are shown as the service reports them.',
   'Scheduler off block': 'The slice scheduler is off. A schedule created now would sit active and place nothing.',
   'Scheduler off banner':
     'The slice scheduler is off, so new schedules will not place any slices. Existing ones are shown as the service reports them.',
