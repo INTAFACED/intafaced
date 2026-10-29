@@ -134,10 +134,13 @@ test(`${J} #1 starts onboarding and fills the business step: a saved draft that 
     await expect(createButton).toBeDisabled();
     // A TEST fee the caller names is no way round it: the service opens accounts only at the fee it publishes.
     const create = await payCall('merchant.create', { pricing: { feeBps: 250 } });
-    expect(create.status).toBeGreaterThanOrEqual(400);
+    expect(create.status).toBe(412);
     expect(create.typed).toBe('pay.starter_fee_unpublished');
     expect((await payCall('merchant.me')).data).toBeNull();
+    // The room asks before a reload drops what was typed; the owner leaves anyway, and the cleared form shows the reload ran.
+    page.once('dialog', (dialog) => dialog.accept());
     await page.reload();
+    await expect(page.getByLabel('Legal business name *')).toHaveValue('');
     await expect(page.getByText('Opening new accounts isn’t possible here. INTAFACED has not set the starting fee')).toBeVisible();
     await expect(page.getByText('Your merchant account exists.')).toHaveCount(0);
   } finally {
