@@ -167,5 +167,30 @@ if (!available) {
       // Dated today on a calendar east of UTC (already tomorrow in UTC) is accepted.
       await expect(send(userId, { issuedOn: '2026-10-28' })).resolves.toMatchObject({ issuedOn: '2026-10-28' });
     });
+
+    it('two identical sends at the same moment store one submission and one file', async () => {
+      const userId = await person();
+      const [a, b] = await Promise.all([send(userId, { issuedOn: '2026-09-02' }), send(userId, { issuedOn: '2026-09-02' })]);
+      expect(a).toEqual(b);
+      expect(await docs(userId)).toBe(1);
+      expect(await desk.listFor(userId, 10)).toHaveLength(1);
+    });
+
+    it('a document exactly at the rule is accepted all day on a calendar west of UTC', async () => {
+      const userId = await person();
+      // 20:00 in UTC-10 on 27 Oct is 06:00 UTC on 28 Oct; 90 days before 27 Oct is 29 Jul.
+      const evening = new Date('2026-10-28T06:00:00Z');
+      const at = (issuedOn: string) =>
+        desk.submit(userId, { type: 'utility_bill', country: 'DE', issuedOn, contentType: 'application/pdf', bytes: PDF }, evening);
+      await expect(at('2026-07-29')).resolves.toMatchObject({ issuedOn: '2026-07-29' });
+      await expect(at('2026-07-27')).rejects.toMatchObject({ code: 'kyc.poa_too_old' });
+    });
+
+    it('an approved level whose country is not two letters reads as asked for with the residence unknown, and is flagged', async () => {
+      const userId = await person();
+      await db.sql`UPDATE kyc_records SET jurisdiction = 'd-' WHERE user_id = ${userId}`;
+      expect(kycPoaReadSchema.parse(await desk.read(userId))).toMatchObject({ requested: true, residence: null });
+      expect((await send(userId)).countryMismatch).toBe(true);
+    });
   });
 }

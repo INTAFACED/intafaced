@@ -62,6 +62,20 @@ export type KycDocumentTypeList = ReadonlyMap<string, KycDocumentTypes['types']>
  */
 const UPLOAD_MAX_BYTES = 760 * 1024;
 const TYPE_ROW = /^[a-z][a-z0-9_]{1,63}$/;
+
+/**
+ * One row of an owner's per-country list (`{"type", "label", ...}`): a well-formed type not seen before in that country
+ * and a label of 1 to 120 characters. Shared by the ID-type and proof-of-address lists; a bad row stops the service.
+ */
+export function parseListedRow(setting: string, country: string, row: unknown, seen: Set<string>): { type: string; label: string } {
+  const r = (row && typeof row === 'object' ? row : {}) as { type?: unknown; label?: unknown };
+  if (typeof r.type !== 'string' || !TYPE_ROW.test(r.type) || seen.has(r.type))
+    throw new Error(`${setting}: ${country} has a missing, malformed or repeated type`);
+  if (typeof r.label !== 'string' || r.label.trim() === '' || r.label.length > 120)
+    throw new Error(`${setting}: ${country} ${r.type} needs a label of 1 to 120 characters`);
+  seen.add(r.type);
+  return { type: r.type, label: r.label };
+}
 const CONTENT_TYPE = /^[a-z]+\/[a-z0-9.+-]+$/;
 
 /** The owner's accepted ID types per country. Unset is none published anywhere; malformed stops the service. */
@@ -83,15 +97,10 @@ export function parseKycDocumentTypes(raw: string | undefined): KycDocumentTypeL
     out.set(
       country,
       rows.map((row: unknown) => {
-        const r = row as { type?: unknown; label?: unknown; originalRequired?: unknown };
-        if (typeof r.type !== 'string' || !TYPE_ROW.test(r.type) || seen.has(r.type))
-          throw new Error(`${setting}: ${country} has a missing, malformed or repeated type`);
-        if (typeof r.label !== 'string' || r.label.trim() === '' || r.label.length > 120)
-          throw new Error(`${setting}: ${country} ${r.type} needs a label of 1 to 120 characters`);
-        if (typeof r.originalRequired !== 'boolean')
-          throw new Error(`${setting}: ${country} ${r.type} needs originalRequired true or false`);
-        seen.add(r.type);
-        return { type: r.type, label: r.label, originalRequired: r.originalRequired };
+        const { type, label } = parseListedRow(setting, country, row, seen);
+        const originalRequired = (row as { originalRequired?: unknown }).originalRequired;
+        if (typeof originalRequired !== 'boolean') throw new Error(`${setting}: ${country} ${type} needs originalRequired true or false`);
+        return { type, label, originalRequired };
       }),
     );
   }
