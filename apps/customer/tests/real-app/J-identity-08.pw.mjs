@@ -619,8 +619,11 @@ test(`${J} #7: a trading restriction refuses a new order on the desk by name, ke
     const review = await order();
     await review.getByRole('button', { name: 'Confirm buy' }).click();
     const answer = await sent;
-    expect(answer.status()).toBe(400);
-    expect((await answer.json()).message).toBe('trade.account_restricted');
+    // A trading control's refusal is a permission refusal (403), carrying identity's one typed code.
+    expect(answer.status()).toBe(403);
+    const refusal = await answer.json();
+    expect(refusal.intafacedCode).toBe('trade.account_restricted');
+    expect(refusal.message).toBe('trade.account_restricted');
     const main = page.getByRole('main');
     await expect(main.getByText('Trading is on hold on your account')).toBeVisible();
     await expect(
