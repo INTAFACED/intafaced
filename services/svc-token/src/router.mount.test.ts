@@ -112,6 +112,11 @@ function stubToken(overrides: Partial<TokenService> = {}): TokenService {
       businessKey: null,
       authorId: null,
       revision: 1,
+      votingType: 'basic' as const,
+      choices: null,
+      snapshot: null,
+      ranking: null,
+      choiceTally: null,
       counts: { votes: 1, for: 1, against: 0, abstain: 0 },
       tally: {
         forWeight: amt('1000'),
@@ -1002,6 +1007,11 @@ describe('svc-token mount — governance close', () => {
         businessKey: null,
         authorId: null,
         revision: 1,
+        votingType: 'basic' as const,
+        choices: null,
+        snapshot: null,
+        ranking: null,
+        choiceTally: null,
         counts: { votes: 1, for: 1, against: 0, abstain: 0 },
         tally: {
           forWeight: amt('1000'),
