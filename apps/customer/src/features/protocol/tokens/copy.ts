@@ -33,6 +33,9 @@ const en = {
   hdrLiquidity: 'Liquidity',
   listBlocked:
     'No token is listed: this build has no token list to read, so nothing is ranked or searched. Blocked: the indexer has no token reader here.',
+  rankFor: '{column} ({window})',
+  searchBlocked:
+    'Only a contract address can be looked up here: searching by name or symbol needs the token list, which this build does not have.',
   howTrending: 'How trending is worked out',
   howTrendingBody:
     'Trending ranks tokens by their growth over the window you pick. The growth measure and the thresholds a token must meet are published with the token list, and this build has no token list, so no token is ranked.',
@@ -61,7 +64,7 @@ const en = {
   factMarketCap: 'Market cap',
   notAvailable: 'Not available',
   factsBlocked: 'No price, liquidity, fees or growth are shown: this build has no reader for this token’s pools and swaps.',
-  marketCapNote: 'Market cap needs a supply source and a price source, and neither is connected.',
+  marketCapNote: 'Market cap needs a supply source and a price source, and this build has neither.',
   trustTitle: 'Trust',
   trustTier: 'Trust tier',
   tierUnknown: 'unknown',
@@ -90,6 +93,8 @@ const en = {
   watchOn: 'On your watchlist',
   watchNote: 'Your watchlist is kept in this browser.',
   watchUnavailable: 'This browser is not keeping site data, so the watchlist cannot be kept here.',
+  watchNotSaved: 'Your watchlist could not be saved in this browser. Nothing was changed.',
+  watchRemove: 'Remove from watchlist',
 } as const;
 
 export const tokensCopy = defineCopy('customer.protocol.tokens', en);

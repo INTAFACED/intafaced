@@ -3,27 +3,16 @@ import { navigate } from '../../../app/location';
 import { Button, DataTable, EmptyState, Page, Panel } from '../../../shared/ui';
 import { usePreferences } from '../../../shared/preferences';
 import { protocolCopy } from '../copy';
+import { ADDRESS_SHAPE } from '../routes';
+import { BlockedRow } from './BlockedRow';
 import { TabList } from './TabList';
 import { tokensCopy, type TokensTranslate } from './copy';
-import { addToWatchlist, readWatchlist } from './storage';
+import { addToWatchlist, readWatchlist, removeFromWatchlist, type WatchlistWrite } from './storage';
 import '../protocol.css';
 import './tokens.css';
 
-const ADDRESS = /^0x[0-9a-fA-F]{40}$/;
 type Section = 'pairs' | 'holders' | 'trades';
 const SECTIONS: readonly Section[] = ['pairs', 'holders', 'trades'];
-
-function Blocked({ span, children }: { span: number; children: ReactNode }) {
-  return (
-    <tr>
-      <td colSpan={span}>
-        <div role="status" data-blocker="indexer">
-          <EmptyState title={children} />
-        </div>
-      </td>
-    </tr>
-  );
-}
 
 function Fact({ label, value, testId }: { label: string; value: ReactNode; testId?: string }) {
   return (
@@ -36,14 +25,28 @@ function Fact({ label, value, testId }: { label: string; value: ReactNode; testI
 
 function WatchButton({ address, t }: { address: string; t: TokensTranslate }) {
   const [list, setList] = useState<string[] | null>(() => readWatchlist());
-  const on = list?.includes(address.toLowerCase()) ?? false;
+  const [notSaved, setNotSaved] = useState(false);
   if (list === null) return <p className="muted">{t('watchUnavailable')}</p>;
+  const on = list.includes(address.toLowerCase());
+  const change = (write: WatchlistWrite) => {
+    if (write.ok) setList(write.list);
+    else if (write.reason === 'blocked') setList(null);
+    setNotSaved(!write.ok && write.reason === 'not_saved');
+  };
   return (
     <div className="tokens-watch">
-      <Button variant="secondary" disabled={on} onClick={() => setList(addToWatchlist(address))}>
-        {on ? t('watchOn') : t('watchAdd')}
-      </Button>
-      <span className="muted">{t('watchNote')}</span>
+      {on ? (
+        <Button variant="secondary" aria-pressed="true" title={t('watchRemove')} onClick={() => change(removeFromWatchlist(address))}>
+          {t('watchOn')}
+        </Button>
+      ) : (
+        <Button variant="secondary" onClick={() => change(addToWatchlist(address))}>
+          {t('watchAdd')}
+        </Button>
+      )}
+      <span className="muted" role={notSaved ? 'alert' : undefined}>
+        {notSaved ? t('watchNotSaved') : t('watchNote')}
+      </span>
     </div>
   );
 }
@@ -57,7 +60,7 @@ function SectionBody({ section, t }: { section: Section; t: TokensTranslate }) {
           <figcaption>{t('chartEmpty')}</figcaption>
         </figure>
         <DataTable label={t('tab_pairs')} headers={headers}>
-          <Blocked span={headers.length}>{t('factsBlocked')}</Blocked>
+          <BlockedRow span={headers.length}>{t('factsBlocked')}</BlockedRow>
         </DataTable>
       </>
     );
@@ -68,7 +71,7 @@ function SectionBody({ section, t }: { section: Section; t: TokensTranslate }) {
       <>
         <p>{t('holdersRule')}</p>
         <DataTable label={t('tab_holders')} headers={headers}>
-          <Blocked span={headers.length}>{t('holdersBlocked')}</Blocked>
+          <BlockedRow span={headers.length}>{t('holdersBlocked')}</BlockedRow>
         </DataTable>
       </>
     );
@@ -76,7 +79,7 @@ function SectionBody({ section, t }: { section: Section; t: TokensTranslate }) {
   const headers = [t('hdrTime'), t('hdrSide'), t('hdrAmount'), t('hdrPrice')];
   return (
     <DataTable label={t('tab_trades')} headers={headers}>
-      <Blocked span={headers.length}>{t('tradesBlocked')}</Blocked>
+      <BlockedRow span={headers.length}>{t('tradesBlocked')}</BlockedRow>
     </DataTable>
   );
 }
@@ -91,7 +94,7 @@ export function TokenPage({ address }: { address: string | undefined }) {
   const { t, renderedLocale } = tokensCopy.forLocale(language);
   const room = protocolCopy.forLocale(language).t;
   const [section, setSection] = useState<Section>('pairs');
-  const valid = address !== undefined && ADDRESS.test(address);
+  const valid = address !== undefined && ADDRESS_SHAPE.test(address);
   return (
     <div className="legacy-room protocol-room tokens-room" lang={renderedLocale} data-route="tokenDetail">
       <Page

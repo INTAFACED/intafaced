@@ -23,7 +23,7 @@ type Header =
   | 'hdr_amount'
   | 'hdr_validator'
   | 'hdr_stake';
-type What = 'what_pool' | 'what_position' | 'what_token' | 'what_block' | 'what_tx' | 'what_address' | 'what_validator';
+type What = 'what_pool' | 'what_position' | 'what_block' | 'what_tx' | 'what_address' | 'what_validator';
 
 /** The table a finished page will show. Headers only: a page that waits on a blocker has no rows to invent. */
 const HEADERS: Record<PendingPage, readonly Header[]> = {
