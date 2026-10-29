@@ -2,7 +2,15 @@ import path from 'node:path';
 import { test, expect } from '@playwright/test';
 import { ROOT, journeyState, tool } from './stack.mjs';
 import { forgetSession, nextCode } from './identity-factors.mjs';
-import { businessReadyPerson, openBusiness, signInWithCode, verifiedBusiness } from './merchant.mjs';
+import {
+  businessReadyPerson,
+  openBusiness,
+  paidCardPayment,
+  payApiOf,
+  refusedPayCalls,
+  signInWithCode,
+  verifiedBusiness,
+} from './merchant.mjs';
 import { tableIn } from './tables.mjs';
 
 // J-merchant-07, in the running app (docs/roadmap/journeys.json): see the business's money and ask for a payout. One test
@@ -12,8 +20,6 @@ import { tableIn } from './tables.mjs';
 // Steps that are written but not built yet fail at their first missing part, quickly (UNBUILT):
 // - The stack cannot post a TEST settlement to a business (`local-test-world.mjs merchant-settlement <merchantId>`,
 //   proposed), so #2 and #6 to #8 have no settlement to pay out (M-money-out-05).
-// - #1: Balances has no at-a-glance group with Clearing and Available to pay out, and no reserve card labelled
-//   "recorded, not withheld" (M-money-out-01).
 // - #3: the stack publishes no pricing schedule for a TEST business, so Pricing shows no fee table and the calculator
 //   is off (`local-test-world.mjs merchant-pricing`, proposed).
 // - #2: no clearing-to-available view (RC-merchant-10); #4: no payout schedule or rules (M-money-out-03,
@@ -41,6 +47,12 @@ async function signInOwner(page, destination) {
   return { ...who, totp };
 }
 
+/** The owner's own pay API through Edge; the code's time step is kept for the next sign-in. */
+async function ownerApi() {
+  const state = journey();
+  return payApiOf(state.owner, (step) => run.write({ owner: { ...state.owner, step } }));
+}
+
 /** The TEST settlement the stack posts to the business, read back as its row on Settlements. */
 function postedSettlement() {
   const { merchantId } = journey();
@@ -57,12 +69,42 @@ test(`${J} #1 opens Money: zero per asset with "No money yet" for a new business
   await verifiedBusiness(page, owner, merchantId);
   run.reset({ owner: saved(owner), merchantId });
   await signInOwner(page, '/pay/money');
+  const refused = refusedPayCalls(page);
   await expect(page.getByRole('heading', { name: 'Balances', level: 1 })).toBeVisible();
-  await expect(page.getByRole('heading', { name: /No (money|balance) yet/ })).toBeVisible();
+  await expect(page.getByText('No money yet')).toBeVisible();
+  await expect(page.getByRole('group', { name: /Balances at a glance/ })).toHaveCount(0);
+
+  // A TEST card payment, paid: it is captured, so it waits in clearing until a settlement makes it available.
+  const api = await ownerApi();
+  const paid = await paidCardPayment(api, merchantId, { key: `${J}:payment:clearing:${merchantId}`, amount: '40.00' });
+  expect(paid.status).toBe('captured');
+  await page.reload();
   const balances = page.getByRole('group', { name: /Balances at a glance/ });
-  await expect(balances).toContainText('Clearing', UNBUILT);
-  await expect(balances).toContainText('Available to pay out');
-  await expect(page.getByRole('region', { name: 'Reserve' })).toContainText('recorded, not withheld');
+  await expect(balances.getByRole('link', { name: /^Clearing/ })).toContainText(/40(\.0+)?\s*USDT/);
+  await expect(balances.getByRole('link', { name: /^Available to pay out/ })).toContainText(/\b0(\.0+)?\s*USDT/);
+  const all = page.getByRole('table', { name: 'All balances' });
+  await expect(all.getByRole('row', { name: /USDT/ })).toContainText(/0(\.0+)?\s*USDT/);
+  const reserve = page.getByRole('region', { name: 'Reserve' });
+  await expect(reserve).toContainText('recorded, not withheld');
+  await expect(reserve).toContainText('No reserve rule is set for your account.');
+  expect(refused).toEqual([]);
+
+  // A balance the page cannot read says so, and never reads as zero.
+  await page.route('**/api/pay/trpc/merchantMetrics.snapshot**', (route) =>
+    route.fulfill({
+      status: 503,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        error: { message: 'pay.metrics_balance_unavailable', code: -32603, data: { code: 'INTERNAL_SERVER_ERROR' } },
+      }),
+    }),
+  );
+  await page.reload();
+  await expect(page.getByTestId('failure').first()).toBeVisible();
+  await expect(page.getByRole('group', { name: /Balances at a glance/ })).toHaveCount(0);
+  await expect(page.getByText('Available to pay out')).toHaveCount(0);
+  await expect(page.getByText('No money yet')).toHaveCount(0);
+  await page.unroute('**/api/pay/trpc/merchantMetrics.snapshot**');
 });
 
 test(`${J} #2 reads funds moving from clearing to available: funds wait until available, and a payout of clearing money is refused without moving it`, async ({
