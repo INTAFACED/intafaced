@@ -19,12 +19,13 @@ import { createHash } from 'node:crypto';
 import type { Sql } from 'postgres';
 import { FOUNDER_DESK_SCOPES, SCOPES, isKeyForbiddenScope, expandScopes, isPayStepUpScope, isScope, type Scope } from '@intafaced/auth';
 import type { ApiKeyCreateInput, ApiKeyCreateOutput, ApiKeyList, ApiKeyRecord, ApiKeyScopeEntry } from '@intafaced/contracts/api-keys';
-import { API_KEY_NAME_MAX, API_KEY_SIGNED_BY_DEFAULT_SCOPE } from '@intafaced/contracts/api-keys';
+import { API_KEY_NAME_MAX } from '@intafaced/contracts/api-keys';
 import type { KycTier, PayStepUpFactorProof } from './auth-service.js';
 import { bindApiKeyIpAllowlist } from './auth-service-ip.js';
 import { normalizeIp } from './api-key-ip.js';
 import { guardedApiKeyAction, type ApiKeyFactorGate } from './api-key-fresh-factor.js';
 import { issueSigningSecret, sealSigningSecret } from './api-key-request-sign.js';
+import { signsByDefault } from './api-key-signs-by-default.js';
 import { MintApiKeyPasskeyError, requireVerifiedPasskey } from './mint-api-key-passkey.js';
 
 export type DeveloperKeyRefusal =
@@ -190,13 +191,12 @@ export type DeveloperKeysDeps = {
   mayMint?: (userId: string, factor: 'passkey' | 'other' | 'none') => Promise<void>;
   /** Seals a signing key's secret at rest (`API_KEY_SIGNING_ENC_KEY`). Null or absent: a signing key refuses. */
   signingEncKey?: Buffer | null;
+  /** The owner's request-signing window (`IDENTITY_REQUEST_SIGN_WINDOW_SECONDS`). Null or absent: a signing key refuses, as it could never be used. */
+  signingWindowSeconds?: number | null;
   now?: () => Date;
 };
 
-/** Whether a key with these scopes signs every request by default. */
-export function signsByDefault(scopes: readonly string[]): boolean {
-  return expandScopes(scopes).has(API_KEY_SIGNED_BY_DEFAULT_SCOPE);
-}
+export { signsByDefault };
 
 type Caller = { userId: string; sid: string; kid?: string | undefined; sub_account?: string | undefined; scopes: readonly string[] };
 
@@ -260,7 +260,7 @@ export async function createDeveloperKey(
     throw err;
   }
   const signs = signsByDefault(checked.scopes);
-  if (signs && !deps.signingEncKey) {
+  if (signs && (!deps.signingEncKey || deps.signingWindowSeconds == null)) {
     throw new DeveloperKeyError('Keys that place orders sign every request, and signing is not set up', 'identity.key_signing_unset');
   }
   await deps.mayMint?.(caller.userId, !input.factorProof ? 'none' : 'webauthn' in input.factorProof ? 'passkey' : 'other');

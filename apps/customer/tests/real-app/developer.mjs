@@ -34,7 +34,10 @@ const keyRef = (key) => createHash('sha256').update(key).digest('hex');
 const sha256 = (text) => createHash('sha256').update(text).digest('hex');
 
 /** The three signature headers for one request, as the published test vector computes them. */
-export function signedHeaders(secret, { method, path, body = '', timestamp = String(Math.floor(Date.now() / 1000)), nonce = randomUUID() }) {
+export function signedHeaders(
+  secret,
+  { method, path, body = '', timestamp = String(Math.floor(Date.now() / 1000)), nonce = randomUUID() },
+) {
   const canonical = ['INTAFACED-REQ-V1', method.toUpperCase(), path, timestamp, nonce, sha256(body)].join('\n');
   return {
     'x-intafaced-request-timestamp': timestamp,
@@ -67,7 +70,13 @@ export async function withKey(key, { method = 'GET', path, body, headers = {} })
   const signed = secret ? signedHeaders(secret, { method, path, body: raw ?? '' }) : {};
   const res = await fetch(`${EDGE}${path}`, {
     method,
-    headers: { origin: ORIGIN, authorization: `Bearer ${key}`, ...(raw ? { 'content-type': 'application/json' } : {}), ...signed, ...headers },
+    headers: {
+      origin: ORIGIN,
+      authorization: `Bearer ${key}`,
+      ...(raw ? { 'content-type': 'application/json' } : {}),
+      ...signed,
+      ...headers,
+    },
     body: raw,
   });
   const text = await res.text();

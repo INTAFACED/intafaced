@@ -17,8 +17,8 @@ import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypt
 import type { Sql } from 'postgres';
 import { z } from 'zod';
 import { AuthError, type AuthService } from './auth-service.js';
-import { expandScopes } from '@intafaced/auth';
-import { API_KEY_SIGNED_BY_DEFAULT_SCOPE, REQUEST_SIGN_VERSION, type RequestSigningPolicy } from '@intafaced/contracts/api-keys';
+import { REQUEST_SIGN_VERSION, type RequestSigningPolicy } from '@intafaced/contracts/api-keys';
+import { signsByDefault } from './api-key-signs-by-default.js';
 import { hashToken } from './passwords.js';
 import { decryptAtRest, encryptAtRest, TOTP_SECRET_ENC_PREFIX } from './totp-crypto.js';
 
@@ -295,7 +295,7 @@ export async function setApiKeyRequestSigning(
     `;
     const row = current[0];
     if (!row) throw new ApiKeyRequestSignError('API key not found', 'auth.not_found');
-    if (input.requireSignature === false && !signingOptional && expandScopes(row.scopes).has(API_KEY_SIGNED_BY_DEFAULT_SCOPE)) {
+    if (input.requireSignature === false && !signingOptional && signsByDefault(row.scopes)) {
       throw new ApiKeyRequestSignError('A key that places orders signs every request', 'auth.signing_required');
     }
     // Omitted means keep the stored flag. An IP-only write must not turn signing off or wipe the secret.
@@ -373,7 +373,7 @@ async function loadKey(sql: Sql, key: string): Promise<KeySignRow | null> {
   const rows = await sql<KeySignRow[]>`
     SELECT id, require_signature, require_non_empty_ip_allowlist, request_signing_secret, ip_allowlist
     FROM api_keys
-    WHERE key_hash = ${hashToken(key)} AND revoked = false
+    WHERE key_hash = ${hashToken(key)} AND revoked = false AND (expires_at IS NULL OR expires_at > now())
   `;
   return rows[0] ?? null;
 }
@@ -435,12 +435,7 @@ const REFUSAL_MESSAGE: Record<RequestSignReason, string> = {
  * reached only by a caller who presented a live key's full secret: an unknown, revoked or wrong key never gets here
  * (`loadKey` finds no row) and stays `auth.invalid_credentials`, so the reason confirms nothing a guesser lacks.
  */
-export function installApiKeyRequestSignExchange(
-  auth: AuthService,
-  sql: Sql,
-  encKey: Buffer | null,
-  windowSeconds: number | null,
-): void {
+export function installApiKeyRequestSignExchange(auth: AuthService, sql: Sql, encKey: Buffer | null, windowSeconds: number | null): void {
   const orig = auth.exchangeApiKey.bind(auth);
   auth.exchangeApiKey = async (key: string, requestOrigin?: string | null) => {
     const verdict = await decideApiKeyExchange(sql, key, requestSignAls.getStore(), new Date(), encKey, windowSeconds);

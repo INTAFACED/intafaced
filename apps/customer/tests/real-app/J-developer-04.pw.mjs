@@ -136,9 +136,10 @@ test(`${J} #1 signs the published test vector: the server accepts it, and an alt
   const alteredPath = await call('GET', '/api/v1/account/balance', { ...trade, tamper: '/api/v1/account/balance?x=1' });
   for (const altered of [alteredBody, alteredPath]) {
     expect(altered.status, JSON.stringify(altered.body)).toBe(401);
-    expect(codeOf(altered), `Edge names a tampered request by its own code (svc-edge PR of DV-auth-01): ${JSON.stringify(altered.body)}`).toBe(
-      'edge.request_tampered',
-    );
+    expect(
+      codeOf(altered),
+      `Edge names a tampered request by its own code (svc-edge PR of DV-auth-01): ${JSON.stringify(altered.body)}`,
+    ).toBe('edge.request_tampered');
   }
   expect(await balance(trade)).toEqual(before);
 

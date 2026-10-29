@@ -41,6 +41,9 @@ function mapAttributionErr(err: unknown): never {
     ) {
       throw new TRPCError({ code: 'UNAUTHORIZED', message, cause: err });
     }
+    if (err.code === 'auth.request_window_unset') {
+      throw new TRPCError({ code: 'PRECONDITION_FAILED', message, cause: err });
+    }
     if (err.code === 'auth.account_frozen' || err.code === 'auth.delegate_cannot_grant') {
       throw new TRPCError({
         code: 'FORBIDDEN',

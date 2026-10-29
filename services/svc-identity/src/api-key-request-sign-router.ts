@@ -4,6 +4,7 @@ import type { Sql } from 'postgres';
 import { AuthError, assertDelegateCannotGrant } from './auth/auth-service.js';
 import { optionalFactorProof, guardedApiKeyAction, type ApiKeyFactorGate } from './auth/api-key-fresh-factor.js';
 import { ApiKeyRequestSignError, rotateSigningSecret, setApiKeyRequestSigning } from './auth/api-key-request-sign.js';
+import { signsByDefault } from './auth/api-key-signs-by-default.js';
 
 /**
  * Top-level opt-in (not nested under apiKeys) so mergeRouters cannot replace
@@ -75,8 +76,16 @@ export function createApiKeyRequestSignRouter(
           // flag out, reveals nothing and stays one click: an omitted flag keeps the stored flag and secret
           // (see setApiKeyRequestSigning), so it can never issue a secret or enable signing.
           // While the owner allows a key that places orders to turn signing off, turning it off is guarded too:
-          // the key is weaker after it (DV-auth-01).
-          const guarded = input.requireSignature === true || (input.requireSignature === false && signingOptional);
+          // the key is weaker after it (DV-auth-01). A key's scopes never change, and an unknown key is guarded
+          // (the write then answers not found).
+          const placesOrders = async () => {
+            const rows = await sql<Array<{ scopes: string[] }>>`
+              SELECT scopes FROM api_keys WHERE id = ${input.keyId} AND user_id = ${ctx.principal.userId}
+            `;
+            return rows[0] ? signsByDefault(rows[0].scopes) : true;
+          };
+          const guarded =
+            input.requireSignature === true || (input.requireSignature === false && signingOptional && (await placesOrders()));
           if (!guarded) return await set(sql);
           return await guardedApiKeyAction(
             gate,

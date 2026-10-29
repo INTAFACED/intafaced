@@ -673,6 +673,7 @@ export const appRouter = mergeRouters(
     capByTier: parseApiKeyCapByTier(env.IDENTITY_API_KEYS_MAX_BY_TIER),
     mayMint: passkeyMintRule(sql),
     signingEncKey,
+    signingWindowSeconds: requestSignWindowSeconds,
   }),
   createGrantsRouter(sql),
   createSessionRevokeAllRouter(sql),

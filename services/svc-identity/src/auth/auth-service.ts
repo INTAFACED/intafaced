@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto';
+import { signsByDefault } from './api-key-signs-by-default.js';
 import type { Sql } from 'postgres';
 import { transaction } from '@intafaced/db';
 import {
@@ -2519,7 +2520,7 @@ export class AuthService {
       if (own[0]) throw new AuthError('You froze this account', 'identity.account_frozen_self');
       return tx<
         Array<{ id: string }>
-      >`INSERT INTO api_keys (user_id, name, key_hash, key_prefix, scopes, domain_whitelist, expires_at, mode) VALUES (${input.userId}, ${input.name}, ${hash}, ${prefix}, ${input.scopes}, ${input.domainWhitelist ?? []}, ${input.expiresAt ?? null}, ${mode}) RETURNING id`;
+      >`INSERT INTO api_keys (user_id, name, key_hash, key_prefix, scopes, domain_whitelist, expires_at, mode, require_signature) VALUES (${input.userId}, ${input.name}, ${hash}, ${prefix}, ${input.scopes}, ${input.domainWhitelist ?? []}, ${input.expiresAt ?? null}, ${mode}, ${signsByDefault(input.scopes)}) RETURNING id`;
     };
     const rows = input.executor ? await insert(input.executor) : await transaction(this.sql, insert, { isolation: 'read committed' });
     return { id: rows[0]!.id, key, prefix, mode, scopes: [...input.scopes] };

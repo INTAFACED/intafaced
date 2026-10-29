@@ -181,7 +181,10 @@ if (!available) {
       await expect(auth.exchangeApiKey(created.key)).rejects.toMatchObject({ code: 'auth.request_unsigned' });
 
       const stale = signed(secret, 'nonce-stale-1', '{"amount":"1.10"}', -(WINDOW + 5));
-      await expect(decideApiKeyExchange(db.sql, created.key, stale, new Date(), encKey, WINDOW)).resolves.toEqual({ ok: false, reason: 'stale' });
+      await expect(decideApiKeyExchange(db.sql, created.key, stale, new Date(), encKey, WINDOW)).resolves.toEqual({
+        ok: false,
+        reason: 'stale',
+      });
       await expect(requestSignAls.run(stale, () => auth.exchangeApiKey(created.key))).rejects.toMatchObject({
         code: 'auth.request_stale',
       });
@@ -205,7 +208,10 @@ if (!available) {
         userId: owner.userId,
         requireSignature: true,
       });
-      await expect(decideApiKeyExchange(db.sql, created.key, good, new Date(), encKey, WINDOW)).resolves.toEqual({ ok: false, reason: 'replay' });
+      await expect(decideApiKeyExchange(db.sql, created.key, good, new Date(), encKey, WINDOW)).resolves.toEqual({
+        ok: false,
+        reason: 'replay',
+      });
       await expect(requestSignAls.run(good, () => auth.exchangeApiKey(created.key))).rejects.toMatchObject({
         code: 'auth.request_replay',
       });
@@ -521,9 +527,9 @@ if (!available) {
         grantorScopes: ['trade:read', 'trade:write'],
       });
       await setApiKeyRequestSigning(db.sql, owner.userId, created.id, { requireSignature: true }, encKey);
-      await expect(
-        setApiKeyRequestSigning(db.sql, owner.userId, created.id, { requireSignature: false }, encKey),
-      ).rejects.toMatchObject({ reason: 'auth.signing_required' });
+      await expect(setApiKeyRequestSigning(db.sql, owner.userId, created.id, { requireSignature: false }, encKey)).rejects.toMatchObject({
+        reason: 'auth.signing_required',
+      });
       const [still] = await db.sql<Array<{ require_signature: boolean }>>`SELECT require_signature FROM api_keys WHERE id = ${created.id}`;
       expect(still!.require_signature).toBe(true);
       await expect(

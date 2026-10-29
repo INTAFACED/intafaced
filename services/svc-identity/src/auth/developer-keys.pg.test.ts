@@ -67,6 +67,7 @@ if (!available) {
   let passkeyRule = false;
   const sealKey = randomBytes(32);
   let signingEncKey: Buffer | null = sealKey;
+  let signingWindowSeconds: number | null = 300;
   let n = 0;
   const unique = () => `dk${process.pid}${++n}`;
 
@@ -74,6 +75,7 @@ if (!available) {
     caps = parseApiKeyCapByTier('none=3');
     passkeyRule = false;
     signingEncKey = sealKey;
+    signingWindowSeconds = 300;
     await db.truncateAll();
     await rank.seedTiers();
   });
@@ -93,6 +95,9 @@ if (!available) {
       },
       get signingEncKey() {
         return signingEncKey;
+      },
+      get signingWindowSeconds() {
+        return signingWindowSeconds;
       },
       mayMint: async (userId, factor) => {
         if (passkeyRule) await passkeyMintRule(db.sql)(userId, factor);
@@ -280,6 +285,41 @@ if (!available) {
       });
       expect(await keysOf(s.userId)).toHaveLength(0);
       expect(await db.sql`SELECT 1 FROM pay_step_up_proofs WHERE proof_id = ${p.proofId} AND consumed_at IS NULL`).toHaveLength(1);
+    });
+
+    it('refuses a key that may place orders while the owner signing window is blank, before the factor is spent', async () => {
+      signingWindowSeconds = null;
+      const s = await register();
+      const c = await caller(s);
+      const p = await proof(s);
+      await expect(
+        c.developerKeys.create({ ...ask(s.userId, 'trader', { scopes: ['trade:write'] }), factorProof: p }),
+      ).rejects.toMatchObject({
+        code: 'PRECONDITION_FAILED',
+        message: expect.stringContaining('[identity.key_signing_unset]'),
+      });
+      expect(await keysOf(s.userId)).toHaveLength(0);
+      expect(await db.sql`SELECT 1 FROM pay_step_up_proofs WHERE proof_id = ${p.proofId} AND consumed_at IS NULL`).toHaveLength(1);
+    });
+
+    it('marks a key that may place orders as signing on every other mint path too (createApiKey)', async () => {
+      const s = await register();
+      const trader = await auth.createApiKey({
+        userId: s.userId,
+        name: 'legacy-trader',
+        scopes: ['trade:read', 'trade:write'],
+        grantorScopes: ['trade:read', 'trade:write'],
+      });
+      const reader = await auth.createApiKey({
+        userId: s.userId,
+        name: 'legacy-reader',
+        scopes: ['trade:read'],
+        grantorScopes: ['trade:read'],
+      });
+      const rows = await db.sql<Array<{ id: string; require_signature: boolean }>>`
+        SELECT id, require_signature FROM api_keys WHERE id IN (${trader.id}, ${reader.id})
+      `;
+      expect(Object.fromEntries(rows.map((row) => [row.id, row.require_signature]))).toEqual({ [trader.id]: true, [reader.id]: false });
     });
 
     it('refuses an account without a verified passkey with a typed code, before the factor is spent', async () => {
