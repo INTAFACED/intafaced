@@ -225,6 +225,8 @@ function samplePosts(): Array<{ name: RecipeName; post: PostRequest }> {
     { name: 'marketMakerSeedFund', post: recipes.marketMakerSeedFund({ assetId: 'USDT', amount: AMT, seedId: 'seed1' }) },
     { name: 'withdrawHold', post: recipes.withdrawHold(withdraw) },
     { name: 'withdrawSettle', post: recipes.withdrawSettle(withdraw) },
+    // With the quoted network fee (J-wallet-05 #6): the hold also pays houseFees(pay) in the same posting.
+    { name: 'withdrawSettle', post: recipes.withdrawSettle({ ...withdraw, fee: AMT }) },
     { name: 'withdrawReverse', post: recipes.withdrawReverse(withdraw) },
     { name: 'withdrawReturned', post: recipes.withdrawReturned(withdraw) },
     { name: 'tradeFill', post: recipes.tradeFill({ ...fill, makerFeeBps: 0, takerFeeBps: 0 }) },

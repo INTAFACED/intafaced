@@ -27,6 +27,7 @@ import { SqlStatusPageBook } from './status-page/book.js';
 import { statusBadge, statusBadgeCacheControl, statusBadgeSvg } from './status-page/badge.js';
 import { readStatusPage } from './status-page/router.js';
 import { registerPublicReadApi } from './public-api.js';
+import { SqlNavMetricStore } from './nav-metrics/counts.js';
 import { openStatusMailer } from './status-page/mailer.js';
 import { StatusSubscriptions } from './status-page/subscriptions.js';
 import { SqlSubscriptionStore } from './status-page/subscriptions.pg.js';
@@ -378,6 +379,7 @@ export const appRouter = createNotifyRouter(
     retentionDays: env.NOTIFY_INBOX_RETENTION_DAYS ?? null,
   },
   statusPageDeps,
+  new SqlNavMetricStore(sql),
 );
 export type AppRouter = typeof appRouter;
 

@@ -72,7 +72,13 @@ describe('frozen user at the session door', () => {
   it('identity freeze refuse (403) cannot open a session', async () => {
     const result = await exchangePrincipal(
       { authorization: 'Bearer ifc_frozen' },
-      { ...options, fetch: async () => new Response(JSON.stringify({ error: { message: 'Account is frozen' } }), { status: 403 }) },
+      {
+        ...options,
+        fetch: async () =>
+          new Response(JSON.stringify({ error: { message: 'Account is frozen', data: { intafacedCode: 'auth.account_frozen' } } }), {
+            status: 403,
+          }),
+      },
     );
     expect(result.rejected).toBe('invalid');
     expect(result.principal).toBeNull();

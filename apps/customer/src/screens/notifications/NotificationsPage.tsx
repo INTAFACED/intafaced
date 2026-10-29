@@ -6,7 +6,7 @@ import { centreCopy } from './centre-copy';
 import { NotifyNav } from './NotifyNav';
 import { CATEGORIES, categoryOf, type Category } from './prefs';
 import { InboxFailure, NotificationRow } from './NotificationRow';
-import { useInbox, useMarketNames } from './use-notifications';
+import { useInboxView } from './use-notifications';
 
 type Tab = 'all' | 'unread';
 type Topic = 'all' | Category;
@@ -24,11 +24,9 @@ const PAGE = 20;
 export default function NotificationsPage() {
   const copy = notifyCopy.useCopy();
   const [tab, setTab] = useState<Tab>('all');
-  const inbox = useInbox({ limit: PAGE, unreadOnly: tab === 'unread' });
-  const markets = useMarketNames();
+  const { inbox, state, markets } = useInboxView({ limit: PAGE, unreadOnly: tab === 'unread' });
   const centre = centreCopy.useCopy();
   const [topic, setTopic] = useState<Topic>('all');
-  const { state } = inbox;
   const now = Date.now();
   const present = new Set(state.status === 'ready' ? state.items.map((item) => categoryOf(item.kind)) : []);
   const shown = state.status === 'ready' ? state.items.filter((item) => topic === 'all' || categoryOf(item.kind) === topic) : [];

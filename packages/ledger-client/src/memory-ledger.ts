@@ -6,6 +6,7 @@ import {
   assertIdempotencyKey,
   assertValidPost,
   postFingerprint,
+  replayMetaDiffers,
   signedDelta,
   type IdempotencyConflictOptions,
   type LedgerClient,
@@ -75,7 +76,7 @@ export class MemoryLedger implements LedgerClient {
     if (existingId) {
       const existing = this.txs.get(existingId);
       if (!existing) throw new LedgerError('Idempotency index corrupted', 'ledger.corrupt_index');
-      if (this.fingerprintByKey.get(request.idempotencyKey) !== postFingerprint(request)) {
+      if (this.fingerprintByKey.get(request.idempotencyKey) !== postFingerprint(request) || replayMetaDiffers(existing.meta, request)) {
         if ((this.options.idempotencyConflict ?? 'refuse') === 'refuse') {
           throw new LedgerError(
             `Idempotency key ${request.idempotencyKey} already booked a different movement; a retry must carry the same body`,

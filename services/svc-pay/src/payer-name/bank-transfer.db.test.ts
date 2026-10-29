@@ -339,6 +339,84 @@ describe(
       );
     });
 
+    /**
+     * A TEST category in the owner's table, chosen by this business, as the founders' two-person edit and the business's
+     * choice write them (J-merchant-02 #7 adds a restricted one on the stack). A restricted one has its reserve set.
+     */
+    const chooseTestCategory = async (merchantId: string, cls: 'standard' | 'permissionless' | 'restricted') => {
+      const key = `test-${cls}-${randomUUID().slice(0, 8)}`;
+      const reserve = cls === 'restricted' ? { percent: '5', holdDays: 90 } : null;
+      const after = { key, label: 'TEST category', class: cls, reserve };
+      await sql.begin(async (tx) => {
+        await tx`
+          INSERT INTO pay.business_categories (key, label, class, reserve_percent, reserve_hold_days, version, updated_by, approved_by)
+          VALUES (${key}, 'TEST category', ${cls}, ${reserve?.percent ?? null}, ${reserve?.holdDays ?? null}, 1, 'founder-a', 'founder-b')`;
+        await tx`
+          INSERT INTO pay.business_category_events (key, actor_id, approver_id, before, after, reason)
+          VALUES (${key}, 'founder-a', 'founder-b', NULL, ${tx.json(after)}, 'TEST category')`;
+        const [counted] = await tx<Array<{ version: string }>>`SELECT count(*)::text AS version FROM pay.business_category_events`;
+        const version = counted!.version;
+        await tx`
+          INSERT INTO pay.merchant_categories (merchant_id, category_key, table_version, chosen_by)
+          VALUES (${merchantId}, ${key}, ${version}, ${merchantId})`;
+        await tx`
+          INSERT INTO pay.merchant_category_events (merchant_id, category_key, table_version, actor_id)
+          VALUES (${merchantId}, ${key}, ${version}, ${merchantId})`;
+      });
+    };
+
+    it('a business whose category takes crypto only and that never saved its methods opens a USDT link on crypto and refuses a EUR one', async () => {
+      const pay = service('exact_normalised');
+      const m = await pay.createMerchant({ userId: randomUUID(), pricing: { feeBps: 0 } });
+      // A permissionless category takes crypto-native only.
+      await chooseTestCategory(m.id, 'permissionless');
+      const usdt = await pay.createPaymentLink({ merchantId: m.id, label: 'TEST USDT', amount: amt('7'), currency: 'USDT' });
+      const opened = await pay.openCheckoutSession({ linkToken: usdt.token, geoCountry: 'DE' });
+      expect(opened.session.method).toBe('crypto');
+      expect((await paymentOf(await sessionPayment(opened.sessionToken))).method).toBe('crypto');
+
+      // A EUR link has no method the category leaves for euros, so it refuses by name rather than open a crypto payment;
+      // a bank transfer the payer names refuses by the category's name. Neither writes anything.
+      const eur = await pay.createPaymentLink({ merchantId: m.id, label: 'TEST EUR', amount: amt('7'), currency: 'EUR' });
+      const before = (await sql<Array<{ n: string }>>`SELECT count(*)::text AS n FROM pay.payments`)[0]!.n;
+      expect(
+        await refusal(() =>
+          pay.openCheckoutSession({ linkToken: eur.token, geoCountry: 'DE', method: 'bank_transfer', payerName: 'Ada Lovelace' }),
+        ),
+      ).toMatchObject({ code: 'pay.category_rail_refused', detail: { allowed: ['crypto-native'] } });
+      expect(await refusal(() => pay.openCheckoutSession({ linkToken: eur.token, geoCountry: 'DE' }))).toMatchObject({
+        code: 'pay.checkout_no_method',
+      });
+      expect((await sql<Array<{ n: string }>>`SELECT count(*)::text AS n FROM pay.payments`)[0]!.n).toBe(before);
+    });
+
+    it('a standard category limits nothing: a fiat link opens on a bank transfer, a crypto one on crypto', async () => {
+      const pay = service('exact_normalised');
+      const m = await pay.createMerchant({ userId: randomUUID(), pricing: { feeBps: 0 } });
+      await chooseTestCategory(m.id, 'standard');
+      const usdt = await pay.createPaymentLink({ merchantId: m.id, label: 'TEST USDT', amount: amt('7'), currency: 'USDT' });
+      expect((await pay.openCheckoutSession({ linkToken: usdt.token, geoCountry: 'DE' })).session.method).toBe('crypto');
+      const eur = await pay.createPaymentLink({ merchantId: m.id, label: 'TEST EUR', amount: amt('7'), currency: 'EUR' });
+      const opened = await pay.openCheckoutSession({ linkToken: eur.token, geoCountry: 'DE', payerName: 'Ada Lovelace' });
+      expect(opened.session.method).toBe('bank_transfer');
+    });
+
+    it('a restricted category drops only card rails: a fiat link still opens on a bank transfer, a crypto one on crypto', async () => {
+      const pay = service('exact_normalised');
+      const m = await pay.createMerchant({ userId: randomUUID(), pricing: { feeBps: 0 } });
+      await chooseTestCategory(m.id, 'restricted');
+      const usdt = await pay.createPaymentLink({ merchantId: m.id, label: 'TEST USDT', amount: amt('7'), currency: 'USDT' });
+      expect((await pay.openCheckoutSession({ linkToken: usdt.token, geoCountry: 'DE' })).session.method).toBe('crypto');
+      // J-merchant-04 #6: the EUR link asks for the bank account's name, so the payment is a bank transfer.
+      const eur = await pay.createPaymentLink({ merchantId: m.id, label: 'TEST EUR', amount: amt('7'), currency: 'EUR' });
+      expect(await refusal(() => pay.openCheckoutSession({ linkToken: eur.token, geoCountry: 'DE' }))).toMatchObject({
+        code: 'pay.payer_name_required',
+      });
+      const opened = await pay.openCheckoutSession({ linkToken: eur.token, geoCountry: 'DE', payerName: 'Ada Lovelace' });
+      expect(opened.session.method).toBe('bank_transfer');
+      expect((await paymentOf(await sessionPayment(opened.sessionToken))).method).toBe('bank_transfer');
+    });
+
     it('refuses a forged delivery before it reaches the bank or the payment', async () => {
       const pay = service('exact_normalised');
       const { link } = await eurLink(pay);

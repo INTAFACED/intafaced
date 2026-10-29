@@ -1,4 +1,5 @@
 import type { FastifyInstance } from 'fastify';
+import { EXPOSED_RESPONSE_HEADERS } from './reply-envelope.js';
 import { userCopy } from './user-copy.js';
 
 /**
@@ -81,7 +82,15 @@ import { userCopy } from './user-copy.js';
  *     will not even send the edge's own header vocabulary. `stripReserved` in
  *     `principal-exchange.ts` removes it regardless; this is the same rule
  *     enforced one layer earlier, where the caller can see it.
- *   · `Access-Control-Expose-Headers` is unset. Clients read bodies, not headers.
+ *   · `Access-Control-Expose-Headers` names exactly three headers, and only beside
+ *     an allowed origin's allow-origin header: `x-request-id`, `x-server-received`
+ *     and `x-server-sent` (RC-developer-03, `reply-envelope.ts`). Every reply
+ *     already carries them; without the grant a browser on an allowed origin
+ *     cannot read the id it should quote to support, or the times its clock
+ *     check needs. None of them is a secret or names an account. Nothing else is
+ *     exposed: not the rate-limit headers, not `x-intafaced-*`, not
+ *     `set-cookie` (which no expose list can grant anyway). A disallowed origin
+ *     reads nothing at all, so the grant changes nothing for it.
  *   · `DELETE`/`PUT`/`PATCH` are not CORS-allowed methods. That is a browser
  *     preflight rule, not a claim about the proxy. The edge DOES forward
  *     `DELETE /api/v1/orders…` (CCXT cancel — kill-switch release path) for
@@ -463,5 +472,6 @@ export function registerCors(app: FastifyInstance, allowlist: OriginAllowlist): 
     // are announced only beside that exact origin. See the header.
     reply.header('access-control-allow-origin', origin);
     reply.header('access-control-allow-credentials', 'true');
+    reply.header('access-control-expose-headers', EXPOSED_RESPONSE_HEADERS.join(', '));
   });
 }
