@@ -262,7 +262,7 @@ function Summary({ c }: { c: Campaign }) {
       <dd>{c.timeZone ?? 'Not set'}</dd>
       <dt>Budget</dt>
       <dd>{c.budget ? `${c.budget.left} left of ${c.budget.limit} ${c.budget.asset}` : 'Not set'}</dd>
-      <dt>Per person limit</dt>
+      <dt>Reward per person</dt>
       <dd>{c.reward ? `${c.reward.amount} ${c.reward.asset}` : 'Not set'}</dd>
     </dl>
   );
@@ -719,7 +719,7 @@ export function CampaignBuilder({
                   <input id="cmp-budget" inputMode="decimal" value={fields.budget} onChange={(e) => set({ budget: e.target.value })} />
                 </div>
                 <div className="adm-field">
-                  <label htmlFor="cmp-per-person">Per person limit</label>
+                  <label htmlFor="cmp-per-person">Reward per person</label>
                   <input
                     id="cmp-per-person"
                     inputMode="decimal"
@@ -730,8 +730,8 @@ export function CampaignBuilder({
               </div>
               <p className="dk-muted">
                 The budget is the most the campaign may ask the reward pot for: a limit, not a balance. Nothing is reserved or paid until a
-                customer qualifies. The per person limit is the most one customer receives from this campaign; a task campaign pays it once
-                per customer.
+                customer qualifies. The reward per person is what one customer receives from this campaign, and the most they may: a task
+                campaign pays it once per customer.
               </p>
             </>
           )}
