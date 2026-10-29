@@ -224,7 +224,7 @@ if (evmSource) {
 
 indexer.start(env.INDEXER_POLL_INTERVAL_MS);
 
-// Tokens that emitted only before the token read existed get their metadata once (D-explorer-03).
+// Tokens that emitted before the token read existed, or past a block's read cap, get their metadata here (D-explorer-03).
 const tokenBackfill = evmSource
   ? startTokenBackfill(
       {

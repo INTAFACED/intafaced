@@ -4,7 +4,7 @@ import { assertValidBlock, type ChainBlock, type ChainHead, type ChainSource, ty
 import { decodeVenueLogs, type RawLog } from './decode.js';
 import { ChainUnavailableError, classifyChainError, isBlockNotFound, isZeroAddress } from './availability.js';
 import { lookupExplorerTx, readBlockTransactions, transactionHashes } from './explorer-txs.js';
-import { TokenMetaReader } from './token-meta.js';
+import { TOKEN_READS_PER_BLOCK, TokenMetaReader } from './token-meta.js';
 import { transferOf } from '../../explorer/address.js';
 import { withSpan } from '../../tracing.js';
 
@@ -362,7 +362,8 @@ export class EvmChainSource implements ChainSource {
     const emitters = [
       ...new Set(transactions.flatMap((tx) => tx.logs.flatMap((log) => (transferOf(log) ? [log.address.toLowerCase()] : [])))),
     ];
-    const tokens = emitters.length === 0 ? [] : await this.#tokens.read(emitters, height);
+    // Past the per-block cap the rest stay unread here; the token sweep reads them (D-explorer-03).
+    const tokens = emitters.length === 0 ? [] : await this.#tokens.read(emitters.slice(0, TOKEN_READS_PER_BLOCK), height);
 
     const block: ChainBlock = {
       chainId: this.chainId,

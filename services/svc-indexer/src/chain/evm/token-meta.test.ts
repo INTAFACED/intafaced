@@ -1,6 +1,6 @@
 import { encodeAbiParameters, stringToHex } from 'viem';
 import { describe, expect, it } from 'vitest';
-import { decodeTokenDecimals, decodeTokenText, isCallReverted, TokenMetaReader } from './token-meta.js';
+import { decodeTokenDecimals, decodeTokenText, isCallFailedInEvm, TOKEN_CALL_GAS, TokenMetaReader } from './token-meta.js';
 
 const abiString = (text: string) => encodeAbiParameters([{ type: 'string' }], [text]);
 
@@ -47,8 +47,28 @@ describe('TokenMetaReader', () => {
     expect(first).toEqual([{ address: TOKEN, symbol: 'TESTA', name: null, decimals: 6 }]);
     expect(calls).toHaveLength(3);
     expect(calls.every((p) => (p as [unknown, string])[1] === '0xa')).toBe(true);
+    // Each call carries its own gas cap, so a contract that loops runs out quickly.
+    expect(calls.every((p) => (p as [{ gas: string }])[0].gas === `0x${TOKEN_CALL_GAS.toString(16)}`)).toBe(true);
     expect(await reader.read([TOKEN], 11)).toEqual(first);
     expect(calls).toHaveLength(3);
+  });
+
+  it('reads many contracts a few at a time and keeps their order', async () => {
+    let open = 0;
+    let most = 0;
+    const client = {
+      request: async ({ params }: { params: [{ to: string; data: string }, string] }) => {
+        open += 1;
+        most = Math.max(most, open);
+        await new Promise((resolve) => setTimeout(resolve, 1));
+        open -= 1;
+        return params[0].data === '0x313ce567' ? `0x${'0'.repeat(64)}` : '0x';
+      },
+    };
+    const addresses = Array.from({ length: 40 }, (_, i) => `0x${(i + 1).toString(16).padStart(40, '0')}`);
+    const tokens = await new TokenMetaReader(client as never, 'http://node.test').read(addresses, 1);
+    expect(tokens.map((t) => t.address)).toEqual(addresses);
+    expect(most).toBeLessThanOrEqual(8 * 3);
   });
 
   it('refuses the block when the node is busy rather than the contract reverting, so it is read again', async () => {
@@ -70,18 +90,25 @@ describe('TokenMetaReader', () => {
   });
 });
 
-describe('isCallReverted', () => {
+describe('isCallFailedInEvm', () => {
   it('takes only a revert as the contract answering, anywhere in the cause chain', () => {
-    expect(isCallReverted({ code: 3 })).toBe(true);
-    expect(isCallReverted({ name: 'CallExecutionError', cause: { code: -32000, message: 'execution reverted' } })).toBe(true);
-    expect(isCallReverted({ cause: { code: -32603, details: 'Execution reverted: no data' } })).toBe(true);
+    expect(isCallFailedInEvm({ code: 3 })).toBe(true);
+    expect(isCallFailedInEvm({ name: 'CallExecutionError', cause: { code: -32000, message: 'execution reverted' } })).toBe(true);
+    expect(isCallFailedInEvm({ cause: { code: -32603, details: 'Execution reverted: no data' } })).toBe(true);
+  });
+
+  it('takes an invalid opcode or running out of gas as the contract not answering, so a hostile token cannot stall ingest', () => {
+    expect(isCallFailedInEvm({ cause: { code: -32000, message: 'invalid opcode: INVALID' } })).toBe(true);
+    expect(isCallFailedInEvm({ cause: { code: -32000, message: 'out of gas' } })).toBe(true);
+    expect(isCallFailedInEvm({ cause: { code: -32603, message: 'EVM error InvalidFEOpcode' } })).toBe(true);
+    expect(isCallFailedInEvm({ cause: { code: -32000, message: 'stack underflow (0 <=> 1)' } })).toBe(true);
   });
 
   it('does not store a busy, limited or lagging node as a lasting no-answer', () => {
-    expect(isCallReverted({ code: -32005, message: 'limit exceeded' })).toBe(false);
-    expect(isCallReverted({ code: -32603, message: 'internal error' })).toBe(false);
-    expect(isCallReverted({ code: -32000, message: 'header not found' })).toBe(false);
-    expect(isCallReverted({ code: -1, message: 'unknown' })).toBe(false);
-    expect(isCallReverted({ name: 'HttpRequestError', status: 403 })).toBe(false);
+    expect(isCallFailedInEvm({ code: -32005, message: 'limit exceeded' })).toBe(false);
+    expect(isCallFailedInEvm({ code: -32603, message: 'internal error' })).toBe(false);
+    expect(isCallFailedInEvm({ code: -32000, message: 'header not found' })).toBe(false);
+    expect(isCallFailedInEvm({ code: -1, message: 'unknown' })).toBe(false);
+    expect(isCallFailedInEvm({ name: 'HttpRequestError', status: 403 })).toBe(false);
   });
 });

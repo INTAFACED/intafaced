@@ -44,7 +44,7 @@ describe('backfillTokenMeta', () => {
 });
 
 describe('startTokenBackfill', () => {
-  it('tries again after a failed pass until one finishes', async () => {
+  it('tries again after a failed pass, and sweeps again for tokens left unread later', async () => {
     vi.useFakeTimers();
     try {
       const { deps, unread } = fakes(2, 1);
@@ -56,6 +56,10 @@ describe('startTokenBackfill', () => {
       await vi.advanceTimersByTimeAsync(1_000);
       expect(unread.size).toBe(0);
       expect(log.info).toHaveBeenCalledWith({ read: 2 }, 'token metadata backfill finished');
+      unread.add(address(99));
+      await vi.advanceTimersByTimeAsync(1_000);
+      expect(unread.size).toBe(0);
+      expect(log.info).toHaveBeenCalledTimes(1 + 1);
     } finally {
       vi.useRealTimers();
     }

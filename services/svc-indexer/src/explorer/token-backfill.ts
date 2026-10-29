@@ -2,8 +2,9 @@ import type { ChainToken } from '../chain/source.js';
 
 /**
  * D-explorer-03. Token contracts whose transfers are indexed but whose symbol, name and decimals were never read: the
- * ones that emitted only before migration 0003 added the token read. Ingest reads a token the first time it sees it
- * emit; this pass reads the rest once, at the chain's head, in batches, until none is left.
+ * ones that emitted only before migration 0003 added the token read, and those past a block's read cap. Ingest reads a
+ * token the first time it sees it emit; this sweep reads the rest at the chain's head, in batches, until none is left,
+ * and runs again on an interval.
  */
 export interface TokenBackfillDeps {
   /** Up to `limit` token addresses with transfers and no stored metadata. */
@@ -29,22 +30,26 @@ export async function backfillTokenMeta(deps: TokenBackfillDeps): Promise<number
   }
 }
 
-/** Runs the pass at boot and again after `retryMs` while it fails (a node not reachable yet), until one finishes. */
+/** Runs the pass at boot and again every `intervalMs` after the last one ended, whether it finished or failed. */
 export function startTokenBackfill(
   deps: TokenBackfillDeps,
   log: { info: (data: object, msg: string) => void; warn: (data: object, msg: string) => void },
-  retryMs: number,
+  intervalMs: number,
 ): { stop: () => void } {
   let timer: ReturnType<typeof setTimeout> | undefined;
   let stopped = false;
+  const again = () => {
+    if (!stopped) timer = setTimeout(run, intervalMs);
+  };
   const run = () => {
-    void backfillTokenMeta(deps).then(
-      (read) => log.info({ read }, 'token metadata backfill finished'),
-      (err: unknown) => {
-        log.warn({ err }, 'token metadata backfill stopped; trying again');
-        if (!stopped) timer = setTimeout(run, retryMs);
-      },
-    );
+    void backfillTokenMeta(deps)
+      .then(
+        (read) => {
+          if (read > 0) log.info({ read }, 'token metadata backfill finished');
+        },
+        (err: unknown) => log.warn({ err }, 'token metadata backfill stopped; trying again'),
+      )
+      .finally(again);
   };
   run();
   return {
