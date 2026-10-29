@@ -236,6 +236,12 @@ export function SendPanel({ to: prefilledTo = '', token: askedToken = '' }: { to
                 {amount.trim()} {chosen.label}
               </dd>
             </div>
+            {chosen.address && (
+              <div>
+                <dt>{t('reviewTokenContract')}</dt>
+                <dd className="numeric">{chosen.address}</dd>
+              </div>
+            )}
             <div>
               <dt>{t('reviewNetwork')}</dt>
               <dd>{network}</dd>

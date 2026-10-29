@@ -10,7 +10,7 @@ import { networkLabel } from '../blockers';
 import { REGION_BLOCKED_CODE, useRegionBlocked } from '../region';
 import { APP_CHAIN_ID } from '../wallet/eip1193';
 import { RepresentationPanel } from '../wallet/RepresentationPanel';
-import { tokenLabel, toBaseUnits } from '../wallet/transfer';
+import { shortContract, tokenLabel, toBaseUnits } from '../wallet/transfer';
 import { useWallet } from '../wallet/WalletProvider';
 import { swapCopy } from './copy';
 import { keepMode, readMode, type SwapMode } from './mode';
@@ -215,7 +215,12 @@ export function SwapForm() {
       },
     ];
     const base = { amountIn: from.amountIn, minOut: min, tokenIn: inToken, tokenOut: outToken, pool: from.pool.pool };
-    const result = await wallet.sendSequence({ title: t('stepsTitle'), steps });
+    // Anyone can list a token, so the sheet names each token's contract, not only its name.
+    const facts = [
+      { label: t('contractOf', { token: inToken.name }), value: inToken.address },
+      { label: t('contractOf', { token: outToken.name }), value: outToken.address },
+    ];
+    const result = await wallet.sendSequence({ title: t('stepsTitle'), steps, facts });
     // Steps already sent stay sent: say so with their hashes, never "nothing was sent".
     const earlier =
       result.status === 'sent' ? '' : result.sent.length > 0 ? ` ${t('earlierSent', { hashes: result.sent.join(', ') })}` : '';
@@ -299,6 +304,7 @@ export function SwapForm() {
   const tokenSelect = (id: string, label: string, value: string, set: (value: string) => void) => (
     <label className="field">
       <span id={id}>{label}</span>
+      {/* The chosen token's contract, so a copied name cannot pass for the token it copies. */}
       <select
         value={value}
         onChange={(event) => set(event.target.value)}
@@ -312,6 +318,7 @@ export function SwapForm() {
           </option>
         ))}
       </select>
+      {value && <small className="numeric">{t('contract', { address: shortContract(value) })}</small>}
     </label>
   );
   const seconds = expiresAt === null ? null : Math.max(0, Math.ceil((expiresAt - now) / 1000));

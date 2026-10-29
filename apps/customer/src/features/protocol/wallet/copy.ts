@@ -164,6 +164,7 @@ const en = {
   reviewTo: 'To',
   reviewAmount: 'Amount',
   reviewNetwork: 'Network',
+  reviewTokenContract: 'Token contract',
   reviewLastFour: 'Last four characters of the address',
   reviewLastFourHint: 'A new address: type its last four characters to show it is the one you mean.',
   reviewContract: 'This address is a contract. Tokens sent to a contract that cannot handle them are lost.',

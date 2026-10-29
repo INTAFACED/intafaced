@@ -102,6 +102,17 @@ export function transferCalldata(to: string, units: bigint): string {
  * shown with each one's short address, so the two never look the same.
  */
 export function tokenLabel(token: { address: string; name: string }, all: ReadonlyArray<{ address: string; name: string }>): string {
-  const shared = all.filter((other) => other.name === token.name).length > 1;
-  return shared ? `${token.name} (${token.address.slice(0, 6)}…${token.address.slice(-4)})` : token.name;
+  const shared = all.filter((other) => nameKey(other.name) === nameKey(token.name)).length > 1;
+  return shared ? `${token.name} (${shortContract(token.address)})` : token.name;
 }
+
+/** A name as compared for lookalikes: compatibility form, no invisible characters or spaces, no case. */
+function nameKey(name: string): string {
+  return name
+    .normalize('NFKC')
+    .replace(/[\p{Cf}\p{Zs}\s]/gu, '')
+    .toLowerCase();
+}
+
+/** A contract address shortened for reading next to a name: 0x0000…a11ce. */
+export const shortContract = (address: string) => `${address.slice(0, 6)}…${address.slice(-4)}`;

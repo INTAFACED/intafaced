@@ -57,6 +57,8 @@ const en = {
     'Price impact {impact}%: this trade moves the pool’s price by more than your slippage, so you get less per token than its price now. The minimum still applies.',
   slippageHintCeiling: 'How far the price may move before the swap fails instead of filling. At most {ceiling}%.',
   stepsTitle: 'Swap steps',
+  contract: 'Contract {address}',
+  contractOf: '{token} contract',
   stepApprove: 'Approve exactly {amount} {token}',
   stepReset: 'Reset the allowance for {token} to 0 first (this token requires it)',
   stepSwap: 'Swap {amount} {tokenIn} for at least {min} {tokenOut}',

@@ -52,6 +52,8 @@ export interface Sequence {
   /** The sheet's list of steps is named by this, for example "Swap steps". */
   title: string;
   steps: Array<{ label: string; request: Extract<SignRequest, { kind: 'transaction' }> }>;
+  /** Facts the person checks before every step, such as each token's contract address. */
+  facts?: Array<{ label: string; value: string }>;
 }
 export type SequenceResult =
   | { status: 'sent'; hashes: string[] }
@@ -553,6 +555,12 @@ export function SequenceSheet({
             <dt>{t('fact_network')}</dt>
             <dd>{chainId}</dd>
           </div>
+          {(sequence.facts ?? []).map((fact) => (
+            <div key={fact.label}>
+              <dt>{fact.label}</dt>
+              <dd className="numeric">{fact.value}</dd>
+            </div>
+          ))}
         </dl>
         <ol aria-label={sequence.title}>
           {sequence.steps.map((step, index) => (
