@@ -1,14 +1,13 @@
 import { test, expect } from '@playwright/test';
-import { journeyState, tool } from './stack.mjs';
-import { signIn, signUp } from './desk.mjs';
+import { api, journeyState, tool } from './stack.mjs';
+import { signIn, signUp, verify } from './desk.mjs';
 import { tableIn } from './tables.mjs';
 
 // J-more-catalogue-05, in the running app (docs/roadmap/journeys.json): point a miner at the pool. One test per step,
-// titled "J-more-catalogue-05 #<n>". The person is a TEST account on the local stack; no money moves. The miner is the
+// titled "J-more-catalogue-05 #<n>". The person is a verified TEST account on the local stack (the pool serves the
+// basic tier and up); no money moves. The miner is the
 // stack's TEST share submitter, which speaks to the pool's own share door as a rig would.
 // Steps that are written but not built yet fail at their first missing part, quickly (UNBUILT):
-// - #1, #2: the overview has no coin, hardware or revenue split sections and nothing to copy (MC-mining-01).
-// - #3: no reachability test with a timed-out label and a press limit.
 // - #5, #6: the stack has no TEST share submitter (`local-test-stack.mjs mining-share`, proposed) and the workers room
 //   lists none (MC-mining-03); #7: no solo mode or proof-of-work refusal (RC-more-catalogue-16, -17).
 const J = 'J-more-catalogue-05';
@@ -24,6 +23,7 @@ async function openMining(page, path = '/mining') {
 
 test(`${J} starts: a signed-up TEST account`, async ({ page }) => {
   const who = await signUp(page, 'mn');
+  await verify(page, who);
   run.reset({ who });
 });
 
@@ -36,7 +36,7 @@ test(`${J} #1 opens /mining: the pool overview with coin, hardware and revenue s
     const region = page.getByRole('region', { name: section });
     await expect(region).toBeVisible(UNBUILT);
     // A section the owner has not published says so and nothing else.
-    if ((await region.getAttribute('data-state')) === 'unset') await expect(region).toContainText('not set');
+    if ((await region.getAttribute('data-state')) === 'unset') await expect(region).toContainText(/not set/i);
   }
 });
 
@@ -47,11 +47,18 @@ test(`${J} #2 copies the pool address, the account id and the worker name: each 
   await context.grantPermissions(['clipboard-read', 'clipboard-write']);
   await openMining(page);
   const connect = page.getByRole('region', { name: 'Connect your miner' });
+  // The worker name is the pool's published pattern filled with the rig's name, so the rig is named first.
+  await connect.getByLabel('Your rig name').fill('Rig-A', UNBUILT);
+  const copies = {};
   for (const field of ['Pool address', 'Account id', 'Worker name']) {
     await connect.getByRole('button', { name: `Copy ${field.toLowerCase()}` }).click(UNBUILT);
     const copied = await page.evaluate(() => navigator.clipboard.readText());
     await expect(connect.getByTestId(`mining-${field.toLowerCase().replace(' ', '-')}`)).toHaveText(copied);
+    copies[field] = copied;
   }
+  // The account id a rig sends is the signed-in account's own id, which the pool counts shares under.
+  expect(copies['Account id']).toBe((await api(run.read().who)).userId);
+  expect(copies['Worker name']).toContain('Rig-A');
 });
 
 test(`${J} #3 presses the reachability test on an unreachable host: "Timed out" with a label, never a success; past the owner limit a typed limit refusal`, async ({
