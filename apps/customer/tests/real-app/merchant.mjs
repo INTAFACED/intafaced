@@ -62,7 +62,8 @@ export async function openBusiness(page, who, legalName = 'TEST Merchant Ltd') {
 
 /**
  * Once the stack's category table has categories (J-merchant-02 #7 adds one), approval needs a chosen category that
- * INTAFACED takes (RC-merchant-08). The owner picks the first taken one with its terms set; an empty table asks nothing.
+ * INTAFACED takes (RC-merchant-08). The owner picks a standard one if there is one, else the first taken one with its
+ * terms set; an empty table asks nothing.
  */
 async function chooseTakenCategory(page) {
   await page.goto('/pay/compliance');
@@ -72,8 +73,17 @@ async function chooseTakenCategory(page) {
   const all = section.getByRole('list', { name: 'Every category' });
   await expect(section.getByTestId('category-no-rule').or(all)).toBeVisible();
   if (!(await all.isVisible())) return;
-  for (const item of await all.getByRole('listitem').all()) {
-    const text = (await item.textContent()) ?? '';
+  // A standard category (cards, crypto and bank transfer) first, so a journey's business can take every method whatever
+  // categories earlier journeys added; otherwise the first one taken.
+  const items = await all.getByRole('listitem').all();
+  const texts = await Promise.all(items.map(async (item) => (await item.textContent()) ?? ''));
+  // The class is the first fact under each category (CategoryFacts): its exact word, never a label that contains it.
+  const classes = await Promise.all(items.map(async (item) => ((await item.locator('dd').first().textContent()) ?? '').trim()));
+  const standard = (i) => classes[i] === 'Standard';
+  const order = [...items.keys()].sort((x, y) => Number(!standard(x)) - Number(!standard(y)));
+  for (const i of order) {
+    const item = items[i];
+    const text = texts[i];
     if (text.includes('Not taken') || text.includes('Not set.')) continue;
     await section.getByLabel('Your business category').selectOption({ label: await item.getAttribute('aria-label') });
     await section.getByRole('button', { name: 'Save category' }).click();

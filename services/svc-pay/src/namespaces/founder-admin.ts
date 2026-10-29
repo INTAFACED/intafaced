@@ -69,6 +69,7 @@ import { createCategoryPolicyRouter, type CategoryPolicyMountDeps } from '../onb
 import { createCustodyRouter, type CustodyMountDeps } from '../custody/router.js';
 import { createPurchaseHoldRouter, type PurchaseHoldMountDeps } from '../withdrawals/purchase-holds/router.js';
 import { createWithdrawalQuoteRouter, type WithdrawalQuoteMountDeps } from '../withdrawals/quotes/router.js';
+import { createWithdrawalNetworkRulesRouter, type WithdrawalNetworkRulesMountDeps } from '../withdrawals/network-rules/service.js';
 import { createTravelRuleRouter, type TravelRuleMountDeps } from '../travel-rule/router.js';
 import { createWithdrawalReturnRouter, type WithdrawalReturnMountDeps } from '../withdrawals/returns/router.js';
 import { createAllowlistFounderRouter, type AllowlistMountDeps } from '../withdrawals/allowlist/router.js';
@@ -116,6 +117,8 @@ export interface FounderAdminMounts {
   purchaseHolds?: PurchaseHoldMountDeps;
   /** W-withdraw-04: withdrawal fee quote policy and quote read (`founderAdmin.withdrawalQuotes.*`). Mounted only when supplied. */
   withdrawalQuotes?: WithdrawalQuoteMountDeps;
+  /** W-withdraw-02: the owner's withdrawal rules per asset and network (`founderAdmin.withdrawalNetworkRules.*`). Mounted only when supplied. */
+  withdrawalNetworkRules?: WithdrawalNetworkRulesMountDeps;
   /** W-compliance-notices-04: outbound travel rule (`founderAdmin.travelRule.*`). Mounted only when supplied. */
   travelRule?: TravelRuleMountDeps;
   /** W-withdraw-07: returned withdrawals, recorded and parked (`founderAdmin.withdrawalReturns.*`). Mounted only when supplied. */
@@ -189,6 +192,7 @@ export function createFounderAdminRouter(founderAuthority: FounderAuthority, mou
     purchaseHolds,
     travelRule,
     withdrawalQuotes,
+    withdrawalNetworkRules,
     withdrawalReturns,
     withdrawalApprovals,
     allowlist,
@@ -228,6 +232,10 @@ export function createFounderAdminRouter(founderAuthority: FounderAuthority, mou
       ...(purchaseHolds ? { purchaseHolds: createPurchaseHoldRouter({ founderAuthority, ...purchaseHolds }) } : {}),
       // W-withdraw-04: withdrawal fee quotes (src/withdrawals/quotes). Mounted only when its deps are supplied.
       ...(withdrawalQuotes ? { withdrawalQuotes: createWithdrawalQuoteRouter({ founderAuthority, ...withdrawalQuotes }) } : {}),
+      // W-withdraw-02: minimum, maximum, step and tag rule per asset and network (src/withdrawals/network-rules).
+      ...(withdrawalNetworkRules
+        ? { withdrawalNetworkRules: createWithdrawalNetworkRulesRouter({ founderAuthority, ...withdrawalNetworkRules }) }
+        : {}),
       // W-compliance-notices-04: outbound travel rule (src/travel-rule). Mounted only when its deps are supplied.
       ...(travelRule ? { travelRule: createTravelRuleRouter({ founderAuthority, ...travelRule }) } : {}),
       // W-withdraw-07: returned withdrawals (src/withdrawals/returns). Mounted only when its deps are supplied.

@@ -132,6 +132,12 @@ export const FEE_REVENUE_PATHS = {
     feeModule: 'pay',
     note: 'Merchant settlement fee → houseFees(pay).',
   },
+  'pay.withdraw_network_fee': {
+    kind: 'recipe',
+    recipe: 'withdrawSettle',
+    feeModule: 'pay',
+    note: 'The quoted network fee of a crypto withdrawal, held with the amount and drawn from that hold on settle → houseFees(pay). No fee omits the leg; a reverse returns it with the amount.',
+  },
   'pay.conversion_fee_spread': {
     kind: 'recipe',
     recipe: 'fxConversion',
@@ -254,6 +260,7 @@ export const RECIPES_TOUCHING_HOUSE_FEES = [
   'fxConversion',
   'fxConversionLateFill',
   'fxConversionReverse',
+  'withdrawSettle',
   'feeCharge',
   'sweepFeesToRewards',
   'loanRepay',

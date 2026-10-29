@@ -131,3 +131,4 @@ export * from './pay-withdrawal-tier-limits.js';
 export * from './identity-account-status.js';
 export * from './identity-kyc-capabilities.js';
 export * from './identity-kyc-attempts.js';
+export * from './identity-kyc-profile.js';

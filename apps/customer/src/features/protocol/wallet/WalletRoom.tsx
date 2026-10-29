@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useMemo, type ReactNode } from 'react';
 import { navigate } from '../../../app/location';
 import { useApi } from '../../session/session';
 import { usePreferences } from '../../../shared/preferences';
@@ -12,32 +12,38 @@ import '../protocol.css';
 import { walletCopy } from './copy';
 import { APP_CHAIN_ID, shortAddress } from './eip1193';
 import { PermitForm } from './PermitForm';
+import { ReceivePanel } from './ReceivePanel';
+import { ScanPanel } from './ScanPanel';
+import { SendPanel } from './SendPanel';
+import { WALLET_SECTIONS, type WalletSection } from '../routes';
 import { useWallet } from './WalletProvider';
 
-const SECTIONS = ['overview', 'activity', 'approvals', 'sessionKeys', 'accounts', 'safety'] as const;
-type Section = (typeof SECTIONS)[number];
-const HEADERS = {
+const SECTIONS = Object.keys(WALLET_SECTIONS) as WalletSection[];
+type Section = WalletSection;
+/** The sections that show a table of what the wallet holds or did; the others are their own panels. */
+const HEADERS: Partial<Record<Section, readonly string[]>> = {
   activity: ['hdr_time', 'hdr_event', 'hdr_status'],
   approvals: ['hdr_token', 'hdr_spender', 'hdr_allowance'],
   sessionKeys: ['hdr_name', 'hdr_address', 'hdr_status'],
   accounts: ['hdr_name', 'hdr_address', 'hdr_status'],
   safety: ['hdr_event', 'hdr_status'],
-} as const;
+};
 
 /** The remote-connect relay project id is an owner setting. Blank hides the QR path and shows owner.decision. */
 const relayProjectId: string = ((import.meta.env.VITE_WALLET_RELAY_PROJECT_ID as string | undefined) ?? '').trim();
 
 /**
- * /wallet: connect, the connected wallet, the network guard and the six sections. A section that a later slice builds
- * shows its full layout and its real state (nothing to show, or what it needs), never a blank.
+ * /wallet: connect, the connected wallet, the network guard and its sections, each at its own path. A section that a
+ * later slice builds shows its full layout and its real state (nothing to show, or what it needs), never a blank.
  */
-export function WalletRoom({ section: initial }: { section: 'overview' | 'activity' }) {
+export function WalletRoom({ section: initial }: { section: Section }) {
   const { language } = usePreferences();
   const { t } = walletCopy.forLocale(language);
   const { t: tp } = protocolCopy.forLocale(language);
   const wallet = useWallet();
-  const [section, setSection] = useState<Section>(initial);
-  useEffect(() => setSection(initial), [initial]);
+  const section = initial;
+  // The room re-renders on every navigation (its path comes from the location), so the query is read as it renders.
+  const query = new URLSearchParams(typeof window === 'undefined' ? '' : window.location.search);
   const transport = useApi();
   const api = useMemo(() => createProtocolApi(transport), [transport]);
   const chain = useResource((signal) => api.chainStatus(signal), 'wallet-room:chain');
@@ -135,22 +141,31 @@ export function WalletRoom({ section: initial }: { section: 'overview' | 'activi
     </>
   );
 
+  const headers = HEADERS[section];
   const body =
     section === 'overview' ? (
       overview
+    ) : section === 'send' ? (
+      <SendPanel to={query.get('to') ?? ''} token={query.get('token') ?? ''} />
+    ) : section === 'receive' ? (
+      <ReceivePanel />
+    ) : section === 'scan' ? (
+      <ScanPanel />
     ) : (
       <>
         {section === 'approvals' && <PermitForm />}
-        <Panel title={t(`section_${section}`)}>
-          {wallet.status !== 'connected' && <p className="muted">{t('needsWallet')}</p>}
-          <DataTable label={t(`section_${section}`)} headers={HEADERS[section].map((key) => t(key))}>
-            <tr>
-              <td colSpan={HEADERS[section].length}>
-                <EmptyState title={t(`empty_${section}`)} />
-              </td>
-            </tr>
-          </DataTable>
-        </Panel>
+        {headers && (
+          <Panel title={t(`section_${section}`)}>
+            {wallet.status !== 'connected' && <p className="muted">{t('needsWallet')}</p>}
+            <DataTable label={t(`section_${section}`)} headers={headers.map((key) => t(key as 'hdr_time'))}>
+              <tr>
+                <td colSpan={headers.length}>
+                  <EmptyState title={t(`empty_${section}` as 'empty_activity')} />
+                </td>
+              </tr>
+            </DataTable>
+          </Panel>
+        )}
       </>
     );
 
@@ -170,11 +185,7 @@ export function WalletRoom({ section: initial }: { section: 'overview' | 'activi
           label={t('sections')}
           items={SECTIONS}
           value={section}
-          onChange={(next) => {
-            const value = next as Section;
-            if (value === 'overview' || value === 'activity') navigate(value === 'overview' ? '/wallet' : '/wallet/activity');
-            else setSection(value);
-          }}
+          onChange={(next) => navigate(WALLET_SECTIONS[next as Section])}
           labels={Object.fromEntries(SECTIONS.map((id) => [id, t(`section_${id}`)]))}
         />
         {body}

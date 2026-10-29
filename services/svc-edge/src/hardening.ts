@@ -61,7 +61,6 @@ export const RATE_LIMIT_HEADER = {
   retryAfter: 'retry-after',
   bucket: 'x-ratelimit-bucket',
   cost: 'x-ratelimit-cost',
-  requestId: 'x-request-id',
 } as const;
 
 type HeaderReply = {
@@ -69,9 +68,11 @@ type HeaderReply = {
   getHeader?(name: string): unknown;
 };
 
-/** Stamp request-id always; bucket/cost only when the limiter actually counted. */
-export function stampRateLimitDisclosure(reply: HeaderReply, requestId: string): void {
-  reply.header(RATE_LIMIT_HEADER.requestId, requestId);
+/**
+ * Bucket/cost only when the limiter actually counted. The request id is not a capacity claim and is not
+ * stamped here: `reply-envelope.ts` puts it on every reply, refusals included.
+ */
+export function stampRateLimitDisclosure(reply: HeaderReply): void {
   if (reply.getHeader?.(RATE_LIMIT_HEADER.remaining) === undefined) return;
   if (reply.getHeader?.(RATE_LIMIT_HEADER.bucket) === undefined) {
     reply.header(RATE_LIMIT_HEADER.bucket, EDGE_IP_RATE_BUCKET);
@@ -82,17 +83,13 @@ export function stampRateLimitDisclosure(reply: HeaderReply, requestId: string):
 }
 
 /** Overwrite remaining to the bucket that actually refused (429, not a delayed 200). */
-export function stampRateLimitRefuseHeaders(
-  reply: HeaderReply,
-  input: { limit: number; resetSeconds: number; bucket: string; requestId: string },
-): void {
+export function stampRateLimitRefuseHeaders(reply: HeaderReply, input: { limit: number; resetSeconds: number; bucket: string }): void {
   reply.header(RATE_LIMIT_HEADER.limit, input.limit);
   reply.header(RATE_LIMIT_HEADER.remaining, 0);
   reply.header(RATE_LIMIT_HEADER.reset, input.resetSeconds);
   reply.header(RATE_LIMIT_HEADER.retryAfter, input.resetSeconds);
   reply.header(RATE_LIMIT_HEADER.bucket, input.bucket);
   reply.header(RATE_LIMIT_HEADER.cost, EDGE_RATE_COST);
-  reply.header(RATE_LIMIT_HEADER.requestId, input.requestId);
 }
 
 export interface RateLimitConfig {
@@ -319,10 +316,10 @@ export async function registerSecurityHeaders(app: FastifyInstance): Promise<voi
  * prevent.
  */
 export async function registerRateLimit(app: FastifyInstance, config: RateLimitConfig): Promise<void> {
-  // Request-id is not a capacity claim; remaining/bucket/cost only appear when
-  // the plugin counted this request (probes and throttle-off stay silent).
-  app.addHook('onSend', async (req, reply) => {
-    stampRateLimitDisclosure(reply, String(req.id));
+  // remaining/bucket/cost only appear when the plugin counted this request (probes and throttle-off stay
+  // silent). The request id is the envelope's (`reply-envelope.ts`), on every reply.
+  app.addHook('onSend', async (_req, reply) => {
+    stampRateLimitDisclosure(reply);
   });
 
   if (!config.enabled) return;
@@ -358,7 +355,8 @@ export async function registerRateLimit(app: FastifyInstance, config: RateLimitC
     // the error, and Fastify reads the status from it. Omit the field and a
     // throttle answers 500 — the body says "rate limited" while the status tells
     // every client and dashboard the edge crashed.
-    errorResponseBuilder: (req, context) => ({
+    // `requestId` is added to the body on the way out by the envelope, equal to the header.
+    errorResponseBuilder: (_req, context) => ({
       statusCode: 429,
       error: userCopy('edge.rate_limited'),
       code: 'edge.rate_limited',
@@ -366,7 +364,6 @@ export async function registerRateLimit(app: FastifyInstance, config: RateLimitC
       remaining: 0,
       bucket: EDGE_IP_RATE_BUCKET,
       cost: EDGE_RATE_COST,
-      requestId: String(req.id),
     }),
   });
 }

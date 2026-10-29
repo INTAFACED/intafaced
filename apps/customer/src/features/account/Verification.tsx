@@ -10,6 +10,7 @@ import { VerificationCases } from './VerificationCases';
 import { VerificationCapabilities } from './VerificationCapabilities';
 import { VerificationRestrictions } from './VerificationRestrictions';
 import { VerificationAttempts } from './VerificationAttempts';
+import { VerificationGuided } from './VerificationGuided';
 import { KYC_LADDER_LEVELS } from '@intafaced/contracts/identity-kyc-levels';
 import {
   finishVerification,
@@ -638,6 +639,7 @@ export function Verification() {
           <Loading />
         ) : (
           <>
+            {offeredTiers.length > 0 && <VerificationGuided tier={chosenTier} disabled={blocked} onSent={reload} />}
             <VerificationCapabilities recordsKey={casesKey} />
             <VerificationRestrictions recordsKey={casesKey} />
             <VerificationCases

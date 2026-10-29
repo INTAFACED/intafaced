@@ -3,6 +3,8 @@ import { NotFoundRoute, PendingRoute } from './PendingRoute';
 import { matchWeb3Route } from './routes';
 import { SUBNAV } from './blockers';
 import { WalletRoom } from './wallet/WalletRoom';
+import { TokenPage } from './tokens/TokenPage';
+import { TokensRoom } from './tokens/TokensRoom';
 
 /**
  * Mounts one component per Web3 route (IA-SPEC 2.8). A tab route renders its room's tab; a detail route renders its full
@@ -13,6 +15,8 @@ export function ProtocolRoutes({ path }: { path: string }) {
   if (!found) return <NotFoundRoute path={path} />;
   const { route, params } = found;
   if (route.wallet) return <WalletRoom section={route.wallet} />;
+  if (route.tokens === 'list') return <TokensRoom />;
+  if (route.tokens === 'detail') return <TokenPage address={safeDecode(params.address)} />;
   if (route.pending) {
     const { param } = route.pending;
     const value = param ? params[param.name] : undefined;

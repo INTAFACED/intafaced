@@ -1,0 +1,31 @@
+.protocol-room .explorer-intachain {
+  margin: 0;
+  padding: var(--if-space-3) var(--if-space-4);
+  border: 1px solid var(--if-line);
+  border-radius: var(--if-r-md);
+}
+.protocol-room .explorer-search {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--if-space-2);
+}
+.protocol-room .explorer-search input {
+  flex: 1 1 18rem;
+  min-inline-size: 0;
+}
+.protocol-room .explorer-results,
+.protocol-room .explorer-networks {
+  list-style: none;
+  margin: var(--if-space-3) 0 0;
+  padding: 0;
+  display: grid;
+  gap: var(--if-space-2);
+}
+.protocol-room .explorer-results [role='option'] {
+  cursor: pointer;
+  padding: var(--if-space-2) var(--if-space-3);
+  border-radius: var(--if-r-md);
+}
+.protocol-room .explorer-results__value {
+  overflow-wrap: anywhere;
+}
