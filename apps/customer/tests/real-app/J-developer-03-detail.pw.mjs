@@ -8,11 +8,7 @@ import { PASSKEY_ORIGIN, addPasskey, virtualAuthenticator } from './identity-fac
 // holds #2 to #6 and #8 in serial mode, so a step here that fails can't skip those; this file has its own TEST account
 // with a passkey, on http://localhost:3210 for the passkey's relying party. The steps share one page: the passkey lives
 // in that page's virtual authenticator, so a new browser context could not pass the key step-up.
-// A clause that is written but not built yet fails at its first missing part, quickly (UNBUILT), after every other
-// clause of its step is proven:
-// - #7: the developer portal publishes no permission-to-endpoint table on this branch (the portal pages are their own PR).
 const J = 'J-developer-03';
-const UNBUILT = { timeout: 5_000 };
 
 test.describe.configure({ mode: 'default' });
 // An action on a part that never appears fails in 15 s, not at the test's time limit.
@@ -126,12 +122,14 @@ test(`${J} #7 reads the permission-to-endpoint table, then calls a route without
     message: 'Scope "trade:write" is required',
     intafacedCode: 'scope.denied',
     docs: '/developers/permissions',
+    // Each refusal carries its own request id for support; the code is exact.
+    requestId: expect.stringMatching(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/),
   });
 
   // The docs link opens the published table, which names trade:write against the order route.
   await page.goto(body.docs);
   const table = page.getByRole('table', { name: 'Permissions and endpoints' });
-  await expect(table, 'UNBUILT: the permission-to-endpoint table is not published on this branch').toBeVisible(UNBUILT);
+  await expect(table).toBeVisible();
   await expect(table.getByRole('row', { name: /trade:write/ })).toContainText('POST /api/v1/orders');
 });
 
