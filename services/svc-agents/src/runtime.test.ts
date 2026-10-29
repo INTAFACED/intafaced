@@ -2593,7 +2593,7 @@ if (!available) {
       const rt = kept();
       const session = await rt.openSession({ userId: USER_A, agentId: 'probe' });
       const ran = await rt.think({ sessionId: session.id, requestId: 'ops-log-ran', task: 'plan', messages: MESSAGES });
-      await expect(rt.think({ sessionId: session.id, requestId: 'ops-log-refused', task: 'nope', messages: MESSAGES })).rejects.toBeInstanceOf(
+      await expect(rt.think({ sessionId: session.id, requestId: 'ops-log-refused', task: 'vectors', messages: MESSAGES })).rejects.toBeInstanceOf(
         RefusedError,
       );
       const [refused] = await sql<{ id: string; refusal_code: string }[]>`
@@ -2646,8 +2646,8 @@ if (!available) {
       const page = await opsLog().actions(read);
       expect(page).toMatchObject({ more: false, limit: 50, auditRows: 1 });
       expect(page.items.find((i) => i.id === ranId)).toMatchObject({ kind: 'completion', tool: 'plan', outcome: 'executed', refusalCode: null });
-      expect(page.items.find((i) => i.id === refused.id)).toMatchObject({ tool: 'nope', outcome: 'refused', refusalCode: refused.refusal_code });
-      expect(page.tools).toEqual(expect.arrayContaining(['nope', 'plan']));
+      expect(page.items.find((i) => i.id === refused.id)).toMatchObject({ tool: 'vectors', outcome: 'refused', refusalCode: refused.refusal_code });
+      expect(page.tools).toEqual(expect.arrayContaining(['plan', 'vectors']));
       expect(JSON.stringify(page)).not.toContain('Where do I stake?');
       // The retried request writes no second row; a new request writes its own.
       expect((await opsLog().actions(read)).auditRows).toBe(1);
@@ -2670,16 +2670,16 @@ if (!available) {
 
     it('filters by outcome and tool, flags a page past the owner’s limit, and exports the same rows as CSV', async () => {
       const { refused } = await history();
-      const read = { userId: USER_A, reason: REASONS[0], outcome: 'refused' as const, tool: 'nope' };
+      const read = { userId: USER_A, reason: REASONS[0], outcome: 'refused' as const, tool: 'vectors' };
       const page = await opsLog().actions({ ...read, requestId: 'ops-log:filter:1' });
       expect(page.items.map((i) => i.id)).toEqual([refused.id]);
       const file = await opsLog().export({ ...read, requestId: 'ops-log:export:1' });
       expect(file).toMatchObject({ rows: 1, more: false, auditRows: 1 });
       const [header, ...lines] = file.csv.trim().split('\n');
       expect(header).toBe('Time,Tool,Outcome,Refusal code,Input digest,Action id');
-      expect(lines).toEqual([`${page.items[0]!.occurredAt},nope,Refused,${refused.refusal_code},,${refused.id}`]);
+      expect(lines).toEqual([`${page.items[0]!.occurredAt},vectors,Refused,${refused.refusal_code},,${refused.id}`]);
       const [audit] = await sql`SELECT kind, filter, row_count FROM agents.agent_log_reads WHERE kind = 'export'`;
-      expect(audit).toMatchObject({ kind: 'export', filter: { outcome: 'refused', tool: 'nope' }, row_count: 1 });
+      expect(audit).toMatchObject({ kind: 'export', filter: { outcome: 'refused', tool: 'vectors' }, row_count: 1 });
       const capped = await opsLog({ limit: 1 }).actions({ userId: USER_A, reason: REASONS[0], requestId: 'ops-log:capped:1' });
       expect(capped).toMatchObject({ more: true, limit: 1 });
       expect(capped.items).toHaveLength(1);
