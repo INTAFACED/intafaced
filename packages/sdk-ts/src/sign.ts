@@ -4,9 +4,10 @@
  * INTAFACED-REQ-V1, UTF-8, no trailing newline:
  *   version, method, absolute path (plus query), unix seconds, nonce, body sha256.
  *
- * The server holds each timestamp to the owner's signing window, published at
- * /developers/authentication; while the window is unset every signed request is
- * refused (auth.request_window_unset). This helper sets no window of its own.
+ * The server holds each timestamp to the owner's signing window, which identity
+ * checks and publishes (requestSigningPolicy); while the window is unset every
+ * signed request is refused (auth.request_window_unset). This helper sets no
+ * window of its own.
  */
 import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 
