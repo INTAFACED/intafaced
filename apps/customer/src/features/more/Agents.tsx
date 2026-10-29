@@ -5,7 +5,7 @@ import './agents-session.css';
 import { useEffect, useRef, useState } from 'react';
 import { z } from 'zod';
 import { useApi, useSession } from '../session/session';
-import { useResource } from '../../shared/resource';
+import { useResource, type Resource } from '../../shared/resource';
 import { decimalSchema, displayAmount, parseAmount } from '../../shared/money';
 import type { ApiResult } from '../../shared/api';
 import { Button, DataTable, Failure, Field, Panel, Tabs } from '../../shared/ui';
@@ -311,6 +311,10 @@ export function Agents({ paper = false }: { paper?: boolean }) {
     setRuns([]);
     setRunNote(null);
   }, [userId, agent]);
+  // A refresh of the selected session keeps showing what was read until the new read lands.
+  const steadyUsage = useSteady(selectedUsage.resource, selectedSession?.id),
+    steadyHistory = useSteady(selectedHistory.resource, selectedSession?.id),
+    steadyDetail = useSteady(selectedDetail.resource, selectedSession?.id);
   const defs = guard.resource.status === 'ready' ? guard.resource.data : null,
     available =
       routes.resource.status === 'ready'
@@ -436,7 +440,7 @@ export function Agents({ paper = false }: { paper?: boolean }) {
                   >
                     {sessionCopy.t('refresh')}
                   </Button>
-                  <Read resource={selectedUsage.resource} retry={selectedUsage.reload}>
+                  <Read resource={steadyUsage} retry={selectedUsage.reload}>
                     {(usage) =>
                       usage && (
                         <Details
@@ -467,7 +471,7 @@ export function Agents({ paper = false }: { paper?: boolean }) {
                     }
                   </Read>
                   <p className="muted">{sessionCopy.t('usageBoundary')}</p>
-                  <Read resource={selectedDetail.resource} retry={selectedDetail.reload}>
+                  <Read resource={steadyDetail} retry={selectedDetail.reload}>
                     {(detail) =>
                       detail ? (
                         <SessionWindows
@@ -490,11 +494,7 @@ export function Agents({ paper = false }: { paper?: boolean }) {
                     }
                   </Read>
                   {closeFailure ? <Failure result={closeFailure} /> : null}
-                  <Read
-                    resource={selectedHistory.resource}
-                    retry={selectedHistory.reload}
-                    empty={copyText('agents.no.actions.in.this.session')}
-                  >
+                  <Read resource={steadyHistory} retry={selectedHistory.reload} empty={copyText('agents.no.actions.in.this.session')}>
                     {(rows) => (
                       <>
                         <SessionHistory rows={rows} />
@@ -1255,4 +1255,12 @@ function SessionWindows({
       {closed ? <p role="status">{t('closedSettled')}</p> : null}
     </>
   );
+}
+
+/** The last ready read for the same key while a refresh of it loads; a new key starts from loading. */
+function useSteady<T>(resource: Resource<T>, key: string | undefined): Resource<T> {
+  const last = useRef<{ key: string | undefined; resource: Resource<T> } | null>(null);
+  if (resource.status === 'ready') last.current = { key, resource };
+  const kept = last.current;
+  return resource.status === 'loading' && kept && kept.key === key ? kept.resource : resource;
 }
