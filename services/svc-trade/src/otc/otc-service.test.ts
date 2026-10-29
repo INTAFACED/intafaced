@@ -22,6 +22,7 @@ const published: OtcDeskLaw = {
   maxMidAgeSeconds: 60,
   // A zero desk minimum is an owner value: these quotes are not held by the CB-otc-07 minimum.
   minNotional: { USDT: 0n },
+  assets: ['BTC'],
 };
 
 /** Fresh observed mid — standing in for a live TRADE_OTC_MIDS / feed. */
@@ -237,7 +238,8 @@ describe('OtcDeskService', () => {
     const partial = new OtcDeskService(new MemoryLedger(), new FixedOtcStake(parseAmount('1000')), {
       // The house desk is the one provider these requests ask (CB-otc-01).
       makerDirectory: { published: true, makers: [{ id: 'house', name: 'House desk', route: 'platform' }], selectCap: 1 },
-      law: published,
+      // SOL is on the desk's asset list (CB-otc-11), so the refusal is the missing mid, not the list.
+      law: { ...published, assets: ['BTC', 'SOL'] },
       midSource: freshMids(() => now),
       now: () => now,
     });

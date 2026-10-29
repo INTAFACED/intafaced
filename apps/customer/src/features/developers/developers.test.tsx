@@ -8,7 +8,14 @@ import { findRoom } from '../../app/navigation';
 import { SessionProvider } from '../session/session';
 import { DevelopersRoutes } from './DevelopersRoutes';
 import { ENVIRONMENTS, PROTOCOLS, SECTIONS, connectivityOptions, developersRoute, hostTable } from './developers-model';
-import { DEVELOPER_DATA_TERMS_UNSET, DEVELOPER_HOSTS_UNSET, hostsView, termsView } from './developers-values';
+import {
+  DEVELOPER_DATA_TERMS_UNSET,
+  DEVELOPER_HOSTS_UNSET,
+  DEVELOPER_REGIONAL_RULE_UNSET,
+  hostsView,
+  regionalRuleView,
+  termsView,
+} from './developers-values';
 
 describe('developer portal model', () => {
   it('reads the address into home, hosts, a known section or unknown', () => {
@@ -129,6 +136,18 @@ describe('the published developer values', () => {
     expect(options[0]!.hosts.map(({ cell }) => cell)).toEqual(
       PROTOCOLS.map((protocol) => ({ state: 'set', host: `${protocol}.production.test` })),
     );
+  });
+  it('the regional rule is the text the service publishes; blank is unset with its code; any other failure is not unset', () => {
+    expect(regionalRuleView(ready({ rule: 'Regional hosts serve their region.' }))).toEqual({
+      kind: 'set',
+      rule: 'Regional hosts serve their region.',
+    });
+    expect(regionalRuleView({ status: 'failed', code: DEVELOPER_REGIONAL_RULE_UNSET })).toEqual({
+      kind: 'unset',
+      code: 'trade.developer_regional_rule_unset',
+    });
+    expect(regionalRuleView({ status: 'failed', code: 'edge.upstream_unwired' })).toEqual({ kind: 'failed' });
+    expect(regionalRuleView({ status: 'loading' })).toEqual({ kind: 'loading' });
   });
   it('a blank setting draws every row not set with its code; any other failure draws no table', () => {
     const blank = hostsView({ status: 'failed', code: DEVELOPER_HOSTS_UNSET });
