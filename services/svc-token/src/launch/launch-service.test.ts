@@ -252,7 +252,13 @@ describe('J-more-catalogue-11 launch service', () => {
     expect(await refusal(launch.checkMove({ id: 'test-open-launch', to: 'announced', expectedRevision: 0, now: at(0.5) }))).toBe(
       'launch.event_not_found',
     );
+    expect(await refusal(launch.checkCreate(event({ issuerId: 'other-issuer' })))).toBe('launch.issuer_not_found');
+    await launch.checkCreate(event());
     await launch.createEvent(event());
+    await launch.checkCreate(event());
+    expect(await refusal(launch.checkCreate(event({ terms: { price: '0.6', paymentAsset: 'USDT', rateSource: null } })))).toBe(
+      'launch.event_conflict',
+    );
     expect(await refusal(launch.checkMove({ id: 'test-open-launch', to: 'announced', expectedRevision: 0, now: at(0.5) }))).toBe(
       'launch.issuer_not_onboarded',
     );

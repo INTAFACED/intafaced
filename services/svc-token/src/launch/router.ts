@@ -231,6 +231,7 @@ export function createLaunchRouter(launch: LaunchService, options: LaunchRouterO
             const event = toCreateInput(fields);
             // A launch the door would refuse never spends the founders' approval.
             const payload = launchEventPayload(event);
+            await launch.checkCreate(event);
             const consumed = await consumeTokenApproval(
               options.approvals,
               { approvalId, operationId },

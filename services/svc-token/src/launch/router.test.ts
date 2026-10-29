@@ -94,6 +94,7 @@ function fakeService(overrides: Partial<Record<keyof LaunchService, unknown>> = 
     })),
     createEvent: vi.fn(async () => ({ id: OPEN.id, status: 'draft', revision: 0 })),
     moveEvent: vi.fn(async () => OPEN),
+    checkCreate: vi.fn(async () => undefined),
     checkMove: vi.fn(async () => undefined),
     setIssuer: vi.fn(),
     checkIssuerSet: vi.fn(async () => undefined),
@@ -286,7 +287,7 @@ describe('operator doors', () => {
     expect(service.moveEvent).not.toHaveBeenCalled();
   });
 
-  it('a move or issuer change the service refuses never spends the approval', async () => {
+  it('a launch, move or issuer change the service refuses never spends the approval', async () => {
     const consume = vi.fn(stubApprovalConsumer(APPROVER).consume);
     const service = fakeService({
       checkMove: vi.fn(async () => {
@@ -294,6 +295,9 @@ describe('operator doors', () => {
       }),
       checkIssuerSet: vi.fn(async () => {
         throw new LaunchError('Issuer cannot move from applied to onboarded', 'launch.issuer_move_invalid');
+      }),
+      checkCreate: vi.fn(async () => {
+        throw new LaunchError('Issuer test-issuer not found', 'launch.issuer_not_found');
       }),
     });
     const admin1 = caller(admin(), service, { approvals: { consume } });
@@ -303,9 +307,13 @@ describe('operator doors', () => {
     await expect(
       admin1.issuer.set({ id: 'tst-issuer', name: 'TEST Issuer', state: 'onboarded', expectedRevision: 1, approvalId: 'a' }),
     ).rejects.toMatchObject({ cause: { code: 'launch.issuer_move_invalid' } });
+    await expect(admin1.events.create({ ...createInput, approvalId: 'a' })).rejects.toMatchObject({
+      cause: { code: 'launch.issuer_not_found' },
+    });
     expect(consume).not.toHaveBeenCalled();
     expect(service.moveEvent).not.toHaveBeenCalled();
     expect(service.setIssuer).not.toHaveBeenCalled();
+    expect(service.createEvent).not.toHaveBeenCalled();
   });
 
   it('move passes the actor and the approver to the service', async () => {

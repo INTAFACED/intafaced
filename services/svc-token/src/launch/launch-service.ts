@@ -84,6 +84,29 @@ function issuerName(input: { id: string; name: string }): string {
   return name;
 }
 
+/** True when a stored launch carries exactly the details of `e`, so creating `e` again is a retry. */
+function sameEvent(stored: LaunchEvent, e: ReturnType<typeof canonicalEvent>): boolean {
+  return (
+    stored.issuer.id === e.issuerId &&
+    stored.type === e.type &&
+    stored.projectName === e.projectName &&
+    stored.symbol === e.symbol &&
+    sameTime(stored.periods.announceAt, e.periods.announceAt) &&
+    sameTime(stored.periods.snapshotAt, e.periods.snapshotAt) &&
+    sameTime(stored.periods.openAt, e.periods.openAt) &&
+    sameTime(stored.periods.closeAt, e.periods.closeAt) &&
+    sameTime(stored.periods.distributionAt, e.periods.distributionAt) &&
+    stored.allocation.method === e.method &&
+    sameAmount(stored.allocation.perUserCap, e.perUserCap) &&
+    sameAmount(stored.allocation.ticketSize, e.ticketSize) &&
+    JSON.stringify(stored.allocation.tierWeights?.map((t) => [formatAmount(t.minBasis), t.weight]) ?? null) ===
+      JSON.stringify(e.tierWeights?.map((t) => [formatAmount(t.minBasis), t.weight]) ?? null) &&
+    sameAmount(stored.terms.price, e.price) &&
+    stored.terms.paymentAsset === e.paymentAsset &&
+    stored.terms.rateSource === e.rateSource
+  );
+}
+
 /** Every refusal of an issuer change, given the stored issuer and the move row at the next ordinal, if any. */
 function refuseIssuerSet(
   current: { name: string; state: IssuerState; revision: number } | undefined,
@@ -444,6 +467,17 @@ export class LaunchService {
     refuseIssuerSet(rows[0], { ...input, name }, replay[0]?.to_state);
   }
 
+  /** As checkIssuerSet, for createEvent: an unknown issuer or another launch under the same id, read-only. */
+  async checkCreate(input: CreateEventInput): Promise<void> {
+    const e = canonicalEvent(input);
+    const issuer = await this.sql<Array<{ id: string }>>`SELECT id FROM token.launch_issuers WHERE id = ${e.issuerId}`;
+    if (!issuer[0]) throw new LaunchError(`Issuer ${e.issuerId} not found`, 'launch.issuer_not_found');
+    const existing = (await this.selectEvents(this.sql, { id: e.id }))[0];
+    if (existing && !sameEvent(eventFromRow(existing), e)) {
+      throw new LaunchError(`Launch ${e.id} already exists with other details`, 'launch.event_conflict');
+    }
+  }
+
   /** As checkIssuerSet, for moveEvent: the same refusals, read-only, before the approval is spent. */
   async checkMove(input: { id: string; to: LaunchStatus; expectedRevision: number; now: Date }): Promise<void> {
     const row = (await this.selectEvents(this.sql, { id: input.id }))[0];
@@ -511,24 +545,7 @@ export class LaunchService {
       const existing = (await this.selectEvents(tx, { id: e.id, forUpdate: true }))[0];
       if (existing) {
         const stored = eventFromRow(existing);
-        const same =
-          stored.issuer.id === e.issuerId &&
-          stored.type === e.type &&
-          stored.projectName === e.projectName &&
-          stored.symbol === e.symbol &&
-          sameTime(stored.periods.announceAt, e.periods.announceAt) &&
-          sameTime(stored.periods.snapshotAt, e.periods.snapshotAt) &&
-          sameTime(stored.periods.openAt, e.periods.openAt) &&
-          sameTime(stored.periods.closeAt, e.periods.closeAt) &&
-          sameTime(stored.periods.distributionAt, e.periods.distributionAt) &&
-          stored.allocation.method === e.method &&
-          sameAmount(stored.allocation.perUserCap, e.perUserCap) &&
-          sameAmount(stored.allocation.ticketSize, e.ticketSize) &&
-          JSON.stringify(stored.allocation.tierWeights?.map((t) => [formatAmount(t.minBasis), t.weight]) ?? null) ===
-            JSON.stringify(e.tierWeights?.map((t) => [formatAmount(t.minBasis), t.weight]) ?? null) &&
-          sameAmount(stored.terms.price, e.price) &&
-          stored.terms.paymentAsset === e.paymentAsset &&
-          stored.terms.rateSource === e.rateSource;
+        const same = sameEvent(stored, e);
         if (!same) throw new LaunchError(`Launch ${e.id} already exists with other details`, 'launch.event_conflict');
         return { id: stored.id, status: stored.status, revision: stored.revision };
       }
