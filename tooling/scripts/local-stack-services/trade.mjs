@@ -92,5 +92,10 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, TEST_FUTURES_LADDER_POLICY })
     // LOCAL TEST, not an owner decision: the copy driver places each copy as the follower, so J-copy-bots-otc-01 #8
     // sees a first copied trade on TEST money. Production leaves it off until the owner turns copy placing on.
     TRADE_COPY_PLACE_MIRROR: 'on',
+    // LOCAL TEST, not owner decisions: the quote desk's law and its reference price, read from the labelled TEST profile
+    // so the OTC journeys price, accept and settle on TEST money against the house inventory.
+    // Each one blank refuses by name (services/svc-trade/src/otc/); production stays blank until the owner sets it.
+    TRADE_OTC_DESK_LAW: testValue('TRADE_OTC_DESK_LAW'),
+    TRADE_OTC_MIDS: testValue('TRADE_OTC_MIDS'),
   }),
 });
