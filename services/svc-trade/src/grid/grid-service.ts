@@ -124,6 +124,11 @@ export interface GridBotView {
   /** The sum of closed pairs' profit net of fees. "0" before any pair closes. */
   readonly gridProfit: string;
   readonly closedPairs: number;
+  /**
+   * Grid APR, simple: grid profit over the investment, times 365 over the days running (actual elapsed time, ACT/365),
+   * as a percent rounded down to 2 decimals. No figure before a whole day has run: extrapolating hours inflates it.
+   */
+  readonly gridApr: { readonly state: 'under_a_day'; readonly percent: null } | { readonly state: 'set'; readonly percent: string };
   readonly createdAt: string;
 }
 
@@ -137,6 +142,8 @@ export interface GridPresetsView {
 export interface GridSetupView {
   /** The owner's allowed grid counts, or null while either end is blank (every create then refuses). */
   readonly countRange: { readonly min: number; readonly max: number } | null;
+  /** The most each bound may sit from the market price, in basis points, or null while blank (every create refuses). */
+  readonly boundsMaxDistanceBps: number | null;
 }
 
 const REQUEST_KEY = /^[A-Za-z0-9:._-]{8,120}$/;
@@ -186,6 +193,41 @@ const isLive = (status: GridStatus) => LIVE.includes(status);
 const STOPPABLE: readonly GridStatus[] = ['initializing', ...LIVE];
 /** A create that has not finished placing after this long stopped part way; the tick takes the bot over. */
 const INITIALIZING_STALE_MS = 120_000;
+const DAY_MS = 86_400_000;
+const HUNDREDTH = parseAmount('0.01');
+
+/** Each bound within the owner's distance of the market price (CB-bots-02); a blank distance refuses every create. */
+function assertBoundsInBand(bps: number | null, lower: Amount, upper: Amount, mark: Amount): void {
+  if (bps === null) {
+    throw new GridError('The platform has not set how far the bounds may be from the market price', 'trade.bots_grid_bounds_band_not_set');
+  }
+  const percent = formatAmount(div(parseAmount(String(bps)), parseAmount('100')));
+  const floor = bps >= 10_000 ? 0n : (mark * BigInt(10_000 - bps)) / 10_000n;
+  const ceiling = (mark * BigInt(10_000 + bps)) / 10_000n;
+  const details = { maxDistancePercent: percent, mark: formatAmount(mark), min: formatAmount(floor), max: formatAmount(ceiling) };
+  if (lower < floor) {
+    throw new GridError(`Lower price must be within ${percent}% of the market price`, 'trade.bots_grid_bounds_out_of_band', {
+      field: 'Lower price',
+      ...details,
+    });
+  }
+  if (upper > ceiling) {
+    throw new GridError(`Upper price must be within ${percent}% of the market price`, 'trade.bots_grid_bounds_out_of_band', {
+      field: 'Upper price',
+      ...details,
+    });
+  }
+}
+
+/** Grid APR from the profit, the principal committed and the milliseconds running; see GridBotView.gridApr. */
+export function gridApr(profit: Amount, invested: Amount, elapsedMs: number): GridBotView['gridApr'] {
+  if (elapsedMs < DAY_MS) return { state: 'under_a_day', percent: null };
+  const num = profit * 100n * 100n * 365n * BigInt(DAY_MS);
+  const den = invested * BigInt(Math.floor(elapsedMs));
+  // Rounded down: toward minus infinity, so a loss never reads smaller than it is.
+  const hundredths = num / den - (num % den < 0n ? 1n : 0n);
+  return { state: 'set', percent: formatAmount(hundredths * HUNDREDTH) };
+}
 const INITIALIZATION_FAILED = 'The grid could not place its levels; nothing is left running';
 
 /** A level order id the bot may hold with no row of its own: the next buy of a level, or the sell of a bought pair. */
@@ -214,7 +256,7 @@ export class GridService {
   /** The wizard's first read: refuses below the owner's verification level (or a blank level), as create does. */
   setup(principal: Principal): GridSetupView {
     assertBotVerification(this.ports.verification(), principal.tier);
-    return { countRange: this.ports.policy.countRange };
+    return { countRange: this.ports.policy.countRange, boundsMaxDistanceBps: this.ports.policy.boundsMaxDistanceBps };
   }
 
   async create(principal: Principal, input: GridCreateInput): Promise<GridBotView> {
@@ -248,6 +290,7 @@ export class GridService {
     const plan = planGrid({ lower, upper, count, investment, market });
     const mark = markOf(await this.ports.depth(market.id));
     if (mark === null) throw new GridError(`${market.symbol} has no bid and ask to place a grid around`, 'trade.grid_mark_unavailable');
+    assertBoundsInBand(this.ports.policy.boundsMaxDistanceBps, lower, upper, mark);
 
     const asset = market.quoteAsset;
     // Free quote less every other reserve. The save runs this again under the owner's reserve lock, where a copy follow
@@ -313,14 +356,22 @@ export class GridService {
     if (!saved.created) return this.sameRequest(saved.bot, hash);
 
     if (bot.status === 'initializing') {
+      // Driven by this create until it returns: neither a tick nor the stale takeover in this process places for it.
+      this.driving.add(botId);
       try {
-        await this.placeMissingBuys(principal, bot, market, mark, []);
-      } catch (error) {
-        await this.failInitialization(principal, bot, error);
-      }
-      // A stop that landed while the levels were placed wins: what was placed is cancelled.
-      if (!(await this.ports.store.setStatus(botId, 'running', null, this.now(), ['initializing']))) {
-        await this.windDown(principal, await this.stored(botId));
+        try {
+          await this.placeMissingBuys(principal, bot, market, mark, []);
+        } catch (error) {
+          await this.failInitialization(principal, bot, error);
+        }
+        // A stop that landed while the levels were placed wins: what was placed is cancelled. A bot another process
+        // took over as stale is live and stays as it is.
+        if (!(await this.ports.store.setStatus(botId, 'running', null, this.now(), ['initializing']))) {
+          const after = await this.stored(botId);
+          if (!isLive(after.status)) await this.windDown(principal, after);
+        }
+      } finally {
+        this.driving.delete(botId);
       }
     }
     return this.view(await this.stored(botId));
@@ -346,10 +397,14 @@ export class GridService {
     return this.view(await this.stored(bot.botId));
   }
 
-  private async failInitialization(principal: Principal, bot: GridBot, error: unknown): Promise<never> {
+  /** Returns only when another process took the bot over as stale: it is live, and that tick places what is missing. */
+  private async failInitialization(principal: Principal, bot: GridBot, error: unknown): Promise<void> {
     const reason = (error as { code?: string })?.code ?? 'trade.grid_initialization_failed';
     // The status first: no tick places for it from here, and a wind-down that cannot finish now is retried by the tick.
-    await this.ports.store.setStatus(bot.botId, 'initialization_failed', reason, this.now(), STOPPABLE);
+    // Only from initializing: a stop already stands, and a bot taken over is running.
+    if (!(await this.ports.store.setStatus(bot.botId, 'initialization_failed', reason, this.now(), ['initializing']))) {
+      if (isLive((await this.stored(bot.botId)).status)) return;
+    }
     try {
       await this.windDown(principal, bot);
     } catch {
@@ -517,6 +572,8 @@ export class GridService {
     // A create that stopped part way (a crash, a lost connection): running from here, so this pass places what it missed.
     const stale = new Date(this.now().getTime() - INITIALIZING_STALE_MS);
     for (const bot of await this.ports.store.listStaleInitializing(stale)) {
+      // A create in this process that is only slow still drives it.
+      if (this.driving.has(bot.botId)) continue;
       await this.ports.store.setStatus(bot.botId, 'running', null, this.now(), ['initializing']);
     }
     for (const bot of await this.ports.store.listLiveBots()) {
@@ -636,6 +693,7 @@ export class GridService {
     const orders = await this.ports.store.listOrders(botId);
     const reserve = await this.ports.store.getReserve(botId);
     const closed = orders.filter((o) => o.side === 'sell' && o.status === 'filled' && o.pairProfit !== null);
+    const gridProfit = closed.reduce((a, o) => a + o.pairProfit!, 0n);
     const openAt = (index: number) => {
       const o = orders.find((x) => x.status === 'open' && (x.side === 'buy' ? x.levelIndex === index : x.levelIndex + 1 === index));
       return o ? { side: o.side, orderId: o.orderId, clientOrderId: o.clientOrderId } : null;
@@ -679,8 +737,9 @@ export class GridService {
         status: o.status,
         pairProfit: o.pairProfit === null ? null : formatAmount(o.pairProfit),
       })),
-      gridProfit: formatAmount(closed.reduce((a, o) => a + o.pairProfit!, 0n)),
+      gridProfit: formatAmount(gridProfit),
       closedPairs: closed.length,
+      gridApr: gridApr(gridProfit, bot.investment, this.now().getTime() - bot.createdAt.getTime()),
       createdAt: bot.createdAt.toISOString(),
     };
   }

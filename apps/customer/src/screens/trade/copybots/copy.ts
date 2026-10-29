@@ -486,6 +486,7 @@ const messages = {
   Withdrawn: 'Withdrawn',
   'Write and save a strategy in Quant Studio and it appears here.': 'Write and save a strategy in Quant Studio and it appears here.',
   'Yearly return (APR)': 'Yearly return (APR)',
+  'Not set: the bot has run less than a day': 'Not set: the bot has run less than a day',
   'You are signed out': 'You are signed out',
   'You aren’t following anyone': 'You aren’t following anyone',
   'You can still set everything up and manage follows you already have. A new follow is refused until it opens.':
@@ -506,6 +507,8 @@ const messages = {
   '{count} levels. The service plans the real ones when the bot starts.':
     '{count} levels. The service plans the real ones when the bot starts.',
   '{min} to {max}': '{min} to {max}',
+  'Bounds allowed': 'Bounds allowed',
+  'Within {percent}% of the market price': 'Within {percent}% of the market price',
   '{share} of that fee, paid by the platform from the fee': '{share} of that fee, paid by the platform from the fee',
 } as const;
 

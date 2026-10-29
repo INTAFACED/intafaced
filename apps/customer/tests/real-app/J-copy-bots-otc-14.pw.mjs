@@ -11,8 +11,8 @@ const ONE = toUnits('1');
 // The grid is svc-trade's own (services/svc-trade/src/grid): its reserve row and level orders are read back from it, and
 // what the ledger holds is read from the ledger. A blank owner level comes from restarting trade with
 // LOCAL_STACK_TRADE_BOTS_LEVEL=blank, and a price out of range from the TEST market's `move`, each undone in a finally.
-// Steps that are written but not built yet fail at their first missing part, quickly (UNBUILT):
-// - #6 needs two closed level pairs driven through the TEST book; #7 needs a grid profit withdrawal (CB-bots-05).
+// Steps that are written but not built yet fail at their first missing part, quickly, by name (UNBUILT):
+// - #7 needs a grid profit withdrawal (CB-bots-05).
 const J = 'J-copy-bots-otc-14';
 const run = journeyState(`${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
 const UNBUILT = { timeout: 5_000 };
@@ -228,18 +228,23 @@ async function everyBotCreate(who, tag) {
   return answers;
 }
 
-/** Restart trade with the owner's bots level blank (`blank`) or as the TEST profile sets it (`set`). */
-function botsLevel(state) {
-  const before = process.env.LOCAL_STACK_TRADE_BOTS_LEVEL;
-  if (state === 'blank') process.env.LOCAL_STACK_TRADE_BOTS_LEVEL = 'blank';
-  else delete process.env.LOCAL_STACK_TRADE_BOTS_LEVEL;
+/** Restart trade with one owner value blank (`blank`) or as the TEST profile sets it (`set`), by its stack switch. */
+function restartTrade(switchName, state) {
+  const before = process.env[switchName];
+  if (state === 'blank') process.env[switchName] = 'blank';
+  else delete process.env[switchName];
   try {
     tool('local-test-stack.mjs', 'restart', 'trade');
   } finally {
-    if (before === undefined) delete process.env.LOCAL_STACK_TRADE_BOTS_LEVEL;
-    else process.env.LOCAL_STACK_TRADE_BOTS_LEVEL = before;
+    if (before === undefined) delete process.env[switchName];
+    else process.env[switchName] = before;
   }
 }
+
+/** The owner's bots verification level, blank or as the TEST profile sets it. */
+const botsLevel = (state) => restartTrade('LOCAL_STACK_TRADE_BOTS_LEVEL', state);
+/** The owner's distance a grid bound may sit from the market price, blank or as the TEST profile sets it. */
+const gridBand = (state) => restartTrade('LOCAL_STACK_TRADE_GRID_BAND', state);
 
 async function openGridRoom(page, who) {
   await signIn(page, who);
@@ -322,11 +327,45 @@ async function pressCreate(page) {
 test(`${J} #4 enters bounds left blank, then one grid, then twenty: the first two refused naming the field; twenty levels planned; a second create with the same key returns the same bot`, async ({
   page,
 }) => {
-  test.setTimeout(120_000);
+  test.setTimeout(240_000);
   const who = run.read().who;
   const before = await usdt();
   const gridsBefore = await gridList(who);
+
+  // CB-bots-02's owner bounds relative to market, blank: the setup read names it unset, the wizard reads "Not set", and a
+  // create with every field valid is refused by its code, with nothing written. Trade restarts as set in the finally.
+  gridBand('blank');
+  try {
+    const blankSetup = await (await api(who)).get(read(`${GRID}.setup`));
+    expect(blankSetup.status, JSON.stringify(blankSetup.body).slice(0, 300)).toBe(200);
+    expect(blankSetup.body.result.data.boundsMaxDistanceBps).toBeNull();
+    const { bid, ask } = await bestPrices();
+    const blank = await (
+      await api(who)
+    ).post(`${GRID}.create`, {
+      clientRequestId: `${J}-band-blank-${Date.now().toString(36)}`,
+      symbol: 'BTC/USDT',
+      lowerPrice: String((toUnits(bid) * 95n) / 100n / ONE),
+      upperPrice: String((toUnits(ask) * 105n) / 100n / ONE),
+      gridCount: 20,
+      investment: '200',
+    });
+    expect(blank.status, JSON.stringify(blank.body).slice(0, 300)).toBe(400);
+    expect(codeOf(blank.body)).toBe('trade.bots_grid_bounds_band_not_set');
+    await openGrid(page);
+    await expect(wizard(page)).toContainText(/Bounds allowed\s*Not set/);
+    expect(await gridList(who)).toEqual(gridsBefore);
+    expect(await usdt()).toEqual(before);
+  } finally {
+    gridBand('set');
+  }
+
+  // Set: the TEST distance read back from the service is the one the wizard names.
+  const setup = await (await api(who)).get(read(`${GRID}.setup`));
+  expect(setup.status, JSON.stringify(setup.body).slice(0, 300)).toBe(200);
+  expect(setup.body.result.data.boundsMaxDistanceBps).toBe(1000);
   await openGrid(page);
+  await expect(wizard(page)).toContainText(/Bounds allowed\s*Within 10% of the market price/);
   const field = (name) => wizard(page).getByRole('textbox', { name });
   await field('Investment').fill('200');
   await field('Grids').fill('20');
@@ -360,8 +399,19 @@ test(`${J} #4 enters bounds left blank, then one grid, then twenty: the first tw
   expect(await gridList(who)).toEqual(gridsBefore);
   expect(await usdt()).toEqual(before);
 
-  // Twenty: twenty levels planned in the wizard, then by the service at the same prices.
+  // A lower bound beyond the owner's distance (15% under the mid, against 10%): refused naming Lower price, nothing written.
   await field('Grids').fill('20');
+  await field('Lower price').fill(fromUnits(((mid * 85n) / 100n / ONE) * ONE));
+  const far = await pressCreate(page);
+  expect(far.status, JSON.stringify(far.body).slice(0, 300)).toBe(400);
+  expect(codeOf(far.body)).toBe('trade.bots_grid_bounds_out_of_band');
+  expect(far.body.error.message).toBe('Lower price must be within 10% of the market price');
+  await expect(wizard(page).getByText('A bound is too far from the market price', { exact: true })).toBeVisible();
+  expect(await gridList(who)).toEqual(gridsBefore);
+  expect(await usdt()).toEqual(before);
+  await field('Lower price').fill(fromUnits(lower));
+
+  // Twenty: twenty levels planned in the wizard, then by the service at the same prices.
   const planned = wizard(page).getByTestId('grid-plan').getByRole('listitem');
   await expect(planned).toHaveCount(20);
   const previewPrices = (await planned.allInnerTexts()).map((text) => toUnits(text.replace(/[^\d.]/g, '')));
@@ -555,7 +605,12 @@ test(`${J} #6 opens Metrics after two closed level pairs: grid profit is their s
   await page.getByRole('tab', { name: 'Metrics' }).click();
   const metrics = page.getByRole('tabpanel', { name: 'Metrics' });
   await expect(metrics).toContainText(`Grid profit${fromUnits(sum)} USDT`);
-  await expect(metrics).toContainText(/Yearly return \(APR\)\s*Not set/);
+  // APR by the lead's ruling (CB-bots-05): none before a whole day has run. Read back from the service, with the bot's
+  // own start time, then the words the Metrics tab shows for it.
+  const metered = await gridBot(who, botId);
+  expect(Date.now() - Date.parse(metered.createdAt)).toBeLessThan(86_400_000);
+  expect(metered.gridApr).toEqual({ state: 'under_a_day', percent: null });
+  await expect(metrics).toContainText(/Yearly return \(APR\)\s*Not set: the bot has run less than a day/);
 });
 
 test(`${J} #7 withdraws over the cap, then within it without a step-up: both refused; within both, it succeeds with a receipt`, async ({
@@ -567,6 +622,11 @@ test(`${J} #7 withdraws over the cap, then within it without a step-up: both ref
     .getByRole('link', { name: /Spot grid/ })
     .first()
     .click(UNBUILT);
+  // UNBUILT: CB-bots-05's withdrawal (the owner's daily cap and identity's step-up) is not built, so this fails here.
+  await expect(
+    page.getByRole('button', { name: 'Withdraw profit' }),
+    'UNBUILT: CB-bots-05 grid profit withdrawal (daily cap, step-up) is not built',
+  ).toBeVisible(UNBUILT);
   await page.getByRole('button', { name: 'Withdraw profit' }).click();
   const dialog = page.getByRole('dialog');
   await dialog.getByRole('textbox', { name: 'Amount, USDT' }).fill('1000000');

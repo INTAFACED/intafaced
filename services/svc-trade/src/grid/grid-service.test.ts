@@ -11,7 +11,7 @@ import type { PlaceOrderInput } from '../spot/trade-service.js';
 import type { FillRecord, Market, OrderRecord } from '../spot/types.js';
 import type { BotVerificationPolicy } from '../algo/bots-verification.js';
 import { GridError } from './errors.js';
-import { GridService, gridBotIdFor, type GridCreateInput } from './grid-service.js';
+import { GridService, gridApr, gridBotIdFor, type GridCreateInput } from './grid-service.js';
 import { loadGridPolicy, type GridPolicy } from './policy.js';
 import { MemoryGridStore } from './store.js';
 
@@ -56,6 +56,8 @@ class StubTrade {
   cancelFailures = 0;
   /** Runs before each place reaches the engine: a concurrent tick or stop lands here. */
   beforePlace: ((index: number) => Promise<void>) | null = null;
+  /** A second place of the same client order id is refused, as the trade service may while another pass placed it. */
+  conflictOnReplay = false;
   bid = '64990';
   ask = '65010';
 
@@ -66,6 +68,7 @@ class StubTrade {
     this.placed.push(input);
     const id = oid(input.clientOrderId);
     const existing = this.orders.get(id);
+    if (existing && this.conflictOnReplay) throw Object.assign(new Error('conflict'), { code: 'operation.conflict' });
     if (existing) return existing;
     const price = input.price!;
     const record = {
@@ -102,35 +105,39 @@ function setup(
 ) {
   const store = new MemoryGridStore();
   const trade = new StubTrade();
-  const service = new GridService({
-    store,
-    policy: opts.policy ?? loadGridPolicy({ TRADE_GRID_COUNT_MIN: '2', TRADE_GRID_COUNT_MAX: '100' }),
-    verification: () => opts.verification ?? { mode: 'required', level: 'full' },
-    marketBySymbol: async (s) => (s === MARKET.symbol ? MARKET : null),
-    depth: async () => ({ bids: [[trade.bid, '1']], asks: [[trade.ask, '1']] }),
-    freeBalance: async () => A(opts.free?.() ?? '1000'),
-    copyUnusedReserves: async () => A(opts.copyUnused ?? '0'),
-    admitStart: async (_p, id) => {
-      trade.admitted.push(id);
-    },
-    placeLevel: async (_p, input) => {
-      await trade.beforePlace?.(trade.placed.length);
-      return trade.place(input);
-    },
-    findOrder: async (id) => trade.orders.get(id) ?? null,
-    cancelOrder: async (_p, id) => {
-      if (trade.cancelFailures > 0) {
-        trade.cancelFailures -= 1;
-        throw new Error('trade service unavailable');
-      }
-      trade.cancelled.push(id);
-      const o = trade.orders.get(id)!;
-      trade.orders.set(id, { ...o, status: 'cancelled' });
-    },
-    fillsForOrder: async (_p, id) => trade.fills.get(id) ?? [],
-    now: opts.now,
-  });
-  return { store, trade, service };
+  // Each call is another process on the same store and trade service.
+  const process = () =>
+    new GridService({
+      store,
+      policy:
+        opts.policy ??
+        loadGridPolicy({ TRADE_GRID_COUNT_MIN: '2', TRADE_GRID_COUNT_MAX: '100', TRADE_GRID_BOUNDS_MAX_DISTANCE_BPS: '1000' }),
+      verification: () => opts.verification ?? { mode: 'required', level: 'full' },
+      marketBySymbol: async (s) => (s === MARKET.symbol ? MARKET : null),
+      depth: async () => ({ bids: [[trade.bid, '1']], asks: [[trade.ask, '1']] }),
+      freeBalance: async () => A(opts.free?.() ?? '1000'),
+      copyUnusedReserves: async () => A(opts.copyUnused ?? '0'),
+      admitStart: async (_p, id) => {
+        trade.admitted.push(id);
+      },
+      placeLevel: async (_p, input) => {
+        await trade.beforePlace?.(trade.placed.length);
+        return trade.place(input);
+      },
+      findOrder: async (id) => trade.orders.get(id) ?? null,
+      cancelOrder: async (_p, id) => {
+        if (trade.cancelFailures > 0) {
+          trade.cancelFailures -= 1;
+          throw new Error('trade service unavailable');
+        }
+        trade.cancelled.push(id);
+        const o = trade.orders.get(id)!;
+        trade.orders.set(id, { ...o, status: 'cancelled' });
+      },
+      fillsForOrder: async (_p, id) => trade.fills.get(id) ?? [],
+      now: opts.now,
+    });
+  return { store, trade, service: process(), process };
 }
 
 const BODY: GridCreateInput = {
@@ -142,11 +149,11 @@ const BODY: GridCreateInput = {
   investment: '200',
 };
 
-async function refusal(run: Promise<unknown>): Promise<{ code: string; message: string }> {
+async function refusal(run: Promise<unknown>): Promise<{ code: string; message: string; data?: Record<string, string> }> {
   try {
     await run;
   } catch (error) {
-    return { code: (error as GridError).code, message: (error as Error).message };
+    return { code: (error as GridError).code, message: (error as Error).message, data: (error as GridError).data };
   }
   throw new Error('expected a refusal');
 }
@@ -174,7 +181,7 @@ describe('grid create · verification first (CB-bots-10, #2)', () => {
     expect((await refusal(Promise.resolve().then(() => blank.setup(verified('institutional'))))).code).toBe(
       'trade.bots_verification_level_not_set',
     );
-    expect(setup().service.setup(verified('full'))).toEqual({ countRange: { min: 2, max: 100 } });
+    expect(setup().service.setup(verified('full'))).toEqual({ countRange: { min: 2, max: 100 }, boundsMaxDistanceBps: 1000 });
   });
 });
 
@@ -210,6 +217,39 @@ describe('grid create · fields (CB-bots-02, #4)', () => {
   it('a blank owner count range refuses', async () => {
     const { service } = setup({ policy: loadGridPolicy({ TRADE_GRID_COUNT_MIN: '2' }) });
     expect((await refusal(service.create(verified(), BODY))).code).toBe('trade.grid_count_range_not_set');
+  });
+
+  it('a blank owner bounds distance refuses every create, and writes nothing', async () => {
+    const { store, trade, service } = setup({ policy: loadGridPolicy({ TRADE_GRID_COUNT_MIN: '2', TRADE_GRID_COUNT_MAX: '100' }) });
+    expect(service.setup(verified('full')).boundsMaxDistanceBps).toBeNull();
+    expect((await refusal(service.create(verified(), BODY))).code).toBe('trade.bots_grid_bounds_band_not_set');
+    expect(await store.listBots(ALICE)).toEqual([]);
+    expect(trade.admitted).toEqual([]);
+  });
+
+  it.each([
+    // The mark is 65000 and the owner's distance 10%: bounds from 58500 to 71500.
+    [{ lowerPrice: '58499.99' }, 'Lower price', '58500', '71500'],
+    [{ upperPrice: '71500.01' }, 'Upper price', '58500', '71500'],
+  ])('%o beyond the owner distance from the market price refuses naming the field', async (patch, field, min, max) => {
+    const { store, trade, service } = setup();
+    const r = await refusal(service.create(verified(), { ...BODY, ...patch }));
+    expect(r.code).toBe('trade.bots_grid_bounds_out_of_band');
+    expect(r.message).toBe(`${field} must be within 10% of the market price`);
+    expect(r.data).toEqual({ field, maxDistancePercent: '10', mark: '65000', min, max });
+    expect(await store.listBots(ALICE)).toEqual([]);
+    expect(trade.admitted).toEqual([]);
+  });
+
+  it('bounds exactly at the owner distance are accepted', async () => {
+    const { service } = setup();
+    const view = await service.create(verified(), { ...BODY, lowerPrice: '58500', upperPrice: '71500' });
+    expect(view.status).toBe('running');
+  });
+
+  it('an owner bounds distance below one basis point stops the boot', () => {
+    expect(() => loadGridPolicy({ TRADE_GRID_BOUNDS_MAX_DISTANCE_BPS: '0' })).toThrow(/at least 1/);
+    expect(() => loadGridPolicy({ TRADE_GRID_BOUNDS_MAX_DISTANCE_BPS: '5%' })).toThrow(/whole number/);
   });
 
   it('a count minimum below two stops the boot', () => {
@@ -441,7 +481,9 @@ describe('grid after review: wind-down, lost places, races and replays (CB-bots-
   });
 
   it('a replay of a live bot places the levels it is missing', async () => {
-    const { store, trade, service } = setup();
+    // A distance of 20%, so a bot can be created with the price above its range.
+    const policy = loadGridPolicy({ TRADE_GRID_COUNT_MIN: '2', TRADE_GRID_COUNT_MAX: '100', TRADE_GRID_BOUNDS_MAX_DISTANCE_BPS: '2000' });
+    const { store, trade, service } = setup({ policy });
     trade.bid = '72790';
     trade.ask = '72810';
     const first = await service.create(verified(), BODY);
@@ -510,13 +552,14 @@ describe('grid start · the first placement and the tick never place the same le
 
   it('a create that stopped part way is taken over by the tick once stale, and the missing levels are placed', async () => {
     let at = new Date('2026-10-29T12:00:00Z');
-    const { store, trade, service } = setup({ now: () => at });
+    const { store, trade, service: crashed, process } = setup({ now: () => at });
+    const service = process();
     // The process stops while placing the fourth level: create never returns.
     let stuck!: () => void;
     trade.beforePlace = async (index) => {
       if (index === 3) await new Promise<void>((resolve) => (stuck = resolve));
     };
-    void service.create(verified(), BODY);
+    void crashed.create(verified(), BODY);
     await vi.waitFor(() => expect(stuck).toBeTypeOf('function'));
     trade.beforePlace = null;
     const [bot] = await store.listBots(ALICE);
@@ -535,5 +578,81 @@ describe('grid start · the first placement and the tick never place the same le
     const below = after.levels.filter((l) => A(l.price) < A('65000'));
     expect(trade.placed.map((p) => p.clientOrderId)).toEqual(below.map((l) => `grid:${bot!.botId}:${l.index}:b0`));
     expect(after.orders.filter((o) => o.status === 'open')).toHaveLength(below.length);
+  });
+
+  async function slowCreate(opts: { conflictOnReplay?: boolean } = {}) {
+    let at = new Date('2026-10-29T12:00:00Z');
+    const ctx = setup({ now: () => at });
+    ctx.trade.conflictOnReplay = opts.conflictOnReplay ?? false;
+    let release!: () => void;
+    ctx.trade.beforePlace = async (index) => {
+      if (index === 3) await new Promise<void>((resolve) => (release = resolve));
+    };
+    const created = ctx.service.create(verified(), BODY);
+    await vi.waitFor(() => expect(release).toBeTypeOf('function'));
+    ctx.trade.beforePlace = null;
+    const [bot] = await ctx.store.listBots(ALICE);
+    at = new Date(at.getTime() + 180_000);
+    return { ...ctx, botId: bot!.botId, created, release: () => release() };
+  }
+
+  async function expectRunningAndHeld(store: MemoryGridStore, trade: StubTrade, service: GridService, botId: string) {
+    const view = await service.get(verified(), botId);
+    expect(view.status).toBe('running');
+    expect(view.reserve!.releasedAt).toBeNull();
+    expect(trade.cancelled).toEqual([]);
+    const below = view.levels.filter((l) => A(l.price) < A('65000'));
+    expect(view.orders.filter((o) => o.status === 'open').map((o) => o.levelIndex)).toEqual(below.map((l) => l.index));
+    expect(await store.sumUnusedReserves(ALICE, 'USDT')).toBe(A(view.reserve!.amount) - below.reduce((sum, l) => sum + A(l.hold), 0n));
+    expect(await store.listWindingDown()).toEqual([]);
+  }
+
+  it('a create in this process that is only slow is never taken over: the stale pass skips it and it finishes the start', async () => {
+    const { store, trade, service, botId, created, release } = await slowCreate();
+    await service.tickAll();
+    expect((await store.findBot(botId))!.status).toBe('initializing');
+    expect(trade.placed).toHaveLength(3);
+    release();
+    expect((await created).status).toBe('running');
+    const ids = trade.placed.map((p) => p.clientOrderId);
+    expect(new Set(ids).size).toBe(ids.length);
+    await expectRunningAndHeld(store, trade, service, botId);
+  });
+
+  it('a slow create that another process took over as stale finishes without winding the running bot down', async () => {
+    const { store, trade, service, process, botId, created, release } = await slowCreate();
+    const other = process();
+    await other.tickAll();
+    expect((await store.findBot(botId))!.status).toBe('running');
+    release();
+    expect((await created).status).toBe('running');
+    await expectRunningAndHeld(store, trade, service, botId);
+  });
+
+  it('a slow create refused a level the takeover already placed leaves the running bot running, its reserve held', async () => {
+    const { store, trade, service, process, botId, created, release } = await slowCreate({ conflictOnReplay: true });
+    await process().tickAll();
+    release();
+    expect((await created).status).toBe('running');
+    const bot = (await store.findBot(botId))!;
+    expect([bot.status, bot.statusReason]).toEqual(['running', null]);
+    await expectRunningAndHeld(store, trade, service, botId);
+  });
+});
+
+describe('grid APR · simple, ACT/365, none under a day (CB-bots-05, #6)', () => {
+  const DAY = 86_400_000;
+  it('under a whole day there is no figure, only the named state', () => {
+    expect(gridApr(A('3.5'), A('200'), 0)).toEqual({ state: 'under_a_day', percent: null });
+    expect(gridApr(A('3.5'), A('200'), DAY - 1)).toEqual({ state: 'under_a_day', percent: null });
+  });
+  it('is profit over the investment, times 365 over the days run, rounded down to 2 decimals', () => {
+    // 3.50 on 200 over 1 day: 1.75% a day, 638.75% a year.
+    expect(gridApr(A('3.5'), A('200'), DAY)).toEqual({ state: 'set', percent: '638.75' });
+    // 1.00 on 200 over 7 days: 365 / 7 × 0.5% = 26.0714…%, rounded down.
+    expect(gridApr(A('1'), A('200'), 7 * DAY)).toEqual({ state: 'set', percent: '26.07' });
+    // A loss rounds down too, away from zero: -26.0714…% reads -26.08.
+    expect(gridApr(A('-1'), A('200'), 7 * DAY)).toEqual({ state: 'set', percent: '-26.08' });
+    expect(gridApr(0n, A('200'), 2 * DAY)).toEqual({ state: 'set', percent: '0' });
   });
 });

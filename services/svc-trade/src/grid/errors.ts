@@ -12,6 +12,8 @@ export type GridErrorCode =
   | 'trade.grid_market_not_found'
   | 'trade.grid_market_not_spot'
   | 'trade.bots_grid_bounds_not_set'
+  | 'trade.bots_grid_bounds_band_not_set'
+  | 'trade.bots_grid_bounds_out_of_band'
   | 'trade.grid_investment_required'
   | 'trade.grid_count_required'
   | 'trade.grid_bounds_inverted'

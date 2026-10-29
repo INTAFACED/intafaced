@@ -313,6 +313,14 @@ const GRID: Readonly<Record<string, Words>> = {
     title: 'Enter both bounds',
     body: 'Lower price and Upper price are both required and must be above zero. Nothing was created.',
   },
+  'trade.bots_grid_bounds_band_not_set': {
+    title: 'The allowed price range isn’t set',
+    body: 'The platform hasn’t set how far the bounds may be from the market price, so no grid bot can start. Nothing was created.',
+  },
+  'trade.bots_grid_bounds_out_of_band': {
+    title: 'A bound is too far from the market price',
+    body: 'Keep Lower price and Upper price within the distance shown under the market. Nothing was created.',
+  },
   'trade.grid_investment_required': {
     title: 'Enter an Investment',
     body: 'Investment is required and must be above zero. Nothing was created.',

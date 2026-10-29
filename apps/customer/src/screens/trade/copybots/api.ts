@@ -161,10 +161,17 @@ export const gridBotSchema = z.object({
   ),
   gridProfit: signedDecimalSchema,
   closedPairs: z.number(),
+  gridApr: z.discriminatedUnion('state', [
+    z.object({ state: z.literal('under_a_day'), percent: z.null() }),
+    z.object({ state: z.literal('set'), percent: signedDecimalSchema }),
+  ]),
   createdAt: z.string(),
 });
 export type GridBot = z.infer<typeof gridBotSchema>;
-export const gridSetupSchema = z.object({ countRange: z.object({ min: z.number(), max: z.number() }).nullable() });
+export const gridSetupSchema = z.object({
+  countRange: z.object({ min: z.number(), max: z.number() }).nullable(),
+  boundsMaxDistanceBps: z.number().nullable(),
+});
 export type GridSetup = z.infer<typeof gridSetupSchema>;
 const gridPresetsSchema = z.object({ source: z.null(), presets: z.array(z.never()) });
 export type GridRequest = {

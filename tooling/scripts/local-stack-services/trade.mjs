@@ -110,6 +110,11 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, TEST_FUTURES_LADDER_POLICY })
     // (trade.grid_count_range_not_set, grid/policy.ts); production stays blank until the owner sets them.
     TRADE_GRID_COUNT_MIN: testValue('TRADE_GRID_COUNT_MIN'),
     TRADE_GRID_COUNT_MAX: testValue('TRADE_GRID_COUNT_MAX'),
+    // LOCAL TEST, not an owner decision: how far a grid bound may sit from the market price. Blank refuses every grid
+    // create (trade.bots_grid_bounds_band_not_set, grid/policy.ts); production stays blank until the owner sets it.
+    // `LOCAL_STACK_TRADE_GRID_BAND=blank` on a restart leaves it blank, so J-copy-bots-otc-14 #4 sees that refusal.
+    TRADE_GRID_BOUNDS_MAX_DISTANCE_BPS:
+      process.env.LOCAL_STACK_TRADE_GRID_BAND === 'blank' ? '' : testValue('TRADE_GRID_BOUNDS_MAX_DISTANCE_BPS'),
     // LOCAL TEST, not an owner decision: the copy driver places each copy as the follower, so J-copy-bots-otc-01 #8
     // sees a first copied trade on TEST money. Production leaves it off until the owner turns copy placing on.
     TRADE_COPY_PLACE_MIRROR: 'on',

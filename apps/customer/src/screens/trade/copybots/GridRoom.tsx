@@ -142,6 +142,7 @@ export function GridRoom({ path }: { path: string }) {
           api={api}
           guard={guard}
           range={setup.data.countRange}
+          band={setup.data.boundsMaxDistanceBps}
           markets={spot}
           onCreated={(bot) => navigate(`/trade/bots/grid?bot=${encodeURIComponent(bot.botId)}`, true)}
         />
@@ -154,12 +155,14 @@ function GridWizard({
   api,
   guard,
   range,
+  band,
   markets,
   onCreated,
 }: {
   api: ReturnType<typeof createRoomApi>;
   guard: ReturnType<typeof useWriteGuard>;
   range: { min: number; max: number } | null;
+  band: number | null;
   markets: Array<{ symbol: string; base: string; quote: string; precision: { price: string; amount: string } }>;
   onCreated: (bot: GridBot) => void;
 }) {
@@ -224,6 +227,13 @@ function GridWizard({
                 {
                   label: t('Grids allowed'),
                   value: range ? t('{min} to {max}', { min: String(range.min), max: String(range.max) }) : t('Not set'),
+                },
+                {
+                  label: t('Bounds allowed'),
+                  value:
+                    band === null
+                      ? t('Not set')
+                      : t('Within {percent}% of the market price', { percent: displayAmount(String(band / 100)) }),
                 },
               ]}
             />
@@ -348,7 +358,7 @@ function GridDetail({
         ]}
       />
       {guard.failure ? <RefusalNote failure={guard.failure} /> : null}
-      {data.status === 'running' || data.status === 'paused_range' ? (
+      {data.status === 'initializing' || data.status === 'running' || data.status === 'paused_range' ? (
         <div className="cb-action-row">
           <Button variant="secondary" onClick={stop} disabled={guard.busy || guard.locked}>
             {t('Stop bot')}
@@ -372,7 +382,11 @@ function GridDetail({
             items={[
               { label: t('Grid profit'), value: `${displayAmount(data.gridProfit)} ${data.quoteAsset}` },
               { label: t('Closed pairs'), value: String(data.closedPairs) },
-              { label: t('Yearly return (APR)'), value: t('Not set') },
+              {
+                label: t('Yearly return (APR)'),
+                value:
+                  data.gridApr.state === 'set' ? `${displayAmount(data.gridApr.percent)}%` : t('Not set: the bot has run less than a day'),
+              },
             ]}
           />
         </TabsPanel>

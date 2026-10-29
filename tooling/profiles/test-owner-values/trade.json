@@ -96,6 +96,11 @@
       "value": "100",
       "note": "TEST highest grid count a spot grid bot may use: 100, so the journeys' 20 grids plan inside the range."
     },
+    "TRADE_GRID_BOUNDS_MAX_DISTANCE_BPS": {
+      "service": "trade",
+      "value": "1000",
+      "note": "TEST distance each grid bound may sit from the market price when a bot is created: 1000 bps (10%), so the journeys' ranges about 5% from the TEST mid are accepted and a bound beyond 10% is refused (trade.bots_grid_bounds_out_of_band)."
+    },
     "TRADE_DEVELOPER_HOSTS": {
       "service": "trade",
       "value": "{\"rest\":{\"production\":\"api.local-test.test\",\"sandbox\":\"api.sandbox.local-test.test\"},\"websocket\":{\"production\":\"ws.local-test.test\",\"sandbox\":\"ws.sandbox.local-test.test\"},\"fix\":{\"production\":\"fix.local-test.test:9878\",\"sandbox\":\"fix.sandbox.local-test.test:9878\"}}",
