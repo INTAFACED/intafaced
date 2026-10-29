@@ -7,7 +7,24 @@ export const AUDIENCES: readonly Audience[] = ['exchange', 'institutional', 'emb
  * A section either has its page in this build (`page`), links to a page published elsewhere (`published`), or waits for the
  * slice that builds it (`waitsFor`, a slice id from docs/roadmap/slices.json). Every section names one of the three.
  */
-export type Section = { id: string; audience: Audience; page?: true; published?: { href: string }; waitsFor?: string };
+export const PAGE_SECTION_IDS = [
+  'permissions',
+  'rest',
+  'reference',
+  'changelog',
+  'data-terms',
+  'connectivity',
+  'quickstart',
+  'openapi',
+  'status',
+] as const;
+/** A section whose page is written in this portal. DevelopersRoutes keeps one component per id (a typed record). */
+export type PageSectionId = (typeof PAGE_SECTION_IDS)[number];
+
+export type Section =
+  | { id: PageSectionId; audience: Audience; page: true; published?: never; waitsFor?: never }
+  | { id: string; audience: Audience; page?: never; published: { href: string }; waitsFor?: never }
+  | { id: string; audience: Audience; page?: never; published?: never; waitsFor: string };
 
 /**
  * Every section of the developer portal (the section routes listed in `developer-portal.md`). A section whose page is not
@@ -65,6 +82,36 @@ export function hostTable(read: (protocol: Protocol, environment: Environment) =
     }),
   );
 }
+
+export type HostRow = ReturnType<typeof hostTable>[number];
+
+/** One row per host, in the order the base-address table shows them. The page and its markdown both draw this. */
+export const hostRows = (rows: readonly HostRow[] = hostTable()) =>
+  PROTOCOLS.flatMap((protocol) =>
+    ENVIRONMENTS.map((environment) => rows.find((row) => row.protocol === protocol && row.environment === environment)!),
+  );
+
+export type ConnectivityOption = 'internet' | 'redundant' | 'low_latency' | 'colocation';
+export type ConnectivityState = 'available' | 'host_unset' | 'parked_hardware';
+
+/**
+ * The connectivity options (RC-developer-04). Internet is available once a production host is set, the redundant endpoint
+ * once a regional one is; until then each reads `host not set`. A low-latency path and colocation need a physical
+ * cross-connect and rack space we do not own, so they stay parked on the `hardware` blocker.
+ */
+export function connectivityOptions(rows: readonly HostRow[] = hostTable()): { option: ConnectivityOption; state: ConnectivityState }[] {
+  const set = (environment: Environment) => rows.some((row) => row.environment === environment && row.cell.state === 'set');
+  return [
+    { option: 'internet', state: set('production') ? 'available' : 'host_unset' },
+    { option: 'redundant', state: set('regional') ? 'available' : 'host_unset' },
+    { option: 'low_latency', state: 'parked_hardware' },
+    { option: 'colocation', state: 'parked_hardware' },
+  ];
+}
+
+/** The market data products the terms table lists (RC-developer-05). No term is read yet, so each reads `not set`. */
+export const DATA_PRODUCTS = ['ticker', 'depth_l1', 'depth_l2', 'candles', 'trades', 'index'] as const;
+export const DATA_TERMS = ['entitlement', 'redistribution', 'retention', 'privacy', 'commercial'] as const;
 
 /** What the address names: the home page, the hosts table, a section, or an address that is none of these. */
 export function developersRoute(

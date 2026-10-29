@@ -8,6 +8,6 @@ How every trading REST route is shaped, so a client written once works on all of
 - Order ids are UUIDs, written as strings; an id that is not a UUID names no order and is refused as not found.
 - A market is named by its symbol: BTC/USDT for spot, BTC/USDT:USDT for a linear perpetual, with an expiry suffix for a dated future. In a path the slash is encoded: /api/v1/ticker/BTC%2FUSDT.
 - Every price, amount, fee and balance is a decimal string ("0.015"), never a JSON number.
-- A refusal answers with its HTTP status and a body that carries code, message and intafacedCode; branch on the code, not on the message.
+- A refusal answers with its HTTP status and a JSON body that names it in code (a few trade price refusals name it in error instead). Most trade refusals also carry message and intafacedCode. Branch on the code, never on the wording of a message.
 
 Lists page by since and limit today. Cursor paging (starting_after, ending_before and a next link) waits for DV-rest-01’s trade service change, and the default and largest page size wait for the owner.

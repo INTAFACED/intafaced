@@ -14,6 +14,30 @@
 - [Connectivity](/developers/connectivity.md): How to reach the API, and how to keep your clock in step with it.
 - [Market data terms](/developers/data-terms.md): Which market data products you may use, and on what terms.
 
+## Live pages
+
+- [Service status](/developers/status)
+- [Changelog](/developers/changelog)
+
+## Other sections
+
+- Authentication: Waits for DV-auth-01
+- WebSocket streams: Waits for DV-websocket-01
+- Rate limits: Waits for DV-limits-01
+- Errors: Waits for DV-errors-01
+- Idempotency: Waits for DV-auth-03
+- Versioning: Waits for DV-versioning-01
+- FIX: Waits for DV-fix-01
+- Choosing a protocol: Waits for DV-websocket-01
+- Webhooks: /pay/developer/webhooks
+- Sandbox: /pay/developer/sandbox
+- Registered apps: /developers/apps
+- Libraries: Waits for DV-tools-01
+- Command line: Waits for DV-tools-02
+- Assistant tools: Waits for DV-tools-02
+- API explorer: Waits for DV-console-01
+- Developer support: Waits for DV-portal-03
+
 ## Files
 
 - [OpenAPI](/developers/openapi.json): Every call costs 1 from the rate-limit bucket; no route weighs more.

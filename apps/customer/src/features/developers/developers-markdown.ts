@@ -6,10 +6,11 @@
  */
 import { developersCopy } from './developers-copy';
 import { docsCopy } from './developers-docs-copy';
-import { DATA_PRODUCTS, SIGN_WINDOW_SECONDS } from './DocsPages';
-import { AUDIENCES, ENVIRONMENTS, PROTOCOLS, SECTIONS, hostTable } from './developers-model';
+import { connectivityEndpointsLabel, connectivityStateLabel, dataTermLabel } from './developers-labels';
+import { AUDIENCES, DATA_PRODUCTS, DATA_TERMS, SECTIONS, connectivityOptions, hostRows, type Section } from './developers-model';
 import {
   CALL_COST,
+  SIGN_WINDOW_SECONDS,
   NEVER_ON_A_KEY,
   PRODUCTS,
   REST_REFERENCE,
@@ -27,6 +28,13 @@ const table = (head: string[], rows: string[][]) =>
   [`| ${head.join(' | ')} |`, `| ${head.map(() => '---').join(' | ')} |`, ...rows.map((row) => `| ${row.join(' | ')} |`)].join('\n');
 const code = (text: string) => `\`${text}\``;
 
+/** Where a section's page is: its page in this portal, the page it is published at, or the slice it waits for. */
+const sectionTarget = (section: Section) =>
+  section.page ? `/developers/${section.id}` : section.published ? section.published.href : portal('waitsFor', { slice: section.waitsFor });
+
+/** Pages of this portal that read live data (notices an operator publishes), so they have no static markdown variant. */
+const LIVE_PAGES = ['status', 'changelog'] as const;
+
 export type DocsPage = { slug: string; title: string; summary: string; body: () => string };
 
 export const DOCS_PAGES: readonly DocsPage[] = [
@@ -43,12 +51,7 @@ export const DOCS_PAGES: readonly DocsPage[] = [
           `## ${portal(`audience_${audience}`)}`,
           portal(`access_${audience}`),
           SECTIONS.filter((section) => section.audience === audience)
-            .map(
-              (section) =>
-                `- ${sectionTitle(section.id)}: ${
-                  section.page || section.published ? `/developers/${section.id}` : portal('waitsFor', { slice: section.waitsFor ?? '' })
-                }`,
-            )
+            .map((section) => `- ${sectionTitle(section.id)}: ${sectionTarget(section)}`)
             .join('\n'),
         ]),
       ].join('\n\n'),
@@ -62,16 +65,11 @@ export const DOCS_PAGES: readonly DocsPage[] = [
         portal('hostsPageLead'),
         table(
           [portal('colProtocol'), portal('colEnvironment'), portal('colHost')],
-          PROTOCOLS.flatMap((protocol) =>
-            ENVIRONMENTS.map((environment) => {
-              const row = hostTable().find((entry) => entry.protocol === protocol && entry.environment === environment)!;
-              return [
-                portal(`protocol_${protocol}`),
-                portal(`environment_${environment}`),
-                row.cell.state === 'set' ? row.cell.host : portal('hostUnset'),
-              ];
-            }),
-          ),
+          hostRows().map((row) => [
+            portal(`protocol_${row.protocol}`),
+            portal(`environment_${row.environment}`),
+            row.cell.state === 'set' ? row.cell.host : portal('hostUnset'),
+          ]),
         ),
         portal('hostsRegional'),
       ].join('\n\n'),
@@ -183,12 +181,11 @@ export const DOCS_PAGES: readonly DocsPage[] = [
         docs('connectivityLead'),
         table(
           [docs('colOption'), docs('colStatus'), docs('colEndpoints2')],
-          [
-            [docs('option_internet'), docs('statusHostUnset'), docs('endpointsProduction')],
-            [docs('option_redundant'), docs('statusHostUnset'), docs('endpointsRegional')],
-            [docs('option_low_latency'), docs('parkedHardware'), docs('endpointsNone')],
-            [docs('option_colocation'), docs('parkedHardware'), docs('endpointsNone')],
-          ],
+          connectivityOptions().map(({ option, state }) => [
+            docs(`option_${option}`),
+            connectivityStateLabel(docs, state),
+            connectivityEndpointsLabel(docs, option),
+          ]),
         ),
         `## ${docs('timeTitle')}`,
         `${docs('timeLead')} ${docs('clockHow')}`,
@@ -196,22 +193,15 @@ export const DOCS_PAGES: readonly DocsPage[] = [
   },
   {
     slug: 'data-terms',
-    title: docs('dataTermsTitle'),
+    title: sectionTitle('data-terms'),
     summary: docs('dataTermsLead'),
     body: () =>
       [
         docs('dataTermsLead'),
         docs('dataTermsWaits'),
         table(
-          [
-            docs('colProduct'),
-            docs('colEntitlement'),
-            docs('colRedistribution'),
-            docs('colRetention'),
-            docs('colPrivacy'),
-            docs('colCommercial'),
-          ],
-          DATA_PRODUCTS.map((product) => [docs(`product_${product}`), ...Array.from({ length: 5 }, () => docs('termUnset'))]),
+          [docs('colProduct'), ...DATA_TERMS.map((term) => dataTermLabel(docs, term))],
+          DATA_PRODUCTS.map((product) => [docs(`product_${product}`), ...DATA_TERMS.map(() => docs('termUnset'))]),
         ),
       ].join('\n\n'),
   },
@@ -219,13 +209,23 @@ export const DOCS_PAGES: readonly DocsPage[] = [
 
 export const markdownOf = (page: DocsPage) => `# ${page.title}\n\n${page.body()}\n`;
 
-/** The docs index for assistants: each written page once, by its markdown variant, then the machine-readable files. */
+/**
+ * The docs index for assistants: each written page once, by its markdown variant; the live pages, which read published
+ * notices and so have no static variant; every other section where it is published or what it waits for; then the
+ * machine-readable files.
+ */
 export function llmsTxt(): string {
   return [
     `# ${portal('title')}`,
     `> ${portal('lead')}`,
     '## Pages',
     DOCS_PAGES.map((page) => `- [${page.title}](/developers/${page.slug}.md): ${page.summary}`).join('\n'),
+    '## Live pages',
+    LIVE_PAGES.map((id) => `- [${sectionTitle(id)}](/developers/${id})`).join('\n'),
+    '## Other sections',
+    SECTIONS.filter((section) => !section.page)
+      .map((section) => `- ${sectionTitle(section.id)}: ${sectionTarget(section)}`)
+      .join('\n'),
     '## Files',
     [
       `- [OpenAPI](/developers/openapi.json): ${docs('openapiCost', { cost: CALL_COST })}`,

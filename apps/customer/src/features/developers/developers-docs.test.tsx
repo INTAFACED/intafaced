@@ -8,12 +8,12 @@ import { findRoom } from '../../app/navigation';
 import type { ApiClient } from '../../shared/api';
 import { SessionProvider } from '../session/session';
 import { DevelopersRoutes } from './DevelopersRoutes';
-import { SIGN_WINDOW_SECONDS, readClock, withinWindow } from './DocsPages';
+import { readServerClock } from '../../shared/server-clock';
 import { developersCopy } from './developers-copy';
 import { docsCopy } from './developers-docs-copy';
 import { AUDIENCES, SECTIONS, developersRoute } from './developers-model';
-import { REST_REFERENCE, routeLine } from './developers-reference';
-import { searchDocs } from './developers-search';
+import { REST_REFERENCE, SIGN_WINDOW_SECONDS, routeLine, withinWindow } from './developers-reference';
+import { createDocsSearch } from './developers-search';
 
 const html = (path: string) =>
   renderToString(
@@ -44,10 +44,13 @@ describe('developer portal home', () => {
   });
   it('search finds pages by title or route, and finds nothing for an unknown topic', () => {
     const title = (id: string) => developersCopy.forLocale('en').t(`section_${id.replace(/-/g, '_')}` as 'section_rest');
-    expect(searchDocs('zz-no-such-developer-topic', title, 'Base addresses')).toEqual([]);
-    expect(searchDocs('rest', title, 'Base addresses').map((m) => m.href)).toContain('/developers/rest');
-    expect(searchDocs('/api/v1/time', title, 'Base addresses').map((m) => m.href)).toEqual(['/developers/reference']);
-    expect(searchDocs('   ', title, 'Base addresses')).toEqual([]);
+    const searchDocs = createDocsSearch(title, 'Base addresses');
+    expect(searchDocs('zz-no-such-developer-topic')).toEqual([]);
+    expect(searchDocs('rest').map((m) => m.href)).toContain('/developers/rest');
+    expect(searchDocs('/api/v1/time').map((m) => m.href)).toEqual(['/developers/reference']);
+    expect(searchDocs('   ')).toEqual([]);
+    // The same words give the same answer, kept from the first time.
+    expect(searchDocs('REST ')).toBe(searchDocs('rest'));
   });
 });
 
@@ -121,17 +124,17 @@ describe('the clock check', () => {
     }) as unknown as ApiClient;
   it('takes the offset at the middle of the round trip', async () => {
     const times = [1_000, 1_040];
-    const result = await readClock(api({ serverTime: 1_520 }), () => times.shift()!);
-    expect(result).toEqual({ ok: true, reading: { offsetMs: 500, roundTripMs: 40 } });
+    const result = await readServerClock(api({ serverTime: 1_520 }), { now: () => times.shift()! });
+    expect(result).toEqual({ ok: true, data: { offsetMs: 500, roundTripMs: 40 } });
   });
   it('fails without an offset when the server time cannot be read', async () => {
-    expect(await readClock(api(null, false))).toEqual({ ok: false });
+    expect((await readServerClock(api(null, false))).ok).toBe(false);
   });
   it('is within the window up to the signing window, either way, and outside past it', () => {
     const edge = SIGN_WINDOW_SECONDS * 1000;
-    expect(withinWindow({ offsetMs: edge, roundTripMs: 1 })).toBe(true);
-    expect(withinWindow({ offsetMs: -edge, roundTripMs: 1 })).toBe(true);
-    expect(withinWindow({ offsetMs: edge + 1, roundTripMs: 1 })).toBe(false);
+    expect(withinWindow(edge)).toBe(true);
+    expect(withinWindow(-edge)).toBe(true);
+    expect(withinWindow(edge + 1)).toBe(false);
   });
 });
 

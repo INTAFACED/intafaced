@@ -5,16 +5,8 @@
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "variable": [
-    {
-      "key": "baseUrl",
-      "value": "",
-      "description": "host not set"
-    },
-    {
-      "key": "apiKey",
-      "value": "",
-      "description": "Your API key; never commit it"
-    }
+    { "key": "baseUrl", "value": "", "description": "host not set" },
+    { "key": "apiKey", "value": "", "description": "Your API key; never commit it" }
   ],
   "item": [
     {
@@ -25,11 +17,7 @@
           "request": {
             "method": "GET",
             "header": [],
-            "url": {
-              "raw": "{{baseUrl}}/api/v1/time",
-              "host": ["{{baseUrl}}"],
-              "path": ["api", "v1", "time"]
-            }
+            "url": { "raw": "{{baseUrl}}/api/v1/time", "host": ["{{baseUrl}}"], "path": ["api", "v1", "time"] }
           }
         },
         {
@@ -37,11 +25,7 @@
           "request": {
             "method": "GET",
             "header": [],
-            "url": {
-              "raw": "{{baseUrl}}/api/v1/capabilities",
-              "host": ["{{baseUrl}}"],
-              "path": ["api", "v1", "capabilities"]
-            }
+            "url": { "raw": "{{baseUrl}}/api/v1/capabilities", "host": ["{{baseUrl}}"], "path": ["api", "v1", "capabilities"] }
           }
         }
       ]
@@ -54,11 +38,7 @@
           "request": {
             "method": "GET",
             "header": [],
-            "url": {
-              "raw": "{{baseUrl}}/api/v1/markets",
-              "host": ["{{baseUrl}}"],
-              "path": ["api", "v1", "markets"]
-            }
+            "url": { "raw": "{{baseUrl}}/api/v1/markets", "host": ["{{baseUrl}}"], "path": ["api", "v1", "markets"] }
           }
         },
         {
@@ -70,12 +50,7 @@
               "raw": "{{baseUrl}}/api/v1/ticker/:symbol",
               "host": ["{{baseUrl}}"],
               "path": ["api", "v1", "ticker", ":symbol"],
-              "variable": [
-                {
-                  "key": "symbol",
-                  "value": ""
-                }
-              ]
+              "variable": [{ "key": "symbol", "value": "" }]
             }
           }
         },
@@ -84,11 +59,7 @@
           "request": {
             "method": "GET",
             "header": [],
-            "url": {
-              "raw": "{{baseUrl}}/api/v1/tickers",
-              "host": ["{{baseUrl}}"],
-              "path": ["api", "v1", "tickers"]
-            }
+            "url": { "raw": "{{baseUrl}}/api/v1/tickers", "host": ["{{baseUrl}}"], "path": ["api", "v1", "tickers"] }
           }
         },
         {
@@ -100,12 +71,7 @@
               "raw": "{{baseUrl}}/api/v1/orderbook/:symbol",
               "host": ["{{baseUrl}}"],
               "path": ["api", "v1", "orderbook", ":symbol"],
-              "variable": [
-                {
-                  "key": "symbol",
-                  "value": ""
-                }
-              ]
+              "variable": [{ "key": "symbol", "value": "" }]
             }
           }
         },
@@ -118,12 +84,7 @@
               "raw": "{{baseUrl}}/api/v1/ohlcv/:symbol",
               "host": ["{{baseUrl}}"],
               "path": ["api", "v1", "ohlcv", ":symbol"],
-              "variable": [
-                {
-                  "key": "symbol",
-                  "value": ""
-                }
-              ]
+              "variable": [{ "key": "symbol", "value": "" }]
             }
           }
         },
@@ -136,12 +97,7 @@
               "raw": "{{baseUrl}}/api/v1/trades/:symbol",
               "host": ["{{baseUrl}}"],
               "path": ["api", "v1", "trades", ":symbol"],
-              "variable": [
-                {
-                  "key": "symbol",
-                  "value": ""
-                }
-              ]
+              "variable": [{ "key": "symbol", "value": "" }]
             }
           }
         },
@@ -154,12 +110,7 @@
               "raw": "{{baseUrl}}/api/v1/market-halt/:symbol",
               "host": ["{{baseUrl}}"],
               "path": ["api", "v1", "market-halt", ":symbol"],
-              "variable": [
-                {
-                  "key": "symbol",
-                  "value": ""
-                }
-              ]
+              "variable": [{ "key": "symbol", "value": "" }]
             }
           }
         },
@@ -172,12 +123,7 @@
               "raw": "{{baseUrl}}/api/v1/market-lifecycle/:symbol",
               "host": ["{{baseUrl}}"],
               "path": ["api", "v1", "market-lifecycle", ":symbol"],
-              "variable": [
-                {
-                  "key": "symbol",
-                  "value": ""
-                }
-              ]
+              "variable": [{ "key": "symbol", "value": "" }]
             }
           }
         },
@@ -197,39 +143,20 @@
           "name": "createOrder",
           "request": {
             "method": "POST",
-            "header": [
-              {
-                "key": "Authorization",
-                "value": "Bearer {{apiKey}}"
-              }
-            ],
-            "url": {
-              "raw": "{{baseUrl}}/api/v1/orders",
-              "host": ["{{baseUrl}}"],
-              "path": ["api", "v1", "orders"]
-            }
+            "header": [{ "key": "Authorization", "value": "Bearer {{apiKey}}" }],
+            "url": { "raw": "{{baseUrl}}/api/v1/orders", "host": ["{{baseUrl}}"], "path": ["api", "v1", "orders"] }
           }
         },
         {
           "name": "cancelOrder",
           "request": {
             "method": "DELETE",
-            "header": [
-              {
-                "key": "Authorization",
-                "value": "Bearer {{apiKey}}"
-              }
-            ],
+            "header": [{ "key": "Authorization", "value": "Bearer {{apiKey}}" }],
             "url": {
               "raw": "{{baseUrl}}/api/v1/orders/:id",
               "host": ["{{baseUrl}}"],
               "path": ["api", "v1", "orders", ":id"],
-              "variable": [
-                {
-                  "key": "id",
-                  "value": ""
-                }
-              ]
+              "variable": [{ "key": "id", "value": "" }]
             }
           }
         },
@@ -237,39 +164,20 @@
           "name": "cancelAllOrders",
           "request": {
             "method": "DELETE",
-            "header": [
-              {
-                "key": "Authorization",
-                "value": "Bearer {{apiKey}}"
-              }
-            ],
-            "url": {
-              "raw": "{{baseUrl}}/api/v1/orders",
-              "host": ["{{baseUrl}}"],
-              "path": ["api", "v1", "orders"]
-            }
+            "header": [{ "key": "Authorization", "value": "Bearer {{apiKey}}" }],
+            "url": { "raw": "{{baseUrl}}/api/v1/orders", "host": ["{{baseUrl}}"], "path": ["api", "v1", "orders"] }
           }
         },
         {
           "name": "fetchOrder",
           "request": {
             "method": "GET",
-            "header": [
-              {
-                "key": "Authorization",
-                "value": "Bearer {{apiKey}}"
-              }
-            ],
+            "header": [{ "key": "Authorization", "value": "Bearer {{apiKey}}" }],
             "url": {
               "raw": "{{baseUrl}}/api/v1/orders/:id",
               "host": ["{{baseUrl}}"],
               "path": ["api", "v1", "orders", ":id"],
-              "variable": [
-                {
-                  "key": "id",
-                  "value": ""
-                }
-              ]
+              "variable": [{ "key": "id", "value": "" }]
             }
           }
         },
@@ -277,34 +185,16 @@
           "name": "fetchOpenOrders",
           "request": {
             "method": "GET",
-            "header": [
-              {
-                "key": "Authorization",
-                "value": "Bearer {{apiKey}}"
-              }
-            ],
-            "url": {
-              "raw": "{{baseUrl}}/api/v1/orders/open",
-              "host": ["{{baseUrl}}"],
-              "path": ["api", "v1", "orders", "open"]
-            }
+            "header": [{ "key": "Authorization", "value": "Bearer {{apiKey}}" }],
+            "url": { "raw": "{{baseUrl}}/api/v1/orders/open", "host": ["{{baseUrl}}"], "path": ["api", "v1", "orders", "open"] }
           }
         },
         {
           "name": "fetchClosedOrders",
           "request": {
             "method": "GET",
-            "header": [
-              {
-                "key": "Authorization",
-                "value": "Bearer {{apiKey}}"
-              }
-            ],
-            "url": {
-              "raw": "{{baseUrl}}/api/v1/orders/closed",
-              "host": ["{{baseUrl}}"],
-              "path": ["api", "v1", "orders", "closed"]
-            }
+            "header": [{ "key": "Authorization", "value": "Bearer {{apiKey}}" }],
+            "url": { "raw": "{{baseUrl}}/api/v1/orders/closed", "host": ["{{baseUrl}}"], "path": ["api", "v1", "orders", "closed"] }
           }
         }
       ]
@@ -321,12 +211,7 @@
               "raw": "{{baseUrl}}/api/v1/funding-rate/:symbol",
               "host": ["{{baseUrl}}"],
               "path": ["api", "v1", "funding-rate", ":symbol"],
-              "variable": [
-                {
-                  "key": "symbol",
-                  "value": ""
-                }
-              ]
+              "variable": [{ "key": "symbol", "value": "" }]
             }
           }
         },
@@ -346,29 +231,15 @@
           "name": "fetchPositions",
           "request": {
             "method": "GET",
-            "header": [
-              {
-                "key": "Authorization",
-                "value": "Bearer {{apiKey}}"
-              }
-            ],
-            "url": {
-              "raw": "{{baseUrl}}/api/v1/positions",
-              "host": ["{{baseUrl}}"],
-              "path": ["api", "v1", "positions"]
-            }
+            "header": [{ "key": "Authorization", "value": "Bearer {{apiKey}}" }],
+            "url": { "raw": "{{baseUrl}}/api/v1/positions", "host": ["{{baseUrl}}"], "path": ["api", "v1", "positions"] }
           }
         },
         {
           "name": "setLeverage",
           "request": {
             "method": "POST",
-            "header": [
-              {
-                "key": "Authorization",
-                "value": "Bearer {{apiKey}}"
-              }
-            ],
+            "header": [{ "key": "Authorization", "value": "Bearer {{apiKey}}" }],
             "url": {
               "raw": "{{baseUrl}}/api/v1/positions/leverage",
               "host": ["{{baseUrl}}"],
@@ -380,12 +251,7 @@
           "name": "setMarginMode",
           "request": {
             "method": "POST",
-            "header": [
-              {
-                "key": "Authorization",
-                "value": "Bearer {{apiKey}}"
-              }
-            ],
+            "header": [{ "key": "Authorization", "value": "Bearer {{apiKey}}" }],
             "url": {
               "raw": "{{baseUrl}}/api/v1/positions/margin-mode",
               "host": ["{{baseUrl}}"],
@@ -395,10 +261,7 @@
         }
       ]
     },
-    {
-      "name": "funding",
-      "item": []
-    },
+    { "name": "funding", "item": [] },
     {
       "name": "accounts",
       "item": [
@@ -406,51 +269,24 @@
           "name": "fetchBalance",
           "request": {
             "method": "GET",
-            "header": [
-              {
-                "key": "Authorization",
-                "value": "Bearer {{apiKey}}"
-              }
-            ],
-            "url": {
-              "raw": "{{baseUrl}}/api/v1/account/balance",
-              "host": ["{{baseUrl}}"],
-              "path": ["api", "v1", "account", "balance"]
-            }
+            "header": [{ "key": "Authorization", "value": "Bearer {{apiKey}}" }],
+            "url": { "raw": "{{baseUrl}}/api/v1/account/balance", "host": ["{{baseUrl}}"], "path": ["api", "v1", "account", "balance"] }
           }
         },
         {
           "name": "fetchTradingFees",
           "request": {
             "method": "GET",
-            "header": [
-              {
-                "key": "Authorization",
-                "value": "Bearer {{apiKey}}"
-              }
-            ],
-            "url": {
-              "raw": "{{baseUrl}}/api/v1/account/fees",
-              "host": ["{{baseUrl}}"],
-              "path": ["api", "v1", "account", "fees"]
-            }
+            "header": [{ "key": "Authorization", "value": "Bearer {{apiKey}}" }],
+            "url": { "raw": "{{baseUrl}}/api/v1/account/fees", "host": ["{{baseUrl}}"], "path": ["api", "v1", "account", "fees"] }
           }
         },
         {
           "name": "fetchMyTrades",
           "request": {
             "method": "GET",
-            "header": [
-              {
-                "key": "Authorization",
-                "value": "Bearer {{apiKey}}"
-              }
-            ],
-            "url": {
-              "raw": "{{baseUrl}}/api/v1/account/trades",
-              "host": ["{{baseUrl}}"],
-              "path": ["api", "v1", "account", "trades"]
-            }
+            "header": [{ "key": "Authorization", "value": "Bearer {{apiKey}}" }],
+            "url": { "raw": "{{baseUrl}}/api/v1/account/trades", "host": ["{{baseUrl}}"], "path": ["api", "v1", "account", "trades"] }
           }
         }
       ]

@@ -1,16 +1,15 @@
-import { useState, type FormEvent } from 'react';
+import { useMemo, useState, type FormEvent, type JSX } from 'react';
 import { developersCopy } from './developers-copy';
-import { searchDocs } from './developers-search';
+import { createDocsSearch } from './developers-search';
 import { ConnectivityPage, DataTermsPage, OpenApiPage, PermissionsPage, QuickstartPage, ReferencePage, RestPage } from './DocsPages';
 import {
   AUDIENCES,
-  ENVIRONMENTS,
-  PROTOCOLS,
   SECTIONS,
   developersRoute,
-  hostTable,
+  hostRows,
   sectionById,
   type Audience,
+  type PageSectionId,
   type Section,
 } from './developers-model';
 import { ChangelogPage, UpcomingPage } from './ChangelogPages';
@@ -21,6 +20,19 @@ import '../public/public-pages.css';
 const key = (id: string) => id.replace(/-/g, '_');
 type SectionKey = Extract<Parameters<ReturnType<typeof developersCopy.useCopy>['t']>[0], `section_${string}`>;
 const sectionKey = (id: string) => `section_${key(id)}` as SectionKey;
+
+/** One page per section the model marks `page: true`: a section id without a component here does not compile. */
+const PAGES: Record<PageSectionId, (props: { title: string }) => JSX.Element> = {
+  permissions: PermissionsPage,
+  rest: RestPage,
+  reference: ReferencePage,
+  changelog: () => <ChangelogPage />,
+  'data-terms': DataTermsPage,
+  connectivity: ConnectivityPage,
+  quickstart: QuickstartPage,
+  openapi: OpenApiPage,
+  status: () => <StatusPage />,
+};
 
 /** /developers and the pages under it: the portal home, the base-address table and one page per section. Public: no sign-in needed. */
 export function DevelopersRoutes({ path }: { path: string }) {
@@ -86,7 +98,6 @@ function Home() {
 
 function Hosts() {
   const { t } = developersCopy.useCopy();
-  const rows = hostTable();
   return (
     <div className="pub-page" data-testid="developers-hosts">
       <header className="pub-heading">
@@ -103,18 +114,13 @@ function Hosts() {
             </tr>
           </thead>
           <tbody>
-            {PROTOCOLS.flatMap((protocol) =>
-              ENVIRONMENTS.map((environment) => {
-                const row = rows.find((entry) => entry.protocol === protocol && entry.environment === environment)!;
-                return (
-                  <tr key={`${protocol}:${environment}`} data-host-state={row.cell.state}>
-                    <td>{t(`protocol_${protocol}` as const)}</td>
-                    <td>{t(`environment_${environment}` as const)}</td>
-                    <td lang="und">{row.cell.state === 'set' ? row.cell.host : <span lang={undefined}>{t('hostUnset')}</span>}</td>
-                  </tr>
-                );
-              }),
-            )}
+            {hostRows().map((row) => (
+              <tr key={`${row.protocol}:${row.environment}`} data-host-state={row.cell.state}>
+                <td>{t(`protocol_${row.protocol}` as const)}</td>
+                <td>{t(`environment_${row.environment}` as const)}</td>
+                <td lang="und">{row.cell.state === 'set' ? row.cell.host : <span lang={undefined}>{t('hostUnset')}</span>}</td>
+              </tr>
+            ))}
           </tbody>
         </table>
         <p className="muted">{t('hostsRegional')}</p>
@@ -131,13 +137,8 @@ function SectionPage({ id }: { id: string }) {
   const section = sectionById(id)!;
   const title = t(sectionKey(id));
   if (section.page) {
-    if (id === 'rest') return <RestPage title={title} />;
-    if (id === 'reference') return <ReferencePage title={title} />;
-    if (id === 'permissions') return <PermissionsPage title={title} />;
-    if (id === 'openapi') return <OpenApiPage title={title} />;
-    if (id === 'quickstart') return <QuickstartPage title={title} />;
-    if (id === 'connectivity') return <ConnectivityPage title={title} hostsOpen={t('hostsOpen')} />;
-    if (id === 'data-terms') return <DataTermsPage />;
+    const Written = PAGES[section.id];
+    return <Written title={title} />;
   }
   const audience: Audience = section.audience;
   return (
@@ -174,14 +175,17 @@ function sectionState(section: Section, t: PortalCopy): string {
 
 /** Searches the portal's own page titles and the routes the reference lists; nothing leaves the browser. */
 function DocsSearch() {
-  const { t } = developersCopy.useCopy();
+  const { t, requestedLocale } = developersCopy.useCopy();
   const [draft, setDraft] = useState('');
   const [query, setQuery] = useState('');
   const submit = (event: FormEvent) => {
     event.preventDefault();
     setQuery(draft.trim());
   };
-  const results = query ? searchDocs(query, (id) => t(sectionKey(id)), t('hostsTitle')) : [];
+  // One index per language; `t` is rebuilt every render, the language is what really changes it.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const search = useMemo(() => createDocsSearch((id) => t(sectionKey(id)), t('hostsTitle')), [requestedLocale]);
+  const results = query ? search(query) : [];
   return (
     <section className="pub-card" aria-labelledby="dev-search">
       <h2 id="dev-search">{t('searchTitle')}</h2>

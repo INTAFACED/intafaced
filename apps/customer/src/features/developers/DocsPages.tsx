@@ -1,32 +1,26 @@
 import { useState } from 'react';
-import { z } from 'zod';
 import { useSession } from '../session/session';
-import type { ApiClient } from '../../shared/api';
+import { readServerClock, type ServerClockReading } from '../../shared/server-clock';
 import { docsCopy } from './developers-docs-copy';
-import { hostTable } from './developers-model';
+import { connectivityEndpointsLabel, connectivityStateLabel, dataTermLabel } from './developers-labels';
+import { DATA_PRODUCTS, DATA_TERMS, connectivityOptions } from './developers-model';
 import {
   CALL_COST,
   NEVER_ON_A_KEY,
   PRODUCTS,
   REST_REFERENCE,
+  SIGN_WINDOW_SECONDS,
   STREAM_REFERENCE,
   permissionTable,
   routeLine,
   scopeFor,
+  withinWindow,
   type Product,
 } from './developers-reference';
 import '../public/public-pages.css';
 import './developers-docs.css';
 
 type Copy = ReturnType<typeof docsCopy.useCopy>['t'];
-
-/**
- * The window the server accepts a signed timestamp in, either way, in seconds: `REQUEST_SIGN_WINDOW_SECONDS` in
- * services/svc-edge/src/api-key-request-sign.ts and services/svc-identity/src/auth/api-key-request-sign.ts, the value the
- * public SDK also publishes. It is a code constant today, not an owner setting; DV-auth-01 makes it one, and then this
- * page reads it. developers-reference.test.ts fails when the constant changes.
- */
-export const SIGN_WINDOW_SECONDS = 300;
 
 function Page({ id, title, lead, children }: { id: string; title: string; lead: string; children: React.ReactNode }) {
   const { t } = docsCopy.useCopy();
@@ -207,26 +201,7 @@ export function OpenApiPage({ title }: { title: string }) {
   );
 }
 
-/** `GET /api/v1/time` (svc-trade public-rest.ts). hand-declared-ok: svc-trade's REST answer has no browser-safe contract schema. */
-const serverTimeSchema = z.object({ serverTime: z.number().int().nonnegative() });
-
-export type ClockReading = { offsetMs: number; roundTripMs: number };
-
-/** One probe: the offset is the server's time minus the middle of the local round trip. Whole milliseconds. */
-export async function readClock(api: ApiClient, now: () => number = () => Date.now()) {
-  const sent = now();
-  const result = await api.rest('/time', serverTimeSchema);
-  const received = now();
-  if (!result.ok) return { ok: false as const };
-  return {
-    ok: true as const,
-    reading: { offsetMs: Math.round(result.data.serverTime - (sent + received) / 2), roundTripMs: Math.max(0, received - sent) },
-  };
-}
-
-export const withinWindow = (reading: ClockReading) => Math.abs(reading.offsetMs) <= SIGN_WINDOW_SECONDS * 1000;
-
-type ClockState = { status: 'idle' } | { status: 'checking' } | { status: 'failed' } | { status: 'ready'; reading: ClockReading };
+type ClockState = { status: 'idle' } | { status: 'checking' } | { status: 'failed' } | { status: 'ready'; reading: ServerClockReading };
 
 /** The clock check: a button, then the offset and round trip, and whether this clock is inside the signing window. */
 export function ClockCheck({ testId }: { testId: string }) {
@@ -235,8 +210,8 @@ export function ClockCheck({ testId }: { testId: string }) {
   const [state, setState] = useState<ClockState>({ status: 'idle' });
   const check = async () => {
     setState({ status: 'checking' });
-    const result = await readClock(api);
-    setState(result.ok ? { status: 'ready', reading: result.reading } : { status: 'failed' });
+    const result = await readServerClock(api);
+    setState(result.ok ? { status: 'ready', reading: result.data } : { status: 'failed' });
   };
   return (
     <div className="pub-form">
@@ -258,15 +233,12 @@ function ClockResult({ state, testId, t }: { state: ClockState; testId: string; 
     );
   if (state.status !== 'ready') return <div data-testid={testId} aria-live="polite" />;
   const { offsetMs, roundTripMs } = state.reading;
+  const within = withinWindow(offsetMs);
   return (
-    <div data-testid={testId} aria-live="polite" data-clock-window={withinWindow(state.reading) ? 'within' : 'outside'}>
+    <div data-testid={testId} aria-live="polite" data-clock-window={within ? 'within' : 'outside'}>
       <p>{t('clockOffset', { offset: String(offsetMs) })}</p>
       <p>{t('clockRoundTrip', { rtt: String(roundTripMs) })}</p>
-      <p>
-        {withinWindow(state.reading)
-          ? t('clockWithin', { seconds: SIGN_WINDOW_SECONDS })
-          : t('clockOutside', { seconds: SIGN_WINDOW_SECONDS })}
-      </p>
+      <p>{within ? t('clockWithin', { seconds: SIGN_WINDOW_SECONDS }) : t('clockOutside', { seconds: SIGN_WINDOW_SECONDS })}</p>
     </div>
   );
 }
@@ -300,17 +272,8 @@ export function QuickstartPage({ title }: { title: string }) {
   );
 }
 
-export function ConnectivityPage({ title, hostsOpen }: { title: string; hostsOpen: string }) {
+export function ConnectivityPage({ title }: { title: string }) {
   const { t } = docsCopy.useCopy();
-  const hosts = hostTable();
-  const productionSet = hosts.some((row) => row.environment === 'production' && row.cell.state === 'set');
-  const regionalSet = hosts.some((row) => row.environment === 'regional' && row.cell.state === 'set');
-  const options = [
-    { key: 'internet', status: productionSet ? t('statusAvailable') : t('statusHostUnset'), endpoints: t('endpointsProduction') },
-    { key: 'redundant', status: regionalSet ? t('statusAvailable') : t('statusHostUnset'), endpoints: t('endpointsRegional') },
-    { key: 'low_latency', status: t('parkedHardware'), endpoints: t('endpointsNone') },
-    { key: 'colocation', status: t('parkedHardware'), endpoints: t('endpointsNone') },
-  ] as const;
   return (
     <Page id="connectivity" title={title} lead={t('connectivityLead')}>
       <section className="pub-card" aria-labelledby="dev-conn-options">
@@ -325,18 +288,18 @@ export function ConnectivityPage({ title, hostsOpen }: { title: string; hostsOpe
               </tr>
             </thead>
             <tbody>
-              {options.map((option) => (
-                <tr key={option.key} data-option={option.key}>
-                  <th scope="row">{t(`option_${option.key}`)}</th>
-                  <td>{option.status}</td>
-                  <td>{option.endpoints}</td>
+              {connectivityOptions().map(({ option, state }) => (
+                <tr key={option} data-option={option} data-option-state={state}>
+                  <th scope="row">{t(`option_${option}`)}</th>
+                  <td>{connectivityStateLabel(t, state)}</td>
+                  <td>{connectivityEndpointsLabel(t, option)}</td>
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
         <a className="text-link" href="/developers/hosts">
-          {hostsOpen} →
+          {t('hostsLink')} →
         </a>
       </section>
       <section className="pub-card" aria-labelledby="dev-conn-time">
@@ -348,13 +311,10 @@ export function ConnectivityPage({ title, hostsOpen }: { title: string; hostsOpe
   );
 }
 
-export const DATA_PRODUCTS = ['ticker', 'depth_l1', 'depth_l2', 'candles', 'trades', 'index'] as const;
-
-export function DataTermsPage() {
+export function DataTermsPage({ title }: { title: string }) {
   const { t } = docsCopy.useCopy();
-  const unset = t('termUnset');
   return (
-    <Page id="data-terms" title={t('dataTermsTitle')} lead={t('dataTermsLead')}>
+    <Page id="data-terms" title={title} lead={t('dataTermsLead')}>
       <section className="pub-notice" role="status">
         <p>{t('dataTermsWaits')}</p>
       </section>
@@ -365,22 +325,20 @@ export function DataTermsPage() {
             <thead>
               <tr>
                 <th scope="col">{t('colProduct')}</th>
-                <th scope="col">{t('colEntitlement')}</th>
-                <th scope="col">{t('colRedistribution')}</th>
-                <th scope="col">{t('colRetention')}</th>
-                <th scope="col">{t('colPrivacy')}</th>
-                <th scope="col">{t('colCommercial')}</th>
+                {DATA_TERMS.map((term) => (
+                  <th scope="col" key={term}>
+                    {dataTermLabel(t, term)}
+                  </th>
+                ))}
               </tr>
             </thead>
             <tbody>
               {DATA_PRODUCTS.map((product) => (
                 <tr key={product} data-product={product} data-terms-state="unset">
                   <th scope="row">{t(`product_${product}`)}</th>
-                  <td>{unset}</td>
-                  <td>{unset}</td>
-                  <td>{unset}</td>
-                  <td>{unset}</td>
-                  <td>{unset}</td>
+                  {DATA_TERMS.map((term) => (
+                    <td key={term}>{t('termUnset')}</td>
+                  ))}
                 </tr>
               ))}
             </tbody>

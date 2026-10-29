@@ -19,7 +19,7 @@ export const docsCopy = defineCopy(
       'A market is named by its symbol: BTC/USDT for spot, BTC/USDT:USDT for a linear perpetual, with an expiry suffix for a dated future. In a path the slash is encoded: /api/v1/ticker/BTC%2FUSDT.',
     restDecimals: 'Every price, amount, fee and balance is a decimal string ("0.015"), never a JSON number.',
     restErrors:
-      'A refusal answers with its HTTP status and a body that carries code, message and intafacedCode; branch on the code, not on the message.',
+      'A refusal answers with its HTTP status and a JSON body that names it in code (a few trade price refusals name it in error instead). Most trade refusals also carry message and intafacedCode. Branch on the code, never on the wording of a message.',
     restPaging:
       'Lists page by since and limit today. Cursor paging (starting_after, ending_before and a next link) waits for DV-rest-01’s trade service change, and the default and largest page size wait for the owner.',
     // Reference
@@ -100,10 +100,10 @@ export const docsCopy = defineCopy(
     endpointsProduction: 'The production REST, WebSocket and FIX hosts',
     endpointsRegional: 'The regional hosts, in failover order',
     endpointsNone: 'No address is published',
+    hostsLink: 'Open the table of base addresses',
     timeTitle: 'Time synchronisation',
     timeLead: 'Signed calls carry a timestamp. Keep your clock on a standard network time source and check it here.',
     // Data terms
-    dataTermsTitle: 'Market data terms',
     dataTermsLead: 'Which market data products you may use, and on what terms.',
     dataTermsTable: 'Market data products and their terms',
     dataTermsWaits:
@@ -138,7 +138,7 @@ export const docsCopy = defineCopy(
         'Un mercado se nombra por su símbolo: BTC/USDT para spot, BTC/USDT:USDT para un perpetuo lineal, con un sufijo de vencimiento para un futuro con fecha. En una ruta la barra va codificada: /api/v1/ticker/BTC%2FUSDT.',
       restDecimals: 'Cada precio, cantidad, comisión y saldo es una cadena decimal ("0.015"), nunca un número JSON.',
       restErrors:
-        'Un rechazo responde con su estado HTTP y un cuerpo que lleva code, message e intafacedCode; decide según el código, no según el mensaje.',
+        'Un rechazo responde con su estado HTTP y un cuerpo JSON que lo nombra en code (unos pocos rechazos de precio de trading lo nombran en error). La mayoría de los rechazos de trading también llevan message e intafacedCode. Decide según el código, nunca según el texto de un mensaje.',
       restPaging:
         'Hoy las listas se paginan con since y limit. La paginación por cursor (starting_after, ending_before y un enlace next) espera al cambio del servicio de trading de DV-rest-01, y el tamaño de página por defecto y el máximo esperan al propietario.',
       referenceLead:
@@ -215,10 +215,10 @@ export const docsCopy = defineCopy(
       endpointsProduction: 'Los hosts de producción REST, WebSocket y FIX',
       endpointsRegional: 'Los hosts regionales, en orden de conmutación',
       endpointsNone: 'No hay ninguna dirección publicada',
+      hostsLink: 'Abrir la tabla de direcciones base',
       timeTitle: 'Sincronización horaria',
       timeLead:
         'Las llamadas firmadas llevan una marca de tiempo. Mantén tu reloj con una fuente de hora de red estándar y compruébalo aquí.',
-      dataTermsTitle: 'Condiciones de los datos de mercado',
       dataTermsLead: 'Qué productos de datos de mercado puedes usar y en qué condiciones.',
       dataTermsTable: 'Productos de datos de mercado y sus condiciones',
       dataTermsWaits:
@@ -252,7 +252,7 @@ export const docsCopy = defineCopy(
         'Un marché est désigné par son symbole : BTC/USDT pour le comptant, BTC/USDT:USDT pour un perpétuel linéaire, avec un suffixe d’échéance pour un contrat à terme daté. Dans un chemin, la barre est encodée : /api/v1/ticker/BTC%2FUSDT.',
       restDecimals: 'Chaque prix, quantité, frais et solde est une chaîne décimale ("0.015"), jamais un nombre JSON.',
       restErrors:
-        'Un refus répond avec son statut HTTP et un corps qui porte code, message et intafacedCode ; décidez selon le code, pas selon le message.',
+        'Un refus répond avec son statut HTTP et un corps JSON qui le nomme dans code (quelques refus de prix du trading le nomment dans error). La plupart des refus du trading portent aussi message et intafacedCode. Décidez selon le code, jamais selon le texte d’un message.',
       restPaging:
         'Aujourd’hui, les listes se paginent avec since et limit. La pagination par curseur (starting_after, ending_before et un lien next) attend la modification du service de trading de DV-rest-01, et la taille de page par défaut et maximale attendent le propriétaire.',
       referenceLead:
@@ -330,9 +330,9 @@ export const docsCopy = defineCopy(
       endpointsProduction: 'Les hôtes de production REST, WebSocket et FIX',
       endpointsRegional: 'Les hôtes régionaux, dans l’ordre de bascule',
       endpointsNone: 'Aucune adresse n’est publiée',
+      hostsLink: 'Ouvrir le tableau des adresses de base',
       timeTitle: 'Synchronisation de l’heure',
       timeLead: 'Les appels signés portent un horodatage. Gardez votre horloge sur une source de temps réseau standard et vérifiez-la ici.',
-      dataTermsTitle: 'Conditions des données de marché',
       dataTermsLead: 'Les produits de données de marché que vous pouvez utiliser, et à quelles conditions.',
       dataTermsTable: 'Produits de données de marché et leurs conditions',
       dataTermsWaits:

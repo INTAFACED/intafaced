@@ -1,5 +1,6 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { describe, expect, it, vi } from 'vitest';
+import { fileURLToPath } from 'node:url';
+import { beforeAll, describe, expect, it, vi } from 'vitest';
 vi.mock('../../shared/preferences', async (original) => {
   const real = await original<typeof import('../../shared/preferences')>();
   return { ...real, usePreferences: () => real.currentPreferences() };
@@ -8,6 +9,7 @@ import { DOCS_PAGES, llmsTxt, markdownOf } from './developers-markdown';
 import {
   CALL_COST,
   REST_REFERENCE,
+  SIGN_WINDOW_SECONDS,
   STREAM_REFERENCE,
   openApiDocument,
   permissionTable,
@@ -15,7 +17,6 @@ import {
   routeLine,
   scopeFor,
 } from './developers-reference';
-import { SIGN_WINDOW_SECONDS } from './DocsPages';
 
 const repo = (path: string) => readFileSync(new URL(`../../../../../${path}`, import.meta.url), 'utf8');
 const publicDir = new URL('../../../public/developers/', import.meta.url);
@@ -120,38 +121,50 @@ describe('the machine-readable files', () => {
     expect(rows[1]!.routes.map(routeLine)).toContain('POST /api/v1/orders');
   });
 
-  const files: Record<string, string> = {
-    'openapi.json': `${JSON.stringify(openApiDocument(), null, 2)}\n`,
-    'collection.json': `${JSON.stringify(requestCollection(), null, 2)}\n`,
-    'llms.txt': llmsTxt(),
-    ...Object.fromEntries(DOCS_PAGES.map((page) => [`${page.slug}.md`, markdownOf(page)])),
-  };
-  if (WRITE) {
-    mkdirSync(publicDir, { recursive: true });
-    for (const [name, body] of Object.entries(files)) writeFileSync(new URL(name, publicDir), body);
-  }
-
-  it('serves the OpenAPI file and the collection exactly as generated from the route list', () => {
-    for (const name of ['openapi.json', 'collection.json'])
-      expect(JSON.parse(readFileSync(new URL(name, publicDir), 'utf8')), `${name}: run WRITE_DEVELOPER_DOCS=1`).toEqual(
-        JSON.parse(files[name]!),
-      );
+  /**
+   * Each file exactly as it is committed: generated, then put through the repo's own Prettier settings for its type, so
+   * `prettier --check` passes on a fresh write. A text file Prettier has no parser for (llms.txt) is kept as generated.
+   * `WRITE_DEVELOPER_DOCS=1` writes them.
+   */
+  const files: Record<string, string> = {};
+  beforeAll(async () => {
+    const prettier = await import('prettier');
+    const generated: Record<string, string> = {
+      'openapi.json': JSON.stringify(openApiDocument()),
+      'collection.json': JSON.stringify(requestCollection()),
+      'llms.txt': llmsTxt(),
+      ...Object.fromEntries(DOCS_PAGES.map((page) => [`${page.slug}.md`, markdownOf(page)])),
+    };
+    for (const [name, body] of Object.entries(generated)) {
+      const filepath = fileURLToPath(new URL(name, publicDir));
+      const info = await prettier.getFileInfo(filepath);
+      files[name] = info.inferredParser ? await prettier.format(body, { ...(await prettier.resolveConfig(filepath)), filepath }) : body;
+    }
+    if (WRITE) {
+      mkdirSync(publicDir, { recursive: true });
+      for (const [name, body] of Object.entries(files)) writeFileSync(new URL(name, publicDir), body);
+    }
   });
 
-  it('serves the docs index with each page once, each beside its markdown variant', () => {
-    const index = readFileSync(new URL('llms.txt', publicDir), 'utf8');
-    expect(index, 'run WRITE_DEVELOPER_DOCS=1').toBe(files['llms.txt']);
-    const pages = index.match(/\/developers\/[a-z-/]+\.md/g) ?? [];
-    expect(pages).toHaveLength(DOCS_PAGES.length);
-    expect(new Set(pages).size).toBe(pages.length);
-    for (const page of DOCS_PAGES) {
-      const file = new URL(`${page.slug}.md`, publicDir);
-      expect(existsSync(file), page.slug).toBe(true);
-      expect(readFileSync(file, 'utf8').startsWith(`# ${page.title}\n`)).toBe(true);
+  it('serves every file exactly as generated from the route list, the copy and the host table', () => {
+    expect(Object.keys(files).sort()).toEqual(
+      ['collection.json', 'llms.txt', 'openapi.json', ...DOCS_PAGES.map((page) => `${page.slug}.md`)].sort(),
+    );
+    for (const [name, body] of Object.entries(files)) {
+      const file = new URL(name, publicDir);
+      expect(existsSync(file), `${name}: run WRITE_DEVELOPER_DOCS=1`).toBe(true);
+      expect(readFileSync(file, 'utf8'), `${name}: run WRITE_DEVELOPER_DOCS=1`).toBe(body);
     }
-    const reference = readFileSync(new URL('reference.md', publicDir), 'utf8');
-    for (const route of REST_REFERENCE) expect(reference).toContain(routeLine(route));
-    const permissions = readFileSync(new URL('permissions.md', publicDir), 'utf8');
-    for (const scope of ['trade:read', 'trade:write', 'trade:withdraw']) expect(permissions).toContain(scope);
+  });
+
+  it('lists each page once in the docs index, each beside its markdown variant', () => {
+    const pages = files['llms.txt']!.match(/\/developers\/[a-z-/]+\.md/g) ?? [];
+    expect(pages).toEqual(DOCS_PAGES.map((page) => `/developers/${page.slug}.md`));
+    for (const page of DOCS_PAGES) expect(files[`${page.slug}.md`]!.startsWith(`# ${page.title}\n`)).toBe(true);
+    for (const route of REST_REFERENCE) expect(files['reference.md']).toContain(routeLine(route));
+    for (const scope of ['trade:read', 'trade:write', 'trade:withdraw']) expect(files['permissions.md']).toContain(scope);
+    // Live pages and sections published elsewhere are named by their real address, never by a markdown file.
+    for (const href of ['/developers/status', '/developers/changelog', '/pay/developer/webhooks'])
+      expect(files['llms.txt']).toContain(href);
   });
 });

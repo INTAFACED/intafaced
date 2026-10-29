@@ -38,6 +38,17 @@ export type RestRoute = {
 /** Every counted request costs 1 against the key's (or the address's) bucket at the edge: `EDGE_RATE_COST`. */
 export const CALL_COST = 1;
 
+/**
+ * The window the server accepts a signed timestamp in, either way, in seconds: `REQUEST_SIGN_WINDOW_SECONDS` in
+ * services/svc-edge/src/api-key-request-sign.ts and services/svc-identity/src/auth/api-key-request-sign.ts, the value the
+ * public SDK also publishes. It is a code constant today, not an owner setting; DV-auth-01 makes it one, and then the
+ * pages read it. developers-reference.test.ts fails when the constant changes.
+ */
+export const SIGN_WINDOW_SECONDS = 300;
+
+/** Whether a clock this far from the server's (ms, either way) still signs a timestamp the server accepts. */
+export const withinWindow = (offsetMs: number) => Math.abs(offsetMs) <= SIGN_WINDOW_SECONDS * 1000;
+
 /** A key on `/api/v1` needs `trade:read` for a read and `trade:write` for every other method (`requiredScopeFor`). */
 export const scopeFor = (method: Method): Scope => (method === 'GET' ? 'trade:read' : 'trade:write');
 
