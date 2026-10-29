@@ -606,15 +606,56 @@ function gitHead() {
   return r.stdout.trim();
 }
 
-function runPnpm(args, label, extraEnv = {}) {
+/** Runs `pnpm args` with its output in logs/<label>.log; `spawner` is spawnSync or spawn. */
+function pnpmRun(spawner, args, label, extraEnv) {
   const logPath = path.join(P.logs, `${label}.log`);
   const fd = fs.openSync(logPath, 'w', 0o600);
-  const r = spawnSync('pnpm', args, { cwd: REPO, env: { ...baseEnv(), ...extraEnv }, stdio: ['ignore', fd, fd] });
-  fs.closeSync(fd);
-  if (r.status !== 0) {
+  const result = spawner('pnpm', args, { cwd: REPO, env: { ...baseEnv(), ...extraEnv }, stdio: ['ignore', fd, fd] });
+  const failed = (status) => {
     const tail = fs.readFileSync(logPath, 'utf8').split('\n').slice(-25).join('\n');
-    fail(`${label} failed (exit ${r.status}). Log: ${logPath}\n${tail}`);
-  }
+    fail(`${label} failed (exit ${status}). Log: ${logPath}\n${tail}`);
+  };
+  return { fd, result, failed };
+}
+
+function runPnpm(args, label, extraEnv = {}) {
+  const { fd, result: r, failed } = pnpmRun(spawnSync, args, label, extraEnv);
+  fs.closeSync(fd);
+  if (r.status !== 0) failed(r.status);
+}
+
+// pnpm runs still going when the script exits early (one side-by-side run failed): stopped with it, never orphaned.
+const livePnpm = new Set();
+process.on('exit', () => {
+  for (const child of livePnpm) child.kill('SIGTERM');
+});
+
+/** runPnpm without blocking, so several can run side by side. */
+function runPnpmAsync(args, label, extraEnv = {}) {
+  const { fd, result: child, failed } = pnpmRun(spawn, args, label, extraEnv);
+  livePnpm.add(child);
+  return new Promise((resolve) => {
+    let finished = false;
+    const done = (status) => {
+      if (finished) return;
+      finished = true;
+      livePnpm.delete(child);
+      fs.closeSync(fd);
+      if (status !== 0) failed(status);
+      resolve();
+    };
+    child.on('error', () => done(-1));
+    child.on('exit', (code, signal) => done(signal ? -1 : code));
+  });
+}
+
+/** Run `task` on every item, at most `limit` at a time. */
+export async function inPool(items, limit, task) {
+  const queue = [...items];
+  const lane = async () => {
+    while (queue.length) await task(queue.shift());
+  };
+  await Promise.all(Array.from({ length: Math.min(limit, queue.length) }, lane));
 }
 
 const SOURCE_PATHS = ['services', 'packages', 'apps/customer', 'pnpm-lock.yaml'];
@@ -809,12 +850,14 @@ function ensureBuilt(rebuild) {
   ensureAdminBuilt(rebuild);
 }
 
-function migrate(secrets, schemas = SCHEMAS) {
-  for (const s of schemas) {
-    runPnpm(['--filter', `@intafaced/svc-${serviceOfSchema(s)}`, 'db:migrate'], `migrate-${s}`, {
+// Each schema migrates as its own role inside its own schema and reads no build output, so they run side by side,
+// one per core (they were 19 runs of about a second each, one after another).
+async function migrate(secrets, schemas = SCHEMAS) {
+  await inPool(schemas, os.availableParallelism(), (s) =>
+    runPnpmAsync(['--filter', `@intafaced/svc-${serviceOfSchema(s)}`, 'db:migrate'], `migrate-${s}`, {
       DATABASE_URL: dbUrl(`svc_${s}`, secrets),
-    });
-  }
+    }),
+  );
   say(`  migrations: ${schemas.length ? schemas.join(', ') : 'none needed'} applied (idempotent)`);
 }
 
@@ -894,9 +937,10 @@ const EDGE_ABSENT = {
 };
 
 /**
- * The services the stack starts, in start order. Each service's env lives in its own file,
- * tooling/scripts/local-stack-services/<name>.mjs, so a slice changes only its service's file.
- * Every file gets the same wiring helpers below; a new service adds its file and one line here.
+ * The services the stack starts. A service listed before one it calls starts first (startDependencies); the order
+ * says nothing else. Each service's env lives in its own file, tooling/scripts/local-stack-services/<name>.mjs, so a
+ * slice changes only its service's file. Every file gets the same wiring helpers below; a new service adds its file
+ * and one line here.
  */
 const SERVICES = [
   ledger,
@@ -926,6 +970,37 @@ const SERVICES = [
   campaigns,
   edge,
 ];
+
+/**
+ * Which services `def` waits for: every service before it in `defs` (SERVICES order) whose port its env names. One by
+ * one, each service started only once every service before it answered; it still starts only once those it calls
+ * answer, and the rest start side by side (one after another they took about 36 seconds). A service named later in
+ * SERVICES was never up when it booted, and still is not waited for.
+ */
+export function startDependencies(defs, def, envOf = (d) => d.env()) {
+  const port = (d) => String(envOf(d).HTTP_PORT);
+  const values = Object.values(envOf(def)).map(String);
+  const before = defs.slice(0, defs.indexOf(def));
+  return before.filter((d) => {
+    const named = new RegExp(`:${port(d)}(?![0-9])`);
+    return values.some((v) => named.test(v));
+  });
+}
+
+/** Starts every service once the services it waits for (startDependencies) answer, the rest side by side. */
+async function startServices(defs) {
+  const envs = new Map(defs.map((d) => [d, d.env()]));
+  const envOf = (d) => envs.get(d);
+  const started = new Map();
+  for (const def of defs) {
+    const waits = startDependencies(defs, def, envOf).map((d) => started.get(d));
+    started.set(
+      def,
+      Promise.all(waits).then(() => startNodeService(def)),
+    );
+  }
+  await Promise.all(started.values());
+}
 
 function serviceDefs(secrets) {
   const ctx = {
@@ -1240,7 +1315,7 @@ async function serveAdmin(port = PORTS.admin) {
   server.listen(port, HOST);
 }
 
-/** Every Node service this script runs, in start order (Edge last). */
+/** Every Node service this script runs, in SERVICES order (Edge last). */
 function serviceNames() {
   return serviceDefs(PLAN_SECRETS).map((d) => d.name);
 }
@@ -1359,7 +1434,7 @@ async function cmdStart(flags) {
   const wanted = serviceDefs(secrets).filter((d) => !only || only.includes(d.name));
   // Migrate only what is about to start: a service that is already running was migrated when it started.
   const toStart = wanted.filter((d) => !ownedAlive(readProcs()[d.name]));
-  migrate(
+  await migrate(
     secrets,
     SCHEMAS.filter((s) => toStart.some((d) => d.name === serviceOfSchema(s))),
   );
@@ -1374,7 +1449,7 @@ async function cmdStart(flags) {
   }
   // Academy's env points at the video store, so `--only academy` starts it too.
   if (!only || only.includes('video-store') || only.includes('academy')) await startVideoStore(secrets);
-  for (const def of wanted) await startNodeService(def);
+  await startServices(wanted);
   try {
     await ensureLocalTestFounders();
     if (!only || only.includes('ops')) await pinOpsFounders();
