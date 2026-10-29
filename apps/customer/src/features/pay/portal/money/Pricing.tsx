@@ -162,7 +162,7 @@ export function Pricing({ portal, merchantId }: { portal: PortalApi; merchantId:
               </PaySection>
 
               <PaySection title={t('tierFeesTitle')} description={t('tierFeesBody')}>
-                <TierFeeTable tiers={tiers.resource} retry={tiers.reload} />
+                <TierFeeTable tiers={tiers.resource} retry={tiers.reload} feeOnly={feeOnly} />
               </PaySection>
 
               {rules.map((rule) => (
@@ -203,7 +203,15 @@ export function calculatorAssets(priced: readonly string[], ownTier: TierSummary
  * The tier fee table: one row per tier and asset, with the processing fee and the payout fee the tier publishes. A tier
  * with no fee of its own, or no published payout fee, reads "Not set"; only a published `not_charged` reads "Not charged".
  */
-export function TierFeeTable({ tiers, retry }: { tiers: ReturnType<typeof useResource<TierList>>['resource']; retry: () => void }) {
+export function TierFeeTable({
+  tiers,
+  retry,
+  feeOnly = false,
+}: {
+  tiers: ReturnType<typeof useResource<TierList>>['resource'];
+  retry: () => void;
+  feeOnly?: boolean;
+}) {
   const { t } = portalCopy.useCopy();
   if (tiers.status === 'loading') return <PortalLoading rows={2} />;
   if (tiers.status === 'failed') return <PortalFailure result={tiers.failure} retry={retry} />;
@@ -217,10 +225,10 @@ export function TierFeeTable({ tiers, retry }: { tiers: ReturnType<typeof useRes
         const name = tier.id === ownTierId ? t('tierYours', { name: tier.name }) : tier.name;
         const payout = tier.payoutFee?.kind === 'not_charged' ? t('payoutNotCharged') : notSet;
         return fees.map((fee) => (
-          <tr key={`${tier.id}:${fee?.assetCode ?? ''}`} data-testid={`tier-fee-${tier.id}`}>
+          <tr key={`${tier.id}:${fee?.assetCode ?? ''}`} data-testid={`tier-fee-${tier.id}-${fee?.assetCode ?? 'none'}`}>
             <th scope="row">{name}</th>
             <td>{fee ? fee.assetCode : <span className="muted">—</span>}</td>
-            <td>{fee ? <TierFeeText fee={fee} /> : notSet}</td>
+            <td>{fee ? <TierFeeText fee={fee} feeOnly={feeOnly} /> : notSet}</td>
             <td>{payout}</td>
           </tr>
         ));
@@ -229,8 +237,11 @@ export function TierFeeTable({ tiers, retry }: { tiers: ReturnType<typeof useRes
   );
 }
 
-/** "2.50% from 0.00 USDT · 1.50% + 0.30 USDT from 10,000.00 USDT · minimum 0.50 USDT". One band from zero drops its "from". */
-function TierFeeText({ fee }: { fee: TierFee }) {
+/**
+ * "2.50% from 0.00 USDT · 1.50% + 0.30 USDT from 10,000.00 USDT · minimum 0.50 USDT", and the conversion spread when the
+ * tier has one and the role sees it. One band from zero drops its "from".
+ */
+function TierFeeText({ fee, feeOnly }: { fee: TierFee; feeOnly: boolean }) {
   const { t } = portalCopy.useCopy();
   const money = (value: string) => formatMoney(value, fee.assetCode) + ` ${fee.assetCode}`;
   const one = fee.bands.length === 1 && /^0(\.0+)?$/.test(fee.bands[0]!.fromAmount);
@@ -240,6 +251,8 @@ function TierFeeText({ fee }: { fee: TierFee }) {
   });
   if (fee.minFee) parts.push(t('feeMin', { amount: money(fee.minFee) }));
   if (fee.maxFee) parts.push(t('feeMax', { amount: money(fee.maxFee) }));
+  // A conversion adds the tier's spread; roles that see the fee only are not shown it (as on the price list).
+  if (!feeOnly && fee.spreadBps != null) parts.push(t('tierFeeSpread', { pct: bpsPercent(fee.spreadBps) }));
   return <span className="numeric">{parts.join(' · ')}</span>;
 }
 

@@ -52,7 +52,7 @@ test('each business gets its own tier, off the shared ladder; only the flag publ
   assert.ok(priced.id.length <= 32);
   assert.match(priced.name, /^TEST /);
   assert.equal(priced.merchantVisible, false);
-  assert.equal('payoutFee' in priced, false);
+  assert.equal(priced.payoutFee, null);
   assert.deepEqual(journeyTier(MERCHANT, 'blank', true).payoutFee, { kind: 'not_charged' });
   assert.equal(journeyTier(MERCHANT, 'blank', true).id, 'j07-blank-1b2c3d4e');
 });

@@ -267,7 +267,8 @@ export type PayPayoutFee = z.infer<typeof payPayoutFeeSchema>;
 /**
  * One processing-fee rule a tier publishes (the tier pricing layer), as a
  * merchant reads it on the ladder. A tier with no rule for an asset has no
- * entry: its fee is blank, and the pricing engine refuses a total from it.
+ * entry: its fee is blank. The engine then prices from the merchant or the global
+ * layer if one has a rule for the asset, and refuses a total when none does.
  */
 export const merchantTierFeeSchema = z
   .object({

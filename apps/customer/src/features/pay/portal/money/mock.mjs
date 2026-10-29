@@ -571,7 +571,15 @@ export function createMoneyMock(ctx) {
                       caps: control.caps,
                       reserve: control.reserve,
                       // Its own fees are the tier-layer rules the profile resolves; payouts are published as not charged.
-                      fees: control.pricing.map(({ assetCode, bands }) => ({ assetCode, bands, minFee: null, maxFee: null, version: '1' })),
+                      fees: control.pricing.map(({ assetCode, bands, spreadBps, roundingBeneficiary }) => ({
+                        assetCode,
+                        bands,
+                        spreadBps,
+                        roundingBeneficiary,
+                        minFee: null,
+                        maxFee: null,
+                        version: '1',
+                      })),
                       payoutFee: { kind: 'not_charged' },
                       version: 'v1',
                     },

@@ -564,18 +564,44 @@ describe('the tier fee table (M-money-out-06)', () => {
 
   it("shows a tier's own bands, minimum and published payout fee, and marks the merchant's tier", () => {
     const out = table([{ id: 'a', name: 'TEST A', caps, fees: [fee], payoutFee: { kind: 'not_charged' } }]);
-    const row = rowOf(out, 'a');
+    const row = rowOf(out, 'a-USDT');
     expect(row).toContain('TEST A (your tier)');
     expect(row).toContain('2.50% from 0.00 USDT · 1.50% + 0.30 USDT from 10,000.00 USDT · minimum 0.50 USDT');
     expect(row).toContain('Not charged');
     expect(row).not.toContain('Not set');
   });
 
+  it("shows a tier's conversion spread to full-pricing roles only, and gives each asset's row its own test id", () => {
+    const tiers = [
+      {
+        id: 'a',
+        name: 'TEST A',
+        caps,
+        fees: [
+          { ...fee, spreadBps: 40 },
+          { ...fee, assetCode: 'USD' },
+        ],
+        payoutFee: null,
+      },
+    ];
+    const full = renderToString(<TierFeeTable tiers={ready({ status: 'configured', ownTierId: 'a', tiers })} retry={noop} />).replace(
+      /<!-- -->/g,
+      '',
+    );
+    expect(rowOf(full, 'a-USDT')).toContain('minimum 0.50 USDT · plus 0.40% spread on a conversion');
+    expect(rowOf(full, 'a-USD')).not.toContain('spread');
+    expect(full.match(/data-testid="tier-fee-a-/g)).toHaveLength(2);
+    const feeOnly = renderToString(
+      <TierFeeTable tiers={ready({ status: 'configured', ownTierId: 'a', tiers })} retry={noop} feeOnly />,
+    ).replace(/<!-- -->/g, '');
+    expect(feeOnly).not.toContain('spread');
+  });
+
   it('a single band from zero drops its "from"', () => {
     const out = table([
       { id: 'a', name: 'TEST A', caps, fees: [{ assetCode: 'USDT', bands: [{ fromAmount: '0', feeBps: 99, flatFee: null }] }] },
     ]);
-    expect(rowOf(out, 'a')).toContain('>0.99%<');
+    expect(rowOf(out, 'a-USDT')).toContain('>0.99%<');
   });
 
   it('a tier with no fee, an empty fee list or an unpublished payout fee reads "Not set" and never free', () => {
@@ -587,9 +613,9 @@ describe('the tier fee table (M-money-out-06)', () => {
       ],
       null,
     );
-    expect(rowOf(out, 'a').match(/Not set/g)).toHaveLength(2);
-    expect(rowOf(out, 'b').match(/Not set/g)).toHaveLength(2);
-    expect(rowOf(out, 'c').match(/Not set/g)).toHaveLength(1);
+    expect(rowOf(out, 'a-none').match(/Not set/g)).toHaveLength(2);
+    expect(rowOf(out, 'b-none').match(/Not set/g)).toHaveLength(2);
+    expect(rowOf(out, 'c-USDT').match(/Not set/g)).toHaveLength(1);
     expect(out).not.toContain('Not charged');
     expect(out).not.toContain('your tier');
     expect(out).not.toMatch(/0\.00%|Free/);

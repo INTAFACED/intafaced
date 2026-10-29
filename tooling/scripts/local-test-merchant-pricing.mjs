@@ -68,7 +68,8 @@ export function journeyTier(merchantId, kind, payoutNotCharged) {
     founderThresholds: [{ assetCode: 'USDT', amount: '1000' }],
     approvalTtlSeconds: 86_400,
     merchantVisible: false,
-    ...(payoutNotCharged ? { payoutFee: { kind: 'not_charged' } } : {}),
+    // Always sent: svc-pay keeps a published payout fee when the field is left out, and null withdraws it.
+    payoutFee: payoutNotCharged ? { kind: 'not_charged' } : null,
   };
 }
 

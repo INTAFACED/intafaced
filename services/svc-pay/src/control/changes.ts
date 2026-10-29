@@ -367,8 +367,9 @@ export class ChangeService {
         ? { bps: tier.reserve.rollingReserveBps, holdDays: tier.reserve.holdDays }
         : null;
     const merchantVisible = tier.merchantVisible === true;
-    // Omitted is the same as null: nothing published. Kept in the plan so a change of only the payout fee is not a noop.
-    const payoutFee = tier.payoutFee ?? null;
+    // Omitted keeps what the tier publishes (nothing, for a new tier), so a change to other terms never drops a published
+    // payout fee unseen; only an explicit null withdraws it. In the plan, so a change of only the payout fee is not a noop.
+    const payoutFee = tier.payoutFee === undefined ? (cur?.payout_fee ?? null) : tier.payoutFee;
     const after = {
       name: tier.name,
       archetype: tier.archetype,

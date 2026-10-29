@@ -1114,6 +1114,25 @@ describe('merchant tiers, pricing history, limit requests, founder drill-down', 
       expect((await ladder()).tiers[0]).toMatchObject({ payoutFee: null, version: '3' });
     });
 
+    it('a change that leaves the payout fee out keeps the published one; only an explicit null withdraws it', async () => {
+      await assignTier();
+      await applyChange(changes, sql, {
+        scope: 'tier',
+        change: { kind: 'upsert_tier', tier: { ...TEST_TIER, payoutFee: { kind: 'not_charged' } } },
+      });
+      expect('payoutFee' in TEST_TIER).toBe(false);
+      const omitted = await applyChange(changes, sql, { scope: 'tier', change: { kind: 'upsert_tier', tier: TEST_TIER } });
+      expect(omitted.outcome).toBe('noop');
+      const renamed = await applyChange(changes, sql, {
+        scope: 'tier',
+        change: { kind: 'upsert_tier', tier: { ...TEST_TIER, name: 'TEST VALUE renamed' } },
+      });
+      expect(renamed.outcome).toBe('changed');
+      expect((await ladder()).tiers[0]).toMatchObject({ name: 'TEST VALUE renamed', payoutFee: { kind: 'not_charged' }, version: '3' });
+      const [row] = await sql<Array<{ payout_fee: unknown }>>`SELECT payout_fee FROM pay.control_tiers WHERE id = ${TEST_TIER.id}`;
+      expect(row?.payout_fee).toEqual({ kind: 'not_charged' });
+    });
+
     it('a charged or unknown payout fee is refused at the door and leaves the tier unchanged', async () => {
       await assignTier();
       const founder = mounted().createCaller(ctxOf(FOUNDER_1));
@@ -1127,7 +1146,12 @@ describe('merchant tiers, pricing history, limit requests, founder drill-down', 
           reason: 'test payout fee',
           expectedVersion: '1',
         });
-      for (const payoutFee of [{ kind: 'charged', amount: '1' }, { kind: 'charged' }, { kind: 'not_charged', amount: '0' }, 'not_charged']) {
+      for (const payoutFee of [
+        { kind: 'charged', amount: '1' },
+        { kind: 'charged' },
+        { kind: 'not_charged', amount: '0' },
+        'not_charged',
+      ]) {
         const refused = await failure(submit(payoutFee));
         expect(refused?.code).toBe('BAD_REQUEST');
         expect(refused?.message).toMatch(/payoutFee/);
@@ -1150,9 +1174,7 @@ describe('merchant tiers, pricing history, limit requests, founder drill-down', 
       await sql`ALTER TABLE pay.control_tiers DROP CONSTRAINT control_tiers_payout_fee_known`;
       try {
         await sql`UPDATE pay.control_tiers SET payout_fee = ${sql.json({ kind: 'charged' } as never)} WHERE id = ${TEST_TIER.id}`;
-        const refused = await failure(
-          at(mounted().createCaller(ctxOf(OWNER_A)), 'merchantControl.tiers.list')({ merchantId: merchantA }),
-        );
+        const refused = await failure(at(mounted().createCaller(ctxOf(OWNER_A)), 'merchantControl.tiers.list')({ merchantId: merchantA }));
         expect(refused?.cause).toBe('pay.control_unreadable');
       } finally {
         await sql`UPDATE pay.control_tiers SET payout_fee = NULL`;

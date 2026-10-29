@@ -63,9 +63,10 @@ export const tierDefinitionSchema = z
      */
     merchantVisible: z.boolean().optional(),
     /**
-     * The payout fee the tier publishes to merchants. Omitted or null means none
-     * is published, and merchants read "Not set". `not_charged` is the only kind,
-     * because payouts charge no fee (payment-service/payouts.ts).
+     * The payout fee the tier publishes to merchants. Null withdraws it (none is
+     * published, and merchants read "Not set"); omitted keeps what the tier
+     * publishes now, which for a new tier is none. `not_charged` is the only
+     * kind, because payouts charge no fee (payment-service/payouts.ts).
      */
     payoutFee: payPayoutFeeSchema.nullable().optional(),
   })

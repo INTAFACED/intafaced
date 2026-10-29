@@ -169,7 +169,7 @@ test(`${J} #3 reads Pricing and Fees: the tier fee table, a calculator on the li
   await signInOwner(page, '/pay/pricing');
   await expect(page.getByRole('heading', { name: 'Pricing and fees', level: 1 })).toBeVisible();
   const fees = tableIn(page, 'Fees by tier');
-  const pricedRow = fees.getByTestId(`tier-fee-${priced.tierId}`);
+  const pricedRow = fees.getByTestId(`tier-fee-${priced.tierId}-USDT`);
   await expect(pricedRow).toHaveCount(1);
   await expect(pricedRow.getByRole('rowheader')).toHaveText(`${priced.tierName} (your tier)`);
   await expect(pricedRow.getByRole('cell')).toHaveText(['USDT', PRICED_FEE_TEXT, 'Not set']);
@@ -237,40 +237,42 @@ test(`${J} #3 reads Pricing and Fees: the tier fee table, a calculator on the li
   );
 
   // A second TEST tier of the business's own with no fee at all: its fee and its payout fee read "Not set".
-  const blank = merchantPricing(merchantId, '--tier', 'blank');
-  expect(blank).toMatchObject({ merchantId, onTier: true, payoutFee: null });
-  expect(blank.tierId).not.toBe(priced.tierId);
-  await page.reload();
-  const blankRow = fees.getByTestId(`tier-fee-${blank.tierId}`);
-  await expect(blankRow.getByRole('rowheader')).toHaveText(`${blank.tierName} (your tier)`);
-  await expect(blankRow.getByRole('cell')).toHaveText(['—', 'Not set', 'Not set']);
-  // The priced tier is off the shared ladder, so the business no longer sees it.
-  await expect(fees.getByTestId(`tier-fee-${priced.tierId}`)).toHaveCount(0);
+  // Whatever happens below, the business goes back to the priced tier (payout fee published) for the steps after this one.
+  try {
+    const blank = merchantPricing(merchantId, '--tier', 'blank');
+    expect(blank).toMatchObject({ merchantId, onTier: true, payoutFee: null });
+    expect(blank.tierId).not.toBe(priced.tierId);
+    await page.reload();
+    const blankRow = fees.getByTestId(`tier-fee-${blank.tierId}-none`);
+    await expect(blankRow.getByRole('rowheader')).toHaveText(`${blank.tierName} (your tier)`);
+    await expect(blankRow.getByRole('cell')).toHaveText(['—', 'Not set', 'Not set']);
+    // The priced tier is off the shared ladder, so the business no longer sees it.
+    await expect(fees.getByTestId(new RegExp(`^tier-fee-${priced.tierId}-`))).toHaveCount(0);
 
-  // The calculator still offers the tier's asset, asks the engine, and the engine refuses: no total, no "You would receive".
-  const recordBefore = await api.query('merchantControl.get', { merchantId });
-  const ladderBefore = await api.query('merchantControl.tiers.list', { merchantId });
-  expect(recordBefore).toMatchObject({ tierId: blank.tierId, pricing: null });
-  await expect(calc.getByRole('combobox', { name: 'Asset' })).toHaveValue('USDT');
-  await calc.getByRole('textbox', { name: /Payment amount/ }).fill('100');
-  await calc.getByRole('textbox', { name: /Your volume so far this month/ }).fill('0');
-  const refusedQuote = page.waitForResponse((res) => new URL(res.url()).pathname.endsWith('/merchantControl.pricing.preview'));
-  await calc.getByRole('button', { name: 'Work out the fee' }).click();
-  const refusedRes = await refusedQuote;
-  expect(refusedRes.status()).toBe(412);
-  expect(await refusedRes.text()).toContain('"pay.pricing_unconfigured"');
-  await expect(calc.getByTestId('failure')).toHaveText(/No price is set for that asset on your account, so no fee can be worked out\./);
-  await expect(calc.getByTestId('pp-facts')).toHaveCount(0);
-  await expect(calc.getByText('You would receive')).toHaveCount(0);
-  await expect(
-    api.query('merchantControl.pricing.preview', { merchantId, assetCode: 'USDT', amount: '100', monthlyVolume: '0' }),
-  ).rejects.toThrow(/refused: 412 .*pay\.pricing_unconfigured/);
-  // The refusal changed nothing: the record and the ladder read the same afterwards.
-  expect(await api.query('merchantControl.get', { merchantId })).toEqual(recordBefore);
-  expect(await api.query('merchantControl.tiers.list', { merchantId })).toEqual(ladderBefore);
-
-  // Back on the priced tier, with its payout fee published, for the steps after this one.
-  expect(merchantPricing(merchantId, '--tier', 'priced', '--payout-not-charged')).toMatchObject({ tierId: priced.tierId, onTier: true });
+    // The calculator still offers the tier's asset, asks the engine, and the engine refuses: no total, no "You would receive".
+    const recordBefore = await api.query('merchantControl.get', { merchantId });
+    const ladderBefore = await api.query('merchantControl.tiers.list', { merchantId });
+    expect(recordBefore).toMatchObject({ tierId: blank.tierId, pricing: null });
+    await expect(calc.getByRole('combobox', { name: 'Asset' })).toHaveValue('USDT');
+    await calc.getByRole('textbox', { name: /Payment amount/ }).fill('100');
+    await calc.getByRole('textbox', { name: /Your volume so far this month/ }).fill('0');
+    const refusedQuote = page.waitForResponse((res) => new URL(res.url()).pathname.endsWith('/merchantControl.pricing.preview'));
+    await calc.getByRole('button', { name: 'Work out the fee' }).click();
+    const refusedRes = await refusedQuote;
+    expect(refusedRes.status()).toBe(412);
+    expect(await refusedRes.text()).toContain('"pay.pricing_unconfigured"');
+    await expect(calc.getByTestId('failure')).toHaveText(/No price is set for that asset on your account, so no fee can be worked out\./);
+    await expect(calc.getByTestId('pp-facts')).toHaveCount(0);
+    await expect(calc.getByText('You would receive')).toHaveCount(0);
+    await expect(
+      api.query('merchantControl.pricing.preview', { merchantId, assetCode: 'USDT', amount: '100', monthlyVolume: '0' }),
+    ).rejects.toThrow(/refused: 412 .*pay\.pricing_unconfigured/);
+    // The refusal changed nothing: the record and the ladder read the same afterwards.
+    expect(await api.query('merchantControl.get', { merchantId })).toEqual(recordBefore);
+    expect(await api.query('merchantControl.tiers.list', { merchantId })).toEqual(ladderBefore);
+  } finally {
+    expect(merchantPricing(merchantId, '--tier', 'priced', '--payout-not-charged')).toMatchObject({ tierId: priced.tierId, onTier: true });
+  }
 });
 
 test(`${J} #4 opens the payout schedule and rules: manual by default or the next date after cut-off; changes with who and when; minimums disable the control with the reason`, async ({

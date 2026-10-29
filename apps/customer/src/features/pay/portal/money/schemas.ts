@@ -170,6 +170,7 @@ const band = z.object({ fromAmount: amount, feeBps: z.number(), flatFee: amount.
 const tierFee = z.object({
   assetCode: asset,
   bands: z.array(band),
+  spreadBps: z.number().int().nullable().optional(),
   minFee: amount.nullable().optional(),
   maxFee: amount.nullable().optional(),
   version: z.string().optional(),

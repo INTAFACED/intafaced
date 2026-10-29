@@ -119,7 +119,8 @@ const en = {
   calcMonthSoFar: 'Volume so far this month',
   calcNote: 'This is a preview. The fee on a real payment is fixed when it is paid.',
   tierFeesTitle: 'Fees by tier',
-  tierFeesBody: 'What each tier publishes for processing a payment and for a payout. A fee that is not published reads “Not set”, never free.',
+  tierFeesBody:
+    'What each tier publishes for processing a payment and for a payout. A fee that is not published reads “Not set”, never free.',
   tierFeesNone: 'No tier is published for your account, so there is no tier fee to show.',
   colProcessingFee: 'Processing fee',
   colPayoutFee: 'Payout fee',
@@ -130,6 +131,7 @@ const en = {
   feeBandFrom: '{fee} from {from}',
   feeMin: 'minimum {amount}',
   feeMax: 'maximum {amount}',
+  tierFeeSpread: 'plus {pct} spread on a conversion',
 
   // limits
   limitsKpiTitle: 'Your tier and limits',
