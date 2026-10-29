@@ -79,7 +79,18 @@ async function openRequest(page, queue, ticket) {
   // Exact: "Ticket history", "Ticket actions" and "Files on this ticket" are regions inside it.
   const workspace = page.getByRole('region', { name: 'Ticket', exact: true });
   await expect(workspace).toBeVisible();
+  await cardRead(workspace);
   return workspace;
+}
+
+/**
+ * Waits until the customer card has answered: its read writes a trail row of its own (grounding_read), so a step that
+ * compares the trail before and after a refusal starts from a trail the card no longer adds to.
+ */
+async function cardRead(workspace) {
+  const card = workspace.getByRole('region', { name: 'Customer' });
+  await expect(card.getByTestId('customer-account-state')).toBeVisible();
+  await expect(card.getByRole('button', { name: 'Read again' })).toBeEnabled();
 }
 
 /** Claims the open request with the console's two clicks. */
@@ -184,6 +195,7 @@ test(`${J} #4 claiming the next request opens its workspace at its own address; 
   const workspace = page.getByRole('region', { name: 'Ticket', exact: true });
   await expect(workspace).toContainText(claimed.subject);
   await expect(workspace.getByTestId('ticket-holder')).toHaveAttribute('data-user-id', lead);
+  await cardRead(workspace);
 
   // The second agent's claim of it is refused by its code; it stays with the first and the trail gains nothing.
   const before = await trail(ticketId);
