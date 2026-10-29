@@ -219,7 +219,7 @@ export type SupportActionRequest =
       readonly reason?: string;
     }
   | { readonly action: 'merge'; readonly ticketId: string; readonly survivorId: string; readonly reason: string }
-  | { readonly action: 'reply'; readonly ticketId: string; readonly body: string }
+  | { readonly action: 'reply'; readonly ticketId: string; readonly body: string; readonly seenEventSequence?: number }
   | { readonly action: 'status'; readonly ticketId: string; readonly status: TicketStatus; readonly note?: string }
   | {
       readonly action: 'escalate';
@@ -298,10 +298,12 @@ export function readActionRequest(raw: Record<string, unknown>): SupportActionRe
       if (!filter || !isText(raw.name, VIEW_NAME_MAX) || typeof raw.shared !== 'boolean' || !isText(raw.reason, REASON_MAX)) return null;
       return { action: 'view_save', name: raw.name.trim(), shared: raw.shared, filter, reason: raw.reason.trim() };
     }
-    case 'reply':
-      return isTicketId(raw.ticketId) && isText(raw.body, REPLY_MAX)
-        ? { action: 'reply', ticketId: raw.ticketId, body: raw.body.trim() }
-        : null;
+    case 'reply': {
+      if (!isTicketId(raw.ticketId) || !isText(raw.body, REPLY_MAX)) return null;
+      const seen = raw.seenEventSequence;
+      if (seen !== undefined && !(typeof seen === 'number' && Number.isInteger(seen) && seen >= 0)) return null;
+      return { action: 'reply', ticketId: raw.ticketId, body: raw.body.trim(), ...(seen === undefined ? {} : { seenEventSequence: seen }) };
+    }
     case 'status': {
       if (!isTicketId(raw.ticketId) || typeof raw.status !== 'string' || !STATUSES.includes(raw.status)) return null;
       if (raw.note !== undefined && !isText(raw.note, NOTE_MAX)) return null;

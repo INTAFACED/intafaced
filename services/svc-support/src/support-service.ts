@@ -735,6 +735,8 @@ export class SupportService implements SupportContract {
     asOperator?: boolean;
     /** The caller's key. The same key again answers the first comment and writes nothing; with other text it refuses. */
     clientRequestId?: string;
+    /** Staff only: the last history row the agent read. Someone else's later row refuses `support.comment_stale`. */
+    seenEventSequence?: number;
   }): Promise<SupportComment> {
     return withSupportSpan('support.comment', { op: 'comment', ticketId: input.ticketId }, async () => {
       if (input.clientRequestId !== undefined) this.requireClientRequestId(input.clientRequestId);
@@ -743,6 +745,16 @@ export class SupportService implements SupportContract {
         ticketId: input.ticketId,
         asOperator: input.asOperator,
       });
+      if (input.asOperator && input.seenEventSequence !== undefined) {
+        const me = input.userId.toLowerCase();
+        const newer = (await this.store.listEvents(input.ticketId)).filter(
+          (e) => e.sequence > input.seenEventSequence! && e.actorId.toLowerCase() !== me,
+        );
+        if (newer.length > 0) {
+          const what = newer.map((e) => (e.kind === 'status_changed' ? `status ${e.fromStatus} → ${e.toStatus}` : e.kind)).join(', ');
+          throw new SupportError(`the request changed since you opened it: ${what}`, 'support.comment_stale');
+        }
+      }
       const result = await this.store.addComment({
         ticketId: input.ticketId,
         authorId: input.userId,

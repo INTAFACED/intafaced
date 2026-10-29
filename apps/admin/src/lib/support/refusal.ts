@@ -42,6 +42,11 @@ const BY_SUPPORT_CODE: Readonly<Record<string, Entry>> = {
     body: 'A request is only put on hold with a reason. The customer sees it in their history.',
     next: 'Write the reason and send again. Nothing was changed.',
   },
+  'support.comment_stale': {
+    title: 'This request changed since you opened it',
+    body: 'Someone else changed it after you read it, so your reply was not sent. The changes are listed here and in its history.',
+    next: 'Read them, press "I have read the changes", then send again. Your draft is kept.',
+  },
   'support.comment.terminal': {
     title: 'This ticket is closed',
     body: 'A closed ticket takes no more replies.',

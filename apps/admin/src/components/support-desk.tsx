@@ -292,7 +292,13 @@ function TicketBody({ detail, ...p }: { detail: TicketDetail } & DeskViewProps) 
       <TicketLifecycle key={`life-${t.id}`} ticket={t} />
       <TicketProperties key={`props-${t.id}`} ticket={t} onDone={p.onActionDone} />
       <TicketMerge key={`merge-${t.id}`} ticket={t} onDone={p.onActionDone} />
-      <TicketActions ticket={t} onDone={p.onActionDone} />
+      <TicketActions
+        key={`actions-${t.id}`}
+        ticket={t}
+        events={detail.events.kind === 'ok' ? detail.events.data : null}
+        userId={p.userId}
+        onDone={p.onActionDone}
+      />
     </>
   );
 }

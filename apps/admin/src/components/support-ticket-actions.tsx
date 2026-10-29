@@ -1,7 +1,7 @@
 'use client';
 
 import { useRef, useState } from 'react';
-import type { SupportTicket } from '@intafaced/contracts';
+import type { SupportTicket, SupportTicketEvent } from '@intafaced/contracts';
 import { postSupportAction, type ActionReply } from '@/lib/support/browser';
 import {
   ESCALATION_REASONS,
@@ -58,9 +58,15 @@ export function citedIds(text: string): string[] {
   return [...new Set(text.split(/[\s,]+/).filter((id) => id !== ''))];
 }
 
-export function buildRequest(kind: ActionKind, ticket: { id: string; status: string }, form: ActionForm): SupportActionRequest {
+export function buildRequest(
+  kind: ActionKind,
+  ticket: { id: string; status: string },
+  form: ActionForm,
+  seenEventSequence: number | null = null,
+): SupportActionRequest {
   const ticketId = ticket.id;
-  if (kind === 'reply') return { action: 'reply', ticketId, body: form.replyBody.trim() };
+  if (kind === 'reply')
+    return { action: 'reply', ticketId, body: form.replyBody.trim(), ...(seenEventSequence === null ? {} : { seenEventSequence }) };
   if (kind === 'status') {
     const note = form.statusNote.trim();
     return { action: 'status', ticketId, status: effectiveStatus(ticket, form) as 'open', ...(note ? { note } : {}) };
@@ -84,6 +90,20 @@ export interface TicketActionsViewProps {
   readonly onField: (patch: Partial<ActionForm>) => void;
   readonly onArm: (kind: ActionKind | null) => void;
   readonly onSend: () => void;
+  /** A reply refused as stale: what changed since it was opened (null while it is read again), and the "read" step. */
+  readonly stale?: { readonly changes: readonly string[] | null; readonly onRead: () => void } | null;
+}
+
+/** The last history row of a ticket, or 0 when it has none. */
+export const lastSequence = (events: readonly { sequence: number }[] | null): number =>
+  events === null ? 0 : events.reduce((m, e) => Math.max(m, e.sequence), 0);
+
+/** Someone else's history rows after the one the agent last read, in words. */
+export function changesSince(events: readonly SupportTicketEvent[], seen: number, userId: string): string[] {
+  const me = userId.toLowerCase();
+  return events
+    .filter((e) => e.sequence > seen && e.actorId.toLowerCase() !== me)
+    .map((e) => `${e.kind === 'status_changed' ? `status ${e.fromStatus} → ${e.toStatus}` : e.kind}${e.note ? ` (${e.note})` : ''}`);
 }
 
 function Gated({ gate, label, onClick }: { gate: ActionGate; label: string; onClick: () => void }) {
@@ -137,7 +157,26 @@ export function TicketActionsView(p: TicketActionsViewProps) {
           onClick={() => p.onArm('reply')}
         />
       )}
-      <ActionOutcome reply={outcome('reply')} testId="reply-outcome" />
+      {p.stale ? (
+        <div className="adm-callout" role="alert" data-tone="warn" data-testid="reply-outcome">
+          <strong>This request changed since you opened it</strong>
+          <p>Your reply was not sent. Someone else changed the request after you read it:</p>
+          {p.stale.changes === null ? (
+            <p className="dk-muted">Reading what changed…</p>
+          ) : (
+            <ul>
+              {p.stale.changes.map((c, i) => (
+                <li key={i}>{c}</li>
+              ))}
+            </ul>
+          )}
+          <button type="button" className="adm-btn" onClick={p.stale.onRead} disabled={p.busy}>
+            I have read the changes
+          </button>
+        </div>
+      ) : (
+        <ActionOutcome reply={outcome('reply')} testId="reply-outcome" />
+      )}
 
       <h4>Set the status</h4>
       <div className="dk-row">
@@ -263,8 +302,22 @@ export function TicketActionsView(p: TicketActionsViewProps) {
   );
 }
 
-export function TicketActions({ ticket, onDone }: { ticket: SupportTicket; onDone: () => void }) {
+export function TicketActions({
+  ticket,
+  events,
+  userId,
+  onDone,
+}: {
+  ticket: SupportTicket;
+  /** The history as last read, or null when it could not be read (then no reply is checked for staleness). */
+  events: readonly SupportTicketEvent[] | null;
+  userId: string;
+  onDone: () => void;
+}) {
   const [form, setForm] = useState<ActionForm>(() => emptyForm(ticket));
+  // The last history row this agent has read: from when the request was opened, or "I have read the changes".
+  const [seen, setSeen] = useState<number | null>(() => (events === null ? null : lastSequence(events)));
+  const [stale, setStale] = useState(false);
   const [armed, setArmed] = useState<ActionKind | null>(null);
   const [busy, setBusy] = useState(false);
   const [outcome, setOutcome] = useState<TicketActionsViewProps['outcome']>(null);
@@ -276,8 +329,9 @@ export function TicketActions({ ticket, onDone }: { ticket: SupportTicket; onDon
     setBusy(true);
     const kind = armed;
     try {
-      const reply = await postSupportAction(buildRequest(kind, ticket, form));
+      const reply = await postSupportAction(buildRequest(kind, ticket, form, seen));
       setOutcome({ kind, reply });
+      setStale(kind === 'reply' && !reply.ok && reply.refusal.code === 'support.comment_stale');
       setArmed(null);
       if (reply.ok) {
         setForm((f) =>
@@ -308,6 +362,18 @@ export function TicketActions({ ticket, onDone }: { ticket: SupportTicket; onDon
         if (!busy) setArmed(kind);
       }}
       onSend={() => void send()}
+      stale={
+        stale
+          ? {
+              changes: events === null || seen === null ? null : changesSince(events, seen, userId),
+              onRead: () => {
+                setSeen(lastSequence(events));
+                setStale(false);
+                setOutcome(null);
+              },
+            }
+          : null
+      }
     />
   );
 }

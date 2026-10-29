@@ -5,6 +5,8 @@ import type { SupportKbView, TicketExtrasView } from '@/lib/support/types';
 import {
   TicketActionsView,
   buildRequest,
+  changesSince,
+  lastSequence,
   citedIds,
   effectiveStatus,
   emptyForm,
@@ -343,5 +345,59 @@ describe('help articles panel', () => {
     const failed = panel({ kb: kb({ articles: { kind: 'failed', message: 'down', code: null, notBuilt: false, forbidden: false } }) });
     expect(failed).toContain('Help articles unavailable');
     expect(failed).not.toContain('no articles are published');
+  });
+});
+
+describe('stale reply (J-support-public-10 #8)', () => {
+  const T = '22222222-2222-4222-8222-222222222222';
+  const ME = '11111111-1111-4111-8111-111111111111';
+  const OTHER = '44444444-4444-4444-8444-444444444444';
+  const event = (sequence: number, actorId: string, over: Record<string, unknown> = {}) => ({
+    id: `5555555${sequence}-5555-4555-8555-555555555555`,
+    ticketId: T,
+    sequence,
+    kind: 'status_changed' as const,
+    actorId,
+    actorRole: 'operator' as const,
+    fromStatus: 'open' as const,
+    toStatus: 'on_hold' as const,
+    note: null,
+    occurredAt: '2026-10-29T05:00:00.000Z',
+    ...over,
+  });
+
+  it("lists only someone else's rows after the one read, and sends the row read with the reply", () => {
+    const events = [
+      event(1, ME, { kind: 'opened', fromStatus: null, toStatus: null }),
+      event(2, ME, { kind: 'assigned' }),
+      event(3, OTHER),
+    ];
+    expect(lastSequence(events)).toBe(3);
+    expect(changesSince(events, 1, ME.toUpperCase())).toEqual(['status open → on_hold']);
+    expect(buildRequest('reply', { id: T, status: 'open' }, { ...emptyForm({ status: 'open' }), replyBody: ' Hi ' }, 2)).toEqual({
+      action: 'reply',
+      ticketId: T,
+      body: 'Hi',
+      seenEventSequence: 2,
+    });
+  });
+
+  it('shows what changed and the step to read it, in place of the outcome', () => {
+    const html = renderToStaticMarkup(
+      <TicketActionsView
+        ticket={{ id: T, status: 'on_hold' }}
+        form={emptyForm({ status: 'on_hold' })}
+        armed={null}
+        busy={false}
+        outcome={null}
+        onField={() => undefined}
+        onArm={() => undefined}
+        onSend={() => undefined}
+        stale={{ changes: ['status open → on_hold'], onRead: () => undefined }}
+      />,
+    );
+    expect(html).toContain('This request changed since you opened it');
+    expect(html).toContain('status open → on_hold');
+    expect(html).toContain('I have read the changes');
   });
 });

@@ -311,7 +311,11 @@ export function runSupportAction(ctx: FounderCallContext, request: SupportAction
         'support',
         'comment',
         'POST',
-        { ticketId: request.ticketId, body: request.body },
+        {
+          ticketId: request.ticketId,
+          body: request.body,
+          ...(request.seenEventSequence !== undefined ? { seenEventSequence: request.seenEventSequence } : {}),
+        },
         parseWith(supportCommentSchema),
       );
     case 'status':

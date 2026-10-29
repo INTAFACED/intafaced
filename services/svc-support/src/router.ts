@@ -87,7 +87,12 @@ function mapError(err: unknown): never {
     if (err.code === 'support.not_found' || err.code === 'support.claim.not_found') {
       throw new TRPCError({ code: 'NOT_FOUND', message });
     }
-    if (err.code === 'support.claim.already_claimed' || err.code === 'support.kb.revision_stale' || err.code === 'support.already_rated') {
+    if (
+      err.code === 'support.claim.already_claimed' ||
+      err.code === 'support.kb.revision_stale' ||
+      err.code === 'support.already_rated' ||
+      err.code === 'support.comment_stale'
+    ) {
       throw new TRPCError({ code: 'CONFLICT', message });
     }
     if (
@@ -394,6 +399,11 @@ export function createSupportRouter(
           body: z.string().min(1).max(10_000),
           /** The caller's key: sent again after a lost reply it answers the first comment and writes no second one. */
           clientRequestId: z.string().min(1).max(200).optional(),
+          /**
+           * Staff only: the last history row the agent had read. When someone else has changed the request since, the
+           * reply is refused `support.comment_stale` and nothing is written (J-support-public-10 #8).
+           */
+          seenEventSequence: z.number().int().min(0).optional(),
         }),
       )
       .output(supportCommentSchema)
@@ -406,6 +416,7 @@ export function createSupportRouter(
             body: input.body,
             asOperator,
             ...(input.clientRequestId !== undefined ? { clientRequestId: input.clientRequestId } : {}),
+            ...(input.seenEventSequence !== undefined ? { seenEventSequence: input.seenEventSequence } : {}),
           });
         } catch (err) {
           mapError(err);
