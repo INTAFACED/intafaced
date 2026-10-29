@@ -17,13 +17,13 @@ import { tableIn } from './tables.mjs';
 // per step, titled "J-merchant-07 #<n>", run in order on one verified TEST business. #1 makes the owner and the business
 // and reads Money while it has none. The later steps need TEST settlements posted to it, a verified default destination
 // and a finance teammate who can request but not send.
+// #2 settles #1's own payment through the service and keeps the posted settlement for the payout steps.
 // Steps that are written but not built yet fail at their first missing part, quickly (UNBUILT):
-// - The stack cannot post a TEST settlement to a business (`local-test-world.mjs merchant-settlement <merchantId>`,
-//   proposed), so #2 and #6 to #8 have no settlement to pay out (M-money-out-05).
+// - #7 and #8 ask the stack for more TEST settlements (`local-test-world.mjs merchant-settlement <merchantId>`, proposed)
+//   to pay out (M-money-out-05).
 // - #3: the stack publishes no pricing schedule for a TEST business, so Pricing shows no fee table and the calculator
 //   is off (`local-test-world.mjs merchant-pricing`, proposed).
-// - #2: no clearing-to-available view (RC-merchant-10); #4: no payout schedule or rules (M-money-out-03,
-//   M-adv-money-out-01); #5: no top-up (M-money-out-02).
+// - #4: no payout schedule or rules (M-money-out-03, M-adv-money-out-01); #5: no top-up (M-money-out-02).
 const J = 'J-merchant-07';
 const run = journeyState(`${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
 const UNBUILT = { timeout: 5_000 };
@@ -76,10 +76,16 @@ test(`${J} #1 opens Money: zero per asset with "No money yet" for a new business
   // The reserve card is there before the first payment too.
   await expect(page.getByRole('region', { name: 'Reserve' })).toContainText('recorded, not withheld');
 
-  // A TEST card payment, paid: it is captured, so it waits in clearing until a settlement makes it available.
+  // A TEST card payment, paid: it is captured, so it waits in clearing until a settlement makes it available. The TEST
+  // acquirer holds its funds (`tok_funds_held`) until it reports them available, which #2 needs.
   const api = await ownerApi();
-  const paid = await paidCardPayment(api, merchantId, { key: `${J}:payment:clearing:${merchantId}`, amount: '40.00' });
+  const paid = await paidCardPayment(api, merchantId, {
+    key: `${J}:payment:clearing:${merchantId}`,
+    amount: '40.00',
+    token: 'tok_funds_held',
+  });
   expect(paid.status).toBe('captured');
+  run.write({ paymentId: paid.id, window: paid.createdAt.slice(0, 10) });
   // The balances follow the payment's events, so the page is read again until the payment shows.
   const balances = page.getByRole('group', { name: /Balances at a glance/ });
   await expect(async () => {
@@ -125,14 +131,121 @@ test(`${J} #1 opens Money: zero per asset with "No money yet" for a new business
   }).toPass({ timeout: 60_000 });
 });
 
+// #2, all three clauses green in the running app (RC-merchant-10). #1's 40.00 TEST payment was captured with its funds
+// held by the TEST acquirer. (1) A settlement run before the acquirer releases them leaves the payment out: the window
+// waits, clearing still reads 40.00 and available 0, from merchantMetrics.snapshot and on Money. (2) A payout of that
+// waiting window is refused `pay.payout_clearing_pending`, by the API and on the payout page, and the balances read
+// again are unchanged. (3) Once the acquirer reports the funds available (a signed `funds.available` delivery from the
+// stack's TEST acquirer, never the client), the same run settles the window once, on its business key
+// (merchant, window, asset): available reads the net read back from the settlement and clearing reads 0, and a third
+// run changes nothing. No clause stays red.
 test(`${J} #2 reads funds moving from clearing to available: funds wait until available, and a payout of clearing money is refused without moving it`, async ({
   page,
 }) => {
-  const settlement = postedSettlement();
-  expect(settlement).toBeTruthy();
-  run.write({ settlement });
-  await signInOwner(page, '/pay/money');
-  await expect(page.getByRole('group', { name: /Balances at a glance/ })).toContainText(/Clearing\s*100(\.0+)? USDT/);
+  test.setTimeout(300_000);
+  const { merchantId, paymentId, window } = journey();
+  expect(paymentId, 'the held TEST payment from #1').toBeTruthy();
+  const api = await ownerApi();
+  const snapshot = async () =>
+    (await api.query('merchantMetrics.snapshot', { merchantId, window: { kind: 'preset', preset: 'rolling_30d' } })).balances;
+  const settle = () => api.mutate('settlement.run', { merchantId, window, assetId: 'USDT' });
+
+  // (1) Settlement runs before the rail has released the funds: the payment is left out and stays in clearing.
+  const waiting = await settle();
+  expect(waiting.status).toBe('pending');
+  expect(waiting.clearingPending).toEqual([
+    { paymentId, amount: expect.stringMatching(/^40(\.0+)?$/), assetId: 'USDT', availableOn: null },
+  ]);
+  const before = await snapshot();
+  expect(before).toEqual([
+    { assetCode: 'USDT', clearing: expect.stringMatching(/^40(\.0+)?$/), available: expect.stringMatching(/^0(\.0+)?$/) },
+  ]);
+  expect((await api.query('settlement.clearing', { merchantId })).held.map((h) => h.paymentId)).toEqual([paymentId]);
+
+  // A destination to pay out to, saved by the owner on the go-live page with a fresh authenticator code.
+  const owner = await signInOwner(page, '/pay/onboarding/go-live');
+  const refused = refusedPayCalls(page);
+  await page.getByLabel('Wallet address *').fill(`0x${'cd'.repeat(20)}`);
+  await page.getByRole('button', { name: 'Save destination' }).click();
+  const save = page.getByRole('dialog');
+  const saveCode = await nextCode(owner.totp, owner.secret, owner.step);
+  run.write({ owner: saved({ ...owner, step: saveCode.step }) });
+  await save.getByLabel('6-digit code from your authenticator app *').fill(saveCode.code);
+  await save.getByRole('button', { name: 'Save destination' }).click();
+  await expect(page.getByText('Destination saved.', { exact: true })).toBeVisible();
+
+  await page.goto('/pay/money');
+  const balances = page.getByRole('group', { name: /Balances at a glance/ });
+  await expect(balances.getByRole('link', { name: /^Clearing/ })).toContainText('40.00 USDT');
+  await expect(balances.getByRole('link', { name: /^Available to pay out/ })).toContainText(/Now\s*0(\.0+)?\s*USDT/);
+  const all = page.getByRole('region', { name: 'All balances' });
+  await expect(all.getByRole('rowgroup').last().getByRole('row').getByRole('cell')).toHaveText(['USDT', '0.00 USDT', '40.00 USDT']);
+  // Clearing is listed apart, with the day it becomes available: the TEST acquirer named none.
+  const clearing = page.getByRole('region', { name: 'Still clearing' });
+  await expect(clearing.getByRole('rowgroup').last().getByRole('row').getByRole('cell')).toHaveText([
+    paymentId.slice(0, 8),
+    '40.00 USDT',
+    'Not given yet',
+  ]);
+
+  // (2) A payout of clearing money is refused by name, by the API and on the page, and moves nothing.
+  await expect(api.mutate('settlement.payout', { settlementId: waiting.id, railId: 'crypto-native' })).rejects.toThrow(
+    /refused: 412 .*"code":"pay\.payout_clearing_pending"/,
+  );
+  await expect(
+    api.mutate('merchantControl.approvals.request', { merchantId, settlementId: waiting.id, railId: 'crypto-native' }),
+  ).rejects.toThrow(/refused: 412 .*"code":"pay\.payout_clearing_pending"/);
+  await page.goto(`/pay/payouts/new?settlement=${waiting.id}`);
+  await expect(page.getByLabel('Settlement')).toHaveValue(waiting.id);
+  await expect(page.getByLabel('Settlement').locator('option:checked')).toContainText('still clearing');
+  await expect(page.getByLabel('Destination')).toHaveValue(/.+/);
+  const asked = page.waitForResponse((res) => res.url().includes('/api/pay/trpc/merchantControl.approvals.request'));
+  await page.getByRole('button', { name: 'Pay out', exact: true }).click();
+  const confirm = page.getByRole('dialog', { name: "Confirm it's you" });
+  const payCode = await nextCode(owner.totp, owner.secret, saveCode.step);
+  run.write({ owner: saved({ ...owner, step: payCode.step }) });
+  await confirm.getByLabel('6-digit code from your authenticator app').fill(payCode.code);
+  await confirm.getByRole('button', { name: 'Confirm', exact: true }).click();
+  const review = page.getByRole('dialog', { name: 'Review: Pay out' });
+  await review.getByRole('button', { name: 'Pay out', exact: true }).click();
+  const answer = await asked;
+  expect(answer.status()).toBe(412);
+  expect(JSON.stringify(await answer.json())).toContain('"code":"pay.payout_clearing_pending"');
+  await expect(review.getByTestId('failure')).toContainText('This money is still clearing, so it isn’t available to pay out yet.');
+  expect(refused).toEqual(['412 merchantControl.approvals.request']);
+  // Read again: nothing moved, the window still waits and no payout was asked for or sent.
+  expect(await snapshot()).toEqual(before);
+  expect((await api.query('settlement.get', { settlementId: waiting.id })).status).toBe('pending');
+  const listed = await api.query('merchantControl.approvals.list', { merchantId, limit: 50 });
+  expect(Array.isArray(listed) ? listed : listed.items).toEqual([]);
+
+  // (3) The TEST acquirer reports the funds available, signed, to the service's own webhook; the same run now settles.
+  tool('local-test-stack.mjs', 'card-funds', paymentId, 'available');
+  const posted = await settle();
+  expect(posted.id).toBe(waiting.id);
+  expect(posted.status).toBe('posted');
+  expect(posted.clearingPending).toBeUndefined();
+  expect(posted.gross).toMatch(/^40(\.0+)?$/);
+  const net = posted.net;
+  const after = await snapshot();
+  expect(after).toEqual([{ assetCode: 'USDT', clearing: expect.stringMatching(/^0(\.0+)?$/), available: net }]);
+  expect((await api.query('settlement.clearing', { merchantId })).held).toEqual([]);
+  // Run again: the window's business key already holds it, so nothing settles twice.
+  const again = await settle();
+  expect({ id: again.id, status: again.status, net: again.net }).toEqual({ id: posted.id, status: 'posted', net });
+  expect(await snapshot()).toEqual(after);
+  run.write({ settlement: posted.id });
+
+  await page.goto('/pay/money');
+  const shown = new RegExp(
+    `Now\\s*${net
+      .replace(/(\.\d*?)0+$/, '$1')
+      .replace(/\.$/, '')
+      .replace('.', '\\.')}`,
+  );
+  await expect(balances.getByRole('link', { name: /^Available to pay out/ })).toContainText(shown);
+  await expect(balances.getByRole('link', { name: /^Clearing/ })).toContainText(/0\.00\s*USDT/);
+  await expect(page.getByRole('region', { name: 'Still clearing' })).toContainText('Nothing is waiting to clear.');
 });
 
 test(`${J} #3 reads Pricing and Fees: the tier fee table, a calculator on the live engine; a blank tier fee reads "Not set" and refuses a total; payout "not charged" when so published`, async ({

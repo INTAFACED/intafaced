@@ -99,7 +99,7 @@ export async function submitPayout(input: {
     if (!maySend) return localRefusal(t('pnOwnerSends'));
     if (stepReason) return localRefusal(stepReason);
     const sent = await portal.sendPayout({ settlementId: settlement.id, railId: dest.railId });
-    return sent.ok ? { ok: true, data: { route: 'sent', id: sent.data.id, status: sent.data.status } } : sent;
+    return sent.ok ? { ok: true, data: { route: 'sent', id: sent.data.id, status: sent.data.status } } : clearingWords(t, sent);
   };
   // Already approved for this destination: use that approval and send, do not ask again.
   if (sending) return send();
@@ -115,8 +115,16 @@ export async function submitPayout(input: {
     );
   }
   // Below the approval limit the service says no approval is needed; the same reviewed payout is then sent directly.
-  if (asked.code !== 'pay.approval_not_required' && !asked.message.startsWith('pay.approval_not_required')) return asked;
+  if (asked.code !== 'pay.approval_not_required' && !asked.message.startsWith('pay.approval_not_required')) return clearingWords(t, asked);
   return send();
+}
+
+/**
+ * RC-merchant-10: money the rail still holds is refused by the service as `pay.payout_clearing_pending`, with a sentence
+ * written for the books. The page says it in plain words and keeps the code, so the refusal is the service's own.
+ */
+function clearingWords<R>(t: T, result: Extract<ApiResult<R>, { ok: false }>): ApiResult<R> {
+  return result.code === 'pay.payout_clearing_pending' ? { ...result, message: t('rClearingPending') } : result;
 }
 
 /** Nothing can be started: say whether that is because requests are waiting for a second person, and link to them. */
@@ -149,15 +157,19 @@ export function PayoutNew({ portal, merchantId }: { portal: PortalApi; merchantI
   const [picked, setPicked] = useUrlParam('settlement', '');
   const [destPicked, setDest] = useState('');
   // A payout can be started from a finalised settlement ("posted"). Retrying a "failed" one is held (PAYOUT_RETRY_ENABLED).
+  // A settlement still waiting on the rail ("pending") is listed too, tagged "still clearing": it is never hidden, and asking
+  // for it gets the service's own refusal (`pay.payout_clearing_pending`), which names the clearing it would have spent.
   const ready = useResource(async (s) => {
-    const [posted, failed] = await Promise.all([
+    const [posted, failed, waitingOnRail] = await Promise.all([
       portal.settlementPage(merchantId, { status: 'posted' }, undefined, s),
       PAYOUT_RETRY_ENABLED ? portal.settlementPage(merchantId, { status: 'failed' }, undefined, s) : Promise.resolve(null),
+      portal.settlementPage(merchantId, { status: 'pending' }, undefined, s),
     ]);
     if (!posted.ok) return posted;
-    // A failed read only hides the retry rows; the ready ones still show.
+    // A failed read only hides the retry or clearing rows; the ready ones still show.
     const retry = failed?.ok ? failed.data.items : [];
-    return { ok: true as const, data: { ...posted.data, items: [...posted.data.items, ...retry] } };
+    const clearing = waitingOnRail.ok ? waitingOnRail.data.items : [];
+    return { ok: true as const, data: { ...posted.data, items: [...posted.data.items, ...retry], clearing } };
   }, `money:payable:${merchantId}`);
   const destinations = useResource((s) => portal.destinationPage(merchantId, undefined, s), `money:destinations:${merchantId}`);
   const usage = useResource((s) => portal.usage(merchantId, s), `money:usage:${merchantId}`);
@@ -204,7 +216,8 @@ export function PayoutNew({ portal, merchantId }: { portal: PortalApi; merchantI
         {(page) => {
           const waiting = requests.resource.status === 'ready' ? approvalsBySettlement(requests.resource.data) : null;
           const { payable, waitingN } = splitPayable(page.items, waiting);
-          const settlement: Settlement | null = payable.find((s) => s.id === picked) ?? null;
+          const offered = [...payable, ...page.clearing];
+          const settlement: Settlement | null = offered.find((s) => s.id === picked) ?? null;
           const dests: DestinationItem[] | null = destinations.resource.status === 'ready' ? destinations.resource.data.items : null;
           // An approved settlement is already bound to one destination; otherwise the owner's default is chosen for them.
           const approved = settlement && isApprovedToSend(waiting?.get(settlement.id)) ? waiting!.get(settlement.id)! : null;
@@ -240,7 +253,7 @@ export function PayoutNew({ portal, merchantId }: { portal: PortalApi; merchantI
           const problem = payoutProblem(t, { allowed, settlement, haltsRead, block, dest, sending, maySend, stepReason });
           return (
             <>
-              {payable.length === 0 ? (
+              {offered.length === 0 ? (
                 <NoPayable waitingN={waitingN} />
               ) : (
                 <form data-testid="form-stack" className="form-stack pp-form" onSubmit={(e) => e.preventDefault()} noValidate>
@@ -251,11 +264,11 @@ export function PayoutNew({ portal, merchantId }: { portal: PortalApi; merchantI
                       onChange={setPicked}
                       options={[
                         ['', t('pnChoose')],
-                        ...payable.map(
+                        ...offered.map(
                           (s) =>
                             [
                               s.id,
-                              `${settlementName(t, locale, s)} · ${formatMoney(s.net, s.assetId)} ${s.assetId}${s.status === 'failed' ? ` · ${t('pnRetryTag')}` : ''}`,
+                              `${settlementName(t, locale, s)} · ${formatMoney(s.net, s.assetId)} ${s.assetId}${s.status === 'failed' ? ` · ${t('pnRetryTag')}` : ''}${s.status === 'pending' ? ` · ${t('payoutStillClearing')}` : ''}`,
                             ] as const,
                         ),
                       ]}

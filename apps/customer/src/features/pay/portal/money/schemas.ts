@@ -37,6 +37,17 @@ export const settlementLineSchema = z.object({
 });
 export type SettlementLine = z.infer<typeof settlementLineSchema>;
 
+// ---- still clearing (settlement.clearing) --------------------------------------------------------------
+/** A captured payment whose funds the rail still holds. `availableOn` is the day the rail named, or null. */
+export const heldClearingSchema = z.object({
+  paymentId: z.string(),
+  amount,
+  assetId: asset,
+  availableOn: timestamp.nullable(),
+});
+export type HeldClearing = z.infer<typeof heldClearingSchema>;
+export const clearingSchema = z.object({ held: z.array(heldClearingSchema) });
+
 // mirrors feat/pay-portal-be-reads-money:packages/contracts/src/pay-portal-reads.ts; import from @intafaced/contracts after merge
 export const destinationItemSchema = z.object({
   id: z.string(),

@@ -169,6 +169,14 @@ const paymentView = z.object({
   failure: payMerchantFailureSchema.nullable(),
 });
 
+/** RC-merchant-10: one captured payment whose funds the rail still holds. `availableOn` is the rail's day, or null. */
+const heldClearingView = z.object({
+  paymentId: z.string().guid(),
+  amount: amountSchema,
+  assetId: assetIdSchema,
+  availableOn: z.string().datetime({ offset: true }).nullable(),
+});
+
 const settlementView = z.object({
   id: z.string().guid(),
   merchantId: z.string().guid(),
@@ -180,6 +188,8 @@ const settlementView = z.object({
   payoutMethod: z.string().nullable(),
   payoutRef: z.string().nullable(),
   status: z.enum(['pending', 'posted', 'paid_out', 'failed']),
+  /** On a settlement run: what the rail still holds, left in clearing. Absent when nothing is held. */
+  clearingPending: z.array(heldClearingView).optional(),
 });
 
 const settlementDetailView = settlementView.extend({
@@ -1308,6 +1318,20 @@ export function createPayRouter(
             const audience = await assertRead(ctx.principal?.userId, input.merchantId, 'trpc.settlement.list', 'settlements.read');
             const page = await pay.listSettlements(input);
             return { items: page.items.map((item) => settlementDetailOut(item, audience)), nextCursor: page.nextCursor };
+          }),
+        ),
+
+      /**
+       * RC-merchant-10: captured payments whose funds the rail still holds, so clearing can show what it waits on and
+       * the day the rail named. Read-only.
+       */
+      clearing: ownMerchantRead()
+        .input(z.object({ merchantId: z.string().guid(), assetId: assetIdSchema.optional() }))
+        .output(z.object({ held: z.array(heldClearingView) }))
+        .query(({ ctx, input }) =>
+          wrap(async () => {
+            await assertRead(ctx.principal?.userId, input.merchantId, 'trpc.settlement.list', 'settlements.read');
+            return { held: await pay.heldClearing(input.merchantId, input.assetId) };
           }),
         ),
 
@@ -2521,6 +2545,7 @@ function toSettlementOut(row: Awaited<ReturnType<PayService['getSettlement']>>):
     payoutMethod: row.payoutMethod,
     payoutRef: row.payoutRef,
     status: row.status,
+    ...(row.clearingPending && row.clearingPending.length > 0 ? { clearingPending: row.clearingPending } : {}),
   };
 }
 
@@ -2680,6 +2705,7 @@ export function toTrpcError(err: unknown): unknown {
       case 'pay.chargeback_outcome_busy':
       case 'pay.price_archived':
       case 'pay.product_archived':
+      case 'pay.payout_clearing_pending':
         return 'PRECONDITION_FAILED' as const;
       case 'pay.invalid_transition':
       case 'pay.payout_recovery_conflict':

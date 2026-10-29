@@ -21,6 +21,7 @@ import { recordDisputeOutcomeConflict } from '../fraud/dispute-outcome-conflict.
 import type { PayService, PayServiceInternal, PaymentRow, PaymentStatus, PaymentView, WebhookOutcome } from '../payment-service.js';
 import { PayError, appendEvent, assertTransition, lockPayment } from './internal.js';
 import { payerNameHoldOf } from '../payer-name/holds.js';
+import { fundsHeldOf, recordFundsAvailable, recordFundsPending } from './funds.js';
 
 // ── Webhooks ───────────────────────────────────────────────────────────────
 
@@ -162,6 +163,28 @@ export async function applyWebhook(svc: PayServiceInternal, adapter: RailAdapter
           applied = true;
         }
         break;
+      case 'funds.available':
+      case 'funds.pending': {
+        // RC-merchant-10: the rail's word on held funds, recorded on the payment under its lock. Only this verified
+        // delivery (or the capture result) writes it; a client never does. A payment the rail never held, or one
+        // already released, records the delivery and changes nothing.
+        applied = await transaction(svc.sql, async (tx) => {
+          const locked = await lockPayment(tx, payment.id);
+          if (locked.status !== 'captured') return false;
+          const state = await fundsHeldOf(tx, payment.id);
+          if (!state.held) return false;
+          if (event.type === 'funds.available')
+            await recordFundsAvailable(tx, payment.id, { at: event.occurredAt, railEventId: deliveryKey });
+          else
+            await recordFundsPending(tx, payment.id, {
+              ...(event.availableOn ? { availableOn: event.availableOn } : {}),
+              source: 'rail.webhook',
+              railEventId: deliveryKey,
+            });
+          return true;
+        });
+        break;
+      }
       case 'refunded':
       case 'payout.completed':
         // Recorded, not acted on. A refund we did not initiate, or a payout the

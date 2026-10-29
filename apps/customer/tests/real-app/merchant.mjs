@@ -161,10 +161,11 @@ export async function payApiOf(who, kept) {
 }
 
 /**
- * A TEST card payment on the stack's sandbox card rail (`tok_ok`), paid: authorised and captured. `key` names it, so a
+ * A TEST card payment on the stack's sandbox card rail (`tok_ok`, or `token`: `tok_funds_held` is captured with its funds
+ * held by the acquirer until a `card-funds` report), paid: authorised and captured. `key` names it, so a
  * retried step finds the payment its first attempt made, wherever that attempt left it.
  */
-export async function paidCardPayment(api, merchantId, { key, amount, assetId = 'USDT' }) {
+export async function paidCardPayment(api, merchantId, { key, amount, assetId = 'USDT', token = 'tok_ok' }) {
   const created = await api.mutate('payment.create', {
     requestId: uuidOf(key),
     merchantId,
@@ -173,7 +174,7 @@ export async function paidCardPayment(api, merchantId, { key, amount, assetId = 
     method: 'card',
     railAdapter: 'card-sandbox',
     metadata: { reference: key },
-    instrument: { kind: 'card', token: 'tok_ok' },
+    instrument: { kind: 'card', token },
   });
   if (!['created', 'authorized'].includes(created.status)) return created;
   const authorized = created.status === 'created' ? await api.mutate('payment.authorize', { paymentId: created.id }) : created;
