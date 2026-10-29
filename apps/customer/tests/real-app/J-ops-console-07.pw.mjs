@@ -6,7 +6,8 @@ import { ORIGIN, fund, signUpInBrowser } from './stack.mjs';
 // J-ops-console-07: reconcile the books on the founder console's /ledger page. Steps 1-4 (OPS-reconciliation-01): define a
 // control, set its policy and dynamic account set, run it now with two founders, and run it at a past instant. Define, change
 // and run travel on the console's treasury transport; a console without ADMIN_TREASURY_TOKEN shows them parked, and this
-// journey stops there with that blocker named. Steps 5-10 wait for OPS-reconciliation-02 to -04 and refuse at once.
+// journey stops there with that blocker named. Steps 5-6 (OPS-reconciliation-02): pause, resume and retire a control, and a
+// PASS and a FAIL run with per-asset evidence. Steps 7-10 wait for OPS-reconciliation-03 and -04 and refuse at once.
 
 const tag = randomUUID().slice(0, 8);
 const state = { a: null, b: null, thresholdId: null, outsideId: null };
@@ -106,6 +107,58 @@ async function twoFounderRun(controlId, { instant = '', margin = '' } = {}) {
 }
 
 const accountsRead = (answer) => Number(/(\d+) accounts? and/.exec(answer)?.[1] ?? NaN);
+
+/** A floor no TEST book reaches, so a min threshold on it must FAIL. */
+const HIGH_FLOOR = '1000000000000';
+
+/**
+ * Pause, resume or retire a control with two founders: A asks on the lifecycle desk, B approves the packet on their own console,
+ * and A runs it. Waits until A's desk shows the service's answer naming the new state, then until the list shows it too.
+ */
+async function lifecycle(id, move, label) {
+  const sectionA = await openLedger(state.a);
+  await choose(sectionA, id);
+  const desk = sectionA.getByTestId('rc-lifecycle');
+  const pick = desk.getByTestId('rc-lifecycle-move');
+  if (await pick.isVisible()) await pick.selectOption(move);
+  const phrase = `${move.toUpperCase()} CONTROL ${id.slice(0, 8)}`;
+  await desk.getByLabel(/^Why \(recorded with the step/).fill(`LOCAL TEST J-ops-console-07 ${move} ${tag}`);
+  await desk.getByLabel(/to confirm$/).fill(phrase);
+  await desk.getByRole('button', { name: `Ask a second founder to approve: ${move}` }).click();
+  await expect(desk.getByTestId('packet-made')).toBeVisible({ timeout: 60_000 });
+  const packetText = (await desk.getByLabel('Request packet').inputValue()).trim();
+
+  const deskB = (await openLedger(state.b)).getByTestId('rc-lifecycle');
+  await deskB.getByLabel('Request packet').fill(packetText);
+  const verb = move[0].toUpperCase() + move.slice(1);
+  await expect(deskB.getByTestId('packet-summary')).toContainText(`${verb} reconciliation control ${id}`);
+  await deskB.getByLabel(/to approve or run it$/).fill(phrase);
+  await deskB.getByRole('button', { name: 'Approve this request' }).click();
+  await expect(deskB.getByTestId('step-reply')).toContainText('Approved.', { timeout: 30_000 });
+
+  await desk.getByLabel(/to approve or run it$/).fill(phrase);
+  await desk.getByRole('button', { name: 'Run the approved request' }).click();
+  const reply = desk.getByTestId('step-reply');
+  await expect(reply).toContainText('The service answered', { timeout: 60_000 });
+  await expect(reply).toContainText(new RegExp(`Control ${id} is ${label.toLowerCase()} at version \\d+\\.`));
+  await expect(row(sectionA, id).getByTestId('rc-state')).toHaveText(label, { timeout: 30_000 });
+  return sectionA;
+}
+
+/** One asset's evidence as the run reply prints it. */
+function evidence(answer, assetId) {
+  const num = '(-?\\d+(?:\\.\\d+)?|unset)';
+  const m = new RegExp(`${assetId}: observed ${num}, expected ${num}, difference ${num}, tolerance ${num}\\.`).exec(answer);
+  if (!m) throw new Error(`the run shows no ${assetId} evidence: ${answer}`);
+  return { observed: m[1], expected: m[2], difference: m[3], tolerance: m[4] };
+}
+
+/** A decimal string as a bigint scaled by 10^18, so evidence is compared exactly. */
+function scaled(text) {
+  const [whole, frac = ''] = text.replace(/^-/, '').split('.');
+  const value = BigInt(whole) * 10n ** 18n + BigInt((frac + '0'.repeat(18)).slice(0, 18));
+  return text.startsWith('-') ? -value : value;
+}
 
 test.describe.serial('J-ops-console-07 reconcile the books', () => {
   test('J-ops-console-07 #1 a control activated with a blank tolerance is refused with ops.control_policy_unset and stays draft', async ({
@@ -232,9 +285,82 @@ test.describe.serial('J-ops-console-07 reconcile the books', () => {
     expect(zero).toContain(`balances read at ${past.toISOString()} (margin 0 s)`);
   });
 
+  test('J-ops-console-07 #5 pause, resume and retire: a paused control runs nothing until resumed; retired is final', async ({
+    browser,
+  }) => {
+    test.setTimeout(420_000);
+    if (!state.thresholdId || !state.outsideId) throw new Error('steps #1 and #3 left no controls');
+    const { a } = await founders(browser);
+    const section = await openLedger(a);
+    await requireTreasury(section);
+
+    // Pause, approved by a second founder: the state reads Paused and the run desk holds, naming the service's refusal code.
+    const paused = await lifecycle(state.thresholdId, 'pause', 'Paused');
+    const desk = paused.getByTestId('rc-run');
+    await expect(desk).toContainText('A paused control runs nothing (ops.control_state_illegal). Resume it first.');
+    await expect(desk.getByRole('button', { name: 'Ask a second founder to approve the run' })).toBeDisabled();
+    await expect(paused.getByTestId('rc-lifecycle').getByRole('option', { name: 'Pause' })).toHaveCount(0);
+
+    // Resume: active again, and a two-founder run goes through.
+    await lifecycle(state.thresholdId, 'resume', 'Active');
+    expect(await twoFounderRun(state.thresholdId)).toMatch(/Run [0-9a-f-]{36}: PASS\./);
+
+    // Retire: final. No change form, no lifecycle step, the run desk holds, and the control stays in the list.
+    const again = await lifecycle(state.outsideId, 'retire', 'Retired');
+    await expect(again.getByTestId('rc-retired')).toBeVisible();
+    await expect(again.getByTestId('rc-form-update')).toHaveCount(0);
+    await expect(again.getByTestId('rc-lifecycle-move')).toHaveCount(0);
+    await expect(again.getByTestId('rc-lifecycle-why')).toHaveText(
+      'A retired control has no pause, resume or retire step (ops.control_state_illegal).',
+    );
+    await expect(again.getByTestId('rc-run')).toContainText('A retired control runs nothing (ops.control_state_illegal).');
+    await again.getByRole('button', { name: 'Refresh' }).click();
+    await expect(row(again, state.outsideId).getByTestId('rc-state')).toHaveText('Retired');
+  });
+
+  test('J-ops-console-07 #6 a run evaluates PASS or FAIL with per-asset evidence: observed, expected, difference and tolerance', async ({
+    browser,
+  }) => {
+    test.setTimeout(420_000);
+    if (!state.thresholdId) throw new Error('step #1 left no control');
+    const { a } = await founders(browser);
+
+    // PASS: the USDT floor of 0 holds, so the difference is 0.
+    const pass = await twoFounderRun(state.thresholdId);
+    expect(pass).toMatch(/Run [0-9a-f-]{36}: PASS\./);
+    const held = evidence(pass, 'USDT');
+    expect(held.expected).toBe('0');
+    expect(held.difference).toBe('0');
+    expect(held.tolerance).toBe('0');
+    expect(scaled(held.observed) >= 0n, 'the book holds no negative USDT total under a floor of 0').toBe(true);
+
+    // FAIL: a floor far above the book. The difference is exactly observed minus expected.
+    const section = await openLedger(a);
+    const floorId = await define(section, {
+      template: 'threshold',
+      explanation: `LOCAL TEST USDT high floor ${tag}`,
+      fill: async (form) => {
+        await form.getByLabel('Threshold bound').selectOption('min');
+        await form.getByLabel(/^Threshold by asset/).fill(`USDT=${HIGH_FLOOR}`);
+        await setPolicy(form, { tolerance: '0' });
+      },
+    });
+    try {
+      await expect(row(section, floorId).getByTestId('rc-state')).toHaveText('Active');
+      const fail = await twoFounderRun(floorId);
+      expect(fail).toMatch(/Run [0-9a-f-]{36}: FAIL\./);
+      const broken = evidence(fail, 'USDT');
+      expect(broken.expected).toBe(HIGH_FLOOR);
+      expect(broken.tolerance).toBe('0');
+      expect(scaled(broken.difference)).toBe(scaled(broken.observed) - scaled(HIGH_FLOOR));
+      expect(scaled(broken.difference) < 0n).toBe(true);
+    } finally {
+      // Retire the TEST floor even when an assertion fails, so scheduled runs do not keep failing on it.
+      await lifecycle(floorId, 'retire', 'Retired');
+    }
+  });
+
   for (const [n, slice] of [
-    [5, 'OPS-reconciliation-02'],
-    [6, 'OPS-reconciliation-02'],
     [7, 'OPS-reconciliation-03'],
     [8, 'OPS-reconciliation-03'],
     [9, 'OPS-reconciliation-04'],

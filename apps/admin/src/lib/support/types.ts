@@ -7,6 +7,7 @@ import type {
   SupportKbArticle,
   SupportTicket,
   SupportTicketEvent,
+  SupportTicketPropertyChange,
 } from '@intafaced/contracts';
 import type { Part } from '@/lib/desk/part';
 import type { BulkPolicyView } from './bulk';
@@ -76,6 +77,8 @@ export interface TicketDetail {
   readonly ticket: SupportTicket;
   readonly comments: Part<readonly SupportComment[]>;
   readonly events: Part<readonly SupportTicketEvent[]>;
+  /** Priority, type and label changes from svc-support's staff-only property log. Its own part: a refusal here never hides the trail. */
+  readonly propertyChanges: Part<readonly SupportTicketPropertyChange[]>;
 }
 
 export interface SupportTicketView {

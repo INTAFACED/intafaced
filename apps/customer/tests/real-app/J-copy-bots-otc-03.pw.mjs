@@ -55,11 +55,29 @@ test(`${J} #1 pauses the follow: new mirrors refused as paused, and existing pos
   run.write({ otherRef, otherFollowId: await followOnScreen(page, follower, otherRef, { perOrder: '50', total: '100', fixed: '20' }) });
   run.write({ followId: await followOnScreen(page, follower, leaderRef, { perOrder: '50', total: '300', fixed: '20' }) });
   // Two copied buys: the journey starts with open copied positions (#2's lead close takes one, #3 closes the other).
+  // A copied order is listed before the ledger credits its fill (run 701 read the holding with one of two credited), so
+  // the holding "nothing was sold" is compared with is read only once the ledger holds both: the first copied buy's
+  // credit, read while it is the only one, sets the credit per BTC filled, and the second must bring the BTC to that
+  // rate times everything filled.
+  const btc = async () => toUnits((await (await api(follower)).balances()).BTC?.total ?? '0');
+  const filledBuys = async () => {
+    const closed = await (await api(follower)).get('/api/v1/orders/closed?symbol=BTC%2FUSDT&limit=50');
+    expect(closed.status, JSON.stringify(closed.body).slice(0, 300)).toBe(200);
+    return closed.body.filter((o) => o.side === 'buy' && o.status === 'closed').map((o) => toUnits(o.filled));
+  };
   await leadFill(leader, 'buy', '0.001', `${J}-1-open-${tag}`);
+  await expect.poll(() => copiedNow(page), { timeout: 60_000 }).toBe(1);
+  await expect.poll(btc, { timeout: 60_000 }).toBeGreaterThan(0n);
+  const firstCredit = await btc();
+  const [firstFilled] = await filledBuys();
+  expect(firstFilled).toBeGreaterThan(0n);
   await leadFill(leader, 'buy', '0.001', `${J}-1-open2-${tag}`);
   await expect.poll(() => copiedNow(page), { timeout: 60_000 }).toBe(2);
-  const holding = (await (await api(follower)).balances()).BTC?.total ?? '0';
-  expect(toUnits(holding)).toBeGreaterThan(0n);
+  const filled = await filledBuys();
+  expect(filled).toHaveLength(2);
+  const settled = (firstCredit * filled.reduce((a, b) => a + b, 0n)) / firstFilled;
+  await expect.poll(btc, { timeout: 60_000, message: 'the ledger never credited both copied buys' }).toBe(settled);
+  const holding = (await (await api(follower)).balances()).BTC.total;
 
   const detail = await openFollow(page, leaderRef);
   await act(page, detail, 'Pause');

@@ -122,6 +122,21 @@ describe('request reading is strict', () => {
     expect(readDeskRequest(null)).toBeNull();
     expect(readDeskRequest([])).toBeNull();
   });
+  it('reads a lifecycle move only with a known move, a whole version and nothing else', () => {
+    const move = {
+      kind: 'ledger.reconciliation_control.lifecycle',
+      controlId: '0b4f6c2e-1111-4222-8333-444455556666',
+      version: '4',
+      lifecycle: 'retire',
+      reason: 'LOCAL TEST retire the old USDT floor',
+    };
+    expect(readDeskRequest(move)).toEqual(move);
+    expect(readDeskRequest({ ...move, lifecycle: 'activate' })).toBeNull();
+    expect(readDeskRequest({ ...move, version: '0' })).toBeNull();
+    expect(readDeskRequest({ ...move, asOf: 'now' })).toBeNull();
+    expect(confirmPhrase(move as Parameters<typeof confirmPhrase>[0])).toBe('RETIRE CONTROL 0b4f6c2e');
+    expect(describeRequest(move as Parameters<typeof describeRequest>[0])).toContain('never runs again');
+  });
 });
 
 describe('what the founder is asked to type and read', () => {

@@ -164,3 +164,40 @@ describe('professional RFQ — allocation / give-up refuse-closed', () => {
     }
   });
 });
+
+describe('professional RFQ — a quote read after its expiry is expired', () => {
+  it('reports an open quote past its time as expired, writes nothing, and moves no money', async () => {
+    let now = new Date('2026-08-26T12:00:00.000Z');
+    const ledger = new MemoryLedger();
+    const store = new MemoryOtcQuoteStore();
+    const service = new OtcDeskService(ledger, new FixedOtcStake(parseAmount('1000')), {
+      law: published,
+      midSource: createObservedOtcMidSource('BTC/USDT:200', () => now),
+      now: () => now,
+      store,
+    });
+    const quoted = await service.rfqQuote(principal, { side: 'buy', baseAsset: 'BTC', quoteAsset: 'USDT', qty: '1' });
+    expect((await service.rfqGet(principal, quoted.quoteId)).lifecycle).toBe('open');
+
+    now = new Date(now.getTime() + published.quoteTtlMs + 1);
+    const read = await service.rfqGet(principal, quoted.quoteId);
+    expect(read.lifecycle).toBe('expired');
+    // A read writes nothing: the row stays as the store holds it, so a read can never race an accept's save.
+    expect((await store.load(quoted.quoteId))?.lifecycle).toBe('open');
+    expect(ledger.journal()).toHaveLength(0);
+    await expect(service.rfqAccept(principal, { quoteId: quoted.quoteId })).rejects.toMatchObject({ code: 'trade.otc_quote_expired' });
+  });
+
+  it('leaves a quote read at exactly its expiry open', async () => {
+    let now = new Date('2026-08-26T12:00:00.000Z');
+    const service = new OtcDeskService(new MemoryLedger(), new FixedOtcStake(parseAmount('1000')), {
+      law: published,
+      midSource: createObservedOtcMidSource('BTC/USDT:200', () => now),
+      now: () => now,
+      store: new MemoryOtcQuoteStore(),
+    });
+    const quoted = await service.rfqQuote(principal, { side: 'buy', baseAsset: 'BTC', quoteAsset: 'USDT', qty: '1' });
+    now = new Date(now.getTime() + published.quoteTtlMs);
+    expect((await service.rfqGet(principal, quoted.quoteId)).lifecycle).toBe('open');
+  });
+});

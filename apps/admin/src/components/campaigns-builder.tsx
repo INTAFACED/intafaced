@@ -37,6 +37,7 @@ import type { Part } from '@/lib/desk/part';
 import { PartFailed, StateChip } from '@/components/campaigns-desk';
 import { RuleBuilder } from '@/components/campaigns-rule-builder';
 import { EarningRules } from '@/components/campaigns-earning-rules';
+import { CampaignVouchers } from '@/components/campaigns-vouchers';
 import './desk.css';
 
 /**
@@ -262,7 +263,7 @@ function Summary({ c }: { c: Campaign }) {
       <dd>{c.timeZone ?? 'Not set'}</dd>
       <dt>Budget</dt>
       <dd>{c.budget ? `${c.budget.left} left of ${c.budget.limit} ${c.budget.asset}` : 'Not set'}</dd>
-      <dt>Per person limit</dt>
+      <dt>Reward per person</dt>
       <dd>{c.reward ? `${c.reward.amount} ${c.reward.asset}` : 'Not set'}</dd>
     </dl>
   );
@@ -550,8 +551,8 @@ export function CampaignBuilder({
         </div>
         {!editable && (
           <p className="dk-muted" data-testid="campaign-not-draft">
-            Only a draft is edited. This campaign is past draft, so its definition is read-only here; a new revision of a live campaign is
-            not built yet.
+            A draft, or an approved, scheduled, active or paused campaign, is edited. This campaign is in none of those states, so its
+            definition is read-only here.
           </p>
         )}
         <fieldset disabled={!ready || busy || saving || !editable} role="tabpanel" aria-label={STEP_LABEL[step]}>
@@ -719,7 +720,7 @@ export function CampaignBuilder({
                   <input id="cmp-budget" inputMode="decimal" value={fields.budget} onChange={(e) => set({ budget: e.target.value })} />
                 </div>
                 <div className="adm-field">
-                  <label htmlFor="cmp-per-person">Per person limit</label>
+                  <label htmlFor="cmp-per-person">Reward per person</label>
                   <input
                     id="cmp-per-person"
                     inputMode="decimal"
@@ -730,8 +731,8 @@ export function CampaignBuilder({
               </div>
               <p className="dk-muted">
                 The budget is the most the campaign may ask the reward pot for: a limit, not a balance. Nothing is reserved or paid until a
-                customer qualifies. The per person limit is the most one customer receives from this campaign; a task campaign pays it once
-                per customer.
+                customer qualifies. The reward per person is what one customer receives from this campaign, and the most they may: a task
+                campaign pays it once per customer.
               </p>
             </>
           )}
@@ -772,6 +773,7 @@ export function CampaignBuilder({
           )}
         </section>
       </form>
+      {campaign && campaign.type === 'voucher' && campaign.state !== 'draft' && <CampaignVouchers campaign={campaign} />}
     </div>
   );
 }

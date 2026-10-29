@@ -27,7 +27,8 @@ export const KYC_SELFIE_DECIDE = 'kyc.selfie.decide';
  * byte for byte, what the target computes at consume time:
  *   - svc-edge   `edgeActionPayloadHash('edge.kill', { module, disabled: 'true'|'false', reason })`
  *   - svc-ledger `ledgerActionPayloadHash('ledger.freeze', { reason })` / `('ledger.unfreeze', {})`,
- *     and `('ledger.reconciliation_control.run', { controlId, asOf, margin, reason })`
+ *     and `('ledger.reconciliation_control.run', { controlId, asOf, margin, reason })`,
+ *     and `('ledger.reconciliation_control.lifecycle', { controlId, lifecycle, reason })`
  *   - svc-market `marketActionPayloadHash('market.vendor.vet', { vendorId, decision, reason })`
  *   - svc-academy `academyActionPayloadHash('academy.ambassador.freeze', { userId, reason })` / `.unfreeze` / `.appoint` `{ userId }`,
  *     and `('academy.residency.decide', { id, decision })`
@@ -83,6 +84,12 @@ export function payloadHashFor(request: DeskRequest): string {
         controlId: request.controlId,
         asOf: request.asOf,
         margin: request.margin,
+        reason: request.reason,
+      });
+    case 'ledger.reconciliation_control.lifecycle':
+      return sha('ledger.reconciliation_control.lifecycle', {
+        controlId: request.controlId,
+        lifecycle: request.lifecycle,
         reason: request.reason,
       });
     // svc-ledger `ledgerActionPayloadHash('ledger.account_metadata.delete', { accountId, key, reason })`.
@@ -231,6 +238,16 @@ export function proposeInputFor(request: DeskRequest): ProposeInput {
         actionType: 'ledger.reconciliation_control.run',
         targetService: 'svc-ledger',
         targetId: 'posting_reconciliation_control.run',
+        expectedVersion: request.version,
+        payloadHash,
+        policyVersion: 'v1',
+      };
+    // svc-ledger consumes a lifecycle move at the control version it reads under the row lock.
+    case 'ledger.reconciliation_control.lifecycle':
+      return {
+        actionType: 'ledger.reconciliation_control.lifecycle',
+        targetService: 'svc-ledger',
+        targetId: 'posting_reconciliation_control.lifecycle',
         expectedVersion: request.version,
         payloadHash,
         policyVersion: 'v1',
