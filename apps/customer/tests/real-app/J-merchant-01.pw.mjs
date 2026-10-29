@@ -61,6 +61,8 @@ test(`${J} #2 a business with verification not started: "Not verified", the owne
   const refused = refusedPayCalls(page);
   const asked = [];
   page.on('request', (req) => req.url().includes('/api/') && asked.push(req.url()));
+  const errors = [];
+  page.on('console', (msg) => msg.type() === 'error' && errors.push(msg.text()));
 
   await page.getByRole('link', { name: 'Open the dashboard' }).click();
   await expect(page.getByText('TEST Rooms Ltd').first()).toBeVisible();
@@ -71,6 +73,7 @@ test(`${J} #2 a business with verification not started: "Not verified", the owne
   await expect(account).toContainText('Owner');
   await expect(page.getByRole('link', { name: /Set up your account/ })).toHaveAttribute('href', '/pay/onboarding');
   expect(refused).toEqual([]);
+  expect(errors).toEqual([]);
   // The portal never asks the founder's console for anything.
   expect(asked.filter((url) => /founderAdmin/i.test(url))).toEqual([]);
 });

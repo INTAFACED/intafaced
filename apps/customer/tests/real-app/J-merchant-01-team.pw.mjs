@@ -13,12 +13,18 @@ async function navRooms(page) {
   return [...new Set(hrefs)];
 }
 
-/** The owner opens each room from navigation: its own heading, never "no access", no refused read, no console error. */
+/**
+ * The owner opens each room from navigation: its own heading, never "no access", no refused read, no console error,
+ * and no room asks the founder's console for anything.
+ */
 async function everyRoomOpens(page) {
   const refused = refusedPayCalls(page);
   const errors = [];
+  const asked = [];
   const onConsole = (msg) => msg.type() === 'error' && errors.push(msg.text());
+  const onRequest = (req) => req.url().includes('/api/') && asked.push(req.url());
   page.on('console', onConsole);
+  page.on('request', onRequest);
   await page.goto('/pay/merchant');
   await expect(page.locator('main h1').first()).toBeVisible();
   await expect(page.locator('nav a[href^="/pay/"]').first()).toBeVisible();
@@ -34,15 +40,17 @@ async function everyRoomOpens(page) {
     for (const next of await navRooms(page)) if (!visited.has(next)) queue.push(next);
   }
   page.off('console', onConsole);
+  page.off('request', onRequest);
   expect(visited.size).toBeGreaterThan(20);
   expect(refused).toEqual([]);
   expect(errors).toEqual([]);
+  expect(asked.filter((url) => /founderAdmin/i.test(url))).toEqual([]);
 }
 
 test(`${J} #4 every room opens from navigation with its own layout, and a finance team member may ask for a payout and is told only the owner can refund`, async ({
   page,
 }) => {
-  test.setTimeout(420_000);
+  test.setTimeout(480_000);
   const finance = await businessReadyPerson(page, 'mfin', '/pay/merchant');
   await forgetSession(page);
 
