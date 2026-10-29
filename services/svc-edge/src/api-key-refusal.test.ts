@@ -9,8 +9,11 @@ import {
   API_KEY_REVOKED,
   apiKeyRefusalBody,
   apiKeyRefusalFromIdentityCode,
+  apiKeyShapeOk,
   identityErrorCode,
+  requestSignShapeOk,
 } from './api-key-refusal.js';
+import { REQUEST_NONCE_HEADER, REQUEST_SIGNATURE_HEADER, REQUEST_TIMESTAMP_HEADER } from './api-key-request-sign.js';
 import { scopeRefuseBody } from './gateway-plane.js';
 import { exchangeApiKeyOutcome, exchangePrincipal } from './principal-exchange.js';
 import { currentAuthorityTestReply } from './test-current-authority.js';
@@ -249,6 +252,88 @@ describe('identity not answering is not a verdict on the key', () => {
     });
     expect(await exchangeApiKeyOutcome(KEY, 'http://identity.test', identityRefusal(409))).toEqual({ kind: 'unavailable' });
     expect(await exchangeApiKeyOutcome(KEY, 'http://identity.test', identityRefusal(404))).toEqual({ kind: 'unavailable' });
+  });
+});
+
+describe('a key or signed request identity’s schema would refuse is answered here, with no identity call', () => {
+  const NONCE = 'nonce-0123456789';
+  const SIG = 'a'.repeat(64);
+  const signed = (over: { timestamp?: string; nonce?: string; signature?: string } = {}) => ({
+    authorization: `Bearer ${KEY}`,
+    [REQUEST_TIMESTAMP_HEADER]: over.timestamp ?? '1760000000',
+    [REQUEST_NONCE_HEADER]: over.nonce ?? NONCE,
+    [REQUEST_SIGNATURE_HEADER]: over.signature ?? SIG,
+  });
+  const request = { method: 'POST', path: '/api/v1/orders', body: '{}' };
+
+  /** Counts identity calls; answering one would mean the shape check let it through. */
+  function counting() {
+    const calls: string[] = [];
+    const fetch = (async (input: Parameters<typeof globalThis.fetch>[0]) => {
+      calls.push(String(input));
+      return identityRefusal(400)();
+    }) as typeof globalThis.fetch;
+    return { calls, fetch };
+  }
+
+  const cases: Array<[string, Record<string, string>]> = [
+    ['short key (identity min 8)', { authorization: 'Bearer ifc_x' }],
+    ['long key (identity max 200)', { authorization: `Bearer ifc_${'a'.repeat(197)}` }],
+    ['bad key charset (not base64url)', { authorization: 'Bearer ifc_abc+def/ghi' }],
+    ['signature not 64 hex', signed({ signature: 'z'.repeat(64) })],
+    ['signature short hex', signed({ signature: 'a'.repeat(63) })],
+    ['nonce too short (identity min 8)', signed({ nonce: 'n-1' })],
+    ['nonce too long (identity max 128)', signed({ nonce: 'n'.repeat(129) })],
+    ['overlong timestamp (identity max 32)', signed({ timestamp: '1'.repeat(33) })],
+  ];
+
+  it.each(cases)('%s: 401 edge.api_key_denied, not a 503', async (_why, headers) => {
+    const { calls, fetch } = counting();
+    const result = await exchangePrincipal(headers, { ...options, fetch, request });
+    expect(result.apiKeyRefusal).toEqual(API_KEY_DENIED);
+    expect(result.rejected).toBe('invalid');
+    expect(result.principal).toBeNull();
+    expect(calls).toEqual([]);
+  });
+
+  it('an overlong signed path is refused the same way', async () => {
+    const { calls, fetch } = counting();
+    const result = await exchangePrincipal(signed(), { ...options, fetch, request: { ...request, path: `/${'p'.repeat(2048)}` } });
+    expect(result.apiKeyRefusal).toEqual(API_KEY_DENIED);
+    expect(calls).toEqual([]);
+  });
+
+  it('the boundary shapes identity accepts do reach identity', async () => {
+    for (const headers of [
+      { authorization: 'Bearer ifc_abcd' },
+      { authorization: `Bearer ifc_${'a'.repeat(196)}` },
+      signed({ nonce: 'n'.repeat(8), timestamp: '1'.repeat(32), signature: 'A'.repeat(64) }),
+      signed({ nonce: 'n'.repeat(128) }),
+    ]) {
+      const { calls, fetch } = counting();
+      await exchangePrincipal(headers, { ...options, fetch, request });
+      expect(calls).toHaveLength(1);
+    }
+  });
+
+  it('a 400 that still comes back for a well-shaped call stays 503 unavailable', async () => {
+    const { calls, fetch } = counting();
+    const result = await exchangePrincipal(signed(), { ...options, fetch, request });
+    expect(calls).toHaveLength(1);
+    expect(result.rejected).toBe('unavailable');
+    expect(result.apiKeyRefusal).toBeUndefined();
+  });
+
+  it('the shape helpers mirror identity’s schema', () => {
+    expect(apiKeyShapeOk('ifc_abcd')).toBe(true);
+    expect(apiKeyShapeOk('ifc_test_AbC-_09')).toBe(true);
+    expect(apiKeyShapeOk('ifc_abc')).toBe(false);
+    expect(apiKeyShapeOk('ifc_a b')).toBe(false);
+    const ok = { method: 'GET', path: '/a', timestamp: '1', nonce: '12345678', bodyHash: 'f'.repeat(64), signature: 'F'.repeat(64) };
+    expect(requestSignShapeOk(ok)).toBe(true);
+    expect(requestSignShapeOk({ ...ok, method: 'X'.repeat(17) })).toBe(false);
+    expect(requestSignShapeOk({ ...ok, path: '' })).toBe(false);
+    expect(requestSignShapeOk({ ...ok, bodyHash: 'g'.repeat(64) })).toBe(false);
   });
 });
 

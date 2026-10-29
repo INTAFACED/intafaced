@@ -16,8 +16,10 @@ import {
   API_KEY_EXPIRED,
   apiKeyRefusalFromAuthorityCode,
   apiKeyRefusalFromIdentityCode,
+  apiKeyShapeOk,
   identityErrorCode,
   isIdentityKeyVerdict,
+  requestSignShapeOk,
   type ApiKeyRefusal,
 } from './api-key-refusal.js';
 
@@ -405,6 +407,12 @@ export async function exchangePrincipal(
             signature: signHeaders.signature,
           }
         : undefined;
+    // A shape identity's schema refuses is answered here, with no identity call: identity's answer would be a
+    // code-less 400, which must not be readable as an identity outage (`api-key-refusal.ts`). The signed
+    // request is checked only when it will be sent (`attest` in `exchangeApiKeyOutcome`).
+    if (!apiKeyShapeOk(token) || (requestSign && options.identityOwnershipSecret && !requestSignShapeOk(requestSign))) {
+      return refuse(API_KEY_DENIED);
+    }
     const outcome = await exchangeApiKeyOutcome(
       token,
       options.identityUrl,

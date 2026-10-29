@@ -161,3 +161,44 @@ export function apiKeyRefusalBody(refusal: ApiKeyRefusal): Record<string, unknow
     docs: `${AUTH_ERRORS_DOCS}#${refusal.code}`,
   };
 }
+
+/**
+ * The exchange input identity's schema accepts, mirrored exactly (svc-identity `router.ts` `apiKeys.exchange`
+ * and the account/product doors: `key` 8 to 200 characters; `requestSignWireSchema` in
+ * `auth/api-key-request-sign.ts`). Identity answers anything else with a 400 that carries no code, which the edge
+ * must read as its own setup failing (503), so a caller could have forced a 503 "identity unavailable" at will
+ * with `Bearer ifc_x`. Checked here instead, before identity is called: a bad shape is a key that cannot open,
+ * `edge.api_key_denied`, and identity is never asked.
+ *
+ * The key charset is what identity mints (`ifc_` or `ifc_test_` + base64url, `passwords.ts` `generateApiKey`);
+ * a key outside it matches no stored hash, so refusing it here answers exactly what identity would.
+ */
+const API_KEY_SHAPE = /^ifc_[A-Za-z0-9_-]+$/;
+const HEX_64 = /^[0-9a-f]{64}$/i;
+
+export function apiKeyShapeOk(key: string): boolean {
+  return key.length >= 8 && key.length <= 200 && API_KEY_SHAPE.test(key);
+}
+
+/** `requestSignWireSchema`, field for field. Checked only when the edge will send the signed request. */
+export function requestSignShapeOk(material: {
+  readonly method: string;
+  readonly path: string;
+  readonly timestamp: string;
+  readonly nonce: string;
+  readonly bodyHash: string;
+  readonly signature: string;
+}): boolean {
+  return (
+    material.method.length >= 1 &&
+    material.method.length <= 16 &&
+    material.path.length >= 1 &&
+    material.path.length <= 2048 &&
+    material.timestamp.length >= 1 &&
+    material.timestamp.length <= 32 &&
+    material.nonce.length >= 8 &&
+    material.nonce.length <= 128 &&
+    HEX_64.test(material.bodyHash) &&
+    HEX_64.test(material.signature)
+  );
+}
