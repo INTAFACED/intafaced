@@ -202,6 +202,54 @@ describe('ticket actions render for every founder', () => {
   });
 });
 
+describe('the internal note', () => {
+  const noting = (over: Partial<ActionForm> = {}) => form({ compose: 'note', ...over });
+  it('is chosen beside the public reply; its draft starts empty, with no signature, and macros stay with replies', () => {
+    expect(emptyForm(open)).toMatchObject({ compose: 'reply', noteBody: '' });
+    const reply = html({ macros: macrosView('Sam, support') });
+    expect(reply).toContain('Public reply (the customer sees it)');
+    expect(reply).toContain('Internal note (staff only)');
+    expect(reply).not.toContain('Your internal note');
+    const markup = html({ macros: macrosView('Sam, support'), form: noting() });
+    expect(markup).toMatch(/<textarea[^>]*id="sd-note"[^>]*><\/textarea>/);
+    expect(markup).toContain('<label for="sd-note">Your internal note</label>');
+    expect(markup).not.toContain('id="sd-reply"');
+    expect(markup).not.toContain('id="sd-macro"');
+    expect(markup).toContain('data-testid="note-no-macro"');
+    expect(buttonTag(markup, 'Review note')).toContain('disabled');
+    expect(markup).toContain('Write the note first.');
+  });
+  it('turns on with words, and waits while the trail is unread', () => {
+    expect(buttonTag(html({ form: noting({ noteBody: 'TEST' }) }), 'Review note')).not.toContain('disabled');
+    const unread = html({ form: noting({ noteBody: 'TEST' }), trailUnread: 'Read the ticket again first.' });
+    expect(buttonTag(unread, 'Review note')).toContain('disabled');
+    expect(unread).toContain('Read the ticket again first.');
+  });
+  it('says the customer never sees it before the second click', () => {
+    const markup = html({ form: noting({ noteBody: 'TEST' }), armed: 'note' });
+    expect(markup).toContain('Add this internal note?');
+    expect(markup).toContain('the customer never does');
+    expect(markup).toContain('Yes, add the note');
+  });
+  it('builds exactly the note, keyed by the row read and the notes sent; the signature never goes in', () => {
+    const f = noting({ noteBody: ' TEST checked the order ', replyBody: signatureBlock('Sam, support') });
+    expect(buildRequest('note', open, f, 7, 2, { signature: 'Sam, support', revision: 1 })).toEqual({
+      action: 'note',
+      ticketId: T1,
+      body: 'TEST checked the order',
+      expectedSequence: 7,
+      sent: 2,
+    });
+    expect(() => buildRequest('note', open, f, undefined, 0)).toThrow();
+    expect(readActionRequest({ ...buildRequest('note', open, f, 7, 2) })).toEqual(buildRequest('note', open, f, 7, 2));
+  });
+  it('shows its answer under the note, not under the reply', () => {
+    const markup = html({ form: noting(), outcome: { kind: 'note', reply: FORBIDDEN } });
+    expect(markup).toContain('data-testid="note-outcome"');
+    expect(markup).not.toContain('data-testid="reply-outcome"');
+  });
+});
+
 describe('the second click', () => {
   it('a reply says it cannot be unsent and sends nothing until "yes"', () => {
     const markup = html({ form: form({ replyBody: 'Hello' }), armed: 'reply' });

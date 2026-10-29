@@ -306,6 +306,15 @@ export function replyKey(ticketId: string, agentId: string, expectedSequence: nu
 }
 
 /**
+ * An internal note's business key, built as a reply's is and kept apart from it (svc-support also keeps a note's keys
+ * apart from a reply's). Sent again after an unknown outcome it is the same key, so svc-support answers the stored note.
+ */
+export function noteKey(ticketId: string, agentId: string, expectedSequence: number, sent: number, body: string): string {
+  const text = createHash('sha256').update(body).digest('hex').slice(0, 32);
+  return `admin-note:${ticketId}:${agentId}:${expectedSequence}:${sent}:${text}`;
+}
+
+/**
  * One desk write, as the signed-in founder. svc-support takes the operator id from the verified session, so a reply,
  * a status change or an escalation is recorded against the person at the keyboard.
  */
@@ -326,6 +335,19 @@ export function runSupportAction(ctx: FounderCallContext, request: SupportAction
                 expectedSequence: request.expectedSequence,
                 clientRequestId: replyKey(request.ticketId, ctx.session.userId, request.expectedSequence, request.sent ?? 0, request.body),
               }),
+        },
+        parseWith(supportCommentSchema),
+      );
+    case 'note':
+      return founderCall(
+        ctx,
+        'support',
+        'addInternalNote',
+        'POST',
+        {
+          ticketId: request.ticketId,
+          body: request.body,
+          clientRequestId: noteKey(request.ticketId, ctx.session.userId, request.expectedSequence, request.sent, request.body),
         },
         parseWith(supportCommentSchema),
       );

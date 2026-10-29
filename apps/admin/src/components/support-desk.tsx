@@ -211,10 +211,16 @@ function TicketBody({ detail, ...p }: { detail: TicketDetail } & DeskViewProps) 
       ) : (
         <ol className="dk-stack" aria-label="Comments">
           {detail.comments.data.map((c) => (
-            <li key={c.id} className="adm-callout">
+            <li key={c.id} className="adm-callout" data-visibility={c.visibility}>
               <strong>
-                {c.authorRole === 'operator' ? 'Staff' : 'Customer'} · {formatWhen(c.createdAt)}
+                {c.visibility === 'internal' ? 'Internal note' : c.authorRole === 'operator' ? 'Staff' : 'Customer'} ·{' '}
+                {formatWhen(c.createdAt)}
               </strong>
+              {c.visibility === 'internal' && (
+                <span className="adm-chip" data-tone="warn">
+                  Staff only · the customer does not see this
+                </span>
+              )}
               <p style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{c.body}</p>
             </li>
           ))}
