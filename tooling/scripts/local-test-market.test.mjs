@@ -20,7 +20,9 @@ import {
   quoteOrder,
   crossesOn,
   fromScaled,
+  HISTORY_EDGE_WINDOW_MS,
   TAPE_CLIENT_PREFIX,
+  historyBudgetWait,
   tapeWindow,
   toScaled,
   toScaledFloor,
@@ -111,6 +113,32 @@ try {
   assert.throws(() => tapeWindow({ nowMs: now, trades: 7, stepMs: 1000, perBar: 7 }), /divide evenly/);
   assert.equal(TAPE_CLIENT_PREFIX, 'LTEST-TAPE-');
   assert.ok(`${TAPE_CLIENT_PREFIX}abcdef-${5000 * 5}`.length <= 64); // the order contract's client id limit
+}
+
+// 5d. The wait at the end of `history`: none while Edge says half its budget or more is left, until the window ends when
+// less is, and the whole window after the last request when Edge said nothing.
+{
+  const now = 1_000_000;
+  const seen = (remaining, resetSeconds = 40) => ({
+    limit: '6000',
+    remaining: String(remaining),
+    resetSeconds: String(resetSeconds),
+    seenAt: now - 2000,
+  });
+  assert.equal(historyBudgetWait({ budget: seen(5160), lastEdgeAt: now - 2000, nowMs: now }), 0);
+  assert.equal(historyBudgetWait({ budget: seen(3000), lastEdgeAt: now - 2000, nowMs: now }), 0);
+  assert.equal(historyBudgetWait({ budget: seen(2999), lastEdgeAt: now - 2000, nowMs: now }), 38_000);
+  assert.equal(historyBudgetWait({ budget: seen(0, 1), lastEdgeAt: now - 2000, nowMs: now }), 0);
+  assert.equal(historyBudgetWait({ budget: null, lastEdgeAt: now - 2000, nowMs: now }), HISTORY_EDGE_WINDOW_MS - 2000);
+  assert.equal(
+    historyBudgetWait({ budget: { ...seen(10), remaining: null }, lastEdgeAt: now - 2000, nowMs: now }),
+    HISTORY_EDGE_WINDOW_MS - 2000,
+  );
+  assert.equal(
+    historyBudgetWait({ budget: { ...seen(10), limit: '0' }, lastEdgeAt: now - 2000, nowMs: now }),
+    HISTORY_EDGE_WINDOW_MS - 2000,
+  );
+  assert.equal(historyBudgetWait({ budget: null, lastEdgeAt: 0, nowMs: now }), 0);
 }
 
 // 6. Decimal helpers round-trip and refuse non-decimal text.
