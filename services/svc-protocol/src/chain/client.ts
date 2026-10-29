@@ -300,21 +300,40 @@ export class ProtocolChain {
     );
   }
 
+  /** The block the node is at now. */
+  async headBlock(): Promise<bigint> {
+    return this.#read('headBlock', 'chain.blockNumber', async () => this.client.getBlockNumber());
+  }
+
   /**
-   * Every pool `factory` lists, read at one pinned block, at most `limit` of them (the factory's own order). A factory
-   * with no code refuses rather than reading as "no pools".
+   * Every pool `factory` lists at `blockNumber`, at most `limit` of them (the factory's own order). A factory with no
+   * code refuses rather than reading as "no pools".
    */
-  async factoryPools(factory: Address, limit: number): Promise<{ pools: Address[]; blockNumber: bigint }> {
+  async factoryPools(factory: Address, limit: number, blockNumber: bigint): Promise<Address[]> {
     return this.#read('factoryPools', 'chain.allPools', async () => {
-      const blockNumber = await this.client.getBlockNumber();
       const length = await this.client.readContract({ address: factory, abi: factoryAbi, functionName: 'allPoolsLength', blockNumber });
       const count = Number(length < BigInt(limit) ? length : BigInt(limit));
-      const pools = await Promise.all(
+      return Promise.all(
         Array.from({ length: count }, (_, index) =>
           this.client.readContract({ address: factory, abi: factoryAbi, functionName: 'allPools', args: [BigInt(index)], blockNumber }),
         ),
       );
-      return { pools, blockNumber };
+    });
+  }
+
+  /** One pool's pair, fee and reserves, all read at `blockNumber`. */
+  async poolSnapshot(
+    pool: Address,
+    blockNumber: bigint,
+  ): Promise<{ token0: Address; token1: Address; feeBps: number; reserve0: bigint; reserve1: bigint; blockTimestampLast: number }> {
+    return this.#read('poolSnapshot', 'chain.poolSnapshot', async () => {
+      const [token0, token1, feeBps, [reserve0, reserve1, blockTimestampLast]] = await Promise.all([
+        this.client.readContract({ address: pool, abi: poolAbi, functionName: 'token0', blockNumber }),
+        this.client.readContract({ address: pool, abi: poolAbi, functionName: 'token1', blockNumber }),
+        this.client.readContract({ address: pool, abi: poolAbi, functionName: 'feeBps', blockNumber }),
+        this.client.readContract({ address: pool, abi: poolAbi, functionName: 'getReserves', blockNumber }),
+      ]);
+      return { token0, token1, feeBps: Number(feeBps), reserve0, reserve1, blockTimestampLast: Number(blockTimestampLast) };
     });
   }
 

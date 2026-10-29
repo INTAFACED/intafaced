@@ -17,6 +17,7 @@ import {
   sameAddress,
   toBaseUnits,
   toHexValue,
+  tokenLabel,
   transferCalldata,
 } from './transfer';
 import { useWallet } from './WalletProvider';
@@ -180,6 +181,8 @@ export function SendPanel({ to: prefilledTo = '', token: askedToken = '' }: { to
             <select
               value={token}
               onChange={edit(setToken)}
+              // A code that asked for one token is paid in that token only.
+              disabled={askedListed !== undefined}
               aria-labelledby="wallet-send-token-label"
               aria-describedby="wallet-send-token-note"
             >
@@ -187,7 +190,7 @@ export function SendPanel({ to: prefilledTo = '', token: askedToken = '' }: { to
               {native && <option value={NATIVE}>{t('sendNative', { symbol: native.symbol })}</option>}
               {listed.map((entry) => (
                 <option key={entry.address} value={entry.address}>
-                  {entry.name}
+                  {tokenLabel(entry, listed)}
                 </option>
               ))}
             </select>

@@ -58,9 +58,13 @@ describe('protocol.amm.pairs', () => {
   it('refuses an unset factory before any chain read', async () => {
     let asked = 0;
     const chain = {
+      headBlock: async () => {
+        asked += 1;
+        return 1n;
+      },
       factoryPools: async () => {
         asked += 1;
-        return { pools: [], blockNumber: 1n };
+        return [];
       },
     };
     await expect(caller({ chain: chain as unknown as ProtocolRouterDeps['chain'] }).amm.pairs()).rejects.toMatchObject({
@@ -72,11 +76,9 @@ describe('protocol.amm.pairs', () => {
 
   it('lists the factory pools and their tokens from the chain', async () => {
     const chain = {
-      factoryPools: async () => ({ pools: [POOL], blockNumber: 9n }),
-      poolToken0: async () => A,
-      poolToken1: async () => B,
-      poolFeeBps: async () => 30,
-      poolReserves: async () => ({ reserve0: 5n, reserve1: 7n, blockTimestampLast: 1 }),
+      headBlock: async () => 9n,
+      factoryPools: async () => [POOL],
+      poolSnapshot: async () => ({ token0: A, token1: B, feeBps: 30, reserve0: 5n, reserve1: 7n, blockTimestampLast: 1 }),
       tokenBasics: async (token: string) => ({ name: token === A ? 'TEST Token A' : 'TEST Token B', symbol: 'T', decimals: 18 }),
     };
     const pairs = await caller({ ammFactoryAddress: () => FACTORY, chain: chain as unknown as ProtocolRouterDeps['chain'] }).amm.pairs();

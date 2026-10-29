@@ -50,7 +50,7 @@ import {
 import { SignatureEnvelopeError, type UserOperation } from './chain/userop.js';
 import { AmmMathError } from './amm/math.js';
 import { freshPoolQuote, PoolTokenError } from './amm/pool-quote.js';
-import { listPairs } from './amm/pairs.js';
+import { pairsReader } from './amm/pairs.js';
 import { assertMinAmountOut, requireSwapSlippageBps, SwapSlippageError } from './amm/slippage.js';
 import {
   MAX_UINT256,
@@ -422,6 +422,7 @@ const unwiredRepresentationStore: RepresentationStore = {
 
 export function createProtocolRouter(deps: ProtocolRouterDeps) {
   const { chain, registry, relay } = deps;
+  const readPairs = pairsReader(chain);
   const peers = deps.peers ?? noPeers;
 
   function requireRelayEnabled() {
@@ -1250,7 +1251,7 @@ export function createProtocolRouter(deps: ProtocolRouterDeps) {
               message: 'protocol.amm_factory_unset: AMM factory is not configured (PROTOCOL_AMM_FACTORY_ADDRESS).',
             });
           try {
-            return await listPairs(chain, factory);
+            return await readPairs(factory);
           } catch (err) {
             throw toTrpcError(err);
           }

@@ -41,6 +41,8 @@ export const protocolSwapPairsOutputSchema = z
     blockNumber: units,
     tokens: z.array(protocolSwapTokenSchema),
     pools: z.array(protocolSwapPoolSchema),
+    /** Pools the factory lists that were left out: the pool, or one of its tokens, did not answer as one. */
+    skipped: z.number().int().nonnegative(),
   })
   .strict();
 export type ProtocolSwapPairs = z.infer<typeof protocolSwapPairsOutputSchema>;

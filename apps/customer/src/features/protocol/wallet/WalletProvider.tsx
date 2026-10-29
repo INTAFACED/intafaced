@@ -190,6 +190,10 @@ export function WalletProvider({ children, discovery = true }: { children: React
       current?.resolve({ status: 'rejected' });
       return null;
     });
+    setSequence((current) => {
+      current?.resolve({ status: 'rejected', sent: [] });
+      return null;
+    });
   }, [store]);
 
   const connect = useCallback(
@@ -234,11 +238,19 @@ export function WalletProvider({ children, discovery = true }: { children: React
     const provider: Eip1193Provider | undefined = connected?.provider;
     if (!provider?.on) return;
     // A change made in the wallet while the sheet is open voids the sheet: what it showed is no longer what would be signed.
-    const closeOpenRequest = (result: SignResult) =>
+    const closeOpenRequest = (result: SignResult) => {
       setPending((current) => {
         current?.resolve(result);
         return null;
       });
+      // A sheet of several steps is void too; nothing in it was sent.
+      setSequence((current) => {
+        current?.resolve(
+          result.status === 'failed' ? { status: 'failed', step: 0, sent: [], message: result.message } : { status: 'rejected', sent: [] },
+        );
+        return null;
+      });
+    };
     const onAccounts = (accounts: unknown) => {
       closeOpenRequest({ status: 'rejected' });
       if (!firstAddress(accounts)) disconnect();

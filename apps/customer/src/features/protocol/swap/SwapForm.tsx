@@ -10,7 +10,7 @@ import { networkLabel } from '../blockers';
 import { REGION_BLOCKED_CODE, useRegionBlocked } from '../region';
 import { APP_CHAIN_ID } from '../wallet/eip1193';
 import { RepresentationPanel } from '../wallet/RepresentationPanel';
-import { toBaseUnits } from '../wallet/transfer';
+import { tokenLabel, toBaseUnits } from '../wallet/transfer';
 import { useWallet } from '../wallet/WalletProvider';
 import { swapCopy } from './copy';
 import { keepMode, readMode, type SwapMode } from './mode';
@@ -119,7 +119,9 @@ export function SwapForm() {
   const slippageBps = mode === 'manual' && slippage.trim() !== '' ? percentToBps(slippage) : (setting?.slippageCeilingBps ?? null);
   const overCeiling = setting !== null && slippageBps !== null && slippageBps > setting.slippageCeilingBps;
   const minOut = quote && slippageBps !== null && !overCeiling ? minimumOut(BigInt(quote.quote.amountOut), slippageBps) : null;
-  const impactTooHigh = quote !== null && setting !== null && quote.quote.priceImpactBps > setting.slippageCeilingBps;
+  // Price impact is already in the quote; the note says how far this trade moves the pool when that is more than the
+  // slippage in use, so a person sees a thin pool before they swap. It does not stop the swap.
+  const impactNoted = quote !== null && slippageBps !== null && quote.quote.priceImpactBps > slippageBps;
 
   const choose = (next: SwapMode) => {
     setMode(next);
@@ -166,12 +168,21 @@ export function SwapForm() {
   const canSwap = reason === null && !busy && !following;
 
   // Why a swap did not go through: the pool read again; under the minimum means the price moved.
-  const whyFailed = async (pool: string, inToken: string, amountInUnits: bigint, min: bigint): Promise<string> => {
+  const whyFailed = async (pool: string, inToken: string, amountInUnits: bigint, min: bigint, otherwise?: string): Promise<string> => {
     const again = await api.poolQuote({ pool, tokenIn: inToken, amountIn: amountInUnits.toString() });
-    return again.ok && BigInt(again.data.amountOut) < min ? t('failedPriceMoved') : t('failedOther');
+    return again.ok && BigInt(again.data.amountOut) < min ? t('failedPriceMoved') : (otherwise ?? t('failedOther'));
   };
 
-  const sendSwap = async (from: Quote, inToken: ProtocolSwapToken, outToken: ProtocolSwapToken, min: bigint, owner: string) => {
+  const sendSwap = async (shown: Quote, inToken: ProtocolSwapToken, outToken: ProtocolSwapToken, bps: number, owner: string) => {
+    // The pool is read again right before the swap is built, and the minimum taken from that read at the slippage the
+    // person chose: the service checks the minimum against its own fresh read, so a stale one would be refused.
+    const fresh = await api.poolQuote({ pool: shown.pool.pool, tokenIn: inToken.address, amountIn: shown.amountIn.toString() });
+    if (!fresh.ok) return setProblem(t('quoteRefused'));
+    const from: Quote = { ...shown, quote: fresh.data, readAt: Date.now() };
+    setQuote(from);
+    setNow(Date.now());
+    const min = minimumOut(BigInt(fresh.data.amountOut), bps);
+    if (min === null) return setProblem(t('minimumNone'));
     const amountText = formatUnits(from.amountIn, inToken.decimals, inToken.decimals);
     const [approval, call] = await Promise.all([
       api.checkApproval({ owner, token: inToken.address, spender: from.pool.pool, amount: from.amountIn.toString() }),
@@ -205,7 +216,10 @@ export function SwapForm() {
     ];
     const base = { amountIn: from.amountIn, minOut: min, tokenIn: inToken, tokenOut: outToken, pool: from.pool.pool };
     const result = await wallet.sendSequence({ title: t('stepsTitle'), steps });
-    if (result.status === 'rejected') return setProblem(t('rejected'));
+    // Steps already sent stay sent: say so with their hashes, never "nothing was sent".
+    const earlier =
+      result.status === 'sent' ? '' : result.sent.length > 0 ? ` ${t('earlierSent', { hashes: result.sent.join(', ') })}` : '';
+    if (result.status === 'rejected') return setProblem(`${result.sent.length > 0 ? t('rejectedAfter') : t('rejected')}${earlier}`);
     if (result.status === 'failed') {
       // The swap step itself failed before it was mined: say why in a sentence when the pool shows it.
       if (result.step === steps.length - 1)
@@ -213,9 +227,9 @@ export function SwapForm() {
           ...base,
           hash: null,
           state: 'failed',
-          reason: await whyFailed(from.pool.pool, inToken.address, from.amountIn, min),
+          reason: `${await whyFailed(from.pool.pool, inToken.address, from.amountIn, min, result.message)}${earlier}`,
         });
-      return setProblem(result.message);
+      return setProblem(`${result.message}${earlier}`);
     }
     setTrack({ ...base, hash: result.hashes[result.hashes.length - 1]!, state: 'submitted' });
   };
@@ -236,7 +250,7 @@ export function SwapForm() {
               : t('representationUnread'),
         );
       if (!gate.data.accepted) return setRepresentation({ address: wallet.address, status: gate.data });
-      await sendSwap(quote, tokenIn, tokenOut, minOut, wallet.address);
+      await sendSwap(quote, tokenIn, tokenOut, slippageBps!, wallet.address);
     } finally {
       setBusy(false);
     }
@@ -255,9 +269,12 @@ export function SwapForm() {
         if (stopped || !current?.hash) return;
         const receipt = (await wallet.read('eth_getTransactionReceipt', [current.hash])) as Receipt | null;
         if (stopped || !receipt?.blockNumber) return;
+        const feeWei =
+          receipt.gasUsed && receipt.effectiveGasPrice ? BigInt(receipt.gasUsed) * BigInt(receipt.effectiveGasPrice) : undefined;
         if (receipt.status === '0x0') {
+          // Mined and reverted: nothing was swapped, but the network fee was paid.
           const reason = await whyFailed(current.pool, current.tokenIn.address, current.amountIn, current.minOut);
-          if (!stopped) setTrack({ ...current, state: 'failed', reason });
+          if (!stopped) setTrack({ ...current, state: 'failed', reason, feeWei });
           return;
         }
         const head = (await wallet.read('eth_blockNumber', [])) as string | null;
@@ -267,7 +284,7 @@ export function SwapForm() {
           ...current,
           state: deep ? 'filled' : 'confirming',
           received: receivedIn(receipt.logs ?? [], current.tokenOut.address, owner),
-          feeWei: receipt.gasUsed && receipt.effectiveGasPrice ? BigInt(receipt.gasUsed) * BigInt(receipt.effectiveGasPrice) : undefined,
+          feeWei,
         });
       })();
     }, 500);
@@ -291,7 +308,7 @@ export function SwapForm() {
         <option value="">{t('chooseToken')}</option>
         {tokens.map((token) => (
           <option key={token.address} value={token.address}>
-            {token.name}
+            {tokenLabel(token, tokens)}
           </option>
         ))}
       </select>
@@ -381,7 +398,7 @@ export function SwapForm() {
               {t('minimumReceived', { amount: formatUnits(minOut, tokenOut.decimals), token: tokenOut.name })}
             </p>
           )}
-          {impactTooHigh && quote && <p role="note">{t('priceImpact', { impact: bpsToPercent(quote.quote.priceImpactBps) })}</p>}
+          {impactNoted && quote && <p role="note">{t('priceImpact', { impact: bpsToPercent(quote.quote.priceImpactBps) })}</p>}
           {mode === 'manual' && (
             <>
               <Field
@@ -459,7 +476,13 @@ function SwapStatus({ track, onNewQuote }: { track: Track; onNewQuote: () => voi
           </div>
           <div>
             <dt>{t('networkFee')}</dt>
-            <dd className="numeric">{track.feeWei !== undefined ? `${formatUnits(track.feeWei, 18, 9)} ETH` : t('notMined')}</dd>
+            <dd className="numeric">
+              {track.feeWei !== undefined
+                ? `${formatUnits(track.feeWei, 18, 9)} ETH`
+                : track.state === 'failed'
+                  ? t('noFeeNotMined')
+                  : t('notMined')}
+            </dd>
           </div>
         </dl>
         {track.hash && (

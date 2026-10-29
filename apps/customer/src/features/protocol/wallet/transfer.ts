@@ -96,3 +96,12 @@ export function transferCalldata(to: string, units: bigint): string {
   const word = (hex: string) => hex.padStart(64, '0');
   return `0xa9059cbb${word(to.slice(2).toLowerCase())}${word(units.toString(16))}`;
 }
+
+/**
+ * What a token is called in a list. Anyone can create a pool, so a name can be copied: a name two listed tokens share is
+ * shown with each one's short address, so the two never look the same.
+ */
+export function tokenLabel(token: { address: string; name: string }, all: ReadonlyArray<{ address: string; name: string }>): string {
+  const shared = all.filter((other) => other.name === token.name).length > 1;
+  return shared ? `${token.name} (${token.address.slice(0, 6)}…${token.address.slice(-4)})` : token.name;
+}
