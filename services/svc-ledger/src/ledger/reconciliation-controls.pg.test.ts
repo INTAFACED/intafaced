@@ -18,6 +18,7 @@ import {
   LEDGER_RECONCILE_ASOF_INVALID,
   LEDGER_RECONCILE_BUILTIN_IMMUTABLE,
   LEDGER_RECONCILE_CONTROL_NOT_FOUND,
+  LEDGER_RECONCILE_ITEMS_MOVED,
   LEDGER_RECONCILE_ITEMS_NOW_ONLY,
   LEDGER_RECONCILE_RAIL_SOURCE_UNSET,
   LEDGER_RECONCILE_SOURCE_UNAVAILABLE,
@@ -1078,8 +1079,12 @@ async function ctx(scopes: string[], mfa: boolean): Promise<Context> {
         { source: 'svc-pay', id: 'dep-held-2', kind: 'held', assetId: 'USDT', amount: '2' },
         { source: 'svc-pay', id: 'dep-unfunded-1', kind: 'reversal_unfunded', assetId: 'USDT', amount: '-1' },
       ]);
-      expect(asked).toEqual([{ rail: 'recon-items', offset: 0, limit: 200 }]);
-      expect(signed).toEqual([JSON.stringify({ rail: 'recon-items', offset: 0, limit: 200 })]);
+      // Read twice, before the ledger snapshot and after the statement, each body signed as sent.
+      expect(asked).toEqual([
+        { rail: 'recon-items', offset: 0, limit: 200 },
+        { rail: 'recon-items', offset: 0, limit: 200 },
+      ]);
+      expect(signed).toEqual(asked.map((body) => JSON.stringify(body)));
       // The stored run reads back the same items.
       const stored = await listReconciliationControlRuns(db.sql, { controlId: defined.id });
       expect(stored.runs.find((r) => r.id === pass.id)?.reconcilingItems).toEqual(pass.reconcilingItems);
@@ -1119,7 +1124,7 @@ async function ctx(scopes: string[], mfa: boolean): Promise<Context> {
     }
   });
 
-  it('judges a rail asset only the items explain, FAILs ahead of an unset asset, refuses a past run and an item seen after the statement', async () => {
+  it('judges a rail asset only the items explain, FAILs ahead of an unset asset, leaves out an item seen after the statement, catches an item that moves, and reads a scheduled run now', async () => {
     const engine = new PostgresLedger(db.sql);
     const userId = 'abcdeaaa-8888-4888-8888-000000000004';
     await engine.post(recipes.deposit({ userId, assetId: 'USDT', amount: amt('7'), rail: 'recon-items-b', railRef: 'recon-items-b-1' }));
@@ -1131,12 +1136,14 @@ async function ctx(scopes: string[], mfa: boolean): Promise<Context> {
       schedule: { cadence: 'daily', hour: 0, minute: 0 },
       severity: 'critical',
       tolerance: { default: '1' },
+      margin: '0',
       reason: REASON,
       activate: true,
     });
-    type Listed = { kind: 'held' | 'reversal_unfunded'; id: string; assetId: string; amount: string };
+    type Listed = { kind: 'held' | 'reversal_unfunded'; id: string; assetId: string; amount: string; seen?: string };
     let listed: Listed[] = [];
-    let detectedAt = '2026-01-01T00:00:00.000Z';
+    // Called on each items read with its 1-based number: lets one read differ from the one before it.
+    let onRead: (n: number) => void = () => {};
     const asked: unknown[] = [];
     const server = Fastify();
     server.get('/statement', async () => ({
@@ -1151,6 +1158,7 @@ async function ctx(scopes: string[], mfa: boolean): Promise<Context> {
     }));
     server.post('/items', async (req) => {
       asked.push(req.body);
+      onRead(asked.length);
       const items = listed.map((item, i) => ({
         depositId: item.id,
         kind: item.kind,
@@ -1163,7 +1171,7 @@ async function ctx(scopes: string[], mfa: boolean): Promise<Context> {
         signedAmount: item.amount,
         status: item.kind === 'held' ? 'held_travel_rule' : 'needs_review',
         reason: item.kind === 'held' ? null : 'reversal_unfunded',
-        detectedAt,
+        detectedAt: item.seen ?? '2026-01-01T00:00:00.000Z',
       }));
       const assets = [...new Set(listed.map((i) => i.assetId))];
       return {
@@ -1231,14 +1239,109 @@ async function ctx(scopes: string[], mfa: boolean): Promise<Context> {
       expect(past.reconcilingItems).toBeUndefined();
       expect(asked).toHaveLength(before);
 
-      // An item svc-pay saw after the statement's as-of is not in that statement: ERROR at items, never netted.
-      detectedAt = '2026-01-01T00:00:00.001Z';
+      // Each run reads the items twice: before the ledger snapshot and after the statement.
+      const reads = asked.length;
+      await run();
+      expect(asked.length - reads).toBe(2);
+
+      // An item svc-pay saw after the statement's as-of is in neither side: left out, the run still judged and PASS-able.
+      listed = [...listed, { kind: 'held', id: 'dep-b-late', assetId: 'USDT', amount: '9', seen: '2026-01-01T00:00:00.001Z' }];
       const late = await run();
-      expect(late).toMatchObject({
+      expect(late.status).toBe('UNSET');
+      expect(late.reconcilingItems?.map((i) => i.id)).toEqual(['dep-b-usdt', 'dep-b-usdc', 'dep-b-usdt-2']);
+      expect(late.assets.find((a) => a.assetId === 'USDT')).toMatchObject({ reconcilingItems: '3', residual: '0' });
+      listed = listed.filter((i) => i.id !== 'dep-b-late');
+
+      // An item that closes between the two reads (released and credited while the ledger was read): ERROR, run it again.
+      const closing = listed;
+      onRead = (n) => {
+        if (n % 2 === 0) listed = closing.filter((i) => i.id !== 'dep-b-usdc');
+      };
+      const moved = await run();
+      expect(moved).toMatchObject({
         status: 'ERROR',
         phase: { status: 'set', value: 'items' },
-        errorCode: { status: 'set', value: LEDGER_RECONCILE_SOURCE_UNAVAILABLE },
+        errorCode: { status: 'set', value: LEDGER_RECONCILE_ITEMS_MOVED },
       });
+      expect(moved.reconcilingItems).toBeUndefined();
+      onRead = () => {};
+      listed = closing;
+
+      // A scheduled run on this rail reads the tick's instant, not a past one, so it is judged (UNSET here by BTC alone).
+      await runDueReconciliationControls(db.sql, sources());
+      const scheduled = await db.sql<Array<{ status: string; error_code: string; read_at: Date; as_of: Date }>>`
+        SELECT status, error_code, read_at, as_of FROM reconciliation_control_runs
+         WHERE control_id = ${defined.id} AND operation_id LIKE 'schedule:%' ORDER BY period_start DESC LIMIT 1
+      `;
+      expect(scheduled[0]).toMatchObject({ status: 'UNSET', error_code: '' });
+      expect(scheduled[0]!.read_at.getTime()).toBeGreaterThanOrEqual(scheduled[0]!.as_of.getTime());
+
+      // A residual still FAILs when an asset only the items name has no tolerance: the tolerance plays no part with items.
+      await db.sql`UPDATE reconciliation_controls SET tolerance = '{"byAsset":{"USDT":"0","BTC":"0"}}'::jsonb WHERE id = ${defined.id}`;
+      listed = closing.filter((i) => i.id !== 'dep-b-usdt-2');
+      const noTolerance = await run();
+      expect(noTolerance.status).toBe('FAIL');
+      // USDC has no tolerance, so its evidence keeps no difference (as on every path), and the USDT break still FAILs.
+      expect(noTolerance.assets.find((a) => a.assetId === 'USDC')).toMatchObject({ tolerance: 'unset', difference: 'unset' });
+      expect(noTolerance.assets.find((a) => a.assetId === 'USDT')).toMatchObject({ residual: '1' });
+    } finally {
+      await server.close();
+    }
+  });
+
+  it('leaves a past run on a rail with no open-items URL as it was: the statement is judged, never UNSET for items', async () => {
+    const engine = new PostgresLedger(db.sql);
+    await engine.post(
+      recipes.deposit({
+        userId: 'abcdeaaa-8888-4888-8888-000000000005',
+        assetId: 'USDT',
+        amount: amt('7'),
+        rail: 'recon-noitems',
+        railRef: 'recon-noitems-1',
+      }),
+    );
+    const defined = await defineReconciliationControl(db.sql, actor, {
+      template: 'outside_balance',
+      accountSet: { mode: 'query', rail: 'recon-noitems', assetId: 'USDT' },
+      schedule: { cadence: 'daily', hour: 0, minute: 0 },
+      severity: 'critical',
+      tolerance: { default: '0' },
+      reason: REASON,
+      activate: true,
+    });
+    const server = Fastify();
+    server.get('/statement', async (req) => ({
+      source: 'rail',
+      rail: 'recon-noitems',
+      asOf: (req.query as { asOf: string }).asOf,
+      balances: [{ assetId: 'USDT', amount: '-9' }],
+    }));
+    const base = await server.listen({ port: 0, host: '127.0.0.1' });
+    // The past instant must come after the deposit, so the ledger side is 7.
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    try {
+      // Items are wired for another rail only.
+      const sources = reconciliationSourcesFrom(undefined, new Map([['recon-noitems', `${base}/statement`]]), fetch, undefined, {
+        urls: new Map([['recon-items-b', `${base}/items`]]),
+        sign: (payload) => ({ 'x-test-signed': payload }),
+      });
+      const past = await runReconciliationControl(
+        db.sql,
+        approvals,
+        actor,
+        {
+          controlId: defined.id,
+          reason: REASON,
+          approvalId: 'appr-noitems',
+          operationId: nextOp(),
+          asOf: new Date(Date.now() - 200).toISOString(),
+          margin: '0',
+        },
+        sources,
+      );
+      expect(past.status).toBe('FAIL');
+      expect(past.errorCode).not.toMatchObject({ value: LEDGER_RECONCILE_ITEMS_NOW_ONLY });
+      expect(past.reconcilingItems).toBeUndefined();
     } finally {
       await server.close();
     }

@@ -158,20 +158,25 @@ const RAIL_STATEMENT_KEY = /^LEDGER_RECONCILE_RAIL_(.*)_URL$/i;
  * host), refuses boot rather than being ignored.
  */
 export function railStatementUrlsFrom(source: Record<string, string | undefined>): Map<string, string> {
+  return railUrlsFrom(source, RAIL_STATEMENT_KEY);
+}
+
+/** One URL per rail from the keys `key` matches, its group the rail spelled upper case with `_` for `-`. */
+function railUrlsFrom(source: Record<string, string | undefined>, key: RegExp): Map<string, string> {
   const urls = new Map<string, string>();
-  for (const [key, value] of Object.entries(source)) {
-    const match = RAIL_STATEMENT_KEY.exec(key);
+  for (const [name, value] of Object.entries(source)) {
+    const match = key.exec(name);
     if (!match || value === undefined || value === '') continue;
     // Only the canonical spelling maps back to a rail id; anything else (lower case, a dash, an empty rail) refuses boot.
     const rail = match[1]!.toLowerCase().replaceAll('_', '-');
-    if (!/^[A-Z0-9_]+$/.test(match[1]!) || !reconciliationRailSchema.safeParse(rail).success) throw new Error(`${key}: not a rail id`);
+    if (!/^[A-Z0-9_]+$/.test(match[1]!) || !reconciliationRailSchema.safeParse(rail).success) throw new Error(`${name}: not a rail id`);
     let ok = false;
     try {
       ok = isOutsideSnapshotUrl(value);
     } catch {
       ok = false;
     }
-    if (!ok) throw new Error(`${key}: must be https (plain http only for a loopback host)`);
+    if (!ok) throw new Error(`${name}: must be https (plain http only for a loopback host)`);
     urls.set(rail, value);
   }
   return urls;
@@ -188,22 +193,7 @@ const OPEN_ITEMS_KEY = /^LEDGER_RECONCILE_OPEN_ITEMS_(.*)_URL$/i;
  * (plain http only for a loopback host), refuses boot.
  */
 export function openItemsUrlsFrom(source: Record<string, string | undefined>): Map<string, string> {
-  const urls = new Map<string, string>();
-  for (const [key, value] of Object.entries(source)) {
-    const match = OPEN_ITEMS_KEY.exec(key);
-    if (!match || value === undefined || value === '') continue;
-    const rail = match[1]!.toLowerCase().replaceAll('_', '-');
-    if (!/^[A-Z0-9_]+$/.test(match[1]!) || !reconciliationRailSchema.safeParse(rail).success) throw new Error(`${key}: not a rail id`);
-    let ok = false;
-    try {
-      ok = isOutsideSnapshotUrl(value);
-    } catch {
-      ok = false;
-    }
-    if (!ok) throw new Error(`${key}: must be https (plain http only for a loopback host)`);
-    urls.set(rail, value);
-  }
-  return urls;
+  return railUrlsFrom(source, OPEN_ITEMS_KEY);
 }
 
 export const openItemsUrls: ReadonlyMap<string, string> = openItemsUrlsFrom(process.env);
