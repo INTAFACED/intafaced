@@ -117,5 +117,15 @@ export function rfqHistoryProcedures(trade: TradeService) {
         }),
       )
       .query(({ ctx, input }) => asTrpc(() => trade.rfqList(ctx.principal, input))),
+
+    board: scopedProcedure('trade:read')
+      .input(
+        z.object({
+          from: z.string().optional(),
+          to: z.string().optional(),
+          limit: z.number().int().optional(),
+        }),
+      )
+      .query(({ ctx, input }) => asTrpc(() => trade.rfqBoard(ctx.principal, input))),
   };
 }

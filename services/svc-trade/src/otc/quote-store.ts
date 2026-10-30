@@ -30,8 +30,19 @@ export function refuseRfqExpireOverwrite(lifecycle: OtcQuoteLifecycle): void {
   }
 }
 
+/** A second quote of one request bound: the request already took a provider's price (#5). */
+function refuseSecondAccept(rfqId: string): never {
+  throw new OtcError(`Another quote of request ${rfqId} was already accepted`, 'trade.rfq_other_quote_accepted');
+}
+
+function isUniqueViolation(err: unknown): boolean {
+  return typeof err === 'object' && err !== null && (err as { code?: string }).code === '23505';
+}
+
 export interface OtcQuoteStore {
   saveOpen(quote: OtcQuote): Promise<void>;
+  /** Every quote of one request, in the order asked. A quote saved before requests had ids is its own request. */
+  listRfq(rfqId: string): Promise<OtcStoredQuote[]>;
   saveExpired(quote: OtcQuote): Promise<void>;
   saveBound(quote: OtcQuote, bound: BoundOtcFill): Promise<void>;
   saveSettled(quote: OtcQuote, bound: BoundOtcFill, settledAt: Date): Promise<void>;
@@ -55,6 +66,10 @@ function quoteFromParts(row: {
   counterpartyId: string;
   createdAt: string;
   expiresAt: string;
+  rfqId: string | null;
+  rfqSeq: number;
+  makerId: string | null;
+  test: boolean;
 }): OtcQuote {
   return {
     quoteId: row.quoteId,
@@ -74,6 +89,10 @@ function quoteFromParts(row: {
     createdAt: row.createdAt,
     expiresAt: row.expiresAt,
     status: 'open',
+    rfqId: row.rfqId ?? row.quoteId,
+    rfqSeq: row.rfqSeq,
+    makerId: row.makerId,
+    test: row.test,
   };
 }
 
@@ -109,6 +128,12 @@ export class MemoryOtcQuoteStore implements OtcQuoteStore {
   }
 
   async saveBound(quote: OtcQuote, bound: BoundOtcFill): Promise<void> {
+    // The partial unique index of the SQL store, kept here too: one bound or settled quote per request.
+    for (const other of this.byId.values()) {
+      if (other.quote.rfqId === quote.rfqId && other.quote.quoteId !== quote.quoteId && (other.lifecycle === 'bound' || other.lifecycle === 'settled')) {
+        refuseSecondAccept(quote.rfqId);
+      }
+    }
     this.byId.set(quote.quoteId, { lifecycle: 'bound', quote: { ...quote }, bound: { ...bound } });
   }
 
@@ -123,6 +148,10 @@ export class MemoryOtcQuoteStore implements OtcQuoteStore {
 
   async load(quoteId: string): Promise<OtcStoredQuote | null> {
     return this.byId.get(quoteId) ?? null;
+  }
+
+  async listRfq(rfqId: string): Promise<OtcStoredQuote[]> {
+    return [...this.byId.values()].filter((s) => s.quote.rfqId === rfqId).sort((a, b) => a.quote.rfqSeq - b.quote.rfqSeq);
   }
 }
 
@@ -148,6 +177,10 @@ type QuoteRow = {
   fill_price: string | null;
   fill_notional: string | null;
   settled_at: Date | string | null;
+  rfq_id: string | null;
+  rfq_seq: number;
+  maker_id: string | null;
+  test: boolean;
 };
 
 function iso(value: Date | string): string {
@@ -172,6 +205,10 @@ function rowToStored(row: QuoteRow): OtcStoredQuote {
     counterpartyId: row.counterparty_id,
     createdAt: iso(row.created_at),
     expiresAt: iso(row.expires_at),
+    rfqId: row.rfq_id,
+    rfqSeq: Number(row.rfq_seq),
+    makerId: row.maker_id,
+    test: row.test === true,
   });
   if (row.lifecycle === 'open') {
     return { lifecycle: 'open', quote };
@@ -216,7 +253,13 @@ export class SqlOtcQuoteStore implements OtcQuoteStore {
   }
 
   async saveBound(quote: OtcQuote, bound: BoundOtcFill): Promise<void> {
-    await this.upsert(quote, 'bound', bound.acceptedAt, formatAmount(bound.fillPrice), formatAmount(bound.fillNotional), null);
+    try {
+      await this.upsert(quote, 'bound', bound.acceptedAt, formatAmount(bound.fillPrice), formatAmount(bound.fillNotional), null);
+    } catch (err) {
+      // otc_desk_quotes_one_accept_per_rfq_ux: a sibling quote of this request was bound first.
+      if (isUniqueViolation(err)) refuseSecondAccept(quote.rfqId);
+      throw err;
+    }
   }
 
   async saveSettled(quote: OtcQuote, bound: BoundOtcFill, settledAt: Date): Promise<void> {
@@ -237,12 +280,29 @@ export class SqlOtcQuoteStore implements OtcQuoteStore {
         qty::text, mid_price::text, quoted_price::text, mid_notional::text,
         user_notional::text, spread_bps, spread_notional::text,
         counterparty, counterparty_id, created_at, expires_at,
-        accepted_at, fill_price::text, fill_notional::text, settled_at
+        accepted_at, fill_price::text, fill_notional::text, settled_at,
+        rfq_id, rfq_seq, maker_id, test
       FROM otc_desk_quotes
       WHERE quote_id = ${quoteId}
     `;
     if (!rows[0]) return null;
     return rowToStored(rows[0]);
+  }
+
+  async listRfq(rfqId: string): Promise<OtcStoredQuote[]> {
+    const rows = await this.sql<QuoteRow[]>`
+      SELECT
+        quote_id, user_id, lifecycle, side, base_asset, quote_asset,
+        qty::text, mid_price::text, quoted_price::text, mid_notional::text,
+        user_notional::text, spread_bps, spread_notional::text,
+        counterparty, counterparty_id, created_at, expires_at,
+        accepted_at, fill_price::text, fill_notional::text, settled_at,
+        rfq_id, rfq_seq, maker_id, test
+      FROM otc_desk_quotes
+      WHERE rfq_id = ${rfqId} OR (rfq_id IS NULL AND quote_id = ${rfqId})
+      ORDER BY rfq_seq, quote_id
+    `;
+    return rows.map(rowToStored);
   }
 
   private async upsert(
@@ -258,7 +318,8 @@ export class SqlOtcQuoteStore implements OtcQuoteStore {
         quote_id, user_id, lifecycle, side, base_asset, quote_asset,
         qty, mid_price, quoted_price, mid_notional, user_notional,
         spread_bps, spread_notional, counterparty, counterparty_id,
-        created_at, expires_at, accepted_at, fill_price, fill_notional, settled_at, updated_at
+        created_at, expires_at, accepted_at, fill_price, fill_notional, settled_at, updated_at,
+        rfq_id, rfq_seq, maker_id, test
       ) VALUES (
         ${quote.quoteId},
         ${quote.userId},
@@ -281,7 +342,11 @@ export class SqlOtcQuoteStore implements OtcQuoteStore {
         ${fillPrice},
         ${fillNotional},
         ${settledAt},
-        now()
+        now(),
+        ${quote.rfqId},
+        ${quote.rfqSeq},
+        ${quote.makerId},
+        ${quote.test}
       )
       ON CONFLICT (quote_id) DO UPDATE SET
         lifecycle = EXCLUDED.lifecycle,
