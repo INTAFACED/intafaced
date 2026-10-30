@@ -121,7 +121,12 @@ export function loanApplyProcedures(bank: Pick<BankServices, 'loans' | 'assetPau
             origination: z.union([
               z.object({ status: z.literal('not_set') }).strict(),
               z
-                .object({ status: z.literal('published'), bps: z.number().int(), amount: amountString.nullable(), collectable: z.boolean() })
+                .object({
+                  status: z.literal('published'),
+                  bps: z.number().int(),
+                  amount: amountString.nullable(),
+                  collectable: z.boolean(),
+                })
                 .strict(),
             ]),
           })

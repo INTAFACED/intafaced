@@ -48,8 +48,7 @@ function service(options: { prices?: Record<string, { price: string }>; moduleEn
   return { loans, statements };
 }
 
-const opensAt = (debtValue: bigint, collateral: bigint, price: bigint, cap: number) =>
-  ltvBps(debtValue, (collateral * price) / ONE) <= cap;
+const opensAt = (debtValue: bigint, collateral: bigint, price: bigint, cap: number) => ltvBps(debtValue, (collateral * price) / ONE) <= cap;
 
 describe('minimumCollateral is the smallest pledge the opening check accepts', () => {
   it.each([

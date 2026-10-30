@@ -37,6 +37,7 @@ import {
   earnFundingId,
   earnPoolName,
   fundEarnPool,
+  fundLoanReserve,
   guardSeed,
   houseSeedId,
   main,
@@ -1144,6 +1145,45 @@ test('fund-earn-pool: one TEST pool funded once per ref from a labelled TEST dep
     await assert.rejects(fundEarnPool(deps, poolId, amount, ref), why, `${poolId} ${amount} ${ref}`);
   }
   assert.equal(ledger.attempts.length, before);
+});
+
+test('fund-loan-reserve: the debt asset of a TEST product funded once per ref from a labelled TEST deposit; anything else refused', async () => {
+  const { deps, loans, ledger } = world();
+  loans.products.push(
+    { id: 'p1', name: 'TEST J-bank-09 BTC/USDC local-1', status: 'open', debtAssetId: 'USDC' },
+    { id: 'p2', name: 'Bitcoin-backed credit', status: 'open', debtAssetId: 'DAI' },
+    { id: 'p3', name: 'TEST closed', status: 'closed', debtAssetId: 'EURC' },
+  );
+  const report = await fundLoanReserve(deps, 'USDC', '5000', 'jb09-local-1');
+  assert.deepEqual(
+    ledger.attempts.map((attempt) => attempt.wire.idempotencyKey),
+    ['deposit:local-test:LOCAL-TEST-seed-funder-loan-reserve-USDC-jb09-local-1-v1', 'bank.loan.reserve.fund:USDC:local-test-jb09-local-1'],
+  );
+  for (const attempt of ledger.attempts) assert.equal(attempt.wire.meta.label, FUNDS_LABEL);
+  assert.deepEqual(report.lines, ['loan reserve USDC: funded 5000 (ref jb09-local-1)', FUNDS_LABEL]);
+  // The same ref again is the same two keys: the ledger answers them and nothing moves twice.
+  await fundLoanReserve(deps, 'USDC', '5000', 'jb09-local-1');
+  assert.ok(ledger.attempts.slice(2).every((attempt) => attempt.noop));
+  const before = ledger.attempts.length;
+  for (const [assetId, amount, ref, why] of [
+    ['DAI', '25', 'jb09-x', /no open TEST loan product lends DAI/],
+    ['EURC', '25', 'jb09-x', /no open TEST loan product lends EURC/],
+    ['XRP', '25', 'jb09-x', /no open TEST loan product lends XRP/],
+    ['usdc', '25', 'jb09-x', /asset id/],
+    ['USDC', '0', 'jb09-x', /above 0/],
+    ['USDC', formatAmount(parseAmount(LOAN_RESERVE_AMOUNT) + parseAmount('1')), 'jb09-x', /at most/],
+    ['USDC', '-1', 'jb09-x', /exact decimal/],
+    ['USDC', '25', 'x', /ref/],
+  ]) {
+    await assert.rejects(fundLoanReserve(deps, assetId, amount, ref), why, `${assetId} ${amount} ${ref}`);
+  }
+  assert.equal(ledger.attempts.length, before);
+  assert.deepEqual(parseArgs(['fund-loan-reserve', 'USDC', '25', 'ref1', '--state', '/x']), {
+    command: 'fund-loan-reserve',
+    operands: ['USDC', '25', 'ref1'],
+    stateDir: '/x',
+  });
+  assert.throws(() => parseArgs(['fund-loan-reserve', 'USDC', '25']), /needs <assetId> <amount> <ref>/);
 });
 
 test('age-loan takes exactly its two operands; every other command still takes none', () => {
