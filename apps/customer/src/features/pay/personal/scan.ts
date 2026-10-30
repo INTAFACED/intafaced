@@ -1,4 +1,3 @@
-import jsQR from 'jsqr';
 import { parseRequestLink, requestPath } from './personal-model';
 
 /**
@@ -60,6 +59,8 @@ function browserDetector(): Promise<Detector | null> {
   return detector;
 }
 
+let pixelReader: Promise<typeof import('jsqr').default> | undefined;
+
 /** The text of the QR code in `source` (an image or a video frame) `width` × `height` pixels, or null. */
 export async function readCode(source: CanvasImageSource, width: number, height: number): Promise<string | null> {
   const browser = await browserDetector();
@@ -81,6 +82,9 @@ export async function readCode(source: CanvasImageSource, width: number, height:
   if (!context) return null;
   context.drawImage(source, 0, 0, w, h);
   const { data } = context.getImageData(0, 0, w, h);
+  // jsQR (about 250 kB) loads only when a code is read here, so no other page carries it.
+  pixelReader ??= import('jsqr').then((m) => m.default);
+  const jsQR = await pixelReader;
   return jsQR(data, w, h)?.data ?? null;
 }
 
