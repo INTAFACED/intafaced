@@ -247,11 +247,20 @@ export function gateOf(row: CampaignRow, timeZone: string | null): CampaignGate[
   }
   if (!row.starts_at || !row.ends_at) missing.push({ code: 'campaigns.time_frame_unset', field: 'timeFrame' });
   if (!timeZone || row.time_zone_blank) missing.push({ code: 'campaigns.timezone_unset', field: 'timeZone' });
-  if (!row.reward_asset || row.reward_amount === null) missing.push({ code: 'campaigns.reward_unset', field: 'reward' });
-  if (row.budget_asset && row.reward_asset && row.budget_asset !== row.reward_asset) {
+  // A welcome campaign gives a reward per task, each of which may be blank ("not set"; that task's claim refuses).
+  const welcome = row.type === 'welcome';
+  if (!welcome && (!row.reward_asset || row.reward_amount === null)) {
+    missing.push({ code: 'campaigns.reward_unset', field: 'reward' });
+  }
+  const rewardAssets = welcome ? (row.tasks?.steps ?? []).flatMap((s) => (s.reward ? [s.reward.asset] : [])) : [row.reward_asset];
+  if (row.budget_asset && rewardAssets.some((a) => a && a !== row.budget_asset)) {
     missing.push({ code: 'campaigns.budget_asset_mismatch', field: 'budget' });
   }
-  if (row.tasks && row.tasks.claimWindowSeconds === null) {
+  if (welcome && !row.tasks) missing.push({ code: 'campaigns.no_tasks', field: 'tasks' });
+  if (welcome && row.tasks && (row.tasks.welcomeWindowSeconds ?? null) === null) {
+    missing.push({ code: 'campaigns.window_unset', field: 'welcomeWindow' });
+  }
+  if (!welcome && row.tasks && row.tasks.claimWindowSeconds === null) {
     missing.push({ code: 'campaigns.claim_window_unset', field: 'claimWindow' });
   }
   // Stored before holds existed, or blank: a task campaign names its hold, 0 when it pays at once.
@@ -589,9 +598,56 @@ function lockOf(lock: RewardLock | null): RewardLock | null {
   };
 }
 
-/** Steps belong to a `task` campaign only, and each step's market is stored as listed (`BTC/USDT`). */
+/** The tasks a welcome checklist may hold (CM-rewards-hub-03): each first-time event once. */
+export const WELCOME_EVENTS = ['identity.verified', 'pay.deposit', 'trade.fill'] as const;
+
+/**
+ * A welcome campaign's tasks: each of the first-time events at most once, one event each, on any market and side, with
+ * its own reward (blank reads "not set"), and the window from sign-up. It is never locked, a bonus or a streak.
+ */
+function parseWelcome(input: CampaignTasks): CampaignTasks {
+  const seen = new Set<string>();
+  const steps = input.steps.map((s) => {
+    if (!(WELCOME_EVENTS as readonly string[]).includes(s.event) || seen.has(s.event)) {
+      throw new CampaignsError('campaigns.tasks_invalid', 'A welcome task is verify, first deposit or first trade, each once');
+    }
+    seen.add(s.event);
+    if (s.count !== 1 || s.market || s.side || s.streakDays) {
+      throw new CampaignsError('campaigns.tasks_invalid', 'A welcome task is one event on any market and side');
+    }
+    const amount = s.reward ? s.reward.amount.trim() : '';
+    if (s.reward && (!DECIMAL.test(amount) || !/[1-9]/.test(amount))) {
+      throw new CampaignsError('campaigns.reward_unset', `The reward of “${s.title.trim()}” must be a positive decimal`);
+    }
+    const asset = s.reward ? parseAsset(s.reward.asset, 'campaigns.reward_unset', 'The task reward') : null;
+    return {
+      title: s.title.trim(),
+      event: s.event,
+      market: null,
+      side: null,
+      count: 1,
+      streakDays: null,
+      reward: asset ? { asset, amount } : null,
+    };
+  });
+  if (input.lock) throw new CampaignsError('campaigns.tasks_invalid', 'A welcome reward is paid, never locked or a bonus');
+  return {
+    steps,
+    claimWindowSeconds: input.claimWindowSeconds,
+    holdSeconds: input.holdSeconds ?? null,
+    lock: null,
+    kycGate: input.kycGate,
+    welcomeWindowSeconds: input.welcomeWindowSeconds ?? null,
+  };
+}
+
+/** Steps belong to a `task` or `welcome` campaign only, and each step's market is stored as listed (`BTC/USDT`). */
 function parseTasks(type: CampaignType, input: CampaignTasks): CampaignTasks {
+  if (type === 'welcome') return parseWelcome(input);
   if (type !== 'task') throw new CampaignsError('campaigns.tasks_invalid', 'Only a task campaign has steps');
+  if (input.steps.some((s) => s.event !== 'trade.fill' || s.reward) || (input.welcomeWindowSeconds ?? null) !== null) {
+    throw new CampaignsError('campaigns.tasks_invalid', 'A task campaign counts spot fills, with one reward for the campaign');
+  }
   if (input.steps.some((s) => s.streakDays && s.count !== 1)) {
     throw new CampaignsError('campaigns.tasks_invalid', 'A streak step counts one event a day: its count is 1');
   }
@@ -1133,7 +1189,7 @@ export class CampaignService {
     const [rows, mine] = await Promise.all([
       this.sql<CampaignRow[]>`
         SELECT * FROM campaigns.campaign_rows
-        WHERE state IN ('scheduled', 'active', 'paused') AND (ends_at IS NULL OR ends_at > ${now})
+        WHERE state IN ('scheduled', 'active', 'paused') AND (ends_at IS NULL OR ends_at > ${now}) AND type <> 'welcome'
         ORDER BY starts_at ASC, id ASC LIMIT 200`,
       this.mine(accountId),
     ]);
@@ -1236,6 +1292,9 @@ export class CampaignService {
       const [existing] = await tx<ParticipationRow[]>`SELECT * FROM campaigns.participations WHERE participation_key = ${key}`;
       if (existing) return { participation: toParticipation(existing), created: false };
       if (!row || !toView(row, timeZone, now, null)) throw new CampaignsError('campaign.unknown', 'No such campaign');
+      if (row.type === 'welcome') {
+        throw new CampaignsError('campaign.type_locked', 'A welcome campaign is not joined: it applies to accounts from their sign-up');
+      }
       const state = effectiveState(row, now);
       if (state !== 'active') throw new CampaignsError('campaign.not_active', `This campaign is ${state}, not active`);
       if (JSON.stringify(row.participation) !== JSON.stringify(readRules) || answer === null) {

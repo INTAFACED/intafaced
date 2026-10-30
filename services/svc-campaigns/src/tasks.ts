@@ -13,6 +13,8 @@ import {
   type RewardRecord,
   type TaskClaimResult,
   type TaskProgress,
+  type TaskEvent,
+  type WelcomeChecklist,
   EARNING_TRIGGERS,
   type EarningRule,
   type EarningTrigger,
@@ -152,6 +154,25 @@ export const MY_REWARDS_LIMIT = 200;
 export const LOCK_FILL_GRACE_SECONDS = 60;
 
 export const rewardKeyOf = (campaignId: string, accountId: string, period: string) => `task:${campaignId}:${accountId}:${period}`;
+
+/** The period of one welcome task's reward: one per task and account (CM-rewards-hub-03). */
+export const welcomePeriodOf = (event: TaskEvent) => `welcome:${event}`;
+
+type WelcomeWindow = { opensAt: Date; closesAt: Date | null; state: 'open' | 'expired' | 'unset' };
+
+/** The welcome window of one account: from sign-up for the campaign's seconds. Blank seconds: `unset`, never a default. */
+export function welcomeWindowOf(signedUpAt: Date, tasks: CampaignTasks, now: Date): WelcomeWindow {
+  const seconds = tasks.welcomeWindowSeconds ?? null;
+  if (seconds === null) return { opensAt: signedUpAt, closesAt: null, state: 'unset' };
+  const closesAt = new Date(signedUpAt.getTime() + seconds * 1000);
+  return { opensAt: signedUpAt, closesAt, state: now >= closesAt ? 'expired' : 'open' };
+}
+
+/** When a task's first event happened, if that was inside the window; null otherwise. */
+export function doneInWindow(at: Date | undefined, window: WelcomeWindow): Date | null {
+  if (!at || !window.closesAt) return null;
+  return at >= window.opensAt && at < window.closesAt ? at : null;
+}
 
 /**
  * Whether one step counts this fill. `symbol` is the listed symbol of the fill's market (`BTC/USDT`), null when it could
@@ -664,6 +685,7 @@ export class TaskService {
     reason: string | null,
     holdUntil: Date | null,
     terms: LockTerms,
+    period: string = PERIOD_ONCE,
   ): Promise<{ intent: IntentRow; created: boolean }> {
     return transaction(this.sql, async (tx) => {
       const [locked] = await tx<{ budget_limit: string | null }[]>`
@@ -692,15 +714,164 @@ export class TaskService {
         : await tx<IntentRow[]>`
             INSERT INTO campaigns.reward_intents (reward_key, campaign_id, account_id, period, asset, amount, state, reason,
               hold_until, form, lock_seconds)
-            VALUES (${key}, ${row.id}, ${accountId}, ${PERIOD_ONCE}, ${row.reward_asset!}, ${row.reward_amount!}, ${state}, ${reason},
+            VALUES (${key}, ${row.id}, ${accountId}, ${period}, ${row.reward_asset!}, ${row.reward_amount!}, ${state}, ${reason},
               ${holdUntil}, ${terms.form}, ${terms.seconds})
             RETURNING *, amount::text AS amount`;
       await tx`INSERT INTO campaigns.redemption_attempts (reward_key, outcome, reason) VALUES (${key}, ${state}, ${reason})`;
       await tx`
         INSERT INTO campaigns.audit_log (actor, action, target, detail)
-        VALUES (${accountId}, ${'campaign.task.claim'}, ${row.id}, ${tx.json({ rewardKey: key, state })})`;
+        VALUES (${accountId}, ${period === PERIOD_ONCE ? 'campaign.task.claim' : 'campaign.welcome.claim'}, ${row.id}, ${tx.json({ rewardKey: key, state })})`;
       return { intent: made!, created: true };
     });
+  }
+
+  // ── Welcome checklist (CM-rewards-hub-03) ─────────────────────────────────
+
+  /**
+   * An account signed up (`identity.user.created`): its welcome window opens then, under the welcome campaign that was
+   * live at that moment (the one started last), or none. Written once; a redelivered sign-up changes nothing.
+   */
+  async onSignUp(input: { userId: string; eventId: string; at: string }): Promise<boolean> {
+    const at = new Date(input.at);
+    if (Number.isNaN(at.getTime())) return false;
+    const live = await this.sql<{ id: string; state: string; starts_at: Date | null; ends_at: Date | null }[]>`
+      SELECT id, state, starts_at, ends_at FROM campaigns.campaigns
+      WHERE type = 'welcome' AND state IN ('scheduled', 'active') AND starts_at <= ${at} AND (ends_at IS NULL OR ends_at > ${at})
+      ORDER BY starts_at DESC, created_at DESC`;
+    const campaign = live.find((c) => effectiveState(c as never, at) === 'active') ?? null;
+    const made = await this.sql`
+      INSERT INTO campaigns.welcome_accounts (account_id, signed_up_at, campaign_id, event_id)
+      VALUES (${input.userId.toLowerCase()}, ${at}, ${campaign?.id ?? null}, ${input.eventId})
+      ON CONFLICT (account_id) DO NOTHING`;
+    return made.count > 0;
+  }
+
+  /**
+   * One first-time event of an account: verified (`identity.kyc.approved`), a crypto deposit credited, or a spot fill
+   * settled. Only the earliest of each kind is kept, so the same event again, or a later one, changes nothing. It is
+   * kept whether or not the sign-up was read yet; the checklist decides at read time whether it fell inside the window.
+   */
+  async onWelcomeEvent(input: { userId: string; event: TaskEvent; eventId: string; at: string }): Promise<void> {
+    const at = new Date(input.at);
+    if (Number.isNaN(at.getTime())) return;
+    await this.sql`
+      INSERT INTO campaigns.welcome_events (account_id, event, event_id, occurred_at)
+      VALUES (${input.userId.toLowerCase()}, ${input.event}, ${input.eventId}, ${at})
+      ON CONFLICT (account_id, event) DO UPDATE
+        SET event_id = EXCLUDED.event_id, occurred_at = EXCLUDED.occurred_at, updated_at = now()
+        WHERE campaigns.welcome_events.occurred_at > EXCLUDED.occurred_at`;
+  }
+
+  /** The caller's welcome checklist: its window and each task's state, reward and claimed record. */
+  async welcomeChecklist(input: { accountId: string }): Promise<WelcomeChecklist> {
+    const found = await this.welcomeOf(input.accountId);
+    if (!found) return { campaign: null, signedUpAt: null, window: null, tasks: [] };
+    const { account, campaign, events } = found;
+    const keys = campaign.tasks.steps.map((s) => rewardKeyOf(campaign.id, account.account_id, welcomePeriodOf(s.event)));
+    const intents = await this.sql<IntentRow[]>`
+      SELECT *, amount::text AS amount FROM campaigns.reward_intents WHERE reward_key IN ${this.sql(keys)}`;
+    const byKey = new Map(intents.map((i) => [i.reward_key, i]));
+    const window = welcomeWindowOf(account.signed_up_at, campaign.tasks, this.now());
+    const tasks = await Promise.all(
+      campaign.tasks.steps.map(async (step, i) => {
+        const intent = byKey.get(keys[i]!) ?? null;
+        const doneAt = doneInWindow(events.get(step.event), window);
+        const state: WelcomeChecklist['tasks'][number]['state'] = intent
+          ? 'claimed'
+          : window.state === 'expired'
+            ? 'expired'
+            : doneAt
+              ? 'done'
+              : 'open';
+        return {
+          event: step.event,
+          title: step.title,
+          state,
+          doneAt: doneAt ? iso(doneAt) : null,
+          reward: step.reward ?? null,
+          record: intent ? await this.record(intent) : null,
+        };
+      }),
+    );
+    return {
+      campaign: { id: campaign.id, name: campaign.name, rules: campaign.rules },
+      signedUpAt: iso(account.signed_up_at),
+      window: {
+        opensAt: iso(account.signed_up_at),
+        closesAt: window.closesAt ? iso(window.closesAt) : null,
+        state: window.state,
+      },
+      tasks,
+    };
+  }
+
+  /**
+   * Claims one welcome task once, inside the window, under `task:<campaign>:<account>:welcome:<event>`. A second claim,
+   * or one sent again after a lost reply, returns the first (`created: false`). After the window nothing is written.
+   */
+  async welcomeClaim(input: { accountId: string; event: TaskEvent }): Promise<TaskClaimResult> {
+    const found = await this.welcomeOf(input.accountId);
+    if (!found) throw new CampaignsError('campaigns.welcome_none', 'Your account has no welcome checklist');
+    const { account, campaign, events } = found;
+    const step = campaign.tasks.steps.find((s) => s.event === input.event);
+    if (!step) throw new CampaignsError('campaigns.tasks_invalid', 'This welcome checklist has no such task');
+    const period = welcomePeriodOf(step.event);
+    const key = rewardKeyOf(campaign.id, account.account_id, period);
+    const existing = await this.intent(key);
+    // A reward withheld while the account was not active is looked at again on a later claim; any other stands.
+    if (existing && existing.state !== 'withheld') return { reward: await this.record(existing), created: false };
+    if (!this.saga) throw new CampaignsError('campaigns.reward_saga_unwired', 'Rewards cannot be paid: the ledger is not connected');
+    const now = this.now();
+    const window = welcomeWindowOf(account.signed_up_at, campaign.tasks, now);
+    if (window.state === 'unset') throw new CampaignsError('campaigns.window_unset', 'This welcome checklist has no window set');
+    if (window.state === 'expired') throw new CampaignsError('campaigns.claim_expired', 'The welcome window has closed');
+    const state = effectiveState(campaign as never, now);
+    if (state !== 'active') throw new CampaignsError('campaign.not_active', `This campaign is ${state}, not active`);
+    if (!step.reward) throw new CampaignsError('campaigns.reward_unset', 'This task has no reward set');
+    if (!doneInWindow(events.get(step.event), window)) {
+      throw new CampaignsError('campaigns.tasks_incomplete', 'This task is not done yet');
+    }
+    const holdSeconds = campaign.tasks.holdSeconds ?? null;
+    if (holdSeconds === null) throw new CampaignsError('campaigns.hold_period_unset', 'This campaign has no hold period set');
+    const who = await this.participants.read(account.account_id);
+    if (!who) throw new CampaignsError('campaigns.participant_unread', 'Your account could not be checked for this claim');
+    if (!meetsGate(campaign.tasks.kycGate, who.kycTier)) {
+      throw new CampaignsError(
+        'campaigns.kyc_required',
+        `This reward needs ${campaign.tasks.kycGate} verification before it can be claimed`,
+      );
+    }
+    const row = { ...campaign, reward_asset: step.reward.asset, reward_amount: step.reward.amount };
+    const terms: LockTerms = { form: 'paid', seconds: null };
+    if (who.status !== 'active') {
+      const made = await this.write(row, account.account_id, key, 'withheld', `account.${who.status}`, null, terms, period);
+      return { reward: await this.record(made.intent), created: made.created };
+    }
+    if (holdSeconds > 0) {
+      const until = new Date(now.getTime() + holdSeconds * 1000);
+      const held = await this.write(row, account.account_id, key, 'held', null, until, terms, period);
+      return { reward: await this.record(held.intent), created: held.created };
+    }
+    const made = await this.write(row, account.account_id, key, 'qualified', null, null, terms, period);
+    if (made.created) await this.saga.attempt(key);
+    return { reward: await this.record((await this.intent(key))!), created: made.created };
+  }
+
+  /** The account's sign-up, the welcome campaign it is under and its first events; null when it has none. */
+  private async welcomeOf(accountId: string) {
+    const [account] = await this.sql<{ account_id: string; signed_up_at: Date; campaign_id: string | null }[]>`
+      SELECT account_id, signed_up_at, campaign_id FROM campaigns.welcome_accounts WHERE account_id = ${accountId.toLowerCase()}`;
+    if (!account?.campaign_id) return null;
+    const [[campaign], rows] = await Promise.all([
+      this.sql<(TaskCampaignRow & { name: string; rules: string; tasks: CampaignTasks })[]>`
+        SELECT id, name, rules, type, state, starts_at, ends_at, weekdays, hours_from, hours_to, budget_asset,
+          budget_limit::text AS budget_limit, reward_asset, reward_amount::text AS reward_amount, tasks
+        FROM campaigns.campaigns WHERE id = ${account.campaign_id} AND type = 'welcome' AND tasks IS NOT NULL`,
+      this.sql<{ event: TaskEvent; occurred_at: Date }[]>`
+        SELECT event, occurred_at FROM campaigns.welcome_events WHERE account_id = ${account.account_id}`,
+    ]);
+    if (!campaign) return null;
+    return { account, campaign, events: new Map(rows.map((r) => [r.event, r.occurred_at])) };
   }
 
   // ── Operators (campaigns:ops) ─────────────────────────────────────────────

@@ -67,6 +67,8 @@ export const CAMPAIGN_REFUSAL_CODES = [
   'campaigns.funding_unknown',
   'campaigns.funding_reference_taken',
   'campaigns.not_voucher',
+  'campaigns.window_unset',
+  'campaigns.welcome_none',
   'owner.decision',
 ] as const;
 export type CampaignRefusalCode = (typeof CAMPAIGN_REFUSAL_CODES)[number];
@@ -88,6 +90,7 @@ export const CAMPAIGN_TYPES = [
   'trial_pass',
   'gift_card',
   'points',
+  'welcome',
 ] as const;
 export type CampaignType = (typeof CAMPAIGN_TYPES)[number];
 export const PARKED_CAMPAIGN_TYPES = ['gift_card', 'points'] as const satisfies readonly CampaignType[];
@@ -293,8 +296,13 @@ export const campaignWindowsSchema = z.object({
   hours: z.object({ from: hhmm, to: hhmmEnd }).nullable(),
 });
 
-/** Bus events a task step can complete from. `trade.fill`: a spot fill svc-trade settled for the account. */
-export const TASK_EVENTS = ['trade.fill'] as const;
+/**
+ * Bus events a task step can complete from. `trade.fill`: a spot fill svc-trade settled for the account. A welcome
+ * checklist (CM-rewards-hub-03) also has `identity.verified`, a verification tier svc-identity granted
+ * (`identity.kyc.approved`), and `pay.deposit`, a crypto deposit svc-pay credited (`pay.deposit_credit.posted`); a
+ * credit funded by a bonus, a trial fund or a gift is no deposit and never sends that event.
+ */
+export const TASK_EVENTS = ['trade.fill', 'identity.verified', 'pay.deposit'] as const;
 export type TaskEvent = (typeof TASK_EVENTS)[number];
 
 /** The verification a claim needs, read from svc-identity per claim and never stored here. */
@@ -318,6 +326,8 @@ export const taskStepSchema = z
      * (`count` is then 1). A missed day resets it at the zone's midnight. Null: a plain count of events.
      */
     streakDays: z.number().int().min(2).max(365).nullable().default(null),
+    /** A welcome task's own reward (one per task); null reads "not set" and its claim refuses `campaigns.reward_unset`. */
+    reward: campaignRewardSchema.nullish(),
   })
   .strict();
 export type TaskStep = z.infer<typeof taskStepSchema>;
@@ -366,6 +376,11 @@ export const campaignTasksSchema = z
     holdSeconds: z.number().int().min(0).max(31_536_000).nullable().default(null),
     lock: rewardLockSchema.nullable().default(null),
     kycGate: z.enum(KYC_GATES),
+    /**
+     * A welcome campaign's window: seconds from each account's sign-up in which its tasks count and are claimed. Blank
+     * refuses activation and every claim `campaigns.window_unset`, never a default. Absent on a task campaign.
+     */
+    welcomeWindowSeconds: z.number().int().min(1).max(31_536_000).nullish(),
   })
   .strict();
 export type CampaignTasks = z.infer<typeof campaignTasksSchema>;
@@ -751,6 +766,40 @@ export const myRewardsSchema = z.object({
 });
 export type MyRewards = z.infer<typeof myRewardsSchema>;
 export const myRewardsInputSchema = z.object({}).strict();
+
+/**
+ * The welcome checklist (CM-rewards-hub-03, J-campaigns-04): a `welcome` campaign's tasks for an account it was live for
+ * at sign-up. Its window opens at sign-up (`identity.user.created`) and lasts the campaign's `welcomeWindowSeconds`.
+ * Each task ticks once, from the first of its own events inside the window (never self-reported; the same event again
+ * changes nothing), and is claimed once, inside the window, under `task:<campaign>:<account>:welcome:<event>`. `expired`:
+ * the window passed before the task was claimed; nothing is written then. `campaign` is null for an account that signed
+ * up while no welcome campaign was live (or before its sign-up was read): it has no checklist.
+ */
+export const WELCOME_TASK_STATES = ['open', 'done', 'claimed', 'expired'] as const;
+export const welcomeChecklistSchema = z.object({
+  campaign: z.object({ id, name: z.string(), rules: z.string() }).nullable(),
+  signedUpAt: iso.nullable(),
+  window: z.object({ opensAt: iso, closesAt: iso.nullable(), state: z.enum(['open', 'expired', 'unset']) }).nullable(),
+  tasks: z.array(
+    z.object({
+      event: z.enum(TASK_EVENTS),
+      title: z.string(),
+      state: z.enum(WELCOME_TASK_STATES),
+      /** When the event that ticked it happened. */
+      doneAt: iso.nullable(),
+      /** Null reads "not set". */
+      reward: campaignRewardSchema.nullable(),
+      /** The claimed reward with its redemption log. */
+      record: rewardRecordSchema.nullable(),
+    }),
+  ),
+});
+export type WelcomeChecklist = z.infer<typeof welcomeChecklistSchema>;
+export const welcomeListInputSchema = z.object({}).strict();
+export const welcomeClaimInputSchema = z.object({ event: z.enum(TASK_EVENTS) }).strict();
+/** `created` is false when the task was claimed before: the first claim's reward is returned. */
+export const welcomeClaimResultSchema = taskClaimResultSchema;
+export type WelcomeClaimResult = TaskClaimResult;
 
 /** Operator reward records (founder-ops and finance): every intent with its account, newest first. */
 export const payoutRecordSchema = rewardRecordSchema.extend({ accountId: z.string() });

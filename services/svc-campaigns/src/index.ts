@@ -136,6 +136,36 @@ async function attachBus(): Promise<void> {
       },
       { durable: 'campaigns-earn-deposit-credited' },
     );
+    // The welcome checklist (CM-rewards-hub-03): each account's sign-up opens its window, and its first verification,
+    // crypto deposit and spot fill tick its tasks. Each event is kept once, by account and kind, so a redelivery is a no-op.
+    await connected.subscribe(
+      'userCreated',
+      async (user, envelope) => {
+        await tasks.onSignUp({ userId: user.userId, eventId: envelope.idempotencyKey, at: envelope.occurredAt });
+      },
+      { durable: 'campaigns-welcome-user-created' },
+    );
+    await connected.subscribe(
+      'kycApproved',
+      async (kyc, envelope) => {
+        await tasks.onWelcomeEvent({ userId: kyc.userId, event: 'identity.verified', eventId: envelope.idempotencyKey, at: envelope.occurredAt });
+      },
+      { durable: 'campaigns-welcome-kyc-approved' },
+    );
+    await connected.subscribe(
+      'payDepositCreditPosted',
+      async (deposit) => {
+        await tasks.onWelcomeEvent({ userId: deposit.userId, event: 'pay.deposit', eventId: deposit.depositId, at: deposit.creditedAt });
+      },
+      { durable: 'campaigns-welcome-deposit-credited' },
+    );
+    await connected.subscribe(
+      'fillSettled',
+      async (fill) => {
+        await tasks.onWelcomeEvent({ userId: fill.userId, event: 'trade.fill', eventId: fill.fillId, at: fill.ts });
+      },
+      { durable: 'campaigns-welcome-fill-settled' },
+    );
     bus = connected;
   } catch (err) {
     app.log.error({ err }, 'svc-campaigns could not attach to trade.fill.settled: task progress waits, trying again');
