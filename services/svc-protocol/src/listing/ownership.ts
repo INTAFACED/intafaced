@@ -98,6 +98,8 @@ export interface ListingStore {
    * verify won), so a nonce can back at most one proof.
    */
   consume(nonce: string, usedAt: Date, proof: Omit<OwnershipProof, 'verifiedAt'>): Promise<boolean>;
+  /** Deletes challenges that expired before `now` and were never used, so unanswered challenges do not pile up. */
+  pruneExpired(now: Date): Promise<void>;
 }
 
 /** What the service reads from the chain to decide ownership. */
@@ -105,11 +107,17 @@ export interface OwnershipChain {
   readonly chainId: number;
   /** The token contract's `owner()`, with the block it was read at; null when the contract names no owner. */
   owner(token: Address): Promise<{ owner: Address; blockNumber: bigint } | null>;
-  /** Whether `account` holds code (a contract owner answers through ERC-1271). */
-  hasCode(account: Address): Promise<boolean>;
-  /** The owner contract's ERC-1271 answer for a message hash and signature. */
-  isValidSignature(account: Address, hash: Hex, signature: Hex): Promise<Hex | null>;
+  /** Whether `account` holds code at `blockNumber` (a contract owner answers through ERC-1271). */
+  hasCode(account: Address, blockNumber: bigint): Promise<boolean>;
+  /** The owner contract's ERC-1271 answer for a message hash and signature, at `blockNumber`. */
+  isValidSignature(account: Address, hash: Hex, signature: Hex, blockNumber: bigint): Promise<Hex | null>;
 }
+
+const ownerUnknown = () =>
+  new ListingRefusedError(
+    LISTING_OWNER_UNKNOWN,
+    'This token contract names no owner that can be read, so ownership cannot be proven. Nothing is guessed.',
+  );
 
 /** The exact text the owner signs. One token, one chain, one nonce and an expiry; it authorises nothing else. */
 export function challengeMessage(args: { chainId: number; token: Address; nonce: string; issuedAt: Date; expiresAt: Date }): string {
@@ -130,14 +138,18 @@ export function challengeMessage(args: { chainId: number; token: Address; nonce:
 /** A fresh challenge for a token. The nonce is random (unguessable), stored, and good for one proof before it expires. */
 export async function issueChallenge(
   store: ListingStore,
+  chain: OwnershipChain,
   ttlSeconds: number | null,
-  chainId: number,
   token: Address,
   now: Date,
   nonce: string = randomBytes(16).toString('hex'),
 ): Promise<Omit<ListingChallenge, 'usedAt'>> {
   if (ttlSeconds === null)
     throw new ListingRefusedError(LISTING_CHALLENGE_TTL_UNSET, 'The ownership challenge lifetime is not set, so no challenge is issued.');
+  // A token that names no owner can never be proven: refuse before anyone is asked to sign, and store nothing.
+  if (!(await chain.owner(token))) throw ownerUnknown();
+  await store.pruneExpired(now);
+  const chainId = chain.chainId;
   const issuedAt = new Date(now.getTime());
   const expiresAt = new Date(now.getTime() + ttlSeconds * 1000);
   const challenge = { nonce, chainId, token: toChecksum(token), issuedAt, expiresAt, message: '' };
@@ -164,11 +176,7 @@ export async function verifyOwnership(
     throw new ListingRefusedError(LISTING_CHALLENGE_EXPIRED, 'This challenge has expired. Ask for a new one.');
 
   const read = await chain.owner(challenge.token);
-  if (!read)
-    throw new ListingRefusedError(
-      LISTING_OWNER_UNKNOWN,
-      'This token contract names no owner that can be read, so ownership cannot be proven. Nothing is guessed.',
-    );
+  if (!read) throw ownerUnknown();
   const owner = toChecksum(read.owner);
   const messageHash = hashMessage(challenge.message);
 
@@ -179,8 +187,8 @@ export async function verifyOwnership(
   } catch {
     // Not a recoverable EOA signature; a contract owner may still accept it below.
   }
-  if (!signer && (await chain.hasCode(owner))) {
-    const answer = await chain.isValidSignature(owner, messageHash, input.signature);
+  if (!signer && (await chain.hasCode(owner, read.blockNumber))) {
+    const answer = await chain.isValidSignature(owner, messageHash, input.signature, read.blockNumber);
     if (answer?.toLowerCase() === ERC1271_MAGIC) signer = owner;
   }
   if (!signer) throw new ListingRefusedError(LISTING_NOT_OWNER, 'The signature is not from the wallet that owns this token.');

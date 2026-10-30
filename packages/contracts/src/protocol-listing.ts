@@ -23,7 +23,8 @@ export const protocolListingChallengeOutputSchema = z
 export const protocolListingVerifyInputSchema = z
   .object({
     nonce: z.string().regex(/^[0-9a-f]{32}$/),
-    signature: z.string().regex(/^0x[0-9a-fA-F]+$/),
+    // 65 bytes for a wallet key; a contract owner's ERC-1271 signature may be longer, bounded at 2 KiB of bytes.
+    signature: z.string().regex(/^0x(?:[0-9a-fA-F]{2}){65,2048}$/),
   })
   .strict();
 export const protocolListingVerifyOutputSchema = z

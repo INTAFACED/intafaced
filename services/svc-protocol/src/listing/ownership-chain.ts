@@ -1,6 +1,7 @@
-import { BaseError, ContractFunctionRevertedError, ContractFunctionZeroDataError, type Address, type Hex } from 'viem';
+import { BaseError, ContractFunctionZeroDataError, type Address, type Hex } from 'viem';
 import { classifyChainError, ChainUnavailableError } from '../chain/availability.js';
 import type { ProtocolChain } from '../chain/client.js';
+import { isExecutionRevert } from '../chain/revert.js';
 import type { OwnershipChain } from './ownership.js';
 
 const ownableAbi = [{ type: 'function', name: 'owner', stateMutability: 'view', inputs: [], outputs: [{ type: 'address' }] }] as const;
@@ -17,12 +18,12 @@ const erc1271Abi = [
   },
 ] as const;
 
-/** A call the contract answered by reverting or with no data: it has no such function, which is an answer, not an outage. */
+/**
+ * A call the contract answered by reverting, or with no data: it has no such function, which is an answer, not an outage.
+ * A node error that merely looks like a revert (-32603, a timeout, a 5xx) is not one: `isExecutionRevert` tells them apart.
+ */
 function contractSaidNo(err: unknown): boolean {
-  return (
-    err instanceof BaseError &&
-    err.walk((e) => e instanceof ContractFunctionRevertedError || e instanceof ContractFunctionZeroDataError) !== null
-  );
+  return isExecutionRevert(err) || (err instanceof BaseError && err.walk((e) => e instanceof ContractFunctionZeroDataError) !== null);
 }
 
 /**
@@ -48,16 +49,22 @@ export function ownershipChain(chain: ProtocolChain): OwnershipChain {
         throw classifyChainError(err, 'listing owner', rpc);
       }
     },
-    async hasCode(account: Address) {
-      return chain.isDeployed(account);
+    async hasCode(account: Address, blockNumber: bigint) {
+      try {
+        const code = await chain.client.getCode({ address: account, blockNumber });
+        return code !== undefined && code !== '0x';
+      } catch (err) {
+        throw classifyChainError(err, 'listing hasCode', rpc);
+      }
     },
-    async isValidSignature(account: Address, hash: Hex, signature: Hex) {
+    async isValidSignature(account: Address, hash: Hex, signature: Hex, blockNumber: bigint) {
       try {
         return await chain.client.readContract({
           address: account,
           abi: erc1271Abi,
           functionName: 'isValidSignature',
           args: [hash, signature],
+          blockNumber,
         });
       } catch (err) {
         if (contractSaidNo(err)) return null;

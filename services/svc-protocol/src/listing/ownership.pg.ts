@@ -57,4 +57,8 @@ export class PostgresListingStore implements ListingStore {
       return true;
     });
   }
+
+  async pruneExpired(now: Date): Promise<void> {
+    await this.sql`DELETE FROM protocol.listing_challenges WHERE used_at IS NULL AND expires_at < ${now.toISOString()}`;
+  }
 }

@@ -686,10 +686,13 @@ test(`${J} #11 requests a token info update with the token owner's signature: th
   await signIn();
   await expect(dialog).toContainText('The signature is not from the wallet that owns this token.');
 
-  // an ownerless token: TEST Token A's contract names no owner
-  await open(TOKEN_A.address);
-  await signIn();
+  // an ownerless token: TEST Token A's contract names no owner, so no challenge is issued and no one is asked to sign
+  const signaturesBefore = wallet.requests.length;
+  await page.goto(`/dex/tokens/${TOKEN_A.address.toLowerCase()}`);
+  await page.getByRole('button', { name: 'Request an info update' }).click();
   await expect(dialog).toContainText('This token contract names no owner that can be read, so ownership cannot be proven.');
+  await expect(dialog.getByTestId('token-update-challenge')).toHaveCount(0);
+  expect(wallet.requests.length).toBe(signaturesBefore);
 });
 
 /**

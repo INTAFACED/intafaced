@@ -51,7 +51,7 @@ if (!sql) {
 
     it('stores a proof with the block the owner was read at, and a replayed challenge stores nothing more', async () => {
       const store = new PostgresListingStore(sql!);
-      const challenge = await issueChallenge(store, 300, CHAIN_ID, TOKEN, T0, 'ab'.repeat(16));
+      const challenge = await issueChallenge(store, chain, 300, TOKEN, T0, 'ab'.repeat(16));
       const found = await store.findChallenge(challenge.nonce);
       expect(found).toMatchObject({ nonce: challenge.nonce, chainId: CHAIN_ID, message: challenge.message, usedAt: null });
       expect(found!.expiresAt.toISOString()).toBe('2026-10-30T12:05:00.000Z');
@@ -74,7 +74,7 @@ if (!sql) {
 
     it('two verifies racing on one nonce store one proof', async () => {
       const store = new PostgresListingStore(sql!);
-      const challenge = await issueChallenge(store, 300, CHAIN_ID, TOKEN, T0, 'cd'.repeat(16));
+      const challenge = await issueChallenge(store, chain, 300, TOKEN, T0, 'cd'.repeat(16));
       const signature = await OWNER.signMessage({ message: challenge.message });
       const at = new Date(T0.getTime() + 1000);
       const results = await Promise.allSettled([
