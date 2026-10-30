@@ -23,6 +23,10 @@ const agents = agentsRun(J);
 test.describe.configure({ mode: 'default' });
 
 const SPARE = 'TEST spare draft';
+const RENAMED = 'TEST renamed agent';
+const DESCRIPTION = 'TEST: answer questions about my orders and never move money.';
+/** The fields own.save takes, as svc-agents holds them. */
+const pick = ({ id, name, instructions, tools, perSessionCap }) => ({ id, name, instructions, tools, perSessionCap });
 
 const main = (page) => page.getByRole('main');
 const builder = (page) => main(page).getByRole('form', { name: 'Agent builder' });
@@ -164,6 +168,16 @@ test(`${J} #2 edits the name, instructions and tools, adds a tool that moves mon
   await expect(reserved).toContainText('“sessions” is a reserved name.');
   await expect(reserved.locator('code')).toHaveText('agents.own.reserved_name');
   expect(await ownRead('get', { id: saved.id })).toEqual(saved);
+  // svc-agents refuses the reserved name on its own, by the same code; the draft is still unchanged.
+  const reservedSave = await (await api(agents.account())).post('/api/agents/trpc/own.save', { ...pick(saved), name: 'sessions' });
+  expect(reservedSave.status).toBe(400);
+  expect(reservedSave.body.error.message).toBe('agents.own.reserved_name');
+  expect(await ownRead('get', { id: saved.id })).toEqual(saved);
+  // A new name is saved and read back from svc-agents.
+  await builder(page).getByRole('textbox', { name: /^Name/ }).fill(RENAMED);
+  await builder(page).getByRole('button', { name: 'Save draft' }).click();
+  await expect(builder(page).getByRole('status')).toHaveText('Draft saved.');
+  expect(await ownRead('get', { id: saved.id })).toMatchObject({ name: RENAMED, instructions: INSTRUCTIONS, tools: saved.tools });
   // With its own name back, the edited instructions and an added tool that only reads are saved.
   await builder(page).getByRole('textbox', { name: /^Name/ }).fill(OWN_AGENT);
   await builder(page).getByRole('button', { name: 'Add a tool' }).click();
@@ -210,7 +224,14 @@ test(`${J} #4 sets the cap and tool shapes: the finding clears; publish otherwis
 test(`${J} #4 sets the tool shapes`, async ({ page }) => {
   // A tool is a name only today, with no declared inputs or outputs to set (AG-tools-01): red, by name, until it is.
   await openOwnAgent(page, agents, 'Build');
-  await expect(builder(page).getByRole('group', { name: 'Tool shapes' })).toBeVisible(UNBUILT);
+  const draft = await ownAgent();
+  const shapes = builder(page).getByRole('group', { name: 'Tool shapes' });
+  await expect(shapes).toBeVisible(UNBUILT);
+  const [first] = draft.tools;
+  await shapes.getByRole('textbox', { name: `${first} input` }).fill('{ "query": "string" }');
+  await builder(page).getByRole('button', { name: 'Save draft' }).click();
+  await expect(builder(page).getByRole('status')).toHaveText('Draft saved.');
+  expect((await ownRead('get', { id: draft.id })).toolShapes?.[first]).toMatchObject({ input: { query: 'string' } });
 });
 
 test(`${J} #5 opens the identity page: owner, scopes and expiry of the agent's own token; a revoke fails the next call; a frozen owner fails it too`, async ({
@@ -229,6 +250,9 @@ test(`${J} #6 asks the assistant to draft an agent: with the model unset the own
   await openBuilder(page);
   const before = await ownAgents();
   const assistant = main(page).getByRole('region', { name: 'Draft with the assistant' });
+  const description = assistant.getByRole('textbox', { name: 'Describe the agent in plain words' });
+  await description.fill(DESCRIPTION);
+  await expect(description).toHaveValue(DESCRIPTION);
   await expect(assistant.getByRole('note').locator('code')).toHaveText('owner.decision');
   await expect(assistant.getByRole('button', { name: 'Draft it' })).toBeDisabled();
   // The panel drafted and saved nothing.
@@ -250,8 +274,21 @@ test(`${J} #6 once the model choice is set a draft appears whose tools passed th
 }) => {
   // The assistant waits on the owner's choice of model (owner.decision): red, by name, until the owner makes it.
   await openBuilder(page);
+  const before = await ownAgents();
+  const { tools: catalogue } = await ownRead('catalogue');
   const assistant = main(page).getByRole('region', { name: 'Draft with the assistant' });
+  await assistant.getByRole('textbox', { name: 'Describe the agent in plain words' }).fill(DESCRIPTION);
   await expect(assistant.getByRole('button', { name: 'Draft it' })).toBeEnabled(UNBUILT);
+  await assistant.getByRole('button', { name: 'Draft it' }).click();
+  // A draft appears; each of its tools is one the validator admits: in the catalogue, and none moves money.
+  const proposed = await assistant.getByRole('list', { name: 'Tools' }).getByRole('listitem').locator('code').allInnerTexts();
+  for (const name of proposed) expect(catalogue.find((tool) => tool.name === name)).toMatchObject({ movesMoney: false });
+  // Nothing is saved until it is accepted.
+  expect(await ownAgents()).toEqual(before);
+  await assistant.getByRole('button', { name: 'Accept' }).click();
+  const after = await ownAgents();
+  expect(after).toHaveLength(before.length + 1);
+  expect(after[0]).toMatchObject({ tools: proposed, state: 'draft' });
 });
 
 test(`${J} #7 publishes to a chosen surface, then edits and republishes: version 1 immutable; the edit is a draft; running sessions keep their version`, async ({
