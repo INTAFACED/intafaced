@@ -5,6 +5,7 @@ import { Button, Dialog, EmptyState, Page } from '../../shared/ui';
 import { ReferralCode } from './ReferralCode';
 import { ReferralRecords } from './ReferralRecords';
 import { RewardsHub } from './RewardsHub';
+import { WelcomeChecklist } from './WelcomeChecklist';
 import { promotionsCopy as copy } from './promotions-copy';
 import {
   currentLinkReply,
@@ -506,6 +507,7 @@ export function Promotions({ path = '/uc/promotion' }: { path?: string }) {
           </p>
         )}
         <PromotionTabs view={view} />
+        {view === 'overview' && <WelcomeChecklist />}
         {view === 'overview' && <RewardsHub />}
         <div className={view === 'overview' ? 'promotions__columns' : 'promotions__columns promotions__columns--single'}>
           {view !== 'records' && (

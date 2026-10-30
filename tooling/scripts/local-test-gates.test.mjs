@@ -21,6 +21,7 @@ import {
   matchingPayloadHash,
   bankPayloadHash,
   copyCursorRewindSql,
+  copyRewindRows,
   fraudListingFields,
   SET_FRAUD_LISTING_ACTION,
   TEST_FRAUD_LIST,
@@ -758,6 +759,11 @@ for (const args of [['posting-freeze'], ['posting-freeze', 'maybe']]) {
   ]) {
     assert.throws(() => copyCursorRewindSql(followId, fillId), /usage: local-test-gates.mjs copy-rewind/);
   }
+  // psql -At prints the RETURNING row and then its command tag; only the row counts (J-copy-bots-otc-03 #5 was refused
+  // with one row updated, because the tag line was counted as a second row).
+  const printed = [['follow-1', '2026-10-30 13:49:58.875+00', ''], ['UPDATE 1']];
+  assert.deepEqual(copyRewindRows(printed), [['follow-1', '2026-10-30 13:49:58.875+00', '']]);
+  assert.deepEqual(copyRewindRows([['UPDATE 0']]), [], 'no follow matched: no row, so the command refuses');
 }
 
 // The sealed cookie opens only as the console opens it: same key, same cookie name and origin in the AAD.
