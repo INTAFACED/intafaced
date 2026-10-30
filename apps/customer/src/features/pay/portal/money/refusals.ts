@@ -10,6 +10,7 @@ import { mc } from './copy';
 const words: Record<string, Parameters<typeof mc.t>[0]> = {
   'pay.settlement_not_payable': 'rSettlementNotPayable',
   'pay.settlement_in_flight': 'rSettlementInFlight',
+  'pay.payout_clearing_pending': 'rClearingPending',
   'pay.payout_destination_missing': 'rDestinationMissing',
   'pay.approval_threshold_unconfigured': 'rThresholdUnset',
   'pay.cap_daily_payout_exceeded': 'rOverDailyPayout',

@@ -527,6 +527,7 @@ const TRADE_ERROR_MAP: Record<TradeErrorCode, Arm> = {
   /** ADR 2026-08-08: resume would more than double the order's own duration. */
   'trade.algo_resume_extends_too_far': { ccxt: 'InvalidOrder', status: 400 },
   'trade.algo_cancel_incomplete': { ccxt: 'InvalidOrder', status: 409 },
+  'trade.algo_chase_distance_required': { ccxt: 'InvalidOrder', status: 400 },
   /** Operator fat-finger cap. The order is too large. Not retryable unchanged. */
   'trade.operator_fat_finger': { ccxt: 'InvalidOrder', status: 400 },
   /** Operator price band. Not retryable at the same price. */

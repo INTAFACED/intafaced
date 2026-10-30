@@ -207,6 +207,13 @@ const schema = serviceEnvSchema.merge(edgeEnvSchema).merge(
      */
     INDEXER_TX_DROP_WINDOW_SECONDS: z.string().optional(),
 
+    /**
+     * D-explorer-02: the other networks a transaction hash is looked up on, live, as JSON
+     * [{"chainId":<id>,"rpcUrl":"http…"}]. Blank is none: the search answers for the followed network
+     * alone. Parsed at boot (`explorer/search-networks.ts`); a malformed list refuses to start.
+     */
+    INDEXER_SEARCH_NETWORKS: z.string().optional(),
+
     INDEXER_BATCH_SIZE: z.preprocess(
       (value) => {
         if (value === undefined || value === null) return undefined;
