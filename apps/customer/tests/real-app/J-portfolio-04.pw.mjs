@@ -4,7 +4,8 @@ import { confirm, deskPath, fundedTrader, held, reviewLimit, signIn } from './de
 
 // J-portfolio-04, in the running app (docs/roadmap/journeys.json): "I control how my cost basis is worked out". One test
 // per step, titled "J-portfolio-04 #<n>", run in order on one TEST account funded with TEST 1000 USDT. Every figure is
-// checked against a hand count from the ledger balances and the public candles, never against the lot book itself.
+// checked against a hand count from the ledger balances and the public candles, never against the lot book itself. #1's
+// acquired times are read from the lot book and each is matched to one of svc-trade's own fills for this person.
 const J = 'J-portfolio-04';
 const run = journeyState(`${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
 const ONE = toUnits('1');
@@ -75,20 +76,36 @@ test(`${J} #1 opens the lots list for BTC: each lot with acquired date, quantity
     await expect(row.locator('[data-col="cost"]')).toHaveText(usd(b.cost));
     await expect(row.locator('[data-col="days"]')).toHaveText('0');
   }
-  // The acquired column is each lot's date and time, oldest first: as the lot book holds them, both inside the minutes the
-  // buys took, the first before the second.
-  const book = (await (await api(who)).get('/api/tax/trpc/lotBook')).body.result.data;
-  const lotsHeld = book.lots.filter((lot) => lot.assetId === 'BTC');
+  // The acquired column is each lot's date and time, oldest first. Each lot's time is one of this person's own fills as
+  // svc-trade answers them, inside the minutes the buys took, the first before the second.
+  const client = await api(who);
+  const booked = await client.get('/api/tax/trpc/lotBook');
+  expect(booked.status, JSON.stringify(booked.body).slice(0, 300)).toBe(200);
+  const lotsHeld = booked.body.result.data.lots.filter((lot) => lot.assetId === 'BTC');
+  const fills = (await client.get('/api/v1/account/trades?limit=100')).body.filter((fill) => fill.symbol === 'BTC/USDT');
   const times = lotsHeld.map((lot) => Date.parse(lot.acquiredAt));
   expect(times).toHaveLength(2);
   expect(times[0]).toBeLessThan(times[1]);
   for (const at of times) {
     expect(at).toBeGreaterThanOrEqual(before - 60_000);
     expect(at).toBeLessThanOrEqual(after + 60_000);
+    expect(
+      fills.some((fill) => Math.abs(fill.timestamp - at) <= 1_000),
+      `a fill at ${new Date(at).toISOString()}`,
+    ).toBe(true);
   }
-  // Each row is the book's lot of that place, oldest first, with its acquired date and time shown.
+  // Each row is that lot, in that order, and shows its time as the page writes a date and time on this device.
   expect(await rows.evaluateAll((trs) => trs.map((tr) => tr.getAttribute('data-lot')))).toEqual(lotsHeld.map((lot) => lot.id));
-  for (const i of [0, 1]) await expect(rows.nth(i).locator('th')).toHaveText(/\d{1,2}:\d{2}/);
+  for (const [i, lot] of lotsHeld.entries()) {
+    const written = await page.evaluate((iso) => {
+      const at = Date.parse(iso);
+      const text = new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', hour12: false })
+        .format(at)
+        .replace(',', '');
+      return `${text.slice(0, text.lastIndexOf(' '))}, ${text.slice(text.lastIndexOf(' ') + 1)}`;
+    }, lot.acquiredAt);
+    await expect(rows.nth(i).locator('th')).toHaveText(written);
+  }
   // The term rule is not published, so only days held is shown and the screen says so.
   await expect(lots).toContainText('Short or long term is not shown');
 });
