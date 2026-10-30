@@ -497,17 +497,9 @@ test.describe('factor notices', () => {
     // The passkey removed.
     await page.getByRole('button', { name: /^Remove passkey / }).click();
     await page.getByRole('dialog').getByRole('button', { name: 'Remove passkey' }).click();
-    const sheet = page.getByRole('dialog', { name: /confirm it’s you/i });
-    if (
-      await sheet.waitFor({ state: 'visible', timeout: 3_000 }).then(
-        () => true,
-        () => false,
-      )
-    ) {
-      await confirmSheet();
-      await page.getByRole('button', { name: /^Remove passkey / }).click();
-      await page.getByRole('dialog').getByRole('button', { name: 'Remove passkey' }).click();
-    }
+    // Removing a factor needs the second step first, as adding one did: confirm with the code, and the removal goes ahead.
+    await page.getByTestId('failure').getByRole('button', { name: 'Confirm it is you' }).click();
+    await confirmSheet();
     await expect(page.getByTestId('security__checklist').getByText('1 on this account')).toHaveCount(0);
     await notified('passkey_removed', 'Passkey removed');
 

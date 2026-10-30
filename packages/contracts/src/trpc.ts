@@ -107,6 +107,7 @@ const RETRY_AFTER_CODES = new Set([
   'auth.email_confirm_rate_limited',
   'kyc.attempts_exhausted',
   'identity.self_freeze_lift_too_soon',
+  'identity.resend_too_soon',
 ]);
 
 /**

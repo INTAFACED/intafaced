@@ -434,6 +434,9 @@ test(`${J} #4 sets a passkey as the second step and keeps one for signing in: an
     .click();
   await expect(names.getByTestId('security__row')).toHaveCount(2);
   const [kept] = await heldPasskeys(key);
+  const {
+    credentials: [keptCredential],
+  } = await key.cdp.send('WebAuthn.getCredentials', { authenticatorId: key.authenticatorId });
   const securityKey = names.locator('[data-testid="security__row"]', { hasText: 'Security key' });
   await expect(securityKey).toContainText('Kept for: nothing in particular');
   await securityKey.getByRole('button', { name: /^Choose what passkey/ }).click();
@@ -465,6 +468,8 @@ test(`${J} #4 sets a passkey as the second step and keeps one for signing in: an
   // the kept passkey, so this browser signs the account's own challenge with theirs (the device holds it) and sends it
   // where the page sends its answer: the app and identity are unmodified.
   const { passkey: challenge } = await password();
+  // Only the device that holds their passkey answers: the security key is unplugged for this attempt.
+  await key.cdp.send('WebAuthn.removeVirtualAuthenticator', { authenticatorId: key.authenticatorId });
   const forged = await page.evaluate(
     async ({ options, theirsId }) => {
       const fromB64 = (value) => Uint8Array.from(atob(value.replace(/-/g, '+').replace(/_/g, '/')), (c) => c.charCodeAt(0));
@@ -508,9 +513,13 @@ test(`${J} #4 sets a passkey as the second step and keeps one for signing in: an
   expect(refusal?.intafacedCode ?? refusal?.cause?.code ?? refusal?.code).toBe('auth.webauthn_invalid');
   expect(JSON.stringify(forged.body)).not.toContain('accessToken');
   await page.goto('/uc/safe');
-  await expect(page).toHaveURL(/\/login/);
+  await expect(page.getByRole('heading', { name: 'Sign in to continue' })).toBeVisible();
 
-  // The person's own kept passkey signs them in.
+  // The person's own kept passkey signs them in: the security key is plugged back in and the device is put away, so the
+  // browser offers the one authenticator that holds the kept passkey.
+  await device.cdp.send('WebAuthn.removeVirtualAuthenticator', { authenticatorId: device.authenticatorId });
+  const replugged = await virtualAuthenticator(page, 'usb');
+  await replugged.cdp.send('WebAuthn.addCredential', { authenticatorId: replugged.authenticatorId, credential: keptCredential });
   await password();
   await page.getByRole('button', { name: 'Use your passkey' }).click();
   await page.waitForURL((url) => url.pathname !== '/login');
