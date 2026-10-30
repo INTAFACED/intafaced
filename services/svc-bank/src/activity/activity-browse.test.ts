@@ -331,6 +331,8 @@ describe('over the router', () => {
       { ...post('tx-buy', 'trade.fill', 'debit', 3, { module: 'trade' }), assetId: 'BTC' },
       { ...post('tx-sell', 'trade.fill', 'debit', 4, { module: 'trade' }), assetId: 'USDT' },
       { ...post('tx-mm', 'trade.fill.mm_maker', 'debit', 5, { module: 'trade' }), assetId: 'ETH' },
+      // A maker's sale to the token buyback: the customer always sells there, so even a non-dollar quote is no purchase.
+      { ...post('tx-buyback', 'trade.fill.buyback', 'debit', 5, { module: 'trade' }), assetId: 'BTC' },
       { ...post('tx-margin', 'futures.margin.release', 'debit', 6, { module: 'trade' }), assetId: 'ETH' },
       { ...post('tx-profit', 'futures.profit.realized', 'debit', 7, { module: 'trade' }), assetId: 'USDT' },
       { ...post('tx-p2p-buy', 'p2p.escrow.release', 'debit', 8, { module: 'p2p' }), assetId: 'USDT' },
@@ -346,7 +348,8 @@ describe('over the router', () => {
     expect(await pageOf('tx-buy')).toBe('/coin/BTC');
     expect(await pageOf('tx-mm')).toBe('/coin/ETH');
     expect(await pageOf('tx-p2p-buy')).toBe('/coin/USDT');
-    for (const txId of ['tx-sell', 'tx-margin', 'tx-profit', 'tx-p2p-refund', 'tx-send']) expect(await pageOf(txId)).toBeNull();
+    expect(list.items.find((i) => i.txId === 'tx-buyback')?.kind).toBe('trade');
+    for (const txId of ['tx-sell', 'tx-buyback', 'tx-margin', 'tx-profit', 'tx-p2p-refund', 'tx-send']) expect(await pageOf(txId)).toBeNull();
     expect(
       list.items
         .filter((i) => i.purchase)

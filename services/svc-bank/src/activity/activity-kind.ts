@@ -84,6 +84,8 @@ export const KIND_BY_MODULE_REASON: Readonly<Record<string, Row>> = {
   // Trading (recipes/index.ts:266, 417, 451-598)
   'trade/trade.fill': 'trade',
   'trade/trade.fill.mm_maker': 'trade',
+  // A customer maker's sale to the token buyback (recipes/buyback.ts `buybackTakerFill`).
+  'trade/trade.fill.buyback': 'trade',
   'trade/futures.margin.lock': 'trade',
   'trade/futures.margin.add': 'trade',
   'trade/futures.margin.release': 'trade',
@@ -98,6 +100,9 @@ export const KIND_BY_MODULE_REASON: Readonly<Record<string, Row>> = {
   // House market-maker holds sit on the house's account, never a customer's; they stay unnamed.
   'trade/order.hold.mm': 'other',
   'trade/order.hold.mm.released': 'other',
+  // The token buyback's own hold sits on a house account too (recipes/buyback.ts).
+  'trade/order.hold.buyback': 'other',
+  'trade/order.hold.buyback.released': 'other',
   // House-side postings: never on a user's account, listed so the inventory is closed (index.ts:119, 619)
   'trade/mm.seed.funded': 'other',
   'trade/futures.insurance.topup': 'other',
