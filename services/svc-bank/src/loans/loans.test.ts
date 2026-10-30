@@ -1115,6 +1115,7 @@ describe('svc-bank loans PG-hard', () => {
       };
 
       loans = new LoanService(sql, ledger, {
+        originationFeeBps: '0',
         priceSource: price('10000'),
         marginCalls: sink,
         venue: marketMakerVenue(),
@@ -1666,7 +1667,7 @@ describe('svc-bank loans PG-hard', () => {
         await fundReserve('USDT', '100000');
 
         // BTC crashed while the loan sat pending: 1 BTC at 5200 against a 5000 draw is 96% LTV.
-        const crashed = new LoanService(sql, ledger, { priceSource: price('5200'), venue: marketMakerVenue() });
+        const crashed = new LoanService(sql, ledger, { originationFeeBps: '0', priceSource: price('5200'), venue: marketMakerVenue() });
         const resumed = await crashed.resumePending(100, now);
 
         expect(resumed).toHaveLength(1);
@@ -1688,6 +1689,7 @@ describe('svc-bank loans PG-hard', () => {
         // The feed is stuck at a mark stamped two policy windows before "now".
         const stale = new Date(now.getTime() - 2 * DEFAULT_MARK_POLICY.maxAgeSeconds * 1000);
         const stuck = new LoanService(sql, ledger, {
+          originationFeeBps: '0',
           priceSource: fixedPriceSource({ BTC: { price: '10000', quality: 'mid' } }, () => stale),
           venue: marketMakerVenue(),
         });
@@ -2037,6 +2039,7 @@ describe('svc-bank loans PG-hard', () => {
           now,
         });
         loans = new LoanService(sql, ledger, {
+          originationFeeBps: '0',
           priceSource: price(collateralPrice),
           marginCalls: {
             send: async (i) => {
@@ -2186,6 +2189,7 @@ describe('svc-bank loans PG-hard', () => {
 
         // Same price, but now sourced from a single trade print.
         loans = new LoanService(sql, ledger, {
+          originationFeeBps: '0',
           priceSource: fixedPriceSource({ BTC: { price: '5700', quality: 'last' } }, () => markNow),
           venue: marketMakerVenue(),
         });
@@ -2210,7 +2214,7 @@ describe('svc-bank loans PG-hard', () => {
         });
 
         const noBuyer: LiquidationVenue = { quote: async () => null };
-        loans = new LoanService(sql, ledger, { priceSource: price('5700'), venue: noBuyer });
+        loans = new LoanService(sql, ledger, { originationFeeBps: '0', priceSource: price('5700'), venue: noBuyer });
 
         await sweepAt(now);
         const sweep = await sweepAt(new Date(now.getTime() + 2 * 3_600_000));
@@ -2277,6 +2281,7 @@ describe('svc-bank loans PG-hard', () => {
 
         // Gap crash: 1 USDT/BTC → proceeds 1 < interest; insolvency waives grace.
         loans = new LoanService(sql, ledger, {
+          originationFeeBps: '0',
           priceSource: price('1'),
           venue: marketMakerVenue(),
           marginCalls: { send: async () => undefined },
@@ -2398,6 +2403,7 @@ describe('svc-bank loans PG-hard', () => {
           }),
         };
         loans = new LoanService(sql, ledger, {
+          originationFeeBps: '0',
           priceSource: price('1'),
           venue: laterQuote,
           marginCalls: { send: async () => undefined },
@@ -2523,6 +2529,7 @@ describe('svc-bank loans PG-hard', () => {
           }),
         };
         loans = new LoanService(sql, ledger, {
+          originationFeeBps: '0',
           priceSource: price('1'),
           venue: laterQuote,
           marginCalls: { send: async () => undefined },
@@ -2656,6 +2663,7 @@ describe('svc-bank loans PG-hard', () => {
           }),
         };
         loans = new LoanService(sql, ledger, {
+          originationFeeBps: '0',
           priceSource: price('1'),
           venue: laterQuote,
           marginCalls: { send: async () => undefined },
@@ -2873,12 +2881,14 @@ describe('svc-bank loans PG-hard', () => {
       it('does not sell when the loan is repaid or liquidated before the claim', async () => {
         for (const closed of ['repaid', 'liquidated'] as const) {
           loans = new LoanService(sql, ledger, {
+            originationFeeBps: '0',
             priceSource: price('10000'),
             venue: marketMakerVenue(),
             marginCalls: { send: async () => undefined },
           });
           const opened = await openAt('5200');
           loans = new LoanService(sql, ledger, {
+            originationFeeBps: '0',
             priceSource: price('5200'),
             venue: {
               quote: async () => {
@@ -2972,6 +2982,7 @@ describe('svc-bank loans PG-hard', () => {
           }),
         };
         loans = new LoanService(sql, ledger, {
+          originationFeeBps: '0',
           priceSource: price('1'),
           venue: laterQuote,
           marginCalls: { send: async () => undefined },

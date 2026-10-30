@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { z } from 'zod';
 import { useApi } from '../session/session';
 import { useResource } from '../../shared/resource';
@@ -22,6 +22,8 @@ import {
   type OwnAgentLimits,
   type OwnAgentRunResult,
 } from '@intafaced/contracts/agents-own';
+import { ownAgentUsageLimitsSchema, type OwnAgentUsageLimits } from '@intafaced/contracts/agents-usage-limits';
+import { ServiceOffNotice } from '../../shared/service-off';
 
 type ToolEntry = OwnAgentCatalogue['tools'][number];
 
@@ -44,6 +46,9 @@ const CODE_WORDS = {
   'agents.own.name_unset': 'code_own_name_unset',
   'agents.spend.cap_unset': 'code_spend_cap_unset',
   'agents.spend.cap_exceeded': 'code_spend_cap_exceeded',
+  'agents.usage.hard_limit_reached': 'code_usage_hard_limit_reached',
+  'agents.usage.limit_invalid': 'code_usage_limit_invalid',
+  'agents.usage.alert_above_limit': 'code_usage_alert_above_limit',
   'agents.funds_insufficient': 'code_funds_insufficient',
   'agents.funds_unread': 'code_funds_unread',
   'agents.price_unset': 'code_price_unset_unread',
@@ -363,6 +368,8 @@ export function OwnAgentPage({ id }: { id: string }) {
   const [page, setPage] = useState<string>('Build');
   // The open session belongs to the agent's page, not to one tab of it: moving to Usage and back keeps it.
   const session = useState<string | null>(null);
+  const [usageRuns, setUsageRuns] = useState(0);
+  const countRun = useCallback(() => setUsageRuns((n) => n + 1), []);
   const loaded = useResource((signal) => api.query('agents', 'own.get', { id }, ownAgentSchema, { signal }), `own-agent:${id}`);
   const [latest, setLatest] = useState<OwnAgent | null>(null);
   return (
@@ -391,7 +398,8 @@ export function OwnAgentPage({ id }: { id: string }) {
             ) : page === 'Limits' ? (
               <>
                 <Limits agent={agent} />
-                <Sessions agent={agent} session={session} />
+                <UsageLimits agent={agent} runs={usageRuns} />
+                <Sessions agent={agent} session={session} onRun={countRun} />
               </>
             ) : page === 'Test' ? (
               <Sessions agent={agent} session={session} twice />
@@ -495,6 +503,112 @@ function LimitsForm({ agent, view }: { agent: OwnAgent; view: OwnAgentLimits }) 
   );
 }
 
+/**
+ * The alert and the hard limit for the month (J-agents-02 #6). Blank is not set. The alert is recorded once a month
+ * when this agent's spend reaches it, and runs go on; at the hard limit a new run is refused and a run already started
+ * finishes. Email is the person's choice, shown with the channel's real state: no email provider is connected.
+ */
+function UsageLimits({ agent, runs }: { agent: OwnAgent; runs: number }) {
+  const api = useApi();
+  const loaded = useResource(
+    (signal) => api.query('agents', 'own.usageLimits.get', { id: agent.id }, ownAgentUsageLimitsSchema, { signal }),
+    `own-usage-limits:${agent.id}`,
+  );
+  return (
+    <Read resource={loaded.resource} retry={loaded.reload}>
+      {(view) => <UsageLimitsForm agent={agent} view={view} runs={runs} />}
+    </Read>
+  );
+}
+
+function UsageLimitsForm({ agent, view, runs }: { agent: OwnAgent; view: OwnAgentUsageLimits; runs: number }) {
+  const api = useApi();
+  const { t } = agentBuilderCopy.useCopy();
+  const [current, setCurrent] = useState(view);
+  // A run on this page moves the month's spend: read it again after each one. The fresh read replaces what the form
+  // shows as spent and reached, never what the person is typing.
+  useEffect(() => {
+    if (runs === 0) return;
+    const controller = new AbortController();
+    void api
+      .query('agents', 'own.usageLimits.get', { id: agent.id }, ownAgentUsageLimitsSchema, { signal: controller.signal })
+      .then((res) => {
+        if (res.ok && !controller.signal.aborted) setCurrent(res.data);
+      });
+    return () => controller.abort();
+  }, [runs, api, agent.id]);
+  const [alertAt, setAlertAt] = useState(view.alertAt ?? '');
+  const [hardLimit, setHardLimit] = useState(view.hardLimit ?? '');
+  const [email, setEmail] = useState(view.email);
+  const [refused, setRefused] = useState<Failed | null>(null);
+  const [saved, setSaved] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const blankAsNull = (value: string) => (value.trim() ? value.trim() : null);
+  async function save() {
+    setBusy(true);
+    setSaved(false);
+    setRefused(null);
+    const res = await api.mutate(
+      'agents',
+      'own.usageLimits.set',
+      { id: agent.id, alertAt: blankAsNull(alertAt), hardLimit: blankAsNull(hardLimit), email },
+      ownAgentUsageLimitsSchema,
+    );
+    setBusy(false);
+    if (!res.ok) return setRefused(res);
+    setCurrent(res.data);
+    setSaved(true);
+  }
+  const edit = (set: (value: string) => void) => (event: { target: { value: string } }) => {
+    setSaved(false);
+    set(event.target.value);
+  };
+  return (
+    <Panel title={t('usageLimitsTitle')}>
+      <form
+        aria-label={t('usageLimitsTitle')}
+        onSubmit={(event) => {
+          event.preventDefault();
+          void save();
+        }}
+      >
+        <p className="muted">{t('usageLimitsIntro', { asset: current.assetId })}</p>
+        <Field label={t('alertAt')} inputMode="decimal" value={alertAt} onChange={edit(setAlertAt)} />
+        <Field label={t('hardLimit')} inputMode="decimal" value={hardLimit} onChange={edit(setHardLimit)} />
+        <Field
+          label={t('alertByEmail')}
+          type="checkbox"
+          checked={email}
+          onChange={(event) => {
+            setSaved(false);
+            setEmail(event.target.checked);
+          }}
+        />
+        {email ? <ServiceOffNotice code="vendor.email" action={t('alertEmailAction')} role="note" /> : null}
+        <p role="note">
+          {t('alertInboxUnwired')} <code lang="zxx">agents.usage.alert_inbox_unwired</code>
+        </p>
+        <p data-testid="usage-spent">{t('usageSpent', { month: current.month, amount: money(current.spent, current.assetId) })}</p>
+        <p data-testid="usage-alert-state">
+          {current.alert ? t('alertCrossed', { amount: money(current.alert.spent, current.assetId) }) : t('alertNotCrossed')}
+        </p>
+        <p data-testid="usage-hard-limit-state">
+          {current.hardLimitReached
+            ? t('hardLimitReached')
+            : current.hardLimitRoom !== null
+              ? t('hardLimitRoom', { amount: money(current.hardLimitRoom, current.assetId) })
+              : t('hardLimitNotReached')}
+        </p>
+        <Button type="submit" disabled={busy}>
+          {t('saveUsageLimits')}
+        </Button>
+        {saved ? <p role="status">{t('usageLimitsSaved')}</p> : null}
+        {refused ? <Answer failed={refused} asset={current.assetId} /> : null}
+      </form>
+    </Panel>
+  );
+}
+
 /** One run's answer: the reply and what it cost. */
 type Ran = OwnAgentRunResult;
 
@@ -507,10 +621,13 @@ function Sessions({
   agent,
   session: [sessionId, setSessionId],
   twice = false,
+  onRun,
 }: {
   agent: OwnAgent;
   session: [string | null, (id: string | null) => void];
   twice?: boolean;
+  /** Told after each run or refusal, so a panel beside it can read the month's spend again. */
+  onRun?: () => void;
 }) {
   const api = useApi();
   const { t } = agentBuilderCopy.useCopy();
@@ -521,6 +638,9 @@ function Sessions({
   const [refusedTask, setRefusedTask] = useState('');
   const [busy, setBusy] = useState(false);
   const [runsVersion, setRunsVersion] = useState(0);
+  useEffect(() => {
+    if (runsVersion > 0) onRun?.();
+  }, [runsVersion, onRun]);
   // Each press is its own request: a business key from this visit, the session and a count, so a retried request
   // (the same key) is one run and one charge, and a new press is a new run.
   const presses = useRef(0);

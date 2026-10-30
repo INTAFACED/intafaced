@@ -107,6 +107,24 @@ import {
   type RepresentationSetting,
   type RepresentationStore,
 } from './representation/representation.js';
+import {
+  issueChallenge,
+  LISTING_CHALLENGE_TTL_UNSET,
+  LISTING_NONCE_UNKNOWN,
+  LISTING_NOT_OWNER,
+  LISTING_OWNER_UNKNOWN,
+  ListingRefusedError,
+  verifyOwnership,
+  type ListingStore,
+  type OwnershipChain,
+} from './listing/ownership.js';
+import { ownershipChain } from './listing/ownership-chain.js';
+import {
+  protocolListingChallengeInputSchema,
+  protocolListingChallengeOutputSchema,
+  protocolListingVerifyInputSchema,
+  protocolListingVerifyOutputSchema,
+} from '@intafaced/contracts/protocol-listing';
 
 /**
  * svc-protocol's API.
@@ -278,6 +296,17 @@ function toTrpcError(err: unknown): TRPCError {
           : 'CONFLICT';
     return new TRPCError({ code, message: err.message, cause: err });
   }
+  if (err instanceof ListingRefusedError) {
+    const code =
+      err.code === LISTING_CHALLENGE_TTL_UNSET || err.code === LISTING_OWNER_UNKNOWN
+        ? 'PRECONDITION_FAILED'
+        : err.code === LISTING_NOT_OWNER
+          ? 'FORBIDDEN'
+          : err.code === LISTING_NONCE_UNKNOWN
+            ? 'NOT_FOUND'
+            : 'CONFLICT';
+    return new TRPCError({ code, message: err.message, cause: err });
+  }
   if (err instanceof BadgeRefusedError) {
     const code =
       err.code === BADGE_STUCK_APPROVAL_REFUSED
@@ -406,6 +435,17 @@ export interface ProtocolRouterDeps {
   /** Test seam for the network registry source; defaults to the owner's `deployments/networks.json`. */
   loadNetworks?: () => ReturnType<typeof loadNetworkRegistry>;
   /**
+   * Contract ownership proof (D-launch-listing-01). `ttlSeconds()` is null while the owner's challenge lifetime is blank
+   * (`protocol.listing.challenge_ttl_unset`). Absent = not wired, which refuses the same way. `chain` defaults to the
+   * service's own client.
+   */
+  listing?: {
+    store: ListingStore;
+    ttlSeconds: () => number | null;
+    chain?: OwnershipChain;
+    now?: () => Date;
+  };
+  /**
    * The first-signing representation (D-developer-compliance-03). `setting()` is null while counsel's text or the owner's
    * version is blank (`compliance.representation_unset`). Absent = not wired, which refuses the same way.
    */
@@ -442,6 +482,9 @@ const unwiredRepresentationStore: RepresentationStore = {
 export function createProtocolRouter(deps: ProtocolRouterDeps) {
   const { chain, registry, relay } = deps;
   const readPairs = pairsReader(chain);
+  // The ownership proof's chain reads, built once: the challenge's chain id and the verify reads come from this one object.
+  let ownership: OwnershipChain | null = null;
+  const listingChain = (): OwnershipChain => (ownership ??= deps.listing?.chain ?? ownershipChain(chain));
   // amm.prices is public: one block's time is read once and shared, like the pairs read it sits on.
   let blockTime: { block: string; at: Promise<Date> } | null = null;
   const timeOfBlock = (block: string): Promise<Date> => {
@@ -1014,6 +1057,57 @@ export function createProtocolRouter(deps: ProtocolRouterDeps) {
           throw toTrpcError(err);
         }
       }),
+
+    /**
+     * Contract ownership proof (D-launch-listing-01). Public: the token's owner may be signed out. A challenge is a fresh
+     * one-time message; a proof is stored only when the token's on-chain owner signed it.
+     */
+    listing: router({
+      ownershipChallenge: publicJurisdictionProcedure('protocol', 'protocol')
+        .input(protocolListingChallengeInputSchema)
+        .output(protocolListingChallengeOutputSchema)
+        .mutation(async ({ input }) => {
+          try {
+            const l = deps.listing;
+            if (!l) throw new ListingRefusedError(LISTING_CHALLENGE_TTL_UNSET, 'Ownership proofs are not wired on this service.');
+            const now = l.now?.() ?? new Date();
+            const c = await issueChallenge(l.store, listingChain(), l.ttlSeconds(), input.token as Address, now);
+            return {
+              nonce: c.nonce,
+              token: c.token,
+              chainId: c.chainId,
+              message: c.message,
+              issuedAt: c.issuedAt.toISOString(),
+              expiresAt: c.expiresAt.toISOString(),
+            };
+          } catch (err) {
+            throw toTrpcError(err);
+          }
+        }),
+      verifyOwnership: publicJurisdictionProcedure('protocol', 'protocol')
+        .input(protocolListingVerifyInputSchema)
+        .output(protocolListingVerifyOutputSchema)
+        .mutation(async ({ input }) => {
+          try {
+            const l = deps.listing;
+            if (!l) throw new ListingRefusedError(LISTING_CHALLENGE_TTL_UNSET, 'Ownership proofs are not wired on this service.');
+            const proof = await verifyOwnership(
+              l.store,
+              listingChain(),
+              { nonce: input.nonce, signature: input.signature as Hex },
+              l.now?.() ?? new Date(),
+            );
+            return {
+              token: proof.token,
+              signer: proof.signer,
+              blockNumber: proof.blockNumber.toString(),
+              verifiedAt: proof.verifiedAt.toISOString(),
+            };
+          } catch (err) {
+            throw toTrpcError(err);
+          }
+        }),
+    }),
 
     /**
      * The representation a wallet signs once per version before its first signing action. Public like the rest of this

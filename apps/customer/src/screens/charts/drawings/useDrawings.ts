@@ -42,6 +42,16 @@ import { DrawingsPrimitive } from './primitive';
 import { drawingsKey, readDoc, writeDoc } from './store';
 import { isCursorTool, toolKind, type ToolId } from './tools';
 
+/** What a check can read from the chart element: each drawing's painted lines and handles, and a price's height. */
+interface DrawnReadback {
+  readDrawnLines?: () => Array<{
+    id: string;
+    lines: Array<[number, number, number, number]>;
+    handles: Array<{ x: number; y: number; index: number | 'middle' }>;
+  }>;
+  readPriceY?: (price: number) => number | null;
+}
+
 /** The magnet's sensitivity in pixels: a UI default, shown in the panel. Blank (null) turns the magnet off. */
 export const MAGNET_SENSITIVITY_DEFAULT = 8;
 /** Distance in pixels a brush stroke samples its next point at. */
@@ -591,8 +601,29 @@ export function useDrawings(host: ChartHost | null, bars: readonly Candle[], opt
     if (!main) return;
     primitive.bind(main);
     main.attachPrimitive(primitive);
-    return () => main.detachPrimitive(primitive);
-  }, [host?.main, primitive]);
+    // The pane the drawings are drawn in, read from the library: the main series' pane, the price pane (0).
+    const element = host?.element as (HTMLElement & DrawnReadback) | undefined;
+    if (element) {
+      element.dataset.drawingsPane = String(main.getPane().paneIndex());
+      // Read on demand (nothing is written per frame), so a check can measure what is drawn: each drawing's painted lines
+      // and handles in pixels from the chart's top left, and the height a price is drawn at on the price pane.
+      element.readDrawnLines = () =>
+        primitive.current().map((plan) => ({
+          id: plan.id,
+          lines: plan.ops.flatMap((op) => (op.op === 'line' ? [[op.x1, op.y1, op.x2, op.y2] as [number, number, number, number]] : [])),
+          handles: plan.handles.map((h) => ({ x: h.x, y: h.y, index: h.index })),
+        }));
+      element.readPriceY = (price: number) => main.priceToCoordinate(price);
+    }
+    return () => {
+      main.detachPrimitive(primitive);
+      if (element) {
+        delete element.dataset.drawingsPane;
+        delete element.readDrawnLines;
+        delete element.readPriceY;
+      }
+    };
+  }, [host?.main, host?.element, primitive]);
 
   // Paint whenever what is drawn changes.
   useEffect(() => {
