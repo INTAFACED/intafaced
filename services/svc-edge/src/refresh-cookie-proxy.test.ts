@@ -7,11 +7,10 @@ import { forwardUpstreamResponseHeaders, prepareUpstreamRequestHeaders, refuseCo
 
 const here = dirname(fileURLToPath(import.meta.url));
 
-function headers(lines: string[], contentType = 'application/json', cacheControl: string | null = null) {
+function headers(lines: string[], contentType = 'application/json') {
   return {
     get(name: string) {
       if (name === 'content-type') return contentType;
-      if (name === 'cache-control') return cacheControl;
       if (name === 'set-cookie') return lines[0] ?? null;
       return null;
     },
@@ -53,34 +52,6 @@ describe('refresh cookie at the edge', () => {
     const forwarded = forwardUpstreamResponseHeaders('/api/trade/trpc/orders.list', headers(['ifc_rt=secret; Path=/trpc/auth.refresh']));
     expect(forwarded['set-cookie']).toBeUndefined();
     expect(forwarded['content-type']).toBe('application/json');
-  });
-
-  it('passes Cache-Control on the status badge image only', () => {
-    const badge = forwardUpstreamResponseHeaders('/api/notify/status/badge.svg', headers([], 'image/svg+xml', 'public, max-age=120'));
-    expect(badge).toEqual({ 'content-type': 'image/svg+xml', 'cache-control': 'public, max-age=120' });
-    const fresh = forwardUpstreamResponseHeaders('/api/notify/status/badge.svg', headers([], 'image/svg+xml', 'no-cache, max-age=0'));
-    expect(fresh['cache-control']).toBe('no-cache, max-age=0');
-    expect(forwardUpstreamResponseHeaders('/api/notify/status/badge.svg', headers([], 'image/svg+xml'))).toEqual({
-      'content-type': 'image/svg+xml',
-    });
-  });
-
-  it('keeps every other /api/ path to its current headers, with no Cache-Control', () => {
-    for (const path of [
-      '/api/notify/trpc/statusPage.badge',
-      '/api/notify/status/badge.svg/x',
-      '/api/notify/status/badge.svgx',
-      '/api/notify/status/BADGE.svg',
-      '/api/notify/status/badge.svg/',
-      '/api/notify/status',
-      '/api/trade/trpc/orders.list',
-      '/api/identity/trpc/auth.refresh',
-      '/api/pay/checkout/session/abc',
-    ]) {
-      const forwarded = forwardUpstreamResponseHeaders(path, headers([], 'application/json', 'public, max-age=120'));
-      expect(forwarded['cache-control'], path).toBeUndefined();
-      expect(Object.keys(forwarded).sort(), path).toEqual(['content-type']);
-    }
   });
 
   it('forwards Cookie only to auth routes', () => {

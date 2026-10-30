@@ -104,7 +104,7 @@ Every JSON-object error under `/api/*` carries `requestId`, equal to the header:
 
 The operator plane (`/admin/*`) and the probes get the headers only.
 
-**Response headers are an allowlist.** A proxied reply carries `content-type`; `set-cookie` only on the identity auth routes; the checkout's own policy headers only on checkout paths; and `cache-control` only on `/api/notify/status/badge.svg`, where svc-notify sets the image's cache life from its reading's age. Every other path gets no upstream `cache-control`.
+**Response headers are an allowlist.** A proxied reply carries `content-type`; `set-cookie` only on the identity auth routes; the checkout's own policy headers only on checkout paths; and `cache-control` and `content-security-policy` only on `/api/notify/status/badge.svg` (`status-badge-proxy.ts`), where svc-notify sets the image's cache life from its reading's age. Every other path gets no upstream `cache-control`.
 
 **Hop-by-hop headers are stripped, not forwarded.** The full RFC 7230 set (`connection`, `keep-alive`, `proxy-authenticate`, `proxy-authorization`, `te`, `trailer`, `transfer-encoding`, `upgrade`) plus `host` and `content-length` die in `stripReserved` before anything reaches an upstream. The edge rewrites `host`/`content-length` for the hop it owns; the rest must not be smuggled through the perimeter.
 
