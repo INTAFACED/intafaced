@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import { Chip } from '@/components/chip';
 import './desk.css';
 import { formatAsOf, formatWhen } from '@/lib/as-of';
@@ -142,11 +142,13 @@ function KeyFix({ quiz, busy, onSave }: { quiz: AcademyAdminCourseQuiz; busy: bo
 }
 
 function Curve({ busy, onSend }: { busy: boolean; onSend: (body: Record<string, unknown>) => void }) {
-  const [file, setFile] = useState<File | null>(null);
+  // The chosen file is read from the input when a button is pressed, so a choice made before the page was interactive counts.
+  const input = useRef<HTMLInputElement>(null);
   const [reason, setReason] = useState('');
   const [why, setWhy] = useState<string | null>(null);
   const [reading, setReading] = useState(false);
   const send = (dryRun: boolean) => {
+    const file = input.current?.files?.[0];
     if (!file) return setWhy('Choose a curve file first.');
     if (reading || busy) return;
     setReading(true);
@@ -170,7 +172,7 @@ function Curve({ busy, onSend }: { busy: boolean; onSend: (body: Record<string, 
       </p>
       <div className="adm-field">
         <label htmlFor="curve-file">Curve file (CSV)</label>
-        <input id="curve-file" type="file" accept=".csv,text/csv" onChange={(e) => setFile(e.target.files?.[0] ?? null)} />
+        <input id="curve-file" ref={input} type="file" accept=".csv,text/csv" />
       </div>
       <div className="adm-field">
         <label htmlFor="curve-reason">Reason for the curve</label>
