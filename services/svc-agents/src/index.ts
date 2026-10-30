@@ -6,7 +6,7 @@ import { retainRawBody, s2sFromEnv } from '@intafaced/contracts';
 import { JetStreamEventBus } from '@intafaced/events';
 import { env } from './env.js';
 import { ModelGateway } from './gateway/gateway.js';
-import { userAvailable } from '@intafaced/ledger-client';
+import { parseAmount, userAvailable } from '@intafaced/ledger-client';
 import { DEFAULT_ROUTING_TABLE, parseRoutingTable, unpricedTable, type RoutingTable } from './gateway/routing.js';
 import { createLedgerClient } from './ledger-client.js';
 import { createAffiliateAccrueClient } from './affiliate-accrue.js';
@@ -144,6 +144,7 @@ const runtime = new AgentRuntime(sql, gateway, meter, bus, {
   // The person's available balance, read from the ledger before each metered run (OWNER 107).
   funds: { available: async (userId, assetId) => (await ledger.balance(userAvailable(userId, assetId))).amount },
   transcriptRetentionDays: env.AGENTS_TRANSCRIPT_RETENTION_DAYS ?? null,
+  overageGrace: env.AGENTS_OVERAGE_GRACE === undefined ? null : parseAmount(env.AGENTS_OVERAGE_GRACE),
 });
 
 // Upsert product guardrails before the listener opens — openSession binds from

@@ -15,6 +15,7 @@ export { algoProgressSchema, otcFillSchema, otcQuoteSchema };
 /** `algo.get` also sends the schedule clock and the participation rate; the legacy schema drops them. */
 export const algoParentSchema = algoSchema.extend({
   participationBps: z.number().int().nullable().optional(),
+  povBasis: z.enum(['traded_volume', 'opposite_liquidity']).nullable().optional(),
   startedAt: z.string().nullable().optional(),
   nextDueAt: z.string().nullable().optional(),
   scheduleStretchReason: z.string().nullable().optional(),
@@ -23,7 +24,12 @@ export const algoParentSchema = algoSchema.extend({
   triggeredAt: z.string().nullable().optional(),
   awaitingTrigger: z.boolean().optional(),
   plannedSliceQtys: z.array(decimalSchema).optional(),
+  /** `algo.get` children: each placed size and, for POV, the volume or book size it was a share of. */
+  children: z
+    .array(z.object({ sliceIndex: z.number().int(), qty: decimalSchema.optional(), basisQty: decimalSchema.nullable().optional() }))
+    .optional(),
 });
+export type PovBasis = 'traded_volume' | 'opposite_liquidity';
 export type AlgoParent = z.infer<typeof algoParentSchema>;
 export type AlgoProgress = z.infer<typeof algoProgressSchema>;
 
@@ -51,6 +57,8 @@ export const deskStatusSchema = z.object({
   residual: z.string().nullable().optional(),
   /** CB-otc-11: the base assets the desk quotes; null when the owner left the list blank. */
   assets: z.array(z.string()).nullable().optional(),
+  /** CB-otc-08: the lowest verification level the desk prices for; null when the owner left it blank. */
+  minTier: z.string().nullable().optional(),
   makerRouting: z.object({ published: z.boolean(), residual: z.string().nullable().optional() }).optional(),
   midFeed: z.object({ wiring: z.string(), published: z.boolean(), residual: z.string().nullable().optional() }).optional(),
 });
@@ -126,6 +134,8 @@ export interface CreateTwapInput {
   clientAlgoId: string;
   limitPrice?: string;
   participationBps?: number;
+  /** POV only: traded volume (default) or opposite-side liquidity. */
+  povBasis?: PovBasis;
   /** TWAP only: random slice sizes fixed by this seed. */
   randomSeed?: number;
   /** TWAP only: the schedule waits until the mark reaches this price. */

@@ -13,7 +13,9 @@ import {
   ownAgentRunResultSchema,
   ownAgentRunRowSchema,
   ownAgentSchema,
+  ownAgentSessionClosedSchema,
   ownAgentSessionSchema,
+  ownAgentUsageWindowSchema,
   type OwnAgent,
   type OwnAgentCatalogue,
   type OwnAgentLimits,
@@ -48,6 +50,10 @@ const CODE_WORDS = {
   'agents.request_id_replay': 'code_request_id_replay',
   'agents.session_closed': 'code_session_closed',
   'agents.session_not_found': 'code_session_not_found',
+  'agents.window_unpaid': 'code_window_unpaid',
+  'agents.overage_grace_unset': 'code_overage_grace_unset',
+  'agents.overage_grace_exceeded': 'code_overage_grace_exceeded',
+  'agents.window_sealed': 'code_window_sealed',
 } as const;
 const wordsKey = (code: string) => (Object.hasOwn(CODE_WORDS, code) ? CODE_WORDS[code as keyof typeof CODE_WORDS] : null);
 
@@ -344,6 +350,8 @@ export function OwnAgentPage({ id }: { id: string }) {
   const api = useApi();
   const { t } = agentBuilderCopy.useCopy();
   const [page, setPage] = useState<string>('Build');
+  // The open session belongs to the agent's page, not to one tab of it: moving to Usage and back keeps it.
+  const session = useState<string | null>(null);
   const loaded = useResource((signal) => api.query('agents', 'own.get', { id }, ownAgentSchema, { signal }), `own-agent:${id}`);
   const [latest, setLatest] = useState<OwnAgent | null>(null);
   return (
@@ -372,15 +380,17 @@ export function OwnAgentPage({ id }: { id: string }) {
             ) : page === 'Limits' ? (
               <>
                 <Limits agent={agent} />
-                <Sessions agent={agent} />
+                <Sessions agent={agent} session={session} />
               </>
             ) : page === 'Test' ? (
-              <Sessions agent={agent} twice />
+              <Sessions agent={agent} session={session} twice />
             ) : page === 'Runs' ? (
               <Runs agent={agent} />
+            ) : page === 'Usage' ? (
+              <Usage agent={agent} />
             ) : (
               <Panel title={t(`page_${page as (typeof PAGES)[number]}`)}>
-                <p role="note">{t(`parked_${page as Exclude<(typeof PAGES)[number], 'Build' | 'Limits' | 'Test' | 'Runs'>}`)}</p>
+                <p role="note">{t(`parked_${page as Exclude<(typeof PAGES)[number], 'Build' | 'Limits' | 'Test' | 'Runs' | 'Usage'>}`)}</p>
               </Panel>
             )}
           </div>
@@ -461,6 +471,9 @@ function LimitsForm({ agent, view }: { agent: OwnAgent; view: OwnAgentLimits }) 
             ? t('effectiveUnset')
             : t('effective', { amount: money(current.effectivePerSession, current.assetId) })}
         </p>
+        <p data-testid="overage-grace">
+          {current.overageGrace === null ? t('graceUnset') : t('grace', { amount: money(current.overageGrace, current.assetId) })}
+        </p>
         <Button type="submit" disabled={busy}>
           {t('saveLimits')}
         </Button>
@@ -479,10 +492,18 @@ type Ran = OwnAgentRunResult;
  * engine is called; a refused one shows why and costs 0. On the Test page, "Run twice at once" sends two runs together
  * so the caps can be seen to admit only what fits.
  */
-function Sessions({ agent, twice = false }: { agent: OwnAgent; twice?: boolean }) {
+function Sessions({
+  agent,
+  session: [sessionId, setSessionId],
+  twice = false,
+}: {
+  agent: OwnAgent;
+  session: [string | null, (id: string | null) => void];
+  twice?: boolean;
+}) {
   const api = useApi();
   const { t } = agentBuilderCopy.useCopy();
-  const [sessionId, setSessionId] = useState<string | null>(null);
+  const [closed, setClosed] = useState(false);
   const [ask, setAsk] = useState('');
   const [ran, setRan] = useState<Ran | null>(null);
   const [refused, setRefused] = useState<Failed | null>(null);
@@ -494,6 +515,7 @@ function Sessions({ agent, twice = false }: { agent: OwnAgent; twice?: boolean }
   const visit = useRef(`${Date.now().toString(36)}`);
   async function open(): Promise<string | null> {
     setRefused(null);
+    setClosed(false);
     const res = await api.mutate('agents', 'own.session.open', { id: agent.id }, ownAgentSessionSchema);
     if (!res.ok) {
       setRefused(res);
@@ -511,10 +533,24 @@ function Sessions({ agent, twice = false }: { agent: OwnAgent; twice?: boolean }
       ownAgentRunResultSchema,
     );
   };
+  /** Closes the session once its usage is paid; a window the ledger refused for funds keeps it open, and says so. */
+  async function close(session: string) {
+    setBusy(true);
+    setRan(null);
+    setRefused(null);
+    const res = await api.mutate('agents', 'own.session.close', { id: agent.id, sessionId: session }, ownAgentSessionClosedSchema);
+    if (res.ok) {
+      setSessionId(null);
+      setClosed(true);
+    } else setRefused(res);
+    setBusy(false);
+    setRunsVersion((v) => v + 1);
+  }
   async function run(times: number) {
     setBusy(true);
     setRan(null);
     setRefused(null);
+    setClosed(false);
     const session = sessionId ?? (await open());
     if (session) {
       const results = await Promise.all(Array.from({ length: times }, () => runOnce(session)));
@@ -536,6 +572,7 @@ function Sessions({ agent, twice = false }: { agent: OwnAgent; twice?: boolean }
         ) : (
           <p className="muted">{t('sessionNone')}</p>
         )}
+        {closed ? <p role="status">{t('sessionClosed')}</p> : null}
         <Button
           variant="secondary"
           disabled={busy}
@@ -549,6 +586,11 @@ function Sessions({ agent, twice = false }: { agent: OwnAgent; twice?: boolean }
         >
           {t('openSession')}
         </Button>
+        {sessionId ? (
+          <Button variant="secondary" disabled={busy} onClick={() => void close(sessionId)}>
+            {t('closeSession')}
+          </Button>
+        ) : null}
         <TextArea label={t('ask')} value={ask} onChange={setAsk} maxLength={4000} />
         <Button disabled={busy || !sessionId || !ask.trim()} onClick={() => void run(1)}>
           {t('run')}
@@ -611,6 +653,70 @@ function Runs({ agent, version = 0 }: { agent: OwnAgent; version?: number }) {
         )}
       </Read>
     </Panel>
+  );
+}
+
+/**
+ * The Usage page: each usage window of this agent's sessions, newest first. A window seals when its session closes and
+ * is charged on its own key; one the ledger refused for funds shows as unpaid, with that key, until it is retried.
+ */
+function Usage({ agent }: { agent: OwnAgent }) {
+  const api = useApi();
+  const { t } = agentBuilderCopy.useCopy();
+  const windows = useResource(
+    (signal) => api.query('agents', 'own.usage', { id: agent.id, limit: 50 }, z.array(ownAgentUsageWindowSchema), { signal }),
+    `own-usage:${agent.id}`,
+  );
+  return (
+    <>
+      <Panel title={t('usageTitle')} role="region" aria-label={t('usageTitle')}>
+        <Read resource={windows.resource} retry={windows.reload}>
+          {(rows) => (
+            <>
+              {rows.some((row) => row.state === 'unpaid') ? <p role="alert">{t('usageUnpaid')}</p> : null}
+              <table>
+                <thead>
+                  <tr>
+                    <th scope="col">{t('usageOpened')}</th>
+                    <th scope="col">{t('usageSession')}</th>
+                    <th scope="col">{t('usageState')}</th>
+                    <th scope="col">{t('usageAmount')}</th>
+                    <th scope="col">{t('usageChargeKey')}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {rows.map((row) => (
+                    <tr key={`${row.sessionId}:${row.windowId}`}>
+                      <td>{new Date(row.openedAt).toLocaleString()}</td>
+                      <td>
+                        <code lang="zxx">{row.sessionId}</code>
+                      </td>
+                      <td>{t(`usage_${row.state}`)}</td>
+                      {row.amount === null ? (
+                        <td>{t('usageNotSealed')}</td>
+                      ) : (
+                        <td data-testid="window-cost">{money(row.amount, row.assetId)}</td>
+                      )}
+                      <td>
+                        {row.chargeKey ? (
+                          <code lang="zxx" data-testid="charge-key">
+                            {row.chargeKey}
+                          </code>
+                        ) : null}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              {rows.length === 0 ? <p className="muted">{t('usageEmpty')}</p> : null}
+            </>
+          )}
+        </Read>
+      </Panel>
+      <Panel title={t('page_Usage')}>
+        <p role="note">{t('parked_Usage')}</p>
+      </Panel>
+    </>
   );
 }
 

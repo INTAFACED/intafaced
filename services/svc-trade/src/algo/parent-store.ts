@@ -40,6 +40,7 @@ type ChildJson = {
   clientOrderId: string;
   qty: string;
   placedAt: string;
+  basisQty?: string;
 };
 
 type MissJson = {
@@ -56,6 +57,7 @@ function childrenToJson(children: readonly AlgoChildRef[]): ChildJson[] {
     clientOrderId: c.clientOrderId,
     qty: formatAmount(c.qty),
     placedAt: c.placedAt.toISOString(),
+    ...(c.basisQty != null ? { basisQty: formatAmount(c.basisQty) } : {}),
   }));
 }
 
@@ -69,6 +71,7 @@ function childrenFromJson(raw: unknown): AlgoChildRef[] {
       clientOrderId: row.clientOrderId,
       qty: parseAmount(row.qty),
       placedAt: new Date(row.placedAt),
+      ...(typeof row.basisQty === 'string' ? { basisQty: parseAmount(row.basisQty) } : {}),
     };
   });
 }
@@ -154,7 +157,7 @@ export class SqlTwapParentStore implements TwapParentStore {
         status, created_at, started_at, next_due_at, projected_ends_at,
         schedule_stretch_reason, paused_at, halt_reason,
         slices_planned, next_slice_index, plan_slices, children, misses, grant_claims,
-        participation_bps, lot_size, random_seed, trigger_price, trigger_above, triggered_at, updated_at
+        participation_bps, lot_size, random_seed, trigger_price, trigger_above, triggered_at, pov_basis, updated_at
       ) VALUES (
         ${p.id},
         ${p.userId},
@@ -187,6 +190,7 @@ export class SqlTwapParentStore implements TwapParentStore {
         ${p.triggerPrice == null ? null : formatAmount(p.triggerPrice)},
         ${p.triggerAbove ?? null},
         ${p.triggeredAt ?? null},
+        ${p.povBasis ?? null},
         now()
       )
       ON CONFLICT (id) DO UPDATE SET
@@ -293,6 +297,7 @@ function rowToRecord(row: Record<string, unknown>): TwapParentRecord {
     triggerPrice: row.trigger_price === null || row.trigger_price === undefined ? null : parseAmount(String(row.trigger_price)),
     triggerAbove: row.trigger_above === null || row.trigger_above === undefined ? null : Boolean(row.trigger_above),
     triggeredAt: row.triggered_at ? new Date(String(row.triggered_at)) : null,
+    povBasis: row.pov_basis === 'traded_volume' || row.pov_basis === 'opposite_liquidity' ? row.pov_basis : null,
   };
   return { parent, plan: planFromJson(row.plan_slices), grant: parseAlgoPlaceGrant(row.grant_claims) };
 }

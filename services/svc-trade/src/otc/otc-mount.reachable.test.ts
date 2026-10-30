@@ -88,6 +88,7 @@ const PUBLISHED: OtcDeskLaw = {
   // A zero desk minimum is an owner value: these quotes are not held by the CB-otc-07 minimum.
   minNotional: { USDT: 0n },
   assets: ['BTC'],
+  minTier: 'basic',
 };
 
 /** Pair map only — `asOf` is bound to the desk clock inside `buildDesk`. */
