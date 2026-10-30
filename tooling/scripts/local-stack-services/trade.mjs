@@ -110,7 +110,10 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, TEST_FUTURES_LADDER_POLICY })
     // metric definitions, read from the labelled TEST profile so the copy journeys run on TEST money. Each one
     // blank refuses by name (services/svc-trade/src/env.ts); production stays blank until the owner sets it.
     TRADE_COPY_FEE_SHARE_LAW: testValue('TRADE_COPY_FEE_SHARE_LAW'),
-    TRADE_COPY_JURISDICTION_LAW: testValue('TRADE_COPY_JURISDICTION_LAW'),
+    // `LOCAL_STACK_TRADE_COPY_JURISDICTION=blank` on a restart leaves the country list blank, so J-copy-bots-otc-01 #5
+    // sees every follow refused.
+    TRADE_COPY_JURISDICTION_LAW:
+      process.env.LOCAL_STACK_TRADE_COPY_JURISDICTION === 'blank' ? '' : testValue('TRADE_COPY_JURISDICTION_LAW'),
     TRADE_COPY_METRIC_DEFINITIONS: testValue('TRADE_COPY_METRIC_DEFINITIONS'),
     TRADE_COPY_MIN_TIER: testValue('TRADE_COPY_MIN_TIER'),
     // LOCAL TEST, not an owner decision: the lowest tier that may create a bot. Blank refuses every bot

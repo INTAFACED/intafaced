@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { test, expect } from '@playwright/test';
-import { api, fromUnits, fund, journeyState, tool, signOutBrowser, toUnits } from './stack.mjs';
+import { EDGE, ORIGIN, api, fromUnits, fund, journeyState, tool, signOutBrowser, toUnits } from './stack.mjs';
 import { fundedTrader, signIn, signUp, verify } from './desk.mjs';
 import { listLeader, takeBest } from './copy.mjs';
 
@@ -37,6 +37,17 @@ test(`${J} #1 opens Copy trading: every tab, an empty tab says so with no placeh
   await expect(page).toHaveURL(/tab=signal/);
   await expect(page.getByText('No leaders are listed')).toBeVisible();
   await expect(page.getByRole('table', { name: 'Leaders' }).getByRole('button', { name: /^Follow / })).toHaveCount(0);
+
+  // A control with no back end answers with a typed refusal, never a dead button: a ranked list is not offered, so
+  // pressing one asks the service, which refuses by code, and the room says so in words.
+  await tabs.getByRole('tab', { name: 'Leaders', exact: true }).click();
+  const ranked = page.getByRole('group', { name: 'Ranked lists' }).getByRole('button', { name: 'Top return' });
+  await expect(ranked).toBeEnabled();
+  const ranking = page.waitForResponse((res) => res.url().includes('copy.listLeaders') && res.url().includes('category'));
+  await ranked.click();
+  expect((await ranking).status()).toBe(403);
+  await expect(page.getByRole('alert').filter({ hasText: 'Rankings aren’t offered' })).toBeVisible();
+  await expect(page.getByText('Reference trade.copy_ranking_forbidden')).toBeVisible();
 
   // The desk state comes from the service (TEST fee share and country list are published on this stack).
   await expect(page.getByText('Copy desk open')).toBeVisible();
@@ -104,9 +115,33 @@ test(`${J} #4 opens a lead profile: metrics only with a definition, and the lead
   // The lead trades on the TEST book at the best price: two buys, then a sell that closes the first one. The taker fee
   // is paid in the bought asset, so the second buy is what lets the sell close the first in full.
   const leader = state('leader');
-  await takeBest(leader, 'buy', '0.001', `${J}-4-buy-${tag}`);
-  await takeBest(leader, 'buy', '0.0005', `${J}-4-open-${tag}`);
-  await takeBest(leader, 'sell', '0.001', `${J}-4-sell-${tag}`);
+  const closedBuy = await takeBest(leader, 'buy', '0.001', `${J}-4-buy-${tag}`);
+  const openBuy = await takeBest(leader, 'buy', '0.0005', `${J}-4-open-${tag}`);
+  const sell = await takeBest(leader, 'sell', '0.001', `${J}-4-sell-${tag}`);
+  // What each row must show, from the leader's own fills (not from the profile read): spot margin is the quote paid, the
+  // entry and close are quote over amount, and the return is (close − entry) / entry.
+  // The ledger settles a fill a moment after the order reads filled, so the read waits until all three orders' fills are in.
+  const leaderApi = await api(leader);
+  let fills = [];
+  await expect
+    .poll(
+      async () => {
+        const { status, body } = await leaderApi.get(`/api/v1/account/trades?symbol=${encodeURIComponent('BTC/USDT')}&limit=100`);
+        expect(status).toBe(200);
+        fills = Array.isArray(body) ? body : (body.trades ?? []);
+        return [closedBuy, openBuy, sell].every((order) => fills.some((f) => f.order === order.id));
+      },
+      { timeout: 30_000, message: "the leader's three orders each have their fills" },
+    )
+    .toBe(true);
+  const summed = (order) => {
+    const own = fills.filter((f) => f.order === order.id);
+    const quote = own.reduce((sum, f) => sum + toUnits(f.cost), 0n);
+    const qty = own.reduce((sum, f) => sum + toUnits(f.amount), 0n);
+    expect(fromUnits(qty), `the fills of order ${order.id} add up to the order`).toBe(fromUnits(toUnits(order.filled)));
+    return { quote, price: (quote * 10n ** 18n) / qty };
+  };
+  const [closedIn, openIn, out] = [summed(closedBuy), summed(openBuy), summed(sell)];
 
   await signIn(page, state('follower'));
   await page.goto('/trade/copy?tab=spot');
@@ -135,9 +170,29 @@ test(`${J} #4 opens a lead profile: metrics only with a definition, and the lead
   await expect(rows.nth(1)).toContainText('Closed');
   await expect(rows.nth(1)).toContainText('None set');
   await expect(rows.nth(1)).toContainText(/[−]?\d+\.\d\d%/);
+  const headers = (await trades.locator('thead th').allInnerTexts()).map((h) => h.trim());
   for (const header of ['Entry price', 'Margin', 'TP / SL', 'Close price', 'Return before fees']) {
-    await expect(trades.getByRole('columnheader', { name: header })).toBeVisible();
+    expect(headers, `the trade table has a ${header} column`).toContain(header);
   }
+  const cell = async (row, header) => (await rows.nth(row).locator('td').nth(headers.indexOf(header)).innerText()).trim();
+  const amountOf = (text) => toUnits(text.replace(/,/g, '').replace('−', '-'));
+  // Within one unit of the eighth place: the service floors its division, this side truncates.
+  const near = (shown, expected, what) =>
+    expect(
+      Math.abs(Number(amountOf(shown) - expected)),
+      `${what}: shown ${shown}, from the fills ${fromUnits(expected)}`,
+    ).toBeLessThanOrEqual(1e10);
+  // The open buy: its own entry and margin, no close.
+  near(await cell(0, 'Entry price'), openIn.price, 'open row entry');
+  expect(amountOf(await cell(0, 'Margin')), 'open row margin is the quote paid').toBe(openIn.quote);
+  expect(await cell(0, 'Close price')).toBe('Still open');
+  // The round trip: the first buy's entry and margin, the sell's close, and the return between them.
+  near(await cell(1, 'Entry price'), closedIn.price, 'closed row entry');
+  expect(amountOf(await cell(1, 'Margin')), 'closed row margin is the quote paid').toBe(closedIn.quote);
+  near(await cell(1, 'Close price'), out.price, 'closed row close');
+  const roi = Number(((out.price - closedIn.price) * 10_000n) / closedIn.price) / 100;
+  const shownRoi = Number((await cell(1, 'Return before fees')).replace('−', '-').replace('%', ''));
+  expect(Math.abs(shownRoi - roi), `return shown ${shownRoi}%, from the fills ${roi}%`).toBeLessThanOrEqual(0.01);
 
   // An unknown leader page is a typed not-found, never an empty profile.
   await page.goto('/trade/copy/no-such-leader');
@@ -171,9 +226,11 @@ async function fillLimits(wizard, { perOrder, total, fixed }) {
   await wizard.getByLabel('Permission ends').fill(weekAhead());
 }
 
-test(`${J} #5 presses Start copying below the copy verification level: refused by name, and nothing is followed`, async ({ page }) => {
-  // Signing up and funding a new account takes most of a minute.
-  test.setTimeout(240_000);
+test(`${J} #5 presses Start copying: below the copy verification level, under a blank country list and as a sub-account, each refused by name, and nothing is followed`, async ({
+  page,
+}) => {
+  // Signing up and funding a new account takes most of a minute, and the country-list restart two more.
+  test.setTimeout(420_000);
   // Verified at basic, which opens the copy room, but the TEST copy level is full.
   const unverified = await signUp(page, 'jcn');
   await page.goto('/verification');
@@ -200,7 +257,67 @@ test(`${J} #5 presses Start copying below the copy verification level: refused b
   await page.goto('/trade/copy?tab=follows');
   await expect(page.getByText('You aren’t following anyone')).toBeVisible();
   expect((await (await api(unverified)).balances()).USDT).toMatchObject({ free: '1000', used: '0' });
+
+  // A blank country list refuses every follow, a verified person's too, and writes nothing.
+  const follower = state('follower');
+  const me = await api(follower);
+  const followsBefore = await myFollows(me);
+  await copyCountries('blank');
+  try {
+    const refused = await (
+      await api(follower)
+    ).post('/api/trade/trpc/copy.follow', {
+      leaderRef: state('spotRef'),
+      region: 'DE',
+      permittedMarkets: ['BTC/USDT'],
+      maxNotionalPerOrder: '50',
+      maxAggregateExposure: '200',
+      fixedOrderSize: '20',
+      expiresAt: new Date(Date.now() + 7 * 24 * 3600_000).toISOString(),
+      clientRequestId: `journey-blank-countries:${state('tag')}`,
+    });
+    expect(
+      refused.body?.error?.data?.cause?.code ?? refused.body?.error?.data?.intafacedCode,
+      JSON.stringify(refused.body).slice(0, 300),
+    ).toBe('trade.copy_jurisdiction_blank');
+    expect(await myFollows(await api(follower)), 'no follow was started under a blank country list').toEqual(followsBefore);
+    await signIn(page, follower);
+    await page.goto('/trade/copy');
+    await expect(page.getByRole('heading', { name: 'Copy trading', level: 1 })).toBeVisible();
+    await expect(page.getByText('Copy desk open')).toHaveCount(0);
+  } finally {
+    await copyCountries('set');
+  }
+
+  // A sub-account is refused (trade.copy_subaccount_refused). No sign-in in the product yet issues a sub-account session,
+  // so this clause cannot be shown in the running app: the step fails here by name until one exists.
+  throw new Error('BLOCKED: no sub-account sign-in exists, so the sub-account refusal cannot be shown in the running app');
 });
+
+/** Restart trade with the copy country list blank (`blank`) or as the TEST profile sets it (`set`), by its stack switch. */
+async function copyCountries(state) {
+  const before = process.env.LOCAL_STACK_TRADE_COPY_JURISDICTION;
+  if (state === 'blank') process.env.LOCAL_STACK_TRADE_COPY_JURISDICTION = 'blank';
+  else delete process.env.LOCAL_STACK_TRADE_COPY_JURISDICTION;
+  try {
+    tool('local-test-stack.mjs', 'restart', 'trade');
+  } finally {
+    if (before === undefined) delete process.env.LOCAL_STACK_TRADE_COPY_JURISDICTION;
+    else process.env.LOCAL_STACK_TRADE_COPY_JURISDICTION = before;
+  }
+  // A restart outlasts Edge's idle timeout: drop the closed kept-alive sockets before the next write (as in J-14).
+  for (let i = 0, live = 0; i < 20 && live < 3; i++) {
+    try {
+      await fetch(`${EDGE}/api/v1/orderbook/${encodeURIComponent('BTC/USDT')}?limit=1`, { headers: { origin: ORIGIN } }).then((r) =>
+        r.arrayBuffer(),
+      );
+      live += 1;
+    } catch (error) {
+      if (error?.cause?.code !== 'UND_ERR_SOCKET') throw error;
+      live = 0;
+    }
+  }
+}
 
 // Step 6 was "reads and accepts the copy disclosure". Deferred until launch prep (owner decision 2026-10-27): no risk
 // disclosure is asked for, so this step proves the review asks for none and Start is on once the limits are valid.
