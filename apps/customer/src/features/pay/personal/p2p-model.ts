@@ -398,6 +398,10 @@ export const DEFINITE_TAKE_CODES: ReadonlySet<string> = new Set([
   'p2p.insufficient_offer_liquidity',
   'p2p.offer_not_active',
   'p2p.offer_not_found',
+  // P-ads-merchant-07: a private ad without a live link is refused before anything is reserved.
+  'p2p.offer_private',
+  'p2p.share_link_expired',
+  'p2p.share_link_revoked',
   'p2p.self_trade',
   'p2p.blocked',
   'p2p.take_refused',
@@ -489,6 +493,10 @@ export function takeFailureKind(failure: { reason: string; code?: string; status
     case 'p2p.offer_not_found':
     case 'p2p.offer_unfunded':
     case 'p2p.trading_disabled':
+    // P-ads-merchant-07: the link ended or was withdrawn while the order was being placed.
+    case 'p2p.offer_private':
+    case 'p2p.share_link_expired':
+    case 'p2p.share_link_revoked':
       return 'unavailable';
     case 'p2p.blocked':
       return 'blocked';

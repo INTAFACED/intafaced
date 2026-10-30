@@ -10,6 +10,7 @@ import { id, type Trade } from './schemas';
 import { payCopy, PayCopy, payRefusal } from './copy';
 import { orderCopy } from './p2p-order-copy';
 import { PayAmount, PayDetails, PayFailure, PayState, PayTime } from './components';
+import { shareCopy } from './personal/p2p-share-copy';
 import { TradeStatus } from './personal/P2PDepth';
 import { OrderSettlement } from './personal/Settlement';
 import { percentOf } from './portal/payments/payment-model';
@@ -232,6 +233,11 @@ export function P2POrder({
                   <p className="muted">
                     <Copy k="reported" /> · <TradeStatus status={trade.status} display={trade.displayStatus} />
                   </p>
+                  {trade.sharedFrom ? (
+                    <p className="muted" data-testid="order-shared">
+                      {shareCopy.t('sharedOrder')}
+                    </p>
+                  ) : null}
                 </header>
                 <div data-testid="p2p-order-quantities" className="p2p-order-quantities">
                   <div>

@@ -139,6 +139,10 @@ test(`${J} starts: signed in; a governance space with proposals in two states; I
     handle: `${nonce}:open`,
     title: `TEST ${nonce} open vote`,
     bodyMd: 'TEST proposal for the governance journey.',
+    // The voting delay and period are the founders' settings (J-more-catalogue-10) and blank on this stack, so each
+    // proposal here names its own window.
+    opensAt: new Date(now).toISOString(),
+    closesAt: new Date(now + 7 * DAY).toISOString(),
   });
   expect(opened.status, JSON.stringify(opened.body).slice(0, 300)).toBe(200);
   const drafted = await author.client.post('/api/token/trpc/createProposal', {
@@ -401,6 +405,8 @@ test(`${J} #6 Opens a proposal and reads my voting power: Power fixed when the p
       bodyMd: 'TEST multi-choice proposal for the governance journey.',
       votingType: type,
       choices,
+      opensAt: new Date().toISOString(),
+      closesAt: new Date(Date.now() + 7 * DAY).toISOString(),
     });
     expect(res.status, JSON.stringify(res.body).slice(0, 300)).toBe(200);
     expect(data(res)).toMatchObject({ votingType: type, choices, status: 'open' });

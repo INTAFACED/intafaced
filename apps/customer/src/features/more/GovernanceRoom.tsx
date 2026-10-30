@@ -31,6 +31,8 @@ const proposalSchema = z.object({
   title: z.string().nullable(),
   bodyMd: z.string().nullable(),
   authorId: z.string().nullable(),
+  /** Set when a governance moderator, admin or controller cancelled it. Its votes stay. */
+  cancel: z.object({ reason: z.string(), at: iso }).nullable(),
   counts: z.object({
     votes: z.number().int().nonnegative(),
     for: z.number().int().nonnegative(),
@@ -100,6 +102,14 @@ function refusalWords(failure: Refusal, t: T, editing = false): string {
       return t('refusedBallot');
     case 'token.voting_type_unsupported':
       return t('refusedVotingType');
+    case 'token.proposal_window_unset':
+      return t('refusedWindowUnset');
+    case 'token.permission_denied':
+      return t('refusedPermission');
+    case 'token.cancel_reason_invalid':
+      return t('refusedCancelReason');
+    case 'token.proposal_not_cancellable':
+      return t('refusedNotCancellable');
     default:
       return t('refusedOther', { message: failure.message });
   }
@@ -165,6 +175,7 @@ export function GovernanceProposals({
   const [q, setQ] = useState('');
   const [composing, setComposing] = useState(false);
   const [editing, setEditing] = useState<Proposal | null>(null);
+  const [cancelling, setCancelling] = useState<Proposal | null>(null);
   const [limit, setLimit] = useState(PAGE);
   // The create request's retry handle lives here, not in the form, so closing and reopening the form after no answer
   // still resends under the same handle. Changed content is a new request with a new handle.
@@ -206,6 +217,9 @@ export function GovernanceProposals({
       {editing && (
         <ProposalForm key={editing.id} t={t} editing={editing} access={null} onDone={list.reload} onClose={() => setEditing(null)} />
       )}
+      {cancelling && (
+        <CancelForm key={cancelling.id} t={t} proposal={cancelling} onDone={list.reload} onClose={() => setCancelling(null)} />
+      )}
       <div className="more-toolbar">
         <Select
           label={t('status')}
@@ -233,7 +247,15 @@ export function GovernanceProposals({
                   <tr key={row.id} data-proposal-id={row.id}>
                     <td>{row.title ?? t('untitled')}</td>
                     <td>{t(row.kind)}</td>
-                    <td>{t(row.status)}</td>
+                    <td>
+                      {t(row.status)}
+                      {row.cancel ? (
+                        <>
+                          <br />
+                          <small data-testid="proposal-cancel-reason">{t('cancelled_reason', { reason: row.cancel.reason })}</small>
+                        </>
+                      ) : null}
+                    </td>
                     <td data-testid="proposal-voting-dates">
                       <When at={row.opensAt} /> – <When at={row.closesAt} />
                     </td>
@@ -259,6 +281,15 @@ export function GovernanceProposals({
                         {row.status === 'draft' && row.authorId === userId ? (
                           <Button variant="ghost" onClick={() => setEditing(row)}>
                             {t('edit')}
+                          </Button>
+                        ) : null}
+                        {row.status === 'draft' || row.status === 'open' ? (
+                          <Button
+                            variant="ghost"
+                            aria-label={t('cancelFor', { title: row.title ?? t('untitled') })}
+                            onClick={() => setCancelling(row)}
+                          >
+                            {t('cancel')}
                           </Button>
                         ) : null}
                       </div>
@@ -439,6 +470,45 @@ function ProposalForm({
       </div>
       {outcome?.ok && <p role="status">{editing ? t('saved') : t('created')}</p>}
       {outcome && !outcome.ok && <p role="alert">{refusalWords(outcome.failure, t, Boolean(editing))}</p>}
+    </form>
+  );
+}
+
+/**
+ * Cancel one draft or open proposal with a reason (MC-token-02). Every signed-in member sees it; svc-token decides who may
+ * (a governance moderator, admin or controller) and refuses anyone else with a typed code. Its votes stay.
+ */
+function CancelForm({ t, proposal, onDone, onClose }: { t: T; proposal: Proposal; onDone: () => void; onClose: () => void }) {
+  const api = useApi();
+  const [reason, setReason] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [outcome, setOutcome] = useState<{ ok: true } | { ok: false; failure: Refusal } | null>(null);
+  async function submit(event: FormEvent) {
+    event.preventDefault();
+    setBusy(true);
+    setOutcome(null);
+    const result = await api.mutate('token', 'governance.cancel', { proposalId: proposal.id, reason }, proposalSchema);
+    setBusy(false);
+    setOutcome(result.ok ? { ok: true } : { ok: false, failure: result });
+    if (result.ok || result.reason === 'uncertain') onDone();
+  }
+  const name = t('cancelFor', { title: proposal.title ?? t('untitled') });
+  return (
+    <form aria-label={name} onSubmit={(e) => void submit(e)} className="more-grid">
+      <h3>{name}</h3>
+      <p role="note">{t('cancelNote')}</p>
+      <TextArea label={t('cancelReason')} value={reason} onChange={setReason} />
+      <p className="muted">{t('cancelReasonHint')}</p>
+      <div className="more-toolbar">
+        <Button type="submit" variant="danger" disabled={busy}>
+          {t('cancelSubmit')}
+        </Button>
+        <Button variant="ghost" onClick={onClose}>
+          {t('close')}
+        </Button>
+      </div>
+      {outcome?.ok && <p role="status">{t('cancelDone')}</p>}
+      {outcome && !outcome.ok && <p role="alert">{refusalWords(outcome.failure, t)}</p>}
     </form>
   );
 }
