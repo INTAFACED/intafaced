@@ -117,6 +117,7 @@ function stubToken(overrides: Partial<TokenService> = {}): TokenService {
       choices: null,
       snapshot: null,
       ranking: null,
+      cancel: null,
       choiceTally: null,
       counts: { votes: 1, for: 1, against: 0, abstain: 0 },
       tally: {
@@ -1012,6 +1013,7 @@ describe('svc-token mount — governance close', () => {
         choices: null,
         snapshot: null,
         ranking: null,
+        cancel: null,
         choiceTally: null,
         counts: { votes: 1, for: 1, against: 0, abstain: 0 },
         tally: {
