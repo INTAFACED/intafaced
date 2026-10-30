@@ -32,21 +32,16 @@ import { userCopy } from './user-copy.js';
  *     window is blank, so no signed call is accepted (never a default window).
  *   · `edge.api_key_revoked` / `edge.api_key_expired`: only when identity says
  *     so for this exact key. Saying it to the person holding the key reveals
- *     nothing they could use: the key is dead either way. TODAY identity's
- *     exchange doors do not say so: they look a key up only among live,
- *     unexpired rows and answer `auth.invalid_credentials` for a revoked or
- *     expired one (svc-identity `auth-service.ts` `verifyApiKey`), so the
- *     exchange gives `edge.api_key_denied`. The mapping is in place for the
- *     day identity names them (pending svc-identity change). What fires now:
- *     `edge.api_key_expired` from the edge's own expiry check on an opened key,
- *     and `edge.api_key_revoked` when the current-authority read, after an
- *     exchange, names the credential revoked.
+ *     nothing they could use: the key is dead either way. Identity's exchange
+ *     names a dead key it found (svc-identity `auth-service.ts`,
+ *     `deadApiKeyRefusal`: `auth.api_key_revoked`, `auth.api_key_expired`);
+ *     the edge's own expiry check on an opened key and the current-authority
+ *     read after an exchange name them too.
  *   · `account_frozen`: identity says the account behind the key is frozen
  *     (the exchange's `auth.account_frozen`, the opened key's status, or the
- *     current-authority read's denial). A freeze also revokes the account's
- *     keys, and identity's exchange checks the key before the account, so a
- *     frozen account's key reads `edge.api_key_denied` until that order changes
- *     in svc-identity.
+ *     current-authority read's denial). Identity's exchange checks the account
+ *     before naming a dead key, so a frozen account's key reads
+ *     `account_frozen` even though the freeze also revokes its keys.
  *     Not `edge.`-prefixed on purpose: the freeze is svc-identity's state, not
  *     a gateway policy, and the catalogue names it the same wherever it comes
  *     from. The edge only reports which state applies; it never invents one.
