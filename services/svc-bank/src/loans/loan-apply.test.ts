@@ -37,7 +37,10 @@ const productRow = {
 function service(options: { prices?: Record<string, { price: string }>; moduleEnabled?: boolean; originationFeeBps?: string }) {
   const statements: string[] = [];
   const sql = ((strings: TemplateStringsArray) => {
-    statements.push(strings.join('?'));
+    const text = strings.join('?');
+    statements.push(text);
+    // No loan row exists yet: the open is a new loan, not a retry.
+    if (/FROM bank\.loans WHERE id/.test(text)) return Promise.resolve([]);
     return Promise.resolve([productRow]);
   }) as unknown as Sql;
   const loans = new LoanService(sql, new MemoryLedger(), {
@@ -116,7 +119,7 @@ describe('the origination fee', () => {
     expect(originationFeeOn(1n, 1)).toBe(1n);
   });
 
-  it('a published non-zero fee refuses open bank.loan_fee_unwired before any row or lock', async () => {
+  it('a published non-zero fee refuses a new loan bank.loan_fee_unwired before any row or lock', async () => {
     const { loans, statements } = service({ originationFeeBps: '50' });
     await expect(
       loans.open({

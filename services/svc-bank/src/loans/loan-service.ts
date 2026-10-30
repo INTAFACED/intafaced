@@ -602,17 +602,43 @@ export class LoanService {
   /**
    * An operator's change to a product's rate (BK-loan-02). New loans open at it; open loans keep the rate written on
    * their row at open, which is what accrual reads. Thresholds are not edited here: the risk sweep still reads them from
-   * the product, so changing them would move open loans.
+   * the product, so changing them would move open loans. The previous rate is read under the row's lock in the same
+   * statement as the update, and the change is recorded with its reason and approver in that statement too, so two
+   * changes never both report one previous rate and none goes unrecorded. Setting the rate the product already has refuses.
    */
-  async setProductRate(input: { productId: string; aprBps: number }): Promise<{ product: LoanProductRecord; previousAprBps: number }> {
+  async setProductRate(input: {
+    productId: string;
+    aprBps: number;
+    reason: string;
+    approvedBy: string;
+  }): Promise<{ product: LoanProductRecord; previousAprBps: number }> {
     if (!Number.isInteger(input.aprBps) || input.aprBps < 0 || input.aprBps > 10_000) {
       throw new BankError('Loan product terms are invalid: aprBps must be within 0..10000', 'bank.loan_params_invalid');
     }
-    const before = await this.product(input.productId);
+    const reason = input.reason.trim();
+    if (reason.length < 3 || reason.length > 300) {
+      throw new BankError('A rate change needs a reason of 3 to 300 characters', 'bank.loan_params_invalid');
+    }
+    await this.product(input.productId);
     const rows = await this.sql<Array<Record<string, unknown>>>`
-      UPDATE bank.loan_products SET apr_bps = ${input.aprBps} WHERE id = ${input.productId} RETURNING *
+      WITH prev AS (
+        SELECT id, apr_bps FROM bank.loan_products WHERE id = ${input.productId} FOR UPDATE
+      ), changed AS (
+        UPDATE bank.loan_products p SET apr_bps = ${input.aprBps}
+          FROM prev WHERE p.id = prev.id AND prev.apr_bps <> ${input.aprBps}
+        RETURNING p.*, prev.apr_bps AS previous_apr_bps
+      ), recorded AS (
+        INSERT INTO bank.loan_product_rate_changes (product_id, apr_bps, previous_apr_bps, reason, approved_by)
+        SELECT id, apr_bps, previous_apr_bps, ${reason}, ${input.approvedBy} FROM changed
+        RETURNING id
+      )
+      SELECT changed.*, (SELECT count(*) FROM recorded)::int AS recorded FROM changed
     `;
-    return { product: toProduct(rows[0]!), previousAprBps: before.aprBps };
+    const row = rows[0];
+    if (!row || row.recorded !== 1) {
+      throw new BankError(`The product already charges ${input.aprBps} bps`, 'bank.loan_params_invalid');
+    }
+    return { product: toProduct(row), previousAprBps: Number(row.previous_apr_bps) };
   }
 
   // ── Reading a loan ─────────────────────────────────────────────────────────
@@ -741,12 +767,6 @@ export class LoanService {
     if (input.principal <= 0n || input.collateralAmount <= 0n) {
       throw new BankError('A loan needs positive collateral and positive principal', 'bank.ltv_exceeded');
     }
-    // A published origination fee has no ledger leg to collect it yet, so it refuses before any row or lock. Not set
-    // means no fee line, and a published zero needs no leg.
-    const fee = this.originationFee();
-    if (fee.status === 'published' && fee.bps > 0) {
-      throw new BankError('An origination fee is published but cannot be collected yet, so no loan is opened', 'bank.loan_fee_unwired');
-    }
 
     // ── Opening LTV, on marks that must pass the marking guards ──────────────
     // Not the liquidation guards: opening a loan is the borrower's own choice and
@@ -765,6 +785,17 @@ export class LoanService {
     // two paths different statements, and the retry path is the one that must not
     // have its own bugs.
     const loanId = input.loanId ?? randomUUID();
+
+    // A published origination fee has no ledger leg to collect it yet, so a new loan refuses before any row or lock. Not
+    // set means no fee line, and a published zero needs no leg. A retry of a loan whose row exists is not a new loan: it
+    // replays or finishes below on the terms it opened under, so a fee published since never strands it half-open.
+    const fee = this.originationFee();
+    if (fee.status === 'published' && fee.bps > 0) {
+      const known = input.loanId ? await this.sql`SELECT 1 FROM bank.loans WHERE id = ${loanId}` : [];
+      if (known.length === 0) {
+        throw new BankError('An origination fee is published but cannot be collected yet, so no loan is opened', 'bank.loan_fee_unwired');
+      }
+    }
 
     const inserted = await this.sql<Array<Record<string, unknown>>>`
       INSERT INTO bank.loans (

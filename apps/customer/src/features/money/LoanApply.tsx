@@ -111,7 +111,7 @@ function EligibilityList({ eligibility }: { eligibility: LoanEligibility }) {
   );
 }
 
-function FeeLines({ fees }: { fees: LoanFees }) {
+function FeeLines({ fees, principal }: { fees: LoanFees; principal: string | null }) {
   const { t } = loanApplyCopy.useCopy();
   const fee = fees.origination;
   if (fee.status === 'not_set') {
@@ -128,9 +128,9 @@ function FeeLines({ fees }: { fees: LoanFees }) {
           <dt>{t('feeRate')}</dt>
           <dd>{bps(fee.bps)}</dd>
         </div>
-        {fee.amount !== null && (
+        {fee.amount !== null && principal !== null && (
           <div>
-            <dt>{t('feeAmount', { amount: fees.assetId })}</dt>
+            <dt>{t('feeAmount', { amount: amount(principal, fees.assetId) })}</dt>
             <dd>{amount(fee.amount, fees.assetId)}</dd>
           </div>
         )}
@@ -171,6 +171,11 @@ function ProductApplication({ productId, open }: { productId: string; open: (spe
     const what = typed.trim();
     if (!DECIMAL.test(what)) return setInvalid(true);
     setInvalid(false);
+    // The same amount again is a fresh quote on today's marks, not a no-op.
+    if (what === asked) {
+      quote.reload();
+      fees.reload();
+    }
     setAsked(what);
   }
 
@@ -241,7 +246,7 @@ function ProductApplication({ productId, open }: { productId: string; open: (spe
       <DepthPanel title={t('feeTitle')}>
         {fees.resource.status === 'loading' && <Loading />}
         {fees.resource.status === 'failed' && <Refused failure={fees.resource.failure} retry={fees.reload} />}
-        {fees.resource.status === 'ready' && <FeeLines fees={fees.resource.data} />}
+        {fees.resource.status === 'ready' && <FeeLines fees={fees.resource.data} principal={asked} />}
       </DepthPanel>
       {ready && eligible ? (
         <div className="actions">

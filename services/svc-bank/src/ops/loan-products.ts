@@ -183,7 +183,12 @@ export function setLoanProductRateProcedure(
           throw new BankError(`The product already charges ${input.aprBps} bps`, 'bank.loan_params_invalid');
         }
         const approvedBy = await consumeOpsApproval(input, SET_LOAN_PRODUCT_RATE_ACTION, setLoanProductRateFields(input));
-        const changed = await bank.loans.setProductRate({ productId: input.productId, aprBps: input.aprBps });
+        const changed = await bank.loans.setProductRate({
+          productId: input.productId,
+          aprBps: input.aprBps,
+          reason: input.reason,
+          approvedBy,
+        });
         return { productId: changed.product.id, aprBps: changed.product.aprBps, previousAprBps: changed.previousAprBps, approvedBy };
       }),
     );

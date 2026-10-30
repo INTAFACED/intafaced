@@ -19,13 +19,14 @@ type Read =
   { status: 'ready'; data: unknown } | { status: 'failed'; failure: { ok: false; reason: string; code?: string; message: string } };
 let reads: Record<string, Read>;
 let asked: Array<[string, unknown, boolean]>;
+let reloaded: string[] = [];
 vi.mock('./components', async (original) => {
   const real = await original<typeof import('./components')>();
   return {
     ...real,
     useBankRead: (procedure: string, input: unknown, enabled = true) => {
       asked.push([procedure, input, enabled]);
-      return { resource: (enabled && reads[procedure]) || { status: 'loading' }, reload: () => undefined };
+      return { resource: (enabled && reads[procedure]) || { status: 'loading' }, reload: () => void reloaded.push(procedure) };
     },
   };
 });
@@ -78,6 +79,7 @@ const eligible = {
 beforeEach(() => {
   opened = [];
   asked = [];
+  reloaded = [];
   reads = {
     'loans.products': { status: 'ready', data: [product] },
     'loans.quote': { status: 'ready', data: quote },
@@ -191,6 +193,27 @@ describe('LoanApply', () => {
     expect(fee.getAttribute('data-bps')).toBe('50');
     expect(fee.textContent).toContain('0.5%');
     expect(fee.textContent).toContain('new loans are refused');
+  });
+
+  it('names the fee line by the amount asked, not the asset alone, and shows no amount line before a quote', async () => {
+    reads['loans.fees'] = {
+      status: 'ready',
+      data: { productId: PRODUCT, assetId: 'USDT', origination: { status: 'published', bps: 50, amount: '5', collectable: true } },
+    };
+    await mount();
+    expect(testId('loan-apply-fee')!.textContent).not.toContain('Opening fee on');
+    await work('1000');
+    const line = testId('loan-apply-fee')!.textContent ?? '';
+    expect(line).toMatch(/Opening fee on 1,?000(\.00)? USDT/);
+    expect(line).not.toMatch(/Opening fee on USDT/);
+  });
+
+  it('asks the bank again when the same amount is worked out twice', async () => {
+    await mount();
+    await work('1000');
+    expect(reloaded).toEqual([]);
+    await work('1000');
+    expect(reloaded).toEqual(['loans.quote', 'loans.fees']);
   });
 
   it('refuses a malformed amount in words without asking the bank', async () => {
