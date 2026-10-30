@@ -505,11 +505,17 @@ test.describe.serial('J-ops-console-07 reconcile the books', () => {
     });
     await expect(row(section, state.outsideId).getByTestId('rc-state')).toHaveText('Active');
     const answer = await twoFounderRun(state.outsideId);
-    expect(answer).toMatch(/Run [0-9a-f-]{36}: (PASS|FAIL|ERROR|UNSET)\./);
+    // No outside snapshot is configured for this control, so the run is UNSET, never a PASS or FAIL against nothing.
+    expect(answer).toMatch(/Run [0-9a-f-]{36}: UNSET\./);
     expect(answer).toMatch(/Sources: ledger as of \d{4}-\d{2}-\d{2}T/);
     expect(answer).toContain('outside unset');
     expect(answer).toContain('Outside side: unset');
-    state.outsideRuns.push({ id: runId(answer), status: answer.match(/Run [0-9a-f-]{36}: (\w+)\./)[1] });
+    // The run stored its row: re-read from a fresh page, it carries the same status and the ledger's as-of.
+    const asOf = answer.match(/ledger as of (\d{4}-\d{2}-\d{2}T[^ ,;)]+)/)[1];
+    const stored = await storedRun(a, state.outsideId, answer, 'UNSET');
+    expect(stored).toContain('outside unset');
+    expect(stored).toContain(asOf);
+    state.outsideRuns.push({ id: runId(answer), status: 'UNSET' });
   });
 
   test('J-ops-console-07 #4 a past run reads at the instant minus the margin; blank margin, typed 0 and a future instant', async ({
