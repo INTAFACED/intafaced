@@ -5,7 +5,9 @@ import { z } from 'zod';
  * agents (J-agents-02). Amounts are decimal strings in the fee asset (`assetId`); null is not set, never zero.
  * `spent` is what this agent's runs cost this UTC month (committed only); `alertCrossed` is set once the month's alert
  * was recorded, `alert` is that one record (its business key and the spend that crossed it, written once and never
- * rewritten), and `hardLimitReached` is set once a new run would be refused. `email` is the person's choice only: the
+ * rewritten). The hard limit is strict: a run is admitted only when its worst case fits beside what the month spent and
+ * still holds. `hardLimitRoom` is that room, the limit less spent and held (null with no limit), and `hardLimitReached`
+ * is set once nothing is left, when every new run is refused. `email` is the person's choice only: the
  * email channel is not connected, so it changes nothing that is sent.
  */
 export const ownAgentUsageLimitsSchema = z.object({
@@ -17,6 +19,7 @@ export const ownAgentUsageLimitsSchema = z.object({
   alertCrossed: z.boolean(),
   alert: z.object({ key: z.string(), spent: z.string() }).nullable(),
   hardLimitReached: z.boolean(),
+  hardLimitRoom: z.string().nullable(),
   assetId: z.string(),
 });
 export type OwnAgentUsageLimits = z.infer<typeof ownAgentUsageLimitsSchema>;
