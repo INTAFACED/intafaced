@@ -329,17 +329,26 @@ test(`${J} #5 places a stop market, a stop limit and a trailing stop judged on t
   await expect(dialog.getByText('That is more than the position holds.')).toBeVisible();
   await expect(dialog.getByRole('button', { name: 'Arm stop' })).toBeDisabled();
 
-  // Through the API: a trailing stop given a trigger, and a buy stop on a long (it would enlarge), are refused.
-  const extra = await me.post('/api/v1/futures/conditional-orders', {
-    market: SYMBOL,
-    kind: 'trailing_stop',
-    side: 'sell',
-    quantity: PART,
-    trailingDistance: distance,
-    triggerPrice: below,
-    clientOrderId: `${J}-extra-${Date.now()}`,
-  });
-  expect(extra.body).toMatchObject({ error: 'trade.conditional_field_unsupported' });
+  // Through the API, each kind refuses a field it does not take, with a 400 and the code: a stop market a limit price
+  // or a trailing distance, a stop limit a trailing distance, a trailing stop a trigger or a limit price.
+  const base = { market: SYMBOL, side: 'sell', quantity: PART };
+  const extras = [
+    ['stop_market', { triggerPrice: below, limitPrice: limitAt }],
+    ['stop_market', { triggerPrice: below, trailingDistance: distance }],
+    ['stop_limit', { triggerPrice: below, limitPrice: limitAt, trailingDistance: distance }],
+    ['trailing_stop', { trailingDistance: distance, triggerPrice: below }],
+    ['trailing_stop', { trailingDistance: distance, limitPrice: limitAt }],
+  ];
+  for (const [i, [kind, fields]] of extras.entries()) {
+    const extra = await me.post('/api/v1/futures/conditional-orders', {
+      ...base,
+      kind,
+      ...fields,
+      clientOrderId: `${J}-extra-${i}-${Date.now()}`,
+    });
+    expect(extra.status, `${kind} ${Object.keys(fields).join('+')}: ${JSON.stringify(extra.body)}`).toBe(400);
+    expect(extra.body).toMatchObject({ error: 'trade.conditional_field_unsupported' });
+  }
   const enlarge = await me.post('/api/v1/futures/conditional-orders', {
     market: SYMBOL,
     kind: 'stop_market',
@@ -348,6 +357,7 @@ test(`${J} #5 places a stop market, a stop limit and a trailing stop judged on t
     triggerPrice: away(mark, 300),
     clientOrderId: `${J}-enlarge-${Date.now()}`,
   });
+  expect(enlarge.status, JSON.stringify(enlarge.body)).toBe(400);
   expect(enlarge.body).toMatchObject({ error: 'trade.conditional_would_increase' });
 
   // The three stops, as the service has them; then they are cancelled so the next step's pair is the only protection.

@@ -89,15 +89,32 @@ test(`${J} #1 opens /trade/futures and sees the whole desk`, async ({ page }) =>
 // The legal and suitability reasons the list used to carry. None of them is a reason any more (owner decision 2026-10-27).
 const LEGAL_CODES = ['trade.derivatives_eligibility_unset', 'trade.agreement_required', 'trade.adl_disclosure_required'];
 
-test(`${J} #2 reads the gated list: the contract is open for this verified account, and no legal step is a reason`, async ({ page }) => {
+test(`${J} #2 reads the gated list: each contract open or blocked as the service says, with each reason; no legal step is a reason`, async ({
+  page,
+}) => {
   const who = account();
   await desk(page);
   const panel = access(page);
-  await expect(panel.getByText('Open for your account')).toBeVisible();
-  for (const code of LEGAL_CODES) await expect(panel.locator(`[data-code="${code}"]`)).toHaveCount(0);
-  // The screen shows what the service says for this account.
-  const gate = await gateFor(who);
-  expect(gate).toMatchObject({ open: true, blockers: [] });
+  // The screen shows what the service says for this account, contract by contract: each one in the service's gated
+  // list, chosen on the desk, reads open or blocked as the service says, and a blocked one names each of its reasons
+  // by code. No legal step is ever among them.
+  const { status, body } = await (await api(who)).get('/api/v1/account/gated-list');
+  expect(status).toBe(200);
+  expect(body.contracts.length, 'the gated list names the contracts').toBeGreaterThan(0);
+  for (const contract of body.contracts) {
+    await page.getByRole('combobox', { name: 'Choose a contract' }).click();
+    await page.getByRole('option', { name: contract.symbol, exact: true }).click();
+    const gate = panel.getByTestId('futures-gate');
+    await expect(gate, contract.symbol).toContainText(contract.open ? 'Open for your account' : 'Blocked for your account');
+    for (const blocker of contract.blockers) await expect(gate.locator(`[data-code="${blocker.code}"]`), contract.symbol).toBeVisible();
+    await expect(gate.locator('[data-code]')).toHaveCount(contract.blockers.length);
+    for (const code of LEGAL_CODES) {
+      expect(contract.blockers.map((b) => b.code)).not.toContain(code);
+      await expect(gate.locator(`[data-code="${code}"]`)).toHaveCount(0);
+    }
+  }
+  // This verified account may trade the stack's TEST perpetual.
+  expect(await gateFor(who)).toMatchObject({ open: true, blockers: [] });
 });
 
 // Step 3 was "reads and accepts the risk agreement and margin terms". Deferred until launch prep (owner decision
@@ -141,10 +158,16 @@ test(`${J} #5 chooses the margin mode: isolated is live, cross and portfolio ref
   const isolated = mode.getByRole('button', { name: 'Isolated' });
   await expect(isolated).toHaveAttribute('aria-pressed', 'true');
   await mode.getByRole('button', { name: 'Cross' }).click();
-  await expect(page.locator('[data-code="trade.cross_margin_unsupported"]')).toContainText('Cross margin is not offered');
+  // A typed refusal (its data-code) that names the model decision, not only the title.
+  const cross = page.locator('[data-code="trade.cross_margin_unsupported"]');
+  await expect(cross).toContainText('Cross margin is not offered');
+  await expect(cross).toContainText('Every futures position is isolated: it can lose only the margin you put into it.');
+  await expect(cross).toContainText('A shared pool across positions is not offered.');
   await expect(isolated).toHaveAttribute('aria-pressed', 'true');
   await mode.getByRole('button', { name: 'Portfolio' }).click();
-  await expect(page.locator('[data-code="trade.portfolio_margin_unset"]')).toContainText('Portfolio margin is not offered');
+  const portfolio = page.locator('[data-code="trade.portfolio_margin_unset"]');
+  await expect(portfolio).toContainText('Portfolio margin is not offered');
+  await expect(portfolio).toContainText('Portfolio margin has no published rules, so it is switched off. Futures margin stays isolated.');
   await expect(isolated).toHaveAttribute('aria-pressed', 'true');
   expect(sent).toEqual([]);
 });
@@ -296,8 +319,19 @@ test(`${J} #11 opens History and sees the closed position with its realised resu
   // The whole size it closed, across both reduces, not the last remainder.
   expect(closed[0].contracts).toBe(SIZE);
   await expect(row).toContainText(SIZE);
-  const pnl = Number(closed[0].realizedPnl);
-  await expect(row).toContainText(Math.abs(pnl).toFixed(4).replace(/0+$/, '').replace(/\.$/, ''));
+  // The realised result, in its own column, with its sign: "+" and up for a profit, "-" and down for a loss, equal to
+  // the service's figure at the four places the column draws.
+  const pnl = toUnits(closed[0].realizedPnl);
+  const headers = (await table.getByRole('columnheader').allInnerTexts()).map((h) => h.trim());
+  const at = headers.indexOf('Realised PnL');
+  expect(at, headers.join(' | ')).toBeGreaterThanOrEqual(0);
+  const figure = row.getByRole('cell').nth(at).locator('[data-slot=change-text]');
+  await expect(figure).toHaveAttribute('data-direction', pnl > 0n ? 'up' : pnl < 0n ? 'down' : 'flat');
+  const shown = (await figure.innerText()).replace(/[^\d.+−-]/g, '').replace('−', '-');
+  expect(shown, 'the sign is drawn').toMatch(pnl > 0n ? /^\+/ : pnl < 0n ? /^-/ : /^\d/);
+  const drawn = toUnits(shown.replace(/^\+/, ''));
+  const halfStep = toUnits('0.00005');
+  expect(drawn - pnl <= halfStep && pnl - drawn <= halfStep, `drawn ${shown}, service ${closed[0].realizedPnl}`).toBe(true);
   // Its fees: the opening fill's and both closing fills', every one through the book at the taker rate.
   const fees = toUnits(closed[0].fees);
   expect(fees).toBeGreaterThan(takerFee(SIZE, closed[0].entryPrice));
