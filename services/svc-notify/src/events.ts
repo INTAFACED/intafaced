@@ -216,6 +216,7 @@ const FACTOR_CHANGED_TITLE_KEYS: Record<PayloadOf<'securityFactorChanged'>['chan
   totp_replaced: 'notify.identity.security.totp_replaced.title',
   passkey_added: 'notify.identity.security.passkey_added.title',
   passkey_removed: 'notify.identity.security.passkey_removed.title',
+  password_changed: 'notify.identity.security.password_changed.title',
 };
 
 /** The action kinds `intafaced.agents.action.completed` can carry. */
