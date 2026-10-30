@@ -165,6 +165,23 @@ export function sealNeeded(flags, results) {
   return problems;
 }
 
+/**
+ * The commit turbo compares against (`...[<base>]`): where this head branched from the base branch, not the base
+ * branch's tip. A re-run of an old pull_request run checks out that run's merge commit while `fetch-depth: 0` fetches
+ * today's main, so `...[origin/main]` also selected every package main changed since: on 30 Oct, #6834's head selects
+ * 37 packages against today's main and 19 against its merge-base, and its re-runs hung or failed (#6831, #6832, #6834).
+ * Falls back to the branch tip when git cannot say.
+ */
+export function diffBase(run = (args) => execFileSync('git', args, { encoding: 'utf8' })) {
+  const base = process.env.GITHUB_BASE_REF ? `origin/${process.env.GITHUB_BASE_REF}` : 'origin/main';
+  try {
+    const sha = run(['merge-base', base, 'HEAD']).trim();
+    return /^[0-9a-f]{40}$/.test(sha) ? sha : base;
+  } catch {
+    return base;
+  }
+}
+
 function gitChangedFiles() {
   const baseRef = process.env.GITHUB_BASE_REF;
   const base = baseRef ? `origin/${baseRef}` : 'origin/main';
@@ -251,6 +268,16 @@ function selfTest() {
     'a selected reader builds every package it reads',
   );
   assert(same(buildFilters(['services/svc-ledger/src/a.ts'], edges), ['...[origin/main]']), 'no reader selected, nothing added');
+  const sha = 'a'.repeat(40);
+  assert(diffBase(() => `${sha}\n`) === sha, 'turbo compares against the merge-base, not the moving branch tip');
+  assert(diffBase(() => 'not a sha') === 'origin/main', 'an odd answer falls back to the branch tip');
+  assert(
+    diffBase(() => {
+      throw new Error('no merge base');
+    }) === 'origin/main',
+    'no merge base falls back to the branch tip',
+  );
+  assert(same(affectedFilters(['x'], {}, sha), [`...[${sha}]`]), 'the base reaches the filter');
   assert(
     same(Object.entries(mergeEdges({ 'apps/a': ['x', 'y'] }, { 'apps/a': ['y', 'z'], 'apps/b': ['x'] })).flat(2), [
       'apps/a',
@@ -329,11 +356,11 @@ if (import.meta.url === `file://${process.argv[1]}`) {
   if (filesIdx >= 0) files = args.slice(filesIdx + 1);
   else files = gitChangedFiles();
   if (args.includes('--filters')) {
-    for (const f of affectedFilters(files)) console.log(f);
+    for (const f of affectedFilters(files, readEdges(), diffBase())) console.log(f);
     process.exit(0);
   }
   if (args.includes('--build-filters')) {
-    for (const f of buildFilters(files)) console.log(f);
+    for (const f of buildFilters(files, readEdges(), diffBase())) console.log(f);
     process.exit(0);
   }
   const flags = classify(files, { forceFull });
