@@ -1121,3 +1121,11 @@ console.log('local-test-stack: customer folder override checks passed');
   assert.match(source, /renewed\.includes\(d\.name\)/);
   console.log('local-test-stack: a new TEST chain empties the indexer and brings it back');
 }
+
+// 22. A halted indexer still answers /health, so the health table also reads its /ready and names the halt.
+{
+  const source = readFileSync(join(dirname(fileURLToPath(import.meta.url)), 'local-test-stack.mjs'), 'utf8');
+  assert.match(source, /n === 'indexer' \? await indexerHalt\(\) : null/);
+  assert.match(source, /halted \? `HALTED \(\$\{halted\}\)` : 'ok'/);
+  console.log('local-test-stack: a halted indexer reads HALTED in the health table');
+}

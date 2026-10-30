@@ -1737,6 +1737,20 @@ function serviceNames() {
   return serviceDefs(PLAN_SECRETS).map((d) => d.name);
 }
 
+/**
+ * Why the indexer halted, or null. It stays up and answers /health when it halts (its projection no longer matches the
+ * chain), so only /ready says so; a /ready that is down for another reason (no chain door yet) is not a halt.
+ */
+async function indexerHalt() {
+  const r = await httpGet(`${urlOf('indexer')}/ready`, 2500);
+  try {
+    const body = JSON.parse(r.text);
+    return body?.haltedAt ? String(body.reason ?? 'no reason given').slice(0, 120) : null;
+  } catch {
+    return null;
+  }
+}
+
 async function healthTable({ gateMarket = false } = {}) {
   const procs = readProcs();
   const rows = [];
@@ -1760,7 +1774,9 @@ async function healthTable({ gateMarket = false } = {}) {
   rows.push(['nats', `${PORTS.nats}/${PORTS.natsMonitor}`, procs.nats?.pid ?? '-', nats.status === 200 ? 'ok' : 'DOWN']);
   for (const n of serviceNames()) {
     const r = await httpGet(`${urlOf(n)}/health`, 2500);
-    rows.push([`svc-${n}`, PORTS[n], procs[n]?.pid ?? '-', r.status === 200 ? 'ok' : `DOWN (${r.status})`]);
+    const halted = r.status === 200 && n === 'indexer' ? await indexerHalt() : null;
+    const state = r.status !== 200 ? `DOWN (${r.status})` : halted ? `HALTED (${halted})` : 'ok';
+    rows.push([`svc-${n}`, PORTS[n], procs[n]?.pid ?? '-', state]);
   }
   if (procs.chain) {
     const status = await chainStatus();
