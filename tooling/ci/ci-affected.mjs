@@ -172,8 +172,7 @@ export function sealNeeded(flags, results) {
  * 37 packages against today's main and 19 against its merge-base, and its re-runs hung or failed (#6831, #6832, #6834).
  * Falls back to the branch tip when git cannot say.
  */
-export function diffBase(run = (args) => execFileSync('git', args, { encoding: 'utf8' })) {
-  const base = process.env.GITHUB_BASE_REF ? `origin/${process.env.GITHUB_BASE_REF}` : 'origin/main';
+export function diffBase(run = (args) => execFileSync('git', args, { encoding: 'utf8' }), base = baseRef()) {
   try {
     const sha = run(['merge-base', base, 'HEAD']).trim();
     return /^[0-9a-f]{40}$/.test(sha) ? sha : base;
@@ -182,9 +181,13 @@ export function diffBase(run = (args) => execFileSync('git', args, { encoding: '
   }
 }
 
+/** The base branch a pull request merges into, as a remote ref (origin/main outside a pull request). */
+export function baseRef() {
+  return process.env.GITHUB_BASE_REF ? `origin/${process.env.GITHUB_BASE_REF}` : 'origin/main';
+}
+
 function gitChangedFiles() {
-  const baseRef = process.env.GITHUB_BASE_REF;
-  const base = baseRef ? `origin/${baseRef}` : 'origin/main';
+  const base = baseRef();
   try {
     const out = execFileSync('git', ['diff', '--name-only', '--no-renames', `${base}...HEAD`], { encoding: 'utf8' });
     return out
@@ -269,12 +272,12 @@ function selfTest() {
   );
   assert(same(buildFilters(['services/svc-ledger/src/a.ts'], edges), ['...[origin/main]']), 'no reader selected, nothing added');
   const sha = 'a'.repeat(40);
-  assert(diffBase(() => `${sha}\n`) === sha, 'turbo compares against the merge-base, not the moving branch tip');
-  assert(diffBase(() => 'not a sha') === 'origin/main', 'an odd answer falls back to the branch tip');
+  assert(diffBase(() => `${sha}\n`, 'origin/main') === sha, 'turbo compares against the merge-base, not the moving branch tip');
+  assert(diffBase(() => 'not a sha', 'origin/main') === 'origin/main', 'an odd answer falls back to the branch tip');
   assert(
     diffBase(() => {
       throw new Error('no merge base');
-    }) === 'origin/main',
+    }, 'origin/main') === 'origin/main',
     'no merge base falls back to the branch tip',
   );
   assert(same(affectedFilters(['x'], {}, sha), [`...[${sha}]`]), 'the base reaches the filter');
