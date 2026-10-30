@@ -416,6 +416,9 @@ export function controlRefusal(code: string | null, status: number): string {
   }
 }
 
+/** How many reconciling items a run's line names; the run itself keeps every one. */
+const RUN_ITEMS_SHOWN = 20;
+
 /** A run as one line for the desk's reply: what it found and the as-of of each source. Decimal strings stay strings. */
 export function describeRun(run: ReconciliationControlRunView): string {
   const outside = run.sources.outside.asOf === 'unset' ? 'unset' : run.sources.outside.asOf;
@@ -432,7 +435,12 @@ export function describeRun(run: ReconciliationControlRunView): string {
     ...(run.reconcilingItems
       ? [
           `${run.reconcilingItems.length} reconciling item${run.reconcilingItems.length === 1 ? '' : 's'}${run.reconcilingItems.length ? ':' : '.'}`,
-          ...run.reconcilingItems.map((item) => `${item.kind} ${item.id} ${item.assetId} ${item.amount} (${item.source}).`),
+          ...run.reconcilingItems
+            .slice(0, RUN_ITEMS_SHOWN)
+            .map((item) => `${item.kind} ${item.id} ${item.assetId} ${item.amount} (${item.source}).`),
+          ...(run.reconcilingItems.length > RUN_ITEMS_SHOWN
+            ? [`And ${run.reconcilingItems.length - RUN_ITEMS_SHOWN} more on the run.`]
+            : []),
         ]
       : []),
   ].join(' ');

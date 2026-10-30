@@ -167,6 +167,22 @@ describe('reading svc-ledger', () => {
     expect(line).toContain('USDT: observed -7, expected -12, difference 5, tolerance 1, reconciling items 3, residual 2.');
     expect(line).toContain('2 reconciling items: held dep-held-1 USDT 4 (svc-pay). reversal_unfunded dep-unfunded-1 USDT -1 (svc-pay).');
     expect(describeRun(runView())).not.toContain('reconciling');
+    // A long list names the first 20 and says how many more the run holds.
+    const many = runView({
+      status: 'PASS',
+      reconcilingItems: Array.from({ length: 23 }, (_, i) => ({
+        source: 'svc-pay',
+        id: `dep-${i}`,
+        kind: 'held',
+        assetId: 'USDT',
+        amount: '1',
+      })),
+    });
+    const long = describeRun(many);
+    expect(long).toContain('23 reconciling items:');
+    expect(long).toContain('held dep-19 USDT 1 (svc-pay).');
+    expect(long).not.toContain('dep-20 ');
+    expect(long).toContain('And 3 more on the run.');
   });
   it('schedules are UTC and a dynamic account set says it is matched at each run', () => {
     expect(describeSchedule(controlView())).toBe('Daily at 06:30 UTC');
