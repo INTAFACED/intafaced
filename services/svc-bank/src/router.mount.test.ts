@@ -299,10 +299,11 @@ describe('svc-bank mount — ops job kill switches (earn / loan / risk)', () => 
       },
     });
     const caller = createBankRouter(bank, { interestAccrualEnabled: true }).createCaller(jobCaller());
-    const tomorrow = new Date(Date.now() + 24 * 60 * 60 * 1000);
-    const tomorrowStart = new Date(`${tomorrow.toISOString().slice(0, 10)}T00:00:00.000Z`).toISOString();
+    // Two days ahead, so a run that crosses midnight still asks for a day that has not begun.
+    const ahead = new Date(Date.now() + 2 * 24 * 60 * 60 * 1000);
+    const aheadStart = new Date(`${ahead.toISOString().slice(0, 10)}T00:00:00.000Z`).toISOString();
 
-    for (const input of [{ at: tomorrowStart }, { poolId: POOL, at: tomorrowStart }]) {
+    for (const input of [{ at: aheadStart }, { poolId: POOL, at: aheadStart }]) {
       await expect(caller.ops.accrueInterest(input)).rejects.toMatchObject({
         code: 'PRECONDITION_FAILED',
         cause: { code: 'bank.accrual_day_not_begun' },

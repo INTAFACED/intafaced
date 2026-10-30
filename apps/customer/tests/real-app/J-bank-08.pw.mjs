@@ -506,9 +506,17 @@ test(`${J} #5 sees a payout: one payout per period posted, and the schedule show
   // The period (one UTC day) pays once, however often the job runs that day.
   const perDay = fromUnits(daily('100', 125));
   const before = await mainUsdt(api);
-  const now = Date.now();
-  expect(await accrue(pool, new Date(now))).toMatchObject({ date: dayOf(secondDay), paid: perDay, recipients: 1, alreadyAccrued: false });
-  expect(await accrue(pool, new Date(now + 1000))).toMatchObject({ date: dayOf(secondDay), paid: perDay, alreadyAccrued: true });
+  expect(await accrue(pool, new Date(secondDay + 60 * 1000))).toMatchObject({
+    date: dayOf(secondDay),
+    paid: perDay,
+    recipients: 1,
+    alreadyAccrued: false,
+  });
+  expect(await accrue(pool, new Date(secondDay + 2 * 60 * 1000))).toMatchObject({
+    date: dayOf(secondDay),
+    paid: perDay,
+    alreadyAccrued: true,
+  });
   expect(await mainUsdt(api)).toBe(before + toUnits(perDay));
   await page.reload();
   await expect(schedule).toHaveAttribute('data-next', dayOf(secondDay + DAY));
