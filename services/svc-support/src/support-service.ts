@@ -171,7 +171,10 @@ const scanRefused = (): SupportError => new SupportError('attachment did not pas
 /** The owner setting a blank comment cap names (`SUPPORT_COMMENT_CAP`). */
 export const SUPPORT_COMMENT_CAP_KEY = 'support.comment_cap';
 
-/** A comment or note that holds a card number or a recovery phrase is refused before anything is stored. */
+/**
+ * Text a person writes onto a request (its subject and body, a reply, a staff note, a status note, an escalation summary)
+ * that holds a card number or a recovery phrase is refused before anything is stored.
+ */
 function refuseCommentSecret(body: string): void {
   const found = findCommentSecret(body);
   if (found) throw new SupportError(`the comment holds a ${found.replace('_', ' ')}`, SUPPORT_COMMENT_SECRET_REFUSED);
@@ -586,6 +589,7 @@ export class SupportService implements SupportContract {
 
   async createTicket(input: { userId: string } & CreateTicketInput): Promise<SupportTicket> {
     return withSupportSpan('support.createTicket', { op: 'createTicket' }, async (span) => {
+      refuseCommentSecret(`${input.subject}\n${input.body}`);
       if (input.messageHeaders !== undefined && input.category !== 'phishing') {
         throw new SupportError('message headers belong to a phishing report only', 'support.headers_not_allowed');
       }
@@ -892,6 +896,7 @@ export class SupportService implements SupportContract {
   }): Promise<SupportTicket> {
     return withSupportSpan('support.setStatus', { op: 'setStatus', ticketId: input.ticketId }, async (span) => {
       await this.assertDeskVisible(input.operatorId, input.ticketId);
+      if (input.note) refuseCommentSecret(input.note);
       if (input.status === 'on_hold' && !input.note?.trim()) {
         throw new SupportError('say why the request is on hold', 'support.hold_reason_required');
       }
@@ -1069,6 +1074,7 @@ export class SupportService implements SupportContract {
    */
   async escalate(input: { operatorId: string } & EscalateTicketInput): Promise<SupportCaseFile> {
     return withSupportSpan('support.escalate', { op: 'escalate' }, async (span) => {
+      refuseCommentSecret(input.summary);
       await this.assertDeskVisible(input.operatorId, input.ticketId);
       const ticket = await this.store.findById(input.ticketId);
       if (!ticket) throw ticketNotFound();

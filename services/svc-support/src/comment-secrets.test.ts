@@ -11,7 +11,14 @@ describe('a comment holding a secret (J-support-public-20 #5)', () => {
   });
 
   it('finds a card number written together, in spaced groups or in hyphenated groups', () => {
-    for (const text of ['card 4111111111111111 ok', 'my card is 4111 1111 1111 1111', '5555-5555-5555-4444', 'amex 378282246310005'])
+    for (const text of [
+      'card 4111111111111111 ok',
+      'my card is 4111 1111 1111 1111',
+      '5555-5555-5555-4444',
+      'amex 378282246310005',
+      'card 4111 1111 1111 1111 123 exp 12 28', // with its code and expiry after it
+      '2 cards: 4111111111111111', // a count before it
+    ])
       expect(findCommentSecret(text), text).toBe('card_number');
   });
 
@@ -22,6 +29,7 @@ describe('a comment holding a secret (J-support-public-20 #5)', () => {
       'amount 0.00041111 BTC at 1698765432', // too short a run
       'tx 0x4111111111111111abc', // inside a hex string
       'call +44 20 7946 0958',
+      'withdrawal 2026-10-30 of 1250 to 0412 3456 7890', // a date, an amount and a phone number in one run
     ])
       expect(findCommentSecret(text), text).toBeNull();
   });
@@ -44,6 +52,7 @@ describe('a comment holding a secret (J-support-public-20 #5)', () => {
       'I would like to know why my withdrawal to my account did not arrive after two days, please help.',
       'abandon ability able about above absent absorb abstract absurd abuse access',
       'Please check the deposit address again because the amount shown is different from what I sent yesterday.',
+      'Could you also check my other account, because about a month ago I asked for the same thing and nothing came back.',
     ])
       expect(findCommentSecret(text), text).toBeNull();
   });

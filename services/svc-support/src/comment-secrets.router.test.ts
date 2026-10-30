@@ -96,4 +96,17 @@ describe('a comment holding a secret is refused and nothing is stored', () => {
     expect(await code(customer.comment({ ticketId, body: 'TEST my card was declined again', clientRequestId: 'c:plain' }))).toBe('ok');
     expect(await store.listComments(ticketId)).toHaveLength(1);
   });
+
+  it('refuses a new request whose subject or body holds one, and opens none', async () => {
+    const { customer } = await desk();
+    const before = (await customer.listMine({ limit: 50 })).length;
+    for (const [subject, body] of [
+      ['TEST card', CARD],
+      [PHRASE, 'TEST my wallet'],
+    ])
+      expect(await code(customer.create({ category: 'account', subject, body, clientRequestId: `create:${subject}` }))).toBe(
+        'support.comment_secret_refused',
+      );
+    expect(await customer.listMine({ limit: 50 })).toHaveLength(before);
+  });
 });

@@ -16,9 +16,8 @@ export type CommentSecret = 'card_number' | 'recovery_phrase';
 
 const WORDS = new Set(BIP39_ENGLISH);
 const PHRASE_MIN = 12;
-// Digit groups split by at most one space or hyphen, not part of a longer word or hex string; the run is measured once
-// the separators are gone.
-const CARD_CANDIDATE = /(?<![0-9A-Za-z])\d(?:[ -]?\d){12,18}(?![0-9A-Za-z])/g;
+// A run of digit groups split by single spaces or hyphens, not part of a longer word or hex string.
+const DIGIT_RUN = /(?<![0-9A-Za-z])\d+(?:[ -]\d+)*(?![0-9A-Za-z])/g;
 
 function luhn(digits: string): boolean {
   let sum = 0;
@@ -33,10 +32,22 @@ function luhn(digits: string): boolean {
   return sum % 10 === 0;
 }
 
+const isCard = (digits: string) => digits.length >= 13 && digits.length <= 19 && /^[2-6]/.test(digits) && luhn(digits);
+
+/**
+ * Every run of consecutive groups is tried, so a card number written next to other numbers ("4111 1111 1111 1111 123",
+ * "2 cards: 4111111111111111") is still found inside the longer run.
+ */
 function hasCardNumber(text: string): boolean {
-  for (const match of text.matchAll(CARD_CANDIDATE)) {
-    const digits = match[0].replace(/[ -]/g, '');
-    if (digits.length >= 13 && digits.length <= 19 && /^[2-6]/.test(digits) && luhn(digits)) return true;
+  for (const match of text.matchAll(DIGIT_RUN)) {
+    const groups = match[0].split(/[ -]/);
+    for (let start = 0; start < groups.length; start += 1) {
+      let digits = '';
+      for (let end = start; end < groups.length && digits.length < 19; end += 1) {
+        digits += groups[end];
+        if (isCard(digits)) return true;
+      }
+    }
   }
   return false;
 }
