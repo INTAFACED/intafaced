@@ -30,10 +30,14 @@ export const algoParentSchema = algoSchema.extend({
   chaseStartPrice: decimalSchema.nullable().optional(),
   chasePrice: decimalSchema.nullable().optional(),
   chaseReprices: z.number().int().nullable().optional(),
-  /** `algo.get` children: each placed size and, for POV, the volume or book size it was a share of; a chase child's price. */
+  /**
+   * `algo.get` children: each child's order id (how the blotter links it to its schedule), its placed size and, for POV,
+   * the volume or book size it was a share of; a chase child's price.
+   */
   children: z
     .array(
       z.object({
+        orderId: z.string().min(1),
         sliceIndex: z.number().int(),
         qty: decimalSchema.optional(),
         basisQty: decimalSchema.nullable().optional(),
