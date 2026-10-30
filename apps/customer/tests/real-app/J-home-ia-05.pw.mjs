@@ -39,13 +39,18 @@ const TITLES = {
   'trade.fill': 'Order filled',
   'trade.order.terminal': 'Order cancelled',
   'identity.kyc.approved': 'Verification approved',
+  'ledger.freeze.set': 'Postings paused',
+  'ledger.freeze.cleared': 'Postings resumed',
 };
+// svc-notify's audience-all notices (services/svc-notify/src/freeze-notice.ts): every account holds them, so a journey
+// that set the platform posting freeze earlier on the same stack leaves them in this inbox too.
+const PLATFORM_KINDS = ['ledger.freeze.set', 'ledger.freeze.cleared'];
 
 let who;
 let cancelled;
 /** This account's own fills of its two market buys, from svc-trade: one fill notice each. */
 let fills;
-/** Verified, each fill, cancelled: every notice this account holds. */
+/** Verified, each fill, cancelled, and any platform-wide notice: every notice this account holds. */
 let total;
 /** Those notices' kinds, newest first, as svc-notify lists them: the order every screen shows them in. */
 let kinds;
@@ -131,23 +136,30 @@ test.beforeAll(async ({ browser }) => {
     .toBe('0.003');
   expect(fills.every((fill) => fill.side === 'buy' && fill.order !== cancelled.id)).toBe(true);
   expect(new Set(fills.map((fill) => fill.order)).size).toBe(2);
-  total = fills.length + 2;
-  // Verified, each fill and cancelled: all unread, and each fill notice is one of this account's own fills.
-  await expect
-    .poll(async () => (await (await api(who)).get('/api/notify/trpc/notify.unreadCount')).body?.result?.data?.count, { timeout: 20_000 })
-    .toBe(total);
-  const listed = await (await api(who)).get(`/api/notify/trpc/notify.list?input=${encodeURIComponent(JSON.stringify({ limit: 100 }))}`);
-  const items = listed.body?.result?.data?.items;
-  expect(items, `notify.list answered ${JSON.stringify(listed.body)}`).toBeInstanceOf(Array);
-  expect(items.map((item) => item.kind).sort()).toEqual(
-    [...fills.map(() => 'trade.fill'), 'trade.order.terminal', 'identity.kyc.approved'].sort(),
-  );
+  // Verified, each fill and cancelled: this account's own notices, each fill notice one of its own fills. Any other
+  // notice is a platform-wide one; all of them are unread.
+  const inbox = async () => {
+    const listed = await (await api(who)).get(`/api/notify/trpc/notify.list?input=${encodeURIComponent(JSON.stringify({ limit: 100 }))}`);
+    expect(listed.body?.result?.data?.items, `notify.list answered ${JSON.stringify(listed.body)}`).toBeInstanceOf(Array);
+    return listed.body.result.data.items;
+  };
+  const own = (items) => items.filter((item) => !PLATFORM_KINDS.includes(item.kind));
+  await expect.poll(async () => own(await inbox()).length, { timeout: 20_000 }).toBe(fills.length + 2);
+  const items = await inbox();
+  expect(
+    own(items)
+      .map((item) => item.kind)
+      .sort(),
+  ).toEqual([...fills.map(() => 'trade.fill'), 'trade.order.terminal', 'identity.kyc.approved'].sort());
   expect(
     items
       .filter((item) => item.kind === 'trade.fill')
       .map((item) => item.params.fillId)
       .sort(),
   ).toEqual(fills.map((fill) => fill.id).sort());
+  total = items.length;
+  expect(items.filter((item) => item.readAt === null)).toHaveLength(total);
+  expect((await (await api(who)).get('/api/notify/trpc/notify.unreadCount')).body?.result?.data?.count).toBe(total);
   kinds = items.map((item) => item.kind);
   await page.close();
 });
