@@ -97,6 +97,10 @@ test(`${J} #3 opens a ranked category and the trending row: a typed refusal, and
   await signIn(page, state('follower'));
   await page.goto('/trade/copy');
   const rankings = page.getByRole('group', { name: 'Ranked lists' });
+  const leaders = page.getByRole('table', { name: 'Leaders' });
+  await expect(leaders).toBeVisible();
+  const order = async () => (await leaders.locator('tbody tr').allInnerTexts()).map((row) => row.trim());
+  const before = await order();
   for (const name of ['Top return', 'Trending']) {
     const answer = page.waitForResponse(
       (res) => res.url().includes('copy.listLeaders') && res.url().includes(name === 'Trending' ? 'trending' : 'category'),
@@ -105,6 +109,10 @@ test(`${J} #3 opens a ranked category and the trending row: a typed refusal, and
     expect((await answer).status()).toBe(403);
     await expect(page.getByRole('alert').filter({ hasText: 'Rankings aren’t offered' })).toBeVisible();
     await expect(page.getByText('Reference trade.copy_ranking_forbidden')).toBeVisible();
+    // No returns-ranked board: the only table is still the plain leader list, in the same order, with no rank column.
+    await expect(page.getByRole('table')).toHaveCount(1);
+    expect(await order(), `the leader list after ${name}`).toEqual(before);
+    await expect(leaders.getByRole('columnheader', { name: /rank/i })).toHaveCount(0);
   }
 });
 
