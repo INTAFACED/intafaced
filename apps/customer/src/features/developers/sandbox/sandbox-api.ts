@@ -5,6 +5,8 @@
 import {
   sandboxCreateOutputSchema,
   sandboxCreateRequestId,
+  sandboxFundOutputSchema,
+  sandboxFundRequestId,
   sandboxGetOutputSchema,
   sandboxKeyCreateOutputSchema,
   sandboxKeyCreateRequestId,
@@ -29,6 +31,19 @@ export const createSandbox = (api: ApiClient, userId: string, listed: SandboxLis
     'developerSandboxes.create',
     { name, requestId: sandboxCreateRequestId(userId, listed, name) },
     sandboxCreateOutputSchema,
+  );
+
+/**
+ * One press of Fund. Until the owner decides where sandbox balances are kept, the service refuses
+ * `identity.sandbox_funds_unset` and nothing is written; there is no balance to read, so the page sends null as the
+ * balance it read.
+ */
+export const fundSandbox = (api: ApiClient, userId: string, sandboxId: string) =>
+  api.mutate(
+    'identity',
+    'developerSandboxes.fund',
+    { sandboxId, requestId: sandboxFundRequestId(userId, sandboxId, null) },
+    sandboxFundOutputSchema,
   );
 
 /** What a key may do, as the form offers it. Trade is offered so the service can refuse it by name. */
