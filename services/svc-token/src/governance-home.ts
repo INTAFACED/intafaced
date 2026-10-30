@@ -533,8 +533,8 @@ export async function insertGovernanceProposal(
     body: Record<string, unknown>;
     authorId: string;
     asAdmin: boolean;
-    opensAt: Date;
-    closesAt: Date;
+    /** The voting window, decided after the proposer rule passes (a blank setting refuses only an allowed author). */
+    window: (tx: Sql) => Promise<{ opensAt: Date; closesAt: Date }>;
     now: Date;
     handle?: string;
     title?: string;
@@ -592,6 +592,7 @@ export async function insertGovernanceProposal(
         existing: existingCount,
       });
       if (access.code) throw accessError(access.code);
+      const { opensAt, closesAt } = await input.window(tx);
 
       const ordinalRows = await tx<Array<{ n: string | null }>>`
         SELECT (COALESCE(MAX(ordinal), 0) + 1)::text AS n
@@ -602,7 +603,7 @@ export async function insertGovernanceProposal(
       if (ordinal == null || ordinal < 1) throw invalid('Proposal ordinal is missing');
       const id = `gov:proposal:${GOVERNANCE_SPACE_ID}:${input.authorId}:${ordinal}`;
       const status: ProposalStatus =
-        input.opensAt.getTime() <= input.now.getTime() && input.closesAt.getTime() > input.now.getTime() ? 'open' : 'draft';
+        opensAt.getTime() <= input.now.getTime() && closesAt.getTime() > input.now.getTime() ? 'open' : 'draft';
 
       const inserted = await tx<ProposalSqlRow[]>`
         INSERT INTO token.proposals (
@@ -611,7 +612,7 @@ export async function insertGovernanceProposal(
           voting_type, choices
         )
         VALUES (
-          ${id}, ${input.kind}, ${tx.json(input.body as never)}, ${status}, ${input.opensAt}, ${input.closesAt},
+          ${id}, ${input.kind}, ${tx.json(input.body as never)}, ${status}, ${opensAt}, ${closesAt},
           ${input.authorId}, ${title}, ${bodyMd}, ${discussionLink}, ${id}, ${handle}, 1, ${ordinal}, ${GOVERNANCE_SPACE_ID},
           ${input.votingType}, ${input.choices === null ? null : tx.json(input.choices as never)}
         )

@@ -16,6 +16,9 @@ import type { DeskRequest } from './approval-packet';
 export const WAVE_RELEASE_TARGET = 'waitlist.wave.release';
 /** svc-pay's action type for lifting a deposit address freeze (`DEPOSIT_ADDRESS_UNFREEZE_ACTION`). */
 export const DEPOSIT_ADDRESS_UNFREEZE = 'pay.deposit_address_unfreeze';
+/** svc-token governance founder doors (`services/svc-token/src/router.ts`, MC-token-02). */
+export const GOVERNANCE_SETTINGS_SET = 'token.governance.settings.set';
+export const GOVERNANCE_ROLE_SET = 'token.governance.role.set';
 /** The verb svc-identity binds a KYC document read to (`kyc.getDocument`). */
 export const KYC_DOCUMENT_GET = 'kyc.doc.get';
 /** The verb svc-identity binds a selfie decision to (`kyc.selfie.decide`). */
@@ -104,6 +107,15 @@ export function payloadHashFor(request: DeskRequest): string {
       return sha('academy.ambassador.unfreeze', { userId: request.userId });
     case 'identity.account.unfreeze':
       return shaIdentity(request.userId, { reason: request.reason });
+    // svc-token `governanceSettingsPayload` and `governanceRolePayload`, in their order.
+    case 'token.governance.settings.set':
+      return sha(GOVERNANCE_SETTINGS_SET, {
+        votingDelayMs: request.votingDelayMs,
+        votingPeriodMs: request.votingPeriodMs,
+        expectedRevision: request.revision,
+      });
+    case 'token.governance.role.set':
+      return sha(GOVERNANCE_ROLE_SET, { userId: request.userId, role: request.role, expectedRevision: request.revision });
     // svc-pay `payActionPayloadHash('pay.deposit_address_unfreeze', unfreezeApprovalFields(...))`: ids and address lower-cased.
     case 'pay.deposit_address.unfreeze':
       return sha(DEPOSIT_ADDRESS_UNFREEZE, {
@@ -398,6 +410,19 @@ export function proposeInputFor(request: DeskRequest): ProposeInput {
         payloadHash,
         policyVersion: 'v1',
       };
+    // svc-token consumes against its own verb as the target id, at the revision read.
+    case 'token.governance.settings.set':
+    case 'token.governance.role.set': {
+      const actionType = request.kind === 'token.governance.settings.set' ? GOVERNANCE_SETTINGS_SET : GOVERNANCE_ROLE_SET;
+      return {
+        actionType,
+        targetService: 'svc-token',
+        targetId: actionType,
+        expectedVersion: request.revision,
+        payloadHash,
+        policyVersion: 'v1',
+      };
+    }
     // svc-pay consumes against its own verb as the target id, at version 1 (`consumePayApproval`). The freeze id is in the hash.
     case 'pay.deposit_address.unfreeze':
       return {

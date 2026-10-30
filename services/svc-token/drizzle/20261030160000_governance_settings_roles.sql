@@ -34,8 +34,8 @@ CREATE TABLE IF NOT EXISTS "token"."governance_role_moves" (
   "approver_id" text NOT NULL CHECK ("approver_id" <> "actor_id"),
   "at" timestamptz NOT NULL DEFAULT now(),
   PRIMARY KEY ("user_id", "ordinal"),
-  -- A role is never granted by the account that receives it.
-  CHECK ("actor_id" <> "user_id")
+  -- A role is never asked for or approved by the account that receives it.
+  CHECK ("actor_id" <> "user_id" AND "approver_id" <> "user_id")
 );
 
 -- A cancelled proposal keeps its votes; the cancel names who and why.

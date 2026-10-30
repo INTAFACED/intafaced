@@ -2865,14 +2865,6 @@ export class TokenService {
     const now = input.now ?? new Date();
     const votingType = assertBallotType(input.votingType ?? 'basic');
     const choices = asBallotError(() => normalizeChoices(votingType, input.choices));
-    // A time the author leaves out comes from the founders' voting delay and period; a blank one refuses (MC-token-02).
-    const needsSettings = !input.opensAt || !input.closesAt;
-    const settings = needsSettings ? await readGovernanceSettings(this.sql) : { votingDelayMs: null, votingPeriodMs: null };
-    const { opensAt, closesAt } = proposalWindow(settings, { opensAt: input.opensAt, closesAt: input.closesAt, now });
-    if (!(closesAt.getTime() > opensAt.getTime())) {
-      throw new TokenError('Proposal window must close after it opens', 'token.proposal_window');
-    }
-
     const asAdmin = input.asAdmin === true;
     const peeked = await assessProposalAccess(this.sql, { userId: input.createdBy, asAdmin, staked: 0n, now });
     if (peeked.code === 'token.proposer_rule_unset' || peeked.code === 'token.proposal_limit_unset') {
@@ -2899,8 +2891,17 @@ export class TokenService {
       body: input.body ?? {},
       authorId: input.createdBy,
       asAdmin,
-      opensAt,
-      closesAt,
+      // A time the author leaves out comes from the founders' voting delay and period, read after the proposer rule
+      // passes; a blank one refuses `token.proposal_window_unset` (MC-token-02).
+      window: async (tx) => {
+        const needsSettings = !input.opensAt || !input.closesAt;
+        const settings = needsSettings ? await readGovernanceSettings(tx) : { votingDelayMs: null, votingPeriodMs: null };
+        const window = proposalWindow(settings, { opensAt: input.opensAt, closesAt: input.closesAt, now });
+        if (!(window.closesAt.getTime() > window.opensAt.getTime())) {
+          throw new TokenError('Proposal window must close after it opens', 'token.proposal_window');
+        }
+        return window;
+      },
       now,
       handle: input.handle,
       title: input.title,

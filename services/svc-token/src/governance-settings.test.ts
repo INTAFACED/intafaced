@@ -167,6 +167,20 @@ describe('MC-token-02 governance settings, roles and cancel', () => {
     expect(proposal.closesAt.toISOString()).toBe('2026-07-16T12:00:00.000Z');
   });
 
+  it('the proposer rule refuses before a blank window does, and a retried handle replays without the settings', async () => {
+    await sql`UPDATE token.governance_proposer SET min_stake = 1000 WHERE id = true`;
+    await fundStake(AUTHOR, '10');
+    expect(await codeOf(token.createProposal({ kind: 'listing', createdBy: AUTHOR, handle: 'r1', now: NOW }))).toBe(
+      'token.proposal_not_allowed',
+    );
+    await sql`UPDATE token.governance_proposer SET min_stake = 0 WHERE id = true`;
+    await settle(0n, DAY, 0);
+    const first = await token.createProposal({ kind: 'listing', createdBy: AUTHOR, handle: 'r2', now: NOW });
+    await settle(null, null, 1);
+    const again = await token.createProposal({ kind: 'listing', createdBy: AUTHOR, handle: 'r2', now: NOW });
+    expect(again.id).toBe(first.id);
+  });
+
   it('a retry of the same change writes nothing more, and a stale change refuses', async () => {
     await settle(0n, DAY, 0);
     expect(await settle(0n, DAY, 0)).toEqual({ votingDelayMs: 0n, votingPeriodMs: DAY, revision: 1 });
@@ -219,13 +233,18 @@ describe('MC-token-02 governance settings, roles and cancel', () => {
     ).toBe('token.role_invalid');
     expect(
       await codeOf(
+        token.setGovernanceRole({ userId: FOUNDER_B, role: 'admin', expectedRevision: 0, actorId: FOUNDER_A, approverId: FOUNDER_B }),
+      ),
+    ).toBe('token.role_invalid');
+    expect(
+      await codeOf(
         token.setGovernanceRole({ userId: MODERATOR, role: 'moderator', expectedRevision: 1, actorId: FOUNDER_A, approverId: FOUNDER_B }),
       ),
     ).toBe('token.role_invalid');
 
     await token.setGovernanceRole({ userId: MODERATOR, role: null, expectedRevision: 1, actorId: FOUNDER_B, approverId: FOUNDER_A });
     expect(await token.governanceRoleOf(MODERATOR)).toBeNull();
-    expect(await token.governanceRoles(50)).toEqual([]);
+    expect(await token.governanceRoles(50)).toEqual([{ userId: MODERATOR, role: null, revision: 2 }]);
     const moves = await sql`SELECT ordinal, from_role, to_role, actor_id, approver_id FROM token.governance_role_moves ORDER BY ordinal`;
     expect(moves.map((m) => [m.ordinal, m.from_role, m.to_role, m.actor_id, m.approver_id])).toEqual([
       [1, null, 'moderator', FOUNDER_A, FOUNDER_B],

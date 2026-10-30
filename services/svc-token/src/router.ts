@@ -11,6 +11,12 @@ import {
 import { DualControlError, requireDualControl } from './dual-control.js';
 import { GOVERNANCE_ROLES, checkGovernanceSettings, type GovernanceSettings } from './governance-settings.js';
 import {
+  GOVERNANCE_ROLE_ACTION,
+  GOVERNANCE_SETTINGS_ACTION,
+  governanceRolePayload,
+  governanceSettingsPayload,
+} from './governance-payload.js';
+import {
   TokenError,
   feeDiscountLadderToPublish,
   previewStakeTerms,
@@ -31,28 +37,12 @@ import type { LaunchService } from './launch/launch-service.js';
 
 /** The founders' approval that publishes the fee-decay schedule; the router binds the ladder and the version it replaces. */
 export const FEE_DISCOUNT_PUBLISH_ACTION = 'token.fee_discount.publish';
-/** Two founders write the governance voting delay and period (MC-token-02). */
-export const GOVERNANCE_SETTINGS_ACTION = 'token.governance.settings.set';
-/** Two founders grant, change or revoke one account's governance role (MC-token-02). */
-export const GOVERNANCE_ROLE_ACTION = 'token.governance.role.set';
-
-/** The fields the founders' settings approval binds. A blank setting is the empty string. */
-export function governanceSettingsPayload(input: {
-  votingDelayMs: string | null;
-  votingPeriodMs: string | null;
-  expectedRevision: number;
-}): Record<string, string> {
-  return {
-    votingDelayMs: input.votingDelayMs ?? '',
-    votingPeriodMs: input.votingPeriodMs ?? '',
-    expectedRevision: String(input.expectedRevision),
-  };
-}
-
-/** The fields the founders' role approval binds. A revoke is the empty role. */
-export function governanceRolePayload(input: { userId: string; role: string | null; expectedRevision: number }): Record<string, string> {
-  return { userId: input.userId, role: input.role ?? '', expectedRevision: String(input.expectedRevision) };
-}
+export {
+  GOVERNANCE_ROLE_ACTION,
+  GOVERNANCE_SETTINGS_ACTION,
+  governanceRolePayload,
+  governanceSettingsPayload,
+} from './governance-payload.js';
 
 /**
  * svc-token API surface.
@@ -1236,12 +1226,8 @@ export function createTokenRouter(token: TokenService, options: TokenRouterOptio
         ),
       roles: scopedProcedure('admin:read')
         .input(z.object({ limit: z.number().int().min(1).max(200) }))
-        .output(z.array(z.object({ userId: z.string(), role: governanceRole, revision: z.number().int().positive() })))
-        .query(({ input }) =>
-          guard(async () =>
-            (await token.governanceRoles(input.limit)).map((r) => ({ userId: r.userId, role: r.role!, revision: r.revision })),
-          ),
-        ),
+        .output(z.array(z.object({ userId: z.string(), role: governanceRole.nullable(), revision: z.number().int().positive() })))
+        .query(({ input }) => guard(async () => await token.governanceRoles(input.limit))),
       myRole: scopedProcedure('token:read', { module: 'token' })
         .output(z.object({ role: governanceRole.nullable() }))
         .query(({ ctx }) => guard(async () => ({ role: await token.governanceRoleOf(ctx.principal.userId) }))),
@@ -1266,7 +1252,7 @@ export function createTokenRouter(token: TokenService, options: TokenRouterOptio
         .mutation(({ ctx, input }) =>
           guard(async () => {
             if (input.userId === ctx.principal.userId)
-              throw new TokenError('A role is never granted by the account that receives it', 'token.role_invalid');
+              throw new TokenError('A role is never asked for by the account that receives it', 'token.role_invalid');
             const consumed = await consumeTokenApproval(
               approvals,
               input,

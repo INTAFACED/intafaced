@@ -147,9 +147,10 @@ export interface GovernanceRoleRow {
   revision: number;
 }
 
+/** Every account that ever had a role; a revoked one reads role null and keeps its revision. */
 export async function governanceRoles(sql: Sql, limit: number): Promise<GovernanceRoleRow[]> {
   return sql<GovernanceRoleRow[]>`
-    SELECT user_id AS "userId", role, revision FROM token.governance_roles WHERE role IS NOT NULL ORDER BY user_id LIMIT ${limit}
+    SELECT user_id AS "userId", role, revision FROM token.governance_roles ORDER BY user_id LIMIT ${limit}
   `;
 }
 
@@ -160,7 +161,7 @@ export async function governanceRoleOf(sql: Sql, userId: string): Promise<Govern
 
 /**
  * Grants, changes or revokes (`role` null) one account's role over the revision read, with a numbered audit row. The
- * account that receives a role never grants it; a retry of the same move at the same revision answers the stored row.
+ * account that receives a role never asks for or approves it; a retry of the same move at the same revision answers the stored row.
  */
 export async function setGovernanceRole(
   sql: Sql,
@@ -168,7 +169,8 @@ export async function setGovernanceRole(
 ): Promise<GovernanceRoleRow> {
   if (input.role !== null && !(GOVERNANCE_ROLES as readonly string[]).includes(input.role))
     throw new TokenError('That is not a governance role', 'token.role_invalid');
-  if (input.actorId === input.userId) throw new TokenError('A role is never granted by the account that receives it', 'token.role_invalid');
+  if (input.actorId === input.userId || input.approverId === input.userId)
+    throw new TokenError('A role is never asked for or approved by the account that receives it', 'token.role_invalid');
   return transaction(sql, async (tx) => {
     const rows = await tx<Array<{ role: GovernanceRole | null; revision: number }>>`
       SELECT role, revision FROM token.governance_roles WHERE user_id = ${input.userId} FOR UPDATE
