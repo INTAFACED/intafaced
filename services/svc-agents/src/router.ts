@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { envScreeningList, SHIPPED_BUSINESS_BLOCKS } from '@intafaced/config';
 import { router, publicProcedure, scopedProcedure, TRPCError, forwardedPrincipalHeaders } from '@intafaced/contracts';
+import { executeProcedure } from './procedures.js';
 import { formatAmount, parseAmount } from '@intafaced/ledger-client';
 import type { Sql } from 'postgres';
 import { AgentError, assertOpsSessionsLimit, assertSessionLogPageLimit, assertSessionMineLimit, assertUserLogPageLimit } from './errors.js';
@@ -53,6 +54,7 @@ import { draftScreeningSupport } from './risk-compliance/screening-draft.js';
 import { refuseIdentityKycReviewWrite } from './risk-compliance/kyc-review-write.js';
 import { envCoachGrounding, runCoachSession, type CoachGrounding } from './coach/grounded-session.js';
 import { describeCoachPolicy } from './coach/policy.js';
+import { coachRunRoutes } from './coach/router.js';
 import { envGrowthWarehouse, proposeGrowthCampaign } from './growth/campaign-proposal.js';
 import { planRebalance } from './portfolio-agent/plan.js';
 import { readOwnHoldings, type HoldingsLedger, type PortfolioPriceSource } from './portfolio-agent/holdings.js';
@@ -337,20 +339,6 @@ export interface AgentsRouterDeps {
   readonly portfolioLedger?: HoldingsLedger | null;
   /** Platform prices. Absent → portfolio.plan stays port_dark. Null price → portfolio.price_unset. */
   readonly portfolioPrices?: PortfolioPriceSource | null;
-}
-
-/**
- * Running an agent spends the person's money, so only the person runs one (OWNER 107): their own signed-in session,
- * never an API key (`agents:execute` is interactive-only in packages/auth), a sub-account or delegated token, or a
- * service forwarding their principal.
- */
-function executeProcedure() {
-  return scopedProcedure('agents:execute', { module: 'agents', person: true }).use(({ ctx, next }) => {
-    if (ctx.principal.kid || ctx.principal.sub_account) {
-      throw new TRPCError({ code: 'FORBIDDEN', message: 'agents.execute_person_only' });
-    }
-    return next();
-  });
 }
 
 /**
@@ -655,8 +643,7 @@ export function createAgentsRouter(deps: AgentsRouterDeps) {
             await ownedSession(input.sessionId, ctx.principal.userId);
             // Settle before closing: a session that ends with unbilled windows
             // leaves usage that only a sweep job would ever find.
-            await runtime.settleSession(input.sessionId);
-            const session = await runtime.closeSession(input.sessionId);
+            const session = await runtime.closeSettled(input.sessionId);
             return {
               id: session.id,
               agentId: session.agentId,
@@ -3907,6 +3894,7 @@ export function createAgentsRouter(deps: AgentsRouterDeps) {
      */
     coach: router({
       policy: publicProcedure.query(() => describeCoachPolicy()),
+      ...coachRunRoutes(deps, guard),
 
       session: scopedProcedure('agents:read', { module: 'agents' })
         .input(
@@ -4202,7 +4190,7 @@ export function createAgentsRouter(deps: AgentsRouterDeps) {
     spend: spendRouter(sql),
 
     /** Agents a person builds for themselves (AG-builder-01). Building moves no value. */
-    own: ownRouter(sql),
+    own: ownRouter(sql, { runtime, feeAssetId }),
   });
 }
 

@@ -57,7 +57,16 @@ import {
 } from './governance-vote.js';
 import { GOVERNANCE_EXECUTE_UNWIRED, GOVERNANCE_QUORUM_UNSET, decideProposalOutcome, executeUnwiredFor } from './governance-close.js';
 import { voteMessage, type VoteSignaturePort } from './vote-signature.js';
-import { reportLastBuyback, reportTreasury, type LastBuybackRow, type TokenTreasuryView, type TreasurySums } from './treasury-view.js';
+import {
+  reportBuybackRuns,
+  reportLastBuyback,
+  reportTreasury,
+  type BuybackRunRow,
+  type BuybackRunView,
+  type LastBuybackRow,
+  type TokenTreasuryView,
+  type TreasurySums,
+} from './treasury-view.js';
 import {
   assessProposalAccess,
   editGovernanceDraft,
@@ -2337,6 +2346,68 @@ export class TokenService {
         `and NOTHING was burned. Windows are half-open [from, to) and may not overlap. Already claimed: ${held || '(unknown)'}`,
       'token.buyback_window_overlap',
     );
+  }
+
+  /**
+   * Settled buyback runs, newest first, as stored — each one adds up
+   * (bought = burned + toRewards) or the read refuses
+   * `token.treasury_figure_unreadable`. Pending claims are not runs. The
+   * buyback rate comes back beside them, or the code that says it is not set;
+   * this read never sizes a spend, prices the token or reads revenue.
+   */
+  async buybackRuns(limit: number): Promise<{
+    runs: BuybackRunView[];
+    rate: BuybackParams | null;
+    missing: string | null;
+    reason: 'token.params_unset' | 'token.params_missing' | 'token.params_invalid' | null;
+  }> {
+    const rows = await this.sql<
+      Array<{
+        id: string | null;
+        bought: string | null;
+        burned: string | null;
+        to_rewards: string | null;
+        executed_at: Date | string | null;
+        window_from: Date | string | null;
+        window_to: Date | string | null;
+      }>
+    >`
+      SELECT id::text AS id,
+             tokens_bought::text AS bought,
+             tokens_burned::text AS burned,
+             tokens_to_rewards::text AS to_rewards,
+             executed_at,
+             revenue_window_from AS window_from,
+             revenue_window_to AS window_to
+        FROM token.buyback_runs
+       WHERE status = 'settled'
+       ORDER BY executed_at DESC, id DESC
+       LIMIT ${limit}
+    `;
+    const stored: BuybackRunRow[] = rows.map((row) => ({
+      id: row.id,
+      bought: row.bought,
+      burned: row.burned,
+      toRewards: row.to_rewards,
+      executedAt: row.executed_at,
+      windowFrom: row.window_from,
+      windowTo: row.window_to,
+    }));
+    const reported = reportBuybackRuns(stored);
+    if (!reported.ok) {
+      throw new TokenError('A buyback run this service recorded could not be read', reported.code);
+    }
+    try {
+      return { runs: reported.runs, rate: await this.buybackParams(), missing: null, reason: null };
+    } catch (err) {
+      if (
+        err instanceof TokenError &&
+        (err.code === 'token.params_unset' || err.code === 'token.params_missing' || err.code === 'token.params_invalid')
+      ) {
+        return { runs: reported.runs, rate: null, missing: err.config ?? 'token_params', reason: err.code };
+      }
+      throw err;
+    }
   }
 
   /** Tokens permanently removed from circulation. */

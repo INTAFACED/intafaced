@@ -81,6 +81,9 @@ import {
   type TwapParentStore,
 } from '../algo/index.js';
 import { DEFAULT_ALGO_MARK_POLICY, type AlgoMarkPolicy } from '../algo/mark-gate.js';
+import type { PovBasis } from '../algo/types.js';
+import { assertSmallestSliceTradable } from '../algo/create-gate.js';
+import { assertQty, assertSpotSurface, assertTradable } from './risk.js';
 import type { TwapParentRecord } from '../algo/parent-store.js';
 import { hydrateAlgoIfMissing, persistAlgoMutation } from '../algo/hydrate-on-mutate.js';
 import type { MarketLifecyclePort } from '../market-lifecycle.js';
@@ -117,6 +120,7 @@ import * as events from './trade-service/events.js';
 import * as reads from './trade-service/reads.js';
 import * as reconcile from './trade-service/reconcile.js';
 import * as twap from './trade-service/algo.js';
+import * as buyback from './trade-service/buyback.js';
 
 export {
   assertSamePlaceCommand,
@@ -832,6 +836,10 @@ export class TradeService {
           };
         },
         intervalTakerVolume: async (marketId, from, to) => queryTakerVolumeFromFills(this.sql, { marketId, from, to }),
+        oppositeBookQty: async (marketId, side, limitPrice) => {
+          const depth = await this.matching.depth(marketId, twap.OPPOSITE_BOOK_LEVELS);
+          return twap.sideQty(side === 'buy' ? depth.asks : depth.bids, side, limitPrice);
+        },
       },
       {
         onChange: (parent, plan) => this.algoStore.save({ parent, plan }),
@@ -944,6 +952,11 @@ export class TradeService {
   /** Owning CopyService supplies its verified follow id; old follows refuse new mirrors. */
   async placeCopyMirror(principal: Principal, input: PlaceOrderInput, followId: string): Promise<OrderRecord> {
     return this.placeOrderInner(principal, input, 'copy.mirror', `copy.follow:${followId}`);
+  }
+
+  /** Owning GridService supplies its bot id: one level order, a delegated child of the bot's admitted `strategy.start`. */
+  async placeGridLevel(principal: Principal, input: PlaceOrderInput, botId: string): Promise<OrderRecord> {
+    return this.placeOrderInner(principal, input, 'algo.child', `grid:${botId}`);
   }
 
   /** Owned worker hook: resolve uncertain grant, then execute only its original payload. */
@@ -1119,6 +1132,11 @@ export class TradeService {
 
   async placeOrder(principal: Principal, input: PlaceOrderInput): Promise<OrderRecord> {
     return orderPlace.placeOrder(this.internal, principal, input);
+  }
+
+  /** The token buyback's IOC buy, for svc-token only (`buyback-door.ts`). Its money is the rewards engine's. */
+  async placeBuybackIocBuy(input: buyback.BuybackIocBuyInput): Promise<buyback.BuybackIocBuyResult> {
+    return buyback.placeBuybackIocBuy(this.internal, input);
   }
 
   private async placeOrderInner(
@@ -1647,6 +1665,11 @@ export class TradeService {
     return reads.fillsForOrder(this.internal, principal, orderId, limit);
   }
 
+  /** Every fill of one owned order (the grid bot's fee and pair sums). */
+  async everyFillOfOrder(principal: Principal, orderId: string): Promise<FillRecord[]> {
+    return reads.everyFillOfOrder(this.internal, principal, orderId);
+  }
+
   async findOrder(orderId: string): Promise<OrderRecord | null> {
     const rows = await this.sql<OrderRow[]>`SELECT * FROM trade.orders WHERE id = ${orderId}`;
     const row = rows[0];
@@ -1739,6 +1762,10 @@ export class TradeService {
       /** `twap` (default), `vwap` (lookback candles), `pov` (live tape × participationBps). */
       kind?: string;
       participationBps?: number;
+      /** POV only: `traded_volume` (default) or `opposite_liquidity`. */
+      povBasis?: PovBasis;
+      randomSeed?: number;
+      triggerPrice?: Amount;
     },
   ): Promise<TwapParent> {
     return twap.createTwap(this.internal, principal, input);
@@ -1747,6 +1774,28 @@ export class TradeService {
   async getAlgo(principal: Principal, parentId: string): Promise<TwapParent> {
     requireScope(principal, 'trade:read');
     return hydrateAlgoIfMissing(this.algo, this.algoStore, principal.userId, parentId);
+  }
+
+  /** The owner's planned slice sizes, as stored with the parent. */
+  async algoPlan(principal: Principal, parentId: string): Promise<readonly Amount[]> {
+    await this.getAlgo(principal, parentId);
+    return this.algo.planOf(parentId) ?? [];
+  }
+
+  /** The TWAP slice sizes a create would plan on this market's lot. Reads the market only; writes nothing. */
+  async previewTwapSizes(
+    principal: Principal,
+    input: { symbol: string; totalQty: Amount; durationMs: number; sliceIntervalMs: number; randomSeed?: number },
+  ): Promise<readonly Amount[]> {
+    requireScope(principal, 'trade:read');
+    const market = await this.requireMarket({ symbol: input.symbol });
+    // The same market and schedule checks a create runs before it plans, so a preview never shows sizes a create refuses.
+    assertSpotSurface(market, 'TWAP');
+    assertTradable(market);
+    assertQty(market, input.totalQty);
+    const slices = this.algo.previewTwapPlan(input, market.lotSize);
+    if (input.randomSeed != null) assertSmallestSliceTradable(market, slices);
+    return slices;
   }
 
   /** Owner recovery restores only the immutable admitted proposal. Each child

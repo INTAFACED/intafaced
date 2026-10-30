@@ -8,6 +8,7 @@ const en = {
   launchRequirements: 'Launch requirements',
   governance: 'Token governance',
   economy: 'Token economy',
+  burn: 'Token burn',
   workers: 'Mining workers',
   shares: 'Mining shares',
   rewards: 'Mining rewards',

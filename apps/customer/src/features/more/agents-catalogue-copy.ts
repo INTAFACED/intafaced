@@ -155,6 +155,7 @@ const en = {
   closedSettled: 'Session closed. Usage settled.',
   refusal_price_unset: 'No rate is published for this task',
   refusal_funds_insufficient: 'Your available balance is below its worst case',
+  refusal_funds_unread: 'Your balance could not be read, so it did not start',
 } as const;
 const es = {
   tabCatalogue: 'Catálogo',
@@ -318,6 +319,7 @@ const es = {
   closedSettled: 'Sesión cerrada. Uso liquidado.',
   refusal_price_unset: 'No hay tarifa publicada para esta tarea',
   refusal_funds_insufficient: 'Tu saldo disponible está por debajo de su peor caso',
+  refusal_funds_unread: 'No se pudo leer tu saldo, así que no empezó',
 } satisfies Record<keyof typeof en, string>;
 const fr = {
   tabCatalogue: 'Catalogue',
@@ -482,5 +484,6 @@ const fr = {
   closedSettled: 'Session fermée. Utilisation réglée.',
   refusal_price_unset: 'Aucun tarif n’est publié pour cette tâche',
   refusal_funds_insufficient: 'Votre solde disponible est inférieur à son pire cas',
+  refusal_funds_unread: 'Votre solde n’a pas pu être lu ; elle n’a pas commencé',
 } satisfies Record<keyof typeof en, string>;
 export const agentsCatalogueCopy = defineCopy('more.agents.catalogue', en, { es, fr });

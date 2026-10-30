@@ -16,7 +16,7 @@ import { OtcError } from './errors.js';
 import { createConfigOtcMidSource, createObservedOtcMidSource, NO_OTC_MIDS } from './mid-source.js';
 
 const USER = '00000000-0000-4000-8000-000000000077';
-const principal = { userId: USER } as import('@intafaced/auth').Principal;
+const principal = { userId: USER, tier: 'basic' } as import('@intafaced/auth').Principal;
 
 const published: OtcDeskLaw = {
   published: true,
@@ -28,6 +28,7 @@ const published: OtcDeskLaw = {
   // A zero desk minimum is an owner value: these quotes are not held by the CB-otc-07 minimum.
   minNotional: { USDT: 0n },
   assets: ['BTC'],
+  minTier: 'basic',
 };
 
 function buyBtc() {

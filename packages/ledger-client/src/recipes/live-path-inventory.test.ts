@@ -78,6 +78,9 @@ const PINNED_SOCKETS: readonly { name: RecipeName; fingerprint: string }[] = [
   { name: 'marketPurchaseHold', fingerprint: 'd42384c631c1' },
   { name: 'marketPurchaseRefund', fingerprint: 'cab4cf971742' },
   { name: 'marketPurchaseRelease', fingerprint: '98c0d45b2efa' },
+  { name: 'buybackOrderHold', fingerprint: '30408fba090e' },
+  { name: 'buybackOrderHoldRelease', fingerprint: '10956b0267e4' },
+  { name: 'buybackTakerFill', fingerprint: 'feb69e826223' },
   { name: 'payReceivedHold', fingerprint: 'd38b34fa6dff' },
   { name: 'payReceivedRelease', fingerprint: '7d6896cf46f5' },
   { name: 'payReceivedReturn', fingerprint: '8ccf8023ca20' },
@@ -93,6 +96,15 @@ const PINNED_SOCKETS: readonly { name: RecipeName; fingerprint: string }[] = [
  */
 const RECIPE_GATE_CATALOG = 'services/svc-ledger/src/recipe-gate.ts';
 
+/**
+ * svc-trade's buyback door places these, but svc-ledger has not granted svc-trade the three recipes yet. Until that
+ * grant lands and the rows turn live, a key-signed (S2S v3 keypair) post is refused at the ledger; a shared-secret post
+ * is only logged there as a binding violation.
+ */
+const BUYBACK_PLACE = 'services/svc-trade/src/spot/trade-service/buyback.ts';
+const BUYBACK_ORDER = 'services/svc-trade/src/spot/buyback-order.ts';
+const BUYBACK_FILLS = 'services/svc-trade/src/spot/trade-service/fills.ts';
+
 const SOCKET_CALLER_ALLOWLIST: ReadonlyMap<RecipeName, readonly string[]> = new Map([
   ['marketMakerSeedFund', [RECIPE_GATE_CATALOG]],
   ['tradeFillFeeCorrection', [RECIPE_GATE_CATALOG]],
@@ -102,6 +114,9 @@ const SOCKET_CALLER_ALLOWLIST: ReadonlyMap<RecipeName, readonly string[]> = new 
   ['marketPurchaseHold', [RECIPE_GATE_CATALOG]],
   ['marketPurchaseRefund', [RECIPE_GATE_CATALOG]],
   ['marketPurchaseRelease', [RECIPE_GATE_CATALOG]],
+  ['buybackOrderHold', [RECIPE_GATE_CATALOG, BUYBACK_PLACE]],
+  ['buybackOrderHoldRelease', [RECIPE_GATE_CATALOG, BUYBACK_ORDER]],
+  ['buybackTakerFill', [RECIPE_GATE_CATALOG, BUYBACK_FILLS]],
   ['payReceivedHold', [RECIPE_GATE_CATALOG]],
   ['payReceivedRelease', [RECIPE_GATE_CATALOG]],
   ['payReceivedReturn', [RECIPE_GATE_CATALOG]],
@@ -118,10 +133,10 @@ describe('D26-P2-11 recipe matrix inventory (live path closure)', () => {
     expect(inventory.live.length + inventory.sockets.length).toBe(inventory.recipes.length);
   });
 
-  it('pins live vs §13 socket counts on tip (85 = 73 live + 12 socket)', () => {
+  it('pins live vs §13 socket counts on tip (88 = 73 live + 15 socket)', () => {
     const counts = countByKind(inventory);
-    expect(counts).toEqual({ live: 73, socket: 12 });
-    expect(inventory.recipes).toHaveLength(85);
+    expect(counts).toEqual({ live: 73, socket: 15 });
+    expect(inventory.recipes).toHaveLength(88);
     expect(liveRecipeKeys(inventory)).toHaveLength(73);
     expect(socketRecipeKeys(inventory)).toEqual(PINNED_SOCKETS.map((s) => s.name).sort());
   });

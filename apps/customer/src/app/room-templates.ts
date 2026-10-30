@@ -259,6 +259,7 @@ export const ROUTE_TEMPLATES: Readonly<Record<string, RoomTemplate | NotARoom>> 
   '/launch/:projectId': { template: 'catalogue' },
   '/token/governance': { template: 'record-list' },
   '/token/economy': { template: 'monitor' },
+  '/token/burn': { template: 'record-list' },
   '/token/governance/:proposalId': { template: 'reading' },
   '/mining/workers': { template: 'record-list' },
   '/mining/shares': { template: 'record-list' },
