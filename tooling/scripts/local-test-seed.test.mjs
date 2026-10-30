@@ -27,10 +27,12 @@ import {
   TEST_P2P_FIELDS,
   applyAll,
   applyEarn,
+  applyHomeContent,
   applyHouse,
   applyLoans,
   applyP2p,
   ageLoan,
+  endEarnUnbonding,
   earnFundingId,
   earnPoolName,
   fundEarnPool,
@@ -846,6 +848,44 @@ test('status after apply names the TEST rows and the house balances it read back
   assert.match(text, /USDT {2}5000000/);
 });
 
+test('apply never asks for the founder pair, so it makes no Home content and leaves the notice board alone', async () => {
+  const { deps } = world();
+  let asked = 0;
+  deps.home = async () => {
+    asked += 1;
+    return null;
+  };
+  const report = await applyAll(deps);
+  assert.equal(asked, 0);
+  assert.doesNotMatch(report.lines.join('\n'), /home/);
+});
+
+test('home without an enrolled founder pair fails by name and makes nothing', async () => {
+  const { deps } = world();
+  deps.home = async () => null;
+  await assert.rejects(applyHomeContent(deps), {
+    message: 'home: no enrolled founder pair on this stack, so Home cannot be seeded (run local-founder-seed.mjs enrol)',
+  });
+});
+
+test('home takes a notice window in whole minutes, for home only, up to the 30-day default', () => {
+  assert.deepEqual(parseArgs(['home', '--notice-minutes', '6', '--state', '/x']), {
+    command: 'home',
+    operands: [],
+    noticeMinutes: 6,
+    stateDir: '/x',
+  });
+  assert.equal(parseArgs(['home', '--notice-minutes', String(30 * 24 * 60)]).noticeMinutes, 30 * 24 * 60);
+  for (const bad of ['0', '-1', '1.5', '6m', String(30 * 24 * 60 + 1)]) {
+    assert.throws(() => parseArgs(['home', '--notice-minutes', bad]), {
+      name: 'GuardError',
+      message: /--notice-minutes needs a whole number/,
+    });
+  }
+  assert.throws(() => parseArgs(['home', '--notice-minutes']), /--notice-minutes needs a whole number/);
+  assert.throws(() => parseArgs(['apply', '--notice-minutes', '6']), /--notice-minutes is for home only/);
+});
+
 test('money tables are decimal strings and the seed does not touch service trees', () => {
   for (const row of TEST_HOUSE_INVENTORY) assert.equal(typeof row.amount, 'string');
   for (const row of TEST_EARN) assert.equal(typeof row.reserve, 'string');
@@ -1014,6 +1054,27 @@ test('age-loan: whole days from 1 to the cap on a loan id, and only the TEST pro
   assert.deepEqual(calls, [{ loanId: LOAN, days: 15, products: TEST_LOANS.map((row) => row.name) }]);
   assert.match(report.lines[0], /moved back 15 days/);
   assert.equal(report.lines[1], FUNDS_LABEL);
+});
+
+test('end-earn-unbonding: a saving id only, checked against the TEST pool names, and a refusal names why', async () => {
+  const SAVING = '1b2c3d4e-5f6a-4b7c-8d9e-0f1a2b3c4d5e';
+  const calls = [];
+  const deps = {
+    async endUnbondingRows(positionId, testPoolName) {
+      calls.push(positionId);
+      assert.equal(testPoolName.test('TEST · staking'), true);
+      assert.equal(testPoolName.test('Staking'), false);
+      return { unbondsAt: '2026-10-29T10:00:00.000Z' };
+    },
+  };
+  await assert.rejects(endEarnUnbonding(deps, 'not-a-saving'), GuardError);
+  await assert.rejects(endEarnUnbonding(deps, undefined), GuardError);
+  assert.equal(calls.length, 0);
+  const report = await endEarnUnbonding(deps, SAVING);
+  assert.deepEqual(calls, [SAVING]);
+  assert.deepEqual(report.lines, [`saving ${SAVING}: unbonding ends 2026-10-29T10:00:00.000Z (moved back)`, FUNDS_LABEL]);
+  const refusing = { endUnbondingRows: async () => ({ refused: 'is not unbonding' }) };
+  await assert.rejects(endEarnUnbonding(refusing, SAVING), /saving 1b2c3d4e-5f6a-4b7c-8d9e-0f1a2b3c4d5e is not unbonding/);
 });
 
 test('age-loan: a loan the database refuses to age is a guard refusal naming why', async () => {

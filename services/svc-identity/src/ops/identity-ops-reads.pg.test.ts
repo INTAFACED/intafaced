@@ -441,6 +441,44 @@ if (!databaseUrl) {
       expect(await getPreferences(db.sql, caller, 'trade.views')).toMatchObject({ version: 1, value: view });
     });
   });
+  describe('an identical save', () => {
+    it('stores nothing and keeps the version; a changed value is written; a stale version still refuses', async () => {
+      const a = await register();
+      const caller = await ctx(a.userId, a.sessionId, ['identity:read', 'identity:write'], false);
+      const namespace = 'protocol.address-watches';
+      const watch = { address: `0x${'a'.repeat(40)}`, tag: 'TEST cold wallet', note: 'TEST note' };
+      await setPreferences(db.sql, caller, { namespace, value: [watch], ifVersion: 0, clientRequestId: 'watch-0' });
+      const [before] = await db.sql<Array<{ updated_at: Date }>>`
+        SELECT updated_at FROM user_preferences WHERE user_id = ${a.userId} AND namespace = ${namespace}
+      `;
+      // The same watch, its keys in another order, sent again at the version read.
+      const again = await setPreferences(db.sql, caller, {
+        namespace,
+        value: [{ note: watch.note, tag: watch.tag, address: watch.address }],
+        ifVersion: 1,
+        clientRequestId: 'watch-1',
+      });
+      expect(again).toEqual({ outcome: 'stored', namespace, version: 1, value: [watch] });
+      const [after] = await db.sql<Array<{ updated_at: Date; version: string }>>`
+        SELECT updated_at, version::text AS version FROM user_preferences WHERE user_id = ${a.userId} AND namespace = ${namespace}
+      `;
+      expect(after).toEqual({ updated_at: before!.updated_at, version: '1' });
+      expect(
+        await db.sql`SELECT 1 FROM user_preference_receipts WHERE user_id = ${a.userId} AND client_request_id = 'watch-1'`,
+      ).toHaveLength(0);
+      // A client whose request id names only the version it read sends its next change under the same id: the no-op kept
+      // no receipt, so that change is written, not refused as a reused id.
+      const changed = { ...watch, note: 'TEST other note' };
+      expect(await setPreferences(db.sql, caller, { namespace, value: [changed], ifVersion: 1, clientRequestId: 'watch-1' })).toMatchObject(
+        { outcome: 'stored', version: 2, value: [changed] },
+      );
+      // An identical value sent at an old version is still a conflict: the caller's copy is stale and must rebase.
+      await expect(
+        setPreferences(db.sql, caller, { namespace, value: [changed], ifVersion: 1, clientRequestId: 'watch-stale' }),
+      ).rejects.toMatchObject({ code: PREFERENCES_VERSION_CONFLICT, current: { version: 2, value: [changed] } });
+      expect(await getPreferences(db.sql, caller, namespace)).toEqual({ namespace, version: 2, value: [changed] });
+    });
+  });
   describe('view record', () => {
     it('follows the account to a second device, replays a request, refuses a stale version and stays per account', async () => {
       const a = await register();

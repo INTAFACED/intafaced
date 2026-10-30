@@ -52,6 +52,7 @@ import { describeOtcPolicy } from './otc/otc-policy.js';
 import { convertHistoryProcedures } from './convert/convert-history-router.js';
 import { convertHistoryTrpcError } from './convert/convert-history.js';
 import { deskTrpcError } from './desk/errors.js';
+import { copyCloseTrpcError } from './copy/copy-close-errors.js';
 import { algoDeskProcedures, optionsDeskProcedures, rfqHistoryProcedures, scaleProcedures } from './desk/procedures.js';
 import { presentAlgoDesk, presentScheduleHonesty } from './algo/present.js';
 import { MAX_ALGO_SEED } from './algo/schedule.js';
@@ -447,6 +448,8 @@ function toTrpcError(err: unknown): TRPCError {
   if (historyError) return historyError;
   const desk = deskTrpcError(err);
   if (desk) return desk;
+  const copyClose = copyCloseTrpcError(err);
+  if (copyClose) return copyClose;
   if (err instanceof TradingControlError) {
     let code: 'SERVICE_UNAVAILABLE' | 'CONFLICT' | 'FORBIDDEN' = 'FORBIDDEN';
     if (err.code === 'authority.unavailable') code = 'SERVICE_UNAVAILABLE';
@@ -488,6 +491,7 @@ function toTrpcError(err: unknown): TRPCError {
       case 'trade.rfq_give_up_refused':
       case 'trade.rfq_missing_price':
       case 'trade.otc_makers_unset':
+      case 'trade.otc_assets_unset':
       case 'trade.rfq_size_not_set':
       case 'feed.market':
         return new TRPCError({ code: 'PRECONDITION_FAILED', message: err.message, cause: err });
@@ -1092,10 +1096,12 @@ export function createTradeRouter(
             published: false,
             statusLine: otcDeskLawStatusLine(UNPUBLISHED_OTC_DESK_LAW),
             residual: deskLaw,
+            assets: null,
             makerRouting: otcMakerRoutingStatus(),
             midFeed: otcMidFeedStatus(),
             residuals: {
               deskLaw,
+              assets: deskLaw,
               makerRouting: OTC_MAKER_ROUTING_RESIDUAL,
               midFeed: OTC_MID_FEED_RESIDUAL,
             },
@@ -1611,7 +1617,7 @@ export function createTradeRouter(
         ),
 
       stop: scopedProcedure('trade:write', { module: 'trade' })
-        .input(z.object({ followId: z.string().min(1).max(64) }))
+        .input(z.object({ followId: z.string().min(1).max(64), closeOnly: z.boolean().optional() }))
         .output(copyStopOutput)
         .mutation(({ ctx, input }) =>
           guard(async () => {
@@ -1726,6 +1732,42 @@ export function createTradeRouter(
           guard(async () => {
             if (!copy) throw new CopyError('Follow not found', 'trade.copy_not_following');
             return copy.followPositions(ctx.principal, input);
+          }),
+        ),
+
+      /** The caller's copied positions on one of their follows, newest first, with what is still open (CB-copy-09/10). */
+      copiedPositions: scopedProcedure('trade:read', { module: 'trade' })
+        .input(z.object({ followId: z.string().min(1).max(64) }))
+        .query(({ ctx, input }) =>
+          guard(async () => {
+            if (!copy) throw new CopyError('Follow not found', 'trade.copy_not_following');
+            return copy.copiedPositions(ctx.principal, input);
+          }),
+        ),
+
+      /** Close one copied position, whole or by an amount (CB-copy-10). Once per close. */
+      closeCopiedPosition: scopedProcedure('trade:write', { module: 'trade' })
+        .input(
+          z.object({
+            followId: z.string().min(1).max(64),
+            positionId: z.string().min(1).max(64),
+            qty: z.string().min(1).max(64).optional(),
+          }),
+        )
+        .mutation(({ ctx, input }) =>
+          guard(async () => {
+            if (!copy) throw new CopyError('Follow not found', 'trade.copy_not_following');
+            return copy.closePosition(ctx.principal, input);
+          }),
+        ),
+
+      /** Leader fills this follow did not copy, with the reason id, newest first (CB-copy-11). */
+      skipLog: scopedProcedure('trade:read', { module: 'trade' })
+        .input(z.object({ followId: z.string().min(1).max(64) }))
+        .query(({ ctx, input }) =>
+          guard(async () => {
+            if (!copy) throw new CopyError('Follow not found', 'trade.copy_not_following');
+            return copy.skipLog(ctx.principal, input);
           }),
         ),
 

@@ -30,6 +30,10 @@ const messages = {
   'Not wired': 'Not wired',
   'Mid feed on': 'The desk prices off a live mid price.',
   'Mid feed off': 'The mid price feed is switched off, so the desk has no mid price to quote from.',
+  'Assets on the desk': 'Assets on the desk',
+  'Not set': 'Not set',
+  'Assets on reason': 'The desk quotes these assets only.',
+  'Assets off reason': 'The desk has no asset list, so every request refuses.',
 
   // Request form
   'Request a price': 'Request a price',

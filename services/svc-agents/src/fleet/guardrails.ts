@@ -292,6 +292,14 @@ export const REFUSAL_CODES = [
   'agents.withdraw_scope_required',
   'agents.place_idempotency_required',
   'agents.place_key_conflict',
+  // Refused by the runtime before the engine, not by this policy: a route with no published rate, and a worst case
+  // the person's available balance cannot cover (OWNER 107), or one whose balance could not be read.
+  'agents.price_unset',
+  'agents.funds_insufficient',
+  'agents.funds_unread',
+  // Refused at the hold for an agent the person built: a run past one of the caps they set for it, or no caps set.
+  'agents.spend.cap_exceeded',
+  'agents.spend.cap_unset',
 ] as const;
 
 export type RefusalCode = (typeof REFUSAL_CODES)[number];

@@ -24,6 +24,7 @@ import { FuturesError } from './position-service.js';
 import { RISK_TIER_UNAVAILABLE, type RiskTierCrossing } from './risk-tier-confirm.js';
 import { OI_ROOM_UNAVAILABLE, openInterestRefusal, type OpenInterestRoom } from './open-interest-limits.js';
 import type { BandInForce, BandReason } from './dynamic-price-band.js';
+import { privateWrite } from '../route-inventory.js';
 
 export interface PositionPreviewRefusal {
   code: string;
@@ -185,7 +186,7 @@ function parsePositive(value: string): Amount | null {
 export function registerPositionPreviewRest(app: FastifyInstance, deps: PositionPreviewRestDeps): void {
   const edgeContext = createEdgeContext({ secret: deps.edgeSecret, ...deps.edgeTrust, serviceName: deps.serviceName });
 
-  app.post('/api/v1/positions/preview', async (req, reply) => {
+  app.post('/api/v1/positions/preview', privateWrite, async (req, reply) => {
     const edgeReq: EdgeRequest = { headers: req.headers as Record<string, string | string[] | undefined>, id: req.id };
     const principal = edgeContext(edgeReq).principal;
     if (!principal) return sendError(reply, 401, 'trade.unauthenticated', 'signed principal required');

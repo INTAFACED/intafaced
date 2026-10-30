@@ -192,6 +192,7 @@ describe('OtcDeskService.quote in maker mode (CB-otc-01 request path)', () => {
     maxMidAgeSeconds: 60,
     // A zero desk minimum is an owner value: these quotes are not held by the CB-otc-07 minimum.
     minNotional: { USDT: 0n },
+    assets: ['BTC'],
   };
   const principal = { userId: '00000000-0000-4000-8000-000000000001' } as import('@intafaced/auth').Principal;
   const req = (makerId: string) => ({ side: 'buy' as const, baseAsset: 'BTC', quoteAsset: 'USDT', qty: '1', makerId });
@@ -284,6 +285,7 @@ describe('a desk request names its providers (CB-otc-01, platform counterparty)'
     maxMidAgeSeconds: 60,
     // A zero desk minimum is an owner value: these quotes are not held by the CB-otc-07 minimum.
     minNotional: { USDT: 0n },
+    assets: ['BTC'],
   };
   const principal = { userId: '00000000-0000-4000-8000-000000000001' } as import('@intafaced/auth').Principal;
   const req = (makerIds?: string[]) => ({ side: 'buy' as const, baseAsset: 'BTC', quoteAsset: 'USDT', qty: '1', makerIds });

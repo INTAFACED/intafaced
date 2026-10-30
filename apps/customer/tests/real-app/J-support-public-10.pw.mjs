@@ -9,8 +9,7 @@ import { api, tool } from './stack.mjs';
 // founder A, the support lead; founder B is a second agent (help-centre.mjs appoints both). A TEST customer sends the
 // requests through its own support API, and reads the answers in the customer app.
 // A step whose part is missing fails at it quickly (UNBUILT).
-// #7's "public reply only" is proved against the status reason and the escalation summary: the desk has no internal notes
-// yet (SP-tickets-05), so a note the signature must stay off does not exist to check.
+// #7's "public reply only" is proved against an internal note (SP-tickets-05), the status reason and the escalation summary.
 // A refusal is matched by its one typed code, and the record is read again after it to show nothing changed.
 // #2's blank view cap clause needs the cap blank; the stack sets owner values as TEST, so it is checked where the cap is unset.
 const J = 'J-support-public-10';
@@ -282,6 +281,8 @@ test(`${J} #6 priority, type and labels save with one audit row each; a label wi
 test(`${J} #7 a macro with a placeholder fills the reply draft, the signature goes on the public reply only, and nothing is sent until Send`, async ({
   page,
 }) => {
+  // Above the 90 s default: the step makes about 30 desk calls and a dozen console round trips, each of which may wait
+  // the 15 s expect timeout on a cold stack. It ran in 12 to 35 s on the local stack.
   test.setTimeout(150_000);
   const ticket = await request(`TEST macro ${RUN}`);
   // A lead writes the macro (SP-desk-02). A placeholder outside the closed list, a taken or too-short shortcode and an
@@ -323,19 +324,29 @@ test(`${J} #7 a macro with a placeholder fills the reply draft, the signature go
   // Applying the macro substitutes this request's id; the requester's name, which the desk does not hold, stays as
   // written (never blank, never a stand-in) and is named. Nothing is written.
   const before = await trail(ticket.id);
-  const operatorComments = async () =>
-    (await desk('lead', 'query', 'listComments', { ticketId: ticket.id, limit: 50 })).filter((row) => row.authorRole !== 'customer');
+  // The desk's read holds internal notes too (SP-tickets-05): the public replies are the operator's public rows.
+  const deskComments = () => desk('lead', 'query', 'listComments', { ticketId: ticket.id, limit: 50 });
+  const operatorComments = async () => (await deskComments()).filter((row) => row.authorRole === 'operator' && row.visibility === 'public');
+  const asCustomer = async (procedure, input) => {
+    const res = await (await api(customer)).get(`/api/support/trpc/${procedure}?input=${encodeURIComponent(JSON.stringify(input))}`);
+    expect(res.status, JSON.stringify(res.body).slice(0, 300)).toBe(200);
+    return res.body.result.data;
+  };
+  const customerOperatorRows = async () =>
+    (await asCustomer('listComments', { ticketId: ticket.id, limit: 50 })).filter((row) => row.authorRole === 'operator');
   await actions.getByLabel('Macro').selectOption({ label: `TEST / ${title} (${shortcode})` });
   const filled = `TEST: about request ${ticket.id}. Hi {{requester.name}}, thanks for writing.`;
   await expect(draft).toHaveValue(`${filled}\n\n${signature}`);
   await expect(actions.getByTestId('reply-unfilled')).toContainText('{{requester.name}}');
   expect(await operatorComments()).toHaveLength(0);
+  expect(await customerOperatorRows()).toEqual([]);
   expect(await trail(ticket.id)).toEqual(before);
 
   // Send with the placeholder still in it: svc-support refuses by its code and nothing is sent.
   const refused = await sendReply(workspace);
   await expect(refused).toHaveAttribute('data-code', 'support.macro_placeholder_blank');
   expect(await operatorComments()).toHaveLength(0);
+  expect(await customerOperatorRows()).toEqual([]);
   expect(await trail(ticket.id)).toEqual(before);
 
   // The agent removes it; the draft they send is what the customer gets, signature included, once.
@@ -344,15 +355,12 @@ test(`${J} #7 a macro with a placeholder fills the reply draft, the signature go
   await expect(actions.getByTestId('reply-unfilled')).toHaveCount(0);
   await expect(await sendReply(workspace)).toContainText('Done');
   expect((await operatorComments()).map((row) => row.body)).toEqual([reply]);
-  const customerView = await (
-    await api(customer)
-  ).get(`/api/support/trpc/listComments?input=${encodeURIComponent(JSON.stringify({ ticketId: ticket.id, limit: 50 }))}`);
-  expect(customerView.body.result.data.filter((row) => row.authorRole !== 'customer').map((row) => row.body)).toEqual([reply]);
+  const customerView = await asCustomer('listComments', { ticketId: ticket.id, limit: 50 });
+  expect(customerView.filter((row) => row.authorRole === 'operator').map((row) => row.body)).toEqual([reply]);
   // The next reply's draft starts again from the signature.
   await expect(draft).toHaveValue(`\n\n${signature}`);
 
-  // A status reason is stored as written, without the signature. This is not the proof of "public reply only", which is
-  // measured against an internal note below.
+  // A status reason is stored as written, without the signature.
   const reason = `TEST ${J} #7 hold`;
   await actions.getByLabel('New status').selectOption('on_hold');
   await actions.getByLabel(/^Reason/).fill(reason);
@@ -362,12 +370,52 @@ test(`${J} #7 a macro with a placeholder fills the reply draft, the signature go
   const held = (await trail(ticket.id)).filter((row) => row.kind === 'status_changed' && row.toStatus === 'on_hold');
   expect(held.map((row) => row.note)).toEqual([reason]);
   expect(await operatorComments()).toHaveLength(1);
-  // The case "public reply only" is measured against is an internal note's draft, which is unbuilt (SP-tickets-05). This
-  // step stays red, by that name, until the note composer exists and its draft is shown to start without the signature.
-  await expect(
-    actions.getByLabel('Your internal note'),
-    'blocked by SP-tickets-05: no internal note composer, so "the signature goes on the public reply only" is unproven',
-  ).toBeVisible({ timeout: 5_000 });
+
+  // "Public reply only" is measured against an internal note (SP-tickets-05): its draft starts empty, with no
+  // signature and no macro, and the note is stored exactly as written, kept from the customer, with the ticket unmoved.
+  await actions.getByLabel('Internal note (staff only)').check();
+  const noteDraft = actions.getByLabel('Your internal note');
+  await expect(noteDraft).toHaveValue('');
+  await expect(actions.getByLabel('Macro')).toHaveCount(0);
+  await expect(actions.getByTestId('note-no-macro')).toBeVisible();
+  const trailBeforeNote = await trail(ticket.id);
+  const ticketBeforeNote = await desk('lead', 'query', 'get', { ticketId: ticket.id });
+  const note = `TEST ${J} #7 note ${RUN}: the customer asked twice`;
+  await noteDraft.fill(note);
+  await actions.getByRole('button', { name: 'Review note' }).click();
+  await actions.getByRole('button', { name: 'Yes, add the note' }).click();
+  await expect(actions.getByTestId('note-outcome')).toContainText('Done');
+  // The desk reads it back as internal, exactly as written: the signature is not on it.
+  const notes = (await deskComments()).filter((row) => row.visibility === 'internal');
+  expect(notes.map((row) => [row.body, row.authorRole])).toEqual([[note, 'operator']]);
+  expect(notes[0].body.includes(signature)).toBe(false);
+  await expect(workspace.locator('li[data-visibility="internal"]')).toHaveText(new RegExp(`Internal note.*Staff only.*${note}`));
+  // The customer's own reads never carry it, and the note moved nothing: status, trail and ticket are as before.
+  const customerAfter = await asCustomer('listComments', { ticketId: ticket.id, limit: 50 });
+  expect(customerAfter.filter((row) => row.authorRole === 'operator').map((row) => row.body)).toEqual([reply]);
+  expect(JSON.stringify(customerAfter)).not.toContain(note);
+  expect(JSON.stringify(await asCustomer('events', { ticketId: ticket.id, limit: 500 }))).not.toContain(note);
+  expect(JSON.stringify(await asCustomer('get', { ticketId: ticket.id }))).not.toContain(note);
+  expect(await trail(ticket.id)).toEqual(trailBeforeNote);
+  expect(await desk('lead', 'query', 'get', { ticketId: ticket.id })).toEqual(ticketBeforeNote);
+  expect(ticketBeforeNote.status).toBe('on_hold');
+  // The next note starts empty again; the public reply's draft still starts from the signature.
+  await expect(noteDraft).toHaveValue('');
+  await actions.getByLabel('Public reply (the customer sees it)').check();
+  await expect(draft).toHaveValue(`\n\n${signature}`);
+  // The same words noted again after the request is opened afresh are a second note, never a replay of the first:
+  // a note adds no trail row, so its key counts the notes already on the request.
+  await page.reload();
+  await expect(workspace).toBeVisible();
+  await cardRead(workspace);
+  await actions.getByLabel('Internal note (staff only)').check();
+  await noteDraft.fill(note);
+  await actions.getByRole('button', { name: 'Review note' }).click();
+  await actions.getByRole('button', { name: 'Yes, add the note' }).click();
+  await expect(actions.getByTestId('note-outcome')).toContainText('Done');
+  const twice = (await deskComments()).filter((row) => row.visibility === 'internal');
+  expect(twice.map((row) => row.body)).toEqual([note, note]);
+  expect(new Set(twice.map((row) => row.id)).size).toBe(2);
 });
 
 test(`${J} #8 sending after another agent changed the status is refused as stale with the new events, and goes through after review`, async ({
