@@ -1087,6 +1087,26 @@ async function treasuryCall(ctx, op, method, route, body) {
 }
 
 /**
+ * The ledger's own record of one business key, read by TEST founder a through svc-ledger's lookup door
+ * (GET /operator/trace, recorded in its access log). A read: nothing posts. `{ found: false }` when the key booked
+ * nothing.
+ */
+export async function ledgerTrace(ctx, businessKey) {
+  const sessions = await approverSessions(ctx);
+  const res = await treasuryCall(ctx, sessions.a.op, 'GET', `/operator/trace?businessKey=${encodeURIComponent(businessKey)}`);
+  if (res.status !== 200) throw new Error(`ledger GET /operator/trace refused (${res.status}): ${res.text.slice(0, 300)}`);
+  return res.json;
+}
+
+/** The ledger's accounts under an address prefix (GET /operator/accounts), read by TEST founder a. A read. */
+export async function ledgerAccounts(ctx, prefix) {
+  const sessions = await approverSessions(ctx);
+  const res = await treasuryCall(ctx, sessions.a.op, 'GET', `/operator/accounts?prefix=${encodeURIComponent(prefix)}`);
+  if (res.status !== 200) throw new Error(`ledger GET /operator/accounts refused (${res.status}): ${res.text.slice(0, 300)}`);
+  return res.json.accounts;
+}
+
+/**
  * Publish each TEST row through the founders' door: one founder proposes `ledger.asset_edit` for the row's current
  * revision, the other approves, and the first applies it at svc-ledger POST /operator/assets/apply-edit
  * (admin:treasury, second factor). A row that already says the same is left alone.
