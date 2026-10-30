@@ -24,7 +24,6 @@
 
 - WebSocket streams: Waits for DV-websocket-01
 - Rate limits: Waits for DV-limits-01
-- Errors: Waits for DV-errors-01
 - Idempotency: Waits for DV-auth-03
 - Versioning: Waits for DV-versioning-01
 - FIX: Waits for DV-fix-01

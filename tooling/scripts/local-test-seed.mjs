@@ -9,8 +9,9 @@
  *   LOCAL_TEST=1 node tooling/scripts/local-test-seed.mjs age-loan <loanId> <days> [--state <dir>]
  *   LOCAL_TEST=1 node tooling/scripts/local-test-seed.mjs fund-earn-pool <poolId> <amount> <ref> [--state <dir>]
  *   LOCAL_TEST=1 node tooling/scripts/local-test-seed.mjs end-earn-unbonding <positionId> [--state <dir>]
+ *   LOCAL_TEST=1 node tooling/scripts/local-test-seed.mjs age-earn-position <positionId> <days> [--state <dir>]
  *
- * Default state dir: ~/.intafaced/local-test-stack
+ * Default state dir: LOCAL_STACK_STATE, else ~/.intafaced/local-test-stack (local-test-state.mjs)
  * Nitro's preview stack: ~/.intafaced/s3-trade-20261015
  *
  * Refuses (exit 2, no file write, no database) unless LOCAL_TEST=1, NODE_ENV is
@@ -33,6 +34,7 @@ import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { execFileSync } from 'node:child_process';
 import { HOME_NOTICE_DAYS, applyHome, homeStatus } from './local-test-home.mjs';
+import { localStackState } from './local-test-state.mjs';
 
 const SCRIPT = fileURLToPath(import.meta.url);
 const REPO = path.resolve(path.dirname(SCRIPT), '..', '..');
@@ -135,8 +137,13 @@ export class GuardError extends Error {
   }
 }
 
-export function defaultStateDir() {
-  return path.join(os.homedir(), '.intafaced', 'local-test-stack');
+/** The stack's own state rule (LOCAL_STACK_STATE, else per user), as the gates read it, so the compose seed finds its folder. */
+export function defaultStateDir(env = process.env) {
+  try {
+    return localStackState(os.homedir(), env);
+  } catch (err) {
+    throw new GuardError(`refusing: ${err.message}`);
+  }
 }
 
 export function earnPoolName(row) {
@@ -268,7 +275,7 @@ export function guardSeed(env, stateDir, io = defaultIo) {
   if (env.NODE_ENV === 'production') throw new GuardError('refusing: NODE_ENV is "production". This script is local-only.');
   if (env.APP_ENV !== undefined && env.APP_ENV !== 'dev' && env.APP_ENV !== 'test') {
     const shown = env.APP_ENV === '' ? 'blank' : `"${env.APP_ENV}"`;
-    throw new GuardError(`refusing: APP_ENV is ${shown}; if set, it must be exactly "dev" or "test".`);
+    throw new GuardError(`refusing [seed.app_env_not_local]: APP_ENV is ${shown}; if set, it must be exactly "dev" or "test".`);
   }
   if (!stateDir || typeof stateDir !== 'string') throw new GuardError('refusing: state directory is missing');
 
@@ -588,8 +595,8 @@ export async function fundEarnPool(deps, poolId, amount, ref) {
 /**
  * Ends one TEST saving's unbonding now, so the bank's own release job can pay it back on this stack (J-bank-08 #6: the
  * release job reads the bank's clock, never a caller's, and a journey cannot wait seven days). Only the unbonding's two
- * dates move, back by the same span, so its length is kept and it ends a minute ago. The saving's opening never moves,
- * so no past day becomes payable, and nothing is posted: the release is the bank's, through its job door. Refused
+ * dates move, back by the same span, so its length is kept and it ends a minute ago. The saving's opening is not moved
+ * here (only `age-earn-position` moves it, before any unbonding), and nothing is posted: the release is the bank's, through its job door. Refused
  * unless the saving is in a TEST pool, still active and unbonding, and its unbonding has not ended yet.
  */
 export async function endEarnUnbonding(deps, positionId) {
@@ -599,6 +606,26 @@ export async function endEarnUnbonding(deps, positionId) {
   const ended = await deps.endUnbondingRows(positionId, TEST_POOL_NAME);
   if (ended.refused) throw new GuardError(`refusing: saving ${positionId} ${ended.refused}`);
   return { ...ended, lines: [`saving ${positionId}: unbonding ends ${ended.unbondsAt} (moved back)`, FUNDS_LABEL] };
+}
+
+/**
+ * Moves one TEST saving's opening back whole days, so the bank's own accrual job can pay a day that has begun on this
+ * stack (J-bank-08 #3, #5, #6: the job refuses a day that has not begun, and a journey cannot wait for midnight). Only
+ * the saving's opening moves; its pool's rate and status history are append-only and stay as recorded. Nothing is
+ * posted. Refused unless the saving is in a TEST pool, active, open-ended (no term) and not unbonding, and its pool has
+ * recorded no day on or after the new opening, so no day already decided without it becomes one it should have been
+ * paid. A day before the pool's first rate record pays the pool's first rate (the bank's rule for a day before any).
+ */
+export async function ageEarnPosition(deps, positionId, days) {
+  if (typeof positionId !== 'string' || !UUID.test(positionId)) {
+    throw new GuardError('refusing: age-earn-position needs a saving id (a UUID)');
+  }
+  if (!/^\d+$/.test(String(days)) || Number(days) < 1 || Number(days) > MAX_AGE_DAYS) {
+    throw new GuardError(`refusing: age-earn-position needs whole days from 1 to ${MAX_AGE_DAYS}`);
+  }
+  const aged = await deps.ageEarnPositionRows(positionId, Number(days), TEST_POOL_NAME);
+  if (aged.refused) throw new GuardError(`refusing: saving ${positionId} ${aged.refused}`);
+  return { ...aged, lines: [`saving ${positionId}: opened ${aged.openedAt} (moved back ${days} days)`, FUNDS_LABEL] };
 }
 
 // ── Status (read-only) ──────────────────────────────────────────────────────
@@ -921,6 +948,39 @@ export async function openLocal(plan) {
         return { unbondsAt: moved.unbonds_at.toISOString() };
       });
     },
+    async ageEarnPositionRows(positionId, days, testPoolName) {
+      return bankSql.begin(async (tx) => {
+        const rows = await tx`
+          SELECT ps.pool_id, ps.status, ps.matures_at, ps.unbonding_started_at, ps.opened_at, pl.name AS pool
+            FROM bank.earn_positions ps JOIN bank.earn_pools pl ON pl.id = ps.pool_id
+           WHERE ps.id = ${positionId}
+             FOR UPDATE OF ps
+        `;
+        const position = rows[0];
+        if (!position) return { refused: 'is not on this stack' };
+        // Held to the end of this transaction: no day can be recorded for any pool while the check and the move run.
+        await tx`LOCK TABLE bank.interest_accruals IN SHARE MODE`;
+        if (!testPoolName.test(position.pool)) return { refused: 'is not in a TEST pool' };
+        if (position.status !== 'active') return { refused: `is ${position.status}, not active` };
+        if (position.matures_at !== null) return { refused: 'has a term; only an open-ended saving is aged' };
+        if (position.unbonding_started_at !== null) return { refused: 'is unbonding' };
+        const shift = tx`make_interval(days => ${days})`;
+        // A day the pool already recorded on or after the new opening was decided without this saving: moving the
+        // opening behind it would leave a day the saving should have been paid and never will be.
+        const [recorded] = await tx`
+          SELECT count(*)::int AS n FROM bank.interest_accruals
+           WHERE pool_id = ${position.pool_id}
+             AND accrual_date >= ((${position.opened_at}::timestamptz - ${shift}) AT TIME ZONE 'UTC')::date
+        `;
+        if (recorded.n > 0) return { refused: 'is in a pool with a day recorded on or after its new opening' };
+        const [moved] = await tx`
+          UPDATE bank.earn_positions SET opened_at = opened_at - ${shift}
+           WHERE id = ${positionId}
+          RETURNING opened_at
+        `;
+        return { openedAt: moved.opened_at.toISOString() };
+      });
+    },
     async close() {
       await bankSql.end({ timeout: 5 });
       await p2pSql.end({ timeout: 5 });
@@ -930,7 +990,8 @@ export async function openLocal(plan) {
 
 // ── CLI ─────────────────────────────────────────────────────────────────────
 
-const USAGE = 'Use: apply | home [--notice-minutes <n>] | status | unseed | age-loan | fund-earn-pool | end-earn-unbonding';
+const USAGE =
+  'Use: apply | home [--notice-minutes <n>] | status | unseed | age-loan | fund-earn-pool | end-earn-unbonding | age-earn-position';
 const MAX_NOTICE_MINUTES = HOME_NOTICE_DAYS * 24 * 60;
 
 export function parseArgs(argv) {
@@ -959,8 +1020,9 @@ export function parseArgs(argv) {
     'age-loan': 'refusing: age-loan needs <loanId> <days>',
     'fund-earn-pool': 'refusing: fund-earn-pool needs <poolId> <amount> <ref>',
     'end-earn-unbonding': 'refusing: end-earn-unbonding needs <positionId>',
+    'age-earn-position': 'refusing: age-earn-position needs <positionId> <days>',
   };
-  const operands = { 'age-loan': 2, 'fund-earn-pool': 3, 'end-earn-unbonding': 1 }[command] ?? 0;
+  const operands = { 'age-loan': 2, 'fund-earn-pool': 3, 'end-earn-unbonding': 1, 'age-earn-position': 2 }[command] ?? 0;
   if (rest.length > operands) throw new GuardError(`refusing: unknown argument "${rest[operands]}"`);
   if (rest.length < operands) throw new GuardError(needs[command]);
   return {
@@ -1005,6 +1067,11 @@ async function dispatch(command, deps, hooks, operands = [], options = {}) {
   }
   if (command === 'end-earn-unbonding') {
     const report = await endEarnUnbonding(deps, operands[0]);
+    for (const line of report.lines) out(line);
+    return 0;
+  }
+  if (command === 'age-earn-position') {
+    const report = await ageEarnPosition(deps, operands[0], operands[1]);
     for (const line of report.lines) out(line);
     return 0;
   }

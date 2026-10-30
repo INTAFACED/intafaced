@@ -6,6 +6,7 @@ import assert from 'node:assert/strict';
 import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import os from 'node:os';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import {
@@ -33,9 +34,11 @@ import {
   applyP2p,
   ageLoan,
   endEarnUnbonding,
+  ageEarnPosition,
   earnFundingId,
   earnPoolName,
   fundEarnPool,
+  defaultStateDir,
   guardSeed,
   houseSeedId,
   main,
@@ -886,6 +889,15 @@ test('home takes a notice window in whole minutes, for home only, up to the 30-d
   assert.throws(() => parseArgs(['apply', '--notice-minutes', '6']), /--notice-minutes is for home only/);
 });
 
+test('without --state the seed reads the stack state rule: LOCAL_STACK_STATE, as the compose seed service sets it', () => {
+  assert.equal(defaultStateDir({ LOCAL_STACK_STATE: '/var/lib/intafaced/x' }), '/var/lib/intafaced/x');
+  assert.equal(defaultStateDir({}), path.join(os.homedir(), '.intafaced', 'local-test-stack'));
+  assert.throws(() => defaultStateDir({ LOCAL_STACK_STATE: 'relative' }), {
+    name: 'GuardError',
+    message: /LOCAL_STACK_STATE must be an absolute folder path/,
+  });
+});
+
 test('money tables are decimal strings and the seed does not touch service trees', () => {
   for (const row of TEST_HOUSE_INVENTORY) assert.equal(typeof row.amount, 'string');
   for (const row of TEST_EARN) assert.equal(typeof row.reserve, 'string');
@@ -1077,6 +1089,34 @@ test('end-earn-unbonding: a saving id only, checked against the TEST pool names,
   await assert.rejects(endEarnUnbonding(refusing, SAVING), /saving 1b2c3d4e-5f6a-4b7c-8d9e-0f1a2b3c4d5e is not unbonding/);
 });
 
+test('age-earn-position: a saving id and whole days up to the cap, checked against the TEST pool names, and a refusal names why', async () => {
+  const SAVING = '2c3d4e5f-6a7b-4c8d-9e0f-1a2b3c4d5e6f';
+  const calls = [];
+  const deps = {
+    async ageEarnPositionRows(positionId, days, testPoolName) {
+      calls.push([positionId, days]);
+      assert.equal(testPoolName.test('TEST · flexible'), true);
+      assert.equal(testPoolName.test('Flexible'), false);
+      return { openedAt: '2026-10-27T10:00:00.000Z' };
+    },
+  };
+  for (const bad of ['0', '-1', '1.5', 'two', String(MAX_AGE_DAYS + 1)]) {
+    await assert.rejects(ageEarnPosition(deps, SAVING, bad), GuardError, `days ${bad}`);
+  }
+  await assert.rejects(ageEarnPosition(deps, 'not-a-saving', '2'), GuardError);
+  assert.equal(calls.length, 0);
+  const report = await ageEarnPosition(deps, SAVING, '2');
+  assert.deepEqual(calls, [[SAVING, 2]]);
+  assert.deepEqual(report.lines, [`saving ${SAVING}: opened 2026-10-27T10:00:00.000Z (moved back 2 days)`, FUNDS_LABEL]);
+  const refusing = {
+    ageEarnPositionRows: async () => ({ refused: 'is in a pool with a day recorded on or after its new opening' }),
+  };
+  await assert.rejects(
+    ageEarnPosition(refusing, SAVING, '2'),
+    /saving 2c3d4e5f-6a7b-4c8d-9e0f-1a2b3c4d5e6f is in a pool with a day recorded/,
+  );
+});
+
 test('age-loan: a loan the database refuses to age is a guard refusal naming why', async () => {
   const deps = { ageLoanRows: async () => ({ refused: 'already has events after its opening' }) };
   await assert.rejects(ageLoan(deps, '0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d', '3'), /already has events after its opening/);
@@ -1128,4 +1168,10 @@ test('age-loan takes exactly its two operands; every other command still takes n
     stateDir: '/x',
   });
   assert.throws(() => parseArgs(['fund-earn-pool', 'id', '25']), /needs <poolId> <amount> <ref>/);
+  assert.deepEqual(parseArgs(['age-earn-position', 'id', '2', '--state', '/x']), {
+    command: 'age-earn-position',
+    operands: ['id', '2'],
+    stateDir: '/x',
+  });
+  assert.throws(() => parseArgs(['age-earn-position', 'id']), /needs <positionId> <days>/);
 });

@@ -697,6 +697,23 @@ per asset; no `available` or `hold` balance ever goes negative; and no terminal 
 
 `GET /api/v1/orders/closed` takes `side` (`buy` or `sell`), `status` (CCXT words `closed`, `canceled`, `rejected`, `expired`) and `until` (unix ms, inclusive) next to `symbol`, `limit` and `since`. All filters run in SQL on the caller's own orders, so `limit` stays honest. An unknown `side` or `status`, an `until` that is negative, not a number or before `since` is a 400, never a silent unfiltered page.
 
+## Developer error bodies (DV-errors-01, DV-errors-02)
+
+A create-order body the schema refuses (`POST /api/v1/orders`, each batch item, and `POST /api/v1/orders/:id/replace`) is one 400 that lists every bad field: `code` (CCXT `InvalidOrder`), `intafacedCode`, `message`, `docs` (`/developers/errors#<intafacedCode>`), `errors: [{field, message}]` (one entry per field) and the raw `issues`. One bad field keeps its own code (`trade.invalid_tag` for a tag); more than one is `trade.validation_failed`, whatever order they were reported in. A negative or zero `amount`, `price` or `stopPrice` is listed next to any other bad field in the same reply. Edge stamps `requestId`; this service sets none (`src/create-body-refusal.ts`).
+
+A money call during svc-ledger's platform posting freeze (`ledger.frozen` from the ledger) is answered by where the freeze stopped it:
+
+- **Before the engine** (the order's first hold refused; order-place's own delete removed the pending row, and only then marks the error with `refusedBeforeEngine`; a row a concurrent request already moved stays unmarked): HTTP 400 `{code: 'OnMaintenance', intafacedCode: 'posting_frozen'}`. A refusal; nothing exists and nothing is held. The CCXT class tells a bot to back off and retry, which is safe under the same `clientOrderId`.
+- **After the engine accepted, filled or cancelled the order** (a fill or release post, a cancel's release): HTTP 503 `{code: 'ExchangeNotAvailable', intafacedCode: 'trade.settlement_pending'}`. The order exists and its settlement is not confirmed: read the order before sending it again. An unmarked freeze is always this case, so a freeze nobody classified never reads as "nothing happened".
+
+A spot close (`POST /api/v1/spot/positions/close`) posts only after the engine printed the flatten, and its row is kept `recovery_required` whatever the ledger said. The posting freeze, an outcome nobody knows, or a refusal raised before the ledger looks up the key (`ledger.unauthenticated`: a retried post that committed can get it), is 503 `trade.settlement_pending`. A refusal the ledger's engine named (`classifyPostOutcome` 'refused') or a post that never left is 500 `trade.close_settlement_refused`: a posting of the settlement was refused, earlier ones may have booked, and the close waits for recovery. Any untyped error (a ledger reply without a code, a transport deadline) is 503 `trade.settlement_pending`. All carry fixed words, never the ledger's own message. The close door answers `{error, message}`, not the CCXT body, so its codes sit outside the trade error catalogue at `/developers/errors`.
+
+A replace whose new order could not be placed answers `REPLACEMENT_NOT_SUBMITTED` with `reasonCode` naming why: `posting_frozen` when the replacement's hold was refused before the engine, or `trade.settlement_pending` when the freeze is unmarked. Then the replacement may exist, so read it by its client order id before sending it again.
+
+A replace whose replacement was not submitted names a ledger error by its own published code: only order-place marks a freeze `posting_frozen`.
+
+Reads such as `GET /api/v1/account/balance` still answer. The mapping lives in one place, `src/ledger-public-code.ts`, used by the CCXT body, the replace outcome's `reasonCode` (`REPLACEMENT_NOT_SUBMITTED`) and the tRPC error cause (`BAD_REQUEST` for `posting_frozen`, `SERVICE_UNAVAILABLE` for `trade.settlement_pending`). The account freeze is svc-identity's (`account_frozen`), not this.
+
 ## Service keys: ledger calls
 
 The ledger client signs with svc-trade's own key when `S2S_AUTH_MODE`, `S2S_SIGNING_KID` and `S2S_SIGNING_KEY` are set (`dual` also sends the shared secret, `keypair` the key only); unset, it signs with the shared secret as before. Setup and rotation: `services/svc-ledger/CALLER-BINDING.md`.
