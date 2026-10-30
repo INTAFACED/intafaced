@@ -148,6 +148,13 @@ async function job(name, body = {}) {
   return { status: res.status, body: await res.json().catch(() => null) };
 }
 /** The empty reserve of `assetId` funded by the seed's own funding move; `ref` keys it, so a retry funds once. */
+/** 1% above a quoted pledge, rounded up to 8 places: the quote is exact at the cap, and the TEST market keeps moving. */
+function withMargin(quoted) {
+  const step = 10n ** 10n;
+  const units = (toUnits(quoted) * 101n + 99n) / 100n;
+  return fromUnits(((units + step - 1n) / step) * step);
+}
+
 /** What the bank's loan reserve of `assetId` holds now, as treasury reads it (`ops.reconcileLoanReserve`), in units. */
 async function reserveBalance(assetId) {
   const { ctx, sessions } = await founders();
@@ -411,12 +418,16 @@ test(`${J} #4 opens the loan from the review: the collateral locked once, the pa
   await workOut(page, '1000');
   const shown = page.getByTestId('loan-apply-quote');
   await expect(shown).toBeVisible({ timeout: 30_000 });
-  const pledged = await shown.getAttribute('data-collateral');
+  const quoted = await shown.getAttribute('data-collateral');
+  const pledged = withMargin(quoted);
   await page.getByRole('button', { name: 'Review and open', exact: true }).click();
   const dialog = page.getByRole('dialog');
   // The review carries the quote's figures as the request.
   await expect(dialog.getByLabel('Amount to borrow (USDT)')).toHaveValue('1000');
-  await expect(dialog.getByLabel('Collateral to pledge (BTC)')).toHaveValue(pledged);
+  await expect(dialog.getByLabel('Collateral to pledge (BTC)')).toHaveValue(quoted);
+  // The quote is the smallest pledge at the cap on the prices it read; the TEST market keeps moving, so the borrower
+  // pledges 1% more (rounded up to 8 places) and the open is not refused by a tick (the room says so when it is).
+  await dialog.getByLabel('Collateral to pledge (BTC)').fill(pledged);
   await dialog.getByRole('button', { name: 'Review' }).click();
   await dialog.getByRole('button', { name: 'Open loan', exact: true }).click();
   await expect(dialog.getByText('Confirmed by the service')).toBeVisible({ timeout: 30_000 });
@@ -454,14 +465,19 @@ test(`${J} #4 opens the loan from the review: the collateral locked once, the pa
   const quote = await api.query('loans.quote', { productId: dry.productId, principal: borrow });
   expect(quote.ok, JSON.stringify(quote.body ?? {}).slice(0, 300)).toBe(true);
   const stuckId = randomUUID();
-  const request = { loanId: stuckId, productId: dry.productId, principal: borrow, collateralAmount: quote.data.requiredCollateral };
+  const request = {
+    loanId: stuckId,
+    productId: dry.productId,
+    principal: borrow,
+    collateralAmount: withMargin(quote.data.requiredCollateral),
+  };
   const beforeStuck = await held(who);
   const stuck = await api.mutate('loans.open', request);
   expect(stuck).toMatchObject({ ok: false, code: 'bank.loan_reserve_underfunded' });
   const pending = (await loansOf(api)).find((l) => l.id === stuckId);
-  expect(pending).toMatchObject({ status: 'pending', collateral: quote.data.requiredCollateral });
+  expect(pending).toMatchObject({ status: 'pending', collateral: request.collateralAmount });
   const locked = await held(who);
-  expect(locked.BTC.free).toBe(beforeStuck.BTC.free - toUnits(quote.data.requiredCollateral));
+  expect(locked.BTC.free).toBe(beforeStuck.BTC.free - toUnits(request.collateralAmount));
   expect(locked.USDC.free).toBe(beforeStuck.USDC.free);
   // The reserve funded by the seed, then the bank's own resume job draws it; the borrower does nothing.
   expect(fundReserve('USDC', '1000', `jb09-${RUN}`.slice(0, 64))).toContain('loan reserve USDC: funded 1000');
@@ -479,7 +495,7 @@ test(`${J} #4 opens the loan from the review: the collateral locked once, the pa
   expect(retried.data).toMatchObject({ loanId: stuckId, status: 'active' });
   expect(await held(who)).toEqual(recovered);
   const stuckCheck = await api.query('loans.ledgerCheck', { loanId: stuckId });
-  expect(stuckCheck.data).toMatchObject({ status: 'agrees', pending: 0, mismatches: [], collateralHeld: quote.data.requiredCollateral });
+  expect(stuckCheck.data).toMatchObject({ status: 'agrees', pending: 0, mismatches: [], collateralHeld: request.collateralAmount });
   run.write({ dryProductId: dry.productId, recoveredLoanId: stuckId, recoveredPrincipal: borrow });
 });
 
