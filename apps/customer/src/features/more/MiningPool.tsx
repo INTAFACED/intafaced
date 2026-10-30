@@ -205,10 +205,10 @@ export function MinerSecretView({
     setFailure(null);
     const result = await issue();
     setBusy(false);
-    if (result.ok) {
-      setShown(result.data);
-      read.reload();
-    } else setFailure(result);
+    // No re-read after an issue: the answer carries its own issue time, and a re-read that failed would hide the secret
+    // the person sees only this once.
+    if (result.ok) setShown(result.data);
+    else setFailure(result);
   }
   const issuedAt = shown?.issuedAt ?? (resource.status === 'ready' ? resource.data.issuedAt : null);
   return (

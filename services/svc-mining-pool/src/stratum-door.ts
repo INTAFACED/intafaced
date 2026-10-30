@@ -151,6 +151,7 @@ export function stratumSession(deps: StratumDoorDeps, send: (line: string) => vo
 
   /** A new job for every rig whose job is no longer the current window's (the pool's answer to a window ending). */
   const renew = () => {
+    if (closed) return;
     const current = stratumWindowId(deps.terms.windowSeconds, now());
     for (const rig of rigs.values()) if (rig.jobId !== current) notify(rig);
   };
@@ -232,9 +233,10 @@ export function startStratumDoor(deps: StratumDoorDeps, host: string): Server {
     const handle = stratumSession(
       deps,
       (line) => {
-        if (!socket.destroyed) socket.write(`${line}\n`);
+        if (!socket.destroyed && !socket.writableEnded) socket.write(`${line}\n`);
       },
-      () => socket.end(),
+      // Closed for good once the last line is flushed, whether or not the miner ends its side.
+      () => socket.end(() => socket.destroy()),
     );
     let buffered = '';
     let queue = Promise.resolve();

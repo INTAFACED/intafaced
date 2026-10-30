@@ -267,6 +267,15 @@ async function poolRoster(who) {
   return res.body.result.data.workers.map((worker) => [worker.name, worker.hashrate]).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
 }
 
+/** The pool's own `workers.mine` answer for this account, filtered to one worker name when given. */
+async function poolWorkers(who, name) {
+  const client = await api(who);
+  const input = { windowMinutes: 60, ...(name ? { name } : {}) };
+  const res = await client.get(`/api/mining/trpc/workers.mine?input=${encodeURIComponent(JSON.stringify(input))}`);
+  expect(res.status, JSON.stringify(res.body).slice(0, 300)).toBe(200);
+  return res.body.result.data;
+}
+
 test(`${J} #5 connects the rig Rig-A and submits a first accepted share: one worker Rig-A; a share with no name goes to the default worker; the same share twice makes one worker`, async ({
   page,
   context,
@@ -387,7 +396,13 @@ test(`${J} #6 opens /mining/workers and sets a minimum difficulty: the list with
   await expect(bodyRows(workers)).toHaveCount(1);
   const rigA = cellsOf(workerRow(workers, 'Rig-A'));
   await expect(rigA.nth(3)).toHaveText('Automatic');
-  // The stack publishes no default difficulty, and the room says so instead of showing a number.
+  // The stack publishes no default difficulty (its TEST owner values leave it out), the pool answers blank by its code,
+  // and the room says so instead of showing a number.
+  expect(PUBLISHED.MINING_DEFAULT_DIFFICULTY ?? '').toBe('');
+  expect(await poolWorkers(who, 'Rig-A')).toMatchObject({
+    defaultDifficulty: null,
+    defaultDifficultyReason: 'mining.default_difficulty_unset',
+  });
   await expect(page.getByTestId('mining-default-difficulty')).toHaveText('The pool has no published default difficulty.');
 
   await page.getByRole('combobox', { name: 'Worker', exact: true }).selectOption({ label: 'Rig-A' });
@@ -400,6 +415,7 @@ test(`${J} #6 opens /mining/workers and sets a minimum difficulty: the list with
   await page.getByRole('searchbox', { name: 'Filter workers' }).fill('rig-a');
   await expect(bodyRows(workers)).toHaveCount(1);
   await expect(rigA.nth(3)).toHaveText('1024');
+  expect((await poolWorkers(who, 'Rig-A')).workers.map((worker) => [worker.name, worker.minDifficulty])).toEqual([['Rig-A', '1024']]);
   await page.getByRole('button', { name: 'Use automatic' }).click();
   await expect(page.getByRole('status').filter({ hasText: 'Rig-A' })).toHaveText('Automatic difficulty saved for Rig-A');
   // Read back from the pool after a fresh load: the minimum is cleared, in the room and in the pool's own read.
@@ -407,11 +423,7 @@ test(`${J} #6 opens /mining/workers and sets a minimum difficulty: the list with
   await page.getByRole('searchbox', { name: 'Filter workers' }).fill('rig-a');
   await expect(bodyRows(workers)).toHaveCount(1);
   await expect(rigA.nth(3)).toHaveText('Automatic');
-  const client = await api(who);
-  const res = await client.get(
-    `/api/mining/trpc/workers.mine?input=${encodeURIComponent(JSON.stringify({ windowMinutes: 60, name: 'Rig-A' }))}`,
-  );
-  expect(res.body.result.data.workers.map((worker) => [worker.name, worker.minDifficulty])).toEqual([['Rig-A', null]]);
+  expect((await poolWorkers(who, 'Rig-A')).workers.map((worker) => [worker.name, worker.minDifficulty])).toEqual([['Rig-A', null]]);
 });
 
 /**
@@ -475,6 +487,12 @@ test(`${J} #7 starts solo mining, or submits a share that fails validation: solo
   await expect(bodyRows(workers)).toHaveCount(1);
   await expect(cellsOf(workerRow(workers, 'Rig-A')).nth(1)).toHaveText('Pooled');
   const rigAWeight = (await cellsOf(workerRow(workers, 'Rig-A')).nth(2).textContent()).trim();
+  // The pool's own read agrees: Rig-S solo, Rig-A pooled.
+  const modes = async () => {
+    const one = async (name) => (await poolWorkers(run.read().who, name)).workers.map((w) => [w.name, w.mode]);
+    return Object.fromEntries([...(await one('Rig-A')), ...(await one('Rig-S'))]);
+  };
+  expect(await modes()).toEqual({ 'Rig-A': 'pooled', 'Rig-S': 'solo' });
 
   // Rig-A has a share in the open window, so a mode change is refused by its code and the stored mode stays pooled.
   await setMode('Rig-A', 'Solo');
@@ -485,6 +503,7 @@ test(`${J} #7 starts solo mining, or submits a share that fails validation: solo
   await page.getByRole('searchbox', { name: 'Filter workers' }).fill('rig-a');
   await expect(bodyRows(workers)).toHaveCount(1);
   await expect(cellsOf(workerRow(workers, 'Rig-A')).nth(1)).toHaveText('Pooled');
+  expect(await modes()).toEqual({ 'Rig-A': 'pooled', 'Rig-S': 'solo' });
 
   // A solo share is stored on Rig-S and stays out of the pooled split: this account's pooled weight does not move.
   expect(share('--worker', 'Rig-S', '--share', `jmc05-${tag}-solo`)).toContain('accepted TEST share');

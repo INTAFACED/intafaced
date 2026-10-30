@@ -32,8 +32,9 @@ type Message = { id: unknown; method?: string; params?: unknown[]; result?: unkn
 const open: Socket[] = [];
 
 /** A TEST rig on a real socket: one JSON line out, the next line(s) back. */
-async function rig(port: number) {
-  const socket: Socket = connect(port, '127.0.0.1');
+/** A test rig; `halfOpen` is a miner that never ends its own side, so only the door can close the connection. */
+async function rig(port: number, { halfOpen = false } = {}) {
+  const socket: Socket = connect({ port, host: '127.0.0.1', allowHalfOpen: halfOpen });
   open.push(socket);
   await new Promise<void>((resolve, reject) => socket.once('connect', resolve).once('error', reject));
   socket.setEncoding('utf8');
@@ -221,11 +222,11 @@ describe('miner door on a real socket', () => {
   });
 
   it(`after ${INVALID_SHARES_MAX} shares fail the check, the door refuses mining.stratum_invalid_limit and closes the connection`, async () => {
-    const { socket, call, next } = await rig(port);
+    const { socket, call, next } = await rig(port, { halfOpen: true });
     await call(1, 'mining.authorize', [`${ALICE}.TEST.Rig-A`, secret]);
     const job = await next();
     const header = Buffer.from(job.params![1] as string, 'hex');
-    const closed = new Promise<void>((resolve) => socket.once('close', () => resolve()));
+    const ended = new Promise<void>((resolve) => socket.once('end', () => resolve()));
     let start = 0;
     for (let n = 1; n <= INVALID_SHARES_MAX; n += 1) {
       const nonce = failingPow(SPEC, header, start);
@@ -237,7 +238,13 @@ describe('miner door on a real socket', () => {
       });
     }
     expect(await next()).toEqual({ id: null, result: null, error: { code: 'mining.stratum_invalid_limit', message: expect.any(String) } });
-    await closed;
+    await ended;
+    // The miner keeps its side open and keeps sending: a door that only half-closed would go on reading, while a closed
+    // one resets the connection.
+    socket.on('error', () => undefined);
+    const closed = new Promise<void>((resolve) => socket.once('close', () => resolve()));
+    const keepSending = setInterval(() => socket.write(`${JSON.stringify({ id: 99, method: 'mining.subscribe', params: [] })}\n`), 50);
+    await closed.finally(() => clearInterval(keepSending));
     expect(await db.sql`SELECT 1 FROM mining_pool.share_rejections`).toHaveLength(INVALID_SHARES_MAX);
     expect(await shares()).toEqual([]);
   });
