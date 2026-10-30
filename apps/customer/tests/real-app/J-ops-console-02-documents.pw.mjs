@@ -130,6 +130,23 @@ test('J-ops-console-02 #5 the documents list shows each document with its status
     await expect(deskA.getByTestId('step-reply')).toHaveAttribute('data-tone', /danger|warn/, { timeout: 60_000 });
     await expect(deskA.getByTestId('kyc-document-viewer')).toHaveCount(0);
     expect(pdf.contentType).toBe('application/pdf');
+
+    // The same viewer as the KYC case: A opens the pending verification this image is attached to, on the KYC queue, and
+    // looks for the same viewer (kyc-document-viewer) showing the same document there. The KYC case has no document view in
+    // the product (apps/admin/src/components/kyc-document-viewer.tsx: "so will a KYC case's detail (OPS-cases-07)"), so this
+    // clause fails by name.
+    await a.goto(`${ADMIN}/tools`, { waitUntil: 'load' });
+    const queue = a.getByLabel('KYC queue controls');
+    await expect(queue).toBeVisible({ timeout: 60_000 });
+    await queue.getByLabel('Requested window').selectOption('200');
+    await queue.getByLabel('Sort loaded window').selectOption('newest');
+    await queue.getByLabel('Filter loaded window').fill(record.id);
+    const kycCase = a.locator(`tr[id="kyc-${record.id}"]`);
+    await expect(kycCase, 'the pending verification the image is attached to is on the KYC queue').toBeVisible({ timeout: 60_000 });
+    await expect(
+      a.locator(`[data-testid="kyc-document-viewer"][data-document="${image.id}"]`),
+      'the KYC case shows its attached document in the same viewer (kyc-document-viewer) as the documents tab: the KYC case detail has no document viewer (OPS-cases-07)',
+    ).toBeVisible({ timeout: 5_000 });
   } finally {
     await a.context().close();
     await b.context().close();
