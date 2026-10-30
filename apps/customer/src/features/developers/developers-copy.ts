@@ -97,8 +97,6 @@ export const developersCopy = defineCopy(
     searchEmpty: 'Nothing in the developer docs matches “{query}”.',
     searchMatches: 'Pages that match “{query}”',
     errorsAuthTitle: 'Authentication and permission errors',
-    errorsAuthBody:
-      'The catalogue of authentication and permission codes waits for DV-errors-02, which is not built in this build. A refused call already carries its code in the body, and a missing permission links the permission table.',
     errorsAuthPermissions: 'Open the permission table',
   },
   {
@@ -122,8 +120,6 @@ export const developersCopy = defineCopy(
       searchEmpty: 'Nada en la documentación para desarrolladores coincide con «{query}».',
       searchMatches: 'Páginas que coinciden con «{query}»',
       errorsAuthTitle: 'Errores de autenticación y de permisos',
-      errorsAuthBody:
-        'El catálogo de códigos de autenticación y de permisos espera a DV-errors-02, que no está construido en esta versión. Una llamada rechazada ya lleva su código en el cuerpo, y un permiso que falta enlaza la tabla de permisos.',
       hostsUnpublished: 'Todavía no hay ningún host de la API publicado, así que cada host dice host no definido.',
       errorsAuthPermissions: 'Abrir la tabla de permisos',
     },
@@ -148,8 +144,6 @@ export const developersCopy = defineCopy(
       searchEmpty: 'Rien dans la documentation développeurs ne correspond à « {query} ».',
       searchMatches: 'Pages qui correspondent à « {query} »',
       errorsAuthTitle: 'Erreurs d’authentification et d’autorisation',
-      errorsAuthBody:
-        'Le catalogue des codes d’authentification et d’autorisation attend DV-errors-02, qui n’est pas construit dans cette version. Un appel refusé porte déjà son code dans le corps, et une autorisation manquante renvoie au tableau des autorisations.',
       hostsUnpublished: 'Aucun hôte de l’API n’est encore publié : chaque hôte indique hôte non défini.',
       errorsAuthPermissions: 'Ouvrir le tableau des autorisations',
     },

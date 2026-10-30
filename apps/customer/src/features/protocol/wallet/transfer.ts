@@ -90,3 +90,29 @@ export const nativeCurrency = (chainId: number = APP_CHAIN_ID) => (Object.hasOwn
 
 /** Hex for a transaction value. */
 export const toHexValue = (units: bigint) => `0x${units.toString(16)}`;
+
+/** ERC-20 `transfer(to, amount)` calldata: the token contract moves the person's own tokens to `to`. */
+export function transferCalldata(to: string, units: bigint): string {
+  const word = (hex: string) => hex.padStart(64, '0');
+  return `0xa9059cbb${word(to.slice(2).toLowerCase())}${word(units.toString(16))}`;
+}
+
+/**
+ * What a token is called in a list. Anyone can create a pool, so a name can be copied: a name two listed tokens share is
+ * shown with each one's short address, so the two never look the same.
+ */
+export function tokenLabel(token: { address: string; name: string }, all: ReadonlyArray<{ address: string; name: string }>): string {
+  const shared = all.filter((other) => nameKey(other.name) === nameKey(token.name)).length > 1;
+  return shared ? `${token.name} (${shortContract(token.address)})` : token.name;
+}
+
+/** A name as compared for lookalikes: compatibility form, no invisible characters or spaces, no case. */
+function nameKey(name: string): string {
+  return name
+    .normalize('NFKC')
+    .replace(/[\p{Cf}\p{Zs}\s]/gu, '')
+    .toLowerCase();
+}
+
+/** A contract address shortened for reading next to a name: 0x0000…a11ce. */
+export const shortContract = (address: string) => `${address.slice(0, 6)}…${address.slice(-4)}`;

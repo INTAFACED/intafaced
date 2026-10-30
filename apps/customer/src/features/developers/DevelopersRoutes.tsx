@@ -30,6 +30,7 @@ import {
 import { ChangelogPage, UpcomingPage } from './ChangelogPages';
 import { StatusPage } from './StatusPage';
 import { AppsRoom } from './apps/AppsRoom';
+import { AuthErrorsCatalogue } from './errors/AuthErrorsCatalogue';
 import { SandboxRoutes } from './sandbox/SandboxRoutes';
 import { ErrorsPage } from './errors/TradeErrorsCatalogue';
 import '../public/public-pages.css';
@@ -280,12 +281,10 @@ function ErrorsAuth() {
           {t('sectionFor')} {t('audience_exchange')}
         </p>
       </header>
-      <section className="pub-notice" role="status">
-        <p>{t('errorsAuthBody')}</p>
-        <a className="text-link" href="/developers/permissions">
-          {t('errorsAuthPermissions')} →
-        </a>
-      </section>
+      <AuthErrorsCatalogue />
+      <a className="text-link" href="/developers/permissions">
+        {t('errorsAuthPermissions')} →
+      </a>
       <a className="text-link" href="/developers/errors">
         ← {t('section_errors')}
       </a>

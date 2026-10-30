@@ -176,7 +176,7 @@ CREATE UNIQUE INDEX blocks_canonical_height_idx
   ON indexer.blocks (chain_id, height) WHERE status = 'canonical';
 ```
 
-Two canonical blocks at one height means two answers to every read below it, and a bug that produces one is otherwise invisible until a user sees the wrong price. The partial index makes the state unrepresentable — and orphans may still share the height, which is what lets the forensic record be written at all. Orphaned blocks are **kept**, not deleted, until `prune` ages them out: a projection that silently forgets it ever served a price cannot afterwards explain what a user saw.
+Two canonical blocks at one height means two answers to every read below it, and a bug that produces one is otherwise invisible until a user sees the wrong price. The partial index makes the state unrepresentable — and orphans may still share the height, which is what lets the forensic record be written at all. Orphaned blocks are **kept**, not deleted, and `prune` leaves them too: a projection that silently forgets it ever served a price cannot afterwards explain what a user saw, and the explorer lists a reorged block with its badge.
 
 ---
 

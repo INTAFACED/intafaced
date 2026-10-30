@@ -7,6 +7,21 @@ function testValue(name) {
   return entry.value;
 }
 
+/**
+ * The joint restore desk (J-ops-console-08 #5-#7): the ops profile's TEST archive URL and storage target, and the bank and
+ * pay watermark doors it reads beside the ledger and identity. `LOCAL_STACK_OPS_RESTORE=off` on a start or restart leaves
+ * all of it blank, so the "no archive configured" refusal (#4) can be seen too.
+ */
+const restoreDesk = (urlOf) =>
+  process.env.LOCAL_STACK_OPS_RESTORE === 'off'
+    ? {}
+    : {
+        OPS_RESTORE_ARCHIVE_URL: testValue('OPS_RESTORE_ARCHIVE_URL'),
+        OPS_RESTORE_TARGET: testValue('OPS_RESTORE_TARGET'),
+        BANK_URL: urlOf('bank'),
+        PAY_URL: urlOf('pay'),
+      };
+
 export default ({ c, secrets, dbUrl, urlOf, PORTS, opsOutreachEnv }) => ({
   name: 'ops',
   env: () => ({
@@ -29,6 +44,7 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, opsOutreachEnv }) => ({
     // Reconciliation alerts (OPS-reconciliation-03, J-ops-console-07 #8): the TEST repeat interval for in-console notices.
     // Unset, a repeat failure still counts and its notice reads ops.alert_repeat_unset. The ledger feed uses LEDGER_URL above.
     OPS_RECON_ALERT_REPEAT_SECONDS: testValue('OPS_RECON_ALERT_REPEAT_SECONDS'),
+    ...restoreDesk(urlOf),
     ...opsOutreachEnv(),
   }),
 });

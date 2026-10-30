@@ -46,6 +46,10 @@
       "types": "./dist/protocol-representation.d.ts",
       "default": "./dist/protocol-representation.js"
     },
+    "./protocol-swap": {
+      "types": "./dist/protocol-swap.d.ts",
+      "default": "./dist/protocol-swap.js"
+    },
     "./ops-console-mode": {
       "types": "./dist/ops-console-mode.d.ts",
       "default": "./dist/ops-console-mode.js"
@@ -73,6 +77,10 @@
     "./identity-account-status": {
       "types": "./dist/identity-account-status.d.ts",
       "default": "./dist/identity-account-status.js"
+    },
+    "./identity-appeals": {
+      "types": "./dist/identity-appeals.d.ts",
+      "default": "./dist/identity-appeals.js"
     },
     "./identity-kyc-profile": {
       "types": "./dist/identity-kyc-profile.d.ts",
@@ -214,6 +222,10 @@
       "types": "./dist/home-tiles-preferences.d.ts",
       "default": "./dist/home-tiles-preferences.js"
     },
+    "./protocol-tokens": {
+      "types": "./dist/protocol-tokens.d.ts",
+      "default": "./dist/protocol-tokens.js"
+    },
     "./protocol-watch-preferences": {
       "types": "./dist/protocol-watch-preferences.d.ts",
       "default": "./dist/protocol-watch-preferences.js"
@@ -237,6 +249,10 @@
     "./trade-errors": {
       "types": "./dist/trade-errors.d.ts",
       "default": "./dist/trade-errors.js"
+    },
+    "./auth-errors": {
+      "types": "./dist/auth-errors.d.ts",
+      "default": "./dist/auth-errors.js"
     },
     "./developer-sandboxes": {
       "types": "./dist/developer-sandboxes.d.ts",
