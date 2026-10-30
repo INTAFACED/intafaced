@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { test, expect } from '@playwright/test';
 import { api, fund, journeyState, tool } from './stack.mjs';
 import { signIn, signUp, verify } from './desk.mjs';
-import { METHOD, p2p, readyTaker, refusalCode, testInstrument } from './p2p.mjs';
+import { METHOD, p2p, readyTaker, refusalCode, restorePasskey, testInstrument } from './p2p.mjs';
 
 // J-p2p-05, in the running app (docs/roadmap/journeys.json): run my ads. One test per step part, titled
 // "J-p2p-05 #<n>", run in order on one verified TEST seller with several ads in different states and orders on them.
@@ -40,6 +40,9 @@ const sellAd = (s, who, name, { total = '60', min = '10', max = '30', price = '0
     idempotencyKey: `${J}:${name}:${who.handle}`,
   });
 
+/** The cap part's n-th price, an exact decimal with no trailing zero (0.7011, 0.7021, …). */
+const capPrice = (n) => `0.${700 + n}1`;
+
 /** The next UTC midnight, when the day's edit count starts again. */
 function nextUtcMidnight() {
   const at = new Date();
@@ -76,7 +79,15 @@ test('J-p2p-05 #1 My Ads lists listed, paused and closed ads, each with why and 
   await b.mutate('trades.markFiatSent', { tradeId: trade.id });
   await s.mutate('trades.confirmReceived', { tradeId: trade.id });
   expect(await s.query('offers.get', { offerId: soldOut.id })).toMatchObject({ status: 'closed', closeReason: 'sold_out' });
-  run.reset({ seller: who, sellerPasskey: s.passkey().saved(), buyer, listedId: listed.id, pausedId: paused.id, closedId: closed.id });
+  run.reset({
+    seller: who,
+    sellerPasskey: s.passkey().saved(),
+    buyer,
+    buyerPasskey: b.passkey().saved(),
+    listedId: listed.id,
+    pausedId: paused.id,
+    closedId: closed.id,
+  });
 
   await signIn(page, who);
   await page.goto('/uc/ad');
@@ -108,7 +119,7 @@ test('J-p2p-05 #1 the edit cap shows when editing opens again, and an edit past 
   const { who, s } = await seller(page, 'p2p05c');
   const ad = await sellAd(s, who, 'capped');
   for (let n = 1; n <= EDITS_PER_DAY; n++) {
-    await s.mutate('offers.update', { offerId: ad.id, idempotencyKey: `${J}:cap:${ad.id}:${n}`, price: `0.${900 + n}` });
+    await s.mutate('offers.update', { offerId: ad.id, idempotencyKey: `${J}:cap:${ad.id}:${n}`, price: capPrice(n) });
   }
   const quota = await s.query('offers.editQuota');
   expect(quota).toEqual({ limit: EDITS_PER_DAY, used: EDITS_PER_DAY, remaining: 0, resetsAt: nextUtcMidnight() });
@@ -116,7 +127,7 @@ test('J-p2p-05 #1 the edit cap shows when editing opens again, and an edit past 
   expect(past.status).toBe(429);
   expect(refusalCode(past)).toBe('p2p.edit_quota_reached');
   expect(past.body.error.data.p2pLimit).toEqual({ until: nextUtcMidnight(), cap: String(EDITS_PER_DAY), remaining: '0' });
-  expect((await s.query('offers.get', { offerId: ad.id })).price).toBe(`0.${900 + EDITS_PER_DAY}`);
+  expect((await s.query('offers.get', { offerId: ad.id })).price).toBe(capPrice(EDITS_PER_DAY));
 
   await signIn(page, who);
   await page.goto('/uc/ad');
@@ -187,7 +198,8 @@ test('J-p2p-05 #2 the person edits price and limits, pauses an ad and relists a 
   await expect(page.locator(`[data-testid="p2p-offer-row"][data-offer-id="${newId}"]`)).toBeVisible();
 
   // An order on the relisted ad; closing it refuses with the number, in plain words, and the order is untouched.
-  const b = await readyTaker(await api(state.buyer), state.buyer);
+  // The buyer's passkey from #1 confirms the take; a second one would itself need confirming.
+  const b = await readyTaker(await api(state.buyer), state.buyer, await restorePasskey(state.buyerPasskey));
   const trade = await b.mutate('trades.take', { offerId: newId, tradeId: randomUUID(), amount: '15', method: METHOD });
   const refused = await s.raw.mutate('offers.close', { offerId: newId });
   expect(refusalCode(refused)).toBe('p2p.offer_has_open_trades');
