@@ -340,7 +340,7 @@ async function storedVariant(page) {
   return { result, runId: variants.runId, strategy: variants.strategy };
 }
 
-test(`${J} #6 opens the printable report: every section from the stored run under the historical-simulation label, ready to print`, async ({
+test(`${J} #6 presses Print: parameters, statistics, charts and labels on paper with no empty section, under the historical-simulation label`, async ({
   page,
 }) => {
   const { result, runId } = await storedVariant(page);
@@ -361,6 +361,12 @@ test(`${J} #6 opens the printable report: every section from the stored run unde
   const net = await result.getByTestId('quant-bar-total-net').getAttribute('data-value');
   await result.getByRole('button', { name: 'Report' }).click();
   await expect(report.getByTestId('quant-report-section-statistics')).toContainText(net ?? '<no net>');
+  // On paper the report prints alone: every section shows, the Print button and the app around it do not.
+  await page.emulateMedia({ media: 'print' });
+  for (const id of REPORT_SECTIONS) await expect(report.getByTestId(`quant-report-section-${id}`)).toBeVisible();
+  await expect(result.getByTestId('quant-report-print')).toBeHidden();
+  await expect(page.getByTestId('quant-backtest-run')).toBeHidden();
+  await page.emulateMedia({ media: 'screen' });
   // Print opens the browser's print window, which also saves a PDF.
   await page.evaluate(() => {
     window.__printed = 0;
@@ -372,7 +378,7 @@ test(`${J} #6 opens the printable report: every section from the stored run unde
   expect(await page.evaluate(() => window.__printed)).toBe(1);
 });
 
-test(`${J} #7 shares the result by link and embed: a signed-out reader sees it under its label with the checks and no account or source; revoked, the link reads not found`, async ({
+test(`${J} #7 creates a share link twice, opens it signed out, then revokes it: one active link; the result under its label with no source; revoked, not found`, async ({
   page,
   browser,
 }) => {
@@ -387,11 +393,13 @@ test(`${J} #7 shares the result by link and embed: a signed-out reader sees it u
     await expect(state).toHaveAttribute('data-active', 'false');
   }
   const before = Number(await state.getAttribute('data-links'));
-  await share.getByTestId('quant-share-create').click();
+  // Create pressed twice: one link is stored and active, and the address is shown once.
+  await share.getByTestId('quant-share-create').dblclick();
   const link = await share.getByTestId('quant-share-link').inputValue();
   expect(link).toMatch(/\/quant\/share\/[^/]+$/);
   await expect(state).toHaveAttribute('data-active', 'true');
   await expect(state).toHaveAttribute('data-links', String(before + 1));
+  await expect(share.getByTestId('quant-share-create')).toHaveCount(0);
   // The embed code frames that same link by its full address. The site's own frame policy still refuses outside frames,
   // and the room says so rather than promising a frame that would show blank.
   await expect(share.getByTestId('quant-share-embed-code')).toHaveValue(`<iframe src="${link}" title="${CLAIM}"></iframe>`);

@@ -70,9 +70,10 @@
     visibility: hidden;
   }
 
+  /* Important, because another room's print sheet hides every element with an important rule while it is loaded. */
   body:has(.quant-report-document) .quant-report-document,
   body:has(.quant-report-document) .quant-report-document * {
-    visibility: visible;
+    visibility: visible !important;
   }
 
   body:has(.quant-report-document) .quant-report-document {
