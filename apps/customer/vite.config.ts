@@ -31,6 +31,14 @@ export function assetsInlineLimit(filePath: string): boolean | undefined {
   return FONT_FILE.test(filePath) ? false : undefined;
 }
 
+function isLocalTestReceipt(source: string): boolean {
+  try {
+    return (JSON.parse(source) as { test?: unknown } | null)?.test === true;
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Publishes the host dispatch receipt (`deployment/host-dispatch.json`, written by `deployment/host-dispatch.mjs`) at
  * `/host-dispatch.json`, beside `customer-deployment.json`, when the check has been run before the build. The Help room
@@ -41,7 +49,11 @@ export function hostDispatchReceipt(file = new URL('./deployment/host-dispatch.j
     name: 'intafaced-host-dispatch-receipt',
     apply: 'build',
     generateBundle() {
-      if (existsSync(file)) this.emitFile({ type: 'asset', fileName: 'host-dispatch.json', source: readFileSync(file, 'utf8') });
+      if (!existsSync(file)) return;
+      const source = readFileSync(file, 'utf8');
+      // A LOCAL TEST receipt (loopback hosts, `test: true`) is served by the local stack itself and never built in.
+      if (isLocalTestReceipt(source)) this.error('deployment/host-dispatch.json is a LOCAL TEST receipt; a build never publishes one');
+      this.emitFile({ type: 'asset', fileName: 'host-dispatch.json', source });
     },
   };
 }

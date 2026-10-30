@@ -6,13 +6,14 @@ import { Freshness, Refusal, WriteNotice } from '../rooms/RoomNotices';
 import { useRoomWriter } from '../rooms/write';
 import { EmptyState, Skeleton, Tabs, TabsList, TabsPanel, TabsTab, useSession } from '../rooms/ui';
 import { otcCopy } from './copy';
-import { useDeskStatus, useOtcMakers, usePairs, useQuoteBook } from './data';
+import { useDeskStatus, useOtcMakers, usePairs, useQuoteBook, useRfqBoard } from './data';
 import { DeskStatusStrip } from './DeskStatusStrip';
 import { AllocationTab, ExportTab, RulesTab } from './InfoTabs';
 import { lifecycleOf, operationOf, verdictOf } from './model';
 import { QuoteCard } from './QuoteCard';
 import { QuotesTable } from './QuotesTable';
 import { RequestForm } from './RequestForm';
+import { RfqBoard } from './RfqBoard';
 
 type Tab = 'quotes' | 'export' | 'allocation' | 'rules';
 
@@ -31,6 +32,7 @@ function Room({ linkedId }: { linkedId: string | null }) {
   const desk = useDeskStatus(api);
   const pairs = usePairs(api);
   const makers = useOtcMakers(api);
+  const board = useRfqBoard(api);
   const [providers, setProviders] = useState<string[]>([]);
   // The providers each quote asked, so a re-price asks the same ones whatever the form shows now.
   const [askedBy, setAskedBy] = useState<Readonly<Record<string, string[]>>>({});
@@ -181,6 +183,7 @@ function Room({ linkedId }: { linkedId: string | null }) {
             </TabsPanel>
           </Tabs>
         </div>
+        <RfqBoard board={board} makers={makers} />
       </div>
     </RoomFrame>
   );

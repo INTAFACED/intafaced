@@ -3,10 +3,12 @@
  * The tester profile's seed service (HM-desks-03): runs the founder seed and the TEST content seed, in the order it is
  * given, once, and ends with what the TEST content seed reports it made.
  *
- *   APP_ENV=dev node tooling/scripts/local-tester-seed.mjs [step ...] [--state <dir>]
+ *   APP_ENV=dev node tooling/scripts/local-tester-seed.mjs [step ...] [--state <dir>] [--notice-minutes <n>]
  *
  * A step is one of STEPS below, written as the compose file writes it ('local-founder-seed.mjs init'). With no step it
  * runs DEFAULT_STEPS. The compose `seed` service (docker-compose.apps.yml, profile `tester`) names its steps itself.
+ * --notice-minutes goes to the `home` step alone (the TEST content seed checks the value); the compose service passes
+ * none, so the tester's notice stays open for its default 30 days. A journey passes a short one.
  *
  * WHAT IT REFUSES. Before it runs anything, it exits 2 unless APP_ENV is exactly "dev" or "test" and NODE_ENV is not
  * "production": the same image started as staging or production seeds nothing. Each step then keeps its own guards
@@ -25,7 +27,7 @@ export const STEPS = Object.freeze({
   'local-founder-seed.mjs init': { script: 'local-founder-seed.mjs', args: ['init'], flag: 'INTAFACED_LOCAL_FOUNDER' },
   'local-founder-seed.mjs enrol': { script: 'local-founder-seed.mjs', args: ['enrol'], flag: 'INTAFACED_LOCAL_FOUNDER' },
   'local-test-seed.mjs apply': { script: 'local-test-seed.mjs', args: ['apply'], flag: 'LOCAL_TEST', state: true },
-  'local-test-seed.mjs home': { script: 'local-test-seed.mjs', args: ['home'], flag: 'LOCAL_TEST', state: true },
+  'local-test-seed.mjs home': { script: 'local-test-seed.mjs', args: ['home'], flag: 'LOCAL_TEST', state: true, notice: true },
   'local-test-seed.mjs status': { script: 'local-test-seed.mjs', args: ['status'], flag: 'LOCAL_TEST', state: true },
 });
 export const DEFAULT_STEPS = Object.freeze(Object.keys(STEPS));
@@ -44,23 +46,31 @@ export function assertTesterBuild(env) {
   if (env.APP_ENV !== 'dev' && env.APP_ENV !== 'test') {
     const shown = env.APP_ENV === undefined || env.APP_ENV === '' ? 'not set' : `"${env.APP_ENV}"`;
     throw new GuardError(
-      `refusing: APP_ENV is ${shown}; the tester seed runs only when it is exactly "dev" or "test", and seeded nothing.`,
+      `refusing [seed.app_env_not_local]: APP_ENV is ${shown}; the tester seed runs only when it is exactly "dev" or "test", and seeded nothing.`,
     );
   }
 }
 
-/** The steps to run and the state folder, from the command line; an unknown step or argument refuses. */
+/** Takes `flag <value>` out of `args`; null when absent. A missing value refuses. */
+function takeOption(args, flag, what) {
+  const at = args.indexOf(flag);
+  if (at === -1) return null;
+  const value = args[at + 1];
+  if (!value || value.startsWith('--')) throw new GuardError(`refusing: ${flag} needs ${what}`);
+  args.splice(at, 2);
+  return value;
+}
+
+/** The steps to run, the state folder and the notice window, from the command line; an unknown step or argument refuses. */
 export function parseArgs(argv) {
   const args = [...argv];
-  let state = null;
-  const at = args.indexOf('--state');
-  if (at !== -1) {
-    state = args[at + 1];
-    if (!state || state.startsWith('--')) throw new GuardError('refusing: --state needs a directory');
-    args.splice(at, 2);
-  }
+  const state = takeOption(args, '--state', 'a directory');
+  const noticeMinutes = takeOption(args, '--notice-minutes', 'a number of minutes');
   for (const step of args) if (!Object.hasOwn(STEPS, step)) throw new GuardError(`refusing: unknown seed step "${step}"`);
-  return { steps: args.length > 0 ? args : [...DEFAULT_STEPS], state };
+  const steps = args.length > 0 ? args : [...DEFAULT_STEPS];
+  if (noticeMinutes !== null && !steps.some((name) => STEPS[name].notice))
+    throw new GuardError('refusing: --notice-minutes is for the home step, which this run does not include');
+  return { steps, state, noticeMinutes };
 }
 
 /** Runs the steps in order; returns the exit code (0 when every step passed). `spawn` is how tests watch the calls. */
@@ -75,7 +85,11 @@ export function main(argv, env = process.env, { spawn = spawnSync, log = (line) 
   }
   for (const name of plan.steps) {
     const step = STEPS[name];
-    const args = [...step.args, ...(step.state && plan.state ? ['--state', plan.state] : [])];
+    const args = [
+      ...step.args,
+      ...(step.notice && plan.noticeMinutes ? ['--notice-minutes', plan.noticeMinutes] : []),
+      ...(step.state && plan.state ? ['--state', plan.state] : []),
+    ];
     log(`seed: ${name}`);
     const res = spawn(process.execPath, [path.join(SCRIPTS, step.script), ...args], {
       env: { ...env, [step.flag]: '1' },
