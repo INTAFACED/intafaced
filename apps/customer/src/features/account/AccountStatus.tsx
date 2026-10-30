@@ -6,6 +6,7 @@ import { usePreferences } from '../../shared/preferences';
 import { stamp } from '../../screens/money/time';
 import { accountStatusCopy as copy } from './account-status-copy';
 import { verificationCapabilitiesCopy } from './verification-capabilities-copy';
+import { AccountAppeals } from './AccountAppeals';
 
 /**
  * I-signin-sessions-22: the account status card on /uc/account. It lists what the person can still do and what they
@@ -83,6 +84,7 @@ export function AccountStatus() {
             <RestrictionList restrictions={status.restrictions} />
           </>
         )}
+        <AccountAppeals restrictions={status.restrictions} />
       </div>
     );
   };
