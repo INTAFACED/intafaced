@@ -449,97 +449,102 @@ test(`${J} #5 support recovery: a case with a mailed one-time link, a second app
   await lost.close();
 });
 
-test(`${J} #6 mail and inbox notices for each factor change`, async ({ page }) => {
-  test.setTimeout(300_000);
-  const totp = await totpOf();
-  await virtualAuthenticator(page);
-  const started = await withAuthenticator(page);
-  const { who } = started;
-  let { secret, step } = started;
-  // Each change is mailed to the proved address saying what changed (I-signin-sessions-08), and its inbox row follows the
-  // event, which svc-identity's outbox relay publishes within a few seconds: reload until it shows.
-  const notified = async (change, title) => {
-    await expect
-      .poll(() => mailedLines(who.email, 'factor-changed').some((line) => line.includes(`change=${change}`)), { timeout: 20_000 })
-      .toBe(true);
-    await expect(async () => {
-      await page.goto('/notifications');
-      await expect(page.getByText(title, { exact: true }).first()).toBeVisible({ timeout: 2_000 });
-    }).toPass({ timeout: 30_000 });
-    await page.goto('/uc/safe');
-  };
-  const code = async () => {
-    let next;
-    ({ code: next, step } = await nextCode(totp, secret, step));
-    return next;
-  };
-  /** Answers identity's "Confirm it is you" sheet with the next authenticator code. */
-  const confirmSheet = async () => {
-    const sheet = page.getByRole('dialog', { name: /confirm it’s you/i });
-    await sheet.getByLabel('Authenticator code or recovery code').fill(await code());
-    await sheet.getByRole('button', { name: 'Confirm', exact: true }).click();
-    await expect(sheet).toBeHidden();
-  };
-  await notified('totp_added', 'Authenticator app turned on');
+// The passkey steps need the passkey origin (the stack's relying party is localhost).
+test.describe('factor notices', () => {
+  test.use({ baseURL: PASSKEY_ORIGIN });
 
-  // A passkey added, after "Confirm it is you" with the code.
-  await page.getByRole('button', { name: 'Add passkey' }).click();
-  await page.getByRole('dialog').getByRole('button', { name: 'Add passkey' }).click();
-  await page.getByTestId('failure').getByRole('button', { name: 'Confirm it is you' }).click();
-  await confirmSheet();
-  await expect(page.getByTestId('security__checklist').getByText('1 on this account')).toBeVisible();
-  await notified('passkey_added', 'Passkey added');
+  test(`${J} #6 mail and inbox notices for each factor change`, async ({ page }) => {
+    test.setTimeout(300_000);
+    const totp = await totpOf();
+    await virtualAuthenticator(page);
+    const started = await withAuthenticator(page);
+    const { who } = started;
+    let { secret, step } = started;
+    // Each change is mailed to the proved address saying what changed (I-signin-sessions-08), and its inbox row follows the
+    // event, which svc-identity's outbox relay publishes within a few seconds: reload until it shows.
+    const notified = async (change, title) => {
+      await expect
+        .poll(() => mailedLines(who.email, 'factor-changed').some((line) => line.includes(`change=${change}`)), { timeout: 20_000 })
+        .toBe(true);
+      await expect(async () => {
+        await page.goto('/notifications');
+        await expect(page.getByText(title, { exact: true }).first()).toBeVisible({ timeout: 2_000 });
+      }).toPass({ timeout: 30_000 });
+      await page.goto('/uc/safe');
+    };
+    const code = async () => {
+      let next;
+      ({ code: next, step } = await nextCode(totp, secret, step));
+      return next;
+    };
+    /** Answers identity's "Confirm it is you" sheet with the next authenticator code. */
+    const confirmSheet = async () => {
+      const sheet = page.getByRole('dialog', { name: /confirm it’s you/i });
+      await sheet.getByLabel('Authenticator code or recovery code').fill(await code());
+      await sheet.getByRole('button', { name: 'Confirm', exact: true }).click();
+      await expect(sheet).toBeHidden();
+    };
+    await notified('totp_added', 'Authenticator app turned on');
 
-  // The passkey removed.
-  await page.getByRole('button', { name: /^Remove passkey / }).click();
-  await page.getByRole('dialog').getByRole('button', { name: 'Remove passkey' }).click();
-  const sheet = page.getByRole('dialog', { name: /confirm it’s you/i });
-  if (
-    await sheet.waitFor({ state: 'visible', timeout: 3_000 }).then(
-      () => true,
-      () => false,
-    )
-  ) {
+    // A passkey added, after "Confirm it is you" with the code.
+    await page.getByRole('button', { name: 'Add passkey' }).click();
+    await page.getByRole('dialog').getByRole('button', { name: 'Add passkey' }).click();
+    await page.getByTestId('failure').getByRole('button', { name: 'Confirm it is you' }).click();
     await confirmSheet();
+    await expect(page.getByTestId('security__checklist').getByText('1 on this account')).toBeVisible();
+    await notified('passkey_added', 'Passkey added');
+
+    // The passkey removed.
     await page.getByRole('button', { name: /^Remove passkey / }).click();
     await page.getByRole('dialog').getByRole('button', { name: 'Remove passkey' }).click();
-  }
-  await expect(page.getByTestId('security__checklist').getByText('1 on this account')).toHaveCount(0);
-  await notified('passkey_removed', 'Passkey removed');
+    const sheet = page.getByRole('dialog', { name: /confirm it’s you/i });
+    if (
+      await sheet.waitFor({ state: 'visible', timeout: 3_000 }).then(
+        () => true,
+        () => false,
+      )
+    ) {
+      await confirmSheet();
+      await page.getByRole('button', { name: /^Remove passkey / }).click();
+      await page.getByRole('dialog').getByRole('button', { name: 'Remove passkey' }).click();
+    }
+    await expect(page.getByTestId('security__checklist').getByText('1 on this account')).toHaveCount(0);
+    await notified('passkey_removed', 'Passkey removed');
 
-  // The authenticator app replaced: the old app's code, the new app's code and the old app's next code.
-  const card = page.locator('[data-testid="security__authenticator"][aria-label="Authenticator app"]');
-  await card.getByRole('button', { name: 'Replace', exact: true }).click();
-  await card.getByLabel('6-digit code or a recovery code').fill(await code());
-  await card.getByRole('button', { name: 'Confirm', exact: true }).click();
-  const setup = page
-    .locator('[data-testid="security__authenticator"]')
-    .filter({ hasText: 'Add this key to your new authenticator app, then enter the code it shows.' });
-  await expect(setup).toHaveCount(1);
-  const newKey = (await setup.locator('code').innerText()).trim();
-  await setup.getByLabel('Code from the new app').fill(totp(newKey));
-  await setup.getByLabel('Next code or a recovery code').fill(await code());
-  await setup.getByRole('button', { name: 'Replace authenticator app' }).click();
-  await expect(page.locator('[data-testid="notice"][role=status]').filter({ hasText: 'Authenticator app replaced' })).toBeVisible();
-  await notified('totp_replaced', 'Authenticator app replaced');
+    // The authenticator app replaced: the old app's code, the new app's code and the old app's next code.
+    const card = page.locator('[data-testid="security__authenticator"][aria-label="Authenticator app"]');
+    await card.getByRole('button', { name: 'Replace', exact: true }).click();
+    await card.getByLabel('6-digit code or a recovery code').fill(await code());
+    await card.getByRole('button', { name: 'Confirm', exact: true }).click();
+    const setup = page
+      .locator('[data-testid="security__authenticator"]')
+      .filter({ hasText: 'Add this key to your new authenticator app, then enter the code it shows.' });
+    await expect(setup).toHaveCount(1);
+    const newKey = (await setup.locator('code').innerText()).trim();
+    await setup.getByLabel('Code from the new app').fill(totp(newKey));
+    await setup.getByLabel('Next code or a recovery code').fill(await code());
+    await setup.getByRole('button', { name: 'Replace authenticator app' }).click();
+    await expect(page.locator('[data-testid="notice"][role=status]').filter({ hasText: 'Authenticator app replaced' })).toBeVisible();
+    await notified('totp_replaced', 'Authenticator app replaced');
 
-  // The new app turned off, with its codes.
-  secret = newKey;
-  step = Math.floor(Date.now() / 30_000);
-  await card.getByRole('button', { name: 'Turn off', exact: true }).click();
-  await card.getByLabel('6-digit code or a recovery code').fill(await code());
-  await card.getByRole('button', { name: 'Confirm', exact: true }).click();
-  const next = card.getByLabel('Next code or a recovery code');
-  if (
-    await next.waitFor({ state: 'visible', timeout: 3_000 }).then(
-      () => true,
-      () => false,
+    // The new app turned off, with its codes.
+    secret = newKey;
+    step = Math.floor(Date.now() / 30_000);
+    await card.getByRole('button', { name: 'Turn off', exact: true }).click();
+    await card.getByLabel('6-digit code or a recovery code').fill(await code());
+    await card.getByRole('button', { name: 'Confirm', exact: true }).click();
+    const next = card.getByLabel('Next code or a recovery code');
+    if (
+      await next.waitFor({ state: 'visible', timeout: 3_000 }).then(
+        () => true,
+        () => false,
+      )
     )
-  )
-    await next.fill(await code());
-  await card.getByRole('button', { name: 'Turn off authenticator app' }).click();
-  await expect(card.locator('[data-testid="notice"][role=status]')).toContainText('Authenticator app turned off');
-  await notified('totp_removed', 'Authenticator app turned off');
+      await next.fill(await code());
+    await card.getByRole('button', { name: 'Turn off authenticator app' }).click();
+    await expect(card.locator('[data-testid="notice"][role=status]')).toContainText('Authenticator app turned off');
+    await notified('totp_removed', 'Authenticator app turned off');
+  });
 });
 
 /**

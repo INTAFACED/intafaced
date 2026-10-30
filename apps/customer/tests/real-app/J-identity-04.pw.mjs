@@ -397,7 +397,6 @@ test(`${J} #4 sets a passkey as the second step and keeps one for signing in: an
   await signUpInBrowser(page, other);
   await addPasskey(page);
   const [theirs] = await heldPasskeys(device);
-  const { credentials: theirCredentials } = await device.cdp.send('WebAuthn.getCredentials', { authenticatorId: device.authenticatorId });
   await forgetSession(page);
 
   // This person adds a passkey on the device, then asks for it after the password.
@@ -451,21 +450,54 @@ test(`${J} #4 sets a passkey as the second step and keeps one for signing in: an
   expect(offered.passkey.allowCredentials.map((c) => c.id)).toEqual([kept]);
   expect(mine).toBeDefined();
 
-  // A browser that offers the other person's passkey instead gets it refused, and nothing signs in. Their passkey is put
-  // on the security key too, so whichever authenticator answers holds it.
-  await key.cdp.send('WebAuthn.addCredential', { authenticatorId: key.authenticatorId, credential: theirCredentials[0] });
-  const loginCall = (url) => url.pathname.endsWith('/api/identity/trpc/auth.login');
-  await page.route(loginCall, async (route) => {
-    const res = await route.fetch();
-    const body = await res.json();
-    body.error.data.secondStep.passkey.allowCredentials = [{ type: 'public-key', id: theirs }];
-    await route.fulfill({ response: res, json: body });
-  });
-  await password();
-  await page.getByRole('button', { name: 'Use your passkey' }).click();
-  await expect(page.getByRole('alert')).toContainText('That passkey is not one this account signs in with.');
+  // A browser that answers with the other person's passkey gets it refused, and nothing signs in. The page only offers
+  // the kept passkey, so this browser signs the account's own challenge with theirs (the device holds it) and sends it
+  // where the page sends its answer: the app and identity are unmodified.
+  const { passkey: challenge } = await password();
+  const forged = await page.evaluate(
+    async ({ options, theirsId }) => {
+      const fromB64 = (value) => Uint8Array.from(atob(value.replace(/-/g, '+').replace(/_/g, '/')), (c) => c.charCodeAt(0));
+      const toB64 = (buffer) =>
+        btoa(String.fromCharCode(...new Uint8Array(buffer)))
+          .replace(/\+/g, '-')
+          .replace(/\//g, '_')
+          .replace(/=+$/, '');
+      const credential = await navigator.credentials.get({
+        publicKey: {
+          ...options,
+          challenge: fromB64(options.challenge),
+          allowCredentials: [{ type: 'public-key', id: fromB64(theirsId) }],
+        },
+      });
+      const response = credential.response;
+      const res = await fetch('/api/identity/trpc/auth.loginSecondStepPasskey', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          credential: {
+            id: credential.id,
+            rawId: toB64(credential.rawId),
+            type: 'public-key',
+            response: {
+              clientDataJSON: toB64(response.clientDataJSON),
+              authenticatorData: toB64(response.authenticatorData),
+              signature: toB64(response.signature),
+              userHandle: response.userHandle ? toB64(response.userHandle) : null,
+            },
+            clientExtensionResults: {},
+          },
+        }),
+      });
+      return { usedId: credential.id, status: res.status, body: await res.json() };
+    },
+    { options: challenge, theirsId: theirs },
+  );
+  expect(forged.usedId).toBe(theirs);
+  const refusal = forged.body.error?.data;
+  expect(refusal?.intafacedCode ?? refusal?.cause?.code ?? refusal?.code).toBe('auth.webauthn_invalid');
+  expect(JSON.stringify(forged.body)).not.toContain('accessToken');
+  await page.goto('/uc/safe');
   await expect(page).toHaveURL(/\/login/);
-  await page.unroute(loginCall);
 
   // The person's own kept passkey signs them in.
   await password();
