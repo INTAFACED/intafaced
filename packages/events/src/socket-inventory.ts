@@ -147,9 +147,9 @@ export const EVENT_BUS_MATRIX = {
   p2pChatMessageSent: { kind: 'socket', socketClass: 'A' },
   p2pDisputeEscalated: { kind: 'socket', socketClass: 'A' },
   p2pQuoteExpired: { kind: 'socket', socketClass: 'A' },
-  copySkipped: { kind: 'socket', socketClass: 'A' },
+  copySkipped: { kind: 'live' },
   copyFailed: { kind: 'socket', socketClass: 'A' },
-  copyStopped: { kind: 'socket', socketClass: 'A' },
+  copyStopped: { kind: 'live' },
   projectionUpdated: { kind: 'socket', socketClass: 'A' },
   supportTicketResolved: { kind: 'live' },
 } as const satisfies Record<EventName, CatalogDisposition>;
