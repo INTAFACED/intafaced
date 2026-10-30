@@ -1189,7 +1189,7 @@ export class CampaignService {
     const [rows, mine] = await Promise.all([
       this.sql<CampaignRow[]>`
         SELECT * FROM campaigns.campaign_rows
-        WHERE state IN ('scheduled', 'active', 'paused') AND (ends_at IS NULL OR ends_at > ${now}) AND type <> 'welcome'
+        WHERE state IN ('scheduled', 'active', 'paused') AND (ends_at IS NULL OR ends_at > ${now})
         ORDER BY starts_at ASC, id ASC LIMIT 200`,
       this.mine(accountId),
     ]);

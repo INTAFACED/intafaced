@@ -120,6 +120,9 @@ function Tasks({
   const { when, left } = useFormat();
   const w = data.window!;
   const remaining = w.closesAt ? (new Date(w.closesAt).getTime() - Date.now()) / 1000 : 0;
+  // Claims are taken only while the window is open and the campaign runs.
+  const running = data.campaign!.state === 'active';
+  const claimable = w.state === 'open' && running;
   return (
     <>
       <p data-testid="welcome-campaign" lang="und">
@@ -133,6 +136,11 @@ function Tasks({
             ? t('windowExpired', { opens: when(w.opensAt), closes: when(w.closesAt) })
             : t('windowOpen', { opens: when(w.opensAt), closes: when(w.closesAt), left: left(remaining) })}
       </p>
+      {running ? null : (
+        <p role="status" data-testid="welcome-campaign-state" data-state={data.campaign!.state}>
+          {t('campaignNotRunning')}
+        </p>
+      )}
       <DataTable label={t('listLabel')} headers={[t('colTask'), t('colReward'), t('colState'), t('colDetail')]}>
         {data.tasks.map((task) => {
           const failed = refusal?.event === task.event ? refusal.result : null;
@@ -169,7 +177,7 @@ function Tasks({
                     </a>
                   </>
                 ) : null}
-                {task.state === 'done' || (task.record?.state === 'withheld' && w.state === 'open') ? (
+                {claimable && (task.state === 'done' || task.record?.state === 'withheld') ? (
                   <>
                     {' '}
                     <Button onClick={() => onClaim(task.event)} disabled={busy !== null} aria-label={t('claimTask', { task: task.title })}>

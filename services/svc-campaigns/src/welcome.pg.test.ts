@@ -225,9 +225,9 @@ if (!db) {
       expect(await code(s.create({ definition: definition({ tasks: market }), actor: A }))).toBe('campaigns.tasks_invalid');
       const task = definition({ type: 'task', reward: { asset: 'USDT', amount: '1' }, tasks: { ...WELCOME, claimWindowSeconds: 60 } });
       expect(await code(s.create({ definition: task, actor: A }))).toBe('campaigns.tasks_invalid');
-      // A welcome campaign is not in the catalogue and is not joined: it applies from sign-up.
+      // A welcome campaign is listed in the catalogue, and is not joined: it applies from sign-up.
       const c = await live();
-      expect((await s.catalogue(ME)).campaigns.map((x) => x.id)).not.toContain(c.id);
+      expect((await s.catalogue(ME)).campaigns.map((x) => x.id)).toContain(c.id);
       expect(await code(s.join({ campaignId: c.id, accountId: ME }))).toBe('campaign.type_locked');
     });
 
@@ -351,6 +351,48 @@ if (!db) {
       expect(await book.getTxByKey(`reward:${key}`)).not.toBeNull();
       expect(await free(ME)).toBe(parseAmount('1'));
       await reconciles(parseAmount('10'));
+    });
+
+    it('places a sign-up read late under the campaign that ran then, even once it has ended', async () => {
+      const c = await live();
+      const at = ago(30_000);
+      await campaigns().transition({ id: c.id, action: 'end', revision: 1, actor: A });
+      await signUp(ME, at);
+      const list = await tasks.welcomeChecklist({ accountId: ME });
+      expect(list.campaign).toMatchObject({ id: c.id, state: 'ended' });
+      // The campaign no longer runs: claims refuse by name, and nothing is written.
+      await happen(ME, 'trade.fill');
+      expect(await code(tasks.welcomeClaim({ accountId: ME, event: 'trade.fill' }))).toBe('campaign.not_active');
+      expect(await db.sql`SELECT 1 FROM campaigns.reward_intents`).toHaveLength(0);
+    });
+
+    it('pays a reward withheld when its hold ended once the account is active again, after the window, once, without a second hold', async () => {
+      await fundPot('50');
+      const c = await live({ tasks: { ...WELCOME, holdSeconds: 60, welcomeWindowSeconds: 600 } });
+      await signUp(ME, ago(60_000));
+      await happen(ME, 'trade.fill', ago(30_000));
+      const held = await tasks.welcomeClaim({ accountId: ME, event: 'trade.fill' });
+      expect(held.reward.state).toBe('held');
+      // The hold ends while the account is frozen: withheld, nothing posted.
+      people.set(ME, person(ME, { status: 'frozen' }));
+      clock = new Date(Date.now() + 120_000);
+      await tasks.releaseHolds();
+      const key = rewardKeyOf(c.id, ME, welcomePeriodOf('trade.fill'));
+      expect((await db.sql`SELECT state FROM campaigns.reward_intents WHERE reward_key = ${key}`)[0]).toEqual({ state: 'withheld' });
+      // Active again after the welcome window closed: the claim pays the served reward at once, under the same key.
+      people.set(ME, person(ME));
+      clock = new Date(Date.now() + 3_600_000);
+      expect((await tasks.welcomeChecklist({ accountId: ME })).window?.state).toBe('expired');
+      const paid = await tasks.welcomeClaim({ accountId: ME, event: 'trade.fill' });
+      expect(paid.reward).toMatchObject({ rewardKey: key, state: 'posted', amount: '3' });
+      expect(await free(ME)).toBe(parseAmount('3'));
+      await reconciles(parseAmount('50'));
+    });
+
+    it('keeps nothing for an account whose sign-up was read with no welcome campaign live', async () => {
+      await signUp(LATE);
+      await happen(LATE, 'trade.fill');
+      expect(await db.sql`SELECT 1 FROM campaigns.welcome_events WHERE account_id = ${LATE}`).toHaveLength(0);
     });
   });
 }

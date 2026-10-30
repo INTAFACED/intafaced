@@ -777,7 +777,8 @@ export const myRewardsInputSchema = z.object({}).strict();
  */
 export const WELCOME_TASK_STATES = ['open', 'done', 'claimed', 'expired'] as const;
 export const welcomeChecklistSchema = z.object({
-  campaign: z.object({ id, name: z.string(), rules: z.string() }).nullable(),
+  /** `state`: claims are taken only while it is `active`; once paused or ended the checklist says so. */
+  campaign: z.object({ id, name: z.string(), rules: z.string(), state: z.enum(CAMPAIGN_STATES) }).nullable(),
   signedUpAt: iso.nullable(),
   window: z.object({ opensAt: iso, closesAt: iso.nullable(), state: z.enum(['open', 'expired', 'unset']) }).nullable(),
   tasks: z.array(

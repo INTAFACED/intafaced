@@ -734,11 +734,12 @@ export class TaskService {
   async onSignUp(input: { userId: string; eventId: string; at: string }): Promise<boolean> {
     const at = new Date(input.at);
     if (Number.isNaN(at.getTime())) return false;
-    const live = await this.sql<{ id: string; state: string; starts_at: Date | null; ends_at: Date | null }[]>`
-      SELECT id, state, starts_at, ends_at FROM campaigns.campaigns
-      WHERE type = 'welcome' AND state IN ('scheduled', 'active') AND starts_at <= ${at} AND (ends_at IS NULL OR ends_at > ${at})
-      ORDER BY starts_at DESC, created_at DESC`;
-    const campaign = live.find((c) => effectiveState(c as never, at) === 'active') ?? null;
+    // Read now, the sign-up may come late: a campaign paused or ended since still counts if it ran then, after any running one.
+    const [campaign] = await this.sql<{ id: string }[]>`
+      SELECT id FROM campaigns.campaigns
+      WHERE type = 'welcome' AND state IN ('scheduled', 'active', 'paused', 'ended', 'closed') AND starts_at <= ${at}
+        AND (ends_at IS NULL OR ends_at > ${at})
+      ORDER BY (state IN ('scheduled', 'active')) DESC, starts_at DESC, created_at DESC LIMIT 1`;
     const made = await this.sql`
       INSERT INTO campaigns.welcome_accounts (account_id, signed_up_at, campaign_id, event_id)
       VALUES (${input.userId.toLowerCase()}, ${at}, ${campaign?.id ?? null}, ${input.eventId})
@@ -749,14 +750,17 @@ export class TaskService {
   /**
    * One first-time event of an account: verified (`identity.kyc.approved`), a crypto deposit credited, or a spot fill
    * settled. Only the earliest of each kind is kept, so the same event again, or a later one, changes nothing. It is
-   * kept whether or not the sign-up was read yet; the checklist decides at read time whether it fell inside the window.
+   * kept whether or not the sign-up was read yet (at most one row per account and kind); the checklist decides at read
+   * time whether it fell inside the window. An account whose sign-up was read with no welcome campaign keeps nothing.
    */
   async onWelcomeEvent(input: { userId: string; event: TaskEvent; eventId: string; at: string }): Promise<void> {
     const at = new Date(input.at);
     if (Number.isNaN(at.getTime())) return;
     await this.sql`
       INSERT INTO campaigns.welcome_events (account_id, event, event_id, occurred_at)
-      VALUES (${input.userId.toLowerCase()}, ${input.event}, ${input.eventId}, ${at})
+      SELECT ${input.userId.toLowerCase()}, ${input.event}, ${input.eventId}, ${at}
+      WHERE NOT EXISTS (
+        SELECT 1 FROM campaigns.welcome_accounts WHERE account_id = ${input.userId.toLowerCase()} AND campaign_id IS NULL)
       ON CONFLICT (account_id, event) DO UPDATE
         SET event_id = EXCLUDED.event_id, occurred_at = EXCLUDED.occurred_at, updated_at = now()
         WHERE campaigns.welcome_events.occurred_at > EXCLUDED.occurred_at`;
@@ -771,30 +775,30 @@ export class TaskService {
     const intents = await this.sql<IntentRow[]>`
       SELECT *, amount::text AS amount FROM campaigns.reward_intents WHERE reward_key IN ${this.sql(keys)}`;
     const byKey = new Map(intents.map((i) => [i.reward_key, i]));
-    const window = welcomeWindowOf(account.signed_up_at, campaign.tasks, this.now());
-    const tasks = await Promise.all(
-      campaign.tasks.steps.map(async (step, i) => {
-        const intent = byKey.get(keys[i]!) ?? null;
-        const doneAt = doneInWindow(events.get(step.event), window);
-        const state: WelcomeChecklist['tasks'][number]['state'] = intent
-          ? 'claimed'
-          : window.state === 'expired'
-            ? 'expired'
-            : doneAt
-              ? 'done'
-              : 'open';
-        return {
-          event: step.event,
-          title: step.title,
-          state,
-          doneAt: doneAt ? iso(doneAt) : null,
-          reward: step.reward ?? null,
-          record: intent ? await this.record(intent) : null,
-        };
-      }),
-    );
+    const attempts = await this.attemptsOf(intents.map((i) => i.reward_key));
+    const now = this.now();
+    const window = welcomeWindowOf(account.signed_up_at, campaign.tasks, now);
+    const tasks = campaign.tasks.steps.map((step, i) => {
+      const intent = byKey.get(keys[i]!) ?? null;
+      const doneAt = doneInWindow(events.get(step.event), window);
+      const state: WelcomeChecklist['tasks'][number]['state'] = intent
+        ? 'claimed'
+        : window.state === 'expired'
+          ? 'expired'
+          : doneAt
+            ? 'done'
+            : 'open';
+      return {
+        event: step.event,
+        title: step.title,
+        state,
+        doneAt: doneAt ? iso(doneAt) : null,
+        reward: step.reward ?? null,
+        record: intent ? this.toRecord(intent, attempts.get(intent.reward_key) ?? []) : null,
+      };
+    });
     return {
-      campaign: { id: campaign.id, name: campaign.name, rules: campaign.rules },
+      campaign: { id: campaign.id, name: campaign.name, rules: campaign.rules, state: effectiveState(campaign as never, now) },
       signedUpAt: iso(account.signed_up_at),
       window: {
         opensAt: iso(account.signed_up_at),
@@ -822,14 +826,19 @@ export class TaskService {
     if (existing && existing.state !== 'withheld') return { reward: await this.record(existing), created: false };
     if (!this.saga) throw new CampaignsError('campaigns.reward_saga_unwired', 'Rewards cannot be paid: the ledger is not connected');
     const now = this.now();
+    // Withheld when its hold ended: it was claimed inside the window and served its hold, so neither applies again, and it
+    // keeps the terms it was claimed under.
+    const served = existing?.state === 'withheld' && existing.hold_until !== null;
     const window = welcomeWindowOf(account.signed_up_at, campaign.tasks, now);
-    if (window.state === 'unset') throw new CampaignsError('campaigns.window_unset', 'This welcome checklist has no window set');
-    if (window.state === 'expired') throw new CampaignsError('campaigns.claim_expired', 'The welcome window has closed');
-    const state = effectiveState(campaign as never, now);
-    if (state !== 'active') throw new CampaignsError('campaign.not_active', `This campaign is ${state}, not active`);
-    if (!step.reward) throw new CampaignsError('campaigns.reward_unset', 'This task has no reward set');
-    if (!doneInWindow(events.get(step.event), window)) {
-      throw new CampaignsError('campaigns.tasks_incomplete', 'This task is not done yet');
+    if (!served) {
+      if (window.state === 'unset') throw new CampaignsError('campaigns.window_unset', 'This welcome checklist has no window set');
+      if (window.state === 'expired') throw new CampaignsError('campaigns.claim_expired', 'The welcome window has closed');
+      const state = effectiveState(campaign as never, now);
+      if (state !== 'active') throw new CampaignsError('campaign.not_active', `This campaign is ${state}, not active`);
+      if (!step.reward) throw new CampaignsError('campaigns.reward_unset', 'This task has no reward set');
+      if (!doneInWindow(events.get(step.event), window)) {
+        throw new CampaignsError('campaigns.tasks_incomplete', 'This task is not done yet');
+      }
     }
     const holdSeconds = campaign.tasks.holdSeconds ?? null;
     if (holdSeconds === null) throw new CampaignsError('campaigns.hold_period_unset', 'This campaign has no hold period set');
@@ -841,13 +850,15 @@ export class TaskService {
         `This reward needs ${campaign.tasks.kycGate} verification before it can be claimed`,
       );
     }
-    const row = { ...campaign, reward_asset: step.reward.asset, reward_amount: step.reward.amount };
+    // A withheld reward keeps the terms it was first written with; a new one takes the task's reward now.
+    const terms0 = existing ? { asset: existing.asset, amount: existing.amount } : step.reward!;
+    const row = { ...campaign, reward_asset: terms0.asset, reward_amount: terms0.amount };
     const terms: LockTerms = { form: 'paid', seconds: null };
     if (who.status !== 'active') {
       const made = await this.write(row, account.account_id, key, 'withheld', `account.${who.status}`, null, terms, period);
       return { reward: await this.record(made.intent), created: made.created };
     }
-    if (holdSeconds > 0) {
+    if (holdSeconds > 0 && !served) {
       const until = new Date(now.getTime() + holdSeconds * 1000);
       const held = await this.write(row, account.account_id, key, 'held', null, until, terms, period);
       return { reward: await this.record(held.intent), created: held.created };

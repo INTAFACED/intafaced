@@ -324,7 +324,13 @@ function CampaignBody({
         </p>
       </Panel>
       <Panel title={t('joinShort')}>
-        {c.mine ? (
+        {c.type === 'welcome' ? (
+          <p data-testid="campaign-welcome">
+            <a className="text-link" href="/uc/promotion/welcome">
+              {t('welcomeLink')}
+            </a>
+          </p>
+        ) : c.mine ? (
           <p role="status" data-testid="campaign-joined">
             {t('joinedAt', { when: when(c.mine.joinedAt) })}
           </p>
@@ -366,15 +372,7 @@ function CampaignBody({
         ) : null}
         <p className="muted">{t('joinNote')}</p>
       </Panel>
-      {c.type === 'welcome' ? (
-        <p>
-          <a className="text-link" href="/uc/promotion/welcome">
-            {t('welcomeLink')}
-          </a>
-        </p>
-      ) : c.tasks ? (
-        <CampaignTasks campaign={c} />
-      ) : null}
+      {c.tasks && c.type !== 'welcome' ? <CampaignTasks campaign={c} /> : null}
     </>
   );
 }

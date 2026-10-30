@@ -136,8 +136,26 @@ async function attachBus(): Promise<void> {
       },
       { durable: 'campaigns-earn-deposit-credited' },
     );
-    // The welcome checklist (CM-rewards-hub-03): each account's sign-up opens its window, and its first verification,
-    // crypto deposit and spot fill tick its tasks. Each event is kept once, by account and kind, so a redelivery is a no-op.
+    bus = connected;
+    void attachWelcome(connected);
+  } catch (err) {
+    app.log.error({ err }, 'svc-campaigns could not attach to trade.fill.settled: task progress waits, trying again');
+    await connected?.close().catch(() => undefined);
+    if (!stopping) {
+      busRetry = setTimeout(() => void attachBus(), BUS_RETRY_MS);
+      busRetry.unref();
+    }
+  }
+}
+/**
+ * The welcome checklist (CM-rewards-hub-03): each account's sign-up opens its window, and its first verification, crypto
+ * deposit and spot fill tick its tasks. Each event is kept once, by account and kind, so a redelivery is a no-op. These
+ * read `identity`'s stream too, so they attach on their own: if that stream is missing they are tried again, and task
+ * progress and earning rules above keep running.
+ */
+let welcomeRetry: NodeJS.Timeout | null = null;
+async function attachWelcome(connected: JetStreamEventBus): Promise<void> {
+  try {
     await connected.subscribe(
       'userCreated',
       async (user, envelope) => {
@@ -171,13 +189,11 @@ async function attachBus(): Promise<void> {
       },
       { durable: 'campaigns-welcome-fill-settled' },
     );
-    bus = connected;
   } catch (err) {
-    app.log.error({ err }, 'svc-campaigns could not attach to trade.fill.settled: task progress waits, trying again');
-    await connected?.close().catch(() => undefined);
-    if (!stopping) {
-      busRetry = setTimeout(() => void attachBus(), BUS_RETRY_MS);
-      busRetry.unref();
+    app.log.error({ err }, 'svc-campaigns could not attach the welcome checklist events: it waits, trying again');
+    if (!stopping && bus === connected) {
+      welcomeRetry = setTimeout(() => void attachWelcome(connected), BUS_RETRY_MS);
+      welcomeRetry.unref();
     }
   }
 }
@@ -217,6 +233,7 @@ for (const signal of ['SIGTERM', 'SIGINT'] as const) {
       stopping = true;
       if (reconciler) clearInterval(reconciler);
       if (busRetry) clearTimeout(busRetry);
+      if (welcomeRetry) clearTimeout(welcomeRetry);
       await app.close();
       await bus?.close();
       await sql.end({ timeout: 2 });
