@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test';
 import { ADMIN, founderSignIn } from './admin.mjs';
 import { signIn, signUp } from './desk.mjs';
-import { asDesk, deskPeople } from './help-centre.mjs';
+import { asDesk, deskPeople, ensureDeskGroup } from './help-centre.mjs';
 import { api, tool } from './stack.mjs';
 
 // J-support-public-10, in the running app (docs/roadmap/journeys.json): work the support queue and answer customers. Tests
@@ -41,6 +41,17 @@ async function request(subject, category = 'account') {
   });
   expect(res.status, JSON.stringify(res.body).slice(0, 300)).toBe(200);
   return res.body.result.data;
+}
+
+/**
+ * Put a request in the TEST agents' group, with founder B (the agent) a member, so the agent may work it: an agent sees
+ * only the requests of its own groups, and ungrouped requests are the lead's.
+ */
+async function inAgentGroup(ticket) {
+  const { agent } = await deskPeople();
+  const group = await ensureDeskGroup(`TEST ${J} agents`);
+  if (!group.memberIds.includes(agent)) await desk('lead', 'mutation', 'groupsAddMember', { groupId: group.id, userId: agent });
+  await desk('lead', 'mutation', 'ticketSetGroup', { ticketId: ticket.id, groupId: group.id });
 }
 
 /** A desk call that must succeed; its data. */
@@ -111,26 +122,41 @@ async function sendReply(workspace, body) {
 
 test(`${J} #1 /support lists unassigned open and pending requests by score, "not a promise", with no due time`, async ({ page }) => {
   const ticket = await request(`TEST queue ${RUN}`);
-  const queue = await openQueue(page);
-  await expect(rowOf(queue, ticket.subject)).toBeVisible();
-  await expect(queue.getByRole('columnheader', { name: 'Score' })).toBeVisible();
-  await expect(queue.getByRole('columnheader', { name: /due/i })).toHaveCount(0);
-  await expect(page.getByTestId('queue-metrics')).toContainText('it is not a response-time promise');
-  // Ranked by score, highest first.
-  const scores = (await queue.getByRole('row').evaluateAll((rows) => rows.slice(1).map((row) => row.cells[4]?.textContent ?? ''))).map(
-    Number,
-  );
-  expect(scores).toEqual([...scores].sort((a, b) => b - a));
-  // Only unassigned open and pending requests.
-  for (const status of await queue.getByRole('row').evaluateAll((rows) => rows.slice(1).map((row) => row.cells[3]?.textContent ?? '')))
-    expect(['open', 'pending']).toContain(status);
+  // A request someone holds is not in the queue.
+  const held = await request(`TEST queue held ${RUN}`);
+  await desk('lead', 'mutation', 'claim', { ticketId: held.id });
+  try {
+    const queue = await openQueue(page);
+    await expect(rowOf(queue, ticket.subject)).toBeVisible();
+    await expect(rowOf(queue, held.subject)).toHaveCount(0);
+    await expect(queue.getByRole('columnheader', { name: 'Score' })).toBeVisible();
+    await expect(queue.getByRole('columnheader', { name: /due/i })).toHaveCount(0);
+    await expect(page.getByTestId('queue-metrics')).toContainText('it is not a response-time promise');
+    // Ranked by score, highest first.
+    const scores = (await queue.getByRole('row').evaluateAll((rows) => rows.slice(1).map((row) => row.cells[4]?.textContent ?? ''))).map(
+      Number,
+    );
+    expect(scores).toEqual([...scores].sort((a, b) => b - a));
+    // Only open and pending requests.
+    for (const status of await queue.getByRole('row').evaluateAll((rows) => rows.slice(1).map((row) => row.cells[3]?.textContent ?? '')))
+      expect(['open', 'pending']).toContain(status);
+    // Only unassigned ones: the page lists the queue page svc-support answers, and none of its tickets has an assignee.
+    const answered = await desk('lead', 'query', 'listQueue', { limit: 100 });
+    const entries = answered.status === 'ok' ? answered.entries : [];
+    expect(entries.length).toBeGreaterThan(0);
+    await expect(queue.getByRole('row')).toHaveCount(entries.length + 1);
+    for (const entry of entries) expect((await desk('lead', 'query', 'get', { ticketId: entry.ticketId })).assigneeId ?? null).toBeNull();
+  } finally {
+    await desk('lead', 'mutation', 'unclaim', { ticketId: held.id, idempotencyKey: `${J}:${RUN}:held` });
+  }
 });
 
 test(`${J} #2 a filter by field saves as a view and is shared: list and count agree, a lead's shared view is read-only to others, a bad field is refused`, async ({
   page,
   browser,
 }) => {
-  await request(`TEST filter trading ${RUN}`, 'trading');
+  // The trading request is in the agents' group, so the other agent reading the shared view may see it.
+  await inAgentGroup(await request(`TEST filter trading ${RUN}`, 'trading'));
   await request(`TEST filter account ${RUN}`, 'account');
   const queue = await openQueue(page);
   const filters = page.getByRole('search', { name: 'Filter the queue' });
@@ -168,9 +194,17 @@ test(`${J} #2 a filter by field saves as a view and is shared: list and count ag
 
 test(`${J} #3 searching a word in a subject lists only requests this agent may see`, async ({ page }) => {
   const word = `zebra${RUN}`;
+  // The agent (founder B) may see the request in its group; the same word on an ungrouped request is the lead's only.
   const ticket = await request(`TEST ${word} search`);
+  await inAgentGroup(ticket);
+  const hidden = await request(`TEST ${word} lead only`);
   await request(`TEST other ${RUN}`);
-  const queue = await openQueue(page);
+  const lead = await desk('lead', 'query', 'listAll', { limit: 500 });
+  expect(
+    lead.some((row) => row.id === hidden.id),
+    'the lead sees the ungrouped request',
+  ).toBe(true);
+  const queue = await openQueue(page, 'b');
   const box = page.getByRole('searchbox', { name: 'Search requests' });
   await expect(box).toBeVisible(UNBUILT);
   await box.fill(word);
@@ -188,6 +222,8 @@ test(`${J} #4 claiming the next request opens its workspace at its own address; 
   await page.getByRole('button', { name: 'Claim the next request' }).click();
   await expect(page).toHaveURL(new RegExp(`^${ADMIN}/(admin/)?support/[0-9a-f-]{36}$`));
   const ticketId = page.url().split('/').pop();
+  // In the agents' group, so the second agent may see it and its claim is refused for being held, not for being unseen.
+  await inAgentGroup({ id: ticketId });
   const { lead } = await deskPeople();
   // The workspace open at that address is the claimed request, held by this agent.
   const claimed = await desk('lead', 'query', 'get', { ticketId });
@@ -422,6 +458,7 @@ test(`${J} #8 sending after another agent changed the status is refused as stale
   page,
 }) => {
   const ticket = await request(`TEST stale ${RUN}`);
+  await inAgentGroup(ticket);
   const queue = await openQueue(page);
   const workspace = await openRequest(page, queue, ticket);
   await claim(workspace);
@@ -480,6 +517,9 @@ test(`${J} #10 the assignee unclaims one request and a lead reassigns another, e
 }) => {
   const mineToDrop = await request(`TEST unclaim ${RUN}`);
   const toReassign = await request(`TEST reassign ${RUN}`);
+  // Both in the agents' group: the second agent sees them, so its refusals are about holding, not seeing.
+  await inAgentGroup(mineToDrop);
+  await inAgentGroup(toReassign);
   const { lead, agent } = await deskPeople();
   const assignee = async (ticketId) => (await desk('lead', 'query', 'get', { ticketId })).assigneeId ?? null;
   const queue = await openQueue(page);
