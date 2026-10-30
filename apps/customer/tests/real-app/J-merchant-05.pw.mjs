@@ -74,7 +74,8 @@ async function ownerApi(state, as = 'owner') {
     if (!res.ok || !json?.result) {
       throw Object.assign(new Error(`${route} refused: ${res.status} ${text.slice(0, 400)}`), {
         status: res.status,
-        typed: /^([a-z]+\.[a-z_]+):/.exec(json?.error?.message ?? '')?.[1] ?? null,
+        // The typed code leads the message, alone or before a colon and its detail.
+        typed: /^([a-z]+\.[a-z_]+)(?::|$)/.exec(json?.error?.message ?? '')?.[1] ?? null,
       });
     }
     return json.result.data;
