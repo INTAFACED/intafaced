@@ -66,6 +66,8 @@ test('the TEST mint and unknown rails have no statement; a bad query or unreadab
   const [status, body] = answerStatement(state, 'GET', '/statement?rail=crypto-native&asOf=2099-01-01T00:00:00Z');
   assert.equal(status, 503);
   assert.match(body.error, /crypto-native/);
+  // The bad line is on crypto-native only: payout-sim's own statement still answers.
+  assert.equal(answerStatement(state, 'GET', '/statement?rail=payout-sim&asOf=2099-01-01T00:00:00Z')[0], 200);
 });
 
 test('the served rails and their env names are the ones svc-ledger reads', async () => {
