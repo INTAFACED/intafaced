@@ -235,6 +235,7 @@ test(`${J} #7 enters a fixed amount and starts: zero and above-cap refused, the 
       maxAggregateExposure: '200',
       fixedOrderSize: '20',
       expiresAt: new Date(Date.now() + 7 * 24 * 3600_000).toISOString(),
+      clientRequestId: `${J}-7-refused-${Date.now()}`,
       ...over,
     });
   for (const [over, code] of [
@@ -295,6 +296,7 @@ test(`${J} #7 enters a fixed amount and starts: zero and above-cap refused, the 
     maxAggregateExposure: fromUnits(toUnits(before.free) - toUnits('200') + toUnits('1')),
     fixedOrderSize: '10',
     expiresAt: new Date(Date.now() + 7 * 24 * 3600_000).toISOString(),
+    clientRequestId: `journey-too-much:${state('tag')}`,
   });
   expect(
     tooMuch.body?.error?.data?.cause?.code ?? tooMuch.body?.error?.data?.intafacedCode,

@@ -74,6 +74,11 @@ test(`${J} #6 creates a recurring buy rule twice with one key and tops up past t
   const b = await call('POST', '/api/v1/recurring', body);
   expect(b.status, JSON.stringify(b.body).slice(0, 200)).toBe(200);
   expect(b.body.id).toBe(a.body.id);
+  // One rule: the person's rule list, read back, holds this key exactly once.
+  const list = await call('GET', '/api/v1/recurring');
+  expect(list.status, JSON.stringify(list.body).slice(0, 200)).toBe(200);
+  const rules = Array.isArray(list.body) ? list.body : list.body.items;
+  expect(rules.filter((rule) => rule.clientId === body.clientId).map((rule) => rule.id)).toEqual([a.body.id]);
   // The top-up past the cap is refused by its cap code; a top-up route has to exist for this to pass.
   const topUp = await call('POST', `/api/v1/recurring/${a.body.id}/top-up`, { amount: '1000000' });
   expect(topUp.status, JSON.stringify(topUp.body).slice(0, 200)).toBeGreaterThanOrEqual(400);
