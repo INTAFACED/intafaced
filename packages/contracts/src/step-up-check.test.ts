@@ -63,7 +63,7 @@ describe('identity step-up check (CB-bots-05)', () => {
     const approvals = accepting();
     const check = createStepUpCheck({ service: 'svc-trade', approvals });
     const result = await check.require(request());
-    expect(result).toEqual({ stepUpEventId: APPROVAL, consumedAt: '2026-10-29T12:01:00.000Z' });
+    expect(result).toEqual({ stepUpEventId: APPROVAL, consumedAt: '2026-10-29T12:01:00.000Z', replayed: false });
     const begun = bindCustomerStepUp(USER, {
       scope: SCOPE,
       purpose: 'bots.grid.withdrawProfit',
@@ -84,6 +84,19 @@ describe('identity step-up check (CB-bots-05)', () => {
       principalSessionId: SESSION,
       requestId: `bots.grid.withdraw:${FIELDS.botId}:${FIELDS.requestId}`,
     });
+  });
+
+  it('identity answering a retry of the same request id is a replay, so the caller never applies it twice', async () => {
+    const check = createStepUpCheck({ service: 'svc-trade', approvals: accepting({ consumption: 'already_consumed_by_this_request' }) });
+    expect((await check.require(request())).replayed).toBe(true);
+  });
+
+  it('an over-long approval id is step_up_required; an over-long request id is the caller’s bug, and identity is not asked', async () => {
+    const approvals = accepting();
+    const check = createStepUpCheck({ service: 'svc-trade', approvals });
+    expect(await codeOf(check.require(request({ approvalId: 'a'.repeat(129) })))).toBe('identity.step_up_required');
+    await expect(check.require(request({ requestId: 'r'.repeat(129) }))).rejects.toThrow(/request id must be 1 to 128/);
+    expect(approvals.consume).not.toHaveBeenCalled();
   });
 
   it('no approval sent is step_up_required, and identity is not asked', async () => {
@@ -119,6 +132,10 @@ describe('identity step-up check (CB-bots-05)', () => {
       Object.assign(new Error('The operation was aborted due to timeout'), { name: 'TimeoutError' }),
       Object.assign(new Error('identity refused consume (502)'), { code: ACTION_APPROVAL_CONSUME_FAILED }),
       Object.assign(new Error('identity consume result is not JSON'), { code: ACTION_APPROVAL_CONSUME_FAILED }),
+      // A 5xx is identity failing, even when it carries a tag (founders_unavailable is a 503).
+      Object.assign(new Error('identity refused consume (503) [action_approval.founders_unavailable]'), {
+        code: ACTION_APPROVAL_CONSUME_FAILED,
+      }),
     ];
     for (const failure of failures) {
       const check = createStepUpCheck({ service: 'svc-trade', approvals: { consume: vi.fn().mockRejectedValue(failure) } });

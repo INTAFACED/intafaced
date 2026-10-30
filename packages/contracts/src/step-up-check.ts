@@ -59,6 +59,11 @@ export type StepUpCheckResult = {
   /** The consumed approval: the step-up event a receipt may name. It is an id, never a secret. */
   readonly stepUpEventId: string;
   readonly consumedAt: string | null;
+  /**
+   * True when identity answered a retry of the same request id, after a lost reply: the approval was already spent by
+   * this request. The caller re-reads its own outcome by the business key and never applies the change a second time.
+   */
+  readonly replayed: boolean;
 };
 
 export interface StepUpCheck {
@@ -66,6 +71,10 @@ export interface StepUpCheck {
 }
 
 const IDENTITY_REFUSAL = /\[action_approval\.[a-z_]+\]/;
+/** The shared client's refusal line: `identity refused consume (<status>) …`. A 5xx is identity failing, tagged or not. */
+const IDENTITY_STATUS = /identity refused consume \((\d{3})\)/;
+/** The consume wire caps both ids (`actionApprovalConsumeInputSchema`). */
+const ID_MAX = 128;
 
 const required = (why: string): never => {
   throw new StepUpCheckError(`Confirm this with your passkey or authenticator code first: ${why}`, 'identity.step_up_required');
@@ -90,6 +99,10 @@ export function createStepUpCheck(opts: { readonly service: string; readonly app
       if (targetService !== opts.service) return unavailable(`${req.scope} is spent by ${targetService}, not ${opts.service}`);
       const approvalId = req.approvalId?.trim() ?? '';
       if (approvalId === '') return required('no confirmation was sent');
+      if (approvalId.length > ID_MAX) return required('that is not a confirmation identity issued');
+      if (req.requestId.trim() === '' || req.requestId.length > ID_MAX) {
+        throw new Error(`step-up check: the request id must be 1 to ${ID_MAX} characters`);
+      }
       const keys = Object.keys(req.fields);
       const optional = Object.keys(door.optionalFields ?? {});
       if (
@@ -118,7 +131,14 @@ export function createStepUpCheck(opts: { readonly service: string; readonly app
       } catch (err) {
         const coded = (err ?? {}) as CodedError;
         // Identity answered with its own refusal code: the person confirms again.
-        if (coded.code === ACTION_APPROVAL_CONSUME_FAILED && typeof coded.message === 'string' && IDENTITY_REFUSAL.test(coded.message)) {
+        const status = typeof coded.message === 'string' ? Number(IDENTITY_STATUS.exec(coded.message)?.[1] ?? NaN) : NaN;
+        if (
+          coded.code === ACTION_APPROVAL_CONSUME_FAILED &&
+          typeof coded.message === 'string' &&
+          IDENTITY_REFUSAL.test(coded.message) &&
+          status >= 400 &&
+          status < 500
+        ) {
           return required('identity did not accept that confirmation for this request');
         }
         return unavailable('identity did not answer the check');
@@ -134,7 +154,11 @@ export function createStepUpCheck(opts: { readonly service: string; readonly app
       ) {
         return required('that confirmation is not this person’s confirmation of this request');
       }
-      return { stepUpEventId: consumed.approvalId, consumedAt: consumed.consumedAt ?? null };
+      return {
+        stepUpEventId: consumed.approvalId,
+        consumedAt: consumed.consumedAt ?? null,
+        replayed: consumed.consumption === 'already_consumed_by_this_request',
+      };
     },
   };
 }
