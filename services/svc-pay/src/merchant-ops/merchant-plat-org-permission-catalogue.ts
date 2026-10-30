@@ -54,6 +54,7 @@ const AREA_OF = {
   'webhooks.manage': 'developer',
   'products.read': 'payments',
   'products.manage': 'payments',
+  'payments.unmask': 'payments',
 } as const satisfies Record<MerchantPermission, PermissionArea>;
 
 /**
@@ -72,6 +73,7 @@ const REQUIRES: Partial<Record<MerchantPermission, readonly MerchantPermission[]
   'payout.approve': ['payouts.read'],
   'webhooks.manage': ['webhooks.read'],
   'products.manage': ['products.read'],
+  'payments.unmask': ['payments.read'],
 };
 
 export const BUILT_IN_ROLES = ['owner', ...TEAM_ROLES] as const satisfies readonly MerchantRole[];
