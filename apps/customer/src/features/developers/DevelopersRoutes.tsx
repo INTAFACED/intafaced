@@ -30,6 +30,7 @@ import {
 import { ChangelogPage, UpcomingPage } from './ChangelogPages';
 import { StatusPage } from './StatusPage';
 import { AppsRoom } from './apps/AppsRoom';
+import { ErrorsPage } from './errors/TradeErrorsCatalogue';
 import '../public/public-pages.css';
 
 const key = (id: string) => id.replace(/-/g, '_');
@@ -48,6 +49,7 @@ const PAGES: Record<PageSectionId, (props: { title: string }) => JSX.Element> = 
   openapi: OpenApiPage,
   status: () => <StatusPage />,
   authentication: AuthenticationPage,
+  errors: ErrorsPage,
 };
 
 /** /developers and the pages under it: the portal home, the base-address table and one page per section. Public: no sign-in needed. */

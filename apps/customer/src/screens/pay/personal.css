@@ -187,6 +187,22 @@
     gap: var(--if-space-2);
   }
 
+  /* Receive: handle settings (PP-send-request-03). A text column and its control on one row, wrapping on a phone. */
+  .pay-handle-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--if-space-3);
+  }
+  .pay-handle-row__text {
+    display: flex;
+    flex: 1 1 12rem;
+    flex-direction: column;
+    gap: var(--if-space-1);
+    min-width: 0;
+  }
+
   /* Lists: requests, payments */
   .pay-list {
     display: flex;

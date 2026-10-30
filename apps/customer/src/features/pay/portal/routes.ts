@@ -18,6 +18,7 @@ export const PORTAL_ROOMS = [
   'invoice',
   'money',
   'money-activity',
+  'money-top-up',
   'reports',
   'report-exports',
   'links',
@@ -132,7 +133,14 @@ export function parsePortalRoute(path: string): PortalRoute | null {
   }
   if (a === 'invoices')
     return b === undefined ? { room: 'invoices' } : b === 'new' ? { room: 'invoice-new' } : { room: 'invoice', param: decode(b) };
-  if (a === 'money') return b === undefined ? { room: 'money' } : b === 'activity' ? { room: 'money-activity' } : null;
+  if (a === 'money')
+    return b === undefined
+      ? { room: 'money' }
+      : b === 'activity'
+        ? { room: 'money-activity' }
+        : b === 'top-up'
+          ? { room: 'money-top-up' }
+          : null;
   if (a === 'reports') return b === undefined ? { room: 'reports' } : b === 'exports' ? { room: 'report-exports' } : null;
   if (a === 'products')
     return b === undefined

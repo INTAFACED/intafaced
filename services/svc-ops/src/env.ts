@@ -34,6 +34,12 @@ export const opsEnvSchema = baseEnvSchema
       /** svc-ledger base URL for the fee revenue read. Blank → the venue report says ops.fee_revenue_unconfigured and gives no net. */
       LEDGER_URL: blankAsAbsent(z.string().url().optional()),
       NOTIFY_URL: blankAsAbsent(z.string().url().optional()),
+      /**
+       * The event bus. svc-ops publishes the reconciliation alert events from its outbox and reads
+       * `ledger.reconciliation_run.failed`. Blank: nothing is published (the outbox keeps every event) and /ready says detached.
+       */
+      NATS_URL: blankAsAbsent(z.string().trim().min(1).optional()),
+      NATS_STREAM_PREFIX: z.string().default('INTAFACED'),
       /** Dedicated ops-to-guest ingress key; match NOTIFY_OPS_SERVICE_SECRET. */
       OPS_NOTIFY_SERVICE_SECRET: blankAsAbsent(z.string().min(32).optional()),
       /** Blank → custody wrap/execute refuse ops.custody_wrap_unset. Never invent a wrap key. */
