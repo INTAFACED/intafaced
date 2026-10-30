@@ -1,6 +1,7 @@
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { test, expect } from '@playwright/test';
 import { createPublicClient, decodeEventLog, http, parseAbi } from 'viem';
+import { privateKeyToAccount } from 'viem/accounts';
 import { chainRecordPath, GATE_URL } from '../../../../tooling/scripts/local-test-chain.mjs';
 import { TOKEN_A, TOKEN_B, UNBUILT, acceptRepresentation, connectWallet, dexRun, walletSection } from './dex.mjs';
 
@@ -36,27 +37,36 @@ const poolAbi = parseAbi([
 const factoryAbi = parseAbi(['function allPoolsLength() view returns (uint256)', 'function allPools(uint256) view returns (address)']);
 const same = (a, b) => a.toLowerCase() === b.toLowerCase();
 
-/** Every factory pool trading `a` against `b`, from the chain. */
+/** Every factory pool trading `a` against `b`, from the chain; refuses by name on a stack with no TEST chain. */
 async function poolsOf(a, b) {
+  expect(existsSync(chainRecordPath()), 'this stack runs a TEST chain (LOCAL_STACK_ANVIL_BIN)').toBe(true);
   const { factory } = JSON.parse(readFileSync(chainRecordPath(), 'utf8'));
   const count = await chain.readContract({ address: factory, abi: factoryAbi, functionName: 'allPoolsLength' });
-  const found = [];
-  for (let i = 0n; i < count; i += 1n) {
-    const pool = await chain.readContract({ address: factory, abi: factoryAbi, functionName: 'allPools', args: [i] });
-    const [t0, t1] = await Promise.all(
-      ['token0', 'token1'].map((functionName) => chain.readContract({ address: pool, abi: poolAbi, functionName })),
-    );
-    if ((same(t0, a) && same(t1, b)) || (same(t0, b) && same(t1, a))) found.push(pool);
-  }
-  return found;
+  const all = await Promise.all(
+    Array.from({ length: Number(count) }, (_, i) =>
+      chain.readContract({ address: factory, abi: factoryAbi, functionName: 'allPools', args: [BigInt(i)] }),
+    ),
+  );
+  const pairs = await Promise.all(
+    all.map((pool) =>
+      Promise.all(['token0', 'token1'].map((functionName) => chain.readContract({ address: pool, abi: poolAbi, functionName }))),
+    ),
+  );
+  return all.filter((_, i) => {
+    const [t0, t1] = pairs[i];
+    return (same(t0, a) && same(t1, b)) || (same(t0, b) && same(t1, a));
+  });
 }
 
-/** The chain's own best quote for `amountIn` of `tokenIn` across `pools`: the pool contract's getAmountOut. */
-async function bestOut(pools, tokenIn, amountIn) {
-  const outs = await Promise.all(
-    pools.map((address) => chain.readContract({ address, abi: poolAbi, functionName: 'getAmountOut', args: [amountIn, tokenIn] })),
+/**
+ * The chain's own best quote for `units` of `tokenIn` across `pools`: each pool contract's getAmountOut. A pool that
+ * refuses to quote (an empty side reverts) is left out, as the form leaves out a refused quote.
+ */
+async function bestOut(pools, tokenIn, units) {
+  const outs = await Promise.allSettled(
+    pools.map((address) => chain.readContract({ address, abi: poolAbi, functionName: 'getAmountOut', args: [units, tokenIn] })),
   );
-  return outs.reduce((best, out) => (out > best ? out : best), 0n);
+  return outs.reduce((best, out) => (out.status === 'fulfilled' && out.value > best ? out.value : best), 0n);
 }
 
 /** Base units written the way the swap form writes them: grouped whole part, at most `places` decimals cut, not rounded. */
@@ -187,8 +197,8 @@ test(`${J} #5 sets slippage to 1 percent, then above the ceiling: the derived mi
   const slippage = swap(page).getByRole('textbox', { name: /^Slippage/ });
   await slippage.fill('1');
   // The derived minimum is the quote less 1%: read the chain's own best quote for 10 TEST Token A and take 99% of it.
-  const amountIn = 10n * 10n ** BigInt(TOKEN_A.decimals);
-  const out = await bestOut(await poolsOf(TOKEN_A.address, TOKEN_B.address), TOKEN_A.address, amountIn);
+  const tenA = 10n * 10n ** BigInt(TOKEN_A.decimals);
+  const out = await bestOut(await poolsOf(TOKEN_A.address, TOKEN_B.address), TOKEN_A.address, tenA);
   expect(out).toBeGreaterThan(0n);
   await expect(swap(page).getByTestId('amount-out')).toHaveText(`${shown(out, TOKEN_B.decimals)} TEST Token B`);
   await expect(swap(page).getByTestId('minimum-received')).toHaveText(
@@ -260,6 +270,9 @@ test(`${J} #8 signs the swap in the wallet: submitted, confirming, filled; the c
   });
   expect(events, 'exactly one Swap event in the transaction').toHaveLength(1);
   const [event] = events;
+  // The swap went through a factory A/B pool and paid the person's own wallet.
+  expect((await poolsOf(TOKEN_A.address, TOKEN_B.address)).some((pool) => same(pool, event.pool))).toBe(true);
+  expect(same(event.args.to, privateKeyToAccount(dex.key()).address)).toBe(true);
   const tokenAIs0 = same(await chain.readContract({ address: event.pool, abi: poolAbi, functionName: 'token0' }), TOKEN_A.address);
   const paidIn = tokenAIs0 ? event.args.amount0In : event.args.amount1In;
   const gotOut = tokenAIs0 ? event.args.amount1Out : event.args.amount0Out;
