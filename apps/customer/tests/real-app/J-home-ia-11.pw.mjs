@@ -468,3 +468,36 @@ test(`${J} #5 the deployed apex, app and join hosts are served (BLOCKED until a 
     ['join', 'served'],
   ]);
 });
+
+/** `docker compose` on the repo's compose files under the tester profile, as a person runs it: { status, out }. */
+function compose(args, env, { timeout = 120_000 } = {}) {
+  const files = COMPOSE.flatMap((name) => ['-f', name]);
+  const res = spawnSync(
+    'docker',
+    ['compose', '-p', 'intafaced-tester-journey', '--env-file', '.env.example', ...files, '--profile', 'tester', ...args],
+    { cwd: ROOT, env: { ...process.env, ...env }, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], timeout },
+  );
+  const out = `${res.stdout ?? ''}${res.stderr ?? ''}${res.error ? `\n${res.error.message}` : ''}`;
+  return { status: res.status ?? 1, out };
+}
+
+// The step's own start: a fresh compose up with the tester profile, from the documented example env as a test build, on a
+// state directory nothing has written. The real-app run seeds the `pnpm local:stack` stack instead (#1 above), so this
+// stays red by name until a fresh compose up starts and its seed service runs once and reports what it made.
+test(`${J} #1 a fresh compose up with the tester profile seeds (BLOCKED compose_seed until a fresh compose up seeds)`, () => {
+  test.setTimeout(30 * 60_000);
+  const env = { APP_ENV: 'test', LOCAL_STACK_STATE: mkdtempSync(path.join(tmpdir(), 'compose-tester-')) };
+  const config = compose(['config', '--quiet'], env);
+  expect(config.status, `BLOCKED compose_seed: a fresh compose up with the tester profile refuses to start:\n${config.out}`).toBe(0);
+  try {
+    const up = compose(['up', '--build', '--abort-on-container-exit', '--exit-code-from', 'seed', 'seed'], env, {
+      timeout: 25 * 60_000,
+    });
+    expect(up.status, `BLOCKED compose_seed: the tester profile's seed service did not seed a fresh compose stack:\n${up.out}`).toBe(0);
+    const ran = [...up.out.matchAll(/seed: (local-[a-z-]+\.mjs [a-z]+)$/gm)].map((m) => m[1]);
+    expect(ran).toEqual(composeSteps(seedService().block));
+    expect(up.out).toMatch(new RegExp(`seed: done \\(${ran.length} steps\\)$`, 'm'));
+  } finally {
+    compose(['down', '--volumes', '--remove-orphans'], env);
+  }
+});
