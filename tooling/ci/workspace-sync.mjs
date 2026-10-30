@@ -60,6 +60,34 @@ function workspacesUnder(dir) {
     .sort();
 }
 
+/**
+ * The folders pnpm-workspace.yaml takes every workspace from (`- 'tooling/*'` gives `tooling`). A pattern of any other
+ * shape is a failure here, so a new kind of entry is read on purpose rather than skipped.
+ */
+function workspaceGlobDirs() {
+  const yaml = read('pnpm-workspace.yaml') ?? '';
+  const dirs = [];
+  let inPackages = false;
+  for (const line of yaml.split('\n')) {
+    if (/^packages:\s*$/.test(line)) {
+      inPackages = true;
+      continue;
+    }
+    if (inPackages && /^\S/.test(line)) break;
+    const m = inPackages && /^\s*-\s*['"]?([^'"]+?)['"]?\s*$/.exec(line);
+    if (!m) continue;
+    const glob = /^([a-z][a-z0-9_-]*)\/\*$/.exec(m[1]);
+    if (glob) dirs.push(glob[1]);
+    else
+      failures.push({
+        file: 'pnpm-workspace.yaml',
+        reason: `workspace pattern "${m[1]}" is not "<folder>/*", which this check reads; teach it the new shape`,
+      });
+  }
+  if (!dirs.length) failures.push({ file: 'pnpm-workspace.yaml', reason: 'no "<folder>/*" workspace patterns found under packages:' });
+  return dirs;
+}
+
 const packagesInRepo = () => workspacesUnder('packages');
 const appsInRepo = () => workspacesUnder('apps');
 
@@ -177,10 +205,14 @@ const dockerfile = read('Dockerfile');
 if (dockerfile === null) {
   failures.push({ file: 'Dockerfile', reason: 'missing entirely' });
 } else {
+  // Every folder pnpm-workspace.yaml names, not a list kept here: on 2026-10-30 `tooling/pay-sim` (#6781) joined the
+  // workspace through `tooling/*` with no COPY line, this check looked only at services, packages and apps, and the
+  // image build failed with "Cannot find module 'postgres'" in pay-sim.
   const workspaces = [
     ...services.map((name) => `services/${name}`),
-    ...packagesInRepo().map((name) => `packages/${name}`),
-    ...appsInRepo().map((name) => `apps/${name}`),
+    ...workspaceGlobDirs()
+      .filter((dir) => dir !== 'services')
+      .flatMap((dir) => workspacesUnder(dir).map((name) => `${dir}/${name}`)),
   ];
 
   for (const ws of workspaces) {
