@@ -186,7 +186,14 @@ test(`${J} #3 starts two runs together whose worst cases are each more than half
     .fill('TEST question');
   // The stack's test engine answers after 0.8 s (a LOCAL TEST value), so both runs are held at once.
   const runs = tableIn(main(page), 'Runs');
-  const refusedBefore = await runs.getByRole('row').filter({ hasText: 'Refused' }).count();
+  // The baseline is read from svc-agents, not counted on the page: an instant row count can run before the Runs table
+  // has loaded and read 0 (main run 833).
+  const [agent] = (await ownRead(agents.account(), 'list', { limit: 50 })).filter((row) => row.name === OWN_AGENT);
+  const ownRuns = async (status) =>
+    (await ownRead(agents.account(), 'runs', { id: agent.id, limit: 50 })).filter((row) => row.status === status);
+  const refusedBefore = await ownRuns('refused');
+  const executedBefore = await ownRuns('executed');
+  await expect(runs.getByRole('row').filter({ hasText: 'Refused' })).toHaveCount(refusedBefore.length);
   const before = await ledgerBalances(agents.account());
   await session(page).getByRole('button', { name: 'Run twice at once' }).click();
   await expect(session(page).getByRole('region', { name: 'Reply' })).toBeVisible();
@@ -194,7 +201,12 @@ test(`${J} #3 starts two runs together whose worst cases are each more than half
   const admitted = runs.getByRole('row').filter({ hasText: 'Admitted' });
   await expect(admitted).toHaveCount(1);
   // One more refused row than before (#2 left one of its own), and it is this cap's.
-  await expect(runs.getByRole('row').filter({ hasText: 'Refused' })).toHaveCount(refusedBefore + 1);
+  await expect(runs.getByRole('row').filter({ hasText: 'Refused' })).toHaveCount(refusedBefore.length + 1);
+  // svc-agents holds exactly one new refused run, this cap's, and exactly one new executed run.
+  const refusedAfter = await ownRuns('refused');
+  expect(refusedAfter).toHaveLength(refusedBefore.length + 1);
+  expect(refusedAfter.filter((row) => row.refusalCode === 'agents.spend.cap_exceeded')).toHaveLength(1);
+  expect(await ownRuns('executed')).toHaveLength(executedBefore.length + 1);
   const refused = runs.getByRole('row').filter({ hasText: 'agents.spend.cap_exceeded' });
   await expect(refused).toHaveCount(1);
   await expect(refused).toContainText('Refused');
