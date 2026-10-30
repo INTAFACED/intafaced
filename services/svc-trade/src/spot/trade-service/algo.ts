@@ -253,27 +253,36 @@ export async function createTwap(
 
 /**
  * What a chase reads of its children: the sum of their fills (the fills are the evidence, never the order row's
- * counter) and which of them still rest in the book or may still.
+ * counter), which of them still rest in the book or may still, and which closed on a cancel the engine could not
+ * answer with fills short of their size (the engine may have matched them in full, and those fills still be on the way).
  */
 export async function chaseChildState(sql: TradeServiceInternal['sql'], orderIds: readonly string[]): Promise<ChaseChildState> {
   const ids = [...orderIds];
-  if (ids.length === 0) return { filledQty: 0n, filledByOrderId: new Map(), openOrderIds: new Set() };
-  const [fills, open] = await Promise.all([
+  if (ids.length === 0) return { filledQty: 0n, openOrderIds: new Set(), unaccountedOrderIds: new Set() };
+  const [fills, rows] = await Promise.all([
     sql<Array<{ order_id: string; qty: string }>>`
       SELECT order_id::text AS order_id, SUM(qty)::text AS qty FROM trade.fills
        WHERE order_id = ANY(${ids}::uuid[]) GROUP BY order_id
     `,
-    sql<Array<{ id: string }>>`
-      SELECT id::text AS id FROM trade.orders
-      WHERE id = ANY(${ids}::uuid[]) AND status IN ('open', 'pending', 'recovery_required', 'hold_unknown')
+    sql<Array<{ id: string; status: string; qty: string; engine_absent_at_cancel: boolean }>>`
+      SELECT id::text AS id, status, qty::text AS qty, engine_absent_at_cancel FROM trade.orders
+       WHERE id = ANY(${ids}::uuid[])
     `,
   ]);
-  // One read gives both the per-child fills and their sum, so the two never disagree.
-  const filledByOrderId = new Map(fills.map((r) => [r.order_id, parseAmount(r.qty)] as const));
+  const filledBy = new Map(fills.map((r) => [r.order_id, parseAmount(r.qty)] as const));
   let filledQty = 0n;
-  for (const qty of filledByOrderId.values()) filledQty += qty;
-  return { filledQty, filledByOrderId, openOrderIds: new Set(open.map((r) => r.id)) };
+  for (const qty of filledBy.values()) filledQty += qty;
+  const openOrderIds = new Set<string>();
+  const unaccountedOrderIds = new Set<string>();
+  for (const row of rows) {
+    if (CHASE_LIVE_STATUSES.has(row.status)) openOrderIds.add(row.id);
+    else if (row.engine_absent_at_cancel && (filledBy.get(row.id) ?? 0n) < parseAmount(row.qty)) unaccountedOrderIds.add(row.id);
+  }
+  return { filledQty, openOrderIds, unaccountedOrderIds };
 }
+
+/** Statuses a chase child may still rest or fill in. */
+const CHASE_LIVE_STATUSES: ReadonlySet<string> = new Set(['open', 'pending', 'recovery_required', 'hold_unknown']);
 
 /** Owner recovery restores only the immutable admitted proposal. Each child
  * still needs a fresh identity decision and local trading admission. */

@@ -816,8 +816,7 @@ export class TradeService {
               'trade.algo_principal_unavailable',
             );
           }
-          const { engineLeftQty } = await orderChange.cancelOrderWithEngineAnswer(this.internal, principal, orderId);
-          return { engineLeftQty };
+          await this.cancelOrder(principal, orderId);
         },
         bestOpposingPrice: async (marketId, side) => {
           const depth = await this.matching.depth(marketId, 1);

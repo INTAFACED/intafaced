@@ -581,10 +581,15 @@ describe('algo.createTwap creation gate (isolated PostgreSQL)', () => {
         )`;
       const state = await chaseChildState(db.sql, [resting, cancelled]);
       expect(state.filledQty).toBe(amt('0.004'));
-      // Per child: only the cancelled child has fills; the resting one has none, so it is absent.
-      expect(state.filledByOrderId).toEqual(new Map([[cancelled, amt('0.004')]]));
       expect([...state.openOrderIds]).toEqual([resting]);
-      expect(await chaseChildState(db.sql, [])).toEqual({ filledQty: 0n, filledByOrderId: new Map(), openOrderIds: new Set() });
+      expect([...state.unaccountedOrderIds]).toEqual([]);
+      // Closed on a cancel the engine had no live order for, with 0.004 of 0.01 filled: it may still be settling.
+      await db.sql`UPDATE trade.orders SET engine_absent_at_cancel = true WHERE id = ${cancelled}`;
+      expect([...(await chaseChildState(db.sql, [resting, cancelled])).unaccountedOrderIds]).toEqual([cancelled]);
+      // An open row is never counted as unaccounted, whatever its flag.
+      await db.sql`UPDATE trade.orders SET engine_absent_at_cancel = true WHERE id = ${resting}`;
+      expect([...(await chaseChildState(db.sql, [resting, cancelled])).unaccountedOrderIds]).toEqual([cancelled]);
+      expect(await chaseChildState(db.sql, [])).toEqual({ filledQty: 0n, openOrderIds: new Set(), unaccountedOrderIds: new Set() });
     });
   });
 });

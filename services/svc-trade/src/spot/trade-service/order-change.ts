@@ -54,22 +54,6 @@ import { replacementClientOrderId, replacementRequestHash } from './internal.js'
  * a fill is about to need.
  */
 export async function cancelOrder(svc: TradeServiceInternal, principal: Principal, orderId: string): Promise<OrderRecord> {
-  return (await cancelOrderWithEngineAnswer(svc, principal, orderId)).order;
-}
-
-/**
- * `cancelOrder`, plus what the engine still held when it took the order off the book. A fill the engine matched just
- * before the cancel is written later, by the taker's own settlement, so the order's fills can read short for a moment
- * after this returns; `qty − engineLeftQty` is what the engine matched.
- * - `engineLeftQty` is the engine's `remainingQty` on a cancel, and 0 when the engine had no such live order (it may
- *   have matched in full, or never had it).
- * - It is null when the engine was not asked: a hold-unknown order claimed here never reached it.
- */
-export async function cancelOrderWithEngineAnswer(
-  svc: TradeServiceInternal,
-  principal: Principal,
-  orderId: string,
-): Promise<{ order: OrderRecord; engineLeftQty: Amount | null }> {
   return withMoneySpan('trade.cancelOrder', { operation: 'cancel_order', userId: principal.userId, orderId }, async () => {
     requireScope(principal, 'trade:write');
 
@@ -122,7 +106,7 @@ export async function cancelOrderWithEngineAnswer(
         }
         const settled = await svc.findOrder(orderId);
         if (!settled) throw new TradeError(`order ${orderId} not found`, 'trade.order_not_found');
-        return { order: settled, engineLeftQty: null };
+        return settled;
       }
       // Hold is booked and the engine was never given this order. Claim it,
       // then release the full hold. Do not ask matching to cancel.
@@ -137,7 +121,7 @@ export async function cancelOrderWithEngineAnswer(
       await svc.finalize(orderId, 'cancelled');
       const settled = await svc.findOrder(orderId);
       if (!settled) throw new TradeError(`order ${orderId} not found`, 'trade.order_not_found');
-      return { order: settled, engineLeftQty: null };
+      return settled;
     } else if (order.status !== 'open' && order.status !== 'pending' && order.status !== 'recovery_required') {
       throw new TradeError(`order ${orderId} is ${order.status} and cannot be cancelled`, 'trade.order_not_open');
     }
@@ -173,15 +157,39 @@ export async function cancelOrderWithEngineAnswer(
       }
     }
 
+    // Keep the engine's own remainder, the first answer only: a retry after the engine already cancelled reads absent.
+    if (cancellation.cancelled && cancellation.cancellation) {
+      await svc.sql`
+        UPDATE trade.orders SET engine_left_qty = ${cancellation.cancellation.remainingQty}::numeric
+         WHERE id = ${orderId} AND engine_left_qty IS NULL
+      `;
+    }
+    // The engine matched part of this order just before the cancel, and the taker's settlement has not written that
+    // fill yet. Closing now would release the hold the fill is about to draw, and a caller that places again (a chase
+    // re-price) would count that quantity twice. The order stays as it is; the engine's cancel event closes it once
+    // the fill lands (`releaseOnCancelEvent` waits the same way). A retry reads the stored remainder, not the miss.
+    const [answer] = await svc.sql<Array<{ engine_left_qty: string | null }>>`
+      SELECT engine_left_qty::text AS engine_left_qty FROM trade.orders WHERE id = ${orderId}
+    `;
+    if (answer?.engine_left_qty != null) {
+      try {
+        await svc.refuseCancelAheadOfFill(orderId, parseAmount(answer.engine_left_qty));
+      } catch (err) {
+        if (err instanceof TradeError && err.code === 'trade.cancel_ahead_of_fill') return (await svc.findOrder(orderId)) as OrderRecord;
+        throw err;
+      }
+    } else if (!cancellation.cancelled) {
+      // No live order and no earlier answer: it may have matched in full. Said on the row, for a chase to read.
+      await svc.sql`UPDATE trade.orders SET engine_absent_at_cancel = true WHERE id = ${orderId}`;
+    }
+
     // A successful cancel or a verified engine absence is now safe to
     // reconcile. Transport ambiguity above is deliberately kept separate and
     // remains recovery-required.
     await svc.finalize(orderId, 'cancelled');
 
     const settled = await svc.findOrder(orderId);
-    // An engine cancel names what it took off the book; one with no live order (or no body) had nothing left.
-    const engineLeftQty = cancellation.cancelled && cancellation.cancellation ? parseAmount(cancellation.cancellation.remainingQty) : 0n;
-    return { order: settled as OrderRecord, engineLeftQty };
+    return settled as OrderRecord;
   });
 }
 
