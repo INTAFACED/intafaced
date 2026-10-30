@@ -16,7 +16,8 @@ import { TradeService } from './trade-service.js';
 import { attributionFromPrincipal, withLedgerAttribution } from './auth-attribution.js';
 import { TradeError, type Market, type OrderRecord, type OrderSide } from './types.js';
 import type { EdgeTrust } from '../edge-trust.js';
-import { publicLedgerMessage, SETTLEMENT_PENDING } from '../ledger-public-code.js';
+import { SETTLEMENT_PENDING } from '../ledger-public-code.js';
+import { classifyHoldPostError } from './hold-outcome.js';
 import { privateWrite } from '../route-inventory.js';
 
 /**
@@ -237,6 +238,13 @@ export interface ClosePositionRestDeps {
   closeSpotPosition: (principal: Principal, input: CloseSpotPositionInput) => Promise<OrderRecord>;
 }
 
+/** A close whose settlement the ledger refused outright; the printed close waits for recovery. */
+export const CLOSE_SETTLEMENT_REFUSED = 'trade.close_settlement_refused';
+export const CLOSE_SETTLEMENT_PENDING_MESSAGE =
+  'The close reached the engine and its settlement is not confirmed: read the order before sending it again';
+export const CLOSE_SETTLEMENT_REFUSED_MESSAGE =
+  'The close reached the engine and the ledger did not book its settlement; it is held for recovery: read the order before sending it again';
+
 function sendError(reply: FastifyReply, status: number, code: string, message: string): FastifyReply {
   return reply.code(status).send({ error: code, message });
 }
@@ -286,14 +294,15 @@ export function attachClosePosition(app: FastifyInstance, deps: ClosePositionRes
       }
       if (error instanceof LedgerError) {
         // Every ledger post on a close comes after the engine printed the flatten, and the row is kept
-        // recovery_required (closeSpotPosition): whatever the ledger said, the close exists and its settlement is not
-        // confirmed. An unknown outcome, never a refusal, and never a bare 500.
-        return sendError(
-          reply,
-          503,
-          SETTLEMENT_PENDING,
-          `${publicLedgerMessage(error)}; the close reached the engine and its settlement is not confirmed: read the order before sending it again`,
-        );
+        // recovery_required (closeSpotPosition): the close exists either way. The body is typed by what the ledger
+        // said, in fixed words: the ledger's own message (a freeze's operator reason, an account id) is never sent.
+        //   - the posting freeze, or an outcome nobody knows (a timeout, a dropped reply): its settlement is pending.
+        //   - any other named refusal, or a post that never left: the ledger did not book it; the close is held for
+        //     recovery. Its own code, never "pending", and never a bare 500.
+        if (error.code === 'ledger.frozen' || classifyHoldPostError(error) === 'unknown') {
+          return sendError(reply, 503, SETTLEMENT_PENDING, CLOSE_SETTLEMENT_PENDING_MESSAGE);
+        }
+        return sendError(reply, 500, CLOSE_SETTLEMENT_REFUSED, CLOSE_SETTLEMENT_REFUSED_MESSAGE);
       }
       throw error;
     }

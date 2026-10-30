@@ -691,8 +691,12 @@ A create-order body the schema refuses (`POST /api/v1/orders`, each batch item, 
 
 A money call during svc-ledger's platform posting freeze (`ledger.frozen` from the ledger) is answered by where the freeze stopped it:
 
-- **Before the engine** (the order's first hold refused; order-place deletes the pending row and marks the error with `refusedBeforeEngine`): HTTP 400 `{code: 'OnMaintenance', intafacedCode: 'posting_frozen'}`. A refusal; nothing exists and nothing is held. The CCXT class tells a bot to back off and retry, which is safe under the same `clientOrderId`.
-- **After the engine accepted, filled or cancelled the order** (a fill or release post, a cancel's release, every post of a spot close): HTTP 503 `{code: 'ExchangeNotAvailable', intafacedCode: 'trade.settlement_pending'}`. The order exists and its settlement is not confirmed: read the order before sending it again. An unmarked freeze is always this case, so a freeze nobody classified never reads as "nothing happened".
+- **Before the engine** (the order's first hold refused; order-place's own delete removed the pending row, and only then marks the error with `refusedBeforeEngine`; a row a concurrent request already moved stays unmarked): HTTP 400 `{code: 'OnMaintenance', intafacedCode: 'posting_frozen'}`. A refusal; nothing exists and nothing is held. The CCXT class tells a bot to back off and retry, which is safe under the same `clientOrderId`.
+- **After the engine accepted, filled or cancelled the order** (a fill or release post, a cancel's release): HTTP 503 `{code: 'ExchangeNotAvailable', intafacedCode: 'trade.settlement_pending'}`. The order exists and its settlement is not confirmed: read the order before sending it again. An unmarked freeze is always this case, so a freeze nobody classified never reads as "nothing happened".
+
+A spot close (`POST /api/v1/spot/positions/close`) posts only after the engine printed the flatten, and its row is kept `recovery_required` whatever the ledger said. The posting freeze, or an outcome nobody knows, is 503 `trade.settlement_pending`; any other refusal the ledger named is 500 `trade.close_settlement_refused` (the ledger did not book it; the close waits for recovery). Both carry fixed words, never the ledger's own message.
+
+A replace whose replacement was not submitted names a ledger error by its own published code: only order-place marks a freeze `posting_frozen`.
 
 Reads such as `GET /api/v1/account/balance` still answer. The mapping lives in one place, `src/ledger-public-code.ts`, used by the CCXT body, the replace outcome's `reasonCode` (`REPLACEMENT_NOT_SUBMITTED`) and the tRPC error cause (`BAD_REQUEST` for `posting_frozen`, `SERVICE_UNAVAILABLE` for `trade.settlement_pending`). The account freeze is svc-identity's (`account_frozen`), not this.
 

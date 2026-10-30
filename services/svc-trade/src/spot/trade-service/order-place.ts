@@ -529,10 +529,11 @@ export async function executeAdmittedOrder(svc: TradeServiceInternal, evidence: 
     if (outcome === 'refused' || outcome === 'unsent') {
       // The ledger named a refusal, or the socket never connected. The post
       // did not commit. Guarded on pending so a concurrent open is left alone.
-      await svc.sql`DELETE FROM trade.orders WHERE id = ${orderId} AND status = 'pending'`;
-      // Before the engine, with the row gone and nothing held: the one place a
-      // posting freeze is published as the refusal `posting_frozen`.
-      throw refusedBeforeEngine(err);
+      const removed = await svc.sql`DELETE FROM trade.orders WHERE id = ${orderId} AND status = 'pending' RETURNING id`;
+      // Before the engine, with this call's delete proving the row gone and nothing held: the one place a posting
+      // freeze is published as the refusal `posting_frozen`. A row a concurrent request already moved may have reached
+      // the engine, so its freeze stays unmarked (`trade.settlement_pending`).
+      throw removed.length === 1 ? refusedBeforeEngine(err) : err;
     }
     // UNKNOWN. A timeout can land after the hold is booked. Keep the row
     // and read `order.hold:<orderId>`. The row was just stamped, so an
