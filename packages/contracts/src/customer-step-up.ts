@@ -310,6 +310,19 @@ export const CUSTOMER_STEP_UP_DOORS: readonly CustomerStepUpDoor[] = [
     fixed: {},
   },
   {
+    // svc-token (MC-token-02, J-more-catalogue-10 #6): the founder who runs a two-founder governance role change proves a
+    // fresh second factor for exactly that account, role (empty for a revoke) and role revision. One confirmation
+    // approves one role move.
+    scope: 'token.step_up.governance.setRole',
+    purpose: 'governance.setRole',
+    clientFields: ['userId', 'role', 'expectedRevision'],
+    targetField: 'userId',
+    targetRequired: true,
+    emptyOk: ['role'],
+    decimalFields: [],
+    fixed: {},
+  },
+  {
     scope: 'pay.step_up.payoutDestination.set',
     purpose: 'payoutDestination.set',
     clientFields: ['merchantId', 'railId', 'kind', 'ref'],

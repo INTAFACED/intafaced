@@ -53,6 +53,23 @@ describe('customer step-up binding', () => {
     });
   });
 
+  it('binds a governance role change to its account, role and revision, and a revoke to the empty role (J-more-catalogue-10 #6)', () => {
+    const scope = 'token.step_up.governance.setRole';
+    for (const fields of [
+      { userId: 'acct-1', role: 'moderator', expectedRevision: '0' },
+      { userId: 'acct-1', role: '', expectedRevision: '1' },
+    ]) {
+      const bound = bindCustomerStepUp(ACTOR, { scope, purpose: 'governance.setRole', target: fields.userId, fields });
+      expect(bound).toMatchObject({ ok: true, scope, target: fields.userId });
+      expect(bound.ok && bound.payloadHash).toBe(customerStepUpPayloadHash(scope, { ...fields, actor: ACTOR }));
+    }
+    const fields = { userId: 'acct-1', role: 'moderator', expectedRevision: '0' };
+    expect(bindCustomerStepUp(ACTOR, { scope, purpose: 'governance.setRole', target: 'acct-2', fields }).ok).toBe(false);
+    expect(bindCustomerStepUp(ACTOR, { scope, purpose: 'governance.setRole', target: '', fields: { ...fields, userId: '' } }).ok).toBe(
+      false,
+    );
+  });
+
   it('binds a copy close-all to its follow and request (J-copy-bots-otc-03 #4)', () => {
     const fields = { followId: 'f-5a5a5a5a-0000-5000-8000-000000000001', requestId: 'req-1' };
     const scope = 'trade.step_up.copy.flatten';
