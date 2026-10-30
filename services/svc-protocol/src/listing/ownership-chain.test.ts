@@ -16,7 +16,7 @@ function chainThat(reply: () => unknown): ProtocolChain {
           if (method === 'eth_blockNumber') return '0x9';
           if (method === 'eth_getCode') return '0x60';
           if (method === 'eth_call') {
-            calls.push((params as Array<{ gas?: string; to?: string }>)[0]);
+            calls.push((params as Array<{ gas?: string; to?: string }>)[0]!);
             return reply();
           }
           throw new Error(`unexpected ${method}`);
