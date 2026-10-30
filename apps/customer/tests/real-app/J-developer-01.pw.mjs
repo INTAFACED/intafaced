@@ -58,11 +58,13 @@ async function refusedBlank(page, kind, code) {
  * back (null).
  * tooling/scripts/local-stack-services/trade.mjs leaves a value out when `LOCAL_STACK_TRADE_DEVELOPER_<name>=off`.
  */
-function tradeDeveloperValues(blank) {
+function tradeDeveloperValues(blank, { regionalHosts = false } = {}) {
   const names = ['HOSTS', 'REGIONAL_RULE', 'DATA_TERMS'].map((name) => `LOCAL_STACK_TRADE_DEVELOPER_${name}`);
   const before = names.map((name) => process.env[name]);
   for (const name of names) delete process.env[name];
   if (blank) process.env[`LOCAL_STACK_TRADE_DEVELOPER_${blank}`] = 'off';
+  // The stack's TEST regional hosts (local-stack-services/trade.mjs developerHosts), which the profile leaves out.
+  if (regionalHosts) process.env.LOCAL_STACK_TRADE_DEVELOPER_HOSTS = 'regional';
   try {
     tool('local-test-stack.mjs', 'restart', 'trade');
   } finally {
@@ -190,6 +192,8 @@ test(`${J} #2 opens the base-URL table: one row per protocol, environment and re
 test(`${J} #3 opens the connectivity options: internet and redundant endpoints with their hosts, a probe with offset and round trip, and colocation parked with the hardware notice`, async ({
   page,
 }) => {
+  // Four svc-trade restarts: hosts blank, back, regional hosts, back.
+  test.setTimeout(300_000);
   await page.goto('/developers/connectivity');
   await expect(page.getByRole('heading', { name: 'Connectivity', level: 1 })).toBeVisible();
   const options = tableIn(page, 'Connectivity options');
@@ -252,6 +256,34 @@ test(`${J} #3 opens the connectivity options: internet and redundant endpoints w
   }
   await page.reload();
   await expect(endpoint('Internet')).toHaveAttribute('data-option-state', 'available');
+
+  // "redundant endpoints with their hosts": once the owner publishes the regional hosts, the redundant endpoint is
+  // Available with each protocol's regional host, read back from svc-trade and shown exactly.
+  try {
+    tradeDeveloperValues(null, { regionalHosts: true });
+    const { hosts: withRegional } = await published(page, 'hosts');
+    const regional = ['rest', 'websocket', 'fix'].map((protocol) =>
+      withRegional.find((row) => row.protocol === protocol && row.environment === 'regional'),
+    );
+    expect(regional.map((row) => typeof row?.host)).toEqual(['string', 'string', 'string']);
+    await page.reload();
+    await expect(endpoint('Redundant endpoint')).toHaveAttribute('data-option-state', 'available');
+    await expect(endpoint('Redundant endpoint').getByRole('cell').nth(0)).toHaveText('Available');
+    await expect(endpointHosts('Redundant endpoint')).toHaveCount(3);
+    for (const [index, { protocol, host }] of regional.entries()) {
+      const item = endpointHosts('Redundant endpoint').nth(index);
+      await expect(item).toHaveAttribute('data-protocol', protocol);
+      await expect(item).toHaveAttribute('data-host-state', 'set');
+      await expect(item).toHaveText(`${PROTOCOL_NAMES[protocol]}: ${host}`);
+      await expect(item.getByRole('code')).toHaveText(host);
+    }
+    // The internet endpoint keeps its production hosts beside it.
+    await expect(endpointHosts('Internet').getByRole('code')).toHaveText(production.map((row) => row.host));
+  } finally {
+    tradeDeveloperValues(null);
+  }
+  await page.reload();
+  await redundantUnset();
 
   await page.getByRole('button', { name: 'Check my clock' }).click();
   const probe = page.getByTestId('developers-time-probe');

@@ -212,12 +212,17 @@ test('J-p2p-02 #3 a payment within tolerance lets the order go on; one outside i
   // The seller's bank shows 9.19 EUR of the 9.2 agreed.
   const within = await s.raw.mutate('trades.reportMismatch', { tradeId, kind: 'under', amountReceived: '9.19' });
   expect(within.status, 'svc-p2p has no amount-mismatch report yet (P-trade-orders-20)').toBe(200);
-  expect(within.body.result.data).toMatchObject({ classification: expect.any(String) });
+  // 9.19 of 9.2 is 11 basis points short, inside the TEST tolerance of 50: the order goes on, and the page says so.
+  expect(within.body.result.data).toMatchObject({ classification: 'within_tolerance', toleranceBps: 50 });
   expect((await s.query('trades.get', { tradeId })).status).toBe('fiat_sent');
+  await signIn(page, state.seller);
+  await page.goto(`/uc/order?tradeId=${tradeId}`);
+  const inside = page.getByTestId('order-mismatch-result');
+  await expect(inside).toContainText('You reported 9.19 EUR received of 9.2 EUR.');
+  await expect(inside).toContainText('That is within this service’s tolerance, so the order goes on.');
 
   // Another order: only 5 EUR arrived. The seller says so on the order page.
   const other = await paidOrder(state);
-  await signIn(page, state.seller);
   await page.goto(`/uc/order?tradeId=${other}`);
   const report = page.getByTestId('order-mismatch');
   await report.getByText('The amount in my bank is different').click();
@@ -228,8 +233,17 @@ test('J-p2p-02 #3 a payment within tolerance lets the order go on; one outside i
   await expect(result).toContainText('You reported 5 EUR received of 9.2 EUR.');
   await expect(result).toContainText('You do not have to release.');
   const order = await s.query('trades.get', { tradeId: other });
-  expect(order.mismatch?.classification).not.toBe('within_tolerance');
+  expect(order.mismatch?.classification).toBe('outside_tolerance');
   expect(order.status).toBe('fiat_sent');
+  // No one can force the release: the buyer, confirmed with their own passkey, is refused as not the seller, and the
+  // escrow stays held.
+  const passkey = await restorePasskey(state.buyerPasskey);
+  const buyer = p2p(await api(state.buyer), passkey);
+  const forced = await buyer.raw.mutate('trades.confirmReceived', { tradeId: other });
+  state.buyerPasskey = passkey.saved();
+  run.write({ buyerPasskey: state.buyerPasskey });
+  expect(refusalCode(forced)).toBe('p2p.not_the_seller');
+  expect((await s.query('trades.get', { tradeId: other })).status).toBe('fiat_sent');
   // The way on is a dispute, on the same page.
   await expect(page.getByRole('button', { name: 'Open dispute' })).toBeVisible();
 });
@@ -294,6 +308,10 @@ test('J-p2p-02 #5 the seller ticks the five checks, confirms with a passkey and 
   await review.getByRole('button', { name: 'Use a passkey' }).click();
   await expect(review.getByTestId('order-release-confirmed')).toContainText('You confirmed it’s you for this release.');
   await expect(confirm).toBeEnabled();
+  // The buyer's free USDT before the release: the ledger, not the order record, proves one release.
+  const buyerSession = await api(state.buyer);
+  const buyerUsdt = async () => (await buyerSession.balances()).USDT?.free ?? '0';
+  const before = await buyerUsdt();
   await confirm.dblclick();
   await expect(review).toHaveCount(0);
   await expect(order.getByTestId('p2p-order-identity')).toContainText('Completed');
@@ -303,6 +321,10 @@ test('J-p2p-02 #5 the seller ticks the five checks, confirms with a passkey and 
   expect(released).toMatchObject({ status: 'released', resolution: 'released' });
   const again = await s.mutate('trades.confirmReceived', { tradeId: state.tradeId });
   expect(again).toMatchObject({ id: state.tradeId, status: 'released', resolution: 'released', resolvedAt: released.resolvedAt });
+  // The double press and the repeat call credited the buyer exactly once: once the release has settled, their free
+  // balance is up by the net amount, no more.
+  await expect.poll(async () => (await s.query('trades.get', { tradeId: state.tradeId })).settledAt, { timeout: 30_000 }).not.toBeNull();
+  expect(await buyerUsdt()).toBe(fromUnits(toUnits(before) + toUnits(released.netAmount)));
   await context.close();
 });
 
