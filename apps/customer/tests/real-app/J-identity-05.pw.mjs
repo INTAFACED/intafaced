@@ -530,6 +530,8 @@ test.describe('recovery keys', () => {
     const someKey = { kty: 'EC', crv: 'P-256', x: randomBytes(32).toString('base64url'), y: randomBytes(32).toString('base64url') };
     const someSignature = { publicKey: someKey, signature: randomBytes(64).toString('base64url') };
     const asked = `staff-${owner.handle}`;
+    // A one-key plan: the number of keys that must sign, not a screenshot tolerance.
+    const oneKey = 1;
     const RECOVERY_ROUTERS = [
       ['bank', 'services/svc-bank/src/recovery/recovery.router.ts'],
       ['identity', 'services/svc-identity/src/recovery-keys-router.ts'],
@@ -563,7 +565,7 @@ test.describe('recovery keys', () => {
         'identity',
         'mutate',
         'recovery.plan.set',
-        { heirHandle: heir.handle, threshold: 1, clientRequestId: `${asked}-plan` },
+        { heirHandle: heir.handle, threshold: oneKey, clientRequestId: `${asked}-plan` },
         'identity.recovery_staff_forbidden',
       ],
     ];
