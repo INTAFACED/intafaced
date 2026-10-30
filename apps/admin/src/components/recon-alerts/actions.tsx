@@ -36,14 +36,31 @@ async function post(body: Record<string, unknown>): Promise<ApiAnswer> {
 }
 
 /**
- * One founder's moves on one alert: acknowledge with a note, snooze until a time, lift the snooze. The page passes the version the
+ * One founder's moves on one alert: acknowledge with a note, snooze until a time, lift the snooze, and resolve as fixed by linking
+ * the corrective ledger transactions (OPS-reconciliation-04). Resolve goes on the treasury credential; when this founder cannot
+ * send it, or the alert cannot take it, the form stays on screen, disabled, with the reason. The page passes the version the
  * founder is looking at, so the route's key names that version; a refusal shows its exact code and the page re-reads the alert, so a
  * founder who lost a race sees the winner's acknowledgement.
  */
-export function AlertActions({ alertId, version, state, snoozed }: { alertId: string; version: number; state: string; snoozed: boolean }) {
+export function AlertActions({
+  alertId,
+  version,
+  state,
+  snoozed,
+  resolveBlocked,
+}: {
+  alertId: string;
+  version: number;
+  state: string;
+  snoozed: boolean;
+  /** Why resolve cannot be sent from here (the alert's state or cause, or the treasury credential), or null. */
+  resolveBlocked: string | null;
+}) {
   const router = useRouter();
   const [note, setNote] = useState('');
   const [endsAt, setEndsAt] = useState('');
+  const [txIds, setTxIds] = useState('');
+  const [resolveNote, setResolveNote] = useState('');
   const [busy, setBusy] = useState(false);
   const [problem, setProblem] = useState<{ code: string | null; text: string; detail: string | null } | null>(null);
   const run = async (body: Record<string, unknown>) => {
@@ -102,6 +119,51 @@ export function AlertActions({ alertId, version, state, snoozed }: { alertId: st
           </button>
         )}
       </div>
+      <form
+        className="dk-stack"
+        aria-label="Resolve as fixed"
+        data-testid="alert-resolve"
+        onSubmit={(e) => {
+          e.preventDefault();
+          if (!busy && resolveBlocked === null) void run({ action: 'resolve', txIds, note: resolveNote });
+        }}
+      >
+        <h3>Resolve as fixed</h3>
+        <p className="dk-muted">
+          Link the corrective transactions already booked in the ledger. svc-ops checks each one exists before it resolves; it moves no
+          money and changes no balance. A repeat failure in this period reopens the alert.
+        </p>
+        <div className="adm-field">
+          <label htmlFor="ra-tx">Corrective transaction ids</label>
+          <input
+            id="ra-tx"
+            className="adm-input"
+            autoComplete="off"
+            value={txIds}
+            disabled={resolveBlocked !== null}
+            onChange={(e) => setTxIds(e.target.value)}
+          />
+        </div>
+        <div className="adm-field">
+          <label htmlFor="ra-resolve-note">Resolution note (optional)</label>
+          <input
+            id="ra-resolve-note"
+            className="adm-input"
+            autoComplete="off"
+            value={resolveNote}
+            disabled={resolveBlocked !== null}
+            onChange={(e) => setResolveNote(e.target.value)}
+          />
+        </div>
+        {resolveBlocked && (
+          <p className="dk-muted" data-testid="alert-resolve-why">
+            {resolveBlocked}
+          </p>
+        )}
+        <button type="submit" className="adm-btn" disabled={busy || resolveBlocked !== null} data-testid="alert-resolve-submit">
+          Resolve with these transactions
+        </button>
+      </form>
       {problem && (
         <div role="alert" data-testid="alert-refused">
           <p>{problem.text}</p>

@@ -71,6 +71,11 @@
       "value": "full",
       "note": "TEST verification level for creating a bot: full, the level the journeys verify to, so an unverified account is refused (trade.bots_verification_insufficient)."
     },
+    "TRADE_OPS_METRICS_WINDOW_SECONDS": {
+      "service": "trade",
+      "value": "86400",
+      "note": "TEST window for the operator module counts of quotes requested and settled. Blank refuses trade.ops_metrics_window_not_set."
+    },
     "TRADE_OTC_DESK_LAW": {
       "service": "trade",
       "value": "{\"published\": true, \"spreadBps\": 20, \"minStake\": \"100\", \"counterparty\": \"platform\", \"quoteTtlMs\": 60000, \"maxMidAgeSeconds\": 86400, \"settleWindowMs\": 60000, \"minNotional\": {\"USDT\": \"1000\"}, \"assets\": [\"BTC\"], \"minTier\": \"full\"}",
@@ -78,8 +83,13 @@
     },
     "TRADE_OTC_MAKER_DIRECTORY": {
       "service": "trade",
-      "value": "{\"selectCap\": 3, \"makers\": [{\"id\": \"house\", \"name\": \"House desk (TEST)\", \"route\": \"platform\"}, {\"id\": \"test-lp-1\", \"name\": \"TEST provider 1\", \"route\": \"outside\"}, {\"id\": \"test-lp-2\", \"name\": \"TEST provider 2\", \"route\": \"outside\"}, {\"id\": \"test-lp-3\", \"name\": \"TEST provider 3\", \"route\": \"outside\"}]}",
-      "note": "TEST provider list for the quote desk: the house desk (the platform prices it) and three TEST outside providers, which refuse by name until outside routing exists, with at most 3 picked per request (J-copy-bots-otc-24 #2 picks four and is refused). Not real providers."
+      "value": "{\"selectCap\": 3, \"makers\": [{\"id\": \"house\", \"name\": \"House desk (TEST)\", \"route\": \"platform\"}, {\"id\": \"test-lp-1\", \"name\": \"TEST provider 1\", \"route\": \"outside\", \"spreadBps\": 10}, {\"id\": \"test-lp-2\", \"name\": \"TEST provider 2\", \"route\": \"outside\", \"spreadBps\": 30}, {\"id\": \"test-lp-3\", \"name\": \"TEST provider 3\", \"route\": \"outside\", \"spreadBps\": 10}]}",
+      "note": "TEST provider list for the quote desk: the house desk (the platform prices it) and three TEST outside providers, each with a LOCAL TEST spread (10, 30 and 10 bps; refused unless APP_ENV is dev or test) so one request collects one TEST-labelled quote per provider, settled against the house inventory with no outside routing, with at most 3 picked per request (J-copy-bots-otc-24 #2 picks four and is refused; #5 ranks the quotes). Not real providers and not real spreads."
+    },
+    "TRADE_OTC_CONVERT_BOUNDS": {
+      "service": "trade",
+      "value": "{\"convert\": {\"minQty\": \"0.1\", \"maxQty\": \"5\"}}",
+      "note": "TEST size range for a conversion at the desk price: 0.1 to 5 BTC, so J-copy-bots-otc-24 #9 converts 0.2 inside it, and blank it refuses trade.convert_bounds_not_set. One-click buy is left out, so it reads not set."
     },
     "TRADE_OTC_MIDS": {
       "service": "trade",

@@ -153,11 +153,18 @@ export async function json(res) {
 
 /** The customer's own API through Edge, signed in as `who` with a session of its own (not the browser's). */
 export async function api(who) {
-  const login = await fetch(`${EDGE}/api/identity/trpc/auth.login`, {
-    method: 'POST',
-    headers: { origin: ORIGIN, 'content-type': 'application/json' },
-    body: JSON.stringify({ deviceKey: DEVICE_KEY, identifier: who.email, password: who.password }),
-  }).then(json);
+  const signIn = () =>
+    fetch(`${EDGE}/api/identity/trpc/auth.login`, {
+      method: 'POST',
+      headers: { origin: ORIGIN, 'content-type': 'application/json' },
+      body: JSON.stringify({ deviceKey: DEVICE_KEY, identifier: who.email, password: who.password }),
+    }).then(json);
+  // A sign-in on a kept-alive socket Edge closed while the test waited fails before any answer; it is sent once more on
+  // a fresh socket (it moves nothing, and a second session is harmless).
+  const login = await signIn().catch((error) => {
+    if (error?.cause?.code !== 'UND_ERR_SOCKET') throw error;
+    return signIn();
+  });
   const token = login.body?.result?.data?.accessToken;
   if (!token) throw new Error(`sign-in for ${who.email} refused: ${login.status} ${JSON.stringify(login.body).slice(0, 300)}`);
   const send = (method, route, body) =>
@@ -201,6 +208,44 @@ export async function staffFreeze(who, reason = 'LOCAL TEST journey freeze') {
   }).then(json);
   const userId = login.body?.result?.data?.userId;
   if (!userId) throw new Error(`sign-in for ${who.email} refused: ${login.status} ${JSON.stringify(login.body).slice(0, 300)}`);
+  frozenAt.set(userId, await staffControl(userId, reason));
+  return userId;
+}
+
+/** The account version each `staffFreeze` left, by user id: a restore's approval binds the version the founder read. */
+const frozenAt = new Map();
+
+/**
+ * Lifts a `staffFreeze` by the user id it returned (a frozen account cannot sign in), the way identity requires: founder
+ * a proposes an `identity.account_unfreeze` over the account and reason at its frozen version, founder b approves it,
+ * and founder a's restore spends it (services/svc-identity/src/controls/founder-controls.ts).
+ */
+export async function staffRestore(userId, reason = 'LOCAL TEST journey freeze lifted') {
+  const expectedVersion = frozenAt.get(userId);
+  if (!expectedVersion) throw new Error(`no staffFreeze of ${userId} in this run to lift`);
+  const gates = await import('../../../../tooling/scripts/local-test-gates.mjs');
+  const ctx = await gates.makeContext({ log: () => {} });
+  const founders = await gates.approverSessions(ctx);
+  const { approvalId } = await gates.twoPerson(ctx, founders, {
+    actionType: 'identity.account_unfreeze',
+    targetService: 'svc-identity',
+    targetId: userId,
+    expectedVersion,
+    payloadHash: gates.identityPayloadHash(userId, { reason }),
+    policyVersion: 'local-test:v1',
+  });
+  const res = await ctx.edge.mutate(
+    'identity',
+    'compliance.unfreezeIdentity',
+    { requestId: randomUUID(), target: { area: 'identity', userId }, action: 'restore', reason, expectedVersion, approvalId },
+    founders.a.token,
+  );
+  if (res.json?.result?.data?.outcome !== 'changed') throw new Error(`staff restore refused: ${res.status} ${res.text.slice(0, 300)}`);
+  frozenAt.delete(userId);
+}
+
+/** Restricts the account through identity's compliance control; returns the version the freeze left. */
+async function staffControl(userId, reason) {
   const gates = await import('../../../../tooling/scripts/local-test-gates.mjs');
   const ctx = await gates.makeContext({ log: () => {} });
   const founders = await gates.approverSessions(ctx);
@@ -216,7 +261,7 @@ export async function staffFreeze(who, reason = 'LOCAL TEST journey freeze') {
   const current = res.json?.result?.data?.outcome === 'conflict' ? res.json.result.data.current?.version : undefined;
   if (current) res = await freeze(current);
   if (res.json?.result?.data?.outcome !== 'changed') throw new Error(`staff freeze refused: ${res.status} ${res.text.slice(0, 300)}`);
-  return userId;
+  return res.json.result.data.after.version;
 }
 
 /** The other TEST trader of the journey: the stack's taker account, through the same front door. */

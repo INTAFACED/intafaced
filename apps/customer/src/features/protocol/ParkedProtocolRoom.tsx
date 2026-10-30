@@ -25,6 +25,7 @@ import {
 import { protocolCopy as copy } from './copy';
 import { ContractsPanel, type ChainRef, NetworkPanel, SupportedNetworksPanel } from './NetworkPanels';
 import { ChainHome } from './explorer/ChainHome';
+import { BlocksList } from './explorer/pages';
 import { TokensNav } from './tokens/TokensRoom';
 import './explorer/explorer.css';
 import './protocol.css';
@@ -455,36 +456,32 @@ export function ParkedProtocolRoom({ slug, subPath }: { slug: Slug; subPath?: st
     );
   else if (slug === 'chain' && tab === 'blocks')
     body = (
-      <Panel title={t('tab_blocks')}>
-        <p className="muted">{t('blocksNote')}</p>
-        <DataTable label={t('tab_blocks')} headers={[t('hdr_block'), t('hdr_time'), t('hdr_status')]}>
-          <tr>
-            <td colSpan={3}>
-              <EmptyState title={t('blocksEmpty')} />
-            </td>
-          </tr>
-        </DataTable>
-        <Answer value={indexer} source={t('src_indexer')} service={t('svc_indexer')} t={t}>
-          {(i) => (
-            <>
-              <Rows
-                t={t}
-                rows={[
-                  [t('chainSource'), i.chainSource],
-                  [t('indexedHeight'), orNone(t, i.indexedHeight)],
-                  [t('finalizedHeight'), orNone(t, i.finalizedHeight)],
-                  [t('finalityDepth'), i.finalityDepth],
-                  [t('behindBy'), orNone(t, i.behindBy)],
-                  [t('ingest'), flag(t, i.ingestEnabled)],
-                  [t('halted'), i.halted ? t('haltedAt', { reason: i.halted.reason, at: i.halted.at }) : t('notHalted')],
-                  [t('lastError'), i.lastError ? `${i.lastError.code ?? ''} ${i.lastError.message}`.trim() : t('noLastError')],
-                ]}
-              />
-              {i.finalizedHeight === null && <p className="muted">{t('notFinal')}</p>}
-            </>
-          )}
-        </Answer>
-      </Panel>
+      <>
+        <BlocksList chain={chainRef} />
+        <Panel title={t('tab_blocks')}>
+          <p className="muted">{t('blocksNote')}</p>
+          <Answer value={indexer} source={t('src_indexer')} service={t('svc_indexer')} t={t}>
+            {(i) => (
+              <>
+                <Rows
+                  t={t}
+                  rows={[
+                    [t('chainSource'), i.chainSource],
+                    [t('indexedHeight'), orNone(t, i.indexedHeight)],
+                    [t('finalizedHeight'), orNone(t, i.finalizedHeight)],
+                    [t('finalityDepth'), i.finalityDepth],
+                    [t('behindBy'), orNone(t, i.behindBy)],
+                    [t('ingest'), flag(t, i.ingestEnabled)],
+                    [t('halted'), i.halted ? t('haltedAt', { reason: i.halted.reason, at: i.halted.at }) : t('notHalted')],
+                    [t('lastError'), i.lastError ? `${i.lastError.code ?? ''} ${i.lastError.message}`.trim() : t('noLastError')],
+                  ]}
+                />
+                {i.finalizedHeight === null && <p className="muted">{t('notFinal')}</p>}
+              </>
+            )}
+          </Answer>
+        </Panel>
+      </>
     );
   else if (slug === 'chain' && tab === 'validators')
     body = (

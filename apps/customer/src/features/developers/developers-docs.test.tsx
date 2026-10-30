@@ -39,8 +39,8 @@ describe('developer portal home', () => {
     expect(home).toContain('aria-label="Search the developer docs"');
   });
   it('a section without a page names the slice it waits for', () => {
-    expect(text(html('/developers/errors'))).toContain('It waits for DV-errors-01');
     expect(text(html('/developers/websocket'))).toContain('It waits for DV-websocket-01');
+    expect(text(html('/developers/rate-limits'))).toContain('It waits for DV-limits-01');
   });
   it('search finds pages by title or route, and finds nothing for an unknown topic', () => {
     const title = (id: string) => developersCopy.forLocale('en').t(`section_${id.replace(/-/g, '_')}` as 'section_rest');
@@ -121,10 +121,10 @@ describe('developer docs pages', () => {
     expect(page).toContain('Market data products and their terms');
     expect(page).not.toContain('data-terms-state=');
   });
-  it('the auth error catalogue address says what it waits for and links the permission table', () => {
+  it('the auth error catalogue address publishes the catalogue and links the permission table', () => {
     const page = html('/developers/errors/auth');
     expect(page).toContain('Authentication and permission errors');
-    expect(page).toContain('DV-errors-02');
+    expect(page).not.toContain('DV-errors-02');
     expect(page).toContain('href="/developers/permissions"');
   });
 });

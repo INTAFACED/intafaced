@@ -3,6 +3,7 @@ import type { Principal } from '@intafaced/auth';
 import { createEdgeContext, encodePrincipal, signPrincipalHeader } from '@intafaced/contracts';
 import { createAgentsRouter } from '../router.js';
 import type { AgentsRouterDeps } from '../router.js';
+import { NO_TIER_LAWS, type TierLaws } from '../tier-laws.js';
 import { SUPPORT_DATA_TOOLS } from './data-tools.js';
 import { createFixtureSupportDesk } from './desk-port.js';
 
@@ -17,7 +18,7 @@ function principal(overrides: Partial<Principal> = {}): Principal {
     userId: USER,
     sid: '22222222-2222-4222-8222-222222222222',
     scopes: ['agents:read'],
-    tier: 'none',
+    tier: 'basic',
     mfa: false,
     expiresAt: new Date(Date.now() + 60_000),
     ...overrides,
@@ -57,27 +58,58 @@ function stubDeps(
     gateway: { routingTable: { routes: [] } } as unknown as AgentsRouterDeps['gateway'],
     meter: {} as AgentsRouterDeps['meter'],
     feeAssetId: 'IFC',
+    tierLaws: { ...NO_TIER_LAWS, support: law },
     supportDesk: desk,
   };
 }
 
-const law = { published: true as const, matrix: { free: [...SUPPORT_DATA_TOOLS] } };
+const law = { published: true as const, matrix: { basic: [...SUPPORT_DATA_TOOLS] } };
+
+/** The stored, published law the door reads instead of the body (AG-sessions-01). */
+const withLaw = (deps: AgentsRouterDeps, stored: TierLaws['support']): AgentsRouterDeps => ({
+  ...deps,
+  tierLaws: { ...NO_TIER_LAWS, support: stored },
+});
 
 const caller = (deps: AgentsRouterDeps = stubDeps()) => createAgentsRouter(deps).createCaller(signed());
 
 describe('support Stage-2 routes', () => {
   it('tierGate refuses closed when law is blank', async () => {
-    expect(await caller().support.tierGate({ userTier: 'free', law: null })).toEqual({
+    expect(await caller(withLaw(stubDeps(), null)).support.tierGate({})).toEqual({
       status: 'refuse',
       reason: 'tier_law_blank',
       userMessageKey: 'agents.support.tier_closed',
     });
   });
 
+  it("AG-sessions-01: the tier is the signed principal's and the law is stored, never the body", async () => {
+    const none = createAgentsRouter(stubDeps()).createCaller(signed(principal({ tier: 'none' })));
+    expect(await none.support.tierGate({})).toEqual({
+      status: 'refuse',
+      reason: 'tier_not_granted',
+      userMessageKey: 'agents.support.tier_closed',
+    });
+    await expect(none.support.tierGate({ userTier: 'basic' } as never)).rejects.toMatchObject({ code: 'BAD_REQUEST' });
+    await expect(none.support.tierGate({ law } as never)).rejects.toMatchObject({ code: 'BAD_REQUEST' });
+    await expect(
+      none.support.invokeDataTool({
+        tool: 'support.kb.search',
+        plane: 'live',
+        articles,
+        limit: 20,
+        occurredAt: AT,
+        userTier: 'basic',
+      } as never),
+    ).rejects.toMatchObject({ code: 'BAD_REQUEST' });
+    await expect(none.support.answerOrEscalate({ tool: 'support.kb.search', plane: 'live', articles, law } as never)).rejects.toMatchObject(
+      { code: 'BAD_REQUEST' },
+    );
+  });
+
   it('tierGate grants exactly the published matrix row', async () => {
-    expect(await caller().support.tierGate({ userTier: 'free', law })).toEqual({
+    expect(await caller().support.tierGate({})).toEqual({
       status: 'ok',
-      userTier: 'free',
+      userTier: 'basic',
       allowedTools: [...SUPPORT_DATA_TOOLS],
     });
   });
@@ -86,8 +118,6 @@ describe('support Stage-2 routes', () => {
     const result = await caller().support.invokeDataTool({
       tool: 'support.kb.search',
       plane: 'live',
-      userTier: 'free',
-      law,
       articles,
       limit: 20,
       occurredAt: AT,
@@ -108,8 +138,6 @@ describe('support Stage-2 routes', () => {
     const result = await caller().support.invokeDataTool({
       tool: 'support.ticket.read',
       plane: 'live',
-      userTier: 'free',
-      law,
       ticket: { ticketId: 'tkt-9', ownerUserId: OTHER, status: 'open', category: 'withdrawals' },
       occurredAt: AT,
     });
@@ -129,8 +157,6 @@ describe('support Stage-2 routes', () => {
     const result = await caller(stubDeps(desk)).support.invokeDataTool({
       tool: 'identity.account.read',
       plane: 'live',
-      userTier: 'free',
-      law,
       account: { userId: OTHER, status: 'frozen', kycTier: 'tier-2' },
       occurredAt: AT,
     });
@@ -141,8 +167,6 @@ describe('support Stage-2 routes', () => {
     const result = await caller().support.invokeDataTool({
       tool: 'identity.account.read',
       plane: 'live',
-      userTier: 'free',
-      law,
       account: { userId: USER, status: 'frozen', kycTier: 'tier-2' },
       occurredAt: AT,
     });
@@ -157,8 +181,6 @@ describe('support Stage-2 routes', () => {
     const result = await caller().support.invokeDataTool({
       tool: 'ledger.post',
       plane: 'live',
-      userTier: 'free',
-      law,
       occurredAt: AT,
     });
     expect(result.result).toMatchObject({ status: 'refuse', tool: 'ledger.post', reason: 'money_tool' });
@@ -171,8 +193,6 @@ describe('support Stage-2 routes', () => {
         tool: 'support.kb.search',
         plane: 'live',
         kbPlane: 'live',
-        userTier: 'free',
-        law,
         articles,
         limit: 20,
       }),
@@ -184,8 +204,6 @@ describe('support Stage-2 routes', () => {
       tool: 'support.kb.search' as const,
       plane: 'live' as const,
       kbPlane: 'live' as const,
-      userTier: 'free',
-      law,
       limit: 20,
     };
     expect(
@@ -205,8 +223,6 @@ describe('support Stage-2 routes', () => {
     const result = await caller().support.answerOrEscalate({
       tool: 'support.kb.search',
       plane: 'live',
-      userTier: 'free',
-      law,
       articles,
     });
     expect(result.status).not.toBe('answer');

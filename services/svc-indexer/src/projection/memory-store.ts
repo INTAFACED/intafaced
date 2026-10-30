@@ -297,14 +297,8 @@ export class MemoryProjectionStore implements ProjectionStore {
     this.#positions = keepNewest(this.#positions, (p) => `${p.market}|${p.account.toLowerCase()}`);
     removed += positionsBefore - this.#positions.length;
 
-    // Orphan records below the horizon have outlived their forensic value —
-    // they describe a branch nothing can reorg back to.
-    for (const [hash, block] of this.#blocks) {
-      if (block.status === 'orphaned' && block.height <= throughHeight) {
-        this.#blocks.delete(hash);
-        removed++;
-      }
-    }
+    // Orphaned block records are kept: unwind already removed what they wrote,
+    // and the explorer lists a reorged block with its badge for good.
 
     return removed;
   }
