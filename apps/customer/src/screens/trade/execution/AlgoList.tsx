@@ -118,7 +118,21 @@ export function AlgoList({
     );
 
   const columns: TableColumn<ParentRead>[] = [
-    { id: 'market', header: t('Market'), width: 130, pin: 'start', value: (r) => (r.ok ? r.parent.symbol : r.id) },
+    {
+      id: 'market',
+      header: t('Market'),
+      width: 130,
+      pin: 'start',
+      value: (r) => (r.ok ? r.parent.symbol : r.id),
+      // Every row names its schedule for assistive technology, whatever its status: a finished row has no action buttons
+      // to carry the id.
+      cell: (r) => (
+        <>
+          {r.ok ? r.parent.symbol : r.id}
+          {r.ok ? <span className="sr-only">{t('Schedule {id}', { id: r.id })}</span> : null}
+        </>
+      ),
+    },
     { id: 'side', header: t('Side'), width: 56, value: (r) => (r.ok ? (r.parent.side === 'buy' ? t('Buy') : t('Sell')) : null) },
     {
       id: 'kind',

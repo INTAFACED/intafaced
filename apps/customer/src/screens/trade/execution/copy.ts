@@ -134,6 +134,7 @@ const messages = {
   'Schedule list unread':
     'The service did not answer for your list of schedules, so this shows only the ones made here and any id you open.',
   Schedules: 'Schedules',
+  'Schedule {id}': 'Schedule {id}',
   'Schedules re-read every 10 s': 'Each schedule is read from the service again every 10 seconds.',
   Total_: 'Total',
   Progress: 'Progress',
