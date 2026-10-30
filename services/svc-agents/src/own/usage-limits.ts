@@ -120,7 +120,12 @@ export async function noteUsageAlert(tx: Sql, input: { userId: string; reservati
   const row = rows[0];
   if (!row || !row.agent_id.startsWith(OWN_PREFIX)) return;
   // The month the run was held in, which is the month its spend counts in, even when it commits after midnight.
-  await recordUsageAlert(tx, { userId: input.userId, agentId: row.agent_id.slice(OWN_PREFIX.length), assetId: row.asset_id, at: row.created_at });
+  await recordUsageAlert(tx, {
+    userId: input.userId,
+    agentId: row.agent_id.slice(OWN_PREFIX.length),
+    assetId: row.asset_id,
+    at: row.created_at,
+  });
 }
 
 /**
