@@ -414,7 +414,17 @@ export class Exchange {
       const original = { ...old, status: 'canceled' };
       this.closed.unshift(original);
       this.releaseHold(old);
-      if (this.opts.replaceError) return json({ code: 'ExchangeError', message: 'ledger.frozen', intafacedCode: 'LedgerError' }, 400);
+      // What svc-trade answers when the posting freeze stops the original's release after the engine cancelled it.
+      if (this.opts.replaceError)
+        return json(
+          {
+            code: 'ExchangeNotAvailable',
+            message:
+              'ledger.frozen; the ledger refused a later posting, so its settlement is not confirmed: read the order or trade before sending it again',
+            intafacedCode: 'trade.settlement_pending',
+          },
+          503,
+        );
       const replacement = this.commit(body);
       return json({
         accepted: true,

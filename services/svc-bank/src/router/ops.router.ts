@@ -29,6 +29,7 @@ import { businessApprovalsProcedure } from '../ops/business-approvals.js';
 import { ADJUST_LOAN_INTEREST_ACTION, correctionApprovalFields } from '../loans/loan-adjustments.js';
 import { amountString, actionApprovalFields, signedAmountString } from './shared.js';
 import { guard } from './errors.js';
+import { accrualBoundary, accrualDate } from '../earn/interest.js';
 import type { BankRouterContext } from './context.js';
 
 export function createOpsRouter(c: BankRouterContext) {
@@ -239,6 +240,11 @@ export function createOpsRouter(c: BankRouterContext) {
             throw new BankError('interest accrual is disabled', 'bank.interest_accrual_disabled');
           }
           const at = input.at ? new Date(input.at) : new Date();
+          // A day is paid only once it has begun: paying tomorrow today would
+          // credit interest nobody has earned yet and consume that day early.
+          if (accrualBoundary(at) > new Date()) {
+            throw new BankError(`the accrual day ${accrualDate(at)} has not begun`, 'bank.accrual_day_not_begun');
+          }
           // Single-pool path stays loud: operator targeted that pool, so throw.
           if (input.poolId) {
             const r = await bank.earn.accrue({ poolId: input.poolId, at });

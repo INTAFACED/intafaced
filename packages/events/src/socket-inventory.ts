@@ -104,6 +104,7 @@ export const EVENT_BUS_MATRIX = {
   coreOpsRestoreFailed: { kind: 'socket', socketClass: 'A' },
   payCustodyAuditCreated: { kind: 'socket', socketClass: 'A' },
   payDepositCreditPosted: { kind: 'live' },
+  payWithdrawalStatusUpdated: { kind: 'socket', socketClass: 'A' },
   stakeCreated: { kind: 'live' },
   buybackExecuted: { kind: 'socket', socketClass: 'A' },
   bankMarginCalled: { kind: 'live' },
