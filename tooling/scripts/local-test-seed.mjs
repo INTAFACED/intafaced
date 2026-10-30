@@ -9,7 +9,7 @@
  *   LOCAL_TEST=1 node tooling/scripts/local-test-seed.mjs age-loan <loanId> <days> [--state <dir>]
  *   LOCAL_TEST=1 node tooling/scripts/local-test-seed.mjs fund-earn-pool <poolId> <amount> <ref> [--state <dir>]
  *
- * Default state dir: ~/.intafaced/local-test-stack
+ * Default state dir: LOCAL_STACK_STATE, else ~/.intafaced/local-test-stack (local-test-state.mjs)
  * Nitro's preview stack: ~/.intafaced/s3-trade-20261015
  *
  * Refuses (exit 2, no file write, no database) unless LOCAL_TEST=1, NODE_ENV is
@@ -32,6 +32,7 @@ import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { execFileSync } from 'node:child_process';
 import { HOME_NOTICE_DAYS, applyHome, homeStatus } from './local-test-home.mjs';
+import { localStackState } from './local-test-state.mjs';
 
 const SCRIPT = fileURLToPath(import.meta.url);
 const REPO = path.resolve(path.dirname(SCRIPT), '..', '..');
@@ -134,8 +135,9 @@ export class GuardError extends Error {
   }
 }
 
-export function defaultStateDir() {
-  return path.join(os.homedir(), '.intafaced', 'local-test-stack');
+/** The stack's own state rule (LOCAL_STACK_STATE, else per user), as the gates read it, so the compose seed finds its folder. */
+export function defaultStateDir(env = process.env) {
+  return localStackState(os.homedir(), env);
 }
 
 export function earnPoolName(row) {

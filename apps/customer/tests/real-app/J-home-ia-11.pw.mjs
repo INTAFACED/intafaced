@@ -110,6 +110,7 @@ test.beforeAll(() => {
 });
 
 test(`${J} #1 the tester profile starts healthy services, and its seed service runs once and reports what it made`, async () => {
+  test.setTimeout(8 * 60_000);
   // Every service the stack started answers, and Edge routes to them.
   const ready = await fetch(`${EDGE}/ready`).then((res) => res.json());
   expect(ready.ready).toBe(true);
@@ -154,6 +155,24 @@ test(`${J} #1 the tester profile starts healthy services, and its seed service r
   expect(report.out).toContain(`  deposit  ${HOME_DEPOSIT_AMOUNT} ${HOME_ASSET} credited  ${founder}`);
   expect(report.out).toContain(`  notice  ${HOME_NOTICE_TITLE}  published`);
   expect(report.out).toContain(`  inbox  1 deposit-credited row  ${founder}`);
+
+  // A second run of the same entrypoint makes nothing new: the deposit is keyed on its business key and the notice is
+  // still open, so `home` skips it, and status still reads exactly one deposit (it refuses on a second record) and one
+  // inbox row.
+  const again = run(
+    SEED_ENTRY,
+    [...contentSteps, '--notice-minutes', NOTICE_MINUTES],
+    { APP_ENV: 'test', NODE_ENV: 'development', LOCAL_STACK_STATE: STATE },
+    { timeout: 7 * 60_000 },
+  );
+  expect(again.status, again.out).toBe(0);
+  expect(again.out).toContain(`home notice: ${HOME_NOTICE_TITLE} skipped`);
+  expect(again.out).toContain(`home inbox: 1 deposit-credited row for ${founder}`);
+  const after = seedStatus();
+  expect(after.status, after.out).toBe(0);
+  expect(after.out.match(/^ {2}deposit {2}/gm)).toHaveLength(1);
+  expect(after.out).toContain(`  deposit  ${HOME_DEPOSIT_AMOUNT} ${HOME_ASSET} credited  ${founder}`);
+  expect(after.out).toContain(`  inbox  1 deposit-credited row  ${founder}`);
 });
 
 test(`${J} #2 the documented sign-in steps get the founder in with founder scopes, and the founder console opens`, async ({ page }) => {
@@ -337,12 +356,14 @@ test(`${J} #5 the apex, app and join hosts are checked: a receipt of three serve
     expect(existsSync(local)).toBe(false);
   }
 
-  // On the stack's own sites: one host dark and two served names only the dark one; an apex serving the join site's
-  // build is the wrong build, not served.
+  // On the stack's own sites: one host dark and two served names only the dark one; a host serving another site's build
+  // is that host's wrong build, not served.
   const oneOff = [
     [{ INTAFACED_APEX_HOST: 'http://127.0.0.1:9' }, ['host.not_served', 'served', 'served']],
     [{ INTAFACED_APP_HOST: 'http://127.0.0.1:9' }, ['served', 'host.not_served', 'served']],
     [{ INTAFACED_APEX_HOST: INVITATION }, ['host.apex_wrong_build', 'served', 'served']],
+    [{ INTAFACED_APP_HOST: INVITATION }, ['served', 'host.app_wrong_build', 'served']],
+    [{ INTAFACED_JOIN_HOST: CUSTOMER }, ['served', 'served', 'host.join_wrong_build']],
   ];
   for (const [change, results] of oneOff) {
     const hosts = { INTAFACED_APEX_HOST: APEX, INTAFACED_APP_HOST: CUSTOMER, INTAFACED_JOIN_HOST: INVITATION, ...change };
@@ -409,5 +430,9 @@ test(`${J} #5 the apex, app and join hosts are checked: a receipt of three serve
     const row = page.getByTestId(`host-dispatch-${role}`);
     await expect(row).toHaveAttribute('data-result', 'served');
     await expect(row).toContainText(host);
+    // The row names its loopback TEST host and no other host.
+    const hosts = (await row.innerText()).match(/[a-z][a-z0-9+.-]*:\/\/[^\s/]+/gi) ?? [];
+    expect(hosts.length, `${role} row names its host`).toBeGreaterThan(0);
+    for (const named of hosts) expect(new URL(named).hostname, `${role} row names ${named}`).toBe('127.0.0.1');
   }
 });
