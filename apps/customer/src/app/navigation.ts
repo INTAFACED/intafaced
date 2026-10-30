@@ -82,6 +82,12 @@ export const rooms: readonly Room[] = [
     area: 'public',
   },
   {
+    path: '/developers/errors/auth',
+    title: 'Authentication and permission errors',
+    description: 'Codes a refused key or token carries',
+    area: 'public',
+  },
+  {
     path: '/developers/:section',
     title: 'Developer section',
     description: 'One section of the developer portal',
@@ -341,7 +347,10 @@ export const rooms: readonly Room[] = [
   },
   { path: '/trade/copy', title: 'Copy', description: 'Follow a trading strategy', door: 'Trade', area: 'trade' },
   { path: '/trade/copy/:ref', title: 'Copy', description: 'Follow a trading strategy', door: 'Trade', area: 'trade', hidden: true },
+  { path: '/copy/lead/apply', title: 'Apply to lead', description: 'Become a leader others can copy', door: 'Trade', area: 'trade' },
   { path: '/trade/bots', title: 'Trading bots', description: 'Automated strategies', door: 'Trade', area: 'trade' },
+  { path: '/trade/bots/:kind', title: 'Trading bots', description: 'Automated strategies', door: 'Trade', area: 'trade', hidden: true },
+  { path: '/bots', title: 'Trading bots', description: 'Automated strategies', area: 'trade', alias: '/trade/bots' },
   {
     path: '/trade/risk',
     title: 'Risk control',
@@ -909,6 +918,8 @@ export const rooms: readonly Room[] = [
     area: 'more',
     hidden: true,
   },
+  { path: '/agents/new', title: 'New agent', description: 'Build an agent of your own', door: 'More', area: 'more', hidden: true },
+  { path: '/agents/:agentId', title: 'Your agent', description: 'An agent of your own', door: 'More', area: 'more', hidden: true },
   { path: '/launch/new', title: 'New launch', description: 'Issue and list an asset', door: 'More', area: 'more', hidden: true },
   { path: '/launch/check', title: 'Launch check', description: 'Issue and list an asset', door: 'More', area: 'more', hidden: true },
   {
@@ -922,6 +933,7 @@ export const rooms: readonly Room[] = [
   { path: '/launch/:projectId', title: 'Launch project', description: 'Issue and list an asset', door: 'More', area: 'more', hidden: true },
   { path: '/token/governance', title: 'Token governance', description: 'Access and staking', door: 'More', area: 'more', hidden: true },
   { path: '/token/economy', title: 'Token economy', description: 'Access and staking', door: 'More', area: 'more', hidden: true },
+  { path: '/token/burn', title: 'Token burn', description: 'Access and staking', door: 'More', area: 'more', hidden: true },
   {
     path: '/token/governance/:proposalId',
     title: 'Governance proposal',
@@ -1025,6 +1037,14 @@ export const rooms: readonly Room[] = [
     title: 'Create an API key',
     description: 'A new key with only the permissions it needs',
     area: 'person',
+    screen: 'account',
+  },
+  {
+    path: '/uc/safe/api-keys/:keyId',
+    title: 'API key',
+    description: 'One key: its end date, idle expiry and IP policy',
+    area: 'person',
+    hidden: true,
     screen: 'account',
   },
   { path: '/verification', title: 'Verification', description: 'Verification status and documents', area: 'person', screen: 'account' },

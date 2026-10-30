@@ -299,7 +299,7 @@ export class AccountClosureService {
       }
       await tx`UPDATE users SET status = 'closed' WHERE id = ${row.user_id} AND status = 'active'`;
       await tx`UPDATE sessions SET revoked = true WHERE user_id = ${row.user_id} AND revoked = false`;
-      await tx`UPDATE api_keys SET revoked = true WHERE user_id = ${row.user_id} AND revoked = false`;
+      await tx`UPDATE api_keys SET revoked = true, revoked_at = now(), revoked_cause = 'account_closed' WHERE user_id = ${row.user_id} AND revoked = false`;
       await tx`
         UPDATE account_closures
         SET status = 'closed', blockers = ${tx.json([])}, finalized_at = ${now}

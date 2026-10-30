@@ -46,6 +46,12 @@ import { OpsService } from './ops-service.js';
 import { OPS_IDENTITY_UNWIRED, OPS_SUPPORT_UNWIRED, OpsError } from './codes.js';
 import { opsReadyUrlHonesty } from './ready-honesty.js';
 import { homeConfigFromEnv } from './home-config.js';
+import { createEvaluationFeedClient } from './reconciliation-alerts/feed-client.js';
+import { ingestReconciliationEvaluations } from './reconciliation-alerts/ingest.js';
+import { ReconciliationAlertStore } from './reconciliation-alerts/store.js';
+import { createCorrectiveTxClient } from './reconciliation-alerts/transactions-client.js';
+import { relayAlertEvents, subscribeRunFailed } from './reconciliation-alerts/events.js';
+import { JetStreamEventBus } from '@intafaced/events';
 
 if (process.env.OPS_OUTREACH_RESTORE_QUARANTINED === '1') throw new Error('ops.crm.restore_quarantined');
 
@@ -110,6 +116,11 @@ try {
 // Per-service keys (S2S v3): with no S2S_AUTH_MODE every call stays on its shared secret.
 const s2s = s2sFromEnv(env, 'svc-ops');
 const s2sKey = s2s.signer && s2s.s2sMode ? { signer: s2s.signer, mode: s2s.s2sMode } : undefined;
+const evaluationFeed = createEvaluationFeedClient({
+  ledgerUrl: env.LEDGER_URL,
+  secret: env.INTERNAL_SERVICE_SECRET,
+  ...(s2sKey ? { s2s: s2sKey } : {}),
+});
 const notificationPort = createOutreachNotificationClient({
   notifyUrl: env.NOTIFY_URL,
   secret: env.OPS_NOTIFY_SERVICE_SECRET,
@@ -122,6 +133,20 @@ const approvalConsumer =
   env.IDENTITY_URL && env.INTERNAL_SERVICE_SECRET
     ? createOpsApprovalClient(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET, s2sKey)
     : undefined;
+// Reconciliation alerts (OPS-reconciliation-03, -04): the store, the ledger's settled evaluations it reads, the ledger door
+// a fix's corrective transactions are checked against, and identity's approvals an acceptance spends.
+const reconciliationAlerts = crmSql
+  ? new ReconciliationAlertStore(crmSql, {
+      repeatSeconds: env.OPS_RECON_ALERT_REPEAT_SECONDS ?? null,
+      approvals: approvalConsumer,
+      correctiveTx: createCorrectiveTxClient({
+        ledgerUrl: env.LEDGER_URL,
+        secret: env.INTERNAL_SERVICE_SECRET,
+        ...(s2sKey ? { s2s: s2sKey } : {}),
+      }),
+    })
+  : null;
+let reconciliationBus: JetStreamEventBus | null = null;
 const staffHolds = new StaffHoldDesk({
   store: crmSql ? new SqlStaffHoldStore(crmSql) : undefined,
   ledger: createStaffHoldLedger({ ledgerUrl: env.LEDGER_URL, secret: env.INTERNAL_SERVICE_SECRET, ...(s2sKey ? { s2s: s2sKey } : {}) }),
@@ -188,7 +213,8 @@ const appRouter = createOpsRouter(
     serviceRecords: crmSql ? new SqlServiceRecordStore(crmSql) : undefined,
     staffHolds,
     homeConfig: homeConfigFromEnv(env),
-    alertSourceUrl: env.OPS_ALERT_SOURCE_URL,
+    reconciliationAlerts: reconciliationAlerts ?? undefined,
+    reconciliationBus: () => (reconciliationBus ? 'attached' : 'detached'),
     approvals: approvalConsumer,
     protocolListing: crmSql
       ? createListingDesk({
@@ -222,8 +248,16 @@ app.get('/ready', async () => ({
   alerts: {
     storage: crmSql ? 'configured' : 'unavailable',
     evaluator: crmSql ? 'running' : 'unavailable',
-    // Events are kept in the durable outbox; no bus is wired from this process yet.
+    reconciliationFeed: reconciliationAlerts ? (evaluationFeed.configured ? 'configured' : 'unconfigured') : 'unavailable',
+    // Rule-alert events stay in their outbox; reconciliation alert events are published from theirs while the bus is attached.
     events: 'outbox_only',
+    reconciliationEvents: !reconciliationAlerts
+      ? 'unavailable'
+      : reconciliationBus
+        ? 'attached'
+        : env.NATS_URL
+          ? 'detached'
+          : 'unconfigured',
   },
 }));
 
@@ -284,6 +318,65 @@ const alertTimer = setInterval(() => {
 }, 5000);
 alertTimer.unref();
 
+// Reconciliation alerts: read the ledger's settled evaluations from the stored cursor. A failed read is kept as the source
+// being unavailable, which every alert answer shows; the next tick reads the same rows again.
+let reconciliationRun: Promise<void> | null = null;
+const reconciliationTimer = setInterval(() => {
+  if (!reconciliationAlerts || reconciliationRun) return;
+  reconciliationRun = ingestReconciliationEvaluations(reconciliationAlerts, evaluationFeed)
+    .then(() => undefined)
+    .catch(() => {
+      app.log.warn({ code: 'ops.reconciliation_feed_unavailable' }, 'Reconciliation alerts will read again on the next tick');
+    })
+    .finally(() => {
+      reconciliationRun = null;
+      // Not wired: the first tick recorded why, and nothing changes until a restart with the ledger set.
+      if (!evaluationFeed.configured) clearInterval(reconciliationTimer);
+    });
+}, 5000);
+reconciliationTimer.unref();
+
+/**
+ * The event bus for reconciliation alerts: svc-ops owns the `core-ops` stream, publishes each queued transition from its
+ * outbox and stores each `ledger.reconciliation_run.failed` as one platform incident. A failed connect or attach is
+ * logged, not fatal, and tried again; the outbox keeps every event and JetStream keeps the ledger's for the durable consumer.
+ */
+const BUS_RETRY_MS = 15_000;
+async function attachReconciliationBus(): Promise<void> {
+  if (!crmSql || !reconciliationAlerts || !env.NATS_URL) return;
+  let connected: JetStreamEventBus | null = null;
+  try {
+    connected = await JetStreamEventBus.connect({
+      servers: env.NATS_URL,
+      producer: env.SERVICE_NAME,
+      streamPrefix: env.NATS_STREAM_PREFIX,
+      ownedStreams: ['core-ops'],
+    });
+    await subscribeRunFailed({ sql: crmSql, bus: connected, now: () => new Date() });
+    reconciliationBus = connected;
+  } catch (err) {
+    app.log.warn({ err, code: 'ops.reconciliation_bus_unavailable' }, 'svc-ops could not attach to the event bus; trying again');
+    await connected?.close().catch(() => undefined);
+    setTimeout(() => void attachReconciliationBus(), BUS_RETRY_MS).unref();
+  }
+}
+await attachReconciliationBus();
+let relayRun: Promise<void> | null = null;
+const relayTimer = setInterval(() => {
+  const bus = reconciliationBus;
+  if (!crmSql || !bus || relayRun) return;
+  const sql = crmSql;
+  relayRun = relayAlertEvents({ sql, bus, now: () => new Date() })
+    .then(() => undefined)
+    .catch(() => {
+      app.log.warn({ code: 'ops.reconciliation_relay_unavailable' }, 'Reconciliation alert events stay queued for the next tick');
+    })
+    .finally(() => {
+      relayRun = null;
+    });
+}, 3000);
+relayTimer.unref();
+
 // Explicit approved config enables this owned bounded scheduler; absent config does no work.
 let retentionRun: Promise<void> | null = null;
 const retentionTimer = setInterval(() => {
@@ -328,12 +421,17 @@ for (const signal of ['SIGTERM', 'SIGINT'] as const) {
       clearInterval(notificationTimer);
       clearInterval(retentionTimer);
       clearInterval(alertTimer);
+      clearInterval(reconciliationTimer);
       clearInterval(holdTimer);
+      clearInterval(relayTimer);
       await app.close();
       await notificationRun;
       await retentionRun;
       await alertRun;
+      await reconciliationRun;
       await holdRun;
+      await relayRun;
+      await reconciliationBus?.close().catch(() => undefined);
       await crmSql?.end({ timeout: 5 });
       process.exit(0);
     })();

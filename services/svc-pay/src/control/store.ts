@@ -1,6 +1,6 @@
 import type { Sql } from 'postgres';
 import { z } from 'zod';
-import { payCapSchema, type PayCap } from '@intafaced/contracts';
+import { payCapSchema, payPayoutFeeSchema, type PayCap, type PayPayoutFee } from '@intafaced/contracts';
 import { parseAmount, formatAmount, type Amount } from '@intafaced/ledger-client';
 import { ControlRefusal } from './errors.js';
 import type { PricingBand, PricingLayer, PricingRule, RoundingBeneficiary } from './pricing.js';
@@ -27,6 +27,8 @@ export interface TierConfig {
   readonly approvalThresholds: ReadonlyMap<string, Amount>;
   readonly founderThresholds: ReadonlyMap<string, Amount>;
   readonly approvalTtlSeconds: number;
+  /** The payout fee the tier publishes; null = none published ("Not set"). */
+  readonly payoutFee: PayPayoutFee | null;
   readonly version: bigint;
 }
 
@@ -79,6 +81,8 @@ interface TierRow {
   approval_thresholds: unknown;
   founder_thresholds: unknown;
   approval_ttl_seconds: number;
+  /** Absent only on a row read before the payout-fee migration. */
+  payout_fee?: unknown;
   version: string;
 }
 
@@ -92,6 +96,7 @@ export function toTier(row: TierRow): TierConfig {
     approvalThresholds: thresholdMap(row.approval_thresholds),
     founderThresholds: thresholdMap(row.founder_thresholds),
     approvalTtlSeconds: row.approval_ttl_seconds,
+    payoutFee: row.payout_fee === null || row.payout_fee === undefined ? null : parseOr(payPayoutFeeSchema, row.payout_fee),
     version: BigInt(row.version),
   };
 }

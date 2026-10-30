@@ -1,6 +1,8 @@
 import type { Sql } from 'postgres';
 import { transaction } from '@intafaced/db';
 import { formatAmount, parseAmount, type Amount } from '@intafaced/ledger-client';
+import { assertVotingType, type VotingType } from './ballot-tally.js';
+import { sealFromRow, sealSnapshot } from './governance-vote.js';
 import { TokenError, type ProposalKind, type ProposalRecord, type ProposalStatus } from './token-service.js';
 
 /** The only governance space. Further spaces are not this slice. */
@@ -52,11 +54,18 @@ interface ProposalSqlRow {
   for_n?: number | string | null;
   against_n?: number | string | null;
   abstain_n?: number | string | null;
+  voting_type?: string | null;
+  choices?: unknown;
+  snapshot_count?: number | null;
+  snapshot_total?: string | null;
+  snapshot_hash?: string | null;
+  ranking?: unknown;
 }
 
 const PROPOSAL_RETURNING = `
   id, kind, body, status, opens_at, closes_at, created_at,
-  title, body_md, discussion_link, business_key, author_id, revision
+  title, body_md, discussion_link, business_key, author_id, revision,
+  voting_type, choices, snapshot_count, snapshot_total::text AS snapshot_total, snapshot_hash, ranking
 `;
 
 function accessError(code: ProposalAccessCode): TokenError {
@@ -248,6 +257,18 @@ function asCount(value: number | string | null | undefined): number {
   return n;
 }
 
+function storedChoices(raw: unknown): string[] | null {
+  if (raw == null) return null;
+  if (!Array.isArray(raw) || !raw.every((item) => typeof item === 'string')) throw invalid('Stored choices are not readable');
+  return raw as string[];
+}
+
+function storedRanking(raw: unknown): number[] | null {
+  if (raw == null) return null;
+  if (!Array.isArray(raw) || !raw.every((item) => Number.isInteger(item))) throw invalid('Stored ranking is not readable');
+  return raw as number[];
+}
+
 export function proposalCard(row: ProposalSqlRow): ProposalRecord {
   const revision = asNonNegativeInt(row.revision ?? 1, 'Proposal revision');
   if (revision == null) throw invalid('Proposal revision is missing');
@@ -265,6 +286,14 @@ export function proposalCard(row: ProposalSqlRow): ProposalRecord {
     businessKey: row.business_key ?? null,
     authorId: row.author_id ?? null,
     revision,
+    votingType: assertVotingType(row.voting_type ?? 'basic'),
+    choices: storedChoices(row.choices),
+    snapshot: sealFromRow({
+      snapshot_count: row.snapshot_count ?? null,
+      snapshot_total: row.snapshot_total ?? null,
+      snapshot_hash: row.snapshot_hash ?? null,
+    }),
+    ranking: storedRanking(row.ranking),
     counts: {
       votes: asCount(row.votes),
       for: asCount(row.for_n),
@@ -280,7 +309,7 @@ const COUNTS_JOIN = `
            COUNT(*)::int AS votes,
            COUNT(*) FILTER (WHERE choice = 'for')::int AS for_n,
            COUNT(*) FILTER (WHERE choice = 'against')::int AS against_n,
-           COUNT(*) FILTER (WHERE choice = 'abstain')::int AS abstain_n
+           COUNT(*) FILTER (WHERE choice = 'abstain' OR ballot->>'kind' = 'abstain')::int AS abstain_n
       FROM token.governance_votes
      GROUP BY proposal_id
   ) c ON c.proposal_id = p.id
@@ -325,6 +354,7 @@ export async function listGovernanceProposals(
   const rows = await sql<ProposalSqlRow[]>`
     SELECT p.id, p.kind, p.body, p.status, p.opens_at, p.closes_at, p.created_at,
            p.title, p.body_md, p.discussion_link, p.business_key, p.author_id, p.revision,
+           p.voting_type, p.choices, p.snapshot_count, p.snapshot_total::text AS snapshot_total, p.snapshot_hash, p.ranking,
            COALESCE(c.votes, 0) AS votes,
            COALESCE(c.for_n, 0) AS for_n,
            COALESCE(c.against_n, 0) AS against_n,
@@ -349,6 +379,7 @@ export async function loadProposalRow(sql: Sql, proposalId: string): Promise<Pro
   const rows = await sql<ProposalSqlRow[]>`
     SELECT p.id, p.kind, p.body, p.status, p.opens_at, p.closes_at, p.created_at,
            p.title, p.body_md, p.discussion_link, p.business_key, p.author_id, p.revision,
+           p.voting_type, p.choices, p.snapshot_count, p.snapshot_total::text AS snapshot_total, p.snapshot_hash, p.ranking,
            COALESCE(c.votes, 0) AS votes,
            COALESCE(c.for_n, 0) AS for_n,
            COALESCE(c.against_n, 0) AS against_n,
@@ -509,6 +540,15 @@ export async function insertGovernanceProposal(
      * lock is not this figure.
      */
     lockedStake: (tx: Sql) => Promise<Amount>;
+    /** `basic` unless the author picks another type (MC-token-03). */
+    votingType: VotingType;
+    /** Normalised choice list; null on `basic`. */
+    choices: string[] | null;
+    /**
+     * Every account's active stake, locked and checked against its ledger pot
+     * on this transaction. Stored as the proposal's voting power.
+     */
+    snapshot: (tx: Sql) => Promise<ReadonlyMap<string, Amount>>;
   },
 ): Promise<ProposalRecord> {
   const title = normalizeProposalTitle(input.title);
@@ -561,16 +601,21 @@ export async function insertGovernanceProposal(
       const inserted = await tx<ProposalSqlRow[]>`
         INSERT INTO token.proposals (
           id, kind, body, status, opens_at, closes_at,
-          author_id, title, body_md, discussion_link, business_key, request_handle, revision, ordinal, space_id
+          author_id, title, body_md, discussion_link, business_key, request_handle, revision, ordinal, space_id,
+          voting_type, choices
         )
         VALUES (
           ${id}, ${input.kind}, ${tx.json(input.body as never)}, ${status}, ${input.opensAt}, ${input.closesAt},
-          ${input.authorId}, ${title}, ${bodyMd}, ${discussionLink}, ${id}, ${handle}, 1, ${ordinal}, ${GOVERNANCE_SPACE_ID}
+          ${input.authorId}, ${title}, ${bodyMd}, ${discussionLink}, ${id}, ${handle}, 1, ${ordinal}, ${GOVERNANCE_SPACE_ID},
+          ${input.votingType}, ${input.choices === null ? null : tx.json(input.choices as never)}
         )
         RETURNING ${tx.unsafe(PROPOSAL_RETURNING)}
       `;
       const saved = inserted[0];
       if (!saved) throw new TokenError('Proposal could not be stored', 'token.proposal_not_found');
+      // Voting power is fixed here, in the same transaction as the proposal:
+      // a crash leaves neither, and stake moved later cannot change it.
+      await sealSnapshot(tx, { proposalId: saved.id, takenAt: saved.created_at, byUser: await input.snapshot(tx) });
       const card = await loadProposalRow(tx, saved.id);
       if (!card) throw new TokenError('Proposal could not be reloaded', 'token.proposal_not_found');
       return card;

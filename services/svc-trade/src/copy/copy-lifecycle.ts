@@ -3,6 +3,9 @@
  *
  * PAUSE_NEW fences new mirrors immediately; existing orders/positions continue.
  * STOP_NEW fences new intent and revokes the session grant; it does not flatten.
+ * STOP_CLOSE_ONLY (CB-copy-09) fences new intent and keeps the session grant, so the
+ * copy driver still mirrors the leader's closes, capped at the copied position still
+ * open. It does not flatten either.
  * DETACH_KEEP stops copying and leaves existing orders/positions with the follower.
  * Flatten is a separate explicit choice (`copy.flatten`) — these doors never call it.
  */
@@ -10,10 +13,10 @@
 import { CopyError } from './errors.js';
 import type { CopyFollow } from './follows.js';
 
-export const COPY_RELATIONSHIP_STATES = ['ACTIVE', 'PAUSED', 'STOPPING', 'DETACHED'] as const;
+export const COPY_RELATIONSHIP_STATES = ['ACTIVE', 'PAUSED', 'STOPPING', 'CLOSE_ONLY', 'DETACHED'] as const;
 export type CopyRelationshipState = (typeof COPY_RELATIONSHIP_STATES)[number];
 
-export const COPY_CONTROL_DISPOSITIONS = ['PAUSE_NEW', 'STOP_NEW', 'DETACH_KEEP', 'RESUME'] as const;
+export const COPY_CONTROL_DISPOSITIONS = ['PAUSE_NEW', 'STOP_NEW', 'STOP_CLOSE_ONLY', 'DETACH_KEEP', 'RESUME'] as const;
 export type CopyControlDisposition = (typeof COPY_CONTROL_DISPOSITIONS)[number];
 
 export type CopyControlAck = {
@@ -57,7 +60,7 @@ export function requireNewCopyIntentAllowed(follow: CopyFollow): void {
   if (state === 'PAUSED') {
     throw new CopyError('Copy is paused — new mirrors are fenced immediately', 'trade.copy_paused');
   }
-  if (state === 'STOPPING') {
+  if (state === 'STOPPING' || state === 'CLOSE_ONLY') {
     throw new CopyError('Copy is stopped — new intent is fenced; no flatten invented', 'trade.copy_stopped');
   }
   throw new CopyError('Copy is detached — new mirrors are refused; positions stay with the follower', 'trade.copy_detached');
@@ -105,6 +108,15 @@ export function applyCopyStop(follow: CopyFollow): CopyFollow {
     throw new CopyError('Cannot stop a DETACHED copy follow', 'trade.copy_state_invalid');
   }
   return { ...follow, relationshipState: 'STOPPING', sessionKeyRevoked: true };
+}
+
+/** STOP_CLOSE_ONLY: no new opens; the grant stays so the leader's closes still close. A revoked stop cannot come back. */
+export function applyCopyStopCloseOnly(follow: CopyFollow): CopyFollow {
+  const state = followRelationshipState(follow);
+  if (state !== 'ACTIVE' && state !== 'PAUSED' && state !== 'CLOSE_ONLY') {
+    throw new CopyError(`Cannot stop a ${state} copy follow with close-only`, 'trade.copy_state_invalid');
+  }
+  return { ...follow, relationshipState: 'CLOSE_ONLY' };
 }
 
 export function applyCopyDetach(follow: CopyFollow): CopyFollow {

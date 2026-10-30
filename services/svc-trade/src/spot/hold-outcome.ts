@@ -33,6 +33,9 @@ const DEFINITE_HOLD_REFUSAL_CODES = new Set([
   'ledger.frozen',
   'ledger.unauthenticated',
   'ledger.freeze_attributed',
+  // The caller binding refuses these before the post reaches the book (svc-ledger `s2s-http.ts`).
+  'ledger.caller_unbound',
+  'ledger.caller_forbidden',
 ]);
 
 /** Undici reports these on `error.cause` when the socket never connected. */

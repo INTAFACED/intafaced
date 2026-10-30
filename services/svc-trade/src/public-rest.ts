@@ -18,6 +18,7 @@ import { publicMarketLifecycle } from './public-market-lifecycle.js';
 import type { PairHalt, PairRisk, PairRules } from './spot/pair-rules.js';
 import { logRefusalSpec } from './refusal-spec-log.js';
 import type { ChartOwnerValuesPublicReader } from './admin/chart-owner-values.js';
+import { publicRead } from './route-inventory.js';
 
 /**
  * Public CCXT-style REST slice (trade.ccxt-api — market data).
@@ -666,11 +667,11 @@ export function registerPublicRest(app: FastifyInstance, deps: PublicRestDeps): 
    * Same rows as `ccxt-capability-matrix.ts` — claim ≡ wire, discoverable
    * without reading source or probing 501s. Never invents mids/rates.
    */
-  app.get('/api/v1/time', async (_req, reply) => {
+  app.get('/api/v1/time', publicRead, async (_req, reply) => {
     return reply.code(200).send({ serverTime: now() });
   });
 
-  app.get('/api/v1/capabilities', async (_req, reply) => {
+  app.get('/api/v1/capabilities', publicRead, async (_req, reply) => {
     logRefusalSpec('paperListPolicy');
     logRefusalSpec('trade.leverage_too_high');
     const { CCXT_CAPABILITY_MATRIX, CCXT_REFUSE_ARMS } = await import('./ccxt-capability-matrix.js');
@@ -703,7 +704,7 @@ export function registerPublicRest(app: FastifyInstance, deps: PublicRestDeps): 
    * capability matrix; no market listed → an empty list, never a sample one.
    * The market window is the caller's `limit`, as on `/api/v1/markets`; blank refuses.
    */
-  app.get<{ Querystring: { limit?: string } }>('/api/v1/futures/order-types', async (req, reply) => {
+  app.get<{ Querystring: { limit?: string } }>('/api/v1/futures/order-types', publicRead, async (req, reply) => {
     const limit = parsePublicRestLimit(req.query.limit, MAX_MARKETS);
     if (limit === undefined) {
       return sendCcxt(reply, badRequest('order-types limit is unset — refuse to invent a market window', TRADE_MARKETS_LIMIT_UNSET));
@@ -726,7 +727,7 @@ export function registerPublicRest(app: FastifyInstance, deps: PublicRestDeps): 
    * is the symbol's data class when `?symbol=` is given, else null. An unknown symbol is trade.market_not_found.
    * Nothing here falls back to a default: an unwired reader refuses 503, a DB error is not swallowed.
    */
-  app.get<{ Querystring: { symbol?: string } }>('/api/v1/charts/owner-values', async (req, reply) => {
+  app.get<{ Querystring: { symbol?: string } }>('/api/v1/charts/owner-values', publicRead, async (req, reply) => {
     const reader = deps.chartOwnerValues;
     if (!reader) {
       return sendCcxt(reply, {
@@ -755,7 +756,7 @@ export function registerPublicRest(app: FastifyInstance, deps: PublicRestDeps): 
     }
   });
 
-  app.get<{ Querystring: { limit?: string } }>('/api/v1/markets', async (req, reply) => {
+  app.get<{ Querystring: { limit?: string } }>('/api/v1/markets', publicRead, async (req, reply) => {
     const limit = parsePublicRestLimit(req.query.limit, MAX_MARKETS);
     if (limit === undefined) {
       return sendCcxt(reply, badRequest('markets limit is unset — refuse to invent 50', TRADE_MARKETS_LIMIT_UNSET));
@@ -805,7 +806,7 @@ export function registerPublicRest(app: FastifyInstance, deps: PublicRestDeps): 
   });
 
   /** PX-S01 projection. Missing authority is a typed 503, never an OPEN default. */
-  app.get<{ Params: { symbol: string } }>('/api/v1/market-halt/:symbol', async (req, reply) => {
+  app.get<{ Params: { symbol: string } }>('/api/v1/market-halt/:symbol', publicRead, async (req, reply) => {
     const symbol = decodeURIComponent(req.params.symbol);
     const market = await deps.marketBySymbol(symbol);
     if (!market) return sendCcxt(reply, badSymbol(symbol));
@@ -819,7 +820,7 @@ export function registerPublicRest(app: FastifyInstance, deps: PublicRestDeps): 
     }
   });
 
-  app.get<{ Params: { symbol: string } }>('/api/v1/market-lifecycle/:symbol', async (req, reply) => {
+  app.get<{ Params: { symbol: string } }>('/api/v1/market-lifecycle/:symbol', publicRead, async (req, reply) => {
     const symbol = decodeURIComponent(req.params.symbol);
     const market = await deps.marketBySymbol(symbol);
     if (!market) return sendCcxt(reply, badSymbol(symbol));
@@ -843,7 +844,7 @@ export function registerPublicRest(app: FastifyInstance, deps: PublicRestDeps): 
     return reply.code(200).send(snapshot);
   });
 
-  app.get<{ Params: { symbol: string }; Querystring: { limit?: string } }>('/api/v1/orderbook/:symbol', async (req, reply) => {
+  app.get<{ Params: { symbol: string }; Querystring: { limit?: string } }>('/api/v1/orderbook/:symbol', publicRead, async (req, reply) => {
     // Fastify already percent-decodes params (BTC%2FUSDT → BTC/USDT).
     const symbol = decodeURIComponent(req.params.symbol);
     const market = await deps.marketBySymbol(symbol);
@@ -863,7 +864,7 @@ export function registerPublicRest(app: FastifyInstance, deps: PublicRestDeps): 
     }
   });
 
-  app.get<{ Params: { symbol: string } }>('/api/v1/ticker/:symbol', async (req, reply) => {
+  app.get<{ Params: { symbol: string } }>('/api/v1/ticker/:symbol', publicRead, async (req, reply) => {
     const symbol = decodeURIComponent(req.params.symbol);
     const market = await deps.marketBySymbol(symbol);
     if (!market) return sendCcxt(reply, badSymbol(symbol));
@@ -893,7 +894,7 @@ export function registerPublicRest(app: FastifyInstance, deps: PublicRestDeps): 
    * (not one per market); a market with no trades gets null rollups and `[]`.
    * One dead market must not 502 the map. Limit is required.
    */
-  app.get<{ Querystring: { limit?: string } }>('/api/v1/tickers', async (req, reply) => {
+  app.get<{ Querystring: { limit?: string } }>('/api/v1/tickers', publicRead, async (req, reply) => {
     const limit = parsePublicRestLimit(req.query.limit, MAX_MARKETS);
     if (limit === undefined) {
       return sendCcxt(reply, badRequest('tickers limit is unset — refuse to invent 500', TRADE_TICKERS_LIMIT_UNSET));
@@ -928,21 +929,25 @@ export function registerPublicRest(app: FastifyInstance, deps: PublicRestDeps): 
     return reply.code(200).send(out);
   });
 
-  app.get<{ Params: { symbol: string }; Querystring: { limit?: string; since?: string } }>('/api/v1/trades/:symbol', async (req, reply) => {
-    const symbol = decodeURIComponent(req.params.symbol);
-    const market = await deps.marketBySymbol(symbol);
-    if (!market) return sendCcxt(reply, badSymbol(symbol));
+  app.get<{ Params: { symbol: string }; Querystring: { limit?: string; since?: string } }>(
+    '/api/v1/trades/:symbol',
+    publicRead,
+    async (req, reply) => {
+      const symbol = decodeURIComponent(req.params.symbol);
+      const market = await deps.marketBySymbol(symbol);
+      if (!market) return sendCcxt(reply, badSymbol(symbol));
 
-    const limit = parsePublicRestLimit(req.query.limit, MAX_TRADES);
-    if (limit === undefined) {
-      return sendCcxt(reply, badRequest('trades limit is unset — refuse to invent 100', TRADE_TRADES_LIMIT_UNSET));
-    }
-    const sinceParsed = parseSince(req.query.since);
-    if (!sinceParsed.ok) return sendCcxt(reply, badRequest(sinceParsed.message, 'trade.invalid_since'));
-    // since → SQL on fills.ts (timestamptz) via publicTape.sinceMs.
-    const tape = await deps.publicTape(market.id, limit, sinceParsed.sinceMs);
-    return reply.code(200).send(tape.map((print) => presentPublicTrade(market.symbol, print)));
-  });
+      const limit = parsePublicRestLimit(req.query.limit, MAX_TRADES);
+      if (limit === undefined) {
+        return sendCcxt(reply, badRequest('trades limit is unset — refuse to invent 100', TRADE_TRADES_LIMIT_UNSET));
+      }
+      const sinceParsed = parseSince(req.query.since);
+      if (!sinceParsed.ok) return sendCcxt(reply, badRequest(sinceParsed.message, 'trade.invalid_since'));
+      // since → SQL on fills.ts (timestamptz) via publicTape.sinceMs.
+      const tape = await deps.publicTape(market.id, limit, sinceParsed.sinceMs);
+      return reply.code(200).send(tape.map((print) => presentPublicTrade(market.symbol, print)));
+    },
+  );
 
   /**
    * GET /api/v1/ohlcv/:symbol — REST_ROUTES.fetchOHLCV.
@@ -969,7 +974,7 @@ export function registerPublicRest(app: FastifyInstance, deps: PublicRestDeps): 
   app.get<{
     Params: { symbol: string };
     Querystring: { timeframe?: string; since?: string; limit?: string };
-  }>('/api/v1/ohlcv/:symbol', async (req, reply) => {
+  }>('/api/v1/ohlcv/:symbol', publicRead, async (req, reply) => {
     const symbol = decodeURIComponent(req.params.symbol);
     const market = await deps.marketBySymbol(symbol);
     if (!market) return sendCcxt(reply, badSymbol(symbol));
@@ -1014,7 +1019,7 @@ export function registerPublicRest(app: FastifyInstance, deps: PublicRestDeps): 
    * When trade.futures lands, swap markets answer here with a real rate and
    * spot markets keep this refusal.
    */
-  app.get<{ Params: { symbol: string } }>('/api/v1/funding-rate/:symbol', async (req, reply) => {
+  app.get<{ Params: { symbol: string } }>('/api/v1/funding-rate/:symbol', publicRead, async (req, reply) => {
     const symbol = decodeURIComponent(req.params.symbol);
     const market = await deps.marketBySymbol(symbol);
     if (!market) return sendCcxt(reply, badSymbol(symbol));

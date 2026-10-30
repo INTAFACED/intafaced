@@ -26,6 +26,9 @@ export const EDGE = 'http://127.0.0.1:14500';
 export const ORIGIN = 'http://127.0.0.1:3210';
 // The stack's own rule for its state folder (LOCAL_STACK_STATE, else per user, else /var/lib as root).
 const STATE = localStackState();
+
+/** A file in the running stack's own state folder (for example the stand-in engine's hold file). */
+export const stackFile = (name) => path.join(STATE, name);
 const RUN = process.env.JOURNEY_RUN_DIR ?? '/tmp/intafaced-real-app';
 
 /** One file per journey run, so a later step (a new worker after a failure) finds the account an earlier step made. */
@@ -157,12 +160,19 @@ export async function api(who) {
   }).then(json);
   const token = login.body?.result?.data?.accessToken;
   if (!token) throw new Error(`sign-in for ${who.email} refused: ${login.status} ${JSON.stringify(login.body).slice(0, 300)}`);
-  const call = (method, route, body) =>
+  const send = (method, route, body) =>
     fetch(`${EDGE}${route}`, {
       method,
       headers: { origin: ORIGIN, authorization: `Bearer ${token}`, ...(body ? { 'content-type': 'application/json' } : {}) },
       body: body ? JSON.stringify(body) : undefined,
     }).then(json);
+  // A kept-alive socket that Edge closed while the test waited (a lane restart takes longer than Edge's idle timeout)
+  // fails before any answer. A read is sent once more on a fresh socket; a write never is.
+  const call = (method, route, body) =>
+    send(method, route, body).catch((error) => {
+      if (method !== 'GET' || error?.cause?.code !== 'UND_ERR_SOCKET') throw error;
+      return send(method, route, body);
+    });
   return {
     /** The account's user id, as identity answered the sign-in. */
     userId: login.body.result.data.userId,
@@ -191,6 +201,44 @@ export async function staffFreeze(who, reason = 'LOCAL TEST journey freeze') {
   }).then(json);
   const userId = login.body?.result?.data?.userId;
   if (!userId) throw new Error(`sign-in for ${who.email} refused: ${login.status} ${JSON.stringify(login.body).slice(0, 300)}`);
+  frozenAt.set(userId, await staffControl(userId, reason));
+  return userId;
+}
+
+/** The account version each `staffFreeze` left, by user id: a restore's approval binds the version the founder read. */
+const frozenAt = new Map();
+
+/**
+ * Lifts a `staffFreeze` by the user id it returned (a frozen account cannot sign in), the way identity requires: founder
+ * a proposes an `identity.account_unfreeze` over the account and reason at its frozen version, founder b approves it,
+ * and founder a's restore spends it (services/svc-identity/src/controls/founder-controls.ts).
+ */
+export async function staffRestore(userId, reason = 'LOCAL TEST journey freeze lifted') {
+  const expectedVersion = frozenAt.get(userId);
+  if (!expectedVersion) throw new Error(`no staffFreeze of ${userId} in this run to lift`);
+  const gates = await import('../../../../tooling/scripts/local-test-gates.mjs');
+  const ctx = await gates.makeContext({ log: () => {} });
+  const founders = await gates.approverSessions(ctx);
+  const { approvalId } = await gates.twoPerson(ctx, founders, {
+    actionType: 'identity.account_unfreeze',
+    targetService: 'svc-identity',
+    targetId: userId,
+    expectedVersion,
+    payloadHash: gates.identityPayloadHash(userId, { reason }),
+    policyVersion: 'local-test:v1',
+  });
+  const res = await ctx.edge.mutate(
+    'identity',
+    'compliance.unfreezeIdentity',
+    { requestId: randomUUID(), target: { area: 'identity', userId }, action: 'restore', reason, expectedVersion, approvalId },
+    founders.a.token,
+  );
+  if (res.json?.result?.data?.outcome !== 'changed') throw new Error(`staff restore refused: ${res.status} ${res.text.slice(0, 300)}`);
+  frozenAt.delete(userId);
+}
+
+/** Restricts the account through identity's compliance control; returns the version the freeze left. */
+async function staffControl(userId, reason) {
   const gates = await import('../../../../tooling/scripts/local-test-gates.mjs');
   const ctx = await gates.makeContext({ log: () => {} });
   const founders = await gates.approverSessions(ctx);
@@ -206,7 +254,7 @@ export async function staffFreeze(who, reason = 'LOCAL TEST journey freeze') {
   const current = res.json?.result?.data?.outcome === 'conflict' ? res.json.result.data.current?.version : undefined;
   if (current) res = await freeze(current);
   if (res.json?.result?.data?.outcome !== 'changed') throw new Error(`staff freeze refused: ${res.status} ${res.text.slice(0, 300)}`);
-  return userId;
+  return res.json.result.data.after.version;
 }
 
 /** The other TEST trader of the journey: the stack's taker account, through the same front door. */

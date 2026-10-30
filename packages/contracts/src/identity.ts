@@ -111,6 +111,24 @@ export const securityLockSchema = z
 export type SecurityLockView = z.infer<typeof securityLockSchema>;
 
 /**
+ * THE OWNER'S SELF-FREEZE, as a service reads it (I-account-lifecycle-08, J-identity-11 #2). The owner froze their own
+ * account (`account_self_freezes`): every session and API key ended, and a service that moves money out or changes a
+ * withdrawal address reads this per request from `GET /internal/self-freeze/:userId` (service credentials) and refuses
+ * while `frozen` is true, keeping no copy. It is not the staff freeze (`users.status`), not the security lock and not the
+ * ledger posting freeze. Only the owner lifts it, through reactivation after the owner-set wait.
+ */
+export const selfFreezeStateSchema = z
+  .object({
+    userId: z.string().guid(),
+    /** True while the owner's freeze is open. */
+    frozen: z.boolean(),
+    /** When the open freeze began; null while none is open. */
+    since: z.string().datetime({ offset: true }).nullable(),
+  })
+  .strict();
+export type SelfFreezeState = z.infer<typeof selfFreezeStateSchema>;
+
+/**
  * OWN-NAME RULE (P-ads-merchant-18, J-p2p-04 #2). A service that stores a payout destination in the person's own name
  * asks identity whether the holder name it was given is the account's verified legal name. svc-identity compares, so the
  * legal name never leaves it: the caller sends a name and gets only the outcome. `POST /internal/holder-name-check`,
@@ -293,6 +311,36 @@ export const trustedDeviceStateSchema = z
   })
   .strict();
 export type TrustedDeviceState = z.infer<typeof trustedDeviceStateSchema>;
+/**
+ * Whether a message was signed by a wallet linked to an account (`POST /internal/wallet-signatures/verify`, service
+ * credentials). Identity holds the links (`wallet_identities`, made by a signed EIP-4361 challenge), so a service that
+ * needs a person's wallet signature on its own message asks here instead of keeping a copy. Identity recovers the signer
+ * from an EIP-191 `personal_sign` signature over `message` exactly as sent; it stores nothing and decides nothing else.
+ * - `linked`: the signer is a wallet linked to `userId` (`address`, lower-case).
+ * - `no_wallet`: the account has no linked wallet, so nothing it signs can be checked.
+ * - `not_linked`: the signature is readable but its signer is not one of the account's wallets.
+ * - `account_inactive`: the account is not active (frozen, closed) or is under a security lock; nothing it signs counts.
+ * - `invalid`: no signer can be recovered, or the signature is not in its one canonical form (v 27 or 28, low s), so the
+ *   same signed message never verifies under two different signature strings.
+ * The caller words its own message and binds what it means (its record, the person) into it.
+ */
+export const WALLET_SIGNATURE_VERIFY_PATH = '/internal/wallet-signatures/verify' as const;
+export const walletSignatureVerifyRequestSchema = z
+  .object({
+    userId: z.string().guid(),
+    message: z.string().min(1).max(4096),
+    signature: z.string().regex(/^0x[0-9a-fA-F]{130}$/),
+  })
+  .strict();
+export type WalletSignatureVerifyRequest = z.infer<typeof walletSignatureVerifyRequestSchema>;
+export const walletSignatureVerifySchema = z.discriminatedUnion('state', [
+  z.object({ state: z.literal('linked'), address: z.string().regex(/^0x[0-9a-f]{40}$/) }).strict(),
+  z.object({ state: z.literal('no_wallet') }).strict(),
+  z.object({ state: z.literal('not_linked') }).strict(),
+  z.object({ state: z.literal('account_inactive') }).strict(),
+  z.object({ state: z.literal('invalid') }).strict(),
+]);
+export type WalletSignatureVerify = z.infer<typeof walletSignatureVerifySchema>;
 /** The step-up door for an unlock request (see `CUSTOMER_STEP_UP_DOORS`). Locking needs none: it only takes power away. */
 export const SECURITY_LOCK_UNLOCK_STEP_UP_SCOPE = 'identity.step_up.security_lock_unlock' as const;
 export const SECURITY_LOCK_UNLOCK_STEP_UP_PURPOSE = 'account.securityLock.unlock' as const;

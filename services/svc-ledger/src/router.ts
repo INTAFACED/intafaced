@@ -262,7 +262,9 @@ export function createLedgerRouter(
           // Same allowlist as the mounted HTTP door. That door is what proves
           // the key. Here the name is verified only when the context says a
           // service key matched. A name from the shared secret, or a name with
-          // no proof, is a claim and is only counted.
+          // no proof, is a claim and is only counted. This router is not
+          // mounted; mounting it needs `binding.keysConfigured` set as the HTTP
+          // door sets it, or the key-required recipes would not be refused here.
           const caller: PostCaller =
             ctx.service && ctx.serviceAuth === 'keypair'
               ? { kind: 'bound', service: ctx.service }
@@ -697,6 +699,7 @@ export function createLedgerRouter(
                 ledgerSql(ledger),
                 { actorId: ctx.principal.userId, requestId: ctx.requestId ?? null },
                 input,
+                approvals,
               );
             } catch (err) {
               throw toTrpcError(err);
