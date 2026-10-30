@@ -1,6 +1,8 @@
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import { SubNav } from '@intafaced/ui';
 import { Tabs } from '../../shared/ui';
+import { SignInPanel } from '../../app/SignInPanel';
+import { useSession } from '../session/session';
 import { launchCopy } from './launch-copy';
 import { launchDepthCopy } from './launch-depth-copy';
 import { LaunchCheck, LaunchJourney, LaunchParticipation } from './LaunchRooms';
@@ -15,6 +17,12 @@ export function Launch({ orders = false, tab: first }: { orders?: boolean; tab?:
   const [tab, setTab] = useState<LaunchTab>(first ?? (orders ? 'Participation' : 'Catalogue'));
   const { t } = launchDepthCopy.useCopy();
   const catalogue = launchCatalogueCopy.useCopy();
+  const { userId, restoring } = useSession();
+  // The catalogue opens signed out (J-more-catalogue-11); every other section needs an account. A signed-out visitor
+  // gets the sign-in panel the other More rooms use (J-more-catalogue-01 #6): above the catalogue, and in place of a
+  // private section. Nothing is shown for it while the boot refresh has not answered.
+  const signedOut = !userId && !restoring;
+  const priv = (section: ReactNode) => (userId ? section : signedOut ? <SignInPanel /> : null);
   return (
     <div className="more-grid">
       <Tabs
@@ -31,13 +39,16 @@ export function Launch({ orders = false, tab: first }: { orders?: boolean; tab?:
         }}
       />
       {tab === 'Catalogue' ? (
-        <LaunchCatalogue />
+        <>
+          {signedOut ? <SignInPanel>{catalogue.t('signInBrowse')}</SignInPanel> : null}
+          <LaunchCatalogue />
+        </>
       ) : tab === 'Journey' ? (
-        <LaunchJourney onTab={setTab} />
+        priv(<LaunchJourney onTab={setTab} />)
       ) : tab === 'Check' ? (
-        <LaunchCheck />
+        priv(<LaunchCheck />)
       ) : tab === 'Participation' ? (
-        <LaunchParticipation />
+        priv(<LaunchParticipation />)
       ) : (
         <LaunchRequirements orders={false} />
       )}
