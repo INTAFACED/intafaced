@@ -80,8 +80,14 @@ test(`${J} #3 Swap while the node is unreachable lists its blockers in order, ch
 }) => {
   await page.goto('/dex');
   const swap = page.locator('main [data-action="swap"]');
-  await expect(swap.getByRole('button', { name: 'Swap' })).toBeDisabled();
-  await expect(swap.locator('[data-not-connected="rail.crypto"]')).toBeVisible();
+  const button = swap.getByRole('button', { name: 'Swap' });
+  await expect(button).toBeDisabled();
+  // The disabled Swap names its first blocker: its title is the chain-unreachable sentence, and the one notice beside it
+  // (drawn only for the first blocker) is the crypto network notice.
+  await expect(button).toHaveAttribute('title', /^The chain is unreachable/);
+  const firstReason = swap.locator(':scope > .protocol-actions__reason');
+  await expect(firstReason).toHaveCount(1);
+  await expect(firstReason).toHaveAttribute('data-not-connected', 'rail.crypto');
   await swap.locator('summary', { hasText: 'All blockers' }).click();
   const listed = swap.locator('ol > li');
   await expect(listed.first()).toContainText('The chain is unreachable');
