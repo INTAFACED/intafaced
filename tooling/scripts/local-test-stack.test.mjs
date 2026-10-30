@@ -69,8 +69,9 @@ const script = resolve(here, 'local-test-stack.mjs');
 // Service keys: off by default, so the journeys' stack is unchanged; LOCAL_STACK_S2S=dual gives every S2S service one
 // shared public keyring and its own matching signing key, and keypair is refused.
 {
-  const { localTestServiceEnvs, s2sEnv, S2S_SERVICES, PLAN_SECRETS } = await import('./local-test-stack.mjs');
-  const { createPrivateKey, createPublicKey, generateKeyPairSync } = await import('node:crypto');
+  const { localTestServiceEnvs, s2sEnv, S2S_SERVICES, PLAN_SECRETS, newServiceKey, serviceKeyMatches } =
+    await import('./local-test-stack.mjs');
+  const { createPrivateKey, createPublicKey } = await import('node:crypto');
   const contractsNames = [
     ...readFileSync(resolve(here, '../../packages/contracts/src/service-keys.ts'), 'utf8')
       .match(/export const SERVICE_NAMES = \[([^\]]*)\]/)[1]
@@ -82,19 +83,13 @@ const script = resolve(here, 'local-test-stack.mjs');
     stackSvcs.filter((n) => contractsNames.includes(n)).sort(),
     'every stack service that packages/contracts names has a key, and no other',
   );
-  const s2sKeys = Object.fromEntries(
-    S2S_SERVICES.map((svc) => {
-      const { publicKey, privateKey } = generateKeyPairSync('ed25519');
-      return [
-        svc,
-        {
-          kid: `${svc}.local`,
-          x: publicKey.export({ format: 'der', type: 'spki' }).subarray(-32).toString('base64url'),
-          key: privateKey.export({ format: 'der', type: 'pkcs8' }).toString('base64url'),
-        },
-      ];
-    }),
-  );
+  const s2sKeys = Object.fromEntries(S2S_SERVICES.map((svc) => [svc, newServiceKey(svc)]));
+  // A stored key is kept only when its kid is the service's and its private key gives its public x.
+  assert.ok(serviceKeyMatches('svc-trade', s2sKeys['svc-trade']));
+  assert.ok(!serviceKeyMatches('svc-trade', { ...s2sKeys['svc-trade'], kid: 'svc-trade.old' }), 'another kid');
+  assert.ok(!serviceKeyMatches('svc-trade', { ...s2sKeys['svc-trade'], x: s2sKeys['svc-ledger'].x }), 'another public key');
+  assert.ok(!serviceKeyMatches('svc-trade', { ...s2sKeys['svc-trade'], key: 'not-a-key' }), 'a broken private key');
+  assert.ok(!serviceKeyMatches('svc-trade', undefined), 'no key');
   const prior = process.env.LOCAL_STACK_S2S;
   try {
     delete process.env.LOCAL_STACK_S2S;
@@ -128,9 +123,54 @@ const script = resolve(here, 'local-test-stack.mjs');
     );
     assert.throws(() => s2sEnv({ s2sKeys }, 'svc-trade', 'keypair'), /off or dual/);
     assert.throws(() => s2sEnv({}, 'svc-trade', 'dual'), /no stack key for svc-academy/);
+    // `plan` under dual shows the keyed env from placeholders, without reading secrets.json.
+    assert.equal(localTestServiceEnvs().find((d) => d.env.SERVICE_NAME === 'svc-trade').env.S2S_SIGNING_KID, 'svc-trade.local');
   } finally {
     if (prior === undefined) delete process.env.LOCAL_STACK_S2S;
     else process.env.LOCAL_STACK_S2S = prior;
+  }
+}
+
+// LOCAL_STACK_S2S is checked before a restart stops anything: a bad value, or a value other than the one the running
+// services were started with, is refused with exit 2 and the running service is left alone.
+{
+  const { readProcessIdentity } = await import('./local-test-state.mjs');
+  const s2sHome = mkdtempSync(join(tmpdir(), 'local-test-stack-s2s-'));
+  const s2sState = join(s2sHome, '.intafaced', 'local-test-stack');
+  const child = spawn('sleep', ['60'], { stdio: 'ignore' });
+  try {
+    let id = null;
+    for (let i = 0; i < 50 && !id; i++) {
+      id = readProcessIdentity(child.pid);
+      if (!id) await new Promise((r) => setTimeout(r, 20));
+    }
+    assert.ok(id, 'the stand-in ledger process is visible to ps');
+    mkdirSync(join(s2sState, 'run'), { recursive: true });
+    writeFileSync(
+      join(s2sState, 'run', 'processes.json'),
+      JSON.stringify({ ledger: { pid: child.pid, argv: id.command.split(' '), startedAt: new Date(id.startedAt).toISOString() } }),
+    );
+    const { LOCAL_STACK_STATE: _state, ...env } = process.env;
+    const restart = (mode) =>
+      spawnSync(process.execPath, [script, 'restart', 'ledger'], {
+        env: { ...env, HOME: s2sHome, LOCAL_STACK_S2S: mode },
+        encoding: 'utf8',
+      });
+    let r = restart('keypair');
+    assert.equal(r.status, 2, r.stderr);
+    assert.match(r.stderr, /LOCAL_STACK_S2S must be off or dual, not "keypair"/);
+    r = restart('dual');
+    assert.equal(r.status, 2, r.stderr);
+    assert.match(r.stderr, /services run with LOCAL_STACK_S2S=off \(ledger\); set the same value, or stop the stack first/);
+    writeFileSync(join(s2sState, 'run', 's2s-mode'), 'dual\n');
+    r = restart('');
+    assert.equal(r.status, 2, r.stderr);
+    assert.match(r.stderr, /services run with LOCAL_STACK_S2S=dual \(ledger\)/);
+    assert.equal(child.exitCode, null, 'the running service was not stopped');
+    console.log('local-test-stack: a restart with a bad or different LOCAL_STACK_S2S is refused before anything stops');
+  } finally {
+    child.kill();
+    rmSync(s2sHome, { recursive: true, force: true });
   }
 }
 
