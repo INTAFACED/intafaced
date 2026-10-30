@@ -797,6 +797,8 @@ async function openItemsOfThisRun() {
   const terms = await api.query('bank', 'deposits.assets');
   expect(terms.ok, JSON.stringify(terms.body)).toBe(true);
   const [network] = (terms.data.assets.find((a) => a.assetId === ASSET)?.networks ?? []).filter((n) => n.label === NETWORK);
+  expect(network, `${ASSET} on ${NETWORK} is published with a minimum deposit`).toBeTruthy();
+  expect(typeof network.minimumDeposit, 'the minimum deposit is published, not blank').toBe('string');
   const below = toUnits(network.minimumDeposit) / 2n;
   expect(below, `half of the published ${ASSET} minimum is above 0`).toBeGreaterThan(0n);
   const { tx: heldTx } = chainDeposit(depositAddress, fromUnits(below), depositDepth, `${depositLabel}-below-minimum`);
@@ -826,6 +828,16 @@ test(`${J} #8 reconciles to the cent: each rail's boundary PASSes against that r
   const a = await founder(browser, 'a');
   const b = await founder(browser, 'b');
   const tag = `${state().who.handle}-${Date.now().toString(36)}`;
+  // A run killed between the unlisted transfer and its reversal (below) left the rail off by STRAY: close it first, so no
+  // later run judges a stray it never wrote.
+  for (const rail of Object.keys(RAIL_STEPS)) {
+    const keys = new Set(railRecords(rail).map((line) => line.key));
+    for (const key of keys) {
+      if (!key.startsWith('test-unlisted:') || !key.endsWith(':in')) continue;
+      const out = `${key.slice(0, -':in'.length)}:out`;
+      if (!keys.has(out)) recordRailMovement(stackFile('.'), { rail, key: out, direction: 'out', assetId: ASSET, amount: STRAY });
+    }
+  }
   const mine = await openItemsOfThisRun();
   const judged = [];
   for (const [rail, steps] of Object.entries(RAIL_STEPS)) {

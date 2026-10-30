@@ -60,6 +60,9 @@ function check(record) {
     throw new RailRecordError(`${rail} ${key}: amount "${amount}" is not a positive decimal string of at most ${SCALE} decimals`);
   }
   if (typeof at !== 'string' || Number.isNaN(Date.parse(at))) throw new RailRecordError(`${rail} ${key}: time "${at}" is not a time`);
+  // The stand-in's own reference for a movement, when it gave one (svc-bank's payout stand-in: `TEST-PAYOUT-<id>`).
+  if (record.ref !== undefined && (typeof record.ref !== 'string' || !/^TEST-[A-Za-z0-9-]{1,128}$/.test(record.ref)))
+    throw new RailRecordError(`${rail} ${key}: reference "${record.ref}" is not a TEST reference`);
 }
 
 const facts = (record) => `${record.direction} ${record.assetId} ${formatUnits(units(record.amount))}`;
@@ -216,8 +219,6 @@ export function railStatement(stateDir, rail, asOf) {
     rail,
     asOf: new Date(Date.parse(asOf)).toISOString(),
     // Only this rail's own file is read, so a bad line on another rail never takes this statement down.
-    balances: totalsOf(signedTotals(readRail(stateDir, rail), asOf))
-      .filter((row) => row.rail === rail)
-      .map(({ assetId, amount }) => ({ assetId, amount })),
+    balances: totalsOf(signedTotals(readRail(stateDir, rail), asOf)).map(({ assetId, amount }) => ({ assetId, amount })),
   };
 }

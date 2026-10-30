@@ -1,3 +1,5 @@
+import { STATEMENT_RAILS, railStatementEnv } from '../local-test-rail-statements.mjs';
+
 /**
  * The outside-balance snapshot svc-ledger reads (LEDGER_RECONCILE_OUTSIDE_SNAPSHOT_URL, an owner value). Unset by default, so an
  * outside-balance control shows its outside side unset (J-ops-console-07 #3). `LOCAL_STACK_LEDGER_OUTSIDE_SNAPSHOT=unreachable`
@@ -10,8 +12,6 @@ function outsideSnapshot() {
   if (asked === 'unreachable') return { LEDGER_RECONCILE_OUTSIDE_SNAPSHOT_URL: 'http://127.0.0.1:9/local-test-outside-snapshot' };
   throw new Error(`LOCAL_STACK_LEDGER_OUTSIDE_SNAPSHOT is "${asked}"; leave it unset for no snapshot, or set it to unreachable.`);
 }
-
-import { STATEMENT_RAILS, railStatementEnv } from '../local-test-rail-statements.mjs';
 
 export default ({ c, secrets, dbUrl, urlOf, PORTS }) => ({
   name: 'ledger',
