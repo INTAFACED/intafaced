@@ -234,7 +234,7 @@ export const GATES = [
       'without honouring REQUIRE_POSTGRES. Six money and identity suites had each copied such a probe, ' +
       'so a database hiccup skipped them silently and the build went green. All six money/identity ' +
       'private probes are gone; PRIVATE_PROBE is empty. Remaining unreported debt is svc-protocol ' +
-      'UNJOURNALLED (CODEOWNERS lock). The scan prints those and fails if an entry goes stale.',
+      'UNJOURNALLED (held under the former Protocol Plane lock; journalling it is open agent work). The scan prints those and fails if an entry goes stale.',
   },
   {
     id: 'money-skip-honesty',
