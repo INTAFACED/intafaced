@@ -222,6 +222,7 @@ if (!available) {
   describe('trading restriction reason code', () => {
     const REASONS = new Map([
       ['market_conduct_review', { code: 'market_conduct_review', reason: 'TEST: paused for review.', guidance: 'TEST: ask Support.' }],
+      ['account_review', { code: 'account_review', reason: 'TEST: paused while we check the account.', guidance: 'TEST: wait.' }],
     ]);
     const storedCode = async (userId = target) =>
       (await db.sql<Array<{ reason_code: string | null }>>`SELECT reason_code FROM trading_restrictions WHERE user_id = ${userId}`)[0]
@@ -237,6 +238,17 @@ if (!available) {
       const bound = await mint(target, 'Incident review', 'restrict', '0', 'market_conduct_review');
       const applied = await listed.change(checker, trading({ approvalId: bound.approvalId, reasonCode: 'market_conduct_review' }));
       expect(applied).toMatchObject({ outcome: 'changed', after: { version: '1', restricted: true } });
+      expect(await storedCode()).toBe('market_conduct_review');
+      // The audit row names the code staff set.
+      const [audit] = await db.sql<Array<{ detail: { reasonCode?: string } }>>`
+        SELECT detail FROM founder_control_audit WHERE detail->>'approvalId' = ${bound.approvalId}`;
+      expect(audit?.detail.reasonCode).toBe('market_conduct_review');
+      // Another listed code on the restriction in force refuses before the approval is spent, and the code stays.
+      const other = await mint(target, 'Incident review', 'restrict', '1', 'account_review');
+      expect(
+        await listed.change(checker, trading({ approvalId: other.approvalId, expectedVersion: '1', reasonCode: 'account_review' })),
+      ).toMatchObject({ outcome: 'refused', code: 'restriction.reason_in_force', current: { version: '1', restricted: true } });
+      expect(await approvalRow(other.approvalId)).toMatchObject({ status: 'APPROVED', consumed_request_id: null });
       expect(await storedCode()).toBe('market_conduct_review');
       // A no-op repeat without a code keeps the restriction's own code.
       const again = await mint(target, 'Incident review', 'restrict', '1');

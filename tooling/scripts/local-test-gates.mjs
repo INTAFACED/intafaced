@@ -2544,6 +2544,9 @@ export async function tradingRestrict(ctx, handle, action, reasonCode) {
   const probe = data(await change('0'));
   const expectedVersion = probe?.current?.version;
   if (expectedVersion === undefined) throw new Error(`trading-restrict: no current state (${JSON.stringify(probe)})`);
+  // A code identity will not take refuses before any approval: stop here rather than approve a pair it cannot use.
+  if (probe.code === 'restriction.reason_unlisted' || probe.code === 'restriction.reason_in_force')
+    throw new Error(`trading-restrict: identity refused the reason code ${reasonCode} (${probe.code})`);
   const payloadHash = founderChangeHash(
     { area: 'trading', userId: user.id.toLowerCase(), action, reason, ...(reasonCode ? { reasonCode } : {}) },
     expectedVersion,

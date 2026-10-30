@@ -676,7 +676,8 @@ export class FounderControls {
               | 'restriction_no_four_eyes'
               | 'restriction_approval_mismatch'
               | 'restriction_approval_consumed'
-              | 'restriction.reason_unlisted',
+              | 'restriction.reason_unlisted'
+              | 'restriction.reason_in_force',
             current: AccountControlState | null,
           ) =>
             accountControlResultSchema.parse({
@@ -705,8 +706,8 @@ export class FounderControls {
           if (previous && !previous.conflict) return accountControlResultSchema.parse(previous.result);
           const [user] = await tx<Array<{ id: string }>>`SELECT id FROM users WHERE id = ${targetId} FOR UPDATE`;
           const [stateRow] = await tx<
-            Array<{ restricted: boolean; version: string }>
-          >`SELECT restricted, version::text FROM trading_restrictions WHERE user_id = ${targetId} FOR UPDATE`;
+            Array<{ restricted: boolean; version: string; reason_code: string | null }>
+          >`SELECT restricted, version::text, reason_code FROM trading_restrictions WHERE user_id = ${targetId} FOR UPDATE`;
           const before: AccountControlState = {
             target: { area: 'trading', userId: targetId },
             version: stateRow?.version ?? '0',
@@ -729,6 +730,10 @@ export class FounderControls {
             (input.action !== 'restrict' || !(this.options.tradingRestrictionReasons ?? new Map()).has(input.reasonCode))
           )
             result = refuse('restriction.reason_unlisted', before);
+          // A restriction keeps the reason it was set with: another code on one already in force would spend the approval
+          // and change nothing, so it refuses first (restore, then restrict with the new code).
+          else if (input.reasonCode !== undefined && before.restricted && (stateRow?.reason_code ?? null) !== input.reasonCode)
+            result = refuse('restriction.reason_in_force', before);
           else if (!input.approvalId) result = refuse('restriction_no_four_eyes', before);
           else {
             const approval = await sqlGetApprovalForUpdate(tx, input.approvalId);
@@ -792,6 +797,7 @@ export class FounderControls {
             fourEyes,
             area: 'trading',
             ...(input.approvalId ? { approvalId: input.approvalId } : {}),
+            ...(input.reasonCode !== undefined ? { reasonCode: input.reasonCode } : {}),
           });
           if (!previous)
             await tx`INSERT INTO founder_control_requests (request_id, actor_id, fingerprint, audit_id) VALUES (${input.requestId}, ${actorId!}, ${hash}, ${auditId})`;
