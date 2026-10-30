@@ -128,20 +128,25 @@ test(`${J} #3 a new business reads its KPI area: one explanation with a link to 
     const snap = snapshots[preset];
     const tiles = metrics.getByTestId('plo-kpi-strip').getByRole('link');
     await expect(tiles).toHaveCount(5);
-    const shown = await tiles.evaluateAll((as) =>
-      as.map((a) => ({
-        label: a.querySelector('span')?.textContent?.split(' · ')[0],
-        value: a.querySelector('strong')?.textContent?.trim(),
-        none: a.querySelector('strong .pp-none')?.getAttribute('title') ?? null,
-      })),
-    );
-    expect(shown, preset).toEqual([
+    // The tiles are read once each has loaded (a tile reads "…" while its own read is in flight).
+    const read = () =>
+      tiles.evaluateAll((as) =>
+        as.map((a) => ({
+          label: a.querySelector('span')?.textContent?.split(' · ')[0],
+          value: a.querySelector('strong')?.textContent?.trim(),
+          none: a.querySelector('strong .pp-none')?.getAttribute('title') ?? null,
+        })),
+      );
+    const expected = [
       { label: 'Captured', value: '—', none: 'No payments in this period' },
       { label: 'Payments', value: String(snap.paymentCount), none: null },
       { label: 'Refunds on payments taken', value: '—', none: 'No payments in this period' },
       { label: 'Refunds issued', value: 'None', none: null },
       { label: 'Net received', value: '—', none: 'No payments in this period' },
-    ]);
+    ];
+    await expect.poll(read, { message: preset, timeout: 15_000 }).toEqual(expected);
+    const shown = await read();
+    expect(shown, preset).toEqual(expected);
     for (const tile of shown) if (tile.label !== 'Payments') expect(tile.value, `${preset} ${tile.label}`).not.toMatch(/^0([.,]0*)?\b/);
     await asOfSays(metrics, snap.freshness);
   }
