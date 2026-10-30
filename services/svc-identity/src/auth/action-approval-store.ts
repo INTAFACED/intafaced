@@ -50,9 +50,7 @@ export type ApprovalVote = { readonly approverId: string; readonly approvedAt: D
  * decided, expired, ungoverned row or the requester voting.
  */
 export type VoteResult =
-  | { readonly kind: 'recorded'; readonly row: StoredApproval }
-  | { readonly kind: 'already_approved' }
-  | { readonly kind: 'not_pending' };
+  { readonly kind: 'recorded'; readonly row: StoredApproval } | { readonly kind: 'already_approved' } | { readonly kind: 'not_pending' };
 
 /** What a consume asks the CAS to match, beyond the row's own fields. */
 export type ConsumeCas = {

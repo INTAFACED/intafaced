@@ -54,13 +54,18 @@ export function ChangePolicyRoom({ asOf, policies }: ChangePolicyRoomProps) {
     <section className="dk-stack" aria-label="Approval policy" data-testid="change-policy">
       <h2>Approval policy</h2>
       <p className="dk-muted">
-        Read {formatAsOf(asOf)}. Each governed action needs this many distinct approvers other than the requester, from this
-        audience, applied only by this service, within this age. A request is bound to the row it was proposed under; if the row
-        changes, the request is refused and must be proposed again.
+        Read {formatAsOf(asOf)}. Each governed action needs this many distinct approvers other than the requester, from this audience,
+        applied only by this service, within this age. A request is bound to the row it was proposed under; if the row changes, the request
+        is refused and must be proposed again.
       </p>
       <p className="dk-muted">Read only. The rows are owner settings of the deployment; this console does not change them.</p>
       {policies.kind === 'failed' ? (
-        <div className="adm-callout" data-tone={policies.forbidden || policies.notBuilt ? 'warn' : 'danger'} role="status" data-testid="policy-failed">
+        <div
+          className="adm-callout"
+          data-tone={policies.forbidden || policies.notBuilt ? 'warn' : 'danger'}
+          role="status"
+          data-testid="policy-failed"
+        >
           <strong>{policies.forbidden ? 'Access refused' : 'The policy could not be read'}</strong>
           <p>{policies.message}</p>
           {policies.code && <p className="dk-muted">Code: {policies.code}</p>}

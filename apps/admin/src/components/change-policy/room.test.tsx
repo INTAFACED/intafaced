@@ -15,7 +15,13 @@ describe('ChangePolicyRoom', () => {
             {
               state: 'set',
               actionType: 'ops.ledger.reverse',
-              policy: { requiredApprovals: 2, approverAudience: 'operator', applier: 'svc-ops', maxAgeSeconds: 600, version: `sha256:${'b'.repeat(64)}` },
+              policy: {
+                requiredApprovals: 2,
+                approverAudience: 'operator',
+                applier: 'svc-ops',
+                maxAgeSeconds: 600,
+                version: `sha256:${'b'.repeat(64)}`,
+              },
             },
             { state: 'unset', actionType: 'ops.ledger.adjust', code: 'action_approval.policy_unset' },
           ],

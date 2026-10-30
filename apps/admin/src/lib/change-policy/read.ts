@@ -15,6 +15,13 @@ export interface ChangePolicyRoom {
 
 /** Every governed action type with its owner policy row or `unset` (OPS-change-control-01 CR-1). Read only. */
 export async function readChangePolicyRoom(ctx: FounderCallContext): Promise<ChangePolicyRoom> {
-  const result = await founderCall(ctx, 'identity', 'actionApproval.policies', 'GET', undefined, parseWith(actionApprovalPoliciesReadSchema));
+  const result = await founderCall(
+    ctx,
+    'identity',
+    'actionApproval.policies',
+    'GET',
+    undefined,
+    parseWith(actionApprovalPoliciesReadSchema),
+  );
   return { asOf: new Date().toISOString(), policies: partFrom(result, (d) => d.policies, labels) };
 }

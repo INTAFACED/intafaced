@@ -156,7 +156,10 @@ export function createActionApprovalRouter(
     // caller outside it is `audience_mismatch`. Every other type keeps the fixed audience and its codes.
     const audience = svc.audienceFor(subject, whenUnset);
     if (svc.isGoverned(subject) && !(await inAudience(principal, audience))) {
-      throw new ActionApprovalError('this caller is not in the approval policy audience for this action type', 'action_approval.audience_mismatch');
+      throw new ActionApprovalError(
+        'this caller is not in the approval policy audience for this action type',
+        'action_approval.audience_mismatch',
+      );
     }
     if (audience === 'self') return;
     if (audience === 'founder') {

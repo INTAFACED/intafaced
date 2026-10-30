@@ -61,7 +61,9 @@ const consumeOf = (a: { approvalId: string; operationId: string; payloadHash: st
 describe('readApprovalPolicies', () => {
   it('reads a whole row, from JSON integers or digit strings, and versions it by its values', () => {
     const a = readApprovalPolicies(setting({ 'ops.ledger.reverse': row() }))['ops.ledger.reverse'];
-    const b = readApprovalPolicies(setting({ 'ops.ledger.reverse': row({ requiredApprovals: 2, maxAgeSeconds: 300 }) }))['ops.ledger.reverse'];
+    const b = readApprovalPolicies(setting({ 'ops.ledger.reverse': row({ requiredApprovals: 2, maxAgeSeconds: 300 }) }))[
+      'ops.ledger.reverse'
+    ];
     expect(a).toEqual({
       state: 'set',
       policy: {
@@ -69,7 +71,12 @@ describe('readApprovalPolicies', () => {
         approverAudience: 'operator',
         applier: 'svc-ops',
         maxAgeSeconds: 300,
-        version: policyVersionOf('ops.ledger.reverse', { requiredApprovals: 2, approverAudience: 'operator', applier: 'svc-ops', maxAgeSeconds: 300 }),
+        version: policyVersionOf('ops.ledger.reverse', {
+          requiredApprovals: 2,
+          approverAudience: 'operator',
+          applier: 'svc-ops',
+          maxAgeSeconds: 300,
+        }),
       },
     });
     expect(b).toEqual(a);
@@ -340,9 +347,7 @@ describe('governed approve and consume', () => {
     await expect(svc.consume('svc-ops', consumeOf({ ...p, approvalId: 'forced', operationId: 'op-forced' }))).rejects.toMatchObject({
       code: 'action_approval.not_approved',
     });
-    expect(
-      await store.casConsume({ ...consumeOf({ ...p, approvalId: 'forced', operationId: 'op-forced' }), now: NOW }),
-    ).toBeNull();
+    expect(await store.casConsume({ ...consumeOf({ ...p, approvalId: 'forced', operationId: 'op-forced' }), now: NOW })).toBeNull();
   });
 
   it('a reject by someone else still turns a governed request down', async () => {

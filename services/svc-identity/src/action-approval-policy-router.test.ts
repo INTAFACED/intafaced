@@ -119,9 +119,10 @@ describe('governed action types at the router', () => {
   it('a caller outside the policy audience is audience_mismatch at propose, approve and reject', async () => {
     // Founder audience: an operator who is not a founder may not propose or approve.
     const founderOnly = rig({ value: policy({ approverAudience: 'founder' }) });
-    await expect(
-      founderOnly.r.createCaller(await ctx(OPERATOR_C, OPERATOR)).actionApproval.propose(reverse),
-    ).rejects.toMatchObject({ code: 'FORBIDDEN', message: expect.stringContaining('[action_approval.audience_mismatch]') });
+    await expect(founderOnly.r.createCaller(await ctx(OPERATOR_C, OPERATOR)).actionApproval.propose(reverse)).rejects.toMatchObject({
+      code: 'FORBIDDEN',
+      message: expect.stringContaining('[action_approval.audience_mismatch]'),
+    });
     const p = await founderOnly.r.createCaller(await ctx(FOUNDER_A, OPERATOR)).actionApproval.propose(reverse);
     const operator = founderOnly.r.createCaller(await ctx(OPERATOR_C, OPERATOR));
     await expect(operator.actionApproval.approve({ approvalId: p.approvalId, expectedPayloadHash: p.payloadHash })).rejects.toMatchObject({
@@ -136,7 +137,9 @@ describe('governed action types at the router', () => {
     const tradeOps = rig({ value: policy({ approverAudience: 'trade_ops' }) });
     const q = await tradeOps.r.createCaller(await ctx(OPERATOR_C, OPERATOR)).actionApproval.propose(reverse);
     await expect(
-      tradeOps.r.createCaller(await ctx(SUPPORT_D, SUPPORT)).actionApproval.approve({ approvalId: q.approvalId, expectedPayloadHash: q.payloadHash }),
+      tradeOps.r
+        .createCaller(await ctx(SUPPORT_D, SUPPORT))
+        .actionApproval.approve({ approvalId: q.approvalId, expectedPayloadHash: q.payloadHash }),
     ).rejects.toMatchObject({ message: expect.stringContaining('[action_approval.audience_mismatch]') });
 
     // Operator audience: an ordinary signed-in user is not an operator.

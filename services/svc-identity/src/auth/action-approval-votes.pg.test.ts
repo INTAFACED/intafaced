@@ -54,7 +54,9 @@ const URL = process.env.TEST_DATABASE_URL ?? 'postgres://intafaced_ops:intafaced
 const here = dirname(fileURLToPath(import.meta.url));
 const drizzleDir = join(here, '../../drizzle');
 const files = readdirSync(drizzleDir).sort();
-const migrations = files.filter((f) => f.endsWith('.sql') && !f.endsWith('.down.sql')).map((f) => readFileSync(join(drizzleDir, f), 'utf8'));
+const migrations = files
+  .filter((f) => f.endsWith('.sql') && !f.endsWith('.down.sql'))
+  .map((f) => readFileSync(join(drizzleDir, f), 'utf8'));
 const THIS = files.find((f) => f.endsWith('_action_approval_policy_votes.sql'))!;
 const available = await postgresAvailable(URL);
 
