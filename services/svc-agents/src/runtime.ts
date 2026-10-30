@@ -1228,8 +1228,8 @@ export function estimateInputTokens(system: string | undefined, messages: readon
 
 /**
  * Keeps one executed engine call's prompt text for `days` (AGENTS_TRANSCRIPT_RETENTION_DAYS), inside the transaction that
- * wrote its action row: the row and its text land together or not at all. Rows past their expiry are purged here too,
- * so nothing outlives the retention the owner set when it was written.
+ * wrote its action row: the row and its text land together or not at all. The purge is index.ts's timer
+ * (purgeExpiredTranscripts), never this transaction.
  */
 async function keepTranscript(tx: Sql, actionId: string, userId: string, text: string, days: number): Promise<void> {
   await tx`
