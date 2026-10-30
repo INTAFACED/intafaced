@@ -1,4 +1,4 @@
-import type { AcademyGradingQueue, AcademyGradingRow } from '@intafaced/contracts/academy-courses';
+import type { AcademyBulkGradeResult, AcademyGradingQueue, AcademyGradingRow } from '@intafaced/contracts/academy-courses';
 import type { Part } from '@/lib/desk/part';
 
 /**
@@ -6,7 +6,7 @@ import type { Part } from '@/lib/desk/part';
  * hand-in, the peer reviews it received, its grade and who holds it. Pure, so the server loader, the route and the
  * browser component share it.
  */
-export type { AcademyGradingQueue, AcademyGradingRow };
+export type { AcademyBulkGradeResult, AcademyGradingQueue, AcademyGradingRow };
 
 export interface GradingView {
   readonly queue: Part<AcademyGradingQueue>;
@@ -14,7 +14,7 @@ export interface GradingView {
 }
 
 export type GradingDeskReply =
-  | { readonly ok: true; readonly what: string; readonly queue: AcademyGradingQueue }
+  | { readonly ok: true; readonly what: string; readonly queue: AcademyGradingQueue; readonly bulk?: AcademyBulkGradeResult }
   | {
       readonly ok: false;
       readonly title: string;
