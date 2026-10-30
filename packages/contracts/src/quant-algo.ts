@@ -89,6 +89,26 @@ export const quantStrategyHeadSchema = quantStrategySummarySchema.merge(quantStr
 });
 export type QuantStrategyHead = z.infer<typeof quantStrategyHeadSchema>;
 
+/**
+ * One saved strategy as the strategy list shows it (AL-editor-01): its head with the folder (one level, blank is the
+ * root), description, and the counts the screen keys its next organise (`studio.organise:<id>:<organised>`) and delete
+ * (`studio.delete:<id>:<restores>`) with. `deletedAt` is set only in the recycle bin.
+ */
+export const QUANT_FOLDER_MAX = 40;
+export const QUANT_DESCRIPTION_MAX = 500;
+export const quantStrategyCardSchema = quantStrategySummarySchema.extend({
+  folder: z.string(),
+  description: z.string(),
+  organised: z.number().int().nonnegative(),
+  restores: z.number().int().nonnegative(),
+  deletedAt: z.string().nullable(),
+});
+export type QuantStrategyCard = z.infer<typeof quantStrategyCardSchema>;
+export const quantStrategyCardPageSchema = z.object({
+  strategies: z.array(quantStrategyCardSchema),
+  nextCursor: z.string().nullable(),
+});
+
 /** A template id: lower-case words joined by dashes, so it reads in a URL and never collides with a strategy id. */
 export const quantTemplateIdSchema = z.string().regex(/^[a-z0-9][a-z0-9-]{1,47}$/);
 

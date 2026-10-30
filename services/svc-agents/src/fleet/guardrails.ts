@@ -311,6 +311,9 @@ export const REFUSAL_CODES = [
   'agents.overage_grace_unset',
   // Refused by the runtime when the session's current usage window is already sealed: it takes no more usage.
   'agents.window_sealed',
+  // Refused by the runtime before the engine: a Copy-Intel request for a leader ranking by returns. Copy-Intel shows
+  // disclosed stats from fills and never a returns board (D26-P1-A5).
+  'agents.copy_intel.returns_board_refused',
 ] as const;
 
 export type RefusalCode = (typeof REFUSAL_CODES)[number];

@@ -233,6 +233,17 @@ const schema = serviceEnvSchema
        */
       IDENTITY_API_KEYS_MAX_BY_TIER: z.string().optional(),
       /**
+       * Owner-published developer sandbox cap per verification level (`full=3`, levels none, basic, full, institutional).
+       * Every account may hold one sandbox; blank, or a level left out, refuses a second (`identity.sandbox_cap_unset`).
+       * Never git-default. Parsed at start by `parseSandboxCapByTier`; a malformed value stops the service.
+       */
+      IDENTITY_SANDBOXES_MAX_BY_TIER: z.string().optional(),
+      /**
+       * Owner setting: the origin where the door serves sandbox keys (one of the edge's `EDGE_SANDBOX_HOSTS`), shown
+       * with a new sandbox key. Blank: the room says the sandbox address is not set. Never git-default.
+       */
+      IDENTITY_SANDBOX_BASE_URL: z.string().optional(),
+      /**
        * Owner setting: whole seconds an API key may go unused before it is due to end (DV-keys-03, ENGINE KS-7). The key
        * detail shows it; no dormant sweep is built yet, so a set value ends no key today and the detail says so. NO
        * DEFAULT. Blank: the detail shows the idle expiry as `not set`. Parsed at start by `parseApiKeyIdleExpirySeconds`;

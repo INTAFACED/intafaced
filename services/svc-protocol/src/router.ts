@@ -30,6 +30,8 @@ import {
   protocolTokenPricesOutputSchema,
   PRICE_SETTINGS_UNSET,
   protocolSwapSettingsOutputSchema,
+  protocolSwapFeesOutputSchema,
+  protocolAllowancesOutputSchema,
   SWAP_SETTINGS_UNSET,
 } from '@intafaced/contracts';
 import { computeAccountAddress, DEFAULT_USER_SALT, AddressDerivationError } from './accounts/address.js';
@@ -53,6 +55,8 @@ import { SignatureEnvelopeError, type UserOperation } from './chain/userop.js';
 import { AmmMathError } from './amm/math.js';
 import { freshPoolQuote, PoolTokenError } from './amm/pool-quote.js';
 import { pairsReader } from './amm/pairs.js';
+import { listAllowances } from './amm/allowances.js';
+import { feeLevels, requireFeeCapWei, SwapFeeError } from './amm/fee-levels.js';
 import { priceTokens, type PriceSetting } from './amm/prices.js';
 import { createTokensRouter } from './amm/tokens-router.js';
 import { tokenLogsChain } from './amm/token-reader.js';
@@ -372,6 +376,9 @@ function toTrpcError(err: unknown): TRPCError {
   if (err instanceof PoolTokenError) {
     return new TRPCError({ code: 'BAD_REQUEST', message: err.message, cause: err });
   }
+  if (err instanceof SwapFeeError) {
+    return new TRPCError({ code: 'PRECONDITION_FAILED', message: err.message, cause: err });
+  }
   /**
    * A launch parameter the platform will not put its name on, or an address
    * that does not parse. Both are the caller's input, and both carry their own
@@ -405,6 +412,8 @@ export interface ProtocolRouterDeps {
   swapQuoteTtlSeconds?: () => number | null;
   /** `PROTOCOL_SWAP_CONFIRMATIONS`. Null or absent: `amm.swapSettings` refuses. */
   swapConfirmations?: () => number | null;
+  /** `PROTOCOL_SWAP_MAX_FEE_PER_GAS_WEI`, the fee cap. Null or absent: `amm.feeLevels` refuses `protocol.swap_fee_cap_unset`. */
+  swapFeeCapWei?: () => bigint | null;
   /** `PROTOCOL_PRICE_USD_TOKENS` and `PROTOCOL_PRICE_MIN_RESERVE_USD`. Null or absent: `amm.prices` refuses. */
   priceSetting?: () => PriceSetting | null;
   /** `PROTOCOL_TOKENS_QUOTE_TOKEN`: what the token pages state prices in. Null or absent: `tokens.*` refuses. */
@@ -1427,6 +1436,46 @@ export function createProtocolRouter(deps: ProtocolRouterDeps) {
             return { slippageCeilingBps, quoteTtlSeconds, confirmations };
           } catch (err) {
             throw err instanceof TRPCError ? err : toTrpcError(err);
+          }
+        }),
+
+      /**
+       * The swap form's network fee levels (D-swap-11): Slow, Normal and Fast are the owner percentiles of the last N
+       * blocks' priority fees, on top of the next block's base fee, with the owner's fee cap. Both owner settings are
+       * checked before the node is asked; a blank one refuses by name. No paymaster is wired, so `sponsored` is false.
+       */
+      feeLevels: publicJurisdictionProcedure('protocol', 'protocol')
+        .output(protocolSwapFeesOutputSchema)
+        .query(async () => {
+          try {
+            const cap = requireFeeCapWei(deps.swapFeeCapWei?.());
+            const setting = deps.gasPercentiles?.() ?? null;
+            if (!setting) throw new GasPercentilesUnsetError();
+            return feeLevels(await chain.gasPrice(setting, deps.now?.() ?? new Date()), cap);
+          } catch (err) {
+            throw toTrpcError(err);
+          }
+        }),
+
+      /**
+       * The live allowances `owner` has given for the tokens the factory's pools trade (D-swap-09), read at one block:
+       * each listed pool and each spender in the owner's recent Approval logs, kept only when `allowance()` is above zero.
+       * Allowances are public chain data, so the address asked about is the scope and no session is needed.
+       */
+      allowances: publicJurisdictionProcedure('protocol', 'protocol')
+        .input(z.object({ owner: addressSchema }))
+        .output(protocolAllowancesOutputSchema)
+        .query(async ({ input }) => {
+          const factory = deps.ammFactoryAddress();
+          if (isZeroAddress(factory))
+            throw new TRPCError({
+              code: 'PRECONDITION_FAILED',
+              message: 'protocol.amm_factory_unset: AMM factory is not configured (PROTOCOL_AMM_FACTORY_ADDRESS).',
+            });
+          try {
+            return await listAllowances(chain, await readPairs(factory), input.owner as Address);
+          } catch (err) {
+            throw toTrpcError(err);
           }
         }),
 

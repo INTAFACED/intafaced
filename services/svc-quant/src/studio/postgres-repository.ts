@@ -22,6 +22,11 @@ interface Joined {
   client_strategy_id: string;
   deleted_at: Date | string | null;
   created_at: Date | string;
+  head_name: string | null;
+  folder: string;
+  description: string;
+  organised: number;
+  restores: number;
   version: number;
   name: string;
   language: string;
@@ -125,11 +130,16 @@ function detailOf(rows: readonly Joined[]): StrategyDetail | null {
   if (!head) return null;
   return {
     ...head,
+    name: first.head_name ?? head.name,
     id: first.id,
     accountId: first.account_id,
     clientStrategyId: first.client_strategy_id,
     deletedAt: first.deleted_at ? iso(first.deleted_at) : null,
     createdAt: iso(first.created_at),
+    folder: first.folder,
+    description: first.description,
+    organised: first.organised,
+    restores: first.restores,
     versions,
   };
 }
@@ -156,7 +166,9 @@ function metadataOf(detail: StrategyDetail): StrategyMetadata {
 function asReceipt(operation: string, response: unknown): WriteReceipt {
   if (operation === 'delete') return { operation: 'delete', response: { ok: true } };
   if (operation === 'backtest') return { operation: 'backtest', response: response as OwnedBacktest };
-  if (operation === 'create' || operation === 'revise') return { operation, response: response as StrategyDetail };
+  if (operation === 'create' || operation === 'revise' || operation === 'organise' || operation === 'restore') {
+    return { operation, response: response as StrategyDetail };
+  }
   idempotencyConflict(operation);
 }
 
@@ -166,6 +178,7 @@ function isUniqueViolation(err: unknown): boolean {
 
 const JOINED = `
   s.id, s.account_id, s.client_strategy_id, s.deleted_at, s.created_at,
+  s.name AS head_name, s.folder, s.description, s.organised, s.restores,
   v.version, v.name, v.language, v.source, v.cash, v.blocks, v.modules, v.risk,
   v.environment, v.kind, v.claim_label, v.live, v.simulated, v.created_at AS version_created_at
 `;
@@ -259,6 +272,33 @@ export function createPostgresStrategyRepository(sql: Sql, schema = 'quant'): St
     );
   }
 
+  /** One page of the caller's heads: live ones for the list, deleted ones for the recycle bin. */
+  async function page(input: { accountId: string; limit: number; cursor?: string | null }, deleted: 'IS NULL' | 'IS NOT NULL') {
+    const cursor = input.cursor ? decodeListCursor(input.cursor) : null;
+    const rows = await query<Joined>(
+      sql,
+      `SELECT ${JOINED} FROM ${strategies} s
+       JOIN ${versions} v ON v.strategy_id = s.id
+       WHERE s.account_id = $1
+         AND s.deleted_at ${deleted}
+         AND v.version = (SELECT MAX(v2.version) FROM ${versions} v2 WHERE v2.strategy_id = s.id)
+         AND ($2::timestamptz IS NULL OR (s.created_at, s.id) > ($2::timestamptz, $3::text))
+       ORDER BY s.created_at ASC, s.id ASC
+       LIMIT $4`,
+      [input.accountId, cursor?.createdAt ?? null, cursor?.id ?? null, input.limit + 1],
+    );
+    const page = rows.slice(0, input.limit);
+    const heads = page.map((row) => {
+      const detail = detailOf([row]);
+      if (!detail) throw new QuantError(QUANT_STUDIO_NOT_FOUND, 'strategy not found');
+      return headOf(detail);
+    });
+    const last = page[page.length - 1];
+    const nextCursor =
+      rows.length > input.limit && last ? Buffer.from(`${iso(last.created_at)}|${last.id}`, 'utf8').toString('base64url') : null;
+    return { strategies: heads, nextCursor };
+  }
+
   function requireDetail(detail: StrategyDetail | null): StrategyDetail {
     if (!detail || detail.deletedAt) throw new QuantError(QUANT_STUDIO_NOT_FOUND, 'strategy not found');
     return detail;
@@ -341,6 +381,8 @@ export function createPostgresStrategyRepository(sql: Sql, schema = 'quant'): St
         );
         const next = (maxRows[0]?.version ?? 0) + 1;
         await insertVersion(tx, input.id, next, input.draft, new Date().toISOString());
+        // A saved version names the strategy again; the head follows it until the next rename.
+        await query(tx, `UPDATE ${strategies} SET name = NULL WHERE id = $1 AND account_id = $2`, [input.id, input.accountId]);
         const detail = requireDetail(await load(tx, input.accountId, input.id));
         const stored = await writeReceipt(tx, input.accountId, input.idempotencyKey, 'revise', detail);
         return stored.response as StrategyDetail;
@@ -365,30 +407,72 @@ export function createPostgresStrategyRepository(sql: Sql, schema = 'quant'): St
       });
     },
 
-    async list(input) {
-      const cursor = input.cursor ? decodeListCursor(input.cursor) : null;
-      const rows = await query<Joined>(
-        sql,
-        `SELECT ${JOINED} FROM ${strategies} s
-         JOIN ${versions} v ON v.strategy_id = s.id
-         WHERE s.account_id = $1
-           AND s.deleted_at IS NULL
-           AND v.version = (SELECT MAX(v2.version) FROM ${versions} v2 WHERE v2.strategy_id = s.id)
-           AND ($2::timestamptz IS NULL OR (s.created_at, s.id) > ($2::timestamptz, $3::text))
-         ORDER BY s.created_at ASC, s.id ASC
-         LIMIT $4`,
-        [input.accountId, cursor?.createdAt ?? null, cursor?.id ?? null, input.limit + 1],
-      );
-      const page = rows.slice(0, input.limit);
-      const heads = page.map((row) => {
-        const detail = detailOf([row]);
-        if (!detail) throw new QuantError(QUANT_STUDIO_NOT_FOUND, 'strategy not found');
-        return headOf(detail);
+    async organise(input) {
+      return sql.begin(async (tx) => {
+        const existing = await readReceipt(tx, input.accountId, input.idempotencyKey);
+        if (existing) {
+          if (existing.operation !== 'organise') idempotencyConflict(existing.operation);
+          return existing.response;
+        }
+        // Lock the row, then read the receipt again: a racing call with the same key waits here and replays.
+        const locked = await query<{ id: string }>(tx, `SELECT id FROM ${strategies} WHERE id = $1 AND account_id = $2 FOR UPDATE`, [
+          input.id,
+          input.accountId,
+        ]);
+        if (!locked[0]) throw new QuantError(QUANT_STUDIO_NOT_FOUND, 'strategy not found');
+        const raced = await readReceipt(tx, input.accountId, input.idempotencyKey);
+        if (raced) {
+          if (raced.operation !== 'organise') idempotencyConflict(raced.operation);
+          return raced.response;
+        }
+        const updated = await query<{ id: string }>(
+          tx,
+          `UPDATE ${strategies} SET name = $3, folder = $4, description = $5, organised = organised + 1
+           WHERE id = $1 AND account_id = $2 AND deleted_at IS NULL RETURNING id`,
+          [input.id, input.accountId, input.head.name, input.head.folder, input.head.description],
+        );
+        if (!updated[0]) throw new QuantError(QUANT_STUDIO_NOT_FOUND, 'strategy not found');
+        const detail = requireDetail(await load(tx, input.accountId, input.id));
+        const stored = await writeReceipt(tx, input.accountId, input.idempotencyKey, 'organise', detail);
+        return stored.response as StrategyDetail;
       });
-      const last = page[page.length - 1];
-      const nextCursor =
-        rows.length > input.limit && last ? Buffer.from(`${iso(last.created_at)}|${last.id}`, 'utf8').toString('base64url') : null;
-      return { strategies: heads, nextCursor };
+    },
+
+    async restore(input) {
+      return sql.begin(async (tx) => {
+        const existing = await readReceipt(tx, input.accountId, input.idempotencyKey);
+        if (existing) {
+          if (existing.operation !== 'restore') idempotencyConflict(existing.operation);
+          return existing.response;
+        }
+        const locked = await query<{ id: string }>(tx, `SELECT id FROM ${strategies} WHERE id = $1 AND account_id = $2 FOR UPDATE`, [
+          input.id,
+          input.accountId,
+        ]);
+        if (!locked[0]) throw new QuantError(QUANT_STUDIO_NOT_FOUND, 'strategy not found');
+        const raced = await readReceipt(tx, input.accountId, input.idempotencyKey);
+        if (raced) {
+          if (raced.operation !== 'restore') idempotencyConflict(raced.operation);
+          return raced.response;
+        }
+        await query(
+          tx,
+          `UPDATE ${strategies} SET deleted_at = NULL, restores = restores + 1
+           WHERE id = $1 AND account_id = $2 AND deleted_at IS NOT NULL`,
+          [input.id, input.accountId],
+        );
+        const detail = requireDetail(await load(tx, input.accountId, input.id));
+        const stored = await writeReceipt(tx, input.accountId, input.idempotencyKey, 'restore', detail);
+        return stored.response as StrategyDetail;
+      });
+    },
+
+    listDeleted(input) {
+      return page(input, 'IS NOT NULL');
+    },
+
+    list(input) {
+      return page(input, 'IS NULL');
     },
 
     async get(input) {

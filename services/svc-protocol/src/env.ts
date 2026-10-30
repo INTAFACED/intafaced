@@ -1,5 +1,8 @@
 import { z } from 'zod';
 import { edgeEnvSchema, loadEnv, serviceEnvSchema } from '@intafaced/config';
+import { parseMinReserveUsd, parseUsdTokens } from './amm/prices.js';
+import { parseSwapSlippageBps } from './amm/slippage.js';
+import { parseFeeCapWei } from './amm/fee-levels.js';
 
 /** A whole number of 0 or more, or null when blank or anything else. Never coerces blank to 0. */
 function parseWhole(raw: string): number | null {
@@ -12,8 +15,6 @@ function parsePositiveWhole(raw: string): number | null {
   const n = parseWhole(raw);
   return n !== null && n > 0 ? n : null;
 }
-import { parseMinReserveUsd, parseUsdTokens } from './amm/prices.js';
-import { parseSwapSlippageBps } from './amm/slippage.js';
 
 const evmAddress = z.string().regex(/^0x[0-9a-fA-F]{40}$/, 'must be a 20-byte hex address');
 /**
@@ -161,6 +162,12 @@ const schema = serviceEnvSchema.merge(edgeEnvSchema).merge(
      * NO DEFAULT: blank refuses `protocol.swap_settings_unset`, like the quote lifetime.
      */
     PROTOCOL_SWAP_CONFIRMATIONS: z.string().default('').transform(parseWhole),
+    /**
+     * The fee cap: the most per unit of gas, in whole wei, that the swap form lets a person offer at any network fee
+     * level or as a custom fee (D-swap-11). NO DEFAULT: blank or not a positive whole number is null and
+     * `amm.feeLevels` refuses `protocol.swap_fee_cap_unset`, so no level is offered and Swap stays off.
+     */
+    PROTOCOL_SWAP_MAX_FEE_PER_GAS_WEI: z.string().default('').transform(parseFeeCapWei),
     /**
      * The reference tokens a USD price is read against, each counted as one US dollar (D-swap-11): comma-separated
      * addresses on PROTOCOL_CHAIN_ID. NO DEFAULT: blank refuses `protocol.price_settings_unset`.

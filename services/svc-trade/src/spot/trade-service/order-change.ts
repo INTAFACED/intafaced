@@ -158,6 +158,34 @@ export async function cancelOrder(svc: TradeServiceInternal, principal: Principa
       }
     }
 
+    // Keep the engine's own remainder, the first answer only: a retry after the engine already cancelled reads absent.
+    if (cancellation.cancelled && cancellation.cancellation) {
+      await svc.sql`
+        UPDATE trade.orders SET engine_left_qty = ${cancellation.cancellation.remainingQty}::numeric
+         WHERE id = ${orderId} AND engine_left_qty IS NULL
+      `;
+    }
+    // The engine matched part of this order just before the cancel, and the taker's settlement has not written that
+    // fill yet. Closing now would release the hold the fill is about to draw, and a caller that places again (a chase
+    // re-price) would count that quantity twice. The order stays as it is; the engine's cancel event closes it once
+    // the fill lands (`releaseOnCancelEvent` waits the same way). A retry reads the stored remainder, not the miss.
+    const [answer] = await svc.sql<Array<{ engine_left_qty: string | null }>>`
+      SELECT engine_left_qty::text AS engine_left_qty FROM trade.orders WHERE id = ${orderId}
+    `;
+    // A paper market never writes a fill (it is refused before trade.fills), so there is nothing to wait for there.
+    const paper = (await svc.marketById(order.marketId))?.paper === true;
+    if (answer?.engine_left_qty != null && !paper) {
+      try {
+        await svc.refuseCancelAheadOfFill(orderId, parseAmount(answer.engine_left_qty));
+      } catch (err) {
+        if (err instanceof TradeError && err.code === 'trade.cancel_ahead_of_fill') return (await svc.findOrder(orderId)) as OrderRecord;
+        throw err;
+      }
+    } else if (!cancellation.cancelled) {
+      // No live order and no earlier answer: it may have matched in full. Said on the row, for a chase to read.
+      await svc.sql`UPDATE trade.orders SET engine_absent_at_cancel = true WHERE id = ${orderId}`;
+    }
+
     // A successful cancel or a verified engine absence is now safe to
     // reconcile. Transport ambiguity above is deliberately kept separate and
     // remains recovery-required.

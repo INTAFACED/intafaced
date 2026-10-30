@@ -165,6 +165,8 @@ export async function releaseOnCancelEvent(
     // fill cancels the sibling) may still be unsettled, and the release would hand back money that fill spends.
     // The inline outcome settles fills before cancellations and closes the parent; the hold stays until then.
     if (ocoLegParent(orderId) !== null) return;
+    // The engine's own word on what it took off the book, for a later cancel of this order to read.
+    await svc.sql`UPDATE trade.orders SET engine_left_qty = ${remainingQty}::numeric WHERE id = ${orderId} AND engine_left_qty IS NULL`;
     await svc.refuseCancelAheadOfFill(orderId, parseAmount(remainingQty));
     // A person's own cancel ('requested') is not an engine reason: its inline path writes none, so neither does this.
     const engineReason = reason === 'requested' ? undefined : reason;
