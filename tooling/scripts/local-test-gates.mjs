@@ -446,6 +446,11 @@ export function copyCursorRewindSql(followId, fillId) {
   RETURNING c.follow_id, c.copy_cursor_at::text, coalesce(c.copy_cursor_fill, '')`;
 }
 
+/** The rows an `UPDATE ... RETURNING` printed, without psql's `UPDATE <n>` command tag line after them. */
+export function copyRewindRows(lines) {
+  return lines.filter((row) => row.length === 3);
+}
+
 /** Runs copyCursorRewindSql for a follow whose follower is a LOCAL TEST journey account; anything else is refused. */
 export function rewindCopyCursor(secrets, followId, fillId) {
   const sql = copyCursorRewindSql(followId, fillId);
@@ -458,7 +463,7 @@ export function rewindCopyCursor(secrets, followId, fillId) {
     `SELECT handle::text FROM identity.users WHERE id = '${follower[0]}'::uuid AND email LIKE '%@local-test.invalid'`,
   );
   if (!account) throw new Error(`copy-rewind refuses ${followId}: its follower is not a LOCAL TEST journey account`);
-  const rows = psqlRead(secrets, 'svc_trade', sql);
+  const rows = copyRewindRows(psqlRead(secrets, 'svc_trade', sql));
   if (rows.length !== 1) throw new Error(`copy-rewind: fill ${fillId} is not a fill of follow ${followId}'s leader`);
   const [, at, fill] = rows[0];
   return { followId, handle: account[0], cursorAt: at, cursorFill: fill || null };
