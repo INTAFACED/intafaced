@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { businessReadyPerson, openBusiness, refusedPayCalls } from './merchant.mjs';
+import { MONEY_OFF_INACTIVE, businessReadyPerson, everyRoomOpens, openBusiness, refusedPayCalls } from './merchant.mjs';
 
 // J-merchant-01, in the running app (docs/roadmap/journeys.json): open Business Pay and see my account as it really
 // is. The business is new and its verification not started, so its owner holds the onboarding grant only, not the
@@ -52,10 +52,10 @@ test(`${J} #3 a new business reads its KPI area: one explanation with a link to 
   expect(refused).toEqual([]);
 });
 
-test(`${J} #2 a business with verification not started: "Not verified", the owner role and the setup link, and the page never calls the founder console`, async ({
+test(`${J} #2 a business with verification not started: its checklist, "Not verified", every room reachable, refunds and payouts off with what blocks them, and no call to the founder console`, async ({
   page,
 }) => {
-  test.setTimeout(240_000);
+  test.setTimeout(420_000);
   const who = await businessReadyPerson(page, 'mh', '/pay/onboarding');
   await openBusiness(page, who, 'TEST Rooms Ltd');
   const refused = refusedPayCalls(page);
@@ -64,16 +64,62 @@ test(`${J} #2 a business with verification not started: "Not verified", the owne
   const errors = [];
   page.on('console', (msg) => msg.type() === 'error' && errors.push(msg.text()));
 
+  // The service's own word on this person's place in the business: the owner of an account that is not active yet,
+  // whose verification has not started.
   await page.getByRole('link', { name: 'Open the dashboard' }).click();
+  await expect(page).toHaveURL(/\/pay\/merchant$/);
+  // A fresh load, so the page reads it now rather than from what an earlier page kept.
+  const accessRead = page.waitForResponse((r) => r.url().includes('merchant.myAccess') && r.status() === 200);
+  await page.reload();
+  const sent = await (await accessRead).json();
+  const memberships = (Array.isArray(sent) ? sent[0] : sent).result.data.memberships;
+  expect(memberships).toHaveLength(1);
+  expect(memberships[0]).toMatchObject({ role: 'owner', kybStatus: 'none' });
+  expect(memberships[0].status).not.toBe('active');
   await expect(page.getByText('TEST Rooms Ltd').first()).toBeVisible();
   await expect(page.getByText('Not verified').first()).toBeVisible();
   const account = page.locator('main section').filter({ hasText: 'Business verification' }).last();
   await expect(account).toContainText('Not sent');
   await expect(account).toContainText('Your role');
   await expect(account).toContainText('Owner');
-  await expect(page.getByRole('link', { name: /Set up your account/ })).toHaveAttribute('href', '/pay/onboarding');
+
+  // Money-moving controls are drawn, switched off, and say what blocks them.
+  const actions = page.getByTestId('plo-actions');
+  for (const name of ['Pay out', 'Refund']) {
+    const off = actions.locator('.pfo-action-off').filter({ hasText: name });
+    await expect(off, name).toHaveCount(1);
+    await expect(off.getByRole('button'), name).toBeDisabled();
+    await expect(off.getByRole('button'), name).toHaveAccessibleDescription(MONEY_OFF_INACTIVE);
+  }
+
+  // The checklist: the setup steps, each in the state the service's own onboarding progress gives it.
+  await page.getByRole('link', { name: /Set up your account/ }).click();
+  await expect(page).toHaveURL(/\/pay\/onboarding$/);
+  const progressRead = page.waitForResponse((r) => r.url().includes('merchant.onboarding.progress') && r.status() === 200);
+  await page.reload();
+  const progressBody = await (await progressRead).json();
+  const progress = (Array.isArray(progressBody) ? progressBody[0] : progressBody).result.data;
+  expect(progress.kybStatus).not.toBe('approved');
+  const verification = progress.kybStatus === 'pending' ? 'Waiting for review' : 'Up next';
+  const expected = [
+    ['Business details', progress.business.done ? 'Done' : 'Up next'],
+    ['Verification', verification],
+    ['Payout destination', progress.destination.present ? 'Done' : verification === 'Up next' ? 'Not started' : 'Up next'],
+  ];
+  const steps = page.getByRole('navigation', { name: 'Setup steps' }).getByRole('listitem');
+  await expect(steps).toHaveCount(expected.length);
+  for (const [i, [title, state]] of expected.entries()) {
+    await expect(steps.nth(i).getByRole('heading')).toHaveText(`Step ${i + 1} of 3: ${title}`);
+    await expect(steps.nth(i).locator('strong')).toHaveText(state);
+  }
   expect(refused).toEqual([]);
   expect(errors).toEqual([]);
+
+  // Every room is reachable from navigation, and each one that moves money out says why it is off.
+  const rooms = await everyRoomOpens(page, { moneyOff: MONEY_OFF_INACTIVE });
+  await test
+    .info()
+    .attach('rooms-and-states.json', { body: JSON.stringify(Object.fromEntries(rooms), null, 2), contentType: 'application/json' });
   // The portal never asks the founder's console for anything.
   expect(asked.filter((url) => /founderAdmin/i.test(url))).toEqual([]);
 });

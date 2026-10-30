@@ -208,3 +208,96 @@ export async function paidCardPayment(api, merchantId, { key, amount, assetId = 
   if (authorized.status !== 'authorized') return authorized;
   return api.mutate('payment.capture', { paymentId: created.id });
 }
+
+/** The sentence every refund and payout control shows while the business account is not active (`money-step.ts`). */
+export const MONEY_OFF_INACTIVE = 'Refunds and payouts open once your business account is active.';
+
+/** The rooms whose header action moves money out: Pay out or Issue refund. */
+const MONEY_ROOMS = ['/pay/money', '/pay/payouts', '/pay/payouts/destinations', '/pay/settlements', '/pay/refunds'];
+
+/** The rooms that list the business's own records, so a new business has none and each must say so honestly. */
+const LIST_ROOMS = [
+  '/pay/payments',
+  '/pay/links',
+  '/pay/products',
+  '/pay/refunds',
+  '/pay/disputes',
+  '/pay/customers',
+  '/pay/invoices',
+  '/pay/subscriptions',
+  '/pay/payouts',
+  '/pay/payouts/destinations',
+  '/pay/settlements',
+  '/pay/conversion',
+  '/pay/developer/keys',
+];
+
+/** What an honest empty room shows: the kit's empty state, the card naming what it waits for, or a refusal in words. */
+const HONEST =
+  '[data-slot="state-block"][data-kind="empty"], [data-slot="state-block"][data-kind="refused"], [data-testid="pfo-soon"], [data-testid="failure"]';
+
+/** Every room the portal's navigation reaches from the page, with its own address. */
+async function navRooms(page) {
+  const hrefs = await page.locator('nav a[href^="/pay/"]').evaluateAll((links) => links.map((a) => a.getAttribute('href')));
+  return [...new Set(hrefs)];
+}
+
+/**
+ * The person opens each room from navigation, starting at the business home: each shows its own heading and finishes
+ * loading, never "no access", never an error block or an uncertain failure, no refused read, no console error, and no
+ * room asks the founder's console for anything. A room that lists the business's records shows an honest state for a
+ * new business: the kit's empty state, the card naming what it waits for, or a typed refusal in words. With
+ * `moneyOff`, each room whose header action moves money out shows that action switched off with that sentence beside
+ * it. Returns each room and the states it showed.
+ */
+export async function everyRoomOpens(page, { moneyOff } = {}) {
+  const refused = refusedPayCalls(page);
+  const errors = [];
+  const asked = [];
+  const onConsole = (msg) => msg.type() === 'error' && errors.push(msg.text());
+  const onRequest = (req) => req.url().includes('/api/') && asked.push(req.url());
+  page.on('console', onConsole);
+  page.on('request', onRequest);
+  await page.goto('/pay/merchant');
+  await expect(page.locator('main h1').first()).toBeVisible();
+  await expect(page.locator('nav a[href^="/pay/"]').first()).toBeVisible();
+  const visited = new Map();
+  const queue = await navRooms(page);
+  while (queue.length) {
+    const room = queue.shift();
+    if (visited.has(room)) continue;
+    await page.goto(room);
+    const content = page.getByTestId('pp');
+    await expect(page.locator('main h1').first(), room).toBeVisible();
+    await expect(content.locator('[data-slot="state-block"][data-kind="loading"]'), `${room} finishes loading`).toHaveCount(0);
+    await expect(page.getByText('You don’t have access'), room).toHaveCount(0);
+    await expect(content.locator('[data-slot="state-block"][data-kind="error"]'), `${room} shows no error`).toHaveCount(0);
+    await expect(content.locator('[data-testid="failure"][role="alert"]'), `${room} shows no uncertain failure`).toHaveCount(0);
+    if (LIST_ROOMS.includes(room))
+      await expect(content.locator(HONEST).first(), `${room}: a new business's list says honestly that it is empty`).toBeVisible();
+    const states = {
+      empty: await content.locator('[data-slot="state-block"][data-kind="empty"]').count(),
+      waiting: await content.getByTestId('pfo-soon').count(),
+      refused:
+        (await content.locator('[data-slot="state-block"][data-kind="refused"]').count()) + (await content.getByTestId('failure').count()),
+    };
+    for (const block of await content.locator('[data-slot="state-block"][data-kind="empty"], [data-testid="pfo-soon"]').all())
+      await expect(block, `${room}: the state says something`).not.toHaveText(/^\s*$/);
+    if (moneyOff && MONEY_ROOMS.includes(room)) {
+      const off = page.getByTestId('plo-heading').locator('.pfo-action-off');
+      await expect(off, `${room}: its money action is drawn, switched off`).toHaveCount(1);
+      await expect(off.getByRole('button'), room).toBeDisabled();
+      await expect(off.getByRole('button'), room).toHaveAccessibleDescription(moneyOff);
+    }
+    visited.set(room, states);
+    for (const next of await navRooms(page)) if (!visited.has(next)) queue.push(next);
+  }
+  page.off('console', onConsole);
+  page.off('request', onRequest);
+  expect(visited.size).toBeGreaterThan(20);
+  for (const room of [...LIST_ROOMS, ...(moneyOff ? MONEY_ROOMS : [])]) expect([...visited.keys()], `${room} is reached`).toContain(room);
+  expect(refused).toEqual([]);
+  expect(errors).toEqual([]);
+  expect(asked.filter((url) => /founderAdmin/i.test(url))).toEqual([]);
+  return visited;
+}
