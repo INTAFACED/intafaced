@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { signIn, signUp } from './desk.mjs';
-import { EDGE, ORIGIN, api, signOutBrowser } from './stack.mjs';
+import { EDGE, ORIGIN, api, signOutBrowser, tool } from './stack.mjs';
 import { tableIn, bodyRows } from './tables.mjs';
 import { readFileSync } from 'node:fs';
 import { createPublicClient, createWalletClient, encodeFunctionData, getAddress, http, parseAbi } from 'viem';
@@ -531,24 +531,96 @@ test(`${J} #9 reads the pool's fee fields: as the contract holds them, no third 
   await expect(page.getByRole('alert')).toContainText('protocol fee policy is not set');
 });
 
+/**
+ * A contract that forwards the value it is sent to the address in its calldata, by an internal call. #10 deploys it as
+ * the twin transaction. Runtime code: CALL(gas, calldataload(0), callvalue, 0, 0, 0, 0), then STOP.
+ */
+const FORWARDER_DEPLOY = '0x600f600c600039600f6000f3' + '600060006000600034600035' + '5af100';
+
+/** Polls the indexer until it has stored the canonical block at `height`, so the page reads a block that holds the run's txs. */
+async function indexedTo(height) {
+  const input = (h) => encodeURIComponent(JSON.stringify({ chainId: testChain().chainId, height: h }));
+  await expect(async () => {
+    const res = await fetch(`${EDGE}/api/indexer/trpc/explorer.blocks.get?input=${input(height)}`, { headers: { origin: ORIGIN } });
+    expect(res.status).toBe(200);
+  }).toPass({ timeout: 60_000 });
+}
+
+/** One JSON-RPC call to a TEST network's gate. */
+async function rpcAt(url, method, params = []) {
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }),
+  });
+  const body = await response.json();
+  if (body.error) throw new Error(`${method}: ${JSON.stringify(body.error)}`);
+  return body.result;
+}
+
+/**
+ * One transaction with the same hash on both TEST networks. A legacy transaction signed without a chain id (pre-EIP-155)
+ * is valid on any chain, so a fresh key sends the same signed bytes, at nonce 0, to each. Returns the hash and the
+ * block each network mined it in, both read from the chains themselves.
+ */
+async function twinTx() {
+  const chain = testChain();
+  expect(chain.chain, 'the stack runs no TEST chain, so no transaction can be sent').toBe('running');
+  expect(chain.second?.gate, 'the stack runs no second TEST network').toBe('open');
+  const account = privateKeyToAccount(generatePrivateKey());
+  const urls = [chain.gateUrl, chain.second.gateUrl];
+  for (const url of urls) await rpcAt(url, 'anvil_setBalance', [account.address, '0xde0b6b3a7640000']);
+  const signed = await account.signTransaction({
+    type: 'legacy',
+    nonce: 0,
+    gas: 100_000n,
+    gasPrice: 20_000_000_000n,
+    to: null,
+    data: FORWARDER_DEPLOY,
+  });
+  const hashes = [];
+  for (const url of urls) hashes.push(await rpcAt(url, 'eth_sendRawTransaction', [signed]));
+  expect(hashes[1], 'the same signed transaction has the same hash on both networks').toBe(hashes[0]);
+  const blocks = [];
+  for (const url of urls) {
+    const reader = createPublicClient({ transport: http(url) });
+    const receipt = await reader.waitForTransactionReceipt({ hash: hashes[0] });
+    expect(receipt.status).toBe('success');
+    blocks.push(Number(receipt.blockNumber));
+  }
+  return { hash: hashes[0], primaryHeight: blocks[0], secondHeight: blocks[1] };
+}
+
 test(`${J} #10 searches a hash that exists on two networks: both are listed, and a network that did not answer reads "not checked" with its reason`, async ({
   page,
 }) => {
-  // An unknown hash reads "Not found" everywhere and proves nothing about two networks: the hash searched is one the
-  // stack's two test networks both hold (the same signed deploy sent to each), read from the first network's list.
+  const { hash, primaryHeight, secondHeight } = await twinTx();
+  await indexedTo(primaryHeight);
+  const networks = page.getByRole('list', { name: 'Networks searched' }).getByRole('listitem');
+  const primary = networks.filter({ hasText: /^Base Sepolia test network: / });
+  const second = networks.filter({ hasText: /^Local test chain: / });
+
+  // Both networks hold the hash, and both are listed as Found: the explorer's own from its index, the second network
+  // from its node. These are the only two networks the stack's explorer searches, so exactly two read Found.
   await page.goto('/chain');
-  const link = tableIn(page, 'Latest transactions')
-    .getByRole('link', { name: /^0x[0-9a-f]{4}/ })
-    .first();
-  await expect(link).toBeVisible(UNBUILT);
-  const hash = (await link.getAttribute('href'))?.match(/0x[0-9a-fA-F]{64}/)?.[0];
-  expect(hash).toMatch(/^0x[0-9a-fA-F]{64}$/);
   await search(page).fill(hash);
   await search(page).press('Enter');
-  const networks = page.getByRole('list', { name: 'Networks searched' }).getByRole('listitem');
-  await expect.poll(() => networks.count()).toBeGreaterThan(1);
-  for (const network of await networks.all()) await expect(network).toContainText(/Found|Not found|not checked: .+/);
-  await expect.poll(() => networks.filter({ hasText: /: Found/ }).count()).toBeGreaterThan(1);
+  await expect(primary).toHaveText('Base Sepolia test network: Found (Success) Open transaction');
+  await expect(second).toHaveText(`Local test chain: Found (Success, block ${secondHeight})`);
+  await expect(networks.filter({ hasText: /: Found \(/ })).toHaveCount(2);
+
+  // The second network's node is made not to answer (the stack's gate for that network is closed), and the same hash
+  // is searched again: that network reads "not checked" with its reason, never "Not found", and the first still Found.
+  try {
+    tool('local-test-chain.mjs', 'gate', 'closed', 'second');
+    expect(testChain().second.gate).toBe('closed');
+    await search(page).press('Enter');
+    await expect(second).toHaveText('Local test chain: not checked: the network’s node didn’t answer', { timeout: 15_000 });
+    await expect(primary).toHaveText('Base Sepolia test network: Found (Success) Open transaction');
+  } finally {
+    tool('local-test-chain.mjs', 'gate', 'open', 'second');
+  }
+  expect(testChain().second.gate).toBe('open');
 });
 
 test(`${J} #11 requests a token info update with the token owner's signature: the proof is stored; a replayed challenge, a non-owner and an ownerless token each refuse with their own reason`, async ({
