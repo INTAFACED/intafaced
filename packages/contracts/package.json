@@ -154,6 +154,10 @@
       "types": "./dist/support-kb-library.d.ts",
       "default": "./dist/support-kb-library.js"
     },
+    "./support-kb-review": {
+      "types": "./dist/support-kb-review.d.ts",
+      "default": "./dist/support-kb-review.js"
+    },
     "./support-help-centre": {
       "types": "./dist/support-help-centre.d.ts",
       "default": "./dist/support-help-centre.js"
@@ -233,6 +237,10 @@
     "./protocol-watch-preferences": {
       "types": "./dist/protocol-watch-preferences.d.ts",
       "default": "./dist/protocol-watch-preferences.js"
+    },
+    "./protocol-listing": {
+      "types": "./dist/protocol-listing.d.ts",
+      "default": "./dist/protocol-listing.js"
     },
     "./ledger-reconciliation": {
       "types": "./dist/ledger-reconciliation.d.ts",

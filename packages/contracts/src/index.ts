@@ -108,6 +108,7 @@ export * from './home-work-items.js';
 export * from './support-attachments.js';
 export * from './support-contact.js';
 export * from './support-kb-library.js';
+export * from './support-kb-review.js';
 export * from './support-help-centre.js';
 export * from './support-forms.js';
 export * from './outreach-public.js';

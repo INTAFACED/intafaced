@@ -33,6 +33,8 @@ export interface BoardOffer {
   pauseReason: 'method_removed' | null;
   /** P-ads-merchant-06: null on the board, which lists active ads only. */
   closeReason: 'by_you' | 'sold_out' | null;
+  /** P-ads-merchant-07: public on the board, except a viewer's own private ads. */
+  visibility: 'public' | 'private';
   statusSince: Date;
   relistedFrom: string | null;
   createdAt: Date;
@@ -202,6 +204,7 @@ interface BoardRow {
   status: 'active' | 'paused' | 'closed';
   pause_reason?: 'method_removed' | null;
   close_reason?: 'by_you' | 'sold_out' | null;
+  visibility?: 'public' | 'private';
   status_since?: Date;
   relisted_from?: string | null;
   created_at: Date;
@@ -228,6 +231,7 @@ export function boardRowToOffer(row: BoardRow): BoardOffer {
     status: row.status,
     pauseReason: row.pause_reason ?? null,
     closeReason: row.close_reason ?? null,
+    visibility: row.visibility ?? 'public',
     statusSince: row.status_since ?? (row.created_at instanceof Date ? row.created_at : new Date(row.created_at)),
     relistedFrom: row.relisted_from ?? null,
     createdAt: row.created_at instanceof Date ? row.created_at : new Date(row.created_at),
@@ -248,6 +252,8 @@ export async function selectOfferBoard(sql: Sql, filter: BoardFilter): Promise<B
       FROM p2p.offers
      WHERE status = 'active'
        AND remaining_amt >= min_amt
+       -- P-ads-merchant-07: private ads are not on the board, except to their own maker.
+       AND (visibility = 'public' OR maker_id = ${filter.viewerId ?? null})
        AND (${filter.asset ?? null}::text IS NULL OR asset = ${filter.asset ?? null})
        AND (${filter.fiatCurrency ?? null}::text IS NULL OR fiat_currency = ${filter.fiatCurrency ?? null})
        AND (${filter.side ?? null}::text IS NULL OR side::text = ${filter.side ?? null})

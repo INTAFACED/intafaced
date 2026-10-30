@@ -203,7 +203,7 @@ describe('LoanService.releaseExcess refuses missing loan or mark before any post
 
   it('bank.loan_not_found — no loan.collateral.released', async () => {
     const bank = createBankServices(sql, ledger, memoryLedgerHistory(ledger), {
-      loans: { priceSource: fixedPriceSource({ BTC: { price: '10000', quality: 'mid' } }, () => NOW) },
+      loans: { originationFeeBps: '0', priceSource: fixedPriceSource({ BTC: { price: '10000', quality: 'mid' } }, () => NOW) },
     });
 
     await expect(bank.loans.releaseExcess({ loanId: MISSING, eventId: randomUUID(), amount: amt('1'), now: NOW })).rejects.toMatchObject({
@@ -215,11 +215,11 @@ describe('LoanService.releaseExcess refuses missing loan or mark before any post
 
   it('bank.mark_missing — no release', async () => {
     const openBank = createBankServices(sql, ledger, memoryLedgerHistory(ledger), {
-      loans: { priceSource: fixedPriceSource({ BTC: { price: '10000', quality: 'mid' } }, () => NOW) },
+      loans: { originationFeeBps: '0', priceSource: fixedPriceSource({ BTC: { price: '10000', quality: 'mid' } }, () => NOW) },
     });
     const opened = await seedOpenLoan(openBank, ledger);
     const bank = createBankServices(sql, ledger, memoryLedgerHistory(ledger), {
-      loans: { priceSource: fixedPriceSource({}, () => NOW) },
+      loans: { originationFeeBps: '0', priceSource: fixedPriceSource({}, () => NOW) },
     });
 
     await expect(
@@ -247,7 +247,7 @@ describe('HTTP /trpc/loans.releaseExcess — peel through ledger-client', () => 
 
   it('refuses bank.loan_not_found on the public door and posts nothing', async () => {
     const bank = createBankServices(sql, ledger, memoryLedgerHistory(ledger), {
-      loans: { priceSource: fixedPriceSource({ BTC: { price: '10000', quality: 'mid' } }, () => NOW) },
+      loans: { originationFeeBps: '0', priceSource: fixedPriceSource({ BTC: { price: '10000', quality: 'mid' } }, () => NOW) },
     });
     const app = await mountDoors(bank);
 
@@ -266,11 +266,11 @@ describe('HTTP /trpc/loans.releaseExcess — peel through ledger-client', () => 
 
   it('refuses bank.mark_missing on the public door and posts nothing', async () => {
     const openBank = createBankServices(sql, ledger, memoryLedgerHistory(ledger), {
-      loans: { priceSource: fixedPriceSource({ BTC: { price: '10000', quality: 'mid' } }, () => NOW) },
+      loans: { originationFeeBps: '0', priceSource: fixedPriceSource({ BTC: { price: '10000', quality: 'mid' } }, () => NOW) },
     });
     const opened = await seedOpenLoan(openBank, ledger);
     const bank = createBankServices(sql, ledger, memoryLedgerHistory(ledger), {
-      loans: { priceSource: fixedPriceSource({}, () => NOW) },
+      loans: { originationFeeBps: '0', priceSource: fixedPriceSource({}, () => NOW) },
     });
     const app = await mountDoors(bank);
 
@@ -290,7 +290,7 @@ describe('HTTP /trpc/loans.releaseExcess — peel through ledger-client', () => 
 
   it('with a mark, posts loan.collateral.released — no invented rate', async () => {
     const bank = createBankServices(sql, ledger, memoryLedgerHistory(ledger), {
-      loans: { priceSource: fixedPriceSource({ BTC: { price: '10000', quality: 'mid' } }) },
+      loans: { originationFeeBps: '0', priceSource: fixedPriceSource({ BTC: { price: '10000', quality: 'mid' } }) },
     });
     const opened = await seedOpenLoan(bank, ledger, new Date(), '2');
     const app = await mountDoors(bank);

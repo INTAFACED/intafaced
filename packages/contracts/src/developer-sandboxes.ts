@@ -94,6 +94,20 @@ export const sandboxKeyCreateOutputSchema = z
   .strict();
 export type SandboxKeyCreateOutput = z.infer<typeof sandboxKeyCreateOutputSchema>;
 
+/**
+ * Sandbox test funds (DV-sandbox-02, J-developer-02 #4), served by svc-pay at `sandboxFunds.fund`. Where a sandbox's
+ * TEST balances live is the owner's decision (ENGINE section 10 item 2: the sandbox store). Until it is made, the fund
+ * door refuses `pay.sandbox_funds_unset` and nothing is written anywhere. There is no balance to read either, so the
+ * room shows the balance as not set. No success shape exists until the store does.
+ */
+export const SANDBOX_FUND_REFUSALS = ['pay.sandbox_funds_unset'] as const;
+export type SandboxFundRefusal = (typeof SANDBOX_FUND_REFUSALS)[number];
+
+export const sandboxFundInputSchema = z.object({ sandboxId: z.string().guid(), requestId: apiKeyRequestIdSchema }).strict();
+export type SandboxFundInput = z.infer<typeof sandboxFundInputSchema>;
+/** Never answered with a value: every fund refuses until the sandbox store exists. */
+export const sandboxFundOutputSchema = z.never();
+
 /** FNV-1a, 64 bits, as in `api-keys.ts`: a short stable digest. */
 function digest(text: string): string {
   let hash = 0xcbf29ce484222325n;
@@ -115,6 +129,11 @@ export function sandboxCreateRequestId(userId: string, listed: readonly { id: st
     .sort()
     .join(',');
   return `sandbox-create:${userId.toLowerCase()}:${digest(seen)}:${digest(name.trim().toLowerCase())}`;
+}
+
+/** The request id of one press of Fund: the person, the sandbox and the balance the page read (null while not set). */
+export function sandboxFundRequestId(userId: string, sandboxId: string, balance: string | null): string {
+  return `sandbox-fund:${userId.toLowerCase()}:${sandboxId.toLowerCase()}:${digest(balance ?? 'unset')}`;
 }
 
 /** The request id of one sandbox key create: the sandbox, the keys it last listed and the key asked for. */
