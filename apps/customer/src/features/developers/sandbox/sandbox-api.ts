@@ -95,12 +95,7 @@ export async function createSandboxKey(
 /** What the address under /developers/sandbox names. */
 export function sandboxRoute(
   path: string,
-):
-  | { kind: 'list' }
-  | { kind: 'test-values' }
-  | { kind: 'sandbox'; id: string }
-  | { kind: 'new-key'; id: string }
-  | { kind: 'unknown' } {
+): { kind: 'list' } | { kind: 'test-values' } | { kind: 'sandbox'; id: string } | { kind: 'new-key'; id: string } | { kind: 'unknown' } {
   const clean = path.split(/[?#]/)[0]!.replace(/\/+$/, '');
   if (clean === '/developers/sandbox') return { kind: 'list' };
   if (clean === '/developers/sandbox/test-values') return { kind: 'test-values' };
