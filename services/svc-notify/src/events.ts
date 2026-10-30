@@ -900,7 +900,8 @@ export async function subscribeNotificationEvents(
 
   // An own agent's monthly spend alert (J-agents-02 #6): svc-agents records it once per agent and UTC month and
   // publishes it on that business key, so the owner gets one inbox row for it however often it is sent. Email is the
-  // person's choice on the Limits page, which shows that channel's real state; this row is the in-app notice.
+  // person's choice on the Limits page, which shows that channel's real state: only then does the row go out of app.
+  // The month's spend is `amount`, so a test build labels the figure TEST.
   attachments.push(
     await attach(bus, 'agentUsageAlertCrossed', agentUsageAlertCrossed.subject, 'notify-agent-usage-alert', async (payload) => {
       nakIfRetryable(
@@ -909,12 +910,12 @@ export async function subscribeNotificationEvents(
           kind: 'agents.usage_alert.crossed',
           titleKey: 'notify.agents.usage_alert.crossed.title',
           bodyKey: 'notify.agents.usage_alert.crossed.body',
-          params: { spent: payload.spent, alertAt: payload.alertAt, asset: payload.assetId, month: payload.month },
+          params: { amount: payload.spent, alertAt: payload.alertAt, asset: payload.assetId, month: payload.month },
           href: `/agents/${payload.agentId}`,
           severity: 'action',
           sourceSubject: agentUsageAlertCrossed.subject,
           sourceIdempotencyKey: payload.alertKey,
-          outOfApp: false,
+          outOfApp: payload.email,
         }),
       );
     }),

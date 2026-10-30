@@ -44,7 +44,7 @@ describe('own agent usage alert notice (J-agents-02 #6)', () => {
       titleKey: 'notify.agents.usage_alert.crossed.title',
       bodyKey: 'notify.agents.usage_alert.crossed.body',
       href: `/agents/${AGENT}`,
-      params: { spent: '0.0102', alertAt: '0.01', asset: 'USDT', month: '2026-10' },
+      params: { amount: '0.0102', alertAt: '0.01', asset: 'USDT', month: '2026-10' },
     });
     expect(await inboxOf(OTHER)).toHaveLength(0);
   });
@@ -53,13 +53,13 @@ describe('own agent usage alert notice (J-agents-02 #6)', () => {
     const { bus, inboxOf } = await wired();
     await bus.publish('agentUsageAlertCrossed', crossed('2026-10', '0.0102'));
     await bus.publish('agentUsageAlertCrossed', crossed('2026-11', '0.011'));
-    expect((await inboxOf(OWNER)).map((row) => row.params.month)).toEqual(expect.arrayContaining(['2026-10', '2026-11']));
+    expect((await inboxOf(OWNER)).map((row) => row.params.month).sort()).toEqual(['2026-10', '2026-11']);
   });
 
   it('the title and body are words in the catalog, naming every param the row carries', () => {
     const words = en as Record<string, string>;
     expect(words['notify.agents.usage_alert.crossed.title']).toBe('Agent spend passed your alert');
     const body = words['notify.agents.usage_alert.crossed.body']!;
-    for (const param of ['spent', 'alertAt', 'asset', 'month']) expect(body).toContain(`{${param}}`);
+    for (const param of ['amount', 'alertAt', 'asset', 'month']) expect(body).toContain(`{${param}}`);
   });
 });
