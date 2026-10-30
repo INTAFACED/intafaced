@@ -1,7 +1,7 @@
 import { Component, Suspense, lazy, useEffect, type MouseEvent, type ReactNode } from 'react';
 import { Page, EmptyState, Button, Loading } from '../shared/ui';
-import { deskPairLabel, findRoom, resolveAlias, roomTitle, safeReturnTo, type Room } from './navigation';
-import { useLocation, useReturnLocation, currentReturnLocation, navigate } from './location';
+import { deskPairLabel, findRoom, resolveAlias, roomTitle, type Room } from './navigation';
+import { useLocation, navigate } from './location';
 import { Shell } from './Shell';
 import { preloadMerchantChrome } from './TopBar';
 import { useSession } from '../features/session/session';
@@ -19,6 +19,7 @@ import { isMerchantArea } from '../features/pay/portal/chrome/model';
 import { SessionNotice } from './SessionNotice';
 import { rememberShellRoute } from '../features/protocol/shell-state';
 import { TeamDesk, teamConsoleHref } from './TeamDesk';
+import { SessionRetryPanel, SignInPanel } from './SignInPanel';
 import { matchMoreRoute } from '../features/more/more-room-routes';
 
 // Rooms outside the customer doors load on demand, so a first visit to Home does not download them.
@@ -80,22 +81,6 @@ function legacyArea(room: Room): LegacyArea | undefined {
   return room.area === 'money' || room.area === 'trade' || room.area === 'pay' || room.area === 'more' || room.area === 'person'
     ? room.area
     : undefined;
-}
-
-function RoomSignIn({ children }: { children: ReactNode }) {
-  const current = useReturnLocation();
-  return (
-    <a
-      className="button button--primary"
-      href={`/login?redirect=${encodeURIComponent(safeReturnTo(current))}`}
-      onClick={(event) => {
-        // Native hashchange is queued; capture again at link activation.
-        event.currentTarget.href = `/login?redirect=${encodeURIComponent(safeReturnTo(currentReturnLocation()))}`;
-      }}
-    >
-      {children}
-    </a>
-  );
 }
 
 export function App() {
@@ -192,9 +177,7 @@ export function App() {
     body = (
       <div className="legacy-room">
         <Page title={room ? roomTitle(room, requestedLocale) : t('Sign in')}>
-          <EmptyState title={t('We could not check your sign-in')} action={<Button onClick={retryRestore}>{t('Retry')}</Button>}>
-            {t('The account service did not answer. Your sign-in is not lost; try again.')}
-          </EmptyState>
+          <SessionRetryPanel retry={retryRestore} />
         </Page>
       </div>
     );
@@ -202,9 +185,7 @@ export function App() {
     body = (
       <div className="legacy-room">
         <Page title={room ? roomTitle(room, requestedLocale) : t('Sign in')}>
-          <EmptyState title={t('Sign in to continue')} action={<RoomSignIn>{t('Sign in')}</RoomSignIn>}>
-            {t('Your account context is needed before this room can show private information.')}
-          </EmptyState>
+          <SignInPanel />
         </Page>
       </div>
     );

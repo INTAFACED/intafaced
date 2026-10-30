@@ -4,7 +4,10 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const answers = new Map<string, unknown>();
-const query = vi.fn((_module: string, procedure: string, input: { hash?: string }) => {
+const tokenAnswers = new Map<string, unknown>();
+const query = vi.fn((_module: string, procedure: string, input: { hash?: string; symbol?: string }) => {
+  if (procedure === 'explorer.tokens.bySymbol')
+    return Promise.resolve(tokenAnswers.get(input.symbol!) ?? { ok: true, data: { rows: [], more: false, asOf: '' } });
   if (procedure !== 'explorer.tx.get') return new Promise(() => undefined);
   const answer = answers.get(input.hash!);
   return answer === undefined ? new Promise(() => undefined) : Promise.resolve(answer);
@@ -36,6 +39,7 @@ const networks = () => host.querySelector('[aria-label="Networks searched"]')?.t
 
 beforeEach(async () => {
   answers.clear();
+  tokenAnswers.clear();
   host = document.createElement('div');
   document.body.append(host);
   root = createRoot(host);
@@ -69,5 +73,29 @@ describe('Chain home search', () => {
     answers.set(B, tx(B, { status: 'replaced', replacingHash: `0x${'c'.repeat(64)}`, orphaned: { reason: 'reorg' } }));
     await search(B);
     expect(networks()).toContain('Found (Replaced by 0xcccccccc…cccccc)');
+  });
+
+  it('lists every token sharing a symbol as its own result, never merged, and says when none has it', async () => {
+    const one = `0x${'1'.repeat(40)}`;
+    const two = `0x${'2'.repeat(40)}`;
+    const token = (address: string, symbol: string) => ({ chainId: 84532, address, symbol, name: null, decimals: 18 });
+    tokenAnswers.set('same', { ok: true, data: { rows: [token(one, 'SAME'), token(two, 'same')], more: false, asOf: '' } });
+    await search('same');
+    const options = [...host.querySelectorAll('[role="option"][data-kind="token"]')];
+    expect(options.map((o) => o.getAttribute('data-address'))).toEqual([one, two]);
+    expect(options.map((o) => o.getAttribute('data-symbol'))).toEqual(['SAME', 'same']);
+    await search('NOPE');
+    // Typing again waits for a pause before reading, and never shows the last symbol's tokens meanwhile.
+    expect(host.querySelector('[data-kind="token"]')).toBeNull();
+    expect(host.textContent).toContain('Looking for tokens with this symbol on Base Sepolia test network…');
+    await act(() => new Promise((resolve) => setTimeout(resolve, 350)));
+    expect(host.textContent).toContain('No token on Base Sepolia test network has the symbol “NOPE”.');
+    expect(host.querySelector('[data-kind="token"]')).toBeNull();
+  });
+
+  it('shows the indexer’s refusal instead of an empty token list', async () => {
+    tokenAnswers.set('X', { ok: false, code: 'indexer.explorer_list_limit_unset', message: 'The explorer list size is not set.' });
+    await search('X');
+    expect(host.textContent).toContain('Tokens were not searched: The explorer list size is not set.');
   });
 });

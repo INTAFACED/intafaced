@@ -3,41 +3,22 @@ import { navigate } from '../../../app/location';
 import { useApi } from '../../session/session';
 import { usePreferences } from '../../../shared/preferences';
 import { useResource } from '../../../shared/resource';
+import { useDebouncedValue } from '../../pay/portal/payments/use-debounced';
 import type { ApiResult } from '../../../shared/api';
-import { Button, DataTable, EmptyState, Loading, Panel } from '../../../shared/ui';
-import { isServiceNotConnected, KNOWN_NETWORKS, networkLabel } from '../blockers';
+import { Button, DataTable, Loading, Panel } from '../../../shared/ui';
+import { KNOWN_NETWORKS, networkLabel } from '../blockers';
 import type { ChainRef } from '../NetworkPanels';
 import { explorerCopy, type ExplorerTranslate } from './copy';
-import { createExplorerApi, isNotFound, type ExplorerApi, type ExplorerBlocksPage, type ExplorerTx } from './explorer-api';
+import {
+  createExplorerApi,
+  isNotFound,
+  type ExplorerApi,
+  type ExplorerBlocksPage,
+  type ExplorerToken,
+  type ExplorerTx,
+} from './explorer-api';
+import { BlockerNote, NoteRow, refusalWords, short, TxTable, txStatusWords } from './pages';
 import { classifyQuery, pathFor, type ExplorerQuery } from './search';
-
-type Failure = Extract<ApiResult<unknown>, { ok: false }>;
-
-/** Why the indexer gave no answer, in words. A gateway with no indexer behind it says so instead of a raw code. */
-function refusalWords(failure: Failure, t: ExplorerTranslate): string {
-  if (isServiceNotConnected(failure.code)) return t('reasonIndexerNotConnected');
-  if (failure.code === 'edge.upstream_unavailable') return t('reasonIndexerNoAnswer');
-  return failure.message;
-}
-
-const short = (hex: string) => `${hex.slice(0, 10)}…${hex.slice(-6)}`;
-
-/** A table row that holds only a note: why the table is empty, or that it is loading. */
-function NoteRow({ span, children }: { span: number; children: ReactNode }) {
-  return (
-    <tr>
-      <td colSpan={span}>{children}</td>
-    </tr>
-  );
-}
-function BlockerNote({ title, action }: { title: string; action?: ReactNode }) {
-  return (
-    <div role="status" data-blocker="indexer">
-      <EmptyState title={title} />
-      {action}
-    </div>
-  );
-}
 
 /**
  * Chain home (D-explorer-07): the explorer search, the latest blocks and transactions on the network the indexer reads,
@@ -51,7 +32,6 @@ export function ChainHome({ chain }: { chain: ChainRef }) {
   const api = useMemo(() => createExplorerApi(transport), [transport]);
   const chainId = chain.status === 'ready' ? chain.chainId : null;
   const network = chainId === null ? null : networkLabel(chainId).name;
-  const txHeaders = [t('hdrHash'), t('hdrFrom'), t('hdrTo'), t('hdrStatus')];
   return (
     <>
       <p className="explorer-intachain" data-testid="chain-intachain">
@@ -60,11 +40,7 @@ export function ChainHome({ chain }: { chain: ChainRef }) {
       <ExplorerSearch api={api} chain={chain} t={t} />
       <LatestBlocks api={api} chain={chain} locale={renderedLocale} t={t} />
       <Panel title={t('latestTxs')}>
-        <DataTable label={t('latestTxs')} headers={txHeaders}>
-          <NoteRow span={txHeaders.length}>
-            <BlockerNote title={t('txsNoList')} />
-          </NoteRow>
-        </DataTable>
+        <TxTable api={api} chain={chain} label={t('latestTxs')} emptyWords={t('txsNone', { network: network ?? '' })} t={t} />
       </Panel>
     </>
   );
@@ -143,24 +119,6 @@ function LatestBlocks({ api, chain, locale, t }: { api: ExplorerApi; chain: Chai
   );
 }
 
-/**
- * The indexer's status in words. The indexer marks a transaction `replaced` only when its block was reorged and another
- * transaction took its place, so the replacing hash leads; any other transaction from a reorged block keeps its outcome and
- * says the block was reorged. Nothing reorged or replaced ever reads as plain Success.
- */
-export function txStatusWords(tx: ExplorerTx, t: ExplorerTranslate): string {
-  if (tx.status === 'replaced') return tx.replacingHash ? t('txReplacedBy', { hash: short(tx.replacingHash) }) : t('txReplaced');
-  const outcome = t(TX_STATUS[tx.status]);
-  return tx.orphaned ? t('txOrphaned', { outcome, reason: tx.orphaned.reason }) : outcome;
-}
-const TX_STATUS: Record<ExplorerTx['status'], 'txSuccess' | 'txReverted' | 'txPending' | 'txDropped' | 'txReplaced'> = {
-  success: 'txSuccess',
-  failed: 'txReverted',
-  pending: 'txPending',
-  dropped: 'txDropped',
-  replaced: 'txReplaced',
-};
-
 /** Every network this explorer knows, plus the configured one when it is not among them. */
 function searchedNetworks(chainId: number | null): { chainId: number; name: string }[] {
   const ids = Object.keys(KNOWN_NETWORKS).map(Number);
@@ -176,8 +134,8 @@ type NetworkAnswer =
 
 /**
  * One search box for addresses, transactions and blocks. An address or a block opens its page; a transaction hash is looked
- * up on every network this explorer knows, and each network says Found, Not found or why it was not checked. Text that
- * is none of these would be a token name, and there is no token list to search, so the box says so instead of guessing.
+ * up on every network this explorer knows, and each network says Found, Not found or why it was not checked. Any other
+ * text is a token symbol: every contract on the network that says it has that symbol is listed, one result each.
  */
 function ExplorerSearch({ api, chain, t }: { api: ExplorerApi; chain: ChainRef; t: ExplorerTranslate }) {
   const chainId = chain.status === 'ready' ? chain.chainId : null;
@@ -228,7 +186,7 @@ function ExplorerSearch({ api, chain, t }: { api: ExplorerApi; chain: ChainRef; 
     event.preventDefault();
     open();
   }
-  const hasResults = query.kind !== 'empty' && query.kind !== 'text';
+  const hasResults = query.kind !== 'empty';
 
   return (
     <Panel title={t('homeTitle')}>
@@ -248,8 +206,11 @@ function ExplorerSearch({ api, chain, t }: { api: ExplorerApi; chain: ChainRef; 
           {t('searchSubmit')}
         </Button>
       </form>
-      <SearchResults id={listId} query={query} onPick={open} t={t} />
-      {query.kind === 'text' && <p className="muted">{t('textNoTokenSource')}</p>}
+      {query.kind === 'text' ? (
+        <TokenResults id={listId} api={api} chain={chain} symbol={query.value} t={t} />
+      ) : (
+        <SearchResults id={listId} query={query} onPick={open} t={t} />
+      )}
       {answers && (
         <ul className="explorer-networks" aria-label={t('networksSearched')}>
           {answers.map((network) => (
@@ -271,7 +232,75 @@ function ExplorerSearch({ api, chain, t }: { api: ExplorerApi; chain: ChainRef; 
   );
 }
 
-/** The one result a query of a known shape has. Text has none: there is no token list to search. */
+/** Longest symbol the indexer keeps (svc-indexer `token-meta.ts`); a longer text cannot be one. */
+const SYMBOL_MAX_CHARS = 32;
+
+/**
+ * Text read as a token symbol (D-explorer-03): every token contract the indexer has seen with that symbol, ignoring case,
+ * one option each and never merged, each opening its contract's address page. The answer is the indexer's, never a list
+ * kept here.
+ */
+function TokenResults({
+  id,
+  api,
+  chain,
+  symbol,
+  t,
+}: {
+  id: string;
+  api: ExplorerApi;
+  chain: ChainRef;
+  symbol: string;
+  t: ExplorerTranslate;
+}) {
+  const chainId = chain.status === 'ready' ? chain.chainId : null;
+  // One read per pause in typing, not per key.
+  const settled = useDebouncedValue(symbol);
+  const fits = Array.from(settled).length <= SYMBOL_MAX_CHARS;
+  const tokens = useResource(
+    (signal) =>
+      chainId === null || !fits ? Promise.resolve({ ok: true as const, data: null }) : api.tokensBySymbol(chainId, settled, signal),
+    `explorer:tokens:${chainId ?? 'none'}:${settled}`,
+  );
+  if (chain.status === 'failed') return <p className="muted">{t('tokensChainUnknown')}</p>;
+  const network = chainId === null ? '' : networkLabel(chainId).name;
+  const { resource } = tokens;
+  if (chain.status === 'loading' || settled !== symbol || resource.status === 'loading')
+    return <p className="muted">{t('tokensSearching', { network: network || '…' })}</p>;
+  if (resource.status === 'failed') return <p className="muted">{t('tokensRefused', { reason: refusalWords(resource.failure, t) })}</p>;
+  const rows: readonly ExplorerToken[] = resource.data?.rows ?? [];
+  if (rows.length === 0) return <p className="muted">{t('tokensNone', { network, symbol })}</p>;
+  return (
+    <>
+      <ul id={id} role="listbox" aria-label={t('resultsLabel')} className="explorer-results">
+        {rows.map((token) => {
+          const pick = () => navigate(`/chain/address/${token.address}`);
+          return (
+            <li
+              key={token.address}
+              role="option"
+              aria-selected="false"
+              tabIndex={0}
+              data-kind="token"
+              data-address={token.address.toLowerCase()}
+              data-symbol={token.symbol ?? ''}
+              onClick={pick}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter') pick();
+              }}
+            >
+              <span className="badge">{t('resultToken')}</span> <span>{token.symbol ?? t('tokenNoSymbol')}</span>
+              {token.name && <span className="muted"> {token.name}</span>} <span className="explorer-results__value">{token.address}</span>
+            </li>
+          );
+        })}
+      </ul>
+      {resource.data?.more && <p className="muted">{t('tokensMore')}</p>}
+    </>
+  );
+}
+
+/** The one result a query of an address, a transaction hash or a block height has. */
 function SearchResults({ id, query, onPick, t }: { id: string; query: ExplorerQuery; onPick: () => void; t: ExplorerTranslate }) {
   if (query.kind === 'empty' || query.kind === 'text') return null;
   const label = query.kind === 'address' ? t('resultAddress') : query.kind === 'tx' ? t('resultTx') : t('resultBlock');

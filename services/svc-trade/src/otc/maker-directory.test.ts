@@ -338,10 +338,16 @@ describe('a desk request names its providers (CB-otc-01, platform counterparty)'
     expect(store.saved).toBe(0);
   });
 
-  it('up to the cap of listed platform providers is priced by the desk', async () => {
+  it('up to the cap of listed platform providers is priced by the desk, one quote per provider asked (#5)', async () => {
     const { svc, store } = desk(TEST_DIRECTORY_JSON);
     const q = await svc.quote(principal, req(['test-lp-a', 'test-lp-b', 'test-lp-c']));
     expect(q.counterparty).toBe('platform');
-    expect(store.saved).toBe(1);
+    expect(store.saved).toBe(3);
+    const quotes = await store.listRfq(q.rfqId);
+    expect(quotes.map((s) => [s.quote.makerId, s.quote.rfqSeq, s.quote.counterparty])).toEqual([
+      ['test-lp-a', 1, 'platform'],
+      ['test-lp-b', 2, 'platform'],
+      ['test-lp-c', 3, 'platform'],
+    ]);
   });
 });

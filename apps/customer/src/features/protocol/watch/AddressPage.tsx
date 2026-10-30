@@ -1,12 +1,12 @@
 import { useState, type FormEvent, type ReactNode } from 'react';
 import { upsertAddressWatch, WATCH_NOTE_MAX, WATCH_TAG_MAX, type AddressWatch } from '@intafaced/contracts/protocol-watch-preferences';
 import { navigate } from '../../../app/location';
-import { Button, DataTable, Dialog, EmptyState, Page, Panel } from '../../../shared/ui';
+import { Button, Dialog, EmptyState, Page, Panel } from '../../../shared/ui';
 import { usePreferences } from '../../../shared/preferences';
 import { useSession } from '../../session/session';
 import { protocolCopy } from '../copy';
 import { ADDRESS_SHAPE } from '../routes';
-import { BlockedRow } from '../tokens/BlockedRow';
+import { AddressTxs } from '../explorer/AddressTxs';
 import { useAccountAddressWatches } from './account-lists';
 import { watchCopy, type WatchTranslate } from './copy';
 import '../protocol.css';
@@ -125,8 +125,8 @@ function WatchPanel({ address, t }: { address: string; t: WatchTranslate }) {
 }
 
 /**
- * An address on the network the explorer reads (/chain/address/:address, D-explorer-03 and -04). The summary,
- * transactions and holdings wait on the indexer's address reader and say so; the private watch is the account's own
+ * An address on the network the explorer reads (/chain/address/:address, D-explorer-03 and -04). Its transactions are
+ * the indexer's; the summary and holdings wait on the indexer's balance reader and say so; the private watch is the account's own
  * record (`protocol.address-watches`). The explorer holds no funds.
  */
 export function AddressPage({ address }: { address: string | undefined }) {
@@ -146,7 +146,6 @@ export function AddressPage({ address }: { address: string | undefined }) {
         </Button>
       </WatchShell>
     );
-  const txHeaders = [t('hdrHash'), t('hdrTime'), t('hdrFrom'), t('hdrTo'), t('hdrAmount')];
   return (
     <WatchShell title={t('pageTitle', { address })} description={t('noFunds')}>
       <WatchPanel address={address} t={t} />
@@ -172,9 +171,7 @@ export function AddressPage({ address }: { address: string | undefined }) {
         </Panel>
       </section>
       <Panel title={t('transactions')}>
-        <DataTable label={t('transactions')} headers={txHeaders}>
-          <BlockedRow span={txHeaders.length}>{t('transactionsBlocked')}</BlockedRow>
-        </DataTable>
+        <AddressTxs key={address} address={address} />
       </Panel>
       <section aria-label={t('holdings')}>
         <Panel title={t('holdings')}>

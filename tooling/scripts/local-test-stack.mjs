@@ -73,6 +73,7 @@ import blueprint from './local-stack-services/blueprint.mjs';
 import edge from './local-stack-services/edge.mjs';
 import execution from './local-stack-services/execution.mjs';
 import identity, { confirmLocalFounderEmails } from './local-stack-services/identity.mjs';
+import indexer from './local-stack-services/indexer.mjs';
 import ledger from './local-stack-services/ledger.mjs';
 import market from './local-stack-services/market.mjs';
 import matching from './local-stack-services/matching.mjs';
@@ -171,6 +172,8 @@ const PORTS = {
   ops: 14519,
   // The Web3 rooms' read side; its RPC is the TEST chain's gate (local-test-chain.mjs, 14530-14532) when anvil is found.
   protocol: 14520,
+  // The chain explorer's read model; follows the TEST chain through the same gate (local-stack-services/indexer.mjs).
+  indexer: 14524,
   // LOCAL TEST stand-in for the object store Academy signs video URLs for (local-video-store.mjs).
   'video-store': 14521,
   // Seasons, limited drops and the TGE claim (the drop room).
@@ -214,6 +217,7 @@ const SCHEMAS = [
   'mining_pool',
   'ops',
   'protocol',
+  'indexer',
   'campaigns',
 ];
 // A schema whose service is named differently (svc-mining-pool owns schema mining_pool).
@@ -696,6 +700,7 @@ const BACKEND_PKGS = [
   'svc-mining-pool',
   'svc-ops',
   'svc-protocol',
+  'svc-indexer',
   'svc-campaigns',
   'svc-ws',
 ];
@@ -1055,13 +1060,13 @@ const EDGE_UPSTREAMS = {
   MINING_POOL_URL: 'mining-pool',
   OPS_URL: 'ops',
   PROTOCOL_URL: 'protocol',
+  INDEXER_URL: 'indexer',
   CAMPAIGNS_URL: 'campaigns',
 };
 
 /** Edge upstreams that are intentionally not started, each with the reason. The Customer app calls none of them except where noted. */
 const EDGE_ABSENT = {
   DEX_URL: 'On-chain DEX; needs chain RPC. The Web3 rooms show it as a service that did not answer.',
-  INDEXER_URL: 'Chain indexer; needs chain RPC. The Web3 rooms show it as a service that did not answer.',
   CONNECT_URL: 'Operator data-lake door; not a customer door.',
 };
 
@@ -1096,6 +1101,7 @@ const SERVICES = [
   tax,
   miningPool,
   protocol,
+  indexer,
   campaigns,
   ws,
   edge,
@@ -2543,7 +2549,7 @@ async function cmdMiningShare(rawArgs) {
   // Each share searches from its own start, derived from its label, so two shares of one rig never send the same work,
   // and one label sent again sends the same work (the pool refuses repeated work in a window as mining.share_duplicate).
   const start = Number.parseInt(crypto.createHash('sha256').update(shareId).digest('hex').slice(0, 12), 16);
-  const { rigShare } = await import('./local-stack-services/mining-rig.mjs');
+  const { rigShare } = await import('./local-test-mining-rig.mjs');
   let result;
   try {
     result = await rigShare({
