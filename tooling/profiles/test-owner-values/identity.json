@@ -221,6 +221,11 @@
       "value": "../../tooling/profiles/test-owner-values/identity-breached-passwords.sha1",
       "note": "A one-entry TEST breached-password list (TEST-breached-password-0001), so J-identity-03 #3 sees a breached password refused by name. A relative path is read from the services/svc-identity folder."
     },
+    "IDENTITY_HANDLE_CHANGE_MAX": {
+      "service": "identity",
+      "value": "3",
+      "note": "TEST: a person may change their handle three times in the life of the account, so the receive card shows the changes left and the cap refusal can be reached (J-pay-03 #2)."
+    },
     "IDENTITY_API_KEY_IDLE_EXPIRY_SECONDS": {
       "service": "identity",
       "value": "7776000",

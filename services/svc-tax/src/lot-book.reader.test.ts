@@ -59,7 +59,7 @@ const entry = (e: Partial<Entry> & Pick<Entry, 'txId' | 'direction' | 'amount' |
 });
 
 /** What the fake ledger answers. `available` is served in two pages to prove the reader follows the cursor. */
-function ledger(opts: { endless?: boolean; coinDeposit?: boolean } = {}) {
+function ledger(opts: { endless?: boolean; coinDeposit?: boolean; sellReason?: string } = {}) {
   const asked: Array<Record<string, unknown>> = [];
   globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
     const path = new URL(String(input)).pathname;
@@ -78,6 +78,7 @@ function ledger(opts: { endless?: boolean; coinDeposit?: boolean } = {}) {
                 entries: [
                   entry({
                     txId: 'sell',
+                    ...(opts.sellReason ? { reason: opts.sellReason } : {}),
                     direction: 'debit',
                     amount: '300',
                     assetId: 'USDT',
@@ -98,7 +99,18 @@ function ledger(opts: { endless?: boolean; coinDeposit?: boolean } = {}) {
       } else if (body.kind === 'hold' && body.purpose === 'order:o1') {
         result = { entries: [entry({ txId: 'buy', direction: 'credit', amount: '100', assetId: 'USDT' })], nextCursor: null };
       } else if (body.kind === 'hold' && body.purpose === 'order:o2') {
-        result = { entries: [entry({ txId: 'sell', direction: 'credit', amount: '1', assetId: 'BTC' })], nextCursor: null };
+        result = {
+          entries: [
+            entry({
+              txId: 'sell',
+              ...(opts.sellReason ? { reason: opts.sellReason } : {}),
+              direction: 'credit',
+              amount: '1',
+              assetId: 'BTC',
+            }),
+          ],
+          nextCursor: null,
+        };
       } else {
         result = { entries: [], nextCursor: null };
       }
@@ -170,6 +182,26 @@ describe('tax.lotBook', () => {
         .map((c) => c.purpose)
         .sort(),
     ).toEqual(['order:o1', 'order:o2']);
+  });
+
+  it('a sale to the token buyback (trade.fill.buyback) is a sale like any other fill', async () => {
+    ledger({ sellReason: 'trade.fill.buyback' });
+    const book = await createTaxRouter(service())
+      .createCaller(await signed())
+      .lotBook();
+    expect(book.realizedUsd).toBe('200');
+    expect(book.sales).toHaveLength(1);
+    expect(book.sales[0]).toMatchObject({
+      kind: 'sale',
+      assetId: 'BTC',
+      txId: 'sell',
+      qty: '1',
+      unmatchedQty: '0',
+      proceedsUsd: '300',
+      costUsd: '100',
+      realizedUsd: '200',
+    });
+    expect(book.residuals).toEqual([]);
   });
 
   it('a different method is honoured and an unknown one is refused by name', async () => {

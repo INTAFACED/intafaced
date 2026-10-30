@@ -745,6 +745,7 @@ export const appRouter = mergeRouters(
     depositSettings: { sql, approvals: actionApprovals },
     depositFreezes: { sql, approvals: actionApprovals, book: custodyDepositBook },
     depositTravelRule: { sql, book: custodyDepositBook, cipher: travelRuleCipher },
+    depositOpenItems: { sql },
     categoryPolicy: { sql, approvals: actionApprovals },
     catalog: { sql, imageRule: readProductImageRule(process.env) },
     checkoutBranding: { sql, logoRule: readCheckoutLogoRule(process.env) },

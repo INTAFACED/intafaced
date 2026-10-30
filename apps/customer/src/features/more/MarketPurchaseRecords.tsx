@@ -24,7 +24,7 @@ const purchase = z.object({
     .refine((value) => value.trim().length > 0),
   price: decimalSchema,
   commissionBps: z.number().int().safe().min(0).max(10000),
-  status: z.enum(['pending', 'settled', 'rejected']),
+  status: z.enum(['pending', 'settled', 'rejected', 'held', 'released', 'refunded']),
   ledgerTxId: id.nullable(),
   rejectionCode: z.string().nullable(),
   createdAt: time,
@@ -198,7 +198,7 @@ function Timestamp({ value }: { value: string }) {
 function OriginalRecord({ row }: { row: MarketPurchaseRecord }) {
   const { Copy, t } = copy.useCopy();
   const { hideBalances } = usePreferences();
-  const recorded = row.status === 'settled' && row.ledgerTxId !== null && row.settledAt !== null;
+  const recorded = (row.status === 'settled' || row.status === 'released') && row.ledgerTxId !== null && row.settledAt !== null;
   const rejected = row.status === 'rejected' && Boolean(row.rejectionCode) && row.ledgerTxId === null && row.settledAt === null;
   function fact(label: Fact, value: ReactNode) {
     return (
