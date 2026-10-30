@@ -349,7 +349,8 @@ describe('over the router', () => {
     expect(await pageOf('tx-mm')).toBe('/coin/ETH');
     expect(await pageOf('tx-p2p-buy')).toBe('/coin/USDT');
     expect(list.items.find((i) => i.txId === 'tx-buyback')?.kind).toBe('trade');
-    for (const txId of ['tx-sell', 'tx-buyback', 'tx-margin', 'tx-profit', 'tx-p2p-refund', 'tx-send']) expect(await pageOf(txId)).toBeNull();
+    for (const txId of ['tx-sell', 'tx-buyback', 'tx-margin', 'tx-profit', 'tx-p2p-refund', 'tx-send'])
+      expect(await pageOf(txId)).toBeNull();
     expect(
       list.items
         .filter((i) => i.purchase)
