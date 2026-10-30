@@ -339,6 +339,20 @@ export const payCustodyOpenItemsInputSchema = z
   .strict();
 export type PayCustodyOpenItemsInput = z.input<typeof payCustodyOpenItemsInputSchema>;
 
+/** The rail every custody deposit arrives on; its open items are what svc-ledger reconciles that rail's boundary against. */
+export const PAY_CUSTODY_OPEN_ITEMS_RAIL = 'crypto-native';
+
+/** svc-ledger's S2S read of one rail's open items (`POST /internal/custody/open-items` on svc-pay). */
+export const payCustodyRailOpenItemsInputSchema = z
+  .object({
+    rail: z.string().regex(/^[a-z0-9][a-z0-9-]{0,63}$/),
+    assetId: assetIdSchema.optional(),
+    offset: z.number().int().min(0).max(1_000_000).default(0),
+    limit: z.number().int().min(1).max(PAY_CUSTODY_DEPOSIT_RECORDS_MAX_LIMIT).default(PAY_CUSTODY_DEPOSIT_RECORDS_MAX_LIMIT),
+  })
+  .strict();
+export type PayCustodyRailOpenItemsInput = z.input<typeof payCustodyRailOpenItemsInputSchema>;
+
 /** `total` counts every match; `sums` cover every match, so a caller never adds up pages to get them. */
 export const payCustodyOpenItemsReplySchema = z
   .object({
