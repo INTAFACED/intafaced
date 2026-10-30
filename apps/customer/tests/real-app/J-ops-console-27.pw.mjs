@@ -571,6 +571,11 @@ async function twoFounderRun(a, b, controlId, tag) {
 // The rails whose stand-ins keep their own statement (local-test-rail-statements.mjs), and the steps that moved value
 // across each. Rail `local-test` is the stack's TEST mint: it has no outside side, so it gets no control.
 const RAIL_STEPS = { 'crypto-native': ['deposit', 'withdraw'], 'payout-sim': ['cashOut'] };
+// What a FAIL on each rail means, by name.
+const BREAK = {
+  'crypto-native': 'rail deposits received but not credited are not booked (the boundary differs from the TEST chain statement)',
+  'payout-sim': 'payouts the TEST bank rail made are not booked (the boundary differs from the TEST payout statement)',
+};
 
 test(`${J} #8 reconciles to the cent: each rail's boundary PASSes against that rail's own statement`, async ({ browser }) => {
   test.setTimeout(600_000);
@@ -594,8 +599,10 @@ test(`${J} #8 reconciles to the cent: each rail's boundary PASSes against that r
     }
     // The outside side is this rail's own statement (LEDGER_RECONCILE_RAIL_<RAIL>_URL, the stack's rail-statements
     // stand-in). Soft, so every rail is judged in one run; the step still fails. A FAIL here is a real break between the
-    // rail and the ledger (for example a deposit the rail delivered that svc-pay did not credit), and stays red by name.
+    // rail and the ledger and stays red by name: on crypto-native, a transfer the chain delivered into custody that svc-pay
+    // has not credited (below its minimum, held for the travel rule or an expired address, frozen) or a reorg it could not
+    // reverse; on payout-sim, a payout or return the stand-in made that the ledger does not hold.
     expect.soft(answer, `${rail}: the outside side is this rail's own statement`).toContain('Outside side: snapshot');
-    expect.soft(answer, `${rail}: the boundary equals the rail's statement to the cent`).toMatch(/Run [0-9a-f-]{36}: PASS\./);
+    expect.soft(answer, `${rail}: ${BREAK[rail]}`).toMatch(/Run [0-9a-f-]{36}: PASS\./);
   }
 });

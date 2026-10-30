@@ -2712,10 +2712,17 @@ function canonicalAmount(amount) {
   return `${BigInt(whole)}${digits ? `.${digits}` : ''}`;
 }
 
-/** Whether svc-pay issued `address` as a deposit address: the custodian's own list of its addresses, not a ledger figure. */
+/**
+ * Whether `address` is the stack's own custody: a deposit address svc-pay issued, or the acceptance address it gave a
+ * merchant's crypto payment (both land on rail crypto-native). The custodian's own lists of its addresses, not a ledger figure.
+ */
 function custodyAddress(address) {
   const secrets = readJson(P.secrets);
-  const found = psql(secrets, `SELECT 1 FROM pay.custody_deposit_addresses WHERE lower(address) = lower(:'address') LIMIT 1`, {
+  const sql = `SELECT 1 FROM pay.custody_deposit_addresses WHERE lower(address) = lower(:'address')
+               UNION ALL
+               SELECT 1 FROM pay.payments WHERE rail_adapter = 'crypto-native' AND lower(rail_ref) = lower(:'address')
+               LIMIT 1`;
+  const found = psql(secrets, sql, {
     db: DB_NAME,
     user: 'svc_pay',
     password: secrets.pgService,
