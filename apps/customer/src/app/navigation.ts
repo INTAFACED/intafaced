@@ -72,6 +72,8 @@ export const rooms: readonly Room[] = [
   { path: '/status/unsubscribe', title: 'Stop status updates', description: 'Leave status emails', area: 'public', hidden: true },
   { path: '/notice', title: 'Notices', description: 'Product announcements', area: 'public' },
   { path: '/notice/:id', title: 'Notice', description: 'Product announcement', area: 'public', hidden: true },
+  // A backtest result shared by link (AL-report-03): public, as the service returns only the simulated result.
+  { path: '/quant/share/:token', title: 'Shared backtest', description: 'A backtest result shared by link', area: 'public', hidden: true },
   { path: '/announcement', title: 'Notices', description: 'Product announcements', area: 'public', alias: '/notice' },
   { path: '/announcement/:id', title: 'Notice', description: 'Product announcement', area: 'public', hidden: true },
   { path: '/about-us', title: 'About Intafaced', description: 'One account, connected experiences', area: 'public' },
@@ -857,15 +859,6 @@ export const rooms: readonly Room[] = [
   },
   { path: '/campaigns/:campaignId', title: 'Campaign', description: 'One published campaign', door: 'More', area: 'more', hidden: true },
   { path: '/academy/:slug', title: 'Academy reader', description: 'Read a learning path', door: 'More', area: 'more', hidden: true },
-  // A shared backtest result opens signed out too (AL-report-03): the service returns only the simulated result.
-  {
-    path: '/quant/share/:token',
-    title: 'Shared backtest',
-    description: 'A backtest result shared by link',
-    door: 'More',
-    area: 'more',
-    hidden: true,
-  },
   {
     path: '/market/strategy',
     title: 'Strategy listing',
