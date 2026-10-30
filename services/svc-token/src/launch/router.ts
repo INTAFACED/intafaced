@@ -329,6 +329,41 @@ export function createLaunchRouter(launch: LaunchService, options: LaunchRouterO
         ),
     }),
 
+    // The operator lens (J-more-catalogue-14): every launch, drafts included, every issuer, and the audited moves of
+    // each. Reads only; every write above keeps the founders' approval.
+    admin: router({
+      events: scopedProcedure('admin:read')
+        .input(z.object({ limit: z.number().int().min(1).max(200).optional() }).default({}))
+        .output(z.array(eventOutput))
+        .query(({ input }) => guard(async () => (await launch.listAllEvents(input)).map(eventToWire))),
+
+      event: scopedProcedure('admin:read')
+        .input(z.object({ id: launchId }))
+        .output(eventOutput)
+        .query(({ input }) => guard(async () => eventToWire(await launch.getAnyEvent(input.id)))),
+
+      issuers: scopedProcedure('admin:read')
+        .output(z.array(z.object({ id: z.string(), name: z.string(), state: z.enum(ISSUER_STATES), revision: z.number().int() })))
+        .query(() => guard(() => launch.listIssuers())),
+
+      moves: scopedProcedure('admin:read')
+        .input(z.object({ kind: z.enum(['issuer', 'event']), id: launchId }))
+        .output(
+          z.array(
+            z.object({
+              ordinal: z.number().int(),
+              from: z.string().nullable(),
+              to: z.string(),
+              actorId: z.string(),
+              approverId: z.string(),
+              cause: z.string().nullable(),
+              at: z.string(),
+            }),
+          ),
+        )
+        .query(({ input }) => guard(async () => (await launch.moves(input.kind, input.id)).map((m) => ({ ...m, at: m.at.toISOString() })))),
+    }),
+
     // No module guard here: an account short of the token module's tier must still read which requirements it misses
     // (J-more-catalogue-11 #4). It reads only its own answer; basis and every write keep the guard.
     eligibility: scopedProcedure('token:read')
