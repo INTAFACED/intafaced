@@ -138,7 +138,7 @@ test(`${J} #1 the tester profile starts healthy services, and its seed service r
   expect(new Set(names).size, 'one row per service').toBe(names.length);
   // Against the stack's own inventory of what it started (its marker's ports), each exactly once.
   const marker = JSON.parse(readFileSync(path.join(STATE, 'LOCAL-TEST-STACK.json'), 'utf8'));
-  const PLAIN = ['postgres', 'nats', 'video-store', 'rail-statements', 'customer', 'invitation', 'apex', 'admin'];
+  const PLAIN = ['postgres', 'nats', 'video-store', 'rail-statements', 'customer', 'invitation', 'apex', 'admin', 'team-tls'];
   const started = Object.keys(marker.ports)
     .filter((name) => name !== 'natsMonitor')
     .map((name) => (PLAIN.includes(name) ? name : `svc-${name}`));
