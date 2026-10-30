@@ -1,5 +1,6 @@
 import type { Sql } from 'postgres';
 import {
+  PAYMENT_UNMASK_REASON_MIN,
   PAYMENT_VIEW_COLUMNS,
   type PaymentMaskedField,
   type PaymentView,
@@ -238,7 +239,7 @@ export class PaymentPrivacy {
     assertPermission(caller, 'payments.unmask');
     requireInteractive(caller, 'pay.payment_unmask_interactive_only');
     const reason = input.reason.trim();
-    if (reason.length < 8) throw new MerchantOpsError('pay.payment_unmask_reason_required', 'bad_request');
+    if (reason.length < PAYMENT_UNMASK_REASON_MIN) throw new MerchantOpsError('pay.payment_unmask_reason_required', 'bad_request');
     return this.sql.begin(async (tx) => {
       const payments = await tx<Array<{ id: string }>>`
         SELECT id::text FROM pay.payments WHERE id = ${input.paymentId}::uuid AND merchant_id = ${caller.merchantId}`;

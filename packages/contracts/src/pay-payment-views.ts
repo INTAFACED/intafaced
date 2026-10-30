@@ -98,12 +98,16 @@ export const PAYMENT_MASKED_FIELDS = ['customerEmail'] as const;
 export const paymentMaskedFieldSchema = z.enum(PAYMENT_MASKED_FIELDS);
 export type PaymentMaskedField = z.infer<typeof paymentMaskedFieldSchema>;
 
+/** The shortest reason an unmask accepts, after trimming. svc-pay refuses a shorter one with its typed code
+ * (`pay.payment_unmask_reason_required`), and the portal reads the same number, so the two cannot drift apart. */
+export const PAYMENT_UNMASK_REASON_MIN = 8;
+
 export const paymentUnmaskInputSchema = z
   .object({
     paymentId: z.string().guid(),
     field: paymentMaskedFieldSchema,
-    /** Why the clear value is needed. Kept on the audit line. The service refuses one under 8 characters with its own
-     * typed code (`pay.payment_unmask_reason_required`), so the length rule lives in one place. */
+    /** Why the clear value is needed. Kept on the audit line. No minimum here: the service checks
+     * `PAYMENT_UNMASK_REASON_MIN` and refuses with its own typed code, which a schema error would not carry. */
     reason: z.string().trim().max(500),
   })
   .strict();

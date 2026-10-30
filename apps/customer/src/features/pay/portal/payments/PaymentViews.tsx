@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import {
+  PAYMENT_UNMASK_REASON_MIN,
   PAYMENT_VIEW_COLUMNS,
   PAYMENT_VIEW_DEFAULT_COLUMNS,
   paymentViewColumnSchema,
@@ -18,8 +19,6 @@ import type { Payment } from '../schemas';
 import type { ListFilters } from '../ui/FilterRow';
 import { PortalReview } from '../ui/PortalReview';
 import { portalCopy as c } from './copy';
-
-const UNMASK_REASON_MIN = 8;
 
 /** The columns the list draws, as the address holds them (`cols=amount,status`). Unknown names are dropped; none means the default set. */
 export function usePaymentColumns(): [PaymentViewColumn[], (next: readonly PaymentViewColumn[]) => void] {
@@ -206,7 +205,7 @@ export function PayerEmailCell({ portal, payment }: { portal: PortalApi; payment
         <PortalReview
           title={t('pay_unmask')}
           description={t('pay_unmaskBody')}
-          ready={reason.trim().length >= UNMASK_REASON_MIN}
+          ready={reason.trim().length >= PAYMENT_UNMASK_REASON_MIN}
           notReadyReason={t('pay_unmaskReasonShort')}
           review={
             <label className="field">

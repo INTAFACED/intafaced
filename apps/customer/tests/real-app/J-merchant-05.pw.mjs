@@ -75,7 +75,7 @@ async function ownerApi(state, as = 'owner') {
       throw Object.assign(new Error(`${route} refused: ${res.status} ${text.slice(0, 400)}`), {
         status: res.status,
         // The typed code leads the message, alone or before a colon and its detail.
-        typed: /^([a-z]+\.[a-z_]+)(?::|$)/.exec(json?.error?.message ?? '')?.[1] ?? null,
+        typed: /^([a-z0-9]+\.[a-z0-9_]+)(?::|$)/.exec(json?.error?.message ?? '')?.[1] ?? null,
       });
     }
     return json.result.data;
@@ -402,11 +402,13 @@ test(`${J} #3 saves a view with chosen columns: reopening restores filter and co
   const grants = (role) => catalogue.roles.find((r) => r.role === role)?.grants ?? [];
   expect(grants('finance'), 'finance holds payments.unmask').toContain('payments.unmask');
   expect(grants('viewer'), 'a viewer does not').not.toContain('payments.unmask');
-  expect(await viewerApi.query('merchantOps.team.me', {})).toMatchObject({ merchantId: state.merchantId, role: 'viewer' });
-  expect(await financeApi.query('merchantOps.team.me', {})).toMatchObject({ merchantId: state.merchantId, role: 'finance' });
+  // Fresh sessions for the two API refusals: the ones minted at the start may have outlived their access token by now.
+  const viewerNow = await ownerApi(journey(), 'viewer');
+  const financeNow = await ownerApi(journey(), 'finance');
+  expect(await viewerNow.query('merchantOps.team.me', {})).toMatchObject({ merchantId: state.merchantId, role: 'viewer' });
+  expect(await financeNow.query('merchantOps.team.me', {})).toMatchObject({ merchantId: state.merchantId, role: 'finance' });
   const readsBefore = await owner.query('payment.unmaskReads', { paymentId: paidId, limit: 50 });
   const viewsBefore = await owner.query('payment.views.list', { limit: 200 });
-  const viewerNow = await ownerApi(journey(), 'viewer');
   const viewerAsk = await viewerNow
     .mutate('payment.unmask', { paymentId: paidId, field: 'customerEmail', reason: 'TEST viewer asks' })
     .then(
@@ -428,7 +430,7 @@ test(`${J} #3 saves a view with chosen columns: reopening restores filter and co
 
   // The service holds finance to a reason too: none, or a short one, is refused with its typed code and audits nothing.
   for (const short of ['', '  short ']) {
-    const ask = await financeApi.mutate('payment.unmask', { paymentId: paidId, field: 'customerEmail', reason: short }).then(
+    const ask = await financeNow.mutate('payment.unmask', { paymentId: paidId, field: 'customerEmail', reason: short }).then(
       () => null,
       (err) => err,
     );

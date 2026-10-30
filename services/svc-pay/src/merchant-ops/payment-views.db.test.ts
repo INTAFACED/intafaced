@@ -6,6 +6,7 @@ import { PostgreSqlContainer } from '@testcontainers/postgresql';
 import { createTestDatabase, type TestDatabase } from '@intafaced/db';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { Sql } from 'postgres';
+import { PAYMENT_UNMASK_REASON_MIN } from '@intafaced/contracts/pay-payment-views';
 import { ActivityFeed } from './activity.js';
 import { resolveExportColumns } from './exports.js';
 import { maskRailRef, PaymentPrivacy, PaymentViews, seesClearRailRef } from './payment-views.js';
@@ -193,9 +194,13 @@ describe('payment views and unmask (real Postgres)', () => {
 
   it('refuses unmask without a reason, from an API key, and for another business’s payment', async () => {
     const finance = caller('finance');
-    expect(await refusal(() => privacy.unmask(finance, { paymentId: paid, field: 'customerEmail', reason: '  short ' }))).toBe(
-      'pay.payment_unmask_reason_required',
-    );
+    // The contract lets any reason through (no minimum there), so the service's check is the one rule: none, a short
+    // one, and one that is short only once trimmed are each refused with the typed code.
+    for (const reason of ['', '  short ', ` ${'x'.repeat(PAYMENT_UNMASK_REASON_MIN - 1)} `]) {
+      expect(await refusal(() => privacy.unmask(finance, { paymentId: paid, field: 'customerEmail', reason }))).toBe(
+        'pay.payment_unmask_reason_required',
+      );
+    }
     expect(
       await refusal(() =>
         privacy.unmask(caller('finance', randomUUID(), { viaApiKey: true }), {

@@ -323,6 +323,8 @@ export function createPaymentsMock(ctx) {
         case 'payment.unmask': {
           const p = payments.find((x) => x.id === input.paymentId);
           if (!p) return refuse(route, 404, 'pay.payment_not_found');
+          // The service's own reason rule (PAYMENT_UNMASK_REASON_MIN, 8 after trimming), so the portal meets its refusal here too.
+          if (String(input.reason ?? '').trim().length < 8) return refuse(route, 400, 'pay.payment_unmask_reason_required');
           return ok(route, { paymentId: p.id, field: input.field, value: null, auditId: hex('ad', p.n) });
         }
         case 'payment.get': {
