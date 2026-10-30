@@ -30,3 +30,9 @@ function dayStart(day: string): number | null {
   const at = Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
   return utcDay(new Date(at)) === day ? at : null;
 }
+
+/** Whether a UTC day has ended, so what it holds is final. */
+export function dayIsOver(day: string, now: Date): boolean {
+  const range = dayRange(day, day);
+  return range !== null && Date.parse(range.to) < now.getTime();
+}

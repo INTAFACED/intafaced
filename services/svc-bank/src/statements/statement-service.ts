@@ -19,8 +19,11 @@ import { signStatement, statementCsv, statementLines, statementPdf } from './sta
 /** What a statement file holds. */
 export const STATEMENT_REPORTS = ['statement', 'ledger', 'trades', 'balances'] as const;
 export type StatementReport = (typeof STATEMENT_REPORTS)[number];
-/** The activity kinds a `trades` file holds: each trade line and each fee line. */
+/** The activity kinds a `trades` file reads: trade lines, and fee lines (kept only when they belong to an order). */
 const TRADE_KINDS = ['trade', 'fee'] as const;
+
+/** A trade line, or a fee the ledger links to one of the person's orders; a withdrawal or listing fee is not a trade. */
+const isTradeLine = (item: ActivityItem) => item.kind === 'trade' || (item.kind === 'fee' && item.orderId !== undefined);
 
 const MAX_ROWS = 5_000;
 const MAX_SPAN_MS = 366 * 24 * 60 * 60 * 1000;
@@ -41,6 +44,8 @@ export interface StatementFile {
     readonly assetId: string | null;
     /** The one space the statement covers, or null for the whole account. */
     readonly spaceId: string | null;
+    /** What the file holds: a trades file leaves every other line out, so its proof says so. */
+    readonly report: Exclude<StatementReport, 'balances'>;
     readonly rowCount: number;
     readonly generatedAt: string;
     readonly sha256: string;
@@ -127,6 +132,7 @@ export class StatementService {
       }
       throw err;
     }
+    if (report === 'trades') items = items.filter(isTradeLine);
     if (items.length > MAX_ROWS) {
       throw new BankError(`A statement holds at most ${MAX_ROWS} lines. Narrow the dates.`, 'bank.statement_too_large');
     }
@@ -147,9 +153,11 @@ export class StatementService {
           );
     const signed = signStatement(this.secret, bytes);
     const day = generatedAt.slice(0, 10);
-    const scope = space ? `space-${space.id.slice(0, 8)}-` : report === 'trades' ? 'trades-' : '';
+    const scope = `${space ? `space-${space.id.slice(0, 8)}-` : ''}${report === 'trades' ? 'trades-' : ''}`;
     const filename =
-      input.format === 'csv' ? `intafaced-${scope || 'activity-'}${day}.csv` : `intafaced-${scope}statement-${input.from.slice(0, 7)}.pdf`;
+      input.format === 'csv'
+        ? `intafaced-${scope || 'activity-'}${day}.csv`
+        : `intafaced-${scope}${report === 'trades' ? 'history' : 'statement'}-${input.from.slice(0, 7)}.pdf`;
     return {
       format: input.format,
       filename,
@@ -165,6 +173,7 @@ export class StatementService {
         to: input.to,
         assetId: assetId ?? null,
         spaceId: space?.id ?? null,
+        report,
         rowCount: items.length,
         generatedAt,
         sha256: signed.sha256,

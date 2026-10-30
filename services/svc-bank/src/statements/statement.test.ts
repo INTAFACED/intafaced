@@ -138,7 +138,7 @@ describe('bank.statements.export', () => {
     ).rejects.toMatchObject({ code: 'bank.statement_unavailable' });
   });
 
-  it('a trades file holds only trade lines and fees, each its own line, and says it is not a tax form', async () => {
+  it('a trades file holds only trade lines and order fees, names its report in its proof, and says it is not a tax form', async () => {
     const at = new Date('2026-10-04T00:00:00.000Z');
     const rows: LedgerPageEntry[] = [
       {
@@ -160,6 +160,17 @@ describe('bank.statements.export', () => {
         postedAt: at,
         assetId: 'USDT',
         entryId: '2',
+        orderId: 'order-1',
+      },
+      {
+        txId: 'tx-withdraw-fee',
+        module: 'ledger',
+        reason: 'fee.charged',
+        direction: 'credit',
+        amount: '1.00',
+        postedAt: at,
+        assetId: 'USDT',
+        entryId: '4',
       },
       {
         txId: 'tx-send',
@@ -192,14 +203,20 @@ describe('bank.statements.export', () => {
     expect(csv).toContain('tx-fill');
     expect(csv).toContain('tx-fee');
     expect(csv).not.toContain('tx-send');
+    expect(csv).not.toContain('tx-withdraw-fee');
+    expect(trades.proof.report).toBe('trades');
     expect(trades.filename).toBe('intafaced-trades-2026-11-02.csv');
     const pdf = await statements.export(ALICE, { ...range, format: 'pdf', report: 'trades' });
     const drawn = Buffer.from(pdf.bodyBase64, 'base64').toString('utf8');
-    expect(drawn).toContain('INTAFACED trade history');
+    expect(drawn).toContain('INTAFACED account trade history');
+    expect(drawn).toContain('Trade lines and their order fees only');
+    expect(pdf.filename).toBe('intafaced-trades-history-2026-10.pdf');
     expect(drawn).toContain('This is not a tax form.');
     // The ledger and the account statement hold every line.
     for (const report of ['ledger', 'statement'] as const) {
-      expect((await statements.export(ALICE, { ...range, format: 'csv', report })).rowCount).toBe(3);
+      const file = await statements.export(ALICE, { ...range, format: 'csv', report });
+      expect(file.rowCount).toBe(4);
+      expect(file.proof.report).toBe(report);
     }
     // The same request signs the same file.
     expect((await statements.export(ALICE, { ...range, format: 'csv', report: 'trades' })).sha256).toBe(trades.sha256);

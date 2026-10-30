@@ -16,7 +16,7 @@ export function csvCell(value: string, text: boolean): string {
   return /[",\r\n]/.test(safe) ? `"${safe.replace(/"/g, '""')}"` : safe;
 }
 
-/** Every statement says so: it lists what happened and works out no gain, loss or tax. */
+/** Every PDF says so, and the statement centre shows it beside every export: it works out no gain, loss or tax. */
 export const STATEMENT_NOT_TAX_FORM = 'This is not a tax form. It works out no gain, loss or tax.';
 
 export const STATEMENT_CSV_HEADER = [
@@ -136,7 +136,8 @@ export function statementLines(input: {
   space?: { id: string; name: string };
 }): string[] {
   const lines = [
-    input.space ? 'INTAFACED space statement' : input.report === 'trades' ? 'INTAFACED trade history' : 'INTAFACED account statement',
+    `INTAFACED ${input.space ? 'space' : 'account'} ${input.report === 'trades' ? 'trade history' : 'statement'}`,
+    ...(input.report === 'trades' ? ['Trade lines and their order fees only: every other line is left out.'] : []),
     'Proof of account: posted ledger lines for the holder below.',
     'This file lists posted lines. It does not state a balance.',
     STATEMENT_NOT_TAX_FORM,

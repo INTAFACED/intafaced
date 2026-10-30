@@ -25,6 +25,7 @@ const statementOutput = z.object({
     to: z.string(),
     assetId: z.string().nullable(),
     spaceId: z.string().nullable(),
+    report: z.enum(['statement', 'ledger', 'trades']),
     rowCount: z.number().int().nonnegative(),
     generatedAt: z.string().datetime(),
     sha256: z.string(),
