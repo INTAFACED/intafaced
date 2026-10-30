@@ -86,6 +86,8 @@ export const deskCopy = defineCopy('support-desk', {
   followUpPrefix: 'Follow-up:',
   followUpBanner: 'This new request follows {reference}. We link the two so the team sees what came before.',
   followUpClear: 'Not a follow-up',
+  followUpNotClosed: 'That request is still open, so it takes your reply. Write to us there instead.',
+  followUpOpenIt: 'Open that request',
   closedNote: 'This request is closed, so it cannot take replies. Start a new request if you need more help.',
   actionsHeading: 'More you can do',
   closeLabel: 'Close this request',
@@ -170,6 +172,8 @@ export const deskCopy = defineCopy('support-desk', {
   refuseCommentsOff: 'Replies to a request are switched off in this build, so your reply was not sent. Your words are still in the box.',
   refuseCommentCap:
     'This request already holds as many of your replies as it can take, so this one was not sent. Start a new request instead.',
+  refuseCommentSecret:
+    'That message looks like it holds a card number or a recovery phrase, so it was not sent. Never share those with anyone, including us. Take them out and send again.',
   refuseReplyChanged:
     'The request changed while you were writing, so this reply was not sent. Refresh the page, then send it again. Your words are still in the box.',
   refuseFeedbackRate: 'You have rated many answers in a short time, so this vote was not kept. Try again later.',
