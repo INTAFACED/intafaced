@@ -13,6 +13,8 @@ import { ORIGIN, ROOT, api, fund, journeyState, signUpInBrowser, tool } from './
 // control, failing asset and period from the ledger's settled evaluations, on the console's /ledger/alerts room. Steps 9-10
 // (OPS-reconciliation-04): resolve as fixed with booked ledger transaction ids and accept with two founders; a repeat failure
 // reopens, a passing run resolves, an ERROR run is a platform alert, and a run-failed event delivered twice is stored once.
+// #9's corrective reversal stays red by name: no reversal can be booked on this stack until J-ops-console-05's desk exists.
+// #10's transition event received twice stays red by name: nothing consumes svc-ops' alert transition events yet.
 
 const tag = randomUUID().slice(0, 8);
 const state = {
@@ -156,6 +158,9 @@ async function runApproved(desk, phrase) {
   return (await reply.innerText()).replace(/\s+/g, ' ');
 }
 
+/** The one typed code a desk reply names, or null. */
+const codeOf = (reply) => reply.match(/Code: ([a-z0-9_.]+)/)?.[1] ?? null;
+
 /** Founder A asks for a run, founder B approves it, and A runs it. Returns the service's answer as shown on A's desk. */
 async function twoFounderRun(controlId, opts) {
   const { desk, phrase } = await approvedRun(controlId, opts);
@@ -231,9 +236,19 @@ async function lifecycle(id, move, label) {
 /** One asset's evidence as the run reply prints it. */
 function evidence(answer, assetId) {
   const num = '(-?\\d+(?:\\.\\d+)?|unset)';
-  const m = new RegExp(`${assetId}: observed ${num}, expected ${num}, difference ${num}, tolerance ${num}\\.`).exec(answer);
-  if (!m) throw new Error(`the run shows no ${assetId} evidence: ${answer}`);
+  const all = [...answer.matchAll(new RegExp(`${assetId}: observed ${num}, expected ${num}, difference ${num}, tolerance ${num}\\.`, 'g'))];
+  if (all.length !== 1) throw new Error(`the run shows ${all.length} ${assetId} evidence lines, not exactly one: ${answer}`);
+  const [m] = all;
   return { observed: m[1], expected: m[2], difference: m[3], tolerance: m[4] };
+}
+
+/** The control's stored evaluation for a run, re-read from a fresh /ledger page: its status must be `status`; returns its text. */
+async function storedRun(page, controlId, answer, status) {
+  const section = await openLedger(page);
+  await choose(section, controlId);
+  const stored = section.getByTestId('rc-runs').locator(`[data-testid="rc-run-row"][data-run-id="${runId(answer)}"]`);
+  await expect(stored, `the stored evaluation of run ${runId(answer)}`).toHaveAttribute('data-status', status, { timeout: 30_000 });
+  return (await stored.innerText()).replace(/\s+/g, ' ');
 }
 
 /** A decimal string as a bigint scaled by 10^18, so evidence is compared exactly. */
@@ -315,6 +330,23 @@ async function resolveWith(page, alertId, txIds, note = '') {
   return detail;
 }
 
+/** A resolve sent straight to the console's alerts route, as the resolve form sends it, at the version given. */
+async function resolveDirect(page, alertId, version, txIds) {
+  return page.evaluate(
+    async ({ alertId, version, txIds }) => {
+      const session = await (await fetch('/api/session', { cache: 'no-store' })).json();
+      const res = await fetch('/api/ledger-reconciliation/alerts', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'x-intafaced-csrf': session.csrf },
+        body: JSON.stringify({ action: 'resolve', alertId, version, txIds }),
+        cache: 'no-store',
+      });
+      return { status: res.status, body: await res.json().catch(() => null) };
+    },
+    { alertId, version, txIds: txIds.join(', ') },
+  );
+}
+
 /**
  * The accept desk's propose step sent straight to the console's route with the note as given, the way the desk sends it. The
  * desk holds its button for a note under 12 characters, so a blank note can only be shown refused this way.
@@ -348,6 +380,8 @@ async function proposeAccept(page, alertId, evidenceHash, reason) {
  * Delivers one `ledger.reconciliation_run.failed` envelope to the stack's bus twice, under two message ids so the stream keeps
  * both, as a redelivery after a lost acknowledgement reaches svc-ops. The stack's ledger raises this only when its platform
  * reconcile run cannot finish, which no TEST step can cause, so the journey sends a LOCAL TEST one (its run id says so).
+ * Then it waits until svc-ops' durable consumer has acknowledged both messages, and returns the stream sequences and the
+ * consumer's state, so the journey can show the second delivery was read and handled, not still in flight.
  */
 function deliverRunFailedTwice(key) {
   const code = `
@@ -361,7 +395,17 @@ function deliverRunFailedTwice(key) {
     );
     const nc = await connect({ servers: process.env.NATS_URL });
     const js = nc.jetstream();
-    for (const n of [1, 2]) await js.publish(env.subject, encodeEnvelope(env), { msgID: env.idempotencyKey + ':delivery:' + n });
+    const acks = [];
+    for (const n of [1, 2]) acks.push(await js.publish(env.subject, encodeEnvelope(env), { msgID: env.idempotencyKey + ':delivery:' + n }));
+    const jsm = await nc.jetstreamManager();
+    const seqs = acks.map((a) => a.seq);
+    let info;
+    for (let i = 0; i < 60; i++) {
+      info = await jsm.consumers.info(acks[0].stream, 'ops-recon-run-failed');
+      if (info.ack_floor.stream_seq >= Math.max(...seqs) && info.num_ack_pending === 0) break;
+      await new Promise((r) => setTimeout(r, 1000));
+    }
+    console.log(JSON.stringify({ seqs, duplicate: acks.some((a) => a.duplicate), ackFloor: info.ack_floor.stream_seq, ackPending: info.num_ack_pending }));
     await nc.drain();`;
   const r = spawnSync(process.execPath, ['--input-type=module', '-e', code], {
     cwd: path.join(ROOT, 'packages', 'events'),
@@ -370,6 +414,7 @@ function deliverRunFailedTwice(key) {
     timeout: 60_000,
   });
   if (r.status !== 0) throw new Error(`delivering the run-failed event twice failed: ${(r.stderr || r.stdout).slice(0, 500)}`);
+  return JSON.parse(r.stdout.trim().split('\n').pop());
 }
 
 test.describe.serial('J-ops-console-07 reconcile the books', () => {
@@ -534,6 +579,8 @@ test.describe.serial('J-ops-console-07 reconcile the books', () => {
       expect(broken.tolerance).toBe('0');
       expect(scaled(broken.difference)).toBe(scaled(broken.observed) - scaled(HIGH_FLOOR));
       expect(scaled(broken.difference) < 0n).toBe(true);
+      // The person reads the evaluation: the stored row is FAIL with the same four figures.
+      expect(evidence(await storedRun(a, floorId, fail, 'FAIL'), 'USDT'), 'the FAIL evidence is stored as shown').toEqual(broken);
     } finally {
       // Pause the TEST floor even when an assertion fails, so scheduled runs do not keep failing on it. Step #6 reads its alert
       // while paused, then retires it.
@@ -552,6 +599,8 @@ test.describe.serial('J-ops-console-07 reconcile the books', () => {
       expect(error).toContain('Error: ledger.reconcile_source_unavailable at outside.');
       expect(error).toContain('0 assets read.');
       state.outsideRuns.push({ id: runId(error), status: 'ERROR' });
+      // Stored as ERROR, never PASS, with the same code and phase.
+      expect(await storedRun(a, state.outsideId, error, 'ERROR')).toContain('ledger.reconcile_source_unavailable');
     } finally {
       ledgerOutside(false);
     }
@@ -680,7 +729,7 @@ test.describe.serial('J-ops-console-07 reconcile the books', () => {
     const runDesk = paused.getByTestId('rc-run');
     await runDesk.getByLabel('Request packet').fill(early.packetText);
     await expect(runDesk.getByTestId('packet-summary')).toContainText(`Run reconciliation control ${state.thresholdId}`);
-    expect(await runApproved(runDesk, early.phrase)).toContain('Code: ops.control_state_illegal');
+    expect(codeOf(await runApproved(runDesk, early.phrase)), 'the paused control refuses the run').toBe('ops.control_state_illegal');
     await paused.getByRole('button', { name: 'Refresh' }).click();
     await expect(row(paused, state.thresholdId).getByTestId('rc-state')).toHaveText('Paused');
     // The refused run recorded nothing: the control's evaluations, read back from svc-ledger, are the same as before it.
@@ -702,6 +751,9 @@ test.describe.serial('J-ops-console-07 reconcile the books', () => {
     expect(afterResume.ids[0]).toBe(runId(resumedRun));
 
     // Retire: final. No change form, no lifecycle step, the run desk holds, and the control stays in the list.
+    const outsideSection = await openLedger(a);
+    await choose(outsideSection, state.outsideId);
+    const beforeRetire = await evaluationsOf(outsideSection);
     const again = await lifecycle(state.outsideId, 'retire', 'Retired');
     await expect(again.getByTestId('rc-retired')).toBeVisible();
     await expect(again.getByTestId('rc-form-update')).toHaveCount(0);
@@ -729,6 +781,10 @@ test.describe.serial('J-ops-console-07 reconcile the books', () => {
     expect(shown, 'every evaluation of the control is on the first page').toBe(total);
     const ids = await rows.evaluateAll((els) => els.map((el) => el.getAttribute('data-run-id')));
     expect(new Set(ids).size, 'each evaluation appears exactly once').toBe(ids.length);
+    // The hourly scheduler may add its own evaluations while the control is still active, so retiring is shown to keep
+    // every evaluation listed before it (none dropped), not to keep the count fixed.
+    expect(total, 'retiring dropped no evaluation').toBeGreaterThanOrEqual(beforeRetire.total);
+    for (const id of beforeRetire.ids) expect(ids, `evaluation ${id} listed before the retire is still listed`).toContain(id);
     const [first, second] = state.outsideRuns;
     expect(ids.indexOf(second.id), 'the #5 ERROR run is listed').toBeGreaterThanOrEqual(0);
     expect(ids.indexOf(first.id), 'the #3 run is listed').toBeGreaterThan(ids.indexOf(second.id));
@@ -739,29 +795,67 @@ test.describe.serial('J-ops-console-07 reconcile the books', () => {
     }
     await expect(runs.locator(`[data-run-id="${second.id}"]`)).toContainText('Error: ledger.reconcile_source_unavailable at outside.');
 
-    // A paused control keeps its alerts, and so does a retired one: #5's FAIL raised one USDT alert on the floor control,
-    // which #5 paused. It is listed once while paused, then the floor is retired with two founders and the same alert is
-    // still listed and its detail still reads, with the same count and evidence.
-    if (!state.floorId) throw new Error('step #5 left no paused floor control');
-    const [raised] = await awaitAlerts(
-      a,
-      state.floorId,
-      (rows) => rows.length === 1 && rows[0].asset === 'USDT',
-      'svc-ops raises exactly one USDT alert from the floor control’s FAIL',
-    );
-    const floorPaused = await openLedger(a);
-    await expect(row(floorPaused, state.floorId).getByTestId('rc-state')).toHaveText('Paused');
-    const pausedDetail = await openAlert(a, raised.id);
-    await expect(pausedDetail).toHaveAttribute('data-occurrences', String(raised.occurrences));
-    await expect(pausedDetail.getByTestId('alert-evidence')).toContainText(`expected ${HIGH_FLOOR}`);
-    const evidenceText = await pausedDetail.getByTestId('alert-evidence').innerText();
+    // A paused control keeps its alerts, and so does a retired one. A fresh TEST floor fails; its USDT alert and its
+    // evaluations are read back from svc-ops and svc-ledger once it is paused, and again after it is retired.
+    const keepId = await define(await openLedger(a), {
+      template: 'threshold',
+      explanation: `LOCAL TEST USDT floor kept ${tag}`,
+      fill: async (form) => {
+        await form.getByLabel('Threshold bound').selectOption('min');
+        await form.getByLabel(/^Threshold by asset/).fill(`USDT=${HIGH_FLOOR}`);
+        await setPolicy(form, { tolerance: '0' });
+      },
+    });
+    let keepRetired = false;
+    try {
+      const fail = await twoFounderRun(keepId);
+      expect(fail).toMatch(/Run [0-9a-f-]{36}: FAIL\./);
+      const failed = evidence(fail, 'USDT');
+      const [raised] = await awaitAlerts(
+        a,
+        keepId,
+        (rows) => rows.length === 1 && rows[0].asset === 'USDT',
+        'svc-ops raises exactly one USDT alert from the floor’s FAIL',
+      );
+      expect(raised.state).toBe('open');
 
-    await lifecycle(state.floorId, 'retire', 'Retired');
-    const kept = await alertsOf(a, state.floorId);
-    expect(kept, 'the retired control still lists its alert, once and unchanged').toEqual([raised]);
-    const retiredDetail = await openAlert(a, raised.id);
-    await expect(retiredDetail).toHaveAttribute('data-occurrences', String(raised.occurrences));
-    await expect(retiredDetail.getByTestId('alert-evidence')).toHaveText(evidenceText);
+      // Paused with two founders: the alert raised before the pause is still there, open, its count never lower, and the
+      // FAIL run is still among the control's evaluations. (The hourly scheduler may have run it once more before the pause.)
+      const pausedKeep = await lifecycle(keepId, 'pause', 'Paused');
+      await choose(pausedKeep, keepId);
+      const kept = await evaluationsOf(pausedKeep);
+      expect(kept.ids, 'pausing kept the FAIL evaluation').toContain(runId(fail));
+      const keptAlerts = await alertsOf(a, keepId);
+      const keptAlert = keptAlerts.filter((row) => row.id === raised.id);
+      expect(keptAlert, 'a paused control’s alert stays, once').toHaveLength(1);
+      expect(keptAlert[0]).toMatchObject({ id: raised.id, asset: 'USDT', state: 'open', periodStart: raised.periodStart });
+      expect(keptAlert[0].occurrences).toBeGreaterThanOrEqual(raised.occurrences);
+      const detailOf = async () => {
+        const detail = await openAlert(a, raised.id);
+        return {
+          state: await detail.getAttribute('data-state'),
+          version: await detail.getAttribute('data-version'),
+          occurrences: await detail.getAttribute('data-occurrences'),
+          evidence: (await detail.getByTestId('alert-evidence').innerText()).replace(/\s+/g, ' '),
+        };
+      };
+      const whilePaused = await detailOf();
+      expect(whilePaused.evidence).toBe(
+        `Observed ${failed.observed} · expected ${failed.expected} · difference ${failed.difference} · tolerance ${failed.tolerance}`,
+      );
+
+      // Retired: a paused control runs nothing, so its evaluations, its alert and the alert's detail read exactly as while paused.
+      const retiredKeep = await lifecycle(keepId, 'retire', 'Retired');
+      keepRetired = true;
+      await choose(retiredKeep, keepId);
+      expect(await evaluationsOf(retiredKeep), 'a retired control keeps every evaluation readable').toEqual(kept);
+      expect(await alertsOf(a, keepId), 'a retired control keeps its alert, once and unchanged').toEqual(keptAlerts);
+      expect(await detailOf(), 'the alert’s detail still reads, unchanged').toEqual(whilePaused);
+    } finally {
+      if (!keepRetired) await lifecycle(keepId, 'retire', 'Retired').catch(() => undefined);
+    }
+    // #5's paused TEST floor is retired too, so no scheduled run keeps failing on it.
+    if (state.floorId) await lifecycle(state.floorId, 'retire', 'Retired');
   });
 
   test('J-ops-console-07 #7 a run that fails two assets opens two alerts; the same failure again raises the count, opens nothing new', async ({
@@ -945,10 +1039,26 @@ test.describe.serial('J-ops-console-07 reconcile the books', () => {
 
       // A transaction id the ledger never booked is refused by name, and the alert stays open.
       const unknown = randomUUID();
+      const beforeUnknown = await openAlert(a, opened.id);
+      const openedAs = {
+        version: await beforeUnknown.getAttribute('data-version'),
+        occurrences: await beforeUnknown.getAttribute('data-occurrences'),
+        evidence: await beforeUnknown.getByTestId('alert-evidence').innerText(),
+      };
       const refused = await resolveWith(a, opened.id, [unknown]);
       await expect(refused.getByTestId('alert-refused-code')).toHaveText('ops.resolve_transaction_not_found', { timeout: 30_000 });
       await expect(refused.getByTestId('alert-refused-detail')).toContainText(unknown);
-      await expect(await openAlert(a, opened.id)).toHaveAttribute('data-state', 'open');
+      const afterUnknown = await openAlert(a, opened.id);
+      await expect(afterUnknown).toHaveAttribute('data-state', 'open');
+      expect(
+        {
+          version: await afterUnknown.getAttribute('data-version'),
+          occurrences: await afterUnknown.getAttribute('data-occurrences'),
+          evidence: await afterUnknown.getByTestId('alert-evidence').innerText(),
+        },
+        'the refused resolve changed nothing on the alert',
+      ).toEqual(openedAs);
+      await expect(afterUnknown.getByTestId('alert-resolved')).toHaveCount(0);
 
       // The corrective booking: a TEST deposit of 2 USDT to a new customer, posted through the ledger's deposit recipe. (The
       // reversal desk that books a true reversal is J-ops-console-05, not on this stack; any booked transaction id is what svc-ops
@@ -992,11 +1102,21 @@ test.describe.serial('J-ops-console-07 reconcile the books', () => {
       const blank = await proposeAccept(a, toAccept.id, evidenceHash, '');
       expect(blank.status, JSON.stringify(blank)).toBe(400);
       expect(blank.body.refusal?.code, JSON.stringify(blank)).toBe('ops.resolve_note_required');
+      const openVersion = await before.getAttribute('data-version');
+      const unchanged = async (why) => {
+        const look = await openAlert(a, toAccept.id);
+        await expect(look, why).toHaveAttribute('data-state', 'open');
+        await expect(look, why).toHaveAttribute('data-version', openVersion);
+        await expect(look.getByTestId('alert-evidence'), why).toHaveText(evidenceText);
+        await expect(look.getByTestId('alert-accepted'), why).toHaveCount(0);
+      };
+      await unchanged('the blank-note refusal changed nothing on the alert');
 
       // A asks with a note; A approving their own packet is refused and the alert stays open.
       const phrase = `ACCEPT ALERT ${toAccept.id.slice(0, 8)}`;
       const accept = before.getByTestId('alert-accept');
-      await accept.getByLabel(/^Acceptance note/).fill(`LOCAL TEST accepted discrepancy ${tag}`);
+      const acceptNote = `LOCAL TEST accepted discrepancy ${tag}`;
+      await accept.getByLabel(/^Acceptance note/).fill(acceptNote);
       await accept.getByLabel(/to confirm$/).fill(phrase);
       await accept.getByRole('button', { name: 'Ask a second founder to approve the acceptance' }).click();
       await expect(accept.getByTestId('packet-made')).toBeVisible({ timeout: 60_000 });
@@ -1004,7 +1124,7 @@ test.describe.serial('J-ops-console-07 reconcile the books', () => {
       const alone = await consoleStep(a, '/api/ledger-reconciliation/alerts/accept', packetText, 'approve', phrase);
       expect(alone.body.ok, JSON.stringify(alone)).toBe(false);
       expect(alone.body.refusal?.code, JSON.stringify(alone)).toBe('action_approval.same_person');
-      await expect(await openAlert(a, toAccept.id)).toHaveAttribute('data-state', 'open');
+      await unchanged('the same-founder approval changed nothing on the alert');
 
       // B approves the same packet on their own console, then A runs it: accepted, at the hash both read.
       const approver = (await openAlert(b, toAccept.id)).getByTestId('alert-accept');
@@ -1025,12 +1145,24 @@ test.describe.serial('J-ops-console-07 reconcile the books', () => {
       await expect(stamp).toHaveAttribute('data-evidence-hash', evidenceHash);
       const [by, approvedBy] = [await stamp.getAttribute('data-requested-by'), await stamp.getAttribute('data-approved-by')];
       expect(by && approvedBy && by !== approvedBy, `two different founders: ${by} and ${approvedBy}`).toBe(true);
+      await expect(stamp, 'the note is stored with the acceptance').toContainText(`Note: ${acceptNote}`);
       await expect(accepted.getByTestId('alert-evidence')).toHaveText(evidenceText);
       await expect(accepted.locator('[data-testid="timeline-entry"][data-kind="accepted"]')).toHaveCount(1);
+      const acceptedVersion = Number(await accepted.getAttribute('data-version'));
+      // Frozen: a later resolve, even with a booked transaction id, is refused by its one code and changes nothing.
+      const late = await resolveDirect(a, toAccept.id, acceptedVersion, [booked.tx]);
+      expect(late.body?.code, JSON.stringify(late)).toBe('ops.alert_state_illegal');
+      const reread = await openAlert(a, toAccept.id);
+      await expect(reread).toHaveAttribute('data-state', 'accepted');
+      await expect(reread).toHaveAttribute('data-version', String(acceptedVersion));
+      await expect(reread.getByTestId('alert-accepted')).toHaveAttribute('data-evidence-hash', evidenceHash);
+      await expect(reread.getByTestId('alert-evidence')).toHaveText(evidenceText);
+      await expect(reread.getByTestId('alert-resolved')).toHaveCount(0);
       state.acceptAlert = {
         id: toAccept.id,
         evidenceHash,
         evidenceText,
+        version: acceptedVersion,
         occurrences: Number(await accepted.getAttribute('data-occurrences')),
       };
     } catch (err) {
@@ -1041,11 +1173,12 @@ test.describe.serial('J-ops-console-07 reconcile the books', () => {
     }
   });
 
-  test('J-ops-console-07 #10 a repeat failure reopens, a passing run resolves, an ERROR run is a platform alert, and an event received twice applies once', async ({
+  test('J-ops-console-07 #10 a repeat failure reopens, a passing run resolves, an ERROR run is a platform alert, and a run-failed event received twice is stored once', async ({
     browser,
   }) => {
     test.setTimeout(900_000);
-    if (!state.fixId || !state.fixAlertId || !state.acceptId || !state.acceptAlert) throw new Error('step #9 left no alerts');
+    if (!state.fixId || !state.fixAlertId || !state.acceptId || !state.acceptAlert)
+      throw new Error('#10 starts from #9’s resolved and accepted alerts, and #9 did not finish, so #10 cannot run');
     const { a } = await founders(browser);
     let errorId;
     try {
@@ -1080,9 +1213,40 @@ test.describe.serial('J-ops-console-07 reconcile the books', () => {
       const still = await openAlert(a, state.acceptAlert.id);
       await expect(still.getByTestId('alert-accepted')).toHaveAttribute('data-evidence-hash', state.acceptAlert.evidenceHash);
       await expect(still.getByTestId('alert-evidence')).toHaveText(state.acceptAlert.evidenceText);
+      await expect(still).toHaveAttribute('data-version', String(state.acceptAlert.version));
+
+      // Different figures are a new discrepancy: the floor rises by 1, the next FAIL opens a new alert, and the accepted
+      // one keeps its frozen evidence, count and version.
+      const raise = await openLedger(a);
+      await choose(raise, state.acceptId);
+      const raiseForm = raise.getByTestId('rc-form-update');
+      await raiseForm.getByLabel(/^Threshold by asset/).fill(`USDC=${BigInt(HIGH_FLOOR) + 1n}`);
+      await raiseForm.getByLabel(/^Why/).fill(`LOCAL TEST J-ops-console-07 raise accepted floor ${tag}`);
+      await raiseForm.getByRole('button', { name: 'Save changes' }).click();
+      await expect(raiseForm.getByTestId('rc-saved')).toBeVisible({ timeout: 30_000 });
+      const differs = await twoFounderRun(state.acceptId);
+      expect(differs).toMatch(/Run [0-9a-f-]{36}: FAIL\./);
+      const both = await awaitAlerts(a, state.acceptId, (rows) => rows.length === 2, 'svc-ops opens a new alert for different figures');
+      const fresh = both.find((r) => r.id !== state.acceptAlert.id);
+      const was = both.find((r) => r.id === state.acceptAlert.id);
+      expect(fresh, 'the new alert is for the same asset and period, so only the figures differ').toMatchObject({
+        asset: 'USDC',
+        state: 'open',
+        cause: 'fail',
+        team: 'finance',
+        periodStart: was.periodStart,
+      });
+      expect(both.find((r) => r.id === state.acceptAlert.id)).toMatchObject({
+        state: 'accepted',
+        occurrences: state.acceptAlert.occurrences,
+      });
+      const kept = await openAlert(a, state.acceptAlert.id);
+      await expect(kept).toHaveAttribute('data-version', String(state.acceptAlert.version));
+      await expect(kept.getByTestId('alert-accepted')).toHaveAttribute('data-evidence-hash', state.acceptAlert.evidenceHash);
+      await expect(kept.getByTestId('alert-evidence')).toHaveText(state.acceptAlert.evidenceText);
 
       // The rest of the 5 USDT arrives: the next run passes and resolves the reopened alert by itself, naming that run.
-      fund(state.fixPayer.email, 'USDT', '3');
+      expect(fund(state.fixPayer.email, 'USDT', '3').tx, 'the rest is a booked ledger transaction').toMatch(/^[0-9a-f-]{36}$/);
       const pass = await twoFounderRun(state.fixId);
       expect(pass).toMatch(/Run [0-9a-f-]{36}: PASS\./);
       expect(evidence(pass, 'USDT').difference).toBe('0');
@@ -1103,7 +1267,9 @@ test.describe.serial('J-ops-console-07 reconcile the books', () => {
       });
       try {
         ledgerOutside(true);
-        expect(await twoFounderRun(errorId)).toMatch(/Run [0-9a-f-]{36}: ERROR\./);
+        const errorRun = await twoFounderRun(errorId);
+        expect(errorRun).toMatch(/Run [0-9a-f-]{36}: ERROR\./);
+        expect(await storedRun(a, errorId, errorRun, 'ERROR')).toContain('ledger.reconcile_source_unavailable');
       } finally {
         ledgerOutside(false);
       }
@@ -1123,7 +1289,12 @@ test.describe.serial('J-ops-console-07 reconcile the books', () => {
 
       // The ledger's own run-failed event, delivered twice: svc-ops, attached to the bus, stores it once.
       const eventKey = `ledger:reconciliation-run-failed:local-test-${tag}`;
-      deliverRunFailedTwice(eventKey);
+      const delivered = deliverRunFailedTwice(eventKey);
+      expect(delivered.seqs, 'the stream kept both deliveries').toHaveLength(2);
+      expect(delivered.duplicate, 'neither delivery was dropped by the stream as a duplicate').toBe(false);
+      // svc-ops' durable consumer acknowledged both: the second delivery was read and handled, not left in flight.
+      expect(delivered.ackPending, JSON.stringify(delivered)).toBe(0);
+      expect(delivered.ackFloor, JSON.stringify(delivered)).toBeGreaterThanOrEqual(Math.max(...delivered.seqs));
       let incidents;
       await expect
         .poll(
@@ -1136,7 +1307,7 @@ test.describe.serial('J-ops-console-07 reconcile the books', () => {
         )
         .toBe(1);
       await expect(incidents).toHaveAttribute('data-bus', 'attached');
-      // A later look still shows it once: the second delivery was applied as the same incident, not lost in flight.
+      // Both deliveries were handled, and the room shows one incident: the second was applied as the same incident.
       const later = (await openAlerts(a)).locator(`[data-testid="platform-incident"][data-event-key="${eventKey}"]`);
       await expect(later).toHaveCount(1);
       await expect(later).toHaveAttribute('data-error-code', 'ledger.reconcile_source_unavailable');
@@ -1147,4 +1318,23 @@ test.describe.serial('J-ops-console-07 reconcile the books', () => {
         await lifecycle(id, 'retire', 'Retired').catch(() => undefined);
     }
   });
+});
+
+// The clause this stack cannot prove: the corrective transaction linked at #9 must be a reversal. A ledger reversal is booked
+// only by J-ops-console-05's reversal desk (OPS-ledger-desk-02), which is not built, so #9 links a TEST deposit instead and
+// this clause stays red, by name, until that desk books one here. It sits outside the serial journey so its red never
+// skips #10.
+test('J-ops-console-07 #9 the fix links a corrective reversal booked in the ledger', async () => {
+  throw new Error(
+    'Blocked: no reversal can be booked on this stack. J-ops-console-05 (OPS-ledger-desk-02) is not built, so #9 resolved with a TEST deposit, not a reversal.',
+  );
+});
+
+// The other clause this stack cannot prove: svc-ops publishes each alert transition under its business key, but no service
+// consumes the core-ops reconciliation_alert subjects yet, so "a transition event received twice applies once" has no
+// receiver to show it. #10 shows svc-ops' own consumer of the ledger's run-failed event applying a double delivery once.
+test('J-ops-console-07 #10 a transition event received twice applies once', async () => {
+  throw new Error(
+    'Blocked: no consumer of intafaced.core-ops.reconciliation_alert.* exists on this stack, so no receiver can be shown applying a transition event once.',
+  );
 });
