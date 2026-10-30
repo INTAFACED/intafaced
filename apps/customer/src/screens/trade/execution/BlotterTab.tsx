@@ -29,7 +29,7 @@ export function BlotterTab({ parents }: { parents: readonly ParentRead[] }) {
   const fills = useFills(false);
   const refresh = useRefreshPrivate();
   const cancel = useCancelFlow(refresh);
-  const [filter, setFilter] = useState<BlotterFilter>({ market: 'all', side: 'all', source: 'all' });
+  const [filter, setFilter] = useState<BlotterFilter>({ market: 'all', side: 'all', source: 'all', parent: 'all' });
 
   const windows = useMemo(() => algoWindows(parents.flatMap((p) => (p.ok ? [p.parent] : []))), [parents]);
   const all = useMemo(
@@ -80,6 +80,26 @@ export function BlotterTab({ parents }: { parents: readonly ParentRead[] }) {
             onChange={(v) => set('side', v)}
           />
         </div>
+        <div className="w-56">
+          <Pick
+            label={t('Schedule')}
+            value={filter.parent}
+            options={[
+              { value: 'all', label: t('All schedules') },
+              ...parents.flatMap((p) =>
+                p.ok
+                  ? [
+                      {
+                        value: p.id,
+                        label: t('{market} {kind} {id}', { market: p.parent.symbol, kind: p.parent.kind.toUpperCase(), id: p.id }),
+                      },
+                    ]
+                  : [],
+              ),
+            ]}
+            onChange={(v) => set('parent', v)}
+          />
+        </div>
         <SegmentedControl
           aria-label={t('Source')}
           size={32}
@@ -97,7 +117,7 @@ export function BlotterTab({ parents }: { parents: readonly ParentRead[] }) {
           {t('Export what you see')}
         </Button>
       </div>
-      <p className="m-0 text-sm text-fg-2">{t('Matched by market and time, not by link')}</p>
+      <p className="m-0 text-sm text-fg-2">{t('How rows are matched')}</p>
       <p className="m-0 text-sm text-fg-2">{t('CSV is not a statement')}</p>
       {partial && open.status === 'ready' ? <Why>{t('History partly unread')}</Why> : null}
       {groups.length > 0 ? (

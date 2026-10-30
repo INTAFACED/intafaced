@@ -1,11 +1,12 @@
 /**
- * The Child orders and fills table as data: orders and fills merged, sourced (scaled by id prefix, algo only by market,
- * side and time, manual otherwise), filtered, and written out as the CSV of exactly what is on screen. Pure and React-free.
+ * The Child orders and fills table as data: orders and fills merged, sourced (scaled by id prefix, algo by the child's own
+ * client id and, for a fill whose order is not listed, by market, side and time; manual otherwise), filtered, and written
+ * out as the CSV of exactly what is on screen. Pure and React-free.
  */
 import type { Trade } from '@intafaced/exchange-contract/schemas';
 import type { Order } from '../../../features/trade/trade-api';
 import { dec } from '../../../data/decimal';
-import { isLive, isScaledId, type Side } from './model';
+import { algoParentOf, isLive, isScaledId, type Side } from './model';
 
 export type Source = 'scaled' | 'algo' | 'manual';
 export type RowState = 'open' | 'partial' | 'recovery' | 'filled' | 'cancelled' | 'expired' | 'rejected' | 'fill';
@@ -30,6 +31,8 @@ export interface BlotterRow {
   avg: string | null;
   state: RowState;
   clientOrderId: string | null;
+  /** The schedule this row's order belongs to, from the order's own client id; null for any other row. */
+  parentId: string | null;
   source: Source;
   /** Present on a still-working order, so the table can offer Cancel. */
   order: Order | null;
@@ -43,7 +46,7 @@ function stateOf(order: Order): RowState {
   return order.status === 'closed' ? 'filled' : order.status === 'canceled' ? 'cancelled' : order.status;
 }
 
-/** Algo children carry no link to their parent, so a row counts as one only when market, side and time all fit a schedule. */
+/** A fill whose order is not listed carries no client id, so it counts as algo only when market, side and time fit a schedule. */
 export function inAlgoWindow(row: { symbol: string; side: Side; time: number }, windows: readonly AlgoWindow[]): boolean {
   return windows.some((w) => w.symbol === row.symbol && w.side === row.side && row.time >= w.fromMs && row.time <= w.toMs);
 }
@@ -67,7 +70,11 @@ export function buildBlotter(
 ): BlotterRow[] {
   const seen = new Set<string>();
   const sourceOf = (clientOrderId: string | null, symbol: string, side: Side, time: number): Source =>
-    isScaledId(clientOrderId) ? 'scaled' : inAlgoWindow({ symbol, side, time }, windows) ? 'algo' : 'manual';
+    isScaledId(clientOrderId)
+      ? 'scaled'
+      : algoParentOf(clientOrderId) !== null || inAlgoWindow({ symbol, side, time }, windows)
+        ? 'algo'
+        : 'manual';
   const orders: BlotterRow[] = [];
   for (const order of [...open, ...closed]) {
     if (seen.has(order.id)) continue;
@@ -85,6 +92,7 @@ export function buildBlotter(
       avg: order.average,
       state: stateOf(order),
       clientOrderId: order.clientOrderId,
+      parentId: algoParentOf(order.clientOrderId),
       source: sourceOf(order.clientOrderId, order.symbol, order.side, order.timestamp),
       order: isLive(order) ? order : null,
     });
@@ -105,6 +113,7 @@ export function buildBlotter(
       avg: fill.price,
       state: 'fill',
       clientOrderId: parent?.clientOrderId ?? null,
+      parentId: parent?.parentId ?? null,
       source: parent ? parent.source : sourceOf(null, fill.symbol, fill.side, fill.timestamp),
       order: null,
     };
@@ -116,6 +125,8 @@ export interface BlotterFilter {
   market: string;
   side: 'all' | Side;
   source: 'all' | Source;
+  /** One schedule's children and their fills, or every row. */
+  parent: 'all' | string;
 }
 
 export function filterBlotter(rows: readonly BlotterRow[], filter: BlotterFilter): BlotterRow[] {
@@ -123,7 +134,8 @@ export function filterBlotter(rows: readonly BlotterRow[], filter: BlotterFilter
     (r) =>
       (filter.market === 'all' || r.symbol === filter.market) &&
       (filter.side === 'all' || r.side === filter.side) &&
-      (filter.source === 'all' || r.source === filter.source),
+      (filter.source === 'all' || r.source === filter.source) &&
+      (filter.parent === 'all' || r.parentId === filter.parent),
   );
 }
 

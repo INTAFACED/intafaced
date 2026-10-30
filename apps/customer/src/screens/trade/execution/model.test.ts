@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
+import type { Trade } from '@intafaced/exchange-contract/schemas';
 import type { Order } from '../../../features/trade/trade-api';
 import {
+  algoParentOf,
   MAX_SEED,
   parseSeed,
   triggerProblem,
@@ -252,9 +254,35 @@ describe('blotter', () => {
     expect(inAlgoWindow({ symbol: 'BTC/USDT', side: 'buy', time: w[0]!.toMs + 1 }, w)).toBe(false);
   });
   it('filters by source, side and market', () => {
-    expect(filterBlotter(rows, { market: 'all', side: 'all', source: 'scaled' })).toHaveLength(2);
-    expect(filterBlotter(rows, { market: 'all', side: 'sell', source: 'all' }).every((r) => r.side === 'sell')).toBe(true);
-    expect(filterBlotter(rows, { market: 'ETH/USDT', side: 'all', source: 'all' })).toHaveLength(0);
+    expect(filterBlotter(rows, { market: 'all', side: 'all', source: 'scaled', parent: 'all' })).toHaveLength(2);
+    expect(filterBlotter(rows, { market: 'all', side: 'sell', source: 'all', parent: 'all' }).every((r) => r.side === 'sell')).toBe(true);
+    expect(filterBlotter(rows, { market: 'ETH/USDT', side: 'all', source: 'all', parent: 'all' })).toHaveLength(0);
+  });
+  it("links an algo child and its fills to their schedule by the child's own client id, outside any time window", () => {
+    const child = { ...TEST_ORDERS.manual, id: 'o-20', symbol: 'ETH/USDT', clientOrderId: 'algo:algo-u1-p1:3' } as Order;
+    const other = { ...TEST_ORDERS.manual, id: 'o-21', symbol: 'ETH/USDT', clientOrderId: 'algo:algo-u1-p2:0' } as Order;
+    const fill = {
+      id: 'f-1',
+      order: 'o-20',
+      timestamp: child.timestamp,
+      symbol: 'ETH/USDT',
+      side: child.side,
+      price: '1',
+      amount: '1',
+    } as Trade;
+    const linked = buildBlotter([child, other], [], [fill], []);
+    expect(linked.map((r) => [r.id, r.source, r.parentId])).toEqual(
+      expect.arrayContaining([
+        ['order:o-20', 'algo', 'algo-u1-p1'],
+        ['order:o-21', 'algo', 'algo-u1-p2'],
+        ['fill:f-1', 'algo', 'algo-u1-p1'],
+      ]),
+    );
+    const one = filterBlotter(linked, { market: 'all', side: 'all', source: 'all', parent: 'algo-u1-p1' });
+    expect(one.map((r) => r.id).sort()).toEqual(['fill:f-1', 'order:o-20']);
+    expect(algoParentOf('algo-abc')).toBeNull();
+    expect(algoParentOf('algo:x:y')).toBeNull();
+    expect(algoParentOf(null)).toBeNull();
   });
   it('writes a CSV of exactly what is shown, with exact strings and safe text cells', () => {
     const csv = blotterCsv([{ ...rows[0]!, clientOrderId: '=cmd,"x"' }]);
