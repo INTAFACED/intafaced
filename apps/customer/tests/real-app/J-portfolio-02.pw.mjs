@@ -54,18 +54,19 @@ async function settled(who) {
 test(`${J} #1 buys TEST BTC on the desk, then reads the open lot: quantity, average price and cost with the fee inside`, async ({
   page,
 }) => {
-  const who = await fundedTrader(page, 'pf2', '500');
+  const who = await fundedTrader(page, 'pf2', '1000');
   run.reset({ account: who });
   await signIn(page, who);
   await page.goto(deskPath('BTC/USDT'));
   // A limit buy 1% over the best ask takes the maker's asks at their own prices; the rest of the hold comes back.
   const { ask } = await bestPrices('BTC/USDT');
-  await reviewLimit(page, 'buy', priceAt(ask, 101), '0.001');
+  // 0.01 BTC less the 0.10% taker fee taken in BTC is 0.00999 BTC: whole steps of 0.00001, so #3 can sell all of it.
+  await reviewLimit(page, 'buy', priceAt(ask, 101), '0.01');
   await confirm(page, 'buy');
   await settled(who);
   const after = await (await api(who)).balances();
   const qty = total(after, 'BTC');
-  const cost = toUnits('500') - total(after, 'USDT');
+  const cost = toUnits('1000') - total(after, 'USDT');
   expect(qty).toBeGreaterThan(0n);
   expect(cost).toBeGreaterThan(0n);
   run.write({ qty: fromUnits(qty), cost: fromUnits(cost) });
@@ -150,10 +151,10 @@ test(`${J} #3 sells the coins: a sale row with what was received, the cost of th
   await expect(sale.locator('td').nth(2)).toHaveText(usd(costSold));
   await expect(sale.locator('[data-col="result"]')).toHaveText(usd(realised, true));
   await expect(main.locator('[data-figure="realised"]')).toHaveText(usd(realised, true));
-  // What is left is below one step: the lot is closed apart from that remainder.
-  const open = main.locator('tr[data-asset="BTC"]');
-  if (total(after, 'BTC') === 0n) await expect(open).toHaveCount(0);
-  else await expect(open.locator('td').first()).toHaveText(fromUnits(total(after, 'BTC')));
+  // Every coin of the lot was sold: the lot is closed and no open BTC row is left.
+  expect(total(after, 'BTC')).toBe(0n);
+  expect(sold).toBe(toUnits(qty));
+  await expect(main.locator('tr[data-asset="BTC"]')).toHaveCount(0);
 });
 
 test(`${J} #4 reads the label: an indicator, not a tax form, with the method FIFO and what it means`, async ({ page }) => {
