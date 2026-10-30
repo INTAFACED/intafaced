@@ -15,7 +15,7 @@ import type { OtcDeskLaw } from './desk-law.js';
 import { createObservedOtcMidSource } from './mid-source.js';
 
 const USER = '00000000-0000-4000-8000-000000000099';
-const principal = { userId: USER } as import('@intafaced/auth').Principal;
+const principal = { userId: USER, tier: 'basic' } as import('@intafaced/auth').Principal;
 
 const law: OtcDeskLaw = {
   published: true,
@@ -27,6 +27,7 @@ const law: OtcDeskLaw = {
   // A zero desk minimum is an owner value: these quotes are not held by the CB-otc-07 minimum.
   minNotional: { USDT: 0n },
   assets: ['BTC'],
+  minTier: 'basic',
 };
 
 describe('D26-P1-T2 OTC RFQ stake fail-closed settle', () => {

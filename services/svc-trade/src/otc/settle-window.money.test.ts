@@ -21,7 +21,7 @@ import { createObservedOtcMidSource } from './mid-source.js';
 import { MemoryOtcQuoteStore } from './quote-store.js';
 
 const USER = '00000000-0000-4000-8000-000000000077';
-const principal = { userId: USER } as import('@intafaced/auth').Principal;
+const principal = { userId: USER, tier: 'basic' } as import('@intafaced/auth').Principal;
 const WINDOW_MS = 90_000;
 
 const law = (settleWindowMs: number | null): OtcDeskLaw => ({
@@ -34,6 +34,7 @@ const law = (settleWindowMs: number | null): OtcDeskLaw => ({
   // A zero desk minimum is an owner value: these quotes are not held by the CB-otc-07 minimum.
   minNotional: { USDT: 0n },
   assets: ['BTC'],
+  minTier: 'basic',
   settleWindowMs,
 });
 

@@ -149,12 +149,13 @@ describe('OTC accept', () => {
         // A zero desk minimum is an owner value: these quotes are not held by the CB-otc-07 minimum.
         minNotional: { USDT: 0n },
         assets: ['BTC'],
+        minTier: 'basic',
       },
       midSource: createObservedOtcMidSource('BTC/USDT:200', () => now),
       now: () => now,
       emailProof,
     });
-    const principal = { userId: USER } as Principal;
+    const principal = { userId: USER, tier: 'basic' } as Principal;
     const quote = await svc.quote(principal, { side: 'buy', baseAsset: 'BTC', quoteAsset: 'USDT', qty: '1', makerIds: ['house'] });
     emailProof.missing.add(USER);
     await expect(svc.accept(principal, { quoteId: quote.quoteId })).rejects.toMatchObject({ code: 'trade.email_proof_required' });

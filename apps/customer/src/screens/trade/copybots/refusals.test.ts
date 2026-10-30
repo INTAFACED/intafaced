@@ -15,6 +15,13 @@ describe('roomRefusal', () => {
     expect(copyCodes.length).toBeGreaterThan(25);
     for (const code of new Set(copyCodes)) expect(KNOWN_ROOM_CODES, code).toContain(code);
   });
+  it('maps every grid code the service throws, and the bot verification codes', () => {
+    const service = readFileSync(new URL('../../../../../../services/svc-trade/src/grid/errors.ts', import.meta.url), 'utf8');
+    const gridCodes = [...service.matchAll(/'(trade\.grid_[a-z_]+)'/g)].map((m) => m[1]!);
+    expect(gridCodes.length).toBeGreaterThan(15);
+    for (const code of [...new Set(gridCodes), 'trade.bots_verification_insufficient', 'trade.bots_verification_level_not_set'])
+      expect(KNOWN_ROOM_CODES, code).toContain(code);
+  });
   it('never repeats the service sentence', () => {
     const shown = roomRefusal(failure('trade.copy_jurisdiction_blank'));
     expect(JSON.stringify(shown)).not.toMatch(/DIRECTION|D26-P0|leader_share_bps|owner-only|residual/i);
