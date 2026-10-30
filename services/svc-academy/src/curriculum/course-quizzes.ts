@@ -100,7 +100,7 @@ const ATTEMPT = (sql: Db) => sql`
 `;
 
 /** Questions as stored. A question saved before question kinds existed is single choice. */
-function questionsOf(row: { questions: AcademyCourseQuizQuestion[] | null }): AcademyCourseQuizQuestion[] {
+export function questionsOf(row: { questions: AcademyCourseQuizQuestion[] | null }): AcademyCourseQuizQuestion[] {
   return (row.questions ?? []).map((q) =>
     'kind' in q && q.kind ? q : ({ ...(q as object), kind: 'single' } as AcademyCourseQuizQuestion),
   );
@@ -123,7 +123,7 @@ export function publishBlockers(quiz: {
 }
 
 /** A value as one string with its object keys sorted (jsonb keeps its own order), to tell whether a save changes it. */
-function canonical(value: unknown): string {
+export function canonical(value: unknown): string {
   if (Array.isArray(value)) return `[${value.map(canonical).join(',')}]`;
   if (value !== null && typeof value === 'object')
     return `{${Object.keys(value)
@@ -605,15 +605,20 @@ export class CourseQuizzes {
     if (row.state === 'pending_review') return { ...base, result: { state: 'pending_review', finishedAt } };
     const shown = await this.resultsShow(tx, row);
     if (!shown.show) return { ...base, result: { state: 'withheld', finishedAt } };
+    // A score changed after grading (AC-quizzes-04) shows as its newest score event left it.
+    const [changed] = await tx<Array<{ score: number; passed: boolean; points: Record<string, number> }>>`
+      SELECT score, passed, points FROM academy.course_quiz_score_events WHERE attempt_id = ${row.id} ORDER BY n DESC LIMIT 1
+    `;
+    const review = shown.reviewMode === 'answers' ? reviewOf(row) : null;
     return {
       ...base,
       result: {
         state: 'graded',
-        score: row.score!,
+        score: changed?.score ?? row.score!,
         maxScore: row.max_score!,
-        pass: row.passed!,
+        pass: changed?.passed ?? row.passed!,
         finishedAt,
-        review: shown.reviewMode === 'answers' ? reviewOf(row) : null,
+        review: review && changed ? review.map((r) => ({ ...r, earned: changed.points[r.questionId] ?? r.earned })) : review,
       },
     };
   }

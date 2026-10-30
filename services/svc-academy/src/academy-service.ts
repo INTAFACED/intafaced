@@ -46,6 +46,7 @@ import { LessonRecords } from './curriculum/lessons.js';
 import { CourseMedia, type ReadBackFn } from './curriculum/media.js';
 import { CourseAssignments, type PutObjectFn } from './curriculum/assignments.js';
 import { CourseQuizzes } from './curriculum/course-quizzes.js';
+import { CourseQuizTrail } from './curriculum/course-quiz-trail.js';
 import { CourseRelease } from './curriculum/course-release.js';
 import { CourseItemRules } from './curriculum/course-item-rules.js';
 import { CourseGradebook } from './curriculum/course-gradebook.js';
@@ -422,6 +423,8 @@ export class AcademyService {
   readonly courseMessages: CourseMessages;
   /** AC-quizzes-01: quizzes on the items of a course staff made. The router calls it directly (AC-quizzes-02: its own attempts). */
   readonly courseQuizzes: CourseQuizzes;
+  /** AC-quizzes-04: key fixes, rescores and score overrides after grading. */
+  readonly courseQuizTrail: CourseQuizTrail;
   /** AC-release-access-01: scheduled release and pacing on a course staff made. The router calls it directly. */
   readonly courseRelease: CourseRelease;
   readonly courseItemRules: CourseItemRules;
@@ -477,6 +480,7 @@ export class AcademyService {
     this.programmeRecords = new ProgrammeRecords(sql, this.options.programmeMaxCourses);
     this.courseMessages = new CourseMessages(sql, this.options.messageMaxChars ?? null);
     this.courseQuizzes = new CourseQuizzes(sql);
+    this.courseQuizTrail = new CourseQuizTrail(sql);
     this.courseRelease = new CourseRelease(sql);
     this.courseItemRules = new CourseItemRules(sql);
     this.courseGradebook = new CourseGradebook(sql);

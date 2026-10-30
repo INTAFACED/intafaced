@@ -328,3 +328,92 @@ export const academyStartCourseQuizInputSchema = z
   .object({ itemId: z.string().guid(), accessCode: z.string().trim().max(64).nullable() })
   .strict();
 export type AcademyStartCourseQuizInput = z.infer<typeof academyStartCourseQuizInputSchema>;
+
+/**
+ * AC-quizzes-04: score changes after grading. An attempt stays as the learner finished it; every change is an event in its
+ * score trail: an override of one question's points with a comment and a reason (`override:<attempt>:<question>:<n>`), or
+ * a rescore after an author fixes a key (`rescore:<attempt>:<revision>`, once per attempt and revision). The score the
+ * learner and the gradebook see is the newest event's. A key fix is a new revision of a published quiz that changes only
+ * keys (`academy.key_fix_invalid` otherwise) and keeps every attempt as it was until a rescore.
+ */
+export const academyFixCourseQuizKeyInputSchema = z
+  .object({
+    itemId: z.string().guid(),
+    revision: z.number().int().nonnegative(),
+    questions: z.array(academyCourseQuizQuestionSchema).max(ACADEMY_QUIZ_MAX_QUESTIONS),
+    reason: z.string().trim().min(1).max(500),
+  })
+  .strict();
+export type AcademyFixCourseQuizKeyInput = z.infer<typeof academyFixCourseQuizKeyInputSchema>;
+
+/** `admin.rescoreCourseQuiz`: apply the quiz's current keys to every graded attempt whose answers they change. */
+export const academyRescoreCourseQuizInputSchema = z
+  .object({ itemId: z.string().guid(), reason: z.string().trim().min(1).max(500) })
+  .strict();
+export type AcademyRescoreCourseQuizInput = z.infer<typeof academyRescoreCourseQuizInputSchema>;
+
+/** `admin.overrideCourseQuizScore`: one question's whole points on a graded attempt, as score event `n`. */
+export const academyOverrideCourseQuizScoreInputSchema = z
+  .object({
+    itemId: z.string().guid(),
+    attemptId: z.string().guid(),
+    questionId: z.string().min(1).max(80),
+    points: z.number().int().nonnegative().max(1000),
+    n: z.number().int().positive(),
+    comment: z.string().trim().max(2000).nullable(),
+    reason: z.string().trim().min(1).max(500),
+  })
+  .strict();
+export type AcademyOverrideCourseQuizScoreInput = z.infer<typeof academyOverrideCourseQuizScoreInputSchema>;
+
+export const academyCourseQuizScoreEventSchema = z.object({
+  n: z.number().int().positive(),
+  kind: z.enum(['override', 'rescore']),
+  questionId: z.string().nullable(),
+  revision: z.number().int().positive().nullable(),
+  previousScore: z.number().int().nonnegative(),
+  score: z.number().int().nonnegative(),
+  passed: z.boolean(),
+  comment: z.string().nullable(),
+  reason: z.string(),
+  at: isoInstant,
+});
+export type AcademyCourseQuizScoreEvent = z.infer<typeof academyCourseQuizScoreEventSchema>;
+
+/** `admin.courseQuizAttempts`: every finished attempt under its per-quiz alias, never the account, with its score trail. */
+export const academyCourseQuizAttemptsSchema = z.object({
+  itemId: z.string().guid(),
+  title: z.string(),
+  revision: z.number().int().nonnegative(),
+  passMark: z.number().int().nonnegative().nullable(),
+  attempts: z.array(
+    z.object({
+      attemptId: z.string().guid(),
+      alias: z.number().int().positive(),
+      number: z.number().int().positive(),
+      finishedAt: isoInstant,
+      state: z.enum(['pending_review', 'graded']),
+      /** The score as finished, and as it stands after its score trail; null while an essay waits. */
+      originalScore: z.number().int().nonnegative().nullable(),
+      score: z.number().int().nonnegative().nullable(),
+      maxScore: z.number().int().nonnegative(),
+      passed: z.boolean().nullable(),
+      questions: z.array(
+        z.object({ questionId: z.string(), prompt: z.string(), points: z.number().int().positive(), earned: z.number().nullable() }),
+      ),
+      events: z.array(academyCourseQuizScoreEventSchema),
+      nextN: z.number().int().positive(),
+    }),
+  ),
+});
+export type AcademyCourseQuizAttempts = z.infer<typeof academyCourseQuizAttemptsSchema>;
+
+/** `admin.rescoreCourseQuiz`'s answer: the attempts it changed now, and the trail as it stands. */
+export const academyRescoreCourseQuizResultSchema = z.object({
+  revision: z.number().int().positive(),
+  rescored: z.array(
+    z.object({ alias: z.number().int().positive(), number: z.number().int().positive(), from: z.number(), to: z.number() }),
+  ),
+  attempts: academyCourseQuizAttemptsSchema,
+});
+export type AcademyRescoreCourseQuizResult = z.infer<typeof academyRescoreCourseQuizResultSchema>;
