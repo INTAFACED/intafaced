@@ -97,6 +97,7 @@ export function AgentsCatalogue({
         <div className="depth-cards">
           {shown.map((agent) => {
             const usable = enabled(agent);
+            const parked = agent.kind === 'unwired' || agent.kind === 'staff';
             return (
               <article key={agent.id} className="depth-card" aria-current={selected === agent.id}>
                 <h3>{label(agent.id)}</h3>
@@ -145,14 +146,19 @@ export function AgentsCatalogue({
                     <a className="button button--secondary" href={agent.href}>
                       <Copy k="openRoom" />
                     </a>
-                  ) : (
-                    // An agent no customer can open yet stays in the catalogue with its open button off; its card's
-                    // details name the blocker.
-                    <Button disabled>
+                  ) : parked ? (
+                    // An agent no customer can open yet stays in the catalogue with its open button off, and the card
+                    // names its blocker beside it.
+                    <Button disabled aria-describedby={`agent-blocker-${agent.id}`}>
                       <Copy k="openSession" />
                     </Button>
-                  )}
+                  ) : null}
                 </div>
+                {parked ? (
+                  <p className="muted" role="note" id={`agent-blocker-${agent.id}`}>
+                    <Copy k={agent.kind === 'unwired' ? 'blocker_unwired' : 'blocker_staff'} />
+                  </p>
+                ) : null}
               </article>
             );
           })}
