@@ -3,7 +3,7 @@ import { formatAsOf, formatWhen } from '@/lib/as-of';
 import { DISAGREE_WORDS, RESTORE_SERVICES, SERVICE_LABEL, STEP_LABEL, refusalWords, runHref, type RunDetail } from '@/lib/restore/model';
 import type { RestoreRoom as Room } from '@/lib/restore/read';
 import type { Part } from '@/lib/desk/part';
-import { FinalizeForm, StartRun, StepButton } from './actions';
+import { FinalizeDesk, RecordStamp, StartRun, StepButton } from './actions';
 import '../desk.css';
 
 /**
@@ -66,7 +66,7 @@ function Verdicts({ detail }: { detail: RunDetail }) {
   );
 }
 
-function Run({ detail }: { detail: RunDetail }) {
+function Run({ detail, userId }: { detail: RunDetail; userId: string }) {
   const { run } = detail;
   return (
     <section className="dk-stack" aria-label="Restore run" data-testid="run-detail">
@@ -99,12 +99,12 @@ function Run({ detail }: { detail: RunDetail }) {
           Finalize is off: the owner has not set a restore storage target, or the services do not agree.
         </p>
       )}
-      {detail.finalizeOffered && <FinalizeForm restoreNo={run.restoreNo} />}
+      {detail.finalizeOffered && <FinalizeDesk restoreNo={run.restoreNo} cutOff={run.cutOff} userId={userId} />}
     </section>
   );
 }
 
-export function RestoreRoom({ room, runNo }: { room: Room; runNo: string | null }) {
+export function RestoreRoom({ room, runNo, userId }: { room: Room; runNo: string | null; userId: string }) {
   return (
     <div className="dk-stack" data-testid="restore-room">
       <h2>Joint restore</h2>
@@ -118,9 +118,10 @@ export function RestoreRoom({ room, runNo }: { room: Room; runNo: string | null 
         {room.backups.kind === 'failed' ? (
           <Failed part={room.backups} testId="backups-failed" />
         ) : room.backups.data.backups.length === 0 ? (
-          <p className="dk-muted" data-testid="backups-empty">
-            No backup is listed. {refusalWords(room.backups.data.reason) ?? room.backups.data.reason}
-          </p>
+          <div data-testid="backups-empty">
+            <p className="dk-muted">No backup is listed. {refusalWords(room.backups.data.reason) ?? room.backups.data.reason}</p>
+            <p className="dk-muted">Code: {room.backups.data.reason}</p>
+          </div>
         ) : (
           <p data-testid="backups-count">{room.backups.data.backups.length} backups listed by svc-ops.</p>
         )}
@@ -159,6 +160,7 @@ export function RestoreRoom({ room, runNo }: { room: Room; runNo: string | null 
           </div>
         )}
         <p className="dk-muted">Services in the joint check: {RESTORE_SERVICES.map((s) => SERVICE_LABEL[s]).join(', ')}.</p>
+        <RecordStamp userId={userId} />
       </section>
 
       <section className="dk-stack" aria-label="Runs">
@@ -183,7 +185,8 @@ export function RestoreRoom({ room, runNo }: { room: Room; runNo: string | null 
         )}
       </section>
 
-      {room.run && (room.run.kind === 'ok' ? <Run detail={room.run.data} /> : <Failed part={room.run} testId="run-failed" />)}
+      {room.run &&
+        (room.run.kind === 'ok' ? <Run detail={room.run.data} userId={userId} /> : <Failed part={room.run} testId="run-failed" />)}
 
       <StartRun />
     </div>

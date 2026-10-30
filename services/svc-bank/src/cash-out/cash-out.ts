@@ -251,6 +251,7 @@ export class CashOutService {
         direction: 'out',
         assetId: row.asset_id,
         amount: parseAmount(row.amount),
+        ref: row.payout_ref,
       });
       const settled = await this.ledger.post(recipes.withdrawSettle(this.withdrawal(row)));
       return this.moved(

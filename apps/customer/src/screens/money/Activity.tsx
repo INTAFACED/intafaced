@@ -20,6 +20,7 @@ import {
 } from 'lucide-react';
 import {
   assetFromSearch,
+  fillFromSearch,
   groupActivity,
   groupInAsset,
   inTab,
@@ -718,7 +719,7 @@ export default function Activity({ search }: { search: string }) {
       {isLedgerTab(tab) && <FilterBar filters={filters} onChange={setFilters} copy={copy} />}
       <section data-testid="money-card" className="money-card money-card--activity" aria-label={t('Activity')}>
         {tab === 'trades' ? (
-          <TradesPanel asset={asset} />
+          <TradesPanel asset={asset} fill={fillFromSearch(search)} />
         ) : tab === 'orders' ? (
           <OrdersPanel />
         ) : isLedgerTab(tab) ? (

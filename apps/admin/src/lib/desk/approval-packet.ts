@@ -14,6 +14,7 @@ import {
   type LaunchIssuerState,
   type LaunchMoveTarget,
 } from '@/lib/launch-issuers/model';
+import { RESTORE_NO, RESTORE_SERVICES, type RestoreServiceName } from '@/lib/restore/model';
 import { STAFF_HOLD_AMOUNT_PATTERN, STAFF_HOLD_ASSET_PATTERN } from '@intafaced/contracts/ops-staff-holds';
 import { kycSelfieDecisionSchema, type KycSelfieDecision } from '@intafaced/contracts/identity-kyc-selfie';
 import {
@@ -228,7 +229,13 @@ export type DeskRequest =
    * Accept or reject one selfie a person sent for comparison with their ID photo (svc-identity `kyc.selfie.decide`,
    * I-kyc-compliance-09). Identity binds the selfie id and the decision to the approval; neither founder may be the person.
    */
-  | { readonly kind: 'identity.kyc_selfie.decide'; readonly selfieId: string; readonly decision: SelfieDecision };
+  | { readonly kind: 'identity.kyc_selfie.decide'; readonly selfieId: string; readonly decision: SelfieDecision }
+  /**
+   * The joint restore desk (svc-ops `restore.record` and `restore.finalize`, OPS-ledger-desk-05). A stamp binds the service, what
+   * its position counts and the watermark the operator read; finalize binds the run and its cut-off. svc-ops spends each once.
+   */
+  | { readonly kind: 'ops.restore.record'; readonly service: RestoreServiceName; readonly stampKind: string; readonly watermark: string }
+  | { readonly kind: 'ops.restore.finalize'; readonly restoreNo: string; readonly cutOff: string };
 
 export const VENDOR_DECISIONS = ['approved', 'rejected', 'suspended'] as const;
 export type VendorDecision = (typeof VENDOR_DECISIONS)[number];
@@ -253,6 +260,13 @@ const HOLD_NO = /^[1-9][0-9]{0,18}$/;
 /** svc-pay's network id and deposit address shapes (`custody/deposits/freezes.ts`), and the platform's user and freeze ids. */
 export const NETWORK_ID = /^[A-Za-z0-9_-]{1,32}$/;
 export const DEPOSIT_ADDRESS = /^\S{1,256}$/;
+/**
+ * svc-ops' stamp kind (`parseWatermarkInput`'s NAME, lower case as it stores it), and a watermark: printable with no spaces, at
+ * most 256 characters. Every service reports its position as a decimal string (contracts `restoreWatermarkReadSchema`), and a
+ * space could end the typed confirm phrase where no one can see it.
+ */
+export const STAMP_KIND = /^[a-z0-9][a-z0-9._:-]{0,63}$/;
+export const WATERMARK = /^[\x21-\x7e]{1,256}$/;
 /** svc-ledger's control version. A margin is the contract's decimal (`reconciliationDecimalSchema`). */
 const CONTROL_VERSION = /^[1-9]\d{0,15}$/;
 
@@ -610,6 +624,20 @@ export function readDeskRequest(raw: unknown): DeskRequest | null {
     if (typeof raw.symbol !== 'string' || !MARKET_SYMBOL.test(raw.symbol)) return null;
     return { kind: 'protocol.market.restore', symbol: raw.symbol };
   }
+  if (raw.kind === 'ops.restore.record') {
+    if (keys !== 'kind,service,stampKind,watermark') return null;
+    const service = RESTORE_SERVICES.find((s) => s === raw.service);
+    if (!service || typeof raw.stampKind !== 'string' || !STAMP_KIND.test(raw.stampKind)) return null;
+    if (typeof raw.watermark !== 'string' || !WATERMARK.test(raw.watermark)) return null;
+    return { kind: 'ops.restore.record', service, stampKind: raw.stampKind, watermark: raw.watermark };
+  }
+  // The cut-off is the run's own, exactly as svc-ops stored it (`toISOString`): that is the spelling it signs.
+  if (raw.kind === 'ops.restore.finalize') {
+    if (keys !== 'cutOff,kind,restoreNo') return null;
+    if (typeof raw.restoreNo !== 'string' || !RESTORE_NO.test(raw.restoreNo)) return null;
+    if (!isRunInstant(raw.cutOff) || raw.cutOff === 'now') return null;
+    return { kind: 'ops.restore.finalize', restoreNo: raw.restoreNo, cutOff: raw.cutOff };
+  }
   return null;
 }
 
@@ -759,6 +787,10 @@ export function confirmPhrase(request: DeskRequest): string {
       return `OPEN DOCUMENT ${request.documentId.slice(0, 8)}`;
     case 'identity.kyc_selfie.decide':
       return `${request.decision === 'accepted' ? 'ACCEPT' : 'REJECT'} SELFIE ${request.selfieId.slice(0, 8)}`;
+    case 'ops.restore.record':
+      return `STAMP ${request.service.toUpperCase()} ${request.watermark.slice(0, 16)}`;
+    case 'ops.restore.finalize':
+      return `FINALIZE RESTORE ${request.restoreNo}`;
   }
 }
 
@@ -868,6 +900,10 @@ export function describeRequest(request: DeskRequest): string {
       return request.decision === 'accepted'
         ? `Accept selfie ${request.selfieId}: the operator compared it with the account's ID photo and they match. Identity marks the selfie accepted and records when.`
         : `Reject selfie ${request.selfieId}: it does not match the account's ID photo or cannot be compared. Identity marks the selfie rejected and records when; the person can take a new one.`;
+    case 'ops.restore.record':
+      return `Record a joint-restore stamp for svc-${request.service}: its ${request.stampKind} position is ${request.watermark}. The stamp is what the restore compares that service's live position with; a later stamp for the same service takes its place, and the earlier one stays listed. Nothing is restored and no money moves.`;
+    case 'ops.restore.finalize':
+      return `Finalize joint restore ${request.restoreNo} at cut-off ${request.cutOff}. svc-ops checks again that the ledger, identity, bank and pay each match their stamp and wrote nothing after the cut-off, and refuses if any does not; only then is the run recorded as restored. No money moves.`;
   }
 }
 
@@ -888,6 +924,8 @@ export function requestReason(request: DeskRequest): string | null {
     case 'token.launch.issuer.set':
     case 'token.launch.event.create':
     case 'token.launch.event.move':
+    case 'ops.restore.record':
+    case 'ops.restore.finalize':
       return null;
     default:
       return request.reason;

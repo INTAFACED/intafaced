@@ -38,6 +38,8 @@ export function errorParts(body: unknown, status: number): { code: string; messa
   const json = (err.json && typeof err.json === 'object' ? err.json : err) as Record<string, unknown>;
   const data = (json.data && typeof json.data === 'object' ? json.data : {}) as Record<string, unknown>;
   const pick = (...v: unknown[]) => v.find((x): x is string => typeof x === 'string' && x.length > 0);
+  // tRPC puts the service's own code in data.intafacedCode (auth) or data.cause.code; data.code is only the tRPC class.
+  const cause = (data.cause && typeof data.cause === 'object' ? data.cause : {}) as Record<string, unknown>;
   const code =
     pick(
       root.intafacedCode,
@@ -45,6 +47,8 @@ export function errorParts(body: unknown, status: number): { code: string; messa
       root.code,
       json.code,
       data.appCode,
+      data.intafacedCode,
+      cause.code,
       data.code,
       typeof root.error === 'string' ? root.error : undefined,
     ) ?? `http.${status}`;

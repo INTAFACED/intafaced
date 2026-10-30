@@ -44,6 +44,7 @@ import {
   optionsPositions as optionsPositionsDoor,
 } from './options-doors.js';
 import { exportRfqHistory, listRfqHistory, type RfqListQuery } from '../otc/rfq-history.js';
+import { listRfqBoard } from '../otc/rfq-board.js';
 import { cancelScaleGroup, createScaleGroup, getScaleGroup, type ScaleCreateInput } from './scale-group.js';
 import { appendOrderEvent, listAlgoReports, parentIdFromClientOrder, type OrderEventKind } from '../orders/order-events.js';
 import { UNPUBLISHED_FEE_SCHEDULE, type OwnerFeeSchedule } from './fee-schedule.js';
@@ -121,6 +122,7 @@ import * as reads from './trade-service/reads.js';
 import * as reconcile from './trade-service/reconcile.js';
 import * as twap from './trade-service/algo.js';
 import * as buyback from './trade-service/buyback.js';
+import { orderIdFor } from './ids.js';
 
 export {
   assertSamePlaceCommand,
@@ -840,6 +842,11 @@ export class TradeService {
           const depth = await this.matching.depth(marketId, twap.OPPOSITE_BOOK_LEVELS);
           return twap.sideQty(side === 'buy' ? depth.asks : depth.bids, side, limitPrice);
         },
+        chaseChildState: (orderIds) => twap.chaseChildState(this.sql, orderIds),
+        chaseChildByClientOrderId: async (parent, clientOrderId) => {
+          const order = await this.findOrder(orderIdFor(parent.userId, parent.marketId, clientOrderId));
+          return order ? { orderId: order.id, qty: order.qty, price: order.price, placedAt: order.createdAt } : null;
+        },
       },
       {
         onChange: (parent, plan) => this.algoStore.save({ parent, plan }),
@@ -1098,6 +1105,11 @@ export class TradeService {
 
   rfqList(principal: Principal, query: RfqListQuery) {
     return listRfqHistory(this.sql, principal, query);
+  }
+
+  /** J-copy-bots-otc-24 #5: the caller's requests grouped by status, each with its quotes best first. */
+  rfqBoard(principal: Principal, query: RfqListQuery) {
+    return listRfqBoard(this.sql, principal, query, this.now());
   }
 
   rfqExport(principal: Principal, query: { from?: string; to?: string }) {
@@ -1766,6 +1778,7 @@ export class TradeService {
       povBasis?: PovBasis;
       randomSeed?: number;
       triggerPrice?: Amount;
+      chaseDistanceBps?: number;
     },
   ): Promise<TwapParent> {
     return twap.createTwap(this.internal, principal, input);
