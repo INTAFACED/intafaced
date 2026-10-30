@@ -10,6 +10,7 @@ import { clockTime, stamp } from '../../../screens/money/time';
 import { protocolCopy } from '../copy';
 import { ADDRESS_SHAPE } from '../routes';
 import { QuickTicket } from './QuickTicket';
+import { InfoUpdate } from './InfoUpdate';
 import { TabList } from './TabList';
 import { useApi, useSession } from '../../session/session';
 import { useAccountTokenWatchlist, type ListWrite } from '../watch/account-lists';
@@ -487,7 +488,14 @@ export function TokenPage({ address }: { address: string | undefined }) {
             <span className="badge protocol-pill">{room('bannerPill')}</span>
           </>
         }
-        actions={valid ? <WatchButton address={address} t={t} /> : undefined}
+        actions={
+          valid ? (
+            <>
+              <WatchButton address={address} t={t} />
+              <InfoUpdate token={address} t={t} />
+            </>
+          ) : undefined
+        }
       >
         {valid ? (
           <TokenBody address={address} t={t} />
