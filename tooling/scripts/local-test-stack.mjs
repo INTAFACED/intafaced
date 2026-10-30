@@ -65,6 +65,7 @@ import { apiSecurityHeaders, securityHeaders } from '../../apps/customer/deploym
 import { APEX_DESCRIPTOR_PATH, APEX_PRODUCT } from '../../apps/customer/deployment/host-dispatch.mjs';
 import { anvilBin, chainRecordPath, chainStatus, CHAIN_PORTS, GATE_URL, runSeedScript, TEST_CHAIN_ID } from './local-test-chain.mjs';
 import { marketStatus } from './local-test-market.mjs';
+import { serveRailStatements } from './local-test-rail-statements.mjs';
 import { serveVideoStore } from './local-video-store.mjs';
 import academy from './local-stack-services/academy.mjs';
 import agents from './local-stack-services/agents.mjs';
@@ -180,6 +181,9 @@ const PORTS = {
   campaigns: 14522,
   // The live market-data and private streams the Customer app opens through /ws.
   ws: 14523,
+  // LOCAL TEST statements of each rail stand-in's own records, read by svc-ledger's per-rail outside controls
+  // (local-test-rail-statements.mjs).
+  'rail-statements': 14525,
   customer: 3210,
   invitation: 3220,
   // LOCAL TEST stand-in for the apex host (the host check); the real apex site is not in this repo.
@@ -763,6 +767,8 @@ export async function inPool(items, limit, task) {
 }
 
 const SOURCE_PATHS = ['services', 'packages', 'apps/customer', 'pnpm-lock.yaml'];
+/** What the running Node services are built from: a Customer-only change rebuilds no service process. */
+const BACKEND_SOURCE_PATHS = ['services', 'packages', 'pnpm-lock.yaml'];
 
 /** True when no service, package or Customer source changed between two commits (tooling and docs do not count). */
 function sourceUnchangedSince(oldHead, head, paths = SOURCE_PATHS) {
@@ -770,6 +776,71 @@ function sourceUnchangedSince(oldHead, head, paths = SOURCE_PATHS) {
   if (oldHead === head) return true;
   const r = spawnSync('git', ['diff', '--quiet', oldHead, head, '--', ...paths], { cwd: REPO });
   return r.status === 0;
+}
+
+/**
+ * A fingerprint of the uncommitted edits under `paths` in this checkout (changed, added and untracked files and their
+ * content), '' when there are none. A build made from a dirty tree vouches only for that same dirt.
+ */
+function worktreeEdits(paths, exclude = []) {
+  const spec = [...paths, ...exclude.map((p) => `:(exclude)${p}`)];
+  const status = spawnSync('git', ['status', '--porcelain=v1', '-z', '--untracked-files=all', '--', ...spec], { cwd: REPO });
+  // A read that fails or is cut short is never "same as before".
+  if (status.status !== 0 || status.error) return `unreadable:${Date.now()}`;
+  if (status.stdout.length === 0) return '';
+  const diff = spawnSync('git', ['diff', 'HEAD', '--binary', '--', ...spec], { cwd: REPO, maxBuffer: 256 * 1024 * 1024 });
+  if (diff.status !== 0 || diff.error) return `unreadable:${Date.now()}`;
+  const hash = crypto
+    .createHash('sha256')
+    .update(status.stdout)
+    .update(diff.stdout ?? '');
+  for (const entry of status.stdout.toString('utf8').split('\0')) {
+    // Untracked files are in no diff: hash their bytes too.
+    if (entry.startsWith('?? ')) {
+      try {
+        hash.update(fs.readFileSync(path.join(REPO, entry.slice(3))));
+      } catch {
+        hash.update(`unreadable:${entry}`);
+      }
+    }
+  }
+  return hash.digest('hex');
+}
+
+/**
+ * Whether a build stamp still vouches for what is on disk: it was made by this checkout (every worktree shares one state
+ * folder), from source no commit has changed since, with the same uncommitted edits. An older stamp without the checkout
+ * or the edits vouches for nothing, so it builds once.
+ */
+export function buildStillFresh({ stampRepo, stampHead, stampEdits }, { repo, head, edits }, unchanged = sourceUnchangedSince) {
+  return stampRepo === repo && stampEdits === edits && unchanged(stampHead, head);
+}
+
+/** A new id for a build that ran, so a service started on an older build can tell. */
+const newBuildId = () => `${new Date().toISOString()}-${crypto.randomBytes(4).toString('hex')}`;
+
+/**
+ * Whether a running process was started on the build that is on disk now. `wanted` is the stamp's id for that part; a
+ * process recorded before builds had ids started on an unknown build.
+ */
+export function onCurrentBuild(rec, wanted) {
+  return !wanted || rec?.build === wanted;
+}
+
+/** The stamp's id for one part's last build (`backendBuild`, `adminBuild`, …), or undefined before any build had one. */
+function currentBuild(part) {
+  return fs.existsSync(P.buildStamp) ? readJson(P.buildStamp)[part] : undefined;
+}
+
+/**
+ * Stops `name` when it runs on another build than `build`: a running process keeps serving what it loaded, so it would
+ * hide the new build. Waits for its port to close, so the start that follows does not mistake it for a stranger.
+ */
+async function stopForNewBuild(name, rec, build, port) {
+  if (!ownedAlive(rec) || onCurrentBuild(rec, build)) return;
+  say(`  ${name}: restarting onto the new build`);
+  await stopProc(name, rec);
+  for (let i = 0; i < 50 && (await portOpen(port)); i++) await sleep(200);
 }
 
 const distOf = (pkg) => path.join(REPO, 'services', pkg, 'dist', 'index.js');
@@ -888,10 +959,12 @@ function buildPlan(rebuild, act = activeCustomerDist()) {
   const override = act.source !== 'own';
   // Without an override, a stamp written while an override skipped the Customer build cannot vouch for our own dist.
   const customerOk = override ? !act.error : fs.existsSync(path.join(P.customerDist, 'index.html')) && stamp.customerBuilt !== false;
-  const fresh = !rebuild && sourceUnchangedSince(stamp.head, head);
+  const edits = worktreeEdits(SOURCE_PATHS);
+  const fresh =
+    !rebuild && buildStillFresh({ stampRepo: stamp.repo, stampHead: stamp.head, stampEdits: stamp.edits }, { repo: REPO, head, edits });
   const missing = BACKEND_PKGS.filter((s) => !fs.existsSync(distOf(s)));
   const backend = fresh && customerOk ? (missing.length === 0 ? 'none' : 'missing') : 'full';
-  return { head, stamp, override, missing, backend, customer: backend === 'full' && !override };
+  return { head, edits, stamp, override, missing, backend, customer: backend === 'full' && !override };
 }
 
 // The founder console has its own stamp, so a console-only change never rebuilds the services and the reverse.
@@ -900,11 +973,23 @@ const ADMIN_SOURCE_PATHS = ['apps/admin', 'packages', 'pnpm-lock.yaml'];
 function ensureAdminBuilt(rebuild) {
   const head = gitHead();
   const stamp = fs.existsSync(P.buildStamp) ? readJson(P.buildStamp) : {};
-  if (!rebuild && fs.existsSync(P.adminBuildId) && sourceUnchangedSince(stamp.adminHead, head, ADMIN_SOURCE_PATHS)) return;
+  // next-env.d.ts is rewritten by `next dev` and `next build` themselves, so it is no edit of the founder's.
+  const edits = worktreeEdits(ADMIN_SOURCE_PATHS, ['apps/admin/next-env.d.ts']);
+  const unchanged = (a, b) => sourceUnchangedSince(a, b, ADMIN_SOURCE_PATHS);
+  const now = { repo: REPO, head, edits };
+  if (
+    !rebuild &&
+    fs.existsSync(P.adminBuildId) &&
+    buildStillFresh({ stampRepo: stamp.adminRepo, stampHead: stamp.adminHead, stampEdits: stamp.adminEdits }, now, unchanged)
+  )
+    return;
   say('  build: founder console (apps/admin)…');
   runPnpm(['--filter', '@intafaced/admin...', 'build'], 'build-admin');
-  const now = fs.existsSync(P.buildStamp) ? readJson(P.buildStamp) : {};
-  writePrivate(P.buildStamp, JSON.stringify({ ...now, adminHead: head }, null, 2));
+  const after = fs.existsSync(P.buildStamp) ? readJson(P.buildStamp) : {};
+  writePrivate(
+    P.buildStamp,
+    JSON.stringify({ ...after, adminHead: head, adminRepo: REPO, adminEdits: edits, adminBuild: newBuildId() }, null, 2),
+  );
 }
 
 const INVITATION_SOURCE_PATHS = ['apps/invitation', 'packages', 'pnpm-lock.yaml'];
@@ -914,17 +999,23 @@ function ensureInvitationBuilt(rebuild) {
   const head = gitHead();
   const stamp = fs.existsSync(P.buildStamp) ? readJson(P.buildStamp) : {};
   const built = fs.existsSync(path.join(P.invitationDist, 'index.html'));
-  if (!rebuild && built && sourceUnchangedSince(stamp.invitationHead, head, INVITATION_SOURCE_PATHS)) return;
+  const edits = worktreeEdits(INVITATION_SOURCE_PATHS);
+  const unchanged = (a, b) => sourceUnchangedSince(a, b, INVITATION_SOURCE_PATHS);
+  const stamped = { stampRepo: stamp.invitationRepo, stampHead: stamp.invitationHead, stampEdits: stamp.invitationEdits };
+  if (!rebuild && built && buildStillFresh(stamped, { repo: REPO, head, edits }, unchanged)) return;
   say('  build: invitation site (apps/invitation)…');
   runPnpm(['--filter', '@intafaced/invitation...', 'build'], 'build-invitation');
   const now = fs.existsSync(P.buildStamp) ? readJson(P.buildStamp) : {};
-  writePrivate(P.buildStamp, JSON.stringify({ ...now, invitationHead: head }, null, 2));
+  writePrivate(
+    P.buildStamp,
+    JSON.stringify({ ...now, invitationHead: head, invitationRepo: REPO, invitationEdits: edits, invitationBuild: newBuildId() }, null, 2),
+  );
 }
 
 function ensureBuilt(rebuild) {
   const act = activeCustomerDist();
   if (act.error) fail(`customer folder override is unusable: ${act.error}\n  Fix it, or run: pnpm local:stack customer-dist --clear`);
-  const { head, stamp, override, missing, backend } = buildPlan(rebuild, act);
+  const { head, edits, stamp, override, missing, backend } = buildPlan(rebuild, act);
   if (override) say(`  build: customer app is ${act.dir} (override); not building it`);
   if (backend === 'none') {
     say('  build: up to date (use --rebuild to force)');
@@ -937,10 +1028,23 @@ function ensureBuilt(rebuild) {
     // Build just those so running services keep their files untouched.
     say(`  build: ${missing.length} service(s) not built yet (${missing.map((m) => m.replace('svc-', '')).join(', ')})…`);
     runPnpm([...missing.flatMap((s) => ['--filter', `@intafaced/${s}...`]), 'build'], 'build-backend-missing');
-    writePrivate(P.buildStamp, JSON.stringify({ ...stamp, head, builtAt: stamp.builtAt ?? new Date().toISOString() }, null, 2));
+    // Only services that were never built: nothing running was built from them, so the running build id stands.
+    writePrivate(
+      P.buildStamp,
+      JSON.stringify({ ...stamp, head, repo: REPO, edits, builtAt: stamp.builtAt ?? new Date().toISOString() }, null, 2),
+    );
     ensureAdminBuilt(rebuild);
     return;
   }
+  // The services restart onto this build only when their own source moved (not for a Customer-only change).
+  const backendEdits = worktreeEdits(BACKEND_SOURCE_PATHS);
+  const backendChanged =
+    rebuild ||
+    !buildStillFresh(
+      { stampRepo: stamp.repo, stampHead: stamp.head, stampEdits: stamp.backendEdits },
+      { repo: REPO, head, edits: backendEdits },
+      (a, b) => sourceUnchangedSince(a, b, BACKEND_SOURCE_PATHS),
+    );
   say('  build: backend packages and services (a few minutes on a cold tree)…');
   runPnpm([...BACKEND_PKGS.flatMap((s) => ['--filter', `@intafaced/${s}...`]), 'build'], 'build-backend');
   if (!override) {
@@ -949,7 +1053,21 @@ function ensureBuilt(rebuild) {
   }
   writePrivate(
     P.buildStamp,
-    JSON.stringify({ head, builtAt: new Date().toISOString(), customerBuilt: !override, adminHead: stamp.adminHead }, null, 2),
+    JSON.stringify(
+      {
+        ...stamp,
+        head,
+        repo: REPO,
+        edits,
+        builtAt: new Date().toISOString(),
+        customerBuilt: !override,
+        backendEdits,
+        backendBuild: backendChanged ? newBuildId() : stamp.backendBuild,
+        customerBuild: override ? stamp.customerBuild : newBuildId(),
+      },
+      null,
+      2,
+    ),
   );
   ensureAdminBuilt(rebuild);
 }
@@ -1224,7 +1342,7 @@ async function startNats() {
 function testChain() {
   if (!ownedAlive(readProcs().chain) || !fs.existsSync(chainRecordPath(STATE))) return null;
   const record = readJson(chainRecordPath(STATE));
-  return { rpcUrl: GATE_URL, factory: record.factory, router: record.router };
+  return { rpcUrl: GATE_URL, factory: record.factory, router: record.router, usdToken: record.tokens?.USD?.address ?? null };
 }
 
 /**
@@ -1353,12 +1471,14 @@ async function startNodeService(def) {
   const port = Number(env.HTTP_PORT);
   const procs = readProcs();
   const url = `http://${HOST}:${port}/health`;
-  if (ownedAlive(procs[def.name]) && (await httpGet(url, 2000)).status === 200) return;
+  const build = currentBuild('backendBuild');
+  await stopForNewBuild(def.name, procs[def.name], build, port);
+  if (ownedAlive(readProcs()[def.name]) && (await httpGet(url, 2000)).status === 200) return;
   if (await portOpen(port)) fail(`port ${port} (${def.name}) is in use by a process this script did not start`);
   for (const d of ['matching', 'execution']) fs.mkdirSync(path.join(P.data, d), { recursive: true, mode: 0o700 });
   if (def.name === 'identity') writeFounderPinStamp(STATE, env);
   const entry = path.join(REPO, 'services', `svc-${def.name}`, 'dist', def.entry ?? 'index.js');
-  const pid = startProc(def.name, [process.execPath, entry], env, path.join(REPO, 'services', `svc-${def.name}`));
+  const pid = startProc(def.name, [process.execPath, entry], env, path.join(REPO, 'services', `svc-${def.name}`), { build });
   if (def.name === 'ops') {
     // Which founder pair svc-ops read at start, so a later start can tell when the pair changed.
     const procs = readProcs();
@@ -1416,12 +1536,14 @@ async function pinOpsFounders() {
 }
 
 async function startCustomer() {
+  const build = currentBuild('customerBuild');
+  await stopForNewBuild('customer', readProcs().customer, build, PORTS.customer);
   const procs = readProcs();
   const url = `${CUSTOMER_ORIGIN}/`;
   if (ownedAlive(procs.customer) && (await httpGet(url, 2000)).status === 200) return;
   if (await portOpen(PORTS.customer)) fail(`port ${PORTS.customer} (customer) is in use by a process this script did not start`);
   const env = { ...baseEnv(), CUSTOMER_WS_URL: customerWsUpstream() };
-  const pid = startProc('customer', [process.execPath, SCRIPT, '__serve-customer'], env, REPO);
+  const pid = startProc('customer', [process.execPath, SCRIPT, '__serve-customer'], env, REPO, { build });
   await waitHealthy('customer', url, pid, 20_000);
 }
 
@@ -1437,14 +1559,27 @@ async function startVideoStore(secrets) {
   await waitHealthy('video-store', url, pid, 20_000);
 }
 
+/** The LOCAL TEST rail statements (local-test-rail-statements.mjs): each rail stand-in's own records, for svc-ledger. */
+async function startRailStatements() {
+  const procs = readProcs();
+  const url = `${urlOf('rail-statements')}/health`;
+  if (ownedAlive(procs['rail-statements']) && (await httpGet(url, 2000)).status === 200) return;
+  if (await portOpen(PORTS['rail-statements']))
+    fail(`port ${PORTS['rail-statements']} (rail-statements) is in use by a process this script did not start`);
+  const pid = startProc('rail-statements', [process.execPath, SCRIPT, '__serve-rail-statements'], baseEnv(), REPO);
+  await waitHealthy('rail-statements', url, pid, 20_000);
+}
+
 /** The public invitation site (apps/invitation), served like the Customer app so its intake reaches svc-ops through Edge. */
 async function startInvitation() {
+  const build = currentBuild('invitationBuild');
+  await stopForNewBuild('invitation', readProcs().invitation, build, PORTS.invitation);
   const procs = readProcs();
   const url = `${INVITATION_ORIGIN}/`;
   if (ownedAlive(procs.invitation) && (await httpGet(url, 2000)).status === 200) return;
   if (!fs.existsSync(path.join(P.invitationDist, 'index.html'))) fail('invitation build missing; run with --rebuild');
   if (await portOpen(PORTS.invitation)) fail(`port ${PORTS.invitation} (invitation) is in use by a process this script did not start`);
-  const pid = startProc('invitation', [process.execPath, SCRIPT, '__serve-invitation'], baseEnv(), REPO);
+  const pid = startProc('invitation', [process.execPath, SCRIPT, '__serve-invitation'], baseEnv(), REPO, { build });
   await waitHealthy('invitation', url, pid, 20_000);
 }
 
@@ -1513,9 +1648,12 @@ function treasuryHeldUntil(rec) {
 }
 
 async function startAdmin(secrets) {
-  const procs = readProcs();
+  let procs = readProcs();
   const url = `${ADMIN_ORIGIN}/login`;
   let treasury = null;
+  const build = currentBuild('adminBuild');
+  await stopForNewBuild('admin', procs.admin, build, PORTS.admin);
+  procs = readProcs();
   if (ownedAlive(procs.admin)) {
     const until = treasuryHeldUntil(procs.admin);
     // Ours but not answering yet (a first request compiles nothing, but prepare() takes a few seconds): wait for it.
@@ -1531,6 +1669,7 @@ async function startAdmin(secrets) {
   treasury ??= await consoleTreasuryEnv();
   const pid = startProc('admin', [process.execPath, SCRIPT, '__serve-admin'], { ...adminEnv(secrets), ...treasury.env }, P.admin, {
     treasuryExpiresAt: treasury.expiresAt,
+    build,
   });
   await waitHealthy('admin', url, pid, 60_000);
 }
@@ -1605,6 +1744,13 @@ async function healthTable({ gateMarket = false } = {}) {
     procs['video-store']?.pid ?? '-',
     store.status === 200 ? 'ok (TEST)' : `DOWN (${store.status})`,
   ]);
+  const statements = await httpGet(`${urlOf('rail-statements')}/health`, 2500);
+  rows.push([
+    'rail-statements',
+    PORTS['rail-statements'],
+    procs['rail-statements']?.pid ?? '-',
+    statements.status === 200 ? 'ok (TEST)' : `DOWN (${statements.status})`,
+  ]);
   const cust = await httpGet(`${CUSTOMER_ORIGIN}/`, 2500);
   rows.push([
     'customer',
@@ -1643,7 +1789,7 @@ function onlyFlag(flags) {
   const at = flags.indexOf('--only');
   if (at === -1) return null;
   const names = (flags[at + 1] ?? '').split(',').filter(Boolean);
-  const known = [...serviceNames(), 'video-store', 'customer', 'invitation', 'apex', 'admin'];
+  const known = [...serviceNames(), 'video-store', 'rail-statements', 'customer', 'invitation', 'apex', 'admin'];
   const bad = names.filter((n) => !known.includes(n));
   if (names.length === 0 || bad.length)
     fail(`--only needs a comma list of: ${known.join(', ')}${bad.length ? ` (unknown: ${bad.join(', ')})` : ''}`, 2);
@@ -1711,6 +1857,8 @@ async function cmdStart(flags) {
   }
   // Academy's env points at the video store, so `--only academy` starts it too.
   if (!only || only.includes('video-store') || only.includes('academy')) await startVideoStore(secrets);
+  // Ledger's per-rail outside controls read these statements, so `--only ledger` starts them too.
+  if (!only || only.includes('rail-statements') || only.includes('ledger')) await startRailStatements();
   writePrivate(P.s2sMode, `${s2sMode}\n`);
   await startServices(wanted);
   try {
@@ -1776,7 +1924,7 @@ function ensureMarket() {
 
 async function cmdStop(names = []) {
   const procs = readProcs();
-  const order = ['admin', 'apex', 'invitation', 'customer', ...serviceNames().reverse(), 'chain', 'video-store', 'nats'];
+  const order = ['admin', 'apex', 'invitation', 'customer', ...serviceNames().reverse(), 'chain', 'video-store', 'rail-statements', 'nats'];
   const only = names.length ? names : null;
   // A TEST host receipt never outlives the sites it says are served (checkLocalTestHosts writes it again on start).
   if (!only || HOST_SITES.some((name) => only.includes(name))) fs.rmSync(P.hostReceipt, { force: true });
@@ -1850,7 +1998,7 @@ function cmdPlan(flags) {
 
 /** Stop the named services (plain stop, leaves Postgres and the rest alone), then start whatever is not running. */
 async function cmdRestart(names) {
-  const known = [...serviceNames(), 'video-store', 'customer', 'invitation', 'apex', 'admin'];
+  const known = [...serviceNames(), 'video-store', 'rail-statements', 'customer', 'invitation', 'apex', 'admin'];
   const bad = names.filter((n) => !known.includes(n));
   if (names.length === 0 || bad.length)
     fail(`restart needs service names from: ${known.join(', ')}${bad.length ? ` (unknown: ${bad.join(', ')})` : ''}`, 2);
@@ -1994,6 +2142,13 @@ export function cspReportRows(body, at = new Date().toISOString()) {
     }));
 }
 
+// The status badge's cache life comes from svc-notify through the edge, as apps/customer/nginx.conf passes it; every
+// other /api/ answer stays no-store.
+const STATUS_BADGE_PATH = '/api/notify/status/badge.svg';
+export function apiCacheControl(pathname, upstream) {
+  return pathname === STATUS_BADGE_PATH && typeof upstream === 'string' && upstream.length > 0 ? upstream : 'no-store';
+}
+
 /** Request headers to forward upstream: no hop-by-hop headers, and none only Edge may mint. */
 function proxyHeaders(req, { upgrade = false } = {}) {
   const headers = {};
@@ -2078,7 +2233,11 @@ function serveCustomer(port = PORTS.customer, site = SITES.customer) {
     }
     if (p.startsWith('/api/')) {
       const up = http.request({ ...edge, method: req.method, path: req.url, headers: proxyHeaders(req) }, (ur) => {
-        res.writeHead(ur.statusCode ?? 502, { ...ur.headers, ...API_SECURITY, 'cache-control': 'no-store' });
+        res.writeHead(ur.statusCode ?? 502, {
+          ...ur.headers,
+          ...API_SECURITY,
+          'cache-control': apiCacheControl(p, ur.headers['cache-control']),
+        });
         ur.pipe(res);
       });
       up.on('error', () =>
@@ -2403,6 +2562,40 @@ function cmdExpireStaffHolds(args) {
     // psql prints the UPDATE tag after the hold numbers; count the numbers alone.
     .filter((line) => /^[0-9]+$/.test(line));
   say(`  ${moved.length} staff hold(s) of ${who} now past their expiry; svc-ops releases them on its next tick (LOCAL TEST fixture)`);
+}
+
+/**
+ * `seed-notice <email-or-userId> <tradeId>`: one P2P escrow-locked notice in the TEST person's inbox, stored exactly as
+ * svc-notify wrote it before PR 5435 moved its targets (`href` `/p2p/trades/<tradeId>`). Rows stored then are never
+ * rewritten, so the customer app must still open them (J-home-ia-05 #2). It writes the notice row only: no trade, no
+ * escrow, no event, and it moves no value. The same person and trade id is the same row, stored again as new and unread.
+ */
+function cmdSeedNotice(args) {
+  const [who, tradeId] = args;
+  if (!who || !tradeId) fail('usage: node tooling/scripts/local-test-stack.mjs seed-notice <email-or-userId> <tradeId>', 2);
+  if (!/^[A-Za-z0-9-]{4,64}$/.test(tradeId)) fail('tradeId must be 4-64 letters, digits or dashes', 2);
+  const { secrets, userId } = localFixturePerson(who);
+  const id = psql(
+    secrets,
+    `INSERT INTO notify.notifications (user_id, kind, title_key, body_key, params, href, severity, source_subject, source_idempotency_key)
+     VALUES (:'uid', 'p2p.escrow.locked', 'notify.p2p.escrow.locked.title', 'notify.p2p.escrow.locked.body',
+             coalesce((SELECT params FROM notify.notifications
+                        WHERE user_id = :'uid' AND kind = 'p2p.escrow.locked' AND params->>'tradeId' = :'tid'
+                          AND source_idempotency_key NOT LIKE 'local-test-old-link:%'
+                        ORDER BY created_at LIMIT 1),
+                       jsonb_build_object('tradeId', :'tid'::text)),
+             '/p2p/trades/' || :'tid', 'action',
+             'intafaced.p2p.escrow.locked', 'local-test-old-link:' || :'tid')
+     ON CONFLICT (user_id, source_subject, source_idempotency_key)
+       DO UPDATE SET href = EXCLUDED.href, read_at = NULL, created_at = now()
+     RETURNING id::text`,
+    { db: DB_NAME, user: 'svc_notify', password: secrets.pgService, vars: { uid: userId, tid: tradeId }, tuples: true },
+  )
+    .trim()
+    .split('\n')
+    .find((line) => /^[0-9a-f-]{36}$/.test(line.trim()));
+  if (!id) fail(`no notice was stored for ${who}`);
+  say(`  notice ${id.trim()} for ${who} links /p2p/trades/${tradeId}, as stored before PR 5435 (LOCAL TEST fixture)`);
 }
 
 /**
@@ -3004,10 +3197,17 @@ function canonicalAmount(amount) {
   return `${BigInt(whole)}${digits ? `.${digits}` : ''}`;
 }
 
-/** Whether svc-pay issued `address` as a deposit address: the custodian's own list of its addresses, not a ledger figure. */
+/**
+ * Whether `address` is the stack's own custody: a deposit address svc-pay issued, or the acceptance address it gave a
+ * merchant's crypto payment (both land on rail crypto-native). The custodian's own lists of its addresses, not a ledger figure.
+ */
 function custodyAddress(address) {
   const secrets = readJson(P.secrets);
-  const found = psql(secrets, `SELECT 1 FROM pay.custody_deposit_addresses WHERE lower(address) = lower(:'address') LIMIT 1`, {
+  const sql = `SELECT 1 FROM pay.custody_deposit_addresses WHERE lower(address) = lower(:'address')
+               UNION ALL
+               SELECT 1 FROM pay.payments WHERE rail_adapter = 'crypto-native' AND lower(rail_ref) = lower(:'address')
+               LIMIT 1`;
+  const found = psql(secrets, sql, {
     db: DB_NAME,
     user: 'svc_pay',
     password: secrets.pgService,
@@ -3167,6 +3367,57 @@ async function cmdBankTransfer(rawArgs) {
   say(`  answer    ${text}`);
 }
 
+/**
+ * `card-funds <paymentId> available|pending [--on <ISO date>]`: the TEST card acquirer reports that the funds of one card
+ * payment it captured are released (`available`) or still held, optionally until a named day (`pending --on`), to svc-pay's
+ * own `/webhooks/card-sandbox`, signed with this stack's TEST card webhook secret (RC-merchant-10). The payment must have
+ * been taken with the held-funds TEST token, or svc-pay ignores the report. The event id comes from the payment and the
+ * report, so sending it again is the same delivery, never a second release. Nothing here touches the ledger.
+ */
+async function cmdCardFunds(rawArgs) {
+  const args = [...rawArgs];
+  const at = args.indexOf('--on');
+  const on = at === -1 ? undefined : args[at + 1];
+  if (at !== -1) args.splice(at, 2);
+  const usage = 'usage: node tooling/scripts/local-test-stack.mjs card-funds <paymentId> available|pending [--on <ISO date>]';
+  if (args.some((arg) => arg.startsWith('--'))) fail(`unknown option: ${args.find((arg) => arg.startsWith('--'))}`, 2);
+  const [paymentId, state, ...extra] = args;
+  if (!paymentId || !state || extra.length > 0) fail(usage, 2);
+  if (!/^[0-9a-f-]{36}$/i.test(paymentId)) fail(`bad payment id: ${paymentId}`, 2);
+  if (state !== 'available' && state !== 'pending') fail(usage, 2);
+  if (on !== undefined && (state !== 'pending' || Number.isNaN(Date.parse(on)))) fail('--on takes an ISO date, with pending only', 2);
+
+  // Guards: this only ever talks to the local stack's own svc-pay.
+  if (!fs.existsSync(P.marker)) fail(`refusing: marker ${P.marker} not found. Start the stack first (pnpm local:stack).`);
+  if (readJson(P.marker).kind !== 'intafaced-local-test-stack') fail('refusing: marker file is not a local test stack marker');
+  if (!ownedAlive(readProcs().pay)) fail('refusing: the local stack svc-pay is not running. Run: pnpm local:stack');
+  assertActiveLocalStack({ stateDir: STATE, services: ['pay'] });
+  const secret = readJson(P.secrets).payCardWebhook;
+  if (!secret) fail('refusing: this stack has no TEST card webhook secret. Run: pnpm local:stack --rebuild');
+
+  const body = JSON.stringify({
+    id: `funds:${paymentId}:${state}${on ? `:${on}` : ''}`,
+    type: `funds.${state}`,
+    ref: `ch_${paymentId}`,
+    occurredAt: new Date().toISOString(),
+    ...(on ? { availableOn: new Date(on).toISOString() } : {}),
+  });
+  const timestamp = Math.floor(Date.now() / 1000).toString();
+  const signature = crypto.createHmac('sha256', secret).update(`${timestamp}.${body}`).digest('hex');
+  const res = await fetch(`${urlOf('pay')}/webhooks/card-sandbox`, {
+    method: 'POST',
+    redirect: 'error',
+    headers: { 'content-type': 'application/json', 'x-sandbox-signature': signature, 'x-sandbox-timestamp': timestamp },
+    body,
+  });
+  const text = await res.text();
+  if (res.status !== 200) fail(`svc-pay refused the TEST card delivery (${res.status}): ${text.slice(0, 400)}`);
+  say('TEST card funds report delivered to svc-pay (TEST acquirer, not real money)');
+  say(`  payment   ${paymentId}`);
+  say(`  funds     ${state}${on ? ` until ${on}` : ''}`);
+  say(`  answer    ${text}`);
+}
+
 /** Env each local service would get. Starts nothing. Placeholder secrets only. */
 export function localTestServiceEnvs(secrets = PLAN_SECRETS) {
   return serviceDefs(secrets).map((service) => ({ name: service.name, env: service.env() }));
@@ -3235,6 +3486,7 @@ async function runCli() {
       secretKey: process.env.LOCAL_VIDEO_STORE_SECRET ?? '',
       uploadsDir: path.join(STATE, 'video-store-uploads'),
     });
+  else if (cmd === '__serve-rail-statements') serveRailStatements({ host: HOST, port: PORTS['rail-statements'], stateDir: STATE });
   else if (cmd === 'start' && rest[0] === 'customer-dist')
     cmdCustomerDist(rest.slice(1)); // pnpm local:stack customer-dist <path>
   else if (cmd === 'start') await cmdStart(rest);
@@ -3248,12 +3500,14 @@ async function runCli() {
   else if (cmd === 'chain-deposit') await cmdChainDeposit(rest);
   else if (cmd === 'chain-reorg') await cmdChainReorg(rest);
   else if (cmd === 'bank-transfer') await cmdBankTransfer(rest);
+  else if (cmd === 'card-funds') await cmdCardFunds(rest);
   else if (cmd === 'age-linked-accounts') cmdAgeLinkedAccounts(rest);
   else if (cmd === 'token-params') cmdTokenParams();
   else if (cmd === 'expire-address-approvals') cmdExpireAddressApprovals(rest);
   else if (cmd === 'expire-deposit-addresses') cmdExpireDepositAddresses(rest);
   else if (cmd === 'expire-staff-holds') cmdExpireStaffHolds(rest);
   else if (cmd === 'age-task-progress') cmdAgeTaskProgress(rest);
+  else if (cmd === 'seed-notice') cmdSeedNotice(rest);
   else if (cmd === 'age-addresses') cmdAgeAddresses(rest);
   else if (cmd === 'customer-dist') cmdCustomerDist(rest);
   else if (cmd === 'status') {
@@ -3263,7 +3517,7 @@ async function runCli() {
     process.exit(ok ? 0 : 1);
   } else
     fail(
-      `unknown command "${cmd}". Use: start | stop | status | fund | seed-withdrawal | age-addresses | age-linked-accounts | expire-address-approvals | expire-deposit-addresses | expire-staff-holds | age-task-progress | plan | restart | customer-dist`,
+      `unknown command "${cmd}". Use: start | stop | status | fund | seed-withdrawal | age-addresses | age-linked-accounts | expire-address-approvals | expire-deposit-addresses | expire-staff-holds | age-task-progress | seed-notice | plan | restart | customer-dist`,
       2,
     );
 }

@@ -47,6 +47,7 @@ export const rooms: readonly Room[] = [
     area: 'public',
     hidden: true,
   },
+  { path: '/appeal', title: 'Appeal a freeze', description: 'Ask staff to look again at a freeze', area: 'public', hidden: true },
   { path: '/help', title: 'Help centre', description: 'Find answers and contact support', area: 'public', returnAfterSignIn: true },
   { path: '/helplist', title: 'Help centre', description: 'Published help', area: 'public', alias: '/help', returnAfterSignIn: true },
   { path: '/helpdetail', title: 'Help article', description: 'Published guidance', area: 'public', hidden: true, returnAfterSignIn: true },
@@ -72,6 +73,8 @@ export const rooms: readonly Room[] = [
   { path: '/status/unsubscribe', title: 'Stop status updates', description: 'Leave status emails', area: 'public', hidden: true },
   { path: '/notice', title: 'Notices', description: 'Product announcements', area: 'public' },
   { path: '/notice/:id', title: 'Notice', description: 'Product announcement', area: 'public', hidden: true },
+  // A backtest result shared by link (AL-report-03): public, as the service returns only the simulated result.
+  { path: '/quant/share/:token', title: 'Shared backtest', description: 'A backtest result shared by link', area: 'public', hidden: true },
   { path: '/announcement', title: 'Notices', description: 'Product announcements', area: 'public', alias: '/notice' },
   { path: '/announcement/:id', title: 'Notice', description: 'Product announcement', area: 'public', hidden: true },
   { path: '/about-us', title: 'About Intafaced', description: 'One account, connected experiences', area: 'public' },
@@ -93,6 +96,20 @@ export const rooms: readonly Room[] = [
     title: 'Authentication and permission errors',
     description: 'Codes a refused key or token carries',
     area: 'public',
+  },
+  {
+    path: '/developers/sandbox/:sandboxId',
+    title: 'Sandbox',
+    description: 'One named sandbox and its keys',
+    area: 'public',
+    hidden: true,
+  },
+  {
+    path: '/developers/sandbox/:sandboxId/keys/new',
+    title: 'Create a sandbox key',
+    description: 'A key that works only in this sandbox',
+    area: 'public',
+    hidden: true,
   },
   {
     path: '/developers/:section',
@@ -257,6 +274,13 @@ export const rooms: readonly Room[] = [
     hidden: true,
   },
   { path: '/bank/loans', title: 'Loans', description: 'Applications and repayments', door: 'Money', area: 'money' },
+  {
+    path: '/bank/loans/apply',
+    title: 'Apply for a loan',
+    description: 'Collateral needed, conditions and fees for a new loan',
+    door: 'Money',
+    area: 'money',
+  },
   {
     path: '/bank/loans/detail',
     title: 'Loan details',
@@ -876,8 +900,10 @@ export const rooms: readonly Room[] = [
     [
       ['academy', 'Academy', 'Rooms, learning and certifications'],
       ['agents', 'Agents', 'Your agent fleet'],
+      ['agents/team', 'Agents team', 'Roles, a shared pool and project limits for your business'],
       ['quant', 'Algo dev', 'Build, backtest and paper-run strategies'],
       ['quant/sandbox', 'Quant sandbox', 'Run strategy code on the paper book'],
+      ['quant/strategies', 'Strategies', 'Your saved strategies, folders and recycle bin'],
       ['quant/studio', 'Quant Studio', 'Build and run strategies'],
       ['quant/backtest', 'Backtest', 'Review strategy results'],
       ['launch', 'Launch', 'Issue and list an asset'],

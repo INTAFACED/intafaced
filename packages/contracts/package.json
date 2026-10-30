@@ -78,6 +78,10 @@
       "types": "./dist/identity-account-status.d.ts",
       "default": "./dist/identity-account-status.js"
     },
+    "./identity-appeals": {
+      "types": "./dist/identity-appeals.d.ts",
+      "default": "./dist/identity-appeals.js"
+    },
     "./identity-kyc-profile": {
       "types": "./dist/identity-kyc-profile.d.ts",
       "default": "./dist/identity-kyc-profile.js"
@@ -149,6 +153,10 @@
     "./support-kb-library": {
       "types": "./dist/support-kb-library.d.ts",
       "default": "./dist/support-kb-library.js"
+    },
+    "./support-kb-review": {
+      "types": "./dist/support-kb-review.d.ts",
+      "default": "./dist/support-kb-review.js"
     },
     "./support-help-centre": {
       "types": "./dist/support-help-centre.d.ts",
@@ -226,6 +234,10 @@
       "types": "./dist/protocol-watch-preferences.d.ts",
       "default": "./dist/protocol-watch-preferences.js"
     },
+    "./protocol-listing": {
+      "types": "./dist/protocol-listing.d.ts",
+      "default": "./dist/protocol-listing.js"
+    },
     "./ledger-reconciliation": {
       "types": "./dist/ledger-reconciliation.d.ts",
       "default": "./dist/ledger-reconciliation.js"
@@ -249,6 +261,10 @@
     "./auth-errors": {
       "types": "./dist/auth-errors.d.ts",
       "default": "./dist/auth-errors.js"
+    },
+    "./developer-sandboxes": {
+      "types": "./dist/developer-sandboxes.d.ts",
+      "default": "./dist/developer-sandboxes.js"
     },
     "./academy-catalogue": {
       "types": "./dist/academy-catalogue.d.ts",
@@ -330,6 +346,10 @@
       "types": "./dist/merchant-checkout-methods.d.ts",
       "default": "./dist/merchant-checkout-methods.js"
     },
+    "./pay-payment-views": {
+      "types": "./dist/pay-payment-views.d.ts",
+      "default": "./dist/pay-payment-views.js"
+    },
     "./merchant-activation": {
       "types": "./dist/merchant-activation.d.ts",
       "default": "./dist/merchant-activation.js"
@@ -345,6 +365,10 @@
     "./support-macros": {
       "types": "./dist/support-macros.d.ts",
       "default": "./dist/support-macros.js"
+    },
+    "./agents-team": {
+      "types": "./dist/agents-team.d.ts",
+      "default": "./dist/agents-team.js"
     }
   },
   "scripts": {

@@ -78,6 +78,7 @@ const COPY: Readonly<Record<string, Words>> = {
     title: 'Only some positions were closed',
     body: 'Part of your copied positions was closed and the rest is still open. Refresh the follow, then close what remains yourself on the spot desk.',
   },
+  'trade.copy_request_key_invalid': { title: 'This request can’t be sent', body: 'Refresh the page and try again. Nothing was closed.' },
   'trade.copy_flatten_unavailable': {
     title: 'Closing copied positions isn’t available',
     body: 'Nothing was closed and you are still following. Close positions yourself on the spot desk.',
@@ -380,6 +381,46 @@ const GRID: Readonly<Record<string, Words>> = {
   'trade.grid_tick_failed': {
     title: 'The grid could not check its orders',
     body: 'It tries again on its next check. Your reserve and orders stay as they are.',
+  },
+  'trade.bots_withdraw_amount_invalid': {
+    title: 'Enter an amount to withdraw',
+    body: 'The amount must be a number above zero. Nothing was withdrawn.',
+  },
+  'trade.bots_withdraw_asset_mismatch': {
+    title: 'This bot’s profit is in another asset',
+    body: 'Withdraw in the asset the bot trades against. Nothing was withdrawn.',
+  },
+  'trade.bots_withdraw_cap_unset': {
+    title: 'Withdrawals are closed: no daily limit is set',
+    body: 'The platform hasn’t set a daily withdrawal limit for this asset, so no profit can be withdrawn. Nothing was withdrawn.',
+  },
+  'trade.bots_withdraw_cap_exceeded': {
+    title: 'Over your daily withdrawal limit',
+    body: 'This amount is more than you have left to withdraw today. Lower it or try again tomorrow. Nothing was withdrawn.',
+  },
+  'trade.bots_withdraw_exceeds_profit': {
+    title: 'More than the bot’s profit',
+    body: 'You can withdraw only the profit the bot has made, not its investment. Lower the amount. Nothing was withdrawn.',
+  },
+  'trade.bots_withdraw_exceeds_balance': {
+    title: 'More than you have free',
+    body: 'Part of this profit is held in open orders or in the coin the bot bought. Lower the amount. Nothing was changed.',
+  },
+  'trade.bots_withdraw_reserve_released': {
+    title: 'This bot has stopped',
+    body: 'It no longer sets anything aside, so there is nothing to withdraw here.',
+  },
+  'trade.bots_withdraw_conflict': {
+    title: 'That request was already used for a different withdrawal',
+    body: 'Close this and start again. Nothing more was withdrawn.',
+  },
+  'identity.step_up_required': {
+    title: 'Confirm it’s you first',
+    body: 'This withdrawal needs a passkey or authenticator code for this exact amount. Nothing was withdrawn.',
+  },
+  'identity.step_up_unavailable': {
+    title: 'We can’t confirm it’s you right now',
+    body: 'The confirmation service isn’t answering, so nothing was withdrawn. Try again later.',
   },
   'trade.grid_not_found': { title: 'We couldn’t find that grid bot', body: 'Check My bots.' },
   'trade.grid_not_running': { title: 'This grid bot has already stopped', body: 'Refresh to see its final state.' },

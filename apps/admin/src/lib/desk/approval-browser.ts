@@ -26,7 +26,9 @@ export type ApprovalEndpoint =
   | '/api/bank-ops'
   | '/api/identity-ops/keys'
   | '/api/more-ops/waves'
-  | '/api/console-mode';
+  | '/api/console-mode'
+  | '/api/launch/issuers'
+  | '/api/restore/approvals';
 
 export interface StepPayload {
   readonly step: StepName;

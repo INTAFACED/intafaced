@@ -187,6 +187,7 @@ const bank = createBankServices(sql, ledger, history, {
     marginCalls: eventMarginCallSink(bus),
     moduleEnabled: env.BANK_LOANS_ENABLED,
     payoffFee: env.BANK_LOAN_PAYOFF_FEE,
+    originationFeeBps: env.BANK_LOAN_ORIGINATION_FEE_BPS,
     payoffWindowMinutes: env.BANK_LOAN_PAYOFF_WINDOW_MINUTES,
     affiliateAccrue: env.IDENTITY_URL ? createAffiliateAccrueClient(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET, ledgerS2s) : undefined,
     affiliatePayout: env.IDENTITY_URL ? createAffiliatePayoutClient(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET, ledgerS2s) : undefined,

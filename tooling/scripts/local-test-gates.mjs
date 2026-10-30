@@ -446,6 +446,11 @@ export function copyCursorRewindSql(followId, fillId) {
   RETURNING c.follow_id, c.copy_cursor_at::text, coalesce(c.copy_cursor_fill, '')`;
 }
 
+/** The rows an `UPDATE ... RETURNING` printed, without psql's `UPDATE <n>` command tag line after them. */
+export function copyRewindRows(lines) {
+  return lines.filter((row) => row.length === 3);
+}
+
 /** Runs copyCursorRewindSql for a follow whose follower is a LOCAL TEST journey account; anything else is refused. */
 export function rewindCopyCursor(secrets, followId, fillId) {
   const sql = copyCursorRewindSql(followId, fillId);
@@ -458,7 +463,7 @@ export function rewindCopyCursor(secrets, followId, fillId) {
     `SELECT handle::text FROM identity.users WHERE id = '${follower[0]}'::uuid AND email LIKE '%@local-test.invalid'`,
   );
   if (!account) throw new Error(`copy-rewind refuses ${followId}: its follower is not a LOCAL TEST journey account`);
-  const rows = psqlRead(secrets, 'svc_trade', sql);
+  const rows = copyRewindRows(psqlRead(secrets, 'svc_trade', sql));
   if (rows.length !== 1) throw new Error(`copy-rewind: fill ${fillId} is not a fill of follow ${followId}'s leader`);
   const [, at, fill] = rows[0];
   return { followId, handle: account[0], cursorAt: at, cursorFill: fill || null };
@@ -2802,6 +2807,96 @@ export async function tradingRestrict(ctx, handle, action, reasonCode) {
   return { handle, action, ok, why: ok ? `${res.outcome}, version ${res.after.version}` : JSON.stringify(res) };
 }
 
+/**
+ * LOCAL TEST: decide one journey account's open appeal (I-account-lifecycle-12, J-identity-14 #4). Identity refuses the
+ * restriction's actor and its approver (`trading-restrict` runs as founder a with founder b's approval), so the stack's
+ * test operator a decides, with a code from the TEST decision reason list. A lift also takes the trading restore's
+ * four-eyes approval over the reason `appeal:<id>`: operator a proposes it, operator b approves it, and identity spends
+ * it in the decision. A staff freeze's appeal (J-identity-11 #5; `freezeIdentity` runs as founder a) is decided by founder
+ * b, and its lift spends an `identity.account_unfreeze` approval over the same reason that founder b proposes and operator
+ * a approves. `--as-restrictor` asks as founder a instead, to show identity refuses that person.
+ */
+export async function appealDecide(ctx, handle, decision, reasonCode, flag) {
+  if (
+    !/^[a-z0-9_]{3,32}$/i.test(handle ?? '') ||
+    !['lift', 'uphold'].includes(decision) ||
+    !/^[a-z][a-z0-9_]{1,63}$/.test(reasonCode ?? '') ||
+    ![undefined, '--as-restrictor'].includes(flag)
+  )
+    throw new Error('usage: local-test-gates.mjs appeal-decide <handle> lift|uphold <reasonCode> [--as-restrictor]');
+  const { users } = listAccountsAndTiers(ctx.secrets);
+  const user = users.find((u) => u.handle === handle);
+  if (!user || !user.email.endsWith('@local-test.invalid')) throw new Error(`appeal-decide: ${handle} is not a journey account`);
+  const founders = await approverSessions(ctx);
+  const ops = await operatorSessions(ctx);
+  const who = (s) => s.op?.handle ?? s.op?.email ?? null;
+  if ([ops.a, ops.b].some((o) => who(o) === null || who(o) === who(founders.a) || who(o) === who(founders.b)) || who(ops.a) === who(ops.b))
+    throw new Error('appeal-decide needs two operators who are neither founder: the restrictors cannot decide');
+  const queue = data(await ctx.edge.query('identity', 'accountAppeal.queue', { limit: 100 }, await ops.a.complianceToken()));
+  const appeal = queue?.appeals?.find((a) => a.userId.toLowerCase() === user.id.toLowerCase());
+  if (!appeal) throw new Error(`appeal-decide: ${handle} has no open appeal (${JSON.stringify(queue)})`);
+  // A staff freeze is set by founder a (stack.mjs `staffFreeze`) and only a live founder restores one, so founder b
+  // decides it; a trading restriction is set by founder a with founder b's approval, so test operator a decides it.
+  // The decider's session carries compliance (the decision) and the operator scope (the restore it runs).
+  const staff = appeal.restriction === 'staff_freeze';
+  const decider = flag === '--as-restrictor' ? founders.a : staff ? founders.b : ops.a;
+  const deciderToken = await decider.complianceToken();
+  const ids = { appealId: appeal.id, decision, reasonCode, expectedVersion: appeal.version };
+  if (flag === '--as-restrictor') {
+    const res = await ctx.edge.mutate('identity', 'accountAppeal.decide', { ...ids, decision: 'uphold' }, deciderToken);
+    return { handle, decision, ok: false, why: data(res) ? `decided: ${JSON.stringify(data(res))}` : refusalText(res) };
+  }
+  if (decision === 'uphold') {
+    const res = await ctx.edge.mutate('identity', 'accountAppeal.decide', ids, deciderToken);
+    const done = data(res);
+    return { handle, decision, ok: done?.status === 'upheld', why: done ? `${done.status}, appeal ${done.id}` : refusalText(res) };
+  }
+  // A lift spends the restore's four-eyes approval over the reason `appeal:<id>`, at the version the appeal names: the
+  // decider proposes it and someone else approves it (identity spends it only when its requester is the decider).
+  const restrictionVersion = appeal.restrictionVersion;
+  const reason = `appeal:${appeal.id.toLowerCase()}`;
+  const { founderChangeHash } = await load('packages/contracts/dist/founder-change-hash.js');
+  const proposal = staff
+    ? {
+        actionType: 'identity.account_unfreeze',
+        payloadHash: identityPayloadHash(user.id, { reason }),
+        proposer: founders.b.approvalToken(),
+        approver: ops.a.approvalToken(),
+      }
+    : {
+        actionType: 'trading.restrict',
+        payloadHash: founderChangeHash({ area: 'trading', userId: user.id.toLowerCase(), action: 'restore', reason }, restrictionVersion),
+        proposer: ops.a.tradeOpsToken(),
+        approver: ops.b.tradeOpsToken(),
+      };
+  const proposed = await ctx.edge.mutate(
+    'identity',
+    'actionApproval.propose',
+    {
+      actionType: proposal.actionType,
+      targetService: 'svc-identity',
+      targetId: user.id,
+      expectedVersion: restrictionVersion,
+      payloadHash: proposal.payloadHash,
+      policyVersion: MARKERS.policyVersion,
+    },
+    await proposal.proposer,
+  );
+  const approvalId = data(proposed)?.approvalId;
+  if (!approvalId) throw new Error(`actionApproval.propose refused (${proposed.status}): ${refusalText(proposed)}`);
+  const approved = await ctx.edge.mutate(
+    'identity',
+    'actionApproval.approve',
+    { approvalId, expectedPayloadHash: proposal.payloadHash },
+    await proposal.approver,
+  );
+  if (data(approved)?.status !== 'APPROVED')
+    throw new Error(`actionApproval.approve refused (${approved.status}): ${refusalText(approved)}`);
+  const res = await ctx.edge.mutate('identity', 'accountAppeal.decide', { ...ids, approvalId, restrictionVersion }, deciderToken);
+  const done = data(res);
+  return { handle, decision, ok: done?.status === 'lifted', why: done ? `${done.status}, appeal ${done.id}` : refusalText(res) };
+}
+
 /** Submit what this stack can submit for itself, then approve everything pending. */
 export async function verifyAll(ctx) {
   const before = listAccountsAndTiers(ctx.secrets);
@@ -3005,6 +3100,9 @@ async function main() {
     } else if (cmd === 'kyc-capability-off') {
       const r = await capabilityOff(ctx, process.argv[3], process.argv[4], process.argv[5]);
       say(`  ${r.ok ? 'OK     ' : 'REFUSED'} ${r.handle} ${r.capability}: ${r.why}`);
+    } else if (cmd === 'appeal-decide') {
+      const r = await appealDecide(ctx, process.argv[3], process.argv[4], process.argv[5], process.argv[6]);
+      say(`  ${r.ok ? 'OK     ' : 'REFUSED'} ${r.handle} appeal ${r.decision}: ${r.why}`);
     } else if (cmd === 'trading-restrict') {
       const r = await tradingRestrict(ctx, process.argv[3], process.argv[4], process.argv[5]);
       say(`  ${r.ok ? 'OK     ' : 'REFUSED'} ${r.handle} trading ${r.action}: ${r.why}`);

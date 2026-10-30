@@ -136,7 +136,10 @@ describe('event fan-out', () => {
     for (const kind of SECURITY_FACTOR_CHANGES) {
       const row = rows.find((r) => r.kind === `identity.security.${kind}`)!;
       expect(row.titleKey).toBe(`notify.identity.security.${kind}.title`);
-      expect(row.bodyKey).toBe('notify.identity.security.factor_changed.body');
+      // A password change says it was the password; every other change shares the factor body.
+      expect(row.bodyKey).toBe(
+        kind === 'password_changed' ? 'notify.identity.security.password_changed.body' : 'notify.identity.security.factor_changed.body',
+      );
       expect(row.href).toBe('/uc/safe');
       expect(isMessageKey(row.titleKey) && isMessageKey(row.bodyKey)).toBe(true);
       expect(categoryFromKind(row.kind)).toBe('security');

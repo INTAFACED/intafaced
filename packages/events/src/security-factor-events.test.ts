@@ -17,7 +17,7 @@ describe('I-signin-sessions-08 sign-in factor change event', () => {
     for (const change of SECURITY_FACTOR_CHANGES) {
       expect(EVENT_CATALOG.securityFactorChanged.schema.safeParse({ ...base(), change }).success).toBe(true);
     }
-    expect(EVENT_CATALOG.securityFactorChanged.schema.safeParse({ ...base(), change: 'password_changed' }).success).toBe(false);
+    expect(EVENT_CATALOG.securityFactorChanged.schema.safeParse({ ...base(), change: 'recovery_email_changed' }).success).toBe(false);
   });
 
   it('needs the business key, and carries no secret or credential on the bus', () => {

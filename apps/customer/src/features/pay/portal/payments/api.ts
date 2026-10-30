@@ -1,4 +1,11 @@
 import { z } from 'zod';
+import {
+  paymentUnmaskedSchema,
+  paymentViewDeletedSchema,
+  paymentViewSchema,
+  type PaymentViewColumn,
+  type PaymentViewFilters,
+} from '@intafaced/contracts/pay-payment-views';
 import * as p from '../schemas';
 import { subscriptionSchema, mandateSchema, executionSchema, subscriptionPostureSchema, listed } from '../../schemas';
 import { cycleSchema } from './billing-schemas';
@@ -189,6 +196,17 @@ export const paymentsApi = ({ query, mutate, list }: PortalTools) => ({
   markInvoicePaid: (input: { requestId: string; invoiceId: string; paymentId: string }) =>
     mutate('merchantOps.invoices.markPaidByPayment', input, pay.invoiceSchema),
   payment: (paymentId: string, signal?: AbortSignal) => query('payment.get', { paymentId }, p.paymentSchema, signal),
+  /** The caller's own saved views and the team's shared ones (M-adv-payments-core-01). */
+  paymentViews: (signal?: AbortSignal) => query('payment.views.list', { limit: 200 }, p.page(paymentViewSchema), signal),
+  createPaymentView: (input: {
+    name: string;
+    visibility: 'private' | 'shared';
+    filters: PaymentViewFilters;
+    columns: PaymentViewColumn[];
+  }) => mutate('payment.views.create', input, paymentViewSchema),
+  deletePaymentView: (viewId: string) => mutate('payment.views.delete', { viewId }, paymentViewDeletedSchema),
+  unmaskPayment: (input: { paymentId: string; field: 'customerEmail'; reason: string }) =>
+    mutate('payment.unmask', input, paymentUnmaskedSchema),
   paymentHistory: (paymentId: string, signal?: AbortSignal) =>
     query('payment.history', { paymentId, limit: 200 }, z.array(p.paymentEventSchema), signal),
 });

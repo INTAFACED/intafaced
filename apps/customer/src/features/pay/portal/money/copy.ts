@@ -275,6 +275,12 @@ const en = {
   balOnTheWayBody: 'Payouts that are ready or waiting.',
   balOnTheWayNone: 'Nothing is waiting to be paid out.',
   balAllPayouts: 'All payouts',
+  balHeldTitle: 'Still clearing',
+  balHeldBody: 'Payments taken whose money the card network has not released yet. They can’t be paid out until it does.',
+  balHeldNone: 'Nothing is waiting to clear.',
+  balHeldOn: 'Available from',
+  balHeldUnknown: 'Not given yet',
+  payoutStillClearing: 'still clearing',
   balMovementsTitle: 'Recent movements',
   balMovementsNone: 'No movements in the last week.',
   balStatementLink: 'Open the statement',
@@ -762,6 +768,8 @@ const en = {
 
   // ---- plain words for service answers only the money pages meet
   rSettlementNotPayable: 'This settlement can’t be paid out yet. Open it to see where it stands.',
+  rKybRequired: 'Nothing was sent. Payouts open once your business verification is approved.',
+  rClearingPending: 'This money is still clearing, so it isn’t available to pay out yet. Try again once the card network has released it.',
   rSettlementInFlight: 'A payout for this settlement is already on its way.',
   rDestinationMissing: 'Add a payout destination first, then try again.',
   rThresholdUnset: 'Approval limits aren’t set up for your account, so this payout can’t be requested.',

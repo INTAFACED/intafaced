@@ -207,6 +207,20 @@ const schema = serviceEnvSchema.merge(edgeEnvSchema).merge(
      */
     INDEXER_TX_DROP_WINDOW_SECONDS: z.string().optional(),
 
+    /**
+     * D-explorer-02: the other networks a transaction hash is looked up on, live, as JSON
+     * [{"chainId":<id>,"rpcUrl":"http…"}]. Blank is none: the search answers for the followed network
+     * alone. Parsed at boot (`explorer/search-networks.ts`); a malformed list refuses to start.
+     */
+    INDEXER_SEARCH_NETWORKS: z.string().optional(),
+
+    /**
+     * D-explorer-05: the pool factory whose pools the explorer lists (a 20-byte hex address). Any contract can emit
+     * a pool's events, so only this factory's PoolCreated logs make a pool. NO DEFAULT: blank or unset does not refuse
+     * boot; every pools read refuses indexer.pool_factory_unset. A malformed value refuses to start (`index.ts`).
+     */
+    INDEXER_POOL_FACTORY_ADDRESS: z.string().optional(),
+
     INDEXER_BATCH_SIZE: z.preprocess(
       (value) => {
         if (value === undefined || value === null) return undefined;

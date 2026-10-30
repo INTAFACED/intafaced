@@ -7,6 +7,7 @@
 // zero address, so the indexer runs and reports the chain unreachable (indexer.venue_unset) instead of inventing one.
 // The other settings are the labelled LOCAL TEST values in tooling/profiles/test-owner-values/indexer.json. Production
 // stays blank: the explorer list refuses indexer.explorer_list_limit_unset and a dropped hash indexer.tx_drop_window_unset.
+import { SECOND_CHAIN_ID, SECOND_GATE_URL } from '../local-test-chain.mjs';
 import { loadProfile } from '../owner-settings.mjs';
 
 /** One labelled TEST value from this service's profile file; a missing one names the file instead of a bare TypeError. */
@@ -32,6 +33,11 @@ export default ({ c, secrets, dbUrl, PORTS, UNUSED, testChain }) => ({
       INDEXER_POLL_INTERVAL_MS: '1000',
       INDEXER_EXPLORER_LIST_LIMIT: testValue('INDEXER_EXPLORER_LIST_LIMIT'),
       INDEXER_TX_DROP_WINDOW_SECONDS: testValue('INDEXER_TX_DROP_WINDOW_SECONDS'),
+      // The pools the explorer lists (J-dex-protocol-09 #7): the seeded TEST pool factory, the one svc-protocol quotes from.
+      // With no chain it stays unset and every pools read refuses indexer.pool_factory_unset.
+      ...(chain ? { INDEXER_POOL_FACTORY_ADDRESS: chain.factory } : {}),
+      // The search's second network (J-dex-protocol-09 #10): the stack's second LOCAL TEST chain, behind its own gate.
+      INDEXER_SEARCH_NETWORKS: chain ? JSON.stringify([{ chainId: SECOND_CHAIN_ID, rpcUrl: SECOND_GATE_URL }]) : '',
     };
   },
 });

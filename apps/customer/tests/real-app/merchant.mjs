@@ -142,6 +142,7 @@ export async function payApiOf(who, kept) {
   const totp = (await import(path.join(ROOT, 'services/svc-identity/dist/auth/totp.js'))).totp;
   const next = await nextCode(totp, who.secret, who.step);
   kept(next.step);
+  // A refusal keeps its status and whole body, so a step can read the service's code past the message.
   const send = async (route, body, token) => {
     const res = await fetch(`${EDGE}${route}`, {
       method: body === undefined ? 'GET' : 'POST',
@@ -155,7 +156,8 @@ export async function payApiOf(who, kept) {
     } catch {
       /* the body is kept as text for the error */
     }
-    if (!res.ok || !json?.result) throw new Error(`${route} refused: ${res.status} ${text.slice(0, 400)}`);
+    if (!res.ok || !json?.result)
+      throw Object.assign(new Error(`${route} refused: ${res.status} ${text.slice(0, 400)}`), { status: res.status, body: text });
     return json.result.data;
   };
   const login = await fetch(`${EDGE}/api/identity/trpc/auth.login`, {
@@ -168,6 +170,11 @@ export async function payApiOf(who, kept) {
   return {
     mutate: (procedure, input) => send(`/api/pay/trpc/${procedure}`, input, token),
     query: (procedure, input) => send(`/api/pay/trpc/${procedure}?input=${encodeURIComponent(JSON.stringify(input))}`, undefined, token),
+    /** The same person after "Confirm it's you" (`auth.stepUpPay` with a fresh code): a token that may refund or pay out. */
+    async steppedUp(merchantId, scopes, totpCode) {
+      const minted = await send('/api/identity/trpc/auth.stepUpPay', { merchantId, scopes, factorProof: { totpCode } }, token);
+      return { mutate: (procedure, input) => send(`/api/pay/trpc/${procedure}`, input, minted.accessToken) };
+    },
     /** The same query, answered whole (status and parsed body) and never thrown, so a step can read a refusal's typed code. */
     answer: async (procedure, input) => {
       const res = await fetch(`${EDGE}/api/pay/trpc/${procedure}?input=${encodeURIComponent(JSON.stringify(input))}`, {
@@ -179,10 +186,11 @@ export async function payApiOf(who, kept) {
 }
 
 /**
- * A TEST card payment on the stack's sandbox card rail (`tok_ok`), paid: authorised and captured. `key` names it, so a
+ * A TEST card payment on the stack's sandbox card rail (`tok_ok`, or `token`: `tok_funds_held` is captured with its funds
+ * held by the acquirer until a `card-funds` report), paid: authorised and captured. `key` names it, so a
  * retried step finds the payment its first attempt made, wherever that attempt left it.
  */
-export async function paidCardPayment(api, merchantId, { key, amount, assetId = 'USDT' }) {
+export async function paidCardPayment(api, merchantId, { key, amount, assetId = 'USDT', token = 'tok_ok' }) {
   const created = await api.mutate('payment.create', {
     requestId: uuidOf(key),
     merchantId,
@@ -191,7 +199,7 @@ export async function paidCardPayment(api, merchantId, { key, amount, assetId = 
     method: 'card',
     railAdapter: 'card-sandbox',
     metadata: { reference: key },
-    instrument: { kind: 'card', token: 'tok_ok' },
+    instrument: { kind: 'card', token },
   });
   if (!['created', 'authorized'].includes(created.status)) return created;
   const authorized = created.status === 'created' ? await api.mutate('payment.authorize', { paymentId: created.id }) : created;
@@ -199,4 +207,95 @@ export async function paidCardPayment(api, merchantId, { key, amount, assetId = 
   // A declined or failed authorisation is returned as it is: capture is only asked of an authorised payment.
   if (authorized.status !== 'authorized') return authorized;
   return api.mutate('payment.capture', { paymentId: created.id });
+}
+
+/** The rooms whose header action moves money out: Pay out or Issue a refund. */
+export const MONEY_ROOMS = ['/pay/money', '/pay/payouts', '/pay/payouts/destinations', '/pay/settlements', '/pay/refunds'];
+
+/** The rooms that list the business's own records, so a new business has none and each must say so honestly. */
+const LIST_ROOMS = [
+  '/pay/payments',
+  '/pay/links',
+  '/pay/products',
+  '/pay/refunds',
+  '/pay/disputes',
+  '/pay/customers',
+  '/pay/invoices',
+  '/pay/subscriptions',
+  '/pay/payouts',
+  '/pay/payouts/destinations',
+  '/pay/settlements',
+  '/pay/conversion',
+  '/pay/developer/keys',
+];
+
+/** What an honest empty room shows: the kit's empty state, the card naming what it waits for, or a refusal in words. */
+const HONEST =
+  '[data-slot="state-block"][data-kind="empty"], [data-slot="state-block"][data-kind="refused"], [data-testid="pfo-soon"], [data-testid="failure"]';
+
+/** Every room the portal's navigation reaches from the page, with its own address. */
+async function navRooms(page) {
+  const hrefs = await page.locator('nav a[href^="/pay/"]').evaluateAll((links) => links.map((a) => a.getAttribute('href')));
+  return [...new Set(hrefs)];
+}
+
+/**
+ * The person opens each room from navigation, starting at the business home: each shows its own heading and finishes
+ * loading, never "no access", never an error block or an uncertain failure, no refused read, no console error, and no
+ * room asks the founder's console for anything. A room that lists the business's records shows an honest state for a
+ * new business: the kit's empty state, the card naming what it waits for, or a typed refusal in words. Each room whose
+ * header action moves money out records that action as drawn (`action`). Returns each room and the states it showed.
+ */
+export async function everyRoomOpens(page) {
+  const refused = refusedPayCalls(page);
+  const errors = [];
+  const asked = [];
+  const onConsole = (msg) => msg.type() === 'error' && errors.push(msg.text());
+  const onRequest = (req) => req.url().includes('/api/') && asked.push(req.url());
+  page.on('console', onConsole);
+  page.on('request', onRequest);
+  await page.goto('/pay/merchant');
+  await expect(page.locator('main h1').first()).toBeVisible();
+  await expect(page.locator('nav a[href^="/pay/"]').first()).toBeVisible();
+  const visited = new Map();
+  const queue = await navRooms(page);
+  while (queue.length) {
+    const room = queue.shift();
+    if (visited.has(room)) continue;
+    await page.goto(room);
+    const content = page.getByTestId('pp');
+    await expect(page.locator('main h1').first(), room).toBeVisible();
+    await expect(content.locator('[data-slot="state-block"][data-kind="loading"]'), `${room} finishes loading`).toHaveCount(0);
+    await expect(page.getByText('You don’t have access'), room).toHaveCount(0);
+    await expect(content.locator('[data-slot="state-block"][data-kind="error"]'), `${room} shows no error`).toHaveCount(0);
+    await expect(content.locator('[data-testid="failure"][role="alert"]'), `${room} shows no uncertain failure`).toHaveCount(0);
+    if (LIST_ROOMS.includes(room))
+      await expect(content.locator(HONEST).first(), `${room}: a new business's list says honestly that it is empty`).toBeVisible();
+    const states = {
+      empty: await content.locator('[data-slot="state-block"][data-kind="empty"]').count(),
+      waiting: await content.getByTestId('pfo-soon').count(),
+      refused:
+        (await content.locator('[data-slot="state-block"][data-kind="refused"]').count()) + (await content.getByTestId('failure').count()),
+    };
+    for (const block of await content.locator('[data-slot="state-block"][data-kind="empty"], [data-testid="pfo-soon"]').all())
+      await expect(block, `${room}: the state says something`).not.toHaveText(/^\s*$/);
+    if (MONEY_ROOMS.includes(room)) {
+      // The room's own money action, as drawn: a live link and where it goes, or switched off with its reason.
+      const head = page.getByTestId('plo-heading');
+      const off = head.locator('.pfo-action-off');
+      states.action = (await off.count())
+        ? { off: await off.locator('small').innerText() }
+        : { on: await head.locator('a').evaluateAll((as) => as.map((a) => a.getAttribute('href'))) };
+    }
+    visited.set(room, states);
+    for (const next of await navRooms(page)) if (!visited.has(next)) queue.push(next);
+  }
+  page.off('console', onConsole);
+  page.off('request', onRequest);
+  expect(visited.size).toBeGreaterThan(20);
+  for (const room of [...LIST_ROOMS, ...MONEY_ROOMS]) expect([...visited.keys()], `${room} is reached`).toContain(room);
+  expect(refused).toEqual([]);
+  expect(errors).toEqual([]);
+  expect(asked.filter((url) => /founderAdmin/i.test(url))).toEqual([]);
+  return visited;
 }

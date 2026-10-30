@@ -9,7 +9,6 @@ import { scanQr } from './qr-read.mjs';
 // credits A's available balance once, and a held one counts as set aside until accepted; the steps read both balances
 // through each person's own API.
 // Steps that are written but not built yet fail at their first missing part, quickly (UNBUILT):
-// - #4's camera-denied clause: Scan to pay has no image upload yet (PP-send-request-11).
 // - #5, #6: no stranger rule and no receive-by email or phone (PP-money-balance-05).
 // A refusal is matched by the typed code identity sent the page (`answer`), and after it the record and balances are
 // read again unchanged.
@@ -80,7 +79,7 @@ async function strangerPays(page, handle, amount) {
   await expect(page.getByRole('alert')).toHaveCount(0);
 }
 
-test(`${J} #1 opens Receive: the handle with Copy and the toast "Copied"; with no handles live, the Account ID`, async ({
+test(`${J} #1 opens Receive: the handle with Copy and the toast "Copied" (with no handles live, the Account ID: its own test below)`, async ({
   page,
   context,
 }) => {
@@ -95,13 +94,39 @@ test(`${J} #1 opens Receive: the handle with Copy and the toast "Copied"; with n
 
   await context.grantPermissions(['clipboard-read', 'clipboard-write']);
   await signIn(page, me);
+  // Handles are live on this stack: identity answers `me` with the person's own handle, and Receive shows exactly it.
+  const meRead = page.waitForResponse(
+    (r) => new URL(r.url()).pathname === '/api/identity/trpc/me' && r.request().method() === 'GET' && r.status() === 200,
+  );
   await page.goto('/pay/receive');
+  const identityMe = await meRead;
+  expect(identityMe.status()).toBe(200);
+  const mine = (await identityMe.json()).result.data;
+  expect(mine.handle, 'identity holds a handle for this person').toBeTruthy();
   await expect(page.getByRole('tab', { name: 'Receive' })).toHaveAttribute('aria-selected', 'true');
-  const shown = (await page.getByTestId('receive-value').textContent())?.trim();
-  expect(shown === `@${me.handle}` || /^[0-9a-f-]{36}$/.test(shown ?? '')).toBe(true);
+  await expect(page.getByRole('heading', { name: 'Your handle' })).toBeVisible();
+  const value = page.getByTestId('receive-value');
+  await expect(value).toHaveText(`@${mine.handle}`);
+  await expect(value).not.toHaveAttribute('data-mono', /.*/);
   await page.getByTestId('receive-copy').click();
   await expect(page.getByText('Copied', { exact: true })).toBeVisible();
-  expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(shown);
+  expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(`@${mine.handle}`);
+});
+
+// #1's second clause is a state no running stack can show, so it is its own test, red by name. Receive falls back to
+// the Account ID only when identity has no `me` procedure at all (`fetchMe` reads "procedure missing" as "no handles
+// live"); every stack serves `me`, so handles are always live here. The fallback is proven in the component test
+// (apps/customer/src/screens/pay/pay.pw.mjs, "receive without handles shows the Account ID in mono").
+test(`${J} part of #1 with no handles live, the Account ID in mono (blocked: handles are live on every stack; identity always serves me)`, async ({
+  page,
+}) => {
+  const { me } = people();
+  await signIn(page, me);
+  await page.goto('/pay/receive');
+  await expect(
+    page.getByRole('heading', { name: 'Your account ID' }),
+    'blocked: handles are live, so Receive shows the handle',
+  ).toBeVisible(UNBUILT);
 });
 
 test(`${J} #2 changes the handle: a handle that breaks a rule gets the reason naming the rule; past the lifetime change cap it refuses with the count`, async ({
@@ -301,18 +326,16 @@ test(`${J} #4 shows the QR to a friend who scans it: Send opens prefilled with a
   expect(await record(me)).toEqual(mine);
   expect(await balances(me, stranger)).toEqual(held);
 
-  // With the camera denied, an image of the QR code opens Send on the payee. UNBUILT: Scan to pay has no image upload.
+  // With the camera denied, Scan to pay refuses the camera by name, and an image of the QR code opens Send on the payee.
   await page.addInitScript(() => {
     navigator.mediaDevices.getUserMedia = () => Promise.reject(new DOMException('Permission denied', 'NotAllowedError'));
   });
   await page.goto('/pay/scan');
+  await page.getByRole('button', { name: 'Scan with the camera' }).click();
+  await expect(page.locator('[data-kind="refused"]')).toContainText('scan.camera_denied');
+  await expect(page.locator('video')).toHaveCount(0);
   const uploaded = await answer(page, 'qr.resolve', () =>
-    page
-      .getByLabel('Choose an image of a QR code')
-      .setInputFiles({ name: 'pay-qr.png', mimeType: 'image/png', buffer: picture }, UNBUILT)
-      .catch((err) => {
-        throw new Error(`with the camera denied an image upload works (unbuilt: PP-send-request-11): ${err.message}`);
-      }),
+    page.getByLabel('Choose an image of a QR code').setInputFiles({ name: 'pay-qr.png', mimeType: 'image/png', buffer: picture }),
   );
   expect(uploaded).toEqual({ status: 200, data: { userId: mine.userId, handle: mine.handle, self: false }, code: undefined });
   await expect(page.getByRole('textbox', { name: 'Handle' })).toHaveValue(mine.handle);

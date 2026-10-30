@@ -346,10 +346,13 @@ const P2P_LIMIT_CODES = new Set<string>([
   'p2p.remind_too_early',
   'p2p.remind_rate_limited',
   'p2p.content_rule_violation',
+  // P-ads-merchant-06: closing an ad that still has open orders (how many, and which), and the daily edit cap.
+  'p2p.offer_has_open_trades',
+  'p2p.edit_quota_reached',
   ...P2P_FIELD_CODES,
 ]);
 const DELIST_REASONS: ReadonlySet<string> = new Set(P2P_DELIST_REASONS);
-const P2P_LIMIT_DECIMALS = ['cap', 'min', 'max', 'remaining', 'windowHours', 'available', 'shortBy'] as const;
+const P2P_LIMIT_DECIMALS = ['cap', 'min', 'max', 'remaining', 'windowHours', 'available', 'shortBy', 'openTrades'] as const;
 const P2P_LIMIT_INSTANT = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{1,3})?Z$/;
 const P2P_LIMIT_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -367,6 +370,8 @@ export interface P2pLimitDetails {
   shortBy?: string;
   currency?: string;
   openTradeIds?: string[];
+  /** On `p2p.offer_has_open_trades` only: how many orders on the ad are open (`openTradeIds` lists the first 50). */
+  openTrades?: string;
   /** On `p2p.method_delisted` only: why the method was retired. */
   reason?: P2pDelistReason;
   /** On `p2p.content_rule_violation` only: the content rule class an ad's terms broke, never the phrase. */

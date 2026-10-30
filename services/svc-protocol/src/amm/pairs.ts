@@ -1,5 +1,6 @@
 import type { Address } from 'viem';
 import type { ProtocolSwapPairs } from '@intafaced/contracts';
+import { chainDown } from '../chain/availability.js';
 
 /** The reads `listPairs` needs; `ChainClient` provides them, tests stand them in. */
 export interface PairsChain {
@@ -17,11 +18,6 @@ export interface PairsChain {
  * lists its first ones, in its own order.
  */
 export const PAIRS_READ_LIMIT = 200;
-
-/** A refusal that means the chain itself could not be read: then nothing honest can be listed. */
-const CHAIN_DOWN = new Set(['protocol.chain_unreachable', 'protocol.chain_id_mismatch', 'protocol.chain_not_configured']);
-const chainDown = (reason: unknown) =>
-  typeof reason === 'object' && reason !== null && CHAIN_DOWN.has(String((reason as { code?: unknown }).code));
 
 /**
  * Every pool the factory lists with the tokens they trade (D-swap-01), all read at one block. Each value comes from the

@@ -8,6 +8,8 @@ import { EvmChainSource } from './chain/evm/source.js';
 import { startTokenBackfill } from './explorer/token-backfill.js';
 import { parseExplorerListLimit } from './explorer/blocks.js';
 import { parseTxDropWindow } from './explorer/tx.js';
+import { parseSearchNetworks, searchNetworkFinders } from './explorer/search-networks.js';
+import { parsePoolFactory } from './explorer/pools.js';
 import { PostgresProjectionStore } from './projection/postgres-store.js';
 import { Indexer } from './indexer.js';
 import { shutdownIndexer } from './shutdown.js';
@@ -63,6 +65,9 @@ if (!table?.exists) {
 }
 
 const store = new PostgresProjectionStore(db.sql, env.INDEXER_CHAIN_ID);
+
+// Parsed before anything listens: a malformed list stops the boot instead of searching a network nobody named.
+const searchNetworks = parseSearchNetworks(env.INDEXER_SEARCH_NETWORKS, env.INDEXER_CHAIN_ID);
 
 /**
  * THE CHAIN THE OPERATOR NAMED.
@@ -157,6 +162,40 @@ export const appRouter = createIndexerRouter({
     txs: (q) => store.explorerAddressTxs(q),
     tokensBySymbol: (q) => store.explorerTokensBySymbol(q),
   },
+  // Live balances need a node: with no chain wired the address page refuses as unwired rather than read a zero.
+  ...(evmSource
+    ? {
+        addressPage: {
+          reads: {
+            internal: (q) => store.explorerAddressInternal(q),
+            traceGaps: () => store.explorerTraceGaps(),
+            tokens: (q) => store.explorerAddressTokens(q),
+            blockBefore: (time) => store.explorerBlockBefore(time),
+            blockAt: async (height) => {
+              const block = await store.blockAt(height);
+              return block ? { height: block.height, timestamp: Math.floor(block.blockTime.getTime() / 1000) } : null;
+            },
+            earliestHeight: () => store.earliestHeight(),
+          },
+          state: {
+            account: (address, height) => evmSource.readAccountAt(address, height),
+            balance: (address, height) => evmSource.readBalanceAt(address, height),
+            tokenBalances: (tokens, address, height) => evmSource.readTokenBalancesAt(tokens, address, height),
+          },
+        },
+      }
+    : {}),
+  searchNetworks: searchNetworkFinders(searchNetworks),
+  pools: {
+    reads: {
+      list: (q) => store.explorerPools(q),
+      get: (q) => store.explorerPool(q),
+      swaps: (q) => store.explorerPoolSwaps(q),
+      volume: (q) => store.explorerPoolVolume(q),
+      candles: (q) => store.explorerPoolCandles(q),
+    },
+    factory: parsePoolFactory(env.INDEXER_POOL_FACTORY_ADDRESS),
+  },
 });
 export type AppRouter = typeof appRouter;
 
@@ -247,6 +286,7 @@ app.log.info(
     venue: evmSource ? env.INDEXER_VENUE_ADDRESS : null,
     startHeight: env.INDEXER_START_HEIGHT,
     finalityDepth: env.INDEXER_FINALITY_DEPTH,
+    searchNetworks: searchNetworks.map((n) => n.chainId),
   },
   'svc-indexer ready — non-custodial, permissionless, read-only',
 );

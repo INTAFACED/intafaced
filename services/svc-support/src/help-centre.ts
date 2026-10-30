@@ -457,7 +457,7 @@ export class SqlHelpCentreBook implements HelpCentreBook {
         SELECT head.audience AS head_audience, v.audience AS version_audience
         FROM support.kb_articles a
         JOIN support.kb_article_versions head ON head.id = a.id AND head.version = a.revision
-        JOIN support.kb_article_versions v ON v.id = a.id AND v.version = ${input.version}
+        JOIN support.kb_article_versions v ON v.id = a.id AND v.version = ${input.version} AND NOT v.draft
         WHERE a.id = ${input.articleId} AND a.published = true
       `;
       if (!visible || !audienceVisible(visible.head_audience, viewer) || !audienceVisible(visible.version_audience, viewer)) {
@@ -498,7 +498,7 @@ export class SqlHelpCentreBook implements HelpCentreBook {
       await tx`SELECT pg_advisory_xact_lock(hashtext(${change.articleId}), ${change.version})`;
       const [version] = await tx<{ id: string }[]>`
         SELECT id FROM support.kb_article_versions
-        WHERE id = ${change.articleId} AND version = ${change.version}
+        WHERE id = ${change.articleId} AND version = ${change.version} AND NOT draft
         FOR SHARE
       `;
       if (!version) throw new HelpCentreNotFoundError();
@@ -539,6 +539,7 @@ export class SqlHelpCentreBook implements HelpCentreBook {
       SELECT count(*)::int AS total
       FROM support.kb_article_versions
       CROSS JOIN unnest(${tags}::text[]) AS lang(language)
+      WHERE NOT draft
     `;
       const rows = await tx<{ article_id: string; version: number; language: string; state: SupportHelpCentreTranslationState }[]>`
       SELECT v.id AS article_id, v.version, l.language, COALESCE(t.state, 'missing') AS state
@@ -546,6 +547,7 @@ export class SqlHelpCentreBook implements HelpCentreBook {
       CROSS JOIN unnest(${tags}::text[]) WITH ORDINALITY AS l(language, ordinality)
       LEFT JOIN support.help_centre_translation t
         ON t.article_id = v.id AND t.version = v.version AND t.language = l.language
+      WHERE NOT v.draft
       ORDER BY v.id, v.version, l.ordinality
       LIMIT ${limit}
     `;

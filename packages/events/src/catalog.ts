@@ -174,11 +174,19 @@ export const kycInfoRequested = defineEvent(
 );
 
 /**
- * I-signin-sessions-08 (J-identity-05 #6). One change to a sign-in factor: the authenticator app turned on, off or
- * replaced, or a passkey added or removed. svc-identity publishes it from an outbox row written in the same transaction
- * as the change (at least once). No secret, code, credential id or address rides on it.
+ * I-signin-sessions-08 (J-identity-05 #6, J-identity-03 #6). One change to a sign-in factor: the authenticator app turned
+ * on, off or replaced, a passkey added or removed, or the password changed or reset. svc-identity publishes it from an
+ * outbox row written in the same transaction as the change (at least once). No secret, code, credential id or address
+ * rides on it.
  */
-export const SECURITY_FACTOR_CHANGES = ['totp_added', 'totp_removed', 'totp_replaced', 'passkey_added', 'passkey_removed'] as const;
+export const SECURITY_FACTOR_CHANGES = [
+  'totp_added',
+  'totp_removed',
+  'totp_replaced',
+  'passkey_added',
+  'passkey_removed',
+  'password_changed',
+] as const;
 
 export const securityFactorChanged = defineEvent(
   'identity',
@@ -2572,17 +2580,10 @@ export const WIRING_SOCKETS = [
   },
   {
     event: 'copySkipped',
-    missing: 'publisher',
-    class: 'A',
-    reason:
-      'Declared by the J-copy-bots-otc-03 events PR. svc-trade publishes it after the skip row commits (svc-trade PR, next). Nothing reads it yet, so nothing is waiting on it.',
-  },
-  {
-    event: 'copySkipped',
     missing: 'subscriber',
     class: 'A',
     reason:
-      'svc-notify turns it into the copy skip notice in the J-copy-bots-otc-03 svc-notify change, idempotent on (followId, leaderFillId). Until then no publisher exists either, so no user is promised a notice.',
+      'svc-notify turns it into the copy skip notice in the J-copy-bots-otc-03 svc-notify change, idempotent on (followId, leaderFillId). svc-trade publishes it; until svc-notify reads it, the skip log on the follow is where the person sees it.',
   },
   {
     event: 'copyFailed',
@@ -2600,17 +2601,10 @@ export const WIRING_SOCKETS = [
   },
   {
     event: 'copyStopped',
-    missing: 'publisher',
-    class: 'A',
-    reason:
-      'Declared by the J-copy-bots-otc-03 events PR. svc-trade publishes it after the stop row commits (svc-trade PR, next). Nothing reads it yet, so nothing is waiting on it.',
-  },
-  {
-    event: 'copyStopped',
     missing: 'subscriber',
     class: 'A',
     reason:
-      'svc-notify turns it into the copy stop notice in the J-copy-bots-otc-03 svc-notify change, idempotent on (followId, closeOnly). Until then no publisher exists either, so no user is promised a notice.',
+      'svc-notify turns it into the copy stop notice in the J-copy-bots-otc-03 svc-notify change, idempotent on (followId, closeOnly). svc-trade publishes it; until svc-notify reads it, the state of the follow is where the person sees it.',
   },
   {
     event: 'payCustodyAuditCreated',

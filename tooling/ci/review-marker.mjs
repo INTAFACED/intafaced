@@ -69,15 +69,18 @@ export function sessionsForHead(commits, sha) {
   return commitSessions(list.map((c) => c?.commit?.message));
 }
 
+/** A `Reviewer session:` line whose first word is the session, bare or as a link (docs/agents/reviewer-brief.md). */
+const REVIEWER_LINE = /^Reviewer session:\s*<?(?:https?:\/\/[^\s>]*\/)?(session_[A-Za-z0-9]+)\b/i;
+
 /**
- * The sessions a PASS names: the ids on its `Reviewer session:` lines (docs/agents/reviewer-brief.md), or, when those
- * lines name none, every session id in the comment.
+ * The sessions a PASS names as its reviewer: the session written first on each `Reviewer session:` line. The rest of
+ * the line may name the author ("Reviewer session: session_R (author is session_A)") without making it the author's
+ * PASS. A comment with no such line counts every session id in it, so any other phrasing errs towards refusing.
  */
 export function passSessions(body) {
   const lines = String(body ?? '').split('\n');
-  const ids = (ls) => ls.flatMap((l) => l.match(SESSION_ID) ?? []);
-  const named = ids(lines.filter((l) => /^Reviewer session:/i.test(l.trim())));
-  return new Set(named.length > 0 ? named : ids(lines));
+  const named = lines.map((l) => REVIEWER_LINE.exec(l.trim())?.[1]).filter(Boolean);
+  return new Set(named.length > 0 ? named : lines.flatMap((l) => l.match(SESSION_ID) ?? []));
 }
 
 /**
@@ -263,6 +266,35 @@ function selfTest() {
       false,
     ],
     [input([pass('nino', `Independent review: PASS ${sha}`)], { authorSessions: undefined }), false],
+    // #6849, 30 Oct: the reviewer's line also named the author; it is the reviewer's PASS.
+    [
+      input(
+        [pass('nino', `Independent review: PASS ${sha}\n\nReviewer session: session_R2 (INTAFACED R2 review; author is G, session_A1)`)],
+        { authorSessions: new Set(['session_A1']) },
+      ),
+      true,
+    ],
+    [
+      input([pass('nino', `Independent review: PASS ${sha}\nReviewer session: session_A1 (and session_R2)`)], {
+        authorSessions: new Set(['session_A1']),
+      }),
+      false,
+    ],
+    [
+      input([pass('nino', `Independent review: PASS ${sha}\nReviewer session: reviewing session_R1's notes, ran in session_A1`)], {
+        authorSessions: new Set(['session_A1']),
+      }),
+      false,
+    ],
+    [
+      input(
+        [pass('nino', `Independent review: PASS ${sha}\nReviewer session: <https://example.test/code/session_R2> (author session_A1)`)],
+        {
+          authorSessions: new Set(['session_A1']),
+        },
+      ),
+      true,
+    ],
   ];
   for (const [args, want] of commentCases) {
     if (hasCommentSignoff(args) !== want) {

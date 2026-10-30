@@ -604,6 +604,320 @@ describe('svc-indexer · PostgresProjectionStore PG-hard', () => {
       ]);
     });
 
+    it('D-explorer-05: pools from the owner factory only, with canonical swaps, reserves, volume, candles and the migration backfill', async () => {
+      await db.sql`TRUNCATE positions, fills, book_levels, blocks, explorer_tx_seen, explorer_tokens RESTART IDENTITY CASCADE`;
+      const store = new PostgresProjectionStore(db.sql, CHAIN_ID);
+      const zero = `0x${'00'.repeat(32)}`;
+      const [h0, h1, h2, h3, h3b] = ['51', '52', '53', '54', '55'].map((b) => `0x${b.repeat(32)}`) as [
+        string,
+        string,
+        string,
+        string,
+        string,
+      ];
+      const factory = `0x${'f1'.repeat(20)}`;
+      const decoyFactory = `0x${'f2'.repeat(20)}`;
+      const pool = `0x${'90'.repeat(20)}`;
+      const decoyPool = `0x${'91'.repeat(20)}`;
+      const token0 = `0x${'0c'.repeat(20)}`;
+      const token1 = `0x${'0d'.repeat(20)}`;
+      const trader = `0x${'ee'.repeat(20)}`;
+      const word = (value: bigint | string) =>
+        typeof value === 'string' ? `${'00'.repeat(12)}${value.slice(2)}` : value.toString(16).padStart(64, '0');
+      const created = (logIndex: number, from: string, made: string) => ({
+        logIndex,
+        address: from,
+        topics: ['0xa7fe820b1195583db141064eed24e76a61598a82b80a95d2915d14bb12758172', `0x${word(token0)}`, `0x${word(token1)}`],
+        data: `0x${word(30n)}${word(made)}${word(0n)}`,
+      });
+      const swap = (logIndex: number, a0In: bigint, a1In: bigint, a0Out: bigint, a1Out: bigint) => ({
+        logIndex,
+        address: pool,
+        topics: ['0xd78ad95fa46c994b6551d0da85fc275fe613ce37657fb8d5e3d130840159d822', `0x${word(trader)}`, `0x${word(trader)}`],
+        data: `0x${word(a0In)}${word(a1In)}${word(a0Out)}${word(a1Out)}`,
+      });
+      const sync = (logIndex: number, r0: bigint, r1: bigint) => ({
+        logIndex,
+        address: pool,
+        topics: ['0x1c411e9a96e071241c2f21f7726b17ae89e3cab4c78be50e062b03a9fffbbad1'],
+        data: `0x${word(r0)}${word(r1)}`,
+      });
+      const chainTx = (hash: string, index: number, logs: ChainTx['logs']): ChainTx => ({
+        hash,
+        index,
+        from: trader,
+        to: pool,
+        valueWei: 0n,
+        nonce: index,
+        gasLimit: 21_000n,
+        gasPriceWei: null,
+        gasConsumed: 21_000n,
+        status: 'success',
+        revertReason: null,
+        input: '0x',
+        createdContract: null,
+        logs,
+      });
+      const make = `0x${'b1'.repeat(32)}`;
+      const buy = `0x${'b2'.repeat(32)}`;
+      const sell = `0x${'b3'.repeat(32)}`;
+      const orphanSwap = `0x${'b4'.repeat(32)}`;
+      const ONE = 10n ** 18n;
+      await store.applyBlock({ chainId: CHAIN_ID, height: 0, hash: h0, parentHash: zero, timestamp: 1_700_000_000, events: [] });
+      await store.applyBlock({
+        chainId: CHAIN_ID,
+        height: 1,
+        hash: h1,
+        parentHash: h0,
+        timestamp: 1_700_000_001,
+        events: [],
+        transactions: [chainTx(make, 0, [created(0, factory, pool), created(1, decoyFactory, decoyPool), sync(2, 10n * ONE, 20_000_000n)])],
+        tokens: [
+          { address: token0, symbol: 'TA', name: 'TEST A', decimals: 18 },
+          { address: token1, symbol: 'TB', name: 'TEST B', decimals: 6 },
+        ],
+      });
+      // A buy of token0 at 2 token1 each, then a sell at 1: the price is token1 per token0 in whole units.
+      await store.applyBlock({
+        chainId: CHAIN_ID,
+        height: 2,
+        hash: h2,
+        parentHash: h1,
+        timestamp: 1_700_000_002,
+        events: [],
+        transactions: [
+          chainTx(buy, 0, [sync(0, 9n * ONE, 22_000_000n), swap(1, 0n, 2_000_000n, ONE, 0n)]),
+          chainTx(sell, 1, [sync(0, 10n * ONE, 21_000_000n), swap(1, ONE, 0n, 0n, 1_000_000n)]),
+        ],
+      });
+      await store.applyBlock({
+        chainId: CHAIN_ID,
+        height: 3,
+        hash: h3,
+        parentHash: h2,
+        timestamp: 1_700_000_003,
+        events: [],
+        transactions: [chainTx(orphanSwap, 0, [sync(0, ONE, ONE), swap(1, 0n, 99n, 99n, 0n)])],
+      });
+      await store.unwindTo(3);
+      await store.applyBlock({
+        chainId: CHAIN_ID,
+        height: 3,
+        hash: h3b,
+        parentHash: h2,
+        timestamp: 1_700_000_004,
+        events: [],
+        transactions: [],
+      });
+
+      const listed = await store.explorerPools({ factory: factory.toUpperCase().replace('0X', '0x'), limit: 10 });
+      expect(listed).toEqual([
+        {
+          pool,
+          factory,
+          token0: { address: token0, symbol: 'TA', name: 'TEST A', decimals: 18 },
+          token1: { address: token1, symbol: 'TB', name: 'TEST B', decimals: 6 },
+          feeBps: 30,
+          createdHeight: 1,
+          createdTx: make,
+          cursor: { height: 1, index: 0, logIndex: 0 },
+          // The latest canonical Sync: the orphaned block's reserves are not the pool's.
+          reserves: { reserve0: 10n * ONE, reserve1: 21_000_000n, height: 2 },
+        },
+      ]);
+      expect(await store.explorerPools({ factory, limit: 10, cursor: { height: 1, index: 0, logIndex: 0 } })).toEqual([]);
+      expect(await store.explorerPool({ factory, pool: decoyPool })).toBeNull();
+      expect((await store.explorerPool({ factory: decoyFactory, pool: decoyPool }))?.pool).toBe(decoyPool);
+      expect(await store.explorerPool({ factory, pool: token0 })).toBeNull();
+
+      const swaps = await store.explorerPoolSwaps({ pool, limit: 10 });
+      expect(swaps.map((row) => row.hash)).toEqual([sell, buy]);
+      expect(swaps[1]).toMatchObject({ blockHeight: 2, index: 0, logIndex: 1, amount1In: 2_000_000n, amount0Out: ONE });
+      const page = await store.explorerPoolSwaps({ pool, limit: 1 });
+      expect(page.map((row) => row.hash)).toEqual([sell, buy]);
+      expect((await store.explorerPoolSwaps({ pool, limit: 1, cursor: { height: 2, index: 1, logIndex: 1 } })).map((r) => r.hash)).toEqual([
+        buy,
+      ]);
+
+      const since = new Date(0);
+      expect(await store.explorerPoolVolume({ pool, since })).toEqual({ volume1: 3_000_000n, swaps: 2 });
+      expect(await store.explorerPoolVolume({ pool, since: new Date(1_700_000_003_000) })).toEqual({ volume1: 0n, swaps: 0 });
+      // Prices are the pool's reserve ratio after each canonical Sync (20/10, 22/9, then 21/10), never a swap's fee-laden
+      // ratio, and the orphaned block's Sync is not one of them.
+      const candles = await store.explorerPoolCandles({ pool, since, seconds: 3600, scale: '1000000000000' });
+      expect(candles).toHaveLength(1);
+      expect(candles[0]).toMatchObject({ start: 1_699_999_200, open: '2', low: '2', close: '2.1', volume1: 3_000_000n, swaps: 2 });
+      expect(candles[0]?.high).toMatch(/^2\.4444444444444444\d*$/);
+      // A tiny price keeps its significant digits instead of rounding to zero.
+      const tiny = await store.explorerPoolCandles({ pool, since, seconds: 3600, scale: '0.000000000000000000000001' });
+      expect(tiny[0]?.close).toBe('0.0000000000000000000000000000000000021');
+
+      // The migration copies pools, swaps and reserves already stored before it, from their logs.
+      await db.sql`DELETE FROM explorer_pools`;
+      await db.sql`DELETE FROM explorer_swaps`;
+      await db.sql`DELETE FROM explorer_syncs`;
+      const migration = migrations[migrationFiles.findIndex((f) => f.endsWith('_explorer_pools.sql'))] as string;
+      await db.sql.unsafe(rewriteSchemaSql(migration, 'indexer', db.schema));
+      expect(await store.explorerPools({ factory, limit: 10 })).toEqual(listed);
+      expect(await store.explorerPoolSwaps({ pool, limit: 10 })).toEqual(swaps);
+      expect(await store.explorerPoolCandles({ pool, since, seconds: 3600, scale: '1000000000000' })).toEqual(candles);
+    });
+
+    it('D-explorer-03: internal moves list per address from canonical blocks; untraced blocks are named; tokens and blocks by time', async () => {
+      await db.sql`TRUNCATE positions, fills, book_levels, blocks, explorer_tx_seen, explorer_tokens RESTART IDENTITY CASCADE`;
+      const store = new PostgresProjectionStore(db.sql, CHAIN_ID);
+      const zero = `0x${'00'.repeat(32)}`;
+      const h = (n: number) => `0x${n.toString(16).padStart(2, '0').repeat(32)}`;
+      const me = `0x${'ab'.repeat(20)}`;
+      const other = `0x${'cd'.repeat(20)}`;
+      const fwd = `0x${'fe'.repeat(20)}`;
+      const tokenA = `0x${'0a'.repeat(20)}`;
+      const tokenB = `0x${'0b'.repeat(20)}`;
+      const word = (address: string) => `0x${'00'.repeat(12)}${address.slice(2)}`;
+      const transferLog = (logIndex: number, token: string, from: string, to: string) => ({
+        logIndex,
+        address: token,
+        topics: ['0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef', word(from), word(to)],
+        data: `0x${1n.toString(16).padStart(64, '0')}`,
+      });
+      const chainTx = (hash: string, index: number, logs: ChainTx['logs'] = []): ChainTx => ({
+        hash,
+        index,
+        from: other,
+        to: fwd,
+        valueWei: 9n,
+        nonce: index,
+        gasLimit: 21_000n,
+        gasPriceWei: null,
+        gasConsumed: 21_000n,
+        status: 'success',
+        revertReason: null,
+        input: '0x',
+        createdContract: null,
+        logs,
+      });
+      const [t1, t2, t3, t4] = [0xa1, 0xa2, 0xa3, 0xa4].map(h) as [string, string, string, string];
+      const toMe = (txHash: string, path: string, valueWei: bigint) => ({
+        txHash,
+        path,
+        kind: 'call' as const,
+        from: fwd,
+        to: me,
+        valueWei,
+      });
+      const block = (height: number, hash: string, parentHash: string, extra: Partial<ChainBlock> = {}): ChainBlock => ({
+        chainId: CHAIN_ID,
+        height,
+        hash,
+        parentHash,
+        timestamp: 1_700_000_000 + height * 10,
+        events: [],
+        ...extra,
+      });
+
+      await store.applyBlock(block(0, h(1), zero));
+      await store.applyBlock(
+        block(1, h(2), h(1), {
+          transactions: [chainTx(t1, 0, [transferLog(0, tokenA, other, me)])],
+          internal: {
+            read: true,
+            calls: [
+              toMe(t1, '0', 7n),
+              { txHash: t1, path: '1', kind: 'call', from: fwd, to: other, valueWei: 2n },
+              toMe(t1, '10', 3n),
+              toMe(t1, '2', 4n),
+            ],
+          },
+        }),
+      );
+      // The node would not trace this block.
+      await store.applyBlock(
+        block(2, h(3), h(2), { transactions: [chainTx(t2, 0)], internal: { read: false, reason: 'indexer.trace_unavailable' } }),
+      );
+      // Indexed by a source that reads no trace: stored as not recorded.
+      await store.applyBlock(block(3, h(4), h(3), { transactions: [chainTx(t3, 0)] }));
+      // An orphaned block's moves are not this address's history.
+      await store.applyBlock(
+        block(4, h(5), h(4), {
+          transactions: [chainTx(t4, 0, [transferLog(0, tokenB, other, me)])],
+          internal: { read: true, calls: [toMe(t4, '0', 1n)] },
+        }),
+      );
+      await store.unwindTo(4);
+      await store.applyBlock(block(4, h(6), h(4), { transactions: [], internal: { read: true, calls: [] } }));
+
+      const rows = await store.explorerAddressInternal({ address: me.toUpperCase().replace('0X', '0x'), limit: 10 });
+      expect(rows).toEqual([
+        {
+          hash: t1,
+          blockHeight: 1,
+          index: 0,
+          timestamp: 1_700_000_010,
+          calls: [
+            { path: '0', kind: 'call', from: fwd, to: me, valueWei: 7n },
+            { path: '2', kind: 'call', from: fwd, to: me, valueWei: 4n },
+            { path: '10', kind: 'call', from: fwd, to: me, valueWei: 3n },
+          ],
+        },
+      ]);
+      // Each row carries only the moves to or from the address asked about.
+      expect((await store.explorerAddressInternal({ address: other, limit: 10 }))[0]?.calls).toEqual([
+        { path: '1', kind: 'call', from: fwd, to: other, valueWei: 2n },
+      ]);
+      expect(await store.explorerAddressInternal({ address: fwd, limit: 10, cursor: { height: 1, index: 0, hash: t1 } })).toEqual([]);
+
+      // The orphaned block is not a gap; the untraced block and the one indexed before traces are.
+      expect(await store.explorerTraceGaps()).toEqual({
+        blocks: 2,
+        fromHeight: 2,
+        toHeight: 3,
+        reasons: ['indexer.trace_not_recorded', 'indexer.trace_unavailable'],
+      });
+      // A block stored before migration 0004 has no trace row; the migration's backfill gives it one, so it is a gap.
+      await db.sql`DELETE FROM explorer_block_traces WHERE block_hash = ${h(4)}`;
+      expect((await store.explorerTraceGaps()).blocks).toBe(1);
+      const backfill = /INSERT INTO "indexer"\."explorer_block_traces"[^;]*;/.exec(
+        migrations[migrationFiles.indexOf('0004_explorer_internal.sql')] ?? '',
+      )?.[0];
+      expect(backfill).toContain("'indexer' || '.trace_not_recorded'");
+      await db.sql.unsafe(rewriteSchemaSql(backfill as string, 'indexer', db.schema));
+      expect(await store.explorerTraceGaps()).toEqual({
+        blocks: 2,
+        fromHeight: 2,
+        toHeight: 3,
+        reasons: ['indexer.trace_not_recorded', 'indexer.trace_unavailable'],
+      });
+
+      // The orphan re-included at a new height: its moves come back once, at the new block.
+      await store.applyBlock(
+        block(5, h(7), h(6), {
+          transactions: [chainTx(t4, 0, [transferLog(0, tokenB, other, me)])],
+          internal: { read: true, calls: [toMe(t4, '0', 1n)] },
+        }),
+      );
+      expect((await store.explorerAddressInternal({ address: me, limit: 10 })).map((r) => [r.hash, r.blockHeight])).toEqual([
+        [t4, 5],
+        [t1, 1],
+      ]);
+      const [count] = await db.sql<Array<{ n: number }>>`SELECT COUNT(*)::int AS n FROM explorer_internal_txs WHERE tx_hash = ${t4}`;
+      expect(count?.n).toBe(1);
+
+      expect((await store.explorerAddressTokens({ address: me, limit: 10 })).map((t) => t.address)).toEqual([tokenA, tokenB]);
+      expect((await store.explorerAddressTokens({ address: me, limit: 1 })).map((t) => t.address)).toEqual([tokenA, tokenB]);
+
+      // The last canonical block strictly before a time.
+      expect(await store.explorerBlockBefore(new Date(1_700_000_011_000))).toEqual({ height: 1, timestamp: 1_700_000_010 });
+      expect(await store.explorerBlockBefore(new Date(1_700_000_000_000))).toBeNull();
+      expect(await store.explorerBlockBefore(new Date(1_800_000_000_000))).toEqual({ height: 5, timestamp: 1_700_000_050 });
+
+      // A block with more value moves than one statement's 65534 parameters can carry (7 a row) is written whole.
+      const t5 = h(0xa5);
+      const many = Array.from({ length: 9_500 }, (_, i) => ({ ...toMe(t5, String(i), 1n), to: other }));
+      await store.applyBlock(block(6, h(8), h(7), { transactions: [chainTx(t5, 0)], internal: { read: true, calls: many } }));
+      const [written] = await db.sql<Array<{ n: number }>>`SELECT COUNT(*)::int AS n FROM explorer_internal_txs WHERE tx_hash = ${t5}`;
+      expect(written?.n).toBe(9_500);
+    });
+
     it('refuses parent mismatch and height gaps without moving head', async () => {
       await db.sql`TRUNCATE positions, fills, book_levels, blocks RESTART IDENTITY CASCADE`;
       const store = new PostgresProjectionStore(db.sql, CHAIN_ID);
@@ -833,6 +1147,11 @@ describe('svc-indexer · PostgresProjectionStore PG-hard', () => {
         'blocks',
         'book_levels',
         'explorer_block_facts',
+        'explorer_block_traces',
+        'explorer_internal_txs',
+        'explorer_pools',
+        'explorer_swaps',
+        'explorer_syncs',
         'explorer_tokens',
         'explorer_transfers',
         'explorer_tx_logs',

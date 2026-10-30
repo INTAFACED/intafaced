@@ -103,7 +103,7 @@ async function openLoan(
       { account: marketMaker('USDT'), direction: 'debit', amount: amt('100000') },
     ],
   });
-  const loans = new LoanService(sql, ledger, { priceSource: price('10000'), venue: marketMakerVenue() });
+  const loans = new LoanService(sql, ledger, { originationFeeBps: '0', priceSource: price('10000'), venue: marketMakerVenue() });
   await loans.fundReserve({ debtAssetId: 'USDT', fundingId: randomUUID(), amount: amt('100000'), from: userAvailable(PAYER, 'USDT') });
   const product = await loans.createProduct({
     name: `TEST ${randomUUID()}`,
@@ -136,7 +136,7 @@ describe('recovery after a lost loan receipt', () => {
     restore();
 
     // The market falls: with 2 BTC the loan is healthy, with 1 BTC it would be past the margin-call line.
-    const crashed = new LoanService(sql, ledger, { priceSource: price('6000'), venue: marketMakerVenue() });
+    const crashed = new LoanService(sql, ledger, { originationFeeBps: '0', priceSource: price('6000'), venue: marketMakerVenue() });
     const out = await crashed.recoverRepayments(100);
 
     expect(out.find((o) => o.loanId === loan.id)).toEqual({ loanId: loan.id, outcome: 'open' });
@@ -181,7 +181,7 @@ describe('recovery after a lost loan receipt', () => {
   it('refuses repayment while a liquidation sale has an unknown outcome, then finishes that sale once', async () => {
     const ledger = new MemoryLedger();
     const { loan } = await openLoan(ledger, '1', '5000');
-    const loans = new LoanService(sql, ledger, { priceSource: price('5700'), venue: marketMakerVenue() });
+    const loans = new LoanService(sql, ledger, { originationFeeBps: '0', priceSource: price('5700'), venue: marketMakerVenue() });
     await loans.runRiskSweep({ now: NOW, limit: 500 });
     expect((await loans.loan(loan.id)).status).toBe('margin_call');
 
@@ -223,7 +223,7 @@ describe('recovery after a lost loan receipt', () => {
     const ledger = new MemoryLedger();
     const { loan } = await openLoan(ledger, '1', '5000', { maxTrancheBps: 10_000 });
     await seedInsurance(ledger);
-    const loans = new LoanService(sql, ledger, { priceSource: price('4000'), venue: marketMakerVenue() });
+    const loans = new LoanService(sql, ledger, { originationFeeBps: '0', priceSource: price('4000'), venue: marketMakerVenue() });
     markNow = NOW;
     const restore = lose(ledger, 'loan.liquidated', 'after-commit');
     await loans.runRiskSweep({ now: NOW, limit: 500 });
@@ -246,7 +246,7 @@ describe('recovery after a lost loan receipt', () => {
     const ledger = new MemoryLedger();
     const { loan } = await openLoan(ledger, '1', '5000', { maxTrancheBps: 10_000 });
     await seedInsurance(ledger);
-    const loans = new LoanService(sql, ledger, { priceSource: price('4000'), venue: marketMakerVenue() });
+    const loans = new LoanService(sql, ledger, { originationFeeBps: '0', priceSource: price('4000'), venue: marketMakerVenue() });
     markNow = NOW;
     const restore = lose(ledger, 'loan.liquidated', 'before-commit');
     await loans.runRiskSweep({ now: NOW, limit: 500 });

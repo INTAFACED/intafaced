@@ -891,10 +891,21 @@ export type BankErrorCode =
   | 'bank.profile_not_held'
   /** A business profile has no company account of its own in this build, so there is no company terms, currency or detail to show. */
   | 'bank.company_account_unwired'
-  /** The owner has not published the loan payoff fee (`BANK_LOAN_PAYOFF_FEE`). A quote is not given, and zero is not assumed (BK-loan-06). */
+  /**
+   * The owner has not published a loan fee, and zero is not assumed: the payoff fee (`BANK_LOAN_PAYOFF_FEE`, no payoff quote
+   * is given, BK-loan-06) or the origination fee (`BANK_LOAN_ORIGINATION_FEE_BPS`, no new loan is opened, BK-loan-01).
+   */
   | 'bank.loan_fee_unset'
   /** A non-zero loan payoff fee is published, but repay has no fee entry to collect it, so no payoff quote is given (BK-loan-06). */
   | 'bank.loan_fee_unsupported'
+  /** A non-zero loan origination fee is published, but no ledger leg collects it yet, so no loan is opened (BK-loan-01). */
+  | 'bank.loan_fee_unwired'
+  /** The product's rate is not the one the borrower was shown: no loan is opened at a rate they did not see. */
+  | 'bank.loan_rate_changed'
+  /** A rate change replaces a rate the product no longer charges: read the product again. */
+  | 'bank.loan_rate_moved'
+  /** An approval that already made one rate change was offered for another. */
+  | 'bank.loan_rate_approval_reused'
   /** The owner has not published how long a loan payoff quote stays valid (`BANK_LOAN_PAYOFF_WINDOW_MINUTES`) (BK-loan-06). */
   | 'bank.loan_payoff_window_unset'
   /** The loan's snapshotted rate cannot be used, so a projection is refused rather than invented (BK-loan-06). */

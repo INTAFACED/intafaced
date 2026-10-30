@@ -118,6 +118,8 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, STATE, CUSTOMER_LOCALHOST_ORI
     IDENTITY_KYC_CAPABILITIES_BY_LEVEL: testValue('IDENTITY_KYC_CAPABILITIES_BY_LEVEL'),
     IDENTITY_KYC_CAPABILITY_REASONS: testValue('IDENTITY_KYC_CAPABILITY_REASONS'),
     IDENTITY_TRADING_RESTRICTION_REASONS: testValue('IDENTITY_TRADING_RESTRICTION_REASONS'),
+    IDENTITY_APPEAL_WINDOW_DAYS: testValue('IDENTITY_APPEAL_WINDOW_DAYS'),
+    IDENTITY_APPEAL_DECISION_REASONS: testValue('IDENTITY_APPEAL_DECISION_REASONS'),
     IDENTITY_KYC_DOCUMENT_TYPES_BY_COUNTRY: testValue('IDENTITY_KYC_DOCUMENT_TYPES_BY_COUNTRY'),
     IDENTITY_KYC_UPLOAD_MAX_BYTES: testValue('IDENTITY_KYC_UPLOAD_MAX_BYTES'),
     IDENTITY_KYC_UPLOAD_TYPES: testValue('IDENTITY_KYC_UPLOAD_TYPES'),
@@ -179,8 +181,18 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, STATE, CUSTOMER_LOCALHOST_ORI
     IDENTITY_CLOSURE_P2P_URL: urlOf('p2p'),
     // API key cap per verification level: an explicit LOCAL TEST value, not an owner limit (blank refuses every key
     // create in the developer room with identity.key_cap_unset). Three live keys per account on this stack, so
-    // J-developer-03 can show the fourth refused.
-    IDENTITY_API_KEYS_MAX_BY_TIER: 'none=3,basic=3,full=3,institutional=3',
+    // J-developer-03 can show the fourth refused. `LOCAL_STACK_IDENTITY_KEY_CAP=off` on a start or restart leaves it
+    // blank, so J-developer-03 #8 can see that refusal too.
+    ...(process.env.LOCAL_STACK_IDENTITY_KEY_CAP === 'off'
+      ? {}
+      : { IDENTITY_API_KEYS_MAX_BY_TIER: 'none=3,basic=3,full=3,institutional=3' }),
+    // LOCAL TEST named developer sandboxes (J-developer-02 #2, #3), labelled in the same profile, never an owner decision.
+    // The code keeps no default: blank refuses a second sandbox with identity.sandbox_cap_unset, and
+    // `LOCAL_STACK_IDENTITY_SANDBOX_CAP=off` on a start or restart leaves it blank so that refusal can be seen.
+    ...(process.env.LOCAL_STACK_IDENTITY_SANDBOX_CAP === 'off'
+      ? {}
+      : { IDENTITY_SANDBOXES_MAX_BY_TIER: testValue('IDENTITY_SANDBOXES_MAX_BY_TIER') }),
+    IDENTITY_SANDBOX_BASE_URL: testValue('IDENTITY_SANDBOX_BASE_URL'),
     // LOCAL TEST idle period for API keys (J-developer-03 #9), labelled in the same profile, never an owner decision: the
     // key detail shows it; no dormant sweep is built, so it ends no key. Blank shows `not set`.
     IDENTITY_API_KEY_IDLE_EXPIRY_SECONDS: testValue('IDENTITY_API_KEY_IDLE_EXPIRY_SECONDS'),

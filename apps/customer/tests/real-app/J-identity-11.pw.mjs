@@ -1,7 +1,8 @@
 import { randomBytes } from 'node:crypto';
+import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { test, expect } from '@playwright/test';
-import { ROOT, api, mailedLines, signOutBrowser, signUpInBrowser } from './stack.mjs';
+import { ROOT, api, mailedLines, signOutBrowser, signUpInBrowser, staffFreeze, staffRestore, tool } from './stack.mjs';
 import { keyHolder, makeKey, withKey } from './developer.mjs';
 import { addAuthenticator, nextCode } from './identity-factors.mjs';
 
@@ -16,6 +17,16 @@ function person(prefix = 'jf') {
   const handle = `${prefix}${Date.now().toString(36)}${randomBytes(2).toString('hex')}`;
   return { handle, email: `${handle}@local-test.invalid`, password: `TEST-${randomBytes(9).toString('base64url')}-9a` };
 }
+
+/** The TEST lift reason from identity's appeal decision reasons (IDENTITY_APPEAL_DECISION_REASONS), as identity returns it. */
+const LIFT_REASON = (() => {
+  const raw = JSON.parse(readFileSync(new URL('../../../../tooling/profiles/test-owner-values/identity.json', import.meta.url), 'utf8'));
+  const [listed] = JSON.parse(raw.values.IDENTITY_APPEAL_DECISION_REASONS.value);
+  return { code: listed.code, text: listed.reason, guidance: listed.guidance };
+})();
+
+/** Identity's typed refusal code, wherever the tRPC error carries it. */
+const typedCode = (data) => data?.intafacedCode ?? data?.cause?.code ?? data?.code;
 
 const totpLib = () => import(path.join(ROOT, 'services/svc-identity/dist/auth/totp.js'));
 
@@ -306,8 +317,94 @@ test(`${J} #4 Asking to reactivate before the wait is over is refused with the s
   await expect(status.getByTestId('account-status__restrictions')).toHaveCount(0);
 });
 
-// Still red, named: a staff freeze's own page, the staff-only lift and the appeal path wait for the appeal door
-// (I-account-lifecycle-12), which identity does not serve yet.
-test(`${J} #5 A staff freeze shows its own page that only staff can lift, with the appeal path`, () => {
-  throw new Error('step #5 is not built yet: no appeal door in svc-identity (I-account-lifecycle-12)');
+// A staff freeze refuses signing in, so the customer path (sign in, then reactivate) stops at the sign-in page, which
+// names the freeze, says only support lifts it and points to the appeal. The appeal is filed signed out with the
+// password, as the page says, and identity's appeal door holds it (I-account-lifecycle-12).
+test(`${J} #5 A staff freeze shows its own page that only staff can lift, with the appeal path`, async ({ page }) => {
+  test.setTimeout(240_000);
+  const who = person('js');
+  await signUpInBrowser(page, who);
+  const userId = await staffFreeze(who);
+  let lifted = false;
+  try {
+    // The same path as #3: sign in again. Identity refuses it as frozen, named only after the password verified.
+    await page.goto('about:blank');
+    await signOutBrowser(page.context());
+    await page.goto('/login');
+    await page.fill('input[name=identifier]', who.email);
+    await page.fill('input[name=password]', who.password);
+    const answered = page.waitForResponse((r) => new URL(r.url()).pathname.endsWith('/auth.login'));
+    await page.getByRole('button', { name: /^sign in$/i }).click();
+    const refused = await (await answered).json();
+    expect(typedCode(refused.error.data)).toBe('auth.account_frozen');
+    expect(refused.error.data.accountState).toBe('frozen');
+    const failure = page.getByTestId('failure');
+    await expect(failure).toContainText('This account is frozen. Sign-in and money actions are paused. Only support can lift a freeze');
+    // Not the person's own freeze: no reactivation is offered, only the appeal.
+    await expect(page.getByTestId('frozen-by-you')).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Reactivate in Security' })).toHaveCount(0);
+    await failure.getByRole('link', { name: 'Appeal this freeze' }).click();
+    await expect(page).toHaveURL(/\/appeal$/);
+    await expect(page.getByRole('heading', { level: 1 })).toHaveText('Appeal a freeze');
+    await expect(page.getByText('Only support can lift a freeze.')).toBeVisible();
+
+    const form = page.getByTestId('appeal-signed-out__form');
+    const send = async (password, text) => {
+      await form.getByLabel('Email or handle').fill(who.email);
+      await form.getByLabel('Password', { exact: true }).fill(password);
+      await form.getByLabel('Why should the freeze be lifted?').fill(text);
+      const res = page.waitForResponse((r) => new URL(r.url()).pathname.endsWith('/accountAppeal.submitSignedOut'));
+      await form.getByRole('button', { name: 'Send appeal' }).click();
+      const got = await res;
+      const body = await got.json();
+      return { status: got.status(), data: body.result?.data, code: typedCode(body.error?.data) };
+    };
+    // A wrong password is the sign-in refusal, and files nothing.
+    const wrong = await send(`${who.password}x`, 'TEST: please look again');
+    expect(wrong.code).toBe('auth.invalid_credentials');
+    await expect(page.locator('.lt-refusal .lt-ref')).toHaveText('auth.invalid_credentials');
+    // With the password, the appeal of this staff freeze is filed and waits for a decision.
+    const filed = await send(who.password, 'TEST: please look again');
+    expect(filed.status, JSON.stringify(filed)).toBe(200);
+    expect(filed.data).toMatchObject({ restriction: 'staff_freeze', status: 'submitted', decision: null });
+    const result = page.getByTestId('appeal-signed-out__result');
+    await expect(result).toHaveAttribute('data-status', 'submitted');
+    await expect(result).toContainText('Waiting for a decision');
+    // One open appeal: a second from a fresh page is refused by name, and still nothing else is filed.
+    await page.goto('/appeal');
+    const again = await send(who.password, 'TEST: a second appeal');
+    expect(again.status).toBe(409);
+    expect(again.code).toBe('identity.appeal_open');
+    // The refusal is the flow template's, in words with the typed code small under them.
+    const refusal = page.locator('.lt-refusal');
+    await expect(refusal).toContainText('You already have an appeal waiting for this freeze. Only one can be open at a time.');
+    await expect(refusal.locator('.lt-ref')).toHaveText('identity.appeal_open');
+
+    // Only staff lift it: the founder who froze it cannot decide the appeal; the other founder lifts it through the
+    // unfreeze four-eyes, and the person can sign in again.
+    expect(tool('local-test-gates.mjs', 'appeal-decide', who.handle, 'lift', LIFT_REASON.code, '--as-restrictor')).toMatch(
+      /REFUSED .* appeal lift: .*identity\.appeal_decider_restricted/,
+    );
+    expect(tool('local-test-gates.mjs', 'appeal-decide', who.handle, 'lift', LIFT_REASON.code)).toMatch(/OK .* appeal lift: lifted/);
+    lifted = true;
+    const own = await api(who);
+    const status = await own.get('/api/identity/trpc/accountStatus.mine');
+    expect(status.body.result.data.state).toBe('active');
+    const appeals = await own.get('/api/identity/trpc/accountAppeal.mine');
+    expect(appeals.body.result.data.appeals).toHaveLength(1);
+    expect(appeals.body.result.data.appeals[0]).toMatchObject({
+      restriction: 'staff_freeze',
+      status: 'lifted',
+      decision: { outcome: 'lifted', reason: LIFT_REASON },
+    });
+    await expect.poll(() => mailedLines(who.email, 'appeal-decided'), { timeout: 30_000 }).toHaveLength(1);
+  } finally {
+    if (!lifted) {
+      try {
+        await staffRestore(userId);
+      } catch (error) {
+        console.warn(`J-identity-11 #5: the restore after a failure failed too: ${error}`);
+      }
+    }
+  }
 });

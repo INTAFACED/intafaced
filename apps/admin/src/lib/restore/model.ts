@@ -7,6 +7,7 @@
 export const RESTORE_STEPS = ['restore_clean', 'validate', 'preview', 'finalize'] as const;
 export type RestoreStep = (typeof RESTORE_STEPS)[number];
 export const RESTORE_SERVICES = ['ledger', 'identity', 'bank', 'pay'] as const;
+export type RestoreServiceName = (typeof RESTORE_SERVICES)[number];
 
 export const STEP_LABEL: Readonly<Record<RestoreStep, string>> = {
   restore_clean: 'Restore into a clean area',

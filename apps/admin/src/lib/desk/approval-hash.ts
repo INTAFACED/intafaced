@@ -16,6 +16,10 @@ import type { DeskRequest } from './approval-packet';
 export const WAVE_RELEASE_TARGET = 'waitlist.wave.release';
 /** svc-pay's action type for lifting a deposit address freeze (`DEPOSIT_ADDRESS_UNFREEZE_ACTION`). */
 export const DEPOSIT_ADDRESS_UNFREEZE = 'pay.deposit_address_unfreeze';
+/** svc-token launch founder doors (`services/svc-token/src/launch/router.ts`). */
+export const LAUNCH_ISSUER_SET = 'token.launch.issuer.set';
+export const LAUNCH_EVENT_CREATE = 'token.launch.event.create';
+export const LAUNCH_EVENT_MOVE = 'token.launch.event.move';
 /** The verb svc-identity binds a KYC document read to (`kyc.getDocument`). */
 export const KYC_DOCUMENT_GET = 'kyc.doc.get';
 /** The verb svc-identity binds a selfie decision to (`kyc.selfie.decide`). */
@@ -104,6 +108,18 @@ export function payloadHashFor(request: DeskRequest): string {
       return sha('academy.ambassador.unfreeze', { userId: request.userId });
     case 'identity.account.unfreeze':
       return shaIdentity(request.userId, { reason: request.reason });
+    // svc-token `tokenActionPayloadHash(actionType, fields)`, with the fields its launch router binds, in its order.
+    case 'token.launch.issuer.set':
+      return sha(LAUNCH_ISSUER_SET, {
+        issuerId: request.issuerId,
+        name: request.name,
+        state: request.state,
+        expectedRevision: request.revision,
+      });
+    case 'token.launch.event.create':
+      return sha(LAUNCH_EVENT_CREATE, { event: request.event });
+    case 'token.launch.event.move':
+      return sha(LAUNCH_EVENT_MOVE, { eventId: request.eventId, to: request.to, expectedRevision: request.revision });
     // svc-pay `payActionPayloadHash('pay.deposit_address_unfreeze', unfreezeApprovalFields(...))`: ids and address lower-cased.
     case 'pay.deposit_address.unfreeze':
       return sha(DEPOSIT_ADDRESS_UNFREEZE, {
@@ -193,6 +209,12 @@ export function payloadHashFor(request: DeskRequest): string {
       return sha(request.kind, { targetId: marketTargetId(request.symbol), reasonCode: request.reasonCode, reason: request.reason });
     case 'protocol.market.restore':
       return sha(request.kind, { targetId: marketTargetId(request.symbol) });
+    // svc-ops `approvalPayloadHash('ops.restore.record', parseWatermarkInput(...))`: { service, kind, watermark }, in this order.
+    case 'ops.restore.record':
+      return sha(request.kind, { service: request.service, kind: request.stampKind, watermark: request.watermark });
+    // svc-ops' restore desk binds the run: `approvalPayloadHash('ops.restore.finalize', { restoreNo, cutOff })`.
+    case 'ops.restore.finalize':
+      return sha(request.kind, { restoreNo: request.restoreNo, cutOff: request.cutOff });
   }
 }
 
@@ -392,6 +414,25 @@ export function proposeInputFor(request: DeskRequest): ProposeInput {
         payloadHash,
         policyVersion: 'v1',
       };
+    // svc-token consumes against its own verb as the target id, at the revision read; a new issuer or launch is at 0.
+    case 'token.launch.issuer.set':
+    case 'token.launch.event.move':
+    case 'token.launch.event.create': {
+      const actionType =
+        request.kind === 'token.launch.issuer.set'
+          ? LAUNCH_ISSUER_SET
+          : request.kind === 'token.launch.event.move'
+            ? LAUNCH_EVENT_MOVE
+            : LAUNCH_EVENT_CREATE;
+      return {
+        actionType,
+        targetService: 'svc-token',
+        targetId: actionType,
+        expectedVersion: request.kind === 'token.launch.event.create' ? '0' : request.revision,
+        payloadHash,
+        policyVersion: 'v1',
+      };
+    }
     // svc-pay consumes against its own verb as the target id, at version 1 (`consumePayApproval`). The freeze id is in the hash.
     case 'pay.deposit_address.unfreeze':
       return {
@@ -461,6 +502,25 @@ export function proposeInputFor(request: DeskRequest): ProposeInput {
         actionType: request.kind,
         targetService: 'svc-ops',
         targetId: marketTargetId(request.symbol),
+        expectedVersion: '1',
+        payloadHash,
+        policyVersion: 'v1',
+      };
+    // svc-ops consumes a stamp against the service and kind, and finalize against the run; both founders are needed.
+    case 'ops.restore.record':
+      return {
+        actionType: request.kind,
+        targetService: 'svc-ops',
+        targetId: `watermark:${request.service}:${request.stampKind}`,
+        expectedVersion: '1',
+        payloadHash,
+        policyVersion: 'v1',
+      };
+    case 'ops.restore.finalize':
+      return {
+        actionType: request.kind,
+        targetService: 'svc-ops',
+        targetId: `restore:${request.restoreNo}`,
         expectedVersion: '1',
         payloadHash,
         policyVersion: 'v1',

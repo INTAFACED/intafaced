@@ -132,6 +132,11 @@ import {
   academySurveySubmittedSchema,
   academyCourseQuizReviewsSchema,
   academyScoreCourseQuizEssaysInputSchema,
+  academyCourseQuizAttemptsSchema,
+  academyFixCourseQuizKeyInputSchema,
+  academyRescoreCourseQuizInputSchema,
+  academyRescoreCourseQuizResultSchema,
+  academyOverrideCourseQuizScoreInputSchema,
   academyAssignmentInputSchema,
   academyAssignmentViewSchema,
   academySaveAssignmentInputSchema,
@@ -141,6 +146,8 @@ import {
   academyGradingQueueSchema,
   academyOpenGradingInputSchema,
   academyGradeSubmissionInputSchema,
+  academyBulkGradeInputSchema,
+  academyBulkGradeResultSchema,
   academyMarkFeedbackReadInputSchema,
   academyPeerReviewFileInputSchema,
   academyPeerReviewFileSchema,
@@ -1063,6 +1070,8 @@ function toTrpcError(err: unknown): TRPCError {
     case 'academy.ip_rule_invalid':
     case 'academy.reason_required':
     case 'academy.grade_invalid':
+    case 'academy.key_fix_invalid':
+    case 'academy.bulk_file_invalid':
       return new TRPCError({ code: 'BAD_REQUEST', message: err.message, cause: err });
   }
 }
@@ -3380,6 +3389,39 @@ export function createAcademyRouter(
           guard(() => academy.courseQuizzes.scoreEssays({ ...input, operatorId: ctx.principal!.userId, now: new Date() })),
         ),
 
+      /** AC-quizzes-04: every finished attempt under its alias, with points per question and its score trail. */
+      courseQuizAttempts: scopedProcedure('admin:read', { module: 'academy' })
+        .input(academyCourseQuizInputSchema)
+        .output(academyCourseQuizAttemptsSchema)
+        .query(({ input }) => guard(() => academy.courseQuizTrail.attempts(input.itemId))),
+
+      /** AC-quizzes-04: a new revision of a published quiz that changes only keys; attempts keep their score until a rescore. */
+      fixCourseQuizKey: scopedProcedure('admin:write', { module: 'academy' })
+        .input(academyFixCourseQuizKeyInputSchema)
+        .output(academyAdminCourseQuizSchema)
+        .mutation(({ input, ctx }) =>
+          guard(async () => {
+            await academy.courseQuizTrail.fixKey({ ...input, operatorId: ctx.principal!.userId, now: new Date() });
+            return academy.courseQuizzes.adminView(input.itemId);
+          }),
+        ),
+
+      /** AC-quizzes-04: apply the current keys to each graded attempt they change, `rescore:<attempt>:<revision>`. */
+      rescoreCourseQuiz: scopedProcedure('admin:write', { module: 'academy' })
+        .input(academyRescoreCourseQuizInputSchema)
+        .output(academyRescoreCourseQuizResultSchema)
+        .mutation(({ input, ctx }) =>
+          guard(() => academy.courseQuizTrail.rescore({ ...input, operatorId: ctx.principal!.userId, now: new Date() })),
+        ),
+
+      /** AC-quizzes-04: one question's points on a graded attempt, `override:<attempt>:<question>:<n>`, with a reason. */
+      overrideCourseQuizScore: scopedProcedure('admin:write', { module: 'academy' })
+        .input(academyOverrideCourseQuizScoreInputSchema)
+        .output(academyCourseQuizAttemptsSchema)
+        .mutation(({ input, ctx }) =>
+          guard(() => academy.courseQuizTrail.override({ ...input, operatorId: ctx.principal!.userId, now: new Date() })),
+        ),
+
       /** AC-release-access-01: a course's pacing and each section's release rule. */
       courseRelease: scopedProcedure('admin:read', { module: 'academy' })
         .input(academyCourseReleaseInputSchema)
@@ -3473,6 +3515,12 @@ export function createAcademyRouter(
         .input(academyGradeSubmissionInputSchema)
         .output(academyGradingQueueSchema)
         .mutation(({ input, ctx }) => guard(() => academy.gradeSubmission({ ...input, operatorId: ctx.principal!.userId }))),
+
+      /** AC-assignments-02: a CSV of grades by alias; good rows apply, bad rows are listed, the same file changes nothing. */
+      bulkGrade: scopedProcedure('admin:write', { module: 'academy' })
+        .input(academyBulkGradeInputSchema)
+        .output(academyBulkGradeResultSchema)
+        .mutation(({ input, ctx }) => guard(() => academy.bulkGrade({ ...input, operatorId: ctx.principal!.userId }))),
 
       /** AC-assignments-03: peer and self review steps and the rubric, over the revision read. */
       saveReviewSteps: scopedProcedure('admin:write', { module: 'academy' })

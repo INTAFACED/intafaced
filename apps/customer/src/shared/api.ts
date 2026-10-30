@@ -71,6 +71,8 @@ export const p2pLimitSchema = z.object({
     .regex(/^[A-Z]{3}$/)
     .optional(),
   openTradeIds: z.array(z.string().guid()).max(50).optional(),
+  /** On `p2p.offer_has_open_trades`: how many orders on the ad are open. */
+  openTrades: limitDecimal.optional(),
   reason: z.enum(P2P_DELIST_REASONS).optional(),
   ruleClass: z.string().regex(P2P_RULE_CLASS).optional(),
   /** The field a refused payment-method detail is about (`p2p.account_format_invalid`, field missing or invalid). */

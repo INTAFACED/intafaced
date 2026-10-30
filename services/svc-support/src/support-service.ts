@@ -151,6 +151,7 @@ import { MemoryRatingRequestBook, RatingRequestOutbox } from './rating-request.j
 import { MemoryPropertiesBook, normaliseLabels, type PropertiesBook } from './desk-properties.js';
 import { MemoryGroupBook, deskCanSee, type DeskGroup, type DeskViewer, type GroupBook } from './desk-groups.js';
 import { withSupportSpan } from './tracing.js';
+import { findCommentSecret, SUPPORT_COMMENT_SECRET_REFUSED } from './comment-secrets.js';
 
 const INVALID = Symbol('invalid');
 
@@ -169,6 +170,15 @@ const scanRefused = (): SupportError => new SupportError('attachment did not pas
 
 /** The owner setting a blank comment cap names (`SUPPORT_COMMENT_CAP`). */
 export const SUPPORT_COMMENT_CAP_KEY = 'support.comment_cap';
+
+/**
+ * Text a person writes onto a request (its subject and body, a reply, a staff note, a status note, an escalation summary)
+ * that holds a card number or a recovery phrase is refused before anything is stored.
+ */
+function refuseCommentSecret(body: string): void {
+  const found = findCommentSecret(body);
+  if (found) throw new SupportError(`the comment holds a ${found.replace('_', ' ')}`, SUPPORT_COMMENT_SECRET_REFUSED);
+}
 
 export class SupportError extends Error {
   constructor(
@@ -579,6 +589,7 @@ export class SupportService implements SupportContract {
 
   async createTicket(input: { userId: string } & CreateTicketInput): Promise<SupportTicket> {
     return withSupportSpan('support.createTicket', { op: 'createTicket' }, async (span) => {
+      refuseCommentSecret(`${input.subject}\n${input.body}`);
       if (input.messageHeaders !== undefined && input.category !== 'phishing') {
         throw new SupportError('message headers belong to a phishing report only', 'support.headers_not_allowed');
       }
@@ -751,6 +762,7 @@ export class SupportService implements SupportContract {
   }): Promise<SupportComment> {
     return withSupportSpan('support.comment', { op: 'comment', ticketId: input.ticketId }, async () => {
       if (input.clientRequestId !== undefined) this.requireClientRequestId(input.clientRequestId);
+      refuseCommentSecret(input.body);
       await this.getTicket({
         userId: input.userId,
         ticketId: input.ticketId,
@@ -816,6 +828,7 @@ export class SupportService implements SupportContract {
       this.requireClientRequestId(input.clientRequestId);
       const body = input.body.trim();
       if (body === '') throw new SupportError('an internal note needs words', 'support.note_empty');
+      refuseCommentSecret(body);
       await this.getTicket({ userId: input.userId, ticketId: input.ticketId, asOperator: true });
       const result = await this.store.addComment({
         ticketId: input.ticketId,
@@ -883,6 +896,7 @@ export class SupportService implements SupportContract {
   }): Promise<SupportTicket> {
     return withSupportSpan('support.setStatus', { op: 'setStatus', ticketId: input.ticketId }, async (span) => {
       await this.assertDeskVisible(input.operatorId, input.ticketId);
+      if (input.note) refuseCommentSecret(input.note);
       if (input.status === 'on_hold' && !input.note?.trim()) {
         throw new SupportError('say why the request is on hold', 'support.hold_reason_required');
       }
@@ -1060,6 +1074,7 @@ export class SupportService implements SupportContract {
    */
   async escalate(input: { operatorId: string } & EscalateTicketInput): Promise<SupportCaseFile> {
     return withSupportSpan('support.escalate', { op: 'escalate' }, async (span) => {
+      refuseCommentSecret(input.summary);
       await this.assertDeskVisible(input.operatorId, input.ticketId);
       const ticket = await this.store.findById(input.ticketId);
       if (!ticket) throw ticketNotFound();
@@ -1293,34 +1308,9 @@ export class SupportService implements SupportContract {
     if (namesVendor(`${input.title} ${input.body} ${(input.tags ?? []).join(' ')}`)) {
       throw new SupportError('KB text must stay vendor-clean', 'support.kb_vendor_name');
     }
-    const text = { title: input.title.trim(), body: input.body.trim(), language: input.language.trim(), sectionId: input.sectionId };
-    try {
-      return await this.publishKb({
-        id: input.id,
-        titleKey: SUPPORT_KB_STORED_TITLE_KEY,
-        bodyKey: SUPPORT_KB_STORED_BODY_KEY,
-        baseRevision: input.baseRevision,
-        tags: input.tags ?? null,
-        text,
-      });
-    } catch (err) {
-      // A lost reply retried: the head is the version this same publish made from this same base, so it is the answer.
-      if (!(err instanceof SupportError) || err.code !== 'support.kb.revision_stale') throw err;
-      const versions = await this.store.listKbVersions(input.id);
-      const head = versions[versions.length - 1];
-      const tags = [...(input.tags ?? [])].map((tag) => tag.trim()).filter(Boolean);
-      const same =
-        head &&
-        kbVersionOf(head) === input.baseRevision + 1 &&
-        head.title === text.title &&
-        head.body === text.body &&
-        head.language === text.language &&
-        head.sectionId === text.sectionId &&
-        JSON.stringify(head.tags ?? []) === JSON.stringify(tags) &&
-        (await this.store.getPublishedKb(input.id)) !== null;
-      if (same) return toPublicKb({ ...head, published: true });
-      throw err;
-    }
+    // Typed text goes live only through a draft a second operator approved (SP-kb-02): kbSaveDraft, kbSubmitForReview,
+    // kbApprove, kbPublishDraft. The checks above still answer first, so a bad title or body is named as such.
+    throw new SupportError('typed text is published through review', 'support.kb_review_required');
   }
 
   /** Every published article the viewer may read, unpaged: what the library counts and a section page draws from. */

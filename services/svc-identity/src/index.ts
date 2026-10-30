@@ -109,6 +109,8 @@ import { AccountStatusDesk } from './account/account-status.js';
 import { createMfaResetRouter } from './mfa-reset-router.js';
 import { createSupportRecoveryRouter } from './support-recovery-router.js';
 import { createFreezeLinkRouter } from './freeze-link-router.js';
+import { AccountAppeals } from './account/appeals.js';
+import { createAppealsRouter } from './account/appeals-router.js';
 import { withFreezeLink } from './auth/freeze-link.js';
 import { createRecoveryKeysRouter } from './recovery-keys-router.js';
 import { createDeathNoticesRouter } from './death-notices-router.js';
@@ -136,6 +138,8 @@ import { createRequestSigningPolicyRouter } from './request-signing-policy-route
 import { createApiKeyRequestSignRouter } from './api-key-request-sign-router.js';
 import { createDeveloperKeysRouter } from './developer-keys-router.js';
 import { parseApiKeyCapByTier, parseApiKeyIdleExpirySeconds, passkeyMintRule } from './auth/developer-keys.js';
+import { createDeveloperSandboxesRouter } from './developer-sandboxes-router.js';
+import { parseSandboxBaseUrl, parseSandboxCapByTier } from './auth/developer-sandboxes.js';
 import { installApiKeyProductExchange, requestProductAls } from './auth/auth-service-product.js';
 import { installApiKeyAccountExchange } from './auth/bind-api-key-account.js';
 import { bootKycVault } from './kyc/boot-vault.js';
@@ -270,6 +274,11 @@ await sql`SELECT user_id, restricted, version FROM trading_restrictions LIMIT 0`
 await sql`SELECT reason_code FROM trading_restrictions LIMIT 0`.catch(() => {
   throw new Error(
     'identity schema is out of date: trading_restrictions.reason_code is missing — apply drizzle/20261030013000_trading_restriction_reason.sql before starting svc-identity',
+  );
+});
+await sql`SELECT id FROM account_appeals LIMIT 0`.catch(() => {
+  throw new Error(
+    'identity schema is out of date: account_appeals is missing — apply drizzle/20261030140000_account_appeals.sql before starting svc-identity',
   );
 });
 await sql`SELECT version FROM profiles LIMIT 0`.catch(() => {
@@ -461,6 +470,11 @@ const founderControls = new FounderControls(sql, founderPair, {
   tradingRestrictionReasons,
 });
 await founderControls.bootstrap();
+const appeals = new AccountAppeals(sql, {
+  windowDays: env.IDENTITY_APPEAL_WINDOW_DAYS,
+  decisionReasons: parseKycRejectReasons(env.IDENTITY_APPEAL_DECISION_REASONS, 'IDENTITY_APPEAL_DECISION_REASONS'),
+  controls: env.IDENTITY_TRADING_RESTRICT_REQUIRES_APPROVAL === true ? founderControls : undefined,
+});
 auth.useFounderDirectory({ isFounder: (userId, query) => founderControls.isLiveFounder(userId, query) });
 auth.useFounderSessionScopes(env.IDENTITY_FOUNDER_SESSION_SCOPES);
 
@@ -705,6 +719,15 @@ export const appRouter = mergeRouters(
     signingEncKey,
     signingWindowSeconds: requestSignWindowSeconds,
   }),
+  createDeveloperSandboxesRouter({
+    sql,
+    gate: auth,
+    kycTier: (userId, executor) => auth.kycTier(userId, executor),
+    capByTier: parseApiKeyCapByTier(env.IDENTITY_API_KEYS_MAX_BY_TIER),
+    mayMint: passkeyMintRule(sql),
+    sandboxCapByTier: parseSandboxCapByTier(env.IDENTITY_SANDBOXES_MAX_BY_TIER),
+    baseUrl: parseSandboxBaseUrl(env.IDENTITY_SANDBOX_BASE_URL),
+  }),
   createGrantsRouter(sql),
   createSessionRevokeAllRouter(sql),
   createSessionRevokeRouter(sql),
@@ -774,6 +797,7 @@ export const appRouter = mergeRouters(
   createMfaResetRouter(auth),
   createSupportRecoveryRouter(() => auth.supportRecoveryDeps()),
   createFreezeLinkRouter(auth),
+  createAppealsRouter(appeals, auth),
   createTrustedDevicesRouter(auth, securityStepUp),
   createRecoveryKeysRouter(new RecoveryKeys(sql, securityStepUp, founderPair ?? [])),
   createDeathNoticesRouter(() => ({ sql, now: () => new Date() })),

@@ -161,6 +161,7 @@ export const gridBotSchema = z.object({
   ),
   gridProfit: signedDecimalSchema,
   closedPairs: z.number(),
+  withdrawableProfit: decimalSchema,
   gridApr: z.discriminatedUnion('state', [
     z.object({ state: z.literal('under_a_day'), percent: z.null() }),
     z.object({ state: z.literal('set'), percent: signedDecimalSchema }),
@@ -168,6 +169,30 @@ export const gridBotSchema = z.object({
   createdAt: z.string(),
 });
 export type GridBot = z.infer<typeof gridBotSchema>;
+/** A grid profit withdrawal receipt: the stored withdrawal row (trade.bots.grid.withdrawProfit, CB-bots-05). */
+export const gridWithdrawalSchema = z.object({
+  withdrawalId: z.string(),
+  botId: z.string(),
+  asset: z.string(),
+  amount: decimalSchema,
+  profitBefore: decimalSchema,
+  profitAfter: decimalSchema,
+  reserveBefore: decimalSchema,
+  reserveAfter: decimalSchema,
+  dailyCap: decimalSchema,
+  capUsed: decimalSchema,
+  capRemaining: decimalSchema,
+  stepUpEventId: z.string(),
+  appliedAt: z.string(),
+});
+export type GridWithdrawal = z.infer<typeof gridWithdrawalSchema>;
+export type GridWithdrawRequest = {
+  botId: string;
+  requestId: string;
+  asset: string;
+  amount: string;
+  stepUpApprovalId: string | null;
+};
 export const gridSetupSchema = z.object({
   countRange: z.object({ min: z.number(), max: z.number() }).nullable(),
   boundsMaxDistanceBps: z.number().nullable(),
@@ -272,7 +297,9 @@ export function createRoomApi(api: ApiClient) {
       api.mutate('trade', 'copy.closeCopiedPosition', { followId, positionId, ...(qty ? { qty } : {}) }, closePositionSchema.passthrough()),
     skipLog: (followId: string, signal?: AbortSignal) =>
       api.query('trade', 'copy.skipLog', { followId }, z.object({ items: z.array(copySkipSchema) }), { signal }),
-    flatten: (followId: string) => api.mutate('trade', 'copy.flatten', { followId }, ackSchema.passthrough()),
+    /** Close-all needs identity's step-up for exactly this follow and request (`trade.step_up.copy.flatten`). */
+    flatten: (input: { followId: string; requestId: string; stepUpApprovalId: string | null }) =>
+      api.mutate('trade', 'copy.flatten', input, ackSchema.passthrough()),
     algoPolicy: (signal?: AbortSignal) => api.query('trade', 'algo.policy', undefined, algoPolicySchema, { signal }),
     createTwap: (input: TwapRequest) => api.mutate('trade', 'algo.createTwap', input, algoSchema),
     algoList: (limit: number, signal?: AbortSignal) => api.query('trade', 'algo.list', { limit }, botListSchema, { signal }),
@@ -285,6 +312,7 @@ export function createRoomApi(api: ApiClient) {
     gridGet: (botId: string, signal?: AbortSignal) => api.query('trade', 'bots.grid.get', { botId }, gridBotSchema, { signal }),
     gridList: (signal?: AbortSignal) => api.query('trade', 'bots.grid.list', undefined, z.array(gridBotSchema), { signal }),
     gridStop: (botId: string) => api.mutate('trade', 'bots.grid.stop', { botId }, gridBotSchema),
+    gridWithdraw: (input: GridWithdrawRequest) => api.mutate('trade', 'bots.grid.withdrawProfit', input, gridWithdrawalSchema),
     studio: (signal?: AbortSignal) =>
       api.query('quant', 'studio.list', { limit: 50 }, z.object({ strategies: z.array(studioStrategySchema) }), { signal }),
   };
