@@ -159,12 +159,17 @@ describe('a fully verified session (tier: full)', () => {
     await expect(api.protocolRead()).resolves.toEqual({ ok: true });
   });
 
-  it('does NOT reach card spend, agent execution, or the compliance desk', async () => {
+  it('reaches agent execution from the person’s own session (OWNER 107: every signed-in person, bounded by svc-agents)', async () => {
+    const api = await call('full');
+    await expect(api.agentsExecute()).resolves.toEqual({ ok: true });
+  });
+
+  it('does NOT reach card spend or the compliance desk', async () => {
     // Verification buys custodial access. It does not buy authority, and these
-    // three refusals must stay `scope.denied` no matter how verified an account
+    // refusals must stay `scope.denied` no matter how verified an account
     // becomes — most of all `admin:compliance`, which approves KYC records.
     const api = await call('full');
-    for (const denied of [await failed(api.bankCard()), await failed(api.agentsExecute()), await failed(api.kycApprove())]) {
+    for (const denied of [await failed(api.bankCard()), await failed(api.kycApprove())]) {
       expect(denied.httpCode).toBe('FORBIDDEN');
       expect(denied.code).toBe('scope.denied');
       expect(denied.requiredTier).toBeUndefined();
@@ -190,7 +195,7 @@ describe('the three refusals a 403 used to hide', () => {
 
   it('tells "you lack the scope" apart from "you hold it but need KYC"', async () => {
     const api = await call('none');
-    expect((await failed(api.agentsExecute())).code).toBe('scope.denied');
+    expect((await failed(api.bankCard())).code).toBe('scope.denied');
     expect((await failed(api.bankRead())).code).toBe('denied.kyc_required');
   });
 });

@@ -150,7 +150,8 @@ describe('merchant tiers, pricing history, limit requests, founder drill-down', 
     expect(text).not.toContain('150');
     expect(text).not.toContain('3600');
     expect(text).not.toContain('"amount":"50"');
-    expect(Object.keys(listed.tiers[0]!).sort()).toEqual(['archetype', 'caps', 'id', 'name', 'reserve', 'version']);
+    expect(Object.keys(listed.tiers[0]!).sort()).toEqual(['archetype', 'caps', 'fees', 'id', 'name', 'payoutFee', 'reserve', 'version']);
+    expect(listed.tiers[0]).toMatchObject({ fees: [], payoutFee: null });
     const other = (await at(mounted().createCaller(ctxOf(OWNER_B)), 'merchantControl.tiers.list')({ merchantId: merchantB })) as {
       status: string;
       ownTierId: string | null;
@@ -1046,5 +1047,312 @@ describe('merchant tiers, pricing history, limit requests, founder drill-down', 
     } finally {
       await sql.unsafe(up);
     }
+  });
+
+  describe('a tier publishes its fees and its payout fee (M-money-out-06)', () => {
+    type Ladder = {
+      status: string;
+      ownTierId: string | null;
+      tiers: Array<{ id: string; fees: Array<Record<string, unknown>>; payoutFee: { kind: string } | null; version: string }>;
+    };
+    /** TEST VALUE tier-layer rule: not a proposal for a real price. */
+    const TIER_RULE = {
+      assetCode: 'USDT',
+      bands: [
+        { fromAmount: '0', feeBps: 250, flatFee: null },
+        { fromAmount: '10000', feeBps: 150, flatFee: '0.3' },
+      ],
+      spreadBps: null,
+      roundingBeneficiary: 'platform' as const,
+      minFee: '0.5',
+    };
+    const ladder = async () =>
+      (await at(mounted().createCaller(ctxOf(OWNER_A)), 'merchantControl.tiers.list')({ merchantId: merchantA })) as Ladder;
+    const founderTiers = async () =>
+      (await at(mounted().createCaller(ctxOf(FOUNDER_1)), 'founderAdmin.control.tiers.list')({})) as Array<{
+        id: string;
+        payoutFee: { kind: string } | null;
+        version: string;
+      }>;
+
+    it('an omitted payout fee is stored as null and reads as unpublished on both reads', async () => {
+      await assignTier();
+      const [row] = await sql<Array<{ payout_fee: unknown }>>`SELECT payout_fee FROM pay.control_tiers WHERE id = ${TEST_TIER.id}`;
+      expect(row?.payout_fee).toBeNull();
+      expect((await ladder()).tiers[0]).toMatchObject({ id: TEST_TIER.id, payoutFee: null, fees: [] });
+      expect((await founderTiers()).find((tier) => tier.id === TEST_TIER.id)?.payoutFee).toBeNull();
+    });
+
+    it('publishing not_charged is a real change (not a noop), stored and returned; unpublishing it is a change too', async () => {
+      await assignTier();
+      const published = await applyChange(changes, sql, {
+        scope: 'tier',
+        change: { kind: 'upsert_tier', tier: { ...TEST_TIER, payoutFee: { kind: 'not_charged' } } },
+      });
+      expect(published.outcome).toBe('changed');
+      const [row] = await sql<
+        Array<{ payout_fee: unknown; version: string }>
+      >`SELECT payout_fee, version::text FROM pay.control_tiers WHERE id = ${TEST_TIER.id}`;
+      expect(row).toEqual({ payout_fee: { kind: 'not_charged' }, version: '2' });
+      expect((await ladder()).tiers[0]).toMatchObject({ payoutFee: { kind: 'not_charged' }, version: '2' });
+      expect((await founderTiers()).find((tier) => tier.id === TEST_TIER.id)).toMatchObject({
+        payoutFee: { kind: 'not_charged' },
+        version: '2',
+      });
+
+      const again = await applyChange(changes, sql, {
+        scope: 'tier',
+        change: { kind: 'upsert_tier', tier: { ...TEST_TIER, payoutFee: { kind: 'not_charged' } } },
+      });
+      expect(again.outcome).toBe('noop');
+
+      const cleared = await applyChange(changes, sql, {
+        scope: 'tier',
+        change: { kind: 'upsert_tier', tier: { ...TEST_TIER, payoutFee: null } },
+      });
+      expect(cleared.outcome).toBe('changed');
+      expect((await ladder()).tiers[0]).toMatchObject({ payoutFee: null, version: '3' });
+    });
+
+    it('a change that leaves the payout fee out keeps the published one; only an explicit null withdraws it', async () => {
+      await assignTier();
+      await applyChange(changes, sql, {
+        scope: 'tier',
+        change: { kind: 'upsert_tier', tier: { ...TEST_TIER, payoutFee: { kind: 'not_charged' } } },
+      });
+      expect('payoutFee' in TEST_TIER).toBe(false);
+      const omitted = await applyChange(changes, sql, { scope: 'tier', change: { kind: 'upsert_tier', tier: TEST_TIER } });
+      expect(omitted.outcome).toBe('noop');
+      const renamed = await applyChange(changes, sql, {
+        scope: 'tier',
+        change: { kind: 'upsert_tier', tier: { ...TEST_TIER, name: 'TEST VALUE renamed' } },
+      });
+      expect(renamed.outcome).toBe('changed');
+      expect((await ladder()).tiers[0]).toMatchObject({ name: 'TEST VALUE renamed', payoutFee: { kind: 'not_charged' }, version: '3' });
+      const [row] = await sql<Array<{ payout_fee: unknown }>>`SELECT payout_fee FROM pay.control_tiers WHERE id = ${TEST_TIER.id}`;
+      expect(row?.payout_fee).toEqual({ kind: 'not_charged' });
+    });
+
+    it('a charged or unknown payout fee is refused at the door and leaves the tier unchanged', async () => {
+      await assignTier();
+      const founder = mounted().createCaller(ctxOf(FOUNDER_1));
+      const submit = (payoutFee: unknown) =>
+        at(
+          founder,
+          'founderAdmin.control.configure.submit',
+        )({
+          requestId: randomUUID(),
+          change: { kind: 'upsert_tier', tier: { ...TEST_TIER, payoutFee } },
+          reason: 'test payout fee',
+          expectedVersion: '1',
+        });
+      for (const payoutFee of [
+        { kind: 'charged', amount: '1' },
+        { kind: 'charged' },
+        { kind: 'not_charged', amount: '0' },
+        'not_charged',
+      ]) {
+        const refused = await failure(submit(payoutFee));
+        expect(refused?.code).toBe('BAD_REQUEST');
+        expect(refused?.message).toMatch(/payoutFee/);
+      }
+      expect(await sql`SELECT 1 FROM pay.control_changes`).toHaveLength(2);
+      expect((await ladder()).tiers[0]).toMatchObject({ payoutFee: null, version: '1' });
+      // The same door takes the one published kind: the refusals above are the value, not the call.
+      const accepted = (await submit({ kind: 'not_charged' })) as { outcome: string };
+      expect(accepted.outcome).toBe('pending_second_approval');
+    });
+
+    it('the database refuses any stored payout fee but not_charged, and an unreadable one refuses the read', async () => {
+      await assignTier();
+      await expect(
+        sql`UPDATE pay.control_tiers SET payout_fee = ${sql.json({ kind: 'charged' } as never)} WHERE id = ${TEST_TIER.id}`,
+      ).rejects.toThrow(/control_tiers_payout_fee_known/);
+      await expect(
+        sql`UPDATE pay.control_tiers SET payout_fee = ${sql.json({ kind: 'not_charged', amount: '0' } as never)} WHERE id = ${TEST_TIER.id}`,
+      ).rejects.toThrow(/control_tiers_payout_fee_known/);
+      await sql`ALTER TABLE pay.control_tiers DROP CONSTRAINT control_tiers_payout_fee_known`;
+      try {
+        await sql`UPDATE pay.control_tiers SET payout_fee = ${sql.json({ kind: 'charged' } as never)} WHERE id = ${TEST_TIER.id}`;
+        const refused = await failure(at(mounted().createCaller(ctxOf(OWNER_A)), 'merchantControl.tiers.list')({ merchantId: merchantA }));
+        expect(refused?.cause).toBe('pay.control_unreadable');
+      } finally {
+        await sql`UPDATE pay.control_tiers SET payout_fee = NULL`;
+        await sql`ALTER TABLE pay.control_tiers ADD CONSTRAINT control_tiers_payout_fee_known CHECK (payout_fee IS NULL OR payout_fee = '{"kind": "not_charged"}'::jsonb)`;
+      }
+    });
+
+    it("the ladder shows each tier's own live tier-layer fees: not the global or merchant layer, not a superseded rule, not another tier's", async () => {
+      await assignTier();
+      await applyChange(changes, sql, {
+        scope: 'tier',
+        change: { kind: 'upsert_tier', tier: { ...TEST_TIER, id: 'other-tier', name: 'TEST VALUE other' } },
+      });
+      await sql`UPDATE pay.control_tiers SET merchant_visible = true WHERE id = 'other-tier'`;
+      await applyChange(changes, sql, {
+        scope: 'pricing',
+        change: { kind: 'set_pricing_layer', layer: 'global', scopeId: null, rules: [TEST_GLOBAL_RULE] },
+      });
+      await applyChange(changes, sql, {
+        scope: 'pricing',
+        change: {
+          kind: 'set_pricing_layer',
+          layer: 'merchant',
+          scopeId: merchantA,
+          rules: [{ ...TIER_RULE, bands: [{ fromAmount: '0', feeBps: 99, flatFee: null }] }],
+        },
+      });
+      await applyChange(changes, sql, {
+        scope: 'pricing',
+        change: {
+          kind: 'set_pricing_layer',
+          layer: 'tier',
+          scopeId: TEST_TIER.id,
+          rules: [{ ...TIER_RULE, bands: [{ fromAmount: '0', feeBps: 300, flatFee: null }] }],
+        },
+      });
+      await applyChange(changes, sql, {
+        scope: 'pricing',
+        change: { kind: 'set_pricing_layer', layer: 'tier', scopeId: TEST_TIER.id, rules: [TIER_RULE] },
+      });
+
+      const listed = await ladder();
+      const own = listed.tiers.find((tier) => tier.id === TEST_TIER.id)!;
+      expect(own.fees).toEqual([
+        {
+          assetCode: 'USDT',
+          bands: [
+            { fromAmount: '0', feeBps: 250, flatFee: null },
+            { fromAmount: '10000', feeBps: 150, flatFee: '0.3' },
+          ],
+          spreadBps: null,
+          roundingBeneficiary: 'platform',
+          minFee: '0.5',
+          maxFee: null,
+          version: '2',
+        },
+      ]);
+      expect(listed.tiers.find((tier) => tier.id === 'other-tier')!.fees).toEqual([]);
+      const text = JSON.stringify(listed);
+      expect(text).not.toContain('"feeBps":300');
+      expect(text).not.toContain('"feeBps":99');
+      expect(text).not.toContain('"spreadBps":40');
+    });
+
+    describe("a tier fee's spread goes only to roles that see full pricing", () => {
+      const VIEWER = '99999999-9999-4999-8999-999999999999';
+      /** TEST VALUE spread on the tier layer. */
+      const SPREAD = 35;
+      const setUp = async () => {
+        await assignTier();
+        await applyChange(changes, sql, {
+          scope: 'pricing',
+          change: { kind: 'set_pricing_layer', layer: 'tier', scopeId: TEST_TIER.id, rules: [{ ...TIER_RULE, spreadBps: SPREAD }] },
+        });
+        await sql`
+          INSERT INTO pay.merchant_team_members (merchant_id, user_id, role, status, invited_by, activated_at) VALUES
+            (${merchantA}, ${FINANCE}, 'finance', 'active', ${OWNER_A}, now()),
+            (${merchantA}, ${DEVELOPER}, 'developer', 'active', ${OWNER_A}, now()),
+            (${merchantA}, ${VIEWER}, 'viewer', 'active', ${OWNER_A}, now())
+        `;
+      };
+      const ownFees = (list: Ladder) => list.tiers.find((tier) => tier.id === TEST_TIER.id)!.fees;
+      /** A control room whose door lets every active team member in, so the projection is what stands between them and the spread. */
+      const wideOpen = () =>
+        createPayNamespaces({
+          founderAuthority,
+          control: new ControlService(sql, {
+            canViewMerchant: async (p, merchantId) =>
+              (
+                await sql`
+                SELECT 1 FROM pay.merchants WHERE id = ${merchantId} AND user_id = ${p.userId}
+                UNION ALL
+                SELECT 1 FROM pay.merchant_team_members WHERE merchant_id = ${merchantId} AND user_id = ${p.userId} AND status = 'active'
+              `
+              ).length > 0,
+            canApprovePayout: async () => false,
+          }),
+          metrics,
+          payHalts: { store, merchants: pay },
+        });
+      const list = async (namespaces: ReturnType<typeof mounted>, userId: string) =>
+        (await at(namespaces.createCaller(ctxOf(userId)), 'merchantControl.tiers.list')({ merchantId: merchantA })) as Ladder;
+
+      it('the owner and a finance member get spreadBps on each tier fee', async () => {
+        await setUp();
+        for (const userId of [OWNER_A, FINANCE]) {
+          const fees = ownFees(await list(mounted(), userId));
+          expect(fees).toHaveLength(1);
+          expect(fees[0]).toMatchObject({ assetCode: 'USDT', spreadBps: SPREAD });
+        }
+      });
+
+      it('a viewer and a developer are refused at the door as today', async () => {
+        await setUp();
+        for (const userId of [VIEWER, DEVELOPER]) {
+          const refused = await failure(list(mounted(), userId));
+          expect(refused).toMatchObject({ code: 'NOT_FOUND', cause: 'pay.merchant_not_found' });
+        }
+      });
+
+      it('with a door that lets them in, a viewer and a developer get the fee without any spreadBps key', async () => {
+        await setUp();
+        for (const userId of [VIEWER, DEVELOPER]) {
+          const listed = await list(wideOpen(), userId);
+          const fees = ownFees(listed);
+          expect(fees).toHaveLength(1);
+          expect(fees[0]).toMatchObject({ assetCode: 'USDT', bands: TIER_RULE.bands, minFee: '0.5' });
+          expect(fees[0]).not.toHaveProperty('spreadBps');
+          expect(JSON.stringify(listed)).not.toContain('spreadBps');
+        }
+        expect(ownFees(await list(wideOpen(), FINANCE))[0]).toMatchObject({ spreadBps: SPREAD });
+      });
+    });
+
+    it('a tier with no fee of its own makes the calculator refuse pay.pricing_unconfigured, and the refusal writes nothing', async () => {
+      await assignTier();
+      const owner = mounted().createCaller(ctxOf(OWNER_A));
+      const before = await ladder();
+      const changesBefore = await sql`SELECT count(*)::int AS n FROM pay.control_changes`;
+      const refused = await failure(
+        at(owner, 'merchantControl.pricing.preview')({ merchantId: merchantA, assetCode: 'USDT', amount: '100', monthlyVolume: '0' }),
+      );
+      expect(refused).toMatchObject({ code: 'PRECONDITION_FAILED', cause: 'pay.pricing_unconfigured' });
+      expect(await ladder()).toEqual(before);
+      expect(await sql`SELECT count(*)::int AS n FROM pay.control_changes`).toEqual(changesBefore);
+
+      await applyChange(changes, sql, {
+        scope: 'pricing',
+        change: { kind: 'set_pricing_layer', layer: 'tier', scopeId: TEST_TIER.id, rules: [TIER_RULE] },
+      });
+      const quote = (await at(
+        owner,
+        'merchantControl.pricing.preview',
+      )({ merchantId: merchantA, assetCode: 'USDT', amount: '100', monthlyVolume: '0' })) as {
+        appliedLayer: string;
+        fee: string;
+        net: string;
+      };
+      expect(quote).toMatchObject({ appliedLayer: 'tier', fee: '2.5', net: '97.5' });
+    });
+
+    it('the down migration drops the column and its check, and the up migration brings both back twice over', async () => {
+      const dir = join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'drizzle');
+      const down = readFileSync(join(dir, '20261029161606_pay_tier_payout_fee.down.sql'), 'utf8');
+      const up = readFileSync(join(dir, '20261029161606_pay_tier_payout_fee.sql'), 'utf8');
+      const column = () =>
+        sql`SELECT 1 FROM information_schema.columns WHERE table_schema = 'pay' AND table_name = 'control_tiers' AND column_name = 'payout_fee'`;
+      const check = () => sql`SELECT 1 FROM pg_constraint WHERE conname = 'control_tiers_payout_fee_known'`;
+      try {
+        await sql.unsafe(down);
+        expect(await column()).toHaveLength(0);
+        expect(await check()).toHaveLength(0);
+      } finally {
+        await sql.unsafe(up);
+        await sql.unsafe(up);
+      }
+      expect(await column()).toHaveLength(1);
+      expect(await check()).toHaveLength(1);
+    });
   });
 });

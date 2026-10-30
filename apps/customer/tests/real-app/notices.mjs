@@ -1,7 +1,10 @@
-import { createHash } from 'node:crypto';
+import { noticePayloadHash as payloadHash } from '../../../../tooling/scripts/local-test-notice.mjs';
 
 // The founders' notice board on the local stack, as an operator uses it: operator A drafts, B approves, A publishes.
 // Each notice carries a short window, so a run leaves nothing open on the stack for the next one.
+
+/** How long a journey waits for an earlier run's notices to close. Every notice a journey opens must end inside it. */
+export const NOTICE_DRAIN_MINUTES = 12;
 
 let gates;
 let ctx;
@@ -18,37 +21,6 @@ const data = (res, what) => {
   const row = res.json?.result?.data;
   if (!row) throw new Error(`${what} refused (${res.status}): ${res.text.slice(0, 300)}`);
   return row;
-};
-
-/**
- * svc-notify's payload hash: id, kind, title, body and version, plus the incident status fields when the draft set any,
- * the asset, network and phase as stored (an update keeps its incident's pair) when it has any, the category when it names
- * one and the audience when it is not everyone. A fee change adds the time it takes effect. No changelog or reminder fields (no journey here drafts those).
- */
-const payloadHash = (row) => {
-  const status = row.statusFields;
-  const withStatus = status && (status.impact || status.components.length > 0 || status.parentId || status.resolves) ? { status } : {};
-  const [asset, network, phase] = [row.asset ?? null, row.network ?? null, row.phase ?? null];
-  const withScope = asset !== null || phase !== null ? { scope: { asset, network, phase } } : {};
-  const withCategory = row.category ? { category: row.category } : {};
-  const withAudience = row.audience && row.audience !== 'everyone' ? { audience: row.audience } : {};
-  const withEffective = row.kind === 'fee_change' ? { effectiveAt: row.startsAt ?? null } : {};
-  return `sha256:${createHash('sha256')
-    .update(
-      JSON.stringify({
-        id: row.id,
-        kind: row.kind,
-        title: row.title,
-        body: row.body,
-        version: row.version,
-        ...withStatus,
-        ...withScope,
-        ...withCategory,
-        ...withAudience,
-        ...withEffective,
-      }),
-    )
-    .digest('hex')}`;
 };
 
 /**
@@ -154,6 +126,28 @@ export async function openNotices() {
 export async function publishedNotices() {
   const { ctx } = await founders();
   return data(await ctx.edge.query('notify', 'notify.notices', { limit: 50 }), 'notify.notices');
+}
+
+/**
+ * The founders' notice desk, drafts included: the one row svc-notify holds for `row.id`, read back from the service. The
+ * desk lists newest written first and at most 50 rows (svc-notify NOTICES_LIST_LIMIT_MAX), so it is read for the row's own
+ * kind only.
+ */
+export async function deskNotice(row) {
+  const { ctx, pair } = await founders();
+  const res = data(
+    await ctx.edge.query('notify', 'notify.operatorNotices', { kind: row.kind, limit: 50 }, await pair.a.tradeOpsToken()),
+    'notify.operatorNotices',
+  );
+  return res.filter((n) => n.id === row.id);
+}
+
+/** The signed-out read of one notice by id: null when the public feed holds it, else its typed refusal code. */
+export async function publicNoticeCode(id) {
+  const { ctx } = await founders();
+  const res = await ctx.edge.query('notify', 'notify.notice', { id });
+  if (res.json?.result?.data) return null;
+  return res.json?.error?.data?.cause?.code ?? `unparsed ${res.status}: ${res.text.slice(0, 200)}`;
 }
 
 /** Founder `key` ('a' or 'b') publishes a draft with an approval it holds. Returns the refusal code, or null when published. */

@@ -60,6 +60,8 @@ export const VERBS = [
   'escalated',
   'triggered',
   'paused',
+  'skipped',
+  'stopped',
 ] as const;
 
 export type Verb = (typeof VERBS)[number];

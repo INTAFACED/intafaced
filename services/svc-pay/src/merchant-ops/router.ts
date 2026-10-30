@@ -1,6 +1,7 @@
 import type { Sql } from 'postgres';
 import { z } from 'zod';
 import { merchantCustomerSeriesInputSchema, merchantCustomerSeriesSchema, router, TRPCError } from '@intafaced/contracts';
+import { merchantActivationSchema } from '@intafaced/contracts/merchant-activation';
 import { defaultDisputeCaseStore, type DisputeCaseStore } from '../fraud/dispute-case.js';
 import type { FounderAuthority } from '../founder-authority.js';
 import { founderProcedure } from '../namespaces/founder-procedure.js';
@@ -11,6 +12,7 @@ import { EVIDENCE_UPLOAD_OFF, type DisputeEvidenceGate } from './dispute-evidenc
 import { MerchantOpsError, wrapOps } from './errors.js';
 import { INVOICE_STATUSES, InvoiceService, type InvoiceLinkPort } from './invoices.js';
 import { EXPORT_KINDS, ExportService, type ExportDeps } from './exports.js';
+import { MerchantActivationView } from './activation.js';
 import { MerchantKybView } from './kyb.js';
 import { NOTIFICATION_KINDS, NotificationService } from './notifications.js';
 import {
@@ -98,6 +100,7 @@ function makeParts(deps: MerchantOpsDeps) {
         invoices: new InvoiceService(sql, deps.invoiceLinks),
         customers: new CustomerDirectory(sql),
         kyb: new MerchantKybView(sql),
+        activation: new MerchantActivationView(sql),
         exports: new ExportService(sql, {
           ...deps.exports,
           disputes: deps.exports?.disputes ?? deps.disputes ?? defaultDisputeCaseStore,
@@ -407,6 +410,17 @@ export function createMerchantOpsRouter(deps: MerchantOpsDeps) {
         history: onboardOrRead
           .input(z.object({ limit: limitInput, cursor: cursorInput }))
           .query(({ ctx, input }) => wrapOps(async () => need().kyb.history(await callerOf(ctx), input))),
+      }),
+
+      /**
+       * J-merchant-02 step 6: whether the business is activated, from svc-pay's own status record (activation.ts).
+       * Unconfirmed until a recorded change to active says otherwise; never derived from the verification.
+       */
+      activation: router({
+        get: onboardOrRead
+          .input(z.object({}).strict())
+          .output(merchantActivationSchema)
+          .query(({ ctx }) => wrapOps(async () => need().activation.get(await callerOf(ctx)))),
       }),
 
       exports: router({

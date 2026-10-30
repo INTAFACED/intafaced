@@ -248,6 +248,10 @@ export function presentFirmRfq(
     lifecycle: FirmRfqLifecycle;
     acceptedAt?: string | null;
     fillPrice?: Amount | null;
+    /** When a bound quote stops settling: the owner window from the accept, or the quote's expiry when it is blank. */
+    settleBy?: string | null;
+    /** The owner's deferred-settle window in ms; null when it is blank ("Not set": no deferral past the expiry). */
+    settleWindowMs?: number | null;
   },
 ) {
   return {
@@ -255,6 +259,8 @@ export function presentFirmRfq(
     lifecycle: extras.lifecycle,
     acceptedAt: extras.acceptedAt ?? null,
     fillPrice: extras.fillPrice == null ? null : formatAmount(extras.fillPrice),
+    settleBy: extras.settleBy ?? null,
+    settleWindowMs: extras.settleWindowMs ?? null,
     bookFill: false as const,
     midInvented: false as const,
   };

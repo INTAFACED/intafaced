@@ -38,6 +38,12 @@ export const COPY_KEYS = [
   'agents.refused.step_limit',
   'agents.refused.spend_limit',
   'agents.refused.spend_limit_unset',
+  'agents.refused.price_unset',
+  'agents.refused.funds_insufficient',
+  'agents.refused.funds_unread',
+  'agents.refused.overage_grace_exceeded',
+  'agents.refused.overage_grace_unset',
+  'agents.refused.window_sealed',
   'agents.refused.spend_limit_invalid',
   'agents.refused.spend_cap',
   'agents.refused.spend_idempotency_conflict',
@@ -59,6 +65,7 @@ export const COPY_KEYS = [
   'agents.error.capability_unavailable',
   'agents.error.engine_unavailable',
   'agents.error.window_sealed',
+  'agents.error.window_unpaid',
   'agents.error.request_id_replay',
   'agents.scanner.empty',
   'agents.scanner.unavailable',
@@ -112,6 +119,15 @@ export const EN: Readonly<Record<CopyKey, string>> = {
   'agents.refused.step_limit': 'Refused: this session has reached its limit of {limit} action(s).',
   'agents.refused.spend_limit': 'Refused: this session has reached its spend limit of {limit} {asset}.',
   'agents.refused.spend_limit_unset': 'Refused: set a spend limit before this run. No limit was given, and none was assumed.',
+  'agents.refused.price_unset': 'Refused: no rate is published for “{task}”, so it does not run. No price was assumed.',
+  'agents.refused.funds_insufficient': 'Refused: your available balance is below this run’s worst case, so it did not start.',
+  'agents.refused.funds_unread': 'Refused: your available balance could not be read, so this run did not start. Nothing was charged.',
+  'agents.refused.overage_grace_exceeded':
+    'Refused: {owed} {asset} of earlier usage is still unpaid, more than the {grace} {asset} allowed unpaid, so this run did not start. It is retried on its same charge before each run; add funds if your balance is short.',
+  'agents.refused.overage_grace_unset':
+    'Refused: {owed} {asset} of earlier usage is still unpaid, and no allowance for unpaid usage is set, so this run did not start. It is retried on its same charge before each run; add funds if your balance is short.',
+  'agents.refused.window_sealed':
+    'Refused: this session’s usage period is sealed, so it takes no more runs and nothing was called. Open a new session; usage still unpaid is retried on its same charge.',
   'agents.refused.spend_limit_invalid': 'Refused: that spend limit is blank or not a valid amount, so it was not saved.',
   'agents.refused.spend_cap': 'Refused: this would pass your {scope} spend limit of {limit} {asset}.',
   'agents.refused.spend_idempotency_conflict': 'Refused: this request key was already used for a different spend change.',
@@ -137,6 +153,8 @@ export const EN: Readonly<Record<CopyKey, string>> = {
   'agents.error.capability_unavailable': 'The Neural Engine cannot serve this kind of request right now.',
   'agents.error.engine_unavailable': 'The Neural Engine is unavailable. Nothing was run and nothing was charged.',
   'agents.error.window_sealed': 'This usage period is already settled.',
+  'agents.error.window_unpaid':
+    'A usage window could not be paid, so the session stays open. Add funds: the window is retried on its same charge when you close the session or start a run.',
   'agents.error.request_id_replay':
     'That request was already processed for this session — start a new request rather than reusing the same id.',
 

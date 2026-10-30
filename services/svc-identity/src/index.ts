@@ -4,6 +4,7 @@ import { parseKycCapabilitiesByLevel } from './kyc/capabilities.js';
 import { parseKycAttemptLimit } from './kyc/attempts.js';
 import { KycProfileDesk, parseKycDocumentTypes, parseKycUploadCaps } from './kyc/profile.js';
 import { KycPoaDesk, parseKycPoaMaxAgeDays, parseKycPoaTypes } from './kyc/proof-of-address.js';
+import { KycSelfieDesk, parseKycHandoffTtlSeconds, parseKycLivenessRecheckFor } from './kyc/selfie.js';
 import { readFileSync } from 'node:fs';
 import { resolve as resolvePath } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -27,6 +28,7 @@ import { fetchOwnerPayScopes } from './auth/owner-pay-scopes.js';
 import { fetchPayStepUpGrant } from './auth/pay-step-up-grant.js';
 import { registerApiKeyOwnershipRoute } from './auth/api-key-ownership-route.js';
 import { registerServiceMailRoute } from './auth/service-mail.js';
+import { registerWalletSignatureVerifyRoute, signingAccount, verifyWalletSignature } from './auth/wallet-signature-verify.js';
 import { registerTrustedDeviceReadRoute } from './auth/trusted-device-read.js';
 import { assertProdTotpKey, assertSigningEncKey, parseTotpSecretKey } from './auth/totp-crypto.js';
 import { RankService } from './rank/rank-service.js';
@@ -87,6 +89,10 @@ import { createOperationIdentityRouter } from './controls/operation-identity-rou
 import { createLimitFeeTierRouter } from './limit-fee-tier-router.js';
 import { SavedRecipientService } from './saved-recipients.js';
 import { createSavedRecipientsRouter } from './saved-recipients.router.js';
+import { createHandleRouter } from './profile/handle-router.js';
+import { createPayQrRouter } from './profile/pay-qr-router.js';
+import { PayQrService, payQrKeyFromEnv } from './profile/pay-qr.js';
+import { HandleSettingsService } from './profile/handle-settings.js';
 import { createOrgRouter } from './org-router.js';
 import { createEnrollPasskeyRouter } from './enroll-passkey-router.js';
 import { createVerifyPasskeyRouter } from './verify-passkey-router.js';
@@ -102,6 +108,8 @@ import { createAccountStatusRouter } from './account/account-status-router.js';
 import { AccountStatusDesk } from './account/account-status.js';
 import { createMfaResetRouter } from './mfa-reset-router.js';
 import { createSupportRecoveryRouter } from './support-recovery-router.js';
+import { createFreezeLinkRouter } from './freeze-link-router.js';
+import { withFreezeLink } from './auth/freeze-link.js';
 import { createRecoveryKeysRouter } from './recovery-keys-router.js';
 import { createDeathNoticesRouter } from './death-notices-router.js';
 import { listRecoveryEstates, relayDeathNoticeEvents, verifyRecoveryClaim } from './auth/death-notices.js';
@@ -123,10 +131,11 @@ import { installLimitFeeTierDualControl } from './rank/limit-fee-tier.js';
 import { requestMetaAls } from './auth/request-meta.js';
 import { installApiKeyIpExchange, requestIpAls } from './auth/auth-service-ip.js';
 import { installRefreshCookieHooks } from './auth/refresh-cookie.js';
-import { installApiKeyRequestSignExchange } from './auth/api-key-request-sign.js';
+import { installApiKeyRequestSignExchange, parseRequestSignWindow } from './auth/api-key-request-sign.js';
+import { createRequestSigningPolicyRouter } from './request-signing-policy-router.js';
 import { createApiKeyRequestSignRouter } from './api-key-request-sign-router.js';
 import { createDeveloperKeysRouter } from './developer-keys-router.js';
-import { parseApiKeyCapByTier, passkeyMintRule } from './auth/developer-keys.js';
+import { parseApiKeyCapByTier, parseApiKeyIdleExpirySeconds, passkeyMintRule } from './auth/developer-keys.js';
 import { installApiKeyProductExchange, requestProductAls } from './auth/auth-service-product.js';
 import { installApiKeyAccountExchange } from './auth/bind-api-key-account.js';
 import { bootKycVault } from './kyc/boot-vault.js';
@@ -197,6 +206,8 @@ if (env.IDENTITY_BREACHED_PASSWORDS_FILE) {
 // Request-signing secrets must not sit plaintext in prod or staging.
 assertSigningEncKey(env);
 const signingEncKey = parseTotpSecretKey(env.API_KEY_SIGNING_ENC_KEY);
+// The owner's signing window (DV-auth-01). Blank stays null: every signed request refuses `auth.request_window_unset`.
+const requestSignWindowSeconds = parseRequestSignWindow(env.IDENTITY_REQUEST_SIGN_WINDOW_SECONDS);
 
 const sql = postgres(env.DATABASE_URL, {
   max: env.DATABASE_POOL_MAX,
@@ -254,6 +265,11 @@ await sql`SELECT consumed_by_service, consumed_by_principal, consumed_request_id
 await sql`SELECT user_id, restricted, version FROM trading_restrictions LIMIT 0`.catch(() => {
   throw new Error(
     'identity schema is out of date: trading_restrictions is missing — apply drizzle/0038_action_approval_consume_provenance.sql before starting svc-identity',
+  );
+});
+await sql`SELECT reason_code FROM trading_restrictions LIMIT 0`.catch(() => {
+  throw new Error(
+    'identity schema is out of date: trading_restrictions.reason_code is missing — apply drizzle/20261030013000_trading_restriction_reason.sql before starting svc-identity',
   );
 });
 await sql`SELECT version FROM profiles LIMIT 0`.catch(() => {
@@ -372,9 +388,13 @@ const transportMail = openIdentityMail({
 });
 // Mails to an account's own address carry the anti-phishing code its owner set.
 const antiPhishingMailKey = antiPhishingKey(parseTotpSecretKey(env.IDENTITY_TOTP_SECRET_KEY));
-const mail = transportMail && withAntiPhishingCode(transportMail, sql, antiPhishingMailKey);
+// Security notices carry a one-time freeze link (freeze-link.ts); the anti-phishing code goes on last.
+const mail =
+  transportMail &&
+  withAntiPhishingCode(withFreezeLink(transportMail, sql, { warn: (obj, msg) => app.log.warn(obj, msg) }), sql, antiPhishingMailKey);
 auth.usePasswordResetMail(mail);
-auth.useKycCapabilities(parseKycCapabilitiesByLevel(env.IDENTITY_KYC_CAPABILITIES_BY_LEVEL));
+const kycCapabilityMap = parseKycCapabilitiesByLevel(env.IDENTITY_KYC_CAPABILITIES_BY_LEVEL);
+auth.useKycCapabilities(kycCapabilityMap);
 auth.useKycAttemptLimit(parseKycAttemptLimit(env));
 auth.usePasswordResetTtl(env.IDENTITY_PASSWORD_RESET_TTL_SECONDS);
 auth.usePasswordResetPolicy({
@@ -435,8 +455,10 @@ auth.useNewDevicePolicy({
 
 const placeDoor = new PlaceDoor(sql);
 const founderPair = parseFounderPair(env.IDENTITY_FOUNDER_NITRO_USER_ID, env.IDENTITY_FOUNDER_PHANTOM_USER_ID);
+const tradingRestrictionReasons = parseKycRejectReasons(env.IDENTITY_TRADING_RESTRICTION_REASONS, 'IDENTITY_TRADING_RESTRICTION_REASONS');
 const founderControls = new FounderControls(sql, founderPair, {
   tradingRestrictRequiresApproval: env.IDENTITY_TRADING_RESTRICT_REQUIRES_APPROVAL === true,
+  tradingRestrictionReasons,
 });
 await founderControls.bootstrap();
 auth.useFounderDirectory({ isFounder: (userId, query) => founderControls.isLiveFounder(userId, query) });
@@ -484,6 +506,13 @@ const kycPoa = new KycPoaDesk(sql, {
   uploadCaps: kycUploadCaps,
   vault: vault?.kycDocs,
 });
+// Selfie (I-kyc-compliance-09): the frame goes to the vault under the same caps; the face match is not connected.
+const kycSelfie = new KycSelfieDesk(sql, {
+  handoffTtlSeconds: parseKycHandoffTtlSeconds(env.IDENTITY_KYC_HANDOFF_TTL_SECONDS),
+  recheckFor: parseKycLivenessRecheckFor(env.IDENTITY_KYC_LIVENESS_RECHECK_FOR),
+  uploadCaps: kycUploadCaps,
+  vault: vault?.kycDocs,
+});
 // Staff-edited customer details (J-ops-console-04 #9) are encrypted under the same key; unset, every details door refuses.
 const customerDetails = new CustomerDetailsDesk(sql, founderControls, parseKycDocKey(env.IDENTITY_KYC_DOC_KEY));
 // Customer limit overrides (J-ops-console-04 #12) under the owner's IDENTITY_LIMIT_OVERRIDE_POLICY; unset, every set refuses.
@@ -509,7 +538,7 @@ installPasskeyMintRefuse(auth, sql);
 auth.usePasskeyLimit(env.PASSKEY_MAX_PER_ACCOUNT);
 installFourEyes();
 installApiKeyAttribution(auth);
-installApiKeyRequestSignExchange(auth, sql, signingEncKey);
+installApiKeyRequestSignExchange(auth, sql, signingEncKey, requestSignWindowSeconds);
 
 const stepUpStore = new SqlCustomerStepUpStore(sql);
 const actionApprovals = new ActionApprovalService(
@@ -532,6 +561,8 @@ const actionApprovals = new ActionApprovalService(
 );
 const customerStepUp = new CustomerStepUpService(sql, stepUpStore, auth);
 const securityStepUp = new SecurityStepUp({ sql, approvals: actionApprovals, secondFactor: requireEnrolledSecondFactor(sql) });
+/** The owner's capability reason list, read once: the review doors and the account status share it. */
+const kycCapabilityReasons = parseKycRejectReasons(env.IDENTITY_KYC_CAPABILITY_REASONS, 'IDENTITY_KYC_CAPABILITY_REASONS');
 const selfFreezeLift = new SelfFreezeLift(sql, env.IDENTITY_SELF_FREEZE_LIFT_WAIT_SECONDS);
 const securityLock = new SecurityLock(sql, env.IDENTITY_SECURITY_LOCK_UNLOCK_WAIT_SECONDS);
 await sql`SELECT frozen FROM sub_accounts LIMIT 0`.catch(() => {
@@ -626,9 +657,10 @@ export const appRouter = mergeRouters(
       reviewHours: parseKycReviewHoursByLevel(env.IDENTITY_KYC_REVIEW_HOURS_BY_LEVEL),
     },
     kycRejectReasons: parseKycRejectReasons(env.IDENTITY_KYC_REJECT_REASONS),
-    kycCapabilityReasons: parseKycRejectReasons(env.IDENTITY_KYC_CAPABILITY_REASONS, 'IDENTITY_KYC_CAPABILITY_REASONS'),
+    kycCapabilityReasons,
     kycProfile,
     kycPoa,
+    kycSelfie,
     social,
     referral,
     share,
@@ -656,18 +688,22 @@ export const appRouter = mergeRouters(
   }),
   createClosureOpsRouter(sql),
   createApiKeyIpRouter(sql, auth, auth),
-  createApiKeyRequestSignRouter(sql, auth, signingEncKey),
+  createApiKeyRequestSignRouter(sql, auth, signingEncKey, env.API_KEY_SIGNING_OPTIONAL.trim() === 'true'),
+  createRequestSigningPolicyRouter(requestSignWindowSeconds),
   createApiKeyOriginRouter(sql, auth, auth),
   createApiKeyAccountRouter(sql, auth, auth),
   createApiKeyRotateRouter(sql, auth, auth, signingEncKey),
-  createApiKeyExpireRouter(sql),
+  createApiKeyExpireRouter(sql, auth),
   createApiKeyRevokeAllRouter(sql),
   createDeveloperKeysRouter({
     sql,
     gate: auth,
     kycTier: (userId, executor) => auth.kycTier(userId, executor),
     capByTier: parseApiKeyCapByTier(env.IDENTITY_API_KEYS_MAX_BY_TIER),
+    idleExpirySeconds: parseApiKeyIdleExpirySeconds(env.IDENTITY_API_KEY_IDLE_EXPIRY_SECONDS),
     mayMint: passkeyMintRule(sql),
+    signingEncKey,
+    signingWindowSeconds: requestSignWindowSeconds,
   }),
   createGrantsRouter(sql),
   createSessionRevokeAllRouter(sql),
@@ -696,6 +732,8 @@ export const appRouter = mergeRouters(
   createAuthKeysRouter(authKeyRing, { isFounder: (userId) => founderControls.isLiveFounder(userId) }),
   createLimitFeeTierRouter(sql, rank, actionApprovals),
   createSavedRecipientsRouter(new SavedRecipientService(sql)),
+  createHandleRouter(new HandleSettingsService(sql, env.IDENTITY_HANDLE_CHANGE_MAX ?? null)),
+  createPayQrRouter(new PayQrService(sql, payQrKeyFromEnv(env.IDENTITY_PAY_QR_KEY, process.env.APP_ENV))),
   createOrgRouter(sql, dmaHierarchyLaw),
   createEnrollPasskeyRouter(
     sql,
@@ -724,9 +762,18 @@ export const appRouter = mergeRouters(
   createServerTimeRouter(),
   createSelfFreezeLiftRouter(selfFreezeLift, securityStepUp),
   createSecurityLockRouter(securityLock, securityStepUp),
-  createAccountStatusRouter(new AccountStatusDesk(sql, env.IDENTITY_SELF_FREEZE_LIFT_WAIT_SECONDS)),
+  createAccountStatusRouter(
+    new AccountStatusDesk(
+      sql,
+      env.IDENTITY_SELF_FREEZE_LIFT_WAIT_SECONDS,
+      kycCapabilityReasons,
+      kycCapabilityMap,
+      tradingRestrictionReasons,
+    ),
+  ),
   createMfaResetRouter(auth),
   createSupportRecoveryRouter(() => auth.supportRecoveryDeps()),
+  createFreezeLinkRouter(auth),
   createTrustedDevicesRouter(auth, securityStepUp),
   createRecoveryKeysRouter(new RecoveryKeys(sql, securityStepUp, founderPair ?? [])),
   createDeathNoticesRouter(() => ({ sql, now: () => new Date() })),
@@ -913,6 +960,14 @@ registerServiceMailRoute(app, {
   ...(doorS2s ? { s2s: doorS2s } : {}),
 });
 
+/** Whether a message was signed by one of a customer's linked wallets, for svc-token's signed votes (wallet-signature-verify.ts). */
+registerWalletSignatureVerifyRoute(app, {
+  verify: (input) => verifyWalletSignature((userId) => signingAccount(sql, userId), input),
+  internalSecret: env.INTERNAL_SERVICE_SECRET,
+  bodyBind: env.INTERNAL_SERVICE_BODY_BIND,
+  ...(doorS2s ? { s2s: doorS2s } : {}),
+});
+
 /** Whether a customer's trusted device can still be relied on, for a service that lets one device approve another's request. */
 registerTrustedDeviceReadRoute(app, {
   read: (userId, deviceId) => auth.trustedDeviceState(userId, deviceId),
@@ -1037,6 +1092,26 @@ app.get<{ Params: { userId: string } }>('/internal/security-lock/:userId', async
     return reply.code(404).send({ error: 'account not found', code: 'identity.account_not_found' });
   }
   return view;
+});
+
+/**
+ * The owner's self-freeze (I-account-lifecycle-08), `selfFreezeStateSchema`. A service that moves money out or changes a
+ * withdrawal address reads it per request and refuses while `frozen` is true; it keeps no copy. Service credentials only.
+ * Unknown user → 404, which the caller refuses on. A read error is a 500, which the caller also refuses on.
+ */
+app.get<{ Params: { userId: string } }>('/internal/self-freeze/:userId', async (req, reply) => {
+  if (serviceOfRequest(req, env.INTERNAL_SERVICE_SECRET, env.INTERNAL_SERVICE_BODY_BIND, doorS2s).service === null) {
+    return reply.code(401).send({ error: 'service credentials required', code: 'identity.unauthenticated' });
+  }
+  const userId = req.params.userId;
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(userId)) {
+    return reply.code(404).send({ error: 'account not found', code: 'identity.account_not_found' });
+  }
+  const state = await auth.selfFreezeState(userId);
+  if (!state) {
+    return reply.code(404).send({ error: 'account not found', code: 'identity.account_not_found' });
+  }
+  return state;
 });
 
 /**

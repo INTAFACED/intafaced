@@ -25,6 +25,8 @@ import {
   merchantLimitWithdrawResultSchema,
   merchantPricingHistorySchema,
   merchantTierListSchema,
+  merchantTierSummarySchema,
+  payPayoutFeeSchema,
   payoutApprovalSchema,
   merchantControlChangeInputSchema,
   merchantMetricsInputSchema,
@@ -277,6 +279,8 @@ describe('founder merchant names', () => {
       archetype: 'standard' as const,
       caps: [{ kind: 'beneficiaries_per_day' as const, limit: 1 }],
       reserve: null,
+      fees: [],
+      payoutFee: null,
       version: '1',
     };
     const configured = merchantTierListSchema.parse({ status: 'configured', ownTierId: 'test-tier', tiers: [own] });
@@ -301,6 +305,45 @@ describe('founder merchant names', () => {
         tiers: [own, { ...own, founderThresholds: [{ assetCode: 'USDT', amount: '150' }] }],
       }).success,
     ).toBe(false);
+  });
+
+  it('a tier publishes its own fees and a payout fee that is only ever not_charged or unpublished', () => {
+    const tier = {
+      id: 'test-tier',
+      name: 'TEST VALUE',
+      archetype: 'standard' as const,
+      caps: [{ kind: 'beneficiaries_per_day' as const, limit: 1 }],
+      reserve: null,
+      fees: [
+        {
+          assetCode: 'USDT',
+          bands: [{ fromAmount: '0', feeBps: 250, flatFee: null }],
+          spreadBps: null,
+          roundingBeneficiary: 'platform' as const,
+          minFee: null,
+          maxFee: null,
+          version: '1',
+        },
+      ],
+      payoutFee: { kind: 'not_charged' as const },
+      version: '1',
+    };
+    expect(merchantTierSummarySchema.parse(tier)).toEqual(tier);
+    expect(merchantTierSummarySchema.parse({ ...tier, payoutFee: null }).payoutFee).toBeNull();
+    // Unpublished is null, never a missing key, and no charged kind exists yet.
+    const { payoutFee: _omit, ...withoutPayout } = tier;
+    expect(merchantTierSummarySchema.safeParse(withoutPayout).success).toBe(false);
+    expect(merchantTierSummarySchema.safeParse({ ...tier, payoutFee: { kind: 'charged', amount: '1' } }).success).toBe(false);
+    expect(merchantTierSummarySchema.safeParse({ ...tier, payoutFee: { kind: 'not_charged', amount: '0' } }).success).toBe(false);
+    expect(payPayoutFeeSchema.safeParse({ kind: 'free' }).success).toBe(false);
+    // A fee-only role's fee row has no spreadBps key; a full-pricing row keeps null as "no spread configured".
+    const { spreadBps: _spread, ...feeOnlyRow } = tier.fees[0]!;
+    const feeOnly = merchantTierSummarySchema.parse({ ...tier, fees: [feeOnlyRow] });
+    expect(feeOnly.fees[0]).not.toHaveProperty('spreadBps');
+    expect(merchantTierSummarySchema.parse({ ...tier, fees: [{ ...feeOnlyRow, spreadBps: 35 }] }).fees[0]?.spreadBps).toBe(35);
+    expect(merchantTierSummarySchema.safeParse({ ...tier, fees: [{ ...feeOnlyRow, spreadBps: '35' }] }).success).toBe(false);
+    // A fee row carries a decimal string, never a number.
+    expect(merchantTierSummarySchema.safeParse({ ...tier, fees: [{ ...tier.fees[0], minFee: 1 }] }).success).toBe(false);
   });
 
   it('pricing history with nothing configured carries no events', () => {

@@ -125,7 +125,8 @@ const en = {
   scanCamera: 'Scan with the camera',
   scanFile: 'Choose an image of a QR code',
   scanShow: 'Show my QR code',
-  scanReason: 'Scanning is not connected: a real INTAFACED QR code cannot be told from a forged one. Show my QR code works.',
+  scanReason:
+    'This room reads no QR code: the camera and the image upload are off. Opening a payment link works, and so does Show my QR code.',
   // Payment link
   linkTitle: 'Payment link',
   linkLine: 'A link someone sent you to pay.',

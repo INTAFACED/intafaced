@@ -35,7 +35,9 @@ import {
 import { guarded } from './control-errors.js';
 import { notBuilt } from './errors.js';
 import { merchantReserveViewSchema } from '../merchant-pay-dev-out/reserve-read.js';
+import { refuseTopUpUnwired } from '../merchant-pay-dev-out/top-up.js';
 import { ownMerchantRead } from '../own-merchant-read.js';
+import { projectTierList } from '../team-read-projection.js';
 
 /**
  * `merchantControl.*` — the merchant-facing control room.
@@ -80,6 +82,13 @@ export function createMerchantControlRouter(control?: ControlService) {
           .input(merchantControlGetInputSchema)
           .output(merchantReserveViewSchema)
           .query(() => notBuilt('merchantControl.reserve')),
+        topUp: router({
+          // No answer shape until a top-up rail exists: any answer at all fails the output check.
+          options: read
+            .input(merchantControlGetInputSchema)
+            .output(z.never())
+            .query(() => notBuilt('merchantControl.topUp.options')),
+        }),
         approvals: router({
           list: read
             .input(merchantControlApprovalListInputSchema)
@@ -117,6 +126,22 @@ export function createMerchantControlRouter(control?: ControlService) {
             return control.reserve(input.merchantId);
           }),
         ),
+      /**
+       * M-money-out-02: what a top-up of this business can use. No top-up rail is wired, so after the ownership
+       * check it always refuses `pay.topup_unconfigured` and never invents an instruction (merchant-pay-dev-out/top-up.ts).
+       */
+      topUp: router({
+        // No answer shape until a top-up rail exists: any answer at all fails the output check.
+        options: read
+          .input(merchantControlGetInputSchema)
+          .output(z.never())
+          .query(({ ctx, input }) =>
+            guarded(async () => {
+              await control.assertCanView(principalOf(ctx), input.merchantId);
+              return refuseTopUpUnwired();
+            }),
+          ),
+      }),
       usage: read
         .input(usageInputSchema)
         .output(usageViewSchema)
@@ -132,8 +157,10 @@ export function createMerchantControlRouter(control?: ControlService) {
           .output(merchantTierListSchema)
           .query(({ ctx, input }) =>
             guarded(async () => {
-              await control.assertCanView(principalOf(ctx), input.merchantId);
-              return control.merchantTierList(input.merchantId);
+              const principal = principalOf(ctx);
+              await control.assertCanView(principal, input.merchantId);
+              const role = await control.roleOnMerchant(principal, input.merchantId);
+              return projectTierList(await control.merchantTierList(input.merchantId), role);
             }),
           ),
       }),

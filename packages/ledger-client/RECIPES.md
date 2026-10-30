@@ -1,6 +1,6 @@
 # Ledger recipe matrix
 
-**82 pure recipes.** Every value path in the OS is a function here. Services call `ledger.post(recipes.<name>(…))` — never assemble entries by hand.
+**88 pure recipes.** Every value path in the OS is a function here. Services call `ledger.post(recipes.<name>(…))` — never assemble entries by hand.
 
 Generated from `src/recipes/index.ts` registry. If this table and the registry disagree, the registry wins and this file is wrong.
 
@@ -88,6 +88,12 @@ Generated from `src/recipes/index.ts` registry. If this table and the registry d
 | `marketPurchase`                | `market`    | `market.purchase`                                                |
 | `marketListingFee`              | `market`    | `market.listing_fee`                                             |
 | `marketPremiumPlacement`        | `market`    | `market.premium_placement`                                       |
+| `marketPurchaseHold`            | `market`    | `market.purchase.held`                                           |
+| `marketPurchaseRefund`          | `market`    | `market.purchase.refunded`                                       |
+| `marketPurchaseRelease`         | `market`    | `market.purchase.released`                                       |
+| `buybackOrderHold`              | `trade`     | `order.hold.buyback`                                             |
+| `buybackOrderHoldRelease`       | `trade`     | `order.hold.buyback.released`                                    |
+| `buybackTakerFill`              | `trade`     | `trade.fill.buyback`                                             |
 
 ## Source files
 
@@ -100,6 +106,8 @@ Generated from `src/recipes/index.ts` registry. If this table and the registry d
 | `src/recipes/chargeback.ts`       | chargeback open / shortfall / won / recovered (live; posted from svc-pay chargeback-ledger.ts)     |
 | `src/recipes/sub-accounts.ts`     | only legal cross-partition transfer                                                                |
 | `src/recipes/market.ts`           | purchase + house commission (live); listing fee + premium placement (§13 unwired)                  |
+| `src/recipes/market-escrow.ts`    | held purchase: hold, numbered refunds, release after the window (wired by svc-market next)         |
+| `src/recipes/buyback.ts`          | token buyback IOC buy: hold from the rewards engine, taker fill against a customer ask, release    |
 | `src/recipes/conversion.ts`       | sandbox USD→USDT hold, fill, release, reverse, and late-fill booking from clearing or fx-inventory |
 | `src/recipes/staff-hold.ts`       | ops staff holds: place, release in part (approver or expiry), confirm to the owner-named account   |
 | `src/recipes/campaign-lock.ts`    | campaign locked rewards and bonuses: rewards engine to a per-reward pot, then unlock or forfeit    |

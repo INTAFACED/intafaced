@@ -165,6 +165,27 @@ export const RECIPE_MATRIX = {
     reason:
       '§13 — D26-P1-M2 premium placement fee recipe; amount required (no invent rates). Ranking/featured order stays owner residual; no svc-market writer posts this on tip.',
   },
+  marketPurchaseHold: { kind: 'live', module: 'market', proof: 'services/svc-market/src/commerce/held-purchase.ts' },
+  marketPurchaseRefund: { kind: 'live', module: 'market', proof: 'services/svc-market/src/commerce/held-purchase.ts' },
+  marketPurchaseRelease: { kind: 'live', module: 'market', proof: 'services/svc-market/src/commerce/held-purchase.ts' },
+  buybackOrderHold: {
+    kind: 'socket',
+    socket: '§13',
+    reason:
+      '§13 J-dex-protocol-17 buyback IOC order hold from the rewards engine; svc-trade wires it in the next PR (recipes land first, one package per PR).',
+  },
+  buybackOrderHoldRelease: {
+    kind: 'socket',
+    socket: '§13',
+    reason:
+      '§13 J-dex-protocol-17 unfilled remainder of a buyback IOC order back to the rewards engine; svc-trade wires it in the next PR.',
+  },
+  buybackTakerFill: {
+    kind: 'socket',
+    socket: '§13',
+    reason:
+      '§13 J-dex-protocol-17 buyback IOC fill against a customer ask, bought base into the rewards engine; svc-trade wires it in the next PR.',
+  },
 } as const satisfies Record<RecipeName, RecipeDisposition>;
 
 export type MatrixRecipeName = keyof typeof RECIPE_MATRIX;

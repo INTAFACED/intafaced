@@ -1,8 +1,13 @@
 import { isModuleId, type ModuleId } from '@intafaced/config';
-import { reconciliationDecimalSchema } from '@intafaced/contracts/ledger-reconciliation';
+import {
+  RECONCILIATION_LIFECYCLE,
+  reconciliationDecimalSchema,
+  type ReconciliationLifecycle,
+} from '@intafaced/contracts/ledger-reconciliation';
 import { COST_AMOUNT, COST_ASSET, PERIOD, isCategory, type CostCategory } from '@/lib/venue-economics/model';
 import { METADATA_KEY } from '@/lib/ledger/account-metadata';
 import { STAFF_HOLD_AMOUNT_PATTERN, STAFF_HOLD_ASSET_PATTERN } from '@intafaced/contracts/ops-staff-holds';
+import { kycSelfieDecisionSchema, type KycSelfieDecision } from '@intafaced/contracts/identity-kyc-selfie';
 import {
   accountLimitAmountSchema,
   accountLimitAssetIdSchema,
@@ -54,6 +59,17 @@ export type DeskRequest =
       readonly version: string;
       readonly asOf: string;
       readonly margin: string;
+      readonly reason: string;
+    }
+  /**
+   * Pause, resume or retire one reconciliation control (svc-ledger OPS-reconciliation-02). `version` is the control version
+   * read; svc-ledger binds the control, the move and the reason to the approval at that version.
+   */
+  | {
+      readonly kind: 'ledger.reconciliation_control.lifecycle';
+      readonly controlId: string;
+      readonly version: string;
+      readonly lifecycle: ReconciliationLifecycle;
       readonly reason: string;
     }
   /**
@@ -149,6 +165,12 @@ export type DeskRequest =
       readonly assetId: string;
       readonly reason: string;
     }
+  /**
+   * Accept one reconciliation discrepancy (svc-ops `alerts.accept`, OPS-reconciliation-04, J-ops-console-07 #9). svc-ops binds
+   * the alert, the note and the hash of the evidence both founders read; a changed figure no longer matches and is refused.
+   * The note is `reason`. A blank one parses so the route can refuse it by name before identity is asked.
+   */
+  | { readonly kind: 'ops.reconciliation_alert.accept'; readonly alertId: string; readonly evidenceHash: string; readonly reason: string }
   /** One venue cost note (svc-ops `recordVenueCost`). `reason` is the source note the service stores and the approver signs. */
   | {
       readonly kind: 'ops.venue_cost.record';
@@ -179,7 +201,12 @@ export type DeskRequest =
    * Open one KYC document from identity's encrypted vault (svc-identity `kyc.getDocument`, J-ops-console-02 #5). Identity binds
    * the approval to the document id alone and spends it on the read, so one approval opens it once.
    */
-  | { readonly kind: 'identity.kyc_document.open'; readonly documentId: string };
+  | { readonly kind: 'identity.kyc_document.open'; readonly documentId: string }
+  /**
+   * Accept or reject one selfie a person sent for comparison with their ID photo (svc-identity `kyc.selfie.decide`,
+   * I-kyc-compliance-09). Identity binds the selfie id and the decision to the approval; neither founder may be the person.
+   */
+  | { readonly kind: 'identity.kyc_selfie.decide'; readonly selfieId: string; readonly decision: SelfieDecision };
 
 export const VENDOR_DECISIONS = ['approved', 'rejected', 'suspended'] as const;
 export type VendorDecision = (typeof VENDOR_DECISIONS)[number];
@@ -187,6 +214,9 @@ export const CARD_STATUSES = ['frozen', 'active'] as const;
 export type CardStatus = (typeof CARD_STATUSES)[number];
 export const RESIDENCY_DECISIONS = ['accepted', 'rejected'] as const;
 export type ResidencyDecision = (typeof RESIDENCY_DECISIONS)[number];
+/** The decisions identity takes on a selfie (`kycSelfieDecisionSchema`). */
+export const SELFIE_DECISIONS = kycSelfieDecisionSchema.options;
+export type SelfieDecision = KycSelfieDecision;
 /** svc-identity's signing-key id, and the sorted comma list of ids a remove-old names (`auth-key-ring.ts`). */
 const AUTH_KEY_ID = /^[a-z0-9][a-z0-9._-]{0,31}$/;
 const POOL_ADDRESS = /^0x[0-9a-fA-F]{40}$/;
@@ -194,6 +224,8 @@ const REASON_CODE = /^[A-Za-z0-9._:-]{1,64}$/;
 /** A market symbol as the service keys it: no surrounding space, no lower case, so one market has one target id. */
 const MARKET_SYMBOL = /^[A-Z0-9][A-Z0-9._/-]{0,63}$/;
 export const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+/** svc-ops' reconciliation alert evidence hash: SHA-256 hex of the contract's canonical evidence. */
+const EVIDENCE_HASH = /^[0-9a-f]{64}$/;
 /** svc-ops' staff hold number: one global sequence. */
 const HOLD_NO = /^[1-9][0-9]{0,18}$/;
 /** svc-pay's network id and deposit address shapes (`custody/deposits/freezes.ts`), and the platform's user and freeze ids. */
@@ -271,6 +303,19 @@ export function readDeskRequest(raw: unknown): DeskRequest | null {
       version: raw.version,
       asOf: raw.asOf,
       margin: raw.margin,
+      reason: raw.reason,
+    };
+  }
+  if (raw.kind === 'ledger.reconciliation_control.lifecycle') {
+    if (keys !== 'controlId,kind,lifecycle,reason,version') return null;
+    if (typeof raw.controlId !== 'string' || !UUID.test(raw.controlId) || !validReason(raw.reason)) return null;
+    if (typeof raw.version !== 'string' || !CONTROL_VERSION.test(raw.version)) return null;
+    if (typeof raw.lifecycle !== 'string' || !(RECONCILIATION_LIFECYCLE as readonly string[]).includes(raw.lifecycle)) return null;
+    return {
+      kind: 'ledger.reconciliation_control.lifecycle',
+      controlId: raw.controlId,
+      version: raw.version,
+      lifecycle: raw.lifecycle as ReconciliationLifecycle,
       reason: raw.reason,
     };
   }
@@ -354,6 +399,12 @@ export function readDeskRequest(raw: unknown): DeskRequest | null {
     if (keys !== 'documentId,kind') return null;
     if (typeof raw.documentId !== 'string' || !UUID.test(raw.documentId)) return null;
     return { kind: 'identity.kyc_document.open', documentId: raw.documentId };
+  }
+  if (raw.kind === 'identity.kyc_selfie.decide') {
+    if (keys !== 'decision,kind,selfieId') return null;
+    if (typeof raw.selfieId !== 'string' || !UUID.test(raw.selfieId)) return null;
+    if (typeof raw.decision !== 'string' || !(SELFIE_DECISIONS as readonly string[]).includes(raw.decision)) return null;
+    return { kind: 'identity.kyc_selfie.decide', selfieId: raw.selfieId, decision: raw.decision as SelfieDecision };
   }
   if (raw.kind === 'identity.account.tier_move') {
     if (keys !== 'kind,reason,tierId,userId,version') return null;
@@ -462,6 +513,14 @@ export function readDeskRequest(raw: unknown): DeskRequest | null {
       amount: raw.amount,
       reason: raw.reason,
     };
+  }
+  // svc-ops binds the alert, the note and the evidence hash. A blank note is read so the route refuses it as ops.resolve_note_required.
+  if (raw.kind === 'ops.reconciliation_alert.accept') {
+    if (keys !== 'alertId,evidenceHash,kind,reason') return null;
+    if (typeof raw.alertId !== 'string' || !UUID.test(raw.alertId)) return null;
+    if (typeof raw.evidenceHash !== 'string' || !EVIDENCE_HASH.test(raw.evidenceHash)) return null;
+    if (raw.reason !== '' && !validReason(raw.reason)) return null;
+    return { kind: 'ops.reconciliation_alert.accept', alertId: raw.alertId, evidenceHash: raw.evidenceHash, reason: raw.reason as string };
   }
   // svc-ops binds the month, line, amount, asset and source note to the approval: a changed figure is a different request.
   if (raw.kind === 'ops.venue_cost.record') {
@@ -588,6 +647,8 @@ export function confirmPhrase(request: DeskRequest): string {
       return 'UNFREEZE LEDGER';
     case 'ledger.reconciliation_control.run':
       return `RUN CONTROL ${request.controlId.slice(0, 8)}`;
+    case 'ledger.reconciliation_control.lifecycle':
+      return `${request.lifecycle.toUpperCase()} CONTROL ${request.controlId.slice(0, 8)}`;
     case 'ledger.account_metadata.delete':
       return `DELETE KEY ${request.key}`;
     case 'market.vendor.vet':
@@ -630,6 +691,8 @@ export function confirmPhrase(request: DeskRequest): string {
       return `RELEASE HOLD ${request.holdNo}`;
     case 'ops.hold.confirm':
       return `CONFIRM HOLD ${request.holdNo}`;
+    case 'ops.reconciliation_alert.accept':
+      return `ACCEPT ALERT ${request.alertId.slice(0, 8)}`;
     case 'protocol.pool.hide':
       return `HIDE POOL ${request.poolAddress.slice(0, 10)}`;
     case 'protocol.pool.restore':
@@ -644,6 +707,8 @@ export function confirmPhrase(request: DeskRequest): string {
       return 'CONSOLE WRITABLE';
     case 'identity.kyc_document.open':
       return `OPEN DOCUMENT ${request.documentId.slice(0, 8)}`;
+    case 'identity.kyc_selfie.decide':
+      return `${request.decision === 'accepted' ? 'ACCEPT' : 'REJECT'} SELFIE ${request.selfieId.slice(0, 8)}`;
   }
 }
 
@@ -662,6 +727,12 @@ export function describeRequest(request: DeskRequest): string {
       return request.asOf === 'now'
         ? `Run reconciliation control ${request.controlId} now ("${request.reason}"). svc-ledger stores a result row before it reads, then compares the book. Nothing posts and nothing freezes. It runs only if the control is still active at version ${request.version}.`
         : `Run reconciliation control ${request.controlId} as of ${request.asOf}, reading balances ${request.margin} seconds before that instant ("${request.reason}"). svc-ledger stores a result row before it reads, then compares the book. Nothing posts and nothing freezes. It runs only if the control is still active at version ${request.version}.`;
+    case 'ledger.reconciliation_control.lifecycle':
+      return request.lifecycle === 'pause'
+        ? `Pause reconciliation control ${request.controlId} ("${request.reason}"): the scheduler and runs on demand skip it until it is resumed. Its policy, runs and history stay. It moves only if the control is still at version ${request.version}.`
+        : request.lifecycle === 'resume'
+          ? `Resume reconciliation control ${request.controlId} ("${request.reason}"): it runs on its schedule again from now; periods that fell due while it was paused are not caught up. It moves only if the control is still at version ${request.version}.`
+          : `Retire reconciliation control ${request.controlId} ("${request.reason}"): it never runs again and cannot be edited or brought back. Its row, runs and history stay. It moves only if the control is still at version ${request.version}.`;
     case 'ledger.account_metadata.delete':
       return `Delete the metadata key "${request.key}" on ledger account ${request.accountId} ("${request.reason}"). svc-ledger records the value before and after with who asked and who approved. It is a label only: no posting, balance or transaction changes. It deletes only if the key is still at revision ${request.version}.`;
     case 'market.vendor.vet':
@@ -710,6 +781,8 @@ export function describeRequest(request: DeskRequest): string {
       return `Release ${request.amount} ${request.assetId} of staff hold ${request.holdNo} back to customer ${request.userId} ("${request.reason}"). svc-ops posts it in the ledger under the hold's next release number; it refuses more than is still held, and does nothing while another action on the hold is settling.`;
     case 'ops.hold.confirm':
       return `Confirm staff hold ${request.holdNo} on customer ${request.userId} ("${request.reason}"): whatever ${request.assetId} is still held when it runs moves out of the customer's balance to the owner-named account. It cannot be undone from this console. svc-ops refuses while the owner has named no such account (owner.decision).`;
+    case 'ops.reconciliation_alert.accept':
+      return `Accept the discrepancy on reconciliation alert ${request.alertId} ("${request.reason}"). The alert closes as accepted and its evidence is frozen at hash ${request.evidenceHash}: a later failure with the same figures changes nothing, and different figures open a new alert. svc-ops refuses if the evidence no longer has that hash. No balance or freeze changes, and nothing is posted to the ledger.`;
     case 'ops.venue_cost.record':
       return `Record a venue cost for ${request.period}: ${request.category.replace(/_/g, ' ')} is ${request.amount} ${request.asset}, from "${request.reason}". It becomes the figure the unit-economics report uses for that line; an earlier figure stays in the history. No money moves.`;
     case 'protocol.pool.hide':
@@ -726,6 +799,10 @@ export function describeRequest(request: DeskRequest): string {
       return 'Turn off maintenance mode: this console takes writes again. Nothing else changes.';
     case 'identity.kyc_document.open':
       return `Open KYC document ${request.documentId} from identity's encrypted vault: its contents are decrypted and shown on the requester's console only, once. Identity's approval names who asked and who approved, and the read spends it. Nothing about the document or the account changes.`;
+    case 'identity.kyc_selfie.decide':
+      return request.decision === 'accepted'
+        ? `Accept selfie ${request.selfieId}: the operator compared it with the account's ID photo and they match. Identity marks the selfie accepted and records when.`
+        : `Reject selfie ${request.selfieId}: it does not match the account's ID photo or cannot be compared. Identity marks the selfie rejected and records when; the person can take a new one.`;
   }
 }
 
@@ -742,6 +819,7 @@ export function requestReason(request: DeskRequest): string | null {
     case 'protocol.market.restore':
     case 'ops.console_mode.off':
     case 'identity.kyc_document.open':
+    case 'identity.kyc_selfie.decide':
       return null;
     default:
       return request.reason;

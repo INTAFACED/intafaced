@@ -1,6 +1,7 @@
+import { createHash } from 'node:crypto';
 import path from 'node:path';
 import { expect } from '@playwright/test';
-import { ROOT, tool } from './stack.mjs';
+import { DEVICE_KEY, EDGE, ORIGIN, ROOT, tool } from './stack.mjs';
 import { signUp, verify } from './desk.mjs';
 import { addAuthenticator, forgetSession, nextCode } from './identity-factors.mjs';
 
@@ -95,14 +96,25 @@ async function chooseTakenCategory(page) {
 /** Step 2 of setup: the owner sends a TEST verification reference, then the stack's founder pair approves it through
  * svc-pay's two-person door (`local-test-world.mjs approve-kyb`). The owner signs in again after, for the new grant. */
 export async function verifiedBusiness(page, who, merchantId) {
+  await sentForReview(page, who);
+  approveKyb(merchantId);
+}
+
+/** The owner chooses a category and sends the verification reference from /pay/onboarding/verification; it reads In review. */
+export async function sentForReview(page, who) {
   await chooseTakenCategory(page);
   await page.goto('/pay/onboarding/verification');
   await page.getByLabel('Verification file reference *').fill(`TEST-kyb-${who.handle}`);
   await page.getByRole('button', { name: 'Send for review' }).click();
   await page.getByRole('dialog').locator('[data-testid="form-stack"] > button').last().click();
   await expect(page.getByText('INTAFACED is reviewing it')).toBeVisible();
+}
+
+/** The stack's TEST founder pair approves the business's verification (svc-pay's KYB decision door). */
+export function approveKyb(merchantId) {
   const decided = JSON.parse(tool('local-test-world.mjs', 'approve-kyb', merchantId).trim().split('\n').pop());
   expect(decided.kybStatus).toBe('approved');
+  return decided;
 }
 
 /** Every pay call the page makes that the service refuses, as "status procedure". */
@@ -114,4 +126,77 @@ export function refusedPayCalls(page) {
       refused.push(`${res.status()} ${url.pathname.replace('/api/pay/trpc/', '')}`);
   });
   return refused;
+}
+
+/** A stable uuid for a journey key, so a retried create names the same thing (idempotency keys are business keys). */
+export function uuidOf(seed) {
+  const h = createHash('sha256').update(seed).digest('hex');
+  return `${h.slice(0, 8)}-${h.slice(8, 12)}-4${h.slice(13, 16)}-8${h.slice(17, 20)}-${h.slice(20, 32)}`;
+}
+
+/**
+ * A person's own pay API through Edge, signed in with a session of its own and its authenticator's next code. `kept`
+ * is told the code's time step, so the next sign-in waits for a fresh code.
+ */
+export async function payApiOf(who, kept) {
+  const totp = (await import(path.join(ROOT, 'services/svc-identity/dist/auth/totp.js'))).totp;
+  const next = await nextCode(totp, who.secret, who.step);
+  kept(next.step);
+  const send = async (route, body, token) => {
+    const res = await fetch(`${EDGE}${route}`, {
+      method: body === undefined ? 'GET' : 'POST',
+      headers: { origin: ORIGIN, authorization: `Bearer ${token}`, ...(body === undefined ? {} : { 'content-type': 'application/json' }) },
+      body: body === undefined ? undefined : JSON.stringify(body),
+    });
+    const text = await res.text();
+    let json = null;
+    try {
+      json = JSON.parse(text);
+    } catch {
+      /* the body is kept as text for the error */
+    }
+    if (!res.ok || !json?.result) throw new Error(`${route} refused: ${res.status} ${text.slice(0, 400)}`);
+    return json.result.data;
+  };
+  const login = await fetch(`${EDGE}/api/identity/trpc/auth.login`, {
+    method: 'POST',
+    headers: { origin: ORIGIN, 'content-type': 'application/json' },
+    body: JSON.stringify({ deviceKey: DEVICE_KEY, identifier: who.email, password: who.password, totpCode: next.code }),
+  }).then((r) => r.json());
+  const token = login?.result?.data?.accessToken;
+  if (!token) throw new Error(`sign-in refused: ${JSON.stringify(login).slice(0, 300)}`);
+  return {
+    mutate: (procedure, input) => send(`/api/pay/trpc/${procedure}`, input, token),
+    query: (procedure, input) => send(`/api/pay/trpc/${procedure}?input=${encodeURIComponent(JSON.stringify(input))}`, undefined, token),
+    /** The same query, answered whole (status and parsed body) and never thrown, so a step can read a refusal's typed code. */
+    answer: async (procedure, input) => {
+      const res = await fetch(`${EDGE}/api/pay/trpc/${procedure}?input=${encodeURIComponent(JSON.stringify(input))}`, {
+        headers: { origin: ORIGIN, authorization: `Bearer ${token}` },
+      });
+      return { status: res.status, body: await res.json().catch(() => null) };
+    },
+  };
+}
+
+/**
+ * A TEST card payment on the stack's sandbox card rail (`tok_ok`), paid: authorised and captured. `key` names it, so a
+ * retried step finds the payment its first attempt made, wherever that attempt left it.
+ */
+export async function paidCardPayment(api, merchantId, { key, amount, assetId = 'USDT' }) {
+  const created = await api.mutate('payment.create', {
+    requestId: uuidOf(key),
+    merchantId,
+    amount,
+    assetId,
+    method: 'card',
+    railAdapter: 'card-sandbox',
+    metadata: { reference: key },
+    instrument: { kind: 'card', token: 'tok_ok' },
+  });
+  if (!['created', 'authorized'].includes(created.status)) return created;
+  const authorized = created.status === 'created' ? await api.mutate('payment.authorize', { paymentId: created.id }) : created;
+  if (authorized.status === 'captured') return authorized;
+  // A declined or failed authorisation is returned as it is: capture is only asked of an authorised payment.
+  if (authorized.status !== 'authorized') return authorized;
+  return api.mutate('payment.capture', { paymentId: created.id });
 }

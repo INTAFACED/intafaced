@@ -96,7 +96,7 @@ export function assertLocalOnly({ env, dotenvText = null, needEdge = false }) {
   const appEnv = env.APP_ENV ?? (dotenvText === null ? undefined : parseDotenv(dotenvText).APP_ENV);
   if (appEnv !== 'dev' && appEnv !== 'test') {
     throw new GuardError(
-      `refusing: APP_ENV is ${appEnv === undefined || appEnv === '' ? 'not set' : `"${appEnv}"`}; it must be exactly "dev" or "test" (set it in .env).`,
+      `refusing [seed.app_env_not_local]: APP_ENV is ${appEnv === undefined || appEnv === '' ? 'not set' : `"${appEnv}"`}; it must be exactly "dev" or "test" (set it in .env).`,
     );
   }
   if (needEdge) {

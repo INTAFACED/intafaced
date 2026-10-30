@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import { CONSOLE_MODE_TARGET_ID, CONSOLE_MODE_TARGET_SERVICE, consoleModeApprovalFields } from '@intafaced/contracts/ops-console-mode';
+import { OPS_ALERT_ACCEPT_ACTION, opsAlertAcceptFields } from '@intafaced/contracts/ops-reconciliation-alerts';
 import { marketTargetId, poolTargetId } from '@intafaced/contracts/protocol-ops';
 import {
   STAFF_HOLD_TARGET_SERVICE,
@@ -17,6 +18,8 @@ export const WAVE_RELEASE_TARGET = 'waitlist.wave.release';
 export const DEPOSIT_ADDRESS_UNFREEZE = 'pay.deposit_address_unfreeze';
 /** The verb svc-identity binds a KYC document read to (`kyc.getDocument`). */
 export const KYC_DOCUMENT_GET = 'kyc.doc.get';
+/** The verb svc-identity binds a selfie decision to (`kyc.selfie.decide`). */
+export const KYC_SELFIE_DECIDE = 'kyc.selfie.decide';
 
 /**
  * How a console request becomes an identity approval, and how the target service recomputes the same hash.
@@ -25,7 +28,8 @@ export const KYC_DOCUMENT_GET = 'kyc.doc.get';
  * byte for byte, what the target computes at consume time:
  *   - svc-edge   `edgeActionPayloadHash('edge.kill', { module, disabled: 'true'|'false', reason })`
  *   - svc-ledger `ledgerActionPayloadHash('ledger.freeze', { reason })` / `('ledger.unfreeze', {})`,
- *     and `('ledger.reconciliation_control.run', { controlId, asOf, margin, reason })`
+ *     and `('ledger.reconciliation_control.run', { controlId, asOf, margin, reason })`,
+ *     and `('ledger.reconciliation_control.lifecycle', { controlId, lifecycle, reason })`
  *   - svc-market `marketActionPayloadHash('market.vendor.vet', { vendorId, decision, reason })`
  *   - svc-academy `academyActionPayloadHash('academy.ambassador.freeze', { userId, reason })` / `.unfreeze` / `.appoint` `{ userId }`,
  *     and `('academy.residency.decide', { id, decision })`
@@ -81,6 +85,12 @@ export function payloadHashFor(request: DeskRequest): string {
         controlId: request.controlId,
         asOf: request.asOf,
         margin: request.margin,
+        reason: request.reason,
+      });
+    case 'ledger.reconciliation_control.lifecycle':
+      return sha('ledger.reconciliation_control.lifecycle', {
+        controlId: request.controlId,
+        lifecycle: request.lifecycle,
         reason: request.reason,
       });
     // svc-ledger `ledgerActionPayloadHash('ledger.account_metadata.delete', { accountId, key, reason })`.
@@ -141,6 +151,9 @@ export function payloadHashFor(request: DeskRequest): string {
     // svc-identity `consumePrivileged(…, 'kyc.doc.get', { documentId })`: { targetId: 'kyc.doc.get', documentId }.
     case 'identity.kyc_document.open':
       return shaIdentity(KYC_DOCUMENT_GET, { documentId: request.documentId });
+    // svc-identity `consumePrivileged(…, 'kyc.selfie.decide', { selfieId, decision })`, in this order.
+    case 'identity.kyc_selfie.decide':
+      return shaIdentity(KYC_SELFIE_DECIDE, { selfieId: request.selfieId, decision: request.decision });
     // svc-identity `waitlist.waves.release`: { targetId: 'waitlist.wave.release', wave, size }, in this order.
     case 'campaigns.waitlist.wave_release':
       return shaIdentity(WAVE_RELEASE_TARGET, { wave: request.wave, size: request.size });
@@ -155,6 +168,9 @@ export function payloadHashFor(request: DeskRequest): string {
     // svc-ops `approvalPayloadHash('ops.hold.confirm', staffHoldConfirmFields(holdNo))`: { targetId: 'hold:<n>' }.
     case 'ops.hold.confirm':
       return sha(request.kind, staffHoldConfirmFields(request.holdNo));
+    // svc-ops `approvalPayloadHash('ops.reconciliation_alert.accept', opsAlertAcceptFields(alertId, note, evidenceHash))`.
+    case 'ops.reconciliation_alert.accept':
+      return sha(OPS_ALERT_ACCEPT_ACTION, opsAlertAcceptFields(request.alertId, request.reason, request.evidenceHash));
     // svc-ops `approvalPayloadHash('ops.venue_cost.record', { period, category, amount, asset, sourceNote })`, fields in this order.
     case 'ops.venue_cost.record':
       return sha('ops.venue_cost.record', {
@@ -226,6 +242,16 @@ export function proposeInputFor(request: DeskRequest): ProposeInput {
         actionType: 'ledger.reconciliation_control.run',
         targetService: 'svc-ledger',
         targetId: 'posting_reconciliation_control.run',
+        expectedVersion: request.version,
+        payloadHash,
+        policyVersion: 'v1',
+      };
+    // svc-ledger consumes a lifecycle move at the control version it reads under the row lock.
+    case 'ledger.reconciliation_control.lifecycle':
+      return {
+        actionType: 'ledger.reconciliation_control.lifecycle',
+        targetService: 'svc-ledger',
+        targetId: 'posting_reconciliation_control.lifecycle',
         expectedVersion: request.version,
         payloadHash,
         policyVersion: 'v1',
@@ -346,6 +372,16 @@ export function proposeInputFor(request: DeskRequest): ProposeInput {
         payloadHash,
         policyVersion: 'v1',
       };
+    // svc-identity consumes a selfie decision against its own verb as the target id, at version 1.
+    case 'identity.kyc_selfie.decide':
+      return {
+        actionType: KYC_SELFIE_DECIDE,
+        targetService: 'svc-identity',
+        targetId: KYC_SELFIE_DECIDE,
+        expectedVersion: '1',
+        payloadHash,
+        policyVersion: 'v1',
+      };
     // svc-identity consumes a wave release against its own verb as the target id, at version 1.
     case 'campaigns.waitlist.wave_release':
       return {
@@ -384,6 +420,16 @@ export function proposeInputFor(request: DeskRequest): ProposeInput {
         actionType: request.kind,
         targetService: STAFF_HOLD_TARGET_SERVICE,
         targetId: staffHoldTargetId(request.holdNo),
+        expectedVersion: '1',
+        payloadHash,
+        policyVersion: 'v1',
+      };
+    // svc-ops consumes against the alert itself. Its target service is not on identity's operator list, so both founders are needed.
+    case 'ops.reconciliation_alert.accept':
+      return {
+        actionType: OPS_ALERT_ACCEPT_ACTION,
+        targetService: 'svc-ops',
+        targetId: opsAlertAcceptFields(request.alertId, request.reason, request.evidenceHash).targetId,
         expectedVersion: '1',
         payloadHash,
         policyVersion: 'v1',

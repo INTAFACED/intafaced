@@ -6,8 +6,9 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS }) => ({
     IDENTITY_URL: urlOf('identity'),
     // LOCAL TEST only, the labelled value in tooling/profiles/test-owner-values/support.json: how many comments a
     // requester may add to one request. Production stays blank and every requester comment refuses
-    // (support.comment_cap_unset) until the owner sets it.
-    SUPPORT_COMMENT_CAP: '50',
+    // (support.comment_cap_unset) until the owner sets it. `LOCAL_STACK_SUPPORT_COMMENT_CAP=off` on a start or restart
+    // leaves it blank, so that refusal can be seen in the running app too (J-support-public-09 #5).
+    ...(process.env.LOCAL_STACK_SUPPORT_COMMENT_CAP === 'off' ? {} : { SUPPORT_COMMENT_CAP: '50' }),
     // LOCAL TEST only, labelled in the same file: how many saved desk views one person, and the whole desk, may keep.
     // Production stays blank and every save refuses (support.view_cap_unset) until the owner sets them.
     SUPPORT_VIEW_PERSONAL_CAP: '20',
@@ -20,6 +21,9 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS }) => ({
     // Production stays blank and every definition refuses (support.form_cap_unset, support.field_cap_unset).
     SUPPORT_FORM_CAP: '50',
     SUPPORT_FIELD_CAP: '200',
+    // LOCAL TEST only, labelled in the same file: the fewest characters a macro shortcode may have.
+    // Production stays blank and every macro save refuses (support.shortcode_rule_unset) until the owner sets it.
+    SUPPORT_MACRO_SHORTCODE_MIN: '2',
     // LOCAL TEST only, labelled in the same file: the desk group fraud reports go to (the journey makes it).
     // Production stays blank and every fraud report refuses (support.fraud_route_unset) until the owner names one.
     SUPPORT_FRAUD_GROUP: 'TEST Compliance',

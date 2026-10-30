@@ -1,15 +1,29 @@
 import { t as copyText, Text } from './copy';
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { z } from 'zod';
 import { useApi, useSession } from '../session/session';
 import { useResource, type Resource } from '../../shared/resource';
 import { decimalSchema, displayAmount, parseAmount } from '../../shared/money';
 import type { ApiResult } from '../../shared/api';
 import { currentPreferences, usePreferences } from '../../shared/preferences';
-import { Button, DataTable, EmptyState, Field, Panel, Tabs } from '../../shared/ui';
+import { Button, DataTable, EmptyState, Panel, Tabs } from '../../shared/ui';
 import { EmissionEpoch, TokenHoldings } from './TokenHoldings';
-import { Details, Limit, Read, Select, TextArea, presentActionFailure, useAction } from './common';
+import { Details, Limit, Read, Select, presentActionFailure, useAction } from './common';
 import { governanceCopy as G } from './token-governance-copy';
+import { GovernanceDelegation, GovernanceProposals, GovernanceSpace, GovernanceTreasury } from './GovernanceRoom';
+import { BuybackRuns } from './BuybackRuns';
+import { buybackRunsCopy } from './buyback-runs-copy';
+import {
+  ChoiceBallot,
+  ChoiceTallyView,
+  VOTING_TYPES,
+  VotingPower,
+  choiceTallySchema,
+  powerSchema,
+  signVote,
+  type BallotOutcome,
+  type ProposalPower,
+} from './TokenVoting';
 import './token-governance.css';
 const uuid = z.string().guid();
 /** The service stores `gov:proposal:<space>:<author>:<n>`; older rows keep their uuid. */
@@ -33,12 +47,14 @@ const proposalSchema = z.object({
   id: proposalIdSchema,
   kind: z.enum(['listing', 'fee_param', 'curriculum', 'grant']),
   body: z.record(z.string(), z.unknown()),
-  status: z.enum(['draft', 'open', 'passed', 'rejected', 'executed', 'cancelled']),
+  status: z.enum(['draft', 'open', 'passed', 'rejected', 'executed', 'cancelled', 'closed_ranked']),
   opensAt: z.string(),
   closesAt: z.string(),
   createdAt: z.string(),
   title: z.string().nullable().optional(),
   authorId: z.string().nullable().optional(),
+  votingType: z.enum(VOTING_TYPES).default('basic'),
+  choices: z.array(z.string()).nullable().default(null),
 });
 const tally = z.object({
   forWeight: decimalSchema,
@@ -189,7 +205,7 @@ function proposalTerms(value: unknown): string {
 function reviewedProposal(p: z.infer<typeof governanceProposal>) {
   return JSON.stringify([p.id, p.kind, proposalTerms(p.body), Date.parse(p.opensAt), Date.parse(p.closesAt)]);
 }
-type RefusalKey = 'changed' | 'inactive' | 'noWeight' | 'storage' | 'receiptStorage';
+type RefusalKey = 'changed' | 'inactive' | 'noWeight' | 'storage' | 'receiptStorage' | 'walletNone' | 'walletRejected' | 'walletFailed';
 function governanceRefusal(reason: Extract<ApiResult<never>, { ok: false }>['reason'], key: RefusalKey) {
   return presentActionFailure({ ok: false as const, reason, message: G.t(key) }, (locale) => ({
     message: G.forLocale(locale).t(key),
@@ -197,8 +213,11 @@ function governanceRefusal(reason: Extract<ApiResult<never>, { ok: false }>['rea
   }));
 }
 function proposalDetailSchema(id: string) {
-  return governanceProposal.extend({ tally }).refine((p) => {
+  return governanceProposal.extend({ tally, choiceTally: choiceTallySchema.nullable().default(null) }).refine((p) => {
     try {
+      // A multi-choice proposal has no for/against: its weight is in the choice tally.
+      if (p.votingType !== 'basic')
+        return p.id === id && Date.parse(p.closesAt) > Date.parse(p.opensAt) && p.choices !== null && p.choiceTally !== null;
       return (
         p.id === id &&
         Date.parse(p.closesAt) > Date.parse(p.opensAt) &&
@@ -210,8 +229,8 @@ function proposalDetailSchema(id: string) {
     }
   });
 }
-export type TokenTab = 'Staking' | 'Governance' | 'Economy';
-/** `tab`: the section an address such as /token/economy opens on. */
+export type TokenTab = 'Staking' | 'Governance' | 'Economy' | 'Burn';
+/** `tab`: the section an address such as /token/economy or /token/burn opens on. */
 export function Token({ tab: first }: { tab?: TokenTab } = {}) {
   const { hideBalances } = usePreferences();
   const api = useApi(),
@@ -221,18 +240,7 @@ export function Token({ tab: first }: { tab?: TokenTab } = {}) {
   const ballot = useSavedBallot(userId);
   const [tab, setTab] = useState<TokenTab>(() => first ?? (selectedFor(userId) ? 'Governance' : 'Staking')),
     [status, setStatus] = useState('all'),
-    [limit, setLimit] = useState(50),
-    [proposalStatus, setProposalStatus] = useState('all'),
-    [proposalKind, setProposalKind] = useState('all'),
-    [proposalLimit, setProposalLimit] = useState(50),
-    [kind, setKind] = useState('curriculum'),
-    [proposalBody, setProposalBody] = useState(''),
-    [opens, setOpens] = useState(''),
-    [closes, setCloses] = useState(''),
-    [validation, setValidation] = useState('');
-  // The same create request keeps its handle until the service confirms it, so submitting it again after an unknown
-  // outcome returns the stored proposal instead of opening a second one. Changed content is a new request.
-  const createAttempt = useRef<{ request: string; handle: string } | null>(null);
+    [limit, setLimit] = useState(50);
   const access = useResource(
       (signal) =>
         api.query('token', 'accessOf', undefined, z.object({ staked: decimalSchema, tier: z.string(), feeDiscountBps: z.number().int() }), {
@@ -253,33 +261,6 @@ export function Token({ tab: first }: { tab?: TokenTab } = {}) {
         ),
       `token-stakes:${userId}:${status}:${limit}`,
     ),
-    proposals = useResource(
-      (signal) =>
-        api.query(
-          'token',
-          'listProposals',
-          {
-            limit: proposalLimit,
-            ...(proposalStatus !== 'all' ? { status: proposalStatus } : {}),
-            ...(proposalKind !== 'all' ? { kind: proposalKind } : {}),
-          },
-          z
-            .array(governanceProposal)
-            .refine(
-              (rows) =>
-                rows.length <= proposalLimit &&
-                new Set(rows.map((row) => row.id)).size === rows.length &&
-                rows.every(
-                  (row) =>
-                    Date.parse(row.closesAt) > Date.parse(row.opensAt) &&
-                    (proposalStatus === 'all' || row.status === proposalStatus) &&
-                    (proposalKind === 'all' || row.kind === proposalKind),
-                ),
-            ),
-          { signal },
-        ),
-      `token-proposals:${userId}:${proposalStatus}:${proposalKind}:${proposalLimit}`,
-    ),
     burned = useResource(
       (signal) => api.query('token', 'burnedSupply', undefined, z.object({ burned: decimalSchema }), { signal }),
       `token-burn:${userId}`,
@@ -287,8 +268,13 @@ export function Token({ tab: first }: { tab?: TokenTab } = {}) {
   return (
     <div className="more-grid">
       <Tabs
-        items={['Staking', 'Governance', 'Economy']}
-        labels={{ Staking: copyText('token.staking'), Governance: copyText('token.governance'), Economy: copyText('token.economy') }}
+        items={['Staking', 'Governance', 'Economy', 'Burn']}
+        labels={{
+          Staking: copyText('token.staking'),
+          Governance: copyText('token.governance'),
+          Economy: copyText('token.economy'),
+          Burn: buybackRunsCopy.t('tab'),
+        }}
         value={tab}
         onChange={(value) => setTab(value as TokenTab)}
         label={copyText('token.token.sections')}
@@ -380,64 +366,9 @@ export function Token({ tab: first }: { tab?: TokenTab } = {}) {
         <div className="token-governance">
           <BallotContext saved={ballot} choose={selection.choose} />
           {action.feedback}
+          <GovernanceSpace />
           <div className="token-governance-layout">
-            <Panel title={G.t('proposals')}>
-              <div className="token-governance-heading">
-                <p className="muted">{G.t('intro')}</p>
-                <Button variant="ghost" onClick={proposals.reload}>
-                  {G.t('refreshList')}
-                </Button>
-              </div>
-              <div className="token-governance-filters">
-                <Select
-                  label={G.t('statusFilter')}
-                  value={proposalStatus}
-                  onChange={setProposalStatus}
-                  options={[
-                    { value: 'all', label: G.t('allStatus') },
-                    ...proposalSchema.shape.status.options.map((value) => ({ value, label: G.t(value) })),
-                  ]}
-                />
-                <Select
-                  label={G.t('kindFilter')}
-                  value={proposalKind}
-                  onChange={setProposalKind}
-                  options={[
-                    { value: 'all', label: G.t('allKinds') },
-                    ...proposalSchema.shape.kind.options.map((value) => ({ value, label: G.t(value) })),
-                  ]}
-                />
-              </div>
-              <Read resource={proposals.resource} retry={proposals.reload} empty={G.t('empty')}>
-                {(rows) => (
-                  <>
-                    <div className="token-proposal-list" aria-label={copyText('token.governance.proposals')}>
-                      {rows.map((p) => (
-                        <Button
-                          key={p.id}
-                          variant="ghost"
-                          className="token-proposal-row"
-                          aria-label={G.t('inspect', { id: p.id })}
-                          aria-pressed={selection.id === p.id}
-                          aria-controls="token-selected-proposal"
-                          onClick={() => selection.choose(p.id)}
-                        >
-                          <span>
-                            <strong lang={titleLanguage(p)}>{proposalTitle(p)}</strong>
-                            <small>{G.t(p.kind)}</small>
-                            <code lang="zxx">{p.id}</code>
-                          </span>
-                          <span>{G.t(p.status)}</span>
-                        </Button>
-                      ))}
-                    </div>
-                    <Limit count={rows.length} limit={proposalLimit} cap={200} onChange={setProposalLimit} />
-                  </>
-                )}
-              </Read>
-              <p className="muted">{G.t('coverage')}</p>
-              <p className="muted">{G.t('original')}</p>
-            </Panel>
+            <GovernanceProposals selectedId={selection.id} onInspect={selection.choose} inspectLabel={(id) => G.t('inspect', { id })} />
             <div id="token-selected-proposal">
               {!selection.saved && <p role="status">{G.t('selectionStorage')}</p>}
               {selection.id ? (
@@ -449,112 +380,10 @@ export function Token({ tab: first }: { tab?: TokenTab } = {}) {
               )}
             </div>
           </div>
-          <details className="token-create">
-            <summary>{copyText('token.create.a.proposal')}</summary>
-            <Panel title={copyText('token.create.a.proposal')}>
-              <p className="muted">
-                <Text k="token.the.service.decides.which.proposal.kinds.your" />
-              </p>
-              <form
-                onSubmit={(e) => {
-                  e.preventDefault();
-                  setValidation('');
-                  let body: unknown;
-                  try {
-                    body = JSON.parse(proposalBody);
-                  } catch {
-                    setValidation(copyText('token.enter.a.valid.json.object.for.the'));
-                    return;
-                  }
-                  if (!z.record(z.string(), z.unknown()).safeParse(body).success) {
-                    setValidation(copyText('token.enter.a.valid.json.object.for.the'));
-                    return;
-                  }
-                  if ((opens && !Number.isFinite(Date.parse(opens))) || (closes && !Number.isFinite(Date.parse(closes)))) {
-                    setValidation(copyText('token.enter.valid.opening.and.closing.dates'));
-                    return;
-                  }
-                  if (opens && closes && Date.parse(closes) <= Date.parse(opens)) {
-                    setValidation(copyText('token.the.closing.date.must.be.after.the'));
-                    return;
-                  }
-                  const author = userId;
-                  const opensAt = opens ? new Date(opens).toISOString() : undefined,
-                    closesAt = closes ? new Date(closes).toISOString() : undefined;
-                  const terms = proposalTerms(body);
-                  const request = JSON.stringify([author, kind, terms, opensAt ?? null, closesAt ?? null]);
-                  if (createAttempt.current?.request !== request) createAttempt.current = { request, handle: crypto.randomUUID() };
-                  const handle = createAttempt.current.handle;
-                  action.stage({
-                    title: copyText('token.review.proposal'),
-                    confirm: copyText('token.submit.proposal'),
-                    success: copyText('token.proposal.created'),
-                    reference: handle,
-                    content: (
-                      <Details
-                        items={[
-                          [copyText('token.kind'), kind],
-                          [copyText('token.body'), proposalBody],
-                          [copyText('token.opens'), opens || copyText('token.service.policy')],
-                          [copyText('token.closes'), closes || copyText('token.service.policy')],
-                        ]}
-                      />
-                    ),
-                    run: () =>
-                      api.mutate(
-                        'token',
-                        'createProposal',
-                        {
-                          kind,
-                          body,
-                          handle,
-                          ...(opensAt ? { opensAt } : {}),
-                          ...(closesAt ? { closesAt } : {}),
-                        },
-                        proposalSchema.refine(
-                          (proposal) =>
-                            proposal.kind === kind &&
-                            proposal.authorId === author &&
-                            proposalTerms(proposal.body) === terms &&
-                            (!opensAt || Date.parse(proposal.opensAt) === Date.parse(opensAt)) &&
-                            (!closesAt || Date.parse(proposal.closesAt) === Date.parse(closesAt)),
-                        ),
-                      ),
-                    done: () => {
-                      if (createAttempt.current?.handle === handle) createAttempt.current = null;
-                      proposals.reload();
-                    },
-                  });
-                }}
-              >
-                <Select
-                  label={copyText('token.proposal.kind')}
-                  value={kind}
-                  onChange={setKind}
-                  options={['curriculum', 'fee_param', 'listing', 'grant']}
-                />
-                <TextArea label={copyText('token.proposal.body.as.json.object')} value={proposalBody} onChange={setProposalBody} />
-                <Field
-                  label={copyText('token.opens.at.optional')}
-                  type="datetime-local"
-                  value={opens}
-                  onChange={(e) => setOpens(e.target.value)}
-                />
-                <Field
-                  label={copyText('token.closes.at.optional')}
-                  type="datetime-local"
-                  value={closes}
-                  onChange={(e) => setCloses(e.target.value)}
-                />
-                {validation && <p role="alert">{validation}</p>}
-                <Button type="submit" disabled={action.disabled || !proposalBody.trim()}>
-                  <Text k="token.review.proposal" />
-                </Button>
-              </form>
-            </Panel>
-          </details>
+          <GovernanceDelegation />
+          <GovernanceTreasury />
         </div>
-      ) : (
+      ) : tab === 'Burn' ? (
         <div className="more-columns">
           <Panel title={copyText('token.recorded.burn')}>
             <Read resource={burned.resource} retry={burned.reload}>
@@ -567,6 +396,10 @@ export function Token({ tab: first }: { tab?: TokenTab } = {}) {
               )}
             </Read>
           </Panel>
+          <BuybackRuns />
+        </div>
+      ) : (
+        <div className="more-columns">
           <EmissionEpoch />
           <Panel title={copyText('token.economy.boundaries')}>
             <p>
@@ -635,11 +468,12 @@ function BallotContext({ saved, choose }: { saved: SavedBallot; choose: (id: str
 function Proposal({ id, action, ballot }: { id: string; action: ReturnType<typeof useAction>; ballot: SavedBallot }) {
   const api = useApi(),
     { userId } = useSession();
-  const { hideBalances } = usePreferences();
   const [now, setNow] = useState(Date.now);
+  const [version, setVersion] = useState(0);
+  const [ballotOutcome, setBallotOutcome] = useState<BallotOutcome>(null);
   const [preflight, setPreflight] = useState<{
     detail: Resource<z.infer<ReturnType<typeof proposalDetailSchema>>>;
-    stake: Resource<{ staked: string }>;
+    power: Resource<ProposalPower>;
   } | null>(null);
   useEffect(() => {
     const timer = setInterval(() => setNow(Date.now()), 1000);
@@ -649,17 +483,20 @@ function Proposal({ id, action, ballot }: { id: string; action: ReturnType<typeo
     (signal) => api.query('token', 'getProposal', { proposalId: id }, proposalDetailSchema(id), { signal }),
     `proposal:${userId}:${id}`,
   );
-  const stake = useResource(
-    (signal) => api.query('token', 'stakeOf', undefined, z.object({ staked: decimalSchema }), { signal }),
-    `vote-stake:${userId}:${id}`,
+  // Votes weigh the power fixed at creation, never today's stake.
+  const power = useResource(
+    (signal) => api.query('token', 'votingPower.ofProposal', { proposalId: id }, powerSchema, { signal }),
+    `voting-power:${userId}:${id}`,
   );
   const blocked = ballot.status === 'unreadable' || (ballot.status === 'ready' && ballot.data.status === 'unknown');
   const detailView = preflight?.detail ?? detail.resource,
-    stakeView = preflight?.stake ?? stake.resource;
+    powerView = preflight?.power ?? power.resource;
+  const canWeigh = powerView.status === 'ready' && parseAmount(powerView.data.power) > 0n;
   function refresh() {
     setPreflight(null);
+    setVersion((n) => n + 1);
     detail.reload();
-    stake.reload();
+    power.reload();
   }
   function stageVote(p: z.infer<ReturnType<typeof proposalDetailSchema>>, choice: VoteChoice) {
     if (
@@ -667,12 +504,12 @@ function Proposal({ id, action, ballot }: { id: string; action: ReturnType<typeo
       action.disabled ||
       blocked ||
       !activeWindow(p, Date.now()) ||
-      stakeView.status !== 'ready' ||
-      parseAmount(stakeView.data.staked) <= 0n
+      powerView.status !== 'ready' ||
+      parseAmount(powerView.data.power) <= 0n
     )
       return;
     const actor = userId,
-      estimate = stakeView.data.staked;
+      weight = powerView.data.power;
     const body = JSON.stringify(p.body, null, 2);
     const reviewed = reviewedProposal(p);
     action.stage({
@@ -699,7 +536,7 @@ function Proposal({ id, action, ballot }: { id: string; action: ReturnType<typeo
                   {timeValue(p.closesAt)}
                 </time>,
               ],
-              [G.t('stakeEstimate'), currentPreferences().hideBalances ? G.t('hidden') : displayAmount(estimate)],
+              [G.t('stakeEstimate'), currentPreferences().hideBalances ? G.t('hidden') : displayAmount(weight)],
             ]}
           />
           <p className="muted">
@@ -735,26 +572,34 @@ function Proposal({ id, action, ballot }: { id: string; action: ReturnType<typeo
           }
           return result;
         };
-        setPreflight({ detail: { status: 'loading' }, stake: { status: 'loading' } });
-        const [fresh, currentStake] = await Promise.all([
+        setPreflight({ detail: { status: 'loading' }, power: { status: 'loading' } });
+        const [fresh, currentPower] = await Promise.all([
           api.query('token', 'getProposal', { proposalId: id }, proposalDetailSchema(id)),
-          api.query('token', 'stakeOf', undefined, z.object({ staked: decimalSchema })),
+          api.query('token', 'votingPower.ofProposal', { proposalId: id }, powerSchema),
         ]);
         if (!canDispatch() || !api.canWrite()) return refuseBeforeDispatch(governanceRefusal('aborted', 'changed'));
         setPreflight({
           detail: fresh.ok ? { status: 'ready', data: fresh.data } : { status: 'failed', failure: fresh },
-          stake: currentStake.ok ? { status: 'ready', data: currentStake.data } : { status: 'failed', failure: currentStake },
+          power: currentPower.ok ? { status: 'ready', data: currentPower.data } : { status: 'failed', failure: currentPower },
         });
         if (!fresh.ok) return refuseBeforeDispatch(fresh);
-        if (!currentStake.ok) return refuseBeforeDispatch(currentStake);
+        if (!currentPower.ok) return refuseBeforeDispatch(currentPower);
         if (!activeWindow(fresh.data, Date.now())) return refuseBeforeDispatch(governanceRefusal('error', 'inactive'));
         if (reviewedProposal(fresh.data) !== reviewed) return refuseBeforeDispatch(governanceRefusal('error', 'changed'));
-        if (parseAmount(currentStake.data.staked) <= 0n) return refuseBeforeDispatch(governanceRefusal('forbidden', 'noWeight'));
+        if (parseAmount(currentPower.data.power) <= 0n) return refuseBeforeDispatch(governanceRefusal('forbidden', 'noWeight'));
+        // Every vote carries a linked wallet's signature over the service's own message for it.
+        const signed = await signVote(api, { proposalId: id, choice });
+        if (!signed.ok) {
+          if ('failure' in signed) return refuseBeforeDispatch(signed.failure);
+          const key = signed.wallet === 'none' ? 'walletNone' : signed.wallet === 'rejected' ? 'walletRejected' : 'walletFailed';
+          return refuseBeforeDispatch(governanceRefusal('error', key));
+        }
+        if (!canDispatch() || !api.canWrite()) return refuseBeforeDispatch(governanceRefusal('aborted', 'changed'));
         // No await separates the final identity guard and dispatch.
         const result = await api.mutate(
           'token',
           'castVote',
-          { proposalId: id, choice },
+          { proposalId: id, choice, signature: signed.signature },
           voteSchema.refine((vote) => vote.proposalId === id && vote.userId === actor && vote.choice === choice),
         );
         try {
@@ -812,7 +657,11 @@ function Proposal({ id, action, ballot }: { id: string; action: ReturnType<typeo
                 {JSON.stringify(p.body, null, 2)}
               </pre>
             </section>
-            <section className="token-proposal-section">
+            <VotingPower power={power} version={version} />
+            {p.votingType !== 'basic' && p.choices && p.choiceTally && (
+              <ChoiceTallyView choices={p.choices} tally={p.choiceTally} closedRanked={p.status === 'closed_ranked'} />
+            )}
+            <section className="token-proposal-section" hidden={p.votingType !== 'basic'}>
               <h3>{G.t('tally')}</h3>
               <dl className="token-tally">
                 {[
@@ -831,38 +680,38 @@ function Proposal({ id, action, ballot }: { id: string; action: ReturnType<typeo
               <p className="muted">{G.t('aggregate')}</p>
             </section>
             <section className="token-proposal-section">
-              <Read resource={stakeView} retry={refresh}>
-                {(s) => (
-                  <>
-                    <Details items={[[G.t('stakeEstimate'), hideBalances ? G.t('hidden') : displayAmount(s.staked)]]} />
-                    <p className="muted">
-                      {G.t('unit')} {G.t('weightBoundary')}
-                    </p>
-                  </>
-                )}
-              </Read>
+              <p className="muted">
+                {G.t('unit')} {G.t('weightBoundary')}
+              </p>
               {!activeWindow(p, now) && (
                 <p role="status" className="muted">
                   {G.t('inactive')}
                 </p>
               )}
-              {stakeView.status === 'ready' && parseAmount(stakeView.data.staked) === 0n && (
+              {powerView.status === 'ready' && !canWeigh && (
                 <p role="status" className="muted">
                   {G.t('noWeight')}
                 </p>
               )}
+              {p.votingType !== 'basic' && p.choices && (
+                <ChoiceBallot
+                  key={`${id}:${p.votingType}`}
+                  proposalId={id}
+                  votingType={p.votingType}
+                  choices={p.choices}
+                  open={activeWindow(p, now) && !action.disabled && !blocked && canWeigh}
+                  power={power}
+                  outcome={ballotOutcome}
+                  onOutcome={setBallotOutcome}
+                  onCast={refresh}
+                />
+              )}
               <div className="actions">
-                {choiceSchema.options.map((choice) => (
+                {(p.votingType === 'basic' ? choiceSchema.options : []).map((choice) => (
                   <Button
                     key={choice}
                     variant="secondary"
-                    disabled={
-                      action.disabled ||
-                      blocked ||
-                      !activeWindow(p, now) ||
-                      stakeView.status !== 'ready' ||
-                      parseAmount(stakeView.data.staked) <= 0n
-                    }
+                    disabled={action.disabled || blocked || !activeWindow(p, now) || !canWeigh}
                     onClick={() => stageVote(p, choice)}
                   >
                     {G.t(choice === 'for' ? 'reviewFor' : choice === 'against' ? 'reviewAgainst' : 'reviewAbstain')}

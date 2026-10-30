@@ -226,3 +226,17 @@
   align-items: center;
   gap: var(--if-space-2);
 }
+.host-dispatch__title {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--if-space-2);
+}
+.host-dispatch__rows {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--if-space-2);
+}

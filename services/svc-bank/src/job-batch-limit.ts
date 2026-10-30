@@ -26,6 +26,11 @@ export function assertEarnRenewBatchLimit(limit: number | undefined): number {
   return assertJobBatchLimit(limit, 'bank.earn_renew_batch_limit_unset', 100, RESUME_MAX, 'earn.renewDue');
 }
 
+/** earn.releaseUnbonded worker batch: how many ended unbondings one run releases (BK-earn-04). Blank refuses. */
+export function assertEarnReleaseBatchLimit(limit: number | undefined): number {
+  return assertJobBatchLimit(limit, 'bank.earn_release_batch_limit_unset', 100, RESUME_MAX, 'earn.releaseUnbonded');
+}
+
 /** loans.resumePending worker batch. Omit used to invent 100. */
 export function assertLoanResumePendingLimit(limit: number | undefined): number {
   return assertJobBatchLimit(limit, 'bank.loan_resume_pending_limit_unset', 100, RESUME_MAX, 'loans.resumePending');

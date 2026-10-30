@@ -68,7 +68,7 @@ export function EarningRules({
       <p className="dk-muted">
         While the campaign is live, each event of a rule&apos;s trigger by a customer who joined before it gives one reward, once even if
         the event arrives twice, paid through the reward saga. A formula that reads the event&apos;s amounts pays only for events in the
-        reward asset. No reward goes past the budget left or the customer&apos;s per person limit; a paused campaign gives none.
+        reward asset. No reward goes past the budget left or the customer&apos;s reward per person; a paused campaign gives none.
       </p>
       {rules.length === 0 ? (
         <p className="dk-muted">No earning rule yet.</p>

@@ -12,7 +12,7 @@ import { draftSchema } from '../../../features/trade/trade-api';
 import { forgetReviewId } from './review-id';
 
 export const pendingSchema = z.object({
-  kind: z.enum(['place', 'cancel', 'amend', 'replace', 'convert', 'rfq', 'position', 'algo', 'copy']),
+  kind: z.enum(['place', 'cancel', 'amend', 'replace', 'convert', 'rfq', 'position', 'algo', 'copy', 'grid']),
   symbol: z.string(),
   id: z.string(),
   orderId: z.string().optional(),
