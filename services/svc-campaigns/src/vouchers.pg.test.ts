@@ -381,7 +381,15 @@ if (!db) {
       // The window passes: counting starts again.
       clock = new Date(Date.now() + 2 * HOUR);
       expect((await vouchers.claim({ code: 'TEST-LIMIT', accountId: YOU, source: ADDRESS })).state).toBe('claimed');
+      // Rows older than the window are pruned; the ones inside it stay counted.
+      expect(await vouchers.pruneAttempts()).toBe(3);
+      expect(await vouchers.pruneAttempts()).toBe(0);
+      const [{ n }] = (await db.sql<{ n: number }[]>`SELECT count(*)::int AS n FROM campaigns.voucher_attempts`) as unknown as [
+        { n: number },
+      ];
+      expect(n).toBe(1);
       limits = null;
+      expect(await vouchers.pruneAttempts()).toBe(0);
       expect(await code(vouchers.validate({ code: 'TEST-LIMIT', accountId: ME, source: ADDRESS }))).toBe('campaigns.attempt_limit_unset');
     });
   });

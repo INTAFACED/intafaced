@@ -232,11 +232,13 @@ const reconciler =
     : null;
 reconciler?.unref();
 
-// Voucher expiry (J-campaigns-08): marks each claimed voucher whose use-by passed `expired`, once. It moves no value, so
+// Voucher expiry (J-campaigns-08): marks each claimed voucher whose use-by passed `expired`, once, and drops code
+// attempts older than the attempt window, which nothing counts any more. It moves no value, so
 // it runs whether or not the ledger is connected; a redemption after the use-by refuses whether or not it has run.
 const VOUCHER_EXPIRY_MS = 15_000;
 const voucherExpiry = setInterval(() => {
   vouchers.expire().catch((err: unknown) => app.log.error({ err }, 'voucher expiry failed'));
+  vouchers.pruneAttempts().catch((err: unknown) => app.log.error({ err }, 'voucher attempt prune failed'));
 }, VOUCHER_EXPIRY_MS);
 voucherExpiry.unref();
 
