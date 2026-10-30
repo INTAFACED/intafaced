@@ -17,6 +17,7 @@ import {
   type CustodyTaskDetail,
   type Decision,
 } from '@/lib/custody-ops/model';
+import { OPEN_ITEM_KIND_LABEL, openItemWhy, shownLine, sumLine, type OpenItems } from '@/lib/custody-ops/open-items';
 import { PENDING_WINDOW, RECENT_WINDOW, type CustodyOpsRead } from '@/lib/custody-ops/server-types';
 import type { RefusalView } from '@/lib/desk/refusal-copy';
 import type { Part } from '@/lib/desk/part';
@@ -116,6 +117,41 @@ function Approvers({ part }: { part: Part<readonly CustodyApprover[]> }) {
         </li>
       ))}
     </ul>
+  );
+}
+
+/** Open custody items: why custody and the ledger differ right now. Read-only; resolving one is done where its deposit is handled. */
+export function OpenItemsList({ part }: { part: Part<OpenItems> }) {
+  if (part.kind === 'failed') return <PartFailed name="Open custody items" part={part} />;
+  const { items, sums } = part.data;
+  if (part.data.total === 0)
+    return <p className="dk-muted">No open custody item: no deposit is held uncredited, and no credit was taken back uncovered.</p>;
+  return (
+    <>
+      <ul className="co-list" aria-label="Open items by network and asset">
+        {sums.map((s) => (
+          <li className="co-card" key={`${s.networkId}:${s.assetId}`}>
+            {sumLine(s)}
+          </li>
+        ))}
+      </ul>
+      <ul className="co-list" aria-label="Open items">
+        {items.map((i) => (
+          <li className="co-card" key={i.depositId}>
+            <div className="co-row">
+              <strong>
+                {i.signedAmount} {i.assetId} on {i.networkId}
+              </strong>
+              <Chip tone={i.kind === 'held' ? 'dark' : 'warn'}>{OPEN_ITEM_KIND_LABEL[i.kind]}</Chip>
+            </div>
+            <p className="dk-muted">
+              {openItemWhy(i)} · user {shortId(i.userId)} · tx {shortId(i.txHash)}#{i.outputIndex} · seen {formatWhen(i.detectedAt)}
+            </p>
+          </li>
+        ))}
+      </ul>
+      <p className="dk-muted">{shownLine(part.data)}</p>
+    </>
   );
 }
 
@@ -296,6 +332,10 @@ export function CustodyOpsView({ read, userId: _userId, now, pickedId, onPick, o
       <section aria-label="Approvers">
         <h2>Registered approvers</h2>
         <Approvers part={read.approvers} />
+      </section>
+      <section aria-label="Open custody items">
+        <h2>Open custody items</h2>
+        <OpenItemsList part={read.openItems} />
       </section>
     </div>
   );

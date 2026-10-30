@@ -39,6 +39,7 @@ const read = (over: Partial<CustodyOpsRead> = {}): CustodyOpsRead => ({
     kind: 'ok',
     data: [{ userId: ME, label: 'Ops lead', role: 'keyless', active: true, setBy: 'owner', setAt: '2026-10-19T00:00:00Z' }],
   },
+  openItems: { kind: 'ok', data: { items: [], total: 0, sums: [] } },
   ...over,
 });
 const view = (r: CustodyOpsRead) =>
@@ -74,6 +75,85 @@ describe('the custody approvals desk', () => {
     expect(html).toContain('Tasks unavailable');
     expect(html).toContain('svc-pay did not answer.');
     expect(html).toContain('No approver is registered');
+  });
+});
+
+describe('open custody items', () => {
+  const item = {
+    userId: OTHER,
+    assetId: 'USDT',
+    networkId: 'ethereum',
+    outputIndex: 0,
+    detectedAt: '2026-10-20T09:00:00Z',
+  } as const;
+  it('shows each item signed, why it is open, the sums by network and asset, and how many of how many', () => {
+    const html = view(
+      read({
+        openItems: {
+          kind: 'ok',
+          data: {
+            items: [
+              {
+                ...item,
+                depositId: 'd1',
+                kind: 'held',
+                txHash: '0xaaaa',
+                amount: '5',
+                signedAmount: '5',
+                status: 'below_minimum',
+                reason: 'below_minimum',
+              },
+              {
+                ...item,
+                depositId: 'd2',
+                kind: 'reversal_unfunded',
+                txHash: '0xbbbb',
+                amount: '30',
+                signedAmount: '-30',
+                status: 'needs_review',
+                reason: 'reversal_unfunded',
+              },
+            ],
+            total: 3,
+            sums: [
+              {
+                networkId: 'ethereum',
+                assetId: 'USDT',
+                held: '5',
+                heldCount: 1,
+                reversalUnfunded: '30',
+                reversalUnfundedCount: 1,
+                net: '-25',
+              },
+            ],
+          },
+        },
+      }),
+    );
+    expect(html).toContain('Open custody items');
+    expect(html).toContain('5 USDT on ethereum');
+    expect(html).toContain('-30 USDT on ethereum');
+    expect(html).toContain('under the minimum deposit');
+    expect(html).toContain('Taken back by the chain, not covered');
+    expect(html).toContain('custody minus ledger -25');
+    expect(html).toContain('Showing 2 of 3.');
+  });
+
+  it('says plainly when there is none, and names the part when svc-pay refuses it', () => {
+    expect(view(read())).toContain('No open custody item');
+    const html = view(
+      read({
+        openItems: {
+          kind: 'failed',
+          message: 'svc-pay did not accept your founder session for this read.',
+          code: 'operator.denied',
+          notBuilt: false,
+          forbidden: true,
+        },
+      }),
+    );
+    expect(html).toContain('Open custody items unavailable');
+    expect(html).not.toContain('No open custody item');
   });
 });
 
