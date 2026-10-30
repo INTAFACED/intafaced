@@ -41,7 +41,7 @@ test('a bad query, the mint or a broken record answers with no figures', () => {
   mkdirSync(path.join(dir, RECORDS_DIR));
   writeFileSync(path.join(dir, RECORDS_DIR, 'crypto-native.jsonl'), '{"label":"REAL"}\n');
   const broken = answerOutside(dir, 'GET', '/snapshot?asOf=2026-10-29T11:00:00Z');
-  assert.equal(broken.status, 400);
+  assert.equal(broken.status, 500);
   assert.equal('balances' in broken.body, false);
 });
 

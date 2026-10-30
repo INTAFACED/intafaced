@@ -226,10 +226,7 @@ export function railStatement(stateDir, rail, asOf) {
 export function outsideSnapshot(stateDir, asOf) {
   if (typeof asOf !== 'string' || Number.isNaN(Date.parse(asOf))) throw new RailRecordError(`asOf "${asOf}" is not a time`);
   const byAsset = new Map();
-  for (const [slot, value] of signedTotals(stateDir, asOf)) {
-    const assetId = slot.split('\u0000')[1];
-    byAsset.set(assetId, (byAsset.get(assetId) ?? 0n) + value);
-  }
+  for (const { assetId, amount } of railTotals(stateDir, asOf)) byAsset.set(assetId, (byAsset.get(assetId) ?? 0n) + signedUnits(amount));
   return {
     source: 'rail',
     asOf: new Date(Date.parse(asOf)).toISOString(),
@@ -237,4 +234,9 @@ export function outsideSnapshot(stateDir, asOf) {
       .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
       .map(([assetId, value]) => ({ assetId, amount: formatUnits(value) })),
   };
+}
+
+/** A signed decimal string from railTotals back to scaled units. */
+function signedUnits(text) {
+  return text.startsWith('-') ? -units(text.slice(1)) : units(text);
 }

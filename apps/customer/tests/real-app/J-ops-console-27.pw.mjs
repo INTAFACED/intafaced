@@ -591,6 +591,8 @@ function ledgerOutside(rails) {
 const putOutsideBack = () => {
   if (outsideSource.read().rails) ledgerOutside(false);
 };
+// A step that fails or times out never reaches its own end, so the hooks put svc-ledger back before the next step. They
+// read one small state file and restart nothing unless a run left the switch on.
 test.beforeAll(putOutsideBack);
 test.afterEach(putOutsideBack);
 

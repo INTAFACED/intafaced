@@ -1613,6 +1613,15 @@ async function healthTable({ gateMarket = false } = {}) {
           : 'DOWN',
     ]);
   }
+  if (procs['outside-source']) {
+    const outside = await httpGet(`http://${HOST}:${OUTSIDE_SOURCE_PORT}/health`, 2500);
+    rows.push([
+      'outside-source',
+      OUTSIDE_SOURCE_PORT,
+      procs['outside-source'].pid ?? '-',
+      outside.status === 200 ? 'ok (TEST)' : `DOWN (${outside.status})`,
+    ]);
+  }
   const store = await httpGet(`${urlOf('video-store')}/health`, 2500);
   rows.push([
     'video-store',
@@ -1658,7 +1667,7 @@ function onlyFlag(flags) {
   const at = flags.indexOf('--only');
   if (at === -1) return null;
   const names = (flags[at + 1] ?? '').split(',').filter(Boolean);
-  const known = [...serviceNames(), 'video-store', 'customer', 'invitation', 'apex', 'admin'];
+  const known = [...serviceNames(), 'video-store', 'outside-source', 'customer', 'invitation', 'apex', 'admin'];
   const bad = names.filter((n) => !known.includes(n));
   if (names.length === 0 || bad.length)
     fail(`--only needs a comma list of: ${known.join(', ')}${bad.length ? ` (unknown: ${bad.join(', ')})` : ''}`, 2);
@@ -1867,7 +1876,7 @@ function cmdPlan(flags) {
 
 /** Stop the named services (plain stop, leaves Postgres and the rest alone), then start whatever is not running. */
 async function cmdRestart(names) {
-  const known = [...serviceNames(), 'video-store', 'customer', 'invitation', 'apex', 'admin'];
+  const known = [...serviceNames(), 'video-store', 'outside-source', 'customer', 'invitation', 'apex', 'admin'];
   const bad = names.filter((n) => !known.includes(n));
   if (names.length === 0 || bad.length)
     fail(`restart needs service names from: ${known.join(', ')}${bad.length ? ` (unknown: ${bad.join(', ')})` : ''}`, 2);
@@ -3245,7 +3254,11 @@ async function runCli() {
   else if (cmd === '__serve-invitation') serveCustomer(PORTS.invitation, SITES.invitation);
   else if (cmd === '__serve-apex') serveCustomer(PORTS.apex, SITES.apex);
   else if (cmd === '__serve-admin') await serveAdmin();
-  else if (cmd === '__serve-outside-source') serveOutsideSource({ host: HOST, port: OUTSIDE_SOURCE_PORT, stateDir: STATE });
+  else if (cmd === '__serve-outside-source')
+    serveOutsideSource({ host: HOST, port: OUTSIDE_SOURCE_PORT, stateDir: STATE }).on('error', (err) => {
+      console.error(`outside-source: cannot listen on ${HOST}:${OUTSIDE_SOURCE_PORT}: ${err.message}`);
+      process.exit(1);
+    });
   else if (cmd === '__serve-video-store')
     serveVideoStore({
       host: HOST,
