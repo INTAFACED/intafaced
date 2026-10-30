@@ -63,8 +63,10 @@ test('J-ops-console-01 #4 a module service page: owner, on call, dependencies, r
     await form.getByRole('button', { name: 'Save the service record' }).click();
     await expect(form.getByTestId('service-record-outcome')).toContainText('service record saved');
 
-    // Every panel with a source, each on its own: the record's three and the alerts read. On call, incidents, objectives and
-    // dashboards have no source in the product; they are asserted at the end, where each fails by name.
+    // Every panel, each on its own: the record's three and the alerts read. On call, incidents, objectives and dashboards
+    // have no source in the product: each must still be on the page, say so with its blocker, and show nobody and nothing
+    // in its place (a hidden panel or an invented on-call person fails here). Their content is asked for at the end, where
+    // each fails by name.
     await expect(page.getByTestId('service-owner-team')).toHaveText(RUN);
     await expect(page.getByTestId('service-dependencies').getByRole('link', { name: 'Identity' })).toHaveAttribute(
       'href',
@@ -73,6 +75,14 @@ test('J-ops-console-01 #4 a module service page: owner, on call, dependencies, r
     await expect(page.getByTestId('service-dependencies').getByRole('link', { name: 'Edge' })).toHaveAttribute('href', '/health/edge');
     await expect(page.getByTestId('service-runbook-path')).toHaveText(RUNBOOK);
     await expect(page.getByTestId('service-alerts')).toHaveAttribute('data-state', 'read');
+    for (const id of ['on-call', 'incidents', 'objectives', 'dashboards']) {
+      const panel = page.getByTestId(`service-${id}`);
+      await expect(panel).toBeVisible();
+      await expect(panel).toHaveAttribute('data-state', 'unwired');
+      await expect(panel).toContainText('no source');
+      await expect(panel).toContainText('ops.health_source_unwired');
+    }
+    await expect(page.getByTestId('service-on-call')).toContainText('nobody is shown as on call');
     for (const id of ['owner', 'dependencies', 'runbook'])
       await expect(page.getByTestId(`service-${id}`)).toHaveAttribute('data-state', 'read');
     // The module state is the board's own row for this module, read the same way.
