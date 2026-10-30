@@ -1,3 +1,4 @@
+// hand-declared-ok: svc-market's listing, review and purchase answers are declared only in services/svc-market/src/router.ts; packages/contracts has no market response schema yet.
 import { useState } from 'react';
 import { z } from 'zod';
 import { useApi, useSession } from '../session/session';
