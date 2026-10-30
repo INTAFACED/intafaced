@@ -136,7 +136,7 @@ test(`${J} #2 sorts the list, resizes a column, adds a section and a second name
   await expect(panel(page).locator('table')).toHaveAttribute('data-sorted', 'last:asc');
   // The resized column keeps its width, and the second list is still there to pick.
   const resized = panel(page).getByRole('separator', { name: 'Resize Last column' });
-  expect(await resized.evaluate((el) => el.parentElement.getBoundingClientRect().width)).toBeGreaterThan(before + 40);
+  await expect.poll(() => resized.evaluate((el) => el.parentElement.getBoundingClientRect().width)).toBeGreaterThan(before + 40);
   await expect(panel(page).getByRole('combobox', { name: 'List' }).locator('option', { hasText: 'Alts' })).toHaveCount(1);
 });
 
@@ -203,9 +203,8 @@ test(`${J} #5 opens a symbol's details: statistics and market rules, with a stat
   // The market rules are the service's own: the price step, amount step and minimum amount Edge publishes for BTC/USDT,
   // and trading open while the market is active.
   const market = await publicMarket('BTC/USDT');
-  const life = await (await fetch(`${EDGE}/api/v1/market-lifecycle/${encodeURIComponent('BTC/USDT')}`)).json();
-  // Orderable when the service says so and the market's lifecycle is open, as the desk reads it.
-  const orderable = market.orderable !== false && (!life.state || life.state === 'OPEN');
+  // Orderable when the service's market row says so and the lifecycle it carries is open, as the desk reads it.
+  const orderable = market.orderable === true && (market.lifecycle ? market.lifecycle.state === 'OPEN' : true);
   expect(await definitions(dialog.locator('dl[aria-label="Market rules"]'))).toEqual({
     'Price step': market.precision.price ?? 'not served',
     'Amount step': market.precision.amount ?? 'not served',

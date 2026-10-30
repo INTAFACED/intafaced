@@ -150,8 +150,6 @@ test(`${J} #5 exports the visible bars to a file`, async ({ page }) => {
   // Zoomed in, so the bars in view are fewer than the bars loaded and "visible" means something.
   await canvas(page).focus();
   for (let i = 0; i < 4; i += 1) await page.keyboard.press('+');
-  await page.waitForTimeout(300);
-  const exportedAt = Date.now();
   const readView = () =>
     canvas(page).evaluate((el) => ({
       from: Number(el.getAttribute('data-view-from')),
@@ -159,13 +157,33 @@ test(`${J} #5 exports the visible bars to a file`, async ({ page }) => {
       bars: Number(el.getAttribute('data-bars')),
       first: Number(el.getAttribute('data-first')),
     }));
-  const [file] = await Promise.all([page.waitForEvent('download'), tools(page).getByRole('button', { name: 'Export bars (CSV)' }).click()]);
-  expect(file.suggestedFilename()).toBe('chart-BTC-USDT-1m.csv');
-  const lines = readFileSync(await file.path(), 'utf8').split('\n');
+  const same = (a, b) => a.from === b.from && a.to === b.to && a.bars === b.bars && a.first === b.first;
+  // Export once the zoom has settled, and keep the export whose view did not move between the click and the read after
+  // it (a new bar arriving in between shifts the view; the export is then taken again).
+  let view;
+  let lines;
+  let exportedAt;
+  await expect
+    .poll(
+      async () => {
+        const before = await readView();
+        await page.waitForTimeout(200);
+        if (!same(before, await readView()) || !(before.to - before.from > 0)) return false;
+        exportedAt = Date.now();
+        const [file] = await Promise.all([
+          page.waitForEvent('download'),
+          tools(page).getByRole('button', { name: 'Export bars (CSV)' }).click(),
+        ]);
+        expect(file.suggestedFilename()).toBe('chart-BTC-USDT-1m.csv');
+        lines = readFileSync(await file.path(), 'utf8').split('\n');
+        view = await readView();
+        return same(before, view);
+      },
+      { message: 'an export whose view held still', intervals: [300] },
+    )
+    .toBe(true);
   expect(lines[0]).toMatch(/^# BTC\/USDT 1m bars; times are UTC; viewer time zone \S+/);
   expect(lines[1]).toBe('time_utc,open,high,low,close,volume,filled');
-  // The view as it was exported (read right after; a new bar in between would move it, and the counts below would show).
-  const view = await readView();
   const rows = lines.slice(2);
   for (const row of rows) expect(row).toMatch(/^\d{4}-\d\d-\d\dT\d\d:\d\d:00\.000Z,[\d.]+,[\d.]+,[\d.]+,[\d.]+,[\d.]+,(yes|no)$/);
   // The visible bars exactly: the bars whose centre is in view (indexes rounded from the view's edges), from the first to
@@ -176,10 +194,11 @@ test(`${J} #5 exports the visible bars to a file`, async ({ page }) => {
   const times = rows.map((r) => Date.parse(r.split(',')[0]));
   times.forEach((t, i) => expect(t).toBe(view.first + (from + i) * 60_000));
   // Each traded bar is Edge's own 1m candle, value for value; a filled bar repeats the close before it with no volume.
-  // The minute still forming at the export can trade again after it, so only finished minutes are compared.
+  // The minute still forming at the export can trade again after it, and a minute that closed in the last few seconds
+  // may not have reached the chart yet, so only minutes finished at least 5 s before the export are compared.
   const res = await fetch(`${EDGE}/api/v1/ohlcv/${encodeURIComponent('BTC/USDT')}?timeframe=1m&limit=240`);
   expect(res.status).toBe(200);
-  const forming = Math.floor(exportedAt / 60_000) * 60_000;
+  const forming = Math.floor((exportedAt - 5_000) / 60_000) * 60_000;
   const candles = new Map((await res.json()).map((c) => [c[0], c]));
   let previous = null;
   for (const row of rows) {
