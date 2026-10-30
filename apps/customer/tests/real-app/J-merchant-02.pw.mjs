@@ -838,10 +838,18 @@ test(`${J} #6 reads the verification history and the activation state: append-on
   const whileRestricted = await askRaw('merchantOps.activation.get', {});
   expect(whileRestricted.status()).toBe(403);
   expect((await whileRestricted.json()).error.message).toBe('pay.owner_grant_withdrawn');
-  // And the owner's room, opened now, shows no activation and no "Active since".
+  // And the owner's room, opened now, shows no activation and no "Active since". Its reads are refused while the
+  // business is restricted, each 403 (the withdrawn owner grant); they are taken out here so the end of the step still
+  // proves nothing else was refused.
+  const refusedBefore = refused.length;
+  const roomAsked = page.waitForResponse((r) => new URL(r.url()).pathname.endsWith('/api/pay/trpc/merchant.me'));
   await page.goto('/pay/compliance');
+  expect((await roomAsked).status(), "the room's own business read is refused while restricted").toBe(403);
   await expect(page.locator('main')).toBeVisible();
   await expect(page.locator('main')).not.toContainText(/Confirmed|Active since/);
+  const whileRestrictedRefused = refused.splice(refusedBefore);
+  expect(whileRestrictedRefused.length, 'the room read svc-pay while restricted').toBeGreaterThan(0);
+  for (const call of whileRestrictedRefused) expect(call, 'refused only as the withdrawn owner grant').toMatch(/^403 /);
 
   const restored = await control('Restore access', 'restore', 'TEST J-merchant-02 #6 restore', restricted.after);
   await expect(desk.getByRole('status')).toContainText('Account restored.');
