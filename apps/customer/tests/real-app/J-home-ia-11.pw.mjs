@@ -328,6 +328,8 @@ test(`${J} #3 the founder's Home shows a TEST deposit in the total, a TEST notic
   const row = inbox.getByTestId('nf-row').filter({ hasText: `${amount} ${asset}` });
   await expect(row).toHaveCount(1);
   await expect(row.getByTestId('nf-test')).toHaveText('TEST');
+  // Home shows only the newest row, so the inbox's own count is read from the services: exactly one row for that deposit.
+  expect(status.out).toContain(`  inbox  1 deposit-credited row  ${founder.handle}`);
 });
 
 test(`${J} #4 the same image started as staging or production: the seed service exits with an error and creates nothing`, async () => {
@@ -528,8 +530,11 @@ test(`${J} #5 the deployed apex, app and join hosts are served (BLOCKED until a 
   );
   const deployed = run('apps/customer/deployment/host-dispatch.mjs', ['--out', out], hosts);
   const receipt = existsSync(out) ? JSON.parse(readFileSync(out, 'utf8')) : null;
-  // Red only for this clause: a failure here is the check's own typed host refusal, never a crash.
-  if (deployed.status !== 0) expect(deployed.out).toMatch(/^host dispatch: (apex|app|join) .* host\.(apex|app|join)_[a-z_]+$/m);
+  // Red only for this clause: a failure here is the check's own typed host refusal (a blank host, a dark one, the wrong
+  // build, each with its detail), never a crash. This test also carries the apex's own build: the real apex is built
+  // outside this repo, so the stack's TEST stand-in in the test above proves the check, never the apex's build.
+  if (deployed.status !== 0)
+    expect(deployed.out).toMatch(/^host dispatch: (apex|app|join) (\(not checked\)|\S+) host\.[a-z_]+( \(.*\))?$/m);
   expect(
     deployed.status === 0 && receipt?.status === 'served' && receipt.test === undefined,
     `BLOCKED deployed_hosts: until a deployment names the hosts and serves them, the deployment check refuses:\n${deployed.out}`,
