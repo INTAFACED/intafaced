@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test';
 import {
+  asDesk,
   contactChannels,
   feedbackSummary,
   helpCentre,
@@ -59,21 +60,46 @@ async function expectContactCard(page) {
   else await expect(card.getByTestId('support-phone')).toContainText(owner.phone);
 }
 
+/** Set the published contact details as the support lead, from the revision just read; the stored details. */
+async function setContact(changes, reason) {
+  const current = await contactChannels();
+  const res = await asDesk('lead', 'mutation', 'setContactChannels', { ...changes, expectedRevision: current.revision, reason });
+  if (res.json?.result?.data === undefined) throw new Error(`setContactChannels refused (${res.status}): ${res.text.slice(0, 300)}`);
+  return res.json.result.data;
+}
+
 test(`${J} #1 /help is one front door: search, categories, the request button and a contact card that says "not set"`, async ({
   browser,
 }) => {
-  const page = await visitor(browser);
-  await page.goto('/help');
-  const main = page.locator('main');
-  await expect(main.getByRole('heading', { level: 1, name: 'How can we help?' })).toBeVisible();
-  await expect(main.getByLabel('Search answers')).toBeVisible();
-  await expect(main.getByRole('navigation', { name: 'Browse by topic' })).toBeVisible();
-  await expect(main.getByRole('button', { name: 'Send a request' })).toBeVisible();
-  await expectContactCard(page);
-  // Signed out, the request button asks for a sign-in in place; no mail draft stands in for the form.
-  await main.getByRole('button', { name: 'Send a request' }).click();
-  await expect(main.getByTestId('request-sign-in')).toBeVisible();
-  await page.context().close();
+  // The owner's contact details are cleared for this step, so "not set" is what the card must say, then put back.
+  if (process.env.VITE_SUPPORT_EMAIL) throw new Error('this build carries VITE_SUPPORT_EMAIL, so the "not set" state cannot be shown');
+  const found = await contactChannels();
+  const cleared = found.email !== null || found.phone !== null || found.chatHours !== null;
+  if (cleared) await setContact({ email: null, phone: null, chatHours: null }, `TEST ${J} #1 clear the contact details`);
+  try {
+    const page = await visitor(browser);
+    await page.goto('/help');
+    const main = page.locator('main');
+    await expect(main.getByRole('heading', { level: 1, name: 'How can we help?' })).toBeVisible();
+    await expect(main.getByLabel('Search answers')).toBeVisible();
+    await expect(main.getByRole('navigation', { name: 'Browse by topic' })).toBeVisible();
+    await expect(main.getByRole('button', { name: 'Send a request' })).toBeVisible();
+    const card = page.locator('aside[data-testid="contact-card"]');
+    await expect(card.getByTestId('support-email-unset')).toContainText('Support email is not set.');
+    await expect(card.getByTestId('support-phone-unset')).toHaveText('Support phone is not set.');
+    // No address anywhere: no mail link, and no address text on the page, the old one included.
+    await expect(page.locator('a[href^="mailto:"]')).toHaveCount(0);
+    const text = `${await main.innerText()}\n${await card.innerText()}`;
+    expect(text).not.toMatch(/[^\s@]+@[^\s@]+\.[A-Za-z]{2,}/);
+    if (found.email) expect(text).not.toContain(found.email);
+    // Signed out, the request button asks for a sign-in in place; no mail draft stands in for the form.
+    await main.getByRole('button', { name: 'Send a request' }).click();
+    await expect(main.getByTestId('request-sign-in')).toBeVisible();
+    await page.context().close();
+  } finally {
+    if (cleared)
+      await setContact({ email: found.email, phone: found.phone, chatHours: found.chatHours }, `TEST ${J} #1 put the contact details back`);
+  }
 });
 
 test(`${J} #2 with the help centre switched off, /help says so, keeps the contact card and still renders`, async ({ browser }) => {
@@ -353,6 +379,15 @@ test(`${J} #7 a staff-only answer reads as an address that never existed, and is
   let page = null;
   try {
     const { answer, word } = await narrowedAnswer('#7', 'st', 'staff', made);
+    // A public answer beside it in the same section, so the section's list is not empty by chance.
+    const sibling = await publishText({
+      id: `j01-${RUN}-st-public`,
+      title: `TEST public answer beside the staff one ${RUN}`,
+      body: 'TEST A public answer in the same section.',
+      language: 'en',
+      sectionId: `j01-${RUN}-st1`,
+      baseRevision: 0,
+    });
     page = await visitor(browser);
     const main = page.locator('main');
     // Signed out and then signed in as a customer: the staff answer and an id that never existed read the same.
@@ -372,6 +407,10 @@ test(`${J} #7 a staff-only answer reads as an address that never existed, and is
 
       await page.goto('/help');
       await expect(main.getByText('Published answers', { exact: false }).first()).toBeVisible();
+      await expect(main.getByText(word)).toHaveCount(0);
+      // The section that holds it lists the public answer beside it and not the staff one.
+      await page.goto(`/help/section/j01-${RUN}-st1`);
+      await expect(main.getByTestId('help__row').locator('h2')).toHaveText([sibling.title]);
       await expect(main.getByText(word)).toHaveCount(0);
       await main.getByRole('textbox', { name: 'Search answers' }).fill(word);
       await main.getByRole('button', { name: 'Search', exact: true }).click();
