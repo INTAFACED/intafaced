@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { businessReadyPerson, openBusiness, refusedPayCalls } from './merchant.mjs';
+import { MONEY_ROOMS, businessReadyPerson, everyRoomOpens, openBusiness, refusedPayCalls } from './merchant.mjs';
 
 // J-merchant-01, in the running app (docs/roadmap/journeys.json): open Business Pay and see my account as it really
 // is. The business is new and its verification not started, so its owner holds the onboarding grant only, not the
@@ -52,10 +52,10 @@ test(`${J} #3 a new business reads its KPI area: one explanation with a link to 
   expect(refused).toEqual([]);
 });
 
-test(`${J} #2 a business with verification not started: "Not verified", the owner role and the setup link, and the page never calls the founder console`, async ({
+test(`${J} #2 a business with verification not started: its checklist, "Not verified", every room reachable, Pay out and Refund leading to pages that say there is nothing to move yet, and no call to the founder console`, async ({
   page,
 }) => {
-  test.setTimeout(240_000);
+  test.setTimeout(420_000);
   const who = await businessReadyPerson(page, 'mh', '/pay/onboarding');
   await openBusiness(page, who, 'TEST Rooms Ltd');
   const refused = refusedPayCalls(page);
@@ -64,16 +64,81 @@ test(`${J} #2 a business with verification not started: "Not verified", the owne
   const errors = [];
   page.on('console', (msg) => msg.type() === 'error' && errors.push(msg.text()));
 
+  // The service's own word on this person's place in the business: the owner of an account that is not active yet,
+  // whose verification has not started.
   await page.getByRole('link', { name: 'Open the dashboard' }).click();
+  await expect(page).toHaveURL(/\/pay\/merchant$/);
+  // A fresh load, so the page reads it now rather than from what an earlier page kept.
+  // The body is read as the response arrives: a read the reload cuts off has no body, so it is not the one.
+  let sent = null;
+  const accessRead = page.waitForResponse(async (r) => {
+    if (!r.url().includes('merchant.myAccess') || r.status() !== 200) return false;
+    sent = await r.json().catch(() => null);
+    return sent !== null;
+  });
+  await page.reload();
+  await accessRead;
+  const memberships = (Array.isArray(sent) ? sent[0] : sent).result.data.memberships;
+  expect(memberships).toHaveLength(1);
+  // Verification not started: no KYB application and not verified (the account's own status is a separate field).
+  expect(memberships[0]).toMatchObject({ role: 'owner', kybStatus: 'none', verified: false });
   await expect(page.getByText('TEST Rooms Ltd').first()).toBeVisible();
   await expect(page.getByText('Not verified').first()).toBeVisible();
   const account = page.locator('main section').filter({ hasText: 'Business verification' }).last();
   await expect(account).toContainText('Not sent');
   await expect(account).toContainText('Your role');
   await expect(account).toContainText('Owner');
-  await expect(page.getByRole('link', { name: /Set up your account/ })).toHaveAttribute('href', '/pay/onboarding');
+
+  // The home page has no money action of its own; the money rooms' Pay out and Issue a refund are checked room by room
+  // below.
+
+  // The checklist: the setup steps, each in the state the service's own onboarding progress gives it.
+  await page.getByRole('link', { name: /Set up your account/ }).click();
+  await expect(page).toHaveURL(/\/pay\/onboarding$/);
+  // The body is read as the response arrives: a read the reload cuts off has no body, so it is not the one.
+  let progressBody = null;
+  const progressRead = page.waitForResponse(async (r) => {
+    if (!r.url().includes('merchant.onboarding.progress') || r.status() !== 200) return false;
+    progressBody = await r.json().catch(() => null);
+    return progressBody !== null;
+  });
+  await page.reload();
+  await progressRead;
+  const progress = (Array.isArray(progressBody) ? progressBody[0] : progressBody).result.data;
+  expect(progress.kybStatus).not.toBe('approved');
+  const verification = progress.kybStatus === 'pending' ? 'Waiting for review' : 'Up next';
+  const expected = [
+    ['Business details', progress.business.done ? 'Done' : 'Up next'],
+    ['Verification', verification],
+    ['Payout destination', progress.destination.present ? 'Done' : verification === 'Up next' ? 'Not started' : 'Up next'],
+  ];
+  const steps = page.getByRole('navigation', { name: 'Setup steps' }).getByRole('listitem');
+  await expect(steps).toHaveCount(expected.length);
+  for (const [i, [title, state]] of expected.entries()) {
+    await expect(steps.nth(i).getByRole('heading')).toHaveText(`Step ${i + 1} of 3: ${title}`);
+    await expect(steps.nth(i).locator('strong')).toHaveText(state);
+  }
   expect(refused).toEqual([]);
   expect(errors).toEqual([]);
+
+  // Every room is reachable from navigation.
+  const rooms = await everyRoomOpens(page);
+  await test
+    .info()
+    .attach('rooms-and-states.json', { body: JSON.stringify(Object.fromEntries(rooms), null, 2), contentType: 'application/json' });
+  // svc-pay does not hold back a payout or a refund for verification on test money: the payout door refuses KYB that is
+  // not approved only under live acquiring (`merchant-kyb-money-gate.ts`), and refunds are never KYB-gated. So each
+  // money room's action is on, and it leads to a page that says plainly there is nothing to move yet.
+  const target = (room) => (room === '/pay/refunds' ? '/pay/refunds/new' : '/pay/payouts/new');
+  for (const room of MONEY_ROOMS) expect(rooms.get(room).action, room).toEqual({ on: [target(room)] });
+  await page.goto('/pay/payouts/new');
+  await expect(page.getByText('Nothing is ready to pay out')).toBeVisible();
+  await expect(page.getByText('A settlement becomes payable once its statement is finalised.')).toBeVisible();
+  await expect(page.getByRole('button', { name: /^(Ask|Pay out|Send)/ })).toHaveCount(0);
+  await page.goto('/pay/refunds/new');
+  await expect(page.getByText('No refundable payments')).toBeVisible();
+  await expect(page.getByText('No payment matches, or everything has been refunded already.')).toBeVisible();
+  await expect(page.getByRole('button', { name: /^Refund/ })).toHaveCount(0);
   // The portal never asks the founder's console for anything.
   expect(asked.filter((url) => /founderAdmin/i.test(url))).toEqual([]);
 });

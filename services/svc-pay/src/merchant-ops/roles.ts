@@ -48,6 +48,7 @@ export const MERCHANT_PERMISSIONS = [
   'webhooks.manage',
   'products.read',
   'products.manage',
+  'payments.unmask',
 ] as const;
 export type MerchantPermission = (typeof MERCHANT_PERMISSIONS)[number];
 
@@ -79,6 +80,7 @@ const ROLE_PERMISSIONS: Record<MerchantRole, ReadonlySet<MerchantPermission>> = 
     'notifications.manage',
     'payout.request',
     'payout.approve',
+    'payments.unmask',
   ]),
   developer: new Set<MerchantPermission>([...READS, 'exports.create', 'webhooks.read', 'webhooks.manage', 'products.manage']),
   viewer: new Set<MerchantPermission>(READS),

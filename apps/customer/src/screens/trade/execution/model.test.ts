@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import type { Trade } from '@intafaced/exchange-contract/schemas';
 import type { Order } from '../../../features/trade/trade-api';
 import {
   MAX_SEED,
@@ -6,7 +7,9 @@ import {
   triggerProblem,
   MAX_SLICES,
   algoClientId,
+  bpsAsPercent,
   buildLadder,
+  chaseDistanceBps,
   CREATE_BLOCKER_CODE,
   createBlocker,
   defaultIntervalMs,
@@ -23,7 +26,7 @@ import {
   type LadderInput,
   type PlanDraft,
 } from './model';
-import { blotterCsv, buildBlotter, filterBlotter, inAlgoWindow } from './blotter';
+import { blotterCsv, buildBlotter, childParents, filterBlotter, inAlgoWindow } from './blotter';
 import { TEST_BATCH, TEST_ORDERS, TEST_WINDOWS } from './fixtures';
 import { roomWords } from '../rooms/refusals';
 import { execCopy } from './copy';
@@ -94,6 +97,31 @@ describe('schedule plan', () => {
     expect(defaultIntervalMs(3_600_000)).toBe(300_000);
     expect(defaultIntervalMs(5_000)).toBe(1000);
     expect(defaultIntervalMs(1000)).toBe(1000);
+  });
+});
+
+describe('chase', () => {
+  it('reads the maximum distance as a percent with at most two decimals, in bps', () => {
+    expect(chaseDistanceBps('2')).toBe(200);
+    expect(chaseDistanceBps('2.5')).toBe(250);
+    expect(chaseDistanceBps('0.01')).toBe(1);
+    expect(chaseDistanceBps('100')).toBe(10_000);
+    for (const bad of ['', ' ', '0', '0.00', '100.01', '101', '2.555', '-1', 'abc', '1e2']) expect(chaseDistanceBps(bad)).toBeNull();
+    expect(bpsAsPercent(200)).toBe('2');
+    expect(bpsAsPercent(250)).toBe('2.5');
+    expect(bpsAsPercent(1)).toBe('0.01');
+  });
+  it('a blank distance refuses the plan, naming it', () => {
+    const r = planSchedule({ ...draft, kind: 'chase', chaseDistance: '' });
+    expect(r.plan).toBeNull();
+    expect(r.problems).toEqual(['chaseDistance']);
+  });
+  it('plans one order with no slice interval, and refuses a limit price', () => {
+    const r = planSchedule({ ...draft, kind: 'chase', chaseDistance: '2', intervalMs: null, total: '0.5' });
+    expect(r.problems).toEqual([]);
+    expect(r.plan?.slices).toBe(1);
+    expect(r.plan?.perSlice).toBe('0.5');
+    expect(planSchedule({ ...draft, kind: 'chase', chaseDistance: '2', limit: '59000' }).problems).toEqual(['limit']);
   });
 });
 
@@ -225,9 +253,43 @@ describe('blotter', () => {
     expect(inAlgoWindow({ symbol: 'BTC/USDT', side: 'buy', time: w[0]!.toMs + 1 }, w)).toBe(false);
   });
   it('filters by source, side and market', () => {
-    expect(filterBlotter(rows, { market: 'all', side: 'all', source: 'scaled' })).toHaveLength(2);
-    expect(filterBlotter(rows, { market: 'all', side: 'sell', source: 'all' }).every((r) => r.side === 'sell')).toBe(true);
-    expect(filterBlotter(rows, { market: 'ETH/USDT', side: 'all', source: 'all' })).toHaveLength(0);
+    expect(filterBlotter(rows, { market: 'all', side: 'all', source: 'scaled', parent: 'all' })).toHaveLength(2);
+    expect(filterBlotter(rows, { market: 'all', side: 'sell', source: 'all', parent: 'all' }).every((r) => r.side === 'sell')).toBe(true);
+    expect(filterBlotter(rows, { market: 'ETH/USDT', side: 'all', source: 'all', parent: 'all' })).toHaveLength(0);
+  });
+  it("links an algo child and its fills to their schedule by the schedule's own list of children, outside any time window", () => {
+    const child = { ...TEST_ORDERS.manual, id: 'o-20', symbol: 'ETH/USDT', clientOrderId: 'algo:algo-u1-p1:3' } as Order;
+    const other = { ...TEST_ORDERS.manual, id: 'o-21', symbol: 'ETH/USDT', clientOrderId: 'algo:algo-u1-p2:0' } as Order;
+    const fillOf = (id: string, order: string) =>
+      ({ id, order, timestamp: child.timestamp, symbol: 'ETH/USDT', side: child.side, price: '1', amount: '1' }) as Trade;
+    const childOf = childParents([
+      { id: 'algo-u1-p1', children: [{ orderId: 'o-20' }, { orderId: 'o-22' }] },
+      { id: 'algo-u1-p2', children: [{ orderId: 'o-21' }] },
+    ]);
+    // o-22's order is no longer listed, but its schedule names it: its fill is still linked.
+    const linked = buildBlotter([child, other], [], [fillOf('f-1', 'o-20'), fillOf('f-2', 'o-22')], [], childOf);
+    expect(linked.map((r) => [r.id, r.source, r.parentId, r.byTime])).toEqual(
+      expect.arrayContaining([
+        ['order:o-20', 'algo', 'algo-u1-p1', false],
+        ['order:o-21', 'algo', 'algo-u1-p2', false],
+        ['fill:f-1', 'algo', 'algo-u1-p1', false],
+        ['fill:f-2', 'algo', 'algo-u1-p1', false],
+      ]),
+    );
+    const one = filterBlotter(linked, { market: 'all', side: 'all', source: 'all', parent: 'algo-u1-p1' });
+    expect(one.map((r) => r.id).sort()).toEqual(['fill:f-1', 'fill:f-2', 'order:o-20']);
+  });
+  it('never links by a client id anyone can type, and marks a time-only match as such', () => {
+    // An API order carrying a real schedule's id shape, that the schedule does not list.
+    const typed = { ...TEST_ORDERS.manual, id: 'o-30', symbol: 'ETH/USDT', clientOrderId: 'algo:algo-u1-p1:7' } as Order;
+    const inWindow = { ...TEST_ORDERS.manual, id: 'o-31', side: 'buy', timestamp: TEST_WINDOWS[0]!.fromMs + 1 } as Order;
+    const rows = buildBlotter([typed, inWindow], [], [], TEST_WINDOWS, childParents([{ id: 'algo-u1-p1', children: [] }]));
+    const by = Object.fromEntries(rows.map((r) => [r.id, [r.source, r.parentId, r.byTime]]));
+    expect(by['order:o-30']).toEqual(['manual', null, false]);
+    expect(by['order:o-31']).toEqual(['algo', null, true]);
+    expect(filterBlotter(rows, { market: 'all', side: 'all', source: 'all', parent: 'algo-u1-p1' })).toHaveLength(0);
+    // The export says which algo rows are only a guess.
+    expect(blotterCsv(rows.filter((r) => r.id === 'order:o-31')).split('\n')[1]).toContain(',algo_by_time,');
   });
   it('writes a CSV of exactly what is shown, with exact strings and safe text cells', () => {
     const csv = blotterCsv([{ ...rows[0]!, clientOrderId: '=cmd,"x"' }]);

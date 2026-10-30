@@ -138,6 +138,8 @@ import { createRequestSigningPolicyRouter } from './request-signing-policy-route
 import { createApiKeyRequestSignRouter } from './api-key-request-sign-router.js';
 import { createDeveloperKeysRouter } from './developer-keys-router.js';
 import { parseApiKeyCapByTier, parseApiKeyIdleExpirySeconds, passkeyMintRule } from './auth/developer-keys.js';
+import { createDeveloperSandboxesRouter } from './developer-sandboxes-router.js';
+import { parseSandboxBaseUrl, parseSandboxCapByTier } from './auth/developer-sandboxes.js';
 import { installApiKeyProductExchange, requestProductAls } from './auth/auth-service-product.js';
 import { installApiKeyAccountExchange } from './auth/bind-api-key-account.js';
 import { bootKycVault } from './kyc/boot-vault.js';
@@ -720,6 +722,15 @@ export const appRouter = mergeRouters(
     signingEncKey,
     signingWindowSeconds: requestSignWindowSeconds,
   }),
+  createDeveloperSandboxesRouter({
+    sql,
+    gate: auth,
+    kycTier: (userId, executor) => auth.kycTier(userId, executor),
+    capByTier: parseApiKeyCapByTier(env.IDENTITY_API_KEYS_MAX_BY_TIER),
+    mayMint: passkeyMintRule(sql),
+    sandboxCapByTier: parseSandboxCapByTier(env.IDENTITY_SANDBOXES_MAX_BY_TIER),
+    baseUrl: parseSandboxBaseUrl(env.IDENTITY_SANDBOX_BASE_URL),
+  }),
   createGrantsRouter(sql),
   createSessionRevokeAllRouter(sql),
   createSessionRevokeRouter(sql),
@@ -789,7 +800,7 @@ export const appRouter = mergeRouters(
   createMfaResetRouter(auth),
   createSupportRecoveryRouter(() => auth.supportRecoveryDeps()),
   createFreezeLinkRouter(auth),
-  createAppealsRouter(appeals),
+  createAppealsRouter(appeals, auth),
   createTrustedDevicesRouter(auth, securityStepUp),
   createRecoveryKeysRouter(new RecoveryKeys(sql, securityStepUp, founderPair ?? [])),
   createDeathNoticesRouter(() => ({ sql, now: () => new Date() })),

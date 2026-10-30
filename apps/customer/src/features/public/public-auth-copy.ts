@@ -43,6 +43,7 @@ export const publicAuthCopy = defineCopy(
     frozen: 'This account is frozen. Sign-in and money actions are paused. Only support can lift a freeze, so contact them to ask why.',
     closed: 'This account is closed. A closed account cannot be reopened. Contact support if you have a question about it.',
     stateHelp: 'Contact support',
+    stateAppeal: 'Appeal this freeze',
     needCode: 'Your password is right. Enter it again with the six-digit code from your authenticator app, or with a recovery code.',
     codeMismatch:
       'That code did not work. Every code works only once, and an app code changes every 30 seconds. Enter your password again with a new code.',
@@ -110,6 +111,7 @@ export const publicAuthCopy = defineCopy(
         'Esta cuenta está congelada. El acceso y las operaciones con dinero están en pausa. Solo el soporte puede levantar un congelamiento: contáctalo para saber el motivo.',
       closed: 'Esta cuenta está cerrada. Una cuenta cerrada no se puede reabrir. Contacta con el soporte si tienes alguna pregunta.',
       stateHelp: 'Contactar con el soporte',
+      stateAppeal: 'Apelar este congelamiento',
       needCode:
         'Tu contraseña es correcta. Introdúcela de nuevo con el código de seis dígitos de tu aplicación de autenticación o con un código de recuperación.',
       codeMismatch:
@@ -159,6 +161,7 @@ export const publicAuthCopy = defineCopy(
         'Ce compte est gelé. La connexion et les opérations d’argent sont suspendues. Seul le support peut lever un gel : contactez-le pour en connaître la raison.',
       closed: 'Ce compte est fermé. Un compte fermé ne peut pas être rouvert. Contactez le support si vous avez une question.',
       stateHelp: 'Contacter le support',
+      stateAppeal: 'Faire appel de ce gel',
       needCode:
         'Votre mot de passe est correct. Saisissez-le à nouveau avec le code à six chiffres de votre application d’authentification, ou avec un code de récupération.',
       codeMismatch:

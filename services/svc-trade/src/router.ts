@@ -10,6 +10,7 @@ import {
   serviceProcedure,
   TRPCError,
   type Context,
+  StepUpCheckError,
 } from '@intafaced/contracts';
 import { AuthError, requireTier, TIER_ORDER, type Principal } from '@intafaced/auth';
 import { checkAccess } from '@intafaced/config';
@@ -59,7 +60,7 @@ import { convertHistoryTrpcError } from './convert/convert-history.js';
 import { deskTrpcError } from './desk/errors.js';
 import { copyCloseTrpcError } from './copy/copy-close-errors.js';
 import { algoDeskProcedures, optionsDeskProcedures, rfqHistoryProcedures, scaleProcedures } from './desk/procedures.js';
-import { presentAlgoDesk, presentScheduleHonesty } from './algo/present.js';
+import { presentAlgoDesk, presentChase, presentScheduleHonesty } from './algo/present.js';
 import { MAX_ALGO_SEED } from './algo/schedule.js';
 import { awaitingTrigger, POV_BASES } from './algo/types.js';
 import { tradingControlsRouter } from './controls/router.js';
@@ -228,7 +229,7 @@ const algoParentOutputSchema = z.object({
   id: z.string(),
   symbol: z.string(),
   side: orderSideSchema,
-  kind: z.enum(['twap', 'vwap', 'pov']),
+  kind: z.enum(['twap', 'vwap', 'pov', 'chase']),
   totalQty: decimal,
   durationMs: z.number().int(),
   sliceIntervalMs: z.number().int(),
@@ -256,6 +257,14 @@ const algoParentOutputSchema = z.object({
   triggerPrice: decimal.nullable(),
   triggeredAt: z.string().nullable(),
   awaitingTrigger: z.boolean(),
+  /** Chase: the caller's maximum distance from the start price, in bps; null for other kinds. */
+  chaseMaxDistanceBps: z.number().int().nullable(),
+  /** Chase: the best same-side price read at create, the distance's origin. */
+  chaseStartPrice: decimal.nullable(),
+  /** Chase: the price of the newest child; null before the first child and for other kinds. */
+  chasePrice: decimal.nullable(),
+  /** Chase: how many times the child was re-priced (children placed after the first). */
+  chaseReprices: z.number().int().nullable(),
 });
 
 const signedDecimal = z.string().regex(/^-?\d+(\.\d{1,18})?$/, 'signed amounts are decimal strings with at most 18 decimal places');
@@ -272,7 +281,14 @@ const algoScheduleHonestySchema = {
 
 const algoGetOutputSchema = algoParentOutputSchema.extend({
   children: z.array(
-    z.object({ orderId: z.string(), sliceIndex: z.number().int(), time: z.string(), qty: decimal, basisQty: decimal.nullable() }),
+    z.object({
+      orderId: z.string(),
+      sliceIndex: z.number().int(),
+      time: z.string(),
+      qty: decimal,
+      basisQty: decimal.nullable(),
+      price: decimal.nullable(),
+    }),
   ),
   misses: z.array(z.object({ sliceIndex: z.number().int(), time: z.string(), code: z.string() })),
   filledQty: decimal,
@@ -455,6 +471,12 @@ export function toTrpcError(err: unknown): TRPCError {
   if (desk) return desk;
   const copyClose = copyCloseTrpcError(err);
   if (copyClose) return copyClose;
+  // Identity's step-up codes (a copy close-all) reach the person unchanged: confirm again (403), or identity could not
+  // check it (503).
+  if (err instanceof StepUpCheckError) {
+    const code = err.code === 'identity.step_up_required' ? 'FORBIDDEN' : 'SERVICE_UNAVAILABLE';
+    return new TRPCError({ code, message: err.message, cause: err });
+  }
   if (err instanceof TradingControlError) {
     let code: 'SERVICE_UNAVAILABLE' | 'CONFLICT' | 'FORBIDDEN' = 'FORBIDDEN';
     if (err.code === 'authority.unavailable') code = 'SERVICE_UNAVAILABLE';
@@ -1380,8 +1402,9 @@ export function createTradeRouter(
             limitPrice: decimal.optional(),
             clientAlgoId: z.string().trim().min(1).max(48),
             subAccountId: z.string().guid().optional(),
-            kind: z.enum(['twap', 'vwap', 'pov']).optional(),
+            kind: z.enum(['twap', 'vwap', 'pov', 'chase']).optional(),
             participationBps: z.number().int().min(1).max(10_000).optional(),
+            chaseDistanceBps: z.number().int().min(1).max(10_000).optional(),
             povBasis: z.enum(POV_BASES).optional(),
             randomSeed: z.number().int().min(0).max(MAX_ALGO_SEED).optional(),
             triggerPrice: decimal.optional(),
@@ -1404,6 +1427,7 @@ export function createTradeRouter(
               povBasis: input.povBasis,
               randomSeed: input.randomSeed,
               triggerPrice: input.triggerPrice === undefined ? undefined : parseAmount(input.triggerPrice),
+              chaseDistanceBps: input.chaseDistanceBps,
             });
             return presentAlgo(parent);
           }),
@@ -1684,7 +1708,13 @@ export function createTradeRouter(
         ),
 
       flatten: scopedProcedure('trade:write', { module: 'trade' })
-        .input(z.object({ followId: z.string().min(1).max(64) }))
+        .input(
+          z.object({
+            followId: z.string().min(1).max(64),
+            requestId: z.string().max(64).nullable().optional(),
+            stepUpApprovalId: z.string().max(128).nullable().optional(),
+          }),
+        )
         .output(copyFlattenOutput)
         .mutation(({ ctx, input }) =>
           guard(async () => {
@@ -2096,6 +2126,7 @@ function presentAlgo(parent: import('./algo/index.js').TwapParent) {
     triggerPrice: parent.triggerPrice == null ? null : formatAmount(parent.triggerPrice),
     triggeredAt: parent.triggeredAt ? parent.triggeredAt.toISOString() : null,
     awaitingTrigger: awaitingTrigger(parent),
+    ...presentChase(parent),
   };
 }
 

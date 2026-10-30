@@ -78,6 +78,7 @@ const COPY: Readonly<Record<string, Words>> = {
     title: 'Only some positions were closed',
     body: 'Part of your copied positions was closed and the rest is still open. Refresh the follow, then close what remains yourself on the spot desk.',
   },
+  'trade.copy_request_key_invalid': { title: 'This request can’t be sent', body: 'Refresh the page and try again. Nothing was closed.' },
   'trade.copy_flatten_unavailable': {
     title: 'Closing copied positions isn’t available',
     body: 'Nothing was closed and you are still following. Close positions yourself on the spot desk.',

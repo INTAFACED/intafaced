@@ -201,7 +201,7 @@ describe('LoanService.addCollateral refuses missing loan or mark before any post
 
   it('bank.loan_not_found — no loan.collateral.locked', async () => {
     const bank = createBankServices(sql, ledger, memoryLedgerHistory(ledger), {
-      loans: { priceSource: fixedPriceSource({ BTC: { price: '10000', quality: 'mid' } }, () => NOW) },
+      loans: { originationFeeBps: '0', priceSource: fixedPriceSource({ BTC: { price: '10000', quality: 'mid' } }, () => NOW) },
     });
 
     await expect(bank.loans.addCollateral({ loanId: MISSING, eventId: randomUUID(), amount: amt('1'), now: NOW })).rejects.toMatchObject({
@@ -213,12 +213,12 @@ describe('LoanService.addCollateral refuses missing loan or mark before any post
 
   it('bank.mark_missing — no extra lock', async () => {
     const openBank = createBankServices(sql, ledger, memoryLedgerHistory(ledger), {
-      loans: { priceSource: fixedPriceSource({ BTC: { price: '10000', quality: 'mid' } }, () => NOW) },
+      loans: { originationFeeBps: '0', priceSource: fixedPriceSource({ BTC: { price: '10000', quality: 'mid' } }, () => NOW) },
     });
     const opened = await seedOpenLoan(openBank, ledger);
     const locksBefore = ledger.journal().filter((tx) => tx.reason === 'loan.collateral.locked').length;
     const bank = createBankServices(sql, ledger, memoryLedgerHistory(ledger), {
-      loans: { priceSource: fixedPriceSource({}, () => NOW) },
+      loans: { originationFeeBps: '0', priceSource: fixedPriceSource({}, () => NOW) },
     });
 
     await expect(
@@ -246,7 +246,7 @@ describe('HTTP /trpc/loans.addCollateral — top-up through ledger-client', () =
 
   it('refuses bank.loan_not_found on the public door and posts nothing', async () => {
     const bank = createBankServices(sql, ledger, memoryLedgerHistory(ledger), {
-      loans: { priceSource: fixedPriceSource({ BTC: { price: '10000', quality: 'mid' } }, () => NOW) },
+      loans: { originationFeeBps: '0', priceSource: fixedPriceSource({ BTC: { price: '10000', quality: 'mid' } }, () => NOW) },
     });
     const app = await mountDoors(bank);
 
@@ -265,12 +265,12 @@ describe('HTTP /trpc/loans.addCollateral — top-up through ledger-client', () =
 
   it('refuses bank.mark_missing on the public door and posts no extra lock', async () => {
     const openBank = createBankServices(sql, ledger, memoryLedgerHistory(ledger), {
-      loans: { priceSource: fixedPriceSource({ BTC: { price: '10000', quality: 'mid' } }, () => NOW) },
+      loans: { originationFeeBps: '0', priceSource: fixedPriceSource({ BTC: { price: '10000', quality: 'mid' } }, () => NOW) },
     });
     const opened = await seedOpenLoan(openBank, ledger);
     const locksBefore = ledger.journal().filter((tx) => tx.reason === 'loan.collateral.locked').length;
     const bank = createBankServices(sql, ledger, memoryLedgerHistory(ledger), {
-      loans: { priceSource: fixedPriceSource({}, () => NOW) },
+      loans: { originationFeeBps: '0', priceSource: fixedPriceSource({}, () => NOW) },
     });
     const app = await mountDoors(bank);
 
@@ -290,7 +290,7 @@ describe('HTTP /trpc/loans.addCollateral — top-up through ledger-client', () =
 
   it('with a mark, posts loan.collateral.locked — no invented rate', async () => {
     const bank = createBankServices(sql, ledger, memoryLedgerHistory(ledger), {
-      loans: { priceSource: fixedPriceSource({ BTC: { price: '10000', quality: 'mid' } }) },
+      loans: { originationFeeBps: '0', priceSource: fixedPriceSource({ BTC: { price: '10000', quality: 'mid' } }) },
     });
     const opened = await seedOpenLoan(bank, ledger, new Date());
     const locksBefore = ledger.journal().filter((tx) => tx.reason === 'loan.collateral.locked').length;

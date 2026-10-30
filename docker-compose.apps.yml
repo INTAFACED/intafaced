@@ -1302,6 +1302,9 @@ services:
       PAY_URL: http://svc-pay:4006
       # Support agent live KB/ticket desk. Unset locally stays dark (`no_live_kb`).
       SUPPORT_URL: http://svc-support:4017
+      # A business team's members for team agents (`POST /internal/agents/team-membership`).
+      # Unset refuses every team call (`agents.membership_unavailable`). Compose pins bank on fleet.
+      BANK_URL: http://svc-bank:4009
       # `mock` by default so bringing the fleet up cannot spend money. The
       # upstream's identity is deployment configuration — set the
       # AGENTS_UPSTREAM_* block in .env to point it somewhere real.

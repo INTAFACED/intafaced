@@ -46,6 +46,14 @@ export type AgentErrorCode =
   | 'agents.spend.cap_exceeded'
   /** The person's own agent has no caps stored: nothing of it runs until they are set. */
   | 'agents.spend.cap_unset'
+  /** A team run would pass the member's allocation, a project's limit or the business pool's limit (team/hold.ts). */
+  | 'agents.team.allocation_exceeded'
+  | 'agents.team.project_limit_exceeded'
+  | 'agents.team.pool_exceeded'
+  /** A team run's member has no allocation in the business pool, or there is no pool: nothing runs on it unlimited. */
+  | 'agents.team.allocation_unset'
+  /** The person's own agent spent its monthly hard limit: new runs refuse until next month; a held run finishes. */
+  | 'agents.usage.hard_limit_reached'
   /** A session's usage window could not be paid at close: the session stays open and the window is retried. */
   | 'agents.window_unpaid';
 

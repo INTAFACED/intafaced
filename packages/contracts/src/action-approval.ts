@@ -107,17 +107,23 @@ export const SAME_PERSON_ACTION_TYPES = [
   // Close every position a copy follow holds and end the follow (CB-copy close-all, J-copy-bots-otc-03 #4). Identity
   // mints it; svc-trade consumes it before it reads the follow. It sells at market, so it can realise a loss.
   'trade.step_up.copy.flatten',
+  // A founder changes one account's governance role (MC-token-02, J-more-catalogue-10 #6). Identity mints it for the
+  // founder who runs the two-founder change; svc-token consumes it before the role is written. It moves no value.
+  'token.step_up.governance.setRole',
 ] as const;
 
 /**
  * Same-person rows are consumed only by the service named on the row.
  * Bank doors stay `svc-bank`. Pay destination step-up is `svc-pay`. A P2P order is `svc-p2p`.
- * A grid bot profit withdrawal and a copy close-all are `svc-trade`.
+ * A grid bot profit withdrawal and a copy close-all are `svc-trade`. A governance role change is `svc-token`.
  * Identity contact changes are `svc-identity`, because identity consumes them
  * itself and refuses a consume whose caller is not the target service.
  */
-export function samePersonTargetService(actionType: string): 'svc-bank' | 'svc-pay' | 'svc-identity' | 'svc-p2p' | 'svc-trade' {
+export function samePersonTargetService(
+  actionType: string,
+): 'svc-bank' | 'svc-pay' | 'svc-identity' | 'svc-p2p' | 'svc-trade' | 'svc-token' {
   if (actionType.startsWith('pay.step_up.')) return 'svc-pay';
+  if (actionType.startsWith('token.step_up.')) return 'svc-token';
   if (actionType.startsWith('trade.step_up.')) return 'svc-trade';
   if (actionType.startsWith('p2p.step_up.')) return 'svc-p2p';
   if (actionType.startsWith('identity.step_up.')) return 'svc-identity';

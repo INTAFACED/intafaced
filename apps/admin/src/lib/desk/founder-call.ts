@@ -113,8 +113,9 @@ export async function founderCall<T>(
 }
 
 /**
- * The same hop with a named bearer. Only `treasuryOps` (lib/accounts/holds-server.ts) passes anything but the founder's own token: the treasury
- * credential, for the procedures a founder session can never carry (`admin:treasury`).
+ * The same hop with a named bearer. Only the treasury hops (`treasuryOps` in lib/accounts/holds-server.ts and lib/recon-alerts/treasury.ts,
+ * `restoreTreasuryCall` in lib/restore/treasury.ts) pass anything but the founder's own token: the treasury credential, for the
+ * procedures a founder session can never carry (`admin:treasury`).
  */
 export async function edgeCall<T>(
   target: { readonly edgeUrl: string; readonly token: string },

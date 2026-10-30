@@ -20,6 +20,8 @@ export const COPY_FLATTEN_REFUSED_RESIDUAL =
 export type FlattenCopyPositionInput = {
   readonly followId: string;
   readonly followerId: string;
+  /** Only find the closes already placed under their business keys; never place one (a replay on a left follow, #6920). */
+  readonly lookupOnly?: boolean;
 };
 
 export type FlattenCopyRefuse = 'drift' | 'unavailable' | 'partial';
@@ -27,6 +29,8 @@ export type FlattenCopyRefuse = 'drift' | 'unavailable' | 'partial';
 export type FlattenCopyPositionResult = {
   readonly orderIds: readonly string[];
   readonly refuse?: FlattenCopyRefuse;
+  /** Lookup only: a leg still held has no close under its business key. */
+  readonly unplaced?: boolean;
 };
 
 export type FlattenCopyPositionPort = (principal: Principal, input: FlattenCopyPositionInput) => Promise<FlattenCopyPositionResult>;

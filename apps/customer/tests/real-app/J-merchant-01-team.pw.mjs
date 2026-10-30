@@ -1,53 +1,14 @@
 import { test, expect } from '@playwright/test';
 import { forgetSession } from './identity-factors.mjs';
-import { businessReadyPerson, openBusiness, refusedPayCalls, signInWithCode, verifiedBusiness } from './merchant.mjs';
+import { businessReadyPerson, everyRoomOpens, openBusiness, refusedPayCalls, signInWithCode, verifiedBusiness } from './merchant.mjs';
 
-// J-merchant-01 step 4 in the running app: every room opens from navigation for the owner of a new business, then a
-// finance team member of that business, once verified, sees asking for a payout on, and refunds off with who can. Kept
-// apart from J-merchant-01.pw.mjs because it needs an approved business, which the founder pair decides.
+// J-merchant-01 step 4 in the running app: every room opens from navigation for the owner of a new business, with its
+// own layout, an honest empty state where it lists records and no console error (`everyRoomOpens`). Then a finance team
+// member of that business, once verified, sees asking for a payout on, and refunds off with who can. Kept apart from
+// J-merchant-01.pw.mjs because it needs an approved business, which the founder pair decides.
 const J = 'J-merchant-01';
 
-/** Every room the portal's navigation reaches from the page, with its own address. */
-async function navRooms(page) {
-  const hrefs = await page.locator('nav a[href^="/pay/"]').evaluateAll((links) => links.map((a) => a.getAttribute('href')));
-  return [...new Set(hrefs)];
-}
-
-/**
- * The owner opens each room from navigation: its own heading, never "no access", no refused read, no console error,
- * and no room asks the founder's console for anything.
- */
-async function everyRoomOpens(page) {
-  const refused = refusedPayCalls(page);
-  const errors = [];
-  const asked = [];
-  const onConsole = (msg) => msg.type() === 'error' && errors.push(msg.text());
-  const onRequest = (req) => req.url().includes('/api/') && asked.push(req.url());
-  page.on('console', onConsole);
-  page.on('request', onRequest);
-  await page.goto('/pay/merchant');
-  await expect(page.locator('main h1').first()).toBeVisible();
-  await expect(page.locator('nav a[href^="/pay/"]').first()).toBeVisible();
-  const visited = new Set();
-  const queue = await navRooms(page);
-  while (queue.length) {
-    const room = queue.shift();
-    if (visited.has(room)) continue;
-    visited.add(room);
-    await page.goto(room);
-    await expect(page.locator('main h1').first(), room).toBeVisible();
-    await expect(page.getByText('You don’t have access'), room).toHaveCount(0);
-    for (const next of await navRooms(page)) if (!visited.has(next)) queue.push(next);
-  }
-  page.off('console', onConsole);
-  page.off('request', onRequest);
-  expect(visited.size).toBeGreaterThan(20);
-  expect(refused).toEqual([]);
-  expect(errors).toEqual([]);
-  expect(asked.filter((url) => /founderAdmin/i.test(url))).toEqual([]);
-}
-
-test(`${J} #4 every room opens from navigation with its own layout, and a finance team member may ask for a payout and is told only the owner can refund`, async ({
+test(`${J} #4 every room opens from navigation with its own layout and an honest empty state, no console errors, and a finance team member may ask for a payout and is told only the owner can refund`, async ({
   page,
 }) => {
   test.setTimeout(480_000);
@@ -56,7 +17,10 @@ test(`${J} #4 every room opens from navigation with its own layout, and a financ
 
   const owner = await businessReadyPerson(page, 'mown', '/pay/onboarding');
   const merchantId = await openBusiness(page, owner, 'TEST Team Ltd');
-  await everyRoomOpens(page);
+  const rooms = await everyRoomOpens(page);
+  await test
+    .info()
+    .attach('rooms-and-states.json', { body: JSON.stringify(Object.fromEntries(rooms), null, 2), contentType: 'application/json' });
   await verifiedBusiness(page, owner, merchantId);
   await forgetSession(page);
   await signInWithCode(page, owner, '/pay/team');

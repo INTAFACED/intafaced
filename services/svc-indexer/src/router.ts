@@ -36,6 +36,16 @@ import {
 } from './explorer/address.js';
 import { StateUnavailableError } from './chain/evm/address-state.js';
 import type { FindTx } from './explorer/search-networks.js';
+import {
+  CANDLE_SECONDS,
+  INDEXER_NOT_A_POOL,
+  INDEXER_POOL_FACTORY_UNSET,
+  POOL_WINDOW_SECONDS,
+  priceScale,
+  swapSide,
+  type ExplorerPoolReads,
+  type PoolFact,
+} from './explorer/pools.js';
 import { assessProjectionStream, INDEXER_STREAM_UNWIRED, type StreamBook, type StreamLevel } from './stream.js';
 import {
   INDEXER_BOOK_DEPTH_UNSET,
@@ -221,6 +231,11 @@ export interface IndexerRouterDeps {
   readonly addressPage?: AddressPageSource;
   /** D-explorer-02 the other networks a hash is looked up on, live. Absent or empty => the search names none. */
   readonly searchNetworks?: ReadonlyArray<{ readonly chainId: number; readonly find: FindTx }>;
+  /**
+   * D-explorer-05 pools: the stored reads, and the owner's factory whose pools are listed. Absent => `indexer.explorer_unwired`;
+   * a null factory (blank `INDEXER_POOL_FACTORY_ADDRESS`) => `indexer.pool_factory_unset`.
+   */
+  readonly pools?: { readonly reads: ExplorerPoolReads; readonly factory: string | null };
 }
 
 /**
@@ -395,6 +410,54 @@ function ownerLimit(explorer: ExplorerBlocksSource): number {
 }
 
 const addressInput = z.object({ chainId: z.number().int(), address: addressSchema });
+
+// Bounded so an out-of-range cursor is a typed BAD_REQUEST, never a database cast error.
+const poolCursorSchema = z.object({
+  height: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER),
+  index: z.number().int().min(0).max(2_147_483_647),
+  logIndex: z.number().int().min(0).max(2_147_483_647),
+});
+
+const poolSchema = z.object({
+  chainId: z.number().int(),
+  address: z.string(),
+  factory: z.string(),
+  token0: tokenSchema,
+  token1: tokenSchema,
+  feeBps: z.number().int(),
+  createdHeight: z.number().int(),
+  createdTx: z.string(),
+  /** Raw base units after the pool's latest Sync in a canonical block; null before its first. */
+  reserves: z.object({ reserve0: z.string(), reserve1: z.string(), height: z.number().int() }).nullable(),
+});
+
+function poolRow(chainId: number, pool: PoolFact): z.infer<typeof poolSchema> {
+  return {
+    chainId,
+    address: pool.pool,
+    factory: pool.factory,
+    token0: pool.token0,
+    token1: pool.token1,
+    feeBps: pool.feeBps,
+    createdHeight: pool.createdHeight,
+    createdTx: pool.createdTx,
+    reserves: pool.reserves
+      ? { reserve0: pool.reserves.reserve0.toString(), reserve1: pool.reserves.reserve1.toString(), height: pool.reserves.height }
+      : null,
+  };
+}
+
+/** The pool reads and the owner's factory, or the refusal that names what is missing. */
+function poolsOrRefuse(deps: IndexerRouterDeps): { explorer: ExplorerBlocksSource; reads: ExplorerPoolReads; factory: string } {
+  const explorer = explorerOrRefuse(deps);
+  if (!deps.pools) {
+    throw new TRPCError({ code: 'SERVICE_UNAVAILABLE', message: userCopy(INDEXER_EXPLORER_UNWIRED) });
+  }
+  if (deps.pools.factory === null) {
+    throw new TRPCError({ code: 'PRECONDITION_FAILED', message: userCopy(INDEXER_POOL_FACTORY_UNSET) });
+  }
+  return { explorer, reads: deps.pools.reads, factory: deps.pools.factory };
+}
 
 function explorerOrRefuse(deps: IndexerRouterDeps): ExplorerBlocksSource {
   assertServing(deps.indexer, deps.chainSource, deps.venue, deps.claimLiveClob);
@@ -853,6 +916,146 @@ export function createIndexerRouter(deps: IndexerRouterDeps) {
               return {
                 rows: fetched.slice(0, owner.limit).map((token) => ({ ...token, chainId: deps.chainId })),
                 more: fetched.length > owner.limit,
+                asOf: new Date().toISOString(),
+              };
+            } catch (err) {
+              throw toTrpcError(err);
+            }
+          }),
+      }),
+      pools: router({
+        /**
+         * D-explorer-05. Pools the owner's factory created, newest first, with their tokens and latest reserves. Another
+         * network has none here. Owner-bounded pages.
+         */
+        list: publicJurisdictionProcedure('indexer', 'protocol')
+          .input(z.object({ chainId: z.number().int(), cursor: poolCursorSchema.optional() }))
+          .output(z.object({ rows: z.array(poolSchema), nextCursor: poolCursorSchema.nullable(), asOf: z.string() }))
+          .query(async ({ input }) => {
+            try {
+              const { explorer, reads, factory } = poolsOrRefuse(deps);
+              const limit = ownerLimit(explorer);
+              const fetched =
+                input.chainId === deps.chainId
+                  ? await reads.list({ factory, limit, ...(input.cursor ? { cursor: input.cursor } : {}) })
+                  : [];
+              const rows = fetched.slice(0, limit);
+              const last = rows[rows.length - 1];
+              return {
+                rows: rows.map((pool) => poolRow(deps.chainId, pool)),
+                nextCursor: fetched.length > limit && last ? last.cursor : null,
+                asOf: new Date().toISOString(),
+              };
+            } catch (err) {
+              throw toTrpcError(err);
+            }
+          }),
+        /**
+         * One pool: its facts, the last day's swap count and token1 volume, and that day's price candles at the asked
+         * width. An address the factory did not create is `indexer.not_a_pool`. Candles need both tokens' decimals;
+         * without them `candles` is null and the page says the price was not read, never a guessed scale.
+         */
+        get: publicJurisdictionProcedure('indexer', 'protocol')
+          .input(addressInput.extend({ interval: z.enum(Object.keys(CANDLE_SECONDS) as [keyof typeof CANDLE_SECONDS]).default('1h') }))
+          .output(
+            z.object({
+              pool: poolSchema,
+              window: z.object({ since: z.string(), seconds: z.number().int() }),
+              volume1: z.string(),
+              swaps: z.number().int(),
+              candles: z
+                .array(
+                  z.object({
+                    start: z.number().int(),
+                    open: z.string(),
+                    high: z.string(),
+                    low: z.string(),
+                    close: z.string(),
+                    volume1: z.string(),
+                    swaps: z.number().int(),
+                  }),
+                )
+                .nullable(),
+              asOf: z.string(),
+            }),
+          )
+          .query(async ({ input }) => {
+            try {
+              const { reads, factory } = poolsOrRefuse(deps);
+              const pool = input.chainId === deps.chainId ? await reads.get({ factory, pool: input.address.toLowerCase() }) : null;
+              if (!pool) throw new TRPCError({ code: 'NOT_FOUND', message: userCopy(INDEXER_NOT_A_POOL) });
+              const now = new Date();
+              const since = new Date(now.getTime() - POOL_WINDOW_SECONDS * 1000);
+              const scale = priceScale(pool.token0.decimals, pool.token1.decimals);
+              const [volume, candles] = await Promise.all([
+                reads.volume({ pool: pool.pool, since }),
+                scale === null
+                  ? Promise.resolve(null)
+                  : reads.candles({ pool: pool.pool, since, seconds: CANDLE_SECONDS[input.interval], scale }),
+              ]);
+              return {
+                pool: poolRow(deps.chainId, pool),
+                window: { since: since.toISOString(), seconds: POOL_WINDOW_SECONDS },
+                volume1: volume.volume1.toString(),
+                swaps: volume.swaps,
+                candles: candles?.map((c) => ({ ...c, volume1: c.volume1.toString() })) ?? null,
+                asOf: now.toISOString(),
+              };
+            } catch (err) {
+              throw toTrpcError(err);
+            }
+          }),
+        /** A pool's swaps, newest first, each labelled from token0's side: buy (token0 out), sell (token0 in) or both. */
+        swaps: publicJurisdictionProcedure('indexer', 'protocol')
+          .input(addressInput.extend({ cursor: poolCursorSchema.optional() }))
+          .output(
+            z.object({
+              rows: z.array(
+                z.object({
+                  hash: z.string(),
+                  blockHeight: z.number().int(),
+                  index: z.number().int(),
+                  logIndex: z.number().int(),
+                  timestamp: z.number().int(),
+                  side: z.enum(['buy', 'sell', 'both']),
+                  sender: z.string(),
+                  recipient: z.string(),
+                  amount0In: z.string(),
+                  amount1In: z.string(),
+                  amount0Out: z.string(),
+                  amount1Out: z.string(),
+                }),
+              ),
+              nextCursor: poolCursorSchema.nullable(),
+              asOf: z.string(),
+            }),
+          )
+          .query(async ({ input }) => {
+            try {
+              const { explorer, reads, factory } = poolsOrRefuse(deps);
+              const limit = ownerLimit(explorer);
+              const pool = input.chainId === deps.chainId ? await reads.get({ factory, pool: input.address.toLowerCase() }) : null;
+              if (!pool) throw new TRPCError({ code: 'NOT_FOUND', message: userCopy(INDEXER_NOT_A_POOL) });
+              const fetched = await reads.swaps({ pool: pool.pool, limit, ...(input.cursor ? { cursor: input.cursor } : {}) });
+              const rows = fetched.slice(0, limit);
+              const last = rows[rows.length - 1];
+              return {
+                rows: rows.map((swap) => ({
+                  hash: swap.hash,
+                  blockHeight: swap.blockHeight,
+                  index: swap.index,
+                  logIndex: swap.logIndex,
+                  timestamp: swap.timestamp,
+                  side: swapSide(swap),
+                  sender: swap.sender,
+                  recipient: swap.recipient,
+                  amount0In: swap.amount0In.toString(),
+                  amount1In: swap.amount1In.toString(),
+                  amount0Out: swap.amount0Out.toString(),
+                  amount1Out: swap.amount1Out.toString(),
+                })),
+                nextCursor:
+                  fetched.length > limit && last ? { height: last.blockHeight, index: last.index, logIndex: last.logIndex } : null,
                 asOf: new Date().toISOString(),
               };
             } catch (err) {

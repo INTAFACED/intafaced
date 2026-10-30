@@ -26,6 +26,7 @@
  *   node tooling/scripts/local-test-gates.mjs p2p        register the TEST P2P payment method (two-person approval)
  *   node tooling/scripts/local-test-gates.mjs kyb        publish the TEST business verification requirements and upload rules
  *   node tooling/scripts/local-test-gates.mjs age <handle> <seconds>   move one TEST account's sign-up time back
+ *   node tooling/scripts/local-test-gates.mjs sandbox-funds set|unset   the TEST developer sandbox fund amount and resets per day in svc-pay (restarts pay)
  *   node tooling/scripts/local-test-gates.mjs status     read-only: what is open, who is verified
  *   node tooling/scripts/local-test-gates.mjs scoped-session --without <scope>   a founder console cookie whose scopes leave one out (JSON)
  *
@@ -86,6 +87,8 @@ import { TEST_AGREEMENTS, TEST_ELIGIBILITY_RULES } from './local-test-futures-te
 import { LOCAL_TEST_DEVICE_KEY } from './local-test-device.mjs';
 
 const SCRIPT = fileURLToPath(import.meta.url);
+/** Written by `sandbox-funds set`, read by local-stack-services/pay.mjs. */
+const SANDBOX_FUNDS_FILE = 'sandbox-funds.json';
 const REPO = path.resolve(path.dirname(SCRIPT), '..', '..');
 const HOST = '127.0.0.1';
 const PSQL = path.join(localPgBin(), 'psql');
@@ -357,6 +360,24 @@ async function libs() {
   }
 }
 
+/**
+ * The owner who sets the developer sandbox's TEST fund amount and resets per day (J-developer-02 #5, #8). They are
+ * svc-pay settings with no door, so this writes the stack's marker file that `local-stack-services/pay.mjs` reads and
+ * restarts pay; `unset` removes it and pay comes back with both blank, refusing Fund and Reset by name. The sandbox
+ * store holds TEST figures only and never reaches the ledger.
+ */
+function sandboxFunds(ctx, on) {
+  const file = path.join(ctx.paths.stateDir, SANDBOX_FUNDS_FILE);
+  if (on) fs.writeFileSync(file, `${JSON.stringify({ label: MARKERS.label, setAt: new Date().toISOString() })}\n`, { mode: 0o600 });
+  else fs.rmSync(file, { force: true });
+  const r = spawnSync(process.execPath, [path.join(path.dirname(SCRIPT), 'local-test-stack.mjs'), 'restart', 'pay'], {
+    encoding: 'utf8',
+    env: process.env,
+  });
+  if (r.status !== 0) throw new Error(`restarting pay failed: ${(r.stderr || r.stdout).trim().slice(-300)}`);
+  return on ? 'TEST fund amount and resets per day set; pay restarted' : 'fund amount and resets per day blank; pay restarted';
+}
+
 function psqlRead(secrets, role, sql) {
   const r = spawnSync(
     PSQL,
@@ -446,6 +467,11 @@ export function copyCursorRewindSql(followId, fillId) {
   RETURNING c.follow_id, c.copy_cursor_at::text, coalesce(c.copy_cursor_fill, '')`;
 }
 
+/** The rows an `UPDATE ... RETURNING` printed, without psql's `UPDATE <n>` command tag line after them. */
+export function copyRewindRows(lines) {
+  return lines.filter((row) => row.length === 3);
+}
+
 /** Runs copyCursorRewindSql for a follow whose follower is a LOCAL TEST journey account; anything else is refused. */
 export function rewindCopyCursor(secrets, followId, fillId) {
   const sql = copyCursorRewindSql(followId, fillId);
@@ -458,7 +484,7 @@ export function rewindCopyCursor(secrets, followId, fillId) {
     `SELECT handle::text FROM identity.users WHERE id = '${follower[0]}'::uuid AND email LIKE '%@local-test.invalid'`,
   );
   if (!account) throw new Error(`copy-rewind refuses ${followId}: its follower is not a LOCAL TEST journey account`);
-  const rows = psqlRead(secrets, 'svc_trade', sql);
+  const rows = copyRewindRows(psqlRead(secrets, 'svc_trade', sql));
   if (rows.length !== 1) throw new Error(`copy-rewind: fill ${fillId} is not a fill of follow ${followId}'s leader`);
   const [, at, fill] = rows[0];
   return { followId, handle: account[0], cursorAt: at, cursorFill: fill || null };
@@ -2807,7 +2833,9 @@ export async function tradingRestrict(ctx, handle, action, reasonCode) {
  * restriction's actor and its approver (`trading-restrict` runs as founder a with founder b's approval), so the stack's
  * test operator a decides, with a code from the TEST decision reason list. A lift also takes the trading restore's
  * four-eyes approval over the reason `appeal:<id>`: operator a proposes it, operator b approves it, and identity spends
- * it in the decision. `--as-restrictor` asks as founder a instead, to show identity refuses that person.
+ * it in the decision. A staff freeze's appeal (J-identity-11 #5; `freezeIdentity` runs as founder a) is decided by founder
+ * b, and its lift spends an `identity.account_unfreeze` approval over the same reason that founder b proposes and operator
+ * a approves. `--as-restrictor` asks as founder a instead, to show identity refuses that person.
  */
 export async function appealDecide(ctx, handle, decision, reasonCode, flag) {
   if (
@@ -2825,11 +2853,15 @@ export async function appealDecide(ctx, handle, decision, reasonCode, flag) {
   const who = (s) => s.op?.handle ?? s.op?.email ?? null;
   if ([ops.a, ops.b].some((o) => who(o) === null || who(o) === who(founders.a) || who(o) === who(founders.b)) || who(ops.a) === who(ops.b))
     throw new Error('appeal-decide needs two operators who are neither founder: the restrictors cannot decide');
-  // The decider's session carries compliance (the decision) and the trade operator scope (the restore it runs).
-  const deciderToken = await (flag === '--as-restrictor' ? founders.a : ops.a).complianceToken();
-  const queue = data(await ctx.edge.query('identity', 'accountAppeal.queue', { limit: 100 }, deciderToken));
+  const queue = data(await ctx.edge.query('identity', 'accountAppeal.queue', { limit: 100 }, await ops.a.complianceToken()));
   const appeal = queue?.appeals?.find((a) => a.userId.toLowerCase() === user.id.toLowerCase());
   if (!appeal) throw new Error(`appeal-decide: ${handle} has no open appeal (${JSON.stringify(queue)})`);
+  // A staff freeze is set by founder a (stack.mjs `staffFreeze`) and only a live founder restores one, so founder b
+  // decides it; a trading restriction is set by founder a with founder b's approval, so test operator a decides it.
+  // The decider's session carries compliance (the decision) and the operator scope (the restore it runs).
+  const staff = appeal.restriction === 'staff_freeze';
+  const decider = flag === '--as-restrictor' ? founders.a : staff ? founders.b : ops.a;
+  const deciderToken = await decider.complianceToken();
   const ids = { appealId: appeal.id, decision, reasonCode, expectedVersion: appeal.version };
   if (flag === '--as-restrictor') {
     const res = await ctx.edge.mutate('identity', 'accountAppeal.decide', { ...ids, decision: 'uphold' }, deciderToken);
@@ -2840,56 +2872,50 @@ export async function appealDecide(ctx, handle, decision, reasonCode, flag) {
     const done = data(res);
     return { handle, decision, ok: done?.status === 'upheld', why: done ? `${done.status}, appeal ${done.id}` : refusalText(res) };
   }
-  const { founderChangeHash } = await load('packages/contracts/dist/founder-change-hash.js');
-  const restrictionVersion = await tradingVersion(ctx, ops, user.id);
+  // A lift spends the restore's four-eyes approval over the reason `appeal:<id>`, at the version the appeal names: the
+  // decider proposes it and someone else approves it (identity spends it only when its requester is the decider).
+  const restrictionVersion = appeal.restrictionVersion;
   const reason = `appeal:${appeal.id.toLowerCase()}`;
-  const payloadHash = founderChangeHash({ area: 'trading', userId: user.id.toLowerCase(), action: 'restore', reason }, restrictionVersion);
+  const { founderChangeHash } = await load('packages/contracts/dist/founder-change-hash.js');
+  const proposal = staff
+    ? {
+        actionType: 'identity.account_unfreeze',
+        payloadHash: identityPayloadHash(user.id, { reason }),
+        proposer: founders.b.approvalToken(),
+        approver: ops.a.approvalToken(),
+      }
+    : {
+        actionType: 'trading.restrict',
+        payloadHash: founderChangeHash({ area: 'trading', userId: user.id.toLowerCase(), action: 'restore', reason }, restrictionVersion),
+        proposer: ops.a.tradeOpsToken(),
+        approver: ops.b.tradeOpsToken(),
+      };
   const proposed = await ctx.edge.mutate(
     'identity',
     'actionApproval.propose',
     {
-      actionType: 'trading.restrict',
+      actionType: proposal.actionType,
       targetService: 'svc-identity',
       targetId: user.id,
       expectedVersion: restrictionVersion,
-      payloadHash,
+      payloadHash: proposal.payloadHash,
       policyVersion: MARKERS.policyVersion,
     },
-    await ops.a.tradeOpsToken(),
+    await proposal.proposer,
   );
   const approvalId = data(proposed)?.approvalId;
   if (!approvalId) throw new Error(`actionApproval.propose refused (${proposed.status}): ${refusalText(proposed)}`);
   const approved = await ctx.edge.mutate(
     'identity',
     'actionApproval.approve',
-    { approvalId, expectedPayloadHash: payloadHash },
-    await ops.b.tradeOpsToken(),
+    { approvalId, expectedPayloadHash: proposal.payloadHash },
+    await proposal.approver,
   );
   if (data(approved)?.status !== 'APPROVED')
     throw new Error(`actionApproval.approve refused (${approved.status}): ${refusalText(approved)}`);
   const res = await ctx.edge.mutate('identity', 'accountAppeal.decide', { ...ids, approvalId, restrictionVersion }, deciderToken);
   const done = data(res);
   return { handle, decision, ok: done?.status === 'lifted', why: done ? `${done.status}, appeal ${done.id}` : refusalText(res) };
-}
-
-/** The trading restriction's current version, read the way `trading-restrict` reads it: a change with no approval refuses with it. */
-async function tradingVersion(ctx, pair, userId) {
-  const probe = data(
-    await ctx.edge.mutate(
-      'identity',
-      'accountControls.change',
-      {
-        requestId: crypto.randomUUID(),
-        target: { area: 'trading', userId },
-        action: 'restore',
-        reason: 'LOCAL TEST probe',
-        expectedVersion: '0',
-      },
-      await pair.a.tradeOpsToken(),
-    ),
-  );
-  if (probe?.current?.version === undefined) throw new Error(`appeal-decide: no current trading state (${JSON.stringify(probe)})`);
-  return probe.current.version;
 }
 
 /** Submit what this stack can submit for itself, then approve everything pending. */
@@ -3053,6 +3079,8 @@ async function main() {
   // Usage first: a typo never signs anyone in or touches the stack.
   if (cmd === 'posting-freeze' && process.argv[3] !== 'on' && process.argv[3] !== 'off')
     die('usage: local-test-gates.mjs posting-freeze on|off', 2);
+  if (cmd === 'sandbox-funds' && process.argv[3] !== 'set' && process.argv[3] !== 'unset')
+    die('usage: local-test-gates.mjs sandbox-funds set|unset', 2);
   let ctx;
   try {
     ctx = await makeContext({ shareSessions: true });
@@ -3068,6 +3096,8 @@ async function main() {
       if (!without) die('usage: local-test-gates.mjs scoped-session --without <scope>', 2);
       const { cookies } = await scopedConsoleSession(ctx, without);
       process.stdout.write(`${JSON.stringify({ cookies })}\n`);
+    } else if (cmd === 'sandbox-funds') {
+      say(`  sandbox   ${sandboxFunds(ctx, process.argv[3] === 'set')}`);
     } else if (cmd === 'operators') {
       const ops = await ensureOperators(ctx);
       say(`operators ready: ${ops.a.handle}, ${ops.b.handle} (credentials in ${ctx.paths.operators}, mode 600)`);

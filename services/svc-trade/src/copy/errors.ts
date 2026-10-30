@@ -38,6 +38,7 @@ export type CopyErrorCode =
   | 'trade.copy_paused'
   | 'trade.copy_stopped'
   | 'trade.copy_detached'
+  | 'trade.copy_request_key_invalid'
   | 'trade.copy_leader_resume_forbidden'
   | 'trade.copy_state_invalid'
   | 'trade.copy_flatten_refused'

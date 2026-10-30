@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { EDGE } from './stack.mjs';
+import { chartBars, expectLines, F } from './charts-desk-studies.mjs';
 
 // J-charts-desk-03 "I add indicators, tune them, and read their values" (docs/roadmap/journeys.json). One test per step,
 // titled "J-charts-desk-03 #<n>", run in the Real-app journeys workflow. Each test opens the workbench on
@@ -135,6 +136,21 @@ test('J-charts-desk-03 #2 adds a moving average with period 50 on High and sets 
     inputs: { period: '50', source: 'high' },
     color: 'ma-2',
   });
+  // Drawn with that style: the library's line for sma-1 is a line on the price pane in the ma-2 token's colour.
+  const ma2 = await page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--if-ma-2').trim());
+  expect(ma2).not.toBe('');
+  await expect
+    .poll(async () => JSON.parse((await host(page).getAttribute('data-study-series')) ?? '[]').find((x) => x.key === 'sma-1'))
+    .toEqual({ key: 'sma-1', pane: 0, type: 'Line', color: ma2 });
+  // Drawn with those inputs: the value at the last bar is the mean of the last 50 highs.
+  await page.getByRole('checkbox', { name: 'Legend always shown' }).check();
+  await expectLines(page, 'sma-1', 2, (bars) => ({
+    'SMA 50 high': F.sma(
+      bars.map((b) => b.h),
+      50,
+      bars.length - 1,
+    ),
+  }));
 });
 
 test('J-charts-desk-03 #3 adds EMA(20), Volume, MACD, Stochastic, Bollinger and VWAP; the values equal the formula to the tick', async ({
@@ -157,6 +173,29 @@ test('J-charts-desk-03 #3 adds EMA(20), Volume, MACD, Stochastic, Bollinger and 
   await page.getByRole('checkbox', { name: 'Legend always shown' }).check();
   await expectWorked(page, 'ema-1', (closes) => twoDecimals(ema(closes, 20)));
   await expect(legend(page)).not.toContainText('This market has no volume in the loaded bars.');
+  // Every other study's lines at the last bar, worked here from the bars the chart holds (BTC/USDT: price 0.01, so two
+  // decimals; volume at the 0.00001 lot, five; Stochastic in percent, two).
+  const at = (bars) => bars.length - 1;
+  const closesOf = (bars) => bars.map((b) => b.c);
+  await expectLines(page, 'volume-1', 5, (bars) => {
+    const b = bars[at(bars)];
+    return { Volume: b.filled || !(b.v > 0) ? null : b.v };
+  });
+  await expectLines(page, 'macd-1', 2, (bars) => {
+    const m = F.macd(closesOf(bars), 12, 26, 9);
+    return { 'MACD 12 26 9': m.line[at(bars)], Signal: m.signal[at(bars)], Histogram: m.histogram[at(bars)] };
+  });
+  await expectLines(page, 'stochastic-1', 2, (bars) => {
+    const k = bars.map((_, i) => F.stochK(bars, 14, i));
+    const i = at(bars);
+    const d = k.slice(i - 2, i + 1).some((x) => x === null) ? null : (k[i] + k[i - 1] + k[i - 2]) / 3;
+    return { '%K 14': k[i], '%D 3': d };
+  });
+  await expectLines(page, 'bollinger-1', 2, (bars) => {
+    const b = F.bollinger(closesOf(bars), 20, 2, at(bars));
+    return { Upper: b.upper, Middle: b.middle, Lower: b.lower };
+  });
+  await expectLines(page, 'vwap-1', 2, (bars) => ({ VWAP: F.vwap(bars, at(bars)) }));
 });
 
 test('J-charts-desk-03 #4 hides an indicator on one interval only; it shows on the others and the setting is remembered', async ({
@@ -181,8 +220,29 @@ test('J-charts-desk-03 #5 sets the legend to always show: the values of the last
   await addStudy(page, 'sma', 'Simple moving average');
   await expect(row(page, 'sma-1').getByText(/^\d+\.\d\d$/)).toHaveCount(0);
   await page.getByRole('checkbox', { name: 'Legend always shown' }).check();
-  // The OHLC legend of the chart shows the last bar with no pointer over the chart, and the indicator values sit beside it.
-  await expect(page.getByTestId('chart-legend')).toBeVisible();
+  // The OHLC legend of the chart shows the last bar with no pointer over the chart: its open, high, low and close are the
+  // last bar's, worked from the public candles. The indicator values sit beside it.
+  await page.mouse.move(0, 0);
+  await expect
+    .poll(
+      async () => {
+        const bars = await chartBars();
+        const last = bars[bars.length - 1];
+        const shown = await page.getByTestId('chart-legend').locator('b').allTextContents();
+        return (
+          shown
+            .slice(0, 4)
+            .map((x) => Number(x.replace(/,/g, '')))
+            .join(' ') ===
+          [last.o, last.h, last.l, last.c]
+            .map((x) => x.toFixed(2))
+            .map(Number)
+            .join(' ')
+        );
+      },
+      { timeout: 30_000 },
+    )
+    .toBe(true);
   await expectWorked(page, 'sma-1', (closes) => sma(closes, 20));
 });
 
@@ -201,7 +261,34 @@ test('J-charts-desk-03 #6 with the data window open, moving the crosshair over a
   const windowText = page.getByTestId('data-window');
   await expect(windowText).toContainText('SMA 20');
   await expect(windowText).toContainText('EMA 20');
-  await expect(windowText.getByText(/^\d+\.\d\d$/).first()).toBeVisible();
+  // Every value at the hovered bar (the window names its time): that bar's open, high, low and close, and each study's
+  // value at that bar, worked here from the bars the chart holds.
+  await expect
+    .poll(
+      async () => {
+        const cursor = Number(await windowText.getAttribute('data-cursor'));
+        const bars = await chartBars();
+        const i = bars.findIndex((b) => b.t === cursor * 1000);
+        if (i < 20) return `hovered bar ${cursor} not found far enough in`;
+        const b = bars[i];
+        const ohlc = (await windowText.locator('dd').allTextContents()).map(Number);
+        const lines = Object.fromEntries(
+          (await windowText.locator('li').allTextContents()).map((x) => {
+            const m = /^(.*) (\S+)$/.exec(x.trim());
+            return [m[1], m[2]];
+          }),
+        );
+        const closes = bars.map((x) => x.c);
+        const near = (text, value) => Math.abs(Number(text) - value) <= 0.005 + 1e-9;
+        return [
+          ohlc.join(' ') === [b.o, b.h, b.l, b.c].join(' '),
+          near(lines['SMA 20'], F.sma(closes, 20, i)),
+          near(lines['EMA 20'], F.emaLine(closes, 20)[i]),
+        ].join(' ');
+      },
+      { timeout: 30_000 },
+    )
+    .toBe('true true true');
 });
 
 test('J-charts-desk-03 #7 opens chart settings: the sections are there, a change is saved for this device and read back after a reload', async ({
