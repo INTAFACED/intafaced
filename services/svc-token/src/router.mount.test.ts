@@ -1274,6 +1274,17 @@ describe('governance settings and roles — the founders doors (MC-token-02)', (
         .createCaller(writer())
         .governance.setRole({ userId: OTHER, role: 'moderator', expectedRevision: 0, ...APPROVAL }),
     ).rejects.toMatchObject({ code: 'PRECONDITION_FAILED' });
+    // A third founder runs a role that the receiving founder asked for: refused, nothing written.
+    const asked: ActionApprovalConsumer = {
+      async consume(i) {
+        return { ...(await stubApprovalConsumer(CONFIRM).consume(i)), requesterId: OTHER };
+      },
+    };
+    await expect(
+      createTokenRouter(token, { approvals: asked })
+        .createCaller(writer())
+        .governance.setRole({ userId: OTHER, role: 'moderator', expectedRevision: 0, ...APPROVAL }),
+    ).rejects.toMatchObject({ code: 'BAD_REQUEST', cause: { code: 'token.role_invalid' } });
     expect(token.setGovernanceRole).toHaveBeenCalledTimes(1);
     let consumed = 0;
     const counting: ActionApprovalConsumer = {

@@ -1268,6 +1268,9 @@ export function createTokenRouter(token: TokenService, options: TokenRouterOptio
               String(input.expectedRevision),
             );
             const confirmOperatorId = requireDualControl(ctx.principal.userId, consumed.approverId);
+            // Whoever asked for or approved the change is never the account that receives the role.
+            if (consumed.requesterId === input.userId || consumed.approverId === input.userId)
+              throw new TokenError('A role is never asked for or approved by the account that receives it', 'token.role_invalid');
             const stored = await token.setGovernanceRole({
               userId: input.userId,
               role: input.role,
