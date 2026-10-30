@@ -96,7 +96,9 @@ if (!available) {
         return sandboxCaps;
       },
       baseUrl: 'http://localhost:14500',
-      mayMint: (userId, factor) => mintRule?.(userId, factor),
+      mayMint: async (userId, factor) => {
+        await mintRule?.(userId, factor);
+      },
     }),
   );
 
