@@ -55,6 +55,10 @@ test(`${J} #1 opens Send and types a new address: a summary; confirming needs th
   await send(page).getByRole('button', { name: 'Review' }).click();
   const summary = page.getByRole('dialog', { name: 'Review the send' });
   await expect(summary).toContainText(FRIEND);
+  // The summary names who sends, how much of which token, and on which network.
+  await expect(summary).toContainText(`From${wallet.address}`);
+  await expect(summary).toContainText('Amount1 TEST Token A');
+  await expect(summary).toContainText('NetworkBase Sepolia');
   const confirm = summary.getByRole('button', { name: 'Send' });
   await expect(confirm).toBeDisabled();
   await summary.getByRole('textbox', { name: /^Last four characters/ }).fill(FRIEND.slice(-4));
@@ -64,7 +68,13 @@ test(`${J} #1 opens Send and types a new address: a summary; confirming needs th
   await send(page).getByRole('textbox', { name: /^To/ }).fill(CONTRACT);
   await send(page).getByRole('button', { name: 'Review' }).click();
   await expect(summary.getByRole('note')).toContainText('This address is a contract.');
-  await expect(summary.getByRole('checkbox', { name: /I know this is a contract/ })).not.toBeChecked();
+  const tick = summary.getByRole('checkbox', { name: /I know this is a contract/ });
+  await expect(tick).not.toBeChecked();
+  // The last four alone do not open Send for a contract; the tick does.
+  await summary.getByRole('textbox', { name: /^Last four characters/ }).fill(CONTRACT.slice(-4));
+  await expect(confirm).toBeDisabled();
+  await tick.check();
+  await expect(confirm).toBeEnabled();
   await summary.getByRole('button', { name: 'Back' }).click();
 
   await send(page).getByRole('textbox', { name: /^To/ }).fill(wallet.address);
