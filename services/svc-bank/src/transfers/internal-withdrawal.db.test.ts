@@ -75,14 +75,14 @@ describe('internal withdrawal settlement (Postgres)', () => {
     bank = createBankServices(sql, stamped, memoryLedgerHistory(ledger), {
       nativeAssetId: 'IFC',
       recipients,
-      ramps: { securityLock: { read: async () => ({ locked, unlocksAt: null }) } },
+      ramps: { securityLock: { read: async () => ({ locked, unlocksAt: null, selfFrozen: false }) } },
       handles: memoryPartyHandles({ [ADA]: 'ada', [BOB]: 'bob' }),
     });
     await ledger.post(recipes.deposit({ userId: ADA, assetId: 'USDT', amount: parseAmount('100'), rail: 'test', railRef: 'ada-1' }));
     await sql`INSERT INTO bank.personal_transfer_terms (asset_id, per_transfer_limit, daily_limit, fee) VALUES ('USDT', 50, 1000, 0)`;
   });
 
-  const open = { read: async () => ({ locked: false, unlocksAt: null }) };
+  const open = { read: async () => ({ locked: false, unlocksAt: null, selfFrozen: false }) };
   const available = async (userId: string) => formatAmount((await ledger.balance(userAvailable(userId, 'USDT'))).amount);
   const sends = () => ledger.journal().filter((tx) => tx.idempotencyKey.startsWith('bank.transfer.p2p:withdraw:'));
   const settle = (withdrawalId: string, amount: string, service = bank.personalPay) =>

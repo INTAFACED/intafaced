@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { test, expect } from '@playwright/test';
 import { approverSessions, makeContext, setFeeDiscountSchedule } from '../../../../tooling/scripts/local-test-gates.mjs';
-import { api, fromUnits, fund, journeyState, toUnits, tool } from './stack.mjs';
+import { api, fromUnits, fund, journeyState, signOutBrowser, toUnits, tool } from './stack.mjs';
 import { fundedTrader, signIn, signUp } from './desk.mjs';
 
 // J-copy-bots-otc-24, in the running app (docs/roadmap/journeys.json): ask the quote desk at /otc for a firm price on a
@@ -9,14 +9,14 @@ import { fundedTrader, signIn, signUp } from './desk.mjs';
 // local stack, verified and funded with TEST USDT through the real ledger; accept binds the quoted price and size,
 // settle posts once and expiry moves nothing, which the steps check against the ledger balance.
 // The region-block clause of #1 and the settlement name-match clause of #3 are compliance gates and wait for launch
-// prep (owner decision 2026-10-27); the level gate of #3 stays (identity verification).
+// prep (owner decision 2026-10-27); the level gate of #3 stays (identity verification). The region block and the name
+// match each have their own test (#1 and #3), red by name with that blocker until they are built.
 // The stack publishes a TEST desk law (tooling/profiles/test-owner-values/trade.json): a 60 s firm quote and a 60 s
 // window to settle an accepted one, so #7 and #8 watch both run out on the real clock. Each step checks the service's
 // own record of the quote (rfq.get through Edge) and the ledger balance, not only the screen. Every request asks the
 // providers it picks from the owner's TEST provider list (CB-otc-01); the steps after #2 ask the house desk.
 // Steps that are written but not built yet fail at their first missing part, quickly (UNBUILT):
-// - #1 no asset list on the desk (CB-otc-11); #3 no verification-level gate (CB-otc-08).
-// - #5: no RFQ board grouped by status (CB-otc-02); #9: Convert has no OTC price (CB-otc-12).
+// - #5: no RFQ board grouped by status (CB-otc-02).
 const J = 'J-copy-bots-otc-24';
 const run = journeyState(`${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
 const UNBUILT = { timeout: 5_000 };
@@ -68,6 +68,13 @@ function tradeSwitch(name, on) {
 
 /** svc-trade restarted with the desk's settle window blank, or back on the stack's TEST window. */
 const tradeSettleWindow = (on) => tradeSwitch('LOCAL_STACK_TRADE_OTC_SETTLE_WINDOW', on);
+
+/** The desk's own status (`otc.deskStatus`), as the trader reads it. */
+async function deskStatus(client) {
+  const read = await client.get('/api/trade/trpc/otc.deskStatus');
+  expect(read.status, JSON.stringify(read.body).slice(0, 300)).toBe(200);
+  return read.body.result.data;
+}
 
 /** The desk's settle window in ms as its status line publishes it, or 'unset'. */
 async function publishedWindow() {
@@ -149,6 +156,32 @@ async function stake(who, client, amount) {
   await expect.poll(() => stakedOf(client)).toBe(amount);
 }
 
+/**
+ * A TEST account registered in `region`. Not built: the stack has no way to register an account in a region yet, and
+ * region gates wait for launch prep (owner decision 2026-10-27), so this fails by that name.
+ */
+async function signUpIn(page, region) {
+  throw new Error(`no TEST account can be registered in ${region} yet: region gates wait for launch prep (owner decision 2026-10-27)`);
+}
+
+/**
+ * Names a settlement account for the trader whose holder name differs from its verified name, and returns the service's
+ * own record of it ({ id, holderName, verifiedName }). Not built: the stack has no settlement-account step, and name
+ * matching waits for launch prep (owner decision 2026-10-27), so this fails by that name.
+ */
+async function nameOtherSettlementAccount(who) {
+  throw new Error(
+    `no settlement account can be named for ${who.handle} yet: settlement name matching waits for launch prep (owner decision 2026-10-27)`,
+  );
+}
+
+/** Removes the settlement account named by nameOtherSettlementAccount, so the steps after #3 are not refused by it. */
+async function removeSettlementAccount(who, account) {
+  throw new Error(
+    `settlement account ${account.id} of ${who.handle} cannot be removed yet: settlement name matching waits for launch prep (owner decision 2026-10-27)`,
+  );
+}
+
 async function openOtc(page) {
   await signIn(page, run.read().who);
   await page.goto('/otc');
@@ -226,16 +259,93 @@ test(`${J} starts: below the desk's tier the price request is refused with trade
   expect(await stakedOf(me)).toBe(short);
 });
 
-test(`${J} #1 opens OTC: the overview and the owner's asset list, "Not set" when blank`, async ({ page }) => {
+test(`${J} #1 desk status strip and asset list, each read back from the service`, async ({ page }) => {
+  test.setTimeout(180_000);
+  const me = await api(run.read().who);
+  const status = await deskStatus(me);
+  // The stack's TEST desk law lists BTC; the service's own list is what the room must show, nothing more or less.
+  expect(status.published).toBe(true);
+  expect(status.assets).toEqual(['BTC']);
+  expect(/(?:^| )assets=(\S+)/.exec(status.statusLine)?.[1]).toBe(status.assets.join(','));
+
   await openOtc(page);
-  const assets = page.getByRole('region', { name: 'Assets on the desk' });
-  await expect(assets).toBeVisible(UNBUILT);
-  await expect(assets).toContainText(/Not set|BTC/);
+  // The overview: each item reads what the service publishes for it.
+  await expect(desk(page).getByText(status.published ? 'Open' : 'Closed', { exact: true })).toBeVisible();
+  await expect(desk(page).getByText(status.makerRouting.published ? 'Routed' : 'Platform only', { exact: true })).toBeVisible();
+  await expect(desk(page).getByText(status.midFeed.published ? 'Wired' : 'Not wired', { exact: true })).toBeVisible();
+  const assets = desk(page).getByRole('region', { name: 'Assets on the desk' });
+  await expect(assets.getByRole('listitem')).toHaveText(status.assets);
+  await expect(assets.getByText('Not set', { exact: true })).toHaveCount(0);
 });
 
-test(`${J} #2 requests a quote with no provider set: "No providers set", refused with trade.otc_makers_unset, nothing recorded`, async ({
+test(`${J} #1 asset list unpublished: "Not set" on the strip, the ask refuses trade.otc_assets_unset, no quote is kept`, async ({
   page,
 }) => {
+  test.setTimeout(300_000);
+  const me = await api(run.read().who);
+  try {
+    tradeSwitch('LOCAL_STACK_TRADE_OTC_ASSETS', false);
+    const status = await deskStatus(me);
+    expect(status.assets).toBeNull();
+    expect(/(?:^| )assets=(\S+)/.exec(status.statusLine)?.[1]).toBe('unset');
+    const before = await me.balances();
+    const quotes = await listedQuotes(me);
+    await openOtc(page);
+    const assets = desk(page).getByRole('region', { name: 'Assets on the desk' });
+    await expect(assets.getByText('Not set', { exact: true })).toBeVisible();
+    await expect(assets.getByRole('listitem')).toHaveCount(0);
+    // A size and provider the house desk prices in #6, so only the blank list can refuse it.
+    expect(await askRefused(page, '0.5')).toBe('trade.otc_assets_unset');
+    await expect(page.getByText('trade.otc_assets_unset')).toBeVisible();
+    await expect(page.getByText('The desk has no asset list, so a request cannot be sent.', { exact: false })).toBeVisible();
+    await expect(card(page)).toHaveCount(0);
+    // Re-read after the refusal: no quote was recorded and nothing moved or was held.
+    expect(await listedQuotes(me)).toEqual(quotes);
+    expect(await me.balances()).toEqual(before);
+  } finally {
+    tradeSwitch('LOCAL_STACK_TRADE_OTC_ASSETS', true);
+  }
+  expect((await deskStatus(me)).assets).toEqual(['BTC']);
+});
+
+// BLOCKED: compliance gates wait for launch prep (owner decision 2026-10-27). This test stays red, by this name, until
+// the desk publishes the regions it refuses (CB-otc-21); it fails at that first missing part, quickly.
+test(`${J} #1 region block (BLOCKED until launch prep, owner decision 2026-10-27): the desk publishes the regions it refuses, an account in one sees the banner and is refused, nothing kept`, async ({
+  page,
+}) => {
+  test.setTimeout(120_000);
+  const me = await api(run.read().who);
+  const status = await deskStatus(me);
+  // The service's own list of refused regions is what the strip must show; a desk with none publishes an empty list,
+  // never a missing field.
+  expect(
+    status,
+    'the desk publishes no region block list: compliance gates wait for launch prep (owner decision 2026-10-27)',
+  ).toHaveProperty('blockedRegions');
+  expect(Array.isArray(status.blockedRegions)).toBe(true);
+  expect(status.blockedRegions.length, 'a region block proves a refusal only with a region on the list').toBeGreaterThan(0);
+
+  await openOtc(page);
+  const regions = desk(page).getByRole('region', { name: 'Regions the desk refuses' });
+  await expect(regions.getByRole('listitem')).toHaveText(status.blockedRegions, UNBUILT);
+
+  // An account registered in a refused region asks for a size the house desk prices in #6: only the region can refuse it.
+  const blocked = await signUpIn(page, status.blockedRegions[0]);
+  const client = await api(blocked);
+  const before = await client.balances();
+  const quotes = await listedQuotes(client);
+  await page.goto('/otc');
+  // The account sees the banner naming its region before it asks.
+  await expect(page.getByRole('alert').filter({ hasText: status.blockedRegions[0] })).toContainText('not available in your region');
+  expect(await askRefused(page, '0.5')).toBe('trade.otc_region_blocked');
+  await expect(page.getByText('trade.otc_region_blocked')).toBeVisible();
+  await expect(card(page)).toHaveCount(0);
+  // Re-read after the refusal: no quote was recorded and nothing moved or was held.
+  expect(await listedQuotes(client)).toEqual(quotes);
+  expect(await client.balances()).toEqual(before);
+});
+
+test(`${J} #2 blank provider list: the room says so, the ask refuses trade.otc_makers_unset, no quote is kept`, async ({ page }) => {
   test.setTimeout(300_000);
   const me = await api(run.read().who);
   try {
@@ -264,7 +374,7 @@ test(`${J} #2 requests a quote with no provider set: "No providers set", refused
   expect((await listedMakers(me)).published).toBe(true);
 });
 
-test(`${J} #2 requests a quote from four providers when three are allowed: refused, and the refusal names the limit`, async ({ page }) => {
+test(`${J} #2 one provider over the published cap: refused trade.otc_provider_cap, the message carries the cap`, async ({ page }) => {
   test.setTimeout(180_000);
   const me = await api(run.read().who);
   // The owner's list and cap, read back from the desk, not numbers this file chose: three allowed, four listed.
@@ -294,18 +404,114 @@ test(`${J} #2 requests a quote from four providers when three are allowed: refus
   expect(await me.balances()).toEqual(before);
 });
 
-test(`${J} #3 requests as a user below the owner's level: refused, and no quote is priced`, async ({ page }) => {
-  test.setTimeout(180_000);
-  const unverified = await signUp(page, 'ou');
-  await signIn(page, unverified);
+test(`${J} #3 account below the desk level: refused trade.otc_level_insufficient naming both levels, nothing kept`, async ({ page }) => {
+  test.setTimeout(240_000);
+  // The desk's own level, read back from the service, not a tier this file chose.
+  const status = await deskStatus(await api(run.read().who));
+  expect(status.minTier).toBe('full');
+  expect(/(?:^| )minTier=(\S+)/.exec(status.statusLine)?.[1]).toBe(status.minTier);
+
+  // A fresh account verified at Basic only: trade opens at Basic, so the request reaches the desk, which wants Full.
+  // (An account with no verification at all is refused earlier by the trade product's own gate, denied.kyc_required.)
+  const below = await signUp(page, 'ob');
+  await page.goto('/verification');
+  await page.getByLabel('Level to request').selectOption({ label: 'Basic' });
+  await page.getByLabel('Country code').fill('DE');
+  await page.getByRole('button', { name: 'Review request' }).click();
+  await page.getByRole('button', { name: 'Submit this request' }).click();
+  await expect(page.getByText('Your reviewed request')).toBeVisible();
+  tool('local-test-gates.mjs', 'verify');
+  const gates = tool('local-test-gates.mjs', 'status');
+  const tiers = JSON.parse(gates.slice(gates.indexOf('{'))).accounts.find((a) => a.handle === below.handle)?.tiers;
+  expect(tiers).toContain('basic');
+  expect(tiers).not.toContain('full');
+  await signOutBrowser(page.context());
+
+  // TEST USDT on the account, so a hold or a posting would show in its balances.
+  expect(fund(below.email, 'USDT', '50000').tx).toBeTruthy();
+  const them = await api(below);
+  const before = await them.balances();
+  const quotes = await listedQuotes(them);
+
+  await signIn(page, below);
   await page.goto('/otc');
-  await request(page).getByRole('textbox', { name: 'Quantity' }).fill('0.5', UNBUILT);
-  await page.getByRole('button', { name: 'Request price' }).click(UNBUILT);
-  await expect(page.getByRole('alert')).toContainText('verification level', UNBUILT);
+  await expect(desk(page)).toBeVisible();
+  // The room names the level before anything is typed.
+  await expect(desk(page)).toContainText('Verification levelFull and above');
+  // A size and provider the house desk prices for the verified trader in #6, so only the level can refuse it.
+  expect(await askRefused(page, '0.5')).toBe('trade.otc_level_insufficient');
+  await expect(page.getByText('trade.otc_level_insufficient')).toBeVisible();
+  await expect(
+    page.getByText(`The desk prices for ${status.minTier} verification and above. Your account is at basic.`, { exact: false }),
+  ).toBeVisible();
   await expect(card(page)).toHaveCount(0);
+
+  // Re-read after the refusal: no quote was recorded and nothing moved or was held.
+  expect(await listedQuotes(them)).toEqual(quotes);
+  expect(await them.balances()).toEqual(before);
 });
 
-test(`${J} #4 requests below the desk minimum: refused with the minimum`, async ({ page }) => {
+test(`${J} #3 level unpublished: even a verified account is refused trade.otc_level_unset, nothing kept`, async ({ page }) => {
+  test.setTimeout(300_000);
+  const me = await api(run.read().who);
+  try {
+    tradeSwitch('LOCAL_STACK_TRADE_OTC_MIN_TIER', false);
+    const status = await deskStatus(me);
+    expect(status.minTier).toBeNull();
+    expect(/(?:^| )minTier=(\S+)/.exec(status.statusLine)?.[1]).toBe('unset');
+    const before = await me.balances();
+    const quotes = await listedQuotes(me);
+    await openOtc(page);
+    await expect(desk(page)).toContainText('Verification levelNot set');
+    expect(await askRefused(page, '0.5')).toBe('trade.otc_level_unset');
+    await expect(page.getByText('trade.otc_level_unset')).toBeVisible();
+    await expect(page.getByText('The desk has no verification level set, so a request cannot be sent.', { exact: false })).toBeVisible();
+    await expect(card(page)).toHaveCount(0);
+    expect(await listedQuotes(me)).toEqual(quotes);
+    expect(await me.balances()).toEqual(before);
+  } finally {
+    tradeSwitch('LOCAL_STACK_TRADE_OTC_MIN_TIER', true);
+  }
+  expect((await deskStatus(me)).minTier).toBe('full');
+});
+
+test(`${J} #3 settlement name match (BLOCKED until launch prep, owner decision 2026-10-27): a settlement account in another name is refused trade.otc_name_mismatch, no quote is priced, nothing kept`, async ({
+  page,
+}) => {
+  test.setTimeout(240_000);
+  const me = await api(run.read().who);
+  const status = await deskStatus(me);
+  // The service's own statement that a request checks the settlement account holder against the verified name.
+  expect(
+    status,
+    'the desk publishes no settlement name check: compliance gates wait for launch prep (owner decision 2026-10-27)',
+  ).toHaveProperty('settlementNameMatch');
+  expect(status.settlementNameMatch).toBe(true);
+
+  // A settlement account in a name other than the trader's verified one, both names as the service records them.
+  const account = await nameOtherSettlementAccount(run.read().who);
+  expect(account.holderName).toBeTruthy();
+  expect(account.verifiedName).toBeTruthy();
+  expect(account.holderName).not.toBe(account.verifiedName);
+  try {
+    const before = await me.balances();
+    const quotes = await listedQuotes(me);
+    await openOtc(page);
+    // A size and provider the house desk prices for the verified trader in #6, so only the name can refuse it.
+    expect(await askRefused(page, '0.5')).toBe('trade.otc_name_mismatch');
+    await expect(page.getByText('trade.otc_name_mismatch')).toBeVisible();
+    await expect(page.getByText(account.holderName, { exact: false })).toBeVisible();
+    await expect(card(page)).toHaveCount(0);
+
+    // Re-read after the refusal: no quote was recorded and nothing moved or was held.
+    expect(await listedQuotes(me)).toEqual(quotes);
+    expect(await me.balances()).toEqual(before);
+  } finally {
+    await removeSettlementAccount(run.read().who, account);
+  }
+});
+
+test(`${J} #4 size under the published minimum: refused trade.rfq_below_minimum, the message carries that minimum`, async ({ page }) => {
   test.setTimeout(180_000);
   // The account from "starts" is staked to the desk's tier, so the stake gate passes and the minimum is what refuses.
   const me = await api(run.read().who);
@@ -327,7 +533,7 @@ test(`${J} #4 requests below the desk minimum: refused with the minimum`, async 
   expect(await me.balances()).toEqual(before);
 });
 
-test(`${J} #4 with the desk minimum blank: the request refuses with trade.rfq_size_not_set and records nothing`, async ({ page }) => {
+test(`${J} #4 minimum unpublished: refused trade.rfq_size_not_set, no quote is kept`, async ({ page }) => {
   test.setTimeout(300_000);
   const me = await api(run.read().who);
   try {
@@ -348,7 +554,7 @@ test(`${J} #4 with the desk minimum blank: the request refuses with trade.rfq_si
   expect(toUnits(await publishedMinimum(me, 'USDT'))).toBeGreaterThan(0n);
 });
 
-test(`${J} #5 opens the RFQ board: grouped by status with counts, the best quote on top, equal quotes to the earlier`, async ({ page }) => {
+test(`${J} #5 board of requests: status groups, counts and quote ranking`, async ({ page }) => {
   await openOtc(page);
   const board = page.getByRole('region', { name: 'Your requests' });
   for (const group of ['Open', 'Accepted', 'Settled', 'Expired']) {
@@ -356,9 +562,7 @@ test(`${J} #5 opens the RFQ board: grouped by status with counts, the best quote
   }
 });
 
-test(`${J} #6 accepts a quote: bound (accepted, not settled) at the quoted price; an asserted other price is refused as last look`, async ({
-  page,
-}) => {
+test(`${J} #6 accept binds the quoted price; naming a different price refuses as last look`, async ({ page }) => {
   await openOtc(page);
   const quote = await ask(page);
   const id = await quote.getAttribute('data-quote-id');
@@ -382,9 +586,7 @@ test(`${J} #6 accepts a quote: bound (accepted, not settled) at the quoted price
   expect(await balances()).toEqual(before);
 });
 
-test(`${J} #7 settles later inside the deferral window: one settlement posts with its key; after the window it is refused; a blank window reads "Not set"`, async ({
-  page,
-}) => {
+test(`${J} #7 deferred settle: one posting inside the window, refused past it, "Not set" when unpublished`, async ({ page }) => {
   test.setTimeout(420_000);
   await openOtc(page);
   // One quote accepted now and left past its window, one accepted and settled later inside it.
@@ -463,9 +665,7 @@ test(`${J} #7 settles later inside the deferral window: one settlement posts wit
   expect(await publishedWindow()).toBe(String(windowMs));
 });
 
-test(`${J} #8 lets a quote expire, then re-prices it: the old quote stays expired, a new RFQ exists, and balances are unchanged by the expiry`, async ({
-  page,
-}) => {
+test(`${J} #8 expiry then re-price: the old quote stays expired, a new one exists, balances untouched`, async ({ page }) => {
   test.setTimeout(180_000);
   await openOtc(page);
   const quote = await ask(page);
@@ -491,15 +691,100 @@ test(`${J} #8 lets a quote expire, then re-prices it: the old quote stays expire
   expect(await balances()).toEqual(before);
 });
 
-test(`${J} #9 uses Convert for a large buy at the OTC price: the OTC price and settlement time; a blank bound refuses`, async ({
+/** The large-conversion panel on /convert. */
+const otcConvert = (page) => page.getByRole('region', { name: 'Large conversions at the desk price' });
+
+/** The owner's size range for a conversion at the desk price (`otc.convertBounds`), as the trader reads it. */
+async function convertBounds(client) {
+  const read = await client.get('/api/trade/trpc/otc.convertBounds');
+  expect(read.status, JSON.stringify(read.body).slice(0, 300)).toBe(200);
+  return read.body.result.data.convert;
+}
+
+/** svc-trade restarted with the convert size range blank, or back on the stack's TEST range. */
+const tradeConvertBounds = (on) => tradeSwitch('LOCAL_STACK_TRADE_OTC_CONVERT_BOUNDS', on);
+
+/** Asks the panel for the desk price on `quantity` BTC and returns the service's answer to `otc.convertQuote`. */
+async function askConvert(page, quantity) {
+  const answer = page.waitForResponse((res) => res.url().includes('otc.convertQuote'));
+  await otcConvert(page).getByRole('textbox', { name: 'Desk amount' }).fill(quantity);
+  await otcConvert(page).getByRole('button', { name: 'Get desk price' }).click();
+  return [await (await answer).json()].flat()[0];
+}
+
+/** A shown amount ("65,130.5 USDT") as exact 1e-18 units. */
+const shown = (text) => units(String(text).replace(/[^\d.]/g, ''));
+
+test(`${J} #9 Convert at the desk price: the range, the quoted price and the settle time are the desk's own, and a blank range refuses`, async ({
   page,
 }) => {
+  test.setTimeout(240_000);
+  const me = await api(run.read().who);
   await signIn(page, run.read().who);
-  await page.goto('/convert');
-  await page
-    .getByRole('textbox', { name: /Amount/ })
-    .first()
-    .fill('0.5', UNBUILT);
-  await expect(page.getByTestId('convert-otc-price')).toContainText(/OTC price/, UNBUILT);
-  await expect(page.getByTestId('convert-otc-price')).toContainText(/Settles/);
+  await page.goto('/trade/convert');
+  const panel = otcConvert(page);
+  await expect(panel).toBeVisible();
+  // Only pairs on the desk's asset list are offered; BTC/USDT is the one the stack prices (its one TEST mid).
+  await panel.getByRole('combobox', { name: 'Desk pair' }).click();
+  await page.getByRole('option', { name: 'BTC/USDT', exact: true }).click();
+  await expect(panel.getByRole('combobox', { name: 'Desk pair' })).toContainText('BTC/USDT');
+
+  // The size range on the page is the one the desk publishes, read back.
+  const range = await convertBounds(me);
+  expect(range).not.toBeNull();
+  const rangeText = await panel.getByTestId('convert-otc-range').textContent();
+  const [, min, max] = /^Desk size range:(\S+) to (\S+) BTC$/.exec(rangeText ?? '') ?? [];
+  expect([shown(min), shown(max)]).toEqual([units(range.minQty), units(range.maxQty)]);
+
+  // A size inside the range (and inside what the account holds after #7) is priced by the desk. The price on the page is
+  // the one the service recorded for that quote, and the settle time is the desk's published window.
+  const before = await balances();
+  const priced = await askConvert(page, '0.2');
+  const answer = priced.result.data;
+  expect([answer.flow, answer.side, answer.baseAsset, answer.quoteAsset, answer.qty]).toEqual(['convert', 'buy', 'BTC', 'USDT', '0.2']);
+  const recorded = await rfq(answer.quoteId);
+  expect(recorded.lifecycle).toBe('open');
+  expect(recorded.quotedPrice).toBe(answer.quotedPrice);
+  const price = panel.getByTestId('convert-otc-price');
+  await expect(price).toBeVisible();
+  expect(shown(await price.getByTestId('convert-otc-quoted').textContent())).toBe(units(recorded.quotedPrice));
+  await expect(price.getByTestId('convert-otc-quoted')).toHaveText(/ USDT$/);
+  const windowMs = Number(await publishedWindow());
+  expect(windowMs).toBeGreaterThan(0);
+  expect(answer.settleWindowMs).toBe(windowMs);
+  await expect(price.getByTestId('convert-otc-settles')).toHaveText(`Settles within ${windowMs / 1000} s of confirming.`);
+  expect(await balances()).toEqual(before);
+
+  // Confirming binds that price and settles it once: the ledger moves by exactly the recorded fill.
+  await price.getByRole('button', { name: 'Convert at this price' }).click();
+  await expect(panel.getByTestId('convert-otc-done')).toContainText('Converted and settled');
+  const settled = await rfq(answer.quoteId);
+  expect(settled.lifecycle).toBe('settled');
+  expect(settled.fillPrice).toBe(answer.quotedPrice);
+  const after = await balances();
+  expect(held(after, 'BTC') - held(before, 'BTC')).toBe(units(settled.qty));
+  expect(held(before, 'USDT') - held(after, 'USDT')).toBe(units(settled.userNotional));
+
+  // The range left blank: the page says "Not set", a request refuses with its one code, no quote is kept and nothing moves.
+  try {
+    tradeConvertBounds(false);
+    expect(await convertBounds(me)).toBeNull();
+    await page.goto('/trade/convert');
+    await panel.getByRole('combobox', { name: 'Desk pair' }).click();
+    await page.getByRole('option', { name: 'BTC/USDT', exact: true }).click();
+    await expect(panel.getByTestId('convert-otc-range')).toHaveText(
+      'Desk size range:Not setThe desk has no size range for conversions, so a request refuses.',
+    );
+    const quotesBefore = (await listedQuotes(me)).length;
+    const balancesBefore = await balances();
+    const refused = await askConvert(page, '0.2');
+    expect(refused.error?.data?.cause?.code).toBe('trade.convert_bounds_not_set');
+    await expect(panel.getByText('Desk size range not set')).toBeVisible();
+    await expect(panel.getByTestId('convert-otc-price')).toHaveCount(0);
+    expect((await listedQuotes(me)).length).toBe(quotesBefore);
+    expect(await balances()).toEqual(balancesBefore);
+  } finally {
+    tradeConvertBounds(true);
+  }
+  expect(await convertBounds(me)).toEqual(range);
 });

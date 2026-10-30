@@ -1084,6 +1084,16 @@ function catalogFixtures(): { [K in EventName]: PayloadOf<K> } {
       ledgerTxId: uid(),
       creditedAt: ts(),
     },
+    payWithdrawalStatusUpdated: {
+      withdrawalId: uid(),
+      userId: uid(),
+      seq: 3,
+      attempt: 0,
+      from: 'held',
+      to: 'broadcast',
+      failureCode: null,
+      occurredAt: ts(),
+    },
     stakeCreated: {
       stakeId: uid(),
       userId: uid(),
@@ -1401,6 +1411,9 @@ function catalogFixtures(): { [K in EventName]: PayloadOf<K> } {
       escalatedAt: ts(),
     },
     p2pQuoteExpired: { quoteId: uid(), userId: uid(), expiredAt: ts() },
+    copySkipped: { followId: 'follow-1', followerId: uid(), leaderId: uid(), leaderFillId: uid(), reason: 'paused', skippedAt: ts() },
+    copyFailed: { followId: 'follow-1', followerId: uid(), leaderId: uid(), leaderFillId: uid(), reason: 'order_rejected', failedAt: ts() },
+    copyStopped: { followId: 'follow-1', followerId: uid(), leaderId: uid(), reason: 'follower', closeOnly: true, stoppedAt: ts() },
     supportTicketResolved: {
       ticketId: uid(),
       userId: uid(),

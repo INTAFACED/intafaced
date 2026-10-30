@@ -161,6 +161,20 @@ const schema = serviceEnvSchema
       AGENTS_FEE_ASSET_ID: z.string().trim().min(1),
 
       /**
+       * Overage grace: how much usage, in the fee asset, a person may leave
+       * unpaid and still start a run. Owner-published. Blank / unset is no
+       * grace at all: any window that could not be paid refuses the next run
+       * with `agents.overage_grace_unset`. Never a default amount.
+       */
+      AGENTS_OVERAGE_GRACE: blankAsAbsent(
+        z
+          .string()
+          .trim()
+          .regex(/^\d{1,20}(\.\d{1,18})?$/, 'a decimal amount, such as 0.5')
+          .optional(),
+      ),
+
+      /**
        * Billing window length. Must divide 1440 so a window never straddles
        * midnight — a window that spans two days has an ambiguous id, and the id
        * is half of the ledger idempotency key.
@@ -204,6 +218,8 @@ const schema = serviceEnvSchema
        * accident cannot spend money.
        */
       AGENTS_PROVIDER: z.enum(['mock', 'upstream']).default('mock'),
+      /** Milliseconds the mock engine takes to answer (test stacks only; ignored by the upstream provider). */
+      AGENTS_MOCK_DELAY_MS: z.coerce.number().int().min(0).max(10_000).optional(),
       /**
        * TEST stand-in only: a file whose presence parks the mock engine's completions (`MockProviderOptions.holdFile`).
        * Read only when AGENTS_PROVIDER is mock; an upstream engine never parks.
@@ -230,6 +246,18 @@ const schema = serviceEnvSchema
        * `gateway/routing.ts`, which is priced for development, not production.
        */
       AGENTS_ROUTING_TABLE: z.string().optional(),
+
+      // ── Operator agent log (AG-audit-01, AG-audit-02) ───────────────────────
+      // Owner values. Each one blank stays unset, and the read that needs it refuses with its own code (never invented).
+      /** Comma-separated reasons an operator picks from to read a customer's agent log. Blank refuses agents.log_read_reason_unset. */
+      AGENTS_LOG_READ_REASONS: blankAsAbsent(z.string().optional()),
+      /** Rows one operator log read or export shows, 1 to 500. Blank refuses agents.ops_actions_limit_unset. */
+      AGENTS_OPS_ACTIONS_LIMIT: blankAsAbsent(z.coerce.number().int().min(1).max(500).optional()),
+      /**
+       * Days an executed engine call's prompt text is kept for a transcript read; 0 keeps none. Blank keeps none and a
+       * transcript read refuses agents.transcript_retention_unset.
+       */
+      AGENTS_TRANSCRIPT_RETENTION_DAYS: blankAsAbsent(z.coerce.number().int().min(0).max(3650).optional()),
     }),
   );
 

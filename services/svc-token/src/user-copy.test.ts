@@ -57,6 +57,7 @@ const TOKEN_ERROR_CODES = [
   'token.delegation_delegatee_invalid',
   'token.delegation_unavailable',
   'token.treasury_figure_unreadable',
+  'token.vote_history_unreadable',
   'token.proposer_rule_unset',
   'token.proposal_limit_unset',
   'token.proposal_limit_reached',

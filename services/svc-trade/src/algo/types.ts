@@ -43,7 +43,16 @@ export interface AlgoChildRef {
   /** Schedule qty for this slice — not a fill. */
   readonly qty: Amount;
   readonly placedAt: Date;
+  /** POV only: the volume or book size the participation rate was applied to for this slice. */
+  readonly basisQty?: Amount | null;
 }
+
+/**
+ * What a POV participation rate is applied to: the taker volume traded in the last interval, or the resting
+ * quantity on the opposite side of the book (the side the child would take from).
+ */
+export type PovBasis = 'traded_volume' | 'opposite_liquidity';
+export const POV_BASES: readonly PovBasis[] = ['traded_volume', 'opposite_liquidity'];
 
 export interface AlgoMiss {
   readonly sliceIndex: number;
@@ -104,11 +113,28 @@ export interface TwapParent {
    * Null on TWAP/VWAP. Never a product default.
    */
   readonly participationBps: number | null;
+  /** POV only: what the participation rate is applied to. Null or absent on TWAP/VWAP and on rows from before it. */
+  readonly povBasis?: PovBasis | null;
   readonly slicesPlanned: number;
   /** Next slice index to emit (0-based). Resume does not rewind elapsed slices. */
   readonly nextSliceIndex: number;
   readonly children: readonly AlgoChildRef[];
   readonly misses: readonly AlgoMiss[];
+  /** TWAP only: the seed that fixed random slice sizes. Null or absent: even sizes. */
+  readonly randomSeed?: number | null;
+  /**
+   * Optional start price. While `triggeredAt` is null the parent places nothing; the first tick whose accepted mark
+   * reaches this price starts the schedule from that instant. Null or absent: it starts at create.
+   */
+  readonly triggerPrice?: Amount | null;
+  /** True when the trigger was above the mark at create, so it is reached when the mark rises to it. */
+  readonly triggerAbove?: boolean | null;
+  readonly triggeredAt?: Date | null;
+}
+
+/** True while a parent with a trigger price has not seen the price reach it. */
+export function awaitingTrigger(parent: Pick<TwapParent, 'triggerPrice' | 'triggeredAt'>): boolean {
+  return parent.triggerPrice != null && parent.triggeredAt == null;
 }
 
 /**
@@ -152,6 +178,15 @@ export interface CreateTwapInput {
   readonly volumeProfile?: readonly Amount[];
   /** Required for POV. Integer 1..10000. */
   readonly participationBps?: number;
+  /** POV only. Absent means traded volume. */
+  readonly povBasis?: PovBasis;
+  /** POV with opposite-side liquidity: the opposite side's resting quantity read at create. */
+  readonly oppositeBookQty?: Amount;
+  /** TWAP only: fixes random slice sizes. */
+  readonly randomSeed?: number;
+  /** Start price, and whether it lay above the mark at create (the service reads the mark). */
+  readonly triggerPrice?: Amount;
+  readonly triggerAbove?: boolean;
 }
 
 /** Mark feed for algo halt gates — same vocabulary as prices.ts / futures mark-policy. */

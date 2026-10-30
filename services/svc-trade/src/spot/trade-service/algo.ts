@@ -17,6 +17,7 @@ import { assertSubAccountOwned } from '../sub-account-ownership.js';
 import { assertEmailProved } from '../email-proof.js';
 import { MatchingNoBookError, type EngineDepth } from '../matching-client.js';
 import { presentAlgoProgress, type AlgoProgressView, type CreateTwapInput, type TwapParent } from '../../algo/index.js';
+import type { PovBasis } from '../../algo/types.js';
 import { captureAlgoPlaceGrant, parseAlgoPlaceGrant, principalFromAlgoGrant } from '../../algo/durable-principal.js';
 import { gateAlgoCreate } from '../../algo/create-gate.js';
 import { alignLookbackVolumes, sliceCount, timeframeForSliceInterval } from '../../algo/volume-plan.js';
@@ -26,6 +27,26 @@ import { TradeError, type OrderSide } from '../types.js';
 import type { TradeServiceInternal } from '../trade-service.js';
 
 // ── Algo TWAP (D-S-04) — schedule emits children; parent holds no value ─────
+
+/** Levels read to size one side of the book (the engine's depth ceiling). */
+export const OPPOSITE_BOOK_LEVELS = 500;
+
+/** Total resting quantity on one side of an engine depth read. */
+/**
+ * The opposite side's resting quantity a child could reach: with a limit, only the levels at or inside it (asks at or
+ * below a buy limit, bids at or above a sell limit); without one, the whole side read.
+ */
+export function sideQty(levels: EngineDepth['bids'], side: 'buy' | 'sell', limitPrice: Amount | null): Amount {
+  let total = 0n;
+  for (const [price, qty] of levels) {
+    if (limitPrice !== null) {
+      const p = parseAmount(price);
+      if (side === 'buy' ? p > limitPrice : p < limitPrice) continue;
+    }
+    total += parseAmount(qty);
+  }
+  return total;
+}
 
 /**
  * Create a TWAP schedule. Refuses when market not listed/tradable/open.
@@ -47,6 +68,12 @@ export async function createTwap(
     /** `twap` (default), `vwap` (lookback candles), `pov` (live tape × participationBps). */
     kind?: string;
     participationBps?: number;
+    /** POV only: `traded_volume` (default) or `opposite_liquidity`. */
+    povBasis?: PovBasis;
+    /** TWAP only: random slice sizes fixed by this seed. */
+    randomSeed?: number;
+    /** TWAP only: the schedule starts when the mark reaches this price. */
+    triggerPrice?: Amount;
   },
 ): Promise<TwapParent> {
   requireScope(principal, 'trade:write');
@@ -86,14 +113,26 @@ export async function createTwap(
   // Refuse at creation when mark feed is blank — never accept a schedule that cannot run.
   // Matching 404 (engine holds no book) is a named refusal, not a 500. Nothing
   // is held or stored yet: the gate, admission and parent save all come later.
+  const oppositeBasis = kind === 'pov' && input.povBasis === 'opposite_liquidity';
   let depth: EngineDepth;
   try {
-    depth = await svc.matching.depth(market.id, 1);
+    depth = await svc.matching.depth(market.id, oppositeBasis ? OPPOSITE_BOOK_LEVELS : 1);
   } catch (err) {
     if (err instanceof MatchingNoBookError) {
       throw new TradeError(`${market.symbol}: matching holds no book — refusing algo at creation`, 'trade.no_book');
     }
     throw err;
+  }
+  // Participation on opposite-side liquidity is applied to that side's size, so an empty opposite side is a
+  // book with nothing to participate in: immature, named before the two-sided mark check would call it a missing mark.
+  const oppositeBookQty = oppositeBasis
+    ? sideQty(input.side === 'buy' ? depth.asks : depth.bids, input.side, input.limitPrice ?? null)
+    : null;
+  if (oppositeBookQty === 0n) {
+    throw new TradeError(
+      `${market.symbol}: POV opposite-side book is empty within the limit — refuse rather than apply participation to an invented book`,
+      'trade.algo_volume_immature',
+    );
   }
   const bid = depth.bids[0] ? parseAmount(depth.bids[0][0]) : null;
   const ask = depth.asks[0] ? parseAmount(depth.asks[0][0]) : null;
@@ -116,6 +155,20 @@ export async function createTwap(
     clientAlgoId: input.clientAlgoId,
     kind,
   };
+
+  if (input.randomSeed !== undefined) createInput = { ...createInput, randomSeed: input.randomSeed };
+  if (input.triggerPrice !== undefined) {
+    // The mark the scheduler reads is this same mid (`markFor`). The side of it the trigger sits on fixes its direction:
+    // above waits for the mark to rise to it. A trigger at the mid is already reached, so it is refused, not started.
+    const mid = (bid + ask) / 2n;
+    if (input.triggerPrice === mid) {
+      throw new TradeError(
+        `${market.symbol}: the trigger price equals the current mark — leave it blank to start now`,
+        'trade.algo_invalid_schedule',
+      );
+    }
+    createInput = { ...createInput, triggerPrice: input.triggerPrice, triggerAbove: input.triggerPrice > mid };
+  }
 
   if (kind === 'vwap') {
     const tf = timeframeForSliceInterval(input.sliceIntervalMs);
@@ -142,6 +195,10 @@ export async function createTwap(
 
   if (kind === 'pov') {
     createInput = { ...createInput, participationBps: input.participationBps };
+    if (input.povBasis !== undefined) createInput = { ...createInput, povBasis: input.povBasis };
+    if (oppositeBookQty !== null) createInput = { ...createInput, oppositeBookQty };
+  } else if (input.povBasis !== undefined) {
+    throw new TradeError('a participation basis is a POV option', 'trade.algo_invalid_schedule');
   }
 
   await gateAlgoCreate({
@@ -205,6 +262,8 @@ export async function recoverAdmittedAlgo(svc: TradeServiceInternal, userId: str
     startedAt: new Date(String(wire.parent.startedAt)),
     nextDueAt: new Date(String(wire.parent.nextDueAt)),
     projectedEndsAt: new Date(String(wire.parent.projectedEndsAt)),
+    triggerPrice: wire.parent.triggerPrice == null ? null : parseAmount(String(wire.parent.triggerPrice)),
+    triggeredAt: null,
     pausedAt: null,
     children: [],
     misses: [],

@@ -33,7 +33,9 @@ import { distributeYield, splitBuyback, type BuybackParams } from './economics/b
 import { cumulativeEmission, epochReward, type EmissionParams } from './economics/emission.js';
 import { withMoneySpan } from './tracing.js';
 import {
+  BALLOT_BPS,
   BallotError,
+  MAX_CHOICES,
   assertVotingType,
   normalizeChoices,
   parseStoredBallot,
@@ -57,7 +59,16 @@ import {
 } from './governance-vote.js';
 import { GOVERNANCE_EXECUTE_UNWIRED, GOVERNANCE_QUORUM_UNSET, decideProposalOutcome, executeUnwiredFor } from './governance-close.js';
 import { voteMessage, type VoteSignaturePort } from './vote-signature.js';
-import { reportLastBuyback, reportTreasury, type LastBuybackRow, type TokenTreasuryView, type TreasurySums } from './treasury-view.js';
+import {
+  reportBuybackRuns,
+  reportLastBuyback,
+  reportTreasury,
+  type BuybackRunRow,
+  type BuybackRunView,
+  type LastBuybackRow,
+  type TokenTreasuryView,
+  type TreasurySums,
+} from './treasury-view.js';
 import {
   assessProposalAccess,
   editGovernanceDraft,
@@ -241,6 +252,7 @@ export class TokenError extends Error {
        * does not match. Not replaced with zero.
        */
       | 'token.treasury_figure_unreadable'
+      | 'token.vote_history_unreadable'
       /** Stored proposer rule is blank. Never fall back to a compiled stake tier. */
       | 'token.proposer_rule_unset'
       /** Per-period proposal cap or its period is blank. Never invent a window. */
@@ -425,15 +437,20 @@ export interface PayoutHistoryPage {
   readonly nextCursor: string | null;
 }
 
-export interface VoteHistoryItem {
+export type VoteHistoryItem = {
   readonly proposalId: string;
   readonly title: string | null;
   readonly titleReason: 'proposal_title_unset' | null;
-  readonly choice: 'for' | 'against' | 'abstain';
+  /** The proposal's voting type, so an approval and a ranked `pick` read apart. */
+  readonly votingType: VotingType;
   /** Weight stored on the ballot. Never recomputed from a later stake. */
   readonly weight: string;
   readonly castAt: string;
-}
+} & (
+  | { readonly choice: 'for' | 'against' | 'abstain'; readonly ballot: null }
+  /** A non-basic ballot as stored (approval, weighted, ranked and the rest); choice is null. */
+  | { readonly choice: null; readonly ballot: Ballot }
+);
 
 export interface VoteHistoryPage {
   readonly items: VoteHistoryItem[];
@@ -1325,14 +1342,16 @@ export class TokenService {
       Array<{
         proposal_id: string;
         body: unknown;
-        choice: 'for' | 'against' | 'abstain';
+        voting_type: string;
+        choice: 'for' | 'against' | 'abstain' | null;
+        ballot: unknown;
         weight: string;
         cast_at: Date;
         cast_cursor: string;
         id: string;
       }>
     >`
-      SELECT v.proposal_id, p.body, v.choice, v.weight::text AS weight, v.cast_at, v.id,
+      SELECT v.proposal_id, p.body, p.voting_type, v.choice, v.ballot, v.weight::text AS weight, v.cast_at, v.id,
              to_char(v.cast_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS cast_cursor
         FROM token.governance_votes v
         JOIN token.proposals p ON p.id = v.proposal_id
@@ -1344,16 +1363,21 @@ export class TokenService {
     const kept = rows.slice(0, page);
     const last = kept[kept.length - 1];
     return {
-      items: kept.map((row) => {
+      items: kept.map((row): VoteHistoryItem => {
         const title = proposalTitle(row.body);
-        return {
+        const shared = {
           proposalId: row.proposal_id,
           title: title.title,
           titleReason: title.reason,
-          choice: row.choice,
+          votingType: storedVoteHistoryType(row.voting_type),
           weight: formatAmount(parseAmount(row.weight)),
           castAt: row.cast_at.toISOString(),
         };
+        const ballot = storedVoteHistoryBallot(row.ballot);
+        // The table holds exactly one of choice or ballot. A row with both or neither is unreadable, not guessed.
+        if (row.choice !== null && ballot === null) return { ...shared, choice: row.choice, ballot: null };
+        if (row.choice === null && ballot !== null) return { ...shared, choice: null, ballot };
+        throw voteHistoryUnreadable();
       }),
       nextCursor: rows.length > page && last ? encodeHistoryCursor(last.cast_cursor, last.id) : null,
     };
@@ -2339,6 +2363,68 @@ export class TokenService {
     );
   }
 
+  /**
+   * Settled buyback runs, newest first, as stored — each one adds up
+   * (bought = burned + toRewards) or the read refuses
+   * `token.treasury_figure_unreadable`. Pending claims are not runs. The
+   * buyback rate comes back beside them, or the code that says it is not set;
+   * this read never sizes a spend, prices the token or reads revenue.
+   */
+  async buybackRuns(limit: number): Promise<{
+    runs: BuybackRunView[];
+    rate: BuybackParams | null;
+    missing: string | null;
+    reason: 'token.params_unset' | 'token.params_missing' | 'token.params_invalid' | null;
+  }> {
+    const rows = await this.sql<
+      Array<{
+        id: string | null;
+        bought: string | null;
+        burned: string | null;
+        to_rewards: string | null;
+        executed_at: Date | string | null;
+        window_from: Date | string | null;
+        window_to: Date | string | null;
+      }>
+    >`
+      SELECT id::text AS id,
+             tokens_bought::text AS bought,
+             tokens_burned::text AS burned,
+             tokens_to_rewards::text AS to_rewards,
+             executed_at,
+             revenue_window_from AS window_from,
+             revenue_window_to AS window_to
+        FROM token.buyback_runs
+       WHERE status = 'settled'
+       ORDER BY executed_at DESC, id DESC
+       LIMIT ${limit}
+    `;
+    const stored: BuybackRunRow[] = rows.map((row) => ({
+      id: row.id,
+      bought: row.bought,
+      burned: row.burned,
+      toRewards: row.to_rewards,
+      executedAt: row.executed_at,
+      windowFrom: row.window_from,
+      windowTo: row.window_to,
+    }));
+    const reported = reportBuybackRuns(stored);
+    if (!reported.ok) {
+      throw new TokenError('A buyback run this service recorded could not be read', reported.code);
+    }
+    try {
+      return { runs: reported.runs, rate: await this.buybackParams(), missing: null, reason: null };
+    } catch (err) {
+      if (
+        err instanceof TokenError &&
+        (err.code === 'token.params_unset' || err.code === 'token.params_missing' || err.code === 'token.params_invalid')
+      ) {
+        return { runs: reported.runs, rate: null, missing: err.config ?? 'token_params', reason: err.code };
+      }
+      throw err;
+    }
+  }
+
   /** Tokens permanently removed from circulation. */
   async burnedSupply(): Promise<Amount> {
     return (await this.ledger.balance(burnAccount(this.assetId))).amount;
@@ -3320,6 +3406,44 @@ export function foldTally(rows: Array<{ choice: VoteChoice; weight: string; n: s
 }
 
 /** Ballot rules raise `BallotError`; the service speaks `TokenError` with the same code. */
+/** A stored row this read cannot show. It is the service's data at fault, never the caller's input. */
+function voteHistoryUnreadable(): TokenError {
+  return new TokenError('A stored vote could not be read', 'token.vote_history_unreadable');
+}
+
+function storedVoteHistoryType(value: string): VotingType {
+  try {
+    return assertVotingType(value);
+  } catch {
+    throw voteHistoryUnreadable();
+  }
+}
+
+/** A stored ballot inside the bounds the wire shows (whole choice indexes, 1 to 10 000 bps); anything else is unreadable. */
+function storedVoteHistoryBallot(raw: unknown): Ballot | null {
+  let ballot: Ballot | null;
+  try {
+    ballot = parseStoredBallot(raw);
+  } catch {
+    throw voteHistoryUnreadable();
+  }
+  const index = (n: number) => Number.isInteger(n) && n >= 0 && n < MAX_CHOICES;
+  if (ballot === null || ballot.kind === 'abstain') return ballot;
+  if (ballot.kind === 'pick') {
+    if (ballot.choices.length < 1 || ballot.choices.length > MAX_CHOICES || !ballot.choices.every(index)) throw voteHistoryUnreadable();
+    return { kind: 'pick', choices: [...ballot.choices] };
+  }
+  if (
+    ballot.parts.length < 1 ||
+    ballot.parts.length > MAX_CHOICES ||
+    !ballot.parts.every((part) => index(part.choice) && Number.isInteger(part.bps) && part.bps >= 1 && part.bps <= BALLOT_BPS)
+  ) {
+    throw voteHistoryUnreadable();
+  }
+  // Only the two wire keys, so a stored extra key cannot fail the strict output check.
+  return { kind: 'split', parts: ballot.parts.map((part) => ({ choice: part.choice, bps: part.bps })) };
+}
+
 function asBallotError<T>(fn: () => T): T {
   try {
     return fn();

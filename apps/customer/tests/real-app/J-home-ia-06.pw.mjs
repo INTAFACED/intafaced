@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { signUp } from './desk.mjs';
-import { draftNotice, openNotices, publishNotice } from './notices.mjs';
+import { NOTICE_DRAIN_MINUTES, draftNotice, openNotices, publishNotice } from './notices.mjs';
 import { expectServiceOff } from './service-off.mjs';
 import { ORIGIN } from './stack.mjs';
 
@@ -9,7 +9,8 @@ import { ORIGIN } from './stack.mjs';
 // four-eyes door; every notice closes a few minutes after it opens, so a run leaves the board empty for the next one.
 const J = 'J-home-ia-06';
 const RUN = Date.now().toString(36);
-const WINDOW_MINUTES = 6;
+// This run's own notices end inside the wait the next run gives them.
+const WINDOW_MINUTES = NOTICE_DRAIN_MINUTES - 1;
 
 test.describe.configure({ mode: 'serial' });
 
@@ -38,7 +39,7 @@ const dayTime = (iso) =>
   }).format(Date.parse(iso));
 
 test.beforeAll(async ({ browser }) => {
-  test.setTimeout(8 * 60_000);
+  test.setTimeout((NOTICE_DRAIN_MINUTES + 2) * 60_000);
   const context = await browser.newContext({ baseURL: ORIGIN, timezoneId: 'UTC', viewport: { width: 1440, height: 900 } });
   page = await context.newPage();
   await signUp(page, 'hmn');
@@ -49,7 +50,7 @@ test.beforeAll(async ({ browser }) => {
         const open = await openNotices();
         return open.incidents.length + open.maintenance.length + (open.announcement ? 1 : 0);
       },
-      { timeout: (WINDOW_MINUTES + 1) * 60_000, intervals: [5_000] },
+      { timeout: NOTICE_DRAIN_MINUTES * 60_000, intervals: [5_000] },
     )
     .toBe(0);
 });
