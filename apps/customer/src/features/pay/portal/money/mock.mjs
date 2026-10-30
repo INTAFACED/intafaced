@@ -409,6 +409,9 @@ export function createMoneyMock(ctx) {
             .map(payoutOf);
           return ok(route, page(rows, input));
         }
+        case 'settlement.clearing':
+          // the seeded world's captured payments were all available at capture: nothing waits on the rail
+          return ok(route, { held: [] });
         case 'settlement.lines': {
           if (!SETTLEMENT(input.settlementId)) return refuse(route, 404, 'pay.settlement_not_found');
           const lines = SETTLEMENT(input.settlementId).members.map((paymentId, i) => {

@@ -1,3 +1,4 @@
+import { clearingPendingMessage, heldInSettlementOf } from '../payment-service/funds.js';
 import type { Sql } from 'postgres';
 import type { Principal } from '@intafaced/auth';
 import type { FounderApprovalDestination, FounderApprovalQueueItem, PayoutApproval } from '@intafaced/contracts';
@@ -219,6 +220,11 @@ export class ApprovalService {
           SELECT net, asset_id, status FROM pay.settlements WHERE id = ${input.settlementId} AND merchant_id = ${input.merchantId}
         `;
           const s = settlement[0];
+          if (s?.status === 'pending') {
+            // RC-merchant-10: a window still waiting on the rail is clearing, not available money. Name it.
+            const held = await heldInSettlementOf(tx, input.settlementId);
+            if (held.length > 0) throw new ControlError('pay.payout_clearing_pending', clearingPendingMessage(input.settlementId, held));
+          }
           if (!s || (s.status !== 'posted' && s.status !== 'failed')) throw new ControlError('pay.settlement_not_payable');
           const control = await loadMerchantControl(tx, input.merchantId);
           if (!control.tier) throw new ControlError('pay.tier_unassigned');

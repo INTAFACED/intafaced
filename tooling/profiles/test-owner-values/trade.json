@@ -111,6 +111,11 @@
       "value": "1000",
       "note": "TEST distance each grid bound may sit from the market price when a bot is created: 1000 bps (10%), so the journeys' ranges about 5% from the TEST mid are accepted and a bound beyond 10% is refused (trade.bots_grid_bounds_out_of_band)."
     },
+    "TRADE_BOTS_WITHDRAW_DAILY_CAP": {
+      "service": "trade",
+      "value": "{\"USDT\":\"0.50\"}",
+      "note": "TEST daily cap on grid bot profit withdrawals per account: 0.50 USDT a UTC day, so J-copy-bots-otc-14 #7 sees 1.00 refused (trade.bots_withdraw_cap_exceeded) and a smaller withdrawal pass."
+    },
     "TRADE_DEVELOPER_HOSTS": {
       "service": "trade",
       "value": "{\"rest\":{\"production\":\"api.local-test.test\",\"sandbox\":\"api.sandbox.local-test.test\"},\"websocket\":{\"production\":\"ws.local-test.test\",\"sandbox\":\"ws.sandbox.local-test.test\"},\"fix\":{\"production\":\"fix.local-test.test:9878\",\"sandbox\":\"fix.sandbox.local-test.test:9878\"}}",

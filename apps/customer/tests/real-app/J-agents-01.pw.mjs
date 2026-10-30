@@ -10,7 +10,8 @@ import { api, fromUnits, stackFile, toUnits } from './stack.mjs';
 // The run uses the stack's TEST rate card (tooling/profiles/test-owner-values/agents.json) and the service's sandbox
 // engine; #5 to #7 check its cost against the published rate and the ledger's own balances, read through Edge.
 // Not checkable on this stack: #1's empty state (the stack publishes five agents) and #2's ineligible agent (the TEST
-// account is eligible for every customer agent). J-agents-14 #7 checks a disabled agent's card.
+// account is eligible for every customer agent). #1's disabled agent is the Portfolio planner, which no customer can run
+// yet; J-agents-14 #7 checks a quarantined agent's card.
 const J = 'J-agents-01';
 const agents = agentsRun(J);
 
@@ -69,6 +70,16 @@ test(`${J} #1 opens Agents: the catalogue from the stored list with filters, sor
   // Every card says whether the agent can be used now.
   for (const card of await main(page).getByRole('article').all())
     await expect(card.getByTestId('agent-status')).toHaveText(/^(Enabled|Disabled)$/);
+  // A disabled agent stays visible with its open button off: the Portfolio planner, which no customer can run yet.
+  const portfolio = agentCard(page, 'Portfolio planner');
+  await expect(portfolio).toBeVisible();
+  await expect(portfolio.getByTestId('agent-status')).toHaveText('Disabled');
+  const openPortfolio = portfolio.getByRole('button', { name: 'Open a session' });
+  await expect(openPortfolio).toBeDisabled();
+  // Parked means visible with the real blocker named, on the card and as the button's description.
+  const blocker = 'No session can be opened: this agent’s data source is not connected, so it cannot plan or place anything.';
+  await expect(portfolio.getByRole('note')).toHaveText(blocker);
+  await expect(openPortfolio).toHaveAccessibleDescription(blocker);
 });
 
 test(`${J} #2 selects two agents to compare: one table of tools, modes, caps and tasks side by side from the stored guardrail`, async ({
@@ -97,14 +108,23 @@ test(`${J} #3 opens an agent's detail page: tools with inputs, outputs and refus
   page,
 }) => {
   await openAgents(page, agents);
+  // The detail page reads Navigator's stored guardrail; its own answer is what the page must show.
+  const read = page.waitForResponse((r) => r.url().includes('/api/agents/trpc/agent.get'));
   await agentCard(page, 'Navigator').getByRole('button', { name: 'Details' }).click();
+  const stored = await (await read).json();
   const tools = tableIn(main(page), 'Tools');
   await expect(tools.getByRole('row').filter({ hasText: 'trade.quote' })).toBeVisible();
   for (const header of ['Inputs', 'Outputs', 'Refusals'])
     await expect(tools.getByRole('columnheader', { name: header })).toBeVisible(UNBUILT);
   // A tool that publishes no shape says so, rather than showing an empty cell.
   for (const cell of await tools.getByRole('cell').all()) await expect(cell).toHaveText(/\S/);
-  await expect(main(page).getByRole('term').filter({ hasText: 'Permission mode' })).toBeVisible();
+  // The permission mode is the one svc-agents stores for Navigator, in its words: research only.
+  expect(stored?.result?.data?.capacityMode, JSON.stringify(stored).slice(0, 400)).toBe('research_only');
+  const mode = main(page).getByRole('term').filter({ hasText: 'Permission mode' });
+  await expect(mode).toBeVisible();
+  await expect(mode.locator('xpath=following-sibling::dd[1]')).toHaveText(
+    'Research only: it cannot place, change or cancel orders, or withdraw',
+  );
   await expect(main(page)).toContainText('This agent acts as you, and never with more access than you have.');
 });
 

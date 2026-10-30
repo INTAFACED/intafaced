@@ -234,6 +234,11 @@ describe('merchant team reads, list pages, and stored detail', () => {
     expect((await owner.payment.list({ merchantId: mine.id, limit: 10, search: 'rail-ref-w2c' })).items.map((item) => item.id)).toEqual([
       second.id,
     ]);
+    // A caller who reads the rail reference masked cannot confirm a guessed one by searching for it; the other keys still match.
+    expect((await pay.listPayments({ merchantId: mine.id, limit: 10, search: 'rail-ref-w2c', searchRailRef: false })).items).toEqual([]);
+    expect(
+      (await pay.listPayments({ merchantId: mine.id, limit: 10, search: 'cust-alpha', searchRailRef: false })).items.map((item) => item.id),
+    ).toEqual([first.id]);
     expect((await owner.payment.list({ merchantId: mine.id, limit: 10, assetId: 'USD' })).items.map((item) => item.id)).toEqual([
       second.id,
     ]);

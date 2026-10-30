@@ -151,9 +151,11 @@ export async function json(res) {
   }
 }
 
-/** The customer's own API through Edge, signed in as `who` with a session of its own (not the browser's). */
-/** `totpCode`: the authenticator's code, for an account that has one. */
-export async function api(who, totpCode) {
+/**
+ * The customer's own API through Edge, signed in as `who` with a session of its own (not the browser's). An account
+ * with an authenticator signs in with a fresh code from it (`totpCode`).
+ */
+export async function api(who, { totpCode } = {}) {
   const signIn = () =>
     fetch(`${EDGE}/api/identity/trpc/auth.login`, {
       method: 'POST',
@@ -161,8 +163,7 @@ export async function api(who, totpCode) {
       body: JSON.stringify({ deviceKey: DEVICE_KEY, identifier: who.email, password: who.password, ...(totpCode ? { totpCode } : {}) }),
     }).then(json);
   // A sign-in on a kept-alive socket Edge closed while the test waited fails before any answer; it is sent once more on
-  // a fresh socket (it moves nothing, and a second session is harmless). A TOTP code is spent by the first try only if
-  // that try reached identity, which a socket closed before any answer did not.
+  // a fresh socket (it moves nothing, and a second session is harmless).
   const login = await signIn().catch((error) => {
     if (error?.cause?.code !== 'UND_ERR_SOCKET') throw error;
     return signIn();

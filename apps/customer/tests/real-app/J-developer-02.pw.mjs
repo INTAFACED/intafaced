@@ -103,7 +103,7 @@ async function account(who) {
     const { code, step } = await nextCode(totp, who.secret, who.step);
     who.step = step;
     run.write({ who });
-    signedIn = await api(who, code);
+    signedIn = await api(who, { totpCode: code });
   }
   return signedIn;
 }
