@@ -8,7 +8,14 @@ import type { ApprovalView, ExecuteReply, StepName, StepReply } from './approval
 
 export type { ApprovalView, ExecuteReply, StepName, StepReply } from './approval-types';
 
-export type ExecuteFn = (request: DeskRequest, ids: { approvalId: string; operationId: string }) => Promise<ExecuteReply>;
+/**
+ * `stepUpCode` is the running founder's fresh authenticator code, sent only with an execute step whose service asks for
+ * a same-person step-up (a governance role change). Every other executor ignores it.
+ */
+export type ExecuteFn = (
+  request: DeskRequest,
+  ids: { approvalId: string; operationId: string; stepUpCode?: string },
+) => Promise<ExecuteReply>;
 
 /**
  * The four steps of a two-founder request, run as the signed-in founder through identity.
@@ -31,6 +38,8 @@ export interface StepBody {
   readonly confirm: string;
   readonly approvalId: string | null;
   readonly operationId: string | null;
+  /** Six digits from the founder's authenticator, only on an execute step. */
+  readonly stepUpCode?: string;
 }
 
 export type ParsedStep = { readonly ok: true; readonly body: StepBody } | { readonly ok: false; readonly error: string };
@@ -58,6 +67,10 @@ export function parseStepBody(raw: unknown): ParsedStep {
   const operationId = raw.operationId === undefined ? null : raw.operationId;
   if (step !== 'propose' && !isApprovalId(approvalId)) return { ok: false, error: 'approvalId is required' };
   if (step === 'execute' && !isApprovalId(operationId)) return { ok: false, error: 'operationId is required' };
+  const stepUpCode = raw.stepUpCode === undefined ? undefined : raw.stepUpCode;
+  if (stepUpCode !== undefined && (step !== 'execute' || typeof stepUpCode !== 'string' || !/^\d{6}$/.test(stepUpCode))) {
+    return { ok: false, error: 'stepUpCode is six digits, sent only with execute' };
+  }
   const confirm = typeof raw.confirm === 'string' ? raw.confirm : '';
   if (needsRequest && request !== null && confirm !== confirmPhrase(request)) {
     return { ok: false, error: `type ${confirmPhrase(request)} exactly to confirm` };
@@ -70,6 +83,7 @@ export function parseStepBody(raw: unknown): ParsedStep {
       confirm,
       approvalId: typeof approvalId === 'string' ? approvalId : null,
       operationId: typeof operationId === 'string' ? operationId : null,
+      ...(stepUpCode !== undefined ? { stepUpCode } : {}),
     },
   };
 }
@@ -201,7 +215,11 @@ export async function runStep(ctx: FounderCallContext, body: StepBody, execute: 
   }
 
   if (step === 'execute' && request && body.approvalId && body.operationId) {
-    const result = await execute(request, { approvalId: body.approvalId, operationId: body.operationId });
+    const result = await execute(request, {
+      approvalId: body.approvalId,
+      operationId: body.operationId,
+      ...(body.stepUpCode ? { stepUpCode: body.stepUpCode } : {}),
+    });
     if (!result.ok) return { ok: false, step, refusal: result.refusal };
     return result.document
       ? { ok: true, step, detail: result.detail, document: result.document }

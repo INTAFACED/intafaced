@@ -106,6 +106,10 @@ export interface WorkbenchViewProps {
   readonly onStep: (step: Exclude<StepName, 'propose'>) => void;
   /** Drops an opened document from the reply, so its contents leave the page. */
   readonly onCloseDocument?: () => void;
+  /** Set when running the request needs the runner's own fresh authenticator code; says why. */
+  readonly stepUpNote?: string | null;
+  readonly stepUpCode?: string;
+  readonly onStepUpCode?: (value: string) => void;
 }
 
 const STEP_LABEL: Record<Exclude<StepName, 'propose'>, string> = {
@@ -190,6 +194,24 @@ export function ApprovalWorkbenchView(props: WorkbenchViewProps) {
               onChange={(e) => props.onConfirm(e.target.value)}
             />
           </div>
+          {props.stepUpNote && (
+            <div className="adm-field">
+              <label htmlFor={`${uid}dk-step-up`}>Your authenticator code, to run it</label>
+              <input
+                id={`${uid}dk-step-up`}
+                className="adm-input"
+                value={props.stepUpCode ?? ''}
+                inputMode="numeric"
+                autoComplete="one-time-code"
+                maxLength={6}
+                aria-describedby={`${uid}dk-step-up-note`}
+                onChange={(e) => props.onStepUpCode?.(e.target.value.replace(/\D/g, '').slice(0, 6))}
+              />
+              <p id={`${uid}dk-step-up-note`} className="dk-muted">
+                {props.stepUpNote}
+              </p>
+            </div>
+          )}
           <div className="dk-row">
             {gates.map(({ step, gate }) => (
               <button
@@ -231,10 +253,22 @@ export interface WorkbenchProps {
   readonly onChanged: () => void;
   /** The newest reply from the request form, so it shows in the same place. */
   readonly externalReply?: StepReply | null;
+  /** Set when running needs the runner's fresh authenticator code (a same-person step-up); says why. */
+  readonly stepUpNote?: string | null;
 }
 
-export function ApprovalWorkbench({ endpoint, packetText, onPacketText, userId, blockedReason, onChanged, externalReply }: WorkbenchProps) {
+export function ApprovalWorkbench({
+  endpoint,
+  packetText,
+  onPacketText,
+  userId,
+  blockedReason,
+  onChanged,
+  externalReply,
+  stepUpNote = null,
+}: WorkbenchProps) {
   const [confirm, setConfirm] = useState('');
+  const [stepUpCode, setStepUpCode] = useState('');
   const [busy, setBusy] = useState<StepName | null>(null);
   const [reply, setReply] = useState<StepReply | null>(null);
   const lock = useRef(false);
@@ -253,7 +287,10 @@ export function ApprovalWorkbench({ endpoint, packetText, onPacketText, userId, 
         confirm,
         approvalId: packet.approvalId,
         ...(step === 'execute' ? { operationId: packet.operationId } : {}),
+        ...(step === 'execute' && stepUpNote && /^\d{6}$/.test(stepUpCode) ? { stepUpCode } : {}),
       });
+      // A code is spent once, whatever the reply.
+      if (step === 'execute') setStepUpCode('');
       setReply(result);
       if (result.ok && (step === 'reject' || step === 'revoke')) setConfirm('');
       onChanged();
@@ -281,6 +318,9 @@ export function ApprovalWorkbench({ endpoint, packetText, onPacketText, userId, 
       onConfirm={setConfirm}
       onStep={(step) => void onStep(step)}
       onCloseDocument={() => setReply(DOCUMENT_CLOSED_REPLY)}
+      stepUpNote={stepUpNote}
+      stepUpCode={stepUpCode}
+      onStepUpCode={setStepUpCode}
     />
   );
 }

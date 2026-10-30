@@ -37,3 +37,15 @@ export async function founderSignIn(page, key = 'a') {
   await page.waitForURL((url) => !url.pathname.startsWith('/login'), { timeout: 30_000 });
   return { userId: founder.userId, handle: founder.handle };
 }
+
+/**
+ * A fresh authenticator code for founder `key`, for a same-person step-up in the console (a governance role change).
+ * founderTotp records the step, so it never hands out a code the sign-in or another step already spent.
+ */
+export async function founderCode(key = 'a') {
+  const ctx = await makeContext({ log: () => {} });
+  const vault = JSON.parse(readFileSync(path.join(ctx.paths.stateDir, FOUNDER_VAULT_NAME), 'utf8'));
+  const founder = vault.founders[key === 'a' ? 0 : 1];
+  if (!founder?.totpSecret) throw new Error(`founder ${key} has no confirmed second factor yet: start the stack first (pnpm local:stack)`);
+  return founderTotp(ctx, key, founder.totpSecret);
+}

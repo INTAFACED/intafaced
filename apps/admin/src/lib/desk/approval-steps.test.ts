@@ -77,6 +77,14 @@ describe('parseStepBody', () => {
     expect(parseStepBody({ step: 'revoke', approvalId: 'appr_1' })).toMatchObject({ ok: true });
     expect(parseStepBody({ step: 'reject' }).ok).toBe(false);
   });
+  it('takes a step-up code only on execute, and only as six digits', () => {
+    const exec = { step: 'execute', request: kill, confirm: 'KILL trade', approvalId: 'appr_1', operationId: 'op_1' };
+    expect(parseStepBody({ ...exec, stepUpCode: '123456' })).toMatchObject({ ok: true, body: { stepUpCode: '123456' } });
+    for (const bad of ['12345', '1234567', 'abcdef', 123456]) expect(parseStepBody({ ...exec, stepUpCode: bad }).ok).toBe(false);
+    expect(parseStepBody({ step: 'approve', request: kill, confirm: 'KILL trade', approvalId: 'appr_1', stepUpCode: '123456' }).ok).toBe(
+      false,
+    );
+  });
   it('execute needs both ids; approve needs the approval id', () => {
     expect(parseStepBody({ step: 'execute', request: kill, confirm: 'KILL trade', approvalId: 'appr_1' }).ok).toBe(false);
     expect(parseStepBody({ step: 'approve', request: kill, confirm: 'KILL trade' }).ok).toBe(false);
@@ -183,6 +191,11 @@ describe('execute', () => {
     const reply = await runStep(ctx, body({ step: 'execute', approvalId: 'appr_1', operationId: 'op_1' }), execute);
     expect(execute).toHaveBeenCalledWith(kill, { approvalId: 'appr_1', operationId: 'op_1' });
     expect(reply).toEqual({ ok: true, step: 'execute', detail: 'svc-edge answered 200' });
+  });
+  it('hands a step-up code to the executor only when one was sent', async () => {
+    const execute = vi.fn<ExecuteFn>(async () => ({ ok: true, detail: 'ok' }));
+    await runStep(ctx, body({ step: 'execute', approvalId: 'appr_1', operationId: 'op_1', stepUpCode: '123456' }), execute);
+    expect(execute).toHaveBeenCalledWith(kill, { approvalId: 'appr_1', operationId: 'op_1', stepUpCode: '123456' });
   });
   it('passes a refusal through unchanged', async () => {
     const refusal = { title: 't', body: 'b', next: 'n', code: 'action_approval.not_approved', changed: 'no' as const };

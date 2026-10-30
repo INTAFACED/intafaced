@@ -44,6 +44,28 @@ const BY_CODE: Readonly<Record<string, Entry>> = {
     body: 'The account is no longer at the role revision this request was built on. Nothing was changed.',
     next: 'Read the roles again and decide again.',
   },
+  // A governance role change also needs the running founder's own fresh step-up (J-more-catalogue-10 #6), spent at
+  // identity and checked by svc-token before the two-founder approval is spent.
+  'identity.step_up_required': {
+    title: 'Your fresh authenticator code is needed to run this',
+    body: 'svc-token runs a role change only with a fresh step-up by the founder who runs it, for exactly this change. Nothing was changed, and the approval was not spent.',
+    next: 'Type the current code from your authenticator app and try again.',
+  },
+  'identity.step_up_unavailable': {
+    title: 'The step-up could not be checked',
+    body: 'svc-token could not reach identity to check the step-up, so it refused the role change. Nothing was changed, and the approval was not spent.',
+    next: 'Try again shortly with a new code.',
+  },
+  'auth.mfa_invalid': {
+    title: 'That authenticator code was not accepted',
+    body: 'Identity did not accept the code: it was wrong, already used, or from an old window. Nothing was changed.',
+    next: 'Wait for the next code in your authenticator app and try again.',
+  },
+  'auth.too_many_attempts': {
+    title: 'Too many authenticator codes were tried',
+    body: 'Identity paused codes for your account for a while. Nothing was changed.',
+    next: 'Wait a few minutes, then run it again with a fresh code.',
+  },
   // svc-token launch founder doors (J-more-catalogue-14). Every one is refused before the approval is spent.
   'launch.issuer_not_onboarded': {
     title: 'This issuer is not onboarded',
