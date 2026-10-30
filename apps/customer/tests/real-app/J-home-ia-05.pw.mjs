@@ -17,8 +17,15 @@ const popup = (page) => page.getByTestId('nf-pop');
 const uuidText = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i;
 const rawKey = /notify\.[a-z_.]+/;
 
+// POPOVER_ITEMS and PAGE in src/screens/notifications/BellPopover.tsx and NotificationsPage.tsx; the badge caps at 99+.
 const POPOVER_ITEMS = 8;
 const PAGE_ITEMS = 20;
+const badge = (count) => (count > 99 ? '99+' : String(count));
+const TITLES = {
+  'trade.fill': 'Order filled',
+  'trade.order.terminal': 'Order cancelled',
+  'identity.kyc.approved': 'Verification approved',
+};
 
 let who;
 let cancelled;
@@ -26,6 +33,8 @@ let cancelled;
 let fills;
 /** Verified, each fill, cancelled: every notice this account holds. */
 let total;
+/** Those notices' kinds, newest first, as svc-notify lists them: the order every screen shows them in. */
+let kinds;
 
 test.beforeAll(async ({ browser }) => {
   test.setTimeout(240_000);
@@ -42,10 +51,17 @@ test.beforeAll(async ({ browser }) => {
   [cancelled] = await openOrders(who);
   expect((await (await api(who)).delete(`/api/v1/orders/${cancelled.id}?symbol=BTC%2FUSDT`)).status).toBe(200);
   // The market buy's fills are the whole 0.001 BTC, and the resting order filled nothing.
-  fills = (await (await api(who)).get('/api/v1/account/trades?limit=100')).body;
-  expect(fills.length, JSON.stringify(fills)).toBeGreaterThan(0);
-  expect(fills.every((fill) => fill.side === 'buy' && fill.order !== cancelled.id)).toBe(true);
-  expect(fromUnits(fills.reduce((sum, fill) => sum + toUnits(String(fill.amount)), 0n))).toBe('0.001');
+  // Read until every fill of the buy is written, then pin them all to that one order.
+  await expect
+    .poll(
+      async () => {
+        fills = (await (await api(who)).get('/api/v1/account/trades?limit=100')).body;
+        return fromUnits(fills.reduce((sum, fill) => sum + toUnits(String(fill.amount)), 0n));
+      },
+      { timeout: 20_000 },
+    )
+    .toBe('0.001');
+  expect(fills.every((fill) => fill.side === 'buy' && fill.order === fills[0].order && fill.order !== cancelled.id)).toBe(true);
   total = fills.length + 2;
   // Verified, each fill and cancelled: all unread, and each fill notice is one of this account's own fills.
   await expect
@@ -63,6 +79,7 @@ test.beforeAll(async ({ browser }) => {
       .map((item) => item.params.fillId)
       .sort(),
   ).toEqual(fills.map((fill) => fill.id).sort());
+  kinds = items.map((item) => item.kind);
   await page.close();
 });
 
@@ -70,7 +87,7 @@ test(`${J} #1 the bell shows the unread count and a popover of recent notices in
   await signIn(page, who);
   await page.goto('/');
   await expect(bell(page)).toHaveAttribute('aria-label', `Notifications, ${total} unread`);
-  await expect(bell(page).getByTestId('tb-badge')).toHaveText(String(total));
+  await expect(bell(page).getByTestId('tb-badge')).toHaveText(badge(total));
   await bell(page).click();
   await expect(popup(page)).toBeVisible();
   // Newest first, as many as the popover holds.
@@ -78,7 +95,7 @@ test(`${J} #1 the bell shows the unread count and a popover of recent notices in
   await expect(popup(page).getByTestId('nf-row')).toHaveCount(shown);
   await expect(popup(page).locator('[data-testid="nf-row"][data-unread]')).toHaveCount(shown);
   const titles = await popup(page).getByTestId('nf-title').allInnerTexts();
-  expect(titles).toEqual(['Order cancelled', ...fills.map(() => 'Order filled'), 'Verification approved'].slice(0, shown));
+  expect(titles).toEqual(kinds.slice(0, shown).map((kind) => TITLES[kind]));
   const words = await popup(page).innerText();
   expect(words).not.toMatch(uuidText);
   expect(words).not.toMatch(rawKey);
@@ -108,13 +125,15 @@ test(`${J} #2 a fill notice opens the trade in Activity and is marked read; a ca
     await expect(row).toHaveCount(1);
     await expect(row.getByTestId('dk-trade-what')).toHaveText(`Bought ${fromUnits(toUnits(String(fill.amount)))} BTC`);
     await expect(row).toContainText(fills.length > 1 ? 'BTC/USDT' : 'BTC/USDT · Market');
-    await expect(row).toContainText(Number(fill.price).toLocaleString('en-US', { minimumFractionDigits: 2 }));
+    // BTC/USDT's tick is 0.01, so its price shows with exactly two decimals.
+    await expect(row).toContainText(Number(fill.price).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }));
   }
-  await expect(bell(page).getByTestId('tb-badge')).toHaveText(String(total - 1));
+  await expect(bell(page).getByTestId('tb-badge')).toHaveText(badge(total - 1));
   await bell(page).click();
   // Only the opened notice is read.
   await expect(fillRows(popup(page)).first()).not.toHaveAttribute('data-unread');
-  await expect(fillRows(popup(page)).and(page.locator('[data-unread]'))).toHaveCount(Math.min(fills.length, POPOVER_ITEMS - 1) - 1);
+  const popoverFills = kinds.slice(0, POPOVER_ITEMS).filter((kind) => kind === 'trade.fill').length;
+  await expect(fillRows(popup(page)).and(page.locator('[data-unread]'))).toHaveCount(popoverFills - 1);
   await popup(page).locator('[data-testid="nf-row"]', { hasText: 'Order cancelled' }).click();
   await expect(page).toHaveURL(/\/money\/activity\?tab=orders/);
   // The cancelled order is on screen in the order history, marked Cancelled with nothing filled.
@@ -125,7 +144,7 @@ test(`${J} #2 a fill notice opens the trade in Activity and is marked read; a ca
   await expect(order).toHaveCount(1);
   await expect(order.locator('[data-slot="status-tag"]')).toHaveText('Cancelled');
   await expect(order.locator('td').nth(6)).toHaveText('0');
-  await expect(bell(page).getByTestId('tb-badge')).toHaveText(String(total - 2));
+  await expect(bell(page).getByTestId('tb-badge')).toHaveText(badge(total - 2));
 });
 
 test(`${J} #3 the full page: All and Unread, Mark all as read clears the dots and the badge, an empty Unread tab`, async ({ page }) => {
@@ -136,9 +155,9 @@ test(`${J} #3 the full page: All and Unread, Mark all as read clears the dots an
   // Unread: the fills #2 did not open, and the verification.
   await page.getByRole('tab', { name: 'Unread' }).click();
   await expect(page.getByTestId('nf-row')).toHaveCount(Math.min(total - 2, PAGE_ITEMS));
-  await expect(page.getByTestId('nf-title')).toHaveText(
-    [...fills.slice(1).map(() => 'Order filled'), 'Verification approved'].slice(0, PAGE_ITEMS),
-  );
+  const unread = kinds.filter((kind) => kind !== 'trade.order.terminal');
+  unread.splice(unread.indexOf('trade.fill'), 1);
+  await expect(page.getByTestId('nf-title')).toHaveText(unread.slice(0, PAGE_ITEMS).map((kind) => TITLES[kind]));
   await page.getByRole('button', { name: 'Mark all as read' }).click();
   await expect(page.getByText("You're all caught up.")).toBeVisible();
   await expect(bell(page).getByTestId('tb-badge')).toHaveCount(0);
