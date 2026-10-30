@@ -3,6 +3,7 @@ import type { Principal } from '@intafaced/auth';
 import { createEdgeContext, encodePrincipal, signPrincipalHeader } from '@intafaced/contracts';
 import { createAgentsRouter } from '../router.js';
 import type { AgentsRouterDeps } from '../router.js';
+import { NO_TIER_LAWS, type TierLaws } from '../tier-laws.js';
 import { SCANNER_DATA_TOOLS } from './guardrail.js';
 import { SCANNER_SIGNAL_INPUTS_LAW_RESIDUAL, SEALED_ABS_CHANGE_X_LOG_VOLUME_LAW } from './signal-inputs-law.js';
 
@@ -35,19 +36,22 @@ function signed(p: Principal = principal()) {
   });
 }
 
-function stubDeps(): AgentsRouterDeps {
+function stubDeps(scanner: TierLaws['scanner'] = null): AgentsRouterDeps {
   return {
     runtime: {} as AgentsRouterDeps['runtime'],
     gateway: { routingTable: { routes: [] } } as unknown as AgentsRouterDeps['gateway'],
     meter: {} as AgentsRouterDeps['meter'],
     feeAssetId: 'IFC',
+    tierLaws: { ...NO_TIER_LAWS, scanner },
   };
 }
 
+/** The stored law grants the `basic` tier; the signed principal carries the tier the door gates on. */
 const law = {
   published: true as const,
-  matrix: { free: { maxSignals: 5, tools: [...SCANNER_DATA_TOOLS] } },
+  matrix: { basic: { maxSignals: 5, tools: [...SCANNER_DATA_TOOLS] } },
 };
+const basic = () => signed(principal({ tier: 'basic' }));
 
 describe('scanner Stage-2 routes', () => {
   it('stage2Guardrail returns read-only spot tools', async () => {
@@ -59,7 +63,7 @@ describe('scanner Stage-2 routes', () => {
   });
 
   it('tierGate refuse-closed when law blank', async () => {
-    const result = await createAgentsRouter(stubDeps()).createCaller(signed()).scanner.tierGate({ userTier: 'free', law: null });
+    const result = await createAgentsRouter(stubDeps()).createCaller(basic()).scanner.tierGate({});
     expect(result).toEqual({
       status: 'refuse',
       reason: 'tier_law_blank',
@@ -67,14 +71,37 @@ describe('scanner Stage-2 routes', () => {
     });
   });
 
+  it('tierGate takes the tier from the signed principal and the law from stored config, never the body', async () => {
+    expect(await createAgentsRouter(stubDeps(law)).createCaller(basic()).scanner.tierGate({})).toEqual({
+      status: 'ok',
+      userTier: 'basic',
+      maxSignals: 5,
+      allowedTools: [...SCANNER_DATA_TOOLS],
+    });
+    // A lower signed tier than the stored law grants is the typed tier refusal.
+    expect(await createAgentsRouter(stubDeps(law)).createCaller(signed()).scanner.tierGate({})).toEqual({
+      status: 'refuse',
+      reason: 'tier_not_granted',
+      userMessageKey: 'agents.scanner.tier_closed',
+    });
+    // A body that names a tier or a law is rejected before the gate runs.
+    const caller = createAgentsRouter(stubDeps(law)).createCaller(signed());
+    await expect(caller.scanner.tierGate({ userTier: 'basic' } as never)).rejects.toMatchObject({ code: 'BAD_REQUEST' });
+    await expect(caller.scanner.tierGate({ law } as never)).rejects.toMatchObject({ code: 'BAD_REQUEST' });
+    await expect(caller.scanner.invokeDataTool({ tool: 'trade.ticker', plane: 'live', userTier: 'basic' } as never)).rejects.toMatchObject({
+      code: 'BAD_REQUEST',
+    });
+    await expect(caller.scanner.rankLive({ plane: 'live', law, tickers: [] } as never)).rejects.toMatchObject({
+      code: 'BAD_REQUEST',
+    });
+  });
+
   it('invokeDataTool echoes ticker when live + published law', async () => {
-    const result = await createAgentsRouter(stubDeps())
-      .createCaller(signed())
+    const result = await createAgentsRouter(stubDeps(law))
+      .createCaller(basic())
       .scanner.invokeDataTool({
         tool: 'trade.ticker',
         plane: 'live',
-        userTier: 'free',
-        law,
         now: '2026-08-07T12:00:00.000Z',
         ticker: {
           marketId: 'btc-usdt',
@@ -97,12 +124,10 @@ describe('scanner Stage-2 routes', () => {
   });
 
   it('rankLive caps by tier depth and refuses invent on dark plane', async () => {
-    const blankP011 = await createAgentsRouter(stubDeps())
-      .createCaller(signed())
+    const blankP011 = await createAgentsRouter(stubDeps(law))
+      .createCaller(basic())
       .scanner.rankLive({
         plane: 'live',
-        userTier: 'free',
-        law,
         signalInputsLaw: { published: false },
         tickers: [
           {
@@ -122,12 +147,10 @@ describe('scanner Stage-2 routes', () => {
       residual: SCANNER_SIGNAL_INPUTS_LAW_RESIDUAL,
     });
 
-    const dark = await createAgentsRouter(stubDeps())
-      .createCaller(signed())
+    const dark = await createAgentsRouter(stubDeps(law))
+      .createCaller(basic())
       .scanner.rankLive({
         plane: 'dark',
-        userTier: 'free',
-        law,
         signalInputsLaw: SEALED_ABS_CHANGE_X_LOG_VOLUME_LAW,
         tickers: [
           {
@@ -146,15 +169,10 @@ describe('scanner Stage-2 routes', () => {
       userMessageKey: 'agents.scanner.unavailable',
     });
 
-    const ok = await createAgentsRouter(stubDeps())
-      .createCaller(signed())
+    const ok = await createAgentsRouter(stubDeps({ published: true, matrix: { basic: { maxSignals: 1, tools: [...SCANNER_DATA_TOOLS] } } }))
+      .createCaller(basic())
       .scanner.rankLive({
         plane: 'live',
-        userTier: 'free',
-        law: {
-          published: true,
-          matrix: { free: { maxSignals: 1, tools: [...SCANNER_DATA_TOOLS] } },
-        },
         signalInputsLaw: SEALED_ABS_CHANGE_X_LOG_VOLUME_LAW,
         now: '2026-08-07T12:00:00.000Z',
         tickers: [

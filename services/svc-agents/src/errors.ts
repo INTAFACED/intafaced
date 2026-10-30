@@ -62,6 +62,22 @@ export class AgentError extends Error {
 }
 
 /**
+ * `agents.request_id_replay` when the session already holds a usage row for the request id: the earlier call under it
+ * was metered. A replay refused only on the claim (a call in flight, or one that died before it was metered) is a
+ * plain AgentError, so a stored run can tell a charged call from one that billed nothing.
+ */
+export class MeteredReplayError extends AgentError {
+  constructor(sessionId: string, requestId: string) {
+    super(
+      `Request id "${requestId}" was already metered on session ${sessionId}`,
+      'agents.request_id_replay',
+      'agents.error.request_id_replay',
+      { requestId },
+    );
+  }
+}
+
+/**
  * Thrown by an adapter when the upstream engine did not answer.
  *
  * Distinct from `AgentError` because the caller must be able to tell "the

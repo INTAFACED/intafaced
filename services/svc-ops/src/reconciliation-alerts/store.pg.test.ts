@@ -130,6 +130,9 @@ if (!pg) {
         });
         fail.message = null;
 
+        // Timeline ids start at 8, so an alert's entries cross a digit boundary (9, 10, 11): its timeline must read in id
+        // order as numbers, not as text, or the newest entry is no longer last.
+        await sql`SELECT setval(pg_get_serial_sequence('ops.reconciliation_alert_timeline', 'id'), 7)`;
         rows.push(evaluation(1, CONTROL, 'FAIL', { USDC: '5', EUR: '7', BTC: '0' }), evaluation(2, PASSING, 'PASS', { USDC: '0' }));
         expect(await ingestReconciliationEvaluations(store, feed)).toBe(2);
         // Read again from the start: run ids already taken change nothing.

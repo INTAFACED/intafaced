@@ -3,6 +3,7 @@ import type { Principal } from '@intafaced/auth';
 import { createEdgeContext, encodePrincipal, signPrincipalHeader } from '@intafaced/contracts';
 import { createAgentsRouter } from '../router.js';
 import type { AgentsRouterDeps } from '../router.js';
+import { NO_TIER_LAWS } from '../tier-laws.js';
 import { SUPPORT_DATA_TOOLS } from './data-tools.js';
 import type { SupportDeskPort } from './desk-port.js';
 
@@ -15,12 +16,12 @@ const principal = {
   userId: USER,
   sid: '22222222-2222-4222-8222-222222222222',
   scopes: ['agents:read'],
-  tier: 'none',
+  tier: 'basic',
   mfa: false,
   expiresAt: new Date(Date.now() + 60_000),
 } as Principal;
 
-const law = { published: true as const, matrix: { free: [...SUPPORT_DATA_TOOLS] } };
+const law = { published: true as const, matrix: { basic: [...SUPPORT_DATA_TOOLS] } };
 
 describe('support desk calls made for the user', () => {
   it('pass on the edge-signed principal unchanged and hold no signing secret', async () => {
@@ -39,6 +40,7 @@ describe('support desk calls made for the user', () => {
       gateway: { routingTable: { routes: [] } } as unknown as AgentsRouterDeps['gateway'],
       meter: {} as AgentsRouterDeps['meter'],
       feeAssetId: 'IFC',
+      tierLaws: { ...NO_TIER_LAWS, support: law },
       supportDesk: desk,
     };
     const raw = encodePrincipal(principal);
@@ -52,8 +54,6 @@ describe('support desk calls made for the user', () => {
       .support.invokeDataTool({
         tool: 'support.ticket.read',
         plane: 'live',
-        userTier: 'free',
-        law,
         ticket: { ticketId: 'tkt-1', ownerUserId: USER, status: 'open', category: 'withdrawals' },
         occurredAt: '2026-08-07T22:00:00.000Z',
       });

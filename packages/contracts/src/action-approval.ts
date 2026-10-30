@@ -104,12 +104,15 @@ export const SAME_PERSON_ACTION_TYPES = [
   // Take realised profit out of the caller's own spot grid bot (CB-bots-05). Identity mints it; svc-trade consumes it
   // before it reads the bot. It lowers the bot's reserve and posts no ledger row.
   'trade.step_up.bots.grid.withdrawProfit',
+  // Close every position a copy follow holds and end the follow (CB-copy close-all, J-copy-bots-otc-03 #4). Identity
+  // mints it; svc-trade consumes it before it reads the follow. It sells at market, so it can realise a loss.
+  'trade.step_up.copy.flatten',
 ] as const;
 
 /**
  * Same-person rows are consumed only by the service named on the row.
  * Bank doors stay `svc-bank`. Pay destination step-up is `svc-pay`. A P2P order is `svc-p2p`.
- * A grid bot profit withdrawal is `svc-trade`.
+ * A grid bot profit withdrawal and a copy close-all are `svc-trade`.
  * Identity contact changes are `svc-identity`, because identity consumes them
  * itself and refuses a consume whose caller is not the target service.
  */

@@ -76,6 +76,46 @@ export const deskStatusSchema = z.object({
 });
 export type DeskStatus = z.infer<typeof deskStatusSchema>;
 
+const rfqBoardStatusSchema = z.enum(['open', 'accepted', 'settled', 'expired']);
+/** `rfq.board` (CB-otc-02): the caller's requests grouped by status with counts, each with its quotes ranked best first. */
+export const rfqBoardSchema = z.object({
+  groups: z.array(
+    z.object({
+      status: rfqBoardStatusSchema,
+      count: z.number().int(),
+      requests: z.array(
+        z.object({
+          rfqId: z.string(),
+          status: rfqBoardStatusSchema,
+          side: z.enum(['buy', 'sell']),
+          baseAsset: z.string(),
+          quoteAsset: z.string(),
+          qty: decimalSchema,
+          createdAt: z.string(),
+          quotes: z.array(
+            z.object({
+              quoteId: z.string(),
+              makerId: z.string().nullable(),
+              rfqSeq: z.number().int(),
+              quotedPrice: decimalSchema,
+              userNotional: decimalSchema,
+              spreadBps: z.number().int(),
+              lifecycle: z.string(),
+              test: z.boolean(),
+              rank: z.number().int(),
+              best: z.boolean(),
+              expiresAt: z.string(),
+            }),
+          ),
+        }),
+      ),
+    }),
+  ),
+  more: z.boolean(),
+});
+export type RfqBoard = z.infer<typeof rfqBoardSchema>;
+export type RfqBoardStatus = z.infer<typeof rfqBoardStatusSchema>;
+
 const convertFlowBoundsSchema = z.object({ minQty: decimalSchema, maxQty: decimalSchema }).nullable();
 /** `otc.convertBounds` (CB-otc-12): the owner's size range for each flow at the desk price; null when it is blank. */
 export const convertBoundsSchema = z.object({ convert: convertFlowBoundsSchema, oneClickBuy: convertFlowBoundsSchema });
@@ -214,6 +254,8 @@ export function createRoomApi(api: ApiClient) {
     rfqQuote: (input: { side: 'buy' | 'sell'; baseAsset: string; quoteAsset: string; qty: string; makerIds: string[]; makerId?: string }) =>
       api.mutate('trade', 'rfq.quote', input, otcQuoteSchema),
     rfqGet: (quoteId: string, signal?: AbortSignal) => api.query('trade', 'rfq.get', { quoteId }, otcQuoteSchema, { signal }),
+    rfqBoard: (window: { from: string; to: string; limit: number }, signal?: AbortSignal) =>
+      api.query('trade', 'rfq.board', window, rfqBoardSchema, { signal }),
     /** `assertedPrice` can only cause a refusal (last look is forbidden); it never sets the fill price. */
     rfqAccept: (quoteId: string, assertedPrice: string) => api.mutate('trade', 'rfq.accept', { quoteId, assertedPrice }, otcQuoteSchema),
     rfqExpire: (quoteId: string) => api.mutate('trade', 'rfq.expire', { quoteId }, otcQuoteSchema),
