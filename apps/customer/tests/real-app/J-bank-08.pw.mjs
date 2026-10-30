@@ -377,10 +377,12 @@ test(`${J} #3 uses the calculator, then deposits below and above the minimum: ba
   await expect(card.getByTestId('earn-pool-accrual')).toContainText('Waiting for accrual: interest starts');
   await expect(page.getByTestId('earn-pool-earned')).toContainText('No interest has been paid to you from this pool.');
 
-  // The job pays only a day that has begun: tomorrow, this saving's first day, is refused by its exact code and records
-  // nothing. The saving's opening is then moved back two days, so its first day is yesterday.
+  // The job pays only a day that has begun: a day two ahead of today, which has not begun even if this run crosses
+  // midnight, is refused by its exact code and records nothing. The saving's opening is then moved back two days, so
+  // its first day is yesterday.
   const DAY = 24 * 60 * 60 * 1000;
-  const ahead = await job('ops.accrueInterest', { poolId: pool, at: new Date(firstDay + 60 * 60 * 1000).toISOString() }).catch((e) => e);
+  const twoAhead = startOf(Date.now()) + 2 * DAY + 60 * 60 * 1000;
+  const ahead = await job('ops.accrueInterest', { poolId: pool, at: new Date(twoAhead).toISOString() }).catch((e) => e);
   expect({ status: ahead.status, code: ahead.code }).toEqual({ status: 412, code: 'bank.accrual_day_not_begun' });
   expect((await api.query('earn.positions', { limit: 50, poolId: pool })).data[0]).toMatchObject({
     id: position.id,
