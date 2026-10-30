@@ -161,7 +161,8 @@ test(`${J} #2 reads funds moving from clearing to available: funds wait until av
   expect(before).toEqual([
     { assetCode: 'USDT', clearing: expect.stringMatching(/^40(\.0+)?$/), available: expect.stringMatching(/^0(\.0+)?$/) },
   ]);
-  expect((await api.query('settlement.clearing', { merchantId })).held.map((h) => h.paymentId)).toEqual([paymentId]);
+  const heldBefore = (await api.query('settlement.clearing', { merchantId })).held;
+  expect(heldBefore.map((h) => h.paymentId)).toEqual([paymentId]);
 
   // A destination to pay out to, saved by the owner on the go-live page with a fresh authenticator code.
   const owner = await signInOwner(page, '/pay/onboarding/go-live');
@@ -194,7 +195,10 @@ test(`${J} #2 reads funds moving from clearing to available: funds wait until av
     `/pay/payments/${paymentId}`,
   );
 
-  // (2) A payout of clearing money is refused by name, by the API and on the page, and moves nothing.
+  // (2) A payout of clearing money is refused by its typed code, by the API and on the page, and moves nothing.
+  const recordBefore = await api.query('settlement.get', { settlementId: waiting.id });
+  expect(recordBefore.status).toBe('pending');
+  const clearingCode = 'pay.payout_clearing_pending';
   await page.goto(`/pay/payouts/new?settlement=${waiting.id}`);
   await expect(page.getByLabel('Settlement')).toHaveValue(waiting.id);
   await expect(page.getByLabel('Settlement').locator('option:checked')).toContainText('still clearing');
@@ -210,7 +214,7 @@ test(`${J} #2 reads funds moving from clearing to available: funds wait until av
   await review.getByRole('button', { name: 'Pay out', exact: true }).click();
   const answer = await asked;
   expect(answer.status()).toBe(412);
-  expect(JSON.stringify(await answer.json())).toContain('"code":"pay.payout_clearing_pending"');
+  expect((await answer.json()).error?.data?.cause?.code).toBe(clearingCode);
   const said = review.getByRole('status').filter({ hasText: 'The request was refused' });
   await expect(said).toContainText('This money is still clearing, so it isn’t available to pay out yet.');
   expect(refused).toEqual(['412 merchantControl.approvals.request']);
@@ -222,9 +226,9 @@ test(`${J} #2 reads funds moving from clearing to available: funds wait until av
   const refusalOf = (call) =>
     call.then(
       () => 'not refused',
-      (err) => ({ status: err.status, code: err.body?.includes('"code":"pay.payout_clearing_pending"') }),
+      (err) => ({ status: err.status, code: JSON.parse(err.body ?? 'null')?.error?.data?.cause?.code }),
     );
-  const clearingRefusal = { status: 412, code: true };
+  const clearingRefusal = { status: 412, code: clearingCode };
   expect(
     await refusalOf(payer.mutate('merchantControl.approvals.request', { merchantId, settlementId: waiting.id, railId: 'crypto-native' })),
   ).toEqual(clearingRefusal);
@@ -233,7 +237,8 @@ test(`${J} #2 reads funds moving from clearing to available: funds wait until av
   );
   // Read again: nothing moved, the window still waits and no payout was asked for or sent.
   expect(await snapshot()).toEqual(before);
-  expect((await api.query('settlement.get', { settlementId: waiting.id })).status).toBe('pending');
+  expect(await api.query('settlement.get', { settlementId: waiting.id })).toEqual(recordBefore);
+  expect((await api.query('settlement.clearing', { merchantId })).held).toEqual(heldBefore);
   expect((await api.query('merchantControl.approvals.list', { merchantId, limit: 50 })).items).toEqual([]);
 
   // (3) The TEST acquirer reports the funds available, signed, to the service's own webhook; the same run now settles.
