@@ -192,6 +192,8 @@ test(`${J} #2 opens the base-URL table: one row per protocol, environment and re
 test(`${J} #3 opens the connectivity options: internet and redundant endpoints with their hosts, a probe with offset and round trip, and colocation parked with the hardware notice`, async ({
   page,
 }) => {
+  // Four svc-trade restarts: hosts blank, back, regional hosts, back.
+  test.setTimeout(300_000);
   await page.goto('/developers/connectivity');
   await expect(page.getByRole('heading', { name: 'Connectivity', level: 1 })).toBeVisible();
   const options = tableIn(page, 'Connectivity options');
