@@ -25,7 +25,16 @@ import type { Market } from '../spot/types.js';
 import type { StepUpCheck } from '@intafaced/contracts';
 
 /** Identity's step-up, approving: these tests are about the close-all itself (the gate's own tests are in copy-flatten-step-up.test.ts). */
-const approveStepUp: StepUpCheck = { require: async () => ({ stepUpEventId: 'appr-test', consumedAt: null, replayed: false }) };
+/** Identity's step-up, approving, and like identity a second use of one approval for the same request is a replay. */
+const usedApprovals = new Set<string>();
+const approveStepUp: StepUpCheck = {
+  require: async ({ approvalId, requestId }) => {
+    const key = `${approvalId}|${requestId}`;
+    const replayed = usedApprovals.has(key);
+    usedApprovals.add(key);
+    return { stepUpEventId: approvalId ?? 'appr-test', consumedAt: null, replayed };
+  },
+};
 
 const here = dirname(fileURLToPath(import.meta.url));
 const drizzle = join(here, '..', '..', 'drizzle');
@@ -361,6 +370,44 @@ describe('copy.flatten follower port (TRD-0723)', () => {
     });
     expect(box.calls).toHaveLength(1);
     expect(again.orderIds).toEqual(acked.orderIds);
+
+    // A new close-all (a new confirmation and request) on the follow already left is refused, and nothing is placed (#6920).
+    await expect(
+      box.copy.flatten(principal(), { followId: follow.followId, requestId: 'flatten-0002', stepUpApprovalId: 'appr-test-2' }),
+    ).rejects.toMatchObject({ code: 'trade.copy_detached' });
+    expect(box.calls).toHaveLength(1);
+    expect(await box.store.getFollow(follow.followId)).toEqual(detached);
+  });
+
+  it('a follow left with Keep is refused close-all, and a replay of that same request places nothing either (#6920)', async () => {
+    const btc = spot(BTC_ID, 'BTC-USDT', 'BTC');
+    const box = harness({ markets: [btc], bids: { [BTC_ID]: '100' }, slippageCapBps: 150 });
+    const leaderId = nextLeader();
+    const follow = await open(box.copy, leaderId, ['BTC-USDT']);
+    await insertMarket(BTC_ID, 'BTC-USDT', 'BTC');
+    await insertFilledMirror({
+      followId: follow.followId,
+      followerId: FOLLOWER,
+      leaderId,
+      marketId: BTC_ID,
+      symbol: 'BTC-USDT',
+      base: 'BTC',
+      fillQty: '1',
+      side: 'buy',
+      planQty: '99',
+    });
+    await deposit(box.ledger, 'BTC', '10');
+    // Leave and keep: the copied BTC stays the person's own, with no close placed.
+    await box.copy.detach(principal(), { followId: follow.followId });
+    const left = await box.store.getFollow(follow.followId);
+    expect(left?.relationshipState).toBe('DETACHED');
+
+    const request = { followId: follow.followId, requestId: 'flatten-keep-01', stepUpApprovalId: 'appr-keep-1' };
+    await expect(box.copy.flatten(principal(), request)).rejects.toMatchObject({ code: 'trade.copy_detached' });
+    // The same approval and request again is identity's replay; it still finds no close to answer, so it places none.
+    await expect(box.copy.flatten(principal(), request)).rejects.toMatchObject({ code: 'trade.copy_detached' });
+    expect(box.calls).toEqual([]);
+    expect(await box.store.getFollow(follow.followId)).toEqual(left);
   });
 
   it('refuses drift and places nothing when available balance is below the mirrored net', async () => {

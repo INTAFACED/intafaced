@@ -791,7 +791,10 @@ async function averageOf(who, algoId) {
     await api(who)
   ).get(`/api/trade/trpc/algo.result?input=${encodeURIComponent(JSON.stringify({ algoId }))}`);
   expect(status, JSON.stringify(body).slice(0, 300)).toBe(200);
-  return body.result.data.quotes.find((q) => q.averageFillPrice !== null)?.averageFillPrice ?? null;
+  // One quote asset per schedule here: a second priced quote would make "the" average ambiguous.
+  const priced = body.result.data.quotes.filter((q) => q.averageFillPrice !== null);
+  expect(priced.length).toBeLessThanOrEqual(1);
+  return priced[0]?.averageFillPrice ?? null;
 }
 
 /** A pause or resume sent straight to the service: its typed refusal code, or null when it was accepted. */
@@ -800,6 +803,38 @@ async function actionCode(who, action, algoId) {
   return status < 300 ? null : (codeOf(body) ?? `${status} ${JSON.stringify(body).slice(0, 300)}`);
 }
 
+/** One page of the account's schedules as the room asks for it (the newest 50). */
+async function listPage(who) {
+  const { status, body } = await (
+    await api(who)
+  ).get(`/api/trade/trpc/algo.list?input=${encodeURIComponent(JSON.stringify({ limit: 50 }))}`);
+  expect(status, JSON.stringify(body).slice(0, 300)).toBe(200);
+  return body.result.data;
+}
+
+/** The schedule's progress as the service reports it. */
+async function progressOf(who, algoId) {
+  const { status, body } = await (
+    await api(who)
+  ).get(`/api/trade/trpc/algo.progress?input=${encodeURIComponent(JSON.stringify({ algoId }))}`);
+  expect(status, JSON.stringify(body).slice(0, 300)).toBe(200);
+  return body.result.data;
+}
+
+/** The schedule id each row of the list names for assistive technology, in row order. */
+async function rowIds(list) {
+  const names = await list.getByRole('row').evaluateAll((rows) => rows.map((r) => r.querySelector('.sr-only')?.textContent ?? null));
+  return names.filter((n) => n !== null).map((n) => n.replace(/^Schedule /, ''));
+}
+
+/** Filters the blotter to one schedule: its option ends with the schedule's id. */
+async function pickSchedule(page, id) {
+  await page.getByRole('combobox', { name: 'Schedule', exact: true }).click();
+  await page.getByRole('option', { name: new RegExp(`${escapeRe(id)}$`) }).click();
+}
+
+const escapeRe = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
 function stack(...args) {
   return tool('local-test-stack.mjs', ...args);
 }
@@ -807,7 +842,7 @@ function stack(...args) {
 test(`${J} #8 opens the algo list and blotter and cancels with one child failing: rows with statuses and an average fill price ("Not set" with zero fills); the cancel is reported incomplete and halt and resume are refused`, async ({
   page,
 }) => {
-  test.setTimeout(300_000);
+  test.setTimeout(360_000);
   const trader = state('trader');
   await signIn(page, trader);
   // A new browser: the list comes from the service, not from ids this device remembered.
@@ -815,33 +850,65 @@ test(`${J} #8 opens the algo list and blotter and cancels with one child failing
   await page.goto('/execution');
   const list = schedules(page);
   await expect(list.getByRole('columnheader', { name: 'Average fill price' })).toBeVisible();
-  const headers = await list.getByRole('columnheader').allInnerTexts();
-  const averageColumn = headers.findIndex((h) => h.trim() === 'Average fill price');
-  expect(averageColumn).toBeGreaterThan(-1);
-  const cellOf = (id, column) =>
-    list
-      .getByRole('row', { name: new RegExp(id) })
-      .getByRole('gridcell')
-      .nth(column);
+  const headers = (await list.getByRole('columnheader').allInnerTexts()).map((h) => h.trim());
+  const column = (name) => {
+    const at = headers.indexOf(name);
+    expect(at, name).toBeGreaterThan(-1);
+    return at;
+  };
+  const rowOf = (id) => list.getByRole('row', { name: new RegExp(escapeRe(id)) });
+  const cellOf = (id, name) => rowOf(id).getByRole('gridcell').nth(column(name));
 
-  // Each row carries the service's status. The schedule that ran (#4) shows the average price of its real fills; the
-  // one still waiting for its trigger (#3) has no fills, so its average is "Not set".
-  // The service and the room are read again together until they agree, so a fill or status change landing between the
-  // two reads cannot fail it.
-  for (const id of [state('running'), state('triggered')]) {
+  // Every schedule the service lists is a row, each exactly once, and nothing else is.
+  await expect(async () => {
+    const page1 = await listPage(trader);
+    expect(page1.nextCursor).toBeNull();
+    const shown = await rowIds(list);
+    expect(shown.length).toBe(new Set(shown).size);
+    expect([...shown].sort()).toEqual(page1.rows.map((r) => r.id).sort());
+  }).toPass({ timeout: 30_000 });
+
+  // Each row's fields are the service's: market, side, kind, total, filled, progress, slices, misses, status and the
+  // next slice. The service and the room are read again together until they agree, so a change landing between the two
+  // reads cannot fail it.
+  for (const { id } of (await listPage(trader)).rows) {
     await expect(async () => {
       const parent = await parentOf(trader, id);
-      await expect(list.getByRole('row', { name: new RegExp(id) }).getByText(STATUS_WORD[parent.status], { exact: true })).toBeVisible({
-        timeout: 2_000,
-      });
+      const progress = await progressOf(trader, id);
+      const text = async (name) => (await cellOf(id, name).innerText()).replace(/,/g, '').trim();
+      // The market cell also holds the row's hidden "Schedule <id>" label, on its own line.
+      expect((await text('Market')).split('\n')[0]).toBe(parent.symbol);
+      expect(await text('Side')).toBe(parent.side === 'buy' ? 'Buy' : 'Sell');
+      expect(await text('Kind')).toBe(parent.kind.toUpperCase());
+      expect(toUnits(await text('Total'))).toBe(toUnits(parent.totalQty));
+      expect(toUnits(await text('Filled'))).toBe(toUnits(progress.filledQty));
+      const pct = (toUnits(progress.filledQty) * 200n + toUnits(parent.totalQty)) / (toUnits(parent.totalQty) * 2n);
+      expect(await text('Progress')).toBe(`${pct > 100n ? 100n : pct}%`);
+      expect(await text('Slices')).toBe(
+        parent.kind === 'chase' ? `${progress.childrenEmitted}` : `${progress.childrenEmitted} / ${progress.slicesPlanned}`,
+      );
+      expect(await text('Misses')).toBe(String(progress.missesRecorded));
+      // The status word, and the partial-misses badge exactly when the service's counts call for it.
+      const partial = progress.missesRecorded > 0 && progress.childrenEmitted < parent.slicesPlanned;
+      expect((await text('Status')).replace(/\s+/g, ' ')).toBe(
+        partial ? `${STATUS_WORD[progress.status]} Partial: ${progress.missesRecorded} misses` : STATUS_WORD[progress.status],
+      );
+      const next = await text('Next slice');
+      // A schedule that is not running has no next slice: the cell draws its blank as a dash.
+      if (progress.status !== 'active') expect(next).toBe('—');
+      else if (parent.awaitingTrigger) expect(next).toBe('After the trigger price is reached');
+      else expect(next).not.toMatch(/^(—)?$/);
     }).toPass({ timeout: 30_000 });
   }
-  // The cell shows the service's average rounded to the digits it draws (a mean of several fill prices can run long):
-  // it is within half of its last digit of the service's number.
+  // The awaiting-trigger branch above ran: #3's schedule is listed and still waiting.
+  expect((await parentOf(trader, state('triggered'))).awaitingTrigger).toBe(true);
+
+  // The schedule that ran (#4) shows the average price of its real fills, rounded to the digits the cell draws: within
+  // half of its last digit of the service's number. The one waiting for its trigger (#3) has no fills: "Not set".
   await expect(async () => {
     const ranAverage = await averageOf(trader, state('running'));
     expect(ranAverage).not.toBeNull();
-    const shown = (await cellOf(state('running'), averageColumn).innerText()).replace(/,/g, '').trim();
+    const shown = (await cellOf(state('running'), 'Average fill price').innerText()).replace(/,/g, '').trim();
     expect(shown).toMatch(/^\d+(\.\d+)?$/);
     const digits = shown.split('.')[1]?.length ?? 0;
     const step = toUnits(digits ? `0.${'0'.repeat(digits - 1)}1` : '1');
@@ -849,18 +916,29 @@ test(`${J} #8 opens the algo list and blotter and cancels with one child failing
     expect((gap < 0n ? -gap : gap) * 2n).toBeLessThanOrEqual(step);
   }).toPass({ timeout: 30_000 });
   expect(await averageOf(trader, state('triggered'))).toBeNull();
-  await expect(cellOf(state('triggered'), averageColumn)).toHaveText('Not set');
-  await list.getByRole('row', { name: new RegExp(state('triggered')) }).click();
-  await expect(
-    detail(page)
-      .getByRole('definition')
-      .filter({ hasText: /^\s*Not set/ }),
-  ).toBeVisible();
+  expect((await progressOf(trader, state('triggered'))).filledQty).toMatch(/^0(\.0+)?$/);
+  await expect(cellOf(state('triggered'), 'Average fill price')).toHaveText('Not set');
+  await rowOf(state('triggered')).click();
+  // The value comes first; the line's explanation follows it in the same cell.
+  await expect(detailValue(page, 'Average fill price')).toHaveText(/^Not set(?![\d.])/);
 
-  // The blotter opens with the account's child orders and fills.
-  const tabs = page.getByRole('tablist', { name: 'Execution sections' });
-  await tabs.getByRole('tab', { name: 'Child orders and fills', exact: true }).click();
-  await expect(bodyRows(tableIn(page, 'Orders and fills')).first()).toBeVisible();
+  // Pause and resume from a row, each through its confirm, on #3's schedule: it waits for its trigger, so neither places
+  // a slice (a resume re-spaces from that instant, which would place the next slice of a running schedule at once).
+  const waiting = state('triggered');
+  for (const [action, word, after] of [
+    ['Pause', 'Pause schedule', 'paused'],
+    ['Resume', 'Resume schedule', 'active'],
+  ]) {
+    await rowOf(waiting)
+      .getByRole('button', { name: `${action} ${waiting}` })
+      .click();
+    await page.getByRole('alertdialog').getByRole('button', { name: word }).click();
+    await expect.poll(async () => (await parentOf(trader, waiting)).status, { timeout: 15_000 }).toBe(after);
+    await expect(cellOf(waiting, 'Status')).toContainText(STATUS_WORD[after], { timeout: 15_000 });
+  }
+  const resumed = await parentOf(trader, waiting);
+  expect(resumed.awaitingTrigger).toBe(true);
+  expect(resumed.children).toEqual([]);
 
   // A TWAP buy on the unquoted TEST book, where the other trader rests a bid and a small ask: its first child (1 IFC at
   // the ask, the band's edge) takes the 0.5 resting and leaves the rest open. The next slice is five minutes away, so
@@ -890,7 +968,7 @@ test(`${J} #8 opens the algo list and blotter and cancels with one child failing
   await expect
     .poll(async () => (await ifcBook()).asks.map(([price, size]) => [toUnits(price), toUnits(size)]), { timeout: 15_000 })
     .toEqual([[toUnits('1.01'), toUnits('0.5')]]);
-  await tabs.getByRole('tab', { name: 'Algo orders', exact: true }).click();
+  const tabs = page.getByRole('tablist', { name: 'Execution sections' });
   await fillSchedule(page, { market: UNQUOTED, total: '2', seconds: 600, every: 300 });
   await form(page).getByLabel('Limit price (optional)').fill('1.01');
   const id = await confirmSchedule(page);
@@ -899,44 +977,81 @@ test(`${J} #8 opens the algo list and blotter and cancels with one child failing
     await expect.poll(async () => (await parentOf(trader, id)).children.length, { timeout: 45_000 }).toBe(1);
     const child = (await parentOf(trader, id)).children[0].orderId;
     await expect.poll(async () => (await openOrders(trader, UNQUOTED)).map((o) => o.id), { timeout: 15_000 }).toContain(child);
+    await expect.poll(async () => (await progressOf(trader, id)).filledQty, { timeout: 15_000 }).toBe('0.5');
+
+    // The blotter filtered by this schedule shows only its child and that child's fill; filtered by #4's, only #4's
+    // children, and never this child.
+    await tabs.getByRole('tab', { name: 'Child orders and fills', exact: true }).click();
+    const blotter = tableIn(page, 'Orders and fills');
+    await pickSchedule(page, id);
+    await expect(bodyRows(blotter)).toHaveCount(2, { timeout: 15_000 });
+    await expect(blotter.getByRole('button', { name: `Cancel order ${child}` })).toBeVisible();
+    const isFill = { has: page.getByText('Fill', { exact: true }) };
+    await expect(bodyRows(blotter).filter(isFill)).toHaveCount(1);
+    const ran = await parentOf(trader, state('running'));
+    await pickSchedule(page, state('running'));
+    await expect(bodyRows(blotter).filter({ hasNot: page.getByText('Fill', { exact: true }) })).toHaveCount(ran.children.length, {
+      timeout: 15_000,
+    });
+    await expect(blotter.getByRole('button', { name: `Cancel order ${child}` })).toHaveCount(0);
+    for (const row of await bodyRows(blotter).all()) await expect(row).toContainText(ran.symbol);
+    await tabs.getByRole('tab', { name: 'Algo orders', exact: true }).click();
+
+    // Funds before the failed cancel: it must neither release nor move anything.
+    const fundsBefore = await (await api(trader)).balances();
     // Marked first, so a stop that times out after its signal still brings the engine back.
     stopped = true;
     stack('stop', 'matching');
     await list.getByRole('button', { name: `Cancel ${id}` }).click();
+    const answer = page.waitForResponse((r) => r.url().includes('algo.cancel'), { timeout: 30_000 });
     await page.getByRole('alertdialog').getByRole('button', { name: 'Cancel schedule' }).click();
+    const cancelled = await answer;
+    expect(cancelled.status()).toBeGreaterThanOrEqual(400);
+    expect(codeOf(await cancelled.json())).toBe('trade.algo_child_cancel_failed');
     await expect(page.getByText('trade.algo_child_cancel_failed', { exact: true })).toBeVisible({ timeout: 30_000 });
     // Reported incomplete: parked, not cancelled, with the cancel-incomplete reason.
     const parked = await parentOf(trader, id);
     expect(parked.status).toBe('paused');
     expect(parked.haltReason).toBe('cancel_incomplete');
-    await list.getByRole('row', { name: new RegExp(id) }).click();
+    await rowOf(id).click();
     await expect(detail(page).getByText('Cancel only partly done: some child orders may still be open.', { exact: false })).toBeVisible({
       timeout: 15_000,
     });
 
-    // The room offers neither halt (pause) nor resume.
+    // The room offers neither halt (pause) nor resume, and says why. Cancel stays on, so the off buttons come from the
+    // cancel-incomplete block, not from a request still in flight. The row reads Paused.
     await expect(list.getByRole('button', { name: `Pause ${id}` })).toBeDisabled();
     await expect(list.getByRole('button', { name: `Resume ${id}` })).toBeDisabled();
+    await expect(list.getByRole('button', { name: `Cancel ${id}` })).toBeEnabled();
+    await expect(rowOf(id)).toContainText(
+      'Pause and Resume are off: the last cancel did not finish and some child orders may still be open. Cancel again first.',
+    );
+    await expect(cellOf(id, 'Status')).toHaveText(STATUS_WORD.paused);
 
     // Edge refuses every trade write while it cannot read the venue halt, so the service's own refusals are read once
-    // the engine is back. The schedule stays parked until it is cancelled again: halt and resume are refused, and
-    // nothing about it changes (its child is still open).
+    // the engine is back. The schedule stays parked until it is cancelled again: halt and resume are refused, and the
+    // whole parent reads back exactly as it was parked (its child still open).
     stack('start', '--only', 'matching');
     stopped = false;
     await expect
       .poll(async () => actionCode(trader, 'pause', id), { timeout: 60_000, intervals: [2_000] })
       .toBe('trade.algo_cancel_incomplete');
     expect(await actionCode(trader, 'resume', id)).toBe('trade.algo_cancel_incomplete');
-    const after = await parentOf(trader, id);
-    expect(after.status).toBe('paused');
-    expect(after.haltReason).toBe('cancel_incomplete');
-    expect(after.children.map((c) => c.orderId)).toEqual([child]);
+    expect(await parentOf(trader, id)).toEqual(parked);
+    expect(parked.children.map((c) => c.orderId)).toEqual([child]);
     expect((await openOrders(trader, UNQUOTED)).map((o) => o.id)).toContain(child);
+    // Nothing was released or moved by the failed cancel: the child still holds what it held.
+    const fundsAfter = await (await api(trader)).balances();
+    for (const asset of ['USDC', 'IFC']) {
+      expect(held(fundsAfter, asset)).toBe(held(fundsBefore, asset));
+      expect(free(fundsAfter, asset)).toBe(free(fundsBefore, asset));
+    }
 
-    // Cancelling again finishes: the schedule is cancelled and its child is no longer open.
+    // Cancelling again finishes: the schedule is cancelled, its child is no longer open, and its row reads Cancelled.
     await expect.poll(async () => actionCode(trader, 'cancel', id), { timeout: 60_000, intervals: [2_000] }).toBeNull();
     expect((await parentOf(trader, id)).status).toBe('cancelled');
     expect((await openOrders(trader, UNQUOTED)).map((o) => o.id)).not.toContain(child);
+    await expect(cellOf(id, 'Status')).toContainText(STATUS_WORD.cancelled, { timeout: 30_000 });
   } finally {
     // The engine comes back before anything else, and a failed restart still lets the rest of the clean-up run.
     let restart = null;

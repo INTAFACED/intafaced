@@ -1265,7 +1265,7 @@ export class CopyService {
     if (!COPY_FLATTEN_REQUEST_KEY.test(requestId) || stepUpRequestId.length > COPY_STEP_UP_REQUEST_ID_MAX) {
       throw new CopyError('requestId must be 8 to 64 letters, digits or : . _ -', 'trade.copy_request_key_invalid');
     }
-    await this.stepUp.require({
+    const approved = await this.stepUp.require({
       scope: 'trade.step_up.copy.flatten',
       userId: principal.userId,
       sessionId: principal.sid,
@@ -1275,6 +1275,22 @@ export class CopyService {
     });
     return this.store.runFollowExclusive(followId, async (store) => {
       const follow = await this.requireOwnedFollow(store, principal, input.followId);
+      // A follow already left is refused like every other control on it (#6920). Identity's replay of this same request
+      // (a retry after a lost reply) is answered from the closes the first call placed, found by their business keys,
+      // and never places one: a follow left with Keep, or a leg with no close, is refused all the same.
+      if (followRelationshipState(follow) === 'DETACHED') {
+        if (approved.replayed && this.flattenCopyPosition) {
+          const answered = await this.flattenCopyPosition(principal, {
+            followId: follow.followId,
+            followerId: follow.followerId,
+            lookupOnly: true,
+          });
+          if (!answered.refuse && !answered.unplaced && answered.orderIds.length > 0) {
+            return presentCopyFlattenAck(follow, answered.orderIds);
+          }
+        }
+        throw new CopyError('Cannot close all on a DETACHED copy follow: you have left this leader', 'trade.copy_detached');
+      }
       // Flag off or place port unwired: refuse and leave the follow attached (TRD-0723).
       if (!this.placeMirrorEnabled || !this.placeFollowerOrder || !this.flattenCopyPosition) {
         throw new CopyError(

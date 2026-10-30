@@ -531,7 +531,7 @@ test(`${J} #8 opens activity when it is empty, fails or is refused: a way forwar
   const refused = activity(page).locator('[data-slot="state-block"][data-kind="refused"]');
   await expect(refused).toContainText('Verify your identity first');
   await expect(refused).toContainText(/Ref [A-Z]+-\d+/);
-  await expect(refused.getByRole('link', { name: 'Verify now' }).or(refused.getByRole('button', { name: 'Verify now' }))).toBeVisible();
+  await expect(refused.getByRole('link', { name: 'Verify now', exact: true })).toHaveAttribute('href', '/verification');
   await expect(rows(page)).toHaveCount(0);
 
   // Empty: once verified, with nothing yet, it is offered a way forward.
@@ -540,7 +540,11 @@ test(`${J} #8 opens activity when it is empty, fails or is refused: a way forwar
   await openActivity(page);
   const empty = activity(page).locator('[data-slot="state-block"][data-kind="empty"]');
   await expect(empty).toContainText('No activity yet');
-  await expect(empty.getByRole('link').or(empty.getByRole('button'))).not.toHaveCount(0);
+  // The way forward is the Buy crypto link to the simple buy screen (Simple is a new account's view).
+  const forward = empty.getByRole('link', { name: 'Buy crypto', exact: true });
+  await expect(forward).toHaveAttribute('href', '/trade/buy?side=buy');
+  await forward.click();
+  await expect(page).toHaveURL((url) => url.pathname === '/trade/buy');
   await signOutBrowser(page.context());
 
   const who = account();

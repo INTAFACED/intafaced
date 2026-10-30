@@ -6,6 +6,7 @@ import {
 } from '@intafaced/contracts/ledger-reconciliation';
 import { COST_AMOUNT, COST_ASSET, PERIOD, isCategory, type CostCategory } from '@/lib/venue-economics/model';
 import { METADATA_KEY } from '@/lib/ledger/account-metadata';
+import { GOVERNANCE_ROLES, MS, ROLE_USER, durationWords, type GovernanceRole } from '@/lib/token-governance/model';
 import {
   LAUNCH_ID,
   LAUNCH_ISSUER_STATES,
@@ -53,6 +54,7 @@ const MAX_PACKET_CHARS = 6_000;
 const ID = /^[A-Za-z0-9._:-]{1,128}$/;
 const VERSION = /^[\x20-\x7e]{1,128}$/;
 const WHOLE = /^[1-9][0-9]{0,8}$/;
+const GOV_REVISION = /^(?:0|[1-9][0-9]{0,8})$/;
 const REVISION = /^(?:0|[1-9][0-9]{0,8})$/;
 
 export type DeskRequest =
@@ -104,6 +106,17 @@ export type DeskRequest =
   | { readonly kind: 'identity.auth_key.remove_old'; readonly keyIds: string }
   /** Release the next waitlist wave (svc-identity `waitlist.waves.release`, RC-campaigns-03). `size` is the owner's wave size read. */
   | { readonly kind: 'campaigns.waitlist.wave_release'; readonly wave: string; readonly size: string }
+  /**
+   * Token governance (svc-token `governance.*`, J-more-catalogue-10). A blank figure or role is the empty string: the
+   * setting is cleared or the role revoked. `revision` is the settings' or the account's role revision read.
+   */
+  | {
+      readonly kind: 'token.governance.settings.set';
+      readonly votingDelayMs: string;
+      readonly votingPeriodMs: string;
+      readonly revision: string;
+    }
+  | { readonly kind: 'token.governance.role.set'; readonly userId: string; readonly role: GovernanceRole | ''; readonly revision: string }
   /** Lift a staff freeze on one account (svc-identity `accountControls.change`, restore). `version` is the identity control version read. */
   | { readonly kind: 'identity.account.unfreeze'; readonly userId: string; readonly reason: string; readonly version: string }
   /**
@@ -383,6 +396,23 @@ export function readDeskRequest(raw: unknown): DeskRequest | null {
     if (typeof raw.userId !== 'string' || !UUID.test(raw.userId) || !validReason(raw.reason)) return null;
     if (typeof raw.version !== 'string' || !/^(?:0|[1-9]\d{0,39})$/.test(raw.version)) return null;
     return { kind: 'identity.account.unfreeze', userId: raw.userId, reason: raw.reason, version: raw.version };
+  }
+  if (raw.kind === 'token.governance.settings.set') {
+    if (keys !== 'kind,revision,votingDelayMs,votingPeriodMs') return null;
+    const { votingDelayMs: d, votingPeriodMs: p, revision } = raw;
+    if (typeof d !== 'string' || (d !== '' && !MS.test(d)) || typeof p !== 'string' || (p !== '' && !MS.test(p))) return null;
+    // svc-token stores a period above zero; a delay of 0 is a deliberate zero.
+    if (p === '0' || typeof revision !== 'string' || !GOV_REVISION.test(revision)) return null;
+    return { kind: 'token.governance.settings.set', votingDelayMs: d, votingPeriodMs: p, revision };
+  }
+  if (raw.kind === 'token.governance.role.set') {
+    if (keys !== 'kind,revision,role,userId') return null;
+    if (typeof raw.userId !== 'string' || !ROLE_USER.test(raw.userId)) return null;
+    if (raw.role !== '' && !(GOVERNANCE_ROLES as readonly unknown[]).includes(raw.role)) return null;
+    if (typeof raw.revision !== 'string' || !GOV_REVISION.test(raw.revision)) return null;
+    // A revoke needs a role to revoke, so it is never the first move.
+    if (raw.role === '' && raw.revision === '0') return null;
+    return { kind: 'token.governance.role.set', userId: raw.userId, role: raw.role as GovernanceRole | '', revision: raw.revision };
   }
   if (raw.kind === 'token.launch.issuer.set') {
     if (keys !== 'issuerId,kind,name,revision,state') return null;
@@ -745,6 +775,10 @@ export function confirmPhrase(request: DeskRequest): string {
       return `RELEASE WAVE ${request.wave}`;
     case 'identity.account.unfreeze':
       return `UNFREEZE ACCOUNT ${request.userId.slice(0, 8)}`;
+    case 'token.governance.settings.set':
+      return 'GOVERNANCE SETTINGS';
+    case 'token.governance.role.set':
+      return `ROLE ${request.userId.slice(0, 8)} ${request.role === '' ? 'NONE' : request.role.toUpperCase()}`;
     case 'token.launch.issuer.set':
       return `ISSUER ${request.issuerId} ${request.state.toUpperCase()}`;
     case 'token.launch.event.create':
@@ -847,6 +881,12 @@ export function describeRequest(request: DeskRequest): string {
       return `Release waitlist wave ${request.wave}: the ${request.size} people highest in the queue (most friends invited, then who joined first) are invited, once. A release is a record, not an account: nobody is signed up and nothing moves value. The invitation email is not connected, so each person sees it on their waitlist page.`;
     case 'identity.account.unfreeze':
       return `Lift the staff freeze on account ${request.userId} ("${request.reason}"): its owner can sign in again. Sessions, API keys and sub-accounts revoked by the freeze stay revoked. Identity applies it only if the account is still at control version ${request.version}.`;
+    case 'token.governance.settings.set':
+      return `Set the governance voting delay to ${durationWords(request.votingDelayMs || null)} and the voting period to ${durationWords(request.votingPeriodMs || null)}. A proposal that gives no time of its own opens after the delay and closes after the period; while either is not set, a proposal must give that time itself. Open proposals keep their times. svc-token applies it only if the settings are still at revision ${request.revision}. No money moves.`;
+    case 'token.governance.role.set':
+      return request.role === ''
+        ? `Remove the governance role of account ${request.userId}: it can no longer cancel proposals. svc-token applies it only if the role is still at revision ${request.revision}. No money moves.`
+        : `Give account ${request.userId} the governance role ${request.role}${request.role === 'author' ? ' (it cancels no proposal)' : ': it may cancel any draft or open proposal, with a reason, and the votes stay'}. svc-token applies it only if the role is still at revision ${request.revision}, and refuses it when a founder on this request is that account. No money moves.`;
     case 'token.launch.issuer.set':
       return request.revision === '0'
         ? `Add issuer ${request.issuerId} ("${request.name}") as applied. It cannot announce a launch until it is reviewed and onboarded. No money moves.`
@@ -926,6 +966,8 @@ export function requestReason(request: DeskRequest): string | null {
     case 'token.launch.event.move':
     case 'ops.restore.record':
     case 'ops.restore.finalize':
+    case 'token.governance.settings.set':
+    case 'token.governance.role.set':
       return null;
     default:
       return request.reason;

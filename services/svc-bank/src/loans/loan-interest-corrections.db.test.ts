@@ -130,6 +130,7 @@ describe('interest corrections and the per-loan ledger check (LOAN-05)', () => {
   function services() {
     return createBankServices(sql, ledger, memoryLedgerHistory(ledger), {
       loans: {
+        originationFeeBps: '0',
         priceSource: fixedPriceSource({ BTC: { price: '10000', quality: 'mid' } }, () => NOW),
         payoffFee: '0',
         payoffWindowMinutes: '15',

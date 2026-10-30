@@ -25,13 +25,15 @@
   .apps-secret h2 {
     margin: 0;
   }
-  .apps-row dl {
+  .apps-row dl,
+  .apps-facts {
     display: grid;
     grid-template-columns: max-content 1fr;
     gap: var(--if-space-1) var(--if-space-3);
     margin: 0;
   }
-  .apps-row dd {
+  .apps-row dd,
+  .apps-facts dd {
     margin: 0;
     overflow-wrap: anywhere;
   }
@@ -67,7 +69,8 @@
     display: grid;
     gap: var(--if-space-2);
   }
-  .consent-actions {
+  .consent-actions,
+  .apps-actions {
     display: flex;
     flex-wrap: wrap;
     gap: var(--if-space-3);
