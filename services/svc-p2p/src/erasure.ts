@@ -144,48 +144,60 @@ export class P2pErasure {
    */
   async exportFor(userId: string): Promise<P2pExport> {
     return withSpan('p2p.export', async () => {
-      const [offers, trades, disputes, orderReviews, remarkCases, reputation, instruments, riskAcceptances, offerEdits, shareLinks, presence, bulkRuns] =
-        await Promise.all([
-          this.sql`SELECT * FROM p2p.offers WHERE maker_id = ${userId} ORDER BY created_at`,
-          this.sql`SELECT * FROM p2p.p2p_trades WHERE seller_id = ${userId} OR buyer_id = ${userId} ORDER BY created_at`,
-          this.sql`
+      const [
+        offers,
+        trades,
+        disputes,
+        orderReviews,
+        remarkCases,
+        reputation,
+        instruments,
+        riskAcceptances,
+        offerEdits,
+        shareLinks,
+        presence,
+        bulkRuns,
+      ] = await Promise.all([
+        this.sql`SELECT * FROM p2p.offers WHERE maker_id = ${userId} ORDER BY created_at`,
+        this.sql`SELECT * FROM p2p.p2p_trades WHERE seller_id = ${userId} OR buyer_id = ${userId} ORDER BY created_at`,
+        this.sql`
           SELECT d.* FROM p2p.p2p_disputes d
             JOIN p2p.p2p_trades t ON t.id = d.trade_id
            WHERE t.seller_id = ${userId} OR t.buyer_id = ${userId}
            ORDER BY d.opened_at
         `,
-          this.sql`
+        this.sql`
           SELECT * FROM p2p.order_reviews
            WHERE author_id = ${userId} OR subject_id = ${userId}
            ORDER BY created_at
         `,
-          this.sql`
+        this.sql`
           SELECT * FROM p2p.remark_cases
            WHERE reporter_id = ${userId} OR reported_id = ${userId}
            ORDER BY opened_at
         `,
-          this.sql`SELECT * FROM p2p.p2p_reputation WHERE user_id = ${userId}`,
-          // HEADERS ONLY — the column list is explicit precisely so that `SELECT *`
-          // cannot quietly start returning `details` the day someone adds a
-          // column. `fingerprint` is out too: it is a hash of the account details,
-          // and a hash handed to a caller is an oracle a guessed account number
-          // can be checked against.
-          this.sql`
+        this.sql`SELECT * FROM p2p.p2p_reputation WHERE user_id = ${userId}`,
+        // HEADERS ONLY — the column list is explicit precisely so that `SELECT *`
+        // cannot quietly start returning `details` the day someone adds a
+        // column. `fingerprint` is out too: it is a hash of the account details,
+        // and a hash handed to a caller is an oracle a guessed account number
+        // can be checked against.
+        this.sql`
           SELECT id, method_id, country, fiat_currency, label, status, created_at, updated_at, removed_at
             FROM p2p.payment_instruments
            WHERE owner_id = ${userId}
            ORDER BY created_at
         `,
-          this.sql`SELECT user_id, version, accepted_at FROM p2p.risk_acceptances WHERE user_id = ${userId} ORDER BY accepted_at`,
-          this.sql`SELECT * FROM p2p.offer_edits WHERE maker_id = ${userId} ORDER BY edited_at`,
-          this.sql`
+        this.sql`SELECT user_id, version, accepted_at FROM p2p.risk_acceptances WHERE user_id = ${userId} ORDER BY accepted_at`,
+        this.sql`SELECT * FROM p2p.offer_edits WHERE maker_id = ${userId} ORDER BY edited_at`,
+        this.sql`
           SELECT id, offer_id, created_at, expires_at, revoked_at FROM p2p.offer_share_links
            WHERE maker_id = ${userId}
            ORDER BY created_at
         `,
-          this.sql`SELECT * FROM p2p.merchant_presence WHERE user_id = ${userId}`,
-          this.sql`SELECT * FROM p2p.offer_bulk_runs WHERE maker_id = ${userId} ORDER BY created_at`,
-        ]);
+        this.sql`SELECT * FROM p2p.merchant_presence WHERE user_id = ${userId}`,
+        this.sql`SELECT * FROM p2p.offer_bulk_runs WHERE maker_id = ${userId} ORDER BY created_at`,
+      ]);
 
       // The column list above is the export reader. `details` is not selected, so a
       // sealed blob cannot leave as if it were account text. Reveal is the logged
