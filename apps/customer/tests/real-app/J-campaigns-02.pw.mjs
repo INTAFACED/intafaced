@@ -356,8 +356,10 @@ test(`${J} #6 opens the ledger history: the reward credited once, matching the r
   await expect(rows.first()).toContainText('Campaign reward');
   await expect(rows.first()).toContainText('USDT');
   await expect(rows.first()).toContainText(`+${REWARD}`);
-  // Credited once across the whole history: this account was opened for this journey and its only reward is this
-  // one, so a second credit under any other transaction would be a second 'Campaign reward' row.
+  // Credited once across the whole history: this account was opened for this journey, its whole history fits on the
+  // tab's first page (50 lines), and its only reward is this one, so a second credit under any other transaction
+  // would be a second 'Campaign reward' row.
+  expect(await table.locator('tbody tr').count()).toBeLessThan(50);
   await expect(table.locator('tbody tr', { hasText: 'Campaign reward' })).toHaveCount(1);
 });
 
@@ -407,7 +409,8 @@ test(`${J} #8 misses a day in a streak task: the streak resets at the zone bound
   // D lives through D+1 and resets at D+2 00:00.
   const midnightAfter = (day, n) => new Date(Date.parse(`${day}T00:00:00.000Z`) + n * DAY).toISOString();
   const today = (await progressOf(me, streak.id)).steps[0].streak;
-  expect(today.lastDay).toBe(new Date().toISOString().slice(0, 10));
+  // The trade's day: today, or yesterday if UTC midnight passed since the trade.
+  expect([new Date().toISOString().slice(0, 10), new Date(Date.now() - DAY).toISOString().slice(0, 10)]).toContain(today.lastDay);
   expect(today.resetsAt).toBe(midnightAfter(today.lastDay, 2));
 
   // One side of the boundary (LOCAL TEST fixture): that trading day becomes yesterday, so today is still inside the run

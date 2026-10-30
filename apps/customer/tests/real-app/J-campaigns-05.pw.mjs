@@ -345,7 +345,8 @@ test(`${J} #7 my relationship screen shows the referrer and the date; with no fe
   // While it lasts, a fee the friend pays earns the referrer a commission: the commission engine's dry run (it writes
   // nothing and posts nothing) under a TEST simulation tier, since the owner's rates are blank, names the referrer.
   const { ctx, ops } = await operators();
-  const friendId = (await api(friend)).userId;
+  const friendApi = await api(friend);
+  const friendId = friendApi.userId;
   const dryRun = async (n) =>
     result(
       await ctx.edge.query(

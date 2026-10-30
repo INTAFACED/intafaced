@@ -272,8 +272,8 @@ test(`${J} #2 opens it with rewards in each state: earned, on hold and still ope
   const history = hub.getByRole('region', { name: 'Rewards and history' });
   await expect(history).toBeVisible();
   await expect(history.getByTestId('reward-row')).toHaveCount(3);
-  for (const c of [posted, held, open]) await expect(history.locator(`[data-campaign="${c.id}"]`)).toHaveCount(1);
-  await expect(history.locator(`[data-campaign="${posted.id}"]`).getByTestId('reward-why')).toContainText('Posted on ');
+  for (const c of [posted, held, open]) await expect(row(history, c.id)).toHaveCount(1);
+  await expect(row(history, posted.id).getByTestId('reward-why')).toContainText('Posted on ');
 
   // Totals are summed from the rows: one per status and asset.
   const total = (status, asset) => hub.locator(`[data-testid="rewards-total"][data-status="${status}"][data-asset="${asset}"]`);
