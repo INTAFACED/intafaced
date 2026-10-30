@@ -232,7 +232,17 @@ test('J-p2p-01 #3 an ad shows the seller’s record and terms, and its requireme
   const record = await b.query('reputation.get', { userId: (await b.query('offers.get', { offerId: state.offerId })).makerId });
   expect(record.completed).toBe(1);
   const current = page.getByRole('region', { name: 'Current offer' });
-  await expect(current).toContainText('1 order · 100% completed · releases in about');
+  // The release time is the service's average for that order, in the app's own rounding (whole seconds, minutes, or
+  // hours and minutes), never a bare prefix.
+  expect(record.avgReleaseSecs).toBeGreaterThan(0);
+  const secs = Math.floor(record.avgReleaseSecs);
+  const releases =
+    secs < 60
+      ? `${secs} s`
+      : secs < 3600
+        ? `${Math.floor(secs / 60)} min`
+        : `${Math.floor(secs / 3600)} h ${Math.floor((secs % 3600) / 60)} min`;
+  await expect(current).toContainText(`1 order · 100% completed · releases in about ${releases}`);
   await expect(current).toContainText('TEST terms: pay from an account in your own name; no third-party payments.');
 
   // Every requirement met with no risk notice to read or accept (owner decision 2026-10-27): the take panel lists none,
@@ -243,6 +253,14 @@ test('J-p2p-01 #3 an ad shows the seller’s record and terms, and its requireme
   const eligible = await b.query('access.eligibility');
   expect(eligible.canTake).toBe(true);
   expect(eligible.checks.map((c) => c.id)).toEqual(['verification', 'contact', 'jurisdiction', 'deposit']);
+  expect(eligible.checks.map((c) => c.state)).toEqual(['met', 'met', 'met', 'met']);
+  // The take panel lists only what is unmet, so it is empty here; the hub shows each requirement as met.
+  await page.goto('/p2p');
+  await expect(eligibility(page)).toContainText('You meet every requirement to take an ad.');
+  for (const id of ['verification', 'contact', 'jurisdiction', 'deposit'])
+    await expect(check(page, id)).toHaveAttribute('data-state', 'met');
+  await expect(eligibility(page).locator('li[data-state]:not([data-state="met"])')).toHaveCount(0);
+  await page.goto(`/p2p?offerId=${state.offerId}`);
   // The fraud-safety guidance stays, read-only beside the take: nothing to tick or accept.
   const safe = take.getByTestId('p2p-stay-safe');
   await expect(safe).toBeVisible();

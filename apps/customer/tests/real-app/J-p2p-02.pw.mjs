@@ -294,6 +294,9 @@ test('J-p2p-02 #5 the seller ticks the five checks, confirms with a passkey and 
   await review.getByRole('button', { name: 'Use a passkey' }).click();
   await expect(review.getByTestId('order-release-confirmed')).toContainText('You confirmed it’s you for this release.');
   await expect(confirm).toBeEnabled();
+  // The buyer's free USDT before the release: the ledger, not the order record, proves one release.
+  const buyerUsdt = async () => (await (await api(state.buyer)).balances()).USDT?.free ?? '0';
+  const before = await buyerUsdt();
   await confirm.dblclick();
   await expect(review).toHaveCount(0);
   await expect(order.getByTestId('p2p-order-identity')).toContainText('Completed');
@@ -303,6 +306,11 @@ test('J-p2p-02 #5 the seller ticks the five checks, confirms with a passkey and 
   expect(released).toMatchObject({ status: 'released', resolution: 'released' });
   const again = await s.mutate('trades.confirmReceived', { tradeId: state.tradeId });
   expect(again).toMatchObject({ id: state.tradeId, status: 'released', resolution: 'released', resolvedAt: released.resolvedAt });
+  // The double press and the repeat call credited the buyer exactly once: their free balance rose by the net amount.
+  const once = fromUnits(toUnits(before) + toUnits(released.netAmount));
+  await expect.poll(buyerUsdt, { timeout: 30_000 }).toBe(once);
+  await expect.poll(async () => (await s.query('trades.get', { tradeId: state.tradeId })).settledAt, { timeout: 30_000 }).not.toBeNull();
+  expect(await buyerUsdt()).toBe(once);
   await context.close();
 });
 
