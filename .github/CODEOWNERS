@@ -63,15 +63,6 @@
 /packages/config/src/jurisdiction.ts @Phantom-X-007 @ZenYoda3
 
 # ── Protocol Plane + INTACHAIN ───────────────────────────────────────────────
-# svc-chain, INTACORE and Predict are open to agents (owner decision 2026-10-22;
-# INTACHAIN P1 approved 2026-10-17); the agents are the only engineers (owner
-# decision 2026-10-30). AGENTS.md applies.
-/services/svc-protocol/              @Phantom-X-007 @ZenYoda3
-/services/svc-dex/                   @Phantom-X-007 @ZenYoda3
-#
-# svc-chain and svc-bridge do not exist yet (§17.5) and are listed ahead of
-# time: GitHub ignores a path with no files, and the alternative is remembering
-# to add them on the day they are created, which is the day it matters.
-/services/svc-indexer/               @Phantom-X-007 @ZenYoda3
-/services/svc-chain/                 @Phantom-X-007 @ZenYoda3
-/services/svc-bridge/                @Phantom-X-007 @ZenYoda3
+# svc-protocol, svc-dex, svc-indexer, svc-chain and svc-bridge fall under `*`
+# above: the agents are the only engineers (owner decision 2026-10-30), and
+# svc-chain, INTACORE and Predict are open to agents (owner decision 2026-10-22).
