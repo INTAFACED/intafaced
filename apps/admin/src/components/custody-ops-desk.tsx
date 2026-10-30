@@ -125,12 +125,23 @@ export function OpenItemsList({ part }: { part: Part<OpenItems> }) {
   if (part.kind === 'failed') return <PartFailed name="Open custody items" part={part} />;
   const { items, sums } = part.data;
   if (part.data.total === 0)
-    return <p className="dk-muted">No open custody item: no deposit is held uncredited, and no credit was taken back uncovered.</p>;
+    return (
+      <p className="dk-muted" data-testid="co-open-none">
+        No open custody item: no deposit is held uncredited, and no credit was taken back uncovered.
+      </p>
+    );
   return (
     <>
       <ul className="co-list" aria-label="Open items by network and asset">
         {sums.map((s) => (
-          <li className="co-card" key={`${s.networkId}:${s.assetId}`}>
+          <li
+            className="co-card"
+            key={`${s.networkId}:${s.assetId}`}
+            data-testid="co-open-sum"
+            data-network-id={s.networkId}
+            data-asset-id={s.assetId}
+            data-net={s.net}
+          >
             {sumLine(s)}
           </li>
         ))}
@@ -150,7 +161,9 @@ export function OpenItemsList({ part }: { part: Part<OpenItems> }) {
           </li>
         ))}
       </ul>
-      <p className="dk-muted">{shownLine(part.data)}</p>
+      <p className="dk-muted" data-testid="co-open-total" data-total={part.data.total}>
+        {shownLine(part.data)}
+      </p>
     </>
   );
 }

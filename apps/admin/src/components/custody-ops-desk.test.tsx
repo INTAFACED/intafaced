@@ -137,10 +137,12 @@ describe('open custody items', () => {
     expect(html).toContain('Taken back by the chain, not covered');
     expect(html).toContain('custody minus ledger -25');
     expect(html).toContain('Showing 2 of 3.');
+    expect(html).toContain('data-testid="co-open-sum" data-network-id="ethereum" data-asset-id="USDT" data-net="-25"');
+    expect(html).toContain('data-total="3"');
   });
 
   it('says plainly when there is none, and names the part when svc-pay refuses it', () => {
-    expect(view(read())).toContain('No open custody item');
+    expect(view(read())).toContain('data-testid="co-open-none"');
     const html = view(
       read({
         openItems: {
