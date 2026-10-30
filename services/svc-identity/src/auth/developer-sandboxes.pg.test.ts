@@ -16,7 +16,7 @@ import { postgresAvailable, rewriteSchemaSql, type TestDb } from '@intafaced/db'
 import { MemoryEventBus } from '@intafaced/events';
 import { AuthService, type KycTier } from './auth-service.js';
 import { rotateApiKey } from './rotate-api-key.js';
-import { parseApiKeyCapByTier } from './developer-keys.js';
+import { parseApiKeyCapByTier, passkeyMintRule, type DeveloperKeysDeps } from './developer-keys.js';
 import { parseSandboxCapByTier } from './developer-sandboxes.js';
 import { createIdentityRouter } from '../router.js';
 import { createDeveloperSandboxesRouter } from '../developer-sandboxes-router.js';
@@ -66,12 +66,15 @@ if (!available) {
 
   let caps: ReadonlyMap<KycTier, number> | null = parseApiKeyCapByTier('none=3');
   let sandboxCaps: ReadonlyMap<KycTier, number> | null = null;
+  /** The service's passkey mint rule, on only for the tests that check it (the other proofs here are TOTP). */
+  let mintRule: DeveloperKeysDeps['mayMint'] = undefined;
   let n = 0;
   const unique = () => `ds${process.pid}${++n}`;
 
   beforeEach(async () => {
     caps = parseApiKeyCapByTier('none=3');
     sandboxCaps = null;
+    mintRule = undefined;
     await db.truncateAll();
     await rank.seedTiers();
   });
@@ -93,6 +96,7 @@ if (!available) {
         return sandboxCaps;
       },
       baseUrl: 'http://localhost:14500',
+      mayMint: (userId, factor) => mintRule?.(userId, factor),
     }),
   );
 
@@ -378,6 +382,41 @@ if (!available) {
       ).rejects.toMatchObject({ code: 'NOT_FOUND', message: expect.stringContaining('[identity.sandbox_not_found]') });
       await expect(c.developerSandboxes.get({ sandboxId })).rejects.toMatchObject({ code: 'NOT_FOUND' });
       expect(await keysOf(other.userId)).toHaveLength(0);
+    });
+    it('refuses a reused request id with a different key or a different sandbox, and makes nothing more', async () => {
+      sandboxCaps = parseSandboxCapByTier('none=2');
+      const { s, c, sandboxId } = await withSandbox();
+      const ask = keyAsk(s.userId, sandboxId, 'bot', ['pay:read']);
+      await c.developerSandboxes.createKey({ ...ask, factorProof: await proof(s) });
+      await expect(
+        c.developerSandboxes.createKey({ ...ask, scopes: ['pay:read', 'pay:write'], factorProof: await proof(s) }),
+      ).rejects.toMatchObject({ code: 'CONFLICT', message: expect.stringContaining('[identity.key_request_conflict]') });
+      const other = await c.developerSandboxes.create(make(s.userId, 'ci', [{ id: sandboxId }]));
+      await expect(
+        c.developerSandboxes.createKey({ ...ask, sandboxId: other.sandbox.id, factorProof: await proof(s) }),
+      ).rejects.toMatchObject({ code: 'CONFLICT', message: expect.stringContaining('[identity.key_request_conflict]') });
+      expect(await keysOf(s.userId)).toHaveLength(1);
+      expect((await c.developerSandboxes.get({ sandboxId: other.sandbox.id })).keys).toEqual([]);
+    });
+
+    it('refuses a sandbox key named like a key the account holds, and makes nothing', async () => {
+      const { s, c, sandboxId } = await withSandbox();
+      await c.developerSandboxes.createKey({ ...keyAsk(s.userId, sandboxId, 'bot', ['pay:read']), factorProof: await proof(s) });
+      await expect(
+        c.developerSandboxes.createKey({ ...keyAsk(s.userId, sandboxId, 'bot', ['pay:write']), factorProof: await proof(s) }),
+      ).rejects.toMatchObject({ code: 'CONFLICT', message: expect.stringContaining('[identity.key_name_taken]') });
+      expect(await keysOf(s.userId)).toHaveLength(1);
+    });
+
+    it('with the passkey mint rule on, an account with no passkey is refused and its factor is not spent', async () => {
+      mintRule = passkeyMintRule(db.sql);
+      const { s, c, sandboxId } = await withSandbox();
+      const p = await proof(s);
+      await expect(
+        c.developerSandboxes.createKey({ ...keyAsk(s.userId, sandboxId, 'bot', ['pay:read']), factorProof: p }),
+      ).rejects.toMatchObject({ message: expect.stringContaining('[auth.passkey_missing]') });
+      expect(await keysOf(s.userId)).toHaveLength(0);
+      expect(await unspent(p)).toBe(true);
     });
   });
 }

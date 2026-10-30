@@ -140,6 +140,17 @@ async function createSandboxNamed(name) {
   await page.getByRole('button', { name: 'Create sandbox' }).click();
 }
 
+/** The server's own answer to the request the page sends for `procedure` when `act` runs (not the page's rendering of it). */
+async function serverAnswer(procedure, act) {
+  const [response] = await Promise.all([
+    page.waitForResponse(
+      (res) => res.request().method() === 'POST' && new URL(res.url()).pathname.endsWith(`/developerSandboxes.${procedure}`),
+    ),
+    act(),
+  ]);
+  return { status: response.status(), body: await response.json() };
+}
+
 test(`${J} #2 creates a sandbox with a name: listed, a second named sandbox works, and with the sandbox cap blank the second refuses`, async () => {
   test.setTimeout(240_000);
   const { who } = run.read();
@@ -159,7 +170,9 @@ test(`${J} #2 creates a sandbox with a name: listed, a second named sandbox work
   try {
     await page.reload();
     await expect(page.getByTestId('sandbox-cap')).toHaveAttribute('data-limit', 'unset');
-    await createSandboxNamed('ci');
+    const refused = await serverAnswer('create', () => createSandboxNamed('ci'));
+    expect(refused.status, JSON.stringify(refused.body)).toBe(412);
+    expect(refused.body.error.message).toContain('[identity.sandbox_cap_unset]');
     await expect(page.getByRole('alert')).toHaveAttribute('data-code', 'identity.sandbox_cap_unset');
     await expect(bodyRows(sandboxes())).toHaveCount(1);
     const held = await sandboxRecords(who);
@@ -194,7 +207,11 @@ test(`${J} #3 creates a sandbox key: shown once with the sandbox base URL, sandb
   await page.getByRole('link', { name: 'Create a sandbox key' }).click();
   await page.getByLabel('Key name').fill('sandbox-trade');
   await page.getByLabel('Trade', { exact: true }).check();
-  await page.getByRole('button', { name: 'Create with a passkey', exact: true }).click();
+  const tradeRefused = await serverAnswer('createKey', () =>
+    page.getByRole('button', { name: 'Create with a passkey', exact: true }).click(),
+  );
+  expect(tradeRefused.status, JSON.stringify(tradeRefused.body)).toBe(403);
+  expect(tradeRefused.body.error.message).toContain('[env.scope_not_sandboxable]');
   await expect(page.getByRole('alert')).toHaveAttribute('data-code', 'env.scope_not_sandboxable');
   await expect(page.getByRole('alert')).toContainText('can’t be used in a sandbox');
   expect((await sandboxDetail(who, sandboxId)).keys).toEqual([]);
@@ -202,17 +219,27 @@ test(`${J} #3 creates a sandbox key: shown once with the sandbox base URL, sandb
   // "sandbox key shown once with sandbox base URL".
   await page.getByLabel('Key name').fill('sandbox-first');
   await page.getByLabel('Read only', { exact: true }).check();
-  await page.getByRole('button', { name: 'Create with a passkey', exact: true }).click();
+  const made = await serverAnswer('createKey', () => page.getByRole('button', { name: 'Create with a passkey', exact: true }).click());
+  expect(made.status, JSON.stringify(made.body)).toBe(200);
   await expect(page.getByRole('heading', { name: 'Your new key' })).toBeVisible();
   const key = (await page.getByTestId('api-keys__key').textContent())?.trim();
   expect(key).toMatch(/^ifc_test_/);
+  // The page shows the key and address identity sent, in the one reply that carries the key.
+  expect(made.body.result.data.key).toBe(key);
   const baseUrl = (await page.getByTestId('sandbox-base-url').textContent())?.trim();
+  expect(made.body.result.data.baseUrl).toBe(baseUrl);
   // The address shown is identity's sandbox address, and that is the edge's sandbox host on this stack (EDGE_SANDBOX_HOSTS
   // is localhost at the edge's port; the live host is 127.0.0.1).
   expect(baseUrl).toBe((await sandboxRecords(who)).baseUrl);
   expect(baseUrl).toBe(`http://localhost:${new URL(EDGE).port}`);
   await page.getByLabel('I have stored this key somewhere safe').check();
   await page.getByRole('button', { name: 'Done' }).click();
+  await expect(page.getByRole('heading', { name: 'development', level: 1 })).toBeVisible();
+  expect(await page.content()).not.toContain(key);
+  // "shown once": identity never answers the key again, and a fresh load of the sandbox does not show it.
+  expect(JSON.stringify(await sandboxDetail(who, sandboxId))).not.toContain(key);
+  expect(JSON.stringify(await sandboxRecords(who))).not.toContain(key);
+  await page.reload();
   await expect(page.getByRole('heading', { name: 'development', level: 1 })).toBeVisible();
   expect(await page.content()).not.toContain(key);
 

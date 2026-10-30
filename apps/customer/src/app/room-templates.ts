@@ -51,6 +51,8 @@ export const ROUTE_TEMPLATES: Readonly<Record<string, RoomTemplate | NotARoom>> 
   '/developers/changelog/upcoming': { template: 'reading' },
   '/developers/errors/auth': { template: 'reading' },
   '/developers/:section': { template: 'reading' },
+  '/developers/sandbox/:sandboxId': { template: 'settings' },
+  '/developers/sandbox/:sandboxId/keys/new': { template: 'flow' },
   '/lab': { template: 'reading' },
   '/fees': { template: 'reading' },
   '/fees/my-tier': { template: 'reading' },

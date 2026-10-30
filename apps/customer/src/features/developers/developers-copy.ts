@@ -84,7 +84,8 @@ export const developersCopy = defineCopy(
       'Public market data needs no key. Your own orders, balances and positions need a key from your signed-in account, and a key does only what its permissions allow. Withdrawals are never reachable with a key.',
     access_institutional:
       'FIX sessions are not opened from this portal: FIX access waits for its onboarding and session policy (DV-fix-01). The connectivity options say what is available today.',
-    access_embedded: 'For merchant accounts: payment keys, webhooks and the sandbox are made inside the merchant portal.',
+    access_embedded:
+      'For merchant accounts: payment keys and webhooks are made inside the merchant portal, and sandboxes in the developer sandbox.',
     access_broker: 'A registered app acts for a person only after that person consents to the permissions it asks for.',
     access_practice: 'Open to everyone: reading these pages needs no account.',
     waitsFor: 'Waits for {slice}',
@@ -108,7 +109,8 @@ export const developersCopy = defineCopy(
         'Los datos públicos de mercado no necesitan clave. Tus órdenes, saldos y posiciones necesitan una clave de tu cuenta con sesión iniciada, y una clave solo hace lo que permiten sus permisos. Los retiros nunca son posibles con una clave.',
       access_institutional:
         'Las sesiones FIX no se abren desde este portal: el acceso FIX espera su alta y su política de sesión (DV-fix-01). Las opciones de conectividad dicen qué está disponible hoy.',
-      access_embedded: 'Para cuentas de comercio: las claves de pago, los webhooks y el sandbox se crean dentro del portal del comercio.',
+      access_embedded:
+        'Para cuentas de comercio: las claves de pago y los webhooks se crean dentro del portal del comercio, y los sandboxes en el sandbox para desarrolladores.',
       access_broker: 'Una app registrada actúa por una persona solo después de que esa persona acepte los permisos que pide.',
       access_practice: 'Abierto a todos: leer estas páginas no necesita cuenta.',
       waitsFor: 'Espera a {slice}',
@@ -133,7 +135,7 @@ export const developersCopy = defineCopy(
       access_institutional:
         'Les sessions FIX ne s’ouvrent pas depuis ce portail : l’accès FIX attend son intégration et sa politique de session (DV-fix-01). Les options de connectivité disent ce qui est disponible aujourd’hui.',
       access_embedded:
-        'Pour les comptes marchands : les clés de paiement, les webhooks et le bac à sable se créent dans le portail marchand.',
+        'Pour les comptes marchands : les clés de paiement et les webhooks se créent dans le portail marchand, et les bacs à sable dans le bac à sable développeurs.',
       access_broker:
         'Une application enregistrée n’agit pour une personne qu’après que cette personne a accepté les autorisations demandées.',
       access_practice: 'Ouvert à tous : lire ces pages ne demande pas de compte.',
