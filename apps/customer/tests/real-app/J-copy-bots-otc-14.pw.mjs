@@ -788,6 +788,8 @@ test(`${J} #7 withdraws over the cap, then within it without a step-up: both ref
     // The receipt in the room shows each of those values, labelled TEST.
     const shown = dialog.getByRole('region', { name: 'Withdrawal receipt' });
     await expect(shown).toContainText('TEST account');
+    // The room says the reserve was lowered and that no money moved (the lead's ruling: the reserve is a guard only).
+    await expect(shown).toContainText(`Your bot’s reserve was lowered by ${fromUnits(amount)} USDT. No money moved.`);
     const usd = (v) => `${fromUnits(toUnits(v))} USDT`;
     for (const [label, value] of [
       ['Withdrawal ID', receipt.withdrawalId],

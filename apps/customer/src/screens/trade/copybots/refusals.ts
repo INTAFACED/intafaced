@@ -384,11 +384,11 @@ const GRID: Readonly<Record<string, Words>> = {
   },
   'trade.bots_withdraw_exceeds_balance': {
     title: 'More than you have free',
-    body: 'Part of this profit is in open orders or the coin the bot bought. Lower the amount. Nothing was withdrawn.',
+    body: 'Part of this profit is held in open orders or in the coin the bot bought. Lower the amount. Nothing was changed.',
   },
   'trade.bots_withdraw_reserve_released': {
     title: 'This bot has stopped',
-    body: 'Its funds were already returned to your balance, so there is nothing to withdraw here.',
+    body: 'It no longer sets anything aside, so there is nothing to withdraw here.',
   },
   'trade.bots_withdraw_conflict': {
     title: 'That request was already used for a different withdrawal',

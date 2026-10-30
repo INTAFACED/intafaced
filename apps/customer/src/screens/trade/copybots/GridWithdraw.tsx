@@ -70,12 +70,21 @@ export function GridWithdraw({ bot, api, onDone }: { bot: GridBot; api: ReturnTy
           <DialogHeader>
             <DialogTitle>{t('Withdraw profit')}</DialogTitle>
             <DialogDescription>
-              {t('The profit goes back to your free {asset} balance. Your bot keeps its investment.', { asset })}
+              {t(
+                'This lowers what your bot sets aside by the amount. No money moves: the profit is already in your {asset} balance, and it is no longer held for the bot. The bot keeps its investment.',
+                { asset },
+              )}
             </DialogDescription>
           </DialogHeader>
           {receipt ? (
             <section aria-label={t('Withdrawal receipt')} data-testid="grid-withdraw-receipt" className="cb-form">
               <AccountBadge paper={false} />
+              <p className="cb-note-body">
+                {t('Your bot’s reserve was lowered by {amount} {asset}. No money moved.', {
+                  amount: displayAmount(receipt.amount),
+                  asset: receipt.asset,
+                })}
+              </p>
               <KeyValue
                 items={[
                   { label: t('Withdrawal ID'), value: receipt.withdrawalId },

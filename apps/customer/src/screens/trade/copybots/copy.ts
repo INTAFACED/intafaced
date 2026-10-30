@@ -473,8 +473,6 @@ const messages = {
     'The list of countries where copy trading is offered has not been approved',
   'The most per order is {cap} {asset}': 'The most per order is {cap} {asset}',
   'The price moved past your slippage limit': 'The price moved past your slippage limit',
-  'The profit goes back to your free {asset} balance. Your bot keeps its investment.':
-    'The profit goes back to your free {asset} balance. Your bot keeps its investment.',
   'The same as trading alone': 'The same as trading alone',
   'The same trading fee as trading alone': 'The same trading fee as trading alone',
   'The scheduler that places slices is switched off in this environment. The bot can be created and watched, but no slice is placed until it runs.':
@@ -494,6 +492,8 @@ const messages = {
   'This bot has already ended': 'This bot has already ended',
   'This follow has already stopped': 'This follow has already stopped',
   'This leader has not traded on a live spot market.': 'This leader has not traded on a live spot market.',
+  'This lowers what your bot sets aside by the amount. No money moves: the profit is already in your {asset} balance, and it is no longer held for the bot. The bot keeps its investment.':
+    'This lowers what your bot sets aside by the amount. No money moves: the profit is already in your {asset} balance, and it is no longer held for the bot. The bot keeps its investment.',
   Time: 'Time',
   'Time-weighted (TWAP)': 'Time-weighted (TWAP)',
   'Top return': 'Top return',
@@ -565,6 +565,8 @@ const messages = {
     'You may not have enough {asset} for the whole run. Slices that cannot be paid are refused.',
   'You set them. A leader can never raise them': 'You set them. A leader can never raise them',
   'Your balance did not cover it': 'Your balance did not cover it',
+  'Your bot’s reserve was lowered by {amount} {asset}. No money moved.':
+    'Your bot’s reserve was lowered by {amount} {asset}. No money moved.',
   'Your copied positions are closed at the market price, then the follow ends. Prices can move and fees apply.':
     'Your copied positions are closed at the market price, then the follow ends. Prices can move and fees apply.',
   'Your country': 'Your country',
