@@ -371,9 +371,9 @@ function shareLinkRefusal<T>(result: ApiResult<T>): ApiResult<T> {
   return key ? { ...result, message: shareCopy.t(key) } : result;
 }
 
-/** P-ads-merchant-06: closed ads My Ads lists, most recently closed first. */
 /** P-ads-merchant-08: how many to-do items the console reads at once (svc-p2p's most is 200). */
 export const TODOS_SHOWN = 100;
+/** P-ads-merchant-06: closed ads My Ads lists, most recently closed first. */
 export const CLOSED_OFFERS_SHOWN = 50;
 
 export function createPersonalPayApi(

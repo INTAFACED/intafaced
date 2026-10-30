@@ -100,21 +100,33 @@ export async function readPresence(sql: Sql, userId: string): Promise<Presence> 
   };
 }
 
-/** Sets a person's presence. A schedule needs a real IANA time zone and valid windows; online and offline keep none. */
+/** Sets a person's presence. A schedule needs a real time zone and valid windows; online and offline keep the saved week. */
 export async function setPresence(
   sql: Sql,
   userId: string,
   input: { mode: PresenceMode; timezone?: string | null; windows?: PresenceWindow[] | null },
 ): Promise<Presence> {
+  if (input.mode !== 'scheduled') {
+    // Going online or offline keeps the saved week and its zone, so switching back to the schedule finds it as it was.
+    await sql`
+      INSERT INTO p2p.merchant_presence (user_id, mode, updated_at)
+      VALUES (${userId}, ${input.mode}, now())
+      ON CONFLICT (user_id) DO UPDATE SET mode = EXCLUDED.mode, updated_at = now()
+    `;
+    return readPresence(sql, userId);
+  }
   const timezone = input.timezone ?? 'UTC';
-  const [zone] = await sql<Array<{ name: string }>>`SELECT name FROM pg_timezone_names WHERE name = ${timezone}`;
-  if (!zone) throw scheduleInvalid(`${timezone} is not a time zone`);
-  const windows = input.mode === 'scheduled' ? assertSchedule(input.windows ?? []) : [];
+  const windows = assertSchedule(input.windows ?? []);
+  try {
+    await sql`SELECT now() AT TIME ZONE ${timezone}`;
+  } catch {
+    throw scheduleInvalid(`${timezone} is not a time zone`);
+  }
   await sql`
     INSERT INTO p2p.merchant_presence (user_id, mode, timezone, windows, updated_at)
-    VALUES (${userId}, ${input.mode}, ${timezone}, ${sql.json(windows as never)}, now())
+    VALUES (${userId}, 'scheduled', ${timezone}, ${sql.json(windows as never)}, now())
     ON CONFLICT (user_id) DO UPDATE
-      SET mode = EXCLUDED.mode, timezone = EXCLUDED.timezone, windows = EXCLUDED.windows, updated_at = now()
+      SET mode = 'scheduled', timezone = EXCLUDED.timezone, windows = EXCLUDED.windows, updated_at = now()
   `;
   return readPresence(sql, userId);
 }
@@ -196,6 +208,8 @@ export const BULK_ACTIONS = ['pause', 'resume', 'remove'] as const;
 export type BulkAction = (typeof BULK_ACTIONS)[number];
 /** Most ads one bulk action may name, or reach with `all`. */
 export const MAX_BULK_OFFERS = 100;
+/** A claimed key with no results after this long is a run that died; a retry under it runs again. */
+const BULK_STALE_SECONDS = 300;
 
 export interface BulkResult {
   offerId: string;
@@ -209,6 +223,8 @@ export interface BulkResult {
 export interface BulkOutcome {
   action: BulkAction;
   results: BulkResult[];
+  /** With `all`: more ads than one action reaches were left as they were; ask again for the rest. */
+  more: boolean;
   /** True when this answers an earlier run with the same key; nothing changed this time. */
   replayed: boolean;
 }
@@ -246,18 +262,26 @@ export async function bulkOffers(
     RETURNING maker_id
   `;
   if (!claimed) {
-    const [prior] = await sql<Array<{ request_hash: string; results: BulkResult[] | null }>>`
+    const [prior] = await sql<Array<{ request_hash: string; results: { results: BulkResult[]; more: boolean } | null }>>`
       SELECT request_hash, results FROM p2p.offer_bulk_runs
        WHERE maker_id = ${input.makerId} AND idempotency_key = ${input.idempotencyKey}
     `;
     if (!prior || prior.request_hash !== requestHash) {
       throw new P2pError('This key was used for another bulk action', 'p2p.idempotency_conflict');
     }
-    if (prior.results === null) throw new P2pError('This bulk action is still running', 'p2p.idempotency_in_progress');
-    return { action: input.action, results: prior.results, replayed: true };
+    if (prior.results !== null) return { action: input.action, ...prior.results, replayed: true };
+    // A run that died (a restart mid-way) leaves its claim without results: take it over once it is stale. Each door is
+    // idempotent for an ad already in the asked state, so running the rest again is safe.
+    const [reclaimed] = await sql<Array<{ maker_id: string }>>`
+      UPDATE p2p.offer_bulk_runs SET created_at = now()
+       WHERE maker_id = ${input.makerId} AND idempotency_key = ${input.idempotencyKey}
+         AND results IS NULL AND created_at < now() - make_interval(secs => ${BULK_STALE_SECONDS})
+      RETURNING maker_id
+    `;
+    if (!reclaimed) throw new P2pError('This bulk action is still running', 'p2p.idempotency_in_progress');
   }
   try {
-    const ids =
+    const found =
       scope === 'all'
         ? (
             await sql<Array<{ id: string }>>`
@@ -265,17 +289,19 @@ export async function bulkOffers(
                WHERE maker_id = ${input.makerId}
                  AND (status = ${input.action === 'resume' ? 'paused' : 'active'} OR (${input.action === 'remove'} AND status = 'paused'))
                ORDER BY created_at, id
-               LIMIT ${MAX_BULK_OFFERS}
+               LIMIT ${MAX_BULK_OFFERS + 1}
             `
           ).map((row) => row.id)
         : scope;
+    const more = found.length > MAX_BULK_OFFERS;
+    const ids = found.slice(0, MAX_BULK_OFFERS);
     const results: BulkResult[] = [];
     for (const offerId of ids) results.push(await bulkOne(sql, doors, input.makerId, input.action, offerId));
     await sql`
-      UPDATE p2p.offer_bulk_runs SET results = ${sql.json(results as never)}
+      UPDATE p2p.offer_bulk_runs SET results = ${sql.json({ results, more } as never)}
        WHERE maker_id = ${input.makerId} AND idempotency_key = ${input.idempotencyKey}
     `;
-    return { action: input.action, results, replayed: false };
+    return { action: input.action, results, more, replayed: false };
   } catch (err) {
     // Nothing was answered under this key: free it so a retry runs. Ads already changed stay changed, and each door is
     // idempotent for an ad already in the asked state.

@@ -15,6 +15,8 @@ import { consoleCopy } from './p2p-console-copy';
  */
 
 const DAYS = [1, 2, 3, 4, 5, 6, 7] as const;
+/** The most ads one bulk action takes (svc-p2p's own limit). */
+const MAX_BULK = 100;
 const dayKey = (day: number) => `day${day}` as `day${(typeof DAYS)[number]}`;
 const ownZone = () => {
   try {
@@ -232,8 +234,9 @@ export function BulkAds({
   const paused = useResource((signal) => pay.pausedOffers(signal), `pay:bulk-paused:${userId}:${revision}`);
   const [picked, setPicked] = useState<string[]>([]);
   const [asking, setAsking] = useState<BulkOutcome['action'] | null>(null);
-  // One key per confirmed request: a retry of the same request after a lost reply sends it again; a new request, a new key.
-  const [key, setKey] = useState(() => `bulk:${crypto.randomUUID()}`);
+  // The request's key names this action on these ads, asked at this moment: a retry from the same confirmation after a
+  // lost reply sends it again and is answered once; cancelling and asking again is a new request with a new key.
+  const [key, setKey] = useState('');
   const [busy, setBusy] = useState(false);
   const [failure, setFailure] = useState<Extract<ApiResult<unknown>, { ok: false }> | null>(null);
   const [outcome, setOutcome] = useState<BulkOutcome | null>(null);
@@ -252,7 +255,6 @@ export function BulkAds({
     setOutcome(result.data);
     setAsking(null);
     setPicked([]);
-    setKey(`bulk:${crypto.randomUUID()}`);
     onChanged();
   };
   return (
@@ -285,9 +287,23 @@ export function BulkAds({
           )
         }
       </PayState>
+      {picked.length > MAX_BULK ? (
+        <p className="muted" data-testid="bulk-too-many">
+          {t('bulkTooMany', { max: String(MAX_BULK) })}
+        </p>
+      ) : null}
       <div className="actions">
         {(['pause', 'resume', 'remove'] as const).map((action) => (
-          <Button key={action} variant="secondary" disabled={picked.length === 0} onClick={() => setAsking(action)}>
+          <Button
+            key={action}
+            variant="secondary"
+            disabled={picked.length === 0 || picked.length > MAX_BULK}
+            onClick={() => {
+              setFailure(null);
+              setKey(`bulk:${action}:${picked.length}:${Date.now()}`);
+              setAsking(action);
+            }}
+          >
             <Copy k={action === 'pause' ? 'bulkPause' : action === 'resume' ? 'bulkResume' : 'bulkRemove'} />
           </Button>
         ))}

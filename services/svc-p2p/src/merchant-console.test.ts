@@ -108,6 +108,11 @@ describe('svc-p2p merchant console (P-ads-merchant-08)', () => {
   const board = async () => (await p2p.listOfferBoard({ limit: 50, viewerId: TAKER })).offers.map((offer: { id: string }) => offer.id);
 
   const iso = (d: Date) => d.toISOString();
+  /** The schedule checks compare with the next UTC midnight: within a minute of it, wait until it has passed. */
+  const awayFromMidnight = async () => {
+    const left = Date.UTC(new Date().getUTCFullYear(), new Date().getUTCMonth(), new Date().getUTCDate() + 1) - Date.now();
+    if (left < 60_000) await new Promise((resolve) => setTimeout(resolve, left + 1_000));
+  };
   const day = (d: Date) => ((d.getUTCDay() + 6) % 7) + 1; // ISO: 1 Monday … 7 Sunday
   const midnightAfter = (d: Date) => new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate() + 1));
 
@@ -123,6 +128,15 @@ describe('svc-p2p merchant console (P-ads-merchant-08)', () => {
     expect(own).toContain(offer.id);
     // The order taken before going offline goes on.
     expect((await p2p.markFiatSent(trade.id, TAKER)).status).toBe('fiat_sent');
+    // Nor can it be quoted or taken while its maker is away (no schedule: no time it opens again); nothing is reserved.
+    const journal = ledger.journal().length;
+    const away = await refusal(take(offer.id));
+    expect(away.code).toBe('p2p.maker_offline');
+    expect(away.limit).toEqual({ until: null });
+    expect((await refusal(p2p.quoteTake({ offerId: offer.id, takerId: TAKER, method: 'sepa', amount: parseAmount('20') }))).code).toBe(
+      'p2p.maker_offline',
+    );
+    expect(ledger.journal()).toHaveLength(journal);
     await p2p.setPresence(MAKER, { mode: 'online' });
     expect(await board()).toContain(offer.id);
     // No row is online.
@@ -130,6 +144,7 @@ describe('svc-p2p merchant console (P-ads-merchant-08)', () => {
   });
 
   it('on a schedule, the ads are on the board inside a window and off outside it, with when that changes next', async () => {
+    await awayFromMidnight();
     const offer = await sellOffer();
     const now = new Date();
     const today = day(now);
@@ -194,6 +209,17 @@ describe('svc-p2p merchant console (P-ads-merchant-08)', () => {
     expect((await p2p.presence(MAKER)).mode).toBe('offline');
   });
 
+  it('going offline keeps the saved week and its zone, so the schedule comes back as it was', async () => {
+    const week = [
+      { day: 1, start: '08:00', end: '12:00' },
+      { day: 1, start: '13:00', end: '18:00' },
+      { day: 5, start: '09:00', end: '24:00' },
+    ];
+    await p2p.setPresence(MAKER, { mode: 'scheduled', timezone: 'Europe/Berlin', windows: week });
+    expect(await p2p.setPresence(MAKER, { mode: 'offline' })).toMatchObject({ mode: 'offline', timezone: 'Europe/Berlin', windows: week });
+    expect(await p2p.setPresence(MAKER, { mode: 'online' })).toMatchObject({ mode: 'online', windows: week, onBoard: true });
+  });
+
   it('the to-do list holds the person’s open orders that wait on someone, soonest deadline first, each with its link', async () => {
     const offer = await sellOffer();
     const first = await take(offer.id);
@@ -253,6 +279,16 @@ describe('svc-p2p merchant console (P-ads-merchant-08)', () => {
     });
     expect(stranger.results).toEqual([{ offerId: ads[1]!.id, ok: false, status: null, code: 'p2p.not_a_party' }]);
     expect((await p2p.getOffer(ads[1]!.id, MAKER)).status).toBe('active');
+    expect(all.more).toBe(false);
+    // A run that died mid-way (its claim kept, no results) is taken over by a retry once stale, and then answers it.
+    const stale = `bulk:${crypto.randomUUID()}`;
+    const first = await p2p.bulkOffers({ makerId: MAKER, action: 'pause', offerIds: [ads[2]!.id], idempotencyKey: stale });
+    await sql`UPDATE p2p.offer_bulk_runs SET results = NULL WHERE idempotency_key = ${stale}`;
+    expect((await refusal(p2p.bulkOffers({ makerId: MAKER, action: 'pause', offerIds: [ads[2]!.id], idempotencyKey: stale }))).code).toBe(
+      'p2p.idempotency_in_progress',
+    );
+    await sql`UPDATE p2p.offer_bulk_runs SET created_at = now() - interval '10 minutes' WHERE idempotency_key = ${stale}`;
+    expect(await p2p.bulkOffers({ makerId: MAKER, action: 'pause', offerIds: [ads[2]!.id], idempotencyKey: stale })).toEqual(first);
     expect(
       (await refusal(p2p.bulkOffers({ makerId: MAKER, action: 'pause', offerIds: [], idempotencyKey: `bulk:${crypto.randomUUID()}` })))
         .code,

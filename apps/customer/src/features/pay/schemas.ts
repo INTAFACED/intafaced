@@ -809,6 +809,7 @@ export const todosSchema = z.object({ items: z.array(todoItemSchema) });
 export const bulkOutcomeSchema = z.object({
   action: z.enum(['pause', 'resume', 'remove']),
   replayed: z.boolean(),
+  more: z.boolean(),
   results: z.array(
     z.object({
       offerId: z.string(),

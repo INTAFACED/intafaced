@@ -294,7 +294,10 @@ test('J-p2p-05 #4 operating hours hide ads off hours, and the console to-do list
     (await b.query('offers.page', { makerId: hours.makerId, limit: 200 })).offers.map((offer) => offer.id).includes(hours.id);
   expect(await onBoard()).toBe(true);
 
-  // Hours only tomorrow (UTC), set in the app: the ad leaves the board now, and the page says when it comes back.
+  // Hours only tomorrow (UTC), set in the app: the ad leaves the board now, and the page says when it comes back. The
+  // checks name today's and tomorrow's weekday, so within a minute of UTC midnight this waits until it has passed.
+  const left = Date.UTC(new Date().getUTCFullYear(), new Date().getUTCMonth(), new Date().getUTCDate() + 1) - Date.now();
+  if (left < 60_000) await new Promise((resolve) => setTimeout(resolve, left + 1_000));
   const now = new Date();
   const isoDay = (d) => ((d.getUTCDay() + 6) % 7) + 1;
   const tomorrow = (isoDay(now) % 7) + 1;

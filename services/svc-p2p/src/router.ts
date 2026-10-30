@@ -741,6 +741,8 @@ export function toTrpcError(err: unknown): TRPCError {
       case 'p2p.buying_restricted':
       // P-ads-merchant-06: an ad with open orders closes once they finish (the error data counts them).
       case 'p2p.offer_has_open_trades':
+      // P-ads-merchant-08: the ad's maker is away; it takes orders again in their hours (the error data says when).
+      case 'p2p.maker_offline':
       // P-ads-merchant-07: a share link that ended or was withdrawn; the person asks the maker for a new one.
       case 'p2p.share_link_expired':
       case 'p2p.share_link_revoked':
@@ -1476,7 +1478,6 @@ export function createP2pRouter(
           }),
         ),
 
-      /** P-ads-merchant-07: public (on the board) or private (by share link only). Open orders are unaffected. */
       /**
        * P-ads-merchant-08: pause, resume or remove (close) several of the caller's ads at once: named ads, or `all` that
        * the action applies to. Each ad answers for itself (`ok`, its status, or the code that refused it, such as
@@ -1497,6 +1498,7 @@ export function createP2pRouter(
           z.object({
             action: z.enum(BULK_ACTIONS),
             replayed: z.boolean(),
+            more: z.boolean(),
             results: z.array(
               z.object({
                 offerId: z.string(),
@@ -1519,6 +1521,7 @@ export function createP2pRouter(
           ),
         ),
 
+      /** P-ads-merchant-07: public (on the board) or private (by share link only). Open orders are unaffected. */
       setVisibility: merchantApiProcedure('p2p:write')
         .input(z.object({ offerId: z.string().guid(), visibility: z.enum(['public', 'private']) }))
         .output(offerOutput)
