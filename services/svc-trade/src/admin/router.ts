@@ -477,6 +477,14 @@ export function tradeOpsAdminRouter(admin?: TradeOpsAdmin) {
         .input(z.object({ applicationId: id, reason, approvalId, operationId: z.string().trim().min(1).max(128) }).strict())
         .mutation(({ ctx, input }) => ready().vipApplications.grantTrial(ctx.principal, input).catch(fail)),
     }),
+    copyBotsOtc: router({
+      metrics: operator.query(({ ctx }) => ready().copyBotsOtc.metrics(ctx.principal).catch(fail)),
+      // The desk read scope at the door; the lookup scope (COPY_LOOKUP_SCOPE) is checked in the service, before any read.
+      lookup: operator
+        .input(z.object({ userId: z.string().trim().min(1).max(128) }).strict())
+        .query(({ ctx, input }) => ready().copyBotsOtc.lookup(ctx.principal, input).catch(fail)),
+      quoteDesk: operator.query(({ ctx }) => ready().copyBotsOtc.quoteDesk(ctx.principal).catch(fail)),
+    }),
     markets: router({
       statusHistory: operator
         .input(z.object({ market: id, cursor: z.string().nullish(), limit }))
