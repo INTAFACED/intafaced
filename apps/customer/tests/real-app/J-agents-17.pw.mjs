@@ -110,8 +110,8 @@ function coachRoute(published) {
 
 test(`${J} #4 runs the Coach with no model set: a refusal that the Coach engine is unavailable`, async ({ page }) => {
   test.setTimeout(240_000);
-  coachRoute(false);
   try {
+    coachRoute(false);
     const { answer, status, body } = await ask(page, 'TEST: explain drawdown', (panel) => panel.getByText(COST_MISSING));
     await expect(coach(page).getByText(COST_MISSING)).toBeVisible();
     await expect(coach(page).getByTestId('coach-cost')).toHaveCount(0);

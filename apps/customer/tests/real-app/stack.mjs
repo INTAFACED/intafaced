@@ -153,11 +153,18 @@ export async function json(res) {
 
 /** The customer's own API through Edge, signed in as `who` with a session of its own (not the browser's). */
 export async function api(who) {
-  const login = await fetch(`${EDGE}/api/identity/trpc/auth.login`, {
-    method: 'POST',
-    headers: { origin: ORIGIN, 'content-type': 'application/json' },
-    body: JSON.stringify({ deviceKey: DEVICE_KEY, identifier: who.email, password: who.password }),
-  }).then(json);
+  const signIn = () =>
+    fetch(`${EDGE}/api/identity/trpc/auth.login`, {
+      method: 'POST',
+      headers: { origin: ORIGIN, 'content-type': 'application/json' },
+      body: JSON.stringify({ deviceKey: DEVICE_KEY, identifier: who.email, password: who.password }),
+    }).then(json);
+  // A sign-in on a kept-alive socket Edge closed while the test waited fails before any answer; it is sent once more on
+  // a fresh socket (it moves nothing, and a second session is harmless).
+  const login = await signIn().catch((error) => {
+    if (error?.cause?.code !== 'UND_ERR_SOCKET') throw error;
+    return signIn();
+  });
   const token = login.body?.result?.data?.accessToken;
   if (!token) throw new Error(`sign-in for ${who.email} refused: ${login.status} ${JSON.stringify(login.body).slice(0, 300)}`);
   const send = (method, route, body) =>

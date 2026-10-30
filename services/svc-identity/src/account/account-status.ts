@@ -35,9 +35,9 @@ const BLOCKS = {
     'add_withdrawal_address',
     'withdraw_to_address',
   ],
-  // Founder controls, trading area: recorded here, but svc-trade keeps its own restriction table and reads nothing of
-  // this one, so it blocks nothing; the page says so rather than claim trading stops.
-  trading_restricted: [],
+  // Founder controls, trading area: `OperationIdentityDecisions.decide` cancels every fresh svc-trade operation (placing
+  // or enlarging an order, starting a bot, a bot's or a copy's child order) with `trade.account_restricted`.
+  trading_restricted: ['trade'],
   // KYC capability switched off: identity refuses a request for the level whose own list grants it (`assertRequestable`,
   // `kyc.capability_inactive`), so it blocks only while the owner's level map grants it somewhere; no service outside
   // identity reads capability states, so orders and transfers go on.
@@ -51,7 +51,7 @@ type UserRow = {
 };
 type FreezeRow = { reason: string; since: Date; available_at: Date | null };
 type LockRow = { set_by: 'self' | 'support'; locked_at: Date; unlocks_at: Date | null };
-type TradingRow = { restricted: true };
+type TradingRow = { restricted: true; reason_code: string | null };
 type CapabilityRow = { capability: KycCapability; reason_code: string; at: Date };
 
 const iso = (d: Date | null) => (d ? d.toISOString() : null);
@@ -65,6 +65,8 @@ export class AccountStatusDesk {
     private readonly capabilityReasons: KycRejectReasons,
     /** The owner's level-to-capability map (`IDENTITY_KYC_CAPABILITIES_BY_LEVEL`), as `assertRequestable` reads it. */
     private readonly capabilityMap: KycCapabilityMap,
+    /** The owner's trading restriction reason list (`IDENTITY_TRADING_RESTRICTION_REASONS`): code to words and next step. */
+    private readonly tradingReasons: KycRejectReasons = new Map(),
   ) {}
 
   /**
@@ -88,7 +90,7 @@ export class AccountStatusDesk {
         SELECT set_by, locked_at, unlocks_at FROM account_security_locks
         WHERE user_id = ${userId} AND state = 'locked' AND (unlocks_at IS NULL OR unlocks_at > now())`,
       // `updated_at` moves on every write, even a repeat, so it is not when the restriction began: no start is shown.
-      this.sql<TradingRow[]>`SELECT restricted FROM trading_restrictions WHERE user_id = ${userId} AND restricted`,
+      this.sql<TradingRow[]>`SELECT restricted, reason_code FROM trading_restrictions WHERE user_id = ${userId} AND restricted`,
       this.sql<CapabilityRow[]>`SELECT capability, reason_code, at FROM kyc_capabilities WHERE user_id = ${userId} AND state = 'inactive'`,
     ]);
     if (!user) return null;
@@ -134,7 +136,8 @@ export class AccountStatusDesk {
         capability: null,
         owner: null,
       });
-    if (trading)
+    if (trading) {
+      const listed = trading.reason_code ? this.tradingReasons.get(trading.reason_code) : undefined;
       restrictions.push({
         kind: 'trading_restricted',
         reasonCode: null,
@@ -142,8 +145,10 @@ export class AccountStatusDesk {
         blocks: [...BLOCKS.trading_restricted],
         lift: { by: 'staff' },
         capability: null,
-        owner: null,
+        // The code staff chose from the owner's list, with its words as the list says them now.
+        owner: trading.reason_code ? { code: trading.reason_code, text: listed?.reason ?? null, guidance: listed?.guidance ?? null } : null,
       });
+    }
     // In the contract's capability order, so the list reads the same every time.
     for (const row of [...capabilities].sort((a, b) => KYC_CAPABILITIES.indexOf(a.capability) - KYC_CAPABILITIES.indexOf(b.capability))) {
       const listed = this.capabilityReasons.get(row.reason_code);

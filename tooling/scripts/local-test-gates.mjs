@@ -423,6 +423,47 @@ export function ageAccount(secrets, handle, seconds) {
   return rows[0][0];
 }
 
+const COPY_REWIND_FOLLOW_ID = /^[A-Za-z0-9_.:-]{1,128}$/;
+const COPY_REWIND_FILL_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+
+/**
+ * LOCAL TEST: the one statement that moves a follow's copy cursor back to just before a named leader fill, so the copy
+ * driver's next sweep tries that fill again (J-copy-bots-otc-03 #5: a skipped fill tried again is logged once). The
+ * cursor becomes the leader's fill ordered just before it, by the driver's own order (fill time at millisecond
+ * precision, then id), or that millisecond with no fill when none is. Only a follow of that fill's leader moves.
+ */
+export function copyCursorRewindSql(followId, fillId) {
+  const fill = String(fillId ?? '').toLowerCase();
+  if (!COPY_REWIND_FOLLOW_ID.test(followId ?? '') || !COPY_REWIND_FILL_ID.test(fill))
+    throw new Error('usage: local-test-gates.mjs copy-rewind <followId> <leaderFillId>');
+  return `WITH f AS (SELECT id, user_id::text AS leader, date_trunc('milliseconds', created_at) AS at
+                FROM trade.fills WHERE id = '${fill}'::uuid),
+       prev AS (SELECT max(p.id::text) AS id FROM trade.fills p, f
+                 WHERE p.user_id::text = f.leader AND date_trunc('milliseconds', p.created_at) = f.at AND p.id::text < f.id::text)
+  UPDATE trade.copy_follows c SET copy_cursor_at = f.at, copy_cursor_fill = prev.id
+    FROM f, prev
+   WHERE c.follow_id = '${followId}' AND c.leader_id = f.leader
+  RETURNING c.follow_id, c.copy_cursor_at::text, coalesce(c.copy_cursor_fill, '')`;
+}
+
+/** Runs copyCursorRewindSql for a follow whose follower is a LOCAL TEST journey account; anything else is refused. */
+export function rewindCopyCursor(secrets, followId, fillId) {
+  const sql = copyCursorRewindSql(followId, fillId);
+  const [follower] = psqlRead(secrets, 'svc_trade', `SELECT follower_id FROM trade.copy_follows WHERE follow_id = '${followId}'`);
+  if (!follower) throw new Error(`no copy follow ${followId}`);
+  if (!/^[0-9a-f-]{36}$/i.test(follower[0])) throw new Error(`copy follow ${followId} has no account id`);
+  const [account] = psqlRead(
+    secrets,
+    'svc_identity',
+    `SELECT handle::text FROM identity.users WHERE id = '${follower[0]}'::uuid AND email LIKE '%@local-test.invalid'`,
+  );
+  if (!account) throw new Error(`copy-rewind refuses ${followId}: its follower is not a LOCAL TEST journey account`);
+  const rows = psqlRead(secrets, 'svc_trade', sql);
+  if (rows.length !== 1) throw new Error(`copy-rewind: fill ${fillId} is not a fill of follow ${followId}'s leader`);
+  const [, at, fill] = rows[0];
+  return { followId, handle: account[0], cursorAt: at, cursorFill: fill || null };
+}
+
 export function pendingKycCount(secrets) {
   return Number(psqlRead(secrets, 'svc_identity', `SELECT count(*) FROM identity.kyc_records WHERE status = 'pending'`)[0][0]);
 }
@@ -1250,6 +1291,17 @@ async function treasuryCall(ctx, op, method, route, body) {
     /* non-JSON */
   }
   return { status: res.status, json, text };
+}
+
+/**
+ * The ledger's own record of one business key, read by TEST founder a through svc-ledger's lookup door
+ * (GET /operator/trace). A read: nothing posts. `{ found: false }` when the key booked nothing.
+ */
+export async function ledgerTrace(ctx, businessKey) {
+  const sessions = await approverSessions(ctx);
+  const res = await treasuryCall(ctx, sessions.a.op, 'GET', `/operator/trace?businessKey=${encodeURIComponent(businessKey)}`);
+  if (res.status !== 200) throw new Error(`ledger GET /operator/trace refused (${res.status}): ${res.text.slice(0, 300)}`);
+  return res.json;
 }
 
 /**
@@ -2672,6 +2724,84 @@ export async function capabilityOff(ctx, handle, capability, reasonCode) {
   return { handle, capability, ok, why: ok ? `switched off (${reasonCode})` : refusalText(res) };
 }
 
+/**
+ * Restrict or restore trading for a journey account at identity, through the two-person path a trade-ops operator uses
+ * (`trading.restrict` four-eyes, then `accountControls.change`). Needs the stack's TEST flag
+ * IDENTITY_TRADING_RESTRICT_REQUIRES_APPROVAL. Only `@local-test.invalid` accounts. `reasonCode` (restrict only) is a code
+ * from the stack's TEST trading restriction reason list; identity stores it and the approval binds it.
+ */
+export async function tradingRestrict(ctx, handle, action, reasonCode) {
+  if (
+    !/^[a-z0-9_]{3,32}$/i.test(handle ?? '') ||
+    !['restrict', 'restore'].includes(action) ||
+    (reasonCode !== undefined && (action !== 'restrict' || !/^[a-z][a-z0-9_]{1,63}$/.test(reasonCode)))
+  )
+    throw new Error('usage: local-test-gates.mjs trading-restrict <handle> restrict [<reasonCode>] | restore');
+  const { users } = listAccountsAndTiers(ctx.secrets);
+  const user = users.find((u) => u.handle === handle);
+  if (!user || !user.email.endsWith('@local-test.invalid')) throw new Error(`trading-restrict: ${handle} is not a journey account`);
+  const { founderChangeHash } = await load('packages/contracts/dist/founder-change-hash.js');
+  const pair = await approverSessions(ctx);
+  // Two different people, or the approval proves nothing (as `twoPerson`, which uses the approval role's tokens).
+  const who = (s) => s.op?.handle ?? s.op?.email ?? null;
+  if (who(pair.a) === null || who(pair.a) === who(pair.b))
+    throw new Error('trading-restrict needs two different operators: the proposer and the approver must differ');
+  const token = await pair.a.tradeOpsToken();
+  const reason = `LOCAL TEST journey trading ${action}`;
+  const change = (expectedVersion, approvalId) =>
+    ctx.edge.mutate(
+      'identity',
+      'accountControls.change',
+      {
+        requestId: crypto.randomUUID(),
+        target: { area: 'trading', userId: user.id },
+        action,
+        reason,
+        expectedVersion,
+        ...(approvalId ? { approvalId } : {}),
+        ...(reasonCode ? { reasonCode } : {}),
+      },
+      token,
+    );
+  // Without an approval identity answers with the current state (no four eyes, or a version conflict): its version.
+  const probe = data(await change('0'));
+  const expectedVersion = probe?.current?.version;
+  if (expectedVersion === undefined) throw new Error(`trading-restrict: no current state (${JSON.stringify(probe)})`);
+  // A code identity will not take refuses before any approval: stop here rather than approve a pair it cannot use.
+  if (probe.code === 'restriction.reason_unlisted' || probe.code === 'restriction.reason_in_force')
+    throw new Error(`trading-restrict: identity refused the reason code ${reasonCode} (${probe.code})`);
+  const payloadHash = founderChangeHash(
+    { area: 'trading', userId: user.id.toLowerCase(), action, reason, ...(reasonCode ? { reasonCode } : {}) },
+    expectedVersion,
+  );
+  const proposed = await ctx.edge.mutate(
+    'identity',
+    'actionApproval.propose',
+    {
+      actionType: 'trading.restrict',
+      targetService: 'svc-identity',
+      targetId: user.id,
+      expectedVersion,
+      payloadHash,
+      policyVersion: MARKERS.policyVersion,
+    },
+    token,
+  );
+  const approvalId = data(proposed)?.approvalId;
+  if (!approvalId) throw new Error(`actionApproval.propose refused (${proposed.status}): ${refusalText(proposed)}`);
+  const approved = await ctx.edge.mutate(
+    'identity',
+    'actionApproval.approve',
+    { approvalId, expectedPayloadHash: payloadHash },
+    await pair.b.tradeOpsToken(),
+  );
+  if (data(approved)?.status !== 'APPROVED')
+    throw new Error(`actionApproval.approve refused (${approved.status}): ${refusalText(approved)}`);
+  const res = data(await change(expectedVersion, approvalId));
+  const ok = (res?.outcome === 'changed' || res?.outcome === 'noop') && res.after?.restricted === (action === 'restrict');
+  return { handle, action, ok, why: ok ? `${res.outcome}, version ${res.after.version}` : JSON.stringify(res) };
+}
+
 /** Submit what this stack can submit for itself, then approve everything pending. */
 export async function verifyAll(ctx) {
   const before = listAccountsAndTiers(ctx.secrets);
@@ -2875,6 +3005,9 @@ async function main() {
     } else if (cmd === 'kyc-capability-off') {
       const r = await capabilityOff(ctx, process.argv[3], process.argv[4], process.argv[5]);
       say(`  ${r.ok ? 'OK     ' : 'REFUSED'} ${r.handle} ${r.capability}: ${r.why}`);
+    } else if (cmd === 'trading-restrict') {
+      const r = await tradingRestrict(ctx, process.argv[3], process.argv[4], process.argv[5]);
+      say(`  ${r.ok ? 'OK     ' : 'REFUSED'} ${r.handle} trading ${r.action}: ${r.why}`);
     } else if (cmd === 'terms') {
       for (const r of await publishTransferTerms(ctx)) say(`  terms     ${r.assetId.padEnd(10)} published, approved by ${r.approvedBy}`);
     } else if (cmd === 'futures') {
@@ -2951,6 +3084,9 @@ async function main() {
         say(`  limits    ${r.symbol.padEnd(10)} ${r.changed ? `version ${r.version}` : 'already published'}`);
     } else if (cmd === 'charts') {
       sayCharts(await publishCharts(ctx));
+    } else if (cmd === 'copy-rewind') {
+      const r = rewindCopyCursor(ctx.secrets, process.argv[3], process.argv[4]);
+      say(`  copy      ${r.followId} (${r.handle}) cursor now ${r.cursorAt} ${r.cursorFill ?? '(no fill)'} (LOCAL TEST)`);
     } else if (cmd === 'chart-class') {
       // chart-class <SYMBOL> <dataClass>: one market's data class on the local stack, through the same two-person approval.
       const [symbol, dataClass] = process.argv.slice(3);
@@ -2987,7 +3123,7 @@ async function main() {
       say(JSON.stringify(await status(ctx), null, 2));
     } else {
       die(
-        'usage: local-test-gates.mjs apply | operators | lifecycle | open | terms | assets | deposit-terms | withdrawal-limits | withdraw-terms | withdraw-limit <tier> <assetId> unset|test | withdraw-fee <networkId> unset|test | futures | limits | charts | chart-class <SYMBOL> <dataClass> | risk <SYMBOL> k=v... | p2p | verify | kyc-reject <handle> <reasonCode> | kyc-capability-off <handle> <capability> <reasonCode> | halt <SYMBOL> | resume <SYMBOL> | posting-freeze on|off | age <handle> <seconds> | scoped-session --without <scope> | status',
+        'usage: local-test-gates.mjs apply | operators | lifecycle | open | terms | assets | deposit-terms | withdrawal-limits | withdraw-terms | withdraw-limit <tier> <assetId> unset|test | withdraw-fee <networkId> unset|test | futures | limits | charts | chart-class <SYMBOL> <dataClass> | risk <SYMBOL> k=v... | p2p | verify | kyc-reject <handle> <reasonCode> | kyc-capability-off <handle> <capability> <reasonCode> | trading-restrict <handle> restrict [<reasonCode>] | restore | halt <SYMBOL> | resume <SYMBOL> | posting-freeze on|off | age <handle> <seconds> | scoped-session --without <scope> | status',
         2,
       );
     }

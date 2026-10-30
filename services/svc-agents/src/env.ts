@@ -253,6 +253,11 @@ const schema = serviceEnvSchema
        */
       AGENTS_ROUTING_TABLE: z.string().optional(),
 
+      /**
+       * Published tier law of the scanner, navigator and support doors, as JSON (`tier-laws.ts`). Blank = no law
+       * published: each door refuses `tier_law_blank`. The tier itself is always the signed principal's.
+       */
+      AGENTS_TIER_LAWS: z.string().optional(),
       // ── Operator agent log (AG-audit-01, AG-audit-02) ───────────────────────
       // Owner values. Each one blank stays unset, and the read that needs it refuses with its own code (never invented).
       /** Comma-separated reasons an operator picks from to read a customer's agent log. Blank refuses agents.log_read_reason_unset. */

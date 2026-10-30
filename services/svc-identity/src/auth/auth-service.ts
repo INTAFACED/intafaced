@@ -88,6 +88,7 @@ import { handleRetiredByOther, lockHandleClaim } from '../profile/handle-setting
 import { queueServiceMail } from './service-mail.js';
 import { queuePasswordChangedNotice } from './password-changed-notice.js';
 import { queueFactorChangedNotice } from './factor-changed-notice.js';
+import { applySelfFreeze, redeemFreezeLink, type FreezeLinkResult } from './freeze-link.js';
 import {
   cancelMfaReset,
   completeDueMfaReset,
@@ -2144,20 +2145,21 @@ export class AuthService {
       throw new AuthError('Invalid credentials', 'auth.invalid_credentials');
     }
     await recordSuccess(this.sql, input.userId, 'password');
-    const result = await transaction(this.sql, async (tx) => {
-      await tx`SELECT id FROM users WHERE id = ${input.userId} FOR UPDATE`;
-      const open = await tx<Array<{ reason: SelfFreezeReason; since: Date }>>`
-        SELECT reason, since FROM account_self_freezes WHERE user_id = ${input.userId} AND state = 'frozen'`;
-      if (open[0]) return { reason: open[0].reason, since: open[0].since, changed: false };
-      const made = await tx<Array<{ since: Date }>>`
-        INSERT INTO account_self_freezes (user_id, reason) VALUES (${input.userId}, ${input.reason}) RETURNING since`;
-      await tx`UPDATE sessions SET revoked = true WHERE user_id = ${input.userId} AND revoked = false`;
-      await tx`UPDATE api_keys SET revoked = true, revoked_at = now(), revoked_cause = 'account_freeze' WHERE user_id = ${input.userId} AND revoked = false`;
-      return { reason: input.reason, since: made[0]!.since, changed: true };
-    });
+    const result = await transaction(this.sql, (tx) => applySelfFreeze(tx, input.userId, input.reason));
     if (result.changed) await syncNavigatorSessionsClosedForUser(this.sql, input.userId);
     this.log.warn({ userId: input.userId, reason: result.reason, changed: result.changed }, 'auth.self_frozen');
-    return { frozen: true, ...result };
+    return { frozen: true, reason: result.reason, since: result.since, changed: result.changed };
+  }
+
+  /**
+   * The freeze link a security notice carried (I-account-lifecycle-08, J-identity-11 #2). No sign-in: the token is the
+   * proof. The first use runs the same freeze as `selfFreeze`; a later use returns the stored result.
+   */
+  async redeemFreezeLink(input: { token: string }): Promise<FreezeLinkResult> {
+    const result = await redeemFreezeLink(this.sql, input);
+    if (result.changed) await syncNavigatorSessionsClosedForUser(this.sql, result.userId);
+    if (result.firstUse) this.log.warn({ userId: result.userId, changed: result.changed, via: 'mailed-link' }, 'auth.self_frozen');
+    return result;
   }
 
   /**

@@ -2,7 +2,7 @@ import type { Sql } from 'postgres';
 import { transaction } from '@intafaced/db';
 import type { EventBus } from '@intafaced/events';
 import { formatAmount, InsufficientFundsError, parseAmount, type Amount } from '@intafaced/ledger-client';
-import { AgentError } from './errors.js';
+import { AgentError, MeteredReplayError } from './errors.js';
 import { AuditLog, type ActionKind, type AuditedAction } from './fleet/audit.js';
 import {
   evaluateCompletion,
@@ -16,7 +16,7 @@ import {
 } from './fleet/guardrails.js';
 import { digestOfText, type ModelGateway } from './gateway/gateway.js';
 import type { RouteDef } from './gateway/routing.js';
-import { type SettlementResult, type UsageMeter, type UsageWindowView } from './metering/meter.js';
+import { type SettlementResult, type UsageMeter, type UsageDayView, type UsageWindowView } from './metering/meter.js';
 import { meteringOffSettlementStub, shouldMeterUsage } from './metering/product-law.js';
 import { usageCost } from './metering/pricing.js';
 import type { TokenUsage } from './providers/provider.js';
@@ -475,12 +475,7 @@ export class AgentRuntime {
     // before price and funds, so a replay reads as a replay whatever the balance.
     const shouldMeter = shouldMeterUsage(session.metered, this.meteringEnabled);
     if (shouldMeter && (await this.meter.hasRequest(session.id, input.requestId))) {
-      const err = new AgentError(
-        `Request id "${input.requestId}" was already metered on session ${session.id}`,
-        'agents.request_id_replay',
-        'agents.error.request_id_replay',
-        { requestId: input.requestId },
-      );
+      const err = new MeteredReplayError(session.id, input.requestId);
       await this.appendFailure(session, { kind: 'completion', task: input.task, error: err });
       throw err;
     }
@@ -1179,6 +1174,10 @@ export class AgentRuntime {
   /** The usage windows of one agent's sessions of a person's, newest first (see `UsageMeter.windowsOf`). */
   async usageWindowsOf(userId: string, agentId: string, limit: number): Promise<UsageWindowView[]> {
     return this.meter.windowsOf(userId, agentId, limit);
+  }
+
+  async usageByDayOf(userId: string, agentIds: readonly string[]): Promise<UsageDayView[]> {
+    return this.meter.usageByDay(userId, agentIds);
   }
 
   /** Settle every open window of a session. Used when a session closes. */

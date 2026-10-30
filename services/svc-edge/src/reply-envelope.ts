@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
+import { AUTH_ERRORS_PATH } from '@intafaced/contracts/auth-errors';
 import { refusalCopy } from './user-copy.js';
 
 /**
@@ -55,7 +56,7 @@ export const EXPOSED_RESPONSE_HEADERS = [REQUEST_ID_HEADER, SERVER_RECEIVED_HEAD
 
 /** The published error pages. Fixed paths plus the code: a link names no account and no key. */
 export const ERRORS_DOCS = '/developers/errors' as const;
-export const AUTH_ERRORS_DOCS = '/developers/errors/auth' as const;
+export const AUTH_ERRORS_DOCS = AUTH_ERRORS_PATH;
 
 /** Fastify constructor options for the request id. Spread into `Fastify({...})` in `index.ts`. */
 export const REQUEST_ID_OPTIONS = {

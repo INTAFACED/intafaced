@@ -124,6 +124,9 @@ export const appRouter = createProtocolRouter({
   relayEnabled: () => relayEnabled,
   ammFactoryAddress: () => env.PROTOCOL_AMM_FACTORY_ADDRESS as `0x${string}`,
   swapSlippageBps: () => env.PROTOCOL_SWAP_SLIPPAGE_BPS,
+  swapQuoteTtlSeconds: () => env.PROTOCOL_SWAP_QUOTE_TTL_SECONDS,
+  swapConfirmations: () => env.PROTOCOL_SWAP_CONFIRMATIONS,
+  tokensQuoteToken: () => env.PROTOCOL_TOKENS_QUOTE_TOKEN,
   probeTimeoutMs: () => env.PROTOCOL_PEER_TIMEOUT_MS,
   representation: {
     store: new PostgresRepresentationStore(db.sql),
