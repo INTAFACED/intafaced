@@ -1,3 +1,4 @@
+import { SYMBOL_MAX_CHARS } from './chain/evm/token-meta.js';
 import { z } from 'zod';
 import { formatAmount } from '@intafaced/ledger-client/money';
 import { publicJurisdictionProcedure, publicProcedure, router, TRPCError } from '@intafaced/contracts';
@@ -25,6 +26,15 @@ import {
   type ExplorerBlocksSource,
 } from './explorer/blocks.js';
 import { classifyExplorerTx, listTxPage, type ExplorerTxList, type ExplorerTxSource } from './explorer/tx.js';
+import {
+  directionOf,
+  endOfUtcDay,
+  listAddressInternalPage,
+  listAddressTxPage,
+  type AddressPageSource,
+  type ExplorerAddressSource,
+} from './explorer/address.js';
+import { StateUnavailableError } from './chain/evm/address-state.js';
 import type { FindTx } from './explorer/search-networks.js';
 import { assessProjectionStream, INDEXER_STREAM_UNWIRED, type StreamBook, type StreamLevel } from './stream.js';
 import {
@@ -205,6 +215,10 @@ export interface IndexerRouterDeps {
   readonly txs?: ExplorerTxSource;
   /** Latest transactions, newest first. Absent => `indexer.explorer_unwired`. */
   readonly txList?: ExplorerTxList;
+  /** D-explorer-03 address transactions and token search. Absent => `indexer.explorer_unwired`. */
+  readonly address?: ExplorerAddressSource;
+  /** D-explorer-03 address page: live balance, kind and token balances, internal moves, past balance. Absent => `indexer.explorer_unwired`. */
+  readonly addressPage?: AddressPageSource;
   /** D-explorer-02 the other networks a hash is looked up on, live. Absent or empty => the search names none. */
   readonly searchNetworks?: ReadonlyArray<{ readonly chainId: number; readonly find: FindTx }>;
 }
@@ -314,6 +328,73 @@ const explorerTxListRowSchema = z.object({
   timestamp: z.number().int(),
   orphaned: z.object({ reason: z.string() }).nullable(),
 });
+
+const txCursorSchema = z.object({
+  height: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER),
+  index: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER),
+  hash: z.string().regex(/^0x[0-9a-fA-F]{64}$/),
+});
+
+const tokenSchema = z.object({
+  address: z.string(),
+  /** Null when the contract did not answer `symbol()` / `name()` / `decimals()`. */
+  symbol: z.string().nullable(),
+  name: z.string().nullable(),
+  decimals: z.number().int().nullable(),
+});
+
+const addressTxRowSchema = z.object({
+  chainId: z.number().int(),
+  hash: z.string(),
+  blockHeight: z.number().int(),
+  blockHash: z.string(),
+  index: z.number().int(),
+  timestamp: z.number().int(),
+  from: z.string(),
+  to: z.string().nullable(),
+  status: z.enum(['success', 'failed']),
+  revertReason: z.string().nullable(),
+  transfers: z.array(
+    z.object({
+      token: tokenSchema.omit({ name: true }),
+      /** Raw base units, decimal string. */
+      amount: z.string(),
+      direction: z.enum(['in', 'out', 'self']),
+    }),
+  ),
+});
+
+/**
+ * A live read of the node failed. The node no longer holding that block's state, or not answering, is said with its own
+ * code so the page can name it; it is never a zero balance.
+ */
+function nodeReadError(err: unknown): unknown {
+  if (err instanceof StateUnavailableError) {
+    return new TRPCError({ code: 'PRECONDITION_FAILED', message: userCopy(err.code), cause: err });
+  }
+  if (err instanceof ChainUnavailableError) {
+    return new TRPCError({ code: 'SERVICE_UNAVAILABLE', message: userCopy(err.code), cause: err });
+  }
+  return err;
+}
+
+function addressPageOrRefuse(deps: IndexerRouterDeps): { explorer: ExplorerBlocksSource; page: AddressPageSource } {
+  const explorer = explorerOrRefuse(deps);
+  if (!deps.addressPage) {
+    throw new TRPCError({ code: 'SERVICE_UNAVAILABLE', message: userCopy(INDEXER_EXPLORER_UNWIRED) });
+  }
+  return { explorer, page: deps.addressPage };
+}
+
+function ownerLimit(explorer: ExplorerBlocksSource): number {
+  const owner = explorer.listLimit;
+  if (!owner.ok) {
+    throw new TRPCError({ code: 'BAD_REQUEST', message: userCopy(INDEXER_EXPLORER_LIST_LIMIT_UNSET) });
+  }
+  return owner.limit;
+}
+
+const addressInput = z.object({ chainId: z.number().int(), address: addressSchema });
 
 function explorerOrRefuse(deps: IndexerRouterDeps): ExplorerBlocksSource {
   assertServing(deps.indexer, deps.chainSource, deps.venue, deps.claimLiveClob);
@@ -437,6 +518,341 @@ export function createIndexerRouter(deps: IndexerRouterDeps) {
               return {
                 rows: page.rows.map(({ valueWei, ...r }) => ({ ...r, chainId: deps.chainId, value: valueWei.toString() })),
                 nextCursor: page.nextCursor,
+                asOf: new Date().toISOString(),
+              };
+            } catch (err) {
+              throw toTrpcError(err);
+            }
+          }),
+      }),
+      address: router({
+        /**
+         * Transactions the address sent, received, or is a party to through an ERC-20 Transfer, newest first, from
+         * canonical blocks. Each row carries the transfers to or from the address. Owner-bounded window.
+         */
+        txs: publicJurisdictionProcedure('indexer', 'protocol')
+          .input(
+            z.object({
+              chainId: z.number().int(),
+              address: addressSchema,
+              cursor: txCursorSchema.optional(),
+              limit: z.number().int().min(1).optional(),
+            }),
+          )
+          .output(
+            z.object({
+              rows: z.array(addressTxRowSchema),
+              nextCursor: z.object({ height: z.number().int(), index: z.number().int(), hash: z.string() }).nullable(),
+              asOf: z.string(),
+              /** The newest canonical block indexed when this answer was read; null before the first block or on another network. */
+              asOfHeight: z.number().int().nullable(),
+            }),
+          )
+          .query(async ({ input }) => {
+            try {
+              const explorer = explorerOrRefuse(deps);
+              if (!deps.address) {
+                throw new TRPCError({ code: 'SERVICE_UNAVAILABLE', message: userCopy(INDEXER_EXPLORER_UNWIRED) });
+              }
+              const owner = explorer.listLimit;
+              if (!owner.ok) {
+                throw new TRPCError({ code: 'BAD_REQUEST', message: userCopy(INDEXER_EXPLORER_LIST_LIMIT_UNSET) });
+              }
+              const limit = Math.min(input.limit ?? owner.limit, owner.limit);
+              const address = input.address.toLowerCase();
+              const ours = input.chainId === deps.chainId;
+              const head = ours ? await store.head() : null;
+              const page = ours
+                ? await listAddressTxPage(deps.address.txs, {
+                    address,
+                    limit,
+                    ...(input.cursor ? { cursor: { ...input.cursor, hash: input.cursor.hash.toLowerCase() } } : {}),
+                  })
+                : { rows: [], nextCursor: null };
+              return {
+                rows: page.rows.map((row) => ({
+                  chainId: deps.chainId,
+                  hash: row.hash,
+                  blockHeight: row.blockHeight,
+                  blockHash: row.blockHash,
+                  index: row.index,
+                  timestamp: row.timestamp,
+                  from: row.from,
+                  to: row.to,
+                  status: row.status,
+                  revertReason: row.revertReason,
+                  transfers: row.transfers.map((transfer) => ({
+                    token: { address: transfer.token.address, symbol: transfer.token.symbol, decimals: transfer.token.decimals },
+                    amount: transfer.amount.toString(),
+                    direction: directionOf(transfer, address),
+                  })),
+                })),
+                nextCursor: page.nextCursor,
+                asOf: new Date().toISOString(),
+                asOfHeight: head?.height ?? null,
+              };
+            } catch (err) {
+              throw toTrpcError(err);
+            }
+          }),
+        /**
+         * The address's native balance (wei) and whether code lives there, read from the node at the newest canonical
+         * block indexed, so it speaks of the same block as the transactions list. Nulls on another network or before
+         * the first block.
+         */
+        summary: publicJurisdictionProcedure('indexer', 'protocol')
+          .input(addressInput)
+          .output(
+            z.object({
+              kind: z.enum(['account', 'contract']).nullable(),
+              /** Wei, decimal string. */
+              balance: z.string().nullable(),
+              asOfHeight: z.number().int().nullable(),
+              asOf: z.string(),
+            }),
+          )
+          .query(async ({ input }) => {
+            try {
+              const { page } = addressPageOrRefuse(deps);
+              const head = input.chainId === deps.chainId ? await store.head() : null;
+              if (!head) return { kind: null, balance: null, asOfHeight: null, asOf: new Date().toISOString() };
+              const account = await page.state.account(input.address.toLowerCase(), head.height).catch((err: unknown) => {
+                throw nodeReadError(err);
+              });
+              return {
+                kind: account.isContract ? ('contract' as const) : ('account' as const),
+                balance: account.balanceWei.toString(),
+                asOfHeight: head.height,
+                asOf: new Date().toISOString(),
+              };
+            } catch (err) {
+              throw toTrpcError(err);
+            }
+          }),
+        /**
+         * Tokens the address sent or received, each with its own `balanceOf` read at the newest canonical block
+         * indexed. A zero balance is not a holding. `balance` is null where the contract did not answer as a token.
+         * The indexer has no price source, so `price` is always null and every holding counts in `unpriced`.
+         */
+        holdings: publicJurisdictionProcedure('indexer', 'protocol')
+          .input(addressInput)
+          .output(
+            z.object({
+              rows: z.array(
+                z.object({
+                  token: tokenSchema.omit({ name: true }),
+                  /** Raw base units, decimal string; null when the contract did not answer `balanceOf`. */
+                  balance: z.string().nullable(),
+                  price: z.null(),
+                }),
+              ),
+              unpriced: z.number().int(),
+              more: z.boolean(),
+              asOfHeight: z.number().int().nullable(),
+              asOf: z.string(),
+            }),
+          )
+          .query(async ({ input }) => {
+            try {
+              const { explorer, page } = addressPageOrRefuse(deps);
+              const limit = ownerLimit(explorer);
+              const head = input.chainId === deps.chainId ? await store.head() : null;
+              if (!head) return { rows: [], unpriced: 0, more: false, asOfHeight: null, asOf: new Date().toISOString() };
+              const address = input.address.toLowerCase();
+              const fetched = await page.reads.tokens({ address, limit });
+              const tokens = fetched.slice(0, limit);
+              const balances = await page.state
+                .tokenBalances(
+                  tokens.map((token) => token.address),
+                  address,
+                  head.height,
+                )
+                .catch((err: unknown) => {
+                  throw nodeReadError(err);
+                });
+              const rows = tokens
+                .map((token, i) => ({ token, balance: balances[i] ?? null }))
+                .filter((row) => row.balance !== 0n)
+                .map((row) => ({
+                  token: { address: row.token.address, symbol: row.token.symbol, decimals: row.token.decimals },
+                  balance: row.balance === null ? null : row.balance.toString(),
+                  price: null,
+                }));
+              return {
+                rows,
+                unpriced: rows.filter((row) => row.balance !== null).length,
+                more: fetched.length > limit,
+                asOfHeight: head.height,
+                asOf: new Date().toISOString(),
+              };
+            } catch (err) {
+              throw toTrpcError(err);
+            }
+          }),
+        /**
+         * Transactions with internal value moves to or from the address, newest first, each with those moves. `gaps`
+         * names the indexed blocks whose trace was not read, where a move could exist that this list cannot show.
+         */
+        internal: publicJurisdictionProcedure('indexer', 'protocol')
+          .input(addressInput.extend({ cursor: txCursorSchema.optional(), limit: z.number().int().min(1).optional() }))
+          .output(
+            z.object({
+              rows: z.array(
+                z.object({
+                  chainId: z.number().int(),
+                  hash: z.string(),
+                  blockHeight: z.number().int(),
+                  index: z.number().int(),
+                  timestamp: z.number().int(),
+                  calls: z.array(
+                    z.object({
+                      path: z.string(),
+                      kind: z.enum(['call', 'create', 'selfdestruct']),
+                      from: z.string(),
+                      to: z.string(),
+                      /** Wei, decimal string. */
+                      value: z.string(),
+                    }),
+                  ),
+                }),
+              ),
+              nextCursor: z.object({ height: z.number().int(), index: z.number().int(), hash: z.string() }).nullable(),
+              gaps: z.object({
+                blocks: z.number().int(),
+                fromHeight: z.number().int().nullable(),
+                toHeight: z.number().int().nullable(),
+                reasons: z.array(z.string()),
+              }),
+              asOfHeight: z.number().int().nullable(),
+              asOf: z.string(),
+            }),
+          )
+          .query(async ({ input }) => {
+            try {
+              const { explorer, page } = addressPageOrRefuse(deps);
+              const owner = ownerLimit(explorer);
+              const limit = Math.min(input.limit ?? owner, owner);
+              const ours = input.chainId === deps.chainId;
+              const head = ours ? await store.head() : null;
+              const list = ours
+                ? await listAddressInternalPage(page.reads.internal, {
+                    address: input.address.toLowerCase(),
+                    limit,
+                    ...(input.cursor ? { cursor: { ...input.cursor, hash: input.cursor.hash.toLowerCase() } } : {}),
+                  })
+                : { rows: [], nextCursor: null };
+              const gaps = ours ? await page.reads.traceGaps() : { blocks: 0, fromHeight: null, toHeight: null, reasons: [] };
+              return {
+                rows: list.rows.map((row) => ({
+                  chainId: deps.chainId,
+                  hash: row.hash,
+                  blockHeight: row.blockHeight,
+                  index: row.index,
+                  timestamp: row.timestamp,
+                  calls: row.calls.map(({ valueWei, ...call }) => ({ ...call, value: valueWei.toString() })),
+                })),
+                nextCursor: list.nextCursor,
+                gaps: { ...gaps, reasons: [...gaps.reasons] },
+                asOfHeight: head?.height ?? null,
+                asOf: new Date().toISOString(),
+              };
+            } catch (err) {
+              throw toTrpcError(err);
+            }
+          }),
+        /**
+         * The address's native balance at a past block, or at the end of a UTC day (the last canonical block before
+         * midnight after it). A point outside the indexed blocks answers `indexed: false` with the indexed range.
+         */
+        balanceAt: publicJurisdictionProcedure('indexer', 'protocol')
+          .input(
+            addressInput.extend({
+              at: z.union([
+                z.object({ height: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER) }),
+                z.object({ date: z.string().refine((date) => endOfUtcDay(date) !== null, 'must be a YYYY-MM-DD date') }),
+              ]),
+            }),
+          )
+          .output(
+            z.union([
+              z.object({
+                indexed: z.literal(true),
+                height: z.number().int(),
+                timestamp: z.number().int(),
+                /** Wei, decimal string. */
+                balance: z.string(),
+              }),
+              z.object({
+                indexed: z.literal(false),
+                /** True when the point lies past the newest indexed block (a later block, or a day not yet over in the index). */
+                after: z.boolean(),
+                earliestHeight: z.number().int().nullable(),
+                latestHeight: z.number().int().nullable(),
+              }),
+            ]),
+          )
+          .query(async ({ input }) => {
+            try {
+              const { page } = addressPageOrRefuse(deps);
+              const ours = input.chainId === deps.chainId;
+              const [earliestHeight, head] = ours ? await Promise.all([page.reads.earliestHeight(), store.head()]) : [null, null];
+              const latestHeight = head?.height ?? null;
+              const notIndexed = (after: boolean) => ({ indexed: false as const, after, earliestHeight, latestHeight });
+              if (!head) return notIndexed(false);
+              let block;
+              if ('height' in input.at) {
+                if (input.at.height > head.height) return notIndexed(true);
+                block = await page.reads.blockAt(input.at.height);
+              } else {
+                // A day is read only once a block after its end is indexed: before that, a later block of the day may
+                // still move the balance, and the newest indexed block is not "the end of that day".
+                const dayEnd = endOfUtcDay(input.at.date) as Date;
+                if (head.blockTime.getTime() < dayEnd.getTime()) return notIndexed(true);
+                block = await page.reads.blockBefore(dayEnd);
+              }
+              if (!block) return notIndexed(false);
+              const balance = await page.state.balance(input.address.toLowerCase(), block.height).catch((err: unknown) => {
+                throw nodeReadError(err);
+              });
+              return { indexed: true as const, height: block.height, timestamp: block.timestamp, balance: balance.toString() };
+            } catch (err) {
+              throw toTrpcError(err);
+            }
+          }),
+      }),
+      tokens: router({
+        /**
+         * Every token contract whose own `symbol()` is this one, ignoring case: one row per contract, never merged,
+         * so two tokens sharing a symbol are both listed. `more` is true when the owner window cut the list.
+         */
+        bySymbol: publicJurisdictionProcedure('indexer', 'protocol')
+          .input(
+            z.object({
+              chainId: z.number().int(),
+              // Counted in characters, as token-meta stores them, so a stored symbol can always be searched.
+              symbol: z
+                .string()
+                .trim()
+                .min(1)
+                .refine((symbol) => Array.from(symbol).length <= SYMBOL_MAX_CHARS),
+            }),
+          )
+          .output(z.object({ rows: z.array(tokenSchema.extend({ chainId: z.number().int() })), more: z.boolean(), asOf: z.string() }))
+          .query(async ({ input }) => {
+            try {
+              const explorer = explorerOrRefuse(deps);
+              if (!deps.address) {
+                throw new TRPCError({ code: 'SERVICE_UNAVAILABLE', message: userCopy(INDEXER_EXPLORER_UNWIRED) });
+              }
+              const owner = explorer.listLimit;
+              if (!owner.ok) {
+                throw new TRPCError({ code: 'BAD_REQUEST', message: userCopy(INDEXER_EXPLORER_LIST_LIMIT_UNSET) });
+              }
+              const fetched =
+                input.chainId === deps.chainId ? await deps.address.tokensBySymbol({ symbol: input.symbol, limit: owner.limit }) : [];
+              return {
+                rows: fetched.slice(0, owner.limit).map((token) => ({ ...token, chainId: deps.chainId })),
+                more: fetched.length > owner.limit,
                 asOf: new Date().toISOString(),
               };
             } catch (err) {

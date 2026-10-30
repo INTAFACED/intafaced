@@ -3,6 +3,7 @@ import { navigate } from '../../../app/location';
 import { useApi } from '../../session/session';
 import { usePreferences } from '../../../shared/preferences';
 import { useResource } from '../../../shared/resource';
+import { useDebouncedValue } from '../../pay/portal/payments/use-debounced';
 import type { ApiResult } from '../../../shared/api';
 import { Button, DataTable, Loading, Panel } from '../../../shared/ui';
 import { KNOWN_NETWORKS, networkLabel } from '../blockers';
@@ -13,6 +14,7 @@ import {
   isNotFound,
   type ExplorerApi,
   type ExplorerBlocksPage,
+  type ExplorerToken,
   type ExplorerTx,
   type ExplorerTxNetworks,
 } from './explorer-api';
@@ -161,8 +163,8 @@ function elsewhereAnswer(network: { chainId: number; name: string }, answer: Els
 
 /**
  * One search box for addresses, transactions and blocks. An address or a block opens its page; a transaction hash is looked
- * up on every network this explorer knows, and each network says Found, Not found or why it was not checked. Text that
- * is none of these would be a token name, and there is no token list to search, so the box says so instead of guessing.
+ * up on every network this explorer knows, and each network says Found, Not found or why it was not checked. Any other
+ * text is a token symbol: every contract on the network that says it has that symbol is listed, one result each.
  */
 function ExplorerSearch({ api, chain, t }: { api: ExplorerApi; chain: ChainRef; t: ExplorerTranslate }) {
   const chainId = chain.status === 'ready' ? chain.chainId : null;
@@ -233,7 +235,7 @@ function ExplorerSearch({ api, chain, t }: { api: ExplorerApi; chain: ChainRef; 
     event.preventDefault();
     open();
   }
-  const hasResults = query.kind !== 'empty' && query.kind !== 'text';
+  const hasResults = query.kind !== 'empty';
 
   return (
     <Panel title={t('homeTitle')}>
@@ -253,8 +255,11 @@ function ExplorerSearch({ api, chain, t }: { api: ExplorerApi; chain: ChainRef; 
           {t('searchSubmit')}
         </Button>
       </form>
-      <SearchResults id={listId} query={query} onPick={open} t={t} />
-      {query.kind === 'text' && <p className="muted">{t('textNoTokenSource')}</p>}
+      {query.kind === 'text' ? (
+        <TokenResults id={listId} api={api} chain={chain} symbol={query.value} t={t} />
+      ) : (
+        <SearchResults id={listId} query={query} onPick={open} t={t} />
+      )}
       {answers && (
         <ul className="explorer-networks" aria-label={t('networksSearched')}>
           {answers.map((network) => (
@@ -280,7 +285,75 @@ function ExplorerSearch({ api, chain, t }: { api: ExplorerApi; chain: ChainRef; 
   );
 }
 
-/** The one result a query of a known shape has. Text has none: there is no token list to search. */
+/** Longest symbol the indexer keeps (svc-indexer `token-meta.ts`); a longer text cannot be one. */
+const SYMBOL_MAX_CHARS = 32;
+
+/**
+ * Text read as a token symbol (D-explorer-03): every token contract the indexer has seen with that symbol, ignoring case,
+ * one option each and never merged, each opening its contract's address page. The answer is the indexer's, never a list
+ * kept here.
+ */
+function TokenResults({
+  id,
+  api,
+  chain,
+  symbol,
+  t,
+}: {
+  id: string;
+  api: ExplorerApi;
+  chain: ChainRef;
+  symbol: string;
+  t: ExplorerTranslate;
+}) {
+  const chainId = chain.status === 'ready' ? chain.chainId : null;
+  // One read per pause in typing, not per key.
+  const settled = useDebouncedValue(symbol);
+  const fits = Array.from(settled).length <= SYMBOL_MAX_CHARS;
+  const tokens = useResource(
+    (signal) =>
+      chainId === null || !fits ? Promise.resolve({ ok: true as const, data: null }) : api.tokensBySymbol(chainId, settled, signal),
+    `explorer:tokens:${chainId ?? 'none'}:${settled}`,
+  );
+  if (chain.status === 'failed') return <p className="muted">{t('tokensChainUnknown')}</p>;
+  const network = chainId === null ? '' : networkLabel(chainId).name;
+  const { resource } = tokens;
+  if (chain.status === 'loading' || settled !== symbol || resource.status === 'loading')
+    return <p className="muted">{t('tokensSearching', { network: network || '…' })}</p>;
+  if (resource.status === 'failed') return <p className="muted">{t('tokensRefused', { reason: refusalWords(resource.failure, t) })}</p>;
+  const rows: readonly ExplorerToken[] = resource.data?.rows ?? [];
+  if (rows.length === 0) return <p className="muted">{t('tokensNone', { network, symbol })}</p>;
+  return (
+    <>
+      <ul id={id} role="listbox" aria-label={t('resultsLabel')} className="explorer-results">
+        {rows.map((token) => {
+          const pick = () => navigate(`/chain/address/${token.address}`);
+          return (
+            <li
+              key={token.address}
+              role="option"
+              aria-selected="false"
+              tabIndex={0}
+              data-kind="token"
+              data-address={token.address.toLowerCase()}
+              data-symbol={token.symbol ?? ''}
+              onClick={pick}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter') pick();
+              }}
+            >
+              <span className="badge">{t('resultToken')}</span> <span>{token.symbol ?? t('tokenNoSymbol')}</span>
+              {token.name && <span className="muted"> {token.name}</span>} <span className="explorer-results__value">{token.address}</span>
+            </li>
+          );
+        })}
+      </ul>
+      {resource.data?.more && <p className="muted">{t('tokensMore')}</p>}
+    </>
+  );
+}
+
+/** The one result a query of an address, a transaction hash or a block height has. */
 function SearchResults({ id, query, onPick, t }: { id: string; query: ExplorerQuery; onPick: () => void; t: ExplorerTranslate }) {
   if (query.kind === 'empty' || query.kind === 'text') return null;
   const label = query.kind === 'address' ? t('resultAddress') : query.kind === 'tx' ? t('resultTx') : t('resultBlock');

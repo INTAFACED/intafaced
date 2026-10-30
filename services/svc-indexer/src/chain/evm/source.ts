@@ -1,9 +1,13 @@
 import { createPublicClient, defineChain, http } from 'viem';
 import type { Address, Hex, PublicClient } from 'viem';
-import { assertValidBlock, type ChainBlock, type ChainHead, type ChainSource } from '../source.js';
+import { assertValidBlock, type ChainBlock, type ChainHead, type ChainSource, type ChainToken } from '../source.js';
 import { decodeVenueLogs, type RawLog } from './decode.js';
 import { ChainUnavailableError, classifyChainError, isBlockNotFound, isZeroAddress } from './availability.js';
 import { lookupExplorerTx, readBlockTransactions, transactionHashes } from './explorer-txs.js';
+import { readBlockInternal, TraceAttempts } from './internal-txs.js';
+import { readAccount, readBalance, readTokenBalances } from './address-state.js';
+import { TOKEN_READS_PER_BLOCK, TokenMetaReader } from './token-meta.js';
+import { transferOf } from '../../explorer/address.js';
 import { withSpan } from '../../tracing.js';
 
 /**
@@ -173,6 +177,12 @@ export function assertLogsBoundToBlock(
   }
 }
 
+/** Longer than the node's own tracer limit (`TRACER_TIMEOUT`), so the node's refusal arrives before the request drops. */
+const TRACE_TIMEOUT_MS = 30_000;
+
+/** The largest trace answer read: 32 MiB. A block whose call tree is larger is stored as not traced. */
+const TRACE_MAX_BYTES = 32 * 1024 * 1024;
+
 export class EvmChainSource implements ChainSource {
   readonly chainId: number;
   readonly rpcUrl: string;
@@ -188,6 +198,18 @@ export class EvmChainSource implements ChainSource {
    * is re-read every pass for the reason in the class header.
    */
   #chainIdVerified = false;
+
+  /** D-explorer-03. Each Transfer emitter's symbol, name and decimals, read once per process. */
+  readonly #tokens: TokenMetaReader;
+
+  /**
+   * D-explorer-03. Traces get their own client: a whole block's call tree is larger and slower than any other read,
+   * so it has a longer timeout and an explicit cap on the answer's size (an answer past it is stored as not traced).
+   */
+  readonly #traceClient: PublicClient;
+
+  /** Each block's failed traces, and the blocks stored as not traced (see `TraceAttempts`). */
+  readonly #traceAttempts = new TraceAttempts();
 
   constructor(config: EvmChainSourceConfig) {
     if (!config.rpcUrl) {
@@ -220,6 +242,11 @@ export class EvmChainSource implements ChainSource {
       // one pass just delays the honest "unreachable" the loop needs to see, and
       // holds the poll interval open while it does.
       transport: http(config.rpcUrl, { timeout: config.requestTimeoutMs ?? 10_000, retryCount: 0 }),
+    }) as PublicClient;
+    this.#tokens = new TokenMetaReader(this.client, config.rpcUrl);
+    this.#traceClient = createPublicClient({
+      chain,
+      transport: http(config.rpcUrl, { timeout: TRACE_TIMEOUT_MS, retryCount: 0, maxResponseBodySize: TRACE_MAX_BYTES }),
     }) as PublicClient;
   }
 
@@ -353,6 +380,18 @@ export class EvmChainSource implements ChainSource {
 
     const hashes = transactionHashes(header.transactions, hash, this.rpcUrl);
     const transactions = hashes.length === 0 ? [] : await readBlockTransactions(this.client, hashes, hash, this.rpcUrl);
+    const emitters = [
+      ...new Set(transactions.flatMap((tx) => tx.logs.flatMap((log) => (transferOf(log) ? [log.address.toLowerCase()] : [])))),
+    ];
+    // Past the per-block cap the rest stay unread here; the token sweep reads them (D-explorer-03).
+    const tokens = emitters.length === 0 ? [] : await this.#tokens.read(emitters.slice(0, TOKEN_READS_PER_BLOCK), height);
+    const internal = await readBlockInternal(
+      this.#traceClient,
+      { hash, height },
+      transactions.map((tx) => tx.hash),
+      this.rpcUrl,
+      this.#traceAttempts,
+    );
 
     const block: ChainBlock = {
       chainId: this.chainId,
@@ -370,6 +409,8 @@ export class EvmChainSource implements ChainSource {
         size: Number(header.size),
       },
       transactions,
+      tokens,
+      internal,
     };
 
     // The port's own validation, run on this adapter's output. An adapter is
@@ -382,6 +423,32 @@ export class EvmChainSource implements ChainSource {
   /** D-explorer-02. `null` means the node does not know the hash. Transport failure throws. */
   lookupExplorerTx(hash: string) {
     return lookupExplorerTx(this.client, hash, this.rpcUrl);
+  }
+
+  /** D-explorer-03. An address's native balance and kind at a stored height. */
+  readAccountAt(address: string, height: number) {
+    return readAccount(this.client, address, height, this.rpcUrl);
+  }
+
+  /** D-explorer-03. An address's native balance at a stored height (the past balance). */
+  readBalanceAt(address: string, height: number) {
+    return readBalance(this.client, address, height, this.rpcUrl);
+  }
+
+  /** D-explorer-03. Each token's own `balanceOf(address)` at a stored height; null where the contract did not answer. */
+  readTokenBalancesAt(tokens: readonly string[], address: string, height: number) {
+    return readTokenBalances(this.client, tokens, address, height, this.rpcUrl);
+  }
+
+  /** What token contracts say about themselves, read at the chain's head (the D-explorer-03 backfill). */
+  async readTokenMeta(addresses: readonly string[]): Promise<{ height: number; tokens: ChainToken[] }> {
+    let height: number;
+    try {
+      height = Number(await this.client.getBlockNumber());
+    } catch (err) {
+      throw classifyChainError(err, 'tokenMeta(head)', this.rpcUrl);
+    }
+    return { height, tokens: await this.#tokens.read(addresses, height) };
   }
 
   /**

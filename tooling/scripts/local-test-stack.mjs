@@ -2549,7 +2549,7 @@ async function cmdMiningShare(rawArgs) {
   // Each share searches from its own start, derived from its label, so two shares of one rig never send the same work,
   // and one label sent again sends the same work (the pool refuses repeated work in a window as mining.share_duplicate).
   const start = Number.parseInt(crypto.createHash('sha256').update(shareId).digest('hex').slice(0, 12), 16);
-  const { rigShare } = await import('./local-stack-services/mining-rig.mjs');
+  const { rigShare } = await import('./local-test-mining-rig.mjs');
   let result;
   try {
     result = await rigShare({
