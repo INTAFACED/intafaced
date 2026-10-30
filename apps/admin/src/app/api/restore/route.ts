@@ -62,7 +62,11 @@ export async function POST(request: Request) {
   if (!input) return answer({ ok: false, code: 'admin.request_invalid', message: 'That request was not accepted. Nothing was sent.' }, 400);
 
   const parked = restoreWritesParked(session);
-  if (parked) return answer({ ok: false, code: parked.code, message: `${parked.title}. ${parked.body}` }, 403);
+  if (parked)
+    return answer(
+      { ok: false, code: parked.code, message: `${parked.title}. ${parked.body}` },
+      parked.code === 'admin.ledger_unconfigured' ? 503 : 409,
+    );
 
   const result =
     input.action === 'start'

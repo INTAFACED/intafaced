@@ -77,22 +77,19 @@ export function restoreExecute(ctx: FounderCallContext): ExecuteFn {
       if (a.service !== request.service || a.kind !== request.stampKind || a.watermark !== request.watermark) return WRONG_STATE;
       return { ok: true, detail: `svc-ops answered and holds the svc-${a.service} stamp ${a.watermark}, recorded ${a.recordedAt}.` };
     }
-    if (request.kind === 'ops.restore.finalize') {
-      const result = await restoreTreasuryCall(
-        'restore.finalize',
-        { restoreNo: request.restoreNo, idempotencyKey: finalizeKey(request.restoreNo), ...ids },
-        readFinalizeAnswer,
-      );
-      if (result.kind !== 'ok') return inRoomWords(failureRefusal('svc-ops', 'ops', result));
-      const a = result.data;
-      if (a.restoreNo !== request.restoreNo) return WRONG_STATE;
-      return {
-        ok: true,
-        detail: a.restored
-          ? `svc-ops answered: run ${a.restoreNo} is restored, with all four steps recorded.`
-          : `svc-ops answered, but run ${a.restoreNo} is not marked restored. Reload to see which step is missing.`,
-      };
-    }
-    return { ok: false, refusal: explainRefusal('admin.request_invalid', 400, false) };
+    const result = await restoreTreasuryCall(
+      'restore.finalize',
+      { restoreNo: request.restoreNo, idempotencyKey: finalizeKey(request.restoreNo), ...ids },
+      readFinalizeAnswer,
+    );
+    if (result.kind !== 'ok') return inRoomWords(failureRefusal('svc-ops', 'ops', result));
+    const a = result.data;
+    if (a.restoreNo !== request.restoreNo) return WRONG_STATE;
+    return {
+      ok: true,
+      detail: a.restored
+        ? `svc-ops answered: run ${a.restoreNo} is restored, with all four steps recorded.`
+        : `svc-ops answered, but run ${a.restoreNo} is not marked restored. Reload to see which step is missing.`,
+    };
   };
 }
