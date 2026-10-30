@@ -26,7 +26,8 @@ export interface StampAnswer {
 export function readStampAnswer(raw: unknown): StampAnswer | null {
   if (!raw || typeof raw !== 'object') return null;
   const { service, kind, watermark, recordedAt } = raw as Record<string, unknown>;
-  if (typeof service !== 'string' || typeof kind !== 'string' || typeof watermark !== 'string' || typeof recordedAt !== 'string') return null;
+  if (typeof service !== 'string' || typeof kind !== 'string' || typeof watermark !== 'string' || typeof recordedAt !== 'string')
+    return null;
   return { service, kind, watermark, recordedAt };
 }
 
@@ -60,7 +61,13 @@ export function restoreExecute(ctx: FounderCallContext): ExecuteFn {
         'ops',
         'restore.record',
         'POST',
-        { service: request.service, kind: request.stampKind, watermark: request.watermark, idempotencyKey: stampKey(ids.approvalId), ...ids },
+        {
+          service: request.service,
+          kind: request.stampKind,
+          watermark: request.watermark,
+          idempotencyKey: stampKey(ids.approvalId),
+          ...ids,
+        },
         readStampAnswer,
       );
       if (result.kind !== 'ok') return inRoomWords(failureRefusal('svc-ops', 'ops', result));

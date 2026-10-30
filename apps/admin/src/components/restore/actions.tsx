@@ -192,7 +192,13 @@ export function RecordStamp({ userId }: { userId: string }) {
         </div>
         <div className="adm-field">
           <label htmlFor="rs-watermark">Watermark read</label>
-          <input id="rs-watermark" className="adm-input" autoComplete="off" value={watermark} onChange={(e) => setWatermark(e.target.value)} />
+          <input
+            id="rs-watermark"
+            className="adm-input"
+            autoComplete="off"
+            value={watermark}
+            onChange={(e) => setWatermark(e.target.value)}
+          />
         </div>
       </div>
       <ControlDesk

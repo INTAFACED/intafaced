@@ -113,9 +113,7 @@ describe('running a restore request', () => {
   it('a disagreeing joint watermark is refused in the room’s words, with svc-ops’ code and nothing changed', async () => {
     vi.stubGlobal(
       'fetch',
-      vi.fn(async () =>
-        err(409, 'Nothing was restored: identity: position_differs.', 'ops.restore_watermarks_disagree'),
-      ),
+      vi.fn(async () => err(409, 'Nothing was restored: identity: position_differs.', 'ops.restore_watermarks_disagree')),
     );
     expect(await restoreExecute(ctx)(finalize, ids)).toMatchObject({
       ok: false,

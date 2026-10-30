@@ -61,7 +61,9 @@ describe('restore room', () => {
   });
 
   it('shows a failed part as a failure, not as empty', () => {
-    const html = renderToStaticMarkup(<RestoreRoom room={room({ runs: failed, stamps: failed, backups: failed })} runNo={null} userId="u-1" />);
+    const html = renderToStaticMarkup(
+      <RestoreRoom room={room({ runs: failed, stamps: failed, backups: failed })} runNo={null} userId="u-1" />,
+    );
     expect(html).toContain('data-testid="runs-failed"');
     expect(html).toContain('data-testid="stamps-failed"');
     expect(html).toContain('data-testid="backups-failed"');
@@ -81,12 +83,20 @@ describe('restore room', () => {
 
   it('parks finalize with its blocker until svc-ops offers it, then shows the approval form', () => {
     const parked = renderToStaticMarkup(
-      <RestoreRoom room={room({ run: { kind: 'ok', data: detail({ next: 'finalize', finalizeOffered: false }) } })} runNo="R-1" userId="u-1" />,
+      <RestoreRoom
+        room={room({ run: { kind: 'ok', data: detail({ next: 'finalize', finalizeOffered: false }) } })}
+        runNo="R-1"
+        userId="u-1"
+      />,
     );
     expect(parked).toContain('data-testid="finalize-parked"');
     expect(parked).not.toContain('data-testid="finalize-form"');
     const offered = renderToStaticMarkup(
-      <RestoreRoom room={room({ run: { kind: 'ok', data: detail({ next: 'finalize', finalizeOffered: true }) } })} runNo="R-1" userId="u-1" />,
+      <RestoreRoom
+        room={room({ run: { kind: 'ok', data: detail({ next: 'finalize', finalizeOffered: true }) } })}
+        runNo="R-1"
+        userId="u-1"
+      />,
     );
     expect(offered).toContain('data-testid="finalize-form"');
   });

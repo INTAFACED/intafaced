@@ -184,7 +184,8 @@ export function RestoreRoom({ room, runNo, userId }: { room: Room; runNo: string
         )}
       </section>
 
-      {room.run && (room.run.kind === 'ok' ? <Run detail={room.run.data} userId={userId} /> : <Failed part={room.run} testId="run-failed" />)}
+      {room.run &&
+        (room.run.kind === 'ok' ? <Run detail={room.run.data} userId={userId} /> : <Failed part={room.run} testId="run-failed" />)}
 
       <StartRun />
     </div>
