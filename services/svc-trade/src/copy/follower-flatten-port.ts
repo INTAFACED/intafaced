@@ -97,6 +97,7 @@ export function createFollowerFlattenPort(deps: FollowerFlattenPortDeps): Flatte
       else pending.push(leg);
     }
 
+    if (input.lookupOnly) return { orderIds: already, unplaced: pending.length > 0 };
     if (pending.length === 0) {
       return { orderIds: already };
     }
