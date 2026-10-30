@@ -11,7 +11,7 @@ import type { ApiResult } from '../../shared/api';
 import { Button, DataTable, Failure, Field, Panel, Tabs } from '../../shared/ui';
 import { Details, Limit, Read, Select, TextArea, useAction, presentActionFailure } from './common';
 import { Campaigns } from './Campaigns';
-import { AgentsCatalogue, refusalWords } from './AgentsCatalogue';
+import { AgentsCatalogue, refusalKeyWords, refusalWords } from './AgentsCatalogue';
 import { agentsCatalogueCopy } from './agents-catalogue-copy';
 import { costRange, runCosts, SESSION_AGENT_IDS } from './agents-catalogue';
 import { preservePaperHref } from './trade-context';
@@ -869,6 +869,11 @@ export function Agents({ paper = false }: { paper?: boolean }) {
                             ),
                           );
                           if (res.ok && action.isCurrent() && contextMatches(expected)) setReply(res.data);
+                          // Copy-Intel's returns-board refusal is said in its own words, not the generic failure; its typed
+                          // code is in the session's log. Other refusals keep the shared failure copy.
+                          if (!res.ok && res.reason !== 'uncertain' && res.message === RETURNS_BOARD_REFUSAL) {
+                            return presentActionFailure(res, (locale) => refusalKeyWords(res.message, locale)!);
+                          }
                           return res;
                         },
                         done: () => {
@@ -1210,6 +1215,8 @@ type RunRow = {
   /** The service's refusal, as its key, when the run did not complete. */
   code: string | null;
 };
+
+const RETURNS_BOARD_REFUSAL = 'agents.refused.copy_intel.returns_board_refused';
 
 /** This session's runs on this page, newest first: each row exists before the engine is called. */
 function Runs({ rows, onSendAgain }: { rows: RunRow[]; onSendAgain: (row: RunRow) => void }) {

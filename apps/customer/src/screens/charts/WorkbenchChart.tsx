@@ -45,6 +45,36 @@ function readColors(scheme: ColourScheme) {
   };
 }
 
+/**
+ * What the drawing library itself holds, written on the chart's element: the series type it draws, the bars it was
+ * given (count, first and last time in epoch ms, like data-first and data-last; the library's own unit is seconds),
+ * the up and down colours of a series that has them (candles and bars), its price format, and the background.
+ * Read back from the library, not from props, so a check on them is a check on the drawing.
+ */
+function writeDrawn(element: HTMLElement | null, chart: ChartApi | null, series: ChartSeries | null) {
+  if (!element || !chart || !series) return;
+  const options = series.options() as {
+    upColor?: string;
+    downColor?: string;
+    priceFormat?: { minMove?: number; formatter?: (price: number) => string };
+  };
+  const data = series.data() as ReadonlyArray<{ time: number }>;
+  const layout = (chart.options() as { layout?: { background?: { color?: string } } }).layout;
+  const values: Record<string, string> = {
+    'data-drawn': series.seriesType(),
+    'data-drawn-bars': String(data.length),
+    'data-drawn-first': data.length > 0 ? String(data[0]!.time * 1000) : '',
+    'data-drawn-last': data.length > 0 ? String(data[data.length - 1]!.time * 1000) : '',
+    'data-drawn-up': options.upColor ?? '',
+    'data-drawn-down': options.downColor ?? '',
+    'data-drawn-bg': layout?.background?.color ?? '',
+    // The axis writes every price through this formatter: zero shows its decimals ("0.00" for a 0.01 tick).
+    'data-drawn-format': options.priceFormat?.formatter ? options.priceFormat.formatter(0) : '',
+    'data-drawn-min-move': options.priceFormat?.minMove === undefined ? '' : String(options.priceFormat.minMove),
+  };
+  for (const [name, value] of Object.entries(values)) element.setAttribute(name, value);
+}
+
 export interface WorkbenchChartProps {
   candles: readonly Candle[];
   style: ChartStyle;
@@ -259,6 +289,8 @@ export function WorkbenchChart({
     // What the library holds for the first bar, read back from the series itself.
     const at = series.dataByIndex(0) as Partial<Record<'close' | 'value', number>> | null;
     const first = at ? (at.close ?? at.value) : undefined;
+    // After the bars are set, so the readback never shows a new series before its data.
+    writeDrawn(element.current, api, series);
     setRebase({
       base: percent && base !== null ? String(base) : '',
       first: percent && typeof first === 'number' ? first.toFixed(2) : '',
