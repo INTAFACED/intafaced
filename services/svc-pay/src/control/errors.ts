@@ -73,6 +73,7 @@ export const CONTROL_ERROR_CODES = [
   'pay.reserve_ledger_unwired',
   'pay.caps_unconfigured',
   'pay.payout_daily_limit_exceeded',
+  'pay.topup_unconfigured',
 ] as const;
 export type ControlErrorCode = (typeof CONTROL_ERROR_CODES)[number];
 
@@ -110,6 +111,7 @@ const CLASS_OF: Record<ControlErrorCode, ControlErrorClass> = {
   'pay.reserve_ledger_unwired': 'unwired',
   'pay.caps_unconfigured': 'precondition',
   'pay.payout_daily_limit_exceeded': 'precondition',
+  'pay.topup_unconfigured': 'precondition',
 };
 
 export class ControlError extends Error {

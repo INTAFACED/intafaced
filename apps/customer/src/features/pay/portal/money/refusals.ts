@@ -70,3 +70,7 @@ export function isConversionOff(result: Extract<ApiResult<unknown>, { ok: false 
     (result.reason === 'not_mounted' && !code.startsWith('pay.'))
   );
 }
+
+/** No top-up rail is wired for this business (svc-pay merchant-pay-dev-out/top-up.ts): a not-live card naming that. */
+export const TOP_UP_OFF = 'pay.topup_unconfigured';
+registerNotLive({ [TOP_UP_OFF]: () => mc.t('rTopUpUnconfigured') });

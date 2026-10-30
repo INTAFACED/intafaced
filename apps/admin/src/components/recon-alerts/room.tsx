@@ -1,15 +1,17 @@
 import Link from 'next/link';
-import type { OpsAlert, OpsAlertDetail, OpsAlertSource } from '@intafaced/contracts/ops-reconciliation-alerts';
+import type { OpsAlert, OpsAlertDetail, OpsAlertSource, OpsPlatformIncidents } from '@intafaced/contracts/ops-reconciliation-alerts';
 import { formatAsOf, formatWhen } from '@/lib/as-of';
 import type { Part } from '@/lib/desk/part';
-import { NOTICE_WORDS, refusalWords } from '@/lib/recon-alerts/model';
+import type { RefusalView } from '@/lib/desk/refusal-copy';
+import { NOTICE_WORDS, TEAM_WORDS, closeBlocked, refusalWords } from '@/lib/recon-alerts/model';
 import type { AlertsRoom as Room } from '@/lib/recon-alerts/read';
+import { AlertAccept } from './accept';
 import { AlertActions } from './actions';
 import '../desk.css';
 
 /**
- * Reconciliation alerts (OPS-reconciliation-03). svc-ops raises one alert per control, failing asset and period from the ledger's
- * settled evaluations and counts every repeat. Each part is svc-ops's own answer; a failed part says why and lists nothing, and a
+ * Reconciliation alerts (OPS-reconciliation-03, -04). svc-ops raises one alert per control, failing asset, period and cause from the
+ * ledger's settled evaluations and counts every repeat: a FAIL goes to finance, a run that could not finish to the platform team. Each part is svc-ops's own answer; a failed part says why and lists nothing, and a
  * failed ledger read shows as the source, never as an empty list.
  */
 
@@ -58,13 +60,68 @@ export function Source({ source }: { source: OpsAlertSource }) {
 
 const severityLabel = (a: OpsAlert): string => (a.severity.status === 'set' ? a.severity.value : 'unset');
 
-const assetLabel = (a: OpsAlert): string => a.assetId ?? 'No asset (the run failed without asset evidence)';
+const assetLabel = (a: OpsAlert): string =>
+  a.assetId ?? (a.cause === 'error' ? 'No asset (the run could not finish)' : 'No asset (the run failed without asset evidence)');
+
+function PlatformIncidents({ part }: { part: Part<OpsPlatformIncidents> }) {
+  if (part.kind === 'failed') return <Failed part={part} testId="platform-incidents-failed" />;
+  const { bus, incidents } = part.data;
+  return (
+    <section className="dk-stack" aria-label="Platform incidents" data-testid="platform-incidents" data-bus={bus}>
+      {bus === 'detached' && (
+        <div className="adm-callout" data-tone="warn" role="status" data-testid="platform-incidents-detached">
+          <strong>svc-ops is not attached to the event bus.</strong>
+          <p>No new incident arrives while it is detached; this list may be behind.</p>
+        </div>
+      )}
+      {incidents.length === 0 ? (
+        <p data-testid="platform-incidents-empty">svc-ops has received no run the ledger could not finish.</p>
+      ) : (
+        <div className="dk-table-wrap" role="region" aria-label="Platform incidents" tabIndex={0}>
+          <table className="adm-table">
+            <thead>
+              <tr>
+                <th scope="col">Error</th>
+                <th scope="col">Phase</th>
+                <th scope="col">Runs in a row</th>
+                <th scope="col">Ledger run</th>
+                <th scope="col">Happened</th>
+                <th scope="col">Received</th>
+              </tr>
+            </thead>
+            <tbody>
+              {incidents.map((i) => (
+                <tr
+                  key={i.eventKey}
+                  data-testid="platform-incident"
+                  data-event-key={i.eventKey}
+                  data-error-code={i.errorCode}
+                  data-phase={i.phase}
+                >
+                  <td>{i.errorCode}</td>
+                  <td>{i.phase}</td>
+                  <td>{i.consecutiveIncomplete}</td>
+                  <td>{i.ledgerRunId ?? 'None'}</td>
+                  <td>{formatWhen(i.occurredAt)}</td>
+                  <td>{formatWhen(i.receivedAt)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </section>
+  );
+}
 
 export function AlertsRoom({ room }: { room: Room }) {
   return (
     <section className="dk-stack" aria-label="Reconciliation alerts" data-testid="recon-alerts">
       <h2>Reconciliation alerts</h2>
-      <p className="dk-muted">Read {formatAsOf(room.asOf)}. One alert per control, failing asset and period; a repeat raises its count.</p>
+      <p className="dk-muted">
+        Read {formatAsOf(room.asOf)}. One alert per control, failing asset, period and cause; a repeat raises its count. A failure goes to
+        finance; a run that could not finish goes to the platform team.
+      </p>
       {room.list.kind === 'failed' ? (
         <Failed part={room.list} testId="alerts-failed" />
       ) : (
@@ -78,6 +135,7 @@ export function AlertsRoom({ room }: { room: Room }) {
                 <thead>
                   <tr>
                     <th scope="col">Asset</th>
+                    <th scope="col">Team</th>
                     <th scope="col">Control</th>
                     <th scope="col">Period</th>
                     <th scope="col">State</th>
@@ -97,10 +155,13 @@ export function AlertsRoom({ room }: { room: Room }) {
                       data-state={a.state}
                       data-occurrences={a.occurrences}
                       data-period-start={a.periodStart}
+                      data-cause={a.cause}
+                      data-team={a.team}
                     >
                       <td>
                         <Link href={`/ledger/alerts/${a.id}`}>{assetLabel(a)}</Link>
                       </td>
+                      <td>{a.team}</td>
                       <td>{a.controlId}</td>
                       <td>
                         {formatWhen(a.periodStart)} to {formatWhen(a.periodEnd)}
@@ -124,6 +185,9 @@ export function AlertsRoom({ room }: { room: Room }) {
           )}
         </>
       )}
+      <h3>Platform incidents</h3>
+      <p className="dk-muted">Ledger reconciliation runs that could not finish, as svc-ops received them. These go to the platform team.</p>
+      <PlatformIncidents part={room.incidents} />
       <h3>Periods</h3>
       {room.periods.kind === 'failed' ? (
         <Failed part={room.periods} testId="periods-failed" />
@@ -191,10 +255,62 @@ function Notices({ alert }: { alert: OpsAlert }) {
   );
 }
 
-export function AlertDetail({ part }: { part: Part<OpsAlertDetail> }) {
+export interface AlertClose {
+  readonly founderId: string;
+  /** SHA-256 hex of the alert's evidence as the contract spells it, computed by this console; null when the alert was not read. */
+  readonly evidenceHash: string | null;
+  /** Why this founder cannot send a resolve or an acceptance (the treasury credential), or null. */
+  readonly writes: RefusalView | null;
+}
+
+function Resolved({ resolved }: { resolved: NonNullable<OpsAlert['resolved']> }) {
+  return (
+    <div
+      data-testid="alert-resolved"
+      data-resolution={resolved.resolution}
+      data-by={resolved.by}
+      data-passing-run-id={resolved.passingRunId ?? ''}
+    >
+      <p>
+        {resolved.resolution === 'auto'
+          ? `Resolved automatically at ${formatWhen(resolved.at)}: run ${resolved.passingRunId ?? 'unknown'} of the same control and period passed.`
+          : `Resolved as fixed by ${resolved.by} at ${formatWhen(resolved.at)}.`}
+        {resolved.note ? ` Note: ${resolved.note}` : ''}
+      </p>
+      {resolved.correctiveTxIds.length > 0 && (
+        <ul>
+          {resolved.correctiveTxIds.map((tx) => (
+            <li key={tx} data-testid="alert-resolved-tx" data-tx-id={tx}>
+              Corrective ledger transaction {tx}
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+function Accepted({ accepted }: { accepted: NonNullable<OpsAlert['accepted']> }) {
+  return (
+    <div
+      data-testid="alert-accepted"
+      data-evidence-hash={accepted.evidenceHash}
+      data-requested-by={accepted.requestedBy}
+      data-approved-by={accepted.approvedBy}
+    >
+      <p>
+        Accepted at {formatWhen(accepted.at)}: asked by {accepted.requestedBy}, approved by {accepted.approvedBy}. Note: {accepted.note}
+      </p>
+      <p className="dk-muted">Evidence frozen at hash {accepted.evidenceHash}.</p>
+    </div>
+  );
+}
+
+export function AlertDetail({ part, close }: { part: Part<OpsAlertDetail>; close: AlertClose }) {
   if (part.kind === 'failed') return <Failed part={part} testId="alert-failed" />;
   const { alert, timeline, snoozes, source } = part.data;
   const ev = alert.evidence;
+  const blocked = closeBlocked(alert.state, alert.cause) ?? close.writes?.body ?? null;
   return (
     <section
       className="dk-stack"
@@ -204,12 +320,18 @@ export function AlertDetail({ part }: { part: Part<OpsAlertDetail> }) {
       data-occurrences={alert.occurrences}
       data-version={alert.version}
       data-snoozed={String(alert.snooze !== null)}
+      data-cause={alert.cause}
+      data-team={alert.team}
     >
       <Source source={source} />
       <h2>
         {assetLabel(alert)} · {alert.state}
       </h2>
       <dl className="dk-stack">
+        <div>
+          <dt>Raised to</dt>
+          <dd data-testid="alert-team">{TEAM_WORDS[alert.team] ?? alert.team}</dd>
+        </div>
         <div>
           <dt>Control</dt>
           <dd>{alert.controlId}</dd>
@@ -235,6 +357,12 @@ export function AlertDetail({ part }: { part: Part<OpsAlertDetail> }) {
           </dd>
         </div>
       </dl>
+      {alert.error && (
+        <p data-testid="alert-error" data-code={alert.error.code} data-phase={alert.error.phase ?? ''}>
+          The run could not finish: {alert.error.code}
+          {alert.error.phase ? ` in phase ${alert.error.phase}` : ''}.
+        </p>
+      )}
       <h3>Latest failing evaluation</h3>
       <p>
         Run {ev.run.id} · {ev.run.status} · finished {formatWhen(ev.finishedAt)}
@@ -246,6 +374,13 @@ export function AlertDetail({ part }: { part: Part<OpsAlertDetail> }) {
       ) : (
         <p data-testid="alert-evidence">The run failed with no asset evidence to name.</p>
       )}
+      {close.evidenceHash && (
+        <p className="dk-muted">
+          Evidence hash (what an acceptance freezes): <code data-testid="alert-evidence-hash">{close.evidenceHash}</code>
+        </p>
+      )}
+      {alert.resolved && <Resolved resolved={alert.resolved} />}
+      {alert.accepted && <Accepted accepted={alert.accepted} />}
       {alert.acknowledged && (
         <p data-testid="alert-acknowledged" data-by={alert.acknowledged.by}>
           Acknowledged by {alert.acknowledged.by} at {formatWhen(alert.acknowledged.at)}: {alert.acknowledged.note}
@@ -256,7 +391,16 @@ export function AlertDetail({ part }: { part: Part<OpsAlertDetail> }) {
           Notices snoozed until {formatWhen(alert.snooze.endsAt)} by {alert.snooze.by}. The alert still counts every failure.
         </p>
       )}
-      <AlertActions alertId={alert.id} version={alert.version} state={alert.state} snoozed={alert.snooze !== null} />
+      <AlertActions
+        alertId={alert.id}
+        version={alert.version}
+        state={alert.state}
+        snoozed={alert.snooze !== null}
+        resolveBlocked={blocked}
+      />
+      {close.evidenceHash && (
+        <AlertAccept alertId={alert.id} evidenceHash={close.evidenceHash} founderId={close.founderId} askBlocked={blocked} />
+      )}
       <Notices alert={alert} />
       <h3>Timeline</h3>
       <ol data-testid="alert-timeline">
@@ -265,6 +409,15 @@ export function AlertDetail({ part }: { part: Part<OpsAlertDetail> }) {
             {formatWhen(t.at)} · {t.kind} · {t.actor}
             {t.notice ? ` · ${NOTICE_WORDS[t.notice] ?? t.notice}` : ''}
             {t.note ? ` · ${t.note}` : ''}
+            {t.txIds.length > 0 && (
+              <ul>
+                {t.txIds.map((tx) => (
+                  <li key={tx} data-testid="timeline-tx" data-tx-id={tx}>
+                    {tx}
+                  </li>
+                ))}
+              </ul>
+            )}
           </li>
         ))}
       </ol>

@@ -175,6 +175,13 @@ export async function payApiOf(who, kept) {
       const minted = await send('/api/identity/trpc/auth.stepUpPay', { merchantId, scopes, factorProof: { totpCode } }, token);
       return { mutate: (procedure, input) => send(`/api/pay/trpc/${procedure}`, input, minted.accessToken) };
     },
+    /** The same query, answered whole (status and parsed body) and never thrown, so a step can read a refusal's typed code. */
+    answer: async (procedure, input) => {
+      const res = await fetch(`${EDGE}/api/pay/trpc/${procedure}?input=${encodeURIComponent(JSON.stringify(input))}`, {
+        headers: { origin: ORIGIN, authorization: `Bearer ${token}` },
+      });
+      return { status: res.status, body: await res.json().catch(() => null) };
+    },
   };
 }
 

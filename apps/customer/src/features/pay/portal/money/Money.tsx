@@ -49,6 +49,10 @@ export function MerchantMoney({ portal, merchantId }: { portal: PortalApi; merch
     <div className="stack mn-page">
       <HaltBanner resource={halts.resource} scopes={['settlement', 'payout']} />
       <TestBanner />
+      {/* Outside the balance read, so Top up is reachable before the first payment and while balances cannot be read. */}
+      <div className="pp-actions">
+        <LinkButton href="/pay/money/top-up">{t('actTopUp')}</LinkButton>
+      </div>
       <Gate resource={snapshot.resource} retry={reload} rows={4}>
         {(data) => {
           const assets = data.balances.map((b) => b.assetCode);
