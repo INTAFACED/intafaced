@@ -42,7 +42,9 @@ const STRANGER = '44444444-4444-4444-8444-444444444444';
 const WINDOW = 3600;
 const START = new Date('2026-10-30T00:00:00.000Z');
 const SWEEP = 5;
-const ON: PurchaseHoldConfig = { on: true, refundWindowSeconds: WINDOW, releaseSweepSeconds: SWEEP };
+const ON: PurchaseHoldConfig = { on: true, refundWindowSeconds: WINDOW, releaseSweepSeconds: SWEEP, refundPolicy: 'seller_full' };
+/** The same switch and window with the refund policy undecided. */
+const UNDECIDED: PurchaseHoldConfig = { ...ON, refundPolicy: null };
 
 class FixedEntitlement implements SlotEntitlementSource {
   async entitlementOf(): Promise<VendorEntitlement> {
@@ -374,6 +376,51 @@ describe('market held purchase (MC-market-02)', () => {
       await expect(service(ON).held.requestRefund({ buyerId: BUYER, purchaseId: purchase.id })).rejects.toMatchObject({
         code: 'market.refund_not_held',
       });
+    });
+  });
+
+  describe('the refund policy undecided', () => {
+    it('a refund request and a refund refuse owner.decision; the purchase stays held, unrequested, and nothing moves', async () => {
+      const purchase = await held(await listing());
+      for (const policy of [null, undefined]) {
+        const blank = service({ ...ON, refundPolicy: policy });
+        await expect(blank.held.requestRefund({ buyerId: BUYER, purchaseId: purchase.id })).rejects.toMatchObject({
+          code: 'owner.decision',
+        });
+        await expect(blank.held.refund({ sellerUserId: SELLER, purchaseId: purchase.id })).rejects.toMatchObject({
+          code: 'owner.decision',
+        });
+        expect(blank.programme()).toMatchObject({ purchaseHold: true, refundWindowSeconds: WINDOW, refundPolicy: null });
+      }
+      const [row] = await sql<
+        Array<{ status: string; outcome: string | null; refund_requested_at: Date | null }>
+      >`SELECT status, outcome, refund_requested_at FROM market.purchases WHERE id = ${purchase.id}`;
+      expect(row).toEqual({ status: 'held', outcome: null, refund_requested_at: null });
+      expect([await buyer(), await pot(purchase.id), await seller()]).toEqual(['90', '10', '0']);
+      expect(await ledger.getTxByKey(`market:refund:${purchase.id}:1`)).toBeNull();
+      expect(service(ON).programme()).toMatchObject({ refundPolicy: 'seller_full' });
+    });
+
+    it('the gate is checked after who may ask: a stranger still gets not-found and a buyer still gets forbidden', async () => {
+      const purchase = await held(await listing());
+      await expect(service(UNDECIDED).held.requestRefund({ buyerId: STRANGER, purchaseId: purchase.id })).rejects.toMatchObject({
+        code: 'market.purchase_not_found',
+      });
+      await expect(service(UNDECIDED).held.refund({ sellerUserId: BUYER, purchaseId: purchase.id })).rejects.toMatchObject({
+        code: 'market.refund_forbidden',
+      });
+    });
+
+    it('a refund already claimed before the policy went blank is still finished once, by a retry', async () => {
+      const purchase = await held(await listing());
+      const down = vi.spyOn(ledger, 'post').mockRejectedValueOnce(new Error('ledger down'));
+      await expect(service(ON).held.refund({ sellerUserId: SELLER, purchaseId: purchase.id })).rejects.toThrow('ledger down');
+      down.mockRestore();
+      expect(await service(UNDECIDED).held.refund({ sellerUserId: SELLER, purchaseId: purchase.id })).toMatchObject({
+        status: 'refunded',
+        outcome: 'refund',
+      });
+      expect([await buyer(), await pot(purchase.id)]).toEqual(['100', '0']);
     });
   });
 

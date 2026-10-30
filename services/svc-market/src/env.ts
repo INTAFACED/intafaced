@@ -61,11 +61,14 @@ const schema = serviceEnvSchema
        * new purchase is held until its refund window ends. MARKET_REFUND_WINDOW_SECONDS is that window; with the switch
        * on and the window blank, a new purchase refuses `market.refund_window_unset`. MARKET_RELEASE_SWEEP_SECONDS is
        * how often the sweep releases held purchases whose window ended; with the switch on and it blank, a new purchase
-       * refuses `market.release_sweep_unset`, since nothing would ever release it.
+       * refuses `market.release_sweep_unset`, since nothing would ever release it. MARKET_REFUND_POLICY is the owner's
+       * refund policy ('seller_full': the seller refunds the whole price once inside the window); blank, a refund request
+       * and a refund refuse `owner.decision` and the purchase stays held.
        */
       MARKET_PURCHASE_HOLD: blankAsAbsent(z.enum(['on', 'off']).optional()),
       MARKET_REFUND_WINDOW_SECONDS: blankAsAbsent(z.coerce.number().int().min(1).max(31_536_000).optional()),
       MARKET_RELEASE_SWEEP_SECONDS: blankAsAbsent(z.coerce.number().int().min(1).max(86_400).optional()),
+      MARKET_REFUND_POLICY: blankAsAbsent(z.enum(['seller_full']).optional()),
     }),
   );
 

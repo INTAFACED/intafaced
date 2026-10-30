@@ -20,6 +20,11 @@
       "service": "market",
       "value": "5",
       "note": "TEST: the release sweep runs every 5 seconds. Blank, no sweep runs and held purchases stay held."
+    },
+    "MARKET_REFUND_POLICY": {
+      "service": "market",
+      "value": "seller_full",
+      "note": "TEST refund policy: the seller may refund a held purchase in full, so a journey can see a refund move money once. The owner has not decided; blank, every refund request and refund refuses owner.decision and the purchase stays held."
     }
   }
 }

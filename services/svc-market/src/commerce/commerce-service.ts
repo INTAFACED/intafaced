@@ -36,7 +36,7 @@ import {
 import { MARKET_OPS_SCOPE, MarketError, type PublicVendorProfile, type VendorService } from '../vendor-service.js';
 import { PAID_STATUSES, toPurchase, type PurchaseRecord, type PurchaseRow, type PurchaseStatus } from './purchase-record.js';
 import { requireMatchingReceipt } from './ledger-receipt.js';
-import { claimFlow, HeldPurchases, MARKET_PURCHASE_ALREADY_HELD, type PurchaseHoldConfig } from './held-purchase.js';
+import { claimFlow, HeldPurchases, MARKET_PURCHASE_ALREADY_HELD, type PurchaseHoldConfig, type RefundPolicy } from './held-purchase.js';
 
 export type { PurchaseFlow, PurchaseRecord, PurchaseStatus } from './purchase-record.js';
 
@@ -334,6 +334,7 @@ export class CommerceService {
       sql,
       ledger,
       now: () => this.now(),
+      refundPolicy: () => config.hold?.refundPolicy ?? null,
       afterRelease: (purchase, price) => this.afterHeldRelease(purchase, price),
       onSweepError: config.onSweepError,
     });
@@ -344,13 +345,20 @@ export class CommerceService {
   }
 
   /** What this deployment's commission rate is — including that it is not one. */
-  programme(): { commissionBps: number | null; commissionConfigured: boolean; purchaseHold: boolean; refundWindowSeconds: number | null } {
+  programme(): {
+    commissionBps: number | null;
+    commissionConfigured: boolean;
+    purchaseHold: boolean;
+    refundWindowSeconds: number | null;
+    refundPolicy: RefundPolicy | null;
+  } {
     return {
       commissionBps: this.config.commissionBps,
       commissionConfigured: this.config.commissionBps !== null,
       // The refund policy: whether new purchases are held, and for how long. Off, or on with no window, is undecided.
       purchaseHold: this.config.hold?.on === true,
       refundWindowSeconds: this.config.hold?.on ? this.config.hold.refundWindowSeconds : null,
+      refundPolicy: this.config.hold?.refundPolicy ?? null,
     };
   }
 
