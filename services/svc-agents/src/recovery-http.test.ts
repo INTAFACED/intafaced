@@ -4,6 +4,7 @@ import type { Principal } from '@intafaced/auth';
 import { createEdgeContext, encodePrincipal, signPrincipalHeader } from '@intafaced/contracts';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createAgentsRouter, type AgentsRouterDeps } from './router.js';
+import { NO_TIER_LAWS } from './tier-laws.js';
 
 const SECRET = 'agents-recovery-http-fixture-edge-secret';
 const USER = '11111111-1111-4111-8111-111111111111';
@@ -11,8 +12,6 @@ const NOW = '2026-10-12T00:00:00.000Z';
 const INPUT = {
   tool: 'trade.quote',
   plane: 'live',
-  userTier: 'free',
-  law: { published: true, matrix: { free: ['trade.quote'] } },
   now: NOW,
   quote: { marketId: 'btc-usdt', last: '-1.50', asOf: NOW, maxAgeMs: 30_000 },
 };
@@ -23,7 +22,7 @@ function headers(scopes: Principal['scopes'] = ['agents:read']) {
     userId: USER,
     sid: '22222222-2222-4222-8222-222222222222',
     scopes,
-    tier: 'none',
+    tier: 'basic',
     mfa: false,
     expiresAt: new Date(Date.now() + 60_000),
   } as Principal);
@@ -43,6 +42,7 @@ async function mount() {
     feeAssetId: 'fixture-asset',
     navigatorTradeUrl: 'http://trade.test',
     navigatorTradeDataPort: { listMarkets: downstream, quote: async () => null },
+    tierLaws: { ...NO_TIER_LAWS, navigator: { published: true, matrix: { basic: ['trade.quote', 'trade.markets.list'] } } },
   };
   const app = Fastify();
   const edge = createEdgeContext({ secret: SECRET, serviceName: 'svc-agents' });
@@ -104,7 +104,6 @@ describe('agent recovery through mounted signed HTTP', () => {
       const input = {
         ...INPUT,
         tool: 'trade.markets.list',
-        law: { published: true, matrix: { free: ['trade.markets.list'] } },
         marketsLimit: 1,
       };
       const response = await app.inject({

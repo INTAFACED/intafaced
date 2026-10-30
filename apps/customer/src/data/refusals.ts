@@ -134,6 +134,12 @@ const FIXED: Readonly<Partial<Record<RefusalKind, Words>>> = {
   expiryInvalid: { title: 'Check the expiry', body: 'The expiry time has already passed. Choose a time in the future. Nothing was held.' },
   selfTrade: { title: 'You would trade with yourself', body: 'Change the price so it does not match one of your own orders.' },
   accountOnHold: { title: 'Your account is on hold', body: 'Money cannot move right now. Contact support to find out why.' },
+  // Trading only: money still moves and orders can still be cancelled, so it never reads as the whole account on hold.
+  tradingOnHold: {
+    title: 'Trading is on hold on your account',
+    body: "New orders can't be placed, and this one wasn't. You can still cancel orders and move money. Contact support to find out why.",
+    action: { label: 'See your account status', href: '/uc/account' },
+  },
   platformPaused: {
     title: 'Money movement is paused for everyone',
     body: 'Money movement is paused across the platform right now. Your account is not on hold. Nothing was done.',
@@ -286,6 +292,7 @@ const REFERENCE: Readonly<Partial<Record<RefusalKind, string>>> = {
   region: 'REG-1',
   verify: 'VER-1',
   accountOnHold: 'HOLD-1',
+  tradingOnHold: 'HOLD-2',
   stepUp: 'MFA-1',
   mfaRequired: 'MFA-2',
   pricesDown: 'PRC-1',

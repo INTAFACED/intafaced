@@ -43,6 +43,9 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, STATE }) => ({
     AGENTS_USAGE_WINDOW_MINUTES: testValue('AGENTS_USAGE_WINDOW_MINUTES'),
     AGENTS_METERING_ENABLED: testValue('AGENTS_METERING_ENABLED'),
     ...withRoutingTable(routingTable()),
+    // LOCAL TEST tier law of the scanner, navigator and support doors (owner decision); production leaves it blank and each
+    // door refuses tier_law_blank. The tier itself is always the signed principal's.
+    AGENTS_TIER_LAWS: testValue('AGENTS_TIER_LAWS'),
     // LOCAL TEST operator log values (J-agents-15). `LOCAL_STACK_AGENTS_LOG_READ_REASONS=off` or
     // `LOCAL_STACK_AGENTS_TRANSCRIPT_RETENTION=off` on a start or restart leaves that value blank, so a journey proves
     // its refusal (agents.log_read_reason_unset, agents.transcript_retention_unset) and its restore.

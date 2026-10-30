@@ -148,17 +148,46 @@ if (!(await postgresAvailable(TEST_URL))) {
       expect((await read(userId)).state).toBe('active');
     });
 
-    it('a staff trading restriction is listed with no reason on file, and blocks nothing it does not enforce', async () => {
+    it('a staff trading restriction is listed with no reason on file, and blocks trading, which identity refuses', async () => {
       const userId = await person();
       await db.sql`INSERT INTO trading_restrictions (user_id, restricted, version) VALUES (${userId}, true, 1)`;
       const status = await read(userId);
-      // svc-trade does not read identity's record, so "you cannot" stays empty and trading stays in "you can still".
-      expect(status).toMatchObject({ state: 'active', reasonCode: null, cannot: [], canStill: EVERY });
-      expect(status.restrictions[0]!.blocks).toEqual([]);
+      // OperationIdentityDecisions.decide cancels every fresh svc-trade operation while it holds.
+      expect(status).toMatchObject({
+        state: 'restricted',
+        reasonCode: null,
+        cannot: [{ action: 'trade', kind: 'trading_restricted' }],
+        canStill: EVERY.filter((a) => a !== 'trade'),
+      });
+      expect(status.restrictions[0]!.blocks).toEqual(['trade']);
       expect(status.restrictions[0]).toMatchObject({ kind: 'trading_restricted', lift: { by: 'staff' } });
       expect(status.restrictions[0]!.since).toBeNull();
       await db.sql`UPDATE trading_restrictions SET restricted = false WHERE user_id = ${userId}`;
       expect((await read(userId)).state).toBe('active');
+    });
+
+    it('a trading restriction with a listed code carries its words and next step; a code no longer listed reads null words', async () => {
+      const TRADING = new Map([
+        ['market_conduct_review', { code: 'market_conduct_review', reason: 'TEST: paused for review.', guidance: 'TEST: ask Support.' }],
+      ]);
+      const listed = new AccountStatusDesk(db.sql, 3600, REASONS, LEVELS, TRADING);
+      const userId = await person();
+      await db.sql`INSERT INTO trading_restrictions (user_id, restricted, version, reason_code) VALUES (${userId}, true, 1, 'market_conduct_review')`;
+      const status = accountStatusSchema.parse(await listed.read(userId, 'owner'));
+      expect(status.restrictions).toHaveLength(1);
+      expect(status.restrictions[0]).toMatchObject({
+        kind: 'trading_restricted',
+        reasonCode: null,
+        owner: { code: 'market_conduct_review', text: 'TEST: paused for review.', guidance: 'TEST: ask Support.' },
+      });
+      // The owner's list no longer has it: the code stays, its words read null (the page says it is no longer listed).
+      const dropped = accountStatusSchema.parse(
+        await new AccountStatusDesk(db.sql, 3600, REASONS, LEVELS, new Map()).read(userId, 'owner'),
+      );
+      expect(dropped.restrictions[0]!.owner).toEqual({ code: 'market_conduct_review', text: null, guidance: null });
+      // With no code on file there is no owner reason.
+      await db.sql`UPDATE trading_restrictions SET reason_code = NULL WHERE user_id = ${userId}`;
+      expect(accountStatusSchema.parse(await listed.read(userId, 'owner')).restrictions[0]!.owner).toBeNull();
     });
 
     it("a staff freeze blocks everything and only staff lift it; the owner's freeze on top is listed too", async () => {
