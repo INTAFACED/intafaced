@@ -393,7 +393,8 @@ test(`${J} #3 uses the calculator, then deposits below and above the minimum: ba
     id: position.id,
     principal: '100',
     accruesFrom: new Date(yesterday).toISOString(),
-    nextPayoutOn: dayOf(yesterday),
+    // The schedule never names a day before today; the job may still pay yesterday, a begun day not yet recorded.
+    nextPayoutOn: dayOf(Date.now()),
   });
 
   // The bank's job pays that first day from the pool's TEST reserve: the saving is accruing, and the day paid is the
