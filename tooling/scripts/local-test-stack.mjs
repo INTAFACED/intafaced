@@ -3201,6 +3201,57 @@ async function cmdBankTransfer(rawArgs) {
   say(`  answer    ${text}`);
 }
 
+/**
+ * `card-funds <paymentId> available|pending [--on <ISO date>]`: the TEST card acquirer reports that the funds of one card
+ * payment it captured are released (`available`) or still held, optionally until a named day (`pending --on`), to svc-pay's
+ * own `/webhooks/card-sandbox`, signed with this stack's TEST card webhook secret (RC-merchant-10). The payment must have
+ * been taken with the held-funds TEST token, or svc-pay ignores the report. The event id comes from the payment and the
+ * report, so sending it again is the same delivery, never a second release. Nothing here touches the ledger.
+ */
+async function cmdCardFunds(rawArgs) {
+  const args = [...rawArgs];
+  const at = args.indexOf('--on');
+  const on = at === -1 ? undefined : args[at + 1];
+  if (at !== -1) args.splice(at, 2);
+  const usage = 'usage: node tooling/scripts/local-test-stack.mjs card-funds <paymentId> available|pending [--on <ISO date>]';
+  if (args.some((arg) => arg.startsWith('--'))) fail(`unknown option: ${args.find((arg) => arg.startsWith('--'))}`, 2);
+  const [paymentId, state, ...extra] = args;
+  if (!paymentId || !state || extra.length > 0) fail(usage, 2);
+  if (!/^[0-9a-f-]{36}$/i.test(paymentId)) fail(`bad payment id: ${paymentId}`, 2);
+  if (state !== 'available' && state !== 'pending') fail(usage, 2);
+  if (on !== undefined && (state !== 'pending' || Number.isNaN(Date.parse(on)))) fail('--on takes an ISO date, with pending only', 2);
+
+  // Guards: this only ever talks to the local stack's own svc-pay.
+  if (!fs.existsSync(P.marker)) fail(`refusing: marker ${P.marker} not found. Start the stack first (pnpm local:stack).`);
+  if (readJson(P.marker).kind !== 'intafaced-local-test-stack') fail('refusing: marker file is not a local test stack marker');
+  if (!ownedAlive(readProcs().pay)) fail('refusing: the local stack svc-pay is not running. Run: pnpm local:stack');
+  assertActiveLocalStack({ stateDir: STATE, services: ['pay'] });
+  const secret = readJson(P.secrets).payCardWebhook;
+  if (!secret) fail('refusing: this stack has no TEST card webhook secret. Run: pnpm local:stack --rebuild');
+
+  const body = JSON.stringify({
+    id: `funds:${paymentId}:${state}${on ? `:${on}` : ''}`,
+    type: `funds.${state}`,
+    ref: `ch_${paymentId}`,
+    occurredAt: new Date().toISOString(),
+    ...(on ? { availableOn: new Date(on).toISOString() } : {}),
+  });
+  const timestamp = Math.floor(Date.now() / 1000).toString();
+  const signature = crypto.createHmac('sha256', secret).update(`${timestamp}.${body}`).digest('hex');
+  const res = await fetch(`${urlOf('pay')}/webhooks/card-sandbox`, {
+    method: 'POST',
+    redirect: 'error',
+    headers: { 'content-type': 'application/json', 'x-sandbox-signature': signature, 'x-sandbox-timestamp': timestamp },
+    body,
+  });
+  const text = await res.text();
+  if (res.status !== 200) fail(`svc-pay refused the TEST card delivery (${res.status}): ${text.slice(0, 400)}`);
+  say('TEST card funds report delivered to svc-pay (TEST acquirer, not real money)');
+  say(`  payment   ${paymentId}`);
+  say(`  funds     ${state}${on ? ` until ${on}` : ''}`);
+  say(`  answer    ${text}`);
+}
+
 /** Env each local service would get. Starts nothing. Placeholder secrets only. */
 export function localTestServiceEnvs(secrets = PLAN_SECRETS) {
   return serviceDefs(secrets).map((service) => ({ name: service.name, env: service.env() }));
@@ -3282,6 +3333,7 @@ async function runCli() {
   else if (cmd === 'chain-deposit') await cmdChainDeposit(rest);
   else if (cmd === 'chain-reorg') await cmdChainReorg(rest);
   else if (cmd === 'bank-transfer') await cmdBankTransfer(rest);
+  else if (cmd === 'card-funds') await cmdCardFunds(rest);
   else if (cmd === 'age-linked-accounts') cmdAgeLinkedAccounts(rest);
   else if (cmd === 'token-params') cmdTokenParams();
   else if (cmd === 'expire-address-approvals') cmdExpireAddressApprovals(rest);
