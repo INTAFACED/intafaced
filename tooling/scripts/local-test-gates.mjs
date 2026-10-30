@@ -549,20 +549,54 @@ export function nextTotpStep(lastStep, current) {
   return step <= current + TOTP_SKEW_STEPS ? step : null;
 }
 
+/**
+ * The step to count as spent after identity refused a code as `auth.mfa_invalid`: the step sent, or the latest step
+ * identity can have consumed by now (it accepts at most one step past its own clock), whichever is later. A sign-in from
+ * there waits for the next window and cannot replay a step identity holds, whoever spent it (failure it prevents: main
+ * run 833, shard 9, stopped in setup on founder a's refused code and 93 journeys never ran).
+ */
+export function stepAfterRefusal(sentStep, current) {
+  const sent = Number(sentStep ?? 0);
+  return Math.max(Number.isFinite(sent) ? sent : 0, current + TOTP_SKEW_STEPS);
+}
+
+/** The step on this context's clock (`ctx.clock`, for tests) or the wall clock. */
+const stepOf = (ctx) => (ctx.clock ? Math.floor(ctx.clock() / STEP_MS) : stepNow());
+
 /** A TOTP code for a step strictly after the last one this operator used (identity refuses replays). */
 async function freshCode(ctx, op) {
   let step;
-  while ((step = nextTotpStep(op.lastStep, stepNow())) === null) await sleep(1000);
+  while ((step = nextTotpStep(op.lastStep, stepOf(ctx))) === null) await (ctx.sleep ?? sleep)(1000);
   op.lastStep = step;
   return ctx.totp.totp(op.totpSecret, { at: new Date(step * STEP_MS) });
 }
 
-async function operatorLogin(ctx, op) {
+const mfaRefused = (res) => res.status === 401 && JSON.stringify(res.json?.error ?? null).includes('auth.mfa_invalid');
+
+/**
+ * Sign an operator or founder in, with a fresh TOTP step when they have a second factor. A code identity refuses as
+ * `auth.mfa_invalid` is tried once more, at a step after any identity can hold (`stepAfterRefusal`), and both steps are
+ * logged; a second refusal stops the run. MFA is not loosened: every code sent is a real, unused step.
+ */
+export async function operatorLogin(ctx, op) {
   const input = { identifier: op.email ?? op.handle, password: op.password, deviceKey: LOCAL_TEST_DEVICE_KEY };
   if (op.totpSecret) input.totpCode = await freshCode(ctx, op);
-  const res = await ctx.edge.mutate('identity', 'auth.login', input);
+  let res = await ctx.edge.mutate('identity', 'auth.login', input);
+  let retried = '';
+  if (op.totpSecret && !data(res)?.accessToken && mfaRefused(res)) {
+    const refused = op.lastStep;
+    const current = stepOf(ctx);
+    ctx.log(
+      `operator ${op.handle}: identity refused TOTP step ${refused} at step ${current} (auth.mfa_invalid); signing in once more at the next window`,
+    );
+    op.lastStep = stepAfterRefusal(refused, current);
+    input.totpCode = await freshCode(ctx, op);
+    res = await ctx.edge.mutate('identity', 'auth.login', input);
+    retried = ` (retried at TOTP step ${op.lastStep} after step ${refused} was refused)`;
+    if (data(res)?.accessToken) ctx.log(`operator ${op.handle}: signed in at TOTP step ${op.lastStep} on the retry`);
+  }
   const d = data(res);
-  if (!d?.accessToken) throw new Error(`operator ${op.handle} login refused (${res.status}): ${refusalText(res)}`);
+  if (!d?.accessToken) throw new Error(`operator ${op.handle} login refused (${res.status}): ${refusalText(res)}${retried}`);
   op.userId = d.userId;
   op.sessionId = decodeJwtPayload(d.accessToken).sid;
   return d.accessToken;
