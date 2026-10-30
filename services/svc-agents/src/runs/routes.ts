@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { scopedProcedure, TRPCError } from '@intafaced/contracts';
 import { formatAmount } from '@intafaced/ledger-client';
+import { AgentError } from '../errors.js';
 import { actionOutput, toActionOutput, type AgentsRouterDeps, type ExecuteProcedure } from '../router.js';
 import { RUN_STATES, RunTransitionError } from './machine.js';
 import { runRecorded } from './record.js';
@@ -51,10 +52,12 @@ const toRunOutput = (run: StoredRun, refusalCodes: string[]) => ({
   updatedAt: run.updatedAt,
 });
 
-/** A cursor is the last event sequence the caller has read, as a decimal string. */
+/** A cursor is the last event sequence the caller has read, as a decimal string; a malformed one is the existing typed refusal. */
 function parseCursor(cursor: string | undefined): number {
   if (cursor === undefined) return 0;
-  if (!/^(0|[1-9]\d{0,8})$/.test(cursor)) throw new TRPCError({ code: 'BAD_REQUEST', message: 'agents.events_cursor_invalid' });
+  if (!/^(0|[1-9]\d{0,8})$/.test(cursor)) {
+    throw new AgentError('run events cursor is not valid', 'agents.cursor_invalid', 'agents.refused.cursor_invalid');
+  }
   return Number(cursor);
 }
 

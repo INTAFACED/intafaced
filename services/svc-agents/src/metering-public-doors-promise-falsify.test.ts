@@ -46,7 +46,7 @@ function principal(overrides: Partial<Principal> = {}): Principal {
     userId: USER,
     sid: '22222222-2222-4222-8222-222222222222',
     scopes: ['agents:read', 'agents:execute', 'admin:write'],
-    tier: 'none',
+    tier: 'basic',
     mfa: false,
     expiresAt: new Date(Date.now() + 60_000),
     ...overrides,
@@ -75,12 +75,13 @@ function emptyDeps(): AgentsRouterDeps {
     gateway: { routingTable: { routes: [] } } as unknown as AgentsRouterDeps['gateway'],
     meter: {} as AgentsRouterDeps['meter'],
     feeAssetId: 'IFC',
+    tierLaws: { scanner: scannerLaw, navigator: navigatorLaw, support: supportLaw },
   };
 }
 
 const scannerLaw = {
   published: true as const,
-  matrix: { free: { maxSignals: 5, tools: [...SCANNER_DATA_TOOLS] } },
+  matrix: { basic: { maxSignals: 5, tools: [...SCANNER_DATA_TOOLS] } },
 };
 const ticker = {
   marketId: 'btc-usdt',
@@ -90,7 +91,7 @@ const ticker = {
   asOf: '2026-08-07T11:59:30.000Z',
   maxAgeMs: 120_000,
 };
-const navigatorLaw = { published: true as const, matrix: { free: [...NAVIGATOR_DATA_TOOLS] } };
+const navigatorLaw = { published: true as const, matrix: { basic: [...NAVIGATOR_DATA_TOOLS] } };
 const navigatorAsk = {
   tool: 'trade.quote' as const,
   quote: {
@@ -100,7 +101,7 @@ const navigatorAsk = {
     maxAgeMs: 120_000,
   },
 };
-const supportLaw = { published: true as const, matrix: { free: [...SUPPORT_DATA_TOOLS] } };
+const supportLaw = { published: true as const, matrix: { basic: [...SUPPORT_DATA_TOOLS] } };
 const supportAsk = {
   tool: 'support.kb.search' as const,
   limit: 20,
@@ -143,8 +144,6 @@ describe('D26-P2-01h public doors — dark refuse bills zero', () => {
       .createCaller(signed())
       .scanner.runSession({
         plane: 'dark',
-        userTier: 'free',
-        law: scannerLaw,
         // Sealed P0-11 so dark-plane refuse is reachable (blank law refuses earlier).
         signalInputsLaw: SEALED_ABS_CHANGE_X_LOG_VOLUME_LAW,
         tickers: [ticker],
@@ -156,7 +155,7 @@ describe('D26-P2-01h public doors — dark refuse bills zero', () => {
   it('navigator.runSession dark refuse → billedAmount 0 (createCaller)', async () => {
     const result = await createAgentsRouter(emptyDeps())
       .createCaller(signed())
-      .navigator.runSession({ plane: 'dark', userTier: 'free', law: navigatorLaw, asks: [navigatorAsk] });
+      .navigator.runSession({ plane: 'dark', asks: [navigatorAsk] });
     expect(result).toMatchObject({ status: 'refuse', reason: 'trade_plane_dark' });
     expect(result.metering).toEqual(ZERO_METERING);
   });
@@ -164,7 +163,7 @@ describe('D26-P2-01h public doors — dark refuse bills zero', () => {
   it('support.runSession dark refuse → billedAmount 0 (createCaller)', async () => {
     const result = await createAgentsRouter(emptyDeps())
       .createCaller(signed())
-      .support.runSession({ plane: 'dark', userTier: 'free', law: supportLaw, asks: [supportAsk] });
+      .support.runSession({ plane: 'dark', asks: [supportAsk] });
     expect(result).toMatchObject({ status: 'refuse', reason: 'desk_plane_dark' });
     expect(result.metering).toEqual(ZERO_METERING);
   });

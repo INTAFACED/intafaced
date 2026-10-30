@@ -262,11 +262,11 @@ if (!available) {
       await expect(key(USER, ['trade:read']).run.get({ runId: ran.runId })).rejects.toMatchObject({ code: 'FORBIDDEN' });
       await expect(key().run.events({ runId: ran.runId, cursor: '-1', limit: 5 })).rejects.toMatchObject({
         code: 'BAD_REQUEST',
-        message: 'agents.events_cursor_invalid',
+        message: 'agents.refused.cursor_invalid',
       });
       await expect(key().run.events({ runId: ran.runId, cursor: '01', limit: 5 })).rejects.toMatchObject({
         code: 'BAD_REQUEST',
-        message: 'agents.events_cursor_invalid',
+        message: 'agents.refused.cursor_invalid',
       });
       // A key never starts a run (OWNER 107), and the refused start stores nothing.
       await expect(
