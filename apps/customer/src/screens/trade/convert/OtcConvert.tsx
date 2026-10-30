@@ -265,7 +265,10 @@ export function OtcConvert() {
       {quote ? (
         <div data-testid="convert-otc-price" className="flex flex-col gap-2 rounded-md border border-line p-3">
           <p className="m-0 text-lg font-medium text-fg tabular-nums">
-            {t('OTC price')}: <span data-testid="convert-otc-quoted">{`${fmtPrice(quote.quotedPrice, null)} ${quote.quoteAsset}`}</span>
+            {t('OTC price')}:{' '}
+            <span data-testid="convert-otc-quoted">
+              {t('OTC price value', { price: fmtPrice(quote.quotedPrice, null), asset: quote.quoteAsset })}
+            </span>
           </p>
           <p className="m-0 text-sm text-fg" data-testid="convert-otc-settles">
             {settleWords(quote)}
