@@ -25,6 +25,21 @@
       "service": "campaigns",
       "value": "20",
       "note": "The most groups and conditions in one campaign rule (J-campaigns-16 #4). Not an owner decision."
+    },
+    "CAMPAIGNS_VOUCHER_ATTEMPTS_PER_ACCOUNT": {
+      "service": "campaigns",
+      "value": "20",
+      "note": "How many voucher code checks and claims one account may make in the window, so J-campaigns-08 can check and claim TEST voucher codes. Not an owner decision."
+    },
+    "CAMPAIGNS_VOUCHER_ATTEMPTS_PER_ADDRESS": {
+      "service": "campaigns",
+      "value": "500",
+      "note": "How many voucher code checks and claims one source address may make in the window; every journey call comes from the one local address, so it is wide. so J-campaigns-08 can check and claim TEST voucher codes. Not an owner decision."
+    },
+    "CAMPAIGNS_VOUCHER_ATTEMPT_WINDOW_SECONDS": {
+      "service": "campaigns",
+      "value": "3600",
+      "note": "The window the voucher attempt limits count over, so J-campaigns-08 can check and claim TEST voucher codes. Not an owner decision."
     }
   }
 }
