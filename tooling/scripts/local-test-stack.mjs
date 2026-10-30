@@ -2263,9 +2263,11 @@ async function miningPow() {
   }
 }
 
-// One TEST share from a rig, posted to the pool's own share door signed as a service, the way a stratum front would.
-// The window has no published reward or fee, so the share is stored and nothing is ever paid for it. The miner id is the
-// account's own id (what the mining room tells a miner to use); --worker names the rig, absent goes to "default".
+// One TEST share from a TEST rig through the pool's miner door, at the address the mining room shows. The door's window
+// has no published reward or fee, so the share is stored and nothing is ever paid for it. The rig logs in as the
+// account's own id and the published worker name for --worker (what the room copies); no --worker is the default
+// worker. --pool and --login dial and log in with values copied from the room instead. --secret is the miner secret the
+// room issues; without the account's current one the door refuses by name (mining.stratum_secret_invalid).
 async function cmdMiningShare(rawArgs) {
   const args = [...rawArgs];
   const take = (flag) => {
@@ -2278,17 +2280,25 @@ async function cmdMiningShare(rawArgs) {
   };
   const worker = take('--worker');
   const label = take('--share');
+  const pool = take('--pool');
+  const login = take('--login');
+  const secret = take('--secret');
   const invalidAt = args.indexOf('--invalid-pow');
   const invalidPow = invalidAt !== -1;
   if (invalidPow) args.splice(invalidAt, 1);
   const [who] = args;
   if (!who || !label)
     fail(
-      'usage: node tooling/scripts/local-test-stack.mjs mining-share <email-or-userId> --share <label> [--worker <rig name>] [--invalid-pow]',
+      'usage: node tooling/scripts/local-test-stack.mjs mining-share <email-or-userId> --share <label> [--worker <rig name>] [--pool <host:port>] [--login <account id>.<worker name>] [--secret <miner secret>] [--invalid-pow]',
       2,
     );
   if (!/^[A-Za-z0-9-]{4,64}$/.test(label)) fail('--share must be 4-64 letters, digits or dashes', 2);
   if (worker !== undefined && !/^[A-Za-z0-9_-]{1,64}$/.test(worker)) fail('--worker must be 1-64 letters, digits, dash or underscore', 2);
+  if (pool !== undefined && !/^127\.0\.0\.1:\d{1,5}$/.test(pool)) fail('--pool must be 127.0.0.1:<port> (the local stack only)', 2);
+  if (login !== undefined && !/^[0-9a-f-]{36}(\.[A-Za-z0-9_.{}-]{1,80})?$/.test(login))
+    fail('--login must be <account id>[.<worker name>]', 2);
+  if (login !== undefined && worker !== undefined) fail('--login already names the worker; drop --worker', 2);
+  if (secret !== undefined && !/^[A-Za-z0-9_-]{1,100}$/.test(secret)) fail('--secret must be the miner secret the room shows', 2);
 
   if (!fs.existsSync(P.marker)) fail(`refusing: marker ${P.marker} not found. Start the stack first (pnpm local:stack).`);
   const marker = readJson(P.marker);
@@ -2312,60 +2322,55 @@ async function cmdMiningShare(rawArgs) {
   if (found.length > 1) fail(`"${who}" matches more than one user`);
   const [userId] = found;
 
-  let contracts;
-  try {
-    contracts = await import(pathToFileURL(path.join(REPO, 'packages', 'contracts', 'dist', 'index.js')).href);
-  } catch (err) {
-    fail(`packages are not built (${err.message}). Run: pnpm local:stack --rebuild`);
-  }
   const shareId = `LOCAL-TEST-${label}`;
-  const windowId = 'LOCAL-TEST-unpaid-window';
-  // The share carries a nonce found with the TEST proof-of-work parameters against the pool's own header for this window,
-  // account and rig, and no weight (the pool sets it); --invalid-pow sends a nonce that misses the target. A pool started
-  // with LOCAL_STACK_MINING_POOL_POW=off has no parameters and refuses work by name (mining.pow_spec_unset).
+  // The rig finds a nonce with the TEST proof-of-work parameters the pool's job names, against the pool's own header for
+  // the door's window, the account and the rig; --invalid-pow sends a nonce that misses the target. A pool started with
+  // LOCAL_STACK_MINING_POOL_POW=off has no parameters and refuses the rig by name (mining.pow_spec_unset).
   const pow = await miningPow();
-  const spec = pow.readPowSpec(profileEnvFor('mining-pool', 'dev'));
-  const header = pow.powHeader(windowId, userId, worker ?? 'default');
-  // Each share searches from its own start, derived from its id, so two shares of one rig never send the same work
-  // (the pool refuses repeated work in a window as mining.share_duplicate).
+  const published = profileEnvFor('mining-pool', 'dev');
+  const [host, port] = (pool ?? `${published.MINING_POOL_HOST}:${published.MINING_POOL_PORT}`).split(':');
+  const workerName = worker === undefined ? null : published.MINING_WORKER_NAME_PATTERN.replace('{worker}', worker);
+  // Each share searches from its own start, derived from its label, so two shares of one rig never send the same work,
+  // and one label sent again sends the same work (the pool refuses repeated work in a window as mining.share_duplicate).
   const start = Number.parseInt(crypto.createHash('sha256').update(shareId).digest('hex').slice(0, 12), 16);
-  const powNonce = invalidPow ? pow.failingPow(spec, header, start) : pow.grindPow(spec, header, start);
-  const powNote = `TEST testnet proof of work, ${invalidPow ? 'invalid' : 'valid'} nonce ${powNonce}`;
-  const raw = JSON.stringify({
-    windowId,
-    assetId: 'TEST',
-    shares: [{ shareId, minerId: userId, powNonce, ...(worker === undefined ? {} : { workerName: worker }) }],
-  });
-  const res = await fetch(`${urlOf('mining-pool')}/submitShare`, {
-    redirect: 'error',
-    method: 'POST',
-    headers: { 'content-type': 'application/json', ...contracts.serviceAuthHeadersForBody('local-test-miner', secrets.internal, raw) },
-    body: raw,
-  });
-  const text = await res.text();
-  let body = null;
+  const { rigShare } = await import('./local-stack-services/mining-rig.mjs');
+  let result;
   try {
-    body = JSON.parse(text);
-  } catch {
-    // reported below
+    result = await rigShare({
+      host,
+      port: Number(port),
+      login: login ?? (workerName ? `${userId}.${workerName}` : userId),
+      pow,
+      start,
+      invalid: invalidPow,
+      secret,
+    });
+  } catch (err) {
+    fail(`the TEST rig could not reach the pool's miner door at ${host}:${port}: ${err.message}`);
   }
-  // A share id the pool already holds is refused by name; that is the pool's answer, not a tool failure.
-  if (res.status === 409 && body?.error === 'mining.share_duplicate') {
+  const powNote = `TEST testnet proof of work, ${invalidPow ? 'invalid' : 'valid'} nonce ${result.nonce}`;
+  // The same work again is refused by name; that is the pool's answer, not a tool failure.
+  if (result.code === 'mining.share_duplicate') {
     console.log(`refused mining.share_duplicate: TEST share ${shareId}, or its work, is already stored; nothing new was kept`);
     return;
   }
   // A share whose work misses the target is refused by name and stored nowhere but the pool's rejection log.
-  if (invalidPow && body?.error === 'mining.pow_invalid') {
+  if (invalidPow && result.code === 'mining.pow_invalid') {
     console.log(`refused mining.pow_invalid: TEST share ${shareId} (${powNote}); nothing was kept`);
     return;
   }
-  if (body?.error === 'mining.pow_spec_unset') {
+  // A rig without the account's current miner secret is refused by name before the door touches the account.
+  if (result.code === 'mining.stratum_secret_invalid') {
+    console.log(`refused mining.stratum_secret_invalid: the miner secret is missing or wrong, so TEST share ${shareId} was not sent`);
+    return;
+  }
+  if (result.code === 'mining.pow_spec_unset') {
     console.log(`refused mining.pow_spec_unset: the pool has no proof-of-work parameters, so TEST share ${shareId} was not kept`);
     return;
   }
-  if (res.status !== 200 || body?.accepted !== true) fail(`the pool refused the TEST share (${res.status}): ${text.slice(0, 400)}`);
+  if (!result.ok) fail(`the pool refused the TEST share: ${result.code}`);
   console.log(
-    `accepted TEST share ${shareId} for miner ${userId}, worker ${worker ?? 'default'}, ${powNote} (unpaid window, nothing credited)`,
+    `accepted TEST share ${shareId} for miner ${userId}, ${login === undefined ? `worker ${worker ?? 'default'}` : `login ${login}`}, ${powNote} through the miner door at ${host}:${port} (unpaid window, nothing credited)`,
   );
 }
 
