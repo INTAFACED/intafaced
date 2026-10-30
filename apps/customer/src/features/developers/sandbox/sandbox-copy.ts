@@ -20,7 +20,7 @@ const en = {
   capUnset:
     'The owner has not set how many sandboxes an account may hold. Your first sandbox is allowed; another is refused until it is set.',
   baseUrlLabel: 'Sandbox address',
-  baseUrlUnset: 'The sandbox address is not set, so a sandbox key has nowhere to be used yet.',
+  baseUrlUnset: 'The sandbox address is not set. A sandbox key works only at that address, so it cannot be used.',
 
   formHeading: 'Create a sandbox',
   name: 'Sandbox name',
