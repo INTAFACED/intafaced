@@ -30,7 +30,7 @@ const en = {
   monthUnfinished: 'This month is still running, so it is not offered. Pick a month that is over.',
   datesNeeded: 'Pick a start and an end day, the end on or after the start.',
   dayNeeded: 'Pick a day.',
-  dayUnfinished: 'That day is not over yet. Pick a day that has ended.',
+  dayUnfinished: 'That day is still running. Pick a day that has ended.',
   pdfOneMonth: 'A PDF covers one calendar month (UTC). Pick dates inside one month, or choose CSV.',
   range: 'A file covers at most 366 days, and the end must be after the start.',
   tooLarge: 'Those dates hold too many lines for one file. Narrow the dates.',
