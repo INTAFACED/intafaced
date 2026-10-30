@@ -4,7 +4,7 @@ import { backtestCopy } from './backtest-copy';
 // The figures of one bar backtest that both the owner's result and a shared result show: the checks, the metrics and
 // one log line in words. Kept apart from the Backtest room so the shared page does not import the room.
 
-const utcText = (iso: string) => iso.slice(0, 16).replace('T', ' ');
+export const utcText = (iso: string) => iso.slice(0, 16).replace('T', ' ');
 
 type MetricKey = keyof QuantBacktestMetrics['returns'] | keyof QuantBacktestMetrics['risk'] | keyof QuantBacktestMetrics['trades'];
 const REASONS = ['no_trades', 'no_winning_trades', 'no_losing_trades', 'too_few_equity_points', 'zero_base'] as const;

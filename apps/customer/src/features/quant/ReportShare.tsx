@@ -15,7 +15,7 @@ import { Button, DataTable, EmptyState, Failure, Loading, Panel } from '../../sh
 import { Read } from '../more/common';
 import { useApi } from '../session/session';
 import { backtestCopy } from './backtest-copy';
-import { ChecksTab, LogText, MetricsTab } from './result-figures';
+import { ChecksTab, LogText, MetricsTab, utcText } from './result-figures';
 import { reportCopy } from './report-copy';
 import './algo.css';
 
@@ -286,7 +286,6 @@ export function SharedResult({ token }: { token: string }) {
 function PublicResult({ result }: { result: QuantPublicResult }) {
   const { t } = reportCopy.useCopy();
   const bt = backtestCopy.useCopy().t;
-  const minute = (iso: string) => iso.slice(0, 16).replace('T', ' ');
   const { charts } = result;
   return (
     <article data-testid="quant-shared-document">
@@ -294,7 +293,7 @@ function PublicResult({ result }: { result: QuantPublicResult }) {
         {result.claimLabel}
       </p>
       <p data-testid="quant-shared-window">
-        {t('publicWindow', { symbol: result.symbol, from: minute(result.window.from), to: minute(result.window.to) })}
+        {t('publicWindow', { symbol: result.symbol, from: utcText(result.window.from), to: utcText(result.window.to) })}
       </p>
       <p data-testid="quant-shared-coverage">{t('publicCoverage', { bars: result.coverage.bars, expected: result.coverage.expected })}</p>
       <p data-testid="quant-shared-costs">
@@ -318,7 +317,7 @@ function PublicResult({ result }: { result: QuantPublicResult }) {
             .map((key) => [key, result.totals[key]] as const)
             .map(([key, value]) => (
               <div key={key} data-testid={`quant-shared-total-${key}`} data-value={value}>
-                <dt>{bt(TOTAL_KEYS[key as keyof typeof TOTAL_KEYS])}</dt>
+                <dt>{bt(TOTAL_KEYS[key])}</dt>
                 <dd lang="zxx">{value}</dd>
               </div>
             ))}
@@ -351,7 +350,7 @@ function PublicResult({ result }: { result: QuantPublicResult }) {
           <ul data-testid="quant-shared-warnings">
             {result.warnings.map((line, i) => (
               <li key={`${line.code}:${i}`} data-code={line.code}>
-                {line.ts && <span lang="zxx">{minute(line.ts)} </span>}
+                {line.ts && <span lang="zxx">{utcText(line.ts)} </span>}
                 <LogText line={line} />
               </li>
             ))}
