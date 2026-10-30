@@ -592,7 +592,13 @@ function UsageLimitsForm({ agent, view, runs }: { agent: OwnAgent; view: OwnAgen
         <p data-testid="usage-alert-state">
           {current.alert ? t('alertCrossed', { amount: money(current.alert.spent, current.assetId) }) : t('alertNotCrossed')}
         </p>
-        <p data-testid="usage-hard-limit-state">{t(current.hardLimitReached ? 'hardLimitReached' : 'hardLimitNotReached')}</p>
+        <p data-testid="usage-hard-limit-state">
+          {current.hardLimitReached
+            ? t('hardLimitReached')
+            : current.hardLimitRoom !== null
+              ? t('hardLimitRoom', { amount: money(current.hardLimitRoom, current.assetId) })
+              : t('hardLimitNotReached')}
+        </p>
         <Button type="submit" disabled={busy}>
           {t('saveUsageLimits')}
         </Button>
