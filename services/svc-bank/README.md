@@ -117,14 +117,15 @@ The occurrences that were written off are in the **response**, not merely in the
 
 ### `earn`
 
-| Procedure              | Scope        | Purpose                                                                                                                                                                                                                         |
-| ---------------------- | ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `earn.pools`           | `bank:read`  | Open flexible and fixed pools; refuses `bank.earn_rate_unset` when none are configured                                                                                                                                          |
-| `earn.deposit`         | `bank:write` | Open a position                                                                                                                                                                                                                 |
-| `earn.withdraw`        | `bank:write` | Close a position; fixed terms enforced                                                                                                                                                                                          |
-| `earn.setAutoRenew`    | `bank:write` | A fixed-term saving's auto-renew choice: the next term starts when this one ends                                                                                                                                                |
-| `earn.positions`       | `bank:read`  | The user's open positions                                                                                                                                                                                                       |
-| `earn.interestHistory` | `bank:read`  | The caller's interest from one pool, a row per paid day (date, that day's rate, their payout, ledger tx), and the sum of every paid day (J-bank-07 #5). Page size required; blank refuses `bank.earn_interest_list_limit_unset` |
+| Procedure              | Scope        | Purpose                                                                                                                                                                                                                                                                                  |
+| ---------------------- | ------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `earn.pools`           | `bank:read`  | Open flexible and fixed pools; refuses `bank.earn_rate_unset` when none are configured                                                                                                                                                                                                   |
+| `earn.deposit`         | `bank:write` | Open a position                                                                                                                                                                                                                                                                          |
+| `earn.withdraw`        | `bank:write` | Close a position; fixed terms enforced. In a staking-style pool (`unbondingDays`, BK-earn-04) the first take back needs `unbond: true`, starts the unbonding by the bank's clock and moves nothing (without it: `bank.unbond_not_confirmed`; while unbonding: `bank.position_unbonding`) |
+| `earn.setAutoRenew`    | `bank:write` | A fixed-term saving's auto-renew choice: the next term starts when this one ends                                                                                                                                                                                                         |
+| `earn.positions`       | `bank:read`  | The user's open positions, with `staking` (staked, unbonding, unbonded), `unbondsAt` and the pool's `unbondingDays`                                                                                                                                                                      |
+| `earn.riskDisclosure`  | `bank:read`  | The owner's staking risk wording (`BANK_EARN_RISK_WORDING_JSON`: `slashing`, `ownership`); blank or out of shape refuses `bank.earn_risk_wording_unset`, never "no risk"                                                                                                                 |
+| `earn.interestHistory` | `bank:read`  | The caller's interest from one pool, a row per paid day (date, that day's rate, their payout, ledger tx), and the sum of every paid day (J-bank-07 #5). Page size required; blank refuses `bank.earn_interest_list_limit_unset`                                                          |
 
 ### `loans` — **built.** Collateralised borrow over the ledger (§8.1)
 
@@ -245,7 +246,7 @@ Honest residual: KYB (Lane B), expense cards, invoicing (`pay.gateway`), multi-r
 | `ramps.offramps`  | `bank:read`  | The user's off-ramps. Every row carries `simulated`                                                                       |
 | `ramps.offramp`   | `bank:write` | Crypto: hold then settle to `bank-crypto-ledger`. Kind fiat refuses before any row or ledger post. Does **not** broadcast |
 
-The customer security lock (W-withdraw-09) belongs to svc-identity; svc-bank reads it per request from `GET /internal/security-lock/:userId` and keeps no copy. While it holds, adding a withdrawal address (`ramps.destinations.check/save`, `ramps.setWithdrawDestination`) and starting a `ramps.offramp` refuse `bank.security_locked` before any row or ledger post; a replay of a save or an off-ramp made before the lock answers as before, and removing an address is not stopped (it only takes a way out away). Identity unreachable refuses `bank.security_lock_unavailable`; no `IDENTITY_URL` refuses `bank.security_lock_unset`. `ramps.destinations.readiness` (`bank:read`) answers whether one saved address can be used now, first reason first: `locked`, `blocked`, `cooling_unset`, `cooling` (with its end) or `ready`.
+The customer security lock (W-withdraw-09) belongs to svc-identity; svc-bank reads it per request from `GET /internal/security-lock/:userId` and keeps no copy. While it holds, adding a withdrawal address (`ramps.destinations.check/save`, `ramps.setWithdrawDestination`) and starting a `ramps.offramp` refuse `bank.security_locked` before any row or ledger post; a replay of a save or an off-ramp made before the lock answers as before, and removing an address is not stopped (it only takes a way out away). The owner's self-freeze (I-account-lifecycle-08), read on the same ask from `GET /internal/self-freeze/:userId`, refuses the same actions first, as `bank.account_frozen_self`, on every path that checks the lock (cash-out and personal-pay sends included). It is stricter than the lock for `ramps.offramp`: a send claimed before the freeze does not carry on either (a held one stays held until the owner lifts it), and `ramps.destinations.readiness` answers `locked` with no end. Identity unreachable on either read refuses `bank.security_lock_unavailable`; no `IDENTITY_URL` refuses `bank.security_lock_unset`. `ramps.destinations.readiness` (`bank:read`) answers whether one saved address can be used now, first reason first: `locked`, `blocked`, `cooling_unset`, `cooling` (with its end) or `ready`.
 
 `ramps.destinations.sendable` (service, svc-pay only; `packages/contracts` `bank-send-destination.ts`) is the same readiness asked by address instead of by entry: svc-pay asks it before it claims a withdrawal to a wallet outside the platform (J-wallet-05 #6, issue #6517). Only a saved customer entry of that asset, on that network, for that address (an EVM address in any letter case; an entry with a tag never matches, since a send carries none) answers the book's readiness (`locked`, `blocked`, `approval_pending`, `cooling_unset`, `cooling`, `ready`); the same address saved only on another network is `other_network`, anything else `not_saved`. It reads and never writes; a lock that cannot be read refuses, and svc-pay reads every non-answer as unavailable.
 
@@ -268,26 +269,28 @@ BANK_SEND_FIELD_RULES_JSON=    # owner-published purpose / source-of-funds / ref
 
 ### `ops` — operator only
 
-| Procedure                  | Scope            | Purpose                                                               |
-| -------------------------- | ---------------- | --------------------------------------------------------------------- |
-| `ops.runDueTransfers`      | `admin:treasury` | Fire every due standing order                                         |
-| `ops.accrueInterest`       | `admin:treasury` | One day's earn interest, one pool or all                              |
-| `ops.fundPool`             | `admin:treasury` | Move bank revenue into a pool's reserve                               |
-| `ops.fundLoanReserve`      | `admin:treasury` | Top up the debt-asset reserve loans draw from                         |
-| `ops.accrueLoanInterest`   | `admin:treasury` | Capitalise loan interest (no ledger post; unique per loan/day)        |
-| `ops.runRiskSweep`         | `admin:treasury` | Mark open loans; margin-call and liquidate past grace                 |
-| `ops.resumePendingLoans`   | `admin:treasury` | Re-drive loans stuck between collateral lock and principal draw       |
-| `ops.resumePendingEarn`    | `admin:treasury` | Re-drive earn deposits stuck pending after ledger post                |
-| `ops.renewEarnTerms`       | `admin:treasury` | Start the next term of ended fixed-term savings with auto-renew on    |
-| `ops.abandonPendingLoan`   | `admin:treasury` | Give up on a pending loan and return collateral                       |
-| `ops.adjustLoanInterest`   | `admin:treasury` | Four-eyes interest correction: a new signed row with its reason       |
-| `ops.cardAuthorize`        | `admin:treasury` | The authorisation "webhook" — decide, and hold if the answer is yes   |
-| `ops.cardCapture`          | `admin:treasury` | The merchant took this much; the remainder of the hold goes back      |
-| `ops.cardReverse`          | `admin:treasury` | The authorisation expired or was voided; the whole hold goes back     |
-| `ops.cardResumeSettlement` | `admin:treasury` | Re-drive a claimed card capture/reversal that never reached ledger    |
-| `ops.fundCashbackPot`      | `admin:treasury` | Sweep bank revenue into the pot cashback is paid from                 |
-| `ops.creditOnramp`         | `admin:treasury` | Crypto ledger-half on-ramp credit (never user-callable)               |
-| `ops.runAutoInvest`        | `admin:treasury` | Fire due auto-invest rules (threshold sweeps; DCA when convert wired) |
+| Procedure                  | Scope            | Purpose                                                                                                                                                                   |
+| -------------------------- | ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ops.runDueTransfers`      | `admin:treasury` | Fire every due standing order                                                                                                                                             |
+| `ops.accrueInterest`       | `admin:treasury` | One day's earn interest, one pool or all                                                                                                                                  |
+| `ops.fundPool`             | `admin:treasury` | Move bank revenue into a pool's reserve                                                                                                                                   |
+| `ops.fundLoanReserve`      | `admin:treasury` | Top up the debt-asset reserve loans draw from                                                                                                                             |
+| `ops.accrueLoanInterest`   | `admin:treasury` | Capitalise loan interest (no ledger post; unique per loan/day)                                                                                                            |
+| `ops.runRiskSweep`         | `admin:treasury` | Mark open loans; margin-call and liquidate past grace                                                                                                                     |
+| `ops.resumePendingLoans`   | `admin:treasury` | Re-drive loans stuck between collateral lock and principal draw                                                                                                           |
+| `ops.resumePendingEarn`    | `admin:treasury` | Re-drive earn deposits stuck pending after ledger post                                                                                                                    |
+| `ops.renewEarnTerms`       | `admin:treasury` | Start the next term of ended fixed-term savings with auto-renew on                                                                                                        |
+| `ops.setEarnPoolStatus`    | `admin:treasury` | Four-eyes: close a pool to new savings or open it again, keyed `pool-status:<poolId>:<revision>`; unchanged or stale spends no approval                                   |
+| `ops.releaseUnbondedEarn`  | job (svc-bank)   | Pay back staking-style savings whose unbonding ended by the bank's clock (no caller time), through `earnWithdraw`; pages by `after`/`next`; a second run releases nothing |
+| `ops.abandonPendingLoan`   | `admin:treasury` | Give up on a pending loan and return collateral                                                                                                                           |
+| `ops.adjustLoanInterest`   | `admin:treasury` | Four-eyes interest correction: a new signed row with its reason                                                                                                           |
+| `ops.cardAuthorize`        | `admin:treasury` | The authorisation "webhook" — decide, and hold if the answer is yes                                                                                                       |
+| `ops.cardCapture`          | `admin:treasury` | The merchant took this much; the remainder of the hold goes back                                                                                                          |
+| `ops.cardReverse`          | `admin:treasury` | The authorisation expired or was voided; the whole hold goes back                                                                                                         |
+| `ops.cardResumeSettlement` | `admin:treasury` | Re-drive a claimed card capture/reversal that never reached ledger                                                                                                        |
+| `ops.fundCashbackPot`      | `admin:treasury` | Sweep bank revenue into the pot cashback is paid from                                                                                                                     |
+| `ops.creditOnramp`         | `admin:treasury` | Crypto ledger-half on-ramp credit (never user-callable)                                                                                                                   |
+| `ops.runAutoInvest`        | `admin:treasury` | Fire due auto-invest rules (threshold sweeps; DCA when convert wired)                                                                                                     |
 
 These jobs are deliberately **not user-callable**: a user who can trigger "run every due transfer" or the risk sweep chooses when other people's money moves (or when their collateral is sold). `admin:treasury` is interactive-only (§4.1), so it can never be held by a long-lived API key.
 
@@ -319,7 +322,7 @@ Raising the call and delivering it stay two facts. svc-bank publishes; whether t
 
 Publishing moves no value. Every recipe in the Ledger table below still goes through `packages/ledger-client` and nothing else.
 
-The subjects below are still unwritten, and go in an events PR before svc-bank publishes any of them (AGENT_PROTOCOL §1: _"A `packages/contracts` and/or `packages/events` PR that declares the new interface or event. Reviewed on its own. … Never the reverse. Never both at once."_ §2 makes publishing an undeclared subject a hard prohibition):
+The subjects below are still unwritten, and go in an events PR before svc-bank publishes any of them (`AGENT_PROTOCOL` §1: _"A `packages/contracts` and/or `packages/events` PR that declares the new interface or event. Reviewed on its own. … Never the reverse. Never both at once."_ §2 makes publishing an undeclared subject a hard prohibition):
 
 | Planned subject                    | When                                                 |
 | ---------------------------------- | ---------------------------------------------------- |
@@ -446,6 +449,10 @@ Holding a database transaction open across the ledger call is a deliberate cost:
 **Interest: claim the UTC day, post, record.** `YYYY-MM-DD` UTC is both the idempotency day and the eligibility boundary. A position must be open before `00:00:00.000Z` for that day; a scheduler running late cannot pay a full day to a position opened after midnight. If the reserve cannot cover the day, **nothing moves** and the claim rolls back so the day is re-runnable the moment the pool is funded. That is the loud failure §8.1 needs — a pool that cannot pay its advertised rate is an operator problem today, not a shortfall discovered at maturity.
 
 **No configured pool means no configured rate, not zero yield.** `earn.pools` and the all-pools accrual door refuse `bank.earn_rate_unset` instead of returning an empty success that makes an unconfigured deployment look live. Individual pool operations still resolve the named pool and use only its stored operator-set APR; svc-bank has no default APR and invents none.
+
+**A closed pool still pays what it holds (BK-earn-04).** Closing a pool (`ops.setEarnPoolStatus`, approved by a second person and appended to `bank.earn_pool_status_changes`) refuses new deposits with `bank.pool_closed`; the savings already in it keep accruing and can be taken back. The status change reads and sets neither freeze. The change runs under the pool's row lock and checks unchanged and stale revisions before it spends the approval, so two concurrent closes record one change and spend one approval.
+
+**Unbonding moves no money until it ends.** A staking-style pool's take back sets `unbonding_started_at` and `unbonds_at` from the server's clock; from the first UTC day after that the saving earns nothing. The release (`ops.releaseUnbondedEarn`, or a take back after the end) is the ordinary `earnWithdraw` keyed `bank.earn.withdraw:<positionId>`, so a retry or a second run pays nothing twice. There is no new posting.
 
 **Interest is paid to `available`, never added to the principal.** Compounding would mean writing a new principal figure every day, and a money column that changes daily is a running total wearing a different name.
 
@@ -671,7 +678,7 @@ With `S2S_AUTH_MODE`, `S2S_SIGNING_KID` and `S2S_SIGNING_KEY` set, every call to
 
 ## Service keys: inbound doors
 
-The internal job doors, the closure check and `/trpc` name the caller from its own service key when `S2S_AUTH_MODE`, `S2S_KEYRING` and the signing pair are set: `dual` accepts the key and the shared secret, `keypair` the key only. Unset, the shared secret works exactly as before. A key-signed call that fails is refused and never retried against the shared secret. The job doors keep binding the retained request bytes. Setup and rotation: `services/svc-ledger/CALLER-BINDING.md`.
+The internal job doors, the closure check, svc-agents' business team read and `/trpc` name the caller from its own service key when `S2S_AUTH_MODE`, `S2S_KEYRING` and the signing pair are set: `dual` accepts the key and the shared secret, `keypair` the key only. Unset, the shared secret works exactly as before. A key-signed call that fails is refused and never retried against the shared secret. The job doors keep binding the retained request bytes. Setup and rotation: `services/svc-ledger/CALLER-BINDING.md`.
 
 ## Service keys: outgoing calls
 

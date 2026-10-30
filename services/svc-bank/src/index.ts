@@ -65,6 +65,7 @@ import {
 } from './job-batch-limit.js';
 import { requireInternalJobHmac } from './internal-job-hmac.js';
 import { registerClosureCheck } from './closure/closure-check.js';
+import { registerAgentsTeamMembership, teamMembershipFor } from './agents/team-membership.js';
 import { recoveryCounts, startBankRecoveryJobs } from './recovery-jobs.js';
 import { withSpan } from './tracing.js';
 import { registerProcessHooks, startTelemetry } from '@intafaced/telemetry';
@@ -290,6 +291,8 @@ const bank = createBankServices(sql, ledger, history, {
   proofLimits: env.BANK_PROOF_LIMITS_JSON,
   /** Base-tier account terms, the currencies an account may hold and the space limit: the owner's, blank refuses. */
   accountTerms: env.BANK_ACCOUNT_TERMS_JSON,
+  /** The staking risk wording (BK-earn-04): the owner's, blank refuses. */
+  earnRiskWording: env.BANK_EARN_RISK_WORDING_JSON,
   accountCurrencies: env.BANK_ACCOUNT_CURRENCIES,
   spaceLimit: env.BANK_SPACE_LIMIT,
   spaceUnlockWaitHours: env.BANK_SPACE_UNLOCK_WAIT_HOURS,
@@ -376,6 +379,7 @@ const edgeContext = createEdgeContext({
 const app = Fastify({ logger: { level: env.LOG_LEVEL }, maxParamLength: 5_000 });
 retainRawBody(app);
 registerClosureCheck(app, { sql, ledger, secret: env.INTERNAL_SERVICE_SECRET, s2s: doorS2s });
+registerAgentsTeamMembership(app, { secret: env.INTERNAL_SERVICE_SECRET, s2s: doorS2s, read: (u, b) => teamMembershipFor(sql, u, b) });
 
 app.get('/health', async () => ({ ok: true, service: env.SERVICE_NAME }));
 app.get('/ready', async () =>

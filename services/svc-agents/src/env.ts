@@ -161,6 +161,20 @@ const schema = serviceEnvSchema
       AGENTS_FEE_ASSET_ID: z.string().trim().min(1),
 
       /**
+       * Overage grace: how much usage, in the fee asset, a person may leave
+       * unpaid and still start a run. Owner-published. Blank / unset is no
+       * grace at all: any window that could not be paid refuses the next run
+       * with `agents.overage_grace_unset`. Never a default amount.
+       */
+      AGENTS_OVERAGE_GRACE: blankAsAbsent(
+        z
+          .string()
+          .trim()
+          .regex(/^\d{1,20}(\.\d{1,18})?$/, 'a decimal amount, such as 0.5')
+          .optional(),
+      ),
+
+      /**
        * Billing window length. Must divide 1440 so a window never straddles
        * midnight — a window that spans two days has an ambiguous id, and the id
        * is half of the ledger idempotency key.
@@ -204,6 +218,8 @@ const schema = serviceEnvSchema
        * accident cannot spend money.
        */
       AGENTS_PROVIDER: z.enum(['mock', 'upstream']).default('mock'),
+      /** Milliseconds the mock engine takes to answer (test stacks only; ignored by the upstream provider). */
+      AGENTS_MOCK_DELAY_MS: z.coerce.number().int().min(0).max(10_000).optional(),
       /**
        * TEST stand-in only: a file whose presence parks the mock engine's completions (`MockProviderOptions.holdFile`).
        * Read only when AGENTS_PROVIDER is mock; an upstream engine never parks.

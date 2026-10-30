@@ -1239,6 +1239,76 @@ describe('merchant tiers, pricing history, limit requests, founder drill-down', 
       expect(text).not.toContain('"spreadBps":40');
     });
 
+    describe("a tier fee's spread goes only to roles that see full pricing", () => {
+      const VIEWER = '99999999-9999-4999-8999-999999999999';
+      /** TEST VALUE spread on the tier layer. */
+      const SPREAD = 35;
+      const setUp = async () => {
+        await assignTier();
+        await applyChange(changes, sql, {
+          scope: 'pricing',
+          change: { kind: 'set_pricing_layer', layer: 'tier', scopeId: TEST_TIER.id, rules: [{ ...TIER_RULE, spreadBps: SPREAD }] },
+        });
+        await sql`
+          INSERT INTO pay.merchant_team_members (merchant_id, user_id, role, status, invited_by, activated_at) VALUES
+            (${merchantA}, ${FINANCE}, 'finance', 'active', ${OWNER_A}, now()),
+            (${merchantA}, ${DEVELOPER}, 'developer', 'active', ${OWNER_A}, now()),
+            (${merchantA}, ${VIEWER}, 'viewer', 'active', ${OWNER_A}, now())
+        `;
+      };
+      const ownFees = (list: Ladder) => list.tiers.find((tier) => tier.id === TEST_TIER.id)!.fees;
+      /** A control room whose door lets every active team member in, so the projection is what stands between them and the spread. */
+      const wideOpen = () =>
+        createPayNamespaces({
+          founderAuthority,
+          control: new ControlService(sql, {
+            canViewMerchant: async (p, merchantId) =>
+              (
+                await sql`
+                SELECT 1 FROM pay.merchants WHERE id = ${merchantId} AND user_id = ${p.userId}
+                UNION ALL
+                SELECT 1 FROM pay.merchant_team_members WHERE merchant_id = ${merchantId} AND user_id = ${p.userId} AND status = 'active'
+              `
+              ).length > 0,
+            canApprovePayout: async () => false,
+          }),
+          metrics,
+          payHalts: { store, merchants: pay },
+        });
+      const list = async (namespaces: ReturnType<typeof mounted>, userId: string) =>
+        (await at(namespaces.createCaller(ctxOf(userId)), 'merchantControl.tiers.list')({ merchantId: merchantA })) as Ladder;
+
+      it('the owner and a finance member get spreadBps on each tier fee', async () => {
+        await setUp();
+        for (const userId of [OWNER_A, FINANCE]) {
+          const fees = ownFees(await list(mounted(), userId));
+          expect(fees).toHaveLength(1);
+          expect(fees[0]).toMatchObject({ assetCode: 'USDT', spreadBps: SPREAD });
+        }
+      });
+
+      it('a viewer and a developer are refused at the door as today', async () => {
+        await setUp();
+        for (const userId of [VIEWER, DEVELOPER]) {
+          const refused = await failure(list(mounted(), userId));
+          expect(refused).toMatchObject({ code: 'NOT_FOUND', cause: 'pay.merchant_not_found' });
+        }
+      });
+
+      it('with a door that lets them in, a viewer and a developer get the fee without any spreadBps key', async () => {
+        await setUp();
+        for (const userId of [VIEWER, DEVELOPER]) {
+          const listed = await list(wideOpen(), userId);
+          const fees = ownFees(listed);
+          expect(fees).toHaveLength(1);
+          expect(fees[0]).toMatchObject({ assetCode: 'USDT', bands: TIER_RULE.bands, minFee: '0.5' });
+          expect(fees[0]).not.toHaveProperty('spreadBps');
+          expect(JSON.stringify(listed)).not.toContain('spreadBps');
+        }
+        expect(ownFees(await list(wideOpen(), FINANCE))[0]).toMatchObject({ spreadBps: SPREAD });
+      });
+    });
+
     it('a tier with no fee of its own makes the calculator refuse pay.pricing_unconfigured, and the refusal writes nothing', async () => {
       await assignTier();
       const owner = mounted().createCaller(ctxOf(OWNER_A));
