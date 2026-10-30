@@ -455,6 +455,8 @@ const messages = {
   'market.refund.request.body':
     'The seller decides before the refund window ends at {value1}. If the seller refunds, the whole price returns to your account once. If the window ends first, the seller is paid.',
   'market.refund.requested': 'Refund requested. The seller decides before the refund window ends.',
+  'market.refund.policy.is.not.set':
+    'The refund policy is not set. No refund can be asked for or made until the owner decides it. Your purchase stays held, and nothing has moved.',
   'market.refund.requests': 'Refund requests',
   'market.no.refund.requests': 'No buyer has asked for a refund.',
   'market.refund.requests.meaning':
@@ -1416,6 +1418,8 @@ const es = {
   'market.refund.request.body':
     'El vendedor decide antes de que termine el plazo de reembolso, el {value1}. Si reembolsa, el precio completo vuelve a tu cuenta una vez. Si el plazo termina antes, el vendedor cobra.',
   'market.refund.requested': 'Reembolso solicitado. El vendedor decide antes de que termine el plazo.',
+  'market.refund.policy.is.not.set':
+    'La política de reembolso no está definida. No se puede pedir ni hacer ningún reembolso hasta que el propietario la decida. Tu compra sigue retenida y no se ha movido nada.',
   'market.refund.requests': 'Solicitudes de reembolso',
   'market.no.refund.requests': 'Ningún comprador ha pedido un reembolso.',
   'market.refund.requests.meaning':
@@ -2400,6 +2404,8 @@ const fr = {
   'market.refund.request.body':
     'Le vendeur décide avant la fin du délai de remboursement, le {value1}. S’il rembourse, le prix entier revient une fois sur votre compte. Si le délai se termine avant, le vendeur est payé.',
   'market.refund.requested': 'Remboursement demandé. Le vendeur décide avant la fin du délai.',
+  'market.refund.policy.is.not.set':
+    'La politique de remboursement n’est pas fixée. Aucun remboursement ne peut être demandé ni effectué tant que le propriétaire ne l’a pas décidée. Votre achat reste retenu et rien n’a bougé.',
   'market.refund.requests': 'Demandes de remboursement',
   'market.no.refund.requests': 'Aucun acheteur n’a demandé de remboursement.',
   'market.refund.requests.meaning':

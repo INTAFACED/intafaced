@@ -103,14 +103,28 @@ const slotsSchema = z.object({
   usable: z.number().int().nonnegative(),
   slots: z.array(slotSchema),
 });
-const programmeSchema = z.object({ commissionBps: z.number().int().nonnegative().nullable(), commissionConfigured: z.boolean() });
+const programmeSchema = z.object({
+  commissionBps: z.number().int().nonnegative().nullable(),
+  commissionConfigured: z.boolean(),
+  // Blank until the owner decides it: every refund request and refund refuses owner.decision (MC-market-02).
+  refundPolicy: z.enum(['seller_full']).nullable().optional(),
+});
+/** The service's typed refusal while the refund policy is blank, shown in the room's own words; nothing moved. */
+const refundPolicyUnset = <T,>(result: ApiResult<T>): ApiResult<T> =>
+  !result.ok && result.code === 'owner.decision'
+    ? presentActionFailure(result, (locale) => {
+        const current = copy.forLocale(locale);
+        return { message: current.t('market.refund.policy.is.not.set'), language: current.languageFor('market.refund.policy.is.not.set') };
+      })
+    : result;
 export function Market({ mine = false, strategy = false }: { mine?: boolean; strategy?: boolean }) {
   const api = useApi(),
     { userId } = useSession(),
     action = useAction('market', {
       recover: async (reference) => {
         // A refund: the service's refund is keyed on the purchase, so asking again returns the stored outcome
-        // (the whole price returns once); a purchase that is no longer held is a known outcome, not a pending one.
+        // (the whole price returns once); a purchase that is no longer held is a known outcome, not a pending one. So is
+        // owner.decision: the service refuses it only before any refund was claimed, so nothing moved.
         if (reference.startsWith('refund:')) {
           const id = reference.slice('refund:'.length);
           const again = await api.mutate(
@@ -119,7 +133,9 @@ export function Market({ mine = false, strategy = false }: { mine?: boolean; str
             { purchaseId: id },
             purchaseSchema.refine((p) => p.id === id && p.status === 'refunded', copyText('market.refund.response.does.not.match')),
           );
-          return !again.ok && again.code === 'market.refund_not_held' ? { ok: true, data: null } : again;
+          return !again.ok && (again.code === 'market.refund_not_held' || again.code === 'owner.decision')
+            ? { ok: true, data: null }
+            : again;
         }
         const requested = reference.startsWith('refund-request:') ? reference.slice('refund-request:'.length) : null;
         const rows = await api.query(
@@ -335,14 +351,16 @@ export function Market({ mine = false, strategy = false }: { mine?: boolean; str
           {row.refundWindowEndsAt && <p>{copyText('market.refund.request.body', { value1: when(row.refundWindowEndsAt) })}</p>}
         </>
       ),
-      run: () =>
-        api.mutate(
-          'market',
-          'requestRefund',
-          { purchaseId: row.id },
-          purchaseSchema.refine(
-            (p) => p.id === row.id && p.buyerId === userId && p.status === 'held' && Boolean(p.refundRequestedAt),
-            copyText('market.refund.response.does.not.match'),
+      run: async () =>
+        refundPolicyUnset(
+          await api.mutate(
+            'market',
+            'requestRefund',
+            { purchaseId: row.id },
+            purchaseSchema.refine(
+              (p) => p.id === row.id && p.buyerId === userId && p.status === 'held' && Boolean(p.refundRequestedAt),
+              copyText('market.refund.response.does.not.match'),
+            ),
           ),
         ),
       done: purchases.reload,
@@ -368,19 +386,28 @@ export function Market({ mine = false, strategy = false }: { mine?: boolean; str
           </p>
         </>
       ),
-      run: () =>
-        api.mutate(
-          'market',
-          'refund',
-          { purchaseId: row.id },
-          purchaseSchema.refine(
-            (p) => p.id === row.id && p.buyerId === row.buyerId && p.status === 'refunded',
-            copyText('market.refund.response.does.not.match'),
+      run: async () =>
+        refundPolicyUnset(
+          await api.mutate(
+            'market',
+            'refund',
+            { purchaseId: row.id },
+            purchaseSchema.refine(
+              (p) => p.id === row.id && p.buyerId === row.buyerId && p.status === 'refunded',
+              copyText('market.refund.response.does.not.match'),
+            ),
           ),
         ),
       done: refundRequests.reload,
     });
   }
+  // Read from the service: null means the owner has not decided it, so the room names that blocker beside the refund controls.
+  const policyUnset = programme.resource.status === 'ready' && programme.resource.data.refundPolicy === null;
+  const policyNote = (
+    <p className="muted" role="note" data-code="owner.decision">
+      <Text k="market.refund.policy.is.not.set" /> <code lang="zxx">owner.decision</code>
+    </p>
+  );
   const validPrice = decimalSchema.safeParse(price).success && parseAmount(price) > 0n;
   const validPeriod = /^[1-9]\d*$/.test(period) && Number.isSafeInteger(Number(period));
   return (
@@ -809,6 +836,7 @@ export function Market({ mine = false, strategy = false }: { mine?: boolean; str
           <p className="muted">
             <Text k="market.refund.requests.meaning" />
           </p>
+          {policyUnset && policyNote}
           <Read resource={refundRequests.resource} retry={refundRequests.reload}>
             {(rows) =>
               rows.length ? (
@@ -857,6 +885,7 @@ export function Market({ mine = false, strategy = false }: { mine?: boolean; str
           reload={purchases.reload}
           limit={limit}
           titleOf={titleOf}
+          refundNote={policyUnset ? policyNote : undefined}
           renderRefund={(row) => (
             <Button
               variant="secondary"

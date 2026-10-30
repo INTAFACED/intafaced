@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { api, fund, journeyState, toUnits } from './stack.mjs';
+import { api, fund, journeyState, toUnits, tool } from './stack.mjs';
 import { signIn, signUp, verify } from './desk.mjs';
 import { tableIn, bodyRows } from './tables.mjs';
 import { testStrategyListing } from './market-listing.mjs';
@@ -13,7 +13,6 @@ import { testStrategyListing } from './market-listing.mjs';
 // Steps that are written but not built yet fail at their first missing part, quickly (UNBUILT):
 // - #1: /market has no listing-type switch and no four entry points to the copy, bot and signal rooms (MC-market-01).
 // - #3: no listings of other kinds and no placement label (RC-more-catalogue-18 to -20).
-// - #6: the refund with the refund policy undecided and its named blocker (MC-market-02).
 // - #7: no reviews (MC-market-01).
 const J = 'J-more-catalogue-02';
 const run = journeyState(`${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
@@ -136,18 +135,65 @@ test(`${J} #5 presses Buy again, or loses the reply: one purchase, and the scree
   expect(await usdt(who)).toEqual(before);
 });
 
+/**
+ * Market restarted with the owner's refund policy blank, or back on the stack's TEST policy
+ * (tooling/profiles/test-owner-values/market.json). The stack sets the policy by default, so #6 sets up "undecided" itself.
+ */
+function marketRefundPolicy(on) {
+  const before = process.env.LOCAL_STACK_MARKET_REFUND_POLICY;
+  if (on) delete process.env.LOCAL_STACK_MARKET_REFUND_POLICY;
+  else process.env.LOCAL_STACK_MARKET_REFUND_POLICY = 'off';
+  try {
+    tool('local-test-stack.mjs', 'restart', 'market');
+  } finally {
+    if (before === undefined) delete process.env.LOCAL_STACK_MARKET_REFUND_POLICY;
+    else process.env.LOCAL_STACK_MARKET_REFUND_POLICY = before;
+  }
+}
+
+/** A refused market call: its typed code, exactly, from the service's error body. */
+const refusedWith = (reply) => [reply.status, reply.body?.error?.message ?? reply.body?.error?.json?.message];
+
 test(`${J} #6 requests a refund inside the window: the amount returns once; with the refund policy undecided the refund shows its named blocker`, async ({
   page,
   browser,
 }) => {
   const { who, seller, title, price, purchaseId } = run.read();
   expect(purchaseId, 'a purchase from #4').toBeTruthy();
+  test.setTimeout(240_000);
   const before = await usdt(who);
   const sellerBefore = await usdt(seller);
-  // The buyer asks, inside the window. Asking moves nothing.
   await signIn(page, who);
-  await page.goto('/market/purchases');
   const row = tableIn(page, 'Your purchases').getByRole('row', { name: new RegExp(title) });
+  // The refund policy undecided (blank): the refund shows its named blocker, moves nothing, and the purchase stays held.
+  marketRefundPolicy(false);
+  try {
+    const programme = await (await api(who)).get('/api/market/trpc/commerceProgramme');
+    expect(programme.body?.result?.data, JSON.stringify(programme.body).slice(0, 300)).toMatchObject({ refundPolicy: null });
+    await page.goto('/market/purchases');
+    const blocker = row.getByRole('note').filter({ hasText: 'The refund policy is not set' });
+    await expect(blocker).toBeVisible();
+    await expect(blocker).toHaveAttribute('data-code', 'owner.decision');
+    await expect(blocker).toContainText('owner.decision');
+    await row.getByRole('button', { name: 'Ask for a refund' }).click();
+    await page.getByRole('dialog').getByRole('button', { name: 'Request refund' }).click();
+    await expect(
+      page.getByRole('main').getByTestId('failure').filter({ hasText: 'The refund policy is not set. No refund can be asked for or made' }),
+    ).toBeVisible();
+    // The service's own answer to the buyer's request and to the seller's refund: the typed code, exactly.
+    expect(refusedWith(await (await api(who)).post('/api/market/trpc/requestRefund', { purchaseId }))).toEqual([412, 'owner.decision']);
+    expect(refusedWith(await (await api(seller)).post('/api/market/trpc/refund', { purchaseId }))).toEqual([412, 'owner.decision']);
+    // Re-read: still held, never asked, no outcome; neither balance moved.
+    const [unchanged] = await purchasesOf(who);
+    expect(unchanged).toMatchObject({ id: purchaseId, status: 'held', refundRequestedAt: null, outcome: null, outcomeTxId: null });
+    expect(await usdt(who)).toEqual(before);
+    expect(await usdt(seller)).toEqual(sellerBefore);
+  } finally {
+    marketRefundPolicy(true);
+  }
+  // The policy set (the stack's TEST value): the buyer asks, inside the window. Asking moves nothing.
+  await page.goto('/market/purchases');
+  await expect(row.getByRole('note').filter({ hasText: 'The refund policy is not set' })).toHaveCount(0);
   await row.getByRole('button', { name: 'Ask for a refund' }).click(UNBUILT);
   await page.getByRole('dialog').getByRole('button', { name: 'Request refund' }).click();
   await expect(page.getByRole('main').getByRole('status').filter({ hasText: 'Refund requested.' })).toBeVisible();
@@ -176,9 +222,6 @@ test(`${J} #6 requests a refund inside the window: the amount returns once; with
   await page.reload();
   await expect(row).toContainText('Refunded');
   await expect(row.getByRole('link', { name: 'Receipt' })).toHaveCount(0);
-  // UNBUILT, and red by name: the refund with the refund policy undecided. Which owner value that is, and where its
-  // blocker shows, is not settled yet.
-  expect(false, 'the refund with the refund policy undecided, and its named blocker, is not built').toBe(true);
 });
 
 test(`${J} #7 writes a review after a settled purchase: one review stored, a second refused as already reviewed, and a visitor with no purchase refused`, async ({

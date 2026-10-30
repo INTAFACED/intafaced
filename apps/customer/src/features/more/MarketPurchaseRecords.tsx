@@ -43,6 +43,8 @@ type Props = {
   /** The listing's title from the catalogue, when it is loaded. */
   titleOf?: (listingId: string) => string | undefined;
   renderRefund?: (row: MarketPurchaseRecord) => ReactNode;
+  /** The named blocker shown with the refund control on a held row (the refund policy is not set). */
+  refundNote?: ReactNode;
 };
 type StatusKey =
   'statusPending' | 'statusSettled' | 'statusRejected' | 'statusHeld' | 'statusRefundRequested' | 'statusReleased' | 'statusRefunded';
@@ -82,7 +84,7 @@ export function MarketPurchaseRecords(props: Props) {
   const { userId } = useSession();
   return userId ? <OwnerRecords key={userId} userId={userId} {...props} /> : null;
 }
-function OwnerRecords({ userId, resource, reload, limit, renderCancel, titleOf, renderRefund }: Props & { userId: string }) {
+function OwnerRecords({ userId, resource, reload, limit, renderCancel, titleOf, renderRefund, refundNote }: Props & { userId: string }) {
   const { Copy, t, languageFor } = copy.useCopy();
   const { hideBalances } = usePreferences();
   const [selected, setSelected] = useState<string | null>(null);
@@ -169,6 +171,7 @@ function OwnerRecords({ userId, resource, reload, limit, renderCancel, titleOf, 
                               </Button>
                             )}
                             {row.status === 'held' && renderRefund?.(row)}
+                            {row.status === 'held' && refundNote}
                             {row.accessUntil && renderCancel(row)}
                           </div>
                         </td>
