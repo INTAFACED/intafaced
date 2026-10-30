@@ -68,10 +68,10 @@ export function reconciliationSourcesFrom(
   const unset = unsetReconciliationSources();
   return {
     parity: unset.parity,
-    openItems: async (rail: string): Promise<OpenItemsRead> => {
+    openItems: async (rail: string, notAfter: Date): Promise<OpenItemsRead> => {
       const url = openItems?.urls.get(rail);
       if (!openItems || !url) return { kind: 'unset' };
-      return readOpenItems(url, rail, openItems.sign, fetchImpl, timeoutMs);
+      return readOpenItems(url, rail, notAfter, openItems.sign, fetchImpl, timeoutMs);
     },
     outsideBalance: async (readAt: Date): Promise<SnapshotRead> => {
       if (!outsideSnapshotUrl) return { kind: 'unset' };
@@ -116,6 +116,13 @@ export interface OpenItemsSource {
 
 const OPEN_ITEMS_PAGE = 200;
 
+/** Adds one kind's amount and count under `key` (`<kind>:<asset>`, and `#<kind>:<asset>` for the count). */
+function tally(into: Map<string, bigint>, key: string, amount: bigint, count: bigint): void {
+  if (amount === 0n && count === 0n) return;
+  into.set(key, (into.get(key) ?? 0n) + amount);
+  into.set(`#${key}`, (into.get(`#${key}`) ?? 0n) + count);
+}
+
 /**
  * Every open item svc-pay lists for one rail (`POST <url>` signed as svc-ledger, `{ rail, offset, limit }`), page by page.
  * Each page is its own snapshot, so every page must carry the same `total` and `sums` and the items must add up to those
@@ -125,6 +132,7 @@ const OPEN_ITEMS_PAGE = 200;
 async function readOpenItems(
   url: string,
   rail: string,
+  notAfter: Date,
   sign: OpenItemsSigner,
   fetchImpl: typeof fetch,
   timeoutMs: number,
@@ -133,6 +141,7 @@ async function readOpenItems(
   let first: string | null = null;
   let total = 0;
   let net = new Map<string, bigint>();
+  let byKind = new Map<string, bigint>();
   try {
     for (let offset = 0; offset === 0 || offset < total; offset += OPEN_ITEMS_PAGE) {
       const payload = JSON.stringify({ rail, offset, limit: OPEN_ITEMS_PAGE });
@@ -155,9 +164,19 @@ async function readOpenItems(
       else if (shape !== first) return { kind: 'unavailable' };
       total = page.data.total;
       net = new Map();
-      for (const sum of page.data.sums) net.set(sum.assetId, (net.get(sum.assetId) ?? 0n) + parseAmount(sum.net));
+      byKind = new Map();
+      for (const sum of page.data.sums) {
+        net.set(sum.assetId, (net.get(sum.assetId) ?? 0n) + parseAmount(sum.net));
+        tally(byKind, `held:${sum.assetId}`, parseAmount(sum.held), BigInt(sum.heldCount));
+        tally(byKind, `reversal_unfunded:${sum.assetId}`, parseAmount(sum.reversalUnfunded), BigInt(sum.reversalUnfundedCount));
+      }
       if (total > RECONCILIATION_ITEMS_MAX) return { kind: 'unavailable' };
       for (const item of page.data.items) {
+        // Each item carries its kind's sign: held is rail-over-ledger (+amount), an uncovered reversal ledger-over-rail
+        // (-amount). An item svc-pay saw after the statement's as-of is not in that statement: the two read different moments.
+        const signed = item.kind === 'held' ? item.amount : `-${item.amount}`;
+        if (item.signedAmount !== signed || parseAmount(item.amount) <= 0n) return { kind: 'unavailable' };
+        if (Date.parse(item.detectedAt) > notAfter.getTime()) return { kind: 'unavailable' };
         const named = reconciliationReconcilingItemSchema.safeParse({
           source: 'svc-pay',
           id: item.depositId,
@@ -179,6 +198,15 @@ async function readOpenItems(
   for (const item of items) added.set(item.assetId, (added.get(item.assetId) ?? 0n) + parseAmount(item.amount));
   for (const assetId of new Set([...added.keys(), ...net.keys()])) {
     if ((added.get(assetId) ?? 0n) !== (net.get(assetId) ?? 0n)) return { kind: 'unavailable' };
+  }
+  // And kind by kind, in amount and in count, so two kinds can never swap behind a net that still adds up.
+  const listed = new Map<string, bigint>();
+  for (const item of items) {
+    const amount = parseAmount(item.amount);
+    tally(listed, `${item.kind}:${item.assetId}`, amount < 0n ? -amount : amount, 1n);
+  }
+  for (const key of new Set([...listed.keys(), ...byKind.keys()])) {
+    if ((listed.get(key) ?? 0n) !== (byKind.get(key) ?? 0n)) return { kind: 'unavailable' };
   }
   return { kind: 'items', items };
 }

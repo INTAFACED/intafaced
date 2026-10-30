@@ -15,6 +15,7 @@ import {
   LEDGER_RECONCILE_CONTROL_NOT_FOUND,
   LEDGER_RECONCILE_RAIL_SOURCE_UNSET,
   LEDGER_RECONCILE_SOURCE_UNAVAILABLE,
+  LEDGER_RECONCILE_ITEMS_NOW_ONLY,
   OPS_CONTROL_MARGIN_UNSET,
   OPS_CONTROL_POLICY_UNSET,
   OPS_CONTROL_ACTOR_UNSET,
@@ -85,7 +86,7 @@ export interface ReconciliationSources {
   railStatement(readAt: Date, rail: string): Promise<SnapshotRead>;
   parity(readAt: Date): Promise<SnapshotRead>;
   /** One rail's open items, read after its statement. Optional: a source without it has none for any rail. */
-  openItems?(rail: string): Promise<OpenItemsRead>;
+  openItems?(rail: string, notAfter: Date): Promise<OpenItemsRead>;
 }
 
 export function unsetReconciliationSources(): ReconciliationSources {
@@ -733,13 +734,14 @@ function equalAssets(
   expected: Map<string, Amount>,
   tolerance: ToleranceStored | null,
   missingIsZero: boolean,
+  missingLedgerIsZero = missingIsZero,
 ): AssetEvidence[] {
   const ids = new Set<string>([...observed.keys(), ...expected.keys()]);
   const assets: AssetEvidence[] = [];
   for (const assetId of [...ids].sort()) {
     const left = observed.get(assetId);
     const right = expected.get(assetId);
-    const seenLeft = left ?? (missingIsZero ? 0n : null);
+    const seenLeft = left ?? (missingLedgerIsZero ? 0n : null);
     const seenRight = right ?? (missingIsZero ? 0n : null);
     const tol = toleranceFor(tolerance, assetId);
     if (seenLeft === null || seenRight === null) {
@@ -982,15 +984,30 @@ async function judge(
     // A snapshot that names no as-of stays unset: its age is unknown, and the ledger's time is not its time.
     [side]: { asOf: read.asOf ?? 'unset' },
   };
-  const compared = equalAssets(ledgerTotals, expected, row.tolerance, !outsideTemplate);
   let items: OpenItemsRead = { kind: 'unset' };
   if (outsideTemplate && rail !== undefined && sources.openItems) {
+    // svc-pay lists what is open now, never what was open at a past instant: a past run cannot take items out.
+    if (past) {
+      return {
+        status: 'UNSET',
+        phase: 'items',
+        errorCode: LEDGER_RECONCILE_ITEMS_NOW_ONLY,
+        assets: equalAssets(ledgerTotals, expected, row.tolerance, false),
+        outsideSide: 'snapshot',
+        sources: nextSources,
+      };
+    }
+    // An item seen after the statement's as-of is not in that statement, so the list is refused, not netted against it.
+    const statementAt = read.asOf ? new Date(read.asOf) : readAt;
     try {
-      items = await sources.openItems(rail);
+      items = await sources.openItems(rail, statementAt < readAt ? statementAt : readAt);
     } catch {
       items = { kind: 'unavailable' };
     }
   }
+  // With the items read, a rail asset the ledger holds no account for is a ledger side of 0 (a held first deposit posts
+  // nothing), so it is judged, not left UNSET where it could hide another asset's FAIL.
+  const compared = equalAssets(ledgerTotals, expected, row.tolerance, !outsideTemplate, items.kind === 'items');
   if (items.kind === 'unavailable') {
     return {
       status: 'ERROR',
@@ -1045,11 +1062,12 @@ function withItems(
     });
 }
 
-/** With named items no tolerance applies: a residual of even one unit FAILs. An unset tolerance is still a policy ERROR. */
+/** With named items no tolerance applies: a residual of even one unit FAILs, ahead of UNSET. An unset tolerance is still a policy ERROR. */
 function foldResiduals(assets: AssetEvidence[], unsetSource: boolean): 'PASS' | 'FAIL' | 'ERROR' | 'UNSET' {
   if (assets.some((asset) => asset.tolerance === 'unset')) return 'ERROR';
+  // A residual already known FAILs the run, even when another asset is unset: an unset asset never hides a break.
+  if (assets.some((asset) => asset.residual !== undefined && parseAmount(asset.residual) !== 0n)) return 'FAIL';
   if (unsetSource || assets.some((asset) => asset.expected === 'unset' || asset.residual === undefined)) return 'UNSET';
-  if (assets.some((asset) => parseAmount(asset.residual!) !== 0n)) return 'FAIL';
   return 'PASS';
 }
 

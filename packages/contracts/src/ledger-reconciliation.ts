@@ -19,6 +19,8 @@ export const LEDGER_RECONCILE_BUILTIN_IMMUTABLE = 'ledger.reconcile_builtin_immu
 export const LEDGER_RECONCILE_CONTROL_NOT_FOUND = 'ledger.reconcile_control_not_found' as const;
 /** A control names a rail whose outside statement URL is blank: the outside side is unset, never zero. */
 export const LEDGER_RECONCILE_RAIL_SOURCE_UNSET = 'ledger.reconcile_rail_source_unset' as const;
+/** A past-instant run on a rail that takes out open items: the items are read as they are now only, so the run is UNSET. */
+export const LEDGER_RECONCILE_ITEMS_NOW_ONLY = 'ledger.reconcile_items_now_only' as const;
 
 /** A rail id as the ledger's boundary accounts carry it (`rail:<id>`), and as its statement env name is derived from. */
 export const reconciliationRailSchema = z.string().regex(/^[a-z][a-z0-9-]{0,62}$/);
