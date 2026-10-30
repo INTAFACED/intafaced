@@ -25,7 +25,11 @@ test(`${J} #6 the owner changes a notification preference, sees who changed it a
   const savedFrom = Date.now();
   // The history the page reads after the save: the service's own record of the change, with its time.
   const historyRead = page.waitForResponse(
-    (r) => r.url().includes('merchantOps.notifications.preferences.history') && r.request().method() === 'GET',
+    async (r) =>
+      r.url().includes('merchantOps.notifications.preferences.history') &&
+      r.request().method() === 'GET' &&
+      r.status() === 200 &&
+      ((await r.json().catch(() => null))?.result?.data?.items?.length ?? 0) > 0,
   );
   await row.getByRole('button', { name: 'Save' }).click();
   await expect(row.getByRole('status')).toHaveText('Saved');
@@ -37,12 +41,13 @@ test(`${J} #6 the owner changes a notification preference, sees who changed it a
   const changes = historyBody.result.data.items;
   expect(changes, 'one change recorded by the service').toHaveLength(1);
   const changedAt = changes[0].createdAt;
-  // "and when": the entry shows the service's time of the change, which falls inside the save.
-  expect(Date.parse(changedAt)).toBeGreaterThanOrEqual(savedFrom - 5_000);
-  expect(Date.parse(changedAt)).toBeLessThanOrEqual(savedTo + 5_000);
+  // "and when": the entry shows the service's time of the change, which falls inside the save (a minute either side,
+  // for the clocks of the runner and the database), written out with its year and its hour and minute.
+  expect(Date.parse(changedAt)).toBeGreaterThanOrEqual(savedFrom - 60_000);
+  expect(Date.parse(changedAt)).toBeLessThanOrEqual(savedTo + 60_000);
   const entry = history.getByRole('listitem').filter({ hasText: 'Export ready turned off' });
   await expect(entry.locator('time')).toHaveAttribute('datetime', changedAt);
-  await expect(entry.locator('time')).not.toHaveText('');
+  await expect(entry.locator('time')).toHaveText(new RegExp(`${new Date(changedAt).getUTCFullYear()}.*\\d{1,2}:\\d{2}`));
 
   // The change is the service's record, not the page's memory.
   await page.reload();

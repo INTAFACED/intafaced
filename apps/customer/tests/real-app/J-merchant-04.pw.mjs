@@ -358,10 +358,12 @@ test(`${J} #4 the payer opens the link: the fixed amount and asset before confir
   await expect(page.getByRole('heading', { name: 'Your link is ready' })).toBeVisible();
   const offAddress = await page.getByTestId('link-address').getByRole('link', { name: 'Open the link' }).getAttribute('href');
   const offId = (await page.getByTestId('pp-facts').getByTestId('pp-mono').first().textContent())?.trim();
+  expect(offId, 'the new link has an id').toBeTruthy();
   await page.goto(`/pay/links/${offId}`);
   await page.getByLabel('Message for customers').fill('TEST This print is retired');
   await page.getByRole('button', { name: 'Deactivate link' }).click();
   await page.getByRole('dialog').getByRole('button', { name: 'Deactivate link' }).click();
+  await expect(page.locator('dl[data-testid="pp-facts"]')).toContainText('TEST This print is retired');
   await expect(page.getByText('Deactivated').first()).toBeVisible();
   expect(refused).toEqual([]);
 

@@ -79,7 +79,7 @@ async function strangerPays(page, handle, amount) {
   await expect(page.getByRole('alert')).toHaveCount(0);
 }
 
-test(`${J} #1 opens Receive: the handle with Copy and the toast "Copied"; with no handles live, the Account ID`, async ({
+test(`${J} #1 opens Receive: the handle with Copy and the toast "Copied" (with no handles live, the Account ID: its own test below)`, async ({
   page,
   context,
 }) => {
@@ -95,7 +95,9 @@ test(`${J} #1 opens Receive: the handle with Copy and the toast "Copied"; with n
   await context.grantPermissions(['clipboard-read', 'clipboard-write']);
   await signIn(page, me);
   // Handles are live on this stack: identity answers `me` with the person's own handle, and Receive shows exactly it.
-  const meRead = page.waitForResponse((r) => r.url().includes('/api/identity/trpc/me') && r.request().method() === 'GET');
+  const meRead = page.waitForResponse(
+    (r) => new URL(r.url()).pathname === '/api/identity/trpc/me' && r.request().method() === 'GET' && r.status() === 200,
+  );
   await page.goto('/pay/receive');
   const identityMe = await meRead;
   expect(identityMe.status()).toBe(200);
