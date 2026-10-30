@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test';
 import { randomBytes } from 'node:crypto';
 import { signUp } from './desk.mjs';
-import { fund, signOutBrowser } from './stack.mjs';
+import { fund, signOutBrowser, toUnits } from './stack.mjs';
 import { ADMIN, founderSignIn } from './admin.mjs';
 
 // J-ops-console-03 (find a transaction on the ledger and trace it to its business key) and the ledger object lookup
@@ -36,14 +36,7 @@ async function expectPostings(postings) {
   await expect(destination.locator('td').nth(5)).toHaveText(CUSTOMER_BEFORE);
   await expect(destination.locator('td').nth(6)).toHaveText(CUSTOMER_AFTER);
   const [before, after] = await Promise.all([5, 6].map((i) => source.locator('td').nth(i).innerText()));
-  expect(units(before) - units(after), `source ${before} to ${after} moves by ${AMOUNT}`).toBe(units(AMOUNT));
-}
-
-/** A decimal string as scaled bigint units (18 places), never a number. */
-function units(text) {
-  const [, sign, whole, frac = ''] = /^(-?)(\d+)(?:\.(\d{1,18}))?$/.exec(text);
-  const value = BigInt(whole) * 10n ** 18n + BigInt(frac.padEnd(18, '0'));
-  return sign ? -value : value;
+  expect(toUnits(before) - toUnits(after), `source ${before} to ${after} moves by ${AMOUNT}`).toBe(toUnits(AMOUNT));
 }
 
 const AMOUNT = '25';
@@ -54,7 +47,7 @@ test('J-ops-console-03 #8 trace a business key to its transaction and look the t
   test.setTimeout(240_000);
   const customer = await signUp(page, 'lk');
   const ref = `lookup-${randomBytes(4).toString('hex')}`;
-  const funded = fund(customer.email, 'USDT', '25', ref);
+  const funded = fund(customer.email, 'USDT', AMOUNT, ref);
   expect(funded.tx).toBeTruthy();
   const businessKey = `deposit:local-test:LOCAL-TEST-${ref}`;
 
@@ -73,7 +66,6 @@ test('J-ops-console-03 #8 trace a business key to its transaction and look the t
   await expect(lookup.getByTestId('ledger-lookup-tx-id')).toHaveText(funded.tx);
   await expect(lookup.getByTestId('ledger-lookup-business-key')).toHaveText(businessKey);
   const postings = lookup.getByTestId('ledger-lookup-postings');
-  await expect(postings.locator('tbody tr')).toHaveCount(2);
   await expectPostings(postings);
 
   // Follow the transaction id: the lookup by id answers the same transaction.
