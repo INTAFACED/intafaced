@@ -117,17 +117,25 @@ test(`${J} #5 starts bar replay 100 bars back at 4x; the chart moves forward bar
   await page.getByRole('button', { name: 'Start', exact: true }).click();
   await expect(page.getByTestId('replay-position')).toHaveText(`Replay: bar ${total - back} of ${total}`);
   await expect(canvas).toHaveAttribute('data-bars', String(total - back));
+  // Every change of the drawn bar count, with its time, recorded in the page as it happens.
+  await canvas.evaluate((el) => {
+    window.__replaySteps = [];
+    new MutationObserver(() => window.__replaySteps.push([performance.now(), Number(el.getAttribute('data-bars'))])).observe(el, {
+      attributes: true,
+      attributeFilter: ['data-bars'],
+    });
+  });
   await page.getByRole('button', { name: 'Play', exact: true }).click();
-  // At 4x a bar every 250 ms: the position climbs one bar at a time.
-  const seen = new Set();
-  for (let i = 0; i < 12; i += 1) {
-    seen.add(Number(await canvas.getAttribute('data-bars')));
-    await page.waitForTimeout(120);
-  }
-  const steps = [...seen].sort((a, b) => a - b);
-  expect(steps.length).toBeGreaterThan(3);
-  for (let i = 1; i < steps.length; i += 1) expect(steps[i] - steps[i - 1]).toBeLessThanOrEqual(2);
+  await page.waitForTimeout(3_000);
   await page.getByRole('button', { name: 'Pause', exact: true }).click();
+  // At 4x, one bar every 250 ms: each change adds exactly one bar, and the changes come a quarter second apart.
+  const steps = await page.evaluate(() => window.__replaySteps);
+  expect(steps.length, 'bars replayed in 3 s at 4x').toBeGreaterThanOrEqual(8);
+  for (let i = 1; i < steps.length; i += 1) expect(steps[i][1] - steps[i - 1][1], `step ${i}`).toBe(1);
+  const gaps = steps.slice(1).map((step, i) => step[0] - steps[i][0]);
+  const mean = gaps.reduce((a, b) => a + b, 0) / gaps.length;
+  expect(mean, `mean ms between bars at 4x (${gaps.map(Math.round).join(', ')})`).toBeGreaterThan(200);
+  expect(mean).toBeLessThan(300);
   const held = await canvas.getAttribute('data-bars');
   await page.waitForTimeout(600);
   await expect(canvas).toHaveAttribute('data-bars', held);
@@ -185,5 +193,8 @@ test(`${J} #4 applies RSI to every chart of a 2x2 sync group at once: each cell 
     await expect(cell(page, i).locator('[data-study="rsi-1"]')).toHaveAttribute('data-pane', 'sub');
     // Volume is the default sub-pane, so RSI makes two indicator panes.
     await expect(canvasOf(page, i)).toHaveAttribute('data-study-panes', '2');
+    // Each cell's RSI is the 14-period one: its line is named for its period, and so is its chip.
+    await expect(cell(page, i).locator('[data-study="rsi-1"] .st-row-formula')).toHaveText('RSI 14');
+    await expect(cell(page, i).getByRole('button', { name: 'Settings for Relative Strength Index' })).toContainText('RSI 14');
   }
 });

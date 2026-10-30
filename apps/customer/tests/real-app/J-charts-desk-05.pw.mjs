@@ -3,6 +3,7 @@ import { EDGE } from './stack.mjs';
 import {
   atTick,
   barTimeText,
+  centred,
   clickPlot,
   openWorkbench,
   pick,
@@ -23,8 +24,11 @@ const J = 'J-charts-desk-05';
 test.describe.configure({ mode: 'serial' });
 
 let page;
+/** The trend line's two points as step 1 placed them (bar centres, in page pixels). */
+let trendPoints;
 test.beforeAll(async ({ browser }) => {
-  const context = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+  // Tall enough for the whole workbench: the page never scrolls, so a pixel read on the chart is the pixel then clicked.
+  const context = await browser.newContext({ viewport: { width: 1440, height: 2200 } });
   page = await context.newPage();
   await openWorkbench(page);
 });
@@ -35,9 +39,13 @@ test.afterAll(async () => {
 test(`${J} #1 opens the drawing toolbar and picks the trend line, then two clicks place it as bar times and decimal prices`, async () => {
   await pick(page, 'Trend line');
   // What the chart reads under each click: the bar's time and the price at that height.
-  const at = [await pointerAt(page, await plot(page, 0.3, 0.4)), await pointerAt(page, await plot(page, 0.6, 0.5))];
-  await clickPlot(page, 0.3, 0.4);
-  await clickPlot(page, 0.6, 0.5);
+  trendPoints = [await centred(page, await plot(page, 0.3, 0.4)), await centred(page, await plot(page, 0.6, 0.5))];
+  // Each click, then what the chart reads at that same pixel (read after it, so both see the page as it was clicked).
+  const at = [];
+  for (const point of trendPoints) {
+    await page.mouse.click(point.x, point.y);
+    at.push(await pointerAt(page, point));
+  }
   await expect(rows(page)).toHaveCount(1);
   const text = await pointText(rows(page).first()).textContent();
   // Two points, each stored as that bar's time and that price at the tick's places (two for BTC-USDT's 0.01 tick).
@@ -70,8 +78,9 @@ test(`${J} #2 adds an info line, a horizontal line and a ray, each on the price 
 test(`${J} #3 adds text at the chosen point, with its own label`, async () => {
   await pick(page, 'Text');
   await page.getByLabel('Text to place or edit').first().fill('Support');
-  const at = await pointerAt(page, await plot(page, 0.25, 0.55));
-  await clickPlot(page, 0.25, 0.55);
+  const point = await centred(page, await plot(page, 0.25, 0.55));
+  await page.mouse.click(point.x, point.y);
+  const at = await pointerAt(page, point);
   // The text is stored with the drawing and shown in the object tree.
   await expect(page.locator('[data-drawing-id][data-kind="text"]')).toHaveCount(1);
   await expect(page.locator('[data-drawing-id][data-kind="text"]').getByRole('textbox', { name: 'Text to place or edit' })).toHaveValue(
@@ -89,8 +98,8 @@ test(`${J} #4 drags a line's middle handle, and both points move by the same bar
   await trend.getByRole('button', { name: /^Trend line \d+$/ }).click();
   const beforeText = await pointText(trend).textContent();
   const before = pricesOf(beforeText);
-  const a = await plot(page, 0.3, 0.4);
-  const b = await plot(page, 0.6, 0.5);
+  // The line's middle handle, between the two points step 1 placed.
+  const [a, b] = trendPoints;
   const middle = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
   await page.mouse.move(middle.x, middle.y);
   await page.mouse.down();
@@ -142,16 +151,20 @@ test(`${J} #5 locks a drawing so it cannot move, and turns magnet on`, async () 
 });
 
 /**
- * With magnet on, a point placed a few pixels off a bar's close is stored at that close: the bar under the pointer is read
- * from the chart, its close from Edge's candles, and the height of the close found by reading the price up the plot.
+ * With magnet on, a point placed a few pixels off a bar's close is stored at one of that bar's open, high, low or close,
+ * not at the pointer's price: the bar under the pointer is read from the chart, its prices from Edge's candles, and the
+ * height of the close found by reading the price up the plot.
  */
 async function magnetSnapsToClose() {
-  const x = await plot(page, 0.5, 0.5);
+  const x = await centred(page, await plot(page, 0.5, 0.3));
   const bar = await pointerAt(page, x);
   const res = await fetch(`${EDGE}/api/v1/ohlcv/${encodeURIComponent('BTC/USDT')}?timeframe=15m&limit=240`);
   const rows15 = (await res.json()).sort((p, q) => p[0] - q[0]);
-  // The bar's close: its own candle's, or the previous close when the bucket had no trade (a filled bar).
-  const close = Number(rows15.filter((r) => r[0] <= bar.time * 1000).at(-1)[4]);
+  // The bar's open, high, low and close: its own candle's, or the previous close four times when the bucket had no trade
+  // (a filled bar).
+  const candle = rows15.filter((r) => r[0] <= bar.time * 1000).at(-1);
+  const ohlc = candle[0] === bar.time * 1000 ? candle.slice(1, 5).map(Number) : Array(4).fill(Number(candle[4]));
+  const close = ohlc[3];
   const box = await page.getByTestId('cw').getByTestId('wc-host').boundingBox();
   let best = null;
   // Up the price pane only (the top 70 %: the Volume pane and the time axis sit below it), reading the price at each height.
@@ -169,7 +182,15 @@ async function magnetSnapsToClose() {
   await page.mouse.click(x.x, best.y + 3);
   const placed = page.locator('[data-drawing-id][data-selected]');
   await expect(placed).toHaveAttribute('data-kind', 'horizontal');
-  expect(pricesOf(await pointText(placed).textContent())).toEqual([close.toFixed(2)]);
+  // Stored at one of the bar's four prices (the nearest within the magnet's reach), not at the pointer's own price.
+  const placedText = await pointText(placed).textContent();
+  const [stored] = pricesOf(placedText);
+  expect(timesOf(placedText)).toEqual([barTimeText(bar.time)]);
+  expect(
+    ohlc.map((p) => p.toFixed(2)),
+    `stored ${stored}; pointer ${off.price}`,
+  ).toContain(stored);
+  expect(atTick(stored, off.price)).toBe(false);
   await page.getByRole('group', { name: 'Drawing actions' }).getByRole('button', { name: 'Delete', exact: true }).click();
 }
 

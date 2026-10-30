@@ -42,6 +42,9 @@ import { DrawingsPrimitive } from './primitive';
 import { drawingsKey, readDoc, writeDoc } from './store';
 import { isCursorTool, toolKind, type ToolId } from './tools';
 
+/** Each drawing's painted lines, in pixels: [x1, y1, x2, y2]. */
+type DrawnLines = Array<{ id: string; lines: Array<[number, number, number, number]> }>;
+
 /** The magnet's sensitivity in pixels: a UI default, shown in the panel. Blank (null) turns the magnet off. */
 export const MAGNET_SENSITIVITY_DEFAULT = 8;
 /** Distance in pixels a brush stroke samples its next point at. */
@@ -592,11 +595,23 @@ export function useDrawings(host: ChartHost | null, bars: readonly Candle[], opt
     primitive.bind(main);
     main.attachPrimitive(primitive);
     // The pane the drawings are drawn in, read from the library: the main series' pane, the price pane (0).
-    const element = host?.element;
-    if (element) element.dataset.drawingsPane = String(main.getPane().paneIndex());
+    const element = host?.element as (HTMLElement & { readDrawnLines?: () => DrawnLines }) | undefined;
+    if (element) {
+      element.dataset.drawingsPane = String(main.getPane().paneIndex());
+      // The lines each drawing was last painted with, in pixels, read on demand (nothing is written per frame), so a check
+      // can measure the drawn geometry itself: a channel's parallel lines, a pitchfork's tines.
+      element.readDrawnLines = () =>
+        primitive.current().map((plan) => ({
+          id: plan.id,
+          lines: plan.ops.flatMap((op) => (op.op === 'line' ? [[op.x1, op.y1, op.x2, op.y2] as [number, number, number, number]] : [])),
+        }));
+    }
     return () => {
       main.detachPrimitive(primitive);
-      if (element) delete element.dataset.drawingsPane;
+      if (element) {
+        delete element.dataset.drawingsPane;
+        delete element.readDrawnLines;
+      }
     };
   }, [host?.main, primitive]);
 

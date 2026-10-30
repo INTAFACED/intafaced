@@ -98,3 +98,17 @@ export async function pointerAt(page, point) {
 
 /** A stored price is the pointer's price at the tick (0.01 for BTC-USDT): within half a tick of it. */
 export const atTick = (stored, price, tick = 0.01) => Math.abs(Number(stored) - price) <= tick / 2 + 1e-9;
+
+/**
+ * The point moved to the middle of the bar under it: the pixels around it are read one by one, and the middle of those the
+ * chart reports as that same bar is taken. A point on the border between two bars is ambiguous (each side may be read as
+ * either bar), so a check that compares a placed point with the bar under the pointer places it here.
+ */
+export async function centred(page, point) {
+  const { time } = await pointerAt(page, point);
+  const same = [];
+  for (let dx = -8; dx <= 8; dx += 1) {
+    if ((await pointerAt(page, { x: point.x + dx, y: point.y })).time === time) same.push(point.x + dx);
+  }
+  return { x: (Math.min(...same) + Math.max(...same)) / 2, y: point.y };
+}
