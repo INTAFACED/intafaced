@@ -793,7 +793,10 @@ test(`${J} #7: a platform posting freeze never reads as "your account is restric
     await review.getByRole('button', { name: 'Confirm buy' }).click();
     const answer = await sent;
     expect(answer.status()).toBe(400);
-    expect((await answer.json()).message).toBe('ledger.frozen');
+    // svc-trade names a freeze that stopped the order before the engine `posting_frozen` (a refusal: nothing was held).
+    const refusal = await answer.json();
+    expect(refusal.intafacedCode, JSON.stringify(refusal)).toBe('posting_frozen');
+    expect(refusal.code).toBe('OnMaintenance');
     const main = page.getByRole('main');
     await expect(main.getByText('Orders are paused right now')).toBeVisible();
     await expect(main.getByText("Orders can't go through at the moment, and this one wasn't placed. Try again later.")).toBeVisible();
