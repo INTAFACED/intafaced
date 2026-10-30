@@ -11,7 +11,7 @@ import { fileURLToPath } from 'node:url';
 import { afterAll, beforeEach, describe, expect, it } from 'vitest';
 import { issueAccessToken, verifyAccessToken } from '@intafaced/auth';
 import { mergeRouters } from '@intafaced/contracts';
-import { sandboxCreateRequestId, sandboxKeyCreateRequestId } from '@intafaced/contracts/developer-sandboxes';
+import { sandboxCreateRequestId, sandboxFundRequestId, sandboxKeyCreateRequestId } from '@intafaced/contracts/developer-sandboxes';
 import { postgresAvailable, rewriteSchemaSql, type TestDb } from '@intafaced/db';
 import { MemoryEventBus } from '@intafaced/events';
 import { AuthService, type KycTier } from './auth-service.js';
@@ -258,6 +258,31 @@ if (!available) {
         message: expect.stringContaining('[identity.delegated_refused]'),
       });
       expect(await sandboxesOf(s.userId)).toHaveLength(0);
+    });
+  });
+
+  describe('developerSandboxes.fund', () => {
+    it("refuses sandbox_funds_unset on the caller's own sandbox while the owner has not decided, and writes nothing", async () => {
+      const s = await register();
+      const c = await caller(s);
+      const { sandbox } = await c.developerSandboxes.create(make(s.userId, 'development'));
+      await expect(
+        c.developerSandboxes.fund({ sandboxId: sandbox.id, requestId: sandboxFundRequestId(s.userId, sandbox.id, null) }),
+      ).rejects.toMatchObject({ code: 'PRECONDITION_FAILED', message: expect.stringContaining('[identity.sandbox_funds_unset]') });
+      expect(await sandboxesOf(s.userId)).toEqual([{ name: 'development' }]);
+      expect(await keysOf(s.userId)).toHaveLength(0);
+    });
+
+    it("refuses another account's sandbox as not found", async () => {
+      const s = await register();
+      const { sandbox } = await (await caller(s)).developerSandboxes.create(make(s.userId, 'development'));
+      const other = await register();
+      await expect(
+        (await caller(other)).developerSandboxes.fund({
+          sandboxId: sandbox.id,
+          requestId: sandboxFundRequestId(other.userId, sandbox.id, null),
+        }),
+      ).rejects.toMatchObject({ code: 'NOT_FOUND', message: expect.stringContaining('[identity.sandbox_not_found]') });
     });
   });
 

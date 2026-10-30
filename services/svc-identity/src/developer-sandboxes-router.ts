@@ -2,6 +2,8 @@ import { router, scopedProcedure, TRPCError } from '@intafaced/contracts';
 import {
   sandboxCreateInputSchema,
   sandboxCreateOutputSchema,
+  sandboxFundInputSchema,
+  sandboxFundOutputSchema,
   sandboxGetInputSchema,
   sandboxGetOutputSchema,
   sandboxKeyCreateInputSchema,
@@ -15,6 +17,7 @@ import {
   createSandbox,
   createSandboxKey,
   DeveloperSandboxError,
+  fundSandbox,
   getSandbox,
   listSandboxes,
   type DeveloperSandboxesDeps,
@@ -29,6 +32,7 @@ const SANDBOX_STATUS: Record<DeveloperSandboxError['code'], TRPCError['code']> =
   'identity.sandbox_cap_reached': 'PRECONDITION_FAILED',
   'identity.sandbox_request_conflict': 'CONFLICT',
   'identity.sandbox_not_found': 'NOT_FOUND',
+  'identity.sandbox_funds_unset': 'PRECONDITION_FAILED',
   'env.scope_not_sandboxable': 'FORBIDDEN',
 };
 
@@ -84,6 +88,11 @@ export function createDeveloperSandboxesRouter(deps: DeveloperSandboxesDeps) {
         .input(sandboxKeyCreateInputSchema.extend({ factorProof: optionalFactorProof }))
         .output(sandboxKeyCreateOutputSchema)
         .mutation(({ ctx, input }) => guarded(ctx.principal, () => createSandboxKey(deps, ctx.principal, input))),
+
+      fund: scopedProcedure('identity:write')
+        .input(sandboxFundInputSchema)
+        .output(sandboxFundOutputSchema)
+        .mutation(({ ctx, input }) => guarded(ctx.principal, () => fundSandbox(deps, ctx.principal.userId, input.sandboxId))),
     }),
   });
 }

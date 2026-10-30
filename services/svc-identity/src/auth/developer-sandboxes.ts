@@ -43,6 +43,7 @@ export type DeveloperSandboxRefusal =
   | 'identity.sandbox_cap_reached'
   | 'identity.sandbox_request_conflict'
   | 'identity.sandbox_not_found'
+  | 'identity.sandbox_funds_unset'
   | 'env.scope_not_sandboxable';
 
 export class DeveloperSandboxError extends Error {
@@ -180,6 +181,19 @@ async function ownSandbox(sql: Sql, userId: string, sandboxId: string): Promise<
   >`SELECT id, name, created_at FROM developer_sandboxes WHERE id = ${sandboxId} AND user_id = ${userId}`;
   if (!rows[0]) throw new DeveloperSandboxError('No such sandbox on this account', 'identity.sandbox_not_found');
   return rows[0];
+}
+
+/**
+ * Sandbox test funds (DV-sandbox-02). Where TEST balances live is the owner's decision (the sandbox store); until it is
+ * made, a fund of the caller's own sandbox refuses `identity.sandbox_funds_unset` and writes nothing. Another account's
+ * sandbox is not found, as everywhere else.
+ */
+export async function fundSandbox(deps: Pick<DeveloperSandboxesDeps, 'sql'>, userId: string, sandboxId: string): Promise<never> {
+  await ownSandbox(deps.sql, userId, sandboxId);
+  throw new DeveloperSandboxError(
+    "Sandbox test funds wait for the owner's decision on where sandbox balances are kept",
+    'identity.sandbox_funds_unset',
+  );
 }
 
 /** The key door's own columns, read through the `k` alias of a join. */

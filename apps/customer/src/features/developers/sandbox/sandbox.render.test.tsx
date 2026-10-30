@@ -15,6 +15,7 @@ const world = vi.hoisted(() => ({
   get: undefined as unknown as () => Promise<unknown>,
   create: undefined as unknown as (name: string) => Promise<unknown>,
   createKey: undefined as unknown as (asked: unknown) => Promise<unknown>,
+  fund: undefined as unknown as (sandboxId: string) => Promise<unknown>,
 }));
 vi.mock('../../session/session', () => ({ useSession: () => ({ userId: world.userId, api: {} }) }));
 vi.mock('./sandbox-api', async (original) => {
@@ -25,6 +26,7 @@ vi.mock('./sandbox-api', async (original) => {
     readSandbox: () => world.get(),
     createSandbox: (_api: unknown, _user: string, _listed: unknown, name: string) => world.create(name),
     createSandboxKey: (_api: unknown, _user: string, _detail: unknown, asked: unknown) => world.createKey(asked),
+    fundSandbox: (_api: unknown, _user: string, sandboxId: string) => world.fund(sandboxId),
   };
 });
 
@@ -142,6 +144,19 @@ describe('sandbox rooms', () => {
     await show(`/developers/sandbox/${SANDBOX}`);
     expect(document.querySelector('h1')?.textContent).toBe('Sandbox');
     expect(document.querySelector('a[href="/developers/sandbox"]')?.textContent).toContain('All sandboxes');
+  });
+
+  it('shows the TEST balance as not set, and Fund refuses by name while the owner has not decided', async () => {
+    world.fund = vi.fn(async () => ({ ok: false, code: 'identity.sandbox_funds_unset', message: 'refused' }));
+    await show(`/developers/sandbox/${SANDBOX}`);
+    const balance = document.querySelector('[data-testid="sandbox-balance"]')!;
+    expect(balance.textContent).toBe('Sandbox balance (TEST): not set');
+    await click(button('Fund with TEST money'));
+    expect(world.fund).toHaveBeenCalledWith(SANDBOX);
+    const alert = document.querySelector('[role="alert"]')!;
+    expect(alert.getAttribute('data-code')).toBe('identity.sandbox_funds_unset');
+    expect(alert.textContent).toContain('The owner has not set sandbox test funds. Nothing was added.');
+    expect(document.querySelector('[data-testid="sandbox-balance"]')?.textContent).toBe('Sandbox balance (TEST): not set');
   });
 
   it('sends the trade preset as asked and shows the sandbox refusal by code', async () => {

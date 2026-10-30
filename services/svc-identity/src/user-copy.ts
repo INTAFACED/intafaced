@@ -175,6 +175,7 @@ const LOCAL_COPY: Readonly<Record<string, string>> = {
   'identity.sandbox_cap_reached': 'This account holds as many sandboxes as it may.',
   'identity.sandbox_request_conflict': 'This request was already used for a different sandbox. Reload the page and try again.',
   'identity.sandbox_not_found': 'This sandbox is not on your account.',
+  'identity.sandbox_funds_unset': 'The owner has not set sandbox test funds. Nothing was added.',
   'env.scope_not_sandboxable':
     'This permission can’t be used in a sandbox, so no key was made. A sandbox key can read and make test payments.',
   'auth.delegate_cannot_grant': 'An API key cannot create or change keys, including its own end date. Sign in on a device.',
