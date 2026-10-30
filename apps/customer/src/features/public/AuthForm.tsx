@@ -806,6 +806,11 @@ export function AuthForm({ register }: { register: boolean }) {
                       <a className="text-link" href="/help" lang={languageFor('stateHelp')}>
                         {t('stateHelp')}
                       </a>
+                      {result.accountState === 'frozen' && (
+                        <a className="text-link" href="/appeal" lang={languageFor('stateAppeal')}>
+                          {t('stateAppeal')}
+                        </a>
+                      )}
                     </div>
                   ) : (
                     <Failure result={result} />
