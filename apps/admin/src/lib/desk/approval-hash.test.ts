@@ -26,7 +26,7 @@ import {
   LAUNCH_EVENT_MOVE_ACTION,
   LAUNCH_ISSUER_SET_ACTION,
   launchEventPayload,
-} from '../../../../../services/svc-token/src/launch/router';
+} from '../../../../../services/svc-token/src/launch/payload';
 import { createInputFor, draftPayload, readLaunchEventPayload } from '@/lib/launch-issuers/model';
 import { readDeskRequest } from './approval-packet';
 import { payloadHashFor, proposeInputFor } from './approval-hash';

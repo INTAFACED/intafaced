@@ -295,6 +295,28 @@ export function IssuerLens({ read, userId }: { read: IssuerLensRead; userId: str
           onChanged={refresh}
         />
       </section>
+
+      <section className="dk-stack" aria-labelledby="launch-parked-h" data-testid="launch-parked">
+        <h2 id="launch-parked-h">Not wired yet</h2>
+        <ul>
+          {PARKED.map(([what, why]) => (
+            <li key={what}>
+              <strong>{what}</strong>: {why}
+            </li>
+          ))}
+        </ul>
+      </section>
     </div>
   );
 }
+
+/** The parts of a launch this lens cannot show yet, each with what blocks it. Nothing here is read or estimated. */
+const PARKED: readonly (readonly [string, string])[] = [
+  [
+    'Commits and refunds per launch',
+    'subscribing, allocation and refunds have no ledger recipe wired yet (MC-launch-03), so there is no progress to read.',
+  ],
+  ['Fundraising milestones and investor records', 'svc-token keeps no milestone or investor record yet (RC-more-catalogue-22).'],
+  ['Wrapped, synthetic or structured issuance', 'svc-token records no issuance kind yet (RC-more-catalogue-23).'],
+  ['Marketing claims evidence register', 'no service keeps claims and their evidence yet (RC-more-catalogue-24).'],
+];
