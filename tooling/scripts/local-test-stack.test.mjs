@@ -21,6 +21,9 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const here = dirname(fileURLToPath(import.meta.url));
+// Each child below gets its own HOME, so its state folder is a fresh one under it. An inherited LOCAL_STACK_STATE (the
+// INTAFACED cloud environment sets it to the machine's real stack) would point every child at that stack instead.
+delete process.env.LOCAL_STACK_STATE;
 const script = resolve(here, 'local-test-stack.mjs');
 
 // Start order: a service waits for every earlier service its env names (matching checks resting-order holds against
@@ -755,10 +758,11 @@ console.log('local-test-stack: customer folder override checks passed');
     rmSync(mkHome, { recursive: true, force: true });
   }
   // start (and restart, which ends in start) calls ensure after the services are up; it never starts one that was never started.
-  // The founder console starts after the Customer app and the invitation site and before the market check, and stops first.
+  // The founder console starts after the Customer app, the invitation site, the apex site and the host check, and before
+  // the market check, and stops first.
   assert.match(
     source,
-    /if \(!only \|\| only\.includes\('customer'\)\) await startCustomer\(\);\s*if \(!only \|\| only\.includes\('invitation'\)\) await startInvitation\(\);\s*if \(!only \|\| only\.includes\('admin'\)\) await startAdmin\(secrets\);\s*ensureMarket\(\);/,
+    /if \(!only \|\| only\.includes\('customer'\)\) await startCustomer\(\);\s*if \(!only \|\| only\.includes\('invitation'\)\) await startInvitation\(\);\s*if \(!only \|\| only\.includes\('apex'\)\) await startApex\(\);\s*if \(!only \|\| HOST_SITES\.some\(\(name\) => only\.includes\(name\)\)\) await checkLocalTestHosts\(\);\s*if \(!only \|\| only\.includes\('admin'\)\) await startAdmin\(secrets\);\s*ensureMarket\(\);/,
   );
   // The TEST chain (local-test-chain.mjs) stops after the services that read it (svc-protocol), before NATS.
   assert.match(
