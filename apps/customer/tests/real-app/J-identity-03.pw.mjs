@@ -176,9 +176,14 @@ test(`${J} #6 a "your password was changed" notice by mail and in the inbox`, as
   await page.fill('input[name=password]', changed);
   await page.getByRole('button', { name: /^sign in$/i }).click();
   await expect(page).not.toHaveURL(/\/login/);
+  // The row itself: its title, its body and its link to Security.
+  const row = page.getByTestId('nf-row').filter({ has: page.getByTestId('nf-title').getByText('Password changed', { exact: true }) });
   await expect(async () => {
     await page.goto('/notifications');
-    await expect(page.getByText('Password changed', { exact: true }).first()).toBeVisible({ timeout: 2_000 });
+    await expect(row).toHaveCount(1, { timeout: 2_000 });
   }).toPass({ timeout: 30_000 });
-  await expect(page.getByText('The password of your account was changed.', { exact: false }).first()).toBeVisible();
+  await expect(row.getByTestId('nf-body')).toHaveText(
+    'The password of your account was changed. If this was not you, reset it now, open Security, sign out everywhere and contact Support.',
+  );
+  await expect(row).toHaveAttribute('href', '/uc/safe');
 });

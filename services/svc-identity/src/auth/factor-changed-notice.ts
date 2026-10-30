@@ -1,7 +1,7 @@
 /**
  * A notice for each change to a sign-in factor (I-signin-sessions-08; J-identity-05 #6, J-identity-03 #6): the
- * authenticator app turned on, off or replaced, a passkey added or removed, or the password changed or reset (that one
- * from `queuePasswordChangedNotice`, with `mail: false`: its own notice is the mail). The caller queues it inside the transaction that makes the change,
+ * authenticator app turned on, off or replaced, a passkey added or removed, or the password changed, reset, set or
+ * removed. The caller queues it inside the transaction that makes the change,
  * so a rolled-back change leaves nothing and a crash after the commit still sends it. Two rows go in:
  *
  * - a "factor-changed" mail to the account's proved address (none without one), saying what changed and that Support can
@@ -14,7 +14,8 @@
  * changes never share a key and a relay that publishes a row twice publishes the same key. A repeated request is not a
  * second change: each door answers a repeat without writing (already off, already removed, already set up), so it
  * queues nothing. Neither row carries a secret, a code or a credential id. `mail: false` is for a change whose own
- * notice already mails (a completed second-step reset): the event still goes, for the inbox.
+ * notice already mails (a completed second-step reset, and every password change, which `queuePasswordChangedNotice`
+ * mails itself): the event still goes, for the inbox.
  */
 import { createHash } from 'node:crypto';
 import type { Sql, TransactionSql } from 'postgres';
