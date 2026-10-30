@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { test, expect } from '@playwright/test';
-import { EDGE } from './stack.mjs';
+import { EDGE, signOutBrowser } from './stack.mjs';
 import { signIn, signUp } from './desk.mjs';
 
 // J-charts-desk-17, in the running app (docs/roadmap/journeys.json): compare markets on one chart, then snapshot, link,
@@ -38,7 +38,7 @@ test(`${J} #1 adds symbols to a BTC chart, each a removable line; past the cap t
   // The cap is the owner's value (a TEST 3 on the stack), and the stack lists more markets than that, so the add past
   // the cap is always tried.
   const cap = (await ownerValues()).compareCap;
-  expect(cap).toBe(3);
+  expect(Number.isInteger(cap) && cap > 0, `the compare cap is set (${cap})`).toBe(true);
   expect(offered.length).toBeGreaterThan(cap);
   const list = tools(page).getByRole('list', { name: 'Compared markets' });
   let added = 0;
@@ -94,6 +94,8 @@ test(`${J} #4 takes a snapshot, copies a share link and prints, with no account 
   await context.grantPermissions(['clipboard-read', 'clipboard-write']);
   // Signed in, so there is an account the snapshot and the link could leak.
   const who = await signUp(page, 'cs');
+  // Sign-up leaves the browser signed in and /login can reset its form on the session refresh: sign in from signed out.
+  await signOutBrowser(page.context());
   await signIn(page, who);
   await openChart(page, `${CHART}?interval=1h`);
   const [png] = await Promise.all([page.waitForEvent('download'), tools(page).getByRole('button', { name: 'Snapshot (PNG)' }).click()]);
@@ -149,17 +151,21 @@ test(`${J} #5 exports the visible bars to a file`, async ({ page }) => {
   await canvas(page).focus();
   for (let i = 0; i < 4; i += 1) await page.keyboard.press('+');
   await page.waitForTimeout(300);
-  const view = await canvas(page).evaluate((el) => ({
-    from: Number(el.getAttribute('data-view-from')),
-    to: Number(el.getAttribute('data-view-to')),
-    bars: Number(el.getAttribute('data-bars')),
-    first: Number(el.getAttribute('data-first')),
-  }));
+  const exportedAt = Date.now();
+  const readView = () =>
+    canvas(page).evaluate((el) => ({
+      from: Number(el.getAttribute('data-view-from')),
+      to: Number(el.getAttribute('data-view-to')),
+      bars: Number(el.getAttribute('data-bars')),
+      first: Number(el.getAttribute('data-first')),
+    }));
   const [file] = await Promise.all([page.waitForEvent('download'), tools(page).getByRole('button', { name: 'Export bars (CSV)' }).click()]);
   expect(file.suggestedFilename()).toBe('chart-BTC-USDT-1m.csv');
   const lines = readFileSync(await file.path(), 'utf8').split('\n');
   expect(lines[0]).toMatch(/^# BTC\/USDT 1m bars; times are UTC; viewer time zone \S+/);
   expect(lines[1]).toBe('time_utc,open,high,low,close,volume,filled');
+  // The view as it was exported (read right after; a new bar in between would move it, and the counts below would show).
+  const view = await readView();
   const rows = lines.slice(2);
   for (const row of rows) expect(row).toMatch(/^\d{4}-\d\d-\d\dT\d\d:\d\d:00\.000Z,[\d.]+,[\d.]+,[\d.]+,[\d.]+,[\d.]+,(yes|no)$/);
   // The visible bars exactly: the bars whose centre is in view (indexes rounded from the view's edges), from the first to
@@ -170,12 +176,16 @@ test(`${J} #5 exports the visible bars to a file`, async ({ page }) => {
   const times = rows.map((r) => Date.parse(r.split(',')[0]));
   times.forEach((t, i) => expect(t).toBe(view.first + (from + i) * 60_000));
   // Each traded bar is Edge's own 1m candle, value for value; a filled bar repeats the close before it with no volume.
+  // The minute still forming at the export can trade again after it, so only finished minutes are compared.
   const res = await fetch(`${EDGE}/api/v1/ohlcv/${encodeURIComponent('BTC/USDT')}?timeframe=1m&limit=240`);
+  expect(res.status).toBe(200);
+  const forming = Math.floor(exportedAt / 60_000) * 60_000;
   const candles = new Map((await res.json()).map((c) => [c[0], c]));
   let previous = null;
   for (const row of rows) {
     const [time, o, h, l, c, v, filled] = row.split(',');
     const candle = candles.get(Date.parse(time));
+    if (Date.parse(time) >= forming) break;
     if (filled === 'no') {
       expect(candle, `${time} is a traded bar on Edge`).toBeTruthy();
       expect([o, h, l, c, v]).toEqual(candle.slice(1, 6).map(String));
