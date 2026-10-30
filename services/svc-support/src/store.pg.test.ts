@@ -33,6 +33,7 @@ const MIGRATIONS = [
   '0032_kb_library.sql',
   '20261029180000_internal_notes.sql',
   '20261030140327_kb_drafts_review.sql',
+  '20261030184000_kb_publish_source_template_log.sql',
 ].map(migration);
 
 const USER = '11111111-1111-4111-8111-111111111111';

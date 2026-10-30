@@ -13,8 +13,6 @@ ALTER TABLE "support"."kb_article_versions" ADD COLUMN IF NOT EXISTS "draft" boo
 ALTER TABLE "support"."kb_article_versions" ADD COLUMN IF NOT EXISTS "author_id" text;
 ALTER TABLE "support"."kb_article_versions" ADD COLUMN IF NOT EXISTS "template_id" text;
 ALTER TABLE "support"."kb_article_versions" ADD COLUMN IF NOT EXISTS "created_at" timestamptz NOT NULL DEFAULT now();
--- The draft revision a published version was made from, so a publish retried after a crash finds its own version.
-ALTER TABLE "support"."kb_article_versions" ADD COLUMN IF NOT EXISTS "source_revision" integer;
 
 ALTER TABLE "support"."kb_article_versions" DROP CONSTRAINT IF EXISTS "kb_article_versions_draft_author_ck";
 ALTER TABLE "support"."kb_article_versions" ADD CONSTRAINT "kb_article_versions_draft_author_ck"
@@ -75,21 +73,3 @@ CREATE TABLE IF NOT EXISTS "support"."kb_templates" (
   "updated_at" timestamptz NOT NULL DEFAULT now(),
   CONSTRAINT "kb_templates_revision_ck" CHECK ("revision" >= 1)
 );
-
--- Every template change, with who made it and why: the audit the desk's reason field feeds. Append-only.
-CREATE TABLE IF NOT EXISTS "support"."kb_template_log" (
-  "id"          bigserial PRIMARY KEY,
-  "template_id" text NOT NULL,
-  "revision"    integer NOT NULL,
-  "name"        text NOT NULL,
-  "body"        text NOT NULL,
-  "retired"     boolean NOT NULL,
-  "actor_id"    text NOT NULL,
-  "reason"      text NOT NULL,
-  "at"          timestamptz NOT NULL,
-  CONSTRAINT "kb_template_log_revision_uq" UNIQUE ("template_id", "revision")
-);
-DROP TRIGGER IF EXISTS "kb_template_log_append_only_trg" ON "support"."kb_template_log";
-CREATE TRIGGER "kb_template_log_append_only_trg"
-  BEFORE UPDATE OR DELETE ON "support"."kb_template_log"
-  FOR EACH ROW EXECUTE FUNCTION "support"."kb_review_log_append_only"();
