@@ -193,7 +193,7 @@ describe('score changes after grading (AC-quizzes-04)', () => {
   it('a key fix changes only keys as a new revision; a rescore applies it once per attempt, and learners see the new score', async () => {
     const { itemId, ids } = await taken();
     const quiz = await quizzes().adminView(itemId);
-    const fixed = TWO.map((q) => (q.kind === 'numeric' ? { ...q, answer: '12' } : q));
+    const fixed: AcademySaveCourseQuizInput['questions'] = TWO.map((q) => (q.kind === 'numeric' ? { ...q, answer: '12' } : q));
     const fix = (questions = fixed, revision = quiz.revision) =>
       trail().fixKey({ itemId, revision, questions, reason: 'TEST the size was 12', operatorId: A, now: later(1) });
     await expect(fix(TWO)).rejects.toMatchObject({ code: 'academy.key_fix_invalid' });
@@ -235,5 +235,38 @@ describe('score changes after grading (AC-quizzes-04)', () => {
     await expect(trail().rescore({ itemId: OUTSIDER, reason: 'TEST', operatorId: A, now: NOW })).rejects.toMatchObject({
       code: 'academy.quiz_not_found',
     });
+  });
+  it('an override survives a later key fix on another question; a fix of its own question rescores it', async () => {
+    const { itemId, ids } = await taken();
+    // L answered q1 "b" (0 of 2) and n1 10 (3 of 3). Staff give q1 2 by hand: 5.
+    await trail().override({
+      itemId,
+      attemptId: ids[L]!,
+      questionId: 'q1',
+      points: 2,
+      n: 1,
+      comment: null,
+      reason: 'TEST by hand',
+      operatorId: A,
+      now: later(1),
+    });
+    const fixN1: AcademySaveCourseQuizInput['questions'] = TWO.map((q) => (q.kind === 'numeric' ? { ...q, answer: '12' } : q));
+    let revision = (await quizzes().adminView(itemId)).revision;
+    await trail().fixKey({ itemId, revision, questions: fixN1, reason: 'TEST n1 is 12', operatorId: A, now: later(2) });
+    expect((await trail().attempts(itemId)).attempts.every((a) => a.rescoreDue)).toBe(true);
+    await trail().rescore({ itemId, reason: 'TEST n1', operatorId: A, now: later(3) });
+    let l = (await trail().attempts(itemId)).attempts.find((a) => a.attemptId === ids[L])!;
+    // q1 keeps the override (2); n1 is rescored to 0: 2.
+    expect(l).toMatchObject({ score: 2, rescoreDue: false });
+    expect(l.questions.map((q) => q.earned)).toEqual([2, 0]);
+    // Now q1's own key changes to "b": the rescore applies it to q1 (2 points for "b").
+    const fixQ1 = fixN1.map((q) => (q.kind === 'single' ? { ...q, correctChoiceId: 'b' } : q));
+    revision = (await quizzes().adminView(itemId)).revision;
+    await trail().fixKey({ itemId, revision, questions: fixQ1, reason: 'TEST q1 is b', operatorId: A, now: later(4) });
+    const again = await trail().rescore({ itemId, reason: 'TEST q1', operatorId: A, now: later(5) });
+    expect(again.rescored.map((r) => r.alias)).toEqual([2]);
+    l = again.attempts.attempts.find((a) => a.attemptId === ids[L])!;
+    expect(l.questions.map((q) => q.earned)).toEqual([2, 0]);
+    expect(l.events.map((e) => e.kind)).toEqual(['override', 'rescore']);
   });
 });

@@ -398,6 +398,10 @@ export const academyCourseQuizAttemptsSchema = z.object({
       score: z.number().int().nonnegative().nullable(),
       maxScore: z.number().int().nonnegative(),
       passed: z.boolean().nullable(),
+      /** The pass mark this attempt is judged against: the one in force when it was taken. */
+      passMark: z.number().int().nonnegative(),
+      /** Graded on keys other than the quiz's current ones (graded after the last rescore, say): a rescore would apply them. */
+      rescoreDue: z.boolean(),
       questions: z.array(
         z.object({ questionId: z.string(), prompt: z.string(), points: z.number().int().positive(), earned: z.number().nullable() }),
       ),

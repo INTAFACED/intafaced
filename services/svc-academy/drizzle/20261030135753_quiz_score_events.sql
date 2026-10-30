@@ -4,7 +4,8 @@
 -- An attempt row stays as the learner finished it. Every later change to its score is an event here, numbered per attempt
 -- (`override:<attempt>:<question>:<n>`, `rescore:<attempt>:<revision>`): the points each question earns after it, the
 -- total before and after, whether it passes, the reason, and who. The score a learner and the gradebook see is the newest
--- event's, or the attempt's own when there is none. A key fix is a new revision of the quiz; a rescore event names the
+-- event's, or the attempt's own when there is none. Each event also keeps the key each question was scored on, so a later
+-- rescore changes only questions whose key changed since, and never undoes an override for a key fix elsewhere. A key fix is a new revision of the quiz; a rescore event names the
 -- revision whose keys it applied, once per attempt. No money moves.
 
 CREATE TABLE IF NOT EXISTS "academy"."course_quiz_score_events" (
@@ -15,6 +16,8 @@ CREATE TABLE IF NOT EXISTS "academy"."course_quiz_score_events" (
   "question_id"     text,
   "revision"        integer,
   "points"          jsonb NOT NULL,
+  -- The key each question's points were scored on after this event, so a later rescore touches only what changed since.
+  "keys"            jsonb NOT NULL,
   "previous_score"  integer NOT NULL,
   "score"           integer NOT NULL,
   "passed"          boolean NOT NULL,

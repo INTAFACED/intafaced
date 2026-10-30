@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useState } from 'react';
+import { Chip } from '@/components/chip';
 import './desk.css';
 import { formatAsOf, formatWhen } from '@/lib/as-of';
 import { fetchQuizTrail, postQuizTrailChange } from '@/lib/academy/quiz-trail-browser';
@@ -209,6 +210,8 @@ function AttemptRow({ attempt, busy, onChange }: { attempt: Attempt; busy: boole
           : `Score ${attempt.score} of ${attempt.maxScore}, ${attempt.passed ? 'passed' : 'not passed'}`}
         {changed && attempt.originalScore !== null && ` · ${attempt.originalScore} as finished`}
       </p>
+      <span className="dk-muted">Judged against the pass mark of {attempt.passMark} it was taken under.</span>
+      {attempt.rescoreDue && <Chip tone="warn">Scored on an older key: rescore to apply the current keys</Chip>}
       <ul className="dk-stack">
         {attempt.questions.map((q, i) => (
           <li key={q.questionId} data-question={q.questionId}>
@@ -276,8 +279,8 @@ export function AcademyQuizTrail({ itemId, initial }: { itemId: string; initial:
         <dl className="dk-kv">
           <dt>Revision</dt>
           <dd data-testid="quiz-revision">{quiz.revision}</dd>
-          <dt>Pass mark</dt>
-          <dd>{quiz.passMark ?? 'Not set'}</dd>
+          <dt>Pass mark now</dt>
+          <dd>{quiz.passMark ?? 'Not set'} (each attempt keeps the pass mark it was taken under)</dd>
           <dt>Learners</dt>
           <dd>Shown by alias, in the order they first started. Names stay hidden.</dd>
         </dl>

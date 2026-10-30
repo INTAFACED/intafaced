@@ -143,6 +143,22 @@ function reviewOf(row: AttemptRow) {
   });
 }
 
+/** One row of a quiz's own history: a save, publish, take-down, essay score or key fix, with who and why. */
+export async function recordQuizEvent(
+  sql: Db,
+  itemId: string,
+  revision: number,
+  kind: string,
+  reason: string | null,
+  actorId: string,
+  at: Date,
+): Promise<void> {
+  await sql`
+    INSERT INTO academy.course_quiz_events (item_id, revision, kind, reason, actor_id, at)
+    VALUES (${itemId}, ${revision}, ${kind}, ${reason}, ${actorId}, ${at})
+  `;
+}
+
 /** The one-way hash an anonymous survey response is kept under: nothing in it names an account. */
 export const surveyTokenHash = (itemId: string, clientToken: string) =>
   createHash('sha256').update(`${itemId}:${clientToken}`).digest('hex');
@@ -606,10 +622,17 @@ export class CourseQuizzes {
     const shown = await this.resultsShow(tx, row);
     if (!shown.show) return { ...base, result: { state: 'withheld', finishedAt } };
     // A score changed after grading (AC-quizzes-04) shows as its newest score event left it.
-    const [changed] = await tx<Array<{ score: number; passed: boolean; points: Record<string, number> }>>`
-      SELECT score, passed, points FROM academy.course_quiz_score_events WHERE attempt_id = ${row.id} ORDER BY n DESC LIMIT 1
+    const [changed] = await tx<
+      Array<{ score: number; passed: boolean; points: Record<string, number>; keys: Record<string, Record<string, unknown>> }>
+    >`
+      SELECT score, passed, points, keys FROM academy.course_quiz_score_events WHERE attempt_id = ${row.id} ORDER BY n DESC LIMIT 1
     `;
     const review = shown.reviewMode === 'answers' ? reviewOf(row) : null;
+    // After a key fix and rescore, the review shows the key the points stand on, not the one the attempt was taken under.
+    const keyNow = (questionId: string, key: unknown) => {
+      const applied = changed?.keys[questionId];
+      return applied ? (applied.correctChoiceId ?? applied.correctChoiceIds ?? applied.answer ?? key) : key;
+    };
     return {
       ...base,
       result: {
@@ -618,7 +641,14 @@ export class CourseQuizzes {
         maxScore: row.max_score!,
         pass: changed?.passed ?? row.passed!,
         finishedAt,
-        review: review && changed ? review.map((r) => ({ ...r, earned: changed.points[r.questionId] ?? r.earned })) : review,
+        review:
+          review && changed
+            ? review.map((r) => ({
+                ...r,
+                key: keyNow(r.questionId, r.key) as typeof r.key,
+                earned: changed.points[r.questionId] ?? r.earned,
+              }))
+            : review,
       },
     };
   }
@@ -680,10 +710,7 @@ export class CourseQuizzes {
   }
 
   private async event(sql: Db, itemId: string, revision: number, kind: string, reason: string | null, actorId: string, at: Date) {
-    await sql`
-      INSERT INTO academy.course_quiz_events (item_id, revision, kind, reason, actor_id, at)
-      VALUES (${itemId}, ${revision}, ${kind}, ${reason}, ${actorId}, ${at})
-    `;
+    await recordQuizEvent(sql, itemId, revision, kind, reason, actorId, at);
   }
 
   private async adminIn(sql: Db, row: QuizRow): Promise<AcademyAdminCourseQuiz> {

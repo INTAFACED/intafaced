@@ -29,7 +29,7 @@ import type {
 } from '@intafaced/contracts';
 import { AcademyError } from '../errors.js';
 import { scoreQuestion } from './course-quiz-score.js';
-import { canonical, questionsOf } from './course-quizzes.js';
+import { canonical, questionsOf, recordQuizEvent } from './course-quizzes.js';
 
 type Db = Sql | TransactionSql;
 
@@ -55,6 +55,7 @@ type EventRow = {
   question_id: string | null;
   revision: number | null;
   points: Record<string, number>;
+  keys: Record<string, Record<string, unknown>>;
   previous_score: number;
   score: number;
   passed: boolean;
@@ -65,15 +66,24 @@ type EventRow = {
 };
 
 /**
- * The score shown for an attempt `t`: its newest score event's, else its own. For reads elsewhere (the gradebook, the
- * learner's own attempt), so every reader agrees.
+ * The score shown for an attempt: its newest score event's, else its own. The query must name the attempts table `t`
+ * (`FROM academy.course_quiz_attempts t`). The gradebook reads it; the learner's own attempt and this module's view read
+ * the same newest event (`newestEvents`), so every reader agrees.
  */
 export const effectiveScoreSql = (sql: Db) => sql`
   coalesce((SELECT e.score FROM academy.course_quiz_score_events e WHERE e.attempt_id = t.id ORDER BY e.n DESC LIMIT 1), t.score)
 `;
-export const effectivePassedSql = (sql: Db) => sql`
-  coalesce((SELECT e.passed FROM academy.course_quiz_score_events e WHERE e.attempt_id = t.id ORDER BY e.n DESC LIMIT 1), t.passed)
-`;
+
+/** The newest score event of each attempt named, by attempt id. */
+export async function newestEvents(sql: Db, attemptIds: readonly string[]): Promise<Map<string, EventRow>> {
+  if (attemptIds.length === 0) return new Map();
+  const rows = await sql<EventRow[]>`
+    SELECT DISTINCT ON (attempt_id) * FROM academy.course_quiz_score_events
+    WHERE attempt_id IN ${sql(attemptIds as string[])}
+    ORDER BY attempt_id, n DESC
+  `;
+  return new Map(rows.map((r) => [r.attempt_id, r]));
+}
 
 /** A question's key fields: what a key fix may change. Pure. */
 export function keyOf(q: AcademyCourseQuizQuestion): Record<string, unknown> {
@@ -122,20 +132,45 @@ export function finishedPoints(attempt: Pick<TrailAttempt, 'quiz' | 'answers' | 
   );
 }
 
-/** The points after applying `current`'s keys to the attempt's own questions whose key differs. Pure. */
+/** The key each question of an attempt was scored on when it was finished: its own copy's. Pure. */
+export function finishedKeys(attempt: Pick<TrailAttempt, 'quiz'>): Record<string, Record<string, unknown>> {
+  return Object.fromEntries(attempt.quiz.questions.map((q) => [q.id, keyOf(q)]));
+}
+
+/**
+ * The points and keys after applying `current`'s keys to each question whose key differs from the one its points were
+ * last scored on (`keys`). A question an override set keeps its points until its own key changes. Pure.
+ */
 export function rescoredPoints(
   attempt: Pick<TrailAttempt, 'quiz' | 'answers'>,
   points: Readonly<Record<string, number>>,
+  keys: Readonly<Record<string, Record<string, unknown>>>,
   current: readonly AcademyCourseQuizQuestion[],
-): Record<string, number> {
+): { points: Record<string, number>; keys: Record<string, Record<string, unknown>> } {
   const byId = new Map(current.map((q) => [q.id, q]));
-  const out = { ...points };
+  const out = { points: { ...points }, keys: { ...keys } };
   for (const q of attempt.quiz.questions) {
     const now = byId.get(q.id);
-    if (!now || now.kind !== q.kind || q.kind === 'essay' || canonical(keyOf(q)) === canonical(keyOf(now))) continue;
-    out[q.id] = scoreQuestion({ ...q, ...keyOf(now) } as AcademyCourseQuizQuestion, attempt.answers[q.id]) ?? 0;
+    if (!now || now.kind !== q.kind || q.kind === 'essay') continue;
+    const key = keyOf(now);
+    if (canonical(keys[q.id] ?? keyOf(q)) === canonical(key)) continue;
+    out.points[q.id] = scoreQuestion({ ...q, ...key } as AcademyCourseQuizQuestion, attempt.answers[q.id]) ?? 0;
+    out.keys[q.id] = key;
   }
   return out;
+}
+
+/** Whether a graded attempt's points stand on keys other than the quiz's current ones: a rescore would change it. Pure. */
+export function onOlderKeys(
+  attempt: Pick<TrailAttempt, 'quiz'>,
+  keys: Readonly<Record<string, Record<string, unknown>>>,
+  current: readonly AcademyCourseQuizQuestion[],
+): boolean {
+  const byId = new Map(current.map((q) => [q.id, q]));
+  return attempt.quiz.questions.some((q) => {
+    const now = byId.get(q.id);
+    return Boolean(now && now.kind === q.kind && q.kind !== 'essay' && canonical(keys[q.id] ?? keyOf(q)) !== canonical(keyOf(now)));
+  });
 }
 
 const total = (points: Readonly<Record<string, number>>) => Object.values(points).reduce((sum, p) => sum + p, 0);
@@ -168,10 +203,7 @@ export class CourseQuizTrail {
             saved_at = ${input.now}
         WHERE item_id = ${input.itemId}
       `;
-      await tx`
-        INSERT INTO academy.course_quiz_events (item_id, revision, kind, reason, actor_id, at)
-        VALUES (${input.itemId}, ${quiz.revision + 1}, 'key_fixed', ${input.reason}, ${input.operatorId}, ${input.now})
-      `;
+      await recordQuizEvent(tx, input.itemId, quiz.revision + 1, 'key_fixed', input.reason, input.operatorId, input.now);
     });
   }
 
@@ -192,22 +224,36 @@ export class CourseQuizTrail {
         FOR UPDATE OF t
       `;
       const rescored: AcademyRescoreCourseQuizResult['rescored'] = [];
+      const newest = await newestEvents(
+        tx,
+        attempts.map((a) => a.id),
+      );
+      const done = new Set(
+        (
+          await tx<Array<{ attempt_id: string }>>`
+            SELECT e.attempt_id FROM academy.course_quiz_score_events e JOIN academy.course_quiz_attempts t ON t.id = e.attempt_id
+            WHERE t.item_id = ${input.itemId} AND e.kind = 'rescore' AND e.revision = ${quiz.revision}
+          `
+        ).map((r) => r.attempt_id),
+      );
       for (const attempt of attempts) {
-        const last = await this.lastEvent(tx, attempt.id);
-        if (await this.rescoredAt(tx, attempt.id, quiz.revision)) continue;
+        if (done.has(attempt.id)) continue;
+        const last = newest.get(attempt.id);
         const before = last?.points ?? finishedPoints(attempt);
-        const after = rescoredPoints(attempt, before, current);
-        if (canonical(before) === canonical(after)) continue;
+        const after = rescoredPoints(attempt, before, last?.keys ?? finishedKeys(attempt), current);
+        if (canonical(before) === canonical(after.points)) continue;
         const from = last?.score ?? attempt.score ?? total(before);
-        const to = total(after);
+        const to = total(after.points);
         await tx`
           INSERT INTO academy.course_quiz_score_events
-            (attempt_id, n, kind, revision, points, previous_score, score, passed, reason, actor, at)
-          VALUES (${attempt.id}, ${(last?.n ?? 0) + 1}, 'rescore', ${quiz.revision}, ${tx.json(after)}, ${from}, ${to},
-                  ${to >= attempt.quiz.passMark}, ${input.reason}, ${input.operatorId}, ${input.now})
+            (attempt_id, n, kind, revision, points, keys, previous_score, score, passed, reason, actor, at)
+          VALUES (${attempt.id}, ${(last?.n ?? 0) + 1}, 'rescore', ${quiz.revision}, ${tx.json(after.points)},
+                  ${tx.json(after.keys as never)}, ${from}, ${to}, ${to >= attempt.quiz.passMark}, ${input.reason},
+                  ${input.operatorId}, ${input.now})
         `;
         rescored.push({ alias: attempt.alias, number: attempt.number, from, to });
       }
+      rescored.sort((a, b) => a.alias - b.alias || a.number - b.number);
       return { revision: quiz.revision, rescored };
     });
     return { ...out, attempts: await this.attempts(input.itemId) };
@@ -250,10 +296,12 @@ export class CourseQuizTrail {
       const before = last?.points ?? finishedPoints(attempt);
       const after = { ...before, [input.questionId]: input.points };
       const to = total(after);
+      // The override stands on the key in force for its question; a rescore leaves it until that key changes.
       await tx`
         INSERT INTO academy.course_quiz_score_events
-          (attempt_id, n, kind, question_id, points, previous_score, score, passed, comment, reason, actor, at)
+          (attempt_id, n, kind, question_id, points, keys, previous_score, score, passed, comment, reason, actor, at)
         VALUES (${attempt.id}, ${input.n}, 'override', ${input.questionId}, ${tx.json(after)},
+                ${tx.json((last?.keys ?? finishedKeys(attempt)) as never)},
                 ${last?.score ?? attempt.score ?? total(before)}, ${to}, ${to >= attempt.quiz.passMark}, ${comment},
                 ${input.reason}, ${input.operatorId}, ${input.now})
       `;
@@ -263,12 +311,21 @@ export class CourseQuizTrail {
 
   /** Every finished attempt under its alias, with its points per question and its score trail. Writes nothing. */
   async attempts(itemId: string): Promise<AcademyCourseQuizAttempts> {
-    const [quiz] = await this.sql<Array<{ title: string; kind: string; revision: number | null; pass_mark: number | null }>>`
-      SELECT i.title, i.kind, q.revision, q.pass_mark
+    const [quiz] = await this.sql<
+      Array<{
+        title: string;
+        kind: string;
+        revision: number | null;
+        pass_mark: number | null;
+        questions: AcademyCourseQuizQuestion[] | null;
+      }>
+    >`
+      SELECT i.title, i.kind, q.revision, q.pass_mark, q.questions
       FROM academy.course_items i LEFT JOIN academy.course_quizzes q ON q.item_id = i.id
       WHERE i.id = ${itemId}
     `;
     if (!quiz || quiz.kind !== 'quiz') throw new AcademyError('no quiz with that id', 'academy.quiz_not_found');
+    const current = questionsOf(quiz);
     const rows = await this.sql<Array<TrailAttempt & { alias: number }>>`
       SELECT ${ATTEMPT(this.sql)}, a.alias FROM academy.course_quiz_attempts t
       JOIN (SELECT user_id, row_number() OVER (ORDER BY min(started_at), user_id)::int AS alias
@@ -303,6 +360,8 @@ export class CourseQuizTrail {
           score: last?.score ?? r.score,
           maxScore: r.max_score ?? 0,
           passed: last?.passed ?? r.passed,
+          passMark: r.quiz.passMark,
+          rescoreDue: graded && onOlderKeys(r, last?.keys ?? finishedKeys(r), current),
           questions: r.quiz.questions.map((q) => ({
             questionId: q.id,
             prompt: q.prompt,
@@ -332,12 +391,5 @@ export class CourseQuizTrail {
       SELECT * FROM academy.course_quiz_score_events WHERE attempt_id = ${attemptId} ORDER BY n DESC LIMIT 1
     `;
     return last ?? null;
-  }
-
-  private async rescoredAt(tx: Db, attemptId: string, revision: number): Promise<boolean> {
-    const [hit] = await tx<Array<{ one: number }>>`
-      SELECT 1 AS one FROM academy.course_quiz_score_events WHERE attempt_id = ${attemptId} AND kind = 'rescore' AND revision = ${revision}
-    `;
-    return Boolean(hit);
   }
 }

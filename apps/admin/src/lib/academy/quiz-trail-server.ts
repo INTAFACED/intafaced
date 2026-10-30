@@ -93,6 +93,12 @@ export async function changeQuizTrail(
   const parsed = spec.schema.safeParse(input);
   if (!parsed.success) return { why: spec.why };
   const itemId = parsed.data.itemId;
+  // Each change answers with half the page; only the other half is read again.
+  const quizPart = async () =>
+    partFrom(await founderCall(ctx, 'academy', 'admin.courseQuiz', 'GET', { itemId }, readQuiz), (d) => d, ACADEMY);
+  const attemptsPart = async () =>
+    partFrom(await founderCall(ctx, 'academy', 'admin.courseQuizAttempts', 'GET', { itemId }, readAttempts), (d) => d, ACADEMY);
+  const asOf = () => new Date().toISOString();
   if (op === 'rescore') {
     const result = await founderCall(ctx, 'academy', spec.procedure, 'POST', parsed.data, readRescore);
     if (result.kind !== 'ok' || !result.data) return refused(result);
@@ -102,16 +108,23 @@ export async function changeQuizTrail(
       reply: {
         ok: true,
         what: n === 0 ? 'rescore run: no attempt changed' : `${n} attempt${n === 1 ? '' : 's'} rescored`,
-        view: await loadQuizTrail(ctx, itemId),
+        view: { quiz: await quizPart(), attempts: { kind: 'ok', data: result.data.attempts }, asOf: asOf() },
         rescored: result.data.rescored,
       },
     };
   }
-  const result =
-    op === 'fixKey'
-      ? await founderCall(ctx, 'academy', spec.procedure, 'POST', parsed.data, readQuiz)
-      : await founderCall(ctx, 'academy', spec.procedure, 'POST', parsed.data, readAttempts);
+  if (op === 'fixKey') {
+    const result = await founderCall(ctx, 'academy', spec.procedure, 'POST', parsed.data, readQuiz);
+    if (result.kind !== 'ok' || !result.data) return refused(result);
+    return {
+      status: 200,
+      reply: { ok: true, what: spec.what, view: { quiz: { kind: 'ok', data: result.data }, attempts: await attemptsPart(), asOf: asOf() } },
+    };
+  }
+  const result = await founderCall(ctx, 'academy', spec.procedure, 'POST', parsed.data, readAttempts);
   if (result.kind !== 'ok' || !result.data) return refused(result);
-  // Whatever changed, the page shows the quiz and its attempts as svc-academy holds them now.
-  return { status: 200, reply: { ok: true, what: spec.what, view: await loadQuizTrail(ctx, itemId) } };
+  return {
+    status: 200,
+    reply: { ok: true, what: spec.what, view: { quiz: await quizPart(), attempts: { kind: 'ok', data: result.data }, asOf: asOf() } },
+  };
 }
