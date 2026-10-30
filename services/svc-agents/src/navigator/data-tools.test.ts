@@ -3,6 +3,7 @@ import type { Principal } from '@intafaced/auth';
 import { createEdgeContext, encodePrincipal, signPrincipalHeader } from '@intafaced/contracts';
 import { createAgentsRouter } from '../router.js';
 import type { AgentsRouterDeps } from '../router.js';
+import { NO_TIER_LAWS } from '../tier-laws.js';
 import { invokeNavigatorDataTool, isNavigatorDataToolOk, NAVIGATOR_DATA_TOOLS } from './data-tools.js';
 
 const publishedAll = {
@@ -277,7 +278,7 @@ function principal(overrides: Partial<Principal> = {}): Principal {
     userId: USER,
     sid: '22222222-2222-4222-8222-222222222222',
     scopes: ['agents:read'],
-    tier: 'none',
+    tier: 'basic',
     mfa: false,
     expiresAt: new Date(Date.now() + 60_000),
     ...overrides,
@@ -303,6 +304,7 @@ function stubDeps(overrides: Partial<AgentsRouterDeps> = {}): AgentsRouterDeps {
     meter: {} as AgentsRouterDeps['meter'],
     feeAssetId: 'IFC',
     navigatorTradeUrl: 'http://svc-trade:4004',
+    tierLaws: { ...NO_TIER_LAWS, navigator: { published: true, matrix: { basic: [...NAVIGATOR_DATA_TOOLS] } } },
     ...overrides,
   };
 }
@@ -314,8 +316,6 @@ describe('invokeDataTool live identity miss (S11-6)', () => {
     const result = await createAgentsRouter(stubDeps()).createCaller(signed()).navigator.invokeDataTool({
       tool: 'identity.session.read',
       plane: 'live',
-      userTier: 'free',
-      law: publishedAll,
       session: fatSession,
       occurredAt: '2026-08-07T12:00:01.000Z',
     });
@@ -342,8 +342,6 @@ describe('invokeDataTool live identity miss (S11-6)', () => {
       .navigator.invokeDataTool({
         tool: 'identity.session.read',
         plane: 'live',
-        userTier: 'free',
-        law: publishedAll,
         session: fatSession,
         occurredAt: '2026-08-07T12:00:01.000Z',
       });
@@ -362,8 +360,6 @@ describe('invokeDataTool live identity miss (S11-6)', () => {
       .navigator.invokeDataTool({
         tool: 'identity.session.read',
         plane: 'live',
-        userTier: 'free',
-        law: publishedAll,
         session: fatSession,
         occurredAt: '2026-08-07T12:00:01.000Z',
       });
@@ -382,8 +378,6 @@ describe('invokeDataTool live identity miss (S11-6)', () => {
       .navigator.invokeDataTool({
         tool: 'identity.session.read',
         plane: 'live',
-        userTier: 'free',
-        law: publishedAll,
         session: fatSession,
         occurredAt: '2026-08-07T12:00:01.000Z',
       });
@@ -398,8 +392,6 @@ describe('invokeDataTool live identity miss (S11-6)', () => {
     const result = await createAgentsRouter(stubDeps()).createCaller(signed()).navigator.invokeDataTool({
       tool: ' identity.session.read ',
       plane: 'live',
-      userTier: 'free',
-      law: publishedAll,
       session: fatSession,
       occurredAt: '2026-08-07T12:00:01.000Z',
     });
@@ -424,8 +416,6 @@ describe('invokeDataTool live identity miss (S11-6)', () => {
       .navigator.invokeDataTool({
         tool: ' identity.session.read ',
         plane: 'live',
-        userTier: 'free',
-        law: publishedAll,
         session: fatSession,
         occurredAt: '2026-08-07T12:00:01.000Z',
       });

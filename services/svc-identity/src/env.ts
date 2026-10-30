@@ -289,6 +289,13 @@ const schema = serviceEnvSchema
        */
       IDENTITY_KYC_CAPABILITY_REASONS: z.string().optional(),
       /**
+       * Owner setting (J-identity-08 #7): the reasons staff may restrict an account's trading for, the same shape as
+       * `IDENTITY_KYC_REJECT_REASONS` (`{"code","reason","guidance"}`). NO DEFAULT. Unset, a trading restriction may carry
+       * no code (the customer reads "No reason recorded") and one given refuses `restriction.reason_unlisted`. Parsed at
+       * start; malformed stops the service.
+       */
+      IDENTITY_TRADING_RESTRICTION_REASONS: z.string().optional(),
+      /**
        * Owner settings (I-kyc-compliance-08). The accepted ID types per country, as JSON
        * `{"<country>": [{"type", "label", "originalRequired"}]}`: a country not listed reads "not published". The ID
        * photo's caps, set together: the largest file in bytes (at most 760 KiB, so its base64 and the JSON around it fit one 1 MiB request body) and a comma list of content
@@ -377,6 +384,16 @@ const schema = serviceEnvSchema
         if (typeof v === 'string' && v.trim() === '') return undefined;
         return v;
       }, z.coerce.number().int().min(1).max(50).optional()),
+      /**
+       * Owner-published lifetime cap on handle changes per account (PP-send-request-03). Blank / unset → unpublished;
+       * every handle change refuses (`identity.handle_change_cap_unset`). Never invent a default: the stack sets a
+       * labelled TEST value only.
+       */
+      IDENTITY_HANDLE_CHANGE_MAX: z.preprocess((v) => {
+        if (v === undefined || v === null) return undefined;
+        if (typeof v === 'string' && v.trim() === '') return undefined;
+        return v;
+      }, z.coerce.number().int().min(1).max(100).optional()),
       /**
        * Owner-published lifetime of an OAuth authorisation code, in seconds. Blank / unset → unpublished; an
        * authorise decision and a code exchange refuse (`oauth.lifetime_unset`). Never git-default.

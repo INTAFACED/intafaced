@@ -45,6 +45,7 @@ import { useStartedTile } from './started-data';
 import { CustomiseHome } from './CustomiseHome';
 import { LitSphere } from './LitSphere';
 import { HomeNotices } from './Notices';
+import { HomeInbox } from './HomeInbox';
 import { useHomeLayout } from './tiles-data';
 import { shownTiles } from './tiles';
 import { savePreferences, usePreferences } from '../../shared/preferences';
@@ -310,6 +311,7 @@ function HomeSimple() {
     <div data-testid="if-home" className="if-home">
       <h1 className="if-sr">{t('Home')}</h1>
       <HomeNotices />
+      <HomeInbox />
       <div className="home-grid">
         <div data-testid="home-main" className="home-main">
           <div data-testid="home-label" className="home-label">

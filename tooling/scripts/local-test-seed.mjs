@@ -11,7 +11,7 @@
  *   LOCAL_TEST=1 node tooling/scripts/local-test-seed.mjs end-earn-unbonding <positionId> [--state <dir>]
  *   LOCAL_TEST=1 node tooling/scripts/local-test-seed.mjs age-earn-position <positionId> <days> [--state <dir>]
  *
- * Default state dir: ~/.intafaced/local-test-stack
+ * Default state dir: LOCAL_STACK_STATE, else ~/.intafaced/local-test-stack (local-test-state.mjs)
  * Nitro's preview stack: ~/.intafaced/s3-trade-20261015
  *
  * Refuses (exit 2, no file write, no database) unless LOCAL_TEST=1, NODE_ENV is
@@ -34,6 +34,7 @@ import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { execFileSync } from 'node:child_process';
 import { HOME_NOTICE_DAYS, applyHome, homeStatus } from './local-test-home.mjs';
+import { localStackState } from './local-test-state.mjs';
 
 const SCRIPT = fileURLToPath(import.meta.url);
 const REPO = path.resolve(path.dirname(SCRIPT), '..', '..');
@@ -136,8 +137,13 @@ export class GuardError extends Error {
   }
 }
 
-export function defaultStateDir() {
-  return path.join(os.homedir(), '.intafaced', 'local-test-stack');
+/** The stack's own state rule (LOCAL_STACK_STATE, else per user), as the gates read it, so the compose seed finds its folder. */
+export function defaultStateDir(env = process.env) {
+  try {
+    return localStackState(os.homedir(), env);
+  } catch (err) {
+    throw new GuardError(`refusing: ${err.message}`);
+  }
 }
 
 export function earnPoolName(row) {
@@ -269,7 +275,7 @@ export function guardSeed(env, stateDir, io = defaultIo) {
   if (env.NODE_ENV === 'production') throw new GuardError('refusing: NODE_ENV is "production". This script is local-only.');
   if (env.APP_ENV !== undefined && env.APP_ENV !== 'dev' && env.APP_ENV !== 'test') {
     const shown = env.APP_ENV === '' ? 'blank' : `"${env.APP_ENV}"`;
-    throw new GuardError(`refusing: APP_ENV is ${shown}; if set, it must be exactly "dev" or "test".`);
+    throw new GuardError(`refusing [seed.app_env_not_local]: APP_ENV is ${shown}; if set, it must be exactly "dev" or "test".`);
   }
   if (!stateDir || typeof stateDir !== 'string') throw new GuardError('refusing: state directory is missing');
 
