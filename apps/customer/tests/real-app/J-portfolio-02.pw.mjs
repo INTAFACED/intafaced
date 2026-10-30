@@ -93,6 +93,14 @@ test(`${J} #2 reads unrealised profit and loss for BTC, as an amount and a perce
   const cost = dollars(await row.locator('[data-col="cost"]').innerText());
   const unrealised = dollars((await cell.innerText()).split(' (')[0]);
   expect(Math.abs(worth - cost - unrealised)).toBeLessThanOrEqual(0.011);
+  // The percent is the unrealised amount over the cost. Allowed: half a unit in the percent's last shown place, plus what
+  // the two cent-rounded figures can move it (a cent on each over the cost).
+  const percentText = (await cell.innerText()).match(/\(([+−]?)([\d.]+)%\)$/);
+  const percent = Number(percentText[2]) * (percentText[1] === '−' ? -1 : 1);
+  const places = (percentText[2].split('.')[1] ?? '').length;
+  expect(cost).toBeGreaterThan(0);
+  expect(Math.abs(percent - (unrealised / cost) * 100)).toBeLessThanOrEqual(0.5 * 10 ** -places + (0.02 / cost) * 100);
+  expect(Math.sign(percent) === Math.sign(unrealised) || percent === 0 || Math.abs(unrealised) < 0.01).toBe(true);
   // Worth now is the coins at today's book: inside the best bid and ask for the quantity held.
   const { bid, ask } = await bestPrices('BTC/USDT');
   const qty = Number(run.read().qty);

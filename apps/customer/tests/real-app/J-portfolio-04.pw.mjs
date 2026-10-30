@@ -57,9 +57,11 @@ test(`${J} #1 opens the lots list for BTC: each lot with acquired date, quantity
   run.reset({ account: who });
   await signIn(page, who);
   // Two TEST buys a little apart, so the maker's quotes (and so the prices) move between them.
+  const before = Date.now();
   const first = await buyNow(page, who, '0.002');
   await page.waitForTimeout(6_000);
   const second = await buyNow(page, who, '0.003');
+  const after = Date.now();
   run.write({ buys: [first, second].map((b) => ({ cost: fromUnits(b.cost), qty: fromUnits(b.qty) })) });
 
   const lots = await lotsPage(page);
@@ -72,9 +74,21 @@ test(`${J} #1 opens the lots list for BTC: each lot with acquired date, quantity
     await expect(row.locator('[data-col="left"]')).toHaveText(fromUnits(b.qty));
     await expect(row.locator('[data-col="cost"]')).toHaveText(usd(b.cost));
     await expect(row.locator('[data-col="days"]')).toHaveText('0');
-    // The acquired column is a date and time, oldest first.
-    await expect(row.locator('th')).not.toHaveText('');
   }
+  // The acquired column is each lot's date and time, oldest first: as the lot book holds them, both inside the minutes the
+  // buys took, the first before the second.
+  const book = (await (await api(who)).get('/api/tax/trpc/lotBook')).body.result.data;
+  const lotsHeld = book.lots.filter((lot) => lot.assetId === 'BTC');
+  const times = lotsHeld.map((lot) => Date.parse(lot.acquiredAt));
+  expect(times).toHaveLength(2);
+  expect(times[0]).toBeLessThan(times[1]);
+  for (const at of times) {
+    expect(at).toBeGreaterThanOrEqual(before - 60_000);
+    expect(at).toBeLessThanOrEqual(after + 60_000);
+  }
+  // Each row is the book's lot of that place, oldest first, with its acquired date and time shown.
+  expect(await rows.evaluateAll((trs) => trs.map((tr) => tr.getAttribute('data-lot')))).toEqual(lotsHeld.map((lot) => lot.id));
+  for (const i of [0, 1]) await expect(rows.nth(i).locator('th')).toHaveText(/\d{1,2}:\d{2}/);
   // The term rule is not published, so only days held is shown and the screen says so.
   await expect(lots).toContainText('Short or long term is not shown');
 });
