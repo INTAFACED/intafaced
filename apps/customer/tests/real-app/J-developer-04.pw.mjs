@@ -10,8 +10,7 @@ import { blankSigningWindow, signingPolicy } from './developer.mjs';
 // back. One test per step, titled "J-developer-04 #<n>". The person is a TEST account on the local stack with a passkey
 // (only such an account may hold a key, as in J-developer-03) and one live trade key made in the browser; every call
 // after that goes from the developer's own program straight to Edge, as a bot's would.
-// Steps that are written but not built yet fail at their first missing part, quickly (UNBUILT):
-// - #5: no catalogue of auth and permission codes at /developers/errors/auth (DV-errors-02).
+// A step whose part is missing fails at it quickly (UNBUILT) instead of waiting out the default timeout.
 // #6 runs last: it freezes the account.
 const J = 'J-developer-04';
 const RUN = process.env.JOURNEY_RUN_ID ?? 'local';
@@ -243,14 +242,16 @@ test(`${J} #5 calls with a missing, wrong, revoked or out-of-scope key: each bod
   await page.goto('/developers/errors/auth');
   const catalogue = tableIn(page, /Authentication and permission errors/);
   await expect(catalogue).toBeVisible(UNBUILT);
-  const codeFor = async (cause) =>
-    (
-      await catalogue
-        .getByRole('row', { name: new RegExp(cause, 'i') })
-        .getByRole('code')
-        .first()
-        .textContent()
-    )?.trim();
+  // The published entry for each cause, read before the keys are made: one row per cause, its code and its status.
+  const published = {};
+  for (const cause of ['missing', 'wrong', 'revoked', 'scope']) {
+    const row = catalogue.getByRole('row', { name: new RegExp(cause, 'i') });
+    await expect(row, cause).toHaveCount(1);
+    published[cause] = {
+      code: (await row.getByRole('rowheader').getByRole('code').textContent())?.trim(),
+      status: (await row.getByRole('cell').first().textContent())?.trim(),
+    };
+  }
 
   const readOnly = await makeKey('bot-read', 'Read only');
   const revoked = await makeKey('bot-gone', 'Read only');
@@ -261,6 +262,8 @@ test(`${J} #5 calls with a missing, wrong, revoked or out-of-scope key: each bod
     .click();
   await page.getByRole('dialog').getByRole('button', { name: 'Revoke' }).click();
 
+  const { trade } = run.read();
+  const before = await balance(trade);
   const order = { symbol: 'BTC/USDT', type: 'limit', side: 'buy', amount: '0.001', price: '1', clientOrderId: `jd04-${RUN}-5` };
   const cases = [
     ['missing', await call('GET', '/api/v1/account/balance', {})],
@@ -269,9 +272,20 @@ test(`${J} #5 calls with a missing, wrong, revoked or out-of-scope key: each bod
     ['scope', await call('POST', '/api/v1/orders', { ...readOnly, body: order })],
   ];
   for (const [cause, reply] of cases) {
-    expect(reply.status, cause).toBeGreaterThanOrEqual(400);
-    expect(codeOf(reply), cause).toBe(await codeFor(cause));
+    expect({ code: codeOf(reply), status: String(reply.status) }, `${cause}: ${JSON.stringify(reply.body)}`).toEqual(published[cause]);
   }
+  // The page publishes these exact typed codes, so a page that drifted with the service would still be caught.
+  expect(published).toEqual({
+    missing: { code: 'AuthenticationError', status: '401' },
+    wrong: { code: 'edge.api_key_denied', status: '401' },
+    revoked: { code: 'edge.api_key_revoked', status: '401' },
+    scope: { code: 'PermissionDenied', status: '403' },
+  });
+  // Four refusals: the out-of-scope order does not exist, and the account holds what it held.
+  const placed = await call('GET', `/api/v1/orders/by-client-id/${order.clientOrderId}?symbol=BTC/USDT`, trade);
+  expect(placed.status, JSON.stringify(placed.body)).toBe(404);
+  expect(placed.body?.intafacedCode).toBe('trade.order_not_found');
+  expect(await balance(trade)).toEqual(before);
 });
 
 test(`${J} #7 reads the response headers: the request id and the server's received and sent times, sent not before received`, async () => {

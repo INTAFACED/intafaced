@@ -31,6 +31,7 @@ import { createHttpNavigatorTradeDataPort } from './navigator/trade-data-http-po
 import { createHttpNavigatorIdentitySessionPort } from './navigator/identity-session-http-port.js';
 import { tradeTickerPrices } from './portfolio-agent/trade-prices.js';
 import { createAgentsRouter, type AgentsRouter } from './router.js';
+import { parseTierLaws } from './tier-laws.js';
 import { parseReasons, purgeExpiredTranscripts } from './oplog/routes.js';
 import { registerProcessHooks, startTelemetry } from '@intafaced/telemetry';
 
@@ -197,6 +198,8 @@ const portfolioPrices =
 
 const appRouter = createAgentsRouter({
   runtime,
+  // Parsed at boot: a malformed law stops the service here, never opens or closes a door at a call.
+  tierLaws: parseTierLaws(env.AGENTS_TIER_LAWS),
   gateway,
   meter,
   feeAssetId: env.AGENTS_FEE_ASSET_ID,

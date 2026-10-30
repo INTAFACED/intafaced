@@ -1,7 +1,7 @@
 import { createPublicClient, defineChain, http } from 'viem';
 import type { Address, Hex, PublicClient } from 'viem';
 import { accountFactoryAbi, smartAccountAbi } from './abi.js';
-import { poolAbi } from '../amm/abi.js';
+import { factoryAbi, poolAbi } from '../amm/abi.js';
 import { erc20ApprovalAbi, erc20ReadAbi, tokenFactoryAbi } from './abi.js';
 import {
   ChainUnavailableError,
@@ -298,6 +298,63 @@ export class ProtocolChain {
     return this.#read('poolFeeBps', 'chain.feeBps', async () =>
       this.client.readContract({ address: pool, abi: poolAbi, functionName: 'feeBps' }).then(Number),
     );
+  }
+
+  /** When `blockNumber` was made, from the block itself. */
+  async blockTimestamp(blockNumber: bigint): Promise<Date> {
+    return this.#read('blockTimestamp', 'chain.getBlock', async () => {
+      const block = await this.client.getBlock({ blockNumber });
+      return new Date(Number(block.timestamp) * 1000);
+    });
+  }
+
+  /** The block the node is at now. */
+  async headBlock(): Promise<bigint> {
+    return this.#read('headBlock', 'chain.blockNumber', async () => this.client.getBlockNumber());
+  }
+
+  /**
+   * Every pool `factory` lists at `blockNumber`, at most `limit` of them (the factory's own order). A factory with no
+   * code refuses rather than reading as "no pools".
+   */
+  async factoryPools(factory: Address, limit: number, blockNumber: bigint): Promise<Address[]> {
+    return this.#read('factoryPools', 'chain.allPools', async () => {
+      const length = await this.client.readContract({ address: factory, abi: factoryAbi, functionName: 'allPoolsLength', blockNumber });
+      const count = Number(length < BigInt(limit) ? length : BigInt(limit));
+      return Promise.all(
+        Array.from({ length: count }, (_, index) =>
+          this.client.readContract({ address: factory, abi: factoryAbi, functionName: 'allPools', args: [BigInt(index)], blockNumber }),
+        ),
+      );
+    });
+  }
+
+  /** One pool's pair, fee and reserves, all read at `blockNumber`. */
+  async poolSnapshot(
+    pool: Address,
+    blockNumber: bigint,
+  ): Promise<{ token0: Address; token1: Address; feeBps: number; reserve0: bigint; reserve1: bigint; blockTimestampLast: number }> {
+    return this.#read('poolSnapshot', 'chain.poolSnapshot', async () => {
+      const [token0, token1, feeBps, [reserve0, reserve1, blockTimestampLast]] = await Promise.all([
+        this.client.readContract({ address: pool, abi: poolAbi, functionName: 'token0', blockNumber }),
+        this.client.readContract({ address: pool, abi: poolAbi, functionName: 'token1', blockNumber }),
+        this.client.readContract({ address: pool, abi: poolAbi, functionName: 'feeBps', blockNumber }),
+        this.client.readContract({ address: pool, abi: poolAbi, functionName: 'getReserves', blockNumber }),
+      ]);
+      return { token0, token1, feeBps: Number(feeBps), reserve0, reserve1, blockTimestampLast: Number(blockTimestampLast) };
+    });
+  }
+
+  /** A token's name, symbol and decimals, as the token contract answers them. */
+  async tokenBasics(token: Address): Promise<{ name: string; symbol: string; decimals: number }> {
+    return this.#read('tokenBasics', 'chain.tokenBasics', async () => {
+      const [name, symbol, decimals] = await Promise.all([
+        this.client.readContract({ address: token, abi: erc20ReadAbi, functionName: 'name' }),
+        this.client.readContract({ address: token, abi: erc20ReadAbi, functionName: 'symbol' }),
+        this.client.readContract({ address: token, abi: erc20ReadAbi, functionName: 'decimals' }),
+      ]);
+      return { name, symbol, decimals: Number(decimals) };
+    });
   }
 
   // ── launch.token-factory (§8.4) ──────────────────────────────────────────

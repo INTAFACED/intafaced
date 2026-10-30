@@ -3,6 +3,7 @@ import type { Principal } from '@intafaced/auth';
 import { createEdgeContext, encodePrincipal, signPrincipalHeader } from '@intafaced/contracts';
 import { createAgentsRouter } from '../router.js';
 import type { AgentsRouterDeps } from '../router.js';
+import { NO_TIER_LAWS, type TierLaws } from '../tier-laws.js';
 import { SUPPORT_DATA_TOOLS } from './data-tools.js';
 
 /**
@@ -24,7 +25,7 @@ function principal(overrides: Partial<Principal> = {}): Principal {
     userId: USER,
     sid: '22222222-2222-4222-8222-222222222222',
     scopes: ['agents:read', 'agents:execute'],
-    tier: 'none',
+    tier: 'basic',
     mfa: false,
     expiresAt: new Date(Date.now() + 60_000),
     ...overrides,
@@ -49,10 +50,17 @@ function stubDeps(): AgentsRouterDeps {
     gateway: { routingTable: { routes: [] } } as unknown as AgentsRouterDeps['gateway'],
     meter: {} as AgentsRouterDeps['meter'],
     feeAssetId: 'IFC',
+    tierLaws: { ...NO_TIER_LAWS, support: law },
   };
 }
 
-const law = { published: true as const, matrix: { free: [...SUPPORT_DATA_TOOLS] } };
+const law = { published: true as const, matrix: { basic: [...SUPPORT_DATA_TOOLS] } };
+
+/** The stored, published law the door reads instead of the body (AG-sessions-01). */
+const withLaw = (deps: AgentsRouterDeps, stored: TierLaws['support']): AgentsRouterDeps => ({
+  ...deps,
+  tierLaws: { ...NO_TIER_LAWS, support: stored },
+});
 
 const ask = {
   tool: 'support.kb.search',
@@ -70,7 +78,7 @@ describe('support.runSession route', () => {
   it('refuses a dark desk without touching the runtime, and says it billed nothing', async () => {
     const result = await createAgentsRouter(stubDeps())
       .createCaller(signed())
-      .support.runSession({ plane: 'dark', userTier: 'free', law, asks: [ask] });
+      .support.runSession({ plane: 'dark', asks: [ask] });
 
     expect(result).toMatchObject({
       status: 'refuse',
@@ -87,9 +95,9 @@ describe('support.runSession route', () => {
   });
 
   it('refuses a blank tier law refuse-closed', async () => {
-    const result = await createAgentsRouter(stubDeps())
+    const result = await createAgentsRouter(withLaw(stubDeps(), null))
       .createCaller(signed())
-      .support.runSession({ plane: 'live', userTier: 'free', law: null, asks: [ask] });
+      .support.runSession({ plane: 'live', asks: [ask] });
 
     expect(result).toMatchObject({
       status: 'refuse',
@@ -102,7 +110,7 @@ describe('support.runSession route', () => {
   it('escalates a money request to a person, free, without a session', async () => {
     const result = await createAgentsRouter(stubDeps())
       .createCaller(signed())
-      .support.runSession({ plane: 'live', userTier: 'free', law, moneyRequest: true, asks: [ask] });
+      .support.runSession({ plane: 'live', moneyRequest: true, asks: [ask] });
 
     expect(result).toMatchObject({
       status: 'escalate',
@@ -118,7 +126,7 @@ describe('support.runSession route', () => {
   it('refuses fixture KB articles when no catalog is published — never a composed ok', async () => {
     const result = await createAgentsRouter(stubDeps())
       .createCaller(signed())
-      .support.runSession({ plane: 'live', userTier: 'free', law, asks: [ask] });
+      .support.runSession({ plane: 'live', asks: [ask] });
 
     expect(result.status).not.toBe('ok');
     expect(result).toMatchObject({
@@ -130,9 +138,7 @@ describe('support.runSession route', () => {
   });
 
   it('refuses when nothing was asked — not a live KB plane', async () => {
-    const result = await createAgentsRouter(stubDeps())
-      .createCaller(signed())
-      .support.runSession({ plane: 'live', userTier: 'free', law, asks: [] });
+    const result = await createAgentsRouter(stubDeps()).createCaller(signed()).support.runSession({ plane: 'live', asks: [] });
 
     expect(result).toMatchObject({
       status: 'refuse',
@@ -147,8 +153,6 @@ describe('support.runSession route', () => {
       .createCaller(signed())
       .support.runSession({
         plane: 'live',
-        userTier: 'free',
-        law,
         kbCatalog: [
           {
             id: 'support.kb.withdrawal_hold',
@@ -180,17 +184,42 @@ describe('support.runSession route', () => {
         .createCaller(readOnly)
         .support.runSession({
           plane: 'dark',
-          userTier: 'free',
-          law,
           asks: [ask],
         }),
     ).rejects.toThrow();
   });
 
+  it('AG-sessions-01: a signed tier the stored law does not grant refuses tier_not_granted and bills 0', async () => {
+    const result = await createAgentsRouter(stubDeps())
+      .createCaller(signed(principal({ tier: 'none' })))
+      .support.runSession({ plane: 'live', asks: [ask] });
+
+    expect(result).toMatchObject({
+      status: 'refuse',
+      reason: 'tier_not_granted',
+      userMessageKey: 'agents.support.tier_closed',
+    });
+    expect(result.metering).toEqual({
+      sessionId: null,
+      billedAmount: '0',
+      assetId: 'IFC',
+      sessionClosed: false,
+      settlements: [],
+    });
+  });
+
+  it('AG-sessions-01: a body naming its own tier or law is rejected before the gate', async () => {
+    const none = createAgentsRouter(stubDeps()).createCaller(signed(principal({ tier: 'none' })));
+    await expect(none.support.runSession({ plane: 'live', asks: [ask], userTier: 'basic' } as never)).rejects.toMatchObject({
+      code: 'BAD_REQUEST',
+    });
+    await expect(none.support.runSession({ plane: 'live', asks: [ask], law } as never)).rejects.toMatchObject({
+      code: 'BAD_REQUEST',
+    });
+  });
+
   it('caps the ask list rather than letting a caller burn a session budget', async () => {
     const asks = Array.from({ length: 21 }, () => ask);
-    await expect(
-      createAgentsRouter(stubDeps()).createCaller(signed()).support.runSession({ plane: 'dark', userTier: 'free', law, asks }),
-    ).rejects.toThrow();
+    await expect(createAgentsRouter(stubDeps()).createCaller(signed()).support.runSession({ plane: 'dark', asks })).rejects.toThrow();
   });
 });

@@ -120,7 +120,7 @@ const messages = {
   'Handle account frozen': 'Your account is frozen, so your handle settings can’t change.',
   'Find me label': 'Let people find me by my handle',
   'Find me on': 'Anyone who types your exact handle in Send can find you.',
-  'Find me off': 'No one can find you by typing your handle, and your QR code and link stop working until you turn this on.',
+  'Find me off': 'No one can find you by typing your handle. People you share your QR code or link with can still pay you.',
   'Find me failed': 'We couldn’t save that. Nothing changed. Try again.',
   'Handle settings failed': 'We couldn’t load your handle settings.',
 } as const;

@@ -13,6 +13,7 @@ export const moneyContract: ContractPart = {
     { method: 'settlementPage', run: (p) => p.settlementPage(M, { status: 'posted' }, undefined) },
     { method: 'settlementLines', run: (p) => p.settlementLines(settlement, undefined) },
     { method: 'settlementLifecycle', run: (p) => p.settlementLifecycle(paid) },
+    { method: 'clearing', run: (p) => p.clearing(M) },
     { method: 'payoutPage', run: (p) => p.payoutPage({}, undefined) },
     { method: 'statementPage', run: (p) => p.statementPage(M, { assetId: 'USDT', ...range }, undefined) },
     { method: 'refundPage', run: (p) => p.refundPage(M, {}, undefined) },
