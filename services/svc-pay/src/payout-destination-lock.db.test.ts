@@ -418,11 +418,17 @@ describe('payout destination lock', () => {
         stepUpApprovalId: 'ok',
       });
       expect(verified.status).toBe('held');
-      const [verifiedAt] = await sql<Array<{ verified_at: Date; activates_at: Date }>>`
-        SELECT verified_at, activates_at FROM pay.merchant_payout_destinations WHERE merchant_id = ${merchant.id}
-      `;
-      expect(verifiedAt!.activates_at.getTime() - verifiedAt!.verified_at.getTime()).toBe(45_000);
-      expect(verified.activatesAt).toBe(verifiedAt!.activates_at.toISOString());
+      const stored = async () =>
+        (
+          await sql<Array<{ verified: boolean; verified_at: Date; activates_at: Date }>>`
+            SELECT verified, verified_at, activates_at FROM pay.merchant_payout_destinations WHERE merchant_id = ${merchant.id}
+          `
+        )[0]!;
+      const verifiedAt = await stored();
+      expect(verifiedAt.activates_at.getTime() - verifiedAt.verified_at.getTime()).toBe(45_000);
+      // Fail closed: while held the row is stored verified = false, so code that reads only `verified` never pays it.
+      expect(verifiedAt.verified).toBe(false);
+      expect(verified.activatesAt).toBe(verifiedAt.activates_at.toISOString());
       const [held] = await list();
       expect(held).toEqual({ ...unverified, state: 'held', activatesAt: verified.activatesAt });
       // Verifying again keeps the first end.
@@ -443,11 +449,20 @@ describe('payout destination lock', () => {
         pay: 'pay.payout_destination_verified_locked',
       });
 
+      // A held row is locked like an active one: remove (the unverified-only door) refuses it and deletes nothing.
+      const [heldRow] = await list();
+      expect(await refused(caller.merchant.payoutDestinations.remove({ merchantId: merchant.id, destinationId: heldRow!.id }))).toEqual({
+        trpc: 'CONFLICT',
+        pay: 'pay.payout_destination_verified_locked',
+      });
       now = new Date(Date.parse(verified.activatesAt!) - 1);
       expect((await list())[0]?.state).toBe('held');
+      expect((await stored()).verified).toBe(false);
       now = new Date(verified.activatesAt!);
       const [active] = await list();
       expect(active).toEqual({ ...unverified, state: 'active', activatesAt: null });
+      // The list promoted it under the row lock: only now is it stored verified.
+      expect((await stored()).verified).toBe(true);
       expect(await book.require({ merchantId: merchant.id, railId: RAIL })).toEqual({ kind: 'crypto', ref: A });
     } finally {
       if (previousHold === undefined) delete process.env.PAY_DESTINATION_HOLD_SECONDS;
@@ -497,5 +512,47 @@ describe('payout destination lock', () => {
     });
     const [after] = (await caller.merchant.payoutDestinations.list({ merchantId: merchant.id, limit: 10 })).items;
     expect(after).toMatchObject({ id: row!.id, state: 'unverified', defaultFlag: 'unset' });
+  });
+
+  it('a held row is promoted lazily by require, and the down migration refuses while any row is inside its hold', async () => {
+    const owner = randomUUID();
+    const merchant = await pay.createMerchant({ userId: owner, pricing: { feeBps: 0 } });
+    await book.transaction(merchant.id, RAIL, async (_row, write) =>
+      write.insertVerified({ kind: 'crypto', ref: A, verifiedAt: now, activatesAt: new Date(now.getTime() + 45_000) }),
+    );
+    const verifiedColumn = async () =>
+      (await sql<Array<{ verified: boolean }>>`SELECT verified FROM pay.merchant_payout_destinations WHERE merchant_id = ${merchant.id}`)[0]
+        ?.verified;
+    expect(await verifiedColumn()).toBe(false);
+    await expect(book.require({ merchantId: merchant.id, railId: RAIL })).rejects.toMatchObject({ code: 'pay.payout_destination_held' });
+    expect(await verifiedColumn()).toBe(false);
+
+    // The reversal refuses while the hold runs (wall clock: the row's end is set ahead of now()).
+    const down = readFileSync(join(drizzleDir, '20261030184034_pay_payout_destination_activates_at.down.sql'), 'utf8');
+    await sql`UPDATE pay.merchant_payout_destinations SET activates_at = now() + interval '1 hour' WHERE merchant_id = ${merchant.id}`;
+    const ROLLBACK = new Error('rollback');
+    await expect(sql.begin(async (tx) => tx.unsafe(down))).rejects.toThrow(/inside their hold/);
+    // Once every hold has passed it promotes the due row (active, never unverified) and drops the column.
+    await sql`UPDATE pay.merchant_payout_destinations SET activates_at = now() - interval '1 second' WHERE merchant_id = ${merchant.id}`;
+    await expect(
+      sql.begin(async (tx) => {
+        await tx.unsafe(down);
+        const [row] = await tx<
+          Array<{ verified: boolean }>
+        >`SELECT verified FROM pay.merchant_payout_destinations WHERE merchant_id = ${merchant.id}`;
+        expect(row?.verified).toBe(true);
+        const cols = await tx`
+          SELECT 1 FROM information_schema.columns
+           WHERE table_schema = 'pay' AND table_name = 'merchant_payout_destinations' AND column_name = 'activates_at'`;
+        expect(cols).toHaveLength(0);
+        throw ROLLBACK;
+      }),
+    ).rejects.toBe(ROLLBACK);
+
+    // Back in the hold's terms (test clock): require at the end promotes it under the row lock and pays it.
+    await sql`UPDATE pay.merchant_payout_destinations SET activates_at = ${new Date(now.getTime() + 45_000)} WHERE merchant_id = ${merchant.id}`;
+    now = new Date(now.getTime() + 45_000);
+    expect(await book.require({ merchantId: merchant.id, railId: RAIL })).toEqual({ kind: 'crypto', ref: A });
+    expect(await verifiedColumn()).toBe(true);
   });
 });

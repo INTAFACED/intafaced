@@ -13,13 +13,16 @@ import { assertPayoutDestinationKind, DestinationKindError } from './payout-dest
  * A destination is in one of three states (J-merchant-02 #5):
  * - `unverified`: saved by the owner (`merchant.payoutDestinations.add`) or by a
  *   payout before D-142. `require` refuses it (`pay.payout_destination_unverified`).
- * - `held`: verified with a fresh step-up, waiting out the hold. `activates_at`
- *   is `verified_at + PAY_DESTINATION_HOLD_SECONDS`; `require` refuses it
- *   (`pay.payout_destination_held`) until then.
- * - `active`: verified and past `activates_at` (or verified with no hold, the
- *   `seedVerified` test and recovery seam). Payable.
- * The held-to-active move needs no write: the row's kind and ref do not change,
- * so the state is read from `activates_at` against the clock on every read.
+ * - `held`: verified with a fresh step-up, waiting out the hold. Stored FAIL
+ *   CLOSED as `verified = false` with `verified_at` and `activates_at` set
+ *   (`verified_at + PAY_DESTINATION_HOLD_SECONDS`), so code that reads only
+ *   `verified` (an older build, a rollback) never pays it. `require` refuses
+ *   it (`pay.payout_destination_held`) until then.
+ * - `active`: `verified = true`. A held row is flipped to `verified = true`
+ *   lazily, under its row lock, once `activates_at` has passed (on require,
+ *   read, the change transaction and the list), the way a pending change is
+ *   promoted. `seedVerified` (test and recovery seam) writes it active at once.
+ * Unverified is `verified = false AND activates_at IS NULL`.
  * Settlement payout never calls a writer.
  */
 
@@ -83,6 +86,14 @@ export function destinationLifecycle(
   return { state: 'active', activatesAt: null };
 }
 
+/** The state of a stored row from its columns: held is `verified = false` with `activates_at` set (fail closed). */
+export function lifecycleOfColumns(
+  row: { verified: boolean; activates_at: Date | null },
+  now: Date,
+): { state: DestinationLifecycle; activatesAt: Date | null } {
+  return destinationLifecycle({ verified: row.verified || row.activates_at !== null, activatesAt: row.activates_at }, now);
+}
+
 /** The payable destination, or the typed refusal for a missing, unverified or held one. */
 function payable(merchantId: string, railId: string, row: DestinationState | null, now: Date): PayoutDestination {
   if (!row) throw new PayoutDestinationMissingError(merchantId, railId);
@@ -97,6 +108,7 @@ export type DestinationPending = { kind: string; ref: string; activatesAt: Date 
 export type DestinationState = {
   kind: string;
   ref: string;
+  /** Verified with a step-up: held (while `activatesAt` is ahead) or active. False only for an unverified row. */
   verified: boolean;
   /** When a verified row becomes payable. Null: no hold to wait out. Meaningless while unverified. */
   activatesAt: Date | null;
@@ -112,8 +124,12 @@ export interface DestinationWriter {
    * cleared: it was the owner's choice of the old address, not of this one.
    */
   replaceUnverified(input: { kind: string; ref: string }): Promise<void>;
+  /** A new row, verified and held until `activatesAt` (stored `verified = false`, fail closed). */
   insertVerified(input: { kind: string; ref: string; verifiedAt: Date; activatesAt: Date }): Promise<void>;
-  /** Verify an unverified row (with the kind and ref the step-up covered); it is held until `activatesAt`. */
+  /**
+   * Verify an unverified or held row (with the kind and ref the step-up covered); it is held, again, until
+   * `activatesAt`. Never touches an active row.
+   */
   verifyExisting(input: { kind: string; ref: string; verifiedAt: Date; activatesAt: Date }): Promise<void>;
   stagePending(input: { kind: string; ref: string; activatesAt: Date }): Promise<void>;
 }
@@ -229,11 +245,11 @@ export function memoryPayoutDestinations(clock: () => Date = () => new Date()): 
           next = { kind: input.kind, ref: input.ref, verified: true, activatesAt: input.activatesAt, pending: null };
         },
         async verifyExisting(input) {
-          if (!next || next.verified) throw new PayoutDestinationMissingError(merchantId, railId);
+          if (!next || destinationLifecycle(next, clock()).state === 'active') throw new PayoutDestinationMissingError(merchantId, railId);
           next = { kind: input.kind, ref: input.ref, verified: true, activatesAt: input.activatesAt, pending: null };
         },
         async stagePending(input) {
-          if (!next?.verified) throw new PayoutDestinationMissingError(merchantId, railId);
+          if (!next || destinationLifecycle(next, clock()).state !== 'active') throw new PayoutDestinationMissingError(merchantId, railId);
           next = { ...next, pending: input };
         },
       };
@@ -261,7 +277,8 @@ function toState(row: DestinationSqlRow, now: Date): DestinationState {
   if (row.verified && pending && pending.activatesAt.getTime() <= now.getTime()) {
     return { kind: pending.kind, ref: pending.ref, verified: true, activatesAt: null, pending: null };
   }
-  return { kind: row.kind, ref: row.ref, verified: row.verified, activatesAt: row.activates_at, pending };
+  // Held is stored `verified = false` with `activates_at` set; it is verified all the same.
+  return { kind: row.kind, ref: row.ref, verified: row.verified || row.activates_at !== null, activatesAt: row.activates_at, pending };
 }
 
 export class MerchantPayoutDestinationStore implements MerchantPayoutDestinations {
@@ -337,7 +354,12 @@ export class MerchantPayoutDestinationStore implements MerchantPayoutDestination
          FOR UPDATE
       `;
       const now = this.clock();
-      if (locked[0]?.verified && locked[0].pending_activates_at && locked[0].pending_activates_at.getTime() <= now.getTime()) {
+      const due = (at: Date | null) => at !== null && at.getTime() <= now.getTime();
+      const lockedRow = locked[0];
+      if (
+        lockedRow &&
+        ((lockedRow.verified && due(lockedRow.pending_activates_at)) || (!lockedRow.verified && due(lockedRow.activates_at)))
+      ) {
         await this.applyPromotion(tx, merchantId, railId, now);
       }
       const fresh = await tx<DestinationSqlRow[]>`
@@ -356,7 +378,7 @@ export class MerchantPayoutDestinationStore implements MerchantPayoutDestination
         },
         async replaceUnverified(input) {
           const old = fresh[0];
-          if (!old || old.verified) throw new PayoutDestinationMissingError(merchantId, railId);
+          if (!old || old.verified || old.activates_at !== null) throw new PayoutDestinationMissingError(merchantId, railId);
           const live = await tx<Array<{ live: boolean }>>`
             SELECT EXISTS (
               SELECT 1 FROM pay.control_payout_approvals a
@@ -386,14 +408,14 @@ export class MerchantPayoutDestinationStore implements MerchantPayoutDestination
                    ref = ${input.ref},
                    is_default = false,
                    updated_at = now()
-             WHERE merchant_id = ${merchantId} AND rail_id = ${railId} AND verified = false
+             WHERE merchant_id = ${merchantId} AND rail_id = ${railId} AND verified = false AND activates_at IS NULL
           `;
           if (updated.count !== 1) throw new PayoutDestinationMissingError(merchantId, railId);
         },
         async insertVerified(input) {
           await tx`
             INSERT INTO pay.merchant_payout_destinations (merchant_id, rail_id, kind, ref, verified, verified_at, activates_at)
-            VALUES (${merchantId}, ${railId}, ${input.kind}, ${input.ref}, true, ${input.verifiedAt}, ${input.activatesAt})
+            VALUES (${merchantId}, ${railId}, ${input.kind}, ${input.ref}, false, ${input.verifiedAt}, ${input.activatesAt})
           `;
         },
         async verifyExisting(input) {
@@ -401,7 +423,7 @@ export class MerchantPayoutDestinationStore implements MerchantPayoutDestination
             UPDATE pay.merchant_payout_destinations
                SET kind = ${input.kind},
                    ref = ${input.ref},
-                   verified = true,
+                   verified = false,
                    verified_at = ${input.verifiedAt},
                    activates_at = ${input.activatesAt},
                    pending_kind = NULL,
@@ -460,5 +482,32 @@ export class MerchantPayoutDestinationStore implements MerchantPayoutDestination
          AND pending_activates_at IS NOT NULL
          AND pending_activates_at <= ${now}
     `;
+    // A held row whose hold has passed becomes active: only now is `verified` true.
+    await sql`
+      UPDATE pay.merchant_payout_destinations
+         SET verified = true,
+             updated_at = now()
+       WHERE merchant_id = ${merchantId}
+         AND rail_id = ${railId}
+         AND verified = false
+         AND activates_at IS NOT NULL
+         AND activates_at <= ${now}
+    `;
   }
+}
+
+/**
+ * Promote every held destination of one merchant whose hold has passed (`verified` becomes true), so the list and the
+ * remove guard read the stored truth. The UPDATE takes each row's lock.
+ */
+export async function promoteDueHeldDestinations(sql: Sql, merchantId: string, now: Date): Promise<void> {
+  await sql`
+    UPDATE pay.merchant_payout_destinations
+       SET verified = true,
+           updated_at = now()
+     WHERE merchant_id = ${merchantId}
+       AND verified = false
+       AND activates_at IS NOT NULL
+       AND activates_at <= ${now}
+  `;
 }

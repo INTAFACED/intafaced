@@ -1,7 +1,7 @@
 import type { Sql } from 'postgres';
 import { maskDestination, safeDestinationLabel } from '../control/mask-destination.js';
 import type { PayFail } from './common.js';
-import { destinationLifecycle, type DestinationLifecycle } from '../merchant-payout-destination.js';
+import { lifecycleOfColumns, promoteDueHeldDestinations, type DestinationLifecycle } from '../merchant-payout-destination.js';
 import { assertPortalPageLimit, portalFilters, pageCursor } from './common.js';
 
 /**
@@ -58,7 +58,7 @@ export interface PayoutDestinationItem {
 type StateColumns = { verified: boolean; activates_at: Date | null };
 
 function lifecycleOf(row: StateColumns, now: Date): Pick<PayoutDestinationItem, 'state' | 'activatesAt'> {
-  const life = destinationLifecycle({ verified: row.verified, activatesAt: row.activates_at }, now);
+  const life = lifecycleOfColumns(row, now);
   return { state: life.state, activatesAt: life.activatesAt?.toISOString() ?? null };
 }
 
@@ -72,6 +72,8 @@ export async function listMerchantPayoutDestinations(
   const filters = portalFilters({ cursor: input.cursor }, fail);
   const cursorAt = filters.cursor?.createdAtCursor ?? null;
   const cursorId = filters.cursor?.id ?? null;
+  // A held row whose hold has passed is stored active before it is listed.
+  await promoteDueHeldDestinations(sql, input.merchantId, now);
   const rows = await sql<
     Array<{
       id: string;
@@ -197,8 +199,8 @@ export async function setDefaultMerchantPayoutDestination(
 }
 
 /**
- * Delete one unverified destination. A verified row, including one with a
- * pending change, is refused (`pay.payout_destination_verified_locked`) and
+ * Delete one unverified destination. A verified row (held or active),
+ * including one with a pending change, is refused (`pay.payout_destination_verified_locked`) and
  * nothing is deleted. A verified destination changes only through step-up
  * plus the hold. An unverified row is still refused while a payout that
  * names this rail, kind and ref has not finished, then deleted. Does not
@@ -218,7 +220,9 @@ export async function removeMerchantPayoutDestination(
     `;
     const row = locked[0];
     if (!row) return 'missing' as const;
-    if (row.verified) return 'verified_locked' as const;
+    // Held (verified, waiting out the hold; stored `verified = false` with `activates_at`) is locked like active: a
+    // verified destination changes only through step-up plus the hold, never through remove.
+    if (row.verified || row.activates_at !== null) return 'verified_locked' as const;
     const live = await tx<Array<{ live: boolean }>>`
       SELECT EXISTS (
         SELECT 1 FROM pay.control_payout_approvals a

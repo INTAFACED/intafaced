@@ -578,9 +578,10 @@ describe('payout maker-checker', () => {
     await expect(approvals.request(maker(), { merchantId, settlementId: s.id, railId: 'crypto-native' })).rejects.toMatchObject({
       code: 'pay.payout_destination_unverified',
     });
+    // Held is stored fail closed: verified = false with its hold end set.
     await sql`
       UPDATE pay.merchant_payout_destinations
-         SET verified = true, verified_at = now(), activates_at = now() + interval '1 hour'
+         SET verified = false, verified_at = now(), activates_at = now() + interval '1 hour'
        WHERE merchant_id = ${merchantId}
     `;
     await expect(approvals.request(maker(), { merchantId, settlementId: s.id, railId: 'crypto-native' })).rejects.toMatchObject({

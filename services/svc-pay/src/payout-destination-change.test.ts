@@ -146,8 +146,8 @@ describe('PayoutDestinationChange', () => {
     expect(h.notes.join('\n')).not.toContain(A);
     expect(h.notes.join('\n')).not.toContain(B);
     expect(h.notes).toEqual([
-      'Payout destination verified|A payout destination for crypto-native is verified and becomes active at 2026-10-17T01:00:00.000Z.',
-      'Payout destination change pending|A payout destination for crypto-native is pending until 2026-10-17T02:00:00.000Z.',
+      'Payout destination verified|A payout destination for crypto-native (0x0000…0f01) is verified and becomes active at 2026-10-17T01:00:00.000Z.',
+      'Payout destination change pending|A payout destination change for crypto-native to 0x0000…0f02 is pending until 2026-10-17T02:00:00.000Z.',
     ]);
   });
 
@@ -187,7 +187,7 @@ describe('PayoutDestinationChange', () => {
     });
     expect((await h.book.require({ merchantId: h.merchantId, railId: RAIL })).ref).toBe(A);
     expect(h.notes).toEqual([
-      'Payout destination added|A payout destination for crypto-native was saved. It is unverified and cannot receive a payout until it is verified.',
+      'Payout destination added|A payout destination for crypto-native (0x0000…0f01) was saved. It is unverified and cannot receive a payout until it is verified.',
     ]);
   });
 
@@ -244,5 +244,31 @@ describe('PayoutDestinationChange', () => {
     ).rejects.toMatchObject({ code: 'pay.invalid_destination_ref' });
     expect(await other.book.read({ merchantId: other.merchantId, railId: RAIL })).toBeNull();
     expect(other.notes).toEqual([]);
+  });
+
+  it('refuses, by name, confirming the current address while a change of it is pending, and writes nothing', async () => {
+    const h = harness(3600);
+    await h.book.seedVerified({ merchantId: h.merchantId, railId: RAIL, kind: 'crypto', ref: A });
+    await h.change.set({ ...open(h.merchantId), caller: caller(h.ownerId), ref: B });
+    const before = await h.book.read({ merchantId: h.merchantId, railId: RAIL });
+    expect(before).toMatchObject({ ref: A, pending: { ref: B } });
+    await expect(h.change.set({ ...open(h.merchantId), caller: caller(h.ownerId) })).rejects.toMatchObject({
+      code: 'pay.destination_change_pending',
+    });
+    expect(await h.book.read({ merchantId: h.merchantId, railId: RAIL })).toEqual(before);
+    expect(h.notes).toHaveLength(1);
+  });
+
+  it('a held destination changed to another address is verified afresh: the new one waits the whole hold, nothing pending', async () => {
+    const h = harness(3600);
+    await h.change.set({ ...open(h.merchantId), caller: caller(h.ownerId) });
+    h.advance('2026-10-17T00:30:00.000Z');
+    const again = await h.change.set({ ...open(h.merchantId), caller: caller(h.ownerId), ref: B });
+    expect(again).toEqual({ status: 'held', railId: RAIL, kind: 'crypto', ref: B, activatesAt: '2026-10-17T01:30:00.000Z' });
+    expect(await h.book.read({ merchantId: h.merchantId, railId: RAIL })).toMatchObject({ ref: B, pending: null });
+    h.advance('2026-10-17T01:00:00.000Z');
+    await expect(h.book.require({ merchantId: h.merchantId, railId: RAIL })).rejects.toMatchObject({ code: 'pay.payout_destination_held' });
+    h.advance('2026-10-17T01:30:00.000Z');
+    expect(await h.book.require({ merchantId: h.merchantId, railId: RAIL })).toEqual({ kind: 'crypto', ref: B });
   });
 });

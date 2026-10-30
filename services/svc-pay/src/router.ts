@@ -2842,6 +2842,7 @@ export function toTrpcError(err: unknown): unknown {
       case 'pay.settlement_in_flight':
       case 'pay.payout_destination_in_flight':
       case 'pay.payout_destination_verified_locked':
+      case 'pay.destination_change_pending':
       case 'pay.settlement_desynced':
       case 'pay.settlement_ledger_conflict':
       case 'pay.settlement_not_pending':

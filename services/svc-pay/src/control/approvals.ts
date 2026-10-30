@@ -1,5 +1,5 @@
 import { clearingPendingMessage, heldInSettlementOf } from '../payment-service/funds.js';
-import { destinationLifecycle } from '../merchant-payout-destination.js';
+import { lifecycleOfColumns } from '../merchant-payout-destination.js';
 import type { Sql } from 'postgres';
 import type { Principal } from '@intafaced/auth';
 import type { FounderApprovalDestination, FounderApprovalQueueItem, PayoutApproval } from '@intafaced/contracts';
@@ -241,7 +241,7 @@ export class ApprovalService {
         `;
           if (!stored[0]) throw new ControlError('pay.payout_destination_missing');
           // J-merchant-02 #5: nothing is asked for a destination that could not be paid when approved.
-          const life = destinationLifecycle({ verified: stored[0].verified, activatesAt: stored[0].activates_at }, at);
+          const life = lifecycleOfColumns(stored[0], at);
           if (life.state === 'unverified') throw new ControlError('pay.payout_destination_unverified');
           if (life.state === 'held') {
             throw new ControlError(

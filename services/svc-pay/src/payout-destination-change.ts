@@ -9,6 +9,7 @@ import {
   type DestinationWriter,
   type MerchantPayoutDestinations,
 } from './merchant-payout-destination.js';
+import { maskDestination } from './control/mask-destination.js';
 import { recordMerchantNotification } from './merchant-ops/notifications.js';
 import { PayError, type PayErrorCode } from './payment-service.js';
 import type { MerchantRole } from './merchant-ops/roles.js';
@@ -174,10 +175,11 @@ export class PayoutDestinationChange {
     if (!result) refuse('pay.payout_destination_missing', 'Payout destination was not stored');
     if (written.tellOwners) {
       const title = result.status === 'held' ? 'Payout destination verified' : 'Payout destination change pending';
+      const masked = maskDestination(result.kind, result.ref);
       const body =
         result.status === 'held'
-          ? `A payout destination for ${input.railId} is verified and becomes active at ${result.activatesAt}.`
-          : `A payout destination for ${input.railId} is pending until ${result.activatesAt}.`;
+          ? `A payout destination for ${input.railId} (${masked}) is verified and becomes active at ${result.activatesAt}.`
+          : `A payout destination change for ${input.railId} to ${masked} is pending until ${result.activatesAt}.`;
       const stamp = result.activatesAt ?? now.toISOString();
       await this.notify(input.merchantId, title, body, `payout-destination:${input.railId}:${result.status}:${stamp}`);
     }
@@ -216,7 +218,7 @@ export class PayoutDestinationChange {
       await this.notify(
         input.merchantId,
         'Payout destination added',
-        `A payout destination for ${input.railId} was saved. It is unverified and cannot receive a payout until it is verified.`,
+        `A payout destination for ${input.railId} (${maskDestination(dest.kind, dest.ref)}) was saved. It is unverified and cannot receive a payout until it is verified.`,
         // The save's own time is in the key, so saving A, then B, then A again tells the owners each time.
         `payout-destination:${input.railId}:unverified:${createHash('sha256').update(`${dest.kind}:${dest.ref}`).digest('hex').slice(0, 16)}:${this.clock().toISOString()}`,
       );
@@ -260,7 +262,15 @@ export class PayoutDestinationChange {
         tellOwners: false,
       };
     }
-    const changingVerified = row?.verified === true && (row.kind !== dest.kind || row.ref !== dest.ref);
+    if (row?.verified === true && row.kind === dest.kind && row.ref === dest.ref && row.pending !== null) {
+      // Confirming the current address while a change to another one waits would not cancel that change (there is no
+      // cancel door yet), so it is refused by name rather than written over.
+      refuse('pay.destination_change_pending', 'A change of this payout destination is pending until its hold passes');
+    }
+    // A held destination (verified, not yet active) changed to another address is verified afresh below: the new one
+    // waits the whole hold, as a pending change would, and nothing was payable before.
+    const changingVerified =
+      row?.verified === true && destinationLifecycle(row, now).state === 'active' && (row.kind !== dest.kind || row.ref !== dest.ref);
     if (changingVerified) {
       if (this.holdSeconds === null) {
         refuse('pay.destination_hold_unset', 'PAY_DESTINATION_HOLD_SECONDS is unset — a destination change is refused');
@@ -277,7 +287,7 @@ export class PayoutDestinationChange {
     }
     const verifiedAt = now;
     const activatesAt = new Date(now.getTime() + this.holdSeconds * 1000);
-    if (row && !row.verified) await write.verifyExisting({ ...dest, verifiedAt, activatesAt });
+    if (row) await write.verifyExisting({ ...dest, verifiedAt, activatesAt });
     else await write.insertVerified({ ...dest, verifiedAt, activatesAt });
     return {
       result: { status: 'held', railId, kind: dest.kind, ref: dest.ref, activatesAt: activatesAt.toISOString() },

@@ -470,6 +470,8 @@ export type PayErrorCode =
   | 'pay.payout_destination_not_allowed'
   /** PAY_DESTINATION_HOLD_SECONDS is blank. A destination change is refused. */
   | 'pay.destination_hold_unset'
+  /** The current destination was confirmed again while a change of it is pending. Refused, nothing written. */
+  | 'pay.destination_change_pending'
   /** Destination add/change had no usable step-up approval. */
   | 'pay.destination_step_up_required'
   /** An API key cannot add or change a payout destination. */
