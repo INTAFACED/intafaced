@@ -358,12 +358,6 @@ const detailValue = (page, label) =>
     .locator('dd');
 
 /** A child order as the trader's own order read reports it. */
-async function orderOf(who, orderId) {
-  const { status, body } = await (await api(who)).get(`/api/v1/orders/${orderId}?symbol=${encodeURIComponent(UNQUOTED)}`);
-  expect(status, JSON.stringify(body).slice(0, 300)).toBe(200);
-  return body;
-}
-
 /** The order ids of a schedule's cancel execution reports from the service, oldest first, one entry per report. */
 async function cancelReports(who, algoId) {
   const { status, body } = await (
