@@ -89,6 +89,7 @@ const commerce = new CommerceService(sql, vendors, ledger, {
     on: env.MARKET_PURCHASE_HOLD === 'on',
     refundWindowSeconds: env.MARKET_REFUND_WINDOW_SECONDS ?? null,
     releaseSweepSeconds: env.MARKET_RELEASE_SWEEP_SECONDS ?? null,
+    refundPolicy: env.MARKET_REFUND_POLICY ?? null,
   },
   onSweepError: (purchaseId, err) => app.log.error({ err, purchaseId }, 'held purchase release sweep could not finish a row'),
 });
@@ -151,6 +152,7 @@ app.log.info(
     purchaseHold: env.MARKET_PURCHASE_HOLD === 'on',
     refundWindowConfigured: env.MARKET_REFUND_WINDOW_SECONDS !== undefined,
     releaseSweep: Boolean(releaseSweep),
+    refundPolicyConfigured: env.MARKET_REFUND_POLICY !== undefined,
     trpc: true,
   },
   'svc-market ready',

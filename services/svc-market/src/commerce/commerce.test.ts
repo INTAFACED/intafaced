@@ -219,6 +219,7 @@ describe('market.commerce', () => {
         commissionConfigured: false,
         purchaseHold: false,
         refundWindowSeconds: null,
+        refundPolicy: null,
       });
     });
   });

@@ -652,6 +652,7 @@ describe('svc-market mount — commerce scopes', () => {
         commissionConfigured: commissionBps !== null,
         purchaseHold: false,
         refundWindowSeconds: null,
+        refundPolicy: null,
       })),
       createListing: vi.fn(async () => listingRow),
       archiveListing: vi.fn(async () => ({ ...listingRow, status: 'archived' as const })),
@@ -754,7 +755,26 @@ describe('svc-market mount — commerce scopes', () => {
       createMarketRouter(stubVendors(), commerce as never)
         .createCaller(anonymous())
         .commerceProgramme(),
-    ).resolves.toEqual({ commissionBps: null, commissionConfigured: false, purchaseHold: false, refundWindowSeconds: null });
+    ).resolves.toEqual({
+      commissionBps: null,
+      commissionConfigured: false,
+      purchaseHold: false,
+      refundWindowSeconds: null,
+      refundPolicy: null,
+    });
+  });
+
+  it('maps an undecided refund policy to PRECONDITION_FAILED owner.decision on requestRefund and refund', async () => {
+    const commerce = stubCommerce() as Record<string, unknown>;
+    const undecided = vi.fn(async () => {
+      throw new MarketError('The refund policy is not set', 'owner.decision');
+    });
+    commerce.held = { requestRefund: undecided, refund: undecided, refundRequests: vi.fn(async () => []) };
+    const caller = createMarketRouter(stubVendors(), commerce as never).createCaller(signed());
+    const purchaseId = '00000000-0000-4000-8000-000000000001';
+    await expect(caller.requestRefund({ purchaseId })).rejects.toMatchObject({ code: 'PRECONDITION_FAILED', message: 'owner.decision' });
+    await expect(caller.refund({ purchaseId })).rejects.toMatchObject({ code: 'PRECONDITION_FAILED', message: 'owner.decision' });
+    expect(undecided).toHaveBeenCalledTimes(2);
   });
 
   /**

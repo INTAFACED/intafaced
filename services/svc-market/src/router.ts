@@ -18,6 +18,7 @@ import {
   MARKET_REFUND_FORBIDDEN,
   MARKET_REFUND_NOT_HELD,
   MARKET_REFUND_WINDOW_UNSET,
+  MARKET_REFUND_POLICY_UNSET,
 } from './commerce/held-purchase.js';
 import type { ReviewsService } from './reviews/reviews-service.js';
 import { REVIEW_MEAN_ROUNDING } from './reviews/reviews-service.js';
@@ -205,7 +206,8 @@ function mapError(err: unknown): never {
       err.code === MARKET_L3_UNAVAILABLE ||
       err.code === MARKET_NOT_NATIVE_EXECUTABLE ||
       err.code === MARKET_REFERENCE_NOT_BOOK ||
-      err.code === MARKET_REFUND_WINDOW_UNSET
+      err.code === MARKET_REFUND_WINDOW_UNSET ||
+      err.code === MARKET_REFUND_POLICY_UNSET
     ) {
       throw new TRPCError({ code: 'PRECONDITION_FAILED', message, cause: err });
     }
@@ -772,11 +774,12 @@ export function createMarketRouter(
           commissionConfigured: z.boolean(),
           purchaseHold: z.boolean(),
           refundWindowSeconds: z.number().int().positive().nullable(),
+          refundPolicy: z.enum(['seller_full']).nullable(),
         }),
       )
       .query(() => {
         if (!commerce) {
-          return { commissionBps: null, commissionConfigured: false, purchaseHold: false, refundWindowSeconds: null };
+          return { commissionBps: null, commissionConfigured: false, purchaseHold: false, refundWindowSeconds: null, refundPolicy: null };
         }
         return commerce.programme();
       }),

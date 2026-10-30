@@ -33,6 +33,11 @@ export const MARKET_PURCHASE_ALREADY_HELD = 'market.purchase_already_held' as co
 export const MARKET_REFUND_NOT_HELD = 'market.refund_not_held' as const;
 export const MARKET_REFUND_FORBIDDEN = 'market.refund_forbidden' as const;
 export const MARKET_PURCHASE_NOT_FOUND = 'market.purchase_not_found' as const;
+/** The refund policy (who may refund, the fee, the remedy after release) is the owner's decision; blank, no refund moves. */
+export const MARKET_REFUND_POLICY_UNSET = 'owner.decision' as const;
+
+/** The refund policies built so far: the seller refunds the whole price, once, inside the window. */
+export type RefundPolicy = 'seller_full';
 
 /** The owner's hold switch and refund window. Off: every purchase pays through. */
 export interface PurchaseHoldConfig {
@@ -41,12 +46,16 @@ export interface PurchaseHoldConfig {
   refundWindowSeconds: number | null;
   /** Whole seconds between release sweeps, or null while the owner has not set one. Never defaulted. */
   releaseSweepSeconds: number | null;
+  /** The owner's refund policy, or null while undecided: a refund request and a refund then refuse `owner.decision`. */
+  refundPolicy?: RefundPolicy | null;
 }
 
 export interface HeldPurchaseDeps {
   sql: Sql;
   ledger: LedgerClient;
   now: () => Date;
+  /** The owner's refund policy now, or null while it is undecided. Never defaulted. */
+  refundPolicy: () => RefundPolicy | null;
   /**
    * Best-effort affiliate legs on the house commission, after a release posts and before its row is marked released,
    * so a crash between them is sent again (under the legs' own keys) when the sweep finishes the row. Never throws.
@@ -173,6 +182,7 @@ export class HeldPurchases {
     if (!purchase || purchase.buyerId !== input.buyerId) {
       throw new MarketError('No purchase of yours has that id', MARKET_PURCHASE_NOT_FOUND);
     }
+    this.requirePolicy();
     const nowIso = this.deps.now().toISOString();
     const [row] = await this.deps.sql<PurchaseRow[]>`
       UPDATE market.purchases
@@ -198,6 +208,8 @@ export class HeldPurchases {
       throw new MarketError('Only the seller of this purchase can refund it', MARKET_REFUND_FORBIDDEN);
     }
     if (purchase.status === 'refunded') return purchase;
+    // A refund already claimed is finished whatever the policy is now; a new one needs the owner's policy.
+    if (purchase.outcome !== 'refund') this.requirePolicy();
     const nowIso = this.deps.now().toISOString();
     const [claimed] = await this.deps.sql<PurchaseRow[]>`
       UPDATE market.purchases
@@ -214,6 +226,15 @@ export class HeldPurchases {
       throw new MarketError('Only a held purchase inside its refund window can be refunded', MARKET_REFUND_NOT_HELD);
     }
     return this.finishRefund(current);
+  }
+
+  private requirePolicy(): void {
+    if (this.deps.refundPolicy() === null) {
+      throw new MarketError(
+        'The refund policy is not set — no refund can be asked for or made until the owner decides it',
+        MARKET_REFUND_POLICY_UNSET,
+      );
+    }
   }
 
   private async finishRefund(purchase: PurchaseRecord): Promise<PurchaseRecord> {
