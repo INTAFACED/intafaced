@@ -103,7 +103,7 @@ describe('a comment holding a secret is refused and nothing is stored', () => {
     for (const [subject, body] of [
       ['TEST card', CARD],
       [PHRASE, 'TEST my wallet'],
-    ])
+    ] as const)
       expect(await code(customer.create({ category: 'account', subject, body, clientRequestId: `create:${subject}` }))).toBe(
         'support.comment_secret_refused',
       );
