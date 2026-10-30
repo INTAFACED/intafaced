@@ -108,8 +108,20 @@ test('J-p2p-03 #1 Post an ad shows the posting checklist for the coin and fiat, 
   await expect(panel).toContainText('Pick a fiat currency');
   await page.getByTestId('offer-form').getByLabel('Fiat currency').selectOption('EUR');
   await expect(panel).toContainText('What posting an ad in EUR needs');
+  // Every requirement the service lists is on screen with its state and both numbers, in the app's words for each.
+  const LEVEL = { none: 'not verified', basic: 'basic', full: 'full', institutional: 'institutional' };
+  const STATE = { met: 'Met', not_met: 'Not met', unknown: 'Cannot be checked' };
+  const shown = (id, value) =>
+    value === null ? 'not available' : id === 'kyc_tier' ? (LEVEL[value] ?? value) : id === 'completion_rate' ? `${value}%` : value;
+  await expect(panel.locator('[data-check]')).toHaveCount(checks.length);
+  for (const check of checks)
+    await expect(panel.locator(`[data-check="${check.id}"]`)).toContainText(
+      `${STATE[check.state]}. You: ${shown(check.id, check.current)}. Needed: ${shown(check.id, check.required)}.`,
+    );
   await expect(panel.locator('[data-check="completed_orders"]')).toContainText('Met. You: 0. Needed: 0.');
-  await expect(panel.locator('[data-check="kyc_tier"]')).toContainText('Needed: basic.');
+  await expect(panel.locator('[data-check="kyc_tier"]')).toContainText(
+    `Met. You: ${LEVEL[byId.kyc_tier.current] ?? byId.kyc_tier.current}. Needed: basic.`,
+  );
 });
 
 test('J-p2p-03 #2 posting before accepting the advertiser terms refuses and opens them with their version; accepting records it', async ({
@@ -276,9 +288,13 @@ test('J-p2p-03 #6 the summary lists every field; confirming twice posts one ad, 
   expect(await adsMarked(state, `${marker}-replay`)).toHaveLength(1);
   // Nothing is reserved at post: the free balance is what was funded.
   expect((await s.query('offers.sellBalance', { asset: 'USDT' })).available).toBe(FUNDS);
-  // On the board, and in My Ads.
-  await page.goto('/p2p');
-  await expect(page.getByRole('main')).toContainText(AD.price);
+  // On the board, and in My Ads: the posted ad's own row, by its id, with its price and limits.
+  await page.goto(`/p2p?makerId=${state.sellerId}`);
+  const boardRow = page.locator(`li[data-testid="p2p-offer-row"][data-offer-id="${ads[0].id}"]`);
+  await expect(boardRow).toHaveCount(1);
+  for (const text of [AD.price, AD.min, AD.max]) await expect(boardRow).toContainText(text);
   await page.goto('/uc/ad');
-  await expect(page.getByRole('main')).toContainText(AD.price);
+  const mineRow = page.locator(`li.p2p-offer-row[data-offer-id="${ads[0].id}"]`);
+  await expect(mineRow).toHaveCount(1);
+  for (const text of [AD.price, AD.min, AD.max]) await expect(mineRow).toContainText(text);
 });
