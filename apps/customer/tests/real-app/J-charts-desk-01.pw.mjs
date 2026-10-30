@@ -11,10 +11,33 @@ const title = (page) => page.getByTestId('chart-title').first();
 const canvas = (page) => page.getByRole('img', { name: 'Price chart of BTC/USDT' }).first();
 const pressedInterval = (page) => page.getByRole('group', { name: 'Chart intervals' }).first().locator('button[aria-pressed="true"]');
 
-/** The bars in view, as the chart writes them: logical bar indexes of its left and right edges. */
+/**
+ * The bars in view, as the chart writes them: logical bar indexes of its left and right edges, read together in one
+ * call so a range change between them can't mix two views. NaN while the chart has written no range.
+ */
 async function view(page) {
-  const c = canvas(page);
-  return { from: Number(await c.getAttribute('data-view-from')), to: Number(await c.getAttribute('data-view-to')) };
+  return canvas(page).evaluate((el) => {
+    const read = (name) => (el.hasAttribute(name) ? Number(el.getAttribute(name)) : NaN);
+    return { from: read('data-view-from'), to: read('data-view-to') };
+  });
+}
+
+/** The bars in view once the chart has stopped moving them: the same range on two reads 200 ms apart. */
+async function settledView(page) {
+  let last = null;
+  let settled = null;
+  await expect
+    .poll(
+      async () => {
+        const v = await view(page);
+        settled = last && Number.isFinite(v.from) && v.to - v.from > 0 && v.from === last.from && v.to === last.to ? v : null;
+        last = v;
+        return settled !== null;
+      },
+      { intervals: [200] },
+    )
+    .toBe(true);
+  return settled;
 }
 
 async function openChart(page, path = CHART) {
@@ -99,17 +122,24 @@ test(`${J} #4 scrolls back to the oldest bar, more history loads with a stated d
   const firstBefore = Number(await canvas(page).getAttribute('data-first'));
   // Zoom and pan by keyboard, read back as the bars in view (logical bar indexes the chart writes on itself).
   await canvas(page).focus();
-  const v0 = await view(page);
+  const v0 = await settledView(page);
   await page.keyboard.press('+');
   await page.keyboard.press('+');
   // Zooming in keeps the newest edge and shows fewer bars.
-  await expect.poll(async () => (await view(page)).to - (await view(page)).from).toBeLessThan(v0.to - v0.from);
-  const v1 = await view(page);
+  await expect
+    .poll(async () => {
+      const v = await view(page);
+      return v.to - v.from;
+    })
+    .toBeLessThan(v0.to - v0.from);
+  const v1 = await settledView(page);
   expect(Math.abs(v1.to - v0.to)).toBeLessThan(1);
   // One arrow key pans ten bars back: both edges move by the same ten bars.
   await page.keyboard.press('ArrowLeft');
   await expect.poll(async () => (await view(page)).to).toBeCloseTo(v1.to - 10, 0);
-  expect((await view(page)).from).toBeCloseTo(v1.from - 10, 0);
+  const panned = await settledView(page);
+  expect(panned.from).toBeCloseTo(v1.from - 10, 0);
+  expect(panned.to).toBeCloseTo(v1.to - 10, 0);
   // Zoom right out and pan to the oldest bar: the chart asks the service for the older block once. The stack's TEST
   // history reaches back further than the 240 bars the chart opens with, so the older block adds bars in front.
   for (let i = 0; i < 12; i += 1) await page.keyboard.press('-');
@@ -125,13 +155,13 @@ test(`${J} #4 scrolls back to the oldest bar, more history loads with a stated d
   await page.keyboard.press('Home');
   await page.keyboard.press('+');
   await page.keyboard.press('+');
-  const v2 = await view(page);
+  const v2 = await settledView(page);
   await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
   await page.mouse.down();
   await page.mouse.move(box.x + box.width / 2 + 200, box.y + box.height / 2, { steps: 8 });
   await page.mouse.up();
   await expect.poll(async () => (await view(page)).from).toBeLessThan(v2.from - 1);
-  const v3 = await view(page);
+  const v3 = await settledView(page);
   expect(v3.to - v3.from).toBeCloseTo(v2.to - v2.from, 0);
 });
 

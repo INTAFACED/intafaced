@@ -119,8 +119,14 @@ export function WorkbenchChart({
     const onMove = (param: { time?: number }) => setHover(param.time ?? null);
     const onRange = (range: { from: number; to: number } | null) => {
       // The bars in view, as logical bar indexes (0 is the first loaded bar), so a zoom or a pan can be read back.
-      element.current?.setAttribute('data-view-from', range ? range.from.toFixed(1) : '');
-      element.current?.setAttribute('data-view-to', range ? range.to.toFixed(1) : '');
+      // Written here rather than rendered, so a pan or zoom doesn't re-render the chart each frame; no range, no attribute.
+      for (const [name, value] of [
+        ['data-view-from', range?.from],
+        ['data-view-to', range?.to],
+      ] as const) {
+        if (value === undefined) element.current?.removeAttribute(name);
+        else element.current?.setAttribute(name, value.toFixed(1));
+      }
       if (moved.current && range && count.current > 0 && range.from < 5) reachStart.current?.();
     };
     void import('../../features/trade/vendor/lightweight-charts.standalone.production.js').then(() => {
