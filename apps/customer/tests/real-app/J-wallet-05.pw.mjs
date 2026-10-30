@@ -128,6 +128,12 @@ async function customerApi(who) {
       if (status !== 200) throw new Error(`balance read refused: ${status}`);
       return body.balances[asset]?.free ?? '0';
     },
+    /** What the ledger holds against the person for `asset` (holds and escrow), as svc-bank reads it from svc-ledger. */
+    async reserved(asset) {
+      const { status, body } = await get('/api/v1/account/balance');
+      if (status !== 200) throw new Error(`balance read refused: ${status}`);
+      return body.balances[asset]?.used ?? '0';
+    },
     /** One withdrawal as svc-pay's `withdrawal.get` answers it, with the state the person is shown (`customerStatus`). */
     async withdrawal(withdrawalId) {
       const { status, body } = await get(`/api/pay/trpc/withdrawal.get?input=${encodeURIComponent(JSON.stringify({ withdrawalId }))}`);
@@ -751,10 +757,44 @@ test(`${J} #8 watches the status: requested, held, broadcast and settled in plai
       const steps = seen.map((state) => order.indexOf(state));
       expect(steps, `never backwards: ${seen.join(' → ')}`).toEqual([...steps].sort((a, b) => a - b));
     };
+    /**
+     * One real send from the Withdraw form. Its create is let through to svc-pay unchanged, and svc-pay's answer is held back
+     * from the page until the form has been read: while the call is in flight the room says Requested. Returns svc-pay's
+     * answer, as the page then gets it.
+     */
+    const sendWatched = async (amount) => {
+      await readyToConfirm(page, amount);
+      let release;
+      const released = new Promise((resolve) => (release = resolve));
+      let answered;
+      const answer = new Promise((resolve) => (answered = resolve));
+      await page.route('**/api/pay/trpc/withdrawal.create**', async (route) => {
+        const response = await route.fetch();
+        answered(await response.json());
+        await released;
+        await route.fulfill({ response });
+      });
+      try {
+        await stepUp(page).getByRole('button', { name: 'Confirm' }).click();
+        const requested = page.getByTestId('withdraw-requested');
+        await expect(requested).toHaveAttribute('data-status', 'requested', { timeout: 30_000 });
+        await expect(requested.locator('strong')).toHaveText(word.requested);
+        const body = await answer;
+        // Still in flight for the page while svc-pay has answered: the room still says Requested.
+        await expect(requested).toBeVisible();
+        release();
+        await expect(requested).toBeHidden({ timeout: 30_000 });
+        return body?.result?.data;
+      } finally {
+        release?.();
+        await page.unroute('**/api/pay/trpc/withdrawal.create**');
+      }
+    };
 
     // #6's send, picked by the id #6 kept: Settled on its page and in svc-pay's record, and in the person's list.
     const sent6 = run.read().sent6;
     expect(sent6, 'the withdrawal #6 sent (#8 runs after #6)').toBeTruthy();
+    await expect.poll(async () => (await api.withdrawal(sent6)).customerStatus, { timeout: 90_000 }).toBe('settled');
     expect(await look(own, sent6)).toBe('settled');
     const made6 = await record(sent6);
     expect(made6).toMatchObject({ status: 'settled', destination: { kind: 'crypto', ref: ADDRESS } });
@@ -764,64 +804,57 @@ test(`${J} #8 watches the status: requested, held, broadcast and settled in plai
     const row6 = own.getByTestId('withdrawal-history').locator(`[data-testid="withdrawal-row"][data-withdrawal-id="${sent6}"]`);
     await expect(row6.locator('[data-withdrawal-status]')).toHaveText('Settled', { timeout: 30_000 });
 
-    // A new real send of 12, watched while it goes. The stack's TEST chain waits a few seconds after a send is recorded
-    // before it answers (`PAY_TEST_CHAIN_SEND_DELAY_MS`), so the page can be read while the money is held and on its way.
-    const known = new Set((await api.withdrawals(200)).map((w) => w.id));
+    // A new real send of 12, watched from the request to Settled. svc-pay books the hold inside the create and answers
+    // Held; its advance worker then sends it on the stack's TEST chain, which answers after a few seconds and makes a block
+    // every few seconds after that; svc-pay settles it only once the chain holds it at PAY_MIN_CONFIRMATIONS deep.
     const freeBeforeTwelve = toUnits(await api.available('USDT'));
+    const reservedBeforeTwelve = toUnits(await api.reserved('USDT'));
     await signInWithCode(page);
-    await readyToConfirm(page, '12');
-    await stepUp(page).getByRole('button', { name: 'Confirm' }).click();
-    let watching = null;
-    await expect
-      .poll(
-        async () => {
-          watching = (await api.withdrawals(200)).find((w) => !known.has(w.id)) ?? null;
-          return watching?.status ?? null;
-        },
-        { timeout: 20_000, intervals: [100] },
-      )
-      .not.toBeNull();
+    const twelve = await sendWatched('12');
+    expect(twelve, 'svc-pay answered the create').toBeTruthy();
+    expect(twelve).toMatchObject({ status: 'held', customerStatus: 'held', cancellable: true });
+    expect(toUnits(twelve.amount)).toBe(toUnits('12'));
+    // svc-pay's own record reads it back held, and the ledger has reserved the 12 with the TEST 1.5 fee on top.
+    expect((await api.withdrawal(twelve.id)).customerStatus, 'withdrawal.get reads the new send back').toBe('held');
+    expect(toUnits(await api.reserved('USDT')), 'the ledger holds 12 + 1.5 for it').toBe(reservedBeforeTwelve + toUnits('13.5'));
+    expect(toUnits(await api.available('USDT')), 'and it left the available balance').toBe(freeBeforeTwelve - toUnits('13.5'));
+    await expect(page.getByTestId('withdraw-outcome')).toContainText(`Withdrawal ${twelve.id} is recorded.`);
+    await expect(page.getByTestId('withdraw-outcome-status')).toHaveText(word.held);
+
     const seen = [];
     const reads = [];
-    const until = Date.now() + 60_000;
+    const until = Date.now() + 120_000;
     while (seen.at(-1) !== 'settled' && Date.now() < until) {
-      const state = await look(own, watching.id, api, reads);
+      const state = await look(own, twelve.id, api, reads);
       if (seen.at(-1) !== state) seen.push(state);
     }
     expect(seen.at(-1), `seen: ${seen.join(' → ')}`).toBe('settled');
     forwards(seen);
-    // While the TEST chain waits, svc-pay has asked the chain to send and does not yet know the outcome: its record reads
-    // `dispatching`, and the page must show that, in its word (Sending).
-    expect(seen, `the page read the send on its way before it settled: ${seen.join(' → ')}`).toContain('dispatching');
-    expect(reads, `svc-pay itself read the send on its way: ${reads.join(', ')}`).toContain('dispatching');
-    // Requested, Held and Broadcast stay red by name: a real send passes them inside the one create request, because
-    // svc-pay has no confirm-later flow yet, so the page can never read them on a real send. Soft, so the rest of #8 is
-    // proven; the seeded rows below check only their words.
-    for (const state of ['requested', 'held', 'broadcast']) {
-      expect
-        .soft(seen, `blocked until svc-pay has a confirm-later flow: the page never read a real send ${state} (${seen.join(' → ')})`)
-        .toContain(state);
+    for (const state of ['held', 'dispatching', 'broadcast', 'confirming']) {
+      expect(seen, `the page read the real send ${state} on its way: ${seen.join(' → ')}`).toContain(state);
+      expect(reads, `svc-pay itself read it ${state}: ${reads.join(', ')}`).toContain(state);
     }
-    await expect(page.getByTestId('withdraw-outcome')).toContainText('Withdrawal recorded', { timeout: 30_000 });
-    const made12 = await record(watching.id);
+    const made12 = await record(twelve.id);
     expect(made12.status).toBe('settled');
     expect(toUnits(made12.amount)).toBe(toUnits('12'));
-    // Its debit, read back from the ledger: the 12 out with the TEST 1.5 fee on top.
+    // Settled, read back from the ledger: the hold is gone and the 12 with its 1.5 fee left the person's money for good.
+    expect(toUnits(await api.reserved('USDT')), 'the settle consumed the hold').toBe(reservedBeforeTwelve);
     expect(toUnits(await api.available('USDT')), 'the settled 12 took 12 + 1.5 from the balance').toBe(freeBeforeTwelve - toUnits('13.5'));
 
-    // A real send the TEST chain refuses (any send of exactly 13, `PAY_TEST_CHAIN_REFUSE_AMOUNT`): held, refused, its
-    // hold back, and the page says why in a sentence, never as its code.
-    const availableBefore = toUnits(await api.available('USDT'));
-    const knownNow = new Set((await api.withdrawals(200)).map((w) => w.id));
-    await readyToConfirm(page, '13');
-    await stepUp(page).getByRole('button', { name: 'Confirm' }).click();
-    await expect(page.getByTestId('withdraw-outcome')).toBeVisible({ timeout: 30_000 });
-    const refused = (await api.withdrawals(200)).find((w) => !knownNow.has(w.id));
-    expect(refused, 'the refused send has its own record').toBeTruthy();
+    // A real send the TEST chain refuses (any send of exactly 13, `PAY_TEST_CHAIN_REFUSE_AMOUNT`): held by the create, then
+    // refused when the worker sends it, its hold back, and the page says why in a sentence, never as its code.
+    const freeBeforeThirteen = toUnits(await api.available('USDT'));
+    const reservedBeforeThirteen = toUnits(await api.reserved('USDT'));
+    const thirteen = await sendWatched('13');
+    expect(thirteen).toMatchObject({ status: 'held', customerStatus: 'held' });
+    expect(toUnits(await api.reserved('USDT')), 'the ledger holds 13 + 1.5 for it').toBe(reservedBeforeThirteen + toUnits('14.5'));
+    await expect.poll(async () => (await api.withdrawal(thirteen.id)).customerStatus, { timeout: 60_000 }).toBe('failed');
+    const refused = await record(thirteen.id);
     expect(refused).toMatchObject({ status: 'failed', failure: { code: 'rail.refused', known: true } });
     expect(toUnits(refused.amount)).toBe(toUnits('13'));
-    expect(toUnits(await api.available('USDT')), 'the refused send held nothing back').toBe(availableBefore);
-    expect(await look(own, refused.id)).toBe('failed');
+    expect(toUnits(await api.reserved('USDT')), 'the refused send’s hold went back').toBe(reservedBeforeThirteen);
+    expect(toUnits(await api.available('USDT')), 'and the balance is whole again').toBe(freeBeforeThirteen);
+    expect(await look(own, thirteen.id)).toBe('failed');
     await expect(own.getByTestId('withdrawal-facts')).toContainText(
       'The network refused this withdrawal. Nothing was sent, and any amount held for it went back to your available balance.',
     );
@@ -830,33 +863,23 @@ test(`${J} #8 watches the status: requested, held, broadcast and settled in plai
     await ownContext.close();
   }
 
-  // Only these words come from rows written straight into svc-pay on TEST: a real send passes requested, held and
-  // broadcast inside the one request (svc-pay has no confirm-later flow yet), and an old `sent` row can only be written.
-  // The sends above are the real ones; this part only checks the words a real send cannot stop on.
-  // A person of its own, so these withdrawals don't count against the limits the steps above use.
+  // An old `sent` row: written straight into svc-pay on TEST in the shape `withdraw` stored before sends settled at a
+  // depth (status `sent` with its reference, the attempt journalled `accepted`, no depth read), and it reads Settled.
+  // A person of its own, so this withdrawal doesn't count against the limits the steps above use.
   const who = await signUp(page, 'wd8');
   await verify(page, who);
   await signIn(page, who);
   expect(fund(who.email, 'USDT', '100').tx).toBeTruthy();
   const tag = `jw05-${who.handle}-r${testInfo.retry}`;
-  const words = { requested: word.requested, held: word.held, broadcast: word.broadcast, sent: word.settled };
-  const ids = Object.fromEntries(Object.keys(words).map((state) => [state, seedWithdrawal(who, state, '1', `${tag}-${state}`)]));
-  // Each row as svc-pay itself reads it back (an old `sent` row reads settled), then its own page in that word.
+  const old = seedWithdrawal(who, 'sent', '1', `${tag}-sent`);
   const theirs = await customerApi(who);
-  const expected = { requested: 'requested', held: 'held', broadcast: 'broadcast', sent: 'settled' };
-  for (const [state, id] of Object.entries(ids)) {
-    expect((await theirs.withdrawal(id)).customerStatus, `svc-pay reads the ${state} row`).toBe(expected[state]);
-    await page.goto(`/uc/withdraw?withdrawalId=${id}`);
-    const status = page.getByTestId('withdrawal-status');
-    await expect(status).toHaveAttribute('data-status', expected[state], { timeout: 15_000 });
-    await expect(status).toHaveText(words[state]);
-  }
-
+  expect((await theirs.withdrawal(old)).customerStatus, 'svc-pay reads the old sent row').toBe('settled');
+  await page.goto(`/uc/withdraw?withdrawalId=${old}`);
+  const status = page.getByTestId('withdrawal-status');
+  await expect(status).toHaveAttribute('data-status', 'settled', { timeout: 15_000 });
+  await expect(status).toHaveText(word.settled);
   await page.goto('/uc/withdraw');
   await page.mouse.move(0, 600);
-  const history = page.getByTestId('withdrawal-history');
-  for (const [state, id] of Object.entries(ids)) {
-    const row = history.locator(`[data-testid="withdrawal-row"][data-withdrawal-id="${id}"]`);
-    await expect(row.locator('[data-withdrawal-status]')).toHaveText(words[state], { timeout: 30_000 });
-  }
+  const row = page.getByTestId('withdrawal-history').locator(`[data-testid="withdrawal-row"][data-withdrawal-id="${old}"]`);
+  await expect(row.locator('[data-withdrawal-status]')).toHaveText(word.settled, { timeout: 30_000 });
 });

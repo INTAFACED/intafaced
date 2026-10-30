@@ -63,11 +63,14 @@ export interface WithdrawAdvanceCursor {
 /**
  * Held sends out of the platform, oldest first, after `after`: on a network, moved into `held` under the journalling code
  * (so every send of the attempt is journalled before the rail is asked), and not a cancel in flight (the cancel finishes it).
+ * `heldForMs`: a row is taken on only once it has stood that long since it last changed, so a fresh hold is the create's
+ * answer for at least one tick (the person can read it, and cancel it, before anything is asked of the chain).
  */
 export async function listHeldSends(
   sql: Sql,
   limit: number,
   after: WithdrawAdvanceCursor | null = null,
+  heldForMs = 0,
 ): Promise<Array<{ withdrawalId: string; cursor: WithdrawAdvanceCursor }>> {
   const afterAt = after?.createdAt ?? '-infinity';
   const afterId = after?.id ?? '00000000-0000-0000-0000-000000000000';
@@ -77,6 +80,7 @@ export async function listHeldSends(
      WHERE w.status = 'held'
        AND w.network_id IS NOT NULL
        AND w.dispatch_journaled = true
+       AND w.updated_at <= now() - make_interval(secs => ${heldForMs / 1000}::float8)
        AND w.failure_code IS DISTINCT FROM ${WITHDRAWAL_CANCELED_CODE}
        AND (w.created_at, w.id) > (${afterAt}::text::timestamptz, ${afterId}::text::uuid)
      ORDER BY w.created_at, w.id
@@ -104,9 +108,9 @@ export interface WithdrawAdvanceReport {
 export async function runWithdrawAdvancePass(
   sql: Sql,
   money: Pick<UserMoneyService, 'advanceWithdrawal'>,
-  input: { batchLimit: number; after?: WithdrawAdvanceCursor | null },
+  input: { batchLimit: number; after?: WithdrawAdvanceCursor | null; heldForMs?: number },
 ): Promise<WithdrawAdvanceReport> {
-  const rows = await listHeldSends(sql, input.batchLimit, input.after ?? null);
+  const rows = await listHeldSends(sql, input.batchLimit, input.after ?? null, input.heldForMs ?? 0);
   let settled = 0;
   let reversed = 0;
   let waiting = 0;
@@ -158,7 +162,7 @@ export function startWithdrawAdvanceWorker(
   const timer = setInterval(() => {
     if (running) return;
     running = true;
-    void runWithdrawAdvancePass(sql, money, { batchLimit: config.batchLimit, after: cursor })
+    void runWithdrawAdvancePass(sql, money, { batchLimit: config.batchLimit, after: cursor, heldForMs: config.intervalMs })
       .then((report) => {
         cursor = report.nextCursor;
         if (report.settled > 0 || report.reversed > 0) log.info(report, 'withdrawal advance pass');

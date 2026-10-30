@@ -250,6 +250,8 @@ export function WithdrawForm({ toWallet = false }: { toWallet?: boolean } = {}) 
   const [sentInside, setSentInside] = useState<WithdrawalRecord | null>(null);
   const [refusal, setRefusal] = useState<string | null>(null);
   const [outcome, setOutcome] = useState<Outcome | null>(null);
+  // W-withdraw-06: a send is `requested` while its create is in flight, and shown so, before svc-pay answers.
+  const [requesting, setRequesting] = useState(false);
   // Each answered send counts once, so the limit line is read again after every one.
   const [answered, setAnswered] = useState(0);
   const [now, setNow] = useState(() => Date.now());
@@ -554,9 +556,14 @@ export function WithdrawForm({ toWallet = false }: { toWallet?: boolean } = {}) 
     // Kept in the tab before the ask leaves, so a reload or a crash while it is in flight finishes it, never starts another.
     keepOut(userId, open);
     sendingOut.current = true;
+    setOutcome(null);
+    setRequesting(true);
     const answer = await createWithdrawSend(api)
       .send(input, token)
-      .finally(() => (sendingOut.current = false));
+      .finally(() => {
+        sendingOut.current = false;
+        if (alive.current) setRequesting(false);
+      });
     // A refusal of the quote proves svc-pay holds no withdrawal under this reference: it reads the quote only for a reference
     // it has never claimed. So even after a lost answer, such a refusal lets the reference go and the fee can be got afresh.
     const settled = answer.ok || (definite(answer) && (!wasUnanswered || NO_CLAIM_UNDER_REFERENCE.test(answer.code ?? '')));
@@ -917,6 +924,12 @@ export function WithdrawForm({ toWallet = false }: { toWallet?: boolean } = {}) 
             </a>
           </div>
         )}
+        {requesting && (
+          <div className="bd-address" role="status" data-testid="withdraw-requested" data-status="requested">
+            <strong>{t('s_requested')}</strong>
+            <p>{t('xRequested')}</p>
+          </div>
+        )}
         {outcome && (
           <div
             className={outcome.kind === 'sent' ? 'bd-address' : 'failure'}
@@ -928,6 +941,9 @@ export function WithdrawForm({ toWallet = false }: { toWallet?: boolean } = {}) 
               <>
                 <strong>{t('xDoneTitle')}</strong>
                 <p>{t('xDone', { id: outcome.record.id })}</p>
+                <p data-testid="withdraw-outcome-status">
+                  {t(outcome.record.customerStatus ? `s_${outcome.record.customerStatus}` : outcome.record.status)}
+                </p>
                 <a className="text-link" href={`/uc/withdraw?withdrawalId=${encodeURIComponent(outcome.record.id)}`}>
                   {t('sOpen')}
                 </a>

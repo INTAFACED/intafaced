@@ -891,8 +891,18 @@ export class UserMoneyService {
             queriedRef = queried.railRef;
           }
           // Legacy held rows have unknown dispatch history. Never interpret their
-          // next refusal as proof that no earlier send committed.
-          const firstDispatch = prior.length === 0 && claimed.status !== 'held';
+          // next refusal as proof that no earlier send committed. A row that moved into `held` under the journalling code
+          // (W-withdraw-06: the advance worker's first send of a confirm-later hold) journals every send before the rail is
+          // asked, so no journal row proves nothing was sent.
+          const journaledHold =
+            claimed.status === 'held' && prior.length === 0
+              ? (
+                  await connection<Array<{ dispatch_journaled: boolean | null }>>`
+                SELECT dispatch_journaled FROM pay.withdrawals WHERE id = ${claimed.id}
+              `
+                )[0]?.dispatch_journaled === true
+              : false;
+          const firstDispatch = prior.length === 0 && (claimed.status !== 'held' || journaledHold);
           const accepted = queriedRef ?? (prior[0]?.outcome === 'accepted' && prior[0].rail_ref);
           // A saved or queried acceptance settles below and does not ask the
           // rail to pay. Every other attempt records `requested` first, then
