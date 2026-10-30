@@ -46,6 +46,10 @@
       "types": "./dist/protocol-representation.d.ts",
       "default": "./dist/protocol-representation.js"
     },
+    "./protocol-swap": {
+      "types": "./dist/protocol-swap.d.ts",
+      "default": "./dist/protocol-swap.js"
+    },
     "./ops-console-mode": {
       "types": "./dist/ops-console-mode.d.ts",
       "default": "./dist/ops-console-mode.js"

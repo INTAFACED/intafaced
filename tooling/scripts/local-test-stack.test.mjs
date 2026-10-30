@@ -66,6 +66,114 @@ const script = resolve(here, 'local-test-stack.mjs');
   );
 }
 
+// Service keys: off by default, so the journeys' stack is unchanged; LOCAL_STACK_S2S=dual gives every S2S service one
+// shared public keyring and its own matching signing key, and keypair is refused.
+{
+  const { localTestServiceEnvs, s2sEnv, S2S_SERVICES, PLAN_SECRETS, newServiceKey, serviceKeyMatches } =
+    await import('./local-test-stack.mjs');
+  const { createPrivateKey, createPublicKey } = await import('node:crypto');
+  const contractsNames = [
+    ...readFileSync(resolve(here, '../../packages/contracts/src/service-keys.ts'), 'utf8')
+      .match(/export const SERVICE_NAMES = \[([^\]]*)\]/)[1]
+      .matchAll(/'(svc-[a-z0-9-]+)'/g),
+  ].map((m) => m[1]);
+  const stackSvcs = localTestServiceEnvs().map((d) => d.env.SERVICE_NAME);
+  assert.deepEqual(
+    [...S2S_SERVICES].sort(),
+    stackSvcs.filter((n) => contractsNames.includes(n)).sort(),
+    'every stack service that packages/contracts names has a key, and no other',
+  );
+  const s2sKeys = Object.fromEntries(S2S_SERVICES.map((svc) => [svc, newServiceKey(svc)]));
+  // A stored key is kept only when its kid is the service's and its private key gives its public x.
+  assert.ok(serviceKeyMatches('svc-trade', s2sKeys['svc-trade']));
+  assert.ok(!serviceKeyMatches('svc-trade', { ...s2sKeys['svc-trade'], kid: 'svc-trade.old' }), 'another kid');
+  assert.ok(!serviceKeyMatches('svc-trade', { ...s2sKeys['svc-trade'], x: s2sKeys['svc-ledger'].x }), 'another public key');
+  assert.ok(!serviceKeyMatches('svc-trade', { ...s2sKeys['svc-trade'], key: 'not-a-key' }), 'a broken private key');
+  assert.ok(!serviceKeyMatches('svc-trade', undefined), 'no key');
+  const prior = process.env.LOCAL_STACK_S2S;
+  try {
+    delete process.env.LOCAL_STACK_S2S;
+    for (const { name, env } of localTestServiceEnvs({ ...PLAN_SECRETS, s2sKeys })) {
+      assert.ok(!Object.keys(env).some((k) => k.startsWith('S2S_')), `${name}: no S2S env by default`);
+    }
+    assert.deepEqual(s2sEnv({ s2sKeys }, 'svc-trade', 'off'), {});
+    process.env.LOCAL_STACK_S2S = 'dual';
+    const keyed = localTestServiceEnvs({ ...PLAN_SECRETS, s2sKeys });
+    const rings = new Set();
+    for (const { name, env } of keyed) {
+      const svc = env.SERVICE_NAME;
+      if (!S2S_SERVICES.includes(svc)) {
+        assert.ok(!Object.keys(env).some((k) => k.startsWith('S2S_')), `${name}: no S2S role, no S2S env`);
+        continue;
+      }
+      assert.equal(env.S2S_AUTH_MODE, 'dual', name);
+      assert.equal(env.S2S_SIGNING_KID, `${svc}.local`, name);
+      rings.add(env.S2S_KEYRING);
+      const entry = JSON.parse(env.S2S_KEYRING).keys.find((k) => k.kid === env.S2S_SIGNING_KID);
+      assert.equal(entry.svc, svc, name);
+      const priv = createPrivateKey({ key: Buffer.from(env.S2S_SIGNING_KEY, 'base64url'), format: 'der', type: 'pkcs8' });
+      assert.equal(createPublicKey(priv).export({ format: 'der', type: 'spki' }).subarray(-32).toString('base64url'), entry.x, name);
+    }
+    assert.equal(rings.size, 1, 'one keyring for every service');
+    const ring = JSON.parse([...rings][0]).keys;
+    assert.equal(ring.length, S2S_SERVICES.length);
+    assert.ok(
+      ring.every((k) => Object.keys(k).sort().join() === 'kid,svc,use,x' && k.use === 's2s'),
+      'public keys only',
+    );
+    assert.throws(() => s2sEnv({ s2sKeys }, 'svc-trade', 'keypair'), /off or dual/);
+    assert.throws(() => s2sEnv({}, 'svc-trade', 'dual'), /no stack key for svc-academy/);
+    // `plan` under dual shows the keyed env from placeholders, without reading secrets.json.
+    assert.equal(localTestServiceEnvs().find((d) => d.env.SERVICE_NAME === 'svc-trade').env.S2S_SIGNING_KID, 'svc-trade.local');
+  } finally {
+    if (prior === undefined) delete process.env.LOCAL_STACK_S2S;
+    else process.env.LOCAL_STACK_S2S = prior;
+  }
+}
+
+// LOCAL_STACK_S2S is checked before a restart stops anything: a bad value, or a value other than the one the running
+// services were started with, is refused with exit 2 and the running service is left alone.
+{
+  const { readProcessIdentity } = await import('./local-test-state.mjs');
+  const s2sHome = mkdtempSync(join(tmpdir(), 'local-test-stack-s2s-'));
+  const s2sState = join(s2sHome, '.intafaced', 'local-test-stack');
+  const child = spawn('sleep', ['60'], { stdio: 'ignore' });
+  try {
+    let id = null;
+    for (let i = 0; i < 50 && !id; i++) {
+      id = readProcessIdentity(child.pid);
+      if (!id) await new Promise((r) => setTimeout(r, 20));
+    }
+    assert.ok(id, 'the stand-in ledger process is visible to ps');
+    mkdirSync(join(s2sState, 'run'), { recursive: true });
+    writeFileSync(
+      join(s2sState, 'run', 'processes.json'),
+      JSON.stringify({ ledger: { pid: child.pid, argv: id.command.split(' '), startedAt: new Date(id.startedAt).toISOString() } }),
+    );
+    const { LOCAL_STACK_STATE: _state, ...env } = process.env;
+    const restart = (mode) =>
+      spawnSync(process.execPath, [script, 'restart', 'ledger'], {
+        env: { ...env, HOME: s2sHome, LOCAL_STACK_S2S: mode },
+        encoding: 'utf8',
+      });
+    let r = restart('keypair');
+    assert.equal(r.status, 2, r.stderr);
+    assert.match(r.stderr, /LOCAL_STACK_S2S must be off or dual, not "keypair"/);
+    r = restart('dual');
+    assert.equal(r.status, 2, r.stderr);
+    assert.match(r.stderr, /services run with LOCAL_STACK_S2S=off \(ledger\); set the same value, or stop the stack first/);
+    writeFileSync(join(s2sState, 'run', 's2s-mode'), 'dual\n');
+    r = restart('');
+    assert.equal(r.status, 2, r.stderr);
+    assert.match(r.stderr, /services run with LOCAL_STACK_S2S=dual \(ledger\)/);
+    assert.equal(child.exitCode, null, 'the running service was not stopped');
+    console.log('local-test-stack: a restart with a bad or different LOCAL_STACK_S2S is refused before anything stops');
+  } finally {
+    child.kill();
+    rmSync(s2sHome, { recursive: true, force: true });
+  }
+}
+
 // inPool runs every item, never more than the limit at once.
 {
   const { inPool } = await import('./local-test-stack.mjs');
@@ -652,7 +760,11 @@ console.log('local-test-stack: customer folder override checks passed');
     source,
     /if \(!only \|\| only\.includes\('customer'\)\) await startCustomer\(\);\s*if \(!only \|\| only\.includes\('invitation'\)\) await startInvitation\(\);\s*if \(!only \|\| only\.includes\('admin'\)\) await startAdmin\(secrets\);\s*ensureMarket\(\);/,
   );
-  assert.match(source, /const order = \['admin', 'invitation', 'customer', \.\.\.serviceNames\(\)\.reverse\(\), 'video-store', 'nats'\];/);
+  // The TEST chain (local-test-chain.mjs) stops after the services that read it (svc-protocol), before NATS.
+  assert.match(
+    source,
+    /const order = \['admin', 'apex', 'invitation', 'customer', \.\.\.serviceNames\(\)\.reverse\(\), 'chain', 'video-store', 'nats'\];/,
+  );
   // Its session key is canonical 32-byte base64url (apps/admin/src/lib/founder-session.ts), and it never runs in prod posture.
   assert.match(source, /s\.adminSession = crypto\.randomBytes\(32\)\.toString\('base64url'\);/);
   assert.match(source, /APP_ENV: 'dev',/);

@@ -26,6 +26,9 @@ import {
   scopedProcedure,
   TRPCError,
   type BlockerSource,
+  protocolSwapPairsOutputSchema,
+  protocolSwapSettingsOutputSchema,
+  SWAP_SETTINGS_UNSET,
 } from '@intafaced/contracts';
 import { computeAccountAddress, DEFAULT_USER_SALT, AddressDerivationError } from './accounts/address.js';
 import { AccountRegistry, bindingMessage, ClaimRefusedError } from './accounts/registry.js';
@@ -47,6 +50,7 @@ import {
 import { SignatureEnvelopeError, type UserOperation } from './chain/userop.js';
 import { AmmMathError } from './amm/math.js';
 import { freshPoolQuote, PoolTokenError } from './amm/pool-quote.js';
+import { pairsReader } from './amm/pairs.js';
 import { assertMinAmountOut, requireSwapSlippageBps, SwapSlippageError } from './amm/slippage.js';
 import {
   MAX_UINT256,
@@ -363,6 +367,10 @@ export interface ProtocolRouterDeps {
    * session check refuse — they do not invent a tolerance.
    */
   swapSlippageBps: () => number | null;
+  /** `PROTOCOL_SWAP_QUOTE_TTL_SECONDS`. Null or absent: `amm.swapSettings` refuses. */
+  swapQuoteTtlSeconds?: () => number | null;
+  /** `PROTOCOL_SWAP_CONFIRMATIONS`. Null or absent: `amm.swapSettings` refuses. */
+  swapConfirmations?: () => number | null;
   /** What the indexer and the DEX report about themselves, for `blockers`. Absent = not connected. */
   peers?: Peers;
   /** `PROTOCOL_PEER_TIMEOUT_MS`: the published bound for the bundler probe. Absent = the probe is not made. */
@@ -414,6 +422,7 @@ const unwiredRepresentationStore: RepresentationStore = {
 
 export function createProtocolRouter(deps: ProtocolRouterDeps) {
   const { chain, registry, relay } = deps;
+  const readPairs = pairsReader(chain);
   const peers = deps.peers ?? noPeers;
 
   function requireRelayEnabled() {
@@ -1225,6 +1234,45 @@ export function createProtocolRouter(deps: ProtocolRouterDeps) {
             return { amountOut: q.amountOut.toString(), priceImpactBps: q.priceImpactBps, reservesFromChain: false as const };
           } catch (err) {
             throw toTrpcError(err);
+          }
+        }),
+
+      /**
+       * Every pool the configured factory lists and the tokens they trade, read from the chain (D-swap-01). An unset
+       * factory refuses by name; an unreadable chain refuses `protocol.chain_unreachable`. Never a list from config.
+       */
+      pairs: publicJurisdictionProcedure('protocol', 'protocol')
+        .output(protocolSwapPairsOutputSchema)
+        .query(async () => {
+          const factory = deps.ammFactoryAddress();
+          if (isZeroAddress(factory))
+            throw new TRPCError({
+              code: 'PRECONDITION_FAILED',
+              message: 'protocol.amm_factory_unset: AMM factory is not configured (PROTOCOL_AMM_FACTORY_ADDRESS).',
+            });
+          try {
+            return await readPairs(factory);
+          } catch (err) {
+            throw toTrpcError(err);
+          }
+        }),
+
+      /** The owner's swap settings: the slippage ceiling, the quote lifetime and the confirmations. Blank refuses. */
+      swapSettings: publicJurisdictionProcedure('protocol', 'protocol')
+        .output(protocolSwapSettingsOutputSchema)
+        .query(() => {
+          try {
+            const slippageCeilingBps = requireSwapSlippageBps(deps.swapSlippageBps());
+            const quoteTtlSeconds = deps.swapQuoteTtlSeconds?.() ?? null;
+            const confirmations = deps.swapConfirmations?.() ?? null;
+            if (quoteTtlSeconds === null || confirmations === null)
+              throw new TRPCError({
+                code: 'PRECONDITION_FAILED',
+                message: `${SWAP_SETTINGS_UNSET}: PROTOCOL_SWAP_QUOTE_TTL_SECONDS and PROTOCOL_SWAP_CONFIRMATIONS are owner settings; refuse rather than invent them.`,
+              });
+            return { slippageCeilingBps, quoteTtlSeconds, confirmations };
+          } catch (err) {
+            throw err instanceof TRPCError ? err : toTrpcError(err);
           }
         }),
 
