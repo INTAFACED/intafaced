@@ -117,6 +117,8 @@ COPY services/svc-campaigns/package.json     services/svc-campaigns/
 COPY services/svc-indexer/package.json       services/svc-indexer/
 COPY services/svc-ws/package.json            services/svc-ws/
 
+COPY tooling/pay-sim/package.json            tooling/pay-sim/
+
 # `--frozen-lockfile` is the point of this line: the image resolves to exactly
 # what the repo resolved to, or it fails. A lockfile drift discovered here is a
 # broken build; discovered in production it is a different program.

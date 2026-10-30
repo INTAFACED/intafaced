@@ -1343,6 +1343,21 @@ const BY_CODE: Readonly<Record<string, Entry>> = {
     body: 'A grade file is a CSV whose first line is learner,score,comment,reason, with at least one row below it.',
     next: 'Correct the file and upload it again. Nothing was changed.',
   },
+  'academy.permission_denied': {
+    title: 'This needs a role you do not hold',
+    body: 'Answer-level quiz data needs the data researcher role on the course. Academy has no course roles to hold, so no account holds it.',
+    next: 'Read the item analysis and score distribution instead. Nothing was changed.',
+  },
+  'academy.bulk_limit_unset': {
+    title: 'The curve file limit is not set',
+    body: 'The owner has not set how large a curve file may be, so no curve file is read.',
+    next: 'Ask the owner to set the curve file limit. Nothing was changed.',
+  },
+  'academy.bulk_file_too_large': {
+    title: 'That file is over the limit',
+    body: 'The file is larger than the owner allows for one curve file, so it was refused before it was read.',
+    next: 'Split the file and upload each part. Nothing was changed.',
+  },
   'academy.key_fix_invalid': {
     title: 'That is not a key fix',
     body: 'A key fix changes only the answer keys of a published quiz: every question stays, with its wording, choices and points.',

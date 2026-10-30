@@ -22,6 +22,8 @@ import { badgeChainIsMainnet, badgeWindowFromSetting, noBadgeSigner } from './nf
 import { PostgresBadgeStore } from './nft/founding-badge.pg.js';
 import { representationFromSetting } from './representation/representation.js';
 import { PostgresRepresentationStore } from './representation/representation.pg.js';
+import { walletSessionFromSetting } from './address-book/session.js';
+import { PostgresAddressBookStore } from './address-book/book.pg.js';
 import { challengeTtlFromSetting } from './listing/ownership.js';
 import { PostgresListingStore } from './listing/ownership.pg.js';
 import { badgeApprovalConsumer } from './nft/founding-badge-approval.js';
@@ -65,6 +67,9 @@ for (const tableName of [
   'founding_badge_list',
   'founding_badge_mint_clears',
   'signing_representations',
+  'wallet_contacts',
+  'wallet_groups',
+  'wallet_group_members',
   'listing_challenges',
   'listing_ownership_proofs',
 ]) {
@@ -119,6 +124,13 @@ const representationSetting = representationFromSetting(
   process.env.APP_ENV,
 );
 
+// Raw APP_ENV again: a TEST session secret refuses to boot anywhere but the local test stack.
+const walletSessionSetting = walletSessionFromSetting(
+  env.PROTOCOL_WALLET_SESSION_SECRET,
+  env.PROTOCOL_WALLET_SESSION_TTL_SECONDS,
+  env.PROTOCOL_WALLET_SESSION_ORIGINS,
+  process.env.APP_ENV,
+);
 const listingChallengeTtl = challengeTtlFromSetting(env.PROTOCOL_LISTING_CHALLENGE_TTL_SECONDS, process.env.APP_ENV);
 
 export const appRouter = createProtocolRouter({
@@ -146,6 +158,12 @@ export const appRouter = createProtocolRouter({
   representation: {
     store: new PostgresRepresentationStore(db.sql),
     setting: () => representationSetting,
+  },
+  addressBook: {
+    store: new PostgresAddressBookStore(db.sql),
+    session: () => walletSessionSetting,
+    maxContacts: () => env.PROTOCOL_ADDRESS_BOOK_MAX_CONTACTS,
+    maxGroups: () => env.PROTOCOL_WALLET_GROUPS_MAX,
   },
   badge: {
     store: new PostgresBadgeStore(db.sql),

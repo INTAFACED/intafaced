@@ -155,6 +155,17 @@ export const LOCK_FILL_GRACE_SECONDS = 60;
 
 export const rewardKeyOf = (campaignId: string, accountId: string, period: string) => `task:${campaignId}:${accountId}:${period}`;
 
+/**
+ * What a campaign's reward intents hold or spent of its budget: every one not failed, forfeited or withheld (as the
+ * `campaign_rows` view counts it). Read with the campaign row locked, so two writes never both fit the last room.
+ */
+export async function drawnOf(tx: postgres.Sql, campaignId: string): Promise<bigint> {
+  const [drawn] = await tx<{ total: string }[]>`
+    SELECT COALESCE(sum(amount), 0)::text AS total FROM campaigns.reward_intents
+    WHERE campaign_id = ${campaignId} AND state NOT IN ('failed', 'forfeited', 'withheld')`;
+  return parseAmount(drawn!.total);
+}
+
 /** The period of one welcome task's reward: one per task and account (CM-rewards-hub-03). */
 export const welcomePeriodOf = (event: TaskEvent) => `welcome:${event}`;
 
@@ -699,11 +710,8 @@ export class TaskService {
         if (row.budget_asset !== row.reward_asset) {
           throw new CampaignsError('campaigns.budget_asset_mismatch', 'The budget and the reward are in different assets');
         }
-        const [drawn] = await tx<{ total: string }[]>`
-          SELECT COALESCE(sum(amount), 0)::text AS total FROM campaigns.reward_intents
-          WHERE campaign_id = ${row.id} AND state NOT IN ('failed', 'forfeited', 'withheld')`;
         const limit = locked?.budget_limit ? parseAmount(locked.budget_limit) : 0n;
-        if (parseAmount(drawn!.total) + parseAmount(row.reward_amount!) > limit) {
+        if ((await drawnOf(tx, row.id)) + parseAmount(row.reward_amount!) > limit) {
           throw new CampaignsError('campaigns.budget_exhausted', 'This campaign’s budget has no room for another reward');
         }
       }
