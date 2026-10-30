@@ -254,6 +254,8 @@ export async function selectOfferBoard(sql: Sql, filter: BoardFilter): Promise<B
        AND remaining_amt >= min_amt
        -- P-ads-merchant-07: private ads are not on the board, except to their own maker.
        AND (visibility = 'public' OR maker_id = ${filter.viewerId ?? null})
+       -- P-ads-merchant-08: an offline maker's ads, or a scheduled one's outside every window, are off the board to others.
+       AND (maker_id = ${filter.viewerId ?? null} OR p2p.maker_on_board(maker_id, now()))
        AND (${filter.asset ?? null}::text IS NULL OR asset = ${filter.asset ?? null})
        AND (${filter.fiatCurrency ?? null}::text IS NULL OR fiat_currency = ${filter.fiatCurrency ?? null})
        AND (${filter.side ?? null}::text IS NULL OR side::text = ${filter.side ?? null})

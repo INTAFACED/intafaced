@@ -44,6 +44,18 @@ import {
   type ChatMessage,
 } from './customer-depth.js';
 import { lockInstrumentOwners } from './instrument-lock.js';
+import {
+  bulkOffers,
+  listTodos,
+  readPresence,
+  setPresence,
+  type BulkAction,
+  type BulkOutcome,
+  type Presence,
+  type PresenceMode,
+  type PresenceWindow,
+  type TodoItem,
+} from './merchant-console.js';
 import type { P2pLimitDetails } from '@intafaced/contracts';
 import {
   BUYER_CANCEL_REASON_PREFIX,
@@ -235,6 +247,9 @@ export type P2pErrorCode =
   | 'p2p.offer_private'
   | 'p2p.share_link_expired'
   | 'p2p.share_link_revoked'
+  // P-ads-merchant-08: a presence schedule that is not a valid week, and a bulk action naming no ads or too many.
+  | 'p2p.schedule_invalid'
+  | 'p2p.bulk_scope_invalid'
   | 'p2p.edit_quota_reached'
   | 'p2p.offer_unfunded'
   | 'p2p.remind_too_early'
@@ -2275,6 +2290,8 @@ export class P2pService {
       SELECT * FROM p2p.offers
        WHERE status = 'active'
          AND visibility = 'public'
+         -- P-ads-merchant-08: an offline maker's ads, or a scheduled one's outside every window, are off the board.
+         AND p2p.maker_on_board(maker_id, now())
          AND remaining_amt >= min_amt
          AND (${filter.asset ?? null}::text IS NULL OR asset = ${filter.asset ?? null})
          AND (${filter.fiatCurrency ?? null}::text IS NULL OR fiat_currency = ${filter.fiatCurrency?.toUpperCase() ?? null})
@@ -2453,6 +2470,43 @@ export class P2pService {
   }
 
   /** P-ads-merchant-07: make an ad public (on the board) or private (by its links only). Open orders are unaffected. */
+  /** P-ads-merchant-08: the caller's presence; no row is online. */
+  presence(userId: string): Promise<Presence> {
+    return readPresence(this.sql, userId);
+  }
+
+  /** P-ads-merchant-08: online, offline, or a weekly schedule in the person's time zone (`p2p.schedule_invalid`). */
+  setPresence(
+    userId: string,
+    input: { mode: PresenceMode; timezone?: string | null; windows?: PresenceWindow[] | null },
+  ): Promise<Presence> {
+    return setPresence(this.sql, userId, input);
+  }
+
+  /** P-ads-merchant-08: the caller's open orders that wait on someone, soonest deadline first. */
+  todos(userId: string, limit: number): Promise<TodoItem[]> {
+    return listTodos(this.sql, userId, limit);
+  }
+
+  /** P-ads-merchant-08: pause, resume or remove several of the caller's ads, each answering for itself, once per key. */
+  bulkOffers(input: {
+    makerId: string;
+    action: BulkAction;
+    offerIds?: string[] | null;
+    all?: boolean;
+    idempotencyKey: string;
+  }): Promise<BulkOutcome> {
+    return bulkOffers(
+      this.sql,
+      {
+        pause: (offerId, makerId) => this.pauseOffer(offerId, makerId),
+        resume: (offerId, makerId) => this.resumeOffer(offerId, makerId),
+        close: (offerId, makerId) => this.closeOffer(offerId, makerId),
+      },
+      input,
+    );
+  }
+
   async setOfferVisibility(offerId: string, makerId: string, visibility: OfferVisibility): Promise<OfferRecord> {
     const [row] = await this.sql<OfferRow[]>`
       UPDATE p2p.offers SET visibility = ${visibility}, updated_at = now()
