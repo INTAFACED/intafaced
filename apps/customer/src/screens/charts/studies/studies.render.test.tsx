@@ -29,6 +29,8 @@ interface FakeSeries {
   data: Array<{ time: number; value?: number }>;
   removed: boolean;
   setData(data: Array<{ time: number; value?: number }>): void;
+  seriesType(): string;
+  options(): Record<string, unknown>;
 }
 
 /** A chart host with the parts the studies use: it records what is added, and which pane it went to. */
@@ -46,6 +48,8 @@ function fakeHost(): { host: ChartHost; made: FakeSeries[]; move: (time: number 
         setData(data) {
           this.data = data;
         },
+        seriesType: () => (def === 'HistogramSeries' ? 'Histogram' : 'Line'),
+        options: () => opts,
       };
       made.push(s);
       return s;
