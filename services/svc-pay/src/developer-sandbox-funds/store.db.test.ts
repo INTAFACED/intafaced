@@ -128,10 +128,16 @@ describe('sandbox store (DV-sandbox-02)', () => {
       code: 'CONFLICT',
       cause: { code: 'pay.sandbox_request_conflict' },
     });
-    await expect(as(randomUUID()).fund({ sandboxId, requestId })).rejects.toMatchObject({
-      cause: { code: 'pay.sandbox_request_conflict' },
-    });
     expect(await as(user).balance({ sandboxId })).toMatchObject({ amount: '1000', version: 1 });
+  });
+
+  it("never lets another account take a person's request id: it is a change of that account's own", async () => {
+    const victim = randomUUID();
+    const other = randomUUID();
+    const sandboxId = randomUUID();
+    const requestId = sandboxFundRequestId(victim, sandboxId, 0);
+    expect(await as(other).fund({ sandboxId, requestId })).toMatchObject({ amount: '1000', version: 1 });
+    expect(await as(victim).fund({ sandboxId, requestId })).toMatchObject({ amount: '1000', version: 1 });
   });
 
   it('resets to zero up to the daily cap, then refuses by name; a fund after a reset is a new change', async () => {

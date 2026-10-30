@@ -24,7 +24,7 @@ CREATE TABLE IF NOT EXISTS "pay"."sandbox_balances" (
 
 CREATE TABLE IF NOT EXISTS "pay"."sandbox_events" (
   "id" bigserial PRIMARY KEY,
-  "request_id" text NOT NULL UNIQUE,
+  "request_id" text NOT NULL,
   "user_id" uuid NOT NULL,
   "sandbox_id" uuid NOT NULL,
   "kind" text NOT NULL,
@@ -32,7 +32,9 @@ CREATE TABLE IF NOT EXISTS "pay"."sandbox_events" (
   "amount" numeric(38, 18) NOT NULL,
   "created_at" timestamptz NOT NULL DEFAULT now(),
   CONSTRAINT "sandbox_events_kind_known" CHECK ("kind" IN ('fund', 'reset')),
-  CONSTRAINT "sandbox_events_amount_not_negative" CHECK ("amount" >= 0)
+  CONSTRAINT "sandbox_events_amount_not_negative" CHECK ("amount" >= 0),
+  -- Per person: another account can never take, or test for, a request id of yours.
+  CONSTRAINT "sandbox_events_request_once" UNIQUE ("user_id", "request_id")
 );
 
 CREATE INDEX IF NOT EXISTS "sandbox_events_sandbox_day" ON "pay"."sandbox_events" ("user_id", "sandbox_id", "kind", "created_at");

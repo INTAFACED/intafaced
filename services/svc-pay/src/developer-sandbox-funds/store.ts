@@ -71,16 +71,16 @@ export class SandboxStore {
   }
 
   /**
-   * One change under its business request id, serialised per sandbox. A request id already used for the same person,
-   * sandbox and kind answers the current balance and changes nothing; one used for anything else is a conflict.
+   * One change under its business request id, serialised per sandbox. Request ids are the caller's own (unique per
+   * person). One already used for the same sandbox and kind answers the current balance and changes nothing; one used for anything else is a conflict.
    */
   private async change(who: Who, requestId: string, kind: 'fund' | 'reset', apply: (tx: Tx) => Promise<string>): Promise<SandboxBalance> {
     return (await this.sql.begin(async (tx) => {
       await tx`SELECT pg_advisory_xact_lock(hashtextextended(${`pay.sandbox:${who.userId}:${who.sandboxId}`}, 0))`;
-      const seen = await tx<Array<{ user_id: string; sandbox_id: string; kind: string }>>`
-        SELECT user_id, sandbox_id, kind FROM pay.sandbox_events WHERE request_id = ${requestId}`;
+      const seen = await tx<Array<{ sandbox_id: string; kind: string }>>`
+        SELECT sandbox_id, kind FROM pay.sandbox_events WHERE user_id = ${who.userId} AND request_id = ${requestId}`;
       if (seen[0]) {
-        const same = seen[0].user_id === who.userId && seen[0].sandbox_id === who.sandboxId && seen[0].kind === kind;
+        const same = seen[0].sandbox_id === who.sandboxId && seen[0].kind === kind;
         if (!same) throw new SandboxFundError('This request id was used for another change', 'pay.sandbox_request_conflict');
         return this.read(tx as unknown as Sql, who);
       }
