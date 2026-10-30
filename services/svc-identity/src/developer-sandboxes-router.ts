@@ -10,6 +10,7 @@ import {
 } from '@intafaced/contracts/developer-sandboxes';
 import { optionalFactorProof } from './auth/api-key-fresh-factor.js';
 import { DeveloperKeyError } from './auth/developer-keys.js';
+import { DEVELOPER_KEY_STATUS } from './developer-keys-router.js';
 import {
   createSandbox,
   createSandboxKey,
@@ -31,26 +32,12 @@ const SANDBOX_STATUS: Record<DeveloperSandboxError['code'], TRPCError['code']> =
   'env.scope_not_sandboxable': 'FORBIDDEN',
 };
 
-const KEY_STATUS: Record<DeveloperKeyError['code'], TRPCError['code']> = {
-  'auth.scope_empty': 'BAD_REQUEST',
-  'auth.scope_unknown': 'BAD_REQUEST',
-  'auth.scope_interactive_only': 'FORBIDDEN',
-  'auth.scope_not_held': 'FORBIDDEN',
-  'auth.ip_invalid': 'BAD_REQUEST',
-  'identity.key_name_invalid': 'BAD_REQUEST',
-  'identity.key_name_taken': 'CONFLICT',
-  'identity.key_expiry_invalid': 'BAD_REQUEST',
-  'identity.key_cap_unset': 'PRECONDITION_FAILED',
-  'identity.key_cap_reached': 'PRECONDITION_FAILED',
-  'identity.key_request_conflict': 'CONFLICT',
-};
-
 function refused(err: unknown): never {
   if (err instanceof DeveloperSandboxError) {
     throw new TRPCError({ code: SANDBOX_STATUS[err.code], message: `${userCopy(err.code)} [${err.code}]`, cause: err });
   }
   if (err instanceof DeveloperKeyError) {
-    throw new TRPCError({ code: KEY_STATUS[err.code], message: `${userCopy(err.code)} [${err.code}]`, cause: err });
+    throw new TRPCError({ code: DEVELOPER_KEY_STATUS[err.code], message: `${userCopy(err.code)} [${err.code}]`, cause: err });
   }
   if (err instanceof MintApiKeyPasskeyError && err.code !== 'auth.not_found') {
     throw new TRPCError({ code: 'PRECONDITION_FAILED', message: `${userCopy(err.code)} [${err.code}]`, cause: err });

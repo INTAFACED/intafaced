@@ -33,7 +33,7 @@ import { transaction } from '@intafaced/db';
 import type { KycTier, PayStepUpFactorProof } from './auth-service.js';
 import { bindApiKeyIpAllowlist } from './auth-service-ip.js';
 import { guardedApiKeyAction } from './api-key-fresh-factor.js';
-import { checkCreate, DeveloperKeyError, type DeveloperKeysDeps } from './developer-keys.js';
+import { checkCreate, DeveloperKeyError, toRecord, type DeveloperKeysDeps, type KeyRow } from './developer-keys.js';
 import { linkSandboxKey } from './sandbox-key-link.js';
 
 export type DeveloperSandboxRefusal =
@@ -168,34 +168,6 @@ export async function listSandboxes(deps: DeveloperSandboxesDeps, userId: string
   };
 }
 
-type KeyRow = {
-  id: string;
-  name: string;
-  key_prefix: string;
-  mode: string;
-  scopes: string[];
-  ip_allowlist: string[] | null;
-  require_signature: boolean | null;
-  created_at: Date;
-  expires_at: Date | null;
-  last_used_at: Date | null;
-  revoked: boolean;
-};
-
-const toKey = (row: KeyRow): ApiKeyRecord => ({
-  id: row.id,
-  name: row.name,
-  prefix: row.key_prefix,
-  mode: row.mode === 'sandbox' ? 'sandbox' : 'live',
-  scopes: row.scopes,
-  ipAllowlist: row.ip_allowlist ?? [],
-  requireSignature: row.require_signature === true,
-  createdAt: row.created_at.toISOString(),
-  expiresAt: row.expires_at?.toISOString() ?? null,
-  lastUsedAt: row.last_used_at?.toISOString() ?? null,
-  revoked: row.revoked,
-});
-
 async function ownSandbox(sql: Sql, userId: string, sandboxId: string): Promise<SandboxRow> {
   const rows = await sql<
     SandboxRow[]
@@ -208,11 +180,11 @@ export async function getSandbox(deps: DeveloperSandboxesDeps, userId: string, s
   const sandbox = await ownSandbox(deps.sql, userId, sandboxId);
   const keys = await deps.sql<KeyRow[]>`
     SELECT k.id, k.name, k.key_prefix, k.mode, k.scopes, k.ip_allowlist, k.require_signature, k.created_at, k.expires_at,
-           k.last_used_at, k.revoked
+           k.last_used_at, k.revoked, k.revoked_at, k.revoked_cause, k.revoke_reason
     FROM developer_sandbox_keys s JOIN api_keys k ON k.id = s.api_key_id AND k.user_id = ${userId}
     WHERE s.sandbox_id = ${sandboxId}
     ORDER BY k.created_at DESC, k.id DESC LIMIT 200`;
-  return { sandbox: toSandbox(sandbox), keys: keys.map(toKey), baseUrl: deps.baseUrl };
+  return { sandbox: toSandbox(sandbox), keys: keys.map(toRecord), baseUrl: deps.baseUrl };
 }
 
 /** Every scope asked for must be one a sandbox serves. Checked before anything is read or a factor is spent. */
@@ -228,7 +200,7 @@ export function assertSandboxable(scopes: readonly string[]): void {
 async function keyReplay(sql: Sql, userId: string, requestId: string, fingerprint: string): Promise<KeyRow | null> {
   const rows = await sql<Array<KeyRow & { fingerprint: string }>>`
     SELECT r.fingerprint, k.id, k.name, k.key_prefix, k.mode, k.scopes, k.ip_allowlist, k.require_signature,
-           k.created_at, k.expires_at, k.last_used_at, k.revoked
+           k.created_at, k.expires_at, k.last_used_at, k.revoked, k.revoked_at, k.revoked_cause, k.revoke_reason
     FROM api_key_create_requests r JOIN api_keys k ON k.id = r.key_id AND k.user_id = r.user_id
     WHERE r.user_id = ${userId} AND r.request_id = ${requestId}`;
   const row = rows[0];
@@ -272,7 +244,7 @@ export async function createSandboxKey(
     .digest('hex');
   await ownSandbox(deps.sql, caller.userId, sandboxId);
   const answer = (row: KeyRow, key: string | null, replayed: boolean): SandboxKeyCreateOutput => ({
-    record: toKey(row),
+    record: toRecord(row),
     key,
     replayed,
     baseUrl: deps.baseUrl,
@@ -316,7 +288,8 @@ export async function createSandboxKey(
       if (!recorded[0]) throw new SameRequestRace();
       await linkSandboxKey(tx, minted.id, sandboxId);
       const rows = await tx<KeyRow[]>`
-        SELECT id, name, key_prefix, mode, scopes, ip_allowlist, require_signature, created_at, expires_at, last_used_at, revoked
+        SELECT id, name, key_prefix, mode, scopes, ip_allowlist, require_signature, created_at, expires_at, last_used_at, revoked,
+               revoked_at, revoked_cause, revoke_reason
         FROM api_keys WHERE id = ${minted.id}`;
       return answer(rows[0]!, minted.key, false);
     });
