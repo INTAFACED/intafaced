@@ -142,6 +142,7 @@ const en = {
   updateConnect: 'Connect the wallet that owns this token first.',
   updateOpenWallet: 'Open Wallet',
   updateRejected: 'You declined in your wallet. Nothing was signed.',
+  updateRegion: 'Signing is not available in your region, so no proof was asked for.',
   updateProven: 'Ownership proven: {signer} owns this token (read at block {block}). The proof is stored.',
   updateFormBlocked: 'Blocked: the update form and its review queue are not built in this build, and the review terms are not published.',
   importTitle: 'Import your watchlist',

@@ -8,6 +8,8 @@ import {
 import type { ApiResult } from '../../../shared/api';
 import { Button, Dialog, Failure, Loading } from '../../../shared/ui';
 import { useApi } from '../../session/session';
+import { createProtocolApi, type RepresentationStatus } from '../api';
+import { RepresentationPanel, type RepresentationEnd } from '../wallet/RepresentationPanel';
 import { useWallet } from '../wallet/WalletProvider';
 import type { TokensTranslate } from './copy';
 
@@ -16,6 +18,7 @@ type State =
   | { step: 'loading' }
   | { step: 'refused'; failure: Refusal }
   | { step: 'challenge'; challenge: ProtocolListingChallenge; problem?: string }
+  | { step: 'representation'; challenge: ProtocolListingChallenge; address: string; status: RepresentationStatus }
   | { step: 'checking'; challenge: ProtocolListingChallenge }
   | { step: 'proven'; proof: ProtocolListingProof };
 
@@ -28,6 +31,7 @@ type State =
 export function InfoUpdate({ token, t }: { token: string; t: TokensTranslate }) {
   const api = useApi();
   const wallet = useWallet();
+  const protocol = useMemo(() => createProtocolApi(api), [api]);
   const [state, setState] = useState<State | null>(null);
   const listing = useMemo(
     () => ({
@@ -45,6 +49,13 @@ export function InfoUpdate({ token, t }: { token: string; t: TokensTranslate }) 
   }
 
   async function sign(challenge: ProtocolListingChallenge) {
+    if (!wallet.address) return;
+    // The first signing action asks for the representation once per version, as every other signing form does. The gate
+    // never fails open: a refusal or a service that does not answer stops here, before the wallet is asked.
+    const representation = await protocol.representationStatus(wallet.address);
+    if (!representation.ok) return setState({ step: 'refused', failure: representation });
+    if (!representation.data.accepted)
+      return setState({ step: 'representation', challenge, address: wallet.address, status: representation.data });
     const signed = await wallet.sign({ kind: 'message', message: challenge.message });
     if (signed.status !== 'signed') {
       setState({
@@ -85,6 +96,22 @@ export function InfoUpdate({ token, t }: { token: string; t: TokensTranslate }) 
                 </p>
               )}
             </>
+          )}
+          {state.step === 'representation' && (
+            <RepresentationPanel
+              address={state.address}
+              status={state.status}
+              api={protocol}
+              onEnd={(end: RepresentationEnd) => {
+                if (end.kind === 'accepted') void sign(state.challenge);
+                else
+                  setState({
+                    step: 'challenge',
+                    challenge: state.challenge,
+                    problem: end.kind === 'rejected' ? t('updateRejected') : end.kind === 'failed' ? end.message : t('updateRegion'),
+                  });
+              }}
+            />
           )}
           {state.step === 'proven' && (
             <div role="status">
