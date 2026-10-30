@@ -86,6 +86,8 @@ export const deskCopy = defineCopy('support-desk', {
   followUpPrefix: 'Follow-up:',
   followUpBanner: 'This new request follows {reference}. We link the two so the team sees what came before.',
   followUpClear: 'Not a follow-up',
+  followUpNotClosed: 'That request is still open, so it takes your reply. Write to us there instead.',
+  followUpOpenIt: 'Open that request',
   closedNote: 'This request is closed, so it cannot take replies. Start a new request if you need more help.',
   actionsHeading: 'More you can do',
   closeLabel: 'Close this request',

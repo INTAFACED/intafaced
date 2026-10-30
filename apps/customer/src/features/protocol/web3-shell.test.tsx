@@ -5,7 +5,7 @@ vi.mock('../../shared/preferences', async (original) => {
   const real = await original<typeof import('../../shared/preferences')>();
   return { ...real, usePreferences: () => real.currentPreferences() };
 });
-const answers: { chain: unknown; indexer?: unknown } = { chain: undefined };
+const answers: { chain: unknown; indexer?: unknown; keyed: Record<string, unknown> } = { chain: undefined, keyed: {} };
 vi.mock('../session/session', async (original) => {
   const real = await original<typeof import('../session/session')>();
   const api = { query: () => new Promise(() => undefined), canWrite: () => true };
@@ -19,7 +19,7 @@ vi.mock('../../shared/resource', () => ({
         ? answers.chain
         : key.endsWith(':indexer') && answers.indexer
           ? answers.indexer
-          : { status: 'loading' },
+          : (answers.keyed[key] ?? { status: 'loading' }),
     reload: () => undefined,
   }),
 }));
@@ -97,12 +97,29 @@ describe('Web3 shell', () => {
     ]);
     expect(swap).not.toMatch(/INTACHAIN mainnet/i);
   });
-  it('gives a detail route its full layout and names the indexer as the blocker, never a blank', () => {
+  it('gives a block page its layout and names the indexer when it cannot be read, never a blank', () => {
     answers.chain = chain(84532);
+    answers.keyed['explorer:block:84532:123456'] = {
+      status: 'failed',
+      failure: { ok: false, reason: 'error', message: 'Not connected', code: 'edge.upstream_unwired' },
+    };
     const html = page('/chain/blocks/123456');
-    expect(html).toContain('data-blocker="indexer"');
     expect(html).toContain('Block 123456');
-    expect(html).toContain('<th');
+    expect(html).toContain('data-blocker="indexer"');
+    expect(html).toContain('This block could not be read: the indexer service is not running here');
+    answers.keyed = {};
+  });
+  it('answers a block the indexer never saw "No such block on this network"', () => {
+    answers.chain = chain(84532);
+    answers.keyed['explorer:block:84532:123456'] = {
+      status: 'failed',
+      failure: { ok: false, reason: 'error', message: 'Not found', code: 'NOT_FOUND' },
+    };
+    const html = page('/chain/blocks/123456');
+    expect(html).toContain('No such block on this network');
+    expect(html).toContain('data-code="protocol.not_found"');
+    expect(html).not.toContain('data-blocker');
+    answers.keyed = {};
   });
   it('answers a malformed id protocol.not_found instead of looking anything up', () => {
     answers.chain = chain(84532);

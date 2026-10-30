@@ -38,7 +38,18 @@ export type { ActivityFeed, ActivityItem, Loadable } from '../../data';
 export { dec, str } from '../../data/decimal';
 export { formatAmount, parseAmount } from '../../shared/money';
 export { fractionDigits } from '../../data/decimal';
-export { fetchMe, resolveHandle, cleanHandle, type MeOutcome, type ResolveOutcome } from '../../data/identity';
+export {
+  fetchMe,
+  fetchMyPayQr,
+  PAY_QR_KEY_UNSET,
+  resolveHandle,
+  resolvePayQr,
+  cleanHandle,
+  type MeOutcome,
+  type PayQrOutcome,
+  type PayQrResolveOutcome,
+  type ResolveOutcome,
+} from '../../data/identity';
 export {
   changeHandle,
   fetchHandleSettings,

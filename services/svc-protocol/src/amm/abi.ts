@@ -92,6 +92,14 @@ export const poolAbi = [
 ] as const;
 
 export const factoryAbi = [
+  { type: 'function', name: 'allPoolsLength', stateMutability: 'view', inputs: [], outputs: [{ type: 'uint256' }] },
+  {
+    type: 'function',
+    name: 'allPools',
+    stateMutability: 'view',
+    inputs: [{ name: 'index', type: 'uint256' }],
+    outputs: [{ type: 'address' }],
+  },
   {
     type: 'function',
     name: 'createPool',

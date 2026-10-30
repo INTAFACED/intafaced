@@ -7,13 +7,14 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { Sql } from 'postgres';
 import { migrations, openAdmin } from '../control/control.testkit.js';
 import { createFounderAuthority } from '../founder-authority.js';
-import { MerchantStateService } from '../merchant-state-service.js';
+import { MerchantAccountControls, MerchantControlError } from '../merchant-account-controls.js';
 import { createMerchantOpsRouter } from './router.js';
 
 /**
  * J-merchant-02 step 6 against a real Postgres: `merchantOps.activation.get` reads svc-pay's own status record, is
- * unconfirmed for a new business and after an approved verification, confirmed with the recorded time once a status
- * change to active is written, and never answers for another business.
+ * unconfirmed for a new business and after an approved verification, confirmed with the recorded time once a founder's
+ * restore through `MerchantAccountControls.change` (the production door behind `accountControls.change` and
+ * `merchantState.set`) moves it back to active, and never answers for another business.
  */
 const id = () => randomUUID();
 const principalOf = (userId: string, scopes: string[] = ['pay:read']): Principal => ({
@@ -54,8 +55,29 @@ describe('merchantOps.activation.get (Postgres)', () => {
   // Opened as `createMerchant` opens one: status `active`, no status-history row (the column's own default is `pending`).
   const newMerchant = async (userId: string) =>
     (await sql<Array<{ id: string }>>`INSERT INTO pay.merchants (user_id, status) VALUES (${userId}, 'active') RETURNING id`)[0]!.id;
-  const setStatus = (merchantId: string, to: 'pending' | 'active' | 'suspended' | 'closed') =>
-    new MerchantStateService(sql).setStatus({ merchantId, to, reason: 'TEST operator note', actorId: founder, actorScope: 'admin:write' });
+  // The production door: the founder console's restrict and restore. The founder check is identity's in production; here
+  // only `founder` is entitled, as in merchant-account-controls.test.ts.
+  const controls = () =>
+    new MerchantAccountControls(sql, async (ctx) => {
+      if (ctx.principal?.userId !== founder) throw new MerchantControlError('operator.denied');
+      return ctx.principal.userId;
+    });
+  const control = async (merchantId: string, action: 'restrict' | 'restore') => {
+    const version = (
+      await sql<Array<{ v: string }>>`SELECT operations_control_version::text AS v FROM pay.merchants WHERE id = ${merchantId}`
+    )[0]!.v;
+    return controls().change(ctxOf(principalOf(founder, ['pay:read'])), {
+      requestId: id(),
+      target: { area: 'merchant', merchantId },
+      action,
+      reason: 'TEST founder note',
+      expectedVersion: version,
+    });
+  };
+  const statusRows = async (merchantId: string) =>
+    sql<Array<{ to_status: string; created_at: Date; actor_scope: string }>>`
+      SELECT to_status::text AS to_status, created_at, actor_scope
+        FROM pay.merchant_status_events WHERE merchant_id = ${merchantId} ORDER BY seq`;
 
   beforeAll(async () => {
     const admin = await openAdmin();
@@ -94,24 +116,29 @@ describe('merchantOps.activation.get (Postgres)', () => {
     expect(await as(owner).merchantOps.activation.get({})).toMatchObject({ activation: 'unconfirmed', reason: 'no_activation_record' });
   });
 
-  it('a recorded change to active confirms it with that row’s time, and a later suspension takes it away', async () => {
+  it('a founder restore through the account controls confirms it with that row’s time, and a later restriction takes it away', async () => {
     const owner = id();
     const merchantId = await newMerchant(owner);
-    await setStatus(merchantId, 'pending');
+    expect((await control(merchantId, 'restrict')).outcome).toBe('changed');
     expect(await as(owner).merchantOps.activation.get({})).toEqual({
       activation: 'unconfirmed',
-      status: 'pending',
+      status: 'suspended',
       activatedAt: null,
       reason: 'not_active',
     });
-    const activated = await setStatus(merchantId, 'active');
+    expect((await control(merchantId, 'restore')).outcome).toBe('changed');
+    const restored = await statusRows(merchantId);
+    expect(restored.map((r) => [r.to_status, r.actor_scope])).toEqual([
+      ['suspended', 'identity.operator_entitlement'],
+      ['active', 'identity.operator_entitlement'],
+    ]);
     const read = await as(owner).merchantOps.activation.get({});
-    expect(read).toEqual({ activation: 'confirmed', status: 'active', activatedAt: activated.event!.createdAt.toISOString() });
-    // Clicking active again writes nothing, so the time stays the first activation's.
-    await setStatus(merchantId, 'active');
+    expect(read).toEqual({ activation: 'confirmed', status: 'active', activatedAt: restored[1]!.created_at.toISOString() });
+    // A second restore is a no-op that writes no history, so the time stays the first activation's.
+    expect((await control(merchantId, 'restore')).outcome).toBe('noop');
     expect(await as(owner).merchantOps.activation.get({})).toEqual(read);
-    // A suspension takes the confirmation away: the answer is the state now, not the best state it ever had.
-    await setStatus(merchantId, 'suspended');
+    // A restriction takes the confirmation away: the answer is the state now, not the best state it ever had.
+    expect((await control(merchantId, 'restrict')).outcome).toBe('changed');
     expect(await as(owner).merchantOps.activation.get({})).toEqual({
       activation: 'unconfirmed',
       status: 'suspended',
@@ -119,17 +146,32 @@ describe('merchantOps.activation.get (Postgres)', () => {
       reason: 'not_active',
     });
     // The history is append-only: the activation row is still there, unchanged.
-    const rows = await sql<Array<{ to_status: string; created_at: Date }>>`
-      SELECT to_status::text AS to_status, created_at FROM pay.merchant_status_events WHERE merchant_id = ${merchantId} ORDER BY seq`;
-    expect(rows.map((r) => r.to_status)).toEqual(['pending', 'active', 'suspended']);
+    const rows = await statusRows(merchantId);
+    expect(rows.map((r) => r.to_status)).toEqual(['suspended', 'active', 'suspended']);
     expect(rows[1]!.created_at.toISOString()).toBe(read.activatedAt);
+  });
+
+  it('a refused control writes nothing and confirms nothing', async () => {
+    const owner = id();
+    const merchantId = await newMerchant(owner);
+    const refused = await controls().change(ctxOf(principalOf(owner, ['pay:read'])), {
+      requestId: id(),
+      target: { area: 'merchant', merchantId },
+      action: 'restrict',
+      reason: 'TEST not a founder',
+      expectedVersion: '0',
+    });
+    expect(refused).toMatchObject({ outcome: 'refused', code: 'operator.denied' });
+    expect(await statusRows(merchantId)).toEqual([]);
+    expect(await as(owner).merchantOps.activation.get({})).toMatchObject({ activation: 'unconfirmed', reason: 'no_activation_record' });
   });
 
   it('reads only the caller’s own business: a stranger is refused like any merchantOps read', async () => {
     const owner = id();
     const merchantId = await newMerchant(owner);
-    await setStatus(merchantId, 'pending');
-    await setStatus(merchantId, 'active');
+    await control(merchantId, 'restrict');
+    await control(merchantId, 'restore');
+    expect(await as(owner).merchantOps.activation.get({})).toMatchObject({ activation: 'confirmed' });
     const stranger = await refusal(() => as(id()).merchantOps.activation.get({}));
     expect(stranger.cause).toBe('pay.merchant_ops_not_merchant');
     expect(stranger.message).not.toContain(merchantId);

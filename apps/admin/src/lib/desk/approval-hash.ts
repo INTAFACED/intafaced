@@ -193,6 +193,12 @@ export function payloadHashFor(request: DeskRequest): string {
       return sha(request.kind, { targetId: marketTargetId(request.symbol), reasonCode: request.reasonCode, reason: request.reason });
     case 'protocol.market.restore':
       return sha(request.kind, { targetId: marketTargetId(request.symbol) });
+    // svc-ops `approvalPayloadHash('ops.restore.record', parseWatermarkInput(...))`: { service, kind, watermark }, in this order.
+    case 'ops.restore.record':
+      return sha(request.kind, { service: request.service, kind: request.stampKind, watermark: request.watermark });
+    // svc-ops' restore desk binds the run: `approvalPayloadHash('ops.restore.finalize', { restoreNo, cutOff })`.
+    case 'ops.restore.finalize':
+      return sha(request.kind, { restoreNo: request.restoreNo, cutOff: request.cutOff });
   }
 }
 
@@ -461,6 +467,25 @@ export function proposeInputFor(request: DeskRequest): ProposeInput {
         actionType: request.kind,
         targetService: 'svc-ops',
         targetId: marketTargetId(request.symbol),
+        expectedVersion: '1',
+        payloadHash,
+        policyVersion: 'v1',
+      };
+    // svc-ops consumes a stamp against the service and kind, and finalize against the run; both founders are needed.
+    case 'ops.restore.record':
+      return {
+        actionType: request.kind,
+        targetService: 'svc-ops',
+        targetId: `watermark:${request.service}:${request.stampKind}`,
+        expectedVersion: '1',
+        payloadHash,
+        policyVersion: 'v1',
+      };
+    case 'ops.restore.finalize':
+      return {
+        actionType: request.kind,
+        targetService: 'svc-ops',
+        targetId: `restore:${request.restoreNo}`,
         expectedVersion: '1',
         payloadHash,
         policyVersion: 'v1',
