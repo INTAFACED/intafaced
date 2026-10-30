@@ -7,6 +7,29 @@ description: >-
 runs:
   using: composite
   steps:
+    # The pinned JDK, Maven and Maven's own repository that sbe-codec and svc-fix fetch into their .tools (their
+    # ensure-toolchain.mjs). Without this every shard downloaded them again from repo.maven.apache.org and the JDK
+    # host, and one network drop there turned an unrelated PR red (#6860, run 40993912442). One entry per package: a
+    # shard that runs only one of them saves only that one's folders, never a half entry the other would hit and keep.
+    # The key is the package's pins and pom, so a changed pin or dependency starts a fresh entry; no restore-keys, so
+    # an old JDK is never reused under a new pin. jars/ is left out: CI keeps proving the codec jar builds.
+    - name: Cache sbe-codec's Java toolchain
+      uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: |
+          packages/sbe-codec/.tools/jdk
+          packages/sbe-codec/.tools/maven
+          packages/sbe-codec/.tools/m2
+        key: java-tools-sbe-codec-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('packages/sbe-codec/scripts/ensure-toolchain.mjs', 'packages/sbe-codec/pom.xml') }}
+    - name: Cache svc-fix's Java toolchain
+      uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: |
+          services/svc-fix/.tools/jdk
+          services/svc-fix/.tools/maven
+          services/svc-fix/.tools/m2
+        key: java-tools-svc-fix-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('services/svc-fix/scripts/ensure-toolchain.mjs', 'services/svc-fix/pom.xml') }}
+
     - name: Test environment
       shell: bash
       run: |
