@@ -2,8 +2,8 @@ import { randomBytes } from 'node:crypto';
 import { chromium, test, expect } from '@playwright/test';
 import { localTestDeviceState } from '../../../../tooling/scripts/local-test-device.mjs';
 import { ADMIN, founderSignIn } from './admin.mjs';
-import { fundedTrader, openDesk, reviewLimit } from './desk.mjs';
-import { signUpInBrowser, tool } from './stack.mjs';
+import { free, fundedTrader, held, openDesk, openOrders, reviewLimit } from './desk.mjs';
+import { api, signUpInBrowser, tool } from './stack.mjs';
 
 // J-identity-08, in the running app (docs/roadmap/journeys.json): I get verified and see what each level unlocks.
 // Starts signed in at level none on /verification. Tests titled "J-identity-08 #<n>" prove a whole step; the others
@@ -255,6 +255,29 @@ test(`${J} #3: with the face check switched off the selfie is kept for manual re
     await expect(refused).toHaveAttribute('data-state', 'used');
     await expect(refused).toHaveText('This link was already used. Make a new one on your computer.');
     await expect(again.getByTestId('verification__selfie').getByRole('button', { name: 'Open camera' })).toHaveCount(0);
+
+    // The service itself refuses the used link, not only the page: a selfie sent straight to identity with it is refused
+    // with its one typed code, and a re-read shows the phone's selfie is still the latest, so no second selfie was stored.
+    const own = await api(who);
+    const handoff = new URL(href, baseURL).searchParams.get('handoff');
+    const readLatest = async () => {
+      const { status, body } = await own.get('/api/identity/trpc/kyc.selfie.read');
+      expect(status).toBe(200);
+      return body.result.data.latest;
+    };
+    const kept = await readLatest();
+    expect(kept).toMatchObject({ via: 'handoff', status: 'provided' });
+    const checked = await own.get(
+      `/api/identity/trpc/kyc.selfie.handoff.check?input=${encodeURIComponent(JSON.stringify({ token: handoff }))}`,
+    );
+    expect(checked.status).toBe(200);
+    expect(checked.body.result.data.state).toBe('used');
+    // A 1x1 PNG: a photo the owner's upload caps accept, so the only thing wrong with this send is the link.
+    const png = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
+    const reused = await own.post('/api/identity/trpc/kyc.selfie.submit', { contentType: 'image/png', bytesBase64: png, handoff });
+    expect(reused.status).toBe(409);
+    expect(reused.body.error.data.cause.code).toBe('kyc.handoff_used');
+    expect(await readLatest()).toEqual(kept);
 
     // A link that lost characters on the way is refused as not whole, with no camera and no new phone link offered.
     const cut = await phoneContext.newPage();
@@ -547,9 +570,12 @@ test(`${J} #7: a restriction on another screen gives its reason in plain words a
   const refused = page.getByTestId('verification__capability-refused');
   await expect(refused).toHaveAttribute('data-code', 'kyc.capability_inactive');
   await expect(refused).toContainText(
-    'This level was refused because it grants a capability compliance switched off. The service opened no request. Switched off on your account:',
+    'This level was refused because it grants a capability compliance switched off. The service opened no request.',
   );
-  const why = refused.locator('li[data-kind="capability_off"][data-capability="trade_crypto"]');
+  // The heading names the list it introduces, so it sits only above a list that has entries.
+  const list = refused.getByRole('list', { name: 'Switched off on your account:' });
+  await expect(list).toHaveCount(1);
+  const why = list.locator('li[data-kind="capability_off"][data-capability="trade_crypto"]');
   await expect(why).toHaveCount(1);
   await expect(why).toContainText('Trade crypto switched off');
   await expect(why).toContainText('TEST: this was switched off after a compliance review.');
@@ -622,6 +648,9 @@ test(`${J} #7: a platform posting freeze never reads as "your account is restric
   // what refuses it. The deposit is only the precondition; nothing here counts it as a step.
   const who = await fundedTrader(page, 'kvfz', '100');
   await openDesk(page, who);
+  const client = await api(who);
+  const before = await client.balances();
+  const restingBefore = (await openOrders(who)).map((o) => o.id);
   try {
     await setPostingFreeze(browser, true);
     // On another screen, the trade desk: the order is refused as paused for everyone, never as this account's hold.
@@ -636,6 +665,19 @@ test(`${J} #7: a platform posting freeze never reads as "your account is restric
     await expect(main.getByText('Orders are paused right now')).toBeVisible();
     await expect(main.getByText("Orders can't go through at the moment, and this one wasn't placed. Try again later.")).toBeVisible();
     await expect(main).not.toContainText(/restricted|on hold/i);
+
+    // Re-read: the refused order moved nothing. Free and held USDT are what they were, the same orders rest, and no
+    // order, open or closed, carries the refused request's client id.
+    const clientOrderId = answer.request().postDataJSON()?.clientOrderId;
+    expect(clientOrderId, 'the desk sends a client order id').toBeTruthy();
+    const after = await client.balances();
+    expect(free(after, 'USDT')).toBe(free(before, 'USDT'));
+    expect(held(after, 'USDT')).toBe(held(before, 'USDT'));
+    expect((await openOrders(who)).map((o) => o.id)).toEqual(restingBefore);
+    expect((await openOrders(who)).filter((o) => o.clientOrderId === clientOrderId)).toEqual([]);
+    const closed = await client.get(`/api/v1/orders/closed?symbol=${encodeURIComponent('BTC/USDT')}&limit=100`);
+    expect(closed.status, JSON.stringify(closed.body)).toBe(200);
+    expect(closed.body.filter((o) => o.clientOrderId === clientOrderId)).toEqual([]);
 
     // The account status, read while the freeze is on: the account is active and nothing on it is restricted.
     await page.goto('/uc/account');

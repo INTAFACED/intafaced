@@ -8,6 +8,9 @@
  *   pnpm local:market stop           stop it, cancel its resting orders, and forget it (ensure then leaves it off)
  *                                    (pnpm local:market:stop is the same as stop)
  *   node tooling/scripts/local-test-market.mjs check
+ *   node tooling/scripts/local-test-market.mjs move <symbol> <+/-pct%>
+ *                                    shifts that market's TEST PRICE by the percent from the next cycle on (0% clears it),
+ *                                    so a journey can push a price out of a bot's range; the running loop picks it up.
  *   node tooling/scripts/local-test-market.mjs history [--bars 210] [--step-minutes 15] [--trades-per-bar 2]
  *                                    on a FRESH stack, with the market stopped: real TEST trades now, then moved into the
  *                                    past (fill times only) so charts have history. Skips any market that already traded.
@@ -73,6 +76,7 @@ export function stackPaths(home = os.homedir()) {
     runDir: path.join(stateDir, 'run'),
     pidFile: path.join(stateDir, 'run', 'market.json'),
     walkFile: path.join(stateDir, 'run', 'market-walk.json'),
+    shiftFile: path.join(stateDir, 'run', 'market-shift.json'),
     log: path.join(stateDir, 'logs', 'market.log'),
   };
 }
@@ -252,6 +256,34 @@ export function quoteOrder(markets, prices = TEST_PRICES) {
   return out;
 }
 
+/**
+ * A `move` percent ("+2%", "-6%", "0.5%", "0%") as whole basis points, or null when it is not one. At most two decimal
+ * places, and from -50% to +100%, so a shift can never quote a book at or below zero (exported for tests).
+ */
+export function parseShift(text) {
+  const match = /^([+-]?)(\d{1,3})(?:\.(\d{1,2}))?%$/.exec(String(text ?? '').trim());
+  if (!match) return null;
+  const bps = (BigInt(match[2]) * 100n + BigInt((match[3] ?? '').padEnd(2, '0'))) * (match[1] === '-' ? -1n : 1n);
+  return bps < -5000n || bps > 10000n ? null : bps;
+}
+
+/** A walk mid moved by a `move` shift in basis points, floored to the tick (exported for tests). */
+export function shiftedMid(mid, bps, tick) {
+  if (!bps) return mid;
+  const moved = (mid * (10000n + bps)) / 10000n;
+  return tick > 0n ? (moved / tick) * tick : moved;
+}
+
+/** The saved shifts, symbol to basis points; unreadable or absent is no shift. */
+function readShifts(p) {
+  try {
+    const raw = JSON.parse(fs.readFileSync(p.shiftFile, 'utf8'));
+    return new Map(Object.entries(raw ?? {}).map(([k, v]) => [k, BigInt(v)]));
+  } catch {
+    return new Map();
+  }
+}
+
 /** The mid of a book's best bid and best ask (a public order book answer), scaled; null when either side is empty. */
 export function bookMid(book) {
   const bid = book?.bids?.[0]?.[0];
@@ -348,6 +380,8 @@ class EdgeClient {
     this.account = account;
     this.token = null;
     this.tokenAt = 0;
+    /** Called with every Edge reply's headers (history reads Edge's budget from them). */
+    this.onReply = null;
   }
   async http(method, route, body, { auth = true } = {}) {
     if (method !== 'GET') assertActiveLocalStack();
@@ -369,6 +403,7 @@ class EdgeClient {
       /* non-JSON refusal */
     }
     if (res.status === 401 && auth) this.token = null;
+    this.onReply?.(res.headers);
     return { status: res.status, json, text };
   }
   async login() {
@@ -578,7 +613,7 @@ function parseArgs(argv) {
     else if (!a.startsWith('--'))
       // Failure it prevents: `pnpm local:market status` used to be `start status` and started a second copy.
       die(
-        `unexpected argument "${a}". Commands: start | stop | status | ensure | check | history (for example: pnpm local:market ${a})`,
+        `unexpected argument "${a}". Commands: start | stop | status | ensure | check | history | move (for example: pnpm local:market ${a})`,
         2,
       );
   }
@@ -700,6 +735,8 @@ async function runLoop(opts, home) {
   const crossings = new Map();
   /** The maker's resting quote ids per market, from the cycle before. */
   const quoted = new Map();
+  /** The `move` shift each walked market was last quoted at, so a changed shift is quoted as a clean jump. */
+  const quotedShift = new Map();
   const place = (client, m, side, price, amount, tif) =>
     m.swap
       ? acceptedTier(m).then((tier) => placeFutures(client, m, side, price, amount, `LTEST-${runId}-${(counter += 1)}`, tier))
@@ -709,7 +746,12 @@ async function runLoop(opts, home) {
           side,
           amount,
           price,
-          ...(tif === 'IOC' ? { timeInForce: 'IOC' } : { timeInForce: 'GTC', postOnly: true }),
+          // `GTC-TAKE` is a `move`'s jump: the new ladder trades through whatever rests in its path, as a real jump would.
+          ...(tif === 'IOC'
+            ? { timeInForce: 'IOC' }
+            : tif === 'GTC-TAKE'
+              ? { timeInForce: 'GTC' }
+              : { timeInForce: 'GTC', postOnly: true }),
           clientOrderId: `LTEST-${runId}-${(counter += 1)}`,
         });
 
@@ -717,6 +759,7 @@ async function runLoop(opts, home) {
     cycle += 1;
     /** This cycle's mid per market, so a follower whose leader's book cannot be read uses the leader's walk. */
     const mids = new Map();
+    const shifts = readShifts(p);
     for (const { market: m, leader } of order) {
       let mid;
       if (leader) {
@@ -725,7 +768,8 @@ async function runLoop(opts, home) {
           .catch(() => null);
         mid = (book?.status === 200 ? bookMid(book.json) : null) ?? mids.get(leader) ?? walks.get(m.symbol).next();
       } else {
-        mid = walks.get(m.symbol).next();
+        // A `move` shift applies to a walked market; a follower is quoted round its leader's book, so it moves with it.
+        mid = shiftedMid(walks.get(m.symbol).next(), shifts.get(m.symbol), m.tick);
       }
       mids.set(m.symbol, mid);
       const cfg = TEST_PRICES[m.symbol];
@@ -753,12 +797,29 @@ async function runLoop(opts, home) {
         if (open.status === 200 && rows && rows.length < 100) previous = rows.map((o) => o.id);
         else await maker.http('DELETE', `/api/v1/orders?symbol=${encodeURIComponent(m.symbol)}`);
       }
+      // A `move` is a jump: the old ladder comes down before the new one goes up. Overlapped, the old bids and the new
+      // asks would stand together and the book's mid would sit halfway, a price the jump never quoted (failure it
+      // prevents: a grid bot read that mid as in range and bought levels the market then left behind). The jump's quotes
+      // may take: post-only, they were refused by any order resting in the path and the price never got there.
+      const shift = leader ? undefined : (shifts.get(m.symbol) ?? 0n);
+      const jump = shift !== undefined && quotedShift.has(m.symbol) && quotedShift.get(m.symbol) !== shift;
+      if (jump && previous?.length) {
+        const left = [];
+        for (const id of previous) {
+          const r = m.swap
+            ? await maker.http('DELETE', `/api/v1/futures/orders/${encodeURIComponent(id)}`)
+            : await maker.http('DELETE', `/api/v1/orders/${encodeURIComponent(id)}?symbol=${encodeURIComponent(m.symbol)}`);
+          if (r.status >= 300 && r.status !== 404 && r.status !== 409) left.push(id);
+        }
+        previous = left;
+      }
+      if (shift !== undefined) quotedShift.set(m.symbol, shift);
       const ids = [];
       let refused = null;
       for (const q of ladder) {
         // A new post-only quote can meet one of the maker's own old quotes when the walk jumps; it is refused and
         // that level is quoted again next cycle.
-        const r = await place(maker, m, q.side, q.price, q.amount, 'GTC');
+        const r = await place(maker, m, q.side, q.price, q.amount, jump ? 'GTC-TAKE' : 'GTC');
         if (r.status === 201 && r.json?.id) ids.push(r.json.id);
         else if (m.swap && r.status === 200 && r.json?.orderId && LIVE_FUTURES.has(r.json.status)) ids.push(r.json.orderId);
         else refused = `${r.status} ${(r.json?.intafacedCode ?? r.json?.code ?? r.json?.error ?? r.text).toString().slice(0, 120)}`;
@@ -825,12 +886,56 @@ export const TAPE_RETIME_ROUTE = '/internal/local-test/tape-retime';
 /** Requests a second `history` sends: well below Edge's local budget of 6000 a minute per address (local-stack-services/edge.mjs, EDGE_RATE_LIMIT_MAX), with room left. */
 export const HISTORY_REQUESTS_PER_SECOND = 14;
 /**
- * Edge's local budget window (local-stack-services/edge.mjs, EDGE_RATE_LIMIT_WINDOW_MS). `history` ends by waiting out
- * the rest of one window after its last request, so whatever runs next on the same address starts with the whole budget
- * (failure it prevents: run 552 on main, the first journey on a shard right after `history` was refused
- * edge.rate_limited once the step stopped ending with an 80-second wait for the first market maker trade).
+ * Edge's local budget window (local-stack-services/edge.mjs, EDGE_RATE_LIMIT_WINDOW_MS). When Edge did not say what is
+ * left of its budget, `history` ends by waiting out the rest of one window after its last request (failure it prevents:
+ * run 552 on main, the first journey on a shard right after `history` was refused edge.rate_limited once the step
+ * stopped ending with an 80-second wait for the first market maker trade).
  */
 export const HISTORY_EDGE_WINDOW_MS = 60_000;
+
+/**
+ * How long `history` waits at the end so whatever runs next on the same address has at least half of Edge's budget.
+ * Edge counts in fixed windows and says on each reply how much of this window is left and when it ends
+ * (x-ratelimit-remaining, x-ratelimit-reset in seconds); `budget` is the latest reading (laterEdgeBudget). Half or
+ * more left: no wait (run 40873067394 waited 59 s here with most of the budget unspent). Less, or headers missing:
+ * wait for the window to end, and with no headers the whole window after the last request, as before.
+ */
+export function historyBudgetWait({ budget, lastEdgeAt, nowMs, windowMs = HISTORY_EDGE_WINDOW_MS }) {
+  if (budget) {
+    if (budget.remaining * 2 >= budget.limit) return 0;
+    return Math.max(0, budget.endsAt - nowMs);
+  }
+  if (lastEdgeAt === 0) return 0;
+  return Math.max(0, windowMs - (nowMs - lastEdgeAt));
+}
+
+/**
+ * Edge's budget as one reply's headers state it, or null when they are missing or not whole numbers (a missing header
+ * reads null, which Number() would turn into 0).
+ */
+export function readEdgeBudget(headers, seenAt) {
+  const read = (name) => {
+    const v = headers?.get?.(name);
+    return typeof v === 'string' && /^\d+$/.test(v.trim()) ? Number(v) : NaN;
+  };
+  const limit = read('x-ratelimit-limit');
+  const remaining = read('x-ratelimit-remaining');
+  const reset = read('x-ratelimit-reset');
+  if (![limit, remaining, reset].every(Number.isFinite) || limit <= 0) return null;
+  return { limit, remaining, endsAt: seenAt + reset * 1000 };
+}
+
+/**
+ * The reading that describes the most Edge has counted: replies from lanes side by side can arrive out of order, so
+ * within one window the lowest remaining wins, and a reading from a later window replaces one from an earlier window.
+ * The reset is whole seconds, so window ends within a second and a half of each other are the same window.
+ */
+export function laterEdgeBudget(prev, next) {
+  if (!next) return prev;
+  if (!prev || next.endsAt > prev.endsAt + 1500) return next;
+  if (prev.endsAt > next.endsAt + 1500) return prev;
+  return next.remaining < prev.remaining ? next : prev;
+}
 /**
  * Markets per `history` batch request. Fewer requests leave Edge's budget room, more lanes side by side keep svc-trade
  * busy. On a 4-core machine (26 Oct), six markets took 6.1 minutes at one request per order, 7.7 in one request for
@@ -923,6 +1028,15 @@ async function runHistory(opts, home) {
   // the time Edge names, then sends the same request again: the same client ids, so svc-trade returns the same orders.
   let nextSlot = 0;
   let lastEdgeAt = 0;
+  let budget = null;
+  // Every Edge reply counts against the same address's budget (sign-in, cancels and tape reads too), so every reply
+  // refreshes the reading and the time of the last request.
+  for (const client of [maker, taker]) {
+    client.onReply = (headers) => {
+      lastEdgeAt = Date.now();
+      budget = laterEdgeBudget(budget, readEdgeBudget(headers, lastEdgeAt));
+    };
+  }
   const pace = async () => {
     const now = Date.now();
     const at = Math.max(now, nextSlot);
@@ -1089,10 +1203,12 @@ async function runHistory(opts, home) {
   for (const b of books) results.push(await retime(b).catch((err) => (log(`${b.m.symbol}: ${err.message}`), false)));
   fs.mkdirSync(p.runDir, { recursive: true, mode: 0o700 });
   fs.writeFileSync(p.walkFile, JSON.stringify({ seed: opts.seed, steps }), { mode: 0o600 });
-  const rest = lastEdgeAt === 0 ? 0 : HISTORY_EDGE_WINDOW_MS - (Date.now() - lastEdgeAt);
+  const rest = historyBudgetWait({ budget, lastEdgeAt, nowMs: Date.now() });
   if (rest > 0) {
     log(`Waiting ${Math.ceil(rest / 1000)}s for Edge's one-minute budget to start fresh for what runs next`);
     await sleep(rest);
+  } else if (budget) {
+    log(`Edge budget left for what runs next: ${budget.remaining} of ${budget.limit} this window, so no wait`);
   }
   return results.every(Boolean) ? 0 : 1;
 }
@@ -1253,7 +1369,8 @@ async function startBackground(p, args, { wait }) {
 
 async function main() {
   const [cmd = 'start', ...rest] = process.argv.slice(2);
-  const opts = parseArgs(rest.filter((a) => a !== '__run'));
+  // `move` takes two positionals (symbol, percent) before any option.
+  const opts = parseArgs(rest.slice(cmd === 'move' ? 2 : 0).filter((a) => a !== '__run'));
   let guard;
   try {
     guard = assertLocalTarget({ urls: [opts.edge] });
@@ -1298,6 +1415,26 @@ async function main() {
     process.exit(await runLoop({ ...opts, ...(cmd === 'check' ? { seconds: 2 } : {}) }, os.homedir()));
   }
   if (cmd === 'history') process.exit(await runHistory(opts, os.homedir()));
+  if (cmd === 'move') {
+    const [symbol, pct] = rest;
+    const bps = parseShift(pct);
+    if (!TEST_PRICES[symbol] || TEST_PRICES[symbol].follows)
+      die(
+        `move needs a walked TEST market (${Object.keys(TEST_PRICES)
+          .filter((k) => !TEST_PRICES[k].follows)
+          .join(', ')})`,
+        2,
+      );
+    if (bps === null) die(`move needs a percent from -50% to +100%, like +2% or -6% (got ${JSON.stringify(pct ?? '')})`, 2);
+    const shifts = readShifts(p);
+    if (bps === 0n) shifts.delete(symbol);
+    else shifts.set(symbol, bps);
+    fs.mkdirSync(p.runDir, { recursive: true, mode: 0o700 });
+    fs.writeFileSync(p.shiftFile, JSON.stringify(Object.fromEntries([...shifts].map(([k, v]) => [k, v.toString()]))), { mode: 0o600 });
+    return console.log(
+      `${symbol} TEST PRICE shift ${bps === 0n ? 'cleared' : `${bps} bps`}; the running market quotes it from its next cycle`,
+    );
+  }
   if (cmd === 'ensure') {
     const rec = readRecord(p);
     if (runningPid(p)) return console.log(`already running (pid ${runningPid(p)})`);
@@ -1305,7 +1442,7 @@ async function main() {
     console.log(`was running (pid ${rec.pid}) and is not now; starting it again with the same options`);
     return startBackground(p, rec.args ?? [], { wait: false });
   }
-  if (cmd !== 'start') die(`unknown command "${cmd}". Use: start | stop | status | ensure | check | history`, 2);
+  if (cmd !== 'start') die(`unknown command "${cmd}". Use: start | stop | status | ensure | check | history | move`, 2);
   await startBackground(p, rest, { wait: true });
 }
 

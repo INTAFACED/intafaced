@@ -28,6 +28,7 @@ import { fetchOwnerPayScopes } from './auth/owner-pay-scopes.js';
 import { fetchPayStepUpGrant } from './auth/pay-step-up-grant.js';
 import { registerApiKeyOwnershipRoute } from './auth/api-key-ownership-route.js';
 import { registerServiceMailRoute } from './auth/service-mail.js';
+import { registerWalletSignatureVerifyRoute, signingAccount, verifyWalletSignature } from './auth/wallet-signature-verify.js';
 import { registerTrustedDeviceReadRoute } from './auth/trusted-device-read.js';
 import { assertProdTotpKey, assertSigningEncKey, parseTotpSecretKey } from './auth/totp-crypto.js';
 import { RankService } from './rank/rank-service.js';
@@ -124,10 +125,11 @@ import { installLimitFeeTierDualControl } from './rank/limit-fee-tier.js';
 import { requestMetaAls } from './auth/request-meta.js';
 import { installApiKeyIpExchange, requestIpAls } from './auth/auth-service-ip.js';
 import { installRefreshCookieHooks } from './auth/refresh-cookie.js';
-import { installApiKeyRequestSignExchange } from './auth/api-key-request-sign.js';
+import { installApiKeyRequestSignExchange, parseRequestSignWindow } from './auth/api-key-request-sign.js';
+import { createRequestSigningPolicyRouter } from './request-signing-policy-router.js';
 import { createApiKeyRequestSignRouter } from './api-key-request-sign-router.js';
 import { createDeveloperKeysRouter } from './developer-keys-router.js';
-import { parseApiKeyCapByTier, passkeyMintRule } from './auth/developer-keys.js';
+import { parseApiKeyCapByTier, parseApiKeyIdleExpirySeconds, passkeyMintRule } from './auth/developer-keys.js';
 import { installApiKeyProductExchange, requestProductAls } from './auth/auth-service-product.js';
 import { installApiKeyAccountExchange } from './auth/bind-api-key-account.js';
 import { bootKycVault } from './kyc/boot-vault.js';
@@ -198,6 +200,8 @@ if (env.IDENTITY_BREACHED_PASSWORDS_FILE) {
 // Request-signing secrets must not sit plaintext in prod or staging.
 assertSigningEncKey(env);
 const signingEncKey = parseTotpSecretKey(env.API_KEY_SIGNING_ENC_KEY);
+// The owner's signing window (DV-auth-01). Blank stays null: every signed request refuses `auth.request_window_unset`.
+const requestSignWindowSeconds = parseRequestSignWindow(env.IDENTITY_REQUEST_SIGN_WINDOW_SECONDS);
 
 const sql = postgres(env.DATABASE_URL, {
   max: env.DATABASE_POOL_MAX,
@@ -518,7 +522,7 @@ installPasskeyMintRefuse(auth, sql);
 auth.usePasskeyLimit(env.PASSKEY_MAX_PER_ACCOUNT);
 installFourEyes();
 installApiKeyAttribution(auth);
-installApiKeyRequestSignExchange(auth, sql, signingEncKey);
+installApiKeyRequestSignExchange(auth, sql, signingEncKey, requestSignWindowSeconds);
 
 const stepUpStore = new SqlCustomerStepUpStore(sql);
 const actionApprovals = new ActionApprovalService(
@@ -668,18 +672,22 @@ export const appRouter = mergeRouters(
   }),
   createClosureOpsRouter(sql),
   createApiKeyIpRouter(sql, auth, auth),
-  createApiKeyRequestSignRouter(sql, auth, signingEncKey),
+  createApiKeyRequestSignRouter(sql, auth, signingEncKey, env.API_KEY_SIGNING_OPTIONAL.trim() === 'true'),
+  createRequestSigningPolicyRouter(requestSignWindowSeconds),
   createApiKeyOriginRouter(sql, auth, auth),
   createApiKeyAccountRouter(sql, auth, auth),
   createApiKeyRotateRouter(sql, auth, auth, signingEncKey),
-  createApiKeyExpireRouter(sql),
+  createApiKeyExpireRouter(sql, auth),
   createApiKeyRevokeAllRouter(sql),
   createDeveloperKeysRouter({
     sql,
     gate: auth,
     kycTier: (userId, executor) => auth.kycTier(userId, executor),
     capByTier: parseApiKeyCapByTier(env.IDENTITY_API_KEYS_MAX_BY_TIER),
+    idleExpirySeconds: parseApiKeyIdleExpirySeconds(env.IDENTITY_API_KEY_IDLE_EXPIRY_SECONDS),
     mayMint: passkeyMintRule(sql),
+    signingEncKey,
+    signingWindowSeconds: requestSignWindowSeconds,
   }),
   createGrantsRouter(sql),
   createSessionRevokeAllRouter(sql),
@@ -925,6 +933,14 @@ registerServiceMailRoute(app, {
   ...(doorS2s ? { s2s: doorS2s } : {}),
 });
 
+/** Whether a message was signed by one of a customer's linked wallets, for svc-token's signed votes (wallet-signature-verify.ts). */
+registerWalletSignatureVerifyRoute(app, {
+  verify: (input) => verifyWalletSignature((userId) => signingAccount(sql, userId), input),
+  internalSecret: env.INTERNAL_SERVICE_SECRET,
+  bodyBind: env.INTERNAL_SERVICE_BODY_BIND,
+  ...(doorS2s ? { s2s: doorS2s } : {}),
+});
+
 /** Whether a customer's trusted device can still be relied on, for a service that lets one device approve another's request. */
 registerTrustedDeviceReadRoute(app, {
   read: (userId, deviceId) => auth.trustedDeviceState(userId, deviceId),
@@ -1049,6 +1065,26 @@ app.get<{ Params: { userId: string } }>('/internal/security-lock/:userId', async
     return reply.code(404).send({ error: 'account not found', code: 'identity.account_not_found' });
   }
   return view;
+});
+
+/**
+ * The owner's self-freeze (I-account-lifecycle-08), `selfFreezeStateSchema`. A service that moves money out or changes a
+ * withdrawal address reads it per request and refuses while `frozen` is true; it keeps no copy. Service credentials only.
+ * Unknown user → 404, which the caller refuses on. A read error is a 500, which the caller also refuses on.
+ */
+app.get<{ Params: { userId: string } }>('/internal/self-freeze/:userId', async (req, reply) => {
+  if (serviceOfRequest(req, env.INTERNAL_SERVICE_SECRET, env.INTERNAL_SERVICE_BODY_BIND, doorS2s).service === null) {
+    return reply.code(401).send({ error: 'service credentials required', code: 'identity.unauthenticated' });
+  }
+  const userId = req.params.userId;
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(userId)) {
+    return reply.code(404).send({ error: 'account not found', code: 'identity.account_not_found' });
+  }
+  const state = await auth.selfFreezeState(userId);
+  if (!state) {
+    return reply.code(404).send({ error: 'account not found', code: 'identity.account_not_found' });
+  }
+  return state;
 });
 
 /**

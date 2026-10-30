@@ -271,10 +271,12 @@ const bank = createBankServices(sql, ledger, history, {
     NODE_ENV: process.env.NODE_ENV,
   }),
   /** Who pays cash-outs out: unset unless the TEST stand-in was chosen, which refuses to boot outside dev/test. */
-  cashOutPartner: cashOutPartnerFor(env.BANK_PAYOUT_PARTNER, env.BANK_PAYOUT_SIM_JSON, {
-    APP_ENV: process.env.APP_ENV,
-    NODE_ENV: process.env.NODE_ENV,
-  }),
+  cashOutPartner: cashOutPartnerFor(
+    env.BANK_PAYOUT_PARTNER,
+    env.BANK_PAYOUT_SIM_JSON,
+    { APP_ENV: process.env.APP_ENV, NODE_ENV: process.env.NODE_ENV },
+    env.BANK_PAYOUT_SIM_RECORDS_DIR?.trim() || undefined,
+  ),
   /** Who speaks for the direct debit scheme: unset unless the TEST stand-in was chosen, which refuses to boot outside dev/test. */
   directDebitScheme: directDebitSchemeFor(env.BANK_DD_SCHEME, env.BANK_DD_SIM_JSON, {
     APP_ENV: process.env.APP_ENV,
@@ -288,6 +290,8 @@ const bank = createBankServices(sql, ledger, history, {
   proofLimits: env.BANK_PROOF_LIMITS_JSON,
   /** Base-tier account terms, the currencies an account may hold and the space limit: the owner's, blank refuses. */
   accountTerms: env.BANK_ACCOUNT_TERMS_JSON,
+  /** The staking risk wording (BK-earn-04): the owner's, blank refuses. */
+  earnRiskWording: env.BANK_EARN_RISK_WORDING_JSON,
   accountCurrencies: env.BANK_ACCOUNT_CURRENCIES,
   spaceLimit: env.BANK_SPACE_LIMIT,
   spaceUnlockWaitHours: env.BANK_SPACE_UNLOCK_WAIT_HOURS,

@@ -7,11 +7,13 @@ import { ORIGIN, fund, journeyState, signUpInBrowser, tool } from './stack.mjs';
 // control, set its policy and dynamic account set, run it now with two founders, and run it at a past instant. Define, change
 // and run travel on the console's treasury transport; a console without ADMIN_TREASURY_TOKEN shows them parked, and this
 // journey stops there with that blocker named. Steps 5-6 (OPS-reconciliation-02): a PASS, a FAIL and an ERROR run with
-// per-asset evidence, and pause, resume and retire a control. Steps 7-10 wait for OPS-reconciliation-03 and -04 and refuse
-// at once.
+// per-asset evidence, and pause, resume and retire a control. Steps 7-8 (OPS-reconciliation-03): svc-ops raises one alert per
+// control, failing asset and period from the ledger's settled evaluations, on the console's /ledger/alerts room. Steps 9-10
+// wait for OPS-reconciliation-04 and refuse at once.
 
 const tag = randomUUID().slice(0, 8);
-const state = { a: null, b: null, thresholdId: null, outsideId: null };
+const state = { a: null, b: null, thresholdId: null, outsideId: null, outsideRuns: [], floorId: null, pairId: null };
+const runId = (answer) => answer.match(/Run ([0-9a-f-]{36}): /)?.[1] ?? null;
 
 async function openLedger(page) {
   await page.goto(`${ADMIN}/ledger`, { waitUntil: 'load' });
@@ -137,6 +139,9 @@ async function runApproved(desk, phrase) {
   return (await reply.innerText()).replace(/\s+/g, ' ');
 }
 
+/** The one typed code a desk reply names, or null. */
+const codeOf = (reply) => reply.match(/Code: ([a-z0-9_.]+)/)?.[1] ?? null;
+
 /** Founder A asks for a run, founder B approves it, and A runs it. Returns the service's answer as shown on A's desk. */
 async function twoFounderRun(controlId, opts) {
   const { desk, phrase } = await approvedRun(controlId, opts);
@@ -222,6 +227,54 @@ function scaled(text) {
   const [whole, frac = ''] = text.replace(/^-/, '').split('.');
   const value = BigInt(whole) * 10n ** 18n + BigInt((frac + '0'.repeat(18)).slice(0, 18));
   return text.startsWith('-') ? -value : value;
+}
+
+/**
+ * The console's alerts room, read fresh. svc-ops reads an evaluation once the ledger has held it for its settle window and its
+ * next tick runs, so callers poll. The room must say it read the ledger: a failed read is never taken as "no alert".
+ */
+async function openAlerts(page) {
+  await page.goto(`${ADMIN}/ledger/alerts`, { waitUntil: 'load' });
+  const room = page.getByTestId('recon-alerts');
+  await expect(room.getByTestId('alert-source')).toHaveAttribute('data-status', 'ok', { timeout: 30_000 });
+  return room;
+}
+
+/** The alert rows of one control, as {id, asset, state, occurrences, periodStart}, read from a fresh room. */
+async function alertsOf(page, controlId) {
+  const room = await openAlerts(page);
+  return room.locator(`[data-testid="alert-row"][data-control-id="${controlId}"]`).evaluateAll((rows) =>
+    rows.map((r) => ({
+      id: r.getAttribute('data-alert-id'),
+      asset: r.getAttribute('data-asset'),
+      state: r.getAttribute('data-state'),
+      occurrences: Number(r.getAttribute('data-occurrences')),
+      periodStart: r.getAttribute('data-period-start'),
+    })),
+  );
+}
+
+/** Waits until svc-ops shows `want(rows)` true for a control's alerts, and returns those rows. */
+async function awaitAlerts(page, controlId, want, message) {
+  let rows = [];
+  await expect
+    .poll(
+      async () => {
+        rows = await alertsOf(page, controlId);
+        return want(rows);
+      },
+      { message, timeout: 150_000, intervals: [5_000] },
+    )
+    .toBe(true);
+  return rows;
+}
+
+/** One alert's detail page, read fresh. */
+async function openAlert(page, alertId) {
+  await page.goto(`${ADMIN}/ledger/alerts/${alertId}`, { waitUntil: 'load' });
+  const detail = page.getByTestId('alert-detail');
+  await expect(detail).toBeVisible({ timeout: 30_000 });
+  return detail;
 }
 
 test.describe.serial('J-ops-console-07 reconcile the books', () => {
@@ -316,6 +369,7 @@ test.describe.serial('J-ops-console-07 reconcile the books', () => {
     expect(answer).toMatch(/Sources: ledger as of \d{4}-\d{2}-\d{2}T/);
     expect(answer).toContain('outside unset');
     expect(answer).toContain('Outside side: unset');
+    state.outsideRuns.push({ id: runId(answer), status: answer.match(/Run [0-9a-f-]{36}: (\w+)\./)[1] });
   });
 
   test('J-ops-console-07 #4 a past run reads at the instant minus the margin; blank margin, typed 0 and a future instant', async ({
@@ -386,8 +440,10 @@ test.describe.serial('J-ops-console-07 reconcile the books', () => {
       expect(scaled(broken.difference)).toBe(scaled(broken.observed) - scaled(HIGH_FLOOR));
       expect(scaled(broken.difference) < 0n).toBe(true);
     } finally {
-      // Retire the TEST floor even when an assertion fails, so scheduled runs do not keep failing on it.
-      await lifecycle(floorId, 'retire', 'Retired');
+      // Pause the TEST floor even when an assertion fails, so scheduled runs do not keep failing on it. Step #6 reads its alert
+      // while paused, then retires it.
+      await lifecycle(floorId, 'pause', 'Paused');
+      state.floorId = floorId;
     }
 
     // ERROR: svc-ledger reads the outside side from an address nothing answers. The run is ERROR at the outside phase with
@@ -400,10 +456,20 @@ test.describe.serial('J-ops-console-07 reconcile the books', () => {
       expect(error).toContain('Outside side: unavailable.');
       expect(error).toContain('Error: ledger.reconcile_source_unavailable at outside.');
       expect(error).toContain('0 assets read.');
+      state.outsideRuns.push({ id: runId(error), status: 'ERROR' });
     } finally {
       ledgerOutside(false);
     }
   });
+
+  /** The selected control's evaluations as its panel reads them back from svc-ledger: the total and the run ids shown. */
+  async function evaluationsOf(section) {
+    const runs = section.getByTestId('rc-runs');
+    await expect(runs.getByTestId('rc-runs-count')).toContainText(/showing \d+ of \d+ evaluation/, { timeout: 30_000 });
+    const total = Number((await runs.getByTestId('rc-runs-count').innerText()).match(/showing \d+ of (\d+)/)[1]);
+    const ids = await runs.getByTestId('rc-run-row').evaluateAll((els) => els.map((el) => el.getAttribute('data-run-id')));
+    return { total, ids };
+  }
 
   test('J-ops-console-07 #6 pause needs two founders, a paused control runs nothing until resumed, and retired is final', async ({
     browser,
@@ -438,22 +504,35 @@ test.describe.serial('J-ops-console-07 reconcile the books', () => {
     const early = await approvedRun(state.thresholdId);
     const paused = await lifecycle(state.thresholdId, 'pause', 'Paused');
     await choose(paused, state.thresholdId);
+    const beforeRefused = await evaluationsOf(paused);
     const runDesk = paused.getByTestId('rc-run');
     await runDesk.getByLabel('Request packet').fill(early.packetText);
     await expect(runDesk.getByTestId('packet-summary')).toContainText(`Run reconciliation control ${state.thresholdId}`);
-    expect(await runApproved(runDesk, early.phrase)).toContain('Code: ops.control_state_illegal');
+    expect(codeOf(await runApproved(runDesk, early.phrase)), 'the paused control refuses the run').toBe('ops.control_state_illegal');
     await paused.getByRole('button', { name: 'Refresh' }).click();
     await expect(row(paused, state.thresholdId).getByTestId('rc-state')).toHaveText('Paused');
+    // The refused run recorded nothing: the control's evaluations, read back from svc-ledger, are the same as before it.
+    await choose(paused, state.thresholdId);
+    expect(await evaluationsOf(paused), 'a paused control runs nothing').toEqual(beforeRefused);
     const desk = paused.getByTestId('rc-run');
     await expect(desk).toContainText('A paused control runs nothing (ops.control_state_illegal). Resume it first.');
     await expect(desk.getByRole('button', { name: 'Ask a second founder to approve the run' })).toBeDisabled();
     await expect(paused.getByTestId('rc-lifecycle').getByRole('option', { name: 'Pause' })).toHaveCount(0);
 
     // Resume: active again, and a two-founder run goes through.
-    await lifecycle(state.thresholdId, 'resume', 'Active');
-    expect(await twoFounderRun(state.thresholdId)).toMatch(/Run [0-9a-f-]{36}: PASS\./);
+    const resumed = await lifecycle(state.thresholdId, 'resume', 'Active');
+    const resumedRun = await twoFounderRun(state.thresholdId);
+    expect(resumedRun).toMatch(/Run [0-9a-f-]{36}: PASS\./);
+    await resumed.getByRole('button', { name: 'Refresh' }).click();
+    await choose(resumed, state.thresholdId);
+    const afterResume = await evaluationsOf(resumed);
+    expect(afterResume.total, 'the resumed control’s run is its one new evaluation').toBe(beforeRefused.total + 1);
+    expect(afterResume.ids[0]).toBe(runId(resumedRun));
 
     // Retire: final. No change form, no lifecycle step, the run desk holds, and the control stays in the list.
+    const outsideSection = await openLedger(a);
+    await choose(outsideSection, state.outsideId);
+    const beforeRetire = await evaluationsOf(outsideSection);
     const again = await lifecycle(state.outsideId, 'retire', 'Retired');
     await expect(again.getByTestId('rc-retired')).toBeVisible();
     await expect(again.getByTestId('rc-form-update')).toHaveCount(0);
@@ -465,17 +544,238 @@ test.describe.serial('J-ops-console-07 reconcile the books', () => {
     await again.getByRole('button', { name: 'Refresh' }).click();
     await expect(row(again, state.outsideId).getByTestId('rc-state')).toHaveText('Retired');
 
-    // Still red, named: the console cannot yet read a control's past evaluations (svc-ledger serves them on its operator
-    // port; svc-edge does not forward that door yet), and alerts wait for svc-ops (OPS-reconciliation-03).
-    throw new Error(
-      'step #6 clauses not built: a retired control keeps every evaluation readable (svc-edge does not forward ' +
-        '/operator/reconciliation/controls/runs yet) and a paused or retired control keeps its alerts (OPS-reconciliation-03)',
-    );
+    // A retired control keeps every evaluation readable: its evaluations panel lists each run once, newest first, with
+    // the total read back, and holds both runs this journey made on it (#3, then the ERROR from #5).
+    expect(state.outsideRuns, 'steps #3 and #5 each recorded their run').toHaveLength(2);
+    expect(state.outsideRuns.map((r) => r.id).every(Boolean), 'steps #3 and #5 named their runs').toBe(true);
+    await choose(again, state.outsideId);
+    const runs = again.getByTestId('rc-runs');
+    await expect(runs.getByTestId('rc-runs-count')).toContainText(/showing \d+ of \d+ evaluation/, { timeout: 30_000 });
+    const [shown, total] = (await runs.getByTestId('rc-runs-count').innerText())
+      .match(/showing (\d+) of (\d+)/)
+      .slice(1)
+      .map(Number);
+    const rows = runs.getByTestId('rc-run-row');
+    await expect(rows).toHaveCount(shown);
+    expect(shown, 'every evaluation of the control is on the first page').toBe(total);
+    const ids = await rows.evaluateAll((els) => els.map((el) => el.getAttribute('data-run-id')));
+    expect(new Set(ids).size, 'each evaluation appears exactly once').toBe(ids.length);
+    // The hourly scheduler may add its own evaluations while the control is still active, so retiring is shown to keep
+    // every evaluation listed before it (none dropped), not to keep the count fixed.
+    expect(total, 'retiring dropped no evaluation').toBeGreaterThanOrEqual(beforeRetire.total);
+    for (const id of beforeRetire.ids) expect(ids, `evaluation ${id} listed before the retire is still listed`).toContain(id);
+    const [first, second] = state.outsideRuns;
+    expect(ids.indexOf(second.id), 'the #5 ERROR run is listed').toBeGreaterThanOrEqual(0);
+    expect(ids.indexOf(first.id), 'the #3 run is listed').toBeGreaterThan(ids.indexOf(second.id));
+    for (const r of state.outsideRuns) {
+      const line = runs.locator(`[data-testid="rc-run-row"][data-run-id="${r.id}"]`);
+      await expect(line).toHaveAttribute('data-status', r.status);
+      await expect(line).toContainText(`Run ${r.id}: ${r.status}.`);
+    }
+    await expect(runs.locator(`[data-run-id="${second.id}"]`)).toContainText('Error: ledger.reconcile_source_unavailable at outside.');
+
+    // A paused control keeps its alerts, and so does a retired one. A fresh TEST floor fails; its USDT alert and its
+    // evaluations are read back from svc-ops and svc-ledger once it is paused, and again after it is retired.
+    const keepId = await define(await openLedger(a), {
+      template: 'threshold',
+      explanation: `LOCAL TEST USDT floor kept ${tag}`,
+      fill: async (form) => {
+        await form.getByLabel('Threshold bound').selectOption('min');
+        await form.getByLabel(/^Threshold by asset/).fill(`USDT=${HIGH_FLOOR}`);
+        await setPolicy(form, { tolerance: '0' });
+      },
+    });
+    let keepRetired = false;
+    try {
+      const fail = await twoFounderRun(keepId);
+      expect(fail).toMatch(/Run [0-9a-f-]{36}: FAIL\./);
+      const failed = evidence(fail, 'USDT');
+      const [raised] = await awaitAlerts(
+        a,
+        keepId,
+        (rows) => rows.length === 1 && rows[0].asset === 'USDT',
+        'svc-ops raises exactly one USDT alert from the floor’s FAIL',
+      );
+      expect(raised.state).toBe('open');
+
+      // Paused with two founders: the alert raised before the pause is still there, open, its count never lower, and the
+      // FAIL run is still among the control's evaluations. (The hourly scheduler may have run it once more before the pause.)
+      const pausedKeep = await lifecycle(keepId, 'pause', 'Paused');
+      await choose(pausedKeep, keepId);
+      const kept = await evaluationsOf(pausedKeep);
+      expect(kept.ids, 'pausing kept the FAIL evaluation').toContain(runId(fail));
+      const keptAlerts = await alertsOf(a, keepId);
+      const keptAlert = keptAlerts.filter((row) => row.id === raised.id);
+      expect(keptAlert, 'a paused control’s alert stays, once').toHaveLength(1);
+      expect(keptAlert[0]).toMatchObject({ id: raised.id, asset: 'USDT', state: 'open', periodStart: raised.periodStart });
+      expect(keptAlert[0].occurrences).toBeGreaterThanOrEqual(raised.occurrences);
+      const detailOf = async () => {
+        const detail = await openAlert(a, raised.id);
+        return {
+          state: await detail.getAttribute('data-state'),
+          version: await detail.getAttribute('data-version'),
+          occurrences: await detail.getAttribute('data-occurrences'),
+          evidence: (await detail.getByTestId('alert-evidence').innerText()).replace(/\s+/g, ' '),
+        };
+      };
+      const whilePaused = await detailOf();
+      expect(whilePaused.evidence).toBe(
+        `Observed ${failed.observed} · expected ${failed.expected} · difference ${failed.difference} · tolerance ${failed.tolerance}`,
+      );
+
+      // Retired: a paused control runs nothing, so its evaluations, its alert and the alert's detail read exactly as while paused.
+      const retiredKeep = await lifecycle(keepId, 'retire', 'Retired');
+      keepRetired = true;
+      await choose(retiredKeep, keepId);
+      expect(await evaluationsOf(retiredKeep), 'a retired control keeps every evaluation readable').toEqual(kept);
+      expect(await alertsOf(a, keepId), 'a retired control keeps its alert, once and unchanged').toEqual(keptAlerts);
+      expect(await detailOf(), 'the alert’s detail still reads, unchanged').toEqual(whilePaused);
+    } finally {
+      if (!keepRetired) await lifecycle(keepId, 'retire', 'Retired').catch(() => undefined);
+    }
+    // #5's paused TEST floor is retired too, so no scheduled run keeps failing on it.
+    if (state.floorId) await lifecycle(state.floorId, 'retire', 'Retired');
+  });
+
+  test('J-ops-console-07 #7 a run that fails two assets opens two alerts; the same failure again raises the count, opens nothing new', async ({
+    browser,
+  }) => {
+    test.setTimeout(600_000);
+    const { a } = await founders(browser);
+    const section = await openLedger(a);
+    await requireTreasury(section);
+    // Two floors no TEST book reaches, over the USDT account set: USDT fails on its total, USDC on a total of 0.
+    state.pairId = await define(section, {
+      template: 'threshold',
+      explanation: `LOCAL TEST two-asset floor ${tag}`,
+      fill: async (form) => {
+        await form.getByLabel('Threshold bound').selectOption('min');
+        await form.getByLabel(/^Threshold by asset/).fill(`USDC=${HIGH_FLOOR}, USDT=${HIGH_FLOOR}`);
+        await setPolicy(form, { tolerance: '0' });
+      },
+    });
+    try {
+      await expect(row(section, state.pairId).getByTestId('rc-state')).toHaveText('Active');
+
+      const first = await twoFounderRun(state.pairId);
+      expect(first).toMatch(/Run [0-9a-f-]{36}: FAIL\./);
+      expect(scaled(evidence(first, 'USDC').difference) < 0n).toBe(true);
+      expect(scaled(evidence(first, 'USDT').difference) < 0n).toBe(true);
+
+      // Two alerts, one per asset, in the same period, each counted once.
+      const opened = await awaitAlerts(a, state.pairId, (rows) => rows.length >= 2, 'svc-ops opens the two-asset FAIL’s alerts');
+      expect(opened.map((r) => r.asset).sort(), 'one alert per failing asset, each exactly once').toEqual(['USDC', 'USDT']);
+      expect(new Set(opened.map((r) => r.periodStart)).size, 'both in the run’s one period').toBe(1);
+      for (const r of opened) {
+        expect(r.state).toBe('open');
+        expect(r.occurrences).toBe(1);
+      }
+
+      // The same failure again: each alert's count rises to 2 and no third alert opens.
+      const again = await twoFounderRun(state.pairId);
+      expect(again).toMatch(/Run [0-9a-f-]{36}: FAIL\./);
+      const repeated = await awaitAlerts(
+        a,
+        state.pairId,
+        (rows) => rows.length > 2 || (rows.length === 2 && rows.every((r) => r.occurrences === 2)),
+        'svc-ops counts the repeat on both alerts',
+      );
+      expect(repeated, 'the repeat opens nothing new').toHaveLength(2);
+      expect(repeated.map((r) => r.id).sort()).toEqual(opened.map((r) => r.id).sort());
+      expect(repeated.every((r) => r.periodStart === opened[0].periodStart)).toBe(true);
+      const detail = await openAlert(a, opened[0].id);
+      await expect(detail.getByTestId('timeline-entry')).toHaveCount(2);
+      await expect(detail.locator('[data-testid="timeline-entry"][data-kind="opened"]')).toHaveCount(1);
+      await expect(detail.locator('[data-testid="timeline-entry"][data-kind="repeated"]')).toHaveCount(1);
+    } catch (err) {
+      // #8 retires the pair; when this step fails first, retire it here so scheduled runs do not keep failing on it.
+      await lifecycle(state.pairId, 'retire', 'Retired').catch(() => undefined);
+      state.pairId = undefined;
+      throw err;
+    }
+  });
+
+  test('J-ops-console-07 #8 two founders acknowledge at once: one wins, the other sees it; snoozed notices stop while the count rises', async ({
+    browser,
+  }) => {
+    test.setTimeout(600_000);
+    if (!state.pairId || !state.thresholdId) throw new Error('steps #1 and #7 left no controls');
+    const { a, b } = await founders(browser);
+    try {
+      const rows = await alertsOf(a, state.pairId);
+      const usdt = rows.find((r) => r.asset === 'USDT');
+      if (!usdt || usdt.state !== 'open') throw new Error(`step #7 left no open USDT alert: ${JSON.stringify(rows)}`);
+
+      // Both founders open the alert at the same version and acknowledge with their own notes at once.
+      const [detailA, detailB] = await Promise.all([openAlert(a, usdt.id), openAlert(b, usdt.id)]);
+      const version = await detailA.getAttribute('data-version');
+      await expect(detailB).toHaveAttribute('data-version', version);
+      const notes = { a: `LOCAL TEST ack A ${tag}`, b: `LOCAL TEST ack B ${tag}` };
+      await detailA.getByLabel('Acknowledgement note').fill(notes.a);
+      await detailB.getByLabel('Acknowledgement note').fill(notes.b);
+      await Promise.all([detailA.getByTestId('alert-ack').click(), detailB.getByTestId('alert-ack').click()]);
+      for (const d of [detailA, detailB]) await expect(d).toHaveAttribute('data-state', 'acknowledged', { timeout: 30_000 });
+
+      // Exactly one is refused with svc-ops's own code, and that founder's page shows the winner's acknowledgement.
+      const refusedA = await detailA.getByTestId('alert-refused-code').count();
+      const refusedB = await detailB.getByTestId('alert-refused-code').count();
+      expect(refusedA + refusedB, 'one founder wins and the other is refused').toBe(1);
+      const [winner, loser, winnerNote] = refusedA ? [detailB, detailA, notes.b] : [detailA, detailB, notes.a];
+      await expect(loser.getByTestId('alert-refused-code')).toHaveText('ops.alert_state_illegal');
+      await expect(winner.getByTestId('alert-acknowledged')).toContainText(winnerNote);
+      const shownTo = await winner.getByTestId('alert-acknowledged').innerText();
+      await expect(loser.getByTestId('alert-acknowledged')).toHaveText(shownTo);
+      // The refusal names who acknowledged first, read back from the winner's record.
+      const winnerBy = await winner.getByTestId('alert-acknowledged').getAttribute('data-by');
+      expect(winnerBy, 'the acknowledgement names its founder').toBeTruthy();
+      await expect(loser.getByTestId('alert-refused-detail')).toContainText(winnerBy);
+      // Re-read after the refusal: one acknowledgement in the timeline, the winner's, and the version moved once.
+      const reread = await openAlert(a, usdt.id);
+      await expect(reread.locator('[data-testid="timeline-entry"][data-kind="acknowledged"]')).toHaveCount(1);
+      await expect(reread.locator('[data-testid="timeline-entry"][data-kind="acknowledged"]')).toContainText(winnerNote);
+      await expect(reread).toHaveAttribute('data-version', String(Number(version) + 1));
+
+      // The period is still not green while an alert in it is acknowledged; a control whose every run passed is green.
+      const room = await openAlerts(a);
+      const pairPeriod = room.locator(
+        `[data-testid="period-row"][data-control-id="${state.pairId}"][data-period-start="${usdt.periodStart}"]`,
+      );
+      await expect(pairPeriod).toHaveCount(1);
+      await expect(pairPeriod).toHaveAttribute('data-green', 'false');
+      const passing = room.locator(`[data-testid="period-row"][data-control-id="${state.thresholdId}"]`);
+      expect(await passing.count(), 'the passing control has evaluated periods').toBeGreaterThan(0);
+      for (const p of await passing.all()) {
+        await expect(p).toHaveAttribute('data-status', 'PASS');
+        await expect(p).toHaveAttribute('data-green', 'true');
+      }
+
+      // Snooze for an hour, then the same failure again: the alert counts it, its notice is "snoozed" and none is sent.
+      const snoozing = await openAlert(a, usdt.id);
+      const sentBefore = await snoozing.getByTestId('alert-notices').getAttribute('data-sent');
+      const counted = Number(await snoozing.getAttribute('data-occurrences'));
+      await snoozing.getByLabel(/^Snooze notices until/).fill(new Date(Date.now() + 3_600_000).toISOString());
+      await snoozing.getByTestId('alert-snooze').click();
+      await expect(snoozing).toHaveAttribute('data-snoozed', 'true', { timeout: 30_000 });
+      await expect(snoozing.getByTestId('alert-refused')).toHaveCount(0);
+
+      expect(await twoFounderRun(state.pairId)).toMatch(/Run [0-9a-f-]{36}: FAIL\./);
+      await awaitAlerts(
+        a,
+        state.pairId,
+        (now) => now.find((r) => r.id === usdt.id)?.occurrences === counted + 1,
+        'svc-ops counts the failure during the snooze',
+      );
+      const muted = await openAlert(a, usdt.id);
+      await expect(muted).toHaveAttribute('data-snoozed', 'true');
+      await expect(muted.getByTestId('alert-notices')).toHaveAttribute('data-sent', sentBefore);
+      await expect(muted.locator('[data-testid="timeline-entry"][data-kind="repeated"]').last()).toHaveAttribute('data-notice', 'snoozed');
+    } finally {
+      // Retire the TEST two-asset floor so scheduled runs do not keep failing on it.
+      await lifecycle(state.pairId, 'retire', 'Retired');
+    }
   });
 
   for (const [n, slice] of [
-    [7, 'OPS-reconciliation-03'],
-    [8, 'OPS-reconciliation-03'],
     [9, 'OPS-reconciliation-04'],
     [10, 'OPS-reconciliation-04'],
   ])

@@ -22,6 +22,8 @@ import { bankTransferReversal } from './bank-transfer-reversal.js';
 import { staffHoldConfirm, staffHoldPlace, staffHoldRelease } from './staff-hold.js';
 import { campaignRewardForfeit, campaignRewardLock, campaignRewardUnlock } from './campaign-lock.js';
 import { marketListingFee, marketPremiumPlacement, marketPurchase } from './market.js';
+import { marketPurchaseHold, marketPurchaseRefund, marketPurchaseRelease } from './market-escrow.js';
+import { buybackOrderHold, buybackOrderHoldRelease, buybackTakerFill } from './buyback.js';
 import { fxConversion, fxConversionHold, fxConversionLateFill, fxConversionRelease, fxConversionReverse } from './conversion.js';
 import { tradeFillFeeCorrection } from './fill-correction.js';
 import { tradeFillMakerRebate } from './fill-rebate.js';
@@ -1364,6 +1366,8 @@ export * from './pay-received-hold.js';
 export * from './bank-transfer-reversal.js';
 export * from './staff-hold.js';
 export * from './campaign-lock.js';
+export * from './market-escrow.js';
+export * from './buyback.js';
 export {
   marketPurchase,
   marketListingFee,
@@ -1475,6 +1479,14 @@ export const recipes = {
   marketPurchase,
   marketListingFee,
   marketPremiumPlacement,
+  // A purchase held until its refund window ends: hold, numbered refunds, release (J-more-catalogue-02). See ./market-escrow.ts.
+  marketPurchaseHold,
+  marketPurchaseRefund,
+  marketPurchaseRelease,
+  // The token buyback's IOC buy on the spot book: hold, taker fill against a customer ask, release (J-dex-protocol-17). See ./buyback.ts.
+  buybackOrderHold,
+  buybackOrderHoldRelease,
+  buybackTakerFill,
   // W6 sandbox conversion. USD and USDT on separate accounts; fee and spread to house revenue.
   // Hold and release reserve clearing around the venue call. Reverse keeps the venue legs.
   fxConversion,

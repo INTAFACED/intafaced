@@ -71,6 +71,10 @@ import { PayError, PayService } from './payment-service.js';
 import { startPayoutReconciler } from './payout-reconciler.js';
 import { UserMoneyService, openWithdrawalHolds } from './user-money-service.js';
 import { WalletPay, failClosedWalletPublish } from './wallet/wallet-pay.js';
+import { SendOutDoor } from './withdrawals/send-out/door.js';
+import { setWithdrawFeeUnboundSink } from './withdrawals/send-out/fee-unbound.js';
+import { assertWithdrawSignerPosture } from './withdrawals/send-out/signer-posture.js';
+import { recordingChainFor } from './rails/recording-chain.js';
 import { createLedgerClient, createReceiptAssetPlaces } from './ledger-client.js';
 import { BankPayoutAbsentAdapter } from './rails/bank-payout.js';
 import { CardSandboxAdapter } from './rails/card-sandbox.js';
@@ -128,6 +132,7 @@ import {
   createIdentityOperationDecisionClient,
   createBankApproverEligibilityClient,
   createBankInternalWithdrawalClient,
+  createBankSendDestinationClient,
   s2sFromEnv,
 } from '@intafaced/contracts';
 import { registerProcessHooks, startTelemetry } from '@intafaced/telemetry';
@@ -219,7 +224,10 @@ const ledger = createLedgerClient(env.LEDGER_URL, env.INTERNAL_SERVICE_SECRET, s
 const broadcasts = new PostgresBroadcastStore(sql);
 const watcherCursors = new PostgresChainWatcherCursorStore(sql);
 const watcherDeadLetters = new PostgresChainWatcherDeadLetterStore(sql);
-const chain = defaultChainFor(process.env, broadcasts);
+// LOCAL TEST: on a stack that names its records folder, the TEST chain keeps its own record of what it sent (refused at
+// boot anywhere but an explicit dev or test process over a sandbox chain; unset, the chain as it is).
+const bareChain = defaultChainFor(process.env, broadcasts);
+const chain = recordingChainFor(bareChain, process.env);
 
 const cryptoRail = new CryptoNativeAdapter({
   chain,
@@ -542,8 +550,18 @@ const walletChainReader = { confirm: async (): Promise<'down'> => 'down' };
 const walletPay = new WalletPay({
   publish: failClosedWalletPublish(),
   openHolds: openWithdrawalHolds(sql),
-  allowlist: { has: () => false },
-  now: () => new Date(),
+});
+
+/**
+ * J-wallet-05 #6 and #7 (issue #6517): the door for a send out of the platform. The custody signer per network is decided
+ * here, at boot (`PAY_TEST_WITHDRAW_SIGNER_NETWORKS`: a TEST signer, dev and test only; blank: none, so every outside send
+ * refuses `pay.wallet_withdraw_unavailable`), and asked again at every send. The address book is svc-bank's: without
+ * BANK_URL the client answers unavailable and every outside send refuses before anything is claimed.
+ */
+const withdrawSigners = assertWithdrawSignerPosture(process.env);
+const sendOut = new SendOutDoor({
+  signer: withdrawSigners,
+  destinations: createBankSendDestinationClient({ bankUrl: env.BANK_URL, secret: env.INTERNAL_SERVICE_SECRET, s2s: s2sKey }),
 });
 
 const purchaseHolds = new PurchaseHoldService({ sql }).guard();
@@ -559,6 +577,7 @@ const userMoney = new UserMoneyService(sql, ledger, rails, {
   operatorCreditRails,
   valueMovement: railPosture.policy,
   wallet: walletPay,
+  sendOut,
   chainReader: walletChainReader,
   withdrawalLimits: withdrawalLimitReader,
   withdrawalHistory: createWithdrawalHistory(sql),
@@ -1128,7 +1147,7 @@ await app.register(async (webhookScope) => {
     try {
       const delivery = { headers, body: typeof request.body === 'string' ? request.body : '' };
       // Dev/test in-memory chain only: a verified transfer is recorded on it before the delivery is applied.
-      if (request.params.railId === cryptoRail.id) await feedSandboxChain(chain, cryptoRail.verifyWebhook(delivery));
+      if (request.params.railId === cryptoRail.id) await feedSandboxChain(bareChain, cryptoRail.verifyWebhook(delivery));
       // The TEST bank books a verified transfer before the delivery is applied, as the in-memory chain does above.
       if (bankTransferRail && request.params.railId === bankTransferRail.id)
         bankTransferRail.receive(bankTransferRail.verifyWebhook(delivery));
@@ -1274,6 +1293,18 @@ travelRuleWaits.unref();
  */
 if (railStatus.sandbox.length > 0) {
   app.log.warn({ ...railStatus, chain: chain.description, appEnv: railPosture.appEnv }, railStatus.summary);
+}
+// svc-ledger refusing a withdrawal's fee is never routine: the post did not happen and a retry would be refused again.
+setWithdrawFeeUnboundSink((alert) =>
+  app.log.error({ ...alert, alert: 'pay.withdrawal_fee_unbound' }, 'withdrawal fee refused by the ledger'),
+);
+// A TEST withdrawal signer is said on every start, like the sandbox rails: sends out on these networks go through the
+// crypto-native rail, which is the in-memory dev chain or a test chain wherever this boots.
+if (withdrawSigners.testNetworks.size > 0) {
+  app.log.warn(
+    { networks: [...withdrawSigners.testNetworks], appEnv: withdrawSigners.appEnv, chain: chain.description },
+    'TEST withdrawal signer connected: sends out on these networks are TEST sends through the crypto-native rail',
+  );
 }
 if (railPosture.sandboxOverride) {
   app.log.warn(

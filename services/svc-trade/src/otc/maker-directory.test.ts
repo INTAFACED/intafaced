@@ -17,6 +17,7 @@ import {
   UNPUBLISHED_OTC_MAKER_DIRECTORY,
 } from './maker-directory.js';
 import { OTC_MAKER_ROUTING_RESIDUAL } from './maker-routing.js';
+import { MemoryOtcQuoteStore } from './quote-store.js';
 
 const TEST_DIRECTORY_JSON = JSON.stringify({
   selectCap: 3,
@@ -137,7 +138,7 @@ describe('selectOtcMakers', () => {
       throw new Error('expected a refusal');
     } catch (err) {
       expect(err).toBeInstanceOf(OtcError);
-      expect((err as OtcError).code).toBe('trade.otc_settle_refused');
+      expect((err as OtcError).code).toBe('feed.market');
       expect((err as OtcError).message).toContain('socket.otc-maker-routing');
       expect((err as OtcError).residual).toBe(OTC_MAKER_ROUTING_RESIDUAL);
     }
@@ -189,8 +190,12 @@ describe('OtcDeskService.quote in maker mode (CB-otc-01 request path)', () => {
     counterparty: 'maker' as const,
     quoteTtlMs: 60_000,
     maxMidAgeSeconds: 60,
+    // A zero desk minimum is an owner value: these quotes are not held by the CB-otc-07 minimum.
+    minNotional: { USDT: 0n },
+    assets: ['BTC'],
+    minTier: 'basic' as const,
   };
-  const principal = { userId: '00000000-0000-4000-8000-000000000001' } as import('@intafaced/auth').Principal;
+  const principal = { userId: '00000000-0000-4000-8000-000000000001', tier: 'basic' } as import('@intafaced/auth').Principal;
   const req = (makerId: string) => ({ side: 'buy' as const, baseAsset: 'BTC', quoteAsset: 'USDT', qty: '1', makerId });
   const svc = (directoryJson: string) =>
     new OtcDeskService(new MemoryLedger(), new FixedOtcStake(parseAmount('9999')), {
@@ -218,12 +223,125 @@ describe('OtcDeskService.quote in maker mode (CB-otc-01 request path)', () => {
   });
 
   it('an outside provider refuses by name', async () => {
-    await expect(svc(TEST_DIRECTORY_JSON).quote(principal, req('test-lp-out'))).rejects.toMatchObject({ code: 'trade.otc_settle_refused' });
+    await expect(svc(TEST_DIRECTORY_JSON).quote(principal, req('test-lp-out'))).rejects.toMatchObject({ code: 'feed.market' });
+  });
+
+  it('a desk request in maker mode is quoted by the one provider picked, and a makerId outside the pick refuses', async () => {
+    const svcM = svc(TEST_DIRECTORY_JSON);
+    const asked = { side: 'buy' as const, baseAsset: 'BTC', quoteAsset: 'USDT', qty: '1' };
+    expect((await svcM.quote(principal, { ...asked, makerIds: ['test-lp-c'] })).counterpartyId).toBe('test-lp-c');
+    await expect(svcM.quote(principal, { ...asked, makerIds: ['test-lp-a'], makerId: 'anyone' })).rejects.toMatchObject({
+      code: 'trade.otc_provider_unknown',
+    });
+    await expect(svcM.quote(principal, { ...asked, makerIds: ['test-lp-a'], makerId: 'test-lp-b' })).rejects.toMatchObject({
+      code: 'trade.otc_provider_unknown',
+    });
+  });
+
+  it('two providers asked with none named to quote refuses naming the limit of one, before any stake read', async () => {
+    let stakeReads = 0;
+    const counted = new OtcDeskService(
+      new MemoryLedger(),
+      {
+        stakeOf: async () => {
+          stakeReads += 1;
+          return parseAmount('9999');
+        },
+      },
+      {
+        law: TEST_MAKER_LAW,
+        midSource: createObservedOtcMidSource('BTC/USDT:200', now),
+        makerDirectory: parseOtcMakerDirectoryJson(TEST_DIRECTORY_JSON),
+        now,
+      },
+    );
+    const asked = { side: 'buy' as const, baseAsset: 'BTC', quoteAsset: 'USDT', qty: '1', makerIds: ['test-lp-b', 'test-lp-c'] };
+    await expect(counted.quote(principal, asked)).rejects.toMatchObject({
+      code: 'trade.otc_provider_cap',
+      message: 'At most 1 provider can quote one request on this desk (got 2)',
+    });
+    await expect(counted.quote(principal, { ...asked, makerId: 'test-lp-a' })).rejects.toMatchObject({
+      code: 'trade.otc_provider_unknown',
+    });
+    expect(stakeReads).toBe(0);
+    expect((await counted.quote(principal, { ...asked, makerId: 'test-lp-c' })).counterpartyId).toBe('test-lp-c');
+    expect(stakeReads).toBe(1);
   });
 
   it('a listed platform-routed provider is quoted as the counterparty', async () => {
     const q = await svc(TEST_DIRECTORY_JSON).quote(principal, req('test-lp-b'));
     expect(q.counterparty).toBe('maker');
     expect(q.counterpartyId).toBe('test-lp-b');
+  });
+});
+
+describe('a desk request names its providers (CB-otc-01, platform counterparty)', () => {
+  const now = () => new Date('2026-10-22T03:00:00.000Z');
+  const TEST_PLATFORM_LAW = {
+    published: true as const,
+    spreadBps: 50,
+    minStake: parseAmount('500'),
+    counterparty: 'platform' as const,
+    quoteTtlMs: 60_000,
+    maxMidAgeSeconds: 60,
+    // A zero desk minimum is an owner value: these quotes are not held by the CB-otc-07 minimum.
+    minNotional: { USDT: 0n },
+    assets: ['BTC'],
+    minTier: 'basic' as const,
+  };
+  const principal = { userId: '00000000-0000-4000-8000-000000000001', tier: 'basic' } as import('@intafaced/auth').Principal;
+  const req = (makerIds?: string[]) => ({ side: 'buy' as const, baseAsset: 'BTC', quoteAsset: 'USDT', qty: '1', makerIds });
+  class CountingStore extends MemoryOtcQuoteStore {
+    saved = 0;
+    override async saveOpen(...args: Parameters<MemoryOtcQuoteStore['saveOpen']>) {
+      this.saved += 1;
+      return super.saveOpen(...args);
+    }
+  }
+  const desk = (directoryJson: string) => {
+    const store = new CountingStore();
+    const svc = new OtcDeskService(new MemoryLedger(), new FixedOtcStake(parseAmount('9999')), {
+      law: TEST_PLATFORM_LAW,
+      midSource: createObservedOtcMidSource('BTC/USDT:200', now),
+      makerDirectory: parseOtcMakerDirectoryJson(directoryJson),
+      store,
+      now,
+    });
+    return { svc, store };
+  };
+
+  it('with no provider list set, every request refuses "No providers set" and records nothing', async () => {
+    const { svc, store } = desk('');
+    for (const pick of [undefined, [], ['test-lp-a']]) {
+      await expect(svc.quote(principal, req(pick))).rejects.toMatchObject({
+        code: 'trade.otc_makers_unset',
+        residual: OTC_MAKERS_UNSET_RESIDUAL,
+      });
+    }
+    expect(store.saved).toBe(0);
+  });
+
+  it('four providers when the owner allows three refuses, naming the cap, and records nothing', async () => {
+    const { svc, store } = desk(TEST_DIRECTORY_JSON);
+    await expect(svc.quote(principal, req(['test-lp-a', 'test-lp-b', 'test-lp-c', 'test-lp-d']))).rejects.toMatchObject({
+      code: 'trade.otc_provider_cap',
+      message: 'At most 3 providers can be picked for one request (got 4)',
+    });
+    expect(store.saved).toBe(0);
+  });
+
+  it('a request with no pick, an unknown or an outside provider refuses by its own code', async () => {
+    const { svc, store } = desk(TEST_DIRECTORY_JSON);
+    await expect(svc.quote(principal, req())).rejects.toMatchObject({ code: 'trade.otc_provider_required' });
+    await expect(svc.quote(principal, req(['anyone']))).rejects.toMatchObject({ code: 'trade.otc_provider_unknown' });
+    await expect(svc.quote(principal, req(['test-lp-out']))).rejects.toMatchObject({ code: 'feed.market' });
+    expect(store.saved).toBe(0);
+  });
+
+  it('up to the cap of listed platform providers is priced by the desk', async () => {
+    const { svc, store } = desk(TEST_DIRECTORY_JSON);
+    const q = await svc.quote(principal, req(['test-lp-a', 'test-lp-b', 'test-lp-c']));
+    expect(q.counterparty).toBe('platform');
+    expect(store.saved).toBe(1);
   });
 });

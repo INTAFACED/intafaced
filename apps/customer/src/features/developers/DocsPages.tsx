@@ -1,23 +1,30 @@
 import { useState } from 'react';
+import { StateBlock } from '@intafaced/ui';
+import { REQUEST_SIGN_VERSION, type RequestSigningPolicy } from '@intafaced/contracts/api-keys';
 import { useSession } from '../session/session';
 import { readServerClock, type ServerClockReading } from '../../shared/server-clock';
 import { docsCopy } from './developers-docs-copy';
 import { developersCopy } from './developers-copy';
 import { connectivityEndpointsLabel, connectivityStateLabel, dataTermLabel } from './developers-labels';
-import { DATA_PRODUCTS, DATA_TERMS, connectivityOptions } from './developers-model';
+import { liveCopy } from './developers-live-copy';
+import { DATA_PRODUCTS, DATA_TERMS, connectivityOptions, hostTable } from './developers-model';
+import { hostsView, readDataTerms, readDeveloperHosts, termsView } from './developers-values';
+import { useRead } from './use-read';
 import {
   CALL_COST,
-  NEVER_ON_A_KEY,
+  neverOnAKeyTable,
   PRODUCTS,
   REST_REFERENCE,
-  SIGN_WINDOW_SECONDS,
+  STREAM_DOOR_PATH,
   STREAM_REFERENCE,
   permissionTable,
   routeLine,
-  scopeFor,
+  scopeText,
+  streamName,
   withinWindow,
   type Product,
 } from './developers-reference';
+import { readSigningPolicy } from './developers-signing';
 import '../public/public-pages.css';
 import './developers-docs.css';
 
@@ -89,8 +96,15 @@ export function ReferencePage({ title }: { title: string }) {
                         </th>
                         <td>
                           <code>{route.name}</code>
+                          {route.onlyWithFuturesMatching ? <> · {t('onlyWithMatching')}</> : null}
                         </td>
-                        <td>{route.anonymous ? t('publicRoute', { scope: scopeFor(route.method) }) : scopeFor(route.method)}</td>
+                        <td>
+                          {route.access === 'public'
+                            ? t('publicRoute', { scope: scopeText(route) })
+                            : route.access === 'internal'
+                              ? t('internalRoute')
+                              : scopeText(route)}
+                        </td>
                       </tr>
                     ))}
                   </tbody>
@@ -103,15 +117,19 @@ export function ReferencePage({ title }: { title: string }) {
                   <thead>
                     <tr>
                       <th scope="col">{t('colStream')}</th>
+                      <th scope="col">{t('colDoor')}</th>
                       <th scope="col">{t('colPermission')}</th>
                     </tr>
                   </thead>
                   <tbody>
                     {streams.map((stream) => (
-                      <tr key={stream.channel}>
+                      <tr key={`${stream.door} ${stream.channel}`} data-stream-door={stream.door} data-stream-channel={stream.channel}>
                         <th scope="row">
-                          <code>{stream.channel}</code>
+                          <code>{streamName(stream)}</code>
                         </th>
+                        <td>
+                          {t(`door_${stream.door}`)} <code>{STREAM_DOOR_PATH[stream.door]}</code>
+                        </td>
                         <td>{stream.private ? t('privateStream', { scope: 'trade:read' }) : t('publicStream')}</td>
                       </tr>
                     ))}
@@ -123,6 +141,7 @@ export function ReferencePage({ title }: { title: string }) {
         );
       })}
       <p className="muted">{t('referenceMore')}</p>
+      <p className="muted">{t('streamsLive')}</p>
     </Page>
   );
 }
@@ -157,12 +176,23 @@ export function PermissionsPage({ title }: { title: string }) {
                   </td>
                 </tr>
               ))}
-              {NEVER_ON_A_KEY.map((scope) => (
-                <tr key={scope} data-scope={scope}>
+              {neverOnAKeyTable().map((row) => (
+                <tr key={row.scope} data-scope={row.scope} data-never-on-key="">
                   <th scope="row">
-                    <code>{scope}</code>
+                    <code>{row.scope}</code>
                   </th>
-                  <td>{t('neverOnKey')}</td>
+                  <td>
+                    {row.routes.length > 0 ? t('neverOnKeyStaff') : t('neverOnKey')}
+                    {row.routes.length > 0 ? (
+                      <ul>
+                        {row.routes.map((route) => (
+                          <li key={routeLine(route)}>
+                            <code>{routeLine(route)}</code>
+                          </li>
+                        ))}
+                      </ul>
+                    ) : null}
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -202,17 +232,24 @@ export function OpenApiPage({ title }: { title: string }) {
   );
 }
 
-type ClockState = { status: 'idle' } | { status: 'checking' } | { status: 'failed' } | { status: 'ready'; reading: ServerClockReading };
+/** The owner's window as identity publishes it: seconds, `null` while not set, or `failed` when it could not be read. */
+type PublishedWindow = number | null | 'failed';
+type ClockState =
+  | { status: 'idle' }
+  | { status: 'checking' }
+  | { status: 'failed' }
+  | { status: 'ready'; reading: ServerClockReading; window: PublishedWindow };
 
-/** The clock check: a button, then the offset and round trip, and whether this clock is inside the signing window. */
+/** The clock check: a button, then the offset and round trip, and whether this clock is inside the published signing window. */
 export function ClockCheck({ testId }: { testId: string }) {
   const { t } = docsCopy.useCopy();
   const { api } = useSession();
   const [state, setState] = useState<ClockState>({ status: 'idle' });
   const check = async () => {
     setState({ status: 'checking' });
-    const result = await readServerClock(api);
-    setState(result.ok ? { status: 'ready', reading: result.data } : { status: 'failed' });
+    const [clock, policy] = await Promise.all([readServerClock(api), readSigningPolicy(api)]);
+    if (!clock.ok) return setState({ status: 'failed' });
+    setState({ status: 'ready', reading: clock.data, window: policy.ok ? policy.data.windowSeconds : 'failed' });
   };
   return (
     <div className="pub-form">
@@ -225,6 +262,14 @@ export function ClockCheck({ testId }: { testId: string }) {
   );
 }
 
+function windowVerdict(reading: ServerClockReading, window: PublishedWindow, t: Copy): { state: string; text: string } {
+  if (window === 'failed') return { state: 'unread', text: t('clockPolicyFailed') };
+  if (window === null) return { state: 'unset', text: t('clockWindowUnset') };
+  return withinWindow(reading.offsetMs, reading.roundTripMs, window)
+    ? { state: 'within', text: t('clockWithin', { seconds: window }) }
+    : { state: 'outside', text: t('clockOutside', { seconds: window }) };
+}
+
 function ClockResult({ state, testId, t }: { state: ClockState; testId: string; t: Copy }) {
   if (state.status === 'failed')
     return (
@@ -234,13 +279,133 @@ function ClockResult({ state, testId, t }: { state: ClockState; testId: string; 
     );
   if (state.status !== 'ready') return <div data-testid={testId} aria-live="polite" />;
   const { offsetMs, roundTripMs } = state.reading;
-  const within = withinWindow(offsetMs, roundTripMs);
+  const verdict = windowVerdict(state.reading, state.window, t);
   return (
-    <div data-testid={testId} aria-live="polite" data-clock-window={within ? 'within' : 'outside'}>
+    <div
+      data-testid={testId}
+      aria-live="polite"
+      data-clock-window={verdict.state}
+      data-offset-ms={offsetMs}
+      data-window-seconds={typeof state.window === 'number' ? state.window : undefined}
+    >
       <p>{t('clockOffset', { offset: String(offsetMs) })}</p>
       <p>{t('clockRoundTrip', { rtt: String(roundTripMs) })}</p>
-      <p>{within ? t('clockWithin', { seconds: SIGN_WINDOW_SECONDS }) : t('clockOutside', { seconds: SIGN_WINDOW_SECONDS })}</p>
+      <p>{verdict.text}</p>
     </div>
+  );
+}
+
+const VECTOR_FIELDS = ['method', 'path', 'timestamp', 'nonce', 'body', 'bodySha256', 'secret', 'canonical', 'signature'] as const;
+
+/** /developers/authentication (DV-auth-01): how a key is sent and a request signed, with the live window and test vector. */
+export function AuthenticationPage({ title }: { title: string }) {
+  const { t } = docsCopy.useCopy();
+  const live = liveCopy.useCopy().t;
+  const { api } = useSession();
+  const { read, reload } = useRead((signal) => readSigningPolicy(api, signal), [api]);
+  return (
+    <Page id="authentication" title={title} lead={t('authLead')}>
+      <section className="pub-card" aria-labelledby="dev-auth-key">
+        <h2 id="dev-auth-key">{t('authKeyTitle')}</h2>
+        <p>{t('authKeyBody')}</p>
+      </section>
+      <section className="pub-card" aria-labelledby="dev-auth-sign">
+        <h2 id="dev-auth-sign">{t('authSignTitle')}</h2>
+        <p>{t('authSignBody')}</p>
+        <ol aria-label={t('authLines')}>
+          <li>{t('authLineVersion', { version: read.status === 'ready' ? read.data.version : REQUEST_SIGN_VERSION })}</li>
+          <li>{t('authLineMethod')}</li>
+          <li>{t('authLinePath')}</li>
+          <li>{t('authLineTimestamp')}</li>
+          <li>{t('authLineNonce')}</li>
+          <li>{t('authLineBody')}</li>
+        </ol>
+      </section>
+      {read.status === 'loading' ? (
+        <StateBlock kind="loading" rows={3} rowHeight={48} label={t('authPolicyLoading')} />
+      ) : read.status === 'failed' ? (
+        <StateBlock kind="error" title={t('authPolicyFailed')} onRetry={reload} retryLabel={live('tryAgain')} />
+      ) : (
+        <SigningPolicy policy={read.data} t={t} />
+      )}
+      <p className="muted">{t('authPolicyRead')}</p>
+      <a className="text-link" href="/developers/errors/auth">
+        {t('authErrorsLink')} →
+      </a>
+    </Page>
+  );
+}
+
+function SigningPolicy({ policy, t }: { policy: RequestSigningPolicy; t: Copy }) {
+  const headers = [
+    [policy.headers.timestamp, t('authHeaderTimestamp')],
+    [policy.headers.nonce, t('authHeaderNonce')],
+    [policy.headers.signature, t('authHeaderSignature')],
+  ] as const;
+  return (
+    <>
+      <section className="pub-card" aria-labelledby="dev-auth-headers">
+        <h2 id="dev-auth-headers">{t('authHeadersTable')}</h2>
+        <div className="table-scroll">
+          <table className="pub-table dev-text-table">
+            <thead>
+              <tr>
+                <th scope="col">{t('colHeader')}</th>
+                <th scope="col">{t('colCarries')}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {headers.map(([name, carries]) => (
+                <tr key={name}>
+                  <th scope="row">
+                    <code>{name}</code>
+                  </th>
+                  <td>{carries}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </section>
+      <section className="pub-card" aria-labelledby="dev-auth-window">
+        <h2 id="dev-auth-window">{t('authWindowTitle')}</h2>
+        {policy.windowSeconds === null ? (
+          <p data-testid="developers-sign-window" data-window-state="unset">
+            {t('authWindowUnset')}
+          </p>
+        ) : (
+          <p data-testid="developers-sign-window" data-window-state="set">
+            {t('authWindow', { seconds: policy.windowSeconds })}
+          </p>
+        )}
+        <p>{t('authRefusals')}</p>
+      </section>
+      <section className="pub-card" aria-labelledby="dev-auth-vector">
+        <h2 id="dev-auth-vector">{t('authVectorTitle')}</h2>
+        <p>{t('authVectorBody')}</p>
+        <div className="table-scroll" data-testid="developers-sign-vector">
+          <table className="pub-table dev-text-table">
+            <caption className="sr-only">{t('authVectorTable')}</caption>
+            <thead>
+              <tr>
+                <th scope="col">{t('colField')}</th>
+                <th scope="col">{t('colValue')}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {VECTOR_FIELDS.map((field) => (
+                <tr key={field}>
+                  <th scope="row">{field}</th>
+                  <td>
+                    <code data-testid={`vector-${field}`}>{policy.vector[field]}</code>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </section>
+    </>
   );
 }
 
@@ -276,12 +441,30 @@ export function QuickstartPage({ title }: { title: string }) {
 export function ConnectivityPage({ title }: { title: string }) {
   const { t } = docsCopy.useCopy();
   const { t: portal } = developersCopy.useCopy();
+  const { t: live } = liveCopy.useCopy();
+  const { api } = useSession();
+  const { read, reload } = useRead((signal) => readDeveloperHosts(api, signal), [api]);
+  const view = hostsView(read);
+  // The parked options name their hardware blocker whatever the hosts read says; only the host rows wait for it.
+  const options =
+    view.kind === 'table'
+      ? connectivityOptions(hostTable(view.read))
+      : connectivityOptions().filter(({ state }) => state === 'parked_hardware');
   return (
     <Page id="connectivity" title={title} lead={t('connectivityLead')}>
       <section className="pub-card" aria-labelledby="dev-conn-options">
         <h2 id="dev-conn-options">{t('connectivityTable')}</h2>
+        {view.kind === 'loading' ? (
+          <StateBlock kind="loading" rows={2} rowHeight={48} label={live('loading')} />
+        ) : view.kind === 'failed' ? (
+          <StateBlock kind="error" title={live('loadFailed')} onRetry={reload} retryLabel={live('tryAgain')} />
+        ) : view.unsetCode ? (
+          <p className="pub-notice" role="status" data-testid="developers-connectivity-unset" data-code={view.unsetCode}>
+            {portal('hostsUnpublished')}
+          </p>
+        ) : null}
         <div className="table-scroll">
-          <table className="pub-table">
+          <table className="pub-table dev-text-table">
             <thead>
               <tr>
                 <th scope="col">{t('colOption')}</th>
@@ -290,7 +473,7 @@ export function ConnectivityPage({ title }: { title: string }) {
               </tr>
             </thead>
             <tbody>
-              {connectivityOptions().map(({ option, state, hosts }) => (
+              {options.map(({ option, state, hosts }) => (
                 <tr key={option} data-option={option} data-option-state={state}>
                   <th scope="row">{t(`option_${option}`)}</th>
                   <td>{connectivityStateLabel(t, state)}</td>
@@ -327,37 +510,54 @@ export function ConnectivityPage({ title }: { title: string }) {
 
 export function DataTermsPage({ title }: { title: string }) {
   const { t } = docsCopy.useCopy();
+  const { t: live } = liveCopy.useCopy();
+  const { api } = useSession();
+  const { read, reload } = useRead((signal) => readDataTerms(api, signal), [api]);
+  const view = termsView(read);
   return (
     <Page id="data-terms" title={title} lead={t('dataTermsLead')}>
-      <section className="pub-notice" role="status">
-        <p>{t('dataTermsWaits')}</p>
-      </section>
       <section className="pub-card" aria-labelledby="dev-data-terms">
         <h2 id="dev-data-terms">{t('dataTermsTable')}</h2>
-        <div className="table-scroll">
-          <table className="pub-table">
-            <thead>
-              <tr>
-                <th scope="col">{t('colProduct')}</th>
-                {DATA_TERMS.map((term) => (
-                  <th scope="col" key={term}>
-                    {dataTermLabel(t, term)}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {DATA_PRODUCTS.map((product) => (
-                <tr key={product} data-product={product} data-terms-state="unset">
-                  <th scope="row">{t(`product_${product}`)}</th>
-                  {DATA_TERMS.map((term) => (
-                    <td key={term}>{t('termUnset')}</td>
-                  ))}
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+        {view.kind === 'loading' ? (
+          <StateBlock kind="loading" rows={6} rowHeight={32} label={live('loading')} />
+        ) : view.kind === 'failed' ? (
+          <StateBlock kind="error" title={live('loadFailed')} onRetry={reload} retryLabel={live('tryAgain')} />
+        ) : (
+          <>
+            {view.unsetCode ? (
+              <p className="pub-notice" role="status" data-testid="developers-data-terms-unset" data-code={view.unsetCode}>
+                {t('dataTermsWaits')}
+              </p>
+            ) : null}
+            <div className="table-scroll">
+              <table className="pub-table dev-text-table">
+                <thead>
+                  <tr>
+                    <th scope="col">{t('colProduct')}</th>
+                    {DATA_TERMS.map((term) => (
+                      <th scope="col" key={term}>
+                        {dataTermLabel(t, term)}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {DATA_PRODUCTS.map((product) => {
+                    const terms = view.termsOf(product);
+                    return (
+                      <tr key={product} data-product={product} data-terms-state={terms ? 'set' : 'unset'}>
+                        <th scope="row">{t(`product_${product}`)}</th>
+                        {DATA_TERMS.map((term) => (
+                          <td key={term}>{terms ? terms[term] : t('termUnset')}</td>
+                        ))}
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </>
+        )}
       </section>
     </Page>
   );

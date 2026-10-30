@@ -181,7 +181,7 @@ describe('crypto-native — finality is the whole rail', () => {
     const shallow = await adapter.authorize(intent());
     expect(shallow.status).toBe('pending');
     // On its way, so the page does not ask for it again.
-    expect(shallow.raw).toMatchObject({ received: '60', missing: '40', confirming: '40' });
+    expect(shallow.raw).toMatchObject({ received: '60', missing: '40', confirming: '40', confirmations: 2, required: 6 });
 
     localChain.setConfirmations(address, 6, '0x40');
     const auth = await adapter.authorize(intent());

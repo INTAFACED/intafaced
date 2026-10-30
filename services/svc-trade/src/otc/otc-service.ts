@@ -8,10 +8,16 @@
  */
 
 import { randomUUID } from 'node:crypto';
-import { parseAmount, type Amount, type LedgerClient } from '@intafaced/ledger-client';
-import type { Principal } from '@intafaced/auth';
+import { formatAmount, parseAmount, type Amount, type LedgerClient } from '@intafaced/ledger-client';
+import { TIER_ORDER, type Principal } from '@intafaced/auth';
 import { otcSettleIdsFor } from '../spot/ids.js';
-import { otcDeskLawStatusLine, requirePublishedOtcDeskLaw, type OtcDeskLaw, UNPUBLISHED_OTC_DESK_LAW } from './desk-law.js';
+import {
+  otcDeskLawStatusLine,
+  otcMinNotionalFor,
+  requirePublishedOtcDeskLaw,
+  type OtcDeskLaw,
+  UNPUBLISHED_OTC_DESK_LAW,
+} from './desk-law.js';
 import { logRefusalSpec } from '../refusal-spec-log.js';
 import { OTC_DESK_LAW_RESIDUAL, OtcError, RFQ_ALLOCATION_RESIDUAL, RFQ_GIVE_UP_RESIDUAL } from './errors.js';
 import { otcMakerRoutingStatus, OTC_MAKER_ROUTING_RESIDUAL } from './maker-routing.js';
@@ -69,6 +75,27 @@ export interface OtcDeskServiceOptions {
   now?: () => Date;
 }
 
+/**
+ * CB-otc-08: the caller's verification tier must reach the owner's level before its size, stake or price is looked at,
+ * for a desk request, a convert and a one-click buy alike. A blank level refuses every one of them.
+ */
+function assertDeskLevel(law: Extract<OtcDeskLaw, { published: true }>, principal: Principal): void {
+  if (!law.minTier) {
+    throw new OtcError(
+      'The verification level for the desk is not set — the request refuses',
+      'trade.otc_level_unset',
+      OTC_DESK_LAW_RESIDUAL,
+    );
+  }
+  // A tier the principal does not carry counts as below every level.
+  if ((TIER_ORDER[principal.tier] ?? -1) < TIER_ORDER[law.minTier]) {
+    throw new OtcError(
+      `The desk prices for ${law.minTier} verification and above. Your account is at ${principal.tier ?? 'none'}.`,
+      'trade.otc_level_insufficient',
+    );
+  }
+}
+
 export class OtcDeskService {
   private readonly accountAdmission: TradingAdmissionPort | undefined;
   private readonly emailProof: EmailProofSource | undefined;
@@ -118,12 +145,18 @@ export class OtcDeskService {
       published: this.law.published === true,
       statusLine: otcDeskLawStatusLine(this.law),
       residual: this.law.published === true ? null : OTC_DESK_LAW_RESIDUAL,
+      /** CB-otc-11: the base assets the desk quotes, as the owner published them; null is blank ("Not set"). */
+      assets: this.law.published === true ? (this.law.assets ?? null) : null,
+      /** CB-otc-08: the lowest verification tier the desk prices for; null when the owner left it blank. */
+      minTier: this.law.published === true ? (this.law.minTier ?? null) : null,
       /** SOCKET §13 — platform settle real; maker route refuse-closed. */
       makerRouting: otcMakerRoutingStatus(),
       /** SOCKET §13 — boot map age-gates unless venue observation source is installed. */
       midFeed: this.midFeedWiring ?? (this.liveObservationFeed ? otcMidFeedStatus(true) : describeOtcPolicy().bootMidFeedWiring),
       residuals: {
         deskLaw: this.law.published === true ? null : OTC_DESK_LAW_RESIDUAL,
+        assets: this.law.published === true && this.law.assets?.length ? null : OTC_DESK_LAW_RESIDUAL,
+        minTier: this.law.published === true && this.law.minTier ? null : OTC_DESK_LAW_RESIDUAL,
         makerRouting: OTC_MAKER_ROUTING_RESIDUAL,
         midFeed: this.midFeedWiring?.residual ?? (this.liveObservationFeed ? null : OTC_MID_FEED_RESIDUAL),
       },
@@ -144,16 +177,24 @@ export class OtcDeskService {
     principal: Principal,
     input: { flow: OtcConvertFlow; side: OtcSide; baseAsset: string; quoteAsset: string; qty: string },
   ) {
+    // The level comes first, so a caller the desk does not price for never learns the owner's convert bounds.
+    assertDeskLevel(requirePublishedOtcDeskLaw(this.law), principal);
     if (input.flow === 'oneClickBuy' && input.side !== 'buy') {
       throw new OtcError('One-click buy only buys; use convert to sell', 'trade.convert_flow_side_refused');
     }
     assertOtcConvertBounds(this.convertBounds, input.flow, parseRequiredOtcSize(input.qty));
-    const quote = await this.quote(principal, {
-      side: input.side,
-      baseAsset: input.baseAsset,
-      quoteAsset: input.quoteAsset,
-      qty: input.qty,
-    });
+    const quote = await this.quote(
+      principal,
+      {
+        side: input.side,
+        baseAsset: input.baseAsset,
+        quoteAsset: input.quoteAsset,
+        qty: input.qty,
+      },
+      // Convert and one-click buy are sized by their own owner bounds (CB-otc-12), checked above; the RFQ desk minimum
+      // (CB-otc-07) and the provider pick (CB-otc-01) are for desk requests only.
+      { desk: false },
+    );
     return { flow: input.flow, ...quote };
   }
 
@@ -166,18 +207,60 @@ export class OtcDeskService {
       qty: string;
       /** Maker id when counterparty mode is maker. */
       makerId?: string;
+      /** The providers a desk request asks (CB-otc-01): picked from the owner's list, at most its cap. */
+      makerIds?: readonly string[];
     },
+    options: { desk: boolean } = { desk: true },
   ) {
     const law = requirePublishedOtcDeskLaw(this.law);
+    assertDeskLevel(law, principal);
     const qty = parseRequiredOtcSize(input.qty);
 
-    // CB-otc-01: in maker mode the maker comes from the owner provider list, not
-    // free text. A blank list, an unknown provider or an outside provider refuses
-    // the request before any stake read or price lookup.
-    // A blank makerId is not skipped: it goes through the same selection, so a
-    // blank list refuses otc_makers_unset and a blank pick refuses otc_provider_required.
+    // CB-otc-07: a desk request in a quote asset with no published minimum refuses on the law alone, before any stake
+    // read or price lookup. The minimum itself is checked once the quote is priced, below.
+    let minNotional: Amount | null = null;
+    if (options.desk) {
+      const asset = normalizeOtcAsset(input.quoteAsset);
+      minNotional = asset == null ? null : otcMinNotionalFor(law, asset);
+      if (asset != null && minNotional == null) {
+        throw new OtcError(`The desk minimum for ${asset} requests is not set — the request refuses`, 'trade.rfq_size_not_set');
+      }
+    }
+
+    // CB-otc-11: the desk quotes only the base assets the owner listed, for a desk request, a convert and a one-click buy
+    // alike, as the overview says. A blank list refuses every one of them. An unusable asset id is left to the pair check
+    // below, which refuses it as no usable pair.
+    if (!law.assets?.length) {
+      throw new OtcError('The desk asset list is not set — the request refuses', 'trade.otc_assets_unset', OTC_DESK_LAW_RESIDUAL);
+    }
+    const listedBase = normalizeOtcAsset(input.baseAsset);
+    if (listedBase != null && !law.assets.includes(listedBase)) {
+      const list = law.assets.length <= 10 ? law.assets.join(', ') : `${law.assets.length} assets`;
+      throw new OtcError(`${listedBase} is not on the desk's asset list (${list})`, 'trade.otc_asset_unlisted');
+    }
+
+    // CB-otc-01: the providers come from the owner's list, never free text. A desk request always names them: a blank
+    // list refuses "No providers set", an empty pick refuses otc_provider_required, a pick over the owner's cap refuses
+    // naming the cap, and an unknown or outside provider refuses by name, all before any stake read or price lookup.
+    // Convert and one-click buy name no providers; in maker mode they still pick their one maker from the list.
+    let asked: readonly string[] = [];
+    if (options.desk) {
+      asked = selectOtcMakers(this.makerDirectory, input.makerIds ?? (input.makerId == null ? [] : [input.makerId])).map((m) => m.id);
+    } else if (law.counterparty === 'maker') {
+      asked = selectOtcMakers(this.makerDirectory, [input.makerId ?? '']).map((m) => m.id);
+    }
+    // In maker mode the quoting maker is one of the providers asked: the one picked, or the makerId named among them.
+    // Both checks run here, before any stake read or price lookup.
+    let quotingMaker: string | undefined;
     if (law.counterparty === 'maker') {
-      selectOtcMakers(this.makerDirectory, [input.makerId ?? '']);
+      quotingMaker = (input.makerId ?? (asked.length === 1 ? asked[0]! : '')).trim();
+      if (!quotingMaker) {
+        // More than one asked and none named: on a maker desk one provider quotes, so the limit is one.
+        throw new OtcError(`At most 1 provider can quote one request on this desk (got ${asked.length})`, 'trade.otc_provider_cap');
+      }
+      if (!asked.includes(quotingMaker)) {
+        throw new OtcError(`Provider ${quotingMaker} is not one of the providers asked`, 'trade.otc_provider_unknown');
+      }
     }
 
     // Access gate before price lookup: an unstaked caller learns nothing about
@@ -219,16 +302,7 @@ export class OtcDeskService {
     }
     const midPrice = parseOtcMidPrice(String(sourced.mid));
 
-    let counterpartyId: string;
-    if (law.counterparty === 'platform') {
-      counterpartyId = this.platformCounterpartyId;
-    } else {
-      const makerId = (input.makerId ?? '').trim();
-      if (!makerId) {
-        throw new OtcError('Maker id required when desk routes to makers — refuse rather than invent', 'trade.otc_no_reference_price');
-      }
-      counterpartyId = makerId;
-    }
+    const counterpartyId = law.counterparty === 'platform' ? this.platformCounterpartyId : quotingMaker!;
 
     const quote = buildOtcQuote({
       quoteId: randomUUID(),
@@ -245,6 +319,12 @@ export class OtcDeskService {
       quoteTtlMs: law.quoteTtlMs,
     });
 
+    // CB-otc-07: the minimum holds on what the customer trades (the notional after the disclosed spread), so a sell
+    // never fills below it. Checked before the quote is saved, so a refused request records nothing.
+    if (minNotional != null && quote.userNotional < minNotional) {
+      throw new OtcError(`Below the desk minimum of ${formatAmount(minNotional)} ${quoteAsset}`, 'trade.rfq_below_minimum');
+    }
+
     await this.store.saveOpen(quote);
     return presentOtcQuote(quote);
   }
@@ -253,7 +333,9 @@ export class OtcDeskService {
     principal: Principal,
     input: { quoteId: string; /** Optional — if set must equal quoted price (last-look guard). */ assertedPrice?: string },
   ) {
-    requirePublishedOtcDeskLaw(this.law);
+    // Binding is a new commitment: a caller who fell below the level after the quote was priced cannot bind it. Settle
+    // is not gated, so a quote already bound always finishes or runs out on its own window, never held half-way.
+    assertDeskLevel(requirePublishedOtcDeskLaw(this.law), principal);
     const stored = await this.store.load(input.quoteId);
     if (!stored) {
       throw new OtcError('OTC quote not found', 'trade.otc_quote_missing');
@@ -363,7 +445,10 @@ export class OtcDeskService {
    * Professional RFQ (PTX-M12) — firm quote/accept/expire on the OTC desk.
    * Size required; price is the desk mid (never invented, never caller-named).
    */
-  async rfqQuote(principal: Principal, input: { side: OtcSide; baseAsset: string; quoteAsset: string; qty: string; makerId?: string }) {
+  async rfqQuote(
+    principal: Principal,
+    input: { side: OtcSide; baseAsset: string; quoteAsset: string; qty: string; makerId?: string; makerIds?: readonly string[] },
+  ) {
     try {
       const quoted = await this.quote(principal, input);
       const stored = await this.store.load(quoted.quoteId);

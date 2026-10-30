@@ -291,6 +291,37 @@ describe('algo.createTwap creation gate (isolated PostgreSQL)', () => {
     expect(await counts()).toEqual(before);
   });
 
+  it('refuses a trigger at the current mark and stores nothing; one above or below fixes its direction', async () => {
+    await fund(ALICE, 'USDT', '10000');
+    const before = await counts();
+    // The mark is the mid of 59990 and 60000.
+    await expect(
+      trade.createTwap(principalFor(ALICE), schedule({ limitPrice: null, triggerPrice: amt('59995'), clientAlgoId: 'trigger-at-mid' })),
+    ).rejects.toMatchObject({ code: 'trade.algo_invalid_schedule' });
+    expect(await counts()).toEqual(before);
+    const above = await trade.createTwap(
+      principalFor(ALICE),
+      schedule({ limitPrice: null, triggerPrice: amt('61000'), clientAlgoId: 'trigger-up' }),
+    );
+    expect(above.triggerAbove).toBe(true);
+    expect(above.triggeredAt).toBeNull();
+    const below = await trade.createTwap(
+      principalFor(ALICE),
+      schedule({ limitPrice: null, triggerPrice: amt('59000'), clientAlgoId: 'trigger-down' }),
+    );
+    expect(below.triggerAbove).toBe(false);
+  });
+
+  it('the size preview for a seed is the plan a create with that seed stores', async () => {
+    await fund(ALICE, 'USDT', '100000');
+    const shape = { totalQty: amt('0.05'), durationMs: 300_000, sliceIntervalMs: 30_000 };
+    const preview = await trade.previewTwapSizes(principalFor(ALICE, ['trade:read']), { symbol: 'BTC/USDT', ...shape, randomSeed: 2310 });
+    const parent = await trade.createTwap(principalFor(ALICE), schedule({ ...shape, randomSeed: 2310, clientAlgoId: 'seeded-plan' }));
+    expect(await trade.algoPlan(principalFor(ALICE, ['trade:read']), parent.id)).toEqual(preview);
+    expect(new Set(preview.map(String)).size).toBeGreaterThan(1);
+    expect(preview.reduce((sum, q) => sum + q, 0n)).toBe(amt('0.05'));
+  });
+
   it('accepts a limit inside the band', async () => {
     await fund(ALICE, 'USDT', '1000');
     const parent = await trade.createTwap(principalFor(ALICE), schedule({ limitPrice: amt('60000'), clientAlgoId: 'inside' }));

@@ -1,3 +1,4 @@
+import { execFileSync } from 'node:child_process';
 import path from 'node:path';
 import { test, expect } from '@playwright/test';
 import { ROOT, journeyState, tool } from './stack.mjs';
@@ -15,14 +16,13 @@ import { tableIn } from './tables.mjs';
 
 // J-merchant-07, in the running app (docs/roadmap/journeys.json): see the business's money and ask for a payout. One test
 // per step, titled "J-merchant-07 #<n>", run in order on one verified TEST business. #1 makes the owner and the business
-// and reads Money while it has none. The later steps need TEST settlements posted to it, a verified default destination
+// and reads Money while it has none. #3 puts the business on TEST tiers of its own through the two-founder doors
+// (`local-test-merchant-pricing.mjs`) and reads Pricing and Fees on each. The later steps need TEST settlements posted to it, a verified default destination
 // and a finance teammate who can request but not send.
 // #2 settles #1's own payment through the service and keeps the posted settlement for the payout steps.
 // Steps that are written but not built yet fail at their first missing part, quickly (UNBUILT):
 // - #7 and #8 ask the stack for more TEST settlements (`local-test-world.mjs merchant-settlement <merchantId>`, proposed)
 //   to pay out (M-money-out-05).
-// - #3: the stack publishes no pricing schedule for a TEST business, so Pricing shows no fee table and the calculator
-//   is off (`local-test-world.mjs merchant-pricing`, proposed).
 // - #4: no payout schedule or rules (M-money-out-03, M-adv-money-out-01); #5: no top-up (M-money-out-02).
 const J = 'J-merchant-07';
 const run = journeyState(`${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
@@ -52,6 +52,28 @@ async function ownerApi() {
   const state = journey();
   return payApiOf(state.owner, (step) => run.write({ owner: { ...state.owner, step } }));
 }
+
+/**
+ * Puts the business on a TEST tier of its own through the two-founder doors and returns what the founders read back
+ * (`tooling/scripts/local-test-merchant-pricing.mjs`). Signing the two founders in can wait out TOTP steps, so it
+ * gets longer than `tool`'s two minutes.
+ */
+function merchantPricing(...args) {
+  const out = execFileSync(process.execPath, [path.join(ROOT, 'tooling/scripts/local-test-merchant-pricing.mjs'), ...args], {
+    cwd: ROOT,
+    encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'pipe'],
+    timeout: 300_000,
+  });
+  return JSON.parse(out.trim().split('\n').pop());
+}
+
+/** The priced TEST tier's fee as the table writes it (JOURNEY_PRICING_RULE in local-test-merchant-pricing.mjs). */
+const PRICED_FEE_TEXT = '2.50% from 0.00 USDT · 1.50% + 0.30 USDT from 10,000.00 USDT · minimum 0.50 USDT';
+
+/** The fee calculator's section on Pricing and Fees. */
+const calculator = (page) =>
+  page.getByTestId('pay-section').filter({ has: page.getByRole('heading', { name: 'Fee calculator', level: 2 }) });
 
 /** The TEST settlement the stack posts to the business, read back as its row on Settlements. */
 function postedSettlement() {
@@ -294,14 +316,121 @@ test(`${J} #2 a spend of still-pending clearing is refused (blocked: conversion,
 test(`${J} #3 reads Pricing and Fees: the tier fee table, a calculator on the live engine; a blank tier fee reads "Not set" and refuses a total; payout "not charged" when so published`, async ({
   page,
 }) => {
+  test.setTimeout(600_000);
+  const { merchantId } = journey();
+  // The business's own TEST tier with a TEST USDT fee and no payout fee published, through the two-founder doors.
+  const priced = merchantPricing(merchantId, '--tier', 'priced');
+  expect(priced).toMatchObject({ merchantId, onTier: true, payoutFee: null });
+  const api = await ownerApi();
   await signInOwner(page, '/pay/pricing');
-  await expect(page.getByRole('heading', { name: /Pricing/, level: 1 })).toBeVisible();
-  const table = tableIn(page, /Fees/).first();
-  await expect(table).toBeVisible(UNBUILT);
-  for (const cell of await table.getByRole('cell').allInnerTexts()) expect(cell.trim()).not.toBe('');
-  await page.getByRole('textbox', { name: /Payment amount/ }).fill('100');
-  await page.getByRole('button', { name: 'Work out the fee' }).click();
-  await expect(page.getByRole('main')).toContainText(/You receive|Not set/);
+  await expect(page.getByRole('heading', { name: 'Pricing and fees', level: 1 })).toBeVisible();
+  const fees = tableIn(page, 'Fees by tier');
+  const pricedRow = fees.getByTestId(`tier-fee-${priced.tierId}-USDT`);
+  await expect(pricedRow).toHaveCount(1);
+  await expect(pricedRow.getByRole('rowheader')).toHaveText(`${priced.tierName} (your tier)`);
+  await expect(pricedRow.getByRole('cell')).toHaveText(['USDT', PRICED_FEE_TEXT, 'Not set']);
+  // The row is what the service publishes to the business, not something the page made up.
+  const ladder = await api.query('merchantControl.tiers.list', { merchantId });
+  expect(ladder.ownTierId).toBe(priced.tierId);
+  expect(ladder.tiers.find((tier) => tier.id === priced.tierId)).toMatchObject({
+    payoutFee: null,
+    fees: [
+      {
+        assetCode: 'USDT',
+        bands: [
+          { fromAmount: expect.stringMatching(/^0(\.0+)?$/), feeBps: 250, flatFee: null },
+          { fromAmount: expect.stringMatching(/^10000(\.0+)?$/), feeBps: 150, flatFee: expect.stringMatching(/^0\.30*$/) },
+        ],
+        minFee: expect.stringMatching(/^0\.50*$/),
+      },
+    ],
+  });
+
+  // The calculator asks the live engine: 100 USDT at no volume yet is the 2.50% band, 2.50 off and 97.50 left.
+  const calc = calculator(page);
+  await expect(calc.getByRole('combobox', { name: 'Asset' })).toHaveValue('USDT');
+  await calc.getByRole('textbox', { name: /Payment amount/ }).fill('100');
+  await calc.getByRole('textbox', { name: /Your volume so far this month/ }).fill('0');
+  const quoted = page.waitForResponse((res) => new URL(res.url()).pathname.endsWith('/merchantControl.pricing.preview'));
+  await calc.getByRole('button', { name: 'Work out the fee' }).click();
+  const quoteRes = await quoted;
+  expect(quoteRes.status()).toBe(200);
+  expect((await quoteRes.json()).result.data).toMatchObject({ fee: '2.5', net: '97.5', appliedLayer: 'tier' });
+  const facts = calc.getByTestId('pp-facts');
+  await expect(facts.getByRole('term')).toHaveText([
+    'Fee',
+    'You would receive',
+    'Price applied',
+    'Band starting at',
+    'Volume so far this month',
+    'Fractions of the smallest unit',
+  ]);
+  await expect(facts.getByRole('definition')).toHaveText([
+    /^2\.50\s*USDT$/,
+    /^97\.50\s*USDT$/,
+    'Set for your tier',
+    /^0\.00\s*USDT$/,
+    /^0\.00\s*USDT$/,
+    'go to INTAFACED',
+  ]);
+  expect(
+    await api.query('merchantControl.pricing.preview', { merchantId, assetCode: 'USDT', amount: '100', monthlyVolume: '0' }),
+  ).toMatchObject({
+    fee: '2.5',
+    net: '97.5',
+    appliedLayer: 'tier',
+  });
+
+  // Published as not charged, the payout fee reads "Not charged"; until then it read "Not set" (above).
+  const published = merchantPricing(merchantId, '--tier', 'priced', '--payout-not-charged');
+  expect(published).toMatchObject({ tierId: priced.tierId, onTier: true, payoutFee: { kind: 'not_charged' } });
+  await page.reload();
+  await expect(pricedRow.getByRole('cell')).toHaveText(['USDT', PRICED_FEE_TEXT, 'Not charged']);
+  expect((await api.query('merchantControl.tiers.list', { merchantId })).tiers.find((tier) => tier.id === priced.tierId).payoutFee).toEqual(
+    {
+      kind: 'not_charged',
+    },
+  );
+
+  // A second TEST tier of the business's own with no fee at all: its fee and its payout fee read "Not set".
+  // Whatever happens below, the business goes back to the priced tier (payout fee published) for the steps after this one.
+  try {
+    const blank = merchantPricing(merchantId, '--tier', 'blank');
+    expect(blank).toMatchObject({ merchantId, onTier: true, payoutFee: null });
+    expect(blank.tierId).not.toBe(priced.tierId);
+    await page.reload();
+    const blankRow = fees.getByTestId(`tier-fee-${blank.tierId}-none`);
+    await expect(blankRow.getByRole('rowheader')).toHaveText(`${blank.tierName} (your tier)`);
+    await expect(blankRow.getByRole('cell')).toHaveText(['—', 'Not set', 'Not set']);
+    // The priced tier is off the shared ladder, so the business no longer sees it.
+    await expect(fees.getByTestId(new RegExp(`^tier-fee-${priced.tierId}-`))).toHaveCount(0);
+
+    // The calculator still offers the tier's asset, asks the engine, and the engine refuses: no total, no "You would receive".
+    const recordBefore = await api.query('merchantControl.get', { merchantId });
+    const ladderBefore = await api.query('merchantControl.tiers.list', { merchantId });
+    expect(recordBefore).toMatchObject({ tierId: blank.tierId, pricing: null });
+    // The service itself publishes no fee and no payout fee for the blank tier; the "Not set" cells are what it sent.
+    expect(ladderBefore.tiers.find((tier) => tier.id === blank.tierId)).toMatchObject({ fees: [], payoutFee: null });
+    await expect(calc.getByRole('combobox', { name: 'Asset' })).toHaveValue('USDT');
+    await calc.getByRole('textbox', { name: /Payment amount/ }).fill('100');
+    await calc.getByRole('textbox', { name: /Your volume so far this month/ }).fill('0');
+    const refusedQuote = page.waitForResponse((res) => new URL(res.url()).pathname.endsWith('/merchantControl.pricing.preview'));
+    await calc.getByRole('button', { name: 'Work out the fee' }).click();
+    const refusedRes = await refusedQuote;
+    expect(refusedRes.status()).toBe(412);
+    expect(await refusedRes.text()).toContain('"pay.pricing_unconfigured"');
+    await expect(calc.getByTestId('failure')).toHaveText(/No price is set for that asset on your account, so no fee can be worked out\./);
+    await expect(calc.getByTestId('pp-facts')).toHaveCount(0);
+    await expect(calc.getByText('You would receive')).toHaveCount(0);
+    await expect(
+      api.query('merchantControl.pricing.preview', { merchantId, assetCode: 'USDT', amount: '100', monthlyVolume: '0' }),
+    ).rejects.toThrow(/refused: 412 .*pay\.pricing_unconfigured/);
+    // The refusal changed nothing: the record and the ladder read the same afterwards.
+    expect(await api.query('merchantControl.get', { merchantId })).toEqual(recordBefore);
+    expect(await api.query('merchantControl.tiers.list', { merchantId })).toEqual(ladderBefore);
+  } finally {
+    expect(merchantPricing(merchantId, '--tier', 'priced', '--payout-not-charged')).toMatchObject({ tierId: priced.tierId, onTier: true });
+  }
 });
 
 test(`${J} #4 opens the payout schedule and rules: manual by default or the next date after cut-off; changes with who and when; minimums disable the control with the reason`, async ({

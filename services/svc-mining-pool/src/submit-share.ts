@@ -9,8 +9,10 @@ import {
 import { MiningError } from './errors.js';
 import { resolveJob, type JobSource } from './job-source.js';
 import { planPplns, type PplnsInput, type PplnsPlan, type PplnsShare } from './pplns.js';
+import { createHash } from 'node:crypto';
+import { POW_INVALID, POW_MISSING, POW_SPEC_UNSET, POW_WEIGHT_FROM_CLIENT, powHeader, powValid, publishedPowSpec } from './pow.js';
 import { recordShareRejection } from './share-rejections.js';
-import { persistBlankRewardShares, persistWindowShares, readStoredEpoch, PG_UNAVAILABLE } from './window-store.js';
+import { persistBlankRewardShares, persistWindowShares, readStoredEpoch, workerNameOf, PG_UNAVAILABLE } from './window-store.js';
 
 export const MINING_UNAUTHENTICATED = 'mining.unauthenticated' as const;
 
@@ -83,6 +85,8 @@ export async function handleSubmitSharePost(input: {
   readonly sql: Sql | null;
   /** Test adapter only. Production leaves this unset. */
   readonly jobSource?: JobSource | null;
+  /** The owner's proof-of-work parameters. Unset reads `process.env`. */
+  readonly env?: NodeJS.ProcessEnv;
 }): Promise<{ readonly status: number; readonly body: unknown }> {
   const auth = authorizeSubmitShare(input.headers, input.secret, input.rawBody, input.s2s);
   if (!auth.ok) return { status: auth.status, body: auth.body };
@@ -94,7 +98,7 @@ export async function handleSubmitSharePost(input: {
     } catch {
       throw new Error('mining.share_malformed');
     }
-    const body = objectBody(parsed);
+    const body = await checkedWork(input.sql, objectBody(parsed), input.env ?? process.env);
     if (Array.isArray(body.shares) && body.shares.some((item) => isRecord(item) && Object.prototype.hasOwnProperty.call(item, 'jobId'))) {
       return await persistJobChecked(input.sql, body, input.jobSource ?? null);
     }
@@ -104,6 +108,62 @@ export async function handleSubmitSharePost(input: {
     const code = error instanceof Error ? error.message : 'mining.submitShare_failed';
     return { status: 409, body: { accepted: false, error: code } };
   }
+}
+
+/**
+ * The proof-of-work check, before any share is stored. With no parameters published at all, a share that carries no
+ * work goes on as before (the pool then checks no work, as it did before this check existed) and a share that carries
+ * work refuses `mining.pow_spec_unset`: the pool cannot check it. Once parameters are published every share must carry
+ * a nonce (`mining.pow_missing`), each is checked against a header the pool derives itself, and the first share that
+ * fails is one rejection row and refuses the whole batch with `mining.pow_invalid`: nothing from it is stored, and the
+ * shares after it are not checked. A checked share weighs 1 (one share at the published target); a weight sent beside
+ * the work is refused, never trusted. Every nonce the pool accepts today was checked under a testnet set (a mainnet set
+ * refuses `audit.external` here), so the stored share is stamped testnet and its window earns no credit.
+ */
+async function checkedWork(sql: Sql, body: Record<string, unknown>, env: NodeJS.ProcessEnv): Promise<Record<string, unknown>> {
+  if (!Array.isArray(body.shares)) return body;
+  const shares = body.shares.map(objectBody);
+  const carried = shares.some((share) => share.powNonce !== undefined);
+  const spec = publishedPowSpec(env);
+  if (spec === null) {
+    if (carried) throw new MiningError('Proof-of-work parameters are not published', POW_SPEC_UNSET);
+    return body;
+  }
+  const windowId = requiredId(body.windowId, 'window_unconfigured');
+  const checked: Record<string, unknown>[] = [];
+  for (const share of shares) {
+    if (share.powNonce === undefined) throw new MiningError('A share carries no proof of work', POW_MISSING);
+    if (share.weight !== undefined) throw new MiningError('A share with work is weighed by the pool', POW_WEIGHT_FROM_CLIENT);
+    const shareId = requiredId(share.shareId, 'mining.share_malformed');
+    const minerId = requiredId(share.minerId, 'mining.share_malformed');
+    const workerName = workerNameOf(share.workerName);
+    if (!powValid(spec, powHeader(windowId, minerId, workerName), share.powNonce)) {
+      await recordShareRejection(sql, {
+        idempotencyKey: powInvalidKey(windowId, minerId, workerName, shareId),
+        windowId,
+        minerId,
+        reasonCode: POW_INVALID,
+      });
+      throw new MiningError('A share failed the proof-of-work check', POW_INVALID);
+    }
+    checked.push({ ...share, weight: '1' });
+  }
+  return { ...body, shares: checked };
+}
+
+/**
+ * The business key of one refused piece of work: the window, the account, the rig and the share, length-prefixed and
+ * hashed so any id fits the key column. The same share refused again is the same row.
+ */
+function powInvalidKey(windowId: string, minerId: string, workerName: string, shareId: string): string {
+  const hash = createHash('sha256');
+  for (const part of [windowId, minerId, workerName, shareId]) {
+    const bytes = Buffer.from(part, 'utf8');
+    const length = Buffer.alloc(4);
+    length.writeUInt32BE(bytes.length);
+    hash.update(length).update(bytes);
+  }
+  return `pow-invalid:${hash.digest('hex')}`;
 }
 
 function isRecord(raw: unknown): raw is Record<string, unknown> {
@@ -180,6 +240,8 @@ async function persistSubmittedBody(sql: Sql, body: Record<string, unknown>): Pr
         shareId: requiredId(share.shareId, 'mining.share_malformed'),
         minerId: requiredId(share.minerId, 'mining.share_malformed'),
         weight: share.weight === undefined || share.weight === null ? null : parseWeight(share.weight),
+        ...namedWorker(share.workerName),
+        ...checkedNonce(share.powNonce),
       };
     });
     await persistBlankRewardShares(sql, { windowId, assetId, epoch, shares });
@@ -209,6 +271,17 @@ function requiredId(value: unknown, code: string): string {
   if (typeof value !== 'string' || !value.trim()) throw new Error(code);
   return value;
 }
+/** A sent rig name, checked here; no name stays absent and the store files it under the default worker. */
+function namedWorker(value: unknown): { workerName?: string } {
+  return value === undefined || value === null ? {} : { workerName: workerNameOf(value) };
+}
+/**
+ * A nonce that already passed `checkedWork`; stored so the same work is not counted twice. A nonce reaches here only
+ * under a published testnet set (blank refuses work, mainnet refuses `audit.external`), so it is stamped testnet.
+ */
+function checkedNonce(value: unknown): { powNonce?: string; testnet?: true } {
+  return typeof value === 'string' ? { powNonce: value, testnet: true } : {};
+}
 function parseEpoch(value: unknown): number | undefined {
   if (value === undefined || value === null) return undefined;
   if (typeof value !== 'number' || !Number.isInteger(value) || value < 0 || value > 2_147_483_647) throw new Error('mining.epoch_unset');
@@ -234,6 +307,8 @@ export function parsePplnsBody(raw: unknown): PplnsInput {
       shareId: requiredId(sh.shareId, 'mining.share_malformed'),
       minerId: requiredId(sh.minerId, 'mining.share_malformed'),
       weight: parseWeight(sh.weight),
+      ...namedWorker(sh.workerName),
+      ...checkedNonce(sh.powNonce),
     };
   });
   return { windowId, epoch, assetId, reward: v.reward, feeBps: v.feeBps, shares };

@@ -21,7 +21,7 @@ import { createObservedOtcMidSource } from './mid-source.js';
 import { MemoryOtcQuoteStore } from './quote-store.js';
 
 const USER = '00000000-0000-4000-8000-000000000077';
-const principal = { userId: USER } as import('@intafaced/auth').Principal;
+const principal = { userId: USER, tier: 'basic' } as import('@intafaced/auth').Principal;
 const WINDOW_MS = 90_000;
 
 const law = (settleWindowMs: number | null): OtcDeskLaw => ({
@@ -31,6 +31,10 @@ const law = (settleWindowMs: number | null): OtcDeskLaw => ({
   counterparty: 'platform',
   quoteTtlMs: 30_000,
   maxMidAgeSeconds: 86_400,
+  // A zero desk minimum is an owner value: these quotes are not held by the CB-otc-07 minimum.
+  minNotional: { USDT: 0n },
+  assets: ['BTC'],
+  minTier: 'basic',
   settleWindowMs,
 });
 
@@ -40,12 +44,14 @@ async function boundDesk(settleWindowMs: number | null, ledger: MemoryLedger = n
   const clock = { now: new Date('2026-10-29T12:00:00.000Z') };
   const store = new MemoryOtcQuoteStore();
   const desk = new OtcDeskService(ledger, new FixedOtcStake(parseAmount('0')), {
+    // The house desk is the one provider these requests ask (CB-otc-01).
+    makerDirectory: { published: true, makers: [{ id: 'house', name: 'House desk', route: 'platform' }], selectCap: 1 },
     law: law(settleWindowMs),
     midSource: createObservedOtcMidSource('BTC/USDT:1000', () => clock.now),
     now: () => clock.now,
     store,
   });
-  const quote = await desk.rfqQuote(principal, { side: 'buy', baseAsset: 'BTC', quoteAsset: 'USDT', qty: '1' });
+  const quote = await desk.rfqQuote(principal, { side: 'buy', baseAsset: 'BTC', quoteAsset: 'USDT', qty: '1', makerIds: ['house'] });
   const accepted = await desk.rfqAccept(principal, { quoteId: quote.quoteId, assertedPrice: quote.quotedPrice });
   const postsBeforeSettle = ledger.journal().length;
   return { ledger, desk, store, clock, quote, accepted, postsBeforeSettle };

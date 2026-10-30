@@ -2,8 +2,11 @@ import { useEffect, useLayoutEffect, useRef, useState, type FormEvent } from 're
 import { BrandIris } from '@intafaced/ui';
 import { SocialSignIn } from './SocialSignIn';
 import { CodeSignIn } from './CodeSignIn';
+import { TesterBuild } from './TesterBuild';
 import { DeviceApproval } from './DeviceApproval';
 import { RecoveryCodeUsed, signInAnswerSchema, type SignInAnswer } from './RecoveryCodeUsed';
+import { FrozenByYou } from './FrozenByYou';
+import { accountStatusSchema, type AccountRestriction } from '@intafaced/contracts/identity-account-status';
 import { recoveryCodeCopy } from './recovery-code-copy';
 import { MfaReset } from './MfaReset';
 import { mfaResetCopy } from './mfa-reset-copy';
@@ -78,6 +81,10 @@ export function AuthForm({ register }: { register: boolean }) {
   const [lostAuthenticator, setLostAuthenticator] = useState(false);
   // Kept with the address it was shown on, so moving to another address never carries it, or its destination, along.
   const [recoveryUsed, setRecoveryUsed] = useState<{ left: number; next: string; url: string } | null>(null);
+  // After a password sign-in: where it was headed, until account status says whether the owner froze the account
+  // (J-identity-11 #3); then their own freeze, shown on the address it was read on.
+  const [landing, setLanding] = useState<{ next: string; url: string } | null>(null);
+  const [frozenByYou, setFrozenByYou] = useState<{ freeze: AccountRestriction; next: string; url: string } | null>(null);
   // The browser wallet did not sign (none answered, declined, or failed); nothing was sent that signs in.
   const [walletStopped, setWalletStopped] = useState<'none' | 'rejected' | 'failed' | null>(null);
   const [firstFactor, setFirstFactor] = useState<'password' | 'wallet'>('password');
@@ -189,6 +196,29 @@ export function AuthForm({ register }: { register: boolean }) {
       window.removeEventListener('storage', changed);
     };
   }, []);
+  // Once the new session is in place: an account its owner froze lands on that freeze, named with its lift path; any
+  // other answer, a failed read included, goes where the sign-in was headed (identity still refuses what the freeze stops).
+  // A sign-in whose session has gone, or a person who has moved on while it was read, drops the landing instead.
+  useEffect(() => {
+    if (!landing) return;
+    if (!userId) {
+      setLanding(null);
+      return;
+    }
+    const controller = new AbortController();
+    void api.query('identity', 'accountStatus.mine', undefined, accountStatusSchema, { signal: controller.signal }).then((status) => {
+      if (controller.signal.aborted) return;
+      if (location.href !== landing.url) {
+        setLanding(null);
+        return;
+      }
+      const freeze = status.ok ? status.data.restrictions.find((restriction) => restriction.kind === 'self_freeze') : undefined;
+      setLanding(null);
+      if (freeze) setFrozenByYou({ freeze, next: landing.next, url: landing.url });
+      else navigate(landing.next, true);
+    });
+    return () => controller.abort();
+  }, [landing, userId, api]);
   /**
    * `secondStep` is the passkey after the password (I-signin-sessions-10): the service answered the password with a
    * single-use challenge for this account's sign-in passkeys, the browser signs it, and the answer opens the session.
@@ -373,8 +403,13 @@ export function AuthForm({ register }: { register: boolean }) {
           const { recoveryCodesLeft, ...session } = answer.data;
           const next = original.invite ? `/invite?token=${encodeURIComponent(original.invite)}` : original.destination;
           if (recoveryCodesLeft === undefined) {
+            // A new account has no freeze; a sign-in first asks account status whether its owner froze it. That read
+            // happens after this attempt is over, so the session landing is not read as an interruption.
+            running.current = null;
+            abort.current = null;
             commit(session);
-            navigate(next, true);
+            if (kind === 'register') navigate(next, true);
+            else setLanding({ next, url: original.url });
           } else {
             // A spent recovery code is said before the person moves on: the code is gone and this many are left. This
             // attempt is over before the session lands, so the sign-in that follows it is not read as an interruption.
@@ -453,6 +488,7 @@ export function AuthForm({ register }: { register: boolean }) {
   const secondStep = passwordStep && firstFactor === 'wallet' ? walletWords[passwordStep] : passwordStep;
   const stoppedWords = firstFactor === 'wallet' ? 'walletPasskeyStepStopped' : 'passkeyStepStopped';
   const spentCode = recoveryUsed && recoveryUsed.url === location.href ? recoveryUsed : null;
+  const ownFreeze = frozenByYou && frozenByYou.url === location.href ? frozenByYou : null;
   // A second step a code answers: the authenticator app's, or one of the recovery codes saved with it.
   const codeStep = passwordStep === 'needCode' || passwordStep === 'needCodeOrPasskey' || passwordStep === 'codeMismatch';
   return (
@@ -591,12 +627,23 @@ export function AuthForm({ register }: { register: boolean }) {
           </p>
         )}
         <p role="status" aria-live="polite">
-          {pending && activeRecord ? <Copy k="pending" /> : null}
+          {(pending && activeRecord) || landing ? <Copy k="pending" /> : null}
         </p>
-        {spentCode ? (
+        {ownFreeze ? (
+          <FrozenByYou
+            freeze={ownFreeze.freeze}
+            onContinue={() => navigate(ownFreeze.next, true)}
+            onSecurity={() => navigate('/uc/safe', true)}
+          />
+        ) : spentCode ? (
           <RecoveryCodeUsed
             left={spentCode.left}
-            onContinue={() => navigate(spentCode.next, true)}
+            onContinue={() => {
+              // Past the spent code, a sign-in still asks whether its owner froze the account.
+              setRecoveryUsed(null);
+              if (register) navigate(spentCode.next, true);
+              else setLanding({ next: spentCode.next, url: location.href });
+            }}
             onSecurity={() => navigate('/uc/safe', true)}
           />
         ) : (
@@ -609,7 +656,7 @@ export function AuthForm({ register }: { register: boolean }) {
             </div>
           </>
         )}
-        {spentCode ? null : lostAuthenticator ? (
+        {spentCode || ownFreeze || landing ? null : lostAuthenticator ? (
           <MfaReset identifier={identifier} onBack={() => setLostAuthenticator(false)} />
         ) : waitingDevice ? (
           <DeviceApproval
@@ -617,8 +664,10 @@ export function AuthForm({ register }: { register: boolean }) {
             onSignedIn={() => {
               const next = inviteToken ? `/invite?token=${encodeURIComponent(inviteToken)}` : destination;
               // The second step spent a recovery code before this browser was approved: say so now.
-              if (waitingDevice.recoveryCodesLeft === undefined) navigate(next, true);
-              else setRecoveryUsed({ left: waitingDevice.recoveryCodesLeft, next, url: location.href });
+              if (waitingDevice.recoveryCodesLeft !== undefined)
+                setRecoveryUsed({ left: waitingDevice.recoveryCodesLeft, next, url: location.href });
+              else if (register) navigate(next, true);
+              else setLanding({ next, url: location.href });
             }}
             onCancel={() => setResult(null)}
           />
@@ -792,6 +841,7 @@ export function AuthForm({ register }: { register: boolean }) {
                 </a>
               )}
             </form>
+            {!register && <TesterBuild />}
             {!register && <CodeSignIn />}
             {!register && walletStopped && (
               <p data-testid="failure" className="failure" role="alert" lang={languageFor(walletWordsStopped[walletStopped])}>
