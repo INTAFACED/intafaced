@@ -1,9 +1,11 @@
 /**
  * S2S read for svc-ledger's per-rail reconciliation (OPS-reconciliation-04, lead ruling 2026-10-30 on J-ops-console-27 #8):
- * the open custody items on rail `crypto-native`, the rail every custody deposit arrives on. It is the same read the
+ * the open custody-deposit items on rail `crypto-native`, the rail every custody deposit arrives on. It is the same read the
  * founders see on custody-ops (`CustodyOpenItems.list`): held deposits the ledger never credited and credited deposits the
- * chain took back uncovered. svc-ledger names each one on a run and passes the rail only when the boundary's difference is
- * exactly their sum. Only svc-ledger may call this; the body is bound to the signature. Read-only: it posts nothing.
+ * chain took back uncovered. It is not every open item on the rail: a withdrawal or merchant payment in flight is not here,
+ * so a difference it causes stays a named residual on svc-ledger's run. Paging is by offset, one snapshot per page: a
+ * caller checks that `total` and `sums` agree on every page and treats a change as unavailable. Only svc-ledger may call
+ * this; the body is bound to the signature. Read-only: it posts nothing.
  */
 import type { FastifyInstance } from 'fastify';
 import {

@@ -339,7 +339,7 @@ export const payCustodyOpenItemsInputSchema = z
   .strict();
 export type PayCustodyOpenItemsInput = z.input<typeof payCustodyOpenItemsInputSchema>;
 
-/** The rail every custody deposit arrives on; its open items are what svc-ledger reconciles that rail's boundary against. */
+/** The rail every custody deposit arrives on. Its custody-deposit open items (not withdrawals or payments) are what svc-ledger takes out of that rail's difference. */
 export const PAY_CUSTODY_OPEN_ITEMS_RAIL = 'crypto-native';
 
 /** svc-ledger's S2S read of one rail's open items (`POST /internal/custody/open-items` on svc-pay). */

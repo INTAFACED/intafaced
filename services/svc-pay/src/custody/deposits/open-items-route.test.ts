@@ -61,7 +61,7 @@ describe('POST /internal/custody/open-items', () => {
     await app.close();
   });
 
-  it('refuses an unsigned caller, another service, a malformed read and another rail, without reading', async () => {
+  it('refuses an unsigned caller, a body changed after signing, another service, a malformed read and another rail, without reading', async () => {
     const seen: PayCustodyOpenItemsInput[] = [];
     const app = await appFor(async (input) => {
       seen.push(input);
@@ -78,6 +78,10 @@ describe('POST /internal/custody/open-items', () => {
       expect(bad.statusCode, JSON.stringify(body)).toBe(400);
       expect(bad.json().error).toBe('pay.open_items_invalid');
     }
+    const signed = post({ rail: 'crypto-native' });
+    const tampered = await app.inject({ ...signed, payload: JSON.stringify({ rail: 'crypto-native', limit: 1 }) });
+    expect(tampered.statusCode).toBe(401);
+    expect(tampered.json().error).toBe('pay.unauthenticated');
     const rail = await app.inject(post({ rail: 'payout-sim' }));
     expect(rail.statusCode).toBe(404);
     expect(rail.json().error).toBe('pay.open_items_rail_unknown');
