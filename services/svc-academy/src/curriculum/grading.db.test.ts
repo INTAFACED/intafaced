@@ -278,4 +278,66 @@ describe('grading hand-ins (AC-assignments-02)', () => {
     expect(again!.averages).toEqual([]);
     expect(await grading().courseGrades(OUTSIDER)).toEqual([]);
   });
+  it('a bulk file grades good rows by alias, lists the bad ones by line, and the same file again changes nothing', async () => {
+    const { item } = await openAssignment();
+    await handIn(item.id, L, 'L', 0);
+    await handIn(item.id, M, 'M', 1);
+    await handIn(item.id, N, 'N', 2);
+    const queue = await grading().queue({ itemId: item.id, operatorId: A, now: NOW });
+    const [, two, three] = queue.rows;
+    // Learner 2 already has a grade, so changing it needs a reason; B holds Learner 3.
+    await grade(item.id, two!.submissionId);
+    await grading().open({ itemId: item.id, submissionId: three!.submissionId, operatorId: B, now: NOW });
+    const csv = [
+      'learner,score,comment,reason',
+      'Learner 1,7.5,"Good, clear sizing.",',
+      'Learner 2,9,,',
+      'Learner 3,6,,',
+      'Learner 9,5,,',
+      'Learner 1,4,,',
+      'Learner 1x,4,,',
+      '',
+    ].join('\r\n');
+    const bulk = (text = csv, now = NOW) => grading().bulkGrade({ itemId: item.id, fileName: 'grades.csv', csv: text, operatorId: A, now });
+    const first = await bulk();
+    expect(first.repeated).toBe(false);
+    expect(first.applied).toEqual([{ line: 2, alias: 1, score: '7.5' }]);
+    expect(first.rejected.map((r) => [r.line, r.alias, r.code])).toEqual([
+      [3, 2, 'academy.reason_required'],
+      [4, 3, 'academy.grader_locked'],
+      [5, 9, 'academy.submission_not_found'],
+      [6, 1, 'academy.bulk_row_invalid'],
+      [7, null, 'academy.bulk_row_invalid'],
+    ]);
+    expect(first.queue.rows[0]!.grade).toMatchObject({ score: '7.5', comment: 'Good, clear sizing.', overrides: 0 });
+    expect(JSON.stringify(first)).not.toContain(L);
+    const view = await assignments().learnerView({ itemId: item.id, userId: L });
+    expect(view.grade).toMatchObject({ score: '7.5', comment: 'Good, clear sizing.' });
+
+    const again = await bulk(csv, later(5));
+    expect(again).toMatchObject({ repeated: true, sha256: first.sha256, at: first.at, applied: first.applied, rejected: first.rejected });
+    const events = await db.sql<Array<{ n: number }>>`
+      SELECT g.n FROM academy.assignment_grade_events g JOIN academy.assignment_submissions s ON s.id = g.submission_id
+      WHERE s.item_id = ${item.id}
+    `;
+    expect(events).toHaveLength(2);
+
+    // A fixed file with a reason is a new file: Learner 2's grade changes and keeps its first event.
+    const fixed = await bulk('learner,score,comment,reason\n2,9,,Re-marked after review\n');
+    expect(fixed.applied).toEqual([{ line: 2, alias: 2, score: '9' }]);
+    expect(fixed.queue.rows[1]!.grade).toMatchObject({ score: '9', overrides: 1 });
+  });
+
+  it('a bulk file with the wrong header or no rows refuses whole; a blank lease refuses it', async () => {
+    const { item } = await openAssignment();
+    await handIn(item.id, L, 'L');
+    const bulk = (csv: string, lease: number | null = 900) =>
+      grading(lease).bulkGrade({ itemId: item.id, fileName: 'g.csv', csv, operatorId: A, now: NOW });
+    await expect(bulk('alias,score\n1,5\n')).rejects.toMatchObject({ code: 'academy.bulk_file_invalid' });
+    await expect(bulk('learner,score,comment,reason\n')).rejects.toMatchObject({ code: 'academy.bulk_file_invalid' });
+    await expect(bulk('learner,score,comment,reason\n1,"5,,\n')).rejects.toMatchObject({ code: 'academy.bulk_file_invalid' });
+    await expect(bulk('learner,score,comment,reason\n1,5,,\n', null)).rejects.toMatchObject({ code: 'academy.grader_lease_unset' });
+    const files = await db.sql<Array<{ n: number }>>`SELECT count(*)::int AS n FROM academy.assignment_bulk_grades WHERE item_id = ${item.id}`;
+    expect(files[0]!.n).toBe(0);
+  });
 });

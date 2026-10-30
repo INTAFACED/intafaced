@@ -900,7 +900,8 @@ export type AcademySubmitPeerReviewInput = z.infer<typeof academySubmitPeerRevie
  * (`academy.reason_required`). A grader holds a lease on the hand-in for the owner's lease length while grading; another
  * grader is refused `academy.grader_locked`, and with the length blank grading refuses `academy.grader_lease_unset`.
  * Graders see learners under a per-assignment alias, never their name or account, and a learner never sees who graded.
- * A grade is released to the learner when it is saved. Bulk grading by file and removing a response are later parts.
+ * A grade is released to the learner when it is saved. Bulk grading by file is `admin.bulkGrade`; removing a response is a
+ * later part.
  */
 /** A score: a decimal string from 0 with at most two places, never above the assignment's points (`academy.grade_invalid`). */
 /** A score is written as points are, so any score up to the points is one. */
@@ -952,6 +953,42 @@ export const academyGradeSubmissionInputSchema = z
   })
   .strict();
 export type AcademyGradeSubmissionInput = z.infer<typeof academyGradeSubmissionInputSchema>;
+
+/**
+ * `admin.bulkGrade`: a CSV file of grades for one assignment, a header `learner,score,comment,reason` and one row per
+ * learner by the alias graders see ("Learner 3" or "3"), never an account. Good rows apply as grade events keyed
+ * `grade:<submission>:<file hash>`; each bad row is listed with its line and refusal code. The file is stored by the
+ * sha256 of its text, so the same file again answers with the stored result and changes nothing. A header that is not
+ * the one above, or a file with no rows, refuses `academy.bulk_file_invalid` before anything applies.
+ */
+export const ACADEMY_BULK_GRADE_FILE_MAX_CHARS = 262_144;
+export const academyBulkGradeInputSchema = z
+  .object({
+    itemId: z.string().guid(),
+    fileName: z.string().trim().min(1).max(200),
+    csv: z.string().min(1).max(ACADEMY_BULK_GRADE_FILE_MAX_CHARS),
+  })
+  .strict();
+export type AcademyBulkGradeInput = z.infer<typeof academyBulkGradeInputSchema>;
+export const academyBulkGradeResultSchema = z.object({
+  sha256: z.string().regex(/^[0-9a-f]{64}$/),
+  fileName: z.string().min(1),
+  at: isoInstant,
+  /** True when this file was uploaded before: the stored result, and nothing changed now. */
+  repeated: z.boolean(),
+  applied: z.array(z.object({ line: z.number().int().positive(), alias: z.number().int().positive(), score: z.string() })),
+  rejected: z.array(
+    z.object({
+      line: z.number().int().positive(),
+      /** The alias the row named, when it named one that reads as an alias. */
+      alias: z.number().int().positive().nullable(),
+      code: z.string().min(1),
+      message: z.string().min(1),
+    }),
+  ),
+  queue: academyGradingQueueSchema,
+});
+export type AcademyBulkGradeResult = z.infer<typeof academyBulkGradeResultSchema>;
 
 /** `markFeedbackRead`: the caller read grade event `n` on version `version`; a repeat answers as stored. */
 export const academyMarkFeedbackReadInputSchema = z

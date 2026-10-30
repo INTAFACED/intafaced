@@ -5,7 +5,13 @@ import { Chip } from '@/components/chip';
 import './desk.css';
 import { formatAsOf, formatWhen } from '@/lib/as-of';
 import { fetchGradingQueue, postGradingChange } from '@/lib/academy/grading-browser';
-import type { AcademyGradingQueue, AcademyGradingRow, GradingDeskReply, GradingView } from '@/lib/academy/grading-model';
+import type {
+  AcademyBulkGradeResult,
+  AcademyGradingQueue,
+  AcademyGradingRow,
+  GradingDeskReply,
+  GradingView,
+} from '@/lib/academy/grading-model';
 import { Failed, Outcome } from '@/components/academy-courses-desk';
 
 /**
@@ -15,7 +21,85 @@ import { Failed, Outcome } from '@/components/academy-courses-desk';
  * grade. Grade takes this founder's hold on the hand-in for the owner's hold time; another founder's live hold shows
  * here and refuses by name. Save grade writes the next grade event; changing a saved grade is an override and keeps a
  * reason. Every answer re-reads the queue, and nothing is retried on its own.
+ *
+ * Bulk grade takes a CSV file by alias (learner,score,comment,reason): the good rows are graded, every bad row is listed
+ * with its line and why, and the same file again changes nothing.
  */
+
+const BULK_MAX_CHARS = 262_144;
+
+function BulkGrade({ busy, onUpload }: { busy: boolean; onUpload: (fileName: string, csv: string) => void }) {
+  const [file, setFile] = useState<File | null>(null);
+  const [why, setWhy] = useState<string | null>(null);
+  return (
+    <form
+      className="dk-stack"
+      data-testid="bulk-grade"
+      onSubmit={(e) => {
+        e.preventDefault();
+        if (!file) return setWhy('Choose a grade file first.');
+        void file.text().then((csv) => {
+          if (csv.length > BULK_MAX_CHARS) return setWhy(`A grade file runs to ${BULK_MAX_CHARS} characters. Nothing was sent.`);
+          setWhy(null);
+          onUpload(file.name, csv);
+        });
+      }}
+    >
+      <h2>Bulk grade</h2>
+      <p className="dk-muted">
+        A CSV file whose first line is learner,score,comment,reason, one row per learner by alias (Learner 3). A row that
+        changes a grade needs a reason. The same file again changes nothing.
+      </p>
+      <div className="adm-field">
+        <label htmlFor="bulk-grade-file">Grade file (CSV)</label>
+        <input id="bulk-grade-file" type="file" accept=".csv,text/csv" onChange={(e) => setFile(e.target.files?.[0] ?? null)} />
+      </div>
+      {why && <p className="dk-why">{why}</p>}
+      <button type="submit" className="adm-btn" disabled={busy}>
+        Upload grades
+      </button>
+    </form>
+  );
+}
+
+function BulkResult({ result }: { result: AcademyBulkGradeResult }) {
+  return (
+    <section className="dk-stack" data-testid="bulk-grade-result" data-sha256={result.sha256} data-repeated={String(result.repeated)}>
+      <h3>
+        {result.fileName}: {result.applied.length} graded, {result.rejected.length} not applied
+      </h3>
+      <span className="dk-muted">
+        {result.repeated ? 'Uploaded before, at ' : 'Read at '}
+        {formatWhen(result.at)} · sha256 {result.sha256}
+      </span>
+      <div className="dk-table-wrap" role="region" aria-label="Grade file rows" tabIndex={0}>
+      <table className="adm-table">
+        <thead>
+          <tr>
+            <th scope="col">Line</th>
+            <th scope="col">Learner</th>
+            <th scope="col">Outcome</th>
+          </tr>
+        </thead>
+        <tbody>
+          {[
+            ...result.applied.map((row) => ({ line: row.line, alias: row.alias, ok: true, text: `Graded ${row.score}` })),
+            ...result.rejected.map((row) => ({ line: row.line, alias: row.alias, ok: false, text: row.message })),
+          ]
+            .sort((a, b) => a.line - b.line)
+            .map((row) => (
+              <tr key={row.line} data-line={row.line} data-outcome={row.ok ? 'applied' : 'rejected'}>
+                <td>{row.line}</td>
+                <td>{row.alias === null ? '—' : `Learner ${row.alias}`}</td>
+                <td>{row.ok ? row.text : `Not applied: ${row.text}`}</td>
+              </tr>
+            ))}
+        </tbody>
+      </table>
+      </div>
+    </section>
+  );
+}
 
 type Filter = 'all' | 'ungraded' | 'graded' | 'late';
 const FILTERS: Record<Filter, string> = { all: 'All', ungraded: 'Ungraded', graded: 'Graded', late: 'Late' };
@@ -117,6 +201,7 @@ export function AcademyGradingQueue({ itemId, initial }: { itemId: string; initi
   const [reply, setReply] = useState<GradingDeskReply | null>(null);
   const [open, setOpen] = useState<string | null>(null);
   const [filter, setFilter] = useState<Filter>('all');
+  const [bulk, setBulk] = useState<AcademyBulkGradeResult | null>(null);
 
   const reload = useCallback(async () => {
     const next = await fetchGradingQueue(itemId);
@@ -130,6 +215,7 @@ export function AcademyGradingQueue({ itemId, initial }: { itemId: string; initi
     setBusy(false);
     // Whatever the answer, the queue shows the hand-ins as svc-academy holds them now.
     if (answer.ok) setView({ queue: { kind: 'ok', data: answer.queue }, asOf: new Date().toISOString() });
+    if (answer.ok && answer.bulk) setBulk(answer.bulk);
     else await reload();
     return answer;
   };
@@ -194,6 +280,8 @@ export function AcademyGradingQueue({ itemId, initial }: { itemId: string; initi
               onSave={(fields) => void send({ op: 'grade', ...fields }).then((answer) => answer.ok && setOpen(null))}
             />
           )}
+          {queue.rows.length > 0 && <BulkGrade busy={busy} onUpload={(fileName, csv) => void send({ op: 'bulk', fileName, csv })} />}
+          {bulk && <BulkResult result={bulk} />}
         </>
       )}
     </section>

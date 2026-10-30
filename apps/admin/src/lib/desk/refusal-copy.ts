@@ -1255,6 +1255,16 @@ const BY_CODE: Readonly<Record<string, Entry>> = {
     body: 'The owner has not set how long a grader holds a hand-in, so no hand-in is graded.',
     next: 'Ask the owner to set the grader hold time. Nothing was changed.',
   },
+  'academy.bulk_file_invalid': {
+    title: 'That grade file cannot be read',
+    body: 'A grade file is a CSV whose first line is learner,score,comment,reason, with at least one row below it.',
+    next: 'Correct the file and upload it again. Nothing was changed.',
+  },
+  'academy.bulk_row_invalid': {
+    title: 'That row of the grade file cannot be read',
+    body: 'Each row names a learner by alias, such as Learner 3, then a score, a comment and a reason.',
+    next: 'Correct the row and upload the file again. The other rows are as listed.',
+  },
   'academy.grade_invalid': {
     title: 'That score is above the points',
     body: 'A score runs from 0 to the assignment’s points, with at most two decimals.',

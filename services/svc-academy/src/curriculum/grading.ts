@@ -13,7 +13,10 @@
  * never sees who graded. A learner marking the feedback read is its own row and changes no grade. No money moves here.
  */
 import type { Sql, TransactionSql } from 'postgres';
+import { createHash } from 'node:crypto';
 import type {
+  AcademyBulkGradeInput,
+  AcademyBulkGradeResult,
   AcademyCourseGrades,
   AcademyGradeSubmissionInput,
   AcademyGradingQueue,
@@ -27,6 +30,7 @@ import type { CourseAssignments } from './assignments.js';
 import { canonicalPrice } from './courses.js';
 import { hundredths } from './peer-review.js';
 import { dueFor } from './course-item-rules.js';
+import { readBulkGradeFile, type BulkGradeBadRow } from './bulk-grade-file.js';
 
 type Db = Sql | TransactionSql;
 
@@ -168,6 +172,108 @@ export class AssignmentGrading {
       await tx`DELETE FROM academy.assignment_grader_leases WHERE submission_id = ${handIn.submission_id}`;
     });
     return this.queueIn(this.sql, input.itemId, input.operatorId, input.now);
+  }
+
+  /**
+   * A file of grades for one assignment, by alias. The file is read whole first (a bad header refuses it); then, in one
+   * transaction, each good row whose alias names a hand-in, whose score fits the points, whose hand-in no other grader
+   * holds, and which carries a reason when it changes a grade, becomes the next grade event, pointing at the stored
+   * file. Every other row is listed with its line and code. The same file again (same sha256 on this assignment) answers
+   * with the stored result, `repeated`, and writes nothing.
+   */
+  async bulkGrade(input: AcademyBulkGradeInput & { operatorId: string; now: Date }): Promise<AcademyBulkGradeResult> {
+    const seconds = this.requireLease();
+    const view = await this.assignments.adminView(input.itemId);
+    if (!view.brief) throw new AcademyError('the assignment has no brief', 'academy.assignment_not_found');
+    const sha256 = createHash('sha256').update(input.csv, 'utf8').digest('hex');
+    const file = readBulkGradeFile(input.csv);
+    type Stored = Omit<AcademyBulkGradeResult, 'queue' | 'repeated'>;
+    const stored = await this.sql.begin(async (tx): Promise<{ result: Stored; repeated: boolean }> => {
+      const [mine] = await tx<Array<{ id: string }>>`
+        INSERT INTO academy.assignment_bulk_grades (item_id, sha256, actor, result, at)
+        VALUES (${input.itemId}, ${sha256}, ${input.operatorId}, '{}'::jsonb, ${input.now})
+        ON CONFLICT (item_id, sha256) DO NOTHING
+        RETURNING id
+      `;
+      if (!mine) {
+        const [before] = await tx<Array<{ result: Stored }>>`
+          SELECT result FROM academy.assignment_bulk_grades WHERE item_id = ${input.itemId} AND sha256 = ${sha256}
+        `;
+        return { result: before!.result, repeated: true };
+      }
+      const targets = await tx<Array<{ alias: number; submission_id: string }>>`
+        WITH firsts AS (
+          SELECT user_id, rank() OVER (ORDER BY min(submitted_at), user_id)::int AS alias
+          FROM academy.assignment_submissions WHERE item_id = ${input.itemId} GROUP BY user_id
+        )
+        SELECT f.alias, l.id AS submission_id
+        FROM firsts f
+        JOIN LATERAL (
+          SELECT id FROM academy.assignment_submissions s
+          WHERE s.item_id = ${input.itemId} AND s.user_id = f.user_id ORDER BY s.version DESC LIMIT 1
+        ) l ON TRUE
+      `;
+      const byAlias = new Map(targets.map((t) => [t.alias, t.submission_id]));
+      const applied: Stored['applied'] = [];
+      const rejected: BulkGradeBadRow[] = [...file.bad];
+      for (const row of file.rows) {
+        const refuse = (code: string, message: string) => rejected.push({ line: row.line, alias: row.alias, code, message });
+        const submissionId = byAlias.get(row.alias);
+        if (!submissionId) {
+          refuse('academy.submission_not_found', `no Learner ${row.alias} has handed in this assignment`);
+          continue;
+        }
+        let handIn: HandIn;
+        try {
+          handIn = await this.handIn(tx, input.itemId, submissionId);
+        } catch (error) {
+          if (!(error instanceof AcademyError)) throw error;
+          refuse(error.code, error.message);
+          continue;
+        }
+        if (hundredths(row.score) > hundredths(handIn.points)) {
+          refuse('academy.grade_invalid', `a score of ${row.score} is above the ${canonicalPrice(handIn.points)} points`);
+          continue;
+        }
+        const [last] = await tx<Array<{ n: number }>>`
+          SELECT coalesce(max(n), 0)::int AS n FROM academy.assignment_grade_events WHERE submission_id = ${submissionId}
+        `;
+        const n = last!.n + 1;
+        if (n > 1 && !row.reason) {
+          refuse('academy.reason_required', `Learner ${row.alias} already has a grade; changing it needs a reason`);
+          continue;
+        }
+        try {
+          await this.lease(tx, submissionId, input.operatorId, input.now, seconds);
+        } catch (error) {
+          if (!(error instanceof AcademyError)) throw error;
+          refuse(error.code, `another grader holds Learner ${row.alias}'s hand-in`);
+          continue;
+        }
+        await tx`
+          INSERT INTO academy.assignment_grade_events (submission_id, n, score, points, comment, actor, reason, at, bulk_id)
+          VALUES (${submissionId}, ${n}, ${row.score}, ${handIn.points}, ${row.comment}, ${input.operatorId},
+            ${n > 1 ? row.reason : null}, ${input.now}, ${mine.id})
+        `;
+        await tx`UPDATE academy.assignment_submissions SET state = 'graded' WHERE id = ${submissionId}`;
+        await tx`DELETE FROM academy.assignment_grader_leases WHERE submission_id = ${submissionId}`;
+        applied.push({ line: row.line, alias: row.alias, score: canonicalPrice(row.score)! });
+      }
+      const result: Stored = {
+        sha256,
+        fileName: input.fileName,
+        at: input.now.toISOString(),
+        applied,
+        rejected: rejected.sort((a, b) => a.line - b.line),
+      };
+      await tx`UPDATE academy.assignment_bulk_grades SET result = ${tx.json(result as never)} WHERE id = ${mine.id}`;
+      return { result, repeated: false };
+    });
+    return {
+      ...stored.result,
+      repeated: stored.repeated,
+      queue: await this.queueIn(this.sql, input.itemId, input.operatorId, input.now),
+    };
   }
 
   /**
