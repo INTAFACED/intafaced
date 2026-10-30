@@ -268,6 +268,13 @@ export const rooms: readonly Room[] = [
   },
   { path: '/bank/loans', title: 'Loans', description: 'Applications and repayments', door: 'Money', area: 'money' },
   {
+    path: '/bank/loans/apply',
+    title: 'Apply for a loan',
+    description: 'Collateral needed, conditions and fees for a new loan',
+    door: 'Money',
+    area: 'money',
+  },
+  {
     path: '/bank/loans/detail',
     title: 'Loan details',
     description: 'Payoff quote, projection and statement for one loan',

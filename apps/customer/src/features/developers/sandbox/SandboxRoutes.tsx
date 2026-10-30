@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type FormEvent, type JSX } from 'react';
 import { API_KEY_NAME_MAX } from '@intafaced/contracts/api-keys';
 import {
   SANDBOX_NAME_MAX,
+  type SandboxBalance,
   type SandboxDetail,
   type SandboxKeyCreateOutput,
   type SandboxList,
@@ -18,6 +19,8 @@ import {
   createSandboxKey,
   fundSandbox,
   readSandbox,
+  readSandboxBalance,
+  resetSandbox,
   readSandboxes,
   sandboxRoute,
   type KeyPreset,
@@ -221,29 +224,79 @@ function SandboxRead({ id, children }: { id: string; children: (detail: SandboxD
   return resource.data ? children(resource.data, reload) : shell(<Loading label={t('loading')} />);
 }
 
-/** The sandbox's TEST funds: its balance (not set until the owner decides where it is kept) and Fund. */
+/**
+ * The sandbox's TEST funds, from the pay service's sandbox store: the balance, what each Fund adds and the resets used
+ * today (each "not set" while the owner's setting is blank), Fund and Reset. Every figure is TEST and never real money.
+ */
 function Funds({ sandboxId, t }: { sandboxId: string; t: T }) {
   const { api, userId } = useSession();
+  const { resource, reload } = useResource(
+    (signal) => readSandboxBalance(api, sandboxId, signal),
+    `developer-sandbox-balance:${userId ?? 'out'}:${sandboxId}`,
+  );
+  // The balance a press answered, for this sandbox only; a refusal drops it and reads again.
+  const [answered, setAnswered] = useState<SandboxBalance | null>(null);
+  const latest = answered?.sandboxId === sandboxId ? answered : null;
   const [busy, setBusy] = useState(false);
-  const [refused, setRefused] = useState<Refusal | null>(null);
-  async function fund() {
-    if (busy || !userId) return;
+  const [said, setSaid] = useState<{ kind: 'done'; text: string } | { kind: 'refused'; failure: Refusal } | null>(null);
+  const read = latest ?? (resource.status === 'ready' ? resource.data : null);
+
+  async function press(action: 'fund' | 'reset') {
+    if (busy || !userId || !read) return;
     setBusy(true);
-    setRefused(null);
-    const result = await fundSandbox(api, userId, sandboxId);
+    setSaid(null);
+    const result = action === 'fund' ? await fundSandbox(api, userId, read) : await resetSandbox(api, userId, read);
     setBusy(false);
-    if (!result.ok) setRefused(result);
+    if (!result.ok) {
+      setSaid({ kind: 'refused', failure: result });
+      setAnswered(null);
+      reload();
+      return;
+    }
+    const { replayed, ...balance } = result.data;
+    setAnswered(balance);
+    let text = t('pressReplayed');
+    if (!replayed) text = action === 'fund' ? t('funded', { amount: balance.fundAmount ?? '', asset: balance.asset }) : t('resetDone');
+    setSaid({ kind: 'done', text });
   }
+
   return (
     <section aria-labelledby="sandbox-funds">
       <h2 id="sandbox-funds">{t('fundsHeading')}</h2>
-      <p data-testid="sandbox-balance" data-balance="unset">
-        {t('balanceLabel')}: <span className="muted">{t('balanceUnset')}</span>
-      </p>
-      <Button variant="secondary" disabled={busy} onClick={() => void fund()}>
-        {t('fund')}
-      </Button>
-      {refused ? <Refused failure={refused} t={t} /> : null}
+      <p className="muted">{t('fundsLead')}</p>
+      {resource.status === 'failed' && !latest ? <Failure result={resource.failure} retry={reload} /> : null}
+      {read ? (
+        <dl className="apps-facts">
+          <dt>{t('balanceLabel')}</dt>
+          <dd data-testid="sandbox-balance" data-balance={read.amount}>
+            {read.amount} {read.asset} {read.label}
+          </dd>
+          <dt>{t('fundAmountLabel')}</dt>
+          <dd data-testid="sandbox-fund-amount">
+            {read.fundAmount === null ? <span className="muted">{t('notSet')}</span> : `${read.fundAmount} ${read.asset} TEST`}
+          </dd>
+          <dt>{t('resetsLabel')}</dt>
+          <dd data-testid="sandbox-resets">
+            {read.resetsPerDay === null ? (
+              <span className="muted">{t('notSet')}</span>
+            ) : (
+              t('resetsOf', { used: String(read.resetsToday), cap: String(read.resetsPerDay) })
+            )}
+          </dd>
+        </dl>
+      ) : resource.status === 'loading' ? (
+        <Loading label={t('balanceLoading')} />
+      ) : null}
+      <div className="apps-actions">
+        <Button variant="secondary" disabled={busy || !read} onClick={() => void press('fund')}>
+          {t('fund')}
+        </Button>
+        <Button variant="secondary" disabled={busy || !read} onClick={() => void press('reset')}>
+          {t('reset')}
+        </Button>
+      </div>
+      {said?.kind === 'done' ? <p role="status">{said.text}</p> : null}
+      {said?.kind === 'refused' ? <Refused failure={said.failure} t={t} /> : null}
     </section>
   );
 }

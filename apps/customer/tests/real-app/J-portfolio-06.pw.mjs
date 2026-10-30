@@ -13,6 +13,8 @@ const run = journeyState(`${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
 const SPACE = 'Travel TEST';
 const SAVED = '50';
 const MOVED = '100';
+// A second named space that never holds anything: #5's Your accounts list leaves it out; the picker still offers it.
+const EMPTY_SPACE = 'Empty TEST';
 
 test.describe.configure({ mode: 'default' });
 
@@ -116,6 +118,16 @@ test(`${J} #1 opens allocation: by coin, kind and place; USDT as dollar coins, t
   await move.getByRole('button', { name: 'Confirm' }).click();
   await expect(move.getByText(/ledger/i).first()).toBeVisible();
   expect(toUnits((await me.query('spaces.list', { limit: 50 })).find((s) => s.id === travel.id).balance)).toBe(toUnits(MOVED));
+  // And a named space left empty, for #5.
+  await page.goto('/bank/spaces');
+  await page.getByRole('button', { name: 'Create space' }).click();
+  const second = page.getByRole('dialog');
+  await second.getByLabel('Asset', { exact: true }).selectOption('USDT');
+  await second.getByLabel('Space name').fill(EMPTY_SPACE);
+  await second.getByRole('button', { name: 'Review' }).click();
+  await second.getByRole('button', { name: 'Confirm' }).click();
+  await expect(second.getByText('Confirmed by the service')).toBeVisible();
+  await page.keyboard.press('Escape');
   run.write({ spaceId: travel.id, poolId: pool.id });
 
   // The bank's grouping: every class and both places add up to the total, exactly.
@@ -131,9 +143,14 @@ test(`${J} #1 opens allocation: by coin, kind and place; USDT as dollar coins, t
   const usdt = await (await api(who)).balances();
   const usdtTotal = toUnits(usdt.USDT.total) + toUnits(MOVED);
   expect(toUnits(byClass.stablecoin.assets.find((a) => a.asset === 'USDT').valueUsd)).toBe(usdtTotal - toUnits(SAVED));
-  // Locked holds at least the savings; spendable is the rest.
+  // Locked is exactly the savings: the ledger holds them as USDT in use, at par. No order is open, so no BTC is in use.
+  // Spendable is the rest, so the two add up to the total.
   const locked = allocation.types.find((row) => row.type === 'locked');
-  expect(toUnits(locked.valueUsd)).toBeGreaterThanOrEqual(toUnits(SAVED));
+  const spendable = allocation.types.find((row) => row.type === 'available');
+  expect(toUnits(usdt.BTC?.used ?? '0')).toBe(0n);
+  expect(toUnits(usdt.USDT.used ?? '0')).toBe(toUnits(SAVED));
+  expect(toUnits(locked.valueUsd)).toBe(toUnits(SAVED));
+  expect(toUnits(spendable.valueUsd)).toBe(total - toUnits(locked.valueUsd));
 
   // The screen: by coin, by kind (naming what each kind holds), by place.
   const coin = await grouped(page, 'Coin');
@@ -147,6 +164,17 @@ test(`${J} #1 opens allocation: by coin, kind and place; USDT as dollar coins, t
   const place = await grouped(page, 'Place');
   await expect(place.locator('li[data-group="available"]')).toContainText('Spendable');
   await expect(place.locator('li[data-group="locked"]')).toContainText('Locked');
+  // Each place's percent on screen is the bank's share of the total, as shown (to its last printed place). Prices move,
+  // so the screen and a fresh read of the bank are compared until one price book serves both.
+  const agrees = async (type) => {
+    const shown = (await place.locator(`li[data-group="${type}"] .money-alloc__pct`).innerText()).trim();
+    const share = Number((await me.query('portfolio.allocation')).types.find((row) => row.type === type).share) * 100;
+    if (shown.startsWith('<')) return share < Number(shown.replace(/[^\d.]/g, '')) ? 'agree' : `${shown} vs ${share}`;
+    const digits = shown.replace(/[^\d.]/g, '');
+    const places = (digits.split('.')[1] ?? '').length;
+    return Math.abs(Number(digits) - share) <= 0.5 * 10 ** -places + 1e-9 ? 'agree' : `${shown} vs ${share}`;
+  };
+  for (const type of ['available', 'locked']) await expect.poll(() => agrees(type), { timeout: 30_000 }).toBe('agree');
 });
 
 test(`${J} #2 holds a coin with no class: it shows as unclassified, named, and still adds to the total`, async ({ page }) => {
@@ -321,8 +349,13 @@ test(`${J} #5 chooses one account or all combined: the totals follow, and named 
 
   await signIn(page, who);
   await page.goto('/money');
-  // All accounts: the named account that holds something is listed.
+  // All accounts: the named account that holds something is listed; the empty one is not, though the bank has it.
+  const named = (await me.query('spaces.list', { limit: 50 })).filter((s) => s.kind === 'named');
+  expect(named.find((s) => s.name === EMPTY_SPACE)?.balance).toMatch(/^0(\.0+)?$/);
   await expect(page.locator('#accounts').getByText(SPACE)).toBeVisible();
+  await expect(page.locator('#accounts').getByText(EMPTY_SPACE)).toHaveCount(0);
+  // It can still be chosen on its own: the picker offers every named account.
+  await expect(page.getByLabel('Accounts shown').locator('option', { hasText: EMPTY_SPACE })).toHaveCount(1);
   const scope = page.getByLabel('Accounts shown');
   await scope.selectOption(spaceId);
   await expect(page.getByTestId('money-total').locator('[role="img"]')).toHaveAttribute('aria-label', '$100.00');

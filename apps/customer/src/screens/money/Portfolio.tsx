@@ -596,6 +596,17 @@ export default function Portfolio() {
   }, [view !== null]);
 
   const spaces = useMemo(() => spacesFor(accounts, view?.source ?? 'server'), [accounts, view?.source]);
+  const heldAccounts = useMemo(
+    () =>
+      accounts.status === 'ready'
+        ? accounts.data.filter((account) => {
+            // A balance that cannot be read stays listed (it shows as unknown); only a known zero is left out.
+            const held = dec(account.balance);
+            return held === null || held > 0n;
+          })
+        : [],
+    [accounts],
+  );
   // Available / In orders / In spaces next to Amount, for every row; one note for the whole table pair.
   const helds = useMemo(
     () =>
@@ -719,9 +730,8 @@ export default function Portfolio() {
         <ValuationNote view={view} copy={copy} refreshMs={SUMMARY_INTERVAL} timeZone={timeZone} />
         {/* Main account and spaces together, so it is shown for all accounts only. */}
         {!scoped ? <HoldingsChange hidden={hideBalances} /> : null}
-        {!scoped && accounts.status === 'ready' && accounts.data.some((account) => (dec(account.balance) ?? 0n) > 0n) ? (
-          <Accounts accounts={accounts.data} hidden={hideBalances} copy={copy} />
-        ) : null}
+        {/* A named account is listed here only while it holds something (J-portfolio-06 #5); the picker above offers them all. */}
+        {!scoped && heldAccounts.length > 0 ? <Accounts accounts={heldAccounts} hidden={hideBalances} copy={copy} /> : null}
         {isHiddenPath('/money/pnl') ? null : (
           <a data-testid="money-pnl-link" className="money-pnl-link" href="/money/pnl">
             <span>{t('Profit and loss')}</span>

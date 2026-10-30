@@ -136,6 +136,7 @@ describe('loan servicing previews (BK-loan-09)', () => {
   it('runs all four procedures against the throwing services proxy', async () => {
     const c = createBankRouter(untouchable).createCaller(await ctx(['bank:read', 'bank:write'])) as unknown as {
       loans: {
+        originationFeeBps: '0';
         changeRepaymentDate(i: { loanId: string; date: string }): Promise<unknown>;
         payExtra(i: { loanId: string; amount: string }): Promise<unknown>;
         repayFromExternalBank(i: { loanId: string }): Promise<unknown>;

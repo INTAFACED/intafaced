@@ -62,6 +62,7 @@ export const VERBS = [
   'paused',
   'skipped',
   'stopped',
+  'crossed',
 ] as const;
 
 export type Verb = (typeof VERBS)[number];
