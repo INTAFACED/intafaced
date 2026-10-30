@@ -266,6 +266,10 @@ export class P2pErasure {
           const reputation = await tx`DELETE FROM p2p.p2p_reputation WHERE user_id = ${userId} RETURNING user_id`;
           erased.push({ category: 'reputation', rows: reputation.length });
 
+          // P-ads-merchant-06: the person's ad edits, counted against the daily cap. They name nobody else.
+          const edits = await tx`DELETE FROM p2p.offer_edits WHERE maker_id = ${userId} RETURNING offer_id`;
+          erased.push({ category: 'ad edits counted against the daily cap', rows: edits.length });
+
           // Offers with no trades against them never became part of anyone
           // else's record. Ones that were traded are load-bearing: a trade row
           // references its offer, and `writeDecision` puts liquidity back on it.

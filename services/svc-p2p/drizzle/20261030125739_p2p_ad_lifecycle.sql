@@ -10,6 +10,7 @@
 -- `relisted_from`: on an ad posted by relisting a closed one, the closed ad's id. A closed ad never reopens (its orders
 -- keep the terms they were taken on); relisting posts a new ad through every check a new ad passes, once per closed ad.
 -- `offer_edits`: one row per accepted edit, keyed by the edit's own idempotency key, so a retried edit counts once.
+-- An erase deletes a person's never-traded ads: their edit rows go with them, and an ad relisted from one forgets it.
 -- Reversal: 20261030125739_p2p_ad_lifecycle.down.sql
 ALTER TABLE "p2p"."offers" ADD COLUMN IF NOT EXISTS "close_reason" text;
 ALTER TABLE "p2p"."offers" DROP CONSTRAINT IF EXISTS "offers_close_reason_ck";
@@ -34,13 +35,13 @@ DROP TRIGGER IF EXISTS "offers_status_since_trg" ON "p2p"."offers";
 CREATE TRIGGER "offers_status_since_trg" BEFORE UPDATE OF "status" ON "p2p"."offers"
   FOR EACH ROW EXECUTE FUNCTION "p2p"."offers_status_since"();
 
-ALTER TABLE "p2p"."offers" ADD COLUMN IF NOT EXISTS "relisted_from" uuid REFERENCES "p2p"."offers" ("id");
+ALTER TABLE "p2p"."offers" ADD COLUMN IF NOT EXISTS "relisted_from" uuid REFERENCES "p2p"."offers" ("id") ON DELETE SET NULL;
 CREATE UNIQUE INDEX IF NOT EXISTS "offers_relisted_from_uq" ON "p2p"."offers" ("relisted_from") WHERE "relisted_from" IS NOT NULL;
 
 CREATE TABLE IF NOT EXISTS "p2p"."offer_edits" (
   "maker_id" text NOT NULL,
   "idempotency_key" text NOT NULL,
-  "offer_id" uuid NOT NULL REFERENCES "p2p"."offers" ("id"),
+  "offer_id" uuid NOT NULL REFERENCES "p2p"."offers" ("id") ON DELETE CASCADE,
   "edit_day" date NOT NULL,
   "edited_at" timestamptz NOT NULL DEFAULT now(),
   PRIMARY KEY ("maker_id", "idempotency_key")

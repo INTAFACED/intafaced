@@ -262,6 +262,16 @@ describe('svc-p2p ad lifecycle (P-ads-merchant-06)', () => {
     expect((await p2p.getOffer(offer.id, MAKER)).status).toBe('active');
   });
 
+  it('an erase can still delete a never-traded ad that was edited and relisted: its edits go, the new ad forgets it', async () => {
+    const offer = await sellOffer();
+    await edit(offer.id, 'edit-key-1');
+    await p2p.closeOffer(offer.id, MAKER);
+    const relisted = await p2p.relistOffer({ offerId: offer.id, makerId: MAKER });
+    await sql`DELETE FROM p2p.offers WHERE id = ${offer.id}`;
+    expect(await sql`SELECT 1 FROM p2p.offer_edits WHERE offer_id = ${offer.id}`).toHaveLength(0);
+    expect((await p2p.getOffer(relisted.id, MAKER)).relistedFrom).toBeNull();
+  });
+
   it('the migration keeps every old row’s status, starts status_since from its last update and leaves reasons blank', async () => {
     const at = files.indexOf(LIFECYCLE);
     expect(at).toBeGreaterThan(0);
