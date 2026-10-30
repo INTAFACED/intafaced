@@ -97,7 +97,8 @@ async function ledgerTrace(browser, businessKey) {
 
 /** One of the person's own agents service reads through Edge, on a sign-in of its own: the answer's data. */
 async function ownRead(who, procedure, input) {
-  const res = await (await api(who)).get(`/api/agents/trpc/own.${procedure}?input=${encodeURIComponent(JSON.stringify(input))}`);
+  const query = input === undefined ? '' : `?input=${encodeURIComponent(JSON.stringify(input))}`;
+  const res = await (await api(who)).get(`/api/agents/trpc/own.${procedure}${query}`);
   expect(res.status, JSON.stringify(res.body).slice(0, 300)).toBe(200);
   return res.body.result.data;
 }
@@ -426,7 +427,22 @@ test(`${J} #6 sets a soft alert and a hard limit for the month: one inbox row at
   await expect(main(page).getByRole('alert')).toContainText('agents.usage.hard_limit_reached');
 });
 
-test(`${J} #7 opens usage by agent, day and task: totals match the sum of sealed windows`, async ({ page }) => {
+/** svc-agents restarted with no routing table (every rate blank, as production runs until the owner sets them), or back on the stack's TEST rates. */
+function blankRates(blank) {
+  const before = process.env.LOCAL_STACK_AGENTS_RATES;
+  if (blank) process.env.LOCAL_STACK_AGENTS_RATES = 'off';
+  else delete process.env.LOCAL_STACK_AGENTS_RATES;
+  try {
+    tool('local-test-stack.mjs', 'restart', 'agents');
+  } finally {
+    if (before === undefined) delete process.env.LOCAL_STACK_AGENTS_RATES;
+    else process.env.LOCAL_STACK_AGENTS_RATES = before;
+  }
+}
+
+test(`${J} #7 opens usage by agent, day and task: totals match the sum of sealed windows; a blank rate refuses the run with the rate named`, async ({
+  page,
+}) => {
   test.setTimeout(240_000);
   // A fourth TEST person with 1 USDT and two agents of their own, each run once in a session that is then closed.
   const user = await fundedTrader(page, 'ag02d', '1');
@@ -454,7 +470,6 @@ test(`${J} #7 opens usage by agent, day and task: totals match the sum of sealed
   // Exact sums in scaled units, never floats: each cell is a decimal string such as "0.00012345 USDT".
   const units = (text) => toUnits(text.replace(/ USDT$/, ''));
   const sum = async (cells) => (await cells.allInnerTexts()).reduce((total, text) => total + units(text), 0n);
-  const today = new Date().toISOString().slice(0, 10);
   let total = 0n;
   for (const name of [OWN_AGENT, SECOND]) {
     await page.goto('/agents');
@@ -469,7 +484,12 @@ test(`${J} #7 opens usage by agent, day and task: totals match the sum of sealed
     expect(new Set(await rows.locator('td:nth-child(1)').allInnerTexts())).toEqual(new Set([OWN_AGENT, SECOND]));
     const mine = rows.filter({ has: page.getByRole('cell', { name, exact: true }) });
     await expect(mine).toHaveCount(1);
-    await expect(mine.getByRole('cell').nth(1)).toHaveText(today);
+    // The day is the UTC day the service sealed the agent's window in (its window id starts with it), not the test's clock.
+    const [agent] = (await ownRead(user, 'list', { limit: 50 })).filter((row) => row.name === name);
+    const held = await ownRead(user, 'usage', { id: agent.id, limit: 50 });
+    expect(held).toHaveLength(1);
+    expect(held[0].state).toBe('settled');
+    await expect(mine.getByRole('cell').nth(1)).toHaveText(held[0].windowId.slice(0, 10));
     await expect(mine.getByRole('cell').nth(2)).toHaveText('own.run');
     await expect(mine.getByRole('cell').nth(3)).toHaveText('1');
     // This agent's row is exactly the sum of its sealed windows, and is more than nothing.
@@ -484,9 +504,42 @@ test(`${J} #7 opens usage by agent, day and task: totals match the sum of sealed
   const after = await ledgerBalances(user);
   expect(toUnits(funded.USDT.total) - toUnits(after.USDT.total)).toBe(total);
   expect(toUnits(funded.USDT.free) - toUnits(after.USDT.free)).toBe(total);
-  // The step's last clause, a blank rate refusing the run with the rate named, cannot be reached here: this stack
-  // publishes a LOCAL TEST rate for every task. It is proven against real Postgres and a real-balance ledger in
-  // services/svc-agents/src/own/usage-day.test.ts ("a blank rate").
+  const byDay = await ownRead(user, 'usageByDay', undefined);
+
+  // A blank rate: svc-agents restarted with no rates published. The service lists the agents' task with no rate, the
+  // run refuses with that rate named and its exact code before any reply, and nothing runs free.
+  test.setTimeout(420_000);
+  blankRates(true);
+  try {
+    const routes = await (await api(user)).get('/api/agents/trpc/routes.list');
+    expect(routes.status).toBe(200);
+    const ownRun = routes.body.result.data.filter((row) => row.task === 'own.run');
+    expect(ownRun).toHaveLength(1);
+    expect(ownRun[0]).toMatchObject({ inputPerMillion: null, outputPerMillion: null });
+    await page.goto('/agents');
+    await main(page).getByRole('link', { name: SECOND, exact: true }).click();
+    await pages(page).getByRole('button', { name: 'Limits', exact: true }).click();
+    await session(page).getByRole('button', { name: 'Open a session' }).click();
+    await session(page)
+      .getByRole('textbox', { name: /^Ask the agent/ })
+      .fill('TEST question');
+    await session(page).getByRole('button', { name: 'Run', exact: true }).click();
+    const refusal = session(page).getByRole('alert');
+    await expect(refusal).toContainText(
+      'No rate is published for own.run, the rate this run is billed at, so it does not run. Nothing runs free.',
+    );
+    await expect(refusal.locator('code')).toHaveText('agents.price_unset');
+    await expect(session(page).getByRole('region', { name: 'Reply' })).toHaveCount(0);
+    // Read back after the refusal: one refused run at 0 under that code; the usage view and the balance unchanged.
+    const [second] = (await ownRead(user, 'list', { limit: 50 })).filter((row) => row.name === SECOND);
+    const refused = (await ownRead(user, 'runs', { id: second.id, limit: 50 })).filter((row) => row.status === 'refused');
+    expect(refused).toHaveLength(1);
+    expect(refused[0]).toMatchObject({ refusalCode: 'agents.price_unset', cost: '0' });
+    expect(await ownRead(user, 'usageByDay', undefined)).toEqual(byDay);
+    expect(await ledgerBalances(user)).toEqual(after);
+  } finally {
+    blankRates(false);
+  }
 });
 
 /** Opens a session on the agent's page, runs it once and closes it, so its one window seals and is charged. */

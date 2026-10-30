@@ -204,6 +204,32 @@ if (!available) {
       expect((await person.own.usage({ id, limit: 10 }))[0]).toMatchObject({ state: 'open', amount: null });
     });
 
+    it('counts a sealed window the ledger could not charge at its sealed amount, apart from what the ledger took', async () => {
+      await fund(USER);
+      const paid = await agentOf(USER, 'TEST paid');
+      await session(USER, paid.id, 1);
+      const charged = await houseFeesNow();
+      expect(charged).toBeGreaterThan(0n);
+
+      const owes = await agentOf(USER, 'TEST owes');
+      const sessionId = await session(USER, owes.id, 1, false);
+      const [open] = await owes.person.own.usage({ id: owes.id, limit: 10 });
+      // The person holds all but a sliver for a TEST withdrawal, so the close cannot charge the window.
+      const hold = { userId: USER, assetId: 'USDT', amount: (await balanceOf()) - 1n, rail: 'test', withdrawalId: 'usage-day-w1' };
+      await ledger.post(recipes.withdrawHold(hold));
+      await expect(owes.person.own.session.close({ id: owes.id, sessionId })).rejects.toMatchObject({ message: 'agents.window_unpaid' });
+      const [unpaid] = await owes.person.own.usage({ id: owes.id, limit: 10 });
+      expect(unpaid).toMatchObject({ windowId: open!.windowId, state: 'unpaid' });
+
+      const rows = await owes.person.own.usageByDay();
+      const owed = rows.filter((row) => row.agentId === owes.id);
+      expect(owed).toHaveLength(1);
+      expect(owed[0]).toMatchObject({ windows: 1, amount: unpaid!.amount, assetId: 'USDT' });
+      // The house took only the paid agent's window; the unpaid one is owed, not charged.
+      expect(await houseFeesNow()).toBe(charged);
+      expect(sum(rows.filter((row) => row.agentId === paid.id).map((row) => row.amount))).toBe(charged);
+    });
+
     it("never shows another person's usage", async () => {
       await fund(USER);
       await fund(OTHER);
@@ -232,6 +258,8 @@ if (!available) {
       const err = await person.own.run({ id, sessionId, requestId: 'blank-rate-1', ask: ASK }).catch((e: unknown) => e);
       expect(err).toMatchObject({ code: 'FORBIDDEN', message: 'agents.price_unset' });
       const refusal = ((err as { cause?: unknown }).cause as RefusedError).refusal;
+      // The customer room's refusal copy names this task as `own.run` (agent-builder-copy.ts); it stays that name.
+      expect(OWN_RUN_TASK).toBe('own.run');
       expect(refusal.userMessageParams).toEqual({ task: OWN_RUN_TASK });
       expect(render(refusal.userMessageKey as Parameters<typeof render>[0], refusal.userMessageParams)).toContain(`“${OWN_RUN_TASK}”`);
       expect(calls).toBe(0);

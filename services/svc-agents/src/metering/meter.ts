@@ -516,11 +516,9 @@ export class UsageMeter {
    */
   async usageByDay(userId: string, agentIds: readonly string[]): Promise<UsageDayView[]> {
     if (agentIds.length === 0) return [];
-    const rows = await this.sql<
-      Array<{ agent_id: string; day: string; task: string; amount: string; windows: number; asset: string | null }>
-    >`
+    const rows = await this.sql<Array<{ agent_id: string; day: string; task: string; amount: string; windows: number; asset: string }>>`
       SELECT s.agent_id, left(w.window_id, 10) AS day, coalesce(t.tasks, '') AS task,
-             sum(w.charged_amount)::text AS amount, count(*)::int AS windows, w.charged_asset AS asset
+             sum(w.charged_amount)::text AS amount, count(*)::int AS windows, coalesce(w.charged_asset, ${this.assetId}) AS asset
         FROM agents.usage_windows w
         JOIN agents.agent_sessions s ON s.id = w.session_id
         LEFT JOIN LATERAL (
@@ -529,7 +527,7 @@ export class UsageMeter {
            WHERE r.session_id = w.session_id AND r.window_id = w.window_id
         ) t ON true
        WHERE s.user_id = ${userId} AND s.agent_id = ANY(${agentIds as string[]}) AND w.sealed_at IS NOT NULL
-       GROUP BY s.agent_id, left(w.window_id, 10), coalesce(t.tasks, ''), w.charged_asset
+       GROUP BY 1, 2, 3, 6 -- agent, day, task, asset: one bound fee asset stands in for a window sealed without one
        ORDER BY day DESC, s.agent_id, task
     `;
     return rows.map((r) => ({
@@ -538,7 +536,7 @@ export class UsageMeter {
       task: r.task,
       amount: parseAmount(r.amount),
       windows: r.windows,
-      assetId: r.asset ?? this.assetId,
+      assetId: r.asset,
     }));
   }
 
