@@ -151,7 +151,14 @@ export function isTerminal(status: WithdrawalStatus): boolean {
 }
 
 /** The outcome of a withdrawal's current attempt in `pay.withdrawal_rail_attempts`, or `null` when none is journalled. */
-export type DispatchJournal = 'requested' | 'accepted' | 'refused' | null;
+export type DispatchJournal = 'requested' | 'accepted' | 'confirming' | 'refused' | null;
+
+/**
+ * The journal outcome as the reads see it: a send the rail accepted whose chain depth was read above zero but below the
+ * owner's minimum is `confirming` (W-withdraw-06). Depth zero, or not read, stays `accepted`. Every read that shows a row
+ * (`getWithdrawal`, `listWithdrawals`, the history and its filter) selects the same expression,
+ * `CASE WHEN a.outcome = 'accepted' AND a.confirmations > 0 THEN 'confirming' ELSE a.outcome END`, so they draw one split.
+ */
 
 /**
  * What the customer sees for one row (W-withdraw-07). A stored `held` row is split by its current attempt's journal
@@ -169,13 +176,14 @@ export type JournalFilter = 'none' | Exclude<DispatchJournal, null>;
 /**
  * What a stored `held` row shows, by its current attempt's journal outcome. Nothing journalled is `held` (the hold is booked
  * and nothing was asked of the rail), `requested` is `dispatching` (a send was asked for and its outcome is not known),
- * `accepted` is `broadcast` (it left). A journalled refusal is still being put back, so it reads `held` until the row turns
+ * `accepted` is `broadcast` (it left), and an accepted send seen at some depth below the minimum is `confirming`. A journalled refusal is still being put back, so it reads `held` until the row turns
  * `failed`. `shownStatus` reads it and `shownFilterFor` inverts it, so the page and the filter draw one split.
  */
 const HELD_SHOWN: Record<JournalFilter, WithdrawalStatus> = {
   none: 'held',
   requested: 'dispatching',
   accepted: 'broadcast',
+  confirming: 'confirming',
   refused: 'held',
 };
 

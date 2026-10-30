@@ -57,6 +57,11 @@ export class RecordingChain implements CryptoChainPort {
     return this.inner.ping();
   }
 
+  /** The chain's own depth. A send only the records remember has none this chain can read: `null`, so it stays held. */
+  sendDepth(idempotencyKey: string): Promise<number | null> {
+    return this.inner.sendDepth(idempotencyKey);
+  }
+
   async send(request: ChainSendRequest): Promise<{ txHash: string }> {
     const key = recordKey(request.idempotencyKey);
     if ((await this.inner.lookupSend(request.idempotencyKey)).state !== 'sent' && (await this.records.has(key))) {

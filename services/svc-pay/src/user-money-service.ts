@@ -266,6 +266,14 @@ export interface UserMoneyOptions {
    * there, because `bankTransfer` is svc-bank's alone. Omitted: an internal withdrawal refuses before anything is claimed.
    */
   readonly internalSettlement?: BankInternalWithdrawalPort;
+
+  /**
+   * W-withdraw-06: a send out of the platform on a rail whose payout is final only at a depth (`payoutDepth`) is taken on by
+   * the advance worker (`advanceWithdrawal`), not dispatched in the request. A create books the hold and answers `held`. Set
+   * by `index.ts` only when the worker runs; off, a create dispatches in the request as before, and still settles only at
+   * the depth.
+   */
+  readonly confirmLater?: boolean;
 }
 
 /**
@@ -295,6 +303,7 @@ export class UserMoneyService {
   private readonly withdrawalEligibility: WithdrawalEligibility | undefined;
   private readonly purchaseHolds: PurchaseHoldGuard | undefined;
   private readonly internalSettlement: BankInternalWithdrawalPort | undefined;
+  private readonly confirmLater: boolean;
 
   constructor(
     private readonly sql: Sql,
@@ -314,6 +323,7 @@ export class UserMoneyService {
     this.withdrawalEligibility = options.withdrawalEligibility;
     this.purchaseHolds = options.purchaseHolds;
     this.internalSettlement = options.internalSettlement;
+    this.confirmLater = options.confirmLater === true;
   }
 
   // ── Deposit ────────────────────────────────────────────────────────────────
@@ -685,9 +695,15 @@ export class UserMoneyService {
      * `pending` with its hold booked, the state a crash between the hold and the rail already leaves, so a later `withdraw`
      * on the same client reference resumes it and `cancelWithdrawal` can give the hold back. The rail is never asked.
      */
-    options: { stopAfterHold?: boolean } = {},
+    /**
+     * `dispatch` (W-withdraw-06): the advance worker's call. With `confirmLater` on, a send out of the platform on a rail that
+     * confirms at a depth stops after its hold unless this is set, and answers `held`; the worker sets it to send and settle.
+     */
+    options: { stopAfterHold?: boolean; dispatch?: boolean } = {},
   ): Promise<WithdrawalRecord> {
     const adapter = await this.preflightWithdrawal(input);
+    // A send out of the platform on a chain is final only at the owner's minimum depth, never at acceptance (W-withdraw-06).
+    const confirmsAtDepth = typeof adapter.payoutDepth === 'function';
 
     return withMoneySpan('pay.withdraw', { operation: 'withdraw', rail: input.rail, amount: formatAmount(input.amount) }, async (span) => {
       try {
@@ -802,6 +818,19 @@ export class UserMoneyService {
         `;
           }
           if (options.stopAfterHold) return claimed;
+
+          // W-withdraw-06: the hold is the create's answer. The advance worker sends it and settles it at depth; until then the
+          // row is `held`, and cancellable while nothing is journalled for its attempt. A retry of the create reads the same.
+          if (this.confirmLater && confirmsAtDepth && claimed.networkId !== null && !options.dispatch) {
+            const [current] = await connection<Array<{ journal: DispatchJournal; dispatch_journaled: boolean | null }>>`
+          SELECT CASE WHEN a.outcome = 'accepted' AND a.confirmations > 0 THEN 'confirming' ELSE a.outcome END AS journal,
+                 w.dispatch_journaled
+            FROM pay.withdrawals w
+            LEFT JOIN pay.withdrawal_rail_attempts a ON a.withdrawal_id = w.id AND a.attempt = w.attempts
+           WHERE w.id = ${claimed.id}
+        `;
+            return { ...claimed, status: 'held', journal: current?.journal ?? null, dispatchJournaled: current?.dispatch_journaled ?? null };
+          }
 
           // ── Phase 2: the rail.
           //
@@ -936,6 +965,30 @@ export class UserMoneyService {
           // asked again. If the crash came before the receipt was saved, the
           // attempt is still `requested` and the repeat asks the rail for the
           // status of the original key; it never calls `payout` again.
+          //
+          // W-withdraw-06: on a chain the acceptance is not the end. The send settles only once the chain holds it at the
+          // owner's minimum depth. Below it, or when the chain cannot say, the hold stays, the depth read is saved (the page
+          // reads `broadcast` at zero and `confirming` above it) and the next pass asks again. Nothing is reversed here: a send
+          // the rail accepted may be on the chain, so its hold is never released from this state (ENGINE W-3).
+          if (confirmsAtDepth && claimed.networkId !== null) {
+            const depth = await adapter.payoutDepth!(instruction);
+            if (depth === null || depth.confirmations < depth.required) {
+              if (depth !== null) {
+                await connection`
+              UPDATE pay.withdrawal_rail_attempts SET confirmations = ${depth.confirmations}
+               WHERE withdrawal_id = ${claimed.id} AND attempt = ${attempt} AND outcome = 'accepted'
+            `;
+              }
+              // The acceptance is counted once, on the pass that got it; a later pass replays the stored one.
+              if (!accepted) await this.noteUserWithdrawal(connection, claimed, 'accepted');
+              return {
+                ...claimed,
+                status: 'held' as const,
+                journal: depth !== null && depth.confirmations > 0 ? ('confirming' as const) : ('accepted' as const),
+                dispatchJournaled: true,
+              };
+            }
+          }
           assertStoredTransition('held', 'sent');
           try {
             await postPayLedger(this.ledger, recipes.withdrawSettle(ledgerInput));
@@ -968,6 +1021,28 @@ export class UserMoneyService {
         throw error;
       }
     });
+  }
+
+  /**
+   * The advance worker's step for one held send out of the platform (W-withdraw-06): `withdraw` on the row's own terms with
+   * `dispatch`, under the same payout lock as the create, so a retry and the worker never both ask the rail. Sends it if
+   * nothing is journalled, asks the chain for the depth of an accepted send, settles at the minimum, or reverses a refusal.
+   */
+  async advanceWithdrawal(withdrawalId: string): Promise<WithdrawalRecord> {
+    const row = await this.getWithdrawal(withdrawalId);
+    return this.withdraw(
+      {
+        userId: row.userId,
+        assetId: row.assetId,
+        amount: row.amount,
+        rail: row.rail,
+        destination: row.destination,
+        clientRef: row.clientRef,
+        networkId: row.networkId,
+        quoteRef: row.quoteRef,
+      },
+      { dispatch: true },
+    );
   }
 
   /**
@@ -1685,7 +1760,8 @@ export class UserMoneyService {
   async getWithdrawal(withdrawalId: string): Promise<WithdrawalRecord> {
     const rows = await this.sql<WithdrawalRow[]>`
       SELECT w.id, w.user_id, w.asset_id, w.amount, w.rail, w.destination, w.client_ref, w.rail_ref, w.attempts, w.failure_code,
-             w.status, w.created_at, w.network_id, w.quote_ref, w.fee, w.dispatch_journaled, a.outcome AS journal
+             w.status, w.created_at, w.network_id, w.quote_ref, w.fee, w.dispatch_journaled,
+             CASE WHEN a.outcome = 'accepted' AND a.confirmations > 0 THEN 'confirming' ELSE a.outcome END AS journal
         FROM pay.withdrawals w
         LEFT JOIN pay.withdrawal_rail_attempts a ON a.withdrawal_id = w.id AND a.attempt = w.attempts
        WHERE w.id = ${withdrawalId}
@@ -1699,7 +1775,8 @@ export class UserMoneyService {
     const page = assertWithdrawalListLimit(limit);
     const rows = await this.sql<WithdrawalRow[]>`
       SELECT w.id, w.user_id, w.asset_id, w.amount, w.rail, w.destination, w.client_ref, w.rail_ref, w.attempts, w.failure_code,
-             w.status, w.created_at, w.network_id, w.quote_ref, w.fee, w.dispatch_journaled, a.outcome AS journal
+             w.status, w.created_at, w.network_id, w.quote_ref, w.fee, w.dispatch_journaled,
+             CASE WHEN a.outcome = 'accepted' AND a.confirmations > 0 THEN 'confirming' ELSE a.outcome END AS journal
         FROM pay.withdrawals w
         LEFT JOIN pay.withdrawal_rail_attempts a ON a.withdrawal_id = w.id AND a.attempt = w.attempts
        WHERE w.user_id = ${userId} ORDER BY w.created_at DESC LIMIT ${page}
