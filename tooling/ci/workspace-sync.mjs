@@ -73,6 +73,7 @@ function workspaceGlobDirs() {
       inPackages = true;
       continue;
     }
+    if (/^\s*(#|$)/.test(line)) continue;
     if (inPackages && /^\S/.test(line)) break;
     const m = inPackages && /^\s*-\s*['"]?([^'"]+?)['"]?\s*$/.exec(line);
     if (!m) continue;
@@ -88,8 +89,6 @@ function workspaceGlobDirs() {
   return dirs;
 }
 
-const packagesInRepo = () => workspacesUnder('packages');
-const appsInRepo = () => workspacesUnder('apps');
 
 /**
  * Every package under `vendor/`, at ANY depth. Used by check 7 below.
