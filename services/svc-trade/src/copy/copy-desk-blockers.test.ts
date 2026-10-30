@@ -302,6 +302,8 @@ describe('copy control dispositions', () => {
       ...followInput(),
       leaderId: '00000000-0000-4000-8000-0000000000b3',
     });
-    expect((await caller.copy.flatten({ followId: flat.followId, requestId: 'flatten-0001' })).disposition).toBe('DETACH_FLATTEN');
+    expect(
+      (await caller.copy.flatten({ followId: flat.followId, requestId: 'flatten-0001', stepUpApprovalId: 'appr-test' })).disposition,
+    ).toBe('DETACH_FLATTEN');
   });
 });

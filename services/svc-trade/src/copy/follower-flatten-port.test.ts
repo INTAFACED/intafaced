@@ -301,7 +301,11 @@ describe('copy.flatten follower port (TRD-0723)', () => {
     `;
     await deposit(box.ledger, 'BTC', '10');
 
-    const acked = await box.copy.flatten(principal(), { followId: follow.followId, requestId: 'flatten-0001' });
+    const acked = await box.copy.flatten(principal(), {
+      followId: follow.followId,
+      requestId: 'flatten-0001',
+      stepUpApprovalId: 'appr-test',
+    });
     expect(box.calls).toHaveLength(1);
     const sell = box.calls[0]!;
     expect(sell.principalUserId).toBe(FOLLOWER);
@@ -350,7 +354,11 @@ describe('copy.flatten follower port (TRD-0723)', () => {
     expect(detached?.relationshipState).toBe('DETACHED');
     expect(detached?.sessionKeyRevoked).toBe(true);
 
-    const again = await box.copy.flatten(principal(), { followId: follow.followId, requestId: 'flatten-0001' });
+    const again = await box.copy.flatten(principal(), {
+      followId: follow.followId,
+      requestId: 'flatten-0001',
+      stepUpApprovalId: 'appr-test',
+    });
     expect(box.calls).toHaveLength(1);
     expect(again.orderIds).toEqual(acked.orderIds);
   });
@@ -372,7 +380,9 @@ describe('copy.flatten follower port (TRD-0723)', () => {
       side: 'buy',
     });
     await deposit(box.ledger, 'BTC', '2');
-    await expect(box.copy.flatten(principal(), { followId: follow.followId, requestId: 'flatten-0001' })).rejects.toMatchObject({
+    await expect(
+      box.copy.flatten(principal(), { followId: follow.followId, requestId: 'flatten-0001', stepUpApprovalId: 'appr-test' }),
+    ).rejects.toMatchObject({
       code: 'trade.copy_flatten_drift',
     });
     expect(box.calls).toEqual([]);
@@ -396,7 +406,9 @@ describe('copy.flatten follower port (TRD-0723)', () => {
       side: 'buy',
     });
     await deposit(box.ledger, 'BTC', '10');
-    await expect(box.copy.flatten(principal(), { followId: follow.followId, requestId: 'flatten-0001' })).rejects.toMatchObject({
+    await expect(
+      box.copy.flatten(principal(), { followId: follow.followId, requestId: 'flatten-0001', stepUpApprovalId: 'appr-test' }),
+    ).rejects.toMatchObject({
       code: 'trade.copy_flatten_unavailable',
     });
     expect(box.calls).toEqual([]);
@@ -420,7 +432,9 @@ describe('copy.flatten follower port (TRD-0723)', () => {
       side: 'buy',
     });
     await deposit(box.ledger, 'BTC', '10');
-    await expect(box.copy.flatten(principal(), { followId: follow.followId, requestId: 'flatten-0001' })).rejects.toMatchObject({
+    await expect(
+      box.copy.flatten(principal(), { followId: follow.followId, requestId: 'flatten-0001', stepUpApprovalId: 'appr-test' }),
+    ).rejects.toMatchObject({
       code: 'trade.copy_flatten_unavailable',
     });
     expect(box.calls).toEqual([]);
@@ -491,7 +505,9 @@ describe('copy.flatten follower port (TRD-0723)', () => {
       flattenCopyPosition: replay,
     });
 
-    await expect(copy.flatten(principal(), { followId: follow.followId, requestId: 'flatten-0001' })).rejects.toMatchObject({
+    await expect(
+      copy.flatten(principal(), { followId: follow.followId, requestId: 'flatten-0001', stepUpApprovalId: 'appr-test' }),
+    ).rejects.toMatchObject({
       code: 'trade.copy_flatten_partial',
       orderIds: [expect.any(String)],
     });
@@ -514,7 +530,7 @@ describe('copy.flatten follower port (TRD-0723)', () => {
 
     const firstId = box.calls[0]!.orderId;
     bids[ETH_ID] = '100';
-    const acked = await copy.flatten(principal(), { followId: follow.followId, requestId: 'flatten-0001' });
+    const acked = await copy.flatten(principal(), { followId: follow.followId, requestId: 'flatten-0001', stepUpApprovalId: 'appr-test' });
     expect(box.calls.map((call) => call.symbol)).toEqual(['BTC-USDT', 'ETH-USDT']);
     expect(formatAmount(box.calls[1]!.qty)).toBe('1');
     expect(formatAmount(box.calls[1]!.price)).toBe('98.5');
@@ -522,7 +538,7 @@ describe('copy.flatten follower port (TRD-0723)', () => {
     expect((await box.store.getFollow(follow.followId))?.relationshipState).toBe('DETACHED');
     expect((await box.store.getFollow(follow.followId))?.sessionKeyRevoked).toBe(true);
 
-    const third = await copy.flatten(principal(), { followId: follow.followId, requestId: 'flatten-0001' });
+    const third = await copy.flatten(principal(), { followId: follow.followId, requestId: 'flatten-0001', stepUpApprovalId: 'appr-test' });
     expect(box.calls).toHaveLength(2);
     expect(third.orderIds).toEqual(acked.orderIds);
   });
@@ -544,7 +560,9 @@ describe('copy.flatten follower port (TRD-0723)', () => {
       side: 'buy',
     });
     await deposit(box.ledger, 'BTC', '10');
-    await expect(box.copy.flatten(principal(), { followId: follow.followId, requestId: 'flatten-0001' })).rejects.toMatchObject({
+    await expect(
+      box.copy.flatten(principal(), { followId: follow.followId, requestId: 'flatten-0001', stepUpApprovalId: 'appr-test' }),
+    ).rejects.toMatchObject({
       code: 'trade.copy_flatten_refused',
     });
     expect(box.calls).toEqual([]);
@@ -555,7 +573,9 @@ describe('copy.flatten follower port (TRD-0723)', () => {
     const btc = spot(BTC_ID, 'BTC-USDT', 'BTC');
     const box = harness({ markets: [btc], bids: { [BTC_ID]: '100' }, slippageCapBps: 150 });
     const follow = await open(box.copy, nextLeader(), ['BTC-USDT']);
-    await expect(box.copy.flatten(principal(OTHER), { followId: follow.followId, requestId: 'flatten-0001' })).rejects.toMatchObject({
+    await expect(
+      box.copy.flatten(principal(OTHER), { followId: follow.followId, requestId: 'flatten-0001', stepUpApprovalId: 'appr-test' }),
+    ).rejects.toMatchObject({
       code: 'trade.copy_not_following',
     });
     expect(box.calls).toEqual([]);
@@ -566,7 +586,11 @@ describe('copy.flatten follower port (TRD-0723)', () => {
     const btc = spot(BTC_ID, 'BTC-USDT', 'BTC');
     const box = harness({ markets: [btc], bids: { [BTC_ID]: '100' }, slippageCapBps: 150 });
     const follow = await open(box.copy, nextLeader(), ['BTC-USDT']);
-    const acked = await box.copy.flatten(principal(), { followId: follow.followId, requestId: 'flatten-0001' });
+    const acked = await box.copy.flatten(principal(), {
+      followId: follow.followId,
+      requestId: 'flatten-0001',
+      stepUpApprovalId: 'appr-test',
+    });
     expect(acked.orderIds).toEqual([]);
     expect(box.calls).toEqual([]);
     expect((await box.store.getFollow(follow.followId))?.relationshipState).toBe('DETACHED');
@@ -598,7 +622,11 @@ describe('copy.flatten follower port (TRD-0723)', () => {
       fillQty: '1',
       side: 'sell',
     });
-    const acked = await box.copy.flatten(principal(), { followId: follow.followId, requestId: 'flatten-0001' });
+    const acked = await box.copy.flatten(principal(), {
+      followId: follow.followId,
+      requestId: 'flatten-0001',
+      stepUpApprovalId: 'appr-test',
+    });
     expect(acked.orderIds).toEqual([]);
     expect(box.calls).toEqual([]);
     expect((await box.store.getFollow(follow.followId))?.relationshipState).toBe('DETACHED');
@@ -629,7 +657,11 @@ describe('copy.flatten follower port (TRD-0723)', () => {
     const follow = await buyWithFee(box, nextLeader(), 'BTC', '0.006');
     await deposit(box.ledger, 'BTC', '2.994');
 
-    const acked = await box.copy.flatten(principal(), { followId: follow.followId, requestId: 'flatten-0001' });
+    const acked = await box.copy.flatten(principal(), {
+      followId: follow.followId,
+      requestId: 'flatten-0001',
+      stepUpApprovalId: 'appr-test',
+    });
     expect(box.calls).toHaveLength(1);
     const sell = box.calls[0]!;
     expect(sell.side).toBe('sell');
@@ -647,7 +679,11 @@ describe('copy.flatten follower port (TRD-0723)', () => {
     const follow = await buyWithFee(box, nextLeader(), 'BTC', '0.006');
     await deposit(box.ledger, 'BTC', '10');
 
-    const acked = await box.copy.flatten(principal(), { followId: follow.followId, requestId: 'flatten-0001' });
+    const acked = await box.copy.flatten(principal(), {
+      followId: follow.followId,
+      requestId: 'flatten-0001',
+      stepUpApprovalId: 'appr-test',
+    });
     expect(box.calls).toHaveLength(1);
     expect(formatAmount(box.calls[0]!.qty)).toBe('2.994');
     expect(formatAmount(box.calls[0]!.price)).toBe('98.5');
@@ -661,7 +697,9 @@ describe('copy.flatten follower port (TRD-0723)', () => {
     const follow = await buyWithFee(box, nextLeader(), 'ETH', '0.006');
     await deposit(box.ledger, 'BTC', '10');
 
-    await expect(box.copy.flatten(principal(), { followId: follow.followId, requestId: 'flatten-0001' })).rejects.toMatchObject({
+    await expect(
+      box.copy.flatten(principal(), { followId: follow.followId, requestId: 'flatten-0001', stepUpApprovalId: 'appr-test' }),
+    ).rejects.toMatchObject({
       code: 'trade.copy_flatten_unavailable',
     });
     expect(box.calls).toEqual([]);

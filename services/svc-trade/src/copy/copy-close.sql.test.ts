@@ -335,7 +335,7 @@ describe('copy.closePosition on Postgres (CB-copy-10)', () => {
 
     const closed = await box.copy.closePosition(principal, { followId, positionId: bought.orderId, qty: '0.2' });
     await fillOrder(closed.orderId, '0.2');
-    await box.copy.flatten(principal, { followId, requestId: 'flatten-0001' });
+    await box.copy.flatten(principal, { followId, requestId: 'flatten-0001', stepUpApprovalId: 'appr-test' });
     expect(box.calls.map((c) => formatAmount(c.qty))).toEqual(['0.2', '0.3']);
   });
 
