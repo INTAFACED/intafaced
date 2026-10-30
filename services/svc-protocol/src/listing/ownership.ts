@@ -98,8 +98,10 @@ export interface ListingStore {
    * verify won), so a nonce can back at most one proof.
    */
   consume(nonce: string, usedAt: Date, proof: Omit<OwnershipProof, 'verifiedAt'>): Promise<boolean>;
-  /** Deletes challenges that expired before `now` and were never used, so unanswered challenges do not pile up. */
+  /** Deletes challenges that expired before `now` and were never used, a bounded batch at a time. */
   pruneExpired(now: Date): Promise<void>;
+  /** Marks a nonce used with no proof: a failed check spends its challenge, so each challenge buys one check. */
+  spend(nonce: string, usedAt: Date): Promise<void>;
 }
 
 /** What the service reads from the chain to decide ownership. */
@@ -191,7 +193,11 @@ export async function verifyOwnership(
     const answer = await chain.isValidSignature(owner, messageHash, input.signature, read.blockNumber);
     if (answer?.toLowerCase() === ERC1271_MAGIC) signer = owner;
   }
-  if (!signer) throw new ListingRefusedError(LISTING_NOT_OWNER, 'The signature is not from the wallet that owns this token.');
+  if (!signer) {
+    // One challenge, one check: a wrong signature spends the challenge, so it cannot be retried against the chain.
+    await store.spend(challenge.nonce, now);
+    throw new ListingRefusedError(LISTING_NOT_OWNER, 'The signature is not from the wallet that owns this token. Ask for a new challenge.');
+  }
 
   const proof = {
     chainId: challenge.chainId,

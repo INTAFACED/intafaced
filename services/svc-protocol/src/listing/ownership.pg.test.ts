@@ -89,5 +89,22 @@ if (!sql) {
         { n: 1 },
       ]);
     });
+
+    it('a failed check spends its challenge, and pruning removes only expired unused ones', async () => {
+      const store = new PostgresListingStore(sql!);
+      const stranger = privateKeyToAccount(`0x${'78'.repeat(32)}`);
+      const wrong = await issueChallenge(store, chain, 300, TOKEN, T0, 'ef'.repeat(16));
+      await expect(
+        verifyOwnership(store, chain, { nonce: wrong.nonce, signature: await stranger.signMessage({ message: wrong.message }) }, T0),
+      ).rejects.toMatchObject({ code: 'protocol.listing.not_owner' });
+      expect((await store.findChallenge(wrong.nonce))!.usedAt).not.toBeNull();
+      expect(await sql!`SELECT count(*)::int AS n FROM protocol.listing_ownership_proofs WHERE nonce = ${wrong.nonce}`).toEqual([{ n: 0 }]);
+
+      const stale = await issueChallenge(store, chain, 30, TOKEN, T0, '12'.repeat(16));
+      await issueChallenge(store, chain, 300, TOKEN, new Date(T0.getTime() + 31_000), '34'.repeat(16));
+      expect(await store.findChallenge(stale.nonce)).toBeNull();
+      expect(await store.findChallenge(wrong.nonce)).not.toBeNull();
+      expect(await store.findChallenge('34'.repeat(16))).not.toBeNull();
+    });
   });
 }

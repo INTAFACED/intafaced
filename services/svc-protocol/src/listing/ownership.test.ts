@@ -38,6 +38,10 @@ function memoryStore() {
       proofs.push(proof);
       return true;
     },
+    spend: async (nonce, usedAt) => {
+      const c = challenges.get(nonce);
+      if (c && !c.usedAt) challenges.set(nonce, { ...c, usedAt });
+    },
     pruneExpired: async (now) => {
       for (const [nonce, c] of challenges) if (!c.usedAt && c.expiresAt.getTime() < now.getTime()) challenges.delete(nonce);
     },
@@ -141,10 +145,20 @@ describe('contract ownership proof (D-launch-listing-01)', () => {
         T0,
       ),
     ).rejects.toMatchObject({ code: LISTING_NOT_OWNER });
+    // A failed check spends its challenge: it cannot be retried against the chain.
+    await expect(
+      verifyOwnership(
+        store,
+        chainWith({ owner: OWNER_CONTRACT, blockNumber: 5n }, { accepts: ERC1271_MAGIC }),
+        { nonce: challenge.nonce, signature },
+        T0,
+      ),
+    ).rejects.toMatchObject({ code: LISTING_NONCE_USED });
+    const fresh = await issueChallenge(store, OWNED, 300, TOKEN, T0);
     const proof = await verifyOwnership(
       store,
       chainWith({ owner: OWNER_CONTRACT, blockNumber: 5n }, { accepts: ERC1271_MAGIC }),
-      { nonce: challenge.nonce, signature },
+      { nonce: fresh.nonce, signature: await stranger.signMessage({ message: fresh.message }) },
       T0,
     );
     expect(proof.signer).toBe(OWNER_CONTRACT);

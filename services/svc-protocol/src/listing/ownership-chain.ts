@@ -1,4 +1,4 @@
-import { BaseError, ContractFunctionZeroDataError, type Address, type Hex } from 'viem';
+import { decodeFunctionResult, encodeFunctionData, type Address, type Hex } from 'viem';
 import { classifyChainError, ChainUnavailableError } from '../chain/availability.js';
 import type { ProtocolChain } from '../chain/client.js';
 import { isExecutionRevert } from '../chain/revert.js';
@@ -19,11 +19,25 @@ const erc1271Abi = [
 ] as const;
 
 /**
- * A call the contract answered by reverting, or with no data: it has no such function, which is an answer, not an outage.
- * A node error that merely looks like a revert (-32603, a timeout, a 5xx) is not one: `isExecutionRevert` tells them apart.
+ * The most gas an ownership read may burn on the node. `owner()` and `isValidSignature` are views on contracts anyone can
+ * write, so an unbounded call could spend the node's whole call gas cap on every public request.
  */
-function contractSaidNo(err: unknown): boolean {
-  return isExecutionRevert(err) || (err instanceof BaseError && err.walk((e) => e instanceof ContractFunctionZeroDataError) !== null);
+export const OWNER_READ_GAS = 100_000n;
+export const ERC1271_READ_GAS = 300_000n;
+
+/**
+ * A call the contract answered by reverting: it has no such function, which is an answer, not an outage. A node error
+ * that merely looks like a revert (-32603, a timeout, a 5xx) is not one: `isExecutionRevert` tells them apart.
+ */
+const contractSaidNo = (err: unknown): boolean => isExecutionRevert(err);
+
+/** The decoded answer, or null when the contract returned nothing or something that is not that function's answer. */
+function decoded<T>(decode: () => T): T | null {
+  try {
+    return decode();
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -42,8 +56,14 @@ export function ownershipChain(chain: ProtocolChain): OwnershipChain {
         );
       try {
         const blockNumber = await chain.client.getBlockNumber();
-        const owner = await chain.client.readContract({ address: token, abi: ownableAbi, functionName: 'owner', blockNumber });
-        return /^0x0{40}$/i.test(owner) ? null : { owner, blockNumber };
+        const { data } = await chain.client.call({
+          to: token,
+          data: encodeFunctionData({ abi: ownableAbi, functionName: 'owner' }),
+          gas: OWNER_READ_GAS,
+          blockNumber,
+        });
+        const owner = data ? decoded(() => decodeFunctionResult({ abi: ownableAbi, functionName: 'owner', data })) : null;
+        return !owner || /^0x0{40}$/i.test(owner) ? null : { owner, blockNumber };
       } catch (err) {
         if (contractSaidNo(err)) return null;
         throw classifyChainError(err, 'listing owner', rpc);
@@ -59,13 +79,13 @@ export function ownershipChain(chain: ProtocolChain): OwnershipChain {
     },
     async isValidSignature(account: Address, hash: Hex, signature: Hex, blockNumber: bigint) {
       try {
-        return await chain.client.readContract({
-          address: account,
-          abi: erc1271Abi,
-          functionName: 'isValidSignature',
-          args: [hash, signature],
+        const { data } = await chain.client.call({
+          to: account,
+          data: encodeFunctionData({ abi: erc1271Abi, functionName: 'isValidSignature', args: [hash, signature] }),
+          gas: ERC1271_READ_GAS,
           blockNumber,
         });
+        return data ? decoded(() => decodeFunctionResult({ abi: erc1271Abi, functionName: 'isValidSignature', data })) : null;
       } catch (err) {
         if (contractSaidNo(err)) return null;
         throw classifyChainError(err, 'listing isValidSignature', rpc);

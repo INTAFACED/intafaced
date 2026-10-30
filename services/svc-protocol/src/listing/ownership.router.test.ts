@@ -22,6 +22,10 @@ function listingCaller(over: { ttl?: number | null; read?: { owner: Address; blo
       challenges.set(nonce, { ...c, usedAt });
       return true;
     },
+    spend: async (nonce, usedAt) => {
+      const c = challenges.get(nonce);
+      if (c && !c.usedAt) challenges.set(nonce, { ...c, usedAt });
+    },
     pruneExpired: async () => undefined,
   };
   const chain: OwnershipChain = {

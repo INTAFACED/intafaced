@@ -32,3 +32,6 @@ CREATE TABLE IF NOT EXISTS "protocol"."listing_ownership_proofs" (
 );
 
 CREATE INDEX IF NOT EXISTS "listing_ownership_proofs_token_idx" ON "protocol"."listing_ownership_proofs" ("chain_id", "token");
+
+-- Unused challenges by expiry: pruning reads this index, never the whole table.
+CREATE INDEX IF NOT EXISTS "listing_challenges_open_expiry_idx" ON "protocol"."listing_challenges" ("expires_at") WHERE "used_at" IS NULL;
