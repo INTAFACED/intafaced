@@ -23,9 +23,10 @@
  * run was made: a re-run tests the merge commit made then, against main as it was then (30 Oct: #6831, #6832 and #6834
  * re-ran runs from before the pause and hung or failed). Merge main and push for a fresh run instead.
  *
- * `--orphans` lists every open PR whose head's newest CI run was made more than three hours ago and has since been
- * re-run: nobody has pushed to it, and the re-run tests an old merge commit. #6831, #6832 and #6834 sat 10.8 hours like
- * that after their author sessions ended at the pause; this names them in one call.
+ * `--orphans` lists every open PR whose head's newest CI run was made more than three hours ago and was re-run more than
+ * three hours after that, in a job other than the seal: nobody has pushed to it, and the re-run tests an old merge commit.
+ * #6831, #6832 and #6834 sat 10.8 hours like that after their author sessions ended at the pause; this names them in one
+ * call.
  *
  * Read only: it changes no check and no result. A 403 or 429 from GitHub stops it (tooling/scripts/gate-gh.mjs).
  */
@@ -67,28 +68,39 @@ export function staleLines(runs = {}, checks = []) {
 }
 
 /**
- * One line per open PR whose head's newest pull_request CI run was made more than STALE_MS before `now` and is on a
- * later attempt: no push since, and a re-run of an old merge commit. `prs` are `{ number, title, headSha }`, `runs` maps
- * a head sha to its newest CI run (or null when it has none or could not be read).
+ * One line per open PR whose head's newest pull_request CI run was made more than STALE_MS before `now` and whose current
+ * attempt started more than STALE_MS after the run was made and re-ran a job other than the seal: nobody has pushed that
+ * head since, and the re-run tests an old merge commit. A prompt confirmation re-run and the sign-off workflow's re-run
+ * of the seal are not orphans, the same rule staleLines keeps. `prs` are `{ number, title, headSha }`; `runs` maps a head
+ * sha to `{ run, jobs }` (jobs: that attempt's jobs), `null` when the head has no CI run, or `undefined` when it could not
+ * be read, which is named, never passed as fine.
  */
 export function orphanLines(prs = [], runs = {}, now = Date.now()) {
   const out = [];
+  const unread = [];
   for (const pr of prs) {
-    const r = runs[pr.headSha];
+    if (runs[pr.headSha] === undefined) {
+      unread.push(pr.number);
+      continue;
+    }
+    const { run: r, jobs = [] } = runs[pr.headSha] ?? {};
     if (!r || !(r.run_attempt > 1) || !(now - Date.parse(r.created_at) > STALE_MS)) continue;
+    if (!(Date.parse(r.run_started_at) - Date.parse(r.created_at) > STALE_MS)) continue;
+    if (!jobs.some((j) => j.run_attempt === r.run_attempt && j.name !== SEAL)) continue;
     const hours = ((now - Date.parse(r.created_at)) / 3_600_000).toFixed(1);
     out.push(
-      `ORPHAN   #${pr.number} no push for ${hours}h (CI run ${r.id} made ${r.created_at}, now attempt ${r.run_attempt}): its owner merges main and pushes, or the lead gives it one. ${pr.title}`.slice(
+      `ORPHAN   #${pr.number} CI run ${r.id} was made ${hours}h ago (${r.created_at}) and re-run as attempt ${r.run_attempt} with no push since: its owner merges main and pushes, or the lead gives it one. ${pr.title}`.slice(
         0,
         WIDTH,
       ),
     );
   }
-  if (out.length === 0) out.push('NO ORPHANS: every open PR was pushed in the last three hours or has not been re-run since.');
+  if (unread.length > 0) out.push(`UNREAD   the CI runs of #${unread.join(', #')} could not be read: run --orphans again.`);
+  else if (out.length === 0) out.push('NO ORPHANS: no open PR has an old CI run that was re-run with no push since.');
   return out;
 }
 
-/** The open PRs and the newest CI run on each head, read with `gh api` (REST only). */
+/** The open PRs and, for each head, its newest CI run and that attempt's jobs, read with `gh api` (REST only). */
 export function collectOrphans(gh, repo) {
   const prs = [];
   for (let page = 1; ; page++) {
@@ -96,11 +108,34 @@ export function collectOrphans(gh, repo) {
     prs.push(...batch.map((p) => ({ number: p.number, title: p.title, headSha: p.head.sha })));
     if (batch.length < 100) break;
   }
+  const read = (path) => {
+    const r = gh(['api', path], { allowFail: true });
+    return r.status === 0 ? JSON.parse(r.stdout) : undefined;
+  };
+  // The CI workflow's recent pull_request runs in one listing (newest first), then one read per head it did not cover.
+  const newest = {};
+  const listed = read(`repos/${repo}/actions/workflows/ci.yml/runs?event=pull_request&per_page=100`);
+  for (const w of listed?.workflow_runs ?? []) newest[w.head_sha] ??= w;
   const runs = {};
-  for (const pr of prs) {
-    const r = gh(['api', `repos/${repo}/actions/runs?head_sha=${pr.headSha}&event=pull_request&per_page=20`], { allowFail: true });
-    const list = r.status === 0 ? (JSON.parse(r.stdout).workflow_runs ?? []) : [];
-    runs[pr.headSha] = list.filter((w) => w.name === 'CI').sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at))[0] ?? null;
+  for (const { headSha } of prs) {
+    let run = newest[headSha];
+    if (!run) {
+      const one = read(`repos/${repo}/actions/workflows/ci.yml/runs?event=pull_request&head_sha=${headSha}&per_page=1`);
+      if (one === undefined) continue; // unread: orphanLines names it
+      run = one.workflow_runs?.[0] ?? null;
+    }
+    if (!run) {
+      runs[headSha] = null;
+      continue;
+    }
+    // Only a candidate needs its attempt's jobs, to tell a re-run of the tests from the sign-off workflow's seal re-run.
+    const candidate = run.run_attempt > 1 && Date.parse(run.run_started_at) - Date.parse(run.created_at) > STALE_MS;
+    if (!candidate) {
+      runs[headSha] = { run, jobs: [] };
+      continue;
+    }
+    const jobs = read(`repos/${repo}/actions/runs/${run.id}/attempts/${run.run_attempt}/jobs?per_page=100`);
+    if (jobs !== undefined) runs[headSha] = { run, jobs: jobs.jobs ?? [] };
   }
   return { prs, runs };
 }
@@ -417,40 +452,54 @@ function selfTest() {
   assert(staleLines({ 1: null }, testsJob).length === 0, 'an unread run says nothing');
   const now = Date.parse('2026-10-30T13:40:00Z');
   const pr = { number: 6832, title: 'feat: x', headSha: 'b'.repeat(40) };
-  const run = { id: 40993723454, created_at: '2026-10-30T02:47:29Z', run_attempt: 3 };
-  const orphans = orphanLines([pr], { [pr.headSha]: run }, now);
+  const run = { id: 40993723454, created_at: '2026-10-30T02:47:29Z', run_started_at: '2026-10-30T13:16:00Z', run_attempt: 3 };
+  const testsRerun = [
+    { name: 'Tests (changed)', run_attempt: 3 },
+    { name: SEAL, run_attempt: 3 },
+  ];
+  const orphan = (over = {}, jobs = testsRerun) => orphanLines([pr], { [pr.headSha]: { run: { ...run, ...over }, jobs } }, now);
   assert(
-    orphans.length === 1 && orphans[0].startsWith('ORPHAN   #6832 no push for 10.9h'),
-    'a PR re-run hours after its last push is an orphan (#6832, 30 Oct)',
+    orphan()[0].startsWith('ORPHAN   #6832 CI run 40993723454 was made 10.9h ago'),
+    'an old run re-run with no push is an orphan (#6832, 30 Oct)',
   );
-  const none = (over) => orphanLines([pr], { [pr.headSha]: { ...run, ...over } }, now)[0].startsWith('NO ORPHANS');
-  assert(none({ run_attempt: 1 }), 'an old PR nobody re-ran is not an orphan: it is only waiting');
-  assert(none({ created_at: '2026-10-30T12:00:00Z' }), 'a recent push is not an orphan');
-  assert(orphanLines([pr], { [pr.headSha]: null }, now)[0].startsWith('NO ORPHANS'), 'a head with no CI run says nothing');
+  const clean = (lines) => lines.length === 1 && lines[0].startsWith('NO ORPHANS');
+  assert(clean(orphan({ run_attempt: 1 })), 'an old PR nobody re-ran is only waiting');
+  assert(clean(orphan({ created_at: '2026-10-30T12:00:00Z' })), 'a recent push is not an orphan');
+  assert(clean(orphan({ run_started_at: '2026-10-30T03:00:00Z' })), 'a prompt confirmation re-run is not an orphan');
+  assert(
+    clean(
+      orphan({}, [
+        { name: 'Tests (changed)', run_attempt: 1 },
+        { name: SEAL, run_attempt: 3 },
+      ]),
+    ),
+    "the sign-off workflow's seal re-run is not an orphan",
+  );
+  assert(clean(orphanLines([pr], { [pr.headSha]: null }, now)), 'a head with no CI run says nothing');
+  const unread = orphanLines([pr], {}, now);
+  assert(unread.length === 1 && unread[0].startsWith('UNREAD   the CI runs of #6832'), 'an unread head is named, never passed as fine');
   console.log('why-red self-test ok');
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
   const args = process.argv.slice(2);
+  const ri = args.indexOf('--repo');
+  const repo = ri >= 0 ? (args[ri + 1] ?? '') : 'INTAFACED/intafaced';
+  const ref = args.find((a, i) => !a.startsWith('--') && (ri < 0 || i !== ri + 1));
+  const usage = () => {
+    console.error('usage: why-red.mjs <PR number | 40-char sha> [--repo owner/name] | --orphans [--repo owner/name] | --self-test');
+    process.exit(2);
+  };
   if (args.includes('--self-test')) {
     selfTest();
+  } else if (!/^[\w.-]+\/[\w.-]+$/.test(repo)) {
+    usage();
   } else if (args.includes('--orphans')) {
-    const ri = args.indexOf('--repo');
-    const repo = ri >= 0 ? (args[ri + 1] ?? '') : 'INTAFACED/intafaced';
-    if (!/^[\w.-]+\/[\w.-]+$/.test(repo)) {
-      console.error('usage: why-red.mjs --orphans [--repo owner/name]');
-      process.exit(2);
-    }
+    if (ref) usage();
     const { prs, runs } = collectOrphans(makeGh(), repo);
     for (const line of orphanLines(prs, runs)) console.log(line);
   } else {
-    const ri = args.indexOf('--repo');
-    const repo = ri >= 0 ? (args[ri + 1] ?? '') : 'INTAFACED/intafaced';
-    const ref = args.find((a, i) => !a.startsWith('--') && (ri < 0 || i !== ri + 1));
-    if (!ref || !/^(\d+|[0-9a-f]{40})$/.test(ref) || !/^[\w.-]+\/[\w.-]+$/.test(repo)) {
-      console.error('usage: why-red.mjs <PR number | 40-char sha> [--repo owner/name] | --orphans | --self-test');
-      process.exit(2);
-    }
+    if (!ref || !/^(\d+|[0-9a-f]{40})$/.test(ref)) usage();
     for (const line of summarize(collect(makeGh(), repo, ref))) console.log(line);
   }
 }
