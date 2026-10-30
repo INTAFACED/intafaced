@@ -586,40 +586,36 @@ test(`${J} #5 with a rail: a pending row with the deposit address and reference;
 /** The capped TEST tier's daily payout cap (JOURNEY_CAPPED_DAILY_PAYOUT in local-test-merchant-pricing.mjs). */
 const CAPPED_DAILY_PAYOUT = '1';
 
-/** One fact's value in the payout page's check list: the `dd` under the `dt` with exactly this label. */
-const payoutFact = (page, label) =>
-  page
-    .locator('main [data-testid="pp-facts"] > div')
-    .filter({ has: page.locator('dt').getByText(label, { exact: true }) })
+/** A decimal string as a scaled bigint (18 places), so amounts are compared exactly, never as floats. */
+const scaled = (amount) => {
+  const [whole, frac = ''] = String(amount).split('.');
+  return BigInt(whole) * 10n ** 18n + BigInt((frac + '0'.repeat(18)).slice(0, 18));
+};
+/** A service amount as the portal writes it: rounded half-up to two places, thousands commas (data/format.ts fmtAmount). */
+const shown = (amount) => {
+  const cents = (scaled(amount) + 5n * 10n ** 15n) / 10n ** 16n;
+  const whole = (cents / 100n).toString().replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+  return `${whole}.${(cents % 100n).toString().padStart(2, '0')}`;
+};
+/** The exact text of a USDT figure, with the TEST tag MoneyText adds after the unit while the business is in test mode. */
+const usdtText = (amount) => `${shown(amount).replace(/[.,]/g, '\\$&')} USDT( TEST)?`;
+
+/** One fact's value in a facts list (the page's or the review's): the `dd` under the `dt` with exactly this label. */
+const factIn = (scope, label) =>
+  scope
+    .getByTestId('pp-facts')
+    .locator(':scope > div')
+    .filter({ has: scope.page().locator('dt').getByText(label, { exact: true }) })
     .locator('dd');
 
-/** A service amount as the portal writes it: two decimals and thousands commas (TEST figures here are small). */
-const shown = (amount) => Number(amount).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-
-/** The business's payout destinations as svc-pay lists them; the owner saves a TEST wallet first when there is none. */
-async function defaultDestination(page, api, merchantId) {
-  const list = async () => (await api.query('merchant.payoutDestinations.list', { merchantId, limit: 50 })).items;
-  if ((await list()).length === 0) {
-    const owner = await signInOwner(page, '/pay/onboarding/go-live');
-    await page.getByLabel('Wallet address *').fill(`0x${'c7'.repeat(20)}`);
-    await page.getByRole('button', { name: 'Save destination' }).click();
-    const review = page.getByRole('dialog');
-    const { code, step } = await nextCode(owner.totp, owner.secret, owner.step);
-    run.write({ owner: saved({ ...owner, step }) });
-    await review.getByLabel('6-digit code from your authenticator app *').fill(code);
-    await review.getByRole('button', { name: 'Save destination' }).click();
-    await expect(page.getByText('Destination saved.', { exact: true })).toBeVisible();
-  }
-  const items = await list();
-  const chosen = items.find((d) => d.defaultFlag === 'default') ?? (items.length === 1 ? items[0] : null);
-  expect(chosen, 'the destination the payout page chooses for the owner: the default, or the only one').toBeTruthy();
-  return chosen;
-}
+const APPROVAL_RULE =
+  'Above your approval limit, a second person on your team must approve before it is sent. Below it, it is sent right away.';
 
 test(`${J} #6 presses Pay out on a posted settlement: the whole net with no amount box, the destination and the approval rule; with a limit exceeded the page says so`, async ({
   page,
 }) => {
-  test.setTimeout(420_000);
+  // Three founder-pair tier changes (each can wait out TOTP steps) and the page work around them.
+  test.setTimeout(900_000);
   const { merchantId, settlement } = journey();
   expect(settlement, 'the TEST settlement #2 posted').toBeTruthy();
   const api = await ownerApi();
@@ -627,57 +623,109 @@ test(`${J} #6 presses Pay out on a posted settlement: the whole net with no amou
   expect(merchantPricing(merchantId, '--tier', 'priced', '--payout-not-charged')).toMatchObject({ onTier: true });
   const posted = await api.query('settlement.get', { settlementId: settlement });
   expect(posted).toMatchObject({ id: settlement, merchantId, status: 'posted', assetId: 'USDT' });
-  expect(Number(posted.net)).toBeGreaterThan(Number(CAPPED_DAILY_PAYOUT));
-  const dest = await defaultDestination(page, api, merchantId);
+  expect(scaled(posted.net) > scaled(CAPPED_DAILY_PAYOUT)).toBe(true);
+  // The destination #2 saved, as svc-pay keeps it: the page chooses it for the owner (the default, or the only one).
+  const dests = (await api.query('merchant.payoutDestinations.list', { merchantId, limit: 50 })).items;
+  const dest = dests.find((d) => d.defaultFlag === 'default') ?? (dests.length === 1 ? dests[0] : null);
+  expect(dest, 'the destination #2 saved').toBeTruthy();
+  const usage = async () =>
+    (await api.query('merchantControl.usage', { merchantId })).rows.find((r) => r.kind === 'daily_payout' && r.assetCode === 'USDT');
+  const roomy = await usage();
+  expect(roomy, 'a daily payout cap on the TEST tier').toBeTruthy();
+  expect(scaled(roomy.remaining) >= scaled(posted.net)).toBe(true);
   const refused = refusedPayCalls(page);
 
-  // Pay out from the settlement's own payout page opens the payout form on that settlement.
-  await signInOwner(page, `/pay/payouts/${encodeURIComponent(settlement)}`);
+  // From the posted settlement on Settlements, to its payout, to the payout form on that settlement.
+  await signInOwner(page, '/pay/settlements');
+  await page
+    .getByRole('row')
+    .filter({ hasText: settlement.slice(0, 8) })
+    .getByRole('link')
+    .first()
+    .click();
+  await expect(page).toHaveURL(new RegExp(`/pay/settlements/${settlement}$`));
+  await page.getByRole('link', { name: 'The payout for this settlement' }).click();
+  await expect(page).toHaveURL(new RegExp(`/pay/payouts/${settlement}$`));
   await page.getByRole('link', { name: 'Request this payout' }).click();
   await expect(page).toHaveURL(new RegExp(`/pay/payouts/new\\?settlement=${settlement}$`));
   await expect(page.getByLabel('Settlement')).toHaveValue(settlement);
+
   // The whole net: no amount box anywhere, and the amount is the service's net for this settlement.
-  await expect(page.getByRole('textbox', { name: /amount/i })).toHaveCount(0);
-  await expect(page.getByRole('spinbutton')).toHaveCount(0);
-  await expect(payoutFact(page, 'Amount')).toHaveText(new RegExp(`^(TEST )?${shown(posted.net).replace('.', '\\.')} USDT`));
-  // The destination is the one svc-pay keeps for the business, chosen for the owner.
+  const main = page.getByRole('main');
+  await expect(main.getByRole('textbox', { name: /amount/i })).toHaveCount(0);
+  await expect(main.getByRole('spinbutton')).toHaveCount(0);
+  await expect(factIn(main, 'Amount')).toHaveText(new RegExp(`^${usdtText(posted.net)}$`));
+  // The destination is the one svc-pay keeps for the business; today's limit is what the service says is left; the
+  // approval rule is stated. (A merchant reads no approval threshold: the tier's approval bar is not in what svc-pay
+  // shows a merchant, merchantTierSummarySchema.)
   await expect(page.getByLabel('Destination')).toHaveValue(dest.id);
-  // Today's limit is what the service says is left; the approval rule is stated.
-  const left = async () =>
-    (await api.query('merchantControl.usage', { merchantId })).rows.find((r) => r.kind === 'daily_payout' && r.assetCode === 'USDT');
-  const roomy = await left();
-  expect(roomy, 'a daily payout cap on the TEST tier').toBeTruthy();
-  expect(Number(roomy.remaining)).toBeGreaterThanOrEqual(Number(posted.net));
-  await expect(payoutFact(page, 'Today’s payout limit')).toContainText(`${shown(roomy.remaining)} USDT left today`);
-  await expect(payoutFact(page, 'Approval')).toHaveText(
-    'Above your approval limit, a second person on your team must approve before it is sent. Below it, it is sent right away.',
-  );
-  const payOut = page.getByRole('button', { name: 'Pay out', exact: true });
+  await expect(factIn(main, 'Today’s payout limit')).toHaveText(new RegExp(`^${usdtText(roomy.remaining)} left today$`));
+  await expect(factIn(main, 'Approval')).toHaveText(APPROVAL_RULE);
+  await expect(main.getByText('This is more than you have left of today’s payout limit', { exact: false })).toHaveCount(0);
+
+  // Pressing Pay out opens the review: the same whole net, the destination, the limit and the approval rule. It is
+  // closed without sending (#7 sends).
+  const payOut = main.getByRole('button', { name: 'Pay out', exact: true });
   await expect(payOut).toBeEnabled();
-  await expect(page.getByText('This is more than you have left of today’s payout limit', { exact: false })).toHaveCount(0);
+  await payOut.click();
+  const review = page.getByRole('dialog');
+  await expect(factIn(review, 'Amount')).toHaveText(new RegExp(`^${usdtText(posted.net)}$`));
+  await expect(factIn(review, 'Goes to')).toContainText(dest.destinationMasked);
+  await expect(factIn(review, 'Today’s payout limit')).toHaveText(new RegExp(`^${usdtText(roomy.remaining)} left today$`));
+  await expect(factIn(review, 'Approval')).toHaveText(APPROVAL_RULE);
+  await expect(review.getByRole('textbox', { name: /amount/i })).toHaveCount(0);
+  await review.getByRole('button', { name: 'Close dialog' }).click();
+  await expect(review).toHaveCount(0);
 
   // With a limit exceeded the page says so: on a TEST tier whose daily payout cap is 1 USDT, the net is more than is
   // left today, the page says why and Pay out is off. Nothing is asked of the service, and the settlement is unchanged.
+  const asked = [];
+  page.on('request', (r) => {
+    const path = new URL(r.url()).pathname;
+    if (/settlement\.payout|merchantControl\.approvals\.request/.test(path)) asked.push(path);
+  });
+  let failed = null;
   try {
     expect(merchantPricing(merchantId, '--tier', 'capped', '--payout-not-charged')).toMatchObject({ onTier: true });
-    const tight = await left();
-    expect(tight.limit).toMatch(/^1(\.0+)?$/);
-    expect(Number(tight.remaining)).toBeLessThan(Number(posted.net));
-    await page.reload();
-    await expect(page.getByLabel('Settlement')).toHaveValue(settlement);
-    await expect(payoutFact(page, 'Today’s payout limit')).toContainText(`${shown(tight.remaining)} USDT left today`);
+    let tight = null;
+    await expect
+      .poll(async () => {
+        tight = await usage();
+        return tight ? scaled(tight.limit) : null;
+      })
+      .toBe(scaled(CAPPED_DAILY_PAYOUT));
+    expect(scaled(tight.remaining) < scaled(posted.net)).toBe(true);
+    await expect(async () => {
+      await page.reload();
+      await expect(page.getByLabel('Settlement')).toHaveValue(settlement);
+      await expect(factIn(main, 'Today’s payout limit')).toHaveText(new RegExp(`^${usdtText(tight.remaining)} left today$`), {
+        timeout: 5_000,
+      });
+    }).toPass({ timeout: 60_000 });
     await expect(
-      page
+      main
         .getByRole('note')
         .filter({ hasText: 'This is more than you have left of today’s payout limit. Wait until it resets, or ask for a higher limit.' }),
     ).toHaveCount(1);
     await expect(payOut).toBeDisabled();
+    expect(asked, 'no payout or approval request was sent').toEqual([]);
     expect(await api.query('settlement.get', { settlementId: settlement })).toEqual(posted);
     expect((await api.query('merchantControl.approvals.list', { merchantId, limit: 50 })).items).toEqual([]);
-  } finally {
-    // Back on the priced tier for the payout steps after this one.
-    merchantPricing(merchantId, '--tier', 'priced', '--payout-not-charged');
+  } catch (err) {
+    failed = err;
   }
+  // Back on the priced tier for the payout steps after this one, whatever happened above; a failed restore is named,
+  // and never hides the failure before it.
+  let restored = null;
+  let restoreError = null;
+  try {
+    restored = merchantPricing(merchantId, '--tier', 'priced', '--payout-not-charged');
+  } catch (err) {
+    restoreError = err;
+  }
+  if (failed) throw failed;
+  if (restoreError) throw restoreError;
+  expect(restored, 'the business is back on its priced tier for #7 and #8').toMatchObject({ onTier: true });
   expect(refused).toEqual([]);
 });
 

@@ -1,7 +1,9 @@
 #!/usr/bin/env node
 /**
  * LOCAL TEST merchant pricing — puts one TEST business on a TEST risk tier through svc-pay's own two-founder doors, for
- * journey tests that read Pricing and Fees (J-merchant-07 #3). Local only.
+ * journey tests that read Pricing and Fees (J-merchant-07 #3) and that need today's payout limit exceeded (#6, which puts
+ * the business back on its priced tier after). The payout steps after #3 (#6, #7, #8) rely on the priced tier's caps and
+ * thresholds, so a change to `journeyTier`'s shared caps changes them too. Local only.
  *
  *   node tooling/scripts/local-test-merchant-pricing.mjs <merchantId> --tier priced|blank|capped [--payout-not-charged]
  *
