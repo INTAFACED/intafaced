@@ -1754,6 +1754,97 @@
         }
       }
     },
+    "/api/v1/bots/grid": {
+      "get": {
+        "operationId": "fetchGridBots",
+        "summary": "This account’s spot grid bots",
+        "tags": ["spot"],
+        "security": [{ "apiKey": [] }],
+        "x-access": "private",
+        "x-scopes": ["trade:read"],
+        "x-signed-out": { "status": 401, "field": "code", "code": "trade.unauthenticated" },
+        "x-cost": 1,
+        "responses": {
+          "200": { "description": "Success" },
+          "401": { "description": "No credential, or one that did not verify (401 with code trade.unauthenticated)" },
+          "403": { "description": "An API key without trade:read (PermissionDenied, scope.denied); the body links the permission table" },
+          "429": { "description": "Over the rate limit (edge.rate_limited); retry after retryAfterSeconds" }
+        }
+      },
+      "post": {
+        "operationId": "createGridBot",
+        "summary": "Start a neutral spot grid bot; the same clientId returns the same bot",
+        "tags": ["spot"],
+        "security": [{ "apiKey": [] }],
+        "x-access": "private",
+        "x-scopes": ["trade:write"],
+        "x-signed-out": { "status": 401, "field": "code", "code": "trade.unauthenticated" },
+        "x-cost": 1,
+        "responses": {
+          "200": { "description": "Success" },
+          "401": { "description": "No credential, or one that did not verify (401 with code trade.unauthenticated)" },
+          "403": { "description": "An API key without trade:write (PermissionDenied, scope.denied); the body links the permission table" },
+          "429": { "description": "Over the rate limit (edge.rate_limited); retry after retryAfterSeconds" }
+        }
+      }
+    },
+    "/api/v1/bots/grid/{id}": {
+      "get": {
+        "operationId": "fetchGridBot",
+        "summary": "One spot grid bot, with its levels and orders",
+        "tags": ["spot"],
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "security": [{ "apiKey": [] }],
+        "x-access": "private",
+        "x-scopes": ["trade:read"],
+        "x-signed-out": { "status": 401, "field": "code", "code": "trade.unauthenticated" },
+        "x-cost": 1,
+        "responses": {
+          "200": { "description": "Success" },
+          "401": { "description": "No credential, or one that did not verify (401 with code trade.unauthenticated)" },
+          "403": { "description": "An API key without trade:read (PermissionDenied, scope.denied); the body links the permission table" },
+          "429": { "description": "Over the rate limit (edge.rate_limited); retry after retryAfterSeconds" }
+        }
+      }
+    },
+    "/api/v1/bots/grid/{id}/stop": {
+      "post": {
+        "operationId": "stopGridBot",
+        "summary": "Stop a grid bot; what it bought stays in the balance (settlement keep)",
+        "tags": ["spot"],
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "security": [{ "apiKey": [] }],
+        "x-access": "private",
+        "x-scopes": ["trade:write"],
+        "x-signed-out": { "status": 401, "field": "code", "code": "trade.unauthenticated" },
+        "x-cost": 1,
+        "responses": {
+          "200": { "description": "Success" },
+          "401": { "description": "No credential, or one that did not verify (401 with code trade.unauthenticated)" },
+          "403": { "description": "An API key without trade:write (PermissionDenied, scope.denied); the body links the permission table" },
+          "429": { "description": "Over the rate limit (edge.rate_limited); retry after retryAfterSeconds" }
+        }
+      }
+    },
+    "/api/v1/bots/grid/{id}/withdraw": {
+      "post": {
+        "operationId": "withdrawGridProfit",
+        "summary": "Withdraw a grid bot’s profit; needs a step-up confirmation",
+        "tags": ["spot"],
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "security": [{ "apiKey": [] }],
+        "x-access": "private",
+        "x-scopes": ["trade:write"],
+        "x-signed-out": { "status": 401, "field": "code", "code": "trade.unauthenticated" },
+        "x-cost": 1,
+        "responses": {
+          "200": { "description": "Success" },
+          "401": { "description": "No credential, or one that did not verify (401 with code trade.unauthenticated)" },
+          "403": { "description": "An API key without trade:write (PermissionDenied, scope.denied); the body links the permission table" },
+          "429": { "description": "Over the rate limit (edge.rate_limited); retry after retryAfterSeconds" }
+        }
+      }
+    },
     "/api/v1/vip/applications": {
       "get": {
         "operationId": "fetchVipApplications",

@@ -48,6 +48,11 @@ Every trading REST route and WebSocket stream, under its product, with the permi
 | `POST /api/v1/spot/positions/close`                 | `closeSpotPosition`     | trade:write                   |
 | `POST /api/v1/promotions`                           | `previewPromotion`      | trade:write                   |
 | `POST /api/v1/quant/live-deploy`                    | `previewLiveDeploy`     | trade:write                   |
+| `GET /api/v1/bots/grid`                             | `fetchGridBots`         | trade:read                    |
+| `GET /api/v1/bots/grid/:id`                         | `fetchGridBot`          | trade:read                    |
+| `POST /api/v1/bots/grid`                            | `createGridBot`         | trade:write                   |
+| `POST /api/v1/bots/grid/:id/stop`                   | `stopGridBot`           | trade:write                   |
+| `POST /api/v1/bots/grid/:id/withdraw`               | `withdrawGridProfit`    | trade:write                   |
 
 | WebSocket stream | Door                                                   | Permission                |
 | ---------------- | ------------------------------------------------------ | ------------------------- |
