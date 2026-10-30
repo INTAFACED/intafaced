@@ -16,15 +16,16 @@ import { kycReasonCodeSchema } from './identity-kyc-cases.js';
  * - The customer reads the status and the decision's words; the free text they wrote is theirs and is never shown to
  *   anyone but staff. Staff free text never reaches the customer.
  *
- * Appeals cover the restriction a signed-in person can reach today: the trading restriction. A staff freeze and a
- * closure refuse signing in, so their appeal path, and the refusal of a closure flagged final, are a later slice.
+ * Appeals cover the trading restriction, which a signed-in person appeals from the account status page, and a staff
+ * freeze, which refuses signing in: its appeal is filed signed out (`submitSignedOut`), with the account's password
+ * checked as on sign-in. A closure is not appealable yet: identity keeps no flag that says a closure is final.
  */
 export const APPEAL_STATUSES = ['submitted', 'in_review', 'upheld', 'lifted', 'withdrawn'] as const;
 export const appealStatusSchema = z.enum(APPEAL_STATUSES);
 export type AppealStatus = z.infer<typeof appealStatusSchema>;
 
 /** The restrictions an appeal can name. */
-export const APPEALABLE_RESTRICTIONS = ['trading_restricted'] as const;
+export const APPEALABLE_RESTRICTIONS = ['trading_restricted', 'staff_freeze'] as const;
 export const appealRestrictionSchema = z.enum(APPEALABLE_RESTRICTIONS);
 export type AppealRestriction = z.infer<typeof appealRestrictionSchema>;
 
@@ -40,6 +41,20 @@ export const appealSubmitInputSchema = z
   })
   .strict();
 export type AppealSubmitInput = z.infer<typeof appealSubmitInputSchema>;
+
+/**
+ * A staff-frozen person's appeal, filed signed out: the sign-in name and password prove the account (counted on the
+ * sign-in lockout, the same answer for an unknown name and a wrong password), and the appeal names the staff freeze.
+ */
+export const appealSubmitSignedOutInputSchema = z
+  .object({
+    identifier: z.string().trim().min(1).max(320),
+    password: z.string().min(1).max(1024),
+    text: z.string().trim().min(1).max(APPEAL_TEXT_MAX),
+    clientRequestId: z.string().min(1).max(128),
+  })
+  .strict();
+export type AppealSubmitSignedOutInput = z.infer<typeof appealSubmitSignedOutInputSchema>;
 
 /** The owner's words for a decision code; null when the code is no longer on the list. */
 export const appealDecisionReasonSchema = z
@@ -73,9 +88,15 @@ export const appealsMineSchema = z
   .strict();
 export type AppealsMine = z.infer<typeof appealsMineSchema>;
 
-/** What compliance reads: the appeal, whose it is and who set the restriction it names. */
+/** What compliance reads: the appeal, whose it is, who set the restriction it names and at which version. */
 export const appealForStaffSchema = appealSchema
-  .extend({ userId: z.string().uuid(), restrictedBy: z.string().uuid().nullable(), decidedBy: z.string().uuid().nullable() })
+  .extend({
+    userId: z.string().uuid(),
+    restrictedBy: z.string().uuid().nullable(),
+    decidedBy: z.string().uuid().nullable(),
+    /** The restriction's version the appeal names: what a lift's approval and `restrictionVersion` bind. */
+    restrictionVersion: z.string().regex(/^\d+$/),
+  })
   .strict();
 export type AppealForStaff = z.infer<typeof appealForStaffSchema>;
 
@@ -87,8 +108,9 @@ export const appealDecideInputSchema = z
     /** The appeal version the decider read. */
     expectedVersion: z.string().regex(/^\d+$/),
     /**
-     * A lift only: the `trading.restrict` four-eyes approval over the restore whose reason is `appeal:<appealId>`, at
-     * the restriction version the decider read (`restrictionVersion`). An uphold carries neither.
+     * A lift only: the four-eyes approval over the restore whose reason is `appeal:<appealId>`, at the restriction
+     * version the decider read (`restrictionVersion`): `trading.restrict` for a trading restriction,
+     * `identity.account_unfreeze` for a staff freeze. An uphold carries neither.
      */
     approvalId: z.string().min(1).max(128).optional(),
     restrictionVersion: z.string().regex(/^\d+$/).optional(),

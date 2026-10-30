@@ -33,6 +33,9 @@ export default ({ c, secrets, dbUrl, PORTS, UNUSED, testChain }) => ({
       INDEXER_POLL_INTERVAL_MS: '1000',
       INDEXER_EXPLORER_LIST_LIMIT: testValue('INDEXER_EXPLORER_LIST_LIMIT'),
       INDEXER_TX_DROP_WINDOW_SECONDS: testValue('INDEXER_TX_DROP_WINDOW_SECONDS'),
+      // The pools the explorer lists (J-dex-protocol-09 #7): the seeded TEST pool factory, the one svc-protocol quotes from.
+      // With no chain it stays unset and every pools read refuses indexer.pool_factory_unset.
+      ...(chain ? { INDEXER_POOL_FACTORY_ADDRESS: chain.factory } : {}),
       // The search's second network (J-dex-protocol-09 #10): the stack's second LOCAL TEST chain, behind its own gate.
       INDEXER_SEARCH_NETWORKS: chain ? JSON.stringify([{ chainId: SECOND_CHAIN_ID, rpcUrl: SECOND_GATE_URL }]) : '',
     };

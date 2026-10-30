@@ -46,7 +46,7 @@ describe('Web3 routes (IA-SPEC 2.8)', () => {
 
   it('puts a specific route before the parameter route that could swallow it', () => {
     expect(matchWeb3Route('/dex/pools/new')?.route.pending?.page).toBe('poolNew');
-    expect(matchWeb3Route('/dex/pools/abc')?.route.pending?.page).toBe('poolDetail');
+    expect(matchWeb3Route('/dex/pools/abc')?.route.pool).toBe('detail');
     expect(matchWeb3Route('/dex/pools/')?.route.tab).toBe('pools');
     expect(matchWeb3Route('/chain/blocks/123456')?.params).toEqual({ height: '123456' });
   });

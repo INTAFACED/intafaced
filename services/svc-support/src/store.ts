@@ -297,6 +297,20 @@ export interface SupportStore {
    * published flag; the same audience again changes nothing and writes no audit row.
    */
   setKbAudience(input: SetKbAudienceStoreInput): Promise<SetKbAudienceResult>;
+  /**
+   * Save a draft (SP-kb-01): a new immutable version row above the live head, which readers never see. The base must be
+   * the newest version, draft or not; a draft keeps the live version's audience.
+   */
+  saveKbDraft(input: SaveKbDraftInput): Promise<SaveKbDraftResult>;
+  /** One draft version, or null. */
+  getKbDraft(id: string, revision: number): Promise<KbDraft | null>;
+  /** Every version of an article, drafts included, oldest first. */
+  listKbHistory(id: string): Promise<KbHistoryRow[]>;
+  /**
+   * Publish a draft: a new non-draft version copying it, and the head moves there. Refused when any version is newer than
+   * the draft (it was edited or published since), so only the newest draft can go live.
+   */
+  publishKbDraft(input: { id: string; revision: number }): Promise<PublishKbDraftResult>;
   /** Audience changes for one article, oldest first. */
   listKbAudienceChanges(articleId: string): Promise<KbAudienceChange[]>;
   /**
@@ -354,6 +368,53 @@ export interface SupportStore {
 
 /** Text typed in the desk with its section (SP-kb-01). */
 export type PutKbRevisionText = { title: string; body: string; language: string; sectionId: string };
+
+/** A saved help-article draft (SP-kb-01): an immutable version row above the live head, not readable by the public. */
+export interface KbDraft {
+  readonly id: string;
+  readonly revision: number;
+  readonly authorId: string;
+  readonly templateId: string | null;
+  readonly title: string;
+  readonly body: string;
+  readonly language: string;
+  readonly sectionId: string;
+  readonly tags: readonly string[];
+  readonly audience: SupportKbAudience;
+  readonly createdAt: string;
+}
+
+export interface SaveKbDraftInput {
+  readonly id: string;
+  /** The newest version the author read, draft or not; 0 for a new article. */
+  readonly baseRevision: number;
+  readonly authorId: string;
+  readonly templateId: string | null;
+  readonly title: string;
+  readonly body: string;
+  readonly language: string;
+  readonly sectionId: string;
+  readonly tags: readonly string[];
+}
+
+export type SaveKbDraftResult = { status: 'ok'; draft: KbDraft } | { status: 'refuse'; reason: 'revision_stale' | 'section_unknown' };
+
+/** One row of an article's history, oldest first: every immutable version, drafts included. */
+export interface KbHistoryRow {
+  readonly revision: number;
+  readonly draft: boolean;
+  readonly authorId: string | null;
+  readonly title: string | null;
+  readonly audience: SupportKbAudience;
+  /** True on the version public readers see now. */
+  readonly live: boolean;
+  readonly createdAt: string | null;
+  /** On a version published from a draft, that draft's revision. */
+  readonly sourceRevision: number | null;
+}
+
+export type PublishKbDraftResult =
+  { status: 'ok'; article: SupportKbArticle } | { status: 'refuse'; reason: 'revision_stale' | 'draft_unknown' | 'section_unknown' };
 
 export type PutKbRevisionInput =
   | {
@@ -761,6 +822,44 @@ function kbFromVersionPg(row: PgKbVersion): SupportKbArticle {
   });
 }
 
+/** The number the next version row of an article takes: one past every row, draft or not. */
+async function pgNextKbVersion(tx: TransactionSql, id: string): Promise<number> {
+  const [row] = await tx<{ next: number }[]>`
+    SELECT COALESCE(MAX(version), 0) + 1 AS next FROM support.kb_article_versions WHERE id = ${id}
+  `;
+  return Number(row!.next);
+}
+
+type PgKbDraft = {
+  id: string;
+  version: number;
+  author_id: string;
+  template_id: string | null;
+  title: string;
+  body: string;
+  language: string;
+  section_id: string;
+  tags: string[] | null;
+  audience: SupportKbAudience;
+  created_at: Date;
+};
+
+function kbDraftFromPg(row: PgKbDraft): KbDraft {
+  return {
+    id: row.id,
+    revision: Number(row.version),
+    authorId: row.author_id,
+    templateId: row.template_id,
+    title: row.title,
+    body: row.body,
+    language: row.language,
+    sectionId: row.section_id,
+    tags: row.tags ?? [],
+    audience: row.audience,
+    createdAt: toIso(row.created_at),
+  };
+}
+
 function assertPersistable(
   article: Pick<SupportKbArticle, 'id' | 'titleKey' | 'bodyKey'>,
   text?: PutKbRevisionText,
@@ -877,6 +976,8 @@ export class MemorySupportStore implements SupportStore {
   private readonly cases = new Map<string, SupportCaseFile[]>();
   private readonly kb = new Map<string, SupportKbArticle>();
   private readonly kbVersions = new Map<string, SupportKbArticle[]>();
+  private readonly kbDrafts = new Map<string, KbDraft[]>();
+  private readonly kbPublishedFrom = new Map<string, { revision: number; authorId: string }>();
   private readonly kbAudienceChanges: KbAudienceChange[] = [];
   private readonly receipts = new Map<string, unknown>();
   private readonly ratings = new Map<string, TicketRating & { clientRequestId: string }>();
@@ -1334,8 +1435,16 @@ export class MemorySupportStore implements SupportStore {
     this.kbVersions.set(article.id, list);
   }
 
+  /** One past every version row of the article, draft or not (drafts sit above the head). */
+  private nextKbVersion(id: string): number {
+    const versions = (this.kbVersions.get(id) ?? []).map((a) => kbVersionOf(a));
+    const drafts = (this.kbDrafts.get(id) ?? []).map((d) => d.revision);
+    return Math.max(0, ...versions, ...drafts) + 1;
+  }
+
   async putKbRevision(input: PutKbRevisionInput): Promise<PutKbRevisionResult> {
     const current = this.kb.get(input.id);
+    const nextNumber = this.nextKbVersion(input.id);
     if (input.published) {
       const bad = assertPersistable({ id: input.id, titleKey: input.titleKey, bodyKey: input.bodyKey }, input.text);
       if (bad) return bad;
@@ -1345,8 +1454,8 @@ export class MemorySupportStore implements SupportStore {
           id: input.id,
           titleKey: input.titleKey,
           bodyKey: input.bodyKey,
-          version: 1,
-          revision: 1,
+          version: nextNumber,
+          revision: nextNumber,
           published: true,
           ...topicOn(input),
           audience: 'public',
@@ -1357,7 +1466,7 @@ export class MemorySupportStore implements SupportStore {
         return { status: 'ok', article: { ...created } };
       }
       if (kbVersionOf(current) !== input.baseRevision) return { status: 'refuse', reason: 'revision_stale' };
-      const nextVersion = kbVersionOf(current) + 1;
+      const nextVersion = nextNumber;
       const next = toPublicKb({
         id: input.id,
         titleKey: input.titleKey,
@@ -1377,7 +1486,7 @@ export class MemorySupportStore implements SupportStore {
     if (!current) return { status: 'refuse', reason: 'invalid' };
     if (current.revision !== input.baseRevision) return { status: 'refuse', reason: 'revision_stale' };
     // Same CAS as Postgres: hiding bumps revision so the old baseRevision cannot republish.
-    const nextRevision = (current.revision ?? kbVersionOf(current)) + 1;
+    const nextRevision = nextNumber;
     const hidden = toPublicKb({
       id: current.id,
       titleKey: current.titleKey,
@@ -1401,7 +1510,8 @@ export class MemorySupportStore implements SupportStore {
     if (revision !== input.baseRevision) return { status: 'refuse', reason: 'revision_stale' };
     const from = current.audience ?? 'public';
     if (from === input.audience) return { status: 'ok', article: { ...current }, changed: false };
-    const next = toPublicKb({ ...current, version: revision + 1, revision: revision + 1, audience: input.audience });
+    const to = this.nextKbVersion(input.id);
+    const next = toPublicKb({ ...current, version: to, revision: to, audience: input.audience });
     this.kb.set(input.id, next);
     this.rememberVersion(next);
     this.kbAudienceChanges.push({
@@ -1409,11 +1519,91 @@ export class MemorySupportStore implements SupportStore {
       fromAudience: from,
       toAudience: input.audience,
       fromRevision: revision,
-      toRevision: revision + 1,
+      toRevision: to,
       actorId: input.actorId,
       createdAt: new Date().toISOString(),
     });
     return { status: 'ok', article: { ...next }, changed: true };
+  }
+
+  async saveKbDraft(input: SaveKbDraftInput): Promise<SaveKbDraftResult> {
+    const next = this.nextKbVersion(input.id);
+    if (input.baseRevision !== next - 1) return { status: 'refuse', reason: 'revision_stale' };
+    const head = this.kb.get(input.id);
+    const draft: KbDraft = {
+      id: input.id,
+      revision: next,
+      authorId: input.authorId,
+      templateId: input.templateId,
+      title: input.title,
+      body: input.body,
+      language: input.language,
+      sectionId: input.sectionId,
+      tags: [...input.tags],
+      audience: head?.audience ?? 'public',
+      createdAt: new Date().toISOString(),
+    };
+    this.kbDrafts.set(input.id, [...(this.kbDrafts.get(input.id) ?? []), draft]);
+    return { status: 'ok', draft: { ...draft } };
+  }
+
+  async getKbDraft(id: string, revision: number): Promise<KbDraft | null> {
+    const draft = (this.kbDrafts.get(id) ?? []).find((d) => d.revision === revision);
+    return draft ? { ...draft } : null;
+  }
+
+  async listKbHistory(id: string): Promise<KbHistoryRow[]> {
+    const head = this.kb.get(id);
+    const live = head?.published ? kbVersionOf(head) : null;
+    const versions: KbHistoryRow[] = (this.kbVersions.get(id) ?? []).map((a) => {
+      const from = this.kbPublishedFrom.get(`${id}\0${kbVersionOf(a)}`);
+      return {
+        revision: kbVersionOf(a),
+        draft: false,
+        authorId: from?.authorId ?? null,
+        title: a.title ?? null,
+        audience: a.audience ?? 'public',
+        live: kbVersionOf(a) === live,
+        createdAt: null,
+        sourceRevision: from?.revision ?? null,
+      };
+    });
+    const drafts: KbHistoryRow[] = (this.kbDrafts.get(id) ?? []).map((d) => ({
+      revision: d.revision,
+      draft: true,
+      authorId: d.authorId,
+      title: d.title,
+      audience: d.audience,
+      live: false,
+      createdAt: d.createdAt,
+      sourceRevision: null,
+    }));
+    return [...versions, ...drafts].sort((a, b) => a.revision - b.revision);
+  }
+
+  async publishKbDraft(input: { id: string; revision: number }): Promise<PublishKbDraftResult> {
+    const draft = (this.kbDrafts.get(input.id) ?? []).find((d) => d.revision === input.revision);
+    if (!draft) return { status: 'refuse', reason: 'draft_unknown' };
+    const next = this.nextKbVersion(input.id);
+    if (next !== input.revision + 1) return { status: 'refuse', reason: 'revision_stale' };
+    const article = toPublicKb({
+      id: input.id,
+      titleKey: SUPPORT_KB_STORED_TITLE_KEY,
+      bodyKey: SUPPORT_KB_STORED_BODY_KEY,
+      version: next,
+      revision: next,
+      published: true,
+      ...topicOn({ tags: draft.tags }),
+      audience: draft.audience,
+      title: draft.title,
+      body: draft.body,
+      language: draft.language,
+      sectionId: draft.sectionId,
+    });
+    this.kb.set(input.id, article);
+    this.rememberVersion(article);
+    this.kbPublishedFrom.set(`${input.id}\0${next}`, { revision: input.revision, authorId: draft.authorId });
+    return { status: 'ok', article: { ...article } };
   }
 
   async listKbAudienceChanges(articleId: string): Promise<KbAudienceChange[]> {
@@ -2315,7 +2505,7 @@ export class PostgresSupportStore implements SupportStore {
     const rows = await this.sql<PgKbVersion[]>`
       SELECT id, title_key, body_key, version, category, tags, audience, title, body, language, section_id
       FROM support.kb_article_versions
-      WHERE id = ${id}
+      WHERE id = ${id} AND NOT draft
       ORDER BY version
     `;
     return rows.map(kbFromVersionPg);
@@ -2347,18 +2537,20 @@ export class PostgresSupportStore implements SupportStore {
           `;
           if (!open) return { status: 'refuse', reason: 'section_unknown' };
         }
+        // Drafts (SP-kb-01) sit above the head, so a new version takes the number after every row, draft or not.
+        const next = await pgNextKbVersion(tx, input.id);
         if (!current) {
           if (input.baseRevision !== 0) return { status: 'refuse', reason: 'revision_stale' };
           const rows = await tx<PgKb[]>`
             INSERT INTO support.kb_articles (id, title_key, body_key, revision, published)
-            VALUES (${input.id}, ${input.titleKey}, ${input.bodyKey}, 1, true)
+            VALUES (${input.id}, ${input.titleKey}, ${input.bodyKey}, ${next}, true)
             RETURNING id, title_key, body_key, revision, published, updated_at
           `;
           await tx`
             INSERT INTO support.kb_article_versions
               (id, version, title_key, body_key, category, tags, audience, title, body, language, section_id)
             VALUES (
-              ${input.id}, 1, ${input.titleKey}, ${input.bodyKey}, ${category}, ${tags}, 'public',
+              ${input.id}, ${next}, ${input.titleKey}, ${input.bodyKey}, ${category}, ${tags}, 'public',
               ${text.title}, ${text.body}, ${text.language}, ${text.sectionId}
             )
           `;
@@ -2369,7 +2561,7 @@ export class PostgresSupportStore implements SupportStore {
           UPDATE support.kb_articles
           SET title_key = ${input.titleKey},
               body_key = ${input.bodyKey},
-              revision = revision + 1,
+              revision = ${next},
               published = true,
               updated_at = now()
           WHERE id = ${input.id} AND revision = ${input.baseRevision}
@@ -2403,9 +2595,10 @@ export class PostgresSupportStore implements SupportStore {
       const carried = topicOn(prev[0] ?? {});
       const carriedText = textOn(prev[0] ?? {});
       const text = textColumns(carriedText);
+      const next = await pgNextKbVersion(tx, input.id);
       const rows = await tx<PgKb[]>`
         UPDATE support.kb_articles
-        SET revision = revision + 1,
+        SET revision = ${next},
             published = false,
             updated_at = now()
         WHERE id = ${input.id} AND revision = ${input.baseRevision}
@@ -2458,9 +2651,10 @@ export class PostgresSupportStore implements SupportStore {
       const text = textColumns(carriedText);
       if (from === input.audience)
         return { status: 'ok', article: toPublicKb({ ...current, ...carried, audience: from, ...carriedText }), changed: false };
+      const next = await pgNextKbVersion(tx, input.id);
       const rows = await tx<PgKb[]>`
         UPDATE support.kb_articles
-        SET revision = revision + 1,
+        SET revision = ${next},
             updated_at = now()
         WHERE id = ${input.id} AND revision = ${input.baseRevision}
         RETURNING id, title_key, body_key, revision, published, updated_at
@@ -2487,6 +2681,172 @@ export class PostgresSupportStore implements SupportStore {
         VALUES (${input.id}, ${from}, ${input.audience}, ${current.revision ?? 0}, ${kbVersionOf(bumped)}, ${input.actorId})
       `;
       return { status: 'ok', article: toPublicKb({ ...bumped, ...carried, audience: input.audience, ...carriedText }), changed: true };
+    });
+  }
+
+  async saveKbDraft(input: SaveKbDraftInput): Promise<SaveKbDraftResult> {
+    try {
+      return await this.sql.begin(async (tx): Promise<SaveKbDraftResult> => {
+        // The head row, when there is one, is the article's lock; a draft-only article is held by the version key below.
+        await tx`SELECT pg_advisory_xact_lock(hashtext(${'support.kb:' + input.id}))`;
+        await tx`SELECT id FROM support.kb_articles WHERE id = ${input.id} FOR UPDATE`;
+        const next = await pgNextKbVersion(tx, input.id);
+        if (input.baseRevision !== next - 1) return { status: 'refuse', reason: 'revision_stale' };
+        const [open] = await tx<{ id: string }[]>`
+          SELECT s.id FROM support.kb_sections s JOIN support.kb_categories c ON c.id = s.category_id
+          WHERE s.id = ${input.sectionId} AND NOT s.retired AND NOT c.retired
+          FOR SHARE OF s, c
+        `;
+        if (!open) return { status: 'refuse', reason: 'section_unknown' };
+        const [held] = await tx<{ audience: SupportKbAudience }[]>`
+          SELECT v.audience FROM support.kb_articles a
+          JOIN support.kb_article_versions v ON v.id = a.id AND v.version = a.revision
+          WHERE a.id = ${input.id}
+        `;
+        const audience = held?.audience ?? 'public';
+        const tags = input.tags.length > 0 ? tx.json([...input.tags]) : null;
+        const [row] = await tx<{ created_at: Date }[]>`
+          INSERT INTO support.kb_article_versions
+            (id, version, title_key, body_key, tags, audience, title, body, language, section_id, draft, author_id, template_id)
+          VALUES (
+            ${input.id}, ${next}, ${SUPPORT_KB_STORED_TITLE_KEY}, ${SUPPORT_KB_STORED_BODY_KEY}, ${tags}, ${audience},
+            ${input.title}, ${input.body}, ${input.language}, ${input.sectionId}, true, ${input.authorId}, ${input.templateId}
+          )
+          RETURNING created_at
+        `;
+        return {
+          status: 'ok',
+          draft: {
+            id: input.id,
+            revision: next,
+            authorId: input.authorId,
+            templateId: input.templateId,
+            title: input.title,
+            body: input.body,
+            language: input.language,
+            sectionId: input.sectionId,
+            tags: [...input.tags],
+            audience,
+            createdAt: toIso(row!.created_at),
+          },
+        };
+      });
+    } catch (err) {
+      // Two first drafts of one new article race for version 1: the loser read a stale base.
+      if ((err as { code?: string }).code === '23505') return { status: 'refuse', reason: 'revision_stale' };
+      throw err;
+    }
+  }
+
+  async getKbDraft(id: string, revision: number): Promise<KbDraft | null> {
+    const [row] = await this.sql<PgKbDraft[]>`
+      SELECT id, version, author_id, template_id, title, body, language, section_id, tags, audience, created_at
+      FROM support.kb_article_versions
+      WHERE id = ${id} AND version = ${revision} AND draft
+    `;
+    return row ? kbDraftFromPg(row) : null;
+  }
+
+  async listKbHistory(id: string): Promise<KbHistoryRow[]> {
+    const rows = await this.sql<
+      {
+        version: number;
+        draft: boolean;
+        author_id: string | null;
+        title: string | null;
+        audience: SupportKbAudience;
+        live: boolean;
+        created_at: Date | null;
+        source_revision: number | null;
+      }[]
+    >`
+      SELECT v.version, v.draft, v.author_id, v.title, v.audience, v.created_at, v.source_revision,
+             COALESCE(a.published AND a.revision = v.version, false) AS live
+      FROM support.kb_article_versions v
+      LEFT JOIN support.kb_articles a ON a.id = v.id
+      WHERE v.id = ${id}
+      ORDER BY v.version
+    `;
+    return rows.map((r) => ({
+      revision: Number(r.version),
+      draft: r.draft,
+      authorId: r.author_id,
+      title: r.title,
+      audience: r.audience,
+      live: r.live,
+      createdAt: r.created_at ? toIso(r.created_at) : null,
+      sourceRevision: r.source_revision === null ? null : Number(r.source_revision),
+    }));
+  }
+
+  async publishKbDraft(input: { id: string; revision: number }): Promise<PublishKbDraftResult> {
+    try {
+      return await this.pgPublishKbDraft(input);
+    } catch (err) {
+      // Another write took the next version first: the caller re-reads the history to settle or refuse.
+      if ((err as { code?: string }).code === '23505') return { status: 'refuse', reason: 'revision_stale' };
+      throw err;
+    }
+  }
+
+  private pgPublishKbDraft(input: { id: string; revision: number }): Promise<PublishKbDraftResult> {
+    return this.sql.begin(async (tx): Promise<PublishKbDraftResult> => {
+      // An article with only drafts has no head row to lock, so writes to one article take its advisory lock too.
+      await tx`SELECT pg_advisory_xact_lock(hashtext(${'support.kb:' + input.id}))`;
+      const locked = await tx<PgKb[]>`
+        SELECT id, title_key, body_key, revision, published, updated_at FROM support.kb_articles WHERE id = ${input.id} FOR UPDATE
+      `;
+      const [row] = await tx<PgKbDraft[]>`
+        SELECT id, version, author_id, template_id, title, body, language, section_id, tags, audience, created_at
+        FROM support.kb_article_versions
+        WHERE id = ${input.id} AND version = ${input.revision} AND draft
+      `;
+      if (!row) return { status: 'refuse', reason: 'draft_unknown' };
+      const next = await pgNextKbVersion(tx, input.id);
+      if (next !== input.revision + 1) return { status: 'refuse', reason: 'revision_stale' };
+      const draft = kbDraftFromPg(row);
+      const [open] = await tx<{ id: string }[]>`
+        SELECT s.id FROM support.kb_sections s JOIN support.kb_categories c ON c.id = s.category_id
+        WHERE s.id = ${draft.sectionId} AND NOT s.retired AND NOT c.retired
+        FOR SHARE OF s, c
+      `;
+      if (!open) return { status: 'refuse', reason: 'section_unknown' };
+      const tags = draft.tags.length > 0 ? tx.json([...draft.tags]) : null;
+      await tx`
+        INSERT INTO support.kb_article_versions
+          (id, version, title_key, body_key, tags, audience, title, body, language, section_id, author_id, template_id,
+           source_revision)
+        VALUES (
+          ${input.id}, ${next}, ${SUPPORT_KB_STORED_TITLE_KEY}, ${SUPPORT_KB_STORED_BODY_KEY}, ${tags}, ${draft.audience},
+          ${draft.title}, ${draft.body}, ${draft.language}, ${draft.sectionId}, ${draft.authorId}, ${draft.templateId},
+          ${input.revision}
+        )
+      `;
+      const head = locked[0]
+        ? await tx<PgKb[]>`
+            UPDATE support.kb_articles
+            SET title_key = ${SUPPORT_KB_STORED_TITLE_KEY}, body_key = ${SUPPORT_KB_STORED_BODY_KEY},
+                revision = ${next}, published = true, updated_at = now()
+            WHERE id = ${input.id}
+            RETURNING id, title_key, body_key, revision, published, updated_at
+          `
+        : await tx<PgKb[]>`
+            INSERT INTO support.kb_articles (id, title_key, body_key, revision, published)
+            VALUES (${input.id}, ${SUPPORT_KB_STORED_TITLE_KEY}, ${SUPPORT_KB_STORED_BODY_KEY}, ${next}, true)
+            RETURNING id, title_key, body_key, revision, published, updated_at
+          `;
+      return {
+        status: 'ok',
+        article: toPublicKb({
+          ...kbFromPg(head[0]!),
+          ...topicOn({ tags: draft.tags }),
+          audience: draft.audience,
+          title: draft.title,
+          body: draft.body,
+          language: draft.language,
+          sectionId: draft.sectionId,
+        }),
+      };
     });
   }
 

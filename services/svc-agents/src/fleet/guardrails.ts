@@ -305,6 +305,8 @@ export const REFUSAL_CODES = [
   'agents.team.project_limit_exceeded',
   'agents.team.pool_exceeded',
   'agents.team.allocation_unset',
+  // Refused at the hold once the month's spend of an agent the person built reached the hard limit they set for it.
+  'agents.usage.hard_limit_reached',
   // Refused by the runtime while a usage window the person owes could not be paid: past the owner's overage grace, or
   // with no grace published.
   'agents.overage_grace_exceeded',

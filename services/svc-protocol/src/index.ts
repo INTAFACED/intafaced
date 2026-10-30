@@ -24,6 +24,8 @@ import { representationFromSetting } from './representation/representation.js';
 import { PostgresRepresentationStore } from './representation/representation.pg.js';
 import { walletSessionFromSetting } from './address-book/session.js';
 import { PostgresAddressBookStore } from './address-book/book.pg.js';
+import { challengeTtlFromSetting } from './listing/ownership.js';
+import { PostgresListingStore } from './listing/ownership.pg.js';
 import { badgeApprovalConsumer } from './nft/founding-badge-approval.js';
 import { loadNetworkRegistry } from './networks/registry.js';
 import { registerProcessHooks, startTelemetry } from '@intafaced/telemetry';
@@ -68,6 +70,8 @@ for (const tableName of [
   'wallet_contacts',
   'wallet_groups',
   'wallet_group_members',
+  'listing_challenges',
+  'listing_ownership_proofs',
 ]) {
   const [table] = await db.sql<Array<{ exists: boolean }>>`
     SELECT EXISTS (
@@ -127,6 +131,7 @@ const walletSessionSetting = walletSessionFromSetting(
   env.PROTOCOL_WALLET_SESSION_ORIGINS,
   process.env.APP_ENV,
 );
+const listingChallengeTtl = challengeTtlFromSetting(env.PROTOCOL_LISTING_CHALLENGE_TTL_SECONDS, process.env.APP_ENV);
 
 export const appRouter = createProtocolRouter({
   opsWindowSeconds: () => env.PROTOCOL_OPS_WINDOW_SECONDS,
@@ -146,6 +151,10 @@ export const appRouter = createProtocolRouter({
       : null,
   tokensQuoteToken: () => env.PROTOCOL_TOKENS_QUOTE_TOKEN,
   probeTimeoutMs: () => env.PROTOCOL_PEER_TIMEOUT_MS,
+  listing: {
+    store: new PostgresListingStore(db.sql),
+    ttlSeconds: () => listingChallengeTtl,
+  },
   representation: {
     store: new PostgresRepresentationStore(db.sql),
     setting: () => representationSetting,

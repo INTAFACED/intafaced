@@ -36,6 +36,8 @@ export interface Web3Route {
   walletGroup?: true;
   /** The Tokens room, or one token's page by its address. */
   tokens?: 'list' | 'detail';
+  /** One pool's page by its contract address (D-explorer-05). */
+  pool?: 'detail';
   /** An address page, the account's watched addresses, one block by height or one transaction by hash. */
   explorer?: 'address' | 'watchlist' | 'block' | 'tx';
   /** The shape the route's parameter must have; anything else is answered not found without a lookup. */
@@ -58,7 +60,7 @@ export const WEB3_ROUTES: readonly Web3Route[] = [
   { path: '/dex', room: 'dex', tab: 'swap' },
   { path: '/dex/pools', room: 'dex', tab: 'pools' },
   { path: '/dex/pools/new', room: 'dex', pending: { page: 'poolNew', blocker: 'wallet' } },
-  { path: '/dex/pools/:poolId', room: 'dex', pending: { page: 'poolDetail', blocker: 'indexer', param: { name: 'poolId', shape: id } } },
+  { path: '/dex/pools/:poolId', room: 'dex', pool: 'detail', param: { name: 'poolId', shape: ADDRESS_SHAPE } },
   { path: '/dex/positions', room: 'dex', tab: 'positions' },
   {
     path: '/dex/positions/:positionId',

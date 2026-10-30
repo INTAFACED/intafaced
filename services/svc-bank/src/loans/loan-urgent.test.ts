@@ -98,12 +98,15 @@ async function seedOpenLoan(bank: ReturnType<typeof createBankServices>, ledger:
 describe('N4: margin-call notice is sent once per call, not once per sweep', () => {
   it('a second sweep on a loan already in margin call sends nothing and adds no call row', async () => {
     const ledger = await reset();
-    const opener = createBankServices(sql, ledger, memoryLedgerHistory(ledger), { loans: { priceSource: price('10000') } });
+    const opener = createBankServices(sql, ledger, memoryLedgerHistory(ledger), {
+      loans: { originationFeeBps: '0', priceSource: price('10000') },
+    });
     const opened = await seedOpenLoan(opener, ledger, '1');
 
     const sent: Sent[] = [];
     const sweeper = createBankServices(sql, ledger, memoryLedgerHistory(ledger), {
       loans: {
+        originationFeeBps: '0',
         priceSource: price('6500', () => LATER),
         marginCalls: { send: async (i) => void sent.push({ loanId: i.loanId, sequence: i.sequence }) },
       },
@@ -121,13 +124,16 @@ describe('N4: margin-call notice is sent once per call, not once per sweep', () 
 
   it('a notice that failed is re-sent on the SAME call row, then stops', async () => {
     const ledger = await reset();
-    const opener = createBankServices(sql, ledger, memoryLedgerHistory(ledger), { loans: { priceSource: price('10000') } });
+    const opener = createBankServices(sql, ledger, memoryLedgerHistory(ledger), {
+      loans: { originationFeeBps: '0', priceSource: price('10000') },
+    });
     const opened = await seedOpenLoan(opener, ledger, '1');
 
     const sent: Sent[] = [];
     let fail = true;
     const sweeper = createBankServices(sql, ledger, memoryLedgerHistory(ledger), {
       loans: {
+        originationFeeBps: '0',
         priceSource: price('6500', () => LATER),
         marginCalls: {
           send: async (i) => {
@@ -155,7 +161,9 @@ describe('N4: margin-call notice is sent once per call, not once per sweep', () 
 describe('N4: a crash between the call row and the loan update heals on the next sweep', () => {
   it('sets margin_called_at from the open call row, without re-sending a delivered notice', async () => {
     const ledger = await reset();
-    const opener = createBankServices(sql, ledger, memoryLedgerHistory(ledger), { loans: { priceSource: price('10000') } });
+    const opener = createBankServices(sql, ledger, memoryLedgerHistory(ledger), {
+      loans: { originationFeeBps: '0', priceSource: price('10000') },
+    });
     const opened = await seedOpenLoan(opener, ledger, '1');
 
     // The state after a crash: the call row is written (and delivered), the loan row is not updated.
@@ -168,6 +176,7 @@ describe('N4: a crash between the call row and the loan update heals on the next
     const sent: Sent[] = [];
     const sweeper = createBankServices(sql, ledger, memoryLedgerHistory(ledger), {
       loans: {
+        originationFeeBps: '0',
         priceSource: price('6500', () => LATER),
         marginCalls: { send: async (i) => void sent.push({ loanId: i.loanId, sequence: i.sequence }) },
       },
@@ -205,7 +214,9 @@ describe('N5: a ticker with no timestamp gives no mark', () => {
 describe('N18: a same-id retry of an unbooked release re-checks the LTV cap', () => {
   it('refuses the re-drive after the price fell, and posts nothing', async () => {
     const ledger = await reset();
-    const rich = createBankServices(sql, ledger, memoryLedgerHistory(ledger), { loans: { priceSource: price('10000') } });
+    const rich = createBankServices(sql, ledger, memoryLedgerHistory(ledger), {
+      loans: { originationFeeBps: '0', priceSource: price('10000') },
+    });
     // 3 BTC at 10000, debt 5000, cap 50%: releasing 2 BTC leaves exactly the cap.
     const opened = await seedOpenLoan(rich, ledger, '3');
     const eventId = randomUUID();
@@ -225,7 +236,9 @@ describe('N18: a same-id retry of an unbooked release re-checks the LTV cap', ()
     expect(releaseCount(ledger)).toBe(0);
 
     // The price falls. Releasing 2 BTC now would leave 1 BTC at 6000 against 5000 of debt.
-    const poor = createBankServices(sql, ledger, memoryLedgerHistory(ledger), { loans: { priceSource: price('6000', () => LATER) } });
+    const poor = createBankServices(sql, ledger, memoryLedgerHistory(ledger), {
+      loans: { originationFeeBps: '0', priceSource: price('6000', () => LATER) },
+    });
     await expect(poor.loans.releaseExcess({ loanId: opened.loan.id, eventId, amount: amt('2'), now: LATER })).rejects.toMatchObject({
       code: 'bank.ltv_exceeded',
     });
@@ -234,7 +247,9 @@ describe('N18: a same-id retry of an unbooked release re-checks the LTV cap', ()
 
   it('still re-drives the same release when the cap still holds', async () => {
     const ledger = await reset();
-    const bank = createBankServices(sql, ledger, memoryLedgerHistory(ledger), { loans: { priceSource: price('10000') } });
+    const bank = createBankServices(sql, ledger, memoryLedgerHistory(ledger), {
+      loans: { originationFeeBps: '0', priceSource: price('10000') },
+    });
     const opened = await seedOpenLoan(bank, ledger, '3');
     const eventId = randomUUID();
 

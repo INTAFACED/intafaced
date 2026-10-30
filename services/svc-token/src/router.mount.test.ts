@@ -4,6 +4,7 @@ import { createEdgeContext, encodePrincipal, signPrincipalHeader } from '@intafa
 import { formatAmount, parseAmount as amt } from '@intafaced/ledger-client';
 import { ACCESS_TIERS, STAKE_TIERS } from './economics/staking.js';
 import { ActionApprovalConsumeError, stubApprovalConsumer, type ActionApprovalConsumer } from './action-approval-consume.js';
+import { checkGovernanceSettings } from './governance-settings.js';
 import { createTokenRouter } from './router.js';
 import { TokenError, assertProposalListLimit, assertStakesListLimit, type StakeRecord, type TokenService } from './token-service.js';
 import { userCopy } from './user-copy.js';
@@ -116,6 +117,7 @@ function stubToken(overrides: Partial<TokenService> = {}): TokenService {
       choices: null,
       snapshot: null,
       ranking: null,
+      cancel: null,
       choiceTally: null,
       counts: { votes: 1, for: 1, against: 0, abstain: 0 },
       tally: {
@@ -1011,6 +1013,7 @@ describe('svc-token mount — governance close', () => {
         choices: null,
         snapshot: null,
         ranking: null,
+        cancel: null,
         choiceTally: null,
         counts: { votes: 1, for: 1, against: 0, abstain: 0 },
         tally: {
@@ -1172,5 +1175,144 @@ describe('svc-token mount — owner reads', () => {
       if (previous === undefined) delete process.env.TOKEN_ASSET_ID;
       else process.env.TOKEN_ASSET_ID = previous;
     }
+  });
+});
+
+describe('governance settings and roles — the founders doors (MC-token-02)', () => {
+  const writer = () => signed(principal({ scopes: ['admin:write'] }));
+  const governed = () =>
+    stubToken({
+      setGovernanceSettings: vi.fn(async (input) => ({
+        votingDelayMs: input.votingDelayMs,
+        votingPeriodMs: input.votingPeriodMs,
+        revision: input.expectedRevision + 1,
+      })),
+      setGovernanceRole: vi.fn(async (input) => ({ userId: input.userId, role: input.role, revision: input.expectedRevision + 1 })),
+      cancelProposal: vi.fn(),
+      // The door's own range rule, as the service's precheck runs it before the approval is spent.
+      precheckGovernanceSettings: vi.fn(async (input) => checkGovernanceSettings(input)),
+      precheckGovernanceRole: vi.fn(async () => undefined),
+    } as Partial<TokenService>);
+
+  it('writes the approved pair over its revision, binds the approval to exactly it, and names the approver', async () => {
+    const token = governed();
+    const seen: Array<Parameters<ActionApprovalConsumer['consume']>[0]> = [];
+    const capture: ActionApprovalConsumer = {
+      async consume(input) {
+        seen.push(input);
+        return stubApprovalConsumer(CONFIRM).consume(input);
+      },
+    };
+    const caller = createTokenRouter(token, { approvals: capture }).createCaller(writer());
+    const result = await caller.governance.setSettings({
+      votingDelayMs: '0',
+      votingPeriodMs: '86400000',
+      expectedRevision: 0,
+      ...APPROVAL,
+    });
+    expect(result).toEqual({ votingDelayMs: '0', votingPeriodMs: '86400000', revision: 1, confirmOperatorId: CONFIRM });
+    expect(token.setGovernanceSettings).toHaveBeenCalledWith({
+      votingDelayMs: 0n,
+      votingPeriodMs: 86_400_000n,
+      expectedRevision: 0,
+      actorId: USER,
+      approverId: CONFIRM,
+    });
+    expect(seen[0]).toMatchObject({ targetService: 'svc-token', targetId: 'token.governance.settings.set', expectedVersion: '0' });
+    await caller.governance.setSettings({ votingDelayMs: null, votingPeriodMs: '86400000', expectedRevision: 0, ...APPROVAL });
+    await caller.governance.setSettings({ votingDelayMs: '0', votingPeriodMs: '86400000', expectedRevision: 1, ...APPROVAL });
+    expect(new Set(seen.map((s) => s.payloadHash)).size).toBe(3);
+  });
+
+  it('refuses one founder alone, a missing approval, a reader, and a pair the door refuses before the approval is spent', async () => {
+    const token = governed();
+    const input = { votingDelayMs: '0', votingPeriodMs: '86400000', expectedRevision: 0, ...APPROVAL };
+    await expect(
+      createTokenRouter(token, { approvals: stubApprovalConsumer(USER) })
+        .createCaller(writer())
+        .governance.setSettings(input),
+    ).rejects.toMatchObject({ code: 'PRECONDITION_FAILED' });
+    await expect(
+      createTokenRouter(token, { approvals: stubApprovalConsumer(CONFIRM) })
+        .createCaller(writer())
+        .governance.setSettings({ votingDelayMs: '0', votingPeriodMs: '86400000', expectedRevision: 0 }),
+    ).rejects.toMatchObject({ code: 'PRECONDITION_FAILED', cause: { code: 'action_approval.missing' } });
+    await expect(
+      createTokenRouter(token, { approvals: stubApprovalConsumer(CONFIRM) })
+        .createCaller(signed())
+        .governance.setSettings(input),
+    ).rejects.toMatchObject({ code: 'FORBIDDEN' });
+    let consumed = 0;
+    const counting: ActionApprovalConsumer = {
+      async consume(i) {
+        consumed += 1;
+        return stubApprovalConsumer(CONFIRM).consume(i);
+      },
+    };
+    await expect(
+      createTokenRouter(token, { approvals: counting })
+        .createCaller(writer())
+        .governance.setSettings({ ...input, votingPeriodMs: '0' }),
+    ).rejects.toMatchObject({ code: 'BAD_REQUEST', cause: { code: 'token.settings_invalid' } });
+    expect(consumed).toBe(0);
+    expect(token.setGovernanceSettings).not.toHaveBeenCalled();
+  });
+
+  it('a role change is the same two-founder door and never names the founder who asks', async () => {
+    const token = governed();
+    const caller = createTokenRouter(token, { approvals: stubApprovalConsumer(CONFIRM) }).createCaller(writer());
+    expect(await caller.governance.setRole({ userId: OTHER, role: 'moderator', expectedRevision: 0, ...APPROVAL })).toEqual({
+      userId: OTHER,
+      role: 'moderator',
+      revision: 1,
+      confirmOperatorId: CONFIRM,
+    });
+    await expect(caller.governance.setRole({ userId: USER, role: 'admin', expectedRevision: 0, ...APPROVAL })).rejects.toMatchObject({
+      code: 'BAD_REQUEST',
+      cause: { code: 'token.role_invalid' },
+    });
+    await expect(
+      createTokenRouter(token, { approvals: stubApprovalConsumer(USER) })
+        .createCaller(writer())
+        .governance.setRole({ userId: OTHER, role: 'moderator', expectedRevision: 0, ...APPROVAL }),
+    ).rejects.toMatchObject({ code: 'PRECONDITION_FAILED' });
+    // A third founder runs a role that the receiving founder asked for: refused, nothing written.
+    const asked: ActionApprovalConsumer = {
+      async consume(i) {
+        return { ...(await stubApprovalConsumer(CONFIRM).consume(i)), requesterId: OTHER };
+      },
+    };
+    await expect(
+      createTokenRouter(token, { approvals: asked })
+        .createCaller(writer())
+        .governance.setRole({ userId: OTHER, role: 'moderator', expectedRevision: 0, ...APPROVAL }),
+    ).rejects.toMatchObject({ code: 'BAD_REQUEST', cause: { code: 'token.role_invalid' } });
+    expect(token.setGovernanceRole).toHaveBeenCalledTimes(1);
+    let consumed = 0;
+    const counting: ActionApprovalConsumer = {
+      async consume(i) {
+        consumed += 1;
+        return stubApprovalConsumer(CONFIRM).consume(i);
+      },
+    };
+    const stale = governed();
+    vi.mocked(stale.precheckGovernanceRole).mockRejectedValue(new TokenError('stale', 'token.role_stale'));
+    await expect(
+      createTokenRouter(stale, { approvals: counting })
+        .createCaller(writer())
+        .governance.setRole({ userId: OTHER, role: 'moderator', expectedRevision: 0, ...APPROVAL }),
+    ).rejects.toMatchObject({ code: 'CONFLICT', cause: { code: 'token.role_stale' } });
+    expect(consumed).toBe(0);
+  });
+
+  it('a cancel refused for the role is FORBIDDEN, and needs a signed principal', async () => {
+    const token = governed();
+    vi.mocked(token.cancelProposal).mockRejectedValue(new TokenError('no', 'token.permission_denied'));
+    await expect(
+      createTokenRouter(token).createCaller(signed()).governance.cancel({ proposalId: 'gov:proposal:x', reason: 'A duplicate proposal' }),
+    ).rejects.toMatchObject({ code: 'FORBIDDEN', message: userCopy('token.permission_denied') });
+    await expect(
+      createTokenRouter(token).createCaller(forged()).governance.cancel({ proposalId: 'gov:proposal:x', reason: 'A duplicate proposal' }),
+    ).rejects.toMatchObject({ code: 'UNAUTHORIZED' });
   });
 });

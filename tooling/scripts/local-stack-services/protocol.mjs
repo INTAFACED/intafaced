@@ -57,6 +57,9 @@ export default ({ c, secrets, dbUrl, PORTS, UNUSED, testChain, CUSTOMER_ORIGIN, 
       // LOCAL TEST only, labelled in the same file: the token pages state prices in TEST Token B. Production stays
       // blank and the token pages refuse protocol.tokens_quote_unset. With no chain there is nothing to price.
       ...(chain ? { PROTOCOL_TOKENS_QUOTE_TOKEN: '0x00000000000000000000000000000000000b0b00' } : {}),
+      // LOCAL TEST only (same profile): how long a contract ownership challenge stays signable. Blank in production refuses
+      // protocol.listing.challenge_ttl_unset and no challenge is issued.
+      PROTOCOL_LISTING_CHALLENGE_TTL_SECONDS: 'TEST:300',
     };
   },
 });

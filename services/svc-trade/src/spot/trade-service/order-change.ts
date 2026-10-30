@@ -9,6 +9,7 @@ import { requireScope, type Principal } from '@intafaced/auth';
 import { formatAmount, LedgerError, orderHoldAccount, parseAmount, recipes, sub, type Amount } from '@intafaced/ledger-client';
 import { withMoneySpan } from '../../tracing.js';
 import { appendOrderEvent, parentIdFromClientOrder } from '../../orders/order-events.js';
+import { BUYBACK_INVALID, isBuybackUser } from '../buyback-order.js';
 import { orderIdFor } from '../ids.js';
 import { settlementOrderId } from '../oco-legs.js';
 import {
@@ -217,6 +218,10 @@ export async function amendOrder(
     if (!order || order.userId !== principal.userId) {
       throw new TradeError(`order ${orderId} not found`, 'trade.order_not_found');
     }
+    // A buyback order is IOC and its hold lives in the buyback account: refuse before the engine is asked to change it.
+    if (isBuybackUser(order.userId)) {
+      return svc.amendOutcome(order, 'NOT_AMENDABLE', BUYBACK_INVALID, false, false, null);
+    }
     if (order.status === 'recovery_required') {
       return svc.amendOutcome(order, 'AMEND_UNKNOWN', order.recoveryReason ?? 'AMEND_UNKNOWN', true, false, null);
     }
@@ -414,6 +419,11 @@ export async function applyNativeAmendHold(
   version: number,
   sequence: number | null,
 ): Promise<void> {
+  // A buyback order is IOC and never rests, and its hold lives in the buyback account under its own
+  // release recipe. Refuse before reading or releasing a customer order-hold account for it.
+  if (isBuybackUser(order.userId)) {
+    throw new TradeError(`buyback order ${order.id} is never amended`, BUYBACK_INVALID);
+  }
   if (order.price == null) return;
   // The release post commits in the ledger on its own. If it lands and this
   // transaction then aborts, amend_released rolls back and the terminal

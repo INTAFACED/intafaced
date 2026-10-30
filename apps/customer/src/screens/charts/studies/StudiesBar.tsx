@@ -423,7 +423,12 @@ export function StudiesBar({
       </div>
 
       {showWindow && (
-        <section className="st-window" aria-label={t('Data window')} data-testid="data-window">
+        <section
+          className="st-window"
+          aria-label={t('Data window')}
+          data-testid="data-window"
+          data-cursor={cursor === null ? undefined : String(cursor)}
+        >
           {cursor === null || barAt === undefined ? (
             <p className="st-note">{t('Move the pointer over the chart to read its values.')}</p>
           ) : (

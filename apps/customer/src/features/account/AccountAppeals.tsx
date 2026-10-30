@@ -15,6 +15,7 @@ const REFUSALS = new Set([
   'identity.appeal_window_unset',
   'identity.appeal_window_closed',
   'identity.appeal_no_restriction',
+  'identity.appeal_setter_unknown',
   'identity.appeal_request_conflict',
 ]);
 
