@@ -53,6 +53,22 @@ describe('customer step-up binding', () => {
     });
   });
 
+  it('binds a copy close-all to its follow and request (J-copy-bots-otc-03 #4)', () => {
+    const fields = { followId: 'f-5a5a5a5a-0000-5000-8000-000000000001', requestId: 'req-1' };
+    const scope = 'trade.step_up.copy.flatten';
+    const bound = bindCustomerStepUp(ACTOR, { scope, purpose: 'copy.flatten', target: fields.followId, fields });
+    expect(bound).toMatchObject({ ok: true, scope, target: fields.followId });
+    expect(bound.ok && bound.payloadHash).toBe(customerStepUpPayloadHash(scope, { ...fields, actor: ACTOR }));
+    for (const over of [{ followId: '' }, { requestId: '' }]) {
+      const sent = { ...fields, ...over };
+      expect(bindCustomerStepUp(ACTOR, { scope, purpose: 'copy.flatten', target: sent.followId, fields: sent }).ok).toBe(false);
+    }
+    expect(
+      bindCustomerStepUp(ACTOR, { scope, purpose: 'copy.flatten', target: 'another-follow', fields }).ok,
+      'the target must be the follow the fields name',
+    ).toBe(false);
+  });
+
   it('binds a P2P take to its ad, coin amount and method, with a held quote when the take names one', () => {
     const fields = {
       offerId: '5f0e8a1b-2c4a-4d7d-8c55-9d1e2f6f0b6f',

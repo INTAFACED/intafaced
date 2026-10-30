@@ -130,6 +130,9 @@ if (!pg) {
         });
         fail.message = null;
 
+        // Timeline ids start at 8, so an alert's entries cross a digit boundary (9, 10, 11): its timeline must read in id
+        // order as numbers, not as text, or the newest entry is no longer last.
+        await sql`SELECT setval(pg_get_serial_sequence('ops.reconciliation_alert_timeline', 'id'), 7)`;
         rows.push(evaluation(1, CONTROL, 'FAIL', { USDC: '5', EUR: '7', BTC: '0' }), evaluation(2, PASSING, 'PASS', { USDC: '0' }));
         expect(await ingestReconciliationEvaluations(store, feed)).toBe(2);
         // Read again from the start: run ids already taken change nothing.
@@ -312,10 +315,13 @@ if (!pg) {
         const rows = [evaluation(1, CONTROL, 'ERROR', {}), evaluation(2, PASSING, 'UNSET', {})];
         expect(await ingestReconciliationEvaluations(store, fakeFeed(rows))).toBe(2);
         const periods = await a.alerts.periods({ limit: 10 });
+        // The ERROR run raises one platform alert (no asset), never a finance one; UNSET raises none.
         expect(periods.periods.map((p) => [p.controlId, p.lastStatus, p.open, p.green]).sort()).toEqual([
-          [CONTROL, 'ERROR', 0, false],
+          [CONTROL, 'ERROR', 1, false],
           [PASSING, 'UNSET', 0, false],
         ]);
+        const raised = await a.alerts.list({ after: null, limit: 10 });
+        expect(raised.alerts.map((x) => [x.controlId, x.cause, x.team, x.assetId])).toEqual([[CONTROL, 'error', 'platform', null]]);
 
         // A store failure holds the cursor and shows as the source failing, never as a healthy empty list.
         const failing = Object.create(store) as ReconciliationAlertStore;
@@ -331,12 +337,15 @@ if (!pg) {
           code: 'ops.alert_source_unavailable',
           message: `svc-ops could not store evaluation ${runId(3)}. It reads it again on the next tick.`,
         });
-        expect(down.alerts).toEqual([]);
+        expect(down.alerts.map((alert) => alert.cause)).toEqual(['error']);
         // The next healthy tick reads the same run again and opens its alert.
         expect(await ingestReconciliationEvaluations(store, fakeFeed(rows))).toBe(1);
         const up = await a.alerts.list({ after: null, limit: 10 });
         expect(up.source).toMatchObject({ status: 'ok' });
-        expect(up.alerts.map((alert) => alert.assetId)).toEqual(['USDC']);
+        expect(up.alerts.map((alert) => [alert.cause, alert.assetId])).toEqual([
+          ['fail', 'USDC'],
+          ['error', null],
+        ]);
 
         // A run whose commit landed behind the cursor (finished before the last one read) is still taken, once, by the
         // overlap, and the cursor never moves back.
@@ -345,7 +354,11 @@ if (!pg) {
         expect(await ingestReconciliationEvaluations(store, fakeFeed(rows))).toBe(1);
         expect(await ingestReconciliationEvaluations(store, fakeFeed(rows))).toBe(0);
         expect(await store.cursor()).toEqual(cursorBefore);
-        expect((await a.alerts.list({ after: null, limit: 10 })).alerts.map((alert) => alert.assetId).sort()).toEqual(['EUR', 'USDC']);
+        expect((await a.alerts.list({ after: null, limit: 10 })).alerts.map((alert) => String(alert.assetId)).sort()).toEqual([
+          'EUR',
+          'USDC',
+          'null',
+        ]);
       } finally {
         await sql.end();
         await database.drop();

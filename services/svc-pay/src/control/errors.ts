@@ -61,6 +61,7 @@ export const CONTROL_ERROR_CODES = [
   'pay.approval_threshold_unconfigured',
   'pay.approval_ttl_unconfigured',
   'pay.settlement_not_payable',
+  'pay.payout_clearing_pending',
   'pay.payout_destination_missing',
   'pay.change_not_found',
   'pay.change_not_pending',
@@ -72,6 +73,7 @@ export const CONTROL_ERROR_CODES = [
   'pay.reserve_ledger_unwired',
   'pay.caps_unconfigured',
   'pay.payout_daily_limit_exceeded',
+  'pay.topup_unconfigured',
 ] as const;
 export type ControlErrorCode = (typeof CONTROL_ERROR_CODES)[number];
 
@@ -101,6 +103,7 @@ const CLASS_OF: Record<ControlErrorCode, ControlErrorClass> = {
   'pay.approval_threshold_unconfigured': 'precondition',
   'pay.approval_ttl_unconfigured': 'precondition',
   'pay.settlement_not_payable': 'precondition',
+  'pay.payout_clearing_pending': 'precondition',
   'pay.payout_destination_missing': 'precondition',
   'pay.pricing_unconfigured': 'precondition',
   'pay.tier_unassigned': 'precondition',
@@ -108,6 +111,7 @@ const CLASS_OF: Record<ControlErrorCode, ControlErrorClass> = {
   'pay.reserve_ledger_unwired': 'unwired',
   'pay.caps_unconfigured': 'precondition',
   'pay.payout_daily_limit_exceeded': 'precondition',
+  'pay.topup_unconfigured': 'precondition',
 };
 
 export class ControlError extends Error {

@@ -35,6 +35,7 @@
 import { createHash } from 'node:crypto';
 import { div, formatAmount, mul, parseAmount, type Amount } from '@intafaced/ledger-client';
 import type { Principal } from '@intafaced/auth';
+import type { StepUpCheck } from '@intafaced/contracts';
 import { assertBotVerification, type BotVerificationPolicy } from '../algo/bots-verification.js';
 import { captureAlgoPlaceGrant, principalFromAlgoGrant } from '../algo/durable-principal.js';
 import type { PlaceOrderInput } from '../spot/trade-service.js';
@@ -48,10 +49,12 @@ import {
   gridBusinessId,
   gridClientOrderId,
   gridReserveKey,
+  gridWithdrawalKey,
   type GridBot,
   type GridOrder,
   type GridReserve,
   type GridStatus,
+  type GridWithdrawal,
 } from './types.js';
 
 export interface GridPorts {
@@ -73,8 +76,39 @@ export interface GridPorts {
   cancelOrder(principal: Principal, orderId: string): Promise<unknown>;
   /** Every fill of one order (not a page), so fees and proceeds are summed whole. */
   fillsForOrder(principal: Principal, orderId: string): Promise<FillRecord[]>;
+  /** Identity's step-up check (contracts step-up-check.ts). Its two codes reach the caller unchanged. */
+  readonly stepUp: StepUpCheck;
   now?: () => Date;
 }
+
+export interface GridWithdrawInput {
+  readonly botId: string;
+  /** The person's own key for this withdrawal: a retry with the same key answers the same receipt. */
+  readonly requestId: string;
+  readonly asset: string;
+  readonly amount?: string | null;
+  /** The identity step-up approval the person confirmed for exactly these fields. */
+  readonly stepUpApprovalId?: string | null;
+}
+
+/** A withdrawal's receipt: every figure a decimal string, each read from the stored withdrawal row. */
+export interface GridWithdrawalView {
+  readonly withdrawalId: string;
+  readonly botId: string;
+  readonly asset: string;
+  readonly amount: string;
+  readonly profitBefore: string;
+  readonly profitAfter: string;
+  readonly reserveBefore: string;
+  readonly reserveAfter: string;
+  readonly dailyCap: string;
+  readonly capUsed: string;
+  readonly capRemaining: string;
+  readonly stepUpEventId: string;
+  readonly appliedAt: string;
+}
+
+export const GRID_WITHDRAW_STEP_UP_SCOPE = 'trade.step_up.bots.grid.withdrawProfit' as const;
 
 export interface GridCreateInput {
   readonly clientRequestId: string;
@@ -123,6 +157,8 @@ export interface GridBotView {
   }>;
   /** The sum of closed pairs' profit net of fees. "0" before any pair closes. */
   readonly gridProfit: string;
+  /** Profit the reserve still holds for the bot (reserve less investment): what may be withdrawn. "0" once released. */
+  readonly withdrawableProfit: string;
   readonly closedPairs: number;
   /**
    * Grid APR, simple: grid profit over the investment, times 365 over the days running (actual elapsed time, ACT/365),
@@ -147,6 +183,8 @@ export interface GridSetupView {
 }
 
 const REQUEST_KEY = /^[A-Za-z0-9:._-]{8,120}$/;
+/** The longest request id identity's step-up check accepts (`ID_MAX` in packages/contracts/src/step-up-check.ts). */
+const STEP_UP_REQUEST_ID_MAX = 128;
 /** A tick placement is a fresh, short-lived authority from the stored claims; every level is still admitted live. */
 const TICK_AUTHORITY_MS = 60_000;
 
@@ -172,6 +210,27 @@ function positiveAmount(raw: string | null | undefined, code: GridError['code'],
   if (amount <= 0n) throw new GridError(`${label} must be above zero`, code, { field: label });
   return amount;
 }
+
+const withdrawHash = (botId: string, asset: string, amount: Amount): string =>
+  createHash('sha256')
+    .update(['bots.grid.withdraw', botId, asset, formatAmount(amount)].join('\0'))
+    .digest('hex');
+
+const withdrawalView = (w: GridWithdrawal): GridWithdrawalView => ({
+  withdrawalId: w.withdrawalId,
+  botId: w.botId,
+  asset: w.asset,
+  amount: formatAmount(w.amount),
+  profitBefore: formatAmount(w.profitBefore),
+  profitAfter: formatAmount(w.profitAfter),
+  reserveBefore: formatAmount(w.reserveBefore),
+  reserveAfter: formatAmount(w.reserveAfter),
+  dailyCap: formatAmount(w.dailyCap),
+  capUsed: formatAmount(w.capUsed),
+  capRemaining: formatAmount(w.capRemaining),
+  stepUpEventId: w.stepUpEventId,
+  appliedAt: w.appliedAt.toISOString(),
+});
 
 function requestHash(input: GridCreateInput): string {
   const body = [input.symbol, input.lowerPrice ?? '', input.upperPrice ?? '', String(input.gridCount ?? ''), input.investment ?? ''];
@@ -469,6 +528,120 @@ export class GridService {
     return this.view(bot);
   }
 
+  /**
+   * Withdraw grid profit (CB-bots-05), in this order, so a refusal writes nothing:
+   * 1. the owner's bots verification level, the request key, the amount, and the owner's daily cap for the asset (an
+   *    asset with no cap refuses `trade.bots_withdraw_cap_unset`), none of which reads a row;
+   * 2. identity's step-up for exactly these fields, before any read or write: `identity.step_up_required` and
+   *    `identity.step_up_unavailable` pass through unchanged, so identity down writes nothing;
+   * 3. the bot is the caller's, its quote asset is the asset, and a withdrawal already stored under
+   *    `bots.grid.withdraw:<botId>:<requestId>` is answered as stored (a different body conflicts);
+   * 4. under the owner's reserve lock: over what is left of today's cap refuses `trade.bots_withdraw_cap_exceeded`;
+   *    over the profit the reserve holds above the investment refuses `trade.bots_withdraw_exceeds_profit`; over the
+   *    owner's free ledger balance of the asset refuses `trade.bots_withdraw_exceeds_balance`; otherwise the reserve row
+   *    is lowered by the amount and the receipt row is written, together.
+   * No ledger row is posted: the profit is already in the owner's balance, and the reserve is a limit row.
+   */
+  async withdrawProfit(principal: Principal, input: GridWithdrawInput): Promise<GridWithdrawalView> {
+    assertBotVerification(this.ports.verification(), principal.tier);
+    if (!REQUEST_KEY.test(input.requestId)) {
+      throw new GridError('requestId must be 8 to 120 letters, digits or : . _ -', 'trade.grid_request_key_invalid');
+    }
+    const amount = positiveAmount(input.amount, 'trade.bots_withdraw_amount_invalid', 'Amount');
+    const asset = input.asset;
+    const cap = this.ports.policy.withdrawDailyCap.get(asset);
+    if (cap === undefined) {
+      throw new GridError(`The platform has not set a daily withdrawal cap for ${asset}`, 'trade.bots_withdraw_cap_unset', { asset });
+    }
+    const withdrawalId = gridWithdrawalKey(input.botId, input.requestId);
+    // Identity's step-up takes a request id of at most 128 characters; refuse a longer key here, typed, not as a 500.
+    if (withdrawalId.length > STEP_UP_REQUEST_ID_MAX) {
+      throw new GridError('requestId is too long for this bot', 'trade.grid_request_key_invalid');
+    }
+    const stepUp = await this.ports.stepUp.require({
+      scope: GRID_WITHDRAW_STEP_UP_SCOPE,
+      userId: principal.userId,
+      sessionId: principal.sid,
+      approvalId: input.stepUpApprovalId,
+      fields: { botId: input.botId, requestId: input.requestId, asset, amount: (input.amount ?? '').trim() },
+      requestId: withdrawalId,
+    });
+
+    const bot = await this.ports.store.findBot(input.botId);
+    if (!bot || bot.userId !== principal.userId) throw new GridError('Grid bot not found', 'trade.grid_not_found');
+    if (bot.quoteAsset !== asset) {
+      throw new GridError(`This bot's profit is in ${bot.quoteAsset}, not ${asset}`, 'trade.bots_withdraw_asset_mismatch', {
+        asset: bot.quoteAsset,
+      });
+    }
+    const hash = withdrawHash(bot.botId, asset, amount);
+    const same = (w: GridWithdrawal): GridWithdrawalView => {
+      if (w.requestHash !== hash) {
+        throw new GridError('This request key already withdrew a different amount', 'trade.bots_withdraw_conflict');
+      }
+      return withdrawalView(w);
+    };
+    const stored = await this.ports.store.findWithdrawal(withdrawalId);
+    if (stored) return same(stored);
+
+    // The profit can be withdrawn only while the ledger still has it free: the bot's base or open holds are not.
+    const free = await this.ports.freeBalance(principal.userId, asset);
+    const at = this.now();
+    const result = await this.ports.store.withdraw({ withdrawalId, botId: bot.botId, userId: principal.userId, asset, at }, (state) => {
+      const reserve = state.reserve;
+      if (!reserve || reserve.releasedAt !== null) {
+        throw new GridError(
+          'This bot has stopped and released its reserve; its profit is already free',
+          'trade.bots_withdraw_reserve_released',
+        );
+      }
+      const remaining = cap > state.usedToday ? cap - state.usedToday : 0n;
+      if (amount > remaining) {
+        throw new GridError(
+          `That is more than today's withdrawal cap allows: ${formatAmount(remaining)} ${asset} left`,
+          'trade.bots_withdraw_cap_exceeded',
+          {
+            cap: formatAmount(cap),
+            used: formatAmount(state.usedToday),
+            remaining: formatAmount(remaining),
+          },
+        );
+      }
+      const profit = reserve.amount > bot.investment ? reserve.amount - bot.investment : 0n;
+      if (amount > profit) {
+        throw new GridError(`That is more than the bot's profit: ${formatAmount(profit)} ${asset}`, 'trade.bots_withdraw_exceeds_profit', {
+          available: formatAmount(profit),
+        });
+      }
+      if (amount > free) {
+        throw new GridError(
+          `That is more than your free ${asset}: ${formatAmount(free > 0n ? free : 0n)} ${asset}`,
+          'trade.bots_withdraw_exceeds_balance',
+          { available: formatAmount(free > 0n ? free : 0n) },
+        );
+      }
+      return {
+        withdrawalId,
+        botId: bot.botId,
+        userId: principal.userId,
+        requestId: input.requestId,
+        requestHash: hash,
+        asset,
+        amount,
+        profitBefore: profit,
+        profitAfter: profit - amount,
+        reserveBefore: reserve.amount,
+        reserveAfter: reserve.amount - amount,
+        dailyCap: cap,
+        capUsed: state.usedToday + amount,
+        capRemaining: remaining - amount,
+        stepUpEventId: stepUp.stepUpEventId,
+        appliedAt: at,
+      };
+    });
+    return result.created ? withdrawalView(result.withdrawal) : same(result.withdrawal);
+  }
+
   async list(principal: Principal): Promise<GridBotView[]> {
     const bots = await this.ports.store.listBots(principal.userId);
     return Promise.all(bots.map((b) => this.view(b)));
@@ -688,6 +861,14 @@ export class GridService {
     return quote(sellFills) - fee(sellFills, bot.quoteAsset) - cost;
   }
 
+  /** What a withdrawal may take now: the profit the reserve holds above the investment, at most the free ledger balance. */
+  private async withdrawable(bot: GridBot, reserve: GridReserve | null): Promise<Amount> {
+    if (!reserve || reserve.releasedAt !== null || reserve.amount <= bot.investment) return 0n;
+    const profit = reserve.amount - bot.investment;
+    const free = await this.ports.freeBalance(bot.userId, bot.quoteAsset);
+    return free <= 0n ? 0n : free < profit ? free : profit;
+  }
+
   private async view(bot: GridBot): Promise<GridBotView> {
     const botId = bot.botId;
     const orders = await this.ports.store.listOrders(botId);
@@ -738,6 +919,7 @@ export class GridService {
         pairProfit: o.pairProfit === null ? null : formatAmount(o.pairProfit),
       })),
       gridProfit: formatAmount(gridProfit),
+      withdrawableProfit: formatAmount(await this.withdrawable(bot, reserve)),
       closedPairs: closed.length,
       gridApr: gridApr(gridProfit, bot.investment, this.now().getTime() - bot.createdAt.getTime()),
       createdAt: bot.createdAt.toISOString(),

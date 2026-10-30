@@ -16,6 +16,7 @@ import { createCheckoutMethodsRouter, type CheckoutMethodsMountDeps } from '../c
 import type { DepositSettingsMountDeps } from '../custody/deposits/settings.js';
 import type { DepositFreezesMountDeps } from '../custody/deposits/freezes.js';
 import type { DepositTravelRuleMountDeps } from '../custody/deposits/travel-rule.js';
+import type { DepositOpenItemsMountDeps } from '../custody/deposits/open-items.js';
 import type { CustodyMountDeps } from '../custody/router.js';
 import type { PurchaseHoldMountDeps } from '../withdrawals/purchase-holds/router.js';
 import type { WithdrawalQuoteMountDeps } from '../withdrawals/quotes/router.js';
@@ -75,6 +76,7 @@ export function createPayNamespaces(deps: {
   depositSettings?: DepositSettingsMountDeps;
   depositFreezes?: DepositFreezesMountDeps;
   depositTravelRule?: DepositTravelRuleMountDeps;
+  depositOpenItems?: DepositOpenItemsMountDeps;
   limits?: WithdrawalLimitsMountDeps;
   custody?: CustodyMountDeps;
   purchaseHolds?: PurchaseHoldMountDeps;
@@ -132,6 +134,7 @@ export function createPayNamespaces(deps: {
       depositSettings: deps.depositSettings,
       depositFreezes: deps.depositFreezes,
       depositTravelRule: deps.depositTravelRule,
+      depositOpenItems: deps.depositOpenItems,
       limits: deps.limits,
       custody: deps.custody,
       purchaseHolds: deps.purchaseHolds,

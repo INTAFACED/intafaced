@@ -18,6 +18,50 @@ function blockWith(events: ChainEvent[], overrides: Partial<ChainBlock> = {}): C
   return { chainId: 1, height: 5, hash: OK, parentHash: OK_PARENT, timestamp: 1_700_000_000, events, ...overrides };
 }
 
+describe('chain/source · internal calls (D-explorer-03)', () => {
+  const TX = '0x'.padEnd(66, '1');
+  const tx = {
+    hash: TX,
+    index: 0,
+    from: '0x'.padEnd(42, 'a'),
+    to: '0x'.padEnd(42, 'b'),
+    valueWei: 1n,
+    nonce: 0,
+    gasLimit: 21000n,
+    gasPriceWei: 1n,
+    gasConsumed: 21000n,
+    status: 'success' as const,
+    revertReason: null,
+    input: '0x',
+    createdContract: null,
+    logs: [],
+  };
+  const call = { txHash: TX, path: '0.1', kind: 'call' as const, from: '0x'.padEnd(42, 'b'), to: '0x'.padEnd(42, 'c'), valueWei: 5n };
+  const withInternal = (internal: ChainBlock['internal']) => blockWith([], { transactions: [tx], internal });
+
+  it('accepts read calls and a coded refusal', () => {
+    expect(() => assertValidBlock(withInternal({ read: true, calls: [call] }))).not.toThrow();
+    expect(() => assertValidBlock(withInternal({ read: false, reason: 'indexer.trace_unavailable' }))).not.toThrow();
+  });
+
+  it('refuses a refusal with no code, a call outside the block, a bad path, a duplicate, a bad kind or a negative value', () => {
+    const bad = (internal: ChainBlock['internal']) => expect(() => assertValidBlock(withInternal(internal))).toThrow(ChainDataError);
+    bad({ read: false, reason: 'no trace' });
+    bad({ read: true, calls: [{ ...call, txHash: '0x'.padEnd(66, '2') }] });
+    bad({ read: true, calls: [{ ...call, path: '' }] });
+    bad({ read: true, calls: [{ ...call, path: '01' }] });
+    bad({ read: true, calls: [call, call] });
+    bad({ read: true, calls: [{ ...call, kind: 'delegatecall' as never }] });
+    bad({ read: true, calls: [{ ...call, to: '0x1' }] });
+    bad({ read: true, calls: [{ ...call, valueWei: -1n }] });
+  });
+
+  it('takes a path as deep as the EVM allows', () => {
+    const deep = Array.from({ length: 1024 }, () => '0').join('.');
+    expect(() => assertValidBlock(withInternal({ read: true, calls: [{ ...call, path: deep }] }))).not.toThrow();
+  });
+});
+
 describe('chain/source · block validation', () => {
   it('accepts a well-formed block', () => {
     expect(() =>

@@ -96,6 +96,8 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, STATE, CUSTOMER_LOCALHOST_ORI
     IDENTITY_LOGIN_CODE_RESEND_SECONDS: testValue('IDENTITY_LOGIN_CODE_RESEND_SECONDS'),
     IDENTITY_LOGIN_CODE_REQUEST_MAX: testValue('IDENTITY_LOGIN_CODE_REQUEST_MAX'),
     IDENTITY_LOGIN_CODE_REQUEST_WINDOW_SECONDS: testValue('IDENTITY_LOGIN_CODE_REQUEST_WINDOW_SECONDS'),
+    // Handle change cap (J-pay-03 #2): a TEST value from the profile file, not an owner decision.
+    IDENTITY_HANDLE_CHANGE_MAX: testValue('IDENTITY_HANDLE_CHANGE_MAX'),
     // Password reset and username recovery (J-identity-03): TEST values from the profile file, not owner decisions.
     IDENTITY_PASSWORD_RESET_TTL_SECONDS: testValue('IDENTITY_PASSWORD_RESET_TTL_SECONDS'),
     IDENTITY_BREACHED_PASSWORDS_FILE: testValue('IDENTITY_BREACHED_PASSWORDS_FILE'),
@@ -107,11 +109,17 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, STATE, CUSTOMER_LOCALHOST_ORI
     IDENTITY_NEW_DEVICE_MAX_ATTEMPTS: testValue('IDENTITY_NEW_DEVICE_MAX_ATTEMPTS'),
     IDENTITY_MFA_RESET_WAIT_SECONDS: testValue('IDENTITY_MFA_RESET_WAIT_SECONDS'),
     IDENTITY_SELF_FREEZE_LIFT_WAIT_SECONDS: testValue('IDENTITY_SELF_FREEZE_LIFT_WAIT_SECONDS'),
+    // LOCAL TEST: a trade-ops operator may restrict one account's trading with a second person's approval (J-identity-08 #7).
+    // Off by default, where identity keeps refusing the change with operator.denied.
+    IDENTITY_TRADING_RESTRICT_REQUIRES_APPROVAL: testValue('IDENTITY_TRADING_RESTRICT_REQUIRES_APPROVAL'),
     IDENTITY_KYC_REQUIREMENTS_BY_LEVEL: testValue('IDENTITY_KYC_REQUIREMENTS_BY_LEVEL'),
     IDENTITY_KYC_REVIEW_HOURS_BY_LEVEL: testValue('IDENTITY_KYC_REVIEW_HOURS_BY_LEVEL'),
     IDENTITY_KYC_REJECT_REASONS: testValue('IDENTITY_KYC_REJECT_REASONS'),
     IDENTITY_KYC_CAPABILITIES_BY_LEVEL: testValue('IDENTITY_KYC_CAPABILITIES_BY_LEVEL'),
     IDENTITY_KYC_CAPABILITY_REASONS: testValue('IDENTITY_KYC_CAPABILITY_REASONS'),
+    IDENTITY_TRADING_RESTRICTION_REASONS: testValue('IDENTITY_TRADING_RESTRICTION_REASONS'),
+    IDENTITY_APPEAL_WINDOW_DAYS: testValue('IDENTITY_APPEAL_WINDOW_DAYS'),
+    IDENTITY_APPEAL_DECISION_REASONS: testValue('IDENTITY_APPEAL_DECISION_REASONS'),
     IDENTITY_KYC_DOCUMENT_TYPES_BY_COUNTRY: testValue('IDENTITY_KYC_DOCUMENT_TYPES_BY_COUNTRY'),
     IDENTITY_KYC_UPLOAD_MAX_BYTES: testValue('IDENTITY_KYC_UPLOAD_MAX_BYTES'),
     IDENTITY_KYC_UPLOAD_TYPES: testValue('IDENTITY_KYC_UPLOAD_TYPES'),
@@ -142,6 +150,11 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, STATE, CUSTOMER_LOCALHOST_ORI
     // LOCAL TEST ONLY: the KYC document vault's key, generated for this stack (secrets.json, mode 600). Without it the vault is
     // off and the founder console's document list and viewer refuse kyc_doc.unwired.
     IDENTITY_KYC_DOC_KEY: secrets.identityKycDoc,
+    // LOCAL TEST ONLY: the pay QR signing key (PP-send-request-11), made on this machine (secrets.json) and labelled with the
+    // `local-test:` marker, which identity refuses at boot unless APP_ENV is exactly dev or test. Not an owner key.
+    // `LOCAL_STACK_IDENTITY_PAY_QR_KEY=off` on a start or restart leaves it blank, as production is until the owner sets
+    // one, so a journey can see codes refused with identity.qr_key_unset.
+    ...(process.env.LOCAL_STACK_IDENTITY_PAY_QR_KEY === 'off' ? {} : { IDENTITY_PAY_QR_KEY: `local-test:${secrets.identityPayQr}` }),
     // LOCAL TEST, not the lead's grant (which founder holds which scope is the lead's call for a real stack). The
     // operator reads the founder console makes: svc-bank's desks (admin:read), svc-p2p's
     // operator lists (admin:compliance), svc-market's vendor desk (market:ops), every svc-support operator door

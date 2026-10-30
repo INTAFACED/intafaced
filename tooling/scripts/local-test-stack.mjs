@@ -21,9 +21,11 @@
  *   svc-matching · svc-trade · svc-pay · svc-bank · the services behind the Customer's
  *   More door, Notifications and P2P (svc-token, -p2p, -academy, -support, -market,
  *   -notify, -agents, -blueprint, -quant, -execution, -tax, -campaigns) · svc-ops (the outreach intake and CRM) ·
- *   svc-protocol (the Web3 rooms' read side; no chain node) · svc-ws (the streams behind /ws) ·
+ *   svc-protocol (the Web3 rooms' read side) · a LOCAL TEST chain (anvil, chain id 84532) when anvil is installed ·
+ *   svc-ws (the streams behind /ws) ·
  *   svc-edge · a small Customer static server + reverse proxy on http://127.0.0.1:3210 · the same
- *   for the public invitation site (apps/invitation) on http://127.0.0.1:3220 · the founder console
+ *   for the public invitation site (apps/invitation) on http://127.0.0.1:3220 · a TEST apex stand-in page on
+ *   http://127.0.0.1:3260 (the host check's apex; the real apex is deployed outside this repo) · the founder console
  *   (apps/admin, a production Next build) on http://127.0.0.1:3100
  *
  *   pnpm local:stack plan                 print services, ports and Edge wiring; changes nothing
@@ -60,6 +62,8 @@ import path from 'node:path';
 import { createRequire } from 'node:module';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { apiSecurityHeaders, securityHeaders } from '../../apps/customer/deployment/render-security-headers.mjs';
+import { APEX_DESCRIPTOR_PATH, APEX_PRODUCT } from '../../apps/customer/deployment/host-dispatch.mjs';
+import { anvilBin, chainRecordPath, chainStatus, CHAIN_PORTS, GATE_URL, runSeedScript, TEST_CHAIN_ID } from './local-test-chain.mjs';
 import { marketStatus } from './local-test-market.mjs';
 import { serveVideoStore } from './local-video-store.mjs';
 import academy from './local-stack-services/academy.mjs';
@@ -69,6 +73,7 @@ import blueprint from './local-stack-services/blueprint.mjs';
 import edge from './local-stack-services/edge.mjs';
 import execution from './local-stack-services/execution.mjs';
 import identity, { confirmLocalFounderEmails } from './local-stack-services/identity.mjs';
+import indexer from './local-stack-services/indexer.mjs';
 import ledger from './local-stack-services/ledger.mjs';
 import market from './local-stack-services/market.mjs';
 import matching from './local-stack-services/matching.mjs';
@@ -118,6 +123,7 @@ const P = {
   marker: path.join(STATE, 'LOCAL-TEST-STACK.json'),
   secrets: path.join(STATE, 'secrets.json'),
   procs: path.join(STATE, 'run', 'processes.json'),
+  s2sMode: path.join(STATE, 'run', 's2s-mode'),
   run: path.join(STATE, 'run'),
   logs: path.join(STATE, 'logs'),
   data: path.join(STATE, 'data'),
@@ -131,6 +137,8 @@ const P = {
   customerDist: path.join(REPO, 'apps', 'customer', 'dist'),
   invitationDist: path.join(REPO, 'apps', 'invitation', 'dist'),
   customerDistFile: path.join(STATE, 'customer-dist.json'),
+  hostReceipt: path.join(STATE, 'host-dispatch.json'),
+  apexDist: path.join(STATE, 'apex-test'),
   cspViolations: path.join(STATE, 'csp-violations.jsonl'),
   admin: path.join(REPO, 'apps', 'admin'),
   adminBuildId: path.join(REPO, 'apps', 'admin', '.next', 'BUILD_ID'),
@@ -162,8 +170,10 @@ const PORTS = {
   'mining-pool': 14518,
   // The outreach intake behind the invitation site, and the founders' CRM.
   ops: 14519,
-  // The Web3 rooms' read side (no chain node on this stack).
+  // The Web3 rooms' read side; its RPC is the TEST chain's gate (local-test-chain.mjs, 14530-14532) when anvil is found.
   protocol: 14520,
+  // The chain explorer's read model; follows the TEST chain through the same gate (local-stack-services/indexer.mjs).
+  indexer: 14524,
   // LOCAL TEST stand-in for the object store Academy signs video URLs for (local-video-store.mjs).
   'video-store': 14521,
   // Seasons, limited drops and the TGE claim (the drop room).
@@ -172,6 +182,8 @@ const PORTS = {
   ws: 14523,
   customer: 3210,
   invitation: 3220,
+  // LOCAL TEST stand-in for the apex host (the host check); the real apex site is not in this repo.
+  apex: 3260,
   admin: 3100,
 };
 const HOST = '127.0.0.1';
@@ -181,6 +193,7 @@ const CUSTOMER_ORIGIN = `http://${HOST}:${PORTS.customer}`;
 const CUSTOMER_LOCALHOST_ORIGIN = `http://localhost:${PORTS.customer}`;
 const ADMIN_ORIGIN = `http://${HOST}:${PORTS.admin}`;
 const INVITATION_ORIGIN = `http://${HOST}:${PORTS.invitation}`;
+const APEX_ORIGIN = `http://${HOST}:${PORTS.apex}`;
 const DB_NAME = 'intafaced_local_test';
 const DB_ADMIN = 'local_test_admin';
 // One Postgres schema + one login role (svc_<schema>) per service that owns tables.
@@ -204,6 +217,7 @@ const SCHEMAS = [
   'mining_pool',
   'ops',
   'protocol',
+  'indexer',
   'campaigns',
 ];
 // A schema whose service is named differently (svc-mining-pool owns schema mining_pool).
@@ -304,6 +318,7 @@ const SECRET_NAMES = [
   'payTravelRuleKey', // pay's travel-rule sealing key (PAY_TRAVEL_RULE_MESSAGE_KEY is its SHA-256 as base64); this stack's own, valid nowhere else
   'identityApiKeySigning', // identity's sealing key for API-key request-signing secrets (API_KEY_SIGNING_ENC_KEY, 32 bytes as hex)
   'identityKycDoc', // identity's key for the KYC document vault (IDENTITY_KYC_DOC_KEY, 32 bytes as hex); this stack's own, valid nowhere else
+  'identityPayQr', // identity's TEST pay QR signing key (IDENTITY_PAY_QR_KEY carries it after `local-test:`); this stack's own, valid nowhere else
   'tradeVipProofKey', // trade's key for VIP application proof files (TRADE_VIP_PROOF_KEY, 32 bytes as hex); this stack's own, valid nowhere else
 ];
 
@@ -327,8 +342,90 @@ function loadOrCreateSecrets() {
     s.adminSession = crypto.randomBytes(32).toString('base64url');
     changed = true;
   }
+  // One TEST service key per S2S service, used only when LOCAL_STACK_S2S=dual (s2sEnv). Valid nowhere else.
+  s.s2sKeys ??= {};
+  for (const svc of S2S_SERVICES) {
+    if (!serviceKeyMatches(svc, s.s2sKeys[svc])) {
+      s.s2sKeys[svc] = newServiceKey(svc);
+      changed = true;
+    }
+  }
   if (changed) writePrivate(P.secrets, JSON.stringify(s, null, 2));
   return s;
+}
+
+// ── Service keys (LOCAL_STACK_S2S=dual) ─────────────────────────────────────
+
+/**
+ * The stack's services that speak S2S v3 (packages/contracts SERVICE_NAMES). svc-blueprint and svc-protocol have no
+ * S2S role, and svc-fix is not started here.
+ */
+export const S2S_SERVICES = [
+  'svc-academy',
+  'svc-agents',
+  'svc-bank',
+  'svc-campaigns',
+  'svc-edge',
+  'svc-execution',
+  'svc-identity',
+  'svc-ledger',
+  'svc-market',
+  'svc-matching',
+  'svc-mining-pool',
+  'svc-notify',
+  'svc-ops',
+  'svc-p2p',
+  'svc-pay',
+  'svc-quant',
+  'svc-support',
+  'svc-tax',
+  'svc-token',
+  'svc-trade',
+  'svc-ws',
+];
+
+/** A fresh Ed25519 key in the forms packages/contracts reads: the keyring's raw public key and PKCS8, both base64url. */
+export function newServiceKey(svc) {
+  const { publicKey, privateKey } = crypto.generateKeyPairSync('ed25519');
+  return {
+    kid: `${svc}.local`,
+    x: publicKey.export({ format: 'der', type: 'spki' }).subarray(-32).toString('base64url'),
+    key: privateKey.export({ format: 'der', type: 'pkcs8' }).toString('base64url'),
+  };
+}
+
+/** True when a stored key has this service's kid and its private key gives its public x (else it is made afresh). */
+export function serviceKeyMatches(svc, k) {
+  if (k?.kid !== `${svc}.local` || typeof k.key !== 'string' || typeof k.x !== 'string') return false;
+  try {
+    const priv = crypto.createPrivateKey({ key: Buffer.from(k.key, 'base64url'), format: 'der', type: 'pkcs8' });
+    return crypto.createPublicKey(priv).export({ format: 'der', type: 'spki' }).subarray(-32).toString('base64url') === k.x;
+  } catch {
+    return false;
+  }
+}
+
+const keyrings = new WeakMap();
+
+/**
+ * The S2S env for one service. Unset or `off` adds nothing, so the shared secret stays the only form (the default, and
+ * what the journeys run). `dual` gives every S2S service the same public keyring and its own signing key: each one
+ * signs with its key and still accepts the shared secret, so svc-ledger binds callers by key and refuses a
+ * shared-secret post of a key-only recipe (services/svc-ledger/CALLER-BINDING.md). `keypair` is refused: the local
+ * fund and seed scripts sign with the shared secret.
+ */
+export function s2sEnv(secrets, name, mode = process.env.LOCAL_STACK_S2S) {
+  if (mode === undefined || mode === '' || mode === 'off') return {};
+  if (mode !== 'dual') throw new Error(`LOCAL_STACK_S2S must be off or dual (keypair would refuse the local fund and seed scripts)`);
+  const keys = secrets.s2sKeys ?? {};
+  const missing = S2S_SERVICES.filter((svc) => !keys[svc]);
+  if (missing.length)
+    throw new Error(`LOCAL_STACK_S2S=dual: no stack key for ${missing.join(', ')}; run pnpm local:stack once to create them`);
+  if (!S2S_SERVICES.includes(name)) return {};
+  if (!keyrings.has(keys))
+    keyrings.set(keys, JSON.stringify({ keys: S2S_SERVICES.map((svc) => ({ kid: keys[svc].kid, svc, use: 's2s', x: keys[svc].x })) }));
+  const keyring = keyrings.get(keys);
+  return { S2S_AUTH_MODE: 'dual', S2S_KEYRING: keyring, S2S_SIGNING_KID: keys[name].kid, S2S_SIGNING_KEY: keys[name].key };
 }
 
 const dbUrl = (role, secrets) => `postgres://${role}:${secrets.pgService}@${HOST}:${PORTS.postgres}/${DB_NAME}`;
@@ -603,6 +700,7 @@ const BACKEND_PKGS = [
   'svc-mining-pool',
   'svc-ops',
   'svc-protocol',
+  'svc-indexer',
   'svc-campaigns',
   'svc-ws',
 ];
@@ -870,7 +968,36 @@ async function migrate(secrets, schemas = SCHEMAS) {
 // ── Service definitions ─────────────────────────────────────────────────────
 
 // Placeholder secrets used only to list names, ports and URLs (plan / health table). Never reaches a process.
-const PLAN_SECRETS = Object.fromEntries(SECRET_NAMES.map((n) => [n, 'x'.repeat(64)]));
+export const PLAN_SECRETS = {
+  ...Object.fromEntries(SECRET_NAMES.map((n) => [n, 'x'.repeat(64)])),
+  // Placeholders, so `plan` under LOCAL_STACK_S2S=dual shows the keyed env without reading secrets.json.
+  s2sKeys: Object.fromEntries(S2S_SERVICES.map((svc) => [svc, { kid: `${svc}.local`, x: 'x'.repeat(43), key: 'x' }])),
+};
+
+/**
+ * LOCAL_STACK_S2S for a start or restart, checked before anything is stopped or started. A stack whose services are
+ * running with another value is refused: start and restart leave a running service alone, so it would mix modes.
+ */
+function validS2sMode() {
+  const raw = process.env.LOCAL_STACK_S2S;
+  const mode = raw === undefined || raw === '' ? 'off' : raw;
+  if (mode !== 'off' && mode !== 'dual')
+    fail(`LOCAL_STACK_S2S must be off or dual, not "${raw}" (keypair would refuse the local fund and seed scripts)`, 2);
+  return mode;
+}
+
+function checkedS2sMode() {
+  const mode = validS2sMode();
+  const procs = readProcs();
+  const running = serviceNames().filter((n) => ownedAlive(procs[n]));
+  const was = fs.existsSync(P.s2sMode) ? fs.readFileSync(P.s2sMode, 'utf8').trim() : 'off';
+  if (running.length && was !== mode)
+    fail(
+      `this stack's services run with LOCAL_STACK_S2S=${was} (${running.join(', ')}); set the same value, or stop the stack first (pnpm local:stack:stop)`,
+      2,
+    );
+  return mode;
+}
 const UNUSED = `http://${HOST}:1`; // nothing listens; routes to unstarted services fail fast
 
 function commonEnv(secrets, name, port) {
@@ -889,8 +1016,9 @@ function commonEnv(secrets, name, port) {
     NATS_STREAM_PREFIX: STREAM_PREFIX,
     EDGE_PRINCIPAL_SECRET: secrets.edgePrincipal,
     INTERNAL_SERVICE_SECRET: secrets.internal,
-    // S2S_AUTH_MODE stays unset here: svc-ledger then accepts this shared secret
-    // and counts each post as unbound. See services/svc-ledger/CALLER-BINDING.md.
+    // S2S_AUTH_MODE stays unset here unless LOCAL_STACK_S2S=dual (s2sEnv): svc-ledger then accepts this shared
+    // secret and counts each post as unbound. See services/svc-ledger/CALLER-BINDING.md.
+    ...s2sEnv(secrets, name),
     INTERNAL_SERVICE_BODY_BIND: 'accept-both',
     JWT_ACCESS_SECRET: secrets.jwt,
     // Every service that consults packages/config's screening reads the same pass-through
@@ -932,13 +1060,13 @@ const EDGE_UPSTREAMS = {
   MINING_POOL_URL: 'mining-pool',
   OPS_URL: 'ops',
   PROTOCOL_URL: 'protocol',
+  INDEXER_URL: 'indexer',
   CAMPAIGNS_URL: 'campaigns',
 };
 
 /** Edge upstreams that are intentionally not started, each with the reason. The Customer app calls none of them except where noted. */
 const EDGE_ABSENT = {
   DEX_URL: 'On-chain DEX; needs chain RPC. The Web3 rooms show it as a service that did not answer.',
-  INDEXER_URL: 'Chain indexer; needs chain RPC. The Web3 rooms show it as a service that did not answer.',
   CONNECT_URL: 'Operator data-lake door; not a customer door.',
 };
 
@@ -973,6 +1101,7 @@ const SERVICES = [
   tax,
   miningPool,
   protocol,
+  indexer,
   campaigns,
   ws,
   edge,
@@ -1029,6 +1158,7 @@ function serviceDefs(secrets) {
     TEST_FUTURES_LADDER_POLICY,
     EDGE_UPSTREAMS,
     EDGE_ABSENT,
+    testChain,
   };
   return SERVICES.map((service) => service(ctx));
 }
@@ -1083,6 +1213,80 @@ async function startNats() {
   );
   const pid = startProc('nats', [P.nats, '-c', P.natsConf], baseEnv(), STATE);
   await waitHealthy('nats', `http://${HOST}:${PORTS.natsMonitor}/healthz`, pid, 30_000);
+}
+
+// ── The LOCAL TEST chain (local-test-chain.mjs) ─────────────────────────────
+
+/**
+ * What the TEST chain holds, read when a service's env is built: `{ rpcUrl, factory, router }` while the `chain`
+ * process this script started is alive and seeded, else null (svc-protocol then keeps PROTOCOL_RPC_URL=UNUSED).
+ */
+function testChain() {
+  if (!ownedAlive(readProcs().chain) || !fs.existsSync(chainRecordPath(STATE))) return null;
+  const record = readJson(chainRecordPath(STATE));
+  return { rpcUrl: GATE_URL, factory: record.factory, router: record.router, usdToken: record.tokens?.USD?.address ?? null };
+}
+
+/**
+ * Starts anvil behind its gate and seeds it, when an anvil binary is found. Without one the stack runs as it did
+ * before this chain existed, and says so. A failure to seed fails the start: a half-seeded chain would let the DEX
+ * journeys fail later for a reason the log no longer shows.
+ */
+async function startTestChain() {
+  const bin = anvilBin(process.env);
+  const procs = readProcs();
+  if (!bin) {
+    if (!ownedAlive(procs.chain)) {
+      fs.rmSync(chainRecordPath(STATE), { force: true });
+      // A chain an earlier start ran is not this stack's any more: no health row for it.
+      if (procs.chain) {
+        delete procs.chain;
+        writeProcs(procs);
+      }
+    }
+    say('  chain: no anvil binary (LOCAL_STACK_ANVIL_BIN unset, none on PATH); svc-protocol keeps no node (UNUSED)');
+    return;
+  }
+  if (!ownedAlive(procs.chain)) {
+    for (const port of Object.values(CHAIN_PORTS))
+      if (await portOpen(port)) fail(`port ${port} (TEST chain) is in use by a process this script did not start`);
+    // A new anvil starts empty: whatever an earlier record named is gone with the old node.
+    fs.rmSync(chainRecordPath(STATE), { force: true });
+    startProc(
+      'chain',
+      [process.execPath, path.join(path.dirname(SCRIPT), 'local-test-chain.mjs'), 'serve'],
+      {
+        ...baseEnv(),
+        LOCAL_STACK_ANVIL_BIN: bin,
+      },
+      REPO,
+    );
+  }
+  const want = `0x${TEST_CHAIN_ID.toString(16)}`;
+  for (let i = 0; i < 60; i++) {
+    const answer = await rpcChainId();
+    if (answer === want) break;
+    if (i === 59) fail(`the TEST chain never answered chain id ${want} on ${GATE_URL} (see ${path.join(P.logs, 'chain.log')})`);
+    await sleep(500);
+  }
+  if ((await chainStatus()).gate !== 'open') fail('the TEST chain gate is closed; a journey left it shut (local-test-chain.mjs gate open)');
+  const seeded = runSeedScript(['seed', chainRecordPath(STATE)]);
+  say(`  chain: ${seeded.output.split('\n').pop()}`);
+  if (seeded.status !== 0) fail(`seeding the TEST chain failed:\n${seeded.output}`);
+}
+
+async function rpcChainId() {
+  try {
+    const res = await fetch(GATE_URL, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'eth_chainId' }),
+      signal: AbortSignal.timeout(2000),
+    });
+    return (await res.json()).result;
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -1244,6 +1448,32 @@ async function startInvitation() {
   await waitHealthy('invitation', url, pid, 20_000);
 }
 
+/**
+ * LOCAL TEST: the apex host's stand-in, a TEST page and an apex descriptor marked `test` written to the state folder on
+ * every start. The real apex (the marketing site) is built and deployed outside this repo, so this stack has no apex
+ * build to serve; the host check accepts a `test` descriptor only in its LOCAL TEST mode.
+ */
+function writeApexStandIn() {
+  fs.mkdirSync(P.apexDist, { recursive: true });
+  const descriptor = { product: APEX_PRODUCT, schemaVersion: 1, test: true };
+  fs.writeFileSync(path.join(P.apexDist, APEX_DESCRIPTOR_PATH.slice(1)), `${JSON.stringify(descriptor, null, 2)}\n`);
+  fs.writeFileSync(
+    path.join(P.apexDist, 'index.html'),
+    '<!doctype html><html lang="en"><head><meta charset="utf-8"><title>TEST apex stand-in</title></head>' +
+      "<body><main><h1>TEST apex stand-in</h1><p>This machine's local test stack. No deployment is shown.</p></main></body></html>\n",
+  );
+}
+
+async function startApex() {
+  const procs = readProcs();
+  const url = `${APEX_ORIGIN}/`;
+  writeApexStandIn();
+  if (ownedAlive(procs.apex) && (await httpGet(url, 2000)).status === 200) return;
+  if (await portOpen(PORTS.apex)) fail(`port ${PORTS.apex} (apex) is in use by a process this script did not start`);
+  const pid = startProc('apex', [process.execPath, SCRIPT, '__serve-apex'], baseEnv(), REPO);
+  await waitHealthy('apex', url, pid, 20_000);
+}
+
 /** The founder console's env: the four settings apps/admin needs to sign founders in on a local http origin. */
 function adminEnv(secrets) {
   return {
@@ -1354,6 +1584,20 @@ async function healthTable({ gateMarket = false } = {}) {
     const r = await httpGet(`${urlOf(n)}/health`, 2500);
     rows.push([`svc-${n}`, PORTS[n], procs[n]?.pid ?? '-', r.status === 200 ? 'ok' : `DOWN (${r.status})`]);
   }
+  if (procs.chain) {
+    const status = await chainStatus();
+    const answer = await rpcChainId();
+    rows.push([
+      'chain (TEST)',
+      `${CHAIN_PORTS.gate}`,
+      procs.chain.pid ?? '-',
+      answer === `0x${TEST_CHAIN_ID.toString(16)}`
+        ? `ok (anvil ${TEST_CHAIN_ID}, gate open)`
+        : status.gate === 'closed'
+          ? 'ok (gate closed by a journey)'
+          : 'DOWN',
+    ]);
+  }
   const store = await httpGet(`${urlOf('video-store')}/health`, 2500);
   rows.push([
     'video-store',
@@ -1375,6 +1619,13 @@ async function healthTable({ gateMarket = false } = {}) {
     procs.invitation?.pid ?? '-',
     invitation.status === 200 && invitation.text.includes(BANNER_TEXT) ? 'ok (banner on)' : `DOWN (${invitation.status})`,
   ]);
+  const apex = await httpGet(`${APEX_ORIGIN}/`, 2500);
+  rows.push([
+    'apex',
+    PORTS.apex,
+    procs.apex?.pid ?? '-',
+    apex.status === 200 && apex.text.includes(BANNER_TEXT) ? 'ok (TEST)' : `DOWN (${apex.status})`,
+  ]);
   const admin = await httpGet(`${ADMIN_ORIGIN}/login`, 4000);
   rows.push(['admin', PORTS.admin, procs.admin?.pid ?? '-', admin.status === 200 ? 'ok' : `DOWN (${admin.status})`]);
   // The test market maker is not a service of the stack, but its prices freeze silently when it dies (it did, twice).
@@ -1392,7 +1643,7 @@ function onlyFlag(flags) {
   const at = flags.indexOf('--only');
   if (at === -1) return null;
   const names = (flags[at + 1] ?? '').split(',').filter(Boolean);
-  const known = [...serviceNames(), 'video-store', 'customer', 'invitation', 'admin'];
+  const known = [...serviceNames(), 'video-store', 'customer', 'invitation', 'apex', 'admin'];
   const bad = names.filter((n) => !known.includes(n));
   if (names.length === 0 || bad.length)
     fail(`--only needs a comma list of: ${known.join(', ')}${bad.length ? ` (unknown: ${bad.join(', ')})` : ''}`, 2);
@@ -1400,6 +1651,7 @@ function onlyFlag(flags) {
 }
 
 async function cmdStart(flags) {
+  const s2sMode = checkedS2sMode();
   say('INTAFACED local test stack');
   say(`  repo ${REPO}`);
   say(`  state ${STATE}`);
@@ -1449,6 +1701,7 @@ async function cmdStart(flags) {
   );
   await startNats();
   ensureStreams();
+  if (!only || only.includes('protocol')) await startTestChain();
   // Vault before identity starts, so the first boot already has the invite hashes.
   // Enrolment itself waits until edge is up (below).
   try {
@@ -1458,6 +1711,7 @@ async function cmdStart(flags) {
   }
   // Academy's env points at the video store, so `--only academy` starts it too.
   if (!only || only.includes('video-store') || only.includes('academy')) await startVideoStore(secrets);
+  writePrivate(P.s2sMode, `${s2sMode}\n`);
   await startServices(wanted);
   try {
     await ensureLocalTestFounders();
@@ -1469,6 +1723,8 @@ async function cmdStart(flags) {
     fail('customer build missing; run with --rebuild');
   if (!only || only.includes('customer')) await startCustomer();
   if (!only || only.includes('invitation')) await startInvitation();
+  if (!only || only.includes('apex')) await startApex();
+  if (!only || HOST_SITES.some((name) => only.includes(name))) await checkLocalTestHosts();
   if (!only || only.includes('admin')) await startAdmin(secrets);
   ensureMarket();
   say('');
@@ -1520,8 +1776,10 @@ function ensureMarket() {
 
 async function cmdStop(names = []) {
   const procs = readProcs();
-  const order = ['admin', 'invitation', 'customer', ...serviceNames().reverse(), 'video-store', 'nats'];
+  const order = ['admin', 'apex', 'invitation', 'customer', ...serviceNames().reverse(), 'chain', 'video-store', 'nats'];
   const only = names.length ? names : null;
+  // A TEST host receipt never outlives the sites it says are served (checkLocalTestHosts writes it again on start).
+  if (!only || HOST_SITES.some((name) => only.includes(name))) fs.rmSync(P.hostReceipt, { force: true });
   let bad = false;
   for (const name of order) {
     if (only && !only.includes(name)) continue;
@@ -1553,6 +1811,7 @@ async function cmdStop(names = []) {
 
 /** Read-only: what this script would run and where Edge would send every route. Touches nothing. */
 function cmdPlan(flags) {
+  validS2sMode();
   const defs = serviceDefs(PLAN_SECRETS);
   const procs = fs.existsSync(P.procs) ? readProcs() : {};
   const services = defs.map((d) => ({
@@ -1591,10 +1850,11 @@ function cmdPlan(flags) {
 
 /** Stop the named services (plain stop, leaves Postgres and the rest alone), then start whatever is not running. */
 async function cmdRestart(names) {
-  const known = [...serviceNames(), 'video-store', 'customer', 'invitation', 'admin'];
+  const known = [...serviceNames(), 'video-store', 'customer', 'invitation', 'apex', 'admin'];
   const bad = names.filter((n) => !known.includes(n));
   if (names.length === 0 || bad.length)
     fail(`restart needs service names from: ${known.join(', ')}${bad.length ? ` (unknown: ${bad.join(', ')})` : ''}`, 2);
+  checkedS2sMode();
   await cmdStop(names);
   await cmdStart([]);
 }
@@ -1608,6 +1868,45 @@ const WS_UPSTREAM_REFUSAL = {
   message: 'CUSTOMER_WS_URL is not wired. The Customer server has no WebSocket upstream.',
 };
 const customerWsUpstream = () => (process.env.LOCAL_STACK_WS_UPSTREAM === 'off' ? '' : urlOf('ws'));
+
+// ── LOCAL TEST hosts ────────────────────────────────────────────────────────
+
+/** The sites the host check reads; starting or stopping any of them checks again or drops the receipt. */
+const HOST_SITES = ['customer', 'invitation', 'apex'];
+
+/** Where the Customer app reads the host dispatch receipt (apps/customer/src/features/public/host-dispatch.ts). */
+const HOST_RECEIPT_PATH = '/host-dispatch.json';
+
+/**
+ * The apex, app and join hosts on this machine: TEST stand-ins on loopback, made from this stack's own ports and never
+ * an owner value. The apex is the stack's TEST apex page (writeApexStandIn), the invitation site is the join host and the
+ * Customer server is the app host. `LOCAL_STACK_HOSTS=off` on a start or restart leaves all three unset, so a
+ * journey can see the typed refusal.
+ */
+export function localTestHosts(env = process.env) {
+  if (env.LOCAL_STACK_HOSTS === 'off') return {};
+  return { INTAFACED_APEX_HOST: APEX_ORIGIN, INTAFACED_APP_HOST: CUSTOMER_ORIGIN, INTAFACED_JOIN_HOST: INVITATION_ORIGIN };
+}
+
+/**
+ * Runs the deployment's host check against the TEST hosts in its LOCAL TEST mode (APP_ENV test, loopback only) and
+ * keeps its receipt in the state folder, where the Customer server publishes it at /host-dispatch.json. The previous
+ * receipt is removed first, so with the hosts unset nothing is published. A refusal is printed, never fatal.
+ */
+async function checkLocalTestHosts() {
+  fs.rmSync(P.hostReceipt, { force: true });
+  const check = path.join(REPO, 'apps', 'customer', 'deployment', 'host-dispatch.mjs');
+  const env = { PATH: PNPM_PATH, HOME: os.homedir(), APP_ENV: 'test', ...localTestHosts() };
+  const result = await new Promise((done) => {
+    const child = spawn(process.execPath, [check, '--local-test', '--out', P.hostReceipt], { env, cwd: REPO });
+    let out = '';
+    child.stdout.on('data', (chunk) => (out += chunk));
+    child.stderr.on('data', (chunk) => (out += chunk));
+    child.on('close', (status) => done({ status, out }));
+  });
+  for (const line of result.out.trim().split('\n').filter(Boolean)) say(`  ${line}`);
+  if (result.status !== 0) say(`  host dispatch (TEST): exited ${result.status}; the Help room shows no host as served`);
+}
 
 // ── Customer static server + reverse proxy ──────────────────────────────────
 
@@ -1659,10 +1958,14 @@ export function customerSecurityHeaders() {
   return securityHeaders({ mediaSrc: `'self' blob: ${urlOf('video-store')}`, reportUri: CSP_REPORT_PATH });
 }
 
-/** The two static sites this stack serves, each with `/api/*` passed to Edge. The invitation site has no folder override. */
+/**
+ * The static sites this stack serves. The Customer and invitation sites pass `/api/*` to Edge; the TEST apex page has no
+ * api. Only the Customer site has a folder override.
+ */
 const SITES = {
   customer: { label: 'Customer', origin: CUSTOMER_ORIGIN, dist: () => activeCustomerDist(), headers: () => customerSecurityHeaders() },
   invitation: { label: 'invitation', origin: INVITATION_ORIGIN, dist: () => ({ dir: P.invitationDist, error: null }), headers: () => ({}) },
+  apex: { label: 'apex', origin: APEX_ORIGIN, dist: () => ({ dir: P.apexDist, error: null }), headers: () => ({}), noApi: true },
 };
 
 /** One CSP report body (application/csp-report or reports+json) as the rows csp-violations.jsonl keeps. */
@@ -1757,7 +2060,8 @@ function serveCustomer(port = PORTS.customer, site = SITES.customer) {
       });
       return;
     }
-    if (p === '/api' || p === '/ws') return send(res, 404, 'text/plain; charset=utf-8', 'not found');
+    if (p === '/api' || p === '/ws' || (site.noApi && p.startsWith('/api/')))
+      return send(res, 404, 'text/plain; charset=utf-8', 'not found');
     if (p.startsWith('/ws/')) {
       if (!wsUpstream) return send(res, 503, 'application/json', JSON.stringify(WS_UPSTREAM_REFUSAL));
       const up = http.request(
@@ -1795,6 +2099,13 @@ function serveCustomer(port = PORTS.customer, site = SITES.customer) {
       );
     }
     const dist = active.dir;
+
+    // The LOCAL TEST host receipt, from the state folder (checkLocalTestHosts). With none, the build's own file or the index.
+    // The receipt, or a 404 while there is none: never the app's index in its place.
+    if (site === SITES.customer && p === HOST_RECEIPT_PATH) {
+      if (!fs.existsSync(P.hostReceipt)) return send(res, 404, 'text/plain; charset=utf-8', 'no host dispatch receipt');
+      return send(res, 200, MIME['.json'], fs.readFileSync(P.hostReceipt, 'utf8'));
+    }
 
     // Static files; unknown paths fall back to index.html like apps/customer/nginx.conf.
     let decoded;
@@ -2095,6 +2406,40 @@ function cmdExpireStaffHolds(args) {
 }
 
 /**
+ * `seed-notice <email-or-userId> <tradeId>`: one P2P escrow-locked notice in the TEST person's inbox, stored exactly as
+ * svc-notify wrote it before PR 5435 moved its targets (`href` `/p2p/trades/<tradeId>`). Rows stored then are never
+ * rewritten, so the customer app must still open them (J-home-ia-05 #2). It writes the notice row only: no trade, no
+ * escrow, no event, and it moves no value. The same person and trade id is the same row, stored again as new and unread.
+ */
+function cmdSeedNotice(args) {
+  const [who, tradeId] = args;
+  if (!who || !tradeId) fail('usage: node tooling/scripts/local-test-stack.mjs seed-notice <email-or-userId> <tradeId>', 2);
+  if (!/^[A-Za-z0-9-]{4,64}$/.test(tradeId)) fail('tradeId must be 4-64 letters, digits or dashes', 2);
+  const { secrets, userId } = localFixturePerson(who);
+  const id = psql(
+    secrets,
+    `INSERT INTO notify.notifications (user_id, kind, title_key, body_key, params, href, severity, source_subject, source_idempotency_key)
+     VALUES (:'uid', 'p2p.escrow.locked', 'notify.p2p.escrow.locked.title', 'notify.p2p.escrow.locked.body',
+             coalesce((SELECT params FROM notify.notifications
+                        WHERE user_id = :'uid' AND kind = 'p2p.escrow.locked' AND params->>'tradeId' = :'tid'
+                          AND source_idempotency_key NOT LIKE 'local-test-old-link:%'
+                        ORDER BY created_at LIMIT 1),
+                       jsonb_build_object('tradeId', :'tid'::text)),
+             '/p2p/trades/' || :'tid', 'action',
+             'intafaced.p2p.escrow.locked', 'local-test-old-link:' || :'tid')
+     ON CONFLICT (user_id, source_subject, source_idempotency_key)
+       DO UPDATE SET href = EXCLUDED.href, read_at = NULL, created_at = now()
+     RETURNING id::text`,
+    { db: DB_NAME, user: 'svc_notify', password: secrets.pgService, vars: { uid: userId, tid: tradeId }, tuples: true },
+  )
+    .trim()
+    .split('\n')
+    .find((line) => /^[0-9a-f-]{36}$/.test(line.trim()));
+  if (!id) fail(`no notice was stored for ${who}`);
+  say(`  notice ${id.trim()} for ${who} links /p2p/trades/${tradeId}, as stored before PR 5435 (LOCAL TEST fixture)`);
+}
+
+/**
  * `age-task-progress <email-or-userId> <campaignId> <days>`: the TEST person's join of one task campaign and the events
  * counted for its steps move `days` back in time (J-campaigns-02 #8), so a journey can show a streak step reset after a
  * missed day without waiting a day out. svc-campaigns reads the streak from these stored times on every read. It writes
@@ -2168,9 +2513,11 @@ async function miningPow() {
   }
 }
 
-// One TEST share from a rig, posted to the pool's own share door signed as a service, the way a stratum front would.
-// The window has no published reward or fee, so the share is stored and nothing is ever paid for it. The miner id is the
-// account's own id (what the mining room tells a miner to use); --worker names the rig, absent goes to "default".
+// One TEST share from a TEST rig through the pool's miner door, at the address the mining room shows. The door's window
+// has no published reward or fee, so the share is stored and nothing is ever paid for it. The rig logs in as the
+// account's own id and the published worker name for --worker (what the room copies); no --worker is the default
+// worker. --pool and --login dial and log in with values copied from the room instead. --secret is the miner secret the
+// room issues; without the account's current one the door refuses by name (mining.stratum_secret_invalid).
 async function cmdMiningShare(rawArgs) {
   const args = [...rawArgs];
   const take = (flag) => {
@@ -2183,17 +2530,25 @@ async function cmdMiningShare(rawArgs) {
   };
   const worker = take('--worker');
   const label = take('--share');
+  const pool = take('--pool');
+  const login = take('--login');
+  const secret = take('--secret');
   const invalidAt = args.indexOf('--invalid-pow');
   const invalidPow = invalidAt !== -1;
   if (invalidPow) args.splice(invalidAt, 1);
   const [who] = args;
   if (!who || !label)
     fail(
-      'usage: node tooling/scripts/local-test-stack.mjs mining-share <email-or-userId> --share <label> [--worker <rig name>] [--invalid-pow]',
+      'usage: node tooling/scripts/local-test-stack.mjs mining-share <email-or-userId> --share <label> [--worker <rig name>] [--pool <host:port>] [--login <account id>.<worker name>] [--secret <miner secret>] [--invalid-pow]',
       2,
     );
   if (!/^[A-Za-z0-9-]{4,64}$/.test(label)) fail('--share must be 4-64 letters, digits or dashes', 2);
   if (worker !== undefined && !/^[A-Za-z0-9_-]{1,64}$/.test(worker)) fail('--worker must be 1-64 letters, digits, dash or underscore', 2);
+  if (pool !== undefined && !/^127\.0\.0\.1:\d{1,5}$/.test(pool)) fail('--pool must be 127.0.0.1:<port> (the local stack only)', 2);
+  if (login !== undefined && !/^[0-9a-f-]{36}(\.[A-Za-z0-9_.{}-]{1,80})?$/.test(login))
+    fail('--login must be <account id>[.<worker name>]', 2);
+  if (login !== undefined && worker !== undefined) fail('--login already names the worker; drop --worker', 2);
+  if (secret !== undefined && !/^[A-Za-z0-9_-]{1,100}$/.test(secret)) fail('--secret must be the miner secret the room shows', 2);
 
   if (!fs.existsSync(P.marker)) fail(`refusing: marker ${P.marker} not found. Start the stack first (pnpm local:stack).`);
   const marker = readJson(P.marker);
@@ -2217,60 +2572,55 @@ async function cmdMiningShare(rawArgs) {
   if (found.length > 1) fail(`"${who}" matches more than one user`);
   const [userId] = found;
 
-  let contracts;
-  try {
-    contracts = await import(pathToFileURL(path.join(REPO, 'packages', 'contracts', 'dist', 'index.js')).href);
-  } catch (err) {
-    fail(`packages are not built (${err.message}). Run: pnpm local:stack --rebuild`);
-  }
   const shareId = `LOCAL-TEST-${label}`;
-  const windowId = 'LOCAL-TEST-unpaid-window';
-  // The share carries a nonce found with the TEST proof-of-work parameters against the pool's own header for this window,
-  // account and rig, and no weight (the pool sets it); --invalid-pow sends a nonce that misses the target. A pool started
-  // with LOCAL_STACK_MINING_POOL_POW=off has no parameters and refuses work by name (mining.pow_spec_unset).
+  // The rig finds a nonce with the TEST proof-of-work parameters the pool's job names, against the pool's own header for
+  // the door's window, the account and the rig; --invalid-pow sends a nonce that misses the target. A pool started with
+  // LOCAL_STACK_MINING_POOL_POW=off has no parameters and refuses the rig by name (mining.pow_spec_unset).
   const pow = await miningPow();
-  const spec = pow.readPowSpec(profileEnvFor('mining-pool', 'dev'));
-  const header = pow.powHeader(windowId, userId, worker ?? 'default');
-  // Each share searches from its own start, derived from its id, so two shares of one rig never send the same work
-  // (the pool refuses repeated work in a window as mining.share_duplicate).
+  const published = profileEnvFor('mining-pool', 'dev');
+  const [host, port] = (pool ?? `${published.MINING_POOL_HOST}:${published.MINING_POOL_PORT}`).split(':');
+  const workerName = worker === undefined ? null : published.MINING_WORKER_NAME_PATTERN.replace('{worker}', worker);
+  // Each share searches from its own start, derived from its label, so two shares of one rig never send the same work,
+  // and one label sent again sends the same work (the pool refuses repeated work in a window as mining.share_duplicate).
   const start = Number.parseInt(crypto.createHash('sha256').update(shareId).digest('hex').slice(0, 12), 16);
-  const powNonce = invalidPow ? pow.failingPow(spec, header, start) : pow.grindPow(spec, header, start);
-  const powNote = `TEST testnet proof of work, ${invalidPow ? 'invalid' : 'valid'} nonce ${powNonce}`;
-  const raw = JSON.stringify({
-    windowId,
-    assetId: 'TEST',
-    shares: [{ shareId, minerId: userId, powNonce, ...(worker === undefined ? {} : { workerName: worker }) }],
-  });
-  const res = await fetch(`${urlOf('mining-pool')}/submitShare`, {
-    redirect: 'error',
-    method: 'POST',
-    headers: { 'content-type': 'application/json', ...contracts.serviceAuthHeadersForBody('local-test-miner', secrets.internal, raw) },
-    body: raw,
-  });
-  const text = await res.text();
-  let body = null;
+  const { rigShare } = await import('./local-test-mining-rig.mjs');
+  let result;
   try {
-    body = JSON.parse(text);
-  } catch {
-    // reported below
+    result = await rigShare({
+      host,
+      port: Number(port),
+      login: login ?? (workerName ? `${userId}.${workerName}` : userId),
+      pow,
+      start,
+      invalid: invalidPow,
+      secret,
+    });
+  } catch (err) {
+    fail(`the TEST rig could not reach the pool's miner door at ${host}:${port}: ${err.message}`);
   }
-  // A share id the pool already holds is refused by name; that is the pool's answer, not a tool failure.
-  if (res.status === 409 && body?.error === 'mining.share_duplicate') {
+  const powNote = `TEST testnet proof of work, ${invalidPow ? 'invalid' : 'valid'} nonce ${result.nonce}`;
+  // The same work again is refused by name; that is the pool's answer, not a tool failure.
+  if (result.code === 'mining.share_duplicate') {
     console.log(`refused mining.share_duplicate: TEST share ${shareId}, or its work, is already stored; nothing new was kept`);
     return;
   }
   // A share whose work misses the target is refused by name and stored nowhere but the pool's rejection log.
-  if (invalidPow && body?.error === 'mining.pow_invalid') {
+  if (invalidPow && result.code === 'mining.pow_invalid') {
     console.log(`refused mining.pow_invalid: TEST share ${shareId} (${powNote}); nothing was kept`);
     return;
   }
-  if (body?.error === 'mining.pow_spec_unset') {
+  // A rig without the account's current miner secret is refused by name before the door touches the account.
+  if (result.code === 'mining.stratum_secret_invalid') {
+    console.log(`refused mining.stratum_secret_invalid: the miner secret is missing or wrong, so TEST share ${shareId} was not sent`);
+    return;
+  }
+  if (result.code === 'mining.pow_spec_unset') {
     console.log(`refused mining.pow_spec_unset: the pool has no proof-of-work parameters, so TEST share ${shareId} was not kept`);
     return;
   }
-  if (res.status !== 200 || body?.accepted !== true) fail(`the pool refused the TEST share (${res.status}): ${text.slice(0, 400)}`);
+  if (!result.ok) fail(`the pool refused the TEST share: ${result.code}`);
   console.log(
-    `accepted TEST share ${shareId} for miner ${userId}, worker ${worker ?? 'default'}, ${powNote} (unpaid window, nothing credited)`,
+    `accepted TEST share ${shareId} for miner ${userId}, ${login === undefined ? `worker ${worker ?? 'default'}` : `login ${login}`}, ${powNote} through the miner door at ${host}:${port} (unpaid window, nothing credited)`,
   );
 }
 
@@ -2851,6 +3201,57 @@ async function cmdBankTransfer(rawArgs) {
   say(`  answer    ${text}`);
 }
 
+/**
+ * `card-funds <paymentId> available|pending [--on <ISO date>]`: the TEST card acquirer reports that the funds of one card
+ * payment it captured are released (`available`) or still held, optionally until a named day (`pending --on`), to svc-pay's
+ * own `/webhooks/card-sandbox`, signed with this stack's TEST card webhook secret (RC-merchant-10). The payment must have
+ * been taken with the held-funds TEST token, or svc-pay ignores the report. The event id comes from the payment and the
+ * report, so sending it again is the same delivery, never a second release. Nothing here touches the ledger.
+ */
+async function cmdCardFunds(rawArgs) {
+  const args = [...rawArgs];
+  const at = args.indexOf('--on');
+  const on = at === -1 ? undefined : args[at + 1];
+  if (at !== -1) args.splice(at, 2);
+  const usage = 'usage: node tooling/scripts/local-test-stack.mjs card-funds <paymentId> available|pending [--on <ISO date>]';
+  if (args.some((arg) => arg.startsWith('--'))) fail(`unknown option: ${args.find((arg) => arg.startsWith('--'))}`, 2);
+  const [paymentId, state, ...extra] = args;
+  if (!paymentId || !state || extra.length > 0) fail(usage, 2);
+  if (!/^[0-9a-f-]{36}$/i.test(paymentId)) fail(`bad payment id: ${paymentId}`, 2);
+  if (state !== 'available' && state !== 'pending') fail(usage, 2);
+  if (on !== undefined && (state !== 'pending' || Number.isNaN(Date.parse(on)))) fail('--on takes an ISO date, with pending only', 2);
+
+  // Guards: this only ever talks to the local stack's own svc-pay.
+  if (!fs.existsSync(P.marker)) fail(`refusing: marker ${P.marker} not found. Start the stack first (pnpm local:stack).`);
+  if (readJson(P.marker).kind !== 'intafaced-local-test-stack') fail('refusing: marker file is not a local test stack marker');
+  if (!ownedAlive(readProcs().pay)) fail('refusing: the local stack svc-pay is not running. Run: pnpm local:stack');
+  assertActiveLocalStack({ stateDir: STATE, services: ['pay'] });
+  const secret = readJson(P.secrets).payCardWebhook;
+  if (!secret) fail('refusing: this stack has no TEST card webhook secret. Run: pnpm local:stack --rebuild');
+
+  const body = JSON.stringify({
+    id: `funds:${paymentId}:${state}${on ? `:${on}` : ''}`,
+    type: `funds.${state}`,
+    ref: `ch_${paymentId}`,
+    occurredAt: new Date().toISOString(),
+    ...(on ? { availableOn: new Date(on).toISOString() } : {}),
+  });
+  const timestamp = Math.floor(Date.now() / 1000).toString();
+  const signature = crypto.createHmac('sha256', secret).update(`${timestamp}.${body}`).digest('hex');
+  const res = await fetch(`${urlOf('pay')}/webhooks/card-sandbox`, {
+    method: 'POST',
+    redirect: 'error',
+    headers: { 'content-type': 'application/json', 'x-sandbox-signature': signature, 'x-sandbox-timestamp': timestamp },
+    body,
+  });
+  const text = await res.text();
+  if (res.status !== 200) fail(`svc-pay refused the TEST card delivery (${res.status}): ${text.slice(0, 400)}`);
+  say('TEST card funds report delivered to svc-pay (TEST acquirer, not real money)');
+  say(`  payment   ${paymentId}`);
+  say(`  funds     ${state}${on ? ` until ${on}` : ''}`);
+  say(`  answer    ${text}`);
+}
+
 /** Env each local service would get. Starts nothing. Placeholder secrets only. */
 export function localTestServiceEnvs(secrets = PLAN_SECRETS) {
   return serviceDefs(secrets).map((service) => ({ name: service.name, env: service.env() }));
@@ -2910,6 +3311,7 @@ async function runCli() {
   if (cmd === '__serve-customer')
     serveCustomer(Number(rest[0]) || PORTS.customer); // the port argument is for tests only
   else if (cmd === '__serve-invitation') serveCustomer(PORTS.invitation, SITES.invitation);
+  else if (cmd === '__serve-apex') serveCustomer(PORTS.apex, SITES.apex);
   else if (cmd === '__serve-admin') await serveAdmin();
   else if (cmd === '__serve-video-store')
     serveVideoStore({
@@ -2931,12 +3333,14 @@ async function runCli() {
   else if (cmd === 'chain-deposit') await cmdChainDeposit(rest);
   else if (cmd === 'chain-reorg') await cmdChainReorg(rest);
   else if (cmd === 'bank-transfer') await cmdBankTransfer(rest);
+  else if (cmd === 'card-funds') await cmdCardFunds(rest);
   else if (cmd === 'age-linked-accounts') cmdAgeLinkedAccounts(rest);
   else if (cmd === 'token-params') cmdTokenParams();
   else if (cmd === 'expire-address-approvals') cmdExpireAddressApprovals(rest);
   else if (cmd === 'expire-deposit-addresses') cmdExpireDepositAddresses(rest);
   else if (cmd === 'expire-staff-holds') cmdExpireStaffHolds(rest);
   else if (cmd === 'age-task-progress') cmdAgeTaskProgress(rest);
+  else if (cmd === 'seed-notice') cmdSeedNotice(rest);
   else if (cmd === 'age-addresses') cmdAgeAddresses(rest);
   else if (cmd === 'customer-dist') cmdCustomerDist(rest);
   else if (cmd === 'status') {
@@ -2946,7 +3350,7 @@ async function runCli() {
     process.exit(ok ? 0 : 1);
   } else
     fail(
-      `unknown command "${cmd}". Use: start | stop | status | fund | seed-withdrawal | age-addresses | age-linked-accounts | expire-address-approvals | expire-deposit-addresses | expire-staff-holds | age-task-progress | plan | restart | customer-dist`,
+      `unknown command "${cmd}". Use: start | stop | status | fund | seed-withdrawal | age-addresses | age-linked-accounts | expire-address-approvals | expire-deposit-addresses | expire-staff-holds | age-task-progress | seed-notice | plan | restart | customer-dist`,
       2,
     );
 }

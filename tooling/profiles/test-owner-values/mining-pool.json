@@ -33,13 +33,13 @@
     },
     "MINING_POOL_HOST": {
       "service": "mining-pool",
-      "value": "198.51.100.1",
-      "note": "TEST pool host a miner copies: a TEST-NET-2 documentation address (RFC 5737) that never answers, so the reachability test times out. Not a product default."
+      "value": "127.0.0.1",
+      "note": "TEST pool host a miner copies: the local stack's own miner door on loopback, so a TEST rig dials the address the room shows. Not a product default."
     },
     "MINING_POOL_PORT": {
       "service": "mining-pool",
       "value": "3999",
-      "note": "TEST pool port a miner copies. Not a product default."
+      "note": "TEST pool port a miner copies: the miner door's TEST listen port. Not a product default."
     },
     "MINING_POOL_SECURE_URL": {
       "service": "mining-pool",
@@ -80,6 +80,21 @@
       "service": "mining-pool",
       "value": "true",
       "note": "TEST testnet flag: testnet windows earn no credit. Mainnet refuses audit.external. Not a product default."
+    },
+    "MINING_STRATUM_LISTEN_PORT": {
+      "service": "mining-pool",
+      "value": "3999",
+      "note": "TEST port the pool's miner door listens on, the same as the TEST port a miner copies. Not a product default."
+    },
+    "MINING_STRATUM_WINDOW_SECONDS": {
+      "service": "mining-pool",
+      "value": "604800",
+      "note": "TEST length of one miner-door share window (seven days), so a journey's shares land in one window. Not a product default."
+    },
+    "MINING_STRATUM_ASSET_ID": {
+      "service": "mining-pool",
+      "value": "TEST",
+      "note": "TEST asset a miner-door window is mined for. Not a product default."
     }
   }
 }

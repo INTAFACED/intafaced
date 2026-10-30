@@ -79,6 +79,7 @@ export interface ControlForm {
   readonly accountIds: string;
   readonly ownerType: (typeof OWNER_TYPES)[number] | '';
   readonly ownerIdPrefix: string;
+  readonly rail: string;
   readonly accountKind: (typeof ACCOUNT_KINDS)[number] | '';
   readonly purpose: string;
   readonly assetId: string;
@@ -106,6 +107,7 @@ export function emptyControlForm(): ControlForm {
     accountIds: '',
     ownerType: '',
     ownerIdPrefix: '',
+    rail: '',
     accountKind: '',
     purpose: '',
     assetId: '',
@@ -143,6 +145,7 @@ export function formFromControl(view: ReconciliationControlView): ControlForm {
     accountIds: accountSet.mode === 'explicit' ? accountSet.accountIds.join('\n') : '',
     ownerType: accountSet.mode === 'query' ? (accountSet.ownerType ?? '') : '',
     ownerIdPrefix: accountSet.mode === 'query' ? (accountSet.ownerIdPrefix ?? '') : '',
+    rail: accountSet.mode === 'query' ? (accountSet.rail ?? '') : '',
     accountKind: accountSet.mode === 'query' ? (accountSet.kind ?? '') : '',
     purpose: accountSet.mode === 'query' ? (accountSet.purpose ?? '') : '',
     assetId: accountSet.mode === 'query' ? (accountSet.assetId ?? '') : '',
@@ -201,6 +204,7 @@ function accountSetOf(form: ControlForm): DefineReconciliationControlInput['acco
     mode: 'query',
     ...(form.ownerType ? { ownerType: form.ownerType } : {}),
     ...(form.ownerIdPrefix.trim() ? { ownerIdPrefix: form.ownerIdPrefix.trim() } : {}),
+    ...(form.rail.trim() ? { rail: form.rail.trim() } : {}),
     ...(form.accountKind ? { kind: form.accountKind } : {}),
     ...(form.purpose.trim() ? { purpose: form.purpose.trim() } : {}),
     ...(form.assetId.trim() ? { assetId: form.assetId.trim() } : {}),
@@ -254,6 +258,8 @@ function contractWhy(error: {
   if (!issue) return 'The contract refused this control.';
   const where = issue.path.map(String).join('.');
   if (where === 'reason') return 'Write the reason first (12 to 500 characters).';
+  if (where === 'accountSet.rail')
+    return 'Rail boundary names its own accounts: leave owner type and owner id blank, and kind blank or available.';
   if (issue.message === 'ops.control_policy_unset')
     return `${where === 'accountSet' ? 'Account set' : where || 'Policy'}: ops.control_policy_unset. Name at least one account or one account filter.`;
   return `${where || 'Control'}: ${issue.message}`;
@@ -347,6 +353,7 @@ export function describeAccountSet(view: ReconciliationControlView): string {
   const parts = [
     set.ownerType && `owner type ${set.ownerType}`,
     set.ownerIdPrefix && `owner id starts ${set.ownerIdPrefix}`,
+    set.rail && `boundary of rail ${set.rail}`,
     set.kind && `kind ${set.kind}`,
     set.purpose && `purpose ${set.purpose}`,
     set.assetId && `asset ${set.assetId}`,
@@ -409,6 +416,9 @@ export function controlRefusal(code: string | null, status: number): string {
   }
 }
 
+/** How many reconciling items a run's line names; the run itself keeps every one. */
+const RUN_ITEMS_SHOWN = 200;
+
 /** A run as one line for the desk's reply: what it found and the as-of of each source. Decimal strings stay strings. */
 export function describeRun(run: ReconciliationControlRunView): string {
   const outside = run.sources.outside.asOf === 'unset' ? 'unset' : run.sources.outside.asOf;
@@ -422,12 +432,28 @@ export function describeRun(run: ReconciliationControlRunView): string {
       ? [`Error: ${run.errorCode.value}${run.phase.status === 'set' ? ` at ${run.phase.value}` : ''}.`]
       : []),
     ...run.assets.map(describeEvidence),
+    ...(run.reconcilingItems
+      ? [
+          `${run.reconcilingItems.length} reconciling item${run.reconcilingItems.length === 1 ? '' : 's'}${run.reconcilingItems.length ? ':' : '.'}`,
+          ...run.reconcilingItems
+            .slice(0, RUN_ITEMS_SHOWN)
+            .map((item) => `${item.kind} ${item.id} ${item.assetId} ${item.amount} (${item.source}).`),
+          ...(run.reconcilingItems.length > RUN_ITEMS_SHOWN
+            ? [`And ${run.reconcilingItems.length - RUN_ITEMS_SHOWN} more on the run.`]
+            : []),
+        ]
+      : []),
   ].join(' ');
 }
 
-/** One asset's evidence (OPS-reconciliation-02): what was observed, what was expected, the difference and the tolerance. */
+/**
+ * One asset's evidence (OPS-reconciliation-02): what was observed, what was expected, the difference and the tolerance; on a
+ * rail with named open items, also their sum and the residual left, which alone decides the verdict.
+ */
 export function describeEvidence(asset: ReconciliationControlRunView['assets'][number]): string {
-  return `${asset.assetId}: observed ${asset.observed}, expected ${asset.expected}, difference ${asset.difference}, tolerance ${asset.tolerance}.`;
+  const items =
+    asset.reconcilingItems === undefined ? '' : `, reconciling items ${asset.reconcilingItems}, residual ${asset.residual ?? 'unset'}`;
+  return `${asset.assetId}: observed ${asset.observed}, expected ${asset.expected}, difference ${asset.difference}, tolerance ${asset.tolerance}${items}.`;
 }
 
 /** What each move is called on screen. Where it may go from, and to, is the contract's one table. */

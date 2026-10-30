@@ -19,6 +19,8 @@ export const moneyApi = ({ query, mutate }: PortalTools) => ({
   settlement: (settlementId: string, signal?: AbortSignal) => query('settlement.get', { settlementId }, p.settlementSchema, signal),
   control: (merchantId: string, signal?: AbortSignal) => query('merchantControl.get', { merchantId }, p.controlProfileSchema, signal),
   reserve: (merchantId: string, signal?: AbortSignal) => query('merchantControl.reserve', { merchantId }, m.reserveViewSchema, signal),
+  /** M-money-out-02. With no top-up rail the service always refuses `pay.topup_unconfigured`; there is no answer shape yet. */
+  topUpOptions: (merchantId: string, signal?: AbortSignal) => query('merchantControl.topUp.options', { merchantId }, z.never(), signal),
   usage: (merchantId: string, signal?: AbortSignal) => query('merchantControl.usage', { merchantId }, p.usageSchema, signal),
   pricingPreview: (input: { merchantId: string; assetCode: string; amount: string; monthlyVolume?: string; conversion?: boolean }) =>
     query('merchantControl.pricing.preview', input, p.quoteSchema),
@@ -40,6 +42,8 @@ export const moneyApi = ({ query, mutate }: PortalTools) => ({
     query('settlement.list', { merchantId, limit: 25, ...only(q), ...(cursor ? { cursor } : {}) }, p.page(p.settlementSchema), signal),
   settlementLines: (settlementId: string, cursor: string | undefined, signal?: AbortSignal) =>
     query('settlement.lines', { settlementId, limit: 25, ...(cursor ? { cursor } : {}) }, p.page(m.settlementLineSchema), signal),
+  /** RC-merchant-10: captured payments the rail has not made available yet, with the day it named. */
+  clearing: (merchantId: string, signal?: AbortSignal) => query('settlement.clearing', { merchantId }, m.clearingSchema, signal),
   /** mirrors feat/pay-portal-be-reads-money settlement.lifecycle */
   settlementLifecycle: (settlementId: string, signal?: AbortSignal) =>
     query('settlement.lifecycle', { settlementId }, m.lifecycleSchema, signal),

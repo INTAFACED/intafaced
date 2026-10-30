@@ -3,6 +3,7 @@ import type { Principal } from '@intafaced/auth';
 import { createEdgeContext, encodePrincipal, signPrincipalHeader } from '@intafaced/contracts';
 import { createAgentsRouter } from '../router.js';
 import type { AgentsRouterDeps } from '../router.js';
+import { NO_TIER_LAWS, type TierLaws } from '../tier-laws.js';
 import { SCANNER_DATA_TOOLS } from './guardrail.js';
 import { SEALED_ABS_CHANGE_X_LOG_VOLUME_LAW, SCANNER_SIGNAL_INPUTS_LAW_RESIDUAL } from './signal-inputs-law.js';
 
@@ -25,7 +26,7 @@ function principal(overrides: Partial<Principal> = {}): Principal {
     userId: USER,
     sid: '22222222-2222-4222-8222-222222222222',
     scopes: ['agents:read', 'agents:execute'],
-    tier: 'none',
+    tier: 'basic',
     mfa: false,
     expiresAt: new Date(Date.now() + 60_000),
     ...overrides,
@@ -50,13 +51,20 @@ function stubDeps(): AgentsRouterDeps {
     gateway: { routingTable: { routes: [] } } as unknown as AgentsRouterDeps['gateway'],
     meter: {} as AgentsRouterDeps['meter'],
     feeAssetId: 'IFC',
+    tierLaws: { ...NO_TIER_LAWS, scanner: law },
   };
 }
 
 const law = {
   published: true as const,
-  matrix: { free: { maxSignals: 5, tools: [...SCANNER_DATA_TOOLS] } },
+  matrix: { basic: { maxSignals: 5, tools: [...SCANNER_DATA_TOOLS] } },
 };
+
+/** The stored, published law the door reads instead of the body (AG-sessions-01). */
+const withLaw = (deps: AgentsRouterDeps, stored: TierLaws['scanner']): AgentsRouterDeps => ({
+  ...deps,
+  tierLaws: { ...NO_TIER_LAWS, scanner: stored },
+});
 
 const ticker = {
   marketId: 'btc-usdt',
@@ -73,8 +81,6 @@ describe('scanner.runSession route', () => {
       .createCaller(signed())
       .scanner.runSession({
         plane: 'live',
-        userTier: 'free',
-        law,
         signalInputsLaw: { published: false },
         tickers: [ticker],
       });
@@ -94,8 +100,6 @@ describe('scanner.runSession route', () => {
       .createCaller(signed())
       .scanner.runSession({
         plane: 'dark',
-        userTier: 'free',
-        law,
         signalInputsLaw: SEALED_ABS_CHANGE_X_LOG_VOLUME_LAW,
         tickers: [ticker],
       });
@@ -115,12 +119,10 @@ describe('scanner.runSession route', () => {
   });
 
   it('refuses a blank tier law refuse-closed', async () => {
-    const result = await createAgentsRouter(stubDeps())
+    const result = await createAgentsRouter(withLaw(stubDeps(), null))
       .createCaller(signed())
       .scanner.runSession({
         plane: 'live',
-        userTier: 'free',
-        law: null,
         signalInputsLaw: SEALED_ABS_CHANGE_X_LOG_VOLUME_LAW,
         tickers: [ticker],
       });
@@ -133,13 +135,45 @@ describe('scanner.runSession route', () => {
     expect(result.metering.sessionId).toBeNull();
   });
 
+  it('AG-sessions-01: a signed tier the stored law does not grant refuses tier_not_granted and bills 0', async () => {
+    const result = await createAgentsRouter(stubDeps())
+      .createCaller(signed(principal({ tier: 'none' })))
+      .scanner.runSession({
+        plane: 'live',
+        signalInputsLaw: SEALED_ABS_CHANGE_X_LOG_VOLUME_LAW,
+        tickers: [ticker],
+      });
+
+    expect(result).toMatchObject({
+      status: 'refuse',
+      reason: 'tier_not_granted',
+      userMessageKey: 'agents.scanner.tier_closed',
+    });
+    expect(result.metering).toEqual({
+      sessionId: null,
+      billedAmount: '0',
+      assetId: 'IFC',
+      sessionClosed: false,
+      settlements: [],
+    });
+  });
+
+  it('AG-sessions-01: a body naming its own tier or law is rejected before the gate', async () => {
+    const router = createAgentsRouter(stubDeps()).createCaller(signed(principal({ tier: 'none' })));
+    const body = { plane: 'live' as const, signalInputsLaw: SEALED_ABS_CHANGE_X_LOG_VOLUME_LAW, tickers: [ticker] };
+    await expect(router.scanner.runSession({ ...body, userTier: 'basic' } as unknown as typeof body)).rejects.toMatchObject({
+      code: 'BAD_REQUEST',
+    });
+    await expect(router.scanner.runSession({ ...body, law } as unknown as typeof body)).rejects.toMatchObject({
+      code: 'BAD_REQUEST',
+    });
+  });
+
   it('live without a tickers port refuses no_live_tickers — body tickers are not live truth', async () => {
     const result = await createAgentsRouter(stubDeps())
       .createCaller(signed())
       .scanner.runSession({
         plane: 'live',
-        userTier: 'free',
-        law,
         signalInputsLaw: SEALED_ABS_CHANGE_X_LOG_VOLUME_LAW,
         tickers: [ticker],
       });
@@ -161,8 +195,6 @@ describe('scanner.runSession route', () => {
   it('live without a tickers port refuses no_live_tickers even when body tickers are empty', async () => {
     const result = await createAgentsRouter(stubDeps()).createCaller(signed()).scanner.runSession({
       plane: 'live',
-      userTier: 'free',
-      law,
       signalInputsLaw: SEALED_ABS_CHANGE_X_LOG_VOLUME_LAW,
       tickers: [],
     });
@@ -182,8 +214,6 @@ describe('scanner.runSession route', () => {
         .createCaller(readOnly)
         .scanner.runSession({
           plane: 'dark',
-          userTier: 'free',
-          law,
           signalInputsLaw: SEALED_ABS_CHANGE_X_LOG_VOLUME_LAW,
           tickers: [ticker],
         }),

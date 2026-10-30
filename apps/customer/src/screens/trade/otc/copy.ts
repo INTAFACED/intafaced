@@ -11,6 +11,27 @@ const messages = {
   'Log in': 'Log in',
   'Try again': 'Try again',
 
+  // Board of requests (CB-otc-02)
+  'Your requests': 'Your requests',
+  'Board lead': 'Each request with every quote it collected, best price first; equal prices go to the quote asked earlier.',
+  'Board group': '{label} ({count})',
+  'Board open': 'Open',
+  'Board accepted': 'Accepted',
+  'Board settled': 'Settled',
+  'Board expired': 'Expired',
+  'Board group empty': 'None.',
+  'Board request': '{side} {qty} {base} for {quote}',
+  'Board buy': 'Buy',
+  'Board sell': 'Sell',
+  'Board quote': '{provider}: {price} {asset}',
+  'Board best': 'Best',
+  'Board test': 'TEST',
+  'Board unknown provider': 'Provider not on the list',
+  'Board house': 'Desk',
+  'Board more': 'More requests than shown; the counts are of the requests shown.',
+  'Board unreadable': 'We couldn’t read your requests.',
+  'Board loading': 'Reading your requests',
+
   // Desk status strip
   'Desk status': 'Desk status',
   'Desk status unreadable': 'We couldn’t read the desk status.',

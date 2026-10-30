@@ -73,7 +73,14 @@ export type CopyErrorCode =
   | 'trade.tier_insufficient'
   | 'trade.copy_subaccount_refused'
   | 'trade.copy_reserve_exceeds_balance'
-  | 'trade.copy_market_quote_mixed';
+  | 'trade.copy_market_quote_mixed'
+  | 'trade.copy_lead_name_invalid'
+  | 'trade.copy_lead_application_open'
+  | 'trade.copy_lead_already_leading'
+  | 'trade.copy_lead_criteria_unset'
+  | 'trade.copy_lead_application_decided'
+  | 'trade.copy_lead_application_not_found'
+  | 'trade.copy_lead_reapply_wait_unset';
 
 /**
  * Closed set for the customer desk and blank-law refusals.

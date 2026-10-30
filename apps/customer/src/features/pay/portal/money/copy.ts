@@ -19,6 +19,16 @@ const en = {
   purposeApprovals: 'Payouts waiting for a second person on your team. Nobody can approve a payout they asked for.',
   pagePricing: 'Pricing and fees',
   purposePricing: 'What INTAFACED charges your account. You cannot change it here, but you can work out what any payment would cost.',
+  pageTopUp: 'Top up',
+  purposeTopUp: 'Add money to your business balance from outside INTAFACED.',
+  actTopUp: 'Top up',
+  tuFormTitle: 'Request a top-up',
+  tuFormBody: 'Say how much you want to add. The money counts towards your balance only once it has arrived.',
+  tuAmount: 'Amount',
+  tuAmountHint: 'Digits and a decimal point.',
+  tuRequest: 'Request',
+  tuOffWhy: 'Request is off because top up is not set up for your account.',
+  tuOffPending: 'Request is off until we know top up is set up for your account.',
   pageLimits: 'Limits and tier',
   purposeLimits: 'How much you can take in and pay out, how much of each limit is used, and when it resets.',
   colGross: 'Gross',
@@ -265,6 +275,12 @@ const en = {
   balOnTheWayBody: 'Payouts that are ready or waiting.',
   balOnTheWayNone: 'Nothing is waiting to be paid out.',
   balAllPayouts: 'All payouts',
+  balHeldTitle: 'Still clearing',
+  balHeldBody: 'Payments taken whose money the card network has not released yet. They can’t be paid out until it does.',
+  balHeldNone: 'Nothing is waiting to clear.',
+  balHeldOn: 'Available from',
+  balHeldUnknown: 'Not given yet',
+  payoutStillClearing: 'still clearing',
   balMovementsTitle: 'Recent movements',
   balMovementsNone: 'No movements in the last week.',
   balStatementLink: 'Open the statement',
@@ -752,6 +768,7 @@ const en = {
 
   // ---- plain words for service answers only the money pages meet
   rSettlementNotPayable: 'This settlement can’t be paid out yet. Open it to see where it stands.',
+  rClearingPending: 'This money is still clearing, so it isn’t available to pay out yet. Try again once the card network has released it.',
   rSettlementInFlight: 'A payout for this settlement is already on its way.',
   rDestinationMissing: 'Add a payout destination first, then try again.',
   rThresholdUnset: 'Approval limits aren’t set up for your account, so this payout can’t be requested.',
@@ -787,6 +804,8 @@ const en = {
   rConversionNotFound: 'We couldn’t find that conversion.',
   rDestInFlight: 'A payout to this destination is waiting for approval or still on its way, so it can’t be removed until it has finished.',
   rDestNotFound: 'That destination is already gone. Refresh the list.',
+  rTopUpUnconfigured:
+    'Top up is not set up for your account. No way to bring money into this business is connected yet, so nothing can be requested. Your balance is unchanged.',
 } as const;
 
 export const moneyCopy = defineCopy('pay.portal.money', en);

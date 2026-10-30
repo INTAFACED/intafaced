@@ -10,6 +10,7 @@ import { mc } from './copy';
 const words: Record<string, Parameters<typeof mc.t>[0]> = {
   'pay.settlement_not_payable': 'rSettlementNotPayable',
   'pay.settlement_in_flight': 'rSettlementInFlight',
+  'pay.payout_clearing_pending': 'rClearingPending',
   'pay.payout_destination_missing': 'rDestinationMissing',
   'pay.approval_threshold_unconfigured': 'rThresholdUnset',
   'pay.cap_daily_payout_exceeded': 'rOverDailyPayout',
@@ -69,3 +70,7 @@ export function isConversionOff(result: Extract<ApiResult<unknown>, { ok: false 
     (result.reason === 'not_mounted' && !code.startsWith('pay.'))
   );
 }
+
+/** No top-up rail is wired for this business (svc-pay merchant-pay-dev-out/top-up.ts): a not-live card naming that. */
+export const TOP_UP_OFF = 'pay.topup_unconfigured';
+registerNotLive({ [TOP_UP_OFF]: () => mc.t('rTopUpUnconfigured') });

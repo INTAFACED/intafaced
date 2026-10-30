@@ -1,8 +1,8 @@
 import Fastify from 'fastify';
 import postgres from 'postgres';
 import { JetStreamEventBus } from '@intafaced/events';
-import { s2sFromEnv } from '@intafaced/contracts';
-import { clockSkewBoundMs, env, idempotencyConflictMode } from './env.js';
+import { s2sFromEnv, serviceCallSigner } from '@intafaced/contracts';
+import { clockSkewBoundMs, env, idempotencyConflictMode, openItemsUrls, railStatementUrls } from './env.js';
 import { ledgerPostgresOptions } from './db/connection-options.js';
 import { LedgerService } from './service.js';
 import { createLedgerRouter } from './router.js';
@@ -50,8 +50,21 @@ const bus = await JetStreamEventBus.connect({
   ownedStreams: ['ledger'],
 });
 
+// Per-service keys (S2S v3): unset S2S_AUTH_MODE leaves every door on the
+// shared secret alone, and each door still names the services that may call it.
+const s2s = s2sFromEnv(env, 'svc-ledger');
+
 // Blank snapshot URL: an outside-balance control's outside side is unset. Set but unreadable: that run is ERROR.
-const reconciliationSources = reconciliationSourcesFrom(env.LEDGER_RECONCILE_OUTSIDE_SNAPSHOT_URL);
+// A rail with an open-items URL reads svc-pay's open items too, signed as svc-ledger; one it cannot read is ERROR.
+const reconciliationSources = reconciliationSourcesFrom(env.LEDGER_RECONCILE_OUTSIDE_SNAPSHOT_URL, railStatementUrls, fetch, undefined, {
+  urls: openItemsUrls,
+  sign: serviceCallSigner({
+    service: 'svc-ledger',
+    audience: 'svc-pay',
+    legacySecret: env.INTERNAL_SERVICE_SECRET,
+    s2s: s2s.signer && s2s.s2sMode ? { signer: s2s.signer, mode: s2s.s2sMode } : undefined,
+  }),
+});
 
 const ledger = new LedgerService(sql, bus, {
   postingEnabled: env.LEDGER_POSTING_ENABLED,
@@ -91,9 +104,6 @@ registerLedgerStatusHttp(app, ledger, env.SERVICE_NAME);
 
 // Body digest is required on the live money plane. Isolated tests may still
 // mount accept-both; compose / config default stays accept-both.
-// Per-service keys (S2S v3): unset S2S_AUTH_MODE leaves every door on the
-// shared secret alone, and each door still names the services that may call it.
-const s2s = s2sFromEnv(env, 'svc-ledger');
 registerS2sHttp(app, ledger, env.INTERNAL_SERVICE_SECRET, {
   bodyBind: 'require',
   ...(s2s.serviceVerifier && s2s.s2sMode ? { s2s: { verifier: s2s.serviceVerifier, mode: s2s.s2sMode } } : {}),

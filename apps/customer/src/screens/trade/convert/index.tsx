@@ -36,6 +36,7 @@ import { dec, fractionDigits, toPlaces } from '../buy/trade-math';
 import { TradeSubNav } from '../TradeSubNav';
 import { convertCopy } from './copy';
 import { KeyValue, StatusChip, type KeyValueItem } from './deps';
+import { OtcConvert } from './OtcConvert';
 import { RecentConversions } from './RecentConversions';
 import { canAccept, holdProgress, spreadPercent, validUntilClock } from './breakdown';
 import { defaultPair, edgeFor, edges, fromAssets, planConvert, reviewAmount, spendCap, toAssets, type Edge } from './convert-model';
@@ -157,6 +158,7 @@ export default function TradeConvertScreen({ search }: ScreenProps) {
           </header>
           {card}
         </div>
+        <OtcConvert />
         {signedIn ? <RecentConversions /> : null}
         <section data-testid="cvt-faq" className="cvt-faq" aria-labelledby="cvt-faq-title">
           <h2 id="cvt-faq-title">{t('Questions')}</h2>

@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import { CONSOLE_MODE_TARGET_ID, CONSOLE_MODE_TARGET_SERVICE, consoleModeApprovalFields } from '@intafaced/contracts/ops-console-mode';
+import { OPS_ALERT_ACCEPT_ACTION, opsAlertAcceptFields } from '@intafaced/contracts/ops-reconciliation-alerts';
 import { marketTargetId, poolTargetId } from '@intafaced/contracts/protocol-ops';
 import {
   STAFF_HOLD_TARGET_SERVICE,
@@ -167,6 +168,9 @@ export function payloadHashFor(request: DeskRequest): string {
     // svc-ops `approvalPayloadHash('ops.hold.confirm', staffHoldConfirmFields(holdNo))`: { targetId: 'hold:<n>' }.
     case 'ops.hold.confirm':
       return sha(request.kind, staffHoldConfirmFields(request.holdNo));
+    // svc-ops `approvalPayloadHash('ops.reconciliation_alert.accept', opsAlertAcceptFields(alertId, note, evidenceHash))`.
+    case 'ops.reconciliation_alert.accept':
+      return sha(OPS_ALERT_ACCEPT_ACTION, opsAlertAcceptFields(request.alertId, request.reason, request.evidenceHash));
     // svc-ops `approvalPayloadHash('ops.venue_cost.record', { period, category, amount, asset, sourceNote })`, fields in this order.
     case 'ops.venue_cost.record':
       return sha('ops.venue_cost.record', {
@@ -189,6 +193,12 @@ export function payloadHashFor(request: DeskRequest): string {
       return sha(request.kind, { targetId: marketTargetId(request.symbol), reasonCode: request.reasonCode, reason: request.reason });
     case 'protocol.market.restore':
       return sha(request.kind, { targetId: marketTargetId(request.symbol) });
+    // svc-ops `approvalPayloadHash('ops.restore.record', parseWatermarkInput(...))`: { service, kind, watermark }, in this order.
+    case 'ops.restore.record':
+      return sha(request.kind, { service: request.service, kind: request.stampKind, watermark: request.watermark });
+    // svc-ops' restore desk binds the run: `approvalPayloadHash('ops.restore.finalize', { restoreNo, cutOff })`.
+    case 'ops.restore.finalize':
+      return sha(request.kind, { restoreNo: request.restoreNo, cutOff: request.cutOff });
   }
 }
 
@@ -420,6 +430,16 @@ export function proposeInputFor(request: DeskRequest): ProposeInput {
         payloadHash,
         policyVersion: 'v1',
       };
+    // svc-ops consumes against the alert itself. Its target service is not on identity's operator list, so both founders are needed.
+    case 'ops.reconciliation_alert.accept':
+      return {
+        actionType: OPS_ALERT_ACCEPT_ACTION,
+        targetService: 'svc-ops',
+        targetId: opsAlertAcceptFields(request.alertId, request.reason, request.evidenceHash).targetId,
+        expectedVersion: '1',
+        payloadHash,
+        policyVersion: 'v1',
+      };
     // svc-ops consumes against the month and line. Its target service is not on identity's operator list, so both founders are needed.
     case 'ops.venue_cost.record':
       return {
@@ -447,6 +467,25 @@ export function proposeInputFor(request: DeskRequest): ProposeInput {
         actionType: request.kind,
         targetService: 'svc-ops',
         targetId: marketTargetId(request.symbol),
+        expectedVersion: '1',
+        payloadHash,
+        policyVersion: 'v1',
+      };
+    // svc-ops consumes a stamp against the service and kind, and finalize against the run; both founders are needed.
+    case 'ops.restore.record':
+      return {
+        actionType: request.kind,
+        targetService: 'svc-ops',
+        targetId: `watermark:${request.service}:${request.stampKind}`,
+        expectedVersion: '1',
+        payloadHash,
+        policyVersion: 'v1',
+      };
+    case 'ops.restore.finalize':
+      return {
+        actionType: request.kind,
+        targetService: 'svc-ops',
+        targetId: `restore:${request.restoreNo}`,
         expectedVersion: '1',
         payloadHash,
         policyVersion: 'v1',

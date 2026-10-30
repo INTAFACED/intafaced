@@ -1,7 +1,14 @@
 import Fastify from 'fastify';
 import postgres from 'postgres';
 import { fastifyTRPCPlugin, type FastifyTRPCPluginOptions } from '@trpc/server/adapters/fastify';
-import { createEdgeContext, retainRawBody, createIdentityOperationDecisionClient, s2sFromEnv } from '@intafaced/contracts';
+import {
+  createEdgeContext,
+  createIdentityApprovalClient,
+  createIdentityOperationDecisionClient,
+  createStepUpCheck,
+  retainRawBody,
+  s2sFromEnv,
+} from '@intafaced/contracts';
 import { loadBotVerificationPolicy } from './algo/bots-verification.js';
 import { TradingControls, TradingControlError } from './controls/trading-controls.js';
 import { createLiveTradingOperator } from './controls/identity-port.js';
@@ -30,9 +37,11 @@ import { FUTURES_PRICE_BAND_UNSET, parsePriceBand, perpetualFeeRates } from './f
 import { MATCHED_FILL_RETRY_BATCH } from './futures/matched-orders.js';
 import { createTradeRouter, type TradeRouter } from './router.js';
 import { identityApprovalBook } from './admin/identity-approval.js';
+import { LeadDesk } from './copy/lead-applications.js';
 import { bindTradingRestrictApprovals, currentTradingRestrictApprovals } from './admin/trading-restrict.js';
 import { operatorSeedAllows as readOperatorSeedAllows } from './admin/service.js';
 import { wireTradeOpsAdmin } from './admin/wire.js';
+import { parseMetricsWindowSeconds } from './admin/copy-bots-otc.js';
 import { chartOwnerValuesPublicReader } from './admin/chart-owner-values.js';
 import { InsuranceTopupAdmin } from './admin/insurance-topup.js';
 import { SupportTradeSummaryReader } from './support/trade-summary.js';
@@ -390,6 +399,7 @@ const placeFollowerOrder: PlaceFollowerOrderPort = async (principal, input) => {
   );
   return { orderId: order.id };
 };
+const leaderDirectory = sqlLeaderDirectory(sql, { now: () => new Date(), feeShareLaw: copyFeeShareLaw });
 // The grid's reserve rows: a copy follow subtracts them, as a grid create subtracts the follows' (one reserve lock).
 const gridStore = new SqlGridStore(sql);
 // The best bid a follower's sell is floored against: top of book, or null when the book has none.
@@ -406,7 +416,7 @@ const copy = new CopyService(ledger, {
   metricDefinitions: copyMetricDefinitions,
   minTier: copyMinTier,
   store: copyStore,
-  directory: sqlLeaderDirectory(sql, { now: () => new Date(), feeShareLaw: copyFeeShareLaw }),
+  directory: leaderDirectory,
   placeFollowerOrder,
   flattenCopyPosition: createFollowerFlattenPort({
     sql,
@@ -506,6 +516,19 @@ const grid = new GridService({
   findOrder: (orderId) => trade.findOrder(orderId),
   cancelOrder: (principal, orderId) => trade.cancelOrder(principal, orderId),
   fillsForOrder: (principal, orderId) => trade.everyFillOfOrder(principal, orderId),
+  // A blank IDENTITY_URL leaves the check unwired: every withdrawal then refuses identity.step_up_unavailable.
+  stepUp: createStepUpCheck({
+    service: 'svc-trade',
+    approvals: env.IDENTITY_URL?.trim()
+      ? createIdentityApprovalClient({
+          service: 'svc-trade',
+          baseUrl: env.IDENTITY_URL,
+          internalSecret: env.INTERNAL_SERVICE_SECRET,
+          fail: (message, code) => Object.assign(new Error(message), { code }),
+          s2s: outS2s,
+        })
+      : null,
+  }),
 });
 const tradeOpsApprovals = currentTradingRestrictApprovals() ?? identityApprovalBook(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET, outS2s);
 export const appRouter = createTradeRouter(
@@ -520,9 +543,12 @@ export const appRouter = createTradeRouter(
     approvals: tradeOpsApprovals,
     feeSchedule,
     vipProofKey: parseVipProofKey(env.TRADE_VIP_PROOF_KEY),
+    otcLaw: otcDeskLaw,
+    metricsWindowSeconds: parseMetricsWindowSeconds(env.TRADE_OPS_METRICS_WINDOW_SECONDS),
   }),
   new InsuranceTopupAdmin({ sql, ledger, approvals: tradeOpsApprovals }),
   new SupportTradeSummaryReader({ sql }),
+  new LeadDesk({ sql, approvals: tradeOpsApprovals, directory: leaderDirectory, now: () => new Date() }),
   grid,
 );
 export type AppRouter = typeof appRouter;

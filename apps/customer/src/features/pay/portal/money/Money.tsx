@@ -22,6 +22,7 @@ import { statementCard, statementColumns } from './Statement';
 import { pictureCount, usePayoutPicture, type PayoutPicture } from './payout-picture';
 import { defaultStatementRange, payoutRowState } from './model';
 import type { Approval } from '../schemas';
+import type { HeldClearing } from './schemas';
 import { uiCopy } from '../ui/copy';
 
 const WEEK = 7 * 86_400_000;
@@ -48,6 +49,10 @@ export function MerchantMoney({ portal, merchantId }: { portal: PortalApi; merch
     <div className="stack mn-page">
       <HaltBanner resource={halts.resource} scopes={['settlement', 'payout']} />
       <TestBanner />
+      {/* Outside the balance read, so Top up is reachable before the first payment and while balances cannot be read. */}
+      <div className="pp-actions">
+        <LinkButton href="/pay/money/top-up">{t('actTopUp')}</LinkButton>
+      </div>
       <Gate resource={snapshot.resource} retry={reload} rows={4}>
         {(data) => {
           const assets = data.balances.map((b) => b.assetCode);
@@ -167,6 +172,7 @@ export function MerchantMoney({ portal, merchantId }: { portal: PortalApi; merch
                   })}
                 />
               </PaySection>
+              <StillClearing portal={portal} merchantId={merchantId} test={test} />
               <OnTheWay resource={picture.resource} approvals={approvalMap} retry={picture.reload} test={test} />
               <RecentMovements portal={portal} merchantId={merchantId} asset={asset} test={test} />
               <p className="muted pp-note">
@@ -181,6 +187,51 @@ export function MerchantMoney({ portal, merchantId }: { portal: PortalApi; merch
       {/* The reserve reads apart from the balances, so it shows before a first payment and while balances cannot be read. */}
       <ReserveCard resource={reserve.resource} retry={reserve.reload} test={test} />
     </div>
+  );
+}
+
+/**
+ * RC-merchant-10: the captured payments whose money the rail still holds, apart from what is available, each with the
+ * day the rail said it becomes available, or "not given yet" when the rail named none.
+ */
+function StillClearing({ portal, merchantId, test }: { portal: PortalApi; merchantId: string; test: boolean }) {
+  const { t } = mc.useCopy();
+  const list = useResource((s) => portal.clearing(merchantId, s), `money:clearing:${merchantId}`);
+  const r = list.resource;
+  const on = (h: HeldClearing) => (h.availableOn ? <DateTime value={h.availableOn} /> : t('balHeldUnknown'));
+  return (
+    <PaySection title={t('balHeldTitle')} description={t('balHeldBody')}>
+      {r.status === 'loading' ? (
+        <PortalLoading rows={2} />
+      ) : r.status === 'failed' ? (
+        <MoneyFailure result={r.failure} retry={list.reload} />
+      ) : r.data.held.length === 0 ? (
+        <p className="muted" data-testid="mn-held-none">
+          {t('balHeldNone')}
+        </p>
+      ) : (
+        <EntityList
+          label={t('balHeldTitle')}
+          rows={r.data.held}
+          rowKey={(h) => h.paymentId}
+          href={(h) => `/pay/payments/${encodeURIComponent(h.paymentId)}`}
+          columns={[
+            { header: t('mnColPayment'), cell: (h) => h.paymentId.slice(0, 8) },
+            { header: t('colAmount'), cell: (h) => <MoneyText value={h.amount} asset={h.assetId} test={test} /> },
+            { header: t('balHeldOn'), cell: on },
+          ]}
+          card={(h) => ({
+            title: h.paymentId.slice(0, 8),
+            amount: <MoneyText value={h.amount} asset={h.assetId} test={test} />,
+            status: (
+              <span className="muted">
+                {t('balHeldOn')} {on(h)}
+              </span>
+            ),
+          })}
+        />
+      )}
+    </PaySection>
   );
 }
 
