@@ -116,11 +116,16 @@ test('the join host answering with the customer index is host.join_wrong_build',
 
 test('the apex host is host.apex_wrong_build unless it serves its own build', async () => {
   const cases = [
-    ['serving the join index', () => [200, inviteIndex]],
-    ['serving the customer index', () => [200, customerIndex]],
+    ['serving the join index (its index answers the descriptor path)', () => [200, inviteIndex]],
+    ['serving the customer index (its index answers the descriptor path)', () => [200, customerIndex]],
     ['with no apex descriptor', (path) => (path === '/apex-deployment.json' ? [404, 'not found'] : [200, 'marketing'])],
     ['with the customer descriptor', (path) => (path === '/apex-deployment.json' ? [200, descriptor] : [200, 'marketing'])],
     ['with the local test stand-in descriptor', (path) => (path === '/apex-deployment.json' ? [200, apexStandIn] : [200, 'marketing'])],
+    [
+      'with a loose test marker',
+      (path) =>
+        path === '/apex-deployment.json' ? [200, JSON.stringify({ product: 'intafaced-apex', test: 'true' })] : [200, 'marketing'],
+    ],
   ];
   for (const [label, apex] of cases) {
     await withRun({ ...healthy, apex }, undefined, async ({ run }) => {
@@ -134,6 +139,15 @@ test('the apex host is host.apex_wrong_build unless it serves its own build', as
       );
     });
   }
+});
+
+test('a deployed apex whose own index mounts #root is served when its descriptor names the apex', async () => {
+  const apex = (path) => (path === '/apex-deployment.json' ? [200, apexDescriptor] : [200, customerIndex]);
+  await withRun({ ...healthy, apex }, undefined, async ({ run }) => {
+    const { ok, hosts } = await run();
+    assert.equal(ok, true);
+    assert.equal(hosts.find((host) => host.role === 'apex').result, 'served');
+  });
 });
 
 test('each served build id is the hash of what that host served: the apex and app descriptors, the join index', async () => {

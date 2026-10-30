@@ -111,7 +111,7 @@ describe('host dispatch receipt', () => {
   });
   it('marks a LOCAL TEST receipt test, and refuses a plain-http host in a receipt that does not say so', () => {
     const hosts = [
-      served('apex', 'http://127.0.0.1:3220'),
+      served('apex', 'http://127.0.0.1:3260'),
       served('app', 'http://127.0.0.1:3210'),
       served('join', 'http://127.0.0.1:3220'),
     ];

@@ -88,15 +88,14 @@ export const APEX_DESCRIPTOR_PATH = '/apex-deployment.json';
 export const APEX_PRODUCT = 'intafaced-apex';
 
 /**
- * The apex serves its own build: its index mounts neither the customer app (#root) nor the invitation site (#app), and
- * its descriptor names the apex product. A descriptor marked `test` is the local stack's stand-in, accepted only in
- * LOCAL TEST mode.
+ * The apex serves its own build: `/` answers and its descriptor names the apex product. The customer and invitation
+ * servers answer an unknown path with their index, which is not a descriptor. A descriptor carrying `test` is the local
+ * stack's stand-in, accepted only in LOCAL TEST mode.
  */
 async function checkApex(fetchImpl, origin, timeoutMs, localTest) {
   const wrong = (detail) => ({ role: 'apex', host: origin, result: hostCode('apex_wrong_build'), detail });
   const index = await get(fetchImpl, origin, '/', timeoutMs);
   if (index.failed) return notServed('apex', origin, index.failed);
-  if (/id=["'](root|app)["']/.test(index.body)) return wrong('the apex host is serving the customer or invitation index');
   const got = await get(fetchImpl, origin, APEX_DESCRIPTOR_PATH, timeoutMs, { anyStatus: true });
   if (got.failed) return notServed('apex', origin, got.failed);
   let descriptor;
@@ -106,7 +105,8 @@ async function checkApex(fetchImpl, origin, timeoutMs, localTest) {
     descriptor = null;
   }
   if (descriptor?.product !== APEX_PRODUCT) return wrong('the apex host publishes no apex descriptor');
-  if (descriptor.test === true && !localTest) return wrong('the apex descriptor is the local test stand-in');
+  if (descriptor.test !== undefined && descriptor.test !== false && !localTest)
+    return wrong('the apex descriptor is the local test stand-in');
   return { role: 'apex', host: origin, result: 'served', buildId: buildIdOf(got.body) };
 }
 

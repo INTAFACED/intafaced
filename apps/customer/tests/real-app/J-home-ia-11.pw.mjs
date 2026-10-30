@@ -84,7 +84,8 @@ function vault() {
 }
 
 // The seed service's own entrypoint (local-tester-seed.mjs), run with the TEST content steps its compose command names
-// (apply, home, status), on a test build. Its founder steps (init, enrol) are not run here: the journeys stack enrols its
+// (apply, home, status), on a test build, with its compose environment's LOCAL_STACK_STATE and NODE_ENV. Its founder
+// steps (init, enrol) are not run here: the journeys stack enrols its
 // founder pair itself (local-test-stack.mjs, through the founder seed's own enrolment), and `init` refuses a machine that
 // already has founder files, so #1 reads the pair back instead. The journeys stack loads the TEST content with `apply`
 // alone, which makes no Home content, so every other journey starts from an empty notice board (J-home-ia-06). Here the
@@ -99,13 +100,12 @@ test.beforeAll(() => {
   test.setTimeout(8 * 60_000);
   const seed = seedService();
   contentSteps = seed ? composeSteps(seed.block).filter((step) => step.startsWith('local-test-seed.mjs ')) : [];
+  // As the service runs it: the state folder from LOCAL_STACK_STATE and NODE_ENV development (its compose environment).
   seedRun = run(
     SEED_ENTRY,
-    [...contentSteps, '--state', STATE, '--notice-minutes', NOTICE_MINUTES],
-    { APP_ENV: 'test' },
-    {
-      timeout: 7 * 60_000,
-    },
+    [...contentSteps, '--notice-minutes', NOTICE_MINUTES],
+    { APP_ENV: 'test', NODE_ENV: 'development', LOCAL_STACK_STATE: STATE },
+    { timeout: 7 * 60_000 },
   );
 });
 
