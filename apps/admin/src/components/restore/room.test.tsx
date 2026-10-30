@@ -100,4 +100,19 @@ describe('restore room', () => {
     );
     expect(offered).toContain('data-testid="finalize-form"');
   });
+
+  it('names why restore writes are parked before the controls, which stay visible', () => {
+    const writes = {
+      title: 'Restore steps go out under the treasury credential, which is not yours',
+      body: 'That is another founder on this console.',
+      next: 'Ask the founder who holds the treasury credential to do this step.',
+      code: 'admin.treasury_holder_mismatch',
+      changed: 'no',
+    } as const;
+    const html = renderToStaticMarkup(<RestoreRoom room={room()} runNo={null} userId="u-1" writes={writes} />);
+    expect(html).toContain('data-testid="restore-writes-parked"');
+    expect(html).toContain('Code: admin.treasury_holder_mismatch');
+    expect(html).toContain('data-testid="start-run"');
+    expect(renderToStaticMarkup(<RestoreRoom room={room()} runNo={null} userId="u-1" />)).not.toContain('restore-writes-parked');
+  });
 });

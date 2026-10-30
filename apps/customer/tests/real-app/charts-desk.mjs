@@ -74,3 +74,43 @@ export const timesOf = (text) => [...text.matchAll(/(\d{4}-\d{2}-\d{2} \d{2}:\d{
 
 /** A row by its name, as the tree names it ("Trend line 1"). */
 export const rowNamed = (page, pattern) => page.locator('[data-drawing-id]').filter({ has: page.getByRole('button', { name: pattern }) });
+
+/** A bar time (epoch seconds) as the object tree writes it: UTC, to the minute. */
+export const barTimeText = (seconds) => new Date(seconds * 1000).toISOString().slice(0, 16).replace('T', ' ');
+
+/**
+ * What the chart reads under a pixel: the bar time (epoch seconds) and the price at that height, as the library reports
+ * them on the grid cell (`data-crosshair`, `data-crosshair-price`). The pointer is moved there to read them.
+ */
+export async function pointerAt(page, point) {
+  const cell = page.locator('[data-crosshair]').first();
+  // A move one pixel away first, waited for, so the move onto the point is a change the chart reports; then the marks
+  // are cleared, so what is read below is what the chart wrote for this position and no other.
+  await page.mouse.move(point.x - 1, point.y);
+  await expect.poll(async () => (await cell.getAttribute('data-crosshair')) ?? '').not.toBe('');
+  await cell.evaluate((el) => {
+    el.setAttribute('data-crosshair', '');
+    el.setAttribute('data-crosshair-price', '');
+  });
+  await page.mouse.move(point.x, point.y);
+  await expect.poll(async () => Number(await cell.getAttribute('data-crosshair'))).toBeGreaterThan(0);
+  await expect.poll(async () => (await cell.getAttribute('data-crosshair-price')) ?? '').not.toBe('');
+  return { time: Number(await cell.getAttribute('data-crosshair')), price: Number(await cell.getAttribute('data-crosshair-price')) };
+}
+
+/** A stored price is the pointer's price at the tick (0.01 for BTC-USDT): within half a tick of it. */
+export const atTick = (stored, price, tick = 0.01) => Math.abs(Number(stored) - price) <= tick / 2 + 1e-9;
+
+/**
+ * The point moved to the middle of the bar under it: the pixels around it are read one by one, and the middle of those the
+ * chart reports as that same bar is taken. A point on the border between two bars is ambiguous (each side may be read as
+ * either bar), so a check that compares a placed point with the bar under the pointer places it here.
+ */
+export async function centred(page, point) {
+  const { time } = await pointerAt(page, point);
+  const same = [];
+  for (let dx = -8; dx <= 8; dx += 1) {
+    if ((await pointerAt(page, { x: point.x + dx, y: point.y })).time === time) same.push(point.x + dx);
+  }
+  return { x: (Math.min(...same) + Math.max(...same)) / 2, y: point.y };
+}

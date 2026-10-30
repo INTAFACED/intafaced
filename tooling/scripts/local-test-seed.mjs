@@ -593,6 +593,39 @@ export async function fundEarnPool(deps, poolId, amount, ref) {
 }
 
 /**
+ * Funds the loan reserve of one debt asset by hand (J-bank-09 #4: a journey opens a TEST product whose reserve is empty,
+ * so `open` leaves its loan pending with the collateral locked, then funds the reserve here and lets the bank's resume
+ * job draw it). The same two moves `apply` makes for the USDT reserve: a labelled TEST deposit to the TEST funder, then
+ * `loanReserveFund` from the funder's available balance. `ref` makes both business keys, so a retry funds once. Refused
+ * unless an open loan product named TEST lends that asset, and the amount is a decimal above zero and at most the cap.
+ */
+export async function fundLoanReserve(deps, assetId, amount, ref) {
+  assertTestTables();
+  if (typeof assetId !== 'string' || !/^[A-Z0-9]{2,16}$/.test(assetId)) {
+    throw new GuardError('refusing: fund-loan-reserve needs an asset id (2 to 16 capitals or digits)');
+  }
+  if (typeof ref !== 'string' || !/^[A-Za-z0-9-]{4,64}$/.test(ref)) {
+    throw new GuardError('refusing: fund-loan-reserve needs a ref of 4 to 64 letters, digits or dashes');
+  }
+  assertDecimal('loan reserve funding', amount);
+  const units = deps.parseAmount(amount);
+  if (units <= 0n || units > deps.parseAmount(LOAN_RESERVE_AMOUNT)) {
+    throw new GuardError(`refusing: fund-loan-reserve funds above 0 and at most ${LOAN_RESERVE_AMOUNT}`);
+  }
+  const products = await deps.loans.listProducts(undefined, LIST_LIMIT);
+  if (!products.some((product) => product.debtAssetId === assetId && TEST_POOL_NAME.test(product.name))) {
+    throw new GuardError(`refusing: no open TEST loan product lends ${assetId} on this stack`);
+  }
+  await fundFromLocalTestDeposit(deps, {
+    slug: `loan-reserve-${assetId}-${ref}`,
+    assetId,
+    amount: units,
+    recipe: (from) => deps.recipes.loanReserveFund({ fundingId: `local-test-${ref}`, debtAssetId: assetId, amount: units, from }),
+  });
+  return { lines: [`loan reserve ${assetId}: funded ${amount} (ref ${ref})`, FUNDS_LABEL] };
+}
+
+/**
  * Ends one TEST saving's unbonding now, so the bank's own release job can pay it back on this stack (J-bank-08 #6: the
  * release job reads the bank's clock, never a caller's, and a journey cannot wait seven days). Only the unbonding's two
  * dates move, back by the same span, so its length is kept and it ends a minute ago. The saving's opening is not moved
@@ -991,7 +1024,7 @@ export async function openLocal(plan) {
 // ── CLI ─────────────────────────────────────────────────────────────────────
 
 const USAGE =
-  'Use: apply | home [--notice-minutes <n>] | status | unseed | age-loan | fund-earn-pool | end-earn-unbonding | age-earn-position';
+  'Use: apply | home [--notice-minutes <n>] | status | unseed | age-loan | fund-earn-pool | fund-loan-reserve | end-earn-unbonding | age-earn-position';
 const MAX_NOTICE_MINUTES = HOME_NOTICE_DAYS * 24 * 60;
 
 export function parseArgs(argv) {
@@ -1019,10 +1052,12 @@ export function parseArgs(argv) {
   const needs = {
     'age-loan': 'refusing: age-loan needs <loanId> <days>',
     'fund-earn-pool': 'refusing: fund-earn-pool needs <poolId> <amount> <ref>',
+    'fund-loan-reserve': 'refusing: fund-loan-reserve needs <assetId> <amount> <ref>',
     'end-earn-unbonding': 'refusing: end-earn-unbonding needs <positionId>',
     'age-earn-position': 'refusing: age-earn-position needs <positionId> <days>',
   };
-  const operands = { 'age-loan': 2, 'fund-earn-pool': 3, 'end-earn-unbonding': 1, 'age-earn-position': 2 }[command] ?? 0;
+  const operands =
+    { 'age-loan': 2, 'fund-earn-pool': 3, 'fund-loan-reserve': 3, 'end-earn-unbonding': 1, 'age-earn-position': 2 }[command] ?? 0;
   if (rest.length > operands) throw new GuardError(`refusing: unknown argument "${rest[operands]}"`);
   if (rest.length < operands) throw new GuardError(needs[command]);
   return {
@@ -1062,6 +1097,11 @@ async function dispatch(command, deps, hooks, operands = [], options = {}) {
   }
   if (command === 'fund-earn-pool') {
     const report = await fundEarnPool(deps, operands[0], operands[1], operands[2]);
+    for (const line of report.lines) out(line);
+    return 0;
+  }
+  if (command === 'fund-loan-reserve') {
+    const report = await fundLoanReserve(deps, operands[0], operands[1], operands[2]);
     for (const line of report.lines) out(line);
     return 0;
   }

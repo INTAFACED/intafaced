@@ -76,6 +76,7 @@ import {
   type Mark,
   type PortfolioMark,
 } from './risk.js';
+import { liquidationPrice, minimumCollateral, originationFee, quoteValue, type OriginationFee } from './loan-apply.js';
 import { readLoanBook, type LoanBook } from '../ops/loan-book.js';
 
 /**
@@ -367,6 +368,12 @@ export interface LoanServiceOptions {
    */
   readonly payoffFee?: string | null;
   /**
+   * Owner-published origination fee in whole basis points (`BANK_LOAN_ORIGINATION_FEE_BPS`). Blank is not set and refuses
+   * `open` with `bank.loan_fee_unset`. `0` is a published zero fee. A published non-zero fee refuses `open` with
+   * `bank.loan_fee_unwired`, as no ledger leg collects it yet.
+   */
+  readonly originationFeeBps?: string | null;
+  /**
    * Owner-published minutes a payoff quote stays valid (`BANK_LOAN_PAYOFF_WINDOW_MINUTES`).
    * Blank, unset, zero or out of range refuses `bank.loan_payoff_window_unset`.
    */
@@ -378,11 +385,6 @@ export interface LoanServiceOptions {
 const ONE = parseAmount('1');
 
 /** price × quantity, both scaled. Rounding is the caller's decision to state. */
-function quoteValue(quantity: Amount, price: Amount, rounding: 'floor' | 'ceil'): Amount {
-  const raw = quantity * price;
-  if (rounding === 'floor') return raw / ONE;
-  return (raw + ONE - 1n) / ONE;
-}
 
 /** A re-drive found its row no longer pending (settled or refused since it was listed). */
 class NoLongerPending extends Error {
@@ -522,6 +524,174 @@ export class LoanService {
     return toProduct(rows[0]!);
   }
 
+  // ── The application (BK-loan-01, J-bank-09) ───────────────────────────────
+
+  /** Whether the lending policy lets new loans open (`BANK_LOANS_ENABLED`). Off, `open` and `quote` refuse `bank.loans_disabled`. */
+  lendingOpen(): boolean {
+    return this.options.moduleEnabled !== false;
+  }
+
+  /** The owner's origination fee, read from `BANK_LOAN_ORIGINATION_FEE_BPS`. Blank is not set, never zero. */
+  originationFee(): OriginationFee {
+    return originationFee(this.options.originationFeeBps);
+  }
+
+  /**
+   * Why the fee refuses a new loan, or null when it opens: not set (`bank.loan_fee_unset`), or published above zero with
+   * no ledger leg to collect it yet (`bank.loan_fee_unwired`). The one rule open, eligibility and fees read.
+   */
+  originationFeeRefusal(): 'bank.loan_fee_unset' | 'bank.loan_fee_unwired' | null {
+    const fee = this.originationFee();
+    if (fee.status === 'not_set') return 'bank.loan_fee_unset';
+    return fee.bps > 0 ? 'bank.loan_fee_unwired' : null;
+  }
+
+  /**
+   * What opening `principal` on this product needs now, on the marks `open` would accept: the smallest pledge that
+   * opens (debt valued up, collateral down, as `checkOpeningLtv` does), its starting LTV and the collateral price at
+   * which it would reach the product's liquidation LTV. A read: nothing is held, and the figures are good only while
+   * the marks are. An unpriced asset refuses `bank.mark_missing`, never a zero.
+   */
+  async quote(input: { productId: string; principal: Amount; now?: Date }): Promise<{
+    product: LoanProductRecord;
+    principal: Amount;
+    requiredCollateral: Amount;
+    startingLtvBps: number;
+    liquidationPrice: Amount;
+    debtMark: { price: Amount; asOf: Date };
+    collateralMark: { price: Amount; asOf: Date };
+  }> {
+    if (this.options.moduleEnabled === false) {
+      throw new BankError('Loans module is disabled (BANK_LOANS_ENABLED / bank.loans)', 'bank.loans_disabled');
+    }
+    const now = input.now ?? new Date();
+    const product = await this.product(input.productId);
+    if (product.status !== 'open') throw new BankError(`Loan product "${product.name}" is closed`, 'bank.loan_product_closed');
+    if (input.principal <= 0n || input.principal < product.minPrincipal) {
+      throw new BankError(
+        `Minimum draw for "${product.name}" is ${formatAmount(product.minPrincipal)} ${product.debtAssetId}`,
+        'bank.below_minimum',
+      );
+    }
+    const marks = await this.marksFor(product.collateralAssetId, product.debtAssetId, product.quoteAssetId, now);
+    const debtMark = marks.get(product.debtAssetId)!;
+    const collateralMark = marks.get(product.collateralAssetId)!;
+    const debtValue = quoteValue(input.principal, debtMark.price, 'ceil');
+    const requiredCollateral = minimumCollateral(debtValue, collateralMark.price, product.maxLtvBps);
+    return {
+      product,
+      principal: input.principal,
+      requiredCollateral,
+      startingLtvBps: ltvBps(debtValue, quoteValue(requiredCollateral, collateralMark.price, 'floor')),
+      liquidationPrice: liquidationPrice(debtValue, requiredCollateral, product.policy.liquidationLtvBps),
+      debtMark: { price: debtMark.price, asOf: debtMark.asOf },
+      collateralMark: { price: collateralMark.price, asOf: collateralMark.asOf },
+    };
+  }
+
+  /**
+   * The terms this loan was opened on (BK-loan-02, J-bank-09 #5): the rate and the two thresholds written on its row at
+   * open, never the product's current ones. Thresholds read null only on rows opened before they were snapshotted.
+   */
+  async terms(loanId: string): Promise<{
+    loan: LoanRecord;
+    marginCallLtvBps: number | null;
+    liquidationLtvBps: number | null;
+  }> {
+    const rows = await this.sql<Array<Record<string, unknown>>>`SELECT * FROM bank.loans WHERE id = ${loanId}`;
+    if (rows.length === 0) throw new BankError(`No loan ${loanId}`, 'bank.loan_not_found');
+    const row = rows[0]!;
+    const bps = (v: unknown) => (v === null || v === undefined ? null : Number(v));
+    return { loan: toLoan(row), marginCallLtvBps: bps(row.margin_call_ltv_bps), liquidationLtvBps: bps(row.liquidation_ltv_bps) };
+  }
+
+  /**
+   * Whether a rate change can be made now, before the second person's approval is spent: the new rate in range, a reason of
+   * 3 to 300 characters, the product's rate still the one the change replaces (`bank.loan_rate_moved` otherwise) and a real
+   * change (`bank.loan_params_invalid`). `setProductRate` checks the rate again under the row's lock.
+   */
+  async checkRateChange(input: { productId: string; fromAprBps: number; aprBps: number; reason: string }): Promise<void> {
+    if (!Number.isInteger(input.aprBps) || input.aprBps < 0 || input.aprBps > 10_000) {
+      throw new BankError('Loan product terms are invalid: aprBps must be within 0..10000', 'bank.loan_params_invalid');
+    }
+    const reason = input.reason.trim();
+    if (reason.length < 3 || reason.length > 300) {
+      throw new BankError('A rate change needs a reason of 3 to 300 characters', 'bank.loan_params_invalid');
+    }
+    if (input.aprBps === input.fromAprBps) {
+      throw new BankError(`The change keeps the rate at ${input.aprBps} bps`, 'bank.loan_params_invalid');
+    }
+    const product = await this.product(input.productId);
+    if (product.aprBps !== input.fromAprBps) {
+      throw new BankError(
+        `The product charges ${product.aprBps} bps, not the ${input.fromAprBps} bps this change replaces: read it again`,
+        'bank.loan_rate_moved',
+      );
+    }
+  }
+
+  /**
+   * The change one approval already made, read back for a retry: null when that approval made none. A recorded change
+   * with other terms refuses (`bank.loan_rate_approval_reused`), so an approval never stands for two changes.
+   */
+  async rateChangeByApproval(
+    approvalId: string,
+    input: { productId: string; fromAprBps: number; aprBps: number; reason: string },
+  ): Promise<{ productId: string; aprBps: number; previousAprBps: number; approvedBy: string } | null> {
+    const rows = await this.sql<
+      Array<{ product_id: string; apr_bps: number; previous_apr_bps: number; reason: string; approved_by: string }>
+    >`SELECT product_id, apr_bps, previous_apr_bps, reason, approved_by FROM bank.loan_product_rate_changes WHERE approval_id = ${approvalId}`;
+    const row = rows[0];
+    if (!row) return null;
+    if (
+      row.product_id !== input.productId ||
+      row.apr_bps !== input.aprBps ||
+      row.previous_apr_bps !== input.fromAprBps ||
+      row.reason !== input.reason.trim()
+    ) {
+      throw new BankError(`Approval ${approvalId} already made another rate change`, 'bank.loan_rate_approval_reused');
+    }
+    return { productId: row.product_id, aprBps: row.apr_bps, previousAprBps: row.previous_apr_bps, approvedBy: row.approved_by };
+  }
+
+  /**
+   * An operator's change to a product's rate (BK-loan-02). New loans open at it; open loans keep the rate written on
+   * their row at open, which is what accrual reads. Thresholds are not edited here: the risk sweep still reads them from
+   * the product, so changing them would move open loans. The rate it replaces is checked under the row's lock in the same
+   * statement as the update, and the change is recorded with its reason, approval and approver in that statement too, so
+   * two changes never both replace one rate and none goes unrecorded.
+   */
+  async setProductRate(input: {
+    productId: string;
+    fromAprBps: number;
+    aprBps: number;
+    reason: string;
+    approvalId: string;
+    approvedBy: string;
+  }): Promise<{ product: LoanProductRecord; previousAprBps: number }> {
+    await this.checkRateChange(input);
+    if (input.approvalId.trim() === '') throw new BankError('A rate change needs its approval id', 'bank.loan_params_invalid');
+    const rows = await this.sql<Array<Record<string, unknown>>>`
+      WITH prev AS (
+        SELECT id, apr_bps FROM bank.loan_products WHERE id = ${input.productId} FOR UPDATE
+      ), changed AS (
+        UPDATE bank.loan_products p SET apr_bps = ${input.aprBps}
+          FROM prev WHERE p.id = prev.id AND prev.apr_bps = ${input.fromAprBps}
+        RETURNING p.*, prev.apr_bps AS previous_apr_bps
+      ), recorded AS (
+        INSERT INTO bank.loan_product_rate_changes (product_id, apr_bps, previous_apr_bps, reason, approval_id, approved_by)
+        SELECT id, apr_bps, previous_apr_bps, ${input.reason.trim()}, ${input.approvalId}, ${input.approvedBy} FROM changed
+        RETURNING id
+      )
+      SELECT changed.*, (SELECT count(*) FROM recorded)::int AS recorded FROM changed
+    `;
+    const row = rows[0];
+    if (!row || row.recorded !== 1) {
+      throw new BankError(`The product's rate moved before this change was made: read it again`, 'bank.loan_rate_moved');
+    }
+    return { product: toProduct(row), previousAprBps: Number(row.previous_apr_bps) };
+  }
+
   // ── Reading a loan ─────────────────────────────────────────────────────────
 
   async loan(id: string): Promise<LoanRecord> {
@@ -630,6 +800,8 @@ export class LoanService {
     userId: string;
     collateralAmount: Amount;
     principal: Amount;
+    /** The rate the borrower was shown. Given, a new loan refuses `bank.loan_rate_changed` when the product's rate differs. */
+    expectedAprBps?: number;
     now?: Date;
   }): Promise<{ loan: LoanRecord; ltvBps: number; collateralLedgerTxId: string; drawLedgerTxId: string }> {
     if (this.options.moduleEnabled === false) {
@@ -666,6 +838,26 @@ export class LoanService {
     // two paths different statements, and the retry path is the one that must not
     // have its own bugs.
     const loanId = input.loanId ?? randomUUID();
+
+    // A blank origination fee refuses a new loan before any row or lock, as does a published non-zero fee, which has no
+    // ledger leg to collect it yet. Only a published zero opens. A retry of a loan whose row exists is not a new loan: it
+    // replays or finishes below on the terms it opened under, so a fee published since never strands it half-open.
+    // The rate the borrower was shown is the one a new loan opens at: a rate changed since then refuses, never opens at a
+    // rate they did not see. A retry of an existing loan is held to the terms on its row below.
+    const known = input.loanId ? (await this.sql`SELECT 1 FROM bank.loans WHERE id = ${loanId}`).length > 0 : false;
+    const feeRefusal = known ? null : this.originationFeeRefusal();
+    if (feeRefusal === 'bank.loan_fee_unset') {
+      throw new BankError('The bank has not published its origination fee, so no loan is opened', 'bank.loan_fee_unset');
+    }
+    if (feeRefusal === 'bank.loan_fee_unwired') {
+      throw new BankError('An origination fee is published but cannot be collected yet, so no loan is opened', 'bank.loan_fee_unwired');
+    }
+    if (!known && input.expectedAprBps !== undefined && input.expectedAprBps !== product.aprBps) {
+      throw new BankError(
+        `The rate changed to ${product.aprBps} bps since it was shown as ${input.expectedAprBps} bps: read the terms again`,
+        'bank.loan_rate_changed',
+      );
+    }
 
     const inserted = await this.sql<Array<Record<string, unknown>>>`
       INSERT INTO bank.loans (

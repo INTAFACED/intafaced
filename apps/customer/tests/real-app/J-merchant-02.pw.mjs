@@ -750,17 +750,23 @@ test(`${J} #7 the owner chooses the business category and reads its class rule; 
   const owner = await businessReadyPerson(page, 'mbc', '/pay/onboarding');
   await openBusiness(page, owner, 'TEST Category Ltd');
   const refused = refusedPayCalls(page);
+  // "No rule set" while the table is empty: this step adds the stack's first category, so on a fresh stack (each
+  // journeys shard starts one) svc-pay's own read of the table is empty here, and the room says so.
+  const categoryRead = page.waitForResponse((r) => r.url().includes('merchant.category.get') && r.request().method() === 'GET');
   await page.goto('/pay/compliance');
+  const firstRead = await categoryRead;
+  expect(firstRead.status()).toBe(200);
+  const before = (await firstRead.json()).result.data;
+  expect(before.policy.categories, 'svc-pay holds no category yet (a fresh stack: this step adds the first)').toEqual([]);
+  expect(before.chosen).toBeNull();
   const section = page
     .locator('section[data-testid="pay-section"]')
     .filter({ has: page.getByRole('heading', { name: 'Business category' }) });
   const all = section.getByRole('list', { name: 'Every category' });
-  await expect(section.getByTestId('category-no-rule').or(all)).toBeVisible();
-  // A shared stack may already hold categories from an earlier run; a fresh one has none and says so.
-  if (await section.getByTestId('category-no-rule').isVisible()) {
-    await expect(section).toContainText('No rule set');
-    await expect(section.getByLabel('Your business category')).toHaveCount(0);
-  }
+  await expect(section.getByTestId('category-no-rule')).toBeVisible();
+  await expect(section).toContainText('No rule set');
+  await expect(all).toHaveCount(0);
+  await expect(section.getByLabel('Your business category')).toHaveCount(0);
 
   // Founder A adds a high-risk (restricted) TEST category; founder B approves exactly that change in their own sign-in.
   const tag = Date.now().toString(36);

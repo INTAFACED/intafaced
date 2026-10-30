@@ -26,7 +26,7 @@ import {
 import { MintApiKeyPasskeyError } from './auth/mint-api-key-passkey.js';
 import { userCopy } from './user-copy.js';
 
-const STATUS: Record<DeveloperKeyError['code'], TRPCError['code']> = {
+export const DEVELOPER_KEY_STATUS: Record<DeveloperKeyError['code'], TRPCError['code']> = {
   'auth.scope_empty': 'BAD_REQUEST',
   'auth.scope_unknown': 'BAD_REQUEST',
   'auth.scope_interactive_only': 'FORBIDDEN',
@@ -46,7 +46,7 @@ const STATUS: Record<DeveloperKeyError['code'], TRPCError['code']> = {
 
 function refused(err: unknown): never {
   if (err instanceof DeveloperKeyError) {
-    throw new TRPCError({ code: STATUS[err.code], message: `${userCopy(err.code)} [${err.code}]`, cause: err });
+    throw new TRPCError({ code: DEVELOPER_KEY_STATUS[err.code], message: `${userCopy(err.code)} [${err.code}]`, cause: err });
   }
   // Only an account with a verified passkey may hold a key (the live service's mint rule).
   if (err instanceof MintApiKeyPasskeyError && err.code !== 'auth.not_found') {

@@ -154,6 +154,10 @@
       "types": "./dist/support-kb-library.d.ts",
       "default": "./dist/support-kb-library.js"
     },
+    "./support-kb-review": {
+      "types": "./dist/support-kb-review.d.ts",
+      "default": "./dist/support-kb-review.js"
+    },
     "./support-help-centre": {
       "types": "./dist/support-help-centre.d.ts",
       "default": "./dist/support-help-centre.js"
@@ -210,6 +214,10 @@
       "types": "./dist/agents-own.d.ts",
       "default": "./dist/agents-own.js"
     },
+    "./agents-usage-limits": {
+      "types": "./dist/agents-usage-limits.d.ts",
+      "default": "./dist/agents-usage-limits.js"
+    },
     "./p2p-delist": {
       "types": "./dist/p2p-delist.d.ts",
       "default": "./dist/p2p-delist.js"
@@ -229,6 +237,10 @@
     "./protocol-watch-preferences": {
       "types": "./dist/protocol-watch-preferences.d.ts",
       "default": "./dist/protocol-watch-preferences.js"
+    },
+    "./protocol-listing": {
+      "types": "./dist/protocol-listing.d.ts",
+      "default": "./dist/protocol-listing.js"
     },
     "./ledger-reconciliation": {
       "types": "./dist/ledger-reconciliation.d.ts",
@@ -253,6 +265,10 @@
     "./auth-errors": {
       "types": "./dist/auth-errors.d.ts",
       "default": "./dist/auth-errors.js"
+    },
+    "./developer-sandboxes": {
+      "types": "./dist/developer-sandboxes.d.ts",
+      "default": "./dist/developer-sandboxes.js"
     },
     "./academy-catalogue": {
       "types": "./dist/academy-catalogue.d.ts",

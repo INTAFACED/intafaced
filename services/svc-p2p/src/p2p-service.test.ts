@@ -351,12 +351,15 @@ describe('svc-p2p escrow', () => {
       expect(await p2p.listOffers({ limit: 50, asset: ASSET })).toEqual([]);
     });
 
-    it('closes an offer without touching its open trades', async () => {
+    it('refuses to close an offer with an open trade, and never touches the trade (P-ads-merchant-06)', async () => {
       const trade = await escrowedTrade('100');
-      await p2p.closeOffer(trade.offerId, MAKER);
+      await expect(p2p.closeOffer(trade.offerId, MAKER)).rejects.toMatchObject({
+        code: 'p2p.offer_has_open_trades',
+        limit: { openTrades: '1', openTradeIds: [trade.id] },
+      });
 
       expect((await p2p.getTrade(trade.id)).status).toBe('escrowed');
-      expect((await p2p.getOffer(trade.offerId)).status).toBe('closed');
+      expect((await p2p.getOffer(trade.offerId)).status).toBe('active');
     });
 
     it('lets only the maker close an offer', async () => {

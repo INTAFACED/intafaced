@@ -62,6 +62,21 @@ describe('priceTokens', () => {
 });
 
 describe('price settings', () => {
+  it('a direct price that rounds to zero is not kept: the token is priced through one hop instead', () => {
+    // DUST has no decimals and a huge supply: against 1,000 TEST USD its per-token price is under 1e-18 dollars.
+    const DUST = '0x000000000000000000000000000000000000d057';
+    const dusty: ProtocolSwapPairs = {
+      ...pairs([
+        pool('0x2', B, USD, e('250000', 18), e('500000', 6)),
+        pool('0x6', DUST, USD, e('1', 30), e('1000', 6)),
+        pool('0x7', DUST, B, '1', e('1000', 18)),
+      ]),
+      tokens: [...tokens, { address: DUST, name: 'Dust', symbol: 'D', decimals: 0 }],
+    };
+    const dust = priceTokens(dusty, setting).find((price) => price.address === DUST);
+    expect(dust).toEqual({ address: DUST, usd: '2000', basis: 'one_hop', reason: null });
+  });
+
   it('parse only what the owner wrote', () => {
     expect(parseUsdTokens('')).toBeNull();
     expect(parseUsdTokens(`${USD}, nope`)).toBeNull();

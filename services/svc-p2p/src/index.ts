@@ -177,6 +177,10 @@ const p2p: P2pService = new P2pService(sql, ledger, bus, {
     buyerCancels: parseBuyerCancelLimit(env.P2P_BUYER_CANCEL_LIMIT, env.P2P_BUYER_CANCEL_WINDOW_HOURS),
   },
   reminders: parseReminderPolicy(env.P2P_REMIND_WAIT_SECONDS, env.P2P_REMIND_MAX),
+  // P-ads-merchant-06: blank refuses every ad edit; a positive whole number caps a person's edits per UTC day.
+  offerEditsPerDay: parseActiveOrderCap(env.P2P_OFFER_EDITS_PER_DAY),
+  // P-ads-merchant-07: blank refuses every new share link.
+  shareLinkMaxSeconds: parseActiveOrderCap(env.P2P_SHARE_LINK_MAX_SECONDS),
   mismatchToleranceBps: parseToleranceBps(env.P2P_MISMATCH_TOLERANCE_BPS),
   // P-ads-merchant-01: every new ad needs the published advertiser terms accepted (blank refuses every post), and a
   // sell ad's total is checked against the maker's free balance. Nothing is reserved at post.

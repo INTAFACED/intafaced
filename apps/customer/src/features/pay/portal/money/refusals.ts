@@ -11,6 +11,7 @@ const words: Record<string, Parameters<typeof mc.t>[0]> = {
   'pay.settlement_not_payable': 'rSettlementNotPayable',
   'pay.settlement_in_flight': 'rSettlementInFlight',
   'pay.payout_clearing_pending': 'rClearingPending',
+  'pay.kyb_required': 'rKybRequired',
   'pay.payout_destination_missing': 'rDestinationMissing',
   'pay.payout_destination_unverified': 'rDestUnverified',
   'pay.payout_destination_held': 'rDestHeld',

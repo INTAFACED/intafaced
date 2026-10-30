@@ -18,4 +18,11 @@ describe('S03 flatten hold', () => {
     expect(closeHoldFailureAction(new LedgerError('short', 'ledger.insufficient_funds'))).toBe('delete_intent');
     expect(closeHoldFailureAction({ code: 'ledger.insufficient_funds' })).toBe('keep_recovery');
   });
+
+  it("a caller-binding refusal is definite, from the order hold's refused set; an unsent post stays in recovery", () => {
+    expect(closeHoldFailureAction(new LedgerError('unbound', 'ledger.caller_unbound'))).toBe('delete_intent');
+    expect(closeHoldFailureAction(new LedgerError('forbidden', 'ledger.caller_forbidden'))).toBe('delete_intent');
+    expect(closeHoldFailureAction(new LedgerError('lost reply', 'ledger.timeout'))).toBe('keep_recovery');
+    expect(closeHoldFailureAction(Object.assign(new Error('never sent'), { cause: { code: 'ECONNREFUSED' } }))).toBe('keep_recovery');
+  });
 });

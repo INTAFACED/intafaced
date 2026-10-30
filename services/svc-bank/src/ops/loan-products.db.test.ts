@@ -11,7 +11,7 @@ import type { Principal } from '@intafaced/auth';
 import type { ActionApproval, ActionApprovalConsumeInput } from '@intafaced/contracts';
 import { createEdgeContext, encodePrincipal, signPrincipalHeader } from '@intafaced/contracts';
 import { createTestDatabase, type TestDatabase } from '@intafaced/db';
-import { MemoryLedger } from '@intafaced/ledger-client';
+import { MemoryLedger, parseAmount, recipes, userAvailable } from '@intafaced/ledger-client';
 import { ActionApprovalConsumeError, bankActionPayloadHash } from '../action-approval-consume.js';
 import { createBankServices, memoryRecipientState, type BankServices } from '../bank-service.js';
 import { memoryLedgerHistory } from '../analytics/ledger-history.js';
@@ -141,7 +141,7 @@ describe('ops.createLoanProduct (BK-loan-02)', () => {
     return createBankServices(sql, ledger, memoryLedgerHistory(ledger), {
       nativeAssetId: 'IFC',
       recipients: memoryRecipientState(),
-      loans: { priceSource: fixedPriceSource({ BTC: { price: '1' } }) },
+      loans: { originationFeeBps: '0', priceSource: fixedPriceSource({ BTC: { price: '1' } }) },
     });
   }
 
@@ -246,5 +246,22 @@ describe('ops.createLoanProduct (BK-loan-02)', () => {
     await expect(
       caller(bank, OWNER, ['bank:read', 'bank:write'], approvals).ops.createLoanProduct({ ...input, ...approvals.issue(input) }),
     ).rejects.toMatchObject({ code: 'FORBIDDEN' });
+  });
+  it('ops.reconcileLoanReserve answers a reserve that holds more than was recorded as funded: drift is signed, never a 500', async () => {
+    const bank = services();
+    // Value reaches the reserve without the bank's funding row (as a ledger-only post does): funded 0, reserve 5.
+    await ledger.post(
+      recipes.deposit({ userId: OWNER, assetId: 'USDC', amount: parseAmount('5'), rail: 'test', railRef: `r:${randomUUID()}` }),
+    );
+    await ledger.post(
+      recipes.loanReserveFund({
+        fundingId: `f:${randomUUID()}`,
+        debtAssetId: 'USDC',
+        amount: parseAmount('5'),
+        from: userAvailable(OWNER, 'USDC'),
+      }),
+    );
+    const read = await caller(bank, OPERATOR, ['admin:treasury']).ops.reconcileLoanReserve({ debtAssetId: 'USDC' });
+    expect(read).toMatchObject({ reserveBalance: '5', funded: '0', outstandingPrincipal: '0', drift: '-5' });
   });
 });

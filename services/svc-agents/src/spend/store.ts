@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import type { Sql } from 'postgres';
+import type { Sql, TransactionSql } from 'postgres';
 import { transaction } from '@intafaced/db';
 import { parseAmount, type Amount } from '@intafaced/ledger-client';
 import { AgentError } from '../errors.js';
@@ -8,6 +8,7 @@ import type { SpendGate, SpendLimitView, SpendPeriod, SpendReservationView } fro
 import { canonicalAmount, decideReservation, parseSpendAmount, parseSpendLimitInput, periodStart, type SpendScope } from './limits.js';
 import { readOwnCaps } from '../own/limits.js';
 import { holdAgainstTeam } from '../team/hold.js';
+import { assertBelowHardLimit, noteUsageAlert } from '../own/usage-limits.js';
 
 /** A session of a person's own agent carries `own.<agent id>` as its agent id (see `AgentRuntime.openOwnSession`). */
 const OWN_PREFIX = 'own.';
@@ -411,6 +412,17 @@ export class UserSpendStore implements SpendGate {
           if (sessionUsed + amount > own.perSession) throw ownCapExceeded(own.perSession, assetId, 'session');
           const monthUsed = await ownAgentUsed(tx, input.userId, ownAgentId, periodStart(own.period, now));
           if (monthUsed + amount > own.perPeriod) throw ownCapExceeded(own.perPeriod, assetId, 'month');
+          // After the caps, so a run over one of them is refused for that cap: the month's hard limit admits a run only
+          // when its worst case fits beside the agent's runs, held ones at their worst case. A run already held is not
+          // checked again at commit, so one held before the limit was lowered finishes.
+          await assertBelowHardLimit(tx, {
+            userId: input.userId,
+            agentId: ownAgentId.slice(OWN_PREFIX.length),
+            assetId,
+            used: await ownAgentUsed(tx, input.userId, ownAgentId, periodStart('month', now)),
+            amount,
+            now,
+          });
         }
         // A team session is also held against the business's allocation, project limits and pool (team/hold.ts).
         await holdAgainstTeam(tx, {
@@ -492,7 +504,12 @@ export class UserSpendStore implements SpendGate {
 
   async commitIn(tx: Sql, input: { userId: string; reservationKey: string; amount: string }): Promise<SpendReservationView> {
     await lockUser(tx, input.userId);
-    return this.finish(tx, input, 'commit');
+    const view = await this.finish(tx, input, 'commit');
+    // The commit that brings an own agent's month to its alert records the alert with it (published after). In a
+    // savepoint: an alert that cannot be written never undoes the charge of a run the engine already answered, and the
+    // agent's next commit records it.
+    await (tx as unknown as TransactionSql).savepoint((sp) => noteUsageAlert(sp as unknown as Sql, input)).catch(() => undefined);
+    return view;
   }
 
   async commit(input: { userId: string; reservationKey: string; amount: string }): Promise<SpendReservationView> {

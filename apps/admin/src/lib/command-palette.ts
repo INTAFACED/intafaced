@@ -39,6 +39,7 @@ const SUB_PAGES: readonly { readonly href: string; readonly label: string; reado
   { href: '/system/settings', label: 'Platform settings', keywords: ['effective', 'configuration', 'blank', 'owner'] },
   { href: '/system/profile', label: 'Profile and preferences', keywords: ['preferences', 'time zone', 'home page', 'theme', 'profile'] },
   { href: '/support/settings', label: 'Support: contact settings' },
+  { href: '/support/articles', label: 'Support: write and review help articles' },
   { href: '/compliance/cases', label: 'Compliance cases', keywords: ['aml', 'review', 'case'] },
   { href: '/bank-ops/holds', label: 'Bank: global send holds', keywords: ['held', 'release'] },
   { href: '/more-ops/mining', label: 'Mining desk', keywords: ['pool', 'shares', 'workers'] },
