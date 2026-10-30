@@ -35,6 +35,8 @@ const en = {
   linkLost: 'This link was already created and its address is shown only once. Revoke it and create another to get a new address.',
   embedLabel: 'Embed code',
   embedOrigins: 'Sites that may show it in a frame: {origins}.',
+  embedFramePolicy:
+    'Another site cannot show this frame yet: this site’s own frame policy still refuses every outside frame. The link opens on its own.',
   embedUnset: 'Embedding is not available: the list of sites that may show a shared result in a frame is not set. The link still opens.',
   shareRateUnset: 'Sharing is not available: the limit on how often a shared result may be read is not set.',
   shareWindowUnset: 'Sharing is not available: the time window for that read limit is not set.',

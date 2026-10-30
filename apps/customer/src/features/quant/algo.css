@@ -63,3 +63,25 @@
   border: 1px solid var(--if-line);
   border-radius: var(--if-r-sm);
 }
+
+/* The printable report (AL-report-03): printing while it is open prints the report alone, without the app around it. */
+@media print {
+  body:has(.quant-report-document) * {
+    visibility: hidden;
+  }
+
+  body:has(.quant-report-document) .quant-report-document,
+  body:has(.quant-report-document) .quant-report-document * {
+    visibility: visible;
+  }
+
+  body:has(.quant-report-document) .quant-report-document {
+    position: absolute;
+    inset-block-start: 0;
+    inset-inline: 0;
+  }
+
+  .quant-report-document .quant-no-print {
+    display: none;
+  }
+}

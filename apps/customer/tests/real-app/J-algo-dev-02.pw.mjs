@@ -392,9 +392,10 @@ test(`${J} #7 shares the result by link and embed: a signed-out reader sees it u
   expect(link).toMatch(/\/quant\/share\/[^/]+$/);
   await expect(state).toHaveAttribute('data-active', 'true');
   await expect(state).toHaveAttribute('data-links', String(before + 1));
-  // The embed code frames that same link, and names the sites allowed to frame it.
-  const path = new URL(link).pathname;
-  await expect(share.getByTestId('quant-share-embed-code')).toHaveValue(`<iframe src="${path}" title="${CLAIM}"></iframe>`);
+  // The embed code frames that same link by its full address. The site's own frame policy still refuses outside frames,
+  // and the room says so rather than promising a frame that would show blank.
+  await expect(share.getByTestId('quant-share-embed-code')).toHaveValue(`<iframe src="${link}" title="${CLAIM}"></iframe>`);
+  await expect(share.getByTestId('quant-share-embed-blocked')).toContainText('frame policy');
 
   // A signed-out reader opens the link: the result under its label, with its checks and coverage, and nothing private.
   const visitor = await browser.newContext();

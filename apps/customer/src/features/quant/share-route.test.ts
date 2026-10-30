@@ -13,4 +13,8 @@ describe('the share link route', () => {
     expect(quantRoute('/quant/share/abc/def', false, null)).toBeNull();
     expect(quantRoute('/quant/share/', false, null)).toBeNull();
   });
+
+  it('keeps a token with a broken escape instead of throwing', () => {
+    expect(quantRoute('/quant/share/abc%E0', false, null)?.title).toBe('Shared backtest result');
+  });
 });

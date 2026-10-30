@@ -8,14 +8,14 @@ import {
   type QuantShareCreated,
   type QuantShareState,
 } from '@intafaced/contracts/quant-algo';
-import { useState } from 'react';
+import { type Dispatch, type SetStateAction, useState } from 'react';
 import type { ApiResult } from '../../shared/api';
 import { useResource } from '../../shared/resource';
 import { Button, DataTable, EmptyState, Failure, Loading, Panel } from '../../shared/ui';
 import { Read } from '../more/common';
 import { useApi } from '../session/session';
 import { backtestCopy } from './backtest-copy';
-import { ChecksTab, MetricsTab } from './BacktestRoom';
+import { ChecksTab, LogText, MetricsTab } from './result-figures';
 import { reportCopy } from './report-copy';
 import './algo.css';
 
@@ -32,17 +32,21 @@ const TOTAL_KEYS = {
   openQty: 'openQty',
 } as const;
 
+/**
+ * The service's typed code for a refusal: the `quant.` code the gateway passed on, or the one the message starts with
+ * (svc-quant sends `<code> — <detail>`). Never a code merely quoted somewhere inside a message.
+ */
+function quantCode(failure: Failed): string | null {
+  if (failure.code?.startsWith('quant.')) return failure.code;
+  const first = /^(quant\.[a-z_]+)\b/.exec(failure.message.trim());
+  return first ? first[1]! : null;
+}
+
 /** The share refusals this room words itself; any other answer goes to the shared refusal catalogue. */
-const SHARE_REFUSALS = {
+const SHARE_REFUSALS: Readonly<Record<string, 'shareRateUnset' | 'shareWindowUnset'>> = {
   'quant.share_rate_unset': 'shareRateUnset',
   'quant.share_window_unset': 'shareWindowUnset',
-} as const;
-
-function shareRefusal(failure: Failed): (typeof SHARE_REFUSALS)[keyof typeof SHARE_REFUSALS] | null {
-  const text = `${failure.code ?? ''} ${failure.message}`;
-  for (const [code, key] of Object.entries(SHARE_REFUSALS)) if (text.includes(code)) return key;
-  return null;
-}
+};
 
 /**
  * The printable report of one stored run (AL-report-03): the six sections the service builds from the stored run on
@@ -56,12 +60,16 @@ export function ReportTab({ runId }: { runId: string }) {
     `quant-report:${runId}`,
   );
   return (
-    <div data-testid="quant-report" className="quant-report">
+    <div data-testid="quant-report">
       <h4>{t('reportTitle')}</h4>
       <p className="muted quant-no-print">{t('reportIntro')}</p>
-      <Read resource={report.resource} retry={report.reload}>
-        {(data) => <ReportDocument report={data} />}
-      </Read>
+      {report.resource.status === 'loading' ? (
+        <Loading label={t('reportLoading')} />
+      ) : (
+        <Read resource={report.resource} retry={report.reload}>
+          {(data) => <ReportDocument report={data} />}
+        </Read>
+      )}
     </div>
   );
 }
@@ -69,7 +77,7 @@ export function ReportTab({ runId }: { runId: string }) {
 function ReportDocument({ report }: { report: QuantReport }) {
   const { t } = reportCopy.useCopy();
   return (
-    <article data-testid="quant-report-document" data-run-id={report.runId}>
+    <article className="quant-report-document" data-testid="quant-report-document" data-run-id={report.runId}>
       <p className="quant-no-print">
         <Button onClick={() => window.print()} data-testid="quant-report-print">
           {t('print')}
@@ -95,19 +103,21 @@ function ReportDocument({ report }: { report: QuantReport }) {
   );
 }
 
+/** The once-only link a create returned, kept by the result above the tabs so moving between tabs does not lose it. */
+export type CreatedShare = [QuantShareCreated | null, Dispatch<SetStateAction<QuantShareCreated | null>>];
+
 /**
  * Share one stored run by link or embed (AL-report-03). Create sends the link count the service last read as `seq`,
  * so a press after a lost reply stores no second link; the address is shown only by the call that stored it. Revoke
  * stops the link opening. A blank read limit refuses by name; a blank frame list refuses only the embed code.
  */
-export function ShareTab({ runId }: { runId: string }) {
+export function ShareTab({ runId, created: [created, setCreated] }: { runId: string; created: CreatedShare }) {
   const api = useApi();
   const { t } = reportCopy.useCopy();
   const state = useResource(
     (signal) => api.query('quant', 'result.share.get', { runId }, quantShareStateSchema, { signal }),
     `quant-share:${runId}`,
   );
-  const [created, setCreated] = useState<QuantShareCreated | null>(null);
   const [busy, setBusy] = useState<'create' | 'revoke' | null>(null);
   const [failure, setFailure] = useState<Failed | null>(null);
   const [revoked, setRevoked] = useState(false);
@@ -138,13 +148,10 @@ export function ShareTab({ runId }: { runId: string }) {
   }
 
   const refusal = (failed: Failed) => {
-    const own = shareRefusal(failed);
+    const code = quantCode(failed);
+    const own = code ? SHARE_REFUSALS[code] : undefined;
     return own ? (
-      <p
-        role="alert"
-        data-testid="quant-share-refusal"
-        data-code={Object.keys(SHARE_REFUSALS).find((code) => SHARE_REFUSALS[code as keyof typeof SHARE_REFUSALS] === own)}
-      >
+      <p role="alert" data-testid="quant-share-refusal" data-code={code}>
         {t(own)}
       </p>
     ) : (
@@ -159,25 +166,12 @@ export function ShareTab({ runId }: { runId: string }) {
       {state.resource.status === 'loading' && <Loading label={t('shareLoading')} />}
       {state.resource.status === 'failed' && refusal(state.resource.failure)}
       {state.resource.status === 'ready' && (
-        <div data-testid="quant-share-state" data-active={String(state.resource.data.active)} data-links={state.resource.data.links}>
-          <p>{state.resource.data.active ? t('shareActive') : t('shareNone')}</p>
-          <p className="muted">{t('shareCount', { count: state.resource.data.links })}</p>
-          {state.resource.data.active ? (
-            <Button onClick={() => void revoke()} disabled={busy !== null} data-testid="quant-share-revoke">
-              {t('revoke')}
-            </Button>
-          ) : (
-            <Button
-              onClick={() =>
-                void create(state.resource.status === 'ready' ? state.resource.data : { runId, links: 0, active: false, seq: null })
-              }
-              disabled={busy !== null}
-              data-testid="quant-share-create"
-            >
-              {t('create')}
-            </Button>
-          )}
-        </div>
+        <ShareState
+          state={state.resource.data}
+          busy={busy !== null}
+          onCreate={(current) => void create(current)}
+          onRevoke={() => void revoke()}
+        />
       )}
       {busy && <Loading label={busy === 'create' ? t('creating') : t('revoking')} />}
       {revoked && (
@@ -189,6 +183,31 @@ export function ShareTab({ runId }: { runId: string }) {
       {created && <CreatedLink created={created} />}
     </div>
   );
+}
+
+function ShareState(props: { state: QuantShareState; busy: boolean; onCreate: (state: QuantShareState) => void; onRevoke: () => void }) {
+  const { t } = reportCopy.useCopy();
+  const { state } = props;
+  return (
+    <div data-testid="quant-share-state" data-active={String(state.active)} data-links={state.links}>
+      <p>{state.active ? t('shareActive') : t('shareNone')}</p>
+      <p className="muted">{t('shareCount', { count: state.links })}</p>
+      {state.active ? (
+        <Button onClick={props.onRevoke} disabled={props.busy} data-testid="quant-share-revoke">
+          {t('revoke')}
+        </Button>
+      ) : (
+        <Button onClick={() => props.onCreate(state)} disabled={props.busy} data-testid="quant-share-create">
+          {t('create')}
+        </Button>
+      )}
+    </div>
+  );
+}
+
+/** The service's snippet frames a path on this site; another site needs the full address. */
+function absoluteSnippet(snippet: string): string {
+  return snippet.replace(/src="(\/[^"]*)"/, (_, path: string) => `src="${new URL(path, location.origin).toString()}"`);
 }
 
 function CreatedLink({ created }: { created: QuantShareCreated }) {
@@ -214,9 +233,12 @@ function CreatedLink({ created }: { created: QuantShareCreated }) {
         <div data-testid="quant-share-embed">
           <label>
             {t('embedLabel')}
-            <textarea readOnly rows={3} value={created.embed.snippet} data-testid="quant-share-embed-code" />
+            <textarea readOnly rows={3} value={absoluteSnippet(created.embed.snippet)} data-testid="quant-share-embed-code" />
           </label>
           <p className="muted">{t('embedOrigins', { origins: created.embed.origins.join(', ') })}</p>
+          <p role="note" data-testid="quant-share-embed-blocked">
+            {t('embedFramePolicy')}
+          </p>
         </div>
       ) : (
         <p role="note" data-testid="quant-share-embed-refusal" data-code={created.embedRefusal ?? ''}>
@@ -229,9 +251,9 @@ function CreatedLink({ created }: { created: QuantShareCreated }) {
 
 /** The share refusals a signed-out reader can get, worded plainly; anything else is the shared catalogue's. */
 function publicRefusal(failure: Failed): 'publicNotFound' | 'publicBusy' | null {
-  const text = `${failure.code ?? ''} ${failure.message}`;
-  if (text.includes('quant.share_not_found')) return 'publicNotFound';
-  if (text.includes('quant.share_rate_limited')) return 'publicBusy';
+  const code = quantCode(failure);
+  if (code === 'quant.share_not_found') return 'publicNotFound';
+  if (code === 'quant.share_rate_limited') return 'publicBusy';
   return null;
 }
 
@@ -284,7 +306,7 @@ function PublicResult({ result }: { result: QuantPublicResult }) {
         })}
       </p>
       <p data-testid="quant-shared-verdict" data-status={result.verdict.status}>
-        {t('publicVerdict', { status: result.verdict.status })}
+        {t('publicVerdict', { status: bt(`v_${result.verdict.status}`) })}
       </p>
       <p data-testid="quant-shared-variants">
         {result.variantCount === null ? t('publicVariantsUnknown') : t('publicVariants', { count: result.variantCount })}
@@ -292,12 +314,14 @@ function PublicResult({ result }: { result: QuantPublicResult }) {
       <section aria-label={t('publicTotals')}>
         <h4>{t('publicTotals')}</h4>
         <dl className="quant-bar-totals" data-testid="quant-shared-totals">
-          {Object.entries(result.totals).map(([key, value]) => (
-            <div key={key} data-testid={`quant-shared-total-${key}`} data-value={value}>
-              <dt>{key in TOTAL_KEYS ? bt(TOTAL_KEYS[key as keyof typeof TOTAL_KEYS]) : key}</dt>
-              <dd>{value}</dd>
-            </div>
-          ))}
+          {(Object.keys(TOTAL_KEYS) as (keyof typeof TOTAL_KEYS)[])
+            .map((key) => [key, result.totals[key]] as const)
+            .map(([key, value]) => (
+              <div key={key} data-testid={`quant-shared-total-${key}`} data-value={value}>
+                <dt>{bt(TOTAL_KEYS[key as keyof typeof TOTAL_KEYS])}</dt>
+                <dd lang="zxx">{value}</dd>
+              </div>
+            ))}
         </dl>
       </section>
       <section aria-label={t('publicMetrics')}>
@@ -327,8 +351,8 @@ function PublicResult({ result }: { result: QuantPublicResult }) {
           <ul data-testid="quant-shared-warnings">
             {result.warnings.map((line, i) => (
               <li key={`${line.code}:${i}`} data-code={line.code}>
-                {line.code}
-                {line.ts ? ` ${minute(line.ts)}` : ''}
+                {line.ts && <span lang="zxx">{minute(line.ts)} </span>}
+                <LogText line={line} />
               </li>
             ))}
           </ul>
