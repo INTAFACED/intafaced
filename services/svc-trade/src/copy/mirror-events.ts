@@ -38,8 +38,17 @@ export interface MirrorEventDraft {
   readonly at: Date;
 }
 
+/** A `skipped` step as the skip log reads it: the leader fill, the reason id kept in `code`, and when. */
+export interface MirrorSkipRecord {
+  readonly leaderFillId: string;
+  readonly code: string | null;
+  readonly at: Date;
+}
+
 export interface MirrorEventLog {
   append(draft: MirrorEventDraft): Promise<'inserted' | 'replay'>;
+  /** This follow's `skipped` steps, newest first, at most `limit`. */
+  listSkips(followId: string, limit: number): Promise<MirrorSkipRecord[]>;
 }
 
 interface MemoryRow extends MirrorEventDraft {
@@ -56,6 +65,14 @@ export class MemoryMirrorEventLog implements MirrorEventLog {
     this.seq += 1;
     this.rows.push({ ...draft, eventId: randomUUID(), seq: this.seq });
     return 'inserted';
+  }
+
+  async listSkips(followId: string, limit: number): Promise<MirrorSkipRecord[]> {
+    return this.rows
+      .filter((row) => row.followId === followId && row.kind === 'skipped')
+      .sort((a, b) => b.at.getTime() - a.at.getTime() || b.seq - a.seq)
+      .slice(0, limit)
+      .map((row) => ({ leaderFillId: row.leaderFillId, code: row.code ?? null, at: row.at }));
   }
 }
 
@@ -90,6 +107,21 @@ export class SqlMirrorEventLog implements MirrorEventLog {
       RETURNING event_id
     `;
     return inserted.length > 0 ? 'inserted' : 'replay';
+  }
+
+  async listSkips(followId: string, limit: number): Promise<MirrorSkipRecord[]> {
+    const rows = await this.sql<Array<{ leader_fill_id: string; code: string | null; occurred_at: Date }>>`
+      SELECT leader_fill_id, code, occurred_at
+        FROM copy_mirror_events
+       WHERE follow_id = ${followId} AND kind = 'skipped'
+       ORDER BY occurred_at DESC, seq DESC
+       LIMIT ${limit}
+    `;
+    return rows.map((row) => ({
+      leaderFillId: row.leader_fill_id,
+      code: row.code,
+      at: row.occurred_at instanceof Date ? row.occurred_at : new Date(row.occurred_at),
+    }));
   }
 }
 

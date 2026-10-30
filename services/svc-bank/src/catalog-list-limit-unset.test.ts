@@ -78,10 +78,10 @@ describe('svc-bank catalog list limit unset refuse', () => {
     expect(products).not.toMatch(/listProducts\(input\.assetId\)/);
   });
 
-  it('accrueAll still loads the full open-pool work set — not a catalog page of 50', () => {
+  it('accrueAll still loads the full accrual work set (open pools, and closed pools still holding savings) — not a catalog page of 50', () => {
     const earn = readFileSync(join(ROOT, 'services/svc-bank/src/earn/earn-service.ts'), 'utf8');
     const accrueAll = earn.slice(earn.indexOf('async accrueAll('), earn.indexOf('async interestPaid('));
-    expect(accrueAll).toContain('openPoolsForAccrual');
+    expect(accrueAll).toContain('this.poolsForAccrual()');
     expect(accrueAll).not.toMatch(/this\.listPools\(\)/);
     expect(accrueAll).not.toMatch(/\?\? 50/);
   });

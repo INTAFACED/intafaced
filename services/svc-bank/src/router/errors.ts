@@ -174,6 +174,12 @@ const BANK_ERROR_STATUS: Record<BankErrorCode, TRPCError['code']> = {
   'bank.pool_terms_invalid': 'BAD_REQUEST',
   'bank.fixed_pool_rate_locked': 'CONFLICT',
   'bank.pool_rate_unchanged': 'CONFLICT',
+  'bank.pool_status_unchanged': 'CONFLICT',
+  'bank.pool_status_stale': 'CONFLICT',
+  'bank.unbond_not_confirmed': 'BAD_REQUEST',
+  'bank.position_unbonding': 'CONFLICT',
+  'bank.earn_risk_wording_unset': 'PRECONDITION_FAILED',
+  'bank.earn_release_failed': 'INTERNAL_SERVER_ERROR',
   'bank.position_closed': 'CONFLICT',
   'bank.position_locked': 'CONFLICT',
   'bank.position_pending': 'CONFLICT',
@@ -279,6 +285,7 @@ const BANK_ERROR_STATUS: Record<BankErrorCode, TRPCError['code']> = {
   'bank.business_payroll_empty': 'BAD_REQUEST',
   'bank.earn_resume_pending_limit_unset': 'BAD_REQUEST',
   'bank.earn_renew_batch_limit_unset': 'BAD_REQUEST',
+  'bank.earn_release_batch_limit_unset': 'BAD_REQUEST',
   'bank.loan_resume_pending_limit_unset': 'BAD_REQUEST',
   'bank.loan_accrue_batch_limit_unset': 'BAD_REQUEST',
   'bank.transfer_due_limit_unset': 'BAD_REQUEST',
@@ -409,6 +416,7 @@ const BANK_ERROR_STATUS: Record<BankErrorCode, TRPCError['code']> = {
   'bank.recipient_check_unset': 'PRECONDITION_FAILED',
   'bank.security_locked': 'PRECONDITION_FAILED',
   'bank.security_lock_unset': 'PRECONDITION_FAILED',
+  'bank.account_frozen_self': 'PRECONDITION_FAILED',
   'bank.address_approval_not_pending': 'CONFLICT',
   'bank.address_approval_same_device': 'PRECONDITION_FAILED',
   'bank.address_approval_device_unknown': 'PRECONDITION_FAILED',
@@ -491,6 +499,7 @@ const BANK_ERROR_STATUS: Record<BankErrorCode, TRPCError['code']> = {
   'bank.recovery_claim_conflict': 'CONFLICT',
   'bank.recovery_claim_refused': 'PRECONDITION_FAILED',
   'bank.recovery_blocked': 'PRECONDITION_FAILED',
+  'bank.accrual_day_not_begun': 'PRECONDITION_FAILED',
 
   // Kill switches. Same 503 class as the matching HTTP job endpoints —
   // operator flipped the flag off; tRPC must not be a back door past it.

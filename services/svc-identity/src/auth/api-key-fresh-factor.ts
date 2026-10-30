@@ -124,14 +124,40 @@ export function narrowsAllowlist(current: readonly string[], next: readonly stri
 }
 
 /**
- * Change an allowlist so the narrow-or-widen decision and the write share one transaction.
+ * Change one key so the narrow-or-widen decision and the write share one transaction.
  *
- * The key row is locked (`readLocked` must `SELECT ... FOR UPDATE`) and the decision is made from
- * the locked value, so a concurrent change cannot slip between the read and the write. A change that
+ * The key row is locked (`readLocked` must `SELECT ... FOR UPDATE`) and `narrows` decides from the
+ * locked value, so a concurrent change cannot slip between the read and the write. A change that
  * narrows commits on its own. Anything else, including a change that only turned into a widening
  * because another request got there first, takes the guarded path: the fresh factor is consumed and
- * audited in the same transaction as the write, and the row is locked again there.
+ * audited in the same transaction as the write, and the row is locked (and `readLocked`'s own
+ * refusals checked) again there.
  */
+export async function narrowOrGuardedChange<L, T>(args: {
+  sql: Sql;
+  gate: ApiKeyFactorGate;
+  caller: Caller;
+  proof: PayStepUpFactorProof | undefined;
+  action: { action: string; keyId: string };
+  readLocked: (tx: Sql) => Promise<L>;
+  narrows: (locked: L) => boolean;
+  write: (tx: Sql) => Promise<T>;
+}): Promise<T> {
+  if (args.caller.kid || args.caller.sub_account) {
+    throw new TRPCError({ code: 'FORBIDDEN', message: 'API keys and sub-accounts cannot create or change keys' });
+  }
+  const narrowed = await inTransaction(args.sql, async (tx) => {
+    if (!args.narrows(await args.readLocked(tx))) return undefined;
+    return { value: await args.write(tx) };
+  });
+  if (narrowed) return narrowed.value;
+  return guardedApiKeyAction(args.gate, args.caller, args.proof, args.action, async (scope) => {
+    await args.readLocked(scope.tx);
+    return args.write(scope.tx);
+  });
+}
+
+/** An allowlist change through `narrowOrGuardedChange`: it narrows when `narrowsAllowlist` says so. */
 export async function narrowOrGuardedAllowlistChange<T>(args: {
   sql: Sql;
   gate: ApiKeyFactorGate;
@@ -143,17 +169,6 @@ export async function narrowOrGuardedAllowlistChange<T>(args: {
   norm?: (v: string) => string;
   write: (tx: Sql) => Promise<T>;
 }): Promise<T> {
-  if (args.caller.kid || args.caller.sub_account) {
-    throw new TRPCError({ code: 'FORBIDDEN', message: 'API keys and sub-accounts cannot create or change keys' });
-  }
-  const narrowed = await inTransaction(args.sql, async (tx) => {
-    const current = await args.readLocked(tx);
-    if (!narrowsAllowlist(current, args.nextFrom(current), args.norm)) return undefined;
-    return { value: await args.write(tx) };
-  });
-  if (narrowed) return narrowed.value;
-  return guardedApiKeyAction(args.gate, args.caller, args.proof, args.action, async (scope) => {
-    await args.readLocked(scope.tx);
-    return args.write(scope.tx);
-  });
+  const { nextFrom, norm, ...rest } = args;
+  return narrowOrGuardedChange({ ...rest, narrows: (current: string[]) => narrowsAllowlist(current, nextFrom(current), norm) });
 }

@@ -2,7 +2,7 @@ import Fastify from 'fastify';
 import postgres from 'postgres';
 import { JetStreamEventBus } from '@intafaced/events';
 import { s2sFromEnv } from '@intafaced/contracts';
-import { clockSkewBoundMs, env, idempotencyConflictMode } from './env.js';
+import { clockSkewBoundMs, env, idempotencyConflictMode, railStatementUrls } from './env.js';
 import { ledgerPostgresOptions } from './db/connection-options.js';
 import { LedgerService } from './service.js';
 import { createLedgerRouter } from './router.js';
@@ -11,6 +11,7 @@ import { createReconcileTickState, runScheduledReconciliationTick } from './ledg
 import { registerS2sHttp } from './s2s-http.js';
 import { reconcileGauges, registerMetrics } from './metrics.js';
 import { registerOperatorHttp } from './operator-http.js';
+import { reconciliationSourcesFrom } from './ledger/reconciliation-sources.js';
 import { createIdentityApprovalClient, unwiredApprovalConsumer } from './ledger/action-approval-consume.js';
 import { registerLedgerStatusHttp } from './status-http.js';
 import { registerProcessHooks, startTelemetry } from '@intafaced/telemetry';
@@ -49,11 +50,15 @@ const bus = await JetStreamEventBus.connect({
   ownedStreams: ['ledger'],
 });
 
+// Blank snapshot URL: an outside-balance control's outside side is unset. Set but unreadable: that run is ERROR.
+const reconciliationSources = reconciliationSourcesFrom(env.LEDGER_RECONCILE_OUTSIDE_SNAPSHOT_URL, railStatementUrls);
+
 const ledger = new LedgerService(sql, bus, {
   postingEnabled: env.LEDGER_POSTING_ENABLED,
   idempotencyConflict: idempotencyConflictMode,
   reconcileStatementTimeoutMs: env.LEDGER_RECONCILE_STATEMENT_TIMEOUT_MS,
   clockSkewBoundMs,
+  reconciliationSources,
 });
 
 // Before the first request, never after: a frozen database stays frozen, and
@@ -115,6 +120,7 @@ registerOperatorHttp(
     accessTtlSeconds: env.JWT_ACCESS_TTL_SECONDS,
   },
   actionApprovals,
+  reconciliationSources,
 );
 
 // Outbox recover is NOT inside applyStartupPolicy. That path is freeze-only

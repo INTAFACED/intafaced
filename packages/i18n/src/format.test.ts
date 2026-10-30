@@ -311,8 +311,21 @@ function scaled(amount: string): { negative: boolean; abs: bigint } {
 }
 
 /** Reads the shown figure back as a scaled bigint from the locale's own digit glyphs, using the parts' types. */
+// A locale's ten digit glyphs, built once per tag: constructing Intl.NumberFormat ten times per case made the
+// 2,000-case properties slow enough to time out on a busy runner (#6561).
+const digitGlyphs = new Map<string, string[]>();
+function glyphsOf(tag: string): string[] {
+  let glyphs = digitGlyphs.get(tag);
+  if (!glyphs) {
+    const nf = new Intl.NumberFormat(tag, { useGrouping: false });
+    glyphs = Array.from({ length: 10 }, (_, d) => nf.format(d));
+    digitGlyphs.set(tag, glyphs);
+  }
+  return glyphs;
+}
+
 function shownValue(parts: ReturnType<typeof formatMoneyToParts>, tag: string): bigint {
-  const glyphs = Array.from({ length: 10 }, (_, d) => new Intl.NumberFormat(tag, { useGrouping: false }).format(d));
+  const glyphs = glyphsOf(tag);
   const ascii = (text: string): string =>
     [...text]
       .map((ch) => {

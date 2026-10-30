@@ -12,6 +12,7 @@ import type {
   CreateTwapInput,
   TwapParent,
 } from './types.js';
+import { awaitingTrigger, POV_BASES, type PovBasis } from './types.js';
 
 /**
  * TWAP engine (D-S-04 v1) — schedule that emits child orders.
@@ -30,6 +31,9 @@ import type {
 
 /** haltReason when cancel partially failed — resume refused until re-cancel. */
 export const CANCEL_INCOMPLETE_HALT = 'cancel_incomplete';
+
+/** haltReason when a trigger price was not reached within the engine's longest schedule life — nothing was placed. */
+export const TRIGGER_EXPIRED_HALT = 'trigger_expired';
 
 export interface PlaceChildRequest {
   readonly parentId: string;
@@ -69,6 +73,12 @@ export interface TwapEnginePorts {
    * Omit or 0 → miss (never invent participation against an empty tape).
    */
   intervalTakerVolume?(marketId: string, from: Date, to: Date): Promise<Amount>;
+  /**
+   * Resting quantity on the side of the book a child on `side` would take from (asks for a buy). POV with the
+   * opposite-side liquidity basis only; with a limit, only the levels the child could reach at it. Omit or 0 → miss (never
+   * invent a book).
+   */
+  oppositeBookQty?(marketId: string, side: OrderSide, limitPrice: Amount | null): Promise<Amount>;
   now(): Date;
   randomId(): string;
 }
@@ -90,12 +100,21 @@ export type SliceTickResult =
   | { readonly kind: 'placed'; readonly child: AlgoChildRef }
   | { readonly kind: 'miss'; readonly miss: AlgoMiss }
   | { readonly kind: 'halted'; readonly reason: string; readonly code: AlgoMissCode }
-  | { readonly kind: 'idle'; readonly reason: 'paused' | 'cancelled' | 'completed' | 'halted' | 'ahead_of_schedule' }
+  | {
+      readonly kind: 'idle';
+      readonly reason: 'paused' | 'cancelled' | 'completed' | 'halted' | 'ahead_of_schedule' | 'awaiting_trigger';
+    }
   | { readonly kind: 'completed' };
 
 /** Projected end from an event instant + remaining slice count (ADR formula). */
 export function projectTwapEndsAt(fromMs: number, remainingSlices: number, sliceIntervalMs: number): Date {
   return new Date(fromMs + remainingSlices * sliceIntervalMs);
+}
+
+/** Whether a mark has reached a parent's trigger, on the side the trigger lay at create. */
+export function triggerReached(parent: Pick<TwapParent, 'triggerPrice' | 'triggerAbove'>, mark: Amount): boolean {
+  if (parent.triggerPrice == null) return true;
+  return parent.triggerAbove ? mark >= parent.triggerPrice : mark <= parent.triggerPrice;
 }
 
 export class TwapEngine {
@@ -106,6 +125,8 @@ export class TwapEngine {
   private readonly maxDurationMs: number;
   private readonly minSliceIntervalMs: number;
   private readonly onChange: ((parent: TwapParent, plan: readonly Amount[]) => void | Promise<void>) | null;
+  /** The last save started per parent: each save waits for the one before, so the store keeps the newest state. */
+  private readonly saves = new Map<string, Promise<void>>();
 
   constructor(
     private readonly ports: TwapEnginePorts,
@@ -143,13 +164,26 @@ export class TwapEngine {
   }
 
   /** Validate and freeze a proposal without publishing an unadmitted strategy. */
-  prepare(userId: string, input: CreateTwapInput, lotSize: Amount): { parent: TwapParent; plan: readonly Amount[] } {
-    if (input.durationMs > this.maxDurationMs) {
+  /** The TWAP slice sizes `prepare` would plan for these numbers, under the same schedule bounds. Stores nothing. */
+  previewTwapPlan(
+    input: { totalQty: Amount; durationMs: number; sliceIntervalMs: number; randomSeed?: number | null },
+    lotSize: Amount,
+  ): readonly Amount[] {
+    this.assertScheduleBounds(input.durationMs, input.sliceIntervalMs);
+    return planTwapSlices({ ...input, lotSize, randomSeed: input.randomSeed ?? null }).slices;
+  }
+
+  private assertScheduleBounds(durationMs: number, sliceIntervalMs: number): void {
+    if (durationMs > this.maxDurationMs) {
       throw new TradeError(`algo duration exceeds max ${this.maxDurationMs}ms`, 'trade.algo_invalid_schedule');
     }
-    if (input.sliceIntervalMs < this.minSliceIntervalMs) {
+    if (sliceIntervalMs < this.minSliceIntervalMs) {
       throw new TradeError(`algo sliceIntervalMs below min ${this.minSliceIntervalMs}ms`, 'trade.algo_invalid_schedule');
     }
+  }
+
+  prepare(userId: string, input: CreateTwapInput, lotSize: Amount): { parent: TwapParent; plan: readonly Amount[] } {
+    this.assertScheduleBounds(input.durationMs, input.sliceIntervalMs);
 
     const clientAlgoId = typeof input.clientAlgoId === 'string' ? input.clientAlgoId.trim() : '';
     if (!clientAlgoId) {
@@ -160,8 +194,21 @@ export class TwapEngine {
     }
 
     const kind = input.kind ?? 'twap';
+    if (kind !== 'twap' && (input.randomSeed !== undefined || input.triggerPrice !== undefined)) {
+      throw new TradeError('random sizes and a trigger price are TWAP options', 'trade.algo_invalid_schedule');
+    }
+    if (input.povBasis !== undefined && (kind !== 'pov' || !POV_BASES.includes(input.povBasis))) {
+      throw new TradeError(
+        'a participation basis is a POV option: traded volume or opposite-side liquidity',
+        'trade.algo_invalid_schedule',
+      );
+    }
+    if (input.triggerPrice !== undefined && (input.triggerPrice <= 0n || input.triggerAbove === undefined)) {
+      throw new TradeError('a trigger price must be strictly positive and read against the mark at create', 'trade.algo_invalid_schedule');
+    }
     let slices: readonly Amount[];
     let participationBps: number | null = null;
+    let povBasis: PovBasis | null = null;
 
     if (kind === 'twap') {
       slices = planTwapSlices({
@@ -169,6 +216,7 @@ export class TwapEngine {
         durationMs: input.durationMs,
         sliceIntervalMs: input.sliceIntervalMs,
         lotSize,
+        randomSeed: input.randomSeed ?? null,
       }).slices;
     } else if (kind === 'vwap') {
       const profile = input.volumeProfile;
@@ -188,6 +236,7 @@ export class TwapEngine {
         );
       }
       participationBps = bps;
+      povBasis = input.povBasis ?? 'traded_volume';
       const n = sliceCount(input.durationMs, input.sliceIntervalMs);
       slices = Array.from({ length: n }, () => 0n);
     } else {
@@ -223,10 +272,15 @@ export class TwapEngine {
       haltReason: null,
       lotSize,
       participationBps,
+      povBasis,
       slicesPlanned: slices.length,
       nextSliceIndex: 0,
       children: [],
       misses: [],
+      randomSeed: input.randomSeed ?? null,
+      triggerPrice: input.triggerPrice ?? null,
+      triggerAbove: input.triggerAbove ?? null,
+      triggeredAt: null,
     };
 
     return { parent, plan: slices };
@@ -234,6 +288,14 @@ export class TwapEngine {
 
   pause(userId: string, parentId: string): TwapParent {
     const parent = this.requireOwner(userId, parentId);
+    // A partial cancel already parked the schedule: the person asked to stop and a child may still be live, so the only
+    // way forward is another cancel. Say that, rather than the bare state refusal.
+    if (parent.haltReason === CANCEL_INCOMPLETE_HALT) {
+      throw new TradeError(
+        'cannot pause after a partial cancel — call cancel again until every child is cancelled',
+        'trade.algo_cancel_incomplete',
+      );
+    }
     if (parent.status !== 'active') {
       throw new TradeError(`cannot pause algo in status ${parent.status}`, 'trade.algo_bad_state');
     }
@@ -267,8 +329,10 @@ export class TwapEngine {
     const now = this.ports.now();
     const remaining = plan.length - parent.nextSliceIndex;
     const projectedEndsAt = projectTwapEndsAt(now.getTime(), remaining, parent.sliceIntervalMs);
-    const spanMs = projectedEndsAt.getTime() - parent.startedAt.getTime();
-    if (spanMs > 2 * parent.durationMs) {
+    // The schedule's span runs from its real start: the trigger instant when it had one. A parent still waiting for
+    // its trigger has not started, so a pause cannot have stretched it.
+    const spanMs = projectedEndsAt.getTime() - (parent.triggeredAt ?? parent.startedAt).getTime();
+    if (!awaitingTrigger(parent) && spanMs > 2 * parent.durationMs) {
       throw new TradeError(
         `resume would more than double original duration (projected end ${projectedEndsAt.toISOString()}, started ${parent.startedAt.toISOString()}, durationMs ${parent.durationMs})`,
         'trade.algo_resume_extends_too_far',
@@ -281,7 +345,7 @@ export class TwapEngine {
       pausedAt: null,
       nextDueAt: now,
       projectedEndsAt,
-      scheduleStretchReason: 'user_pause',
+      scheduleStretchReason: awaitingTrigger(parent) ? parent.scheduleStretchReason : 'user_pause',
     });
   }
 
@@ -361,22 +425,42 @@ export class TwapEngine {
     }
 
     const now = this.ports.now();
+    let working = parent;
+    if (awaitingTrigger(parent)) {
+      // A trigger never reached does not keep the schedule alive past the longest life a schedule may have.
+      if (now.getTime() - parent.createdAt.getTime() > this.maxDurationMs) {
+        this.replace(parentId, { ...parent, status: 'halted', haltReason: TRIGGER_EXPIRED_HALT });
+        return { kind: 'idle', reason: 'halted' };
+      }
+      // Nothing is placed until an accepted mark reaches the trigger. A blank or stale mark never starts it.
+      const mark = await this.ports.markFor(parent.marketId);
+      if (!mark || !acceptableForAlgo(mark, now, this.markPolicy).ok || !triggerReached(parent, mark.price)) {
+        return { kind: 'idle', reason: 'awaiting_trigger' };
+      }
+      // Reached: the schedule starts now, its slices one interval apart from this instant.
+      working = this.replace(parentId, {
+        ...parent,
+        triggeredAt: now,
+        nextDueAt: now,
+        projectedEndsAt: projectTwapEndsAt(now.getTime(), plan.length - parent.nextSliceIndex, parent.sliceIntervalMs),
+      });
+    }
+
     // ADR 2026-08-08: due time is nextDueAt (re-spaced), never startedAt+index*interval.
-    if (now.getTime() < parent.nextDueAt.getTime()) {
+    if (now.getTime() < working.nextDueAt.getTime()) {
       return { kind: 'idle', reason: 'ahead_of_schedule' };
     }
 
     // Tick outage: active parent was overdue by more than one interval with no
     // user pause. Record distinguishable stretch, then place at most one slice
     // and re-space from this instant (same spacing rule as resume).
-    let working = parent;
-    const overdueBy = now.getTime() - parent.nextDueAt.getTime();
-    if (overdueBy > parent.sliceIntervalMs) {
-      const remaining = plan.length - parent.nextSliceIndex;
+    const overdueBy = now.getTime() - working.nextDueAt.getTime();
+    if (overdueBy > working.sliceIntervalMs) {
+      const remaining = plan.length - working.nextSliceIndex;
       working = this.replace(parentId, {
-        ...parent,
+        ...working,
         scheduleStretchReason: 'tick_outage' satisfies AlgoScheduleStretchReason,
-        projectedEndsAt: projectTwapEndsAt(now.getTime(), remaining, parent.sliceIntervalMs),
+        projectedEndsAt: projectTwapEndsAt(now.getTime(), remaining, working.sliceIntervalMs),
         // nextDueAt stays ≤ now so this tick may place; re-spaced after event.
       });
     }
@@ -417,6 +501,7 @@ export class TwapEngine {
     }
 
     let qty = plan[working.nextSliceIndex]!;
+    let basisQty: Amount | null = null;
     if (working.kind === 'pov') {
       const bps = working.participationBps;
       const lot = working.lotSize;
@@ -425,17 +510,22 @@ export class TwapEngine {
       }
       let remaining = working.totalQty;
       for (const c of working.children) remaining -= c.qty;
-      const to = now;
-      const from = new Date(now.getTime() - working.sliceIntervalMs);
-      const vol = this.ports.intervalTakerVolume ? await this.ports.intervalTakerVolume(working.marketId, from, to) : 0n;
-      qty = planPovSliceQty({ intervalVolume: vol, participationBps: bps, remainingQty: remaining, lotSize: lot });
+      if (working.povBasis === 'opposite_liquidity') {
+        basisQty = this.ports.oppositeBookQty ? await this.ports.oppositeBookQty(working.marketId, working.side, working.limitPrice) : 0n;
+      } else {
+        const to = now;
+        const from = new Date(now.getTime() - working.sliceIntervalMs);
+        basisQty = this.ports.intervalTakerVolume ? await this.ports.intervalTakerVolume(working.marketId, from, to) : 0n;
+      }
+      qty = planPovSliceQty({ intervalVolume: basisQty, participationBps: bps, remainingQty: remaining, lotSize: lot });
     }
 
     if (qty <= 0n) {
+      const what = working.povBasis === 'opposite_liquidity' ? 'opposite-side book quantity' : 'non-seeded taker volume';
       return this.recordMiss(working, {
         sliceIndex: working.nextSliceIndex,
         code: 'trade.algo_no_volume',
-        reason: `${working.symbol}: no non-seeded taker volume for slice ${working.nextSliceIndex} — recorded miss, no fill invented`,
+        reason: `${working.symbol}: not enough ${what} for slice ${working.nextSliceIndex} — recorded miss, no fill invented`,
         at: now,
       });
     }
@@ -460,6 +550,7 @@ export class TwapEngine {
         clientOrderId,
         qty,
         placedAt: now,
+        ...(basisQty !== null ? { basisQty } : {}),
       };
 
       const next = working.nextSliceIndex + 1;
@@ -579,10 +670,18 @@ export class TwapEngine {
   }
 
   private emitChange(parent: TwapParent): Promise<void> {
-    if (!this.onChange) return Promise.resolve();
+    const onChange = this.onChange;
+    if (!onChange) return Promise.resolve();
     const plan = this.plans.get(parent.id) ?? [];
-    const write = Promise.resolve(this.onChange(parent, plan)).catch(() => {
-      // Persistence failures must not invent progress; next tick retries save.
+    // Saves of one parent run in order: two state changes on one tick must not land newest-first in the store.
+    const write = (this.saves.get(parent.id) ?? Promise.resolve())
+      .then(() => onChange(parent, plan))
+      .catch(() => {
+        // Persistence failures must not invent progress; next tick retries save.
+      });
+    this.saves.set(parent.id, write);
+    void write.then(() => {
+      if (this.saves.get(parent.id) === write) this.saves.delete(parent.id);
     });
     return write;
   }

@@ -277,6 +277,9 @@ describe('sending crypto out (J-wallet-05)', () => {
       amount: '25',
       railId: 'crypto-native',
       destination: { kind: 'crypto', ref: WALLET },
+      // J-wallet-05 #6: the network and the accepted quote go with the send.
+      networkId: 'ethereum',
+      quoteRef: 'q',
     });
     expect(input.clientRef).toMatch(/^withdraw:/);
     expect(options).toEqual({ bearer: 'one-use' });
@@ -322,7 +325,7 @@ describe('sending crypto out (J-wallet-05)', () => {
     mint.mockResolvedValue({ ok: true, data: { accessToken: 'one-use', expiresAt: '2026-10-23T05:10:00Z' } });
     mutate.mockResolvedValueOnce({ ok: true, data: quoteFor('25') });
     mutate.mockResolvedValueOnce({ ok: false, reason: 'uncertain', status: 504, message: 'gateway timeout' });
-    mutate.mockResolvedValueOnce({ ok: true, data: quoteFor('25') });
+    mutate.mockResolvedValueOnce({ ok: true, data: quoteFor('25', { quoteRef: 'q-again' }) });
     mutate.mockResolvedValueOnce({ ok: true, data: { id: '99999999-9999-4999-8999-999999999999' } });
     await mount();
     await type('Saved address', ROW.destinationId);
@@ -342,6 +345,8 @@ describe('sending crypto out (J-wallet-05)', () => {
     const sends = mutate.mock.calls.filter(([, procedure]) => procedure === 'withdrawal.create');
     expect(sends).toHaveLength(2);
     expect(sends[1]![2].clientRef).toBe(sends[0]![2].clientRef);
+    // svc-pay keeps the quote the first ask was made under, so finishing it names that one, not the fee got again.
+    expect(sends[1]![2].quoteRef).toBe('q');
     expect(text()).toContain('Withdrawal 99999999-9999-4999-8999-999999999999 is recorded.');
     expect(sessionStorage.length).toBe(0);
   });
@@ -372,6 +377,75 @@ describe('sending crypto out (J-wallet-05)', () => {
     expect(sends[1]![2].clientRef).toBe(sends[0]![2].clientRef);
     expect(text()).toContain('Withdrawal 99999999-9999-4999-8999-999999999999 is recorded.');
     expect(sessionStorage.length).toBe(0);
+  });
+
+  it('lets the reference go when finishing a send whose answer was lost is refused for its quote: no withdrawal was claimed', async () => {
+    mint.mockResolvedValue({ ok: true, data: { accessToken: 'one-use', expiresAt: '2026-10-23T05:10:00Z' } });
+    mutate.mockResolvedValueOnce({ ok: true, data: quoteFor('25') });
+    mutate.mockResolvedValueOnce({ ok: false, reason: 'uncertain', status: 504, message: 'gateway timeout' });
+    mutate.mockResolvedValueOnce({ ok: true, data: quoteFor('25', { quoteRef: 'q-again' }) });
+    mutate.mockResolvedValueOnce(refusal('withdrawal_quote.expired', 412));
+    await mount();
+    await type('Saved address', ROW.destinationId);
+    await type('Amount', '25');
+    await press('Get the fee');
+    await press('Confirm and send');
+    await confirmWithCode();
+    await press('Get the fee');
+    await press('Confirm again to finish');
+    await confirmWithCode();
+    const outcome = document.querySelector('[data-testid="withdraw-outcome"]')!.textContent;
+    expect(outcome).toContain('Not sent');
+    expect(outcome).toContain('This quote has expired. Get the fee again.');
+    expect(sessionStorage.length).toBe(0);
+    expect((field('Amount') as HTMLInputElement).readOnly).toBe(false);
+  });
+
+  it('never says nothing is held when svc-pay answers that the ledger refused the fee after the hold', async () => {
+    mint.mockResolvedValue({ ok: true, data: { accessToken: 'one-use', expiresAt: '2026-10-23T05:10:00Z' } });
+    mutate.mockResolvedValueOnce({ ok: true, data: quoteFor('25') });
+    mutate.mockResolvedValueOnce(refusal('pay.withdrawal_fee_unbound', 412));
+    await mount();
+    await type('Saved address', ROW.destinationId);
+    await type('Amount', '25');
+    await press('Get the fee');
+    await press('Confirm and send');
+    await confirmWithCode();
+    const outcome = document.querySelector('[data-testid="withdraw-outcome"]')!.textContent;
+    expect(outcome).toContain('Answer not received');
+    expect(outcome).not.toContain('nothing is held');
+  });
+
+  it('says nothing is held when a guard of svc-pay could not decide: its 503 carries its own code, and the claim rolled back', async () => {
+    mint.mockResolvedValue({ ok: true, data: { accessToken: 'one-use', expiresAt: '2026-10-23T05:10:00Z' } });
+    mutate.mockResolvedValueOnce({ ok: true, data: quoteFor('25') });
+    mutate.mockResolvedValueOnce({ ...refusal('pay.guard_screening_unavailable', 503), reason: 'uncertain' });
+    await mount();
+    await type('Saved address', ROW.destinationId);
+    await type('Amount', '25');
+    await press('Get the fee');
+    await press('Confirm and send');
+    await confirmWithCode();
+    const outcome = document.querySelector('[data-testid="withdraw-outcome"]')!.textContent;
+    expect(outcome).toContain('Not sent');
+    expect(outcome).toContain('no sanctions screening service is connected');
+    expect(outcome).toContain('Nothing was sent and nothing is held.');
+    expect(sessionStorage.length).toBe(0);
+  });
+
+  it('never says nothing is held on a 503 without a guard code: it may come from anywhere', async () => {
+    mint.mockResolvedValue({ ok: true, data: { accessToken: 'one-use', expiresAt: '2026-10-23T05:10:00Z' } });
+    mutate.mockResolvedValueOnce({ ok: true, data: quoteFor('25') });
+    mutate.mockResolvedValueOnce({ ok: false, reason: 'uncertain', status: 503, message: 'service unavailable' });
+    await mount();
+    await type('Saved address', ROW.destinationId);
+    await type('Amount', '25');
+    await press('Get the fee');
+    await press('Confirm and send');
+    await confirmWithCode();
+    const outcome = document.querySelector('[data-testid="withdraw-outcome"]')!.textContent;
+    expect(outcome).toContain('Answer not received');
+    expect(outcome).not.toContain('nothing is held');
   });
 
   it('lets the reference go on a definite first refusal, so nothing is kept in the tab', async () => {

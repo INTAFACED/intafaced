@@ -66,13 +66,13 @@ type ExistingOrderRow = {
   id: string;
 };
 
-type Leg = {
+export type Leg = {
   readonly symbol: string;
   readonly baseAsset: string;
   readonly qty: Amount;
 };
 
-type PricedLeg = {
+export type PricedLeg = {
   readonly symbol: string;
   readonly marketId: string;
   readonly price: Amount;
@@ -151,7 +151,8 @@ class Refuse {
 /**
  * Net filled quantity per market for this follow's own mirror orders, net of
  * base-asset buy fees. A buy adds the coin received. A sell subtracts gross
- * qty (its fee is in quote). Plan rows are not read.
+ * qty (its fee is in quote). The follower's closes of one copied position
+ * (`copy_close_orders`) are sells of this follow too. Plan rows are not read.
  */
 async function netMirroredLongs(sql: Sql, followId: string, followerId: string): Promise<Leg[] | Refuse> {
   const rows = await sql<MirrorFillRow[]>`
@@ -162,6 +163,16 @@ async function netMirroredLongs(sql: Sql, followId: string, followerId: string):
       INNER JOIN trade.fills f ON f.order_id = o.id
       INNER JOIN trade.markets m ON m.id = f.market_id
      WHERE p.follow_id = ${followId}
+       AND o.user_id = ${followerId}::uuid
+       AND f.user_id = ${followerId}::uuid
+    UNION ALL
+    SELECT m.symbol, m.base_asset, m.quote_asset, f.side, f.qty::text AS qty,
+           f.fee_asset, f.fee_amount::text AS fee_amount
+      FROM trade.copy_close_orders c
+      INNER JOIN trade.orders o ON o.id = c.follower_order_id::uuid
+      INNER JOIN trade.fills f ON f.order_id = o.id
+      INNER JOIN trade.markets m ON m.id = f.market_id
+     WHERE c.follow_id = ${followId}
        AND o.user_id = ${followerId}::uuid
        AND f.user_id = ${followerId}::uuid
   `;
@@ -230,7 +241,12 @@ async function mirroredQtyExceedsAvailable(ledger: LedgerClient, followerId: str
   return false;
 }
 
-async function protectionFloor(deps: FollowerFlattenPortDeps, leg: Leg, at: Date): Promise<PricedLeg> {
+/** The sell's price: the protection floor below the best bid, after the market's own checks on the quantity. */
+export async function protectionFloor(
+  deps: Pick<FollowerFlattenPortDeps, 'loadMarket' | 'bestBid' | 'slippageCapBps'>,
+  leg: Leg,
+  at: Date,
+): Promise<PricedLeg> {
   const market = await deps.loadMarket(leg.symbol);
   if (!market || market.kind !== 'spot' || market.symbol !== leg.symbol || market.baseAsset !== leg.baseAsset) {
     throw new TradeError(`${leg.symbol} is not an open spot market for this flatten`, 'trade.market_not_tradable');

@@ -356,6 +356,7 @@ export class ChangeService {
         founder_thresholds: unknown;
         approval_ttl_seconds: number;
         merchant_visible: boolean;
+        payout_fee: unknown;
       }>
     >`
       SELECT * FROM pay.control_tiers WHERE id = ${tier.id}
@@ -366,6 +367,9 @@ export class ChangeService {
         ? { bps: tier.reserve.rollingReserveBps, holdDays: tier.reserve.holdDays }
         : null;
     const merchantVisible = tier.merchantVisible === true;
+    // Omitted keeps what the tier publishes (nothing, for a new tier), so a change to other terms never drops a published
+    // payout fee unseen; only an explicit null withdraws it. In the plan, so a change of only the payout fee is not a noop.
+    const payoutFee = tier.payoutFee === undefined ? (cur?.payout_fee ?? null) : tier.payoutFee;
     const after = {
       name: tier.name,
       archetype: tier.archetype,
@@ -375,6 +379,7 @@ export class ChangeService {
       founderThresholds: founder,
       approvalTtlSeconds: tier.approvalTtlSeconds,
       merchantVisible,
+      payoutFee,
     };
     const before = cur
       ? {
@@ -386,6 +391,7 @@ export class ChangeService {
           founderThresholds: cur.founder_thresholds,
           approvalTtlSeconds: cur.approval_ttl_seconds,
           merchantVisible: cur.merchant_visible,
+          payoutFee: cur.payout_fee ?? null,
         }
       : null;
     const version = BigInt(cur?.version ?? '0');
@@ -404,14 +410,16 @@ export class ChangeService {
                    reserve_bps = ${reserve?.bps ?? null}, reserve_hold_days = ${reserve?.holdDays ?? null},
                    approval_thresholds = ${q.json(approval as never)}, founder_thresholds = ${q.json(founder as never)},
                    approval_ttl_seconds = ${tier.approvalTtlSeconds}, merchant_visible = ${merchantVisible},
+                   payout_fee = ${payoutFee === null ? null : q.json(payoutFee as never)},
                    version = version + 1, updated_by = ${actor}, updated_at = now()
              WHERE id = ${tier.id}
           `;
         } else {
           await q`
-            INSERT INTO pay.control_tiers (id, name, archetype, caps, reserve_bps, reserve_hold_days, approval_thresholds, founder_thresholds, approval_ttl_seconds, merchant_visible, updated_by)
+            INSERT INTO pay.control_tiers (id, name, archetype, caps, reserve_bps, reserve_hold_days, approval_thresholds, founder_thresholds, approval_ttl_seconds, merchant_visible, payout_fee, updated_by)
             VALUES (${tier.id}, ${tier.name}, ${tier.archetype}, ${q.json(caps as never)}, ${reserve?.bps ?? null}, ${reserve?.holdDays ?? null},
-                    ${q.json(approval as never)}, ${q.json(founder as never)}, ${tier.approvalTtlSeconds}, ${merchantVisible}, ${actor})
+                    ${q.json(approval as never)}, ${q.json(founder as never)}, ${tier.approvalTtlSeconds}, ${merchantVisible},
+                    ${payoutFee === null ? null : q.json(payoutFee as never)}, ${actor})
           `;
         }
       },

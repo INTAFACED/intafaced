@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { signIn, signUp } from './desk.mjs';
-import { EDGE, ORIGIN, signOutBrowser } from './stack.mjs';
+import { EDGE, ORIGIN, api, signOutBrowser } from './stack.mjs';
 import { tableIn, bodyRows } from './tables.mjs';
 import { readFileSync } from 'node:fs';
 import { createPublicClient, createWalletClient, encodeFunctionData, getAddress, http, parseAbi } from 'viem';
@@ -411,37 +411,73 @@ test(`${J} #6 adds a watch with a tag and a private note: listed for this person
   page,
 }) => {
   test.setTimeout(180_000);
+  const watched = { address: ADDRESS.toLowerCase(), tag: 'TEST cold wallet', note: 'TEST note' };
+  /** The account's own stored watches, read through identity's preferences door with that account's own sign-in. */
+  const storedWatches = async (client) => {
+    const input = encodeURIComponent(JSON.stringify({ namespace: 'protocol.address-watches' }));
+    const { status, body } = await client.get(`/api/identity/trpc/preferences.get?input=${input}`);
+    expect(status).toBe(200);
+    return body.result.data;
+  };
+  const watchButton = page.getByRole('button', { name: 'Watch this address' });
+  const add = async () => {
+    await watchButton.click();
+    const dialog = page.getByRole('dialog', { name: 'Watch this address' });
+    await dialog.getByRole('textbox', { name: 'Tag' }).fill(watched.tag);
+    await dialog.getByRole('textbox', { name: 'Private note' }).fill(watched.note);
+    await dialog.getByRole('button', { name: 'Save' }).click();
+    await expect(dialog).toBeHidden();
+  };
+
   const who = await signUp(page, 'cx');
   await signIn(page, who);
+  const whoApi = await api(who);
   await page.goto(`/chain/address/${ADDRESS}`);
-  await expect(main(page)).toContainText('This explorer holds no funds', UNBUILT);
-  const add = async () => {
-    await page.getByRole('button', { name: 'Watch this address' }).click();
-    const dialog = page.getByRole('dialog', { name: 'Watch this address' });
-    await dialog.getByRole('textbox', { name: 'Tag' }).fill('TEST cold wallet');
-    await dialog.getByRole('textbox', { name: 'Private note' }).fill('TEST note');
-    await dialog.getByRole('button', { name: 'Save' }).click();
-  };
+  // the page says the explorer holds no funds
+  await expect(main(page)).toContainText('This explorer holds no funds');
+  // The button is enabled only once the account's list is read, so every check below runs on a loaded page.
+  await expect(watchButton).toBeEnabled();
+  expect(await storedWatches(whoApi)).toEqual({ namespace: 'protocol.address-watches', version: 0, value: null });
+
+  // adds a watch with a tag and a private note
   await add();
+  await expect(main(page)).toContainText(`You watch this address as “${watched.tag}”.`);
+  await expect(main(page)).toContainText(`Your note: ${watched.note}`);
+  const first = await storedWatches(whoApi);
+  expect(first).toEqual({ namespace: 'protocol.address-watches', version: 1, value: [watched] });
+
+  // listed for this person
   await page.goto('/chain/watchlist');
   const rows = bodyRows(tableIn(page, 'Your watched addresses'));
   await expect(rows).toHaveCount(1);
-  await expect(rows.first()).toContainText('TEST cold wallet');
-  // The owner reads the note back, so the other account's empty page below proves privacy, not a dropped note.
-  await expect(rows.first()).toContainText('TEST note');
+  await expect(rows.first()).toContainText(watched.tag);
+  await expect(rows.first()).toContainText(watched.note);
+
+  // adding again changes nothing: the stored record keeps its version and value, and the list still has one row
   await page.goto(`/chain/address/${ADDRESS}`);
-  await expect(main(page)).toContainText('TEST note');
+  await expect(watchButton).toBeEnabled();
+  // The save is sent, and identity answers it stored at the version it already had.
+  const saved = page.waitForResponse((res) => res.url().includes('/api/identity/trpc/preferences.set'));
   await add();
+  expect((await (await saved).json()).result.data).toEqual({ ...first, outcome: 'stored' });
+  await expect(main(page)).toContainText(`You watch this address as “${watched.tag}”.`);
+  await expect(main(page)).toContainText(`Your note: ${watched.note}`);
+  expect(await storedWatches(whoApi)).toEqual(first);
   await page.goto('/chain/watchlist');
   await expect(rows).toHaveCount(1);
-  await expect(rows.first()).toContainText('TEST note');
 
+  // another account cannot read it, so it is listed for this person only
   await signOutBrowser(page.context());
   const other = await signUp(page, 'cy');
   await signIn(page, other);
+  expect(await storedWatches(await api(other))).toEqual({ namespace: 'protocol.address-watches', version: 0, value: null });
   await page.goto(`/chain/address/${ADDRESS}`);
-  await expect(main(page)).not.toContainText('TEST note');
+  await expect(watchButton).toBeEnabled();
+  await expect(main(page)).toContainText('This explorer holds no funds');
+  await expect(main(page)).not.toContainText(watched.note);
+  await expect(main(page)).not.toContainText(watched.tag);
   await page.goto('/chain/watchlist');
+  await expect(main(page)).toContainText('You are not watching any address.');
   await expect(bodyRows(tableIn(page, 'Your watched addresses'))).toHaveCount(0);
 });
 

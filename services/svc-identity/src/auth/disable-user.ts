@@ -63,7 +63,7 @@ export async function disableUser(
   await sql`UPDATE sessions SET revoked = true WHERE user_id = ${named} AND revoked = false`;
   const rows = await sql<Array<{ id: string }>>`
     UPDATE api_keys
-    SET revoked = true
+    SET revoked = true, revoked_at = now(), revoked_cause = 'account_freeze'
     WHERE user_id = ${named} AND revoked = false
     RETURNING id
   `;

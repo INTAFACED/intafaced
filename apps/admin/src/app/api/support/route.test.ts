@@ -274,6 +274,7 @@ describe('POST desk writes', () => {
     ticketId: T1,
     authorId: FOUNDER,
     authorRole: 'operator',
+    visibility: 'public',
     body: 'Hello',
     createdAt: '2026-10-17T03:00:00.000Z',
   };
@@ -294,6 +295,24 @@ describe('POST desk writes', () => {
     expect(await res.json()).toMatchObject({ ok: true, action: 'reply' });
     expect(calls(fn)).toEqual([{ url: 'http://edge:4000/api/support/trpc/comment', body: { ticketId: T1, body: 'Hello' } }]);
     expect((fn.mock.calls[0]![1]!.headers as Record<string, string>).authorization).toBe('Bearer founder-access-token');
+  });
+
+  it('adds an internal note through support.addInternalNote under its own key, and says the customer does not see it', async () => {
+    const fn = vi.fn(async (_url: string, _init?: RequestInit) => ok({ ...comment, visibility: 'internal', body: 'TEST note' }));
+    vi.stubGlobal('fetch', fn);
+    const res = await post({ action: 'note', ticketId: T1, body: ' TEST note ', expectedSequence: 7, sent: 0 });
+    expect(await res.json()).toMatchObject({
+      ok: true,
+      action: 'note',
+      summary: 'svc-support recorded your internal note. The customer does not see it.',
+    });
+    const [call] = calls(fn);
+    expect(call!.url).toBe('http://edge:4000/api/support/trpc/addInternalNote');
+    expect(call!.body).toEqual({
+      ticketId: T1,
+      body: 'TEST note',
+      clientRequestId: expect.stringMatching(new RegExp(`^admin-note:${T1}:${FOUNDER}:7:0:[0-9a-f]{32}$`)),
+    });
   });
 
   it('sets a status through support.setStatus, with the reason only when given, and reports the service’s own status', async () => {

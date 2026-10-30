@@ -30,6 +30,7 @@ export function useLive<T>(load: (signal: AbortSignal) => Promise<ApiResult<T>>,
   const [revision, setRevision] = useState(0);
   const loader = useRef(load);
   loader.current = load;
+  const shownKey = useRef<string | null>(null);
 
   useEffect(() => {
     let stopped = false;
@@ -47,7 +48,9 @@ export function useLive<T>(load: (signal: AbortSignal) => Promise<ApiResult<T>>,
       );
       if (intervalMs !== null) timer = setTimeout(() => void tick(), intervalMs);
     };
-    setState({ data: null, asOf: null, failure: null, settled: false, refreshing: true });
+    // A new key is a different read, so its old rows go; a reload of the same key keeps them on screen while it runs.
+    if (shownKey.current !== key) setState({ data: null, asOf: null, failure: null, settled: false, refreshing: true });
+    shownKey.current = key;
     void tick();
     return () => {
       stopped = true;

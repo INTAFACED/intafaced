@@ -22,6 +22,7 @@ export const moneyContract: ContractPart = {
     { method: 'approvalPage', run: (p) => p.approvalPage(M, { status: 'pending' }, undefined) },
     { method: 'refundablePayments', run: (p) => p.refundablePayments(M, '') },
     { method: 'control', run: (p) => p.control(M) },
+    { method: 'reserve', run: (p) => p.reserve(M) },
     { method: 'usage', run: (p) => p.usage(M) },
     { method: 'pricingPreview', run: (p) => p.pricingPreview({ merchantId: M, assetCode: 'USDT', amount: '100' }) },
     { method: 'approvals', run: (p) => p.approvals(M, '') },
@@ -43,5 +44,7 @@ export const moneyContract: ContractPart = {
     conversionQuote: 'a write: the stand-in answers it, and the Playwright run exercises it',
     conversionExecute: 'a write: the stand-in answers it, and the Playwright run exercises it',
     moneyExportCreate: 'a write: the Settings stand-in answers it and the Playwright run exercises it',
+    topUpOptions:
+      'the stand-in answers it only with its refusal (412 pay.topup_unconfigured) and a case here must parse an ok answer, which does not exist until a top-up rail does; the real code is held by svc-pay top-up.db.test.ts and J-merchant-07 #5',
   },
 };

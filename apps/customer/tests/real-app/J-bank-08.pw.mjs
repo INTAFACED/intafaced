@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 import { test, expect } from '@playwright/test';
 import { localStackState } from '../../../../tooling/scripts/local-test-state.mjs';
-import { DEVICE_KEY, EDGE, ORIGIN, ROOT, fromUnits, fund, journeyState, toUnits } from './stack.mjs';
+import { DEVICE_KEY, EDGE, ORIGIN, ROOT, fromUnits, fund, journeyState, toUnits, tool } from './stack.mjs';
 import { signIn, signUp, verify } from './desk.mjs';
 
 // J-bank-08, in the running app (docs/roadmap/journeys.json): I earn on my savings. One TEST saver funded with TEST 1000
@@ -11,13 +11,15 @@ import { signIn, signUp, verify } from './desk.mjs';
 // founders as an owner's change would be, so it never changes the stack's seeded pools that other journeys save in.
 // Its USDT pools stay below the seeded instant-access pool's rate: journeys that pick the first USDT flexible pool the
 // bank lists keep picking the seeded one. Step 1 (BK-earn-05): Earn lists the pools and the saver compares them side by
-// side; the journey pool's page shows its rate history, three dated steps (opened at 1.5%, raised to 1.75%, cut to
-// 1.25%), and says there is no earlier history before the first. Step 2 (BK-earn-02): the pool page reads what the
+// side; the journey pool's page shows its rate history, three dated steps (opened at 1.25%, raised to 1.75%, cut back
+// to 1.25%), and says there is no earlier history before the first. Step 2 (BK-earn-02): the pool page reads what the
 // pool publishes; the owner tables nobody has published (rate by balance, a commission on interest, a capacity) read
 // "not set". Step 3 (BK-earn-01, BK-earn-03): the pool page's calculator works out TEST 100 at the pool's rate the way
 // the bank pays it; a deposit under the minimum is refused, TEST 100 waits for its first full UTC day, and once the
 // bank's own accrual job (signed as its scheduler, the stack has no timer) pays that day the saving is accruing and the
-// day paid is the calculator's figure to the unit. The pool's TEST reserve comes from `local-test-seed.mjs
+// day paid is the calculator's figure to the unit. The job pays only a day that has begun, so the journey moves a
+// saving's opening back with `local-test-seed.mjs age-earn-position` and pays yesterday or today, never a day ahead;
+// the rate changes are all recorded today, so a day that began before them pays the pool's opening rate, 1.25%. The pool's TEST reserve comes from `local-test-seed.mjs
 // fund-earn-pool`, the seed's own funding move. Step 4 (BK-earn-03): in a TEST 30-day pool of the journey's own, a
 // saving shows its lock date, its daily payout schedule and that nothing compounds; the page offers no early take back
 // and the bank refuses one with the date; auto-renew turned on, the bank's renewal job (signed as its scheduler) starts
@@ -25,13 +27,14 @@ import { signIn, signUp, verify } from './desk.mjs';
 // schedule names the next payout day; the job pays that day once however often it runs, and the schedule moves on a
 // day. Step 7: auto earn into the pool refuses a keep-amount of zero, then saves one. Step 8: the answer to taking the
 // saving back is lost on the way to the page; the bank took it back once, the page sends nothing again, and the empty
-// list afterwards does not settle the lost answer. Step 6 (BK-earn-04) follows as its slice lands; until then it stops
-// at the first control its slice adds, quickly.
+// list afterwards does not settle the lost answer. Step 6 (BK-earn-04): in a TEST staking-style pool of the journey's
+// own (7-day unbonding), the page shows the pool's kind, its unbonding period, the three states and the owner's risk
+// wording (or that none is published, never "no risk"); closed through the treasury door, the pool refuses a deposit
+// while the saving in it is still paid its day; taking it back starts unbonding, moves nothing and earns nothing, and at
+// its end the bank's release job (signed as its scheduler) pays it back once.
 const J = 'J-bank-08';
 const RUN = process.env.JOURNEY_RUN_ID ?? `local-${Date.now()}`;
 const run = journeyState(`${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
-/** How long a check on a room a later slice builds may wait: the room is not there, so this fails fast. */
-const UNBUILT = { timeout: 5_000 };
 
 test.describe.configure({ mode: 'default' });
 
@@ -96,12 +99,41 @@ async function treasury(actionType, procedure, input, fields) {
   return ctx.edge.mutate('bank', procedure, { ...input, ...approval }, await sessions.a.treasuryToken());
 }
 /** A TEST pool the journey owns, opened through the treasury door. */
-async function openPool({ kind, aprBps, termDays = null, minDeposit, label }) {
+async function openPool({ kind, aprBps, termDays = null, minDeposit, label, unbondingDays = null }) {
   const input = { poolId: randomUUID(), assetId: 'USDT', kind, name: `TEST ${J} ${label} ${RUN}`, aprBps, termDays, minDeposit };
+  if (unbondingDays !== null) input.unbondingDays = unbondingDays;
   const fields = { ...input, aprBps: String(aprBps), termDays: termDays === null ? '' : String(termDays) };
+  if (unbondingDays !== null) fields.unbondingDays = String(unbondingDays);
   const res = await treasury('bank.ops.createEarnPool', 'ops.createEarnPool', input, fields);
   expect(res.status, res.text.slice(0, 300)).toBe(200);
   return { id: input.poolId, name: input.name };
+}
+/**
+ * Close a pool to new savings, or open it again, through the treasury door. `revision` is the pool's next status
+ * revision (its current one plus one), bound into the approval like the status and the reason.
+ */
+async function setStatus(poolId, status, reason, revision) {
+  const res = await treasury(
+    'bank.ops.setEarnPoolStatus',
+    'ops.setEarnPoolStatus',
+    { poolId, status, reason, revision },
+    { poolId, status, reason, revision: String(revision) },
+  );
+  expect(res.status, res.text.slice(0, 300)).toBe(200);
+  return res.json.result.data;
+}
+/** svc-bank restarted with the staking risk wording blank, or back on the stack's TEST wording. */
+function bankRiskWording(on) {
+  const name = 'LOCAL_STACK_BANK_EARN_RISK_WORDING';
+  const before = process.env[name];
+  if (on) delete process.env[name];
+  else process.env[name] = 'off';
+  try {
+    tool('local-test-stack.mjs', 'restart', 'bank');
+  } finally {
+    if (before === undefined) delete process.env[name];
+    else process.env[name] = before;
+  }
 }
 async function setRate(poolId, rateBps, reason) {
   const res = await treasury(
@@ -128,11 +160,38 @@ async function job(procedure, input) {
     signal: AbortSignal.timeout(30_000),
   });
   const parsed = await res.json().catch(() => null);
-  if (res.status !== 200) throw new Error(`${procedure} refused: ${res.status} ${JSON.stringify(parsed).slice(0, 300)}`);
+  if (res.status !== 200) {
+    // The refusal's HTTP status and its one typed code ride on the error, so a step can match them exactly.
+    throw Object.assign(new Error(`${procedure} refused: ${res.status} ${JSON.stringify(parsed).slice(0, 300)}`), {
+      status: res.status,
+      code: parsed?.error?.data?.cause?.code,
+    });
+  }
   return parsed.result.data;
 }
 /** One day of earn interest for one pool. */
 const accrue = async (poolId, at) => (await job('ops.accrueInterest', { poolId, at: at.toISOString() })).results[0];
+/** Moves one TEST saving's opening back `days` days on this stack, so a day that has begun is its first. */
+function ageSaving(positionId, days) {
+  return execFileSync(
+    process.execPath,
+    [path.join(ROOT, 'tooling/scripts/local-test-seed.mjs'), 'age-earn-position', positionId, String(days), '--state', localStackState()],
+    { cwd: ROOT, encoding: 'utf8', env: { ...process.env, LOCAL_TEST: '1' }, timeout: 60_000 },
+  );
+}
+/** The UTC day `at` falls in, and the 00:00Z it began at. */
+const dayOf = (at) => new Date(at).toISOString().slice(0, 10);
+const startOf = (at) => Date.parse(`${dayOf(at)}T00:00:00.000Z`);
+/** The unbonding release job for one pool, by the bank's own clock. */
+const release = (poolId) => job('ops.releaseUnbondedEarn', { poolId, limit: 10 });
+/** Ends one TEST saving's unbonding now on this stack (moves its two dates back), as seven days passing would. */
+function endUnbonding(positionId) {
+  return execFileSync(
+    process.execPath,
+    [path.join(ROOT, 'tooling/scripts/local-test-seed.mjs'), 'end-earn-unbonding', positionId, '--state', localStackState()],
+    { cwd: ROOT, encoding: 'utf8', env: { ...process.env, LOCAL_TEST: '1' }, timeout: 60_000 },
+  );
+}
 /** The renewal job for one pool, run at `at`. */
 const renew = (poolId, at) => job('ops.renewEarnTerms', { poolId, at: at.toISOString(), limit: 10 });
 /** The journey pool's TEST reserve, moved by the seed's own funding step; `ref` keys it, so a retry funds once. */
@@ -175,10 +234,10 @@ test(`${J} #1 opens Earn and compares pools: pools side by side with rates, and 
   expect(fund(who.email, 'USDT', '1000').tx).toBeTruthy();
   run.reset({ who });
 
-  // The journey's own flexible pool: opened at 1.5% with a TEST minimum of 10, then raised and cut by approved changes.
-  const pool = await openPool({ kind: 'flexible', aprBps: 150, minDeposit: '10', label: 'flexible' });
+  // The journey's own flexible pool: opened at 1.25% with a TEST minimum of 10, then raised and cut by approved changes.
+  const pool = await openPool({ kind: 'flexible', aprBps: 125, minDeposit: '10', label: 'flexible' });
   run.write({ pool: pool.id, poolName: pool.name });
-  expect(await setRate(pool.id, 175, 'TEST rate rise')).toMatchObject({ rateBps: 175, previousBps: 150 });
+  expect(await setRate(pool.id, 175, 'TEST rate rise')).toMatchObject({ rateBps: 175, previousBps: 125 });
   expect(await setRate(pool.id, 125, 'TEST rate cut')).toMatchObject({ rateBps: 125, previousBps: 175 });
 
   const api = await bank(who);
@@ -227,12 +286,12 @@ test(`${J} #1 opens Earn and compares pools: pools side by side with rates, and 
   await expect(rows.nth(0)).toHaveAttribute('data-rate', '125');
   await expect(rows.nth(0)).toContainText('TEST rate cut');
   await expect(rows.nth(1)).toHaveAttribute('data-rate', '175');
-  await expect(rows.nth(2)).toHaveAttribute('data-rate', '150');
+  await expect(rows.nth(2)).toHaveAttribute('data-rate', '125');
   await expect(rows.nth(2)).toContainText('First rate on record');
   await expect(history.getByTestId('earn-rate-history-start')).toContainText('No earlier history');
   await expect(history).toContainText('Now: 1.25%');
   const recorded = await api.query('earn.rateHistory', { poolId: pool.id, limit: 50 });
-  expect(recorded.data.changes.map((row) => row.rateBps)).toEqual([150, 175, 125]);
+  expect(recorded.data.changes.map((row) => row.rateBps)).toEqual([125, 175, 125]);
   expect(recorded.data.earlier).toBe(false);
 });
 
@@ -318,11 +377,35 @@ test(`${J} #3 uses the calculator, then deposits below and above the minimum: ba
   await expect(card.getByTestId('earn-pool-accrual')).toContainText('Waiting for accrual: interest starts');
   await expect(page.getByTestId('earn-pool-earned')).toContainText('No interest has been paid to you from this pool.');
 
+  // The job pays only a day that has begun: a day two ahead of today, which has not begun even if this run crosses
+  // midnight, is refused by its exact code and records nothing. The saving's opening is then moved back two days, so
+  // its first day is yesterday.
+  const DAY = 24 * 60 * 60 * 1000;
+  const twoAhead = startOf(Date.now()) + 2 * DAY + 60 * 60 * 1000;
+  const ahead = await job('ops.accrueInterest', { poolId: pool, at: new Date(twoAhead).toISOString() }).catch((e) => e);
+  expect({ status: ahead.status, code: ahead.code }).toEqual({ status: 412, code: 'bank.accrual_day_not_begun' });
+  expect((await api.query('earn.positions', { limit: 50, poolId: pool })).data[0]).toMatchObject({
+    id: position.id,
+    nextPayoutOn: dayOf(firstDay),
+  });
+  expect(ageSaving(position.id, 2)).toContain(`saving ${position.id}: opened`);
+  const [aged] = (await api.query('earn.positions', { limit: 50, poolId: pool })).data;
+  const yesterday = startOf(Date.now()) - DAY;
+  expect(aged).toMatchObject({
+    id: position.id,
+    principal: '100',
+    accruesFrom: new Date(yesterday).toISOString(),
+    // The schedule never names a day before today; the job may still pay yesterday, a begun day not yet recorded.
+    nextPayoutOn: dayOf(Date.now()),
+  });
+
   // The bank's job pays that first day from the pool's TEST reserve: the saving is accruing, and the day paid is the
-  // calculator's figure for one day, exactly.
+  // calculator's figure for one day, exactly, into the main balance read back from the bank.
   expect(fundReserve(pool, '10', 'jb08-reserve')).toContain('reserve funded 10 USDT');
-  const day = await accrue(pool, new Date(firstDay + 60 * 60 * 1000));
-  expect(day).toMatchObject({ paid: perDay, recipients: 1, alreadyAccrued: false });
+  const paidBefore = await mainUsdt(api);
+  const day = await accrue(pool, new Date(yesterday + 60 * 60 * 1000));
+  expect(day).toMatchObject({ date: dayOf(yesterday), paid: perDay, recipients: 1, alreadyAccrued: false });
+  expect(await mainUsdt(api)).toBe(paidBefore + toUnits(perDay));
   await page.reload();
   await expect(card.getByTestId('earn-pool-accrual')).toHaveAttribute('data-state', 'accruing');
   const earned = page.getByTestId('earn-pool-earned');
@@ -413,7 +496,8 @@ test(`${J} #5 sees a payout: one payout per period posted, and the schedule show
   // #3 paid the saving's first day, so the next payout is the day after it.
   const DAY = 24 * 60 * 60 * 1000;
   const secondDay = Date.parse(saving.accruesFrom) + DAY;
-  const dayOf = (at) => new Date(at).toISOString().slice(0, 10);
+  // #3 moved the saving's opening back, so its second day is today: a day that has begun.
+  expect(secondDay).toBe(startOf(Date.now()));
   expect(saving.nextPayoutOn).toBe(dayOf(secondDay));
   await signIn(page, who);
   await page.goto(poolPage(pool));
@@ -425,8 +509,17 @@ test(`${J} #5 sees a payout: one payout per period posted, and the schedule show
   // The period (one UTC day) pays once, however often the job runs that day.
   const perDay = fromUnits(daily('100', 125));
   const before = await mainUsdt(api);
-  expect(await accrue(pool, new Date(secondDay + 60 * 60 * 1000))).toMatchObject({ paid: perDay, recipients: 1, alreadyAccrued: false });
-  expect(await accrue(pool, new Date(secondDay + 2 * 60 * 60 * 1000))).toMatchObject({ paid: perDay, alreadyAccrued: true });
+  expect(await accrue(pool, new Date(secondDay + 60 * 1000))).toMatchObject({
+    date: dayOf(secondDay),
+    paid: perDay,
+    recipients: 1,
+    alreadyAccrued: false,
+  });
+  expect(await accrue(pool, new Date(secondDay + 2 * 60 * 1000))).toMatchObject({
+    date: dayOf(secondDay),
+    paid: perDay,
+    alreadyAccrued: true,
+  });
   expect(await mainUsdt(api)).toBe(before + toUnits(perDay));
   await page.reload();
   await expect(schedule).toHaveAttribute('data-next', dayOf(secondDay + DAY));
@@ -438,10 +531,174 @@ test(`${J} #5 sees a payout: one payout per period posted, and the schedule show
 test(`${J} #6 opens a staking-style pool: unbonding states and pool status; a closed pool refuses deposits while existing positions keep accruing and can withdraw`, async ({
   page,
 }) => {
-  const { who, pool } = state();
+  test.setTimeout(240_000);
+  const { who } = state();
+  const api = await bank(who);
+  // A TEST staking-style pool of the journey's own: flexible, a 7-day unbonding, below the seeded pools' rates.
+  const staking = await openPool({ kind: 'flexible', aprBps: 100, minDeposit: '10', label: 'staking', unbondingDays: 7 });
+  run.write({ stakingPool: staking.id });
+  expect(fundReserve(staking.id, '5', `${J}-${RUN}-staking`)).toContain('reserve funded 5 USDT');
   await signIn(page, who);
-  await page.goto(poolPage(pool));
-  await expect(page.getByTestId('earn-pool-unbonding')).toBeVisible(UNBUILT);
+  await page.goto(poolPage(staking.id));
+
+  // What the pool publishes: a staking-style pool, its unbonding period, and the three states a saving moves through.
+  const facts = page.getByTestId('earn-pool-facts');
+  await expect(facts.locator('[data-fact="program"] dd')).toContainText('Staking-style');
+  await expect(facts.locator('[data-fact="unbonding"] dd')).toHaveText('7 days after you ask, earning nothing meanwhile');
+  await expect(facts.locator('[data-fact="lock"] dd')).toHaveText('No lock, but taking it back starts 7 days of unbonding');
+  const states = page.getByTestId('earn-staking');
+  await expect(states.locator('li')).toHaveCount(3);
+  await expect(states.locator('li[data-state="unbonding"]')).toContainText('It waits 7 days and earns nothing');
+
+  // The risk disclosure is the owner's wording as the bank publishes it: on this stack the profile's TEST wording.
+  const wording = await api.query('earn.riskDisclosure');
+  expect(wording).toMatchObject({
+    ok: true,
+    data: { slashing: expect.stringContaining('TEST'), ownership: expect.stringContaining('TEST') },
+  });
+  const risk = page.getByTestId('earn-risk-disclosure');
+  await expect(risk).toHaveAttribute('data-state', 'published');
+  await expect(risk.locator('[data-risk="slashing"] dd')).toHaveText(wording.data.slashing);
+  await expect(risk.locator('[data-risk="ownership"] dd')).toHaveText(wording.data.ownership);
+  await expect(risk).toContainText('while a saving is unbonding it earns nothing and cannot be taken back early');
+  // Blank, the bank refuses by name and the page says the wording is not published, never that there is no risk.
+  bankRiskWording(false);
+  try {
+    expect(await api.query('earn.riskDisclosure')).toMatchObject({ ok: false, code: 'bank.earn_risk_wording_unset' });
+    await page.reload();
+    await expect(risk).toHaveAttribute('data-state', 'unset');
+    await expect(risk).toContainText('That is not a statement that there is no risk.');
+  } finally {
+    bankRiskWording(true);
+  }
+  expect(await api.query('earn.riskDisclosure')).toEqual(wording);
+  await page.reload();
+  await expect(risk).toHaveAttribute('data-state', 'published');
+
+  // TEST 100 staked.
+  const deposit = page.getByTestId('earn-pool-deposit');
+  await deposit.getByRole('button', { name: 'Deposit', exact: true }).click();
+  const dialog = page.getByRole('dialog');
+  await dialog.getByLabel('Amount (USDT)').fill('100');
+  await dialog.getByRole('button', { name: 'Review' }).click();
+  await confirm(dialog, 'Deposit');
+  await close(page);
+  const [opened] = (await api.query('earn.positions', { limit: 50, poolId: staking.id })).data;
+  expect(opened).toMatchObject({ principal: '100', maturesAt: null, unbondsAt: null, accrual: 'waiting' });
+  // The job pays only a day that has begun, so the saving's opening moves back eight days: its first day is a week ago.
+  const DAY = 24 * 60 * 60 * 1000;
+  expect(ageSaving(opened.id, 8)).toContain(`saving ${opened.id}: opened`);
+  const [position] = (await api.query('earn.positions', { limit: 50, poolId: staking.id })).data;
+  expect(position).toMatchObject({ id: opened.id, accruesFrom: new Date(startOf(Date.now()) - 7 * DAY).toISOString() });
+
+  // The pool closes to new savings through the treasury door, as its first status change: the page and the bank refuse
+  // a deposit, and the record read again afterwards still holds the one saving and the closed status.
+  expect((await api.query('earn.pool', { poolId: staking.id })).data).toMatchObject({ status: 'open', statusRevision: 0 });
+  expect(await setStatus(staking.id, 'closed', 'TEST closing the staking pool', 1)).toMatchObject({
+    poolId: staking.id,
+    status: 'closed',
+    previousStatus: 'open',
+    revision: 1,
+  });
+  await page.reload();
+  await expect(page.getByTestId('earn-pool-status')).toHaveAttribute('data-status', 'closed');
+  await expect(deposit).toHaveAttribute('data-state', 'closed');
+  await expect(deposit).toContainText('Savings already in it keep earning and can be taken back.');
+  const beforeRefusal = await mainUsdt(api);
+  const refused = await api.mutate('earn.deposit', { poolId: staking.id, amount: '50', positionId: randomUUID() });
+  expect(refused).toMatchObject({ ok: false, code: 'bank.pool_closed' });
+  expect(await mainUsdt(api)).toBe(beforeRefusal);
+  expect((await api.query('earn.pool', { poolId: staking.id })).data).toMatchObject({ status: 'closed', statusRevision: 1 });
+  const held = (await api.query('earn.positions', { limit: 50, poolId: staking.id })).data;
+  expect(held.map((p) => [p.id, p.principal])).toEqual([[position.id, '100']]);
+
+  // The saving already in it keeps earning: only the bank's daily job runs, for every pool with no pool named, and it
+  // selects the closed pool and pays its first day, a day that has begun, once, into the main balance read back from
+  // the bank. A job that skipped closed pools would leave this day unpaid and fail here.
+  const firstDay = Date.parse(position.accruesFrom);
+  const perDay = fromUnits(daily('100', 100));
+  const unpaid = await mainUsdt(api);
+  const everyPool = async (at) => {
+    const report = await job('ops.accrueInterest', { at: new Date(at).toISOString() });
+    expect(report.failures.filter((f) => f.poolId === staking.id)).toEqual([]);
+    return report.results.filter((r) => r.poolId === staking.id);
+  };
+  // The saver's paid days are read from the bank's per-day accrual records; this saving is the pool's only one, so a
+  // day listed here is the pool's record for that day.
+  const recordedDays = async () => {
+    const history = await api.query('earn.interestHistory', { poolId: staking.id, limit: 31 });
+    expect(history.ok, JSON.stringify(history.body ?? {}).slice(0, 300)).toBe(true);
+    return history.data.days.filter((d) => d.date === dayOf(firstDay));
+  };
+  const firstRun = await everyPool(firstDay + 60 * 60 * 1000);
+  expect(firstRun).toHaveLength(1);
+  expect(firstRun[0]).toMatchObject({ date: dayOf(firstDay), paid: perDay, recipients: 1, alreadyAccrued: false });
+  expect(await mainUsdt(api)).toBe(unpaid + toUnits(perDay));
+  const recorded = await recordedDays();
+  expect(recorded).toHaveLength(1);
+  expect(recorded[0]).toMatchObject({ date: dayOf(firstDay), ledgerTxId: expect.any(String) });
+  expect(toUnits(recorded[0].amount)).toBe(toUnits(perDay));
+
+  // The same job run again for that day pays nothing new: the day reads as already paid, and the balance and the
+  // day's one record are unchanged.
+  const secondRun = await everyPool(firstDay + 2 * 60 * 60 * 1000);
+  expect(secondRun).toHaveLength(1);
+  expect(secondRun[0]).toMatchObject({ date: dayOf(firstDay), alreadyAccrued: true });
+  expect(await mainUsdt(api)).toBe(unpaid + toUnits(perDay));
+  expect(await recordedDays()).toEqual(recorded);
+  await page.reload();
+  const card = page.locator(`[data-testid="earn-pool-position"][data-position="${position.id}"]`);
+  await expect(card.getByTestId('earn-pool-accrual')).toHaveAttribute('data-state', 'accruing');
+
+  // Taking it back starts unbonding: staked, then unbonding with its date, and nothing moves yet. A take back that does
+  // not ask to unbond is refused by the bank, so nobody starts a wait they cannot stop by accident.
+  const before = await mainUsdt(api);
+  expect(await api.mutate('earn.withdraw', { positionId: position.id })).toMatchObject({ ok: false, code: 'bank.unbond_not_confirmed' });
+  const take = card.getByTestId('earn-withdraw');
+  await expect(take).toHaveAttribute('data-state', 'staked');
+  await take.click();
+  await expect(dialog).toContainText('7 days after you ask');
+  await expect(dialog).toContainText('Unbonding cannot be stopped once it starts.');
+  await confirm(dialog, 'Start unbonding');
+  await close(page);
+  const [unbonding] = (await api.query('earn.positions', { limit: 50, poolId: staking.id })).data;
+  // The last day it can be paid is the day it was asked back on: today.
+  expect(unbonding).toMatchObject({ id: position.id, accrual: 'unbonding', nextPayoutOn: dayOf(Date.now()), unbondingDays: 7 });
+  const ends = Date.parse(unbonding.unbondsAt);
+  expect(Math.abs(ends - Date.now() - 7 * 24 * 60 * 60 * 1000)).toBeLessThan(10 * 60 * 1000);
+  expect(await mainUsdt(api)).toBe(before);
+  await page.reload();
+  await expect(take).toHaveAttribute('data-state', 'unbonding');
+  await expect(take).toHaveAttribute('data-until', unbonding.unbondsAt);
+  await expect(card.getByTestId('earn-pool-accrual')).toHaveAttribute('data-state', 'unbonding');
+  expect(await api.mutate('earn.withdraw', { positionId: position.id })).toMatchObject({ ok: false, code: 'bank.position_unbonding' });
+
+  // Nothing comes back before the period ends by the bank's clock, even when a caller names a later time; at its end
+  // the bank's job pays the saving back once.
+  expect(ends).toBeGreaterThan(Date.now());
+  expect(await job('ops.releaseUnbondedEarn', { poolId: staking.id, limit: 10, at: new Date(ends + 60_000).toISOString() })).toEqual({
+    released: [],
+    skipped: [],
+    next: null,
+  });
+  expect(await release(staking.id)).toEqual({ released: [], skipped: [], next: null });
+  expect(await mainUsdt(api)).toBe(before);
+  expect(endUnbonding(position.id)).toContain(`saving ${position.id}: unbonding ends`);
+  // Its unbonding now began seven days ago, so no day since pays it: today, a day that has begun, pays nobody in this
+  // pool, and the main balance read back from the bank has not moved.
+  const [ended] = (await api.query('earn.positions', { limit: 50, poolId: staking.id })).data;
+  expect(ended).toMatchObject({ id: position.id, accrual: 'unbonding', nextPayoutOn: null });
+  expect(await accrue(staking.id, new Date())).toMatchObject({ date: dayOf(Date.now()), paid: '0', recipients: 0, alreadyAccrued: false });
+  expect(await mainUsdt(api)).toBe(before);
+  expect(await release(staking.id)).toEqual({
+    released: [{ positionId: position.id, principal: '100' }],
+    skipped: [],
+    next: null,
+  });
+  expect(await release(staking.id)).toEqual({ released: [], skipped: [], next: null });
+  expect(await mainUsdt(api)).toBe(before + toUnits('100'));
+  await page.reload();
+  await expect(page.locator(`[data-testid="earn-pool-position"][data-position="${position.id}"]`)).toHaveCount(0);
 });
 
 test(`${J} #7 turns on auto earn and opts in: the setting is saved, and a threshold must be above zero`, async ({ page }) => {

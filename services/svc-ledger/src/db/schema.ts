@@ -679,6 +679,7 @@ export const reconciliationControls = ledger.table(
     accountSet: jsonb('account_set').notNull(),
     threshold: jsonb('threshold'),
     version: integer('version').notNull().default(1),
+    resumedAt: timestamp('resumed_at', { withTimezone: true, mode: 'date' }),
     definedBy: text('defined_by').notNull(),
     definedReason: text('defined_reason').notNull(),
     createdAt: createdAt(),
@@ -689,7 +690,7 @@ export const reconciliationControls = ledger.table(
       .on(t.builtinKey)
       .where(sql`builtin_key IS NOT NULL`),
     check('reconciliation_controls_template_ck', sql`template IN ('ledger_invariant', 'outside_balance', 'threshold', 'source_parity')`),
-    check('reconciliation_controls_state_ck', sql`state IN ('draft', 'active')`),
+    check('reconciliation_controls_state_ck', sql`state IN ('draft', 'active', 'paused', 'retired')`),
     check(
       'reconciliation_controls_check_kind_ck',
       sql`check_kind IS NULL OR check_kind IN ('replay', 'chain', 'netting', 'replay_and_netting')`,
@@ -776,6 +777,9 @@ export const reconciliationControlRuns = ledger.table(
       .on(t.operationId)
       .where(sql`operation_id IS NOT NULL`),
     index('reconciliation_control_runs_control_idx').on(t.controlId, t.periodStart),
+    index('reconciliation_control_runs_finished_idx')
+      .on(t.finishedAt, t.id)
+      .where(sql`finished_at IS NOT NULL`),
     check('reconciliation_control_runs_status_ck', sql`status IN ('started', 'PASS', 'FAIL', 'ERROR', 'UNSET')`),
     check('reconciliation_control_runs_margin_ck', sql`margin = 'unset' OR margin ~ '^[0-9]+([.][0-9]{1,18})?$'`),
     check('reconciliation_control_runs_outside_ck', sql`outside_side IN ('unset', 'snapshot', 'unavailable', 'not_applicable')`),
