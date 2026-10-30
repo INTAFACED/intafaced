@@ -247,9 +247,12 @@ function Funds({ sandboxId, t }: { sandboxId: string; t: T }) {
   // The balance a press answered, for this sandbox only; a refusal drops it and reads again.
   const [answered, setAnswered] = useState<SandboxBalance | null>(null);
   const latest = answered?.sandboxId === sandboxId ? answered : null;
+  // While a refusal's re-read is under way, the figures last shown stay on screen.
+  const [shown, setShown] = useState<SandboxBalance | null>(null);
   const [busy, setBusy] = useState(false);
   const [said, setSaid] = useState<{ kind: 'done'; text: string } | { kind: 'refused'; failure: Refusal } | null>(null);
-  const read = latest ?? (resource.status === 'ready' ? resource.data : null);
+  const fresh = latest ?? (resource.status === 'ready' ? resource.data : null);
+  const read = fresh ?? (shown?.sandboxId === sandboxId ? shown : null);
 
   async function press(action: 'fund' | 'reset') {
     if (busy || !userId || !read) return;
@@ -259,6 +262,7 @@ function Funds({ sandboxId, t }: { sandboxId: string; t: T }) {
     setBusy(false);
     if (!result.ok) {
       setSaid({ kind: 'refused', failure: result });
+      setShown(read);
       setAnswered(null);
       reload();
       return;

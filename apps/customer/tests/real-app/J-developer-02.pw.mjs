@@ -396,13 +396,21 @@ test(`${J} #8 triggers a simulated decline and resets the balance: the payment e
     headers: { 'idempotency-key': `jd02-${RUN}-8-authorize-${who.userId}` },
     body: JSON.stringify({ merchantId }),
   });
-  expect(authorized.body?.status, JSON.stringify(authorized.body)).toBe('failed');
+  // The authorize call answers the decline as a typed refusal, and the payment it leaves is failed with the issuer's code.
+  expect(authorized.status, JSON.stringify(authorized.body)).toBeGreaterThanOrEqual(400);
+  expect(authorized.body?.error?.code, JSON.stringify(authorized.body)).toBe('pay.rail_declined');
   const read = await call(`/payments/${created.body.id}?merchantId=${merchantId}`);
   expect(read.body, JSON.stringify(read.body)).toMatchObject({ status: 'failed', mode: 'sandbox', failure: { code: 'card.declined' } });
 
   await openSandbox('development');
   const funds = page.getByRole('region', { name: 'TEST funds' });
   const reset = funds.getByRole('button', { name: 'Reset balances' });
+  // "reset works": a TEST fund, then a reset brings the sandbox balance back to zero.
+  await funds.getByRole('button', { name: 'Fund with TEST money' }).click();
+  await expect.poll(sandboxBalance).toBeGreaterThan(0n);
+  await reset.click();
+  await expect(funds.getByRole('status')).toContainText('back to zero');
+  await expect.poll(sandboxBalance).toBe(0n);
   for (let i = 0; i < 50; i += 1) {
     await reset.click();
     const said = funds.getByRole('status').or(funds.getByRole('alert'));
