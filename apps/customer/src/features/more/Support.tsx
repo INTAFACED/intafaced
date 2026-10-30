@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useRef, useState, type ReactNode } from 'react';
 import { z } from 'zod';
 import { usePreferences } from '../../shared/preferences';
 import { useResource } from '../../shared/resource';
@@ -18,6 +18,7 @@ import {
   followUpDraft,
   showRatePrompt,
   SUPPORT_TICKETS_HREF,
+  supportFollowUpHref,
   supportRequestHref,
   supportRoute,
   type SupportRoute,
@@ -104,13 +105,28 @@ export function Support({ path }: { path: string }) {
       else if (found === null) setNotReached(location.pathname + location.search);
     },
   });
-  const [followUp, setFollowUp] = useState<Ticket | null>(null),
-    // The address where the "that send did not reach us" notice belongs; it goes once the person moves on.
-    [notReached, setNotReached] = useState<string | null>(null);
-  // A follow-up draft belongs to the form it was started for: leaving the form by any way (a tab, Back, a link) drops it.
-  useEffect(() => {
-    if (route.view !== 'new') setFollowUp(null);
-  }, [route.view]);
+  // The address where the "that send did not reach us" notice belongs; it goes once the person moves on.
+  const [notReached, setNotReached] = useState<string | null>(null);
+  // A follow-up names the request it follows in the address (/support/new?follows=<id>), so it survives a reload and
+  // leaving the form drops it. The request is read back as the person's own; one that is not theirs links nothing.
+  const followsId = route.view === 'new' ? (route.follows ?? null) : null;
+  const followed = useResource(
+    (signal) =>
+      followsId
+        ? api.query(
+            'support',
+            'get',
+            { ticketId: followsId },
+            ticketSchema.refine(
+              (row) => row.id === followsId && row.userId === userId,
+              copyText('support.ticket.identity.does.not.match.this.account'),
+            ),
+            { signal },
+          )
+        : Promise.resolve({ ok: true as const, data: null }),
+    `support-follows:${userId}:${followsId ?? ''}`,
+  );
+  const followUp = followsId && followed.resource.status === 'ready' ? followed.resource.data : null;
   const limit = 200;
   const tickets = useResource(
     (signal) =>
@@ -144,10 +160,7 @@ export function Support({ path }: { path: string }) {
           action={action}
           onUpdated={reloadRequests}
           onBack={() => navigate(SUPPORT_TICKETS_HREF)}
-          onFollowUp={(ticket) => {
-            setFollowUp(ticket);
-            navigate(VIEW_HREF.new);
-          }}
+          onFollowUp={(ticket) => navigate(supportFollowUpHref(ticket.id))}
         />
       )}
       {route.view === 'badRequest' && <RequestNotFound />}
@@ -164,15 +177,15 @@ export function Support({ path }: { path: string }) {
           )}
         </Read>
       )}
-      {route.view === 'new' && (
+      {/* While the followed request is read, the form waits, so nothing typed is lost when the draft arrives. */}
+      {route.view === 'new' && !(followsId && followed.resource.status === 'loading') && (
         <NewRequest
-          key={`${userId}:${route.subject}`}
+          key={`${userId}:${route.subject}:${followUp?.id ?? ''}`}
           action={createAction}
           subject={route.subject}
           follows={followUp}
-          onClearFollows={() => setFollowUp(null)}
+          onClearFollows={() => navigate(VIEW_HREF.new)}
           onSent={(ticket) => {
-            setFollowUp(null);
             reloadRequests();
             navigate(supportRequestHref(ticket.id));
           }}

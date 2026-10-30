@@ -79,27 +79,47 @@ async function lead(kind, procedure, input) {
 
 const row = (main, subject) => main.getByRole('button', { name: `Open request: ${subject}` });
 
+/**
+ * The answered request of these steps: the one step 1 made, or, when a failed step restarted the worker and lost it, a
+ * new one made the same way (a request the team has replied to), so each step can still be proved on its own.
+ */
+async function answered(browser) {
+  const page = await person(browser);
+  if (!shared.ticket) {
+    const ticket = await send(shared.who, `TEST ${J} ${RUN} answered again`);
+    await lead('mutation', 'comment', { ticketId: ticket.id, body: `TEST ${J} ${RUN} the team asks for a screenshot` });
+    shared.ticket = ticket;
+  }
+  return { ticket: shared.ticket, page };
+}
+
+/** The team marks the request solved, unless it already is. */
+async function solved(ticket, step) {
+  const now = await lead('query', 'get', { ticketId: ticket.id });
+  if (now.status !== 'resolved')
+    await lead('mutation', 'setStatus', { ticketId: ticket.id, status: 'resolved', note: `TEST ${J} ${step} solved` });
+}
+
 test(`${J} #1 "My requests" after the team replied lists that request first as "Awaiting your reply"`, async ({ browser }) => {
   const page = await person(browser);
   // The answered request is the older one: it still comes first, because it waits on the customer.
-  const answered = await send(shared.who, `TEST ${J} ${RUN} answered`);
+  const replied = await send(shared.who, `TEST ${J} ${RUN} answered`);
   const other = await send(shared.who, `TEST ${J} ${RUN} newer`);
-  await lead('mutation', 'comment', { ticketId: answered.id, body: `TEST ${J} ${RUN} the team asks for a screenshot` });
-  shared.ticket = answered;
+  await lead('mutation', 'comment', { ticketId: replied.id, body: `TEST ${J} ${RUN} the team asks for a screenshot` });
+  shared.ticket = replied;
   await page.goto('/support/tickets');
   const main = page.locator('main');
   await expect(main.getByRole('heading', { name: 'My requests' })).toBeVisible();
-  await expect(row(main, answered.subject)).toContainText('Awaiting your reply');
+  await expect(row(main, replied.subject)).toContainText('Awaiting your reply');
   await expect(row(main, other.subject)).toBeVisible();
   const first = main.getByRole('button', { name: /^Open request: / }).first();
-  await expect(first).toHaveAccessibleName(`Open request: ${answered.subject}`);
+  await expect(first).toHaveAccessibleName(`Open request: ${replied.subject}`);
 });
 
 test(`${J} #2 the request shows the public thread only: a staff-only note is never listed, exported or in the events`, async ({
   browser,
 }) => {
-  const ticket = need(shared.ticket, 'step 1 made no request');
-  const page = await person(browser);
+  const { ticket, page } = await answered(browser);
   const note = `TEST ${J} ${RUN} staff only, never for the customer`;
   await lead('mutation', 'claim', { ticketId: ticket.id }).catch(() => null);
   await lead('mutation', 'addInternalNote', { ticketId: ticket.id, body: note, clientRequestId: `j04:${RUN}:note` });
@@ -126,13 +146,42 @@ test(`${J} #2 the request shows the public thread only: a staff-only note is nev
 test(`${J} #3 attaching a screenshot: the control states the service's limits, and the file shows being checked, then checked`, async ({
   browser,
 }) => {
-  const ticket = need(shared.ticket, 'step 1 made no request');
-  const page = await person(browser);
+  const { ticket, page } = await answered(browser);
+  const client = await api(shared.who);
+  const limits = async () => {
+    const res = await client.get('/api/support/trpc/attachmentLimits');
+    expect(res.status, JSON.stringify(res.body).slice(0, 300)).toBe(200);
+    return res.body.result.data;
+  };
+  // The owner's limits are blank until set. With the count blank, an attach is a typed refusal naming that setting, and
+  // nothing is stored. The lead blanks it here so the refusal is seen whatever an earlier run left.
+  const reason = `TEST ${J} #3`;
+  let set = await lead('mutation', 'setAttachmentSettings', { maxCount: null, expectedRevision: (await limits()).revision, reason });
+  expect(set.missing).not.toBeNull();
+  const refused = await client.post('/api/support/trpc/attach', {
+    ticketId: ticket.id,
+    clientRequestId: `j04:${RUN}:blank`,
+    contentType: 'image/png',
+    bodyBase64: PNG.toString('base64'),
+  });
+  expect(refused.status).not.toBe(200);
+  expect(JSON.stringify(refused.body)).toContain(
+    set.missing === 'support.attachment_max_count' ? 'support.attachment_count_unset' : 'support.',
+  );
+  expect((await client.get(query('ticketAttachments', { ticketId: ticket.id, limit: 50 }))).body.result.data).toHaveLength(0);
   await page.goto(`/support/tickets/${ticket.id}`);
   const main = page.locator('main');
-  // The limits line is the one the service answers (count, size and types), read on this page.
-  const limits = await (await api(shared.who)).get('/api/support/trpc/attachmentLimits');
-  expect(limits.status, JSON.stringify(limits.body).slice(0, 300)).toBe(200);
+  await expect(main.getByTestId('attach-limits')).toContainText('Attaching files is switched off.');
+  // The lead sets TEST limits (LOCAL TEST values, not owner decisions); the control states what the service answers.
+  set = await lead('mutation', 'setAttachmentSettings', {
+    maxBytes: 1_048_576,
+    allowedTypes: ['image/png', 'text/plain'],
+    maxCount: 5,
+    expectedRevision: set.revision,
+    reason,
+  });
+  expect(set.missing).toBeNull();
+  await page.reload();
   await expect(main.getByTestId('attach-limits')).toContainText(
     /Up to \d+ files per request, each up to .+\. Accepted types: .*image\/png/,
   );
@@ -153,8 +202,7 @@ test(`${J} #3 attaching a screenshot: the control states the service's limits, a
 test(`${J} #4 a file the scanner blocks shows as not accepted and is never offered for download; another customer's request id answers as not found`, async ({
   browser,
 }) => {
-  const ticket = need(shared.ticket, 'step 1 made no request');
-  const page = await person(browser);
+  const { ticket, page } = await answered(browser);
   await page.goto(`/support/tickets/${ticket.id}`);
   const main = page.locator('main');
   await main.getByLabel('File to attach').setInputFiles({ name: 'blocked.txt', mimeType: 'text/plain', buffer: Buffer.from(EICAR) });
@@ -167,7 +215,7 @@ test(`${J} #4 a file the scanner blocks shows as not accepted and is never offer
   }).toPass({ timeout: 20_000 });
   await expect(blocked.getByRole('button', { name: 'Download' })).toHaveCount(0);
   // The service refuses its bytes too.
-  const files = await (await api(shared.who)).get(query('ticketAttachments', { ticketId: ticket.id }));
+  const files = await (await api(shared.who)).get(query('ticketAttachments', { ticketId: ticket.id, limit: 50 }));
   const infected = files.body.result.data.find((file) => file.contentType === 'text/plain');
   const download = await (
     await api(shared.who)
@@ -179,7 +227,7 @@ test(`${J} #4 a file the scanner blocks shows as not accepted and is never offer
   const client = await api(stranger);
   for (const path of [
     query('get', { ticketId: ticket.id }),
-    query('ticketAttachments', { ticketId: ticket.id }),
+    query('ticketAttachments', { ticketId: ticket.id, limit: 50 }),
     query('attachmentDownload', { attachmentId: infected.id }),
   ]) {
     const res = await client.get(path);
@@ -193,8 +241,7 @@ test(`${J} #4 a file the scanner blocks shows as not accepted and is never offer
 test(`${J} #5 a reply moves the request back to "Open" and the team sees it; a reply on a solved request reopens the same request with its history`, async ({
   browser,
 }) => {
-  const ticket = need(shared.ticket, 'step 1 made no request');
-  const page = await person(browser);
+  const { ticket, page } = await answered(browser);
   const main = page.locator('main');
   const reply = async (words) => {
     await page.goto(`/support/tickets/${ticket.id}`);
@@ -220,9 +267,8 @@ test(`${J} #5 a reply moves the request back to "Open" and the team sees it; a r
 test(`${J} #6 once the team marks it solved, the request asks for a rating in the app, with thank-you text and the rating form`, async ({
   browser,
 }) => {
-  const ticket = need(shared.ticket, 'step 1 made no request');
-  const page = await person(browser);
-  await lead('mutation', 'setStatus', { ticketId: ticket.id, status: 'resolved', note: `TEST ${J} #6 solved` });
+  const { ticket, page } = await answered(browser);
+  await solved(ticket, '#6');
   await page.goto(`/support/tickets/${ticket.id}`);
   const main = page.locator('main');
   await expect(main.getByText('This request is solved. Tell us how it went by rating it below.')).toBeVisible();
@@ -232,8 +278,8 @@ test(`${J} #6 once the team marks it solved, the request asks for a rating in th
 });
 
 test(`${J} #7 a rating with a note is stored once; opening it again shows the stored rating, never a second`, async ({ browser }) => {
-  const ticket = need(shared.ticket, 'step 1 made no request');
-  const page = await person(browser);
+  const { ticket, page } = await answered(browser);
+  await solved(ticket, '#7');
   await page.goto(`/support/tickets/${ticket.id}`);
   const main = page.locator('main');
   await main.getByRole('combobox', { name: 'Your score' }).selectOption({ label: '4 · Helpful' });
@@ -253,29 +299,41 @@ test(`${J} #7 a rating with a note is stored once; opening it again shows the st
 });
 
 test(`${J} #8 solved with no mail sender set: the in-app prompt shows and the rating mail waits with vendor.email`, async ({ browser }) => {
-  const ticket = need(shared.ticket, 'step 1 made no request');
-  await person(browser);
+  const { ticket } = await answered(browser);
+  await solved(ticket, '#8');
   const client = await api(shared.who);
   // The in-app ask: one notice for this request, however often it was solved.
+  let ask;
   await expect(async () => {
     const res = await client.get(`/api/notify/trpc/notify.list?input=${encodeURIComponent(JSON.stringify({ limit: 100 }))}`);
     expect(res.status).toBe(200);
-    const asks = JSON.stringify(res.body.result.data).split(ticket.id).length - 1;
-    expect(asks).toBe(1);
+    const rows = res.body.result.data.items ?? res.body.result.data;
+    const asks = rows.filter((row) => row.kind === 'support.rate_request' && JSON.stringify(row).includes(ticket.id));
+    expect(asks, JSON.stringify(rows.map((row) => row.kind))).toHaveLength(1);
+    ask = asks[0];
   }).toPass({ timeout: 20_000 });
-  // The mailed ask names the missing sender: the email channel is not connected on this stack.
-  const channels = await client.get('/api/notify/trpc/notify.channels');
-  expect(channels.status, JSON.stringify(channels.body).slice(0, 300)).toBe(200);
-  const email = channels.body.result.data.find((c) => c.channel === 'email');
-  expect(email.available).toBe(false);
-  expect(JSON.stringify(email)).toContain('vendor.email');
+  // The mailed ask has no sender on this stack: its email delivery waits, named vendor.email, and nothing claims it sent.
+  const deliveries = await client.get(
+    `/api/notify/trpc/notify.deliveries?input=${encodeURIComponent(JSON.stringify({ notificationId: ask.id }))}`,
+  );
+  expect(deliveries.status, JSON.stringify(deliveries.body).slice(0, 300)).toBe(200);
+  const email = deliveries.body.result.data.find((row) => row.channel === 'email');
+  // Today svc-notify makes only the in-app delivery for this kind, so this check is red until the mailed ask exists.
+  expect(email, `the rating ask's deliveries: ${JSON.stringify(deliveries.body.result.data)}`).toMatchObject({
+    status: 'pending',
+    refusalCode: 'vendor.email',
+    acceptedAt: null,
+  });
+  // The in-app prompt shows on the request.
+  const page = await person(browser);
+  await page.goto(`/support/tickets/${ticket.id}`);
+  await expect(page.locator('main').getByText(/You rated this request|This request is solved\. Tell us how it went/)).toBeVisible();
 });
 
 test(`${J} #9 writing on a closed request is refused with a typed reason and nothing stored; "follow up" makes a new request linked to it`, async ({
   browser,
 }) => {
-  const ticket = need(shared.ticket, 'step 1 made no request');
-  const page = await person(browser);
+  const { ticket, page } = await answered(browser);
   await lead('mutation', 'setStatus', { ticketId: ticket.id, status: 'closed', note: `TEST ${J} #9 closed` });
   const client = await api(shared.who);
   const before = (await client.get(query('listComments', { ticketId: ticket.id, limit: 500 }))).body.result.data.length;
@@ -303,8 +361,8 @@ test(`${J} #9 writing on a closed request is refused with a typed reason and not
   await expect(page).toHaveURL(/\/support\/tickets\/[0-9a-f-]{36}$/);
   const follow = (await mine(shared.who)).find((r) => r.subject === subject);
   expect(need(follow, 'no follow-up request').id).not.toBe(ticket.id);
-  const linked = await client.get(query('get', { ticketId: follow.id }));
-  expect(JSON.stringify(linked.body)).toContain(ticket.id);
+  // The team sees the link to the closed request it follows.
+  expect((await lead('query', 'ticketLifecycle', { ticketId: follow.id })).followsTicketId).toBe(ticket.id);
   // The closed request is still closed and unchanged.
   expect((await client.get(query('get', { ticketId: ticket.id }))).body.result.data.status).toBe('closed');
 });
