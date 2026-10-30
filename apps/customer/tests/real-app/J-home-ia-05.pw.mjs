@@ -18,6 +18,16 @@ const rawKey = /notify\.[a-z_.]+/;
 let who;
 let cancelled;
 
+/** The inbox and the unread count as svc-notify tells them, never as the bell draws them. */
+async function told() {
+  const session = await api(who);
+  const list = await session.get(`/api/notify/trpc/notify.list?input=${encodeURIComponent(JSON.stringify({ limit: 100 }))}`);
+  const count = await session.get('/api/notify/trpc/notify.unreadCount');
+  return { items: list.body.result.data.items, unread: count.body.result.data.count };
+}
+/** Which kinds svc-notify holds as read. */
+const readKinds = (items) => items.filter((item) => item.readAt !== null).map((item) => item.kind);
+
 test.beforeAll(async ({ browser }) => {
   test.setTimeout(240_000);
   const page = await browser.newPage();
@@ -71,6 +81,9 @@ test(`${J} #2 a fill notice opens the trade in Activity and is marked read; a ca
   await expect(trades.first()).toContainText('BTC/USDT · Market');
   await expect(trades.first()).toContainText(Number(fill.price).toLocaleString('en-US', { minimumFractionDigits: 2 }));
   await expect(bell(page).getByTestId('tb-badge')).toHaveText('2');
+  // Marked read where it is kept: svc-notify holds the fill, and only the fill, as read, and counts two unread.
+  await expect.poll(async () => readKinds((await told()).items)).toEqual(['trade.fill']);
+  expect((await told()).unread).toBe(2);
   await bell(page).click();
   await expect(popup(page).locator('[data-testid="nf-row"]', { hasText: 'Order filled' })).not.toHaveAttribute('data-unread');
   await popup(page).locator('[data-testid="nf-row"]', { hasText: 'Order cancelled' }).click();
@@ -84,6 +97,17 @@ test(`${J} #2 a fill notice opens the trade in Activity and is marked read; a ca
   await expect(order.locator('[data-slot="status-tag"]')).toHaveText('Cancelled');
   await expect(order.locator('td').nth(6)).toHaveText('0');
   await expect(bell(page).getByTestId('tb-badge')).toHaveText('1');
+  await expect.poll(async () => readKinds((await told()).items).sort()).toEqual(['trade.fill', 'trade.order.terminal']);
+  expect((await told()).unread).toBe(1);
+
+  // The link svc-notify stored on the fill is the old style (the order's own address), not the Activity link the bell
+  // builds; opened as stored, it still lands on that order, filled.
+  const fillNotice = (await told()).items.find((item) => item.kind === 'trade.fill');
+  expect(fillNotice.href).toBe(`/trade/orders/${fillNotice.params.orderId}`);
+  await page.goto(fillNotice.href);
+  await expect(page).toHaveURL(new RegExp(`${fillNotice.href}$`));
+  await expect(page.getByRole('heading', { name: 'Buy BTC/USDT', level: 1 })).toBeVisible();
+  await expect(page.getByTestId('page-heading')).toContainText('Filled');
 });
 
 test(`${J} #3 the full page: All and Unread, Mark all as read clears the dots and the badge, an empty Unread tab`, async ({ page }) => {

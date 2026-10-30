@@ -361,10 +361,11 @@ test(`${J} #9 copy the badge snippet for a component: operational with a cache t
   browser,
 }) => {
   await configureStatusPage({ components: COMPONENTS, ...TEST_VALUES });
+  const observedAt = Date.now() - 30_000;
   await recordReading({
     componentId: 'trading',
     state: 'operational',
-    observedAt: new Date(Date.now() - 30_000).toISOString(),
+    observedAt: new Date(observedAt).toISOString(),
     source: 'TEST probe',
   });
   const context = await browser.newContext({ baseURL: ORIGIN, viewport: { width: 1440, height: 900 } });
@@ -389,15 +390,20 @@ test(`${J} #9 copy the badge snippet for a component: operational with a cache t
   const svg = await fresh.text();
   expect(svg).toContain('<title>Trading: operational</title>');
   expect(svg).not.toMatch(/<script|<foreignObject/i);
-  // The cache time: never longer than the 600-second staleness window (Edge sends no-store, which is shorter still).
-  const cache = fresh.headers.get('cache-control') ?? '';
-  const maxAge = /max-age=(\d+)/.exec(cache)?.[1];
-  expect(cache.includes('no-store') || (maxAge !== undefined && Number(maxAge) <= TEST_VALUES.stalenessSeconds)).toBe(true);
+  // The cache time at the public address: the origin sends exactly no-store on every /api/ reply (apps/customer/nginx.conf;
+  // Edge forwards no Cache-Control), so no copy outlives the staleness window.
+  expect(fresh.headers.get('cache-control')).toBe('no-store');
   const json = await (
     await fetch(`${ORIGIN}/api/notify/trpc/statusPage.badge?input=${encodeURIComponent(JSON.stringify({ componentId: 'trading' }))}`)
   ).json();
   expect(json.result.data).toMatchObject({ state: 'operational', label: 'operational' });
-  expect(json.result.data.maxAgeSeconds).toBeLessThanOrEqual(TEST_VALUES.stalenessSeconds);
+  // The service's own cache time: what is left of the reading's window, capped at its 300-second ceiling
+  // (STATUS_BADGE_MAX_AGE_SECONDS, svc-notify badge.ts), and more than none while the reading is fresh.
+  const readingAge = (Date.parse(json.result.data.asOf) - observedAt) / 1000;
+  expect(readingAge).toBeGreaterThanOrEqual(0);
+  expect(json.result.data.maxAgeSeconds).toBe(Math.min(300, Math.floor(TEST_VALUES.stalenessSeconds - readingAge)));
+  expect(json.result.data.maxAgeSeconds).toBeGreaterThan(0);
+  expect(json.result.data.maxAgeSeconds).toBeLessThanOrEqual(TEST_VALUES.stalenessSeconds - readingAge);
 
   // A component with no reading says no data.
   expect(await (await fetch(`${ORIGIN}/api/notify/status/badge.svg?component=wallets`)).text()).toContain(
