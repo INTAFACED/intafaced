@@ -234,7 +234,9 @@ function Funds({ sandboxId, t }: { sandboxId: string; t: T }) {
     (signal) => readSandboxBalance(api, sandboxId, signal),
     `developer-sandbox-balance:${userId ?? 'out'}:${sandboxId}`,
   );
-  const [latest, setLatest] = useState<SandboxBalance | null>(null);
+  // The balance a press answered, for this sandbox only; a refusal drops it and reads again.
+  const [answered, setAnswered] = useState<SandboxBalance | null>(null);
+  const latest = answered?.sandboxId === sandboxId ? answered : null;
   const [busy, setBusy] = useState(false);
   const [said, setSaid] = useState<{ kind: 'done'; text: string } | { kind: 'refused'; failure: Refusal } | null>(null);
   const read = latest ?? (resource.status === 'ready' ? resource.data : null);
@@ -247,13 +249,15 @@ function Funds({ sandboxId, t }: { sandboxId: string; t: T }) {
     setBusy(false);
     if (!result.ok) {
       setSaid({ kind: 'refused', failure: result });
+      setAnswered(null);
+      reload();
       return;
     }
-    setLatest(result.data);
-    setSaid({
-      kind: 'done',
-      text: action === 'fund' ? t('funded', { amount: read.fundAmount ?? '', asset: result.data.asset }) : t('resetDone'),
-    });
+    const { replayed, ...balance } = result.data;
+    setAnswered(balance);
+    let text = t('pressReplayed');
+    if (!replayed) text = action === 'fund' ? t('funded', { amount: balance.fundAmount ?? '', asset: balance.asset }) : t('resetDone');
+    setSaid({ kind: 'done', text });
   }
 
   return (

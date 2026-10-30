@@ -98,9 +98,9 @@ describe('sandbox store (DV-sandbox-02)', () => {
 
     const requestId = sandboxFundRequestId(user, sandboxId, empty.version);
     const funded = await as(user).fund({ sandboxId, requestId });
-    expect(funded).toMatchObject({ amount: '1000', version: 1 });
-    // A double press (same request id) is one change.
-    expect(await as(user).fund({ sandboxId, requestId })).toMatchObject({ amount: '1000', version: 1 });
+    expect(funded).toMatchObject({ amount: '1000', version: 1, replayed: false });
+    // A double press (same request id) is one change, and says it was already answered.
+    expect(await as(user).fund({ sandboxId, requestId })).toMatchObject({ amount: '1000', version: 1, replayed: true });
     expect(await as(user).fund({ sandboxId, requestId: sandboxFundRequestId(user, sandboxId, 1) })).toMatchObject({
       amount: '2000',
       version: 2,

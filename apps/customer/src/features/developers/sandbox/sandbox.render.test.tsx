@@ -183,7 +183,7 @@ describe('sandbox rooms', () => {
   it('adds the TEST amount on Fund, sends the version it read, and says so; a spent reset cap refuses by name', async () => {
     const set = { ...unsetBalance, fundAmount: '1000', resetsPerDay: 2, resetsToday: 1, version: 3 };
     world.balance = async () => ({ ok: true, data: set });
-    world.fund = vi.fn(async () => ({ ok: true, data: { ...set, amount: '1000', version: 4 } }));
+    world.fund = vi.fn(async () => ({ ok: true, data: { ...set, amount: '1000', version: 4, replayed: false } }));
     world.reset = vi.fn(async () => ({ ok: false, code: 'pay.sandbox_reset_cap_reached', message: 'refused' }));
     await show(`/developers/sandbox/${SANDBOX}`);
     const text = (id: string) => document.querySelector(`[data-testid="${id}"]`)?.textContent;

@@ -135,13 +135,16 @@ export const sandboxBalanceOutputSchema = z
   })
   .strict();
 export type SandboxBalance = z.infer<typeof sandboxBalanceOutputSchema>;
+/** A Fund or Reset answer: the balance after it, and whether this request id had already been answered (nothing changed). */
+const sandboxChangeOutputSchema = sandboxBalanceOutputSchema.extend({ replayed: z.boolean() }).strict();
+export type SandboxChange = z.infer<typeof sandboxChangeOutputSchema>;
 
 export const sandboxFundInputSchema = z.object({ sandboxId: z.string().guid(), requestId: apiKeyRequestIdSchema }).strict();
 export type SandboxFundInput = z.infer<typeof sandboxFundInputSchema>;
-export const sandboxFundOutputSchema = sandboxBalanceOutputSchema;
+export const sandboxFundOutputSchema = sandboxChangeOutputSchema;
 export const sandboxResetInputSchema = sandboxFundInputSchema;
 export type SandboxResetInput = z.infer<typeof sandboxResetInputSchema>;
-export const sandboxResetOutputSchema = sandboxBalanceOutputSchema;
+export const sandboxResetOutputSchema = sandboxChangeOutputSchema;
 
 /** FNV-1a, 64 bits, as in `api-keys.ts`: a short stable digest. */
 function digest(text: string): string {

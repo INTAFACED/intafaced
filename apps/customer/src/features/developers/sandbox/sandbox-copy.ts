@@ -78,6 +78,7 @@ const en = {
   reset: 'Reset balances',
   funded: 'Added {amount} {asset} (TEST) to this sandbox.',
   resetDone: "This sandbox's balances are back to zero (TEST).",
+  pressReplayed: 'This press was already made, so nothing more changed.',
   'pay.sandbox_funds_unset': 'The owner has not set sandbox test funds. Nothing was added.',
   'pay.sandbox_reset_cap_unset':
     'The owner has not set how many resets a day a sandbox may have, so resets are refused. Nothing was changed.',
