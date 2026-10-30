@@ -18,6 +18,7 @@ export default async function Page() {
         <Link href="/more-ops/venue-economics">Venue unit economics</Link>
         <Link href="/more-ops/mining">Mining desk</Link>
         <Link href="/more-ops/predict">Predict desk</Link>
+        <Link href="/more-ops/token">Token governance</Link>
         <Link href="/more-ops/campaigns/waves">Waitlist waves</Link>
       </nav>
       <OpsDesk spec={DESKS.more} initial={await loadDesk(founder, 'more')} userId={founder.session.userId} />
