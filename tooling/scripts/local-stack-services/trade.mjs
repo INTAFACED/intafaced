@@ -24,7 +24,11 @@ function otcConvertBounds() {
 
 /** The TEST provider list, left blank when the switch says so. */
 function otcMakerDirectory() {
-  return process.env.LOCAL_STACK_TRADE_OTC_MAKERS === 'off' ? '' : testValue('TRADE_OTC_MAKER_DIRECTORY');
+  if (process.env.LOCAL_STACK_TRADE_OTC_MAKERS === 'off') return '';
+  const directory = JSON.parse(testValue('TRADE_OTC_MAKER_DIRECTORY'));
+  // Blank spreads: every outside provider loses its LOCAL TEST spread, so a request to one refuses by name (#5).
+  if (process.env.LOCAL_STACK_TRADE_OTC_SPREADS === 'off') for (const maker of directory.makers) delete maker.spreadBps;
+  return JSON.stringify(directory);
 }
 
 export default ({ c, secrets, dbUrl, urlOf, PORTS, TEST_FUTURES_LADDER_POLICY }) => ({
@@ -128,6 +132,13 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, TEST_FUTURES_LADDER_POLICY })
     // blank, so J-copy-bots-otc-14 #7 sees that refusal.
     TRADE_BOTS_WITHDRAW_DAILY_CAP:
       process.env.LOCAL_STACK_TRADE_BOTS_WITHDRAW_CAP === 'blank' ? '' : testValue('TRADE_BOTS_WITHDRAW_DAILY_CAP'),
+    // LOCAL TEST, not an owner decision: the window the operator module counts quotes in. Blank refuses the metrics read
+    // (trade.ops_metrics_window_not_set, admin/copy-bots-otc.ts), which a unit test keeps proving.
+    // `LOCAL_STACK_TRADE_OPS_METRICS_WINDOW=off` on a start or restart leaves it blank, so J-copy-bots-otc-13 #1 sees
+    // that refusal on the screen.
+    ...(process.env.LOCAL_STACK_TRADE_OPS_METRICS_WINDOW === 'off'
+      ? {}
+      : { TRADE_OPS_METRICS_WINDOW_SECONDS: testValue('TRADE_OPS_METRICS_WINDOW_SECONDS') }),
     // LOCAL TEST, not an owner decision: the copy driver places each copy as the follower, so J-copy-bots-otc-01 #8
     // sees a first copied trade on TEST money. Production leaves it off until the owner turns copy placing on.
     TRADE_COPY_PLACE_MIRROR: 'on',
@@ -143,6 +154,8 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, TEST_FUTURES_LADDER_POLICY })
     // so its "Not set" state can be seen too (J-copy-bots-otc-24 #7). `LOCAL_STACK_TRADE_OTC_MIN_NOTIONAL=off` leaves the
     // desk minimum blank, so a request refuses `trade.rfq_size_not_set` (J-copy-bots-otc-24 #4).
     // `LOCAL_STACK_TRADE_OTC_MAKERS=off` leaves the provider list blank, so a request refuses "No providers set" (#2).
+    // `LOCAL_STACK_TRADE_OTC_SPREADS=off` leaves every outside provider's spread blank, so asking one refuses
+    // `trade.otc_provider_spread_unset` (#5).
     // `LOCAL_STACK_TRADE_OTC_ASSETS=off` leaves the desk's asset list blank, so the overview reads "Not set" and a request
     // refuses `trade.otc_assets_unset` (#1). `LOCAL_STACK_TRADE_OTC_MIN_TIER=off` leaves the desk's verification level
     // blank, so every request refuses `trade.otc_level_unset` (#3). `LOCAL_STACK_TRADE_OTC_CONVERT_BOUNDS=off` leaves the

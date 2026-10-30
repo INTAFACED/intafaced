@@ -26,6 +26,11 @@
       "value": "true",
       "note": "Metering on, so a run charges TEST USDT through the ledger."
     },
+    "AGENTS_TIER_LAWS": {
+      "service": "agents",
+      "value": "{\"scanner\":{\"published\":true,\"matrix\":{\"basic\":{\"maxSignals\":5,\"tools\":[\"trade.ticker\",\"trade.markets.list\",\"trade.book.top\"]},\"full\":{\"maxSignals\":5,\"tools\":[\"trade.ticker\",\"trade.markets.list\",\"trade.book.top\"]},\"institutional\":{\"maxSignals\":5,\"tools\":[\"trade.ticker\",\"trade.markets.list\",\"trade.book.top\"]}}},\"navigator\":{\"published\":true,\"matrix\":{\"basic\":[\"trade.quote\",\"trade.markets.list\",\"identity.session.read\"],\"full\":[\"trade.quote\",\"trade.markets.list\",\"identity.session.read\"],\"institutional\":[\"trade.quote\",\"trade.markets.list\",\"identity.session.read\"]}},\"support\":{\"published\":true,\"matrix\":{\"basic\":[\"support.kb.search\",\"support.ticket.read\",\"identity.account.read\"],\"full\":[\"support.kb.search\",\"support.ticket.read\",\"identity.account.read\"],\"institutional\":[\"support.kb.search\",\"support.ticket.read\",\"identity.account.read\"]}}}",
+      "note": "LOCAL TEST tier law for the scanner, navigator and support doors: every verified tier gets every read tool and 5 scanner signals (owner decision). Not a product grant; blank in production, where each door refuses tier_law_blank."
+    },
     "AGENTS_MOCK_DELAY_MS": {
       "service": "agents",
       "value": "800",

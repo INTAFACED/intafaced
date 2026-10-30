@@ -58,6 +58,7 @@ export type RefusalKind =
   | 'expiryInvalid'
   | 'ordersPaused'
   | 'accountOnHold'
+  | 'tradingOnHold'
   | 'platformPaused'
   | 'spaceLocked'
   | 'notFound'
@@ -149,7 +150,7 @@ const EXACT: Readonly<Record<string, RefusalKind>> = {
   'tier.insufficient': 'verify',
   'trade.email_proof_required': 'emailProof',
   'trade.identity_unavailable': 'tryAgain',
-  'trade.account_restricted': 'accountOnHold',
+  'trade.account_restricted': 'tradingOnHold',
   // The ledger's posting freeze stops money for everyone; this account is not restricted (ENGINE FRZ-1). `ledger.freeze`
   // and `ledger.freeze_attributed` come only from freeze writes by operators, never from a customer's post.
   'ledger.frozen': 'platformPaused',

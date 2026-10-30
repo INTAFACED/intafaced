@@ -54,3 +54,15 @@ describe('agent builder tab labels', () => {
     },
   );
 });
+
+describe('a blank rate', () => {
+  it.each(['en', 'es', 'fr'] as const)('%s names the rate the service refused under and that nothing runs free', (locale) => {
+    const { t } = agentBuilderCopy.forLocale(locale);
+    const free = { en: /Nothing runs free/, es: /Nada se ejecuta gratis/, fr: /Rien ne tourne gratuitement/ }[locale];
+    // The task comes from the refused run svc-agents logged, never from the copy: any task name is shown as given.
+    expect(t('code_price_unset', { task: 'some.other_task' })).toContain('some.other_task');
+    expect(t('code_price_unset', { task: 'some.other_task' })).not.toContain('own.run');
+    expect(t('code_price_unset', { task: 'some.other_task' })).toMatch(free);
+    expect(t('code_price_unset_unread')).toMatch(free);
+  });
+});

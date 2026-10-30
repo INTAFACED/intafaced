@@ -23,7 +23,7 @@ CREATE TABLE IF NOT EXISTS "trade"."grid_bot_withdrawals" (
   "reserve_before"     numeric(38, 18) NOT NULL,
   "reserve_after"      numeric(38, 18) NOT NULL,
   "daily_cap"          numeric(38, 18) NOT NULL,
-  "cap_used"           numeric(38, 18) NOT NULL,
+  "cap_withdrawn_today"           numeric(38, 18) NOT NULL,
   "cap_remaining"      numeric(38, 18) NOT NULL,
   "step_up_event_id"   text NOT NULL,
   "applied_at"         timestamptz NOT NULL,
@@ -31,7 +31,7 @@ CREATE TABLE IF NOT EXISTS "trade"."grid_bot_withdrawals" (
   CONSTRAINT "grid_bot_withdrawals_amount_ck" CHECK ("amount" > 0),
   CONSTRAINT "grid_bot_withdrawals_profit_ck" CHECK ("profit_after" >= 0 AND "profit_before" = "profit_after" + "amount"),
   CONSTRAINT "grid_bot_withdrawals_reserve_ck" CHECK ("reserve_after" > 0 AND "reserve_before" = "reserve_after" + "amount"),
-  CONSTRAINT "grid_bot_withdrawals_cap_ck" CHECK ("cap_remaining" >= 0 AND "cap_used" + "cap_remaining" = "daily_cap")
+  CONSTRAINT "grid_bot_withdrawals_cap_ck" CHECK ("cap_remaining" >= 0 AND "cap_withdrawn_today" + "cap_remaining" = "daily_cap")
 );
 
 CREATE INDEX IF NOT EXISTS "grid_bot_withdrawals_day_idx" ON "trade"."grid_bot_withdrawals" ("user_id", "asset", "applied_at");

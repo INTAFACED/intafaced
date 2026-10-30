@@ -12,9 +12,9 @@
  * Lifting it from this list is the debt being paid, not a silent exemption:
  * skip-honesty will fail a new private probe on that path the same as anywhere else.
  *
- * svc-protocol's UNJOURNALLED lock below is NOT a phantom. `/services/svc-protocol/`
- * is a real CODEOWNERS line (@shehzad002) and the chain plane is his to implement,
- * so that hold names its scope, sits where merges pass, and states who lifts it.
+ * svc-protocol's UNJOURNALLED entries below were held under the Protocol Plane's
+ * human lock, which ended on 2026-10-30 (the agents are the only engineers).
+ * Journalling them is open agent work; until then the register names each one.
  *
  * So the register is loud in both directions:
  *
@@ -64,7 +64,7 @@ export const UNJOURNALLED = [
   file,
   probeSource: 'services/svc-protocol/scripts/dev-chain.ts',
   dependency: 'evm-chain',
-  owner: 'svc-protocol CODEOWNERS (M1–M7 human lock)',
+  owner: 'svc-protocol (agents; the human lock ended 2026-10-30)',
   /**
    * Enumerated rather than described as "svc-protocol's chain suites". The first
    * draft of this register named two of them — the two that skip the whole file —
@@ -76,7 +76,7 @@ export const UNJOURNALLED = [
     "skips on `devChainReachable`, which is honest but silent: svc-protocol's copy does not call " +
     "recordInfraProbe, so the verdict cannot count this suite either way. svc-indexer's copy of the " +
     "same helper is journalled in this change; svc-protocol's is byte-identical work, left alone only " +
-    'because the service is under the human lock.',
+    'because the service was under a human lock, which ended 2026-10-30; journalling it is open agent work.',
 }));
 
 /** Flat view for anything that just needs the file names. */

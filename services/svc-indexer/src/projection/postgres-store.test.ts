@@ -9,6 +9,7 @@ import { PostgresProjectionStore } from './postgres-store.js';
 import { CHAIN_ID, runProjectionConformance } from '../testing/conformance.js';
 import type { ChainBlock, ChainTx } from '../chain/source.js';
 import { listPage, parseExplorerListLimit } from '../explorer/blocks.js';
+import { listTxPage } from '../explorer/tx.js';
 
 /**
  * The Postgres store runs the SAME conformance suite as the in-memory
@@ -219,6 +220,15 @@ describe('svc-indexer · PostgresProjectionStore PG-hard', () => {
         [1, h(0x61), true],
         [0, h(0x60), false],
       ]);
+
+      // A prune through the orphan's height keeps it listed: the explorer shows a reorged block for good.
+      await store.prune(1);
+      const afterPrune = await store.explorerBlocks({ limit: 10 });
+      expect(afterPrune.map((r) => [r.height, r.hash, r.orphaned !== null])).toEqual([
+        [1, h(0x62), false],
+        [1, h(0x61), true],
+        [0, h(0x60), false],
+      ]);
     });
 
     it('D-explorer-01: header facts stored with the block; DB paging and lookup; FK holds', async () => {
@@ -424,6 +434,37 @@ describe('svc-indexer · PostgresProjectionStore PG-hard', () => {
         SELECT status FROM blocks WHERE chain_id = ${CHAIN_ID} AND hash = ${h1}
       `;
       expect(orphan?.status).toBe('orphaned');
+
+      // Latest transactions: newest first, the orphan's row kept with its reason, keyset paging loses none.
+      const all = await store.explorerTxList({ limit: 10 });
+      expect(all.map((t) => [t.hash, t.blockHash, t.orphaned !== null])).toEqual([
+        [txStay, h1, true],
+        [txB, h1b, false],
+        [txA, h1b, false],
+      ]);
+      expect(all[1]).toEqual({
+        hash: txB,
+        blockHeight: 1,
+        blockHash: h1b,
+        index: 1,
+        from,
+        to,
+        valueWei: 9n,
+        status: 'success',
+        timestamp: 1_700_000_001,
+        orphaned: null,
+      });
+      const seen: string[] = [];
+      let cursor: { height: number; index: number; hash: string } | undefined;
+      for (let i = 0; i < 5; i++) {
+        const page = await listTxPage((q) => store.explorerTxList(q), { cursor, limit: 1 });
+        seen.push(...page.rows.map((t) => t.hash));
+        if (!page.nextCursor) break;
+        cursor = page.nextCursor;
+      }
+      expect(seen).toEqual([txStay, txB, txA]);
+      expect((await store.explorerTxList({ blockHash: h1, limit: 10 })).map((t) => t.hash)).toEqual([txStay]);
+      expect(await store.explorerTxList({ blockHash: zero, limit: 10 })).toEqual([]);
     });
 
     /**

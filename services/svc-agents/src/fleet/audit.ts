@@ -196,6 +196,21 @@ export class AuditLog {
   }
 
   /**
+   * The session's actions after sequence `after` (null: from the first, the open at sequence 0), sequence ASC: a cursor
+   * read (AG-sessions-04). Blank limit refuses.
+   */
+  async forSessionAfter(sessionId: string, after: number | null, limit: number): Promise<AuditedAction[]> {
+    const page = assertSessionLogPageLimit(limit);
+    const rows = await this.sql<ActionRow[]>`
+      SELECT * FROM agents.agent_actions
+       WHERE session_id = ${sessionId} AND sequence > ${after ?? -1}
+       ORDER BY sequence ASC
+       LIMIT ${page}
+    `;
+    return rows.map(toAction);
+  }
+
+  /**
    * Full session chain, sequence ASC. Hash-chain work set for verifyChain —
    * not a list page. Paging here would hide breaks.
    */

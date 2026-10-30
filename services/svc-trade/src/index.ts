@@ -41,6 +41,7 @@ import { LeadDesk } from './copy/lead-applications.js';
 import { bindTradingRestrictApprovals, currentTradingRestrictApprovals } from './admin/trading-restrict.js';
 import { operatorSeedAllows as readOperatorSeedAllows } from './admin/service.js';
 import { wireTradeOpsAdmin } from './admin/wire.js';
+import { parseMetricsWindowSeconds } from './admin/copy-bots-otc.js';
 import { chartOwnerValuesPublicReader } from './admin/chart-owner-values.js';
 import { InsuranceTopupAdmin } from './admin/insurance-topup.js';
 import { SupportTradeSummaryReader } from './support/trade-summary.js';
@@ -545,6 +546,8 @@ export const appRouter = createTradeRouter(
     approvals: tradeOpsApprovals,
     feeSchedule,
     vipProofKey: parseVipProofKey(env.TRADE_VIP_PROOF_KEY),
+    otcLaw: otcDeskLaw,
+    metricsWindowSeconds: parseMetricsWindowSeconds(env.TRADE_OPS_METRICS_WINDOW_SECONDS),
   }),
   new InsuranceTopupAdmin({ sql, ledger, approvals: tradeOpsApprovals }),
   new SupportTradeSummaryReader({ sql }),

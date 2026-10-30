@@ -46,6 +46,10 @@
       "types": "./dist/protocol-representation.d.ts",
       "default": "./dist/protocol-representation.js"
     },
+    "./protocol-swap": {
+      "types": "./dist/protocol-swap.d.ts",
+      "default": "./dist/protocol-swap.js"
+    },
     "./ops-console-mode": {
       "types": "./dist/ops-console-mode.d.ts",
       "default": "./dist/ops-console-mode.js"
@@ -237,6 +241,10 @@
     "./trade-errors": {
       "types": "./dist/trade-errors.d.ts",
       "default": "./dist/trade-errors.js"
+    },
+    "./auth-errors": {
+      "types": "./dist/auth-errors.d.ts",
+      "default": "./dist/auth-errors.js"
     },
     "./academy-catalogue": {
       "types": "./dist/academy-catalogue.d.ts",
