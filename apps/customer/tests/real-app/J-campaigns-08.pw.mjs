@@ -184,7 +184,7 @@ test(`${J} #2 claims a voucher, pressing twice at once: one claim wins, the othe
   ]);
   const won = [one, two].filter((r) => r.body?.result?.data);
   const lost = [one, two].filter((r) => !r.body?.result?.data);
-  expect(won).toHaveLength(1);
+  expect(won, JSON.stringify([one.body, two.body]).slice(0, 600)).toHaveLength(1);
   expect(lost).toHaveLength(1);
   expect(lost[0].body?.error?.message ?? '').toContain('[campaigns.voucher_invalid]');
   const claimed = won[0].body.result.data;
