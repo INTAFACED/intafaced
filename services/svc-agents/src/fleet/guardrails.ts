@@ -300,6 +300,8 @@ export const REFUSAL_CODES = [
   // Refused at the hold for an agent the person built: a run past one of the caps they set for it, or no caps set.
   'agents.spend.cap_exceeded',
   'agents.spend.cap_unset',
+  // Refused at the hold once the month's spend of an agent the person built reached the hard limit they set for it.
+  'agents.usage.hard_limit_reached',
   // Refused by the runtime while a usage window the person owes could not be paid: past the owner's overage grace, or
   // with no grace published.
   'agents.overage_grace_exceeded',

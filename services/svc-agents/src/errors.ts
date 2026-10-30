@@ -46,6 +46,8 @@ export type AgentErrorCode =
   | 'agents.spend.cap_exceeded'
   /** The person's own agent has no caps stored: nothing of it runs until they are set. */
   | 'agents.spend.cap_unset'
+  /** The person's own agent spent its monthly hard limit: new runs refuse until next month; a held run finishes. */
+  | 'agents.usage.hard_limit_reached'
   /** A session's usage window could not be paid at close: the session stays open and the window is retried. */
   | 'agents.window_unpaid';
 

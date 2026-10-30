@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import type { Sql } from 'postgres';
+import type { Sql, TransactionSql } from 'postgres';
 import { transaction } from '@intafaced/db';
 import { parseAmount, type Amount } from '@intafaced/ledger-client';
 import { AgentError } from '../errors.js';
@@ -7,6 +7,7 @@ import { windowCost, type UsageGroup } from '../metering/pricing.js';
 import type { SpendGate, SpendLimitView, SpendPeriod, SpendReservationView } from './gate.js';
 import { canonicalAmount, decideReservation, parseSpendAmount, parseSpendLimitInput, periodStart, type SpendScope } from './limits.js';
 import { readOwnCaps } from '../own/limits.js';
+import { assertBelowHardLimit, noteUsageAlert } from '../own/usage-limits.js';
 
 /** A session of a person's own agent carries `own.<agent id>` as its agent id (see `AgentRuntime.openOwnSession`). */
 const OWN_PREFIX = 'own.';
@@ -402,6 +403,15 @@ export class UserSpendStore implements SpendGate {
           if (!decision.ok) throw spendLimit(decision.cap, assetId, decision.scope);
         }
         if (own && ownAgentId) {
+          // The month's hard limit refuses a new run once the agent's runs reached it, held ones counted at their worst
+          // case; a run already held is not checked again at commit, so it finishes.
+          await assertBelowHardLimit(tx, {
+            userId: input.userId,
+            agentId: ownAgentId.slice(OWN_PREFIX.length),
+            assetId,
+            used: await ownAgentUsed(tx, input.userId, ownAgentId, periodStart('month', now)),
+            now,
+          });
           // Every hold of the session and of the month counts, held ones included, so two runs at once whose worst
           // cases together pass a cap cannot both be admitted.
           if (amount > own.perCall) throw ownCapExceeded(own.perCall, assetId, 'call');
@@ -480,7 +490,12 @@ export class UserSpendStore implements SpendGate {
 
   async commitIn(tx: Sql, input: { userId: string; reservationKey: string; amount: string }): Promise<SpendReservationView> {
     await lockUser(tx, input.userId);
-    return this.finish(tx, input, 'commit');
+    const view = await this.finish(tx, input, 'commit');
+    // The commit that brings an own agent's month to its alert records the alert with it (published after). In a
+    // savepoint: an alert that cannot be written never undoes the charge of a run the engine already answered, and the
+    // agent's next commit records it.
+    await (tx as unknown as TransactionSql).savepoint((sp) => noteUsageAlert(sp as unknown as Sql, input)).catch(() => undefined);
+    return view;
   }
 
   async commit(input: { userId: string; reservationKey: string; amount: string }): Promise<SpendReservationView> {

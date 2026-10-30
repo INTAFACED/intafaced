@@ -836,6 +836,29 @@ export const agentUsageSettled = defineEvent(
   'A metered usage window was billed through the ledger (§8.2 premium agent tiers).',
 );
 
+export const agentUsageAlertCrossed = defineEvent(
+  'agents',
+  'usage_alert',
+  'crossed',
+  1,
+  z.object({
+    /** The business key, one per agent and month: `agents.usage_alert:<agent id>:<YYYY-MM>`. */
+    alertKey: z.string().min(1).max(200),
+    userId: userIdSchema,
+    /** The person's own agent whose spend this month reached the alert. */
+    agentId: z.string().guid(),
+    /** The UTC month, `YYYY-MM`. */
+    month: z.string().regex(/^\d{4}-\d{2}$/),
+    /** The alert the person set, and what the agent had spent this month when it was reached. Not a balance. */
+    alertAt: amountSchema,
+    spent: amountSchema,
+    assetId: assetIdSchema,
+    /** Whether the person also asked for this alert by email. */
+    email: z.boolean(),
+  }),
+  'An own agent’s spend this month reached the alert its owner set. Published once per agent and month, so the owner is told once.',
+);
+
 // ── p2p (§6.2) ───────────────────────────────────────────────────────────────
 
 export const p2pOfferCreated = defineEvent(
@@ -1871,6 +1894,7 @@ export const EVENT_CATALOG = {
   agentActionCompleted,
   agentActionRejected,
   agentUsageSettled,
+  agentUsageAlertCrossed,
   p2pOfferCreated,
   p2pEscrowLocked,
   p2pEscrowReleased,
@@ -2482,6 +2506,18 @@ export const WIRING_SOCKETS = [
     class: 'A',
     reason:
       'The ledger post has already happened when this is published, and it carries the chargeKey precisely so reconciliation can be done against the ledger rather than by accumulating this stream. A consumer that added up these amounts would be a balance outside packages/ledger-client (§0.6), so the absence here is deliberate.',
+  },
+  {
+    event: 'agentUsageAlertCrossed',
+    missing: 'subscriber',
+    /**
+     * CLASS C — owned and unbuilt, disclosed. svc-notify's consumer, which writes the person's one inbox row per
+     * alert key, lands in its own PR after this subject. Until then the agent's Limits page says in its alert form
+     * that the inbox note is not delivered yet (`agents.usage.alert_inbox_unwired`), so no one is told to expect it.
+     */
+    class: 'C',
+    reason:
+      'svc-agents records and publishes the alert once per agent and month on its business key; the svc-notify consumer that turns it into one inbox row per key is the next PR (J-agents-02 #6). The Limits page discloses the gap in code until it lands.',
   },
   {
     event: 'p2pOfferCreated',

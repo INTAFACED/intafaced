@@ -314,6 +314,8 @@ export const en = {
   'agents.refused.funds_unread': 'Refused: your available balance could not be read, so this run did not start. Nothing was charged.',
   'agents.refused.spend_limit_invalid': 'Refused: that spend limit is blank or not a valid amount, so it was not saved.',
   'agents.refused.spend_cap': 'Refused: this would pass your {scope} spend limit of {limit} {asset}.',
+  'agents.refused.hard_limit_reached':
+    'Refused: this agent reached your hard limit of {limit} {asset} for {month}. It runs again next month, or when you raise the limit.',
   'agents.refused.spend_idempotency_conflict': 'Refused: this request key was already used for a different spend change.',
   'agents.refused.spend_reservation_conflict': 'Refused: this reservation key is already in use for a different amount or session.',
   'agents.refused.spend_reservation_missing': 'Refused: that spend reservation does not exist.',

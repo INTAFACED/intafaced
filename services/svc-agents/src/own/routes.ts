@@ -22,6 +22,7 @@ import { assertPersonSetsLimits } from '../spend/routes.js';
 import { OWN_TEMPLATE_IDS, OWN_TEMPLATES, OWN_TOOLS, OwnAgentRefusal } from './catalog.js';
 import { OwnLimitsStore, readOwnCaps } from './limits.js';
 import { OwnAgentStore, type OwnAgentView } from './store.js';
+import { ownUsageLimitsRouter } from './usage-limits-routes.js';
 
 /** The task every run of a person's own agent is routed and priced as. */
 export const OWN_RUN_TASK = 'own.run';
@@ -182,6 +183,9 @@ export function ownRouter(sql: Sql | undefined, run?: OwnRunDeps) {
         assertPersonSetsLimits(ctx.principal);
         return guard(() => storeOf(sql).list(ctx.principal.userId, input.limit));
       }),
+
+    /** The soft alert and monthly hard limit the person set for this agent (J-agents-02). */
+    usageLimits: ownUsageLimitsRouter(sql, run),
 
     /** The caps the person set for this agent, its own cap, and the per-session cap that applies (AG-spend-01). */
     limits: router({

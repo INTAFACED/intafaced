@@ -21,6 +21,7 @@ import { meteringOffSettlementStub, shouldMeterUsage } from './metering/product-
 import { usageCost } from './metering/pricing.js';
 import type { TokenUsage } from './providers/provider.js';
 import type { SpendGate } from './spend/gate.js';
+import { publishPendingUsageAlerts } from './own/usage-limits.js';
 import { UserSpendStore } from './spend/store.js';
 import { withEngineSpan } from './tracing.js';
 
@@ -669,7 +670,12 @@ export class AgentRuntime {
             { kind: 'completion', task: input.task },
           );
         }
-        if (err instanceof AgentError && (err.code === 'agents.spend.cap_exceeded' || err.code === 'agents.spend.cap_unset')) {
+        if (
+          err instanceof AgentError &&
+          (err.code === 'agents.spend.cap_exceeded' ||
+            err.code === 'agents.spend.cap_unset' ||
+            err.code === 'agents.usage.hard_limit_reached')
+        ) {
           throw await this.appendRefusal(
             session,
             {
@@ -773,6 +779,7 @@ export class AgentRuntime {
         }
       }
       if (claimed) await this.meter.releaseClaim(session.id, input.requestId);
+      if (session.agentId.startsWith('own.')) await this.publishUsageAlerts(session.userId).catch(() => undefined);
       throw await this.appendRefusal(
         session,
         {
@@ -877,6 +884,12 @@ export class AgentRuntime {
     const { action, metered, windowId } = committed;
 
     await this.publishCompleted(action, usage);
+    if (reserved !== null && session.agentId.startsWith('own.')) {
+      // The commit above may have recorded this month's usage alert. Publishing it is retried on the person's next
+      // commit or read of their usage limits and by the service's minute sweep, so a bus fault here never fails a run
+      // that was already charged.
+      await this.publishUsageAlerts(session.userId).catch(() => undefined);
+    }
 
     return { text: completion.result.text, usage, cost: metered ? cost : 0n, metered, windowId, route, action };
   }
@@ -1047,6 +1060,11 @@ export class AgentRuntime {
          AND tool = ${tool}
          AND result_json IS NULL
     `;
+  }
+
+  /** Publishes recorded usage alerts not yet published, one person's or everyone's, each on its business key (J-agents-02). */
+  async publishUsageAlerts(userId?: string): Promise<number> {
+    return publishPendingUsageAlerts(this.sql, this.bus, userId);
   }
 
   /**

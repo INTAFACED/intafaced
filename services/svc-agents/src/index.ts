@@ -275,9 +275,17 @@ app.log.info(
   'svc-agents ready',
 );
 
+// Publish usage alerts a crash or a bus outage left recorded but unpublished: once now, then each minute.
+const sweepUsageAlerts = (): void =>
+  void runtime.publishUsageAlerts().catch((err: unknown) => app.log.warn({ err }, 'usage alert sweep failed'));
+sweepUsageAlerts();
+const usageAlertTimer = setInterval(sweepUsageAlerts, 60_000);
+usageAlertTimer.unref();
+
 for (const signal of ['SIGTERM', 'SIGINT'] as const) {
   process.once(signal, () => {
     void (async () => {
+      clearInterval(usageAlertTimer);
       // Draining, not dropping: an in-flight settlement finishes before exit.
       await app.close();
       await bus.close();
