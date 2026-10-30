@@ -954,6 +954,11 @@ export class TradeService {
     return this.placeOrderInner(principal, input, 'copy.mirror', `copy.follow:${followId}`);
   }
 
+  /** Owning GridService supplies its bot id: one level order, a delegated child of the bot's admitted `strategy.start`. */
+  async placeGridLevel(principal: Principal, input: PlaceOrderInput, botId: string): Promise<OrderRecord> {
+    return this.placeOrderInner(principal, input, 'algo.child', `grid:${botId}`);
+  }
+
   /** Owned worker hook: resolve uncertain grant, then execute only its original payload. */
   async recoverAdmittedOrder(userId: string, orderId: string): Promise<OrderRecord | null> {
     const existing = await this.findOrder(orderId);
@@ -1658,6 +1663,11 @@ export class TradeService {
    */
   async fillsForOrder(principal: Principal, orderId: string, limit: number): Promise<FillRecord[]> {
     return reads.fillsForOrder(this.internal, principal, orderId, limit);
+  }
+
+  /** Every fill of one owned order (the grid bot's fee and pair sums). */
+  async everyFillOfOrder(principal: Principal, orderId: string): Promise<FillRecord[]> {
+    return reads.everyFillOfOrder(this.internal, principal, orderId);
   }
 
   async findOrder(orderId: string): Promise<OrderRecord | null> {
