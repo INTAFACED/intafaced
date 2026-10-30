@@ -160,7 +160,7 @@ test(`${J} #6 requests a refund inside the window: the amount returns once; with
 }) => {
   const { who, seller, title, price, purchaseId } = run.read();
   expect(purchaseId, 'a purchase from #4').toBeTruthy();
-  test.setTimeout(240_000);
+  test.setTimeout(420_000);
   const before = await usdt(who);
   const sellerBefore = await usdt(seller);
   await signIn(page, who);
@@ -222,6 +222,35 @@ test(`${J} #6 requests a refund inside the window: the amount returns once; with
   await page.reload();
   await expect(row).toContainText('Refunded');
   await expect(row.getByRole('link', { name: 'Receipt' })).toHaveCount(0);
+  // Or the buyer lets the window end: the release posts once to the seller (the price less the house commission), and the
+  // buyer's money stays spent.
+  await page.goto('/market');
+  await page.getByRole('article').filter({ hasText: title }).getByRole('button', { name: /^Buy/ }).click();
+  await page.getByRole('dialog').getByRole('button', { name: 'Confirm purchase' }).click();
+  await expect(page.getByRole('main').getByRole('status').filter({ hasText: 'Held until the refund window ends' })).toBeVisible();
+  const kept = await usdt(who);
+  const paid = await usdt(seller);
+  const [second] = await purchasesOf(who);
+  expect(second).toMatchObject({ status: 'held', flow: 'hold', outcome: null });
+  expect(second.id).not.toBe(purchaseId);
+  await expect
+    .poll(async () => (await purchasesOf(who)).find((p) => p.id === second.id)?.status, { timeout: 200_000, intervals: [5_000] })
+    .toBe('released');
+  const released = (await purchasesOf(who)).find((p) => p.id === second.id);
+  expect(released).toMatchObject({ status: 'released', outcome: 'release' });
+  expect(released.outcomeTxId).toBeTruthy();
+  const net = toUnits(price) - (toUnits(price) * BigInt(released.commissionBps)) / 10_000n;
+  expect(toUnits((await usdt(seller)).free)).toBe(toUnits(paid.free) + net);
+  // The buyer's held price leaves their account for good: free is unchanged and the held amount is gone from used.
+  const after = await usdt(who);
+  expect(after.free).toBe(kept.free);
+  expect(toUnits(after.used)).toBe(toUnits(kept.used) - toUnits(price));
+  // Once: two more sweeps (5 s each on the stack) post nothing again.
+  await page.waitForTimeout(12_000);
+  expect(toUnits((await usdt(seller)).free)).toBe(toUnits(paid.free) + net);
+  await page.goto('/market/purchases');
+  await expect(bodyRows(tableIn(page, 'Your purchases')).filter({ hasText: 'Released to the seller' })).toHaveCount(1);
+  run.write({ releasedId: second.id });
 });
 
 test(`${J} #7 writes a review after a settled purchase: one review stored, a second refused as already reviewed, and a visitor with no purchase refused`, async ({
@@ -240,10 +269,10 @@ test(`${J} #7 writes a review after a settled purchase: one review stored, a sec
 test(`${J} #8 opens /market/purchases: price, window and status for each; a pending settlement is not shown as a receipt`, async ({
   page,
 }) => {
-  test.setTimeout(240_000);
-  const { who, title } = run.read();
+  const { who, title, releasedId } = run.read();
+  expect(releasedId, 'the purchase #6 let its window end on').toBeTruthy();
   await signIn(page, who);
-  // A held purchase (money not yet with the seller) next to the same purchase once released: only the released one is a receipt.
+  // A held purchase (money not yet with the seller) next to a released one: only the released one is a receipt.
   await page.goto('/market');
   const card = page.getByRole('article').filter({ hasText: title });
   await card.getByRole('button', { name: /^Buy/ }).click();
@@ -263,11 +292,8 @@ test(`${J} #8 opens /market/purchases: price, window and status for each; a pend
   await expect(heldRow).toHaveCount(1);
   await expect(heldRow).toContainText(/\d/);
   await expect(heldRow.getByRole('link', { name: 'Receipt' })).toHaveCount(0);
-  // The sweep releases it when its window ends; the page then offers its receipt.
-  await expect
-    .poll(async () => (await purchasesOf(who)).find((row) => row.id === held.id)?.status, { timeout: 200_000, intervals: [5_000] })
-    .toBe('released');
-  await page.reload();
+  // The purchase #6 let its window end was released to the seller: that one is a receipt.
+  expect((await purchasesOf(who)).find((row) => row.id === releasedId)?.status).toBe('released');
   const released = rows.filter({ hasText: 'Released to the seller' });
   await expect(released).toHaveCount(1);
   await expect(released.getByRole('link', { name: 'Receipt' })).toHaveCount(1);
