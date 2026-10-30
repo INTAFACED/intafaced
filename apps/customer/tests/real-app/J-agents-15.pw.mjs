@@ -174,19 +174,25 @@ test(`${J} #4 opens a transcript with retention unset: the typed refusal and no 
   } finally {
     await ownerValue('LOCAL_STACK_AGENTS_TRANSCRIPT_RETENTION', true);
   }
-  // With retention back on, that call still has no text: its transcript is refused as not kept.
+  // With retention back on, that call still has no text, and the text kept before it was unset was purged with it
+  // (unset retention keeps none): both transcripts are refused as not kept.
   await search(page, true);
-  await actionRow(page, unkept).getByRole('button', { name: 'Open transcript' }).click();
-  await expect(main(page).getByRole('alert')).toContainText('(agents.transcript_not_kept)');
-  await expect(main(page).getByRole('region', { name: 'Transcript' })).toHaveCount(0);
+  for (const actionId of [unkept, ranActionId]) {
+    await actionRow(page, actionId).getByRole('button', { name: 'Open transcript' }).click();
+    await expect(main(page).getByRole('alert')).toContainText('(agents.transcript_not_kept)');
+    await expect(main(page).getByRole('region', { name: 'Transcript' })).toHaveCount(0);
+  }
 });
 
 test(`${J} #5 opens a transcript after the owner sets retention: text whose digest equals the action row's; the read needs a reason and writes one audit row`, async ({
   page,
 }) => {
-  const { ranActionId } = agents.run.read();
+  // The customer runs their agent again, in their own session, now that retention is set.
+  const { sessionId, task } = agents.run.read();
+  const ran = await ownRun(sessionId, `${sessionId}:retention-set`, task);
+  expect(ran.status).toBe(200);
   await search(page, true);
-  const row = actionRow(page, ranActionId);
+  const row = actionRow(page, ran.body.result.data.action.id);
   const digest = await row.getByTestId('action-digest').innerText();
   expect(digest).toMatch(/^[0-9a-f]{64}$/);
   // Without a reason the transcript is not read.
