@@ -219,7 +219,7 @@ interface WithdrawalRow {
   reserve_before: string;
   reserve_after: string;
   daily_cap: string;
-  cap_used: string;
+  cap_withdrawn_today: string;
   cap_remaining: string;
   step_up_event_id: string;
   applied_at: Date;
@@ -238,7 +238,7 @@ const withdrawalFromRow = (row: WithdrawalRow): GridWithdrawal => ({
   reserveBefore: parseAmount(row.reserve_before),
   reserveAfter: parseAmount(row.reserve_after),
   dailyCap: parseAmount(row.daily_cap),
-  capUsed: parseAmount(row.cap_used),
+  capUsed: parseAmount(row.cap_withdrawn_today),
   capRemaining: parseAmount(row.cap_remaining),
   stepUpEventId: row.step_up_event_id,
   appliedAt: row.applied_at,
@@ -246,7 +246,7 @@ const withdrawalFromRow = (row: WithdrawalRow): GridWithdrawal => ({
 
 const WITHDRAWAL_COLUMNS = `withdrawal_key, bot_id, user_id, request_id, request_hash, asset, amount::text AS amount,
   profit_before::text AS profit_before, profit_after::text AS profit_after, reserve_before::text AS reserve_before,
-  reserve_after::text AS reserve_after, daily_cap::text AS daily_cap, cap_used::text AS cap_used,
+  reserve_after::text AS reserve_after, daily_cap::text AS daily_cap, cap_withdrawn_today::text AS cap_withdrawn_today,
   cap_remaining::text AS cap_remaining, step_up_event_id, applied_at`;
 
 function levelsFromJson(botId: string, raw: unknown): GridLevelPlan[] {
@@ -472,7 +472,7 @@ export class SqlGridStore implements GridStore {
       });
       await tx`
         INSERT INTO grid_bot_withdrawals (withdrawal_key, bot_id, user_id, request_id, request_hash, asset, amount,
-                                          profit_before, profit_after, reserve_before, reserve_after, daily_cap, cap_used,
+                                          profit_before, profit_after, reserve_before, reserve_after, daily_cap, cap_withdrawn_today,
                                           cap_remaining, step_up_event_id, applied_at)
         VALUES (${w.withdrawalId}, ${w.botId}, ${w.userId}, ${w.requestId}, ${w.requestHash}, ${w.asset}, ${formatAmount(w.amount)},
                 ${formatAmount(w.profitBefore)}, ${formatAmount(w.profitAfter)}, ${formatAmount(w.reserveBefore)},
