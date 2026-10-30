@@ -3,6 +3,7 @@
 import { useCallback, useState } from 'react';
 import type { SupportKbDraft, SupportKbHistory, SupportKbTemplate } from '@intafaced/contracts';
 import { formatAsOf } from '@/lib/as-of';
+import { founderMutationHeaders } from '@/lib/founder-browser';
 import { baseRevisionOf, KB_ID, labelsFrom, previewParagraphs, type KbAuthoringView } from '@/lib/support/kb-authoring';
 import { ConfirmStep } from './support-action-parts';
 
@@ -44,16 +45,28 @@ async function readView(id: string): Promise<KbAuthoringView | null> {
 }
 
 async function send(body: Record<string, unknown>): Promise<Outcome & { data?: Record<string, unknown> }> {
+  let headers: Record<string, string>;
+  try {
+    headers = await founderMutationHeaders();
+  } catch (error) {
+    // Nothing was sent: the session nonce could not be had.
+    const why = error instanceof Error ? error.message : 'Your founder session is unavailable.';
+    return { ok: false, refusal: { title: 'Nothing was sent', body: why, next: 'Sign in again.', code: 'admin.session_unavailable' } };
+  }
   try {
     const res = await fetch('/api/support/kb-authoring', {
       method: 'POST',
       credentials: 'same-origin',
-      headers: { 'content-type': 'application/json' },
+      headers,
       body: JSON.stringify(body),
     });
-    const json = (await res.json()) as { ok: boolean; data?: Record<string, unknown>; refusal?: RefusalView };
+    const json = (await res.json()) as { ok?: boolean; data?: Record<string, unknown>; refusal?: RefusalView; code?: string };
     if (json.ok && json.data) return { ok: true, summary: '', data: json.data };
     if (json.refusal) return { ok: false, refusal: json.refusal };
+    // The founder gate refused before svc-support was asked: nothing was saved.
+    if (typeof json.code === 'string') {
+      return { ok: false, refusal: { title: 'Nothing was sent', body: 'The founder console refused the request.', code: json.code } };
+    }
   } catch {
     // Falls through: the outcome is unknown, so the page says to read the state again.
   }
