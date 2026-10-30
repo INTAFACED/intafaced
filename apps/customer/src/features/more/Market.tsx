@@ -1,15 +1,15 @@
 import { SubNav } from '@intafaced/ui';
 import { copy, t as copyText, Text } from './copy';
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { z } from 'zod';
 import { useApi, useSession } from '../session/session';
 import { useResource } from '../../shared/resource';
+import { usePreferences } from '../../shared/preferences';
 import { decimalSchema, displayAmount, parseAmount } from '../../shared/money';
-import { Button, Field, Panel } from '../../shared/ui';
+import { Button, DataTable, Dialog, EmptyState, Field, Panel } from '../../shared/ui';
 import { MarketPurchaseRecords } from './MarketPurchaseRecords';
 import { ListingDetail, MarketFilters, SellerDirectory } from './MarketExplorer';
 import { filterListings, NO_FILTER, type ListingFilter } from './market-explorer';
-import { marketExplorerCopy } from './market-explorer-copy';
 import { Details, Limit, Read, Select, TextArea, useAction, presentActionFailure } from './common';
 import type { ApiResult, RefusalReason } from '../../shared/api';
 const uuid = z.string().guid(),
@@ -68,6 +68,8 @@ const purchaseSchema = z.object({
   status: z.enum(['pending', 'settled', 'rejected', 'held', 'released', 'refunded']),
   ledgerTxId: uuid.nullable(),
   rejectionCode: z.string().nullable(),
+  refundWindowEndsAt: time.nullable().optional(),
+  refundRequestedAt: time.nullable().optional(),
   createdAt: time,
   settledAt: time.nullable(),
   accessUntil: time.nullable(),
@@ -101,12 +103,41 @@ const slotsSchema = z.object({
   usable: z.number().int().nonnegative(),
   slots: z.array(slotSchema),
 });
-const programmeSchema = z.object({ commissionBps: z.number().int().nonnegative().nullable(), commissionConfigured: z.boolean() });
+const programmeSchema = z.object({
+  commissionBps: z.number().int().nonnegative().nullable(),
+  commissionConfigured: z.boolean(),
+  // Blank until the owner decides it: every refund request and refund refuses owner.decision (MC-market-02).
+  refundPolicy: z.enum(['seller_full']).nullable().optional(),
+});
+/** The service's typed refusal while the refund policy is blank, shown in the room's own words; nothing moved. */
+const refundPolicyUnset = <T,>(result: ApiResult<T>): ApiResult<T> =>
+  !result.ok && result.code === 'owner.decision'
+    ? presentActionFailure(result, (locale) => {
+        const current = copy.forLocale(locale);
+        return { message: current.t('market.refund.policy.is.not.set'), language: current.languageFor('market.refund.policy.is.not.set') };
+      })
+    : result;
 export function Market({ mine = false, strategy = false }: { mine?: boolean; strategy?: boolean }) {
   const api = useApi(),
     { userId } = useSession(),
     action = useAction('market', {
       recover: async (reference) => {
+        // A refund: the service's refund is keyed on the purchase, so asking again returns the stored outcome
+        // (the whole price returns once); a purchase that is no longer held is a known outcome, not a pending one. So is
+        // owner.decision: the service refuses it only before any refund was claimed, so nothing moved.
+        if (reference.startsWith('refund:')) {
+          const id = reference.slice('refund:'.length);
+          const again = await api.mutate(
+            'market',
+            'refund',
+            { purchaseId: id },
+            purchaseSchema.refine((p) => p.id === id && p.status === 'refunded', copyText('market.refund.response.does.not.match')),
+          );
+          return !again.ok && (again.code === 'market.refund_not_held' || again.code === 'owner.decision')
+            ? { ok: true, data: null }
+            : again;
+        }
+        const requested = reference.startsWith('refund-request:') ? reference.slice('refund-request:'.length) : null;
         const rows = await api.query(
           'market',
           'myPurchases',
@@ -116,6 +147,13 @@ export function Market({ mine = false, strategy = false }: { mine?: boolean; str
             .refine((rows) => rows.every((r) => r.buyerId === userId), copyText('market.purchase.list.belongs.to.another.account')),
         );
         if (!rows.ok) return rows;
+        if (requested) {
+          const held = rows.data.find((r) => r.id === requested);
+          if (!held) return marketRefusal('uncertain', 'market.the.original.purchase.is.not.present.in');
+          if (held.refundRequestedAt || held.status !== 'held') return { ok: true, data: held };
+          // The request never landed: it is still the buyer's to send, so the original is known to have failed.
+          return { ok: true, data: null };
+        }
         const row = rows.data.find((r) => r.id === reference);
         return row ? originalPurchaseOutcome(row) : marketRefusal('uncertain', 'market.the.original.purchase.is.not.present.in');
       },
@@ -178,6 +216,28 @@ export function Market({ mine = false, strategy = false }: { mine?: boolean; str
       ),
     `purchases:${userId}:${limit}`,
   );
+  // The seller's held purchases whose buyer asked for a refund (MC-market-02).
+  const refundRequests = useResource(
+    (signal) =>
+      mine || strategy
+        ? api.query(
+            'market',
+            'refundRequests',
+            { limit: 50 },
+            z
+              .array(purchaseSchema)
+              .refine(
+                (rows) => rows.every((r) => r.vendorUserId === userId),
+                copyText('market.seller.ownership.does.not.match.this.account'),
+              ),
+            { signal },
+          )
+        : Promise.resolve({ ok: true as const, data: [] }),
+    `refund-requests:${userId}:${mine}:${strategy}`,
+  );
+  const preferences = usePreferences();
+  const when = (at: string) =>
+    new Intl.DateTimeFormat(preferences.language, { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(at));
   const vendor = useResource(
       (signal) =>
         mine || strategy
@@ -200,13 +260,22 @@ export function Market({ mine = false, strategy = false }: { mine?: boolean; str
           : Promise.resolve({ ok: true as const, data: null }),
       `slots:${userId}:${mine}:${strategy}`,
     );
+  // The stored outcome of the last purchase, so its success line says held when the service held it.
+  const bought = useRef<'held' | 'paid'>('paid');
+  const ownRows = purchases.resource.status === 'ready' ? purchases.resource.data : [];
+  const heldPurchaseOf = (listingId: string) => ownRows.find((p) => p.listingId === listingId && p.status === 'held');
+  const titleOf = (listingId: string) =>
+    listings.resource.status === 'ready' ? listings.resource.data.find((row) => row.id === listingId)?.title : undefined;
   function buy(row: z.infer<typeof listingSchema>) {
     const purchaseId = crypto.randomUUID();
     action.stage({
       title: () => copyText('market.review.purchase'),
       reference: purchaseId,
       confirm: () => copyText('market.confirm.purchase'),
-      success: () => copyText('market.purchase.outcome.received.read.its.settlement.status'),
+      success: () =>
+        bought.current === 'held'
+          ? copyText('market.purchase.held')
+          : copyText('market.purchase.outcome.received.read.its.settlement.status'),
       content: () => (
         <Details
           items={[
@@ -253,7 +322,10 @@ export function Market({ mine = false, strategy = false }: { mine?: boolean; str
             copyText('market.purchase.response.does.not.match.the.reviewed'),
           ),
         );
-        if (result.ok) return originalPurchaseOutcome(result.data);
+        if (result.ok) {
+          bought.current = result.data.status === 'held' ? 'held' : 'paid';
+          return originalPurchaseOutcome(result.data);
+        }
         if (result.reason === 'aborted' || result.status === 401 || result.status === 403) return result;
         // The existing pending banner supplies authored recovery guidance.
         // Retain the original service explanation or transport copy descriptor.
@@ -262,6 +334,80 @@ export function Market({ mine = false, strategy = false }: { mine?: boolean; str
       done: purchases.reload,
     });
   }
+  function requestRefund(row: z.infer<typeof purchaseSchema>) {
+    action.stage({
+      title: () => copyText('market.ask.the.seller.for.a.refund'),
+      reference: `refund-request:${row.id}`,
+      confirm: () => copyText('market.request.refund'),
+      success: () => copyText('market.refund.requested'),
+      content: () => (
+        <>
+          <Details
+            items={[
+              [copyText('market.listing'), <span lang="und">{titleOf(row.listingId) ?? row.listingId}</span>],
+              [copyText('market.price'), <MarketPrice price={row.price} assetId={row.assetId} />],
+            ]}
+          />
+          {row.refundWindowEndsAt && <p>{copyText('market.refund.request.body', { value1: when(row.refundWindowEndsAt) })}</p>}
+        </>
+      ),
+      run: async () =>
+        refundPolicyUnset(
+          await api.mutate(
+            'market',
+            'requestRefund',
+            { purchaseId: row.id },
+            purchaseSchema.refine(
+              (p) => p.id === row.id && p.buyerId === userId && p.status === 'held' && Boolean(p.refundRequestedAt),
+              copyText('market.refund.response.does.not.match'),
+            ),
+          ),
+        ),
+      done: purchases.reload,
+    });
+  }
+  function refund(row: z.infer<typeof purchaseSchema>) {
+    action.stage({
+      title: () => copyText('market.refund.the.buyer'),
+      reference: `refund:${row.id}`,
+      confirm: () => copyText('market.refund.the.buyer'),
+      success: () => copyText('market.refunded'),
+      content: () => (
+        <>
+          <Details
+            items={[
+              [copyText('market.listing'), <span lang="und">{titleOf(row.listingId) ?? row.listingId}</span>],
+              [copyText('market.buyer'), <code lang="zxx">{row.buyerId}</code>],
+              [copyText('market.price'), <MarketPrice price={row.price} assetId={row.assetId} />],
+            ]}
+          />
+          <p>
+            <Text k="market.refund.body" />
+          </p>
+        </>
+      ),
+      run: async () =>
+        refundPolicyUnset(
+          await api.mutate(
+            'market',
+            'refund',
+            { purchaseId: row.id },
+            purchaseSchema.refine(
+              (p) => p.id === row.id && p.buyerId === row.buyerId && p.status === 'refunded',
+              copyText('market.refund.response.does.not.match'),
+            ),
+          ),
+        ),
+      done: refundRequests.reload,
+    });
+  }
+  // Read from the service: null means the owner has not decided it, so the room names that blocker beside the refund controls.
+  const policyUnset = programme.resource.status === 'ready' && programme.resource.data.refundPolicy === null;
+  const policyNote = (
+    <p className="muted" role="note" data-code="owner.decision">
+      <Text k="market.refund.policy.is.not.set" /> <code lang="zxx">owner.decision</code>
+    </p>
+  );
   const validPrice = decimalSchema.safeParse(price).success && parseAmount(price) > 0n;
   const validPeriod = /^[1-9]\d*$/.test(period) && Number.isSafeInteger(Number(period));
   return (
@@ -298,15 +444,45 @@ export function Market({ mine = false, strategy = false }: { mine?: boolean; str
               <>
                 <MarketFilters rows={allRows} filter={filter} onChange={setFilter} shown={rows.length} />
                 {detail ? (
-                  <ListingDetail
-                    row={detail}
-                    signedIn={Boolean(userId)}
-                    onClose={() => setDetailId(null)}
-                    onSeller={(vendorId) => {
-                      setFilter({ ...NO_FILTER, vendorId });
-                      setDetailId(null);
-                    }}
-                  />
+                  <Dialog title={<span lang="und">{detail.title}</span>} onClose={() => setDetailId(null)}>
+                    <ListingDetail
+                      row={detail}
+                      signedIn={Boolean(userId)}
+                      onClose={() => setDetailId(null)}
+                      onSeller={(vendorId) => {
+                        setFilter({ ...NO_FILTER, vendorId });
+                        setDetailId(null);
+                      }}
+                    >
+                      <div className="market-catalogue-price">
+                        <span className="muted">
+                          <Text k="market.price" />
+                        </span>
+                        <div role="group" aria-label={copyText('market.price')}>
+                          <strong className="numeric" lang="zxx">
+                            {displayAmount(detail.price)}
+                          </strong>{' '}
+                          <span lang="zxx">{detail.assetId}</span>
+                        </div>
+                      </div>
+                      {mine || strategy ? null : (
+                        <>
+                          {heldPurchaseOf(detail.id) ? (
+                            <p>
+                              <Text k="market.you.own.this.held" />
+                            </p>
+                          ) : null}
+                          <Button
+                            disabled={action.disabled || detail.status !== 'active' || Boolean(heldPurchaseOf(detail.id))}
+                            onClick={() => buy(detail)}
+                          >
+                            {detail.offerType === 'subscription' ? <Text k="market.buy.one.period" /> : <Text k="market.buy" />}
+                          </Button>
+                        </>
+                      )}
+                      {action.feedback}
+                    </ListingDetail>
+                  </Dialog>
                 ) : null}
                 <div className="more-rooms market-catalogue-list">
                   {rows.map((row) => (
@@ -365,10 +541,11 @@ export function Market({ mine = false, strategy = false }: { mine?: boolean; str
                         </div>
                         <Button
                           variant="ghost"
-                          aria-pressed={detailId === row.id}
-                          onClick={() => setDetailId(detailId === row.id ? null : row.id)}
+                          aria-label={copyText('market.view.listing.2', { value1: row.title })}
+                          lang="und"
+                          onClick={() => setDetailId(row.id)}
                         >
-                          {marketExplorerCopy.t('details')}
+                          <Text k="market.view.listing" />
                         </Button>
                         {mine || strategy ? (
                           <Button
@@ -414,7 +591,7 @@ export function Market({ mine = false, strategy = false }: { mine?: boolean; str
                           </Button>
                         ) : (
                           <Button
-                            disabled={action.disabled || row.status !== 'active'}
+                            disabled={action.disabled || row.status !== 'active' || Boolean(heldPurchaseOf(row.id))}
                             onClick={() => buy(row)}
                             onFocus={(event) => {
                               const target = event.currentTarget;
@@ -654,11 +831,75 @@ export function Market({ mine = false, strategy = false }: { mine?: boolean; str
           </Panel>
         </div>
       )}
+      {(mine || strategy) && (
+        <Panel title={copyText('market.refund.requests')}>
+          <p className="muted">
+            <Text k="market.refund.requests.meaning" />
+          </p>
+          {policyUnset && policyNote}
+          <Read resource={refundRequests.resource} retry={refundRequests.reload}>
+            {(rows) =>
+              rows.length ? (
+                <DataTable
+                  label={copyText('market.refund.requests')}
+                  headers={[
+                    copyText('market.listing'),
+                    copyText('market.price'),
+                    copyText('market.refund.window.ends'),
+                    copyText('market.requested.at'),
+                    copyText('market.buyer'),
+                    copyText('market.refund'),
+                  ]}
+                >
+                  {rows.map((row) => (
+                    <tr key={row.id}>
+                      <td>
+                        <span lang="und">{titleOf(row.listingId) ?? row.listingId}</span>
+                      </td>
+                      <td>
+                        <MarketPrice price={row.price} assetId={row.assetId} />
+                      </td>
+                      <td>{row.refundWindowEndsAt ? when(row.refundWindowEndsAt) : null}</td>
+                      <td>{row.refundRequestedAt ? when(row.refundRequestedAt) : null}</td>
+                      <td>
+                        <code lang="zxx">{row.buyerId}</code>
+                      </td>
+                      <td>
+                        <Button variant="secondary" disabled={action.disabled} onClick={() => refund(row)}>
+                          <Text k="market.refund" />
+                        </Button>
+                      </td>
+                    </tr>
+                  ))}
+                </DataTable>
+              ) : (
+                <EmptyState title={copyText('market.no.refund.requests')} />
+              )
+            }
+          </Read>
+        </Panel>
+      )}
       <Panel title={copyText('market.your.purchases')}>
         <MarketPurchaseRecords
           resource={purchases.resource}
           reload={purchases.reload}
           limit={limit}
+          titleOf={titleOf}
+          refundNote={policyUnset ? policyNote : undefined}
+          renderRefund={(row) => (
+            <Button
+              variant="secondary"
+              disabled={
+                action.disabled ||
+                Boolean(row.refundRequestedAt) ||
+                !row.refundWindowEndsAt ||
+                Date.parse(row.refundWindowEndsAt) <= Date.now()
+              }
+              onClick={() => requestRefund(row)}
+            >
+              <Text k="market.ask.for.a.refund" />
+            </Button>
+          )}
           renderCancel={(row) => (
             <Button
               variant="secondary"
@@ -693,7 +934,7 @@ export function Market({ mine = false, strategy = false }: { mine?: boolean; str
           )}
         />
       </Panel>
-      {action.feedback}
+      {detailId ? null : action.feedback}
       {action.dialog}
     </div>
   );
