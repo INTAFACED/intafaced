@@ -124,6 +124,7 @@ const messages = {
   'OTC ask': 'Get desk price',
   'OTC mismatch': 'The desk answered for a different request, so it is not shown. Ask again.',
   'OTC price': 'OTC price',
+  'OTC price value': '{price} {asset}',
   'OTC settles within': 'Settles within {seconds} s of confirming.',
   'OTC settles by expiry': 'Settles when you confirm, before the price expires at {time}.',
   'OTC you pay': 'You pay',
