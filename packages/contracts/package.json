@@ -46,9 +46,17 @@
       "types": "./dist/protocol-representation.d.ts",
       "default": "./dist/protocol-representation.js"
     },
+    "./protocol-fees": {
+      "types": "./dist/protocol-fees.d.ts",
+      "default": "./dist/protocol-fees.js"
+    },
     "./protocol-swap": {
       "types": "./dist/protocol-swap.d.ts",
       "default": "./dist/protocol-swap.js"
+    },
+    "./protocol-address-book": {
+      "types": "./dist/protocol-address-book.d.ts",
+      "default": "./dist/protocol-address-book.js"
     },
     "./ops-console-mode": {
       "types": "./dist/ops-console-mode.d.ts",

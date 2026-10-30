@@ -362,6 +362,32 @@ const script = resolve(here, 'local-test-stack.mjs');
   console.log('local-test-stack: token governance TEST values come from the token profile');
 }
 
+// LOCAL_STACK_TRADE_COPY_JURISDICTION=blank leaves only the TEST copy country list blank, so J-copy-bots-otc-01 #5 can
+// restart trade to show every follow refused; every other trade value stays as the profile sets it.
+{
+  const { localTestServiceEnvs } = await import('./local-test-stack.mjs');
+  const { loadProfile } = await import('./owner-settings.mjs');
+  const profile = loadProfile().values;
+  const before = process.env.LOCAL_STACK_TRADE_COPY_JURISDICTION;
+  try {
+    delete process.env.LOCAL_STACK_TRADE_COPY_JURISDICTION;
+    const set = localTestServiceEnvs().find((service) => service.name === 'trade').env;
+    assert.equal(set.TRADE_COPY_JURISDICTION_LAW, profile.TRADE_COPY_JURISDICTION_LAW.value);
+    process.env.LOCAL_STACK_TRADE_COPY_JURISDICTION = 'blank';
+    const blank = localTestServiceEnvs().find((service) => service.name === 'trade').env;
+    assert.equal(blank.TRADE_COPY_JURISDICTION_LAW, '', 'the blank switch must leave the copy country list blank');
+    assert.deepEqual(
+      { ...blank, TRADE_COPY_JURISDICTION_LAW: set.TRADE_COPY_JURISDICTION_LAW },
+      set,
+      'the blank switch must change nothing else in trade',
+    );
+  } finally {
+    if (before === undefined) delete process.env.LOCAL_STACK_TRADE_COPY_JURISDICTION;
+    else process.env.LOCAL_STACK_TRADE_COPY_JURISDICTION = before;
+  }
+  console.log('local-test-stack: the copy country list blank switch blanks only TRADE_COPY_JURISDICTION_LAW');
+}
+
 // The agents process routes the TEST Coach task on the stand-in engine at the profile's TEST route, verbatim, and
 // LOCAL_STACK_AGENTS_COACH_ROUTE=off drops only that route, so a journey can restart the lane to show "no Coach model".
 {
