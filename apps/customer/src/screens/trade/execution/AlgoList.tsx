@@ -19,6 +19,17 @@ function endWords(
   return parent.awaitingTrigger ? t('After the trigger price is reached') : when(parent.projectedEndsAt);
 }
 
+/** POV: the newest child's size and the volume or book size it was a share of, as the service stored them. */
+function lastSliceWords(
+  parent: Ok['parent'],
+  t: (key: 'Last slice of book' | 'Last slice of volume', vars: { qty: string; basis: string }) => string,
+): string | null {
+  const last = parent.children?.at(-1);
+  if (parent.kind !== 'pov' || !last?.qty || last.basisQty == null) return null;
+  const vars = { qty: fmtAmount(last.qty), basis: fmtAmount(last.basisQty) };
+  return parent.povBasis === 'opposite_liquidity' ? t('Last slice of book', vars) : t('Last slice of volume', vars);
+}
+
 const CANCEL_INCOMPLETE = 'cancel_incomplete';
 const TONE = { active: 'lime', paused: 'warn', halted: 'error', completed: 'neutral', cancelled: 'neutral' } as const;
 
@@ -250,7 +261,11 @@ export function AlgoDetail({ row, onClone }: { row: ParentRead; onClone: (parent
             }),
             hint: [
               parent.limitPrice ? t('Limit {price}', { price: parent.limitPrice }) : t('No limit'),
-              parent.participationBps ? t('{bps} bps of volume', { bps: String(parent.participationBps) }) : '',
+              parent.participationBps
+                ? parent.povBasis === 'opposite_liquidity'
+                  ? t('{bps} bps of opposite-side liquidity', { bps: String(parent.participationBps) })
+                  : t('{bps} bps of volume', { bps: String(parent.participationBps) })
+                : '',
             ]
               .filter(Boolean)
               .join(', '),
@@ -269,6 +284,7 @@ export function AlgoDetail({ row, onClone }: { row: ParentRead; onClone: (parent
               : null,
             hint: parent.triggerPrice ?? undefined,
           },
+          { label: t('Last slice'), value: lastSliceWords(parent, t) },
           { label: t('Slice sizes'), value: parent.randomSeed != null ? t('Random sizes', { seed: String(parent.randomSeed) }) : null },
           {
             label: t('Filled so far'),
