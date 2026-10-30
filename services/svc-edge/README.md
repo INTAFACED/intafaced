@@ -104,6 +104,8 @@ Every JSON-object error under `/api/*` carries `requestId`, equal to the header:
 
 The operator plane (`/admin/*`) and the probes get the headers only.
 
+**Response headers are an allowlist.** A proxied reply carries `content-type`; `set-cookie` only on the identity auth routes; the checkout's own policy headers only on checkout paths; and `cache-control` only on `/api/notify/status/badge.svg`, where svc-notify sets the image's cache life from its reading's age. Every other path gets no upstream `cache-control`.
+
 **Hop-by-hop headers are stripped, not forwarded.** The full RFC 7230 set (`connection`, `keep-alive`, `proxy-authenticate`, `proxy-authorization`, `te`, `trailer`, `transfer-encoding`, `upgrade`) plus `host` and `content-length` die in `stripReserved` before anything reaches an upstream. The edge rewrites `host`/`content-length` for the hop it owns; the rest must not be smuggled through the perimeter.
 
 **Unauthenticated `/ready` is not a kill-switch oracle.** It reports route prefixes, screening/CORS counts, rate-limit posture, and the body budget — not `disabledModules`. The halt list is operator-only on `GET /admin/status` (`admin:write` + MFA). Publishing it on `/ready` undid the preflight ordering that exists so an unauthenticated caller cannot learn which modules are killed.

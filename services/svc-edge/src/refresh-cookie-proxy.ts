@@ -20,6 +20,8 @@
 const REFRESH_COOKIE_NAME = 'ifc_rt';
 const REFRESH_COOKIE_PATHS = ['/trpc/auth.refresh', '/trpc/auth.logout'] as const;
 const PUBLIC_REFRESH_COOKIE_PATHS = ['/api/identity/trpc/auth.refresh', '/api/identity/trpc/auth.logout'] as const;
+/** The public status badge: svc-notify sets its cache life from the reading's age, so the edge passes it on. */
+const STATUS_BADGE_PATH = '/api/notify/status/badge.svg';
 
 function headerOne(value: string | string[] | undefined): string | undefined {
   const raw = Array.isArray(value) ? value[0] : value;
@@ -76,6 +78,10 @@ export function forwardUpstreamResponseHeaders(
   const out: Record<string, string | string[]> = {
     'content-type': upstream.get('content-type') ?? 'application/json',
   };
+  if (pathname === STATUS_BADGE_PATH) {
+    const cacheControl = upstream.get('cache-control');
+    if (cacheControl !== null) out['cache-control'] = cacheControl;
+  }
   if (!issuesRefreshCookie(pathname)) return out;
   const lines = setCookieLines(upstream).map(rewriteRefreshCookiePath);
   if (lines.length === 1) out['set-cookie'] = lines[0]!;
