@@ -29,6 +29,23 @@ async function record(who) {
   return res.body.result.data;
 }
 
+/** Both people's TEST USDT, read through their own API: a refusal must leave both where they were. */
+async function balances(payee, payer) {
+  return { payee: (await usdt(payee)).free, payer: (await usdt(payer)).free };
+}
+
+/**
+ * Runs `go` and returns the answer the page itself got from identity for `procedure`: the data, or the typed refusal
+ * code the service sent (`error.data.cause.code`), so a refusal is matched by its code and not only by its copy.
+ */
+async function answer(page, procedure, go) {
+  const res = page.waitForResponse((r) => r.url().includes(`/api/identity/trpc/${procedure}`));
+  await go();
+  const got = await res;
+  const body = await got.json();
+  return { status: got.status(), data: body.result?.data, code: body.error?.data?.cause?.code };
+}
+
 /** The link Receive prints under its QR code, which is what the code encodes. */
 async function receiveLink(page) {
   await page.goto('/pay/receive');
@@ -76,16 +93,32 @@ test(`${J} #3 QR: the signed code opens Send on the payee by account id; a tampe
   await discoverable.click();
   await expect(discoverable).not.toBeChecked();
   const hidden = await record(payee);
+  // The handle Send must show is the one identity holds for the payee, read back, not the one this test chose.
+  const handle = hidden.handle;
 
   await signOutBrowser(page.context());
   await signIn(page, payer);
   await page.goto('/pay/send');
-  await page.getByRole('textbox', { name: 'Handle' }).fill(payee.handle);
-  await page.getByRole('textbox', { name: 'Handle' }).press('Tab');
-  await expect(page.getByRole('alert'), 'finding by handle is off').toContainText('No one with this handle');
-  await page.goto(`${url.pathname}${url.search}`);
-  await expect(page.getByRole('textbox', { name: 'Handle' })).toHaveValue(payee.handle);
-  await expect(page.getByTestId('recipient-found')).toContainText(`@${payee.handle}`);
+  const search = await answer(page, 'users.resolveHandle', async () => {
+    await page.getByRole('textbox', { name: 'Handle' }).fill(handle);
+    await page.getByRole('textbox', { name: 'Handle' }).press('Tab');
+  });
+  expect(search, 'finding by handle is off: identity answers not found to others').toEqual({
+    status: 200,
+    data: { found: false },
+    code: undefined,
+  });
+  await expect(page.getByRole('alert')).toContainText('No one with this handle');
+  expect(await record(payee)).toEqual(hidden);
+
+  const scanned = await answer(page, 'qr.resolve', () => page.goto(`${url.pathname}${url.search}`));
+  expect(scanned, 'identity resolves the code to the payee by account id').toEqual({
+    status: 200,
+    data: { userId: hidden.userId, handle, self: false },
+    code: undefined,
+  });
+  await expect(page.getByRole('textbox', { name: 'Handle' })).toHaveValue(handle);
+  await expect(page.getByTestId('recipient-found')).toContainText(`@${handle}`);
   await expect(page.getByRole('alert')).toHaveCount(0);
 
   // It pays through the existing pay path: 1 TEST USDT lands in the payee's balance.
@@ -93,22 +126,30 @@ test(`${J} #3 QR: the signed code opens Send on the payee by account id; a tampe
   await page.getByLabel(/Amount/).fill('1');
   await page.getByRole('button', { name: 'Review' }).click();
   const review = page.getByRole('alertdialog');
-  await expect(review).toContainText(`@${payee.handle}`);
+  await expect(review).toContainText(`@${handle}`);
   await review.getByRole('button', { name: /^Send/ }).click();
   await expect(page.getByRole('alert')).toHaveCount(0);
   await expect.poll(async () => toUnits((await usdt(payee)).free) - held, { timeout: 30_000 }).toBe(toUnits('1'));
 
-  // The signature moved onto another account, and a changed last character: both refused, and nothing is read.
+  // The signature moved onto another account, and a changed last character: both refused identity.qr_invalid, and
+  // nothing moves: the payee's record and both balances read the same.
   const [v, , tag, sig] = code.split('.');
   const payerId = (await api(payer)).userId;
+  const paid = await balances(payee, payer);
   for (const bad of [`${v}.${payerId}.${tag}.${sig}`, `${code.slice(0, -1)}${code.endsWith('A') ? 'B' : 'A'}`]) {
     const tampered = new URL(link);
     tampered.searchParams.set('qr', bad);
-    await page.goto(`${tampered.pathname}${tampered.search}`);
+    const refused = await answer(page, 'qr.resolve', () => page.goto(`${tampered.pathname}${tampered.search}`));
+    expect(refused, `the tampered code ${bad} is refused by its typed code`).toEqual({
+      status: 400,
+      data: undefined,
+      code: 'identity.qr_invalid',
+    });
     await expect(page.getByRole('alert')).toContainText('This code is not valid');
     await expect(page.getByRole('textbox', { name: 'Handle' })).toHaveValue('');
     await expect(page.getByTestId('recipient-found')).toHaveCount(0);
     expect(await record(payee)).toEqual(hidden);
+    expect(await balances(payee, payer)).toEqual(paid);
   }
 });
 
@@ -118,9 +159,11 @@ test(`${J} #3 QR: with the signing key blank, Receive refuses the QR code and a 
   await signIn(page, payee);
   const signed = await receiveLink(page);
   const before = await record(payee);
+  const held = await balances(payee, payer);
   try {
     payQrKey(false);
-    await page.goto('/pay/receive');
+    const mine = await answer(page, 'qr.mine', () => page.goto('/pay/receive'));
+    expect(mine, 'with the key blank no code is made').toEqual({ status: 412, data: undefined, code: 'identity.qr_key_unset' });
     await expect(page.getByText('Your QR code isn’t set up')).toBeVisible();
     await expect(page.getByTestId('receive-link')).toContainText('identity.qr_key_unset');
     await expect(page.getByTestId('pay-qr')).toHaveCount(0);
@@ -130,10 +173,16 @@ test(`${J} #3 QR: with the signing key blank, Receive refuses the QR code and a 
     await signOutBrowser(page.context());
     await signIn(page, payer);
     const url = new URL(signed);
-    await page.goto(`${url.pathname}${url.search}`);
+    const refused = await answer(page, 'qr.resolve', () => page.goto(`${url.pathname}${url.search}`));
+    expect(refused, 'with the key blank a scan is refused by its typed code').toEqual({
+      status: 412,
+      data: undefined,
+      code: 'identity.qr_key_unset',
+    });
     await expect(page.getByRole('alert')).toContainText('Pay codes are off');
     await expect(page.getByTestId('recipient-found')).toHaveCount(0);
     expect(await record(payee)).toEqual(before);
+    expect(await balances(payee, payer)).toEqual(held);
   } finally {
     payQrKey(true);
   }
@@ -141,6 +190,7 @@ test(`${J} #3 QR: with the signing key blank, Receive refuses the QR code and a 
   await signOutBrowser(page.context());
   await signIn(page, payer);
   const url = new URL(signed);
-  await page.goto(`${url.pathname}${url.search}`);
-  await expect(page.getByTestId('recipient-found')).toContainText(`@${payee.handle}`);
+  const again = await answer(page, 'qr.resolve', () => page.goto(`${url.pathname}${url.search}`));
+  expect(again.data?.userId).toBe(before.userId);
+  await expect(page.getByTestId('recipient-found')).toContainText(`@${before.handle}`);
 });
