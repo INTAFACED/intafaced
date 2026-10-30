@@ -610,16 +610,26 @@ test(`${J} #6 opens a staking-style pool: unbonding states and pool status; a cl
   const held = (await api.query('earn.positions', { limit: 50, poolId: staking.id })).data;
   expect(held.map((p) => [p.id, p.principal])).toEqual([[position.id, '100']]);
 
-  // The saving already in it keeps earning: the bank's accrual job pays its first day, a day that has begun, in the
-  // closed pool, into the main balance read back from the bank.
+  // The saving already in it keeps earning: the bank's daily job, for every pool and with no pool named, pays its
+  // first day, a day that has begun, in the closed pool, into the main balance read back from the bank. Only that
+  // all-pools run pays this day, so a job that skipped closed pools would leave it unpaid and fail here.
   const firstDay = Date.parse(position.accruesFrom);
   const perDay = fromUnits(daily('100', 100));
   const unpaid = await mainUsdt(api);
-  expect(await accrue(staking.id, new Date(firstDay + 60 * 60 * 1000))).toMatchObject({
+  const everyPool = await job('ops.accrueInterest', { at: new Date(firstDay + 60 * 60 * 1000).toISOString() });
+  expect(everyPool.failures.filter((f) => f.poolId === staking.id)).toEqual([]);
+  const closedPoolDays = everyPool.results.filter((r) => r.poolId === staking.id);
+  expect(closedPoolDays).toHaveLength(1);
+  expect(closedPoolDays[0]).toMatchObject({
     date: dayOf(firstDay),
     paid: perDay,
     recipients: 1,
     alreadyAccrued: false,
+  });
+  expect(await mainUsdt(api)).toBe(unpaid + toUnits(perDay));
+  expect(await accrue(staking.id, new Date(firstDay + 2 * 60 * 60 * 1000))).toMatchObject({
+    date: dayOf(firstDay),
+    alreadyAccrued: true,
   });
   expect(await mainUsdt(api)).toBe(unpaid + toUnits(perDay));
   await page.reload();
