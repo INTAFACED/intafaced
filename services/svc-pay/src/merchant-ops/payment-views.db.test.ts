@@ -173,6 +173,19 @@ describe('payment views and unmask (real Postgres)', () => {
     expect(masked.has(foreign)).toBe(false);
   });
 
+  it('keeps the unmask audit append-only in the database: no row is edited or removed', async () => {
+    const finance = caller('finance');
+    await privacy.unmask(finance, { paymentId: paid, field: 'customerEmail', reason: 'TEST immutable audit' });
+    const [row] = await sql<Array<{ id: string }>>`SELECT id::text FROM pay.payment_unmask_reads ORDER BY created_at DESC LIMIT 1`;
+    await expect(sql`UPDATE pay.payment_unmask_reads SET reason = 'TEST rewritten reason' WHERE id = ${row!.id}::uuid`).rejects.toThrow(
+      'pay.payment_unmask_read_immutable',
+    );
+    await expect(sql`DELETE FROM pay.payment_unmask_reads WHERE id = ${row!.id}::uuid`).rejects.toThrow(
+      'pay.payment_unmask_read_immutable',
+    );
+    expect((await sql`SELECT reason FROM pay.payment_unmask_reads WHERE id = ${row!.id}::uuid`)[0]!.reason).toBe('TEST immutable audit');
+  });
+
   it('masks the rail reference for roles that cannot unmask', () => {
     expect(maskRailRef('TEST-rail-ref-0001')).toBe('***0001');
     expect(maskRailRef('short')).toBe('***');

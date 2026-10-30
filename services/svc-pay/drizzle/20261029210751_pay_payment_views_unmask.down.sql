@@ -4,3 +4,4 @@
 
 DROP TABLE IF EXISTS "pay"."payment_unmask_reads";
 DROP TABLE IF EXISTS "pay"."payment_views";
+DROP FUNCTION IF EXISTS "pay"."payment_unmask_reads_immutable"();

@@ -1542,6 +1542,8 @@ export class PayService {
      * name a live payment the caller must not see.
      */
     railMode?: 'sandbox';
+    /** False for a caller who reads the rail reference masked, so a search cannot confirm a guessed reference. */
+    searchRailRef?: boolean;
   }): Promise<PaymentPage> {
     return paymentReads.listPayments(this.internal, input);
   }

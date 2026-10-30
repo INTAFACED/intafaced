@@ -46,3 +46,10 @@ CREATE TABLE IF NOT EXISTS "pay"."payment_unmask_reads" (
 
 CREATE INDEX IF NOT EXISTS "payment_unmask_reads_merchant"
   ON "pay"."payment_unmask_reads" ("merchant_id", "created_at" DESC, "id" DESC);
+
+-- The unmask audit is append-only in the database too, not only in the service: no row is edited or removed.
+CREATE OR REPLACE FUNCTION "pay"."payment_unmask_reads_immutable"() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN RAISE EXCEPTION 'pay.payment_unmask_read_immutable'; END; $$;
+DROP TRIGGER IF EXISTS "payment_unmask_reads_immutable" ON "pay"."payment_unmask_reads";
+CREATE TRIGGER "payment_unmask_reads_immutable" BEFORE UPDATE OR DELETE ON "pay"."payment_unmask_reads"
+  FOR EACH ROW EXECUTE FUNCTION "pay"."payment_unmask_reads_immutable"();

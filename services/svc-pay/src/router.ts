@@ -1169,7 +1169,7 @@ export function createPayRouter(
         .query(({ ctx, input }) =>
           wrap(async () => {
             const audience = await assertRead(ctx.principal.userId, input.merchantId, 'trpc.payment.list', 'payments.read');
-            const page = await pay.listPayments(input);
+            const page = await pay.listPayments({ ...input, searchRailRef: seesClearRailRef(audience) });
             // M-adv-payments-core-01: the payer email is masked for every role (`payment.unmask` shows one clear value,
             // audited), and a role that cannot unmask reads the rail reference masked (`railRefFor`).
             const emails = paymentPrivacy
