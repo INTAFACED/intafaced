@@ -84,7 +84,10 @@ beforeEach(() => {
     'loans.products': { status: 'ready', data: [product] },
     'loans.quote': { status: 'ready', data: quote },
     'loans.eligibility': { status: 'ready', data: eligible },
-    'loans.fees': { status: 'ready', data: { productId: PRODUCT, assetId: 'USDT', origination: { status: 'not_set' } } },
+    'loans.fees': {
+      status: 'ready',
+      data: { productId: PRODUCT, assetId: 'USDT', origination: { status: 'published', bps: 0, amount: '0', collectable: true } },
+    },
   };
   host = document.createElement('div');
   document.body.append(host);
@@ -153,13 +156,26 @@ describe('LoanApply', () => {
   });
 
   it('names each eligibility condition, the jurisdiction rules as not set, and the fee table as not set', async () => {
+    reads['loans.eligibility'] = {
+      status: 'ready',
+      data: {
+        ...eligible,
+        eligible: false,
+        reasons: eligible.reasons.map((r) =>
+          r.key === 'origination_fee' ? { key: 'origination_fee', state: 'unmet', code: 'bank.loan_fee_unset' } : r,
+        ),
+      },
+    };
+    reads['loans.fees'] = { status: 'ready', data: { productId: PRODUCT, assetId: 'USDT', origination: { status: 'not_set' } } };
     await mount();
     const list = testId('loan-apply-eligibility')!;
-    expect(list.getAttribute('data-eligible')).toBe('true');
+    expect(list.getAttribute('data-eligible')).toBe('false');
+    expect(list.querySelector('[data-key="origination_fee"]')?.getAttribute('data-code')).toBe('bank.loan_fee_unset');
     expect(list.querySelector('[data-key="jurisdiction_rules"]')?.getAttribute('data-state')).toBe('not_set');
     expect(list.textContent).toContain('The bank has published no rules for where you live');
     expect(testId('loan-apply-fee')?.getAttribute('data-state')).toBe('not_set');
     expect(testId('loan-apply-fee')?.textContent).toContain('has not published its fee for opening a loan, so new loans are refused');
+    expect(button('Review and open').disabled).toBe(true);
   });
 
   it('a policy that is off keeps review off and names the condition and its code', async () => {

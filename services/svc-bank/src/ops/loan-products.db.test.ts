@@ -141,7 +141,7 @@ describe('ops.createLoanProduct (BK-loan-02)', () => {
     return createBankServices(sql, ledger, memoryLedgerHistory(ledger), {
       nativeAssetId: 'IFC',
       recipients: memoryRecipientState(),
-      loans: { priceSource: fixedPriceSource({ BTC: { price: '1' } }) },
+      loans: { originationFeeBps: '0', priceSource: fixedPriceSource({ BTC: { price: '1' } }) },
     });
   }
 

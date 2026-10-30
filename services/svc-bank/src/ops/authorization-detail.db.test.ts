@@ -85,7 +85,7 @@ describe('ops.authorizationGet (BK-cops-01)', () => {
       nativeAssetId: 'IFC',
       recipients: memoryRecipientState(),
       cards: { issuer: cardSim() },
-      loans: { priceSource: fixedPriceSource({ BTC: { price: '1' } }) },
+      loans: { originationFeeBps: '0', priceSource: fixedPriceSource({ BTC: { price: '1' } }) },
     });
   }
 

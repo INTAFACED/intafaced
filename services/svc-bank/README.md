@@ -129,21 +129,21 @@ The occurrences that were written off are in the **response**, not merely in the
 
 ### `loans` — **built.** Collateralised borrow over the ledger (§8.1)
 
-| Procedure             | Scope        | Purpose                                                                                                                      |
-| --------------------- | ------------ | ---------------------------------------------------------------------------------------------------------------------------- |
-| `loans.products`      | `bank:read`  | Open products with APR, LTV, margin-call and liquidation thresholds                                                          |
-| `loans.open`          | `bank:write` | Lock collateral and draw principal; `loanId` is client-supplied (§5)                                                         |
-| `loans.list`          | `bank:read`  | The user's loans with outstanding principal/interest derived at read                                                         |
-| `loans.health`        | `bank:read`  | Portfolio mark — LTV view only; never acts                                                                                   |
-| `loans.addCollateral` | `bank:write` | Top up collateral (the cheap way out of a margin call)                                                                       |
-| `loans.repay`         | `bank:write` | Pay interest first, then principal; may close the loan                                                                       |
-| `loans.close`         | `bank:write` | Release collateral when the loan owes nothing                                                                                |
-| `loans.interestRows`  | `bank:read`  | Each accrual day and each approved interest correction, with totals                                                          |
-| `loans.ledgerCheck`   | `bank:read`  | This loan's settled rows against the ledger's transactions, per leg                                                          |
-| `loans.quote`         | `bank:read`  | The smallest pledge `open` accepts for a principal, its LTV and liquidation price; refuses without a mark                    |
-| `loans.eligibility`   | `bank:read`  | Lending policy, product, assets, fee and jurisdiction, each met, unmet or not set                                            |
-| `loans.fees`          | `bank:read`  | Origination fee: not set, or published bps and its amount; a published non-zero fee refuses `open` (`bank.loan_fee_unwired`) |
-| `loans.terms`         | `bank:read`  | The borrower's terms snapshotted on the loan row at open                                                                     |
+| Procedure             | Scope        | Purpose                                                                                                                                                                         |
+| --------------------- | ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `loans.products`      | `bank:read`  | Open products with APR, LTV, margin-call and liquidation thresholds                                                                                                             |
+| `loans.open`          | `bank:write` | Lock collateral and draw principal; `loanId` is client-supplied (§5)                                                                                                            |
+| `loans.list`          | `bank:read`  | The user's loans with outstanding principal/interest derived at read                                                                                                            |
+| `loans.health`        | `bank:read`  | Portfolio mark — LTV view only; never acts                                                                                                                                      |
+| `loans.addCollateral` | `bank:write` | Top up collateral (the cheap way out of a margin call)                                                                                                                          |
+| `loans.repay`         | `bank:write` | Pay interest first, then principal; may close the loan                                                                                                                          |
+| `loans.close`         | `bank:write` | Release collateral when the loan owes nothing                                                                                                                                   |
+| `loans.interestRows`  | `bank:read`  | Each accrual day and each approved interest correction, with totals                                                                                                             |
+| `loans.ledgerCheck`   | `bank:read`  | This loan's settled rows against the ledger's transactions, per leg                                                                                                             |
+| `loans.quote`         | `bank:read`  | The smallest pledge `open` accepts for a principal, its LTV and liquidation price; refuses without a mark                                                                       |
+| `loans.eligibility`   | `bank:read`  | Lending policy, product, assets, fee and jurisdiction, each met, unmet or not set                                                                                               |
+| `loans.fees`          | `bank:read`  | Origination fee: not set, or published bps and its amount; a blank fee refuses `open` (`bank.loan_fee_unset`) and a published non-zero fee refuses it (`bank.loan_fee_unwired`) |
+| `loans.terms`         | `bank:read`  | The borrower's terms snapshotted on the loan row at open                                                                                                                        |
 
 Interest **capitalises** (raises debt, posts nothing). A correction is a new `loan_adjustments` row approved by two founders (`ops.adjustLoanInterest`); accrual days and corrections are append-only (LOAN-05). Mark / margin call / liquidation are the risk sweep under `ops`, not user procedures — a user who can choose when collateral is priced can game the staleness window.
 

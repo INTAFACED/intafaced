@@ -32,7 +32,8 @@ function originationFee() {
   const asked = process.env.LOCAL_STACK_BANK_LOAN_ORIGINATION_FEE;
   if (asked === undefined || asked === '') return { BANK_LOAN_ORIGINATION_FEE_BPS: testValue('BANK_LOAN_ORIGINATION_FEE_BPS') };
   if (asked === 'off') return {};
-  if (asked === 'published') return { BANK_LOAN_ORIGINATION_FEE_BPS: testValue('LOCAL_STACK_BANK_LOAN_ORIGINATION_FEE_PUBLISHED_BPS') };
+  // LOCAL TEST non-zero fee, only to see a published fee refuse new loans bank.loan_fee_unwired (J-bank-09 #3).
+  if (asked === 'published') return { BANK_LOAN_ORIGINATION_FEE_BPS: '50' };
   throw new Error(
     `LOCAL_STACK_BANK_LOAN_ORIGINATION_FEE is "${asked}"; leave it unset for the TEST zero fee, or set it to off or published.`,
   );

@@ -147,7 +147,7 @@ export function loanApplyProcedures(bank: Pick<BankServices, 'loans' | 'assetPau
                     status: 'published' as const,
                     bps: fee.bps,
                     amount: input.principal ? formatAmount(originationFeeOn(parseAmount(input.principal), fee.bps)) : null,
-                    collectable: bank.loans.originationFeeRefusal() === null,
+                    collectable: fee.bps === 0,
                   },
           };
         }),

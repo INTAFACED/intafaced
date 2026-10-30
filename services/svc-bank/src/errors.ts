@@ -889,7 +889,10 @@ export type BankErrorCode =
   | 'bank.profile_not_held'
   /** A business profile has no company account of its own in this build, so there is no company terms, currency or detail to show. */
   | 'bank.company_account_unwired'
-  /** The owner has not published the loan payoff fee (`BANK_LOAN_PAYOFF_FEE`). A quote is not given, and zero is not assumed (BK-loan-06). */
+  /**
+   * The owner has not published a loan fee, and zero is not assumed: the payoff fee (`BANK_LOAN_PAYOFF_FEE`, no payoff quote
+   * is given, BK-loan-06) or the origination fee (`BANK_LOAN_ORIGINATION_FEE_BPS`, no new loan is opened, BK-loan-01).
+   */
   | 'bank.loan_fee_unset'
   /** A non-zero loan payoff fee is published, but repay has no fee entry to collect it, so no payoff quote is given (BK-loan-06). */
   | 'bank.loan_fee_unsupported'
