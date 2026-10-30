@@ -1,0 +1,68 @@
+import { defineCopy } from '../../../shared/i18n';
+
+/**
+ * Authored copy for the pool list and the pool page (D-explorer-05). English only for now; other languages fall back
+ * to it. Every figure is read from the chain through the indexer; nothing here prices a pool in a currency it was not
+ * traded in, and nothing claims a reading the indexer did not give.
+ */
+const en = {
+  poolsTitle: 'Pools',
+  poolsNote: 'Every pool the published pool factory created on {network}, newest first, read from the chain by the indexer.',
+  poolsEmpty: 'The published pool factory has created no pool on {network}.',
+  poolsRefused: 'The pool list was not read: {reason}',
+  poolsMore: 'Older pools',
+  hdrPool: 'Pool',
+  hdrFee: 'Fee',
+  hdrReserves: 'Reserves',
+  hdrCreated: 'Created at block',
+  pairName: '{token0} / {token1}',
+  reservesPair: '{amount0} {symbol0} · {amount1} {symbol1}',
+  reservesNone: 'No reserves recorded',
+  feePercent: '{percent}%',
+  poolTitle: 'Pool {pair}',
+  poolFacts: 'Pool',
+  poolAddress: 'Pool contract',
+  poolTokens: 'Tokens',
+  poolReservesAt: 'Reserves after block {height}',
+  poolCreatedAt: 'Created at block {height}',
+  poolFee: 'Swap fee',
+  tokenLink: '{name} ({symbol})',
+  tokenUnnamed: 'Token {address}',
+  notAPoolTitle: 'Not a pool',
+  notAPool: '{address} is not a pool on {network}: the published pool factory did not create it.',
+  poolRefused: 'This pool was not read: {reason}',
+  volumeTitle: 'Volume',
+  volumeDay: '{amount} {symbol} in the last 24 hours, {swaps} swaps',
+  volumeRaw: '{amount} base units of {symbol} in the last 24 hours, {swaps} swaps',
+  chartTitle: 'Price',
+  chartLabel: 'Price chart: {base} in {quote}, last 24 hours, {width} candles',
+  chartWidth5m: '5 minute',
+  chartWidth1h: '1 hour',
+  chartWidthGroup: 'Candle width',
+  chartEmpty: 'No swaps in the last 24 hours, so there is no price to draw.',
+  chartUnread: 'The price was not read: a token in this pool did not say its decimals.',
+  candleTitle: '{time}: open {open}, high {high}, low {low}, close {close}, {swaps} swaps',
+  chartRange: 'Low {low} · high {high} {quote} per {base}',
+  tradesTitle: 'Trades',
+  tradesEmpty: 'This pool has no recorded swaps.',
+  tradesRefused: 'The trades were not read: {reason}',
+  tradesMore: 'Older trades',
+  hdrTime: 'Time',
+  hdrSide: 'Side',
+  hdrAmount: 'Amount',
+  hdrTx: 'Transaction',
+  sideBuy: 'Buy',
+  sideSell: 'Sell',
+  sideBoth: 'Both ways',
+  sideBuyDetail: 'Buy {symbol}',
+  sideSellDetail: 'Sell {symbol}',
+  amountMove: '{in} in · {out} out',
+  rawUnits: '{amount} base units',
+  retry: 'Try again',
+  loading: 'Loading',
+  backToPools: 'Back to pools',
+  asOf: 'As of {time}',
+} as const;
+
+export const poolsCopy = defineCopy('customer.protocol.pools', en);
+export type PoolsTranslate = ReturnType<typeof poolsCopy.forLocale>['t'];
