@@ -340,7 +340,13 @@ export function BusinessBank({ open }: { open: (spec: ActionSpec) => void }) {
       ],
       notes: [t('openLead'), t('openNote')],
       submit: t('openButton'),
-      input: (values) => ({ name: (values.name ?? '').trim(), assetId: values.assetId, spendThreshold: values.spendThreshold }),
+      // The request id is the new account's id, so a resend after a lost answer opens the same account once.
+      input: (values, requestId) => ({
+        accountId: requestId,
+        name: (values.name ?? '').trim(),
+        assetId: values.assetId,
+        spendThreshold: values.spendThreshold,
+      }),
     });
   return (
     <>
