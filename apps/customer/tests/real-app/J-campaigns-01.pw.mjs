@@ -71,6 +71,23 @@ async function liveCampaign(name, over = {}) {
   return live;
 }
 
+/**
+ * The step's starting point, nothing running: founder A ends every TEST campaign that is scheduled, active or paused on
+ * this stack (earlier journeys in the same run leave theirs live). Ending moves nothing and is what an operator does.
+ */
+async function endEveryRunningCampaign() {
+  const { ctx, pair } = await operators();
+  const a = await pair.a.campaignsOpsToken();
+  const all = data(await ctx.edge.query('campaigns', 'ops.campaigns.list', undefined, a), 'ops.campaigns.list');
+  for (const c of all.filter((x) => ['scheduled', 'active', 'paused'].includes(x.state))) {
+    const ended = data(
+      await ctx.edge.mutate('campaigns', 'ops.campaigns.transition', { id: c.id, action: 'end', revision: c.revision }, a),
+      `end ${c.name}`,
+    );
+    expect(ended.state).toBe('ended');
+  }
+}
+
 const person = (handle) => ({
   handle,
   email: `${handle}@local-test.invalid`,
@@ -102,17 +119,16 @@ test(`${J} #1 /campaigns with nothing running shows the full catalogue layout an
   const me = person(`jc01me${tag}`.slice(0, 20));
   const page = await customer(browser);
   await signUpInBrowser(page, me);
+  await endEveryRunningCampaign();
   await openCatalogue(page);
   // The filters and the type list are always laid out.
   await expect(page.getByRole('combobox', { name: 'Type', exact: true })).toBeVisible();
   await expect(page.getByRole('combobox', { name: 'State', exact: true })).toBeVisible();
   await expect(page.getByTestId('campaign-types')).toBeVisible();
-  // Whatever the service lists is what the page shows: no invented card. On the fresh stack of a journeys run nothing runs.
-  const listed = (await catalogueOf(me)).campaigns;
-  await expect(page.getByTestId('campaign-card')).toHaveCount(listed.length);
-  if (listed.length === 0) {
-    await expect(page.getByTestId('campaign-catalogue')).toContainText('No campaign is running right now');
-  }
+  // Nothing runs, and the page says so honestly: no invented card.
+  expect((await catalogueOf(me)).campaigns).toEqual([]);
+  await expect(page.getByTestId('campaign-card')).toHaveCount(0);
+  await expect(page.getByTestId('campaign-catalogue')).toContainText('No campaign is running right now');
   run.write({ me });
 });
 
