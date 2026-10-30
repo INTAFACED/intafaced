@@ -25,6 +25,8 @@ import { tableIn } from './tables.mjs';
 // - #7 and #8 ask the stack for more TEST settlements (`local-test-world.mjs merchant-settlement <merchantId>`, proposed)
 //   to pay out (M-money-out-05).
 // - #4: no payout schedule or rules (M-money-out-03, M-adv-money-out-01).
+// #6 pays out #2's posted settlement: the owner saves a TEST wallet destination when the business has none, and the
+//   limit clause moves the business to a capped TEST tier of its own (daily payout cap 1 USDT), then back to priced.
 // #5 needs only #1's business: no top-up rail exists, so it proves the refusal, Request off and the balance unchanged;
 //   its "with a rail" clause is a second #5 test that stays red, by name, until a top-up rail exists (UNBUILT).
 //   svc-pay has no top-up rail setting to leave blank, so 'no rail' is the only state #5 can show.
@@ -581,20 +583,102 @@ test(`${J} #5 with a rail: a pending row with the deposit address and reference;
   expect(false, 'when it lands: the balance changes once, by 25.00 USDT (unbuilt: no top-up rail to land on; M-money-out-02)').toBe(true);
 });
 
-test(`${J} #6 presses Pay out on a posted settlement: the whole net with no amount box, the destination and the approval rule`, async ({
+/** The capped TEST tier's daily payout cap (JOURNEY_CAPPED_DAILY_PAYOUT in local-test-merchant-pricing.mjs). */
+const CAPPED_DAILY_PAYOUT = '1';
+
+/** One fact's value in the payout page's check list: the `dd` under the `dt` with exactly this label. */
+const payoutFact = (page, label) =>
+  page
+    .locator('main [data-testid="pp-facts"] > div')
+    .filter({ has: page.locator('dt').getByText(label, { exact: true }) })
+    .locator('dd');
+
+/** A service amount as the portal writes it: two decimals and thousands commas (TEST figures here are small). */
+const shown = (amount) => Number(amount).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+/** The business's payout destinations as svc-pay lists them; the owner saves a TEST wallet first when there is none. */
+async function defaultDestination(page, api, merchantId) {
+  const list = async () => (await api.query('merchant.payoutDestinations.list', { merchantId, limit: 50 })).items;
+  if ((await list()).length === 0) {
+    const owner = await signInOwner(page, '/pay/onboarding/go-live');
+    await page.getByLabel('Wallet address *').fill(`0x${'c7'.repeat(20)}`);
+    await page.getByRole('button', { name: 'Save destination' }).click();
+    const review = page.getByRole('dialog');
+    const { code, step } = await nextCode(owner.totp, owner.secret, owner.step);
+    run.write({ owner: saved({ ...owner, step }) });
+    await review.getByLabel('6-digit code from your authenticator app *').fill(code);
+    await review.getByRole('button', { name: 'Save destination' }).click();
+    await expect(page.getByText('Destination saved.', { exact: true })).toBeVisible();
+  }
+  const items = await list();
+  const chosen = items.find((d) => d.defaultFlag === 'default') ?? (items.length === 1 ? items[0] : null);
+  expect(chosen, 'the destination the payout page chooses for the owner: the default, or the only one').toBeTruthy();
+  return chosen;
+}
+
+test(`${J} #6 presses Pay out on a posted settlement: the whole net with no amount box, the destination and the approval rule; with a limit exceeded the page says so`, async ({
   page,
 }) => {
-  const { settlement } = journey();
-  expect(settlement, 'a TEST settlement from #2').toBeTruthy();
-  await signInOwner(page, '/pay/settlements');
-  const row = page
-    .getByRole('region', { name: 'Settlements', exact: true })
-    .getByRole('row')
-    .filter({ hasText: settlement.slice(0, 8) });
-  await row.getByRole('link', { name: 'Pay out' }).click();
-  await expect(page.getByRole('textbox', { name: /Amount/ })).toHaveCount(0);
-  await expect(page.getByLabel('Destination')).toHaveValue(/.+/);
-  await expect(page.getByRole('main')).toContainText(/approval/i);
+  test.setTimeout(420_000);
+  const { merchantId, settlement } = journey();
+  expect(settlement, 'the TEST settlement #2 posted').toBeTruthy();
+  const api = await ownerApi();
+  // The business is on its own priced TEST tier (#3 leaves it there): a TEST daily payout cap of 500 USDT.
+  expect(merchantPricing(merchantId, '--tier', 'priced', '--payout-not-charged')).toMatchObject({ onTier: true });
+  const posted = await api.query('settlement.get', { settlementId: settlement });
+  expect(posted).toMatchObject({ id: settlement, merchantId, status: 'posted', assetId: 'USDT' });
+  expect(Number(posted.net)).toBeGreaterThan(Number(CAPPED_DAILY_PAYOUT));
+  const dest = await defaultDestination(page, api, merchantId);
+  const refused = refusedPayCalls(page);
+
+  // Pay out from the settlement's own payout page opens the payout form on that settlement.
+  await signInOwner(page, `/pay/payouts/${encodeURIComponent(settlement)}`);
+  await page.getByRole('link', { name: 'Request this payout' }).click();
+  await expect(page).toHaveURL(new RegExp(`/pay/payouts/new\\?settlement=${settlement}$`));
+  await expect(page.getByLabel('Settlement')).toHaveValue(settlement);
+  // The whole net: no amount box anywhere, and the amount is the service's net for this settlement.
+  await expect(page.getByRole('textbox', { name: /amount/i })).toHaveCount(0);
+  await expect(page.getByRole('spinbutton')).toHaveCount(0);
+  await expect(payoutFact(page, 'Amount')).toHaveText(new RegExp(`^(TEST )?${shown(posted.net).replace('.', '\\.')} USDT`));
+  // The destination is the one svc-pay keeps for the business, chosen for the owner.
+  await expect(page.getByLabel('Destination')).toHaveValue(dest.id);
+  // Today's limit is what the service says is left; the approval rule is stated.
+  const left = async () =>
+    (await api.query('merchantControl.usage', { merchantId })).rows.find((r) => r.kind === 'daily_payout' && r.assetCode === 'USDT');
+  const roomy = await left();
+  expect(roomy, 'a daily payout cap on the TEST tier').toBeTruthy();
+  expect(Number(roomy.remaining)).toBeGreaterThanOrEqual(Number(posted.net));
+  await expect(payoutFact(page, 'Today’s payout limit')).toContainText(`${shown(roomy.remaining)} USDT left today`);
+  await expect(payoutFact(page, 'Approval')).toHaveText(
+    'Above your approval limit, a second person on your team must approve before it is sent. Below it, it is sent right away.',
+  );
+  const payOut = page.getByRole('button', { name: 'Pay out', exact: true });
+  await expect(payOut).toBeEnabled();
+  await expect(page.getByText('This is more than you have left of today’s payout limit', { exact: false })).toHaveCount(0);
+
+  // With a limit exceeded the page says so: on a TEST tier whose daily payout cap is 1 USDT, the net is more than is
+  // left today, the page says why and Pay out is off. Nothing is asked of the service, and the settlement is unchanged.
+  try {
+    expect(merchantPricing(merchantId, '--tier', 'capped', '--payout-not-charged')).toMatchObject({ onTier: true });
+    const tight = await left();
+    expect(tight.limit).toMatch(/^1(\.0+)?$/);
+    expect(Number(tight.remaining)).toBeLessThan(Number(posted.net));
+    await page.reload();
+    await expect(page.getByLabel('Settlement')).toHaveValue(settlement);
+    await expect(payoutFact(page, 'Today’s payout limit')).toContainText(`${shown(tight.remaining)} USDT left today`);
+    await expect(
+      page
+        .getByRole('note')
+        .filter({ hasText: 'This is more than you have left of today’s payout limit. Wait until it resets, or ask for a higher limit.' }),
+    ).toHaveCount(1);
+    await expect(payOut).toBeDisabled();
+    expect(await api.query('settlement.get', { settlementId: settlement })).toEqual(posted);
+    expect((await api.query('merchantControl.approvals.list', { merchantId, limit: 50 })).items).toEqual([]);
+  } finally {
+    // Back on the priced tier for the payout steps after this one.
+    merchantPricing(merchantId, '--tier', 'priced', '--payout-not-charged');
+  }
+  expect(refused).toEqual([]);
 });
 
 test(`${J} #7 confirms with a fresh step-up and sends: one payout with a receipt; a second inside the confirmation life does not ask again`, async ({
