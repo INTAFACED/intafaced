@@ -408,21 +408,38 @@ const MUTANTS = [
   {
     id: 'actions-cache-key',
     file: '.github/actions/test-infra/action.yml',
+    alsoTracked: { 'packages/x/pom.xml': '<project/>\n' },
     content:
       "steps:\n  - uses: actions/cache@v6\n    with:\n      path: x/.tools\n      key: java-tools-x-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('packages/x/pom.xml') }}\n",
     catch: false,
-    why: 'an actions/cache key built from dash-joined words, runner.os/arch and hashFiles is a cache name, not a credential',
+    why: 'an actions/cache key built from dash-joined words, runner.os/arch and hashFiles of tracked files is a cache name, not a credential',
   },
   {
     id: 'actions-cache-key-digit-literal',
     file: '.github/actions/test-infra/action.yml',
-    content: `steps:\n  - uses: actions/cache@v6\n    with:\n      key: ${V}-\${{ hashFiles('packages/x/pom.xml') }}\n`,
+    alsoTracked: { 'packages/x/pom.xml': '<project/>\n' },
+    content: "steps:\n  - with:\n      key: tok3n9xq7-${{ hashFiles('packages/x/pom.xml') }}\n",
     catch: true,
-    why: 'the cache-key carve-out allows only lowercase letter words before the expressions: a credential prefix is still a finding',
+    why: 'the cache-key carve-out allows only lowercase letter words before the expressions: a digit-bearing lowercase credential is still a finding',
+  },
+  {
+    id: 'actions-cache-key-secret-as-hashfiles-path',
+    file: '.github/actions/test-infra/action.yml',
+    content: `steps:\n  - with:\n      key: tools-\${{ hashFiles('${V}') }}\n`,
+    catch: true,
+    why: 'every hashFiles argument must be a file the repo tracks: a credential written as the "path" is still a finding',
+  },
+  {
+    id: 'actions-cache-key-without-hashfiles',
+    file: '.github/actions/test-infra/action.yml',
+    content: 'steps:\n  - with:\n      key: tools-${{ runner.os }}\n',
+    catch: true,
+    why: 'the carve-out needs at least one hashFiles: a bare `key` with only a runner expression is outside it',
   },
   {
     id: 'actions-cache-key-input-reference',
     file: '.github/workflows/build.yml',
+    alsoTracked: { 'packages/x/pom.xml': '<project/>\n' },
     content: "jobs:\n  b:\n    steps:\n      - with:\n          key: tools-${{ inputs.token }}-${{ hashFiles('packages/x/pom.xml') }}\n",
     catch: true,
     why: 'only runner.os, runner.arch and hashFiles expressions are a cache key: an inputs reference behind `key` is still a finding',
@@ -430,6 +447,7 @@ const MUTANTS = [
   {
     id: 'cache-key-shape-outside-github',
     file: 'tooling/infra/tls.yml',
+    alsoTracked: { 'packages/x/pom.xml': '<project/>\n' },
     content: "tls:\n  key: java-tools-${{ hashFiles('packages/x/pom.xml') }}\n",
     catch: true,
     why: 'the cache-key carve-out applies under .github/ only: the same shape in any other config is still a finding',
@@ -449,6 +467,10 @@ function scanFails(mutant) {
     const abs = join(repo, mutant.file);
     mkdirSync(dirname(abs), { recursive: true });
     writeFileSync(abs, mutant.content, 'utf8');
+    for (const [rel, content] of Object.entries(mutant.alsoTracked ?? {})) {
+      mkdirSync(dirname(join(repo, rel)), { recursive: true });
+      writeFileSync(join(repo, rel), content, 'utf8');
+    }
     git(['add', '-A', '-f'], repo);
     try {
       execFileSync(process.execPath, [SCAN], {
