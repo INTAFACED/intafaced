@@ -230,7 +230,10 @@ test(`${J} #6 requests a refund inside the window: the amount returns once; with
   expect(stored).toMatchObject({ id: purchaseId, status: 'refunded', outcome: 'refund' });
   expect(stored.outcomeTxId).toBeTruthy();
   // And the buyer cannot ask again: the purchase is no longer held.
-  expect(refusedWith(await (await api(who)).post('/api/market/trpc/requestRefund', { purchaseId }))).toEqual([409, 'market.refund_not_held']);
+  expect(refusedWith(await (await api(who)).post('/api/market/trpc/requestRefund', { purchaseId }))).toEqual([
+    409,
+    'market.refund_not_held',
+  ]);
   const [still] = await purchasesOf(who);
   expect(still).toMatchObject({ id: purchaseId, status: 'refunded', outcome: 'refund', outcomeTxId: stored.outcomeTxId });
   expect(await usdt(who)).toEqual(refunded);
