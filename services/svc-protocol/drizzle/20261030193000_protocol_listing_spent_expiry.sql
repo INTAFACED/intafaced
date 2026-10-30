@@ -7,4 +7,9 @@
 -- this partial index; a proven challenge is never in it and stays with its proof.
 ALTER TABLE "protocol"."listing_challenges" ADD COLUMN IF NOT EXISTS "failed_at" timestamptz;
 
+-- Challenges a failed check spent before this column existed: used, with no proof.
+UPDATE "protocol"."listing_challenges" AS c SET "failed_at" = c."used_at"
+WHERE c."used_at" IS NOT NULL AND c."failed_at" IS NULL
+  AND NOT EXISTS (SELECT 1 FROM "protocol"."listing_ownership_proofs" AS p WHERE p."nonce" = c."nonce");
+
 CREATE INDEX IF NOT EXISTS "listing_challenges_failed_expiry_idx" ON "protocol"."listing_challenges" ("expires_at") WHERE "failed_at" IS NOT NULL;
