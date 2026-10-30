@@ -112,20 +112,38 @@ export function estimateDurations(files, past, timed, steps) {
   );
 }
 
+// Journeys that run on a stack of their own: a shard holds only that file, within the shard count the times call for,
+// so no other journey leaves state on its stack. (Failure it prevents: J-ops-console-27 #8 reconciles a rail to the
+// cent against the rail's own statement, and the held deposits other journeys leave open on the shared stack make
+// the boundary differ from it by their sum, so the step could never PASS in the shard it shared; measured on run 833's
+// times, its own shard grows the longest shard from 23.5 to 24.8 minutes.)
+export const SOLO = ['J-ops-console-27.pw.mjs'];
+
 /** How many shards keep each one's journeys near `targetMs`, between `min` and `max`. */
 export function shardCount(totalMs, targetMs, min = MIN_SHARDS, max = MAX_SHARDS) {
   return Math.min(max, Math.max(min, Math.ceil(totalMs / targetMs)));
 }
 
 /**
- * Longest file first onto the shard with the least time so far. Ties go to the lower shard and files of equal time
- * keep name order, so the same inputs always give the same split. Every shard gets a file when there are enough files.
+ * Each `solo` file there is gets the first shards, one each, alone. The rest go longest file first onto the shard with
+ * the least time so far. Ties go to the lower shard and files of equal time keep name order, so the same inputs always
+ * give the same split. Every shard gets a file when there are enough files.
  */
-export function planShards(files, durations, shards) {
+export function planShards(files, durations, shards, solo = []) {
   if (!Number.isInteger(shards) || shards < 1) throw new Error(`shards must be a whole number of 1 or more, got ${shards}`);
   if (files.length < shards) throw new Error(`${files.length} journey files cannot fill ${shards} shards`);
   const odd = files.find((f) => GLOB_CHARS.test(f));
   if (odd) throw new Error(`journey file name ${JSON.stringify(odd)} would match other files as a glob; rename it`);
+  const alone = [...new Set(solo)].filter((f) => files.includes(f)).sort();
+  if (alone.length) {
+    if (alone.length >= shards) throw new Error(`${alone.length} journeys to run alone leave no shard of ${shards} for the rest`);
+    const rest = planShards(
+      files.filter((f) => !alone.includes(f)),
+      durations,
+      shards - alone.length,
+    );
+    return [...alone.map((f) => ({ ms: durations.get(f) > 0 ? durations.get(f) : 0, files: [f] })), ...rest];
+  }
   const known = files
     .map((f) => durations.get(f))
     .filter((ms) => ms > 0)
@@ -170,7 +188,7 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
   const totalMs = [...durations.values()].reduce((a, b) => a + b, 0);
   // Never more shards than files: a shard must have a file to run.
   const shards = asked === 'auto' ? Math.min(files.length, shardCount(totalMs, TARGET_MINUTES * 60_000)) : Number(asked);
-  const plan = planShards(files, durations, shards);
+  const plan = planShards(files, durations, shards, SOLO);
   console.error(`journey-shards: ${files.length} files, about ${Math.round(totalMs / 60_000)} min in all, ${shards} shards`);
   plan.forEach((bin, i) =>
     console.error(`shard ${i + 1}: ${bin.files.length} files, about ${Math.round(bin.ms / 60_000)} min by the last runs`),

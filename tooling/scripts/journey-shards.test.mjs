@@ -4,6 +4,7 @@ import { test } from 'node:test';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import {
   estimateDurations,
   fileDurations,
@@ -11,6 +12,7 @@ import {
   longestDurations,
   planShards,
   shardCount,
+  SOLO,
   stepCounts,
   timedSteps,
 } from './journey-shards.mjs';
@@ -84,6 +86,33 @@ test('the long file gets a shard to itself and the rest balance around it', () =
     { ms: 20, files: ['a'] },
     { ms: 20, files: ['b', 'c', 'd', 'e', 'f'] },
   ]);
+});
+
+test('a solo journey gets a shard of its own and the rest balance over the others', () => {
+  const durations = new Map([
+    ['a', 20],
+    ['b', 6],
+    ['c', 5],
+    ['d', 4],
+    ['e', 3],
+    ['f', 2],
+  ]);
+  const plan = planShards(['f', 'e', 'd', 'c', 'b', 'a'], durations, 3, ['d', 'gone']);
+  assert.deepEqual(plan, [
+    { ms: 4, files: ['d'] },
+    { ms: 20, files: ['a'] },
+    { ms: 16, files: ['b', 'c', 'e', 'f'] },
+  ]);
+  assert.throws(() => planShards(['a', 'b'], durations, 2, ['a', 'b']), /leave no shard/);
+  assert.deepEqual(planShards(['f', 'e', 'd', 'c', 'b', 'a'], durations, 3, ['d', 'd']), plan);
+  assert.deepEqual(planShards(['a', 'b', 'c'], durations, 2, ['gone']), planShards(['a', 'b', 'c'], durations, 2));
+});
+
+test('J-ops-console-27 runs alone, and it is a journey file there is', () => {
+  assert.deepEqual(SOLO, ['J-ops-console-27.pw.mjs']);
+  assert.ok(
+    journeyFiles(fileURLToPath(new URL('../../apps/customer/tests/real-app', import.meta.url))).includes('J-ops-console-27.pw.mjs'),
+  );
 });
 
 test('every file lands in exactly one shard and every shard gets one', () => {
