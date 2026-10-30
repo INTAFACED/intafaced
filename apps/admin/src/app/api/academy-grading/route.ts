@@ -10,6 +10,7 @@ import { changeGrading, isGradingOp, loadGradingQueue } from '@/lib/academy/grad
  *   GET ?itemId=<uuid>   each learner's newest hand-in under an alias, its peer reviews, grade and grader lease
  *   POST { op: 'open', itemId, submissionId }   take or renew this founder's lease on one hand-in
  *   POST { op: 'grade', itemId, submissionId, n, score, comment, reason }   grade event n; an override needs a reason
+ *   POST { op: 'bulk', itemId, fileName, csv }   a CSV of grades by alias; good rows apply, bad rows are listed
  *
  * Founder-only. svc-academy records the founder from their own token.
  */
@@ -17,7 +18,7 @@ import { changeGrading, isGradingOp, loadGradingQueue } from '@/lib/academy/grad
 export const dynamic = 'force-dynamic';
 
 const NO_STORE = { 'cache-control': 'no-store' } as const;
-const BODY_BYTES = 32_768;
+const BODY_BYTES = 1_000_000;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 const incomplete = (body: string) =>
@@ -49,7 +50,8 @@ export async function POST(request: Request) {
   const session = await adminBffSession(request);
   if (session instanceof Response) return session;
   try {
-    // A comment runs to 5,000 characters, so this route takes up to 32 KiB rather than the console's 16 KiB.
+    // A grade file runs to 262,144 characters, so this route takes a body to 1,000,000 bytes (under the edge's 1 MiB)
+    // rather than the console's 16 KiB; the console checks the encoded size before it sends a file.
     const body = await readAdminJson(request, BODY_BYTES);
     if (!isGradingOp(body.op)) return incomplete('Unknown action.');
     const answer = await changeGrading(session, body.op, body);

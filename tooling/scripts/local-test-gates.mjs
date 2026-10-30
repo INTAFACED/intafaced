@@ -2724,6 +2724,174 @@ export async function capabilityOff(ctx, handle, capability, reasonCode) {
   return { handle, capability, ok, why: ok ? `switched off (${reasonCode})` : refusalText(res) };
 }
 
+/**
+ * Restrict or restore trading for a journey account at identity, through the two-person path a trade-ops operator uses
+ * (`trading.restrict` four-eyes, then `accountControls.change`). Needs the stack's TEST flag
+ * IDENTITY_TRADING_RESTRICT_REQUIRES_APPROVAL. Only `@local-test.invalid` accounts. `reasonCode` (restrict only) is a code
+ * from the stack's TEST trading restriction reason list; identity stores it and the approval binds it.
+ */
+export async function tradingRestrict(ctx, handle, action, reasonCode) {
+  if (
+    !/^[a-z0-9_]{3,32}$/i.test(handle ?? '') ||
+    !['restrict', 'restore'].includes(action) ||
+    (reasonCode !== undefined && (action !== 'restrict' || !/^[a-z][a-z0-9_]{1,63}$/.test(reasonCode)))
+  )
+    throw new Error('usage: local-test-gates.mjs trading-restrict <handle> restrict [<reasonCode>] | restore');
+  const { users } = listAccountsAndTiers(ctx.secrets);
+  const user = users.find((u) => u.handle === handle);
+  if (!user || !user.email.endsWith('@local-test.invalid')) throw new Error(`trading-restrict: ${handle} is not a journey account`);
+  const { founderChangeHash } = await load('packages/contracts/dist/founder-change-hash.js');
+  const pair = await approverSessions(ctx);
+  // Two different people, or the approval proves nothing (as `twoPerson`, which uses the approval role's tokens).
+  const who = (s) => s.op?.handle ?? s.op?.email ?? null;
+  if (who(pair.a) === null || who(pair.a) === who(pair.b))
+    throw new Error('trading-restrict needs two different operators: the proposer and the approver must differ');
+  const token = await pair.a.tradeOpsToken();
+  const reason = `LOCAL TEST journey trading ${action}`;
+  const change = (expectedVersion, approvalId) =>
+    ctx.edge.mutate(
+      'identity',
+      'accountControls.change',
+      {
+        requestId: crypto.randomUUID(),
+        target: { area: 'trading', userId: user.id },
+        action,
+        reason,
+        expectedVersion,
+        ...(approvalId ? { approvalId } : {}),
+        ...(reasonCode ? { reasonCode } : {}),
+      },
+      token,
+    );
+  // Without an approval identity answers with the current state (no four eyes, or a version conflict): its version.
+  const probe = data(await change('0'));
+  const expectedVersion = probe?.current?.version;
+  if (expectedVersion === undefined) throw new Error(`trading-restrict: no current state (${JSON.stringify(probe)})`);
+  // A code identity will not take refuses before any approval: stop here rather than approve a pair it cannot use.
+  if (probe.code === 'restriction.reason_unlisted' || probe.code === 'restriction.reason_in_force')
+    throw new Error(`trading-restrict: identity refused the reason code ${reasonCode} (${probe.code})`);
+  const payloadHash = founderChangeHash(
+    { area: 'trading', userId: user.id.toLowerCase(), action, reason, ...(reasonCode ? { reasonCode } : {}) },
+    expectedVersion,
+  );
+  const proposed = await ctx.edge.mutate(
+    'identity',
+    'actionApproval.propose',
+    {
+      actionType: 'trading.restrict',
+      targetService: 'svc-identity',
+      targetId: user.id,
+      expectedVersion,
+      payloadHash,
+      policyVersion: MARKERS.policyVersion,
+    },
+    token,
+  );
+  const approvalId = data(proposed)?.approvalId;
+  if (!approvalId) throw new Error(`actionApproval.propose refused (${proposed.status}): ${refusalText(proposed)}`);
+  const approved = await ctx.edge.mutate(
+    'identity',
+    'actionApproval.approve',
+    { approvalId, expectedPayloadHash: payloadHash },
+    await pair.b.tradeOpsToken(),
+  );
+  if (data(approved)?.status !== 'APPROVED')
+    throw new Error(`actionApproval.approve refused (${approved.status}): ${refusalText(approved)}`);
+  const res = data(await change(expectedVersion, approvalId));
+  const ok = (res?.outcome === 'changed' || res?.outcome === 'noop') && res.after?.restricted === (action === 'restrict');
+  return { handle, action, ok, why: ok ? `${res.outcome}, version ${res.after.version}` : JSON.stringify(res) };
+}
+
+/**
+ * LOCAL TEST: decide one journey account's open appeal (I-account-lifecycle-12, J-identity-14 #4). Identity refuses the
+ * restriction's actor and its approver (`trading-restrict` runs as founder a with founder b's approval), so the stack's
+ * test operator a decides, with a code from the TEST decision reason list. A lift also takes the trading restore's
+ * four-eyes approval over the reason `appeal:<id>`: operator a proposes it, operator b approves it, and identity spends
+ * it in the decision. `--as-restrictor` asks as founder a instead, to show identity refuses that person.
+ */
+export async function appealDecide(ctx, handle, decision, reasonCode, flag) {
+  if (
+    !/^[a-z0-9_]{3,32}$/i.test(handle ?? '') ||
+    !['lift', 'uphold'].includes(decision) ||
+    !/^[a-z][a-z0-9_]{1,63}$/.test(reasonCode ?? '') ||
+    ![undefined, '--as-restrictor'].includes(flag)
+  )
+    throw new Error('usage: local-test-gates.mjs appeal-decide <handle> lift|uphold <reasonCode> [--as-restrictor]');
+  const { users } = listAccountsAndTiers(ctx.secrets);
+  const user = users.find((u) => u.handle === handle);
+  if (!user || !user.email.endsWith('@local-test.invalid')) throw new Error(`appeal-decide: ${handle} is not a journey account`);
+  const founders = await approverSessions(ctx);
+  const ops = await operatorSessions(ctx);
+  const who = (s) => s.op?.handle ?? s.op?.email ?? null;
+  if ([ops.a, ops.b].some((o) => who(o) === null || who(o) === who(founders.a) || who(o) === who(founders.b)) || who(ops.a) === who(ops.b))
+    throw new Error('appeal-decide needs two operators who are neither founder: the restrictors cannot decide');
+  // The decider's session carries compliance (the decision) and the trade operator scope (the restore it runs).
+  const deciderToken = await (flag === '--as-restrictor' ? founders.a : ops.a).complianceToken();
+  const queue = data(await ctx.edge.query('identity', 'accountAppeal.queue', { limit: 100 }, deciderToken));
+  const appeal = queue?.appeals?.find((a) => a.userId.toLowerCase() === user.id.toLowerCase());
+  if (!appeal) throw new Error(`appeal-decide: ${handle} has no open appeal (${JSON.stringify(queue)})`);
+  const ids = { appealId: appeal.id, decision, reasonCode, expectedVersion: appeal.version };
+  if (flag === '--as-restrictor') {
+    const res = await ctx.edge.mutate('identity', 'accountAppeal.decide', { ...ids, decision: 'uphold' }, deciderToken);
+    return { handle, decision, ok: false, why: data(res) ? `decided: ${JSON.stringify(data(res))}` : refusalText(res) };
+  }
+  if (decision === 'uphold') {
+    const res = await ctx.edge.mutate('identity', 'accountAppeal.decide', ids, deciderToken);
+    const done = data(res);
+    return { handle, decision, ok: done?.status === 'upheld', why: done ? `${done.status}, appeal ${done.id}` : refusalText(res) };
+  }
+  const { founderChangeHash } = await load('packages/contracts/dist/founder-change-hash.js');
+  const restrictionVersion = await tradingVersion(ctx, ops, user.id);
+  const reason = `appeal:${appeal.id.toLowerCase()}`;
+  const payloadHash = founderChangeHash({ area: 'trading', userId: user.id.toLowerCase(), action: 'restore', reason }, restrictionVersion);
+  const proposed = await ctx.edge.mutate(
+    'identity',
+    'actionApproval.propose',
+    {
+      actionType: 'trading.restrict',
+      targetService: 'svc-identity',
+      targetId: user.id,
+      expectedVersion: restrictionVersion,
+      payloadHash,
+      policyVersion: MARKERS.policyVersion,
+    },
+    await ops.a.tradeOpsToken(),
+  );
+  const approvalId = data(proposed)?.approvalId;
+  if (!approvalId) throw new Error(`actionApproval.propose refused (${proposed.status}): ${refusalText(proposed)}`);
+  const approved = await ctx.edge.mutate(
+    'identity',
+    'actionApproval.approve',
+    { approvalId, expectedPayloadHash: payloadHash },
+    await ops.b.tradeOpsToken(),
+  );
+  if (data(approved)?.status !== 'APPROVED')
+    throw new Error(`actionApproval.approve refused (${approved.status}): ${refusalText(approved)}`);
+  const res = await ctx.edge.mutate('identity', 'accountAppeal.decide', { ...ids, approvalId, restrictionVersion }, deciderToken);
+  const done = data(res);
+  return { handle, decision, ok: done?.status === 'lifted', why: done ? `${done.status}, appeal ${done.id}` : refusalText(res) };
+}
+
+/** The trading restriction's current version, read the way `trading-restrict` reads it: a change with no approval refuses with it. */
+async function tradingVersion(ctx, pair, userId) {
+  const probe = data(
+    await ctx.edge.mutate(
+      'identity',
+      'accountControls.change',
+      {
+        requestId: crypto.randomUUID(),
+        target: { area: 'trading', userId },
+        action: 'restore',
+        reason: 'LOCAL TEST probe',
+        expectedVersion: '0',
+      },
+      await pair.a.tradeOpsToken(),
+    ),
+  );
+  if (probe?.current?.version === undefined) throw new Error(`appeal-decide: no current trading state (${JSON.stringify(probe)})`);
+  return probe.current.version;
+}
+
 /** Submit what this stack can submit for itself, then approve everything pending. */
 export async function verifyAll(ctx) {
   const before = listAccountsAndTiers(ctx.secrets);
@@ -2927,6 +3095,12 @@ async function main() {
     } else if (cmd === 'kyc-capability-off') {
       const r = await capabilityOff(ctx, process.argv[3], process.argv[4], process.argv[5]);
       say(`  ${r.ok ? 'OK     ' : 'REFUSED'} ${r.handle} ${r.capability}: ${r.why}`);
+    } else if (cmd === 'appeal-decide') {
+      const r = await appealDecide(ctx, process.argv[3], process.argv[4], process.argv[5], process.argv[6]);
+      say(`  ${r.ok ? 'OK     ' : 'REFUSED'} ${r.handle} appeal ${r.decision}: ${r.why}`);
+    } else if (cmd === 'trading-restrict') {
+      const r = await tradingRestrict(ctx, process.argv[3], process.argv[4], process.argv[5]);
+      say(`  ${r.ok ? 'OK     ' : 'REFUSED'} ${r.handle} trading ${r.action}: ${r.why}`);
     } else if (cmd === 'terms') {
       for (const r of await publishTransferTerms(ctx)) say(`  terms     ${r.assetId.padEnd(10)} published, approved by ${r.approvedBy}`);
     } else if (cmd === 'futures') {
@@ -3042,7 +3216,7 @@ async function main() {
       say(JSON.stringify(await status(ctx), null, 2));
     } else {
       die(
-        'usage: local-test-gates.mjs apply | operators | lifecycle | open | terms | assets | deposit-terms | withdrawal-limits | withdraw-terms | withdraw-limit <tier> <assetId> unset|test | withdraw-fee <networkId> unset|test | futures | limits | charts | chart-class <SYMBOL> <dataClass> | risk <SYMBOL> k=v... | p2p | verify | kyc-reject <handle> <reasonCode> | kyc-capability-off <handle> <capability> <reasonCode> | halt <SYMBOL> | resume <SYMBOL> | posting-freeze on|off | age <handle> <seconds> | scoped-session --without <scope> | status',
+        'usage: local-test-gates.mjs apply | operators | lifecycle | open | terms | assets | deposit-terms | withdrawal-limits | withdraw-terms | withdraw-limit <tier> <assetId> unset|test | withdraw-fee <networkId> unset|test | futures | limits | charts | chart-class <SYMBOL> <dataClass> | risk <SYMBOL> k=v... | p2p | verify | kyc-reject <handle> <reasonCode> | kyc-capability-off <handle> <capability> <reasonCode> | trading-restrict <handle> restrict [<reasonCode>] | restore | halt <SYMBOL> | resume <SYMBOL> | posting-freeze on|off | age <handle> <seconds> | scoped-session --without <scope> | status',
         2,
       );
     }

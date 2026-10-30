@@ -31,6 +31,7 @@ import {
   parseOtcMidPrice,
   parseRequiredOtcSize,
   presentBoundOtcFill,
+  rankRfqQuotes,
   presentFirmRfq,
   presentOtcQuote,
   type BoundOtcFill,
@@ -48,7 +49,13 @@ import {
 import { assertOtcStakeGate, otcStakeGate } from './stake-gate.js';
 import type { OtcStakeSource } from './stake-source.js';
 import { MemoryOtcQuoteStore, type OtcQuoteStore, type OtcStoredQuote } from './quote-store.js';
-import { listOtcMakers, selectOtcMakers, UNPUBLISHED_OTC_MAKER_DIRECTORY, type OtcMakerDirectory } from './maker-directory.js';
+import {
+  listOtcMakers,
+  selectOtcMakers,
+  UNPUBLISHED_OTC_MAKER_DIRECTORY,
+  type OtcMakerDirectory,
+  type OtcMakerEntry,
+} from './maker-directory.js';
 import { TradingControlError, type TradingAdmissionPort } from '../controls/trading-controls.js';
 import { businessPayload } from '../controls/business-payload.js';
 import { assertEmailProved, type EmailProofSource } from '../spot/email-proof.js';
@@ -246,12 +253,16 @@ export class OtcDeskService {
     // list refuses "No providers set", an empty pick refuses otc_provider_required, a pick over the owner's cap refuses
     // naming the cap, and an unknown or outside provider refuses by name, all before any stake read or price lookup.
     // Convert and one-click buy name no providers; in maker mode they still pick their one maker from the list.
-    let asked: readonly string[] = [];
+    let picked: readonly OtcMakerEntry[] = [];
+    // Only a platform desk prices an outside provider at its LOCAL TEST spread; a maker desk would route to it, so there
+    // an outside provider still refuses feed.market.
+    const pricesLocalTest = law.counterparty === 'platform';
     if (options.desk) {
-      asked = selectOtcMakers(this.makerDirectory, input.makerIds ?? (input.makerId == null ? [] : [input.makerId])).map((m) => m.id);
+      picked = selectOtcMakers(this.makerDirectory, input.makerIds ?? (input.makerId == null ? [] : [input.makerId]), { pricesLocalTest });
     } else if (law.counterparty === 'maker') {
-      asked = selectOtcMakers(this.makerDirectory, [input.makerId ?? '']).map((m) => m.id);
+      picked = selectOtcMakers(this.makerDirectory, [input.makerId ?? ''], { pricesLocalTest });
     }
+    const asked = picked.map((m) => m.id);
     // In maker mode the quoting maker is one of the providers asked: the one picked, or the makerId named among them.
     // Both checks run here, before any stake read or price lookup.
     let quotingMaker: string | undefined;
@@ -306,30 +317,55 @@ export class OtcDeskService {
     const midPrice = parseOtcMidPrice(String(sourced.mid));
 
     const counterpartyId = law.counterparty === 'platform' ? this.platformCounterpartyId : quotingMaker!;
-
-    const quote = buildOtcQuote({
-      quoteId: randomUUID(),
+    const now = this.now();
+    const base = {
       userId: principal.userId,
       side: input.side,
       baseAsset,
       quoteAsset,
       qty,
       midPrice,
-      spreadBps: law.spreadBps,
       counterparty: law.counterparty,
       counterpartyId,
-      now: this.now(),
+      now,
       quoteTtlMs: law.quoteTtlMs,
-    });
+    };
 
-    // CB-otc-07: the minimum holds on what the customer trades (the notional after the disclosed spread), so a sell
-    // never fills below it. Checked before the quote is saved, so a refused request records nothing.
-    if (minNotional != null && quote.userNotional < minNotional) {
-      throw new OtcError(`Below the desk minimum of ${formatAmount(minNotional)} ${quoteAsset}`, 'trade.rfq_below_minimum');
+    // #5: on a platform desk one request collects one quote from each provider asked, in the order asked, each at that
+    // provider's own spread (the desk law spread when it has none). An outside provider's spread is a LOCAL TEST value
+    // (maker-directory.ts), so its quote is marked TEST; every quote still settles against house inventory, because
+    // the counterparty is the platform. In maker mode, or for a convert, the request has its one quote.
+    const quotes: OtcQuote[] = [];
+    if (law.counterparty === 'platform' && options.desk) {
+      const rfqId = randomUUID();
+      picked.forEach((maker, i) => {
+        quotes.push(
+          buildOtcQuote({
+            ...base,
+            quoteId: i === 0 ? rfqId : randomUUID(),
+            rfqId,
+            rfqSeq: i + 1,
+            makerId: maker.id,
+            spreadBps: maker.spreadBps ?? law.spreadBps,
+            test: maker.route === 'outside',
+          }),
+        );
+      });
+    } else {
+      quotes.push(buildOtcQuote({ ...base, quoteId: randomUUID(), makerId: quotingMaker ?? null, spreadBps: law.spreadBps }));
     }
 
-    await this.store.saveOpen(quote);
-    return presentOtcQuote(quote);
+    // CB-otc-07: the minimum holds on what the customer trades (the notional after the disclosed spread), so a sell
+    // never fills below it. Every quote is checked before any is saved, so a refused request records nothing.
+    for (const quote of quotes) {
+      if (minNotional != null && quote.userNotional < minNotional) {
+        throw new OtcError(`Below the desk minimum of ${formatAmount(minNotional)} ${quoteAsset}`, 'trade.rfq_below_minimum');
+      }
+    }
+
+    await this.store.saveOpenRequest(quotes);
+    // The best quote answers: callers that take one quote (convert, one-click buy, otc.quote) keep their shape.
+    return presentOtcQuote(rankRfqQuotes(quotes)[0]!);
   }
 
   async accept(
@@ -365,6 +401,15 @@ export class OtcDeskService {
     let asserted: Amount | null = null;
     if (input.assertedPrice != null && input.assertedPrice.trim() !== '') {
       asserted = parseAmount(input.assertedPrice);
+    }
+
+    // #5: a request takes one provider's price. Once one of its quotes is bound, the others cannot be, checked here
+    // before admission and again by the store's unique index, which a race between two accepts reaches.
+    const taken = (await this.store.listRfq(stored.quote.rfqId)).find(
+      (other) => other.quote.quoteId !== stored.quote.quoteId && (other.lifecycle === 'bound' || other.lifecycle === 'settled'),
+    );
+    if (taken) {
+      throw new OtcError(`Another quote of request ${stored.quote.rfqId} was already accepted`, 'trade.rfq_other_quote_accepted');
     }
 
     if (!this.accountAdmission) throw new TradingControlError('authority.unavailable');
@@ -458,7 +503,12 @@ export class OtcDeskService {
       if (!stored) {
         throw new OtcError('OTC quote not found', 'trade.otc_quote_missing');
       }
-      return presentFirmRfq(stored.quote, { lifecycle: stored.lifecycle });
+      // #5: every quote the request collected, best first; the top-level fields stay the best quote's.
+      const quotes = rankRfqQuotes((await this.store.listRfq(stored.quote.rfqId)).map((s) => s.quote));
+      return {
+        ...presentFirmRfq(stored.quote, { lifecycle: stored.lifecycle }),
+        quotes: quotes.map((q, i) => ({ ...presentOtcQuote(q), rank: i + 1 })),
+      };
     } catch (err) {
       if (err instanceof OtcError && err.code === 'trade.otc_no_reference_price') {
         throw new OtcError('Professional RFQ price is required — refuse rather than invent a mid', 'trade.rfq_missing_price');
@@ -486,6 +536,10 @@ export class OtcDeskService {
     const next = expireOtcQuote({ lifecycle: stored.lifecycle });
     if (stored.lifecycle !== 'expired') {
       await this.store.saveExpired(stored.quote);
+    }
+    // #5: letting the request's quote go lets the request go, so none of its other providers' quotes stays acceptable.
+    for (const other of await this.store.listRfq(stored.quote.rfqId)) {
+      if (other.quote.quoteId !== stored.quote.quoteId && other.lifecycle === 'open') await this.store.saveExpired(other.quote);
     }
     return presentFirmRfq(stored.quote, { lifecycle: next });
   }

@@ -29,6 +29,7 @@ import {
   recordSent,
   refusalCopy,
   resolveHandle,
+  resolvePayQr,
   cleanHandle,
   Select,
   SelectContent,
@@ -183,6 +184,8 @@ function SendForm({
   const [recipient, setRecipient] = useState<Recipient>({ kind: 'idle' });
   const [note, setNote] = useState<string | null>(null);
   const lookup = useRef<{ id: number; controller: AbortController | null }>({ id: 0, controller: null });
+  // The pay code being read, so "Try again" reads the code again rather than the empty To field.
+  const scanned = useRef<string | null>(null);
   // What this device remembers: a private note for this payment, people paid before, and what a payment link suggested.
   const [memo, setMemo] = useState('');
   const [linkNotice, setLinkNotice] = useState<string | null>(null);
@@ -195,6 +198,7 @@ function SendForm({
     lookup.current.id += 1;
     lookup.current.controller?.abort();
     lookup.current.controller = null;
+    scanned.current = null;
     setTo(value);
     setRecipient({ kind: 'idle' });
     setNote(null);
@@ -237,8 +241,40 @@ function SendForm({
     }
   }
 
+  /**
+   * A scanned pay code (PP-send-request-11): the service says who it pays, by account id, even when their handle can't
+   * be found. A code that does not verify is refused, and nothing in the link is trusted in its place.
+   */
+  async function scan(payload: string) {
+    const mine = ++lookup.current.id;
+    lookup.current.controller?.abort();
+    const controller = new AbortController();
+    lookup.current.controller = controller;
+    scanned.current = payload;
+    setTo('');
+    setRecipient({ kind: 'checking' });
+    const outcome = await resolvePayQr(api, payload, controller.signal);
+    if (lookup.current.id !== mine || controller.signal.aborted) return;
+    switch (outcome.kind) {
+      case 'found':
+        if (outcome.self || outcome.userId.toLowerCase() === userId.toLowerCase())
+          return setRecipient({ kind: 'problem', text: payCopy.t('That is you') });
+        setTo(byHandle ? outcome.handle : outcome.userId);
+        return setRecipient({ kind: 'found', userId: outcome.userId, handle: byHandle ? outcome.handle : null });
+      case 'invalid':
+        return setRecipient({ kind: 'problem', text: personal.t('qrInvalid') });
+      case 'payeeUnavailable':
+        return setRecipient({ kind: 'problem', text: personal.t('qrPayeeUnavailable') });
+      case 'unset':
+        return setRecipient({ kind: 'problem', text: personal.t('qrUnset') });
+      case 'failed':
+        return setRecipient({ kind: 'problem', text: personal.t('qrFailedSend'), retry: true });
+    }
+  }
+
   /** A person paid before. A handle is looked up again, so a handle that moved to someone else is caught. */
   function pickContact(contact: Contact) {
+    scanned.current = null;
     lookup.current.id += 1;
     lookup.current.controller?.abort();
     lookup.current.controller = null;
@@ -288,7 +324,9 @@ function SendForm({
     lookup.current.id += 1;
     lookup.current.controller?.abort();
     lookup.current.controller = null;
-    if (prefill.kind === 'handle' && byHandle) {
+    if (prefill.qr) {
+      void scan(prefill.qr);
+    } else if (prefill.kind === 'handle' && byHandle) {
       setTo(prefill.to);
       void check(prefill.to);
     } else if (prefill.kind === 'accountId') {
@@ -704,7 +742,11 @@ function SendForm({
             <span className="pay-problem" role="alert">
               {recipient.text}
               {recipient.retry ? (
-                <button type="button" className="pay-chip" onClick={() => void check()}>
+                <button
+                  type="button"
+                  className="pay-chip"
+                  onClick={() => void (scanned.current !== null && to === '' ? scan(scanned.current) : check())}
+                >
                   {payCopy.t('Try again')}
                 </button>
               ) : null}

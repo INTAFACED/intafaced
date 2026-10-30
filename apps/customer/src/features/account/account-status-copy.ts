@@ -17,7 +17,7 @@ export const accountStatusCopy = defineCopy('account.status', {
   noReason: 'No reason recorded.',
   reason: 'Reason: {reason}.',
   liftStaff: 'Only support can lift this.',
-  blocksNothing_trading_restricted: 'Support recorded this, but the trading service does not read it, so it does not stop your orders.',
+  stops_trading_restricted: 'It stops new orders, larger orders, new bots and copied trades. You can still cancel an order.',
   capabilityStops:
     'It stops a new request for the level that grants it. No other service reads it today, so it does not stop your orders or transfers.',
   capabilityStopsNothing:

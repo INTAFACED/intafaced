@@ -168,7 +168,7 @@ const KNOWN: Readonly<Record<string, { title: string; body: string }>> = {
 
 /**
  * Refusals whose sentence from the desk names the owner's number (the desk minimum, CB-otc-07; the provider cap,
- * CB-otc-01), so the customer sees the limit they hit. The service sentence is kept and the next step follows it.
+ * CB-otc-01) or the provider or request it is about (CB-otc-02), so the customer sees what they hit. The service sentence is kept and the next step follows it.
  */
 const NAMES_ITS_LIMIT: Readonly<Record<string, { title: string; fallback: string; after: string }>> = {
   'trade.rfq_below_minimum': {
@@ -180,6 +180,16 @@ const NAMES_ITS_LIMIT: Readonly<Record<string, { title: string; fallback: string
     title: 'Too many providers',
     fallback: 'More providers were picked than the desk allows',
     after: 'Pick fewer; nothing was priced or held.',
+  },
+  'trade.otc_provider_spread_unset': {
+    title: 'Provider spread not set',
+    fallback: 'A provider you picked has no spread set',
+    after: 'Pick another provider; nothing was priced or held.',
+  },
+  'trade.rfq_other_quote_accepted': {
+    title: 'Another quote was accepted',
+    fallback: 'Another quote for this request is already accepted',
+    after: 'Only one quote per request can be accepted; this one was left as it was.',
   },
   'trade.otc_level_insufficient': {
     title: 'Verification level too low',

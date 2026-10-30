@@ -34,6 +34,12 @@ export function assetFromSearch(search: string): string | null {
   return value ? value : null;
 }
 
+/** `?fill=<id>`: the one trade a link opens on (a fill notice); Trades marks that row. */
+export function fillFromSearch(search: string): string | null {
+  const value = new URLSearchParams(search).get('fill')?.trim();
+  return value ? value : null;
+}
+
 /** The Activity link for a tab, keeping the coin filter when there is one. */
 export function tabHref(tab: Tab, asset: string | null = null): string {
   const query = [tab === DEFAULT_TAB ? null : `tab=${tab}`, asset ? `asset=${encodeURIComponent(asset)}` : null].filter(Boolean).join('&');
