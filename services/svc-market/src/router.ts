@@ -12,6 +12,14 @@ import {
 } from './action-approval-consume.js';
 import { MARKET_OPS_SCOPE, MarketError, type VendorService } from './vendor-service.js';
 import type { CommerceService } from './commerce/commerce-service.js';
+import { assertMyPurchasesListLimit } from './commerce/commerce-service.js';
+import {
+  MARKET_PURCHASE_NOT_FOUND,
+  MARKET_REFUND_FORBIDDEN,
+  MARKET_REFUND_NOT_HELD,
+  MARKET_REFUND_WINDOW_UNSET,
+  MARKET_REFUND_POLICY_UNSET,
+} from './commerce/held-purchase.js';
 import type { ReviewsService } from './reviews/reviews-service.js';
 import { REVIEW_MEAN_ROUNDING } from './reviews/reviews-service.js';
 import { userCopy } from './user-copy.js';
@@ -197,7 +205,9 @@ function mapError(err: unknown): never {
       err.code === MARKET_LISTING_SET_UNSET ||
       err.code === MARKET_L3_UNAVAILABLE ||
       err.code === MARKET_NOT_NATIVE_EXECUTABLE ||
-      err.code === MARKET_REFERENCE_NOT_BOOK
+      err.code === MARKET_REFERENCE_NOT_BOOK ||
+      err.code === MARKET_REFUND_WINDOW_UNSET ||
+      err.code === MARKET_REFUND_POLICY_UNSET
     ) {
       throw new TRPCError({ code: 'PRECONDITION_FAILED', message, cause: err });
     }
@@ -205,7 +215,9 @@ function mapError(err: unknown): never {
     if (err.code === 'market.listing_slot_missing' || err.code === 'market.slot_required' || err.code === 'market.listing_over_capacity') {
       throw new TRPCError({ code: 'PRECONDITION_FAILED', message, cause: err });
     }
-    if (err.code === 'market.listing_not_found') {
+    if (err.code === MARKET_REFUND_FORBIDDEN) throw new TRPCError({ code: 'FORBIDDEN', message, cause: err });
+    if (err.code === MARKET_REFUND_NOT_HELD) throw new TRPCError({ code: 'CONFLICT', message, cause: err });
+    if (err.code === 'market.listing_not_found' || err.code === MARKET_PURCHASE_NOT_FOUND) {
       throw new TRPCError({ code: 'NOT_FOUND', message, cause: err });
     }
     if (
@@ -284,13 +296,21 @@ const purchaseOut = z.object({
   assetId: z.string(),
   price: z.string(),
   commissionBps: z.number().int(),
-  status: z.enum(['pending', 'settled', 'rejected']),
+  status: z.enum(['pending', 'settled', 'rejected', 'held', 'released', 'refunded']),
   ledgerTxId: z.string().guid().nullable(),
   rejectionCode: z.string().nullable(),
   createdAt: z.string().datetime(),
   settledAt: z.string().datetime().nullable(),
   accessUntil: z.string().datetime().nullable(),
   periodSeconds: z.number().int().positive().nullable(),
+  flow: z.enum(['pay', 'hold']),
+  refundWindowSeconds: z.number().int().positive().nullable(),
+  holdPostedAt: z.string().datetime().nullable(),
+  refundWindowEndsAt: z.string().datetime().nullable(),
+  refundRequestedAt: z.string().datetime().nullable(),
+  outcome: z.enum(['release', 'refund']).nullable(),
+  outcomeTxId: z.string().guid().nullable(),
+  outcomeAt: z.string().datetime().nullable(),
 });
 
 const salesRowOut = z.object({
@@ -748,10 +768,18 @@ export function createMarketRouter(
      * will not invent a rate (D26-P1-M2).
      */
     commerceProgramme: publicProcedure
-      .output(z.object({ commissionBps: z.number().int().nullable(), commissionConfigured: z.boolean() }))
+      .output(
+        z.object({
+          commissionBps: z.number().int().nullable(),
+          commissionConfigured: z.boolean(),
+          purchaseHold: z.boolean(),
+          refundWindowSeconds: z.number().int().positive().nullable(),
+          refundPolicy: z.enum(['seller_full']).nullable(),
+        }),
+      )
       .query(() => {
         if (!commerce) {
-          return { commissionBps: null, commissionConfigured: false };
+          return { commissionBps: null, commissionConfigured: false, purchaseHold: false, refundWindowSeconds: null, refundPolicy: null };
         }
         return commerce.programme();
       }),
@@ -1100,6 +1128,52 @@ export function createMarketRouter(
             listingId: input.listingId,
             purchaseId: input.purchaseId,
           });
+        } catch (err) {
+          mapError(err);
+        }
+      }),
+
+    /**
+     * The buyer asks for a refund of a held purchase inside its refund window. The seller decides. Asking again returns
+     * the stored request. Outside held or after the window: `market.refund_not_held`.
+     */
+    requestRefund: scopedProcedure('market:write', { module: 'market' })
+      .input(z.object({ purchaseId: z.string().guid() }))
+      .output(purchaseOut)
+      .mutation(async ({ ctx, input }) => {
+        requireCommerce(commerce);
+        try {
+          return await commerce.held.requestRefund({ buyerId: ctx.principal!.userId, purchaseId: input.purchaseId });
+        } catch (err) {
+          mapError(err);
+        }
+      }),
+
+    /**
+     * The seller refunds a held purchase inside its window: the whole price returns to the buyer once
+     * (`market:refund:<purchase>:1`). Anyone but the seller: `market.refund_forbidden`. Released, or outside held:
+     * `market.refund_not_held`. A retry returns the refunded row.
+     */
+    refund: scopedProcedure('market:write', { module: 'market' })
+      .input(z.object({ purchaseId: z.string().guid() }))
+      .output(purchaseOut)
+      .mutation(async ({ ctx, input }) => {
+        requireCommerce(commerce);
+        try {
+          return await commerce.held.refund({ sellerUserId: ctx.principal!.userId, purchaseId: input.purchaseId });
+        } catch (err) {
+          mapError(err);
+        }
+      }),
+
+    /** The seller's held purchases with a refund request, oldest first. Page size as `myPurchases`: omit refuses. */
+    refundRequests: scopedProcedure('market:read', { module: 'market' })
+      .input(z.object({ limit: z.number().int().positive().max(50).optional() }).optional())
+      .output(z.array(purchaseOut))
+      .query(async ({ ctx, input }) => {
+        requireCommerce(commerce);
+        try {
+          return await commerce.held.refundRequests(ctx.principal!.userId, assertMyPurchasesListLimit(input?.limit));
         } catch (err) {
           mapError(err);
         }

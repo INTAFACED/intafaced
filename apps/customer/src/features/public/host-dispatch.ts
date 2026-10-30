@@ -20,6 +20,8 @@ export type HostDispatchView = {
   rows: HostRow[];
   /** The last receipt in which every host was served, when the current one is a refusal. */
   lastGood: { checkedAt: string; staleSince: string | null } | null;
+  /** A LOCAL TEST receipt: the local test stack's loopback sites, never a deployment. The room labels it TEST. */
+  test: boolean;
 };
 
 const text = (value: unknown): string | null => (typeof value === 'string' && value.trim() ? value : null);
@@ -34,10 +36,14 @@ export function unreadable(source: Exclude<HostDispatchView['source'], 'receipt'
     everyHost: null,
     rows: HOST_ROLES.map((role) => ({ role, host: null, result: source })),
     lastGood: null,
+    test: false,
   };
 }
 
-/** The view of a receipt body. A body that is not a version-1 receipt naming its hosts is `host.receipt_invalid`. */
+/**
+ * The view of a receipt body. A body that is not a version-1 receipt naming its hosts is `host.receipt_invalid`, and so
+ * is one naming a plain-http host without saying it is a LOCAL TEST receipt: only the local stack checks http hosts.
+ */
 export function hostDispatchView(body: unknown): HostDispatchView {
   const receipt = record(body);
   const hosts = Array.isArray(receipt?.hosts) ? receipt.hosts.map(record) : null;
@@ -45,6 +51,8 @@ export function hostDispatchView(body: unknown): HostDispatchView {
   if (!receipt || receipt.schemaVersion !== RECEIPT_SCHEMA_VERSION || !hosts || hosts.some((host) => !host) || !checkedAt) {
     return unreadable('host.receipt_invalid');
   }
+  const test = receipt.test === true;
+  if (!test && hosts.some((host) => text(host?.host)?.startsWith('http:'))) return unreadable('host.receipt_invalid');
   const code = (value: unknown) => {
     const result = text(value);
     return result === 'served' || result?.startsWith('host.') ? result : null;
@@ -63,6 +71,7 @@ export function hostDispatchView(body: unknown): HostDispatchView {
     everyHost,
     rows,
     lastGood: goodAt ? { checkedAt: goodAt, staleSince: text(good?.staleSince) } : null,
+    test,
   };
 }
 

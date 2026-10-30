@@ -31,6 +31,7 @@ import { exchangePrincipal } from './principal-exchange.js';
 import { upstreamBody } from './proxy-body.js';
 import { forwardUpstreamResponseHeaders, prepareUpstreamRequestHeaders, refuseCookieCsrf } from './refresh-cookie-proxy.js';
 import { hostedCheckoutHeaders, hostedCheckoutLocation, isHostedCheckoutPath, upstreamRedirectMode } from './hosted-checkout-proxy.js';
+import { statusBadgeHeaders } from './status-badge-proxy.js';
 import { readyUpstreamHonesty } from './ready-honesty.js';
 import { edgeS2sFromEnv, signProxyHeaders } from './s2s.js';
 import { isS2sPath, resolve, resolveUpstreamBase, UPSTREAMS } from './routes.js';
@@ -559,6 +560,7 @@ await app.register(async (api) => {
         const forwarded: Record<string, string | string[]> = {
           ...forwardUpstreamResponseHeaders(url.pathname, response.headers),
           ...hostedCheckoutHeaders(url.pathname, response.headers),
+          ...statusBadgeHeaders(url.pathname, response.headers),
         };
         // Only checkout paths fetch with `redirect: 'manual'`; anywhere else a 3xx that reached here passes as before.
         if (isHostedCheckoutPath(url.pathname) && response.status >= 300 && response.status < 400) {

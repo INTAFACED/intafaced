@@ -17,6 +17,11 @@ function otcDeskLaw() {
   return JSON.stringify(law);
 }
 
+/** The TEST size range for a conversion at the desk price, left blank when the switch says so. */
+function otcConvertBounds() {
+  return process.env.LOCAL_STACK_TRADE_OTC_CONVERT_BOUNDS === 'off' ? '' : testValue('TRADE_OTC_CONVERT_BOUNDS');
+}
+
 /** The TEST provider list, left blank when the switch says so. */
 function otcMakerDirectory() {
   return process.env.LOCAL_STACK_TRADE_OTC_MAKERS === 'off' ? '' : testValue('TRADE_OTC_MAKER_DIRECTORY');
@@ -134,9 +139,12 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, TEST_FUTURES_LADDER_POLICY })
     // `LOCAL_STACK_TRADE_OTC_MAKERS=off` leaves the provider list blank, so a request refuses "No providers set" (#2).
     // `LOCAL_STACK_TRADE_OTC_ASSETS=off` leaves the desk's asset list blank, so the overview reads "Not set" and a request
     // refuses `trade.otc_assets_unset` (#1). `LOCAL_STACK_TRADE_OTC_MIN_TIER=off` leaves the desk's verification level
-    // blank, so every request refuses `trade.otc_level_unset` (#3).
+    // blank, so every request refuses `trade.otc_level_unset` (#3). `LOCAL_STACK_TRADE_OTC_CONVERT_BOUNDS=off` leaves the
+    // size range for a conversion at the desk price blank, so Convert reads "Not set" and refuses
+    // `trade.convert_bounds_not_set` (#9).
     TRADE_OTC_DESK_LAW: otcDeskLaw(),
     TRADE_OTC_MAKER_DIRECTORY: otcMakerDirectory(),
+    TRADE_OTC_CONVERT_BOUNDS: otcConvertBounds(),
     TRADE_OTC_MIDS: testValue('TRADE_OTC_MIDS'),
     // LOCAL TEST ONLY, not an owner decision: the developer portal's hosts, regional host rule and data terms
     // (J-developer-01 #2, #3, #6). `LOCAL_STACK_TRADE_DEVELOPER_HOSTS=off`, `LOCAL_STACK_TRADE_DEVELOPER_REGIONAL_RULE=off`

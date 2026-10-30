@@ -25,6 +25,10 @@ const KNOWN: Readonly<Record<string, { title: string; body: string }>> = {
     title: 'Stake could not be checked',
     body: 'The desk could not read your stake, so it did not quote. Nothing was held.',
   },
+  'trade.convert_bounds_not_set': {
+    title: 'Desk size range not set',
+    body: 'The desk has no size range for conversions at its price, so none can be priced. Nothing was priced or held.',
+  },
   'trade.otc_quote_expired': { title: 'That quote has expired', body: 'Ask for a new price. An expired quote holds nothing.' },
   'trade.otc_quote_missing': { title: "We couldn't find that quote", body: 'Check the quote id. You can only open your own quotes.' },
   'trade.otc_not_owner': { title: "We couldn't find that quote", body: 'Check the quote id. You can only open your own quotes.' },
@@ -181,6 +185,11 @@ const NAMES_ITS_LIMIT: Readonly<Record<string, { title: string; fallback: string
     title: 'Verification level too low',
     fallback: 'Your verification level is below what the desk prices for',
     after: 'Complete verification to ask the desk; nothing was priced or held.',
+  },
+  'trade.convert_out_of_bounds': {
+    title: 'Outside the desk size range',
+    fallback: 'This size is outside the desk range for conversions',
+    after: 'Pick a size inside the range; nothing was priced or held.',
   },
   'trade.otc_asset_unlisted': {
     title: 'Asset not on the desk',
