@@ -153,12 +153,23 @@ const schema = serviceEnvSchema.merge(edgeEnvSchema).merge(
      * The reference tokens a USD price is read against, each counted as one US dollar (D-swap-11): comma-separated
      * addresses on PROTOCOL_CHAIN_ID. NO DEFAULT: blank refuses `protocol.price_settings_unset`.
      */
-    PROTOCOL_PRICE_USD_TOKENS: z.string().default('').transform(parseUsdTokens),
+    PROTOCOL_PRICE_USD_TOKENS: z
+      .string()
+      .default('')
+      .refine((raw) => raw.trim() === '' || parseUsdTokens(raw) !== null, 'PROTOCOL_PRICE_USD_TOKENS must be blank or addresses')
+      .transform(parseUsdTokens),
     /**
      * The reliability filter: the least a pool must hold on its priced side, in whole US dollars, for its price to be
      * shown. NO DEFAULT: blank refuses `protocol.price_settings_unset`.
      */
-    PROTOCOL_PRICE_MIN_RESERVE_USD: z.string().default('').transform(parseMinReserveUsd),
+    PROTOCOL_PRICE_MIN_RESERVE_USD: z
+      .string()
+      .default('')
+      .refine(
+        (raw) => raw.trim() === '' || parseMinReserveUsd(raw) !== null,
+        'PROTOCOL_PRICE_MIN_RESERVE_USD must be blank or whole US dollars above 0',
+      )
+      .transform(parseMinReserveUsd),
     /**
      * `TokenFactory` for `launch.token-factory` (§8.4). Zero until deployed.
      *

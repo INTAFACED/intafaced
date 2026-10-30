@@ -428,6 +428,18 @@ const unwiredRepresentationStore: RepresentationStore = {
 export function createProtocolRouter(deps: ProtocolRouterDeps) {
   const { chain, registry, relay } = deps;
   const readPairs = pairsReader(chain);
+  // amm.prices is public: one block's time is read once and shared, like the pairs read it sits on.
+  let blockTime: { block: string; at: Promise<Date> } | null = null;
+  const timeOfBlock = (block: string): Promise<Date> => {
+    if (blockTime?.block !== block) {
+      const at = chain.blockTimestamp(BigInt(block));
+      blockTime = { block, at };
+      at.catch(() => {
+        if (blockTime?.at === at) blockTime = null;
+      });
+    }
+    return blockTime!.at;
+  };
   const peers = deps.peers ?? noPeers;
 
   function requireRelayEnabled() {
@@ -1283,7 +1295,7 @@ export function createProtocolRouter(deps: ProtocolRouterDeps) {
             });
           try {
             const pairs = await readPairs(factory);
-            const asOf = await chain.blockTimestamp(BigInt(pairs.blockNumber));
+            const asOf = await timeOfBlock(pairs.blockNumber);
             return { blockNumber: pairs.blockNumber, asOf: asOf.toISOString(), prices: priceTokens(pairs, setting) };
           } catch (err) {
             throw toTrpcError(err);

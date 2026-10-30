@@ -61,6 +61,8 @@ const en = {
   priceLine: '{price} · as of {time}',
   priceReading: 'Reading the price…',
   priceUnread: 'No price: the pools’ prices could not be read just now.',
+  priceSettingsUnset: 'No price: the dollar reference and the minimum reserve are not set for this network.',
+  priceFactoryUnset: 'No price: no pool factory is set for this network.',
   priceNone_thin_reserve: 'No price: too little reserve to price this token.',
   priceNone_no_route: 'No price: no pool leads from this token to a dollar.',
   contractOf: '{token} contract',

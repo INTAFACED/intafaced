@@ -74,7 +74,7 @@ export function priceTokens(pairs: ProtocolSwapPairs, setting: PriceSetting): Pr
   for (const token of decimals.keys()) {
     if (references.has(token)) continue;
     const price = best(token, references);
-    if (price !== null) direct.set(token, price);
+    if (price !== null && price > 0n) direct.set(token, price);
   }
   const firstHop = new Map([...references, ...direct]);
   return pairs.tokens.map((entry) => {

@@ -107,7 +107,7 @@ export const protocolTokenPriceSchema = z
       .nullable(),
     /** reference: an owner reference token (one dollar); pool: from its deepest reference pool; one_hop: through one priced token. */
     basis: z.enum(['reference', 'pool', 'one_hop']).nullable(),
-    /** thin_reserve: every pool holding it is under the owner's minimum reserve; no_route: no pool leads to a dollar. */
+    /** thin_reserve: every pool against a priced token is under the owner's minimum reserve; no_route: no pool leads to a dollar. */
     reason: z.enum(['thin_reserve', 'no_route']).nullable(),
   })
   .strict();

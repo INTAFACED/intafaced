@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { bpsToPercent, formatUnits, minimumOut, percentToBps, poolsFor, receivedIn, TRANSFER_TOPIC } from './swap-math';
+import { bpsToPercent, formatUnits, formatUsd, minimumOut, percentToBps, poolsFor, receivedIn, TRANSFER_TOPIC } from './swap-math';
 
 const A = '0x00000000000000000000000000000000000a11ce';
 const B = '0x00000000000000000000000000000000000b0b00';
@@ -58,11 +58,14 @@ describe('swap math', () => {
 });
 
 describe('formatUsd', () => {
-  it('reads dollars and cents, and small prices to six places', async () => {
-    const { formatUsd } = await import('./swap-math');
+  it('reads dollars and cents rounded half up, and prices under a cent to six significant places', () => {
     expect(formatUsd('1')).toBe('$1.00');
-    expect(formatUsd('1234.5678')).toBe('$1,234.56');
-    expect(formatUsd('0.000012345678')).toBe('$0.000012345678'.slice(0, 13));
-    expect(formatUsd('0.5')).toBe('$0.5');
+    expect(formatUsd('1234.5678')).toBe('$1,234.57');
+    expect(formatUsd('1.999')).toBe('$2.00');
+    expect(formatUsd('1.994')).toBe('$1.99');
+    expect(formatUsd('0.5')).toBe('$0.50');
+    expect(formatUsd('0.015')).toBe('$0.02');
+    expect(formatUsd('0.000012345678')).toBe('$0.0000123457');
+    expect(formatUsd('0.0012')).toBe('$0.0012');
   });
 });

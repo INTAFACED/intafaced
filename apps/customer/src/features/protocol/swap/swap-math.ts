@@ -68,11 +68,19 @@ export function receivedIn(logs: readonly ReceiptLog[], token: string, to: strin
     .reduce((sum, log) => sum + BigInt(log.data === '0x' ? 0 : log.data), 0n);
 }
 
-/** A USD price (a decimal string) for reading: two places from one dollar up, up to six significant places below it. */
+/**
+ * A USD price (a decimal string) for reading, rounded half up: two places from one cent up, and six significant places
+ * below a cent, so a tiny price never reads as $0.00.
+ */
 export function formatUsd(usd: string): string {
   const [whole = '0', fraction = ''] = usd.split('.');
-  if (whole !== '0') return `$${whole.replace(/\B(?=(\d{3})+(?!\d))/g, ',')}.${fraction.padEnd(2, '0').slice(0, 2)}`;
   const lead = /^0*/.exec(fraction)![0].length;
-  const shown = fraction.slice(0, lead + 6).replace(/0+$/, '');
-  return `$0.${shown || '00'}`;
+  const places = whole === '0' && lead >= 2 ? lead + 6 : 2;
+  const scale = 10n ** BigInt(places);
+  const digits = BigInt(whole + fraction.padEnd(places + 1, '0').slice(0, places + 1));
+  const rounded = (digits + 5n) / 10n;
+  const shownWhole = (rounded / scale).toString().replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+  let shownFraction = (rounded % scale).toString().padStart(places, '0');
+  if (places > 2) shownFraction = shownFraction.replace(/0+$/, '');
+  return `$${shownWhole}.${shownFraction}`;
 }

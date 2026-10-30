@@ -1,5 +1,11 @@
 import { useEffect, useId, useMemo, useRef, useState } from 'react';
-import type { ProtocolPoolQuote, ProtocolSwapPool, ProtocolSwapToken } from '@intafaced/contracts/protocol-swap';
+import { formatAsOf } from '@intafaced/ui';
+import {
+  PRICE_SETTINGS_UNSET,
+  type ProtocolPoolQuote,
+  type ProtocolSwapPool,
+  type ProtocolSwapToken,
+} from '@intafaced/contracts/protocol-swap';
 import { navigate } from '../../../app/location';
 import { Button, Dialog, Failure, Field, Panel } from '../../../shared/ui';
 import { usePreferences } from '../../../shared/preferences';
@@ -305,13 +311,19 @@ export function SwapForm() {
   // A token's USD price as the pools read it, with the block's time; a token the filter leaves out says why.
   const priceLine = (address: string): string => {
     if (prices.resource.status === 'loading') return t('priceReading');
-    if (prices.resource.status === 'failed') return t('priceUnread');
+    if (prices.resource.status === 'failed') {
+      // A refusal names its blocker; only an unexplained failure reads as a passing one.
+      const code = prices.resource.failure.code;
+      if (code === PRICE_SETTINGS_UNSET) return t('priceSettingsUnset');
+      if (code === REGION_BLOCKED_CODE) return t('regionBlocked');
+      if (code === 'protocol.amm_factory_unset') return t('priceFactoryUnset');
+      return t('priceUnread');
+    }
     const found = prices.resource.data.prices.find((entry) => entry.address.toLowerCase() === address.toLowerCase());
-    if (!found) return t('priceNone_no_route');
+    // Pairs and prices are two reads and may land on different blocks: a token missing from the prices was not read.
+    if (!found) return t('priceUnread');
     if (found.usd === null) return t(found.reason === 'thin_reserve' ? 'priceNone_thin_reserve' : 'priceNone_no_route');
-    const time = new Intl.DateTimeFormat(language, { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(
-      new Date(prices.resource.data.asOf),
-    );
+    const time = formatAsOf(prices.resource.data.asOf, { locale: language, now }) ?? prices.resource.data.asOf;
     return t('priceLine', { price: formatUsd(found.usd), time });
   };
 
