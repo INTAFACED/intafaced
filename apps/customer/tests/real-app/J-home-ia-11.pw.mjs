@@ -133,7 +133,8 @@ test(`${J} #1 the tester profile starts healthy services, and its seed service r
   // Each service the stack started, one row each in its own health table, answers its health check.
   const table = run('tooling/scripts/local-test-stack.mjs', ['status'], { LOCAL_STACK_STATE: STATE });
   expect(table.status, table.out).toBe(0);
-  const rows = [...table.out.matchAll(/^ {2}(\S+) +\S+ +(\d+|owned) +(.+)$/gm)].map((m) => [m[1], m[3].trim()]);
+  // A row's name may carry a TEST mark (`chain (TEST)`, `team-tls (TEST)`), which is not its port.
+  const rows = [...table.out.matchAll(/^ {2}(\S+)(?: \(TEST\))? +\S+ +(\d+|owned) +(.+)$/gm)].map((m) => [m[1], m[3].trim()]);
   const names = rows.map(([name]) => name);
   expect(new Set(names).size, 'one row per service').toBe(names.length);
   // Against the stack's own inventory of what it started (its marker's ports), each exactly once.
