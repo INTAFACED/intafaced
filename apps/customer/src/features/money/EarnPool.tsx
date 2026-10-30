@@ -93,6 +93,20 @@ function PoolBody({ poolId, open }: { poolId: string; open: Open }) {
           ))}
         </dl>
       </Section>
+      {data.unbondingDays !== null && (
+        <>
+          <Section title={t('stakingTitle')} description={t('stakingLead')}>
+            <ol className="money-earn-states" data-testid="earn-staking" data-unbonding-days={data.unbondingDays}>
+              <li data-state="staked">{t('stateStaked')}</li>
+              <li data-state="unbonding">{t('stateUnbonding', { days: data.unbondingDays })}</li>
+              <li data-state="available">{t('stateAvailable')}</li>
+            </ol>
+          </Section>
+          <Section title={t('riskTitle')}>
+            <RiskDisclosure />
+          </Section>
+        </>
+      )}
       <Section title={t('historyTitle')} description={t('historyLead')}>
         {history.resource.status === 'loading' && <Loading />}
         {history.resource.status === 'failed' && <Refused failure={history.resource.failure} retry={history.reload} />}
@@ -118,6 +132,40 @@ function PoolBody({ poolId, open }: { poolId: string; open: Open }) {
       <Section title={t('autoTitle')}>
         <AutoEarn pool={data} open={open} />
       </Section>
+    </div>
+  );
+}
+
+/**
+ * The owner's staking risk wording (BK-earn-04, J-bank-08 #6), as the bank publishes it. Unpublished says so and never
+ * reads as "no risk"; the line under it is what the bank's own records already make true of every staking-style pool.
+ */
+function RiskDisclosure() {
+  const { t } = earnPoolCopy.useCopy();
+  const wording = useBankRead('earn.riskDisclosure', undefined);
+  if (wording.resource.status === 'loading') return <Loading />;
+  const failure = wording.resource.status === 'failed' ? wording.resource.failure : null;
+  if (failure && failure.code !== 'bank.earn_risk_wording_unset') return <Refused failure={failure} retry={wording.reload} />;
+  const published = wording.resource.status === 'ready' ? wording.resource.data : null;
+  return (
+    <div data-testid="earn-risk-disclosure" data-state={published ? 'published' : 'unset'}>
+      {published ? (
+        <dl className="money-earn-facts">
+          <div data-risk="slashing">
+            <dt>{t('riskSlashing')}</dt>
+            <dd>{published.slashing}</dd>
+          </div>
+          <div data-risk="ownership">
+            <dt>{t('riskOwnership')}</dt>
+            <dd>{published.ownership}</dd>
+          </div>
+        </dl>
+      ) : (
+        <p className="money-caption" data-code="bank.earn_risk_wording_unset">
+          {t('riskUnset')}
+        </p>
+      )}
+      <p className="money-caption">{t('riskKnown')}</p>
     </div>
   );
 }
