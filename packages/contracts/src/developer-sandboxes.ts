@@ -95,18 +95,56 @@ export const sandboxKeyCreateOutputSchema = z
 export type SandboxKeyCreateOutput = z.infer<typeof sandboxKeyCreateOutputSchema>;
 
 /**
- * Sandbox test funds (DV-sandbox-02, J-developer-02 #4), served by svc-pay at `sandboxFunds.fund`. Where a sandbox's
- * TEST balances live is the owner's decision (ENGINE section 10 item 2: the sandbox store). Until it is made, the fund
- * door refuses `pay.sandbox_funds_unset` and nothing is written anywhere. There is no balance to read either, so the
- * room shows the balance as not set. No success shape exists until the store does.
+ * Sandbox test funds (DV-sandbox-02, J-developer-02 #4, #5, #8), served by svc-pay at `sandboxFunds.*`.
+ *
+ * The balances live in svc-pay's own sandbox store, which holds TEST figures only: nothing in it is posted to the
+ * ledger, read from it or moved to real funds (the lead's ruling of 2026-10-30). Each press of Fund adds the owner's
+ * TEST amount per press; while that is blank, Fund refuses `pay.sandbox_funds_unset` and nothing is written. Reset sets
+ * the sandbox's balances back to zero, up to the owner's resets per day; a blank cap refuses
+ * `pay.sandbox_reset_cap_unset` and a spent one `pay.sandbox_reset_cap_reached`.
+ *
+ * `version` counts the funds and resets the sandbox has had. The page sends it back inside the next request id, so a
+ * double press is one change and a press after a reset is a new one.
  */
-export const SANDBOX_FUND_REFUSALS = ['pay.sandbox_funds_unset'] as const;
+export const SANDBOX_FUND_ASSET = 'USDT';
+export const SANDBOX_FUND_REFUSALS = [
+  'pay.sandbox_funds_unset',
+  'pay.sandbox_reset_cap_unset',
+  'pay.sandbox_reset_cap_reached',
+  'pay.sandbox_request_conflict',
+] as const;
 export type SandboxFundRefusal = (typeof SANDBOX_FUND_REFUSALS)[number];
+
+/** A TEST figure as a decimal string, never a number. */
+const sandboxDecimalSchema = z.string().regex(/^\d{1,20}(\.\d{1,18})?$/);
+
+export const sandboxBalanceInputSchema = z.object({ sandboxId: z.string().guid() }).strict();
+export type SandboxBalanceInput = z.infer<typeof sandboxBalanceInputSchema>;
+export const sandboxBalanceOutputSchema = z
+  .object({
+    sandboxId: z.string().guid(),
+    label: z.literal('TEST'),
+    asset: z.literal(SANDBOX_FUND_ASSET),
+    amount: sandboxDecimalSchema,
+    version: z.number().int().nonnegative(),
+    /** The owner's TEST amount each Fund adds; null while blank. */
+    fundAmount: sandboxDecimalSchema.nullable(),
+    /** The owner's resets per day; null while blank. */
+    resetsPerDay: z.number().int().positive().nullable(),
+    resetsToday: z.number().int().nonnegative(),
+  })
+  .strict();
+export type SandboxBalance = z.infer<typeof sandboxBalanceOutputSchema>;
+/** A Fund or Reset answer: the balance after it, and whether this request id had already been answered (nothing changed). */
+const sandboxChangeOutputSchema = sandboxBalanceOutputSchema.extend({ replayed: z.boolean() }).strict();
+export type SandboxChange = z.infer<typeof sandboxChangeOutputSchema>;
 
 export const sandboxFundInputSchema = z.object({ sandboxId: z.string().guid(), requestId: apiKeyRequestIdSchema }).strict();
 export type SandboxFundInput = z.infer<typeof sandboxFundInputSchema>;
-/** Never answered with a value: every fund refuses until the sandbox store exists. */
-export const sandboxFundOutputSchema = z.never();
+export const sandboxFundOutputSchema = sandboxChangeOutputSchema;
+export const sandboxResetInputSchema = sandboxFundInputSchema;
+export type SandboxResetInput = z.infer<typeof sandboxResetInputSchema>;
+export const sandboxResetOutputSchema = sandboxChangeOutputSchema;
 
 /** FNV-1a, 64 bits, as in `api-keys.ts`: a short stable digest. */
 function digest(text: string): string {
@@ -131,9 +169,14 @@ export function sandboxCreateRequestId(userId: string, listed: readonly { id: st
   return `sandbox-create:${userId.toLowerCase()}:${digest(seen)}:${digest(name.trim().toLowerCase())}`;
 }
 
-/** The request id of one press of Fund: the person, the sandbox and the balance the page read (null while not set). */
-export function sandboxFundRequestId(userId: string, sandboxId: string, balance: string | null): string {
-  return `sandbox-fund:${userId.toLowerCase()}:${sandboxId.toLowerCase()}:${digest(balance ?? 'unset')}`;
+/** The request id of one press of Fund: the person, the sandbox and the balance version the page read. */
+export function sandboxFundRequestId(userId: string, sandboxId: string, version: number): string {
+  return `sandbox-fund:${userId.toLowerCase()}:${sandboxId.toLowerCase()}:v${version}`;
+}
+
+/** The request id of one press of Reset, read the same way. */
+export function sandboxResetRequestId(userId: string, sandboxId: string, version: number): string {
+  return `sandbox-reset:${userId.toLowerCase()}:${sandboxId.toLowerCase()}:v${version}`;
 }
 
 /** The request id of one sandbox key create: the sandbox, the keys it last listed and the key asked for. */

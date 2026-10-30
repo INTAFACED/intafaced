@@ -144,6 +144,18 @@ export const NOTIFY_EVENT_CONSUMERS: readonly NotifyConsumerRow[] = [
     effect: 'Inbox row bank.deposit.credited for the customer whose crypto deposit the ledger credited, once per deposit',
   },
   {
+    event: 'copySkipped',
+    durable: 'notify-copy-skipped',
+    subject: 'intafaced.trade.copy.skipped',
+    effect: 'Inbox row trade.copy.skipped for the follower, the reason in words, once per follow and leader fill',
+  },
+  {
+    event: 'copyStopped',
+    durable: 'notify-copy-stopped',
+    subject: 'intafaced.trade.copy.stopped',
+    effect: 'Inbox row trade.copy.stopped for the follower, the reason in words, once per follow and close-only',
+  },
+  {
     event: 'bankScheduledReminder',
     durable: 'notify-bank-scheduled-reminder',
     subject: 'intafaced.bank.scheduled_reminder.triggered',
