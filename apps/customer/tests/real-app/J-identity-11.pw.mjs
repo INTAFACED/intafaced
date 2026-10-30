@@ -109,6 +109,17 @@ const withdrawalCheck = (session) =>
   session.get(`/api/bank/trpc/ramps.destinations.check?input=${encodeURIComponent(JSON.stringify({ ref: WITHDRAW_TO }))}`);
 const refusalOf = (res) => res.body?.error?.data?.intafacedCode ?? res.body?.error?.data?.cause?.code ?? null;
 
+/** The typed code on an Edge or service refusal, wherever the answer carries it. */
+const codeOn = (res) =>
+  res.body?.error?.data?.intafacedCode ?? res.body?.error?.data?.code ?? res.body?.code ?? res.body?.error?.code ?? null;
+const query = (route, input) => `${route}?input=${encodeURIComponent(JSON.stringify(input))}`;
+/** Every live sign-in of the person, as identity lists them to the person themself. */
+const sessionsOf = async (session) =>
+  (await session.get(query('/api/identity/trpc/listSessions', { userId: session.userId, limit: 200 }))).body.result.data.sessions;
+/** The person's key named `name`, as identity lists the person's keys. */
+const keyNamed = async (session, name) =>
+  (await session.get(query('/api/identity/trpc/apiKeys.list', { limit: 200 }))).body.result.data.filter((record) => record.name === name);
+
 test(`${J} #2 Freeze my account from the mailed link: no session and no key remain, the link used twice shows the stored result, a withdrawal is refused`, async ({
   browser,
 }) => {
@@ -121,10 +132,21 @@ test(`${J} #2 Freeze my account from the mailed link: no session and no key rema
   const STATUS = '/api/identity/trpc/accountStatus.mine';
   expect((await session.get(STATUS)).status).toBe(200);
   expect((await withKey(key, { path: STATUS })).status).toBe(200);
+  // Before the freeze identity lists the key live and more than one sign-in (the browser's and this one).
+  expect((await keyNamed(session, 'freeze-me')).map((record) => record.revoked)).toEqual([false]);
+  const before = await sessionsOf(session);
+  expect(before.length).toBeGreaterThanOrEqual(2);
   // Before the freeze the withdrawal guard lets this person go on to the address form.
   const open = await withdrawalCheck(session);
   expect(open.status, JSON.stringify(open.body).slice(0, 300)).toBe(200);
   expect(open.body.result.data.address).toBe('ok');
+
+  // A link nobody was sent gets the one generic page and freezes nothing.
+  const stranger = await (await browser.newContext()).newPage();
+  await stranger.goto(`/freeze/confirm#token=${randomBytes(32).toString('base64url')}`);
+  await stranger.getByRole('button', { name: 'Freeze my account' }).click();
+  await expect(stranger.getByRole('heading', { level: 1 })).toHaveText('This freeze link does not work');
+  expect((await session.get(STATUS)).body.result.data.state).toBe('active');
 
   // "This was not me": the person opens the link from the notice in a browser that is not signed in.
   const link = await mailedFreezeLink(who.email);
@@ -135,17 +157,34 @@ test(`${J} #2 Freeze my account from the mailed link: no session and no key rema
   expect((await session.get(STATUS)).body.result.data.state).toBe('active');
   await mailbox.getByRole('button', { name: 'Freeze my account' }).click();
   await expect(mailbox.getByRole('heading', { level: 1 })).toHaveText('Your account is frozen');
+  await expect(mailbox.getByTestId('freeze-link-result')).toHaveAttribute('data-first-use', 'true');
   const first = await mailbox.getByTestId('freeze-link-result').locator('time').getAttribute('datetime');
   expect(Number.isNaN(Date.parse(first))).toBe(false);
 
-  // No session and no key remain: the sign-in made before the freeze, the key, and the browser's own session all refuse.
-  // Edge may hold a session's authority for its cache window, so the first read waits that window out once.
+  // No session and no key remain: the sign-in made before the freeze is refused as revoked, the key as revoked, and
+  // the browser's own session is signed out. Edge may hold a session's authority for its cache window, so the first
+  // read waits that window out once.
   const { EDGE_AUTHORITY_CACHE_MAX_MS } = await import(path.join(ROOT, 'tooling/scripts/local-test-gates.mjs'));
   await new Promise((resolve) => setTimeout(resolve, EDGE_AUTHORITY_CACHE_MAX_MS + 100));
-  expect((await session.get(STATUS)).status).toBe(401);
-  expect((await withKey(key, { path: STATUS })).status).toBe(401);
+  const oldSession = await session.get(STATUS);
+  expect(oldSession.status, JSON.stringify(oldSession.body).slice(0, 300)).toBe(401);
+  expect(codeOn(oldSession)).toBe('auth.session_revoked');
+  const oldKey = await withKey(key, { path: STATUS });
+  expect(oldKey.status, JSON.stringify(oldKey.body).slice(0, 300)).toBe(401);
+  expect(codeOn(oldKey)).toBe('edge.api_key_revoked');
   await page.goto('/uc/safe');
   await expect(page.getByRole('heading', { name: 'Sign in to continue' })).toBeVisible();
+
+  // Signed in again, identity lists only this new sign-in and the key as revoked, and the account reads frozen by its
+  // owner since the moment the link page showed.
+  const again = await api(who);
+  const listed = await sessionsOf(again);
+  expect(listed.map((seat) => seat.isCurrent)).toEqual([true]);
+  expect(before.map((seat) => seat.id)).not.toContain(listed[0].id);
+  expect((await keyNamed(again, 'freeze-me')).map((record) => record.revoked)).toEqual([true]);
+  const frozen = (await again.get(STATUS)).body.result.data;
+  expect(frozen.state).toBe('frozen_self');
+  expect(frozen.restrictions.map((restriction) => [restriction.kind, restriction.since])).toEqual([['self_freeze', first]]);
 
   // The same link again, opened from the mail in a new tab, shows the result stored at its first use and changes nothing.
   // (A goto on the open tab would only change its fragment, so the page would not load again.)
@@ -155,12 +194,14 @@ test(`${J} #2 Freeze my account from the mailed link: no session and no key rema
   await expect(reopened.getByRole('heading', { level: 1 })).toHaveText('This link was already used');
   await expect(reopened.getByTestId('freeze-link-result')).toHaveAttribute('data-first-use', 'false');
   await expect(reopened.getByTestId('freeze-link-result').locator('time')).toHaveAttribute('datetime', first);
+  // Changes nothing: the freeze reads the same, and the sign-in made after the first use is still live and still the only one.
+  await new Promise((resolve) => setTimeout(resolve, EDGE_AUTHORITY_CACHE_MAX_MS + 100));
+  const still = await again.get(STATUS);
+  expect(still.status).toBe(200);
+  expect(still.body.result.data).toEqual(frozen);
+  expect((await sessionsOf(again)).map((seat) => seat.id)).toEqual([listed[0].id]);
 
-  // Signed in again, the account reads frozen by its owner since that moment, and the bank's withdrawal guard refuses.
-  const again = await api(who);
-  const status = (await again.get(STATUS)).body.result.data;
-  expect(status.state).toBe('frozen_self');
-  expect(status.restrictions.map((restriction) => restriction.kind)).toEqual(['self_freeze']);
+  // The bank's withdrawal guard refuses the frozen account by name.
   const refused = await withdrawalCheck(again);
   expect(refused.status).toBe(412);
   expect(refusalOf(refused)).toBe('bank.account_frozen_self');
