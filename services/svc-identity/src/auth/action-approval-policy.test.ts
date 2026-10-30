@@ -223,6 +223,35 @@ describe('governed approve and consume', () => {
     await expect(svc.consume('svc-ops', consumeOf(p))).rejects.toMatchObject({ code: 'action_approval.consumed' });
   });
 
+  it('a founder-namespaced request is founders-only even when its row names operators', async () => {
+    const { svc } = rig({ value: setting({ 'ops.ledger.reverse': row() }) });
+    expect(svc.audienceFor({ actionType: 'ops.ledger.reverse', targetService: 'svc-ops', targetId: 'reverse:tx-1' })).toBe('operator');
+    expect(svc.audienceFor({ actionType: 'ops.ledger.reverse', targetService: 'svc-ops', targetId: 'treasury.sweep:tx-1' })).toBe(
+      'founder',
+    );
+    // Still refuses with the row unset: founders never stand in for a missing policy.
+    const blank = rig({ value: undefined }).svc;
+    expect(() =>
+      blank.audienceFor({ actionType: 'ops.ledger.reverse', targetService: 'svc-ops', targetId: 'treasury.sweep:tx-1' }),
+    ).toThrow(expect.objectContaining({ code: 'action_approval.policy_unset' }));
+  });
+
+  it('a voter no longer sees the row in their pending list while it waits on others', async () => {
+    const { svc } = rig({ value: setting({ 'ops.ledger.reverse': row() }) });
+    const p = await svc.propose(REQ, reverse);
+    const access = { operator: true, founder: false };
+    expect((await svc.listForCaller(B, 'pending', 10, access)).approvals.map((a) => a.approvalId)).toEqual([p.approvalId]);
+    await svc.approve(B, p.approvalId, p.payloadHash);
+    expect((await svc.listForCaller(B, 'pending', 10, access)).approvals).toEqual([]);
+    expect((await svc.listForCaller(C, 'pending', 10, access)).approvals.map((a) => a.approvalId)).toEqual([p.approvalId]);
+  });
+
+  it('the requester cannot reject their own request in any letter case', async () => {
+    const { svc } = rig({ value: setting({ 'ops.ledger.reverse': row() }) });
+    const p = await svc.propose(REQ, reverse);
+    await expect(svc.reject(REQ.toUpperCase(), p.approvalId)).rejects.toMatchObject({ code: 'action_approval.same_person' });
+  });
+
   it('a third approval after the count is reached is not_pending', async () => {
     const { svc } = rig({ value: setting({ 'ops.ledger.reverse': row() }) });
     const p = await svc.propose(REQ, reverse);
@@ -326,6 +355,30 @@ describe('governed approve and consume', () => {
     await expect(
       svc.consume('svc-ops', { ...consumeOf({ ...reverse, approvalId: 'legacy', operationId: 'op-legacy' }) }),
     ).rejects.toMatchObject({ code: 'action_approval.policy_changed' });
+  });
+
+  it('a request bound to a policy whose type is no longer governed is policy_changed, never policy_unset', async () => {
+    const { svc, store } = rig({ value: setting({ 'ops.ledger.reverse': row() }) });
+    await store.insert({
+      approvalId: 'ungoverned',
+      actionType: 'ops.ledger.retired',
+      targetService: 'svc-ops',
+      targetId: 'reverse:tx-1',
+      expectedVersion: '1',
+      payloadHash: 'sha256:rev',
+      requesterId: REQ,
+      approverId: null,
+      policyVersion: 'v0',
+      operationId: 'op-ungoverned',
+      status: 'PENDING',
+      createdAt: NOW,
+      expiresAt: new Date(NOW.getTime() + 60_000),
+      approvedAt: null,
+      consumedAt: null,
+      approvalsRequired: 2,
+      policyHash: 'sha256:' + '0'.repeat(64),
+    });
+    await expect(svc.approve(B, 'ungoverned', 'sha256:rev')).rejects.toMatchObject({ code: 'action_approval.policy_changed' });
   });
 
   it('an expired governed request is expired, at approve and at consume', async () => {

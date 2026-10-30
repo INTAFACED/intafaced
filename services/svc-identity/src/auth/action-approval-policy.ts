@@ -90,7 +90,10 @@ export function readApprovalPolicies(raw: string | undefined): Record<PolicyGove
   return out;
 }
 
-/** A source over a raw setting. Production passes the env value; it is read again only when the value changes. */
+/**
+ * A source over a raw setting, parsed again only when the value changes. Production passes the env value read at boot, so
+ * a changed row there takes effect after a restart.
+ */
 export function approvalPolicySource(readRaw: () => string | undefined): ApprovalPolicySource {
   let last: { raw: string | undefined; read: Record<PolicyGovernedActionType, PolicyLookup> } | null = null;
   return (actionType) => {

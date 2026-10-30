@@ -22,7 +22,13 @@ import {
   namesAreNotActionApproval,
   samePersonTargetService,
 } from '@intafaced/contracts';
-import { type ActionAudience, type ApprovalSubject, type FounderDirectory, audienceOfApproval } from './action-approval-audience.js';
+import {
+  type ActionAudience,
+  type ApprovalSubject,
+  type FounderDirectory,
+  audienceOfApproval,
+  inFounderNamespace,
+} from './action-approval-audience.js';
 import { type ApprovalPolicySource, approvalPolicyEntries } from './action-approval-policy.js';
 import {
   type ActionApprovalStore,
@@ -218,7 +224,7 @@ export class ActionApprovalService {
     if (row.status !== 'PENDING') {
       throw this.terminal(row, 'action_approval.not_pending');
     }
-    if (row.requesterId === actorId) {
+    if (row.requesterId.toLowerCase() === actorId.toLowerCase()) {
       throw new ActionApprovalError('the requester cannot reject as checker; revoke instead', 'action_approval.same_person');
     }
     const next = await this.store.casReject(approvalId, actorId, this.clock());
@@ -355,9 +361,13 @@ export class ActionApprovalService {
     }
     const rows = await this.store.listPendingExcept(callerId, limit);
     const visible = [];
+    const caller = callerId.toLowerCase();
     for (const row of rows) {
       const audience = this.visibleAudienceOf(row);
       if (audience === 'self') continue;
+      // A governed row waiting on more approvers is not the caller's to act on once they have voted on it.
+      if (row.approvalsRequired != null && (await this.store.listVotes(row.approvalId)).some((v) => v.approverId.toLowerCase() === caller))
+        continue;
       if (audience === 'founder' && access.founder) visible.push(toActionApproval(row));
       else if (audience === 'trade_ops' && access.tradeOps) visible.push(toActionApproval(row));
       else if (audience === 'operator' && access.operator) visible.push(toActionApproval(row));
@@ -458,6 +468,11 @@ export class ActionApprovalService {
    */
   audienceFor(subject: ApprovalSubject, whenUnset: 'refuse' | 'default' = 'refuse'): ActionAudience {
     if (subject.kind === 'same_person' || governedActionTypeOf(subject.actionType) === null) return audienceOfApproval(subject);
+    // The row decides who may approve its type (an owner value, CR-1), but never lowers a founder-namespaced request.
+    if (inFounderNamespace(subject)) {
+      if (whenUnset === 'refuse') this.requirePolicy(subject.actionType);
+      return 'founder';
+    }
     if (whenUnset === 'default') {
       const found = this.lookupPolicy(subject.actionType);
       return found ? found.approverAudience : audienceOfApproval(subject);
@@ -507,18 +522,21 @@ export class ActionApprovalService {
     if (row.kind === 'same_person') return null;
     const governedType = governedActionTypeOf(row.actionType) !== null;
     if (!governedType && row.approvalsRequired == null) return null;
+    const changed = () =>
+      new ActionApprovalError(
+        'the approval policy for this action type changed after the request was made; propose it again',
+        ACTION_APPROVAL_POLICY_CHANGED,
+      );
+    // A request filed under a policy whose type is no longer governed has no row to be judged by: changed, not unset.
+    if (!governedType) throw changed();
     const current = this.requirePolicy(row.actionType);
     if (
-      !governedType ||
       row.approvalsRequired == null ||
       row.policyHash == null ||
       row.policyHash !== current.version ||
       row.approvalsRequired !== current.requiredApprovals
     ) {
-      throw new ActionApprovalError(
-        'the approval policy for this action type changed after the request was made; propose it again',
-        ACTION_APPROVAL_POLICY_CHANGED,
-      );
+      throw changed();
     }
     return current;
   }
