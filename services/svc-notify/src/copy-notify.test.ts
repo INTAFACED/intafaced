@@ -49,6 +49,21 @@ describe('copy notices (J-copy-bots-otc-03 #6)', () => {
     });
   });
 
+  it('a skip the follower chose (paused, stopped) writes no notice', async () => {
+    const { bus, inbox } = await wired();
+    for (const reason of ['paused', 'stopped'] as const) {
+      await bus.publish('copySkipped', {
+        followId: FOLLOW,
+        followerId: FOLLOWER,
+        leaderId: LEADER,
+        leaderFillId: FILL,
+        reason,
+        skippedAt: '2026-10-30T08:00:00.000Z',
+      });
+    }
+    expect(await inbox()).toEqual([]);
+  });
+
   it('a stop tells the follower, with close-only in words, once per follow and close-only', async () => {
     const { bus, inbox } = await wired();
     const stopped = {

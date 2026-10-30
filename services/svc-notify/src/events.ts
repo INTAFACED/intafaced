@@ -856,6 +856,8 @@ export async function subscribeNotificationEvents(
   // why, in words keyed by the reason id, and what the person can do; it never shows a raw code. Inbox only.
   attachments.push(
     await attach(bus, 'copySkipped', copySkipped.subject, 'notify-copy-skipped', async (payload) => {
+      // A skip the follower chose (a pause or a stop) is theirs already; svc-trade does not send it, and none is written.
+      if (payload.reason === 'paused' || payload.reason === 'stopped') return;
       nakIfRetryable(
         await notify.create({
           userId: payload.followerId,
