@@ -16,7 +16,7 @@ import {
   parseOtcConvertBoundsJson,
 } from './otc-convert-bounds.js';
 
-const principal = { userId: '00000000-0000-4000-8000-000000000001' } as import('@intafaced/auth').Principal;
+const principal = { userId: '00000000-0000-4000-8000-000000000001', tier: 'basic' } as import('@intafaced/auth').Principal;
 const TEST_LAW: OtcDeskLaw = {
   published: true,
   spreadBps: 50,
@@ -28,6 +28,7 @@ const TEST_LAW: OtcDeskLaw = {
   // (CB-otc-07), so every convert below prices without one.
   // BTC is the one asset the desk quotes (CB-otc-11), the base of every convert below.
   assets: ['BTC'],
+  minTier: 'basic',
 };
 const TEST_BOUNDS_JSON = JSON.stringify({ convert: { minQty: '1', maxQty: '10' }, oneClickBuy: { minQty: '2', maxQty: '5' } });
 

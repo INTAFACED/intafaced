@@ -56,7 +56,7 @@ import { copyCloseTrpcError } from './copy/copy-close-errors.js';
 import { algoDeskProcedures, optionsDeskProcedures, rfqHistoryProcedures, scaleProcedures } from './desk/procedures.js';
 import { presentAlgoDesk, presentScheduleHonesty } from './algo/present.js';
 import { MAX_ALGO_SEED } from './algo/schedule.js';
-import { awaitingTrigger } from './algo/types.js';
+import { awaitingTrigger, POV_BASES } from './algo/types.js';
 import { tradingControlsRouter } from './controls/router.js';
 import { TradingControlError, type TradingControls } from './controls/trading-controls.js';
 import { tradeOpsAdminRouter } from './admin/router.js';
@@ -236,6 +236,8 @@ const algoParentOutputSchema = z.object({
   haltReason: z.string().nullable(),
   stopReason: algoStopReasonSchema,
   participationBps: z.number().int().nullable(),
+  /** POV: what participation is applied to; null for TWAP and VWAP. */
+  povBasis: z.enum(POV_BASES).nullable(),
   createdAt: z.string(),
   startedAt: z.string(),
   nextDueAt: z.string(),
@@ -264,7 +266,9 @@ const algoScheduleHonestySchema = {
 };
 
 const algoGetOutputSchema = algoParentOutputSchema.extend({
-  children: z.array(z.object({ orderId: z.string(), sliceIndex: z.number().int(), time: z.string() })),
+  children: z.array(
+    z.object({ orderId: z.string(), sliceIndex: z.number().int(), time: z.string(), qty: decimal, basisQty: decimal.nullable() }),
+  ),
   misses: z.array(z.object({ sliceIndex: z.number().int(), time: z.string(), code: z.string() })),
   filledQty: decimal,
   /** The planned size of every slice, in order, as stored with the parent. */
@@ -476,6 +480,7 @@ function toTrpcError(err: unknown): TRPCError {
         return new TRPCError({ code: 'NOT_FOUND', message: err.message, cause: err });
       case 'trade.otc_not_owner':
       case 'trade.otc_stake_gate':
+      case 'trade.otc_level_insufficient':
         return new TRPCError({ code: 'FORBIDDEN', message: err.message, cause: err });
       case 'trade.otc_desk_law_blank':
       case 'trade.otc_settle_refused':
@@ -488,6 +493,7 @@ function toTrpcError(err: unknown): TRPCError {
       case 'trade.rfq_missing_price':
       case 'trade.otc_makers_unset':
       case 'trade.otc_assets_unset':
+      case 'trade.otc_level_unset':
       case 'trade.rfq_size_not_set':
       case 'feed.market':
         return new TRPCError({ code: 'PRECONDITION_FAILED', message: err.message, cause: err });
@@ -1093,11 +1099,13 @@ export function createTradeRouter(
             statusLine: otcDeskLawStatusLine(UNPUBLISHED_OTC_DESK_LAW),
             residual: deskLaw,
             assets: null,
+            minTier: null,
             makerRouting: otcMakerRoutingStatus(),
             midFeed: otcMidFeedStatus(),
             residuals: {
               deskLaw,
               assets: deskLaw,
+              minTier: deskLaw,
               makerRouting: OTC_MAKER_ROUTING_RESIDUAL,
               midFeed: OTC_MID_FEED_RESIDUAL,
             },
@@ -1335,6 +1343,7 @@ export function createTradeRouter(
             subAccountId: z.string().guid().optional(),
             kind: z.enum(['twap', 'vwap', 'pov']).optional(),
             participationBps: z.number().int().min(1).max(10_000).optional(),
+            povBasis: z.enum(POV_BASES).optional(),
             randomSeed: z.number().int().min(0).max(MAX_ALGO_SEED).optional(),
             triggerPrice: decimal.optional(),
           }),
@@ -1353,6 +1362,7 @@ export function createTradeRouter(
               subAccountId: input.subAccountId,
               kind: input.kind ?? 'twap',
               participationBps: input.participationBps,
+              povBasis: input.povBasis,
               randomSeed: input.randomSeed,
               triggerPrice: input.triggerPrice === undefined ? undefined : parseAmount(input.triggerPrice),
             });
@@ -1997,6 +2007,7 @@ function presentAlgo(parent: import('./algo/index.js').TwapParent) {
     haltReason: parent.haltReason,
     stopReason: algoStopReason(parent),
     participationBps: parent.participationBps,
+    povBasis: parent.povBasis ?? null,
     createdAt: parent.createdAt.toISOString(),
     startedAt: parent.startedAt.toISOString(),
     nextDueAt: parent.nextDueAt.toISOString(),

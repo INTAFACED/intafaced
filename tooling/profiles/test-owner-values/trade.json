@@ -73,8 +73,8 @@
     },
     "TRADE_OTC_DESK_LAW": {
       "service": "trade",
-      "value": "{\"published\": true, \"spreadBps\": 20, \"minStake\": \"100\", \"counterparty\": \"platform\", \"quoteTtlMs\": 60000, \"maxMidAgeSeconds\": 86400, \"settleWindowMs\": 60000, \"minNotional\": {\"USDT\": \"1000\"}, \"assets\": [\"BTC\"]}",
-      "note": "TEST quote desk law: 20 bps disclosed spread, a 100 IFC stake floor (J-copy-bots-otc-24 stakes it; one below it is refused), the platform as counterparty, a 60 s firm quote so a journey sees one expire, a reference price trusted for one day (the stack's boot-stamped TEST mid), a 60 s window to settle an accepted quote so a journey sees one close, and a 1000 USDT desk minimum per request (J-copy-bots-otc-24 #4 asks below it and is refused), and BTC as the one asset the desk quotes, the base of the stack's one TEST mid (J-copy-bots-otc-24 #1 reads it back, and blank it refuses)."
+      "value": "{\"published\": true, \"spreadBps\": 20, \"minStake\": \"100\", \"counterparty\": \"platform\", \"quoteTtlMs\": 60000, \"maxMidAgeSeconds\": 86400, \"settleWindowMs\": 60000, \"minNotional\": {\"USDT\": \"1000\"}, \"assets\": [\"BTC\"], \"minTier\": \"full\"}",
+      "note": "TEST quote desk law: 20 bps disclosed spread, a 100 IFC stake floor (J-copy-bots-otc-24 stakes it; one below it is refused), the platform as counterparty, a 60 s firm quote so a journey sees one expire, a reference price trusted for one day (the stack's boot-stamped TEST mid), a 60 s window to settle an accepted quote so a journey sees one close, and a 1000 USDT desk minimum per request (J-copy-bots-otc-24 #4 asks below it and is refused), and BTC as the one asset the desk quotes, the base of the stack's one TEST mid (J-copy-bots-otc-24 #1 reads it back, and blank it refuses), and full verification as the lowest level the desk prices for, the level the stack's verify step grants (J-copy-bots-otc-24 #3 asks at basic and is refused, and blank it refuses)."
     },
     "TRADE_OTC_MAKER_DIRECTORY": {
       "service": "trade",

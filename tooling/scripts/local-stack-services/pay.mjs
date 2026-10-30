@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
+import path from 'node:path';
 
-export default ({ c, secrets, dbUrl, urlOf, PORTS }) => ({
+export default ({ c, secrets, dbUrl, urlOf, PORTS, STATE }) => ({
   name: 'pay',
   env: () => ({
     ...c('svc-pay', PORTS.pay),
@@ -68,5 +69,9 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS }) => ({
     // has none, so a send there is refused before anything is held (J-wallet-05 #7). svc-pay refuses this outside APP_ENV dev
     // or test; no live signer exists anywhere.
     PAY_TEST_WITHDRAW_SIGNER_NETWORKS: 'ethereum',
+    // LOCAL-TEST: that in-memory chain keeps its own TEST record of each send out of custody, in the stack's rail records
+    // (local-test-rail-records.mjs reads them), so rail crypto-native is reconciled in the chain's words, never the ledger's.
+    // svc-pay refuses this outside APP_ENV dev or test, or over any chain but the sandbox one.
+    PAY_TEST_RAIL_RECORDS_DIR: path.join(STATE, 'test-rail-records'),
   }),
 });

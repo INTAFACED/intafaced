@@ -43,7 +43,16 @@ export interface AlgoChildRef {
   /** Schedule qty for this slice — not a fill. */
   readonly qty: Amount;
   readonly placedAt: Date;
+  /** POV only: the volume or book size the participation rate was applied to for this slice. */
+  readonly basisQty?: Amount | null;
 }
+
+/**
+ * What a POV participation rate is applied to: the taker volume traded in the last interval, or the resting
+ * quantity on the opposite side of the book (the side the child would take from).
+ */
+export type PovBasis = 'traded_volume' | 'opposite_liquidity';
+export const POV_BASES: readonly PovBasis[] = ['traded_volume', 'opposite_liquidity'];
 
 export interface AlgoMiss {
   readonly sliceIndex: number;
@@ -104,6 +113,8 @@ export interface TwapParent {
    * Null on TWAP/VWAP. Never a product default.
    */
   readonly participationBps: number | null;
+  /** POV only: what the participation rate is applied to. Null or absent on TWAP/VWAP and on rows from before it. */
+  readonly povBasis?: PovBasis | null;
   readonly slicesPlanned: number;
   /** Next slice index to emit (0-based). Resume does not rewind elapsed slices. */
   readonly nextSliceIndex: number;
@@ -167,6 +178,10 @@ export interface CreateTwapInput {
   readonly volumeProfile?: readonly Amount[];
   /** Required for POV. Integer 1..10000. */
   readonly participationBps?: number;
+  /** POV only. Absent means traded volume. */
+  readonly povBasis?: PovBasis;
+  /** POV with opposite-side liquidity: the opposite side's resting quantity read at create. */
+  readonly oppositeBookQty?: Amount;
   /** TWAP only: fixes random slice sizes. */
   readonly randomSeed?: number;
   /** Start price, and whether it lay above the mark at create (the service reads the mark). */
