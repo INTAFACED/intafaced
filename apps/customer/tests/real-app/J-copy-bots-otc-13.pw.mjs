@@ -243,7 +243,7 @@ test(`${J} #4 opens the quote desk list: open and settled RFQs with statuses; a 
   const settledId = await ask();
   await acceptQuote(settledId);
   // The desk is the counterparty and sells from the house inventory: TEST BTC for this one settle, keyed by the quote.
-  expect(fund('house', 'BTC', '0.02', `${J}-house-btc-${settledId}`).tx).toBeTruthy();
+  expect(fund('house', 'BTC', '0.02', `jco13-house-${settledId}`).tx).toBeTruthy();
   const settle = await me.post('/api/trade/trpc/otc.settle', { quoteId: settledId });
   expect(settle.status, JSON.stringify(settle.body).slice(0, 300)).toBe(200);
   expect((await read(settledId)).lifecycle).toBe('settled');
