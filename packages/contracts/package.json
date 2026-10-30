@@ -258,6 +258,10 @@
       "types": "./dist/auth-errors.d.ts",
       "default": "./dist/auth-errors.js"
     },
+    "./developer-sandboxes": {
+      "types": "./dist/developer-sandboxes.d.ts",
+      "default": "./dist/developer-sandboxes.js"
+    },
     "./academy-catalogue": {
       "types": "./dist/academy-catalogue.d.ts",
       "default": "./dist/academy-catalogue.js"

@@ -1,7 +1,8 @@
 import { createHash } from 'node:crypto';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { payloadHashFor, proposeInputFor } from '@/lib/desk/approval-hash';
 import { confirmPhrase, readDeskRequest, requestReason, type DeskRequest } from '@/lib/desk/approval-packet';
+import { treasuryToken } from '@/lib/recon-alerts/fixtures.test-util';
 import { readStampAnswer, restoreExecute } from './execute';
 
 const ctx = {
@@ -27,7 +28,15 @@ const opsHash = (actionType: string, fields: Record<string, string>) =>
     .update(JSON.stringify({ actionType, ...fields }))
     .digest('hex')}`;
 
-afterEach(() => vi.unstubAllGlobals());
+const original = { ...process.env };
+beforeEach(() => {
+  process.env.EDGE_URL = 'http://edge:4000';
+  process.env.ADMIN_TREASURY_TOKEN = treasuryToken(ctx.session.userId);
+});
+afterEach(() => {
+  vi.unstubAllGlobals();
+  process.env = { ...original };
+});
 
 describe('restore requests in the approval packet', () => {
   it('reads exactly the stamp and finalize shapes, and nothing looser', () => {
@@ -75,7 +84,7 @@ describe('restore requests in the approval packet', () => {
 });
 
 describe('running a restore request', () => {
-  it('records a stamp under a key tied to the approval, through the edge as the founder', async () => {
+  it('records a stamp under a key tied to the approval, through the edge on the treasury credential', async () => {
     const fn = vi.fn(async (_u: string, _i?: RequestInit) =>
       ok({ service: 'ledger', kind: 'ledger_tx.seq', watermark: '4711', recordedAt: '2026-10-30T12:01:00.000Z', restored: false }),
     );
@@ -90,7 +99,7 @@ describe('running a restore request', () => {
       idempotencyKey: 'restore:stamp:appr_1',
       ...ids,
     });
-    expect((init!.headers as Record<string, string>).authorization).toBe('Bearer founder-access-token');
+    expect((init!.headers as Record<string, string>).authorization).toBe(`Bearer ${process.env.ADMIN_TREASURY_TOKEN}`);
   });
 
   it('counts a stamp as done only when the stored one is the one asked for', async () => {
@@ -129,5 +138,24 @@ describe('running a restore request', () => {
       vi.fn(async () => Promise.reject(new Error('socket hang up'))),
     );
     expect(await restoreExecute(ctx)(stamp, ids)).toMatchObject({ ok: false, refusal: { changed: 'unknown' } });
+  });
+
+  it('sends nothing while the treasury credential belongs to another founder', async () => {
+    process.env.ADMIN_TREASURY_TOKEN = treasuryToken('22222222-2222-4222-8222-222222222222');
+    const fn = vi.fn();
+    vi.stubGlobal('fetch', fn);
+    expect(await restoreExecute(ctx)(finalize, ids)).toMatchObject({
+      ok: false,
+      refusal: { code: 'admin.treasury_holder_mismatch', changed: 'no' },
+    });
+    expect(fn).not.toHaveBeenCalled();
+  });
+
+  it('sends nothing while this console holds no treasury credential', async () => {
+    delete process.env.ADMIN_TREASURY_TOKEN;
+    const fn = vi.fn();
+    vi.stubGlobal('fetch', fn);
+    expect(await restoreExecute(ctx)(stamp, ids)).toMatchObject({ ok: false, refusal: { changed: 'no' } });
+    expect(fn).not.toHaveBeenCalled();
   });
 });
