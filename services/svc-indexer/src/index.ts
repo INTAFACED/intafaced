@@ -5,8 +5,10 @@ import { checkAccess, edgeTrustFromEnv } from '@intafaced/config';
 import { env } from './env.js';
 import { NullChainSource } from './chain/memory-source.js';
 import { EvmChainSource } from './chain/evm/source.js';
+import { startTokenBackfill } from './explorer/token-backfill.js';
 import { parseExplorerListLimit } from './explorer/blocks.js';
 import { parseTxDropWindow } from './explorer/tx.js';
+import { parseSearchNetworks, searchNetworkFinders } from './explorer/search-networks.js';
 import { PostgresProjectionStore } from './projection/postgres-store.js';
 import { Indexer } from './indexer.js';
 import { shutdownIndexer } from './shutdown.js';
@@ -62,6 +64,9 @@ if (!table?.exists) {
 }
 
 const store = new PostgresProjectionStore(db.sql, env.INDEXER_CHAIN_ID);
+
+// Parsed before anything listens: a malformed list stops the boot instead of searching a network nobody named.
+const searchNetworks = parseSearchNetworks(env.INDEXER_SEARCH_NETWORKS, env.INDEXER_CHAIN_ID);
 
 /**
  * THE CHAIN THE OPERATOR NAMED.
@@ -152,6 +157,34 @@ export const appRouter = createIndexerRouter({
     lookup: (hash) => (evmSource ? evmSource.lookupExplorerTx(hash) : Promise.resolve(null)),
   },
   txList: (q) => store.explorerTxList(q),
+  address: {
+    txs: (q) => store.explorerAddressTxs(q),
+    tokensBySymbol: (q) => store.explorerTokensBySymbol(q),
+  },
+  // Live balances need a node: with no chain wired the address page refuses as unwired rather than read a zero.
+  ...(evmSource
+    ? {
+        addressPage: {
+          reads: {
+            internal: (q) => store.explorerAddressInternal(q),
+            traceGaps: () => store.explorerTraceGaps(),
+            tokens: (q) => store.explorerAddressTokens(q),
+            blockBefore: (time) => store.explorerBlockBefore(time),
+            blockAt: async (height) => {
+              const block = await store.blockAt(height);
+              return block ? { height: block.height, timestamp: Math.floor(block.blockTime.getTime() / 1000) } : null;
+            },
+            earliestHeight: () => store.earliestHeight(),
+          },
+          state: {
+            account: (address, height) => evmSource.readAccountAt(address, height),
+            balance: (address, height) => evmSource.readBalanceAt(address, height),
+            tokenBalances: (tokens, address, height) => evmSource.readTokenBalancesAt(tokens, address, height),
+          },
+        },
+      }
+    : {}),
+  searchNetworks: searchNetworkFinders(searchNetworks),
 });
 export type AppRouter = typeof appRouter;
 
@@ -219,6 +252,19 @@ if (evmSource) {
 
 indexer.start(env.INDEXER_POLL_INTERVAL_MS);
 
+// Tokens that emitted before the token read existed, or past a block's read cap, get their metadata here (D-explorer-03).
+const tokenBackfill = evmSource
+  ? startTokenBackfill(
+      {
+        unread: (limit) => store.explorerTokensUnread(limit),
+        read: (addresses) => evmSource.readTokenMeta(addresses),
+        write: (tokens, height) => store.writeExplorerTokenFacts(tokens, height),
+      },
+      app.log,
+      60_000,
+    )
+  : null;
+
 await app.listen({ host: env.HTTP_HOST, port: env.HTTP_PORT });
 app.log.info(
   {
@@ -229,6 +275,7 @@ app.log.info(
     venue: evmSource ? env.INDEXER_VENUE_ADDRESS : null,
     startHeight: env.INDEXER_START_HEIGHT,
     finalityDepth: env.INDEXER_FINALITY_DEPTH,
+    searchNetworks: searchNetworks.map((n) => n.chainId),
   },
   'svc-indexer ready — non-custodial, permissionless, read-only',
 );
@@ -241,6 +288,8 @@ export function setIngestEnabled(next: boolean): void {
 let shutdownPromise: Promise<void> | undefined;
 for (const signal of ['SIGTERM', 'SIGINT'] as const) {
   process.once(signal, () => {
+    // The token backfill only retries a read; stopping it first means no new pass starts against a closing pool.
+    tokenBackfill?.stop();
     // SIGTERM followed by SIGINT shares the same drain and close sequence.
     void (shutdownPromise ??= shutdownIndexer({
       stopAndDrain: () => indexer.stopAndDrain(),

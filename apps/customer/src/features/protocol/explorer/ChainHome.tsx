@@ -3,12 +3,21 @@ import { navigate } from '../../../app/location';
 import { useApi } from '../../session/session';
 import { usePreferences } from '../../../shared/preferences';
 import { useResource } from '../../../shared/resource';
+import { useDebouncedValue } from '../../pay/portal/payments/use-debounced';
 import type { ApiResult } from '../../../shared/api';
 import { Button, DataTable, Loading, Panel } from '../../../shared/ui';
 import { KNOWN_NETWORKS, networkLabel } from '../blockers';
 import type { ChainRef } from '../NetworkPanels';
 import { explorerCopy, type ExplorerTranslate } from './copy';
-import { createExplorerApi, isNotFound, type ExplorerApi, type ExplorerBlocksPage, type ExplorerTx } from './explorer-api';
+import {
+  createExplorerApi,
+  isNotFound,
+  type ExplorerApi,
+  type ExplorerBlocksPage,
+  type ExplorerToken,
+  type ExplorerTx,
+  type ExplorerTxNetworks,
+} from './explorer-api';
 import { BlockerNote, NoteRow, refusalWords, short, TxTable, txStatusWords } from './pages';
 import { classifyQuery, pathFor, type ExplorerQuery } from './search';
 
@@ -111,23 +120,51 @@ function LatestBlocks({ api, chain, locale, t }: { api: ExplorerApi; chain: Chai
   );
 }
 
-/** Every network this explorer knows, plus the configured one when it is not among them. */
-function searchedNetworks(chainId: number | null): { chainId: number; name: string }[] {
-  const ids = Object.keys(KNOWN_NETWORKS).map(Number);
-  if (chainId !== null && !ids.includes(chainId)) ids.push(chainId);
-  return ids.map((id) => ({ chainId: id, name: networkLabel(id).name }));
+/** The network this explorer reads first, then every other one it knows and each one the indexer searched. */
+function searchedNetworks(chainId: number | null, elsewhere: readonly number[], t: ExplorerTranslate): { chainId: number; name: string }[] {
+  const ids: number[] = [];
+  for (const id of [chainId, ...Object.keys(KNOWN_NETWORKS).map(Number), ...elsewhere]) if (id !== null && !ids.includes(id)) ids.push(id);
+  return ids.map((id) => {
+    const label = networkLabel(id);
+    return { chainId: id, name: label.known ? label.name : t('networkUnrecognised', { id: String(id) }) };
+  });
 }
 
 type NetworkAnswer =
   | { chainId: number; name: string; state: 'checking' }
   | { chainId: number; name: string; state: 'found'; tx: ExplorerTx }
+  | { chainId: number; name: string; state: 'found_elsewhere'; status: string; height: number | null }
   | { chainId: number; name: string; state: 'not_found' }
   | { chainId: number; name: string; state: 'not_checked'; reason: string };
 
+type ElsewhereAnswer = ExplorerTxNetworks['networks'][number];
+
+/** Why another network's node gave no answer, in words; any other code reads as a refusal, never as the raw code. */
+function elsewhereReason(code: string, t: ExplorerTranslate): string {
+  if (code === 'indexer.chain_id_mismatch') return t('reasonWrongChain');
+  if (code === 'indexer.chain_unreachable') return t('reasonNodeNoAnswer');
+  return t('reasonNodeRefused');
+}
+
+/** One other network's answer, read live by the indexer from that network's node. */
+function elsewhereAnswer(network: { chainId: number; name: string }, answer: ElsewhereAnswer, t: ExplorerTranslate): NetworkAnswer {
+  if (answer.state === 'not_found') return { ...network, state: 'not_found' };
+  if (answer.state === 'not_checked') return { ...network, state: 'not_checked', reason: elsewhereReason(answer.code, t) };
+  // A mined transaction whose receipt the node does not serve yet has no outcome to show, never a guessed one.
+  const status = answer.pending
+    ? t('txPending')
+    : answer.status === 'success'
+      ? t('txSuccess')
+      : answer.status === 'failed'
+        ? t('txReverted')
+        : t('txOutcomeUnread');
+  return { ...network, state: 'found_elsewhere', status, height: answer.blockHeight };
+}
+
 /**
  * One search box for addresses, transactions and blocks. An address or a block opens its page; a transaction hash is looked
- * up on every network this explorer knows, and each network says Found, Not found or why it was not checked. Text that
- * is none of these would be a token name, and there is no token list to search, so the box says so instead of guessing.
+ * up on every network this explorer knows, and each network says Found, Not found or why it was not checked. Any other
+ * text is a token symbol: every contract on the network that says it has that symbol is listed, one result each.
  */
 function ExplorerSearch({ api, chain, t }: { api: ExplorerApi; chain: ChainRef; t: ExplorerTranslate }) {
   const chainId = chain.status === 'ready' ? chain.chainId : null;
@@ -135,6 +172,7 @@ function ExplorerSearch({ api, chain, t }: { api: ExplorerApi; chain: ChainRef; 
   // Each search is its own attempt, so searching the same hash again asks the indexer again.
   const [searched, setSearched] = useState<{ hash: string; attempt: number } | null>(null);
   const [lookup, setLookup] = useState<{ hash: string; attempt: number; chainId: number; result: ApiResult<ExplorerTx> } | null>(null);
+  const [elsewhere, setElsewhere] = useState<{ hash: string; attempt: number; result: ApiResult<ExplorerTxNetworks> } | null>(null);
   // Never reset, so an answer for an earlier search can never be read as the answer for a later one.
   const attempts = useRef(0);
   const listId = useId();
@@ -150,14 +188,33 @@ function ExplorerSearch({ api, chain, t }: { api: ExplorerApi; chain: ChainRef; 
     return () => controller.abort();
   }, [api, searched, chainId]);
 
+  // The other networks the indexer searches do not wait for the configured one: each answers from its own node.
+  useEffect(() => {
+    if (searched === null) return;
+    const controller = new AbortController();
+    void api.txNetworks(searched.hash, controller.signal).then((result) => {
+      if (!controller.signal.aborted) setElsewhere({ hash: searched.hash, attempt: searched.attempt, result });
+    });
+    return () => controller.abort();
+  }, [api, searched]);
+
+  const current =
+    elsewhere && searched && elsewhere.hash === searched.hash && elsewhere.attempt === searched.attempt ? elsewhere.result : null;
+  const elsewhereIds = current?.ok ? current.data.networks.map((answer) => answer.chainId) : [];
+
   const answers: NetworkAnswer[] | null =
     searched === null
       ? null
-      : searchedNetworks(chainId).map((network): NetworkAnswer => {
+      : searchedNetworks(chainId, elsewhereIds, t).map((network): NetworkAnswer => {
           if (chain.status === 'loading') return { ...network, state: 'checking' };
-          if (chainId === null) return { ...network, state: 'not_checked', reason: t('reasonChainUnknown') };
-          if (network.chainId !== chainId)
+          if (network.chainId !== chainId) {
+            if (current === null) return { ...network, state: 'checking' };
+            if (!current.ok) return { ...network, state: 'not_checked', reason: refusalWords(current, t) };
+            const answer = current.data.networks.find((item) => item.chainId === network.chainId);
+            if (answer) return elsewhereAnswer(network, answer, t);
+            if (chainId === null) return { ...network, state: 'not_checked', reason: t('reasonChainUnknown') };
             return { ...network, state: 'not_checked', reason: t('reasonOtherNetwork', { network: networkLabel(chainId).name }) };
+          }
           if (!lookup || lookup.hash !== searched.hash || lookup.attempt !== searched.attempt || lookup.chainId !== chainId)
             return { ...network, state: 'checking' };
           const { result } = lookup;
@@ -178,7 +235,7 @@ function ExplorerSearch({ api, chain, t }: { api: ExplorerApi; chain: ChainRef; 
     event.preventDefault();
     open();
   }
-  const hasResults = query.kind !== 'empty' && query.kind !== 'text';
+  const hasResults = query.kind !== 'empty';
 
   return (
     <Panel title={t('homeTitle')}>
@@ -198,12 +255,15 @@ function ExplorerSearch({ api, chain, t }: { api: ExplorerApi; chain: ChainRef; 
           {t('searchSubmit')}
         </Button>
       </form>
-      <SearchResults id={listId} query={query} onPick={open} t={t} />
-      {query.kind === 'text' && <p className="muted">{t('textNoTokenSource')}</p>}
+      {query.kind === 'text' ? (
+        <TokenResults id={listId} api={api} chain={chain} symbol={query.value} t={t} />
+      ) : (
+        <SearchResults id={listId} query={query} onPick={open} t={t} />
+      )}
       {answers && (
         <ul className="explorer-networks" aria-label={t('networksSearched')}>
           {answers.map((network) => (
-            <li key={network.chainId} data-state={network.state}>
+            <li key={network.chainId} data-state={network.state === 'found_elsewhere' ? 'found' : network.state}>
               {network.state === 'checking' && t('searchingNetwork', { network: network.name })}
               {network.state === 'found' && (
                 <>
@@ -211,6 +271,10 @@ function ExplorerSearch({ api, chain, t }: { api: ExplorerApi; chain: ChainRef; 
                   <a href={`/chain/tx/${network.tx.hash}`}>{t('openTx')}</a>
                 </>
               )}
+              {network.state === 'found_elsewhere' &&
+                (network.height === null
+                  ? t('networkFound', { network: network.name, status: network.status })
+                  : t('networkFoundAt', { network: network.name, status: network.status, height: String(network.height) }))}
               {network.state === 'not_found' && t('networkNotFound', { network: network.name })}
               {network.state === 'not_checked' && t('networkNotChecked', { network: network.name, reason: network.reason })}
             </li>
@@ -221,7 +285,75 @@ function ExplorerSearch({ api, chain, t }: { api: ExplorerApi; chain: ChainRef; 
   );
 }
 
-/** The one result a query of a known shape has. Text has none: there is no token list to search. */
+/** Longest symbol the indexer keeps (svc-indexer `token-meta.ts`); a longer text cannot be one. */
+const SYMBOL_MAX_CHARS = 32;
+
+/**
+ * Text read as a token symbol (D-explorer-03): every token contract the indexer has seen with that symbol, ignoring case,
+ * one option each and never merged, each opening its contract's address page. The answer is the indexer's, never a list
+ * kept here.
+ */
+function TokenResults({
+  id,
+  api,
+  chain,
+  symbol,
+  t,
+}: {
+  id: string;
+  api: ExplorerApi;
+  chain: ChainRef;
+  symbol: string;
+  t: ExplorerTranslate;
+}) {
+  const chainId = chain.status === 'ready' ? chain.chainId : null;
+  // One read per pause in typing, not per key.
+  const settled = useDebouncedValue(symbol);
+  const fits = Array.from(settled).length <= SYMBOL_MAX_CHARS;
+  const tokens = useResource(
+    (signal) =>
+      chainId === null || !fits ? Promise.resolve({ ok: true as const, data: null }) : api.tokensBySymbol(chainId, settled, signal),
+    `explorer:tokens:${chainId ?? 'none'}:${settled}`,
+  );
+  if (chain.status === 'failed') return <p className="muted">{t('tokensChainUnknown')}</p>;
+  const network = chainId === null ? '' : networkLabel(chainId).name;
+  const { resource } = tokens;
+  if (chain.status === 'loading' || settled !== symbol || resource.status === 'loading')
+    return <p className="muted">{t('tokensSearching', { network: network || '…' })}</p>;
+  if (resource.status === 'failed') return <p className="muted">{t('tokensRefused', { reason: refusalWords(resource.failure, t) })}</p>;
+  const rows: readonly ExplorerToken[] = resource.data?.rows ?? [];
+  if (rows.length === 0) return <p className="muted">{t('tokensNone', { network, symbol })}</p>;
+  return (
+    <>
+      <ul id={id} role="listbox" aria-label={t('resultsLabel')} className="explorer-results">
+        {rows.map((token) => {
+          const pick = () => navigate(`/chain/address/${token.address}`);
+          return (
+            <li
+              key={token.address}
+              role="option"
+              aria-selected="false"
+              tabIndex={0}
+              data-kind="token"
+              data-address={token.address.toLowerCase()}
+              data-symbol={token.symbol ?? ''}
+              onClick={pick}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter') pick();
+              }}
+            >
+              <span className="badge">{t('resultToken')}</span> <span>{token.symbol ?? t('tokenNoSymbol')}</span>
+              {token.name && <span className="muted"> {token.name}</span>} <span className="explorer-results__value">{token.address}</span>
+            </li>
+          );
+        })}
+      </ul>
+      {resource.data?.more && <p className="muted">{t('tokensMore')}</p>}
+    </>
+  );
+}
+
+/** The one result a query of an address, a transaction hash or a block height has. */
 function SearchResults({ id, query, onPick, t }: { id: string; query: ExplorerQuery; onPick: () => void; t: ExplorerTranslate }) {
   if (query.kind === 'empty' || query.kind === 'text') return null;
   const label = query.kind === 'address' ? t('resultAddress') : query.kind === 'tx' ? t('resultTx') : t('resultBlock');

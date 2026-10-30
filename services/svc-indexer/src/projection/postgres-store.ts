@@ -7,6 +7,7 @@ import {
   positiveAmountOf,
   type BookSide,
   type ChainBlock,
+  type ChainToken,
   type ChainTx,
   type ChainTxLog,
   type TakerSide,
@@ -24,6 +25,15 @@ import {
 } from './store.js';
 import type { ExplorerBlockFact } from '../explorer/blocks.js';
 import type { ExplorerTxCursor, ExplorerTxListFact, IndexedExplorerTx } from '../explorer/tx.js';
+import {
+  TRACE_NOT_RECORDED,
+  transferOf,
+  type AddressInternalFact,
+  type AddressTxFact,
+  type BlockMarkFact,
+  type TokenFact,
+  type TraceGapsFact,
+} from '../explorer/address.js';
 
 interface ExplorerFactRow {
   height: string;
@@ -205,6 +215,195 @@ export class PostgresProjectionStore implements ProjectionStore {
     };
   }
 
+  // ── Explorer (D-explorer-03) ─────────────────────────────────────────────
+
+  /**
+   * Transactions the address sent, received, or is a party to through an ERC-20 Transfer log, newest first.
+   * Canonical blocks only: an orphaned block's transactions are not this address's history.
+   * Each row carries only the transfers that move value to or from the address.
+   */
+  async explorerAddressTxs(q: { address: string; cursor?: ExplorerTxCursor; limit: number }): Promise<AddressTxFact[]> {
+    const address = q.address.toLowerCase();
+    const rows = await this.sql<AddressTxRow[]>`
+      WITH mine AS (
+        SELECT t.hash FROM explorer_txs t
+        WHERE t.chain_id = ${this.chainId} AND (t.from_address = ${address} OR t.to_address = ${address})
+        UNION
+        SELECT tr.tx_hash FROM explorer_transfers tr
+        WHERE tr.chain_id = ${this.chainId} AND (tr.from_address = ${address} OR tr.to_address = ${address})
+      )
+      SELECT t.hash, b.height, b.hash AS block_hash, t.tx_index, t.from_address, t.to_address,
+             t.receipt_status, t.revert_reason, b.block_time
+      FROM mine m
+      JOIN explorer_txs t ON t.chain_id = ${this.chainId} AND t.hash = m.hash
+      JOIN blocks b ON b.chain_id = t.chain_id AND b.hash = t.block_hash AND b.status = 'canonical'
+      WHERE TRUE
+        ${q.cursor === undefined ? this.sql`` : this.sql`AND (b.height, t.tx_index, t.hash) < (${q.cursor.height}, ${q.cursor.index}, ${q.cursor.hash})`}
+      ORDER BY b.height DESC, t.tx_index DESC, t.hash DESC
+      LIMIT ${q.limit + 1}
+    `;
+    if (rows.length === 0) return [];
+    const transfers = await this.sql<AddressTransferRow[]>`
+      SELECT tr.tx_hash, tr.token, tr.from_address, tr.to_address, tr.amount::text AS amount,
+             tok.symbol, tok.name, tok.decimals
+      FROM explorer_transfers tr
+      LEFT JOIN explorer_tokens tok ON tok.chain_id = tr.chain_id AND tok.address = tr.token
+      WHERE tr.chain_id = ${this.chainId}
+        AND tr.tx_hash = ANY(${this.sql.array(rows.map((r) => r.hash))}::text[])
+        AND (tr.from_address = ${address} OR tr.to_address = ${address})
+      ORDER BY tr.tx_hash, tr.log_index ASC
+    `;
+    return rows.map((r) => {
+      if (r.receipt_status !== 'success' && r.receipt_status !== 'failed') {
+        throw new Error(`indexer.tx_status_unreadable: ${r.hash}`);
+      }
+      return {
+        hash: r.hash,
+        blockHeight: Number(r.height),
+        blockHash: r.block_hash,
+        index: r.tx_index,
+        timestamp: Math.floor(new Date(r.block_time).getTime() / 1000),
+        from: r.from_address,
+        to: r.to_address,
+        status: r.receipt_status,
+        revertReason: r.revert_reason,
+        transfers: transfers
+          .filter((t) => t.tx_hash === r.hash)
+          .map((t) => ({
+            token: { address: t.token, symbol: t.symbol, name: t.name, decimals: t.decimals },
+            from: t.from_address,
+            to: t.to_address,
+            amount: BigInt(t.amount),
+          })),
+      };
+    });
+  }
+
+  /** Every token contract whose own symbol is this one, ignoring case. Never merged: one row per contract. */
+  async explorerTokensBySymbol(q: { symbol: string; limit: number }): Promise<TokenFact[]> {
+    const rows = await this.sql<TokenRow[]>`
+      SELECT address, symbol, name, decimals FROM explorer_tokens
+      WHERE chain_id = ${this.chainId} AND lower(symbol) = lower(${q.symbol})
+      ORDER BY address ASC
+      LIMIT ${q.limit + 1}
+    `;
+    return rows.map((r) => ({ address: r.address, symbol: r.symbol, name: r.name, decimals: r.decimals }));
+  }
+
+  /**
+   * Transactions with internal value moves to or from the address, newest first, each with only those moves.
+   * Canonical blocks only, keyset-paged like the address's transactions.
+   */
+  async explorerAddressInternal(q: { address: string; cursor?: ExplorerTxCursor; limit: number }): Promise<AddressInternalFact[]> {
+    const address = q.address.toLowerCase();
+    const rows = await this.sql<Array<{ hash: string; height: string; tx_index: number; block_time: Date }>>`
+      WITH mine AS (
+        SELECT DISTINCT i.tx_hash FROM explorer_internal_txs i
+        WHERE i.chain_id = ${this.chainId} AND (i.from_address = ${address} OR i.to_address = ${address})
+      )
+      SELECT t.hash, b.height, t.tx_index, b.block_time
+      FROM mine m
+      JOIN explorer_txs t ON t.chain_id = ${this.chainId} AND t.hash = m.tx_hash
+      JOIN blocks b ON b.chain_id = t.chain_id AND b.hash = t.block_hash AND b.status = 'canonical'
+      WHERE TRUE
+        ${q.cursor === undefined ? this.sql`` : this.sql`AND (b.height, t.tx_index, t.hash) < (${q.cursor.height}, ${q.cursor.index}, ${q.cursor.hash})`}
+      ORDER BY b.height DESC, t.tx_index DESC, t.hash DESC
+      LIMIT ${q.limit + 1}
+    `;
+    if (rows.length === 0) return [];
+    const calls = await this.sql<InternalCallRow[]>`
+      SELECT tx_hash, path, kind, from_address, to_address, value_wei::text AS value_wei
+      FROM explorer_internal_txs
+      WHERE chain_id = ${this.chainId}
+        AND tx_hash = ANY(${this.sql.array(rows.map((r) => r.hash))}::text[])
+        AND (from_address = ${address} OR to_address = ${address})
+      ORDER BY tx_hash, string_to_array(path, '.')::int[] ASC
+    `;
+    return rows.map((r) => ({
+      hash: r.hash,
+      blockHeight: Number(r.height),
+      index: r.tx_index,
+      timestamp: Math.floor(new Date(r.block_time).getTime() / 1000),
+      calls: calls
+        .filter((c) => c.tx_hash === r.hash)
+        .map((c) => {
+          if (c.kind !== 'call' && c.kind !== 'create' && c.kind !== 'selfdestruct') {
+            throw new Error(`indexer.internal_kind_unreadable: ${c.tx_hash} ${c.path}`);
+          }
+          return { path: c.path, kind: c.kind, from: c.from_address, to: c.to_address, valueWei: BigInt(c.value_wei) };
+        }),
+    }));
+  }
+
+  /**
+   * Canonical blocks holding transactions whose trace was not read: the node declined it, or the block was indexed
+   * before traces were read. Their internal moves are unknown, so the address page names them.
+   */
+  async explorerTraceGaps(): Promise<TraceGapsFact> {
+    // Every block holding transactions has a trace row (migration 0004 backfills the older ones), so the gaps start
+    // from the untraced rows, through their partial index, not from every block.
+    const [row] = await this.sql<Array<{ blocks: string; from_height: string | null; to_height: string | null; reasons: string[] | null }>>`
+      SELECT COUNT(*) AS blocks, MIN(b.height) AS from_height, MAX(b.height) AS to_height,
+             ARRAY_AGG(DISTINCT tr.reason) AS reasons
+      FROM explorer_block_traces tr
+      JOIN blocks b ON b.chain_id = tr.chain_id AND b.hash = tr.block_hash
+      WHERE tr.chain_id = ${this.chainId} AND NOT tr.traced AND b.status = 'canonical'
+    `;
+    const blocks = Number(row?.blocks ?? 0);
+    return {
+      blocks,
+      fromHeight: blocks > 0 && row?.from_height != null ? Number(row.from_height) : null,
+      toHeight: blocks > 0 && row?.to_height != null ? Number(row.to_height) : null,
+      reasons: blocks > 0 ? [...(row?.reasons ?? [])].sort() : [],
+    };
+  }
+
+  /** Token contracts the address sent or received in canonical blocks, by contract address. LIMIT limit + 1. */
+  async explorerAddressTokens(q: { address: string; limit: number }): Promise<TokenFact[]> {
+    const address = q.address.toLowerCase();
+    const rows = await this.sql<TokenRow[]>`
+      SELECT DISTINCT tr.token AS address, tok.symbol, tok.name, tok.decimals
+      FROM explorer_transfers tr
+      JOIN explorer_txs t ON t.chain_id = tr.chain_id AND t.hash = tr.tx_hash
+      JOIN blocks b ON b.chain_id = t.chain_id AND b.hash = t.block_hash AND b.status = 'canonical'
+      LEFT JOIN explorer_tokens tok ON tok.chain_id = tr.chain_id AND tok.address = tr.token
+      WHERE tr.chain_id = ${this.chainId} AND (tr.from_address = ${address} OR tr.to_address = ${address})
+      ORDER BY tr.token ASC
+      LIMIT ${q.limit + 1}
+    `;
+    return rows.map((r) => ({ address: r.address, symbol: r.symbol, name: r.name, decimals: r.decimals }));
+  }
+
+  /** The last canonical block whose time is before `time`. */
+  async explorerBlockBefore(time: Date): Promise<BlockMarkFact | null> {
+    const [row] = await this.sql<Array<{ height: string; block_time: Date }>>`
+      SELECT height, block_time FROM blocks
+      WHERE chain_id = ${this.chainId} AND status = 'canonical' AND block_time < ${time.toISOString()}
+      ORDER BY height DESC
+      LIMIT 1
+    `;
+    return row ? { height: Number(row.height), timestamp: Math.floor(new Date(row.block_time).getTime() / 1000) } : null;
+  }
+
+  /** Token contracts with indexed transfers and no stored metadata (D-explorer-03 backfill). */
+  async explorerTokensUnread(limit: number): Promise<string[]> {
+    const rows = await this.sql<Array<{ token: string }>>`
+      SELECT DISTINCT t.token FROM explorer_transfers t
+      WHERE t.chain_id = ${this.chainId}
+        AND NOT EXISTS (SELECT 1 FROM explorer_tokens k WHERE k.chain_id = t.chain_id AND k.address = t.token)
+      ORDER BY t.token
+      LIMIT ${limit}
+    `;
+    return rows.map((r) => r.token);
+  }
+
+  /** Stores what token contracts said at `height`. A contract already stored keeps its first answer. */
+  async writeExplorerTokenFacts(tokens: readonly ChainToken[], height: number): Promise<void> {
+    await this.sql.begin(async (tx) => {
+      await insertExplorerTokens(tx, this.chainId, tokens, height);
+    });
+  }
+
   /** First mempool sight. A repeat keeps the original time. */
   async noteExplorerTxPending(hash: string, at: Date): Promise<void> {
     const seen = at.toISOString();
@@ -367,6 +566,7 @@ export class PostgresProjectionStore implements ProjectionStore {
       }
 
       await writeExplorerTxs(tx, this.chainId, block);
+      await writeExplorerTokens(tx, this.chainId, block);
 
       for (const event of block.events) {
         switch (event.kind) {
@@ -762,6 +962,45 @@ interface ExplorerTxListRow {
   block_status: string;
 }
 
+interface AddressTxRow {
+  hash: string;
+  height: string;
+  block_hash: string;
+  tx_index: number;
+  from_address: string;
+  to_address: string | null;
+  receipt_status: string;
+  revert_reason: string | null;
+  block_time: Date;
+}
+
+interface AddressTransferRow {
+  tx_hash: string;
+  token: string;
+  from_address: string;
+  to_address: string;
+  amount: string;
+  symbol: string | null;
+  name: string | null;
+  decimals: number | null;
+}
+
+interface InternalCallRow {
+  tx_hash: string;
+  path: string;
+  kind: string;
+  from_address: string;
+  to_address: string;
+  value_wei: string;
+}
+
+interface TokenRow {
+  address: string;
+  symbol: string | null;
+  name: string | null;
+  decimals: number | null;
+}
+
 interface ExplorerTxLogRow {
   log_index: number;
   address: string;
@@ -843,6 +1082,68 @@ async function writeExplorerTxs(sql: TransactionSql, chainId: number, block: Cha
           ${JSON.stringify(log.topics.map((topic) => topic.toLowerCase()))}, ${log.data}
         )
       `;
+      // D-explorer-03: an ERC-20 Transfer is copied out of its own log, so it cascades with it.
+      const transfer = transferOf(log);
+      if (transfer) {
+        await sql`
+          INSERT INTO explorer_transfers (chain_id, tx_hash, log_index, token, from_address, to_address, amount)
+          VALUES (
+            ${chainId}, ${row.hash.toLowerCase()}, ${transfer.logIndex}, ${transfer.token}, ${transfer.from},
+            ${transfer.to}, ${transfer.amount.toString()}
+          )
+        `;
+      }
     }
+  }
+  await writeExplorerInternal(sql, chainId, block);
+}
+
+/**
+ * D-explorer-03. The block's internal value moves, and whether the node traced it at all. The calls belong to their
+ * transaction rows (written just above) and cascade with them; the trace row belongs to the block.
+ */
+/** 7 parameters a row: 5000 rows stay well under the 65534 one statement can carry. */
+const INTERNAL_ROWS_PER_INSERT = 5000;
+
+async function writeExplorerInternal(sql: TransactionSql, chainId: number, block: ChainBlock): Promise<void> {
+  // A source that reads no trace still says so for a block holding transactions, so the address page names its gap.
+  const internal =
+    block.internal ?? ((block.transactions?.length ?? 0) > 0 ? { read: false as const, reason: TRACE_NOT_RECORDED } : undefined);
+  if (!internal) return;
+  if (internal.read && internal.calls.length > 0) {
+    const rows = internal.calls.map((call) => ({
+      chain_id: chainId,
+      tx_hash: call.txHash.toLowerCase(),
+      path: call.path,
+      kind: call.kind,
+      from_address: call.from.toLowerCase(),
+      to_address: call.to.toLowerCase(),
+      value_wei: call.valueWei.toString(),
+    }));
+    // Chunked: one statement carries at most 65534 parameters, and a block can hold more value moves than that allows.
+    for (let at = 0; at < rows.length; at += INTERNAL_ROWS_PER_INSERT) {
+      const chunk = rows.slice(at, at + INTERNAL_ROWS_PER_INSERT);
+      await sql`INSERT INTO explorer_internal_txs ${sql(chunk, 'chain_id', 'tx_hash', 'path', 'kind', 'from_address', 'to_address', 'value_wei')}`;
+    }
+  }
+  await sql`
+    INSERT INTO explorer_block_traces (chain_id, block_hash, traced, reason)
+    VALUES (${chainId}, ${block.hash}, ${internal.read}, ${internal.read ? null : internal.reason})
+    ON CONFLICT (chain_id, block_hash) DO UPDATE SET traced = EXCLUDED.traced, reason = EXCLUDED.reason
+  `;
+}
+
+/** D-explorer-03. A token's first answers stick: a contract read again later does not overwrite them. */
+async function writeExplorerTokens(sql: TransactionSql, chainId: number, block: ChainBlock): Promise<void> {
+  await insertExplorerTokens(sql, chainId, block.tokens ?? [], block.height);
+}
+
+async function insertExplorerTokens(sql: TransactionSql, chainId: number, tokens: readonly ChainToken[], height: number): Promise<void> {
+  for (const token of tokens) {
+    await sql`
+      INSERT INTO explorer_tokens (chain_id, address, symbol, name, decimals, read_at_height)
+      VALUES (${chainId}, ${token.address.toLowerCase()}, ${token.symbol}, ${token.name}, ${token.decimals}, ${height})
+      ON CONFLICT (chain_id, address) DO NOTHING
+    `;
   }
 }

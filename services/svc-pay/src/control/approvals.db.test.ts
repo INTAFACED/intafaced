@@ -6,7 +6,7 @@ import type { Principal } from '@intafaced/auth';
 import { PayService } from '../payment-service.js';
 import { MerchantPayoutDestinationStore } from '../merchant-payout-destination.js';
 import { RailRegistry } from '../rails/registry.js';
-import { CardSandboxAdapter } from '../rails/card-sandbox.js';
+import { CardSandboxAdapter, SANDBOX_FUNDS_HELD_TOKEN } from '../rails/card-sandbox.js';
 import { CryptoNativeAdapter } from '../rails/crypto-native.js';
 import { BankPayoutAbsentAdapter } from '../rails/bank-payout.js';
 import { MemoryChain } from '../rails/chain-port.js';
@@ -570,6 +570,32 @@ describe('payout maker-checker', () => {
     await expect(approvals.request(maker(), { merchantId, settlementId: randomUUID(), railId: 'crypto-native' })).rejects.toMatchObject({
       code: 'pay.settlement_not_payable',
     });
+  });
+  it('a payout request for a window the rail still holds is refused pay.payout_clearing_pending, and records no approval', async () => {
+    const created = await pay.createPayment({
+      requestId: randomUUID(),
+      merchantId,
+      amount: amt('60'),
+      assetId: 'USDT',
+      method: 'card',
+      railAdapter: 'card-sandbox',
+      instrument: { kind: 'card', token: SANDBOX_FUNDS_HELD_TOKEN },
+    });
+    await pay.authorize(created.id);
+    await pay.capture(created.id);
+    const s = await pay.settleWindow({
+      merchantId,
+      window: 'w-held',
+      assetId: 'USDT',
+      from: new Date(Date.now() - 86_400_000),
+      to: new Date(Date.now() + 86_400_000),
+    });
+    expect(s.status).toBe('pending');
+    await expect(approvals.request(maker(), { merchantId, settlementId: s.id, railId: 'crypto-native' })).rejects.toMatchObject({
+      code: 'pay.payout_clearing_pending',
+      message: expect.stringContaining('60 USDT'),
+    });
+    expect(await sql`SELECT id FROM pay.control_payout_approvals WHERE settlement_id = ${s.id}`).toHaveLength(0);
   });
   describe('the finance role approves (W15 payout.approve), through the real team table', () => {
     const ADMIN = '55555555-5555-4555-8555-555555555555';

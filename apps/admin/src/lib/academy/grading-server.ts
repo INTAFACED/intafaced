@@ -1,5 +1,8 @@
 import 'server-only';
 import {
+  ACADEMY_BULK_GRADE_FILE_MAX_CHARS,
+  academyBulkGradeInputSchema,
+  academyBulkGradeResultSchema,
   academyGradeSubmissionInputSchema,
   academyGradingQueueSchema,
   academyOpenGradingInputSchema,
@@ -7,7 +10,7 @@ import {
 import { founderCall, parseWith, type FounderCallContext, type FounderCallResult } from '@/lib/desk/founder-call';
 import { partFrom, type PartLabels } from '@/lib/desk/part';
 import { explainRefusal } from '@/lib/desk/refusal-copy';
-import type { AcademyGradingQueue, GradingDeskReply, GradingView } from './grading-model';
+import type { AcademyBulkGradeResult, AcademyGradingQueue, GradingDeskReply, GradingView } from './grading-model';
 
 /**
  * One assignment's grading queue as the signed-in founder (AC-assignments-02). svc-academy shows learners under aliases,
@@ -22,20 +25,39 @@ const ACADEMY: PartLabels = {
 };
 
 const readQueue = parseWith(academyGradingQueueSchema);
+const readBulk = parseWith(academyBulkGradeResultSchema);
 
 export async function loadGradingQueue(ctx: FounderCallContext, itemId: string): Promise<GradingView> {
   const queue = await founderCall(ctx, 'academy', 'admin.gradingQueue', 'GET', { itemId }, readQueue);
   return { queue: partFrom(queue, (d) => d, ACADEMY), asOf: new Date().toISOString() };
 }
 
-function reply(result: FounderCallResult<AcademyGradingQueue | null>, what: string): { status: number; reply: GradingDeskReply } {
+function reply(
+  result: FounderCallResult<AcademyGradingQueue | AcademyBulkGradeResult | null>,
+  what: string,
+): { status: number; reply: GradingDeskReply } {
   const refused = (code: string | null, status: number, uncertain = false) => ({
     status: status >= 400 && status < 600 ? status : 502,
     reply: { ok: false as const, ...explainRefusal(code, status, uncertain) },
   });
   switch (result.kind) {
     case 'ok':
-      return result.data ? { status: 200, reply: { ok: true, what, queue: result.data } } : refused(null, 502, true);
+      if (!result.data) return refused(null, 502, true);
+      return 'sha256' in result.data
+        ? {
+            status: 200,
+            reply: {
+              ok: true,
+              what: !result.data.repeated
+                ? what
+                : result.data.changed === 0
+                  ? `${what}: this file was uploaded before, so nothing changed`
+                  : `${what}: this file was uploaded before; ${result.data.changed} row(s) refused then applied now`,
+              queue: result.data.queue,
+              bulk: result.data,
+            },
+          }
+        : { status: 200, reply: { ok: true, what, queue: result.data } };
     case 'refused':
       return refused(result.refusal.code, result.refusal.status);
     case 'forbidden':
@@ -63,6 +85,12 @@ const OPS = {
     what: 'grade saved',
     why: 'A score is a number from 0 with at most two decimals; a comment runs to 5,000 characters and a reason to 500.',
   },
+  bulk: {
+    schema: academyBulkGradeInputSchema,
+    procedure: 'admin.bulkGrade',
+    what: 'grade file read',
+    why: `Choose a CSV grade file of up to ${ACADEMY_BULK_GRADE_FILE_MAX_CHARS} characters.`,
+  },
 } as const;
 
 export type GradingOp = keyof typeof OPS;
@@ -77,5 +105,6 @@ export async function changeGrading(
   const { op: _op, ...input } = body;
   const parsed = spec.schema.safeParse(input);
   if (!parsed.success) return { why: spec.why };
+  if (op === 'bulk') return reply(await founderCall(ctx, 'academy', spec.procedure, 'POST', parsed.data, readBulk), spec.what);
   return reply(await founderCall(ctx, 'academy', spec.procedure, 'POST', parsed.data, readQueue), spec.what);
 }

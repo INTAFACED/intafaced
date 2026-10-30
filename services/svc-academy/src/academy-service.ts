@@ -85,6 +85,7 @@ import type {
   AcademyGradeSubmissionInput,
   AcademyMarkFeedbackReadInput,
   AcademyOpenGradingInput,
+  AcademyBulkGradeInput,
   AcademySubmitPeerReviewInput,
   AcademySubmitAssignmentInput,
   AcademyUploadAssignmentFileInput,
@@ -2537,6 +2538,11 @@ export class AcademyService {
 
   gradeSubmission(input: AcademyGradeSubmissionInput & { operatorId: string; now?: Date }) {
     return this.grading.grade({ ...input, now: input.now ?? new Date() });
+  }
+
+  /** AC-assignments-02: a file of grades by alias; good rows apply, bad rows are listed, a repeated file changes nothing. */
+  bulkGrade(input: AcademyBulkGradeInput & { operatorId: string; now?: Date }) {
+    return this.grading.bulkGrade({ ...input, now: input.now ?? new Date() });
   }
 
   /** AC-assignments-02: the learner read their feedback; answers with the assignment as they see it. */

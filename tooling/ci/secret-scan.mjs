@@ -494,6 +494,8 @@ function exemptReason(rel) {
   return null;
 }
 
+const TRACKED_FILES = new Set(tracked());
+
 const isPlaceholder = (value) => PLACEHOLDER_VALUES.some((p) => p.test(value.trim()));
 
 /**
@@ -515,6 +517,31 @@ const isPlaceholder = (value) => PLACEHOLDER_VALUES.some((p) => p.test(value.tri
  */
 const ATTRIBUTE_NAME_VALUE = /^[a-z][a-z0-9_]*(?:\.[a-z][a-z0-9_]*)+$/;
 const isAttributeNameField = (key, value) => key === 'key' && ATTRIBUTE_NAME_VALUE.test(value.trim());
+
+/**
+ * `key:` as an `actions/cache` KEY, not as a credential.
+ *
+ * The cache action names its lookup key `key`, so a workflow or composite action under `.github/` that caches
+ * anything writes `key: <name>-${{ runner.os }}-${{ hashFiles('<file>') }}` (first needed for the Java toolchain
+ * cache, #6860). Matched on the VALUE, like the attribute-name case above, and only under `.github/`: lowercase
+ * letter words joined by dashes, then `${{ runner.os }}`, `${{ runner.arch }}` and `${{ hashFiles(...) }}`
+ * expressions, at least one of them a hashFiles, and every hashFiles argument a file this repo tracks. A
+ * digit-bearing or mixed-case literal, any other expression, or a credential written as a hashFiles "path" is
+ * still a finding.
+ */
+const CACHE_KEY_RUNNER = String.raw`\$\{\{\s*runner\.(?:os|arch)\s*\}\}`;
+const CACHE_KEY_HASH = String.raw`\$\{\{\s*hashFiles\(([^)]*)\)\s*\}\}`;
+const CACHE_KEY_VALUE = new RegExp(
+  String.raw`^[a-z]+(?:-[a-z]+)*(?:-${CACHE_KEY_RUNNER})*-${CACHE_KEY_HASH}(?:-(?:${CACHE_KEY_RUNNER}|${CACHE_KEY_HASH}))*$`,
+);
+const isCacheKeyField = (rel, key, value) => {
+  if (key !== 'key' || !rel.startsWith('.github/') || !CACHE_KEY_VALUE.test(value.trim())) return false;
+  const args = [...value.matchAll(new RegExp(CACHE_KEY_HASH, 'g'))].flatMap((m) => m[1].split(','));
+  return args.every((arg) => {
+    const path = /^\s*'([^']+)'\s*$/.exec(arg)?.[1];
+    return path !== undefined && TRACKED_FILES.has(path);
+  });
+};
 
 /**
  * The repo's dev convention: a credential whose password EQUALS its username —
@@ -591,7 +618,7 @@ let filesScanned = 0;
 let sourceFilesScanned = 0;
 let assignmentsChecked = 0;
 
-for (const rel of tracked()) {
+for (const rel of TRACKED_FILES) {
   const isConfig = isScanned(rel);
   const isSource = !isConfig && isScannedSource(rel);
   if (!isConfig && !isSource) continue;
@@ -676,7 +703,12 @@ for (const rel of tracked()) {
         });
       }
 
-      if (SECRET_KEY.test(key) && !NOT_ACTUALLY_SECRET.some((p) => p.test(key)) && !isAttributeNameField(key, value)) {
+      if (
+        SECRET_KEY.test(key) &&
+        !NOT_ACTUALLY_SECRET.some((p) => p.test(key)) &&
+        !isAttributeNameField(key, value) &&
+        !isCacheKeyField(rel, key, value)
+      ) {
         assignmentsChecked++;
         if (declaredUsernames.has(value.toLowerCase()) && value.trim() !== '') {
           // password === a username declared in this same file: the dev convention.

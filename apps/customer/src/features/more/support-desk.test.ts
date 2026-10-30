@@ -17,6 +17,7 @@ import {
   supportEmail,
   supportRequestHref,
   requestFromSearch,
+  supportFollowUpHref,
   supportRoute,
   supportNewHref,
   customerStatus,
@@ -196,6 +197,13 @@ describe('opening one request from an address', () => {
     expect(supportRoute('/support', `?request=${ID}`)).toEqual({ view: 'request', id: ID });
     expect(requestFromSearch(`?request=${ID}`)).toBe(ID);
     expect(requestFromSearch(`?request=${ID.toUpperCase()}`)).toBe(ID);
+  });
+  it('carries the request a follow-up follows in the address, and drops an id that is not one', () => {
+    expect(supportFollowUpHref(ID)).toBe(`/support/new?follows=${ID}`);
+    expect(supportRoute('/support/new', `?follows=${ID.toUpperCase()}`)).toEqual({ view: 'new', subject: '', follows: ID });
+    expect(supportRoute('/support/new', `?follows=${ID}&subject=more`)).toEqual({ view: 'new', subject: 'more', follows: ID });
+    for (const bad of ['?follows=abc', `?follows=${ID}x`, '?follows='])
+      expect(supportRoute('/support/new', bad)).toEqual({ view: 'new', subject: '' });
   });
   it('names each part of the desk by its address', () => {
     expect(supportRoute('/support', '')).toEqual({ view: 'help' });

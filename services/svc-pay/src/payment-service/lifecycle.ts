@@ -4,6 +4,7 @@
  * Moved out of `payment-service.ts` as it was (owner decision 2026-10-23): `PayService` keeps one method per
  * function here, which passes itself as `svc`.
  */
+import { recordFundsPending } from './funds.js';
 import { assertCategoryAllows, merchantCategoryRule } from '../onboarding-policy/category.js';
 import { postPayLedger } from '../ledger-receipt.js';
 import {
@@ -572,6 +573,15 @@ export async function capture(
               railRef: result.railRef,
             }),
           );
+
+          // The rail holds the funds (RC-merchant-10): record its word in this transaction, so a capture is never on the
+          // book without the hold the rail reported. Settlement waits for the rail's `funds.available` delivery.
+          if (result.funds?.state === 'pending') {
+            await recordFundsPending(tx, row.id, {
+              ...(result.funds.availableOn ? { availableOn: result.funds.availableOn } : {}),
+              source: 'rail.capture',
+            });
+          }
 
           // The reconciler calls this same function and does not post again.
           const view = await svc.finishBookedCapture(tx, row, {
