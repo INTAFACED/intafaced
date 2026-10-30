@@ -257,10 +257,15 @@ test(`${J} #5 a new device's sign-in waits until a signed-in session on a truste
 
   // The waiting browser signs in by itself, with no code typed there, and is trusted from now on.
   await expect(waiting).not.toHaveURL(/\/login/, { timeout: 30_000 });
+  // Signing in there again asks for the authenticator code, as every sign-in of this account does, but not about the
+  // browser any more.
   await waiting.context().clearCookies({ name: 'ifc_rt' });
   await waiting.goto('/login');
+  ({ code, step } = await nextCode(totp, secret, step));
+  await waiting.fill('input[name=totp]', code);
   await fillSignIn(waiting, who.email, who.password);
   await expect(waiting).not.toHaveURL(/\/login/, { timeout: 10_000 });
+  await expect(waiting.getByRole('heading', { name: 'Authorise this device' })).toHaveCount(0);
   await fresh.close();
   await trustedContext.close();
 });

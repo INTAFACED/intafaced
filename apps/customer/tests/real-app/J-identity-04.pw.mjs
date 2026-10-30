@@ -336,6 +336,17 @@ test(`${J} #6 "my codes do not work" names a clock that is out by seconds, or sa
   const who = person('ck');
   await signUpInBrowser(page, who);
   let { secret, step } = await addAuthenticator(page, totp);
+  let signInCode;
+
+  // A returning person: signed in again with the authenticator, as replacing it needs a session that passed it.
+  await forgetSession(page);
+  await page.goto('/login');
+  ({ code: signInCode, step } = await nextCode(totp, secret, step));
+  await page.fill('input[name=totp]', signInCode);
+  await page.fill('input[name=identifier]', who.email);
+  await page.fill('input[name=password]', who.password);
+  await page.getByRole('button', { name: /^sign in$/i }).click();
+  await expect(page).not.toHaveURL(/\/login/);
 
   // With the right time: codes should work, and Replace is offered.
   await page.goto('/uc/safe');
