@@ -9,6 +9,7 @@ import { AuthError, requireScope } from '@intafaced/auth';
 import { createEdgeContext, type EdgeRequest } from '@intafaced/contracts';
 import { checkQuantLiveDeploy, QUANT_LIVE_DEPLOY_PATH } from './live-deploy.js';
 import type { EdgeTrust } from '../edge-trust.js';
+import { privateWrite } from '../route-inventory.js';
 
 export { QUANT_LIVE_DEPLOY_PATH };
 
@@ -36,7 +37,7 @@ function sendError(reply: FastifyReply, status: number, code: string, message: s
 export function registerQuantLiveDeployRest(app: FastifyInstance, deps: QuantLiveDeployRestDeps): void {
   const edgeContext = createEdgeContext({ secret: deps.edgeSecret, ...deps.edgeTrust, serviceName: deps.serviceName });
 
-  app.post(QUANT_LIVE_DEPLOY_PATH, async (req, reply) => {
+  app.post(QUANT_LIVE_DEPLOY_PATH, privateWrite, async (req, reply) => {
     const edgeReq: EdgeRequest = { headers: req.headers as Record<string, string | string[] | undefined>, id: req.id };
     const principal = edgeContext(edgeReq).principal;
     if (!principal) return sendError(reply, 401, 'trade.unauthenticated', 'signed principal required');

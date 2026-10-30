@@ -2,11 +2,14 @@ import { z } from 'zod';
 import { checkAccess, type KycTier } from '@intafaced/config';
 import { JurisdictionError, router, scopedProcedure, protectedProcedure, TRPCError } from '@intafaced/contracts';
 import { CREDENTIAL_NOT_ISSUED, readPoolConnection } from './connection.js';
+import { DIFFICULTY, publishedDifficulty } from './env.js';
+import { EMISSION_UNPUBLISHED, WORKER_NAME } from './window-store.js';
 import { MiningError } from './errors.js';
 import { assertListLimit, assertWindowMinutes } from './list-limit.js';
 import { readPoolOverview } from './overview.js';
 import { readPoolTerms } from './pool-terms.js';
 import { dialPool, ProbeRateLimit, runProbe, type Dial } from './probe.js';
+import { POW_SPEC_UNSET, publishedPowSpec } from './pow.js';
 import type { MiningReadStore } from './reads.js';
 
 const decimal = z.string().regex(/^(0|[1-9]\d*)(\.\d+)?$/);
@@ -14,7 +17,7 @@ const money = z.string().regex(/^(0|[1-9]\d*)(\.\d+)?$/);
 
 export type MiningReads = Pick<
   MiningReadStore,
-  'myWorkers' | 'listWorkers' | 'myShares' | 'opsShares' | 'opsWindows' | 'pending' | 'myPayouts'
+  'myWorkers' | 'setWorkerDifficulty' | 'setWorkerMode' | 'listWorkers' | 'myShares' | 'opsShares' | 'opsWindows' | 'pending' | 'myPayouts'
 >;
 
 function fail(err: unknown): never {
@@ -36,6 +39,7 @@ const shareWindow = z.object({
   windowId: z.string(),
   acceptedCount: z.number().int().nonnegative(),
   rejectedCount: z.number().int().nonnegative(),
+  soloCount: z.number().int().nonnegative(),
   acceptedWeight: decimal.nullable(),
 });
 
@@ -81,6 +85,8 @@ export function createMiningRouter(
 ) {
   const customer = scopedProcedure('ledger:read', { module: 'mining-pool' });
   const operator = scopedProcedure('admin:read', { module: 'mining-pool' });
+  // A rig setting is the account's own trading-side write; a read-only key cannot change it.
+  const rigWriter = scopedProcedure('trade:write', { module: 'mining-pool' });
   const envOf = () => publish.env ?? process.env;
   const now = publish.now ?? Date.now;
   const dial = publish.dial ?? dialPool;
@@ -92,11 +98,21 @@ export function createMiningRouter(
   return router({
     workers: router({
       mine: customer
-        .input(z.object({ windowMinutes: z.unknown().optional() }))
+        .input(
+          z.object({
+            windowMinutes: z.unknown().optional(),
+            limit: z.unknown().optional(),
+            cursor: z.string().max(512).optional(),
+            name: z.string().max(64).optional(),
+          }),
+        )
         .output(
           z.object({
             asOf: z.string(),
             windowMinutes: z.number().int(),
+            defaultDifficulty: decimal.nullable(),
+            defaultDifficultyReason: z.enum(['mining.default_difficulty_unset', 'mining.default_difficulty_invalid']).nullable(),
+            nextCursor: z.string().nullable(),
             workers: z.array(
               z
                 .object({
@@ -105,19 +121,82 @@ export function createMiningRouter(
                   createdAt: z.string(),
                   hashrate: decimal.nullable(),
                   hashrateReason: z.enum(['no_shares_in_window']).nullable(),
+                  minDifficulty: decimal.nullable(),
+                  mode: z.enum(['pooled', 'solo']),
                 })
                 .refine((row) => (row.hashrate === null) !== (row.hashrateReason === null)),
             ),
           }),
         )
-        .query(({ ctx, input }) => {
+        .query(async ({ ctx, input }) => {
           try {
             const windowMinutes = assertWindowMinutes(input.windowMinutes);
-            return reads.myWorkers(ctx.principal.userId, windowMinutes);
+            const limit = input.limit === undefined ? undefined : assertListLimit(input.limit, 'mining.workers_list_limit_unset');
+            const query = {
+              ...(limit === undefined ? {} : { limit }),
+              ...(input.cursor === undefined ? {} : { cursor: input.cursor }),
+              ...(input.name === undefined ? {} : { name: input.name }),
+            };
+            const roster = await reads.myWorkers(ctx.principal.userId, windowMinutes, query);
+            const fallback = publishedDifficulty(envOf().MINING_DEFAULT_DIFFICULTY);
+            return {
+              ...roster,
+              defaultDifficulty: fallback === null || fallback === 'invalid' ? null : fallback,
+              defaultDifficultyReason:
+                fallback === null
+                  ? ('mining.default_difficulty_unset' as const)
+                  : fallback === 'invalid'
+                    ? ('mining.default_difficulty_invalid' as const)
+                    : null,
+            };
           } catch (err) {
             fail(err);
           }
         }),
+      /**
+       * The account's own minimum difficulty for one of its workers; null is automatic. Only a worker the caller's shares
+       * created can be changed, and nothing here touches a share, a window or a payout.
+       */
+      setDifficulty: rigWriter
+        .input(
+          z.object({
+            workerId: z.string().min(1).max(200),
+            minDifficulty: z.string().regex(DIFFICULTY).nullable(),
+          }),
+        )
+        .output(z.object({ id: z.string(), minDifficulty: decimal.nullable() }))
+        .mutation(async ({ ctx, input }) => {
+          try {
+            return await reads.setWorkerDifficulty(
+              ctx.principal.userId,
+              input.workerId,
+              input.minDifficulty === null ? null : BigInt(input.minDifficulty),
+            );
+          } catch (err) {
+            fail(err);
+          }
+        }),
+      /**
+       * Pooled or solo for one of the caller's own rigs, by name. Saving the same mode again changes nothing; a change while
+       * the rig has shares in an open window refuses `mining.mode_change_in_window`. Solo work never joins the PPLNS window.
+       */
+      setMode: rigWriter
+        .input(z.object({ name: z.string().regex(WORKER_NAME), mode: z.enum(['pooled', 'solo']) }))
+        .output(z.object({ id: z.string(), name: z.string(), mode: z.enum(['pooled', 'solo']) }))
+        .mutation(async ({ ctx, input }) => {
+          try {
+            return await reads.setWorkerMode(ctx.principal.userId, input.name, input.mode);
+          } catch (err) {
+            fail(err);
+          }
+        }),
+      /**
+       * A solo rig's credit: refused with the same code the payout job gives a window of solo work, since solo credit
+       * waits for the token's published reward source as pooled credit does.
+       */
+      soloCredit: customer.query(() => {
+        refusal(EMISSION_UNPUBLISHED, 'Solo credit waits for the published reward source');
+      }),
       register: customer.mutation(() => {
         refusal('mining.worker_registration_scope_unset', 'Worker registration is refused until a write scope is chosen');
       }),
@@ -158,7 +237,7 @@ export function createMiningRouter(
               z.object({
                 windowId: z.string(),
                 assetId: z.string(),
-                status: z.enum(['open', 'paid']),
+                status: z.enum(['open', 'paid', 'no_credit']),
                 reward: money.nullable(),
                 feeBps: z.number().int().nullable(),
                 shareCount: z.number().int().nonnegative(),
@@ -287,6 +366,31 @@ export function createMiningRouter(
       .query(({ ctx }) => {
         try {
           return readPoolConnection(envOf(), ctx.principal.userId);
+        } catch (err) {
+          fail(err);
+        }
+      }),
+    /**
+     * The pool's proof-of-work parameters as published: a TEST testnet set, or blank (`mining.pow_spec_unset`). A mainnet
+     * set is never served (`audit.external`).
+     */
+    pow: signed
+      .output(
+        z.discriminatedUnion('status', [
+          z.object({
+            status: z.literal('published'),
+            dimension: z.number().int(),
+            targetBits: z.number().int(),
+            testnet: z.literal(true),
+          }),
+          z.object({ status: z.literal('unset'), code: z.literal(POW_SPEC_UNSET) }),
+        ]),
+      )
+      .query(() => {
+        try {
+          const spec = publishedPowSpec(envOf());
+          if (spec === null) return { status: 'unset' as const, code: POW_SPEC_UNSET };
+          return { status: 'published' as const, dimension: spec.dimension, targetBits: spec.targetBits, testnet: spec.testnet };
         } catch (err) {
           fail(err);
         }

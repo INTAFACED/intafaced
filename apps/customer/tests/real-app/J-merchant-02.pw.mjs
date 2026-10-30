@@ -1,7 +1,16 @@
 import { test, expect } from '@playwright/test';
 import { forgetSession, nextCode } from './identity-factors.mjs';
-import { businessReadyPerson, openBusiness, refusedPayCalls, signInWithCode, verifiedBusiness } from './merchant.mjs';
+import {
+  approveKyb,
+  businessReadyPerson,
+  openBusiness,
+  refusedPayCalls,
+  sentForReview,
+  signInWithCode,
+  verifiedBusiness,
+} from './merchant.mjs';
 import { ADMIN, founderSignIn } from './admin.mjs';
+import { tool } from './stack.mjs';
 
 // J-merchant-02, in the running app (docs/roadmap/journeys.json): get verified and go live. Tests titled
 // "J-merchant-02 #<n>" prove a whole step; the others prove part of one and say which.
@@ -82,21 +91,76 @@ test(`${J} part of #1 a new owner adds the business address before verification,
   expect(refused).toEqual([]);
 });
 
-test(`${J} #1 the owner fills the business step and opens the account at the published starting fee; the business and the application draft are saved by the service and survive leaving, a fresh sign-in included`, async ({
+/** Pay restarted with the starting fee blank, or back on the stack's TEST fee (tooling/scripts/local-stack-services/pay.mjs). */
+function payStarterFee(published) {
+  const before = process.env.LOCAL_STACK_PAY_STARTER_FEE;
+  if (published) delete process.env.LOCAL_STACK_PAY_STARTER_FEE;
+  else process.env.LOCAL_STACK_PAY_STARTER_FEE = 'off';
+  try {
+    tool('local-test-stack.mjs', 'restart', 'pay');
+  } finally {
+    if (before === undefined) delete process.env.LOCAL_STACK_PAY_STARTER_FEE;
+    else process.env.LOCAL_STACK_PAY_STARTER_FEE = before;
+  }
+}
+
+test(`${J} #1 starts onboarding and fills the business step: a saved draft that survives leaving; with no starting fee published the first step refuses to open an account`, async ({
   page,
 }) => {
-  test.setTimeout(240_000);
+  test.setTimeout(420_000);
   const owner = await businessReadyPerson(page, 'mbd', '/pay/onboarding');
+  const fillBusiness = async () => {
+    await page.getByLabel('Legal business name *').fill('TEST Draft Ltd');
+    await page.getByLabel('Country code *').fill('DE');
+    await page.getByLabel('Type of business *').fill('online shop');
+    await page.getByLabel('Contact email *').fill(owner.email);
+  };
+  const createButton = page.locator('form').getByRole('button', { name: 'Create my account' });
 
+  // With no starting fee published, the first step refuses to open an account: the room says why and the button stays
+  // off, and the service refuses a create sent straight to it with its code. No account exists afterwards.
+  try {
+    payStarterFee(false);
+    // The owner's own token, taken from a pay call the room itself makes.
+    const own = page.waitForRequest((r) => r.url().includes('/api/pay/trpc/') && Boolean(r.headers().authorization));
+    await page.goto('/pay/onboarding/business');
+    const authorization = (await own).headers().authorization;
+    const payCall = async (procedure, input) => {
+      const res =
+        input === undefined
+          ? await page.request.get(`/api/pay/trpc/${procedure}`, { headers: { authorization } })
+          : await page.request.post(`/api/pay/trpc/${procedure}`, {
+              headers: { authorization, origin: new URL(page.url()).origin },
+              data: input,
+            });
+      const json = await res.json();
+      return { status: res.status(), data: json?.result?.data, typed: /^([a-z]+\.[a-z_]+):/.exec(json?.error?.message ?? '')?.[1] ?? null };
+    };
+    expect((await payCall('merchant.starterFee')).data).toEqual({ starterFee: null });
+    await fillBusiness();
+    await expect(page.getByText('Opening new accounts isn’t possible here. INTAFACED has not set the starting fee')).toBeVisible();
+    await expect(createButton).toBeDisabled();
+    // A TEST fee the caller names is no way round it: the service opens accounts only at the fee it publishes.
+    const create = await payCall('merchant.create', { pricing: { feeBps: 250 } });
+    expect(create.status).toBe(412);
+    expect(create.typed).toBe('pay.starter_fee_unpublished');
+    expect((await payCall('merchant.me')).data).toBeNull();
+    // The room asks before a reload drops what was typed; the owner leaves anyway, and the cleared form shows the reload ran.
+    page.once('dialog', (dialog) => dialog.accept());
+    await page.reload();
+    await expect(page.getByLabel('Legal business name *')).toHaveValue('');
+    await expect(page.getByText('Opening new accounts isn’t possible here. INTAFACED has not set the starting fee')).toBeVisible();
+    await expect(page.getByText('Your merchant account exists.')).toHaveCount(0);
+  } finally {
+    payStarterFee(true);
+  }
+
+  // The stack's TEST starting fee published again: the same step opens the account.
   await page.goto('/pay/onboarding/business');
-  await page.getByLabel('Legal business name *').fill('TEST Draft Ltd');
-  await page.getByLabel('Country code *').fill('DE');
-  await page.getByLabel('Type of business *').fill('online shop');
-  await page.getByLabel('Contact email *').fill(owner.email);
-  // The stack publishes a TEST starting fee, so the first step opens the account instead of refusing it.
+  await fillBusiness();
   await expect(page.getByText('Opening new accounts isn’t possible here')).toHaveCount(0);
   const created = page.waitForResponse((r) => r.url().includes('merchant.create') && r.request().method() === 'POST');
-  await page.getByRole('button', { name: 'Create my account' }).click();
+  await createButton.click();
   const review = page.getByRole('dialog');
   await expect(review.locator('dt', { hasText: 'Starting fee' }).locator('+ dd')).not.toHaveText(/^(Not published)?$/);
   await review.getByRole('button', { name: 'Create my account' }).click();
@@ -552,5 +616,60 @@ test(`${J} #7 the owner chooses the business category and reads its class rule; 
   await expect(chosen).toContainText('5% of payments, held for 90 days');
   await page.reload();
   await expect(section.getByTestId('category-chosen')).toContainText('TEST gaming licence');
+  expect(refused).toEqual([]);
+});
+
+test(`${J} #6 the owner reads the verification history and the activation state: the history only grows, activation reads unconfirmed until svc-pay records one, and nothing reads as a screening clearance`, async ({
+  page,
+}) => {
+  test.setTimeout(240_000);
+  const owner = await businessReadyPerson(page, 'mav', '/pay/onboarding');
+  const merchantId = await openBusiness(page, owner, 'TEST Activation Ltd');
+  const refused = refusedPayCalls(page);
+  const activation = page.getByTestId('pp-activation');
+  const history = page.getByRole('list', { name: 'Verification history' });
+  const entries = async () =>
+    history.getByRole('listitem').evaluateAll((items) =>
+      items.map((li) => ({
+        title: li.querySelector('strong')?.textContent ?? '',
+        at: li.querySelector('time')?.getAttribute('datetime') ?? '',
+      })),
+    );
+  const noClearance = async () =>
+    expect(page.locator('main')).not.toContainText(/screening (passed|cleared|complete)|(passed|cleared) screening/i);
+
+  // A new business: nothing sent, activation unconfirmed because svc-pay holds no activation record.
+  await page.goto('/pay/compliance');
+  await expect(activation).toContainText('Unconfirmed');
+  await expect(activation).not.toContainText('Active since');
+  await expect(page.getByText('INTAFACED has no recorded activation decision for this business.', { exact: false })).toBeVisible();
+  await expect(page.getByText('No verification history yet')).toBeVisible();
+  await noClearance();
+
+  // Sent for review: one entry, by the owner.
+  await sentForReview(page, owner);
+  await page.goto('/pay/compliance');
+  await expect(history.getByRole('listitem')).toHaveCount(1);
+  const sent = await entries();
+  expect(sent).toEqual([{ title: 'Verification changed: Not sent → In review', at: expect.stringMatching(/^\d{4}-/) }]);
+  await expect(history).toContainText('Changed by your merchant account');
+
+  // INTAFACED approves it: a new entry on top, the earlier one exactly as it was, times in order.
+  approveKyb(merchantId);
+  await page.reload();
+  await expect(history.getByRole('listitem')).toHaveCount(2);
+  const decided = await entries();
+  expect(decided[0].title).toBe('Verification changed: In review → Approved');
+  expect(decided[1]).toEqual(sent[0]);
+  expect(Date.parse(decided[0].at)).toBeGreaterThanOrEqual(Date.parse(decided[1].at));
+  await expect(history.getByRole('listitem').first()).toContainText('Changed by INTAFACED');
+
+  // An approved verification is not an activation: svc-pay records none on a KYB decision, so it stays unconfirmed.
+  const record = page.locator('section').filter({ has: page.getByRole('heading', { name: 'Current record' }) });
+  await expect(record.getByTestId('pp-facts')).toContainText('Approved');
+  await expect(activation).toContainText('Unconfirmed');
+  await expect(activation).not.toContainText('Confirmed');
+  await expect(page.getByText('It is not a screening result.')).toBeVisible();
+  await noClearance();
   expect(refused).toEqual([]);
 });

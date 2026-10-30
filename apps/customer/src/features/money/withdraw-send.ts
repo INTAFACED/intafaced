@@ -66,8 +66,11 @@ export function rulesProblem(value: string, rules: WithdrawNetworkRules): 'nrBel
   return null;
 }
 
-/** One send: the asset, its network, a saved address and the amount, with the client reference fixed when it was reviewed. */
-export type WithdrawSend = { assetId: string; networkId: string; address: string; amount: string; clientRef: string };
+/**
+ * One send: the asset, its network, a saved address and the amount, with the client reference fixed when it was reviewed and
+ * the quote it was reviewed under. svc-pay accepts that quote inside the claim and holds its fee with the amount.
+ */
+export type WithdrawSend = { assetId: string; networkId: string; address: string; amount: string; clientRef: string; quoteRef: string };
 
 /** The svc-pay rail that pays out to a wallet address. */
 export const WALLET_RAIL = 'crypto-native';
@@ -85,8 +88,9 @@ export function createWithdrawSend(api: ApiClient) {
       return api.mutate('pay', 'withdrawal.quote', input, withdrawQuoteSchema);
     },
     /**
-     * The send itself, with the short step-up token as this one call's bearer. svc-pay takes no network on this door
-     * yet: the address and the rail go, and the network chosen here is the one the quote and the address book used.
+     * The send itself, with the short step-up token as this one call's bearer. The network and the accepted quote go with it
+     * (J-wallet-05 #6): svc-pay refuses a send whose address is not saved and ready on that network, and holds the quote's
+     * fee with the amount, so what leaves the balance is the quote's total debit.
      */
     send(input: WithdrawSend, token: string): Promise<ApiResult<WithdrawalRecord>> {
       return api.mutate(
@@ -98,6 +102,8 @@ export function createWithdrawSend(api: ApiClient) {
           railId: WALLET_RAIL,
           destination: { kind: 'crypto', ref: input.address },
           clientRef: input.clientRef,
+          networkId: input.networkId,
+          quoteRef: input.quoteRef,
         },
         withdrawalSchema,
         { bearer: token },
@@ -133,6 +139,24 @@ export function above(value: string, limit: string): boolean {
  */
 export const SEND_REFUSAL_KEYS = {
   'pay.wallet_withdraw_unavailable': 'sNoSigner',
+  'pay.guard_screening_unavailable': 'sScreening',
+  'pay.withdrawal_destination_not_saved': 'sNotSaved',
+  'pay.withdrawal_destination_network_mismatch': 'sOtherNetwork',
+  'pay.withdrawal_destination_unapproved': 'sUnapproved',
+  'pay.withdrawal_destination_cooling': 'sCooling',
+  'pay.withdrawal_destination_cooling_unset': 'sCoolingUnset',
+  'pay.withdrawal_destination_locked': 'sLocked',
+  'pay.withdrawal_destination_unavailable': 'sBookUnreadable',
+  'pay.withdrawal_fee_unbound': 'sFeeUnbound',
+  'withdrawal_quote.required': 'sQuoteTerms',
+  'withdrawal_quote.not_found': 'sQuoteTerms',
+  'withdrawal_quote.terms_differ': 'sQuoteTerms',
+  'withdrawal_quote.expired': 'qExpired',
+  'withdrawal_quote.already_used': 'sQuoteUsed',
+  'withdrawal_quote.fee_mode_unsupported': 'sFeeMode',
+  'pay.withdrawal_tag_not_taken': 'sTagNotTaken',
+  'pay.withdrawal_tag_unsupported': 'sTagUnsupported',
+  'withdrawal_quote.tag_required': 'sTagRequired',
   'pay.wallet_withdraw_disabled': 'sDisabled',
   'pay.wallet_typed_address': 'sNotSaved',
   'pay.wallet_cooling': 'sCooling',

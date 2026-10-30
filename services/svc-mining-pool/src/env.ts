@@ -17,6 +17,12 @@ const PATTERN_MAX = 80;
 const LIMIT_MAX = 10_000;
 const WINDOW_MAX_MS = 86_400_000;
 const TIMEOUT_MAX_MS = 30_000;
+/** Bounds of the pool's reference proof-of-work parameters (`pow.ts`). */
+export const POW_DIMENSION_MIN = 2;
+export const POW_DIMENSION_MAX = 64;
+export const POW_TARGET_BITS_MAX = 32;
+/** A whole difficulty of 1 to 38 digits, the numeric(38, 0) column's range. */
+export const DIFFICULTY = /^[1-9]\d{0,37}$/;
 
 function blankAsAbsent<T extends z.ZodTypeAny>(schema: T) {
   return z.preprocess((value) => {
@@ -98,7 +104,36 @@ export const miningPublishSchema = z.object({
    * NO DEFAULT. Blank refuses `mining.probe_timeout_unset`.
    */
   MINING_PROBE_TIMEOUT_MS: blankAsAbsent(z.coerce.number().int().min(1).max(TIMEOUT_MAX_MS).optional()),
+  /**
+   * Share difficulty a worker gets when its account set no minimum.
+   * NO DEFAULT. Blank is reported as `mining.default_difficulty_unset` on the worker roster.
+   */
+  MINING_DEFAULT_DIFFICULTY: blankAsAbsent(z.string().regex(DIFFICULTY).optional()),
+  /**
+   * Matrix size n of the pool's reference proof-of-work check (2..64).
+   * NO DEFAULT. All three proof-of-work settings blank: shares are not checked and a share carrying work refuses
+   * `mining.pow_spec_unset`. Partly set or out of range refuses `mining.pow_spec_unset` (`pow.ts`).
+   */
+  MINING_POW_DIMENSION: blankAsAbsent(z.coerce.number().int().min(POW_DIMENSION_MIN).max(POW_DIMENSION_MAX).optional()),
+  /**
+   * Leading zero bits a share's work digest must have (1..32).
+   * NO DEFAULT. Blank refuses `mining.pow_spec_unset`.
+   */
+  MINING_POW_TARGET_BITS: blankAsAbsent(z.coerce.number().int().min(1).max(POW_TARGET_BITS_MAX).optional()),
+  /**
+   * `true` for a testnet parameter set (its windows earn no credit, `mining.testnet_no_credit`). `false` (mainnet)
+   * refuses `audit.external`: the live proof of work waits for the external audit.
+   * NO DEFAULT. Blank refuses `mining.pow_spec_unset`.
+   */
+  MINING_POW_TESTNET: blankAsAbsent(z.enum(['true', 'false']).optional()),
 });
+
+/** A whole share difficulty as published: digits, no leading zero, below 10^38. Blank is null; anything else is invalid. */
+export function publishedDifficulty(raw: string | undefined): Published {
+  const line = publishedText(raw, 38, false);
+  if (line === null || line === 'invalid') return line;
+  return DIFFICULTY.test(line) ? line : 'invalid';
+}
 
 export type Published = string | null | 'invalid';
 

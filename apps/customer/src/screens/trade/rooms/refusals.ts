@@ -45,6 +45,31 @@ const KNOWN: Readonly<Record<string, { title: string; body: string }>> = {
     title: 'Settlement was refused',
     body: 'The accepted quote did not settle. Your hold stays as reported; check the quote status.',
   },
+  'trade.rfq_window_passed': {
+    title: 'The settlement window has closed',
+    body: 'This accepted quote can no longer settle. Nothing was settled or held; ask for a new price.',
+  },
+  'trade.otc_makers_unset': {
+    title: 'No providers set',
+    body: 'The desk has no provider list, so a request cannot be sent. Nothing was priced or held.',
+  },
+  'trade.otc_provider_required': { title: 'Pick a provider', body: 'Pick at least one provider to ask. Nothing was priced or held.' },
+  'trade.otc_level_unset': {
+    title: 'Verification level not set',
+    body: 'The desk has no verification level set, so a request cannot be sent. Nothing was priced or held.',
+  },
+  'trade.otc_assets_unset': {
+    title: 'No assets set',
+    body: 'The desk has no asset list, so a request cannot be sent. Nothing was priced or held.',
+  },
+  'trade.otc_provider_unknown': {
+    title: 'Provider not on the list',
+    body: "A provider picked is not on the desk's provider list. Pick again from the list; nothing was priced or held.",
+  },
+  'trade.rfq_size_not_set': {
+    title: 'The desk minimum is not set',
+    body: 'The desk cannot price a request in this asset until its minimum size is published. Nothing was priced or held.',
+  },
   'trade.rfq_already_bound': { title: 'That quote is already accepted', body: 'It can be settled, but not expired or accepted again.' },
   'trade.rfq_allocation_refused': {
     title: 'Allocation is not open',
@@ -73,6 +98,14 @@ const KNOWN: Readonly<Record<string, { title: string; body: string }>> = {
   'trade.algo_cancel_incomplete': {
     title: 'The last cancel did not finish',
     body: 'Some child orders are still open. Cancel again; the schedule cannot resume until it finishes.',
+  },
+  'trade.iceberg_symbol_cap': {
+    title: 'One iceberg per market',
+    body: 'You already have a live iceberg on this market. Cancel it or let it fill before placing another. Nothing was placed.',
+  },
+  'trade.iceberg_display_invalid': {
+    title: 'This iceberg cannot be placed',
+    body: 'An iceberg is a limit order on a market open for orders, with a display size above zero, smaller than the total and a whole number of the market amount step. A request id already used for another order cannot be reused. Nothing was placed.',
   },
   'trade.algo_not_found': { title: "We couldn't find that schedule", body: 'Check the schedule id. You can only open your own schedules.' },
   'trade.options_settlement_law_unset': {
@@ -129,6 +162,33 @@ const KNOWN: Readonly<Record<string, { title: string; body: string }>> = {
   },
 };
 
+/**
+ * Refusals whose sentence from the desk names the owner's number (the desk minimum, CB-otc-07; the provider cap,
+ * CB-otc-01), so the customer sees the limit they hit. The service sentence is kept and the next step follows it.
+ */
+const NAMES_ITS_LIMIT: Readonly<Record<string, { title: string; fallback: string; after: string }>> = {
+  'trade.rfq_below_minimum': {
+    title: 'Below the desk minimum',
+    fallback: 'This request is below the desk minimum',
+    after: 'Ask for a larger size; nothing was priced or held.',
+  },
+  'trade.otc_provider_cap': {
+    title: 'Too many providers',
+    fallback: 'More providers were picked than the desk allows',
+    after: 'Pick fewer; nothing was priced or held.',
+  },
+  'trade.otc_level_insufficient': {
+    title: 'Verification level too low',
+    fallback: 'Your verification level is below what the desk prices for',
+    after: 'Complete verification to ask the desk; nothing was priced or held.',
+  },
+  'trade.otc_asset_unlisted': {
+    title: 'Asset not on the desk',
+    fallback: "That asset is not on the desk's asset list",
+    after: 'Pick a pair whose asset the desk lists; nothing was priced or held.',
+  },
+};
+
 export interface RefusalInput {
   reason?: string;
   message?: string;
@@ -148,6 +208,13 @@ export function roomWords(input: RefusalInput): Words {
   if (code) {
     const known = KNOWN[code];
     if (known) return { ...known, code: refusalSupportCode(code) };
+    const named = NAMES_ITS_LIMIT[code];
+    if (named)
+      return {
+        title: named.title,
+        body: `${input.message?.trim().replace(/\.$/, '') || named.fallback}. ${named.after}`,
+        code: refusalSupportCode(code),
+      };
     if (code.startsWith('trade.greeks_')) return { ...KNOWN['trade.greeks_native_unlinked']!, code: refusalSupportCode(code) };
     const shared = refusalCopy(code);
     // A trade.* code nobody here has words for keeps the service's own sentence, so the real blocker is never replaced by a generic line.

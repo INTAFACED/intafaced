@@ -298,9 +298,13 @@ describe('ccxt capability matrix — claim ≡ mount source', () => {
   });
 
   it('setMarginMode stays 501; setLeverage is a live isolated path that can 200', () => {
-    expect(privateRestSource).not.toMatch(/app\.post\('\/api\/v1\/positions\/leverage',\s*derivativesNotSupported\('setLeverage'/);
+    expect(privateRestSource).not.toMatch(
+      /app\.post\('\/api\/v1\/positions\/leverage',\s*(?:privateWrite,\s*)?derivativesNotSupported\('setLeverage'/,
+    );
     expect(privateRestSource).toContain("app.post('/api/v1/positions/leverage'");
-    expect(privateRestSource).toMatch(/app\.post\('\/api\/v1\/positions\/margin-mode',\s*derivativesNotSupported\('setMarginMode'/);
+    expect(privateRestSource).toMatch(
+      /app\.post\('\/api\/v1\/positions\/margin-mode',\s*privateWrite,\s*derivativesNotSupported\('setMarginMode'/,
+    );
     expect(privateRestSource).toContain('setMarginMode must stay 501');
     expect(privateRestSource).toContain('notSupported(');
     expect(privateRestSource).toContain('reply.code(200).send(pos)');

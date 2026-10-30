@@ -1,5 +1,5 @@
 /** The schedules this device knows, each re-read from the service, and the detail of the one picked. */
-import { Badge, Button, EmptyState, KeyValue, Table, fmtAmount, type Loadable, type TableColumn } from '../rooms/ui';
+import { Badge, Button, EmptyState, KeyValue, Table, fmtAmount, fmtPrice, type Loadable, type TableColumn } from '../rooms/ui';
 import { Freshness } from '../rooms/RoomNotices';
 import { roomWords } from '../rooms/refusals';
 import { compareDecimals, percentOf } from '../rooms/math';
@@ -10,6 +10,26 @@ import { Gate, Why, useWhen } from './parts';
 export type AlgoAction = 'pause' | 'resume' | 'cancel';
 type Ok = Extract<ParentRead, { ok: true }>;
 
+/** A schedule waiting for its trigger price has no end yet: it starts when the price is reached. */
+function endWords(
+  parent: Ok['parent'],
+  t: (key: 'After the trigger price is reached') => string,
+  when: (iso: string) => string | null,
+): string | null {
+  return parent.awaitingTrigger ? t('After the trigger price is reached') : when(parent.projectedEndsAt);
+}
+
+/** POV: the newest child's size and the volume or book size it was a share of, as the service stored them. */
+function lastSliceWords(
+  parent: Ok['parent'],
+  t: (key: 'Last slice of book' | 'Last slice of volume', vars: { qty: string; basis: string }) => string,
+): string | null {
+  const last = parent.children?.at(-1);
+  if (parent.kind !== 'pov' || !last?.qty || last.basisQty == null) return null;
+  const vars = { qty: fmtAmount(last.qty), basis: fmtAmount(last.basisQty) };
+  return parent.povBasis === 'opposite_liquidity' ? t('Last slice of book', vars) : t('Last slice of volume', vars);
+}
+
 const CANCEL_INCOMPLETE = 'cancel_incomplete';
 const TONE = { active: 'lime', paused: 'warn', halted: 'error', completed: 'neutral', cancelled: 'neutral' } as const;
 
@@ -19,7 +39,19 @@ function pctOf(row: Ok): string | null {
   return pct !== null && compareDecimals(pct, '100') === 1 ? '100' : pct;
 }
 
-/** The reason Resume is off for this schedule, or null when it may be tried. */
+/**
+ * The average price of the schedule's real child fills: the price, 'not_set' when the service answered and nothing has
+ * filled, or null when the result could not be read (drawn as a dash, never as a number).
+ */
+function averageFill(row: Ok): string | 'not_set' | null {
+  // Zero fills: the room does not ask for the result, and there is no average to show.
+  if (row.progress && compareDecimals(row.progress.filledQty, '0') === 0) return 'not_set';
+  if (!row.result) return null;
+  const priced = row.result.quotes.find((q) => q.averageFillPrice !== null);
+  return priced?.averageFillPrice ?? 'not_set';
+}
+
+/** The reason Pause and Resume are off for this schedule, or null when they may be tried. */
 function resumeBlock(row: Ok, t: (key: 'Resume blocked cancel incomplete') => string): string | null {
   const reason = row.parent.haltReason ?? row.progress?.haltReason ?? null;
   return reason === CANCEL_INCOMPLETE ? t('Resume blocked cancel incomplete') : null;
@@ -60,13 +92,17 @@ function StatusCell({ row }: { row: ParentRead }) {
 export function AlgoList({
   load,
   empty,
+  listing,
   selectedId,
   onSelect,
   onAction,
   locked,
 }: {
   load: Loadable<ParentRead[]>;
+  /** No schedule id is known yet: the service's list and this device hold none. */
   empty: boolean;
+  /** The service's list read: "none" shows only once it has answered, and a refusal is said, never shown as empty. */
+  listing: Loadable<unknown>;
   selectedId: string | null;
   onSelect: (id: string) => void;
   onAction: (parent: Ok['parent'], action: AlgoAction) => void;
@@ -74,7 +110,12 @@ export function AlgoList({
 }) {
   const { t } = execCopy.useCopy();
   const when = useWhen();
-  if (empty) return <EmptyState variant="empty" size="inline" title={t('No schedules known')} reason={t('No schedules known reason')} />;
+  if (empty)
+    return (
+      <Gate load={listing} rows={2}>
+        {() => <EmptyState variant="empty" size="inline" title={t('No schedules known')} reason={t('No schedules known reason')} />}
+      </Gate>
+    );
 
   const columns: TableColumn<ParentRead>[] = [
     { id: 'market', header: t('Market'), width: 130, pin: 'start', value: (r) => (r.ok ? r.parent.symbol : r.id) },
@@ -100,6 +141,16 @@ export function AlgoList({
       numeric: true,
       value: (r) => (r.ok ? (r.progress?.filledQty ?? null) : null),
       cell: (r) => (r.ok && r.progress ? fmtAmount(r.progress.filledQty) : null),
+    },
+    {
+      id: 'average',
+      header: t('Average fill price'),
+      width: 96,
+      numeric: true,
+      cell: (r) => {
+        const avg = r.ok ? averageFill(r) : null;
+        return avg === null ? null : avg === 'not_set' ? t('Not set') : fmtPrice(avg, null);
+      },
     },
     {
       id: 'progress',
@@ -136,9 +187,14 @@ export function AlgoList({
       id: 'next',
       header: t('Next slice'),
       width: 116,
-      value: (r) => (r.ok && r.parent.status === 'active' ? when(r.parent.nextDueAt) : null),
+      value: (r) =>
+        r.ok && r.parent.status === 'active'
+          ? r.parent.awaitingTrigger
+            ? t('After the trigger price is reached')
+            : when(r.parent.nextDueAt)
+          : null,
     },
-    { id: 'ends', header: t('Ends'), width: 116, value: (r) => (r.ok ? when(r.parent.projectedEndsAt) : null) },
+    { id: 'ends', header: t('Ends'), width: 116, value: (r) => (r.ok ? endWords(r.parent, t, when) : null) },
     {
       id: 'actions',
       header: t('Actions'),
@@ -153,7 +209,7 @@ export function AlgoList({
             key={action}
             variant="secondary"
             size={28}
-            disabled={locked || (action === 'resume' && blocked !== null)}
+            disabled={locked || ((action === 'resume' || action === 'pause') && blocked !== null)}
             aria-label={`${label} ${parent.id}`}
             onClick={(event) => {
               event.stopPropagation();
@@ -165,7 +221,7 @@ export function AlgoList({
         );
         return (
           <span className="flex flex-wrap gap-1">
-            {status === 'active' ? act('pause', t('Pause')) : null}
+            {status === 'active' || blocked !== null ? act('pause', t('Pause')) : null}
             {status === 'paused' || status === 'halted' ? act('resume', t('Resume')) : null}
             {status === 'active' || status === 'paused' || status === 'halted' ? act('cancel', t('Cancel')) : null}
             {blocked !== null && (status === 'paused' || status === 'halted') ? (
@@ -185,6 +241,11 @@ export function AlgoList({
             <Freshness asOf={asOf} />
             <span>{t('Schedules re-read every 10 s')}</span>
           </div>
+          {listing.status === 'refused' || listing.status === 'error' ? (
+            <Why code={listing.status === 'refused' ? listing.code : undefined}>{t('Schedule list unread')}</Why>
+          ) : (
+            <p className="m-0 text-sm text-fg-2">{t('Schedule list window')}</p>
+          )}
           <Table
             label={t('Schedules')}
             density="dense"
@@ -236,7 +297,11 @@ export function AlgoDetail({ row, onClone }: { row: ParentRead; onClone: (parent
             }),
             hint: [
               parent.limitPrice ? t('Limit {price}', { price: parent.limitPrice }) : t('No limit'),
-              parent.participationBps ? t('{bps} bps of volume', { bps: String(parent.participationBps) }) : '',
+              parent.participationBps
+                ? parent.povBasis === 'opposite_liquidity'
+                  ? t('{bps} bps of opposite-side liquidity', { bps: String(parent.participationBps) })
+                  : t('{bps} bps of volume', { bps: String(parent.participationBps) })
+                : '',
             ]
               .filter(Boolean)
               .join(', '),
@@ -245,13 +310,34 @@ export function AlgoDetail({ row, onClone }: { row: ParentRead; onClone: (parent
           { label: t('Halt reason'), value: halt ? t('Halt: {reason}', { reason: halt.text }) : null, hint: halt?.code ?? undefined },
           { label: t('Stretch reason'), value: stretch?.text ?? null, hint: stretch?.code ?? undefined },
           {
+            label: t('Trigger price'),
+            value: parent.triggerPrice
+              ? parent.awaitingTrigger
+                ? t('Waiting for the trigger price')
+                : parent.triggeredAt
+                  ? t('Triggered at', { when: when(parent.triggeredAt) ?? parent.triggeredAt })
+                  : null
+              : null,
+            hint: parent.triggerPrice ?? undefined,
+          },
+          { label: t('Last slice'), value: lastSliceWords(parent, t) },
+          { label: t('Slice sizes'), value: parent.randomSeed != null ? t('Random sizes', { seed: String(parent.randomSeed) }) : null },
+          {
+            label: t('Average fill price'),
+            value: (() => {
+              const avg = averageFill(row);
+              return avg === null ? null : avg === 'not_set' ? t('Not set') : fmtPrice(avg, null);
+            })(),
+            hint: t('Average fill price hint'),
+          },
+          {
             label: t('Filled so far'),
             value: done === null ? null : `${fmtAmount(done)} / ${fmtAmount(parent.totalQty)}`,
             hint: t('Counts only fills of the child orders'),
           },
           { label: t('Created'), value: when(parent.createdAt) },
-          { label: t('Next slice due'), value: when(parent.nextDueAt) },
-          { label: t('Projected end'), value: when(parent.projectedEndsAt) },
+          { label: t('Next slice due'), value: parent.awaitingTrigger ? t('After the trigger price is reached') : when(parent.nextDueAt) },
+          { label: t('Projected end'), value: endWords(parent, t, when) },
         ]}
       />
       {blocked ? <Why>{blocked}</Why> : null}

@@ -109,6 +109,7 @@
   .home-total {
     display: flex;
     align-items: center;
+    column-gap: var(--if-space-2);
     height: 56px;
     margin-top: var(--if-space-1);
   }

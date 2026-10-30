@@ -20,6 +20,7 @@ const comment: SupportComment = {
   ticketId: TICKET,
   authorId: USER,
   authorRole: 'user',
+  visibility: 'public',
   body: 'my card ending 4321 was declined',
   createdAt: AT,
 };

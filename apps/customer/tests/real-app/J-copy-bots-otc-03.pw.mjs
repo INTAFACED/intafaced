@@ -35,6 +35,52 @@ async function act(page, detail, button) {
   await page.getByRole('alertdialog').getByRole('button', { name: button, exact: true }).click();
 }
 
+/** The follower's own BTC/USDT fills: what the ledger settles, one posting per fill. */
+async function myFills(who) {
+  const res = await (await api(who)).get('/api/v1/account/trades?symbol=BTC%2FUSDT&limit=100');
+  expect(res.status, JSON.stringify(res.body).slice(0, 300)).toBe(200);
+  return res.body;
+}
+
+/** BTC and USDT totals from the ledger, as scaled bigints. */
+async function holdings(who) {
+  const b = await (await api(who)).balances();
+  return { BTC: toUnits(b.BTC?.total ?? '0'), USDT: toUnits(b.USDT?.total ?? '0') };
+}
+
+/**
+ * Waits for a sell of the follower's that was not among `seen`, then for the ledger to read exactly `before` moved by
+ * those new fills: base out and quote in on a sell (in and out on a buy), the fee out, a rebate in. Returns the BTC sold.
+ */
+async function settlesExactly(who, before, seen) {
+  let sold = 0n;
+  await expect
+    .poll(
+      async () => {
+        const fresh = (await myFills(who)).filter((f) => !seen.has(f.id));
+        if (!fresh.some((f) => f.side === 'sell')) return 'no close fill yet';
+        const moved = { BTC: 0n, USDT: 0n };
+        sold = 0n;
+        for (const f of fresh) {
+          const sign = f.side === 'buy' ? 1n : -1n;
+          moved.BTC += sign * toUnits(f.amount);
+          moved.USDT -= sign * toUnits(f.cost);
+          if (f.side === 'sell') sold += toUnits(f.amount);
+          if (f.fee.currency in moved) moved[f.fee.currency] -= toUnits(f.fee.cost);
+          if (f.rebate && f.rebate.currency in moved) moved[f.rebate.currency] += toUnits(f.rebate.cost);
+        }
+        const now = await holdings(who);
+        const want = { BTC: before.BTC + moved.BTC, USDT: before.USDT + moved.USDT };
+        return now.BTC === want.BTC && now.USDT === want.USDT
+          ? 'exact'
+          : `ledger ${now.BTC}/${now.USDT}, fills say ${want.BTC}/${want.USDT}`;
+      },
+      { timeout: 60_000, message: 'the ledger never read exactly what the close fills settle' },
+    )
+    .toBe('exact');
+  return sold;
+}
+
 /** Copied orders on the follow after the page re-reads it. */
 async function copiedNow(page) {
   return (await copiedOrdersLoaded(await openFollow(page, state('leaderRef')))).count();
@@ -55,11 +101,31 @@ test(`${J} #1 pauses the follow: new mirrors refused as paused, and existing pos
   run.write({ otherRef, otherFollowId: await followOnScreen(page, follower, otherRef, { perOrder: '50', total: '100', fixed: '20' }) });
   run.write({ followId: await followOnScreen(page, follower, leaderRef, { perOrder: '50', total: '300', fixed: '20' }) });
   // Two copied buys: the journey starts with open copied positions (#2's lead close takes one, #3 closes the other).
+  // A copied order is listed before the ledger credits its fill (run 701 read the holding with one of two credited), so
+  // the holding "nothing was sold" is compared with is read only once the ledger holds both: the first copied buy's
+  // credit, read while it is the only one, sets the credit per BTC filled, and the second must bring the BTC to that
+  // rate times everything filled.
+  const btc = async () => toUnits((await (await api(follower)).balances()).BTC?.total ?? '0');
+  const filledBuys = async () => {
+    const closed = await (await api(follower)).get('/api/v1/orders/closed?symbol=BTC%2FUSDT&limit=50');
+    expect(closed.status, JSON.stringify(closed.body).slice(0, 300)).toBe(200);
+    return closed.body.filter((o) => o.side === 'buy' && o.status === 'closed').map((o) => toUnits(o.filled));
+  };
   await leadFill(leader, 'buy', '0.001', `${J}-1-open-${tag}`);
+  await expect.poll(() => copiedNow(page), { timeout: 60_000 }).toBe(1);
+  await expect.poll(btc, { timeout: 60_000 }).toBeGreaterThan(0n);
+  const firstCredit = await btc();
+  const [firstFilled] = await filledBuys();
+  expect(firstFilled).toBeGreaterThan(0n);
   await leadFill(leader, 'buy', '0.001', `${J}-1-open2-${tag}`);
   await expect.poll(() => copiedNow(page), { timeout: 60_000 }).toBe(2);
-  const holding = (await (await api(follower)).balances()).BTC?.total ?? '0';
-  expect(toUnits(holding)).toBeGreaterThan(0n);
+  // The copied order is listed before closed orders show its buy as closed (run 796), so that read is polled too.
+  await expect.poll(async () => (await filledBuys()).length, { timeout: 60_000 }).toBe(2);
+  const filled = await filledBuys();
+  expect(filled).toHaveLength(2);
+  const settled = (firstCredit * filled.reduce((a, b) => a + b, 0n)) / firstFilled;
+  await expect.poll(btc, { timeout: 60_000, message: 'the ledger never credited both copied buys' }).toBe(settled);
+  const holding = (await (await api(follower)).balances()).BTC.total;
 
   const detail = await openFollow(page, leaderRef);
   await act(page, detail, 'Pause');
@@ -79,12 +145,12 @@ test(`${J} #2 stops with close-only: a new lead fill isn't mirrored, and a lead 
   // Stop is close-only: the follow reads Stopping while the leader's closes still close the copied positions.
   await expect(detail).toContainText('Stopping');
   await expect(detail.getByText('Close-only: the leader’s closes still close your copied positions.')).toBeVisible(UNBUILT);
-  const before = toUnits((await (await api(follower)).balances()).BTC?.total ?? '0');
+  const before = await holdings(follower);
+  const seen = new Set((await myFills(follower)).map((f) => f.id));
   await leadFill(state('leader'), 'buy', '0.001', `${J}-2-new-${state('tag')}`);
   await leadFill(state('leader'), 'sell', '0.001', `${J}-2-close-${state('tag')}`);
-  await expect
-    .poll(async () => toUnits((await (await api(follower)).balances()).BTC?.total ?? '0'), { timeout: 60_000 })
-    .toBeLessThan(before);
+  // The close's fills and the ledger agree to the unit.
+  expect(await settlesExactly(follower, before, seen)).toBeGreaterThan(0n);
   // The two buys from before the stop, no copy of the new buy, and one close.
   const orders = copiedOrders(await openFollow(page, state('leaderRef')));
   await expect(orders.filter({ hasText: 'Buy' })).toHaveCount(2);
@@ -106,11 +172,13 @@ test(`${J} #3 opens Positions and closes one order, then a part larger than open
   await page.getByRole('dialog', { name: 'Close part of this position' }).getByLabel('Amount').fill('1');
   await page.getByRole('dialog', { name: 'Close part of this position' }).getByRole('button', { name: 'Close' }).click();
   await expect(page.getByText('That is more than is open.')).toBeVisible();
-  const before = (await (await api(follower)).balances()).BTC.total;
-  await row.getByRole('button', { name: 'Close' }).click();
+  const before = await holdings(follower);
+  const seen = new Set((await myFills(follower)).map((f) => f.id));
+  await row.getByRole('button', { name: 'Close', exact: true }).click();
   await page.getByRole('alertdialog').getByRole('button', { name: 'Close' }).click();
   await expect(row).toContainText('Closed');
-  expect(toUnits((await (await api(follower)).balances()).BTC.total)).toBeLessThan(toUnits(before));
+  // The funds return exactly: the ledger reads the balance before, moved by exactly what the close's fills settle.
+  expect(await settlesExactly(follower, before, seen)).toBeGreaterThan(0n);
 });
 
 test(`${J} #4 presses close-all with an unrealised loss: a step-up opens, and the call without its token is refused`, async ({ page }) => {

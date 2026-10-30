@@ -1,11 +1,46 @@
 import { loadProfile } from '../owner-settings.mjs';
 import path from 'node:path';
+import { confirmFounderEmails } from '../local-test-founders.mjs';
+import { founderTotp, makeContext } from '../local-test-gates.mjs';
+import { LOCAL_TEST_DEVICE_KEY } from '../local-test-device.mjs';
 
 /** One labelled TEST value from this service's profile file; a missing one names the file instead of a bare TypeError. */
 function testValue(name) {
   const entry = loadProfile().values[name];
   if (!entry) throw new Error(`${name} is missing from tooling/profiles/test-owner-values/identity.json.`);
   return entry.value;
+}
+
+/**
+ * LOCAL TEST ONLY. A founder's address is confirmed like anyone's, so a new browser in the console is mailed its approval
+ * code. Only a console sign-in from a new browser needs it, so a failure is named and the stack still starts.
+ */
+export async function confirmLocalFounderEmails({ STATE, marker, edgeUrl, say }) {
+  let ctx;
+  try {
+    await confirmFounderEmails({
+      stateDir: STATE,
+      marker,
+      edgeUrl,
+      log: say,
+      signIn: async (f) => {
+        ctx ??= await makeContext({ log: () => {} });
+        const login = await ctx.edge.mutate('identity', 'auth.login', {
+          identifier: f.handle,
+          password: f.password,
+          totpCode: await founderTotp(ctx, f.key, f.totpSecret),
+          deviceKey: LOCAL_TEST_DEVICE_KEY,
+        });
+        const token = login.json?.result?.data?.accessToken;
+        if (typeof token !== 'string') throw new Error(`founder ${f.key} could not sign in to confirm their email (${login.status})`);
+        return token;
+      },
+    });
+  } catch (err) {
+    say(
+      `  founders: email addresses not confirmed, so a new browser in the console gets no mailed code: ${err instanceof Error ? err.message : err}`,
+    );
+  }
 }
 
 export default ({ c, secrets, dbUrl, urlOf, PORTS, STATE, CUSTOMER_LOCALHOST_ORIGIN, identityFounderEnv }) => ({
@@ -71,6 +106,7 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, STATE, CUSTOMER_LOCALHOST_ORI
     IDENTITY_NEW_DEVICE_TTL_SECONDS: testValue('IDENTITY_NEW_DEVICE_TTL_SECONDS'),
     IDENTITY_NEW_DEVICE_MAX_ATTEMPTS: testValue('IDENTITY_NEW_DEVICE_MAX_ATTEMPTS'),
     IDENTITY_MFA_RESET_WAIT_SECONDS: testValue('IDENTITY_MFA_RESET_WAIT_SECONDS'),
+    IDENTITY_SELF_FREEZE_LIFT_WAIT_SECONDS: testValue('IDENTITY_SELF_FREEZE_LIFT_WAIT_SECONDS'),
     IDENTITY_KYC_REQUIREMENTS_BY_LEVEL: testValue('IDENTITY_KYC_REQUIREMENTS_BY_LEVEL'),
     IDENTITY_KYC_REVIEW_HOURS_BY_LEVEL: testValue('IDENTITY_KYC_REVIEW_HOURS_BY_LEVEL'),
     IDENTITY_KYC_REJECT_REASONS: testValue('IDENTITY_KYC_REJECT_REASONS'),
@@ -85,6 +121,7 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, STATE, CUSTOMER_LOCALHOST_ORI
       ? {}
       : { IDENTITY_KYC_POA_MAX_AGE_DAYS: testValue('IDENTITY_KYC_POA_MAX_AGE_DAYS') }),
     IDENTITY_KYC_POA_TYPES_BY_COUNTRY: testValue('IDENTITY_KYC_POA_TYPES_BY_COUNTRY'),
+    IDENTITY_KYC_HANDOFF_TTL_SECONDS: testValue('IDENTITY_KYC_HANDOFF_TTL_SECONDS'),
     IDENTITY_KYC_MAX_DENIALS: testValue('IDENTITY_KYC_MAX_DENIALS'),
     IDENTITY_KYC_DENIAL_WINDOW_HOURS: testValue('IDENTITY_KYC_DENIAL_WINDOW_HOURS'),
     IDENTITY_KYC_LOCKOUT_HOURS: testValue('IDENTITY_KYC_LOCKOUT_HOURS'),
@@ -94,6 +131,14 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, STATE, CUSTOMER_LOCALHOST_ORI
     IDENTITY_SECURITY_LOCK_UNLOCK_WAIT_SECONDS: '86400',
     // Sealing key for operator second factors (TOTP). Generated per machine in secrets.json.
     IDENTITY_TOTP_SECRET_KEY: secrets.identityTotp,
+    // LOCAL TEST ONLY: seals each API key's request-signing secret (secrets.json); a key that places orders signs
+    // every request (DV-auth-01), so without it such a key is refused at creation.
+    API_KEY_SIGNING_ENC_KEY: secrets.identityApiKeySigning,
+    // The request-signing timestamp window (J-developer-04 #2, J-developer-02 #6): a TEST value, not an owner decision.
+    // `LOCAL_STACK_IDENTITY_REQUEST_SIGN_WINDOW=off` on a start or restart leaves it blank, as production is until the
+    // owner sets it, so a journey can see every signed request refused with auth.request_window_unset.
+    IDENTITY_REQUEST_SIGN_WINDOW_SECONDS:
+      process.env.LOCAL_STACK_IDENTITY_REQUEST_SIGN_WINDOW === 'off' ? '' : testValue('IDENTITY_REQUEST_SIGN_WINDOW_SECONDS'),
     // LOCAL TEST ONLY: the KYC document vault's key, generated for this stack (secrets.json, mode 600). Without it the vault is
     // off and the founder console's document list and viewer refuse kyc_doc.unwired.
     IDENTITY_KYC_DOC_KEY: secrets.identityKycDoc,
@@ -101,12 +146,13 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, STATE, CUSTOMER_LOCALHOST_ORI
     // operator reads the founder console makes: svc-bank's desks (admin:read), svc-p2p's
     // operator lists (admin:compliance), svc-market's vendor desk (market:ops), every svc-support operator door
     // (support:ops: the queue and request workspace at /support, help articles, help-centre and attachment settings,
-    // contact channels and request forms), the notify desk's writes (admin:write: the status page and notices) and the
+    // contact channels and request forms), the support desk's read-only lookup of one customer's records in another
+    // module (support:lookup: copy follows, bots and quotes on the trade desk), the notify desk's writes (admin:write: the status page and notices) and the
     // campaigns desk (campaigns:ops: build, ask, approve, go live). admin:write is platform wide: it also opens the other services' admin:write doors to a founder's
     // session here (svc-trade's insurance top-up among them), the same scope the local gates' operator tokens already
     // carry. Identity adds these only to a founder's own signed-in session with a second factor, never to an API key or a
     // sub-account. admin:treasury and every pay: scope stay off.
-    IDENTITY_FOUNDER_SESSION_SCOPES: 'admin:read,admin:write,admin:compliance,market:ops,support:ops,campaigns:ops',
+    IDENTITY_FOUNDER_SESSION_SCOPES: 'admin:read,admin:write,admin:compliance,market:ops,support:ops,support:lookup,campaigns:ops',
     // Sub-account cap: an explicit LOCAL TEST value, not an owner limit (the owner has not published one; blank
     // refuses every create with auth.sub_account_cap_unset). 10 live sub-accounts per account on this stack only.
     IDENTITY_MAX_SUB_ACCOUNTS: '10',
@@ -131,6 +177,9 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, STATE, CUSTOMER_LOCALHOST_ORI
       ? {}
       : { IDENTITY_SANDBOXES_MAX_BY_TIER: testValue('IDENTITY_SANDBOXES_MAX_BY_TIER') }),
     IDENTITY_SANDBOX_BASE_URL: testValue('IDENTITY_SANDBOX_BASE_URL'),
+    // LOCAL TEST idle period for API keys (J-developer-03 #9), labelled in the same profile, never an owner decision: the
+    // key detail shows it; no dormant sweep is built, so it ends no key. Blank shows `not set`.
+    IDENTITY_API_KEY_IDLE_EXPIRY_SECONDS: testValue('IDENTITY_API_KEY_IDLE_EXPIRY_SECONDS'),
     // LOCAL TEST account tiers (J-ops-console-04 #11), labelled TEST, never an owner decision: the owner has published no
     // tiers (blank refuses every move with identity.account_tiers_unset). TEST Premier leaves its monthly fee blank on
     // purpose, so the console shows a tier that cannot be assigned (identity.tier_terms_unset).

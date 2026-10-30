@@ -5,12 +5,13 @@ import { ELIGIBILITY_REASONS } from './withdrawals/eligibility.js';
 import { WithdrawalQuoteError, withdrawalQuoteToTrpcError } from './withdrawals/quotes/errors.js';
 import { WithdrawalApprovalError, withdrawalApprovalToTrpcError } from './withdrawals/approvals/errors.js';
 import { AllowlistError, allowlistToTrpcError } from './withdrawals/allowlist/errors.js';
-import { quoteInputSchema, quoteViewSchema } from './withdrawals/quotes/schemas.js';
+import { quoteInputSchema, quoteViewSchema, sendNetworkIdSchema, sendQuoteRefSchema } from './withdrawals/quotes/schemas.js';
 import { RETURN_REASON_CODES } from './withdrawals/returns/schemas.js';
 import type { WithdrawalQuoteService } from './withdrawals/quotes/service.js';
 import {
   networkIdSchema,
   readWithdrawalNetworkRules,
+  refuseWithdrawalTag,
   WithdrawalNetworkRuleError,
   withdrawalNetworkRulesSchema,
   withdrawalNetworkRuleToTrpcError,
@@ -30,6 +31,7 @@ import {
   payMerchantFailureSchema,
   payPageSchema,
   payPaymentAttemptSchema,
+  payPaymentConfirmationsSchema,
   payPaymentListInputSchema,
   payPaymentListSummarySchema,
   payPricingSnapshotViewSchema,
@@ -243,6 +245,10 @@ const withdrawalView = z.object({
   customerStatus: z.enum(WITHDRAWAL_STATUSES),
   /** Whether `withdrawal.cancel` would cancel it now. False whenever the answer is not proven. */
   cancellable: z.boolean(),
+  /** The network a send out of the platform went on (J-wallet-05 #6); null on a send inside the platform or an older row. */
+  networkId: z.string().nullable(),
+  /** The quoted network fee its hold carries on top of `amount`; null when it carries none. */
+  fee: amountSchema.nullable(),
 });
 
 type PaymentViewOut = z.infer<typeof paymentView>;
@@ -1122,7 +1128,13 @@ export function createPayRouter(
 
       get: ownMerchantRead()
         .input(z.object({ paymentId: z.string().guid() }))
-        .output(paymentView.extend({ attempts: z.array(payPaymentAttemptSchema) }))
+        .output(
+          paymentView.extend({
+            attempts: z.array(payPaymentAttemptSchema),
+            /** While the payment is open and its rail waits for confirmations: how deep, how deep it must be, as of when. */
+            confirmations: payPaymentConfirmationsSchema.nullable(),
+          }),
+        )
         .query(({ ctx, input }) =>
           wrap(async () => {
             // Fetched, then checked, then returned. The row has to be read to
@@ -1131,9 +1143,12 @@ export function createPayRouter(
             // the caller has the object. Attempts are read only after that.
             const payment = await pay.getPayment(input.paymentId);
             const audience = await assertPaymentRead(ctx.principal.userId, input.paymentId, payment.merchantId);
-            const attempts = await pay.listPaymentAttempts(input.paymentId);
+            const [attempts, confirmations] = await Promise.all([
+              pay.listPaymentAttempts(input.paymentId),
+              payment.status === 'created' ? pay.paymentConfirmations(input.paymentId) : null,
+            ]);
             const body = await paymentOut(payment, audience, false);
-            return { ...body, attempts };
+            return { ...body, attempts, confirmations };
           }),
         ),
 
@@ -2143,24 +2158,43 @@ export function createPayRouter(
        */
       create: scopedProcedure('trade:withdraw', { module: 'ledger' })
         .input(
-          z.object({
-            assetId: assetIdSchema,
-            amount: amountSchema,
-            railId: z.string().min(1),
-            destination: z.object({ kind: z.string().min(1), ref: z.string().min(1) }),
-            /**
-             * REQUIRED, not optional. A timed-out request that is retried
-             * without one opens a second withdrawal, and a second withdrawal is
-             * a second debit. `clientOrderId` is merely recommended on an order
-             * because the worst case there is a duplicate order the user can
-             * cancel; there is no cancelling a payout.
-             */
-            clientRef: z.string().min(1).max(64),
-          }),
+          z
+            .object({
+              assetId: assetIdSchema,
+              amount: amountSchema,
+              railId: z.string().min(1),
+              /**
+               * A tag or memo, when the sender names one: refused by name (J-wallet-05 #1), never silently dropped. Strict, so a
+               * memo under any other key is refused as a bad request instead of stripped.
+               */
+              destination: z
+                .object({ kind: z.string().min(1), ref: z.string().min(1), tag: z.string().min(1).max(64).optional() })
+                .strict(),
+              /**
+               * REQUIRED, not optional. A timed-out request that is retried
+               * without one opens a second withdrawal, and a second withdrawal is
+               * a second debit. `clientOrderId` is merely recommended on an order
+               * because the worst case there is a duplicate order the user can
+               * cancel; there is no cancelling a payout.
+               */
+              clientRef: z.string().min(1).max(64),
+              /**
+               * J-wallet-05 #6 (issue #6517): a send to a wallet outside the platform names the network it goes on and the fee
+               * quote the person accepted (`withdrawal.quote`). Both are required there: no network has no custody signer
+               * (`pay.wallet_withdraw_unavailable`) and no quote refuses `withdrawal_quote.required`, before anything is claimed.
+               * The quote is accepted under `clientRef` inside the claim and its fee rides the hold. A send inside the platform
+               * (W-withdraw-14) takes neither: it has no network fee.
+               */
+              networkId: sendNetworkIdSchema.optional(),
+              quoteRef: sendQuoteRefSchema.optional(),
+            })
+            // Strict: a tag or memo beside the destination is refused as a bad request, never stripped and sent without.
+            .strict(),
         )
         .output(withdrawalView)
         .mutation(({ ctx, input }) =>
           wrap(async () => {
+            const { tag, ...destination } = input.destination;
             // A withdrawal the user's policy sends to approvers (or a reference that already names a request) is refused
             // here with `withdrawal_approval.required`: the direct door never sends what approvers have not approved.
             await withdrawalApprovals?.assertDirectAllowed({
@@ -2168,7 +2202,7 @@ export function createPayRouter(
               assetId: input.assetId,
               amount: parseAmount(input.amount),
               clientRef: input.clientRef,
-              destination: input.destination,
+              destination,
             });
             const request = {
               // From the token. There is no `userId` input, so there is no way
@@ -2177,7 +2211,7 @@ export function createPayRouter(
               userId: ctx.principal.userId,
               assetId: input.assetId,
               amount: parseAmount(input.amount),
-              destination: input.destination,
+              destination,
               clientRef: input.clientRef,
               ...sandboxKeyEnv(ctx.principal),
             };
@@ -2186,9 +2220,14 @@ export function createPayRouter(
             // to come straight back. `railId: 'internal'` asks for that branch outright and refuses an outside address.
             const internal =
               input.railId === INTERNAL_RAIL ||
-              (await userMoney.platformDestination(ctx.principal.userId, input.destination)).kind !== 'external';
+              (await userMoney.platformDestination(ctx.principal.userId, destination)).kind !== 'external';
+            // J-wallet-05 #1: a tag is refused by name before anything is claimed or held. A send inside the platform uses no
+            // network, so no network's rule applies to it.
+            if (tag !== undefined) await refuseWithdrawalTag(portalSql, input.assetId, internal ? undefined : input.networkId);
             return toWithdrawalOut(
-              internal ? await userMoney.withdrawInternal(request) : await userMoney.withdraw({ ...request, rail: input.railId }),
+              internal
+                ? await userMoney.withdrawInternal(request)
+                : await userMoney.withdraw({ ...request, rail: input.railId, networkId: input.networkId, quoteRef: input.quoteRef }),
             );
           }),
         ),
@@ -2481,6 +2520,8 @@ function toWithdrawalOut(row: WithdrawalRecord): WithdrawalViewOut {
     createdAt: row.createdAt.toISOString(),
     customerStatus: shownStatus(row.status, row.failureCode, row.journal),
     cancellable: isCancellable(row.status, row.failureCode, row.journal, row.dispatchJournaled),
+    networkId: row.networkId ?? null,
+    fee: row.fee == null ? null : formatAmount(row.fee),
   };
 }
 
@@ -2680,6 +2721,8 @@ export function toTrpcError(err: unknown): unknown {
       case 'pay.chargeback_outcome_busy':
       case 'pay.price_archived':
       case 'pay.product_archived':
+      /** The request is well-formed; the platform has no way to carry a tag on that network. */
+      case 'pay.withdrawal_tag_unsupported':
         return 'PRECONDITION_FAILED' as const;
       case 'pay.invalid_transition':
       case 'pay.payout_recovery_conflict':
@@ -2703,7 +2746,14 @@ export function toTrpcError(err: unknown): unknown {
       case 'pay.withdrawal_history_unwired':
       case 'pay.withdrawal_eligibility_unwired':
       case 'pay.internal_settlement_unwired':
+      case 'pay.withdrawal_destination_cooling':
+      case 'pay.withdrawal_destination_cooling_unset':
+      case 'pay.withdrawal_destination_unapproved':
+      case 'pay.withdrawal_destination_unavailable':
+      case 'pay.withdrawal_fee_unbound':
         return 'PRECONDITION_FAILED' as const;
+      case 'pay.withdrawal_destination_locked':
+        return 'FORBIDDEN' as const;
       case 'pay.withdrawal_not_found':
       case 'pay.wallet_not_found':
         return 'NOT_FOUND' as const;

@@ -684,20 +684,24 @@ describe('futures conditional orders fire through the book', () => {
     expect(await positionOf(positionId)).toMatchObject({ status: 'closed' });
   });
 
-  it('a refusal that will not pass is written on the row, and nothing moves', async () => {
-    const positionId = await aliceLong();
-    const pair = await orders.replaceProtection(ALICE, positionId, { stopLoss: '95', clientRequestId: 'restricted' });
-    admitStanding.mockRejectedValue(new TradingControlError('trade.account_restricted'));
-    const submitted = engine.submits.length;
-    const before = (await ledger.balance(userAvailable(ALICE, USDT))).amount;
-    mark = A('94');
-    await orders.evaluate({ enabled: true });
-    expect(await conditional(pair.stopLoss!.id)).toMatchObject({ status: 'failed', failureReason: 'trade.account_restricted' });
-    await orders.evaluate({ enabled: true });
-    expect(engine.submits).toHaveLength(submitted);
-    expect((await ledger.balance(userAvailable(ALICE, USDT))).amount).toBe(before);
-    expect(await positionOf(positionId)).toMatchObject({ status: 'open', size: '1' });
-  });
+  // Identity's trading restriction and this service's own each refuse by their own code; neither is retried.
+  it.each(['trade.account_restricted', 'trade.desk_restricted'] as const)(
+    'a refusal that will not pass (%s) is written on the row, and nothing moves',
+    async (code) => {
+      const positionId = await aliceLong();
+      const pair = await orders.replaceProtection(ALICE, positionId, { stopLoss: '95', clientRequestId: 'restricted' });
+      admitStanding.mockRejectedValue(new TradingControlError(code));
+      const submitted = engine.submits.length;
+      const before = (await ledger.balance(userAvailable(ALICE, USDT))).amount;
+      mark = A('94');
+      await orders.evaluate({ enabled: true });
+      expect(await conditional(pair.stopLoss!.id)).toMatchObject({ status: 'failed', failureReason: code });
+      await orders.evaluate({ enabled: true });
+      expect(engine.submits).toHaveLength(submitted);
+      expect((await ledger.balance(userAvailable(ALICE, USDT))).amount).toBe(before);
+      expect(await positionOf(positionId)).toMatchObject({ status: 'open', size: '1' });
+    },
+  );
 
   it('a stop on a position closed by hand meanwhile is cancelled as gone and places nothing', async () => {
     const positionId = await aliceLong();

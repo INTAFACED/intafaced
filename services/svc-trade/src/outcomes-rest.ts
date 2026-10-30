@@ -15,6 +15,7 @@ import { collateralForBinaryBuy, type OutcomeMarket, type OutcomeSide } from './
 import { presentCcxtOrder } from './private-rest.js';
 import type { OrderRecord, TimeInForce } from './spot/types.js';
 import type { EdgeTrust } from './edge-trust.js';
+import { internalRoute, privateWrite, publicRead } from './route-inventory.js';
 
 export interface OutcomeCatalogue {
   list(): readonly OutcomeMarket[];
@@ -83,9 +84,9 @@ export function registerOutcomesRest(app: FastifyInstance, deps: OutcomesRestDep
     return edgeContext(edgeReq);
   }
 
-  app.get('/api/v1/outcomes/markets', async (_req, reply) => reply.send(deps.catalogue.list()));
+  app.get('/api/v1/outcomes/markets', publicRead, async (_req, reply) => reply.send(deps.catalogue.list()));
 
-  app.post('/api/v1/outcomes/orders', async (req, reply) => {
+  app.post('/api/v1/outcomes/orders', privateWrite, async (req, reply) => {
     const { principal, region } = contextFrom(req);
     if (!principal) return sendError(reply, 401, 'trade.unauthenticated', 'signed principal required');
     // Same gate as every other trade write: a region or tier that may not trade may not place an outcome order.
@@ -152,7 +153,7 @@ export function registerOutcomesRest(app: FastifyInstance, deps: OutcomesRestDep
     return reply.send(presentCcxtOrder(order, parsed.data.symbol));
   });
 
-  app.post('/api/v1/outcomes/settle', async (req, reply) => {
+  app.post('/api/v1/outcomes/settle', internalRoute, async (req, reply) => {
     if (
       verifyServiceRequest(req, {
         verifier: deps.s2s?.verifier,

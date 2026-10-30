@@ -195,6 +195,9 @@ describe('order refusals the pro desk shows by their registered words (TRD-0521)
 });
 
 describe('classifyRefusal', () => {
+  it("names svc-trade's own trading restriction as a hold, never a retry", () => {
+    expect(classifyRefusal('trade.desk_restricted')).toBe('accountOnHold');
+  });
   it('sorts the codes customers can reach', () => {
     const cases: Array<[string, string]> = [
       ['denied.region_blocked', 'region'],
@@ -206,7 +209,9 @@ describe('classifyRefusal', () => {
       ['trade.order_not_found', 'orderGone'],
       ['trade.convert_price_moved', 'priceMoved'],
       ['trade.convert_quote_expired', 'quoteExpired'],
-      ['ledger.frozen', 'accountOnHold'],
+      ['ledger.frozen', 'platformPaused'],
+      ['trade.account_restricted', 'accountOnHold'],
+      ['bank.space_locked', 'spaceLocked'],
       ['mfa.required', 'stepUp'],
       ['auth.mfa_required', 'mfaRequired'],
       ['bank.prices_unavailable', 'pricesDown'],
@@ -227,6 +232,14 @@ describe('classifyRefusal', () => {
       ['trade.convert_invalid_qty', 'quoteFailed'],
     ];
     for (const [code, kind] of cases) expect(classifyRefusal(code), code).toBe(kind);
+  });
+
+  it("never says the account is held for the ledger's platform-wide pause (I-kyc-compliance-17, ENGINE FRZ-1)", () => {
+    const source = readFileSync(new URL('./refusal-codes.ts', import.meta.url), 'utf8');
+    const ledgerCodes = [...source.matchAll(/'(ledger\.[a-z_.]+)'/g)].map((m) => m[1]!);
+    expect(ledgerCodes.length).toBeGreaterThan(0);
+    for (const code of ledgerCodes) expect(classifyRefusal(code), code).not.toBe('accountOnHold');
+    expect(classifyRefusal('ledger.frozen')).toBe('platformPaused');
   });
   it('is case-insensitive and tolerant of blanks', () => {
     expect(classifyRefusal('  KYC.TIER_REQUIRED ')).toBe('verify');

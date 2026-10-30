@@ -86,6 +86,8 @@ import { registerPromoRest } from './spot/promo-rest.js';
 import { registerSpotOrderPreviewRest } from './spot/order-preview-rest.js';
 import { registerFeeTierRest } from './spot/fee-tier-rest.js';
 import { registerVipRest } from './spot/vip-rest.js';
+import { installRouteInventory } from './route-inventory.js';
+import { parseDataTerms, parseDeveloperHosts, parseRegionalRule, registerDeveloperPortalRest } from './developer-portal-rest.js';
 import { VipApplicationStore, parseVipProofKey } from './spot/vip-applications.js';
 import { assertMakerRebatesPayable, parseFeeScheduleJson } from './spot/fee-schedule.js';
 import { feeScheduleAt } from './spot/fee-schedule-store.js';
@@ -165,13 +167,19 @@ import { parseCopyFeeShareLawJson, parseCopyJurisdictionLawJson } from './copy/f
 import { parseCopyMetricDefinitionsJson } from './copy/leader-profile.js';
 import { parseCopyMinTier } from './copy/follow-gate.js';
 import { CopyService } from './copy/copy-service.js';
+import { freeSpotBalance } from './copy/follow-gate.js';
+import { GridService } from './grid/grid-service.js';
+import { loadGridPolicy } from './grid/policy.js';
+import { SqlGridStore } from './grid/store.js';
 import { SqlCopyFollowStore } from './copy/follow-store.js';
 import { SqlMirrorEventLog } from './copy/mirror-events.js';
 import { sqlLeaderDirectory } from './copy/leader-directory.js';
+import { createCopyClosePort } from './copy/copy-close.js';
 import { createFollowerFlattenPort } from './copy/follower-flatten-port.js';
 import { parseCopyPlaceMirrorFlag, type PlaceFollowerOrderPort } from './copy/auto-mirror-place.js';
 import { createJobHost } from './futures/job-host.js';
 import { SqlMarketLifecycleAuthority, SqlMarketLifecycleEvidenceStore, assertNoLocalTestLifecycleRows } from './market-lifecycle.js';
+import { registerBuybackDoor } from './spot/buyback-door.js';
 import { registerMarketLifecycleRoutes } from './market-lifecycle-routes.js';
 import { localTestTapeRetimeEnabled } from './spot/local-test-tape.js';
 import { registerLocalTestTapeRoutes } from './spot/local-test-tape-routes.js';
@@ -246,6 +254,8 @@ const bus = await JetStreamEventBus.connect({
 const feeSchedule = parseFeeScheduleJson(env.TRADE_FEE_SCHEDULE);
 assertMakerRebatesPayable(feeSchedule);
 const app = Fastify({ logger: { level: env.LOG_LEVEL }, maxParamLength: 5_000 });
+// Before any route: every /api/v1 route declares who may call it, and GET /api/v1/routes publishes the list.
+installRouteInventory(app, { edgeSecret: env.EDGE_PRINCIPAL_SECRET, edgeTrust: edgeTrustFromEnv(env), serviceName: env.SERVICE_NAME });
 retainRawBody(app);
 registerClosureCheck(app, { sql, secret: env.INTERNAL_SERVICE_SECRET, s2s: doorS2s });
 // Matching's depth read carries no timestamp, so the read time is the observation time: the book was read from the
@@ -264,6 +274,11 @@ const trailingPlacementMarkSource: QuotedMarkSource | undefined =
         quote: async (input) => (trailingMarketIds.has(input.marketId) ? trailingMarkSource.quote(input) : null),
       }
     : undefined;
+// CB-bots-10: one policy for every bot door (algo and grid), read once at boot.
+const botVerification = loadBotVerificationPolicy({
+  TRADE_BOTS_VERIFICATION: env.TRADE_BOTS_VERIFICATION,
+  TRADE_BOTS_VERIFICATION_LEVEL: env.TRADE_BOTS_VERIFICATION_LEVEL,
+});
 const trade = new TradeService(sql, ledger, matching, perks, bus, {
   trailingMarkSource: trailingPlacementMarkSource,
   accountAdmission: tradingControls,
@@ -277,10 +292,7 @@ const trade = new TradeService(sql, ledger, matching, perks, bus, {
   futuresSettleAssets: parseConfiguredSettleAssets(env.TRADE_FUTURES_SETTLE_ASSETS),
   marketSlippageCapBps: env.TRADE_MARKET_SLIPPAGE_CAP_BPS,
   // CB-bots-10: required by default; a blank level refuses every bot create, a bad value stops the boot.
-  botVerification: loadBotVerificationPolicy({
-    TRADE_BOTS_VERIFICATION: env.TRADE_BOTS_VERIFICATION,
-    TRADE_BOTS_VERIFICATION_LEVEL: env.TRADE_BOTS_VERIFICATION_LEVEL,
-  }),
+  botVerification,
   convertEnabled: env.TRADE_CONVERT_ENABLED,
   standingInstructionsEnabled: env.TRADE_STANDING_INSTRUCTION_ENABLED,
   convertSpreadBps: env.TRADE_CONVERT_SPREAD_BPS,
@@ -378,7 +390,16 @@ const placeFollowerOrder: PlaceFollowerOrderPort = async (principal, input) => {
   );
   return { orderId: order.id };
 };
+// The grid's reserve rows: a copy follow subtracts them, as a grid create subtracts the follows' (one reserve lock).
+const gridStore = new SqlGridStore(sql);
+// The best bid a follower's sell is floored against: top of book, or null when the book has none.
+const copyBestBid = async (marketId: string) => {
+  const depth = await matching.depth(marketId, 1);
+  const best = depth.bids[0];
+  return best ? parseAmount(best[0]) : null;
+};
 const copy = new CopyService(ledger, {
+  gridUnusedReserves: (userId, asset) => gridStore.sumUnusedReserves(userId, asset),
   accountAdmission: tradingControls,
   feeShareLaw: copyFeeShareLaw,
   jurisdictionLaw: copyJurisdictionLaw,
@@ -394,11 +415,14 @@ const copy = new CopyService(ledger, {
     placeFollowerOrder,
     slippageCapBps: env.TRADE_MARKET_SLIPPAGE_CAP_BPS,
     loadMarket: (symbol) => trade.marketBySymbol(symbol),
-    bestBid: async (marketId) => {
-      const depth = await matching.depth(marketId, 1);
-      const best = depth.bids[0];
-      return best ? parseAmount(best[0]) : null;
-    },
+    bestBid: copyBestBid,
+  }),
+  copyClose: createCopyClosePort({
+    sql,
+    placeFollowerOrder,
+    slippageCapBps: env.TRADE_MARKET_SLIPPAGE_CAP_BPS,
+    loadMarket: (symbol) => trade.marketBySymbol(symbol),
+    bestBid: copyBestBid,
   }),
   inspectMarket: async (symbol) => {
     const market = await trade.marketBySymbol(symbol);
@@ -467,6 +491,22 @@ const copy = new CopyService(ledger, {
   },
 });
 trade.bindCopyMirrorFill((notice) => copy.observeFollowerFill(notice));
+// The spot grid bot (CB-bots-02, -05, -10): its reserve and level rows are svc-trade's own; its orders go through the
+// trade service's place path as delegated children of the bot's admitted start.
+const grid = new GridService({
+  store: gridStore,
+  policy: loadGridPolicy(process.env),
+  verification: () => botVerification,
+  marketBySymbol: (symbol) => trade.marketBySymbol(symbol),
+  depth: (marketId) => matching.depth(marketId, 1),
+  freeBalance: async (userId, asset) => freeSpotBalance(await ledger.balances('user', userId), asset),
+  copyUnusedReserves: (userId, asset) => copyStore.sumUnusedReserves(userId, asset),
+  admitStart: (principal, businessId, payload) => trade.admitAccountOperation(principal, 'strategy.start', businessId, payload),
+  placeLevel: (principal, input, botId) => trade.placeGridLevel(principal, input, botId),
+  findOrder: (orderId) => trade.findOrder(orderId),
+  cancelOrder: (principal, orderId) => trade.cancelOrder(principal, orderId),
+  fillsForOrder: (principal, orderId) => trade.everyFillOfOrder(principal, orderId),
+});
 const tradeOpsApprovals = currentTradingRestrictApprovals() ?? identityApprovalBook(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET, outS2s);
 export const appRouter = createTradeRouter(
   trade,
@@ -483,6 +523,7 @@ export const appRouter = createTradeRouter(
   }),
   new InsuranceTopupAdmin({ sql, ledger, approvals: tradeOpsApprovals }),
   new SupportTradeSummaryReader({ sql }),
+  grid,
 );
 export type AppRouter = typeof appRouter;
 const edgeContext = createEdgeContext({
@@ -816,6 +857,9 @@ if (parseCopyPlaceMirrorFlag(process.env.TRADE_COPY_PLACE_MIRROR)) {
     if (result.refused > 0) app.log.warn(result, 'copy mirror sweep — some leader fills were not copied (reasons on the mirror trail)');
   });
 }
+// The grid's tick runs with the algo scheduler: off, a grid places its first levels and then waits.
+const gridJobs = createJobHost({ onError: (name, err) => app.log.error({ err, job: name }, 'grid tick failed') });
+if (env.TRADE_ALGO_JOBS_ENABLED) gridJobs.every('trade.grid_tick', env.TRADE_ALGO_JOBS_INTERVAL_MS, () => grid.tickAll());
 const algoJobs = startAlgoJobs({
   trade,
   config: { enabled: env.TRADE_ALGO_JOBS_ENABLED, intervalMs: env.TRADE_ALGO_JOBS_INTERVAL_MS },
@@ -1138,10 +1182,21 @@ registerFundingHistory(app, {
   marketBySymbol: (symbol) => trade.marketBySymbol(symbol),
   historyForMarket: async (marketId) => fundingHistory.list(marketId),
 });
+registerDeveloperPortalRest(app, {
+  hosts: parseDeveloperHosts(env.TRADE_DEVELOPER_HOSTS),
+  dataTerms: parseDataTerms(env.TRADE_DEVELOPER_DATA_TERMS),
+  regionalRule: parseRegionalRule(env.TRADE_DEVELOPER_REGIONAL_RULE),
+});
 registerMarketLifecycleRoutes(app, {
   internalSecret: env.INTERNAL_SERVICE_SECRET,
   s2s: doorS2s,
   store: marketLifecycleStore,
+  installRawBody: false,
+});
+registerBuybackDoor(app, {
+  internalSecret: env.INTERNAL_SERVICE_SECRET,
+  s2s: doorS2s,
+  placeBuybackIocBuy: (input) => trade.placeBuybackIocBuy(input),
   installRawBody: false,
 });
 if (localTestTapeRetime) {
@@ -1387,6 +1442,7 @@ app.log.info(
     algoJobsEnabled: env.TRADE_ALGO_JOBS_ENABLED,
     algoJobs: algoJobs.host.list(),
     copyMirrorJobs: copyMirrorJobs.list(),
+    gridJobs: gridJobs.list(),
     optionsJobsEnabled: env.TRADE_OPTIONS_JOBS_ENABLED,
     optionsJobs: optionsExerciseJobs.host.list(),
     reconcileJobsEnabled: env.TRADE_RECONCILE_JOBS_ENABLED,
@@ -1408,6 +1464,7 @@ for (const signal of ['SIGTERM', 'SIGINT'] as const) {
       mmSeedJobs.stop();
       algoJobs.stop();
       copyMirrorJobs.stopAll();
+      gridJobs.stopAll();
       optionsExerciseJobs.stop();
       reconcileJobs.stop();
       holdUnknownSweep.stop();

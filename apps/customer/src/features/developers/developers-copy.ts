@@ -66,6 +66,13 @@ export const developersCopy = defineCopy(
     environment_regional: 'Regional',
     hostUnset: 'host not set',
     hostsRegional: 'The regional host rule is stated here once the owner sets it.',
+    hostsUnpublished: 'No API host is published yet, so every host reads host not set.',
+    hostsStaticNote:
+      'This file is written when the site is built and holds no host. The published hosts are on the page and at GET /api/trade/developer-portal/hosts.',
+    regionalStaticNote:
+      'This file is written when the site is built and holds no regional host rule. The published rule is on the page and at GET /api/trade/developer-portal/regional-rule.',
+    termsStaticNote:
+      'This file is written when the site is built and holds no term. The published terms are on the page and at GET /api/trade/developer-portal/data-terms.',
     unknownTitle: 'No such developer page',
     unknownBody: 'This address does not name a developer section. Choose one from the list.',
     merchantTitle: 'Taking payments?',
@@ -115,6 +122,7 @@ export const developersCopy = defineCopy(
       errorsAuthTitle: 'Errores de autenticación y de permisos',
       errorsAuthBody:
         'El catálogo de códigos de autenticación y de permisos espera a DV-errors-02, que no está construido en esta versión. Una llamada rechazada ya lleva su código en el cuerpo, y un permiso que falta enlaza la tabla de permisos.',
+      hostsUnpublished: 'Todavía no hay ningún host de la API publicado, así que cada host dice host no definido.',
       errorsAuthPermissions: 'Abrir la tabla de permisos',
     },
     fr: {
@@ -140,6 +148,7 @@ export const developersCopy = defineCopy(
       errorsAuthTitle: 'Erreurs d’authentification et d’autorisation',
       errorsAuthBody:
         'Le catalogue des codes d’authentification et d’autorisation attend DV-errors-02, qui n’est pas construit dans cette version. Un appel refusé porte déjà son code dans le corps, et une autorisation manquante renvoie au tableau des autorisations.',
+      hostsUnpublished: 'Aucun hôte de l’API n’est encore publié : chaque hôte indique hôte non défini.',
       errorsAuthPermissions: 'Ouvrir le tableau des autorisations',
     },
   },

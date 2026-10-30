@@ -539,6 +539,10 @@ describe('TwapEngine — cancel honesty (engineering defects A/B)', () => {
       expect(e).toBeInstanceOf(TradeError);
       expect((e as TradeError).code).toBe('trade.algo_cancel_incomplete');
     }
+    // Pause is refused with the same code: the only way forward is another cancel.
+    expect(() => engine.pause(USER, parent.id)).toThrow(expect.objectContaining({ code: 'trade.algo_cancel_incomplete' }));
+    expect(engine.get(parent.id)!.status).toBe('paused');
+    expect(engine.get(parent.id)!.haltReason).toBe('cancel_incomplete');
   });
 
   it('cancel-fail does not look like the parent died: still gettable, children live, not cancelled', async () => {

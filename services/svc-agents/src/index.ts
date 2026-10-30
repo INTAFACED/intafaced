@@ -6,7 +6,8 @@ import { retainRawBody, s2sFromEnv } from '@intafaced/contracts';
 import { JetStreamEventBus } from '@intafaced/events';
 import { env } from './env.js';
 import { ModelGateway } from './gateway/gateway.js';
-import { DEFAULT_ROUTING_TABLE, parseRoutingTable, type RoutingTable } from './gateway/routing.js';
+import { parseAmount, userAvailable } from '@intafaced/ledger-client';
+import { DEFAULT_ROUTING_TABLE, parseRoutingTable, unpricedTable, type RoutingTable } from './gateway/routing.js';
 import { createLedgerClient } from './ledger-client.js';
 import { createAffiliateAccrueClient } from './affiliate-accrue.js';
 import { createAffiliatePayoutClient } from './affiliate-payout.js';
@@ -17,6 +18,7 @@ import type { ModelProvider } from './providers/provider.js';
 import { AgentRuntime } from './runtime.js';
 import { UserSpendStore } from './spend/store.js';
 import { registerProductAgentsAtBoot } from './fleet/boot-register.js';
+import { registerCoachAgent } from './coach/coach-run.js';
 import { fleetMatrixBoardCard } from './fleet/matrix.js';
 import { agentsReadiness } from './readiness.js';
 import { describeAgentsLivePlanes } from './live-planes.js';
@@ -75,7 +77,13 @@ await sql`SELECT 1 FROM agents.agent_definitions LIMIT 1`.catch(() => {
  * to spend money.
  */
 function buildPrimaryProvider(): ModelProvider {
-  if (env.AGENTS_PROVIDER === 'mock') return new MockModelProvider({ id: 'primary' });
+  if (env.AGENTS_PROVIDER === 'mock') {
+    return new MockModelProvider({
+      id: 'primary',
+      ...(env.AGENTS_MOCK_DELAY_MS ? { answerDelayMs: env.AGENTS_MOCK_DELAY_MS } : {}),
+      ...(env.AGENTS_MOCK_HOLD_FILE ? { holdFile: env.AGENTS_MOCK_HOLD_FILE } : {}),
+    });
+  }
 
   if (!env.AGENTS_UPSTREAM_BASE_URL || !env.AGENTS_UPSTREAM_API_KEY) {
     throw new Error('AGENTS_PROVIDER=upstream requires AGENTS_UPSTREAM_BASE_URL and AGENTS_UPSTREAM_API_KEY');
@@ -96,7 +104,8 @@ function buildPrimaryProvider(): ModelProvider {
 }
 
 function buildRoutingTable(): RoutingTable {
-  if (!env.AGENTS_ROUTING_TABLE) return DEFAULT_ROUTING_TABLE;
+  // Unpublished rates stay blank: the default table's prices are test placeholders (OWNER 107).
+  if (!env.AGENTS_ROUTING_TABLE) return unpricedTable(DEFAULT_ROUTING_TABLE);
   return parseRoutingTable(JSON.parse(env.AGENTS_ROUTING_TABLE));
 }
 
@@ -131,11 +140,15 @@ const runtime = new AgentRuntime(sql, gateway, meter, bus, {
   feeAssetId: env.AGENTS_FEE_ASSET_ID,
   meteringEnabled: env.AGENTS_METERING_ENABLED,
   spend,
+  // The person's available balance, read from the ledger before each metered run (OWNER 107).
+  funds: { available: async (userId, assetId) => (await ledger.balance(userAvailable(userId, assetId))).amount },
+  overageGrace: env.AGENTS_OVERAGE_GRACE === undefined ? null : parseAmount(env.AGENTS_OVERAGE_GRACE),
 });
 
 // Upsert product guardrails before the listener opens — openSession binds from
 // agent_definitions; a process with zero rows makes every runSession 404.
 const bootAgents = await registerProductAgentsAtBoot(runtime);
+await registerCoachAgent(runtime);
 
 const academyUrl = env.ACADEMY_URL;
 const loadCoachGrounding = academyUrl

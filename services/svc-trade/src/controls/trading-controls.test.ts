@@ -119,7 +119,7 @@ describe('Owned trading restrictions and identity decision handshake (real Postg
       code: 'operation.conflict',
     });
     await expect(controls.admit(principalFor(user), 'order.place', 'order:2', original)).rejects.toMatchObject({
-      code: 'trade.account_restricted',
+      code: 'trade.desk_restricted',
     });
     await expect(db.sql`UPDATE trade.operation_intents SET payload = '{}' WHERE business_id = 'order:1'`).rejects.toMatchObject({
       code: '23514',
@@ -196,6 +196,29 @@ describe('Owned trading restrictions and identity decision handshake (real Postg
       code: '23514',
     });
   });
+  it('refuses by name when identity cancels under its own trading restriction, and keeps that refusal after restart', async () => {
+    const restricting: IdentityOperationDecisionPort = {
+      decide: async ({ intent }) => ({
+        status: 'cancelled',
+        intent,
+        code: 'trade.account_restricted',
+        decidedAt: new Date().toISOString(),
+      }),
+    };
+    const first = new TradingControls(db.sql, operators, restricting);
+    await expect(first.admit(principalFor(user), 'order.place', 'identity-restricted', { qty: '1' })).rejects.toMatchObject({
+      code: 'trade.account_restricted',
+    });
+    const [stored] = await db.sql`SELECT decision, admission FROM trade.operation_intents WHERE business_id = 'identity-restricted'`;
+    expect(stored).toMatchObject({ decision: { status: 'cancelled', code: 'trade.account_restricted' }, admission: null });
+    // svc-trade's own record says nothing: the restriction is identity's, and svc-trade does not copy it.
+    expect(await db.sql`SELECT 1 FROM trade.account_restrictions WHERE user_id = ${user} AND restricted`).toHaveLength(0);
+    const restarted = new TradingControls(db.sql, operators, identity);
+    await expect(restarted.admit(principalFor(user), 'order.place', 'identity-restricted', { qty: '1' })).rejects.toMatchObject({
+      code: 'trade.account_restricted',
+    });
+    expect(identity.rows.size).toBe(0);
+  });
   it('cancels every uncertain marked intent before restriction; identity outage refuses without pretending restriction committed', async () => {
     identity.fail = true;
     for (const businessId of ['pending-a', 'pending-b'])
@@ -210,7 +233,7 @@ describe('Owned trading restrictions and identity decision handshake (real Postg
     const rows = await db.sql`SELECT decision->>'status' AS status FROM trade.operation_intents ORDER BY business_id`;
     expect(rows.map((row) => row.status)).toEqual(['cancelled', 'cancelled']);
     await expect(controls.admit(principalFor(user), 'order.place', 'pending-a', { qty: '1' })).rejects.toMatchObject({
-      code: 'trade.account_restricted',
+      code: 'trade.desk_restricted',
     });
   });
   it.each(['algo.child', 'copy.mirror'] as const)(
@@ -232,7 +255,7 @@ describe('Owned trading restrictions and identity decision handshake (real Postg
       await controls.change(actor(), command());
       await expect(
         controls.admit(principalFor(user), kind, 'child:2', {}, { parentBusinessId: 'strategy:1', parentGrantId: parent.admissionId }),
-      ).rejects.toMatchObject({ code: 'trade.account_restricted' });
+      ).rejects.toMatchObject({ code: 'trade.desk_restricted' });
     },
   );
   it('no authority configuration refuses fresh exposure and controls, never creates a positive admission', async () => {
@@ -288,7 +311,7 @@ describe('Owned trading restrictions and identity decision handshake (real Postg
     const instructionId = 'f1111111-1111-4111-8111-111111111111';
     await controls.change(actor(), command());
     await expect(controls.admitStanding(user, instructionId, 'convert:q2', {})).rejects.toMatchObject({
-      code: 'trade.account_restricted',
+      code: 'trade.desk_restricted',
     });
     await expect(controls.admitStanding(other, 'not-a-uuid', 'convert:q3', {})).rejects.toThrow();
     expect(identity.rows.size).toBe(0);

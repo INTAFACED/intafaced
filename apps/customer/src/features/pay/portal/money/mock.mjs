@@ -348,6 +348,18 @@ export function createMoneyMock(ctx) {
         }
         case 'merchantControl.get':
           return ok(route, control);
+        case 'merchantControl.reserve':
+          // TEST: the reserve the control profile sets, recorded on the settlements and never withheld.
+          return ok(route, {
+            merchantId: MERCHANT_ID,
+            rule: control.reserve ? { rollingReserveBps: control.reserve.rollingReserveBps, holdDays: control.reserve.holdDays } : null,
+            holding: 'recorded_not_withheld',
+            payoutsRefused: Boolean(control.reserve),
+            assets: control.reserve
+              ? [{ assetCode: 'USDT', recordedAmount: '11.80', entries: 1, nextReleaseAt: iso(Date.now() + 30 * DAY), lastReleaseAt: null }]
+              : [],
+            readAt: iso(Date.now()),
+          });
         case 'merchantControl.usage':
           return ok(route, usageNow());
         case 'merchantControl.pricing.preview': {
@@ -558,6 +570,17 @@ export function createMoneyMock(ctx) {
                       archetype: 'standard',
                       caps: control.caps,
                       reserve: control.reserve,
+                      // Its own fees are the tier-layer rules the profile resolves; payouts are published as not charged.
+                      fees: control.pricing.map(({ assetCode, bands, spreadBps, roundingBeneficiary }) => ({
+                        assetCode,
+                        bands,
+                        spreadBps,
+                        roundingBeneficiary,
+                        minFee: null,
+                        maxFee: null,
+                        version: '1',
+                      })),
+                      payoutFee: { kind: 'not_charged' },
                       version: 'v1',
                     },
                     {
@@ -572,6 +595,9 @@ export function createMoneyMock(ctx) {
                         { kind: 'beneficiaries_per_day', limit: 10 },
                       ],
                       reserve: { rollingReserveBps: 300, holdDays: 5 },
+                      // A tier with no fee and no payout fee of its own: the page reads "Not set" for both.
+                      fees: [],
+                      payoutFee: null,
                       version: 'v1',
                     },
                     {

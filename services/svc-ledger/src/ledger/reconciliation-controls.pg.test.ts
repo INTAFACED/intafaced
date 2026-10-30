@@ -9,21 +9,29 @@ import Fastify from 'fastify';
 import { afterAll, describe, expect, it } from 'vitest';
 import { issueAccessToken, verifyAccessToken } from '@intafaced/auth';
 import { actionApprovalSchema, type Context } from '@intafaced/contracts';
+import { parseAmount as amt, recipes } from '@intafaced/ledger-client';
 import { createTestDb, rewriteSchemaSql, type TestDb } from '@intafaced/db/testing';
 import {
   OPS_CONTROL_MARGIN_UNSET,
   OPS_CONTROL_POLICY_UNSET,
+  OPS_CONTROL_STATE_ILLEGAL,
   LEDGER_RECONCILE_ASOF_INVALID,
   LEDGER_RECONCILE_BUILTIN_IMMUTABLE,
+  LEDGER_RECONCILE_CONTROL_NOT_FOUND,
   LEDGER_RECONCILE_SOURCE_UNAVAILABLE,
+  updateReconciliationControlInputSchema,
 } from '@intafaced/contracts/ledger-reconciliation';
 import { createLedgerRouter } from '../router.js';
 import { registerOperatorHttp } from '../operator-http.js';
-import { stubApprovalConsumer, type ActionApprovalConsumer } from './action-approval-consume.js';
+import { ledgerActionPayloadHash, stubApprovalConsumer, type ActionApprovalConsumer } from './action-approval-consume.js';
 import { withJournalGuardsOff } from '../db/journal-guards.testkit.js';
 import { ReconciliationControlError } from './reconciliation-control-error.js';
+import { PostgresLedger } from './postgres-ledger.js';
 import {
   defineReconciliationControl,
+  listReconciliationControlRuns,
+  listReconciliationEvaluations,
+  RECONCILIATION_EVALUATION_SETTLE_SECONDS,
   listReconciliationControls,
   runDueReconciliationControls,
   runReconciliationControl,
@@ -31,6 +39,8 @@ import {
   type ReconciliationSources,
   type SnapshotRead,
 } from './reconciliation-controls.js';
+import { reconciliationSourcesFrom } from './reconciliation-sources.js';
+import { transactionsExist } from './transactions-exist.js';
 import type { LedgerService } from '../service.js';
 
 // PG-hard: no skip. A run without a database fails instead of reporting a silent absence.
@@ -98,7 +108,7 @@ async function ctx(scopes: string[], mfa: boolean): Promise<Context> {
       reason: REASON,
     });
     await expect(
-      updateReconciliationControl(db.sql, actor, { controlId: defined.id, reason: REASON, activate: true }),
+      updateReconciliationControl(db.sql, actor, { controlId: defined.id, reason: REASON, activate: true }, approvals),
     ).rejects.toMatchObject({ code: OPS_CONTROL_POLICY_UNSET });
     const draft = (await listReconciliationControls(db.sql)).find((control) => control.id === defined.id);
     expect(draft?.state).toBe('draft');
@@ -118,11 +128,16 @@ async function ctx(scopes: string[], mfa: boolean): Promise<Context> {
       { status: 'set', value: 'replay' },
     ]);
     await expect(
-      updateReconciliationControl(db.sql, actor, {
-        controlId: '11111111-1111-4111-8111-111111111111',
-        reason: REASON,
-        explanation: 'remove the built-in',
-      }),
+      updateReconciliationControl(
+        db.sql,
+        actor,
+        {
+          controlId: '11111111-1111-4111-8111-111111111111',
+          reason: REASON,
+          explanation: 'remove the built-in',
+        },
+        approvals,
+      ),
     ).rejects.toMatchObject({ code: LEDGER_RECONCILE_BUILTIN_IMMUTABLE });
   });
 
@@ -136,7 +151,7 @@ async function ctx(scopes: string[], mfa: boolean): Promise<Context> {
       threshold: { bound: 'min', byAsset: { USDT: '0' } },
       reason: REASON,
     });
-    const active = await updateReconciliationControl(db.sql, actor, { controlId: defined.id, reason: REASON, activate: true });
+    const active = await updateReconciliationControl(db.sql, actor, { controlId: defined.id, reason: REASON, activate: true }, approvals);
     expect(active.state).toBe('active');
     expect(active.schedule).toMatchObject({ status: 'set', period: 'iso_week' });
     const first = await insertAccount('abcdeaaa-1111-4111-8111-000000000001');
@@ -444,6 +459,251 @@ async function ctx(scopes: string[], mfa: boolean): Promise<Context> {
     expect(resumed[0]).toEqual({ status: 'ERROR', phase: 'accounts', error_code: LEDGER_RECONCILE_SOURCE_UNAVAILABLE });
   });
 
+  it('pauses, resumes and retires a control: paused and retired run nothing, retired is final', async () => {
+    const defined = await defineReconciliationControl(db.sql, actor, {
+      template: 'threshold',
+      accountSet: { mode: 'query', ownerIdPrefix: 'abcdeaaa-3333-4333-8333-' },
+      schedule: { cadence: 'hourly', minute: 0 },
+      severity: 'warning',
+      tolerance: { default: '0' },
+      threshold: { bound: 'min', byAsset: { USDT: '0' } },
+      reason: REASON,
+    });
+    const id = defined.id;
+    const runCount = async () =>
+      Number(
+        (await db.sql<Array<{ n: string }>>`SELECT count(*)::text AS n FROM reconciliation_control_runs WHERE control_id = ${id}`)[0]!.n,
+      );
+    const run = () =>
+      runReconciliationControl(db.sql, approvals, actor, { controlId: id, reason: REASON, approvalId: 'appr-life', operationId: nextOp() });
+    const move = (lifecycle: 'pause' | 'resume' | 'retire') =>
+      updateReconciliationControl(
+        db.sql,
+        actor,
+        { controlId: id, reason: REASON, lifecycle, approvalId: 'appr-move', operationId: nextOp() },
+        approvals,
+      );
+
+    // A draft cannot be paused or resumed; a lifecycle move travels alone.
+    await expect(move('pause')).rejects.toMatchObject({ code: OPS_CONTROL_STATE_ILLEGAL });
+    await expect(move('resume')).rejects.toMatchObject({ code: OPS_CONTROL_STATE_ILLEGAL });
+    await expect(
+      updateReconciliationControl(
+        db.sql,
+        actor,
+        { controlId: id, reason: REASON, lifecycle: 'pause', activate: true, approvalId: 'appr-move', operationId: nextOp() },
+        approvals,
+      ),
+    ).rejects.toThrow(OPS_CONTROL_STATE_ILLEGAL);
+    await updateReconciliationControl(db.sql, actor, { controlId: id, reason: REASON, activate: true }, approvals);
+
+    const paused = await move('pause');
+    expect(paused.state).toBe('paused');
+    await expect(run()).rejects.toMatchObject({ code: OPS_CONTROL_STATE_ILLEGAL });
+    await runDueReconciliationControls(db.sql);
+    expect(await runCount()).toBe(0);
+    // A paused control takes edits and stays paused; it is not activated by an update.
+    const edited = await updateReconciliationControl(db.sql, actor, { controlId: id, reason: REASON, severity: 'critical' }, approvals);
+    expect(edited).toMatchObject({ state: 'paused', severity: { status: 'set', value: 'critical' } });
+    await expect(
+      updateReconciliationControl(db.sql, actor, { controlId: id, reason: REASON, activate: true }, approvals),
+    ).rejects.toMatchObject({
+      code: OPS_CONTROL_STATE_ILLEGAL,
+    });
+    await expect(move('pause')).rejects.toMatchObject({ code: OPS_CONTROL_STATE_ILLEGAL });
+
+    const resumed = await move('resume');
+    expect(resumed.state).toBe('active');
+    // The hours that fell due while it was paused are not caught up on resume.
+    await runDueReconciliationControls(db.sql);
+    expect(await runCount()).toBe(0);
+    expect((await run()).status).toBe('PASS');
+    expect(await runCount()).toBe(1);
+
+    const retired = await move('retire');
+    expect(retired.state).toBe('retired');
+    await expect(run()).rejects.toMatchObject({ code: OPS_CONTROL_STATE_ILLEGAL });
+    for (const lifecycle of ['pause', 'resume', 'retire'] as const) {
+      await expect(move(lifecycle)).rejects.toMatchObject({ code: OPS_CONTROL_STATE_ILLEGAL });
+    }
+    await expect(
+      updateReconciliationControl(db.sql, actor, { controlId: id, reason: REASON, explanation: 'revive' }, approvals),
+    ).rejects.toMatchObject({
+      code: OPS_CONTROL_STATE_ILLEGAL,
+    });
+    await runDueReconciliationControls(db.sql);
+    // Retired keeps its row, its one run and its history.
+    expect(await runCount()).toBe(1);
+    expect((await db.sql<Array<{ state: string }>>`SELECT state FROM reconciliation_controls WHERE id = ${id}`)[0]?.state).toBe('retired');
+    const audit = await db.sql<Array<{ detail: { lifecycle?: string; from?: string; state?: string } }>>`
+      SELECT detail FROM reconciliation_control_audit WHERE control_id = ${id} AND detail ? 'lifecycle' ORDER BY id
+    `;
+    expect(audit.map((row) => [row.detail.lifecycle, row.detail.from, row.detail.state])).toEqual([
+      ['pause', 'active', 'paused'],
+      ['resume', 'paused', 'active'],
+      ['retire', 'active', 'retired'],
+    ]);
+  });
+
+  it('refuses a lifecycle move on a built-in control, and retires a draft', async () => {
+    const [builtin] = await db.sql<Array<{ id: string }>>`SELECT id FROM reconciliation_controls WHERE builtin LIMIT 1`;
+    await expect(
+      updateReconciliationControl(
+        db.sql,
+        actor,
+        { controlId: builtin!.id, reason: REASON, lifecycle: 'pause', approvalId: 'appr-move', operationId: nextOp() },
+        approvals,
+      ),
+    ).rejects.toMatchObject({ code: LEDGER_RECONCILE_BUILTIN_IMMUTABLE });
+    const draft = await defineReconciliationControl(db.sql, actor, {
+      template: 'threshold',
+      accountSet: { mode: 'query', assetId: 'USDT' },
+      reason: REASON,
+    });
+    const retired = await updateReconciliationControl(
+      db.sql,
+      actor,
+      { controlId: draft.id, reason: REASON, lifecycle: 'retire', approvalId: 'appr-move', operationId: nextOp() },
+      approvals,
+    );
+    expect(retired.state).toBe('retired');
+  });
+
+  it('binds a lifecycle move to two founders: the control, the move and the reason at the version read', async () => {
+    const defined = await defineReconciliationControl(db.sql, actor, {
+      template: 'threshold',
+      accountSet: { mode: 'query', ownerIdPrefix: 'abcdeaaa-4444-4444-8444-' },
+      schedule: { cadence: 'hourly', minute: 0 },
+      severity: 'warning',
+      tolerance: { default: '0' },
+      threshold: { bound: 'min', byAsset: { USDT: '0' } },
+      reason: REASON,
+    });
+    const active = await updateReconciliationControl(db.sql, actor, { controlId: defined.id, reason: REASON, activate: true }, approvals);
+    // Without the approval ids the move is refused before it reads anything.
+    expect(updateReconciliationControlInputSchema.safeParse({ controlId: defined.id, reason: REASON, lifecycle: 'pause' }).success).toBe(
+      false,
+    );
+    expect(
+      updateReconciliationControlInputSchema.safeParse({
+        controlId: defined.id,
+        reason: REASON,
+        severity: 'info',
+        approvalId: 'a',
+        operationId: 'o',
+      }).success,
+    ).toBe(false);
+    // An identity that refuses leaves the control as it was.
+    const refusing: ActionApprovalConsumer = {
+      async consume() {
+        throw new Error('identity refused');
+      },
+    };
+    await expect(
+      updateReconciliationControl(
+        db.sql,
+        actor,
+        { controlId: defined.id, reason: REASON, lifecycle: 'pause', approvalId: 'appr-no', operationId: nextOp() },
+        refusing,
+      ),
+    ).rejects.toThrow('identity refused');
+    expect((await db.sql<Array<{ state: string }>>`SELECT state FROM reconciliation_controls WHERE id = ${defined.id}`)[0]?.state).toBe(
+      'active',
+    );
+    const seen: Array<Parameters<ActionApprovalConsumer['consume']>[0]> = [];
+    const recording: ActionApprovalConsumer = {
+      async consume(input) {
+        seen.push(input);
+        return approvals.consume(input);
+      },
+    };
+    const paused = await updateReconciliationControl(
+      db.sql,
+      actor,
+      { controlId: defined.id, reason: REASON, lifecycle: 'pause', approvalId: 'appr-yes', operationId: 'op-life-yes' },
+      recording,
+    );
+    expect(paused.state).toBe('paused');
+    expect(seen).toEqual([
+      {
+        approvalId: 'appr-yes',
+        operationId: 'op-life-yes',
+        payloadHash: ledgerActionPayloadHash('ledger.reconciliation_control.lifecycle', {
+          controlId: defined.id,
+          lifecycle: 'pause',
+          reason: REASON,
+        }),
+        targetService: 'svc-ledger',
+        targetId: 'posting_reconciliation_control.lifecycle',
+        expectedVersion: String(active.version),
+      },
+    ]);
+    // An illegal move is refused before identity is asked, so it spends no approval.
+    await expect(
+      updateReconciliationControl(
+        db.sql,
+        actor,
+        { controlId: defined.id, reason: REASON, lifecycle: 'pause', approvalId: 'appr-again', operationId: nextOp() },
+        recording,
+      ),
+    ).rejects.toMatchObject({ code: OPS_CONTROL_STATE_ILLEGAL });
+    expect(seen).toHaveLength(1);
+  });
+
+  it('opens no run on a control paused after it was read, and still finishes a run that had opened', async () => {
+    const defined = await defineReconciliationControl(db.sql, actor, {
+      template: 'threshold',
+      accountSet: { mode: 'query', ownerIdPrefix: 'abcdeaaa-5555-4555-8555-' },
+      schedule: { cadence: 'hourly', minute: 0 },
+      severity: 'warning',
+      tolerance: { default: '0' },
+      threshold: { bound: 'min', byAsset: { USDT: '0' } },
+      reason: REASON,
+    });
+    const id = defined.id;
+    await updateReconciliationControl(db.sql, actor, { controlId: id, reason: REASON, activate: true }, approvals);
+    // The pause commits while the run is between its read and its insert (here: while identity answers).
+    const pausing: ActionApprovalConsumer = {
+      async consume(input) {
+        await db.sql`UPDATE reconciliation_controls SET state = 'paused', version = version + 1 WHERE id = ${id}`;
+        return approvals.consume(input);
+      },
+    };
+    await expect(
+      runReconciliationControl(db.sql, pausing, actor, { controlId: id, reason: REASON, approvalId: 'appr-race', operationId: nextOp() }),
+    ).rejects.toMatchObject({ code: OPS_CONTROL_STATE_ILLEGAL });
+    expect(
+      (await db.sql<Array<{ n: string }>>`SELECT count(*)::text AS n FROM reconciliation_control_runs WHERE control_id = ${id}`)[0]!.n,
+    ).toBe('0');
+
+    // A run that opened before the pause is answered on retry, not stranded.
+    await db.sql`UPDATE reconciliation_controls SET state = 'active', version = version + 1 WHERE id = ${id}`;
+    const operationId = nextOp();
+    const first = await runReconciliationControl(db.sql, approvals, actor, {
+      controlId: id,
+      reason: REASON,
+      approvalId: 'appr-done',
+      operationId,
+    });
+    await db.sql`UPDATE reconciliation_controls SET state = 'paused', version = version + 1 WHERE id = ${id}`;
+    const again = await runReconciliationControl(db.sql, approvals, actor, {
+      controlId: id,
+      reason: REASON,
+      approvalId: 'appr-done',
+      operationId,
+    });
+    expect(again).toEqual(first);
+    await db.sql`UPDATE reconciliation_control_runs SET status = 'started' WHERE id = ${first.id}`;
+    const resumed = await runReconciliationControl(db.sql, approvals, actor, {
+      controlId: id,
+      reason: REASON,
+      approvalId: 'appr-done',
+      operationId,
+    });
+    expect(resumed.id).toBe(first.id);
+    expect(resumed.status).not.toBe('started');
+  });
+
   it('catches a cached balance the entries do not explain, on a run now', async () => {
     const drifted = await insertAccount('abcdeaaa-2222-4222-8222-000000000001');
     await db.sql`UPDATE accounts SET balance = 5 WHERE id = ${drifted}`;
@@ -455,10 +715,100 @@ async function ctx(scopes: string[], mfa: boolean): Promise<Context> {
         operationId: nextOp(),
       });
       expect(run.status).toBe('FAIL');
-      expect(run.assets).toEqual([expect.objectContaining({ assetId: 'USDT', observed: expect.stringMatching(/^5/) })]);
+      // The row observes the summed size of each USDT account's drift against 0: this account's 5 on top of the one-sided
+      // fixture rows earlier tests leave in the whole book.
+      expect(run.assets).toEqual([expect.objectContaining({ assetId: 'USDT', expected: '0' })]);
+      expect(amt(run.assets[0]!.observed) >= amt('5')).toBe(true);
     } finally {
       await db.sql`UPDATE accounts SET balance = 0 WHERE id = ${drifted}`;
     }
+  });
+
+  it('leaves an account created and funded after read_at out of every side, and its counter-leg at read_at: the total stays 0', async () => {
+    const REPLAY = '11111111-1111-4111-8111-111111111111';
+    const NETTING = '33333333-3333-4333-8333-333333333333';
+    const engine = new PostgresLedger(db.sql);
+    const tick = () => new Promise((resolve) => setTimeout(resolve, 5));
+    const fund = (userId: string, railRef: string) =>
+      engine.post(recipes.deposit({ userId, assetId: 'BTC', amount: amt('7'), rail: 'test', railRef }));
+    // The first deposit makes the rail boundary account, so the counter-leg exists before read_at.
+    await fund('abcdeaaa-4444-4444-8444-000000000001', 'recon-snap-1');
+    // Whole-book controls: an earlier test leaves one-sided USDT rows, so each run is judged on its BTC row alone.
+    const btc = (run: { assets: Array<{ assetId: string }> }) => run.assets.find((asset) => asset.assetId === 'BTC');
+    const zero = { assetId: 'BTC', observed: '0', expected: '0', difference: '0', tolerance: '0' };
+    const open = async (controlId: string, approvalId: string) => {
+      const operationId = nextOp();
+      const run = await runReconciliationControl(db.sql, approvals, actor, { controlId, reason: REASON, approvalId, operationId });
+      expect(btc(run)).toEqual(zero);
+      return { run, operationId };
+    };
+    const netting = await open(NETTING, 'appr-snap-1');
+    const replay = await open(REPLAY, 'appr-snap-2');
+    // Hold both runs at one read_at, on a millisecond as the driver reads it, with the deposits strictly either side.
+    await tick();
+    const [stamp] = await db.sql<Array<{ read_at: Date }>>`
+      UPDATE reconciliation_control_runs
+         SET status = 'started', phase = '', error_code = '', finished_at = NULL,
+             read_at = date_trunc('milliseconds', clock_timestamp())
+       WHERE id IN ${db.sql([netting.run.id, replay.run.id])}
+      RETURNING read_at
+    `;
+    const readAt = stamp!.read_at;
+    await tick();
+    await fund('abcdeaaa-4444-4444-8444-000000000002', 'recon-snap-2');
+    const legs = await db.sql<Array<{ id: string; created_at: Date; owner_id: string }>>`
+      SELECT a.id, a.created_at, a.owner_id
+        FROM ledger_entries e
+        JOIN ledger_tx t ON t.id = e.tx_id
+        JOIN accounts a ON a.id = e.account_id
+       WHERE t.idempotency_key LIKE '%recon-snap-2%'
+    `;
+    expect(legs).toHaveLength(2);
+    const fresh = legs.find((leg) => leg.owner_id === 'abcdeaaa-4444-4444-8444-000000000002')!;
+    const boundary = legs.find((leg) => leg.id !== fresh.id)!;
+    expect(fresh.created_at.getTime()).toBeGreaterThan(readAt.getTime());
+    expect(boundary.created_at.getTime()).toBeLessThan(readAt.getTime());
+
+    // The run resumes after the deposit, at the current instant: the fresh account is in no side, the boundary is counted
+    // at read_at, and the BTC total is exactly 0.
+    const resumed = await runReconciliationControl(db.sql, approvals, actor, {
+      controlId: NETTING,
+      reason: REASON,
+      approvalId: 'appr-snap-3',
+      operationId: netting.operationId,
+    });
+    expect(resumed.id).toBe(netting.run.id);
+    expect(resumed.status).not.toBe('started');
+    expect(btc(resumed)).toEqual(zero);
+    expect(resumed.accounts).toContain(boundary.id);
+    expect(resumed.accounts).not.toContain(fresh.id);
+    expect(resumed.sources.ledger.asOf).toBe(readAt.toISOString());
+
+    // The replay reports balance_after against the entries at read_at, and checks the cached column against the entries
+    // on its snapshot: no drift from a deposit that landed after read_at.
+    const replayed = await runReconciliationControl(db.sql, approvals, actor, {
+      controlId: REPLAY,
+      reason: REASON,
+      approvalId: 'appr-snap-4',
+      operationId: replay.operationId,
+    });
+    expect(replayed.id).toBe(replay.run.id);
+    expect(replayed.status).not.toBe('started');
+    expect(btc(replayed)).toEqual(zero);
+    expect(replayed.accounts).not.toContain(fresh.id);
+
+    // A past run at that read_at agrees with the resumed run.
+    const past = await runReconciliationControl(db.sql, approvals, actor, {
+      controlId: NETTING,
+      reason: REASON,
+      asOf: readAt.toISOString(),
+      margin: '0',
+      approvalId: 'appr-snap-5',
+      operationId: nextOp(),
+    });
+    expect(past.accounts).toContain(boundary.id);
+    expect(past.accounts).not.toContain(fresh.id);
+    expect(btc(past)).toEqual(zero);
   });
 
   it('runs an operator ledger invariant as replay only, and passes a healthy subset', async () => {
@@ -482,6 +832,46 @@ async function ctx(scopes: string[], mfa: boolean): Promise<Context> {
     expect(run.status).toBe('PASS');
   });
 
+  it('fails a replay now when two accounts drift by amounts that cancel in the asset total', async () => {
+    const engine = new PostgresLedger(db.sql);
+    const funded = async (userId: string) => {
+      const posted = await engine.post(
+        recipes.deposit({ userId, assetId: 'ETH', amount: amt('5'), rail: 'test', railRef: `recon-cancel-${userId}` }),
+      );
+      const [account] = await db.sql<Array<{ id: string }>>`
+        SELECT id FROM accounts WHERE owner_id = ${userId} AND id = ANY(${posted.entries.map((entry) => entry.accountId)}::uuid[])
+      `;
+      return account!.id;
+    };
+    const up = await funded('abcdeaaa-5555-4555-8555-000000000001');
+    const down = await funded('abcdeaaa-5555-4555-8555-000000000002');
+    const defined = await defineReconciliationControl(db.sql, actor, {
+      template: 'ledger_invariant',
+      accountSet: { mode: 'explicit', accountIds: [up, down] },
+      schedule: { cadence: 'daily', hour: 0, minute: 0 },
+      severity: 'info',
+      tolerance: { default: '0' },
+      reason: REASON,
+      activate: true,
+    });
+    await db.sql`UPDATE accounts SET balance = balance + 3 WHERE id = ${up}`;
+    await db.sql`UPDATE accounts SET balance = balance - 3 WHERE id = ${down}`;
+    try {
+      const run = await runReconciliationControl(db.sql, approvals, actor, {
+        controlId: defined.id,
+        reason: REASON,
+        approvalId: 'appr-cancel',
+        operationId: nextOp(),
+      });
+      expect(run.status).toBe('FAIL');
+      // Each account drifts by 3; the asset row observes the summed size, 6, against 0.
+      expect(run.assets).toEqual([expect.objectContaining({ assetId: 'ETH', observed: '6', expected: '0', difference: '6' })]);
+    } finally {
+      await db.sql`UPDATE accounts SET balance = balance - 3 WHERE id = ${up}`;
+      await db.sql`UPDATE accounts SET balance = balance + 3 WHERE id = ${down}`;
+    }
+  });
+
   it('refuses an operator run in the scheduled operation-id space', async () => {
     await expect(
       runReconciliationControl(db.sql, approvals, actor, {
@@ -491,6 +881,172 @@ async function ctx(scopes: string[], mfa: boolean): Promise<Context> {
         operationId: 'schedule:11111111-1111-4111-8111-111111111111:2026-10-24T00:00:00.000Z',
       }),
     ).rejects.toMatchObject({ code: 'ledger.idempotency_conflict' });
+  });
+
+  it('reads the outside snapshot over HTTP: matching is PASS, an unreadable source is ERROR, and every evaluation stays listed after retire', async () => {
+    const owner = 'abcdefab-7777-4777-8777-';
+    await insertAccount(`${owner}000000000001`);
+    const defined = await defineReconciliationControl(db.sql, actor, {
+      template: 'outside_balance',
+      accountSet: { mode: 'query', assetId: 'USDT', ownerIdPrefix: owner },
+      schedule: { cadence: 'daily', hour: 0, minute: 0 },
+      severity: 'warning',
+      tolerance: { default: '0' },
+      reason: REASON,
+      activate: true,
+    });
+    const asked: string[] = [];
+    const server = Fastify();
+    server.get('/snapshot', async (req) => {
+      asked.push(String((req.query as { asOf?: string }).asOf));
+      return { source: 'rail', asOf: '2026-01-01T00:00:00.000Z', balances: [{ assetId: 'USDT', amount: '0' }] };
+    });
+    server.get('/broken', async () => ({ source: 'rail', balances: 'no' }));
+    server.get('/future', async () => ({ source: 'rail', asOf: '2999-01-01T00:00:00.000Z', balances: [{ assetId: 'USDT', amount: '0' }] }));
+    server.get('/moved', async (_req, reply) => reply.redirect('/snapshot'));
+    const base = await server.listen({ port: 0, host: '127.0.0.1' });
+    const run = (sources: ReconciliationSources) =>
+      runReconciliationControl(
+        db.sql,
+        approvals,
+        actor,
+        { controlId: defined.id, reason: REASON, approvalId: 'appr-outside', operationId: nextOp() },
+        sources,
+      );
+    try {
+      const pass = await run(reconciliationSourcesFrom(`${base}/snapshot`));
+      expect(pass).toMatchObject({ status: 'PASS', outsideSide: 'snapshot', sources: { outside: { asOf: '2026-01-01T00:00:00.000Z' } } });
+      expect(asked).toEqual([pass.readAt]);
+
+      // Not a snapshot, dated after the instant asked for, a redirect, a 404, and a closed port: each is ERROR with the
+      // typed code, never PASS.
+      const unreadable = [`${base}/broken`, `${base}/future`, `${base}/moved`, `${base}/missing`, 'http://127.0.0.1:9/closed'];
+      const errors = [];
+      for (const url of unreadable) errors.push(await run(reconciliationSourcesFrom(url)));
+      for (const error of errors) {
+        expect(error).toMatchObject({
+          status: 'ERROR',
+          phase: { status: 'set', value: 'outside' },
+          errorCode: { status: 'set', value: LEDGER_RECONCILE_SOURCE_UNAVAILABLE },
+          outsideSide: 'unavailable',
+          assets: [],
+        });
+      }
+      // No URL: the outside side is unset, as before.
+      expect((await run(reconciliationSourcesFrom(undefined))).status).toBe('UNSET');
+
+      await updateReconciliationControl(
+        db.sql,
+        actor,
+        { controlId: defined.id, reason: REASON, lifecycle: 'retire', approvalId: 'appr-retire', operationId: nextOp() },
+        approvals,
+      );
+      const listed = await listReconciliationControlRuns(db.sql, { controlId: defined.id });
+      expect(listed.total).toBe(7);
+      // Newest first by when each run started: the unset run was the last one.
+      expect(listed.runs.map((r) => r.status)).toEqual(['UNSET', 'ERROR', 'ERROR', 'ERROR', 'ERROR', 'ERROR', 'PASS']);
+      expect(new Set(listed.runs.map((r) => r.id)).size).toBe(7);
+      expect(listed.runs.map((r) => r.id)).toEqual(expect.arrayContaining([pass.id, ...errors.map((e) => e.id)]));
+      const two = await listReconciliationControlRuns(db.sql, { controlId: defined.id, limit: 2 });
+      expect(two).toMatchObject({ total: 7 });
+      expect(two.runs).toEqual(listed.runs.slice(0, 2));
+      await expect(listReconciliationControlRuns(db.sql, { controlId: '00000000-0000-4000-8000-00000000abcd' })).rejects.toMatchObject({
+        code: LEDGER_RECONCILE_CONTROL_NOT_FOUND,
+      });
+    } finally {
+      await server.close();
+    }
+  });
+
+  it('feeds settled evaluations oldest first to svc-ops: a cursor never hands a row back, started and unsettled runs wait', async () => {
+    const owner = 'abcdefab-8888-4888-8888-';
+    const defined = await defineReconciliationControl(db.sql, actor, {
+      template: 'outside_balance',
+      accountSet: { mode: 'query', assetId: 'USDT', ownerIdPrefix: owner },
+      schedule: { cadence: 'daily', hour: 0, minute: 0 },
+      severity: 'critical',
+      tolerance: { default: '0' },
+      reason: REASON,
+      activate: true,
+    });
+    const runs = [];
+    for (let i = 0; i < 5; i++) {
+      runs.push(
+        await runReconciliationControl(
+          db.sql,
+          approvals,
+          actor,
+          { controlId: defined.id, reason: REASON, approvalId: `appr-feed-${i}`, operationId: nextOp() },
+          reconciliationSourcesFrom(undefined),
+        ),
+      );
+    }
+    const [first, second, started, open, fresh] = runs.map((r) => r!.id);
+    // A microsecond apart, older than every other run in this database: the cursor must keep the microseconds.
+    await db.sql`UPDATE reconciliation_control_runs SET finished_at = '2020-01-01T00:00:00.000001Z' WHERE id = ${first!}`;
+    await db.sql`UPDATE reconciliation_control_runs SET finished_at = '2020-01-01T00:00:00.000002Z' WHERE id = ${second!}`;
+    await db.sql`UPDATE reconciliation_control_runs SET status = 'started', finished_at = '2020-01-01T00:00:00.000003Z' WHERE id = ${started!}`;
+    await db.sql`UPDATE reconciliation_control_runs SET finished_at = NULL WHERE id = ${open!}`;
+    // Inside the settle window however slow the runner: stamped an hour ahead.
+    await db.sql`UPDATE reconciliation_control_runs SET finished_at = clock_timestamp() + interval '1 hour' WHERE id = ${fresh!}`;
+
+    const page1 = await listReconciliationEvaluations(db.sql, { after: null, limit: 1 });
+    expect(page1.evaluations).toHaveLength(1);
+    expect(page1.evaluations[0]).toMatchObject({
+      run: { id: first, controlId: defined.id, status: 'UNSET' },
+      finishedAt: '2020-01-01T00:00:00.000001Z',
+      severity: { status: 'set', value: 'critical' },
+    });
+    expect(page1.evaluations[0]!.run).not.toHaveProperty('accounts');
+    expect(page1.next).toEqual({ finishedAt: '2020-01-01T00:00:00.000001Z', id: first });
+
+    const page2 = await listReconciliationEvaluations(db.sql, { after: page1.next, limit: 1 });
+    expect(page2.evaluations.map((e) => e.run.id)).toEqual([second]);
+    expect(page2.next).toEqual({ finishedAt: '2020-01-01T00:00:00.000002Z', id: second });
+
+    // Everything after the second: the started row, the unfinished row and the run finished just now are not there.
+    const rest = await listReconciliationEvaluations(db.sql, { after: page2.next, limit: 500 });
+    const restIds = rest.evaluations.map((e) => e.run.id);
+    expect(restIds).not.toContain(first);
+    expect(restIds).not.toContain(second);
+    expect(restIds).not.toContain(started);
+    expect(restIds).not.toContain(open);
+    expect(restIds).not.toContain(fresh);
+    expect(rest.evaluations.every((e) => e.run.status !== 'started')).toBe(true);
+    const order = rest.evaluations.map((e) => `${e.finishedAt}|${e.run.id}`);
+    expect(order).toEqual([...order].sort());
+
+    // Past the settle window, the fresh run is fed exactly once; an empty page keeps the cursor where it was.
+    await db.sql`UPDATE reconciliation_control_runs SET finished_at = clock_timestamp() - make_interval(secs => ${RECONCILIATION_EVALUATION_SETTLE_SECONDS + 1}) WHERE id = ${fresh!}`;
+    const settled = await listReconciliationEvaluations(db.sql, { after: page2.next, limit: 500 });
+    expect(settled.evaluations.filter((e) => e.run.id === fresh)).toHaveLength(1);
+    const drained = await listReconciliationEvaluations(db.sql, { after: settled.next, limit: 500 });
+    expect(drained.evaluations.map((e) => e.run.id)).not.toContain(fresh);
+    const empty = await listReconciliationEvaluations(db.sql, {
+      after: { finishedAt: '2999-01-01T00:00:00.000000Z', id: first! },
+      limit: 5,
+    });
+    expect(empty).toEqual({ evaluations: [], next: { finishedAt: '2999-01-01T00:00:00.000000Z', id: first } });
+
+    await expect(listReconciliationEvaluations(db.sql, { after: null, limit: 501 })).rejects.toMatchObject({ name: 'ZodError' });
+    await expect(listReconciliationEvaluations(db.sql, { after: { finishedAt: 'yesterday', id: first! }, limit: 5 })).rejects.toMatchObject(
+      {
+        name: 'ZodError',
+      },
+    );
+    await expect(listReconciliationEvaluations(db.sql, { limit: 5, extra: 1 })).rejects.toMatchObject({ name: 'ZodError' });
+
+    // A stored run the contract cannot read is the ledger's fault: a plain error (a 500 on the door), never a ZodError (a 400).
+    await db.sql`UPDATE reconciliation_control_runs SET sources = '{}'::jsonb WHERE id = ${first!}`;
+    try {
+      const broken = await listReconciliationEvaluations(db.sql, { after: null, limit: 1 }).catch((err: unknown) => err);
+      expect(broken).toBeInstanceOf(Error);
+      expect((broken as Error).name).toBe('Error');
+      expect((broken as Error).message).toBe('reconciliation evaluation feed: a stored run does not fit the contract');
+    } finally {
+      await db.sql`UPDATE reconciliation_control_runs SET sources = ${db.sql.json(runs[0]!.sources)} WHERE id = ${first!}`;
+    }
+    expect((await listReconciliationEvaluations(db.sql, { after: null, limit: 1 })).evaluations[0]!.run.id).toBe(first);
   });
 
   it('keeps an outside snapshot with no as-of unset rather than the ledger time', async () => {
@@ -594,8 +1150,83 @@ async function ctx(scopes: string[], mfa: boolean): Promise<Context> {
     });
     expect(run.statusCode).toBe(200);
     expect(run.json()).toMatchObject({ controlId, status: 'PASS' });
+    const runs = await app.inject({ method: 'POST', url: '/operator/reconciliation/controls/runs', headers, payload: { controlId } });
+    expect(runs.statusCode).toBe(200);
+    expect(runs.json()).toMatchObject({ controlId, total: 1, runs: [{ id: (run.json() as { id: string }).id, status: 'PASS' }] });
+    const compliance = await issueAccessToken(
+      { userId: ACTOR, sessionId: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc', scopes: ['admin:compliance'], tier: 'basic', mfa: false },
+      authConfig,
+    );
+    const read = await app.inject({
+      method: 'POST',
+      url: '/operator/reconciliation/controls/runs',
+      headers: { authorization: `Bearer ${compliance.token}` },
+      payload: { controlId },
+    });
+    expect(read.statusCode).toBe(200);
+    const badRuns = await app.inject({
+      method: 'POST',
+      url: '/operator/reconciliation/controls/runs',
+      headers,
+      payload: { controlId: 'x' },
+    });
+    expect(badRuns.statusCode).toBe(400);
     const anonymous = await app.inject({ method: 'GET', url: '/operator/reconciliation/controls' });
     expect(anonymous.statusCode).toBe(401);
+    const anonymousRuns = await app.inject({ method: 'POST', url: '/operator/reconciliation/controls/runs', payload: { controlId } });
+    expect(anonymousRuns.statusCode).toBe(401);
     await app.close();
+  });
+
+  it('runs on the operator port with the outside source it was given: unreadable is ERROR', async () => {
+    const app = Fastify({ logger: false });
+    registerOperatorHttp(
+      app,
+      { sql: db.sql } as unknown as LedgerService,
+      authConfig,
+      approvals,
+      reconciliationSourcesFrom('http://127.0.0.1:9/closed'),
+    );
+    await app.ready();
+    const treasury = await issueAccessToken(
+      { userId: ACTOR, sessionId: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc', scopes: ['admin:treasury'], tier: 'basic', mfa: true },
+      authConfig,
+    );
+    const defined = await defineReconciliationControl(db.sql, actor, {
+      template: 'outside_balance',
+      accountSet: { mode: 'query', assetId: 'USDT' },
+      schedule: { cadence: 'daily', hour: 0, minute: 0 },
+      severity: 'info',
+      tolerance: { default: '0' },
+      reason: REASON,
+      activate: true,
+    });
+    const run = await app.inject({
+      method: 'POST',
+      url: '/operator/reconciliation/controls/run',
+      headers: { authorization: `Bearer ${treasury.token}` },
+      payload: { controlId: defined.id, reason: REASON, approvalId: 'appr-http-outside', operationId: nextOp() },
+    });
+    expect(run.statusCode).toBe(200);
+    expect(run.json()).toMatchObject({ status: 'ERROR', errorCode: { status: 'set', value: LEDGER_RECONCILE_SOURCE_UNAVAILABLE } });
+    await app.close();
+  });
+
+  it('answers which asked transaction ids are booked: ids only, in the order asked, each once (OPS-reconciliation-04)', async () => {
+    const engine = new PostgresLedger(db.sql);
+    const posted = await engine.post(
+      recipes.deposit({
+        userId: 'abcdeaaa-6666-4666-8666-000000000001',
+        assetId: 'BTC',
+        amount: amt('1'),
+        rail: 'test',
+        railRef: 'recon-exist-1',
+      }),
+    );
+    const unknown = '00000000-0000-4000-8000-0000000000ff';
+    const answer = await transactionsExist(db.sql, { txIds: [unknown, posted.id.toUpperCase(), posted.id] });
+    expect(answer).toEqual({ found: [posted.id] });
+    expect(await transactionsExist(db.sql, { txIds: [unknown] })).toEqual({ found: [] });
+    await expect(transactionsExist(db.sql, { txIds: ['not-a-tx'] })).rejects.toMatchObject({ name: 'ZodError' });
   });
 }

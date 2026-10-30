@@ -26,6 +26,7 @@ import {
   supportAttachmentSchema,
   supportCaseFileSchema,
   supportCommentSchema,
+  supportInternalNoteInputSchema,
   supportKbArticleSchema,
   supportTicketEventSchema,
   supportAwaitingMineSchema,
@@ -40,6 +41,7 @@ import {
   supportViewListSchema,
   supportViewSaveInputSchema,
   supportViewSchema,
+  supportExpectedSequenceSchema,
 } from '@intafaced/contracts';
 import { MemoryContactBook, type ContactBook } from './contact-channels.js';
 import { contactProcedures } from './contact-router.js';
@@ -51,6 +53,8 @@ import { surveyProcedures } from './survey-router.js';
 import { MemoryHelpCentreBook, type HelpCentreBook } from './help-centre.js';
 import { helpCentreGate, helpCentreProcedures } from './help-centre-router.js';
 import { MemoryFormsStore, RequestFormError, RequestForms } from './request-forms.js';
+import { DeskMacros, MemoryMacroBook } from './desk-macros.js';
+import { macroProcedures } from './desk-macros-router.js';
 import { mapRequestForm, requestFormProcedures } from './request-forms-router.js';
 import { MemoryKbLibraryBook, type KbLibraryBook } from './kb-library.js';
 import { kbLibraryProcedures } from './kb-library-router.js';
@@ -81,7 +85,7 @@ const queueResultSchema = z.discriminatedUnion('status', [
   z.object({ status: z.literal('empty') }),
 ]);
 
-function mapError(err: unknown): never {
+export function mapError(err: unknown): never {
   if (err instanceof SupportError) {
     const message = err.missingKey ? `${userCopy(err.code)} ${err.missingKey}` : userCopy(err.code);
     if (err.code === 'support.not_found' || err.code === 'support.claim.not_found') {
@@ -93,6 +97,7 @@ function mapError(err: unknown): never {
     if (
       err.code === 'support.claim.not_queueable' ||
       err.code === 'support.claim.invalid_operator' ||
+      err.code === 'support.claim.queue_empty' ||
       // A lifecycle move that is not available from where the ticket is now,
       // and an escalation that cites nothing, are both "the state you are
       // asking from does not permit this" rather than a malformed request.
@@ -163,6 +168,7 @@ function mapError(err: unknown): never {
     if (
       err.code === 'support.idempotency_conflict' ||
       err.code === 'support.view_revision_stale' ||
+      err.code === 'support.stale_ticket' ||
       err.code === 'support.group_member_duplicate' ||
       err.code === 'support.group_name_taken'
     ) {
@@ -205,9 +211,11 @@ export function createSupportRouter(
   helpCentre: HelpCentreBook = new MemoryHelpCentreBook(),
   kbLibrary: KbLibraryBook = new MemoryKbLibraryBook(),
   forms: RequestForms = new RequestForms(new MemoryFormsStore(), { forms: null, fields: null }),
+  macros: DeskMacros = new DeskMacros(new MemoryMacroBook(), support, null),
 ) {
   const helpCentreOpen = helpCentreGate(helpCentre);
   return router({
+    ...macroProcedures(macros),
     ...contactProcedures(contact, support),
     ...attachmentProcedures(attachmentSettings, support),
     ...surveyProcedures(surveys, support, surveyApprovals),
@@ -394,6 +402,8 @@ export function createSupportRouter(
           body: z.string().min(1).max(10_000),
           /** The caller's key: sent again after a lost reply it answers the first comment and writes no second one. */
           clientRequestId: z.string().min(1).max(200).optional(),
+          /** The last trail row (`sequence`) the writer read: a newer row by someone else refuses `support.stale_ticket`. */
+          expectedSequence: supportExpectedSequenceSchema.optional(),
         }),
       )
       .output(supportCommentSchema)
@@ -406,6 +416,25 @@ export function createSupportRouter(
             body: input.body,
             asOperator,
             ...(input.clientRequestId !== undefined ? { clientRequestId: input.clientRequestId } : {}),
+            ...(input.expectedSequence !== undefined ? { expectedSequence: input.expectedSequence } : {}),
+          });
+        } catch (err) {
+          mapError(err);
+        }
+      }),
+
+    /** A staff-only note (SP-tickets-05): never on the customer's thread, and it moves nothing the customer reads. */
+    addInternalNote: scopedProcedure('support:ops')
+      .input(supportInternalNoteInputSchema)
+      .output(supportCommentSchema)
+      .mutation(async ({ ctx, input }) => {
+        try {
+          requireSupportOps(ctx.principal!);
+          return await support.addInternalNote({
+            userId: ctx.principal!.userId,
+            ticketId: input.ticketId,
+            body: input.body,
+            clientRequestId: input.clientRequestId,
           });
         } catch (err) {
           mapError(err);
@@ -448,6 +477,8 @@ export function createSupportRouter(
           /** Optional short reason, recorded on the trail row. Not required, so
            *  no existing caller breaks; recorded when supplied. */
           note: z.string().min(1).max(500).optional(),
+          /** The last trail row (`sequence`) the operator read: a newer row by someone else refuses `support.stale_ticket`. */
+          expectedSequence: supportExpectedSequenceSchema.optional(),
         }),
       )
       .output(supportTicketSchema)
@@ -459,6 +490,7 @@ export function createSupportRouter(
             ticketId: input.ticketId,
             status: input.status,
             note: input.note,
+            ...(input.expectedSequence !== undefined ? { expectedSequence: input.expectedSequence } : {}),
           });
         } catch (err) {
           mapError(err);
@@ -1088,6 +1120,18 @@ export function createSupportRouter(
         }
       }),
 
+    /** Claim the queue's next request; an empty queue refuses with `support.claim.queue_empty`. No money. */
+    claimNext: scopedProcedure('support:ops')
+      .output(supportTicketSchema)
+      .mutation(async ({ ctx }) => {
+        try {
+          requireSupportOps(ctx.principal!);
+          return await support.claimNext(ctx.principal!.userId);
+        } catch (err) {
+          mapError(err);
+        }
+      }),
+
     /** Counts across the whole queue, not one page. */
     queueMetrics: scopedProcedure('support:ops')
       .output(
@@ -1256,6 +1300,8 @@ export function createSupportRouter(
           labels: z.array(z.string().max(200)).max(200).optional(),
           reason: z.string().min(1).max(500).optional(),
           clientRequestId: z.string().min(1).max(200),
+          /** The last trail row (`sequence`) the operator read: a newer row by someone else refuses `support.stale_ticket`. */
+          expectedSequence: supportExpectedSequenceSchema.optional(),
         }),
       )
       .output(supportTicketPropertiesSchema)

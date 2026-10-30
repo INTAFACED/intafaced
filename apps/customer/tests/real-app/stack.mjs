@@ -26,6 +26,9 @@ export const EDGE = 'http://127.0.0.1:14500';
 export const ORIGIN = 'http://127.0.0.1:3210';
 // The stack's own rule for its state folder (LOCAL_STACK_STATE, else per user, else /var/lib as root).
 const STATE = localStackState();
+
+/** A file in the running stack's own state folder (for example the stand-in engine's hold file). */
+export const stackFile = (name) => path.join(STATE, name);
 const RUN = process.env.JOURNEY_RUN_DIR ?? '/tmp/intafaced-real-app';
 
 /** One file per journey run, so a later step (a new worker after a failure) finds the account an earlier step made. */
@@ -158,12 +161,19 @@ export async function api(who, totpCode) {
   }).then(json);
   const token = login.body?.result?.data?.accessToken;
   if (!token) throw new Error(`sign-in for ${who.email} refused: ${login.status} ${JSON.stringify(login.body).slice(0, 300)}`);
-  const call = (method, route, body) =>
+  const send = (method, route, body) =>
     fetch(`${EDGE}${route}`, {
       method,
       headers: { origin: ORIGIN, authorization: `Bearer ${token}`, ...(body ? { 'content-type': 'application/json' } : {}) },
       body: body ? JSON.stringify(body) : undefined,
     }).then(json);
+  // A kept-alive socket that Edge closed while the test waited (a lane restart takes longer than Edge's idle timeout)
+  // fails before any answer. A read is sent once more on a fresh socket; a write never is.
+  const call = (method, route, body) =>
+    send(method, route, body).catch((error) => {
+      if (method !== 'GET' || error?.cause?.code !== 'UND_ERR_SOCKET') throw error;
+      return send(method, route, body);
+    });
   return {
     /** The account's user id, as identity answered the sign-in. */
     userId: login.body.result.data.userId,

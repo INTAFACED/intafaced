@@ -14,7 +14,7 @@ import type { PayService } from '../../payment-service.js';
 import { CardSandboxAdapter } from '../../rails/card-sandbox.js';
 import { RailRegistry } from '../../rails/registry.js';
 import type { UserMoneyService } from '../../user-money-service.js';
-import { amountOutsideRules, withdrawalNetworkRuleDualReasons } from './service.js';
+import { amountOutsideRules, refuseWithdrawalTag, withdrawalNetworkRuleDualReasons } from './service.js';
 import { parseAmount } from '@intafaced/ledger-client';
 
 /**
@@ -216,6 +216,23 @@ describe('withdrawal network rules (real Postgres)', () => {
     expect((await refused(nr().save({ ...input(), ...approval }))).message).toContain('already_exists');
     expect((await refused(nr().save(input({ assetId: 'USDC', expectedVersion: 1 })))).message).toContain('not_found');
     expect((await nr().list())[0].minimum).toBe('20');
+  });
+
+  it('refuses a tag by name on every network, and never as a dropped field (J-wallet-05 #1)', async () => {
+    const tagOn = (networkId: string | undefined) => refused(refuseWithdrawalTag(db.sql, 'USDT', networkId));
+    // No rules published: the rules' own refusal, never a guess that the network takes no tag.
+    expect((await tagOn('ethereum')).code).toBe('withdrawal_network_rules.unset');
+    await nr().save({ ...input(), ...approval });
+    const none = await tagOn('ethereum');
+    expect(none.code).toBe('pay.withdrawal_tag_not_taken');
+    expect(none.message).toContain('ethereum takes no tag or memo');
+    // A send inside the platform names no network and takes no tag.
+    expect((await tagOn(undefined)).code).toBe('pay.withdrawal_tag_not_taken');
+    await nr().save({ ...input({ networkId: 'stellar', tag: 'required' }), ...approval });
+    // A network that takes a tag still refuses one: no withdrawal keeps a tag yet, so it is never sent without it.
+    expect((await tagOn('stellar')).code).toBe('pay.withdrawal_tag_unsupported');
+    // No database: refused as unwired, never let through.
+    expect((await refused(refuseWithdrawalTag(null, 'USDT', 'ethereum'))).code).toBe('withdrawal_network_rules.unwired');
   });
 
   it('keeps the audit trail append-only', async () => {

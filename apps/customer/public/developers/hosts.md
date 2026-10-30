@@ -14,4 +14,6 @@ Each row is one protocol in one environment. A host appears here only when the o
 | FIX       | Sandbox     | host not set |
 | FIX       | Regional    | host not set |
 
-The regional host rule is stated here once the owner sets it.
+This file is written when the site is built and holds no host. The published hosts are on the page and at GET /api/trade/developer-portal/hosts.
+
+This file is written when the site is built and holds no regional host rule. The published rule is on the page and at GET /api/trade/developer-portal/regional-rule.

@@ -16,8 +16,8 @@ import type { AcceptInput, AdminQuoteView, FeeMode, ListInput, PolicyView, Quote
  *
  * A stored quote never changes. A retry with the same `quoteRef` and terms returns the stored row; the same ref with
  * other terms is a conflict. `accept` marks a quote used by one client reference, once and before it expires, so the
- * terms a customer accepted are the terms the withdrawal keeps. The withdrawal door does not call `accept` yet: posting
- * the fee leg with the hold needs a ledger recipe that carries one (named ledger-owner job X-6).
+ * terms a customer accepted are the terms the withdrawal keeps. `withdrawal.create` accepts the quote it names inside its
+ * own claim (`send-out/door.ts` `acceptQuoteForSend`, the same one-acceptance rows) and posts its fee with the hold.
  *
  * The amount must fit the owner's rules for the asset on the network (W-withdraw-02, `network-rules/service.ts`): at least the
  * minimum, at most the maximum, a whole number of steps. A pair with no rules refuses `withdrawal_network_rules.unset`, so no
@@ -118,7 +118,16 @@ export class WithdrawalQuoteService {
     if (amount <= 0n) throw new WithdrawalQuoteError('withdrawal_quote.amount_invalid', 'the amount must be above zero');
 
     const { fee, source, registryVersion } = await this.networkFee(input);
-    const outside = amountOutsideRules(await readWithdrawalNetworkRules(this.deps.sql, input.assetId, input.networkId), amount);
+    const rules = await readWithdrawalNetworkRules(this.deps.sql, input.assetId, input.networkId);
+    // J-wallet-05 #1: a network that needs a tag or memo gets no quote, because no send carries one. Every send out of the
+    // platform must accept a quote inside its claim, so this one refusal holds every path that sends, not only the form.
+    if (rules.tag === 'required') {
+      throw new WithdrawalQuoteError(
+        'withdrawal_quote.tag_required',
+        `${input.networkId} needs a tag or memo, and no send carries one, so nothing is quoted or sent`,
+      );
+    }
+    const outside = amountOutsideRules(rules, amount);
     if (outside) {
       const why = { below_minimum: 'below the minimum', above_maximum: 'above the maximum', off_step: 'not a whole number of steps' };
       throw new WithdrawalQuoteError(
