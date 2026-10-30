@@ -3,6 +3,7 @@
 // hashes match what the services compute. Run: node tooling/scripts/local-test-gates.test.mjs
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
+import { createDecipheriv } from 'node:crypto';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
@@ -54,6 +55,10 @@ import {
   POSTING_FREEZE_REASON,
   postingFreezePlan,
   postingFreezeProposal,
+  ADMIN_SESSION_COOKIE,
+  scopesWithout,
+  sealConsoleSession,
+  stackFounderScopes,
 } from './local-test-gates.mjs';
 import { draftFounderVault } from './local-test-founders.mjs';
 import { TEST_SPOT_LISTINGS, localTestDatabaseUrl } from './seed-spot-test-listing.mjs';
@@ -628,6 +633,45 @@ for (const args of [['posting-freeze'], ['posting-freeze', 'maybe']]) {
   assert.equal(r.status, 2, r.stderr);
   assert.match(r.stderr, /usage: local-test-gates\.mjs posting-freeze on\|off/);
   assert.doesNotMatch(r.stderr, /refusing/);
+}
+// scoped-session: the founder scopes come from the stack's own identity definition, never a copy, and less one only.
+{
+  const identityDef = readFileSync(resolve(here, 'local-stack-services/identity.mjs'), 'utf8');
+  const literal = /IDENTITY_FOUNDER_SESSION_SCOPES: '([^']+)'/.exec(identityDef)?.[1];
+  assert.ok(literal, 'identity.mjs still names the founder session scopes as one literal');
+  const scopes = await stackFounderScopes(mkdtempSync(join(tmpdir(), 'scoped-')));
+  assert.deepEqual(scopes, literal.split(','), "the founder scopes are identity's own list");
+  assert.deepEqual(scopesWithout(['a:x', 'b:y', 'c:z'], 'b:y'), ['a:x', 'c:z']);
+  assert.throws(
+    () => scopesWithout(['a:x', 'b:y'], 'b:yy'),
+    /b:yy is not a founder session scope/,
+    'a misspelt scope never passes as left out',
+  );
+}
+// The sealed cookie opens only as the console opens it: same key, same cookie name and origin in the AAD.
+{
+  const key = Buffer.alloc(32, 7);
+  const secret = key.toString('base64url');
+  const session = { userId: 'u', accessToken: 't', refreshToken: 'r', expiresAt: 'e', issuedAt: 'i', csrf: 'c' };
+  const open = (value, origin) => {
+    const bytes = Buffer.from(value, 'base64url');
+    const decipher = createDecipheriv('aes-256-gcm', key, bytes.subarray(0, 12));
+    decipher.setAuthTag(bytes.subarray(12, 28));
+    decipher.setAAD(Buffer.from(`${ADMIN_SESSION_COOKIE}\n${origin}\nv1`));
+    return JSON.parse(Buffer.concat([decipher.update(bytes.subarray(28)), decipher.final()]).toString('utf8'));
+  };
+  const sealed = sealConsoleSession(session, { secret, origin: 'http://127.0.0.1:3100' });
+  assert.deepEqual(open(sealed, 'http://127.0.0.1:3100'), session);
+  assert.throws(() => open(sealed, 'http://127.0.0.1:3101'), 'a cookie sealed for one origin never opens on another');
+  assert.throws(() => sealConsoleSession(session, { secret: 'short', origin: 'x' }), /32-byte/);
+  const consoleSession = readFileSync(resolve(here, '../../apps/admin/src/lib/founder-session.ts'), 'utf8');
+  assert.ok(consoleSession.includes(`export const ADMIN_COOKIE = '${ADMIN_SESSION_COOKIE}';`), "the console's cookie name");
+  assert.ok(consoleSession.includes("createCipheriv('aes-256-gcm', config.key, iv)"), "the console's cipher");
+  assert.ok(consoleSession.includes('cipher.setAAD(Buffer.from(`${ADMIN_COOKIE}\\n${config.origin}\\nv1`));'), "the console's AAD");
+  assert.ok(
+    consoleSession.includes("'accessToken,csrf,expiresAt,issuedAt,refreshToken,userId'"),
+    "the console's session keys are the ones scoped-session seals",
+  );
 }
 
 console.log('local-test-gates: marker, builder, hash and planning checks passed');

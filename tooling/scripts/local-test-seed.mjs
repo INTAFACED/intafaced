@@ -8,6 +8,7 @@
  *   LOCAL_TEST=1 node tooling/scripts/local-test-seed.mjs unseed [--state <dir>]
  *   LOCAL_TEST=1 node tooling/scripts/local-test-seed.mjs age-loan <loanId> <days> [--state <dir>]
  *   LOCAL_TEST=1 node tooling/scripts/local-test-seed.mjs fund-earn-pool <poolId> <amount> <ref> [--state <dir>]
+ *   LOCAL_TEST=1 node tooling/scripts/local-test-seed.mjs end-earn-unbonding <positionId> [--state <dir>]
  *
  * Default state dir: ~/.intafaced/local-test-stack
  * Nitro's preview stack: ~/.intafaced/s3-trade-20261015
@@ -584,6 +585,22 @@ export async function fundEarnPool(deps, poolId, amount, ref) {
   return { lines: [`pool ${poolId}: reserve funded ${amount} ${pool.assetId} (ref ${ref})`, FUNDS_LABEL] };
 }
 
+/**
+ * Ends one TEST saving's unbonding now, so the bank's own release job can pay it back on this stack (J-bank-08 #6: the
+ * release job reads the bank's clock, never a caller's, and a journey cannot wait seven days). Only the unbonding's two
+ * dates move, back by the same span, so its length is kept and it ends a minute ago. The saving's opening never moves,
+ * so no past day becomes payable, and nothing is posted: the release is the bank's, through its job door. Refused
+ * unless the saving is in a TEST pool, still active and unbonding, and its unbonding has not ended yet.
+ */
+export async function endEarnUnbonding(deps, positionId) {
+  if (typeof positionId !== 'string' || !UUID.test(positionId)) {
+    throw new GuardError('refusing: end-earn-unbonding needs a saving id (a UUID)');
+  }
+  const ended = await deps.endUnbondingRows(positionId, TEST_POOL_NAME);
+  if (ended.refused) throw new GuardError(`refusing: saving ${positionId} ${ended.refused}`);
+  return { ...ended, lines: [`saving ${positionId}: unbonding ends ${ended.unbondsAt} (moved back)`, FUNDS_LABEL] };
+}
+
 // ── Status (read-only) ──────────────────────────────────────────────────────
 
 export async function statusReport(deps, now = new Date()) {
@@ -880,6 +897,30 @@ export async function openLocal(plan) {
         return { openedAt: moved.opened_at.toISOString(), drawnAt: moved.drawn_at.toISOString() };
       });
     },
+    async endUnbondingRows(positionId, testPoolName) {
+      return bankSql.begin(async (tx) => {
+        const rows = await tx`
+          SELECT ps.status, ps.unbonds_at, pl.name AS pool
+            FROM bank.earn_positions ps JOIN bank.earn_pools pl ON pl.id = ps.pool_id
+           WHERE ps.id = ${positionId}
+             FOR UPDATE OF ps
+        `;
+        const position = rows[0];
+        if (!position) return { refused: 'is not on this stack' };
+        if (!testPoolName.test(position.pool)) return { refused: 'is not in a TEST pool' };
+        if (position.status !== 'active') return { refused: `is ${position.status}, not active` };
+        if (position.unbonds_at === null) return { refused: 'is not unbonding' };
+        const [moved] = await tx`
+          UPDATE bank.earn_positions
+             SET unbonding_started_at = unbonding_started_at - (unbonds_at - now() + interval '1 minute'),
+                 unbonds_at = now() - interval '1 minute'
+           WHERE id = ${positionId} AND unbonds_at > now()
+          RETURNING unbonds_at
+        `;
+        if (!moved) return { refused: 'has already ended its unbonding' };
+        return { unbondsAt: moved.unbonds_at.toISOString() };
+      });
+    },
     async close() {
       await bankSql.end({ timeout: 5 });
       await p2pSql.end({ timeout: 5 });
@@ -889,7 +930,7 @@ export async function openLocal(plan) {
 
 // ── CLI ─────────────────────────────────────────────────────────────────────
 
-const USAGE = 'Use: apply | home [--notice-minutes <n>] | status | unseed | age-loan | fund-earn-pool';
+const USAGE = 'Use: apply | home [--notice-minutes <n>] | status | unseed | age-loan | fund-earn-pool | end-earn-unbonding';
 const MAX_NOTICE_MINUTES = HOME_NOTICE_DAYS * 24 * 60;
 
 export function parseArgs(argv) {
@@ -914,13 +955,14 @@ export function parseArgs(argv) {
   }
   const [command, ...rest] = args;
   if (!command) throw new GuardError(`refusing: command required. ${USAGE}`);
-  const operands = command === 'age-loan' ? 2 : command === 'fund-earn-pool' ? 3 : 0;
+  const needs = {
+    'age-loan': 'refusing: age-loan needs <loanId> <days>',
+    'fund-earn-pool': 'refusing: fund-earn-pool needs <poolId> <amount> <ref>',
+    'end-earn-unbonding': 'refusing: end-earn-unbonding needs <positionId>',
+  };
+  const operands = { 'age-loan': 2, 'fund-earn-pool': 3, 'end-earn-unbonding': 1 }[command] ?? 0;
   if (rest.length > operands) throw new GuardError(`refusing: unknown argument "${rest[operands]}"`);
-  if (rest.length < operands) {
-    throw new GuardError(
-      command === 'age-loan' ? 'refusing: age-loan needs <loanId> <days>' : 'refusing: fund-earn-pool needs <poolId> <amount> <ref>',
-    );
-  }
+  if (rest.length < operands) throw new GuardError(needs[command]);
   return {
     command,
     operands: rest,
@@ -958,6 +1000,11 @@ async function dispatch(command, deps, hooks, operands = [], options = {}) {
   }
   if (command === 'fund-earn-pool') {
     const report = await fundEarnPool(deps, operands[0], operands[1], operands[2]);
+    for (const line of report.lines) out(line);
+    return 0;
+  }
+  if (command === 'end-earn-unbonding') {
+    const report = await endEarnUnbonding(deps, operands[0]);
     for (const line of report.lines) out(line);
     return 0;
   }

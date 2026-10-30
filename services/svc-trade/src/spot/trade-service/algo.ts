@@ -47,6 +47,10 @@ export async function createTwap(
     /** `twap` (default), `vwap` (lookback candles), `pov` (live tape × participationBps). */
     kind?: string;
     participationBps?: number;
+    /** TWAP only: random slice sizes fixed by this seed. */
+    randomSeed?: number;
+    /** TWAP only: the schedule starts when the mark reaches this price. */
+    triggerPrice?: Amount;
   },
 ): Promise<TwapParent> {
   requireScope(principal, 'trade:write');
@@ -116,6 +120,20 @@ export async function createTwap(
     clientAlgoId: input.clientAlgoId,
     kind,
   };
+
+  if (input.randomSeed !== undefined) createInput = { ...createInput, randomSeed: input.randomSeed };
+  if (input.triggerPrice !== undefined) {
+    // The mark the scheduler reads is this same mid (`markFor`). The side of it the trigger sits on fixes its direction:
+    // above waits for the mark to rise to it. A trigger at the mid is already reached, so it is refused, not started.
+    const mid = (bid + ask) / 2n;
+    if (input.triggerPrice === mid) {
+      throw new TradeError(
+        `${market.symbol}: the trigger price equals the current mark — leave it blank to start now`,
+        'trade.algo_invalid_schedule',
+      );
+    }
+    createInput = { ...createInput, triggerPrice: input.triggerPrice, triggerAbove: input.triggerPrice > mid };
+  }
 
   if (kind === 'vwap') {
     const tf = timeframeForSliceInterval(input.sliceIntervalMs);
@@ -205,6 +223,8 @@ export async function recoverAdmittedAlgo(svc: TradeServiceInternal, userId: str
     startedAt: new Date(String(wire.parent.startedAt)),
     nextDueAt: new Date(String(wire.parent.nextDueAt)),
     projectedEndsAt: new Date(String(wire.parent.projectedEndsAt)),
+    triggerPrice: wire.parent.triggerPrice == null ? null : parseAmount(String(wire.parent.triggerPrice)),
+    triggeredAt: null,
     pausedAt: null,
     children: [],
     misses: [],

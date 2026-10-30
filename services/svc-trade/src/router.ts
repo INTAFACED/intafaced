@@ -53,8 +53,11 @@ import { describeOtcPolicy } from './otc/otc-policy.js';
 import { convertHistoryProcedures } from './convert/convert-history-router.js';
 import { convertHistoryTrpcError } from './convert/convert-history.js';
 import { deskTrpcError } from './desk/errors.js';
+import { copyCloseTrpcError } from './copy/copy-close-errors.js';
 import { algoDeskProcedures, optionsDeskProcedures, rfqHistoryProcedures, scaleProcedures } from './desk/procedures.js';
 import { presentAlgoDesk, presentScheduleHonesty } from './algo/present.js';
+import { MAX_ALGO_SEED } from './algo/schedule.js';
+import { awaitingTrigger } from './algo/types.js';
 import { tradingControlsRouter } from './controls/router.js';
 import { TradingControlError, type TradingControls } from './controls/trading-controls.js';
 import { tradeOpsAdminRouter } from './admin/router.js';
@@ -241,6 +244,12 @@ const algoParentOutputSchema = z.object({
   projectedEndsAt: z.string(),
   /** Distinguishes user pause from tick outage; null until first stretch. */
   scheduleStretchReason: z.enum(['user_pause', 'tick_outage']).nullable(),
+  /** Set when the slice sizes are random, fixed by this seed. */
+  randomSeed: z.number().int().nullable(),
+  /** The price the schedule waits for before its first slice; null when it starts at once. */
+  triggerPrice: decimal.nullable(),
+  triggeredAt: z.string().nullable(),
+  awaitingTrigger: z.boolean(),
 });
 
 const signedDecimal = z.string().regex(/^-?\d+(\.\d{1,18})?$/, 'signed amounts are decimal strings with at most 18 decimal places');
@@ -259,6 +268,8 @@ const algoGetOutputSchema = algoParentOutputSchema.extend({
   children: z.array(z.object({ orderId: z.string(), sliceIndex: z.number().int(), time: z.string() })),
   misses: z.array(z.object({ sliceIndex: z.number().int(), time: z.string(), code: z.string() })),
   filledQty: decimal,
+  /** The planned size of every slice, in order, as stored with the parent. */
+  plannedSliceQtys: z.array(decimal),
   ...algoScheduleHonestySchema,
 });
 
@@ -434,6 +445,8 @@ export function toTrpcError(err: unknown): TRPCError {
   if (historyError) return historyError;
   const desk = deskTrpcError(err);
   if (desk) return desk;
+  const copyClose = copyCloseTrpcError(err);
+  if (copyClose) return copyClose;
   if (err instanceof TradingControlError) {
     let code: 'SERVICE_UNAVAILABLE' | 'CONFLICT' | 'FORBIDDEN' = 'FORBIDDEN';
     if (err.code === 'authority.unavailable') code = 'SERVICE_UNAVAILABLE';
@@ -1332,6 +1345,8 @@ export function createTradeRouter(
             subAccountId: z.string().guid().optional(),
             kind: z.enum(['twap', 'vwap', 'pov']).optional(),
             participationBps: z.number().int().min(1).max(10_000).optional(),
+            randomSeed: z.number().int().min(0).max(MAX_ALGO_SEED).optional(),
+            triggerPrice: decimal.optional(),
           }),
         )
         .output(algoParentOutputSchema)
@@ -1348,6 +1363,8 @@ export function createTradeRouter(
               subAccountId: input.subAccountId,
               kind: input.kind ?? 'twap',
               participationBps: input.participationBps,
+              randomSeed: input.randomSeed,
+              triggerPrice: input.triggerPrice === undefined ? undefined : parseAmount(input.triggerPrice),
             });
             return presentAlgo(parent);
           }),
@@ -1360,11 +1377,38 @@ export function createTradeRouter(
           guard(async () => {
             const parent = await trade.getAlgo(ctx.principal, input.algoId);
             const progress = await trade.algoProgress(ctx.principal, input.algoId);
+            const plan = await trade.algoPlan(ctx.principal, input.algoId);
             return {
               ...presentAlgo(parent),
+              plannedSliceQtys: plan.map(formatAmount),
               ...presentAlgoDesk(parent, progress.filledQty),
               ...presentScheduleHonesty(parent, progress.scheduler),
             };
+          }),
+        ),
+
+      // The slice sizes a TWAP create would plan, so the review shows exactly what the service will place.
+      previewTwapSizes: scopedProcedure('trade:read')
+        .input(
+          z.object({
+            symbol: z.string().min(3),
+            totalQty: decimal,
+            durationMs: z.number().int().min(1_000).max(86_400_000),
+            sliceIntervalMs: z.number().int().min(1_000).max(86_400_000),
+            randomSeed: z.number().int().min(0).max(MAX_ALGO_SEED).optional(),
+          }),
+        )
+        .output(z.object({ sliceQtys: z.array(decimal) }))
+        .query(({ ctx, input }) =>
+          guard(async () => {
+            const slices = await trade.previewTwapSizes(ctx.principal, {
+              symbol: input.symbol,
+              totalQty: parseAmount(input.totalQty),
+              durationMs: input.durationMs,
+              sliceIntervalMs: input.sliceIntervalMs,
+              randomSeed: input.randomSeed,
+            });
+            return { sliceQtys: slices.map(formatAmount) };
           }),
         ),
 
@@ -1577,7 +1621,7 @@ export function createTradeRouter(
         ),
 
       stop: scopedProcedure('trade:write', { module: 'trade' })
-        .input(z.object({ followId: z.string().min(1).max(64) }))
+        .input(z.object({ followId: z.string().min(1).max(64), closeOnly: z.boolean().optional() }))
         .output(copyStopOutput)
         .mutation(({ ctx, input }) =>
           guard(async () => {
@@ -1692,6 +1736,42 @@ export function createTradeRouter(
           guard(async () => {
             if (!copy) throw new CopyError('Follow not found', 'trade.copy_not_following');
             return copy.followPositions(ctx.principal, input);
+          }),
+        ),
+
+      /** The caller's copied positions on one of their follows, newest first, with what is still open (CB-copy-09/10). */
+      copiedPositions: scopedProcedure('trade:read', { module: 'trade' })
+        .input(z.object({ followId: z.string().min(1).max(64) }))
+        .query(({ ctx, input }) =>
+          guard(async () => {
+            if (!copy) throw new CopyError('Follow not found', 'trade.copy_not_following');
+            return copy.copiedPositions(ctx.principal, input);
+          }),
+        ),
+
+      /** Close one copied position, whole or by an amount (CB-copy-10). Once per close. */
+      closeCopiedPosition: scopedProcedure('trade:write', { module: 'trade' })
+        .input(
+          z.object({
+            followId: z.string().min(1).max(64),
+            positionId: z.string().min(1).max(64),
+            qty: z.string().min(1).max(64).optional(),
+          }),
+        )
+        .mutation(({ ctx, input }) =>
+          guard(async () => {
+            if (!copy) throw new CopyError('Follow not found', 'trade.copy_not_following');
+            return copy.closePosition(ctx.principal, input);
+          }),
+        ),
+
+      /** Leader fills this follow did not copy, with the reason id, newest first (CB-copy-11). */
+      skipLog: scopedProcedure('trade:read', { module: 'trade' })
+        .input(z.object({ followId: z.string().min(1).max(64) }))
+        .query(({ ctx, input }) =>
+          guard(async () => {
+            if (!copy) throw new CopyError('Follow not found', 'trade.copy_not_following');
+            return copy.skipLog(ctx.principal, input);
           }),
         ),
 
@@ -1932,6 +2012,10 @@ function presentAlgo(parent: import('./algo/index.js').TwapParent) {
     nextDueAt: parent.nextDueAt.toISOString(),
     projectedEndsAt: parent.projectedEndsAt.toISOString(),
     scheduleStretchReason: parent.scheduleStretchReason,
+    randomSeed: parent.randomSeed ?? null,
+    triggerPrice: parent.triggerPrice == null ? null : formatAmount(parent.triggerPrice),
+    triggeredAt: parent.triggeredAt ? parent.triggeredAt.toISOString() : null,
+    awaitingTrigger: awaitingTrigger(parent),
   };
 }
 

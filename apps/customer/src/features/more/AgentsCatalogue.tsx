@@ -268,6 +268,7 @@ const REFUSALS = [
   'spend_limit',
   'price_unset',
   'funds_insufficient',
+  'funds_unread',
 ] as const;
 /** A refusal code as words; a code this screen does not know is shown as the code itself. */
 export function refusalWords(code: string): string {

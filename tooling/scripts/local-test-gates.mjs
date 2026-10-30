@@ -27,6 +27,7 @@
  *   node tooling/scripts/local-test-gates.mjs kyb        publish the TEST business verification requirements and upload rules
  *   node tooling/scripts/local-test-gates.mjs age <handle> <seconds>   move one TEST account's sign-up time back
  *   node tooling/scripts/local-test-gates.mjs status     read-only: what is open, who is verified
+ *   node tooling/scripts/local-test-gates.mjs scoped-session --without <scope>   a founder console cookie whose scopes leave one out (JSON)
  *
  * What this stands in for, and nothing else:
  *   1. the owner who publishes a market lifecycle (opens markets),
@@ -2683,6 +2684,116 @@ function die(msg, code = 1) {
   process.exit(code);
 }
 
+// ── Scoped founder session (journeys) ───────────────────────────────────────
+
+/** The founder console's session cookie (apps/admin/src/lib/founder-session.ts, ADMIN_COOKIE). */
+export const ADMIN_SESSION_COOKIE = '__Host-intafaced-admin';
+const SCOPED_SESSION_TTL_SECONDS = 15 * 60;
+
+/**
+ * The scopes identity adds to a founder's signed-in session on this stack, read from the stack's own identity
+ * definition (local-stack-services/identity.mjs, IDENTITY_FOUNDER_SESSION_SCOPES), never a copy of it.
+ */
+export async function stackFounderScopes(stateDir) {
+  // Imported when asked: identity.mjs imports this file.
+  const { default: identity } = await import('./local-stack-services/identity.mjs');
+  const env = identity({
+    c: () => ({}),
+    secrets: {},
+    dbUrl: () => '',
+    urlOf: () => '',
+    PORTS: {},
+    STATE: stateDir,
+    CUSTOMER_LOCALHOST_ORIGIN: '',
+    identityFounderEnv: () => ({}),
+  }).env();
+  const scopes = String(env.IDENTITY_FOUNDER_SESSION_SCOPES ?? '')
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean);
+  if (scopes.length === 0) throw new Error('the stack gives founder sessions no scopes (IDENTITY_FOUNDER_SESSION_SCOPES is blank)');
+  return scopes;
+}
+
+/** The founder scopes less one. Refuses a scope the list does not hold, so a misspelt name never passes as "left out". */
+export function scopesWithout(scopes, without) {
+  if (!scopes.includes(without)) throw new Error(`${without} is not a founder session scope on this stack (${scopes.join(', ')})`);
+  return scopes.filter((s) => s !== without);
+}
+
+/**
+ * The console's sealed session cookie value, as apps/admin/src/lib/founder-session.ts seals it: AES-256-GCM under the
+ * console's ADMIN_SESSION_SECRET, bound to the cookie name and the console origin.
+ */
+export function sealConsoleSession(session, { secret, origin }) {
+  const key = Buffer.from(secret, 'base64url');
+  if (key.length !== 32) throw new Error('the stack has no 32-byte console session secret');
+  const iv = crypto.randomBytes(12);
+  const cipher = crypto.createCipheriv('aes-256-gcm', key, iv);
+  cipher.setAAD(Buffer.from(`${ADMIN_SESSION_COOKIE}\n${origin}\nv1`));
+  const ciphertext = Buffer.concat([cipher.update(JSON.stringify(session), 'utf8'), cipher.final()]);
+  return Buffer.concat([iv, cipher.getAuthTag(), ciphertext]).toString('base64url');
+}
+
+/**
+ * LOCAL TEST: founder a signs in with their second factor, and that live session gets the stack's founder scopes less
+ * `without`, sealed in the console's session cookie. For a journey that needs a console session lacking one scope (the
+ * stack has no staff account without it). Returns Playwright cookies; the TOTP step used is recorded as every founder
+ * sign-in records it.
+ */
+export async function scopedConsoleSession(ctx, without) {
+  const a = founderSignIns(readJson(path.join(ctx.paths.stateDir, FOUNDER_VAULT_NAME), null)).find((f) => f.key === 'a');
+  if (!a) throw new Error('the founder pair is not enrolled on this stack');
+  const scopes = scopesWithout(await stackFounderScopes(ctx.paths.stateDir), without);
+  const stepsFile = path.join(ctx.paths.stateDir, FOUNDER_STEPS_NAME);
+  const op = { ...a, lastStep: Number(readJson(stepsFile, {}).a ?? 0) };
+  let reply;
+  try {
+    // As the console's server signs in: no Origin, so identity returns the refresh token in the body (a browser
+    // sign-in gets it only as a cookie), and the console session needs it.
+    assertActiveLocalStack();
+    const login = await fetch(`${ctx.url('edge')}/api/identity/trpc/auth.login`, {
+      redirect: 'error',
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        identifier: op.email ?? op.handle,
+        password: op.password,
+        deviceKey: LOCAL_TEST_DEVICE_KEY,
+        totpCode: await freshCode(ctx, op),
+      }),
+      signal: AbortSignal.timeout(30_000),
+    });
+    const res = { status: login.status, json: await login.json().catch(() => null) };
+    reply = data(res);
+    // Never print the reply: a half-good one carries a live token.
+    if (!reply?.accessToken || !reply?.refreshToken)
+      throw new Error(`founder a login refused (${res.status}): ${res.json?.error ? refusalText(res) : 'no session in the reply'}`);
+  } finally {
+    // Identity may have spent the step even when the login then failed: never hand it to the next tool.
+    writePrivate(stepsFile, { ...readJson(stepsFile, {}), a: op.lastStep });
+  }
+  op.userId = reply.userId;
+  op.sessionId = decodeJwtPayload(reply.accessToken).sid;
+  const minted = await mintSessionToken(ctx, op, scopes, SCOPED_SESSION_TTL_SECONDS);
+  const origin = `http://${HOST}:${ctx.marker.ports.admin}`;
+  const session = {
+    userId: op.userId,
+    accessToken: minted.token,
+    refreshToken: reply.refreshToken,
+    expiresAt: minted.expiresAt.toISOString(),
+    issuedAt: new Date().toISOString(),
+    csrf: crypto.randomBytes(32).toString('base64url'),
+  };
+  const value = sealConsoleSession(session, { secret: ctx.secrets.adminSession, origin });
+  return {
+    scopes,
+    // Host and path, not `url`: Playwright takes Secure from a url's scheme, and Chromium refuses a __Host- cookie
+    // without it. Chromium still sends a Secure cookie to the console's http://127.0.0.1 (a trustworthy origin).
+    cookies: [{ name: ADMIN_SESSION_COOKIE, value, domain: HOST, path: '/', httpOnly: true, secure: true, sameSite: 'Strict' }],
+  };
+}
+
 async function main() {
   const cmd = process.argv[2] ?? 'status';
   // Usage first: a typo never signs anyone in or touches the stack.
@@ -2694,9 +2805,16 @@ async function main() {
   } catch (err) {
     die(String(err.message ?? err));
   }
-  say(`LOCAL TEST GATES — ${MARKERS.label}`);
+  // scoped-session prints only its JSON, which a journey parses.
+  if (cmd !== 'scoped-session') say(`LOCAL TEST GATES — ${MARKERS.label}`);
   try {
-    if (cmd === 'operators') {
+    if (cmd === 'scoped-session') {
+      const flag = process.argv.indexOf('--without');
+      const without = flag > 0 ? process.argv[flag + 1] : undefined;
+      if (!without) die('usage: local-test-gates.mjs scoped-session --without <scope>', 2);
+      const { cookies } = await scopedConsoleSession(ctx, without);
+      process.stdout.write(`${JSON.stringify({ cookies })}\n`);
+    } else if (cmd === 'operators') {
       const ops = await ensureOperators(ctx);
       say(`operators ready: ${ops.a.handle}, ${ops.b.handle} (credentials in ${ctx.paths.operators}, mode 600)`);
     } else if (cmd === 'lifecycle') {
@@ -2835,7 +2953,7 @@ async function main() {
       say(JSON.stringify(await status(ctx), null, 2));
     } else {
       die(
-        'usage: local-test-gates.mjs apply | operators | lifecycle | open | terms | assets | deposit-terms | withdrawal-limits | withdraw-terms | withdraw-limit <tier> <assetId> unset|test | withdraw-fee <networkId> unset|test | futures | limits | charts | chart-class <SYMBOL> <dataClass> | risk <SYMBOL> k=v... | p2p | verify | kyc-reject <handle> <reasonCode> | kyc-capability-off <handle> <capability> <reasonCode> | halt <SYMBOL> | resume <SYMBOL> | posting-freeze on|off | age <handle> <seconds> | status',
+        'usage: local-test-gates.mjs apply | operators | lifecycle | open | terms | assets | deposit-terms | withdrawal-limits | withdraw-terms | withdraw-limit <tier> <assetId> unset|test | withdraw-fee <networkId> unset|test | futures | limits | charts | chart-class <SYMBOL> <dataClass> | risk <SYMBOL> k=v... | p2p | verify | kyc-reject <handle> <reasonCode> | kyc-capability-off <handle> <capability> <reasonCode> | halt <SYMBOL> | resume <SYMBOL> | posting-freeze on|off | age <handle> <seconds> | scoped-session --without <scope> | status',
         2,
       );
     }
@@ -2844,4 +2962,6 @@ async function main() {
   }
 }
 
-if (process.argv[1] && pathToFileURL(process.argv[1]).href === import.meta.url) await main();
+// Not awaited at the top level: scoped-session imports identity.mjs, which imports this file, and that import would
+// wait on this module's evaluation for ever. main() catches its own errors (die).
+if (process.argv[1] && pathToFileURL(process.argv[1]).href === import.meta.url) main();
