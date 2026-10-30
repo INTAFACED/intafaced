@@ -410,6 +410,13 @@ export type TradeErrorCode =
    */
   | 'trade.futures_disabled'
   | 'trade.seed_disabled'
+  // The token buyback's IOC buy (buyback-order.ts): a house order on the other side, a bad command, a retry while the
+  // first is still settling, the same run id for another command, and a book this service could not read for house asks.
+  | 'trade.buyback_house_maker'
+  | 'trade.buyback_invalid'
+  | 'trade.buyback_in_flight'
+  | 'trade.buyback_conflict'
+  | 'trade.buyback_book_unreadable'
   | 'trade.seed_must_make'
   | 'trade.order_not_found'
   // An order-history page cursor that is not one of the caller's orders.

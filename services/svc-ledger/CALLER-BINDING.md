@@ -28,6 +28,8 @@ These refusals apply to every key-signed call, in every mode. A key-signed call 
 
 A name claimed under the shared secret is not proof, so it is never refused for its name: callers that have not moved to keys yet, and the local test scripts, sign that way. In `off` and `dual` mode such a call is served, and every post is counted with reason `unbound` under the claimed service, with a rate-limited warning line `ledger caller binding violation` (first for a service, then at most once a minute). The count is not limited; a quiet log is not a zero count. When the count is 0 for every posting service over a full business cycle, switch to `keypair`, which refuses the shared secret at the door.
 
+One exception: the token buyback recipes (`buybackOrderHold`, `buybackOrderHoldRelease`, `buybackTakerFill`; `KEY_REQUIRED_RECIPES` in `src/caller-binding.ts`) are refused `ledger.caller_unbound` under the shared secret whenever keys are configured (`dual` or `keypair`), granted name or not. They move the rewards engine's quote and pay a customer from it, so a claimed name must not post them. With S2S off they are counted like any other post. Rollout order: svc-trade signs with its key before svc-ledger turns keys on while the buyback runs, or its holds, fills and releases are refused (a refused hold leaves no order; a refused fill leaves the buyback's quote in its own hold and the customer maker's base in their order hold until reconcile).
+
 `local-test-fund` and `local-test-seed` (`tooling/scripts`) and both `order-path-smoke.mjs` copies sign with the shared secret and are not on any list. They keep working in `off` or `dual` and stop working in `keypair`, by design.
 
 ## Mounted surface

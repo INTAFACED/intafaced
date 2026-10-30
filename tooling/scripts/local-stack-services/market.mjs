@@ -32,9 +32,9 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS }) => ({
     TOKEN_URL: urlOf('token'),
     LEDGER_URL: urlOf('ledger'),
     IDENTITY_URL: urlOf('identity'),
-    // LOCAL TEST only, the labelled values in tooling/profiles/test-owner-values/market.json: the house commission, so a
-    // purchase settles, and the refund window a purchase is held for (J-more-catalogue-02 #4 to #6). Production stays
-    // blank: a purchase refuses market.commission_not_configured, and a refund ask market.refund_policy_unset.
+    // LOCAL TEST only, the labelled values in tooling/profiles/test-owner-values/market.json: the house commission on a
+    // Market sale, and the refund window a purchase is held for (J-more-catalogue-02 #4 to #6). Production stays blank:
+    // every listing and purchase refuses market.commission_not_configured, and a refund ask market.refund_policy_unset.
     ...published(),
   }),
 });

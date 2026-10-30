@@ -95,7 +95,7 @@ function kit() {
 }
 
 type Kit = ReturnType<typeof kit>;
-type Mode = 'dual' | 'keypair';
+type Mode = 'dual' | 'keypair' | 'off';
 
 async function mount(options: { mode: Mode; posted: { value: boolean }; k?: Kit; lines?: string[]; onViolation?: () => void }) {
   const k = options.k ?? kit();
@@ -108,7 +108,7 @@ async function mount(options: { mode: Mode; posted: { value: boolean }; k?: Kit;
   const app = Fastify({ logger: { level: 'warn', stream } });
   registerS2sHttp(app, stub(options.posted), SHARED, {
     bodyBind: 'require',
-    s2s: { verifier: k.verifier(), mode: options.mode },
+    ...(options.mode === 'off' ? {} : { s2s: { verifier: k.verifier(), mode: options.mode } }),
     onCallerViolation: options.onViolation,
   });
   await app.ready();
@@ -534,5 +534,73 @@ describe('service-call settings at boot', () => {
     >;
     expect(parsed).not.toHaveProperty('LEDGER_CALLER_BINDING');
     expect(parsed).not.toHaveProperty('LEDGER_CALLER_SECRET_SVC_PAY');
+  });
+});
+
+describe('the token buyback recipes need a key once keys exist', () => {
+  /** TEST amounts only. */
+  const buyback = [
+    ['buybackOrderHold', toWire(recipes.buybackOrderHold({ orderId: 'bb-bind', quoteAsset: 'USDT', amount: amt('10') }))],
+    [
+      'buybackOrderHoldRelease',
+      toWire(recipes.buybackOrderHoldRelease({ orderId: 'bb-bind', quoteAsset: 'USDT', amount: amt('10'), sequence: 0 })),
+    ],
+    [
+      'buybackTakerFill',
+      toWire(
+        recipes.buybackTakerFill({
+          fillId: 'bb-bind-fill',
+          makerId: USER,
+          makerOrderId: 'bb-bind-ask',
+          takerOrderId: 'bb-bind',
+          baseAsset: 'BTC',
+          quoteAsset: 'USDT',
+          qty: amt('1'),
+          quoteAmount: amt('10'),
+          makerFeeBps: 0,
+        }),
+      ),
+    ],
+  ] as const;
+
+  it.each(buyback)('dual refuses a shared-secret %s, even under the granted name', async (_name, body) => {
+    const posted = { value: false };
+    const m = await mount({ mode: 'dual', posted });
+    const res = await sendShared(m, 'svc-trade', body);
+    expect(res.statusCode).toBe(401);
+    expect(res.json().code).toBe('ledger.caller_unbound');
+    expect(posted.value).toBe(false);
+    // Refused, and still counted as an unbound post under the claimed name.
+    expect(callerBindingCounts()).toEqual([{ reason: 'unbound', service: 'svc-trade', count: 1 }]);
+    await m.app.close();
+  });
+
+  it.each(buyback)('dual posts a key-signed %s from svc-trade', async (_name, body) => {
+    const posted = { value: false };
+    const m = await mount({ mode: 'dual', posted });
+    const res = await sendKeyed(m, 'svc-trade', body);
+    expect(res.statusCode).toBe(200);
+    expect(posted.value).toBe(true);
+    await m.app.close();
+  });
+
+  it('dual still only counts a shared-secret post of an unrelated recipe', async () => {
+    const posted = { value: false };
+    const m = await mount({ mode: 'dual', posted });
+    const res = await sendShared(m, 'svc-trade', orderHold);
+    expect(res.statusCode).toBe(200);
+    expect(posted.value).toBe(true);
+    expect(callerBindingCounts()).toEqual([{ reason: 'unbound', service: 'svc-trade', count: 1 }]);
+    await m.app.close();
+  });
+
+  it.each(buyback)('with keys off, a shared-secret %s is only counted, as every recipe is', async (_name, body) => {
+    const posted = { value: false };
+    const m = await mount({ mode: 'off', posted });
+    const res = await sendShared(m, 'svc-trade', body);
+    expect(res.statusCode).toBe(200);
+    expect(posted.value).toBe(true);
+    expect(callerBindingCounts()).toEqual([{ reason: 'unbound', service: 'svc-trade', count: 1 }]);
+    await m.app.close();
   });
 });

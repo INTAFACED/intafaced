@@ -210,6 +210,9 @@ describe('order refusals the pro desk shows by their registered words (TRD-0521)
 });
 
 describe('classifyRefusal', () => {
+  it("names svc-trade's own trading restriction as a hold, never a retry", () => {
+    expect(classifyRefusal('trade.desk_restricted')).toBe('accountOnHold');
+  });
   it('sorts the codes customers can reach', () => {
     const cases: Array<[string, string]> = [
       ['denied.region_blocked', 'region'],

@@ -9,8 +9,7 @@ import { api, tool } from './stack.mjs';
 // founder A, the support lead; founder B is a second agent (help-centre.mjs appoints both). A TEST customer sends the
 // requests through its own support API, and reads the answers in the customer app.
 // A step whose part is missing fails at it quickly (UNBUILT).
-// #7's "public reply only" is proved against the status reason and the escalation summary: the desk has no internal notes
-// yet (SP-tickets-05), so a note the signature must stay off does not exist to check.
+// #7's "public reply only" is proved against an internal note (SP-tickets-05), the status reason and the escalation summary.
 // A refusal is matched by its one typed code, and the record is read again after it to show nothing changed.
 // #2's blank view cap clause needs the cap blank; the stack sets owner values as TEST, so it is checked where the cap is unset.
 const J = 'J-support-public-10';
@@ -333,17 +332,21 @@ test(`${J} #7 a macro with a placeholder fills the reply draft, the signature go
     expect(res.status, JSON.stringify(res.body).slice(0, 300)).toBe(200);
     return res.body.result.data;
   };
+  const customerOperatorRows = async () =>
+    (await asCustomer('listComments', { ticketId: ticket.id, limit: 50 })).filter((row) => row.authorRole === 'operator');
   await actions.getByLabel('Macro').selectOption({ label: `TEST / ${title} (${shortcode})` });
   const filled = `TEST: about request ${ticket.id}. Hi {{requester.name}}, thanks for writing.`;
   await expect(draft).toHaveValue(`${filled}\n\n${signature}`);
   await expect(actions.getByTestId('reply-unfilled')).toContainText('{{requester.name}}');
   expect(await operatorComments()).toHaveLength(0);
+  expect(await customerOperatorRows()).toEqual([]);
   expect(await trail(ticket.id)).toEqual(before);
 
   // Send with the placeholder still in it: svc-support refuses by its code and nothing is sent.
   const refused = await sendReply(workspace);
   await expect(refused).toHaveAttribute('data-code', 'support.macro_placeholder_blank');
   expect(await operatorComments()).toHaveLength(0);
+  expect(await customerOperatorRows()).toEqual([]);
   expect(await trail(ticket.id)).toEqual(before);
 
   // The agent removes it; the draft they send is what the customer gets, signature included, once.

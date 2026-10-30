@@ -16,6 +16,7 @@ import { TradeService } from './trade-service.js';
 import { attributionFromPrincipal, withLedgerAttribution } from './auth-attribution.js';
 import { TradeError, type Market, type OrderRecord, type OrderSide } from './types.js';
 import type { EdgeTrust } from '../edge-trust.js';
+import { privateWrite } from '../route-inventory.js';
 
 /**
  * Close a spot position through the matching flatten that landed in #3249.
@@ -242,7 +243,7 @@ function sendError(reply: FastifyReply, status: number, code: string, message: s
 export function attachClosePosition(app: FastifyInstance, deps: ClosePositionRestDeps): void {
   const edgeContext = createEdgeContext({ secret: deps.edgeSecret, ...deps.edgeTrust, serviceName: deps.serviceName });
 
-  app.post(SPOT_CLOSE_POSITION_PATH, async (req, reply) => {
+  app.post(SPOT_CLOSE_POSITION_PATH, privateWrite, async (req, reply) => {
     const edgeReq: EdgeRequest = { headers: req.headers as Record<string, string | string[] | undefined>, id: req.id };
     const principal = edgeContext(edgeReq).principal;
     if (!principal) return sendError(reply, 401, 'trade.unauthenticated', 'signed principal required');

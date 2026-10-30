@@ -238,6 +238,8 @@ const EXACT: Readonly<Record<string, RefusalKind>> = {
   'trade.fee_ifc_index_unset': 'notSetUp',
   'trade.fee_ifc_discount_unavailable': 'tryAgain',
   'trade.orders_paused': 'ordersPaused',
+  // svc-trade's own trading restriction (identity's is trade.account_restricted): the same hold, until its own words land.
+  'trade.desk_restricted': 'accountOnHold',
   'trade.below_min_notional': 'belowMinimum',
   'trade.below_min_qty': 'belowMinimum',
 

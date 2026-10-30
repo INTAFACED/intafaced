@@ -146,3 +146,48 @@ function canonicalInstant(value: Date | string | null): string | null {
   if (ms !== ms) return null;
   return date.toISOString();
 }
+
+export interface BuybackRunView {
+  readonly id: string;
+  readonly bought: string;
+  readonly burned: string;
+  readonly toRewards: string;
+  readonly executedAt: string;
+  readonly windowFrom: string;
+  readonly windowTo: string;
+}
+
+export interface BuybackRunRow {
+  readonly id: string | null;
+  readonly bought: string | null;
+  readonly burned: string | null;
+  readonly toRewards: string | null;
+  readonly executedAt: Date | string | null;
+  readonly windowFrom: Date | string | null;
+  readonly windowTo: Date | string | null;
+}
+
+export type BuybackRunsResult = { ok: true; runs: BuybackRunView[] } | { ok: false; code: typeof TREASURY_FIGURE_UNREADABLE };
+
+/**
+ * Settled buyback runs as stored. Every field must read, and each run must
+ * add up: bought = burned + toRewards (what `splitBuyback` wrote). A run that
+ * does not is unreadable — the page never shows a row that fails its own sum.
+ */
+export function reportBuybackRuns(rows: readonly BuybackRunRow[]): BuybackRunsResult {
+  const runs: BuybackRunView[] = [];
+  for (const row of rows) {
+    const bought = readAmount(row.bought);
+    const burned = readAmount(row.burned);
+    const toRewards = readAmount(row.toRewards);
+    const executedAt = canonicalInstant(row.executedAt);
+    const windowFrom = canonicalInstant(row.windowFrom);
+    const windowTo = canonicalInstant(row.windowTo);
+    if (blank(row.id) || row.id == null) return unreadable();
+    if (executedAt == null || windowFrom == null || windowTo == null) return unreadable();
+    if ([bought, burned, toRewards].some((value) => value === 'blank' || value === 'bad')) return unreadable();
+    if (parseAmount(bought) !== parseAmount(burned) + parseAmount(toRewards)) return unreadable();
+    runs.push({ id: row.id, bought, burned, toRewards, executedAt, windowFrom, windowTo });
+  }
+  return { ok: true, runs };
+}

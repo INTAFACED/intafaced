@@ -118,7 +118,16 @@ export class WithdrawalQuoteService {
     if (amount <= 0n) throw new WithdrawalQuoteError('withdrawal_quote.amount_invalid', 'the amount must be above zero');
 
     const { fee, source, registryVersion } = await this.networkFee(input);
-    const outside = amountOutsideRules(await readWithdrawalNetworkRules(this.deps.sql, input.assetId, input.networkId), amount);
+    const rules = await readWithdrawalNetworkRules(this.deps.sql, input.assetId, input.networkId);
+    // J-wallet-05 #1: a network that needs a tag or memo gets no quote, because no send carries one. Every send out of the
+    // platform must accept a quote inside its claim, so this one refusal holds every path that sends, not only the form.
+    if (rules.tag === 'required') {
+      throw new WithdrawalQuoteError(
+        'withdrawal_quote.tag_required',
+        `${input.networkId} needs a tag or memo, and no send carries one, so nothing is quoted or sent`,
+      );
+    }
+    const outside = amountOutsideRules(rules, amount);
     if (outside) {
       const why = { below_minimum: 'below the minimum', above_maximum: 'above the maximum', off_step: 'not a whole number of steps' };
       throw new WithdrawalQuoteError(

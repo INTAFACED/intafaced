@@ -2,24 +2,16 @@ import { test, expect } from '@playwright/test';
 import { randomUUID } from 'node:crypto';
 import { api, fund, journeyState, tool, toUnits } from './stack.mjs';
 import { signIn, signUp, verify } from './desk.mjs';
-import {
-  approverSessions,
-  ledgerAccounts,
-  ledgerTrace,
-  makeContext,
-  setFeeDiscountSchedule,
-} from '../../../../tooling/scripts/local-test-gates.mjs';
+import { testStrategyListing } from './market-listing.mjs';
+import { ledgerAccounts, ledgerTrace, makeContext } from '../../../../tooling/scripts/local-test-gates.mjs';
 
 // J-more-catalogue-02, in the running app (docs/roadmap/journeys.json): find a strategy in the Market and buy it. One test
 // per step, titled "J-more-catalogue-02 #<n>", run in order. No real value moves: the buyer and the seller are TEST
 // accounts on the local stack, funded with TEST assets through the real ledger.
-// The start is built through the product's own doors, never injected: a TEST seller signs up, verifies, stakes 1000 TEST
-// IFC (the Initiate tier's one listing slot), applies as a vendor, is approved by the stack's two TEST operators
-// (`local-test-gates.mjs market-vet`, svc-market's two-person door) and publishes a strategy subscription at 10 TEST USDT.
+// The start is built through the product's own doors, never injected (market-listing.mjs): a TEST seller stakes, applies,
+// is approved by the stack's two TEST operators and publishes a strategy subscription at 10 TEST USDT, titled for this run.
 // The stack runs svc-market with the TEST commission and a TEST one-hour refund window
 // (tooling/profiles/test-owner-values/market.json), so a purchase is held in the buyer's own pot until the window ends.
-// The seller and listing are the stack's: kept in a stack-wide run file and reused while the listing is still in the
-// catalogue, so a long-lived stack does not fill the catalogue's first page with copies.
 // Step 6's "refund policy undecided" restarts market with the window unset (LOCAL_STACK_MARKET_REFUND_POLICY=off), reads
 // the refusal, then restarts it with the TEST window, in a try/finally. Its "lets the window end" restarts market with a
 // TEST 20-second window (LOCAL_STACK_MARKET_REFUND_POLICY=short) the same way, so the release job is seen paying out.
@@ -32,11 +24,8 @@ import {
 // - #7: no review after a released purchase (MC-market-02).
 const J = 'J-more-catalogue-02';
 const run = journeyState(`${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
-const shop = journeyState(`${J}-stack-listing`);
 const UNBUILT = { timeout: 5_000 };
 const PRICE = '10';
-/** The TEST commission the stack runs svc-market with (tooling/profiles/test-owner-values/market.json): 500 bps. */
-const COMMISSION_BPS = 500n;
 const PERIOD_SECONDS = 2_592_000;
 
 test.describe.configure({ mode: 'default' });
@@ -58,57 +47,6 @@ async function myPurchases(who) {
 
 async function catalogue(who) {
   return ok(await (await api(who)).get(`/api/market/trpc/listings${trpcInput({ limit: 50 })}`));
-}
-
-/**
- * A listing slot is read from the seller's stake in svc-token, which refuses every stake read while its fee-decay ladder
- * is blank. On a stack where no journey has published one yet, two TEST founders publish a one-step TEST ladder (no
- * discount at any stake) through the token's two-person door, as J-copy-bots-otc-24 does; a ladder already there stands.
- */
-async function stakeReadable(who) {
-  const read = async () => (await (await api(who)).get('/api/token/trpc/feeDiscount.get')).body.result.data;
-  if ((await read()).schedule != null) return;
-  const ctx = await makeContext({ log: () => undefined });
-  const schedule = { basis: 'staked', tiers: [{ minStake: '0', discountBps: 0 }] };
-  await setFeeDiscountSchedule(ctx, schedule, { sessions: await approverSessions(ctx) }).catch(async (err) => {
-    // Another journey published first, between the read and the write: its ladder stands.
-    if ((await read()).schedule == null) throw err;
-  });
-}
-
-/** The stack's TEST seller and strategy listing, built through the product's doors when the stack has none yet. */
-async function stackListing(page, buyer) {
-  const kept = shop.read();
-  const listed = kept.listingId ? (await catalogue(buyer)).some((l) => l.id === kept.listingId && l.status === 'active') : false;
-  if (listed) return kept;
-  const seller = await signUp(page, 'mks');
-  await verify(page, seller);
-  expect(fund(seller.email, 'IFC', '1100').tx).toBeTruthy();
-  await stakeReadable(seller);
-  const client = await api(seller);
-  expect(await ok(await client.post('/api/token/trpc/stake', { amount: '1000', tier: 'flex', stakeId: randomUUID() }))).toMatchObject({
-    amount: '1000',
-    status: 'active',
-  });
-  const vendor = await ok(
-    await client.post('/api/market/trpc/applyAsVendor', {
-      displayName: 'TEST strategy seller',
-      description: 'TEST: a local test stack seller, not a real business.',
-    }),
-  );
-  expect(tool('local-test-gates.mjs', 'market-vet', vendor.id)).toContain(`vendor ${vendor.id} approved`);
-  const title = `TEST strategy with a refund window ${Date.now().toString(36)}`;
-  const listing = await ok(
-    await client.post('/api/market/trpc/createStrategyListing', {
-      title,
-      description: 'TEST: a strategy subscription on the local test stack. Not advice and not a real product.',
-      assetId: 'USDT',
-      price: PRICE,
-      periodSeconds: PERIOD_SECONDS,
-    }),
-  );
-  expect(listing).toMatchObject({ title, assetId: 'USDT', status: 'active', vendorId: vendor.id });
-  return shop.reset({ seller, vendorId: vendor.id, listingId: listing.id, title });
 }
 
 async function openMarket(page, who) {
@@ -177,11 +115,21 @@ async function priceOf(who, listingId) {
   return listing.price;
 }
 
-/** The commission and seller net of a release of `price` at the TEST rate, floored as the release recipe floors it. */
-function split(price) {
-  const commission = (toUnits(price) * COMMISSION_BPS) / 10_000n;
+/** The house commission rate svc-market publishes (the stack's labelled TEST value), in basis points. */
+async function commissionBps(who) {
+  const programme = await ok(await (await api(who)).get('/api/market/trpc/commerceProgramme'));
+  expect(programme).toMatchObject({ commissionConfigured: true });
+  return BigInt(programme.commissionBps);
+}
+
+/** The commission and seller net of a release of `price` at `bps`, floored as the release recipe floors it. */
+function split(price, bps) {
+  const commission = (toUnits(price) * bps) / 10_000n;
   return { commission, net: toUnits(price) - commission };
 }
+
+/** A decimal as a literal in a RegExp. */
+const literal = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 /** One purchase of `listingId` pressed through the page; returns svc-market's answer. */
 async function buyOnPage(page, who, title) {
@@ -211,16 +159,20 @@ const receiptOf = (p) =>
   ({ held: 'Held until the refund window ends', refunded: 'Refunded', released: 'Settlement recorded' })[p.hold?.state] ??
   { settled: 'Settlement recorded', pending: 'Settlement not confirmed', rejected: 'Purchase rejected' }[p.status];
 
-test(`${J} starts: a verified TEST account with 100 USDT, and the stack's TEST strategy listing approved`, async ({ page }) => {
+test(`${J} starts: a verified TEST account with 100 USDT, and an approved TEST seller's TEST strategy listing with a refund window`, async ({
+  page,
+}) => {
   test.setTimeout(300_000);
+  const title = `TEST strategy with a refund window ${Date.now().toString(36)}`;
+  const { seller, listing } = await testStrategyListing(page, { title, price: PRICE, periodSeconds: PERIOD_SECONDS });
+  expect(listing).toMatchObject({ title, offerType: 'subscription', status: 'active' });
   const who = await signUp(page, 'mk');
   await verify(page, who);
   expect(fund(who.email, 'USDT', '100').tx).toBeTruthy();
-  const listing = await stackListing(page, who);
-  expect((await catalogue(who)).filter((l) => l.id === listing.listingId)).toEqual([
-    expect.objectContaining({ title: listing.title, price: PRICE, assetId: 'USDT', status: 'active' }),
+  expect((await catalogue(who)).filter((l) => l.id === listing.id)).toEqual([
+    expect.objectContaining({ title, price: PRICE, assetId: 'USDT', status: 'active' }),
   ]);
-  run.reset({ who, ...listing });
+  run.reset({ who, seller, title, listingId: listing.id });
 });
 
 test(`${J} #1 opens /market: listings with terms, a listing-type switch and four entry points to their own rooms, ordered by registration, price or title, never by returns`, async ({
@@ -312,9 +264,11 @@ test(`${J} #5 presses Buy again, or loses the reply: one purchase, and the scree
   await expect(listing.getByRole('button', { name: `Buy ${title}` })).toBeDisabled();
   await expect(listing).toContainText('You own this. Held until the refund window ends.');
   const client = await api(who);
+  const first = await purchaseOf(who, purchaseId);
   const second = await client.post('/api/market/trpc/purchase', { listingId, purchaseId: randomUUID() });
   expect(second.status).toBe(409);
   expect(causeOf(second.body)?.code).toBe('market.purchase_already_held');
+  expect(await purchaseOf(who, purchaseId)).toEqual(first);
   expect((await myPurchases(who)).filter((p) => p.listingId === listingId).map((p) => p.id)).toEqual([purchaseId]);
   expect(await usdt(who)).toEqual(before);
   await heldOnce(purchaseId, price);
@@ -327,12 +281,17 @@ test(`${J} #5 presses Buy again, or loses the reply: one purchase, and the scree
   expect(fund(late.email, 'USDT', '100').tx).toBeTruthy();
   const lateBefore = await usdt(late);
   await openMarket(page, late);
+  // Every purchase the page sends, for the whole of this part: the lost one, and none from the re-check.
+  const purchasesSent = [];
+  const watch = (request) => {
+    if (request.method() === 'POST' && new URL(request.url()).pathname.endsWith('/api/market/trpc/purchase'))
+      purchasesSent.push(request.postDataJSON().purchaseId);
+  };
+  page.on('request', watch);
   let sent;
-  let sends = 0;
   await page.route(
     (url) => url.pathname.endsWith('/api/market/trpc/purchase'),
     async (route) => {
-      sends += 1;
       sent = route.request().postDataJSON().purchaseId;
       await route.fetch();
       await route.abort('connectionreset');
@@ -344,15 +303,22 @@ test(`${J} #5 presses Buy again, or loses the reply: one purchase, and the scree
   await page.getByRole('dialog').getByRole('button', { name: 'Confirm purchase' }).click();
   await expect(page.getByText('Outcome not confirmed', { exact: true })).toBeVisible();
   await page.unrouteAll({ behavior: 'wait' });
-  expect(sends).toBe(1);
   expect(sent).toBeTruthy();
   await heldOnce(sent, price);
+  // The page keeps the lost purchase's original id, and the re-check looks that id up in svc-market's record.
+  const lateId = (await api(late)).userId;
+  expect(
+    await page.evaluate((key) => JSON.parse(localStorage.getItem(key) ?? 'null')?.reference, `intafaced:more:pending:${lateId}:market`),
+  ).toBe(sent);
   await page.reload();
+  const reread = page.waitForResponse((r) => new URL(r.url()).pathname.endsWith('/api/market/trpc/myPurchases') && r.status() === 200);
   await page.getByRole('button', { name: 'Check original outcome' }).click();
+  expect(((await (await reread).json()).result.data ?? []).map((p) => p.id)).toContain(sent);
   await expect(page.getByText('Original outcome verified')).toBeVisible();
   await expect(card(page, title)).toContainText('You own this. Held until the refund window ends.');
   await expect(card(page, title).getByRole('button', { name: `Buy ${title}` })).toBeDisabled();
-  expect(sends).toBe(1);
+  page.off('request', watch);
+  expect(purchasesSent).toEqual([sent]);
   const lateMine = (await myPurchases(late)).filter((p) => p.listingId === listingId);
   expect(lateMine).toEqual([
     expect.objectContaining({ id: sent, status: 'settled', price, hold: expect.objectContaining({ state: 'held' }) }),
@@ -374,7 +340,7 @@ test(`${J} #6 requests a refund inside the window, or lets the window end: the r
   const { who, seller, title, listingId, purchaseId, pot } = run.read();
   expect(purchaseId, 'a purchase from #4').toBeTruthy();
   const price = await priceOf(who, listingId);
-  const { commission, net } = split(price);
+  const { commission, net } = split(price, await commissionBps(who));
   const house = (await houseFees()).accountId;
   const sellerBefore = await usdt(seller);
   const before = await usdt(who);
@@ -463,12 +429,14 @@ test(`${J} #6 requests a refund inside the window, or lets the window end: the r
     await expect(purchaseRow(page, bought.id).getByRole('button', { name: 'Ask for a refund' })).toHaveCount(0);
 
     // Release and refund racing: refund asks are sent every 150 ms from a second before the window ends to a second
-    // after, while the release job runs. Each ask either books the refund or is refused as closed, and exactly one of
-    // the refund and the release is booked.
+    // after, while the release job runs. Each ask either books the refund or is refused as closed by name. An ask that
+    // reached svc-market inside the window wins: the refund books, and once a release-job run has passed the window's
+    // end the release is still refused (never booked) and the pot paid out once, to the buyer.
     const sellerBeforeRace = await usdt(seller);
     const asker = await api(who);
     const racer = await ok(await asker.post('/api/market/trpc/purchase', { listingId, purchaseId: randomUUID() }));
     const buyerBeforeRace = await usdt(who);
+    const racePot = (await heldOnce(racer.id, price)).pot;
     const ends = Date.parse(racer.hold.windowEndsAt);
     expect(Date.now(), 'the race starts before the window ends').toBeLessThan(ends - 1_000);
     const asks = [];
@@ -482,24 +450,26 @@ test(`${J} #6 requests a refund inside the window, or lets the window end: the r
       if (a.status === 200) expect(data(a)?.hold?.state).toBe('refunded');
       else expect([a.status, causeOf(a.body)?.code]).toEqual([412, 'market.refund_window_closed']);
     }
-    await expect.poll(async () => (await purchaseOf(who, racer.id)).hold.state, { timeout: 120_000, intervals: [2_000] }).not.toBe('held');
-    const raceRefund = await booked(`market:refund:${racer.id}:1`);
-    const raceRelease = await booked(`market:release:${racer.id}`);
-    expect([raceRefund.found, raceRelease.found].filter(Boolean)).toHaveLength(1);
-    raced = await purchaseOf(who, racer.id);
-    const refundWon = answers.some((a) => a.status === 200);
-    const early = answers.filter((a) => a.sentAt < ends);
+    // Sent at least half a second inside the window: these reached svc-market before it ended, so they book the refund.
+    const inside = answers.filter((a) => a.sentAt < ends - 500);
+    expect(inside.length).toBeGreaterThan(0);
+    expect(inside.map((a) => a.status)).toEqual(inside.map(() => 200));
     test.info().annotations.push({
       type: 'race',
-      description: `${refundWon ? 'the refund' : 'the release'} booked; ${answers.filter((a) => a.status === 200).length} of ${answers.length} asks answered refunded, ${early.length} sent before the window ended`,
+      description: `${answers.filter((a) => a.status === 200).length} of ${answers.length} asks answered refunded; ${inside.length} sent inside the window`,
     });
-    expect(raced.hold.state).toBe(refundWon ? 'refunded' : 'released');
-    expect(raceRefund.found).toBe(refundWon);
-    const racePot = (await heldOnce(racer.id, price)).pot;
-    const paidOut = (refundWon ? raceRefund : raceRelease).postings.filter((e) => e.side === 'source');
-    expect(paidOut).toEqual([expect.objectContaining({ accountId: racePot, amount: price, balanceAfter: '0' })]);
-    expect(toUnits((await usdt(who)).free)).toBe(toUnits(buyerBeforeRace.free) + (refundWon ? toUnits(price) : 0n));
-    expect(toUnits((await usdt(seller)).free)).toBe(toUnits(sellerBeforeRace.free) + (refundWon ? 0n : net));
+    // One release-job run (every 30 s) past the window's end, so the release job has had its turn at this purchase.
+    await new Promise((r) => setTimeout(r, Math.max(0, ends + 40_000 - Date.now())));
+    const raceRefund = await booked(`market:refund:${racer.id}:1`);
+    expect(raceRefund).toMatchObject({ found: true, module: 'market' });
+    expect(await booked(`market:release:${racer.id}`)).toMatchObject({ found: false });
+    raced = await purchaseOf(who, racer.id);
+    expect(raced.hold).toMatchObject({ state: 'refunded', refundTxId: raceRefund.txId, releaseTxId: null });
+    expect(raceRefund.postings.filter((e) => e.side === 'source')).toEqual([
+      expect.objectContaining({ accountId: racePot, amount: price, balanceAfter: '0' }),
+    ]);
+    expect(toUnits((await usdt(who)).free)).toBe(toUnits(buyerBeforeRace.free) + toUnits(price));
+    expect(await usdt(seller)).toEqual(sellerBeforeRace);
   } finally {
     refundPolicy('test');
   }
@@ -574,7 +544,7 @@ test(`${J} #8 opens /market/purchases: price, window and status for each; a pend
   for (const p of inventory) {
     const row = purchaseRow(page, p.id);
     await expect(row).toHaveCount(1);
-    await expect(row).toContainText(new RegExp(`Price\\s*${p.price}\\s*${p.assetId}`));
+    await expect(row).toContainText(new RegExp(`Price\\s*${literal(p.price)}\\s*${literal(p.assetId)}`));
     await expect(row.locator(`time[datetime="${p.hold.windowEndsAt}"]`)).toHaveCount(1);
     await expect(row).toContainText(new RegExp(`Status\\s*${statusOf(p)}`));
     await row.getByRole('button', { name: 'Inspect purchase' }).click();

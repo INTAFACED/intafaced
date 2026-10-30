@@ -7,6 +7,7 @@ import { Button, Panel } from '../../shared/ui';
 import { Details, Limit, Read, Select, presentActionFailure, type ActionControls } from './common';
 import { t as copyText, Text } from './copy';
 import { Workbook } from './Workbook';
+import { AcademyCoach } from './AcademyCoach';
 import { academyLearningCopy as copy } from './academy-learning-copy';
 import { isAcademyPath, rememberLastLesson } from './academy-lms';
 import { useAcademyTracking } from './academy-tracking';
@@ -534,6 +535,7 @@ export function AcademyLearning({
                           </a>
                         </div>
                         {lesson.kind === 'workbook' && <Workbook slug={lesson.slug} />}
+                        <AcademyCoach lessonSlug={lesson.slug} />
                         <Read resource={overview.resource} retry={overview.reload}>
                           {(data) => <ReaderPager slug={lesson.slug} path={lesson.path} lessons={data.lessons} certId={certId} />}
                         </Read>

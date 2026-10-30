@@ -36,6 +36,7 @@ import { guarded } from './control-errors.js';
 import { notBuilt } from './errors.js';
 import { merchantReserveViewSchema } from '../merchant-pay-dev-out/reserve-read.js';
 import { ownMerchantRead } from '../own-merchant-read.js';
+import { projectTierList } from '../team-read-projection.js';
 
 /**
  * `merchantControl.*` — the merchant-facing control room.
@@ -132,8 +133,10 @@ export function createMerchantControlRouter(control?: ControlService) {
           .output(merchantTierListSchema)
           .query(({ ctx, input }) =>
             guarded(async () => {
-              await control.assertCanView(principalOf(ctx), input.merchantId);
-              return control.merchantTierList(input.merchantId);
+              const principal = principalOf(ctx);
+              await control.assertCanView(principal, input.merchantId);
+              const role = await control.roleOnMerchant(principal, input.merchantId);
+              return projectTierList(await control.merchantTierList(input.merchantId), role);
             }),
           ),
       }),

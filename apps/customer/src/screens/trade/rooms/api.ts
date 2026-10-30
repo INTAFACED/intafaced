@@ -15,10 +15,33 @@ export { algoProgressSchema, otcFillSchema, otcQuoteSchema };
 /** `algo.get` also sends the schedule clock and the participation rate; the legacy schema drops them. */
 export const algoParentSchema = algoSchema.extend({
   participationBps: z.number().int().nullable().optional(),
+  povBasis: z.enum(['traded_volume', 'opposite_liquidity']).nullable().optional(),
   startedAt: z.string().nullable().optional(),
   nextDueAt: z.string().nullable().optional(),
   scheduleStretchReason: z.string().nullable().optional(),
+  randomSeed: z.number().int().nullable().optional(),
+  triggerPrice: decimalSchema.nullable().optional(),
+  triggeredAt: z.string().nullable().optional(),
+  awaitingTrigger: z.boolean().optional(),
+  plannedSliceQtys: z.array(decimalSchema).optional(),
+  /** `algo.get` children: each placed size and, for POV, the volume or book size it was a share of. */
+  children: z
+    .array(z.object({ sliceIndex: z.number().int(), qty: decimalSchema.optional(), basisQty: decimalSchema.nullable().optional() }))
+    .optional(),
 });
+export type PovBasis = 'traded_volume' | 'opposite_liquidity';
+
+/** `algo.result`: per quote asset, the average price of the real child fills — null while nothing has filled. */
+export const algoResultSchema = z.object({
+  quotes: z.array(z.object({ quoteAsset: z.string(), filledQty: decimalSchema, averageFillPrice: decimalSchema.nullable() })),
+});
+export type AlgoResult = z.infer<typeof algoResultSchema>;
+
+/** `algo.list`: the person's schedules as the service keeps them, newest first, so every browser shows the same list. */
+export const algoListSchema = z.object({ rows: z.array(z.object({ id: z.string() })), nextCursor: z.string().nullable() });
+export type AlgoListPage = z.infer<typeof algoListSchema>;
+/** Schedules the room lists at a time. The service refuses a list read without a limit. */
+export const ALGO_LIST_PAGE = 50;
 export type AlgoParent = z.infer<typeof algoParentSchema>;
 export type AlgoProgress = z.infer<typeof algoProgressSchema>;
 
@@ -46,6 +69,8 @@ export const deskStatusSchema = z.object({
   residual: z.string().nullable().optional(),
   /** CB-otc-11: the base assets the desk quotes; null when the owner left the list blank. */
   assets: z.array(z.string()).nullable().optional(),
+  /** CB-otc-08: the lowest verification level the desk prices for; null when the owner left it blank. */
+  minTier: z.string().nullable().optional(),
   makerRouting: z.object({ published: z.boolean(), residual: z.string().nullable().optional() }).optional(),
   midFeed: z.object({ wiring: z.string(), published: z.boolean(), residual: z.string().nullable().optional() }).optional(),
 });
@@ -121,7 +146,22 @@ export interface CreateTwapInput {
   clientAlgoId: string;
   limitPrice?: string;
   participationBps?: number;
+  /** POV only: traded volume (default) or opposite-side liquidity. */
+  povBasis?: PovBasis;
+  /** TWAP only: random slice sizes fixed by this seed. */
+  randomSeed?: number;
+  /** TWAP only: the schedule waits until the mark reaches this price. */
+  triggerPrice?: string;
 }
+
+export interface PreviewSizesInput {
+  symbol: string;
+  totalQty: string;
+  durationMs: number;
+  sliceIntervalMs: number;
+  randomSeed?: number;
+}
+export const previewSizesSchema = z.object({ sliceQtys: z.array(decimalSchema) });
 
 export interface BatchOrder {
   symbol: string;
@@ -149,6 +189,9 @@ export function createRoomApi(api: ApiClient) {
     algoPolicy: (signal?: AbortSignal) => api.query('trade', 'algo.policy', undefined, algoPolicySchema, { signal }),
     algoCreate: (input: CreateTwapInput) => api.mutate('trade', 'algo.createTwap', input, algoParentSchema),
     algoGet: (algoId: string, signal?: AbortSignal) => api.query('trade', 'algo.get', { algoId }, algoParentSchema, { signal }),
+    algoPreviewSizes: (input: PreviewSizesInput) => api.query('trade', 'algo.previewTwapSizes', input, previewSizesSchema),
+    algoResult: (algoId: string, signal?: AbortSignal) => api.query('trade', 'algo.result', { algoId }, algoResultSchema, { signal }),
+    algoList: (signal?: AbortSignal) => api.query('trade', 'algo.list', { limit: ALGO_LIST_PAGE }, algoListSchema, { signal }),
     algoProgress: (algoId: string, signal?: AbortSignal) => api.query('trade', 'algo.progress', { algoId }, algoProgressSchema, { signal }),
     algoAction: (action: 'pause' | 'resume' | 'cancel', algoId: string) =>
       api.mutate('trade', `algo.${action}`, { algoId }, algoParentSchema),

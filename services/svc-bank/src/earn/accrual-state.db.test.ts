@@ -155,7 +155,7 @@ describe('earn accrual state (BK-earn-01)', () => {
     expect(theirs!.accrual).toBe('accruing');
   });
 
-  it('a closed pool pays nothing, and a saving whose day rounds to nothing earns nothing: each says so', async () => {
+  it('a closed pool keeps paying the savings it holds (BK-earn-04), and a saving whose day rounds to nothing says so', async () => {
     const bank = services();
     const { id: poolId } = await pool(bank);
     const dust = await bank.earn.createPool({ assetId: 'USDT', kind: 'flexible', name: 'TEST dust', aprBps: 1, minDeposit: amt('0') });
@@ -163,6 +163,8 @@ describe('earn accrual state (BK-earn-01)', () => {
     await bank.earn.deposit({ poolId, userId: CUSTOMER, amount: amt('20'), positionId: randomUUID(), now: new Date(Date.now() - DAY) });
     expect((await saver(bank).earn.positions({ limit: 10, poolId: dust.id })).map((row) => row.accrual)).toEqual(['below_unit']);
     await sql`UPDATE bank.earn_pools SET status = 'closed' WHERE id = ${poolId}`;
-    expect((await saver(bank).earn.positions({ limit: 10, poolId })).map((row) => row.accrual)).toEqual(['pool_closed']);
+    expect((await saver(bank).earn.positions({ limit: 10, poolId })).map((row) => row.accrual)).toEqual(['accruing']);
+    // 20 at 36.5% is 0.02 a day, paid by the closed pool to its one saver.
+    expect(await bank.earn.accrue({ poolId, at: new Date() })).toMatchObject({ paid: amt('0.02'), recipients: 1 });
   });
 });

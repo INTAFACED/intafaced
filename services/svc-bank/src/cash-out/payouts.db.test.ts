@@ -48,8 +48,9 @@ const migrations = readdirSync(drizzle)
   .sort()
   .map((file) => readFileSync(join(drizzle, file), 'utf8'));
 
-const OPEN: SecurityLockPort = { read: async () => ({ locked: false, unlocksAt: null }) };
-const LOCKED: SecurityLockPort = { read: async () => ({ locked: true, unlocksAt: null }) };
+const OPEN: SecurityLockPort = { read: async () => ({ locked: false, unlocksAt: null, selfFrozen: false }) };
+const LOCKED: SecurityLockPort = { read: async () => ({ locked: true, unlocksAt: null, selfFrozen: false }) };
+const SELF_FROZEN: SecurityLockPort = { read: async () => ({ locked: false, unlocksAt: null, selfFrozen: true }) };
 
 const codeOf = (err: unknown) => (err instanceof BankError ? err.code : (err as { cause?: { code?: string } }).cause?.code);
 
@@ -275,6 +276,32 @@ describe('cash out that pays out, with the TEST payout stand-in (J-bank-03 #4/#5
       expect(ledger.journal()).toHaveLength(posts);
       expect(await held(requestId)).toBe(parseAmount('20'));
       expect(await available()).toBe(parseAmount('30'));
+    });
+
+    it("while the owner's self-freeze is open the re-drive holds nothing new and pays nothing; lifted, it carries on", async () => {
+      const id = await usable();
+      const unheld = await left(id, false);
+      const posts = ledger.journal().length;
+      expect(await services(SIM, SELF_FROZEN).cashOut.redrive(10)).toEqual([
+        { id: unheld, outcome: 'failed', reason: 'bank.account_frozen_self' },
+      ]);
+      expect(ledger.journal()).toHaveLength(posts);
+      expect(await held(unheld)).toBe(0n);
+      expect(await available()).toBe(parseAmount('50'));
+      expect((await as(ADA).cashOut.requests({ limit: 1 }))[0]).toMatchObject({ status: 'processing', payoutRef: null });
+      expect(await services().cashOut.redrive(10)).toEqual([{ id: unheld, outcome: 'completed' }]);
+      expect(await held(unheld)).toBe(parseAmount('20'));
+    });
+
+    it('a hold booked before the self-freeze is stamped and stays held, and the partner is not asked to pay', async () => {
+      const requestId = await left(await usable(), true);
+      const posts = ledger.journal().length;
+      expect(await services(SIM, SELF_FROZEN).cashOut.redrive(10)).toEqual([
+        { id: requestId, outcome: 'failed', reason: 'bank.account_frozen_self' },
+      ]);
+      expect(ledger.journal()).toHaveLength(posts);
+      expect(await held(requestId)).toBe(parseAmount('20'));
+      expect((await as(ADA).cashOut.requests({ limit: 1 }))[0]).toMatchObject({ status: 'processing', payoutRef: null });
     });
 
     it('a failed payout gives back a hold the ledger booked but the request never recorded', async () => {
