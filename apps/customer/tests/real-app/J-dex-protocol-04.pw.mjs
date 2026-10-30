@@ -116,6 +116,9 @@ test(`${J} #5 scans a code on a phone: an address opens Send pre-filled, a token
   await page.addInitScript(() => {
     window.__codes = [];
     window.BarcodeDetector = class {
+      static async getSupportedFormats() {
+        return ['qr_code'];
+      }
       async detect() {
         return window.__codes.length > 0 ? [{ rawValue: window.__codes.shift() }] : [];
       }

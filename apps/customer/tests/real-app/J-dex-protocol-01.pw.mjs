@@ -56,7 +56,8 @@ test(`${J} #2 a block with no data keeps its layout and names the indexer; a mal
   // The full layout: the block's details panel with its retry, and its transactions table with every header and the
   // sentence saying when its rows come.
   await expect(page.getByRole('heading', { name: 'Block details' })).toBeVisible();
-  await expect(page.locator('main').getByRole('button', { name: 'Try again' })).toBeVisible();
+  const details = page.locator('main section', { has: page.getByRole('heading', { name: 'Block details' }) });
+  await expect(details.getByRole('button', { name: 'Try again' })).toBeVisible();
   const txs = page.getByRole('region', { name: 'Transactions in this block' }).getByRole('table');
   await expect(txs.getByRole('columnheader')).toHaveText(['Hash', 'From', 'To', 'Status']);
   await expect(txs).toContainText('Its transactions are listed once the block can be read.');

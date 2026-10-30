@@ -99,6 +99,8 @@ export function SwapForm() {
   useEffect(() => {
     setQuote(null);
     setQuoteProblem(null);
+    // A failed swap belongs to the quote it was sent on: any new read (new input, Refresh, Get a new quote) clears it.
+    setTrack((shown) => (shown?.state === 'failed' ? null : shown));
     if (!tokenIn || !tokenOut || amountIn === null || candidates.length === 0) return;
     const controller = new AbortController();
     void Promise.all(
@@ -171,24 +173,25 @@ export function SwapForm() {
                   ? quoteProblem
                   : !quote
                     ? t('quoting')
-                    : expired
-                      ? t('needsRefresh')
-                      : slippageBps === null
-                        ? t('slippageInvalid')
-                        : overCeiling
-                          ? t('slippageOver', { ceiling: bpsToPercent(setting!.slippageCeilingBps) })
-                          : minOut === null
-                            ? t('minimumNone')
-                            : fees.resource.status === 'failed'
-                              ? t('feeUnread')
-                              : !fee
-                                ? t('feeLoading')
-                                : !fee.ok
-                                  ? (feeAlert ?? t('feeCustomNeeded'))
-                                  : null;
+                    : track?.state === 'failed'
+                      ? t('needsNewQuote')
+                      : expired
+                        ? t('needsRefresh')
+                        : slippageBps === null
+                          ? t('slippageInvalid')
+                          : overCeiling
+                            ? t('slippageOver', { ceiling: bpsToPercent(setting!.slippageCeilingBps) })
+                            : minOut === null
+                              ? t('minimumNone')
+                              : fees.resource.status === 'failed'
+                                ? t('feeUnread')
+                                : !fee
+                                  ? t('feeLoading')
+                                  : !fee.ok
+                                    ? (feeAlert ?? t('feeCustomNeeded'))
+                                    : null;
   const following = track?.state === 'submitted' || track?.state === 'confirming';
-  // A failed swap needs a new quote (Get a new quote clears it); the failed one is never offered again.
-  const canSwap = reason === null && !busy && !following && track?.state !== 'failed';
+  const canSwap = reason === null && !busy && !following;
 
   // Why a swap did not go through: the pool read again; under the minimum means the price moved.
   const whyFailed = async (pool: string, inToken: string, amountInUnits: bigint, min: bigint, otherwise?: string): Promise<string> => {

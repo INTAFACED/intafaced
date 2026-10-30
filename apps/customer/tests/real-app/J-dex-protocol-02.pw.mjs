@@ -131,15 +131,17 @@ test(`${J} #1 opens the swap form as a new viewer: Simple mode, no advanced cont
   const blocked = await browser.newContext();
   try {
     const away = await blocked.newPage();
+    // Both stores blocked, as a browser that blocks site data does; the page is reached in the app, never reloaded.
     await away.addInitScript(() => {
-      Object.defineProperty(window, 'localStorage', {
-        get() {
-          throw new DOMException('blocked', 'SecurityError');
-        },
-      });
+      for (const store of ['localStorage', 'sessionStorage'])
+        Object.defineProperty(window, store, {
+          get() {
+            throw new DOMException('blocked', 'SecurityError');
+          },
+        });
     });
     await connectWallet(away, dex, { tokens: [TOKEN_A, TOKEN_B] });
-    await away.goto('/dex');
+    await away.locator('header nav[data-testid="tb-nav"] a', { hasText: 'Swap' }).click();
     await expect(swap(away).getByRole('radio', { name: 'Simple' })).toBeChecked();
     // And it works: a quote is read and Swap is offered.
     await quoteAB(away);
@@ -173,6 +175,7 @@ test(`${J} #3 types an amount: a quote with a countdown; when it expires "Quote 
   await expect(swap(page).getByTestId('quote-countdown')).toHaveText(/^Refreshes in \d+ s$/);
   await expect(swap(page).getByRole('status')).toHaveText('Quote expired', { timeout: 120_000 });
   await expect(swapButton(page)).toBeDisabled();
+  await expect(swap(page)).toContainText('That swap failed on this quote. Get a new quote to swap again.');
   await swap(page).getByRole('button', { name: 'Refresh quote' }).click();
   await expect(swapButton(page)).toBeEnabled();
 });
@@ -332,6 +335,7 @@ test(`${J} #9 retries after the price moved: failed with the reason in a sentenc
   expect({ requests: wallet.requests.length, sends: wallet.sends.length }).toEqual(asked);
   // A new quote is needed: the failed one cannot be swapped again; Get a new quote reads one and offers Swap.
   await expect(swapButton(page)).toBeDisabled();
+  await expect(swap(page)).toContainText('That swap failed on this quote. Get a new quote to swap again.');
   await card.getByRole('button', { name: 'Get a new quote' }).click();
   await expect(swap(page).getByTestId('minimum-received')).toBeVisible();
   await expect(swapButton(page)).toBeEnabled();
