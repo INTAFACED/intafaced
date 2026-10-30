@@ -3,15 +3,27 @@
  * authority. TTL is owner-published; blank refuses propose.
  */
 import { createHash, timingSafeEqual } from 'node:crypto';
-import type { ActionApproval, ActionApprovalConsumeInput, ActionApprovalProposeInput } from '@intafaced/contracts';
+import type {
+  ActionApproval,
+  ActionApprovalConsumeInput,
+  ActionApprovalPolicy as GovernedPolicy,
+  ActionApprovalPolicyEntry,
+  ActionApprovalProposeInput,
+} from '@intafaced/contracts';
 import {
+  ACTION_APPROVAL_ALREADY_APPROVED,
+  ACTION_APPROVAL_AUDIENCE_MISMATCH,
+  ACTION_APPROVAL_POLICY_CHANGED,
+  ACTION_APPROVAL_POLICY_UNSET,
   SAME_PERSON_APPROVAL_TTL_SECONDS,
+  governedActionTypeOf,
   isConsumableApproval,
   isSamePersonActionType,
   namesAreNotActionApproval,
   samePersonTargetService,
 } from '@intafaced/contracts';
-import { type ApprovalSubject, type FounderDirectory, audienceOfApproval } from './action-approval-audience.js';
+import { type ActionAudience, type ApprovalSubject, type FounderDirectory, audienceOfApproval } from './action-approval-audience.js';
+import { type ApprovalPolicySource, approvalPolicyEntries } from './action-approval-policy.js';
 import {
   type ActionApprovalStore,
   type StoredApproval,
@@ -40,7 +52,11 @@ export type ActionApprovalErrorCode =
   | 'action_approval.founder_only'
   | 'action_approval.founders_unavailable'
   | 'action_approval.type_not_same_person'
-  | 'action_approval.already_terminal';
+  | 'action_approval.already_terminal'
+  | typeof ACTION_APPROVAL_POLICY_UNSET
+  | typeof ACTION_APPROVAL_POLICY_CHANGED
+  | typeof ACTION_APPROVAL_AUDIENCE_MISMATCH
+  | typeof ACTION_APPROVAL_ALREADY_APPROVED;
 
 export class ActionApprovalError extends Error {
   constructor(
@@ -59,6 +75,11 @@ export type ActionApprovalPolicy = {
    * (fail closed): an unwired directory never lets a founder-only approval through.
    */
   readonly founders?: FounderDirectory | undefined;
+  /**
+   * Owner policy rows for governed action types (OPS-change-control-01 CR-1), read again on every propose, approve and
+   * consume. Absent, every governed type is `action_approval.policy_unset`. Ungoverned types never read it.
+   */
+  readonly policies?: ApprovalPolicySource | undefined;
 };
 
 /** Constant-time equality of two hash strings of any length (both are digested first, so length does not leak). */
@@ -86,10 +107,17 @@ export class ActionApprovalService {
         'action_approval.type_not_four_eyes',
       );
     }
+    // A governed type is refused before anything else when its owner row is not set: nothing is written.
+    const governed = governedActionTypeOf(input.actionType) === null ? null : this.requirePolicy(input.actionType);
     const ttl = this.policy.ttlSeconds;
     if (ttl === undefined) {
       throw new ActionApprovalError('action-approval lifetime is unpublished; identity does not invent hours', ACTION_APPROVAL_TTL_UNSET);
     }
+    if (governed && input.targetService !== governed.applier) {
+      throw new ActionApprovalError('this action type is applied only by the service its policy names', 'action_approval.service_mismatch');
+    }
+    // The policy's maximum age caps the shared lifetime; it never lengthens it.
+    const lifetime = governed ? Math.min(ttl, governed.maxAgeSeconds) : ttl;
     const now = this.clock();
     const ids = newApprovalIds();
     const row: StoredApproval = {
@@ -105,9 +133,10 @@ export class ActionApprovalService {
       operationId: ids.operationId,
       status: 'PENDING',
       createdAt: now,
-      expiresAt: new Date(now.getTime() + ttl * 1000),
+      expiresAt: new Date(now.getTime() + lifetime * 1000),
       approvedAt: null,
       consumedAt: null,
+      ...(governed ? { approvalsRequired: governed.requiredApprovals, policyHash: governed.version, approvalsGiven: 0 } : {}),
     };
     return toActionApproval(await this.store.insert(row));
   }
@@ -163,6 +192,16 @@ export class ActionApprovalService {
     // The approver signs off on the payload they reviewed, not on an id. Constant-time, on the stored hash.
     if (!payloadHashesEqual(row.payloadHash, expectedPayloadHash)) {
       throw new ActionApprovalError('the approval is for a different payload than the one reviewed', 'action_approval.payload_mismatch');
+    }
+    const governed = this.governedPolicyOf(row);
+    if (governed) {
+      if (governed.approverAudience === 'founder') await this.requireFounders(row, { approverId });
+      const vote = await this.store.casVote(approvalId, approverId, this.clock());
+      if (vote.kind === 'already_approved') {
+        throw new ActionApprovalError('this person has already approved this request', ACTION_APPROVAL_ALREADY_APPROVED);
+      }
+      if (vote.kind === 'not_pending') throw this.terminal(await this.loadLive(approvalId), 'action_approval.not_pending');
+      return toActionApproval(vote.row);
     }
     if (audienceOfApproval(row) === 'founder') {
       // Both parties: an approval a non-founder proposed is not one a founder pair can complete.
@@ -227,14 +266,30 @@ export class ActionApprovalService {
         'action_approval.not_requester',
       );
     }
+    // Governed: the policy row is read again, must be the one the request was proposed under, and names the applier.
+    const governed = this.governedPolicyOf(row);
+    if (governed && callerService !== governed.applier) {
+      throw new ActionApprovalError('this action type is applied only by the service its policy names', 'action_approval.service_mismatch');
+    }
     if (!isConsumableApproval(toActionApproval(row))) {
       throw this.terminal(row, 'action_approval.not_approved');
     }
-    // Founder-only types: the proposer and the approver must both still be live founders NOW. This is evaluated on
-    // every consume, so a row approved before this check existed (by an operator who is not a founder) is refused
-    // here, not grandfathered. The result is attested to the target service on the returned row.
-    const founderAttestation =
-      audienceOfApproval(row) === 'founder' ? await this.requireFounders(row, { approverId: row.approverId }) : null;
+    let founderAttestation: { approverIsFounder: true; requesterIsFounder: true } | null = null;
+    if (governed) {
+      // Consumable only with at least the required distinct approvals, none of them the requester.
+      const approvers = await this.distinctApprovers(row);
+      if (approvers.length < governed.requiredApprovals) {
+        throw new ActionApprovalError('the request does not yet have the approvals its policy requires', 'action_approval.not_approved');
+      }
+      if (governed.approverAudience === 'founder') {
+        for (const approverId of approvers) founderAttestation = await this.requireFounders(row, { approverId });
+      }
+    } else if (audienceOfApproval(row) === 'founder') {
+      // Founder-only types: the proposer and the approver must both still be live founders NOW. This is evaluated on
+      // every consume, so a row approved before this check existed (by an operator who is not a founder) is refused
+      // here, not grandfathered. The result is attested to the target service on the returned row.
+      founderAttestation = await this.requireFounders(row, { approverId: row.approverId });
+    }
     const consumedAt = this.clock();
     const next = await this.store.casConsume({
       ...input,
@@ -300,7 +355,7 @@ export class ActionApprovalService {
     const rows = await this.store.listPendingExcept(callerId, limit);
     const visible = [];
     for (const row of rows) {
-      const audience = audienceOfApproval(row);
+      const audience = this.visibleAudienceOf(row);
       if (audience === 'self') continue;
       if (audience === 'founder' && access.founder) visible.push(toActionApproval(row));
       else if (audience === 'trade_ops' && access.tradeOps) visible.push(toActionApproval(row));
@@ -324,7 +379,7 @@ export class ActionApprovalService {
       row.requesterId.toLowerCase() === callerId.toLowerCase() ||
       (row.approverId !== null && row.approverId.toLowerCase() === callerId.toLowerCase());
     if (!party) {
-      const audience = audienceOfApproval(row);
+      const audience = this.visibleAudienceOf(row);
       const allowed =
         audience === 'founder'
           ? access.founder
@@ -392,6 +447,95 @@ export class ActionApprovalService {
       );
     }
     return { approverIsFounder: true, requesterIsFounder: true };
+  }
+
+  /**
+   * Who may propose, approve or reject this request. A governed type answers with its policy's audience, or refuses
+   * `action_approval.policy_unset` when the row is not set. Every other request keeps `audienceOfApproval`.
+   * `whenUnset: 'default'` (reject only) falls back to the fixed audience instead, so a pending governed request can
+   * still be turned down while its row is blank; nothing can be approved or applied that way.
+   */
+  audienceFor(subject: ApprovalSubject, whenUnset: 'refuse' | 'default' = 'refuse'): ActionAudience {
+    if (subject.kind === 'same_person' || governedActionTypeOf(subject.actionType) === null) return audienceOfApproval(subject);
+    if (whenUnset === 'default') {
+      const found = this.lookupPolicy(subject.actionType);
+      return found ? found.approverAudience : audienceOfApproval(subject);
+    }
+    return this.requirePolicy(subject.actionType).approverAudience;
+  }
+
+  /** True when the request is policy-governed, so a door can name `audience_mismatch` instead of the fixed codes. */
+  isGoverned(subject: ApprovalSubject): boolean {
+    return subject.kind !== 'same_person' && governedActionTypeOf(subject.actionType) !== null;
+  }
+
+  /** Every governed type with its policy row or `unset`, read now. */
+  policyEntries(): ActionApprovalPolicyEntry[] {
+    return approvalPolicyEntries(this.policy.policies);
+  }
+
+  /** The current row for a governed type, or null when it is unset or cannot be read (fail closed). */
+  private lookupPolicy(actionType: string): GovernedPolicy | null {
+    const type = governedActionTypeOf(actionType);
+    if (type === null || !this.policy.policies) return null;
+    try {
+      const found = this.policy.policies(type);
+      return found.state === 'set' ? found.policy : null;
+    } catch {
+      return null;
+    }
+  }
+
+  private requirePolicy(actionType: string): GovernedPolicy {
+    const found = this.lookupPolicy(actionType);
+    if (!found) {
+      throw new ActionApprovalError(
+        'the owner has not set the approval policy for this action type; nothing was changed',
+        ACTION_APPROVAL_POLICY_UNSET,
+      );
+    }
+    return found;
+  }
+
+  /**
+   * The policy a stored request is judged by, or null when it is not governed. A governed type's row must exist now and
+   * be the exact version the request was proposed under; a row that changed, or a request filed before the type was
+   * governed, is refused rather than judged by a different rule.
+   */
+  private governedPolicyOf(row: StoredApproval): GovernedPolicy | null {
+    if (row.kind === 'same_person') return null;
+    const governedType = governedActionTypeOf(row.actionType) !== null;
+    if (!governedType && row.approvalsRequired == null) return null;
+    const current = this.requirePolicy(row.actionType);
+    if (
+      !governedType ||
+      row.approvalsRequired == null ||
+      row.policyHash == null ||
+      row.policyHash !== current.version ||
+      row.approvalsRequired !== current.requiredApprovals
+    ) {
+      throw new ActionApprovalError(
+        'the approval policy for this action type changed after the request was made; propose it again',
+        ACTION_APPROVAL_POLICY_CHANGED,
+      );
+    }
+    return current;
+  }
+
+  /** Distinct recorded approvers of a governed row, none of them the requester. */
+  private async distinctApprovers(row: StoredApproval): Promise<string[]> {
+    const requester = row.requesterId.toLowerCase();
+    const seen = new Map<string, string>();
+    for (const vote of await this.store.listVotes(row.approvalId)) {
+      const key = vote.approverId.toLowerCase();
+      if (key !== requester && !seen.has(key)) seen.set(key, vote.approverId);
+    }
+    return [...seen.values()];
+  }
+
+  /** Audience used to decide who may SEE a row: never refuses, falls back to the fixed audience. */
+  private visibleAudienceOf(row: StoredApproval): ActionAudience {
+    return this.audienceFor(row, 'default');
   }
 
   /** Two strings in one body never become an approval. */

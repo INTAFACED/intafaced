@@ -50,6 +50,7 @@ export * from './ops-console-services.js';
 export * from './ops-restore-watermarks.js';
 export * from './openapi-from-zod.js';
 export * from './action-approval.js';
+export * from './action-approval-policy.js';
 export * from './action-approval-client.js';
 export * from './customer-step-up.js';
 export * from './step-up-check.js';

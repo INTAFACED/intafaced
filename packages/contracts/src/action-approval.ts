@@ -164,6 +164,12 @@ export const actionApprovalSchema = z.object({
    * A different request id is `action_approval.consumed`, not this value.
    */
   consumption: z.literal('already_consumed_by_this_request').optional(),
+  /**
+   * Policy-governed types only (OPS-change-control-01 CR-1, `POLICY_GOVERNED_ACTION_TYPES`): the distinct approvers
+   * other than the requester the request needs, and how many it has. Absent on every other row.
+   */
+  approvalsRequired: z.number().int().min(1).optional(),
+  approvalsGiven: z.number().int().min(0).optional(),
 });
 export type ActionApproval = z.infer<typeof actionApprovalSchema>;
 

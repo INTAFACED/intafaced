@@ -30,7 +30,29 @@ export type StoredApproval = {
   readonly kind?: ActionApprovalKind;
   /** Session a `same_person` row is bound to. Null/absent for four-eyes rows. */
   readonly sessionId?: string | null;
+  /**
+   * Policy-governed rows only (OPS-change-control-01 CR-1): distinct approvers other than the requester needed before the
+   * row is APPROVED, and the version of the owner policy row it was proposed under. Null/absent on every other row, which
+   * keeps the fixed one-approver rule.
+   */
+  readonly approvalsRequired?: number | null;
+  readonly policyHash?: string | null;
+  /** Distinct non-requester approvals recorded so far. 0 on rows that are not governed. */
+  readonly approvalsGiven?: number;
 };
+
+/** One recorded approval of a governed row. */
+export type ApprovalVote = { readonly approverId: string; readonly approvedAt: Date };
+
+/**
+ * Outcome of one approver's vote on a governed row. `recorded` carries the row after the vote: still PENDING below the
+ * required count, APPROVED at it. `already_approved` is this approver a second time; `not_pending` covers a missing,
+ * decided, expired, ungoverned row or the requester voting.
+ */
+export type VoteResult =
+  | { readonly kind: 'recorded'; readonly row: StoredApproval }
+  | { readonly kind: 'already_approved' }
+  | { readonly kind: 'not_pending' };
 
 /** What a consume asks the CAS to match, beyond the row's own fields. */
 export type ConsumeCas = {
@@ -62,7 +84,16 @@ export interface ActionApprovalStore {
   /** Newest first. PENDING rows somebody else filed. Audience filtering is the service's job. */
   listPendingExcept(requesterId: string, limit: number): Promise<StoredApproval[]>;
   casExpire(approvalId: string, now: Date): Promise<StoredApproval | null>;
+  /** The fixed one-approver rule. Never approves a governed row (it has `approvalsRequired`). */
   casApprove(approvalId: string, approverId: string, now: Date): Promise<StoredApproval | null>;
+  /**
+   * One approver's vote on a governed row, atomically: the row is locked, the vote recorded once per person, the distinct
+   * non-requester votes counted, and the row turned APPROVED (approver = the person whose vote reached the count) when
+   * the count reaches `approvalsRequired`. Concurrent votes are serialised on the row, so the count is exact.
+   */
+  casVote(approvalId: string, approverId: string, now: Date): Promise<VoteResult>;
+  /** Recorded votes of one row, oldest first. Empty for a row that is not governed. */
+  listVotes(approvalId: string): Promise<ApprovalVote[]>;
   casReject(approvalId: string, actorId: string, now: Date): Promise<StoredApproval | null>;
   casRevoke(approvalId: string, actorId: string, now: Date): Promise<StoredApproval | null>;
   casConsume(input: ConsumeCas): Promise<StoredApproval | null>;
@@ -88,6 +119,7 @@ export function toActionApproval(row: StoredApproval): ActionApproval {
     expiresAt: row.expiresAt.toISOString(),
     status: row.status,
     operationId: row.operationId,
+    ...(row.approvalsRequired != null ? { approvalsRequired: row.approvalsRequired, approvalsGiven: row.approvalsGiven ?? 0 } : {}),
   };
 }
 
@@ -104,6 +136,7 @@ export function approvalProvenance(row: StoredApproval): {
 
 export class MemoryActionApprovalStore implements ActionApprovalStore {
   private readonly rows = new Map<string, StoredApproval>();
+  private readonly votes = new Map<string, ApprovalVote[]>();
 
   async insert(row: StoredApproval): Promise<StoredApproval> {
     if (this.rows.has(row.approvalId)) throw new Error('action_approval.duplicate');
@@ -142,11 +175,34 @@ export class MemoryActionApprovalStore implements ActionApprovalStore {
   async casApprove(approvalId: string, approverId: string, now: Date): Promise<StoredApproval | null> {
     const row = this.rows.get(approvalId);
     if (!row || row.status !== 'PENDING') return null;
+    if (row.approvalsRequired != null) return null;
     if (row.requesterId === approverId) return null;
     if (row.expiresAt.getTime() <= now.getTime()) return null;
     const next: StoredApproval = { ...row, status: 'APPROVED', approverId, approvedAt: now };
     this.rows.set(approvalId, next);
     return next;
+  }
+
+  async casVote(approvalId: string, approverId: string, now: Date): Promise<VoteResult> {
+    const row = this.rows.get(approvalId);
+    if (!row || row.status !== 'PENDING' || row.approvalsRequired == null) return { kind: 'not_pending' };
+    if (row.requesterId.toLowerCase() === approverId.toLowerCase()) return { kind: 'not_pending' };
+    if (row.expiresAt.getTime() <= now.getTime()) return { kind: 'not_pending' };
+    const votes = this.votes.get(approvalId) ?? [];
+    if (votes.some((v) => v.approverId.toLowerCase() === approverId.toLowerCase())) return { kind: 'already_approved' };
+    const nextVotes = [...votes, { approverId, approvedAt: now }];
+    this.votes.set(approvalId, nextVotes);
+    const given = nextVotes.filter((v) => v.approverId.toLowerCase() !== row.requesterId.toLowerCase()).length;
+    const reached = given >= row.approvalsRequired;
+    const next: StoredApproval = reached
+      ? { ...row, approvalsGiven: given, status: 'APPROVED', approverId, approvedAt: now }
+      : { ...row, approvalsGiven: given };
+    this.rows.set(approvalId, next);
+    return { kind: 'recorded', row: next };
+  }
+
+  async listVotes(approvalId: string): Promise<ApprovalVote[]> {
+    return [...(this.votes.get(approvalId) ?? [])];
   }
 
   async casReject(approvalId: string, actorId: string, now: Date): Promise<StoredApproval | null> {
@@ -181,6 +237,10 @@ export class MemoryActionApprovalStore implements ActionApprovalStore {
     if (row.targetId !== input.targetId) return null;
     if (row.expectedVersion !== input.expectedVersion) return null;
     if (row.expiresAt.getTime() <= input.now.getTime()) return null;
+    if (row.approvalsRequired != null) {
+      const given = (this.votes.get(row.approvalId) ?? []).filter((v) => v.approverId.toLowerCase() !== row.requesterId.toLowerCase());
+      if (given.length < row.approvalsRequired) return null;
+    }
     const next: StoredApproval = {
       ...row,
       status: 'CONSUMED',
@@ -228,6 +288,9 @@ type DbRow = {
   consumed_request_id: string | null;
   kind: ActionApprovalKind;
   session_id: string | null;
+  approvals_required: number | null;
+  approvals_given: number;
+  policy_hash: string | null;
 };
 
 function fromDb(row: DbRow): StoredApproval {
@@ -252,12 +315,16 @@ function fromDb(row: DbRow): StoredApproval {
     consumedRequestId: row.consumed_request_id,
     kind: row.kind,
     sessionId: row.session_id,
+    approvalsRequired: row.approvals_required,
+    approvalsGiven: row.approvals_given,
+    policyHash: row.policy_hash,
   };
 }
 
 const SELECT_COLS = `approval_id, action_type, target_service, target_id, expected_version, payload_hash,
   requester_id, approver_id, policy_version, operation_id, status, created_at, expires_at, approved_at, consumed_at,
-  consumed_by_service, consumed_by_principal, consumed_request_id, kind, session_id`;
+  consumed_by_service, consumed_by_principal, consumed_request_id, kind, session_id,
+  approvals_required, approvals_given, policy_hash`;
 
 export class SqlActionApprovalStore implements ActionApprovalStore {
   constructor(private readonly sql: Sql) {}
@@ -267,12 +334,12 @@ export class SqlActionApprovalStore implements ActionApprovalStore {
       INSERT INTO action_approvals (
         approval_id, action_type, target_service, target_id, expected_version, payload_hash,
         requester_id, approver_id, policy_version, operation_id, status, created_at, expires_at, approved_at, consumed_at,
-        kind, session_id
+        kind, session_id, approvals_required, policy_hash
       ) VALUES (
         ${row.approvalId}, ${row.actionType}, ${row.targetService}, ${row.targetId}, ${row.expectedVersion}, ${row.payloadHash},
         ${row.requesterId}, ${row.approverId}, ${row.policyVersion}, ${row.operationId}, ${row.status},
         ${row.createdAt}, ${row.expiresAt}, ${row.approvedAt}, ${row.consumedAt},
-        ${row.kind ?? 'four_eyes'}, ${row.sessionId ?? null}
+        ${row.kind ?? 'four_eyes'}, ${row.sessionId ?? null}, ${row.approvalsRequired ?? null}, ${row.policyHash ?? null}
       )
       RETURNING ${this.sql.unsafe(SELECT_COLS)}
     `;
@@ -325,11 +392,66 @@ export class SqlActionApprovalStore implements ActionApprovalStore {
       SET status = 'APPROVED', approver_id = ${approverId}, approved_at = ${now}
       WHERE approval_id = ${approvalId}
         AND status = 'PENDING'
+        AND approvals_required IS NULL
         AND requester_id <> ${approverId}
         AND expires_at > ${now}
       RETURNING ${this.sql.unsafe(SELECT_COLS)}
     `;
     return rows[0] ? fromDb(rows[0]) : null;
+  }
+
+  async casVote(approvalId: string, approverId: string, now: Date): Promise<VoteResult> {
+    return this.sql.begin(async (tx): Promise<VoteResult> => {
+      // The row lock serialises every vote on this request, so two approvers at once are counted exactly.
+      const locked = await tx<DbRow[]>`
+        SELECT ${tx.unsafe(SELECT_COLS)} FROM action_approvals WHERE approval_id = ${approvalId} FOR UPDATE
+      `;
+      const row = locked[0];
+      if (
+        !row ||
+        row.status !== 'PENDING' ||
+        row.approvals_required === null ||
+        row.requester_id.toLowerCase() === approverId.toLowerCase() ||
+        new Date(row.expires_at).getTime() <= now.getTime()
+      ) {
+        return { kind: 'not_pending' };
+      }
+      const inserted = await tx<{ approval_id: string }[]>`
+        INSERT INTO action_approval_votes (approval_id, approver_id, approved_at)
+        VALUES (${approvalId}, ${approverId}, ${now})
+        ON CONFLICT DO NOTHING
+        RETURNING approval_id
+      `;
+      if (!inserted[0]) return { kind: 'already_approved' };
+      const updated = await tx<DbRow[]>`
+        WITH given AS (
+          SELECT count(*)::int AS n FROM action_approval_votes v
+          WHERE v.approval_id = ${approvalId} AND lower(v.approver_id) <> lower(${row.requester_id})
+        )
+        UPDATE action_approvals a
+        SET approvals_given = given.n,
+            status = CASE WHEN given.n >= a.approvals_required THEN 'APPROVED' ELSE a.status END,
+            approver_id = CASE WHEN given.n >= a.approvals_required THEN ${approverId} ELSE a.approver_id END,
+            approved_at = CASE WHEN given.n >= a.approvals_required THEN ${now}::timestamptz ELSE a.approved_at END
+        FROM given
+        WHERE a.approval_id = ${approvalId} AND a.status = 'PENDING'
+        RETURNING ${tx.unsafe(SELECT_COLS)}
+      `;
+      if (!updated[0]) return { kind: 'not_pending' };
+      return { kind: 'recorded', row: fromDb(updated[0]) };
+    });
+  }
+
+  async listVotes(approvalId: string): Promise<ApprovalVote[]> {
+    const rows = await this.sql<{ approver_id: string; approved_at: Date }[]>`
+      SELECT approver_id, approved_at FROM action_approval_votes
+      WHERE approval_id = ${approvalId}
+      ORDER BY approved_at ASC, approver_id ASC
+    `;
+    return rows.map((r) => ({
+      approverId: r.approver_id,
+      approvedAt: r.approved_at instanceof Date ? r.approved_at : new Date(r.approved_at),
+    }));
   }
 
   async casReject(approvalId: string, actorId: string, now: Date): Promise<StoredApproval | null> {
@@ -393,6 +515,13 @@ export async function sqlCasConsume(sql: Sql, input: ConsumeCas): Promise<Stored
       AND target_id = ${input.targetId}
       AND expected_version = ${input.expectedVersion}
       AND expires_at > ${input.now}
+      AND (
+        approvals_required IS NULL
+        OR (
+          SELECT count(*) FROM action_approval_votes v
+          WHERE v.approval_id = action_approvals.approval_id AND lower(v.approver_id) <> lower(action_approvals.requester_id)
+        ) >= approvals_required
+      )
       AND (
         (kind = 'same_person' AND requester_id = ${principalUserId}::text AND session_id = ${principalSessionId}::text)
         OR (kind <> 'same_person' AND ${principalUserId}::text IS NULL AND ${principalSessionId}::text IS NULL)

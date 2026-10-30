@@ -68,6 +68,7 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, STATE, CUSTOMER_LOCALHOST_ORI
     // local test operators (tooling/scripts/local-test-gates.mjs) use it to open markets and verify
     // test accounts; "LOCAL TEST — not a real approval".
     IDENTITY_ACTION_APPROVAL_TTL_SECONDS: '600',
+    IDENTITY_ACTION_APPROVAL_POLICIES: testValue('IDENTITY_ACTION_APPROVAL_POLICIES'),
     // LOCAL TEST ONLY. The identity service refuses email confirmation until a mail
     // transport, a lifetime, and a rate budget are published. local-outbox is refused
     // at boot unless APP_ENV is exactly dev or test. These numbers are for this stack,
