@@ -10,6 +10,8 @@ import { createLedgerClient } from './ledger-client.js';
 import { startMiningJobs } from './epoch-jobs.js';
 import { edgeTrustFromProcessEnv } from './edge-trust.js';
 import { listenHost } from './listen-host.js';
+import { MiningError } from './errors.js';
+import { readStratumTerms, startStratumDoor } from './stratum-door.js';
 
 const port = Number.parseInt(process.env.HTTP_PORT ?? '4023', 10);
 const ledgerUrl = process.env.LEDGER_URL?.trim();
@@ -66,4 +68,21 @@ if (isDirectRun()) {
     void handler(request, response);
   });
   server.listen(port, listenHost());
+  openMinerDoor();
+}
+
+/** The miner door opens only with a database and all its published terms; otherwise the log names why it stays shut. */
+function openMinerDoor(): void {
+  if (!sql) {
+    console.error('[stratum] miner door closed: mining.pg_unavailable');
+    return;
+  }
+  try {
+    startStratumDoor({ sql, env: process.env, terms: readStratumTerms(process.env) }, listenHost()).on('error', (error) =>
+      console.error('[stratum] miner door failed', error),
+    );
+  } catch (error) {
+    if (!(error instanceof MiningError)) throw error;
+    console.error(`[stratum] miner door closed: ${error.code}`);
+  }
 }

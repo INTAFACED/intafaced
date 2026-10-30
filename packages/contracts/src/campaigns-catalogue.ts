@@ -66,6 +66,7 @@ export const CAMPAIGN_REFUSAL_CODES = [
   'campaigns.reward_saga_unwired',
   'campaigns.funding_unknown',
   'campaigns.funding_reference_taken',
+  'campaigns.not_voucher',
   'owner.decision',
 ] as const;
 export type CampaignRefusalCode = (typeof CAMPAIGN_REFUSAL_CODES)[number];
@@ -532,6 +533,47 @@ export const campaignUpdateInputSchema = z
 export const campaignTransitionInputSchema = z
   .object({ id, action: z.enum(CAMPAIGN_ACTIONS), revision: z.number().int().positive() })
   .strict();
+
+// ── Vouchers (CM-vouchers-coupons-01, CM-campaign-types-01 T-3) ────────────────────────────────────────────────────
+
+/** A voucher instance's states (ENGINE VC-1). Issuing publishes one; claim and use are J-campaigns-08. */
+export const VOUCHER_STATES = [
+  'generated',
+  'published',
+  'active',
+  'claimed',
+  'partially_used',
+  'used',
+  'expired',
+  'forfeited',
+  'deactivated',
+] as const;
+export type VoucherState = (typeof VOUCHER_STATES)[number];
+
+/**
+ * A voucher of a voucher campaign. It keeps the revision it was issued under and that revision's reward as its face value:
+ * a later approved revision changes the vouchers issued after it, never one already published (T-3). The face value is a
+ * counter, not a balance: nothing is held for it.
+ */
+export const campaignVoucherSchema = z.object({
+  id,
+  campaignId: id,
+  code: z.string(),
+  revision: z.number().int().positive(),
+  face: z.object({ asset, amount: campaignDecimal }),
+  state: z.enum(VOUCHER_STATES),
+  issuedBy: z.string(),
+  issuedAt: iso,
+});
+export type CampaignVoucher = z.infer<typeof campaignVoucherSchema>;
+
+/** A voucher code: 4 to 32 letters, digits or hyphens, stored upper case. With the campaign it is the issue's business key. */
+export const voucherCode = z.string().regex(/^[A-Za-z0-9-]{4,32}$/);
+export const voucherIssueInputSchema = z.object({ campaignId: id, code: voucherCode }).strict();
+/** The most vouchers one read lists, newest first; the screen says when a campaign has at least this many. */
+export const VOUCHER_LIST_LIMIT = 500;
+
+export const voucherListInputSchema = z.object({ campaignId: id }).strict();
 
 /** The gate's answer: every blank by name, in order. Empty means the campaign may go live. */
 export const campaignGateSchema = z.object({

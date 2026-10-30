@@ -410,6 +410,13 @@ export type TradeErrorCode =
    */
   | 'trade.futures_disabled'
   | 'trade.seed_disabled'
+  // The token buyback's IOC buy (buyback-order.ts): a house order on the other side, a bad command, a retry while the
+  // first is still settling, the same run id for another command, and a book this service could not read for house asks.
+  | 'trade.buyback_house_maker'
+  | 'trade.buyback_invalid'
+  | 'trade.buyback_in_flight'
+  | 'trade.buyback_conflict'
+  | 'trade.buyback_book_unreadable'
   | 'trade.seed_must_make'
   | 'trade.order_not_found'
   // An order-history page cursor that is not one of the caller's orders.
@@ -567,6 +574,10 @@ export type TradeErrorCode =
   | 'trade.otc_already_settled'
   | 'trade.otc_settle_refused'
   | 'trade.rfq_missing_size'
+  /** CB-otc-07: the owner has not set the desk minimum for this quote asset; the request refuses. */
+  | 'trade.rfq_size_not_set'
+  /** CB-otc-07: the request's notional at the reference mid is below the owner's desk minimum. */
+  | 'trade.rfq_below_minimum'
   | 'trade.rfq_missing_price'
   | 'trade.rfq_already_bound'
   | 'trade.rfq_allocation_refused'
@@ -653,6 +664,7 @@ export type TradeErrorCode =
   | 'trade.iceberg_display_not_smaller'
   /** REST iceberg door: peak is not a positive lot-multiple strictly below the order, or the order is not a limit in a PLACE lifecycle. */
   | 'trade.iceberg_display_invalid'
+  | 'trade.iceberg_symbol_cap'
   | 'trade.stop_trigger_invalid'
   /** Option without a caller strike — trade does not invent a mark. */
   | 'trade.missing_strike'

@@ -22,14 +22,23 @@ export type OtcErrorCode =
   | 'trade.convert_out_of_bounds'
   | 'trade.convert_flow_side_refused'
   | 'trade.rfq_missing_size'
+  | 'trade.rfq_size_not_set'
+  | 'trade.rfq_below_minimum'
   | 'trade.rfq_missing_price'
   | 'trade.rfq_already_bound'
+  | 'trade.rfq_window_passed'
   | 'trade.rfq_allocation_refused'
   | 'trade.rfq_give_up_refused'
   | 'trade.otc_makers_unset'
   | 'trade.otc_provider_required'
   | 'trade.otc_provider_cap'
-  | 'trade.otc_provider_unknown';
+  | 'trade.otc_provider_unknown'
+  | 'trade.otc_assets_unset'
+  | 'trade.otc_asset_unlisted'
+  | 'trade.otc_level_unset'
+  | 'trade.otc_level_insufficient'
+  /** NotConnected (allowlisted blocker class): a provider routed to an outside venue the platform has no feed for. */
+  | 'feed.market';
 
 export class OtcError extends Error {
   constructor(

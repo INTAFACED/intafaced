@@ -44,7 +44,7 @@ function storeOf(sql: Sql | undefined): UserSpendStore {
  * (`kid` or `sub_account`) is not the person, even if it copied both scopes.
  * A service on the same request is refused by `scopedProcedure(..., { person: true })`.
  */
-function assertPersonSetsLimits(principal: Principal): void {
+export function assertPersonSetsLimits(principal: Principal): void {
   if (principal.kid || principal.sub_account || !hasScope(principal.scopes, 'identity:write')) {
     throw new TRPCError({ code: 'FORBIDDEN', message: 'A signed-in user session is required' });
   }

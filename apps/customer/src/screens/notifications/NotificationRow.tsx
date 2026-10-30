@@ -1,10 +1,11 @@
 import type { MouseEvent } from 'react';
 import { Award, Bell, CircleCheck, CircleX, ShieldCheck, type LucideIcon } from 'lucide-react';
 import { usePreferences } from '../../shared/preferences';
-import { navigate, refusalCopy, StateBlock } from './deps';
+import { isTestBuild } from '../../shared/test-build';
+import { navigate, refusalCopy, StateBlock, StatusTag } from './deps';
 import { notifyCopy } from './copy';
 import type { Notification } from './notify-api';
-import { describe, fullTime, linkFor, whenLabel, type NotifyIcon, type NotifyMarket } from './notify-view';
+import { carriesFigure, describe, fullTime, linkFor, whenLabel, type NotifyIcon, type NotifyMarket } from './notify-view';
 import type { InboxState } from './use-notifications';
 
 const ICONS: Record<NotifyIcon, LucideIcon> = { fill: CircleCheck, ended: CircleX, verified: ShieldCheck, rank: Award, bell: Bell };
@@ -51,6 +52,7 @@ export function NotificationRow({
         ) : null}
       </span>
       <span className="nf-meta">
+        <TestFigureTag item={item} />
         <time dateTime={item.createdAt} title={fullTime(item.createdAt, timeZone, now)}>
           {label}
         </time>
@@ -81,6 +83,14 @@ export function NotificationRow({
       {inner}
     </button>
   );
+}
+
+/** On a test build every amount is TEST money, so a notification that names one says so (inbox and delivery log). */
+export function TestFigureTag({ item }: { item: Pick<Notification, 'params'> }) {
+  const copy = notifyCopy.useCopy();
+  return isTestBuild() && carriesFigure(item) ? (
+    <StatusTag data-testid="nf-test" data-status="test" status="pending" label={copy.t('TEST')} />
+  ) : null;
 }
 
 /** The failure state shared by the popover and the page: refused words from the data layer, or "Couldn't load" with Try again. */

@@ -103,6 +103,13 @@ export const copyStatusSchema = z.object({
   autoMirrorPlace: z.object({ published: z.boolean(), residual: z.string().nullable() }).optional(),
 });
 export const otcStatusSchema = z.object({ published: z.boolean(), statusLine: z.string(), residual: z.string().nullable().optional() });
+/** `otc.makers.list` (CB-otc-01): the owner's provider list and pick cap, or the honest empty state. */
+export const otcMakersSchema = z.object({
+  published: z.boolean(),
+  makers: z.array(z.object({ id: z.string(), name: z.string(), route: z.enum(['platform', 'outside']) })),
+  selectCap: z.number().nullable(),
+  emptyLabel: z.string().nullable(),
+});
 export const otcQuoteSchema = z.object({
   quoteId: z.string(),
   side,
@@ -123,6 +130,9 @@ export const otcQuoteSchema = z.object({
   lifecycle: z.string().optional(),
   acceptedAt: z.string().nullable().optional(),
   fillPrice: decimalSchema.nullable().optional(),
+  /** Deferred-settle deadline of an accepted quote; null when the owner window is blank. */
+  settleBy: z.string().nullable().optional(),
+  settleWindowMs: z.number().int().nullable().optional(),
 });
 export const otcFillSchema = z.object({
   quoteId: z.string(),
@@ -250,7 +260,8 @@ export function createToolApi(api: ApiClient) {
         z.object({ followId: z.string(), relationshipState: z.string(), newIntentFenced: z.boolean(), disposition: z.string() }),
       ),
     otcStatus: (signal?: AbortSignal) => api.query('trade', 'otc.deskStatus', undefined, otcStatusSchema, { signal }),
-    otcQuote: (input: { side: 'buy' | 'sell'; baseAsset: string; quoteAsset: string; qty: string; makerId?: string }) =>
+    otcMakers: (signal?: AbortSignal) => api.query('trade', 'otc.makers.list', undefined, otcMakersSchema, { signal }),
+    otcQuote: (input: { side: 'buy' | 'sell'; baseAsset: string; quoteAsset: string; qty: string; makerIds: string[] }) =>
       api.mutate('trade', 'rfq.quote', input, otcQuoteSchema),
     otcGet: (quoteId: string) => api.query('trade', 'rfq.get', { quoteId }, otcQuoteSchema),
     otcAccept: (quoteId: string, assertedPrice: string) => api.mutate('trade', 'otc.accept', { quoteId, assertedPrice }, otcFillSchema),

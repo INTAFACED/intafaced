@@ -3,13 +3,13 @@ import { EDGE, api, json, journeyState, tool, toUnits } from './stack.mjs';
 import { signIn, signUp, verify } from './desk.mjs';
 import { PASSKEY_ORIGIN, addPasskey, virtualAuthenticator } from './identity-factors.mjs';
 import { tableIn, bodyRows } from './tables.mjs';
+import { blankSigningWindow, signingPolicy } from './developer.mjs';
 
 // J-developer-02, in the running app (docs/roadmap/journeys.json): make a first call in the sandbox. One test per step,
 // titled "J-developer-02 #<n>". The person is a TEST account on the local stack, signed in, with a passkey for each fresh
 // step-up (as in J-developer-03) and no keys yet. Sandbox funds are TEST and never reach the live ledger, which the steps
 // check by reading the live balance before and after.
 // Steps that are written but not built yet fail at their first missing part, quickly (UNBUILT):
-// - #1, #6: /developers/quickstart says nothing is published and has no clock check (DV-portal-03, DV-auth-01).
 // - #2, #3: no named sandboxes at /developers/sandbox and no sandbox key with an environment rule (DV-sandbox-01).
 // - #4, #5, #8: no sandbox funds, reset cap or test values (DV-sandbox-02). The stack starts with the funding decision
 //   unset; #5 sets a TEST value with `local-test-gates.mjs sandbox-funds set` (proposed, not built).
@@ -64,10 +64,21 @@ test(`${J} #1 follows the trading quickstart: account, key, clock check, first c
   await page.getByRole('link', { name: 'Quickstart', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Quickstart', level: 1 })).toBeVisible();
   const steps = page.getByRole('list', { name: 'Quickstart steps' }).getByRole('listitem');
-  await expect(steps).toHaveCount(4, UNBUILT);
+  await expect(steps).toHaveCount(4);
   for (const [i, step] of ['account', 'key', 'clock', 'first call'].entries()) {
     await expect(steps.nth(i)).toContainText(new RegExp(step, 'i'));
   }
+  // Each step leads somewhere real: the key step opens the key room, the clock step reads the server, the first call
+  // opens the reference that lists the time route.
+  await expect(steps.nth(0).getByRole('link')).toHaveAttribute('href', '/register');
+  await expect(steps.nth(2).getByRole('button', { name: 'Check my clock' })).toBeVisible();
+  await steps.nth(1).getByRole('link').click();
+  await expect(page).toHaveURL(/\/uc\/safe\/api-keys$/);
+  await expect(page.getByRole('heading', { name: 'Keys on this account' })).toBeVisible();
+  await page.goBack();
+  await steps.nth(3).getByRole('link').click();
+  await expect(page.getByRole('heading', { name: 'API reference', level: 1 })).toBeVisible();
+  await expect(page.getByRole('main')).toContainText('GET /api/v1/time');
 });
 
 test(`${J} #2 creates a sandbox with a name: listed, and a second named sandbox works`, async () => {
@@ -125,11 +136,56 @@ test(`${J} #5 funds the sandbox once the decision is set: the sandbox balance ri
 });
 
 test(`${J} #6 runs the clock check: the offset against the server, and within the owner's window it passes`, async () => {
+  const { windowSeconds } = await signingPolicy();
+  expect(windowSeconds, "the stack's TEST window is set").toEqual(expect.any(Number));
   await page.goto('/developers/quickstart');
-  await page.getByRole('button', { name: 'Check my clock' }).click(UNBUILT);
+  await page.getByRole('button', { name: 'Check my clock' }).click();
   const result = page.getByTestId('developers-clock-check');
   await expect(result).toContainText(/Offset\s*-?\d+ ms/);
+  // The window the page judged against is the one identity publishes, and the offset it shows is inside it.
+  await expect(result).toHaveAttribute('data-window-seconds', String(windowSeconds));
+  expect(Math.abs(Number(await result.getAttribute('data-offset-ms')))).toBeLessThanOrEqual(windowSeconds * 1000);
+  await expect(result).toHaveAttribute('data-clock-window', 'within');
   await expect(result).toContainText('Within the window');
+
+  // "the offset against the server": the server clock is real, so a browser clock set ahead by a known amount must read
+  // back as that much behind the server (within the read's own round trip), and one set beyond the window must not pass.
+  const skewedCheck = async (skewMs) => {
+    const skewed = await page.context().newPage();
+    try {
+      await skewed.addInitScript((skew) => {
+        const real = Date.now.bind(Date);
+        Date.now = () => real() + skew;
+      }, skewMs);
+      await skewed.goto('/developers/quickstart');
+      await skewed.getByRole('button', { name: 'Check my clock' }).click();
+      const shown = skewed.getByTestId('developers-clock-check');
+      await expect(shown).toHaveAttribute('data-offset-ms', /-?\d+/);
+      return { offsetMs: Number(await shown.getAttribute('data-offset-ms')), verdict: await shown.getAttribute('data-clock-window') };
+    } finally {
+      await skewed.close();
+    }
+  };
+  const ahead = await skewedCheck(120_000);
+  expect(Math.abs(ahead.offsetMs + 120_000), `offset ${ahead.offsetMs} reads the 120 s skew against the server`).toBeLessThanOrEqual(2_000);
+  expect(ahead.verdict).toBe('within');
+  const beyondMs = (windowSeconds + 60) * 1000;
+  const beyond = await skewedCheck(beyondMs);
+  expect(Math.abs(beyond.offsetMs + beyondMs), `offset ${beyond.offsetMs} reads the skew against the server`).toBeLessThanOrEqual(2_000);
+  expect(beyond.verdict).toBe('outside');
+
+  // While the owner's window is blank the check does not pass: it names the refusal every signed call would get.
+  blankSigningWindow(true);
+  try {
+    expect((await signingPolicy()).windowSeconds).toBeNull();
+    await page.reload();
+    await page.getByRole('button', { name: 'Check my clock' }).click();
+    await expect(result).toHaveAttribute('data-clock-window', 'unset');
+    await expect(result).toContainText('auth.request_window_unset');
+    await expect(result).not.toContainText('Within the window');
+  } finally {
+    blankSigningWindow(false);
+  }
 });
 
 test(`${J} #7 sends the first signed call: success in the sandbox, and the same key at the live host is refused with the environment mismatch code`, async () => {

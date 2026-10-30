@@ -63,6 +63,30 @@ export async function listControlsAsFounder(
   }
 }
 
+/**
+ * One control's evaluations, newest first (OPS-reconciliation-02), read as the signed-in founder like the list: svc-ledger lets
+ * a compliance or treasury reader see them, and a retired control keeps every one. Null when svc-edge did not answer.
+ */
+export async function listRunsAsFounder(
+  session: FounderSession,
+  config: AdminSessionConfig,
+  body: { readonly controlId: string; readonly limit?: number },
+): Promise<{ readonly status: number; readonly body: unknown } | null> {
+  try {
+    const res = await fetch(`${config.edgeUrl}${PATH}/runs`, {
+      method: 'POST',
+      headers: { accept: 'application/json', authorization: `Bearer ${session.accessToken}`, 'content-type': 'application/json' },
+      body: JSON.stringify(body),
+      cache: 'no-store',
+      redirect: 'error',
+      signal: AbortSignal.timeout(READ_TIMEOUT_MS),
+    });
+    return { status: res.status, body: await res.json().catch(() => null) };
+  } catch {
+    return null;
+  }
+}
+
 export async function sendTreasuryControl(door: ControlDoor, body: unknown): Promise<TreasuryAnswer> {
   return postTreasury(DOOR_PATH[door], body);
 }

@@ -14,9 +14,9 @@ import type { AlgoParent, AlgoPolicy } from '../rooms/api';
 import { AlgoDetail, AlgoList, type AlgoAction } from './AlgoList';
 import { AlgoForm, valuesFrom, type AlgoFormValues } from './AlgoForm';
 import { execCopy } from './copy';
-import { useParents, useRefreshParents, type ExecMarket } from './data';
+import { useAlgoIds, useParents, useRefreshParents, type ExecMarket } from './data';
 import { ownsNote } from './model';
-import { ConfirmDialog, Why, useStoredIds } from './parts';
+import { ConfirmDialog, Why } from './parts';
 
 const ACTIONS: readonly AlgoAction[] = ['pause', 'resume', 'cancel'];
 
@@ -32,7 +32,7 @@ export function AlgoTab({
   const { t } = execCopy.useCopy();
   const room = useRoomApi();
   const writer = useRoomWriter();
-  const ids = useStoredIds('algo', userId);
+  const { ids, list: algoList } = useAlgoIds(userId);
   const parents = useParents(ids);
   const refreshParents = useRefreshParents(ids);
   const [selected, setSelected] = useState<string | null>(null);
@@ -86,7 +86,7 @@ export function AlgoTab({
   }
 
   const selectedRow = parents.status === 'ready' ? (parents.data.find((r) => r.id === selected) ?? null) : null;
-  const off = policy.status === 'ready' && !policy.data.capability.jobsEnabled;
+  const capability = policy.status === 'ready' ? policy.data.capability : null;
 
   return (
     <div className="grid gap-4 lg:grid-cols-[360px_minmax(0,1fr)]">
@@ -100,7 +100,8 @@ export function AlgoTab({
         onCheck={(id) => void check(id)}
       />
       <div className="flex min-w-0 flex-col gap-3">
-        {off ? <Why>{t('Scheduler off banner')}</Why> : null}
+        {capability && !capability.createEnabled ? <Why>{t('Create off banner')}</Why> : null}
+        {capability && !capability.jobsEnabled ? <Why>{t('Scheduler off banner')}</Why> : null}
         <div className="flex flex-wrap items-end gap-2">
           <Field label={t('Open by id')} hint={t('Any schedule id you have, for example from another device')} className="min-w-64 flex-1">
             <Input
@@ -125,6 +126,7 @@ export function AlgoTab({
         <AlgoList
           load={parents}
           empty={ids.length === 0}
+          listing={algoList}
           selectedId={selected}
           onSelect={setSelected}
           onAction={(parent, kind) => setAction({ parent, action: kind })}

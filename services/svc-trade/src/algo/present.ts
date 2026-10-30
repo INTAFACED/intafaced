@@ -1,7 +1,7 @@
 import { formatAmount, type Amount } from '@intafaced/ledger-client';
 import type { AlgoSchedulerView } from './scheduler-heartbeat.js';
 import { algoStopReason } from './stop-reason.js';
-import type { AlgoProgressView, AlgoStatus, TwapParent } from './types.js';
+import { awaitingTrigger, type AlgoProgressView, type AlgoStatus, type TwapParent } from './types.js';
 
 /**
  * Shipped default of TRADE_ALGO_JOBS_ENABLED is off. Callers that have read
@@ -18,9 +18,17 @@ export function nextSliceAtIso(status: AlgoStatus, nextDueAt: Date | null): stri
 }
 
 export function presentScheduleHonesty(
-  parent: { readonly status: AlgoStatus; readonly nextDueAt: Date },
+  parent: {
+    readonly status: AlgoStatus;
+    readonly nextDueAt: Date;
+    readonly triggerPrice?: Amount | null;
+    readonly triggeredAt?: Date | null;
+  },
   scheduler: AlgoSchedulerView,
 ): { nextSliceAt: string | null; scheduler: AlgoSchedulerView } {
+  // A schedule waiting for its trigger price has no next slice time until the price is reached.
+  if (awaitingTrigger({ triggerPrice: parent.triggerPrice ?? null, triggeredAt: parent.triggeredAt ?? null }))
+    return { nextSliceAt: null, scheduler };
   return { nextSliceAt: nextSliceAtIso(parent.status, parent.nextDueAt), scheduler };
 }
 
@@ -92,6 +100,10 @@ export interface AlgoChildView {
   readonly orderId: string;
   readonly sliceIndex: number;
   readonly time: string;
+  /** The child's placed size. */
+  readonly qty: string;
+  /** POV: the volume or book size its participation was applied to; null for other kinds. */
+  readonly basisQty: string | null;
 }
 
 export interface AlgoMissView {
@@ -120,6 +132,8 @@ export function presentAlgoDesk(
       orderId: child.orderId,
       sliceIndex: child.sliceIndex,
       time: child.placedAt.toISOString(),
+      qty: formatAmount(child.qty),
+      basisQty: child.basisQty == null ? null : formatAmount(child.basisQty),
     })),
     misses: parent.misses.map((miss) => ({
       sliceIndex: miss.sliceIndex,

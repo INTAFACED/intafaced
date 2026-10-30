@@ -214,6 +214,55 @@ describe('admin ops back end on the edge', () => {
     expect(anonymous.statusCode).toBe(401);
     await app.close();
   });
+  it('forwards a control runs list for compliance and treasury, and refuses a bad body, a second-factor-less treasury token and no token before calling the ledger', async () => {
+    const seen: Array<{ path: string; method: string; bearer: string; body?: unknown }> = [];
+    const ledger: LedgerOperatorCall = async (path, method, bearerHeader, body) => {
+      seen.push({ path, method, bearer: bearerHeader, body });
+      return { status: 200, body: { controlId: '11111111-1111-4111-8111-111111111111', total: 0, runs: [] } };
+    };
+    const app = Fastify({ logger: false });
+    const admin = createAdminApi(new KillSwitchState(), { tokens, ledger, approvals: stubApprovalConsumer(APPROVER) });
+    registerAdminRoutes(app, admin);
+    await app.ready();
+    const url = '/admin/ledger/reconciliation/controls/runs';
+    const controlId = '11111111-1111-4111-8111-111111111111';
+    const compliance = { authorization: await bearer(['admin:compliance']) };
+    const treasury = { authorization: await bearer(['admin:treasury']) };
+    const listed = await app.inject({ method: 'POST', url, headers: compliance, payload: { controlId, limit: 5 } });
+    expect(listed.statusCode).toBe(200);
+    expect(listed.json()).toEqual({ controlId, total: 0, runs: [] });
+    const byTreasury = await app.inject({ method: 'POST', url, headers: treasury, payload: { controlId } });
+    expect(byTreasury.statusCode).toBe(200);
+    expect(seen).toEqual([
+      { path: '/operator/reconciliation/controls/runs', method: 'POST', bearer: compliance.authorization, body: { controlId, limit: 5 } },
+      { path: '/operator/reconciliation/controls/runs', method: 'POST', bearer: treasury.authorization, body: { controlId } },
+    ]);
+    const bad = await app.inject({ method: 'POST', url, headers: compliance, payload: { controlId, limit: 501 } });
+    expect(bad.statusCode).toBe(400);
+    expect(bad.json()).toMatchObject({ code: 'edge.invalid_reconciliation_control' });
+    const extra = await app.inject({ method: 'POST', url, headers: compliance, payload: { controlId, sql: 'x' } });
+    expect(extra.statusCode).toBe(400);
+    const noMfa = await app.inject({
+      method: 'POST',
+      url,
+      headers: { authorization: await bearer(['admin:treasury'], false) },
+      payload: { controlId },
+    });
+    expect(noMfa.statusCode).toBe(401);
+    expect(noMfa.json()).toMatchObject({ code: 'mfa.required' });
+    const support = await app.inject({
+      method: 'POST',
+      url,
+      headers: { authorization: await bearer(['admin:support']) },
+      payload: { controlId },
+    });
+    expect(support.statusCode).toBe(403);
+    expect(support.json()).toMatchObject({ code: 'scope.denied' });
+    const anonymous = await app.inject({ method: 'POST', url, payload: { controlId } });
+    expect(anonymous.statusCode).toBe(401);
+    expect(seen).toHaveLength(2);
+    await app.close();
+  });
   it('forwards a control update, and refuses compliance and a treasury token without a second factor before calling the ledger', async () => {
     const seen: string[] = [];
     const ledger: LedgerOperatorCall = async (path, method) => {

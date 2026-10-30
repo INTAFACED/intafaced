@@ -197,6 +197,22 @@ describe('copy follow result, trail and export', () => {
       inspectMarket: async () => ({ paper: false }),
       store: new SqlCopyFollowStore(db!.sql),
       sql: db!.sql,
+      // Every leader fill is planned before any copy fills here, so the sell is given the copied BTC it closes.
+      copiedPositions: async () => [
+        {
+          orderId: O1,
+          leaderFillId: 'lf-buy-1',
+          symbol: 'BTC-USDT',
+          marketId: MARKET_BTC,
+          baseAsset: 'BTC',
+          lotSize: parseAmount('0.00001'),
+          bought: parseAmount('2'),
+          open: parseAmount('2'),
+          closing: 0n,
+          status: 'open' as const,
+          placedAt: NOW,
+        },
+      ],
       mirrorEvents: events,
       now: () => NOW,
       lookupMark: async (marketId) => {

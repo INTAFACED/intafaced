@@ -17,29 +17,31 @@ import { userCopy } from './user-copy.js';
  * The codes say only what the key holder needs and no more:
  *
  *   · `edge.api_key_denied`: no live key matches, OR the key matched and a
- *     restriction on it refused this call (origin, IP, product, account,
- *     signature). Identity deliberately answers those in one shape "so a
- *     caller never learns which half of the credential was right"
- *     (svc-identity `router.ts`, `auth.ip_allowlist_required`); the edge keeps
- *     that posture and does not split them. Splitting them is DV-auth-01's
- *     decision, in its own PR.
+ *     restriction on it refused this call (origin, IP, product, account).
+ *     Identity deliberately answers those in one shape "so a caller never
+ *     learns which half of the credential was right" (svc-identity
+ *     `router.ts`, `auth.ip_allowlist_required`); the edge keeps that posture
+ *     and does not split them.
+ *   · `edge.request_*`: the key holder's own request signature (DV-auth-01).
+ *     Identity checks it only for a live key that must sign, so naming why it
+ *     failed tells the holder nothing about the key they did not already
+ *     have, and a signer cannot fix a clock or a nonce it is not told about:
+ *     `unsigned`, `stale` (older than the owner's window), `future` (ahead of
+ *     it), `tampered` (the signature does not match what arrived), `replay` (a
+ *     nonce already used). `edge.request_window_unset` is 503: the owner's
+ *     window is blank, so no signed call is accepted (never a default window).
  *   · `edge.api_key_revoked` / `edge.api_key_expired`: only when identity says
  *     so for this exact key. Saying it to the person holding the key reveals
- *     nothing they could use: the key is dead either way. TODAY identity's
- *     exchange doors do not say so: they look a key up only among live,
- *     unexpired rows and answer `auth.invalid_credentials` for a revoked or
- *     expired one (svc-identity `auth-service.ts` `verifyApiKey`), so the
- *     exchange gives `edge.api_key_denied`. The mapping is in place for the
- *     day identity names them (pending svc-identity change). What fires now:
- *     `edge.api_key_expired` from the edge's own expiry check on an opened key,
- *     and `edge.api_key_revoked` when the current-authority read, after an
- *     exchange, names the credential revoked.
+ *     nothing they could use: the key is dead either way. Identity's exchange
+ *     names a dead key it found (svc-identity `auth-service.ts`,
+ *     `deadApiKeyRefusal`: `auth.api_key_revoked`, `auth.api_key_expired`);
+ *     the edge's own expiry check on an opened key and the current-authority
+ *     read after an exchange name them too.
  *   · `account_frozen`: identity says the account behind the key is frozen
  *     (the exchange's `auth.account_frozen`, the opened key's status, or the
- *     current-authority read's denial). A freeze also revokes the account's
- *     keys, and identity's exchange checks the key before the account, so a
- *     frozen account's key reads `edge.api_key_denied` until that order changes
- *     in svc-identity.
+ *     current-authority read's denial). Identity's exchange checks the account
+ *     before naming a dead key, so a frozen account's key reads
+ *     `account_frozen` even though the freeze also revokes its keys.
  *     Not `edge.`-prefixed on purpose: the freeze is svc-identity's state, not
  *     a gateway policy, and the catalogue names it the same wherever it comes
  *     from. The edge only reports which state applies; it never invents one.
@@ -48,10 +50,20 @@ import { userCopy } from './user-copy.js';
  * that branched on `auth.*` loses it.
  */
 
-export type ApiKeyRefusalCode = 'edge.api_key_denied' | 'edge.api_key_revoked' | 'edge.api_key_expired' | 'account_frozen';
+export type ApiKeyRefusalCode =
+  | 'edge.api_key_denied'
+  | 'edge.api_key_revoked'
+  | 'edge.api_key_expired'
+  | 'account_frozen'
+  | 'edge.request_unsigned'
+  | 'edge.request_stale'
+  | 'edge.request_future'
+  | 'edge.request_tampered'
+  | 'edge.request_replay'
+  | 'edge.request_window_unset';
 
 export interface ApiKeyRefusal {
-  readonly status: 401 | 403;
+  readonly status: 401 | 403 | 503;
   readonly code: ApiKeyRefusalCode;
   /** The `auth.*` code the decision came from. */
   readonly intafacedCode: string;
@@ -61,6 +73,16 @@ export const API_KEY_DENIED: ApiKeyRefusal = { status: 401, code: 'edge.api_key_
 export const API_KEY_REVOKED: ApiKeyRefusal = { status: 401, code: 'edge.api_key_revoked', intafacedCode: 'auth.api_key_revoked' };
 export const API_KEY_EXPIRED: ApiKeyRefusal = { status: 401, code: 'edge.api_key_expired', intafacedCode: 'auth.api_key_expired' };
 export const ACCOUNT_FROZEN: ApiKeyRefusal = { status: 403, code: 'account_frozen', intafacedCode: 'auth.account_frozen' };
+export const REQUEST_UNSIGNED: ApiKeyRefusal = { status: 401, code: 'edge.request_unsigned', intafacedCode: 'auth.request_unsigned' };
+export const REQUEST_STALE: ApiKeyRefusal = { status: 401, code: 'edge.request_stale', intafacedCode: 'auth.request_stale' };
+export const REQUEST_FUTURE: ApiKeyRefusal = { status: 401, code: 'edge.request_future', intafacedCode: 'auth.request_future' };
+export const REQUEST_TAMPERED: ApiKeyRefusal = { status: 401, code: 'edge.request_tampered', intafacedCode: 'auth.request_tampered' };
+export const REQUEST_REPLAY: ApiKeyRefusal = { status: 401, code: 'edge.request_replay', intafacedCode: 'auth.request_replay' };
+export const REQUEST_WINDOW_UNSET: ApiKeyRefusal = {
+  status: 503,
+  code: 'edge.request_window_unset',
+  intafacedCode: 'auth.request_window_unset',
+};
 
 /**
  * The codes that are identity's verdict on the presented key: the key itself, the account behind it, or a
@@ -70,7 +92,8 @@ export const ACCOUNT_FROZEN: ApiKeyRefusal = { status: 403, code: 'account_froze
  *
  * `auth.request_*` are here on purpose: identity raises them when it checks the caller's own request signature
  * (`x-intafaced-request-*`, DV-auth-01), so they are a verdict on what the key holder sent, and retrying a
- * tampered request cannot help. A failed service authentication of the edge itself does not reach these codes:
+ * tampered request cannot help. `auth.request_window_unset` is the owner's blank window: a typed refusal of its
+ * own, not an identity outage. A failed service authentication of the edge itself does not reach these codes:
  * identity answers it `auth.invalid_credentials` (`assertEdgeSignedRequest`), which no edge can tell apart.
  */
 const IDENTITY_KEY_VERDICTS: ReadonlySet<string> = new Set([
@@ -93,6 +116,8 @@ const IDENTITY_KEY_VERDICTS: ReadonlySet<string> = new Set([
   'auth.request_stale',
   'auth.request_tampered',
   'auth.request_replay',
+  'auth.request_future',
+  'auth.request_window_unset',
 ]);
 
 export function isIdentityKeyVerdict(code: string): boolean {
@@ -100,8 +125,9 @@ export function isIdentityKeyVerdict(code: string): boolean {
 }
 
 /**
- * Identity's own code for a refused exchange → the refusal. Only these three are told apart; every
- * other code, and anything unrecognised, is the one denied answer. Never echoes an upstream string.
+ * Identity's own code for a refused exchange → the refusal. The dead key, the frozen account and the caller's
+ * request signature are told apart; every other code, and anything unrecognised, is the one denied answer.
+ * Never echoes an upstream string.
  */
 export function apiKeyRefusalFromIdentityCode(code: string | undefined): ApiKeyRefusal {
   switch (code) {
@@ -111,6 +137,18 @@ export function apiKeyRefusalFromIdentityCode(code: string | undefined): ApiKeyR
       return API_KEY_EXPIRED;
     case 'auth.account_frozen':
       return ACCOUNT_FROZEN;
+    case 'auth.request_unsigned':
+      return REQUEST_UNSIGNED;
+    case 'auth.request_stale':
+      return REQUEST_STALE;
+    case 'auth.request_future':
+      return REQUEST_FUTURE;
+    case 'auth.request_tampered':
+      return REQUEST_TAMPERED;
+    case 'auth.request_replay':
+      return REQUEST_REPLAY;
+    case 'auth.request_window_unset':
+      return REQUEST_WINDOW_UNSET;
     default:
       return API_KEY_DENIED;
   }
