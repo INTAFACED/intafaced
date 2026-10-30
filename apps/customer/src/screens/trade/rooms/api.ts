@@ -82,6 +82,8 @@ export const deskStatusSchema = z.object({
   residual: z.string().nullable().optional(),
   /** CB-otc-11: the base assets the desk quotes; null when the owner left the list blank. */
   assets: z.array(z.string()).nullable().optional(),
+  /** CB-otc-08: the lowest verification level the desk prices for; null when the owner left it blank. */
+  minTier: z.string().nullable().optional(),
   makerRouting: z.object({ published: z.boolean(), residual: z.string().nullable().optional() }).optional(),
   midFeed: z.object({ wiring: z.string(), published: z.boolean(), residual: z.string().nullable().optional() }).optional(),
 });

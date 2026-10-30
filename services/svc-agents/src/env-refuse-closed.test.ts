@@ -56,6 +56,7 @@ async function loadWith(overrides: Record<string, string | undefined> = {}) {
   vi.stubEnv('LEDGER_URL', undefined);
   vi.stubEnv('AGENTS_FEE_ASSET_ID', undefined);
   vi.stubEnv('AGENTS_USAGE_WINDOW_MINUTES', undefined);
+  vi.stubEnv('AGENTS_OVERAGE_GRACE', undefined);
   for (const [key, value] of Object.entries({ ...BASE_ENV, ...overrides })) {
     vi.stubEnv(key, value);
   }
@@ -103,6 +104,19 @@ describe('svc-agents money env refuse-closed', () => {
   it('a real fee asset id boots after trim', async () => {
     const parsed = await loadWith({ AGENTS_FEE_ASSET_ID: '  X  ' });
     expect(parsed.AGENTS_FEE_ASSET_ID).toBe('X');
+  });
+
+  it('unset or blank AGENTS_OVERAGE_GRACE is no grace at all, never a default amount', async () => {
+    expect((await loadWith()).AGENTS_OVERAGE_GRACE).toBeUndefined();
+    expect((await loadWith({ AGENTS_OVERAGE_GRACE: '' })).AGENTS_OVERAGE_GRACE).toBeUndefined();
+    expect((await loadWith({ AGENTS_OVERAGE_GRACE: '   ' })).AGENTS_OVERAGE_GRACE).toBeUndefined();
+  });
+
+  it('AGENTS_OVERAGE_GRACE takes a decimal amount and refuses anything else', async () => {
+    expect((await loadWith({ AGENTS_OVERAGE_GRACE: ' 0.5 ' })).AGENTS_OVERAGE_GRACE).toBe('0.5');
+    for (const garbage of ['-1', '1e3', 'lots', '0.1234567890123456789']) {
+      await expect(loadWith({ AGENTS_OVERAGE_GRACE: garbage })).rejects.toThrow(/AGENTS_OVERAGE_GRACE/);
+    }
   });
 
   it('unset AGENTS_USAGE_WINDOW_MINUTES refuses (no invent 60)', async () => {

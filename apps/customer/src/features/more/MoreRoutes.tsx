@@ -22,6 +22,7 @@ import { supportRoute } from './support-desk';
 import { deskCopy } from './support-desk-copy';
 import { Token, type TokenTab } from './Token';
 import { launchCopy } from './launch-copy';
+import { LaunchDetail } from './LaunchCatalogue';
 import { miningCopy } from './mining-copy';
 import { predictionCatalogueCopy } from './prediction-catalogue-copy';
 import { matchMoreRoute, type MoreRoomId } from './more-room-routes';
@@ -150,6 +151,8 @@ function MoreRooms({ path }: { path: string }) {
       content =
         hit.route.kind === 'part' ? (
           page.content(path, paper)
+        ) : room === 'launch' && hit.id && !hit.invalid ? (
+          <LaunchDetail key={hit.id} eventId={hit.id} />
         ) : (
           <Panel title={moreRoomRoutesCopy.t(hit.invalid ? 'badIdTitle' : 'detailTitle')}>
             <EmptyState title={moreRoomRoutesCopy.t(hit.invalid ? 'badIdTitle' : 'detailTitle')}>
