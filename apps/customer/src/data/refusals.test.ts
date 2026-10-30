@@ -17,8 +17,9 @@ describe('the platform posting freeze on the trade API (DV-errors-02)', () => {
     expect(classifyRefusal(code)).toBe('ordersPaused');
     expect(refusalCopy(code)).toEqual(refusalCopy('trade.orders_paused'));
     expect(refusalCopy(code).title).toBe('Orders are paused right now');
-    // The account's freeze keeps its own copy, and so does the ledger's raw code, which rooms other than trade send.
-    expect(classifyRefusal('trade.account_restricted')).toBe('accountOnHold');
+    // The account's trading restriction keeps its own copy, and so does the ledger's raw code, which rooms other than
+    // trade send.
+    expect(classifyRefusal('trade.account_restricted')).toBe('tradingOnHold');
     expect(classifyRefusal('ledger.frozen')).toBe('platformPaused');
   });
 });
