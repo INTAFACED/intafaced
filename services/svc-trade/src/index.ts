@@ -175,6 +175,7 @@ import { createFollowerFlattenPort } from './copy/follower-flatten-port.js';
 import { parseCopyPlaceMirrorFlag, type PlaceFollowerOrderPort } from './copy/auto-mirror-place.js';
 import { createJobHost } from './futures/job-host.js';
 import { SqlMarketLifecycleAuthority, SqlMarketLifecycleEvidenceStore, assertNoLocalTestLifecycleRows } from './market-lifecycle.js';
+import { registerBuybackDoor } from './spot/buyback-door.js';
 import { registerMarketLifecycleRoutes } from './market-lifecycle-routes.js';
 import { localTestTapeRetimeEnabled } from './spot/local-test-tape.js';
 import { registerLocalTestTapeRoutes } from './spot/local-test-tape-routes.js';
@@ -1161,6 +1162,12 @@ registerMarketLifecycleRoutes(app, {
   internalSecret: env.INTERNAL_SERVICE_SECRET,
   s2s: doorS2s,
   store: marketLifecycleStore,
+  installRawBody: false,
+});
+registerBuybackDoor(app, {
+  internalSecret: env.INTERNAL_SERVICE_SECRET,
+  s2s: doorS2s,
+  placeBuybackIocBuy: (input) => trade.placeBuybackIocBuy(input),
   installRawBody: false,
 });
 if (localTestTapeRetime) {

@@ -120,6 +120,7 @@ import * as events from './trade-service/events.js';
 import * as reads from './trade-service/reads.js';
 import * as reconcile from './trade-service/reconcile.js';
 import * as twap from './trade-service/algo.js';
+import * as buyback from './trade-service/buyback.js';
 
 export {
   assertSamePlaceCommand,
@@ -1126,6 +1127,11 @@ export class TradeService {
 
   async placeOrder(principal: Principal, input: PlaceOrderInput): Promise<OrderRecord> {
     return orderPlace.placeOrder(this.internal, principal, input);
+  }
+
+  /** The token buyback's IOC buy, for svc-token only (`buyback-door.ts`). Its money is the rewards engine's. */
+  async placeBuybackIocBuy(input: buyback.BuybackIocBuyInput): Promise<buyback.BuybackIocBuyResult> {
+    return buyback.placeBuybackIocBuy(this.internal, input);
   }
 
   private async placeOrderInner(
