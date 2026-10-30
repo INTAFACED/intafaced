@@ -169,7 +169,7 @@ export function RestrictionList({
             )}
           </strong>{' '}
           {reason(r)} {r.since && <Copy k="since" params={{ time: stamp(r.since, timeZone) }} />}{' '}
-          {r.kind === 'trading_restricted' && <Copy k="blocksNothing_trading_restricted" />}
+          {r.kind === 'trading_restricted' && <Copy k="stops_trading_restricted" />}
           {r.kind === 'capability_off' && <Copy k={r.blocks.length > 0 ? 'capabilityStops' : 'capabilityStopsNothing'} />} {lift(r)}
         </li>
       ))}

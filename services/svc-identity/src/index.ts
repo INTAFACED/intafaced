@@ -263,6 +263,11 @@ await sql`SELECT user_id, restricted, version FROM trading_restrictions LIMIT 0`
     'identity schema is out of date: trading_restrictions is missing — apply drizzle/0038_action_approval_consume_provenance.sql before starting svc-identity',
   );
 });
+await sql`SELECT reason_code FROM trading_restrictions LIMIT 0`.catch(() => {
+  throw new Error(
+    'identity schema is out of date: trading_restrictions.reason_code is missing — apply drizzle/20261030013000_trading_restriction_reason.sql before starting svc-identity',
+  );
+});
 await sql`SELECT version FROM profiles LIMIT 0`.catch(() => {
   throw new Error(
     'identity schema is out of date: profiles.version is missing — apply drizzle/0042_profile_version.sql before starting svc-identity',
@@ -443,8 +448,10 @@ auth.useNewDevicePolicy({
 
 const placeDoor = new PlaceDoor(sql);
 const founderPair = parseFounderPair(env.IDENTITY_FOUNDER_NITRO_USER_ID, env.IDENTITY_FOUNDER_PHANTOM_USER_ID);
+const tradingRestrictionReasons = parseKycRejectReasons(env.IDENTITY_TRADING_RESTRICTION_REASONS, 'IDENTITY_TRADING_RESTRICTION_REASONS');
 const founderControls = new FounderControls(sql, founderPair, {
   tradingRestrictRequiresApproval: env.IDENTITY_TRADING_RESTRICT_REQUIRES_APPROVAL === true,
+  tradingRestrictionReasons,
 });
 await founderControls.bootstrap();
 auth.useFounderDirectory({ isFounder: (userId, query) => founderControls.isLiveFounder(userId, query) });
@@ -747,7 +754,15 @@ export const appRouter = mergeRouters(
   createServerTimeRouter(),
   createSelfFreezeLiftRouter(selfFreezeLift, securityStepUp),
   createSecurityLockRouter(securityLock, securityStepUp),
-  createAccountStatusRouter(new AccountStatusDesk(sql, env.IDENTITY_SELF_FREEZE_LIFT_WAIT_SECONDS, kycCapabilityReasons, kycCapabilityMap)),
+  createAccountStatusRouter(
+    new AccountStatusDesk(
+      sql,
+      env.IDENTITY_SELF_FREEZE_LIFT_WAIT_SECONDS,
+      kycCapabilityReasons,
+      kycCapabilityMap,
+      tradingRestrictionReasons,
+    ),
+  ),
   createMfaResetRouter(auth),
   createSupportRecoveryRouter(() => auth.supportRecoveryDeps()),
   createTrustedDevicesRouter(auth, securityStepUp),
