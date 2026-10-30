@@ -9,8 +9,8 @@ import { fundedTrader, signIn, signUp } from './desk.mjs';
 // local stack, verified and funded with TEST USDT through the real ledger; accept binds the quoted price and size,
 // settle posts once and expiry moves nothing, which the steps check against the ledger balance.
 // The region-block clause of #1 and the settlement name-match clause of #3 are compliance gates and wait for launch
-// prep (owner decision 2026-10-27); the level gate of #3 stays (identity verification). The region block has its own
-// #1 test, red by name with that blocker until it is built.
+// prep (owner decision 2026-10-27); the level gate of #3 stays (identity verification). The region block and the name
+// match each have their own test (#1 and #3), red by name with that blocker until they are built.
 // The stack publishes a TEST desk law (tooling/profiles/test-owner-values/trade.json): a 60 s firm quote and a 60 s
 // window to settle an accepted one, so #7 and #8 watch both run out on the real clock. Each step checks the service's
 // own record of the quote (rfq.get through Edge) and the ledger balance, not only the screen. Every request asks the
@@ -162,6 +162,24 @@ async function stake(who, client, amount) {
  */
 async function signUpIn(page, region) {
   throw new Error(`no TEST account can be registered in ${region} yet: region gates wait for launch prep (owner decision 2026-10-27)`);
+}
+
+/**
+ * Names a settlement account for the trader whose holder name differs from its verified name, and returns the service's
+ * own record of it ({ id, holderName, verifiedName }). Not built: the stack has no settlement-account step, and name
+ * matching waits for launch prep (owner decision 2026-10-27), so this fails by that name.
+ */
+async function nameOtherSettlementAccount(who) {
+  throw new Error(
+    `no settlement account can be named for ${who.handle} yet: settlement name matching waits for launch prep (owner decision 2026-10-27)`,
+  );
+}
+
+/** Removes the settlement account named by nameOtherSettlementAccount, so the steps after #3 are not refused by it. */
+async function removeSettlementAccount(who, account) {
+  throw new Error(
+    `settlement account ${account.id} of ${who.handle} cannot be removed yet: settlement name matching waits for launch prep (owner decision 2026-10-27)`,
+  );
 }
 
 async function openOtc(page) {
@@ -455,6 +473,42 @@ test(`${J} #3 level unpublished: even a verified account is refused trade.otc_le
     tradeSwitch('LOCAL_STACK_TRADE_OTC_MIN_TIER', true);
   }
   expect((await deskStatus(me)).minTier).toBe('full');
+});
+
+test(`${J} #3 settlement name match (BLOCKED until launch prep, owner decision 2026-10-27): a settlement account in another name is refused trade.otc_name_mismatch, no quote is priced, nothing kept`, async ({
+  page,
+}) => {
+  test.setTimeout(240_000);
+  const me = await api(run.read().who);
+  const status = await deskStatus(me);
+  // The service's own statement that a request checks the settlement account holder against the verified name.
+  expect(
+    status,
+    'the desk publishes no settlement name check: compliance gates wait for launch prep (owner decision 2026-10-27)',
+  ).toHaveProperty('settlementNameMatch');
+  expect(status.settlementNameMatch).toBe(true);
+
+  // A settlement account in a name other than the trader's verified one, both names as the service records them.
+  const account = await nameOtherSettlementAccount(run.read().who);
+  expect(account.holderName).toBeTruthy();
+  expect(account.verifiedName).toBeTruthy();
+  expect(account.holderName).not.toBe(account.verifiedName);
+  try {
+    const before = await me.balances();
+    const quotes = await listedQuotes(me);
+    await openOtc(page);
+    // A size and provider the house desk prices for the verified trader in #6, so only the name can refuse it.
+    expect(await askRefused(page, '0.5')).toBe('trade.otc_name_mismatch');
+    await expect(page.getByText('trade.otc_name_mismatch')).toBeVisible();
+    await expect(page.getByText(account.holderName, { exact: false })).toBeVisible();
+    await expect(card(page)).toHaveCount(0);
+
+    // Re-read after the refusal: no quote was recorded and nothing moved or was held.
+    expect(await listedQuotes(me)).toEqual(quotes);
+    expect(await me.balances()).toEqual(before);
+  } finally {
+    await removeSettlementAccount(run.read().who, account);
+  }
 });
 
 test(`${J} #4 size under the published minimum: refused trade.rfq_below_minimum, the message carries that minimum`, async ({ page }) => {
