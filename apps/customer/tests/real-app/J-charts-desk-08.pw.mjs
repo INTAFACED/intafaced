@@ -177,57 +177,55 @@ test(`${J} #6 uses chart and desk shortcuts, and each does what its help list sa
   expect(await list.locator('dd').allTextContents()).toEqual(help.map(([, does]) => does));
   await page.keyboard.press('Escape');
   await expect(list).toBeHidden();
-  // Each key does what the list says. Styles: Alt+1 to Alt+6 in the listed order.
+  // Each key does what the list says. Styles: Alt+1 to Alt+6 in the listed order, from Alt+2 so Alt+1 changes something.
   await canvasOf(page, 2).focus();
+  await page.keyboard.press('Alt+2');
+  await expect(canvasOf(page, 2)).toHaveAttribute('data-style', 'bars');
   for (const [n, style] of ['candles', 'bars', 'line', 'area', 'columns', 'heikin-ashi'].entries()) {
     await page.keyboard.press(`Alt+${n + 1}`);
     await expect(canvasOf(page, 2)).toHaveAttribute('data-style', style);
   }
-  // Pan, zoom and the newest bars, read from the chart's own visible range.
+  // Pan, zoom and the newest bars, read from the chart's own visible range once it holds still (the same on two reads
+  // 200 ms apart; NaN until the chart has written one).
   const view = async () =>
-    canvasOf(page, 2).evaluate((el) => ({
-      from: Number(el.getAttribute('data-view-from')),
-      to: Number(el.getAttribute('data-view-to')),
-      bars: Number(el.getAttribute('data-bars')),
-    }));
+    canvasOf(page, 2).evaluate((el) => {
+      const read = (name) => (el.hasAttribute(name) ? Number(el.getAttribute(name)) : NaN);
+      return { from: read('data-view-from'), to: read('data-view-to'), bars: read('data-bars') };
+    });
+  const settled = async (check) => {
+    let last = null;
+    let held = null;
+    await expect
+      .poll(
+        async () => {
+          const v = await view();
+          held = last && Number.isFinite(v.from) && v.from === last.from && v.to === last.to && v.bars === last.bars && check(v) ? v : null;
+          last = v;
+          return held !== null;
+        },
+        { intervals: [200] },
+      )
+      .toBe(true);
+    return held;
+  };
   await canvasOf(page, 2).focus();
+  const fitted = await settled(() => true);
   await page.keyboard.press('+');
-  await expect
-    .poll(async () => {
-      const v = await view();
-      return v.to - v.from > 0;
-    })
-    .toBe(true);
-  const v0 = await view();
+  const v0 = await settled((v) => v.to - v.from < (fitted.to - fitted.from) * 0.9);
   await page.keyboard.press('ArrowLeft');
-  await expect.poll(async () => Math.round(v0.from - (await view()).from)).toBe(10);
+  await settled((v) => Math.round(v0.from - v.from) === 10 && Math.round(v0.to - v.to) === 10);
   await page.keyboard.press('ArrowRight');
-  await expect.poll(async () => Math.round((await view()).from - v0.from)).toBe(0);
+  await settled((v) => Math.round(v.from - v0.from) === 0 && Math.round(v.to - v0.to) === 0);
   await page.keyboard.press('+');
-  await expect
-    .poll(async () => {
-      const v = await view();
-      return v.to - v.from < (v0.to - v0.from) * 0.9;
-    })
-    .toBe(true);
-  const zoomed = await view();
+  const zoomed = await settled((v) => v.to - v.from < (v0.to - v0.from) * 0.9);
   await page.keyboard.press('-');
-  await expect
-    .poll(async () => {
-      const v = await view();
-      return v.to - v.from > (zoomed.to - zoomed.from) * 1.1;
-    })
-    .toBe(true);
+  await settled((v) => v.to - v.from > (zoomed.to - zoomed.from) * 1.1);
   await page.keyboard.press('ArrowLeft');
   await page.keyboard.press('ArrowLeft');
-  await expect.poll(async () => (await view()).to).toBeLessThan(v0.to - 15);
+  await settled((v) => Math.round(v0.to - v.to) >= 19 && v.to < v.bars - 1);
+  // Home shows the newest bars: the last bar is in view again, also once any older history it loads has landed.
   await page.keyboard.press('Home');
-  await expect
-    .poll(async () => {
-      const v = await view();
-      return v.to >= v.bars - 1;
-    })
-    .toBe(true);
+  await settled((v) => v.to >= v.bars - 1);
   // Replay opens and closes on its key.
   await page.keyboard.press('Alt+R');
   await expect(cell(page, 2).getByRole('group', { name: 'Bar replay' })).toBeVisible();

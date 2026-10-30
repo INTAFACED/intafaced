@@ -4,8 +4,8 @@ import { atTick, chartBars, expectLines, F, shownText, STEP_MS } from './charts-
 
 // J-charts-desk-04 "I add advanced studies and market analytics series" (docs/roadmap/journeys.json). One test per step,
 // titled "J-charts-desk-04 #<n>". Each test opens the workbench on its own, so the studies it needs are added inside the
-// test. Expected values are worked here from the
-// formula on the public candle and trade routes (`/api/v1/ohlcv/:symbol`, `/api/v1/trades/:symbol`), not read from the page.
+// test. Expected values are worked here from the formula on the public candle and trade routes (`/api/v1/ohlcv/:symbol`,
+// `/api/v1/trades/:symbol`), not read from the page.
 
 const MARKET = 'BTC-USDT';
 const MARKET_NAME = 'BTC/USDT';
@@ -283,11 +283,15 @@ test('J-charts-desk-04 #5 adds a higher-timeframe study: the study at a coarser 
   await page.getByRole('button', { name: 'Data window' }).click();
   const windowText = page.getByTestId('data-window');
   const box = await page.getByTestId('cw').getByTestId('wc-host').boundingBox();
-  await page.mouse.move(box.x + box.width * 0.5, box.y + box.height * 0.5);
-  await expect(windowText).toContainText('1h SMA 20');
+  // The pointer moves across the chart on each try, so a spot on a bar this check cannot use (in the last hour, or
+  // before the bars the route rebuilds) is passed over.
+  let spot = 0;
   await expect
     .poll(
       async () => {
+        spot = (spot % 5) + 1;
+        await page.mouse.move(box.x + box.width * (0.2 + spot * 0.08), box.y + box.height * 0.5);
+        await expect(windowText).toContainText('1h SMA 20');
         const cursor = Number(await windowText.getAttribute('data-cursor')) * 1000;
         const [bars, hourly] = [await chartBars('15m'), await chartBars('1h')];
         if (!bars.some((b) => b.t === cursor)) return `hovered time ${cursor} is not a 15m bar of the chart`;

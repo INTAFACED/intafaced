@@ -203,6 +203,8 @@ test('J-charts-desk-03 #4 hides an indicator on one interval only; it shows on t
 }) => {
   await openChart(page);
   await addStudy(page, 'sma', 'Simple moving average');
+  // An EMA shown on every interval: once it is drawn, the chart has drawn this interval's studies.
+  await addStudy(page, 'ema', 'Exponential moving average');
   await page.getByRole('button', { name: 'Settings for Simple moving average' }).click();
   await page.getByRole('checkbox', { name: 'Shown on 1h' }).uncheck();
   await page.getByRole('button', { name: 'Apply' }).click();
@@ -210,10 +212,18 @@ test('J-charts-desk-03 #4 hides an indicator on one interval only; it shows on t
   // Hidden on 1h: the row says so and the chart draws no SMA series. Shown on 15m: the series is drawn and its value is
   // the formula's. The same holds after a reload, on both intervals.
   const interval = (name) => page.getByRole('group', { name: 'Chart intervals' }).getByRole('button', { name }).click();
+  const drawn = async () => JSON.parse((await host(page).getAttribute('data-study-series')) ?? '[]').map((x) => x.key);
   const drawnSma = async () => JSON.parse((await host(page).getAttribute('data-study-series')) ?? '[]').find((x) => x.key === 'sma-1');
   const hiddenHere = async () => {
     await expect(row(page, 'sma-1')).toContainText('Hidden on this interval');
-    await expect.poll(drawnSma).toBeUndefined();
+    const emaWithoutSma = async () => {
+      const keys = await drawn();
+      return keys.includes('ema-1') && !keys.includes('sma-1');
+    };
+    await expect.poll(emaWithoutSma).toBe(true);
+    // Still no SMA a moment later: it is not drawn late.
+    await page.waitForTimeout(500);
+    expect(await emaWithoutSma()).toBe(true);
   };
   const shownHere = async () => {
     await expect(row(page, 'sma-1')).not.toContainText('Hidden on this interval');
@@ -352,7 +362,14 @@ test('J-charts-desk-03 #7 opens chart settings: the sections are there, a change
   expect(saved).toMatchObject({ showName: false, showTime: false, logScale: true, gridLines: false });
   await page.getByRole('button', { name: 'Chart settings', exact: true }).click();
   await expect(dialog.getByRole('checkbox', { name: 'Show the market name in the chart title' })).not.toBeChecked();
+  await dialog.getByRole('tab', { name: 'Status line', exact: true }).click();
+  await expect(dialog.getByRole('checkbox', { name: 'Show the time in the legend' })).not.toBeChecked();
+  await dialog.getByRole('tab', { name: 'Scales', exact: true }).click();
+  await expect(dialog.getByRole('checkbox', { name: 'Logarithmic price scale' })).toBeChecked();
+  await dialog.getByRole('tab', { name: 'Canvas', exact: true }).click();
+  await expect(dialog.getByRole('checkbox', { name: 'Show grid lines' })).not.toBeChecked();
   await page.keyboard.press('Escape');
+  await expect(dialog).toBeHidden();
 });
 
 test('J-charts-desk-03 #8 adds a price line at a level: a labelled line at that exact price, a refused off-tick price adds nothing', async ({
