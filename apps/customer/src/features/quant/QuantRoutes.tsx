@@ -4,6 +4,8 @@ import { t as moreCopy } from '../more/copy';
 import { AlgoHome } from './AlgoHome';
 import { BacktestRoom } from './BacktestRoom';
 import { StrategiesRoom } from './StrategiesRoom';
+import { StrategyPage } from './StrategyPage';
+import { strategyPageCopy } from './strategy-page-copy';
 import { strategiesCopy } from './strategies-copy';
 import { algoCopy } from './algo-copy';
 
@@ -20,6 +22,20 @@ export function quantRoute(
       title: algoCopy.t('title'),
       description: algoCopy.t('description'),
       content: <AlgoHome key={userId ?? 'anonymous'} paper={paper} />,
+    };
+  }
+  const strategy = /^\/quant\/strategies\/([^/]+)$/.exec(pathname);
+  if (strategy) {
+    let strategyId = strategy[1]!;
+    try {
+      strategyId = decodeURIComponent(strategyId);
+    } catch {
+      // A broken escape is sent as it is, and the service answers that no such strategy exists.
+    }
+    return {
+      title: strategiesCopy.t('title'),
+      description: strategyPageCopy.t('description'),
+      content: <StrategyPage key={`${userId ?? 'anonymous'}:${strategyId}`} strategyId={strategyId} paper={paper} />,
     };
   }
   if (pathname === '/quant/strategies') {

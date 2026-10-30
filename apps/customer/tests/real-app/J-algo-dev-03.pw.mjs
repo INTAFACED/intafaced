@@ -1,11 +1,12 @@
 import { test, expect } from '@playwright/test';
 import { journeyState } from './stack.mjs';
 import { signIn, signUp, verify } from './desk.mjs';
+import { tapeWindow } from './tape.mjs';
 
 // J-algo-dev-03, in the running app (docs/roadmap/journeys.json): keep strategies organised and stay inside the plan
 // limits. One test per step, titled "J-algo-dev-03 #<n>", run in order on one TEST developer who starts signed in,
 // verified and with no strategy. Every strategy in Algo dev is simulated; nothing here moves money. Steps whose slice
-// is not built yet (AL-editor-01's versions view, AL-editor-03's template source, AL-limits-01, RC-algo-dev-05) check
+// is not built yet (AL-editor-03's template source, AL-limits-01, RC-algo-dev-05) check
 // their step's text with a short wait, so they fail fast and name what is missing.
 const J = 'J-algo-dev-03';
 const run = journeyState(`${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
@@ -115,17 +116,76 @@ test(`${J} #2 renames a strategy and moves it to a folder: the head changes and 
   await expect(rowOf(page, strategyId)).toHaveAttribute('data-version', '1');
 });
 
+/** Opens the strategy in Studio, sets its slow average, writes a release note and saves the next version. */
+async function saveVersion(page, name, slow, note, version) {
+  await page.goto('/quant/studio');
+  await page.getByRole('button', { name: `Open ${name}` }).click();
+  const builder = page.getByTestId('quant-signal-builder');
+  await builder.getByLabel('Slow average (bars)').fill(slow);
+  await page.getByLabel('Release note for this version (optional)').fill(note);
+  await page.getByRole('button', { name: 'Save to library', exact: true }).click();
+  await expect(page.getByTestId('quant-save-state')).toHaveText(`Saved as version ${version}.`);
+}
+
 test(`${J} #3 edits, saves and writes release notes on two versions, then compares them: both listed with notes and a diff; the code each past run used is shown`, async ({
   page,
 }) => {
+  test.setTimeout(10 * 60_000);
   const { strategyId } = run.read();
   if (!strategyId) throw new Error(`${J} #1 listed no strategy, so this step has no versions to compare`);
   await signIn(page, developer());
-  // The strategy's own page with its Versions tab (AL-editor-01): not built yet.
-  await page.goto(`/quant/strategies/${strategyId}?tab=versions`);
-  await expect(page.getByTestId('quant-versions'), 'the Versions tab of /quant/strategies/:id is not built (AL-editor-01)').toBeVisible(
-    UNBUILT,
-  );
+
+  // Version 2 with its note, then a backtest of it on the TEST tape, then version 3 with its note.
+  await saveVersion(page, RENAMED, '3', 'TEST slower exit', 2);
+  const window = await tapeWindow(30);
+  await page.goto('/quant/backtest');
+  const room = page.getByTestId('quant-bar-backtest');
+  await room.getByRole('combobox', { name: /^Strategy/ }).selectOption({ label: RENAMED });
+  await expect(room.getByTestId('quant-backtest-rules')).toHaveText('Version 2: BTC/USDT, 1m bars.');
+  await room
+    .getByLabel('Simulated starting cash')
+    .fill('1000')
+    .catch(() => undefined);
+  await room.getByLabel('From (UTC)').fill(window.from);
+  await room.getByLabel('To (UTC)').fill(window.to);
+  await room.getByRole('combobox', { name: /^Fill a signal at/ }).selectOption('next_open');
+  await room.getByRole('combobox', { name: /^Fee rate/ }).selectOption('taker');
+  await room.getByLabel('Delay (bars)').fill('0');
+  await room.getByLabel('Slippage (basis points)').fill('5');
+  await room.getByTestId('quant-backtest-run').click();
+  const runId = await room.getByTestId('quant-bar-result').getAttribute('data-run-id', { timeout: 120_000 });
+  await saveVersion(page, RENAMED, '4', 'TEST slowest exit', 3);
+
+  // The strategy's page: every version with its note, newest first, and the first one without a note.
+  await page.goto('/quant/strategies');
+  await rowOf(page, strategyId).getByTestId('quant-strategy-name').click();
+  const versions = page.getByTestId('quant-versions');
+  await expect(versions).toHaveAttribute('data-strategy-id', strategyId);
+  const rows = versions.getByTestId('quant-version-row');
+  await expect(rows).toHaveCount(3);
+  await expect(rows.nth(0)).toHaveAttribute('data-version', '3');
+  await expect(rows.nth(0).getByTestId('quant-version-note')).toHaveText('TEST slowest exit');
+  await expect(rows.nth(1).getByTestId('quant-version-note')).toHaveText('TEST slower exit');
+  await expect(rows.nth(2).getByTestId('quant-version-note')).toHaveText('No note');
+
+  // Version 2 against version 3: the slow average is the changed line, removed and added.
+  await versions.getByRole('checkbox', { name: 'Compare version 2' }).check();
+  await versions.getByRole('checkbox', { name: 'Compare version 3' }).check();
+  const diff = versions.getByTestId('quant-diff');
+  await expect(diff).toHaveAttribute('data-from', '2');
+  await expect(diff).toHaveAttribute('data-to', '3');
+  const rules = diff.getByTestId('quant-diff-rules');
+  await expect(rules.locator('[data-op="removed"]').filter({ hasText: '"slow": "3"' })).toHaveCount(1);
+  await expect(rules.locator('[data-op="added"]').filter({ hasText: '"slow": "4"' })).toHaveCount(1);
+
+  // The run ran version 2, and its code is that version's source, read only.
+  const ran = versions.locator(`[data-testid="quant-strategy-run"][data-run-id="${runId}"]`);
+  await expect(ran).toHaveAttribute('data-version', '2');
+  await ran.getByRole('button', { name: 'Show the code (version 2)' }).click();
+  const code = versions.getByTestId('quant-run-code');
+  await expect(code).toHaveAttribute('data-version', '2');
+  await expect(code.getByTestId('quant-version-source')).toContainText('BTC/USDT');
+  await expect(code.locator('textarea, [contenteditable="true"]')).toHaveCount(0);
 });
 
 test(`${J} #4 opens a built-in template version and its source: readable and not editable; with no template published the list says none is published`, async ({

@@ -4,6 +4,8 @@ import { defineCopy } from '../../shared/i18n';
 const en = {
   save: 'Save to library',
   saving: 'Saving',
+  releaseNote: 'Release note for this version (optional)',
+  releaseNoteHint: 'Say what changed. It is kept with the version and shown in its history.',
   savedAs: 'Saved as version {version}.',
   changedSince: 'Changed since version {version}. Save to keep these rules as the next version.',
   notSaved: 'Unsaved. Saving keeps the rules in your library on this account.',

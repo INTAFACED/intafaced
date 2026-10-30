@@ -1,0 +1,41 @@
+import { defineCopy } from '../../shared/i18n';
+
+// One saved strategy's page (AL-editor-01, J-algo-dev-03 #3). Names, versions and times enter through parameters.
+const en = {
+  title: '{name}',
+  description: 'Every version of one saved strategy, its release notes, a comparison of two versions and the code each run used.',
+  back: 'All strategies',
+  simulated: 'Simulated only. A strategy here never trades live.',
+  inFolder: 'Folder: {folder}',
+  noFolder: 'Folder: none',
+  versions: 'Versions',
+  compare: 'Compare',
+  pick: 'Compare version {version}',
+  version: 'Version',
+  versionOf: 'Version {version}',
+  versionUnknown: 'Version not recorded',
+  name: 'Name',
+  saved: 'Saved (UTC)',
+  note: 'Release note',
+  noNote: 'No note',
+  source: 'Source',
+  showSource: 'Show the source of version {version}',
+  hideSource: 'Hide the source of version {version}',
+  sourceOf: 'Source of version {version} (read only)',
+  pickTwo: 'Tick two versions to compare them.',
+  oneVersion: 'There is one version, so there is nothing to compare yet. Each save in Studio adds a version.',
+  diffTitle: 'Version {from} compared with version {to}',
+  diffSame: 'These two versions hold the same source, blocks and rules.',
+  blocks: 'Order blocks',
+  rules: 'Signal rules',
+  sourcePart: 'Source',
+  runs: 'Runs of this strategy',
+  noRuns: 'None of your latest {count} runs used this strategy.',
+  runStarted: 'Started (UTC)',
+  runLabel: 'Label',
+  noLabel: 'No label',
+  code: 'Code it ran',
+  showRunCode: 'Show the code (version {version})',
+} as const;
+
+export const strategyPageCopy = defineCopy('quant.strategy', en);
