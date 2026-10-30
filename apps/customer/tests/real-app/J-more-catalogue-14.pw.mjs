@@ -154,7 +154,7 @@ test(`${J} #1 Opens /launch/new as an issuer and saves a draft, then reloads: th
     },
     ask: 'Ask a second founder to approve this draft',
     phrase: `DRAFT LAUNCH ${launch.id}`,
-    summary: `Save launch ${launch.id} ("${launch.name}", ${launch.symbol}) for issuer ${issuer.id} as a draft`,
+    summary: `Save launch ${launch.id} ("${launch.name}", ${launch.symbol}, token sale) for issuer ${issuer.id} as a draft`,
   });
   await expect(reply).toContainText(`Launch ${launch.id} is saved as a draft`);
 

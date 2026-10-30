@@ -125,7 +125,7 @@ export function IssuerLens({ read, userId }: { read: IssuerLensRead; userId: str
       <div className="adm-pagehead">
         <div>
           <h1>Launch issuers</h1>
-          <p>Issuers and their review, every launch including drafts, and who moved each one. Every change needs two founders.</p>
+          <p>Issuers and their review, launches including drafts, and who moved each one. Every change needs two founders.</p>
         </div>
         <Link className="adm-btn" href="/launch/new">
           New launch draft
@@ -140,6 +140,11 @@ export function IssuerLens({ read, userId }: { read: IssuerLensRead; userId: str
 
       <section className="dk-stack" aria-labelledby="launch-issuers-h">
         <h2 id="launch-issuers-h">Issuers</h2>
+        {read.more.issuers && (
+          <p className="dk-muted" role="note">
+            Only the first {read.page} issuers by name are listed here; more exist.
+          </p>
+        )}
         {read.issuers.kind === 'failed' ? (
           <Failed part={read.issuers} />
         ) : issuers.length === 0 ? (
@@ -223,6 +228,11 @@ export function IssuerLens({ read, userId }: { read: IssuerLensRead; userId: str
 
       <section className="dk-stack" aria-labelledby="launch-events-h">
         <h2 id="launch-events-h">Launches</h2>
+        {read.more.events && (
+          <p className="dk-muted" role="note">
+            Only the {read.page} launches opening latest are listed here; older launches exist.
+          </p>
+        )}
         {read.events.kind === 'failed' ? (
           <Failed part={read.events} />
         ) : events.length === 0 ? (

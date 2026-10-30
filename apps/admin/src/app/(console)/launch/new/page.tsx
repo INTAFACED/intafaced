@@ -9,7 +9,7 @@ export const dynamic = 'force-dynamic';
 export default async function NewLaunchPage() {
   requireModulePage('launch');
   const founder = await requireFounderPage();
-  const read = await readIssuerLens(founder);
+  const read = await readIssuerLens(founder, { trails: false });
   return (
     <main>
       {read.events.kind === 'failed' && (
@@ -20,6 +20,7 @@ export default async function NewLaunchPage() {
       <LaunchDraftDesk
         issuers={read.issuers.kind === 'ok' ? read.issuers.data : []}
         drafts={read.events.kind === 'ok' ? read.events.data.filter((e) => e.status === 'draft') : []}
+        draftsCapped={read.more.events}
         issuersFailed={
           read.issuers.kind === 'failed' ? `${read.issuers.message} No draft can be saved until the issuers can be read.` : null
         }

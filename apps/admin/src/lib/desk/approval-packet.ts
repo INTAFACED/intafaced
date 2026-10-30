@@ -377,6 +377,8 @@ export function readDeskRequest(raw: unknown): DeskRequest | null {
     if (name !== raw.name || name.length < 1 || name.length > 120) return null;
     if (typeof raw.state !== 'string' || !(LAUNCH_ISSUER_STATES as readonly string[]).includes(raw.state)) return null;
     if (typeof raw.revision !== 'string' || !REVISION.test(raw.revision)) return null;
+    // A new issuer starts as applied; svc-token refuses any other state at revision 0.
+    if (raw.revision === '0' && raw.state !== 'applied') return null;
     return { kind: 'token.launch.issuer.set', issuerId: raw.issuerId, name, state: raw.state as LaunchIssuerState, revision: raw.revision };
   }
   if (raw.kind === 'token.launch.event.create') {
@@ -821,7 +823,10 @@ export function describeRequest(request: DeskRequest): string {
           : `Move issuer ${request.issuerId} ("${request.name}") to ${request.state}. svc-token applies it only if the issuer is still at revision ${request.revision}. No money moves.`;
     case 'token.launch.event.create': {
       const e = readLaunchEventPayload(request.event);
-      return `Save launch ${e?.id} ("${e?.projectName}", ${e?.symbol}) for issuer ${e?.issuerId} as a draft. A draft is not published: nobody outside this console sees it until it is announced. Price ${e?.price ?? 'not set'}, cap ${e?.perUserCap ?? 'not set'}. No money moves.`;
+      if (!e) return 'This draft cannot be read.';
+      const [announce, snapshot, open, close, distribution] = e.periods;
+      const money = (v: string | null) => (v === null ? 'not set' : `${v} ${e.paymentAsset ?? ''}`.trim());
+      return `Save launch ${e.id} ("${e.projectName}", ${e.symbol}, ${e.type.replace(/_/g, ' ')}) for issuer ${e.issuerId} as a draft. Periods (UTC): announce ${announce}, snapshot ${snapshot}, open ${open}, close ${close}, distribution ${distribution}. Allocation ${e.method?.replace(/_/g, ' ') ?? 'not set'}, cap per account ${e.perUserCap === null ? 'not set' : `${e.perUserCap} ${e.symbol}`}, ticket size ${e.ticketSize ?? 'not set'}. Price ${money(e.price)}, currency ${e.paymentAsset ?? 'not set'}, rate source ${e.rateSource ?? 'not set'}. A draft is not published: nobody outside this console sees it until it is announced. No money moves.`;
     }
     case 'token.launch.event.move':
       return `Move launch ${request.eventId} to ${request.to}. svc-token checks the period and that the issuer is onboarded, and applies it only if the launch is still at revision ${request.revision}. No money moves.`;

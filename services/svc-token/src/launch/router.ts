@@ -18,8 +18,6 @@ import {
   type LaunchService,
 } from './launch-service.js';
 
-/** The founders' approvals for the three operator doors. Each binds the fields it changes. */
-
 const amountString = z.string().regex(/^\d+(\.\d{1,18})?$/, 'amount must be an unsigned decimal string (max 18dp)');
 const launchId = z.string().min(3).max(63);
 const iso = z.string().datetime({ offset: true });
@@ -317,25 +315,34 @@ export function createLaunchRouter(launch: LaunchService, options: LaunchRouterO
         .query(({ input }) => guard(async () => eventToWire(await launch.getAnyEvent(input.id)))),
 
       issuers: scopedProcedure('admin:read')
+        .input(z.object({ limit: z.number().int().min(1).max(200).optional() }).default({}))
         .output(z.array(z.object({ id: z.string(), name: z.string(), state: z.enum(ISSUER_STATES), revision: z.number().int() })))
-        .query(() => guard(() => launch.listIssuers())),
+        .query(({ input }) => guard(() => launch.listIssuers(input))),
 
       moves: scopedProcedure('admin:read')
-        .input(z.object({ kind: z.enum(['issuer', 'event']), id: launchId }))
+        .input(z.object({ kind: z.enum(['issuer', 'event']), ids: z.array(launchId).min(1).max(200) }))
         .output(
-          z.array(
-            z.object({
-              ordinal: z.number().int(),
-              from: z.string().nullable(),
-              to: z.string(),
-              actorId: z.string(),
-              approverId: z.string(),
-              cause: z.string().nullable(),
-              at: z.string(),
-            }),
+          z.record(
+            z.string(),
+            z.array(
+              z.object({
+                ordinal: z.number().int(),
+                from: z.string().nullable(),
+                to: z.string(),
+                actorId: z.string(),
+                approverId: z.string(),
+                cause: z.string().nullable(),
+                at: z.string(),
+              }),
+            ),
           ),
         )
-        .query(({ input }) => guard(async () => (await launch.moves(input.kind, input.id)).map((m) => ({ ...m, at: m.at.toISOString() })))),
+        .query(({ input }) =>
+          guard(async () => {
+            const trails = await launch.moves(input.kind, [...new Set(input.ids)]);
+            return Object.fromEntries([...trails].map(([id, moves]) => [id, moves.map((m) => ({ ...m, at: m.at.toISOString() }))]));
+          }),
+        ),
     }),
 
     // No module guard here: an account short of the token module's tier must still read which requirements it misses

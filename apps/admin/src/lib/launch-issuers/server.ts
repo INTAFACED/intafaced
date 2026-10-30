@@ -11,7 +11,7 @@ import {
   readIssuer,
   readIssuers,
   readLaunchEventPayload,
-  readMoves,
+  readTrails,
   type LaunchEventRow,
   type LaunchIssuer,
   type LaunchMove,
@@ -27,8 +27,8 @@ const LABELS = {
   service: 'svc-token',
   forbiddenMessage: 'svc-token did not accept this founder session for the launch lens (admin:read).',
 };
-/** The newest launches this lens lists, and so the most it reads moves for. */
-const PAGE = 100;
+/** The page size of each list, and the batch of trails per read: svc-token's own maximum. */
+const PAGE = 200;
 
 export interface IssuerLensRead {
   readonly issuers: Part<LaunchIssuer[]>;
@@ -36,31 +36,56 @@ export interface IssuerLensRead {
   /** Audit trail per issuer id and per launch id; a failed read says why for that row only. */
   readonly issuerMoves: Readonly<Record<string, Part<LaunchMove[]>>>;
   readonly eventMoves: Readonly<Record<string, Part<LaunchMove[]>>>;
+  /** True when a page came back full: older issuers or launches exist that are not listed. */
+  readonly more: { readonly issuers: boolean; readonly events: boolean };
+  readonly page: number;
   readonly asOf: string;
 }
 
-async function movesOf(ctx: FounderCallContext, kind: 'issuer' | 'event', ids: readonly string[]) {
-  const reads = await Promise.all(
-    ids.map(
-      async (id) =>
-        [id, partFrom(await founderCall(ctx, 'token', 'launch.admin.moves', 'GET', { kind, id }, readMoves), (m) => m, LABELS)] as const,
-    ),
-  );
-  return Object.fromEntries(reads);
+/** One read per kind for every trail on the page; ids beyond the service's batch go in further reads. */
+async function trailsOf(
+  ctx: FounderCallContext,
+  kind: 'issuer' | 'event',
+  ids: readonly string[],
+): Promise<Record<string, Part<LaunchMove[]>>> {
+  const out: Record<string, Part<LaunchMove[]>> = {};
+  for (let i = 0; i < ids.length; i += PAGE) {
+    const batch = ids.slice(i, i + PAGE);
+    const read = partFrom(await founderCall(ctx, 'token', 'launch.admin.moves', 'GET', { kind, ids: batch }, readTrails), (d) => d, LABELS);
+    for (const id of batch) out[id] = read.kind === 'ok' ? { kind: 'ok', data: read.data[id] ?? [] } : read;
+  }
+  return out;
 }
 
-export async function readIssuerLens(ctx: FounderCallContext): Promise<IssuerLensRead> {
+/**
+ * The lens: issuers and launches, one page each, and with `trails` the audited moves of every row on it. `more` says a
+ * page was full, so older rows exist that this page does not show.
+ */
+export async function readIssuerLens(ctx: FounderCallContext, options: { trails: boolean } = { trails: true }): Promise<IssuerLensRead> {
   const [issuers, events] = await Promise.all([
-    founderCall(ctx, 'token', 'launch.admin.issuers', 'GET', undefined, readIssuers),
+    founderCall(ctx, 'token', 'launch.admin.issuers', 'GET', { limit: PAGE }, readIssuers),
     founderCall(ctx, 'token', 'launch.admin.events', 'GET', { limit: PAGE }, readEvents),
   ]);
   const issuerPart = partFrom(issuers, (d) => d, LABELS);
   const eventPart = partFrom(events, (d) => d, LABELS);
-  const [issuerMoves, eventMoves] = await Promise.all([
-    movesOf(ctx, 'issuer', issuerPart.kind === 'ok' ? issuerPart.data.map((i) => i.id) : []),
-    movesOf(ctx, 'event', eventPart.kind === 'ok' ? eventPart.data.map((e) => e.id) : []),
-  ]);
-  return { issuers: issuerPart, events: eventPart, issuerMoves, eventMoves, asOf: new Date().toISOString() };
+  const [issuerMoves, eventMoves] = options.trails
+    ? await Promise.all([
+        trailsOf(ctx, 'issuer', issuerPart.kind === 'ok' ? issuerPart.data.map((i) => i.id) : []),
+        trailsOf(ctx, 'event', eventPart.kind === 'ok' ? eventPart.data.map((e) => e.id) : []),
+      ])
+    : [{}, {}];
+  return {
+    issuers: issuerPart,
+    events: eventPart,
+    issuerMoves,
+    eventMoves,
+    more: {
+      issuers: issuerPart.kind === 'ok' && issuerPart.data.length === PAGE,
+      events: eventPart.kind === 'ok' && eventPart.data.length === PAGE,
+    },
+    page: PAGE,
+    asOf: new Date().toISOString(),
+  };
 }
 
 /** Runs an approved issuer change, draft or launch move once, spending the approval at svc-token. */

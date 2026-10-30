@@ -83,9 +83,32 @@ export function readLaunchEventPayload(text: string): LaunchEventPayload | null 
   if (r.method !== null && !(typeof r.method === 'string' && (ALLOCATION_METHODS as readonly string[]).includes(r.method))) return null;
   if (!amountOrNull(r.perUserCap) || !amountOrNull(r.ticketSize) || !amountOrNull(r.price) || r.tierWeights !== null) return null;
   if (r.paymentAsset !== null && !(typeof r.paymentAsset === 'string' && ASSET.test(r.paymentAsset))) return null;
-  if (r.rateSource !== null && !(typeof r.rateSource === 'string' && r.rateSource.length >= 1 && r.rateSource.length <= 120)) return null;
+  if (
+    r.rateSource !== null &&
+    !(typeof r.rateSource === 'string' && r.rateSource === r.rateSource.trim() && r.rateSource.length >= 1 && r.rateSource.length <= 120)
+  )
+    return null;
+  if (!draftRulesHold(r as unknown as LaunchEventPayload)) return null;
   if (JSON.stringify(r) !== text) return null;
   return r as unknown as LaunchEventPayload;
+}
+
+const isZero = (v: string | null) => v !== null && /^0(?:\.0*)?$/.test(v);
+
+/** svc-token's cross-field rules for a launch, so a draft it would refuse never reaches the founders. Null when they hold. */
+function draftRuleBroken(p: LaunchEventPayload): string | null {
+  const [announce, snapshot, open, close, distribution] = p.periods.map((t) => Date.parse(t)) as [number, number, number, number, number];
+  if (!(announce <= snapshot && snapshot <= open && open < close && close <= distribution))
+    return 'The periods must run announce, snapshot, open, close, distribution in that order, and close after open.';
+  if (isZero(p.perUserCap) || isZero(p.ticketSize) || isZero(p.price))
+    return 'A cap, ticket size or price is more than zero, or left blank.';
+  if ((p.price === null) !== (p.paymentAsset === null)) return 'A price needs the currency it is paid in, and a currency needs a price.';
+  if (p.rateSource !== null && p.price === null) return 'A rate source needs a price.';
+  return null;
+}
+
+function draftRulesHold(p: LaunchEventPayload): boolean {
+  return draftRuleBroken(p) === null;
 }
 
 /** The new-launch form as typed. Times are the operator's `datetime-local` values read as UTC; a blank amount is unset. */
@@ -153,6 +176,8 @@ export function draftPayload(form: LaunchDraftForm): { ok: true; event: string }
     paymentAsset,
     rateSource,
   };
+  const broken = draftRuleBroken(payload);
+  if (broken) return { ok: false, message: broken };
   return { ok: true, event: JSON.stringify(payload) };
 }
 
@@ -255,6 +280,18 @@ export function readEvents(raw: unknown): LaunchEventRow[] | null {
     const row = readEventRow(r);
     if (!row) return null;
     out.push(row);
+  }
+  return out;
+}
+
+/** The trails of several issuers or launches, keyed by id, as svc-token `launch.admin.moves` answers. */
+export function readTrails(raw: unknown): Record<string, LaunchMove[]> | null {
+  if (!isRecord(raw)) return null;
+  const out: Record<string, LaunchMove[]> = {};
+  for (const [id, moves] of Object.entries(raw)) {
+    const read = readMoves(moves);
+    if (!read) return null;
+    out[id] = read;
   }
   return out;
 }

@@ -469,44 +469,43 @@ export class LaunchService {
     return eventFromRow(row);
   }
 
-  /** The operator lens: every issuer, by name. */
-  async listIssuers(): Promise<LaunchIssuer[]> {
-    return this.sql<LaunchIssuer[]>`SELECT id, name, state, revision FROM token.launch_issuers ORDER BY name, id`;
+  /** The operator lens: issuers by name, one page. A missing page size refuses. */
+  async listIssuers(input: { limit?: number }): Promise<LaunchIssuer[]> {
+    if (input.limit === undefined) throw new LaunchError('A page size is required', 'launch.events_list_limit_unset');
+    return this.sql<LaunchIssuer[]>`SELECT id, name, state, revision FROM token.launch_issuers ORDER BY name, id LIMIT ${input.limit}`;
   }
 
-  /** The audit trail of one issuer or one launch, oldest first. */
-  async moves(kind: 'issuer' | 'event', id: string): Promise<LaunchMove[]> {
+  /** The audit trails of some issuers or some launches, oldest first, keyed by id. An id with no move has an empty trail. */
+  async moves(kind: 'issuer' | 'event', ids: readonly string[]): Promise<Map<string, LaunchMove[]>> {
+    type Row = {
+      id: string;
+      ordinal: number;
+      from: string | null;
+      to: string;
+      actor_id: string;
+      approver_id: string;
+      cause: string | null;
+      at: Date;
+    };
     const rows =
-      kind === 'issuer'
-        ? await this.sql<
-            Array<{ ordinal: number; from: string | null; to: string; actor_id: string; approver_id: string; cause: null; at: Date }>
-          >`
-            SELECT ordinal, from_state AS "from", to_state AS "to", actor_id, approver_id, NULL AS cause, at
-              FROM token.launch_issuer_moves WHERE issuer_id = ${id} ORDER BY ordinal
-          `
-        : await this.sql<
-            Array<{
-              ordinal: number;
-              from: string | null;
-              to: string;
-              actor_id: string;
-              approver_id: string;
-              cause: string | null;
-              at: Date;
-            }>
-          >`
-            SELECT ordinal, from_status AS "from", to_status AS "to", actor_id, approver_id, cause, at
-              FROM token.launch_event_moves WHERE event_id = ${id} ORDER BY ordinal
-          `;
-    return rows.map((r) => ({
-      ordinal: r.ordinal,
-      from: r.from,
-      to: r.to,
-      actorId: r.actor_id,
-      approverId: r.approver_id,
-      cause: r.cause,
-      at: r.at,
-    }));
+      ids.length === 0
+        ? []
+        : kind === 'issuer'
+          ? await this.sql<Row[]>`
+              SELECT issuer_id AS id, ordinal, from_state AS "from", to_state AS "to", actor_id, approver_id, NULL AS cause, at
+                FROM token.launch_issuer_moves WHERE issuer_id IN ${this.sql(ids)} ORDER BY issuer_id, ordinal
+            `
+          : await this.sql<Row[]>`
+              SELECT event_id AS id, ordinal, from_status AS "from", to_status AS "to", actor_id, approver_id, cause, at
+                FROM token.launch_event_moves WHERE event_id IN ${this.sql(ids)} ORDER BY event_id, ordinal
+            `;
+    const out = new Map<string, LaunchMove[]>(ids.map((id) => [id, []]));
+    for (const r of rows) {
+      out
+        .get(r.id)
+        ?.push({ ordinal: r.ordinal, from: r.from, to: r.to, actorId: r.actor_id, approverId: r.approver_id, cause: r.cause, at: r.at });
+    }
+    return out;
   }
 
   async getIssuer(id: string): Promise<LaunchIssuer | null> {
@@ -547,7 +546,8 @@ export class LaunchService {
     const row = (await this.selectEvents(this.sql, { id: input.id }))[0];
     if (!row) throw new LaunchError(`Launch ${input.id} not found`, 'launch.event_not_found');
     const replay = await this.sql<Array<{ to_status: string }>>`
-      SELECT to_status FROM token.launch_event_moves WHERE event_id = ${input.id} AND ordinal = ${input.expectedRevision + 1}
+      SELECT to_status FROM token.launch_event_moves
+       WHERE event_id = ${input.id} AND ordinal = ${input.expectedRevision + 1} AND cause IS NULL
     `;
     refuseMove(eventFromRow(row), input, replay[0]?.to_status);
   }
@@ -676,7 +676,7 @@ export class LaunchService {
       const event = eventFromRow(row);
       const ordinal = input.expectedRevision + 1;
       const replay = await tx<Array<{ to_status: string }>>`
-        SELECT to_status FROM token.launch_event_moves WHERE event_id = ${input.id} AND ordinal = ${ordinal}
+        SELECT to_status FROM token.launch_event_moves WHERE event_id = ${input.id} AND ordinal = ${ordinal} AND cause IS NULL
       `;
       if (refuseMove(event, input, replay[0]?.to_status) === 'replay') return event;
       const now = input.now;

@@ -3,8 +3,10 @@ import { canonicalEvent, type CreateEventInput } from './launch-service.js';
 
 /**
  * What the founders approve for a launch door: the action names and the canonical launch payload. Kept apart from the router
- * so the console can pin its own hash to this code without loading the service.
+ * so the console can pin its own hash to this code without loading the router and its tRPC graph.
  */
+
+/** The founders' approvals for the three operator doors. Each binds the fields it changes. */
 export const LAUNCH_ISSUER_SET_ACTION = 'token.launch.issuer.set';
 export const LAUNCH_EVENT_CREATE_ACTION = 'token.launch.event.create';
 export const LAUNCH_EVENT_MOVE_ACTION = 'token.launch.event.move';

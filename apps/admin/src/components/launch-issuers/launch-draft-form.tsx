@@ -40,11 +40,13 @@ export function LaunchDraftDesk({
   issuers,
   drafts,
   issuersFailed,
+  draftsCapped,
   userId,
 }: {
   issuers: LaunchIssuer[];
   drafts: LaunchEventRow[];
   issuersFailed: string | null;
+  draftsCapped: boolean;
   userId: string;
 }) {
   const router = useRouter();
@@ -168,6 +170,11 @@ export function LaunchDraftDesk({
       />
       <section className="dk-stack" aria-labelledby="launch-drafts-h">
         <h2 id="launch-drafts-h">Stored drafts</h2>
+        {draftsCapped && (
+          <p className="dk-muted" role="note">
+            These are the drafts among the launches opening latest; older drafts are not listed here.
+          </p>
+        )}
         {drafts.length === 0 ? (
           <p className="dk-muted">No draft is stored.</p>
         ) : (
