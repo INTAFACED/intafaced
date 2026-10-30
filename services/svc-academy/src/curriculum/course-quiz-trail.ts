@@ -179,6 +179,19 @@ export function onOlderKeys(
 
 const total = (points: Readonly<Record<string, number>>) => Object.values(points).reduce((sum, p) => sum + p, 0);
 
+/**
+ * The score points stand for: their sum, including a curve's difference, held to 0 and the attempt's maximum, so a
+ * change after a curve never takes a score past either end. Pure.
+ */
+export const scoreOf = (points: Readonly<Record<string, number>>, maxScore: number | null) =>
+  Math.min(maxScore ?? Number.MAX_SAFE_INTEGER, Math.max(0, total(points)));
+
+/** Each learner's per-quiz alias ("Learner 3"): their place by first start, then account. Staff never see the account. */
+const ALIASES = (sql: Db, itemId: string) => sql`
+  SELECT user_id, row_number() OVER (ORDER BY min(started_at), user_id)::int AS alias
+  FROM academy.course_quiz_attempts WHERE item_id = ${itemId} GROUP BY user_id
+`;
+
 const ATTEMPT = (sql: Db) => sql`
   t.id, t.item_id, t.user_id, t.number, t.finished_at, t.state, t.quiz, t.answers, t.essay_points, t.score, t.max_score, t.passed
 `;
@@ -248,8 +261,7 @@ export class CourseQuizTrail {
         SELECT e.file_line AS line, a.alias, t.number, e.previous_score AS from, e.score AS to
         FROM academy.course_quiz_score_events e
         JOIN academy.course_quiz_attempts t ON t.id = e.attempt_id
-        JOIN (SELECT user_id, row_number() OVER (ORDER BY min(started_at), user_id)::int AS alias
-              FROM academy.course_quiz_attempts WHERE item_id = ${input.itemId} GROUP BY user_id) a ON a.user_id = t.user_id
+        JOIN (${ALIASES(tx, input.itemId)}) a ON a.user_id = t.user_id
         WHERE t.item_id = ${input.itemId} AND e.kind = 'curve' AND e.file_sha256 = ${sha256}
         ORDER BY e.file_line
       `;
@@ -257,8 +269,7 @@ export class CourseQuizTrail {
       // Each learner's newest finished attempt, under its alias.
       const newestAttempts = await tx<Array<TrailAttempt & { alias: number }>>`
         SELECT DISTINCT ON (t.user_id) ${ATTEMPT(tx)}, a.alias FROM academy.course_quiz_attempts t
-        JOIN (SELECT user_id, row_number() OVER (ORDER BY min(started_at), user_id)::int AS alias
-              FROM academy.course_quiz_attempts WHERE item_id = ${input.itemId} GROUP BY user_id) a USING (user_id)
+        JOIN (${ALIASES(tx, input.itemId)}) a USING (user_id)
         WHERE t.item_id = ${input.itemId} AND t.state <> 'open'
         ORDER BY t.user_id, t.number DESC
       `;
@@ -289,9 +300,21 @@ export class CourseQuizTrail {
           `${rejected.length} row(s) of this file are refused; a curve applies whole, so run the dry run and correct them`,
           'academy.bulk_file_invalid',
         );
-      for (const p of [...planned].sort((a, b) => a.attempt.id.localeCompare(b.attempt.id))) {
-        await tx`SELECT 1 FROM academy.course_quiz_attempts WHERE id = ${p.attempt.id} FOR UPDATE`;
-        const last = events.get(p.attempt.id);
+      // Lock every attempt the file changes, in id order, then read their trails again: an override that landed after the
+      // first read is under the new event, never overwritten.
+      const changing = [...planned].sort((a, b) => a.attempt.id.localeCompare(b.attempt.id));
+      for (const p of changing) await tx`SELECT 1 FROM academy.course_quiz_attempts WHERE id = ${p.attempt.id} FOR UPDATE`;
+      const locked = await newestEvents(
+        tx,
+        changing.map((p) => p.attempt.id),
+      );
+      const applied: AcademyCurveCourseQuizResult['rows'] = [];
+      for (const p of changing) {
+        const last = locked.get(p.attempt.id);
+        const from = last?.score ?? p.attempt.score ?? 0;
+        applied.push({ line: p.row.line, alias: p.row.alias, number: p.attempt.number, from, to: p.row.score });
+        // A row that leaves the score as it is writes nothing.
+        if (from === p.row.score) continue;
         const before = last?.points ?? finishedPoints(p.attempt);
         const { [CURVE_ENTRY]: _old, ...questions } = before;
         const points = { ...questions, [CURVE_ENTRY]: p.row.score - total(questions) };
@@ -299,12 +322,12 @@ export class CourseQuizTrail {
           INSERT INTO academy.course_quiz_score_events
             (attempt_id, n, kind, points, keys, previous_score, score, passed, reason, actor, at, file_sha256, file_line)
           VALUES (${p.attempt.id}, ${(last?.n ?? 0) + 1}, 'curve', ${tx.json(points)},
-                  ${tx.json((last?.keys ?? finishedKeys(p.attempt)) as never)}, ${p.from}, ${p.row.score},
+                  ${tx.json((last?.keys ?? finishedKeys(p.attempt)) as never)}, ${from}, ${p.row.score},
                   ${p.row.score >= p.attempt.quiz.passMark}, ${input.reason}, ${input.operatorId}, ${input.now}, ${sha256},
                   ${p.row.line})
         `;
       }
-      return { ...base, repeated: false, applied: true, rows, rejected: [] };
+      return { ...base, repeated: false, applied: true, rows: applied.sort((a, b) => a.line - b.line), rejected: [] };
     });
   }
 
@@ -343,8 +366,7 @@ export class CourseQuizTrail {
       const current = questionsOf(quiz);
       const attempts = await tx<Array<TrailAttempt & { alias: number }>>`
         SELECT ${ATTEMPT(tx)}, a.alias FROM academy.course_quiz_attempts t
-        JOIN (SELECT user_id, row_number() OVER (ORDER BY min(started_at), user_id)::int AS alias
-              FROM academy.course_quiz_attempts WHERE item_id = ${input.itemId} GROUP BY user_id) a USING (user_id)
+        JOIN (${ALIASES(tx, input.itemId)}) a USING (user_id)
         WHERE t.item_id = ${input.itemId} AND t.state = 'graded'
         ORDER BY t.id
         FOR UPDATE OF t
@@ -369,7 +391,7 @@ export class CourseQuizTrail {
         const after = rescoredPoints(attempt, before, last?.keys ?? finishedKeys(attempt), current);
         if (canonical(before) === canonical(after.points)) continue;
         const from = last?.score ?? attempt.score ?? total(before);
-        const to = total(after.points);
+        const to = scoreOf(after.points, attempt.max_score);
         await tx`
           INSERT INTO academy.course_quiz_score_events
             (attempt_id, n, kind, revision, points, keys, previous_score, score, passed, reason, actor, at)
@@ -421,7 +443,7 @@ export class CourseQuizTrail {
         );
       const before = last?.points ?? finishedPoints(attempt);
       const after = { ...before, [input.questionId]: input.points };
-      const to = total(after);
+      const to = scoreOf(after, attempt.max_score);
       // The override stands on the key in force for its question; a rescore leaves it until that key changes.
       await tx`
         INSERT INTO academy.course_quiz_score_events
@@ -454,8 +476,7 @@ export class CourseQuizTrail {
     const current = questionsOf(quiz);
     const rows = await this.sql<Array<TrailAttempt & { alias: number }>>`
       SELECT ${ATTEMPT(this.sql)}, a.alias FROM academy.course_quiz_attempts t
-      JOIN (SELECT user_id, row_number() OVER (ORDER BY min(started_at), user_id)::int AS alias
-            FROM academy.course_quiz_attempts WHERE item_id = ${itemId} GROUP BY user_id) a USING (user_id)
+      JOIN (${ALIASES(this.sql, itemId)}) a USING (user_id)
       WHERE t.item_id = ${itemId} AND t.state <> 'open'
       ORDER BY a.alias, t.number
     `;

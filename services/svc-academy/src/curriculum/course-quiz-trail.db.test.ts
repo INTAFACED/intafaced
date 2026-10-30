@@ -301,13 +301,16 @@ describe('a curve file and quiz analytics (AC-quizzes-04)', () => {
       [2, 2, 3],
     ]);
     expect(await curve(itemId, good, false)).toMatchObject({ applied: false, repeated: true, rows: applied.rows });
+    // A row that leaves a score as it is writes no event.
+    const same = await curve(itemId, 'learner,score\nLearner 1,4\n', false);
+    expect(same.rows).toEqual([{ line: 2, alias: 1, number: 1, from: 4, to: 4 }]);
     const l = (await trail().attempts(itemId)).attempts.find((a) => a.attemptId === ids[L])!;
     expect(l).toMatchObject({
       score: 4,
       originalScore: 3,
       events: [expect.objectContaining({ kind: 'curve', previousScore: 3, score: 4 })],
     });
-    // An override after a curve keeps the curve's difference: q1 0 → 2 adds 2.
+    // An override after a curve keeps the curve's difference, held to the maximum: q1 0 → 2 would make 6 of 5, so 5.
     const after = await trail().override({
       itemId,
       attemptId: ids[L]!,
@@ -319,7 +322,7 @@ describe('a curve file and quiz analytics (AC-quizzes-04)', () => {
       operatorId: A,
       now: later(2),
     });
-    expect(after.attempts.find((a) => a.attemptId === ids[L])!.score).toBe(6);
+    expect(after.attempts.find((a) => a.attemptId === ids[L])!.score).toBe(5);
   });
 
   it('a blank size limit, a file over it, a bad header and a score above the maximum refuse', async () => {

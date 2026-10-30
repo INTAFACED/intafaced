@@ -171,7 +171,10 @@ export async function changeQuizTrail(
       reply: {
         ok: true,
         what: spec.what,
-        view: { quiz: { kind: 'ok', data: result.data }, attempts: await attemptsPart(), analytics: await analyticsPart(), asOf: asOf() },
+        view: await (async () => {
+          const [attempts, analytics] = await Promise.all([attemptsPart(), analyticsPart()]);
+          return { quiz: { kind: 'ok' as const, data: result.data }, attempts, analytics, asOf: asOf() };
+        })(),
       },
     };
   }
@@ -182,7 +185,10 @@ export async function changeQuizTrail(
     reply: {
       ok: true,
       what: spec.what,
-      view: { quiz: await quizPart(), attempts: { kind: 'ok', data: result.data }, analytics: await analyticsPart(), asOf: asOf() },
+      view: await (async () => {
+        const [quiz, analytics] = await Promise.all([quizPart(), analyticsPart()]);
+        return { quiz, attempts: { kind: 'ok' as const, data: result.data }, analytics, asOf: asOf() };
+      })(),
     },
   };
 }

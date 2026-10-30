@@ -73,8 +73,14 @@ export class CourseQuizAnalytics {
       this.sql,
       graded.map((g) => g.id),
     );
-    const firstOf = new Map<string, number>();
-    for (const g of graded) if (!firstOf.has(g.user_id)) firstOf.set(g.user_id, g.number);
+    // A learner's first attempt is their first finished one, graded or still waiting for an essay score: a retake after
+    // a pending first attempt is never counted as a first try.
+    const firsts = await this.sql<Array<{ user_id: string; number: number }>>`
+      SELECT user_id, min(number)::int AS number FROM academy.course_quiz_attempts
+      WHERE item_id = ${itemId} AND state <> 'open' GROUP BY user_id
+    `;
+    const firstOf = new Map(firsts.map((f) => [f.user_id, f.number]));
+    const learners = new Set(graded.map((g) => g.user_id)).size;
 
     const scored = graded.map((g) => {
       const last = events.get(g.id);
@@ -86,7 +92,7 @@ export class CourseQuizAnalytics {
       };
     });
 
-    const highest = Math.max(0, ...graded.map((g) => g.max_score ?? 0));
+    const highest = Math.max(0, ...graded.map((g) => g.max_score ?? 0), ...scored.map((s) => s.score));
     const counts = new Map<number, number>();
     for (const s of scored) counts.set(s.score, (counts.get(s.score) ?? 0) + 1);
     const scoreDistribution =
@@ -127,7 +133,7 @@ export class CourseQuizAnalytics {
       title: quiz.title,
       revision: quiz.revision ?? 0,
       graded: graded.length,
-      learners: firstOf.size,
+      learners,
       scoreDistribution,
       items,
     };
@@ -138,7 +144,8 @@ export class CourseQuizAnalytics {
    * Course roles (AC-roles-01) have no store in this service, so no account holds the role and every caller is refused.
    */
   async answers(input: { itemId: string; operatorId: string }): Promise<AcademyCourseQuizAnswers> {
-    await this.analytics(input.itemId);
+    const [quiz] = await this.sql<Array<{ kind: string }>>`SELECT kind FROM academy.course_items WHERE id = ${input.itemId}`;
+    if (!quiz || quiz.kind !== 'quiz') throw new AcademyError('no graded quiz with that id', 'academy.quiz_not_found');
     throw new AcademyError(
       'answer-level data needs the data researcher role on this course; course roles (AC-roles-01) have no store, so no account holds it',
       'academy.permission_denied',

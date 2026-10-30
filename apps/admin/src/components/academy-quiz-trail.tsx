@@ -155,7 +155,8 @@ function Curve({ busy, onSend }: { busy: boolean; onSend: (body: Record<string, 
     void file
       .text()
       .then((csv) => {
-        if (csv.length > ACADEMY_CURVE_FILE_MAX_CHARS) return setWhy('That file is larger than one request carries. Nothing was sent.');
+        if (csv.length > ACADEMY_CURVE_FILE_MAX_CHARS || new TextEncoder().encode(JSON.stringify(csv)).length > 990_000)
+          return setWhy('That file is larger than one request carries. Nothing was sent.');
         setWhy(null);
         onSend({ op: 'curve', fileName: file.name, csv, dryRun, reason: reason.trim() });
       })
