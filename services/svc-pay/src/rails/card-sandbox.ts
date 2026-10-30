@@ -49,6 +49,11 @@ export interface CardSandboxOptions {
 /** Instrument tokens that steer the sandbox, the way a real sandbox uses test PANs. */
 export const SANDBOX_DECLINE_TOKEN = 'tok_decline';
 export const SANDBOX_ERROR_TOKEN = 'tok_rail_error';
+/**
+ * The acquirer captures the charge and holds the funds (RC-merchant-10): the capture result says `funds: pending`, and
+ * the funds stay held until a signed `funds.available` delivery names the charge.
+ */
+export const SANDBOX_FUNDS_HELD_TOKEN = 'tok_funds_held';
 
 interface AcquirerCharge {
   ref: string;
@@ -58,6 +63,8 @@ interface AcquirerCharge {
   captured: Amount;
   refunded: Amount;
   status: 'authorized' | 'captured' | 'refunded' | 'failed';
+  /** Set from the instrument at authorize: the acquirer holds this charge's funds after capture. */
+  fundsHeld: boolean;
 }
 
 export class CardSandboxAdapter implements RailAdapter {
@@ -194,6 +201,7 @@ export class CardSandboxAdapter implements RailAdapter {
       captured: 0n,
       refunded: 0n,
       status: 'authorized',
+      fundsHeld: p.instrument?.token === SANDBOX_FUNDS_HELD_TOKEN,
     };
     this.charges.set(ref, charge);
 
@@ -402,6 +410,8 @@ export class CardSandboxAdapter implements RailAdapter {
       assetId: charge.assetId,
       at: this.now(),
       raw: { paymentId: charge.paymentId, chargeStatus: charge.status },
+      // The sandbox names no release day: it releases when a signed `funds.available` delivery says so.
+      ...(status === 'captured' && charge.fundsHeld ? { funds: { state: 'pending' as const } } : {}),
     };
   }
 }
@@ -420,6 +430,8 @@ const EVENT_TYPES = new Set([
   'dispute.won',
   'dispute.lost',
   'dispute.closed',
+  'funds.available',
+  'funds.pending',
 ]);
 
 /** Shape-check a verified body. A valid signature proves origin, not structure. */
@@ -464,6 +476,14 @@ function toRailEvent(railId: string, body: unknown, noteMalformedEvidenceDueBy?:
     }
   }
 
+  let availableOn: Date | undefined;
+  if (b.availableOn !== undefined && b.availableOn !== null) {
+    // A release day that does not parse is a malformed event: showing the business a wrong day is worse than none.
+    const parsed = typeof b.availableOn === 'string' ? new Date(b.availableOn) : null;
+    if (!parsed || Number.isNaN(parsed.getTime())) return null;
+    availableOn = parsed;
+  }
+
   return {
     railId,
     eventId,
@@ -476,5 +496,6 @@ function toRailEvent(railId: string, body: unknown, noteMalformedEvidenceDueBy?:
     disputeId,
     reasonCode,
     evidenceDueBy,
+    availableOn,
   };
 }

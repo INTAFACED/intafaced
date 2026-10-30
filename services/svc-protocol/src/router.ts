@@ -27,6 +27,8 @@ import {
   TRPCError,
   type BlockerSource,
   protocolSwapPairsOutputSchema,
+  protocolTokenPricesOutputSchema,
+  PRICE_SETTINGS_UNSET,
   protocolSwapSettingsOutputSchema,
   SWAP_SETTINGS_UNSET,
 } from '@intafaced/contracts';
@@ -51,6 +53,7 @@ import { SignatureEnvelopeError, type UserOperation } from './chain/userop.js';
 import { AmmMathError } from './amm/math.js';
 import { freshPoolQuote, PoolTokenError } from './amm/pool-quote.js';
 import { pairsReader } from './amm/pairs.js';
+import { priceTokens, type PriceSetting } from './amm/prices.js';
 import { createTokensRouter } from './amm/tokens-router.js';
 import { createPoolFeesProcedures, poolFeesChain } from './amm/pool-fees.js';
 import { tokenLogsChain } from './amm/token-reader.js';
@@ -374,6 +377,8 @@ export interface ProtocolRouterDeps {
   swapQuoteTtlSeconds?: () => number | null;
   /** `PROTOCOL_SWAP_CONFIRMATIONS`. Null or absent: `amm.swapSettings` refuses. */
   swapConfirmations?: () => number | null;
+  /** `PROTOCOL_PRICE_USD_TOKENS` and `PROTOCOL_PRICE_MIN_RESERVE_USD`. Null or absent: `amm.prices` refuses. */
+  priceSetting?: () => PriceSetting | null;
   /** `PROTOCOL_TOKENS_QUOTE_TOKEN`: what the token pages state prices in. Null or absent: `tokens.*` refuses. */
   tokensQuoteToken?: () => Address | null;
   /** What the indexer and the DEX report about themselves, for `blockers`. Absent = not connected. */
@@ -428,6 +433,18 @@ const unwiredRepresentationStore: RepresentationStore = {
 export function createProtocolRouter(deps: ProtocolRouterDeps) {
   const { chain, registry, relay } = deps;
   const readPairs = pairsReader(chain);
+  // amm.prices is public: one block's time is read once and shared, like the pairs read it sits on.
+  let blockTime: { block: string; at: Promise<Date> } | null = null;
+  const timeOfBlock = (block: string): Promise<Date> => {
+    if (blockTime?.block !== block) {
+      const at = chain.blockTimestamp(BigInt(block));
+      blockTime = { block, at };
+      at.catch(() => {
+        if (blockTime?.at === at) blockTime = null;
+      });
+    }
+    return blockTime!.at;
+  };
   const peers = deps.peers ?? noPeers;
 
   function requireRelayEnabled() {
@@ -1277,6 +1294,34 @@ export function createProtocolRouter(deps: ProtocolRouterDeps) {
             });
           try {
             return await readPairs(factory);
+          } catch (err) {
+            throw toTrpcError(err);
+          }
+        }),
+
+      /**
+       * Every listed token's USD price from the pools, at one block, with the block's own time (D-swap-11). A pool under
+       * the owner's minimum reserve gives no price; blank settings refuse before any read.
+       */
+      prices: publicJurisdictionProcedure('protocol', 'protocol')
+        .output(protocolTokenPricesOutputSchema)
+        .query(async () => {
+          const setting = deps.priceSetting?.() ?? null;
+          if (!setting)
+            throw new TRPCError({
+              code: 'PRECONDITION_FAILED',
+              message: `${PRICE_SETTINGS_UNSET}: PROTOCOL_PRICE_USD_TOKENS and PROTOCOL_PRICE_MIN_RESERVE_USD are owner settings; refuse rather than invent a reference or a minimum.`,
+            });
+          const factory = deps.ammFactoryAddress();
+          if (isZeroAddress(factory))
+            throw new TRPCError({
+              code: 'PRECONDITION_FAILED',
+              message: 'protocol.amm_factory_unset: AMM factory is not configured (PROTOCOL_AMM_FACTORY_ADDRESS).',
+            });
+          try {
+            const pairs = await readPairs(factory);
+            const asOf = await timeOfBlock(pairs.blockNumber);
+            return { blockNumber: pairs.blockNumber, asOf: asOf.toISOString(), prices: priceTokens(pairs, setting) };
           } catch (err) {
             throw toTrpcError(err);
           }

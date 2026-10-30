@@ -25,6 +25,7 @@ import { displayAmount } from '../../../shared/money';
 import { createRoomApi, type GridBot } from './api';
 import { roomCopy } from './copy';
 import { useWriteGuard } from './guard';
+import { GridWithdraw } from './GridWithdraw';
 import { parseGridCount, previewGridPrices } from './grid-plan';
 import { useLive } from './live';
 import { AccountBadge, Freshness, InfoNote, ModeNav, PendingBanner, RefusalNote, SelectField } from './parts';
@@ -382,6 +383,7 @@ function GridDetail({
             items={[
               { label: t('Grid profit'), value: `${displayAmount(data.gridProfit)} ${data.quoteAsset}` },
               { label: t('Closed pairs'), value: String(data.closedPairs) },
+              { label: t('Withdrawable profit'), value: `${displayAmount(data.withdrawableProfit)} ${data.quoteAsset}` },
               {
                 label: t('Yearly return (APR)'),
                 value:
@@ -389,6 +391,7 @@ function GridDetail({
               },
             ]}
           />
+          <GridWithdraw bot={data} api={api} onDone={bot.reload} />
         </TabsPanel>
       </Tabs>
     </PageSection>

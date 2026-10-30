@@ -35,6 +35,8 @@ export const TEST_TOKENS = {
   A: { address: '0x00000000000000000000000000000000000a11ce', name: 'TEST Token A', symbol: 'TESTA', decimals: 6 },
   B: { address: '0x00000000000000000000000000000000000b0b00', name: 'TEST Token B', symbol: 'TESTB', decimals: 18 },
   THIN: { address: '0x00000000000000000000000000000000000071a0', name: 'TEST Thin', symbol: 'TESTTHIN', decimals: 18 },
+  /** The TEST stand-in for a dollar stable token: the stack's reference for USD prices (PROTOCOL_PRICE_USD_TOKENS). */
+  USD: { address: '0x000000000000000000000000000000000000d011', name: 'TEST USD', symbol: 'TESTUSD', decimals: 6 },
 } as const;
 /** J-dex-protocol-04's "contract address on the TEST chain": any code there makes it a contract. */
 export const TEST_CONTRACT: Address = '0x0000000000000000000000000000000000c0ffee';
@@ -87,7 +89,7 @@ async function seed(out: string) {
     const record = JSON.parse(readFileSync(out, 'utf8')) as { factory: Address; tokens: typeof TEST_TOKENS };
     const [factoryCode, tokenCode] = await Promise.all([
       publicClient.getCode({ address: record.factory }),
-      publicClient.getCode({ address: record.tokens.A.address }),
+      publicClient.getCode({ address: TEST_TOKENS.USD.address }),
     ]);
     if (factoryCode && factoryCode !== '0x' && tokenCode && tokenCode !== '0x') {
       await mineOnInterval(publicClient);
@@ -122,13 +124,16 @@ async function seed(out: string) {
   const router = await deploy('SovereignRouter');
   const factoryAbi = artifact('PoolFactory').abi;
   const poolAbi = artifact('ConstantProductPool').abi;
-  const { A, B, THIN } = TEST_TOKENS;
+  const { A, B, THIN, USD } = TEST_TOKENS;
   const pools = [
     // Two A/B pools, one better: deeper reserves and the lower fee win any quote.
     { label: 'TEST A/B deep 0.30%', a: A, b: B, feeBps: 30, amountA: '1000000', amountB: '1000000' },
     { label: 'TEST A/B shallow 1.00%', a: A, b: B, feeBps: 100, amountA: '50000', amountB: '50000' },
     // A thin token: so little reserve that a price is not honest to show.
     { label: 'TEST A/Thin thin 0.30%', a: A, b: THIN, feeBps: 30, amountA: '0.001', amountB: '0.001' },
+    // TEST USD pools, so each TEST token has a USD price on the stack: TEST Token A and TEST Token B each at 1 TEST USD.
+    { label: 'TEST A/USD 0.30%', a: A, b: USD, feeBps: 30, amountA: '500000', amountB: '500000' },
+    { label: 'TEST B/USD 0.30%', a: B, b: USD, feeBps: 30, amountA: '500000', amountB: '500000' },
   ];
   const seeded = [];
   for (const p of pools) {

@@ -86,3 +86,48 @@ describe('protocol.amm.pairs', () => {
     expect(pairs.tokens.map((token) => token.name)).toEqual(['TEST Token A', 'TEST Token B']);
   });
 });
+
+describe('protocol.amm.prices', () => {
+  it('refuses blank price settings before any read', async () => {
+    let asked = 0;
+    const chain = {
+      headBlock: async () => {
+        asked += 1;
+        return 1n;
+      },
+    };
+    await expect(
+      caller({
+        ammFactoryAddress: () => FACTORY,
+        chain: chain as unknown as ProtocolRouterDeps['chain'],
+        priceSetting: () => null,
+      }).amm.prices(),
+    ).rejects.toMatchObject({ code: 'PRECONDITION_FAILED', message: expect.stringContaining('protocol.price_settings_unset') });
+    expect(asked).toBe(0);
+  });
+
+  it('prices from the pools at one block and names that block’s time', async () => {
+    const USD = '0x000000000000000000000000000000000000d011';
+    const chain = {
+      headBlock: async () => 9n,
+      factoryPools: async () => [POOL],
+      poolSnapshot: async () => ({
+        token0: A,
+        token1: USD,
+        feeBps: 30,
+        reserve0: 2000n * 10n ** 18n,
+        reserve1: 4000n * 10n ** 6n,
+        blockTimestampLast: 1,
+      }),
+      tokenBasics: async (token: string) => ({ name: token, symbol: 'T', decimals: token === USD ? 6 : 18 }),
+      blockTimestamp: async () => new Date('2026-10-29T06:31:00.000Z'),
+    };
+    const out = await caller({
+      ammFactoryAddress: () => FACTORY,
+      chain: chain as unknown as ProtocolRouterDeps['chain'],
+      priceSetting: () => ({ usdTokens: new Set([USD]), minReserveUsd: 1000n }),
+    }).amm.prices();
+    expect(out.asOf).toBe('2026-10-29T06:31:00.000Z');
+    expect(out.prices.find((price) => price.address === A)).toEqual({ address: A, usd: '2', basis: 'pool', reason: null });
+  });
+});
