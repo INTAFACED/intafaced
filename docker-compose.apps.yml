@@ -2180,6 +2180,7 @@ services:
         'local-founder-seed.mjs init',
         'local-founder-seed.mjs enrol',
         'local-test-seed.mjs apply',
+        'local-test-seed.mjs home',
         'local-test-seed.mjs status',
       ]
     environment:

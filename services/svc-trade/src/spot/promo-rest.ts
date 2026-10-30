@@ -8,6 +8,7 @@ import { AuthError, requireScope } from '@intafaced/auth';
 import { createEdgeContext, type EdgeRequest } from '@intafaced/contracts';
 import { checkCreatePromo, CREATE_PROMO_PATH } from './promo.js';
 import type { EdgeTrust } from '../edge-trust.js';
+import { privateWrite } from '../route-inventory.js';
 
 export { CREATE_PROMO_PATH };
 
@@ -35,7 +36,7 @@ function sendError(reply: FastifyReply, status: number, code: string, message: s
 export function registerPromoRest(app: FastifyInstance, deps: PromoRestDeps): void {
   const edgeContext = createEdgeContext({ secret: deps.edgeSecret, ...deps.edgeTrust, serviceName: deps.serviceName });
 
-  app.post(CREATE_PROMO_PATH, async (req, reply) => {
+  app.post(CREATE_PROMO_PATH, privateWrite, async (req, reply) => {
     const edgeReq: EdgeRequest = { headers: req.headers as Record<string, string | string[] | undefined>, id: req.id };
     const principal = edgeContext(edgeReq).principal;
     if (!principal) return sendError(reply, 401, 'trade.unauthenticated', 'signed principal required');

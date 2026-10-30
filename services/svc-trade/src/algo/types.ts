@@ -109,6 +109,21 @@ export interface TwapParent {
   readonly nextSliceIndex: number;
   readonly children: readonly AlgoChildRef[];
   readonly misses: readonly AlgoMiss[];
+  /** TWAP only: the seed that fixed random slice sizes. Null or absent: even sizes. */
+  readonly randomSeed?: number | null;
+  /**
+   * Optional start price. While `triggeredAt` is null the parent places nothing; the first tick whose accepted mark
+   * reaches this price starts the schedule from that instant. Null or absent: it starts at create.
+   */
+  readonly triggerPrice?: Amount | null;
+  /** True when the trigger was above the mark at create, so it is reached when the mark rises to it. */
+  readonly triggerAbove?: boolean | null;
+  readonly triggeredAt?: Date | null;
+}
+
+/** True while a parent with a trigger price has not seen the price reach it. */
+export function awaitingTrigger(parent: Pick<TwapParent, 'triggerPrice' | 'triggeredAt'>): boolean {
+  return parent.triggerPrice != null && parent.triggeredAt == null;
 }
 
 /**
@@ -152,6 +167,11 @@ export interface CreateTwapInput {
   readonly volumeProfile?: readonly Amount[];
   /** Required for POV. Integer 1..10000. */
   readonly participationBps?: number;
+  /** TWAP only: fixes random slice sizes. */
+  readonly randomSeed?: number;
+  /** Start price, and whether it lay above the mark at create (the service reads the mark). */
+  readonly triggerPrice?: Amount;
+  readonly triggerAbove?: boolean;
 }
 
 /** Mark feed for algo halt gates — same vocabulary as prices.ts / futures mark-policy. */

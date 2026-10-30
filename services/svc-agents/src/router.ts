@@ -54,6 +54,7 @@ import { draftScreeningSupport } from './risk-compliance/screening-draft.js';
 import { refuseIdentityKycReviewWrite } from './risk-compliance/kyc-review-write.js';
 import { envCoachGrounding, runCoachSession, type CoachGrounding } from './coach/grounded-session.js';
 import { describeCoachPolicy } from './coach/policy.js';
+import { coachRunRoutes } from './coach/router.js';
 import { envGrowthWarehouse, proposeGrowthCampaign } from './growth/campaign-proposal.js';
 import { planRebalance } from './portfolio-agent/plan.js';
 import { readOwnHoldings, type HoldingsLedger, type PortfolioPriceSource } from './portfolio-agent/holdings.js';
@@ -3897,6 +3898,7 @@ export function createAgentsRouter(deps: AgentsRouterDeps) {
      */
     coach: router({
       policy: publicProcedure.query(() => describeCoachPolicy()),
+      ...coachRunRoutes(deps, guard),
 
       session: scopedProcedure('agents:read', { module: 'agents' })
         .input(

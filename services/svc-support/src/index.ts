@@ -110,6 +110,9 @@ await sql`SELECT 1 FROM support.desk_macro_log LIMIT 1`.catch(() => {
 await sql`SELECT 1 FROM support.staff_signatures LIMIT 1`.catch(() => {
   throw new Error('support.staff_signatures is missing — apply migration 20261029161000_desk_macros before starting svc-support');
 });
+await sql`SELECT visibility FROM support.comments LIMIT 1`.catch(() => {
+  throw new Error('support.comments.visibility is missing — apply migration 20261029180000_internal_notes before starting svc-support');
+});
 
 await sql`SELECT 1 FROM support.rating_requests LIMIT 1`.catch(() => {
   throw new Error('support.rating_requests is missing — apply migration 0021 before starting svc-support');

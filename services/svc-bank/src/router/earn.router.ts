@@ -22,6 +22,8 @@ const poolFacts = {
   rateBands: z.array(z.object({ from: amountString, rateBps: z.number().int() })).nullable(),
   commissionBps: z.number().int().nullable(),
   capacity: amountString.nullable(),
+  /** Staking-style (BK-earn-04): days a saving taken back unbonds before it is paid back; null for no unbonding. */
+  unbondingDays: z.number().int().nullable(),
 };
 
 function poolView(p: PoolRecord) {
@@ -40,6 +42,7 @@ function poolView(p: PoolRecord) {
     rateBands: null,
     commissionBps: null,
     capacity: null,
+    unbondingDays: p.unbondingDays,
   };
 }
 
@@ -91,15 +94,25 @@ export function createEarnRouter(c: BankRouterContext) {
           termDays: z.number().int().nullable(),
           minDeposit: amountString,
           status: z.enum(['open', 'closed']),
+          /** How many approved status changes the pool has had (BK-earn-04). */
+          statusRevision: z.number().int(),
           ...poolFacts,
         }),
       )
       .query(async ({ input }) =>
         guard(async () => {
           const pool = await bank.earn.pool(input.poolId);
-          return { ...poolView(pool), status: pool.status };
+          return { ...poolView(pool), status: pool.status, statusRevision: pool.statusRevision };
         }),
       ),
+
+    /**
+     * The owner's risk wording for staking-style pools (BK-earn-04): what slashing means. Blank refuses
+     * `bank.earn_risk_wording_unset`, and the pool page says it is not published, never that there is no risk.
+     */
+    riskDisclosure: scopedProcedure('bank:read', { module: 'bank' })
+      .output(z.object({ slashing: z.string(), ownership: z.string() }))
+      .query(async () => guard(async () => bank.earn.riskDisclosure())),
 
     /**
      * Every rate the pool has published, oldest first, as the bank recorded it (BK-earn-05, J-bank-08 #1). Nothing before
@@ -150,15 +163,32 @@ export function createEarnRouter(c: BankRouterContext) {
         }),
       ),
 
+    /**
+     * Take a saving back. In a staking-style pool (BK-earn-04) the first take back starts the unbonding and moves no
+     * money: it needs `unbond: true`, and the answer says `unbonding` and when it ends. The bank releases the saving
+     * when it ends; a take back from then on pays it back at once.
+     */
     withdraw: scopedProcedure('bank:write', { module: 'bank' })
-      .input(z.object({ positionId: z.string().guid() }))
-      .output(z.object({ positionId: z.string(), principal: amountString }))
+      .input(z.object({ positionId: z.string().guid(), unbond: z.boolean().optional() }))
+      .output(
+        z.object({
+          positionId: z.string(),
+          principal: amountString,
+          status: z.enum(['closed', 'unbonding']),
+          unbondsAt: z.string().nullable(),
+        }),
+      )
       .mutation(async ({ ctx, input }) =>
         guard(async () => {
           const existing = await bank.earn.position(input.positionId);
           assertSelf(ctx.principal.userId, existing.userId);
-          const closed = await bank.earn.withdraw(input.positionId);
-          return { positionId: closed.id, principal: formatAmount(closed.principal) };
+          const after = await bank.earn.withdraw(input.positionId, new Date(), { unbond: input.unbond === true });
+          return {
+            positionId: after.id,
+            principal: formatAmount(after.principal),
+            status: after.status === 'closed' ? ('closed' as const) : ('unbonding' as const),
+            unbondsAt: after.unbondsAt?.toISOString() ?? null,
+          };
         }),
       ),
 
@@ -205,14 +235,23 @@ export function createEarnRouter(c: BankRouterContext) {
             rateAtOpenBps: z.number().int().nullable(),
             /** The UTC midnight the position first earns from: a day pays positions opened before it began. */
             accruesFrom: z.string(),
-            /** `waiting` until that day, then `accruing`; a closed pool or a too-small saving is paid nothing (BK-earn-01). */
-            accrual: z.enum(['waiting', 'accruing', 'pool_closed', 'below_unit']),
+            /**
+             * `waiting` until that day, then `accruing`, in an open or a closed pool; `unbonding` once a staking-style
+             * saving is asked back (BK-earn-04); a too-small saving is paid nothing (BK-earn-01).
+             */
+            accrual: z.enum(['waiting', 'accruing', 'unbonding', 'below_unit']),
             /** A fixed-term saving the saver asked to renew when its term ends (BK-earn-03). */
             autoRenew: z.boolean(),
             /** How many new terms auto-renew has started; `maturesAt` is the end of the current one. */
             renewals: z.number().int(),
             /** The next UTC day the bank pays this saving's interest (a date); null when no day pays it. */
             nextPayoutOn: z.string().nullable(),
+            /** Staking-style pools only (BK-earn-04): `staked`, `unbonding` or `unbonded`, by the bank's clock. */
+            staking: z.enum(['staked', 'unbonding', 'unbonded']).nullable(),
+            unbondingStartedAt: z.string().nullable(),
+            unbondsAt: z.string().nullable(),
+            /** The pool's unbonding period (BK-earn-04): taking this saving back starts it. Null: paid back at once. */
+            unbondingDays: z.number().int().nullable(),
           }),
         ),
       )
@@ -235,6 +274,10 @@ export function createEarnRouter(c: BankRouterContext) {
             autoRenew: p.autoRenew,
             renewals: states.get(p.id)!.renewals,
             nextPayoutOn: states.get(p.id)!.nextPayoutOn,
+            staking: states.get(p.id)!.staking,
+            unbondingStartedAt: p.unbondingStartedAt?.toISOString() ?? null,
+            unbondsAt: p.unbondsAt?.toISOString() ?? null,
+            unbondingDays: states.get(p.id)!.unbondingDays,
           }));
         }),
       ),

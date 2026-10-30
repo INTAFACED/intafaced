@@ -178,9 +178,11 @@ test(`${J} #2 creates a TWAP below the owner's tier: refused as tier insufficien
   }
 });
 
-test(`${J} #3 creates a TWAP with random sizes, a fixed seed and a trigger price: sizes sum to the total, the same seed gives the same sizes, and it waits`, async ({
+test(`${J} #3 creates a TWAP with random size on, a fixed seed and a trigger price: slice sizes sum to the total to the decimal, a restart gives the same sizes, and the parent waits for the trigger`, async ({
   page,
 }) => {
+  // It watches one whole slice interval pass while the schedule waits, then restarts the trade service.
+  test.setTimeout(180_000);
   const trader = state('trader');
   await signIn(page, trader);
   await page.goto('/execution');
@@ -209,6 +211,39 @@ test(`${J} #3 creates a TWAP with random sizes, a fixed seed and a trigger price
   expect(parent.triggerPrice).toBe(trigger);
   await expect(detail(page).getByText('Waiting for the trigger price')).toBeVisible();
   expect(parent.children).toHaveLength(0);
+  // Random: the sizes are not all the same.
+  expect(new Set(sizes).size).toBeGreaterThan(1);
+
+  // The same seed gives the same sizes; another seed gives other sizes.
+  const preview = async (randomSeed) => {
+    const input = { symbol: 'BTC/USDT', totalQty: '0.003', durationMs: 300_000, sliceIntervalMs: 30_000, randomSeed };
+    const { status, body } = await (
+      await api(trader)
+    ).get(`/api/trade/trpc/algo.previewTwapSizes?input=${encodeURIComponent(JSON.stringify(input))}`);
+    expect(status, JSON.stringify(body).slice(0, 300)).toBe(200);
+    return body.result.data.sliceQtys.map((q) => toUnits(q));
+  };
+  expect(await preview(2310)).toEqual(parent.plannedSliceQtys.map((q) => toUnits(q)));
+  expect(await preview(2311)).not.toEqual(parent.plannedSliceQtys.map((q) => toUnits(q)));
+
+  // It waits: after more than one slice interval it is still active, awaiting the trigger, with no slice placed or missed.
+  await page.waitForTimeout(31_000);
+  const later = await parentOf(trader, id);
+  expect(later.status).toBe('active');
+  expect(later.awaitingTrigger).toBe(true);
+  expect(later.triggeredAt).toBeNull();
+  expect(later.children).toHaveLength(0);
+  expect(later.misses).toHaveLength(0);
+  await expect(detail(page).getByText('Waiting for the trigger price')).toBeVisible();
+
+  // A restart of the trade service gives the same sizes, and the schedule still waits.
+  tool('local-test-stack.mjs', 'restart', 'trade');
+  const restarted = await parentOf(trader, id);
+  expect(restarted.plannedSliceQtys.map((q) => toUnits(q))).toEqual(sizes.map((s) => toUnits(s.replace(/[^\d.]/g, ''))));
+  expect(await preview(2310)).toEqual(sizes.map((s) => toUnits(s.replace(/[^\d.]/g, ''))));
+  expect(restarted.status).toBe('active');
+  expect(restarted.awaitingTrigger).toBe(true);
+  expect(restarted.children).toHaveLength(0);
   run.write({ triggered: id });
 });
 

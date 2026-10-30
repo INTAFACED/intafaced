@@ -9,6 +9,7 @@ import { AuthError, requireScope } from '@intafaced/auth';
 import { createEdgeContext, type EdgeRequest } from '@intafaced/contracts';
 import { checkAutoDeltaHedge, DELTA_HEDGE_PATH } from './delta-hedge.js';
 import type { EdgeTrust } from '../edge-trust.js';
+import { privateWrite } from '../route-inventory.js';
 
 export { DELTA_HEDGE_PATH };
 
@@ -30,7 +31,7 @@ function sendError(reply: FastifyReply, status: number, code: string, message: s
 export function registerDeltaHedgeRest(app: FastifyInstance, deps: DeltaHedgeRestDeps): void {
   const edgeContext = createEdgeContext({ secret: deps.edgeSecret, ...deps.edgeTrust, serviceName: deps.serviceName });
 
-  app.post(DELTA_HEDGE_PATH, async (req, reply) => {
+  app.post(DELTA_HEDGE_PATH, privateWrite, async (req, reply) => {
     const edgeReq: EdgeRequest = { headers: req.headers as Record<string, string | string[] | undefined>, id: req.id };
     const principal = edgeContext(edgeReq).principal;
     if (!principal) return sendError(reply, 401, 'trade.unauthenticated', 'signed principal required');

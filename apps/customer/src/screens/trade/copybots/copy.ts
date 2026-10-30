@@ -9,9 +9,14 @@ const messages = {
   '15 min': '15 min',
   '4 h': '4 h',
   '5 min': '5 min',
+  'A close sells at the market price, within your slippage limit. Prices can move and fees apply.':
+    'A close sells at the market price, within your slippage limit. Prices can move and fees apply.',
   'A copy appears here when the leader trades and automatic copying is on.':
     'A copy appears here when the leader trades and automatic copying is on.',
   'A country list is published': 'A country list is published',
+  'A position appears here when a copied buy fills.': 'A position appears here when a copied buy fills.',
+  'A position you copied is sold only when you close it, when you choose Close copied positions, or after a stop when the leader closes that trade.':
+    'A position you copied is sold only when you close it, when you choose Close copied positions, or after a stop when the leader closes that trade.',
   'A price range, grid count, and a grid service': 'A price range, grid count, and a grid service',
   'A run can last 24 hours at most': 'A run can last 24 hours at most',
   'A saved strategy in Quant Studio': 'A saved strategy in Quant Studio',
@@ -49,6 +54,7 @@ const messages = {
     'Bots that are not built show their real status. Nothing here is simulated unless it says Paper.',
   'Bots you start appear here, on every device you sign in on.': 'Bots you start appear here, on every device you sign in on.',
   Buy: 'Buy',
+  Buying: 'Buying',
   'Buys a fixed amount on a schedule': 'Buys a fixed amount on a schedule',
   'Buys low and sells high inside a price range': 'Buys low and sells high inside a price range',
   Cancelled: 'Cancelled',
@@ -64,9 +70,18 @@ const messages = {
   Close: 'Close',
   'Close copied positions': 'Close copied positions',
   'Close copied positions and leave?': 'Close copied positions and leave?',
+  'Close part': 'Close part',
+  'Close part of this position': 'Close part of this position',
   'Close price': 'Close price',
+  'Close this position?': 'Close this position?',
+  'Close-only: the leader’s closes still close your copied positions.':
+    'Close-only: the leader’s closes still close your copied positions.',
+  'Close-only: turn on automatic copying for the leader’s closes to close your copied positions.':
+    'Close-only: turn on automatic copying for the leader’s closes to close your copied positions.',
   Closed: 'Closed',
+  Closing: 'Closing',
   'Copied orders': 'Copied orders',
+  'Copied positions': 'Copied positions',
   Copiers: 'Copiers',
   'Copy desk closed': 'Copy desk closed',
   'Copy desk open': 'Copy desk open',
@@ -104,6 +119,7 @@ const messages = {
   'Entry price': 'Entry price',
   'Estimated cost, before fees and price moves': 'Estimated cost, before fees and price moves',
   'Estimated proceeds, before fees and price moves': 'Estimated proceeds, before fees and price moves',
+  'Every leader trade so far was copied.': 'Every leader trade so far was copied.',
   'Expected to finish': 'Expected to finish',
   Expired: 'Expired',
   'Extra charge on your profit': 'Extra charge on your profit',
@@ -137,6 +153,7 @@ const messages = {
   'If you stop, new copies stop at once. Positions already open stay yours until you close them.':
     'If you stop, new copies stop at once. Positions already open stay yours until you close them.',
   'It halted so you can check it': 'It halted so you can check it',
+  'It would have gone past your limits': 'It would have gone past your limits',
   Kind: 'Kind',
   Language: 'Language',
   'Largest drop': 'Largest drop',
@@ -146,6 +163,7 @@ const messages = {
   Leader: 'Leader',
   'Leader ID': 'Leader ID',
   'Leader directory': 'Leader directory',
+  'Leader profit share': 'Leader profit share',
   'Leader trades': 'Leader trades',
   Leaders: 'Leaders',
   'Leaders appear here once the platform lists them. If a leader gave you their ID, you can follow them directly.':
@@ -157,6 +175,8 @@ const messages = {
   'Leader’s share of the fee': 'Leader’s share of the fee',
   'Leave leader': 'Leave leader',
   'Leave this leader?': 'Leave this leader?',
+  'Leaving never sells your positions. After a stop, only the leader’s closes close what you copied. Close copied positions is a separate choice.':
+    'Leaving never sells your positions. After a stop, only the leader’s closes close what you copied. Close copied positions is a separate choice.',
   Left: 'Left',
   'Left out (below one lot)': 'Left out (below one lot)',
   'Left to use': 'Left to use',
@@ -188,10 +208,10 @@ const messages = {
   'New copies stop; open positions stay yours': 'New copies stop; open positions stay yours',
   'New trades are being copied': 'New trades are being copied',
   'New trades are not being copied': 'New trades are not being copied',
-  'New trades stop being copied and the permission is withdrawn. Positions already open stay yours. Nothing is sold for you.':
-    'New trades stop being copied and the permission is withdrawn. Positions already open stay yours. Nothing is sold for you.',
   'New trades stop being copied right away. Positions already open stay as they are. You can resume any time.':
     'New trades stop being copied right away. Positions already open stay as they are. You can resume any time.',
+  'New trades stop being copied. While automatic copying is on, when the leader closes a trade you copied, your copy is closed too. Nothing else is sold for you, and you can leave the leader at any time.':
+    'New trades stop being copied. While automatic copying is on, when the leader closes a trade you copied, your copy is closed too. Nothing else is sold for you, and you can leave the leader at any time.',
   'New trades will be copied again, within the limits you set.': 'New trades will be copied again, within the limits you set.',
   Newer: 'Newer',
   Next: 'Next',
@@ -201,6 +221,7 @@ const messages = {
   'No bot type has that address.': 'No bot type has that address.',
   'No bots': 'No bots',
   'No copied orders': 'No copied orders',
+  'No copied positions': 'No copied positions',
   'No follow exists for that leader, so the request did not go through.':
     'No follow exists for that leader, so the request did not go through.',
   'No grid service exists. Nothing is simulated.': 'No grid service exists. Nothing is simulated.',
@@ -231,13 +252,18 @@ const messages = {
   'Not set': 'Not set',
   'Not set by the platform': 'Not set by the platform',
   'Not verified': 'Not verified',
+  'Nothing skipped': 'Nothing skipped',
+  'Nothing you copied was left open to close': 'Nothing you copied was left open to close',
   Off: 'Off',
   Older: 'Older',
   On: 'On',
+  'One of your risk controls held it back': 'One of your risk controls held it back',
   'Only a paused bot can be resumed': 'Only a paused bot can be resumed',
   'Only a paused follow can be resumed': 'Only a paused follow can be resumed',
   'Only a running bot can be paused': 'Only a running bot can be paused',
   'Only an active follow can be paused': 'Only an active follow can be paused',
+  'Only the leader’s closes are copied for you. Turning automatic copying off stops those too.':
+    'Only the leader’s closes are copied for you. Turning automatic copying off stops those too.',
   'Only the leader’s trades in these markets can be copied. Nothing else.':
     'Only the leader’s trades in these markets can be copied. Nothing else.',
   Open: 'Open',
@@ -266,8 +292,7 @@ const messages = {
   'Pick a bot, set its size and limits, see what it will cost before it starts, and stop it any time.':
     'Pick a bot, set its size and limits, see what it will cost before it starts, and stop it any time.',
   Placed: 'Placed',
-  'Positions already open are never sold unless you choose Close copied positions.':
-    'Positions already open are never sold unless you choose Close copied positions.',
+  Positions: 'Positions',
   Price: 'Price',
   'Price limit': 'Price limit',
   'Price limit ({asset})': 'Price limit ({asset})',
@@ -307,6 +332,8 @@ const messages = {
   'Search leaders': 'Search leaders',
   'See strategies': 'See strategies',
   Sell: 'Sell',
+  'Sells the {amount} still open in {market} at the market price. The follow carries on.':
+    'Sells the {amount} still open in {market} at the market price. The follow carries on.',
   Sending: 'Sending',
   'Set up': 'Set up',
   'Set up a bot': 'Set up a bot',
@@ -323,6 +350,8 @@ const messages = {
   'Signal leaders': 'Signal leaders',
   'Sized from market volume': 'Sized from market volume',
   'Sizes slices to follow the market’s usual trading volume': 'Sizes slices to follow the market’s usual trading volume',
+  Skipped: 'Skipped',
+  'Skipped copies': 'Skipped copies',
   'Slice by slice, when each order is placed. Nothing is locked up front':
     'Slice by slice, when each order is placed. Nothing is locked up front',
   'Slice orders aren’t listed here': 'Slice orders aren’t listed here',
@@ -358,8 +387,6 @@ const messages = {
   'Stop this follow?': 'Stop this follow?',
   Stopped: 'Stopped',
   Stopping: 'Stopping',
-  'Stopping or leaving never sells your positions. Close copied positions is a separate choice.':
-    'Stopping or leaving never sells your positions. Close copied positions is a separate choice.',
   'Stops at a loss of': 'Stops at a loss of',
   Strategy: 'Strategy',
   'Strategy from Quant Studio': 'Strategy from Quant Studio',
@@ -370,6 +397,7 @@ const messages = {
   'That follow is no longer in your list.': 'That follow is no longer in your list.',
   'That follow is now {state}.': 'That follow is now {state}.',
   'That is more than 500 slices. Make the gap longer.': 'That is more than 500 slices. Make the gap longer.',
+  'That is more than is open.': 'That is more than is open.',
   'That is more than your free {asset}': 'That is more than your free {asset}',
   'That request belongs to the spot desk or another room. Check it there; it stays locked until then.':
     'That request belongs to the spot desk or another room. Check it there; it stays locked until then.',
@@ -379,15 +407,20 @@ const messages = {
   'The bot trades with your real balance on this market. Each slice is an ordinary order.':
     'The bot trades with your real balance on this market. Each slice is an ordinary order.',
   'The bot was created. It is in My bots.': 'The bot was created. It is in My bots.',
+  'The close of {amount} in {market} is still settling. Closing again sends that same order, never a second one.':
+    'The close of {amount} in {market} is still settling. Closing again sends that same order, never a second one.',
+  'The copy was refused': 'The copy was refused',
   'The follow ends. Positions already open become yours to manage. Nothing is sold for you.':
     'The follow ends. Positions already open become yours to manage. Nothing is sold for you.',
   'The follow was created. It is in My follows.': 'The follow was created. It is in My follows.',
   'The gap between slices can’t be longer than the whole run': 'The gap between slices can’t be longer than the whole run',
   'The last refresh failed; showing the previous read': 'The last refresh failed; showing the previous read',
   'The leader can never raise these limits.': 'The leader can never raise these limits.',
+  'The leader was stopped by the platform': 'The leader was stopped by the platform',
   'The list of countries where copy trading is offered has not been approved':
     'The list of countries where copy trading is offered has not been approved',
   'The most per order is {cap} {asset}': 'The most per order is {cap} {asset}',
+  'The price moved past your slippage limit': 'The price moved past your slippage limit',
   'The same as trading alone': 'The same as trading alone',
   'The same trading fee as trading alone': 'The same trading fee as trading alone',
   'The scheduler that places slices is switched off in this environment. The bot can be created and watched, but no slice is placed until it runs.':
@@ -441,10 +474,13 @@ const messages = {
   'What it will do': 'What it will do',
   'What the platform published about this leader, and the leader’s own trades.':
     'What the platform published about this leader, and the leader’s own trades.',
+  'What was copied': 'What was copied',
   'What you provide': 'What you provide',
+  When: 'When',
   'When you follow a leader, it appears here with its limits, state and controls.':
     'When you follow a leader, it appears here with its limits, state and controls.',
   'Where to write one': 'Where to write one',
+  'Why it was not copied': 'Why it was not copied',
   'Win rate': 'Win rate',
   Withdrawn: 'Withdrawn',
   'Write and save a strategy in Quant Studio and it appears here.': 'Write and save a strategy in Quant Studio and it appears here.',
@@ -455,16 +491,21 @@ const messages = {
   'You can use now ({asset})': 'You can use now ({asset})',
   'You choose a leader and your own limits. A leader’s order is only a suggestion: every copied order passes your account’s normal checks.':
     'You choose a leader and your own limits. A leader’s order is only a suggestion: every copied order passes your account’s normal checks.',
+  'You had paused this follow': 'You had paused this follow',
+  'You had stopped this follow': 'You had stopped this follow',
   'You have already left this leader': 'You have already left this leader',
   'You may not have enough {asset} for the whole run. Slices that cannot be paid are refused.':
     'You may not have enough {asset} for the whole run. Slices that cannot be paid are refused.',
   'You set them. A leader can never raise them': 'You set them. A leader can never raise them',
+  'Your balance did not cover it': 'Your balance did not cover it',
   'Your copied positions are closed at the market price, then the follow ends. Prices can move and fees apply.':
     'Your copied positions are closed at the market price, then the follow ends. Prices can move and fees apply.',
   'Your country': 'Your country',
   'Your follows': 'Your follows',
   'Your limits': 'Your limits',
   'Your trading fee': 'Your trading fee',
+  '{amount} is open in {market}. The part you close is sold at the market price.':
+    '{amount} is open in {market}. The part you close is sold at the market price.',
   '{share} of that fee, paid by the platform from the fee': '{share} of that fee, paid by the platform from the fee',
 } as const;
 
