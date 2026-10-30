@@ -1275,10 +1275,20 @@ export class CopyService {
     });
     return this.store.runFollowExclusive(followId, async (store) => {
       const follow = await this.requireOwnedFollow(store, principal, input.followId);
-      // A follow already left is refused like every other control on it (#6920). The one exception is identity's replay of
-      // this same request (a retry after a lost reply): it re-reads the close below, whose sells carry business keys, so
-      // it answers the same orders and places nothing new.
-      if (followRelationshipState(follow) === 'DETACHED' && !approved.replayed) {
+      // A follow already left is refused like every other control on it (#6920). Identity's replay of this same request
+      // (a retry after a lost reply) is answered from the closes the first call placed, found by their business keys,
+      // and never places one: a follow left with Keep, or a leg with no close, is refused all the same.
+      if (followRelationshipState(follow) === 'DETACHED') {
+        if (approved.replayed && this.flattenCopyPosition) {
+          const answered = await this.flattenCopyPosition(principal, {
+            followId: follow.followId,
+            followerId: follow.followerId,
+            lookupOnly: true,
+          });
+          if (!answered.refuse && !answered.unplaced && answered.orderIds.length > 0) {
+            return presentCopyFlattenAck(follow, answered.orderIds);
+          }
+        }
         throw new CopyError('Cannot close all on a DETACHED copy follow: you have left this leader', 'trade.copy_detached');
       }
       // Flag off or place port unwired: refuse and leave the follow attached (TRD-0723).
