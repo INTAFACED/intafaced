@@ -246,6 +246,10 @@
       "types": "./dist/trade-errors.d.ts",
       "default": "./dist/trade-errors.js"
     },
+    "./auth-errors": {
+      "types": "./dist/auth-errors.d.ts",
+      "default": "./dist/auth-errors.js"
+    },
     "./academy-catalogue": {
       "types": "./dist/academy-catalogue.d.ts",
       "default": "./dist/academy-catalogue.js"

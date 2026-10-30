@@ -39,10 +39,19 @@ export type AccountControlInput = z.infer<typeof accountControlInputSchema>;
  * unconsumed, and bound to this account and payload before consuming it.
  * The shared schema refuses this field so another service cannot apply the
  * restriction and leave the approval unused.
+ * `reasonCode` (trading restrict only): a code from the owner's trading restriction reason list
+ * (`IDENTITY_TRADING_RESTRICTION_REASONS`). Identity stores it and the customer's account status shows its words; a code
+ * not on the list, or one on a restore, refuses `restriction.reason_unlisted`; another code on a restriction already in
+ * force refuses `restriction.reason_in_force` (restore, then restrict); another area refuses it with `operator.denied`.
+ * Each refuses before an approval is spent. It is bound into the approval's payload hash when present.
  */
 export const identityAccountControlInputSchema = accountControlInputSchema
   .extend({
     approvalId: z.string().trim().min(1).max(128).optional(),
+    reasonCode: z
+      .string()
+      .regex(/^[a-z][a-z0-9_]{1,63}$/)
+      .optional(),
   })
   .strict();
 export type IdentityAccountControlInput = z.infer<typeof identityAccountControlInputSchema>;
@@ -99,6 +108,8 @@ export const accountControlResultSchema = z
           'restriction_approval_mismatch',
           'restriction_approval_consumed',
           'identity.account_archived',
+          'restriction.reason_unlisted',
+          'restriction.reason_in_force',
         ]),
         current: accountControlStateSchema.nullable(),
       })

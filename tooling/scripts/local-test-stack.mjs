@@ -122,6 +122,7 @@ const P = {
   marker: path.join(STATE, 'LOCAL-TEST-STACK.json'),
   secrets: path.join(STATE, 'secrets.json'),
   procs: path.join(STATE, 'run', 'processes.json'),
+  s2sMode: path.join(STATE, 'run', 's2s-mode'),
   run: path.join(STATE, 'run'),
   logs: path.join(STATE, 'logs'),
   data: path.join(STATE, 'data'),
@@ -336,8 +337,90 @@ function loadOrCreateSecrets() {
     s.adminSession = crypto.randomBytes(32).toString('base64url');
     changed = true;
   }
+  // One TEST service key per S2S service, used only when LOCAL_STACK_S2S=dual (s2sEnv). Valid nowhere else.
+  s.s2sKeys ??= {};
+  for (const svc of S2S_SERVICES) {
+    if (!serviceKeyMatches(svc, s.s2sKeys[svc])) {
+      s.s2sKeys[svc] = newServiceKey(svc);
+      changed = true;
+    }
+  }
   if (changed) writePrivate(P.secrets, JSON.stringify(s, null, 2));
   return s;
+}
+
+// ── Service keys (LOCAL_STACK_S2S=dual) ─────────────────────────────────────
+
+/**
+ * The stack's services that speak S2S v3 (packages/contracts SERVICE_NAMES). svc-blueprint and svc-protocol have no
+ * S2S role, and svc-fix is not started here.
+ */
+export const S2S_SERVICES = [
+  'svc-academy',
+  'svc-agents',
+  'svc-bank',
+  'svc-campaigns',
+  'svc-edge',
+  'svc-execution',
+  'svc-identity',
+  'svc-ledger',
+  'svc-market',
+  'svc-matching',
+  'svc-mining-pool',
+  'svc-notify',
+  'svc-ops',
+  'svc-p2p',
+  'svc-pay',
+  'svc-quant',
+  'svc-support',
+  'svc-tax',
+  'svc-token',
+  'svc-trade',
+  'svc-ws',
+];
+
+/** A fresh Ed25519 key in the forms packages/contracts reads: the keyring's raw public key and PKCS8, both base64url. */
+export function newServiceKey(svc) {
+  const { publicKey, privateKey } = crypto.generateKeyPairSync('ed25519');
+  return {
+    kid: `${svc}.local`,
+    x: publicKey.export({ format: 'der', type: 'spki' }).subarray(-32).toString('base64url'),
+    key: privateKey.export({ format: 'der', type: 'pkcs8' }).toString('base64url'),
+  };
+}
+
+/** True when a stored key has this service's kid and its private key gives its public x (else it is made afresh). */
+export function serviceKeyMatches(svc, k) {
+  if (k?.kid !== `${svc}.local` || typeof k.key !== 'string' || typeof k.x !== 'string') return false;
+  try {
+    const priv = crypto.createPrivateKey({ key: Buffer.from(k.key, 'base64url'), format: 'der', type: 'pkcs8' });
+    return crypto.createPublicKey(priv).export({ format: 'der', type: 'spki' }).subarray(-32).toString('base64url') === k.x;
+  } catch {
+    return false;
+  }
+}
+
+const keyrings = new WeakMap();
+
+/**
+ * The S2S env for one service. Unset or `off` adds nothing, so the shared secret stays the only form (the default, and
+ * what the journeys run). `dual` gives every S2S service the same public keyring and its own signing key: each one
+ * signs with its key and still accepts the shared secret, so svc-ledger binds callers by key and refuses a
+ * shared-secret post of a key-only recipe (services/svc-ledger/CALLER-BINDING.md). `keypair` is refused: the local
+ * fund and seed scripts sign with the shared secret.
+ */
+export function s2sEnv(secrets, name, mode = process.env.LOCAL_STACK_S2S) {
+  if (mode === undefined || mode === '' || mode === 'off') return {};
+  if (mode !== 'dual') throw new Error(`LOCAL_STACK_S2S must be off or dual (keypair would refuse the local fund and seed scripts)`);
+  const keys = secrets.s2sKeys ?? {};
+  const missing = S2S_SERVICES.filter((svc) => !keys[svc]);
+  if (missing.length)
+    throw new Error(`LOCAL_STACK_S2S=dual: no stack key for ${missing.join(', ')}; run pnpm local:stack once to create them`);
+  if (!S2S_SERVICES.includes(name)) return {};
+  if (!keyrings.has(keys))
+    keyrings.set(keys, JSON.stringify({ keys: S2S_SERVICES.map((svc) => ({ kid: keys[svc].kid, svc, use: 's2s', x: keys[svc].x })) }));
+  const keyring = keyrings.get(keys);
+  return { S2S_AUTH_MODE: 'dual', S2S_KEYRING: keyring, S2S_SIGNING_KID: keys[name].kid, S2S_SIGNING_KEY: keys[name].key };
 }
 
 const dbUrl = (role, secrets) => `postgres://${role}:${secrets.pgService}@${HOST}:${PORTS.postgres}/${DB_NAME}`;
@@ -879,7 +962,36 @@ async function migrate(secrets, schemas = SCHEMAS) {
 // ── Service definitions ─────────────────────────────────────────────────────
 
 // Placeholder secrets used only to list names, ports and URLs (plan / health table). Never reaches a process.
-const PLAN_SECRETS = Object.fromEntries(SECRET_NAMES.map((n) => [n, 'x'.repeat(64)]));
+export const PLAN_SECRETS = {
+  ...Object.fromEntries(SECRET_NAMES.map((n) => [n, 'x'.repeat(64)])),
+  // Placeholders, so `plan` under LOCAL_STACK_S2S=dual shows the keyed env without reading secrets.json.
+  s2sKeys: Object.fromEntries(S2S_SERVICES.map((svc) => [svc, { kid: `${svc}.local`, x: 'x'.repeat(43), key: 'x' }])),
+};
+
+/**
+ * LOCAL_STACK_S2S for a start or restart, checked before anything is stopped or started. A stack whose services are
+ * running with another value is refused: start and restart leave a running service alone, so it would mix modes.
+ */
+function validS2sMode() {
+  const raw = process.env.LOCAL_STACK_S2S;
+  const mode = raw === undefined || raw === '' ? 'off' : raw;
+  if (mode !== 'off' && mode !== 'dual')
+    fail(`LOCAL_STACK_S2S must be off or dual, not "${raw}" (keypair would refuse the local fund and seed scripts)`, 2);
+  return mode;
+}
+
+function checkedS2sMode() {
+  const mode = validS2sMode();
+  const procs = readProcs();
+  const running = serviceNames().filter((n) => ownedAlive(procs[n]));
+  const was = fs.existsSync(P.s2sMode) ? fs.readFileSync(P.s2sMode, 'utf8').trim() : 'off';
+  if (running.length && was !== mode)
+    fail(
+      `this stack's services run with LOCAL_STACK_S2S=${was} (${running.join(', ')}); set the same value, or stop the stack first (pnpm local:stack:stop)`,
+      2,
+    );
+  return mode;
+}
 const UNUSED = `http://${HOST}:1`; // nothing listens; routes to unstarted services fail fast
 
 function commonEnv(secrets, name, port) {
@@ -898,8 +1010,9 @@ function commonEnv(secrets, name, port) {
     NATS_STREAM_PREFIX: STREAM_PREFIX,
     EDGE_PRINCIPAL_SECRET: secrets.edgePrincipal,
     INTERNAL_SERVICE_SECRET: secrets.internal,
-    // S2S_AUTH_MODE stays unset here: svc-ledger then accepts this shared secret
-    // and counts each post as unbound. See services/svc-ledger/CALLER-BINDING.md.
+    // S2S_AUTH_MODE stays unset here unless LOCAL_STACK_S2S=dual (s2sEnv): svc-ledger then accepts this shared
+    // secret and counts each post as unbound. See services/svc-ledger/CALLER-BINDING.md.
+    ...s2sEnv(secrets, name),
     INTERNAL_SERVICE_BODY_BIND: 'accept-both',
     JWT_ACCESS_SECRET: secrets.jwt,
     // Every service that consults packages/config's screening reads the same pass-through
@@ -1531,6 +1644,7 @@ function onlyFlag(flags) {
 }
 
 async function cmdStart(flags) {
+  const s2sMode = checkedS2sMode();
   say('INTAFACED local test stack');
   say(`  repo ${REPO}`);
   say(`  state ${STATE}`);
@@ -1590,6 +1704,7 @@ async function cmdStart(flags) {
   }
   // Academy's env points at the video store, so `--only academy` starts it too.
   if (!only || only.includes('video-store') || only.includes('academy')) await startVideoStore(secrets);
+  writePrivate(P.s2sMode, `${s2sMode}\n`);
   await startServices(wanted);
   try {
     await ensureLocalTestFounders();
@@ -1689,6 +1804,7 @@ async function cmdStop(names = []) {
 
 /** Read-only: what this script would run and where Edge would send every route. Touches nothing. */
 function cmdPlan(flags) {
+  validS2sMode();
   const defs = serviceDefs(PLAN_SECRETS);
   const procs = fs.existsSync(P.procs) ? readProcs() : {};
   const services = defs.map((d) => ({
@@ -1731,6 +1847,7 @@ async function cmdRestart(names) {
   const bad = names.filter((n) => !known.includes(n));
   if (names.length === 0 || bad.length)
     fail(`restart needs service names from: ${known.join(', ')}${bad.length ? ` (unknown: ${bad.join(', ')})` : ''}`, 2);
+  checkedS2sMode();
   await cmdStop(names);
   await cmdStart([]);
 }
