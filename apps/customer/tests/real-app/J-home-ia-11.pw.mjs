@@ -318,9 +318,9 @@ test(`${J} #4 the same image started as staging or production: the seed service 
   const contentBefore = content();
 
   for (const appEnv of ['staging', 'production']) {
-    // The founder seed refuses before reading or writing anything.
+    // The founder seed refuses before reading or writing anything, with its own refusal exit, 1 (local-founder-seed.test.mjs).
     const founders = run('tooling/scripts/local-founder-seed.mjs', ['init'], { INTAFACED_LOCAL_FOUNDER: '1', APP_ENV: appEnv });
-    expect(founders.status, founders.out).toBe(2);
+    expect(founders.status, founders.out).toBe(1);
     expect(founders.out).toContain(`refusing [seed.app_env_not_local]: APP_ENV is "${appEnv}"`);
     // The test-content seed refuses before any database or ledger call.
     const content = run('tooling/scripts/local-test-seed.mjs', ['apply', '--state', STATE], { LOCAL_TEST: '1', APP_ENV: appEnv });
