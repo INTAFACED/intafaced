@@ -1,10 +1,11 @@
 /** The schedules this device knows, each re-read from the service, and the detail of the one picked. */
-import { Badge, Button, EmptyState, KeyValue, Table, fmtAmount, type Loadable, type TableColumn } from '../rooms/ui';
+import { Badge, Button, EmptyState, KeyValue, Table, fmtAmount, fmtPrice, type Loadable, type TableColumn } from '../rooms/ui';
 import { Freshness } from '../rooms/RoomNotices';
 import { roomWords } from '../rooms/refusals';
 import { compareDecimals, percentOf } from '../rooms/math';
 import { execCopy } from './copy';
 import type { ParentRead } from './data';
+import { bpsAsPercent } from './model';
 import { Gate, Why, useWhen } from './parts';
 
 export type AlgoAction = 'pause' | 'resume' | 'cancel';
@@ -39,7 +40,19 @@ function pctOf(row: Ok): string | null {
   return pct !== null && compareDecimals(pct, '100') === 1 ? '100' : pct;
 }
 
-/** The reason Resume is off for this schedule, or null when it may be tried. */
+/**
+ * The average price of the schedule's real child fills: the price, 'not_set' when the service answered and nothing has
+ * filled, or null when the result could not be read (drawn as a dash, never as a number).
+ */
+function averageFill(row: Ok): string | 'not_set' | null {
+  // Zero fills: the room does not ask for the result, and there is no average to show.
+  if (row.progress && compareDecimals(row.progress.filledQty, '0') === 0) return 'not_set';
+  if (!row.result) return null;
+  const priced = row.result.quotes.find((q) => q.averageFillPrice !== null);
+  return priced?.averageFillPrice ?? 'not_set';
+}
+
+/** The reason Pause and Resume are off for this schedule, or null when they may be tried. */
 function resumeBlock(row: Ok, t: (key: 'Resume blocked cancel incomplete') => string): string | null {
   const reason = row.parent.haltReason ?? row.progress?.haltReason ?? null;
   return reason === CANCEL_INCOMPLETE ? t('Resume blocked cancel incomplete') : null;
@@ -50,13 +63,17 @@ function useReasonWords() {
   const { t } = execCopy.useCopy();
   return (reason: string | null, kind: 'halt' | 'stretch'): { text: string; code: string | null } | null => {
     if (!reason) return null;
-    const known: Record<string, string> = {
-      cancel_incomplete: t('Halt reason cancel_incomplete'),
-      user_pause: t('Stretch reason user_pause'),
-      tick_outage: t('Stretch reason tick_outage'),
+    const known: Record<'halt' | 'stretch', Record<string, string>> = {
+      halt: {
+        cancel_incomplete: t('Halt reason cancel_incomplete'),
+        chase_max_distance: t('Halt reason chase_max_distance'),
+        chase_expired: t('Halt reason chase_expired'),
+        chase_child_unaccounted: t('Halt reason chase_child_unaccounted'),
+      },
+      stretch: { user_pause: t('Stretch reason user_pause'), tick_outage: t('Stretch reason tick_outage') },
     };
-    const word = known[reason];
-    if (word && (kind === 'halt' ? reason === CANCEL_INCOMPLETE : reason !== CANCEL_INCOMPLETE)) return { text: word, code: reason };
+    const word = Object.hasOwn(known[kind], reason) ? known[kind][reason] : undefined;
+    if (word) return { text: word, code: reason };
     return { text: reason, code: null };
   };
 }
@@ -80,13 +97,17 @@ function StatusCell({ row }: { row: ParentRead }) {
 export function AlgoList({
   load,
   empty,
+  listing,
   selectedId,
   onSelect,
   onAction,
   locked,
 }: {
   load: Loadable<ParentRead[]>;
+  /** No schedule id is known yet: the service's list and this device hold none. */
   empty: boolean;
+  /** The service's list read: "none" shows only once it has answered, and a refusal is said, never shown as empty. */
+  listing: Loadable<unknown>;
   selectedId: string | null;
   onSelect: (id: string) => void;
   onAction: (parent: Ok['parent'], action: AlgoAction) => void;
@@ -94,10 +115,29 @@ export function AlgoList({
 }) {
   const { t } = execCopy.useCopy();
   const when = useWhen();
-  if (empty) return <EmptyState variant="empty" size="inline" title={t('No schedules known')} reason={t('No schedules known reason')} />;
+  if (empty)
+    return (
+      <Gate load={listing} rows={2}>
+        {() => <EmptyState variant="empty" size="inline" title={t('No schedules known')} reason={t('No schedules known reason')} />}
+      </Gate>
+    );
 
   const columns: TableColumn<ParentRead>[] = [
-    { id: 'market', header: t('Market'), width: 130, pin: 'start', value: (r) => (r.ok ? r.parent.symbol : r.id) },
+    {
+      id: 'market',
+      header: t('Market'),
+      width: 130,
+      pin: 'start',
+      value: (r) => (r.ok ? r.parent.symbol : r.id),
+      // Every row names its schedule for assistive technology, whatever its status: a finished row has no action buttons
+      // to carry the id.
+      cell: (r) => (
+        <>
+          {r.ok ? r.parent.symbol : r.id}
+          {r.ok ? <span className="sr-only">{t('Schedule {id}', { id: r.id })}</span> : null}
+        </>
+      ),
+    },
     { id: 'side', header: t('Side'), width: 56, value: (r) => (r.ok ? (r.parent.side === 'buy' ? t('Buy') : t('Sell')) : null) },
     {
       id: 'kind',
@@ -122,6 +162,16 @@ export function AlgoList({
       cell: (r) => (r.ok && r.progress ? fmtAmount(r.progress.filledQty) : null),
     },
     {
+      id: 'average',
+      header: t('Average fill price'),
+      width: 96,
+      numeric: true,
+      cell: (r) => {
+        const avg = r.ok ? averageFill(r) : null;
+        return avg === null ? null : avg === 'not_set' ? t('Not set') : fmtPrice(avg, null);
+      },
+    },
+    {
       id: 'progress',
       header: t('Progress'),
       width: 120,
@@ -142,7 +192,12 @@ export function AlgoList({
       id: 'slices',
       header: t('Slices'),
       width: 70,
-      cell: (r) => (r.ok ? `${r.progress?.childrenEmitted ?? r.parent.childrenEmitted} / ${r.parent.slicesPlanned}` : null),
+      cell: (r) => {
+        if (!r.ok) return null;
+        const emitted = r.progress?.childrenEmitted ?? r.parent.childrenEmitted;
+        // A chase has no slice plan: it re-prices one child, so the count is the children placed so far.
+        return r.parent.kind === 'chase' ? `${emitted}` : `${emitted} / ${r.parent.slicesPlanned}`;
+      },
     },
     {
       id: 'misses',
@@ -178,7 +233,7 @@ export function AlgoList({
             key={action}
             variant="secondary"
             size={28}
-            disabled={locked || (action === 'resume' && blocked !== null)}
+            disabled={locked || ((action === 'resume' || action === 'pause') && blocked !== null)}
             aria-label={`${label} ${parent.id}`}
             onClick={(event) => {
               event.stopPropagation();
@@ -190,7 +245,7 @@ export function AlgoList({
         );
         return (
           <span className="flex flex-wrap gap-1">
-            {status === 'active' ? act('pause', t('Pause')) : null}
+            {status === 'active' || blocked !== null ? act('pause', t('Pause')) : null}
             {status === 'paused' || status === 'halted' ? act('resume', t('Resume')) : null}
             {status === 'active' || status === 'paused' || status === 'halted' ? act('cancel', t('Cancel')) : null}
             {blocked !== null && (status === 'paused' || status === 'halted') ? (
@@ -210,6 +265,11 @@ export function AlgoList({
             <Freshness asOf={asOf} />
             <span>{t('Schedules re-read every 10 s')}</span>
           </div>
+          {listing.status === 'refused' || listing.status === 'error' ? (
+            <Why code={listing.status === 'refused' ? listing.code : undefined}>{t('Schedule list unread')}</Why>
+          ) : (
+            <p className="m-0 text-sm text-fg-2">{t('Schedule list window')}</p>
+          )}
           <Table
             label={t('Schedules')}
             density="dense"
@@ -252,24 +312,36 @@ export function AlgoDetail({ row, onClone }: { row: ParentRead; onClone: (parent
         items={[
           { label: t('Schedule id'), value: parent.id, mono: true },
           { label: t('Market'), value: `${parent.symbol}, ${parent.side === 'buy' ? t('Buy') : t('Sell')}, ${parent.kind.toUpperCase()}` },
-          {
-            label: t('Settings'),
-            value: t('{total} over {duration} s, a slice every {seconds} s', {
-              total: fmtAmount(parent.totalQty),
-              duration: String(Math.round(parent.durationMs / 1000)),
-              seconds: String(Math.round(parent.sliceIntervalMs / 1000)),
-            }),
-            hint: [
-              parent.limitPrice ? t('Limit {price}', { price: parent.limitPrice }) : t('No limit'),
-              parent.participationBps
-                ? parent.povBasis === 'opposite_liquidity'
-                  ? t('{bps} bps of opposite-side liquidity', { bps: String(parent.participationBps) })
-                  : t('{bps} bps of volume', { bps: String(parent.participationBps) })
-                : '',
-            ]
-              .filter(Boolean)
-              .join(', '),
-          },
+          parent.kind === 'chase'
+            ? {
+                label: t('Settings'),
+                value: t('{total} over {duration} s, one order that follows the book', {
+                  total: fmtAmount(parent.totalQty),
+                  duration: String(Math.round(parent.durationMs / 1000)),
+                }),
+                hint:
+                  parent.chaseMaxDistanceBps != null
+                    ? t('Maximum chase distance {pct} %', { pct: bpsAsPercent(parent.chaseMaxDistanceBps) })
+                    : undefined,
+              }
+            : {
+                label: t('Settings'),
+                value: t('{total} over {duration} s, a slice every {seconds} s', {
+                  total: fmtAmount(parent.totalQty),
+                  duration: String(Math.round(parent.durationMs / 1000)),
+                  seconds: String(Math.round(parent.sliceIntervalMs / 1000)),
+                }),
+                hint: [
+                  parent.limitPrice ? t('Limit {price}', { price: parent.limitPrice }) : t('No limit'),
+                  parent.participationBps
+                    ? parent.povBasis === 'opposite_liquidity'
+                      ? t('{bps} bps of opposite-side liquidity', { bps: String(parent.participationBps) })
+                      : t('{bps} bps of volume', { bps: String(parent.participationBps) })
+                    : '',
+                ]
+                  .filter(Boolean)
+                  .join(', '),
+              },
           { label: t('Status'), value: t(`Status ${progress?.status ?? parent.status}`) },
           { label: t('Halt reason'), value: halt ? t('Halt: {reason}', { reason: halt.text }) : null, hint: halt?.code ?? undefined },
           { label: t('Stretch reason'), value: stretch?.text ?? null, hint: stretch?.code ?? undefined },
@@ -285,14 +357,37 @@ export function AlgoDetail({ row, onClone }: { row: ParentRead; onClone: (parent
             hint: parent.triggerPrice ?? undefined,
           },
           { label: t('Last slice'), value: lastSliceWords(parent, t) },
+          ...(parent.kind === 'chase'
+            ? [
+                { label: t('Chase start price'), value: parent.chaseStartPrice ? fmtPrice(parent.chaseStartPrice, null) : null },
+                { label: t('Chase current price'), value: parent.chasePrice ? fmtPrice(parent.chasePrice, null) : null },
+                { label: t('Chase re-prices'), value: parent.chaseReprices == null ? null : String(parent.chaseReprices) },
+              ]
+            : []),
           { label: t('Slice sizes'), value: parent.randomSeed != null ? t('Random sizes', { seed: String(parent.randomSeed) }) : null },
+          {
+            label: t('Average fill price'),
+            value: (() => {
+              const avg = averageFill(row);
+              return avg === null ? null : avg === 'not_set' ? t('Not set') : fmtPrice(avg, null);
+            })(),
+            hint: t('Average fill price hint'),
+          },
           {
             label: t('Filled so far'),
             value: done === null ? null : `${fmtAmount(done)} / ${fmtAmount(parent.totalQty)}`,
             hint: t('Counts only fills of the child orders'),
           },
           { label: t('Created'), value: when(parent.createdAt) },
-          { label: t('Next slice due'), value: parent.awaitingTrigger ? t('After the trigger price is reached') : when(parent.nextDueAt) },
+          {
+            label: t('Next slice due'),
+            value:
+              parent.kind === 'chase'
+                ? t('A chase has one order')
+                : parent.awaitingTrigger
+                  ? t('After the trigger price is reached')
+                  : when(parent.nextDueAt),
+          },
           { label: t('Projected end'), value: endWords(parent, t, when) },
         ]}
       />

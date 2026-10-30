@@ -69,14 +69,15 @@ describe('J-copy-bots-otc-03 copy notice events', () => {
     }
   });
 
-  it('each end is a recorded class A socket until its publisher and its consumer land', () => {
-    for (const k of ['copySkipped', 'copyFailed', 'copyStopped'] as const) {
+  it('svc-trade publishes the skip and the stop; their consumer and both ends of the failure are class A sockets', () => {
+    // The publisher is services/svc-trade/src/copy/copy-notices.ts (copy-notices.test.ts).
+    for (const k of ['copySkipped', 'copyStopped'] as const) {
+      expect(WIRING_SOCKETS.filter((s) => s.event === k).map((s) => [s.missing, s.class])).toEqual([['subscriber', 'A']]);
       expect(EVENT_BUS_MATRIX[k]).toEqual({ kind: 'socket', socketClass: 'A' });
-      const ends = WIRING_SOCKETS.filter((s) => s.event === k);
-      expect(ends.map((s) => [s.missing, s.class])).toEqual([
-        ['publisher', 'A'],
-        ['subscriber', 'A'],
-      ]);
     }
+    expect(WIRING_SOCKETS.filter((s) => s.event === 'copyFailed').map((s) => [s.missing, s.class])).toEqual([
+      ['publisher', 'A'],
+      ['subscriber', 'A'],
+    ]);
   });
 });

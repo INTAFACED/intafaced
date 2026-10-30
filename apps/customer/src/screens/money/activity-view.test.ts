@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   assetFromSearch,
+  fillFromSearch,
   groupActivity,
   groupInAsset,
   inTab,
@@ -56,6 +57,13 @@ describe('tabs', () => {
     expect(assetFromSearch('?asset=%20')).toBeNull();
     expect(assetFromSearch('?tab=all')).toBeNull();
     expect(assetFromSearch('')).toBeNull();
+  });
+
+  it('reads ?fill= as the one trade a link opens on, kept as given; nothing or blank as none', () => {
+    expect(fillFromSearch('?tab=trades&asset=BTC&fill=f-1')).toBe('f-1');
+    expect(fillFromSearch('?fill=a%20b')).toBe('a b');
+    expect(fillFromSearch('?fill=')).toBeNull();
+    expect(fillFromSearch('?tab=trades')).toBeNull();
   });
 
   it('keeps the coin when it builds a tab link', () => {

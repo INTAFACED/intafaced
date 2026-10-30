@@ -2,7 +2,7 @@
  * The numbers on the coin page, all from decimal strings in exact arithmetic (`data/decimal.ts`): nothing here turns a
  * price into a JS number. The chart itself draws from numbers in `CoinChart.tsx`; text never comes from those.
  */
-import { classifyRefusal, partialWindowStart, dec, decOrNull, fractionDigits, ratio, roundScaled, sub, toFixedString } from './deps';
+import { classifyRefusal, partialWindowStart, dec, decOrNull, fractionDigits, ratio, roundScaled, sub, times, toFixedString } from './deps';
 import type { Candle, Decimal, Loadable, TickerRow } from './deps';
 
 export type Direction = 'up' | 'down' | 'flat';
@@ -128,4 +128,37 @@ export function pickQuote(quotes: readonly string[], priced: readonly string[], 
   const wanted = chosen !== null && quotes.includes(chosen) ? chosen : null;
   if (priced.length) return wanted !== null && priced.includes(wanted) ? wanted : priced[0]!;
   return wanted ?? quotes[0] ?? null;
+}
+
+/** One coin's open position as the lot book counts it (svc-tax `lotBook`), in exact decimals. */
+export interface Position {
+  quantity: Decimal;
+  /** Dollars per coin the open lots cost, rounded half up to cents; null when any lot's cost is unknown. */
+  averagePrice: Decimal | null;
+  costBasis: Decimal | null;
+  /** Value at the live price less the cost basis; null when either is unknown. */
+  result: Decimal | null;
+}
+
+/** Dollars to the cent, half up (away from zero on a tie). */
+const cents = (value: bigint): Decimal => toFixedString(roundScaled(value, 2, 'half-up'), 2);
+
+/**
+ * "Your position" (J-portfolio-10 #4): quantity, average price, cost basis and result from the lot book's open lots. The
+ * result values the counted quantity at `priceUsd`, never the held amount, so lots left out of the figures (transfers,
+ * while they are left out) do not move it.
+ */
+export function positionOf(row: { openQty: Decimal; openCostUsd: Decimal | null }, priceUsd: Decimal | null): Position | null {
+  const quantity = dec(row.openQty);
+  if (quantity === null || quantity <= 0n) return null;
+  const cost = dec(row.openCostUsd);
+  const price = dec(priceUsd);
+  const average = cost === null ? null : ratio(cost, quantity);
+  const result = cost === null || price === null ? null : sub(times(quantity, price), cost);
+  return {
+    quantity: row.openQty,
+    averagePrice: average === null ? null : cents(average),
+    costBasis: cost === null ? null : cents(cost),
+    result: result === null ? null : cents(result),
+  };
 }

@@ -31,6 +31,21 @@
       "value": "[{\"code\":\"compliance_hold\",\"reason\":\"TEST: this was switched off after a compliance review.\",\"guidance\":\"TEST: ask Support what the review found.\"}]",
       "note": "TEST: one reason compliance can switch a capability off for, so the switch-off and its refusals can be shown (J-identity-08 #6)."
     },
+    "IDENTITY_TRADING_RESTRICTION_REASONS": {
+      "service": "identity",
+      "value": "[{\"code\": \"market_conduct_review\", \"reason\": \"TEST: your trading is paused while we review recent orders.\", \"guidance\": \"TEST: contact Support to ask about the review.\"}]",
+      "note": "TEST: one reason staff can restrict trading for, so the restriction shows its stored reason and next step in plain words (J-identity-08 #7)."
+    },
+    "IDENTITY_APPEAL_WINDOW_DAYS": {
+      "service": "identity",
+      "value": "30",
+      "note": "TEST: a person may appeal a restriction within thirty days of it starting, so the journey can file one (J-identity-14 #3)."
+    },
+    "IDENTITY_APPEAL_DECISION_REASONS": {
+      "service": "identity",
+      "value": "[{\"code\": \"review_found_no_issue\", \"reason\": \"TEST: we looked again and found no reason to keep the restriction.\", \"guidance\": \"TEST: you can trade again.\"}, {\"code\": \"restriction_stands\", \"reason\": \"TEST: we looked again and the restriction stays.\", \"guidance\": \"TEST: contact Support if something has changed.\"}]",
+      "note": "TEST: one reason to lift and one to uphold, so a decision shows its stored reason in plain words (J-identity-14 #4)."
+    },
     "IDENTITY_KYC_DOCUMENT_TYPES_BY_COUNTRY": {
       "service": "identity",
       "value": "{\"DE\":[{\"type\":\"passport\",\"label\":\"TEST: Passport\",\"originalRequired\":true},{\"type\":\"national_id\",\"label\":\"TEST: National ID card\",\"originalRequired\":true}],\"US\":[{\"type\":\"passport\",\"label\":\"TEST: Passport\",\"originalRequired\":true},{\"type\":\"drivers_license\",\"label\":\"TEST: Driver's license\",\"originalRequired\":true}]}",
@@ -105,6 +120,16 @@
       "service": "identity",
       "value": "none=3,basic=3,full=3,institutional=3",
       "note": "Live API keys per account at each verification level, so the developer room can show the fourth key refused."
+    },
+    "IDENTITY_SANDBOXES_MAX_BY_TIER": {
+      "service": "identity",
+      "value": "none=3,basic=3,full=3,institutional=3",
+      "note": "LOCAL TEST ONLY, not an owner decision: three named developer sandboxes per account at each verification level, so a second named sandbox can be made. `LOCAL_STACK_IDENTITY_SANDBOX_CAP=off` on a restart leaves it blank, so the second is refused (J-developer-02 #2)."
+    },
+    "IDENTITY_SANDBOX_BASE_URL": {
+      "service": "identity",
+      "value": "http://localhost:14500",
+      "note": "LOCAL TEST ONLY, not an owner decision: the sandbox address a sandbox key is shown with, the edge's sandbox host on this stack (EDGE_SANDBOX_HOSTS), so the same edge serves the live host at 127.0.0.1 (J-developer-02 #3, #7)."
     },
     "IDENTITY_ACCOUNT_TIERS": {
       "service": "identity",
@@ -221,10 +246,20 @@
       "value": "../../tooling/profiles/test-owner-values/identity-breached-passwords.sha1",
       "note": "A one-entry TEST breached-password list (TEST-breached-password-0001), so J-identity-03 #3 sees a breached password refused by name. A relative path is read from the services/svc-identity folder."
     },
+    "IDENTITY_HANDLE_CHANGE_MAX": {
+      "service": "identity",
+      "value": "3",
+      "note": "TEST: a person may change their handle three times in the life of the account, so the receive card shows the changes left and the cap refusal can be reached (J-pay-03 #2)."
+    },
     "IDENTITY_API_KEY_IDLE_EXPIRY_SECONDS": {
       "service": "identity",
       "value": "7776000",
       "note": "LOCAL TEST ONLY, not an owner decision: a 90 day idle period, so the key detail shows a set idle expiry (J-developer-03 #9). No dormant sweep is built, so it ends no key; blank shows `not set` (developer-keys-detail tests)."
+    },
+    "IDENTITY_TRADING_RESTRICT_REQUIRES_APPROVAL": {
+      "service": "identity",
+      "value": "true",
+      "note": "TEST: a trade-ops operator can restrict one account's trading with a second person's approval, so J-identity-08 #7 can show a restricted trade refused by name and accepted again after the lift."
     }
   }
 }

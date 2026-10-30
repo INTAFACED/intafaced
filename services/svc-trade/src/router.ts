@@ -14,6 +14,7 @@ import {
 import { AuthError, requireTier, TIER_ORDER, type Principal } from '@intafaced/auth';
 import { checkAccess } from '@intafaced/config';
 import { formatAmount, parseAmount, InsufficientFundsError, LedgerError } from '@intafaced/ledger-client';
+import { publicLedgerCode, publicLedgerMessage, SETTLEMENT_PENDING } from './ledger-public-code.js';
 import { orderSideSchema, timeInForceSchema } from '@intafaced/exchange-contract';
 import { TradeError, type FillRecord, type Market, type OrderRecord, type TimeInForce } from './spot/types.js';
 import { MatchingNoBookError } from './spot/matching-client.js';
@@ -43,6 +44,8 @@ import {
   unmountedCopyDeskFacts,
 } from './copy/desk-status.js';
 import { COPY_FEE_SHARE_RESIDUAL, COPY_JURISDICTION_RESIDUAL, CopyError } from './copy/errors.js';
+import type { LeadDesk } from './copy/lead-applications.js';
+import { TradeOpsError } from './admin/common.js';
 import { logRefusalSpec } from './refusal-spec-log.js';
 import { describeCopyPolicy } from './copy/copy-policy.js';
 import { ListMyFollowsLimitUnsetError, publishedListMyFollowsLimit, type CopyService } from './copy/copy-service.js';
@@ -56,7 +59,7 @@ import { convertHistoryTrpcError } from './convert/convert-history.js';
 import { deskTrpcError } from './desk/errors.js';
 import { copyCloseTrpcError } from './copy/copy-close-errors.js';
 import { algoDeskProcedures, optionsDeskProcedures, rfqHistoryProcedures, scaleProcedures } from './desk/procedures.js';
-import { presentAlgoDesk, presentScheduleHonesty } from './algo/present.js';
+import { presentAlgoDesk, presentChase, presentScheduleHonesty } from './algo/present.js';
 import { MAX_ALGO_SEED } from './algo/schedule.js';
 import { awaitingTrigger, POV_BASES } from './algo/types.js';
 import { tradingControlsRouter } from './controls/router.js';
@@ -225,7 +228,7 @@ const algoParentOutputSchema = z.object({
   id: z.string(),
   symbol: z.string(),
   side: orderSideSchema,
-  kind: z.enum(['twap', 'vwap', 'pov']),
+  kind: z.enum(['twap', 'vwap', 'pov', 'chase']),
   totalQty: decimal,
   durationMs: z.number().int(),
   sliceIntervalMs: z.number().int(),
@@ -253,6 +256,14 @@ const algoParentOutputSchema = z.object({
   triggerPrice: decimal.nullable(),
   triggeredAt: z.string().nullable(),
   awaitingTrigger: z.boolean(),
+  /** Chase: the caller's maximum distance from the start price, in bps; null for other kinds. */
+  chaseMaxDistanceBps: z.number().int().nullable(),
+  /** Chase: the best same-side price read at create, the distance's origin. */
+  chaseStartPrice: decimal.nullable(),
+  /** Chase: the price of the newest child; null before the first child and for other kinds. */
+  chasePrice: decimal.nullable(),
+  /** Chase: how many times the child was re-priced (children placed after the first). */
+  chaseReprices: z.number().int().nullable(),
 });
 
 const signedDecimal = z.string().regex(/^-?\d+(\.\d{1,18})?$/, 'signed amounts are decimal strings with at most 18 decimal places');
@@ -269,7 +280,14 @@ const algoScheduleHonestySchema = {
 
 const algoGetOutputSchema = algoParentOutputSchema.extend({
   children: z.array(
-    z.object({ orderId: z.string(), sliceIndex: z.number().int(), time: z.string(), qty: decimal, basisQty: decimal.nullable() }),
+    z.object({
+      orderId: z.string(),
+      sliceIndex: z.number().int(),
+      time: z.string(),
+      qty: decimal,
+      basisQty: decimal.nullable(),
+      price: decimal.nullable(),
+    }),
   ),
   misses: z.array(z.object({ sliceIndex: z.number().int(), time: z.string(), code: z.string() })),
   filledQty: decimal,
@@ -445,7 +463,7 @@ function presentFill(fill: FillRecord) {
  * hold just rejects it again — while an unreachable engine must, because the
  * order may not have been placed at all.
  */
-function toTrpcError(err: unknown): TRPCError {
+export function toTrpcError(err: unknown): TRPCError {
   const historyError = convertHistoryTrpcError(err);
   if (historyError) return historyError;
   const desk = deskTrpcError(err);
@@ -597,7 +615,16 @@ function toTrpcError(err: unknown): TRPCError {
   }
 
   if (err instanceof LedgerError) {
-    return new TRPCError({ code: 'BAD_REQUEST', message: err.message, cause: err });
+    // The cause's code is what a client reads (`data.cause.code`). The posting freeze travels as the API names it:
+    // `posting_frozen` (refused before the engine, a 400 like the REST door) or `trade.settlement_pending` (after the
+    // engine: the outcome is not known, so not a refusal). The ledger's own error stays the cause of the renamed one.
+    const published = publicLedgerCode(err);
+    if (published === err.code) return new TRPCError({ code: 'BAD_REQUEST', message: err.message, cause: err });
+    const message = publicLedgerMessage(err);
+    const cause = new LedgerError(message, published);
+    cause.cause = err;
+    if (err.stack) cause.stack = err.stack;
+    return new TRPCError({ code: published === SETTLEMENT_PENDING ? 'SERVICE_UNAVAILABLE' : 'BAD_REQUEST', message, cause });
   }
 
   // Matching holds no book for the market (its 404): the named refusal `trade.no_book`, as on the REST and ccxt
@@ -826,9 +853,31 @@ export function createTradeRouter(
   admin?: TradeOpsAdmin,
   insuranceTopups?: InsuranceTopupAdmin,
   supportSummary?: SupportTradeSummaryReader,
+  leadDesk?: LeadDesk,
   grid?: GridService,
 ) {
   const placeAttempts = new PlaceAttemptBook();
+  /** The lead desk's refusals carry their code at the end of the message, where the console reads it. */
+  // Mapped outside `guard`: guard wraps any TRPCError thrown inside it again as a 500, which loses the code.
+  const lead = async <T>(fn: (desk: LeadDesk) => Promise<T>): Promise<T> => {
+    try {
+      if (!leadDesk) throw new CopyError('Copy trading is not available', 'trade.copy_unavailable');
+      return await fn(leadDesk);
+    } catch (err) {
+      if (err instanceof CopyError && err.code.startsWith('trade.copy_lead_')) {
+        const code =
+          err.code === 'trade.copy_lead_application_not_found'
+            ? 'NOT_FOUND'
+            : err.code === 'trade.copy_lead_criteria_unset'
+              ? 'PRECONDITION_FAILED'
+              : 'BAD_REQUEST';
+        throw new TRPCError({ code, message: `${err.message} [${err.code}]`, cause: err });
+      }
+      if (err instanceof TradeOpsError)
+        throw new TRPCError({ code: 'BAD_REQUEST', message: `${err.message} [trade_ops.${err.code}]`, cause: err });
+      throw toTrpcError(err);
+    }
+  };
   return router({
     accountControls: tradingControlsRouter(controls),
     admin: mergeRouters(tradeOpsAdminRouter(admin), insuranceAdminRouter(insuranceTopups)),
@@ -1346,8 +1395,9 @@ export function createTradeRouter(
             limitPrice: decimal.optional(),
             clientAlgoId: z.string().trim().min(1).max(48),
             subAccountId: z.string().guid().optional(),
-            kind: z.enum(['twap', 'vwap', 'pov']).optional(),
+            kind: z.enum(['twap', 'vwap', 'pov', 'chase']).optional(),
             participationBps: z.number().int().min(1).max(10_000).optional(),
+            chaseDistanceBps: z.number().int().min(1).max(10_000).optional(),
             povBasis: z.enum(POV_BASES).optional(),
             randomSeed: z.number().int().min(0).max(MAX_ALGO_SEED).optional(),
             triggerPrice: decimal.optional(),
@@ -1370,6 +1420,7 @@ export function createTradeRouter(
               povBasis: input.povBasis,
               randomSeed: input.randomSeed,
               triggerPrice: input.triggerPrice === undefined ? undefined : parseAmount(input.triggerPrice),
+              chaseDistanceBps: input.chaseDistanceBps,
             });
             return presentAlgo(parent);
           }),
@@ -1796,7 +1847,47 @@ export function createTradeRouter(
           }),
         ),
 
+      /** Apply to lead (CB-copy-12). One open application per person; the same submit again answers it. */
+      applyToLead: scopedProcedure('trade:write', { module: 'trade' })
+        // A blank name reaches the desk, which refuses it with its own code, so the room can say what to fix.
+        .input(z.object({ displayName: z.string().max(200) }))
+        .mutation(({ ctx, input }) => lead((desk) => desk.apply(ctx.principal, input))),
+
+      /** The caller's newest lead application, or null. */
+      myLeadApplication: scopedProcedure('trade:read', { module: 'trade' }).query(({ ctx }) => lead((desk) => desk.mine(ctx.principal))),
+
       ops: router({
+        /** The founders' lead desk (CB-ops-01): the queue, the criteria, two-founder approval, rejection, leads, audit. */
+        leadDesk: router({
+          queue: scopedProcedure('admin:read', { module: 'trade' }).query(({ ctx }) => lead((desk) => desk.queue(ctx.principal))),
+          leads: scopedProcedure('admin:read', { module: 'trade' }).query(({ ctx }) => lead((desk) => desk.leads(ctx.principal))),
+          audit: scopedProcedure('admin:read', { module: 'trade' }).query(({ ctx }) => lead((desk) => desk.audit(ctx.principal))),
+          setCriteria: scopedProcedure('admin:write', { module: 'trade' })
+            .input(
+              z
+                .object({ minTrackRecordDays: z.number().int().min(0).max(3650), clientRequestId: z.string().trim().min(1).max(128) })
+                .strict(),
+            )
+            .mutation(({ ctx, input }) => lead((desk) => desk.setCriteria(ctx.principal, input))),
+          propose: scopedProcedure('admin:write', { module: 'trade' })
+            .input(z.object({ applicationId: z.string().uuid(), approvalId: z.string().trim().min(1).max(128) }).strict())
+            .mutation(({ ctx, input }) => lead((desk) => desk.propose(ctx.principal, input))),
+          approve: scopedProcedure('admin:write', { module: 'trade' })
+            .input(
+              z
+                .object({
+                  applicationId: z.string().uuid(),
+                  approvalId: z.string().trim().min(1).max(128),
+                  operationId: z.string().trim().min(1).max(128),
+                })
+                .strict(),
+            )
+            .mutation(({ ctx, input }) => lead((desk) => desk.approve(ctx.principal, input))),
+          reject: scopedProcedure('admin:write', { module: 'trade' })
+            .input(z.object({ applicationId: z.string().uuid(), reason: z.string().min(3).max(500) }).strict())
+            .mutation(({ ctx, input }) => lead((desk) => desk.reject(ctx.principal, input))),
+        }),
+
         /** Operator writes need `admin:write`, the trade operator desk's write scope. */
         upsertListing: scopedProcedure('admin:write', { module: 'trade' })
           .input(
@@ -2022,6 +2113,7 @@ function presentAlgo(parent: import('./algo/index.js').TwapParent) {
     triggerPrice: parent.triggerPrice == null ? null : formatAmount(parent.triggerPrice),
     triggeredAt: parent.triggeredAt ? parent.triggeredAt.toISOString() : null,
     awaitingTrigger: awaitingTrigger(parent),
+    ...presentChase(parent),
   };
 }
 

@@ -35,6 +35,42 @@ export const CANCEL_INCOMPLETE_HALT = 'cancel_incomplete';
 /** haltReason when a trigger price was not reached within the engine's longest schedule life — nothing was placed. */
 export const TRIGGER_EXPIRED_HALT = 'trigger_expired';
 
+/** haltReason when the book moved past a chase's maximum distance: the child was cancelled once and nothing replaced it. */
+export const CHASE_MAX_DISTANCE_HALT = 'chase_max_distance';
+
+/** haltReason when a chase's time ran out with quantity unfilled: the resting child was cancelled. */
+export const CHASE_EXPIRED_HALT = 'chase_expired';
+
+/**
+ * haltReason when a chase's time ran out while a child that left the book on a cancel the engine could not answer was
+ * still short of fills: the engine may have matched it in full, so the chase placed nothing over it, and what it
+ * bought is what its fills show.
+ */
+export const CHASE_CHILD_UNACCOUNTED_HALT = 'chase_child_unaccounted';
+
+/** What the chase reads of its children: the summed fills of all of them and which are still resting. */
+export interface ChaseChildState {
+  readonly filledQty: Amount;
+  readonly openOrderIds: ReadonlySet<string>;
+  /**
+   * Children closed on a cancel the engine had no live order for, with fills short of their size: the engine may have
+   * matched them in full, and the taker's settlement not have written the fills yet. Nothing is placed over them.
+   */
+  readonly unaccountedOrderIds: ReadonlySet<string>;
+}
+
+/** Whether `price` lies past `maxBps` of `start`, on the side a chase on `side` follows (up for a buy). */
+export function beyondChaseDistance(side: OrderSide, start: Amount, price: Amount, maxBps: number): boolean {
+  const moved = side === 'buy' ? price - start : start - price;
+  return moved * 10_000n > start * BigInt(maxBps);
+}
+
+/** The furthest price a chase may rest at: `start` moved by `maxBps` in the direction it follows. */
+export function chaseFurthestPrice(side: OrderSide, start: Amount, maxBps: number): Amount {
+  const span = (start * BigInt(maxBps)) / 10_000n;
+  return side === 'buy' ? start + span : start - span;
+}
+
 export interface PlaceChildRequest {
   readonly parentId: string;
   readonly sliceIndex: number;
@@ -79,6 +115,19 @@ export interface TwapEnginePorts {
    * invent a book).
    */
   oppositeBookQty?(marketId: string, side: OrderSide, limitPrice: Amount | null): Promise<Amount>;
+  /**
+   * Chase only: summed fills of these child orders and which of them still rest. Omit → a chase halts rather than
+   * guess what filled.
+   */
+  chaseChildState?(orderIds: readonly string[]): Promise<ChaseChildState>;
+  /**
+   * Chase only: the order this parent placed under `clientOrderId`, if one exists. Lets a chase adopt a child placed
+   * just before a crash instead of placing over it. Omit → no adoption.
+   */
+  chaseChildByClientOrderId?(
+    parent: TwapParent,
+    clientOrderId: string,
+  ): Promise<{ orderId: string; qty: Amount; price: Amount | null; placedAt: Date } | null>;
   now(): Date;
   randomId(): string;
 }
@@ -102,7 +151,18 @@ export type SliceTickResult =
   | { readonly kind: 'halted'; readonly reason: string; readonly code: AlgoMissCode }
   | {
       readonly kind: 'idle';
-      readonly reason: 'paused' | 'cancelled' | 'completed' | 'halted' | 'ahead_of_schedule' | 'awaiting_trigger';
+      readonly reason:
+        | 'paused'
+        | 'cancelled'
+        | 'completed'
+        | 'halted'
+        | 'ahead_of_schedule'
+        | 'awaiting_trigger'
+        | 'no_book_move'
+        | 'superseded'
+        | 'adopted'
+        | 'child_open'
+        | 'awaiting_fills';
     }
   | { readonly kind: 'completed' };
 
@@ -203,12 +263,17 @@ export class TwapEngine {
         'trade.algo_invalid_schedule',
       );
     }
+    if (kind !== 'chase' && (input.chaseMaxDistanceBps !== undefined || input.chaseStartPrice !== undefined)) {
+      throw new TradeError('a maximum chase distance is a chase option', 'trade.algo_invalid_schedule');
+    }
     if (input.triggerPrice !== undefined && (input.triggerPrice <= 0n || input.triggerAbove === undefined)) {
       throw new TradeError('a trigger price must be strictly positive and read against the mark at create', 'trade.algo_invalid_schedule');
     }
     let slices: readonly Amount[];
     let participationBps: number | null = null;
     let povBasis: PovBasis | null = null;
+    let chaseMaxDistanceBps: number | null = null;
+    let chaseStartPrice: Amount | null = null;
 
     if (kind === 'twap') {
       slices = planTwapSlices({
@@ -239,6 +304,27 @@ export class TwapEngine {
       povBasis = input.povBasis ?? 'traded_volume';
       const n = sliceCount(input.durationMs, input.sliceIntervalMs);
       slices = Array.from({ length: n }, () => 0n);
+    } else if (kind === 'chase') {
+      const bps = input.chaseMaxDistanceBps;
+      if (bps === undefined) {
+        throw new TradeError(
+          'a chase needs a maximum chase distance — refuse rather than follow the book without a bound',
+          'trade.algo_chase_distance_required',
+        );
+      }
+      if (!Number.isInteger(bps) || bps < 1 || bps > 10_000) {
+        throw new TradeError('the maximum chase distance must be an integer 1..10000 bps', 'trade.algo_invalid_schedule');
+      }
+      if (input.limitPrice !== null) {
+        throw new TradeError("a chase's bound is its maximum distance, not a limit price", 'trade.algo_invalid_schedule');
+      }
+      if (input.chaseStartPrice === undefined || input.chaseStartPrice <= 0n) {
+        throw new TradeError('a chase starts from the best price on its own side, and none was read', 'trade.algo_mark_missing');
+      }
+      chaseMaxDistanceBps = bps;
+      chaseStartPrice = input.chaseStartPrice;
+      // One working order for the whole quantity: re-priced, never sliced.
+      slices = [input.totalQty];
     } else {
       throw new TradeError(`algo kind "${String(kind)}" is not available`, 'trade.algo_unsupported_kind');
     }
@@ -266,7 +352,10 @@ export class TwapEngine {
       createdAt: now,
       startedAt: now,
       nextDueAt: now,
-      projectedEndsAt: projectTwapEndsAt(now.getTime(), slices.length, input.sliceIntervalMs),
+      projectedEndsAt:
+        kind === 'chase'
+          ? new Date(now.getTime() + input.durationMs)
+          : projectTwapEndsAt(now.getTime(), slices.length, input.sliceIntervalMs),
       scheduleStretchReason: null,
       pausedAt: null,
       haltReason: null,
@@ -281,6 +370,8 @@ export class TwapEngine {
       triggerPrice: input.triggerPrice ?? null,
       triggerAbove: input.triggerAbove ?? null,
       triggeredAt: null,
+      chaseMaxDistanceBps,
+      chaseStartPrice,
     };
 
     return { parent, plan: slices };
@@ -288,6 +379,14 @@ export class TwapEngine {
 
   pause(userId: string, parentId: string): TwapParent {
     const parent = this.requireOwner(userId, parentId);
+    // A partial cancel already parked the schedule: the person asked to stop and a child may still be live, so the only
+    // way forward is another cancel. Say that, rather than the bare state refusal.
+    if (parent.haltReason === CANCEL_INCOMPLETE_HALT) {
+      throw new TradeError(
+        'cannot pause after a partial cancel — call cancel again until every child is cancelled',
+        'trade.algo_cancel_incomplete',
+      );
+    }
     if (parent.status !== 'active') {
       throw new TradeError(`cannot pause algo in status ${parent.status}`, 'trade.algo_bad_state');
     }
@@ -319,6 +418,10 @@ export class TwapEngine {
     if (!plan) throw new TradeError(`algo plan missing for ${parentId}`, 'trade.algo_not_found');
 
     const now = this.ports.now();
+    // A chase is one working order with a fixed life: resume lets it follow the book again until that life ends.
+    if (parent.kind === 'chase') {
+      return this.replace(parentId, { ...parent, status: 'active', pausedAt: null, nextDueAt: now });
+    }
     const remaining = plan.length - parent.nextSliceIndex;
     const projectedEndsAt = projectTwapEndsAt(now.getTime(), remaining, parent.sliceIntervalMs);
     // The schedule's span runs from its real start: the trigger instant when it had one. A parent still waiting for
@@ -403,10 +506,15 @@ export class TwapEngine {
     const parent = this.parents.get(parentId);
     if (!parent) throw new TradeError(`algo ${parentId} not found`, 'trade.algo_not_found');
 
+    // A paused chase still has a child resting: its expiry and its distance still end it.
+    if (parent.status === 'paused' && parent.kind === 'chase' && parent.haltReason !== CANCEL_INCOMPLETE_HALT) {
+      return this.tickChase(parent, false);
+    }
     if (parent.status === 'paused') return { kind: 'idle', reason: 'paused' };
     if (parent.status === 'cancelled') return { kind: 'idle', reason: 'cancelled' };
     if (parent.status === 'halted') return { kind: 'idle', reason: 'halted' };
     if (parent.status === 'completed') return { kind: 'idle', reason: 'completed' };
+    if (parent.kind === 'chase') return this.tickChase(parent, true);
 
     const plan = this.plans.get(parentId);
     if (!plan) throw new TradeError(`algo plan missing for ${parentId}`, 'trade.algo_not_found');
@@ -596,12 +704,187 @@ export class TwapEngine {
   }
 
   /**
+   * One chase step. The chase keeps one limit child at the best price on its own side (the best bid for a buy). When
+   * someone else improves that price, it cancels the child and places the unfilled rest at the new best: one re-price
+   * per book move. A move past the maximum distance from the start price stops the chase instead: the child is
+   * cancelled once and nothing replaces it. A failed cancel never leads to a second order: the parent is parked as
+   * cancel-incomplete, the same as a failed parent cancel.
+   *
+   * A paused chase (`follow` false) still ends at its expiry or its distance, cancelling its resting child, but does not
+   * re-price. Every await re-reads the live parent: a cancel, pause or second tick that landed meanwhile wins, and a
+   * child placed under it is recorded on the live parent and cancelled if that parent no longer runs.
+   */
+  private async tickChase(parent: TwapParent, follow: boolean): Promise<SliceTickResult> {
+    const now = this.ports.now();
+    const start = parent.chaseStartPrice ?? null;
+    const bps = parent.chaseMaxDistanceBps ?? null;
+    const lot = parent.lotSize;
+    const readChildren = this.ports.chaseChildState;
+    if (start === null || bps === null || lot === null || lot <= 0n || !readChildren) {
+      return this.halt(
+        parent,
+        'chase parent missing its distance, start price, lot or child reader — refuse rather than guess',
+        'trade.algo_child_refused',
+      );
+    }
+    const superseded = (): SliceTickResult => ({
+      kind: 'idle',
+      reason: this.parents.get(parent.id)?.status === 'paused' ? 'paused' : 'superseded',
+    });
+    const ids = parent.children.map((c) => c.orderId);
+    let state: ChaseChildState =
+      ids.length > 0 ? await readChildren(ids) : { filledQty: 0n, openOrderIds: new Set<string>(), unaccountedOrderIds: new Set<string>() };
+    if (this.parents.get(parent.id) !== parent) return superseded();
+    if (parent.totalQty - state.filledQty <= 0n) {
+      this.replace(parent.id, { ...parent, status: 'completed' });
+      return { kind: 'completed' };
+    }
+    const open = parent.children.filter((c) => state.openOrderIds.has(c.orderId));
+    const last = parent.children.length > 0 ? parent.children[parent.children.length - 1]! : null;
+    const lastOpen = last !== null && state.openOrderIds.has(last.orderId);
+
+    if (now.getTime() - parent.startedAt.getTime() >= parent.durationMs) {
+      return this.stopChase(parent, open, state.unaccountedOrderIds.size > 0 ? CHASE_CHILD_UNACCOUNTED_HALT : CHASE_EXPIRED_HALT);
+    }
+
+    // The best price on the chase's own side is the best opposing price of the other side.
+    const best = await this.ports.bestOpposingPrice(parent.marketId, parent.side === 'buy' ? 'sell' : 'buy');
+    if (this.parents.get(parent.id) !== parent) return superseded();
+    if (best === null || best <= 0n) return { kind: 'idle', reason: follow ? 'no_book_move' : 'paused' };
+    if (beyondChaseDistance(parent.side, start, best, bps)) {
+      return this.stopChase(parent, open, CHASE_MAX_DISTANCE_HALT);
+    }
+    if (!follow) return { kind: 'idle', reason: 'paused' };
+    if (lastOpen && last.price != null) {
+      const improved = parent.side === 'buy' ? best > last.price : best < last.price;
+      if (!improved) return { kind: 'idle', reason: 'no_book_move' };
+    }
+
+    const sliceIndex = parent.children.length;
+    const clientOrderId = `algo:${parent.id}:${sliceIndex}`;
+    // A crash after the last child was placed but before it was saved left that order in the book under the next client
+    // id. Adopt it rather than place over it: the next tick re-prices it like any other child.
+    const orphan = this.ports.chaseChildByClientOrderId ? await this.ports.chaseChildByClientOrderId(parent, clientOrderId) : null;
+    if (this.parents.get(parent.id) !== parent) return superseded();
+    if (orphan) {
+      const adopted: AlgoChildRef = {
+        sliceIndex,
+        orderId: orphan.orderId,
+        clientOrderId,
+        qty: orphan.qty,
+        placedAt: orphan.placedAt,
+        price: orphan.price,
+      };
+      const updated: TwapParent = { ...parent, nextSliceIndex: sliceIndex + 1, children: [...parent.children, adopted], nextDueAt: now };
+      this.parents.set(parent.id, updated);
+      await this.emitChange(updated);
+      return { kind: 'idle', reason: 'adopted' };
+    }
+
+    for (const child of open) {
+      const parked = await this.cancelChaseChild(parent, child);
+      if (parked) return parked;
+    }
+    if (open.length > 0) {
+      if (this.parents.get(parent.id) !== parent) return superseded();
+      // The cancelled children's fills are final now; the new child carries only what is left.
+      state = await readChildren(ids);
+      if (this.parents.get(parent.id) !== parent) return superseded();
+      // Never two working orders: a child that still reads open after its cancel is waited out, not placed over.
+      if (state.openOrderIds.size > 0) return { kind: 'idle', reason: 'child_open' };
+    }
+    // A child the engine may have matched in full is not placed over until its fills land (or the chase's time ends).
+    // A child whose match is known stays open until then (the cancel waits for its fill), and is waited out above.
+    if (state.unaccountedOrderIds.size > 0) return { kind: 'idle', reason: 'awaiting_fills' };
+    const rest = parent.totalQty - state.filledQty;
+    const qty = rest - (rest % lot);
+    if (qty <= 0n) {
+      this.replace(parent.id, { ...parent, status: 'completed' });
+      return { kind: 'completed' };
+    }
+
+    let placed: { orderId: string };
+    try {
+      placed = await this.ports.placeChild({
+        parentId: parent.id,
+        sliceIndex,
+        clientOrderId,
+        marketId: parent.marketId,
+        symbol: parent.symbol,
+        side: parent.side,
+        qty,
+        limitPrice: best,
+        subAccountId: parent.subAccountId,
+      });
+    } catch (err) {
+      const live = this.parents.get(parent.id);
+      if (live !== parent) return superseded();
+      const message = err instanceof Error ? err.message : String(err);
+      const insufficient =
+        (err instanceof TradeError && (err.code === 'trade.algo_insufficient_balance' || err.code.startsWith('ledger'))) ||
+        message.toLowerCase().includes('insufficient');
+      if (insufficient) return this.halt(parent, `insufficient balance for the chase child: ${message}`, 'trade.algo_insufficient_balance');
+      if (err instanceof TradeError && err.code === 'trade.algo_principal_unavailable') {
+        return this.halt(parent, message, 'trade.algo_principal_unavailable');
+      }
+      // The old child is already cancelled; a refused new one stops the chase rather than retrying every tick.
+      return this.halt(parent, `chase child refused: ${message}`, 'trade.algo_child_refused');
+    }
+    const child: AlgoChildRef = { sliceIndex, orderId: placed.orderId, clientOrderId, qty, placedAt: now, price: best };
+    // The child is recorded on whatever the parent is now, so it is never untracked; the save is awaited so a crash
+    // after this line cannot lose it (and a crash before it is adopted on the next tick).
+    const live = this.parents.get(parent.id) ?? parent;
+    const recorded: TwapParent = {
+      ...live,
+      nextSliceIndex: Math.max(live.nextSliceIndex, sliceIndex + 1),
+      children: live.children.some((c) => c.orderId === child.orderId) ? live.children : [...live.children, child],
+      nextDueAt: now,
+    };
+    this.parents.set(parent.id, recorded);
+    await this.emitChange(recorded);
+    if (live === parent || recorded.status === 'active') return { kind: 'placed', child };
+    // A cancel or pause landed while the child was being placed: it must not keep working for a stopped chase.
+    const parked = await this.cancelChaseChild(recorded, child);
+    return parked ?? superseded();
+  }
+
+  /** Cancel a chase's resting child. A failure parks the parent as cancel-incomplete and returns the result to report. */
+  private async cancelChaseChild(parent: TwapParent, child: AlgoChildRef): Promise<SliceTickResult | null> {
+    try {
+      await this.ports.cancelChild(child.orderId);
+      return null;
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      // Park whatever the parent is now: a cancel that landed meanwhile must not be overwritten by a stale copy.
+      const live = this.parents.get(parent.id) ?? parent;
+      const parked: TwapParent = { ...live, status: 'paused', pausedAt: this.ports.now(), haltReason: CANCEL_INCOMPLETE_HALT };
+      this.parents.set(parent.id, parked);
+      await this.emitChange(parked);
+      return { kind: 'halted', reason: `chase child cancel failed: ${message}`, code: 'trade.algo_child_refused' };
+    }
+  }
+
+  /** End a chase on its own: cancel each resting child once, then halt with `reason`. */
+  private async stopChase(parent: TwapParent, open: readonly AlgoChildRef[], reason: string): Promise<SliceTickResult> {
+    for (const child of open) {
+      const parked = await this.cancelChaseChild(parent, child);
+      if (parked) return parked;
+    }
+    const live = this.parents.get(parent.id);
+    // A cancel by the person that landed meanwhile stands; the chase does not overwrite it with its own stop.
+    if (live !== parent && live?.status === 'cancelled') return { kind: 'idle', reason: 'cancelled' };
+    this.replace(parent.id, { ...(live ?? parent), status: 'halted', haltReason: reason });
+    return { kind: 'idle', reason: 'halted' };
+  }
+
+  /**
    * Drive all active parents once (job host).
    * One parent throw must not starve the rest of the sweep (W4 C2).
    */
   async tickAll(): Promise<void> {
     for (const [id, parent] of this.parents) {
-      if (parent.status !== 'active') continue;
+      const pausedChase = parent.status === 'paused' && parent.kind === 'chase' && parent.haltReason !== CANCEL_INCOMPLETE_HALT;
+      if (parent.status !== 'active' && !pausedChase) continue;
       try {
         await this.tick(id);
       } catch {

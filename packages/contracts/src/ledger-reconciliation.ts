@@ -17,6 +17,15 @@ export const LEDGER_RECONCILE_ASOF_INVALID = 'ledger.reconcile_asof_invalid' as 
 export const LEDGER_RECONCILE_SOURCE_UNAVAILABLE = 'ledger.reconcile_source_unavailable' as const;
 export const LEDGER_RECONCILE_BUILTIN_IMMUTABLE = 'ledger.reconcile_builtin_immutable' as const;
 export const LEDGER_RECONCILE_CONTROL_NOT_FOUND = 'ledger.reconcile_control_not_found' as const;
+/** A control names a rail whose outside statement URL is blank: the outside side is unset, never zero. */
+export const LEDGER_RECONCILE_RAIL_SOURCE_UNSET = 'ledger.reconcile_rail_source_unset' as const;
+/** A past-instant run on a rail that takes out open items: the items are read as they are now only, so the run is UNSET. */
+export const LEDGER_RECONCILE_ITEMS_NOW_ONLY = 'ledger.reconcile_items_now_only' as const;
+/** The open items read before and after the ledger snapshot differ: one moved while the run read, so it is ERROR. Run it again. */
+export const LEDGER_RECONCILE_ITEMS_MOVED = 'ledger.reconcile_items_moved' as const;
+
+/** A rail id as the ledger's boundary accounts carry it (`rail:<id>`), and as its statement env name is derived from. */
+export const reconciliationRailSchema = z.string().regex(/^[a-z][a-z0-9-]{0,62}$/);
 
 export const RECONCILIATION_TEMPLATES = ['ledger_invariant', 'outside_balance', 'threshold', 'source_parity'] as const;
 export const RECONCILIATION_SEVERITIES = ['info', 'warning', 'critical'] as const;
@@ -102,13 +111,25 @@ const queryAccountSetSchema = z
     mode: z.literal('query'),
     ownerType: ownerTypeSchema.optional(),
     ownerIdPrefix: z.string().trim().min(1).max(128).optional(),
+    /**
+     * One rail's boundary: treasury accounts whose owner id is exactly `rail:<rail>`. Excludes ownerType and ownerIdPrefix,
+     * and a kind other than `available` (a boundary account is always `available`).
+     */
+    rail: reconciliationRailSchema.optional(),
     kind: accountKindSchema.optional(),
     purpose: z.string().max(128).optional(),
     assetId: assetIdSchema.optional(),
   })
   .strict()
   .superRefine((value, ctx) => {
+    if (
+      value.rail !== undefined &&
+      (value.ownerType !== undefined || value.ownerIdPrefix !== undefined || (value.kind !== undefined && value.kind !== 'available'))
+    ) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: OPS_CONTROL_POLICY_UNSET, path: ['rail'] });
+    }
     const predicated =
+      value.rail !== undefined ||
       value.ownerType !== undefined ||
       value.ownerIdPrefix !== undefined ||
       value.kind !== undefined ||
@@ -267,8 +288,33 @@ export const reconciliationAssetEvidenceSchema = z
     expected: z.union([reconciliationSignedDecimalSchema, z.literal('unset')]),
     difference: z.union([reconciliationSignedDecimalSchema, z.literal('unset')]),
     tolerance: z.union([reconciliationDecimalSchema, z.literal('unset')]),
+    /**
+     * A rail control with its open items read: their signed sum on this asset, and what is left of the difference once they
+     * are taken out. Only a residual of exactly 0 passes; the tolerance does not apply to it.
+     */
+    reconcilingItems: reconciliationSignedDecimalSchema.optional(),
+    residual: reconciliationSignedDecimalSchema.optional(),
   })
   .strict();
+
+/** The most open items one rail control names on a run. A rail holding more answers ERROR, never a partial list. */
+export const RECONCILIATION_ITEMS_MAX = 2000;
+
+/**
+ * One open item that explains part of a rail's difference (lead ruling 2026-10-30): an item the rail holds that the ledger
+ * does not (positive), or the other way round (negative), named by the service that holds its record.
+ */
+export const reconciliationReconcilingItemSchema = z
+  .object({
+    source: z.literal('svc-pay'),
+    id: z.string().min(1).max(128),
+    kind: z.enum(['held', 'reversal_unfunded']),
+    assetId: assetIdSchema,
+    /** Rail minus ledger for this item, in the rail's own terms. */
+    amount: reconciliationSignedDecimalSchema,
+  })
+  .strict();
+export type ReconciliationReconcilingItem = z.infer<typeof reconciliationReconcilingItemSchema>;
 
 export const reconciliationControlRunSchema = z
   .object({
@@ -292,6 +338,8 @@ export const reconciliationControlRunSchema = z
     periodEnd: z.string().datetime({ offset: true }),
     accounts: z.array(z.string().uuid()),
     assets: z.array(reconciliationAssetEvidenceSchema),
+    /** A rail control whose rail has an open-items source: every item the run took out of the difference, by name. */
+    reconcilingItems: z.array(reconciliationReconcilingItemSchema).max(RECONCILIATION_ITEMS_MAX).optional(),
   })
   .strict();
 export type ReconciliationControlRunView = z.infer<typeof reconciliationControlRunSchema>;
@@ -389,3 +437,24 @@ export const railBalanceSnapshotSchema = z
   })
   .strict();
 export type RailBalanceSnapshot = z.infer<typeof railBalanceSnapshotSchema>;
+
+/**
+ * One rail's outside statement (OPS-reconciliation-04 per-rail controls): a rail snapshot that names its rail. Amounts are in
+ * the ledger's signed form for that rail's boundary account (`rail:<rail>`), never flipped by the reader.
+ */
+export const railStatementSchema = z
+  .object({
+    source: z.literal('rail'),
+    rail: reconciliationRailSchema,
+    asOf: z.string().datetime({ offset: true }),
+    balances: z.array(
+      z
+        .object({
+          assetId: assetIdSchema,
+          amount: reconciliationSignedDecimalSchema,
+        })
+        .strict(),
+    ),
+  })
+  .strict();
+export type RailStatement = z.infer<typeof railStatementSchema>;

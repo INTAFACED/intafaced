@@ -272,7 +272,7 @@ BANK_SEND_FIELD_RULES_JSON=    # owner-published purpose / source-of-funds / ref
 | Procedure                  | Scope            | Purpose                                                                                                                                                                   |
 | -------------------------- | ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `ops.runDueTransfers`      | `admin:treasury` | Fire every due standing order                                                                                                                                             |
-| `ops.accrueInterest`       | `admin:treasury` | One day's earn interest, one pool or all                                                                                                                                  |
+| `ops.accrueInterest`       | `admin:treasury` | One day's earn interest, one pool or all; a day that has not begun refuses with `bank.accrual_day_not_begun`                                                              |
 | `ops.fundPool`             | `admin:treasury` | Move bank revenue into a pool's reserve                                                                                                                                   |
 | `ops.fundLoanReserve`      | `admin:treasury` | Top up the debt-asset reserve loans draw from                                                                                                                             |
 | `ops.accrueLoanInterest`   | `admin:treasury` | Capitalise loan interest (no ledger post; unique per loan/day)                                                                                                            |
@@ -322,7 +322,7 @@ Raising the call and delivering it stay two facts. svc-bank publishes; whether t
 
 Publishing moves no value. Every recipe in the Ledger table below still goes through `packages/ledger-client` and nothing else.
 
-The subjects below are still unwritten, and go in an events PR before svc-bank publishes any of them (AGENT_PROTOCOL §1: _"A `packages/contracts` and/or `packages/events` PR that declares the new interface or event. Reviewed on its own. … Never the reverse. Never both at once."_ §2 makes publishing an undeclared subject a hard prohibition):
+The subjects below are still unwritten, and go in an events PR before svc-bank publishes any of them (`AGENT_PROTOCOL` §1: _"A `packages/contracts` and/or `packages/events` PR that declares the new interface or event. Reviewed on its own. … Never the reverse. Never both at once."_ §2 makes publishing an undeclared subject a hard prohibition):
 
 | Planned subject                    | When                                                 |
 | ---------------------------------- | ---------------------------------------------------- |
@@ -678,7 +678,7 @@ With `S2S_AUTH_MODE`, `S2S_SIGNING_KID` and `S2S_SIGNING_KEY` set, every call to
 
 ## Service keys: inbound doors
 
-The internal job doors, the closure check and `/trpc` name the caller from its own service key when `S2S_AUTH_MODE`, `S2S_KEYRING` and the signing pair are set: `dual` accepts the key and the shared secret, `keypair` the key only. Unset, the shared secret works exactly as before. A key-signed call that fails is refused and never retried against the shared secret. The job doors keep binding the retained request bytes. Setup and rotation: `services/svc-ledger/CALLER-BINDING.md`.
+The internal job doors, the closure check, svc-agents' business team read and `/trpc` name the caller from its own service key when `S2S_AUTH_MODE`, `S2S_KEYRING` and the signing pair are set: `dual` accepts the key and the shared secret, `keypair` the key only. Unset, the shared secret works exactly as before. A key-signed call that fails is refused and never retried against the shared secret. The job doors keep binding the retained request bytes. Setup and rotation: `services/svc-ledger/CALLER-BINDING.md`.
 
 ## Service keys: outgoing calls
 

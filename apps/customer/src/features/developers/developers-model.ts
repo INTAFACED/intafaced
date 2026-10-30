@@ -18,6 +18,7 @@ export const PAGE_SECTION_IDS = [
   'openapi',
   'status',
   'authentication',
+  'errors',
 ] as const;
 /** A section whose page is written in this portal. DevelopersRoutes keeps one component per id (a typed record). */
 export type PageSectionId = (typeof PAGE_SECTION_IDS)[number];
@@ -39,7 +40,7 @@ export const SECTIONS: readonly Section[] = [
   { id: 'reference', audience: 'exchange', page: true },
   { id: 'websocket', audience: 'exchange', waitsFor: 'DV-websocket-01' },
   { id: 'rate-limits', audience: 'exchange', waitsFor: 'DV-limits-01' },
-  { id: 'errors', audience: 'exchange', waitsFor: 'DV-errors-01' },
+  { id: 'errors', audience: 'exchange', page: true },
   { id: 'idempotency', audience: 'exchange', waitsFor: 'DV-auth-03' },
   { id: 'versioning', audience: 'exchange', waitsFor: 'DV-versioning-01' },
   { id: 'changelog', audience: 'exchange', page: true },
@@ -48,7 +49,7 @@ export const SECTIONS: readonly Section[] = [
   { id: 'fix', audience: 'institutional', waitsFor: 'DV-fix-01' },
   { id: 'protocols', audience: 'institutional', waitsFor: 'DV-websocket-01' },
   { id: 'webhooks', audience: 'embedded', published: { href: '/pay/developer/webhooks' } },
-  { id: 'sandbox', audience: 'embedded', published: { href: '/pay/developer/sandbox' } },
+  { id: 'sandbox', audience: 'embedded', published: { href: '/developers/sandbox' } },
   { id: 'apps', audience: 'broker', published: { href: '/developers/apps' } },
   { id: 'quickstart', audience: 'practice', page: true },
   { id: 'sdks', audience: 'practice', waitsFor: 'DV-tools-01' },

@@ -44,6 +44,7 @@ export const COPY_KEYS = [
   'agents.refused.overage_grace_exceeded',
   'agents.refused.overage_grace_unset',
   'agents.refused.window_sealed',
+  'agents.refused.copy_intel.returns_board_refused',
   'agents.refused.spend_limit_invalid',
   'agents.refused.spend_cap',
   'agents.refused.spend_idempotency_conflict',
@@ -119,7 +120,7 @@ export const EN: Readonly<Record<CopyKey, string>> = {
   'agents.refused.step_limit': 'Refused: this session has reached its limit of {limit} action(s).',
   'agents.refused.spend_limit': 'Refused: this session has reached its spend limit of {limit} {asset}.',
   'agents.refused.spend_limit_unset': 'Refused: set a spend limit before this run. No limit was given, and none was assumed.',
-  'agents.refused.price_unset': 'Refused: no rate is published for this task, so it does not run. No price was assumed.',
+  'agents.refused.price_unset': 'Refused: no rate is published for “{task}”, so it does not run. No price was assumed.',
   'agents.refused.funds_insufficient': 'Refused: your available balance is below this run’s worst case, so it did not start.',
   'agents.refused.funds_unread': 'Refused: your available balance could not be read, so this run did not start. Nothing was charged.',
   'agents.refused.overage_grace_exceeded':
@@ -169,6 +170,8 @@ export const EN: Readonly<Record<CopyKey, string>> = {
   'agents.merchant.empty': 'No approval-rate samples were provided to watch.',
   'agents.merchant.unavailable': 'Approval-rate metrics are unavailable right now — samples are missing or too old to trust.',
   'agents.copy_intel.empty': 'No leader performance samples were provided.',
+  'agents.refused.copy_intel.returns_board_refused':
+    'Refused: Copy intelligence never ranks leaders by returns. It shows each leader’s disclosed stats from fills. Nothing was run or charged.',
   'agents.copy_intel.unavailable': 'Leader stats are unavailable — samples are incomplete or the window is invalid.',
   'agents.navigator.empty': 'Nothing was asked, so nothing was looked up and nothing was charged.',
   'agents.navigator.unavailable': 'Market data is unavailable right now — the navigator will not invent quotes or routes.',

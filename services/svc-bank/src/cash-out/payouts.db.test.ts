@@ -458,10 +458,13 @@ describe('cash out that pays out, with the TEST payout stand-in (J-bank-03 #4/#5
       const records = readFileSync(join(dir, 'payout-sim.jsonl'), 'utf8')
         .split('\n')
         .filter(Boolean)
-        .map((line) => JSON.parse(line) as { label: string; key: string; direction: string; assetId: string; amount: string });
-      expect(records.map(({ label, key, direction, assetId, amount }) => [label, key, direction, assetId, amount])).toEqual([
-        ['TEST', `${cashOutWithdrawalId(paidOut)}:paid`, 'out', 'USDT', '20'],
-        ['TEST', `${cashOutWithdrawalId(paidOut)}:returned`, 'in', 'USDT', '5'],
+        .map(
+          (line) => JSON.parse(line) as { label: string; key: string; direction: string; assetId: string; amount: string; ref?: string },
+        );
+      // The payout carries the stand-in's own reference for it; the return has none of its own.
+      expect(records.map(({ label, key, direction, assetId, amount, ref }) => [label, key, direction, assetId, amount, ref])).toEqual([
+        ['TEST', `${cashOutWithdrawalId(paidOut)}:paid`, 'out', 'USDT', '20', `TEST-PAYOUT-${paidOut}`],
+        ['TEST', `${cashOutWithdrawalId(paidOut)}:returned`, 'in', 'USDT', '5', undefined],
       ]);
       // The rail's own total, in the ledger's signed form for its boundary (out positive, in negative), against the ledger.
       const said = records.reduce((sum, r) => sum + (r.direction === 'in' ? -1n : 1n) * parseAmount(r.amount), 0n);

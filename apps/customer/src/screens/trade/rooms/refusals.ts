@@ -25,6 +25,10 @@ const KNOWN: Readonly<Record<string, { title: string; body: string }>> = {
     title: 'Stake could not be checked',
     body: 'The desk could not read your stake, so it did not quote. Nothing was held.',
   },
+  'trade.convert_bounds_not_set': {
+    title: 'Desk size range not set',
+    body: 'The desk has no size range for conversions at its price, so none can be priced. Nothing was priced or held.',
+  },
   'trade.otc_quote_expired': { title: 'That quote has expired', body: 'Ask for a new price. An expired quote holds nothing.' },
   'trade.otc_quote_missing': { title: "We couldn't find that quote", body: 'Check the quote id. You can only open your own quotes.' },
   'trade.otc_not_owner': { title: "We couldn't find that quote", body: 'Check the quote id. You can only open your own quotes.' },
@@ -164,7 +168,7 @@ const KNOWN: Readonly<Record<string, { title: string; body: string }>> = {
 
 /**
  * Refusals whose sentence from the desk names the owner's number (the desk minimum, CB-otc-07; the provider cap,
- * CB-otc-01), so the customer sees the limit they hit. The service sentence is kept and the next step follows it.
+ * CB-otc-01) or the provider or request it is about (CB-otc-02), so the customer sees what they hit. The service sentence is kept and the next step follows it.
  */
 const NAMES_ITS_LIMIT: Readonly<Record<string, { title: string; fallback: string; after: string }>> = {
   'trade.rfq_below_minimum': {
@@ -177,10 +181,25 @@ const NAMES_ITS_LIMIT: Readonly<Record<string, { title: string; fallback: string
     fallback: 'More providers were picked than the desk allows',
     after: 'Pick fewer; nothing was priced or held.',
   },
+  'trade.otc_provider_spread_unset': {
+    title: 'Provider spread not set',
+    fallback: 'A provider you picked has no spread set',
+    after: 'Pick another provider; nothing was priced or held.',
+  },
+  'trade.rfq_other_quote_accepted': {
+    title: 'Another quote was accepted',
+    fallback: 'Another quote for this request is already accepted',
+    after: 'Only one quote per request can be accepted; this one was left as it was.',
+  },
   'trade.otc_level_insufficient': {
     title: 'Verification level too low',
     fallback: 'Your verification level is below what the desk prices for',
     after: 'Complete verification to ask the desk; nothing was priced or held.',
+  },
+  'trade.convert_out_of_bounds': {
+    title: 'Outside the desk size range',
+    fallback: 'This size is outside the desk range for conversions',
+    after: 'Pick a size inside the range; nothing was priced or held.',
   },
   'trade.otc_asset_unlisted': {
     title: 'Asset not on the desk',

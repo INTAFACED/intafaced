@@ -1,6 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import type { Preview } from '../../../features/trade/trade-api';
-import { asReplacement, failureOf, previewFailure, previewIsOrderable, previewRefusalCode, refusalFailure } from './preview';
+import {
+  asReplacement,
+  failureOf,
+  previewFailure,
+  previewIsOrderable,
+  previewRefusalCode,
+  refusalFailure,
+  isLedgerFrozen,
+} from './preview';
 
 const preview = (extra: Partial<Preview> = {}): Preview => ({
   symbol: 'BTC/USDT',
@@ -116,12 +124,33 @@ describe('refusal words', () => {
     expect(failureOf({ ok: false, reason: 'unreachable', message: 'm' }, {})).toEqual({ kind: 'network' });
   });
 
-  it('a frozen ledger, which the service reports as a generic exchange error with the useful code only in its message, reads as paused orders', () => {
-    const failure = failureOf({ ok: false, reason: 'error', message: 'ledger.frozen', code: 'ExchangeError', status: 400 }, {});
+  it('the platform posting freeze before the engine (posting_frozen, a 400 refusal) reads as paused orders, by its code', () => {
+    // The api client puts the reply's intafacedCode in `code`; the ledger's own text rides in the message and is never shown.
+    const failure = failureOf({ ok: false, reason: 'error', message: 'ledger.frozen', code: 'posting_frozen', status: 400 }, {});
     expect(failure).toMatchObject({ kind: 'refusal', copy: { title: 'Orders are paused right now' } });
-    expect(JSON.stringify(failure)).not.toMatch(/ledger|LedgerError/i);
-    // Any other LedgerError stays the generic refusal.
-    expect(failureOf({ ok: false, reason: 'error', message: 'ledger.other', code: 'ExchangeError', status: 400 }, {})).toMatchObject({
+    expect(JSON.stringify(failure)).not.toMatch(/ledger|posting_frozen/i);
+    expect(isLedgerFrozen({ code: 'posting_frozen' })).toBe(true);
+    expect(isLedgerFrozen({ code: 'ledger.frozen' })).toBe(true);
+    expect(isLedgerFrozen({ code: 'trade.orders_paused' })).toBe(true);
+    // The message alone is no longer read: only a code decides.
+    expect(isLedgerFrozen({ code: undefined })).toBe(false);
+    expect(isLedgerFrozen({ code: 'ExchangeError' })).toBe(false);
+    // A freeze after the engine took the order is an unknown outcome, never paused orders.
+    expect(isLedgerFrozen({ code: 'trade.settlement_pending' })).toBe(false);
+    expect(
+      failureOf(
+        {
+          ok: false,
+          reason: 'uncertain',
+          message: 'ledger.frozen; settlement not confirmed',
+          code: 'trade.settlement_pending',
+          status: 503,
+        },
+        {},
+      ),
+    ).not.toMatchObject({ copy: { title: 'Orders are paused right now' } });
+    // Any other ledger refusal stays the generic refusal.
+    expect(failureOf({ ok: false, reason: 'error', message: 'ledger.other', code: 'ledger.other', status: 400 }, {})).toMatchObject({
       copy: { title: "This can't be done right now" },
     });
   });

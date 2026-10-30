@@ -46,6 +46,12 @@ export type AgentErrorCode =
   | 'agents.spend.cap_exceeded'
   /** The person's own agent has no caps stored: nothing of it runs until they are set. */
   | 'agents.spend.cap_unset'
+  /** A team run would pass the member's allocation, a project's limit or the business pool's limit (team/hold.ts). */
+  | 'agents.team.allocation_exceeded'
+  | 'agents.team.project_limit_exceeded'
+  | 'agents.team.pool_exceeded'
+  /** A team run's member has no allocation in the business pool, or there is no pool: nothing runs on it unlimited. */
+  | 'agents.team.allocation_unset'
   /** A session's usage window could not be paid at close: the session stays open and the window is retried. */
   | 'agents.window_unpaid';
 
@@ -58,6 +64,22 @@ export class AgentError extends Error {
   ) {
     super(message);
     this.name = 'AgentError';
+  }
+}
+
+/**
+ * `agents.request_id_replay` when the session already holds a usage row for the request id: the earlier call under it
+ * was metered. A replay refused only on the claim (a call in flight, or one that died before it was metered) is a
+ * plain AgentError, so a stored run can tell a charged call from one that billed nothing.
+ */
+export class MeteredReplayError extends AgentError {
+  constructor(sessionId: string, requestId: string) {
+    super(
+      `Request id "${requestId}" was already metered on session ${sessionId}`,
+      'agents.request_id_replay',
+      'agents.error.request_id_replay',
+      { requestId },
+    );
   }
 }
 

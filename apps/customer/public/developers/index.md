@@ -16,7 +16,7 @@ Public market data needs no key. Your own orders, balances and positions need a 
 - API reference: /developers/reference
 - WebSocket streams: Waits for DV-websocket-01
 - Rate limits: Waits for DV-limits-01
-- Errors: Waits for DV-errors-01
+- Errors: /developers/errors
 - Idempotency: Waits for DV-auth-03
 - Versioning: Waits for DV-versioning-01
 - Changelog: /developers/changelog
@@ -32,10 +32,10 @@ FIX sessions are not opened from this portal: FIX access waits for its onboardin
 
 ## Embedded
 
-For merchant accounts: payment keys, webhooks and the sandbox are made inside the merchant portal.
+For merchant accounts: payment keys and webhooks are made inside the merchant portal, and sandboxes in the developer sandbox.
 
 - Webhooks: /pay/developer/webhooks
-- Sandbox: /pay/developer/sandbox
+- Sandbox: /developers/sandbox
 
 ## Broker
 

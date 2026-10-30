@@ -7,6 +7,7 @@ import {
   refusedPayCalls,
   sentForReview,
   signInWithCode,
+  uuidOf,
   verifiedBusiness,
 } from './merchant.mjs';
 import { ADMIN, founderSignIn } from './admin.mjs';
@@ -521,17 +522,23 @@ test(`${J} #7 the owner chooses the business category and reads its class rule; 
   const owner = await businessReadyPerson(page, 'mbc', '/pay/onboarding');
   await openBusiness(page, owner, 'TEST Category Ltd');
   const refused = refusedPayCalls(page);
+  // "No rule set" while the table is empty: this step adds the stack's first category, so on a fresh stack (each
+  // journeys shard starts one) svc-pay's own read of the table is empty here, and the room says so.
+  const categoryRead = page.waitForResponse((r) => r.url().includes('merchant.category.get') && r.request().method() === 'GET');
   await page.goto('/pay/compliance');
+  const firstRead = await categoryRead;
+  expect(firstRead.status()).toBe(200);
+  const before = (await firstRead.json()).result.data;
+  expect(before.policy.categories, 'svc-pay holds no category yet (a fresh stack: this step adds the first)').toEqual([]);
+  expect(before.chosen).toBeNull();
   const section = page
     .locator('section[data-testid="pay-section"]')
     .filter({ has: page.getByRole('heading', { name: 'Business category' }) });
   const all = section.getByRole('list', { name: 'Every category' });
-  await expect(section.getByTestId('category-no-rule').or(all)).toBeVisible();
-  // A shared stack may already hold categories from an earlier run; a fresh one has none and says so.
-  if (await section.getByTestId('category-no-rule').isVisible()) {
-    await expect(section).toContainText('No rule set');
-    await expect(section.getByLabel('Your business category')).toHaveCount(0);
-  }
+  await expect(section.getByTestId('category-no-rule')).toBeVisible();
+  await expect(section).toContainText('No rule set');
+  await expect(all).toHaveCount(0);
+  await expect(section.getByLabel('Your business category')).toHaveCount(0);
 
   // Founder A adds a high-risk (restricted) TEST category; founder B approves exactly that change in their own sign-in.
   const tag = Date.now().toString(36);
@@ -619,10 +626,15 @@ test(`${J} #7 the owner chooses the business category and reads its class rule; 
   expect(refused).toEqual([]);
 });
 
-test(`${J} #6 the owner reads the verification history and the activation state: the history only grows, activation reads unconfirmed until svc-pay records one, and nothing reads as a screening clearance`, async ({
+// The step's text (operation-zero merchant journeys.md, J-merchant-02 #6): "Reads the verification history and the
+// activation state: append-only history with no implied screening clearance; activation reads unconfirmed until the
+// service says so". svc-pay says so when its own status history records a move to active; today the one production door
+// that records one is a founder's restore (accountControls.change), so the founders restrict, then restore, the business.
+test(`${J} #6 reads the verification history and the activation state: append-only history with no implied screening clearance; activation reads unconfirmed until the service says so`, async ({
   page,
+  browser,
 }) => {
-  test.setTimeout(240_000);
+  test.setTimeout(300_000);
   const owner = await businessReadyPerson(page, 'mav', '/pay/onboarding');
   const merchantId = await openBusiness(page, owner, 'TEST Activation Ltd');
   const refused = refusedPayCalls(page);
@@ -635,40 +647,243 @@ test(`${J} #6 the owner reads the verification history and the activation state:
         at: li.querySelector('time')?.getAttribute('datetime') ?? '',
       })),
     );
-  const noClearance = async () =>
-    expect(page.locator('main')).not.toContainText(/screening (passed|cleared|complete)|(passed|cleared) screening/i);
+  // No words that read as a screening clearance anywhere in the room (a facts row's label and value join with no space,
+  // so the pattern allows none), and none in any history entry.
+  const noClearance = async () => {
+    await expect(page.locator('main')).not.toContainText(/screening\s*(passed|cleared|complete|clear)|(passed|cleared)\s*screening/i);
+    for (const entry of await entries()) expect(entry.title).not.toMatch(/screen|clear|sanction/i);
+  };
+  // Once there is a verification record, it says outright that it is not a screening result, and its Screening row says
+  // the results are not shown.
+  const screeningDisclaimed = async () => {
+    const record = page.locator('section').filter({ has: page.getByRole('heading', { name: 'Current record' }) });
+    await expect(record.locator('dt', { hasText: /^Screening$/ }).locator('xpath=following-sibling::dd[1]')).toHaveText(
+      'Handled by INTAFACED. Results are not shown here.',
+    );
+    await expect(page.getByText('Verification is not a screening result.', { exact: false })).toBeVisible();
+  };
+  const NO_RECORD = 'INTAFACED has no recorded activation decision for this business.';
+  const UNCONFIRMED = { activation: 'unconfirmed', status: 'active', activatedAt: null, reason: 'no_activation_record' };
+
+  // svc-pay asked straight through Edge as the owner, with the token the room itself sends.
+  let ownerToken = '';
+  const askRaw = (procedure, input) =>
+    page.request.get(`/api/pay/trpc/${procedure}?input=${encodeURIComponent(JSON.stringify(input))}`, {
+      headers: { authorization: ownerToken },
+    });
+  const ask = async (procedure, input) => {
+    const res = await askRaw(procedure, input);
+    expect(res.status()).toBe(200);
+    return (await res.json()).result.data;
+  };
+  const askActivation = () => ask('merchantOps.activation.get', {});
+  // The verification history as svc-pay keeps it, newest first, in one page.
+  const serviceHistory = async () => {
+    const one = await ask('merchantOps.kyb.history', { limit: 50 });
+    expect(one.nextCursor).toBeNull();
+    return one.items;
+  };
+  // Opens the compliance room and returns svc-pay's reply to the room's own activation read, after requiring the
+  // service to give the owner the same answer when asked directly.
+  const openCompliance = async (open = () => page.goto('/pay/compliance')) => {
+    const replied = page.waitForResponse((r) => r.url().includes('merchantOps.activation.get') && r.request().method() === 'GET');
+    await open();
+    const res = await replied;
+    expect(res.status()).toBe(200);
+    const body = await res.json();
+    const shown = body.result.data;
+    ownerToken = res.request().headers().authorization;
+    expect(await askActivation()).toEqual(shown);
+    return shown;
+  };
 
   // A new business: nothing sent, activation unconfirmed because svc-pay holds no activation record.
-  await page.goto('/pay/compliance');
+  expect(await openCompliance()).toEqual(UNCONFIRMED);
   await expect(activation).toContainText('Unconfirmed');
   await expect(activation).not.toContainText('Active since');
-  await expect(page.getByText('INTAFACED has no recorded activation decision for this business.', { exact: false })).toBeVisible();
+  await expect(page.getByText(NO_RECORD, { exact: false })).toBeVisible();
   await expect(page.getByText('No verification history yet')).toBeVisible();
+  expect(await serviceHistory()).toEqual([]);
   await noClearance();
 
-  // Sent for review: one entry, by the owner.
+  // Sent for review: one entry, by the owner, the same in the room and in the service.
   await sentForReview(page, owner);
-  await page.goto('/pay/compliance');
+  expect(await openCompliance()).toEqual(UNCONFIRMED);
   await expect(history.getByRole('listitem')).toHaveCount(1);
   const sent = await entries();
   expect(sent).toEqual([{ title: 'Verification changed: Not sent → In review', at: expect.stringMatching(/^\d{4}-/) }]);
   await expect(history).toContainText('Changed by your merchant account');
+  const sentRows = await serviceHistory();
+  expect(sentRows).toEqual([
+    {
+      seq: expect.stringMatching(/^\d+$/),
+      fromStatus: 'none',
+      toStatus: 'pending',
+      kybRef: `TEST-kyb-${owner.handle}`,
+      decidedBy: 'merchant',
+      reason: expect.any(String),
+      at: sent[0].at,
+    },
+  ]);
 
   // INTAFACED approves it: a new entry on top, the earlier one exactly as it was, times in order.
   approveKyb(merchantId);
-  await page.reload();
+  // An approved verification is not the service saying so: svc-pay records no activation on a KYB decision.
+  expect(await openCompliance(() => page.reload())).toEqual(UNCONFIRMED);
   await expect(history.getByRole('listitem')).toHaveCount(2);
   const decided = await entries();
   expect(decided[0].title).toBe('Verification changed: In review → Approved');
   expect(decided[1]).toEqual(sent[0]);
   expect(Date.parse(decided[0].at)).toBeGreaterThanOrEqual(Date.parse(decided[1].at));
   await expect(history.getByRole('listitem').first()).toContainText('Changed by INTAFACED');
-
-  // An approved verification is not an activation: svc-pay records none on a KYB decision, so it stays unconfirmed.
+  const decidedRows = await serviceHistory();
+  expect(decidedRows).toHaveLength(2);
+  expect(decidedRows[0]).toMatchObject({
+    fromStatus: 'pending',
+    toStatus: 'approved',
+    decidedBy: 'intafaced',
+    reason: null,
+    at: decided[0].at,
+  });
+  expect(decidedRows[1]).toEqual(sentRows[0]);
   const record = page.locator('section').filter({ has: page.getByRole('heading', { name: 'Current record' }) });
   await expect(record.getByTestId('pp-facts')).toContainText('Approved');
   await expect(activation).toContainText('Unconfirmed');
   await expect(activation).not.toContainText('Confirmed');
+  await expect(page.getByText(NO_RECORD, { exact: false })).toBeVisible();
+  await expect(page.getByText('It is not a screening result.')).toBeVisible();
+  await screeningDisclaimed();
+  await noClearance();
+
+  // The owner cannot say so themselves: svc-pay refuses the owner's own restore with its typed code and records the
+  // attempt; the activation and the verification history read back exactly as before.
+  const ownRestore = {
+    requestId: uuidOf(`${J}:own-restore:${merchantId}`),
+    target: { area: 'merchant', merchantId },
+    action: 'restore',
+    reason: 'TEST J-merchant-02 #6 owner restore',
+    expectedVersion: '0',
+  };
+  const ownAttempt = await page.request.post('/api/pay/trpc/accountControls.change', {
+    headers: { authorization: ownerToken, origin: new URL(page.url()).origin },
+    data: ownRestore,
+  });
+  expect(ownAttempt.status()).toBe(200);
+  const ownRefusal = (await ownAttempt.json()).result.data;
+  expect(ownRefusal).toEqual({
+    requestId: ownRestore.requestId,
+    target: ownRestore.target,
+    action: 'restore',
+    reason: ownRestore.reason,
+    auditId: expect.any(String),
+    occurredAt: expect.stringMatching(/^\d{4}-/),
+    outcome: 'refused',
+    changed: false,
+    actorUserId: owner.userId.toLowerCase(),
+    code: 'operator.denied',
+    current: null,
+  });
+  expect(await askActivation()).toEqual(UNCONFIRMED);
+  expect(await serviceHistory()).toEqual(decidedRows);
+
+  // The service says so: founder A restricts the business, then restores it, in the founder console's account controls
+  // (svc-pay accountControls.change). The restore writes svc-pay's dated move back to active.
+  const desk = await (await browser.newContext({ baseURL: ADMIN, viewport: { width: 1440, height: 1000 } })).newPage();
+  const founder = await founderSignIn(desk, 'a');
+  const founderId = founder.userId.toLowerCase();
+  await desk.goto(`${ADMIN}/accounts`, { waitUntil: 'load' });
+  await desk.getByLabel('Account area').selectOption('merchant');
+  await desk.getByLabel('Merchant ID').fill(merchantId);
+  await desk.getByRole('button', { name: 'Inspect account' }).click();
+  await expect(desk.getByRole('heading', { name: 'Access permitted' })).toBeVisible({ timeout: 60_000 });
+  const controlRows = desk.locator('table tbody tr');
+  // svc-pay's control history as the founder reads it from the service, newest first.
+  const controlHistory = async () => {
+    const res = await desk.request.get(`${ADMIN}/api/accounts?area=merchant&id=${merchantId}&history=true&limit=50`);
+    expect(res.status()).toBe(200);
+    return res.json();
+  };
+  expect(await controlHistory()).toEqual([ownRefusal]);
+  await expect(controlRows).toHaveCount(1);
+  await expect(controlRows.first()).toContainText('refused');
+  const control = async (button, action, reason, before) => {
+    const answered = desk.waitForResponse((r) => new URL(r.url()).pathname === '/api/accounts' && r.request().method() === 'POST');
+    await desk.getByLabel('Reason').fill(reason);
+    await desk.getByLabel(/I reviewed this account/).check();
+    await desk.getByRole('button', { name: button }).click();
+    const res = await answered;
+    expect(res.status()).toBe(200);
+    const result = await res.json();
+    expect(result).toEqual({
+      auditId: expect.any(String),
+      requestId: expect.any(String),
+      target: { area: 'merchant', merchantId },
+      action,
+      reason,
+      occurredAt: expect.stringMatching(/^\d{4}-/),
+      outcome: 'changed',
+      changed: true,
+      actorUserId: founderId,
+      before,
+      after: { ...before, version: String(Number(before.version) + 1), restricted: action === 'restrict' },
+    });
+    return result;
+  };
+  const restricted = await control('Restrict access', 'restrict', 'TEST J-merchant-02 #6 restrict', {
+    target: { area: 'merchant', merchantId },
+    version: '0',
+    restricted: false,
+  });
+  await expect(desk.getByRole('status')).toContainText('Account restricted.');
+  await expect(desk.getByRole('heading', { name: 'Restricted' })).toBeVisible();
+  expect(await controlHistory()).toEqual([restricted, ownRefusal]);
+  await expect(controlRows).toHaveCount(2);
+
+  // While restricted the service confirms nothing: it refuses the owner's activation read with its typed code, because a
+  // restricted business's owner grant is withdrawn (svc-pay own-merchant-read).
+  const whileRestricted = await askRaw('merchantOps.activation.get', {});
+  expect(whileRestricted.status()).toBe(403);
+  expect((await whileRestricted.json()).error.message).toBe('pay.owner_grant_withdrawn');
+  // And the owner's room, opened now, shows no activation and no "Active since". Its reads are refused while the
+  // business is restricted, each 403 (the withdrawn owner grant); they are taken out here so the end of the step still
+  // proves nothing else was refused.
+  const refusedBefore = refused.length;
+  const roomAsked = page.waitForResponse((r) => new URL(r.url()).pathname.endsWith('/api/pay/trpc/merchant.me'));
+  await page.goto('/pay/compliance');
+  expect((await roomAsked).status(), "the room's own business read is refused while restricted").toBe(403);
+  await expect(page.locator('main')).toBeVisible();
+  await expect(page.locator('main')).not.toContainText(/Confirmed|Active since/);
+  const whileRestrictedRefused = refused.splice(refusedBefore);
+  expect(whileRestrictedRefused.length, 'the room read svc-pay while restricted').toBeGreaterThan(0);
+  for (const call of whileRestrictedRefused) expect(call, 'refused only as the withdrawn owner grant').toMatch(/^403 /);
+
+  const restored = await control('Restore access', 'restore', 'TEST J-merchant-02 #6 restore', restricted.after);
+  await expect(desk.getByRole('status')).toContainText('Account restored.');
+  await expect(desk.getByRole('heading', { name: 'Access permitted' })).toBeVisible();
+  // svc-pay's control history only grew: the restore on top, everything below it exactly as it was.
+  expect(await controlHistory()).toEqual([restored, restricted, ownRefusal]);
+  await expect(controlRows).toHaveCount(3);
+  await expect(controlRows.first()).toContainText('restore');
+  await desk.context().close();
+
+  // Now the service says so: confirmed, active since the restore's own recorded time, and the page shows that time.
+  const confirmed = await openCompliance(() => page.reload());
+  expect(confirmed).toEqual({ activation: 'confirmed', status: 'active', activatedAt: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T/) });
+  // The status row is written in the restore's own transaction, so its time sits beside the service's record of it.
+  expect(Math.abs(Date.parse(confirmed.activatedAt) - Date.parse(restored.occurredAt))).toBeLessThan(5_000);
+  expect(Date.parse(confirmed.activatedAt)).toBeGreaterThan(Date.parse(restricted.occurredAt));
+  await expect(activation).toContainText('Confirmed');
+  await expect(activation).not.toContainText('Unconfirmed');
+  await expect(activation.locator('div').filter({ hasText: 'Active since' }).locator('time')).toHaveAttribute(
+    'datetime',
+    confirmed.activatedAt,
+  );
+  await expect(page.getByText(NO_RECORD, { exact: false })).toHaveCount(0);
+
+  // The verification history only grew: the founders' controls rewrote none of it and implied no screening clearance.
+  await expect(history.getByRole('listitem')).toHaveCount(2);
+  expect(await entries()).toEqual(decided);
+  expect(await serviceHistory()).toEqual(decidedRows);
   await expect(page.getByText('It is not a screening result.')).toBeVisible();
   await noClearance();
   expect(refused).toEqual([]);

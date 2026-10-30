@@ -69,6 +69,7 @@ describe('payment links', () => {
       amount: '5.25',
       asset: 'USDT',
       note: 'Lunch & drinks',
+      qr: null,
     });
   });
   it('drops bad optional fields instead of guessing, and refuses a link with no payee', () => {
@@ -78,6 +79,7 @@ describe('payment links', () => {
       amount: null,
       asset: null,
       note: null,
+      qr: null,
     });
     expect(parseRequestSearch('?amount=5')).toBeNull();
     expect(parseRequestSearch('?to=not+valid')).toBeNull();
@@ -85,6 +87,16 @@ describe('payment links', () => {
   it('drops an amount that comes without an asset', () => {
     expect(parseRequestSearch('?to=maya_test&amount=5')).toMatchObject({ amount: null, asset: null });
     expect(requestPath({ to: 'maya_test', amount: '5' })).toBe('/pay/send?to=maya_test');
+  });
+  it('carries a signed pay code last, and drops one with characters a code never has', () => {
+    const qr = 'v1.0b5f4c7e-3c2a-4f61-9d3e-7a1b2c3d4e5f.AbCdEfGhIjKlMnOp.Abc_-123';
+    const path = requestPath({ to: 'maya_test', note: 'Lunch', qr });
+    expect(path).toBe(`/pay/send?to=maya_test&note=Lunch&qr=${qr}`);
+    expect(parseRequestSearch(path.slice(path.indexOf('?')))).toMatchObject({ to: 'maya_test', qr });
+    expect(parseRequestSearch(`?to=maya_test&qr=${qr}x`)?.qr).toBe(`${qr}x`);
+    expect(parseRequestSearch('?to=maya_test&qr=%3Cscript%3E')?.qr).toBeNull();
+    expect(parseRequestSearch(`?to=maya_test&qr=${'a'.repeat(201)}`)?.qr).toBeNull();
+    expect(requestPath({ to: 'maya_test', qr: 'bad code' })).toBe('/pay/send?to=maya_test');
   });
   it('only reads this app’s own /pay/send links', () => {
     const origin = 'https://app.example.test';
@@ -183,7 +195,7 @@ describe('applyPrefill', () => {
     { id: 's-usdt', asset: 'USDT', balance: '10' },
     { id: 's-eth', asset: 'ETH', balance: '0.5' },
   ];
-  const base = { to: 'maya_test', kind: 'handle' as const, amount: null, asset: null, note: null };
+  const base = { to: 'maya_test', kind: 'handle' as const, amount: null, asset: null, note: null, qr: null };
   it('chooses the matching asset and keeps an amount that fits', () => {
     expect(applyPrefill({ ...base, amount: '0.25', asset: 'ETH' }, sources)).toEqual({ sourceId: 's-eth', amount: '0.25', problem: null });
   });

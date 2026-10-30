@@ -2,7 +2,7 @@ import type { Sql } from 'postgres';
 import { transaction } from '@intafaced/db';
 import type { EventBus } from '@intafaced/events';
 import { formatAmount, InsufficientFundsError, parseAmount, type Amount } from '@intafaced/ledger-client';
-import { AgentError } from './errors.js';
+import { AgentError, MeteredReplayError } from './errors.js';
 import { AuditLog, type ActionKind, type AuditedAction } from './fleet/audit.js';
 import {
   evaluateCompletion,
@@ -16,8 +16,9 @@ import {
 } from './fleet/guardrails.js';
 import { digestOfText, type ModelGateway } from './gateway/gateway.js';
 import type { RouteDef } from './gateway/routing.js';
-import { type SettlementResult, type UsageMeter, type UsageWindowView } from './metering/meter.js';
+import { type SettlementResult, type UsageMeter, type UsageDayView, type UsageWindowView } from './metering/meter.js';
 import { meteringOffSettlementStub, shouldMeterUsage } from './metering/product-law.js';
+import { asksForReturnsRanking, COPY_INTEL_SESSION_AGENT_ID } from './copy-intel/returns-board-refuse.js';
 import { usageCost } from './metering/pricing.js';
 import type { TokenUsage } from './providers/provider.js';
 import type { SpendGate } from './spend/gate.js';
@@ -82,6 +83,11 @@ export interface AgentRuntimeOptions {
    */
   readonly funds?: { available(userId: string, assetId: string): Promise<Amount> };
   /**
+   * AGENTS_TRANSCRIPT_RETENTION_DAYS: how many days an executed engine call's prompt text is kept for an operator's
+   * transcript read. Null (blank) or 0 keeps nothing: only the digests are on the action row.
+   */
+  readonly transcriptRetentionDays?: number | null;
+  /**
    * AGENTS_OVERAGE_GRACE: how much usage a person may leave unpaid and still start a run, in the fee asset. An owner
    * value. Blank is null: any unpaid window refuses the next run with `agents.overage_grace_unset`, never a grace
    * nobody published.
@@ -121,6 +127,16 @@ class SessionSpendCeilingError extends Error {
   }
 }
 
+/** A team run's hold refusals (team/hold.ts), recorded as refusals like the own-agent caps. */
+const TEAM_HOLD_REFUSALS = [
+  'agents.team.allocation_exceeded',
+  'agents.team.project_limit_exceeded',
+  'agents.team.pool_exceeded',
+  'agents.team.allocation_unset',
+] as const;
+const isTeamHoldRefusal = (code: string): code is (typeof TEAM_HOLD_REFUSALS)[number] =>
+  (TEAM_HOLD_REFUSALS as readonly string[]).includes(code);
+
 export class RefusedError extends AgentError {
   constructor(
     readonly refusal: Refusal,
@@ -145,6 +161,12 @@ export interface ThinkInput {
   readonly messages: readonly { role: 'user' | 'assistant'; content: string }[];
   readonly maxOutputTokens?: number;
   readonly signal?: AbortSignal;
+  /**
+   * Set only by the team run route (team/runs.ts), after it read the member's business membership and runner role. A
+   * team session's hold refuses without it, so no other route can run on a team session, whatever request id it sends.
+   * Never taken from a request body.
+   */
+  readonly teamRun?: boolean;
 }
 
 export interface ThinkResult {
@@ -198,6 +220,7 @@ export class AgentRuntime {
   private readonly meteringEnabled: boolean;
   private readonly spend: SpendGate | null;
   private readonly funds: AgentRuntimeOptions['funds'] | null;
+  private readonly transcriptRetentionDays: number;
   private readonly overageGrace: Amount | null;
 
   constructor(
@@ -212,6 +235,7 @@ export class AgentRuntime {
     this.meteringEnabled = options.meteringEnabled ?? false;
     this.spend = options.spend ?? null;
     this.funds = options.funds ?? null;
+    this.transcriptRetentionDays = options.transcriptRetentionDays ?? 0;
     this.overageGrace = options.overageGrace ?? null;
   }
 
@@ -452,14 +476,27 @@ export class AgentRuntime {
     // before price and funds, so a replay reads as a replay whatever the balance.
     const shouldMeter = shouldMeterUsage(session.metered, this.meteringEnabled);
     if (shouldMeter && (await this.meter.hasRequest(session.id, input.requestId))) {
-      const err = new AgentError(
-        `Request id "${input.requestId}" was already metered on session ${session.id}`,
-        'agents.request_id_replay',
-        'agents.error.request_id_replay',
-        { requestId: input.requestId },
-      );
+      const err = new MeteredReplayError(session.id, input.requestId);
       await this.appendFailure(session, { kind: 'completion', task: input.task, error: err });
       throw err;
+    }
+
+    // 1b · Copy-Intel never builds a returns board (D26-P1-A5). A request for one is refused before the price, the hold
+    //      and the engine, so it charges nothing, and the refusal is logged for the person to read.
+    if (
+      session.agentId === COPY_INTEL_SESSION_AGENT_ID &&
+      input.messages.some((m) => m.role === 'user' && asksForReturnsRanking(m.content))
+    ) {
+      throw await this.appendRefusal(
+        session,
+        {
+          allowed: false,
+          code: 'agents.copy_intel.returns_board_refused',
+          userMessageKey: 'agents.refused.copy_intel.returns_board_refused',
+          userMessageParams: {},
+        },
+        { kind: 'completion', task: input.task },
+      );
     }
 
     const maxOutputTokens =
@@ -601,6 +638,7 @@ export class AgentRuntime {
           amount: formatAmount(worstCaseCost),
           agentCap: agentCapOf(session.guardrail),
           overageGrace: this.overageGrace,
+          teamRun: input.teamRun === true,
           ...(fundsRead ? { funds: fundsRead } : {}),
         });
         // A committed hold is a metered replay. Metering-off must not invent
@@ -638,6 +676,7 @@ export class AgentRuntime {
             amount: formatAmount(worstCaseCost),
             agentCap: agentCapOf(session.guardrail),
             overageGrace: this.overageGrace,
+            teamRun: input.teamRun === true,
             ...(fundsRead ? { funds: fundsRead } : {}),
           });
         }
@@ -669,7 +708,10 @@ export class AgentRuntime {
             { kind: 'completion', task: input.task },
           );
         }
-        if (err instanceof AgentError && (err.code === 'agents.spend.cap_exceeded' || err.code === 'agents.spend.cap_unset')) {
+        if (
+          err instanceof AgentError &&
+          (err.code === 'agents.spend.cap_exceeded' || err.code === 'agents.spend.cap_unset' || isTeamHoldRefusal(err.code))
+        ) {
           throw await this.appendRefusal(
             session,
             {
@@ -784,6 +826,7 @@ export class AgentRuntime {
         { kind: 'completion', task: input.task },
       );
     }
+    const prompt = canonicalPrompt(input.system, input.messages);
     const committed = await transaction(
       this.sql,
       async (tx) => {
@@ -829,9 +872,11 @@ export class AgentRuntime {
           cost: recorded ? cost : 0n,
           userMessageKey: 'agents.action.completed',
           userMessageParams: { task: input.task },
-          inputDigest: digestOfText(canonicalPrompt(input.system, input.messages)),
+          inputDigest: digestOfText(prompt),
           outputDigest: digestOfText(completion.result.text),
         });
+        // The prompt text whose sha256 is the row's input digest, kept for the owner's retention and no longer.
+        if (this.transcriptRetentionDays > 0) await keepTranscript(tx, row.id, session.userId, prompt, this.transcriptRetentionDays);
 
         if (this.spend && reserved !== null) {
           // The user cap counts this call's cost even when metering is off.
@@ -1150,6 +1195,10 @@ export class AgentRuntime {
     return this.meter.windowsOf(userId, agentId, limit);
   }
 
+  async usageByDayOf(userId: string, agentIds: readonly string[]): Promise<UsageDayView[]> {
+    return this.meter.usageByDay(userId, agentIds);
+  }
+
   /** Settle every open window of a session. Used when a session closes. */
   async settleSession(sessionId: string): Promise<SettlementResult[]> {
     const windows = await this.meter.openWindows(sessionId);
@@ -1314,6 +1363,18 @@ function toSession(row: SessionRow): SessionRecord {
 export function estimateInputTokens(system: string | undefined, messages: readonly { content: string }[]): number {
   const chars = (system?.length ?? 0) + messages.reduce((acc, m) => acc + m.content.length, 0);
   return Math.ceil(chars / 3);
+}
+
+/**
+ * Keeps one executed engine call's prompt text for `days` (AGENTS_TRANSCRIPT_RETENTION_DAYS), inside the transaction that
+ * wrote its action row: the row and its text land together or not at all. The purge is index.ts's timer
+ * (purgeExpiredTranscripts), never this transaction.
+ */
+async function keepTranscript(tx: Sql, actionId: string, userId: string, text: string, days: number): Promise<void> {
+  await tx`
+    INSERT INTO agents.agent_transcripts (action_id, user_id, text, expires_at)
+    VALUES (${actionId}, ${userId}, ${text}, now() + make_interval(days => ${days}))
+  `;
 }
 
 function canonicalPrompt(system: string | undefined, messages: readonly { role: string; content: string }[]): string {

@@ -7,6 +7,7 @@ const en = {
   startBlank: 'Start blank',
   assistantTitle: 'Draft with the assistant',
   assistantBlocked: 'Drafting with the assistant waits on the owner’s choice of model. The rest of the builder works without it.',
+  describeAgent: 'Describe the agent in plain words',
   draftIt: 'Draft it',
   builderTitle: 'Agent builder',
   draftLabel: 'Draft',
@@ -49,7 +50,15 @@ const en = {
   page_Usage: 'Usage',
   page_Identity: 'Identity',
   page_Sharing: 'Sharing',
-  parked_Usage: 'Usage by day and task is not built (AG-usage-02); the windows above are each session’s sealed usage.',
+  byDayTitle: 'Usage by agent, day and task',
+  byDayAgent: 'Agent',
+  byDayDay: 'Day (UTC)',
+  byDayTask: 'Task',
+  byDayWindows: 'Windows',
+  byDayCost: 'Cost',
+  byDayNote:
+    'Every agent you built. Each row is the exact sum of that agent’s sealed usage windows on that day; an open window counts once it seals.',
+  byDayEmpty: 'None of your agents has sealed usage.',
   parked_Identity:
     'This agent has no token of its own: agent identity is not built (AG-identity-01), so it can only act inside a session you open.',
   parked_Sharing: 'Only you can see or change this agent. Co-owners are not built (AG-builder-03).',
@@ -89,7 +98,8 @@ const en = {
   code_spend_above_agent_cap: 'That is above the agent’s own cap of {cap} {asset}. Enter a lower value, or raise the agent’s cap on Build.',
   code_funds_insufficient: 'Your available balance is below this run’s worst case, so it did not start.',
   code_funds_unread: 'Your balance could not be read just now, so this run did not start. Nothing was charged; try again shortly.',
-  code_price_unset: 'This run has no published rate, so it does not run. Nothing runs free.',
+  code_price_unset: 'No rate is published for {task}, the rate this run is billed at, so it does not run. Nothing runs free.',
+  code_price_unset_unread: 'No rate is published for this run, so it does not run. Nothing runs free.',
   code_spend_limit: 'This run would pass one of your spending limits, so it did not start. Check your limits before running again.',
   code_spend_per_call_above_session: 'The cap per call cannot be above the cap per session. Enter a lower cap per call.',
   code_request_id_replay: 'This request already ran. It is not run or charged again.',
@@ -158,6 +168,7 @@ const es = {
   startBlank: 'Empezar en blanco',
   assistantTitle: 'Redactar con el asistente',
   assistantBlocked: 'Redactar con el asistente espera la elección de modelo del propietario. El resto del constructor funciona sin él.',
+  describeAgent: 'Describe el agente con palabras sencillas',
   draftIt: 'Redactarlo',
   builderTitle: 'Constructor de agentes',
   draftLabel: 'Borrador',
@@ -201,7 +212,15 @@ const es = {
   page_Usage: 'Uso',
   page_Identity: 'Identidad',
   page_Sharing: 'Compartir',
-  parked_Usage: 'El uso por día y tarea no está construido (AG-usage-02); las ventanas de arriba son el uso sellado de cada sesión.',
+  byDayTitle: 'Uso por agente, día y tarea',
+  byDayAgent: 'Agente',
+  byDayDay: 'Día (UTC)',
+  byDayTask: 'Tarea',
+  byDayWindows: 'Ventanas',
+  byDayCost: 'Coste',
+  byDayNote:
+    'Todos los agentes que construiste. Cada fila es la suma exacta de las ventanas de uso selladas de ese agente en ese día; una ventana abierta cuenta cuando se sella.',
+  byDayEmpty: 'Ninguno de tus agentes tiene uso sellado.',
   parked_Identity:
     'Este agente no tiene un token propio: la identidad de agentes no está construida (AG-identity-01), así que solo puede actuar dentro de una sesión que abras.',
   parked_Sharing: 'Solo tú puedes ver o cambiar este agente. Los copropietarios no están construidos (AG-builder-03).',
@@ -250,7 +269,8 @@ const es = {
   code_funds_insufficient: 'Tu saldo disponible es menor que el peor caso de esta ejecución, así que no empezó.',
   code_funds_unread:
     'No se pudo leer tu saldo en este momento, así que esta ejecución no empezó. No se cobró nada; inténtalo de nuevo en breve.',
-  code_price_unset: 'Esta ejecución no tiene tarifa publicada, así que no se ejecuta. Nada se ejecuta gratis.',
+  code_price_unset: 'No hay tarifa publicada para {task}, la tarifa de esta ejecución, así que no se ejecuta. Nada se ejecuta gratis.',
+  code_price_unset_unread: 'No hay tarifa publicada para esta ejecución, así que no se ejecuta. Nada se ejecuta gratis.',
   code_spend_limit:
     'Esta ejecución superaría uno de tus límites de gasto, así que no empezó. Revisa tus límites antes de volver a ejecutar.',
   code_spend_per_call_above_session: 'El límite por llamada no puede superar el límite por sesión. Introduce un límite por llamada menor.',
@@ -321,6 +341,7 @@ const fr = {
   startBlank: 'Partir de zéro',
   assistantTitle: 'Rédiger avec l’assistant',
   assistantBlocked: 'Rédiger avec l’assistant attend le choix de modèle du propriétaire. Le reste du constructeur fonctionne sans lui.',
+  describeAgent: 'Décrivez l’agent avec des mots simples',
   draftIt: 'Le rédiger',
   builderTitle: 'Constructeur d’agent',
   draftLabel: 'Brouillon',
@@ -365,8 +386,15 @@ const fr = {
   page_Usage: 'Utilisation',
   page_Identity: 'Identité',
   page_Sharing: 'Partage',
-  parked_Usage:
-    'L’utilisation par jour et par tâche n’est pas construite (AG-usage-02) ; les fenêtres ci-dessus sont l’usage scellé de chaque session.',
+  byDayTitle: 'Utilisation par agent, jour et tâche',
+  byDayAgent: 'Agent',
+  byDayDay: 'Jour (UTC)',
+  byDayTask: 'Tâche',
+  byDayWindows: 'Fenêtres',
+  byDayCost: 'Coût',
+  byDayNote:
+    'Tous les agents que vous avez construits. Chaque ligne est la somme exacte des fenêtres d’usage scellées de cet agent ce jour-là ; une fenêtre ouverte compte une fois scellée.',
+  byDayEmpty: 'Aucun de vos agents n’a d’usage scellé.',
   parked_Identity:
     'Cet agent n’a pas de jeton propre : l’identité des agents n’est pas construite (AG-identity-01), il ne peut donc agir que dans une session que vous ouvrez.',
   parked_Sharing: 'Vous seul pouvez voir ou modifier cet agent. Les copropriétaires ne sont pas construits (AG-builder-03).',
@@ -413,7 +441,9 @@ const fr = {
   code_funds_insufficient: 'Votre solde disponible est inférieur au pire cas de cette exécution ; elle n’a pas commencé.',
   code_funds_unread:
     'Votre solde n’a pas pu être lu pour l’instant ; cette exécution n’a pas commencé. Rien n’a été facturé ; réessayez dans un instant.',
-  code_price_unset: 'Cette exécution n’a pas de tarif publié ; elle ne s’exécute pas. Rien ne tourne gratuitement.',
+  code_price_unset:
+    'Aucun tarif n’est publié pour {task}, le tarif de cette exécution ; elle ne s’exécute pas. Rien ne tourne gratuitement.',
+  code_price_unset_unread: 'Aucun tarif n’est publié pour cette exécution ; elle ne s’exécute pas. Rien ne tourne gratuitement.',
   code_spend_limit:
     'Cette exécution dépasserait l’une de vos limites de dépense, elle n’a donc pas démarré. Vérifiez vos limites avant de relancer.',
   code_spend_per_call_above_session:

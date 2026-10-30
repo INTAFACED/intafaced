@@ -17,6 +17,7 @@ import { UpstreamModelProvider } from './providers/upstream.js';
 import type { ModelProvider } from './providers/provider.js';
 import { AgentRuntime } from './runtime.js';
 import { UserSpendStore } from './spend/store.js';
+import { createHttpTeamMembershipPort } from './team/membership.js';
 import { registerProductAgentsAtBoot } from './fleet/boot-register.js';
 import { registerCoachAgent } from './coach/coach-run.js';
 import { fleetMatrixBoardCard } from './fleet/matrix.js';
@@ -31,6 +32,8 @@ import { createHttpNavigatorTradeDataPort } from './navigator/trade-data-http-po
 import { createHttpNavigatorIdentitySessionPort } from './navigator/identity-session-http-port.js';
 import { tradeTickerPrices } from './portfolio-agent/trade-prices.js';
 import { createAgentsRouter, type AgentsRouter } from './router.js';
+import { parseTierLaws } from './tier-laws.js';
+import { parseReasons, purgeExpiredTranscripts } from './oplog/routes.js';
 import { registerProcessHooks, startTelemetry } from '@intafaced/telemetry';
 
 // §9 — register the TracerProvider before the first span is created.
@@ -142,6 +145,7 @@ const runtime = new AgentRuntime(sql, gateway, meter, bus, {
   spend,
   // The person's available balance, read from the ledger before each metered run (OWNER 107).
   funds: { available: async (userId, assetId) => (await ledger.balance(userAvailable(userId, assetId))).amount },
+  transcriptRetentionDays: env.AGENTS_TRANSCRIPT_RETENTION_DAYS ?? null,
   overageGrace: env.AGENTS_OVERAGE_GRACE === undefined ? null : parseAmount(env.AGENTS_OVERAGE_GRACE),
 });
 
@@ -170,6 +174,10 @@ const payMetricsPort = env.PAY_URL
   ? createHttpPayMetricsPort({ payUrl: env.PAY_URL, internalSecret: env.INTERNAL_SERVICE_SECRET, ...(s2sKey ? { s2s: s2sKey } : {}) })
   : undefined;
 
+const teamMembership = env.BANK_URL
+  ? createHttpTeamMembershipPort({ bankUrl: env.BANK_URL, internalSecret: env.INTERNAL_SERVICE_SECRET, ...(s2sKey ? { s2s: s2sKey } : {}) })
+  : undefined;
+
 const copyLeaderFixturesPort = env.TRADE_URL
   ? createHttpCopyLeaderFixturesPort({
       tradeUrl: env.TRADE_URL,
@@ -195,14 +203,22 @@ const portfolioPrices =
 
 const appRouter = createAgentsRouter({
   runtime,
+  // Parsed at boot: a malformed law stops the service here, never opens or closes a door at a call.
+  tierLaws: parseTierLaws(env.AGENTS_TIER_LAWS),
   gateway,
   meter,
   feeAssetId: env.AGENTS_FEE_ASSET_ID,
   meteringEnabled: env.AGENTS_METERING_ENABLED,
+  opsLog: {
+    reasons: parseReasons(env.AGENTS_LOG_READ_REASONS),
+    limit: env.AGENTS_OPS_ACTIONS_LIMIT ?? null,
+    retentionDays: env.AGENTS_TRANSCRIPT_RETENTION_DAYS ?? null,
+  },
   ...(loadCoachGrounding ? { loadCoachGrounding } : {}),
   ...(supportDesk ? { supportDesk } : {}),
   ...(spotTickersPort ? { spotTickersPort } : {}),
   ...(payMetricsPort ? { payMetricsPort } : {}),
+  ...(teamMembership ? { teamMembership } : {}),
   ...(copyLeaderFixturesPort ? { copyLeaderFixturesPort } : {}),
   ...(env.TRADE_URL ? { navigatorTradeUrl: env.TRADE_URL } : {}),
   ...(navigatorTradeDataPort ? { navigatorTradeDataPort } : {}),
@@ -275,9 +291,21 @@ app.log.info(
   'svc-agents ready',
 );
 
+// Kept transcripts past their expiry, or older than today's retention, go on a timer of their own, off the engine
+// call's transaction. Retention 0 keeps none, so every kept transcript goes; a blank retention deletes nothing.
+const purgeTranscripts = () =>
+  purgeExpiredTranscripts(sql, env.AGENTS_TRANSCRIPT_RETENTION_DAYS ?? null).then(
+    (purged) => purged > 0 && app.log.info({ purged }, 'svc-agents purged expired transcripts'),
+    (err: unknown) => app.log.error({ err }, 'svc-agents transcript purge failed'),
+  );
+await purgeTranscripts();
+const transcriptPurge = setInterval(() => void purgeTranscripts(), 60 * 60 * 1000);
+transcriptPurge.unref();
+
 for (const signal of ['SIGTERM', 'SIGINT'] as const) {
   process.once(signal, () => {
     void (async () => {
+      clearInterval(transcriptPurge);
       // Draining, not dropping: an in-flight settlement finishes before exit.
       await app.close();
       await bus.close();

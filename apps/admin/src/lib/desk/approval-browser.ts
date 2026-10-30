@@ -18,6 +18,7 @@ export type ApprovalEndpoint =
   | '/api/ledger-freeze'
   | '/api/ledger-reconciliation/run'
   | '/api/ledger-reconciliation/lifecycle'
+  | '/api/ledger-reconciliation/alerts/accept'
   | '/api/ledger-metadata/delete'
   | '/api/academy-ops'
   | '/api/more-ops'
@@ -25,7 +26,9 @@ export type ApprovalEndpoint =
   | '/api/bank-ops'
   | '/api/identity-ops/keys'
   | '/api/more-ops/waves'
-  | '/api/console-mode';
+  | '/api/console-mode'
+  | '/api/launch/issuers'
+  | '/api/restore/approvals';
 
 export interface StepPayload {
   readonly step: StepName;

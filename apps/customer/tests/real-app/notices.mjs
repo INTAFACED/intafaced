@@ -3,6 +3,9 @@ import { noticePayloadHash as payloadHash } from '../../../../tooling/scripts/lo
 // The founders' notice board on the local stack, as an operator uses it: operator A drafts, B approves, A publishes.
 // Each notice carries a short window, so a run leaves nothing open on the stack for the next one.
 
+/** How long a journey waits for an earlier run's notices to close. Every notice a journey opens must end inside it. */
+export const NOTICE_DRAIN_MINUTES = 12;
+
 let gates;
 let ctx;
 let pair;
@@ -123,6 +126,28 @@ export async function openNotices() {
 export async function publishedNotices() {
   const { ctx } = await founders();
   return data(await ctx.edge.query('notify', 'notify.notices', { limit: 50 }), 'notify.notices');
+}
+
+/**
+ * The founders' notice desk, drafts included: the one row svc-notify holds for `row.id`, read back from the service. The
+ * desk lists newest written first and at most 50 rows (svc-notify NOTICES_LIST_LIMIT_MAX), so it is read for the row's own
+ * kind only.
+ */
+export async function deskNotice(row) {
+  const { ctx, pair } = await founders();
+  const res = data(
+    await ctx.edge.query('notify', 'notify.operatorNotices', { kind: row.kind, limit: 50 }, await pair.a.tradeOpsToken()),
+    'notify.operatorNotices',
+  );
+  return res.filter((n) => n.id === row.id);
+}
+
+/** The signed-out read of one notice by id: null when the public feed holds it, else its typed refusal code. */
+export async function publicNoticeCode(id) {
+  const { ctx } = await founders();
+  const res = await ctx.edge.query('notify', 'notify.notice', { id });
+  if (res.json?.result?.data) return null;
+  return res.json?.error?.data?.cause?.code ?? `unparsed ${res.status}: ${res.text.slice(0, 200)}`;
 }
 
 /** Founder `key` ('a' or 'b') publishes a draft with an approval it holds. Returns the refusal code, or null when published. */

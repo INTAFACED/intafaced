@@ -30,6 +30,9 @@ import {
 import { ChangelogPage, UpcomingPage } from './ChangelogPages';
 import { StatusPage } from './StatusPage';
 import { AppsRoom } from './apps/AppsRoom';
+import { AuthErrorsCatalogue } from './errors/AuthErrorsCatalogue';
+import { SandboxRoutes } from './sandbox/SandboxRoutes';
+import { ErrorsPage } from './errors/TradeErrorsCatalogue';
 import '../public/public-pages.css';
 
 const key = (id: string) => id.replace(/-/g, '_');
@@ -48,10 +51,12 @@ const PAGES: Record<PageSectionId, (props: { title: string }) => JSX.Element> = 
   openapi: OpenApiPage,
   status: () => <StatusPage />,
   authentication: AuthenticationPage,
+  errors: ErrorsPage,
 };
 
 /** /developers and the pages under it: the portal home, the base-address table and one page per section. Public: no sign-in needed. */
 export function DevelopersRoutes({ path }: { path: string }) {
+  if (/^\/developers\/sandbox(\/|$)/.test(path.split(/[?#]/)[0]!)) return <SandboxRoutes path={path} />;
   const route = developersRoute(path);
   if (route.kind === 'hosts') return <Hosts />;
   if (route.kind === 'status') return <StatusPage />;
@@ -276,12 +281,10 @@ function ErrorsAuth() {
           {t('sectionFor')} {t('audience_exchange')}
         </p>
       </header>
-      <section className="pub-notice" role="status">
-        <p>{t('errorsAuthBody')}</p>
-        <a className="text-link" href="/developers/permissions">
-          {t('errorsAuthPermissions')} →
-        </a>
-      </section>
+      <AuthErrorsCatalogue />
+      <a className="text-link" href="/developers/permissions">
+        {t('errorsAuthPermissions')} →
+      </a>
       <a className="text-link" href="/developers/errors">
         ← {t('section_errors')}
       </a>

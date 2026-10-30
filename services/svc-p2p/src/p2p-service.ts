@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import type { Sql } from 'postgres';
 import { transaction } from '@intafaced/db';
 import { checkOfferLimit, NO_OFFER_LIMITS, type OfferLimitPolicy } from './merchant-limits.js';
@@ -230,6 +231,8 @@ export type P2pErrorCode =
   | 'p2p.active_order_cap'
   | 'p2p.buying_restricted'
   | 'p2p.insufficient_balance'
+  | 'p2p.offer_has_open_trades'
+  | 'p2p.edit_quota_reached'
   | 'p2p.offer_unfunded'
   | 'p2p.remind_too_early'
   | 'p2p.remind_rate_limited'
@@ -817,6 +820,11 @@ export interface P2pServiceOptions {
    */
   reminders?: ReminderPolicy;
   /**
+   * P-ads-merchant-06. Ad edits one person may make per UTC day. `index.ts` always passes the owner's value, where
+   * blank (null) refuses every edit `p2p.config_unset`; omitted is a service built without a cap (tests).
+   */
+  offerEditsPerDay?: number | null;
+  /**
    * P-trade-orders-20. The owner's amount-mismatch band, in basis points of the order's fiat amount. Blank (null or
    * omitted) classifies nothing: every report goes to a person.
    */
@@ -896,10 +904,38 @@ export interface OfferRecord {
   status: 'active' | 'paused' | 'closed';
   /** P-ads-merchant-18: why the service paused it (`method_removed`); null when it is not paused or the maker paused it. */
   pauseReason: OfferPauseReason | null;
+  /** P-ads-merchant-06: why it is closed (`by_you`, `sold_out`); null when it is not closed or was closed before reasons. */
+  closeReason: OfferCloseReason | null;
+  /** P-ads-merchant-06: when it came into its present status. */
+  statusSince: Date;
+  /** P-ads-merchant-06: the closed ad this one relisted, or null. */
+  relistedFrom: string | null;
+  /** P-ads-merchant-06: on My Ads' closed list only, the ad this closed one was relisted as, or null. */
+  relistedAs?: string | null;
   createdAt: Date;
 }
 
 export type OfferPauseReason = 'method_removed';
+
+/**
+ * P-ads-merchant-06: the id of the ad that relists closed ad `offerId`, the same every time (a UUID made from a SHA-256 of
+ * the closed id), so a relist retried after a lost reply finds the ad it already posted.
+ */
+export function relistedOfferId(offerId: string): string {
+  const hex = createHash('sha256').update(`p2p.offer.relist:${offerId.toLowerCase()}`).digest('hex');
+  const variant = ((parseInt(hex[16]!, 16) & 0x3) | 0x8).toString(16);
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-4${hex.slice(13, 16)}-${variant}${hex.slice(17, 20)}-${hex.slice(20, 32)}`;
+}
+export type OfferCloseReason = 'by_you' | 'sold_out';
+
+/** P-ads-merchant-06: a person's ad edits today against the owner's daily cap. */
+export interface OfferEditQuota {
+  limit: number;
+  used: number;
+  remaining: number;
+  /** The next UTC midnight, when the count starts again. */
+  resetsAt: Date;
+}
 
 /** One active sell ad that lists the payment method being removed (P-ads-merchant-18, J-p2p-04 #4). */
 export interface MethodRemovalAd {
@@ -1063,6 +1099,10 @@ interface OfferRow {
   accepts_non_instant?: boolean;
   status: 'active' | 'paused' | 'closed';
   pause_reason?: OfferPauseReason | null;
+  close_reason?: OfferCloseReason | null;
+  status_since?: Date;
+  relisted_from?: string | null;
+  relisted_as?: string | null;
   created_at: Date;
 }
 
@@ -1353,6 +1393,7 @@ export class P2pService {
   private readonly reviewEditWindowSeconds: number | undefined;
   private readonly takeLimits: TakeLimits | undefined;
   private readonly reminders: ReminderPolicy;
+  private readonly offerEditsPerDay: number | null | undefined;
   private readonly mismatchToleranceBps: number | null;
   private readonly paymentRail: PaymentRail | null;
   private readonly advertiserTerms: AdvertiserTerms | undefined;
@@ -1396,6 +1437,7 @@ export class P2pService {
     this.reviewEditWindowSeconds = options.reviewEditWindowSeconds;
     this.takeLimits = options.takeLimits;
     this.reminders = options.reminders ?? { waitSeconds: null, max: null };
+    this.offerEditsPerDay = options.offerEditsPerDay;
     this.mismatchToleranceBps = options.mismatchToleranceBps ?? null;
     this.paymentRail = options.paymentRail ?? null;
     this.advertiserTerms = options.advertiserTerms;
@@ -1954,6 +1996,8 @@ export class P2pService {
     acceptsNonInstant?: boolean;
     /** P-ads-merchant-01: the advertiser terms version the form showed, which must be the published one. */
     advertiserTermsVersion?: string;
+    /** P-ads-merchant-06: the closed ad this post relists (`relistOffer` only). */
+    relistedFrom?: string;
   }): Promise<OfferRecord> {
     this.assertTradingEnabled();
     this.assertSellNotLocked(input.side === 'sell');
@@ -2117,7 +2161,8 @@ export class P2pService {
           const rows = await tx<OfferRow[]>`
             INSERT INTO p2p.offers (
               id, maker_id, side, asset, fiat_currency, price_type, price,
-              min_amt, max_amt, total_amt, remaining_amt, methods, terms, status, maker_tier, accepts_non_instant
+              min_amt, max_amt, total_amt, remaining_amt, methods, terms, status, maker_tier, accepts_non_instant,
+              relisted_from
             )
             VALUES (
               ${offerId}, ${input.makerId}, ${input.side}, ${input.asset}, ${fiatCurrency},
@@ -2125,7 +2170,7 @@ export class P2pService {
               ${formatAmount(input.minAmt)}::numeric, ${formatAmount(input.maxAmt)}::numeric,
               ${formatAmount(totalAmt)}::numeric, ${formatAmount(totalAmt)}::numeric,
               ${tx.json((input.methods ?? []) as never)}, ${input.terms ?? ''}, 'active', ${makerTier},
-              ${input.acceptsNonInstant === true}
+              ${input.acceptsNonInstant === true}, ${input.relistedFrom ?? null}
             )
             RETURNING *
           `;
@@ -2210,17 +2255,123 @@ export class P2pService {
   }
 
   /**
-   * The maker's own ads in one status, newest first, as stored. The board lists active ads only; this is how a maker
-   * finds the ads that are paused (by hand, or because the last payment method went) to resume them.
+   * The maker's own ads in one status, the latest to enter it first, as stored. The board lists active ads only; this is
+   * how a maker finds the ads that are paused (by hand, or because the last payment method went) to resume them, and the
+   * closed ones, each with why and with the ad it was relisted as, if any (P-ads-merchant-06).
    */
-  async listOwnOffers(makerId: string, status: 'active' | 'paused', limit?: number): Promise<OfferRecord[]> {
+  async listOwnOffers(makerId: string, status: 'active' | 'paused' | 'closed', limit?: number): Promise<OfferRecord[]> {
     const lim = assertOfferListLimit(limit);
     const rows = await this.sql<OfferRow[]>`
-      SELECT * FROM p2p.offers WHERE maker_id = ${makerId} AND status = ${status}
-       ORDER BY created_at DESC, id
+      SELECT o.*, (SELECT r.id FROM p2p.offers r WHERE r.relisted_from = o.id) AS relisted_as
+        FROM p2p.offers o
+       WHERE o.maker_id = ${makerId} AND o.status = ${status}
+       ORDER BY o.status_since DESC, o.created_at DESC, o.id
        LIMIT ${lim}
     `;
     return rows.map(toOffer);
+  }
+
+  /**
+   * P-ads-merchant-06: the person's ad edits today against the owner's daily cap, and when the count starts again (the
+   * next UTC midnight). A blank cap refuses `p2p.config_unset`, and so does a service built without one (tests), whose
+   * edits are not counted.
+   */
+  async offerEditQuota(makerId: string, db: Sql = this.sql): Promise<OfferEditQuota> {
+    const limit = this.offerEditsPerDay;
+    if (limit === null || limit === undefined) {
+      throw new P2pError('P2P_OFFER_EDITS_PER_DAY is not published; ads cannot be edited', 'p2p.config_unset');
+    }
+    const [row] = await db<Array<{ used: number; resets_at: Date }>>`
+      SELECT (SELECT count(*)::int FROM p2p.offer_edits
+               WHERE maker_id = ${makerId} AND edit_day = (now() AT TIME ZONE 'UTC')::date) AS used,
+             (((now() AT TIME ZONE 'UTC')::date + 1)::timestamp AT TIME ZONE 'UTC') AS resets_at
+    `;
+    const used = row?.used ?? 0;
+    return { limit, used, remaining: Math.max(0, limit - used), resetsAt: row!.resets_at };
+  }
+
+  /**
+   * P-ads-merchant-06: counts one accepted edit against the person's daily cap, inside the edit's transaction. The
+   * person's edits run one after another under a transaction lock on their id, so two cannot both take the last one.
+   * The row is keyed by the edit's own key, so the edit's retry (a replay, answered before this) never counts twice.
+   */
+  private async countOfferEdit(tx: Sql, makerId: string, idempotencyKey: string, offerId: string): Promise<void> {
+    if (this.offerEditsPerDay === undefined) return;
+    await tx`SELECT pg_advisory_xact_lock(hashtextextended(${`p2p.offer_edits:${makerId}`}, 0))`;
+    const quota = await this.offerEditQuota(makerId, tx);
+    if (quota.remaining <= 0) {
+      throw new P2pError(
+        `You have made ${quota.limit} ad edits today; editing opens again at ${quota.resetsAt.toISOString()}`,
+        'p2p.edit_quota_reached',
+        { until: quota.resetsAt.toISOString(), cap: String(quota.limit), remaining: '0' },
+      );
+    }
+    await tx`
+      INSERT INTO p2p.offer_edits (maker_id, idempotency_key, offer_id, edit_day)
+      VALUES (${makerId}, ${idempotencyKey}, ${offerId}, (now() AT TIME ZONE 'UTC')::date)
+    `;
+  }
+
+  /**
+   * P-ads-merchant-06: an ad whose remaining amount is under its per-order minimum, with no order on it still open, can
+   * never be taken again, so it closes as sold out. Run inside the write that left it so (a release, an edit), under the
+   * ad's row lock, so it closes once and a take waiting on the lock reads it closed.
+   */
+  private async closeIfSoldOut(tx: Sql, offerId: string, locked = false): Promise<OfferRow | null> {
+    // The row lock comes first, so the open-order check below reads after any take that held it has committed.
+    if (!locked) await tx`SELECT 1 FROM p2p.offers WHERE id = ${offerId} FOR UPDATE`;
+    const [closed] = await tx<OfferRow[]>`
+      UPDATE p2p.offers SET status = 'closed', close_reason = 'sold_out', pause_reason = NULL, updated_at = now()
+       WHERE id = ${offerId} AND status IN ('active', 'paused') AND remaining_amt < min_amt
+         AND NOT EXISTS (
+           SELECT 1 FROM p2p.p2p_trades
+            WHERE offer_id = ${offerId} AND status IN ('created', 'escrowed', 'fiat_sent', 'disputed')
+         )
+      RETURNING *
+    `;
+    return closed ?? null;
+  }
+
+  /**
+   * P-ads-merchant-06: relist a closed ad. A closed ad never reopens (its orders keep the terms they were taken on), so
+   * relisting posts a new ad from it, with a fresh create time, through every check a new ad passes (`createOffer`):
+   * advertiser terms, posting thresholds, level limits, content rules, free balance, payable methods. One relist per
+   * closed ad: the new ad's id and key come from the closed ad's id, so a retry, a second press or a race is the same
+   * relist, and asking again later returns that ad.
+   */
+  async relistOffer(input: { offerId: string; makerId: string; makerTier?: string }): Promise<OfferRecord> {
+    const newOfferId = relistedOfferId(input.offerId);
+    const closed = await this.loadOfferRaw(input.offerId);
+    if (closed.makerId !== input.makerId) throw new P2pError('Only the maker can relist an offer', 'p2p.not_a_party');
+    if (closed.status !== 'closed') {
+      throw new P2pError(`Offer ${closed.id} is ${closed.status}; only a closed ad is relisted`, 'p2p.offer_not_active');
+    }
+    // Relisted already: that ad is the answer, whatever it has done since (an ad is relisted once).
+    const [already] = await this.sql<Array<{ id: string }>>`
+      SELECT id FROM p2p.offers WHERE relisted_from = ${closed.id}
+    `;
+    if (already) return this.loadOfferRaw(already.id);
+    // Anyone can work out the derived id and post an ad under it first. If it is taken by an ad that is not this relist,
+    // use a fresh id; the key `relist:<closedId>` and the one-relist index keep the relist single either way.
+    const [taken] = await this.sql<Array<{ id: string }>>`SELECT id FROM p2p.offers WHERE id = ${newOfferId}`;
+    return this.createOffer({
+      makerId: input.makerId,
+      side: closed.side,
+      asset: closed.asset,
+      fiatCurrency: closed.fiatCurrency,
+      priceType: closed.priceType,
+      price: closed.price,
+      minAmt: closed.minAmt,
+      maxAmt: closed.maxAmt,
+      totalAmt: closed.totalAmt,
+      methods: closed.methods,
+      terms: closed.terms,
+      offerId: taken ? crypto.randomUUID() : newOfferId,
+      idempotencyKey: `relist:${closed.id}`,
+      ...(input.makerTier === undefined ? {} : { makerTier: input.makerTier }),
+      acceptsNonInstant: closed.acceptsNonInstant,
+      relistedFrom: closed.id,
+    });
   }
 
   /** Maker management / take path — unfiltered methods as stored. */
@@ -2274,21 +2425,42 @@ export class P2pService {
   }
 
   /**
-   * Close an offer. Open trades against it are unaffected — closing withdraws
-   * the *remaining* liquidity, it does not cancel commitments already made.
+   * Close an ad. P-ads-merchant-06: while an order on it is still open (created, escrowed, paid or disputed) closing
+   * refuses `p2p.offer_has_open_trades` with how many and which (the first 50); closing never cancels an order. Read
+   * under the ad's row lock, which a take holds too, so no take lands between the count and the close.
    */
   async closeOffer(offerId: string, makerId: string): Promise<OfferRecord> {
-    const rows = await this.sql<OfferRow[]>`
-      UPDATE p2p.offers SET status = 'closed', pause_reason = NULL, updated_at = now()
-       WHERE id = ${offerId} AND maker_id = ${makerId} AND status <> 'closed'
-      RETURNING *
-    `;
-    if (!rows[0]) {
-      const existing = await this.loadOfferRaw(offerId);
-      if (existing.makerId !== makerId) throw new P2pError('Only the maker can close an offer', 'p2p.not_a_party');
-      return existing;
-    }
-    return toOffer(rows[0]);
+    const row = await transaction(
+      this.sql,
+      async (tx) => {
+        const [locked] = await tx<OfferRow[]>`SELECT * FROM p2p.offers WHERE id = ${offerId} FOR UPDATE`;
+        if (!locked) throw new P2pError(`Offer ${offerId} not found`, 'p2p.offer_not_found');
+        if (locked.maker_id !== makerId) throw new P2pError('Only the maker can close an offer', 'p2p.not_a_party');
+        if (locked.status === 'closed') return locked;
+        const open = await tx<Array<{ id: string; total: number }>>`
+          SELECT id, count(*) OVER ()::int AS total FROM p2p.p2p_trades
+           WHERE offer_id = ${offerId} AND status IN ('created', 'escrowed', 'fiat_sent', 'disputed')
+           ORDER BY created_at, id
+           LIMIT 50
+        `;
+        if (open.length > 0) {
+          const count = open[0]!.total;
+          throw new P2pError(
+            `This ad has ${count} open ${count === 1 ? 'order' : 'orders'}; it closes once they finish`,
+            'p2p.offer_has_open_trades',
+            { until: null, openTrades: String(count), openTradeIds: open.map((trade) => trade.id) },
+          );
+        }
+        const [closed] = await tx<OfferRow[]>`
+          UPDATE p2p.offers SET status = 'closed', close_reason = 'by_you', pause_reason = NULL, updated_at = now()
+           WHERE id = ${offerId}
+          RETURNING *
+        `;
+        return closed!;
+      },
+      { isolation: 'read committed', maxAttempts: 5 },
+    );
+    return toOffer(row);
   }
 
   /**
@@ -4178,6 +4350,10 @@ export class P2pService {
       `;
     }
 
+    // P-ads-merchant-06: the decision that leaves the ad under one order's minimum, with no order open, closes it: a
+    // release that took the last of it, or a refund whose amount goes back to an ad whose minimum was raised meanwhile.
+    await this.closeIfSoldOut(tx, trade.offerId);
+
     if (resolution === 'released') {
       const releaseSecs = trade.escrowedAt ? Math.max(0, Math.round((now.getTime() - trade.escrowedAt.getTime()) / 1000)) : 0;
       await this.bumpReputation(tx, trade.sellerId, 'completed', releaseSecs);
@@ -5035,6 +5211,8 @@ export class P2pService {
         if (offer.status === 'closed') {
           throw new P2pError(`Offer ${offer.id} is closed and cannot be edited`, 'p2p.offer_not_active');
         }
+        // P-ads-merchant-06: counted only for an edit of the person's own open ad; a refusal below rolls the count back.
+        await this.countOfferEdit(tx, input.makerId, idempotencyKey, offer.id);
 
         const price = input.price ?? offer.price;
         const minAmt = input.minAmt ?? offer.minAmt;
@@ -5099,6 +5277,9 @@ export class P2pService {
            WHERE id = ${offer.id}
           RETURNING *
         `;
+        // An edit that leaves less than one order's minimum, with no order open, closes the ad as sold out.
+        const soldOut = await this.closeIfSoldOut(tx, offer.id, true);
+        if (soldOut) rows[0] = soldOut;
         await finishWriteKey(tx, {
           actorId: input.makerId,
           scope: 'offer.update',
@@ -5838,6 +6019,10 @@ function toOffer(row: OfferRow): OfferRecord {
     acceptsNonInstant: row.accepts_non_instant === true,
     status: row.status,
     pauseReason: row.pause_reason ?? null,
+    closeReason: row.close_reason ?? null,
+    statusSince: row.status_since ?? row.created_at,
+    relistedFrom: row.relisted_from ?? null,
+    ...(row.relisted_as === undefined ? {} : { relistedAs: row.relisted_as }),
     createdAt: row.created_at,
   };
 }

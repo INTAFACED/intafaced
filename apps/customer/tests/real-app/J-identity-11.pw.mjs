@@ -1,7 +1,9 @@
 import { randomBytes } from 'node:crypto';
+import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { test, expect } from '@playwright/test';
-import { ROOT, api, signOutBrowser, signUpInBrowser } from './stack.mjs';
+import { ROOT, api, mailedLines, signOutBrowser, signUpInBrowser, staffFreeze, staffRestore, tool } from './stack.mjs';
+import { keyHolder, makeKey, withKey } from './developer.mjs';
 import { addAuthenticator, nextCode } from './identity-factors.mjs';
 
 // J-identity-11, in the running app (docs/roadmap/journeys.json): I freeze my own account and later reactivate it.
@@ -15,6 +17,16 @@ function person(prefix = 'jf') {
   const handle = `${prefix}${Date.now().toString(36)}${randomBytes(2).toString('hex')}`;
   return { handle, email: `${handle}@local-test.invalid`, password: `TEST-${randomBytes(9).toString('base64url')}-9a` };
 }
+
+/** The TEST lift reason from identity's appeal decision reasons (IDENTITY_APPEAL_DECISION_REASONS), as identity returns it. */
+const LIFT_REASON = (() => {
+  const raw = JSON.parse(readFileSync(new URL('../../../../tooling/profiles/test-owner-values/identity.json', import.meta.url), 'utf8'));
+  const [listed] = JSON.parse(raw.values.IDENTITY_APPEAL_DECISION_REASONS.value);
+  return { code: listed.code, text: listed.reason, guidance: listed.guidance };
+})();
+
+/** Identity's typed refusal code, wherever the tRPC error carries it. */
+const typedCode = (data) => data?.intafacedCode ?? data?.cause?.code ?? data?.code;
 
 const totpLib = () => import(path.join(ROOT, 'services/svc-identity/dist/auth/totp.js'));
 
@@ -84,6 +96,128 @@ test(`${J} #1 Account status lists what I can still do and what I cannot; an act
   await expect(lock).toContainText('It holds until you ask to unlock it in Security.');
   await expect(status.getByTestId('account-status__cannot').locator('li')).toHaveText(ACTIONS.slice(3));
   await expect(status.getByTestId('account-status__can').locator('li')).toHaveText(['Sign in', 'Trade', 'Create API keys']);
+});
+
+/** The freeze link on the newest security notice mailed to `email`, as the path the mail links to. */
+async function mailedFreezeLink(email) {
+  let link = null;
+  await expect
+    .poll(
+      () => {
+        const lines = mailedLines(email, 'factor-changed').filter((line) => / freeze=/.test(line));
+        link = lines.length ? /\bfreeze=(\S+)/.exec(lines.at(-1))[1] : null;
+        return link;
+      },
+      { timeout: 30_000 },
+    )
+    .toMatch(/^freeze\/confirm#token=[A-Za-z0-9_-]{40,}$/);
+  return `/${link}`;
+}
+
+/** The bank's withdrawal guard, asked as the address form asks it before any code: may this person add this address? */
+const WITHDRAW_TO = '0x52908400098527886E0F7030069857D2E4169EE7';
+const withdrawalCheck = (session) =>
+  session.get(`/api/bank/trpc/ramps.destinations.check?input=${encodeURIComponent(JSON.stringify({ ref: WITHDRAW_TO }))}`);
+const refusalOf = (res) => res.body?.error?.data?.intafacedCode ?? res.body?.error?.data?.cause?.code ?? null;
+
+/** The typed code on an Edge or service refusal, wherever the answer carries it. */
+const codeOn = (res) =>
+  res.body?.error?.data?.intafacedCode ?? res.body?.error?.data?.code ?? res.body?.code ?? res.body?.error?.code ?? null;
+const query = (route, input) => `${route}?input=${encodeURIComponent(JSON.stringify(input))}`;
+/** Every live sign-in of the person, as identity lists them to the person themself. */
+const sessionsOf = async (session) =>
+  (await session.get(query('/api/identity/trpc/listSessions', { userId: session.userId, limit: 200 }))).body.result.data.sessions;
+/** The person's key named `name`, as identity lists the person's keys. */
+const keyNamed = async (session, name) =>
+  (await session.get(query('/api/identity/trpc/apiKeys.list', { limit: 200 }))).body.result.data.filter((record) => record.name === name);
+
+test(`${J} #2 Freeze my account from the mailed link: no session and no key remain, the link used twice shows the stored result, a withdrawal is refused`, async ({
+  browser,
+}) => {
+  test.setTimeout(240_000);
+  // A verified person with a passkey (only such an account holds an API key) and a live key. Adding the passkey is a
+  // security change, so identity mails the "your sign-in methods changed" notice, and that notice carries the link.
+  const { page, who } = await keyHolder(browser, 'jl');
+  const key = await makeKey(page, { name: 'freeze-me', preset: 'Read only' });
+  const session = await api(who);
+  const STATUS = '/api/identity/trpc/accountStatus.mine';
+  expect((await session.get(STATUS)).status).toBe(200);
+  expect((await withKey(key, { path: STATUS })).status).toBe(200);
+  // Before the freeze identity lists the key live and more than one sign-in (the browser's and this one).
+  expect((await keyNamed(session, 'freeze-me')).map((record) => record.revoked)).toEqual([false]);
+  const before = await sessionsOf(session);
+  expect(before.length).toBeGreaterThanOrEqual(2);
+  // Before the freeze the withdrawal guard lets this person go on to the address form.
+  const open = await withdrawalCheck(session);
+  expect(open.status, JSON.stringify(open.body).slice(0, 300)).toBe(200);
+  expect(open.body.result.data.address).toBe('ok');
+
+  // A link nobody was sent gets the one generic page and freezes nothing.
+  const stranger = await (await browser.newContext()).newPage();
+  await stranger.goto(`/freeze/confirm#token=${randomBytes(32).toString('base64url')}`);
+  await stranger.getByRole('button', { name: 'Freeze my account' }).click();
+  await expect(stranger.getByRole('heading', { level: 1 })).toHaveText('This freeze link does not work');
+  expect((await session.get(STATUS)).body.result.data.state).toBe('active');
+
+  // "This was not me": the person opens the link from the notice in a browser that is not signed in.
+  const link = await mailedFreezeLink(who.email);
+  const mailbox = await (await browser.newContext()).newPage();
+  await mailbox.goto(link);
+  await expect(mailbox.getByRole('heading', { level: 1 })).toHaveText('Freeze your account');
+  // Opening the page spent nothing: the account still reads active.
+  expect((await session.get(STATUS)).body.result.data.state).toBe('active');
+  await mailbox.getByRole('button', { name: 'Freeze my account' }).click();
+  await expect(mailbox.getByRole('heading', { level: 1 })).toHaveText('Your account is frozen');
+  await expect(mailbox.getByTestId('freeze-link-result')).toHaveAttribute('data-first-use', 'true');
+  const first = await mailbox.getByTestId('freeze-link-result').locator('time').getAttribute('datetime');
+  expect(Number.isNaN(Date.parse(first))).toBe(false);
+
+  // No session and no key remain: the sign-in made before the freeze is refused as revoked, the key as revoked, and
+  // the browser's own session is signed out. Edge may hold a session's authority for its cache window, so the first
+  // read waits that window out once.
+  const { EDGE_AUTHORITY_CACHE_MAX_MS } = await import(path.join(ROOT, 'tooling/scripts/local-test-gates.mjs'));
+  await new Promise((resolve) => setTimeout(resolve, EDGE_AUTHORITY_CACHE_MAX_MS + 100));
+  const oldSession = await session.get(STATUS);
+  expect(oldSession.status, JSON.stringify(oldSession.body).slice(0, 300)).toBe(401);
+  // Edge passes an ended sign-in on as signed out, so identity's own door answers it: not signed in. That the sign-in
+  // itself is gone is read below from identity's list of the person's sessions.
+  expect(codeOn(oldSession), JSON.stringify(oldSession.body)).toBe('UNAUTHORIZED');
+  const oldKey = await withKey(key, { path: STATUS });
+  expect(oldKey.status, JSON.stringify(oldKey.body).slice(0, 300)).toBe(401);
+  expect(codeOn(oldKey), JSON.stringify(oldKey.body)).toBe('edge.api_key_revoked');
+  await page.goto('/uc/safe');
+  await expect(page.getByRole('heading', { name: 'Sign in to continue' })).toBeVisible();
+
+  // Signed in again, identity lists only this new sign-in and the key as revoked, and the account reads frozen by its
+  // owner since the moment the link page showed.
+  const again = await api(who);
+  const listed = await sessionsOf(again);
+  expect(listed.map((seat) => seat.isCurrent)).toEqual([true]);
+  expect(before.map((seat) => seat.id)).not.toContain(listed[0].id);
+  expect((await keyNamed(again, 'freeze-me')).map((record) => record.revoked)).toEqual([true]);
+  const frozen = (await again.get(STATUS)).body.result.data;
+  expect(frozen.state).toBe('frozen_self');
+  expect(frozen.restrictions.map((restriction) => [restriction.kind, restriction.since])).toEqual([['self_freeze', first]]);
+
+  // The same link again, opened from the mail in a new tab, shows the result stored at its first use and changes nothing.
+  // (A goto on the open tab would only change its fragment, so the page would not load again.)
+  const reopened = await mailbox.context().newPage();
+  await reopened.goto(link);
+  await reopened.getByRole('button', { name: 'Freeze my account' }).click();
+  await expect(reopened.getByRole('heading', { level: 1 })).toHaveText('This link was already used');
+  await expect(reopened.getByTestId('freeze-link-result')).toHaveAttribute('data-first-use', 'false');
+  await expect(reopened.getByTestId('freeze-link-result').locator('time')).toHaveAttribute('datetime', first);
+  // Changes nothing: the freeze reads the same, and the sign-in made after the first use is still live and still the only one.
+  await new Promise((resolve) => setTimeout(resolve, EDGE_AUTHORITY_CACHE_MAX_MS + 100));
+  const still = await again.get(STATUS);
+  expect(still.status).toBe(200);
+  expect(still.body.result.data).toEqual(frozen);
+  expect((await sessionsOf(again)).map((seat) => seat.id)).toEqual([listed[0].id]);
+
+  // The bank's withdrawal guard refuses the frozen account by name.
+  const refused = await withdrawalCheck(again);
+  expect(refused.status).toBe(412);
+  expect(refusalOf(refused)).toBe('bank.account_frozen_self');
 });
 
 test(`${J} #3 Signing in again after freezing lands on a typed "frozen by you" page with the lift path, not a generic error`, async ({
@@ -183,8 +317,94 @@ test(`${J} #4 Asking to reactivate before the wait is over is refused with the s
   await expect(status.getByTestId('account-status__restrictions')).toHaveCount(0);
 });
 
-// Still red, named: a staff freeze's own page, the staff-only lift and the appeal path wait for the appeal door
-// (I-account-lifecycle-12), which identity does not serve yet.
-test(`${J} #5 A staff freeze shows its own page that only staff can lift, with the appeal path`, () => {
-  throw new Error('step #5 is not built yet: no appeal door in svc-identity (I-account-lifecycle-12)');
+// A staff freeze refuses signing in, so the customer path (sign in, then reactivate) stops at the sign-in page, which
+// names the freeze, says only support lifts it and points to the appeal. The appeal is filed signed out with the
+// password, as the page says, and identity's appeal door holds it (I-account-lifecycle-12).
+test(`${J} #5 A staff freeze shows its own page that only staff can lift, with the appeal path`, async ({ page }) => {
+  test.setTimeout(240_000);
+  const who = person('js');
+  await signUpInBrowser(page, who);
+  const userId = await staffFreeze(who);
+  let lifted = false;
+  try {
+    // The same path as #3: sign in again. Identity refuses it as frozen, named only after the password verified.
+    await page.goto('about:blank');
+    await signOutBrowser(page.context());
+    await page.goto('/login');
+    await page.fill('input[name=identifier]', who.email);
+    await page.fill('input[name=password]', who.password);
+    const answered = page.waitForResponse((r) => new URL(r.url()).pathname.endsWith('/auth.login'));
+    await page.getByRole('button', { name: /^sign in$/i }).click();
+    const refused = await (await answered).json();
+    expect(typedCode(refused.error.data)).toBe('auth.account_frozen');
+    expect(refused.error.data.accountState).toBe('frozen');
+    const failure = page.getByTestId('failure');
+    await expect(failure).toContainText('This account is frozen. Sign-in and money actions are paused. Only support can lift a freeze');
+    // Not the person's own freeze: no reactivation is offered, only the appeal.
+    await expect(page.getByTestId('frozen-by-you')).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Reactivate in Security' })).toHaveCount(0);
+    await failure.getByRole('link', { name: 'Appeal this freeze' }).click();
+    await expect(page).toHaveURL(/\/appeal$/);
+    await expect(page.getByRole('heading', { level: 1 })).toHaveText('Appeal a freeze');
+    await expect(page.getByText('Only support can lift a freeze.')).toBeVisible();
+
+    const form = page.getByTestId('appeal-signed-out__form');
+    const send = async (password, text) => {
+      await form.getByLabel('Email or handle').fill(who.email);
+      await form.getByLabel('Password', { exact: true }).fill(password);
+      await form.getByLabel('Why should the freeze be lifted?').fill(text);
+      const res = page.waitForResponse((r) => new URL(r.url()).pathname.endsWith('/accountAppeal.submitSignedOut'));
+      await form.getByRole('button', { name: 'Send appeal' }).click();
+      const got = await res;
+      const body = await got.json();
+      return { status: got.status(), data: body.result?.data, code: typedCode(body.error?.data) };
+    };
+    // A wrong password is the sign-in refusal, and files nothing.
+    const wrong = await send(`${who.password}x`, 'TEST: please look again');
+    expect(wrong.code).toBe('auth.invalid_credentials');
+    await expect(page.locator('.lt-refusal .lt-ref')).toHaveText('auth.invalid_credentials');
+    // With the password, the appeal of this staff freeze is filed and waits for a decision.
+    const filed = await send(who.password, 'TEST: please look again');
+    expect(filed.status, JSON.stringify(filed)).toBe(200);
+    expect(filed.data).toMatchObject({ restriction: 'staff_freeze', status: 'submitted', decision: null });
+    const result = page.getByTestId('appeal-signed-out__result');
+    await expect(result).toHaveAttribute('data-status', 'submitted');
+    await expect(result).toContainText('Waiting for a decision');
+    // One open appeal: a second from a fresh page is refused by name, and still nothing else is filed.
+    await page.goto('/appeal');
+    const again = await send(who.password, 'TEST: a second appeal');
+    expect(again.status).toBe(409);
+    expect(again.code).toBe('identity.appeal_open');
+    // The refusal is the flow template's, in words with the typed code small under them.
+    const refusal = page.locator('.lt-refusal');
+    await expect(refusal).toContainText('You already have an appeal waiting for this freeze. Only one can be open at a time.');
+    await expect(refusal.locator('.lt-ref')).toHaveText('identity.appeal_open');
+
+    // Only staff lift it: the founder who froze it cannot decide the appeal; the other founder lifts it through the
+    // unfreeze four-eyes, and the person can sign in again.
+    expect(tool('local-test-gates.mjs', 'appeal-decide', who.handle, 'lift', LIFT_REASON.code, '--as-restrictor')).toMatch(
+      /REFUSED .* appeal lift: .*identity\.appeal_decider_restricted/,
+    );
+    expect(tool('local-test-gates.mjs', 'appeal-decide', who.handle, 'lift', LIFT_REASON.code)).toMatch(/OK .* appeal lift: lifted/);
+    lifted = true;
+    const own = await api(who);
+    const status = await own.get('/api/identity/trpc/accountStatus.mine');
+    expect(status.body.result.data.state).toBe('active');
+    const appeals = await own.get('/api/identity/trpc/accountAppeal.mine');
+    expect(appeals.body.result.data.appeals).toHaveLength(1);
+    expect(appeals.body.result.data.appeals[0]).toMatchObject({
+      restriction: 'staff_freeze',
+      status: 'lifted',
+      decision: { outcome: 'lifted', reason: LIFT_REASON },
+    });
+    await expect.poll(() => mailedLines(who.email, 'appeal-decided'), { timeout: 30_000 }).toHaveLength(1);
+  } finally {
+    if (!lifted) {
+      try {
+        await staffRestore(userId);
+      } catch (error) {
+        console.warn(`J-identity-11 #5: the restore after a failure failed too: ${error}`);
+      }
+    }
+  }
 });

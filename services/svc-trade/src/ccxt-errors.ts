@@ -4,6 +4,7 @@ import { InsufficientFundsError, LedgerError, MoneyError } from '@intafaced/ledg
 import { MatchingNoBookError, MatchingUnavailableError } from './spot/matching-client.js';
 import { TradeError, type TradeErrorCode } from './spot/types.js';
 import { TradingControlError } from './controls/trading-controls.js';
+import { POSTING_FROZEN, publicLedgerCode, publicLedgerMessage, SETTLEMENT_PENDING } from './ledger-public-code.js';
 
 /**
  * CCXT ERROR TAXONOMY FOR THE PUBLIC REST SURFACE (trade.ccxt-api).
@@ -63,6 +64,15 @@ interface Arm {
  * inspects the HTTP status before it ever parses a body, and a 5xx is retried
  * by most transport wrappers regardless of payload. So anything a caller must
  * *not* retry stays in the 4xx range even when it is genuinely our fault.
+ * Two posting-freeze answers sit outside the table (`toCcxtError`, LedgerError):
+ *   - `posting_frozen`, 400 `OnMaintenance`: the order's first hold was refused
+ *     before the engine; nothing exists and nothing is held. 4xx, because it IS a
+ *     refusal; the class is what tells a CCXT client to back off and retry (it
+ *     maps the class name), and a resend under the same clientOrderId is safe.
+ *   - `trade.settlement_pending`, 503 `ExchangeNotAvailable`: the freeze stopped a
+ *     post after the engine accepted, filled or cancelled the order. The order
+ *     exists and its settlement is not confirmed, so this is an unknown outcome,
+ *     never a refusal: 5xx, and the caller reads the order before resending.
  */
 const TRADE_ERROR_MAP: Record<TradeErrorCode, Arm> = {
   // ── Symbol is wrong or unusable: stop asking for it ───────────────────────
@@ -517,6 +527,7 @@ const TRADE_ERROR_MAP: Record<TradeErrorCode, Arm> = {
   /** ADR 2026-08-08: resume would more than double the order's own duration. */
   'trade.algo_resume_extends_too_far': { ccxt: 'InvalidOrder', status: 400 },
   'trade.algo_cancel_incomplete': { ccxt: 'InvalidOrder', status: 409 },
+  'trade.algo_chase_distance_required': { ccxt: 'InvalidOrder', status: 400 },
   /** Operator fat-finger cap. The order is too large. Not retryable unchanged. */
   'trade.operator_fat_finger': { ccxt: 'InvalidOrder', status: 400 },
   /** Operator price band. Not retryable at the same price. */
@@ -688,10 +699,25 @@ export function toCcxtError(err: unknown): CcxtErrorResponse | null {
   }
 
   if (err instanceof LedgerError) {
-    // The ledger refused for a reason that is not "not enough funds". The
-    // desk branches on `intafacedCode` (`ledger.frozen`), not on the class
-    // name and not on message text.
-    return { status: 400, body: { code: 'ExchangeError', message: err.message, intafacedCode: err.code } };
+    const intafacedCode = publicLedgerCode(err);
+    if (intafacedCode === POSTING_FROZEN) {
+      // Refused before the engine (see the status rule above the table).
+      return { status: 400, body: { code: 'OnMaintenance', message: publicLedgerMessage(err), intafacedCode } };
+    }
+    if (intafacedCode === SETTLEMENT_PENDING) {
+      // After the engine: the order exists, its settlement is not confirmed. Not a refusal.
+      return {
+        status: 503,
+        body: {
+          code: 'ExchangeNotAvailable',
+          message: `${publicLedgerMessage(err)}; the ledger refused a later posting, so its settlement is not confirmed: read the order or trade before sending it again`,
+          intafacedCode,
+        },
+      };
+    }
+    // Any other ledger refusal. A client branches on `intafacedCode`, not on
+    // the class name and not on message text.
+    return { status: 400, body: { code: 'ExchangeError', message: err.message, intafacedCode } };
   }
 
   return null;

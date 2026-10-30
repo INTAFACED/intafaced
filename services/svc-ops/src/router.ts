@@ -222,6 +222,8 @@ export interface OperatorDeskConfig {
   readonly restoreArchiveProbe?: (url: string) => Promise<RestoreArchiveProbeResult>;
   /** Reconciliation alerts (OPS-reconciliation-03). Absent means every call refuses `ops.alert_storage_unconfigured`. */
   readonly reconciliationAlerts?: ReconciliationAlertStore;
+  /** Whether svc-ops is attached to the event bus now, for the platform incidents list. Absent reads detached. */
+  readonly reconciliationBus?: () => 'attached' | 'detached';
   readonly approvals?: ApprovalConsumer;
   /** Durable joint-restore stamps. Absent means stamping refuses `ops.restore_storage_unconfigured`. */
   readonly restoreStamps?: RestoreStampStore;
@@ -262,7 +264,9 @@ export function createOpsRouter(
   desks: OperatorDeskConfig = {},
 ) {
   const now = desks.now ?? (() => new Date().toISOString());
-  const reconciliationAlertRoutes = createReconciliationAlertRoutes(desks.reconciliationAlerts);
+  const reconciliationAlertRoutes = createReconciliationAlertRoutes(desks.reconciliationAlerts, {
+    ...(desks.reconciliationBus ? { bus: desks.reconciliationBus } : {}),
+  });
   const alertDeskRoutes = createAlertDeskRoutes({
     now,
     ...(desks.alertState ? { alertState: desks.alertState } : {}),

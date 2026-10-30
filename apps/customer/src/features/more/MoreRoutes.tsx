@@ -6,6 +6,8 @@ import { academyRoute } from './academy-lms';
 import { Agents } from './Agents';
 import { NewAgent, OwnAgentPage, OwnAgentTitle, ownAgentId } from './AgentBuilder';
 import { agentBuilderCopy } from './agent-builder-copy';
+import { AgentsTeam } from './AgentsTeam';
+import { agentsTeamCopy } from './agents-team-copy';
 import { Blueprint } from './Blueprint';
 import { Campaigns } from './Campaigns';
 import { CampaignDetail } from './campaign-catalogue';
@@ -15,6 +17,7 @@ import { Launch, Mining } from './AvailabilityRooms';
 import type { LaunchTab } from './LaunchAvailability';
 import type { MiningTab } from './MiningAvailability';
 import { Market } from './Market';
+import { MarketListingPage } from './MarketListingPage';
 import { Prediction } from './Prediction';
 import { quantRoute } from '../quant/QuantRoutes';
 import { Support, supportPageTitleKey } from './Support';
@@ -83,6 +86,10 @@ function MoreRooms({ path }: { path: string }) {
     const id = ownAgentId(p)!;
     title = <OwnAgentTitle id={id} />;
     content = <OwnAgentPage key={id} id={id} />;
+  } else if (p === '/agents/team') {
+    title = <agentsTeamCopy.Copy k="title" />;
+    description = <agentsTeamCopy.Copy k="description" />;
+    content = <AgentsTeam />;
   } else if (p === '/blueprint') {
     room = 'blueprint';
     title = copyText('moreroutes.identity.blueprint');
@@ -153,6 +160,8 @@ function MoreRooms({ path }: { path: string }) {
           page.content(path, paper)
         ) : room === 'launch' && hit.id && !hit.invalid ? (
           <LaunchDetail key={hit.id} eventId={hit.id} />
+        ) : room === 'market' && hit.id && !hit.invalid ? (
+          <MarketListingPage key={hit.id} listingId={hit.id} />
         ) : (
           <Panel title={moreRoomRoutesCopy.t(hit.invalid ? 'badIdTitle' : 'detailTitle')}>
             <EmptyState title={moreRoomRoutesCopy.t(hit.invalid ? 'badIdTitle' : 'detailTitle')}>

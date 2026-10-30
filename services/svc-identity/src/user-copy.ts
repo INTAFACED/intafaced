@@ -112,6 +112,7 @@ const LOCAL_COPY: Readonly<Record<string, string>> = {
   'identity.support_recovery_unconfigured': 'Recovery links are not available yet. Their lifetime is not published.',
   'identity.support_recovery_link_invalid':
     'This recovery link does not work: it was already used, it expired, or the case was closed. Write to Support again.',
+  'identity.freeze_link_invalid': 'This freeze link does not work. Sign in and freeze your account from Security, or write to Support.',
   'identity.death_notice_not_found': 'There is no such death notice or account.',
   'identity.death_notice_self': 'You cannot record or decide a death notice for your own account.',
   'identity.death_notice_account_closed': 'This account is closed, so a death notice cannot be recorded or confirmed for it.',
@@ -168,6 +169,14 @@ const LOCAL_COPY: Readonly<Record<string, string>> = {
   'auth.api_key_expired': 'This key has passed its end date. Make a new key.',
   'auth.passkey_missing': 'Add a passkey on Security first. Only an account with a passkey can hold API keys.',
   'auth.passkey_verify_unavailable': 'Use your passkey once to sign in or confirm, then make the key.',
+  'identity.sandbox_name_invalid': 'Use a sandbox name of 1 to 40 characters, with no control characters.',
+  'identity.sandbox_name_taken': 'You already have a sandbox with this name. Choose another name.',
+  'identity.sandbox_cap_unset': 'Another sandbox cannot be made yet. The number of sandboxes an account may hold is not set.',
+  'identity.sandbox_cap_reached': 'This account holds as many sandboxes as it may.',
+  'identity.sandbox_request_conflict': 'This request was already used for a different sandbox. Reload the page and try again.',
+  'identity.sandbox_not_found': 'This sandbox is not on your account.',
+  'env.scope_not_sandboxable':
+    'This permission can’t be used in a sandbox, so no key was made. A sandbox key can read and make test payments.',
   'auth.delegate_cannot_grant': 'An API key cannot create or change keys, including its own end date. Sign in on a device.',
   'identity.key_not_found': 'No key with this id is on your account.',
   'identity.key_not_live': 'This key is revoked or has ended. Make a new key instead.',

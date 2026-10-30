@@ -22,6 +22,67 @@ interface Entry {
 }
 
 const BY_CODE: Readonly<Record<string, Entry>> = {
+  // svc-token launch founder doors (J-more-catalogue-14). Every one is refused before the approval is spent.
+  'launch.issuer_not_onboarded': {
+    title: 'This issuer is not onboarded',
+    body: 'svc-token announces, snapshots or opens a launch only for an onboarded issuer. The launch status did not change.',
+    next: 'Review and onboard the issuer first, then ask again.',
+  },
+  'launch.issuer_move_invalid': {
+    title: 'The issuer cannot move to that state from where it is',
+    body: 'Issuer review goes one step at a time, and a suspended issuer goes back through review. Nothing was changed.',
+    next: 'Read the issuer again and pick its next step.',
+  },
+  'launch.issuer_conflict': {
+    title: 'That issuer id is taken',
+    body: 'svc-token already has an issuer with this id under another name. Nothing was changed.',
+    next: 'Choose another id.',
+  },
+  'launch.issuer_stale': {
+    title: 'The issuer changed since you read it',
+    body: 'The issuer is no longer at the revision this request was built on. Nothing was changed.',
+    next: 'Read the issuer again and decide again.',
+  },
+  'launch.issuer_not_found': {
+    title: 'No such issuer',
+    body: 'svc-token has no issuer with this id. Nothing was changed.',
+    next: 'Add the issuer first.',
+  },
+  'launch.event_conflict': {
+    title: 'That launch id is taken',
+    body: 'svc-token already has a launch under this id with other details. Nothing was changed.',
+    next: 'Choose another id.',
+  },
+  'launch.event_stale': {
+    title: 'The launch changed since you read it',
+    body: 'The launch is no longer at the revision this request was built on. Nothing was changed.',
+    next: 'Read the launch again and decide again.',
+  },
+  'launch.event_move_invalid': {
+    title: 'The launch cannot move to that status from where it is',
+    body: 'A launch moves one step forward at a time, or is cancelled. Nothing was changed.',
+    next: 'Read the launch again and pick its next step.',
+  },
+  'launch.period_not_due': {
+    title: 'That period of the launch has not started',
+    body: 'svc-token moves a launch only once the period for that step has begun. Nothing was changed.',
+    next: 'Wait for the period, or save a new draft with other times.',
+  },
+  'launch.period_passed': {
+    title: 'That period of the launch is over',
+    body: 'The window for this step has already closed. Nothing was changed.',
+    next: 'Cancel this launch or save a new draft with other times.',
+  },
+  'launch.allocation_unwired': {
+    title: 'Allocation is not wired',
+    body: 'Allocation and distribution have no ledger recipe wired, so a launch cannot move past closed. Nothing was changed.',
+    next: 'This waits for the allocation recipe (MC-launch-03).',
+  },
+  'launch.event_invalid': {
+    title: 'The launch details are not valid',
+    body: 'svc-token did not accept these details. Nothing was saved.',
+    next: 'Check the periods are in order and the amounts are plain decimals, then try again.',
+  },
   'ops.hold_storage_unconfigured': {
     title: 'Staff holds have no storage',
     body: 'svc-ops has no database configured for staff holds, so none can be read or placed. Nothing was changed.',
@@ -66,6 +127,41 @@ const BY_CODE: Readonly<Record<string, Entry>> = {
     title: 'Not enough available',
     body: 'The ledger refused: the customer does not have that much available. Nothing was moved.',
     next: 'Read the customer’s balance and ask for less.',
+  },
+  'ops.alert_not_found': {
+    title: 'No such alert',
+    body: 'svc-ops has no reconciliation alert with that id. Nothing was changed.',
+    next: 'Go back to the alerts and open it again.',
+  },
+  'ops.alert_state_illegal': {
+    title: 'The alert cannot take that now',
+    body: 'The alert is no longer open or acknowledged, or it is a run that could not finish, which has no discrepancy to accept. Nothing was changed and the approval was not spent.',
+    next: 'Read the alert again.',
+  },
+  'ops.resolve_note_required': {
+    title: 'An acceptance needs a note',
+    body: 'Accepting a discrepancy is recorded with a note that says why. No approval was asked for or spent, and nothing was changed.',
+    next: 'Write the note (12 to 500 characters), then ask again.',
+  },
+  'ops.resolve_transaction_not_found': {
+    title: 'The ledger never booked that transaction',
+    body: 'At least one corrective transaction id is not in the ledger, so the alert was not resolved. Nothing was changed.',
+    next: 'Copy the corrective transaction id from the ledger and try again.',
+  },
+  'ops.resolve_ledger_unavailable': {
+    title: 'svc-ops could not ask the ledger',
+    body: 'svc-ops could not check that the corrective transactions exist, so it resolved nothing. Nothing was changed.',
+    next: 'Try again once the ledger answers.',
+  },
+  'action_approval.wrong_action': {
+    title: 'The approval is for something else',
+    body: 'The approval does not bind this exact request: another target, another note, or evidence that has changed since it was approved. Nothing was changed.',
+    next: 'Read the current state and start a new request.',
+  },
+  'action_approval.not_founders': {
+    title: 'Both people must be founders',
+    body: 'This change needs two different founders, and the approval was not made by two. Nothing was changed.',
+    next: 'Ask a second founder to approve a new request.',
   },
   'ops.console_read_only': {
     title: 'The console is in maintenance mode',
@@ -1219,6 +1315,16 @@ const BY_CODE: Readonly<Record<string, Entry>> = {
     title: 'The grader hold time is not set',
     body: 'The owner has not set how long a grader holds a hand-in, so no hand-in is graded.',
     next: 'Ask the owner to set the grader hold time. Nothing was changed.',
+  },
+  'academy.bulk_file_invalid': {
+    title: 'That grade file cannot be read',
+    body: 'A grade file is a CSV whose first line is learner,score,comment,reason, with at least one row below it.',
+    next: 'Correct the file and upload it again. Nothing was changed.',
+  },
+  'academy.key_fix_invalid': {
+    title: 'That is not a key fix',
+    body: 'A key fix changes only the answer keys of a published quiz: every question stays, with its wording, choices and points.',
+    next: 'Change only keys, or make a new quiz for other changes. Nothing was changed.',
   },
   'academy.grade_invalid': {
     title: 'That score is above the points',

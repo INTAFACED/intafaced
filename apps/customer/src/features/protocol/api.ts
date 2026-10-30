@@ -18,6 +18,22 @@ import {
   protocolRepresentationStatusOutputSchema,
   type ProtocolRepresentationStatus,
 } from '@intafaced/contracts/protocol-representation';
+import {
+  protocolAllowancesOutputSchema,
+  protocolApprovalCheckOutputSchema,
+  protocolPoolQuoteOutputSchema,
+  protocolSwapFeesOutputSchema,
+  protocolSwapPairsOutputSchema,
+  protocolSwapSettingsOutputSchema,
+  protocolTokenPricesOutputSchema,
+  protocolUnsignedCallSchema,
+} from '@intafaced/contracts/protocol-swap';
+import {
+  tokenPageOutputSchema,
+  tokensLeaderboardOutputSchema,
+  tokensListOutputSchema,
+  type TokenWindowId,
+} from '@intafaced/contracts/protocol-tokens';
 import type { ApiClient } from '../../shared/api';
 
 /**
@@ -81,6 +97,39 @@ export function createProtocolApi(api: ApiClient) {
     /** Records the wallet's signature over `representationStatus().message`. The service checks that the address signed it. */
     representationAccept: (input: { address: string; version: string; signature: string }) =>
       api.mutate('protocol', 'representation.accept', input, protocolRepresentationAcceptOutputSchema),
+    /** Every pool the network's factory lists and the tokens they trade, read from the chain. */
+    ammPairs: (signal?: AbortSignal) => api.query('protocol', 'amm.pairs', undefined, protocolSwapPairsOutputSchema, { signal }),
+    /** Every listed token's USD price from the pools at one block, or why it has none. */
+    tokenPrices: (signal?: AbortSignal) => api.query('protocol', 'amm.prices', undefined, protocolTokenPricesOutputSchema, { signal }),
+    /** Every token in the factory's pools with its price, growth and volume for one window, read at one block. */
+    tokensList: (window: TokenWindowId, signal?: AbortSignal) =>
+      api.query('protocol', 'tokens.list', { window }, tokensListOutputSchema, { signal }),
+    /** One token's page: facts, trust, pairs with candles, holders and trades, read at one block. */
+    tokenPage: (address: string, signal?: AbortSignal) =>
+      api.query('protocol', 'tokens.page', { address }, tokenPageOutputSchema, { signal }),
+    /** Wallets ranked by realised results from public swaps; each row carries the trades it sums. */
+    tokensLeaderboard: (signal?: AbortSignal) =>
+      api.query('protocol', 'tokens.leaderboard', undefined, tokensLeaderboardOutputSchema, { signal }),
+    /** The owner's swap settings; blank refuses and the form keeps Swap off. */
+    swapSettings: (signal?: AbortSignal) =>
+      api.query('protocol', 'amm.swapSettings', undefined, protocolSwapSettingsOutputSchema, { signal }),
+    /** A quote from one pool's reserves as read now. `amountIn` in base units. */
+    poolQuote: (input: { pool: string; tokenIn: string; amountIn: string }, signal?: AbortSignal) =>
+      api.query('protocol', 'amm.quoteFromPool', input, protocolPoolQuoteOutputSchema, { signal }),
+    /** Whether `spender` may already move `amount` of `token` for `owner`, and the exact-amount calls that fix it. */
+    checkApproval: (input: { owner: string; token: string; spender: string; amount: string }, signal?: AbortSignal) =>
+      api.query('protocol', 'amm.checkApproval', input, protocolApprovalCheckOutputSchema, { signal }),
+    /** The swap call the wallet signs; the service re-reads the pool and refuses a minimum under the slippage ceiling. */
+    buildSwap: (input: { pool: string; tokenIn: string; amountIn: string; minAmountOut: string; to: string }, signal?: AbortSignal) =>
+      api.query('protocol', 'amm.buildSwapExactIn', input, protocolUnsignedCallSchema, { signal }),
+    /** Slow, Normal and Fast network fees from the last blocks, with the owner's fee cap; a blank setting refuses. */
+    feeLevels: (signal?: AbortSignal) => api.query('protocol', 'amm.feeLevels', undefined, protocolSwapFeesOutputSchema, { signal }),
+    /** The live allowances `owner` has given for the tokens the network's pools trade, read from the chain at one block. */
+    allowances: (owner: string, signal?: AbortSignal) =>
+      api.query('protocol', 'amm.allowances', { owner }, protocolAllowancesOutputSchema, { signal }),
+    /** `approve(spender, 0)` for the wallet to sign and send. */
+    buildRevoke: (input: { token: string; spender: string }, signal?: AbortSignal) =>
+      api.query('protocol', 'amm.buildRevoke', input, protocolUnsignedCallSchema, { signal }),
     /** A read-only quote. It moves nothing; the service refuses with a `dex.quote.*` code when no venue can be read fresh. */
     dexQuote: (input: { symbol: string; side: 'buy' | 'sell'; qty: string }, signal?: AbortSignal) =>
       api.query('dex', 'quote', input, dexQuoteSchema, { signal }),

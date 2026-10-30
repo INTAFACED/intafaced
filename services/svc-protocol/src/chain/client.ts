@@ -1,8 +1,8 @@
-import { createPublicClient, defineChain, http } from 'viem';
+import { createPublicClient, defineChain, getAddress, http } from 'viem';
 import type { Address, Hex, PublicClient } from 'viem';
 import { accountFactoryAbi, smartAccountAbi } from './abi.js';
-import { poolAbi } from '../amm/abi.js';
-import { erc20ApprovalAbi, erc20ReadAbi, tokenFactoryAbi } from './abi.js';
+import { factoryAbi, poolAbi } from '../amm/abi.js';
+import { erc20ApprovalAbi, erc20ApprovalEvent, erc20ReadAbi, tokenFactoryAbi } from './abi.js';
 import {
   ChainUnavailableError,
   chainIdMismatchRefusal,
@@ -300,6 +300,63 @@ export class ProtocolChain {
     );
   }
 
+  /** When `blockNumber` was made, from the block itself. */
+  async blockTimestamp(blockNumber: bigint): Promise<Date> {
+    return this.#read('blockTimestamp', 'chain.getBlock', async () => {
+      const block = await this.client.getBlock({ blockNumber });
+      return new Date(Number(block.timestamp) * 1000);
+    });
+  }
+
+  /** The block the node is at now. */
+  async headBlock(): Promise<bigint> {
+    return this.#read('headBlock', 'chain.blockNumber', async () => this.client.getBlockNumber());
+  }
+
+  /**
+   * Every pool `factory` lists at `blockNumber`, at most `limit` of them (the factory's own order). A factory with no
+   * code refuses rather than reading as "no pools".
+   */
+  async factoryPools(factory: Address, limit: number, blockNumber: bigint): Promise<Address[]> {
+    return this.#read('factoryPools', 'chain.allPools', async () => {
+      const length = await this.client.readContract({ address: factory, abi: factoryAbi, functionName: 'allPoolsLength', blockNumber });
+      const count = Number(length < BigInt(limit) ? length : BigInt(limit));
+      return Promise.all(
+        Array.from({ length: count }, (_, index) =>
+          this.client.readContract({ address: factory, abi: factoryAbi, functionName: 'allPools', args: [BigInt(index)], blockNumber }),
+        ),
+      );
+    });
+  }
+
+  /** One pool's pair, fee and reserves, all read at `blockNumber`. */
+  async poolSnapshot(
+    pool: Address,
+    blockNumber: bigint,
+  ): Promise<{ token0: Address; token1: Address; feeBps: number; reserve0: bigint; reserve1: bigint; blockTimestampLast: number }> {
+    return this.#read('poolSnapshot', 'chain.poolSnapshot', async () => {
+      const [token0, token1, feeBps, [reserve0, reserve1, blockTimestampLast]] = await Promise.all([
+        this.client.readContract({ address: pool, abi: poolAbi, functionName: 'token0', blockNumber }),
+        this.client.readContract({ address: pool, abi: poolAbi, functionName: 'token1', blockNumber }),
+        this.client.readContract({ address: pool, abi: poolAbi, functionName: 'feeBps', blockNumber }),
+        this.client.readContract({ address: pool, abi: poolAbi, functionName: 'getReserves', blockNumber }),
+      ]);
+      return { token0, token1, feeBps: Number(feeBps), reserve0, reserve1, blockTimestampLast: Number(blockTimestampLast) };
+    });
+  }
+
+  /** A token's name, symbol and decimals, as the token contract answers them. */
+  async tokenBasics(token: Address): Promise<{ name: string; symbol: string; decimals: number }> {
+    return this.#read('tokenBasics', 'chain.tokenBasics', async () => {
+      const [name, symbol, decimals] = await Promise.all([
+        this.client.readContract({ address: token, abi: erc20ReadAbi, functionName: 'name' }),
+        this.client.readContract({ address: token, abi: erc20ReadAbi, functionName: 'symbol' }),
+        this.client.readContract({ address: token, abi: erc20ReadAbi, functionName: 'decimals' }),
+      ]);
+      return { name, symbol, decimals: Number(decimals) };
+    });
+  }
+
   // ── launch.token-factory (§8.4) ──────────────────────────────────────────
 
   /**
@@ -386,6 +443,56 @@ export class ProtocolChain {
         blockNumber,
       });
       return { value, blockNumber };
+    });
+  }
+
+  /**
+   * Every (token, spender) pair `owner`'s `Approval` logs name for `tokens` between two blocks, deduplicated. One
+   * `eth_getLogs` with the owner as the indexed topic. The amounts in the logs are not used: the current allowance is
+   * read separately, because a later transfer spends an allowance without any Approval log.
+   */
+  async approvalSpenders(
+    tokens: readonly Address[],
+    owner: Address,
+    fromBlock: bigint,
+    toBlock: bigint,
+  ): Promise<Array<{ token: Address; spender: Address }>> {
+    return this.#read('approvalSpenders', 'chain.approvalLogs', async () => {
+      const logs = await this.client.getLogs({
+        address: [...tokens],
+        event: erc20ApprovalEvent,
+        args: { owner },
+        fromBlock,
+        toBlock,
+      });
+      const found = new Map<string, { token: Address; spender: Address }>();
+      for (const log of logs) {
+        const spender = log.args.spender;
+        if (!spender) continue;
+        found.set(`${log.address.toLowerCase()}:${spender.toLowerCase()}`, {
+          token: getAddress(log.address),
+          spender: getAddress(spender),
+        });
+      }
+      return [...found.values()];
+    });
+  }
+
+  /** `owner`'s allowance for `spender` at `blockNumber`. Null when the token reverts rather than answering. */
+  async allowanceAt(token: Address, owner: Address, spender: Address, blockNumber: bigint): Promise<bigint | null> {
+    return this.#read('allowanceAt', 'chain.allowanceAt', async () => {
+      try {
+        return await this.client.readContract({
+          address: token,
+          abi: erc20ApprovalAbi,
+          functionName: 'allowance',
+          args: [owner, spender],
+          blockNumber,
+        });
+      } catch (err) {
+        if (isExecutionRevert(err)) return null;
+        throw err;
+      }
     });
   }
 

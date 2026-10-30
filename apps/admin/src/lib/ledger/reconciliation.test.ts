@@ -45,6 +45,15 @@ describe('define body: what the founder typed, and nothing filled in', () => {
     expect(built).toMatchObject({ ok: false });
     expect(!built.ok && built.why).toContain('ops.control_policy_unset');
   });
+  it('a rail boundary is sent as the rail, kept through an edit, and refused beside an owner filter', () => {
+    const built = buildDefineBody(form({ template: 'outside_balance', rail: 'crypto-native', toleranceDefault: '0' }));
+    expect(built.ok && built.body.accountSet).toEqual({ mode: 'query', rail: 'crypto-native', assetId: 'USDT' });
+    const clash = buildDefineBody(form({ rail: 'crypto-native', ownerType: 'user' }));
+    expect(!clash.ok && clash.why).toContain('Rail boundary names its own accounts');
+    const view = controlView({ accountSet: { mode: 'query', rail: 'crypto-native', assetId: 'USDT' } });
+    expect(formFromControl(view).rail).toBe('crypto-native');
+    expect(describeAccountSet(view)).toContain('boundary of rail crypto-native');
+  });
   it('a schedule needs its minute and hour, a threshold needs its bound, and a pair must be ASSET=amount', () => {
     expect(buildDefineBody(form({ cadence: 'daily', minute: '5' }))).toMatchObject({ ok: false });
     expect(buildDefineBody(form({ cadence: 'hourly' }))).toMatchObject({ ok: false });
@@ -143,6 +152,37 @@ describe('reading svc-ledger', () => {
       }),
     );
     expect(error).toContain('Error: ledger.read_failed at read.');
+  });
+  it('a rail run with open items names each item and the residual that decided it', () => {
+    const run = runView({
+      status: 'FAIL',
+      assets: [{ assetId: 'USDT', observed: '-7', expected: '-12', difference: '5', tolerance: '1', reconcilingItems: '3', residual: '2' }],
+      reconcilingItems: [
+        { source: 'svc-pay', id: 'dep-held-1', kind: 'held', assetId: 'USDT', amount: '4' },
+        { source: 'svc-pay', id: 'dep-unfunded-1', kind: 'reversal_unfunded', assetId: 'USDT', amount: '-1' },
+      ],
+    });
+    expect(parseControlRun(run)).not.toBeNull();
+    const line = describeRun(run);
+    expect(line).toContain('USDT: observed -7, expected -12, difference 5, tolerance 1, reconciling items 3, residual 2.');
+    expect(line).toContain('2 reconciling items: held dep-held-1 USDT 4 (svc-pay). reversal_unfunded dep-unfunded-1 USDT -1 (svc-pay).');
+    expect(describeRun(runView())).not.toContain('reconciling');
+    // A long list names the first 200 and says how many more the run holds.
+    const many = runView({
+      status: 'PASS',
+      reconcilingItems: Array.from({ length: 203 }, (_, i) => ({
+        source: 'svc-pay',
+        id: `dep-${i}`,
+        kind: 'held',
+        assetId: 'USDT',
+        amount: '1',
+      })),
+    });
+    const long = describeRun(many);
+    expect(long).toContain('203 reconciling items:');
+    expect(long).toContain('held dep-199 USDT 1 (svc-pay).');
+    expect(long).not.toContain('dep-200 ');
+    expect(long).toContain('And 3 more on the run.');
   });
   it('schedules are UTC and a dynamic account set says it is matched at each run', () => {
     expect(describeSchedule(controlView())).toBe('Daily at 06:30 UTC');

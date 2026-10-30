@@ -142,6 +142,12 @@ const schema = serviceEnvSchema
       PAY_URL: blankAsAbsent(z.string().url().optional()),
 
       /**
+       * svc-bank base for a business team's members (`POST /internal/agents/team-membership`). Unset / blank → every
+       * team call refuses `agents.membership_unavailable`. No localhost default.
+       */
+      BANK_URL: blankAsAbsent(z.string().url().optional()),
+
+      /**
        * Copy-intel live trade.copy leader plane (Class X). Only the literal `true`
        * opens the sealed plane; blank / unset stays refuse-closed.
        */
@@ -246,6 +252,23 @@ const schema = serviceEnvSchema
        * `gateway/routing.ts`, which is priced for development, not production.
        */
       AGENTS_ROUTING_TABLE: z.string().optional(),
+
+      /**
+       * Published tier law of the scanner, navigator and support doors, as JSON (`tier-laws.ts`). Blank = no law
+       * published: each door refuses `tier_law_blank`. The tier itself is always the signed principal's.
+       */
+      AGENTS_TIER_LAWS: z.string().optional(),
+      // ── Operator agent log (AG-audit-01, AG-audit-02) ───────────────────────
+      // Owner values. Each one blank stays unset, and the read that needs it refuses with its own code (never invented).
+      /** Comma-separated reasons an operator picks from to read a customer's agent log. Blank refuses agents.log_read_reason_unset. */
+      AGENTS_LOG_READ_REASONS: blankAsAbsent(z.string().optional()),
+      /** Rows one operator log read or export shows, 1 to 500. Blank refuses agents.ops_actions_limit_unset. */
+      AGENTS_OPS_ACTIONS_LIMIT: blankAsAbsent(z.coerce.number().int().min(1).max(500).optional()),
+      /**
+       * Days an executed engine call's prompt text is kept for a transcript read; 0 keeps none. Blank keeps none and a
+       * transcript read refuses agents.transcript_retention_unset.
+       */
+      AGENTS_TRANSCRIPT_RETENTION_DAYS: blankAsAbsent(z.coerce.number().int().min(0).max(3650).optional()),
     }),
   );
 

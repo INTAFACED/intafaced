@@ -44,6 +44,7 @@ import {
 } from '../types.js';
 import type { AmendOrderInput, PlaceOrderInput, TradeServiceInternal } from '../trade-service.js';
 import { replacementClientOrderId, replacementRequestHash } from './internal.js';
+import { publicLedgerCode } from '../../ledger-public-code.js';
 
 /**
  * Cancel an open order and return what is left of its hold (§5.2 step 3).
@@ -156,6 +157,34 @@ export async function cancelOrder(svc: TradeServiceInternal, principal: Principa
         await svc.markRecoveryRequired(orderId, 'CANCEL_UNKNOWN');
         throw err;
       }
+    }
+
+    // Keep the engine's own remainder, the first answer only: a retry after the engine already cancelled reads absent.
+    if (cancellation.cancelled && cancellation.cancellation) {
+      await svc.sql`
+        UPDATE trade.orders SET engine_left_qty = ${cancellation.cancellation.remainingQty}::numeric
+         WHERE id = ${orderId} AND engine_left_qty IS NULL
+      `;
+    }
+    // The engine matched part of this order just before the cancel, and the taker's settlement has not written that
+    // fill yet. Closing now would release the hold the fill is about to draw, and a caller that places again (a chase
+    // re-price) would count that quantity twice. The order stays as it is; the engine's cancel event closes it once
+    // the fill lands (`releaseOnCancelEvent` waits the same way). A retry reads the stored remainder, not the miss.
+    const [answer] = await svc.sql<Array<{ engine_left_qty: string | null }>>`
+      SELECT engine_left_qty::text AS engine_left_qty FROM trade.orders WHERE id = ${orderId}
+    `;
+    // A paper market never writes a fill (it is refused before trade.fills), so there is nothing to wait for there.
+    const paper = (await svc.marketById(order.marketId))?.paper === true;
+    if (answer?.engine_left_qty != null && !paper) {
+      try {
+        await svc.refuseCancelAheadOfFill(orderId, parseAmount(answer.engine_left_qty));
+      } catch (err) {
+        if (err instanceof TradeError && err.code === 'trade.cancel_ahead_of_fill') return (await svc.findOrder(orderId)) as OrderRecord;
+        throw err;
+      }
+    } else if (!cancellation.cancelled) {
+      // No live order and no earlier answer: it may have matched in full. Said on the row, for a chase to read.
+      await svc.sql`UPDATE trade.orders SET engine_absent_at_cancel = true WHERE id = ${orderId}`;
     }
 
     // A successful cancel or a verified engine absence is now safe to
@@ -747,7 +776,15 @@ export async function replaceOrder(
         // final state. A bare 400 here is how a customer loses the order silently.
         const finalOriginal = (await svc.findOrder(original.id)) ?? cancelled;
         if (err instanceof TradeError || err instanceof LedgerError) {
-          return svc.replaceOutcome(finalOriginal, null, 'REPLACEMENT_NOT_SUBMITTED', err.code);
+          // A ledger refusal is named by its own code, as the API publishes it. Only placeOrder knows whether its
+          // hold was refused before the engine with the row gone (it marks that case `posting_frozen`); an unmarked
+          // freeze stays `trade.settlement_pending`, never relabelled here.
+          return svc.replaceOutcome(
+            finalOriginal,
+            null,
+            'REPLACEMENT_NOT_SUBMITTED',
+            err instanceof LedgerError ? publicLedgerCode(err) : err.code,
+          );
         }
         return svc.replaceOutcome(finalOriginal, null, 'REPLACEMENT_NOT_SUBMITTED', 'REPLACEMENT_NOT_SUBMITTED');
       }
