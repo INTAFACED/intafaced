@@ -267,6 +267,88 @@ export interface PayCustodyDepositPort {
   records(input: PayCustodyDepositRecordsInput): Promise<PayCustodyDepositRecordsResult>;
 }
 
+// ── Open custody items: what custody received or lost that the ledger does not show (founder, OPS-reconciliation-02) ─────
+
+/**
+ * The statuses of a deposit custody received but the ledger has not credited: each is held until a rule or a person lets it
+ * through, and posts nothing while held (`custody/deposits/book.ts`). A row that ever started a credit is never one of these.
+ */
+export const PAY_CUSTODY_DEPOSIT_HELD_STATUSES = [
+  'below_minimum',
+  'held_for_screening',
+  'held_for_release',
+  'on_hold',
+  'held_travel_rule',
+] as const satisfies readonly PayCustodyDepositStatus[];
+
+/**
+ * `held`: custody holds it, the ledger booked nothing, so custody shows more than the ledger (a positive item).
+ * `reversal_unfunded`: the ledger credited it, the chain took it back, and the reversal could not be covered (the funds were
+ * spent), so custody shows less than the ledger (a negative item).
+ */
+export const PAY_CUSTODY_OPEN_ITEM_KINDS = ['held', 'reversal_unfunded'] as const;
+export type PayCustodyOpenItemKind = (typeof PAY_CUSTODY_OPEN_ITEM_KINDS)[number];
+
+/** An exact decimal that may be negative: custody minus ledger. Never `-0`. */
+const signedDecimalSchema = z
+  .string()
+  .regex(/^-?(0|[1-9]\d{0,29})(\.\d{1,18})?$/)
+  .refine((v) => !/^-0(\.0+)?$/.test(v), 'a zero is never negative');
+
+export const payCustodyOpenItemSchema = z
+  .object({
+    depositId: z.string().min(1).max(128),
+    kind: z.enum(PAY_CUSTODY_OPEN_ITEM_KINDS),
+    userId: z.string().min(1).max(128),
+    assetId: assetIdSchema,
+    networkId: networkIdSchema,
+    txHash: z.string().min(1).max(128).regex(/^\S+$/),
+    outputIndex: z.number().int().min(0).max(1_000_000),
+    amount: decimalSchema,
+    /** Custody minus ledger for this item: the amount for `held`, its negative for `reversal_unfunded`. */
+    signedAmount: signedDecimalSchema,
+    status: z.enum(PAY_CUSTODY_DEPOSIT_STATUSES),
+    reason: z.enum(PAY_CUSTODY_DEPOSIT_REASONS).nullable(),
+    detectedAt: z.string().datetime(),
+  })
+  .strict();
+export type PayCustodyOpenItem = z.infer<typeof payCustodyOpenItemSchema>;
+
+/** Per network and asset, over every open item that matches, not only the page. */
+export const payCustodyOpenItemSumSchema = z
+  .object({
+    networkId: networkIdSchema,
+    assetId: assetIdSchema,
+    held: decimalSchema,
+    heldCount: z.number().int().min(0),
+    reversalUnfunded: decimalSchema,
+    reversalUnfundedCount: z.number().int().min(0),
+    /** `held` minus `reversalUnfunded`. */
+    net: signedDecimalSchema,
+  })
+  .strict();
+export type PayCustodyOpenItemSum = z.infer<typeof payCustodyOpenItemSumSchema>;
+
+export const payCustodyOpenItemsInputSchema = z
+  .object({
+    networkId: networkIdSchema.optional(),
+    assetId: assetIdSchema.optional(),
+    offset: z.number().int().min(0).max(1_000_000).default(0),
+    limit: z.number().int().min(1).max(PAY_CUSTODY_DEPOSIT_RECORDS_MAX_LIMIT).default(50),
+  })
+  .strict();
+export type PayCustodyOpenItemsInput = z.input<typeof payCustodyOpenItemsInputSchema>;
+
+/** `total` counts every match; `sums` cover every match, so a caller never adds up pages to get them. */
+export const payCustodyOpenItemsReplySchema = z
+  .object({
+    items: z.array(payCustodyOpenItemSchema).max(PAY_CUSTODY_DEPOSIT_RECORDS_MAX_LIMIT),
+    total: z.number().int().min(0),
+    sums: z.array(payCustodyOpenItemSumSchema),
+  })
+  .strict();
+export type PayCustodyOpenItemsReply = z.infer<typeof payCustodyOpenItemsReplySchema>;
+
 // ── Inbound travel rule on a deposit (W-deposit-07, W-compliance-notices-05) ───────────────────────────────────────────────
 
 /** Where a deposit held for the travel rule stands. `released` is the one state that lets it be credited. */

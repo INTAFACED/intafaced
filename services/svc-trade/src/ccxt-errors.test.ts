@@ -14,6 +14,7 @@ import {
   rateLimited,
   toCcxtError,
 } from './ccxt-errors.js';
+import { POSTING_FROZEN, POSTING_FROZEN_MESSAGE, SETTLEMENT_PENDING, refusedBeforeEngine } from './ledger-public-code.js';
 import { MatchingNoBookError, MatchingUnavailableError } from './spot/matching-client.js';
 import { TradeError, type TradeErrorCode } from './spot/types.js';
 
@@ -137,9 +138,45 @@ describe('CCXT error taxonomy', () => {
     expect(toCcxtError(new InsufficientFundsError('a', 'USDT', '1', '0'))!.body.code).toBe('InsufficientFunds');
     expect(toCcxtError(new InvalidEntryError('bad entry'))!.body.code).toBe('ExchangeError');
     expect(toCcxtError(new LedgerError('nope', 'ledger.other'))!.body.code).toBe('ExchangeError');
-    expect(toCcxtError(new LedgerError('book is frozen', 'ledger.frozen'))!.body.intafacedCode).toBe('ledger.frozen');
+    expect(toCcxtError(new LedgerError('nope', 'ledger.other'))!.body.intafacedCode).toBe('ledger.other');
     expect(toCcxtError(new InvalidEntryError('bad entry'))!.body.intafacedCode).toBe('ledger.invalid_entry');
     expect(toCcxtError(new MoneyError('bad decimal'))!.body.code).toBe('BadRequest');
+  });
+
+  /**
+   * The platform posting freeze (DV-errors-02, J-developer-04 #6). `posting_frozen` only where the order's first hold
+   * was refused before the engine; any other freeze is an unknown outcome, never a refusal.
+   */
+  it('a freeze proven before the engine is posting_frozen, 400 OnMaintenance', () => {
+    const mapped = toCcxtError(refusedBeforeEngine(new LedgerError('Ledger posting is frozen: TEST', 'ledger.frozen')));
+    expect(mapped).toEqual({
+      status: 400,
+      body: { code: 'OnMaintenance', message: POSTING_FROZEN_MESSAGE, intafacedCode: POSTING_FROZEN },
+    });
+    // The founders' free-text reason is an operator note: it never reaches a client.
+    expect(JSON.stringify(mapped)).not.toContain('TEST');
+    expect(POSTING_FROZEN).toBe('posting_frozen');
+    expect(exchangeErrorSchema.safeParse(mapped!.body).success).toBe(true);
+  });
+
+  it('a freeze nobody proved was before the engine is trade.settlement_pending, 503: the order may exist', () => {
+    const mapped = toCcxtError(new LedgerError('Ledger posting is frozen: TEST', 'ledger.frozen'));
+    expect(mapped).toMatchObject({ status: 503, body: { code: 'ExchangeNotAvailable', intafacedCode: SETTLEMENT_PENDING } });
+    expect(mapped!.body.intafacedCode).not.toBe(POSTING_FROZEN);
+    expect(mapped!.body.message).toMatch(/settlement is not confirmed: read the order or trade before sending it again/);
+    expect(mapped!.body.message).toMatch(new RegExp(`^${POSTING_FROZEN_MESSAGE};`));
+    expect(JSON.stringify(mapped)).not.toContain('TEST');
+    expect(exchangeErrorSchema.safeParse(mapped!.body).success).toBe(true);
+    // Every other ledger refusal keeps its own code and its 400, marked or not.
+    for (const err of [
+      new LedgerError('x', 'ledger.idempotency_conflict'),
+      refusedBeforeEngine(new LedgerError('x', 'ledger.idempotency_conflict')),
+    ]) {
+      expect(toCcxtError(err)).toMatchObject({
+        status: 400,
+        body: { code: 'ExchangeError', intafacedCode: 'ledger.idempotency_conflict' },
+      });
+    }
   });
 
   /**
