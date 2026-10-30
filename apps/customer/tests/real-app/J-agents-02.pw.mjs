@@ -10,7 +10,7 @@ import { api, fromUnits, toUnits, tool } from './stack.mjs';
 // called; a refused run bills 0 and leaves no hold; charges equal sealed windows. Push and email delivery of an alert
 // show their vendor notice (vendor.push, vendor.email); the in-app inbox row is written regardless.
 // #1-#5 and #7 run on the agent's Limits, Test and Usage pages (AG-spend-01, AG-usage-02); #6 on Limits' alert and hard
-// limit, read back from svc-agents (the alert's inbox row arrives with svc-notify's consumer).
+// limit, read back from svc-agents, and the alert's one inbox row that svc-notify writes.
 // Numbers: the agent's own cap is 1 USDT per session; the person sets 0.012 per call, 0.02 per session and 5 a month.
 // One run's worst case on the stack's test engine is just over 0.01024 USDT (2048 output tokens at 5 per million, plus
 // its input at 1 per million), so one fits the per-call cap and two together pass the per-session cap.
@@ -470,7 +470,6 @@ test(`${J} #6 sets a soft alert and a hard limit for the month: one inbox row at
   await field(/^Alert me at/).fill('0.000000000000000001');
   await alertForm.getByRole('checkbox', { name: 'Also by email' }).check();
   await expect(alertForm.getByRole('note').filter({ hasText: 'vendor.email' })).toBeVisible();
-  await expect(alertForm.getByRole('note').filter({ hasText: 'agents.usage.alert_inbox_unwired' })).toBeVisible();
   await alertForm.getByRole('button', { name: 'Save alert and limit' }).click();
   await expect(alertForm.getByRole('status')).toHaveText('Alert and limit saved.');
   expect(await usageLimits()).toMatchObject({ alertAt: '0.000000000000000001', hardLimit: null, email: true, spent: '0', alert: null });
@@ -553,7 +552,7 @@ test(`${J} #6 sets a soft alert and a hard limit for the month: one inbox row at
   );
 
   // The step's inbox row: exactly one, written whatever the email vendor does. svc-notify writes it from
-  // intafaced.agents.usage_alert.crossed; until its consumer lands (the next PR) this is where the step stays red.
+  // intafaced.agents.usage_alert.crossed on the alert's key, so two runs past the alert still leave one row.
   await page.getByRole('button', { name: /^Notifications/ }).click();
   await expect(page.getByRole('dialog', { name: /Notifications/ }).getByText('Agent spend passed your alert')).toHaveCount(1, {
     timeout: 20_000,
