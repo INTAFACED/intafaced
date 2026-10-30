@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 import { test, expect } from '@playwright/test';
 import { localStackState } from '../../../../tooling/scripts/local-test-state.mjs';
-import { DEVICE_KEY, EDGE, ORIGIN, ROOT, api as account, fund, journeyState, toUnits, tool } from './stack.mjs';
+import { DEVICE_KEY, EDGE, ORIGIN, ROOT, api as account, fromUnits, fund, journeyState, toUnits, tool } from './stack.mjs';
 import { signIn, signUp, verify } from './desk.mjs';
 
 // J-bank-09, in the running app (docs/roadmap/journeys.json): I borrow against my crypto. One TEST borrower holding
@@ -148,6 +148,14 @@ async function job(name, body = {}) {
   return { status: res.status, body: await res.json().catch(() => null) };
 }
 /** The empty reserve of `assetId` funded by the seed's own funding move; `ref` keys it, so a retry funds once. */
+/** What the bank's loan reserve of `assetId` holds now, as treasury reads it (`ops.reconcileLoanReserve`), in units. */
+async function reserveBalance(assetId) {
+  const { ctx, sessions } = await founders();
+  const res = await ctx.edge.query('bank', 'ops.reconcileLoanReserve', { debtAssetId: assetId }, await sessions.a.treasuryToken());
+  expect(res.status, res.text?.slice(0, 300)).toBe(200);
+  return toUnits(res.json.result.data.reserveBalance);
+}
+
 function fundReserve(assetId, amount, ref) {
   return execFileSync(
     process.execPath,
@@ -438,12 +446,15 @@ test(`${J} #4 opens the loan from the review: the collateral locked once, the pa
   expect((await loansOf(api)).filter((l) => !loansBefore.some((b) => b.id === l.id))).toHaveLength(1);
   run.write({ loanId: loan.id });
 
-  // A crash between lock and draw: a TEST product of the journey's own lends USDC from a reserve nobody has funded.
+  // A crash between lock and draw: a TEST product of the journey's own lends USDC for 100 more than the USDC reserve
+  // holds (the reserve is the bank's per asset, so an earlier run or a retry may have left some in it), so the draw can't
+  // be paid when the collateral is already locked.
   const dry = await openProduct({ label: 'empty reserve', debtAssetId: 'USDC', collateralAssetId: 'BTC', quoteAssetId: 'USDC' });
-  const quote = await api.query('loans.quote', { productId: dry.productId, principal: '100' });
+  const borrow = fromUnits((await reserveBalance('USDC')) + toUnits('100'));
+  const quote = await api.query('loans.quote', { productId: dry.productId, principal: borrow });
   expect(quote.ok, JSON.stringify(quote.body ?? {}).slice(0, 300)).toBe(true);
   const stuckId = randomUUID();
-  const request = { loanId: stuckId, productId: dry.productId, principal: '100', collateralAmount: quote.data.requiredCollateral };
+  const request = { loanId: stuckId, productId: dry.productId, principal: borrow, collateralAmount: quote.data.requiredCollateral };
   const beforeStuck = await held(who);
   const stuck = await api.mutate('loans.open', request);
   expect(stuck).toMatchObject({ ok: false, code: 'bank.loan_reserve_underfunded' });
@@ -460,8 +471,8 @@ test(`${J} #4 opens the loan from the review: the collateral locked once, the pa
   expect(mine).toEqual([{ loanId: stuckId, outcome: 'completed' }]);
   const recovered = await held(who);
   expect(recovered.BTC.free).toBe(locked.BTC.free);
-  expect(recovered.USDC.free).toBe(locked.USDC.free + toUnits('100'));
-  expect((await loansOf(api)).find((l) => l.id === stuckId)).toMatchObject({ status: 'active', outstandingPrincipal: '100' });
+  expect(recovered.USDC.free).toBe(locked.USDC.free + toUnits(borrow));
+  expect((await loansOf(api)).find((l) => l.id === stuckId)).toMatchObject({ status: 'active', outstandingPrincipal: borrow });
   // The borrower's own retry after the crash adopts the loan the job drew; nothing locks or pays twice.
   const retried = await api.mutate('loans.open', request);
   expect(retried.ok, JSON.stringify(retried.body ?? {}).slice(0, 300)).toBe(true);
@@ -469,14 +480,14 @@ test(`${J} #4 opens the loan from the review: the collateral locked once, the pa
   expect(await held(who)).toEqual(recovered);
   const stuckCheck = await api.query('loans.ledgerCheck', { loanId: stuckId });
   expect(stuckCheck.data).toMatchObject({ status: 'agrees', pending: 0, mismatches: [], collateralHeld: quote.data.requiredCollateral });
-  run.write({ dryProductId: dry.productId, recoveredLoanId: stuckId });
+  run.write({ dryProductId: dry.productId, recoveredLoanId: stuckId, recoveredPrincipal: borrow });
 });
 
 test(`${J} #5 reads the loan page: the terms written at open; the product's rate raised through the treasury door leaves them as they were`, async ({
   page,
 }) => {
   test.setTimeout(240_000);
-  const { who, dryProductId, recoveredLoanId } = started();
+  const { who, dryProductId, recoveredLoanId, recoveredPrincipal } = started();
   if (!recoveredLoanId) throw new Error(`${J} #4 opened no loan on the journey's own product, so this step has no loan to read`);
   const api = await bank(who);
   const opened = await api.query('loans.terms', { loanId: recoveredLoanId });
@@ -486,7 +497,7 @@ test(`${J} #5 reads the loan page: the terms written at open; the product's rate
     aprBps: 1000,
     marginCallLtvBps: POLICY.marginCallLtvBps,
     liquidationLtvBps: POLICY.liquidationLtvBps,
-    principal: '100',
+    principal: recoveredPrincipal,
   });
 
   await signIn(page, who);
