@@ -12,7 +12,16 @@ import type { ApiResult } from '../../../shared/api';
 import { useResource } from '../../../shared/resource';
 import { useSession } from '../../session/session';
 import { sandboxCopy, sandboxRefusalKey } from './sandbox-copy';
-import { KEY_PRESETS, createSandbox, createSandboxKey, readSandbox, readSandboxes, sandboxRoute, type KeyPreset } from './sandbox-api';
+import {
+  KEY_PRESETS,
+  createSandbox,
+  createSandboxKey,
+  fundSandbox,
+  readSandbox,
+  readSandboxes,
+  sandboxRoute,
+  type KeyPreset,
+} from './sandbox-api';
 import '../apps/apps.css';
 
 type T = ReturnType<typeof sandboxCopy.useCopy>['t'];
@@ -212,6 +221,33 @@ function SandboxRead({ id, children }: { id: string; children: (detail: SandboxD
   return resource.data ? children(resource.data, reload) : shell(<Loading label={t('loading')} />);
 }
 
+/** The sandbox's TEST funds: its balance (not set until the owner decides where it is kept) and Fund. */
+function Funds({ sandboxId, t }: { sandboxId: string; t: T }) {
+  const { api, userId } = useSession();
+  const [busy, setBusy] = useState(false);
+  const [refused, setRefused] = useState<Refusal | null>(null);
+  async function fund() {
+    if (busy || !userId) return;
+    setBusy(true);
+    setRefused(null);
+    const result = await fundSandbox(api, userId, sandboxId);
+    setBusy(false);
+    if (!result.ok) setRefused(result);
+  }
+  return (
+    <section aria-labelledby="sandbox-funds">
+      <h2 id="sandbox-funds">{t('fundsHeading')}</h2>
+      <p data-testid="sandbox-balance" data-balance="unset">
+        {t('balanceLabel')}: <span className="muted">{t('balanceUnset')}</span>
+      </p>
+      <Button variant="secondary" disabled={busy} onClick={() => void fund()}>
+        {t('fund')}
+      </Button>
+      {refused ? <Refused failure={refused} t={t} /> : null}
+    </section>
+  );
+}
+
 /** /developers/sandbox/<id>: one sandbox, its address and its keys. */
 function SandboxPage({ id }: { id: string }) {
   const { t } = sandboxCopy.useCopy();
@@ -232,6 +268,7 @@ function SandboxPage({ id }: { id: string }) {
               ← {t('back')}
             </a>
             <BaseUrl baseUrl={detail.baseUrl} t={t} />
+            <Funds sandboxId={detail.sandbox.id} t={t} />
             <section aria-labelledby="sandbox-keys">
               <h2 id="sandbox-keys">{t('keysHeading')}</h2>
               {detail.keys.length === 0 ? (
