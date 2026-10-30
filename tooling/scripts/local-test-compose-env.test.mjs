@@ -4,7 +4,18 @@
  */
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { PARSE_ONLY, blankableVariable, composeEnvValues, envFileValue, renderEnvFile, startedBy } from './local-test-compose-env.mjs';
+import {
+  PARSE_ONLY,
+  blankableVariable,
+  composeEnvValues,
+  envFileValue,
+  marker,
+  markedVariables,
+  markerEnvFile,
+  renderEnvFile,
+  startedBy,
+  unmark,
+} from './local-test-compose-env.mjs';
 
 test('reads the variable a compose value names only when it can be blank', () => {
   assert.equal(blankableVariable('${EDGE_BODY_LIMIT_BYTES:-}'), 'EDGE_BODY_LIMIT_BYTES');
@@ -49,4 +60,24 @@ test('every value reads back unchanged in compose env-file syntax', () => {
   assert.match(file, /^# LOCAL TEST values for the tester profile only; never a live value\./);
   assert.ok(file.indexOf('\nA=1\n') < file.indexOf('\nB=2\n'), 'sorted');
   assert.throws(() => renderEnvFile({ X: 'a\nb' }), /line break/);
+});
+
+test('marks only whole environment values a port or path never uses, and reads them back as their compose reference', () => {
+  const compose = [
+    '    environment:',
+    '      EDGE_BODY_LIMIT_BYTES: ${EDGE_BODY_LIMIT_BYTES:-}',
+    '      NEEDED: "${NEEDED:?set it}"',
+    '      HAS_DEFAULT: ${HAS_DEFAULT:-true}',
+    '      SET_IN_EXAMPLE: ${SET_IN_EXAMPLE:-}',
+    '      STATE: ${STATE:-}',
+    '    volumes:',
+    '      - ${STATE:-/var/lib/x}:${STATE:-/var/lib/x}',
+  ].join('\n');
+  const marked = markedVariables(compose, 'SET_IN_EXAMPLE=1\nNEEDED=\n');
+  assert.deepEqual(Object.fromEntries(marked), { EDGE_BODY_LIMIT_BYTES: '${EDGE_BODY_LIMIT_BYTES:-}', NEEDED: '${NEEDED:?}' });
+  assert.match(markerEnvFile(marked), /^EDGE_BODY_LIMIT_BYTES=__compose_env_EDGE_BODY_LIMIT_BYTES__$/m);
+  assert.match(markerEnvFile(marked), /^LITELLM_CONFIG_PATH=\/dev\/null$/m, 'parse-only values ride along');
+  const services = unmark({ edge: { environment: { A: marker('NEEDED'), B: 'fixed' } }, seed: {} }, marked);
+  assert.deepEqual(services.edge.environment, { A: '${NEEDED:?}', B: 'fixed' });
+  assert.deepEqual(services.seed.environment, {});
 });

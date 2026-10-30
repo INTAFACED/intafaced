@@ -17,6 +17,7 @@
  */
 import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -48,6 +49,51 @@ export function blankKeys(text) {
   return { blank, set };
 }
 
+const WHOLE_VALUE = /^\s+[A-Z][A-Z0-9_]*:\s*["']?(\$\{[A-Z][A-Z0-9_]*(?::?\?[^}]*|:?-)?\})["']?\s*$/;
+
+/**
+ * The variables to read back through markers: each one some service's environment names as its whole value with no
+ * non-blank default, that .env.example leaves blank or unset and that no other compose field uses (a port or a path
+ * cannot hold a marker). Returns a map from variable to how compose names it (`${X:?}` or `${X:-}`).
+ */
+export function markedVariables(composeText, example) {
+  const { set } = blankKeys(example);
+  const whole = new Map();
+  const elsewhere = new Set();
+  for (const line of composeText.split('\n')) {
+    const m = WHOLE_VALUE.exec(line);
+    if (m) {
+      const variable = blankableVariable(m[1]);
+      if (!whole.has(variable) || /:?\?/.test(m[1])) whole.set(variable, /:?\?/.test(m[1]) ? `\${${variable}:?}` : `\${${variable}:-}`);
+      continue;
+    }
+    for (const r of line.matchAll(/\$\{([A-Z][A-Z0-9_]*)/g)) elsewhere.add(r[1]);
+  }
+  for (const variable of [...whole.keys()])
+    if (set.has(variable) || elsewhere.has(variable) || variable in PARSE_ONLY) whole.delete(variable);
+  return whole;
+}
+
+export const marker = (variable) => `__compose_env_${variable}__`;
+
+/** An env file that sets every marked variable to its marker, plus PARSE_ONLY, for one interpolated compose read. */
+export function markerEnvFile(marked) {
+  return Object.entries({ ...Object.fromEntries([...marked.keys()].map((v) => [v, marker(v)])), ...PARSE_ONLY })
+    .map(([k, v]) => `${k}=${v}\n`)
+    .join('');
+}
+
+/** Interpolated services with each marker turned back into the compose reference it came from. */
+export function unmark(services, marked) {
+  const back = new Map([...marked].map(([variable, raw]) => [marker(variable), raw]));
+  return Object.fromEntries(
+    Object.entries(services).map(([name, svc]) => [
+      name,
+      { ...svc, environment: Object.fromEntries(Object.entries(svc.environment ?? {}).map(([k, v]) => [k, back.get(v) ?? v])) },
+    ]),
+  );
+}
+
 /** `root` and every service it depends on, transitively: what `docker compose up <root>` starts. */
 export function startedBy(services, root) {
   const seen = new Set([root]);
@@ -60,7 +106,7 @@ export function startedBy(services, root) {
 }
 
 /**
- * The values to write: `services` is compose's un-interpolated service map, `stackEnvs` maps a stack name (`edge`) to that
+ * The values to write: `services` is compose's service map with each blankable value as its compose reference (unmark), `stackEnvs` maps a stack name (`edge`) to that
  * service's stack env, `example` is .env.example's text, `started` the services `up seed` starts (null: all). Returns
  * { values, conflicts, unfilled }.
  */
@@ -123,26 +169,35 @@ async function main(argv) {
   const out = path.resolve(ROOT, at >= 0 ? (argv[at + 1] ?? '') : '.env.tester.local');
   if (!process.env.LOCAL_STACK_STATE) throw new Error('LOCAL_STACK_STATE must name the state folder the tester profile mounts');
   const { loadOrCreateSecrets, localTestServiceEnvs } = await import('./local-test-stack.mjs');
+  // An interpolated read: older compose cannot parse a volume spec without interpolation, so each variable to fill is
+  // set to a marker and read back from where the marker lands.
+  const composeText = COMPOSE_FILES.map((f) => fs.readFileSync(path.join(ROOT, f), 'utf8')).join('\n');
+  const example = fs.readFileSync(path.join(ROOT, '.env.example'), 'utf8');
+  const marked = markedVariables(composeText, example);
+  const markers = fs.mkdtempSync(path.join(os.tmpdir(), 'compose-env-'));
+  const markerFile = path.join(markers, 'markers.env');
+  fs.writeFileSync(markerFile, markerEnvFile(marked), { mode: 0o600 });
   const config = spawnSync(
     'docker',
     [
       'compose',
       '--env-file',
       '.env.example',
+      '--env-file',
+      markerFile,
       ...COMPOSE_FILES.flatMap((f) => ['-f', f]),
       '--profile',
       'tester',
       'config',
-      '--no-interpolate',
       '--format',
       'json',
     ],
     { cwd: ROOT, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 },
   );
+  fs.rmSync(markers, { recursive: true, force: true });
   if (config.status !== 0) throw new Error(`docker compose config failed:\n${config.stderr}`);
-  const services = JSON.parse(config.stdout).services;
+  const services = unmark(JSON.parse(config.stdout).services, marked);
   const stackEnvs = Object.fromEntries(localTestServiceEnvs(loadOrCreateSecrets()).map((s) => [s.name, s.env]));
-  const example = fs.readFileSync(path.join(ROOT, '.env.example'), 'utf8');
   const started = startedBy(services, 'seed');
   const { values, conflicts, unfilled } = composeEnvValues({ services, stackEnvs, example, started });
   if (conflicts.length)
