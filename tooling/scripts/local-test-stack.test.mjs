@@ -21,9 +21,12 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const here = dirname(fileURLToPath(import.meta.url));
-// Each child below gets its own HOME, so its state folder is a fresh one under it. An inherited LOCAL_STACK_STATE (the
-// INTAFACED cloud environment sets it to the machine's real stack) would point every child at that stack instead.
-delete process.env.LOCAL_STACK_STATE;
+// The env a child gets when it should find its state under its own HOME. An inherited LOCAL_STACK_STATE (the INTAFACED
+// cloud environment sets it to the machine's real stack) would point the child at that stack instead.
+function homeEnv(home, extra = {}) {
+  const { LOCAL_STACK_STATE: _state, ...env } = process.env;
+  return { ...env, ...extra, HOME: home };
+}
 const script = resolve(here, 'local-test-stack.mjs');
 
 // Start order: a service waits for every earlier service its env names (matching checks resting-order holds against
@@ -226,7 +229,10 @@ const script = resolve(here, 'local-test-stack.mjs');
       .map((service) => service.name)
       .sort(),
     files,
+    'every file in local-stack-services/ is a started service; a LOCAL TEST tool goes beside it as tooling/scripts/local-test-<name>.mjs',
   );
+  // The rig the stack's `mining-share` command loads (cmdMiningShare) is one of those tools.
+  assert.equal(typeof (await import('./local-test-mining-rig.mjs')).rigShare, 'function');
   console.log('local-test-stack: one service file per started service');
 }
 
@@ -404,7 +410,7 @@ const script = resolve(here, 'local-test-stack.mjs');
 }
 
 function fundWith(home, args = ['someone@example.invalid', 'USDT', '1000']) {
-  return spawnSync(process.execPath, [script, 'fund', ...args], { env: { ...process.env, HOME: home }, encoding: 'utf8' });
+  return spawnSync(process.execPath, [script, 'fund', ...args], { env: homeEnv(home), encoding: 'utf8' });
 }
 
 const home = mkdtempSync(join(tmpdir(), 'local-test-stack-test-'));
@@ -452,6 +458,7 @@ try {
 const serviceDir = join(here, 'local-stack-services');
 const source = [
   script,
+  join(here, 'local-test-mining-rig.mjs'),
   ...readdirSync(serviceDir)
     .filter((f) => f.endsWith('.mjs'))
     .map((f) => join(serviceDir, f)),
@@ -500,7 +507,7 @@ console.log('local-test-stack: 6 refusal checks passed');
 const repo = resolve(here, '..', '..');
 const planHome = mkdtempSync(join(tmpdir(), 'local-test-stack-plan-'));
 try {
-  const r = spawnSync(process.execPath, [script, 'plan', '--json'], { env: { ...process.env, HOME: planHome }, encoding: 'utf8' });
+  const r = spawnSync(process.execPath, [script, 'plan', '--json'], { env: homeEnv(planHome), encoding: 'utf8' });
   assert.equal(r.status, 0, r.stderr);
   assert.equal(existsSync(join(planHome, '.intafaced')), false, 'plan must not create the state directory');
   assert.equal(/x{32}/.test(r.stdout), false, 'plan output must not carry any secret value');
@@ -597,7 +604,7 @@ const outside = mkdtempSync(join(tmpdir(), 'local-test-stack-outside-'));
 try {
   const run = (args, env = {}) =>
     spawnSync(process.execPath, [script, ...args], {
-      env: { ...process.env, LOCAL_STACK_CUSTOMER_DIST: '', ...env, HOME: distHome },
+      env: homeEnv(distHome, { LOCAL_STACK_CUSTOMER_DIST: '', ...env }),
       encoding: 'utf8',
     });
   const saved = join(distHome, '.intafaced', 'local-test-stack', 'customer-dist.json');
@@ -677,7 +684,7 @@ try {
     });
   });
   const server = spawn(process.execPath, [script, '__serve-customer', String(port)], {
-    env: { ...process.env, HOME: distHome },
+    env: homeEnv(distHome),
     stdio: 'ignore',
   });
   try {
@@ -745,7 +752,7 @@ console.log('local-test-stack: customer folder override checks passed');
   const mkHome = mkdtempSync(join(tmpdir(), 'local-test-stack-market-'));
   try {
     const state = join(mkHome, '.intafaced', 'local-test-stack');
-    const status = () => spawnSync(process.execPath, [script, 'status'], { env: { ...process.env, HOME: mkHome }, encoding: 'utf8' });
+    const status = () => spawnSync(process.execPath, [script, 'status'], { env: homeEnv(mkHome), encoding: 'utf8' });
     // Never started: shown, and not an error by itself.
     assert.match(status().stdout, /market-maker\s+-\s+-\s+not started/);
     // Started once, process gone: DOWN, and `status` exits non-zero so a script or a glance notices.
@@ -793,7 +800,7 @@ console.log('local-test-stack: customer folder override checks passed');
     const home = mkdtempSync(join(tmpdir(), 'local-test-stack-ws-'));
     const port = await freePort();
     const server = spawn(process.execPath, [script, '__serve-customer', String(port)], {
-      env: { ...process.env, HOME: home, CUSTOMER_WS_URL: wsUrl },
+      env: homeEnv(home, { CUSTOMER_WS_URL: wsUrl }),
       stdio: 'ignore',
     });
     const get = async (path) => {
