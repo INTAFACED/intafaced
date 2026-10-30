@@ -2,7 +2,7 @@ import type { Sql } from 'postgres';
 import { getAddress as toChecksum, type Address } from 'viem';
 import type { ListingChallenge, ListingStore, OwnershipProof } from './ownership.js';
 
-/** Postgres `ListingStore` over `protocol.listing_challenges` and `protocol.listing_ownership_proofs` (20261029070000). */
+/** Postgres `ListingStore` over `protocol.listing_challenges` and `protocol.listing_ownership_proofs` (20261029070000, 20261030193000). */
 type ChallengeRow = {
   nonce: string;
   chain_id: number;
@@ -58,23 +58,22 @@ export class PostgresListingStore implements ListingStore {
     });
   }
 
-  async pruneExpired(now: Date): Promise<void> {
-    // Bounded batches per call, each off a partial index, so pruning never scans the table on a public request: expired
-    // challenges never used, then expired ones a failed check spent with no proof. A proven challenge stays with its proof.
+  async pruneExpired(before: Date): Promise<void> {
+    // One bounded batch per call, read off the two partial indexes (unused, failed), so pruning never scans the table on a
+    // public request. The conditions are repeated on the outer DELETE so a row a verify proved meanwhile (its `used_at`
+    // now set, `failed_at` still null) is re-checked under the row lock and kept with its proof.
     await this.sql`
-      DELETE FROM protocol.listing_challenges WHERE nonce IN (
-        SELECT nonce FROM protocol.listing_challenges
-        WHERE used_at IS NULL AND expires_at < ${now.toISOString()}
-        ORDER BY expires_at LIMIT 500)`;
-    await this.sql`
-      DELETE FROM protocol.listing_challenges WHERE nonce IN (
-        SELECT c.nonce FROM protocol.listing_challenges c
-        WHERE c.used_at IS NOT NULL AND c.expires_at < ${now.toISOString()}
-          AND NOT EXISTS (SELECT 1 FROM protocol.listing_ownership_proofs p WHERE p.nonce = c.nonce)
-        ORDER BY c.expires_at LIMIT 500)`;
+      DELETE FROM protocol.listing_challenges
+      WHERE expires_at < ${before.toISOString()} AND (used_at IS NULL OR failed_at IS NOT NULL)
+        AND nonce IN (
+          SELECT nonce FROM protocol.listing_challenges
+          WHERE expires_at < ${before.toISOString()} AND (used_at IS NULL OR failed_at IS NOT NULL)
+          ORDER BY expires_at LIMIT 500)`;
   }
 
   async spend(nonce: string, usedAt: Date): Promise<void> {
-    await this.sql`UPDATE protocol.listing_challenges SET used_at = ${usedAt.toISOString()} WHERE nonce = ${nonce} AND used_at IS NULL`;
+    await this.sql`
+      UPDATE protocol.listing_challenges SET used_at = ${usedAt.toISOString()}, failed_at = ${usedAt.toISOString()}
+      WHERE nonce = ${nonce} AND used_at IS NULL`;
   }
 }

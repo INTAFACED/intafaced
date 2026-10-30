@@ -11,6 +11,7 @@ import {
   LISTING_NONCE_USED,
   LISTING_NOT_OWNER,
   LISTING_OWNER_UNKNOWN,
+  PRUNE_GRACE_MS,
   verifyOwnership,
   type ListingChallenge,
   type ListingStore,
@@ -28,6 +29,7 @@ const T0 = new Date('2026-10-29T06:00:00.000Z');
 function memoryStore() {
   const challenges = new Map<string, ListingChallenge>();
   const proofs: Omit<OwnershipProof, 'verifiedAt'>[] = [];
+  const failed = new Set<string>();
   const store: ListingStore = {
     putChallenge: async (c) => void challenges.set(c.nonce, { ...c, usedAt: null }),
     findChallenge: async (nonce) => challenges.get(nonce) ?? null,
@@ -40,12 +42,14 @@ function memoryStore() {
     },
     spend: async (nonce, usedAt) => {
       const c = challenges.get(nonce);
-      if (c && !c.usedAt) challenges.set(nonce, { ...c, usedAt });
+      if (c && !c.usedAt) {
+        challenges.set(nonce, { ...c, usedAt });
+        failed.add(nonce);
+      }
     },
-    pruneExpired: async (now) => {
+    pruneExpired: async (before) => {
       for (const [nonce, c] of challenges)
-        if (c.expiresAt.getTime() < now.getTime() && (!c.usedAt || !proofs.some((proof) => proof.nonce === nonce)))
-          challenges.delete(nonce);
+        if (c.expiresAt.getTime() < before.getTime() && (!c.usedAt || failed.has(nonce))) challenges.delete(nonce);
     },
   };
   return { store, proofs, challenges };
@@ -178,13 +182,27 @@ describe('contract ownership proof (D-launch-listing-01)', () => {
     expect(challenges.size).toBe(0);
   });
 
-  it('prunes challenges that expired unused when it issues a new one, and keeps used ones', async () => {
+  it('prunes challenges expired past the grace that were unused or failed when it issues a new one, and keeps proven ones', async () => {
     const { store, challenges } = memoryStore();
     const unused = await issueChallenge(store, OWNED, 60, TOKEN, T0);
     const used = await issueChallenge(store, OWNED, 60, TOKEN, T0);
     await verifyOwnership(store, OWNED, { nonce: used.nonce, signature: await owner.signMessage({ message: used.message }) }, T0);
-    const later = await issueChallenge(store, OWNED, 60, TOKEN, new Date(T0.getTime() + 61_000));
-    expect([...challenges.keys()].sort()).toEqual([used.nonce, later.nonce].sort());
+    const failedCheck = await issueChallenge(store, OWNED, 60, TOKEN, T0);
+    await expect(
+      verifyOwnership(
+        store,
+        OWNED,
+        { nonce: failedCheck.nonce, signature: await stranger.signMessage({ message: failedCheck.message }) },
+        T0,
+      ),
+    ).rejects.toMatchObject({ code: LISTING_NOT_OWNER });
+    // Expired, but inside the grace a verify's chain reads may still need: nothing goes yet.
+    await issueChallenge(store, OWNED, 60, TOKEN, new Date(T0.getTime() + 61_000));
+    expect([unused.nonce, used.nonce, failedCheck.nonce].every((nonce) => challenges.has(nonce))).toBe(true);
+    const later = await issueChallenge(store, OWNED, 60, TOKEN, new Date(T0.getTime() + 61_000 + PRUNE_GRACE_MS));
     expect(challenges.has(unused.nonce)).toBe(false);
+    expect(challenges.has(failedCheck.nonce)).toBe(false);
+    expect(challenges.has(used.nonce)).toBe(true);
+    expect(challenges.has(later.nonce)).toBe(true);
   });
 });

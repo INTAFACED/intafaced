@@ -5,7 +5,7 @@ import type { Sql } from 'postgres';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { privateKeyToAccount } from 'viem/accounts';
 import { assertTestDatabase, createDb, postgresAvailable } from '@intafaced/db';
-import { issueChallenge, verifyOwnership, LISTING_NONCE_USED, type OwnershipChain } from './ownership.js';
+import { issueChallenge, verifyOwnership, LISTING_NONCE_USED, PRUNE_GRACE_MS, type OwnershipChain } from './ownership.js';
 import { PostgresListingStore } from './ownership.pg.js';
 
 /** `protocol.listing_challenges` and `listing_ownership_proofs` (20261029070000) on a real test database. Deletes only this file's rows. */
@@ -92,28 +92,35 @@ if (!sql) {
       ]);
     });
 
-    it('a failed check spends its challenge, and pruning removes expired challenges that have no proof', async () => {
+    it('a failed check spends its challenge, and pruning past the grace removes unused and failed challenges, never a proven one', async () => {
       const store = new PostgresListingStore(sql!);
       const stranger = privateKeyToAccount(`0x${'78'.repeat(32)}`);
-      const wrong = await issueChallenge(store, chain, 300, TOKEN, T0, 'ef'.repeat(16));
+      const wrong = await issueChallenge(store, chain, 30, TOKEN, T0, 'ef'.repeat(16));
       await expect(
         verifyOwnership(store, chain, { nonce: wrong.nonce, signature: await stranger.signMessage({ message: wrong.message }) }, T0),
       ).rejects.toMatchObject({ code: 'protocol.listing.not_owner' });
       expect((await store.findChallenge(wrong.nonce))!.usedAt).not.toBeNull();
       expect(await sql!`SELECT count(*)::int AS n FROM protocol.listing_ownership_proofs WHERE nonce = ${wrong.nonce}`).toEqual([{ n: 0 }]);
+      expect(await sql!`SELECT (failed_at IS NOT NULL) AS failed FROM protocol.listing_challenges WHERE nonce = ${wrong.nonce}`).toEqual([
+        { failed: true },
+      ]);
 
+      const proven = await issueChallenge(store, chain, 30, TOKEN, T0, '9a'.repeat(16));
+      await verifyOwnership(store, chain, { nonce: proven.nonce, signature: await OWNER.signMessage({ message: proven.message }) }, T0);
+      expect(await sql!`SELECT (failed_at IS NOT NULL) AS failed FROM protocol.listing_challenges WHERE nonce = ${proven.nonce}`).toEqual([
+        { failed: false },
+      ]);
       const stale = await issueChallenge(store, chain, 30, TOKEN, T0, '12'.repeat(16));
-      await issueChallenge(store, chain, 300, TOKEN, new Date(T0.getTime() + 31_000), '34'.repeat(16));
-      expect(await store.findChallenge(stale.nonce)).toBeNull();
-      expect(await store.findChallenge(wrong.nonce)).not.toBeNull();
-      expect(await store.findChallenge('34'.repeat(16))).not.toBeNull();
 
-      // Once the spent challenge has expired, the next issue prunes it too: it has no proof to keep.
-      await issueChallenge(store, chain, 300, TOKEN, new Date(T0.getTime() + 301_000), '56'.repeat(16));
+      // Expired, but inside the grace a verify's chain reads may still need: nothing goes yet.
+      await issueChallenge(store, chain, 300, TOKEN, new Date(T0.getTime() + 31_000), '34'.repeat(16));
+      for (const nonce of [wrong.nonce, proven.nonce, stale.nonce]) expect(await store.findChallenge(nonce)).not.toBeNull();
+
+      await issueChallenge(store, chain, 300, TOKEN, new Date(T0.getTime() + 31_000 + PRUNE_GRACE_MS), '56'.repeat(16));
+      expect(await store.findChallenge(stale.nonce)).toBeNull();
       expect(await store.findChallenge(wrong.nonce)).toBeNull();
-      // The proven challenges (earlier tests, also expired by now) stay with their proofs.
-      expect(await store.findChallenge('ab'.repeat(16))).not.toBeNull();
-      expect(await store.findChallenge('cd'.repeat(16))).not.toBeNull();
+      expect(await store.findChallenge(proven.nonce)).not.toBeNull();
+      expect(await store.findChallenge('34'.repeat(16))).not.toBeNull();
     });
   });
 }

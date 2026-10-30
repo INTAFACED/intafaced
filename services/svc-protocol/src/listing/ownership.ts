@@ -104,11 +104,11 @@ export interface ListingStore {
    */
   consume(nonce: string, usedAt: Date, proof: Omit<OwnershipProof, 'verifiedAt'>): Promise<boolean>;
   /**
-   * Deletes challenges that expired before `now` and either were never used or were spent by a failed check (no proof),
-   * a bounded batch at a time. A challenge with a proof is kept.
+   * Deletes challenges that expired before `before` and either were never used or were spent by a failed check, a
+   * bounded batch at a time. A challenge with a proof is kept.
    */
-  pruneExpired(now: Date): Promise<void>;
-  /** Marks a nonce used with no proof: a failed check spends its challenge, so each challenge buys one check. */
+  pruneExpired(before: Date): Promise<void>;
+  /** Marks a nonce used and failed, with no proof: a failed check spends its challenge, so each challenge buys one check. */
   spend(nonce: string, usedAt: Date): Promise<void>;
 }
 
@@ -145,6 +145,12 @@ export function challengeMessage(args: { chainId: number; token: Address; nonce:
   ].join('\n');
 }
 
+/**
+ * How long after its expiry a challenge is kept before pruning: longer than any verify's chain reads, so a verify that
+ * passed the expiry check never finds its row gone. Bookkeeping only; no price, fee or limit comes from it.
+ */
+export const PRUNE_GRACE_MS = 10 * 60 * 1000;
+
 /** A fresh challenge for a token. The nonce is random (unguessable), stored, and good for one proof before it expires. */
 export async function issueChallenge(
   store: ListingStore,
@@ -158,7 +164,7 @@ export async function issueChallenge(
     throw new ListingRefusedError(LISTING_CHALLENGE_TTL_UNSET, 'The ownership challenge lifetime is not set, so no challenge is issued.');
   // A token that names no owner can never be proven: refuse before anyone is asked to sign, and store nothing.
   if (!(await chain.owner(token))) throw ownerUnknown();
-  await store.pruneExpired(now);
+  await store.pruneExpired(new Date(now.getTime() - PRUNE_GRACE_MS));
   const chainId = chain.chainId;
   const issuedAt = new Date(now.getTime());
   const expiresAt = new Date(now.getTime() + ttlSeconds * 1000);
