@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { test, expect } from '@playwright/test';
 import { api, fund, journeyState, toUnits, tool } from './stack.mjs';
 import { signIn, signUp, verify } from './desk.mjs';
@@ -151,6 +152,40 @@ function marketRefundPolicy(on) {
   }
 }
 
+/** The ledger's own record of a business key (svc-ledger's lookup door, read by the stack's TEST founder). */
+let operator;
+async function booked(key) {
+  const gates = await import('../../../../tooling/scripts/local-test-gates.mjs');
+  operator ??= await gates.makeContext({ log: () => undefined, shareSessions: true });
+  return gates.ledgerTrace(operator, key);
+}
+
+const sumOf = (postings) => postings.reduce((total, e) => total + toUnits(e.amount), 0n);
+
+/** The hold under `market:hold:<id>`, booked once: the price from the buyer's available into an empty pot. */
+async function heldOnce(purchaseId, price) {
+  const hold = await booked(`market:hold:${purchaseId}`);
+  expect(hold).toMatchObject({ found: true, module: 'market', reason: 'market.purchase.held' });
+  expect(hold.postings).toHaveLength(2);
+  const from = hold.postings.find((e) => e.side === 'source');
+  const pot = hold.postings.find((e) => e.side === 'destination');
+  expect(from).toMatchObject({ assetId: 'USDT', direction: 'credit' });
+  expect(pot).toMatchObject({ assetId: 'USDT', direction: 'debit' });
+  expect([toUnits(from.amount), toUnits(pot.amount), toUnits(pot.balanceBefore), toUnits(pot.balanceAfter)]).toEqual([
+    toUnits(price),
+    toUnits(price),
+    0n,
+    toUnits(price),
+  ]);
+  return { txId: hold.txId, pot: pot.accountId };
+}
+
+/** The pot emptied by one outcome: its only source leg takes the whole price out of `pot`, leaving it at zero. */
+function emptiesPot(trace, pot, price) {
+  const out = trace.postings.filter((e) => e.side === 'source');
+  expect(out.map((e) => [e.accountId, toUnits(e.amount), toUnits(e.balanceAfter)])).toEqual([[pot, toUnits(price), 0n]]);
+}
+
 /** A refused market call: its typed code, exactly, from the service's error body. */
 const refusedWith = (reply) => [reply.status, reply.body?.error?.message ?? reply.body?.error?.json?.message];
 
@@ -186,6 +221,20 @@ test(`${J} #6 requests a refund inside the window: the amount returns once; with
     // The service's own answer to the buyer's request and to the seller's refund: the typed code, exactly.
     expect(refusedWith(await (await api(who)).post('/api/market/trpc/requestRefund', { purchaseId }))).toEqual([412, 'owner.decision']);
     expect(refusedWith(await (await api(seller)).post('/api/market/trpc/refund', { purchaseId }))).toEqual([412, 'owner.decision']);
+    // The seller, who makes the refund, sees the same named blocker in their Refund requests, and no request to act on.
+    const sellerBlank = await (await browser.newContext()).newPage();
+    await signIn(sellerBlank, seller);
+    await sellerBlank.goto('/market/mine');
+    const requests = sellerBlank
+      .getByRole('main')
+      .locator('section')
+      .filter({ has: sellerBlank.getByRole('heading', { name: 'Refund requests', level: 2 }) });
+    const sellerBlocker = requests.getByRole('note').filter({ hasText: 'The refund policy is not set' });
+    await expect(sellerBlocker).toBeVisible();
+    await expect(sellerBlocker).toHaveAttribute('data-code', 'owner.decision');
+    await expect(sellerBlocker).toContainText('owner.decision');
+    await expect(requests.getByRole('row', { name: new RegExp(title) })).toHaveCount(0);
+    await sellerBlank.context().close();
     // Re-read: still held, never asked, no outcome; neither balance moved.
     const [unchanged] = await purchasesOf(who);
     expect(unchanged).toMatchObject({ id: purchaseId, status: 'held', refundRequestedAt: null, outcome: null, outcomeTxId: null });
@@ -241,32 +290,116 @@ test(`${J} #6 requests a refund inside the window: the amount returns once; with
   await page.reload();
   await expect(row).toContainText('Refunded');
   await expect(row.getByRole('link', { name: 'Receipt' })).toHaveCount(0);
-  // Or the buyer lets the window end: the release posts once to the seller (the price less the house commission), and the
-  // buyer's money stays spent.
+  // Or the window ends. Two more purchases, held in the same seconds: the buyer's companion is left alone and released by
+  // the sweep once its window ends; a second TEST buyer's racer (one held purchase per buyer and listing) gets the
+  // seller's refund sent every 150 ms across its window's end, racing the sweep. Each gets exactly one outcome, read back
+  // from the ledger by its business key, and the companion's release shows the sweep really ran past both windows' end.
+  const { listingId } = run.read();
+  const otherPage = await (await browser.newContext()).newPage();
+  const other = await signUp(otherPage, 'mkr');
+  await verify(otherPage, other);
+  expect(fund(other.email, 'USDT', '100').tx).toBeTruthy();
+  await otherPage.context().close();
+  const otherStart = await usdt(other);
+  const buyerStart = await usdt(who);
+  const sellerStart = await usdt(seller);
   await page.goto('/market');
   await page.getByRole('article').filter({ hasText: title }).getByRole('button', { name: /^Buy/ }).click();
   await page.getByRole('dialog').getByRole('button', { name: 'Confirm purchase' }).click();
   await expect(page.getByRole('main').getByRole('status').filter({ hasText: 'Held until the refund window ends' })).toBeVisible();
-  const kept = await usdt(who);
-  const paid = await usdt(seller);
   const [second] = await purchasesOf(who);
   expect(second).toMatchObject({ status: 'held', flow: 'hold', outcome: null });
   expect(second.id).not.toBe(purchaseId);
+  const bought = await (await api(other)).post('/api/market/trpc/purchase', { listingId, purchaseId: randomUUID() });
+  expect(bought.status, JSON.stringify(bought.body).slice(0, 300)).toBe(200);
+  const racer = bought.body.result.data;
+  expect(racer).toMatchObject({ status: 'held', flow: 'hold', outcome: null });
+  const companionPot = (await heldOnce(second.id, price)).pot;
+  const racePot = (await heldOnce(racer.id, price)).pot;
+  const ends = Date.parse(racer.refundWindowEndsAt);
+  const companionEnds = Date.parse(second.refundWindowEndsAt);
+  expect(Math.abs(companionEnds - ends)).toBeLessThan(10_000);
+  expect(Date.now(), 'the race starts before the window ends').toBeLessThan(ends - 1_000);
+  const sellerAsker = await api(seller);
+  const asks = [];
+  for (let at = ends - 1_000; at <= ends + 1_000; at += 150) {
+    await new Promise((r) => setTimeout(r, Math.max(0, at - Date.now())));
+    const sentAt = Date.now();
+    asks.push(sellerAsker.post('/api/market/trpc/refund', { purchaseId: racer.id }).then((answer) => ({ ...answer, sentAt })));
+  }
+  const answers = await Promise.all(asks);
+  // Every answer is the stored refund or the typed too-late refusal; every ask sent well inside the window refunded.
+  for (const answer of answers) {
+    if (answer.status === 200) expect(answer.body.result.data).toMatchObject({ id: racer.id, status: 'refunded', outcome: 'refund' });
+    else expect(refusedWith(answer)).toEqual([409, 'market.refund_not_held']);
+  }
+  const inside = answers.filter((answer) => answer.sentAt < ends - 500);
+  expect(inside.length).toBeGreaterThan(0);
+  expect(inside.map((answer) => answer.status)).toEqual(inside.map(() => 200));
+  // The sweep's run past the window's end is seen, not assumed: it released the companion, once, out of its pot, and
+  // only after its window ended.
   await expect
-    .poll(async () => (await purchasesOf(who)).find((p) => p.id === second.id)?.status, { timeout: 200_000, intervals: [5_000] })
+    .poll(async () => (await purchasesOf(who)).find((p) => p.id === second.id)?.status, { timeout: 200_000, intervals: [2_000] })
     .toBe('released');
   const released = (await purchasesOf(who)).find((p) => p.id === second.id);
-  expect(released).toMatchObject({ status: 'released', outcome: 'release' });
-  expect(released.outcomeTxId).toBeTruthy();
-  const net = toUnits(price) - (toUnits(price) * BigInt(released.commissionBps)) / 10_000n;
-  expect(toUnits((await usdt(seller)).free)).toBe(toUnits(paid.free) + net);
-  // The buyer's held price leaves their account for good: free is unchanged and the held amount is gone from used.
-  const after = await usdt(who);
-  expect(after.free).toBe(kept.free);
-  expect(toUnits(after.used)).toBe(toUnits(kept.used) - toUnits(price));
-  // Once: two more sweeps (5 s each on the stack) post nothing again.
+  const release = await booked(`market:release:${second.id}`);
+  expect(release).toMatchObject({ found: true, module: 'market', reason: 'market.purchase.released' });
+  expect(released).toMatchObject({ status: 'released', outcome: 'release', outcomeTxId: release.txId });
+  expect(toUnits(released.price)).toBe(toUnits(price));
+  expect(Date.parse(released.outcomeAt)).toBeGreaterThanOrEqual(companionEnds);
+  emptiesPot(release, companionPot, released.price);
+  const net = toUnits(released.price) - (toUnits(released.price) * BigInt(released.commissionBps)) / 10_000n;
+  const legs = release.postings.filter((e) => e.side === 'destination').map((e) => toUnits(e.amount));
+  expect(legs.sort()).toEqual([toUnits(released.price) - net, net].filter((amount) => amount > 0n).sort());
+  expect(await booked(`market:refund:${second.id}:1`)).toMatchObject({ found: false });
+  // The racer: refunded once, and the same sweep run left it unreleased.
+  const refund = await booked(`market:refund:${racer.id}:1`);
+  expect(refund).toMatchObject({ found: true, module: 'market', reason: 'market.purchase.refunded' });
+  emptiesPot(refund, racePot, price);
+  expect(await booked(`market:release:${racer.id}`)).toMatchObject({ found: false });
+  const raced = (await purchasesOf(other)).find((p) => p.id === racer.id);
+  expect(raced).toMatchObject({ status: 'refunded', outcome: 'refund', outcomeTxId: refund.txId });
+  // The seller's real balance row gains the companion's net, once; the second buyer has the racer's price back, and the
+  // buyer's companion price has left for good.
+  expect((await sellerAsker.balances()).USDT, "the seller's USDT balance row").toBeDefined();
+  const sellerAfter = await usdt(seller);
+  expect(toUnits(sellerAfter.free)).toBe(toUnits(sellerStart.free) + net);
+  const buyerAfter = await usdt(who);
+  expect(toUnits(buyerAfter.free)).toBe(toUnits(buyerStart.free) - toUnits(price));
+  expect(toUnits(buyerAfter.used)).toBe(toUnits(buyerStart.used));
+  const otherAfter = await usdt(other);
+  expect([toUnits(otherAfter.free), toUnits(otherAfter.used)]).toEqual([toUnits(otherStart.free), toUnits(otherStart.used)]);
+  // Once: two more sweeps (5 s each on the stack) post nothing again, and neither record changes.
   await page.waitForTimeout(12_000);
-  expect(toUnits((await usdt(seller)).free)).toBe(toUnits(paid.free) + net);
+  expect(await usdt(seller)).toEqual(sellerAfter);
+  expect(await usdt(who)).toEqual(buyerAfter);
+  expect(await usdt(other)).toEqual(otherAfter);
+  const settled = [...(await purchasesOf(who)), ...(await purchasesOf(other))];
+  expect(settled.find((p) => p.id === second.id)).toMatchObject({ status: 'released', outcomeTxId: release.txId });
+  expect(settled.find((p) => p.id === racer.id)).toMatchObject({ status: 'refunded', outcomeTxId: refund.txId });
+  expect(await booked(`market:release:${racer.id}`)).toMatchObject({ found: false });
+  expect(await booked(`market:refund:${second.id}:1`)).toMatchObject({ found: false });
+  // Reconciliation over every purchase of this run's listing by both buyers, from the ledger by key: each pot pays out exactly what it
+  // held, through one outcome; both outcomes occur, so the totals can't agree by being zero.
+  let held = 0n;
+  let paidOut = 0n;
+  const kinds = new Set();
+  for (const p of settled) {
+    const hold = await booked(`market:hold:${p.id}`);
+    expect(hold.found, `purchase ${p.id} was held`).toBe(true);
+    const back = await booked(`market:refund:${p.id}:1`);
+    const on = await booked(`market:release:${p.id}`);
+    expect([back.found, on.found].filter(Boolean), `purchase ${p.id} has exactly one outcome`).toHaveLength(1);
+    const into = sumOf(hold.postings.filter((e) => e.side === 'destination'));
+    const outOf = sumOf((back.found ? back : on).postings.filter((e) => e.side === 'destination'));
+    expect(outOf, `purchase ${p.id} pays out what it held`).toBe(into);
+    kinds.add(back.found ? 'refund' : 'release');
+    held += into;
+    paidOut += outOf;
+  }
+  expect([...kinds].sort()).toEqual(['refund', 'release']);
+  expect(held).toBeGreaterThan(0n);
+  expect(paidOut).toBe(held);
   await page.goto('/market/purchases');
   await expect(bodyRows(tableIn(page, 'Your purchases')).filter({ hasText: 'Released to the seller' })).toHaveCount(1);
   run.write({ releasedId: second.id });
