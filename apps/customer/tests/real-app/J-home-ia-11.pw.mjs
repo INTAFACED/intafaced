@@ -4,7 +4,8 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, statSync } from 'node:fs
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { test, expect } from '@playwright/test';
-import { founderTotp, makeContext } from '../../../../tooling/scripts/local-test-gates.mjs';
+import { founderTotp, makeContext, stackFounderScopes } from '../../../../tooling/scripts/local-test-gates.mjs';
+import { LOCAL_TEST_DEVICE_KEY } from '../../../../tooling/scripts/local-test-device.mjs';
 import { FOUNDER_VAULT_NAME, foundersEnrolled } from '../../../../tooling/scripts/local-test-founders.mjs';
 import { localStackState } from '../../../../tooling/scripts/local-test-state.mjs';
 import { deviceCodesMailedTo, OUTBOX_NAME } from '../../../../tooling/scripts/local-test-entry.mjs';
@@ -261,6 +262,28 @@ test(`${J} #2 the documented sign-in steps get the founder in with founder scope
   const name = (await owners.json()).owners.find((owner) => owner.userId === founder.userId)?.displayName;
   expect(name).toMatch(/^(Nitro|Phantom)$/);
   await expect(page.locator(`.adm-session > span[title="${founder.userId}"]`)).toHaveText(name);
+
+  // The founder scopes read back from identity itself: the same founder, signed in with the same password and second
+  // factor as the console's server signs in, gets an access token from identity carrying every founder scope this stack
+  // configures (local-stack-services/identity.mjs), with the second factor recorded.
+  const ctx = await makeContext({ log: () => {} });
+  const login = await fetch(`${EDGE}/api/identity/trpc/auth.login`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({
+      identifier: founder.handle,
+      password: founder.password,
+      deviceKey: LOCAL_TEST_DEVICE_KEY,
+      totpCode: await founderTotp(ctx, 'a', founder.totpSecret),
+    }),
+  });
+  expect(login.status).toBe(200);
+  const accessToken = (await login.json())?.result?.data?.accessToken;
+  expect(typeof accessToken).toBe('string');
+  const claims = JSON.parse(Buffer.from(accessToken.split('.')[1], 'base64url').toString('utf8'));
+  expect(claims.sub).toBe(founder.userId);
+  expect(claims.mfa).toBe(true);
+  expect(claims.scopes).toEqual(expect.arrayContaining(await stackFounderScopes(ctx.paths.stateDir)));
 });
 
 test(`${J} #3 the founder's Home shows a TEST deposit in the total, a TEST notice and one inbox row, each labelled TEST`, async ({
