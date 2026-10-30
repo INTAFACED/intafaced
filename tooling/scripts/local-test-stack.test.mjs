@@ -924,6 +924,23 @@ console.log('local-test-stack: customer folder override checks passed');
   }
 }
 
+// The /api/ proxy keeps the status badge's own cache life, as nginx does, and stays no-store everywhere else.
+{
+  const { apiCacheControl } = await import('./local-test-stack.mjs');
+  assert.equal(apiCacheControl('/api/notify/status/badge.svg', 'public, max-age=120'), 'public, max-age=120');
+  assert.equal(apiCacheControl('/api/notify/status/badge.svg', 'no-cache, max-age=0'), 'no-cache, max-age=0');
+  assert.equal(apiCacheControl('/api/notify/status/badge.svg', undefined), 'no-store');
+  assert.equal(apiCacheControl('/api/notify/status/badge.svg', ''), 'no-store');
+  for (const path of [
+    '/api/notify/trpc/statusPage.badge',
+    '/api/notify/status/badge.svg/',
+    '/api/notify/status/badge.svgx',
+    '/api/trade/trpc/orders.list',
+  ]) {
+    assert.equal(apiCacheControl(path, 'public, max-age=120'), 'no-store', path);
+  }
+}
+
 // The Customer site carries the production security headers, and the browser's CSP reports are recorded and fail the run.
 {
   const { customerSecurityHeaders, cspReportRows } = await import('./local-test-stack.mjs');

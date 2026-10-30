@@ -112,7 +112,11 @@ describe('paper strategies survive a new connection to the same database', () =>
 
   beforeAll(async () => {
     await sql.unsafe(`DROP SCHEMA IF EXISTS "${SCHEMA}" CASCADE`);
-    for (const file of ['drizzle/0000_quant_strategies.sql', 'drizzle/0003_quant_signal_rules.sql']) {
+    for (const file of [
+      'drizzle/0000_quant_strategies.sql',
+      'drizzle/0003_quant_signal_rules.sql',
+      'drizzle/20261030134631_quant_strategy_heads.sql',
+    ]) {
       const migration = readFileSync(join(SERVICE, file), 'utf8').replaceAll('"quant"', `"${SCHEMA}"`).replaceAll("'quant'", `'${SCHEMA}'`);
       await sql.unsafe(migration);
     }
@@ -304,5 +308,58 @@ describe('paper strategies survive a new connection to the same database', () =>
       .replaceAll("'quant'", `'${SCHEMA}'`);
     await expect(sql.unsafe(down)).rejects.toThrow(/quant\.signal_rules_present/);
     await repo.softDelete({ accountId: ACCOUNT_A, id: saved.id, idempotencyKey: 'idem-delete-signal' });
+  });
+  it('renames and moves the head without a version, and restores a deleted strategy with its versions (AL-editor-01)', async () => {
+    const created = await repo.create({
+      accountId: ACCOUNT_A,
+      clientStrategyId: 'client-heads',
+      idempotencyKey: 'idem-heads-create',
+      draft: draft('heads'),
+    });
+    await repo.revise({ accountId: ACCOUNT_A, id: created.id, idempotencyKey: 'idem-heads-v2', draft: draft('heads') });
+    const head = { name: 'Trend', folder: 'Momentum', description: 'Two averages' };
+    const moved = await repo.organise({ accountId: ACCOUNT_A, id: created.id, idempotencyKey: 'idem-heads-organise', head });
+    expect(moved).toMatchObject({ ...head, organised: 1, version: 2 });
+    const replay = await repo.organise({
+      accountId: ACCOUNT_A,
+      id: created.id,
+      idempotencyKey: 'idem-heads-organise',
+      head: { name: 'Other', folder: '', description: '' },
+    });
+    expect(replay).toMatchObject({ ...head, organised: 1 });
+    const counted = await sql<{ n: number }[]>`
+      SELECT count(*)::int AS n FROM ${sql(SCHEMA)}.strategy_versions WHERE strategy_id = ${created.id}
+    `;
+    expect(counted[0]?.n).toBe(2);
+    // The database refuses a nested folder even when the service is bypassed.
+    await expect(sql.unsafe(`UPDATE "${SCHEMA}".strategies SET folder = 'a/b' WHERE id = $1`, [created.id])).rejects.toThrow(
+      /strategies_head_ck/,
+    );
+    await expect(repo.organise({ accountId: ACCOUNT_B, id: created.id, idempotencyKey: 'idem-heads-foreign', head })).rejects.toThrow(
+      /strategy not found/,
+    );
+
+    await repo.softDelete({ accountId: ACCOUNT_A, id: created.id, idempotencyKey: 'idem-heads-delete' });
+    const bin = await repo.listDeleted({ accountId: ACCOUNT_A, limit: 50 });
+    expect(bin.strategies.find((row) => row.id === created.id)).toMatchObject({ name: 'Trend', version: 2 });
+    expect((await repo.list({ accountId: ACCOUNT_A, limit: 50 })).strategies.some((row) => row.id === created.id)).toBe(false);
+    expect((await repo.listDeleted({ accountId: ACCOUNT_B, limit: 50 })).strategies).toEqual([]);
+    const restored = await repo.restore({ accountId: ACCOUNT_A, id: created.id, idempotencyKey: 'idem-heads-restore' });
+    expect(restored).toMatchObject({ deletedAt: null, restores: 1, folder: 'Momentum' });
+    expect(restored.versions.map((row) => row.version)).toEqual([1, 2]);
+    expect(await repo.restore({ accountId: ACCOUNT_A, id: created.id, idempotencyKey: 'idem-heads-restore' })).toMatchObject({
+      restores: 1,
+    });
+    await expect(repo.restore({ accountId: ACCOUNT_B, id: created.id, idempotencyKey: 'idem-heads-restore-b' })).rejects.toThrow(
+      /strategy not found/,
+    );
+    // The reversal drops the head fields and keeps every version; applying it again restores the columns.
+    const read = (file: string) => readFileSync(join(SERVICE, 'drizzle', file), 'utf8').replaceAll('"quant"', `"${SCHEMA}"`);
+    await sql.unsafe(read('20261030134631_quant_strategy_heads.down.sql'));
+    const after = await sql<{ n: number }[]>`
+      SELECT count(*)::int AS n FROM ${sql(SCHEMA)}.strategy_versions WHERE strategy_id = ${created.id}
+    `;
+    expect(after[0]?.n).toBe(2);
+    await sql.unsafe(read('20261030134631_quant_strategy_heads.sql'));
   });
 });
