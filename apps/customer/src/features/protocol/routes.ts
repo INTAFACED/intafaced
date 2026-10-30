@@ -33,12 +33,15 @@ export interface Web3Route {
   wallet?: WalletSection;
   /** The Tokens room, or one token's page by its address. */
   tokens?: 'list' | 'detail';
-  /** An address page, or the account's watched addresses. */
-  explorer?: 'address' | 'watchlist';
+  /** An address page, the account's watched addresses, one block by height or one transaction by hash. */
+  explorer?: 'address' | 'watchlist' | 'block' | 'tx';
+  /** The shape the route's parameter must have; anything else is answered not found without a lookup. */
+  param?: { name: string; shape: RegExp };
   pending?: { page: PendingPage; blocker: PendingBlocker; param?: { name: string; shape: RegExp } };
 }
 
-const digits = /^\d{1,20}$/;
+// A block height up to 15 digits: every such number is exact in a JavaScript number, so the page asks for the block named.
+const digits = /^\d{1,15}$/;
 const txHash = /^0x[0-9a-fA-F]{64}$/;
 /** A 20-byte hex address, the shape every address route and the token page accept. */
 export const ADDRESS_SHAPE = /^0x[0-9a-fA-F]{40}$/;
@@ -62,12 +65,8 @@ export const WEB3_ROUTES: readonly Web3Route[] = [
   ...(Object.entries(WALLET_SECTIONS) as [WalletSection, string][]).map(([wallet, path]) => ({ path, room: 'wallet' as const, wallet })),
   { path: '/chain', room: 'chain', tab: 'status' },
   { path: '/chain/blocks', room: 'chain', tab: 'blocks' },
-  {
-    path: '/chain/blocks/:height',
-    room: 'chain',
-    pending: { page: 'blockDetail', blocker: 'indexer', param: { name: 'height', shape: digits } },
-  },
-  { path: '/chain/tx/:hash', room: 'chain', pending: { page: 'txDetail', blocker: 'indexer', param: { name: 'hash', shape: txHash } } },
+  { path: '/chain/blocks/:height', room: 'chain', explorer: 'block', param: { name: 'height', shape: digits } },
+  { path: '/chain/tx/:hash', room: 'chain', explorer: 'tx', param: { name: 'hash', shape: txHash } },
   { path: '/chain/address/:address', room: 'chain', explorer: 'address' },
   { path: '/chain/watchlist', room: 'chain', explorer: 'watchlist' },
   { path: '/chain/validators', room: 'chain', tab: 'validators' },

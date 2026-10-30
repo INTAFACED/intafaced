@@ -5,6 +5,7 @@ import { checkAccess, edgeTrustFromEnv } from '@intafaced/config';
 import { env } from './env.js';
 import { NullChainSource } from './chain/memory-source.js';
 import { EvmChainSource } from './chain/evm/source.js';
+import { startTokenBackfill } from './explorer/token-backfill.js';
 import { parseExplorerListLimit } from './explorer/blocks.js';
 import { parseTxDropWindow } from './explorer/tx.js';
 import { PostgresProjectionStore } from './projection/postgres-store.js';
@@ -151,6 +152,11 @@ export const appRouter = createIndexerRouter({
     notePending: (hash, at) => store.noteExplorerTxPending(hash, at),
     lookup: (hash) => (evmSource ? evmSource.lookupExplorerTx(hash) : Promise.resolve(null)),
   },
+  txList: (q) => store.explorerTxList(q),
+  address: {
+    txs: (q) => store.explorerAddressTxs(q),
+    tokensBySymbol: (q) => store.explorerTokensBySymbol(q),
+  },
 });
 export type AppRouter = typeof appRouter;
 
@@ -218,6 +224,19 @@ if (evmSource) {
 
 indexer.start(env.INDEXER_POLL_INTERVAL_MS);
 
+// Tokens that emitted before the token read existed, or past a block's read cap, get their metadata here (D-explorer-03).
+const tokenBackfill = evmSource
+  ? startTokenBackfill(
+      {
+        unread: (limit) => store.explorerTokensUnread(limit),
+        read: (addresses) => evmSource.readTokenMeta(addresses),
+        write: (tokens, height) => store.writeExplorerTokenFacts(tokens, height),
+      },
+      app.log,
+      60_000,
+    )
+  : null;
+
 await app.listen({ host: env.HTTP_HOST, port: env.HTTP_PORT });
 app.log.info(
   {
@@ -240,6 +259,8 @@ export function setIngestEnabled(next: boolean): void {
 let shutdownPromise: Promise<void> | undefined;
 for (const signal of ['SIGTERM', 'SIGINT'] as const) {
   process.once(signal, () => {
+    // The token backfill only retries a read; stopping it first means no new pass starts against a closing pool.
+    tokenBackfill?.stop();
     // SIGTERM followed by SIGINT shares the same drain and close sequence.
     void (shutdownPromise ??= shutdownIndexer({
       stopAndDrain: () => indexer.stopAndDrain(),

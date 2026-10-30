@@ -1,6 +1,7 @@
 import type { Hex, PublicClient } from 'viem';
 import { ChainUnavailableError, classifyChainError } from './availability.js';
 import type { ChainTx, ChainTxLog } from '../source.js';
+import { isTraceRefused, storableReason, TRACE_NOT_READ, traceReason } from './revert-reason.js';
 import type { LiveTx } from '../../explorer/tx.js';
 
 /**
@@ -36,8 +37,21 @@ function address(value: string | null | undefined): string | null {
 function revertReasonOf(raw: unknown): string | null {
   if (!raw || typeof raw !== 'object') return null;
   const reason = (raw as { revertReason?: unknown }).revertReason;
-  if (typeof reason !== 'string' || reason.trim() === '') return null;
-  return reason;
+  return typeof reason === 'string' ? storableReason(reason) : null;
+}
+
+async function tracedRevertReason(client: PublicClient, hash: Hex, rpcUrl: string): Promise<string | null> {
+  let trace: unknown;
+  try {
+    trace = await client.request({
+      method: 'debug_traceTransaction',
+      params: [hash, { tracer: 'callTracer', tracerConfig: { onlyTopCall: true } }],
+    } as never);
+  } catch (err) {
+    if (isTraceRefused(err)) return TRACE_NOT_READ;
+    throw classifyChainError(err, `revertReason(${hash})`, rpcUrl);
+  }
+  return traceReason(trace);
 }
 
 export async function readBlockTransactions(
@@ -86,6 +100,7 @@ export async function readBlockTransactions(
       } catch (err) {
         throw classifyChainError(err, `revertReason(${hash})`, rpcUrl);
       }
+      if (revertReason === null) revertReason = await tracedRevertReason(client, hash, rpcUrl);
     }
     const logs: ChainTxLog[] = [];
     for (const log of receipt.logs) {
