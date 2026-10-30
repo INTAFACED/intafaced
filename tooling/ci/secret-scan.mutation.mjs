@@ -405,6 +405,35 @@ const MUTANTS = [
     catch: false,
     why: 'versioned, hyphenated and {param} route segments are still a route, not a key',
   },
+  {
+    id: 'actions-cache-key',
+    file: '.github/actions/test-infra/action.yml',
+    content:
+      "steps:\n  - uses: actions/cache@v6\n    with:\n      path: x/.tools\n      key: java-tools-x-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('packages/x/pom.xml') }}\n",
+    catch: false,
+    why: 'an actions/cache key built from dash-joined words, runner.os/arch and hashFiles is a cache name, not a credential',
+  },
+  {
+    id: 'actions-cache-key-digit-literal',
+    file: '.github/actions/test-infra/action.yml',
+    content: `steps:\n  - uses: actions/cache@v6\n    with:\n      key: ${V}-\${{ hashFiles('packages/x/pom.xml') }}\n`,
+    catch: true,
+    why: 'the cache-key carve-out allows only lowercase letter words before the expressions: a credential prefix is still a finding',
+  },
+  {
+    id: 'actions-cache-key-input-reference',
+    file: '.github/workflows/build.yml',
+    content: "jobs:\n  b:\n    steps:\n      - with:\n          key: tools-${{ inputs.token }}-${{ hashFiles('packages/x/pom.xml') }}\n",
+    catch: true,
+    why: 'only runner.os, runner.arch and hashFiles expressions are a cache key: an inputs reference behind `key` is still a finding',
+  },
+  {
+    id: 'cache-key-shape-outside-github',
+    file: 'tooling/infra/tls.yml',
+    content: "tls:\n  key: java-tools-${{ hashFiles('packages/x/pom.xml') }}\n",
+    catch: true,
+    why: 'the cache-key carve-out applies under .github/ only: the same shape in any other config is still a finding',
+  },
 ];
 
 // ── runner ───────────────────────────────────────────────────────────────────

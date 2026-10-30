@@ -517,6 +517,21 @@ const ATTRIBUTE_NAME_VALUE = /^[a-z][a-z0-9_]*(?:\.[a-z][a-z0-9_]*)+$/;
 const isAttributeNameField = (key, value) => key === 'key' && ATTRIBUTE_NAME_VALUE.test(value.trim());
 
 /**
+ * `key:` as an `actions/cache` KEY, not as a credential.
+ *
+ * The cache action names its lookup key `key`, so a workflow or composite action under `.github/` that caches
+ * anything writes `key: <name>-${{ runner.os }}-${{ hashFiles('<file>') }}` (first needed for the Java toolchain
+ * cache, #6860). Matched on the VALUE, like the attribute-name case above, and only under `.github/`: lowercase
+ * letter words joined by dashes, then one or more `${{ runner.os }}`, `${{ runner.arch }}` or
+ * `${{ hashFiles('<path>', ...) }}` expressions, at least one of them a hashFiles. A digit-bearing or mixed-case
+ * literal, a `secrets.`/`inputs.` reference, or PEM material behind a bare `key` is still a finding.
+ */
+const CACHE_KEY_EXPR = String.raw`\$\{\{\s*(?:runner\.(?:os|arch)|hashFiles\('[A-Za-z0-9_./*-]+'(?:,\s*'[A-Za-z0-9_./*-]+')*\))\s*\}\}`;
+const CACHE_KEY_VALUE = new RegExp(String.raw`^[a-z]+(?:-[a-z]+)*(?:-${CACHE_KEY_EXPR})+$`);
+const isCacheKeyField = (rel, key, value) =>
+  key === 'key' && rel.startsWith('.github/') && CACHE_KEY_VALUE.test(value.trim()) && value.includes('hashFiles(');
+
+/**
  * The repo's dev convention: a credential whose password EQUALS its username —
  * `svc_trade:svc_trade@postgres`, `intafaced:intafaced`. It appears throughout
  * docker-compose, .env.example and the CI workflow.
@@ -676,7 +691,12 @@ for (const rel of tracked()) {
         });
       }
 
-      if (SECRET_KEY.test(key) && !NOT_ACTUALLY_SECRET.some((p) => p.test(key)) && !isAttributeNameField(key, value)) {
+      if (
+        SECRET_KEY.test(key) &&
+        !NOT_ACTUALLY_SECRET.some((p) => p.test(key)) &&
+        !isAttributeNameField(key, value) &&
+        !isCacheKeyField(rel, key, value)
+      ) {
         assignmentsChecked++;
         if (declaredUsernames.has(value.toLowerCase()) && value.trim() !== '') {
           // password === a username declared in this same file: the dev convention.
