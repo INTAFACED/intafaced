@@ -299,7 +299,7 @@ test(`${J} #3 saves a view with chosen columns: reopening restores filter and co
     run.write({ [as]: saved(who) });
   }
   const viewerApi = await onTeam(journey(), 'viewer', 'viewer');
-  await onTeam(journey(), 'finance', 'finance');
+  const financeApi = await onTeam(journey(), 'finance', 'finance');
 
   // The payer's email is the one on the TEST invoice the first paid payment settled.
   const owner = await ownerApi(journey());
@@ -356,14 +356,25 @@ test(`${J} #3 saves a view with chosen columns: reopening restores filter and co
   await expect(page.getByLabel('Status')).toHaveValue('captured');
   await expect(page).toHaveURL(new RegExp(`status=captured.*cols=${chosenIds.join('%2C')}|cols=${chosenIds.join('%2C')}.*status=captured`));
   await expect(headers).toHaveText([...chosen, 'Open']);
-  // The rows are the service's own captured payments, counted by its answer.
+  // The rows are the service's own captured payments, matched one by one by payment id.
   const captured = await owner.query('payment.list', { merchantId: state.merchantId, status: 'captured', limit: 25 });
   expect(captured.items.length).toBeGreaterThan(0);
   await expect(rows).toHaveCount(captured.items.length);
-  // A reload keeps the view on.
+  const shownIds = async () =>
+    (await rows.locator('a[href^="/pay/payments/"]').evaluateAll((links) => links.map((a) => a.getAttribute('href'))))
+      .map((href) => decodeURIComponent(href.replace('/pay/payments/', '')))
+      .filter((id, i, all) => all.indexOf(id) === i)
+      .sort();
+  const capturedIds = captured.items.map((p) => p.id).sort();
+  expect(capturedIds).toContain(paidId);
+  expect(await shownIds(), 'the rows are the service captured payments').toEqual(capturedIds);
+  // A reload keeps the view on: its filter, its columns and the same rows.
   await page.reload();
   await expect(page.getByLabel('Saved views')).toHaveValue(kept.id);
+  await expect(page.getByLabel('Status')).toHaveValue('captured');
   await expect(headers).toHaveText([...chosen, 'Open']);
+  await expect(rows).toHaveCount(capturedIds.length);
+  expect(await shownIds()).toEqual(capturedIds);
   expect(refused, 'the owner was refused nothing').toEqual([]);
 
   // A viewer opens the team's shared view: the email is the service's masked value, and there is no Unmask.
@@ -380,8 +391,21 @@ test(`${J} #3 saves a view with chosen columns: reopening restores filter and co
   await expect(page.getByTestId('payer-email-masked').filter({ hasText: viewerRow.customerEmail })).toHaveCount(1);
   await expect(page.getByRole('button', { name: 'Unmask' })).toHaveCount(0);
   expect(await page.locator('body').innerText()).not.toContain(email);
+  // The payment's own page has no Unmask for the viewer either, and never the clear email.
+  await page.goto(`/pay/payments/${encodeURIComponent(paidId)}`);
+  await expect(page.locator('.pp-detail-head')).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Unmask' })).toHaveCount(0);
+  expect(await page.locator('body').innerText()).not.toContain(email);
   // The service refuses a viewer's unmask too, with its typed code, and the audit and the view read back unchanged.
+  // Who holds the permission, as the service's role catalogue (the one the team settings page reads) states it.
+  const catalogue = await owner.query('merchantOps.permissions.catalogue', {});
+  const grants = (role) => catalogue.roles.find((r) => r.role === role)?.grants ?? [];
+  expect(grants('finance'), 'finance holds payments.unmask').toContain('payments.unmask');
+  expect(grants('viewer'), 'a viewer does not').not.toContain('payments.unmask');
+  expect(await viewerApi.query('merchantOps.team.me', {})).toMatchObject({ merchantId: state.merchantId, role: 'viewer' });
+  expect(await financeApi.query('merchantOps.team.me', {})).toMatchObject({ merchantId: state.merchantId, role: 'finance' });
   const readsBefore = await owner.query('payment.unmaskReads', { paymentId: paidId, limit: 50 });
+  const viewsBefore = await owner.query('payment.views.list', { limit: 200 });
   const viewerNow = await ownerApi(journey(), 'viewer');
   const viewerAsk = await viewerNow
     .mutate('payment.unmask', { paymentId: paidId, field: 'customerEmail', reason: 'TEST viewer asks' })
@@ -400,6 +424,20 @@ test(`${J} #3 saves a view with chosen columns: reopening restores filter and co
     )?.customerEmail,
     'the email stays masked for the viewer after the refusal',
   ).toBe(viewerRow.customerEmail);
+  expect(await owner.query('payment.views.list', { limit: 200 }), 'the views read back unchanged').toEqual(viewsBefore);
+
+  // The service holds finance to a reason too: none, or a short one, is refused with its typed code and audits nothing.
+  for (const short of ['', '  short ']) {
+    const ask = await financeApi.mutate('payment.unmask', { paymentId: paidId, field: 'customerEmail', reason: short }).then(
+      () => null,
+      (err) => err,
+    );
+    expect(ask, `finance was refused for the reason ${JSON.stringify(short)}`).not.toBeNull();
+    expect(ask.typed, ask.message).toBe('pay.payment_unmask_reason_required');
+  }
+  expect(await owner.query('payment.unmaskReads', { paymentId: paidId, limit: 50 }), 'a refused reason writes no audit line').toEqual(
+    readsBefore,
+  );
 
   // Finance unmasks: the review asks for a reason first, then shows the email in full.
   await forgetSession(page);
@@ -412,7 +450,7 @@ test(`${J} #3 saves a view with chosen columns: reopening restores filter and co
   const confirm = unmask.getByRole('button', { name: 'Unmask' });
   await expect(confirm).toBeDisabled();
   await expect(unmask.getByText('Give a reason of at least 8 characters.')).toBeVisible();
-  const reason = `TEST payer asked for a receipt ${state.stamp}`;
+  const reason = `TEST payer asked for a receipt ${state.stamp}-${Date.now()}`;
   await unmask.getByLabel('Reason *').fill(reason);
   await expect(confirm).toBeEnabled();
   const answered = page.waitForResponse((r) => new URL(r.url()).pathname.endsWith('/api/pay/trpc/payment.unmask'));
@@ -427,13 +465,18 @@ test(`${J} #3 saves a view with chosen columns: reopening restores filter and co
 
   // The audit line: who, which payment, which field, why; and the business's activity feed shows it.
   const reads = await owner.query('payment.unmaskReads', { paymentId: paidId, limit: 50 });
-  const line = reads.items.find((r) => r.actorId === finance.userId && r.reason === reason);
-  expect(line, 'an audit line was written').toMatchObject({ paymentId: paidId, field: 'customerEmail', actorRole: 'finance' });
-  expect(line.id, 'the audit line is the one the unmask answered with').toBe(unmasked.auditId);
+  const line = reads.items.find((r) => r.id === unmasked.auditId);
+  expect(line, 'the audit line the unmask answered with').toMatchObject({
+    paymentId: paidId,
+    field: 'customerEmail',
+    actorId: finance.userId,
+    actorRole: 'finance',
+    reason,
+  });
   expect(reads.items.length, 'exactly one more audit line than before the viewer was refused').toBe(readsBefore.items.length + 1);
   const activity = await owner.query('merchantOps.activity.list', { limit: 50, action: 'payment.unmasked' });
   expect(
-    activity.items.some((a) => a.objectId === paidId && a.actorId === finance.userId),
+    activity.items.some((a) => a.id === unmasked.auditId && a.objectId === paidId && a.actorId === finance.userId),
     'the activity feed names the unmask',
   ).toBe(true);
   expect(refused).toEqual([]);

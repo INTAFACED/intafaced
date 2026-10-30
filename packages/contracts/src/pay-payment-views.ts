@@ -102,8 +102,9 @@ export const paymentUnmaskInputSchema = z
   .object({
     paymentId: z.string().guid(),
     field: paymentMaskedFieldSchema,
-    /** Why the clear value is needed. Kept on the audit line. */
-    reason: z.string().trim().min(8).max(500),
+    /** Why the clear value is needed. Kept on the audit line. The service refuses one under 8 characters with its own
+     * typed code (`pay.payment_unmask_reason_required`), so the length rule lives in one place. */
+    reason: z.string().trim().max(500),
   })
   .strict();
 
