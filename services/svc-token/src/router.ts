@@ -9,6 +9,7 @@ import {
   type ActionApprovalConsumer,
 } from './action-approval-consume.js';
 import { DualControlError, requireDualControl } from './dual-control.js';
+import { GOVERNANCE_ROLES, checkGovernanceSettings, type GovernanceSettings } from './governance-settings.js';
 import {
   TokenError,
   feeDiscountLadderToPublish,
@@ -30,6 +31,28 @@ import type { LaunchService } from './launch/launch-service.js';
 
 /** The founders' approval that publishes the fee-decay schedule; the router binds the ladder and the version it replaces. */
 export const FEE_DISCOUNT_PUBLISH_ACTION = 'token.fee_discount.publish';
+/** Two founders write the governance voting delay and period (MC-token-02). */
+export const GOVERNANCE_SETTINGS_ACTION = 'token.governance.settings.set';
+/** Two founders grant, change or revoke one account's governance role (MC-token-02). */
+export const GOVERNANCE_ROLE_ACTION = 'token.governance.role.set';
+
+/** The fields the founders' settings approval binds. A blank setting is the empty string. */
+export function governanceSettingsPayload(input: {
+  votingDelayMs: string | null;
+  votingPeriodMs: string | null;
+  expectedRevision: number;
+}): Record<string, string> {
+  return {
+    votingDelayMs: input.votingDelayMs ?? '',
+    votingPeriodMs: input.votingPeriodMs ?? '',
+    expectedRevision: String(input.expectedRevision),
+  };
+}
+
+/** The fields the founders' role approval binds. A revoke is the empty role. */
+export function governanceRolePayload(input: { userId: string; role: string | null; expectedRevision: number }): Record<string, string> {
+  return { userId: input.userId, role: input.role ?? '', expectedRevision: String(input.expectedRevision) };
+}
 
 /**
  * svc-token API surface.
@@ -162,6 +185,19 @@ const proposalCountsOutput = z.object({
   abstain: z.number().int().nonnegative(),
 });
 
+/** A whole number of milliseconds as a decimal string; the door checks its range. */
+const msWire = z.string().regex(/^\d{1,15}$/);
+const governanceRole = z.enum(GOVERNANCE_ROLES);
+const governanceSettingsOutput = z.object({
+  votingDelayMs: z.string().nullable(),
+  votingPeriodMs: z.string().nullable(),
+  revision: z.number().int().nonnegative(),
+});
+
+function settingsToWire(s: GovernanceSettings) {
+  return { votingDelayMs: s.votingDelayMs?.toString() ?? null, votingPeriodMs: s.votingPeriodMs?.toString() ?? null, revision: s.revision };
+}
+
 const proposalOutput = z.object({
   id: proposalIdWire,
   kind: proposalKind,
@@ -180,6 +216,7 @@ const proposalOutput = z.object({
   choices: z.array(z.string()).nullable(),
   snapshot: snapshotOutput.nullable(),
   ranking: z.array(z.number().int().nonnegative()).nullable(),
+  cancel: z.object({ reason: z.string(), at: z.string() }).nullable(),
   counts: proposalCountsOutput,
 });
 
@@ -259,7 +296,13 @@ function toTrpcError(err: unknown): TRPCError {
       case 'token.buyback_window_overlap':
       case 'token.buyback_run_conflict':
       case 'token.fee_discount_stale':
+      case 'token.settings_stale':
+      case 'token.role_stale':
         return new TRPCError({ code: 'CONFLICT', message, cause: err });
+      case 'token.permission_denied':
+        return new TRPCError({ code: 'FORBIDDEN', message, cause: err });
+      case 'token.proposal_window_unset':
+        return new TRPCError({ code: 'PRECONDITION_FAILED', message, cause: err });
       // The ladder's own error names the step that is wrong; the copy alone would not tell the owner which.
       case 'token.fee_discount_invalid':
         return new TRPCError({ code: 'BAD_REQUEST', message: `${message} ${err.message}`, cause: err });
@@ -374,6 +417,7 @@ function proposalToWire(p: {
   choices: string[] | null;
   snapshot: SnapshotSeal | null;
   ranking: number[] | null;
+  cancel: { reason: string; at: Date } | null;
   counts: { votes: number; for: number; against: number; abstain: number };
 }) {
   return {
@@ -394,6 +438,7 @@ function proposalToWire(p: {
     choices: p.choices,
     snapshot: p.snapshot ? { count: p.snapshot.count, total: formatAmount(p.snapshot.total), hash: p.snapshot.hash } : null,
     ranking: p.ranking,
+    cancel: p.cancel ? { reason: p.cancel.reason, at: p.cancel.at.toISOString() } : null,
     counts: p.counts,
   };
 }
@@ -1117,6 +1162,141 @@ export function createTokenRouter(token: TokenService, options: TokenRouterOptio
     // `closeProposal` writes passed|rejected from the tally vs owner env bps.
     // Blank env → token.governance_quorum_unset. Grant/listing do not execute
     // (token.governance_execute_unwired). No executeProposal.
+
+    /**
+     * MC-token-02 (J-more-catalogue-10). The voting delay and period are the founders' values: two founders approve
+     * exactly the new pair over the revision it replaces (`token.governance.settings.set`), and a blank one means a
+     * proposal must give its own time. Roles say who may cancel; a role change is the same two-founder door
+     * (`token.governance.role.set`). A cancel is the role holder's own act with a reason, and keeps the votes.
+     */
+    governance: router({
+      settings: anyScopeProcedure(['token:read', 'admin:read'])
+        .output(governanceSettingsOutput)
+        .query(() => guard(async () => settingsToWire(await token.governanceSettings()))),
+      settingsHistory: scopedProcedure('admin:read')
+        .output(
+          z.array(
+            z.object({
+              ordinal: z.number().int().positive(),
+              votingDelayMs: z.string().nullable(),
+              votingPeriodMs: z.string().nullable(),
+              actorId: z.string(),
+              approverId: z.string(),
+              at: z.string(),
+            }),
+          ),
+        )
+        .query(() =>
+          guard(async () =>
+            (await token.governanceSettingsHistory()).map((m) => ({
+              ordinal: m.ordinal,
+              votingDelayMs: m.votingDelayMs?.toString() ?? null,
+              votingPeriodMs: m.votingPeriodMs?.toString() ?? null,
+              actorId: m.actorId,
+              approverId: m.approverId,
+              at: m.at.toISOString(),
+            })),
+          ),
+        ),
+      setSettings: scopedProcedure('admin:write')
+        .input(
+          z.object({
+            votingDelayMs: msWire.nullable(),
+            votingPeriodMs: msWire.nullable(),
+            expectedRevision: z.number().int().nonnegative(),
+            approvalId: z.string().max(128).nullish(),
+            operationId: z.string().max(128).nullish(),
+          }),
+        )
+        .output(governanceSettingsOutput.extend({ confirmOperatorId: z.string() }))
+        .mutation(({ ctx, input }) =>
+          guard(async () => {
+            const votingDelayMs = input.votingDelayMs === null ? null : BigInt(input.votingDelayMs);
+            const votingPeriodMs = input.votingPeriodMs === null ? null : BigInt(input.votingPeriodMs);
+            // Refuse what the door refuses before the founders' approval is spent on it.
+            checkGovernanceSettings({ votingDelayMs, votingPeriodMs });
+            const consumed = await consumeTokenApproval(
+              approvals,
+              input,
+              GOVERNANCE_SETTINGS_ACTION,
+              governanceSettingsPayload(input),
+              String(input.expectedRevision),
+            );
+            const confirmOperatorId = requireDualControl(ctx.principal.userId, consumed.approverId);
+            const stored = await token.setGovernanceSettings({
+              votingDelayMs,
+              votingPeriodMs,
+              expectedRevision: input.expectedRevision,
+              // requireDualControl refused a missing operator above.
+              actorId: ctx.principal.userId!,
+              approverId: confirmOperatorId,
+            });
+            return { ...settingsToWire(stored), confirmOperatorId };
+          }),
+        ),
+      roles: scopedProcedure('admin:read')
+        .input(z.object({ limit: z.number().int().min(1).max(200) }))
+        .output(z.array(z.object({ userId: z.string(), role: governanceRole, revision: z.number().int().positive() })))
+        .query(({ input }) =>
+          guard(async () =>
+            (await token.governanceRoles(input.limit)).map((r) => ({ userId: r.userId, role: r.role!, revision: r.revision })),
+          ),
+        ),
+      myRole: scopedProcedure('token:read', { module: 'token' })
+        .output(z.object({ role: governanceRole.nullable() }))
+        .query(({ ctx }) => guard(async () => ({ role: await token.governanceRoleOf(ctx.principal.userId) }))),
+      setRole: scopedProcedure('admin:write')
+        .input(
+          z.object({
+            userId: z.string().min(1).max(128),
+            role: governanceRole.nullable(),
+            expectedRevision: z.number().int().nonnegative(),
+            approvalId: z.string().max(128).nullish(),
+            operationId: z.string().max(128).nullish(),
+          }),
+        )
+        .output(
+          z.object({
+            userId: z.string(),
+            role: governanceRole.nullable(),
+            revision: z.number().int().positive(),
+            confirmOperatorId: z.string(),
+          }),
+        )
+        .mutation(({ ctx, input }) =>
+          guard(async () => {
+            if (input.userId === ctx.principal.userId)
+              throw new TokenError('A role is never granted by the account that receives it', 'token.role_invalid');
+            const consumed = await consumeTokenApproval(
+              approvals,
+              input,
+              GOVERNANCE_ROLE_ACTION,
+              governanceRolePayload(input),
+              String(input.expectedRevision),
+            );
+            const confirmOperatorId = requireDualControl(ctx.principal.userId, consumed.approverId);
+            const stored = await token.setGovernanceRole({
+              userId: input.userId,
+              role: input.role,
+              expectedRevision: input.expectedRevision,
+              // requireDualControl refused a missing operator above.
+              actorId: ctx.principal.userId!,
+              approverId: confirmOperatorId,
+            });
+            return { ...stored, confirmOperatorId };
+          }),
+        ),
+      cancel: scopedProcedure('token:stake', { module: 'token' })
+        .input(z.object({ proposalId: proposalIdWire, reason: z.string().max(2000) }))
+        .output(proposalOutput)
+        .mutation(({ ctx, input }) =>
+          guard(async () =>
+            proposalToWire(
+              await token.cancelProposal({ proposalId: input.proposalId, reason: input.reason, actorId: ctx.principal.userId }),
+            ),
+          ),
+        ),
+    }),
 
     createProposal: protectedProcedure
       .input(

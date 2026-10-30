@@ -60,12 +60,15 @@ interface ProposalSqlRow {
   snapshot_total?: string | null;
   snapshot_hash?: string | null;
   ranking?: unknown;
+  cancel_reason?: string | null;
+  cancelled_at?: Date | null;
 }
 
 const PROPOSAL_RETURNING = `
   id, kind, body, status, opens_at, closes_at, created_at,
   title, body_md, discussion_link, business_key, author_id, revision,
-  voting_type, choices, snapshot_count, snapshot_total::text AS snapshot_total, snapshot_hash, ranking
+  voting_type, choices, snapshot_count, snapshot_total::text AS snapshot_total, snapshot_hash, ranking,
+  cancel_reason, cancelled_at
 `;
 
 function accessError(code: ProposalAccessCode): TokenError {
@@ -294,6 +297,7 @@ export function proposalCard(row: ProposalSqlRow): ProposalRecord {
       snapshot_hash: row.snapshot_hash ?? null,
     }),
     ranking: storedRanking(row.ranking),
+    cancel: row.cancel_reason && row.cancelled_at ? { reason: row.cancel_reason, at: row.cancelled_at } : null,
     counts: {
       votes: asCount(row.votes),
       for: asCount(row.for_n),
@@ -355,6 +359,7 @@ export async function listGovernanceProposals(
     SELECT p.id, p.kind, p.body, p.status, p.opens_at, p.closes_at, p.created_at,
            p.title, p.body_md, p.discussion_link, p.business_key, p.author_id, p.revision,
            p.voting_type, p.choices, p.snapshot_count, p.snapshot_total::text AS snapshot_total, p.snapshot_hash, p.ranking,
+           p.cancel_reason, p.cancelled_at,
            COALESCE(c.votes, 0) AS votes,
            COALESCE(c.for_n, 0) AS for_n,
            COALESCE(c.against_n, 0) AS against_n,
@@ -380,6 +385,7 @@ export async function loadProposalRow(sql: Sql, proposalId: string): Promise<Pro
     SELECT p.id, p.kind, p.body, p.status, p.opens_at, p.closes_at, p.created_at,
            p.title, p.body_md, p.discussion_link, p.business_key, p.author_id, p.revision,
            p.voting_type, p.choices, p.snapshot_count, p.snapshot_total::text AS snapshot_total, p.snapshot_hash, p.ranking,
+           p.cancel_reason, p.cancelled_at,
            COALESCE(c.votes, 0) AS votes,
            COALESCE(c.for_n, 0) AS for_n,
            COALESCE(c.against_n, 0) AS against_n,
