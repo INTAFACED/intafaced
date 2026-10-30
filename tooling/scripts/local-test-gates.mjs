@@ -2504,11 +2504,16 @@ export async function capabilityOff(ctx, handle, capability, reasonCode) {
 /**
  * Restrict or restore trading for a journey account at identity, through the two-person path a trade-ops operator uses
  * (`trading.restrict` four-eyes, then `accountControls.change`). Needs the stack's TEST flag
- * IDENTITY_TRADING_RESTRICT_REQUIRES_APPROVAL. Only `@local-test.invalid` accounts.
+ * IDENTITY_TRADING_RESTRICT_REQUIRES_APPROVAL. Only `@local-test.invalid` accounts. `reasonCode` (restrict only) is a code
+ * from the stack's TEST trading restriction reason list; identity stores it and the approval binds it.
  */
-export async function tradingRestrict(ctx, handle, action) {
-  if (!/^[a-z0-9_]{3,32}$/i.test(handle ?? '') || !['restrict', 'restore'].includes(action))
-    throw new Error('usage: local-test-gates.mjs trading-restrict <handle> restrict|restore');
+export async function tradingRestrict(ctx, handle, action, reasonCode) {
+  if (
+    !/^[a-z0-9_]{3,32}$/i.test(handle ?? '') ||
+    !['restrict', 'restore'].includes(action) ||
+    (reasonCode !== undefined && (action !== 'restrict' || !/^[a-z][a-z0-9_]{1,63}$/.test(reasonCode)))
+  )
+    throw new Error('usage: local-test-gates.mjs trading-restrict <handle> restrict [<reasonCode>] | restore');
   const { users } = listAccountsAndTiers(ctx.secrets);
   const user = users.find((u) => u.handle === handle);
   if (!user || !user.email.endsWith('@local-test.invalid')) throw new Error(`trading-restrict: ${handle} is not a journey account`);
@@ -2531,6 +2536,7 @@ export async function tradingRestrict(ctx, handle, action) {
         reason,
         expectedVersion,
         ...(approvalId ? { approvalId } : {}),
+        ...(reasonCode ? { reasonCode } : {}),
       },
       token,
     );
@@ -2538,7 +2544,10 @@ export async function tradingRestrict(ctx, handle, action) {
   const probe = data(await change('0'));
   const expectedVersion = probe?.current?.version;
   if (expectedVersion === undefined) throw new Error(`trading-restrict: no current state (${JSON.stringify(probe)})`);
-  const payloadHash = founderChangeHash({ area: 'trading', userId: user.id.toLowerCase(), action, reason }, expectedVersion);
+  const payloadHash = founderChangeHash(
+    { area: 'trading', userId: user.id.toLowerCase(), action, reason, ...(reasonCode ? { reasonCode } : {}) },
+    expectedVersion,
+  );
   const proposed = await ctx.edge.mutate(
     'identity',
     'actionApproval.propose',
@@ -2651,7 +2660,7 @@ async function main() {
       const r = await capabilityOff(ctx, process.argv[3], process.argv[4], process.argv[5]);
       say(`  ${r.ok ? 'OK     ' : 'REFUSED'} ${r.handle} ${r.capability}: ${r.why}`);
     } else if (cmd === 'trading-restrict') {
-      const r = await tradingRestrict(ctx, process.argv[3], process.argv[4]);
+      const r = await tradingRestrict(ctx, process.argv[3], process.argv[4], process.argv[5]);
       say(`  ${r.ok ? 'OK     ' : 'REFUSED'} ${r.handle} trading ${r.action}: ${r.why}`);
     } else if (cmd === 'terms') {
       for (const r of await publishTransferTerms(ctx)) say(`  terms     ${r.assetId.padEnd(10)} published, approved by ${r.approvedBy}`);
@@ -2762,7 +2771,7 @@ async function main() {
       say(JSON.stringify(await status(ctx), null, 2));
     } else {
       die(
-        'usage: local-test-gates.mjs apply | operators | lifecycle | open | terms | assets | deposit-terms | withdrawal-limits | withdraw-terms | withdraw-limit <tier> <assetId> unset|test | withdraw-fee <networkId> unset|test | futures | limits | charts | chart-class <SYMBOL> <dataClass> | risk <SYMBOL> k=v... | p2p | verify | kyc-reject <handle> <reasonCode> | kyc-capability-off <handle> <capability> <reasonCode> | trading-restrict <handle> restrict|restore | halt <SYMBOL> | resume <SYMBOL> | age <handle> <seconds> | status',
+        'usage: local-test-gates.mjs apply | operators | lifecycle | open | terms | assets | deposit-terms | withdrawal-limits | withdraw-terms | withdraw-limit <tier> <assetId> unset|test | withdraw-fee <networkId> unset|test | futures | limits | charts | chart-class <SYMBOL> <dataClass> | risk <SYMBOL> k=v... | p2p | verify | kyc-reject <handle> <reasonCode> | kyc-capability-off <handle> <capability> <reasonCode> | trading-restrict <handle> restrict [<reasonCode>] | restore | halt <SYMBOL> | resume <SYMBOL> | age <handle> <seconds> | status',
         2,
       );
     }

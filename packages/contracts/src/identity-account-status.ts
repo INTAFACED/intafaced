@@ -18,7 +18,9 @@ import { kycReasonCodeSchema } from './identity-kyc-cases.js';
  * - `trading_restricted` (founder controls, trading area): identity cancels every fresh svc-trade operation (placing or
  *   enlarging an order, starting a bot, a bot's or a copy's child order) with `trade.account_restricted`, so it blocks
  *   `trade`. Cancelling an order is not an admission and goes on, and an armed futures stop still fires its reduce-only
- *   order. Only staff lift it; identity keeps no start.
+ *   order. Only staff lift it; identity keeps no start. When staff restrict with a code from the owner's trading
+ *   restriction reason list (`IDENTITY_TRADING_RESTRICTION_REASONS`), identity stores the code and its words and next
+ *   step travel in `owner`, as for `capability_off`.
  * - `capability_off` (I-kyc-compliance-17): compliance switched a KYC capability off for good, with a code from the
  *   owner's capability reason list (`IDENTITY_KYC_CAPABILITY_REASONS`), whose words and next step travel in `owner`.
  *   Identity refuses a new request for a level that grants it (`kyc.capability_inactive`); no service outside identity
@@ -96,8 +98,9 @@ export const accountRestrictionSchema = z
     /** For `capability_off`: which capability. Null for every other kind. */
     capability: kycCapabilitySchema.nullable(),
     /**
-     * For `capability_off`: the owner's code, words and next step from the capability reason list. `text` and `guidance`
-     * are null when the code is no longer on the list. Null for every other kind.
+     * For `capability_off`: the owner's code, words and next step from the capability reason list. For
+     * `trading_restricted` restricted with a code: the same from the trading restriction reason list. `text` and
+     * `guidance` are null when the code is no longer on the list. Null for every other kind.
      */
     owner: z
       .object({ code: kycReasonCodeSchema, text: z.string().min(1).nullable(), guidance: z.string().min(1).nullable() })

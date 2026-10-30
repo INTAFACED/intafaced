@@ -1,4 +1,5 @@
 import { randomBytes } from 'node:crypto';
+import { readFileSync } from 'node:fs';
 import { chromium, test, expect } from '@playwright/test';
 import { localTestDeviceState } from '../../../../tooling/scripts/local-test-device.mjs';
 import { ADMIN, founderSignIn } from './admin.mjs';
@@ -13,6 +14,12 @@ const J = 'J-identity-08';
 const UNBUILT = { timeout: 5_000 };
 const LEVELS = ['none', 'basic', 'full', 'institutional'];
 const GATED = ['deposit', 'withdraw', 'trade', 'card', 'earn'];
+/** The stack's one TEST trading restriction reason (IDENTITY_TRADING_RESTRICTION_REASONS), as account status returns it. */
+const TRADING_REASON = (() => {
+  const raw = JSON.parse(readFileSync(new URL('../../../../tooling/profiles/test-owner-values/identity.json', import.meta.url), 'utf8'));
+  const [listed] = JSON.parse(raw.values.IDENTITY_TRADING_RESTRICTION_REASONS.value);
+  return { code: listed.code, text: listed.reason, guidance: listed.guidance };
+})();
 
 function person(prefix = 'kv') {
   const handle = `${prefix}${Date.now().toString(36)}${randomBytes(2).toString('hex')}`;
@@ -609,11 +616,16 @@ test(`${J} #7: a trading restriction refuses a new order on the desk by name, ke
   expect(earlier?.id).toBeTruthy();
   const client = await api(who);
   const usdtBefore = (await client.balances()).USDT;
+  // The earlier order holds USDT, so the cancel below has a hold to release.
+  expect(usdtBefore.used).not.toMatch(/^0(\.0+)?$/);
 
   let lifted = false;
   try {
-    // A trade-ops operator restricts this account's trading at identity, with a second person's approval.
-    expect(tool('local-test-gates.mjs', 'trading-restrict', who.handle, 'restrict')).toMatch(/OK .* trading restrict: changed/);
+    // A trade-ops operator restricts this account's trading at identity, with a second person's approval and a reason
+    // code from the owner's list (the stack's TEST IDENTITY_TRADING_RESTRICTION_REASONS).
+    expect(tool('local-test-gates.mjs', 'trading-restrict', who.handle, 'restrict', TRADING_REASON.code)).toMatch(
+      /OK .* trading restrict: changed/,
+    );
 
     // On another screen, the trade desk: a new order is refused by name before anything is held.
     await page.reload();
@@ -647,10 +659,17 @@ test(`${J} #7: a trading restriction refuses a new order on the desk by name, ke
     await expect(restriction).toContainText(
       'It stops new orders, larger orders, new bots and copied trades. You can still cancel an order.',
     );
-    // The reason line: the gate records a free-text staff note and no coded reason, so the customer reads none, and only
-    // support lifts it.
-    await expect(restriction).toHaveAttribute('data-reason', '');
-    await expect(restriction).toContainText('No reason recorded.');
+    // The reason identity stored with the restriction, read back from identity itself: the code staff chose and the
+    // owner's words and next step for it.
+    const mine = await client.get('/api/identity/trpc/accountStatus.mine');
+    expect(mine.status).toBe(200);
+    const stored = mine.body.result.data.restrictions.filter((r) => r.kind === 'trading_restricted');
+    expect(stored.map((r) => r.owner)).toEqual([TRADING_REASON]);
+    // The page says that stored reason in plain words, with its next step, and that only support lifts it.
+    await expect(restriction).toHaveAttribute('data-reason', TRADING_REASON.code);
+    await expect(restriction).toContainText(TRADING_REASON.text);
+    await expect(restriction).toContainText(TRADING_REASON.guidance);
+    await expect(restriction).not.toContainText('No reason recorded.');
     await expect(restriction).toContainText('Only support can lift this.');
     await expect(status.getByTestId('account-status__cannot').locator('li')).toHaveText(['Trade']);
 
@@ -658,6 +677,10 @@ test(`${J} #7: a trading restriction refuses a new order on the desk by name, ke
     const cancel = await client.delete(`/api/v1/orders/${earlier.id}?symbol=${encodeURIComponent('BTC/USDT')}`);
     expect(cancel.status, JSON.stringify(cancel.body)).toBe(200);
     await expect.poll(async () => (await openOrders(who)).length, { timeout: 20_000 }).toBe(0);
+    // Its hold is released: nothing is held, and all of the same total is free again.
+    await expect
+      .poll(async () => (await client.balances()).USDT, { timeout: 20_000 })
+      .toEqual({ free: usdtBefore.total, used: expect.stringMatching(/^0(\.0+)?$/), total: usdtBefore.total });
 
     // Lifted, again with two people: the same order goes through and rests.
     expect(tool('local-test-gates.mjs', 'trading-restrict', who.handle, 'restore')).toMatch(/OK .* trading restore: changed/);
