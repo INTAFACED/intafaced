@@ -3,7 +3,7 @@ import { signIn, signUp } from './desk.mjs';
 import { EDGE, ORIGIN, api, signOutBrowser, tool } from './stack.mjs';
 import { tableIn, bodyRows } from './tables.mjs';
 import { readFileSync } from 'node:fs';
-import { createPublicClient, createWalletClient, encodeFunctionData, getAddress, http, parseAbi } from 'viem';
+import { createPublicClient, createWalletClient, encodeFunctionData, formatUnits, getAddress, http, parseAbi } from 'viem';
 import { generatePrivateKey, privateKeyToAccount } from 'viem/accounts';
 import { TOKEN_A, fundOnTestChain, testChain } from './dex.mjs';
 
@@ -301,7 +301,8 @@ test(`${J} #4 pastes a 40-hex address into search: the address page is the top r
 
 /**
  * A contract that forwards the value it is sent to the address in its calldata, by an internal call: so the address
- * receives value only inside a transaction, which is what "internal transactions" lists. Runtime code:
+ * receives value only inside a transaction, which is what "internal transactions" lists (#5); #10 deploys it as the twin
+ * transaction. Runtime code:
  * CALL(gas, calldataload(0), callvalue, 0, 0, 0, 0), then STOP.
  */
 const FORWARDER_DEPLOY = '0x600f600c600039600f6000f3' + '600060006000600034600035' + '5af100';
@@ -484,18 +485,99 @@ test(`${J} #6 adds a watch with a tag and a private note: listed for this person
 test(`${J} #7 opens a pool page and a token page: candles, volume, buy and sell rows, holders; an address that is not a pool reads "not a pool"`, async ({
   page,
 }) => {
+  test.setTimeout(180_000);
   await page.goto('/dex/pools');
-  const pool = tableIn(page, 'Pools').getByRole('link').first();
-  await expect(pool).toBeVisible(UNBUILT);
-  await pool.click();
-  await expect(page.getByRole('img', { name: /Price chart/ })).toBeVisible();
-  await expect(main(page)).toContainText(/Volume/);
-  await expect(bodyRows(tableIn(page, 'Trades')).first()).toContainText(/Buy|Sell/);
+  const listed = tableIn(page, 'Pools').getByRole('link').first();
+  await expect(listed).toBeVisible(UNBUILT);
+  const poolAddress = getAddress((await listed.getAttribute('href')).split('/').pop());
+
+  // A buy and a sell of the pool's first token, mined here from a fresh funded TEST key, so the rows the page must show
+  // are this step's own and not whatever another journey left on the chain.
+  const chain = testChain();
+  expect(chain.chain, 'the stack runs no TEST chain, so no swap can be mined').toBe('running');
+  const viemChain = {
+    id: chain.chainId,
+    name: 'TEST chain',
+    nativeCurrency: { name: 'TEST ETH', symbol: 'ETH', decimals: 18 },
+    rpcUrls: { default: { http: [chain.gateUrl] } },
+  };
+  const reader = createPublicClient({ chain: viemChain, transport: http(chain.gateUrl) });
+  const poolAbi = parseAbi([
+    'function token0() view returns (address)',
+    'function token1() view returns (address)',
+    'function getReserves() view returns (uint112, uint112, uint32)',
+    'function swapExactIn(address tokenIn, uint256 amountIn, uint256 minAmountOut, address to) returns (uint256)',
+  ]);
+  const erc20 = parseAbi([
+    'function approve(address spender, uint256 amount) returns (bool)',
+    'function decimals() view returns (uint8)',
+    'function symbol() view returns (string)',
+  ]);
+  const [token0, token1] = await Promise.all(
+    ['token0', 'token1'].map((functionName) => reader.readContract({ address: poolAddress, abi: poolAbi, functionName })),
+  );
+  const [decimals0, decimals1, symbol0] = await Promise.all([
+    reader.readContract({ address: token0, abi: erc20, functionName: 'decimals' }),
+    reader.readContract({ address: token1, abi: erc20, functionName: 'decimals' }),
+    reader.readContract({ address: token0, abi: erc20, functionName: 'symbol' }),
+  ]);
+  const trader = privateKeyToAccount(generatePrivateKey());
+  fundOnTestChain(trader.address);
+  const wallet = createWalletClient({ account: trader, chain: viemChain, transport: http(chain.gateUrl) });
+  const mined = async (request) => {
+    const hash = await wallet.writeContract({ ...request, gas: 300_000n });
+    expect((await reader.waitForTransactionReceipt({ hash })).status).toBe('success');
+    return hash;
+  };
+  const in1 = 10n ** BigInt(decimals1);
+  const in0 = 10n ** BigInt(decimals0);
+  await mined({ address: token1, abi: erc20, functionName: 'approve', args: [poolAddress, in1] });
+  await mined({ address: token0, abi: erc20, functionName: 'approve', args: [poolAddress, in0] });
+  const buy = await mined({ address: poolAddress, abi: poolAbi, functionName: 'swapExactIn', args: [token1, in1, 1n, trader.address] });
+  const sell = await mined({ address: poolAddress, abi: poolAbi, functionName: 'swapExactIn', args: [token0, in0, 1n, trader.address] });
+
+  // the pool page, once the indexer holds both swaps
+  const trades = () => tableIn(page, 'Trades');
+  const tradeRow = (hash) =>
+    trades()
+      .getByRole('row')
+      .filter({ has: page.locator(`a[title="${hash}"]`) });
+  await expect(async () => {
+    await page.goto(`/dex/pools/${poolAddress.toLowerCase()}`);
+    await expect(tradeRow(sell)).toHaveCount(1, { timeout: 2_000 });
+  }).toPass({ timeout: 30_000 });
+
+  // buy and sell rows: each labelled from the first token's side, as it was mined
+  await expect(tradeRow(buy)).toContainText(`Buy ${symbol0}`);
+  await expect(tradeRow(sell)).toContainText(`Sell ${symbol0}`);
+
+  // candles
+  const chart = page.getByRole('img', { name: /^Price chart: / });
+  await expect(chart).toBeVisible();
+  expect(await chart.getByTestId('pool-candle').count()).toBeGreaterThan(0);
+
+  // volume: the last day's swaps, at least the two mined here
+  const volume = page.getByTestId('pool-volume');
+  await expect(volume).toContainText(/in the last 24 hours, \d+ swaps$/);
+  expect(Number(/(\d+) swaps$/.exec(await volume.innerText())[1])).toBeGreaterThanOrEqual(2);
+
+  // the reserves shown are the pool's own getReserves() at the block the page names
+  const reservesLabel = page.getByText(/^Reserves after block \d+$/);
+  await expect(reservesLabel).toBeVisible();
+  const height = BigInt(/(\d+)$/.exec(await reservesLabel.innerText())[1]);
+  const [r0, r1] = await reader.readContract({ address: poolAddress, abi: poolAbi, functionName: 'getReserves', blockNumber: height });
+  await expect(reservesLabel.locator('xpath=following-sibling::dd')).toHaveText(
+    `${formatUnits(r0, decimals0)} ${symbol0} · ${formatUnits(r1, decimals1)} ${await reader.readContract({ address: token1, abi: erc20, functionName: 'symbol' })}`,
+  );
+
+  // a token page: holders
   await page
     .getByRole('link', { name: /TEST Token A/ })
     .first()
     .click();
   await expect(page.getByRole('tab', { name: 'Holders' })).toBeVisible();
+
+  // an address that is not a pool reads "not a pool"
   await page.goto(`/dex/pools/${ADDRESS.toLowerCase()}`);
   await expect(main(page)).toContainText('not a pool');
 });
@@ -530,21 +612,6 @@ test(`${J} #9 reads the pool's fee fields: as the contract holds them, no third 
   await fees.getByRole('button', { name: 'Request a protocol fee' }).click();
   await expect(page.getByRole('alert')).toContainText('protocol fee policy is not set');
 });
-
-/**
- * A contract that forwards the value it is sent to the address in its calldata, by an internal call. #10 deploys it as
- * the twin transaction. Runtime code: CALL(gas, calldataload(0), callvalue, 0, 0, 0, 0), then STOP.
- */
-const FORWARDER_DEPLOY = '0x600f600c600039600f6000f3' + '600060006000600034600035' + '5af100';
-
-/** Polls the indexer until it has stored the canonical block at `height`, so the page reads a block that holds the run's txs. */
-async function indexedTo(height) {
-  const input = (h) => encodeURIComponent(JSON.stringify({ chainId: testChain().chainId, height: h }));
-  await expect(async () => {
-    const res = await fetch(`${EDGE}/api/indexer/trpc/explorer.blocks.get?input=${input(height)}`, { headers: { origin: ORIGIN } });
-    expect(res.status).toBe(200);
-  }).toPass({ timeout: 60_000 });
-}
 
 /** One JSON-RPC call to a TEST network's gate. */
 async function rpcAt(url, method, params = []) {
