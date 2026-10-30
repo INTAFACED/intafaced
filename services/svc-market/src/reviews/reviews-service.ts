@@ -212,7 +212,8 @@ export class ReviewsService {
     if (purchase.buyer_id !== input.buyerId) {
       throw new MarketError(MARKET_REVIEW_NOT_BUYER, MARKET_REVIEW_NOT_BUYER);
     }
-    if (purchase.status !== 'settled') {
+    // A held purchase is reviewable once released, never while held or after a refund.
+    if (purchase.status !== 'settled' && purchase.status !== 'released') {
       throw new MarketError(MARKET_REVIEW_NOT_SETTLED, MARKET_REVIEW_NOT_SETTLED);
     }
 

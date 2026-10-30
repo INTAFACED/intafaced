@@ -65,7 +65,7 @@ const purchaseSchema = z.object({
   assetId: z.string(),
   price: decimalSchema,
   commissionBps: z.number().int(),
-  status: z.enum(['pending', 'settled', 'rejected']),
+  status: z.enum(['pending', 'settled', 'rejected', 'held', 'released', 'refunded']),
   ledgerTxId: uuid.nullable(),
   rejectionCode: z.string().nullable(),
   createdAt: time,
@@ -75,6 +75,8 @@ const purchaseSchema = z.object({
 function originalPurchaseOutcome(row: z.infer<typeof purchaseSchema>): ApiResult<z.infer<typeof purchaseSchema>> {
   if (row.status === 'pending') return marketRefusal('uncertain', 'market.original.purchase.is.still.pending.settlement.is');
   if (row.status === 'settled' && row.ledgerTxId && row.settledAt) return { ok: true, data: row };
+  // A held purchase is paid into the buyer's held pot (MC-market-02); its release or refund comes later.
+  if ((row.status === 'held' || row.status === 'released' || row.status === 'refunded') && row.ledgerTxId) return { ok: true, data: row };
   // The service marks rejected only for a definitive failed ledger admission;
   // it retains the rejection code and has no settlement evidence for that row.
   if (row.status === 'rejected' && row.rejectionCode && row.ledgerTxId === null && row.settledAt === null) return { ok: true, data: row };

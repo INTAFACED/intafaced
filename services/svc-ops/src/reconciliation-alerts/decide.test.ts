@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { ReconciliationEvaluation } from '@intafaced/contracts/ledger-reconciliation';
-import { assetFails, failingTargets, repeatNotice } from './decide.js';
+import { alertTargets, assetFails, failingTargets, repeatNotice, sameFrozenFigures } from './decide.js';
 
 const asset = (difference: string, tolerance: string) => ({ assetId: 'USDC', observed: '0', expected: '0', difference, tolerance });
 
@@ -52,5 +52,25 @@ describe('reconciliation alert decisions', () => {
     expect(repeatNotice({ repeatSeconds: 90, lastNoticeAt: last, now, snoozed: true })).toBe('not_due');
     expect(repeatNotice({ repeatSeconds: 60, lastNoticeAt: last, now, snoozed: true })).toBe('snoozed');
     expect(repeatNotice({ repeatSeconds: 60, lastNoticeAt: last, now, snoozed: false })).toBe('sent');
+  });
+
+  it('raises one platform target for an ERROR, naming its code and phase or unset, and finance targets for a FAIL', () => {
+    const error = evaluation('ERROR', [asset('9', '0')]);
+    expect(alertTargets(error)).toEqual([{ cause: 'error', asset: null, errorCode: 'unset', phase: null }]);
+    error.run.errorCode = { status: 'set', value: 'outside_unavailable' };
+    error.run.phase = { status: 'set', value: 'outside' };
+    expect(alertTargets(error)).toEqual([{ cause: 'error', asset: null, errorCode: 'outside_unavailable', phase: 'outside' }]);
+    expect(alertTargets(evaluation('FAIL', [asset('2', '1')]))).toEqual([{ cause: 'fail', asset: asset('2', '1') }]);
+    expect(alertTargets(evaluation('PASS', [asset('0', '0')]))).toEqual([]);
+    expect(alertTargets(evaluation('UNSET', [asset('2', '1')]))).toEqual([]);
+  });
+
+  it('keeps an accepted alert frozen only for the same asset and the same difference', () => {
+    expect(sameFrozenFigures(asset('7', '0'), asset('7.000', '1'))).toBe(true);
+    expect(sameFrozenFigures(asset('7', '0'), asset('7.01', '0'))).toBe(false);
+    expect(sameFrozenFigures(asset('7', '0'), { ...asset('7', '0'), assetId: 'EUR' })).toBe(false);
+    expect(sameFrozenFigures({ ...asset('7', '0'), difference: 'unset' }, asset('7', '0'))).toBe(false);
+    expect(sameFrozenFigures(null, null)).toBe(true);
+    expect(sameFrozenFigures(null, asset('7', '0'))).toBe(false);
   });
 });

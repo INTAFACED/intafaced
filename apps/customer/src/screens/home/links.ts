@@ -11,4 +11,5 @@ export const HOME_LINKS = {
   academy: '/academy',
   activity: '/money/activity',
   priceAlert: '/notifications?view=alerts',
+  inbox: '/notifications',
 } as const;

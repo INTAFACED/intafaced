@@ -50,8 +50,13 @@ import {
   chartDataClassPayloadHash,
   chartDataClassProposal,
   nextTotpStep,
+  operatorLogin,
+  stepAfterRefusal,
   TOTP_SKEW_STEPS,
   EDGE_AUTHORITY_CACHE_MAX_MS,
+  POSTING_FREEZE_REASON,
+  postingFreezePlan,
+  postingFreezeProposal,
   ADMIN_SESSION_COOKIE,
   scopesWithout,
   sealConsoleSession,
@@ -106,8 +111,8 @@ try {
 
   // Guard 5: every CLI command refuses (exit 1) with no marker.
   const nothing = mkdtempSync(join(tmpdir(), 'local-test-gates-none-'));
-  for (const cmd of ['apply', 'operators', 'lifecycle', 'open', 'verify', 'status']) {
-    const r = run(nothing, [cmd]);
+  for (const cmd of ['apply', 'operators', 'lifecycle', 'open', 'verify', 'status', ['posting-freeze', 'on'], ['posting-freeze', 'off']]) {
+    const r = run(nothing, [cmd].flat());
     assert.equal(r.status, 1, `${cmd}: ${r.stderr}`);
     assert.match(r.stderr, /refusing: state directory .* not found/);
   }
@@ -570,6 +575,79 @@ assert.equal(nextTotpStep(101, 100), null, 'both spent: wait for the clock');
 assert.equal(nextTotpStep(105, 100), null);
 assert.equal(nextTotpStep(undefined, 100), 100);
 assert.equal(nextTotpStep('not a step', 100), 100, 'an unreadable last step never waits forever');
+
+// A refused code (auth.mfa_invalid) at the window edge: the retry counts as spent every step identity can hold by now
+// (one past its clock), so it waits for the next window and never sends a step identity may already have consumed.
+assert.equal(stepAfterRefusal(101, 100), 101, 'the step after the current one was refused: it stays the floor');
+assert.equal(stepAfterRefusal(100, 100), 101, 'the current step was refused: the one after it may be spent too');
+assert.equal(stepAfterRefusal(99, 100), 101, 'the clock moved on: anything up to the step after it may be spent');
+assert.equal(stepAfterRefusal('not a step', 100), 101);
+assert.equal(nextTotpStep(stepAfterRefusal(101, 100), 100), null, 'no fresh step left in this window: wait');
+assert.equal(nextTotpStep(stepAfterRefusal(101, 100), 101), 102, 'the next window gives a step identity cannot hold');
+
+// operatorLogin on a fake clock: run 833 shard 9's shape, founder a's code for the step after the current one refused
+// as auth.mfa_invalid 0.98 s into a window. One retry, logged with both steps, at a step only the next window opens.
+{
+  const STEP = 30_000;
+  const refusal = { status: 401, json: { error: { message: 'auth.mfa_invalid', data: { code: 'UNAUTHORIZED' } } }, text: '' };
+  const signedIn = (sid) => ({
+    status: 200,
+    json: { result: { data: { userId: 'u-a', accessToken: `h.${Buffer.from(JSON.stringify({ sid })).toString('base64url')}.s` } } },
+  });
+  const fakeCtx = (answers) => {
+    let now = 55 * STEP + 980;
+    const ctx = {
+      sent: [],
+      logs: [],
+      clock: () => now,
+      sleep: async (ms) => void (now += ms),
+      log: (line) => ctx.logs.push(line),
+      totp: { totp: (_secret, { at }) => `code@${at.getTime() / STEP}` },
+      edge: {
+        mutate: async (_svc, proc, input) => {
+          ctx.sent.push({ proc, code: input.totpCode, step: Math.floor(now / STEP) });
+          return answers.shift();
+        },
+      },
+    };
+    return ctx;
+  };
+
+  const op = { handle: 'local_test_founder_a', email: 'a@local.test', password: 'p', totpSecret: 'S', lastStep: 55 };
+  const ok = fakeCtx([refusal, signedIn('sess-2')]);
+  assert.match(await operatorLogin(ok, op), /^h\./);
+  assert.deepEqual(
+    ok.sent.map((s) => [s.code, s.step]),
+    [
+      ['code@56', 55],
+      ['code@57', 56],
+    ],
+    'the retry waits for the next window and sends a step after any identity can hold',
+  );
+  assert.equal(op.lastStep, 57, 'the step the retry spent is the one recorded for the next tool');
+  assert.equal(op.sessionId, 'sess-2');
+  assert.deepEqual(ok.logs, [
+    'operator local_test_founder_a: identity refused TOTP step 56 at step 55 (auth.mfa_invalid); signing in once more at the next window',
+    'operator local_test_founder_a: signed in at TOTP step 57 on the retry',
+  ]);
+
+  const twice = fakeCtx([refusal, refusal]);
+  await assert.rejects(
+    operatorLogin(twice, { ...op, lastStep: 55 }),
+    /login refused \(401\): auth\.mfa_invalid \[UNAUTHORIZED\] \(retried at TOTP step 57 after step 56 was refused\)/,
+    'a second refusal stops the run, naming both steps',
+  );
+  assert.equal(twice.sent.length, 2, 'one retry, never a loop');
+
+  const wrongPassword = { status: 401, json: { error: { message: 'auth.invalid_credentials', data: { code: 'UNAUTHORIZED' } } } };
+  const other = fakeCtx([wrongPassword, signedIn('never')]);
+  await assert.rejects(operatorLogin(other, { ...op, lastStep: 55 }), /auth\.invalid_credentials/);
+  assert.equal(other.sent.length, 1, 'only auth.mfa_invalid is retried');
+
+  const noFactor = fakeCtx([refusal]);
+  await assert.rejects(operatorLogin(noFactor, { handle: 'op', password: 'p', totpSecret: null, lastStep: 0 }), /auth\.mfa_invalid/);
+  assert.equal(noFactor.sent.length, 1, 'an account without a second factor is never retried');
+}
 for (let last = 95; last <= 102; last += 1) {
   const step = nextTotpStep(last, 100);
   if (step !== null) assert.ok(step > last && step >= 100 && step <= 100 + TOTP_SKEW_STEPS, `last ${last} gave ${step}`);
@@ -589,6 +667,65 @@ assert.equal(
   "the gates wait exactly as long as Edge's authority cache can hold a session's tier",
 );
 
+// The platform posting freeze. svc-ledger's `ledgerActionPayloadHash` is TypeScript that imports
+// @intafaced/contracts, so this plain-node test cannot import it without a build; the pins below check only the
+// parts that decide whether an approval is consumable (the hash recipe, the action types and targets, the freeze
+// reason as the one hashed field, the version binding, the founder audience), not the surrounding text.
+const ledgerConsume = readFileSync(resolve(here, '../../services/svc-ledger/src/ledger/action-approval-consume.ts'), 'utf8');
+assert.ok(ledgerConsume.includes('JSON.stringify({ actionType, ...fields })'), 'ledger hash recipe changed');
+assert.ok(ledgerConsume.includes("`sha256:${createHash('sha256')"), 'ledger hash prefix changed');
+const ledgerOperator = readFileSync(resolve(here, '../../services/svc-ledger/src/operator-http.ts'), 'utf8').replace(/\s+/g, ' ');
+assert.ok(
+  ledgerOperator.includes("'ledger.freeze', 'posting_freeze', prior.changedAtPrecise, { reason: parsed.reason, }"),
+  'freeze consume changed',
+);
+assert.ok(ledgerOperator.includes("'ledger.unfreeze', 'posting_unfreeze', prior.changedAtPrecise, {}"), 'unfreeze consume changed');
+const audience = readFileSync(resolve(here, '../../services/svc-identity/src/auth/action-approval-audience.ts'), 'utf8');
+const founderLevel = /FOUNDER_LEVEL_ACTION_TYPES[^=]*=\s*\[([^\]]*)\]/.exec(audience)?.[1] ?? '';
+assert.ok(founderLevel.includes("'ledger.freeze'") && founderLevel.includes("'ledger.unfreeze'"), 'the freeze verbs are founder-level');
+// The same hash svc-ledger computes, by behaviour: sha256 over { actionType, ...fields } in that order.
+const version = '2026-10-29 05:00:00.123456+00';
+const on = postingFreezeProposal(true, version);
+assert.deepEqual(
+  [on.actionType, on.targetService, on.targetId, on.expectedVersion, on.policyVersion],
+  ['ledger.freeze', 'svc-ledger', 'posting_freeze', version, 'local-test:v1'],
+);
+assert.equal(on.payloadHash, sha({ actionType: 'ledger.freeze', reason: POSTING_FREEZE_REASON.trim() }));
+const off = postingFreezeProposal(false, version);
+assert.deepEqual([off.actionType, off.targetId, off.expectedVersion], ['ledger.unfreeze', 'posting_unfreeze', version]);
+assert.equal(off.payloadHash, sha({ actionType: 'ledger.unfreeze' }));
+assert.throws(() => postingFreezeProposal(true, undefined), /freeze version/);
+assert.throws(() => postingFreezeProposal(false, ''), /freeze version/);
+// svc-ledger wants a reason of 12 to 500 characters after trimming; the freeze carries the LOCAL TEST label.
+assert.ok(POSTING_FREEZE_REASON.trim().length >= 12 && POSTING_FREEZE_REASON.length <= 500);
+assert.ok(POSTING_FREEZE_REASON.startsWith(MARKERS.label));
+// Planning, from the record founder A reads, before anyone else signs in.
+const ours = { frozen: true, reason: POSTING_FREEZE_REASON, actor: 'f-a', version };
+const open0 = { frozen: false, reason: null, actor: null, version };
+assert.deepEqual(postingFreezePlan(open0, false), { action: 'skip' });
+assert.deepEqual(postingFreezePlan(ours, true), { action: 'skip' });
+assert.deepEqual(postingFreezePlan(open0, true), { action: 'run' });
+assert.deepEqual(postingFreezePlan(ours, false), { action: 'run' });
+// A freeze this tool did not set is refused both ways: `off` never lifts it, `on` never reports it as its own.
+const foreignState = { frozen: true, reason: 'reconciliation mismatch on USDT', actor: 'reconciliation', version };
+for (const want of [true, false]) {
+  const plan = postingFreezePlan(foreignState, want);
+  assert.equal(plan.action, 'refuse', `foreign freeze, ${want ? 'on' : 'off'}`);
+  assert.match(plan.why, /reconciliation mismatch on USDT.*reconciliation/);
+}
+// No state, or a change with no version to bind the approval to, refuses before any second sign-in.
+assert.equal(postingFreezePlan(null, true).action, 'refuse');
+assert.equal(postingFreezePlan({ reason: null }, true).action, 'refuse');
+assert.match(postingFreezePlan({ ...open0, version: undefined }, true).why, /version/);
+assert.match(postingFreezePlan({ ...ours, version: '' }, false).why, /version/);
+assert.deepEqual(postingFreezePlan({ ...open0, version: undefined }, false), { action: 'skip' });
+// Usage is checked before the stack is: a bad or missing on|off exits 2 without reading any marker.
+for (const args of [['posting-freeze'], ['posting-freeze', 'maybe']]) {
+  const r = spawnSync(process.execPath, [script, ...args], { env: { ...process.env, HOME: tmpdir() }, encoding: 'utf8' });
+  assert.equal(r.status, 2, r.stderr);
+  assert.match(r.stderr, /usage: local-test-gates\.mjs posting-freeze on\|off/);
+  assert.doesNotMatch(r.stderr, /refusing/);
+}
 // scoped-session: the founder scopes come from the stack's own identity definition, never a copy, and less one only.
 {
   const identityDef = readFileSync(resolve(here, 'local-stack-services/identity.mjs'), 'utf8');

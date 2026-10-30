@@ -326,6 +326,7 @@ export const ROUTE_TEMPLATES: Readonly<Record<string, RoomTemplate | NotARoom>> 
   '/dex/*': 'fallback',
   '/protocol/*': 'fallback',
   '/wallet/*': 'fallback',
+  '/copy/lead/apply': { template: 'flow', migrated: { file: 'features/trade/lead-apply/LeadApplyRoom.tsx' } },
 };
 
 /** Merchant portal pages behind `/pay/:page` and `/pay/:page/:child`. */
@@ -348,6 +349,7 @@ export const PORTAL_TEMPLATES: Readonly<Record<PortalRoom, RoomTemplate>> = {
   invoice: { template: 'record-list' },
   money: { template: 'overview' },
   'money-activity': { template: 'record-list' },
+  'money-top-up': { template: 'flow' },
   reports: { template: 'record-list' },
   'report-exports': { template: 'record-list' },
   links: { template: 'record-list' },
