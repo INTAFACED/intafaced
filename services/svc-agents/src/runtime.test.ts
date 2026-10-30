@@ -2104,6 +2104,34 @@ if (!available) {
       expect(await balanceOf(USER_A)).toBe('1000');
     });
 
+    it('refuses a Copy-Intel request for a returns ranking before the price, the hold and the engine, and logs it', async () => {
+      const engine = counting(gateway);
+      const rt = new AgentRuntime(sql, engine.gateway, meter, bus, { feeAssetId: 'IFC', meteringEnabled: true });
+      await rt.registerAgent({ ...PROBE, agentId: 'copy-intel', tools: [] });
+      const session = await rt.openSession({ userId: USER_A, agentId: 'copy-intel' });
+      const ask = [{ role: 'user' as const, content: 'TEST: rank the leaders by returns' }];
+      const err = await rt.think({ sessionId: session.id, requestId: 'board', task: 'plan', messages: ask }).catch((e) => e);
+      expect(refusalCode(err)).toBe('agents.copy_intel.returns_board_refused');
+      expect((err as RefusedError).refusal.userMessageKey).toBe('agents.refused.copy_intel.returns_board_refused');
+      expect(engine.calls()).toBe(0);
+      expect(await meter.hasRequest(session.id, 'board')).toBe(false);
+      const log = await rt.sessionLog(session.id, 50);
+      expect(log.at(-1)).toMatchObject({ status: 'refused', refusalCode: 'agents.copy_intel.returns_board_refused' });
+      expect(await balanceOf(USER_A)).toBe('1000');
+
+      // A disclosed-stats question ranks nothing and runs; the same words on another agent are not this refusal.
+      await rt.think({
+        sessionId: session.id,
+        requestId: 'stats',
+        task: 'plan',
+        messages: [{ role: 'user', content: 'TEST: show leader L1 stats' }],
+      });
+      expect(engine.calls()).toBe(1);
+      const other = await rt.openSession({ userId: USER_A, agentId: 'probe' });
+      await rt.think({ sessionId: other.id, requestId: 'other', task: 'plan', messages: ask });
+      expect(engine.calls()).toBe(2);
+    });
+
     it('refuses a run whose worst case the available balance cannot cover, before the hold and the engine', async () => {
       const route = TABLE.routes.find((r) => r.task === 'plan')!;
       const worst = usageCost({ inputTokens: estimateInputTokens(undefined, MESSAGES), outputTokens: route.maxOutputTokens }, route.price!);

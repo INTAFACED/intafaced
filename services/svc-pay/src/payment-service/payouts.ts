@@ -4,6 +4,7 @@
  * Moved out of `payment-service.ts` as it was (owner decision 2026-10-23): `PayService` keeps one method per
  * function here, which passes itself as `svc`.
  */
+import { clearingPendingMessage, heldInSettlementOf } from './funds.js';
 import { postPayLedger } from '../ledger-receipt.js';
 import { FRESH, settleGuardRefusal } from '../seams/guards.js';
 import type { Sql } from 'postgres';
@@ -100,6 +101,16 @@ export async function payoutSettlement(
       // payout; one this call creates cannot have a hold on the ledger yet.
       const resumedAdmission = admission !== null;
       if (settlement.status === 'paid_out') return settlement;
+      if (settlement.status === 'pending') {
+        // RC-merchant-10: a window waiting on the rail holds clearing, not available money. Refused by name, before any
+        // admission, hold or rail call, so nothing moves.
+        const held = await heldInSettlementOf(connection, settlement.id);
+        if (held.length > 0)
+          throw new PayError(clearingPendingMessage(settlement.id, held), 'pay.payout_clearing_pending', {
+            settlementId: settlement.id,
+            clearing: held.map((h) => h.amount),
+          });
+      }
       if (settlement.status !== 'posted' && settlement.status !== 'failed')
         throw new PayError('Settlement is not payable', 'pay.invalid_transition');
       if (settlement.status === 'failed') {

@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { paymentListPrivacySchema } from '@intafaced/contracts/pay-payment-views';
 import {
   amount,
   asset,
@@ -42,6 +43,8 @@ export const pricingSnapshotSchema = z.union([
 ]);
 export type PricingSnapshot = z.infer<typeof pricingSnapshotSchema>;
 export const paymentSchema = basePaymentSchema.extend({
+  /** payment.list only: the payer email, masked for every role (M-adv-payments-core-01). */
+  customerEmail: paymentListPrivacySchema.shape.customerEmail.optional(),
   pricingSnapshot: pricingSnapshotSchema.nullable().optional(),
   failure: failureSchema.nullable().optional(),
   /** payment.get only: while an open payment waits for confirmations (svc-pay router `payment.get`). */

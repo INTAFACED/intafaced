@@ -93,7 +93,8 @@ describe('catalog — the key set is closed and complete', () => {
     // Agent runs refused for an unpublished rate and for funds below the worst case (AG-spend-01) add two refusal keys.
     // An unpaid usage window, a blank allowance for unpaid usage and a settled session (J-agents-02 #5) add four agents keys.
     // A balance that could not be read gets its own refusal, apart from funds below the worst case (AG-spend-01): one key.
-    expect(MESSAGE_KEYS.length).toBeLessThanOrEqual(285);
+    // Copy-Intel's refusal of a returns ranking (J-agents-18 #4) adds one refusal key.
+    expect(MESSAGE_KEYS.length).toBeLessThanOrEqual(286);
 
     for (const surface of ['common.', 'auth.', 'trade.', 'wallet.', 'p2p.', 'notify.', 'error.', 'support.', 'agents.', 'admin.']) {
       expect(

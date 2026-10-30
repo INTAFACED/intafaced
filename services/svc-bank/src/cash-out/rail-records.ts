@@ -8,8 +8,9 @@ import { formatAmount, parseAmount } from '@intafaced/ledger-client';
  * (`BANK_PAYOUT_SIM_RECORDS_DIR`, its `<state>/test-rail-records`); unset, nothing is written.
  *
  * The format and its checks are the stack's own (`tooling/scripts/local-test-rail-records.mjs`, which reads it): one
- * append-only JSONL file per rail, a line `{"label":"TEST","rail","key","direction","assetId","amount","at"}`. `key` is
- * the movement's business key: the same key with the same facts writes nothing new, and with other facts refuses before
+ * append-only JSONL file per rail, a line `{"label":"TEST","rail","key","direction","assetId","amount","at"}`, plus
+ * `ref` when the stand-in gave the movement a reference of its own (a payout's `TEST-PAYOUT-<id>`). `key` is the
+ * movement's business key: the same key with the same facts writes nothing new, and with other facts refuses before
  * anything is written. A line counts once its newline is written; a torn last line is cut off by the next write. Writers
  * on the stack share the folder's `.lock`.
  */
@@ -18,6 +19,7 @@ const RAIL = /^[a-z0-9][a-z0-9-]{0,63}$/;
 const ASSET = /^[A-Z0-9][A-Z0-9._-]{0,31}$/;
 const DECIMAL = /^(0|[1-9]\d*)(\.\d{1,18})?$/;
 const MAX_KEY = 512;
+const REF = /^TEST-[A-Za-z0-9-]{1,128}$/;
 
 export interface RailMovement {
   readonly key: string;
@@ -25,6 +27,8 @@ export interface RailMovement {
   readonly direction: 'in' | 'out';
   readonly assetId: string;
   readonly amount: bigint;
+  /** The stand-in's own reference for the movement, when it gave one (a payout's `TEST-PAYOUT-<cash-out id>`). */
+  readonly ref?: string;
 }
 
 /** Why the stand-in could not record a movement; nothing was written. `conflict`: the rail already says otherwise. */
@@ -45,6 +49,7 @@ interface RecordLine {
   direction: string;
   assetId: string;
   amount: string;
+  ref?: string;
   at: string;
 }
 
@@ -64,7 +69,8 @@ function check(line: RecordLine, where: string): void {
     DECIMAL.test(line.amount) &&
     positive(line.amount) &&
     typeof line.at === 'string' &&
-    !Number.isNaN(Date.parse(line.at));
+    !Number.isNaN(Date.parse(line.at)) &&
+    (line.ref === undefined || (typeof line.ref === 'string' && REF.test(line.ref)));
   if (!ok) throw new RailRecordError(`${where} is not a TEST rail record`);
 }
 
@@ -79,6 +85,10 @@ function positive(amount: string): boolean {
 const facts = (r: Pick<RecordLine, 'direction' | 'assetId' | 'amount'>) =>
   `${r.direction} ${r.assetId} ${formatAmount(parseAmount(r.amount))}`;
 
+/** The same movement: the same facts, and the same reference when both lines carry one (a line written before references were kept has none). */
+const same = (a: RecordLine, b: RecordLine) => facts(a) === facts(b) && (a.ref === undefined || b.ref === undefined || a.ref === b.ref);
+const said = (r: RecordLine) => `${facts(r)}${r.ref === undefined ? '' : ` ${r.ref}`}`;
+
 /** One rail's records in `dir`; another writer's `.lock` is waited on for up to `lockWaitMs`. */
 export function railRecorder(dir: string, rail: string, lockWaitMs = 10_000) {
   const file = path.join(dir, `${rail}.jsonl`);
@@ -86,7 +96,13 @@ export function railRecorder(dir: string, rail: string, lockWaitMs = 10_000) {
     /** Records one movement, unless the rail already recorded its key with the same facts. */
     async record(movement: RailMovement): Promise<void> {
       if (movement.amount <= 0n) throw new RailRecordError(`${rail} ${movement.key}: only an amount above zero is a movement`);
-      const fields = { rail, key: movement.key, direction: movement.direction, assetId: movement.assetId };
+      const fields = {
+        rail,
+        key: movement.key,
+        direction: movement.direction,
+        assetId: movement.assetId,
+        ...(movement.ref === undefined ? {} : { ref: movement.ref }),
+      };
       const amount = formatAmount(movement.amount);
       check({ label: LABEL, ...fields, amount, at: new Date().toISOString() }, `${rail} ${movement.key}`);
       await mkdir(dir, { recursive: true, mode: 0o700 });
@@ -96,8 +112,8 @@ export function railRecorder(dir: string, rail: string, lockWaitMs = 10_000) {
         const record: RecordLine = { label: LABEL, ...fields, amount, at: new Date().toISOString() };
         const earlier = lines.find((line) => line.key === record.key);
         if (earlier) {
-          if (facts(earlier) !== facts(record)) {
-            throw new RailRecordError(`${rail} ${record.key} is already recorded as "${facts(earlier)}", not "${facts(record)}"`, true);
+          if (!same(earlier, record)) {
+            throw new RailRecordError(`${rail} ${record.key} is already recorded as "${said(earlier)}", not "${said(record)}"`, true);
           }
           return;
         }

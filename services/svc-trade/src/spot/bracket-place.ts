@@ -414,7 +414,10 @@ async function settleIntent(
   let cancelled = false;
   if (row.status === 'open' || row.status === 'pending') {
     if (mode === 'fill') return { placed: false, cancelled: false, unavailable: false };
-    await host.cancelOrder(principal, row.order_id);
+    const after = await host.cancelOrder(principal, row.order_id);
+    // A fill the engine matched just before the cancel is still settling: the entry stays open until it lands, and
+    // an exit sized now would leave that quantity unprotected. The next sweep tries again.
+    if (after.status === 'open' || after.status === 'pending') return { placed: false, cancelled: false, unavailable: false };
     cancelled = true;
   }
   const market = await host.marketById(row.market_id);

@@ -1,15 +1,12 @@
 import { quantStrategyHeadSchema, quantStrategyListOutputSchema, type QuantStrategyHead } from '@intafaced/contracts/quant-algo';
-import { useEffect, useState, type ReactNode } from 'react';
+import type { ReactNode } from 'react';
 import { z } from 'zod';
-import type { ApiResult } from '../../shared/api';
-import { useResource } from '../../shared/resource';
-import { Button, DataTable, Failure, Loading } from '../../shared/ui';
+import { DataTable } from '../../shared/ui';
 import { Read } from '../more/common';
-import { useApi } from '../session/session';
+import { MorePages, useStrategyPages } from './strategy-pages';
 import { studioCopy } from './studio-copy';
 
-/** How many saved strategies a list reads at once. A page size of these screens, not a product limit. */
-export const STRATEGY_PAGE = 20;
+export { STRATEGY_PAGE } from './strategy-pages';
 
 const page = quantStrategyListOutputSchema.extend({ strategies: z.array(quantStrategyHeadSchema) });
 
@@ -29,34 +26,12 @@ export function StrategyTable({
   empty: ReactNode;
   action?: (strategy: QuantStrategyHead) => ReactNode;
 }) {
-  const api = useApi();
   const { t } = studioCopy.useCopy();
-  const first = useResource(
-    (signal) => api.query('quant', 'studio.list', { limit: STRATEGY_PAGE }, page, { signal }),
-    `quant-strategies:${reloadKey}`,
-  );
-  const [later, setLater] = useState<{ rows: QuantStrategyHead[]; cursor: string | null } | null>(null);
-  const [busy, setBusy] = useState(false);
-  const [failure, setFailure] = useState<Extract<ApiResult<unknown>, { ok: false }> | null>(null);
-  useEffect(() => {
-    setLater(null);
-    setFailure(null);
-  }, [first.resource]);
-
-  async function more(cursor: string) {
-    setBusy(true);
-    setFailure(null);
-    const res = await api.query('quant', 'studio.list', { limit: STRATEGY_PAGE, cursor }, page);
-    setBusy(false);
-    if (res.ok) setLater((prev) => ({ rows: [...(prev?.rows ?? []), ...res.data.strategies], cursor: res.data.nextCursor }));
-    else setFailure(res);
-  }
-
+  const pages = useStrategyPages('studio.list', page, reloadKey);
   return (
-    <Read resource={first.resource} retry={first.reload}>
+    <Read resource={pages.first.resource} retry={pages.first.reload}>
       {(data) => {
-        const rows = [...data.strategies, ...(later?.rows ?? [])];
-        const cursor = later ? later.cursor : data.nextCursor;
+        const { rows, cursor } = pages.rowsOf(data);
         if (!rows.length) return <>{empty}</>;
         return (
           <>
@@ -69,13 +44,7 @@ export function StrategyTable({
                 </tr>
               ))}
             </DataTable>
-            {busy && <Loading />}
-            {failure && <Failure result={failure} retry={() => cursor && void more(cursor)} />}
-            {cursor && !busy && (
-              <Button variant="secondary" onClick={() => void more(cursor)}>
-                {t('showMore')}
-              </Button>
-            )}
+            <MorePages cursor={cursor} busy={pages.busy} failure={pages.failure} more={(next) => void pages.more(next)} />
           </>
         );
       }}

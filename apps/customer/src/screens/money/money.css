@@ -374,6 +374,10 @@
   .money-row:focus-within {
     background: var(--if-hover);
   }
+  /* The trade a link opened on (a fill notice). */
+  .money-trade-tab tr[aria-current='true'] {
+    background: var(--if-pill-active);
+  }
   .money-coin {
     display: flex;
     align-items: center;

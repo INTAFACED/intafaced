@@ -41,7 +41,8 @@ describe('merchant portal redaction', () => {
   it('bounds every activity source and hides an operator id behind the pay scope', () => {
     const src = readFileSync(join(dirname(fileURLToPath(import.meta.url)), 'activity.ts'), 'utf8');
     expect(src).toContain(`CASE WHEN k.actor_scope LIKE 'pay:%' THEN k.actor_id ELSE 'intafaced' END`);
-    expect(src.match(/\$\{bound\(/g)).toHaveLength(9);
+    // Ten sources: payment events, team, KYB, evidence, responses, exports, approvals, endpoints, deliveries and unmask reads.
+    expect(src.match(/\$\{bound\(/g)).toHaveLength(10);
     expect(src).toContain('LIMIT ${cap}');
   });
 
