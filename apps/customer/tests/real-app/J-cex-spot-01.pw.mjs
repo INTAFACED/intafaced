@@ -38,7 +38,13 @@ async function desk(page) {
 function shownUnits(text) {
   const found = /[+−-]?[\d,]+(\.\d+)?/.exec(text.replace(/\$/g, ''));
   if (!found) throw new Error(`no number in "${text}"`);
-  return toUnits(found[0].replace(/,/g, '').replace('−', '-'));
+  return toUnits(found[0].replace(/,/g, '').replace('−', '-').replace('+', ''));
+}
+
+/** A decimal the service sent, as scaled units; money on the wire is a decimal string, never a JSON number. */
+function wireUnits(value) {
+  if (typeof value !== 'string') throw new Error(`not a decimal string on the wire: ${JSON.stringify(value)}`);
+  return toUnits(value);
 }
 
 /** The value next to a review sheet label (its dt/dd pair). */
@@ -152,16 +158,19 @@ test(`${J} #5 opens the spot desk: ticker, book, chart, tape, fees, trading mode
   // The ticker's last price is the service's.
   await expect(async () => {
     const { body } = await (await api(account())).get('/api/v1/ticker/BTC%2FUSDT');
-    expect(shownUnits(await page.getByTestId('dk-last').innerText())).toBe(toUnits(String(body.last)));
+    expect(shownUnits(await page.getByTestId('dk-last').innerText())).toBe(wireUnits(body.last));
   }).toPass({ timeout: 30_000 });
   await expect(page.locator('[role=tab]', { hasText: 'Order book' })).toBeVisible();
   // The book draws real levels on both sides, each at a price the service's book holds.
   await expect(async () => {
     const { body } = await bestPrices();
-    const book = new Set([...body.bids, ...body.asks].map(([p]) => toUnits(p)));
-    for (const side of ['bid', 'ask']) {
+    for (const [side, levels] of [
+      ['bid', body.bids],
+      ['ask', body.asks],
+    ]) {
+      const book = new Set(levels.map(([p]) => toUnits(p)));
       const price = page.locator(`[data-testid=dk-bk-row][data-side=${side}] [data-testid=dk-bk-price]`).first();
-      expect(book.has(shownUnits(await price.innerText()))).toBe(true);
+      expect(book.has(shownUnits(await price.innerText())), side).toBe(true);
     }
   }).toPass({ timeout: 30_000 });
   // A fresh stack draws its first candle after the TEST market maker's first crossing trade (about a minute).
@@ -216,7 +225,9 @@ test(`${J} #7 confirms: the order is Open and the USDT hold equals the review`, 
   expect(reviewHold).toBe(times(price, amount));
   const heldCol = await row.locator('xpath=ancestor::table//th').allInnerTexts();
   const cells = await row.locator('td').allInnerTexts();
-  expect(shownUnits(cells[heldCol.findIndex((h) => h.trim() === 'Held')])).toBe(reviewHold);
+  const heldAt = heldCol.findIndex((h) => h.trim() === 'Held');
+  expect(heldAt, heldCol.join(' | ')).toBeGreaterThanOrEqual(0);
+  expect(shownUnits(cells[heldAt])).toBe(reviewHold);
 });
 
 test(`${J} #8 another TEST trader's crossing sell fills it: fill row with price, amount, fee and maker role`, async ({ page }) => {
@@ -252,21 +263,26 @@ test(`${J} #8 another TEST trader's crossing sell fills it: fill row with price,
   // The order's own fills, from the service: maker, at its price, for its whole amount, with a fee.
   const fills = await fillsOf(who, id);
   expect(fills.length).toBeGreaterThan(0);
-  expect(fills.every((f) => f.takerOrMaker === 'maker' && toUnits(String(f.price)) === toUnits(price))).toBe(true);
-  expect(fills.reduce((sum, f) => sum + toUnits(String(f.amount)), 0n)).toBe(toUnits(amount));
+  expect(fills.every((f) => f.takerOrMaker === 'maker' && wireUnits(f.price) === toUnits(price))).toBe(true);
+  expect(fills.reduce((sum, f) => sum + wireUnits(f.amount), 0n)).toBe(toUnits(amount));
   await page.locator('[role=tab]', { hasText: 'Trade history' }).click();
   // Each fill's row shows its price, amount, fee amount and asset, the fee rate and the maker role.
+  const makerRows = page
+    .locator('tr', { hasText: 'Maker' })
+    .filter({ hasText: Number(price).toLocaleString('en-US', { minimumFractionDigits: 2 }) });
+  await expect(makerRows).toHaveCount(fills.length);
+  const rows = [];
+  for (const row of await makerRows.all()) rows.push((await row.locator('td').allInnerTexts()).map((c) => c.trim()));
+  // Each fill is matched to its own row, by amount and fee, and no row is used twice.
   for (const f of fills) {
-    const row = page
-      .locator('tr', { hasText: 'Maker' })
-      .filter({ hasText: Number(price).toLocaleString('en-US', { minimumFractionDigits: 2 }) })
-      .first();
-    await expect(row).toBeVisible();
-    const cells = (await row.locator('td').allInnerTexts()).map((c) => c.trim());
-    expect(cells.some((c) => /^[\d,.]+$/.test(c) && shownUnits(c) === toUnits(String(f.amount)))).toBe(true);
-    const fee = cells.find((c) => c.includes(String(f.fee.currency)) && c.includes('%'));
+    const shown = (cells) => cells.some((c) => /^[\d,.]+$/.test(c) && shownUnits(c) === wireUnits(f.amount));
+    const feeOf = (cells) => cells.find((c) => c.includes(String(f.fee.currency)) && c.includes('%'));
+    const at = rows.findIndex((cells) => shown(cells) && feeOf(cells) && shownUnits(feeOf(cells)) === wireUnits(f.fee.cost));
+    expect(at, `${JSON.stringify(f)} in ${JSON.stringify(rows)}`).toBeGreaterThanOrEqual(0);
+    const [cells] = rows.splice(at, 1);
+    const fee = feeOf(cells);
     expect(fee, cells.join(' | ')).toBeTruthy();
-    expect(shownUnits(fee)).toBe(toUnits(String(f.fee.cost)));
+    expect(shownUnits(fee)).toBe(wireUnits(f.fee.cost));
     expect(fee).toContain('0.08%');
   }
 });
@@ -279,8 +295,15 @@ test(`${J} #9 places a market buy: it fills inside its protection price and leav
   await previewed(page, () => page.getByRole('textbox', { name: 'Amount' }).first().fill('0.001'));
   await page.getByRole('button', { name: 'Buy BTC' }).click();
   const review = reviewSheet(page);
-  const protection = shownUnits(await reviewValue(review, 'Price protection').innerText());
-  await confirm(page, 'buy');
+  await expect(review).toBeVisible();
+  // A requote asks again with a new protection price: the bound is the one on the sheet that was last confirmed.
+  let protection;
+  for (let i = 0; i < 3 && (await review.count()); i++) {
+    protection = shownUnits(await reviewValue(review, 'Price protection').innerText());
+    await page.getByRole('button', { name: 'Confirm buy' }).click();
+    await page.waitForTimeout(1500);
+  }
+  await expect(review).toHaveCount(0);
   await expect
     .poll(async () => toUnits((await (await api(who)).balances()).BTC?.total ?? '0') - toUnits(before.BTC?.total ?? '0'), {
       timeout: 20_000,
@@ -294,7 +317,7 @@ test(`${J} #9 places a market buy: it fills inside its protection price and leav
   expect(market, JSON.stringify(recent).slice(0, 300)).toBeTruthy();
   const fills = await fillsOf(who, market.id);
   expect(fills.length).toBeGreaterThan(0);
-  for (const f of fills) expect(toUnits(String(f.price))).toBeLessThanOrEqual(protection);
+  for (const f of fills) expect(wireUnits(f.price)).toBeLessThanOrEqual(protection);
 });
 
 test(`${J} #10 rests a limit buy away from the market, cancels it, cancels it again`, async ({ page }) => {
@@ -323,7 +346,7 @@ test(`${J} #10 rests a limit buy away from the market, cancels it, cancels it ag
 test(`${J} #11 reads the bought lot on Profit and loss, sells it, and reads the realised result`, async ({ page }) => {
   const who = account();
   await signIn(page, who);
-  await page.goto('/money/pnl');
+  await page.goto('/money/pnl?asset=BTC');
   const main = page.locator('main').first();
   // The bought lots are open at their cost: what is left equals the BTC held, and each has a dollar cost.
   const lots = main.locator('tr[data-lot]');
