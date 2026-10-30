@@ -893,7 +893,7 @@ export const REST_REFERENCE: readonly RestRoute[] = [
     path: '/api/v1/bots/grid/:id/withdraw',
     product: 'spot',
     access: 'private',
-    summary: 'Withdraw a grid bot’s profit; needs a step-up confirmation',
+    summary: 'Withdraw a grid bot’s profit; needs a step-up confirmation (403 identity.step_up_required without one)',
     signedOut: TRADE_UNAUTHENTICATED_CODE,
   },
   {

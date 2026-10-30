@@ -1829,7 +1829,7 @@
     "/api/v1/bots/grid/{id}/withdraw": {
       "post": {
         "operationId": "withdrawGridProfit",
-        "summary": "Withdraw a grid bot’s profit; needs a step-up confirmation",
+        "summary": "Withdraw a grid bot’s profit; needs a step-up confirmation (403 identity.step_up_required without one)",
         "tags": ["spot"],
         "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }],
         "security": [{ "apiKey": [] }],

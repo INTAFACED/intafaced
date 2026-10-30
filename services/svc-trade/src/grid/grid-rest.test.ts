@@ -182,6 +182,40 @@ describe('the grid bot public API (J-copy-bots-otc-19 #1, #4)', () => {
     expect(calls).toEqual([]);
   });
 
+  it('a key without trade:write is refused scope.denied, and a read from a region that may not trade is refused, as in the web', async () => {
+    const { grid, calls } = fakeGrid();
+    await mount(grid, { principal: { ...OWNER, scopes: ['trade:read'] } as unknown as Principal });
+    const write = await app.inject({ method: 'POST', url: '/api/v1/bots/grid/bot-1/withdraw', payload: { requestId: 'withdraw-0002' } });
+    expect(write.statusCode).toBe(403);
+    expect(write.json()).toMatchObject({ code: 'PermissionDenied', intafacedCode: 'scope.denied' });
+    await app.close();
+    await mount(grid, { allowed: false });
+    const read = await app.inject({ method: 'GET', url: '/api/v1/bots/grid' });
+    expect(read.statusCode).toBe(403);
+    expect(calls).toEqual([]);
+  });
+
+  it('carries the refusal data the web carries: what a withdrawal may take', async () => {
+    const { grid } = fakeGrid({
+      withdrawProfit: async () => {
+        throw new GridError('More than the profit', 'trade.bots_withdraw_exceeds_profit', { available: '1.5' });
+      },
+    });
+    await mount(grid);
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/v1/bots/grid/bot-1/withdraw',
+      payload: { requestId: 'withdraw-0003', asset: 'USDT', amount: '10', stepUpApprovalId: 'su-1' },
+    });
+    expect(res.statusCode).toBe(400);
+    expect(res.json()).toEqual({
+      code: 'BadRequest',
+      message: 'More than the profit',
+      intafacedCode: 'trade.bots_withdraw_exceeds_profit',
+      data: { available: '1.5' },
+    });
+  });
+
   it('with no grid service mounted every door answers 503 trade.grid_unavailable', async () => {
     await mount(undefined);
     const res = await app.inject({ method: 'GET', url: '/api/v1/bots/grid' });
