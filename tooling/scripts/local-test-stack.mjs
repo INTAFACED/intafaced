@@ -21,7 +21,8 @@
  *   svc-matching · svc-trade · svc-pay · svc-bank · the services behind the Customer's
  *   More door, Notifications and P2P (svc-token, -p2p, -academy, -support, -market,
  *   -notify, -agents, -blueprint, -quant, -execution, -tax, -campaigns) · svc-ops (the outreach intake and CRM) ·
- *   svc-protocol (the Web3 rooms' read side; no chain node) · svc-ws (the streams behind /ws) ·
+ *   svc-protocol (the Web3 rooms' read side) · a LOCAL TEST chain (anvil, chain id 84532) when anvil is installed ·
+ *   svc-ws (the streams behind /ws) ·
  *   svc-edge · a small Customer static server + reverse proxy on http://127.0.0.1:3210 · the same
  *   for the public invitation site (apps/invitation) on http://127.0.0.1:3220 · a TEST apex stand-in page on
  *   http://127.0.0.1:3260 (the host check's apex; the real apex is deployed outside this repo) · the founder console
@@ -62,6 +63,7 @@ import { createRequire } from 'node:module';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { apiSecurityHeaders, securityHeaders } from '../../apps/customer/deployment/render-security-headers.mjs';
 import { APEX_DESCRIPTOR_PATH, APEX_PRODUCT } from '../../apps/customer/deployment/host-dispatch.mjs';
+import { anvilBin, chainRecordPath, chainStatus, CHAIN_PORTS, GATE_URL, runSeedScript, TEST_CHAIN_ID } from './local-test-chain.mjs';
 import { marketStatus } from './local-test-market.mjs';
 import { serveVideoStore } from './local-video-store.mjs';
 import academy from './local-stack-services/academy.mjs';
@@ -166,7 +168,7 @@ const PORTS = {
   'mining-pool': 14518,
   // The outreach intake behind the invitation site, and the founders' CRM.
   ops: 14519,
-  // The Web3 rooms' read side (no chain node on this stack).
+  // The Web3 rooms' read side; its RPC is the TEST chain's gate (local-test-chain.mjs, 14530-14532) when anvil is found.
   protocol: 14520,
   // LOCAL TEST stand-in for the object store Academy signs video URLs for (local-video-store.mjs).
   'video-store': 14521,
@@ -1036,6 +1038,7 @@ function serviceDefs(secrets) {
     TEST_FUTURES_LADDER_POLICY,
     EDGE_UPSTREAMS,
     EDGE_ABSENT,
+    testChain,
   };
   return SERVICES.map((service) => service(ctx));
 }
@@ -1090,6 +1093,80 @@ async function startNats() {
   );
   const pid = startProc('nats', [P.nats, '-c', P.natsConf], baseEnv(), STATE);
   await waitHealthy('nats', `http://${HOST}:${PORTS.natsMonitor}/healthz`, pid, 30_000);
+}
+
+// ── The LOCAL TEST chain (local-test-chain.mjs) ─────────────────────────────
+
+/**
+ * What the TEST chain holds, read when a service's env is built: `{ rpcUrl, factory, router }` while the `chain`
+ * process this script started is alive and seeded, else null (svc-protocol then keeps PROTOCOL_RPC_URL=UNUSED).
+ */
+function testChain() {
+  if (!ownedAlive(readProcs().chain) || !fs.existsSync(chainRecordPath(STATE))) return null;
+  const record = readJson(chainRecordPath(STATE));
+  return { rpcUrl: GATE_URL, factory: record.factory, router: record.router };
+}
+
+/**
+ * Starts anvil behind its gate and seeds it, when an anvil binary is found. Without one the stack runs as it did
+ * before this chain existed, and says so. A failure to seed fails the start: a half-seeded chain would let the DEX
+ * journeys fail later for a reason the log no longer shows.
+ */
+async function startTestChain() {
+  const bin = anvilBin(process.env);
+  const procs = readProcs();
+  if (!bin) {
+    if (!ownedAlive(procs.chain)) {
+      fs.rmSync(chainRecordPath(STATE), { force: true });
+      // A chain an earlier start ran is not this stack's any more: no health row for it.
+      if (procs.chain) {
+        delete procs.chain;
+        writeProcs(procs);
+      }
+    }
+    say('  chain: no anvil binary (LOCAL_STACK_ANVIL_BIN unset, none on PATH); svc-protocol keeps no node (UNUSED)');
+    return;
+  }
+  if (!ownedAlive(procs.chain)) {
+    for (const port of Object.values(CHAIN_PORTS))
+      if (await portOpen(port)) fail(`port ${port} (TEST chain) is in use by a process this script did not start`);
+    // A new anvil starts empty: whatever an earlier record named is gone with the old node.
+    fs.rmSync(chainRecordPath(STATE), { force: true });
+    startProc(
+      'chain',
+      [process.execPath, path.join(path.dirname(SCRIPT), 'local-test-chain.mjs'), 'serve'],
+      {
+        ...baseEnv(),
+        LOCAL_STACK_ANVIL_BIN: bin,
+      },
+      REPO,
+    );
+  }
+  const want = `0x${TEST_CHAIN_ID.toString(16)}`;
+  for (let i = 0; i < 60; i++) {
+    const answer = await rpcChainId();
+    if (answer === want) break;
+    if (i === 59) fail(`the TEST chain never answered chain id ${want} on ${GATE_URL} (see ${path.join(P.logs, 'chain.log')})`);
+    await sleep(500);
+  }
+  if ((await chainStatus()).gate !== 'open') fail('the TEST chain gate is closed; a journey left it shut (local-test-chain.mjs gate open)');
+  const seeded = runSeedScript(['seed', chainRecordPath(STATE)]);
+  say(`  chain: ${seeded.output.split('\n').pop()}`);
+  if (seeded.status !== 0) fail(`seeding the TEST chain failed:\n${seeded.output}`);
+}
+
+async function rpcChainId() {
+  try {
+    const res = await fetch(GATE_URL, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'eth_chainId' }),
+      signal: AbortSignal.timeout(2000),
+    });
+    return (await res.json()).result;
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -1387,6 +1464,20 @@ async function healthTable({ gateMarket = false } = {}) {
     const r = await httpGet(`${urlOf(n)}/health`, 2500);
     rows.push([`svc-${n}`, PORTS[n], procs[n]?.pid ?? '-', r.status === 200 ? 'ok' : `DOWN (${r.status})`]);
   }
+  if (procs.chain) {
+    const status = await chainStatus();
+    const answer = await rpcChainId();
+    rows.push([
+      'chain (TEST)',
+      `${CHAIN_PORTS.gate}`,
+      procs.chain.pid ?? '-',
+      answer === `0x${TEST_CHAIN_ID.toString(16)}`
+        ? `ok (anvil ${TEST_CHAIN_ID}, gate open)`
+        : status.gate === 'closed'
+          ? 'ok (gate closed by a journey)'
+          : 'DOWN',
+    ]);
+  }
   const store = await httpGet(`${urlOf('video-store')}/health`, 2500);
   rows.push([
     'video-store',
@@ -1489,6 +1580,7 @@ async function cmdStart(flags) {
   );
   await startNats();
   ensureStreams();
+  if (!only || only.includes('protocol')) await startTestChain();
   // Vault before identity starts, so the first boot already has the invite hashes.
   // Enrolment itself waits until edge is up (below).
   try {
@@ -1562,7 +1654,7 @@ function ensureMarket() {
 
 async function cmdStop(names = []) {
   const procs = readProcs();
-  const order = ['admin', 'apex', 'invitation', 'customer', ...serviceNames().reverse(), 'video-store', 'nats'];
+  const order = ['admin', 'apex', 'invitation', 'customer', ...serviceNames().reverse(), 'chain', 'video-store', 'nats'];
   const only = names.length ? names : null;
   // A TEST host receipt never outlives the sites it says are served (checkLocalTestHosts writes it again on start).
   if (!only || HOST_SITES.some((name) => only.includes(name))) fs.rmSync(P.hostReceipt, { force: true });
