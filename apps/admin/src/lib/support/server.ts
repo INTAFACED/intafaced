@@ -5,6 +5,9 @@ import {
   supportCaseFileSchema,
   supportCommentSchema,
   supportKbArticleSchema,
+  supportMacroAppliedSchema,
+  supportMacroListSchema,
+  supportSignatureSchema,
   supportMergeResultSchema,
   supportTicketEventSchema,
   supportTicketLifecycleSchema,
@@ -18,7 +21,7 @@ import {
 import { founderCall, parseWith, type FounderCallContext, type FounderCallResult } from '@/lib/desk/founder-call';
 import { partFrom, type PartLabels } from '@/lib/desk/part';
 import { SUPPORT_OPS_FORBIDDEN, SUPPORT_OPS_FORBIDDEN_BODY } from './refusal';
-import { QUEUE_PAGE, readQueueResult, readRatingResult, type SupportActionRequest } from './model';
+import { DESK_COMMENTS_READ, QUEUE_PAGE, readQueueResult, readRatingResult, type SupportActionRequest } from './model';
 import { EMPTY_QUERY, isQueryEmpty, type QueueQuery } from './queue-query';
 import { readBulkPolicy, readBulkResults } from './bulk';
 import { readMergePreview } from './merge';
@@ -28,6 +31,7 @@ import { readStaffMember, readStaffPolicy, readStaffRoster } from './staff';
 import type {
   SupportKbView,
   SupportLifecycleView,
+  SupportMacrosView,
   SupportCustomerView,
   SupportPropertiesView,
   SupportRatingSummaryView,
@@ -143,7 +147,7 @@ export async function loadViews(ctx: FounderCallContext, now: Date = new Date())
 export async function loadTicket(ctx: FounderCallContext, ticketId: string, now: Date = new Date()): Promise<SupportTicketView> {
   const [ticket, comments, events, propertyChanges] = await Promise.all([
     founderCall(ctx, 'support', 'get', 'GET', { ticketId }, parseWith(supportTicketSchema)),
-    founderCall(ctx, 'support', 'listComments', 'GET', { ticketId, limit: 100 }, arrayOf(supportCommentSchema)),
+    founderCall(ctx, 'support', 'listComments', 'GET', { ticketId, limit: DESK_COMMENTS_READ }, arrayOf(supportCommentSchema)),
     founderCall(ctx, 'support', 'events', 'GET', { ticketId, limit: 100 }, arrayOf(supportTicketEventSchema)),
     founderCall(ctx, 'support', 'propertyChanges', 'GET', { ticketId, limit: 100 }, arrayOf(supportTicketPropertyChangeSchema)),
   ]);
@@ -241,6 +245,24 @@ export async function loadStaff(ctx: FounderCallContext, now: Date = new Date())
   };
 }
 
+/** The desk's macros and the signed-in agent's own signature (SP-desk-02). Two reads, each its own part. */
+export async function loadMacros(ctx: FounderCallContext, now: Date = new Date()): Promise<SupportMacrosView> {
+  const [macros, signature] = await Promise.all([
+    founderCall(ctx, 'support', 'macros', 'GET', {}, parseWith(supportMacroListSchema)),
+    founderCall(ctx, 'support', 'signature', 'GET', {}, parseWith(supportSignatureSchema)),
+  ]);
+  return {
+    asOf: now.toISOString(),
+    macros: partFrom(macros, (m) => m.macros, LABELS),
+    signature: partFrom(signature, (s) => s, LABELS),
+  };
+}
+
+/** One macro filled from one request, for the agent's draft. svc-support writes nothing; the agent sends the reply. */
+export function applyMacro(ctx: FounderCallContext, ticketId: string, macroId: string) {
+  return founderCall(ctx, 'support', 'macroApply', 'GET', { ticketId, macroId }, parseWith(supportMacroAppliedSchema));
+}
+
 /** Desk groups, this person's own scope and the roster. Three reads, each its own part. */
 export async function loadGroups(ctx: FounderCallContext, now: Date = new Date()): Promise<SupportGroupsView> {
   const [groups, scope, roster] = await Promise.all([
@@ -279,8 +301,20 @@ export async function loadBulkPolicy(ctx: FounderCallContext, now: Date = new Da
  * is the same key, so svc-support answers the stored reply and writes no second one; a different reply is a new key.
  */
 export function replyKey(ticketId: string, agentId: string, expectedSequence: number, sent: number, body: string): string {
+  return deskKey('admin-reply', ticketId, agentId, expectedSequence, sent, body);
+}
+
+function deskKey(kind: string, ticketId: string, agentId: string, expectedSequence: number, sent: number, body: string): string {
   const text = createHash('sha256').update(body).digest('hex').slice(0, 32);
-  return `admin-reply:${ticketId}:${agentId}:${expectedSequence}:${sent}:${text}`;
+  return `${kind}:${ticketId}:${agentId}:${expectedSequence}:${sent}:${text}`;
+}
+
+/**
+ * An internal note's business key, built as a reply's is and kept apart from it (svc-support also keeps a note's keys
+ * apart from a reply's). Sent again after an unknown outcome it is the same key, so svc-support answers the stored note.
+ */
+export function noteKey(ticketId: string, agentId: string, expectedSequence: number, sent: number, body: string): string {
+  return deskKey('admin-note', ticketId, agentId, expectedSequence, sent, body);
 }
 
 /**
@@ -304,6 +338,19 @@ export function runSupportAction(ctx: FounderCallContext, request: SupportAction
                 expectedSequence: request.expectedSequence,
                 clientRequestId: replyKey(request.ticketId, ctx.session.userId, request.expectedSequence, request.sent ?? 0, request.body),
               }),
+        },
+        parseWith(supportCommentSchema),
+      );
+    case 'note':
+      return founderCall(
+        ctx,
+        'support',
+        'addInternalNote',
+        'POST',
+        {
+          ticketId: request.ticketId,
+          body: request.body,
+          clientRequestId: noteKey(request.ticketId, ctx.session.userId, request.expectedSequence, request.sent, request.body),
         },
         parseWith(supportCommentSchema),
       );
@@ -458,6 +505,15 @@ export function runSupportAction(ctx: FounderCallContext, request: SupportAction
           ...(request.tags ? { tags: request.tags } : {}),
         },
         parseWith(supportKbArticleSchema),
+      );
+    case 'signature_set':
+      return founderCall(
+        ctx,
+        'support',
+        'signatureSet',
+        'POST',
+        { signature: request.signature, expectedRevision: request.expectedRevision },
+        parseWith(supportSignatureSchema),
       );
     case 'kb_unpublish':
       return founderCall(

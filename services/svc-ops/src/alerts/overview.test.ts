@@ -126,8 +126,9 @@ describe('alert desk (OPS-alerts-03)', () => {
     await expect(caller.alertTemplates.list({ limit: 10 })).rejects.toMatchObject({
       message: expect.stringContaining(OPS_ALERT_STORAGE_UNCONFIGURED),
     });
-    const listed = await caller.alerts.list();
-    expect(listed.alerts).toBeNull();
+    await expect(caller.alerts.list({ after: null, limit: 10 })).rejects.toMatchObject({
+      message: expect.stringContaining(OPS_ALERT_STORAGE_UNCONFIGURED),
+    });
   });
 
   it('lists firing and pending alerts and leaves a normal rule out, with no invented open count', async () => {

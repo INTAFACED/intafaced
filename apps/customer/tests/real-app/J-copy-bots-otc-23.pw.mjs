@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
-import { api, bestPrices, fund, journeyState, signOutBrowser, times, tool, toUnits } from './stack.mjs';
-import { free, fundedTrader, held, signIn, signUp } from './desk.mjs';
+import { api, bestPrices, fromUnits, fund, journeyState, otherTrader, signOutBrowser, times, tool, toUnits } from './stack.mjs';
+import { free, fundedTrader, held, openOrders, signIn, signUp } from './desk.mjs';
 import { tableIn } from './tables.mjs';
 
 // J-copy-bots-otc-23, in the running app (docs/roadmap/journeys.json): work a large order slowly with TWAP, chase or
@@ -8,8 +8,7 @@ import { tableIn } from './tables.mjs';
 // in, verified and funded with TEST USDT; every child order goes to the real TEST book, and the parent's progress is
 // read back from the service.
 // Steps that are written but not built yet fail at their first missing part, quickly (UNBUILT):
-// - #3: the New schedule form has no random sizes, seed or trigger; #5: the order form offers no Chase; #6: no
-//   iceberg symbol cap or refill; #7: no participation basis; #8: the list and blotter do not read the service.
+// - #5: the order form offers no Chase; #7: no participation basis; #8: the list and blotter do not read the service.
 const J = 'J-copy-bots-otc-23';
 const run = journeyState(`${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
 const UNBUILT = { timeout: 5_000 };
@@ -179,9 +178,11 @@ test(`${J} #2 creates a TWAP below the owner's tier: refused as tier insufficien
   }
 });
 
-test(`${J} #3 creates a TWAP with random sizes, a fixed seed and a trigger price: sizes sum to the total, the same seed gives the same sizes, and it waits`, async ({
+test(`${J} #3 creates a TWAP with random size on, a fixed seed and a trigger price: slice sizes sum to the total to the decimal, a restart gives the same sizes, and the parent waits for the trigger`, async ({
   page,
 }) => {
+  // It watches one whole slice interval pass while the schedule waits, then restarts the trade service.
+  test.setTimeout(180_000);
   const trader = state('trader');
   await signIn(page, trader);
   await page.goto('/execution');
@@ -210,6 +211,39 @@ test(`${J} #3 creates a TWAP with random sizes, a fixed seed and a trigger price
   expect(parent.triggerPrice).toBe(trigger);
   await expect(detail(page).getByText('Waiting for the trigger price')).toBeVisible();
   expect(parent.children).toHaveLength(0);
+  // Random: the sizes are not all the same.
+  expect(new Set(sizes).size).toBeGreaterThan(1);
+
+  // The same seed gives the same sizes; another seed gives other sizes.
+  const preview = async (randomSeed) => {
+    const input = { symbol: 'BTC/USDT', totalQty: '0.003', durationMs: 300_000, sliceIntervalMs: 30_000, randomSeed };
+    const { status, body } = await (
+      await api(trader)
+    ).get(`/api/trade/trpc/algo.previewTwapSizes?input=${encodeURIComponent(JSON.stringify(input))}`);
+    expect(status, JSON.stringify(body).slice(0, 300)).toBe(200);
+    return body.result.data.sliceQtys.map((q) => toUnits(q));
+  };
+  expect(await preview(2310)).toEqual(parent.plannedSliceQtys.map((q) => toUnits(q)));
+  expect(await preview(2311)).not.toEqual(parent.plannedSliceQtys.map((q) => toUnits(q)));
+
+  // It waits: after more than one slice interval it is still active, awaiting the trigger, with no slice placed or missed.
+  await page.waitForTimeout(31_000);
+  const later = await parentOf(trader, id);
+  expect(later.status).toBe('active');
+  expect(later.awaitingTrigger).toBe(true);
+  expect(later.triggeredAt).toBeNull();
+  expect(later.children).toHaveLength(0);
+  expect(later.misses).toHaveLength(0);
+  await expect(detail(page).getByText('Waiting for the trigger price')).toBeVisible();
+
+  // A restart of the trade service gives the same sizes, and the schedule still waits.
+  tool('local-test-stack.mjs', 'restart', 'trade');
+  const restarted = await parentOf(trader, id);
+  expect(restarted.plannedSliceQtys.map((q) => toUnits(q))).toEqual(sizes.map((s) => toUnits(s.replace(/[^\d.]/g, ''))));
+  expect(await preview(2310)).toEqual(sizes.map((s) => toUnits(s.replace(/[^\d.]/g, ''))));
+  expect(restarted.status).toBe('active');
+  expect(restarted.awaitingTrigger).toBe(true);
+  expect(restarted.children).toHaveLength(0);
   run.write({ triggered: id });
 });
 
@@ -339,49 +373,119 @@ test(`${J} #5 places a chase limit order with a maximum distance: re-priced with
   }
 });
 
-test(`${J} #6 places an iceberg: display equal to total refused; a valid one rests with its display and refills; a second on the symbol refused; the live door names the venue port`, async ({
+/** The order as the service reports it now. */
+async function orderOf(who, id) {
+  const { status, body } = await (await api(who)).get(`/api/v1/orders/${id}`);
+  expect(status, JSON.stringify(body).slice(0, 300)).toBe(200);
+  return body;
+}
+
+/** Size resting at exactly `price` on the BTC/USDT bid side, in units (0 when no level is there). */
+async function bidAt(price) {
+  const { body } = await bestPrices('BTC/USDT', 200);
+  const level = body.bids.find(([p]) => toUnits(p) === toUnits(price));
+  return level ? toUnits(level[1]) : 0n;
+}
+
+test(`${J} #6 places an iceberg with the display quantity equal to the total: refused; a valid iceberg rests with the displayed quantity and refills; a second iceberg on the symbol is refused; the live door shows the venue-submit notice`, async ({
   page,
 }) => {
+  test.setTimeout(120_000);
   const trader = state('trader');
+  const me = await api(trader);
+  const tag = `${state('tag')}-6-${Date.now().toString(36)}`;
+  const { bid, ask } = await bestPrices();
+  // A whole-USDT buy a quarter of the way into the spread: the best bid, so a sell reaches it, far from the ask.
+  const one = toUnits('1');
+  const price = fromUnits(((toUnits(bid) + (toUnits(ask) - toUnits(bid)) / 4n) / one) * one);
+  expect(toUnits(price)).toBeGreaterThan(toUnits(bid));
+  expect(toUnits(price)).toBeLessThan(toUnits(ask));
+  const iceberg = (clientOrderId, displayQty) =>
+    me.post('/api/v1/orders', {
+      symbol: 'BTC/USDT',
+      type: 'limit',
+      side: 'buy',
+      amount: '0.003',
+      price,
+      timeInForce: 'GTC',
+      clientOrderId,
+      displayQty,
+    });
+
+  // Display equal to the total: the service refuses it by code, and nothing rests or is held.
+  const before = { open: await openOrders(trader), funds: await funds(trader) };
+  const equal = await iceberg(`${tag}-equal`, '0.003');
+  expect(equal.status, JSON.stringify(equal.body).slice(0, 300)).toBe(400);
+  expect(equal.body.intafacedCode).toBe('trade.iceberg_display_invalid');
+  expect((await openOrders(trader)).map((o) => o.id)).toEqual(before.open.map((o) => o.id));
+  expect(await funds(trader)).toEqual(before.funds);
+
+  // The room refuses the same numbers before sending anything.
   await signIn(page, trader);
   await page.goto('/execution');
-  await page.getByRole('tablist', { name: 'Execution sections' }).getByRole('tab', { name: 'Iceberg', exact: true }).click(UNBUILT);
+  await page.getByRole('tablist', { name: 'Execution sections' }).getByRole('tab', { name: 'Iceberg', exact: true }).click();
   const box = page.getByRole('region', { name: 'New iceberg' });
-  const { bid } = await bestPrices();
-  // A resting buy 2% under the best bid, so it shows on the book without filling.
-  const price = String((toUnits(bid) * 98n) / 100n / toUnits('1'));
+  await box.getByRole('combobox', { name: 'Market', exact: true }).click();
+  await page.getByRole('option', { name: /^BTC\/USDT(?:,|$)/ }).click();
   await box.getByLabel('Total size (BTC)').fill('0.003');
   await box.getByLabel('Display size (BTC)').fill('0.003');
   await box.getByLabel('Limit price').fill(price);
   await expect(box.getByText('The display size must be smaller than the total.')).toBeVisible();
-  await expect(box.getByRole('button', { name: 'Place iceberg' })).toBeDisabled();
+  await expect(box.getByRole('button', { name: 'Review iceberg' })).toBeDisabled();
 
+  // A valid iceberg, placed from the room: the book shows only the display, the hold is the whole order.
   await box.getByLabel('Display size (BTC)').fill('0.001');
-  const placed = page.waitForResponse((res) => res.url().endsWith('/api/v1/orders') && res.request().method() === 'POST');
-  await box.getByRole('button', { name: 'Place iceberg' }).click({ timeout: 5_000 });
+  const placed = page.waitForResponse((res) => new URL(res.url()).pathname === '/api/v1/orders' && res.request().method() === 'POST');
+  await box.getByRole('button', { name: 'Review iceberg' }).click();
   await page.getByRole('alertdialog').getByRole('button', { name: 'Place iceberg' }).click();
   const answer = await placed;
-  expect(answer.status(), (await answer.text()).slice(0, 300)).toBeLessThan(300);
+  expect(answer.status(), (await answer.text()).slice(0, 300)).toBe(201);
   const order = await answer.json();
-  run.write({ iceberg: order.id });
+  expect(order.displayQty).toBe('0.001');
+  await expect(box.getByText('Iceberg placed. It rests on the house order book.')).toBeVisible();
+  const other = await api(otherTrader());
+  try {
+    expect(await bidAt(price)).toBe(toUnits('0.001'));
+    const rested = await funds(trader);
+    expect(rested.USDT.held - before.funds.USDT.held).toBe(times(price, '0.003'));
 
-  // The book shows only the display size at that price; the hold is the whole order.
-  const { body } = await bestPrices('BTC/USDT', 200);
-  const level = body.bids.find(([p]) => toUnits(p) === toUnits(price));
-  expect(level, `no bid at ${price}`).toBeTruthy();
-  expect(toUnits(level[1])).toBeLessThan(toUnits('0.003'));
-  const balances = await (await api(trader)).balances();
-  expect(toUnits(balances.USDT.used)).toBeGreaterThanOrEqual(times(price, '0.003'));
+    // A second iceberg on the symbol is refused by code; nothing more rests or is held.
+    await box.getByRole('button', { name: 'Review iceberg' }).click();
+    const second = page.waitForResponse((res) => new URL(res.url()).pathname === '/api/v1/orders' && res.request().method() === 'POST');
+    await page.getByRole('alertdialog').getByRole('button', { name: 'Place iceberg' }).click();
+    expect((await second).status()).toBe(409);
+    await expect(box.getByText('trade.iceberg_symbol_cap', { exact: true })).toBeVisible();
+    expect((await openOrders(trader)).map((o) => o.id).sort()).toEqual([...before.open.map((o) => o.id), order.id].sort());
+    expect(await funds(trader)).toEqual(rested);
 
-  // A second iceberg on the same symbol is refused by name.
-  const second = page.waitForResponse((res) => res.url().endsWith('/api/v1/orders') && res.request().method() === 'POST');
-  await box.getByRole('button', { name: 'Place iceberg' }).click();
-  await page.getByRole('alertdialog').getByRole('button', { name: 'Place iceberg' }).click();
-  expect((await second).status()).toBeGreaterThanOrEqual(400);
-  await expect(page.getByText('trade.iceberg_symbol_cap', { exact: true })).toBeVisible();
+    // Refill: another trader sells exactly the display into it. One display fills, and the same size shows again.
+    const { body: book } = await bestPrices('BTC/USDT', 200);
+    const ahead = book.bids.filter(([p]) => toUnits(p) > toUnits(price)).reduce((sum, [, size]) => sum + toUnits(size), 0n);
+    expect(ahead).toBe(0n);
+    const sell = await other.post('/api/v1/orders', {
+      symbol: 'BTC/USDT',
+      type: 'limit',
+      side: 'sell',
+      amount: '0.001',
+      price,
+      timeInForce: 'IOC',
+      clientOrderId: `${tag}-sell`,
+    });
+    expect(sell.status, JSON.stringify(sell.body).slice(0, 300)).toBeLessThan(300);
+    await expect.poll(async () => (await orderOf(trader, order.id)).filled, { timeout: 15_000 }).toBe('0.001');
+    const after = await orderOf(trader, order.id);
+    expect(after.status).toBe('open');
+    expect(after.remaining).toBe('0.002');
+    await expect.poll(() => bidAt(price), { timeout: 15_000 }).toBe(toUnits('0.001'));
 
-  // The live venue door stays off while its port is unset, and says so.
-  await expect(page.getByText('Needs the venue submit port; switched off in this build')).toBeVisible();
+    // The live venue door stays off while its port is unset, and says so.
+    await expect(box.getByRole('button', { name: 'Send to a live venue' })).toBeDisabled();
+    await expect(
+      box.getByText('Sending an iceberg to a live venue needs an authorised venue submit port. It is switched off in this build.'),
+    ).toBeVisible();
+  } finally {
+    await me.delete(`/api/v1/orders/${order.id}`);
+  }
 });
 
 test(`${J} #7 chooses POV on opposite-side liquidity with an empty opposite book: refused as volume immature`, async ({ page }) => {

@@ -42,8 +42,8 @@ export function futuresLiveReleverageMounted(): boolean {
   const index = readFileSync(join(here, '..', 'index.ts'), 'utf8');
   const setLev = service.match(/async setLeverage\([\s\S]*?^  async addIsolatedMargin/m)?.[0] ?? '';
   return (
-    /app\.post\('\/api\/v1\/positions\/leverage',\s*async/.test(rest) &&
-    !/app\.post\('\/api\/v1\/positions\/leverage',\s*derivativesNotSupported\('setLeverage'/.test(rest) &&
+    /app\.post\('\/api\/v1\/positions\/leverage',\s*privateWrite,\s*async/.test(rest) &&
+    !/app\.post\('\/api\/v1\/positions\/leverage',\s*(?:privateWrite,\s*)?derivativesNotSupported\('setLeverage'/.test(rest) &&
     /deps\.setLeverage\(/.test(rest) &&
     /typeof body\.leverage === 'string'/.test(rest) &&
     /async setLeverage\(/.test(setLev) &&

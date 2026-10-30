@@ -12,10 +12,10 @@ import { fundedTrader, signIn, signUp } from './desk.mjs';
 // prep (owner decision 2026-10-27); the level gate of #3 stays (identity verification).
 // The stack publishes a TEST desk law (tooling/profiles/test-owner-values/trade.json): a 60 s firm quote and a 60 s
 // window to settle an accepted one, so #7 and #8 watch both run out on the real clock. Each step checks the service's
-// own record of the quote (rfq.get through Edge) and the ledger balance, not only the screen.
+// own record of the quote (rfq.get through Edge) and the ledger balance, not only the screen. Every request asks the
+// providers it picks from the owner's TEST provider list (CB-otc-01); the steps after #2 ask the house desk.
 // Steps that are written but not built yet fail at their first missing part, quickly (UNBUILT):
-// - #1 no asset list on the desk (CB-otc-11); #2 no provider pick (CB-otc-01); #3 no verification-level gate
-//   (CB-otc-08).
+// - #3 no verification-level gate (CB-otc-08).
 // - #5: no RFQ board grouped by status (CB-otc-02); #9: Convert has no OTC price (CB-otc-12).
 const J = 'J-copy-bots-otc-24';
 const run = journeyState(`${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
@@ -28,6 +28,8 @@ const request = (page) => page.getByRole('region', { name: 'Request a price' });
 const card = (page) => page.getByRole('region', { name: 'Quote', exact: true });
 const dialog = (page) => page.getByRole('alertdialog');
 const balances = async () => (await api(run.read().who)).balances();
+/** The one platform-routed provider on the stack's TEST provider list: the house desk, which prices every step. */
+const HOUSE = 'House desk (TEST)';
 
 /** A decimal string as a whole number of 1e-18 units, so amounts compare exactly (never as floats). */
 const units = (value) => {
@@ -67,6 +69,13 @@ function tradeSwitch(name, on) {
 /** svc-trade restarted with the desk's settle window blank, or back on the stack's TEST window. */
 const tradeSettleWindow = (on) => tradeSwitch('LOCAL_STACK_TRADE_OTC_SETTLE_WINDOW', on);
 
+/** The desk's own status (`otc.deskStatus`), as the trader reads it. */
+async function deskStatus(client) {
+  const read = await client.get('/api/trade/trpc/otc.deskStatus');
+  expect(read.status, JSON.stringify(read.body).slice(0, 300)).toBe(200);
+  return read.body.result.data;
+}
+
 /** The desk's settle window in ms as its status line publishes it, or 'unset'. */
 async function publishedWindow() {
   const desk = await (await api(run.read().who)).get('/api/trade/trpc/otc.deskStatus');
@@ -98,12 +107,29 @@ async function listedQuotes(client) {
   return read.body.result.data.rows;
 }
 
-/** Asks for a price on `quantity` BTC against USDT on the open room and returns the service's refusal code. */
-async function askRefused(page, quantity) {
+/** The owner's provider list and pick cap as the desk publishes them (`otc.makers.list`). */
+async function listedMakers(client) {
+  const read = await client.get('/api/trade/trpc/otc.makers.list');
+  expect(read.status, JSON.stringify(read.body).slice(0, 300)).toBe(200);
+  return read.body.result.data;
+}
+
+/** Ticks each named provider in the request form's Providers group. */
+async function pickProviders(page, names, options) {
+  const group = request(page).getByRole('group', { name: 'Providers' });
+  for (const name of names) await group.getByRole('checkbox', { name, exact: true }).check(options);
+}
+
+/**
+ * Asks for a price on `quantity` BTC against USDT from the providers named (the house desk unless told otherwise) on
+ * the open room and returns the service's refusal code.
+ */
+async function askRefused(page, quantity, providers = [HOUSE]) {
   const answer = page.waitForResponse((res) => res.url().includes('rfq.quote'));
   await request(page).getByRole('combobox', { name: 'Pair' }).click();
   await page.getByRole('option', { name: 'BTC/USDT', exact: true }).click();
   await request(page).getByRole('textbox', { name: 'Quantity' }).fill(quantity);
+  await pickProviders(page, providers);
   await page.getByRole('button', { name: 'Request price' }).click();
   return [await (await answer).json()].flat()[0].error?.data?.cause?.code;
 }
@@ -136,11 +162,12 @@ async function openOtc(page) {
   await expect(desk(page)).toBeVisible();
 }
 
-/** Asks for a price on `quantity` BTC against USDT and returns the open quote card. */
+/** Asks the house desk for a price on `quantity` BTC against USDT and returns the open quote card. */
 async function ask(page, quantity = '0.5') {
   await request(page).getByRole('combobox', { name: 'Pair' }).click(UNBUILT);
   await page.getByRole('option', { name: 'BTC/USDT', exact: true }).click(UNBUILT);
   await request(page).getByRole('textbox', { name: 'Quantity' }).fill(quantity, UNBUILT);
+  await pickProviders(page, [HOUSE], UNBUILT);
   await page.getByRole('button', { name: 'Request price' }).click(UNBUILT);
   await expect(card(page)).toBeVisible(UNBUILT);
   await expect(card(page).getByTestId('phase-line')).toContainText('firm');
@@ -206,25 +233,115 @@ test(`${J} starts: below the desk's tier the price request is refused with trade
   expect(await stakedOf(me)).toBe(short);
 });
 
-test(`${J} #1 opens OTC: the overview and the owner's asset list, "Not set" when blank`, async ({ page }) => {
+test(`${J} #1 desk status strip and asset list, each read back from the service`, async ({ page }) => {
+  test.setTimeout(180_000);
+  const me = await api(run.read().who);
+  const status = await deskStatus(me);
+  // The stack's TEST desk law lists BTC; the service's own list is what the room must show, nothing more or less.
+  expect(status.published).toBe(true);
+  expect(status.assets).toEqual(['BTC']);
+  expect(/(?:^| )assets=(\S+)/.exec(status.statusLine)?.[1]).toBe(status.assets.join(','));
+
   await openOtc(page);
-  const assets = page.getByRole('region', { name: 'Assets on the desk' });
-  await expect(assets).toBeVisible(UNBUILT);
-  await expect(assets).toContainText(/Not set|BTC/);
+  // The overview: each item reads what the service publishes for it.
+  await expect(desk(page).getByText(status.published ? 'Open' : 'Closed', { exact: true })).toBeVisible();
+  await expect(desk(page).getByText(status.makerRouting.published ? 'Routed' : 'Platform only', { exact: true })).toBeVisible();
+  await expect(desk(page).getByText(status.midFeed.published ? 'Wired' : 'Not wired', { exact: true })).toBeVisible();
+  const assets = desk(page).getByRole('region', { name: 'Assets on the desk' });
+  await expect(assets.getByRole('listitem')).toHaveText(status.assets);
+  await expect(assets.getByText('Not set', { exact: true })).toHaveCount(0);
 });
 
-test(`${J} #2 requests a quote with no provider set, then from four providers when three are allowed: "No providers set" refuses, and the cap refusal names the limit`, async ({
+test(`${J} #1 asset list unpublished: "Not set" on the strip, the ask refuses trade.otc_assets_unset, no quote is kept`, async ({
   page,
 }) => {
-  await openOtc(page);
-  const providers = request(page).getByRole('group', { name: 'Providers' });
-  await expect(providers).toBeVisible(UNBUILT);
-  await request(page).getByRole('textbox', { name: 'Quantity' }).fill('0.5', UNBUILT);
-  await page.getByRole('button', { name: 'Request price' }).click(UNBUILT);
-  await expect(page.getByRole('alert')).toContainText(/No providers set|at most \d+ providers/);
+  test.setTimeout(300_000);
+  const me = await api(run.read().who);
+  try {
+    tradeSwitch('LOCAL_STACK_TRADE_OTC_ASSETS', false);
+    const status = await deskStatus(me);
+    expect(status.assets).toBeNull();
+    expect(/(?:^| )assets=(\S+)/.exec(status.statusLine)?.[1]).toBe('unset');
+    const before = await me.balances();
+    const quotes = await listedQuotes(me);
+    await openOtc(page);
+    const assets = desk(page).getByRole('region', { name: 'Assets on the desk' });
+    await expect(assets.getByText('Not set', { exact: true })).toBeVisible();
+    await expect(assets.getByRole('listitem')).toHaveCount(0);
+    // A size and provider the house desk prices in #6, so only the blank list can refuse it.
+    expect(await askRefused(page, '0.5')).toBe('trade.otc_assets_unset');
+    await expect(page.getByText('trade.otc_assets_unset')).toBeVisible();
+    await expect(page.getByText('The desk has no asset list, so a request cannot be sent.', { exact: false })).toBeVisible();
+    await expect(card(page)).toHaveCount(0);
+    // Re-read after the refusal: no quote was recorded and nothing moved or was held.
+    expect(await listedQuotes(me)).toEqual(quotes);
+    expect(await me.balances()).toEqual(before);
+  } finally {
+    tradeSwitch('LOCAL_STACK_TRADE_OTC_ASSETS', true);
+  }
+  expect((await deskStatus(me)).assets).toEqual(['BTC']);
 });
 
-test(`${J} #3 requests as a user below the owner's level: refused, and no quote is priced`, async ({ page }) => {
+test(`${J} #2 blank provider list: the room says so, the ask refuses trade.otc_makers_unset, no quote is kept`, async ({ page }) => {
+  test.setTimeout(300_000);
+  const me = await api(run.read().who);
+  try {
+    tradeSwitch('LOCAL_STACK_TRADE_OTC_MAKERS', false);
+    // The desk publishes no provider list, and says so.
+    const blank = await listedMakers(me);
+    expect(blank.published).toBe(false);
+    expect(blank.makers).toEqual([]);
+    const before = await me.balances();
+    const quotes = await listedQuotes(me);
+    await openOtc(page);
+    const providers = request(page).getByRole('group', { name: 'Providers' });
+    await expect(providers.getByText('No providers set')).toBeVisible();
+    await expect(providers.getByRole('checkbox')).toHaveCount(0);
+    // A size the house desk prices in #6, so only the blank list can refuse it.
+    expect(await askRefused(page, '0.5', [])).toBe('trade.otc_makers_unset');
+    await expect(page.getByText('trade.otc_makers_unset')).toBeVisible();
+    await expect(page.getByText('The desk has no provider list, so a request cannot be sent.', { exact: false })).toBeVisible();
+    await expect(card(page)).toHaveCount(0);
+    // Re-read after the refusal: no quote was recorded and nothing moved or was held.
+    expect(await listedQuotes(me)).toEqual(quotes);
+    expect(await me.balances()).toEqual(before);
+  } finally {
+    tradeSwitch('LOCAL_STACK_TRADE_OTC_MAKERS', true);
+  }
+  expect((await listedMakers(me)).published).toBe(true);
+});
+
+test(`${J} #2 one provider over the published cap: refused trade.otc_provider_cap, the message carries the cap`, async ({ page }) => {
+  test.setTimeout(180_000);
+  const me = await api(run.read().who);
+  // The owner's list and cap, read back from the desk, not numbers this file chose: three allowed, four listed.
+  const list = await listedMakers(me);
+  expect(list.published).toBe(true);
+  expect(list.selectCap).toBe(3);
+  const four = list.makers.map((m) => m.name);
+  expect(four).toHaveLength(4);
+  expect(four).toContain(HOUSE);
+  const before = await me.balances();
+  const quotes = await listedQuotes(me);
+
+  await openOtc(page);
+  const providers = request(page).getByRole('group', { name: 'Providers' });
+  await expect(providers.getByRole('checkbox')).toHaveCount(4);
+  await expect(providers.getByText(`Pick who to ask, up to ${list.selectCap}.`)).toBeVisible();
+  expect(await askRefused(page, '0.5', four)).toBe('trade.otc_provider_cap');
+  await expect(page.getByText('trade.otc_provider_cap')).toBeVisible();
+  // The refusal names the limit the desk publishes and the number picked.
+  await expect(
+    page.getByText(`At most ${list.selectCap} providers can be picked for one request (got 4).`, { exact: false }),
+  ).toBeVisible();
+  await expect(card(page)).toHaveCount(0);
+
+  // Re-read after the refusal: no quote was recorded and nothing moved or was held.
+  expect(await listedQuotes(me)).toEqual(quotes);
+  expect(await me.balances()).toEqual(before);
+});
+
+test(`${J} #3 unverified account: the level gate refuses before any price`, async ({ page }) => {
   test.setTimeout(180_000);
   const unverified = await signUp(page, 'ou');
   await signIn(page, unverified);
@@ -235,7 +352,7 @@ test(`${J} #3 requests as a user below the owner's level: refused, and no quote 
   await expect(card(page)).toHaveCount(0);
 });
 
-test(`${J} #4 requests below the desk minimum: refused with the minimum`, async ({ page }) => {
+test(`${J} #4 size under the published minimum: refused trade.rfq_below_minimum, the message carries that minimum`, async ({ page }) => {
   test.setTimeout(180_000);
   // The account from "starts" is staked to the desk's tier, so the stake gate passes and the minimum is what refuses.
   const me = await api(run.read().who);
@@ -257,7 +374,7 @@ test(`${J} #4 requests below the desk minimum: refused with the minimum`, async 
   expect(await me.balances()).toEqual(before);
 });
 
-test(`${J} #4 with the desk minimum blank: the request refuses with trade.rfq_size_not_set and records nothing`, async ({ page }) => {
+test(`${J} #4 minimum unpublished: refused trade.rfq_size_not_set, no quote is kept`, async ({ page }) => {
   test.setTimeout(300_000);
   const me = await api(run.read().who);
   try {
@@ -278,7 +395,7 @@ test(`${J} #4 with the desk minimum blank: the request refuses with trade.rfq_si
   expect(toUnits(await publishedMinimum(me, 'USDT'))).toBeGreaterThan(0n);
 });
 
-test(`${J} #5 opens the RFQ board: grouped by status with counts, the best quote on top, equal quotes to the earlier`, async ({ page }) => {
+test(`${J} #5 board of requests: status groups, counts and quote ranking`, async ({ page }) => {
   await openOtc(page);
   const board = page.getByRole('region', { name: 'Your requests' });
   for (const group of ['Open', 'Accepted', 'Settled', 'Expired']) {
@@ -286,9 +403,7 @@ test(`${J} #5 opens the RFQ board: grouped by status with counts, the best quote
   }
 });
 
-test(`${J} #6 accepts a quote: bound (accepted, not settled) at the quoted price; an asserted other price is refused as last look`, async ({
-  page,
-}) => {
+test(`${J} #6 accept binds the quoted price; naming a different price refuses as last look`, async ({ page }) => {
   await openOtc(page);
   const quote = await ask(page);
   const id = await quote.getAttribute('data-quote-id');
@@ -312,9 +427,7 @@ test(`${J} #6 accepts a quote: bound (accepted, not settled) at the quoted price
   expect(await balances()).toEqual(before);
 });
 
-test(`${J} #7 settles later inside the deferral window: one settlement posts with its key; after the window it is refused; a blank window reads "Not set"`, async ({
-  page,
-}) => {
+test(`${J} #7 deferred settle: one posting inside the window, refused past it, "Not set" when unpublished`, async ({ page }) => {
   test.setTimeout(420_000);
   await openOtc(page);
   // One quote accepted now and left past its window, one accepted and settled later inside it.
@@ -393,9 +506,7 @@ test(`${J} #7 settles later inside the deferral window: one settlement posts wit
   expect(await publishedWindow()).toBe(String(windowMs));
 });
 
-test(`${J} #8 lets a quote expire, then re-prices it: the old quote stays expired, a new RFQ exists, and balances are unchanged by the expiry`, async ({
-  page,
-}) => {
+test(`${J} #8 expiry then re-price: the old quote stays expired, a new one exists, balances untouched`, async ({ page }) => {
   test.setTimeout(180_000);
   await openOtc(page);
   const quote = await ask(page);
@@ -421,9 +532,7 @@ test(`${J} #8 lets a quote expire, then re-prices it: the old quote stays expire
   expect(await balances()).toEqual(before);
 });
 
-test(`${J} #9 uses Convert for a large buy at the OTC price: the OTC price and settlement time; a blank bound refuses`, async ({
-  page,
-}) => {
+test(`${J} #9 convert at the desk price: price and settle time shown, an unpublished bound refuses`, async ({ page }) => {
   await signIn(page, run.read().who);
   await page.goto('/convert');
   await page

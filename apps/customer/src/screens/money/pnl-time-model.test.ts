@@ -61,6 +61,11 @@ describe('resolveRange', () => {
     });
   });
 
+  it('starts a preset from the clock alone: the first trade and the zone arriving later leave it where it was', () => {
+    const day = resolveRange({ kind: 'preset', range: '1D' }, NOW, 0, null);
+    expect(resolveRange({ kind: 'preset', range: '1D' }, NOW, 480, '2026-10-05T03:00:00.000Z')).toEqual(day);
+  });
+
   it('starts All on the customer day of the first trade, and asks nothing of an empty book', () => {
     expect(resolveRange({ kind: 'preset', range: 'all' }, NOW, -300, '2026-10-05T03:00:00.000Z')).toEqual({
       from: '2026-10-04T05:00:00.000Z',

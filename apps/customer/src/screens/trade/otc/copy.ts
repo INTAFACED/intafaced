@@ -30,6 +30,10 @@ const messages = {
   'Not wired': 'Not wired',
   'Mid feed on': 'The desk prices off a live mid price.',
   'Mid feed off': 'The mid price feed is switched off, so the desk has no mid price to quote from.',
+  'Assets on the desk': 'Assets on the desk',
+  'Not set': 'Not set',
+  'Assets on reason': 'The desk quotes these assets only.',
+  'Assets off reason': 'The desk has no asset list, so every request refuses.',
 
   // Request form
   'Request a price': 'Request a price',
@@ -39,8 +43,10 @@ const messages = {
   Sell: 'Sell',
   Quantity: 'Quantity',
   'Quantity hint': 'Size in {asset}. Must be above zero.',
-  Maker: 'Maker',
-  'Maker hint': 'Leave empty for the desk.',
+  Providers: 'Providers',
+  'Providers hint': 'Pick who to ask, up to {cap}.',
+  'No providers set': 'No providers set',
+  'Providers unreadable retry': 'Couldn’t load providers. Retry',
   'Desk names the price': 'You don’t name a price. The desk names it, and it is firm until it expires.',
   'Request price': 'Request price',
   'No pairs': 'The desk has no pairs to quote right now.',

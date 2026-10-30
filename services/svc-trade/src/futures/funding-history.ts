@@ -10,6 +10,7 @@
  */
 import type { FastifyInstance } from 'fastify';
 import { datedFuturesStyleOf } from './dated-futures.js';
+import { publicRead } from '../route-inventory.js';
 
 export interface FundingHistoryListing {
   readonly id: string;
@@ -96,7 +97,7 @@ export interface FundingHistoryDeps {
 }
 
 export function registerFundingHistory(app: FastifyInstance, deps: FundingHistoryDeps): void {
-  app.get<{ Params: { symbol: string } }>('/api/v1/funding-history/:symbol', async (req, reply) => {
+  app.get<{ Params: { symbol: string } }>('/api/v1/funding-history/:symbol', publicRead, async (req, reply) => {
     const symbol = decodeURIComponent(req.params.symbol);
     const market = await deps.marketBySymbol(symbol);
     let rows: readonly FundingHistoryRow[] | null = null;

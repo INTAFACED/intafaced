@@ -40,6 +40,14 @@ describe('svc-support’s typed refusals', () => {
     ['support.kb_invalid', 'svc-support did not accept that article'],
     ['support.kb_vendor_name', 'Article keys may not name another company’s product'],
     ['support.not_found', 'No such ticket'],
+    ['support.macro_not_found', 'No such macro'],
+    ['support.macro_placeholder_blank', 'A placeholder is still unfilled'],
+    ['support.macro_placeholder_unknown', 'That placeholder does not exist'],
+    ['support.macro_revision_stale', 'It changed since you read it'],
+    ['support.note_empty', 'The note is empty'],
+    ['support.shortcode_taken', 'That shortcode is taken'],
+    ['support.shortcode_too_short', 'That shortcode is too short'],
+    ['support.shortcode_rule_unset', 'The shortcode rule is not set'],
   ])('%s reads as "%s" and changed nothing', (code, title) => {
     const view = explainSupportFailure(refused(code));
     expect(view).toMatchObject({ title, code, changed: 'no' });
