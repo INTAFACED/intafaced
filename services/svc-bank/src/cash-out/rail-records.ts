@@ -82,8 +82,12 @@ function positive(amount: string): boolean {
   }
 }
 
-const facts = (r: Pick<RecordLine, 'direction' | 'assetId' | 'amount' | 'ref'>) =>
-  `${r.direction} ${r.assetId} ${formatAmount(parseAmount(r.amount))}${r.ref === undefined ? '' : ` ${r.ref}`}`;
+const facts = (r: Pick<RecordLine, 'direction' | 'assetId' | 'amount'>) =>
+  `${r.direction} ${r.assetId} ${formatAmount(parseAmount(r.amount))}`;
+
+/** The same movement: the same facts, and the same reference when both lines carry one (a line written before references were kept has none). */
+const same = (a: RecordLine, b: RecordLine) => facts(a) === facts(b) && (a.ref === undefined || b.ref === undefined || a.ref === b.ref);
+const said = (r: RecordLine) => `${facts(r)}${r.ref === undefined ? '' : ` ${r.ref}`}`;
 
 /** One rail's records in `dir`; another writer's `.lock` is waited on for up to `lockWaitMs`. */
 export function railRecorder(dir: string, rail: string, lockWaitMs = 10_000) {
@@ -108,8 +112,8 @@ export function railRecorder(dir: string, rail: string, lockWaitMs = 10_000) {
         const record: RecordLine = { label: LABEL, ...fields, amount, at: new Date().toISOString() };
         const earlier = lines.find((line) => line.key === record.key);
         if (earlier) {
-          if (facts(earlier) !== facts(record)) {
-            throw new RailRecordError(`${rail} ${record.key} is already recorded as "${facts(earlier)}", not "${facts(record)}"`, true);
+          if (!same(earlier, record)) {
+            throw new RailRecordError(`${rail} ${record.key} is already recorded as "${said(earlier)}", not "${said(record)}"`, true);
           }
           return;
         }

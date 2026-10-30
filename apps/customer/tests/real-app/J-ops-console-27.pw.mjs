@@ -792,7 +792,7 @@ test(`${J} #8 reconciles to the cent: each rail's boundary PASSes against that r
     for (const asset of crossed) {
       const observed = new RegExp(`${asset.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}: observed (-?[\\d.]+),`).exec(answer);
       expect(observed, `${rail} ${asset}: the run names what the boundary holds`).not.toBeNull();
-      expect(Number(observed[1]), `${rail} ${asset}: the boundary the customer's money crossed is not 0`).not.toBe(0);
+      expect(toUnits(observed[1]), `${rail} ${asset}: the boundary the customer's money crossed is not 0`).not.toBe(0n);
     }
     // The outside side is this rail's own statement (LEDGER_RECONCILE_RAIL_<RAIL>_URL, the stack's rail-statements
     // stand-in). Soft, so every rail is judged in one run; the step still fails. A FAIL here is a real break between the
@@ -823,7 +823,7 @@ test(`${J} #8 reconciles to the cent: each rail's boundary PASSes against that r
     }
     for (const [asset] of open)
       expect(
-        lines.map((l) => l[1]),
+        evidence.map((e) => e[1]),
         `${rail}: the run judged ${asset}`,
       ).toContain(asset);
     expect.soft(answer, `${rail}: ${HELD_OPEN}`).toMatch(/Run [0-9a-f-]{36}: PASS\./);
