@@ -376,7 +376,7 @@
   }
   /* The trade a link opened on (a fill notice). */
   .money-trade-tab tr[aria-current='true'] {
-    background: var(--if-hover);
+    background: var(--if-pill-active);
   }
   .money-coin {
     display: flex;

@@ -129,6 +129,10 @@ describe('linkFor', () => {
     for (const [href, room] of emitted) expect(linkFor({ kind: 'x', href }, markets), href).toBe(room);
     expect(linkFor({ kind: 'x', href: '/markets/00000000-0000-4000-8000-000000000000' }, markets)).toBe('/trade');
     expect(linkFor({ kind: 'x', href: `/trade/${BTC_ID}` })).toBe('/trade');
+    expect(linkFor({ kind: 'x', href: `/markets/${BTC_ID.toUpperCase()}` }, markets)).toBe('/trade/spot/BTC-USDT');
+    // The loan room's own detail address is a room, not a loan named "detail".
+    expect(linkFor({ kind: 'x', href: '/bank/loans/detail' })).toBe('/bank/loans/detail');
+    expect(linkFor({ kind: 'x', href: '/bank/loans/detail?loan=l1' })).toBe('/bank/loans/detail?loan=l1');
     // A desk link names its pair the way every other desk link does.
     const lower = new Map([[BTC_ID, { id: BTC_ID, base: 'btc', quote: 'usdt' }]]);
     expect(linkFor({ kind: 'x', href: `/markets/${BTC_ID}` }, lower)).toBe('/trade/spot/BTC-USDT');
@@ -153,6 +157,8 @@ describe('linkFor', () => {
     expect(linkFor({ kind: 'x', href: '/p2p/trades/..' })).toBeNull();
     expect(linkFor({ kind: 'x', href: '/p2p/orders/%2E%2E' })).toBeNull();
     expect(linkFor({ kind: 'x', href: '/uc/./safe' })).toBeNull();
+    // Only the path is checked for dot segments: a query value may hold one.
+    expect(linkFor({ kind: 'x', href: '/money/activity?tab=transfers&q=a/..' })).toBe('/money/activity?tab=transfers&q=a/..');
   });
 });
 

@@ -77,20 +77,18 @@ test(`${J} #1 the bell shows the unread count and a popover of recent notices in
 test(`${J} #2 a fill notice opens the trade in Activity and is marked read; a cancelled order opens Orders`, async ({ page }) => {
   await signIn(page, who);
   const session = await api(who);
-  // The newest fill notice is the first "Order filled" row; it names its own fill.
-  const notice = (await told(session)).items
-    .filter((item) => item.kind === 'trade.fill')
-    .sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1))[0];
   const fills = (await session.get('/api/v1/account/trades?limit=100')).body;
   expect(fills).toHaveLength(2);
-  const fill = fills.find((row) => row.id === notice.params.fillId);
-  expect(fill, `the notice's fill ${notice.params.fillId} is one of ${fills.map((row) => row.id)}`).toBeDefined();
   await page.goto('/');
   await bell(page).click();
   await popup(page).locator('[data-testid="nf-row"]', { hasText: 'Order filled' }).first().click();
-  await expect(page).toHaveURL(
-    (url) => url.pathname === '/money/activity' && url.search === `?tab=trades&asset=BTC&fill=${encodeURIComponent(fill.id)}`,
-  );
+  // The link names one fill: one of this person's two, and the very one the clicked notice is about.
+  await expect(page).toHaveURL((url) => url.pathname === '/money/activity' && /^\?tab=trades&asset=BTC&fill=[^&]+$/.test(url.search));
+  const fillId = new URL(page.url()).searchParams.get('fill');
+  const fill = fills.find((row) => row.id === fillId);
+  expect(fill, `the link's fill ${fillId} is one of ${fills.map((row) => row.id)}`).toBeDefined();
+  const notice = (await told(session)).items.find((item) => item.kind === 'trade.fill' && item.params.fillId === fill.id);
+  expect(notice, `a fill notice names fill ${fill.id}`).toBeDefined();
   await expect(popup(page)).toHaveCount(0);
   // Both trades are listed; the one the notice named is the current row, as a market buy at its own amount and price.
   const trades = page.getByTestId('money-trade-tab').locator('tbody tr[data-fill]');

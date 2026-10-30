@@ -128,9 +128,9 @@ const STORED_LINK: readonly (readonly [RegExp, (id: string, markets?: ReadonlyMa
   [/^\/profile\/rank$/, () => '/uc/account'],
   [new RegExp(`^/token/stakes/${ID}$`), () => '/token'],
   [new RegExp(`^/trade/futures/positions/${ID}$`), () => '/trade/futures'],
-  [new RegExp(`^/bank/loans/${ID}$`), (id) => `/bank/loans/detail?loan=${encodeURIComponent(decoded(id))}`],
+  [new RegExp(`^/bank/loans/(?!detail$)${ID}$`), (id) => `/bank/loans/detail?loan=${encodeURIComponent(decoded(id))}`],
   [new RegExp(`^/agents/sessions/${ID}$`), () => '/agents'],
-  [new RegExp(`^/(?:trade|markets)/(${UUID.source})$`, 'i'), (id, markets) => marketDesk(markets?.get(id))],
+  [new RegExp(`^/(?:trade|markets)/(${UUID.source})$`, 'i'), (id, markets) => marketDesk(markets?.get(id.toLowerCase()))],
 ];
 
 function decoded(segment: string): string {
@@ -141,7 +141,7 @@ function decoded(segment: string): string {
   }
 }
 
-const DOT_SEGMENT = /(?:^|\/)(?:\.|%2e){1,2}(?:[/?#]|$)/i;
+const DOT_SEGMENT = /(?:^|\/)(?:\.|%2e){1,2}(?:\/|$)/i;
 
 const marketDesk = (market: NotifyMarket | undefined) =>
   market ? `/trade/spot/${normalizePair(`${market.base}-${market.quote}`)}` : '/trade';
@@ -149,7 +149,7 @@ const marketDesk = (market: NotifyMarket | undefined) =>
 /** The stored link's fallback room when it has one, else its own address if that is a customer room. */
 function storedLink(href: string | null | undefined, markets?: ReadonlyMap<string, NotifyMarket>): string | undefined {
   // A `.` or `..` segment, plain or escaped, would fold into another room: no link at all.
-  if (!href || DOT_SEGMENT.test(href)) return undefined;
+  if (!href || DOT_SEGMENT.test(href.split(/[?#]/)[0] ?? href)) return undefined;
   for (const [pattern, to] of STORED_LINK) {
     const match = pattern.exec(href);
     if (match) return customerRoomHref(to(match[1] ?? '', markets));
