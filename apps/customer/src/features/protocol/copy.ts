@@ -135,8 +135,6 @@ const en = {
   degraded: 'Degraded: at least one venue did not answer.',
   singleVenue: 'Single venue: this is the only venue that answered, not the best of several.',
   poolsTitle: 'Liquidity pools',
-  poolsNote: 'Pool reserves are read from the chain one pool address at a time. No pool list is available here.',
-  poolsEmpty: 'No pools are listed.',
   ammWired: 'AMM venue wired into the DEX service',
   externalWired: 'External venue wired',
   internalBook: 'House order book in the venue set',
