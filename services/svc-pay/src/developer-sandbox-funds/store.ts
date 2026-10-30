@@ -3,7 +3,7 @@ import { SANDBOX_FUND_ASSET, type SandboxBalance, type SandboxFundRefusal } from
 import type { SandboxFundSettings } from './settings.js';
 
 /**
- * The developer sandbox store (DV-sandbox-02): TEST balances in svc-pay's `pay_sandbox` schema.
+ * The developer sandbox store (DV-sandbox-02): TEST balances in svc-pay's `pay.sandbox_*` tables.
  *
  * Not money, by construction. This file and everything it imports never touch the ledger: no ledger-client, no
  * posting, no read of a real balance (isolation.test.ts holds that). Figures are decimal strings and the arithmetic is
@@ -45,10 +45,10 @@ export class SandboxStore {
     }
     return this.change(who, requestId, 'fund', async (tx) => {
       await tx`
-        INSERT INTO pay_sandbox.balances (user_id, sandbox_id, asset, amount)
+        INSERT INTO pay.sandbox_balances (user_id, sandbox_id, asset, amount)
         VALUES (${who.userId}, ${who.sandboxId}, ${SANDBOX_FUND_ASSET}, ${amount}::numeric)
         ON CONFLICT (user_id, sandbox_id, asset)
-        DO UPDATE SET amount = pay_sandbox.balances.amount + EXCLUDED.amount, updated_at = now()`;
+        DO UPDATE SET amount = pay.sandbox_balances.amount + EXCLUDED.amount, updated_at = now()`;
       return amount;
     });
   }
@@ -64,7 +64,7 @@ export class SandboxStore {
         throw new SandboxFundError(`This sandbox has used its daily reset limit of ${cap}`, 'pay.sandbox_reset_cap_reached');
       }
       await tx`
-        UPDATE pay_sandbox.balances SET amount = 0, updated_at = now()
+        UPDATE pay.sandbox_balances SET amount = 0, updated_at = now()
         WHERE user_id = ${who.userId} AND sandbox_id = ${who.sandboxId}`;
       return '0';
     });
@@ -76,9 +76,9 @@ export class SandboxStore {
    */
   private async change(who: Who, requestId: string, kind: 'fund' | 'reset', apply: (tx: Tx) => Promise<string>): Promise<SandboxBalance> {
     return (await this.sql.begin(async (tx) => {
-      await tx`SELECT pg_advisory_xact_lock(hashtextextended(${`pay_sandbox:${who.userId}:${who.sandboxId}`}, 0))`;
+      await tx`SELECT pg_advisory_xact_lock(hashtextextended(${`pay.sandbox:${who.userId}:${who.sandboxId}`}, 0))`;
       const seen = await tx<Array<{ user_id: string; sandbox_id: string; kind: string }>>`
-        SELECT user_id, sandbox_id, kind FROM pay_sandbox.events WHERE request_id = ${requestId}`;
+        SELECT user_id, sandbox_id, kind FROM pay.sandbox_events WHERE request_id = ${requestId}`;
       if (seen[0]) {
         const same = seen[0].user_id === who.userId && seen[0].sandbox_id === who.sandboxId && seen[0].kind === kind;
         if (!same) throw new SandboxFundError('This request id was used for another change', 'pay.sandbox_request_conflict');
@@ -86,7 +86,7 @@ export class SandboxStore {
       }
       const amount = await apply(tx as unknown as Sql);
       await tx`
-        INSERT INTO pay_sandbox.events (request_id, user_id, sandbox_id, kind, asset, amount)
+        INSERT INTO pay.sandbox_events (request_id, user_id, sandbox_id, kind, asset, amount)
         VALUES (${requestId}, ${who.userId}, ${who.sandboxId}, ${kind}, ${SANDBOX_FUND_ASSET}, ${amount}::numeric)`;
       return this.read(tx as unknown as Sql, who);
     })) as SandboxBalance;
@@ -94,7 +94,7 @@ export class SandboxStore {
 
   private async resetsToday(tx: Tx, who: Who): Promise<number> {
     const rows = await tx<Array<{ n: number }>>`
-      SELECT count(*)::int AS n FROM pay_sandbox.events
+      SELECT count(*)::int AS n FROM pay.sandbox_events
       WHERE user_id = ${who.userId} AND sandbox_id = ${who.sandboxId} AND kind = 'reset'
         AND created_at >= date_trunc('day', now() AT TIME ZONE 'UTC') AT TIME ZONE 'UTC'`;
     return rows[0]?.n ?? 0;
@@ -103,9 +103,9 @@ export class SandboxStore {
   private async read(tx: Tx, who: Who): Promise<SandboxBalance> {
     const [row] = await tx<Array<{ amount: string | null; version: number }>>`
       SELECT
-        (SELECT trim_scale(amount)::text FROM pay_sandbox.balances
+        (SELECT trim_scale(amount)::text FROM pay.sandbox_balances
           WHERE user_id = ${who.userId} AND sandbox_id = ${who.sandboxId} AND asset = ${SANDBOX_FUND_ASSET}) AS amount,
-        (SELECT count(*)::int FROM pay_sandbox.events WHERE user_id = ${who.userId} AND sandbox_id = ${who.sandboxId}) AS version`;
+        (SELECT count(*)::int FROM pay.sandbox_events WHERE user_id = ${who.userId} AND sandbox_id = ${who.sandboxId}) AS version`;
     return {
       sandboxId: who.sandboxId,
       label: 'TEST',

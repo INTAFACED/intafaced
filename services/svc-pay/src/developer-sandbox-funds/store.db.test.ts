@@ -68,11 +68,11 @@ describe('sandbox store (DV-sandbox-02)', () => {
   const as = (userId: string, settings: SandboxFundSettings = TEST) =>
     createSandboxFundsRouter({ sql, settings }).createCaller(ctxOf(userId)).sandboxFunds;
 
-  /** Every row count outside the sandbox schema, to prove a change writes nowhere else. */
+  /** Every row count outside the sandbox tables, to prove a change writes nowhere else. */
   async function everythingElse(): Promise<Record<string, number>> {
     const tables = await sql<Array<{ s: string; t: string }>>`
       SELECT table_schema AS s, table_name AS t FROM information_schema.tables
-      WHERE table_type = 'BASE TABLE' AND table_schema NOT IN ('pay_sandbox', 'pg_catalog', 'information_schema')`;
+      WHERE table_type = 'BASE TABLE' AND table_schema NOT IN ('pg_catalog', 'information_schema') AND table_name NOT LIKE 'sandbox\\_%'`;
     const counts: Record<string, number> = {};
     for (const { s, t } of tables) {
       const [row] = await sql.unsafe<Array<{ n: number }>>(`SELECT count(*)::int AS n FROM "${s}"."${t}"`);
@@ -146,13 +146,13 @@ describe('sandbox store (DV-sandbox-02)', () => {
       amount: '0',
       resetsToday: 2,
     });
-    const before = await sql`SELECT count(*)::int AS n FROM pay_sandbox.events`;
+    const before = await sql`SELECT count(*)::int AS n FROM pay.sandbox_events`;
     await expect(as(user).reset({ sandboxId, requestId: sandboxResetRequestId(user, sandboxId, 4) })).rejects.toMatchObject({
       code: 'TOO_MANY_REQUESTS',
       message: expect.stringContaining('daily reset limit'),
       cause: { code: 'pay.sandbox_reset_cap_reached' },
     });
-    expect(await sql`SELECT count(*)::int AS n FROM pay_sandbox.events`).toEqual(before);
+    expect(await sql`SELECT count(*)::int AS n FROM pay.sandbox_events`).toEqual(before);
   });
 
   it('two presses at once with one request id make one change', async () => {
