@@ -13,6 +13,7 @@ import {
   LEDGER_RECONCILE_ASOF_INVALID,
   LEDGER_RECONCILE_BUILTIN_IMMUTABLE,
   LEDGER_RECONCILE_CONTROL_NOT_FOUND,
+  LEDGER_RECONCILE_RAIL_SOURCE_UNSET,
   LEDGER_RECONCILE_SOURCE_UNAVAILABLE,
   OPS_CONTROL_MARGIN_UNSET,
   OPS_CONTROL_POLICY_UNSET,
@@ -67,13 +68,17 @@ export interface SnapshotRead {
 }
 
 export interface ReconciliationSources {
+  /** The whole outside book. */
   outsideBalance(readAt: Date): Promise<SnapshotRead>;
+  /** One rail's own outside statement. A separate method, so no source can answer a rail control with the whole book. */
+  railStatement(readAt: Date, rail: string): Promise<SnapshotRead>;
   parity(readAt: Date): Promise<SnapshotRead>;
 }
 
 export function unsetReconciliationSources(): ReconciliationSources {
   return {
     outsideBalance: async () => ({ kind: 'unset' }),
+    railStatement: async () => ({ kind: 'unset' }),
     parity: async () => ({ kind: 'unset' }),
   };
 }
@@ -515,6 +520,7 @@ async function accountsInSet(sql: Db, accountSet: ReconciliationAccountSet, read
   return sql<AccountHit[]>`
     SELECT id, asset_id FROM accounts
      WHERE ${existedAt(sql, readAt)}
+       ${accountSet.rail ? sql`AND owner_type = 'treasury'::owner_type AND owner_id = ${`rail:${accountSet.rail}`}` : sql``}
        ${accountSet.ownerType ? sql`AND owner_type = ${accountSet.ownerType}::owner_type` : sql``}
        ${prefix ? sql`AND owner_id LIKE ${prefix} ESCAPE '\\'` : sql``}
        ${accountSet.kind ? sql`AND kind = ${accountSet.kind}::account_kind` : sql``}
@@ -901,9 +907,15 @@ async function judge(
   }
 
   const outsideTemplate = row.template === 'outside_balance';
+  // A control over one rail's boundary reads that rail's statement only.
+  const rail = accountSet.mode === 'query' ? accountSet.rail : undefined;
   let read: SnapshotRead;
   try {
-    read = outsideTemplate ? await sources.outsideBalance(readAt) : await sources.parity(readAt);
+    read = !outsideTemplate
+      ? await sources.parity(readAt)
+      : rail !== undefined
+        ? await sources.railStatement(readAt, rail)
+        : await sources.outsideBalance(readAt);
   } catch {
     read = { kind: 'unavailable' };
   }
@@ -937,14 +949,18 @@ async function judge(
     return {
       status: 'UNSET',
       phase: side,
-      errorCode: '',
+      errorCode: outsideTemplate && rail !== undefined ? LEDGER_RECONCILE_RAIL_SOURCE_UNSET : '',
       assets,
       outsideSide: outsideTemplate ? 'unset' : 'not_applicable',
       sources: emptySources,
     };
   }
   const expected = new Map<string, Amount>();
-  for (const balance of read.balances ?? []) expected.set(balance.assetId, parseAmount(balance.amount));
+  // A control scoped to one asset judges that asset alone: a statement that also lists others is not left UNSET by them.
+  const onlyAsset = accountSet.mode === 'query' ? accountSet.assetId : undefined;
+  for (const balance of read.balances ?? []) {
+    if (onlyAsset === undefined || balance.assetId === onlyAsset) expected.set(balance.assetId, parseAmount(balance.amount));
+  }
   const nextSources: ReconciliationControlRunView['sources'] = {
     ...emptySources,
     // A snapshot that names no as-of stays unset: its age is unknown, and the ledger's time is not its time.

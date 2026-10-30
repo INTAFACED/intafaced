@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { formatAmount, parseAmount as amt, recipes, type PostRequest } from '@intafaced/ledger-client';
-import { grantFor } from './caller-allowlist.js';
+import { LEDGER_POST_ALLOWLIST, grantFor } from './caller-allowlist.js';
 import { judgeCallerPost } from './caller-binding.js';
 
 const MAKER = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
@@ -57,7 +57,9 @@ describe('svc-trade token buyback ledger grant', () => {
   });
 
   it('grants them to no other service', () => {
-    for (const service of ['svc-token', 'svc-pay', 'svc-bank', 'svc-campaigns', 'svc-mining-pool', 'svc-ops']) {
+    const others = Object.keys(LEDGER_POST_ALLOWLIST).filter((service) => service !== 'svc-trade');
+    expect(others.length).toBeGreaterThan(0);
+    for (const service of others) {
       for (const [recipe] of BUYBACK) expect(grantFor(service, recipe), `${service} ${recipe}`).toBeUndefined();
     }
   });

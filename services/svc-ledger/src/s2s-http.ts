@@ -473,6 +473,7 @@ export interface S2sHttpOptions {
 export function registerS2sHttp(app: FastifyInstance, ledger: LedgerService, internalSecret: string, options: S2sHttpOptions = {}): void {
   const mode = options.bodyBind ?? DEFAULT_SERVICE_BODY_BIND_MODE;
   const bindingOptions: CallerBindingOptions = {
+    keysConfigured: options.s2s !== undefined,
     onViolation: (violation) => {
       options.onCallerViolation?.(violation);
       if (violation.reason === 'unbound' && !callerBindingWarnAllowed(violation.service)) return;

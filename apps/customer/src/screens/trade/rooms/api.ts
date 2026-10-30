@@ -75,6 +75,17 @@ export const deskStatusSchema = z.object({
   midFeed: z.object({ wiring: z.string(), published: z.boolean(), residual: z.string().nullable().optional() }).optional(),
 });
 export type DeskStatus = z.infer<typeof deskStatusSchema>;
+
+const convertFlowBoundsSchema = z.object({ minQty: decimalSchema, maxQty: decimalSchema }).nullable();
+/** `otc.convertBounds` (CB-otc-12): the owner's size range for each flow at the desk price; null when it is blank. */
+export const convertBoundsSchema = z.object({ convert: convertFlowBoundsSchema, oneClickBuy: convertFlowBoundsSchema });
+export type ConvertBounds = z.infer<typeof convertBoundsSchema>;
+/** `otc.convertQuote`: a desk quote for a conversion, with the owner's settle window (null when blank). */
+export const otcConvertQuoteSchema = otcQuoteSchema.extend({
+  flow: z.enum(['convert', 'oneClickBuy']),
+  settleWindowMs: z.number().int().nullable(),
+});
+export type OtcConvertQuote = z.infer<typeof otcConvertQuoteSchema>;
 export type RfqQuote = z.infer<typeof otcQuoteSchema>;
 export type RfqFill = z.infer<typeof otcFillSchema> & { fillId: string; takerOrderId: string; makerOrderId: string };
 
@@ -197,6 +208,9 @@ export function createRoomApi(api: ApiClient) {
       api.mutate('trade', `algo.${action}`, { algoId }, algoParentSchema),
     deskStatus: (signal?: AbortSignal) => api.query('trade', 'otc.deskStatus', undefined, deskStatusSchema, { signal }),
     otcMakers: (signal?: AbortSignal) => api.query('trade', 'otc.makers.list', undefined, otcMakersSchema, { signal }),
+    otcConvertBounds: (signal?: AbortSignal) => api.query('trade', 'otc.convertBounds', undefined, convertBoundsSchema, { signal }),
+    otcConvertQuote: (input: { flow: 'convert'; side: 'buy' | 'sell'; baseAsset: string; quoteAsset: string; qty: string }) =>
+      api.mutate('trade', 'otc.convertQuote', input, otcConvertQuoteSchema),
     rfqQuote: (input: { side: 'buy' | 'sell'; baseAsset: string; quoteAsset: string; qty: string; makerIds: string[]; makerId?: string }) =>
       api.mutate('trade', 'rfq.quote', input, otcQuoteSchema),
     rfqGet: (quoteId: string, signal?: AbortSignal) => api.query('trade', 'rfq.get', { quoteId }, otcQuoteSchema, { signal }),
