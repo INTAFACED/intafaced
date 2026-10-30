@@ -84,6 +84,7 @@ export * from './protocol-gas.js';
 export * from './protocol-ops.js';
 export * from './protocol-badge.js';
 export * from './protocol-representation.js';
+export * from './protocol-fees.js';
 export * from './protocol-swap.js';
 export * from './protocol-tokens.js';
 export * from './pay-merchant-reads.js';

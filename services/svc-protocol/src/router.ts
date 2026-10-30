@@ -59,6 +59,7 @@ import { listAllowances } from './amm/allowances.js';
 import { feeLevels, requireFeeCapWei, SwapFeeError } from './amm/fee-levels.js';
 import { priceTokens, type PriceSetting } from './amm/prices.js';
 import { createTokensRouter } from './amm/tokens-router.js';
+import { createPoolFeesProcedures, poolFeesChain } from './amm/pool-fees.js';
 import { tokenLogsChain } from './amm/token-reader.js';
 import { assertMinAmountOut, requireSwapSlippageBps, SwapSlippageError } from './amm/slippage.js';
 import {
@@ -1321,6 +1322,15 @@ export function createProtocolRouter(deps: ProtocolRouterDeps) {
     }),
 
     amm: router({
+      ...createPoolFeesProcedures({
+        chain: poolFeesChain(
+          () => chain.client,
+          () => chain.config.rpcUrl,
+          () => chain.headBlock(),
+        ),
+        factory: () => deps.ammFactoryAddress(),
+        toTrpcError,
+      }),
       /**
        * PURE MATH OVER RESERVES THE CALLER SUPPLIES. Not a market quote.
        *
