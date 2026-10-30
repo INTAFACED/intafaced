@@ -183,6 +183,8 @@ export interface GridSetupView {
 }
 
 const REQUEST_KEY = /^[A-Za-z0-9:._-]{8,120}$/;
+/** The longest request id identity's step-up check accepts (`ID_MAX` in packages/contracts/src/step-up-check.ts). */
+const STEP_UP_REQUEST_ID_MAX = 128;
 /** A tick placement is a fresh, short-lived authority from the stored claims; every level is still admitted live. */
 const TICK_AUTHORITY_MS = 60_000;
 
@@ -552,6 +554,10 @@ export class GridService {
       throw new GridError(`The platform has not set a daily withdrawal cap for ${asset}`, 'trade.bots_withdraw_cap_unset', { asset });
     }
     const withdrawalId = gridWithdrawalKey(input.botId, input.requestId);
+    // Identity's step-up takes a request id of at most 128 characters; refuse a longer key here, typed, not as a 500.
+    if (withdrawalId.length > STEP_UP_REQUEST_ID_MAX) {
+      throw new GridError('requestId is too long for this bot', 'trade.grid_request_key_invalid');
+    }
     const stepUp = await this.ports.stepUp.require({
       scope: GRID_WITHDRAW_STEP_UP_SCOPE,
       userId: principal.userId,

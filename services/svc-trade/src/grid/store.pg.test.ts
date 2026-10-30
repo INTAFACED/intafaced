@@ -300,6 +300,34 @@ describe('SqlGridStore (shared test postgres)', () => {
       expect((await store.getReserve(BOT))!.amount).toBe(A('200.5'));
     });
 
+    it('two withdrawals at once are serialised: the second sees the first and cannot pass the cap', async () => {
+      await store.createWithReserve(bot(), { ...reserve(), amount: A('200.5') }, async () => {});
+      const cap = A('0.3');
+      const one = (requestId: string) => {
+        const withdrawalId = gridWithdrawalKey(BOT, requestId);
+        return store.withdraw({ ...at, withdrawalId }, (state) => {
+          if (A('0.2') > cap - state.usedToday) throw new GridError('over the cap', 'trade.bots_withdraw_cap_exceeded');
+          const before = state.reserve!.amount;
+          return withdrawal({
+            withdrawalId,
+            requestId,
+            reserveBefore: before,
+            reserveAfter: before - A('0.2'),
+            profitBefore: before - A('200'),
+            profitAfter: before - A('200.2'),
+            dailyCap: cap,
+            capUsed: state.usedToday + A('0.2'),
+            capRemaining: cap - state.usedToday - A('0.2'),
+          });
+        });
+      };
+      const results = await Promise.allSettled([one('withdraw-race-a'), one('withdraw-race-b')]);
+      expect(results.filter((r) => r.status === 'fulfilled')).toHaveLength(1);
+      const refused = results.find((r) => r.status === 'rejected') as PromiseRejectedResult;
+      expect(refused.reason).toMatchObject({ code: 'trade.bots_withdraw_cap_exceeded' });
+      expect((await store.getReserve(BOT))!.amount).toBe(A('200.3'));
+    });
+
     it('a reserve that changed from what decide read is never overwritten', async () => {
       await store.createWithReserve(bot(), { ...reserve(), amount: A('200.5') }, async () => {});
       await expect(

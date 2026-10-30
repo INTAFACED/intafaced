@@ -907,6 +907,16 @@ describe('grid profit withdrawal (CB-bots-05, #7)', () => {
     expect((await refusal(bobs.service.withdrawProfit(other, ask(bot.botId, '0.000001')))).code).toBe('trade.grid_not_found');
   });
 
+  it('a request key too long for step-up refuses grid_request_key_invalid before identity is asked', async () => {
+    const id = identity();
+    const { bot, service } = await earned({ approvals: id.approvals });
+    const long = 'k'.repeat(128 - `bots.grid.withdraw:${bot.botId}:`.length + 1);
+    expect((await refusal(service.withdrawProfit(verified(), ask(bot.botId, '0.000001', long)))).code).toBe(
+      'trade.grid_request_key_invalid',
+    );
+    expect(id.consumed).toEqual([]);
+  });
+
   it('a stopped bot has released its reserve: its profit is already free, so it refuses reserve_released', async () => {
     const { bot, service } = await earned();
     await service.stop(verified(), bot.botId);
