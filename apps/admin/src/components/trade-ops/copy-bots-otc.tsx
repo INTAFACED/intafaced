@@ -10,6 +10,7 @@ import {
   type DeskQuote,
   type LookupBot,
   type LookupFollow,
+  type OpsMetric,
   type OpsMetrics,
   type QuoteDesk,
   type SettlementException,
@@ -48,6 +49,13 @@ function ReadAgain({ href }: { href: string }) {
   );
 }
 
+/** One count's row: its number, or "Could not load" with the code svc-trade gave for that source alone. */
+const count = (label: string, metric: OpsMetric) => ({
+  label,
+  value: metricText(metric),
+  ...(metric.value == null && metric.unavailable ? { hint: metric.unavailable } : {}),
+});
+
 function Metrics({ metrics, href }: { metrics: Outcome<OpsMetrics>; href: string }) {
   return (
     <Section title="Module metrics" hint="Counts svc-trade reads now. A source it could not read says so; it is never shown as 0.">
@@ -55,10 +63,10 @@ function Metrics({ metrics, href }: { metrics: Outcome<OpsMetrics>; href: string
         <KeyValue
           layout="inline"
           items={[
-            { label: 'Active copiers', value: metricText(metrics.data.activeCopiers) },
-            { label: 'Active bots', value: metricText(metrics.data.activeBots) },
-            { label: 'Quotes requested in the window', value: metricText(metrics.data.rfqsRequested) },
-            { label: 'Quotes settled in the window', value: metricText(metrics.data.rfqsSettled) },
+            count('Active copiers', metrics.data.activeCopiers),
+            count('Active bots', metrics.data.activeBots),
+            count('Quotes requested in the window', metrics.data.rfqsRequested),
+            count('Quotes settled in the window', metrics.data.rfqsSettled),
             {
               label: 'Window',
               value: `${windowText(metrics.data.window.seconds)}, ${when(metrics.data.window.from)} to ${when(metrics.data.window.to)} UTC`,
