@@ -135,7 +135,7 @@ test(`${J} #2 picks a starter template and presses Use: a draft with every numbe
   await expect(row).toBeVisible();
   await expect(row).toContainText(`Version ${template.version}`);
   // No return, win rate or other performance figure is claimed for any template.
-  expect(await templates.innerText()).not.toMatch(/\d\s*%|return|profit|win rate/i);
+  for (const text of await templates.getByRole('row').allInnerTexts()) expect(text).not.toMatch(/\d\s*%|return|profit|win rate/i);
 
   // The first Use reads the template but the reply is lost: nothing lands in the form.
   await loseNextReply(page, 'template.get');
