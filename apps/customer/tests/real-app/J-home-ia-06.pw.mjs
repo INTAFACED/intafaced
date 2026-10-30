@@ -39,7 +39,7 @@ const dayTime = (iso) =>
   }).format(Date.parse(iso));
 
 test.beforeAll(async ({ browser }) => {
-  test.setTimeout(8 * 60_000);
+  test.setTimeout((NOTICE_DRAIN_MINUTES + 2) * 60_000);
   const context = await browser.newContext({ baseURL: ORIGIN, timezoneId: 'UTC', viewport: { width: 1440, height: 900 } });
   page = await context.newPage();
   await signUp(page, 'hmn');

@@ -137,7 +137,11 @@ export class GuardError extends Error {
 
 /** The stack's own state rule (LOCAL_STACK_STATE, else per user), as the gates read it, so the compose seed finds its folder. */
 export function defaultStateDir(env = process.env) {
-  return localStackState(os.homedir(), env);
+  try {
+    return localStackState(os.homedir(), env);
+  } catch (err) {
+    throw new GuardError(`refusing: ${err.message}`);
+  }
 }
 
 export function earnPoolName(row) {

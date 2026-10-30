@@ -1885,7 +1885,9 @@ function serveCustomer(port = PORTS.customer, site = SITES.customer) {
     const dist = active.dir;
 
     // The LOCAL TEST host receipt, from the state folder (checkLocalTestHosts). With none, the build's own file or the index.
-    if (site === SITES.customer && p === HOST_RECEIPT_PATH && fs.existsSync(P.hostReceipt)) {
+    // The receipt, or a 404 while there is none: never the app's index in its place.
+    if (site === SITES.customer && p === HOST_RECEIPT_PATH) {
+      if (!fs.existsSync(P.hostReceipt)) return send(res, 404, 'text/plain; charset=utf-8', 'no host dispatch receipt');
       return send(res, 200, MIME['.json'], fs.readFileSync(P.hostReceipt, 'utf8'));
     }
 

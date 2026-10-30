@@ -890,7 +890,10 @@ test('home takes a notice window in whole minutes, for home only, up to the 30-d
 test('without --state the seed reads the stack state rule: LOCAL_STACK_STATE, as the compose seed service sets it', () => {
   assert.equal(defaultStateDir({ LOCAL_STACK_STATE: '/var/lib/intafaced/x' }), '/var/lib/intafaced/x');
   assert.equal(defaultStateDir({}), path.join(os.homedir(), '.intafaced', 'local-test-stack'));
-  assert.throws(() => defaultStateDir({ LOCAL_STACK_STATE: 'relative' }), /LOCAL_STACK_STATE must be an absolute folder path/);
+  assert.throws(() => defaultStateDir({ LOCAL_STACK_STATE: 'relative' }), {
+    name: 'GuardError',
+    message: /LOCAL_STACK_STATE must be an absolute folder path/,
+  });
 });
 
 test('money tables are decimal strings and the seed does not touch service trees', () => {

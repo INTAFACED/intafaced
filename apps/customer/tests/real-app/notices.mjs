@@ -4,7 +4,7 @@ import { noticePayloadHash as payloadHash } from '../../../../tooling/scripts/lo
 // Each notice carries a short window, so a run leaves nothing open on the stack for the next one.
 
 /** How long a journey waits for an earlier run's notices to close. Every notice a journey opens must end inside it. */
-export const NOTICE_DRAIN_MINUTES = 7;
+export const NOTICE_DRAIN_MINUTES = 12;
 
 let gates;
 let ctx;

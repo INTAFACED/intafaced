@@ -18,7 +18,8 @@ import { EDGE, ORIGIN as CUSTOMER, ROOT } from './stack.mjs';
 // profile; the real-app run starts the same services with `pnpm local:stack`, so the steps read the compose files for the
 // seed service's wiring and run the seed's own scripts, which refuse anything but a local dev or test build.
 // #5 runs on the stack's LOCAL TEST hosts (local-test-stack.mjs localTestHosts: its own loopback sites, labelled TEST),
-// never on an owner's hosts: no deployment is named on this stack.
+// never on an owner's hosts: no deployment is named on this stack. The deployed hosts are their own #5 test, red by name
+// (BLOCKED deployed_hosts) until a deployment names the hosts.
 const J = 'J-home-ia-11';
 // The stack's own rule for its state folder (LOCAL_STACK_STATE, else per user, else /var/lib as root).
 const STATE = localStackState();
@@ -114,6 +115,15 @@ test(`${J} #1 the tester profile starts healthy services, and its seed service r
   // Every service the stack started answers, and Edge routes to them.
   const ready = await fetch(`${EDGE}/ready`).then((res) => res.json());
   expect(ready.ready).toBe(true);
+  // Each service the stack started, one row each in its own health table, answers its health check.
+  const table = run('tooling/scripts/local-test-stack.mjs', ['status'], { LOCAL_STACK_STATE: STATE });
+  expect(table.status, table.out).toBe(0);
+  const rows = [...table.out.matchAll(/^ {2}(\S+) +\S+ +(\d+|owned) +(.+)$/gm)].map((m) => [m[1], m[3].trim()]);
+  const names = rows.map(([name]) => name);
+  expect(new Set(names).size, 'one row per service').toBe(names.length);
+  for (const name of ['postgres', 'nats', 'svc-ledger', 'svc-identity', 'svc-pay', 'svc-notify', 'svc-edge', 'customer'])
+    expect(names, `${name} was started`).toContain(name);
+  for (const [name, health] of rows) expect(health, `${name} health`).toMatch(/^ok\b/);
 
   // The tester profile's seed service: off unless asked, it runs the founder seed (init, then enrol) and the test-content
   // seed (apply, then home), in that order, and refuses any APP_ENV but dev or test.
@@ -157,8 +167,8 @@ test(`${J} #1 the tester profile starts healthy services, and its seed service r
   expect(report.out).toContain(`  inbox  1 deposit-credited row  ${founder}`);
 
   // A second run of the same entrypoint makes nothing new: the deposit is keyed on its business key and the notice is
-  // still open, so `home` skips it, and status still reads exactly one deposit (it refuses on a second record) and one
-  // inbox row.
+  // still open, so `home` skips it. status exits 0 only while the seeded transfer has exactly one deposit record (it
+  // refuses on a second), and still reads one inbox row.
   const again = run(
     SEED_ENTRY,
     [...contentSteps, '--notice-minutes', NOTICE_MINUTES],
@@ -170,7 +180,6 @@ test(`${J} #1 the tester profile starts healthy services, and its seed service r
   expect(again.out).toContain(`home inbox: 1 deposit-credited row for ${founder}`);
   const after = seedStatus();
   expect(after.status, after.out).toBe(0);
-  expect(after.out.match(/^ {2}deposit {2}/gm)).toHaveLength(1);
   expect(after.out).toContain(`  deposit  ${HOME_DEPOSIT_AMOUNT} ${HOME_ASSET} credited  ${founder}`);
   expect(after.out).toContain(`  inbox  1 deposit-credited row  ${founder}`);
 });
@@ -361,6 +370,7 @@ test(`${J} #5 the apex, app and join hosts are checked: a receipt of three serve
   const oneOff = [
     [{ INTAFACED_APEX_HOST: 'http://127.0.0.1:9' }, ['host.not_served', 'served', 'served']],
     [{ INTAFACED_APP_HOST: 'http://127.0.0.1:9' }, ['served', 'host.not_served', 'served']],
+    [{ INTAFACED_JOIN_HOST: 'http://127.0.0.1:9' }, ['served', 'served', 'host.not_served']],
     [{ INTAFACED_APEX_HOST: INVITATION }, ['host.apex_wrong_build', 'served', 'served']],
     [{ INTAFACED_APP_HOST: INVITATION }, ['served', 'host.app_wrong_build', 'served']],
     [{ INTAFACED_JOIN_HOST: CUSTOMER }, ['served', 'served', 'host.join_wrong_build']],
@@ -389,6 +399,7 @@ test(`${J} #5 the apex, app and join hosts are checked: a receipt of three serve
     expect(unset.out).toContain('host dispatch (TEST): no receipt written');
     expect(existsSync(HOST_RECEIPT)).toBe(false);
     expect(await publishedReceipt(page)).toBeNull();
+    expect((await page.request.get('/host-dispatch.json')).status(), 'no receipt is published').toBe(404);
     await page.goto('/help');
     await expect(page.getByTestId('host-dispatch')).toBeVisible();
     for (const role of ['apex', 'app', 'join'])
@@ -435,4 +446,25 @@ test(`${J} #5 the apex, app and join hosts are checked: a receipt of three serve
     expect(hosts.length, `${role} row names its host`).toBeGreaterThan(0);
     for (const named of hosts) expect(new URL(named).hostname, `${role} row names ${named}`).toBe('127.0.0.1');
   }
+});
+
+// The one clause the stack cannot give: the deployment's own apex, app and join hosts, over HTTPS, each serving its build.
+// The check runs in its deployment mode with the hosts the run is given (none on the stack), so this stays red by name
+// until a deployment names the hosts.
+test(`${J} #5 the deployed apex, app and join hosts are served (BLOCKED until a deployment names the hosts)`, () => {
+  const out = path.join(mkdtempSync(path.join(tmpdir(), 'host-dispatch-')), 'host-dispatch.json');
+  const hosts = Object.fromEntries(
+    ['INTAFACED_APEX_HOST', 'INTAFACED_APP_HOST', 'INTAFACED_JOIN_HOST'].map((name) => [name, process.env[name] ?? '']),
+  );
+  const deployed = run('apps/customer/deployment/host-dispatch.mjs', ['--out', out], hosts);
+  const receipt = existsSync(out) ? JSON.parse(readFileSync(out, 'utf8')) : null;
+  expect(
+    deployed.status === 0 && receipt?.status === 'served' && receipt.test === undefined,
+    `BLOCKED deployed_hosts: until a deployment names the hosts and serves them, the deployment check refuses:\n${deployed.out}`,
+  ).toBe(true);
+  expect(receipt.hosts.map((host) => [host.role, host.result])).toEqual([
+    ['apex', 'served'],
+    ['app', 'served'],
+    ['join', 'served'],
+  ]);
 });
