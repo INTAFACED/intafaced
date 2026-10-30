@@ -1,5 +1,8 @@
 import { z } from 'zod';
 import { edgeEnvSchema, loadEnv, serviceEnvSchema } from '@intafaced/config';
+import { parseMinReserveUsd, parseUsdTokens } from './amm/prices.js';
+import { parseSwapSlippageBps } from './amm/slippage.js';
+import { parseFeeCapWei } from './amm/fee-levels.js';
 
 /** A whole number of 0 or more, or null when blank or anything else. Never coerces blank to 0. */
 function parseWhole(raw: string): number | null {
@@ -12,9 +15,6 @@ function parsePositiveWhole(raw: string): number | null {
   const n = parseWhole(raw);
   return n !== null && n > 0 ? n : null;
 }
-import { parseMinReserveUsd, parseUsdTokens } from './amm/prices.js';
-import { parseSwapSlippageBps } from './amm/slippage.js';
-import { parseFeeCapWei } from './amm/fee-levels.js';
 
 const evmAddress = z.string().regex(/^0x[0-9a-fA-F]{40}$/, 'must be a 20-byte hex address');
 /**
