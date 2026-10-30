@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { test, expect } from '@playwright/test';
-import { api, journeyState, toUnits } from './stack.mjs';
+import { api, journeyState, tool, toUnits } from './stack.mjs';
 import { fundedTrader, signIn } from './desk.mjs';
 import { refusalCode } from './p2p.mjs';
 import { copiedOrders, copiedOrdersLoaded, followOnScreen, leadFill, listLeader, openFollow } from './copy.mjs';
@@ -11,11 +11,11 @@ import { copiedOrders, copiedOrdersLoaded, followOnScreen, leadFill, listLeader,
 // it on screen, and three copied buys (the leader's own fills on the TEST book, copied by the copy driver), so a close of
 // one can be told from a close of all and a position is still open when #7 leaves. Every state is read back from
 // svc-trade and every balance from the ledger.
-// A part that is not built yet is its own clause, red by its name ("UNBUILT ..."), and the clauses after it still run:
-// - #4: no close-all with a step-up (copy.flatten closes at once, with no step-up asked).
-// - #5: no door in the running app re-attempts a fill the copy driver already skipped.
-// - #6: no notice for a skipped or stopped follow.
-// - #7: a second leave is answered, not refused.
+// #5 tries a skipped fill again through the stack's LOCAL TEST rewind (`local-test-gates.mjs copy-rewind`): nothing in the
+// running app sends a fill the copy driver has passed through it again.
+// A step whose part is not built yet is red by the name of what it waits for:
+// - #4 (B3): copy.flatten asks no step-up; today a bare call closes and leaves the follow at once.
+// - #6 (B5): no in-app notice for a skipped or stopped follow.
 const J = 'J-copy-bots-otc-03';
 const run = journeyState(`${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
 const UNBUILT = { timeout: 5_000 };
@@ -32,15 +32,6 @@ function state(key) {
 }
 
 const trpc = (proc, input) => `/api/trade/trpc/${proc}?input=${encodeURIComponent(JSON.stringify(input ?? {}))}`;
-
-/** A part of the screen that is not built yet: red by its name, and the clauses after it still run. */
-async function unbuilt(name, check) {
-  try {
-    await check();
-  } catch (err) {
-    expect.soft(String(err?.message ?? err).split('\n')[0], `UNBUILT ${name}`).toBe('built');
-  }
-}
 
 /** Presses a follow action and confirms it in its dialog. */
 async function act(page, detail, button) {
@@ -262,16 +253,16 @@ test(`${J} #2 stops with close-only: a new lead fill isn't mirrored, and a lead 
   test.setTimeout(180_000);
   const follower = state('follower');
   await signIn(page, follower);
+  const followId = state('followId');
   const detail = await openFollow(page, state('leaderRef'));
+  const atStop = await snapshot(follower, followId);
   await act(page, detail, 'Stop');
   // Stop is close-only: the follow reads Stopping while the leader's closes still close the copied positions.
   await expect(detail).toContainText('Stopping');
-  await unbuilt('#2 close-only note on the follow', () =>
-    expect(detail.getByText('Close-only: the leader’s closes still close your copied positions.')).toBeVisible(UNBUILT),
-  );
-  // svc-trade holds the follow as close-only, read back by its owner.
-  const followId = state('followId');
+  await expect(detail.getByText('Close-only: the leader’s closes still close your copied positions.')).toBeVisible();
+  // svc-trade holds the follow as close-only, read back by its owner, and the stop itself closed and moved nothing.
   expect((await myFollow(follower, followId)).relationshipState).toBe('CLOSE_ONLY');
+  expect(await snapshot(follower, followId)).toEqual(atStop);
   const copied = async () => (await trpcQuery(follower, 'copy.followPositions', { followId })).positions;
   const copiedBefore = await copied();
   const copies = state('openFillIds').length;
@@ -333,14 +324,19 @@ test(`${J} #2 stops with close-only: a new lead fill isn't mirrored, and a lead 
   const positionsAfter = await copiedPositions(follower, followId);
   expect(positionsAfter.map((p) => p.positionId)).toEqual(positionsBefore.map((p) => p.positionId));
   let left = sold;
+  let untouched = 0;
   for (const was of [...positionsBefore].reverse()) {
     const now = positionsAfter.find((p) => p.positionId === was.positionId);
     const held = toUnits(was.bought);
     const take = left < held ? left : held;
     left -= take;
     expect(toUnits(now.open), `position ${was.positionId}: held ${held}, the lead close took ${take}`).toBe(((held - take) / lot) * lot);
-    if (take === 0n) expect(now, `position ${was.positionId} is newer than what the lead close sold`).toEqual(was);
+    if (take === 0n) {
+      untouched += 1;
+      expect(now, `position ${was.positionId} is newer than what the lead close sold`).toEqual(was);
+    }
   }
+  expect(untouched, 'a copy newer than the lead close').toBeGreaterThan(0);
   expect(left, 'the copied sell sold more than the copies held').toBe(0n);
   const after = await copied();
   expect(after.filter((o) => o.side === 'buy')).toHaveLength(copies);
@@ -360,7 +356,7 @@ test(`${J} #3 opens Positions and closes one order, then a part larger than open
   const followId = state('followId');
   await signIn(page, follower);
   const detail = await openFollow(page, state('leaderRef'));
-  await unbuilt('#3 Positions tab', () => detail.getByRole('tab', { name: 'Positions' }).click(UNBUILT));
+  await detail.getByRole('tab', { name: 'Positions' }).click();
   const table = detail.getByRole('table', { name: 'Copied positions' });
   // The screen lists svc-trade's copied positions in its order (newest first); a row is found by its index there and
   // checked by its market and amount, and the close it sends is checked to name that position.
@@ -454,13 +450,14 @@ test(`${J} #3 opens Positions and closes one order, then a part larger than open
 test(`${J} #4 presses close-all with an unrealised loss: a step-up opens, and the call without its token is refused`, async ({ page }) => {
   const follower = state('follower');
   const bare = await (await api(follower)).post('/api/trade/trpc/copy.flatten', { followId: state('otherFollowId') });
-  expect(bare.status).toBe(403);
-  expect(JSON.stringify(bare.body)).toMatch(/step_up/);
+  expect(refusalCode(bare), `B3 close-all step-up: svc-trade answered ${bare.status} ${JSON.stringify(bare.body).slice(0, 200)}`).toBe(
+    'identity.step_up_required',
+  );
   await signIn(page, follower);
   const detail = await openFollow(page, state('otherRef'));
   await detail.getByRole('button', { name: 'Close copied positions' }).click();
   await page.getByRole('alertdialog').getByRole('button', { name: 'Close copied positions' }).click();
-  await expect(page.getByRole('dialog', { name: 'Confirm it’s you' })).toBeVisible(UNBUILT);
+  await expect(page.getByRole('dialog', { name: 'Confirm it’s you' }), 'B3 close-all step-up: no step-up opens').toBeVisible(UNBUILT);
 });
 
 test(`${J} #5 opens the skip log: one row per skipped mirror with the reason in words; a repeat writes no second row`, async ({ page }) => {
@@ -479,15 +476,15 @@ test(`${J} #5 opens the skip log: one row per skipped mirror with the reason in 
   // The screen lists the same rows, each reason in words, no raw code.
   await signIn(page, follower);
   const detail = await openFollow(page, state('leaderRef'));
-  await unbuilt('#5 Skipped tab', () => detail.getByRole('tab', { name: 'Skipped' }).click(UNBUILT));
+  await detail.getByRole('tab', { name: 'Skipped' }).click();
   const log = detail.getByRole('table', { name: 'Skipped copies' });
   await expect(log.locator('tbody tr')).toHaveCount(items.length);
   await expect(log.locator('tbody tr').filter({ hasText: 'You had paused this follow' })).toHaveCount(paused.length);
   await expect(log.locator('tbody tr').filter({ hasText: 'You had stopped this follow' })).toHaveCount(stopped.length);
   await expect(log).not.toContainText(/trade\.[a-z_]+/);
 
-  // Another sweep (the copy driver's, for a new lead buy it skips as stopped) writes no second row for any fill
-  // already logged: the earlier rows read exactly as before, and the new fills once each.
+  // A new lead buy is skipped as stopped, once per fill, and the rows already logged read exactly as before. This shows
+  // a new fill is logged; the repeat of a logged fill is the rewind below.
   const next = await leadFill(state('leader'), 'buy', '0.001', `${J}-5-sweep-${state('tag')}`);
   const nextIds = await leaderFillsOf(state('leader'), next);
   await expect
@@ -503,16 +500,37 @@ test(`${J} #5 opens the skip log: one row per skipped mirror with the reason in 
   const reread = sorted((await trpcQuery(follower, 'copy.skipLog', { followId })).items);
   expect(reread.filter((s) => !nextIds.includes(s.leaderFillId))).toEqual(items);
   expect(reread).toHaveLength(items.length + nextIds.length);
-  // A repeat of the same fill: the copy driver tries each fill once and then moves past it, so nothing in the running
-  // app sends a skipped fill through again.
-  expect.soft(null, 'UNBUILT #5 repeat of a skipped fill: no door in the running app re-attempts the same fill').toBe('a door');
+  // A repeat of the same fill: the stack's LOCAL TEST rewind moves the follow's copy cursor to just before one logged
+  // fill, and one more lead buy drives one sweep from there. Once that buy's fills are logged, the sweep has passed the
+  // rewound fill again: it still has exactly one row, every row reads as before, and nothing was placed or moved.
+  const repeated = nextIds[0];
+  const atRewind = await snapshot(follower, followId);
+  const fillsAtRewind = (await myFills(follower)).map((f) => f.id).sort();
+  tool('local-test-gates.mjs', 'copy-rewind', followId, repeated);
+  const drive = await leadFill(state('leader'), 'buy', '0.001', `${J}-5-repeat-${state('tag')}`);
+  const driveIds = await leaderFillsOf(state('leader'), drive);
+  await expect
+    .poll(
+      async () => (await trpcQuery(follower, 'copy.skipLog', { followId })).items.filter((s) => driveIds.includes(s.leaderFillId)).length,
+      { timeout: 60_000, message: 'the copy driver never swept after the rewind' },
+    )
+    .toBe(driveIds.length);
+  const afterRepeat = sorted((await trpcQuery(follower, 'copy.skipLog', { followId })).items);
+  expect(
+    afterRepeat.filter((s) => s.leaderFillId === repeated),
+    `skip rows for the repeated fill ${repeated}`,
+  ).toHaveLength(1);
+  expect(afterRepeat.filter((s) => !driveIds.includes(s.leaderFillId))).toEqual(reread);
+  expect(afterRepeat).toHaveLength(reread.length + driveIds.length);
+  expect(await snapshot(follower, followId)).toEqual(atRewind);
+  expect((await myFills(follower)).map((f) => f.id).sort()).toEqual(fillsAtRewind);
 });
 
 test(`${J} #6 receives an in-app notice for a skipped or stopped follow: the reason and next step, no raw code`, async ({ page }) => {
   await signIn(page, state('follower'));
   await page.goto('/notifications');
   const notice = page.getByRole('article').filter({ hasText: /stopped copying|skipped a copy/i });
-  await expect(notice.first()).toBeVisible(UNBUILT);
+  await expect(notice.first(), 'B5 copy notices: no in-app notice for a skipped or stopped follow').toBeVisible(UNBUILT);
   await expect(notice.first()).toContainText(/You can /);
   await expect(notice.first()).not.toContainText(/trade\.[a-z_]+/);
 });
@@ -532,16 +550,17 @@ test(`${J} #7 leaves the leader: the follow is left and the positions stay the p
   await act(page, detail, 'Leave leader');
   await expect(detail).toContainText('Left');
   // svc-trade holds the follow as left, and nothing was closed or moved.
-  expect((await myFollow(follower, followId)).relationshipState).toBe('DETACHED');
+  const followAfter = await myFollow(follower, followId);
+  expect(followAfter.relationshipState).toBe('DETACHED');
   expect(await snapshot(follower, followId)).toEqual(before);
   // Leaving again: the button is off and says why.
   await expect(detail.getByRole('button', { name: 'Leave leader', exact: true })).toBeDisabled();
   await expect(detail.getByText('Leave leader: You have already left this leader')).toBeVisible();
   // The same leave by API is refused by its typed code, and the follow, its positions, orders and balances read the same.
   const again = await (await api(follower)).post('/api/trade/trpc/copy.detach', { followId });
-  expect
-    .soft(refusalCode(again), `UNBUILT #7 leave again: svc-trade answered ${again.status} ${JSON.stringify(again.body).slice(0, 200)}`)
-    .toBe('trade.copy_detached');
-  expect((await myFollow(follower, followId)).relationshipState).toBe('DETACHED');
+  expect(refusalCode(again), `leave again: svc-trade answered ${again.status} ${JSON.stringify(again.body).slice(0, 200)}`).toBe(
+    'trade.copy_detached',
+  );
+  expect(await myFollow(follower, followId)).toEqual(followAfter);
   expect(await snapshot(follower, followId)).toEqual(before);
 });
