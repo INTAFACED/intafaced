@@ -146,6 +146,33 @@ describe('futures orders through the book: REST', () => {
     expect(readPlaceBody(USER, { ...body, timeInForce: 'GTC' }).ok).toBe(true);
   });
 
+  it('a market order that carries a price is refused, never silently re-priced (open, reduce and split)', async () => {
+    let calls = 0;
+    const server = await app({
+      place: async () => {
+        calls += 1;
+        return order;
+      },
+      placeSplit: async () => {
+        calls += 1;
+        return { parts: 1, orders: [order], stopped: null };
+      },
+    });
+    const cases: [string, Record<string, unknown>][] = [
+      ['/api/v1/futures/orders', { ...body, type: 'market', price: '65000' }],
+      ['/api/v1/futures/orders', { ...body, type: 'market', price: '1', leverage: undefined, reduceOnly: true, side: 'sell' }],
+      ['/api/v1/futures/orders/split', { ...body, type: 'market', price: '65000' }],
+    ];
+    for (const [url, payload] of cases) {
+      const res = await server.inject({ method: 'POST', url, payload });
+      expect(res.statusCode, url).toBe(400);
+      expect(res.json()).toMatchObject({ error: 'trade.price_not_accepted' });
+    }
+    expect(calls).toBe(0);
+    // A limit order still names its price.
+    expect(readPlaceBody(USER, body)).toMatchObject({ ok: true, input: { type: 'limit', limitPrice: parseAmount('65000') } });
+  });
+
   it('a typed service refusal keeps its code and status', async () => {
     const server = await app({
       place: async () => {

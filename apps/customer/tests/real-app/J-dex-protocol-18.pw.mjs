@@ -233,6 +233,21 @@ test(`${J} #8 closes 25 percent: a reduce-only order fills exactly a quarter in 
   // the fee. Free margin asset after + the order's fees >= free before.
   const freeAfter = toUnits((await (await api(who)).balances())[QUOTE]?.free ?? '0');
   expect(freeAfter + toUnits(order.feesPaid)).toBeGreaterThanOrEqual(freeBefore);
+  // A caller-supplied price is refused on the door the close goes through: a market reduce-only order with a price is a
+  // 400 trade.price_not_accepted, and nothing more closes.
+  const priced = await (
+    await api(who)
+  ).post('/api/v1/futures/orders', {
+    symbol: SYMBOL,
+    side: asked.side,
+    type: 'market',
+    amount: asked.amount,
+    price: '1',
+    reduceOnly: true,
+    clientOrderId: `${J}:market-price-refused`,
+  });
+  expect(priced.status, JSON.stringify(priced.body)).toBe(400);
+  expect(priced.body.error).toBe('trade.price_not_accepted');
   // The position close door takes no price from the caller either.
   const { status, body } = await (
     await api(who)
@@ -243,6 +258,7 @@ test(`${J} #8 closes 25 percent: a reduce-only order fills exactly a quarter in 
   });
   expect(status).toBe(400);
   expect(body.error).toBe('trade.price_not_accepted');
+  expect(4n * toUnits((await positions(who)).find((p) => p.id === before.id)?.contracts ?? '0')).toBe(3n * toUnits(before.contracts));
 });
 
 test(`${J} #9 toggles the fee in profit and loss and the chart overlays: profit and loss changes by the fee; entry, liquidation and order lines appear on the chart`, async ({
