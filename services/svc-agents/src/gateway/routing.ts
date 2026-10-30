@@ -259,6 +259,14 @@ export const DEFAULT_ROUTING_TABLE: RoutingTable = parseRoutingTable({
       maxOutputTokens: 2048,
       price: { inputPerMillion: '1', outputPerMillion: '5' },
     },
+    // A run of an agent the person built: their instructions and their question, answered for them alone.
+    {
+      task: 'own.run',
+      providerId: 'primary',
+      model: 'reasoning-md',
+      maxOutputTokens: 2048,
+      price: { inputPerMillion: '1', outputPerMillion: '5' },
+    },
     {
       task: 'support.classify',
       providerId: 'primary',

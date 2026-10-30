@@ -154,7 +154,7 @@ export class SqlTwapParentStore implements TwapParentStore {
         status, created_at, started_at, next_due_at, projected_ends_at,
         schedule_stretch_reason, paused_at, halt_reason,
         slices_planned, next_slice_index, plan_slices, children, misses, grant_claims,
-        participation_bps, lot_size, updated_at
+        participation_bps, lot_size, random_seed, trigger_price, trigger_above, triggered_at, updated_at
       ) VALUES (
         ${p.id},
         ${p.userId},
@@ -183,6 +183,10 @@ export class SqlTwapParentStore implements TwapParentStore {
         ${grantJson},
         ${p.participationBps},
         ${p.lotSize === null ? null : formatAmount(p.lotSize)},
+        ${p.randomSeed ?? null},
+        ${p.triggerPrice == null ? null : formatAmount(p.triggerPrice)},
+        ${p.triggerAbove ?? null},
+        ${p.triggeredAt ?? null},
         now()
       )
       ON CONFLICT (id) DO UPDATE SET
@@ -199,6 +203,7 @@ export class SqlTwapParentStore implements TwapParentStore {
         grant_claims = COALESCE(EXCLUDED.grant_claims, algo_parents.grant_claims),
         participation_bps = EXCLUDED.participation_bps,
         lot_size = COALESCE(EXCLUDED.lot_size, algo_parents.lot_size),
+        triggered_at = COALESCE(algo_parents.triggered_at, EXCLUDED.triggered_at),
         updated_at = now()
       WHERE NOT ${onlyIfMissing}
     `;
@@ -284,6 +289,10 @@ function rowToRecord(row: Record<string, unknown>): TwapParentRecord {
     nextSliceIndex,
     children: childrenFromJson(row.children),
     misses: missesFromJson(row.misses),
+    randomSeed: row.random_seed === null || row.random_seed === undefined ? null : Number(row.random_seed),
+    triggerPrice: row.trigger_price === null || row.trigger_price === undefined ? null : parseAmount(String(row.trigger_price)),
+    triggerAbove: row.trigger_above === null || row.trigger_above === undefined ? null : Boolean(row.trigger_above),
+    triggeredAt: row.triggered_at ? new Date(String(row.triggered_at)) : null,
   };
   return { parent, plan: planFromJson(row.plan_slices), grant: parseAlgoPlaceGrant(row.grant_claims) };
 }

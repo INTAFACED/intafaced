@@ -12,6 +12,8 @@ import {
   readRatingResult,
   internalNoteGate,
   INTERNAL_NOTE_MAX,
+  DESK_COMMENTS_READ,
+  noteKeyBlock,
   replyGate,
   statusGate,
 } from './model';
@@ -174,6 +176,14 @@ describe('the internal note gate', () => {
     expect(internalNoteGate('TEST', true)).toMatchObject({ ok: false });
     expect(internalNoteGate('x'.repeat(INTERNAL_NOTE_MAX + 1), false)).toMatchObject({ ok: false });
     expect(internalNoteGate('TEST', false)).toEqual({ ok: true });
+  });
+  it('keys a note only from a whole read of the comments: unread or a read that filled the limit holds it, with why', () => {
+    expect(noteKeyBlock(3, false)).toBeNull();
+    expect(noteKeyBlock(0, false)).toBeNull();
+    expect(noteKeyBlock(null, false)).toContain('could not be read');
+    expect(noteKeyBlock(3, true)).toBe(
+      `This ticket has ${DESK_COMMENTS_READ} or more comments, more than the desk reads, so a note cannot be told apart from one already sent.`,
+    );
   });
   it('reads a note strictly: the row read and the notes sent are its key', () => {
     expect(readActionRequest({ action: 'note', ticketId: T1, body: ' TEST ', expectedSequence: 4, sent: 0 })).toEqual({

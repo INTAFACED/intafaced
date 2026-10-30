@@ -358,6 +358,23 @@ const messages = {
   'Needs an authorised venue submit port': 'Needs an authorised venue submit port',
   'Planning or observation only': 'Planning or observation only',
   'Open Quant Studio': 'Open Quant Studio',
+  // Random sizes and trigger price (TWAP only)
+  'Random slice sizes': 'Random slice sizes',
+  'Random slice sizes hint': 'Each slice gets a different size; the sizes still add up to the total.',
+  Seed: 'Seed',
+  'Seed hint': 'A whole number from 0 to 4294967295. The same seed always gives the same sizes.',
+  'Seed problem': 'Enter a whole number from 0 to 4294967295.',
+  'Start when the price reaches': 'Start when the price reaches',
+  'Trigger hint': 'Optional. The schedule waits until the market price reaches this price, then starts slicing.',
+  'Trigger problem': 'Enter a price above zero.',
+  'Slice sizes': 'Slice sizes',
+  'Slice sizes loading': 'Reading the slice sizes from the service…',
+  'Slice sizes refused': 'The service did not give the slice sizes, so this schedule cannot be confirmed.',
+  'Random sizes': 'Random, seed {seed}',
+  'Trigger price': 'Trigger price',
+  'Waiting for the trigger price': 'Waiting for the trigger price',
+  'Triggered at': 'Trigger reached {when}',
+  'After the trigger price is reached': 'After the trigger price is reached',
 } as const;
 
 export const execCopy = defineCopy('trade.execution', messages);

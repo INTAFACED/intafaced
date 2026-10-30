@@ -330,6 +330,7 @@ const messages = {
   'Token governance': 'Token governance',
   'Governance proposal': 'Governance proposal',
   'Token economy': 'Token economy',
+  'Token burn': 'Token burn',
   'Mining workers': 'Mining workers',
   'Mining worker': 'Mining worker',
   'Mining shares': 'Mining shares',

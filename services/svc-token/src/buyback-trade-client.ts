@@ -14,6 +14,12 @@ import { sizeIocBuyFromAsks } from './economics/buyback.js';
 import { TokenError } from './token-service.js';
 import type { BuybackPlaceFill } from './buyback-job.js';
 
+/**
+ * Whether the trade service publishes the signed IOC place this client needs.
+ * It does not yet: every place below refuses. Flip only with that place wired.
+ */
+export const BUYBACK_PLACE_PUBLISHED = false;
+
 export interface TradeIocMarketBuyOpts {
   readonly tradeUrl: string;
   readonly symbol: string;
