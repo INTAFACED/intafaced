@@ -9,7 +9,7 @@ import Fastify from 'fastify';
 import { afterAll, describe, expect, it } from 'vitest';
 import { issueAccessToken, verifyAccessToken } from '@intafaced/auth';
 import { actionApprovalSchema, type Context } from '@intafaced/contracts';
-import { parseAmount as amt, recipes } from '@intafaced/ledger-client';
+import { formatAmount, parseAmount as amt, recipes } from '@intafaced/ledger-client';
 import { createTestDb, rewriteSchemaSql, type TestDb } from '@intafaced/db/testing';
 import {
   OPS_CONTROL_MARGIN_UNSET,
@@ -972,6 +972,149 @@ async function ctx(scopes: string[], mfa: boolean): Promise<Context> {
           activate: true,
         } as never),
       ).rejects.toThrow();
+    }
+  });
+
+  it("takes a rail's named open items out of its difference: PASS names every item, a residual of one unit or an unlisted transfer FAILs, an unreadable list is ERROR", async () => {
+    // Lead ruling 2026-10-30: the rail passes only when its difference is exactly the open items svc-pay lists, each named.
+    const engine = new PostgresLedger(db.sql);
+    await engine.post(
+      recipes.deposit({
+        userId: 'abcdeaaa-8888-4888-8888-000000000003',
+        assetId: 'USDT',
+        amount: amt('7'),
+        rail: 'recon-items',
+        railRef: 'recon-items-1',
+      }),
+    );
+    const defined = await defineReconciliationControl(db.sql, actor, {
+      template: 'outside_balance',
+      accountSet: { mode: 'query', rail: 'recon-items', assetId: 'USDT' },
+      schedule: { cadence: 'daily', hour: 0, minute: 0 },
+      severity: 'critical',
+      // A tolerance of 1 that the items rule must not apply: a residual of 0.01 still FAILs.
+      tolerance: { default: '1' },
+      reason: REASON,
+      activate: true,
+    });
+    const held = (id: string, amount: string) => ({ kind: 'held' as const, id, amount });
+    const unfunded = (id: string, amount: string) => ({ kind: 'reversal_unfunded' as const, id, amount });
+    let statement = '-10';
+    let listed: Array<{ kind: 'held' | 'reversal_unfunded'; id: string; amount: string }> = [];
+    let itemsStatus = 200;
+    const asked: unknown[] = [];
+    const signed: string[] = [];
+    const server = Fastify();
+    server.get('/statement', async (req) => ({
+      source: 'rail',
+      rail: (req.query as { rail: string }).rail,
+      asOf: '2026-01-01T00:00:00.000Z',
+      balances: [{ assetId: 'USDT', amount: statement }],
+    }));
+    server.post('/items', async (req, reply) => {
+      asked.push(req.body);
+      signed.push(String(req.headers['x-test-signed']));
+      if (itemsStatus !== 200) return reply.code(itemsStatus).send({ error: 'pay.custody_open_items_unavailable' });
+      const { offset, limit } = req.body as { offset: number; limit: number };
+      const all = listed.map((item, i) => ({
+        depositId: item.id,
+        kind: item.kind,
+        userId: 'abcdeaaa-8888-4888-8888-000000000003',
+        assetId: 'USDT',
+        networkId: 'ethereum',
+        txHash: `0xtest${i}`,
+        outputIndex: 0,
+        amount: item.amount.replace('-', ''),
+        signedAmount: item.amount,
+        status: item.kind === 'held' ? 'held_travel_rule' : 'needs_review',
+        reason: item.kind === 'held' ? null : 'reversal_unfunded',
+        detectedAt: '2026-01-01T00:00:00.000Z',
+      }));
+      const sum = (kind: string) => listed.filter((i) => i.kind === kind).reduce((n, i) => n + amt(i.amount.replace('-', '')), 0n);
+      return {
+        items: all.slice(offset, offset + limit),
+        total: all.length,
+        sums: all.length
+          ? [
+              {
+                networkId: 'ethereum',
+                assetId: 'USDT',
+                held: formatAmount(sum('held')),
+                heldCount: listed.filter((i) => i.kind === 'held').length,
+                reversalUnfunded: formatAmount(sum('reversal_unfunded')),
+                reversalUnfundedCount: listed.filter((i) => i.kind === 'reversal_unfunded').length,
+                net: formatAmount(sum('held') - sum('reversal_unfunded')),
+              },
+            ]
+          : [],
+      };
+    });
+    const base = await server.listen({ port: 0, host: '127.0.0.1' });
+    const sources = () =>
+      reconciliationSourcesFrom(undefined, new Map([['recon-items', `${base}/statement`]]), fetch, undefined, {
+        urls: new Map([['recon-items', `${base}/items`]]),
+        sign: (payload) => ({ 'x-test-signed': payload }),
+      });
+    const run = () =>
+      runReconciliationControl(
+        db.sql,
+        approvals,
+        actor,
+        { controlId: defined.id, reason: REASON, approvalId: 'appr-items', operationId: nextOp() },
+        sources(),
+      );
+    try {
+      // Custody shows 10, the ledger 7: two held deposits (2 + 2) and one credited deposit the chain took back uncovered
+      // (-1) explain it exactly. PASS, with every item named by id and amount on the run.
+      listed = [held('dep-held-1', '2'), held('dep-held-2', '2'), unfunded('dep-unfunded-1', '-1')];
+      const pass = await run();
+      expect(pass.status).toBe('PASS');
+      expect(pass.assets).toEqual([
+        { assetId: 'USDT', observed: '-7', expected: '-10', difference: '3', tolerance: '1', reconcilingItems: '3', residual: '0' },
+      ]);
+      expect(pass.reconcilingItems).toEqual([
+        { source: 'svc-pay', id: 'dep-held-1', kind: 'held', assetId: 'USDT', amount: '2' },
+        { source: 'svc-pay', id: 'dep-held-2', kind: 'held', assetId: 'USDT', amount: '2' },
+        { source: 'svc-pay', id: 'dep-unfunded-1', kind: 'reversal_unfunded', assetId: 'USDT', amount: '-1' },
+      ]);
+      expect(asked).toEqual([{ rail: 'recon-items', offset: 0, limit: 200 }]);
+      expect(signed).toEqual([JSON.stringify({ rail: 'recon-items', offset: 0, limit: 200 })]);
+      // The stored run reads back the same items.
+      const stored = await listReconciliationControlRuns(db.sql, { controlId: defined.id });
+      expect(stored.runs.find((r) => r.id === pass.id)?.reconcilingItems).toEqual(pass.reconcilingItems);
+
+      // One hundredth over the items: FAIL naming the residual, though the tolerance is 1.
+      statement = '-10.01';
+      const cent = await run();
+      expect(cent.status).toBe('FAIL');
+      expect(cent.assets[0]).toMatchObject({ difference: '3.01', reconcilingItems: '3', residual: '0.01' });
+
+      // A transfer custody received that no item lists (2 more on the rail): FAIL, the residual is that transfer.
+      statement = '-12';
+      const unlisted = await run();
+      expect(unlisted.status).toBe('FAIL');
+      expect(unlisted.assets[0]).toMatchObject({ difference: '5', reconcilingItems: '3', residual: '2' });
+      expect(unlisted.reconcilingItems).toHaveLength(3);
+
+      // No items at all and no difference: PASS with an empty, named list, not the old path.
+      statement = '-7';
+      listed = [];
+      const none = await run();
+      expect(none.status).toBe('PASS');
+      expect(none.reconcilingItems).toEqual([]);
+      expect(none.assets[0]).toMatchObject({ reconcilingItems: '0', residual: '0' });
+
+      // svc-pay cannot answer: ERROR at items, never PASS on the statement alone.
+      itemsStatus = 503;
+      const down = await run();
+      expect(down).toMatchObject({
+        status: 'ERROR',
+        phase: { status: 'set', value: 'items' },
+        errorCode: { status: 'set', value: LEDGER_RECONCILE_SOURCE_UNAVAILABLE },
+      });
+      expect(down.reconcilingItems).toBeUndefined();
+    } finally {
+      await server.close();
     }
   });
 

@@ -284,8 +284,33 @@ export const reconciliationAssetEvidenceSchema = z
     expected: z.union([reconciliationSignedDecimalSchema, z.literal('unset')]),
     difference: z.union([reconciliationSignedDecimalSchema, z.literal('unset')]),
     tolerance: z.union([reconciliationDecimalSchema, z.literal('unset')]),
+    /**
+     * A rail control with its open items read: their signed sum on this asset, and what is left of the difference once they
+     * are taken out. Only a residual of exactly 0 passes; the tolerance does not apply to it.
+     */
+    reconcilingItems: reconciliationSignedDecimalSchema.optional(),
+    residual: reconciliationSignedDecimalSchema.optional(),
   })
   .strict();
+
+/** The most open items one rail control names on a run. A rail holding more answers ERROR, never a partial list. */
+export const RECONCILIATION_ITEMS_MAX = 2000;
+
+/**
+ * One open item that explains part of a rail's difference (lead ruling 2026-10-30): an item the rail holds that the ledger
+ * does not (positive), or the other way round (negative), named by the service that holds its record.
+ */
+export const reconciliationReconcilingItemSchema = z
+  .object({
+    source: z.literal('svc-pay'),
+    id: z.string().min(1).max(128),
+    kind: z.enum(['held', 'reversal_unfunded']),
+    assetId: assetIdSchema,
+    /** Rail minus ledger for this item, in the rail's own terms. */
+    amount: reconciliationSignedDecimalSchema,
+  })
+  .strict();
+export type ReconciliationReconcilingItem = z.infer<typeof reconciliationReconcilingItemSchema>;
 
 export const reconciliationControlRunSchema = z
   .object({
@@ -309,6 +334,8 @@ export const reconciliationControlRunSchema = z
     periodEnd: z.string().datetime({ offset: true }),
     accounts: z.array(z.string().uuid()),
     assets: z.array(reconciliationAssetEvidenceSchema),
+    /** A rail control whose rail has an open-items source: every item the run took out of the difference, by name. */
+    reconcilingItems: z.array(reconciliationReconcilingItemSchema).max(RECONCILIATION_ITEMS_MAX).optional(),
   })
   .strict();
 export type ReconciliationControlRunView = z.infer<typeof reconciliationControlRunSchema>;

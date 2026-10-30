@@ -67,3 +67,93 @@ describe('per-rail outside statements', () => {
     expect(await reconciliationSourcesFrom(undefined, new Map(), fetch.impl).outsideBalance(readAt)).toEqual({ kind: 'unset' });
   });
 });
+
+describe('per-rail open items (lead ruling 2026-10-30)', () => {
+  const item = (id: string, signedAmount: string) => ({
+    depositId: id,
+    kind: signedAmount.startsWith('-') ? 'reversal_unfunded' : 'held',
+    userId: 'u-1',
+    assetId: 'USDT',
+    networkId: 'ethereum',
+    txHash: `0x${id}`,
+    outputIndex: 0,
+    amount: signedAmount.replace('-', ''),
+    signedAmount,
+    status: signedAmount.startsWith('-') ? 'needs_review' : 'held_travel_rule',
+    reason: signedAmount.startsWith('-') ? 'reversal_unfunded' : null,
+    detectedAt: '2026-10-29T11:00:00.000Z',
+  });
+  const sums = (held: string, unfunded: string, net: string) => [
+    { networkId: 'ethereum', assetId: 'USDT', held, heldCount: 1, reversalUnfunded: unfunded, reversalUnfundedCount: 1, net },
+  ];
+  const urls = new Map([['test', 'http://127.0.0.1:9/items']]);
+  function postFetch(answer: (body: { offset: number; limit: number }) => Response) {
+    const bodies: string[] = [];
+    const headers: Array<Record<string, string>> = [];
+    const impl = (async (_input: string, init: RequestInit) => {
+      bodies.push(String(init.body));
+      headers.push(init.headers as Record<string, string>);
+      return answer(JSON.parse(String(init.body)));
+    }) as unknown as typeof fetch;
+    return { impl, bodies, headers };
+  }
+  const sign = (payload: string) => ({ 'x-signed': payload });
+
+  it('pages through every item, signs each exact body, and names each by id with its signed amount', async () => {
+    const all = Array.from({ length: 201 }, (_, i) => item(`d${i}`, '1'));
+    const fetch = postFetch(({ offset, limit }) =>
+      json({ items: all.slice(offset, offset + limit), total: 201, sums: sums('201', '0', '201') }),
+    );
+    const read = await reconciliationSourcesFrom(undefined, new Map(), fetch.impl, 1000, { urls, sign }).openItems!('test');
+    expect(read.kind).toBe('items');
+    expect(read.items).toHaveLength(201);
+    expect(read.items![200]).toEqual({ source: 'svc-pay', id: 'd200', kind: 'held', assetId: 'USDT', amount: '1' });
+    expect(fetch.bodies).toEqual([
+      JSON.stringify({ rail: 'test', offset: 0, limit: 200 }),
+      JSON.stringify({ rail: 'test', offset: 200, limit: 200 }),
+    ]);
+    expect(fetch.headers.map((h) => h['x-signed'])).toEqual(fetch.bodies);
+  });
+
+  it('is unset for a rail with no URL or no source, and reads nothing', async () => {
+    const fetch = postFetch(() => json({}));
+    expect(await reconciliationSourcesFrom(undefined, new Map(), fetch.impl, 1000, { urls, sign }).openItems!('crypto-native')).toEqual({
+      kind: 'unset',
+    });
+    expect(await reconciliationSourcesFrom(undefined, new Map(), fetch.impl).openItems!('test')).toEqual({ kind: 'unset' });
+    expect(fetch.bodies).toHaveLength(0);
+  });
+
+  it('is unavailable, never a partial list, on a refusal, a bad body, a total or sums that move between pages, or items that miss the sums', async () => {
+    const two = [item('a', '5'), item('b', '-2')];
+    let page = 0;
+    const answers: Array<(b: { offset: number; limit: number }) => Response> = [
+      () => json({ error: 'pay.unauthenticated' }, 401),
+      () => json({ items: two, total: 2, sums: sums('5', '2', '3'), extra: 1 }),
+      () => {
+        throw new Error('refused');
+      },
+      // The items add up to 3, the sums claim 4: the list is not the whole of them.
+      () => json({ items: two, total: 2, sums: sums('6', '2', '4') }),
+      // The total says 3 but only two items ever come.
+      () => json({ items: page++ === 0 ? two : [], total: 3, sums: sums('5', '2', '3') }),
+      // A duplicate id across pages.
+      () => json({ items: [item('a', '5'), item('a', '5')], total: 2, sums: sums('10', '0', '10') }),
+      // More than the cap: refused, not truncated.
+      () => json({ items: [], total: 2001, sums: [] }),
+    ];
+    for (const answer of answers) {
+      const read = await reconciliationSourcesFrom(undefined, new Map(), postFetch(answer).impl, 1000, { urls, sign }).openItems!('test');
+      expect(read).toEqual({ kind: 'unavailable' });
+    }
+    // The total moves between page one and page two.
+    const moving = postFetch(({ offset }) =>
+      offset === 0
+        ? json({ items: Array.from({ length: 200 }, (_, i) => item(`m${i}`, '1')), total: 201, sums: sums('201', '0', '201') })
+        : json({ items: [item('m200', '1')], total: 202, sums: sums('202', '0', '202') }),
+    );
+    expect(await reconciliationSourcesFrom(undefined, new Map(), moving.impl, 1000, { urls, sign }).openItems!('test')).toEqual({
+      kind: 'unavailable',
+    });
+  });
+});

@@ -40,6 +40,7 @@ import {
   type ReconciliationAccountSet,
   type ReconciliationControlRunList,
   type ReconciliationControlRunView,
+  type ReconciliationReconcilingItem,
   type ReconciliationControlView,
   type ReconciliationLifecycle,
   type ReconciliationSchedule,
@@ -67,12 +68,24 @@ export interface SnapshotRead {
   readonly balances?: readonly { readonly assetId: string; readonly amount: string }[];
 }
 
+/**
+ * The open items one rail's record holder lists (lead ruling 2026-10-30 on J-ops-console-27 #8): each explains part of
+ * that rail's difference, signed rail minus ledger. `unset` (no source for the rail) leaves the control as it was;
+ * `unavailable` is ERROR, never an empty list.
+ */
+export interface OpenItemsRead {
+  readonly kind: 'unset' | 'unavailable' | 'items';
+  readonly items?: readonly ReconciliationReconcilingItem[];
+}
+
 export interface ReconciliationSources {
   /** The whole outside book. */
   outsideBalance(readAt: Date): Promise<SnapshotRead>;
   /** One rail's own outside statement. A separate method, so no source can answer a rail control with the whole book. */
   railStatement(readAt: Date, rail: string): Promise<SnapshotRead>;
   parity(readAt: Date): Promise<SnapshotRead>;
+  /** One rail's open items, read after its statement. Optional: a source without it has none for any rail. */
+  openItems?(rail: string): Promise<OpenItemsRead>;
 }
 
 export function unsetReconciliationSources(): ReconciliationSources {
@@ -120,6 +133,8 @@ interface AssetEvidence {
   expected: string | 'unset';
   difference: string | 'unset';
   tolerance: string | 'unset';
+  reconcilingItems?: string;
+  residual?: string;
 }
 
 interface Verdict {
@@ -129,6 +144,7 @@ interface Verdict {
   assets: AssetEvidence[];
   outsideSide: 'unset' | 'snapshot' | 'unavailable' | 'not_applicable';
   sources: ReconciliationControlRunView['sources'];
+  reconcilingItems?: ReconciliationReconcilingItem[];
 }
 
 function actorOf(actorId: string): string {
@@ -966,9 +982,29 @@ async function judge(
     // A snapshot that names no as-of stays unset: its age is unknown, and the ledger's time is not its time.
     [side]: { asOf: read.asOf ?? 'unset' },
   };
-  const assets = equalAssets(ledgerTotals, expected, row.tolerance, !outsideTemplate);
+  const compared = equalAssets(ledgerTotals, expected, row.tolerance, !outsideTemplate);
+  let items: OpenItemsRead = { kind: 'unset' };
+  if (outsideTemplate && rail !== undefined && sources.openItems) {
+    try {
+      items = await sources.openItems(rail);
+    } catch {
+      items = { kind: 'unavailable' };
+    }
+  }
+  if (items.kind === 'unavailable') {
+    return {
+      status: 'ERROR',
+      phase: 'items',
+      errorCode: LEDGER_RECONCILE_SOURCE_UNAVAILABLE,
+      assets: compared,
+      outsideSide: 'snapshot',
+      sources: nextSources,
+    };
+  }
+  const named = items.kind === 'items' ? (items.items ?? []).filter((item) => onlyAsset === undefined || item.assetId === onlyAsset) : null;
+  const assets = named === null ? compared : withItems(compared, named, row.tolerance);
   const unsetSource = outsideTemplate && assets.some((asset) => asset.expected === 'unset');
-  const status = foldAssets(assets, unsetSource);
+  const status = named === null ? foldAssets(assets, unsetSource) : foldResiduals(assets, unsetSource);
   return {
     status: status === 'PASS' || status === 'FAIL' || status === 'ERROR' || status === 'UNSET' ? status : 'ERROR',
     phase: status === 'FAIL' ? side : status === 'ERROR' ? 'tolerance' : '',
@@ -976,7 +1012,45 @@ async function judge(
     assets,
     outsideSide: outsideTemplate ? 'snapshot' : 'not_applicable',
     sources: nextSources,
+    ...(named === null ? {} : { reconcilingItems: named }),
   };
+}
+
+/**
+ * Take the named open items out of each asset's difference (lead ruling 2026-10-30): `reconcilingItems` is their signed sum
+ * and `residual` what is left. An asset only the items name gets a row of its own, so an item can never go unaccounted.
+ */
+function withItems(
+  assets: AssetEvidence[],
+  items: readonly ReconciliationReconcilingItem[],
+  tolerance: ToleranceStored | null,
+): AssetEvidence[] {
+  const sums = new Map<string, Amount>();
+  for (const item of items) sums.set(item.assetId, (sums.get(item.assetId) ?? 0n) + parseAmount(item.amount));
+  const rows = [...assets];
+  for (const assetId of sums.keys()) {
+    if (rows.some((asset) => asset.assetId === assetId)) continue;
+    const tol = toleranceFor(tolerance, assetId);
+    rows.push(assetRow(assetId, 0n, 'unset', tol, 'unset'));
+  }
+  return rows
+    .sort((a, b) => (a.assetId < b.assetId ? -1 : 1))
+    .map((asset) => {
+      const sum = sums.get(asset.assetId) ?? 0n;
+      return {
+        ...asset,
+        reconcilingItems: formatAmount(sum),
+        ...(asset.difference === 'unset' ? {} : { residual: formatAmount(parseAmount(asset.difference) - sum) }),
+      };
+    });
+}
+
+/** With named items no tolerance applies: a residual of even one unit FAILs. An unset tolerance is still a policy ERROR. */
+function foldResiduals(assets: AssetEvidence[], unsetSource: boolean): 'PASS' | 'FAIL' | 'ERROR' | 'UNSET' {
+  if (assets.some((asset) => asset.tolerance === 'unset')) return 'ERROR';
+  if (unsetSource || assets.some((asset) => asset.expected === 'unset' || asset.residual === undefined)) return 'UNSET';
+  if (assets.some((asset) => parseAmount(asset.residual!) !== 0n)) return 'FAIL';
+  return 'PASS';
 }
 
 interface RunRow {
@@ -989,7 +1063,7 @@ interface RunRow {
   read_at: Date;
   margin: string;
   sources: ReconciliationControlRunView['sources'];
-  evidence: { accounts?: string[]; assets?: AssetEvidence[] };
+  evidence: { accounts?: string[]; assets?: AssetEvidence[]; reconcilingItems?: ReconciliationReconcilingItem[] };
   outside_side: ReconciliationControlRunView['outsideSide'];
   period_start: Date;
   period_end: Date;
@@ -1013,6 +1087,7 @@ function toRun(row: RunRow): ReconciliationControlRunView {
     periodEnd: row.period_end.toISOString(),
     accounts: row.evidence.accounts ?? [],
     assets: row.evidence.assets ?? [],
+    ...(row.evidence.reconcilingItems ? { reconcilingItems: row.evidence.reconcilingItems } : {}),
   });
 }
 
@@ -1039,7 +1114,13 @@ async function finishRun(sql: Db, runId: string, verdict: Verdict, accountIds: s
            phase = ${verdict.phase},
            error_code = ${verdict.errorCode},
            sources = ${sql.json(verdict.sources)},
-           evidence = ${sql.json(asJson({ accounts: accountIds, assets: verdict.assets }))},
+           evidence = ${sql.json(
+             asJson({
+               accounts: accountIds,
+               assets: verdict.assets,
+               ...(verdict.reconcilingItems ? { reconcilingItems: verdict.reconcilingItems } : {}),
+             }),
+           )},
            outside_side = ${verdict.outsideSide},
            finished_at = clock_timestamp()
      WHERE id = ${runId} AND status = 'started'

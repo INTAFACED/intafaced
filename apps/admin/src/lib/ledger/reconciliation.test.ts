@@ -153,6 +153,21 @@ describe('reading svc-ledger', () => {
     );
     expect(error).toContain('Error: ledger.read_failed at read.');
   });
+  it('a rail run with open items names each item and the residual that decided it', () => {
+    const run = runView({
+      status: 'FAIL',
+      assets: [{ assetId: 'USDT', observed: '-7', expected: '-12', difference: '5', tolerance: '1', reconcilingItems: '3', residual: '2' }],
+      reconcilingItems: [
+        { source: 'svc-pay', id: 'dep-held-1', kind: 'held', assetId: 'USDT', amount: '4' },
+        { source: 'svc-pay', id: 'dep-unfunded-1', kind: 'reversal_unfunded', assetId: 'USDT', amount: '-1' },
+      ],
+    });
+    expect(parseControlRun(run)).not.toBeNull();
+    const line = describeRun(run);
+    expect(line).toContain('USDT: observed -7, expected -12, difference 5, tolerance 1, reconciling items 3, residual 2.');
+    expect(line).toContain('2 reconciling items: held dep-held-1 USDT 4 (svc-pay). reversal_unfunded dep-unfunded-1 USDT -1 (svc-pay).');
+    expect(describeRun(runView())).not.toContain('reconciling');
+  });
   it('schedules are UTC and a dynamic account set says it is matched at each run', () => {
     expect(describeSchedule(controlView())).toBe('Daily at 06:30 UTC');
     expect(describeSchedule(controlView({ schedule: { status: 'unset' } }))).toBe('Not set');

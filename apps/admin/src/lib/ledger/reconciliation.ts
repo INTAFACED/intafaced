@@ -429,12 +429,23 @@ export function describeRun(run: ReconciliationControlRunView): string {
       ? [`Error: ${run.errorCode.value}${run.phase.status === 'set' ? ` at ${run.phase.value}` : ''}.`]
       : []),
     ...run.assets.map(describeEvidence),
+    ...(run.reconcilingItems
+      ? [
+          `${run.reconcilingItems.length} reconciling item${run.reconcilingItems.length === 1 ? '' : 's'}${run.reconcilingItems.length ? ':' : '.'}`,
+          ...run.reconcilingItems.map((item) => `${item.kind} ${item.id} ${item.assetId} ${item.amount} (${item.source}).`),
+        ]
+      : []),
   ].join(' ');
 }
 
-/** One asset's evidence (OPS-reconciliation-02): what was observed, what was expected, the difference and the tolerance. */
+/**
+ * One asset's evidence (OPS-reconciliation-02): what was observed, what was expected, the difference and the tolerance; on a
+ * rail with named open items, also their sum and the residual left, which alone decides the verdict.
+ */
 export function describeEvidence(asset: ReconciliationControlRunView['assets'][number]): string {
-  return `${asset.assetId}: observed ${asset.observed}, expected ${asset.expected}, difference ${asset.difference}, tolerance ${asset.tolerance}.`;
+  const items =
+    asset.reconcilingItems === undefined ? '' : `, reconciling items ${asset.reconcilingItems}, residual ${asset.residual ?? 'unset'}`;
+  return `${asset.assetId}: observed ${asset.observed}, expected ${asset.expected}, difference ${asset.difference}, tolerance ${asset.tolerance}${items}.`;
 }
 
 /** What each move is called on screen. Where it may go from, and to, is the contract's one table. */

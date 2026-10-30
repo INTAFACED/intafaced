@@ -1,5 +1,18 @@
-import { railBalanceSnapshotSchema, railStatementSchema } from '@intafaced/contracts/ledger-reconciliation';
-import { type ReconciliationSources, type SnapshotRead, unsetReconciliationSources } from './reconciliation-controls.js';
+import { payCustodyOpenItemsReplySchema, type ServiceCallRequest } from '@intafaced/contracts';
+import { parseAmount } from '@intafaced/ledger-client';
+import {
+  RECONCILIATION_ITEMS_MAX,
+  railBalanceSnapshotSchema,
+  railStatementSchema,
+  reconciliationReconcilingItemSchema,
+  type ReconciliationReconcilingItem,
+} from '@intafaced/contracts/ledger-reconciliation';
+import {
+  type OpenItemsRead,
+  type ReconciliationSources,
+  type SnapshotRead,
+  unsetReconciliationSources,
+} from './reconciliation-controls.js';
 
 /** How long one outside read may take before the run records the source as unavailable. */
 export const OUTSIDE_SNAPSHOT_TIMEOUT_MS = 10_000;
@@ -50,10 +63,16 @@ export function reconciliationSourcesFrom(
   railStatementUrls: ReadonlyMap<string, string> = new Map(),
   fetchImpl: typeof fetch = fetch,
   timeoutMs = OUTSIDE_SNAPSHOT_TIMEOUT_MS,
+  openItems?: OpenItemsSource,
 ): ReconciliationSources {
   const unset = unsetReconciliationSources();
   return {
     parity: unset.parity,
+    openItems: async (rail: string): Promise<OpenItemsRead> => {
+      const url = openItems?.urls.get(rail);
+      if (!openItems || !url) return { kind: 'unset' };
+      return readOpenItems(url, rail, openItems.sign, fetchImpl, timeoutMs);
+    },
     outsideBalance: async (readAt: Date): Promise<SnapshotRead> => {
       if (!outsideSnapshotUrl) return { kind: 'unset' };
       return readOutside(
@@ -84,4 +103,82 @@ export function reconciliationSourcesFrom(
       );
     },
   };
+}
+
+/** Signs one call to svc-pay as svc-ledger (`serviceCallSigner`). */
+export type OpenItemsSigner = (payload: string, request: ServiceCallRequest) => Record<string, string>;
+
+export interface OpenItemsSource {
+  /** `LEDGER_RECONCILE_OPEN_ITEMS_<RAIL>_URL`, per rail. A rail with none has no open items source: `unset`. */
+  readonly urls: ReadonlyMap<string, string>;
+  readonly sign: OpenItemsSigner;
+}
+
+const OPEN_ITEMS_PAGE = 200;
+
+/**
+ * Every open item svc-pay lists for one rail (`POST <url>` signed as svc-ledger, `{ rail, offset, limit }`), page by page.
+ * Each page is its own snapshot, so every page must carry the same `total` and `sums` and the items must add up to those
+ * sums; anything else (a write between pages, a refused or failed call, a body the schema refuses, more than
+ * RECONCILIATION_ITEMS_MAX items) is `unavailable`, never a partial list. Amounts are the rail-minus-ledger signed amounts.
+ */
+async function readOpenItems(
+  url: string,
+  rail: string,
+  sign: OpenItemsSigner,
+  fetchImpl: typeof fetch,
+  timeoutMs: number,
+): Promise<OpenItemsRead> {
+  const items: ReconciliationReconcilingItem[] = [];
+  let first: string | null = null;
+  let total = 0;
+  let net = new Map<string, bigint>();
+  try {
+    for (let offset = 0; offset === 0 || offset < total; offset += OPEN_ITEMS_PAGE) {
+      const payload = JSON.stringify({ rail, offset, limit: OPEN_ITEMS_PAGE });
+      const headers = sign(payload, { method: 'POST', url: new URL(url), contentType: 'application/json' });
+      const res = await fetchImpl(url, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', ...headers },
+        body: payload,
+        signal: AbortSignal.timeout(timeoutMs),
+        redirect: 'error',
+      });
+      if (res.status !== 200) {
+        await res.body?.cancel();
+        return { kind: 'unavailable' };
+      }
+      const page = payCustodyOpenItemsReplySchema.safeParse(await res.json());
+      if (!page.success) return { kind: 'unavailable' };
+      const shape = JSON.stringify({ total: page.data.total, sums: page.data.sums });
+      if (first === null) first = shape;
+      else if (shape !== first) return { kind: 'unavailable' };
+      total = page.data.total;
+      net = new Map();
+      for (const sum of page.data.sums) net.set(sum.assetId, (net.get(sum.assetId) ?? 0n) + parseAmount(sum.net));
+      if (total > RECONCILIATION_ITEMS_MAX) return { kind: 'unavailable' };
+      for (const item of page.data.items) {
+        const named = reconciliationReconcilingItemSchema.safeParse({
+          source: 'svc-pay',
+          id: item.depositId,
+          kind: item.kind,
+          assetId: item.assetId,
+          amount: item.signedAmount,
+        });
+        if (!named.success) return { kind: 'unavailable' };
+        items.push(named.data);
+      }
+      if (page.data.items.length === 0) break;
+    }
+  } catch {
+    return { kind: 'unavailable' };
+  }
+  if (items.length !== total || new Set(items.map((item) => item.id)).size !== total) return { kind: 'unavailable' };
+  // The named items must add up to the sums svc-pay stated, asset by asset, or the list is not the whole of them.
+  const added = new Map<string, bigint>();
+  for (const item of items) added.set(item.assetId, (added.get(item.assetId) ?? 0n) + parseAmount(item.amount));
+  for (const assetId of new Set([...added.keys(), ...net.keys()])) {
+    if ((added.get(assetId) ?? 0n) !== (net.get(assetId) ?? 0n)) return { kind: 'unavailable' };
+  }
+  return { kind: 'items', items };
 }
