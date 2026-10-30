@@ -47,6 +47,8 @@ export const ownAgentLimitsSchema = z.object({
   limits: z.object({ perCall: z.string(), perSession: z.string(), perPeriod: z.string(), period: z.literal('month') }).nullable(),
   agentCap: z.string().nullable(),
   effectivePerSession: z.string().nullable(),
+  /** The owner's overage grace: how much usage may stay unpaid and runs still start. Null is blank: none at all. */
+  overageGrace: z.string().nullable(),
   assetId: z.string(),
 });
 export type OwnAgentLimits = z.infer<typeof ownAgentLimitsSchema>;
@@ -76,3 +78,23 @@ export const ownAgentRunRowSchema = z.object({
   occurredAt: z.string(),
 });
 export type OwnAgentRunRow = z.infer<typeof ownAgentRunRowSchema>;
+
+/** `own.session.close`: the session closed once every window of it is paid. An unpaid one refuses `agents.window_unpaid`. */
+export const ownAgentSessionClosedSchema = z.object({ sessionId: z.string().uuid(), status: z.literal('closed'), closedAt: z.string() });
+export type OwnAgentSessionClosed = z.infer<typeof ownAgentSessionClosedSchema>;
+
+/**
+ * `own.usage`: the usage windows of the agent's sessions, newest first. `open` is still taking usage (no amount yet);
+ * `unpaid` is sealed at `amount` but the ledger refused the charge, retried on the same `chargeKey`; `settled` is paid
+ * (or had nothing to bill). Amounts are decimal strings in `assetId`.
+ */
+export const ownAgentUsageWindowSchema = z.object({
+  sessionId: z.string().uuid(),
+  windowId: z.string(),
+  state: z.enum(['open', 'unpaid', 'settled']),
+  amount: z.string().nullable(),
+  chargeKey: z.string().nullable(),
+  assetId: z.string(),
+  openedAt: z.string(),
+});
+export type OwnAgentUsageWindow = z.infer<typeof ownAgentUsageWindowSchema>;

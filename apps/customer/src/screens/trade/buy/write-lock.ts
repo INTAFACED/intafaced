@@ -11,7 +11,7 @@
 import { z } from 'zod';
 
 const pendingSchema = z.object({
-  kind: z.enum(['place', 'cancel', 'amend', 'replace', 'convert', 'rfq', 'position', 'algo', 'copy']),
+  kind: z.enum(['place', 'cancel', 'amend', 'replace', 'convert', 'rfq', 'position', 'algo', 'copy', 'grid']),
   symbol: z.string(),
   id: z.string(),
   orderId: z.string().optional(),

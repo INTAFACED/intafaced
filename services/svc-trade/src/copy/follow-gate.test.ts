@@ -73,6 +73,7 @@ async function setup(
     minTier?: 'basic' | 'full' | null;
     usdt?: string;
     sqlDirectory?: Sql;
+    gridUnusedReserves?: (userId: string, asset: string) => Promise<bigint>;
   } = {},
 ) {
   const ledger = new MemoryLedger();
@@ -88,6 +89,7 @@ async function setup(
     jurisdictionLaw: jur,
     minTier: opts.minTier === undefined ? 'full' : opts.minTier,
     store,
+    ...(opts.gridUnusedReserves ? { gridUnusedReserves: opts.gridUnusedReserves } : {}),
     ...(opts.sqlDirectory ? { directory: sqlLeaderDirectory(opts.sqlDirectory, { now: () => NOW, feeShareLaw: fee }) } : {}),
     now: () => NOW,
   });
@@ -183,6 +185,30 @@ describe('the fixed amount and the reserve', () => {
       ctx.copy.startFollow(principal(), input({ leaderId: LEADER_2, clientRequestId: 'start-copy-0002', maxAggregateExposure: '300' })),
     ).rejects.toMatchObject({ code: 'trade.copy_reserve_exceeds_balance', message: expect.stringContaining('200 USDT is free') });
     expect(await ctx.store.listFollowsByFollower(FOLLOWER)).toHaveLength(1);
+  });
+
+  it('counts what spot grid bots reserve of the same asset', async () => {
+    const ctx = await setup({
+      usdt: '700',
+      gridUnusedReserves: async (u, a) => (u === FOLLOWER && a === 'USDT' ? parseAmount('300') : 0n),
+    });
+    await expect(ctx.copy.startFollow(principal(), input())).rejects.toMatchObject({
+      code: 'trade.copy_reserve_exceeds_balance',
+      message: expect.stringContaining('400 USDT is free'),
+    });
+    expect(await ctx.store.listFollowsByFollower(FOLLOWER)).toEqual([]);
+    await ctx.copy.startFollow(principal(), input({ maxAggregateExposure: '400' }));
+    expect(await ctx.store.sumUnusedReserves(FOLLOWER, 'USDT')).toBe(parseAmount('400'));
+  });
+
+  it('reads the grid reserves again under the reserve lock, after a grid create that held it first', async () => {
+    let reads = 0;
+    // The quick check sees no grid; by the locked check a grid create has reserved 300.
+    const ctx = await setup({ usdt: '700', gridUnusedReserves: async () => (reads++ === 0 ? 0n : parseAmount('300')) });
+    await expect(ctx.copy.startFollow(principal(), input())).rejects.toMatchObject({ code: 'trade.copy_reserve_exceeds_balance' });
+    expect(reads).toBe(2);
+    expect(await ctx.store.listFollowsByFollower(FOLLOWER)).toEqual([]);
+    expect(await ctx.store.sumUnusedReserves(FOLLOWER, 'USDT')).toBe(0n);
   });
 
   it('holds one reserve per follow, posts nothing, and a second press with the same key returns the same follow', async () => {

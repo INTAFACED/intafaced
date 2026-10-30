@@ -656,8 +656,7 @@ export function createAgentsRouter(deps: AgentsRouterDeps) {
             await ownedSession(input.sessionId, ctx.principal.userId);
             // Settle before closing: a session that ends with unbilled windows
             // leaves usage that only a sweep job would ever find.
-            await runtime.settleSession(input.sessionId);
-            const session = await runtime.closeSession(input.sessionId);
+            const session = await runtime.closeSettled(input.sessionId);
             return {
               id: session.id,
               agentId: session.agentId,

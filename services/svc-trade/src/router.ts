@@ -1,4 +1,6 @@
 import { z } from 'zod';
+import { gridRouter } from './grid/router.js';
+import type { GridService } from './grid/grid-service.js';
 import {
   JurisdictionError,
   mergeRouters,
@@ -480,6 +482,7 @@ function toTrpcError(err: unknown): TRPCError {
         return new TRPCError({ code: 'NOT_FOUND', message: err.message, cause: err });
       case 'trade.otc_not_owner':
       case 'trade.otc_stake_gate':
+      case 'trade.otc_level_insufficient':
         return new TRPCError({ code: 'FORBIDDEN', message: err.message, cause: err });
       case 'trade.otc_desk_law_blank':
       case 'trade.otc_settle_refused':
@@ -492,6 +495,7 @@ function toTrpcError(err: unknown): TRPCError {
       case 'trade.rfq_missing_price':
       case 'trade.otc_makers_unset':
       case 'trade.otc_assets_unset':
+      case 'trade.otc_level_unset':
       case 'trade.rfq_size_not_set':
       case 'feed.market':
         return new TRPCError({ code: 'PRECONDITION_FAILED', message: err.message, cause: err });
@@ -822,6 +826,7 @@ export function createTradeRouter(
   admin?: TradeOpsAdmin,
   insuranceTopups?: InsuranceTopupAdmin,
   supportSummary?: SupportTradeSummaryReader,
+  grid?: GridService,
 ) {
   const placeAttempts = new PlaceAttemptBook();
   return router({
@@ -829,6 +834,8 @@ export function createTradeRouter(
     admin: mergeRouters(tradeOpsAdminRouter(admin), insuranceAdminRouter(insuranceTopups)),
     /** `support.tradeSummary`: read-only, svc-support only (D-ops-06). The case check is svc-support's; this door audits the read. */
     support: supportTradeSummaryRouter(supportSummary),
+    /** `bots.grid.*`: the spot grid bot (grid/router.ts). Unmounted, every door answers `trade.grid_unavailable`. */
+    bots: router({ grid: gridRouter(grid) }),
     health: publicProcedure
       .output(z.object({ ok: z.boolean(), service: z.literal('svc-trade') }))
       .query(() => ({ ok: true, service: 'svc-trade' as const })),
@@ -1097,11 +1104,13 @@ export function createTradeRouter(
             statusLine: otcDeskLawStatusLine(UNPUBLISHED_OTC_DESK_LAW),
             residual: deskLaw,
             assets: null,
+            minTier: null,
             makerRouting: otcMakerRoutingStatus(),
             midFeed: otcMidFeedStatus(),
             residuals: {
               deskLaw,
               assets: deskLaw,
+              minTier: deskLaw,
               makerRouting: OTC_MAKER_ROUTING_RESIDUAL,
               midFeed: OTC_MID_FEED_RESIDUAL,
             },

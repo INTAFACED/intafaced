@@ -44,6 +44,8 @@ export interface SpendGate {
      * amount the balance cannot cover after what is already owed and held refuses `agents.funds_insufficient`.
      */
     funds?: () => Promise<Amount | null>;
+    /** The owner's overage grace: unpaid usage in sealed windows up to this much does not count against the balance. */
+    overageGrace?: Amount | null;
   }): Promise<SpendReservationView>;
   commitIn(tx: Sql, input: { userId: string; reservationKey: string; amount: string }): Promise<SpendReservationView>;
   release(input: { userId: string; reservationKey: string }): Promise<SpendReservationView>;

@@ -1,7 +1,7 @@
-import type { PayRecordedPricingSnapshot } from '@intafaced/contracts';
+import type { MerchantTierList, PayRecordedPricingSnapshot } from '@intafaced/contracts';
 import { safeFailure, type MerchantFailure } from './merchant-failure.js';
 import type { MerchantReadAudience } from './merchant-read-access.js';
-import { seesFullPricing } from './merchant-ops/roles.js';
+import { seesFullPricing, type MerchantRole } from './merchant-ops/roles.js';
 
 /**
  * Commercial terms on a stored pricing row. Owner, admin, and finance see the
@@ -14,6 +14,23 @@ export function projectPricingSnapshot<T extends { fee: string }>(
   if (!snapshot) return null;
   if (seesFullPricing(audience)) return snapshot;
   return { fee: snapshot.fee };
+}
+
+/**
+ * The tier ladder for one caller. Owner, admin, and finance get each tier fee
+ * as stored, spread included. Every other role, and no role at all, gets the
+ * fee without its `spreadBps` key: the same rule the portal's `pricingVisibility`
+ * reads (`seesFullPricing`), applied here so the API never sends what the page hides.
+ */
+export function projectTierList(list: MerchantTierList, role: MerchantRole | null): MerchantTierList {
+  if (list.status !== 'configured' || (role !== null && seesFullPricing(role))) return list;
+  return {
+    ...list,
+    tiers: list.tiers.map((tier) => ({
+      ...tier,
+      fees: tier.fees.map(({ spreadBps: _spread, ...fee }) => fee),
+    })),
+  };
 }
 
 export interface TeamHistoryEvent {
