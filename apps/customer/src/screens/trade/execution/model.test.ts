@@ -6,7 +6,9 @@ import {
   triggerProblem,
   MAX_SLICES,
   algoClientId,
+  bpsAsPercent,
   buildLadder,
+  chaseDistanceBps,
   CREATE_BLOCKER_CODE,
   createBlocker,
   defaultIntervalMs,
@@ -94,6 +96,31 @@ describe('schedule plan', () => {
     expect(defaultIntervalMs(3_600_000)).toBe(300_000);
     expect(defaultIntervalMs(5_000)).toBe(1000);
     expect(defaultIntervalMs(1000)).toBe(1000);
+  });
+});
+
+describe('chase', () => {
+  it('reads the maximum distance as a percent with at most two decimals, in bps', () => {
+    expect(chaseDistanceBps('2')).toBe(200);
+    expect(chaseDistanceBps('2.5')).toBe(250);
+    expect(chaseDistanceBps('0.01')).toBe(1);
+    expect(chaseDistanceBps('100')).toBe(10_000);
+    for (const bad of ['', ' ', '0', '0.00', '100.01', '101', '2.555', '-1', 'abc', '1e2']) expect(chaseDistanceBps(bad)).toBeNull();
+    expect(bpsAsPercent(200)).toBe('2');
+    expect(bpsAsPercent(250)).toBe('2.5');
+    expect(bpsAsPercent(1)).toBe('0.01');
+  });
+  it('a blank distance refuses the plan, naming it', () => {
+    const r = planSchedule({ ...draft, kind: 'chase', chaseDistance: '' });
+    expect(r.plan).toBeNull();
+    expect(r.problems).toEqual(['chaseDistance']);
+  });
+  it('plans one order with no slice interval, and refuses a limit price', () => {
+    const r = planSchedule({ ...draft, kind: 'chase', chaseDistance: '2', intervalMs: null, total: '0.5' });
+    expect(r.problems).toEqual([]);
+    expect(r.plan?.slices).toBe(1);
+    expect(r.plan?.perSlice).toBe('0.5');
+    expect(planSchedule({ ...draft, kind: 'chase', chaseDistance: '2', limit: '59000' }).problems).toEqual(['limit']);
   });
 });
 

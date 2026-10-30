@@ -3,6 +3,8 @@ import { Quant } from '../more/Quant';
 import { t as moreCopy } from '../more/copy';
 import { AlgoHome } from './AlgoHome';
 import { BacktestRoom } from './BacktestRoom';
+import { StrategiesRoom } from './StrategiesRoom';
+import { strategiesCopy } from './strategies-copy';
 import { algoCopy } from './algo-copy';
 
 const MODES = { '/quant/studio': 'studio', '/quant/backtest': 'backtest', '/quant/sandbox': 'sandbox' } as const;
@@ -18,6 +20,13 @@ export function quantRoute(
       title: algoCopy.t('title'),
       description: algoCopy.t('description'),
       content: <AlgoHome key={userId ?? 'anonymous'} paper={paper} />,
+    };
+  }
+  if (pathname === '/quant/strategies') {
+    return {
+      title: strategiesCopy.t('title'),
+      description: strategiesCopy.t('description'),
+      content: <StrategiesRoom key={userId ?? 'anonymous'} paper={paper} />,
     };
   }
   const mode = MODES[pathname as keyof typeof MODES];

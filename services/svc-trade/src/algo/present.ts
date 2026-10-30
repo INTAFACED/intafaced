@@ -104,6 +104,8 @@ export interface AlgoChildView {
   readonly qty: string;
   /** POV: the volume or book size its participation was applied to; null for other kinds. */
   readonly basisQty: string | null;
+  /** Chase: the limit price the child rested at; null for other kinds. */
+  readonly price: string | null;
 }
 
 export interface AlgoMissView {
@@ -134,6 +136,7 @@ export function presentAlgoDesk(
       time: child.placedAt.toISOString(),
       qty: formatAmount(child.qty),
       basisQty: child.basisQty == null ? null : formatAmount(child.basisQty),
+      price: child.price == null ? null : formatAmount(child.price),
     })),
     misses: parent.misses.map((miss) => ({
       sliceIndex: miss.sliceIndex,
@@ -151,4 +154,22 @@ export function assertProgressHasNoInventedFills(view: AlgoProgressView, filledF
   if (view.childrenEmitted > 0 && filledFromChildren === 0n && view.filledQty !== '0' && view.filledQty !== '0.0') {
     throw new Error('algo progress must not treat childrenEmitted as fills');
   }
+}
+
+/** A chase's own fields on the parent view; null on every other kind. */
+export function presentChase(parent: TwapParent): {
+  chaseMaxDistanceBps: number | null;
+  chaseStartPrice: string | null;
+  chasePrice: string | null;
+  chaseReprices: number | null;
+} {
+  if (parent.kind !== 'chase') return { chaseMaxDistanceBps: null, chaseStartPrice: null, chasePrice: null, chaseReprices: null };
+  const last = parent.children.length > 0 ? parent.children[parent.children.length - 1] : undefined;
+  return {
+    chaseMaxDistanceBps: parent.chaseMaxDistanceBps ?? null,
+    chaseStartPrice: parent.chaseStartPrice == null ? null : formatAmount(parent.chaseStartPrice),
+    chasePrice: last?.price == null ? null : formatAmount(last.price),
+    // A re-price is a child at a new price; a child re-placed at the same price after a crash is not one.
+    chaseReprices: parent.children.filter((c, i) => i > 0 && c.price != null && c.price !== parent.children[i - 1]!.price).length,
+  };
 }
