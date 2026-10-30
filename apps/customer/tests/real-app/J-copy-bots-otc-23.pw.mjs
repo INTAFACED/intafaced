@@ -364,6 +364,16 @@ async function orderOf(who, orderId) {
   return body;
 }
 
+/** The order ids of a schedule's cancel execution reports from the service, oldest first, one entry per report. */
+async function cancelReports(who, algoId) {
+  const { status, body } = await (
+    await api(who)
+  ).get(`/api/trade/trpc/algo.reports?input=${encodeURIComponent(JSON.stringify({ algoId, limit: 100 }))}`);
+  expect(status, JSON.stringify(body).slice(0, 300)).toBe(200);
+  expect(body.result.data.nextCursor).toBeNull();
+  return body.result.data.rows.filter((r) => r.kind === 'cancel').map((r) => r.orderId);
+}
+
 /** Waits `ms` while the scheduler ticks (about once a second), so a chase that would act has had many chances to. */
 const ticks = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -422,12 +432,22 @@ test(`${J} #5 places a chase limit order with a maximum distance: it re-prices o
   // A blank distance refuses: in the room the field names the refusal and Review stays off; the service refuses the same
   // request with its typed code. No schedule is written and nothing is held.
   const rowsBefore = (await algoRows(trader)).map((row) => row.id);
+  // The list read is the trader's whole set (fewer rows than the page holds), so a row written by the refusal would show.
+  expect(rowsBefore.length).toBeLessThan(20);
   const before = await (await api(trader)).balances();
   await signIn(page, trader);
   await page.goto('/execution');
+  const creates = [];
+  const countCreate = (req) => {
+    if (req.url().includes('algo.createTwap')) creates.push(req.url());
+  };
+  page.on('request', countCreate);
   await fillChase(page, { total: '5', seconds: 600, distance: '' });
   await expect(form(page).getByText('Enter a maximum chase distance, from 0.01 to 100 percent.')).toBeVisible();
   await expect(page.getByRole('button', { name: 'Review schedule' })).toBeDisabled();
+  // The room sends nothing while the distance is blank.
+  expect(creates).toEqual([]);
+  page.off('request', countCreate);
   const blank = await (
     await api(trader)
   ).post('/api/trade/trpc/algo.createTwap', {
@@ -480,9 +500,12 @@ test(`${J} #5 places a chase limit order with a maximum distance: it re-prices o
       expect([newest.type, newest.status, toUnits(newest.price)]).toEqual(['limit', 'open', toUnits(price)]);
       for (const c of moved.children.slice(0, -1)) expect((await orderOf(trader, c.orderId)).status).toBe('canceled');
       expect((await openOrders(trader, UNQUOTED)).map((o) => o.id)).toEqual([moved.children.at(-1).orderId]);
+      // Cancelled once: the service's execution reports hold one cancel for each replaced child and none for the new one.
+      expect(await cancelReports(trader, id)).toEqual(moved.children.slice(0, -1).map((c) => c.orderId));
     }
     // Never past the distance: 0.99 × 1.02 = 1.0098 is the furthest any child rests.
     const atCap = await parentOf(trader, id);
+    expect(atCap.children).toHaveLength(moves.length + 1);
     for (const c of atCap.children) expect(toUnits(c.price)).toBeLessThanOrEqual(toUnits('1.0098'));
     // The detail reads the same numbers back.
     await expect(detailValue(page, 'Start price')).toHaveText(/^0\.990*$/, { timeout: 15_000 });
@@ -499,6 +522,8 @@ test(`${J} #5 places a chase limit order with a maximum distance: it re-prices o
     expect(stopped.children.map((c) => c.orderId)).toEqual(atCap.children.map((c) => c.orderId));
     expect(stopped.chaseReprices).toBe(3);
     for (const c of stopped.children) expect((await orderOf(trader, c.orderId)).status).toBe('canceled');
+    // The stop cancelled its resting order once: every child has exactly one cancel report, in the order they were placed.
+    expect(await cancelReports(trader, id)).toEqual(stopped.children.map((c) => c.orderId));
     expect(await openOrders(trader, UNQUOTED)).toEqual([]);
     await expect(detailValue(page, 'Halt reason')).toContainText('Maximum chase distance reached', { timeout: 15_000 });
   } finally {
