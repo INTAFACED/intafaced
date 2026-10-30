@@ -1,9 +1,10 @@
 import path from 'node:path';
 import { test, expect } from '@playwright/test';
-import { DEVICE_KEY, EDGE, ORIGIN, ROOT, bestPrices, fromUnits, journeyState, mailedLines, toUnits, tool } from './stack.mjs';
+import { DEVICE_KEY, EDGE, ORIGIN, ROOT, bestPrices, fromUnits, journeyState, mailedLines, stackFile, toUnits, tool } from './stack.mjs';
 import { confirm, deskPath, previewed, reviewSheet, signIn, signUp, verify } from './desk.mjs';
 import { addAuthenticator, nextCode } from './identity-factors.mjs';
 import { ADMIN, founderSignIn } from './admin.mjs';
+import { readRail } from '../../../../tooling/scripts/local-test-rail-records.mjs';
 
 // J-ops-console-27, in the running app (its step table lands in docs/roadmap/journeys.json): the money loop. One fresh customer signs up, passes
 // TEST verification, deposits on the TEST chain, buys on the desk, pays a person, cashes out, withdraws, and every cent
@@ -121,41 +122,86 @@ async function client(who = state().who) {
 /** One asset's total on the ledger, in units (an asset the ledger does not list is zero). */
 const total = (balances, asset) => toUnits(balances[asset]?.total ?? '0');
 
+/** One outside rail's own records (the stand-in's TEST lines, local-test-rail-records.mjs), read from the running stack's state folder. */
+const railRecords = (rail) => readRail(stackFile('.'), rail);
+
+/** The account menu in this browser: what identity answers for the browser's own session (handle, account id, level). */
+async function accountSummary(page) {
+  const menu = page.getByRole('button', { name: 'Account menu' });
+  if ((await menu.getAttribute('aria-expanded')) !== 'true') await menu.click();
+  const summary = page.getByTestId('account-summary');
+  await expect(summary).toHaveAttribute('aria-busy', 'false');
+  return summary;
+}
+
 test(`${J} #1 signs up as a fresh customer: signed in to a new account that holds nothing`, async ({ page }) => {
   const who = await signUp(page, 'jm');
   run.reset({ who });
   await expect(page.getByRole('main').getByText('Verify your identity first').first()).toBeVisible();
+  // The page that asked, kept so #2 can see it stop asking.
+  const asked = new URL(page.url());
+  run.write({ askedAt: `${asked.pathname}${asked.search}` });
+  const api = await client(who);
+  // Signed in in this browser: the account menu reads identity with the browser's own session, and it names this new
+  // account (its handle and the account id identity gave the sign-in), not yet verified.
+  const summary = await accountSummary(page);
+  await expect(summary).toContainText(`@${who.handle}`);
+  await expect(summary).toContainText(`Account ID ${api.userId.slice(0, 8)}…`);
+  await expect(summary).toContainText('Verification: Not verified');
   // A new account: the ledger lists nothing for it, or only zeros.
-  const balances = await (await client(who)).balances();
+  const balances = await api.balances();
   for (const [asset, row] of Object.entries(balances)) expect(toUnits(row.total), asset).toBe(0n);
 });
 
 test(`${J} #2 passes TEST verification: identity reads the account as fully verified`, async ({ page }) => {
-  const { who } = state();
+  const { who, askedAt } = state();
+  if (!askedAt) throw new Error(`${J} #1 kept no page that asked to verify, so this step cannot see it stop asking`);
   await signIn(page, who);
   // The request in the app, then the stack's two TEST operators approve it through identity's own two-person door.
   await verify(page, who);
-  const status = tool('local-test-gates.mjs', 'status');
-  const accounts = JSON.parse(status.slice(status.indexOf('{'))).accounts;
-  expect(accounts.filter((a) => a.handle === who.handle)).toHaveLength(1);
-  expect(accounts.find((a) => a.handle === who.handle).tiers).toContain('full');
-  // Signed in again, the app no longer asks for verification.
+  // Identity's own answer to the customer: the tier this account now adds up to, from its approved Full record.
+  const kyc = await (await client()).query('identity', 'kyc.status', { limit: 10 });
+  expect(kyc.ok, JSON.stringify(kyc.body)).toBe(true);
+  expect(kyc.data.tier).toBe('full');
+  expect(kyc.data.records.filter((r) => r.tier === 'full' && r.status === 'approved')).toHaveLength(1);
+  // Signed in again, the app reads the account as fully verified and no longer asks for verification.
   await signIn(page, who);
+  await page.goto(askedAt);
+  await expect(await accountSummary(page)).toContainText('Verification: Full');
+  // The page that asked in #1 now shows what stood in the prompt's place (the total value) and the verification step
+  // done, and the prompt is gone.
+  const main = page.getByRole('main');
+  await expect(main.getByRole('img', { name: /^\$[\d,]+\.\d{2}$/ })).toBeVisible();
+  await expect(
+    main.getByRole('region', { name: 'Get started' }).getByRole('link', { name: /^Verify your identity\s+Done$/ }),
+  ).toBeVisible();
+  await expect(main.getByText('Verify your identity first')).toHaveCount(0);
   await page.goto(deskPath());
   // svc-trade answers the desk's market preview for this account (200, where an unverified one is refused), and once that
-  // answer is in, the desk gives no verification reason. The buy itself waits for funds (#3).
+  // answer is in, the desk's buy reason is shown and is not a verification reason. The buy itself waits for funds (#3).
   await page.locator('[role=tab]', { hasText: /^Market$/ }).click();
   await previewed(page, () => page.getByRole('textbox', { name: 'Amount' }).first().fill(BUY_BTC));
+  await expect(page.locator('#dk-reason-buy')).toBeVisible();
   await expect(page.locator('#dk-reason-buy')).not.toContainText('Verify your identity first');
 });
 
-/** One TEST chain delivery of `amount` USDT to `address`, `confirmations` deep, as transfer `label`. Returns its hash. */
+/**
+ * One TEST chain delivery of `amount` USDT to `address`, `confirmations` deep, as transfer `label`. Returns its hash and
+ * the chain's key for it (`<hash>:<output>`, the key the TEST chain's own record carries).
+ */
 function chainDeposit(address, amount, confirmations, label) {
   const out = tool('local-test-stack.mjs', 'chain-deposit', address, ASSET, amount, String(confirmations), '--tx', label);
   expect(out).toContain('"received":true');
-  const tx = /^\s*tx\s+(0x[0-9a-f]{64}):\d+/m.exec(out)?.[1];
-  expect(tx, out).toBeTruthy();
-  return tx;
+  const found = /^\s*tx\s+((0x[0-9a-f]{64}):\d+)/m.exec(out);
+  expect(found, out).toBeTruthy();
+  return { tx: found[2], key: found[1] };
+}
+
+/** svc-pay's own deposit records for transfer `tx`, as the customer's own API reads them (svc-bank `deposits.list`). */
+async function depositRecords(api, tx) {
+  const res = await api.query('bank', 'deposits.list', { txId: tx, limit: 10 });
+  expect(res.ok, JSON.stringify(res.body)).toBe(true);
+  return res.data.items.filter((item) => item.txHash === tx);
 }
 
 test(`${J} #3 deposits TEST ${DEPOSIT} ${ASSET} on the TEST chain: credited on the ledger, the amount read back`, async ({
@@ -166,6 +212,13 @@ test(`${J} #3 deposits TEST ${DEPOSIT} ${ASSET} on the TEST chain: credited on t
   const api = await client();
   const before = total(await api.balances(), ASSET);
   expect(before).toBe(0n);
+  // The depth svc-pay publishes for this coin on this network (its deposit catalogue, as the customer's API reads it).
+  const terms = await api.query('bank', 'deposits.assets');
+  expect(terms.ok, JSON.stringify(terms.body)).toBe(true);
+  const published = (terms.data.assets.find((a) => a.assetId === ASSET)?.networks ?? []).filter((n) => n.label === NETWORK);
+  expect(published, `${ASSET} on ${NETWORK} is published once`).toHaveLength(1);
+  const depth = published[0].confirmationsRequired;
+  expect(depth).toBeGreaterThan(0);
   await signIn(page, who);
   await page.goto('/uc/recharge');
   await page.mouse.move(0, 600);
@@ -176,23 +229,38 @@ test(`${J} #3 deposits TEST ${DEPOSIT} ${ASSET} on the TEST chain: credited on t
   const address = (await page.getByTestId('deposit-address').locator('strong[data-testid="numeric"]').innerText()).trim();
   expect(address.length).toBeGreaterThan(8);
 
-  // Seen, then confirmed past the published depth: credited once, and only then.
+  // Seen, then one short of the published depth: nothing credited. At the depth: credited once, and only then.
   const label = `jm27-${who.handle}-r${testInfo.retry}`;
-  const tx = chainDeposit(address, DEPOSIT, 0, label);
+  const { tx, key } = chainDeposit(address, DEPOSIT, 0, label);
   expect(total(await api.balances(), ASSET)).toBe(before);
-  expect(chainDeposit(address, DEPOSIT, 6, label)).toBe(tx);
+  expect(chainDeposit(address, DEPOSIT, depth - 1, label).tx).toBe(tx);
+  expect(total(await api.balances(), ASSET), `${depth - 1} of ${depth} confirmations credits nothing`).toBe(before);
+  const short = await depositRecords(api, tx);
+  expect(short).toHaveLength(1);
+  expect(short[0].status).not.toBe('credited');
+  expect(short[0].creditedAt).toBeNull();
+  expect(chainDeposit(address, DEPOSIT, depth, label).tx).toBe(tx);
   await page.reload();
   const records = page.locator('section', { has: page.getByRole('heading', { name: 'Deposit records' }) });
   const row = records.locator('tbody tr', { hasText: tx });
   await expect(row).toHaveCount(1);
   await expect(row.locator('[data-status]')).toHaveAttribute('data-status', 'credited');
   await expect(row).toContainText(`${DEPOSIT} ${ASSET}`);
-  // A repeat of the same chain event credits nothing more.
-  expect(chainDeposit(address, DEPOSIT, 6, label)).toBe(tx);
+  expect(total(await api.balances(), ASSET) - before).toBe(toUnits(DEPOSIT));
+  // A repeat of the same chain event credits nothing more: still one record, in the app and in svc-pay, and one credit.
+  expect(chainDeposit(address, DEPOSIT, depth, label).tx).toBe(tx);
+  await page.reload();
+  await expect(row).toHaveCount(1);
+  const [credited, ...extra] = await depositRecords(api, tx);
+  expect(extra).toHaveLength(0);
+  expect(credited).toMatchObject({ assetId: ASSET, status: 'credited', confirmationsRequired: depth });
+  expect(credited.confirmations).toBeGreaterThanOrEqual(depth);
+  expect(toUnits(credited.amount)).toBe(toUnits(DEPOSIT));
   const after = await api.balances();
-  expect(total(after, ASSET) - before).toBe(toUnits(DEPOSIT));
-  expect(toUnits(after[ASSET].free)).toBe(toUnits(DEPOSIT));
-  record('deposit', { [ASSET]: [DEPOSIT] });
+  expect(total(after, ASSET) - before).toBe(toUnits(credited.amount));
+  expect(toUnits(after[ASSET].free)).toBe(toUnits(credited.amount));
+  run.write({ depositKey: key });
+  record('deposit', { [ASSET]: [credited.amount] });
 });
 
 test(`${J} #4 buys ${BUY_BTC} BTC on the desk: a real matching-engine fill, and the ledger moves by the fill and its fee`, async ({
@@ -237,17 +305,39 @@ test(`${J} #4 buys ${BUY_BTC} BTC on the desk: a real matching-engine fill, and 
   const fills = await api.get(`/api/v1/orders/${order.id}/trades?limit=50`);
   expect(fills.ok, JSON.stringify(fills.body)).toBe(true);
   expect(fills.data.length).toBeGreaterThan(0);
+  // The rates svc-trade publishes for this account on this market: each fill's fee is charged at the published rate.
+  const rates = await api.get(`/api/v1/account/fees?symbol=${encodeURIComponent('BTC/USDT')}`);
+  expect(rates.ok, JSON.stringify(rates.body)).toBe(true);
+  const rate = rates.data['BTC/USDT'];
+  expect(rate, 'svc-trade publishes a fee rate for BTC/USDT').toBeTruthy();
+  // Each fill is one engine trade: its own trade id, once, and this market order took resting liquidity (taker).
+  expect(new Set(fills.data.map((fill) => fill.id)).size).toBe(fills.data.length);
   const moved = { BTC: 0n, [ASSET]: 0n };
   let bought = 0n;
+  let charged = 0n;
   for (const fill of fills.data) {
     expect(fill.order).toBe(order.id);
+    expect(fill.id).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
+    expect(fill.id).not.toBe(order.id);
+    expect(fill.takerOrMaker).toBe('taker');
+    expect(fill.fee, `fill ${fill.id} carries its fee`).toBeTruthy();
+    expect(['BTC', ASSET]).toContain(fill.fee.currency);
+    expect(toUnits(String(fill.fee.rate))).toBe(toUnits(String(rate.taker)));
+    // The fee is the published rate on what the fill delivered in the fee's currency, to the fee's own precision.
+    const base = fill.fee.currency === 'BTC' ? toUnits(String(fill.amount)) : toUnits(String(fill.cost));
+    const exact = (base * toUnits(String(fill.fee.rate))) / toUnits('1');
+    const places = String(fill.fee.cost).split('.')[1]?.length ?? 0;
+    const step = 10n ** BigInt(18 - Math.min(places, 18));
+    const fee = toUnits(String(fill.fee.cost));
+    expect(fee > exact ? fee - exact : exact - fee, `fill ${fill.id} fee ${fill.fee.cost} at rate ${fill.fee.rate}`).toBeLessThan(step);
+    charged += fee;
     bought += toUnits(String(fill.amount));
     moved.BTC += toUnits(String(fill.amount));
     moved[ASSET] -= toUnits(String(fill.cost));
-    if (fill.fee && toUnits(String(fill.fee.cost)) !== 0n)
-      moved[fill.fee.currency] = (moved[fill.fee.currency] ?? 0n) - toUnits(String(fill.fee.cost));
+    moved[fill.fee.currency] -= fee;
   }
   expect(bought).toBe(toUnits(BUY_BTC));
+  expect(charged, 'a fee was charged on the fill').toBeGreaterThan(0n);
 
   // The ledger moved by exactly the fills and their fees, on every asset they touched, and holds nothing back.
   const after = await api.balances();
@@ -279,14 +369,32 @@ test(`${J} #5 pays a person TEST ${PAY} ${ASSET}: the recipient is credited and 
   await page.getByTestId('pay-review').click();
   await page.getByTestId('pay-send').click();
   await expect(page.getByTestId('pay-receipt')).toBeVisible();
-  await expect(page.getByTestId('pay-receipt-amount')).toContainText(PAY);
+  const shown = /^\s*([\d.,]+)\s+(\S+)\s*$/.exec(await page.getByTestId('pay-receipt-amount').innerText());
+  expect(shown, 'the receipt shows one amount and its asset').not.toBeNull();
+  expect(toUnits(shown[1].replace(/,/g, ''))).toBe(toUnits(PAY));
+  expect(shown[2]).toBe(ASSET);
   const reference = (await page.getByTestId('pay-receipt-reference').innerText()).trim();
   expect(reference).not.toBe('');
 
-  expect(before.sender - total(await sender.balances(), ASSET)).toBe(toUnits(PAY));
-  expect(total(await them.balances(), ASSET) - before.recipient).toBe(toUnits(PAY));
+  // The paying service's own record of this send, found by the receipt's reference, as each party reads it.
+  const paid = await sender.query('bank', 'transfers.get', { ledgerTxId: reference });
+  expect(paid.ok, JSON.stringify(paid.body)).toBe(true);
+  expect(paid.data).toMatchObject({
+    ledgerTxId: reference,
+    status: 'posted',
+    assetId: ASSET,
+    fromHandle: who.handle,
+    toHandle: recipient.handle,
+  });
+  expect(toUnits(paid.data.amount)).toBe(toUnits(PAY));
+  const got = await them.query('bank', 'transfers.get', { ledgerTxId: reference });
+  expect(got.ok, JSON.stringify(got.body)).toBe(true);
+  expect(got.data).toMatchObject({ ledgerTxId: reference, transferId: paid.data.transferId, amount: paid.data.amount, assetId: ASSET });
+
+  expect(before.sender - total(await sender.balances(), ASSET)).toBe(toUnits(paid.data.amount));
+  expect(total(await them.balances(), ASSET) - before.recipient).toBe(toUnits(paid.data.amount));
   run.write({ payReference: reference });
-  record('pay', { [ASSET]: [`-${PAY}`] });
+  record('pay', { [ASSET]: [`-${paid.data.amount}`] });
 });
 
 /** The TEST payout stand-in's signed job door, called as the partner would call it. */
@@ -368,8 +476,29 @@ test(`${J} #6 cashes out TEST ${CASH_OUT} ${ASSET} to a linked bank account: com
   await expect(receipt.getByTestId('cash-out-receipt-ledger')).toHaveText(`Ledger record: ${paid.ledgerTxId}`);
   const requests = (await api.query('bank', 'cashOut.requests', { limit: 10 })).data;
   expect(requests).toHaveLength(1);
-  expect(requests[0]).toMatchObject({ requestId: taken.requestId, amount: CASH_OUT, assetId: ASSET, status: 'completed' });
+  expect(requests[0]).toMatchObject({
+    requestId: taken.requestId,
+    amount: CASH_OUT,
+    assetId: ASSET,
+    status: 'completed',
+    payoutRef: `TEST-PAYOUT-${taken.requestId}`,
+    ledgerTxId: paid.ledgerTxId,
+  });
   expect(before - total(await api.balances(), ASSET)).toBe(toUnits(CASH_OUT));
+  // Recorded on the rail: the TEST payout stand-in's own record (its line in the stack's rail records, which its
+  // statement totals), one payout out of custody for this request, of this amount and asset.
+  const key = `cash-out:${taken.requestId}:paid`;
+  const onRail = railRecords('payout-sim').filter((line) => line.key.startsWith(`cash-out:${taken.requestId}:`));
+  expect(onRail, `payout-sim's records for cash-out ${taken.requestId}`).toHaveLength(1);
+  expect(onRail[0]).toMatchObject({ key, direction: 'out', assetId: ASSET });
+  expect(toUnits(onRail[0].amount)).toBe(toUnits(requests[0].amount));
+  expect
+    .soft(
+      JSON.stringify(onRail[0]),
+      `recorded on the rail: payout-sim's own record exposes no payout reference (TEST-PAYOUT-${taken.requestId}); it keys the payout by cash-out id only`,
+    )
+    .toContain(`TEST-PAYOUT-${taken.requestId}`);
+  run.write({ cashOutKey: key });
   record('cashOut', { [ASSET]: [`-${requests[0].amount}`] });
 });
 
@@ -379,7 +508,10 @@ test(`${J} #7 withdraws TEST ${WITHDRAW} ${ASSET} on the TEST chain with the sta
 }) => {
   test.setTimeout(300_000);
   const { who } = state();
-  tool('local-test-gates.mjs', 'withdraw-terms');
+  // The stack's founders publish the TEST withdrawal terms in svc-pay: the fee quote policy and this network's rules.
+  const published = tool('local-test-gates.mjs', 'withdraw-terms');
+  expect(published).toMatch(/withdrawal quote policy: (already )?published/);
+  expect(published).toMatch(new RegExp(`withdrawal rules ${ASSET} on ethereum: (already )?published`));
   await signInNow(page);
 
   // A saved wallet on TEST Ethereum, approved by its emailed link in another browser and past its cooling-off.
@@ -430,12 +562,23 @@ test(`${J} #7 withdraws TEST ${WITHDRAW} ${ASSET} on the TEST chain with the sta
   const saved = form.getByRole('combobox', { name: /^Saved address/ });
   await saved.selectOption({ label: `${WALLET_LABEL} · 0x5290…9EE7 · Ready to use` });
   await form.getByRole('textbox', { name: /^Amount/ }).fill(WITHDRAW);
+  // svc-pay's own quote on its published terms (its `withdrawal.quote` answer to this page): the fee it charges, and what
+  // leaves the balance, the amount plus that fee.
+  const quoted = page.waitForResponse((r) => r.url().includes('/pay/trpc/withdrawal.quote') && r.request().method() === 'POST');
   await page.getByRole('button', { name: 'Get the fee' }).click();
-  // svc-pay's quote, as the review shows it: what leaves the balance is the amount plus the TEST terms' 1.5 fixed fee.
+  const answer = await quoted;
+  expect(answer.status()).toBe(200);
+  const body = await answer.json();
+  const quote = (Array.isArray(body) ? body[0] : body).result.data;
+  expect(quote).toMatchObject({ assetId: ASSET, networkId: 'ethereum' });
+  expect(toUnits(quote.amount)).toBe(toUnits(WITHDRAW));
+  expect(toUnits(quote.feeTotal), 'svc-pay quotes a fee').toBeGreaterThan(0n);
+  expect(toUnits(quote.totalDebit)).toBe(toUnits(quote.amount) + toUnits(quote.feeTotal));
+  // The review shows svc-pay's quote.
   const review = page.getByTestId('withdraw-review');
   await expect(review).toContainText(/Leaves your balance\s*[\d.]+ USDT/);
   const leaves = /Leaves your balance\s*([\d.]+) USDT/.exec(await review.innerText())[1];
-  expect(toUnits(leaves)).toBe(toUnits(WITHDRAW) + toUnits('1.5'));
+  expect(toUnits(leaves)).toBe(toUnits(quote.totalDebit));
   await page.getByRole('button', { name: 'Confirm and send' }).click();
   await confirmItsMe(page);
   await expect(page.getByTestId('withdraw-outcome')).toContainText('Withdrawal recorded', { timeout: 30_000 });
@@ -452,13 +595,28 @@ test(`${J} #7 withdraws TEST ${WITHDRAW} ${ASSET} on the TEST chain with the sta
       { timeout: 60_000 },
     )
     .toEqual(['settled']);
-  const [sent] = made;
-  expect(sent.assetId).toBe(ASSET);
+  const [settled] = made;
+  const one = await api.query('pay', 'withdrawal.get', { withdrawalId: settled.id });
+  expect(one.ok, JSON.stringify(one.body)).toBe(true);
+  const sent = one.data;
+  expect(sent).toMatchObject({ id: settled.id, assetId: ASSET, rail: 'crypto-native', networkId: 'ethereum', customerStatus: 'settled' });
+  expect(sent.destination).toMatchObject({ kind: 'crypto', ref: WALLET });
   expect(toUnits(sent.amount)).toBe(toUnits(WITHDRAW));
-  // The ledger moved by exactly what the quote said leaves the balance, and holds nothing back.
-  expect(before - total(await api.balances(), ASSET)).toBe(toUnits(leaves));
+  // svc-pay recorded the fee it quoted.
+  expect(sent.fee, 'svc-pay records the withdrawal fee').not.toBeNull();
+  expect(toUnits(sent.fee)).toBe(toUnits(quote.feeTotal));
+  // Sent by the stack's TEST signer on the TEST chain: the chain's own reference for the send is on svc-pay's record, and
+  // the TEST chain's own record holds the send for this withdrawal, of this amount and asset, out of custody.
+  expect(sent.railRef, "svc-pay records the TEST chain's reference for the send").toMatch(/^0x[0-9a-z]+$/);
+  const onChain = railRecords('crypto-native').filter((line) => line.key.startsWith(`send:pay.payout:${sent.id}:`));
+  expect(onChain, `the TEST chain's records for withdrawal ${sent.id}`).toHaveLength(1);
+  expect(onChain[0]).toMatchObject({ direction: 'out', assetId: ASSET });
+  expect(toUnits(onChain[0].amount)).toBe(toUnits(sent.amount));
+  // The ledger moved by exactly the amount and the fee svc-pay recorded, and holds nothing back.
+  expect(before - total(await api.balances(), ASSET)).toBe(toUnits(sent.amount) + toUnits(sent.fee));
   expect(toUnits((await api.balances())[ASSET].used)).toBe(0n);
-  record('withdraw', { [ASSET]: [`-${sent.amount}`, `-${fromUnits(toUnits(leaves) - toUnits(sent.amount))}`] });
+  run.write({ withdrawalKey: onChain[0].key });
+  record('withdraw', { [ASSET]: [`-${sent.amount}`, `-${sent.fee}`] });
 });
 
 test(`${J} #8 reconciles to the cent: the ledger read back for the customer on every asset equals what each service recorded`, async () => {
@@ -469,10 +627,10 @@ test(`${J} #8 reconciles to the cent: the ledger read back for the customer on e
   for (const byAsset of Object.values(moves))
     for (const [asset, amounts] of Object.entries(byAsset))
       for (const amount of amounts) expected[asset] = (expected[asset] ?? 0n) + toUnits(amount);
-  // The ledger's own read for this person: each asset it lists once, and each equal to the sum of the recorded moves.
+  // The ledger's own read for this person: the assets it holds are exactly those the records moved, and each equals the
+  // sum of the recorded moves.
   const balances = await (await client()).balances();
   const listed = Object.keys(balances).filter((asset) => toUnits(balances[asset].total) !== 0n);
-  expect(new Set(listed).size).toBe(listed.length);
   expect(listed.sort()).toEqual(
     Object.keys(expected)
       .filter((asset) => expected[asset] !== 0n)
@@ -571,6 +729,9 @@ async function twoFounderRun(a, b, controlId, tag) {
 // The rails whose stand-ins keep their own statement (local-test-rail-statements.mjs), and the steps that moved value
 // across each. Rail `local-test` is the stack's TEST mint: it has no outside side, so it gets no control.
 const RAIL_STEPS = { 'crypto-native': ['deposit', 'withdraw'], 'payout-sim': ['cashOut'] };
+// The business key each of those steps left on that rail's own records (#3 the chain transfer, #7 the TEST signer's send,
+// #6 the payout), so a run judges a statement that holds this customer's movements.
+const RAIL_KEYS = { 'crypto-native': ['depositKey', 'withdrawalKey'], 'payout-sim': ['cashOutKey'] };
 // What a FAIL on each rail means, by name.
 const BREAK = {
   'crypto-native': 'rail deposits received but not credited are not booked (the boundary differs from the TEST chain statement)',
@@ -586,6 +747,18 @@ test(`${J} #8 reconciles to the cent: each rail's boundary PASSes against that r
   for (const [rail, steps] of Object.entries(RAIL_STEPS)) {
     const crossed = [...new Set(steps.flatMap((step) => Object.keys(moves[step] ?? {})))].sort();
     if (!crossed.length) throw new Error(`${J} ${steps.join(' and ')} recorded no move, so rail ${rail} has nothing to reconcile`);
+    // This run's own movements are on the rail's records the statement totals, each once, before the run is asked for.
+    const keys = RAIL_KEYS[rail].map((name) => {
+      const key = state()[name];
+      if (!key) throw new Error(`${J} kept no ${name}, so rail ${rail}'s statement cannot be tied to this run`);
+      return key;
+    });
+    const lines = railRecords(rail);
+    for (const key of keys)
+      expect(
+        lines.filter((line) => line.key === key),
+        `${rail}: its records hold ${key} once`,
+      ).toHaveLength(1);
     const id = await defineOutside(await openLedger(a), rail, tag);
     const answer = await twoFounderRun(a, b, id, tag);
     // The run read this rail's boundary: one account per asset on it, never a set that nets to 0.
