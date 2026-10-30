@@ -75,9 +75,6 @@ const PINNED_SOCKETS: readonly { name: RecipeName; fingerprint: string }[] = [
   { name: 'orderHoldAmend', fingerprint: 'eb8454c78c05' },
   { name: 'marketListingFee', fingerprint: 'c6b5159bbd35' },
   { name: 'marketPremiumPlacement', fingerprint: 'ef52f37a4786' },
-  { name: 'marketPurchaseHold', fingerprint: 'd42384c631c1' },
-  { name: 'marketPurchaseRefund', fingerprint: 'cab4cf971742' },
-  { name: 'marketPurchaseRelease', fingerprint: '98c0d45b2efa' },
   { name: 'buybackOrderHold', fingerprint: '30408fba090e' },
   { name: 'buybackOrderHoldRelease', fingerprint: '10956b0267e4' },
   { name: 'buybackTakerFill', fingerprint: 'feb69e826223' },
@@ -111,9 +108,6 @@ const SOCKET_CALLER_ALLOWLIST: ReadonlyMap<RecipeName, readonly string[]> = new 
   ['orderHoldAmend', [RECIPE_GATE_CATALOG]],
   ['marketListingFee', [RECIPE_GATE_CATALOG]],
   ['marketPremiumPlacement', [RECIPE_GATE_CATALOG]],
-  ['marketPurchaseHold', [RECIPE_GATE_CATALOG]],
-  ['marketPurchaseRefund', [RECIPE_GATE_CATALOG]],
-  ['marketPurchaseRelease', [RECIPE_GATE_CATALOG]],
   ['buybackOrderHold', [RECIPE_GATE_CATALOG, BUYBACK_PLACE]],
   ['buybackOrderHoldRelease', [RECIPE_GATE_CATALOG, BUYBACK_ORDER]],
   ['buybackTakerFill', [RECIPE_GATE_CATALOG, BUYBACK_FILLS]],
@@ -133,11 +127,11 @@ describe('D26-P2-11 recipe matrix inventory (live path closure)', () => {
     expect(inventory.live.length + inventory.sockets.length).toBe(inventory.recipes.length);
   });
 
-  it('pins live vs §13 socket counts on tip (88 = 73 live + 15 socket)', () => {
+  it('pins live vs §13 socket counts on tip (88 = 76 live + 12 socket)', () => {
     const counts = countByKind(inventory);
-    expect(counts).toEqual({ live: 73, socket: 15 });
+    expect(counts).toEqual({ live: 76, socket: 12 });
     expect(inventory.recipes).toHaveLength(88);
-    expect(liveRecipeKeys(inventory)).toHaveLength(73);
+    expect(liveRecipeKeys(inventory)).toHaveLength(76);
     expect(socketRecipeKeys(inventory)).toEqual(PINNED_SOCKETS.map((s) => s.name).sort());
   });
 

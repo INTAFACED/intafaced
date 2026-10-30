@@ -13,6 +13,8 @@ const baseline = readdirSync(directory)
   .sort()
   .map(read);
 const recovered = ['0005_market_purchase_status_lock.sql', '0006_market_purchase_snapshot.sql', '0007_market_purchase_access_window.sql'];
+// The purchase path runs on today's purchase schema: the safeguards above plus the held purchase (MC-market-02).
+const current = [...recovered, '20261029213109_market_purchase_hold.sql'];
 const url = process.env.TEST_DATABASE_URL?.trim();
 if (!url) throw new Error('Purchase upgrade tests require an isolated TEST_DATABASE_URL');
 
@@ -41,7 +43,7 @@ async function snapshot(db: TestDatabase, id: string) {
 async function commerceFixture() {
   const { db } = await fixture();
   try {
-    for (const name of recovered)
+    for (const name of current)
       await db.sql.begin(async (tx) => {
         await tx.unsafe(read(name));
       });
