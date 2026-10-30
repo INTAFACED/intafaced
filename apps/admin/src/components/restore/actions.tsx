@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { ControlDesk, type ControlAction } from '@/components/control-desk';
+import { founderMutationHeaders } from '@/lib/founder-browser';
 import {
   RESTORE_NO,
   RESTORE_SERVICES,
@@ -22,11 +23,23 @@ interface ApiAnswer {
 }
 
 async function post(body: Record<string, unknown>): Promise<ApiAnswer> {
+  let headers: Record<string, string>;
+  try {
+    // The console's CSRF header with the content type; without it the gate refuses admin.session_csrf and nothing is sent.
+    headers = await founderMutationHeaders();
+  } catch (error) {
+    return {
+      ok: false,
+      message: error instanceof Error ? error.message : 'Your founder session could not be confirmed. Nothing was sent.',
+    };
+  }
   try {
     const res = await fetch('/api/restore', {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers,
       body: JSON.stringify(body),
+      cache: 'no-store',
+      credentials: 'same-origin',
     });
     return (await res.json()) as ApiAnswer;
   } catch {

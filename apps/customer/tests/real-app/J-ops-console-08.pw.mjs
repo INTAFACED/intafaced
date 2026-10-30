@@ -99,6 +99,7 @@ async function jointRows(page) {
 }
 
 let founders = null;
+let runStarted = false;
 
 async function signedIn(browser) {
   const a = await (await browser.newContext()).newPage();
@@ -217,7 +218,12 @@ test(`${J} #6 a missing or differing stamp refuses ops.restore_watermarks_disagr
   const start = a.getByTestId('start-run');
   await start.getByLabel('Restore number').fill(RUN);
   await start.getByLabel(/^Cut-off/).fill(new Date(Date.now() + 30 * 60_000).toISOString());
+  const started = a.waitForResponse((res) => res.url().endsWith('/api/restore') && res.request().method() === 'POST');
   await start.getByRole('button', { name: 'Start run' }).click();
+  const answer = await (await started).json();
+  // svc-ops guards restore writes with admin:treasury, which a founder's console session never holds: say so, at once.
+  expect(answer, `svc-ops did not start the run: ${answer.code ?? answer.message}`).toMatchObject({ ok: true });
+  runStarted = true;
   await a.getByTestId('runs-list').getByRole('link', { name: RUN }).click();
   await expect(a.getByTestId('run-detail')).toBeVisible();
   // #5's stamps are the newest for each service and differ from every live position.
@@ -243,6 +249,8 @@ test(`${J} #7 finalize is refused with one approver and records with the second;
   browser,
 }) => {
   test.setTimeout(900_000);
+  // #6 starts the run; without it there is nothing to finalize, so this fails at once rather than waiting on an empty room.
+  expect(runStarted, `run ${RUN} was not started in #6, so there is nothing to finalize`).toBe(true);
   const { a, b } = await signedIn(browser);
   const runUrl = `${ADMIN}/restore?run=${encodeURIComponent(RUN)}`;
   await a.goto(runUrl, { waitUntil: 'load' });
