@@ -2406,6 +2406,40 @@ function cmdExpireStaffHolds(args) {
 }
 
 /**
+ * `seed-notice <email-or-userId> <tradeId>`: one P2P escrow-locked notice in the TEST person's inbox, stored exactly as
+ * svc-notify wrote it before PR 5435 moved its targets (`href` `/p2p/trades/<tradeId>`). Rows stored then are never
+ * rewritten, so the customer app must still open them (J-home-ia-05 #2). It writes the notice row only: no trade, no
+ * escrow, no event, and it moves no value. The same person and trade id is the same row, stored again as new and unread.
+ */
+function cmdSeedNotice(args) {
+  const [who, tradeId] = args;
+  if (!who || !tradeId) fail('usage: node tooling/scripts/local-test-stack.mjs seed-notice <email-or-userId> <tradeId>', 2);
+  if (!/^[A-Za-z0-9-]{4,64}$/.test(tradeId)) fail('tradeId must be 4-64 letters, digits or dashes', 2);
+  const { secrets, userId } = localFixturePerson(who);
+  const id = psql(
+    secrets,
+    `INSERT INTO notify.notifications (user_id, kind, title_key, body_key, params, href, severity, source_subject, source_idempotency_key)
+     VALUES (:'uid', 'p2p.escrow.locked', 'notify.p2p.escrow.locked.title', 'notify.p2p.escrow.locked.body',
+             coalesce((SELECT params FROM notify.notifications
+                        WHERE user_id = :'uid' AND kind = 'p2p.escrow.locked' AND params->>'tradeId' = :'tid'
+                          AND source_idempotency_key NOT LIKE 'local-test-old-link:%'
+                        ORDER BY created_at LIMIT 1),
+                       jsonb_build_object('tradeId', :'tid'::text)),
+             '/p2p/trades/' || :'tid', 'action',
+             'intafaced.p2p.escrow.locked', 'local-test-old-link:' || :'tid')
+     ON CONFLICT (user_id, source_subject, source_idempotency_key)
+       DO UPDATE SET href = EXCLUDED.href, read_at = NULL, created_at = now()
+     RETURNING id::text`,
+    { db: DB_NAME, user: 'svc_notify', password: secrets.pgService, vars: { uid: userId, tid: tradeId }, tuples: true },
+  )
+    .trim()
+    .split('\n')
+    .find((line) => /^[0-9a-f-]{36}$/.test(line.trim()));
+  if (!id) fail(`no notice was stored for ${who}`);
+  say(`  notice ${id.trim()} for ${who} links /p2p/trades/${tradeId}, as stored before PR 5435 (LOCAL TEST fixture)`);
+}
+
+/**
  * `age-task-progress <email-or-userId> <campaignId> <days>`: the TEST person's join of one task campaign and the events
  * counted for its steps move `days` back in time (J-campaigns-02 #8), so a journey can show a streak step reset after a
  * missed day without waiting a day out. svc-campaigns reads the streak from these stored times on every read. It writes
@@ -2549,7 +2583,7 @@ async function cmdMiningShare(rawArgs) {
   // Each share searches from its own start, derived from its label, so two shares of one rig never send the same work,
   // and one label sent again sends the same work (the pool refuses repeated work in a window as mining.share_duplicate).
   const start = Number.parseInt(crypto.createHash('sha256').update(shareId).digest('hex').slice(0, 12), 16);
-  const { rigShare } = await import('./local-stack-services/mining-rig.mjs');
+  const { rigShare } = await import('./local-test-mining-rig.mjs');
   let result;
   try {
     result = await rigShare({
@@ -3167,6 +3201,57 @@ async function cmdBankTransfer(rawArgs) {
   say(`  answer    ${text}`);
 }
 
+/**
+ * `card-funds <paymentId> available|pending [--on <ISO date>]`: the TEST card acquirer reports that the funds of one card
+ * payment it captured are released (`available`) or still held, optionally until a named day (`pending --on`), to svc-pay's
+ * own `/webhooks/card-sandbox`, signed with this stack's TEST card webhook secret (RC-merchant-10). The payment must have
+ * been taken with the held-funds TEST token, or svc-pay ignores the report. The event id comes from the payment and the
+ * report, so sending it again is the same delivery, never a second release. Nothing here touches the ledger.
+ */
+async function cmdCardFunds(rawArgs) {
+  const args = [...rawArgs];
+  const at = args.indexOf('--on');
+  const on = at === -1 ? undefined : args[at + 1];
+  if (at !== -1) args.splice(at, 2);
+  const usage = 'usage: node tooling/scripts/local-test-stack.mjs card-funds <paymentId> available|pending [--on <ISO date>]';
+  if (args.some((arg) => arg.startsWith('--'))) fail(`unknown option: ${args.find((arg) => arg.startsWith('--'))}`, 2);
+  const [paymentId, state, ...extra] = args;
+  if (!paymentId || !state || extra.length > 0) fail(usage, 2);
+  if (!/^[0-9a-f-]{36}$/i.test(paymentId)) fail(`bad payment id: ${paymentId}`, 2);
+  if (state !== 'available' && state !== 'pending') fail(usage, 2);
+  if (on !== undefined && (state !== 'pending' || Number.isNaN(Date.parse(on)))) fail('--on takes an ISO date, with pending only', 2);
+
+  // Guards: this only ever talks to the local stack's own svc-pay.
+  if (!fs.existsSync(P.marker)) fail(`refusing: marker ${P.marker} not found. Start the stack first (pnpm local:stack).`);
+  if (readJson(P.marker).kind !== 'intafaced-local-test-stack') fail('refusing: marker file is not a local test stack marker');
+  if (!ownedAlive(readProcs().pay)) fail('refusing: the local stack svc-pay is not running. Run: pnpm local:stack');
+  assertActiveLocalStack({ stateDir: STATE, services: ['pay'] });
+  const secret = readJson(P.secrets).payCardWebhook;
+  if (!secret) fail('refusing: this stack has no TEST card webhook secret. Run: pnpm local:stack --rebuild');
+
+  const body = JSON.stringify({
+    id: `funds:${paymentId}:${state}${on ? `:${on}` : ''}`,
+    type: `funds.${state}`,
+    ref: `ch_${paymentId}`,
+    occurredAt: new Date().toISOString(),
+    ...(on ? { availableOn: new Date(on).toISOString() } : {}),
+  });
+  const timestamp = Math.floor(Date.now() / 1000).toString();
+  const signature = crypto.createHmac('sha256', secret).update(`${timestamp}.${body}`).digest('hex');
+  const res = await fetch(`${urlOf('pay')}/webhooks/card-sandbox`, {
+    method: 'POST',
+    redirect: 'error',
+    headers: { 'content-type': 'application/json', 'x-sandbox-signature': signature, 'x-sandbox-timestamp': timestamp },
+    body,
+  });
+  const text = await res.text();
+  if (res.status !== 200) fail(`svc-pay refused the TEST card delivery (${res.status}): ${text.slice(0, 400)}`);
+  say('TEST card funds report delivered to svc-pay (TEST acquirer, not real money)');
+  say(`  payment   ${paymentId}`);
+  say(`  funds     ${state}${on ? ` until ${on}` : ''}`);
+  say(`  answer    ${text}`);
+}
+
 /** Env each local service would get. Starts nothing. Placeholder secrets only. */
 export function localTestServiceEnvs(secrets = PLAN_SECRETS) {
   return serviceDefs(secrets).map((service) => ({ name: service.name, env: service.env() }));
@@ -3248,12 +3333,14 @@ async function runCli() {
   else if (cmd === 'chain-deposit') await cmdChainDeposit(rest);
   else if (cmd === 'chain-reorg') await cmdChainReorg(rest);
   else if (cmd === 'bank-transfer') await cmdBankTransfer(rest);
+  else if (cmd === 'card-funds') await cmdCardFunds(rest);
   else if (cmd === 'age-linked-accounts') cmdAgeLinkedAccounts(rest);
   else if (cmd === 'token-params') cmdTokenParams();
   else if (cmd === 'expire-address-approvals') cmdExpireAddressApprovals(rest);
   else if (cmd === 'expire-deposit-addresses') cmdExpireDepositAddresses(rest);
   else if (cmd === 'expire-staff-holds') cmdExpireStaffHolds(rest);
   else if (cmd === 'age-task-progress') cmdAgeTaskProgress(rest);
+  else if (cmd === 'seed-notice') cmdSeedNotice(rest);
   else if (cmd === 'age-addresses') cmdAgeAddresses(rest);
   else if (cmd === 'customer-dist') cmdCustomerDist(rest);
   else if (cmd === 'status') {
@@ -3263,7 +3350,7 @@ async function runCli() {
     process.exit(ok ? 0 : 1);
   } else
     fail(
-      `unknown command "${cmd}". Use: start | stop | status | fund | seed-withdrawal | age-addresses | age-linked-accounts | expire-address-approvals | expire-deposit-addresses | expire-staff-holds | age-task-progress | plan | restart | customer-dist`,
+      `unknown command "${cmd}". Use: start | stop | status | fund | seed-withdrawal | age-addresses | age-linked-accounts | expire-address-approvals | expire-deposit-addresses | expire-staff-holds | age-task-progress | seed-notice | plan | restart | customer-dist`,
       2,
     );
 }

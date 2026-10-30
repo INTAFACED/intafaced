@@ -7,6 +7,7 @@ import { parseRefreshRecoverySeconds } from './auth/refresh-cookie.js';
 import { parseDisplayCurrencyList } from './preferences/account-display.js';
 import { parseMembershipTiers } from './membership/membership-offer.js';
 import { parseSelfFreezeLiftWait } from './auth/self-freeze-lift.js';
+import { parseAppealWindowDays } from './account/appeals.js';
 import { parseSecurityLockUnlockWait } from './auth/security-lock.js';
 import { parseMfaResetWait } from './auth/mfa-reset.js';
 
@@ -295,6 +296,25 @@ const schema = serviceEnvSchema
        * start; malformed stops the service.
        */
       IDENTITY_TRADING_RESTRICTION_REASONS: z.string().optional(),
+      /**
+       * Owner settings (I-account-lifecycle-12, J-identity-14 #3 and #4). How many whole days after a restriction starts
+       * the person may appeal it, and the reasons compliance may decide an appeal with (the same shape as
+       * `IDENTITY_KYC_REJECT_REASONS`). NO DEFAULT. An unset window closes appeals (`identity.appeal_window_unset`, and the
+       * page says so); an unset reason list refuses every decision (`identity.appeal_reasons_unset`). Parsed at start;
+       * malformed stops the service.
+       */
+      IDENTITY_APPEAL_WINDOW_DAYS: z
+        .string()
+        .optional()
+        .transform((v, ctx) => {
+          try {
+            return parseAppealWindowDays(v);
+          } catch (error) {
+            ctx.addIssue({ code: z.ZodIssueCode.custom, message: (error as Error).message });
+            return z.NEVER;
+          }
+        }),
+      IDENTITY_APPEAL_DECISION_REASONS: z.string().optional(),
       /**
        * Owner settings (I-kyc-compliance-08). The accepted ID types per country, as JSON
        * `{"<country>": [{"type", "label", "originalRequired"}]}`: a country not listed reads "not published". The ID

@@ -161,6 +161,7 @@ export const gridBotSchema = z.object({
   ),
   gridProfit: signedDecimalSchema,
   closedPairs: z.number(),
+  withdrawableProfit: decimalSchema,
   gridApr: z.discriminatedUnion('state', [
     z.object({ state: z.literal('under_a_day'), percent: z.null() }),
     z.object({ state: z.literal('set'), percent: signedDecimalSchema }),
@@ -168,6 +169,30 @@ export const gridBotSchema = z.object({
   createdAt: z.string(),
 });
 export type GridBot = z.infer<typeof gridBotSchema>;
+/** A grid profit withdrawal receipt: the stored withdrawal row (trade.bots.grid.withdrawProfit, CB-bots-05). */
+export const gridWithdrawalSchema = z.object({
+  withdrawalId: z.string(),
+  botId: z.string(),
+  asset: z.string(),
+  amount: decimalSchema,
+  profitBefore: decimalSchema,
+  profitAfter: decimalSchema,
+  reserveBefore: decimalSchema,
+  reserveAfter: decimalSchema,
+  dailyCap: decimalSchema,
+  capUsed: decimalSchema,
+  capRemaining: decimalSchema,
+  stepUpEventId: z.string(),
+  appliedAt: z.string(),
+});
+export type GridWithdrawal = z.infer<typeof gridWithdrawalSchema>;
+export type GridWithdrawRequest = {
+  botId: string;
+  requestId: string;
+  asset: string;
+  amount: string;
+  stepUpApprovalId: string | null;
+};
 export const gridSetupSchema = z.object({
   countRange: z.object({ min: z.number(), max: z.number() }).nullable(),
   boundsMaxDistanceBps: z.number().nullable(),
@@ -285,6 +310,7 @@ export function createRoomApi(api: ApiClient) {
     gridGet: (botId: string, signal?: AbortSignal) => api.query('trade', 'bots.grid.get', { botId }, gridBotSchema, { signal }),
     gridList: (signal?: AbortSignal) => api.query('trade', 'bots.grid.list', undefined, z.array(gridBotSchema), { signal }),
     gridStop: (botId: string) => api.mutate('trade', 'bots.grid.stop', { botId }, gridBotSchema),
+    gridWithdraw: (input: GridWithdrawRequest) => api.mutate('trade', 'bots.grid.withdrawProfit', input, gridWithdrawalSchema),
     studio: (signal?: AbortSignal) =>
       api.query('quant', 'studio.list', { limit: 50 }, z.object({ strategies: z.array(studioStrategySchema) }), { signal }),
   };

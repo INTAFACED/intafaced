@@ -13,6 +13,7 @@ import {
   TooltipContent,
   TooltipTrigger,
   usePreferences,
+  useSupportedAssets,
   useTicker,
   type Holding,
   type Loadable,
@@ -53,7 +54,7 @@ export function KeyStats({
   portfolio,
 }: {
   asset: string;
-  /** The coin's market, or null for a coin with none (USDT, USDC or a closed market): only the balance row is drawn. */
+  /** The coin's market, or null for a coin with none (USDT, USDC or a closed market): the market rows are left out. */
   symbol: string | null;
   tickSize: string | null;
   portfolio: Loadable<PortfolioSummary>;
@@ -81,6 +82,11 @@ export function KeyStats({
           )}
         </span>
       </div>
+      <div className="coin-stats__row" data-testid="stat-market-cap">
+        <Term label={t('Market cap')} rule={t('Market cap rule')} />
+        <span className="coin-stats__value">{t('not published')}</span>
+      </div>
+      <CoinNetworks asset={asset} />
       {symbol ? <YoungNote symbol={symbol} timeZone={timeZone} /> : null}
     </section>
   );
@@ -131,5 +137,38 @@ function YoungNote({ symbol, timeZone }: { symbol: string; timeZone: Parameters<
     <p className="coin-stats__note" data-testid="stat-young">
       {t('Younger than a day', { time: sinceLabel(partial, timeZone) })}
     </p>
+  );
+}
+
+/**
+ * The networks this coin moves on, as the platform's asset registry names them (svc-bank `assets.list`, J-portfolio-10
+ * #3). The registry holds no contract address or links, so none is shown; a coin the registry does not list says so.
+ */
+function CoinNetworks({ asset }: { asset: string }) {
+  const { t } = coinCopy.useCopy();
+  const registry = useSupportedAssets();
+  // Only networks a customer can move the coin on now: an active asset that allows a deposit or a withdrawal.
+  const row =
+    registry.resource.status === 'ready'
+      ? (registry.resource.data.assets.find(
+          (entry) =>
+            entry.assetId === asset &&
+            entry.state === 'active' &&
+            (entry.allowedActions.includes('deposit') || entry.allowedActions.includes('withdraw')),
+        ) ?? null)
+      : null;
+  return (
+    <div className="coin-stats__row" data-testid="coin-network">
+      <Term label={t('Networks')} rule={t('Networks rule')} />
+      <span className="coin-stats__value">
+        {registry.resource.status === 'loading'
+          ? '—'
+          : registry.resource.status === 'failed'
+            ? t('not read')
+            : row === null || row.networks.length === 0
+              ? t('not listed')
+              : row.networks.map((network) => network.label).join(', ')}
+      </span>
+    </div>
   );
 }
