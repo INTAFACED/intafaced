@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { EDGE } from './stack.mjs';
+import { chartBars, expectLines, F } from './charts-desk-studies.mjs';
 
 // J-charts-desk-03 "I add indicators, tune them, and read their values" (docs/roadmap/journeys.json). One test per step,
 // titled "J-charts-desk-03 #<n>", run in the Real-app journeys workflow. Each test opens the workbench on
@@ -74,120 +75,6 @@ async function addStudy(page, search, name) {
   await page.getByRole('button', { name: 'Indicators' }).click();
   await page.getByRole('searchbox', { name: 'Search indicators' }).fill(search);
   await page.getByRole('button', { name: `Add ${name}`, exact: true }).click();
-}
-
-/**
- * The bars the chart holds at 15m, worked here from the public candles as the chart builds them: the last 240 buckets up
- * to the current one (from the first that traded when the market is younger), a quiet bucket filled with the previous
- * close (o = h = l = c, no volume). Each bar: { t, o, h, l, c, v, filled } with numbers.
- */
-async function chartBars() {
-  const step = 15 * 60_000;
-  const rows = (await candles('15m', 240)).sort((a, b) => a[0] - b[0]);
-  if (rows.length === 0) throw new Error('the public candle route has no BTC/USDT bars; is the TEST market maker running?');
-  const byBucket = new Map(rows.map((r) => [Math.floor(r[0] / step) * step, r]));
-  const end = Math.max(Math.floor(Date.now() / step) * step, ...byBucket.keys());
-  const from = Math.max(Math.min(...byBucket.keys()), end - 239 * step);
-  let carry = null;
-  for (const [t, r] of [...byBucket].sort(([a], [b]) => a - b)) if (t < from) carry = Number(r[4]);
-  const bars = [];
-  for (let t = from; t <= end; t += step) {
-    const r = byBucket.get(t);
-    if (r) {
-      bars.push({ t, o: Number(r[1]), h: Number(r[2]), l: Number(r[3]), c: Number(r[4]), v: Number(r[5]), filled: false });
-      carry = Number(r[4]);
-    } else if (carry !== null) bars.push({ t, o: carry, h: carry, l: carry, c: carry, v: 0, filled: true });
-  }
-  return bars;
-}
-
-/** Each formula, worked independently of the app (the definitions in studies/math.ts's comments). Index i is a bar. */
-const F = {
-  sma: (xs, p, i) => (i < p - 1 ? null : xs.slice(i - p + 1, i + 1).reduce((a, b) => a + b, 0) / p),
-  emaLine(xs, p) {
-    const a = 2 / (p + 1);
-    const out = xs.map(() => null);
-    let prev = null;
-    let run = 0;
-    xs.forEach((x, i) => {
-      if (x === null) {
-        run = 0;
-        prev = null;
-        return;
-      }
-      run += 1;
-      if (prev === null) {
-        if (run < p) return;
-        prev = xs.slice(i - p + 1, i + 1).reduce((s, y) => s + y, 0) / p;
-      } else prev = a * x + (1 - a) * prev;
-      out[i] = prev;
-    });
-    return out;
-  },
-  macd(closes, fast, slow, signal) {
-    const [f, s] = [F.emaLine(closes, fast), F.emaLine(closes, slow)];
-    const line = closes.map((_, i) => (f[i] === null || s[i] === null ? null : f[i] - s[i]));
-    const sig = F.emaLine(line, signal);
-    return { line, signal: sig, histogram: line.map((m, i) => (m === null || sig[i] === null ? null : m - sig[i])) };
-  },
-  stochK(bars, k, i) {
-    if (i < k - 1) return null;
-    const win = bars.slice(i - k + 1, i + 1);
-    const [hi, lo] = [Math.max(...win.map((b) => b.h)), Math.min(...win.map((b) => b.l))];
-    return hi === lo ? null : ((bars[i].c - lo) / (hi - lo)) * 100;
-  },
-  bollinger(closes, p, m, i) {
-    const mid = F.sma(closes, p, i);
-    const sigma = Math.sqrt(closes.slice(i - p + 1, i + 1).reduce((a, x) => a + (x - mid) ** 2, 0) / p);
-    return { upper: mid + m * sigma, middle: mid, lower: mid - m * sigma };
-  },
-  vwap(bars, i) {
-    const day = Math.floor(bars[i].t / 86_400_000);
-    let pv = 0;
-    let v = 0;
-    for (const b of bars.slice(0, i + 1)) {
-      if (Math.floor(b.t / 86_400_000) !== day || b.filled || !(b.v > 0)) continue;
-      pv += ((b.h + b.l + b.c) / 3) * b.v;
-      v += b.v;
-    }
-    return v === 0 ? null : pv / v;
-  },
-};
-
-/** A study line's shown value at the legend's bar, by the series name the legend writes. */
-const shownValue = (page, id, name) => row(page, id).locator(`[data-series="${name}"] .st-value-text`).first();
-
-/**
- * Waits until every listed line of a study shows its worked value to the tick: the shown number is the worked value
- * rounded at `digits` (within half a unit of the last digit, so an exact half rounds either way), or "—" where the
- * formula has no value. `work(bars)` returns { name: value or null } at the last bar.
- */
-async function expectLines(page, id, digits, work) {
-  await expect
-    .poll(
-      async () => {
-        const values = work(await chartBars());
-        const checks = [];
-        for (const [name, value] of Object.entries(values)) {
-          const text = (
-            (await shownValue(page, id, name)
-              .textContent({ timeout: 2_000 })
-              .catch(() => null)) ?? ''
-          ).trim();
-          const ok =
-            value === null
-              ? text === '—'
-              : /^-?\d+(\.\d+)?$/.test(text) &&
-                text.split('.')[1]?.length === (digits || undefined) &&
-                Math.abs(Number(text) - value) <= 0.5 * 10 ** -digits + 1e-9;
-          checks.push(ok);
-          if (!ok) return false;
-        }
-        return checks.length > 0;
-      },
-      { timeout: 30_000, message: `the ${id} legend never showed the values worked from the bars` },
-    )
-    .toBe(true);
 }
 
 const legend = (page) => page.getByTestId('study-legend');
