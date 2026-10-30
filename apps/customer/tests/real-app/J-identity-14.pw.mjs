@@ -115,7 +115,7 @@ test(`${J} #3 files an appeal: one open appeal at a time, a second is refused, a
     clientRequestId: `j14-second-${who.handle}`,
   });
   expect(second.status, JSON.stringify(second.body)).toBe(409);
-  expect(second.body.error.data.code).toBe('identity.appeal_open');
+  expect(second.body.error.data.cause.code).toBe('identity.appeal_open');
   const after = await readBack(client);
   expect(after.mine.appeals).toEqual(first.mine.appeals);
   await page.reload();
@@ -126,11 +126,10 @@ test(`${J} #3 files an appeal: one open appeal at a time, a second is refused, a
   );
 });
 
-test(`${J} #4 gets a decision: lifted or upheld with a reason and a notice; the decision is never made by the person who restricted`, async ({
+test(`${J} #4 gets a decision, upheld: the restriction stays with a reason and a notice; the person who restricted cannot decide`, async ({
   page,
 }) => {
-  test.setTimeout(240_000);
-
+  test.setTimeout(180_000);
   // Upheld: the restriction stays, the page gives the reason in the owner's words, and a notice is mailed.
   const kept = await restricted(page, 'apu');
   lifts.push(kept.handle);
@@ -163,10 +162,12 @@ test(`${J} #4 gets a decision: lifted or upheld with a reason and a notice; the 
   await expect(page.getByTestId('account-status__state')).toHaveAttribute('data-state', 'restricted');
   await expect.poll(() => mailedLines(kept.email, 'appeal-decided'), { timeout: 30_000 }).toHaveLength(1);
   expect(mailedLines(kept.email, 'appeal-decided')[0]).toMatch(/notice=appeal-decided outcome=upheld/);
+});
 
-  // Lifted: a new person, a new restriction. The lift runs through the restore's four-eyes approval with the appeal as
-  // its reason, the restriction is released, the page says so in the owner's words, and a notice is mailed.
-  await page.context().clearCookies();
+test(`${J} #4 gets a decision, lifted: the restriction is released through four eyes with a reason and a notice`, async ({ page }) => {
+  test.setTimeout(180_000);
+  // The lift runs through the restore's four-eyes approval with the appeal as its reason, the restriction is released,
+  // the page says so in the owner's words, and a notice is mailed.
   const freed = await restricted(page, 'apl');
   lifts.push(freed.handle);
   const freedClient = await api(freed);
