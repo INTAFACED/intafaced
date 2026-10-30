@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { journeyState } from './stack.mjs';
+import { journeyState, toUnits } from './stack.mjs';
 import { signIn, signUp, verify } from './desk.mjs';
 import { closedBarsSince, tapeWindow, utcMinute } from './tape.mjs';
 
@@ -213,16 +213,35 @@ test(`${J} #4 opens the checks panel: overfitting, look-ahead and repainting fin
 
   // Overfitting: the in-sample to out-of-sample gap is measured against the TEST maximum of 5 points, from the run's
   // own two parts, which the verdict card shows too.
+  // The run is split, and both parts start from a positive equity, so the gap is always judged, never left out.
   const gap = check('sample_gap');
   await expect(gap).toHaveAttribute('data-threshold', '5');
-  await expect(gap).toHaveAttribute('data-status', /^(warning|clear|not_applicable)$/);
-  if ((await gap.getAttribute('data-status')) !== 'not_applicable') {
-    const [is, oos, measured] = await Promise.all(
-      ['data-insamplereturnpercent', 'data-outofsamplereturnpercent', 'data-gappercent'].map((name) => gap.getAttribute(name)),
+  await expect(gap).toHaveAttribute('data-status', /^(warning|clear)$/);
+  const [is, oos, measured] = await Promise.all(
+    ['data-insamplereturnpercent', 'data-outofsamplereturnpercent', 'data-gappercent'].map((name) => gap.getAttribute(name)),
+  );
+  expect(toUnits(measured)).toBe(toUnits(is) - toUnits(oos));
+  await expect(gap).toHaveAttribute('data-status', toUnits(measured) > toUnits('5') ? 'warning' : 'clear');
+  // Each part's return, worked out again from the run's own equity curve: in sample from the starting cash to the last
+  // point before the split, out of sample from there to the last point. Percent to four places, cut toward zero.
+  await result.getByRole('button', { name: 'Summary' }).click();
+  const split = Date.parse(await result.getByTestId('quant-section-outOfSample').getAttribute('data-from'));
+  const startCash = toUnits(await room.getByLabel('Starting cash').inputValue());
+  await result.getByRole('button', { name: 'Charts' }).click();
+  const curve = await result
+    .getByTestId('quant-bar-equity')
+    .evaluateAll((rows) =>
+      rows.map((row) => ({ at: Date.parse(`${row.cells[0].textContent.replace(' ', 'T')}:00Z`), equity: row.dataset.equity })),
     );
-    expect(Number(measured)).toBeCloseTo(Number(is) - Number(oos), 6);
-    await expect(gap).toHaveAttribute('data-status', Number(measured) > 5 ? 'warning' : 'clear');
-  }
+  const before = curve.filter((point) => point.at < split).map((point) => toUnits(point.equity));
+  const after = curve.filter((point) => point.at >= split).map((point) => toUnits(point.equity));
+  expect(after.length, 'the out-of-sample part holds equity points').toBeGreaterThan(0);
+  const splitEquity = before.at(-1) ?? startCash;
+  const CUT = 10n ** 14n;
+  const returnOf = (start, end) => (((end - start) * 100n * 10n ** 18n) / start / CUT) * CUT;
+  expect(toUnits(is)).toBe(returnOf(startCash, splitEquity));
+  expect(toUnits(oos)).toBe(returnOf(splitEquity, after.at(-1)));
+  await result.getByRole('button', { name: 'Checks' }).click();
 
   // Sensitivity: the same run from one bar later, made by the service, with how far the return moved. "One bar later" is
   // the window's second traded bar, so a window that opens in a gap of the tape still starts one bar later.
