@@ -66,6 +66,7 @@ import { APEX_DESCRIPTOR_PATH, APEX_PRODUCT } from '../../apps/customer/deployme
 import { anvilBin, chainRecordPath, chainStatus, CHAIN_PORTS, GATE_URL, runSeedScript, TEST_CHAIN_ID } from './local-test-chain.mjs';
 import { marketStatus } from './local-test-market.mjs';
 import { serveRailStatements } from './local-test-rail-statements.mjs';
+import { ensureTestCert, httpsGetTrusting, serveTeamTls } from './local-test-team-tls.mjs';
 import { serveVideoStore } from './local-video-store.mjs';
 import academy from './local-stack-services/academy.mjs';
 import agents from './local-stack-services/agents.mjs';
@@ -126,6 +127,7 @@ const P = {
   procs: path.join(STATE, 'run', 'processes.json'),
   s2sMode: path.join(STATE, 'run', 's2s-mode'),
   run: path.join(STATE, 'run'),
+  tls: path.join(STATE, 'tls'),
   logs: path.join(STATE, 'logs'),
   data: path.join(STATE, 'data'),
   pgdata: path.join(STATE, 'data', 'postgres'),
@@ -189,6 +191,8 @@ const PORTS = {
   // LOCAL TEST stand-in for the apex host (the host check); the real apex site is not in this repo.
   apex: 3260,
   admin: 3100,
+  // LOCAL TEST HTTPS front for the founder console (local-test-team-tls.mjs): the Customer build's Team link.
+  'team-tls': 3143,
 };
 const HOST = '127.0.0.1';
 const CUSTOMER_ORIGIN = `http://${HOST}:${PORTS.customer}`;
@@ -196,6 +200,8 @@ const CUSTOMER_ORIGIN = `http://${HOST}:${PORTS.customer}`;
 // server is also reachable as localhost. Passkeys: open this one. Everything else works on either.
 const CUSTOMER_LOCALHOST_ORIGIN = `http://localhost:${PORTS.customer}`;
 const ADMIN_ORIGIN = `http://${HOST}:${PORTS.admin}`;
+// The Customer build links to the Team console only over HTTPS, so the stack's build points at this TEST front.
+const TEAM_TLS_ORIGIN = `https://${HOST}:${PORTS['team-tls']}`;
 const INVITATION_ORIGIN = `http://${HOST}:${PORTS.invitation}`;
 const APEX_ORIGIN = `http://${HOST}:${PORTS.apex}`;
 const DB_NAME = 'intafaced_local_test';
@@ -1049,7 +1055,7 @@ function ensureBuilt(rebuild) {
   runPnpm([...BACKEND_PKGS.flatMap((s) => ['--filter', `@intafaced/${s}...`]), 'build'], 'build-backend');
   if (!override) {
     say('  build: customer app…');
-    runPnpm(['--filter', '@intafaced/customer...', 'build'], 'build-customer');
+    runPnpm(['--filter', '@intafaced/customer...', 'build'], 'build-customer', { VITE_TEAM_URL: TEAM_TLS_ORIGIN });
   }
   writePrivate(
     P.buildStamp,
@@ -1674,6 +1680,24 @@ async function startAdmin(secrets) {
   await waitHealthy('admin', url, pid, 60_000);
 }
 
+/** The founder console over HTTPS with the stack's own TEST certificate, for the Customer build's Team link. */
+async function startTeamTls() {
+  const procs = readProcs();
+  const { cert } = ensureTestCert(P.tls);
+  const url = `${TEAM_TLS_ORIGIN}/login`;
+  if (ownedAlive(procs['team-tls']) && (await httpsGetTrusting(url, cert)).status === 200) return;
+  if (ownedAlive(procs['team-tls'])) await stopProc('team-tls', procs['team-tls']);
+  if (await portOpen(PORTS['team-tls'])) fail(`port ${PORTS['team-tls']} (team-tls) is in use by a process this script did not start`);
+  const pid = startProc('team-tls', [process.execPath, SCRIPT, '__serve-team-tls'], baseEnv(), REPO);
+  const t0 = Date.now();
+  while (Date.now() - t0 < 20_000) {
+    if (!psCommand(pid)) fail(`team-tls exited during start. Log ${path.join(P.logs, 'team-tls.log')}`);
+    if ((await httpsGetTrusting(url, cert)).status === 200) return;
+    await sleep(500);
+  }
+  fail(`team-tls did not answer at ${url} within 20s (see ${path.join(P.logs, 'team-tls.log')})`);
+}
+
 /**
  * The founder console's production build, served in this script's own process so the recorded command line stays
  * what was started (the `next` CLI renames its process, which ownership checks would then refuse to stop).
@@ -1774,6 +1798,15 @@ async function healthTable({ gateMarket = false } = {}) {
   ]);
   const admin = await httpGet(`${ADMIN_ORIGIN}/login`, 4000);
   rows.push(['admin', PORTS.admin, procs.admin?.pid ?? '-', admin.status === 200 ? 'ok' : `DOWN (${admin.status})`]);
+  const teamTls = fs.existsSync(path.join(P.tls, 'team-tls.crt'))
+    ? await httpsGetTrusting(`${TEAM_TLS_ORIGIN}/login`, path.join(P.tls, 'team-tls.crt'), 4000)
+    : { status: 0 };
+  rows.push([
+    'team-tls (TEST)',
+    PORTS['team-tls'],
+    procs['team-tls']?.pid ?? '-',
+    teamTls.status === 200 ? 'ok' : `DOWN (${teamTls.status})`,
+  ]);
   // The test market maker is not a service of the stack, but its prices freeze silently when it dies (it did, twice).
   const mk = marketStatus();
   rows.push(['market-maker', '-', mk.pid ?? '-', mk.text]);
@@ -1874,6 +1907,7 @@ async function cmdStart(flags) {
   if (!only || only.includes('apex')) await startApex();
   if (!only || HOST_SITES.some((name) => only.includes(name))) await checkLocalTestHosts();
   if (!only || only.includes('admin')) await startAdmin(secrets);
+  if (!only || only.includes('admin') || only.includes('team-tls')) await startTeamTls();
   ensureMarket();
   say('');
   const allOk = await healthTable();
@@ -1924,7 +1958,18 @@ function ensureMarket() {
 
 async function cmdStop(names = []) {
   const procs = readProcs();
-  const order = ['admin', 'apex', 'invitation', 'customer', ...serviceNames().reverse(), 'chain', 'video-store', 'rail-statements', 'nats'];
+  const order = [
+    'team-tls',
+    'admin',
+    'apex',
+    'invitation',
+    'customer',
+    ...serviceNames().reverse(),
+    'chain',
+    'video-store',
+    'rail-statements',
+    'nats',
+  ];
   const only = names.length ? names : null;
   // A TEST host receipt never outlives the sites it says are served (checkLocalTestHosts writes it again on start).
   if (!only || HOST_SITES.some((name) => only.includes(name))) fs.rmSync(P.hostReceipt, { force: true });
@@ -3479,6 +3524,8 @@ async function runCli() {
   else if (cmd === '__serve-invitation') serveCustomer(PORTS.invitation, SITES.invitation);
   else if (cmd === '__serve-apex') serveCustomer(PORTS.apex, SITES.apex);
   else if (cmd === '__serve-admin') await serveAdmin();
+  else if (cmd === '__serve-team-tls')
+    await serveTeamTls({ host: HOST, port: PORTS['team-tls'], upstream: ADMIN_ORIGIN, ...ensureTestCert(P.tls) });
   else if (cmd === '__serve-video-store')
     serveVideoStore({
       host: HOST,
