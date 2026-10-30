@@ -26,6 +26,8 @@ export const appealsCopy = defineCopy('account.appeals', {
   'refused_identity.appeal_window_unset': 'Appeals are closed: no appeal window is set.',
   'refused_identity.appeal_window_closed': 'The time to appeal this restriction has passed.',
   'refused_identity.appeal_no_restriction': 'There is no restriction on this account to appeal.',
+  'refused_identity.appeal_setter_unknown':
+    'This restriction cannot be appealed here, because we have no record of a staff member setting it. Contact support.',
   'refused_identity.appeal_request_conflict': 'This appeal was already sent with other words. Reload the page.',
   refusedOther: 'The appeal was not sent.',
 });

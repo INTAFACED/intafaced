@@ -219,7 +219,8 @@ test(`${J} #3 an operator releases a wave: the top N are invited once, the rest 
     'waitlist.waves.list',
   ).waves.find((w) => w.waveNumber === waves.nextWave);
   expect(released).toMatchObject({ waveNumber: waves.nextWave, size: 2 });
-  expect(released.releasedCount).toBeLessThanOrEqual(2);
+  // The top N, N being the wave size: everyone waiting when fewer were.
+  expect(released.releasedCount).toBe(Math.min(2, waves.waiting));
   // The same wave again is the stored wave: nobody else is invited.
   const again = data(
     await ctx.edge.mutate('identity', 'waitlist.waves.release', input, await pair.a.tradeOpsToken()),
@@ -240,12 +241,14 @@ test(`${J} #3 an operator releases a wave: the top N are invited once, the rest 
   );
   expect(after.nextWave).toBe(waves.nextWave + 1);
   expect(after.waiting).toBe(waves.waiting - released.releasedCount);
+  // x has one friend; my rival, who #2 made, has three and is ahead of x, so the top two never reach x.
   const x = await standing(xCode);
-  if (x.release === null) {
-    const xPage = await visitor(browser);
-    await xPage.goto(`/waitlist?code=${xCode}`);
-    await expect(xPage.getByRole('heading', { level: 1, name: 'Your place in the queue' })).toBeVisible();
-  }
+  expect(x.release).toBeNull();
+  expect(x.rank).toBeGreaterThan(0);
+  const xPage = await visitor(browser);
+  await xPage.goto(`/waitlist?code=${xCode}`);
+  await expect(xPage.getByRole('heading', { level: 1, name: 'Your place in the queue' })).toBeVisible();
+  run.write({ ...run.read(), waveNumber: waves.nextWave });
 });
 
 const DROP_COUNT = 3;
@@ -310,7 +313,8 @@ test(`${J} #4 the drop room shows my rank, wave, season points and each limited 
     'waitlist.waves.list',
   );
   expect(mine.waves.length).toBeGreaterThan(0);
-  await expect(page.getByTestId('drop-wave')).toHaveText(/^Wave \d+, released$/);
+  // The wave #3 released, by its number.
+  await expect(page.getByTestId('drop-wave')).toHaveText(`Wave ${state('waveNumber').waveNumber}, released`);
   await expect(page.getByTestId('drop-rank')).toHaveText('—');
   await expect(page.getByTestId('drop-season-name')).toHaveText(`TEST season ${tag}`);
   await expect(page.getByTestId('drop-season-points')).toHaveText('0');

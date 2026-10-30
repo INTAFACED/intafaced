@@ -128,20 +128,34 @@ interface PendingSequence {
   started?: boolean;
 }
 
-/** Polls the wallet's node for `hash` until it is mined, it reverted, or `timeoutMs` passes. */
-async function waitMined(provider: Eip1193Provider, hash: string, timeoutMs: number): Promise<'success' | 'reverted' | 'timeout'> {
+/** A mined transaction's outcome, with its block when it was mined. */
+export type MinedOutcome = { status: 'success' | 'reverted'; blockNumber: bigint | null } | { status: 'timeout' };
+
+/**
+ * Polls a node for `hash`'s receipt until it is mined, it reverted, or `timeoutMs` passes. One read at a time: a slow node
+ * never piles up overlapping reads. `stopped` lets a caller that unmounts end the wait.
+ */
+export async function waitMined(
+  readReceipt: (hash: string) => Promise<unknown>,
+  hash: string,
+  timeoutMs: number,
+  stopped: () => boolean = () => false,
+): Promise<MinedOutcome> {
   const until = Date.now() + timeoutMs;
-  while (Date.now() < until) {
+  while (Date.now() < until && !stopped()) {
     try {
-      const receipt = (await provider.request({ method: 'eth_getTransactionReceipt', params: [hash] })) as { status?: string } | null;
-      if (receipt?.status === '0x1') return 'success';
-      if (receipt?.status === '0x0') return 'reverted';
+      const receipt = (await readReceipt(hash)) as { status?: string; blockNumber?: string } | null;
+      if (receipt?.status === '0x1' || receipt?.status === '0x0')
+        return {
+          status: receipt.status === '0x1' ? 'success' : 'reverted',
+          blockNumber: receipt.blockNumber ? BigInt(receipt.blockNumber) : null,
+        };
     } catch {
       /* not answered this time; ask again */
     }
     await new Promise((resolve) => setTimeout(resolve, 500));
   }
-  return 'timeout';
+  return { status: 'timeout' };
 }
 
 interface Pending {
@@ -390,14 +404,19 @@ export function WalletProvider({ children, discovery = true }: { children: React
                 };
               sent.push(result.hash);
               if (index === next.steps.length - 1) break;
-              const mined = await waitMined(wallet.provider, result.hash, STEP_MINED_TIMEOUT_MS);
-              if (mined !== 'success')
+              const provider = wallet.provider;
+              const mined = await waitMined(
+                (hash) => provider.request({ method: 'eth_getTransactionReceipt', params: [hash] }),
+                result.hash,
+                STEP_MINED_TIMEOUT_MS,
+              );
+              if (mined.status !== 'success')
                 return {
                   status: 'failed',
                   step: index,
                   sent,
-                  reverted: mined === 'reverted',
-                  message: t(mined === 'reverted' ? 'seqReverted' : 'seqNotMined'),
+                  reverted: mined.status === 'reverted',
+                  message: t(mined.status === 'reverted' ? 'seqReverted' : 'seqNotMined'),
                 };
             }
             return { status: 'sent', hashes: sent };

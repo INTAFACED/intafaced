@@ -1,3 +1,5 @@
+import { STATEMENT_RAILS, railStatementEnv } from '../local-test-rail-statements.mjs';
+
 /**
  * The outside-balance snapshot svc-ledger reads (LEDGER_RECONCILE_OUTSIDE_SNAPSHOT_URL, an owner value). Unset by default, so an
  * outside-balance control shows its outside side unset (J-ops-console-07 #3). `LOCAL_STACK_LEDGER_OUTSIDE_SNAPSHOT=unreachable`
@@ -22,5 +24,11 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS }) => ({
     // Asset registry edits consume a founder approval from identity; without it they refuse identity_unwired.
     IDENTITY_URL: urlOf('identity'),
     ...outsideSnapshot(),
+    // LOCAL TEST: each rail whose stand-in keeps its own records answers for its boundary from those records
+    // (local-test-rail-statements.mjs), so a per-rail outside control compares rail:<rail> with the rail's own word.
+    // Rail local-test is the TEST mint and has none.
+    ...Object.fromEntries(STATEMENT_RAILS.map((rail) => [railStatementEnv(rail), `${urlOf('rail-statements')}/statement`])),
+    // LOCAL TEST: crypto-native's open items are the custody deposits svc-pay holds open, read over its signed door.
+    LEDGER_RECONCILE_OPEN_ITEMS_CRYPTO_NATIVE_URL: `${urlOf('pay')}/internal/custody/open-items`,
   }),
 });

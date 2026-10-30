@@ -1,5 +1,5 @@
 /**
- * Create a TWAP / VWAP / POV schedule. The preview is the all-in view before anything is sent. When the slice scheduler is
+ * Create a TWAP / VWAP / POV schedule, or a chase. The preview is the all-in view before anything is sent. When the slice scheduler is
  * off the room says so and does not make the call (a schedule created now would sit active and place nothing).
  */
 import { useEffect, useMemo, useRef, useState } from 'react';
@@ -14,6 +14,8 @@ import {
   DURATION_PRESETS,
   CREATE_BLOCKER_CODE,
   algoClientId,
+  bpsAsPercent,
+  chaseDistanceBps,
   createBlocker,
   defaultIntervalMs,
   newNonce,
@@ -29,7 +31,7 @@ import { ConfirmDialog, Pick, Why, placesFor, useWhen } from './parts';
 export interface AlgoFormValues {
   symbol: string;
   side: Side;
-  kind: 'twap' | 'vwap' | 'pov';
+  kind: 'twap' | 'vwap' | 'pov' | 'chase';
   duration: string;
   customSec: string;
   intervalSec: string;
@@ -43,6 +45,8 @@ export interface AlgoFormValues {
   seed: string;
   /** TWAP only: blank starts at once; a price makes the schedule wait for the market to reach it. */
   trigger: string;
+  /** Chase only: the maximum distance from the start price, a percent. Blank refuses. */
+  chase: string;
 }
 
 export const FORM_DEFAULTS: AlgoFormValues = {
@@ -59,6 +63,7 @@ export const FORM_DEFAULTS: AlgoFormValues = {
   random: false,
   seed: '',
   trigger: '',
+  chase: '',
 };
 
 /** The numbers of an existing schedule as form values: schedules are never edited, a new one is made from them. */
@@ -78,6 +83,7 @@ export function valuesFrom(parent: AlgoParent): AlgoFormValues {
     random: parent.randomSeed != null,
     seed: parent.randomSeed != null ? String(parent.randomSeed) : '',
     trigger: parent.triggerPrice ?? '',
+    chase: parent.chaseMaxDistanceBps != null ? bpsAsPercent(parent.chaseMaxDistanceBps) : '',
   };
 }
 
@@ -137,6 +143,8 @@ export function AlgoForm({
         : defaultIntervalMs(durationMs)
       : (wholeNumber(form.intervalSec) ?? 0) * 1000 || null;
   const povBps = wholeNumber(form.pov);
+  const chase = form.kind === 'chase';
+  const chaseBps = chase ? chaseDistanceBps(form.chase) : null;
   const { plan, problems } = useMemo(
     () =>
       planSchedule({
@@ -147,10 +155,12 @@ export function AlgoForm({
         lot: market?.lotSize ?? null,
         tick: market?.tickSize ?? null,
         minAmount: market?.minAmount ?? null,
-        limit: form.limit,
+        // A chase's only bound is its distance: a limit typed under another kind is not sent with it.
+        limit: form.kind === 'chase' ? '' : form.limit,
         last,
         taker: market?.taker ?? null,
         participationBps: povBps,
+        chaseDistance: form.chase,
         startMs: now,
       }),
     [form, durationMs, intervalMs, market, last, povBps, now],
@@ -202,10 +212,12 @@ export function AlgoForm({
           side: form.side,
           totalQty: form.total,
           durationMs: durationMs!,
-          sliceIntervalMs: intervalMs!,
+          // A chase has no slices: its one order lives for the whole duration.
+          sliceIntervalMs: chase ? durationMs! : intervalMs!,
           kind: form.kind,
           clientAlgoId,
-          ...(form.limit.trim() ? { limitPrice: form.limit.trim() } : {}),
+          ...(chase ? { chaseDistanceBps: chaseBps! } : {}),
+          ...(!chase && form.limit.trim() ? { limitPrice: form.limit.trim() } : {}),
           ...(form.kind === 'pov' ? { participationBps: povBps!, povBasis: form.basis } : {}),
           ...(seed !== null ? { randomSeed: seed } : {}),
           ...(trigger !== null ? { triggerPrice: trigger } : {}),
@@ -228,24 +240,34 @@ export function AlgoForm({
     ? [
         { label: t('Market'), value: form.symbol },
         { label: t('Side'), value: form.side === 'buy' ? t('Buy') : t('Sell') },
-        { label: t('Kind'), value: form.kind.toUpperCase() },
+        { label: t('Kind'), value: chase ? t('Chase') : form.kind.toUpperCase() },
         { label: t('Total size'), value: `${fmtAmount(form.total, { places: amountPlaces })} ${market?.base ?? ''}` },
-        {
-          label: t('Slices planned'),
-          value: String(plan.slices),
-          hint: t('Every {seconds} s', { seconds: String(Math.round(intervalMs! / 1000)) }),
-        },
-        seed !== null
-          ? { label: t('Size per slice'), value: t('Random sizes', { seed: String(seed) }) }
+        chase
+          ? { label: t('Slices planned'), value: t('One order that follows the book') }
           : {
-              label: t('Size per slice'),
-              value: `${fmtAmount(plan.perSlice, { places: amountPlaces })} ${market?.base ?? ''}`,
-              hint: t('Last slice takes the remainder: {size}', { size: fmtAmount(plan.lastSlice, { places: amountPlaces }) }),
+              label: t('Slices planned'),
+              value: String(plan.slices),
+              hint: t('Every {seconds} s', { seconds: String(Math.round(intervalMs! / 1000)) }),
             },
-        {
-          label: t('Limit price'),
-          value: form.limit.trim() ? fmtPrice(form.limit, market?.tickSize) : t('No limit, slices go in at the market'),
-        },
+        chase
+          ? { label: t('Size per slice'), value: `${fmtAmount(form.total, { places: amountPlaces })} ${market?.base ?? ''}` }
+          : seed !== null
+            ? { label: t('Size per slice'), value: t('Random sizes', { seed: String(seed) }) }
+            : {
+                label: t('Size per slice'),
+                value: `${fmtAmount(plan.perSlice, { places: amountPlaces })} ${market?.base ?? ''}`,
+                hint: t('Last slice takes the remainder: {size}', { size: fmtAmount(plan.lastSlice, { places: amountPlaces }) }),
+              },
+        chase
+          ? {
+              label: t('Maximum chase distance'),
+              value: `${form.chase.trim()} %`,
+              hint: t('Chase stops beyond it'),
+            }
+          : {
+              label: t('Limit price'),
+              value: form.limit.trim() ? fmtPrice(form.limit, market?.tickSize) : t('No limit, slices go in at the market'),
+            },
         {
           label: t('Estimated value'),
           value: plan.estNotional === null ? null : `${fmtAmount(plan.estNotional, { places: 2 })} ${q}`,
@@ -295,6 +317,7 @@ export function AlgoForm({
             { value: 'twap', label: t('TWAP') },
             { value: 'vwap', label: t('VWAP') },
             { value: 'pov', label: t('POV') },
+            { value: 'chase', label: t('Chase') },
           ]}
           onChange={(v) => set('kind', v)}
         />
@@ -333,20 +356,38 @@ export function AlgoForm({
           />
         </Field>
       ) : null}
-      <Field
-        label={t('Slice interval, seconds')}
-        hint={t('Empty uses {seconds} s', {
-          seconds: durationMs === null ? '—' : String(Math.round(defaultIntervalMs(durationMs) / 1000)),
-        })}
-        error={problems.includes('interval') ? problemWord('interval') : undefined}
-      >
-        <Input
-          aria-label={t('Slice interval, seconds')}
-          value={form.intervalSec}
-          onValueChange={(v) => set('intervalSec', v.replace(/\D/g, ''))}
-          density="dense"
-        />
-      </Field>
+      {chase ? (
+        <Field
+          label={t('Maximum chase distance, %')}
+          hint={t('Chase distance hint')}
+          error={problems.includes('chaseDistance') ? problemWord('chaseDistance') : undefined}
+        >
+          <Input
+            kind="decimal"
+            aria-label={t('Maximum chase distance, %')}
+            value={form.chase}
+            onValueChange={(v) => set('chase', v)}
+            precision={2}
+            density="dense"
+          />
+        </Field>
+      ) : null}
+      {chase ? null : (
+        <Field
+          label={t('Slice interval, seconds')}
+          hint={t('Empty uses {seconds} s', {
+            seconds: durationMs === null ? '—' : String(Math.round(defaultIntervalMs(durationMs) / 1000)),
+          })}
+          error={problems.includes('interval') ? problemWord('interval') : undefined}
+        >
+          <Input
+            aria-label={t('Slice interval, seconds')}
+            value={form.intervalSec}
+            onValueChange={(v) => set('intervalSec', v.replace(/\D/g, ''))}
+            density="dense"
+          />
+        </Field>
+      )}
       {form.kind === 'pov' ? (
         <Field label={t('Participation basis')} hint={t(`Participation basis hint ${form.basis}`)}>
           <Pick
@@ -374,20 +415,22 @@ export function AlgoForm({
           />
         </Field>
       ) : null}
-      <Field
-        label={t('Limit price (optional)')}
-        hint={t('No limit means market slices')}
-        error={problems.includes('limit') ? problemWord('limit') : undefined}
-      >
-        <Input
-          kind="decimal"
-          aria-label={t('Limit price (optional)')}
-          value={form.limit}
-          onValueChange={(v) => set('limit', v)}
-          precision={placesFor(market?.tickSize)}
-          density="dense"
-        />
-      </Field>
+      {chase ? null : (
+        <Field
+          label={t('Limit price (optional)')}
+          hint={t('No limit means market slices')}
+          error={problems.includes('limit') ? problemWord('limit') : undefined}
+        >
+          <Input
+            kind="decimal"
+            aria-label={t('Limit price (optional)')}
+            value={form.limit}
+            onValueChange={(v) => set('limit', v)}
+            precision={placesFor(market?.tickSize)}
+            density="dense"
+          />
+        </Field>
+      )}
       {twap ? (
         <>
           <label className="flex items-center gap-2 text-sm text-fg">

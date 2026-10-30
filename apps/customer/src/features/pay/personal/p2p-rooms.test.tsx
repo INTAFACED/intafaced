@@ -261,8 +261,10 @@ it('asks which offer to edit when none is chosen, and shows no form', () => {
 });
 
 it('loads the live offer before showing the edit form', () => {
+  // P-ads-merchant-06: editing a published ad saves now, so no "editing is off" notice; the form waits for the live ad.
   const out = renderToString(<OfferForm pay={stubPay} userId={SELLER} mode="edit" offerId="a0000000-0000-4000-8000-000000000009" />);
-  expect(out).toContain('Editing a published offer is off');
+  expect(out).toContain('data-kind="loading"');
+  expect(out).not.toContain('Editing a published offer is off');
   expect(out).not.toContain('data-testid="offer-submit"');
 });
 

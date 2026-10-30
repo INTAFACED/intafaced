@@ -362,6 +362,18 @@ describe('svc-trade bracket: entry, then one sell OCO for what was received (H8a
     expect(Number((exits[0]!.request as { qty: string }).qty)).toBeGreaterThan(0.39);
   });
 
+  it('a fill still settling when the sweep cancels the entry: no exit yet, and no entry counted as cancelled', async () => {
+    await fund(ALICE, 'USDT', '1000');
+    const entry = await trade.placeOrder(principalFor(ALICE), bracketReq({ tif: 'GTC' }));
+    // The engine matched 0.4 a moment ago; the taker's settlement has not written that fill yet.
+    matching.scriptLive(entry.id, entry.marketId, '0.6');
+    expect(await sweepable(trade).sweepBracketExits(2 * 3_600_000)).toMatchObject({ cancelledEntries: 0, placed: 0 });
+    expect(matching.cancelledOrders).toContain(entry.id);
+    // The entry keeps its hold until the fill lands; an exit sized now would leave that 0.4 unprotected.
+    expect((await trade.findOrder(entry.id))?.status).toBe('open');
+    expect(exitSubmits()).toHaveLength(0);
+  });
+
   it('never mints a principal when the stored grant has lapsed: a filled entry with no exit is surfaced, not covered', async () => {
     await fund(ALICE, 'USDT', '1000');
     const entry = await trade.placeOrder(principalFor(ALICE), bracketReq({ tif: 'GTC' }));

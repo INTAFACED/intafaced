@@ -26,6 +26,7 @@ import { agentsCatalogueCopy } from './agents-catalogue-copy';
 import { MadeAgents } from './AgentBuilder';
 import { downloadCsv, toCsv } from './depth-csv';
 import { usePreferences } from '../../shared/preferences';
+import type { UiLocale } from '../../shared/i18n';
 
 const KINDS: readonly (AgentKind | 'all')[] = ['all', 'session', 'room', 'staff', 'unwired'];
 const SORTS: readonly CatalogueSort[] = ['catalogue', 'name'];
@@ -97,6 +98,7 @@ export function AgentsCatalogue({
         <div className="depth-cards">
           {shown.map((agent) => {
             const usable = enabled(agent);
+            const parked = agent.kind === 'unwired' || agent.kind === 'staff';
             return (
               <article key={agent.id} className="depth-card" aria-current={selected === agent.id}>
                 <h3>{label(agent.id)}</h3>
@@ -145,8 +147,19 @@ export function AgentsCatalogue({
                     <a className="button button--secondary" href={agent.href}>
                       <Copy k="openRoom" />
                     </a>
+                  ) : parked ? (
+                    // An agent no customer can open yet stays in the catalogue with its open button off, and the card
+                    // names its blocker beside it.
+                    <Button disabled aria-describedby={`agent-blocker-${agent.id}`}>
+                      <Copy k="openSession" />
+                    </Button>
                   ) : null}
                 </div>
+                {parked ? (
+                  <p className="muted" role="note" id={`agent-blocker-${agent.id}`}>
+                    <Copy k={agent.kind === 'unwired' ? 'blocker_unwired' : 'blocker_staff'} />
+                  </p>
+                ) : null}
               </article>
             );
           })}
@@ -269,7 +282,19 @@ const REFUSALS = [
   'price_unset',
   'funds_insufficient',
   'funds_unread',
+  'copy_intel.returns_board_refused',
 ] as const;
+/**
+ * A guardrail refusal's copy key (`agents.refused.<name>`) as words in `locale`, for a refusal this screen knows; any
+ * other message is left to the shared failure copy (null). The typed code itself is read back from the session's log.
+ */
+export function refusalKeyWords(message: string, locale: UiLocale): { message: string; language: UiLocale } | null {
+  const name = message.startsWith('agents.refused.') ? message.slice('agents.refused.'.length) : null;
+  if (name === null || !(REFUSALS as readonly string[]).includes(name)) return null;
+  const copy = agentsCatalogueCopy.forLocale(locale);
+  const key = `refusal_${name as (typeof REFUSALS)[number]}` as const;
+  return { message: copy.t(key), language: copy.languageFor(key) };
+}
 /** A refusal code as words; a code this screen does not know is shown as the code itself. */
 export function refusalWords(code: string): string {
   const name = code.replace(/^agents\./, '');
