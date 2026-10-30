@@ -11,6 +11,12 @@ const title = (page) => page.getByTestId('chart-title').first();
 const canvas = (page) => page.getByRole('img', { name: 'Price chart of BTC/USDT' }).first();
 const pressedInterval = (page) => page.getByRole('group', { name: 'Chart intervals' }).first().locator('button[aria-pressed="true"]');
 
+/** The bars in view, as the chart writes them: logical bar indexes of its left and right edges. */
+async function view(page) {
+  const c = canvas(page);
+  return { from: Number(await c.getAttribute('data-view-from')), to: Number(await c.getAttribute('data-view-to')) };
+}
+
 async function openChart(page, path = CHART) {
   await page.goto(path);
   await expect(canvas(page)).toBeVisible();
@@ -90,28 +96,43 @@ test(`${J} #4 scrolls back to the oldest bar, more history loads with a stated d
   const before = Number(await canvas(page).getAttribute('data-bars'));
   // Opening the chart reads only the recent bars; the older block waits until the person scrolls back.
   await expect(page.getByTestId('chart-depth').first()).toContainText(`${before} bars loaded. Scroll back for more.`);
-  // Zoom and pan by keyboard: the drawn picture changes with each.
+  const firstBefore = Number(await canvas(page).getAttribute('data-first'));
+  // Zoom and pan by keyboard, read back as the bars in view (logical bar indexes the chart writes on itself).
   await canvas(page).focus();
-  const shot0 = await canvas(page).screenshot();
+  const v0 = await view(page);
   await page.keyboard.press('+');
   await page.keyboard.press('+');
-  const shot1 = await canvas(page).screenshot();
-  expect(shot1.equals(shot0)).toBe(false);
-  // Zoom right out and pan to the oldest bar: the chart asks the service for the older block once.
+  // Zooming in keeps the newest edge and shows fewer bars.
+  await expect.poll(async () => (await view(page)).to - (await view(page)).from).toBeLessThan(v0.to - v0.from);
+  const v1 = await view(page);
+  expect(Math.abs(v1.to - v0.to)).toBeLessThan(1);
+  // One arrow key pans ten bars back: both edges move by the same ten bars.
+  await page.keyboard.press('ArrowLeft');
+  await expect.poll(async () => (await view(page)).to).toBeCloseTo(v1.to - 10, 0);
+  expect((await view(page)).from).toBeCloseTo(v1.from - 10, 0);
+  // Zoom right out and pan to the oldest bar: the chart asks the service for the older block once. The stack's TEST
+  // history reaches back further than the 240 bars the chart opens with, so the older block adds bars in front.
   for (let i = 0; i < 12; i += 1) await page.keyboard.press('-');
   for (let i = 0; i < 40; i += 1) await page.keyboard.press('ArrowLeft');
   await expect(page.getByTestId('chart-depth').first()).toContainText(/bars loaded, from .+\. This interval keeps the last 720 bars/);
   const after = Number(await canvas(page).getAttribute('data-bars'));
-  expect(after).toBeGreaterThanOrEqual(before);
-  // Mouse: a drag pans the chart.
+  expect(after).toBeGreaterThan(before);
+  expect(Number(await canvas(page).getAttribute('data-first'))).toBeLessThan(firstBefore);
+  // The stated depth is the count the chart holds.
+  await expect(page.getByTestId('chart-depth').first()).toContainText(`${after} bars loaded, from `);
+  // Mouse: dragging the plot to the right brings older bars into view.
   const box = await canvas(page).boundingBox();
   await page.keyboard.press('Home');
-  const shot2 = await canvas(page).screenshot();
+  await page.keyboard.press('+');
+  await page.keyboard.press('+');
+  const v2 = await view(page);
   await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
   await page.mouse.down();
   await page.mouse.move(box.x + box.width / 2 + 200, box.y + box.height / 2, { steps: 8 });
   await page.mouse.up();
-  expect((await canvas(page).screenshot()).equals(shot2)).toBe(false);
+  await expect.poll(async () => (await view(page)).from).toBeLessThan(v2.from - 1);
+  const v3 = await view(page);
+  expect(v3.to - v3.from).toBeCloseTo(v2.to - v2.from, 0);
 });
 
 test(`${J} #5 jumps to a date and sees it, or is told there is no data that far back`, async ({ page }) => {
