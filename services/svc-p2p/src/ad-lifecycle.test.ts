@@ -177,6 +177,32 @@ describe('svc-p2p ad lifecycle (P-ads-merchant-06)', () => {
     expect(await sql`SELECT id FROM p2p.offers WHERE relisted_from = ${offer.id}`).toHaveLength(1);
   });
 
+  it('an ad someone else posted under the derived id does not block the relist', async () => {
+    const offer = await sellOffer();
+    await p2p.closeOffer(offer.id, MAKER);
+    await ledger.post(
+      recipes.deposit({ userId: OTHER, assetId: ASSET, amount: parseAmount('100'), rail: 'test', railRef: `${OTHER}:fund` }),
+    );
+    await p2p.createOffer({
+      makerId: OTHER,
+      side: 'buy',
+      asset: ASSET,
+      fiatCurrency: 'EUR',
+      priceType: 'fixed',
+      price: parseAmount('0.9'),
+      minAmt: parseAmount('10'),
+      maxAmt: parseAmount('20'),
+      totalAmt: parseAmount('20'),
+      methods: ['sepa'],
+      offerId: relistedOfferId(offer.id),
+      idempotencyKey: 'squat-key-1',
+    });
+    const relisted = await p2p.relistOffer({ offerId: offer.id, makerId: MAKER });
+    expect(relisted).toMatchObject({ makerId: MAKER, status: 'active', relistedFrom: offer.id });
+    expect(relisted.id).not.toBe(relistedOfferId(offer.id));
+    expect((await p2p.relistOffer({ offerId: offer.id, makerId: MAKER })).id).toBe(relisted.id);
+  });
+
   it('relisting runs the checks a new ad does: the free balance must still cover it', async () => {
     const offer = await sellOffer('400', '10', '50');
     await p2p.closeOffer(offer.id, MAKER);

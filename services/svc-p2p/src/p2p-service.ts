@@ -2351,6 +2351,9 @@ export class P2pService {
       SELECT id FROM p2p.offers WHERE relisted_from = ${closed.id}
     `;
     if (already) return this.loadOfferRaw(already.id);
+    // Anyone can work out the derived id and post an ad under it first. If it is taken by an ad that is not this relist,
+    // use a fresh id; the key `relist:<closedId>` and the one-relist index keep the relist single either way.
+    const [taken] = await this.sql<Array<{ id: string }>>`SELECT id FROM p2p.offers WHERE id = ${newOfferId}`;
     return this.createOffer({
       makerId: input.makerId,
       side: closed.side,
@@ -2363,7 +2366,7 @@ export class P2pService {
       totalAmt: closed.totalAmt,
       methods: closed.methods,
       terms: closed.terms,
-      offerId: newOfferId,
+      offerId: taken ? crypto.randomUUID() : newOfferId,
       idempotencyKey: `relist:${closed.id}`,
       ...(input.makerTier === undefined ? {} : { makerTier: input.makerTier }),
       acceptsNonInstant: closed.acceptsNonInstant,
