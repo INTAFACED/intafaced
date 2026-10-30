@@ -15,6 +15,7 @@ import {
   ownAgentSchema,
   ownAgentSessionClosedSchema,
   ownAgentSessionSchema,
+  ownAgentUsageDaySchema,
   ownAgentUsageWindowSchema,
   type OwnAgent,
   type OwnAgentCatalogue,
@@ -50,7 +51,7 @@ const CODE_WORDS = {
   'agents.usage.alert_above_limit': 'code_usage_alert_above_limit',
   'agents.funds_insufficient': 'code_funds_insufficient',
   'agents.funds_unread': 'code_funds_unread',
-  'agents.price_unset': 'code_price_unset',
+  'agents.price_unset': 'code_price_unset_unread',
   'agents.spend_limit': 'code_spend_limit',
   'agents.request_id_replay': 'code_request_id_replay',
   'agents.session_closed': 'code_session_closed',
@@ -77,12 +78,15 @@ function Refusal({
   name = '',
   cap = '',
   asset = '',
+  task = '',
   inline = false,
 }: {
   code: string;
   name?: string;
   cap?: string;
   asset?: string;
+  /** The routing task svc-agents logged the refused run under: a blank rate is named by it, never by the copy. */
+  task?: string;
   /** In a table row: the words without announcing them, since the row is a record, not a fresh refusal. */
   inline?: boolean;
 }) {
@@ -93,9 +97,13 @@ function Refusal({
       ? t('code_own_reserved_name', { name })
       : code === 'agents.spend.above_agent_cap'
         ? t('code_spend_above_agent_cap', { cap, asset })
-        : key
-          ? t(key)
-          : t('code_other');
+        : code === 'agents.price_unset'
+          ? task
+            ? t('code_price_unset', { task })
+            : t('code_price_unset_unread')
+          : key
+            ? t(key)
+            : t('code_other');
   return inline ? (
     <span>
       {words} <code lang="zxx">{code}</code>
@@ -107,7 +115,7 @@ function Refusal({
   );
 }
 /** What a failed write says: the service's refusal in words, or the app's own account of a write it could not confirm. */
-function Answer({ failed, ...params }: { failed: Failed; name?: string; cap?: string; asset?: string }) {
+function Answer({ failed, ...params }: { failed: Failed; name?: string; cap?: string; asset?: string; task?: string }) {
   const code = refusalCode(failed);
   return code ? <Refusal code={code} {...params} /> : <Failure result={failed} />;
 }
@@ -604,6 +612,7 @@ function Sessions({
   const [ask, setAsk] = useState('');
   const [ran, setRan] = useState<Ran | null>(null);
   const [refused, setRefused] = useState<Failed | null>(null);
+  const [refusedTask, setRefusedTask] = useState('');
   const [busy, setBusy] = useState(false);
   const [runsVersion, setRunsVersion] = useState(0);
   // Each press is its own request: a business key from this visit, the session and a count, so a retried request
@@ -630,6 +639,12 @@ function Sessions({
       ownAgentRunResultSchema,
     );
   };
+  /** The task svc-agents logged this session's newest blank-rate refusal under, or '' when it cannot be read. */
+  async function unpricedTask(session: string): Promise<string> {
+    const res = await api.query('agents', 'own.runs', { id: agent.id, limit: 10 }, z.array(ownAgentRunRowSchema));
+    if (!res.ok) return '';
+    return res.data.find((row) => row.sessionId === session && row.refusalCode === 'agents.price_unset')?.task ?? '';
+  }
   /** Closes the session once its usage is paid; a window the ledger refused for funds keeps it open, and says so. */
   async function close(session: string) {
     setBusy(true);
@@ -654,7 +669,10 @@ function Sessions({
       const admitted = results.find((res) => res.ok);
       const failed = results.find((res) => !res.ok);
       if (admitted?.ok) setRan(admitted.data);
-      if (failed && !failed.ok) setRefused(failed);
+      if (failed && !failed.ok) {
+        setRefusedTask(refusalCode(failed) === 'agents.price_unset' ? await unpricedTask(session) : '');
+        setRefused(failed);
+      }
     }
     setBusy(false);
     setRunsVersion((v) => v + 1);
@@ -705,7 +723,7 @@ function Sessions({
             </p>
           </div>
         ) : null}
-        {refused ? <Answer failed={refused} /> : null}
+        {refused ? <Answer failed={refused} task={refusedTask} /> : null}
       </Panel>
       <Runs agent={agent} version={runsVersion} />
     </>
@@ -739,7 +757,7 @@ function Runs({ agent, version = 0 }: { agent: OwnAgent; version?: number }) {
                   <tr key={`${row.sessionId}:${row.sequence}`}>
                     <td>{new Date(row.occurredAt).toLocaleString()}</td>
                     <td>{t(`run_${row.status}`)}</td>
-                    <td>{row.refusalCode ? <Refusal code={row.refusalCode} inline /> : null}</td>
+                    <td>{row.refusalCode ? <Refusal code={row.refusalCode} task={row.task ?? ''} inline /> : null}</td>
                     <td data-testid="run-cost">{money(row.cost, row.assetId)}</td>
                   </tr>
                 ))}
@@ -810,10 +828,57 @@ function Usage({ agent }: { agent: OwnAgent }) {
           )}
         </Read>
       </Panel>
-      <Panel title={t('page_Usage')}>
-        <p role="note">{t('parked_Usage')}</p>
-      </Panel>
+      <UsageByDay />
     </>
+  );
+}
+
+/**
+ * Usage by agent, day and task: every agent the person built, each row the exact sum of that agent's sealed windows on
+ * one UTC day, so an agent's rows add up to its sealed windows above.
+ */
+function UsageByDay() {
+  const api = useApi();
+  const { t } = agentBuilderCopy.useCopy();
+  const days = useResource(
+    (signal) => api.query('agents', 'own.usageByDay', undefined, z.array(ownAgentUsageDaySchema), { signal }),
+    'own-usage-by-day',
+  );
+  return (
+    <Panel title={t('byDayTitle')} role="region" aria-label={t('byDayTitle')}>
+      <p className="muted">{t('byDayNote')}</p>
+      <Read resource={days.resource} retry={days.reload}>
+        {(rows) => (
+          <>
+            <table>
+              <thead>
+                <tr>
+                  <th scope="col">{t('byDayAgent')}</th>
+                  <th scope="col">{t('byDayDay')}</th>
+                  <th scope="col">{t('byDayTask')}</th>
+                  <th scope="col">{t('byDayWindows')}</th>
+                  <th scope="col">{t('byDayCost')}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((row) => (
+                  <tr key={`${row.agentId}:${row.day}:${row.task}:${row.assetId}`} data-agent-id={row.agentId}>
+                    <td>{row.agentName || t('untitled')}</td>
+                    <td>{row.day}</td>
+                    <td>
+                      <code lang="zxx">{row.task}</code>
+                    </td>
+                    <td>{row.windows}</td>
+                    <td data-testid="usage-cost">{money(row.amount, row.assetId)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            {rows.length === 0 ? <p className="muted">{t('byDayEmpty')}</p> : null}
+          </>
+        )}
+      </Read>
+    </Panel>
   );
 }
 

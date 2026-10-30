@@ -7,7 +7,7 @@ vi.mock('../../shared/preferences', async (original) => {
 });
 
 import { SessionProvider } from '../session/session';
-import { MiningPoolStatus, PoolConnectView, PoolOverviewView, PoolProbeView, workerNameFor } from './MiningPool';
+import { MinerSecretView, MiningPoolStatus, PoolConnectView, PoolOverviewView, PoolProbeView, workerNameFor } from './MiningPool';
 import type { ApiResult } from '../../shared/api';
 
 const html = (node: React.ReactNode) => renderToStaticMarkup(<SessionProvider>{node}</SessionProvider>);
@@ -59,8 +59,6 @@ describe('connect your miner', () => {
       secureUrl: null,
       accountId: 'acct-1',
       workerNamePattern: 'TEST.{worker}',
-      credentialOffered: false as const,
-      credentialReason: 'mining.credential_not_issued',
     };
     const out = html(<PoolConnectView read={{ resource: { status: 'ready', data }, reload: noop }} />);
     expect(out).toContain('data-testid="mining-pool-address" lang="und" dir="ltr">198.51.100.1:3999<');
@@ -79,8 +77,6 @@ describe('connect your miner', () => {
       secureUrl: 'stratum+ssl://TEST:4000',
       accountId: 'a',
       workerNamePattern: null,
-      credentialOffered: false as const,
-      credentialReason: 'x',
     };
     const out = html(<PoolConnectView read={{ resource: { status: 'ready', data }, reload: noop }} />);
     expect(out).toContain('data-testid="mining-secure-address" lang="und" dir="ltr">stratum+ssl://TEST:4000<');
@@ -92,6 +88,30 @@ describe('connect your miner', () => {
     expect(workerNameFor(null, 'Rig-A')).toBeNull();
     expect(workerNameFor('TEST.{worker}', '')).toBeNull();
     expect(workerNameFor('TEST.fixed', '')).toBe('TEST.fixed');
+  });
+});
+
+describe('miner secret', () => {
+  const issue = vi.fn();
+  it('with none issued, says the pool refuses a rig without one and offers to issue it', () => {
+    const out = html(<MinerSecretView read={{ resource: { status: 'ready', data: { issuedAt: null } }, reload: noop }} issue={issue} />);
+    expect(out).toContain('data-testid="mining-miner-secret-issued" data-state="none"');
+    expect(out).toContain('No miner secret issued');
+    expect(out).toContain('Issue a miner secret');
+    expect(out).not.toContain('data-testid="mining-miner-secret"');
+  });
+
+  it('a secret just issued is shown once to copy; an earlier one only says when it was issued', () => {
+    const secret = `msk_${'A'.repeat(43)}`;
+    const ready = { resource: { status: 'ready' as const, data: { issuedAt: '2026-10-29T10:00:00.000Z' } }, reload: noop };
+    const fresh = html(<MinerSecretView read={ready} issue={issue} initial={{ secret, issuedAt: '2026-10-29T10:00:00.000Z' }} />);
+    expect(fresh).toContain(`data-testid="mining-miner-secret" lang="und" dir="ltr">${secret}<`);
+    expect(fresh).toContain('shown only this once');
+    const later = html(<MinerSecretView read={ready} issue={issue} />);
+    expect(later).not.toContain(secret);
+    expect(later).toContain('data-state="issued"');
+    expect(later).toContain('Issue a new miner secret');
+    expect(issue).not.toHaveBeenCalled();
   });
 });
 

@@ -1,4 +1,4 @@
-import { createHash } from 'node:crypto';
+import { createHash, type Hash } from 'node:crypto';
 import { MiningError } from './errors.js';
 import { POW_DIMENSION_MAX, POW_DIMENSION_MIN, POW_TARGET_BITS_MAX, publishedInt, publishedText } from './env.js';
 
@@ -55,16 +55,20 @@ export function publishedPowSpec(env: NodeJS.ProcessEnv): PowSpec | null {
   return powSpecBlank(env) ? null : readPowSpec(env);
 }
 
-/** The job header the pool gives one rig in one window. Each field is length-prefixed, so no two triples collide. */
-export function powHeader(windowId: string, minerId: string, workerName: string): Buffer {
-  const hash = createHash('sha256').update('intafaced:mining:pow:v1');
-  for (const part of [windowId, minerId, workerName]) {
+/** Feeds each part to the hash behind its 4-byte length, so no two lists of parts feed the same bytes. */
+export function hashLengthPrefixed(hash: Hash, parts: readonly string[]): Hash {
+  for (const part of parts) {
     const bytes = Buffer.from(part, 'utf8');
     const length = Buffer.alloc(4);
     length.writeUInt32BE(bytes.length);
     hash.update(length).update(bytes);
   }
-  return hash.digest();
+  return hash;
+}
+
+/** The job header the pool gives one rig in one window. Each field is length-prefixed, so no two triples collide. */
+export function powHeader(windowId: string, minerId: string, workerName: string): Buffer {
+  return hashLengthPrefixed(createHash('sha256').update('intafaced:mining:pow:v1'), [windowId, minerId, workerName]).digest();
 }
 
 function matrix(label: 'A' | 'B', header: Buffer, nonce: string, n: number): Uint32Array {
