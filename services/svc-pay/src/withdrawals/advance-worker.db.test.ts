@@ -278,7 +278,6 @@ describe('a send out of the platform confirms later (W-withdraw-06, real Postgre
         rail: RAIL,
         withdrawalId: `${made.id}:0`,
         fee: FEE,
-        feeAssetId: 'USDT',
       }).reason,
       when: 'after',
     });
