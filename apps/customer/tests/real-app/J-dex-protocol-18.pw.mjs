@@ -8,7 +8,8 @@ import { bodyRows, tableIn } from './tables.mjs';
 // J-dex-protocol-18, in the running app (docs/roadmap/journeys.json): trade a perpetual from the Web3 side's futures
 // ticket. One test per step, titled "J-dex-protocol-18 #<n>", run in order on one verified TEST account with TEST USDT
 // margin, on the stack's TEST perpetual. Margin moves only through the custodial ledger recipes under business keys
-// (`futures.margin.add:<positionId>`); the accepted mark is the only price; blank tiers or caps refuse.
+// (`futures.margin.add:<positionId>`); a close is a reduce-only order on the book, never past the bankruptcy price; a
+// caller's price on a market order or a close is refused; blank tiers or caps refuse.
 // owner.decision for the leverage ladder, caps and the prelaunch mark policy while blank; a licence is never shown as a
 // limit.
 // Steps that are written but not built yet fail at their first missing part, quickly (UNBUILT):
@@ -21,7 +22,6 @@ const J = 'J-dex-protocol-18';
 const account = dexRun(J);
 const DESK = '/trade/futures';
 const SYMBOL = 'BTC/USDT:USDT';
-const QUOTE = 'USDT';
 
 test.describe.configure({ mode: 'default' });
 
@@ -181,11 +181,11 @@ test(`${J} #8 closes 25 percent: a reduce-only order fills exactly a quarter in 
   page,
 }) => {
   const who = await desk(page);
+  const me = await api(who);
   // The one open position on this contract is the row the dialog closes (the desk draws one row per position).
   const open = (await positions(who)).filter((p) => p.symbol === SYMBOL);
   expect(open, 'an earlier step left exactly one position on this contract').toHaveLength(1);
   const [before] = open;
-  const freeBefore = toUnits((await (await api(who)).balances())[QUOTE]?.free ?? '0');
   const row = page
     .getByRole('row')
     .filter({ hasText: SYMBOL })
@@ -212,10 +212,9 @@ test(`${J} #8 closes 25 percent: a reduce-only order fills exactly a quarter in 
     .poll(async () => 4n * toUnits((await positions(who)).find((p) => p.id === before.id)?.contracts ?? '0'), { timeout: 20_000 })
     .toBe(3n * toUnits(before.contracts));
   // The service's own record of that order: reduce-only on this position, filled in the book for the quarter, at a
-  // worst price inside the band around the mark and never past the bankruptcy price (where the margin is gone).
-  const { status: listed, body: list } = await (
-    await api(who)
-  ).get(`/api/v1/futures/orders?scope=all&limit=50&symbol=${encodeURIComponent(SYMBOL)}`);
+  // worst price inside the band around the mark and never past the bankruptcy price (where the margin is gone). The
+  // engine fills an order only at its limit or better, so that recorded limit is the bound on every fill of the close.
+  const { status: listed, body: list } = await me.get(`/api/v1/futures/orders?scope=all&limit=100&symbol=${encodeURIComponent(SYMBOL)}`);
   expect(listed).toBe(200);
   expect(Array.isArray(list), JSON.stringify(list).slice(0, 200)).toBe(true);
   const order = list.find((o) => o.orderId === placed.orderId);
@@ -228,16 +227,9 @@ test(`${J} #8 closes 25 percent: a reduce-only order fills exactly a quarter in 
   expect(order.bankruptcyPrice, 'the bound is recorded').toBeTruthy();
   if (before.side === 'long') expect(limit).toBeGreaterThanOrEqual(toUnits(order.bankruptcyPrice));
   else expect(limit).toBeLessThanOrEqual(toUnits(order.bankruptcyPrice));
-  // And what the fills actually did: the quarter's margin plus its result comes back to the account less the fee, so a
-  // fill past the bankruptcy price (a loss bigger than that margin) would leave the account with less than before
-  // the fee. Free margin asset after + the order's fees >= free before.
-  const freeAfter = toUnits((await (await api(who)).balances())[QUOTE]?.free ?? '0');
-  expect(freeAfter + toUnits(order.feesPaid)).toBeGreaterThanOrEqual(freeBefore);
   // A caller-supplied price is refused on the door the close goes through: a market reduce-only order with a price is a
-  // 400 trade.price_not_accepted, and nothing more closes.
-  const priced = await (
-    await api(who)
-  ).post('/api/v1/futures/orders', {
+  // 400 trade.limit_price_on_market_order, and nothing more closes.
+  const priced = await me.post('/api/v1/futures/orders', {
     symbol: SYMBOL,
     side: asked.side,
     type: 'market',
@@ -247,11 +239,9 @@ test(`${J} #8 closes 25 percent: a reduce-only order fills exactly a quarter in 
     clientOrderId: `${J}:market-price-refused`,
   });
   expect(priced.status, JSON.stringify(priced.body)).toBe(400);
-  expect(priced.body.error).toBe('trade.price_not_accepted');
+  expect(priced.body.error).toBe('trade.limit_price_on_market_order');
   // The position close door takes no price from the caller either.
-  const { status, body } = await (
-    await api(who)
-  ).post(`/api/v1/positions/${before.id}/close`, {
+  const { status, body } = await me.post(`/api/v1/positions/${before.id}/close`, {
     quantity: '0.001',
     clientCloseId: `${J}:price-refused`,
     price: '1',

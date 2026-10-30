@@ -108,15 +108,6 @@ export function readPlaceBody(
   if (qty == null) return { ok: false, code: 'trade.size_invalid', message: 'amount is required as a decimal string' };
   const price = decimalField(body.price);
   if (price === null) return { ok: false, code: 'trade.invalid_price', message: 'price must be a decimal string' };
-  // A market order fills at the book's prices inside the protection the service sets. A price sent with it was once
-  // replaced silently; it is refused instead, so the caller never believes a price was honoured.
-  if (body.type === 'market' && price !== undefined) {
-    return {
-      ok: false,
-      code: 'trade.price_not_accepted',
-      message: 'a market order takes no price: it fills at the book inside the service’s protection. Send a limit order to name a price.',
-    };
-  }
   if (body.reduceOnly !== undefined && typeof body.reduceOnly !== 'boolean') {
     return { ok: false, code: 'trade.reduce_only_invalid', message: 'reduceOnly must be a boolean' };
   }
