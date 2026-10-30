@@ -1778,7 +1778,6 @@ export function cspReportRows(body, at = new Date().toISOString()) {
     }));
 }
 
-/** Request headers to forward upstream: no hop-by-hop headers, and none only Edge may mint. */
 // The status badge's cache life comes from svc-notify through the edge, as apps/customer/nginx.conf passes it; every
 // other /api/ answer stays no-store.
 const STATUS_BADGE_PATH = '/api/notify/status/badge.svg';
@@ -1786,6 +1785,7 @@ export function apiCacheControl(pathname, upstream) {
   return pathname === STATUS_BADGE_PATH && typeof upstream === 'string' && upstream.length > 0 ? upstream : 'no-store';
 }
 
+/** Request headers to forward upstream: no hop-by-hop headers, and none only Edge may mint. */
 function proxyHeaders(req, { upgrade = false } = {}) {
   const headers = {};
   for (const [k, v] of Object.entries(req.headers)) {
