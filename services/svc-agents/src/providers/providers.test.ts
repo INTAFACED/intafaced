@@ -1,5 +1,5 @@
 import { createServer } from 'node:http';
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -178,6 +178,23 @@ describe('MockModelProvider — determinism is the feature', () => {
       rmSync(hold);
       expect(await parked).toEqual(free);
       expect(existsSync(`${hold}.held`)).toBe(false);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('counts each completion that reaches the held engine, one line each, so a test can see which runs reached it', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'mock-hold-'));
+    const hold = join(dir, 'engine.hold');
+    try {
+      const provider = new MockModelProvider({ holdFile: hold });
+      await provider.complete(request());
+      expect(existsSync(`${hold}.calls`)).toBe(false);
+      writeFileSync(hold, 'held');
+      const both = Promise.all([provider.complete(request()), provider.complete(request())]);
+      await vi.waitFor(() => expect(readFileSync(`${hold}.calls`, 'utf8').trim().split('\n')).toHaveLength(2));
+      rmSync(hold);
+      await both;
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

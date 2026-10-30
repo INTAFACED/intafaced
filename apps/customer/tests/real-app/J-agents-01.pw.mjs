@@ -168,13 +168,29 @@ test(`${J} #4 reads the rate card and asks for an estimate: the published rate, 
   await openAgents(page, agents);
   await agentCard(page, 'Navigator').getByRole('button', { name: 'Open a session' }).click();
   const rates = tableIn(main(page), 'Published engine routing prices');
-  await expect(rates.getByRole('row').filter({ has: page.getByRole('cell', { name: 'navigator.plan', exact: true }) })).toContainText(
-    '3 USDT',
-  );
+  // The rate row is the service's published route, cell for cell, as routes.list answers it now.
+  const routes = await agentsCall('routes.list', undefined, 'GET');
+  expect(routes.status).toBe(200);
+  const route = routes.body.result.data.find((row) => row.task === 'navigator.plan' && row.capability === 'complete');
+  expect(route?.inputPerMillion, 'the stack publishes a navigator.plan rate').toBeTruthy();
+  await expect(
+    rates
+      .getByRole('row')
+      .filter({ has: page.getByRole('cell', { name: 'navigator.plan', exact: true }) })
+      .getByRole('cell'),
+  ).toHaveText(['navigator.plan', 'complete', `${route.inputPerMillion} ${route.assetId}`, `${route.outputPerMillion} ${route.assetId}`]);
   await main(page).getByRole('button', { name: 'Estimate the cost' }).click(UNBUILT);
   const estimate = main(page).getByRole('region', { name: 'Cost estimate' });
-  // The worst case is the one the cap check uses: the session's spend cap (1 USDT on the stack).
-  await expect(estimate.getByTestId('worst-case')).toHaveText('At most 1 USDT for this run');
+  // The worst case is the figure the cap check holds a run against: the stored guardrail's session spend cap, which the
+  // runtime passes as the run's agent cap (runtime.ts agentCapOf), in the route's fee asset.
+  const guardrail = await agentsCall('agent.get', { agentId: 'navigator' }, 'GET');
+  expect(guardrail.status).toBe(200);
+  const cap = guardrail.body.result.data.limits.maxSpendPerSession;
+  expect(cap, 'navigator has a stored session spend cap').toBeTruthy();
+  await expect(estimate.getByTestId('worst-case')).toHaveText(`At most ${cap} ${route.assetId} for this run`);
+  await expect(estimate).toContainText(
+    'The worst case is the session’s spend cap: a run that could cost more is refused before the engine is called.',
+  );
   await expect(estimate).toContainText('No expected range yet: this agent has no run history.');
 });
 
