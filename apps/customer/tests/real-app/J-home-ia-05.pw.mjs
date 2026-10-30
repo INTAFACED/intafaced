@@ -1,6 +1,20 @@
+import { randomUUID } from 'node:crypto';
 import { test, expect } from '@playwright/test';
-import { awayBid, confirm, fundedTrader, openDesk, openOrders, previewed, reviewLimit, reviewSheet, signIn } from './desk.mjs';
-import { api } from './stack.mjs';
+import {
+  awayBid,
+  confirm,
+  fundedTrader,
+  openDesk,
+  openOrders,
+  previewed,
+  reviewLimit,
+  reviewSheet,
+  signIn,
+  signUp,
+  verify,
+} from './desk.mjs';
+import { api, fund, signOutBrowser, tool } from './stack.mjs';
+import { METHOD, p2p, readyTaker, testInstrument, testPasskey } from './p2p.mjs';
 
 // J-home-ia-05, in the running app (docs/roadmap/journeys.json): I read my notifications and allow them on this device.
 // Tests titled "J-home-ia-05 #<n>" prove a whole step. One TEST person who is verified, bought at market twice (two fill
@@ -33,6 +47,42 @@ async function told(session) {
     .map((item) => item.kind)
     .sort();
   return { items, read, unread: count.body.result.data.count };
+}
+
+/** A real P2P trade, escrowed: a TEST seller's sell ad, taken for 10 USDT by a TEST buyer (as J-p2p-02 #1 does). */
+async function escrowedTrade(page) {
+  tool('local-test-gates.mjs', 'p2p');
+  const seller = await signUp(page, 'hmns');
+  await verify(page, seller);
+  expect(fund(seller.email, 'USDT', '50').tx).toBeTruthy();
+  const sellerSession = await api(seller);
+  const s = p2p(sellerSession, await testPasskey(sellerSession));
+  await testInstrument(s, seller);
+  const offer = await s.mutate('offers.create', {
+    side: 'sell',
+    asset: 'USDT',
+    fiatCurrency: 'EUR',
+    priceType: 'fixed',
+    price: '0.92',
+    minAmount: '10',
+    maxAmount: '50',
+    totalAmount: '50',
+    methods: [METHOD],
+    terms: 'TEST terms: pay from an account in your own name; no third-party payments.',
+    idempotencyKey: `${J}:offer:${seller.handle}`,
+  });
+  await signOutBrowser(page.context());
+  const buyer = await signUp(page, 'hmnb');
+  await verify(page, buyer);
+  const buyerSession = await api(buyer);
+  const b = await readyTaker(buyerSession, buyer, await testPasskey(buyerSession));
+  const trade = await b.mutate('trades.take', { offerId: offer.id, tradeId: randomUUID(), amount: '10', method: METHOD });
+  expect(trade).toMatchObject({ status: 'escrowed', amount: '10' });
+  // svc-notify's own (current) notice of the lock lands first, so the stored old one is the newest.
+  await expect
+    .poll(async () => (await told(buyerSession)).items.some((item) => item.kind === 'p2p.escrow.locked'), { timeout: 20_000 })
+    .toBe(true);
+  return { buyer, tradeId: trade.id };
 }
 
 test.beforeAll(async ({ browser }) => {
@@ -75,6 +125,7 @@ test(`${J} #1 the bell shows the unread count and a popover of recent notices in
 });
 
 test(`${J} #2 a fill notice opens the trade in Activity and is marked read; a cancelled order opens Orders`, async ({ page }) => {
+  test.setTimeout(300_000);
   await signIn(page, who);
   const session = await api(who);
   const fills = (await session.get('/api/v1/account/trades?limit=100')).body;
@@ -132,6 +183,32 @@ test(`${J} #2 a fill notice opens the trade in Activity and is marked read; a ca
   await expect(page).toHaveURL((url) => url.pathname === notice.href);
   await expect(page.getByRole('heading', { name: 'Buy BTC/USDT', level: 1 })).toBeVisible();
   await expect(page.getByTestId('page-heading')).toContainText('Filled');
+
+  // A link stored before svc-notify moved its targets (PR 5435) is never rewritten. The stack stores one as svc-notify
+  // wrote it then (`/p2p/trades/<id>`, with the lock's own params) for a real escrowed P2P trade of another TEST person,
+  // who opens it from the bell and lands on that very order. svc-notify's current notice of the same lock opens the same
+  // order, so it is read first: the one unread escrow row is the old one.
+  const { buyer, tradeId } = await escrowedTrade(page);
+  const buyerSession = await api(buyer);
+  expect((await buyerSession.post('/api/notify/trpc/notify.markAllRead', {})).status).toBe(200);
+  tool('local-test-stack.mjs', 'seed-notice', buyer.email, tradeId);
+  const escrow = (await told(buyerSession)).items.filter((item) => item.kind === 'p2p.escrow.locked');
+  expect(escrow.filter((item) => item.readAt === null)).toEqual([expect.objectContaining({ href: `/p2p/trades/${tradeId}` })]);
+  await signOutBrowser(page.context());
+  await signIn(page, buyer);
+  await page.goto('/');
+  await bell(page).click();
+  const row = popup(page).locator('[data-testid="nf-row"][data-unread]', { hasText: 'Escrow locked' });
+  await expect(row).toHaveCount(1);
+  expect(await row.innerText()).not.toMatch(rawKey);
+  expect(await row.innerText()).toMatch(/10 USDT locked/);
+  await row.click();
+  await expect(page).toHaveURL((url) => url.pathname === '/uc/order' && url.searchParams.get('tradeId') === tradeId);
+  const p2pOrder = page.getByRole('main');
+  await expect(p2pOrder.getByTestId('p2p-order-identity')).toContainText('You are the buyer');
+  await expect(p2pOrder.getByTestId('p2p-order-quantities')).toContainText('10');
+  await expect(p2pOrder.getByTestId('p2p-order-quantities')).toContainText('USDT');
+  await expect(p2pOrder).not.toContainText('The request was refused');
 });
 
 test(`${J} #3 the full page: All and Unread, Mark all as read clears the dots and the badge, an empty Unread tab`, async ({ page }) => {
