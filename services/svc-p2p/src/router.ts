@@ -3994,7 +3994,7 @@ function toOfferOut(
     status: offer.status,
     pauseReason: offer.pauseReason ?? null,
     closeReason: offer.closeReason ?? null,
-    visibility: offer.visibility,
+    visibility: offer.visibility ?? 'public',
     statusSince: offer.statusSince.toISOString(),
     relistedFrom: offer.relistedFrom ?? null,
     ...(offer.relistedAs === undefined ? {} : { relistedAs: offer.relistedAs }),
@@ -4103,7 +4103,7 @@ function toTradeOut(trade: Awaited<ReturnType<P2pService['getTrade']>>): TradeOu
   return {
     id: trade.id,
     offerId: trade.offerId,
-    sharedFrom: trade.sharedFrom,
+    sharedFrom: trade.sharedFrom === true,
     sellerId: trade.sellerId,
     buyerId: trade.buyerId,
     asset: trade.asset,
