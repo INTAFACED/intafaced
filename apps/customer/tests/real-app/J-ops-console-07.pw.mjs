@@ -609,7 +609,8 @@ test.describe.serial('J-ops-console-07 reconcile the books', () => {
         expect(scaled(shown.observed), `${asset} observed is the customer's ledger balance`).toBe(scaled(balances[asset].total));
         expect(scaled(shown.observed)).toBe(scaled(total));
         expect(shown.expected).toBe('0');
-        expect(scaled(shown.difference)).toBe(scaled(total));
+        // A threshold's difference is how far the balance falls past its bound: none, as each holding is over its floor.
+        expect(scaled(shown.difference)).toBe(0n);
         expect(shown.tolerance).toBe('0');
       }
 
@@ -632,6 +633,15 @@ test.describe.serial('J-ops-console-07 reconcile the books', () => {
       await lifecycle(ownId, 'retire', 'Retired');
     }
   });
+
+  /** The selected control's evaluations as its panel reads them back from svc-ledger: the total and the run ids shown. */
+  async function evaluationsOf(section) {
+    const runs = section.getByTestId('rc-runs');
+    await expect(runs.getByTestId('rc-runs-count')).toContainText(/showing \d+ of \d+ evaluation/, { timeout: 30_000 });
+    const total = Number((await runs.getByTestId('rc-runs-count').innerText()).match(/showing \d+ of (\d+)/)[1]);
+    const ids = await runs.getByTestId('rc-run-row').evaluateAll((els) => els.map((el) => el.getAttribute('data-run-id')));
+    return { total, ids };
+  }
 
   test('J-ops-console-07 #6 pause needs two founders, a paused control runs nothing until resumed, and retired is final', async ({
     browser,
@@ -666,20 +676,30 @@ test.describe.serial('J-ops-console-07 reconcile the books', () => {
     const early = await approvedRun(state.thresholdId);
     const paused = await lifecycle(state.thresholdId, 'pause', 'Paused');
     await choose(paused, state.thresholdId);
+    const beforeRefused = await evaluationsOf(paused);
     const runDesk = paused.getByTestId('rc-run');
     await runDesk.getByLabel('Request packet').fill(early.packetText);
     await expect(runDesk.getByTestId('packet-summary')).toContainText(`Run reconciliation control ${state.thresholdId}`);
     expect(await runApproved(runDesk, early.phrase)).toContain('Code: ops.control_state_illegal');
     await paused.getByRole('button', { name: 'Refresh' }).click();
     await expect(row(paused, state.thresholdId).getByTestId('rc-state')).toHaveText('Paused');
+    // The refused run recorded nothing: the control's evaluations, read back from svc-ledger, are the same as before it.
+    await choose(paused, state.thresholdId);
+    expect(await evaluationsOf(paused), 'a paused control runs nothing').toEqual(beforeRefused);
     const desk = paused.getByTestId('rc-run');
     await expect(desk).toContainText('A paused control runs nothing (ops.control_state_illegal). Resume it first.');
     await expect(desk.getByRole('button', { name: 'Ask a second founder to approve the run' })).toBeDisabled();
     await expect(paused.getByTestId('rc-lifecycle').getByRole('option', { name: 'Pause' })).toHaveCount(0);
 
     // Resume: active again, and a two-founder run goes through.
-    await lifecycle(state.thresholdId, 'resume', 'Active');
-    expect(await twoFounderRun(state.thresholdId)).toMatch(/Run [0-9a-f-]{36}: PASS\./);
+    const resumed = await lifecycle(state.thresholdId, 'resume', 'Active');
+    const resumedRun = await twoFounderRun(state.thresholdId);
+    expect(resumedRun).toMatch(/Run [0-9a-f-]{36}: PASS\./);
+    await resumed.getByRole('button', { name: 'Refresh' }).click();
+    await choose(resumed, state.thresholdId);
+    const afterResume = await evaluationsOf(resumed);
+    expect(afterResume.total, 'the resumed control’s run is its one new evaluation').toBe(beforeRefused.total + 1);
+    expect(afterResume.ids[0]).toBe(runId(resumedRun));
 
     // Retire: final. No change form, no lifecycle step, the run desk holds, and the control stays in the list.
     const again = await lifecycle(state.outsideId, 'retire', 'Retired');
@@ -1097,7 +1117,9 @@ test.describe.serial('J-ops-console-07 reconcile the books', () => {
       await expect(errorDetail.getByTestId('alert-error')).toHaveAttribute('data-code', 'ledger.reconcile_source_unavailable');
       await expect(errorDetail.getByTestId('alert-error')).toHaveAttribute('data-phase', 'outside');
       await expect(errorDetail.getByTestId('alert-resolve-submit')).toBeDisabled();
-      await expect(errorDetail.getByTestId('alert-accept').getByRole('button', { name: 'Accept unavailable' })).toBeDisabled();
+      const noAccept = errorDetail.getByTestId('alert-accept');
+      await expect(noAccept.getByRole('button', { name: 'Ask a second founder to approve the acceptance' })).toBeDisabled();
+      await expect(noAccept).toContainText('There is no discrepancy to fix or accept');
 
       // The ledger's own run-failed event, delivered twice: svc-ops, attached to the bus, stores it once.
       const eventKey = `ledger:reconciliation-run-failed:local-test-${tag}`;
