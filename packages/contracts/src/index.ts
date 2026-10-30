@@ -63,6 +63,7 @@ export * from './crm-notifications.js';
 export * from './outreach-interests.js';
 export * from './ops-enquiry-intake.js';
 export * from './guest-notifications.js';
+export * from './guest-verification.js';
 export * from './crm-privacy.js';
 export * from './merchant-control.js';
 export * from './merchant-metrics.js';

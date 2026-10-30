@@ -35,6 +35,9 @@ export const guestNotificationCodeSchema = z.enum([
   'guest.address_rate_limited',
   'guest.submission_erased',
   'guest.delivery_in_progress',
+  // The verification door (guest-verification.ts): its link's origin is blank, or is not the customer app's.
+  'guest.link_origin_unset',
+  'guest.link_origin_mismatch',
 ]);
 
 /** Gateway acceptance is evidence of acceptance, never arrival or a completed review. */
