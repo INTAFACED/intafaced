@@ -2041,6 +2041,8 @@ export class P2pService {
     advertiserTermsVersion?: string;
     /** P-ads-merchant-06: the closed ad this post relists (`relistOffer` only). */
     relistedFrom?: string;
+    /** P-ads-merchant-07: who may see the ad from its first moment; absent is public. `relistOffer` keeps the closed ad's. */
+    visibility?: OfferVisibility;
   }): Promise<OfferRecord> {
     this.assertTradingEnabled();
     this.assertSellNotLocked(input.side === 'sell');
@@ -2205,7 +2207,7 @@ export class P2pService {
             INSERT INTO p2p.offers (
               id, maker_id, side, asset, fiat_currency, price_type, price,
               min_amt, max_amt, total_amt, remaining_amt, methods, terms, status, maker_tier, accepts_non_instant,
-              relisted_from
+              relisted_from, visibility
             )
             VALUES (
               ${offerId}, ${input.makerId}, ${input.side}, ${input.asset}, ${fiatCurrency},
@@ -2213,7 +2215,7 @@ export class P2pService {
               ${formatAmount(input.minAmt)}::numeric, ${formatAmount(input.maxAmt)}::numeric,
               ${formatAmount(totalAmt)}::numeric, ${formatAmount(totalAmt)}::numeric,
               ${tx.json((input.methods ?? []) as never)}, ${input.terms ?? ''}, 'active', ${makerTier},
-              ${input.acceptsNonInstant === true}, ${input.relistedFrom ?? null}
+              ${input.acceptsNonInstant === true}, ${input.relistedFrom ?? null}, ${input.visibility ?? 'public'}
             )
             RETURNING *
           `;
@@ -2417,6 +2419,8 @@ export class P2pService {
       ...(input.makerTier === undefined ? {} : { makerTier: input.makerTier }),
       acceptsNonInstant: closed.acceptsNonInstant,
       relistedFrom: closed.id,
+      // A private ad relisted stays private: relisting never puts on the board what its maker kept off it.
+      visibility: closed.visibility,
     });
   }
 

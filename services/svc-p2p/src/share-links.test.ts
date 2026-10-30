@@ -216,4 +216,18 @@ describe('svc-p2p private ads and share links (P-ads-merchant-07)', () => {
     expect((await refusal(link(offer.id))).code).toBe('p2p.offer_not_active');
     expect((await refusal(p2p.setOfferVisibility(offer.id, MAKER, 'private'))).code).toBe('p2p.offer_not_active');
   });
+
+  it('a private ad relisted stays private and off the board; a public one relisted is public', async () => {
+    const hidden = await privateOffer();
+    await p2p.closeOffer(hidden.id, MAKER);
+    const relisted = await p2p.relistOffer({ offerId: hidden.id, makerId: MAKER });
+    expect(relisted.visibility).toBe('private');
+    expect(await board()).not.toContain(relisted.id);
+    expect((await refusal(p2p.getOffer(relisted.id, TAKER))).code).toBe('p2p.offer_private');
+    const open = await sellOffer();
+    await p2p.closeOffer(open.id, MAKER);
+    const reopened = await p2p.relistOffer({ offerId: open.id, makerId: MAKER });
+    expect(reopened.visibility).toBe('public');
+    expect(await board()).toContain(reopened.id);
+  });
 });
