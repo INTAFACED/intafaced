@@ -18,6 +18,10 @@
  *   RED      the lines say what failed.
  *   SUPERSEDED  a newer push to the PR cancelled this head's run.
  *
+ * Before the verdict, a STALE line names any run on the head whose current attempt started more than three hours after the
+ * run was made: a re-run tests the merge commit made then, against main as it was then (30 Oct: #6831, #6832 and #6834
+ * re-ran runs from before the pause and hung or failed). Merge main and push for a fresh run instead.
+ *
  * Read only: it changes no check and no result. A 403 or 429 from GitHub stops it (tooling/scripts/gate-gh.mjs).
  */
 import { fileURLToPath } from 'node:url';
@@ -31,6 +35,31 @@ const MAX_LINES = 8;
 const WIDTH = 200;
 
 const GREEN = new Set(['success', 'neutral', 'skipped']);
+const STALE_MS = 3 * 60 * 60_000;
+
+/** The Actions run id a check run belongs to, from its details URL, or null for another app's check. */
+export function runIdOf(check) {
+  return /\/actions\/runs\/(\d+)/.exec(check?.details_url ?? '')?.[1] ?? null;
+}
+
+/**
+ * One line per pull_request run, red or running in a job other than the seal, whose current attempt started more than
+ * STALE_MS after the run was made. The sign-off workflow's own re-run of the seal never counts (it reads only the
+ * jobs' results), and a prompt confirmation re-run (AGENTS.md "Check, then merge" 3) is not stale.
+ */
+export function staleLines(runs = {}, checks = []) {
+  const out = [];
+  for (const [id, r] of Object.entries(runs)) {
+    if (!r || r.event !== 'pull_request' || !(r.run_attempt > 1)) continue;
+    if (!(Date.parse(r.run_started_at) - Date.parse(r.created_at) > STALE_MS)) continue;
+    const jobs = checks.filter((c) => runIdOf(c) === id && c.name !== SEAL && (c.status !== 'completed' || !GREEN.has(c.conclusion)));
+    if (jobs.length === 0) continue;
+    out.push(
+      `STALE    run ${id} is attempt ${r.run_attempt} of a run made ${r.created_at}: it tests the merge commit made then, against main as it was then. To test today's main, merge main into the branch and push.`,
+    );
+  }
+  return out;
+}
 
 /** One annotation as one short line, or null for runner boilerplate that names nothing. */
 export function annotationLine(a) {
@@ -69,7 +98,7 @@ export function latestPerName(checks) {
  *   annotations: Record<number, object[]>, failedSteps: Record<number, string[]>,
  *   statuses: Array<{context:string,state:string}> }} input
  */
-export function summarize({ sha, checks: all, annotations, failedSteps, statuses }) {
+export function summarize({ sha, checks: all, annotations, failedSteps, statuses, runs }) {
   const checks = latestPerName(all);
   const out = [];
   const running = checks.filter((c) => c.status !== 'completed');
@@ -122,6 +151,7 @@ export function summarize({ sha, checks: all, annotations, failedSteps, statuses
   }
   for (const s of redStatuses) out.push(`RED      status ${s.context}`);
 
+  out.push(...staleLines(runs, checks));
   const sealSeen = checks.some((c) => c.name === SEAL);
   const othersRunning = running.filter((c) => c.name !== SEAL);
   // A newer push to the same PR cancels this head's run (ci.yml concurrency): nothing on this head to fix.
@@ -176,7 +206,15 @@ export function collect(gh, repo, ref) {
       failedSteps[c.id] = steps.filter((s) => s.conclusion === 'failure').map((s) => s.name);
     }
   }
-  return { sha, checks, annotations, failedSteps, statuses };
+  // The runs behind the head's checks that are red or still running, to name a stale re-run.
+  const runs = {};
+  for (const c of latestPerName(checks).filter((c) => c.status !== 'completed' || !GREEN.has(c.conclusion))) {
+    const id = runIdOf(c);
+    if (!id || id in runs) continue;
+    const r = gh(['api', `repos/${repo}/actions/runs/${id}`], { allowFail: true });
+    runs[id] = r.status === 0 ? JSON.parse(r.stdout) : null; // a failed read is not asked again
+  }
+  return { sha, checks, annotations, failedSteps, statuses, runs };
 }
 
 function selfTest() {
@@ -311,6 +349,28 @@ function selfTest() {
     bare.some((l) => l.includes('failed step: Doctrine gates')),
     'a red job with no annotations names its failed step',
   );
+  const job = (id, name, run, status = 'in_progress', conclusion = null) => ({
+    id,
+    name,
+    status,
+    conclusion,
+    details_url: `https://github.com/o/r/actions/runs/${run}/job/${id}`,
+  });
+  const old = { event: 'pull_request', run_attempt: 3, created_at: '2026-10-30T02:47:29Z', run_started_at: '2026-10-30T13:35:00Z' };
+  const stale = summarize({ ...base, checks: [job(9, 'Tests (changed)', 40993723454)], runs: { 40993723454: old } });
+  assert(
+    stale.some((l) => l.startsWith('STALE    run 40993723454') && l.includes('attempt 3')),
+    'an old pull_request run re-run hours later is named stale (#6832, 30 Oct)',
+  );
+  assert(runIdOf({ details_url: 'https://github.com/o/r/actions/runs/77/job/2' }) === '77', 'reads the run id');
+  const at = (over) => ({ 1: { ...old, ...over } });
+  const testsJob = [job(5, 'Tests (changed)', 1)];
+  assert(staleLines(at({ run_started_at: '2026-10-30T03:30:00Z' }), testsJob).length === 0, 'a prompt confirmation re-run is not stale');
+  assert(staleLines(at({ run_attempt: 1 }), testsJob).length === 0, 'a first attempt that waited in the queue is not stale');
+  assert(staleLines(at({ event: 'push' }), testsJob).length === 0, 'a push run has no merge commit to go stale');
+  assert(staleLines(at({}), [job(6, SEAL, 1)]).length === 0, "the sign-off workflow's re-run of the seal is not stale");
+  assert(staleLines(at({}), [job(5, 'Tests (changed)', 1, 'completed', 'success')]).length === 0, 'a green run needs no advice');
+  assert(staleLines({ 1: null }, testsJob).length === 0, 'an unread run says nothing');
   console.log('why-red self-test ok');
 }
 
