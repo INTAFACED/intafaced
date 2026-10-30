@@ -213,7 +213,9 @@ export function createAccountMock(ctx) {
             documents: { state: 'pending_vendor' },
             terms: state.terms ?? { state: 'not_configured' },
             destination: {
-              present: Boolean(state.destination) || !quiet,
+              // As svc-pay's onboarding.ts: only a destination verified with a step-up counts (held or active), never an
+              // unverified one (J-merchant-02 #5).
+              present: Boolean(state.destination?.verified) || !quiet,
               // the same destinations the Destinations page lists: one list, one set of ids
               destinations:
                 state.destination || !quiet

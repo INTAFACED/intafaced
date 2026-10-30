@@ -14,7 +14,7 @@ import { PortalReview } from '../ui/PortalReview';
 import { useServerList } from '../ui/useServerList';
 import { ListBody, TestBanner } from './common';
 import { mc } from './copy';
-import { describeDestination, maskedLike, railWords } from './destination';
+import { describeDestination, railWords, sameMasked } from './destination';
 import { defaultDestination, destinationKindOfRail } from './model';
 import { isDefaultDestination, type DestinationItem } from './schemas';
 import { useReadAt } from '../hooks';
@@ -169,7 +169,7 @@ function VerifyDestination({
   const [proof, setProof] = useState<DestinationProof>({ code: '' });
   const sentRef = normaliseReference(ref);
   const problem = referenceProblem(kind, ref);
-  const mismatch = !problem && maskedLike(kind, sentRef) !== item.destinationMasked;
+  const mismatch = !problem && !sameMasked(kind, sentRef, item.destinationMasked);
   return (
     <PortalReview
       title={t('dstVerify')}

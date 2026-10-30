@@ -20,6 +20,14 @@ export function describeDestination(t: Words, kind: string, masked: string, rail
 export function maskedLike(kind: string, ref: string): string {
   const compact = ref.trim().replace(/\s+/g, '');
   const address = kind.trim().toLowerCase() === 'crypto' || /^0x[0-9a-fA-F]{40}$/.test(compact);
-  if (address) return compact.length < 20 ? '••••' : `${compact.slice(0, 6)}…${compact.slice(-4)}`;
+  // An address's hex digits are the same in either case (a checksummed address mixes them), so it is compared lower-case.
+  if (address) return compact.length < 20 ? '••••' : `${compact.slice(0, 6)}…${compact.slice(-4)}`.toLowerCase();
   return compact.length < 9 ? '••••' : `••••${compact.slice(-4)}`;
+}
+
+/** Whether a retyped destination masks to the saved one; a crypto address's case is ignored. */
+export function sameMasked(kind: string, ref: string, masked: string): boolean {
+  const mine = maskedLike(kind, ref);
+  const crypto = mine.includes('…') || kind.trim().toLowerCase() === 'crypto';
+  return crypto ? mine === masked.toLowerCase() : mine === masked;
 }

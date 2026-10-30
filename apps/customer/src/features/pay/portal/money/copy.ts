@@ -818,6 +818,8 @@ const en = {
   rDestUnverified: 'This destination isn’t verified yet, so nothing can be paid to it. Verify it on the Destinations page.',
   rDestVerifiedLocked:
     'This destination has just been verified, so it can only be replaced with your authenticator. Refresh the list and choose Replace.',
+  rDestVerifyMismatch:
+    'That isn’t the destination saved for this network, so it wasn’t verified. Type the saved one exactly, or save the new one first and then verify it.',
   rDestHeld: 'This destination was verified recently and is still in its waiting period. Try again once it reads Active.',
   rDestInFlight: 'A payout to this destination is waiting for approval or still on its way, so it can’t be removed until it has finished.',
   rDestNotFound: 'That destination is already gone. Refresh the list.',

@@ -75,6 +75,7 @@ import { merchantFeeView, type MerchantStarterFee } from './starter-fee.js';
 import { DestinationKindError } from './payout-destination.js';
 import {
   assertOnlyPayoutDestinations,
+  PayoutDestinationConflictError,
   PayoutDestinationHeldError,
   PayoutDestinationInFlightError,
   PayoutDestinationMissingError,
@@ -2729,7 +2730,7 @@ export function toTrpcError(err: unknown): unknown {
   if (err instanceof DestinationKindError) {
     return new TRPCError({ code: 'BAD_REQUEST', message: `${err.code}: ${err.message}`, cause: err });
   }
-  if (err instanceof PayoutDestinationInFlightError) {
+  if (err instanceof PayoutDestinationInFlightError || err instanceof PayoutDestinationConflictError) {
     return new TRPCError({ code: 'CONFLICT', message: `${err.code}: ${err.message}`, cause: err });
   }
   if (
@@ -2843,6 +2844,8 @@ export function toTrpcError(err: unknown): unknown {
       case 'pay.payout_destination_in_flight':
       case 'pay.payout_destination_verified_locked':
       case 'pay.destination_change_pending':
+      case 'pay.destination_verify_mismatch':
+      case 'pay.payout_destination_conflict':
       case 'pay.settlement_desynced':
       case 'pay.settlement_ledger_conflict':
       case 'pay.settlement_not_pending':

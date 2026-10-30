@@ -8,7 +8,7 @@ import { createTestDatabase, type TestDatabase } from '@intafaced/db';
 import { MemoryLedger, parseAmount as amt } from '@intafaced/ledger-client';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import type { ActionApprovalConsumer } from './action-approval-consume.js';
-import { MerchantPayoutDestinationStore } from './merchant-payout-destination.js';
+import { MerchantPayoutDestinationStore, PayoutDestinationConflictError, type DestinationWriter } from './merchant-payout-destination.js';
 import { PayService } from './payment-service.js';
 import { createPayRouter } from './router.js';
 import { UserMoneyService } from './user-money-service.js';
@@ -410,6 +410,13 @@ describe('payout destination lock', () => {
         code: 'pay.payout_destination_unverified',
       });
 
+      // Verify verifies the saved address: another one is refused by name and nothing is written.
+      expect(
+        await refused(
+          caller.merchant.setPayoutDestination({ merchantId: merchant.id, railId: RAIL, kind: 'crypto', ref: B, stepUpApprovalId: 'ok-b' }),
+        ),
+      ).toEqual({ trpc: 'CONFLICT', pay: 'pay.destination_verify_mismatch' });
+      expect(await list()).toEqual([unverified]);
       const verified = await caller.merchant.setPayoutDestination({
         merchantId: merchant.id,
         railId: RAIL,
@@ -554,5 +561,52 @@ describe('payout destination lock', () => {
     now = new Date(now.getTime() + 45_000);
     expect(await book.require({ merchantId: merchant.id, railId: RAIL })).toEqual({ kind: 'crypto', ref: A });
     expect(await verifiedColumn()).toBe(true);
+  });
+
+  it('two first saves on one rail that race: the loser never writes over the first, and a duplicate insert is a typed conflict', async () => {
+    const owner = randomUUID();
+    const merchant = await pay.createMerchant({ userId: owner, pricing: { feeBps: 0 } });
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => (release = resolve));
+    let inserted!: () => void;
+    const firstInserted = new Promise<void>((resolve) => (inserted = resolve));
+    const first = book.transaction(merchant.id, RAIL, async (row, write) => {
+      expect(row).toBeNull();
+      await write.insertUnverified({ kind: 'crypto', ref: A });
+      inserted();
+      await gate;
+    });
+    await firstInserted;
+    // The second starts while the first's row is uncommitted. Under serializable isolation it either fails the unique
+    // key (the typed conflict) or is retried and then sees the first row (and so does not insert).
+    const seen: Array<string | null> = [];
+    const second = book.transaction(merchant.id, RAIL, async (row, write) => {
+      seen.push(row?.ref ?? null);
+      if (row === null)
+        await write.insertVerified({ kind: 'crypto', ref: B, verifiedAt: now, activatesAt: new Date(now.getTime() + 45_000) });
+    });
+    setTimeout(release, 200);
+    await first;
+    const outcome = await second.then(
+      () => 'retried',
+      (err: unknown) => err,
+    );
+    if (outcome === 'retried') expect(seen).toEqual([null, A]);
+    else expect(outcome).toMatchObject({ name: 'PayoutDestinationConflictError', code: 'pay.payout_destination_conflict' });
+    expect(await sql`SELECT ref, verified, activates_at FROM pay.merchant_payout_destinations WHERE merchant_id = ${merchant.id}`).toEqual([
+      { ref: A, verified: false, activates_at: null },
+    ]);
+
+    // A writer that inserts over a row it did not see gets the typed conflict, never a raw unique violation.
+    for (const insert of [
+      (write: DestinationWriter) => write.insertUnverified({ kind: 'crypto', ref: B }),
+      (write: DestinationWriter) =>
+        write.insertVerified({ kind: 'crypto', ref: B, verifiedAt: now, activatesAt: new Date(now.getTime() + 45_000) }),
+    ]) {
+      const refusal = await book.transaction(merchant.id, RAIL, async (_row, write) => insert(write)).catch((err: unknown) => err);
+      expect(refusal).toBeInstanceOf(PayoutDestinationConflictError);
+      expect(refusal).toMatchObject({ code: 'pay.payout_destination_conflict' });
+    }
+    expect(await sql`SELECT ref FROM pay.merchant_payout_destinations WHERE merchant_id = ${merchant.id}`).toEqual([{ ref: A }]);
   });
 });

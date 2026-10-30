@@ -72,6 +72,27 @@ export class PayoutDestinationInFlightError extends Error {
   }
 }
 
+export const PAY_PAYOUT_DESTINATION_CONFLICT = 'pay.payout_destination_conflict' as const;
+
+/** Two first saves on one rail raced; the row the other one wrote stands, and this one is refused. */
+export class PayoutDestinationConflictError extends Error {
+  readonly code = PAY_PAYOUT_DESTINATION_CONFLICT;
+  constructor(merchantId: string, railId: string) {
+    super(`Merchant ${merchantId}'s payout destination for rail ${railId} was saved by another request at the same time`);
+    this.name = 'PayoutDestinationConflictError';
+  }
+}
+
+/** A unique violation (two first inserts on one merchant and rail) becomes the typed conflict. */
+async function insertOnce(merchantId: string, railId: string, insert: () => Promise<unknown>): Promise<void> {
+  try {
+    await insert();
+  } catch (err) {
+    if ((err as { code?: string } | null)?.code === '23505') throw new PayoutDestinationConflictError(merchantId, railId);
+    throw err;
+  }
+}
+
 export type PayoutDestination = { kind: string; ref: string };
 
 export type DestinationLifecycle = 'unverified' | 'held' | 'active';
@@ -371,10 +392,14 @@ export class MerchantPayoutDestinationStore implements MerchantPayoutDestination
       const row = fresh[0] ? toState(fresh[0], now) : null;
       const write: DestinationWriter = {
         async insertUnverified(input) {
-          await tx`
-            INSERT INTO pay.merchant_payout_destinations (merchant_id, rail_id, kind, ref, verified)
-            VALUES (${merchantId}, ${railId}, ${input.kind}, ${input.ref}, false)
-          `;
+          await insertOnce(
+            merchantId,
+            railId,
+            () => tx`
+              INSERT INTO pay.merchant_payout_destinations (merchant_id, rail_id, kind, ref, verified)
+              VALUES (${merchantId}, ${railId}, ${input.kind}, ${input.ref}, false)
+            `,
+          );
         },
         async replaceUnverified(input) {
           const old = fresh[0];
@@ -413,10 +438,14 @@ export class MerchantPayoutDestinationStore implements MerchantPayoutDestination
           if (updated.count !== 1) throw new PayoutDestinationMissingError(merchantId, railId);
         },
         async insertVerified(input) {
-          await tx`
-            INSERT INTO pay.merchant_payout_destinations (merchant_id, rail_id, kind, ref, verified, verified_at, activates_at)
-            VALUES (${merchantId}, ${railId}, ${input.kind}, ${input.ref}, false, ${input.verifiedAt}, ${input.activatesAt})
-          `;
+          await insertOnce(
+            merchantId,
+            railId,
+            () => tx`
+              INSERT INTO pay.merchant_payout_destinations (merchant_id, rail_id, kind, ref, verified, verified_at, activates_at)
+              VALUES (${merchantId}, ${railId}, ${input.kind}, ${input.ref}, false, ${input.verifiedAt}, ${input.activatesAt})
+            `,
+          );
         },
         async verifyExisting(input) {
           const updated = await tx`

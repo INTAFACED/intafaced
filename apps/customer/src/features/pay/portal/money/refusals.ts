@@ -15,6 +15,7 @@ const words: Record<string, Parameters<typeof mc.t>[0]> = {
   'pay.payout_destination_missing': 'rDestinationMissing',
   'pay.payout_destination_unverified': 'rDestUnverified',
   'pay.payout_destination_held': 'rDestHeld',
+  'pay.destination_verify_mismatch': 'rDestVerifyMismatch',
   'pay.payout_destination_verified_locked': 'rDestVerifiedLocked',
   'pay.approval_threshold_unconfigured': 'rThresholdUnset',
   'pay.cap_daily_payout_exceeded': 'rOverDailyPayout',

@@ -177,6 +177,13 @@ export function createSettingsMock(ctx) {
           });
           return ok(route, { id: MERCHANT_ID, kybStatus: 'pending', kybRef: input.kybRef });
         case 'merchant.setPayoutDestination':
+          // J-merchant-02 #5: verify verifies the saved address only, as svc-pay does, before the confirmation is spent.
+          if (
+            state.destination &&
+            !state.destination.verified &&
+            (state.destination.ref !== input.ref || state.destination.kind !== input.kind)
+          )
+            return refuse(route, 409, 'pay.destination_verify_mismatch');
           if (!ctx.stepUp?.spendDestinationApproval(input.stepUpApprovalId, input))
             return refuse(route, 403, 'pay.destination_step_up_required');
           {

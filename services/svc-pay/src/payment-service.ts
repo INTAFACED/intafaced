@@ -472,6 +472,10 @@ export type PayErrorCode =
   | 'pay.destination_hold_unset'
   /** The current destination was confirmed again while a change of it is pending. Refused, nothing written. */
   | 'pay.destination_change_pending'
+  /** Verify named another kind or ref than the unverified destination saved for the rail. Refused, nothing written. */
+  | 'pay.destination_verify_mismatch'
+  /** Two first saves of a destination on one rail raced; the second is refused, nothing written. */
+  | 'pay.payout_destination_conflict'
   /** Destination add/change had no usable step-up approval. */
   | 'pay.destination_step_up_required'
   /** An API key cannot add or change a payout destination. */

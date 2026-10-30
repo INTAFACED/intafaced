@@ -154,6 +154,8 @@ export class PayoutDestinationChange {
   }): Promise<DestinationChangeResult> {
     await this.assertCaller(input.caller, input.merchantId);
     const dest = assertPersistableDestination(input.railId, input);
+    // Checked before the step-up is spent (and again under the row lock): verifying never swaps the saved address.
+    assertVerifiesSaved(await this.book.read({ merchantId: input.merchantId, railId: input.railId }), dest);
     await this.verify(this.approvals, {
       approvalId: input.stepUpApprovalId,
       userId: input.caller.userId,
@@ -247,6 +249,7 @@ export class PayoutDestinationChange {
     now: Date,
     write: DestinationWriter,
   ): Promise<{ result: DestinationChangeResult; tellOwners: boolean }> {
+    assertVerifiesSaved(row, dest);
     const sameVerified = row?.verified === true && row.kind === dest.kind && row.ref === dest.ref && row.pending === null;
     if (sameVerified) {
       // Verifying again changes nothing: the hold keeps its first end.
@@ -293,6 +296,17 @@ export class PayoutDestinationChange {
       result: { status: 'held', railId, kind: dest.kind, ref: dest.ref, activatesAt: activatesAt.toISOString() },
       tellOwners: true,
     };
+  }
+}
+
+/**
+ * Verify must verify the saved address: with an unverified row on the rail, a different kind or ref is refused
+ * (`pay.destination_verify_mismatch`) and nothing is written. Replacing an unverified address goes through `add`, which
+ * carries the in-flight check. With no row, `set` saves and verifies in one call (the go-live save).
+ */
+function assertVerifiesSaved(row: DestinationState | null, dest: { kind: string; ref: string }): void {
+  if (row && !row.verified && (row.kind !== dest.kind || row.ref !== dest.ref)) {
+    refuse('pay.destination_verify_mismatch', 'That is not the payout destination saved for this rail; save the new one first');
   }
 }
 

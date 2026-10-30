@@ -271,4 +271,35 @@ describe('PayoutDestinationChange', () => {
     h.advance('2026-10-17T01:30:00.000Z');
     expect(await h.book.require({ merchantId: h.merchantId, railId: RAIL })).toEqual({ kind: 'crypto', ref: B });
   });
+
+  it('verify verifies the saved address: another kind or ref is refused before the step-up is spent, and nothing is written', async () => {
+    const h = harness(3600);
+    let consumed = 0;
+    const counting: ActionApprovalConsumer = {
+      consume: async (input) => {
+        consumed += 1;
+        return approvals().consume(input);
+      },
+    };
+    const change = new PayoutDestinationChange(
+      h.book,
+      async () => 'owner',
+      verifyDestinationStepUp,
+      counting,
+      3600,
+      async () => undefined,
+      () => new Date('2026-10-17T00:00:00.000Z'),
+    );
+    await change.add({ merchantId: h.merchantId, railId: RAIL, kind: 'crypto', ref: A, caller: caller(h.ownerId) });
+    await expect(change.set({ ...open(h.merchantId), ref: B, caller: caller(h.ownerId) })).rejects.toMatchObject({
+      code: 'pay.destination_verify_mismatch',
+    });
+    expect(consumed).toBe(0);
+    expect(await h.book.read({ merchantId: h.merchantId, railId: RAIL })).toMatchObject({ ref: A, verified: false, activatesAt: null });
+    // The saved one verifies; and with no row at all, one call saves and verifies (the go-live save).
+    expect((await change.set({ ...open(h.merchantId), caller: caller(h.ownerId) })).status).toBe('held');
+    expect(consumed).toBe(1);
+    const fresh = harness(3600);
+    expect((await fresh.change.set({ ...open(fresh.merchantId), ref: B, caller: caller(fresh.ownerId) })).status).toBe('held');
+  });
 });
