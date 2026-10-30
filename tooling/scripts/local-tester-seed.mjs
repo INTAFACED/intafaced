@@ -46,7 +46,7 @@ export function assertTesterBuild(env) {
   if (env.APP_ENV !== 'dev' && env.APP_ENV !== 'test') {
     const shown = env.APP_ENV === undefined || env.APP_ENV === '' ? 'not set' : `"${env.APP_ENV}"`;
     throw new GuardError(
-      `refusing: APP_ENV is ${shown}; the tester seed runs only when it is exactly "dev" or "test", and seeded nothing.`,
+      `refusing [seed.app_env_not_local]: APP_ENV is ${shown}; the tester seed runs only when it is exactly "dev" or "test", and seeded nothing.`,
     );
   }
 }

@@ -14,7 +14,7 @@ vi.mock('./deps', async (original) => {
   const real = await original<typeof import('./deps')>();
   return {
     ...real,
-    useInboxView: () => ({ inbox: { read: () => undefined }, state: inbox.state, markets: new Map() }),
+    useInboxView: () => ({ inbox: { read: () => undefined, reload: () => undefined }, state: inbox.state, markets: new Map() }),
   };
 });
 

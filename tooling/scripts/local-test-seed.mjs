@@ -274,7 +274,7 @@ export function guardSeed(env, stateDir, io = defaultIo) {
   if (env.NODE_ENV === 'production') throw new GuardError('refusing: NODE_ENV is "production". This script is local-only.');
   if (env.APP_ENV !== undefined && env.APP_ENV !== 'dev' && env.APP_ENV !== 'test') {
     const shown = env.APP_ENV === '' ? 'blank' : `"${env.APP_ENV}"`;
-    throw new GuardError(`refusing: APP_ENV is ${shown}; if set, it must be exactly "dev" or "test".`);
+    throw new GuardError(`refusing [seed.app_env_not_local]: APP_ENV is ${shown}; if set, it must be exactly "dev" or "test".`);
   }
   if (!stateDir || typeof stateDir !== 'string') throw new GuardError('refusing: state directory is missing');
 

@@ -135,8 +135,13 @@ test(`${J} #1 the tester profile starts healthy services, and its seed service r
   const rows = [...table.out.matchAll(/^ {2}(\S+) +\S+ +(\d+|owned) +(.+)$/gm)].map((m) => [m[1], m[3].trim()]);
   const names = rows.map(([name]) => name);
   expect(new Set(names).size, 'one row per service').toBe(names.length);
-  for (const name of ['postgres', 'nats', 'svc-ledger', 'svc-identity', 'svc-pay', 'svc-notify', 'svc-edge', 'customer'])
-    expect(names, `${name} was started`).toContain(name);
+  // Against the stack's own inventory of what it started (its marker's ports), each exactly once.
+  const marker = JSON.parse(readFileSync(path.join(STATE, 'LOCAL-TEST-STACK.json'), 'utf8'));
+  const PLAIN = ['postgres', 'nats', 'video-store', 'customer', 'invitation', 'apex', 'admin'];
+  const started = Object.keys(marker.ports)
+    .filter((name) => name !== 'natsMonitor')
+    .map((name) => (PLAIN.includes(name) ? name : `svc-${name}`));
+  expect([...names].sort()).toEqual([...started].sort());
   for (const [name, health] of rows) expect(health, `${name} health`).toMatch(/^ok\b/);
 
   // The tester profile's seed service: off unless asked, it runs the founder seed (init, then enrol) and the test-content
@@ -144,7 +149,7 @@ test(`${J} #1 the tester profile starts healthy services, and its seed service r
   const seed = seedService();
   expect(seed, `no compose file (${COMPOSE.join(', ')}) has a seed service`).not.toBeNull();
   expect(seed.block).toMatch(/profiles:\s*\[?\s*['"]?tester['"]?/);
-  // Once: it is never restarted after it exits.
+  // Configured to run once: never restarted after it exits (the compose_seed test below counts its one container).
   expect(seed.block).toMatch(/^ {4}restart: 'no'$/m);
   expect(seed.block).toContain(`'node',\n        '${SEED_ENTRY}',`);
   expect(composeSteps(seed.block)).toEqual([
@@ -249,6 +254,10 @@ test(`${J} #2 the documented sign-in steps get the founder in with founder scope
   // session's ops scopes, and its session bar names this founder by the directory's own name.
   const owners = await page.request.get(`${ADMIN}/api/crm?view=owners`);
   expect(owners.status()).toBe(200);
+  // The same door with no founder session refuses with its one typed code, so the 200 above is this session's.
+  const unsigned = await fetch(`${ADMIN}/api/crm?view=owners`);
+  expect(unsigned.status).toBe(401);
+  expect((await unsigned.json()).code).toBe('admin.session_required');
   const name = (await owners.json()).owners.find((owner) => owner.userId === founder.userId)?.displayName;
   expect(name).toMatch(/^(Nitro|Phantom)$/);
   await expect(page.locator(`.adm-session > span[title="${founder.userId}"]`)).toHaveText(name);
@@ -286,8 +295,10 @@ test(`${J} #3 the founder's Home shows a TEST deposit in the total, a TEST notic
   // The deposit itself is on Home, once.
   await expect(page.getByTestId('home-activity__row').filter({ hasText: `+${amount} ${asset}` })).toHaveCount(1);
   // One TEST notice, the one the seed published (drafted by one founder and published by the other).
-  await expect(page.getByTestId('home-notice').filter({ hasText: notice })).toHaveCount(1);
+  const shown = page.getByTestId('home-notice').filter({ hasText: notice });
+  await expect(shown).toHaveCount(1);
   expect(notice).toContain('TEST');
+  await expect(shown.locator('.home-notice__title')).toContainText('TEST');
   // One inbox row on Home, the one the real deposit-credit consumer filed for that deposit, and it says TEST beside the amount.
   const inbox = page.getByTestId('home-inbox');
   await expect(inbox.getByTestId('nf-row')).toHaveCount(1);
@@ -309,16 +320,16 @@ test(`${J} #4 the same image started as staging or production: the seed service 
   for (const appEnv of ['staging', 'production']) {
     // The founder seed refuses before reading or writing anything.
     const founders = run('tooling/scripts/local-founder-seed.mjs', ['init'], { INTAFACED_LOCAL_FOUNDER: '1', APP_ENV: appEnv });
-    expect(founders.status, founders.out).not.toBe(0);
-    expect(founders.out).toContain(`APP_ENV is "${appEnv}"`);
+    expect(founders.status, founders.out).toBe(2);
+    expect(founders.out).toContain(`refusing [seed.app_env_not_local]: APP_ENV is "${appEnv}"`);
     // The test-content seed refuses before any database or ledger call.
     const content = run('tooling/scripts/local-test-seed.mjs', ['apply', '--state', STATE], { LOCAL_TEST: '1', APP_ENV: appEnv });
-    expect(content.status, content.out).not.toBe(0);
-    expect(content.out).toContain(`APP_ENV is "${appEnv}"`);
+    expect(content.status, content.out).toBe(2);
+    expect(content.out).toContain(`refusing [seed.app_env_not_local]: APP_ENV is "${appEnv}"`);
     // So does its Home step, which the seed service runs after apply.
     const home = run('tooling/scripts/local-test-seed.mjs', ['home', '--state', STATE], { LOCAL_TEST: '1', APP_ENV: appEnv });
     expect(home.status, home.out).toBe(2);
-    expect(home.out).toContain(`APP_ENV is "${appEnv}"`);
+    expect(home.out).toContain(`refusing [seed.app_env_not_local]: APP_ENV is "${appEnv}"`);
   }
   expect(secretsAt()).toBe(secretsBefore);
   expect(vaultText()).toBe(vaultBefore);
@@ -332,7 +343,7 @@ test(`${J} #4 the same image started as staging or production: the seed service 
   for (const appEnv of ['staging', 'production']) {
     const started = run(entry, [], { APP_ENV: appEnv });
     expect(started.status, started.out).toBe(2);
-    expect(started.out).toContain(`refusing: APP_ENV is "${appEnv}"`);
+    expect(started.out).toContain(`refusing [seed.app_env_not_local]: APP_ENV is "${appEnv}"`);
   }
   // Its default steps start with the founder seed's init, so the founder files are re-read too.
   expect(secretsAt()).toBe(secretsBefore);
@@ -494,6 +505,8 @@ test(`${J} #5 the deployed apex, app and join hosts are served (BLOCKED until a 
   );
   const deployed = run('apps/customer/deployment/host-dispatch.mjs', ['--out', out], hosts);
   const receipt = existsSync(out) ? JSON.parse(readFileSync(out, 'utf8')) : null;
+  // Red only for this clause: a failure here is the check's own typed host refusal, never a crash.
+  if (deployed.status !== 0) expect(deployed.out).toMatch(/^host dispatch: (apex|app|join) .* host\.(apex|app|join)_[a-z_]+$/m);
   expect(
     deployed.status === 0 && receipt?.status === 'served' && receipt.test === undefined,
     `BLOCKED deployed_hosts: until a deployment names the hosts and serves them, the deployment check refuses:\n${deployed.out}`,
@@ -528,6 +541,8 @@ test(`${J} #1 a fresh compose up with the tester profile seeds (BLOCKED compose_
   expect(seed, `no compose file (${COMPOSE.join(', ')}) has a seed service`).not.toBeNull();
   try {
     const config = compose(['config', '--quiet'], env);
+    // Red by name only for the outside blocker: compose refusing a blank value the tester profile has not set yet.
+    if (config.status !== 0) expect(config.out).toMatch(/required variable [A-Z_]+ is missing a value/);
     expect(config.status, `BLOCKED compose_seed: a fresh compose up with the tester profile refuses to start:\n${config.out}`).toBe(0);
     const up = compose(['up', '--build', '--abort-on-container-exit', '--exit-code-from', 'seed', 'seed'], env, {
       timeout: 25 * 60_000,
@@ -542,8 +557,22 @@ test(`${J} #1 a fresh compose up with the tester profile seeds (BLOCKED compose_
     expect(up.out).toContain(`  deposit  ${HOME_DEPOSIT_AMOUNT} ${HOME_ASSET} credited  `);
     expect(up.out).toContain(`  notice  ${HOME_NOTICE_TITLE}  published`);
     expect(up.out).toContain(`  inbox  1 deposit-credited row  `);
+    // Once: the seed service has exactly one container, exited 0.
+    const runs = compose(['ps', '-a', '--format', '{{.Service}} {{.State}} {{.ExitCode}}', 'seed'], env);
+    expect(runs.out.trim().split('\n')).toEqual(['seed exited 0']);
+    // The same image, started as staging or production, exits 2 with the typed refusal and seeds nothing.
+    for (const appEnv of ['staging', 'production']) {
+      const refused = compose(['run', '--rm', '-e', `APP_ENV=${appEnv}`, 'seed'], env);
+      expect(refused.status, refused.out).toBe(2);
+      expect(refused.out).toContain(`refusing [seed.app_env_not_local]: APP_ENV is "${appEnv}"`);
+    }
   } finally {
     compose(['down', '--volumes', '--remove-orphans'], env);
-    rmSync(state, { recursive: true, force: true });
+    // The seed container writes into the folder as its own user; a folder left behind must not hide the step's result.
+    try {
+      rmSync(state, { recursive: true, force: true });
+    } catch (error) {
+      console.warn(`compose state ${state} not removed: ${error.message}`);
+    }
   }
 });

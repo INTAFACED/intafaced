@@ -25,7 +25,7 @@ for (const appEnv of ['staging', 'prod', 'production', 'Dev', '', undefined]) {
     assert.deepEqual(w.calls, []);
     const shown = appEnv === undefined || appEnv === '' ? 'not set' : `"${appEnv}"`;
     assert.deepEqual(w.lines, [
-      `refusing: APP_ENV is ${shown}; the tester seed runs only when it is exactly "dev" or "test", and seeded nothing.`,
+      `refusing [seed.app_env_not_local]: APP_ENV is ${shown}; the tester seed runs only when it is exactly "dev" or "test", and seeded nothing.`,
     ]);
   });
 }

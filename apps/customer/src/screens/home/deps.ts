@@ -34,5 +34,7 @@ export { isHiddenPath } from '../../app/feature-registry';
 export { coinHref, defaultDeskPair } from '../../app/navigation';
 
 // The inbox's own row and read, so Home shows the newest notification exactly as Notifications does.
+import '../notifications/notifications.css';
 export { NotificationRow } from '../notifications/NotificationRow';
 export { useInboxView } from '../notifications/use-notifications';
+export type { Notification } from '../notifications/notify-api';
