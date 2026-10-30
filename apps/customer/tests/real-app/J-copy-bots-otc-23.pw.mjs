@@ -791,7 +791,10 @@ async function averageOf(who, algoId) {
     await api(who)
   ).get(`/api/trade/trpc/algo.result?input=${encodeURIComponent(JSON.stringify({ algoId }))}`);
   expect(status, JSON.stringify(body).slice(0, 300)).toBe(200);
-  return body.result.data.quotes.find((q) => q.averageFillPrice !== null)?.averageFillPrice ?? null;
+  // One quote asset per schedule here: a second priced quote would make "the" average ambiguous.
+  const priced = body.result.data.quotes.filter((q) => q.averageFillPrice !== null);
+  expect(priced.length).toBeLessThanOrEqual(1);
+  return priced[0]?.averageFillPrice ?? null;
 }
 
 /** A pause or resume sent straight to the service: its typed refusal code, or null when it was accepted. */
@@ -885,12 +888,16 @@ test(`${J} #8 opens the algo list and blotter and cancels with one child failing
         parent.kind === 'chase' ? `${progress.childrenEmitted}` : `${progress.childrenEmitted} / ${progress.slicesPlanned}`,
       );
       expect(await text('Misses')).toBe(String(progress.missesRecorded));
-      expect(await text('Status')).toContain(STATUS_WORD[progress.status]);
+      // The status word, and the partial-misses badge exactly when the service's counts call for it.
+      const partial = progress.missesRecorded > 0 && progress.childrenEmitted < parent.slicesPlanned;
+      expect((await text('Status')).replace(/\s+/g, ' ')).toBe(
+        partial ? `${STATUS_WORD[progress.status]} Partial: ${progress.missesRecorded} misses` : STATUS_WORD[progress.status],
+      );
       const next = await text('Next slice');
       // A schedule that is not running has no next slice: the cell draws its blank as a dash.
       if (progress.status !== 'active') expect(next).toBe('—');
       else if (parent.awaitingTrigger) expect(next).toBe('After the trigger price is reached');
-      else expect(next).not.toBe('');
+      else expect(next).not.toMatch(/^(—)?$/);
     }).toPass({ timeout: 30_000 });
   }
   // The awaiting-trigger branch above ran: #3's schedule is listed and still waiting.
@@ -990,6 +997,8 @@ test(`${J} #8 opens the algo list and blotter and cancels with one child failing
     for (const row of await bodyRows(blotter).all()) await expect(row).toContainText(ran.symbol);
     await tabs.getByRole('tab', { name: 'Algo orders', exact: true }).click();
 
+    // Funds before the failed cancel: it must neither release nor move anything.
+    const fundsBefore = await (await api(trader)).balances();
     // Marked first, so a stop that times out after its signal still brings the engine back.
     stopped = true;
     stack('stop', 'matching');
@@ -1009,9 +1018,15 @@ test(`${J} #8 opens the algo list and blotter and cancels with one child failing
       timeout: 15_000,
     });
 
-    // The room offers neither halt (pause) nor resume.
+    // The room offers neither halt (pause) nor resume, and says why. Cancel stays on, so the off buttons come from the
+    // cancel-incomplete block, not from a request still in flight. The row reads Paused.
     await expect(list.getByRole('button', { name: `Pause ${id}` })).toBeDisabled();
     await expect(list.getByRole('button', { name: `Resume ${id}` })).toBeDisabled();
+    await expect(list.getByRole('button', { name: `Cancel ${id}` })).toBeEnabled();
+    await expect(rowOf(id)).toContainText(
+      'Pause and Resume are off: the last cancel did not finish and some child orders may still be open. Cancel again first.',
+    );
+    await expect(cellOf(id, 'Status')).toHaveText(STATUS_WORD.paused);
 
     // Edge refuses every trade write while it cannot read the venue halt, so the service's own refusals are read once
     // the engine is back. The schedule stays parked until it is cancelled again: halt and resume are refused, and the
@@ -1025,6 +1040,12 @@ test(`${J} #8 opens the algo list and blotter and cancels with one child failing
     expect(await parentOf(trader, id)).toEqual(parked);
     expect(parked.children.map((c) => c.orderId)).toEqual([child]);
     expect((await openOrders(trader, UNQUOTED)).map((o) => o.id)).toContain(child);
+    // Nothing was released or moved by the failed cancel: the child still holds what it held.
+    const fundsAfter = await (await api(trader)).balances();
+    for (const asset of ['USDC', 'IFC']) {
+      expect(held(fundsAfter, asset)).toBe(held(fundsBefore, asset));
+      expect(free(fundsAfter, asset)).toBe(free(fundsBefore, asset));
+    }
 
     // Cancelling again finishes: the schedule is cancelled, its child is no longer open, and its row reads Cancelled.
     await expect.poll(async () => actionCode(trader, 'cancel', id), { timeout: 60_000, intervals: [2_000] }).toBeNull();

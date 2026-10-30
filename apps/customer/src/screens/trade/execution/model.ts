@@ -53,11 +53,6 @@ export const matchesPrefix = (clientOrderId: string | null | undefined, prefix: 
 export const ICEBERG_TAG = 'ice-';
 export const icebergClientId = (nonce: string): string => `${ICEBERG_TAG}${nonce}`;
 export const isScaledId = (clientOrderId: string | null | undefined): boolean => matchesPrefix(clientOrderId, SCALED_TAG);
-/** The schedule an algo child belongs to, read from the client order id the service gives it (`algo:<parentId>:<slice>`). */
-export function algoParentOf(clientOrderId: string | null | undefined): string | null {
-  const found = /^algo:(.+):\d+$/.exec(clientOrderId ?? '');
-  return found ? found[1]! : null;
-}
 /** `scl-<nonce>-` of an id placed by this room, or null for any other id. */
 export function scaledGroupOf(clientOrderId: string | null | undefined): string | null {
   const found = /^(scl-[A-Za-z0-9]+-)\d+$/.exec(clientOrderId ?? '');
