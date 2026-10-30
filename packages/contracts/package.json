@@ -214,6 +214,10 @@
       "types": "./dist/agents-own.d.ts",
       "default": "./dist/agents-own.js"
     },
+    "./agents-usage-limits": {
+      "types": "./dist/agents-usage-limits.d.ts",
+      "default": "./dist/agents-usage-limits.js"
+    },
     "./p2p-delist": {
       "types": "./dist/p2p-delist.d.ts",
       "default": "./dist/p2p-delist.js"

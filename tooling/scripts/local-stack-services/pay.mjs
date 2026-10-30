@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import fs from 'node:fs';
 import path from 'node:path';
 
 export default ({ c, secrets, dbUrl, urlOf, PORTS, STATE }) => ({
@@ -82,5 +83,9 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, STATE }) => ({
     // (local-test-rail-records.mjs reads them), so rail crypto-native is reconciled in the chain's words, never the ledger's.
     // svc-pay refuses this outside APP_ENV dev or test, or over any chain but the sandbox one.
     PAY_TEST_RAIL_RECORDS_DIR: path.join(STATE, 'test-rail-records'),
+    // LOCAL TEST developer sandbox settings (J-developer-02 #5, #8), never an owner decision: blank, so Fund and Reset
+    // refuse by name (#4), until `local-test-gates.mjs sandbox-funds set` writes this marker and restarts pay. The
+    // sandbox store holds TEST figures only and never reaches the ledger.
+    ...(fs.existsSync(path.join(STATE, 'sandbox-funds.json')) ? { PAY_SANDBOX_FUND_AMOUNT: '1000', PAY_SANDBOX_RESETS_PER_DAY: '3' } : {}),
   }),
 });
