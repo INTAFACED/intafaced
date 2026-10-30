@@ -33,7 +33,9 @@ import { distributeYield, splitBuyback, type BuybackParams } from './economics/b
 import { cumulativeEmission, epochReward, type EmissionParams } from './economics/emission.js';
 import { withMoneySpan } from './tracing.js';
 import {
+  BALLOT_BPS,
   BallotError,
+  MAX_CHOICES,
   assertVotingType,
   normalizeChoices,
   parseStoredBallot,
@@ -3417,12 +3419,29 @@ function storedVoteHistoryType(value: string): VotingType {
   }
 }
 
+/** A stored ballot inside the bounds the wire shows (whole choice indexes, 1 to 10 000 bps); anything else is unreadable. */
 function storedVoteHistoryBallot(raw: unknown): Ballot | null {
+  let ballot: Ballot | null;
   try {
-    return parseStoredBallot(raw);
+    ballot = parseStoredBallot(raw);
   } catch {
     throw voteHistoryUnreadable();
   }
+  const index = (n: number) => Number.isInteger(n) && n >= 0 && n < MAX_CHOICES;
+  if (ballot === null || ballot.kind === 'abstain') return ballot;
+  if (ballot.kind === 'pick') {
+    if (ballot.choices.length < 1 || ballot.choices.length > MAX_CHOICES || !ballot.choices.every(index)) throw voteHistoryUnreadable();
+    return { kind: 'pick', choices: [...ballot.choices] };
+  }
+  if (
+    ballot.parts.length < 1 ||
+    ballot.parts.length > MAX_CHOICES ||
+    !ballot.parts.every((part) => index(part.choice) && Number.isInteger(part.bps) && part.bps >= 1 && part.bps <= BALLOT_BPS)
+  ) {
+    throw voteHistoryUnreadable();
+  }
+  // Only the two wire keys, so a stored extra key cannot fail the strict output check.
+  return { kind: 'split', parts: ballot.parts.map((part) => ({ choice: part.choice, bps: part.bps })) };
 }
 
 function asBallotError<T>(fn: () => T): T {

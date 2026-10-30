@@ -394,15 +394,25 @@ describe('token owner reads', () => {
       VALUES (${id}, 'fee_param', ${sql.json({ title: 'TEST unreadable' })}, 'open', '2026-06-01T00:00:00Z', '2026-07-01T00:00:00Z',
               'approval', ${sql.json(['A', 'B'])})
     `;
-    await sql`
-      INSERT INTO token.governance_votes (id, proposal_id, user_id, weight, choice, ballot, cast_at)
-      VALUES (${crypto.randomUUID()}, ${id}, ${USER_A}, '3'::numeric, NULL, ${sql.json({ kind: 'pick', choices: 'A' })}, now())
-    `;
-    await expect(createTokenRouter(token).createCaller(signedReader(USER_A)).myVotes({ limit: 10 })).rejects.toMatchObject({
-      code: 'PRECONDITION_FAILED',
-      message: 'A vote recorded by this service could not be read.',
-      cause: { code: 'token.vote_history_unreadable' },
-    });
+    // Not a list, an empty pick, a choice index out of range, and a part with zero basis points.
+    const unreadable = [
+      { kind: 'pick', choices: 'A' },
+      { kind: 'pick', choices: [] },
+      { kind: 'pick', choices: [20] },
+      { kind: 'split', parts: [{ choice: 0, bps: 0 }] },
+    ];
+    for (const ballot of unreadable) {
+      await sql`TRUNCATE token.governance_votes`;
+      await sql`
+        INSERT INTO token.governance_votes (id, proposal_id, user_id, weight, choice, ballot, cast_at)
+        VALUES (${crypto.randomUUID()}, ${id}, ${USER_A}, '3'::numeric, NULL, ${sql.json(ballot)}, now())
+      `;
+      await expect(createTokenRouter(token).createCaller(signedReader(USER_A)).myVotes({ limit: 10 })).rejects.toMatchObject({
+        code: 'PRECONDITION_FAILED',
+        message: 'A vote recorded by this service could not be read.',
+        cause: { code: 'token.vote_history_unreadable' },
+      });
+    }
   });
 
   it('returns blank emission parameters as null and projects epochs with epochReward without writing a row', async () => {
