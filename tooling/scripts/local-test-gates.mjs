@@ -423,6 +423,47 @@ export function ageAccount(secrets, handle, seconds) {
   return rows[0][0];
 }
 
+const COPY_REWIND_FOLLOW_ID = /^[A-Za-z0-9_.:-]{1,128}$/;
+const COPY_REWIND_FILL_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+
+/**
+ * LOCAL TEST: the one statement that moves a follow's copy cursor back to just before a named leader fill, so the copy
+ * driver's next sweep tries that fill again (J-copy-bots-otc-03 #5: a skipped fill tried again is logged once). The
+ * cursor becomes the leader's fill ordered just before it, by the driver's own order (fill time at millisecond
+ * precision, then id), or that millisecond with no fill when none is. Only a follow of that fill's leader moves.
+ */
+export function copyCursorRewindSql(followId, fillId) {
+  const fill = String(fillId ?? '').toLowerCase();
+  if (!COPY_REWIND_FOLLOW_ID.test(followId ?? '') || !COPY_REWIND_FILL_ID.test(fill))
+    throw new Error('usage: local-test-gates.mjs copy-rewind <followId> <leaderFillId>');
+  return `WITH f AS (SELECT id, user_id::text AS leader, date_trunc('milliseconds', created_at) AS at
+                FROM trade.fills WHERE id = '${fill}'::uuid),
+       prev AS (SELECT max(p.id::text) AS id FROM trade.fills p, f
+                 WHERE p.user_id::text = f.leader AND date_trunc('milliseconds', p.created_at) = f.at AND p.id::text < f.id::text)
+  UPDATE trade.copy_follows c SET copy_cursor_at = f.at, copy_cursor_fill = prev.id
+    FROM f, prev
+   WHERE c.follow_id = '${followId}' AND c.leader_id = f.leader
+  RETURNING c.follow_id, c.copy_cursor_at::text, coalesce(c.copy_cursor_fill, '')`;
+}
+
+/** Runs copyCursorRewindSql for a follow whose follower is a LOCAL TEST journey account; anything else is refused. */
+export function rewindCopyCursor(secrets, followId, fillId) {
+  const sql = copyCursorRewindSql(followId, fillId);
+  const [follower] = psqlRead(secrets, 'svc_trade', `SELECT follower_id FROM trade.copy_follows WHERE follow_id = '${followId}'`);
+  if (!follower) throw new Error(`no copy follow ${followId}`);
+  if (!/^[0-9a-f-]{36}$/i.test(follower[0])) throw new Error(`copy follow ${followId} has no account id`);
+  const [account] = psqlRead(
+    secrets,
+    'svc_identity',
+    `SELECT handle::text FROM identity.users WHERE id = '${follower[0]}'::uuid AND email LIKE '%@local-test.invalid'`,
+  );
+  if (!account) throw new Error(`copy-rewind refuses ${followId}: its follower is not a LOCAL TEST journey account`);
+  const rows = psqlRead(secrets, 'svc_trade', sql);
+  if (rows.length !== 1) throw new Error(`copy-rewind: fill ${fillId} is not a fill of follow ${followId}'s leader`);
+  const [, at, fill] = rows[0];
+  return { followId, handle: account[0], cursorAt: at, cursorFill: fill || null };
+}
+
 export function pendingKycCount(secrets) {
   return Number(psqlRead(secrets, 'svc_identity', `SELECT count(*) FROM identity.kyc_records WHERE status = 'pending'`)[0][0]);
 }
@@ -2917,6 +2958,9 @@ async function main() {
         say(`  limits    ${r.symbol.padEnd(10)} ${r.changed ? `version ${r.version}` : 'already published'}`);
     } else if (cmd === 'charts') {
       sayCharts(await publishCharts(ctx));
+    } else if (cmd === 'copy-rewind') {
+      const r = rewindCopyCursor(ctx.secrets, process.argv[3], process.argv[4]);
+      say(`  copy      ${r.followId} (${r.handle}) cursor now ${r.cursorAt} ${r.cursorFill ?? '(no fill)'} (LOCAL TEST)`);
     } else if (cmd === 'chart-class') {
       // chart-class <SYMBOL> <dataClass>: one market's data class on the local stack, through the same two-person approval.
       const [symbol, dataClass] = process.argv.slice(3);

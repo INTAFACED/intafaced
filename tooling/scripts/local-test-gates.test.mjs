@@ -20,6 +20,7 @@ import {
   makeContext,
   matchingPayloadHash,
   bankPayloadHash,
+  copyCursorRewindSql,
   fraudListingFields,
   SET_FRAUD_LISTING_ACTION,
   TEST_FRAUD_LIST,
@@ -665,6 +666,25 @@ for (const args of [['posting-freeze'], ['posting-freeze', 'maybe']]) {
     'a misspelt scope never passes as left out',
   );
 }
+// copy-rewind moves only the named follow of the fill's leader, to just before that fill; anything else is refused.
+{
+  const fill = '0b9f2c1e-4a5d-4e6f-8a7b-9c0d1e2f3a4b';
+  const sql = copyCursorRewindSql('follow-1', fill.toUpperCase());
+  assert.ok(sql.includes(`WHERE id = '${fill}'::uuid`), 'the fill id is matched lowercased');
+  assert.ok(sql.includes("c.follow_id = 'follow-1' AND c.leader_id = f.leader"), "only that follow, and only of the fill's leader");
+  assert.ok(sql.includes("date_trunc('milliseconds', created_at)"), "the driver's own millisecond order");
+  assert.ok(sql.includes('p.id::text < f.id::text'), 'the cursor lands just before the fill, so the fill is tried again');
+  for (const [followId, fillId] of [
+    ["x'; DROP TABLE trade.copy_follows; --", fill],
+    ['follow-1', "0b9f2c1e-4a5d-4e6f-8a7b-9c0d1e2f3a4b' OR '1'='1"],
+    ['follow-1', 'not-a-fill'],
+    ['', fill],
+    [undefined, undefined],
+  ]) {
+    assert.throws(() => copyCursorRewindSql(followId, fillId), /usage: local-test-gates.mjs copy-rewind/);
+  }
+}
+
 // The sealed cookie opens only as the console opens it: same key, same cookie name and origin in the AAD.
 {
   const key = Buffer.alloc(32, 7);
