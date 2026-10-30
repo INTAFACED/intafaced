@@ -3,6 +3,7 @@ import { formatAsOf } from '@intafaced/ui';
 import {
   PRICE_SETTINGS_UNSET,
   type ProtocolPoolQuote,
+  type ProtocolRouteOptions,
   type ProtocolSwapPool,
   type ProtocolSwapToken,
 } from '@intafaced/contracts/protocol-swap';
@@ -22,6 +23,7 @@ import { swapCopy } from './copy';
 import { keepMode, readMode, type SwapMode } from './mode';
 import { chosenFee, feeFields, toGwei, type FeeChoice } from './fee';
 import { feeRefusal, NetworkFee } from './NetworkFee';
+import { RouteOptions } from './RouteOptions';
 import { bpsToPercent, formatUnits, formatUsd, minimumOut, percentToBps, poolsFor, receivedIn } from './swap-math';
 
 type Quote = { pool: ProtocolSwapPool; quote: ProtocolPoolQuote; amountIn: bigint; readAt: number };
@@ -87,6 +89,9 @@ export function SwapForm() {
   const [track, setTrack] = useState<Track | null>(null);
   const [feeChoice, setFeeChoice] = useState<FeeChoice>('normal');
   const [customFee, setCustomFee] = useState('');
+  const [routes, setRoutes] = useState<ProtocolRouteOptions | null>(null);
+  const [routesOpen, setRoutesOpen] = useState(false);
+  const [excluded, setExcluded] = useState<string[]>([]);
   const ids = { pay: useId(), receive: useId(), note: useId() };
 
   const tokenIn = tokens.find((token) => token.address.toLowerCase() === tokenInAddress.toLowerCase()) ?? null;
@@ -95,29 +100,37 @@ export function SwapForm() {
   const candidates = tokenIn && tokenOut ? poolsFor(pools, tokenIn.address, tokenOut.address) : [];
   const candidateKey = candidates.map((pool) => pool.pool).join(',');
 
-  // Quote: every pool for the pair, read now; the most received wins. A new input or a refresh reads again.
+  // Quote: the service ranks every pool for the pair at one block (amm.routes); the best usable leg is then quoted.
+  // In Manual the pools the person excluded are left out; a stale or empty pool is never used. A new input or a
+  // refresh reads again.
+  const exclude = mode === 'manual' ? excluded : [];
+  const excludeKey = exclude.join(',');
   useEffect(() => {
     setQuote(null);
     setQuoteProblem(null);
+    setRoutes(null);
     if (!tokenIn || !tokenOut || amountIn === null || candidates.length === 0) return;
     const controller = new AbortController();
-    void Promise.all(
-      candidates.map(async (pool) => ({
-        pool,
-        result: await api.poolQuote({ pool: pool.pool, tokenIn: tokenIn.address, amountIn: amountIn.toString() }, controller.signal),
-      })),
-    ).then((answers) => {
+    const input = { tokenIn: tokenIn.address, tokenOut: tokenOut.address, amountIn: amountIn.toString() };
+    void (async () => {
+      const ranked = await api.routes({ ...input, exclude }, controller.signal);
       if (controller.signal.aborted) return;
-      const quoted = answers.flatMap((answer) => (answer.result.ok ? [{ pool: answer.pool, quote: answer.result.data }] : []));
-      if (quoted.length === 0) return setQuoteProblem(t('quoteRefused'));
-      const best = quoted.reduce((a, b) => (BigInt(b.quote.amountOut) > BigInt(a.quote.amountOut) ? b : a));
+      if (!ranked.ok) return setQuoteProblem(t('quoteRefused'));
+      setRoutes(ranked.data);
+      const best = ranked.data.legs.find((leg) => leg.status === 'best');
+      const pool = best ? candidates.find((candidate) => candidate.pool.toLowerCase() === best.pool.toLowerCase()) : undefined;
+      if (!best) return setQuoteProblem(t('routeNone'));
+      if (!pool) return setQuoteProblem(t('quoteRefused'));
+      const read = await api.poolQuote({ pool: pool.pool, tokenIn: input.tokenIn, amountIn: input.amountIn }, controller.signal);
+      if (controller.signal.aborted) return;
+      if (!read.ok) return setQuoteProblem(t('quoteRefused'));
       setNow(Date.now());
-      setQuote({ ...best, amountIn, readAt: Date.now() });
-    });
+      setQuote({ pool, quote: read.data, amountIn, readAt: Date.now() });
+    })();
     return () => controller.abort();
     // The inputs are named by their values; the objects are rebuilt each render.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [api, tokenIn?.address, tokenOut?.address, amountIn?.toString(), candidateKey, refresh]);
+  }, [api, tokenIn?.address, tokenOut?.address, amountIn?.toString(), candidateKey, excludeKey, refresh]);
 
   const expiresAt = quote && setting ? quote.readAt + setting.quoteTtlSeconds * 1000 : null;
   const expired = expiresAt !== null && now >= expiresAt;
@@ -476,9 +489,25 @@ export function SwapForm() {
                 autoComplete="off"
                 onChange={(event) => setSlippage(event.target.value)}
               />
-              <Button variant="secondary" disabled aria-disabled="true" title={t('routeNeedsQuote')}>
+              <Button
+                variant="secondary"
+                disabled={!routes}
+                aria-expanded={routesOpen}
+                title={routes ? undefined : t('routeNeedsQuote')}
+                onClick={() => setRoutesOpen((open) => !open)}
+              >
                 {t('routeOptions')}
               </Button>
+              {routesOpen && routes && tokenOut && (
+                <RouteOptions
+                  routes={routes}
+                  tokenOut={tokenOut}
+                  excluded={excluded}
+                  onExclude={(pool, out) =>
+                    setExcluded((now) => (out ? [...now.filter((item) => item !== pool), pool] : now.filter((item) => item !== pool)))
+                  }
+                />
+              )}
             </>
           )}
           {overCeiling && setting && <p role="alert">{t('slippageOver', { ceiling: bpsToPercent(setting.slippageCeilingBps) })}</p>}

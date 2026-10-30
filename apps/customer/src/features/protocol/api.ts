@@ -22,6 +22,7 @@ import {
   protocolAllowancesOutputSchema,
   protocolApprovalCheckOutputSchema,
   protocolPoolQuoteOutputSchema,
+  protocolRouteOptionsOutputSchema,
   protocolSwapFeesOutputSchema,
   protocolSwapPairsOutputSchema,
   protocolSwapSettingsOutputSchema,
@@ -116,6 +117,9 @@ export function createProtocolApi(api: ApiClient) {
     /** A quote from one pool's reserves as read now. `amountIn` in base units. */
     poolQuote: (input: { pool: string; tokenIn: string; amountIn: string }, signal?: AbortSignal) =>
       api.query('protocol', 'amm.quoteFromPool', input, protocolPoolQuoteOutputSchema, { signal }),
+    /** Every factory pool for the pair ranked for this amount at one block, best first, with why each other leg lost. */
+    routes: (input: { tokenIn: string; tokenOut: string; amountIn: string; exclude: readonly string[] }, signal?: AbortSignal) =>
+      api.query('protocol', 'amm.routes', input, protocolRouteOptionsOutputSchema, { signal }),
     /** Whether `spender` may already move `amount` of `token` for `owner`, and the exact-amount calls that fix it. */
     checkApproval: (input: { owner: string; token: string; spender: string; amount: string }, signal?: AbortSignal) =>
       api.query('protocol', 'amm.checkApproval', input, protocolApprovalCheckOutputSchema, { signal }),

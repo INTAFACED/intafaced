@@ -27,6 +27,7 @@ import {
   TRPCError,
   type BlockerSource,
   protocolSwapPairsOutputSchema,
+  protocolRouteOptionsOutputSchema,
   protocolTokenPricesOutputSchema,
   PRICE_SETTINGS_UNSET,
   protocolSwapSettingsOutputSchema,
@@ -56,6 +57,7 @@ import { AmmMathError } from './amm/math.js';
 import { freshPoolQuote, PoolTokenError } from './amm/pool-quote.js';
 import { pairsReader } from './amm/pairs.js';
 import { listAllowances } from './amm/allowances.js';
+import { routeOptions } from './amm/routes.js';
 import { feeLevels, requireFeeCapWei, SwapFeeError } from './amm/fee-levels.js';
 import { priceTokens, type PriceSetting } from './amm/prices.js';
 import { createTokensRouter } from './amm/tokens-router.js';
@@ -1404,6 +1406,43 @@ export function createProtocolRouter(deps: ProtocolRouterDeps) {
             });
           try {
             return await listAllowances(chain, await readPairs(factory), input.owner as Address);
+          } catch (err) {
+            throw toTrpcError(err);
+          }
+        }),
+
+      /**
+       * Route options (J-dex-protocol-02 #4): every factory pool for the pair, ranked for `amountIn` at one block, best
+       * first; a lost leg says how much less it gives, an excluded one keeps its place, an unsynced pool reads
+       * `unavailable: stale` and is never quoted or dropped. The pool venue only (D-swap-05's books, hops and splits are
+       * svc-dex's).
+       */
+      routes: publicJurisdictionProcedure('protocol', 'protocol')
+        .input(
+          z.object({
+            tokenIn: addressSchema,
+            tokenOut: addressSchema,
+            amountIn: z.string().regex(/^[1-9][0-9]{0,77}$/),
+            exclude: z.array(addressSchema).max(200).default([]),
+          }),
+        )
+        .output(protocolRouteOptionsOutputSchema)
+        .query(async ({ input }) => {
+          const factory = deps.ammFactoryAddress();
+          if (isZeroAddress(factory))
+            throw new TRPCError({
+              code: 'PRECONDITION_FAILED',
+              message: 'protocol.amm_factory_unset: AMM factory is not configured (PROTOCOL_AMM_FACTORY_ADDRESS).',
+            });
+          if (input.tokenIn.toLowerCase() === input.tokenOut.toLowerCase())
+            throw new TRPCError({ code: 'BAD_REQUEST', message: 'protocol.route_same_token: pay and receive name the same token.' });
+          try {
+            return await routeOptions(chain, await readPairs(factory), {
+              tokenIn: input.tokenIn as Address,
+              tokenOut: input.tokenOut as Address,
+              amountIn: BigInt(input.amountIn),
+              exclude: input.exclude,
+            });
           } catch (err) {
             throw toTrpcError(err);
           }

@@ -121,6 +121,7 @@ test(`${J} #4 opens the route options and excludes the better pool: legs listed 
   page,
 }) => {
   await openSwap(page);
+  await chooseManual(page);
   await tokenIn(page).selectOption({ label: 'TEST Token A' }, UNBUILT);
   await quoteAB(page);
   await swap(page).getByRole('button', { name: 'Route options' }).click();
