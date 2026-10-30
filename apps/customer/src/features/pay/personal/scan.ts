@@ -3,8 +3,8 @@ import { parseRequestLink, requestPath } from './personal-model';
 
 /**
  * Scan to pay (PP-send-request-11): read a QR code from the camera or from an image, and open the pay target it
- * names. Only this app's own `/pay/send` links count; Send then asks identity who a signed code pays, so a forged
- * code is refused there (`identity.qr_invalid`), never here.
+ * names. Only a full link to this app's own `/pay/send` counts. Send opens filled in for the payer to check, as the
+ * link itself would: a signed code is asked of identity there, so a forged one is refused (`identity.qr_invalid`).
  */
 
 /** Why a scan opened nothing. Each one is shown with its own words and this code. */
@@ -25,6 +25,12 @@ const READ_SIDE = 1600;
 
 /** The Send path a scanned text opens, or `scan.not_pay_code` when it is not one of this app's pay links. */
 export function payTarget(text: string, origin: string): string {
+  // A bare path is not a link to this app: only a full URL on this origin opens anything.
+  try {
+    new URL(text.trim());
+  } catch {
+    throw new ScanError('scan.not_pay_code');
+  }
   const request = parseRequestLink(text, origin);
   if (!request) throw new ScanError('scan.not_pay_code');
   return requestPath(request);
@@ -37,6 +43,8 @@ type DetectorClass = {
 };
 
 let detector: Promise<Detector | null> | null = null;
+/** One canvas for every read, so a camera read four times a second allocates nothing new. */
+let canvas: HTMLCanvasElement | null = null;
 
 /** The browser's own barcode reader when it reads QR codes, else null (jsQR reads the pixels instead). */
 function browserDetector(): Promise<Detector | null> {
@@ -66,9 +74,9 @@ export async function readCode(source: CanvasImageSource, width: number, height:
   const scale = Math.min(1, READ_SIDE / Math.max(width, height));
   const w = Math.max(1, Math.round(width * scale));
   const h = Math.max(1, Math.round(height * scale));
-  const canvas = document.createElement('canvas');
-  canvas.width = w;
-  canvas.height = h;
+  canvas ??= document.createElement('canvas');
+  if (canvas.width !== w) canvas.width = w;
+  if (canvas.height !== h) canvas.height = h;
   const context = canvas.getContext('2d', { willReadFrequently: true });
   if (!context) return null;
   context.drawImage(source, 0, 0, w, h);
@@ -76,9 +84,13 @@ export async function readCode(source: CanvasImageSource, width: number, height:
   return jsQR(data, w, h)?.data ?? null;
 }
 
-/** The pay target in an image file: refused when it is not an image, too large, unreadable or not a pay code. */
+/**
+ * The pay target in an image file: refused when it is not an image, too large, unreadable or not a pay code. The size
+ * cap bounds the decode: the image is decoded once at its own size, as the browser does to show it.
+ */
 export async function scanImage(file: Blob, origin: string): Promise<string> {
-  if (!file.type.startsWith('image/')) throw new ScanError('scan.not_image');
+  // Some browsers give a photo no type at all; that one is decoded, and refused as unreadable when it is not an image.
+  if (file.type !== '' && !file.type.startsWith('image/')) throw new ScanError('scan.not_image');
   if (file.size > IMAGE_MAX_BYTES) throw new ScanError('scan.image_too_large');
   let bitmap: ImageBitmap;
   try {

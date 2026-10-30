@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore, type ChangeEvent, type ReactNode } from 'react';
-import { navigate } from '../../../../app/location';
 import { Button, StateBlock } from '@intafaced/ui';
+import { navigate } from '../../../../app/location';
 import { createActivityFeed, fmtAmount, refusalCopy } from '../../../../data';
 import { usePreferences } from '../../../../shared/preferences';
 import { stamp } from '../../../../screens/money/time';
@@ -339,14 +339,6 @@ function ScanRoom({ slice }: { slice: string }) {
   const [camera, setCamera] = useState(false);
   const video = useRef<HTMLVideoElement>(null);
 
-  const open = (text: string) => {
-    try {
-      navigate(payTarget(text, window.location.origin));
-    } catch (err) {
-      setRefusal(err instanceof ScanError ? err.code : 'scan.not_pay_code');
-    }
-  };
-
   const picked = async (event: ChangeEvent<HTMLInputElement>) => {
     const input = event.currentTarget;
     const file = input.files?.[0];
@@ -369,38 +361,49 @@ function ScanRoom({ slice }: { slice: string }) {
     if (!camera) return;
     let stream: MediaStream | null = null;
     let stopped = false;
+    const refuse = (code: ScanRefusal) => {
+      if (stopped) return;
+      setCamera(false);
+      setRefusal(code);
+    };
     void (async () => {
+      if (typeof navigator.mediaDevices?.getUserMedia !== 'function') return refuse('scan.camera_unavailable');
+      let opened: MediaStream;
       try {
-        if (typeof navigator.mediaDevices?.getUserMedia !== 'function') throw new Error('no camera');
-        const opened = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' }, audio: false });
-        stream = opened;
-        // Stopped while the browser was still asking: release the camera it just gave.
-        if (stopped || !video.current) return opened.getTracks().forEach((track) => track.stop());
+        opened = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' }, audio: false });
+      } catch (err) {
+        return refuse(cameraRefusal(err));
+      }
+      stream = opened;
+      // Stopped while the browser was still asking: release the camera it just gave.
+      if (stopped || !video.current) return opened.getTracks().forEach((track) => track.stop());
+      try {
         video.current.srcObject = opened;
         await video.current.play();
-        while (!stopped && video.current) {
-          const frame = video.current;
-          const text = frame.videoWidth > 0 ? await readCode(frame, frame.videoWidth, frame.videoHeight) : null;
-          if (stopped) return;
-          if (text) {
-            setCamera(false);
-            open(text);
-            return;
-          }
-          await new Promise((resolve) => setTimeout(resolve, FRAME_MS));
-        }
-      } catch (err) {
+      } catch {
+        return refuse('scan.camera_unavailable');
+      }
+      let last = '';
+      while (!stopped && video.current) {
+        const frame = video.current;
+        const text = frame.videoWidth > 0 ? await readCode(frame, frame.videoWidth, frame.videoHeight).catch(() => null) : null;
         if (stopped) return;
-        setCamera(false);
-        setRefusal(cameraRefusal(err));
+        if (text && text !== last) {
+          last = text;
+          try {
+            return navigate(payTarget(text, window.location.origin));
+          } catch {
+            // Another code in view: say so and keep looking for a pay code.
+            setRefusal('scan.not_pay_code');
+          }
+        }
+        await new Promise((resolve) => setTimeout(resolve, FRAME_MS));
       }
     })();
     return () => {
       stopped = true;
       stream?.getTracks().forEach((track) => track.stop());
     };
-    // `open` only reads the current origin and navigates, so the camera loop needs no newer copy of it.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [camera]);
 
   return (
@@ -413,7 +416,7 @@ function ScanRoom({ slice }: { slice: string }) {
           disabled={reading}
           onClick={() => {
             setRefusal(null);
-            setCamera(!camera);
+            setCamera((on) => !on);
           }}
         >
           {camera ? t('scanCameraStop') : t('scanCamera')}

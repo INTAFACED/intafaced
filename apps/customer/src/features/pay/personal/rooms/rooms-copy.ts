@@ -138,7 +138,7 @@ const en = {
   'scan.unreadable': 'No QR code could be read in that image. Try a sharper photo with the whole code in view.',
   'scan.not_pay_code': 'That QR code is not a payment code from this app, so nothing was opened.',
   scanReason:
-    "A person's pay code opens Send with them filled in, from the camera or an image. A shop or in-store code is not read here, so it opens nothing.",
+    'A payment code or link from this app opens Send, filled in for you to check, from the camera or an image. A shop or in-store code is not read here, so it opens nothing.',
   // Payment link
   linkTitle: 'Payment link',
   linkLine: 'A link someone sent you to pay.',

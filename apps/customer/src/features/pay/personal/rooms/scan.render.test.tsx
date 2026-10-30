@@ -71,7 +71,14 @@ describe('scan to pay: what a code opens', () => {
   it("opens Send on this app's own pay link and on nothing else", () => {
     const origin = 'https://app.example';
     expect(payTarget(`${origin}/pay/send?to=%40ada&qr=${CODE}`, origin)).toBe(`/pay/send?to=ada&qr=${CODE}`);
-    for (const text of ['https://elsewhere.example/pay/send?to=%40ada', `${origin}/pay/receive`, 'hello', '']) {
+    for (const text of [
+      'https://elsewhere.example/pay/send?to=%40ada',
+      `${origin}/pay/receive`,
+      '/pay/send?to=%40ada',
+      'pay/send?to=%40ada',
+      'hello',
+      '',
+    ]) {
       expect(() => payTarget(text, origin), text).toThrow(ScanError);
     }
   });
@@ -91,6 +98,13 @@ describe('scan to pay: the room', () => {
     await choose(image());
     expect(location.pathname + location.search).toBe(`/pay/send?to=ada&qr=${CODE}`);
     expect(refused()).toBeNull();
+  });
+
+  it('reads a photo the browser gave no type', async () => {
+    await openScan();
+    seen.text = `${location.origin}/pay/send?to=%40ada`;
+    await choose(new File([new Uint8Array(8)], 'photo', { type: '' }));
+    expect(location.pathname + location.search).toBe('/pay/send?to=ada');
   });
 
   it.each([
