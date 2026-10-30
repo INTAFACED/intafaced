@@ -1,6 +1,6 @@
 import { createHash, createHmac, randomUUID } from 'node:crypto';
 import { test, expect } from '@playwright/test';
-import { EDGE, fund, json, journeyState, staffFreeze, staffRestore, tool } from './stack.mjs';
+import { EDGE, fund, json, journeyState, staffFreeze, staffRestore, toUnits, tool } from './stack.mjs';
 import { awayBid, signIn, signUp, verify } from './desk.mjs';
 import { PASSKEY_ORIGIN, addPasskey, virtualAuthenticator } from './identity-factors.mjs';
 import { tableIn } from './tables.mjs';
@@ -183,7 +183,7 @@ test(`${J} #3 sends a request with two invalid fields: one typed body listing bo
   // Funded, so "nothing held" compares a real balance: a refused order would have held USDT.
   expect(fund(who.email, 'USDT', '1000').tx).toBeTruthy();
   const before = await balance(trade);
-  expect(Number(before.balances?.USDT?.free), JSON.stringify(before)).toBeGreaterThanOrEqual(1000);
+  expect(toUnits(before.balances?.USDT?.free) >= toUnits('1000'), JSON.stringify(before)).toBe(true);
   const reply = await call('POST', '/api/v1/orders', {
     ...trade,
     body: { symbol: 'BTC/USDT', type: 'limit', side: 'sideways', amount: '-1', price: '1', clientOrderId },
