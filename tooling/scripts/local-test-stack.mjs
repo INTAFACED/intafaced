@@ -776,6 +776,57 @@ function sourceUnchangedSince(oldHead, head, paths = SOURCE_PATHS) {
   return r.status === 0;
 }
 
+/**
+ * A fingerprint of the uncommitted edits under `paths` in this checkout (changed, added and untracked files and their
+ * content), '' when there are none. A build made from a dirty tree vouches only for that same dirt.
+ */
+function worktreeEdits(paths) {
+  const status = spawnSync('git', ['status', '--porcelain=v1', '-z', '--untracked-files=all', '--', ...paths], { cwd: REPO });
+  if (status.status !== 0) return `unreadable:${Date.now()}`; // never "same as before"
+  if (status.stdout.length === 0) return '';
+  const diff = spawnSync('git', ['diff', 'HEAD', '--binary', '--', ...paths], { cwd: REPO, maxBuffer: 256 * 1024 * 1024 });
+  const hash = crypto
+    .createHash('sha256')
+    .update(status.stdout)
+    .update(diff.stdout ?? '');
+  for (const entry of status.stdout.toString('utf8').split('\0')) {
+    // Untracked files are in no diff: hash their bytes too.
+    if (entry.startsWith('?? ')) {
+      try {
+        hash.update(fs.readFileSync(path.join(REPO, entry.slice(3))));
+      } catch {
+        hash.update(`unreadable:${entry}`);
+      }
+    }
+  }
+  return hash.digest('hex');
+}
+
+/**
+ * Whether a build stamp still vouches for what is on disk: it was made by this checkout (every worktree shares one state
+ * folder), from source no commit has changed since, with the same uncommitted edits. An older stamp without the checkout
+ * or the edits vouches for nothing, so it builds once.
+ */
+export function buildStillFresh({ stampRepo, stampHead, stampEdits }, { repo, head, edits }, unchanged = sourceUnchangedSince) {
+  return stampRepo === repo && stampEdits === edits && unchanged(stampHead, head);
+}
+
+/** A new id for a build that ran, so a service started on an older build can tell. */
+const newBuildId = () => `${new Date().toISOString()}-${crypto.randomBytes(4).toString('hex')}`;
+
+/**
+ * Whether a running process was started on the build that is on disk now. `wanted` is the stamp's id for that part; a
+ * process recorded before builds had ids started on an unknown build.
+ */
+export function onCurrentBuild(rec, wanted) {
+  return !wanted || rec?.build === wanted;
+}
+
+/** The stamp's id for one part's last build (`backendBuild`, `adminBuild`), or undefined before any build had one. */
+function currentBuild(part) {
+  return fs.existsSync(P.buildStamp) ? readJson(P.buildStamp)[part] : undefined;
+}
+
 const distOf = (pkg) => path.join(REPO, 'services', pkg, 'dist', 'index.js');
 
 // ── Customer folder override (LOCAL_STACK_CUSTOMER_DIST) ────────────────────
@@ -892,10 +943,12 @@ function buildPlan(rebuild, act = activeCustomerDist()) {
   const override = act.source !== 'own';
   // Without an override, a stamp written while an override skipped the Customer build cannot vouch for our own dist.
   const customerOk = override ? !act.error : fs.existsSync(path.join(P.customerDist, 'index.html')) && stamp.customerBuilt !== false;
-  const fresh = !rebuild && sourceUnchangedSince(stamp.head, head);
+  const edits = worktreeEdits(SOURCE_PATHS);
+  const fresh =
+    !rebuild && buildStillFresh({ stampRepo: stamp.repo, stampHead: stamp.head, stampEdits: stamp.edits }, { repo: REPO, head, edits });
   const missing = BACKEND_PKGS.filter((s) => !fs.existsSync(distOf(s)));
   const backend = fresh && customerOk ? (missing.length === 0 ? 'none' : 'missing') : 'full';
-  return { head, stamp, override, missing, backend, customer: backend === 'full' && !override };
+  return { head, edits, stamp, override, missing, backend, customer: backend === 'full' && !override };
 }
 
 // The founder console has its own stamp, so a console-only change never rebuilds the services and the reverse.
@@ -904,11 +957,22 @@ const ADMIN_SOURCE_PATHS = ['apps/admin', 'packages', 'pnpm-lock.yaml'];
 function ensureAdminBuilt(rebuild) {
   const head = gitHead();
   const stamp = fs.existsSync(P.buildStamp) ? readJson(P.buildStamp) : {};
-  if (!rebuild && fs.existsSync(P.adminBuildId) && sourceUnchangedSince(stamp.adminHead, head, ADMIN_SOURCE_PATHS)) return;
+  const edits = worktreeEdits(ADMIN_SOURCE_PATHS);
+  const unchanged = (a, b) => sourceUnchangedSince(a, b, ADMIN_SOURCE_PATHS);
+  const now = { repo: REPO, head, edits };
+  if (
+    !rebuild &&
+    fs.existsSync(P.adminBuildId) &&
+    buildStillFresh({ stampRepo: stamp.adminRepo, stampHead: stamp.adminHead, stampEdits: stamp.adminEdits }, now, unchanged)
+  )
+    return;
   say('  build: founder console (apps/admin)…');
   runPnpm(['--filter', '@intafaced/admin...', 'build'], 'build-admin');
-  const now = fs.existsSync(P.buildStamp) ? readJson(P.buildStamp) : {};
-  writePrivate(P.buildStamp, JSON.stringify({ ...now, adminHead: head }, null, 2));
+  const after = fs.existsSync(P.buildStamp) ? readJson(P.buildStamp) : {};
+  writePrivate(
+    P.buildStamp,
+    JSON.stringify({ ...after, adminHead: head, adminRepo: REPO, adminEdits: edits, adminBuild: newBuildId() }, null, 2),
+  );
 }
 
 const INVITATION_SOURCE_PATHS = ['apps/invitation', 'packages', 'pnpm-lock.yaml'];
@@ -918,17 +982,20 @@ function ensureInvitationBuilt(rebuild) {
   const head = gitHead();
   const stamp = fs.existsSync(P.buildStamp) ? readJson(P.buildStamp) : {};
   const built = fs.existsSync(path.join(P.invitationDist, 'index.html'));
-  if (!rebuild && built && sourceUnchangedSince(stamp.invitationHead, head, INVITATION_SOURCE_PATHS)) return;
+  const edits = worktreeEdits(INVITATION_SOURCE_PATHS);
+  const unchanged = (a, b) => sourceUnchangedSince(a, b, INVITATION_SOURCE_PATHS);
+  const stamped = { stampRepo: stamp.invitationRepo, stampHead: stamp.invitationHead, stampEdits: stamp.invitationEdits };
+  if (!rebuild && built && buildStillFresh(stamped, { repo: REPO, head, edits }, unchanged)) return;
   say('  build: invitation site (apps/invitation)…');
   runPnpm(['--filter', '@intafaced/invitation...', 'build'], 'build-invitation');
   const now = fs.existsSync(P.buildStamp) ? readJson(P.buildStamp) : {};
-  writePrivate(P.buildStamp, JSON.stringify({ ...now, invitationHead: head }, null, 2));
+  writePrivate(P.buildStamp, JSON.stringify({ ...now, invitationHead: head, invitationRepo: REPO, invitationEdits: edits }, null, 2));
 }
 
 function ensureBuilt(rebuild) {
   const act = activeCustomerDist();
   if (act.error) fail(`customer folder override is unusable: ${act.error}\n  Fix it, or run: pnpm local:stack customer-dist --clear`);
-  const { head, stamp, override, missing, backend } = buildPlan(rebuild, act);
+  const { head, edits, stamp, override, missing, backend } = buildPlan(rebuild, act);
   if (override) say(`  build: customer app is ${act.dir} (override); not building it`);
   if (backend === 'none') {
     say('  build: up to date (use --rebuild to force)');
@@ -941,7 +1008,11 @@ function ensureBuilt(rebuild) {
     // Build just those so running services keep their files untouched.
     say(`  build: ${missing.length} service(s) not built yet (${missing.map((m) => m.replace('svc-', '')).join(', ')})…`);
     runPnpm([...missing.flatMap((s) => ['--filter', `@intafaced/${s}...`]), 'build'], 'build-backend-missing');
-    writePrivate(P.buildStamp, JSON.stringify({ ...stamp, head, builtAt: stamp.builtAt ?? new Date().toISOString() }, null, 2));
+    // Only services that were never built: nothing running was built from them, so the running build id stands.
+    writePrivate(
+      P.buildStamp,
+      JSON.stringify({ ...stamp, head, repo: REPO, edits, builtAt: stamp.builtAt ?? new Date().toISOString() }, null, 2),
+    );
     ensureAdminBuilt(rebuild);
     return;
   }
@@ -953,7 +1024,19 @@ function ensureBuilt(rebuild) {
   }
   writePrivate(
     P.buildStamp,
-    JSON.stringify({ head, builtAt: new Date().toISOString(), customerBuilt: !override, adminHead: stamp.adminHead }, null, 2),
+    JSON.stringify(
+      {
+        ...stamp,
+        head,
+        repo: REPO,
+        edits,
+        builtAt: new Date().toISOString(),
+        customerBuilt: !override,
+        backendBuild: newBuildId(),
+      },
+      null,
+      2,
+    ),
   );
   ensureAdminBuilt(rebuild);
 }
@@ -1357,12 +1440,17 @@ async function startNodeService(def) {
   const port = Number(env.HTTP_PORT);
   const procs = readProcs();
   const url = `http://${HOST}:${port}/health`;
-  if (ownedAlive(procs[def.name]) && (await httpGet(url, 2000)).status === 200) return;
+  const build = currentBuild('backendBuild');
+  if (ownedAlive(procs[def.name]) && !onCurrentBuild(procs[def.name], build)) {
+    // Rebuilt since it started: a running process keeps serving the code it loaded, so it would hide the new build.
+    say(`  ${def.name}: restarting onto the new build`);
+    await stopProc(def.name, procs[def.name]);
+  } else if (ownedAlive(procs[def.name]) && (await httpGet(url, 2000)).status === 200) return;
   if (await portOpen(port)) fail(`port ${port} (${def.name}) is in use by a process this script did not start`);
   for (const d of ['matching', 'execution']) fs.mkdirSync(path.join(P.data, d), { recursive: true, mode: 0o700 });
   if (def.name === 'identity') writeFounderPinStamp(STATE, env);
   const entry = path.join(REPO, 'services', `svc-${def.name}`, 'dist', def.entry ?? 'index.js');
-  const pid = startProc(def.name, [process.execPath, entry], env, path.join(REPO, 'services', `svc-${def.name}`));
+  const pid = startProc(def.name, [process.execPath, entry], env, path.join(REPO, 'services', `svc-${def.name}`), { build });
   if (def.name === 'ops') {
     // Which founder pair svc-ops read at start, so a later start can tell when the pair changed.
     const procs = readProcs();
@@ -1528,9 +1616,16 @@ function treasuryHeldUntil(rec) {
 }
 
 async function startAdmin(secrets) {
-  const procs = readProcs();
+  let procs = readProcs();
   const url = `${ADMIN_ORIGIN}/login`;
   let treasury = null;
+  const build = currentBuild('adminBuild');
+  if (ownedAlive(procs.admin) && !onCurrentBuild(procs.admin, build)) {
+    // A rebuilt console in apps/admin/.next is not what the running process loaded.
+    say('  admin: restarting onto the new build');
+    await stopProc('admin', procs.admin);
+    procs = readProcs();
+  }
   if (ownedAlive(procs.admin)) {
     const until = treasuryHeldUntil(procs.admin);
     // Ours but not answering yet (a first request compiles nothing, but prepare() takes a few seconds): wait for it.
@@ -1546,6 +1641,7 @@ async function startAdmin(secrets) {
   treasury ??= await consoleTreasuryEnv();
   const pid = startProc('admin', [process.execPath, SCRIPT, '__serve-admin'], { ...adminEnv(secrets), ...treasury.env }, P.admin, {
     treasuryExpiresAt: treasury.expiresAt,
+    build,
   });
   await waitHealthy('admin', url, pid, 60_000);
 }

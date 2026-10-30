@@ -593,9 +593,10 @@ try {
     assert.equal(state === 'started' || state === 'absent', true, `Customer module ${m} (${envVar}) has no started service`);
     if (state === 'absent') absentButUsed.push(m);
   }
-  // Absent on purpose, each with a reason in EDGE_ABSENT: indexer and dex are called by the Protocol rooms (#4835) and
-  // stay unwired. protocol is started (J-dex-protocol-01) and mining too (svc-mining-pool binds HTTP_HOST since #5907).
-  assert.deepEqual([...absentButUsed].sort(), ['dex', 'indexer'], `unexpected Customer modules without a service: ${absentButUsed}`);
+  // Absent on purpose, with its reason in EDGE_ABSENT: dex is called by the Protocol rooms (#4835) and stays unwired.
+  // protocol is started (J-dex-protocol-01), mining too (svc-mining-pool binds HTTP_HOST since #5907), and indexer since the
+  // explorer pages (#6645, local-stack-services/indexer.mjs).
+  assert.deepEqual([...absentButUsed].sort(), ['dex'], `unexpected Customer modules without a service: ${absentButUsed}`);
 } finally {
   rmSync(planHome, { recursive: true, force: true });
 }
@@ -1012,4 +1013,44 @@ console.log('local-test-stack: customer folder override checks passed');
     server.kill('SIGTERM');
     rmSync(home, { recursive: true, force: true });
   }
+}
+
+// A build stamp vouches only for the checkout that made it, at source no commit has changed since, with the same
+// uncommitted edits (B16, 30 Oct: a branch change and a shared state folder kept an older build "up to date"). A running
+// service or console started on an older build is restarted onto the new one.
+{
+  const { buildStillFresh, onCurrentBuild } = await import('./local-test-stack.mjs');
+  const same = () => true;
+  const stamp = { stampRepo: '/w/a', stampHead: 'h1', stampEdits: '' };
+  assert.equal(buildStillFresh(stamp, { repo: '/w/a', head: 'h1', edits: '' }, same), true);
+  assert.equal(buildStillFresh(stamp, { repo: '/w/b', head: 'h1', edits: '' }, same), false, 'another worktree is not this build');
+  assert.equal(buildStillFresh(stamp, { repo: '/w/a', head: 'h1', edits: 'e1' }, same), false, 'new uncommitted edits rebuild');
+  assert.equal(
+    buildStillFresh({ ...stamp, stampEdits: 'e1' }, { repo: '/w/a', head: 'h1', edits: '' }, same),
+    false,
+    'reverted edits rebuild',
+  );
+  assert.equal(
+    buildStillFresh(stamp, { repo: '/w/a', head: 'h2', edits: '' }, () => false),
+    false,
+    'a source commit rebuilds',
+  );
+  assert.equal(
+    buildStillFresh(stamp, { repo: '/w/a', head: 'h2', edits: '' }, (a, b) => a === 'h1' && b === 'h2'),
+    true,
+    'a tooling-only commit does not',
+  );
+  assert.equal(buildStillFresh({ stampHead: 'h1' }, { repo: '/w/a', head: 'h1', edits: '' }, same), false, 'an older stamp builds once');
+
+  assert.equal(onCurrentBuild({ build: 'b1' }, 'b1'), true);
+  assert.equal(onCurrentBuild({ build: 'b1' }, 'b2'), false, 'rebuilt since it started');
+  assert.equal(onCurrentBuild({}, 'b2'), false, 'started before builds had ids');
+  assert.equal(onCurrentBuild({}, undefined), true, 'no build id yet: nothing to compare');
+
+  // Every freshness check and every start of a built part goes through them.
+  const source = readFileSync(join(dirname(fileURLToPath(import.meta.url)), 'local-test-stack.mjs'), 'utf8');
+  assert.equal((source.match(/buildStillFresh\(/g) ?? []).length, 4, 'buildPlan, admin and invitation use it (plus its definition)');
+  assert.match(source, /if \(ownedAlive\(procs\[def\.name\]\) && !onCurrentBuild\(procs\[def\.name\], build\)\)/);
+  assert.match(source, /if \(ownedAlive\(procs\.admin\) && !onCurrentBuild\(procs\.admin, build\)\)/);
+  console.log('local-test-stack: builds are fresh only for their own checkout and edits, and running parts restart onto a new build');
 }
