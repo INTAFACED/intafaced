@@ -108,6 +108,8 @@ import { createAccountStatusRouter } from './account/account-status-router.js';
 import { AccountStatusDesk } from './account/account-status.js';
 import { createMfaResetRouter } from './mfa-reset-router.js';
 import { createSupportRecoveryRouter } from './support-recovery-router.js';
+import { createFreezeLinkRouter } from './freeze-link-router.js';
+import { withFreezeLink } from './auth/freeze-link.js';
 import { createRecoveryKeysRouter } from './recovery-keys-router.js';
 import { createDeathNoticesRouter } from './death-notices-router.js';
 import { listRecoveryEstates, relayDeathNoticeEvents, verifyRecoveryClaim } from './auth/death-notices.js';
@@ -386,7 +388,10 @@ const transportMail = openIdentityMail({
 });
 // Mails to an account's own address carry the anti-phishing code its owner set.
 const antiPhishingMailKey = antiPhishingKey(parseTotpSecretKey(env.IDENTITY_TOTP_SECRET_KEY));
-const mail = transportMail && withAntiPhishingCode(transportMail, sql, antiPhishingMailKey);
+// Security notices carry a one-time freeze link (freeze-link.ts); the anti-phishing code goes on last.
+const mail =
+  transportMail &&
+  withAntiPhishingCode(withFreezeLink(transportMail, sql, { warn: (obj, msg) => app.log.warn(obj, msg) }), sql, antiPhishingMailKey);
 auth.usePasswordResetMail(mail);
 const kycCapabilityMap = parseKycCapabilitiesByLevel(env.IDENTITY_KYC_CAPABILITIES_BY_LEVEL);
 auth.useKycCapabilities(kycCapabilityMap);
@@ -768,6 +773,7 @@ export const appRouter = mergeRouters(
   ),
   createMfaResetRouter(auth),
   createSupportRecoveryRouter(() => auth.supportRecoveryDeps()),
+  createFreezeLinkRouter(auth),
   createTrustedDevicesRouter(auth, securityStepUp),
   createRecoveryKeysRouter(new RecoveryKeys(sql, securityStepUp, founderPair ?? [])),
   createDeathNoticesRouter(() => ({ sql, now: () => new Date() })),
