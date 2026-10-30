@@ -255,15 +255,20 @@ test(`${J} #3 starts two runs together whose worst cases are each more than half
   await expect(runs.getByRole('row').filter({ hasText: 'Refused' })).toHaveCount(refusedBefore.length);
   await expect(runs.getByRole('row').filter({ hasText: 'Admitted' })).toHaveCount(executedBefore.length);
   const before = await ledgerBalances(agents.account());
-  // With the engine held, the refusal comes back while the admitted run waits at the engine's door, and exactly one
-  // run has reached the engine: the refused one was stopped before it.
+  // With the engine held, the service records the refused run while the admitted one waits at the engine's door, and
+  // exactly one run has reached the engine: the refused one was stopped before it. (The page shows both answers once
+  // both are back.)
   await withEngineHeld(async (engineCalls) => {
     await session(page).getByRole('button', { name: 'Run twice at once' }).click();
-    await expect(session(page).getByRole('alert').locator('code')).toHaveText('agents.spend.cap_exceeded');
     await expect.poll(engineCalls, { message: 'the admitted run reaches the engine' }).toBe(1);
+    await expect
+      .poll(async () => (await ownRuns('refused')).length, { message: 'the refused run is recorded while the engine is held' })
+      .toBe(refusedBefore.length + 1);
+    expect(engineCalls()).toBe(1);
     await expect(session(page).getByRole('region', { name: 'Reply' })).toHaveCount(0);
   });
   await expect(session(page).getByRole('region', { name: 'Reply' })).toBeVisible();
+  await expect(session(page).getByRole('alert').locator('code')).toHaveText('agents.spend.cap_exceeded');
   // One more admitted and one more refused row than before (#2 left one of each), and the refused one is this cap's.
   await expect(runs.getByRole('row').filter({ hasText: 'Admitted' })).toHaveCount(executedBefore.length + 1);
   await expect(runs.getByRole('row').filter({ hasText: 'Refused' })).toHaveCount(refusedBefore.length + 1);
