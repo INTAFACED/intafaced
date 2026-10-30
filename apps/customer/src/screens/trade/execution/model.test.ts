@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import type { Order } from '../../../features/trade/trade-api';
 import {
+  MAX_SEED,
+  parseSeed,
+  triggerProblem,
   MAX_SLICES,
   algoClientId,
   buildLadder,
@@ -263,6 +266,15 @@ describe('device note ownership', () => {
     expect(ownsNote('scaled', desk)).toBe(false);
     expect(ownsNote('algo', desk)).toBe(false);
     expect(ownsNote('execCancel', desk)).toBe(false);
+    expect(ownsNote('iceberg', desk)).toBe(false);
+  });
+  it('gives an ice- place note to iceberg only', () => {
+    const note = { kind: 'place', id: 'ice-abc' } as const;
+    expect(ownsNote('iceberg', note)).toBe(true);
+    expect(ownsNote('scaled', note)).toBe(false);
+    expect(ownsNote('algo', note)).toBe(false);
+    expect(ownsNote('execCancel', note)).toBe(false);
+    expect(ownsNote('iceberg', { kind: 'place', id: 'scl-abc' })).toBe(false);
   });
   it('gives a scl- place note to scaled only', () => {
     const note = { kind: 'place', id: 'scl-abc' } as const;
@@ -285,5 +297,26 @@ describe('device note ownership', () => {
     expect(ownsNote('execCancel', note)).toBe(true);
     expect(ownsNote('scaled', note)).toBe(false);
     expect(ownsNote('algo', note)).toBe(false);
+  });
+});
+
+describe('random sizes and trigger price', () => {
+  it('a seed is a whole number from 0 to the service limit', () => {
+    expect(parseSeed('2310')).toBe(2310);
+    expect(parseSeed(' 0 ')).toBe(0);
+    expect(parseSeed(String(MAX_SEED))).toBe(MAX_SEED);
+    expect(parseSeed(String(MAX_SEED + 1))).toBeNull();
+    expect(parseSeed('')).toBeNull();
+    expect(parseSeed('1.5')).toBeNull();
+    expect(parseSeed('-1')).toBeNull();
+  });
+
+  it('a blank trigger is no trigger; a typed one must be above zero', () => {
+    expect(triggerProblem('')).toBe(false);
+    expect(triggerProblem('  ')).toBe(false);
+    expect(triggerProblem('140000')).toBe(false);
+    expect(triggerProblem('0.5')).toBe(false);
+    expect(triggerProblem('0')).toBe(true);
+    expect(triggerProblem('abc')).toBe(true);
   });
 });

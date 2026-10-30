@@ -54,6 +54,14 @@ const KNOWN: Readonly<Record<string, { title: string; body: string }>> = {
     body: 'The desk has no provider list, so a request cannot be sent. Nothing was priced or held.',
   },
   'trade.otc_provider_required': { title: 'Pick a provider', body: 'Pick at least one provider to ask. Nothing was priced or held.' },
+  'trade.otc_level_unset': {
+    title: 'Verification level not set',
+    body: 'The desk has no verification level set, so a request cannot be sent. Nothing was priced or held.',
+  },
+  'trade.otc_assets_unset': {
+    title: 'No assets set',
+    body: 'The desk has no asset list, so a request cannot be sent. Nothing was priced or held.',
+  },
   'trade.otc_provider_unknown': {
     title: 'Provider not on the list',
     body: "A provider picked is not on the desk's provider list. Pick again from the list; nothing was priced or held.",
@@ -90,6 +98,14 @@ const KNOWN: Readonly<Record<string, { title: string; body: string }>> = {
   'trade.algo_cancel_incomplete': {
     title: 'The last cancel did not finish',
     body: 'Some child orders are still open. Cancel again; the schedule cannot resume until it finishes.',
+  },
+  'trade.iceberg_symbol_cap': {
+    title: 'One iceberg per market',
+    body: 'You already have a live iceberg on this market. Cancel it or let it fill before placing another. Nothing was placed.',
+  },
+  'trade.iceberg_display_invalid': {
+    title: 'This iceberg cannot be placed',
+    body: 'An iceberg is a limit order on a market open for orders, with a display size above zero, smaller than the total and a whole number of the market amount step. A request id already used for another order cannot be reused. Nothing was placed.',
   },
   'trade.algo_not_found': { title: "We couldn't find that schedule", body: 'Check the schedule id. You can only open your own schedules.' },
   'trade.options_settlement_law_unset': {
@@ -160,6 +176,16 @@ const NAMES_ITS_LIMIT: Readonly<Record<string, { title: string; fallback: string
     title: 'Too many providers',
     fallback: 'More providers were picked than the desk allows',
     after: 'Pick fewer; nothing was priced or held.',
+  },
+  'trade.otc_level_insufficient': {
+    title: 'Verification level too low',
+    fallback: 'Your verification level is below what the desk prices for',
+    after: 'Complete verification to ask the desk; nothing was priced or held.',
+  },
+  'trade.otc_asset_unlisted': {
+    title: 'Asset not on the desk',
+    fallback: "That asset is not on the desk's asset list",
+    after: 'Pick a pair whose asset the desk lists; nothing was priced or held.',
   },
 };
 

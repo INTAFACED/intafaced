@@ -1101,6 +1101,86 @@ export const p2pQuoteExpired = defineEvent(
   'A P2P quote passed its firm window unaccepted. Nothing is bound; the requester is told to re-quote.',
 );
 
+/**
+ * The skip reason ids svc-trade writes on its skip log (CB-copy-11). Ids only: the screen and the notice turn them into
+ * words. `refused` is any other typed refusal of the mirror; its words name no raw code.
+ */
+export const COPY_SKIP_REASON_IDS = [
+  'paused',
+  'stopped',
+  'lead_stopped',
+  'risk_control',
+  'insufficient_funds',
+  'max_copy_total',
+  'copy_slippage_exceeded',
+  'position_closed',
+  'refused',
+] as const;
+
+/** Why a follow stopped copying. Ids only, never a raw refusal code. */
+export const COPY_STOP_REASON_IDS = ['follower', 'lead_stopped', 'risk_control', 'permission_ended'] as const;
+
+/** A lowercase reason id (`order_rejected`), never a sentence or a raw service code. */
+const copyReasonIdSchema = z
+  .string()
+  .min(1)
+  .max(64)
+  .regex(/^[a-z][a-z0-9_]*$/);
+/** svc-trade's follow id: today a uuid, stored as text, so any id without blanks or separators beyond `: . _ -`. */
+const copyFollowIdSchema = z
+  .string()
+  .min(1)
+  .max(64)
+  .regex(/^[A-Za-z0-9][A-Za-z0-9:._-]*$/);
+
+export const copySkipped = defineEvent(
+  'trade',
+  'copy',
+  'skipped',
+  1,
+  z.object({
+    followId: copyFollowIdSchema,
+    followerId: userIdSchema,
+    leaderId: userIdSchema,
+    leaderFillId: engineFillIdSchema,
+    reason: z.enum(COPY_SKIP_REASON_IDS),
+    skippedAt: z.string().datetime({ offset: true }),
+  }),
+  'A follow did not copy one leader fill. svc-trade writes the skip row first and publishes after commit; there is one per follow and leader fill, so consumers dedupe on (followId, leaderFillId). The follower is told the reason.',
+);
+
+export const copyFailed = defineEvent(
+  'trade',
+  'copy',
+  'failed',
+  1,
+  z.object({
+    followId: copyFollowIdSchema,
+    followerId: userIdSchema,
+    leaderId: userIdSchema,
+    leaderFillId: engineFillIdSchema,
+    reason: copyReasonIdSchema,
+    failedAt: z.string().datetime({ offset: true }),
+  }),
+  'A copy order was placed for a leader fill and did not complete. No funds move on this event; consumers dedupe on (followId, leaderFillId). The reason is an open id because order refusals grow with the engine; a consumer words the ids it knows and gives a general notice for the rest. The follower is told the reason.',
+);
+
+export const copyStopped = defineEvent(
+  'trade',
+  'copy',
+  'stopped',
+  1,
+  z.object({
+    followId: copyFollowIdSchema,
+    followerId: userIdSchema,
+    leaderId: userIdSchema,
+    reason: z.enum(COPY_STOP_REASON_IDS),
+    closeOnly: z.boolean(),
+    stoppedAt: z.string().datetime({ offset: true }),
+  }),
+  'A follow stopped copying new leader fills. With closeOnly it still mirrors closes of what it already holds. A stop is one-way (close-only can only become left), so consumers dedupe on (followId, closeOnly). The follower is told the reason.',
+);
+
 export const projectionUpdated = defineEvent(
   'indexer',
   'projection',
@@ -1384,6 +1464,130 @@ export const coreOpsAlertGroupResolved = defineEvent(
   'An on-call alert group was resolved. Its chain stops; a new firing opens a new group.',
 );
 
+// ── core-ops: reconciliation alerts (OPS-reconciliation-04) ──────────────────
+
+/**
+ * A reconciliation alert as svc-ops stores it: one per control, failing asset and period. Every change carries the
+ * alert's change counter, so the business key ops:reconciliation-alert:<alertId>:<sequence> is unique per change and a
+ * consumer that receives one twice applies it once. Ids and states only: no amount, account or customer data.
+ */
+const reconciliationAlertIdSchema = z.string().guid();
+const reconciliationAlertSequenceSchema = z.number().int().min(1);
+const reconciliationAlertStateSchema = z.enum(['open', 'acknowledged', 'snoozed', 'resolved', 'accepted']);
+/** The states an alert can be in after each transition: an unsnooze returns it to open or acknowledged. */
+const UPDATED_STATES: Record<'acknowledged' | 'snoozed' | 'unsnoozed' | 'reopened', readonly string[]> = {
+  acknowledged: ['acknowledged'],
+  snoozed: ['snoozed'],
+  unsnoozed: ['open', 'acknowledged'],
+  reopened: ['open'],
+};
+
+export const coreOpsReconciliationAlertOpened = defineEvent(
+  'core-ops',
+  'reconciliation_alert',
+  'opened',
+  1,
+  z
+    .object({
+      alertId: reconciliationAlertIdSchema,
+      sequence: reconciliationAlertSequenceSchema,
+      /** The ledger reconciliation control and the run that raised the alert. */
+      controlId: z.string().uuid(),
+      runId: z.string().guid(),
+      /** The failing asset; null when the run failed with no asset to name, or could not finish. */
+      assetId: assetIdSchema.nullable(),
+      periodStart: z.string().datetime({ offset: true }),
+      periodEnd: z.string().datetime({ offset: true }),
+      /** `fail`: the books disagree, raised to finance. `error`: the run could not finish, raised to the platform team. */
+      cause: z.enum(['fail', 'error']),
+      team: z.enum(['finance', 'platform']),
+      openedAt: z.string().datetime({ offset: true }),
+    })
+    .refine((p) => (p.cause === 'fail') === (p.team === 'finance'), {
+      message: 'a failing run is raised to finance and a run that could not finish to the platform team',
+      path: ['team'],
+    })
+    .refine((p) => Date.parse(p.periodEnd) >= Date.parse(p.periodStart), {
+      message: 'the period ends before it starts',
+      path: ['periodEnd'],
+    }),
+  'svc-ops raised a reconciliation alert from a finished ledger reconciliation run. A failing run goes to finance; a run that could not finish goes to the platform team. Business key ops:reconciliation-alert:<alertId>:<sequence>.',
+);
+
+export const coreOpsReconciliationAlertUpdated = defineEvent(
+  'core-ops',
+  'reconciliation_alert',
+  'updated',
+  1,
+  z
+    .object({
+      alertId: reconciliationAlertIdSchema,
+      sequence: reconciliationAlertSequenceSchema,
+      /** `reopened`: a repeat failure in the same period reopened a resolved alert; the actor is then `auto`. */
+      transition: z.enum(['acknowledged', 'snoozed', 'unsnoozed', 'reopened']),
+      state: reconciliationAlertStateSchema,
+      /** The signed operator, or `auto` for a change the evaluator made. Never a shared credential. */
+      actor: z.string().min(1),
+      changedAt: z.string().datetime({ offset: true }),
+    })
+    .refine((p) => UPDATED_STATES[p.transition].includes(p.state), {
+      message: 'the state does not follow from the transition',
+      path: ['state'],
+    }),
+  'A reconciliation alert was acknowledged, snoozed, unsnoozed or reopened by a repeat failure in its period. Never changes a balance. Business key ops:reconciliation-alert:<alertId>:<sequence>.',
+);
+
+export const coreOpsReconciliationAlertResolved = defineEvent(
+  'core-ops',
+  'reconciliation_alert',
+  'resolved',
+  1,
+  z
+    .object({
+      alertId: reconciliationAlertIdSchema,
+      sequence: reconciliationAlertSequenceSchema,
+      /** `fixed`: an operator linked the corrective ledger transactions. `auto`: a later run of the same control and period passed. */
+      resolution: z.enum(['fixed', 'auto']),
+      /** The corrective ledger transaction ids, each checked to exist; empty for `auto`. */
+      correctiveTxIds: z.array(z.string().guid()).max(20),
+      /** The run that passed, for `auto`; null for `fixed`. */
+      passingRunId: z.string().guid().nullable(),
+      /** The signed operator, or `auto`. */
+      actor: z.string().min(1),
+      resolvedAt: z.string().datetime({ offset: true }),
+    })
+    .refine(
+      (p) =>
+        p.resolution === 'fixed'
+          ? p.correctiveTxIds.length > 0 && p.passingRunId === null && p.actor !== 'auto'
+          : p.correctiveTxIds.length === 0 && p.passingRunId !== null && p.actor === 'auto',
+      { message: 'a fix names its corrective transactions and an operator; an auto resolve names the passing run', path: ['resolution'] },
+    ),
+  'A reconciliation alert was resolved as fixed (with the corrective ledger transactions it names) or automatically when a later run passed. Resolving never changes a balance. Business key ops:reconciliation-alert:<alertId>:<sequence>.',
+);
+
+export const coreOpsReconciliationAlertAccepted = defineEvent(
+  'core-ops',
+  'reconciliation_alert',
+  'accepted',
+  1,
+  z
+    .object({
+      alertId: reconciliationAlertIdSchema,
+      sequence: reconciliationAlertSequenceSchema,
+      /** The operator who asked to accept the discrepancy and the different operator who approved it. */
+      requestedBy: z.string().min(1),
+      approvedBy: z.string().min(1),
+      /** sha-256 of the evidence frozen at acceptance, so a later read can prove it is unchanged. */
+      evidenceHash: z.string().regex(/^[a-f0-9]{64}$/, 'evidenceHash is a sha-256'),
+      /** sha-256 of the required note: the event proves a note was written without carrying its text. */
+      noteHash: z.string().regex(/^[a-f0-9]{64}$/, 'noteHash is a sha-256'),
+      acceptedAt: z.string().datetime({ offset: true }),
+    })
+    .refine((p) => p.requestedBy !== p.approvedBy, { message: 'the approver must be a second operator', path: ['approvedBy'] }),
+  'A reconciliation discrepancy was accepted with a note, frozen evidence and a second approver. Never changes a balance. Business key ops:reconciliation-alert:<alertId>:<sequence>.',
+);
+
 // ── core-ops: compliance cases (OPS-cases-01) ────────────────────────────────
 
 export const coreOpsComplianceCaseCreated = defineEvent(
@@ -1559,6 +1763,10 @@ export const EVENT_CATALOG = {
   coreOpsAlertGroupOpened,
   coreOpsAlertGroupUpdated,
   coreOpsAlertGroupResolved,
+  coreOpsReconciliationAlertOpened,
+  coreOpsReconciliationAlertUpdated,
+  coreOpsReconciliationAlertResolved,
+  coreOpsReconciliationAlertAccepted,
   coreOpsComplianceCaseCreated,
   coreOpsComplianceInboxUpdated,
   coreOpsRestoreStarted,
@@ -1608,6 +1816,9 @@ export const EVENT_CATALOG = {
   p2pChatMessageSent,
   p2pDisputeEscalated,
   p2pQuoteExpired,
+  copySkipped,
+  copyFailed,
+  copyStopped,
   projectionUpdated,
 } as const;
 
@@ -1945,6 +2156,62 @@ export const WIRING_SOCKETS = [
       'The escalation runner lives inside svc-ops and reads the stored group; no other service needs the event yet. Nothing pages anyone on main today, so no one is promised a page by it.',
   },
   {
+    event: 'coreOpsReconciliationAlertOpened',
+    missing: 'publisher',
+    class: 'A',
+    reason:
+      'Declared by the OPS-reconciliation-04 events PR. svc-ops publishes it from its outbox when the reconciliation alert transitions land (svc-ops PR, next). The alert is a durable row that /alerts reads.',
+  },
+  {
+    event: 'coreOpsReconciliationAlertOpened',
+    missing: 'subscriber',
+    class: 'A',
+    reason:
+      'No other service needs it yet: the alert is a durable svc-ops row that /alerts reads, and nothing outside svc-ops is promised a reaction. The subject exists so audit and a later consumer can follow without polling.',
+  },
+  {
+    event: 'coreOpsReconciliationAlertUpdated',
+    missing: 'publisher',
+    class: 'A',
+    reason:
+      'Declared by the OPS-reconciliation-04 events PR. svc-ops publishes it from its outbox when the reconciliation alert transitions land (svc-ops PR, next). The alert is a durable row that /alerts reads.',
+  },
+  {
+    event: 'coreOpsReconciliationAlertUpdated',
+    missing: 'subscriber',
+    class: 'A',
+    reason:
+      'No other service needs it yet: the alert is a durable svc-ops row that /alerts reads, and nothing outside svc-ops is promised a reaction. The subject exists so audit and a later consumer can follow without polling.',
+  },
+  {
+    event: 'coreOpsReconciliationAlertResolved',
+    missing: 'publisher',
+    class: 'A',
+    reason:
+      'Declared by the OPS-reconciliation-04 events PR. svc-ops publishes it from its outbox when the reconciliation alert transitions land (svc-ops PR, next). The alert is a durable row that /alerts reads.',
+  },
+  {
+    event: 'coreOpsReconciliationAlertResolved',
+    missing: 'subscriber',
+    class: 'A',
+    reason:
+      'No other service needs it yet: the alert is a durable svc-ops row that /alerts reads, and nothing outside svc-ops is promised a reaction. The subject exists so audit and a later consumer can follow without polling.',
+  },
+  {
+    event: 'coreOpsReconciliationAlertAccepted',
+    missing: 'publisher',
+    class: 'A',
+    reason:
+      'Declared by the OPS-reconciliation-04 events PR. svc-ops publishes it from its outbox when the reconciliation alert transitions land (svc-ops PR, next). The alert is a durable row that /alerts reads.',
+  },
+  {
+    event: 'coreOpsReconciliationAlertAccepted',
+    missing: 'subscriber',
+    class: 'A',
+    reason:
+      'No other service needs it yet: the alert is a durable svc-ops row that /alerts reads, and nothing outside svc-ops is promised a reaction. The subject exists so audit and a later consumer can follow without polling.',
+  },
+  {
     event: 'coreOpsComplianceCaseCreated',
     missing: 'publisher',
     class: 'A',
@@ -2268,6 +2535,48 @@ export const WIRING_SOCKETS = [
     class: 'A',
     reason:
       'svc-notify turns it into the re-quote notice in the P-trade-orders-23 svc-notify PR, idempotent by event id. Until then no publisher exists either, so no user is promised a notice.',
+  },
+  {
+    event: 'copySkipped',
+    missing: 'publisher',
+    class: 'A',
+    reason:
+      'Declared by the J-copy-bots-otc-03 events PR. svc-trade publishes it after the skip row commits (svc-trade PR, next). Nothing reads it yet, so nothing is waiting on it.',
+  },
+  {
+    event: 'copySkipped',
+    missing: 'subscriber',
+    class: 'A',
+    reason:
+      'svc-notify turns it into the copy skip notice in the J-copy-bots-otc-03 svc-notify change, idempotent on (followId, leaderFillId). Until then no publisher exists either, so no user is promised a notice.',
+  },
+  {
+    event: 'copyFailed',
+    missing: 'publisher',
+    class: 'A',
+    reason:
+      'Declared by the J-copy-bots-otc-03 events PR. svc-trade publishes it after the failure row commits (svc-trade PR, next). Nothing reads it yet, so nothing is waiting on it.',
+  },
+  {
+    event: 'copyFailed',
+    missing: 'subscriber',
+    class: 'A',
+    reason:
+      'svc-notify turns it into the copy failure notice in the J-copy-bots-otc-03 svc-notify change, idempotent on (followId, leaderFillId). Until then no publisher exists either, so no user is promised a notice.',
+  },
+  {
+    event: 'copyStopped',
+    missing: 'publisher',
+    class: 'A',
+    reason:
+      'Declared by the J-copy-bots-otc-03 events PR. svc-trade publishes it after the stop row commits (svc-trade PR, next). Nothing reads it yet, so nothing is waiting on it.',
+  },
+  {
+    event: 'copyStopped',
+    missing: 'subscriber',
+    class: 'A',
+    reason:
+      'svc-notify turns it into the copy stop notice in the J-copy-bots-otc-03 svc-notify change, idempotent on (followId, closeOnly). Until then no publisher exists either, so no user is promised a notice.',
   },
   {
     event: 'payCustodyAuditCreated',

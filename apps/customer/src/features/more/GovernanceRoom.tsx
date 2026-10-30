@@ -9,12 +9,13 @@ import { usePreferences } from '../../shared/preferences';
 import { Button, DataTable, EmptyState, Field, Panel } from '../../shared/ui';
 import { Details, Limit, Read, Select, TextArea } from './common';
 import { governanceRoomCopy } from './governance-room-copy';
+import { VOTING_TYPES } from './TokenVoting';
 
 type Refusal = Extract<ApiResult<unknown>, { ok: false }>;
 type T = ReturnType<typeof governanceRoomCopy.forLocale>['t'];
 
 const KINDS = ['listing', 'fee_param', 'curriculum', 'grant'] as const;
-const STATUSES = ['draft', 'open', 'passed', 'rejected', 'executed', 'cancelled'] as const;
+const STATUSES = ['draft', 'open', 'passed', 'rejected', 'executed', 'cancelled', 'closed_ranked'] as const;
 /** The first page of the newest proposals, and the most a reader may widen it to. The service refuses a blank page size. */
 const PAGE = 50;
 const PAGE_CAP = 200;
@@ -95,6 +96,10 @@ function refusalWords(failure: Refusal, t: T, editing = false): string {
       return t('refusedDelegateeUnset');
     case 'token.delegation_delegatee_invalid':
       return t('refusedDelegateeInvalid');
+    case 'token.ballot_invalid':
+      return t('refusedBallot');
+    case 'token.voting_type_unsupported':
+      return t('refusedVotingType');
     default:
       return t('refusedOther', { message: failure.message });
   }
@@ -320,6 +325,8 @@ function ProposalForm({
 }) {
   const api = useApi();
   const [kind, setKind] = useState<string>(editing?.kind ?? '');
+  const [votingType, setVotingType] = useState<string>('basic');
+  const [choices, setChoices] = useState('');
   const [title, setTitle] = useState(editing?.title ?? '');
   const [body, setBody] = useState(editing?.bodyMd ?? '');
   const [discussion, setDiscussion] = useState('');
@@ -347,13 +354,32 @@ function ProposalForm({
     }
     const window = { opensAt: instant(opens), closesAt: instant(closes) };
     // One retry handle per request: a resend after no answer returns the stored proposal instead of a second one.
-    const request = JSON.stringify([kind, title, body, discussion, window.opensAt ?? null, window.closesAt ?? null]);
+    const choiceList = votingType === 'basic' ? undefined : choices.split('\n').filter((line) => line.trim() !== '');
+    const request = JSON.stringify([
+      kind,
+      votingType,
+      choiceList ?? null,
+      title,
+      body,
+      discussion,
+      window.opensAt ?? null,
+      window.closesAt ?? null,
+    ]);
     if (attempt && attempt.current?.request !== request) attempt.current = { request, handle: `proposal-form:${userId}:${Date.now()}` };
     const handle = attempt?.current?.handle ?? `proposal-form:${userId}:${Date.now()}`;
     const result = await api.mutate(
       'token',
       'createProposal',
-      { kind, body: {}, handle, title, bodyMd: body, ...(discussion ? { discussionLink: discussion } : {}), ...window },
+      {
+        kind,
+        body: {},
+        handle,
+        title,
+        bodyMd: body,
+        ...(votingType !== 'basic' ? { votingType, choices: choiceList } : {}),
+        ...(discussion ? { discussionLink: discussion } : {}),
+        ...window,
+      },
       proposalSchema,
     );
     setBusy(false);
@@ -377,6 +403,24 @@ function ProposalForm({
             ))}
           </select>
         </label>
+      )}
+      {!editing && (
+        <label className="field">
+          <span>{t('votingType')}</span>
+          <select value={votingType} onChange={(e) => setVotingType(e.target.value)}>
+            {VOTING_TYPES.map((type) => (
+              <option key={type} value={type}>
+                {t(type)}
+              </option>
+            ))}
+          </select>
+        </label>
+      )}
+      {!editing && votingType !== 'basic' && (
+        <>
+          <TextArea label={t('choices')} value={choices} onChange={setChoices} />
+          <p className="muted">{t('choicesHint')}</p>
+        </>
       )}
       <Field label={t('title')} value={title} onChange={(e) => setTitle(e.target.value)} maxLength={200} required />
       <TextArea label={t('body')} value={body} onChange={setBody} />

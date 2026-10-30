@@ -51,5 +51,21 @@ describe('roomWords: a write that may have gone through is never called unchange
     });
     expect(unknown.title).toBe('Provider not on the list');
     expect(unknown.body).not.toContain('test-lp-9');
+    expect(roomWords({ reason: 'error', code: 'trade.otc_assets_unset' }).title).toBe('No assets set');
+    expect(roomWords({ reason: 'error', code: 'trade.otc_level_unset' }).title).toBe('Verification level not set');
+    const low = roomWords({
+      reason: 'error',
+      code: 'trade.otc_level_insufficient',
+      message: 'The desk prices for full verification and above. Your account is at none.',
+    });
+    expect(low.title).toBe('Verification level too low');
+    expect(low.body).toBe(
+      'The desk prices for full verification and above. Your account is at none. Complete verification to ask the desk; nothing was priced or held.',
+    );
+    const unlisted = roomWords({ reason: 'error', code: 'trade.otc_asset_unlisted', message: "ETH is not on the desk's asset list (BTC)" });
+    expect(unlisted.title).toBe('Asset not on the desk');
+    expect(unlisted.body).toBe(
+      "ETH is not on the desk's asset list (BTC). Pick a pair whose asset the desk lists; nothing was priced or held.",
+    );
   });
 });

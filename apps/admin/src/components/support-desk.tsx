@@ -5,7 +5,7 @@ import { Chip } from '@/components/chip';
 import { shortId } from '@/lib/desk/desk-model';
 import type { Part } from '@/lib/desk/part';
 import { fetchQueue, fetchTicket, fetchTicketExtras, postClaim, postClaimNext, type ClaimReply } from '@/lib/support/browser';
-import { claimGate, formatAge, queueMetrics, type ClaimGate } from '@/lib/support/model';
+import { claimGate, DESK_COMMENTS_READ, formatAge, queueMetrics, type ClaimGate } from '@/lib/support/model';
 import type { QueueRead, SupportQueueView, SupportTicketView, TicketDetail, TicketExtrasView } from '@/lib/support/types';
 import { Failed } from './support-action-parts';
 import { SupportBulkBar } from './support-bulk-bar';
@@ -211,10 +211,16 @@ function TicketBody({ detail, ...p }: { detail: TicketDetail } & DeskViewProps) 
       ) : (
         <ol className="dk-stack" aria-label="Comments">
           {detail.comments.data.map((c) => (
-            <li key={c.id} className="adm-callout">
+            <li key={c.id} className="adm-callout" data-visibility={c.visibility}>
               <strong>
-                {c.authorRole === 'operator' ? 'Staff' : 'Customer'} · {formatWhen(c.createdAt)}
+                {c.visibility === 'internal' ? 'Internal note' : c.authorRole === 'operator' ? 'Staff' : 'Customer'} ·{' '}
+                {formatWhen(c.createdAt)}
               </strong>
+              {c.visibility === 'internal' && (
+                <span className="adm-chip" data-tone="warn">
+                  Staff only · the customer does not see this
+                </span>
+              )}
               <p style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{c.body}</p>
             </li>
           ))}
@@ -237,7 +243,15 @@ function TicketBody({ detail, ...p }: { detail: TicketDetail } & DeskViewProps) 
       <TicketLifecycle key={`lifecycle:${t.id}`} ticket={t} />
       <TicketProperties key={`properties:${t.id}`} ticket={t} onDone={p.onActionDone} />
       <TicketMerge key={`merge:${t.id}`} ticket={t} onDone={p.onActionDone} />
-      <TicketActions key={`actions:${t.id}`} ticket={t} events={detail.events} userId={p.userId} onDone={p.onActionDone} />
+      <TicketActions
+        key={`actions:${t.id}`}
+        ticket={t}
+        events={detail.events}
+        userId={p.userId}
+        notesRead={detail.comments.kind === 'ok' ? detail.comments.data.filter((c) => c.visibility === 'internal').length : null}
+        notesCapped={detail.comments.kind === 'ok' && detail.comments.data.length >= DESK_COMMENTS_READ}
+        onDone={p.onActionDone}
+      />
     </>
   );
 }

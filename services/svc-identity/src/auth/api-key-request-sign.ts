@@ -1,8 +1,10 @@
 /**
- * Per-key opt-in inbound HMAC. The canonical string matches
+ * Per-key inbound HMAC. The canonical string matches
  * svc-edge `api-key-request-sign.ts` (locked by the vector test).
  *
- * Default off. Empty IP allowlist stays open until the key opts into
+ * On by default for a key that may place orders (`trade:write`, DV-auth-01: `developer-keys.ts`); any other key
+ * opts in. The timestamp window is the owner's `IDENTITY_REQUEST_SIGN_WINDOW_SECONDS`: blank, every signed request
+ * refuses `auth.request_window_unset`. Empty IP allowlist stays open until the key opts into
  * "require non-empty IP allowlist". The signing secret is returned once.
  * A missing secret on a key that requires a signature refuses.
  * A nonce is kept until the signed timestamp plus the acceptance window, so a
@@ -15,13 +17,37 @@ import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypt
 import type { Sql } from 'postgres';
 import { z } from 'zod';
 import { AuthError, type AuthService } from './auth-service.js';
+import { REQUEST_SIGN_VERSION, type RequestSigningPolicy } from '@intafaced/contracts/api-keys';
+import { signsByDefault } from './api-key-signs-by-default.js';
 import { hashToken } from './passwords.js';
 import { decryptAtRest, encryptAtRest, TOTP_SECRET_ENC_PREFIX } from './totp-crypto.js';
 
-export const REQUEST_SIGN_VERSION = 'INTAFACED-REQ-V1';
-export const REQUEST_SIGN_WINDOW_SECONDS = 300;
+export { REQUEST_SIGN_VERSION };
 
-export type RequestSignReason = 'unsigned' | 'stale' | 'tampered' | 'replay' | 'ip_allowlist_required';
+/** The longest window the service will run with: a signed request older than an hour is never fresh. */
+export const REQUEST_SIGN_WINDOW_MAX_SECONDS = 3600;
+
+/**
+ * `IDENTITY_REQUEST_SIGN_WINDOW_SECONDS`: the owner's timestamp window, whole seconds from 1 to 3600. Blank: null,
+ * and every signed request refuses `auth.request_window_unset`. Anything else throws, so the service does not start
+ * on a window it cannot read.
+ */
+export function parseRequestSignWindow(raw: string | undefined): number | null {
+  if (raw === undefined || raw.trim() === '') return null;
+  const trimmed = raw.trim();
+  const seconds = /^\d{1,4}$/.test(trimmed) ? Number(trimmed) : Number.NaN;
+  if (!Number.isInteger(seconds) || seconds < 1 || seconds > REQUEST_SIGN_WINDOW_MAX_SECONDS) {
+    throw new Error(`IDENTITY_REQUEST_SIGN_WINDOW_SECONDS must be whole seconds from 1 to ${REQUEST_SIGN_WINDOW_MAX_SECONDS}`);
+  }
+  return seconds;
+}
+
+/**
+ * Why a signature check refused. `stale`: signed longer ago than the window. `future`: signed further ahead of the
+ * server's clock than the window (the caller's clock runs fast). Each has its own code so a signer can tell which
+ * way its clock is off.
+ */
+export type RequestSignReason = 'unsigned' | 'stale' | 'future' | 'tampered' | 'replay' | 'window_unset' | 'ip_allowlist_required';
 
 export interface RequestSignMaterial {
   readonly method: string;
@@ -47,7 +73,12 @@ export class ApiKeyRequestSignError extends Error {
   constructor(
     message: string,
     readonly reason:
-      RequestSignReason | 'auth.not_found' | 'auth.not_configured' | 'auth.signature_not_required' | 'auth.signing_change_unset',
+      | RequestSignReason
+      | 'auth.not_found'
+      | 'auth.not_configured'
+      | 'auth.signature_not_required'
+      | 'auth.signing_change_unset'
+      | 'auth.signing_required',
   ) {
     super(message);
     this.name = 'ApiKeyRequestSignError';
@@ -60,6 +91,7 @@ type KeySignRow = {
   require_non_empty_ip_allowlist: boolean;
   request_signing_secret: string | null;
   ip_allowlist: string[] | null;
+  expires_at: Date | null;
 };
 
 export function hashBody(body: Buffer | string | Uint8Array | null | undefined): string {
@@ -103,9 +135,13 @@ export function ipAllowlistSatisfied(requireNonEmpty: boolean, allowlist: readon
   return (allowlist ?? []).some(ipAllowlistEntryCounts);
 }
 
-/** Retain through the last second the signature is still acceptable (age === window). */
+/**
+ * Retain through the last second the signature could be acceptable under any window the service will run with
+ * (age === REQUEST_SIGN_WINDOW_MAX_SECONDS), not only today's: an owner who widens the window on restart must not
+ * turn an already-used nonce fresh again.
+ */
 export function nonceRetainUntil(signedAtSeconds: number): Date {
-  return new Date((signedAtSeconds + REQUEST_SIGN_WINDOW_SECONDS + 1) * 1000);
+  return new Date((signedAtSeconds + REQUEST_SIGN_WINDOW_MAX_SECONDS + 1) * 1000);
 }
 
 function validPath(path: string): boolean {
@@ -135,8 +171,12 @@ export async function assessRequestSignature(input: {
   readonly now: Date;
   readonly keyId: string;
   readonly nonceStore: NonceStore;
+  /** The owner's window. Null refuses every signed request: freshness cannot be judged against an unset window. */
+  readonly windowSeconds: number | null;
 }): Promise<{ ok: true } | { ok: false; reason: Exclude<RequestSignReason, 'ip_allowlist_required'> }> {
   if (!input.requireSignature) return { ok: true };
+  if (input.windowSeconds === null) return { ok: false, reason: 'window_unset' };
+  const windowSeconds = input.windowSeconds;
   const material = input.material;
   if (!input.secret || !material?.signature || !material.timestamp || !material.nonce) {
     return { ok: false, reason: 'unsigned' };
@@ -163,8 +203,9 @@ export async function assessRequestSignature(input: {
   if (signedAt === null || !signaturesEqual(material.signature, expected)) {
     return { ok: false, reason: signedAt === null ? 'stale' : 'tampered' };
   }
-  const age = Math.abs(Math.floor(input.now.getTime() / 1000) - signedAt);
-  if (age > REQUEST_SIGN_WINDOW_SECONDS) return { ok: false, reason: 'stale' };
+  const ahead = signedAt - Math.floor(input.now.getTime() / 1000);
+  if (-ahead > windowSeconds) return { ok: false, reason: 'stale' };
+  if (ahead > windowSeconds) return { ok: false, reason: 'future' };
   const fresh = await input.nonceStore.consume(input.keyId, material.nonce, input.now, new Date(signedAt * 1000));
   if (!fresh) return { ok: false, reason: 'replay' };
   return { ok: true };
@@ -190,7 +231,7 @@ export function issueSigningSecret(): string {
   return `ifs_${randomBytes(32).toString('base64url')}`;
 }
 
-function sealSigningSecret(encKey: Buffer | null, plaintext: string): string {
+export function sealSigningSecret(encKey: Buffer | null, plaintext: string): string {
   if (!encKey) {
     throw new ApiKeyRequestSignError('API key signing is not configured', 'auth.not_configured');
   }
@@ -211,7 +252,9 @@ export function openSigningSecret(encKey: Buffer | null, stored: string | null |
 export function assertEdgeSignedRequest(service: string | null, request: unknown): void {
   if (request == null) return;
   if (service !== 'svc-edge') {
-    throw new AuthError('Invalid credentials', 'auth.invalid_credentials');
+    // Its own code: the caller forwarding request material is not the edge. That is a setup failure between
+    // services, never a verdict on the developer's key, so the edge answers it as unavailable, not as a bad key.
+    throw new AuthError('Request material may only come from the edge', 'auth.edge_unauthenticated');
   }
 }
 
@@ -230,6 +273,8 @@ export async function setApiKeyRequestSigning(
   keyId: string,
   input: { requireSignature?: boolean; requireNonEmptyIpAllowlist?: boolean },
   encKey: Buffer | null,
+  /** The owner's `API_KEY_SIGNING_OPTIONAL`. False (blank): a key that may place orders cannot turn signing off. */
+  signingOptional = false,
 ): Promise<{
   id: string;
   requireSignature: boolean;
@@ -246,14 +291,18 @@ export async function setApiKeyRequestSigning(
         request_signing_secret: string | null;
         require_signature: boolean;
         require_non_empty_ip_allowlist: boolean;
+        scopes: string[];
       }>
     >`
-      SELECT id, request_signing_secret, require_signature, require_non_empty_ip_allowlist FROM api_keys
+      SELECT id, request_signing_secret, require_signature, require_non_empty_ip_allowlist, scopes FROM api_keys
       WHERE id = ${keyId} AND user_id = ${userId} AND revoked = false
       FOR UPDATE
     `;
     const row = current[0];
     if (!row) throw new ApiKeyRequestSignError('API key not found', 'auth.not_found');
+    if (input.requireSignature === false && !signingOptional && signsByDefault(row.scopes)) {
+      throw new ApiKeyRequestSignError('A key that places orders signs every request', 'auth.signing_required');
+    }
     // Omitted means keep the stored flag. An IP-only write must not turn signing off or wipe the secret.
     const requireSignature = input.requireSignature ?? row.require_signature;
     const requireNonEmptyIpAllowlist = input.requireNonEmptyIpAllowlist ?? row.require_non_empty_ip_allowlist;
@@ -327,7 +376,7 @@ export async function rotateSigningSecret(
 
 async function loadKey(sql: Sql, key: string): Promise<KeySignRow | null> {
   const rows = await sql<KeySignRow[]>`
-    SELECT id, require_signature, require_non_empty_ip_allowlist, request_signing_secret, ip_allowlist
+    SELECT id, require_signature, require_non_empty_ip_allowlist, request_signing_secret, ip_allowlist, expires_at
     FROM api_keys
     WHERE key_hash = ${hashToken(key)} AND revoked = false
   `;
@@ -339,10 +388,16 @@ export async function decideApiKeyExchange(
   key: string,
   material: RequestSignMaterial | null | undefined,
   now: Date,
-  encKey: Buffer | null = null,
-): Promise<{ ok: true; row: KeySignRow } | { ok: false; reason: RequestSignReason } | { ok: true; row: null }> {
+  encKey: Buffer | null,
+  windowSeconds: number | null,
+): Promise<
+  { ok: true; row: KeySignRow } | { ok: false; reason: RequestSignReason } | { ok: true; row: null } | { ok: false; expired: true }
+> {
   const row = await loadKey(sql, key);
   if (!row) return { ok: true, row: null };
+  // Expiry is judged here, on the same clock as the signature: an expired key is refused outright, so no clock
+  // disagreement between this check and the key check can let a key that must sign mint a token unsigned.
+  if (row.expires_at && row.expires_at.getTime() <= now.getTime()) return { ok: false, expired: true };
   if (!ipAllowlistSatisfied(row.require_non_empty_ip_allowlist, row.ip_allowlist)) {
     return { ok: false, reason: 'ip_allowlist_required' };
   }
@@ -352,23 +407,51 @@ export async function decideApiKeyExchange(
     material,
     now,
     keyId: row.id,
+    // Without a window nothing is consumed: assessRequestSignature refuses before the nonce store is asked.
     nonceStore: postgresNonceStore(sql),
+    windowSeconds,
   });
   if (!verdict.ok) return verdict;
   return { ok: true, row };
 }
 
+export type RequestSignRefusalCode =
+  | 'auth.request_unsigned'
+  | 'auth.request_stale'
+  | 'auth.request_future'
+  | 'auth.request_tampered'
+  | 'auth.request_replay'
+  | 'auth.request_window_unset'
+  | 'auth.ip_allowlist_required';
+
+/** The typed code a refused signature check answers with (DV-auth-01; the edge names each one). */
+export function requestSignRefusalCode(reason: RequestSignReason): RequestSignRefusalCode {
+  return reason === 'ip_allowlist_required' ? 'auth.ip_allowlist_required' : `auth.request_${reason}`;
+}
+
+const REFUSAL_MESSAGE: Record<RequestSignReason, string> = {
+  unsigned: 'This key signs every request; the request carried no signature',
+  stale: 'The request was signed longer ago than the timestamp window',
+  future: 'The request is timestamped ahead of the server clock by more than the window',
+  tampered: 'The signature does not match the request',
+  replay: 'This nonce was already used inside the timestamp window',
+  window_unset: 'The request-signing timestamp window is not set',
+  ip_allowlist_required: 'This key requires an IP allowlist',
+};
+
 /**
- * Outermost exchange wrap. A key that requires a signature cannot mint a JWT
- * without a fresh valid signature. The wire error stays invalid credentials
- * so a refusal does not confirm that the key exists.
+ * Outermost exchange wrap. A key that requires a signature cannot mint a JWT without a fresh valid signature.
+ * A refusal names its reason (stale, tampered, replay, unsigned) so the key holder can fix their signer. It is
+ * reached only by a caller who presented a live key's full secret: an unknown, revoked or wrong key never gets here
+ * (`loadKey` finds no row) and stays `auth.invalid_credentials`, so the reason confirms nothing a guesser lacks.
  */
-export function installApiKeyRequestSignExchange(auth: AuthService, sql: Sql, encKey: Buffer | null): void {
+export function installApiKeyRequestSignExchange(auth: AuthService, sql: Sql, encKey: Buffer | null, windowSeconds: number | null): void {
   const orig = auth.exchangeApiKey.bind(auth);
   auth.exchangeApiKey = async (key: string, requestOrigin?: string | null) => {
-    const verdict = await decideApiKeyExchange(sql, key, requestSignAls.getStore(), new Date(), encKey);
+    const verdict = await decideApiKeyExchange(sql, key, requestSignAls.getStore(), new Date(), encKey, windowSeconds);
     if (!verdict.ok) {
-      throw new AuthError('Invalid credentials', 'auth.invalid_credentials');
+      if ('expired' in verdict) throw new AuthError('API key has expired', 'auth.api_key_expired');
+      throw new AuthError(REFUSAL_MESSAGE[verdict.reason], requestSignRefusalCode(verdict.reason));
     }
     const issued = await orig(key, requestOrigin);
     if (!verdict.row) return issued;
@@ -378,5 +461,40 @@ export function installApiKeyRequestSignExchange(auth: AuthService, sql: Sql, en
       requireNonEmptyIpAllowlist: verdict.row.require_non_empty_ip_allowlist,
       ipAllowlist: verdict.row.ip_allowlist ?? [],
     };
+  };
+}
+
+/** The published TEST vector's inputs. The secret signs nothing real: no key is ever minted with it. */
+const TEST_VECTOR = {
+  method: 'POST',
+  path: '/api/v1/trade/orders',
+  timestamp: '1767225600',
+  nonce: 'test-vector-nonce-0001',
+  body: '{"symbol":"TEST-USD","side":"buy","type":"limit","price":"1.00","quantity":"1"}',
+  secret: 'ifs_TEST_published_vector_secret_signs_nothing_real',
+} as const;
+
+/**
+ * The public signing policy: the owner's window (null while unset) and one request signed by this service's own
+ * signer with the published TEST secret, so the page cannot drift from what the service checks.
+ */
+export function requestSigningPolicy(windowSeconds: number | null): RequestSigningPolicy {
+  const bodySha256 = hashBody(TEST_VECTOR.body);
+  const canonical = canonicalRequest({
+    method: TEST_VECTOR.method,
+    path: TEST_VECTOR.path,
+    timestamp: TEST_VECTOR.timestamp,
+    nonce: TEST_VECTOR.nonce,
+    bodyHash: bodySha256,
+  });
+  return {
+    version: REQUEST_SIGN_VERSION,
+    windowSeconds,
+    headers: {
+      timestamp: 'x-intafaced-request-timestamp',
+      nonce: 'x-intafaced-request-nonce',
+      signature: 'x-intafaced-request-signature',
+    },
+    vector: { ...TEST_VECTOR, bodySha256, canonical, signature: signRequest(TEST_VECTOR.secret, canonical) },
   };
 }

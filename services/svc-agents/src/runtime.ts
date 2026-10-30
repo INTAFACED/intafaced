@@ -76,6 +76,16 @@ export interface AgentRuntimeOptions {
    * alone. When set, a run with no user limit refuses before the provider.
    */
   readonly spend?: SpendGate;
+  /**
+   * The person's available balance in the fee asset, read before the engine is called. Absent only in tests that do
+   * not exercise funds; production wires the ledger's balance read.
+   */
+  readonly funds?: { available(userId: string, assetId: string): Promise<Amount> };
+}
+
+/** The agent's own stored cap per session, as the spend hold takes it. */
+function agentCapOf(guardrail: Guardrail): string | null {
+  return guardrail.limits.maxSpendPerSession === null ? null : formatAmount(guardrail.limits.maxSpendPerSession);
 }
 
 export interface SessionRecord {
@@ -181,6 +191,7 @@ export class AgentRuntime {
   private readonly feeAssetId: string;
   private readonly meteringEnabled: boolean;
   private readonly spend: SpendGate | null;
+  private readonly funds: AgentRuntimeOptions['funds'] | null;
 
   constructor(
     private readonly sql: Sql,
@@ -193,6 +204,7 @@ export class AgentRuntime {
     this.feeAssetId = options.feeAssetId;
     this.meteringEnabled = options.meteringEnabled ?? false;
     this.spend = options.spend ?? null;
+    this.funds = options.funds ?? null;
   }
 
   // ── Agent definitions ──────────────────────────────────────────────────────
@@ -260,7 +272,25 @@ export class AgentRuntime {
       throw new AgentError(`Agent "${input.agentId}" is disabled`, 'agents.agent_not_found', 'agents.error.engine_unavailable');
     }
 
-    const guardrail = definition.guardrail;
+    return this.insertSession(input.userId, definition.guardrail, input.metered ?? true);
+  }
+
+  /**
+   * Open a session of an agent the person built (AG-builder-01). It has no registered definition: the caller builds
+   * its guardrail from the agent as saved, and it is bound to the session as any other. Its id is `own.<agent id>`,
+   * which no registered agent can take, so `openSession` can never open one and this can open nothing else. Its
+   * spend is held against the caps the person set for that agent (`UserSpendStore.reserve`).
+   */
+  async openOwnSession(input: { userId: string; guardrail: Guardrail }): Promise<SessionRecord> {
+    if (!input.guardrail.agentId.startsWith('own.')) {
+      throw new AgentError(`"${input.guardrail.agentId}" is not an own agent`, 'agents.agent_not_found', 'agents.error.route_not_found', {
+        task: input.guardrail.agentId,
+      });
+    }
+    return this.insertSession(input.userId, input.guardrail, true);
+  }
+
+  private async insertSession(userId: string, guardrail: Guardrail, metered: boolean): Promise<SessionRecord> {
     const snapshot = serialiseGuardrail(guardrail);
 
     return transaction(
@@ -269,8 +299,8 @@ export class AgentRuntime {
         const rows = await tx<SessionRow[]>`
           INSERT INTO agents.agent_sessions (user_id, agent_id, guardrail, guardrail_version, metered)
           VALUES (
-            ${input.userId}, ${guardrail.agentId}, ${tx.json(snapshot as never)},
-            ${guardrail.version}, ${input.metered ?? true}
+            ${userId}, ${guardrail.agentId}, ${tx.json(snapshot as never)},
+            ${guardrail.version}, ${metered}
           )
           RETURNING *
         `;
@@ -400,11 +430,45 @@ export class AgentRuntime {
       throw err;
     }
 
+    // 1a · Request-id replay must not re-enter the engine free of charge.
+    //
+    // Usage is unique on (session, request_id). A second think with the same id
+    // used to call the provider again, insert zero-cost usage (ON CONFLICT), and
+    // bypass the spend cap. Once a request id has been metered, the caller opens
+    // a new id — they do not get free re-inference under the old one. Checked
+    // before price and funds, so a replay reads as a replay whatever the balance.
+    const shouldMeter = shouldMeterUsage(session.metered, this.meteringEnabled);
+    if (shouldMeter && (await this.meter.hasRequest(session.id, input.requestId))) {
+      const err = new AgentError(
+        `Request id "${input.requestId}" was already metered on session ${session.id}`,
+        'agents.request_id_replay',
+        'agents.error.request_id_replay',
+        { requestId: input.requestId },
+      );
+      await this.appendFailure(session, { kind: 'completion', task: input.task, error: err });
+      throw err;
+    }
+
     const maxOutputTokens =
       input.maxOutputTokens === undefined ? route.maxOutputTokens : Math.min(input.maxOutputTokens, route.maxOutputTokens);
+    // A route with no published rate never runs: nothing invents a price (OWNER 107). Refused before the guardrail, the
+    // hold and the engine, and logged so the person can read why.
+    const price = route.price;
+    if (!price) {
+      throw await this.appendRefusal(
+        session,
+        {
+          allowed: false,
+          code: 'agents.price_unset',
+          userMessageKey: 'agents.refused.price_unset',
+          userMessageParams: { task: input.task },
+        },
+        { kind: 'completion', task: input.task },
+      );
+    }
     const worstCaseCost = usageCost(
       { inputTokens: estimateInputTokens(input.system, input.messages), outputTokens: maxOutputTokens },
-      route.price,
+      price,
     );
 
     // 2 · Guardrail, before anything is called.
@@ -424,22 +488,32 @@ export class AgentRuntime {
       throw await this.appendRefusal(session, decision, { kind: 'completion', task: input.task });
     }
 
-    // 2b · Request-id replay must not re-enter the engine free of charge.
-    //
-    // Usage is unique on (session, request_id). A second think with the same id
-    // used to call the provider again, insert zero-cost usage (ON CONFLICT), and
-    // bypass the spend cap. Once a request id has been metered, the caller opens
-    // a new id — they do not get free re-inference under the old one.
-    const shouldMeter = shouldMeterUsage(session.metered, this.meteringEnabled);
-    if (shouldMeter && (await this.meter.hasRequest(session.id, input.requestId))) {
-      const err = new AgentError(
-        `Request id "${input.requestId}" was already metered on session ${session.id}`,
-        'agents.request_id_replay',
-        'agents.error.request_id_replay',
-        { requestId: input.requestId },
-      );
-      await this.appendFailure(session, { kind: 'completion', task: input.task, error: err });
-      throw err;
+    // 2a · Funds. A run whose worst case the person's available balance cannot cover does not start (OWNER 107): the
+    //      charge settles later, so this check narrows the windows nobody can pay. It reads the balance and holds
+    //      nothing in the ledger, so a withdrawal before the window seals can still leave it unpaid (it is then
+    //      retried on its charge key); a ledger hold at reserve closes that gap. A read that fails refuses too — an
+    //      unknown balance is not a covered one.
+    //      With a spend gate the check runs inside its reservation instead, under the per-user lock and net of what is
+    //      already owed and held (2c); this path is only for a runtime wired without one.
+    if (!this.spend && this.funds && shouldMeter && worstCaseCost > 0n) {
+      let available: Amount | null;
+      try {
+        available = await this.funds.available(session.userId, this.feeAssetId);
+      } catch {
+        available = null;
+      }
+      if (available === null || available < worstCaseCost) {
+        throw await this.appendRefusal(
+          session,
+          {
+            allowed: false,
+            code: available === null ? 'agents.funds_unread' : 'agents.funds_insufficient',
+            userMessageKey: 'agents.refused.funds_insufficient',
+            userMessageParams: { worstCase: formatAmount(worstCaseCost), asset: this.feeAssetId },
+          },
+          { kind: 'completion', task: input.task },
+        );
+      }
     }
 
     // The hasRequest read above is not the claim. Overlapping thinks both see
@@ -464,6 +538,8 @@ export class AgentRuntime {
     // A blank user limit refuses. This hold is not a ledger post.
     let reserved: Amount | null = null;
     let reservationKey = input.requestId;
+    const funds = this.funds;
+    const fundsRead = funds && shouldMeter && worstCaseCost > 0n ? () => funds.available(session.userId, this.feeAssetId) : null;
     if (this.spend) {
       try {
         let held = await this.spend.reserve({
@@ -472,6 +548,8 @@ export class AgentRuntime {
           reservationKey,
           assetId: this.feeAssetId,
           amount: formatAmount(worstCaseCost),
+          agentCap: agentCapOf(session.guardrail),
+          ...(fundsRead ? { funds: fundsRead } : {}),
         });
         // A committed hold is a metered replay. Metering-off must not invent
         // agents.request_id_replay (D26-P1-A6).
@@ -506,6 +584,8 @@ export class AgentRuntime {
             reservationKey,
             assetId: this.feeAssetId,
             amount: formatAmount(worstCaseCost),
+            agentCap: agentCapOf(session.guardrail),
+            ...(fundsRead ? { funds: fundsRead } : {}),
           });
         }
         // One hold does not authorize a second provider call. A crashed hold
@@ -530,6 +610,30 @@ export class AgentRuntime {
             {
               allowed: false,
               code: 'agents.spend_limit',
+              userMessageKey: err.userMessageKey,
+              userMessageParams: err.userMessageParams,
+            },
+            { kind: 'completion', task: input.task },
+          );
+        }
+        if (err instanceof AgentError && (err.code === 'agents.spend.cap_exceeded' || err.code === 'agents.spend.cap_unset')) {
+          throw await this.appendRefusal(
+            session,
+            {
+              allowed: false,
+              code: err.code,
+              userMessageKey: err.userMessageKey,
+              userMessageParams: err.userMessageParams,
+            },
+            { kind: 'completion', task: input.task },
+          );
+        }
+        if (err instanceof AgentError && (err.code === 'agents.funds_insufficient' || err.code === 'agents.funds_unread')) {
+          throw await this.appendRefusal(
+            session,
+            {
+              allowed: false,
+              code: err.code,
               userMessageKey: err.userMessageKey,
               userMessageParams: err.userMessageParams,
             },
@@ -567,7 +671,7 @@ export class AgentRuntime {
     }
 
     const usage = completion.result.usage;
-    const cost = usageCost(usage, route.price);
+    const cost = usageCost(usage, price);
 
     // 4 · Meter and audit together.
     //
@@ -650,7 +754,7 @@ export class AgentRuntime {
             providerId: completion.result.providerId,
             model: route.model,
             usage,
-            price: route.price,
+            price,
           });
           recorded = result.recorded;
           window = result.windowId;

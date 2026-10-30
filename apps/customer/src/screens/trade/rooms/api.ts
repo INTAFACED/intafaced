@@ -15,10 +15,21 @@ export { algoProgressSchema, otcFillSchema, otcQuoteSchema };
 /** `algo.get` also sends the schedule clock and the participation rate; the legacy schema drops them. */
 export const algoParentSchema = algoSchema.extend({
   participationBps: z.number().int().nullable().optional(),
+  povBasis: z.enum(['traded_volume', 'opposite_liquidity']).nullable().optional(),
   startedAt: z.string().nullable().optional(),
   nextDueAt: z.string().nullable().optional(),
   scheduleStretchReason: z.string().nullable().optional(),
+  randomSeed: z.number().int().nullable().optional(),
+  triggerPrice: decimalSchema.nullable().optional(),
+  triggeredAt: z.string().nullable().optional(),
+  awaitingTrigger: z.boolean().optional(),
+  plannedSliceQtys: z.array(decimalSchema).optional(),
+  /** `algo.get` children: each placed size and, for POV, the volume or book size it was a share of. */
+  children: z
+    .array(z.object({ sliceIndex: z.number().int(), qty: decimalSchema.optional(), basisQty: decimalSchema.nullable().optional() }))
+    .optional(),
 });
+export type PovBasis = 'traded_volume' | 'opposite_liquidity';
 export type AlgoParent = z.infer<typeof algoParentSchema>;
 export type AlgoProgress = z.infer<typeof algoProgressSchema>;
 
@@ -44,6 +55,10 @@ export const deskStatusSchema = z.object({
   published: z.boolean(),
   statusLine: z.string(),
   residual: z.string().nullable().optional(),
+  /** CB-otc-11: the base assets the desk quotes; null when the owner left the list blank. */
+  assets: z.array(z.string()).nullable().optional(),
+  /** CB-otc-08: the lowest verification level the desk prices for; null when the owner left it blank. */
+  minTier: z.string().nullable().optional(),
   makerRouting: z.object({ published: z.boolean(), residual: z.string().nullable().optional() }).optional(),
   midFeed: z.object({ wiring: z.string(), published: z.boolean(), residual: z.string().nullable().optional() }).optional(),
 });
@@ -97,6 +112,18 @@ export const batchItemSchema = z.object({
 export type BatchItem = z.infer<typeof batchItemSchema>;
 export const batchSchema = z.object({ results: z.array(batchItemSchema) });
 
+/** The order door's answer to one iceberg: the order id, its status and the display size the service stored. */
+export const icebergAnswerSchema = z.object({ id: z.string(), status: z.string(), displayQty: z.string().optional() });
+
+export interface IcebergOrder {
+  symbol: string;
+  side: 'buy' | 'sell';
+  amount: string;
+  price: string;
+  displayQty: string;
+  clientOrderId: string;
+}
+
 export interface CreateTwapInput {
   symbol: string;
   side: 'buy' | 'sell';
@@ -107,7 +134,22 @@ export interface CreateTwapInput {
   clientAlgoId: string;
   limitPrice?: string;
   participationBps?: number;
+  /** POV only: traded volume (default) or opposite-side liquidity. */
+  povBasis?: PovBasis;
+  /** TWAP only: random slice sizes fixed by this seed. */
+  randomSeed?: number;
+  /** TWAP only: the schedule waits until the mark reaches this price. */
+  triggerPrice?: string;
 }
+
+export interface PreviewSizesInput {
+  symbol: string;
+  totalQty: string;
+  durationMs: number;
+  sliceIntervalMs: number;
+  randomSeed?: number;
+}
+export const previewSizesSchema = z.object({ sliceQtys: z.array(decimalSchema) });
 
 export interface BatchOrder {
   symbol: string;
@@ -135,6 +177,7 @@ export function createRoomApi(api: ApiClient) {
     algoPolicy: (signal?: AbortSignal) => api.query('trade', 'algo.policy', undefined, algoPolicySchema, { signal }),
     algoCreate: (input: CreateTwapInput) => api.mutate('trade', 'algo.createTwap', input, algoParentSchema),
     algoGet: (algoId: string, signal?: AbortSignal) => api.query('trade', 'algo.get', { algoId }, algoParentSchema, { signal }),
+    algoPreviewSizes: (input: PreviewSizesInput) => api.query('trade', 'algo.previewTwapSizes', input, previewSizesSchema),
     algoProgress: (algoId: string, signal?: AbortSignal) => api.query('trade', 'algo.progress', { algoId }, algoProgressSchema, { signal }),
     algoAction: (action: 'pause' | 'resume' | 'cancel', algoId: string) =>
       api.mutate('trade', `algo.${action}`, { algoId }, algoParentSchema),
@@ -158,6 +201,15 @@ export function createRoomApi(api: ApiClient) {
     greeks: (input: GreeksInput, signal?: AbortSignal) =>
       api.rest('/greeks/what-if', greeksSchema, { method: 'POST', body: input, signal }),
     placeBatch: (orders: BatchOrder[]) => api.rest('/orders/batch', batchSchema, { method: 'POST', body: { orders } }),
+    /** One of the account's orders by its request id; `trade.order_not_found` when no order was made with it. */
+    orderByClientId: (clientOrderId: string, symbol: string) =>
+      api.rest(
+        `/orders/by-client-id/${encodeURIComponent(clientOrderId)}`,
+        icebergAnswerSchema.extend({ executionOutcome: z.unknown().nullable().optional() }),
+        { query: { symbol } },
+      ),
+    placeIceberg: (order: IcebergOrder) =>
+      api.rest('/orders', icebergAnswerSchema, { method: 'POST', body: { ...order, type: 'limit', timeInForce: 'GTC' } }),
   };
 }
 export type RoomApi = ReturnType<typeof createRoomApi>;
