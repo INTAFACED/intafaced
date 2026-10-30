@@ -480,6 +480,7 @@ function toTrpcError(err: unknown): TRPCError {
         return new TRPCError({ code: 'NOT_FOUND', message: err.message, cause: err });
       case 'trade.otc_not_owner':
       case 'trade.otc_stake_gate':
+      case 'trade.otc_level_insufficient':
         return new TRPCError({ code: 'FORBIDDEN', message: err.message, cause: err });
       case 'trade.otc_desk_law_blank':
       case 'trade.otc_settle_refused':
@@ -492,6 +493,7 @@ function toTrpcError(err: unknown): TRPCError {
       case 'trade.rfq_missing_price':
       case 'trade.otc_makers_unset':
       case 'trade.otc_assets_unset':
+      case 'trade.otc_level_unset':
       case 'trade.rfq_size_not_set':
       case 'feed.market':
         return new TRPCError({ code: 'PRECONDITION_FAILED', message: err.message, cause: err });
@@ -1097,11 +1099,13 @@ export function createTradeRouter(
             statusLine: otcDeskLawStatusLine(UNPUBLISHED_OTC_DESK_LAW),
             residual: deskLaw,
             assets: null,
+            minTier: null,
             makerRouting: otcMakerRoutingStatus(),
             midFeed: otcMidFeedStatus(),
             residuals: {
               deskLaw,
               assets: deskLaw,
+              minTier: deskLaw,
               makerRouting: OTC_MAKER_ROUTING_RESIDUAL,
               midFeed: OTC_MID_FEED_RESIDUAL,
             },
