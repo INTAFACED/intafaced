@@ -196,6 +196,17 @@ export interface LaunchIssuer {
   revision: number;
 }
 
+/** One audited move of an issuer or a launch: who made it, who approved it, and why when the system made it. */
+export interface LaunchMove {
+  ordinal: number;
+  from: string | null;
+  to: string;
+  actorId: string;
+  approverId: string;
+  cause: string | null;
+  at: Date;
+}
+
 export interface CreateEventInput {
   id: string;
   issuerId: string;
@@ -445,6 +456,58 @@ export class LaunchService {
     return eventFromRow(row);
   }
 
+  /** The operator lens: every launch, drafts included, newest opening first. A missing page size refuses. */
+  async listAllEvents(input: { limit?: number }): Promise<LaunchEvent[]> {
+    if (input.limit === undefined) throw new LaunchError('A page size is required', 'launch.events_list_limit_unset');
+    return (await this.selectEvents(this.sql, { limit: input.limit })).map(eventFromRow);
+  }
+
+  /** The operator lens: one launch whatever its status, a draft included. */
+  async getAnyEvent(id: string): Promise<LaunchEvent> {
+    const row = (await this.selectEvents(this.sql, { id }))[0];
+    if (!row) throw new LaunchError(`Launch ${id} not found`, 'launch.event_not_found');
+    return eventFromRow(row);
+  }
+
+  /** The operator lens: issuers by name, one page. A missing page size refuses. */
+  async listIssuers(input: { limit?: number }): Promise<LaunchIssuer[]> {
+    if (input.limit === undefined) throw new LaunchError('A page size is required', 'launch.events_list_limit_unset');
+    return this.sql<LaunchIssuer[]>`SELECT id, name, state, revision FROM token.launch_issuers ORDER BY name, id LIMIT ${input.limit}`;
+  }
+
+  /** The audit trails of some issuers or some launches, oldest first, keyed by id. An id with no move has an empty trail. */
+  async moves(kind: 'issuer' | 'event', ids: readonly string[]): Promise<Map<string, LaunchMove[]>> {
+    type Row = {
+      id: string;
+      ordinal: number;
+      from: string | null;
+      to: string;
+      actor_id: string;
+      approver_id: string;
+      cause: string | null;
+      at: Date;
+    };
+    const rows =
+      ids.length === 0
+        ? []
+        : kind === 'issuer'
+          ? await this.sql<Row[]>`
+              SELECT issuer_id AS id, ordinal, from_state AS "from", to_state AS "to", actor_id, approver_id, NULL AS cause, at
+                FROM token.launch_issuer_moves WHERE issuer_id IN ${this.sql(ids)} ORDER BY issuer_id, ordinal
+            `
+          : await this.sql<Row[]>`
+              SELECT event_id AS id, ordinal, from_status AS "from", to_status AS "to", actor_id, approver_id, cause, at
+                FROM token.launch_event_moves WHERE event_id IN ${this.sql(ids)} ORDER BY event_id, ordinal
+            `;
+    const out = new Map<string, LaunchMove[]>(ids.map((id) => [id, []]));
+    for (const r of rows) {
+      out
+        .get(r.id)
+        ?.push({ ordinal: r.ordinal, from: r.from, to: r.to, actorId: r.actor_id, approverId: r.approver_id, cause: r.cause, at: r.at });
+    }
+    return out;
+  }
+
   async getIssuer(id: string): Promise<LaunchIssuer | null> {
     const rows = await this.sql<Array<{ id: string; name: string; state: IssuerState; revision: number }>>`
       SELECT id, name, state, revision FROM token.launch_issuers WHERE id = ${id}
@@ -483,7 +546,8 @@ export class LaunchService {
     const row = (await this.selectEvents(this.sql, { id: input.id }))[0];
     if (!row) throw new LaunchError(`Launch ${input.id} not found`, 'launch.event_not_found');
     const replay = await this.sql<Array<{ to_status: string }>>`
-      SELECT to_status FROM token.launch_event_moves WHERE event_id = ${input.id} AND ordinal = ${input.expectedRevision + 1}
+      SELECT to_status FROM token.launch_event_moves
+       WHERE event_id = ${input.id} AND ordinal = ${input.expectedRevision + 1} AND cause IS NULL
     `;
     refuseMove(eventFromRow(row), input, replay[0]?.to_status);
   }
@@ -502,6 +566,17 @@ export class LaunchService {
   }): Promise<LaunchIssuer> {
     const name = issuerName(input);
     return transaction(this.sql, async (tx) => {
+      // A suspension closes the issuer's open launches. Their rows are locked before the issuer's, the order moveEvent
+      // takes them in, and every launch that is not finished is locked, so one that a concurrent move opens is closed too.
+      const live =
+        input.state === 'suspended'
+          ? await tx<Array<{ id: string; status: LaunchStatus; revision: number }>>`
+              SELECT id, status, revision FROM token.launch_events
+               WHERE issuer_id = ${input.id} AND status IN ('announced', 'snapshot', 'open')
+               ORDER BY id
+                 FOR UPDATE
+            `
+          : [];
       const rows = await tx<Array<{ id: string; name: string; state: IssuerState; revision: number }>>`
         SELECT id, name, state, revision FROM token.launch_issuers WHERE id = ${input.id} FOR UPDATE
       `;
@@ -529,6 +604,14 @@ export class LaunchService {
         INSERT INTO token.launch_issuer_moves (issuer_id, ordinal, from_state, to_state, actor_id, approver_id)
         VALUES (${input.id}, ${ordinal}, ${current.state}, ${input.state}, ${input.actorId}, ${input.approverId})
       `;
+      for (const event of live.filter((e) => e.status === 'open')) {
+        const next = event.revision + 1;
+        await tx`UPDATE token.launch_events SET status = 'closed', revision = ${next} WHERE id = ${event.id}`;
+        await tx`
+          INSERT INTO token.launch_event_moves (event_id, ordinal, from_status, to_status, actor_id, approver_id, cause)
+          VALUES (${event.id}, ${next}, 'open', 'closed', ${input.actorId}, ${input.approverId}, 'issuer_suspended')
+        `;
+      }
       return { ...current, state: input.state, revision: ordinal };
     });
   }
@@ -593,7 +676,7 @@ export class LaunchService {
       const event = eventFromRow(row);
       const ordinal = input.expectedRevision + 1;
       const replay = await tx<Array<{ to_status: string }>>`
-        SELECT to_status FROM token.launch_event_moves WHERE event_id = ${input.id} AND ordinal = ${ordinal}
+        SELECT to_status FROM token.launch_event_moves WHERE event_id = ${input.id} AND ordinal = ${ordinal} AND cause IS NULL
       `;
       if (refuseMove(event, input, replay[0]?.to_status) === 'replay') return event;
       const now = input.now;

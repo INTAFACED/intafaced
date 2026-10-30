@@ -353,4 +353,70 @@ describe('J-more-catalogue-11 launch service', () => {
     expect(basis.takenAt?.toISOString()).toBe(at(1.5).toISOString());
     expect(await launch.readBasis('test-open-launch', NOBODY)).toMatchObject({ basis: null, reason: 'no_holdings_at_snapshot' });
   });
+
+  // J-more-catalogue-14 #8: a suspension closes the issuer's open launches, each with an audited move row.
+  it('suspending an issuer closes its open launches once, audited, and leaves its other launches and issuers alone', async () => {
+    await onboardedIssuer();
+    await onboardedIssuer('other-issuer');
+    await launch.createEvent(event(), BY);
+    await launch.createEvent(event({ id: 'test-later-launch', symbol: 'TSL' }), BY);
+    await launch.createEvent(event({ id: 'other-open-launch', issuerId: 'other-issuer', symbol: 'TSO' }), BY);
+    await toOpen();
+    await toOpen('other-open-launch');
+    await launch.moveEvent({ id: 'test-later-launch', to: 'announced', expectedRevision: 0, ...who, now: at(0.5) });
+
+    const suspend = { id: 'test-issuer', name: 'TEST Issuer', state: 'suspended' as const, expectedRevision: 3, ...who };
+    expect(await launch.setIssuer(suspend)).toMatchObject({ state: 'suspended', revision: 4 });
+    expect(await launch.getAnyEvent('test-open-launch')).toMatchObject({ status: 'closed', state: 'past', revision: 4 });
+    expect((await launch.moves('event', ['test-open-launch'])).get('test-open-launch')!.at(-1)).toMatchObject({
+      ordinal: 4,
+      from: 'open',
+      to: 'closed',
+      actorId: ACTOR,
+      approverId: APPROVER,
+      cause: 'issuer_suspended',
+    });
+    // Not open: announced stays announced, and the issuer's state already stops it going further.
+    expect(await launch.getAnyEvent('test-later-launch')).toMatchObject({ status: 'announced', revision: 1 });
+    expect(await launch.getAnyEvent('other-open-launch')).toMatchObject({ status: 'open', revision: 3 });
+    expect((await launch.moves('issuer', ['test-issuer'])).get('test-issuer')!.at(-1)).toMatchObject({
+      ordinal: 4,
+      from: 'onboarded',
+      to: 'suspended',
+      cause: null,
+    });
+
+    // A retried suspension replays: no second close, no second move row.
+    expect(await launch.setIssuer(suspend)).toMatchObject({ state: 'suspended', revision: 4 });
+    expect((await launch.moves('event', ['test-open-launch'])).get('test-open-launch')!).toHaveLength(4);
+    expect(await launch.getAnyEvent('test-open-launch')).toMatchObject({ revision: 4 });
+
+    // A move the founders approved at the revision before the suspension is stale, never a replay of the system's close.
+    const late = { id: 'test-open-launch', to: 'closed' as const, expectedRevision: 3, now: at(10) };
+    expect(await refusal(launch.checkMove(late))).toBe('launch.event_stale');
+    expect(await refusal(launch.moveEvent({ ...late, ...who }))).toBe('launch.event_stale');
+    expect(await launch.moves('event', ['test-open-launch', 'no-such-launch'])).toEqual(
+      new Map([
+        ['test-open-launch', expect.any(Array)],
+        ['no-such-launch', []],
+      ]),
+    );
+  });
+
+  it('the operator lens lists drafts and issuers; a missing page size refuses', async () => {
+    await onboardedIssuer();
+    await launch.createEvent(event(), BY);
+    expect(await refusal(launch.listAllEvents({}))).toBe('launch.events_list_limit_unset');
+    expect(await refusal(launch.listIssuers({}))).toBe('launch.events_list_limit_unset');
+    expect((await launch.listAllEvents({ limit: 50 })).map((e) => [e.id, e.status])).toEqual([['test-open-launch', 'draft']]);
+    expect(await launch.listEvents({ limit: 50 })).toEqual([]);
+    expect(await launch.getAnyEvent('test-open-launch')).toMatchObject({ status: 'draft' });
+    expect(await refusal(launch.getAnyEvent('no-such-launch'))).toBe('launch.event_not_found');
+    expect(await launch.listIssuers({ limit: 50 })).toEqual([{ id: 'test-issuer', name: 'TEST Issuer', state: 'onboarded', revision: 3 }]);
+    expect((await launch.moves('issuer', ['test-issuer'])).get('test-issuer')!.map((m) => [m.from, m.to])).toEqual([
+      [null, 'applied'],
+      ['applied', 'reviewing'],
+      ['reviewing', 'onboarded'],
+    ]);
+  });
 });

@@ -327,11 +327,26 @@ test(`${J} #6 runs the clock check: the offset against the server, and within th
 test(`${J} #7 sends the first signed call: success in the sandbox, and the same key at the live host is refused with the environment mismatch code`, async () => {
   const { key, baseUrl } = run.read();
   expect(key, 'a sandbox key from #3').toBeTruthy();
-  const at = (host) => fetch(`${host}/api/v1/account/balance`, { headers: { authorization: `Bearer ${key}` } }).then(json);
-  const sandbox = await at(baseUrl);
-  expect(sandbox.status, JSON.stringify(sandbox.body)).toBe(200);
+  // A sandbox key holds the pay scopes only (#3), and the edge serves it only at the pay door, the one door with a
+  // sandbox backing (svc-edge gateway-plane SANDBOX_BACKED_DOORS). The first call is a read of its own TEST payments.
+  const at = (host) => fetch(`${host}/api/pay/v1/payments`, { headers: { authorization: `Bearer ${key}` } }).then(json);
+  // The same key at the live host: refused for its environment before anything else, by the typed code.
   const live = await at(EDGE);
-  expect(live.body?.code ?? live.body?.error?.code).toBe('env.mismatch');
+  expect(live.status, JSON.stringify(live.body)).toBe(403);
+  expect(live.body?.error?.data?.intafacedCode).toBe('env.mismatch');
+  // At the sandbox host the door lets it through: never refused for its environment.
+  const sandbox = await at(baseUrl);
+  expect(JSON.stringify(sandbox.body)).not.toContain('env.mismatch');
+  expect(sandbox.status).not.toBe(403);
+  // Success needs a route that serves a person's own sandbox key: svc-pay's payment reads ask for a merchant
+  // (`pay.validation`, merchantId), and the sandbox's own store waits for the owner's decision (DV-sandbox-02). Soft,
+  // so the environment rule above is still proven; the step still fails, by name.
+  expect
+    .soft(
+      sandbox.status,
+      `BLOCKED (sandbox_route_unbuilt): no route serves a personal sandbox key yet (${sandbox.status} ${JSON.stringify(sandbox.body).slice(0, 200)})`,
+    )
+    .toBe(200);
 });
 
 test(`${J} #8 triggers a simulated decline and resets the balance: the payment ends declined; reset works until the daily cap, then a typed refusal`, async () => {

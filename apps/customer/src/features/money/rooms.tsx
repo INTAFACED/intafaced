@@ -63,6 +63,8 @@ import { calendarCopy } from './calendar-copy';
 import { Rules } from './Rules';
 import { rulesCopy } from './rules-copy';
 import { LoanDetail } from './LoanDetail';
+import { LoanApply } from './LoanApply';
+import { loanApplyCopy } from './loan-apply-copy';
 import { loanDetailCopy } from './loan-detail-copy';
 import { linkedAccountsCopy } from './linked-accounts-copy';
 import { cashOutCopy } from './cash-out-copy';
@@ -1272,6 +1274,9 @@ function Loans({ open }: { open: (spec: ActionSpec) => void }) {
                     >
                       <Text k="rooms.review.borrowing" />
                     </Button>
+                    <p className="money-caption">
+                      <LoanApplyLink productId={product.id} />
+                    </p>
                   </article>
                 ))
               ) : (
@@ -1584,6 +1589,24 @@ function LoanDetailLink({ loanId }: { loanId: string }) {
         {t('open')}
       </a>
     </p>
+  );
+}
+/** `/bank/loans/apply?product=<id>`: choose a loan, work out its collateral, check what applies and open it (J-bank-09). */
+function LoanApplyRoom({ search, open }: { search: string; open: (spec: ActionSpec) => void }) {
+  const { t } = loanApplyCopy.useCopy();
+  const productId = new URLSearchParams(search).get('product');
+  return (
+    <BankPage room="Loans" title={t('title')} description={t('description')}>
+      <LoanApply productId={productId && productId.trim() !== '' ? productId : null} open={open} />
+    </BankPage>
+  );
+}
+function LoanApplyLink({ productId }: { productId?: string }) {
+  const { t } = loanApplyCopy.useCopy();
+  return (
+    <a className="text-link" href={productId ? `/bank/loans/apply?product=${encodeURIComponent(productId)}` : '/bank/loans/apply'}>
+      {t('apply')}
+    </a>
   );
 }
 /** `/bank/loans/detail?loan=<id>`: one loan's payoff quote, projection and statement, inside the Loans room (J-bank-11 #1). */
@@ -2074,6 +2097,8 @@ export function BankRoutes({ path, search, open }: { path: string; search: strin
       return <Loans open={open} />;
     case '/bank/loans/detail':
       return <LoanDetailRoom search={search} />;
+    case '/bank/loans/apply':
+      return <LoanApplyRoom search={search} open={open} />;
     case '/bank/cards':
       return <Cards open={open} />;
     case '/bank/ramps':

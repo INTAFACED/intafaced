@@ -123,7 +123,7 @@ describe('LoanService.repay — overlapping event ids pay the outstanding once',
 
   it('two overlapping repayments with different event ids do not each pay the full outstanding', async () => {
     const bank = createBankServices(sql, ledger, memoryLedgerHistory(ledger), {
-      loans: { priceSource: fixedPriceSource({ BTC: { price: '10000', quality: 'mid' } }, () => NOW) },
+      loans: { originationFeeBps: '0', priceSource: fixedPriceSource({ BTC: { price: '10000', quality: 'mid' } }, () => NOW) },
     });
     const opened = await seedOpenLoan(bank, ledger);
     // The draw already put 5000 USDT in hand. Another 5000 means both callers

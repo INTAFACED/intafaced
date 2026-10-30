@@ -80,6 +80,7 @@ async function seedBuyer(ledger: MemoryLedger) {
 
 function atPrice(ledger: MemoryLedger, btc: string, venue = marketMakerVenue()) {
   return new LoanService(sql, ledger, {
+    originationFeeBps: '0',
     priceSource: fixedPriceSource({ BTC: { price: btc, quality: 'mid' } }, () => NOW),
     venue,
   });

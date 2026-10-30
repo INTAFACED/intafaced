@@ -2,15 +2,15 @@ import { test, expect } from '@playwright/test';
 import { OWN_AGENT, UNBUILT, agentsRun, createOwnAgent, openOwnAgent, tableIn } from './agents.mjs';
 import { ADMIN, founderSignIn } from './admin.mjs';
 import { fundedTrader, signIn } from './desk.mjs';
-import { api, toUnits, tool } from './stack.mjs';
+import { api, fromUnits, toUnits, tool } from './stack.mjs';
 
 // J-agents-02, in the running app (docs/roadmap/journeys.json): set my spending limits and see that a run I cannot pay
 // for never starts. One test per step, titled "J-agents-02 #<n>", run in order on one verified TEST account funded with
 // TEST USDT and an agent of the person's own. Per-call, per-session and per-period caps reserve before the engine is
 // called; a refused run bills 0 and leaves no hold; charges equal sealed windows. Push and email delivery of an alert
 // show their vendor notice (vendor.push, vendor.email); the in-app inbox row is written regardless.
-// #1-#5 and #7 run on the agent's Limits, Test and Usage pages (AG-spend-01, AG-usage-02). Still unbuilt, failing at its
-// first missing part within UNBUILT: usage alerts and the hard monthly limit (AG-usage-03, #6).
+// #1-#5 and #7 run on the agent's Limits, Test and Usage pages (AG-spend-01, AG-usage-02); #6 on Limits' alert and hard
+// limit, read back from svc-agents (the alert's inbox row arrives with svc-notify's consumer).
 // Numbers: the agent's own cap is 1 USDT per session; the person sets 0.012 per call, 0.02 per session and 5 a month.
 // One run's worst case on the stack's test engine is just over 0.01024 USDT (2048 output tokens at 5 per million, plus
 // its input at 1 per million), so one fits the per-call cap and two together pass the per-session cap.
@@ -448,27 +448,106 @@ test(`${J} #5 leaves the overage grace value blank after a window could not be p
 test(`${J} #6 sets a soft alert and a hard limit for the month: one inbox row at the alert; push or email shows its vendor notice; the hard limit refuses new runs`, async ({
   page,
 }) => {
-  await openOwnAgent(page, agents, 'Limits');
+  test.setTimeout(240_000);
+  // A fourth TEST person with 1 USDT and the same agent, with 0.1 per session so two runs fit one session at once.
+  const capped = await fundedTrader(page, 'ag02h', '1');
+  await ownAgentWithLimits(page, capped);
   await limits(page)
-    .getByRole('textbox', { name: /^Alert me at/ })
-    .fill('0.01', UNBUILT);
-  await limits(page)
-    .getByRole('textbox', { name: /^Hard limit for the month/ })
-    .fill('0.02');
-  await limits(page).getByRole('checkbox', { name: 'Also by email' }).check();
+    .getByRole('textbox', { name: /^Per session/ })
+    .fill('0.1');
   await limits(page).getByRole('button', { name: 'Save limits' }).click();
-  await expect(limits(page).getByRole('note').filter({ hasText: 'vendor.email' })).toBeVisible();
-  // The inbox row is written whatever the email vendor does.
+  await expect(limits(page).getByRole('status')).toHaveText('Limits saved.');
+  const [agent] = (await ownRead(capped, 'list', { limit: 50 })).filter((row) => row.name === OWN_AGENT);
+  const usageLimits = async () => ownRead(capped, 'usageLimits.get', { id: agent.id });
+  const ownRuns = async (status) => (await ownRead(capped, 'runs', { id: agent.id, limit: 50 })).filter((row) => row.status === status);
+  const alertForm = main(page).getByRole('form', { name: 'Alert and hard limit' });
+  const field = (name) => alertForm.getByRole('textbox', { name });
+
+  // Nothing set, nothing spent. The alert is set at the smallest amount (a LOCAL TEST value), so the first run crosses
+  // it; no hard limit yet. Email is the person's choice, shown with its channel's real state.
+  await expect(field(/^Alert me at/)).toHaveValue('');
+  await expect(field(/^Hard limit for the month/)).toHaveValue('');
+  await field(/^Alert me at/).fill('0.000000000000000001');
+  await alertForm.getByRole('checkbox', { name: 'Also by email' }).check();
+  await expect(alertForm.getByRole('note').filter({ hasText: 'vendor.email' })).toBeVisible();
+  await expect(alertForm.getByRole('note').filter({ hasText: 'agents.usage.alert_inbox_unwired' })).toBeVisible();
+  await alertForm.getByRole('button', { name: 'Save alert and limit' }).click();
+  await expect(alertForm.getByRole('status')).toHaveText('Alert and limit saved.');
+  expect(await usageLimits()).toMatchObject({ alertAt: '0.000000000000000001', hardLimit: null, email: true, spent: '0', alert: null });
+
+  // Run 1 crosses the alert: it answers and is charged, and the month's alert is recorded with that run's cost.
+  await session(page).getByRole('button', { name: 'Open a session' }).click();
+  await expect(session(page).getByText('Session open:')).toBeVisible();
+  const ask = session(page).getByRole('textbox', { name: /^Ask the agent/ });
+  await ask.fill('TEST question');
+  await session(page).getByRole('button', { name: 'Run', exact: true }).click();
+  await expect(session(page).getByRole('region', { name: 'Reply' })).toBeVisible();
+  const first = (await session(page).getByTestId('reply-cost').innerText()).replace(/ USDT$/, '');
+  expect(toUnits(first)).toBeGreaterThan(0n);
+  const crossed = await usageLimits();
+  expect(crossed.alertCrossed).toBe(true);
+  expect(crossed.alert).toEqual({ key: `agents.usage_alert:${agent.id}:${crossed.month}`, spent: first });
+
+  // Run 2, after the alert: it runs and is charged too. The record is the same one, written once: same key, and still
+  // the spend of the run that crossed it.
+  await ask.fill('TEST question again');
+  await session(page).getByRole('button', { name: 'Run', exact: true }).click();
+  await expect.poll(async () => (await ownRuns('executed')).length, { timeout: 20_000 }).toBe(2);
+  const afterAlert = await usageLimits();
+  expect(afterAlert.alert).toEqual(crossed.alert);
+  expect(toUnits(afterAlert.spent)).toBeGreaterThan(toUnits(first));
+
+  // The hard limit, set just above this month's spend: the next run is still admitted, and once started it finishes
+  // and is charged even though its cost takes the month past the limit. Held runs count at their worst case, so a
+  // second run started beside it would be refused at admission: the month passes the limit by at most one run.
+  const hardLimit = fromUnits(toUnits(afterAlert.spent) + 1n);
+  await field(/^Hard limit for the month/).fill(hardLimit);
+  await alertForm.getByRole('button', { name: 'Save alert and limit' }).click();
+  await expect(alertForm.getByRole('status')).toHaveText('Alert and limit saved.');
+  await expect(alertForm.getByTestId('usage-hard-limit-state')).toHaveText('The hard limit is not reached.');
+  await ask.fill('TEST question at the limit');
+  await session(page).getByRole('button', { name: 'Run', exact: true }).click();
+  await expect.poll(async () => (await ownRuns('executed')).length, { timeout: 20_000 }).toBe(3);
+  expect(await ownRuns('refused')).toHaveLength(0);
+  await expect.poll(async () => (await usageLimits()).hardLimitReached, { timeout: 20_000 }).toBe(true);
+  const reached = await usageLimits();
+  expect(toUnits(reached.spent)).toBeGreaterThan(toUnits(reached.hardLimit));
+
+  // Past the hard limit a new run is refused with the hard limit's own code, before the engine, and bills 0.
+  const before = await ledgerBalances(capped);
+  await ask.fill('TEST question past the limit');
+  await session(page).getByRole('button', { name: 'Run', exact: true }).click();
+  const refusal = session(page).getByRole('alert');
+  await expect(refusal.locator('code')).toHaveText('agents.usage.hard_limit_reached');
+  await expect(refusal).toContainText('This agent reached your hard limit for the month, so this run did not start. Nothing was charged.');
+  expect(await ledgerBalances(capped)).toEqual(before);
+
+  // Read again from the service after a reload: one refused run, the hard limit's, at 0; the three runs before it
+  // charged; the spend unchanged by the refusal; the alert still the one record.
+  await page.reload();
+  await pages(page).getByRole('button', { name: 'Limits', exact: true }).click();
+  const refusedRuns = await ownRuns('refused');
+  expect(refusedRuns).toHaveLength(1);
+  expect(refusedRuns[0].refusalCode).toBe('agents.usage.hard_limit_reached');
+  expect(await ownRuns('executed')).toHaveLength(3);
+  const refusedRow = tableIn(main(page), 'Runs').getByRole('row').filter({ hasText: 'agents.usage.hard_limit_reached' });
+  await expect(refusedRow).toHaveCount(1);
+  await expect(refusedRow.getByTestId('run-cost')).toHaveText('0 USDT');
+  const after = await usageLimits();
+  expect(after).toMatchObject({ spent: reached.spent, hardLimitReached: true, alert: crossed.alert });
+  await expect(alertForm.getByTestId('usage-hard-limit-state')).toHaveText(
+    'The hard limit is reached: new runs are refused until next month or until you raise it.',
+  );
+  await expect(alertForm.getByTestId('usage-alert-state')).toHaveText(
+    `This month’s alert was recorded once, at ${first} USDT. Runs go on.`,
+  );
+
+  // The step's inbox row: exactly one, written whatever the email vendor does. svc-notify writes it from
+  // intafaced.agents.usage_alert.crossed; until its consumer lands (the next PR) this is where the step stays red.
   await page.getByRole('button', { name: /^Notifications/ }).click();
-  await expect(page.getByRole('dialog', { name: /Notifications/ }).getByText('Agent spend passed your alert')).toHaveCount(1);
-  await page.keyboard.press('Escape');
-  // Past the hard limit a new run is refused (a run already in flight finishes).
-  await main(page).getByRole('button', { name: 'Open a session' }).click();
-  await main(page)
-    .getByRole('textbox', { name: /^Ask the agent/ })
-    .fill('TEST question');
-  await main(page).getByRole('button', { name: 'Run' }).click();
-  await expect(main(page).getByRole('alert')).toContainText('agents.usage.hard_limit_reached');
+  await expect(page.getByRole('dialog', { name: /Notifications/ }).getByText('Agent spend passed your alert')).toHaveCount(1, {
+    timeout: 20_000,
+  });
 });
 
 /** svc-agents restarted with no routing table (every rate blank, as production runs until the owner sets them), or back on the stack's TEST rates. */
