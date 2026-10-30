@@ -607,7 +607,8 @@ export async function endEarnUnbonding(deps, positionId) {
  * stack (J-bank-08 #3, #5, #6: the job refuses a day that has not begun, and a journey cannot wait for midnight). Only
  * the saving's opening moves; its pool's rate and status history are append-only and stay as recorded. Nothing is
  * posted. Refused unless the saving is in a TEST pool, active, open-ended (no term) and not unbonding, and its pool has
- * no day recorded on or after the new opening, so no day already paid without it becomes one it should have been paid.
+ * recorded no day on or after the new opening since the saving opened, so no day already decided without it becomes
+ * one it should have been paid.
  */
 export async function ageEarnPosition(deps, positionId, days) {
   if (typeof positionId !== 'string' || !UUID.test(positionId)) {
@@ -944,7 +945,7 @@ export async function openLocal(plan) {
     async ageEarnPositionRows(positionId, days, testPoolName) {
       return bankSql.begin(async (tx) => {
         const rows = await tx`
-          SELECT ps.pool_id, ps.status, ps.matures_at, ps.unbonding_started_at, ps.opened_at, pl.name AS pool
+          SELECT ps.pool_id, ps.status, ps.matures_at, ps.unbonding_started_at, ps.opened_at, ps.created_at, pl.name AS pool
             FROM bank.earn_positions ps JOIN bank.earn_pools pl ON pl.id = ps.pool_id
            WHERE ps.id = ${positionId}
              FOR UPDATE OF ps
@@ -958,12 +959,16 @@ export async function openLocal(plan) {
         if (position.matures_at !== null) return { refused: 'has a term; only an open-ended saving is aged' };
         if (position.unbonding_started_at !== null) return { refused: 'is unbonding' };
         const shift = tx`make_interval(days => ${days})`;
+        // A day recorded while the saving was in the pool was decided with it there, and left it out for when it opened:
+        // moving the opening behind that day would contradict it. A day recorded before the saving existed never
+        // considered it.
         const [recorded] = await tx`
           SELECT count(*)::int AS n FROM bank.interest_accruals
            WHERE pool_id = ${position.pool_id}
              AND accrual_date >= ((${position.opened_at}::timestamptz - ${shift}) AT TIME ZONE 'UTC')::date
+             AND created_at >= ${position.created_at}
         `;
-        if (recorded.n > 0) return { refused: 'is in a pool with a day recorded on or after its new opening' };
+        if (recorded.n > 0) return { refused: 'is in a pool with a day recorded since it opened, on or after its new opening' };
         const [moved] = await tx`
           UPDATE bank.earn_positions SET opened_at = opened_at - ${shift}
            WHERE id = ${positionId}

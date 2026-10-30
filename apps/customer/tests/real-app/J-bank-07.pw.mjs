@@ -1,7 +1,10 @@
+import { execFileSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
+import path from 'node:path';
 import { test, expect } from '@playwright/test';
-import { DEVICE_KEY, EDGE, ORIGIN, fromUnits, fund, journeyState, json, signOutBrowser, toUnits } from './stack.mjs';
+import { localStackState } from '../../../../tooling/scripts/local-test-state.mjs';
+import { DEVICE_KEY, EDGE, ORIGIN, ROOT, fromUnits, fund, journeyState, json, signOutBrowser, toUnits } from './stack.mjs';
 import { signIn, signUp, verify } from './desk.mjs';
 
 // J-bank-07, in the running app (docs/roadmap/journeys.json): I organise money in pots, goals and a shared account. Steps 1
@@ -19,7 +22,8 @@ import { signIn, signUp, verify } from './desk.mjs';
 // With the top-up off, the run is refused and recorded and nothing moves; with it on, 3 moves from the account into the
 // pot first and the bill pays once. Step 5 (BK-pots-03): instant-access savings on the Spaces page show the bank's rate
 // for the stack's seeded TEST instant-access pool; TEST 10 saved there earns three days of interest, each paid once by the
-// bank's own job procedure (the stack has no accrual timer), the interest view lists them from the server and they add up
+// bank's own job procedure (the stack has no accrual timer; it pays only a day that has begun, so the saving's opening
+// is moved back with `local-test-seed.mjs age-earn-position`), the interest view lists them from the server and they add up
 // to what the account was paid; then the savings go back to the account whole. Step 6 (BK-acct-09): the owner shares the
 // pot from the Spaces page by handle with a viewer and a contributor. The stack publishes TEST terms: an invite lasts two
 // minutes and a pot is shared with two people at most, open invites included. A third invite is refused, the contributor
@@ -628,12 +632,23 @@ test(`${J} #5 uses instant-access savings: the bank's rate, TEST 10 saved, three
   await expect(card.getByTestId('instant-savings-position')).toContainText('10 USDT');
   await expect(card).toContainText('No interest paid.');
 
-  // Three days of interest, each paid once by the bank's daily job. Days another run on this stack already paid are
-  // passed over: a day is paid once, to whoever saved before it began.
+  // Three days of interest, each paid once by the bank's daily job. The job pays only a day that has begun, so the
+  // saving's opening moves back a month on this stack, and its days are paid from its first up to today. Days another
+  // run on this stack already paid are passed over: a day is paid once, to whoever saved before it began.
+  const DAY = 24 * 60 * 60 * 1000;
+  const [saving] = saved;
+  const aged = execFileSync(
+    process.execPath,
+    [path.join(ROOT, 'tooling/scripts/local-test-seed.mjs'), 'age-earn-position', saving.id, '31', '--state', localStackState()],
+    { cwd: ROOT, encoding: 'utf8', env: { ...process.env, LOCAL_TEST: '1' }, timeout: 60_000 },
+  );
+  expect(aged).toContain(`saving ${saving.id}: opened`);
+  const firstDay = Date.parse((await api.query('earn.positions', { limit: 50 })).data.find((row) => row.id === saving.id).accruesFrom);
+  expect(firstDay).toBe(Date.parse(`${new Date().toISOString().slice(0, 10)}T00:00:00.000Z`) - 30 * DAY);
   const paidBefore = toUnits(main(await spaces(who)).balance);
   const days = [];
-  for (let ahead = 1; days.length < 3 && ahead <= 400; ahead += 1) {
-    const at = new Date(Date.now() + ahead * 24 * 60 * 60 * 1000);
+  for (let start = firstDay; days.length < 3 && start <= Date.now(); start += DAY) {
+    const at = new Date(start + 60 * 1000);
     const day = await accrue(pool.id, at);
     if (!day.alreadyAccrued) days.push(day.date);
     // Paying a day twice pays nothing more.

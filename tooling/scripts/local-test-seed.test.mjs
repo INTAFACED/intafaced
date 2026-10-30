@@ -1097,7 +1097,9 @@ test('age-earn-position: a saving id and whole days up to the cap, checked again
   const report = await ageEarnPosition(deps, SAVING, '2');
   assert.deepEqual(calls, [[SAVING, 2]]);
   assert.deepEqual(report.lines, [`saving ${SAVING}: opened 2026-10-27T10:00:00.000Z (moved back 2 days)`, FUNDS_LABEL]);
-  const refusing = { ageEarnPositionRows: async () => ({ refused: 'is in a pool with a day recorded on or after its new opening' }) };
+  const refusing = {
+    ageEarnPositionRows: async () => ({ refused: 'is in a pool with a day recorded since it opened, on or after its new opening' }),
+  };
   await assert.rejects(
     ageEarnPosition(refusing, SAVING, '2'),
     /saving 2c3d4e5f-6a7b-4c8d-9e0f-1a2b3c4d5e6f is in a pool with a day recorded/,
