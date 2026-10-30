@@ -3,8 +3,8 @@ import { EDGE } from './stack.mjs';
 import { atTick, chartBars, expectLines, F, shownText, STEP_MS } from './charts-desk-studies.mjs';
 
 // J-charts-desk-04 "I add advanced studies and market analytics series" (docs/roadmap/journeys.json). One test per step,
-// titled "J-charts-desk-04 #<n>". This is a DRAFT: it has not been run against the local stack. Each test opens the
-// workbench on its own, so the studies it needs are added inside the test. Expected values are worked here from the
+// titled "J-charts-desk-04 #<n>". Each test opens the workbench on its own, so the studies it needs are added inside the
+// test. Expected values are worked here from the
 // formula on the public candle and trade routes (`/api/v1/ohlcv/:symbol`, `/api/v1/trades/:symbol`), not read from the page.
 
 const MARKET = 'BTC-USDT';
@@ -256,6 +256,51 @@ test('J-charts-desk-04 #5 adds a higher-timeframe study: the study at a coarser 
     for (let t = firstHour; t + 3_600_000 <= chartEnd; t += 3_600_000) closed += 1;
     await expect(row(page, 'htf-sma-1')).toContainText(`Higher bars read: ${closed}`, { timeout: 2_000 });
   }).toPass({ timeout: 30_000 });
+  // The drawn value at a 15m bar is the 20-hour SMA of the hourly closes of the hours closed by that bar's end: the same
+  // for every quarter of an hour until the next hour closes. Worked here from the hourly and 15m bars the chart builds,
+  // at the last bar (the legend) and at an earlier bar under the pointer (the data window).
+  const htfAt = (hourly, barT) => {
+    const closed = hourly.filter((h) => h.t + STEP_MS['1h'] <= barT + STEP_MS['15m']);
+    return closed.length < 20
+      ? null
+      : F.sma(
+          closed.map((h) => h.c),
+          20,
+          closed.length - 1,
+        );
+  };
+  await page.getByRole('checkbox', { name: 'Legend always shown' }).check();
+  await expect
+    .poll(
+      async () => {
+        const [bars, hourly] = [await chartBars('15m'), await chartBars('1h')];
+        const worked = htfAt(hourly, bars.at(-1).t);
+        return worked !== null && atTick(await shownText(page, 'htf-sma-1', '1h SMA 20'), worked, 2);
+      },
+      { timeout: 30_000, message: 'the legend never showed the 1h SMA worked from the hourly bars' },
+    )
+    .toBe(true);
+  await page.getByRole('button', { name: 'Data window' }).click();
+  const windowText = page.getByTestId('data-window');
+  const box = await page.getByTestId('cw').getByTestId('wc-host').boundingBox();
+  await page.mouse.move(box.x + box.width * 0.5, box.y + box.height * 0.5);
+  await expect(windowText).toContainText('1h SMA 20');
+  await expect
+    .poll(
+      async () => {
+        const cursor = Number(await windowText.getAttribute('data-cursor')) * 1000;
+        const [bars, hourly] = [await chartBars('15m'), await chartBars('1h')];
+        if (!bars.some((b) => b.t === cursor)) return `hovered time ${cursor} is not a 15m bar of the chart`;
+        if (cursor >= bars.at(-1).t - STEP_MS['1h']) return 'the hovered bar is in the last hour';
+        const line = (await windowText.locator('li').allTextContents()).find((x) => x.trim().startsWith('1h SMA 20 '));
+        const text = line?.trim().slice('1h SMA 20 '.length) ?? '';
+        const worked = htfAt(hourly, cursor);
+        if (worked === null) return 'fewer than 20 hours closed by the hovered bar';
+        return atTick(text, worked, 2) || `shown ${text}, worked ${worked}`;
+      },
+      { timeout: 30_000 },
+    )
+    .toBe(true);
 });
 
 test('J-charts-desk-04 #6 adds open interest, funding and an on-chain series: each is refused by name on a spot market, nothing drawn', async ({
