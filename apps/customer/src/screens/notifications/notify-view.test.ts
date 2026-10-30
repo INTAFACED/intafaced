@@ -96,11 +96,46 @@ describe('linkFor', () => {
     expect(linkFor({ kind: 'identity.kyc.approved', href: '/settings/verification' })).toBe('/verification');
     expect(linkFor({ kind: 'identity.rank.updated', href: '/profile/rank' })).toBe('/uc/account');
   });
-  it('gives no link to a hidden feature or an unknown address', () => {
-    expect(linkFor({ kind: 'p2p.escrow.locked', href: '/p2p/trades/x' })).toBeNull();
-    expect(linkFor({ kind: 'bank.margin_call', href: '/bank/loans/x' })).toBeNull();
+  // Every target svc-notify emits today (services/svc-notify/src/events.ts, market-halt-notice.ts, alerts/service.ts).
+  it('opens a live room for every target svc-notify emits', () => {
+    const emitted: Array<[string, string]> = [
+      ['/trade/orders/o1', '/trade/orders/o1'],
+      ['/trade/futures', '/trade/futures'],
+      ['/p2p/orders/t1', '/p2p/orders/t1'],
+      ['/uc/ad', '/uc/ad'],
+      ['/verification', '/verification'],
+      ['/uc/safe', '/uc/safe'],
+      ['/uc/account', '/uc/account'],
+      ['/token', '/token'],
+      ['/pay/request/r1', '/pay/request/r1'],
+      ['/money/activity?tab=transfers', '/money/activity?tab=transfers'],
+      ['/uc/recharge?asset=BTC&network=btc', '/uc/recharge?asset=BTC&network=btc'],
+      ['/bank/transfers', '/bank/transfers'],
+      ['/support', '/support'],
+      // The detail rows IA-SPEC gives other modules, with no room yet: their list room.
+      ['/bank/loans/l1', '/bank/loans'],
+      ['/agents/sessions/s1', '/agents'],
+      // A market by its id: its desk when the market is known, else Markets.
+      [`/trade/${BTC_ID}`, '/trade/spot/BTC-USDT'],
+      [`/markets/${BTC_ID}`, '/trade/spot/BTC-USDT'],
+    ];
+    for (const [href, room] of emitted) expect(linkFor({ kind: 'x', href }, markets), href).toBe(room);
+    expect(linkFor({ kind: 'x', href: '/markets/unknown' }, markets)).toBe('/trade');
+    expect(linkFor({ kind: 'x', href: `/trade/${BTC_ID}` })).toBe('/trade');
+  });
+  // Rows stored before svc-notify moved its targets (#5435) are never rewritten: each still opens a live room.
+  it('opens a live room for a stored old-style link', () => {
+    expect(linkFor({ kind: 'p2p.escrow.locked', href: '/p2p/trades/t1' })).toBe('/p2p/orders/t1');
+    expect(linkFor({ kind: 'x', href: '/settings/verification' })).toBe('/verification');
+    expect(linkFor({ kind: 'x', href: '/profile/rank' })).toBe('/uc/account');
+    expect(linkFor({ kind: 'x', href: '/token/stakes/s1' })).toBe('/token/stakes/s1');
+    expect(linkFor({ kind: 'x', href: '/trade/futures/positions/p1' })).toBe('/trade/futures');
+  });
+  it('gives no link to an unknown or outside address', () => {
     expect(linkFor({ kind: 'x', href: null })).toBeNull();
     expect(linkFor({ kind: 'x', href: '//evil.example/path' })).toBeNull();
+    expect(linkFor({ kind: 'x', href: '/p2p/trades/a\\b' })).toBeNull();
+    expect(linkFor({ kind: 'x', href: '/nowhere/at/all' })).toBeNull();
   });
 });
 

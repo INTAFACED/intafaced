@@ -389,9 +389,6 @@ test(`${J} #9 copy the badge snippet for a component: operational with a cache t
   const svg = await fresh.text();
   expect(svg).toContain('<title>Trading: operational</title>');
   expect(svg).not.toMatch(/<script|<foreignObject/i);
-  // The cache time at the public address: exactly no-store. The origin sets it on every /api/ reply (here the local stack's
-  // proxy, in production apps/customer/nginx.conf), and Edge forwards no Cache-Control, so no copy outlives the window.
-  expect(fresh.headers.get('cache-control')).toBe('no-store');
   const json = await (
     await fetch(`${ORIGIN}/api/notify/trpc/statusPage.badge?input=${encodeURIComponent(JSON.stringify({ componentId: 'trading' }))}`)
   ).json();
@@ -407,6 +404,16 @@ test(`${J} #9 copy the badge snippet for a component: operational with a cache t
   expect(json.result.data.maxAgeSeconds).toBe(Math.min(300, Math.floor(TEST_VALUES.stalenessSeconds - readingAge)));
   expect(json.result.data.maxAgeSeconds).toBeGreaterThan(0);
   expect(json.result.data.maxAgeSeconds).toBeLessThanOrEqual(TEST_VALUES.stalenessSeconds - readingAge);
+  // The badge is cacheable, by embedders and caches, for exactly that time: svc-notify sends it (badge.ts
+  // statusBadgeCacheControl), but at the public address it never arrives. Edge forwards no Cache-Control and the origin
+  // adds no-store to every /api/ reply (the local stack's proxy; apps/customer/nginx.conf in production), so this clause
+  // stays red by name. Soft, so the rest of the step is still proven; the step still fails.
+  expect
+    .soft(
+      fresh.headers.get('cache-control'),
+      'BLOCKED (badge_cache_dropped): Edge drops Cache-Control and the origin adds no-store to /api/, so the badge cannot be cached',
+    )
+    .toBe(`public, max-age=${json.result.data.maxAgeSeconds}`);
 
   // A component with no reading says no data.
   expect(await (await fetch(`${ORIGIN}/api/notify/status/badge.svg?component=wallets`)).text()).toContain(

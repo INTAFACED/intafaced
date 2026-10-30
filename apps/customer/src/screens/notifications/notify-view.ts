@@ -114,12 +114,44 @@ const KIND_LINK: Readonly<Record<string, string>> = {
   'identity.rank.updated': '/uc/account',
 };
 
+/**
+ * Stored links with no room of their own, each to the nearest live room (HM-notifications-01). Rows stored before svc-notify
+ * moved its targets (#5435) are never rewritten, the detail rows IA-SPEC gives other modules fall back to their list, and a
+ * market named by its id (a halt, a price alert) opens that market's desk, or Markets when the market is not known.
+ */
+const STORED_LINK: readonly (readonly [RegExp, (id: string, markets?: ReadonlyMap<string, NotifyMarket>) => string])[] = [
+  [/^\/p2p\/trades\/([^/?#\\]+)$/, (id) => `/p2p/orders/${id}`],
+  [/^\/settings\/verification$/, () => '/verification'],
+  [/^\/profile\/rank$/, () => '/uc/account'],
+  [/^\/token\/stakes\/([^/?#\\]+)$/, () => '/token'],
+  [/^\/trade\/futures\/positions\/([^/?#\\]+)$/, () => '/trade/futures'],
+  [/^\/bank\/loans\/([^/?#\\]+)$/, () => '/bank/loans'],
+  [/^\/trade\/orders\/([^/?#\\]+)$/, () => '/money/activity?tab=orders'],
+  [/^\/pay\/request\/([^/?#\\]+)$/, () => '/pay/request'],
+  [/^\/agents\/sessions\/([^/?#\\]+)$/, () => '/agents'],
+  [/^\/(?:trade|markets)\/([^/?#\\]+)$/, (id, markets) => marketDesk(markets?.get(id))],
+];
+
+const marketDesk = (market: NotifyMarket | undefined) =>
+  market ? `/trade/spot/${encodeURIComponent(market.base)}-${encodeURIComponent(market.quote)}` : '/trade';
+
+/** The stored link's own room when it has one, else its fallback; checked as a customer room either way. */
+function storedLink(href: string | null | undefined, markets?: ReadonlyMap<string, NotifyMarket>): string | undefined {
+  const own = customerRoomHref(href);
+  if (own || !href) return own;
+  for (const [pattern, to] of STORED_LINK) {
+    const match = pattern.exec(href);
+    if (match) return customerRoomHref(to(match[1] ?? '', markets));
+  }
+  return undefined;
+}
+
 /** A live customer screen for this notification, or null (the row then just marks itself read). Never a hidden feature. */
 export function linkFor(
   item: Pick<Notification, 'kind' | 'href'> & Partial<Pick<Notification, 'params'>>,
   markets?: ReadonlyMap<string, NotifyMarket>,
 ): string | null {
-  let target = KIND_LINK[item.kind] ?? customerRoomHref(item.href);
+  let target = KIND_LINK[item.kind] ?? storedLink(item.href, markets);
   if (!target) return null;
   // A fill opens Trades already filtered to the coin, so the row you clicked is easy to find. Orders has no coin filter, so an ended order gets none.
   if (item.kind === 'trade.fill') {
