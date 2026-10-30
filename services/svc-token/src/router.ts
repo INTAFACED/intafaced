@@ -25,6 +25,8 @@ import { BALLOT_BPS, MAX_CHOICES, VOTING_TYPES, type ChoiceTally } from './ballo
 import type { SnapshotSeal } from './governance-vote.js';
 import { voteMessage } from './vote-signature.js';
 import { feeDiscountSchedulePayload } from './economics/staking.js';
+import { createLaunchRouter, type LaunchRouterOptions } from './launch/router.js';
+import type { LaunchService } from './launch/launch-service.js';
 
 /** The founders' approval that publishes the fee-decay schedule; the router binds the ladder and the version it replaces. */
 export const FEE_DISCOUNT_PUBLISH_ACTION = 'token.fee_discount.publish';
@@ -224,6 +226,8 @@ export interface TokenRouterOptions {
    * IDENTITY_URL must refuse, never invent a second person.
    */
   approvals?: ActionApprovalConsumer;
+  /** `token.launch.*` (J-more-catalogue-11). Omitted in tests that do not touch launches. */
+  launch?: { service: LaunchService } & Omit<LaunchRouterOptions, 'approvals'>;
 }
 
 function toTrpcError(err: unknown): TRPCError {
@@ -1418,6 +1422,7 @@ export function createTokenRouter(token: TokenService, options: TokenRouterOptio
           return token.governanceHome(userId, asAdmin);
         }),
       ),
+    ...(options.launch ? { launch: createLaunchRouter(options.launch.service, { ...options.launch, approvals }) } : {}),
   });
 }
 

@@ -16,7 +16,7 @@ const markerSchema = z.object({
 });
 export type Marker = z.infer<typeof markerSchema>;
 export type Failure = Extract<ApiResult<unknown>, { ok: false }>;
-export type Identity = { kind: 'convert' | 'rfq' | 'position' | 'algo' | 'copy'; id: string; symbol: string; operation?: string };
+export type Identity = { kind: 'convert' | 'rfq' | 'position' | 'algo' | 'copy' | 'grid'; id: string; symbol: string; operation?: string };
 
 function read(key: string): { pending: Marker | null; blocked: boolean; storage: boolean } {
   try {

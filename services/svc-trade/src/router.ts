@@ -1,4 +1,6 @@
 import { z } from 'zod';
+import { gridRouter } from './grid/router.js';
+import type { GridService } from './grid/grid-service.js';
 import {
   JurisdictionError,
   mergeRouters,
@@ -52,10 +54,11 @@ import { describeOtcPolicy } from './otc/otc-policy.js';
 import { convertHistoryProcedures } from './convert/convert-history-router.js';
 import { convertHistoryTrpcError } from './convert/convert-history.js';
 import { deskTrpcError } from './desk/errors.js';
+import { copyCloseTrpcError } from './copy/copy-close-errors.js';
 import { algoDeskProcedures, optionsDeskProcedures, rfqHistoryProcedures, scaleProcedures } from './desk/procedures.js';
 import { presentAlgoDesk, presentScheduleHonesty } from './algo/present.js';
 import { MAX_ALGO_SEED } from './algo/schedule.js';
-import { awaitingTrigger } from './algo/types.js';
+import { awaitingTrigger, POV_BASES } from './algo/types.js';
 import { tradingControlsRouter } from './controls/router.js';
 import { TradingControlError, type TradingControls } from './controls/trading-controls.js';
 import { tradeOpsAdminRouter } from './admin/router.js';
@@ -235,6 +238,8 @@ const algoParentOutputSchema = z.object({
   haltReason: z.string().nullable(),
   stopReason: algoStopReasonSchema,
   participationBps: z.number().int().nullable(),
+  /** POV: what participation is applied to; null for TWAP and VWAP. */
+  povBasis: z.enum(POV_BASES).nullable(),
   createdAt: z.string(),
   startedAt: z.string(),
   nextDueAt: z.string(),
@@ -263,7 +268,9 @@ const algoScheduleHonestySchema = {
 };
 
 const algoGetOutputSchema = algoParentOutputSchema.extend({
-  children: z.array(z.object({ orderId: z.string(), sliceIndex: z.number().int(), time: z.string() })),
+  children: z.array(
+    z.object({ orderId: z.string(), sliceIndex: z.number().int(), time: z.string(), qty: decimal, basisQty: decimal.nullable() }),
+  ),
   misses: z.array(z.object({ sliceIndex: z.number().int(), time: z.string(), code: z.string() })),
   filledQty: decimal,
   /** The planned size of every slice, in order, as stored with the parent. */
@@ -443,6 +450,8 @@ function toTrpcError(err: unknown): TRPCError {
   if (historyError) return historyError;
   const desk = deskTrpcError(err);
   if (desk) return desk;
+  const copyClose = copyCloseTrpcError(err);
+  if (copyClose) return copyClose;
   if (err instanceof TradingControlError) {
     let code: 'SERVICE_UNAVAILABLE' | 'CONFLICT' | 'FORBIDDEN' = 'FORBIDDEN';
     if (err.code === 'authority.unavailable') code = 'SERVICE_UNAVAILABLE';
@@ -817,6 +826,7 @@ export function createTradeRouter(
   admin?: TradeOpsAdmin,
   insuranceTopups?: InsuranceTopupAdmin,
   supportSummary?: SupportTradeSummaryReader,
+  grid?: GridService,
 ) {
   const placeAttempts = new PlaceAttemptBook();
   return router({
@@ -824,6 +834,8 @@ export function createTradeRouter(
     admin: mergeRouters(tradeOpsAdminRouter(admin), insuranceAdminRouter(insuranceTopups)),
     /** `support.tradeSummary`: read-only, svc-support only (D-ops-06). The case check is svc-support's; this door audits the read. */
     support: supportTradeSummaryRouter(supportSummary),
+    /** `bots.grid.*`: the spot grid bot (grid/router.ts). Unmounted, every door answers `trade.grid_unavailable`. */
+    bots: router({ grid: gridRouter(grid) }),
     health: publicProcedure
       .output(z.object({ ok: z.boolean(), service: z.literal('svc-trade') }))
       .query(() => ({ ok: true, service: 'svc-trade' as const })),
@@ -1336,6 +1348,7 @@ export function createTradeRouter(
             subAccountId: z.string().guid().optional(),
             kind: z.enum(['twap', 'vwap', 'pov']).optional(),
             participationBps: z.number().int().min(1).max(10_000).optional(),
+            povBasis: z.enum(POV_BASES).optional(),
             randomSeed: z.number().int().min(0).max(MAX_ALGO_SEED).optional(),
             triggerPrice: decimal.optional(),
           }),
@@ -1354,6 +1367,7 @@ export function createTradeRouter(
               subAccountId: input.subAccountId,
               kind: input.kind ?? 'twap',
               participationBps: input.participationBps,
+              povBasis: input.povBasis,
               randomSeed: input.randomSeed,
               triggerPrice: input.triggerPrice === undefined ? undefined : parseAmount(input.triggerPrice),
             });
@@ -1612,7 +1626,7 @@ export function createTradeRouter(
         ),
 
       stop: scopedProcedure('trade:write', { module: 'trade' })
-        .input(z.object({ followId: z.string().min(1).max(64) }))
+        .input(z.object({ followId: z.string().min(1).max(64), closeOnly: z.boolean().optional() }))
         .output(copyStopOutput)
         .mutation(({ ctx, input }) =>
           guard(async () => {
@@ -1727,6 +1741,42 @@ export function createTradeRouter(
           guard(async () => {
             if (!copy) throw new CopyError('Follow not found', 'trade.copy_not_following');
             return copy.followPositions(ctx.principal, input);
+          }),
+        ),
+
+      /** The caller's copied positions on one of their follows, newest first, with what is still open (CB-copy-09/10). */
+      copiedPositions: scopedProcedure('trade:read', { module: 'trade' })
+        .input(z.object({ followId: z.string().min(1).max(64) }))
+        .query(({ ctx, input }) =>
+          guard(async () => {
+            if (!copy) throw new CopyError('Follow not found', 'trade.copy_not_following');
+            return copy.copiedPositions(ctx.principal, input);
+          }),
+        ),
+
+      /** Close one copied position, whole or by an amount (CB-copy-10). Once per close. */
+      closeCopiedPosition: scopedProcedure('trade:write', { module: 'trade' })
+        .input(
+          z.object({
+            followId: z.string().min(1).max(64),
+            positionId: z.string().min(1).max(64),
+            qty: z.string().min(1).max(64).optional(),
+          }),
+        )
+        .mutation(({ ctx, input }) =>
+          guard(async () => {
+            if (!copy) throw new CopyError('Follow not found', 'trade.copy_not_following');
+            return copy.closePosition(ctx.principal, input);
+          }),
+        ),
+
+      /** Leader fills this follow did not copy, with the reason id, newest first (CB-copy-11). */
+      skipLog: scopedProcedure('trade:read', { module: 'trade' })
+        .input(z.object({ followId: z.string().min(1).max(64) }))
+        .query(({ ctx, input }) =>
+          guard(async () => {
+            if (!copy) throw new CopyError('Follow not found', 'trade.copy_not_following');
+            return copy.skipLog(ctx.principal, input);
           }),
         ),
 
@@ -1962,6 +2012,7 @@ function presentAlgo(parent: import('./algo/index.js').TwapParent) {
     haltReason: parent.haltReason,
     stopReason: algoStopReason(parent),
     participationBps: parent.participationBps,
+    povBasis: parent.povBasis ?? null,
     createdAt: parent.createdAt.toISOString(),
     startedAt: parent.startedAt.toISOString(),
     nextDueAt: parent.nextDueAt.toISOString(),

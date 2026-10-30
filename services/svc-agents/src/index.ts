@@ -6,7 +6,7 @@ import { retainRawBody, s2sFromEnv } from '@intafaced/contracts';
 import { JetStreamEventBus } from '@intafaced/events';
 import { env } from './env.js';
 import { ModelGateway } from './gateway/gateway.js';
-import { userAvailable } from '@intafaced/ledger-client';
+import { parseAmount, userAvailable } from '@intafaced/ledger-client';
 import { DEFAULT_ROUTING_TABLE, parseRoutingTable, unpricedTable, type RoutingTable } from './gateway/routing.js';
 import { createLedgerClient } from './ledger-client.js';
 import { createAffiliateAccrueClient } from './affiliate-accrue.js';
@@ -78,7 +78,11 @@ await sql`SELECT 1 FROM agents.agent_definitions LIMIT 1`.catch(() => {
  */
 function buildPrimaryProvider(): ModelProvider {
   if (env.AGENTS_PROVIDER === 'mock') {
-    return new MockModelProvider({ id: 'primary', ...(env.AGENTS_MOCK_HOLD_FILE ? { holdFile: env.AGENTS_MOCK_HOLD_FILE } : {}) });
+    return new MockModelProvider({
+      id: 'primary',
+      ...(env.AGENTS_MOCK_DELAY_MS ? { answerDelayMs: env.AGENTS_MOCK_DELAY_MS } : {}),
+      ...(env.AGENTS_MOCK_HOLD_FILE ? { holdFile: env.AGENTS_MOCK_HOLD_FILE } : {}),
+    });
   }
 
   if (!env.AGENTS_UPSTREAM_BASE_URL || !env.AGENTS_UPSTREAM_API_KEY) {
@@ -138,6 +142,7 @@ const runtime = new AgentRuntime(sql, gateway, meter, bus, {
   spend,
   // The person's available balance, read from the ledger before each metered run (OWNER 107).
   funds: { available: async (userId, assetId) => (await ledger.balance(userAvailable(userId, assetId))).amount },
+  overageGrace: env.AGENTS_OVERAGE_GRACE === undefined ? null : parseAmount(env.AGENTS_OVERAGE_GRACE),
 });
 
 // Upsert product guardrails before the listener opens — openSession binds from

@@ -303,7 +303,7 @@ describe('fixed-term auto-renew and the payout schedule (BK-earn-03)', () => {
     expect(report.renewed.map((r) => r.positionId)).toEqual([mine.positionId]);
   });
 
-  it('the payout schedule is daily: the next payout is the saving’s first day, then the day after the last one paid', async () => {
+  it('the payout schedule is daily: the next payout is the saving’s first day, then the day after the last one paid, closed pool or not', async () => {
     const bank = services();
     const { flexible } = await pools(bank);
     await saver(bank).earn.deposit({ poolId: flexible.id, positionId: randomUUID(), amount: '1000' });
@@ -320,6 +320,7 @@ describe('fixed-term auto-renew and the payout schedule (BK-earn-03)', () => {
     expect((await saver(bank).earn.interestHistory({ poolId: flexible.id, limit: 10 })).days).toHaveLength(1);
     await sql`UPDATE bank.earn_pools SET status = 'closed' WHERE id = ${flexible.id}`;
     const [closed] = await saver(bank).earn.positions({ limit: 10, poolId: flexible.id });
-    expect(closed!.nextPayoutOn).toBeNull();
+    // A closed pool still pays the savings it holds (BK-earn-04): the schedule keeps its next day.
+    expect(closed!.nextPayoutOn).toBe(day(new Date(firstDay.getTime() + DAY)));
   });
 });
