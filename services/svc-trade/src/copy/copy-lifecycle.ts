@@ -81,8 +81,16 @@ export function presentCopyControlAck<D extends CopyControlDisposition>(
   };
 }
 
+/** A follow the follower has left takes no further control: every one is refused by the same typed code, nothing saved. */
+function refuseIfDetached(state: CopyRelationshipState, action: string): void {
+  if (state === 'DETACHED') {
+    throw new CopyError(`Cannot ${action} a DETACHED copy follow: you have left this leader`, 'trade.copy_detached');
+  }
+}
+
 export function applyCopyPause(follow: CopyFollow): CopyFollow {
   const state = followRelationshipState(follow);
+  refuseIfDetached(state, 'pause');
   if (state === 'PAUSED') return { ...follow, relationshipState: 'PAUSED' };
   if (state !== 'ACTIVE') {
     throw new CopyError(`Cannot pause a ${state} copy follow`, 'trade.copy_state_invalid');
@@ -92,6 +100,7 @@ export function applyCopyPause(follow: CopyFollow): CopyFollow {
 
 export function applyCopyResume(follow: CopyFollow): CopyFollow {
   const state = followRelationshipState(follow);
+  refuseIfDetached(state, 'resume');
   if (state === 'ACTIVE') return { ...follow, relationshipState: 'ACTIVE' };
   if (state !== 'PAUSED') {
     throw new CopyError(`Cannot resume a ${state} copy follow`, 'trade.copy_state_invalid');
@@ -104,15 +113,14 @@ export function applyCopyStop(follow: CopyFollow): CopyFollow {
   if (state === 'STOPPING') {
     return { ...follow, relationshipState: 'STOPPING', sessionKeyRevoked: true };
   }
-  if (state === 'DETACHED') {
-    throw new CopyError('Cannot stop a DETACHED copy follow', 'trade.copy_state_invalid');
-  }
+  refuseIfDetached(state, 'stop');
   return { ...follow, relationshipState: 'STOPPING', sessionKeyRevoked: true };
 }
 
 /** STOP_CLOSE_ONLY: no new opens; the grant stays so the leader's closes still close. A revoked stop cannot come back. */
 export function applyCopyStopCloseOnly(follow: CopyFollow): CopyFollow {
   const state = followRelationshipState(follow);
+  refuseIfDetached(state, 'stop');
   if (state !== 'ACTIVE' && state !== 'PAUSED' && state !== 'CLOSE_ONLY') {
     throw new CopyError(`Cannot stop a ${state} copy follow with close-only`, 'trade.copy_state_invalid');
   }
@@ -121,4 +129,10 @@ export function applyCopyStopCloseOnly(follow: CopyFollow): CopyFollow {
 
 export function applyCopyDetach(follow: CopyFollow): CopyFollow {
   return { ...follow, relationshipState: 'DETACHED', sessionKeyRevoked: true };
+}
+
+/** The follower's own leave (DETACH_KEEP): leaving twice is refused by its typed code and the record is not saved again. */
+export function applyCopyLeave(follow: CopyFollow): CopyFollow {
+  refuseIfDetached(followRelationshipState(follow), 'leave');
+  return applyCopyDetach(follow);
 }
