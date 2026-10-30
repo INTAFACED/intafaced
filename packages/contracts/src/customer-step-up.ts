@@ -298,6 +298,18 @@ export const CUSTOMER_STEP_UP_DOORS: readonly CustomerStepUpDoor[] = [
     fixed: {},
   },
   {
+    // svc-trade (J-copy-bots-otc-03 #4): close every position of the caller's own copy follow and end it. The request id
+    // is the business key `copy.flatten:<followId>:<requestId>`, so one confirmation approves one close-all of one follow.
+    scope: 'trade.step_up.copy.flatten',
+    purpose: 'copy.flatten',
+    clientFields: ['followId', 'requestId'],
+    targetField: 'followId',
+    targetRequired: true,
+    emptyOk: [],
+    decimalFields: [],
+    fixed: {},
+  },
+  {
     scope: 'pay.step_up.payoutDestination.set',
     purpose: 'payoutDestination.set',
     clientFields: ['merchantId', 'railId', 'kind', 'ref'],

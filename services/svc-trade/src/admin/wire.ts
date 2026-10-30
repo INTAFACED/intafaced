@@ -7,6 +7,7 @@ import type { AccountRef } from '@intafaced/ledger-client';
 import type { Principal } from '@intafaced/auth';
 import type { TradeService } from '../spot/trade-service.js';
 import type { OwnerFeeSchedule } from '../spot/fee-schedule.js';
+import type { OtcDeskLaw } from '../otc/desk-law.js';
 import type { ApprovalBook } from './common.js';
 import { TradeOpsAdmin } from './service.js';
 
@@ -17,9 +18,13 @@ export function wireTradeOpsAdmin(deps: {
   approvals: ApprovalBook;
   feeSchedule?: OwnerFeeSchedule;
   vipProofKey?: Buffer | null;
+  otcLaw?: OtcDeskLaw;
+  metricsWindowSeconds?: number | null;
 }): TradeOpsAdmin {
   return new TradeOpsAdmin({
     sql: deps.sql,
+    ...(deps.otcLaw ? { otcLaw: deps.otcLaw } : {}),
+    metricsWindowSeconds: deps.metricsWindowSeconds ?? null,
     ...(deps.feeSchedule ? { feeSchedule: deps.feeSchedule } : {}),
     vipProofKey: deps.vipProofKey ?? null,
     ledger: deps.ledger,

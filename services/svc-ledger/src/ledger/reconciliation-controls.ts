@@ -15,6 +15,8 @@ import {
   LEDGER_RECONCILE_CONTROL_NOT_FOUND,
   LEDGER_RECONCILE_RAIL_SOURCE_UNSET,
   LEDGER_RECONCILE_SOURCE_UNAVAILABLE,
+  LEDGER_RECONCILE_ITEMS_NOW_ONLY,
+  LEDGER_RECONCILE_ITEMS_MOVED,
   OPS_CONTROL_MARGIN_UNSET,
   OPS_CONTROL_POLICY_UNSET,
   OPS_CONTROL_ACTOR_UNSET,
@@ -40,6 +42,7 @@ import {
   type ReconciliationAccountSet,
   type ReconciliationControlRunList,
   type ReconciliationControlRunView,
+  type ReconciliationReconcilingItem,
   type ReconciliationControlView,
   type ReconciliationLifecycle,
   type ReconciliationSchedule,
@@ -67,12 +70,32 @@ export interface SnapshotRead {
   readonly balances?: readonly { readonly assetId: string; readonly amount: string }[];
 }
 
+/**
+ * The open items one rail's record holder lists (lead ruling 2026-10-30 on J-ops-console-27 #8): each explains part of
+ * that rail's difference, signed rail minus ledger. `unset` (no source for the rail) leaves the control as it was;
+ * `unavailable` is ERROR, never an empty list.
+ */
+/** One open item as svc-pay names it, with when svc-pay first saw it (epoch ms). */
+export interface OpenItem {
+  readonly item: ReconciliationReconcilingItem;
+  readonly seenAt: number;
+}
+
+export interface OpenItemsRead {
+  readonly kind: 'unset' | 'unavailable' | 'items';
+  readonly items?: readonly OpenItem[];
+}
+
 export interface ReconciliationSources {
   /** The whole outside book. */
   outsideBalance(readAt: Date): Promise<SnapshotRead>;
   /** One rail's own outside statement. A separate method, so no source can answer a rail control with the whole book. */
   railStatement(readAt: Date, rail: string): Promise<SnapshotRead>;
   parity(readAt: Date): Promise<SnapshotRead>;
+  /** Whether a rail has an open-items source at all. Optional: a source without it has none for any rail. */
+  hasOpenItems?(rail: string): boolean;
+  /** One rail's open items as they are now, read before the ledger snapshot and again after the statement. */
+  openItems?(rail: string): Promise<OpenItemsRead>;
 }
 
 export function unsetReconciliationSources(): ReconciliationSources {
@@ -120,6 +143,8 @@ interface AssetEvidence {
   expected: string | 'unset';
   difference: string | 'unset';
   tolerance: string | 'unset';
+  reconcilingItems?: string;
+  residual?: string;
 }
 
 interface Verdict {
@@ -129,6 +154,7 @@ interface Verdict {
   assets: AssetEvidence[];
   outsideSide: 'unset' | 'snapshot' | 'unavailable' | 'not_applicable';
   sources: ReconciliationControlRunView['sources'];
+  reconcilingItems?: ReconciliationReconcilingItem[];
 }
 
 function actorOf(actorId: string): string {
@@ -717,13 +743,14 @@ function equalAssets(
   expected: Map<string, Amount>,
   tolerance: ToleranceStored | null,
   missingIsZero: boolean,
+  missingLedgerIsZero = missingIsZero,
 ): AssetEvidence[] {
   const ids = new Set<string>([...observed.keys(), ...expected.keys()]);
   const assets: AssetEvidence[] = [];
   for (const assetId of [...ids].sort()) {
     const left = observed.get(assetId);
     const right = expected.get(assetId);
-    const seenLeft = left ?? (missingIsZero ? 0n : null);
+    const seenLeft = left ?? (missingLedgerIsZero ? 0n : null);
     const seenRight = right ?? (missingIsZero ? 0n : null);
     const tol = toleranceFor(tolerance, assetId);
     if (seenLeft === null || seenRight === null) {
@@ -783,6 +810,11 @@ async function evaluate(
   past: boolean,
 ): Promise<{ verdict: Verdict; accountIds: string[] }> {
   const accountSet = reconciliationAccountSetSchema.parse(row.account_set);
+  // A rail that takes out open items reads them once before the ledger snapshot and once after its statement: an item
+  // that opened or closed in between is caught, never counted on one side only.
+  const itemsRail = itemsRailOf(row, accountSet, sources);
+  let before: OpenItemsRead | undefined;
+  if (itemsRail !== undefined && !past) before = await readItems(sources, itemsRail);
   let book: Book;
   try {
     const replays = row.template === 'ledger_invariant' && (row.check_kind === 'replay' || row.check_kind === 'replay_and_netting');
@@ -791,7 +823,30 @@ async function evaluate(
     if (err instanceof BookReadError) return { verdict: unavailableVerdict(err.phase, readAt), accountIds: err.accountIds };
     return { verdict: unavailableVerdict('accounts', readAt), accountIds: [] };
   }
-  return { verdict: await judge(sql, row, accountSet, book, readAt, sources, past), accountIds: book.accountIds };
+  return { verdict: await judge(sql, row, accountSet, book, readAt, sources, past, before), accountIds: book.accountIds };
+}
+
+/** The rail of an outside-balance control over one rail with an open-items source, or undefined. */
+function itemsRailOf(row: ControlRow, accountSet: ReconciliationAccountSet, sources: ReconciliationSources): string | undefined {
+  if (row.template !== 'outside_balance' || accountSet.mode !== 'query' || accountSet.rail === undefined) return undefined;
+  return sources.openItems && sources.hasOpenItems?.(accountSet.rail) ? accountSet.rail : undefined;
+}
+
+async function readItems(sources: ReconciliationSources, rail: string): Promise<OpenItemsRead> {
+  try {
+    return (await sources.openItems?.(rail)) ?? { kind: 'unset' };
+  } catch {
+    return { kind: 'unavailable' };
+  }
+}
+
+/** The items a statement as of `statementAt` can hold, as one comparable key: an item seen after it is in neither side. */
+function heldBy(read: OpenItemsRead, statementAt: number): ReconciliationReconcilingItem[] {
+  return (read.items ?? []).filter((open) => open.seenAt <= statementAt).map((open) => open.item);
+}
+
+function itemsKey(items: readonly ReconciliationReconcilingItem[]): string {
+  return JSON.stringify(items.map((i) => [i.id, i.kind, i.assetId, i.amount]).sort());
 }
 
 async function judge(
@@ -802,6 +857,7 @@ async function judge(
   readAt: Date,
   sources: ReconciliationSources,
   past: boolean,
+  before?: OpenItemsRead,
 ): Promise<Verdict> {
   const emptySources: ReconciliationControlRunView['sources'] = {
     ledger: { asOf: readAt.toISOString() },
@@ -966,9 +1022,49 @@ async function judge(
     // A snapshot that names no as-of stays unset: its age is unknown, and the ledger's time is not its time.
     [side]: { asOf: read.asOf ?? 'unset' },
   };
-  const assets = equalAssets(ledgerTotals, expected, row.tolerance, !outsideTemplate);
+  const itemsRail = itemsRailOf(row, accountSet, sources);
+  if (itemsRail !== undefined && past) {
+    // svc-pay lists what is open now, never what was open at a past instant: a past run cannot take items out.
+    return {
+      status: 'UNSET',
+      phase: 'items',
+      errorCode: LEDGER_RECONCILE_ITEMS_NOW_ONLY,
+      assets: equalAssets(ledgerTotals, expected, row.tolerance, false),
+      outsideSide: 'snapshot',
+      sources: nextSources,
+    };
+  }
+  let named: ReconciliationReconcilingItem[] | null = null;
+  let itemsFault: string | null = null;
+  if (itemsRail !== undefined) {
+    const after = await readItems(sources, itemsRail);
+    if (before?.kind !== 'items' || after.kind !== 'items') itemsFault = LEDGER_RECONCILE_SOURCE_UNAVAILABLE;
+    else {
+      // An item svc-pay saw after the statement's as-of is not in that statement, nor in the ledger (it posted nothing
+      // or posted after): it is left out of both reads, not netted.
+      const statementAt = read.asOf ? Date.parse(read.asOf) : readAt.getTime();
+      const was = heldBy(before, statementAt);
+      const now = heldBy(after, statementAt);
+      if (itemsKey(was) !== itemsKey(now)) itemsFault = LEDGER_RECONCILE_ITEMS_MOVED;
+      else named = now.filter((item) => onlyAsset === undefined || item.assetId === onlyAsset);
+    }
+  }
+  // With the items read, a rail asset the ledger holds no account for is a ledger side of 0 (a held first deposit posts
+  // nothing), so it is judged, not left UNSET where it could hide another asset's FAIL.
+  const compared = equalAssets(ledgerTotals, expected, row.tolerance, !outsideTemplate, named !== null);
+  if (itemsFault !== null) {
+    return {
+      status: 'ERROR',
+      phase: 'items',
+      errorCode: itemsFault,
+      assets: compared,
+      outsideSide: 'snapshot',
+      sources: nextSources,
+    };
+  }
+  const assets = named === null ? compared : withItems(compared, named, row.tolerance);
   const unsetSource = outsideTemplate && assets.some((asset) => asset.expected === 'unset');
-  const status = foldAssets(assets, unsetSource);
+  const status = named === null ? foldAssets(assets, unsetSource) : foldResiduals(assets, unsetSource);
   return {
     status: status === 'PASS' || status === 'FAIL' || status === 'ERROR' || status === 'UNSET' ? status : 'ERROR',
     phase: status === 'FAIL' ? side : status === 'ERROR' ? 'tolerance' : '',
@@ -976,7 +1072,47 @@ async function judge(
     assets,
     outsideSide: outsideTemplate ? 'snapshot' : 'not_applicable',
     sources: nextSources,
+    ...(named === null ? {} : { reconcilingItems: named }),
   };
+}
+
+/**
+ * Take the named open items out of each asset's difference (lead ruling 2026-10-30): `reconcilingItems` is their signed sum
+ * and `residual` what is left. An asset only the items name gets a row of its own, so an item can never go unaccounted.
+ */
+function withItems(
+  assets: AssetEvidence[],
+  items: readonly ReconciliationReconcilingItem[],
+  tolerance: ToleranceStored | null,
+): AssetEvidence[] {
+  const sums = new Map<string, Amount>();
+  for (const item of items) sums.set(item.assetId, (sums.get(item.assetId) ?? 0n) + parseAmount(item.amount));
+  const rows = [...assets];
+  for (const assetId of sums.keys()) {
+    if (rows.some((asset) => asset.assetId === assetId)) continue;
+    const tol = toleranceFor(tolerance, assetId);
+    rows.push(assetRow(assetId, 0n, 'unset', tol, 'unset'));
+  }
+  return rows
+    .sort((a, b) => (a.assetId < b.assetId ? -1 : 1))
+    .map((asset) => {
+      const sum = sums.get(asset.assetId) ?? 0n;
+      return {
+        ...asset,
+        reconcilingItems: formatAmount(sum),
+        ...(asset.difference === 'unset' ? {} : { residual: formatAmount(parseAmount(asset.difference) - sum) }),
+      };
+    });
+}
+
+/** With named items no tolerance applies: a residual of even one unit FAILs, ahead of UNSET and of an unset tolerance, which is otherwise a policy ERROR. */
+function foldResiduals(assets: AssetEvidence[], unsetSource: boolean): 'PASS' | 'FAIL' | 'ERROR' | 'UNSET' {
+  // A residual already known FAILs the run, even when another asset is unset or has no tolerance (the tolerance plays no
+  // part here): an unset asset never hides a break.
+  if (assets.some((asset) => asset.residual !== undefined && parseAmount(asset.residual) !== 0n)) return 'FAIL';
+  if (assets.some((asset) => asset.tolerance === 'unset')) return 'ERROR';
+  if (unsetSource || assets.some((asset) => asset.expected === 'unset' || asset.residual === undefined)) return 'UNSET';
+  return 'PASS';
 }
 
 interface RunRow {
@@ -989,7 +1125,7 @@ interface RunRow {
   read_at: Date;
   margin: string;
   sources: ReconciliationControlRunView['sources'];
-  evidence: { accounts?: string[]; assets?: AssetEvidence[] };
+  evidence: { accounts?: string[]; assets?: AssetEvidence[]; reconcilingItems?: ReconciliationReconcilingItem[] };
   outside_side: ReconciliationControlRunView['outsideSide'];
   period_start: Date;
   period_end: Date;
@@ -1013,6 +1149,7 @@ function toRun(row: RunRow): ReconciliationControlRunView {
     periodEnd: row.period_end.toISOString(),
     accounts: row.evidence.accounts ?? [],
     assets: row.evidence.assets ?? [],
+    ...(row.evidence.reconcilingItems ? { reconcilingItems: row.evidence.reconcilingItems } : {}),
   });
 }
 
@@ -1039,7 +1176,13 @@ async function finishRun(sql: Db, runId: string, verdict: Verdict, accountIds: s
            phase = ${verdict.phase},
            error_code = ${verdict.errorCode},
            sources = ${sql.json(verdict.sources)},
-           evidence = ${sql.json(asJson({ accounts: accountIds, assets: verdict.assets }))},
+           evidence = ${sql.json(
+             asJson({
+               accounts: accountIds,
+               assets: verdict.assets,
+               ...(verdict.reconcilingItems ? { reconcilingItems: verdict.reconcilingItems } : {}),
+             }),
+           )},
            outside_side = ${verdict.outsideSide},
            finished_at = clock_timestamp()
      WHERE id = ${runId} AND status = 'started'
@@ -1353,7 +1496,11 @@ async function runScheduledPeriod(
     );
     return;
   }
-  const readAt = readInstant(due, margin);
+  // A rail that takes out open items is read at this tick's instant, not due minus the margin: svc-pay lists items as they
+  // are now only, so a past read could not take them out (it would stay UNSET). The run still belongs to its period.
+  const parsedSet = reconciliationAccountSetSchema.safeParse(row.account_set);
+  const itemsRail = parsedSet.success ? itemsRailOf(row, parsedSet.data, sources) : undefined;
+  const readAt = itemsRail !== undefined ? at : readInstant(due, margin);
   const fp = fingerprint({
     controlId: row.id,
     asOf: due.toISOString(),
@@ -1373,7 +1520,7 @@ async function runScheduledPeriod(
     margin,
     bounds,
   );
-  await resumeRun(sql, row, opened, sources, true);
+  await resumeRun(sql, row, opened, sources, itemsRail === undefined);
 }
 
 async function resumeScheduled(sql: Sql, row: ControlRow, existing: RunRow, sources: ReconciliationSources): Promise<void> {
