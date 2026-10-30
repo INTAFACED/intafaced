@@ -45,6 +45,36 @@ function readColors(scheme: ColourScheme) {
   };
 }
 
+/**
+ * What the drawing library itself holds, written on the chart's element: the series type it draws, the bars it was
+ * given (count, first and last time in epoch seconds), the colours and price format it draws with, and the background.
+ * Read back from the library, not from props, so a check on them is a check on the drawing.
+ */
+function writeDrawn(element: HTMLElement | null, chart: ChartApi | null, series: ChartSeries | null) {
+  if (!element || !chart || !series) return;
+  const options = series.options() as {
+    upColor?: string;
+    downColor?: string;
+    color?: string;
+    priceFormat?: { minMove?: number; formatter?: (price: number) => string };
+  };
+  const data = series.data() as ReadonlyArray<{ time: number }>;
+  const layout = (chart.options() as { layout?: { background?: { color?: string } } }).layout;
+  const values: Record<string, string> = {
+    'data-drawn': series.seriesType(),
+    'data-drawn-bars': String(data.length),
+    'data-drawn-first': data.length > 0 ? String(data[0]!.time) : '',
+    'data-drawn-last': data.length > 0 ? String(data[data.length - 1]!.time) : '',
+    'data-drawn-up': options.upColor ?? options.color ?? '',
+    'data-drawn-down': options.downColor ?? options.color ?? '',
+    'data-drawn-bg': layout?.background?.color ?? '',
+    // The axis writes every price through this formatter: zero shows its decimals ("0.00" for a 0.01 tick).
+    'data-drawn-format': options.priceFormat?.formatter ? options.priceFormat.formatter(0) : '',
+    'data-drawn-min-move': options.priceFormat?.minMove === undefined ? '' : String(options.priceFormat.minMove),
+  };
+  for (const [name, value] of Object.entries(values)) element.setAttribute(name, value);
+}
+
 export interface WorkbenchChartProps {
   candles: readonly Candle[];
   style: ChartStyle;
@@ -188,6 +218,7 @@ export function WorkbenchChart({
     const series = api.addSeries(lib[SERIES_KIND[style]], { ...seriesOptions(style, colors), priceFormat: format }, 0);
     main.current = series;
     setHost({ lib, chart: api, main: series, element: element.current, tickSize, symbol });
+    writeDrawn(element.current, api, series);
     // `upColor` ("red for up") changes the token values, so the series is drawn again with them.
   }, [mounted, style, scheme, tickSize, symbol, upColor, percent]);
 
@@ -259,6 +290,7 @@ export function WorkbenchChart({
     // What the library holds for the first bar, read back from the series itself.
     const at = series.dataByIndex(0) as Partial<Record<'close' | 'value', number>> | null;
     const first = at ? (at.close ?? at.value) : undefined;
+    writeDrawn(element.current, api, series);
     setRebase({
       base: percent && base !== null ? String(base) : '',
       first: percent && typeof first === 'number' ? first.toFixed(2) : '',
