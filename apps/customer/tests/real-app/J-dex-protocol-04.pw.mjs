@@ -56,9 +56,9 @@ test(`${J} #1 opens Send and types a new address: a summary; confirming needs th
   const summary = page.getByRole('dialog', { name: 'Review the send' });
   await expect(summary).toContainText(FRIEND);
   // The summary names who sends, how much of which token, and on which network.
-  await expect(summary).toContainText(`From${wallet.address}`);
-  await expect(summary).toContainText('Amount1 TEST Token A');
-  await expect(summary).toContainText('NetworkBase Sepolia');
+  await expect(summary).toContainText(new RegExp(`From\\s*${wallet.address}`, 'i'));
+  await expect(summary).toContainText(/Amount\s*1 TEST Token A/);
+  await expect(summary).toContainText(/Network\s*Base Sepolia/);
   const confirm = summary.getByRole('button', { name: 'Send' });
   await expect(confirm).toBeDisabled();
   await summary.getByRole('textbox', { name: /^Last four characters/ }).fill(FRIEND.slice(-4));
@@ -75,6 +75,8 @@ test(`${J} #1 opens Send and types a new address: a summary; confirming needs th
   await expect(confirm).toBeDisabled();
   await tick.check();
   await expect(confirm).toBeEnabled();
+  await tick.uncheck();
+  await expect(confirm).toBeDisabled();
   await summary.getByRole('button', { name: 'Back' }).click();
 
   await send(page).getByRole('textbox', { name: /^To/ }).fill(wallet.address);
